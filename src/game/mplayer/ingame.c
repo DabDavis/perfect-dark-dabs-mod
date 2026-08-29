@@ -647,7 +647,8 @@ char *mpMenuTextPlacementWithSuffix(struct menuitem *item)
 		}
 	}
 
-	sprintf(g_StringPointer, "%d%s", n, suffix);
+	// Trailing newline required by textMeasure(); see mpMenuTextSimulantSlotLabel.
+	sprintf(g_StringPointer, "%d%s\n", n, suffix);
 
 	return g_StringPointer;
 }

@@ -4136,7 +4136,9 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 
 	g_MpSetup.chrslots &= 0x000f;
 
-	for (i = 0; i < MAX_BOTS; i++) {
+	// The savefile format stores exactly MAX_BOTS_CONFIG simulants. Reading
+	// MAX_BOTS of them would consume far more of the buffer than was written.
+	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
 		g_BotConfigsArray[i].base.name[0] = '\0';
 		g_BotConfigsArray[i].type = savebufferReadBits(buffer, 5);
 		g_BotConfigsArray[i].difficulty = savebufferReadBits(buffer, 3);
@@ -4153,6 +4155,18 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		g_BotConfigsArray[i].base.mpbodynum = savebufferReadBits(buffer, 7);
 		g_BotConfigsArray[i].base.team = savebufferReadBits(buffer, 3);
 	}
+
+	// Simulants above MAX_BOTS_CONFIG are session-only and are not persisted,
+	// so make sure a loaded setup does not inherit stale ones.
+	for (i = MAX_BOTS_CONFIG; i < MAX_BOTS; i++) {
+		g_BotConfigsArray[i].difficulty = BOTDIFF_DISABLED;
+
+		for (j = 0; j < MAX_PLAYERS; j++) {
+			g_MpSimulantDifficultiesPerNumPlayers[i][j] = BOTDIFF_DISABLED;
+		}
+	}
+
+	mpKeepFirstSimSlots(MAX_BOTS_CONFIG);
 
 	if (version > 0) {
 		mpGenerateBotNames();
@@ -4188,7 +4202,9 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 
 	savebufferWriteString_ext(buffer, g_MpSetup.name, MPSETUP_MAXNAME + 1);
 
-	for (i = 0; i < MAX_BOTS; i++) {
+	// Only MAX_BOTS_CONFIG simulants are persisted, and numsims is written as
+	// a 4-bit field, so it must not be allowed to exceed 15.
+	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
 		if (mpIsSimSlotOn(i)) {
 			numsims++;
 		}
@@ -4202,7 +4218,9 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 
 	savebufferOr(buffer, g_MpSetup.options, 32);
 
-	for (i = 0; i < MAX_BOTS; i++) {
+	// 25 bits are written per simulant. Writing MAX_BOTS of them would overrun
+	// the fixed-size save buffer; the format holds MAX_BOTS_CONFIG.
+	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
 		savebufferOr(buffer, g_BotConfigsArray[i].type, 5);
 
 		if (mpIsSimSlotOn(i)) {

@@ -533,7 +533,10 @@ void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 
 	s32 numplayers;
 	s32 i;
 
-	for (i = 0; i < MAX_BOTS; i++) {
+	// config->simulants[] is ROM/save-resident and only has MAX_BOTS_CONFIG
+	// entries. Iterating to MAX_BOTS reads far past the end of the struct,
+	// which callers place in a small stack buffer.
+	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
 		s32 simtype = mpFindBotProfile(config->simulants[i].type, BOTDIFF_NORMAL);
 
 		if (simtype >= 0) {

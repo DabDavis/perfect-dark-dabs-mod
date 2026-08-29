@@ -3257,7 +3257,9 @@ char *mpMenuTextSimulantSlotLabel(struct menuitem *item)
 	}
 
 	if (labels[index][0] == '\0') {
-		snprintf(labels[index], sizeof(labels[index]), "%d:", index + 1);
+		// The trailing newline is required: textMeasure() only adds a line
+		// of height when it sees one, so a label without it renders clipped.
+		snprintf(labels[index], sizeof(labels[index]), "%d:\n", index + 1);
 	}
 
 	return labels[index];
