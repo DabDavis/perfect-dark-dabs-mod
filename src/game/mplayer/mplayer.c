@@ -142,6 +142,7 @@ void mpClearSimSlots(void)
 {
 	s32 i;
 
+
 	for (i = 0; i < MAX_BOTS; i++) {
 		g_MpSimSlots[i] = 0;
 	}
@@ -155,6 +156,7 @@ void mpClearSimSlots(void)
 void mpKeepFirstSimSlots(s32 count)
 {
 	s32 i;
+
 
 	for (i = count; i < MAX_BOTS; i++) {
 		g_MpSimSlots[i] = 0;
@@ -3375,6 +3377,7 @@ s32 mpGetSlotForNewBot(void)
 
 void mpRemoveSimulant(s32 index)
 {
+
 	mpSetSimSlotOn(index, false);
 	g_BotConfigsArray[index].base.name[0] = '\0';
 	func0f1881d4(index);
@@ -4107,6 +4110,7 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 {
 	s32 i;
 	s32 j;
+	s32 numbots;
 
 	if (version > 0) {
 		savebufferReadString_ext(buffer, g_MpSetup.name, false, MPSETUP_MAXNAME + 1);
@@ -4136,9 +4140,12 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 
 	g_MpSetup.chrslots &= 0x000f;
 
-	// The savefile format stores exactly MAX_BOTS_CONFIG simulants. Reading
-	// MAX_BOTS of them would consume far more of the buffer than was written.
-	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
+	// Format version 1 and the pak import path (version 0) store
+	// MAX_BOTS_CONFIG simulants; version 2 onwards stores MAX_BOTS. Reading
+	// more than the file holds would consume the wrong part of the buffer.
+	numbots = version >= MPSETUP_VERSION_EXTENDEDSIMS ? MAX_BOTS : MAX_BOTS_CONFIG;
+
+	for (i = 0; i < numbots; i++) {
 		g_BotConfigsArray[i].base.name[0] = '\0';
 		g_BotConfigsArray[i].type = savebufferReadBits(buffer, 5);
 		g_BotConfigsArray[i].difficulty = savebufferReadBits(buffer, 3);
@@ -4156,9 +4163,8 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		g_BotConfigsArray[i].base.team = savebufferReadBits(buffer, 3);
 	}
 
-	// Simulants above MAX_BOTS_CONFIG are session-only and are not persisted,
-	// so make sure a loaded setup does not inherit stale ones.
-	for (i = MAX_BOTS_CONFIG; i < MAX_BOTS; i++) {
+	// Any slot the file did not describe must not keep a stale value.
+	for (i = numbots; i < MAX_BOTS; i++) {
 		g_BotConfigsArray[i].difficulty = BOTDIFF_DISABLED;
 
 		for (j = 0; j < MAX_PLAYERS; j++) {
@@ -4166,7 +4172,7 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		}
 	}
 
-	mpKeepFirstSimSlots(MAX_BOTS_CONFIG);
+	mpKeepFirstSimSlots(numbots);
 
 	if (version > 0) {
 		mpGenerateBotNames();
@@ -4202,12 +4208,16 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 
 	savebufferWriteString_ext(buffer, g_MpSetup.name, MPSETUP_MAXNAME + 1);
 
-	// Only MAX_BOTS_CONFIG simulants are persisted, and numsims is written as
-	// a 4-bit field, so it must not be allowed to exceed 15.
-	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
+	for (i = 0; i < MAX_BOTS; i++) {
 		if (mpIsSimSlotOn(i)) {
 			numsims++;
 		}
+	}
+
+	// numsims is a 4-bit field and is read back only to skip over it, so clamp
+	// rather than widen it and disturb the layout of everything that follows.
+	if (numsims > 15) {
+		numsims = 15;
 	}
 
 	savebufferOr(buffer, numsims, 4);
@@ -4218,9 +4228,8 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 
 	savebufferOr(buffer, g_MpSetup.options, 32);
 
-	// 25 bits are written per simulant. Writing MAX_BOTS of them would overrun
-	// the fixed-size save buffer; the format holds MAX_BOTS_CONFIG.
-	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
+	// 25 bits per simulant. MPSETUP_BLOCKSIZE is sized to hold MAX_BOTS of them.
+	for (i = 0; i < MAX_BOTS; i++) {
 		savebufferOr(buffer, g_BotConfigsArray[i].type, 5);
 
 		if (mpIsSimSlotOn(i)) {

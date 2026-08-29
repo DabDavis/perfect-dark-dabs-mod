@@ -4767,7 +4767,18 @@ enum weaponnum {
 
 #define MPSETUP_MAXSETUPS 128
 #define MPSETUP_MAXNAME 17
-#define MPSETUP_BLOCKSIZE 80
+// Setup block size for file format version 1, which stored MAX_BOTS_CONFIG
+// simulants. Old files are still read at this size.
+#define MPSETUP_BLOCKSIZE_V1 80
+
+// Version 2 onwards stores MAX_BOTS simulants. Each costs 25 bits (type 5,
+// difficulty 3, head 7, body 7, team 3); the rest covers the name, limits,
+// weapons and player teams. savebufferOr() does not bounds check, so this must
+// stay comfortably larger than what mpsetupfileSaveWad() writes.
+#define MPSETUP_BLOCKSIZE (96 + (MAX_BOTS * 25 + 7) / 8)
+
+// File format version that first stored more than MAX_BOTS_CONFIG simulants.
+#define MPSETUP_VERSION_EXTENDEDSIMS 2
 
 #endif
 

@@ -4128,7 +4128,9 @@ struct bossfile {
 
 struct savebuffer {
 	u32 bitpos;
-	u8 bytes[220];
+	// Must be able to hold an entire MP setup block; savebufferOr() writes
+	// without bounds checking.
+	u8 bytes[MPSETUP_BLOCKSIZE > 220 ? MPSETUP_BLOCKSIZE : 220];
 };
 
 struct mparena {

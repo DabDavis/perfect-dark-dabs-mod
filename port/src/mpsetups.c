@@ -18,12 +18,15 @@ MP Setup File Format
 	[defaultsetup{1}]
 	[numsetups{1}]
 	# setups
-	[setup_1{80}]
+	# block size is MPSETUP_BLOCKSIZE_V1 for version 1, MPSETUP_BLOCKSIZE for
+	# version 2 onwards (version 2 stores MAX_BOTS simulants instead of
+	# MAX_BOTS_CONFIG)
+	[setup_1{blocksize}]
 	...
-	[setup_n{80}]
+	[setup_n{blocksize}]
  */
 
-#define MPSETUP_VERSION 1
+#define MPSETUP_VERSION MPSETUP_VERSION_EXTENDEDSIMS
 
 #define MPSETUP_EXPORTDIR "$S/exported/"
 #define MPSETUP_FILENAME "mpsetups"
@@ -362,8 +365,15 @@ static s32 mpsetupDeserialize(FILE *f, struct mpsetupfile *setupfile)
 	rx += fread(&setupfile->defaultsetup, sizeof(setupfile->defaultsetup), 1, f);
 	rx += fread(&setupfile->numsetups, sizeof(setupfile->numsetups), 1, f);
 
+	// Version 1 files store smaller blocks. Read them at their own size and
+	// leave the remainder zeroed; mpsetupfileLoadWad() is told the version and
+	// only reads as many simulants as that version wrote.
+	const size_t blocksize = setupfile->version >= MPSETUP_VERSION_EXTENDEDSIMS
+		? MPSETUP_BLOCKSIZE : MPSETUP_BLOCKSIZE_V1;
+
 	for (int i = 0; i < setupfile->numsetups; ++i) {
-		rx += fread(setupfile->setups[i].bytes, sizeof(setupfile->setups[i].bytes), 1, f);
+		memset(setupfile->setups[i].bytes, 0, MPSETUP_BLOCKSIZE);
+		rx += fread(setupfile->setups[i].bytes, blocksize, 1, f);
 	}
 
 	return rx;
@@ -441,6 +451,39 @@ static s32 mpsetupSaveFile(u8 op, struct mpsetupfile *setupfile)
 	return 0;
 }
 
+/**
+ * Re-encode setup blocks written by an older format version.
+ *
+ * Blocks are opaque byte arrays and the version applies to the whole file, so
+ * simply stamping the new version onto old blocks would make them be read as
+ * the new layout. Decode each one with its own version and write it back out
+ * in the current one.
+ */
+static void mpsetupMigrateBlocks(struct mpsetupfile *setupfile)
+{
+	if (setupfile->version >= MPSETUP_VERSION_EXTENDEDSIMS) {
+		return;
+	}
+
+	for (int i = 0; i < setupfile->numsetups; ++i) {
+		struct savebuffer in;
+		struct savebuffer out;
+
+		savebufferClear(&in);
+		memcpy(in.bytes, setupfile->setups[i].bytes, MPSETUP_BLOCKSIZE_V1);
+		mpsetupfileLoadWad(&in, setupfile->version);
+
+		savebufferClear(&out);
+		mpsetupfileSaveWad(&out);
+		memcpy(setupfile->setups[i].bytes, out.bytes, MPSETUP_BLOCKSIZE);
+	}
+
+	setupfile->version = MPSETUP_VERSION;
+
+	// decoding the blocks above overwrote the live MP settings
+	mpInit(false);
+}
+
 static s32 mpsetupLoadFile(struct mpsetupfile *setupfile, u8 op)
 {
 	FILE *f = mpsetupOpenFile(false, op);
@@ -449,6 +492,8 @@ static s32 mpsetupLoadFile(struct mpsetupfile *setupfile, u8 op)
 	}
 
 	mpsetupDeserialize(f, setupfile);
+
+	mpsetupMigrateBlocks(setupfile);
 
 	if (op == MPSETUP_OP_DEFAULT && setupfile->defaultsetup > 0) {
 		mpsetupLoadSetup(setupfile->defaultsetup - 1);
@@ -500,7 +545,8 @@ static s32 mpsetupImportFile(u8 op, u8 skipOverlap)
 
 static s32 mpsetupExportFile(void)
 {
-	struct mpsetupfile expMpSetupFile;
+	// static: MPSETUP_MAXSETUPS blocks is far too large for the stack
+	static struct mpsetupfile expMpSetupFile;
 	expMpSetupFile.numsetups = 0;
 	expMpSetupFile.defaultsetup = 0;
 	expMpSetupFile.version = MPSETUP_VERSION;

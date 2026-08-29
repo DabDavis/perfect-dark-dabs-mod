@@ -5684,6 +5684,17 @@ MenuDialogHandlerResult menudialogMpGameSetup(s32 operation, struct menudialogde
 	if (operation == MENUOP_OPEN) {
 		g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP;
 		g_Vars.usingadvsetup = true;
+
+		// Quick Start only holds a simulant *count*; the slots themselves are
+		// not created until mpStartMatch(). Advanced Setup lists slots, and
+		// saving a setup serialises slots, so materialise the roster here.
+		// Clearing mpquickteam afterwards hands control to Advanced Setup and
+		// stops mpConfigureQuickTeamSimulants() creating a second copy at
+		// match start, or mpConfigureQuickTeamPlayers() wiping this one.
+		if (g_Vars.mpquickteam != MPQUICKTEAM_NONE) {
+			mpConfigureQuickTeamSimulants();
+			g_Vars.mpquickteam = MPQUICKTEAM_NONE;
+		}
 	}
 
 	return false;
