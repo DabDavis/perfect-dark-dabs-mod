@@ -47,6 +47,101 @@ u32 var800acc1c;
 struct mplockinfo g_MpLockInfo;
 struct modeldef *var800acc28[18];
 
+/**
+ * Runtime simulant participation mask; bit i corresponds to simulant slot i,
+ * for i in [0, MAX_BOTS).
+ *
+ * g_MpSetup.chrslots only has 8 simulant bits (0x0ff0) and lives inside
+ * struct mpsetup, whose layout is pinned to ROM records, so it cannot be
+ * widened. This mask is the authoritative source for simulant participation;
+ * the low MAX_BOTS_CONFIG bits are mirrored back into chrslots so that the
+ * ROM-resident config, challenge and save paths keep working unchanged.
+ */
+u64 g_MpSimSlots = 0;
+
+#ifndef PLATFORM_N64
+// struct mpconfig and struct mpstrings are cast directly over raw ROM bytes by
+// preprocessMpConfigs(), which strides by sizeof(struct mpconfig). Their layout
+// is therefore fixed. Raising MAX_BOTS must never grow them - that is what
+// MAX_BOTS_CONFIG is for.
+_Static_assert(sizeof(struct mpconfig) == 116, "struct mpconfig is ROM-resident; its layout must not change");
+_Static_assert(sizeof(struct mpstrings) == 320, "struct mpstrings is ROM-resident; its layout must not change");
+#endif
+
+/**
+ * Mirror the low MAX_BOTS_CONFIG simulant bits of g_MpSimSlots into
+ * g_MpSetup.chrslots. Call after any change to g_MpSimSlots.
+ */
+void mpSyncChrSlots(void)
+{
+	const u16 mask = (u16)(((1 << MAX_BOTS_CONFIG) - 1) << MAX_PLAYERS);
+
+	g_MpSetup.chrslots &= ~mask;
+	g_MpSetup.chrslots |= (u16)((g_MpSimSlots << MAX_PLAYERS) & mask);
+}
+
+/**
+ * Rebuild g_MpSimSlots from g_MpSetup.chrslots, discarding any simulants above
+ * MAX_BOTS_CONFIG. Call after chrslots has been bulk-written from a ROM config,
+ * a savefile or the challenge code.
+ */
+void mpLoadSimSlots(void)
+{
+	g_MpSimSlots = (g_MpSetup.chrslots >> MAX_PLAYERS) & ((1 << MAX_BOTS_CONFIG) - 1);
+}
+
+bool mpIsSimSlotOn(s32 slot)
+{
+	if (slot < 0 || slot >= MAX_BOTS) {
+		return false;
+	}
+
+	return (g_MpSimSlots >> slot) & 1;
+}
+
+void mpSetSimSlotOn(s32 slot, bool on)
+{
+	if (slot < 0 || slot >= MAX_BOTS) {
+		return;
+	}
+
+	if (on) {
+		g_MpSimSlots |= 1ULL << slot;
+	} else {
+		g_MpSimSlots &= ~(1ULL << slot);
+	}
+
+	mpSyncChrSlots();
+}
+
+s32 mpGetNumSimSlotsOn(void)
+{
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; i < MAX_BOTS; i++) {
+		if (mpIsSimSlotOn(i)) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/**
+ * Participation test across the combined chrslot space: slots [0, MAX_PLAYERS)
+ * are human players and come from chrslots, slots above that are simulants and
+ * come from g_MpSimSlots.
+ */
+bool mpIsChrSlotOn(s32 slot)
+{
+	if (slot < MAX_PLAYERS) {
+		return (g_MpSetup.chrslots & (1 << slot)) != 0;
+	}
+
+	return mpIsSimSlotOn(slot - MAX_PLAYERS);
+}
+
 // Forward declaractions
 struct mpweaponset g_MpWeaponSets[12];
 s32 g_MpWeaponSetNum;
@@ -599,6 +694,18 @@ void mpInit(bool resetplayers)
 	}
 
 	g_MpSetup.chrslots = 0;
+	g_MpSimSlots = 0;
+
+	// Extended simulant slots have no ROM config. BOTDIFF_DISABLED is 6, not 0,
+	// so leaving these zeroed would make them read as BOTDIFF_MEAT and enable
+	// every extended simulant on boot.
+	for (i = MAX_BOTS_CONFIG; i < MAX_BOTS; i++) {
+		g_BotConfigsArray[i].difficulty = BOTDIFF_DISABLED;
+
+		for (j = 0; j < MAX_PLAYERS; j++) {
+			g_MpSimulantDifficultiesPerNumPlayers[i][j] = BOTDIFF_DISABLED;
+		}
+	}
 
 	for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
 		g_Menus[i].mpsetupext.showpresets = 1;
@@ -751,7 +858,7 @@ s32 mpGetPlayerRankings(struct ranking *rankings)
 
 	// Populate 4 arrays with player info, sorted by highest score descending
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsChrSlotOn(i)) {
 			mpchr = MPCHR(i);
 
 			scenarioCalculatePlayerScore(mpchr, i, &score, &deaths);
@@ -870,7 +977,7 @@ s32 mpCalculateTeamScore(s32 teamnum, s32 *result)
 	s32 deaths;
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsChrSlotOn(i)) {
 			mpchr = MPCHR(i);
 
 			if (mpchr->team == teamnum) {
@@ -2196,7 +2303,7 @@ void mpCalculateAwards(void)
 
 					for (j = 0; j < MAX_MPCHRS; j++) {
 #if VERSION >= VERSION_NTSC_1_0
-						if (g_MpSetup.chrslots & (1 << j))
+						if (mpIsChrSlotOn(j))
 #endif
 						{
 							struct mpchrconfig *othermpchr = MPCHR(j);
@@ -2225,7 +2332,7 @@ void mpCalculateAwards(void)
 
 					for (j = 0; j < MAX_MPCHRS; j++) {
 #if VERSION >= VERSION_NTSC_1_0
-						if (g_MpSetup.chrslots & (1 << j))
+						if (mpIsChrSlotOn(j))
 #endif
 						{
 							struct mpchrconfig *othermpchr = MPCHR(j);
@@ -2412,7 +2519,7 @@ void mpCalculateAwards(void)
 		s32 k;
 
 		for (k = 0; k < MAX_MPCHRS; k++) {
-			if (g_MpSetup.chrslots & (1 << k)) {
+			if (mpIsChrSlotOn(k)) {
 				s32 totalkills = 0;
 				struct mpchrconfig *mpchr = MPCHR(k);
 
@@ -2683,7 +2790,7 @@ void mpFindUnusedHeadAndBody(u8 *mpheadnum, u8 *mpbodynum)
 		trympbodynum = rngRandom() % ARRAYCOUNT(g_MpBodies);
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (mpIsChrSlotOn(i)) {
 				mpchr = MPCHR(i);
 
 				if (mpchr->mpheadnum == trympheadnum) {
@@ -3062,7 +3169,7 @@ struct mpchrconfig *mpGetChrConfigBySlotNum(s32 slot)
 	s32 i;
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsChrSlotOn(i)) {
 			if (count == slot) {
 				result = MPCHR(i);
 				break;
@@ -3083,7 +3190,7 @@ s32 mpGetChrIndexBySlotNum(s32 slot)
 	s32 i;
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsChrSlotOn(i)) {
 			if (count == slot) {
 				result = i;
 				break;
@@ -3103,7 +3210,7 @@ s32 mpGetNumChrs(void)
 	s32 i;
 
 	for (i = 0; i != MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsChrSlotOn(i)) {
 			count++;
 		}
 	}
@@ -3121,7 +3228,7 @@ u8 mpFindUnusedTeamNum(void)
 		available = true;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (mpIsChrSlotOn(i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (mpchr->team == teamnum) {
@@ -3156,7 +3263,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		g_MpSimulantDifficultiesPerNumPlayers[botnum][i] = g_BotConfigsArray[botnum].difficulty;
 	}
 
-	g_MpSetup.chrslots |= 1 << (botnum + 4);
+	mpSetSimSlotOn(botnum, true);
 	strcpy(g_BotConfigsArray[botnum].base.name, "Sim\n");
 	g_BotConfigsArray[botnum].base.team = team;
 
@@ -3165,7 +3272,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		available = true;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (mpIsChrSlotOn(i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (mpchr->mpheadnum == headnum) {
@@ -3199,7 +3306,7 @@ s32 mpGetSlotForNewBot(void)
 {
 	s32 i = 0;
 
-	while (i < MAX_BOTS - 1 && g_MpSetup.chrslots & (1 << (i + 4))) {
+	while (i < MAX_BOTS - 1 && mpIsSimSlotOn(i)) {
 		i++;
 	}
 
@@ -3208,7 +3315,7 @@ s32 mpGetSlotForNewBot(void)
 
 void mpRemoveSimulant(s32 index)
 {
-	g_MpSetup.chrslots &= ~(1 << (index + 4));
+	mpSetSimSlotOn(index, false);
 	g_BotConfigsArray[index].base.name[0] = '\0';
 	func0f1881d4(index);
 	mpGenerateBotNames();
@@ -3219,7 +3326,7 @@ void mpCopySimulant(s32 index)
 {
 	s32 dest = mpGetSlotForNewBot();
 
-	g_MpSetup.chrslots |= 1 << (dest + 4);
+	mpSetSimSlotOn(dest, true);
 	g_BotConfigsArray[dest].base.name[0] = g_BotConfigsArray[index].base.name[0];
 	g_BotConfigsArray[dest].base.mpheadnum = g_BotConfigsArray[index].base.mpheadnum;
 	g_BotConfigsArray[dest].base.mpbodynum = g_BotConfigsArray[index].base.mpbodynum;
@@ -3231,7 +3338,7 @@ void mpCopySimulant(s32 index)
 
 bool mpHasSimulants(void)
 {
-	if ((g_MpSetup.chrslots & 0xfff0) != 0) {
+	if (g_MpSimSlots != 0) {
 		return true;
 	}
 
@@ -3241,13 +3348,8 @@ bool mpHasSimulants(void)
 bool mpHasUnusedBotSlots(void)
 {
 	s32 numvacant = challengeIsFeatureUnlocked(MPFEATURE_8BOTS) ? MAX_BOTS : 4;
-	s32 i;
 
-	for (i = 4; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
-			numvacant--;
-		}
-	}
+	numvacant -= mpGetNumSimSlotsOn();
 
 	if (numvacant > 0) {
 		return true;
@@ -3258,21 +3360,8 @@ bool mpHasUnusedBotSlots(void)
 
 bool mpIsSimSlotEnabled(s32 slot)
 {
-	s32 numfree = MAX_BOTS;
-	s32 i;
-
-	if ((g_MpSetup.chrslots & (1 << (slot + 4))) == 0) {
-		for (i = 0; i < MAX_BOTS; i++) {
-			if (g_MpSetup.chrslots & (1 << (i + 4))) {
-				numfree--;
-			}
-		}
-
-		if (numfree > 0) {
-			return true;
-		}
-
-		return false;
+	if (!mpIsSimSlotOn(slot)) {
+		return MAX_BOTS - mpGetNumSimSlotsOn() > 0;
 	}
 
 	return true;
@@ -3316,7 +3405,7 @@ void mpGenerateBotNames(void)
 
 	// Count the number of bots using each profile (MeatSim, TurtleSim etc)
 	for (i = 4; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsChrSlotOn(i)) {
 			profilenum = mpFindBotProfile(g_BotConfigsArray[i - 4].type, g_BotConfigsArray[i - 4].difficulty);
 
 			if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
@@ -3337,7 +3426,7 @@ void mpGenerateBotNames(void)
 	}
 
 	for (i = 4; i < MAX_MPCHRS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsChrSlotOn(i)) {
 			profilenum = mpFindBotProfile(g_BotConfigsArray[i - 4].type, g_BotConfigsArray[i - 4].difficulty);
 
 			if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
@@ -3848,7 +3937,9 @@ void mpApplyConfig(struct mpconfigfull *config)
 	g_MpSetup.chrslots = chrslots;
 #endif
 
-	for (i = 0; i < MAX_BOTS; i++) {
+	// config->config.simulants[] and config->strings.aibotnames[] are
+	// ROM-resident and only have MAX_BOTS_CONFIG entries.
+	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
 		g_BotConfigsArray[i].type = config->config.simulants[i].type;
 
 		for (j = 0; j < MAX_PLAYERS; j++) {
@@ -3872,6 +3963,23 @@ void mpApplyConfig(struct mpconfigfull *config)
 		g_BotConfigsArray[i].base.mpbodynum = config->config.simulants[i].mpbodynum;
 		g_BotConfigsArray[i].base.team = config->config.simulants[i].team;
 	}
+
+	// Extended simulant slots have no ROM config; clone the matching ROM slot
+	// and leave them disabled until the player enables them.
+	for (i = MAX_BOTS_CONFIG; i < MAX_BOTS; i++) {
+		s32 src = i % MAX_BOTS_CONFIG;
+
+		g_BotConfigsArray[i] = g_BotConfigsArray[src];
+
+		for (j = 0; j < MAX_PLAYERS; j++) {
+			g_MpSimulantDifficultiesPerNumPlayers[i][j] = BOTDIFF_DISABLED;
+		}
+
+		snprintf(g_BotConfigsArray[i].base.name, sizeof(g_BotConfigsArray[i].base.name), "Sim %d", i + 1);
+	}
+
+	// chrslots was just overwritten wholesale from the ROM config.
+	mpLoadSimSlots();
 
 	if (!challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)) {
 		for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
@@ -3912,7 +4020,7 @@ void mp0f18dec4(s32 slot)
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-			g_MpSetup.chrslots |= 1 << (i + 4);
+			mpSetSimSlotOn(i, true);
 		}
 	}
 #endif
@@ -3978,7 +4086,7 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		}
 
 		if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-			g_MpSetup.chrslots |= 1 << (i + 4);
+			mpSetSimSlotOn(i, true);
 		}
 
 		g_BotConfigsArray[i].base.mpheadnum = savebufferReadBits(buffer, 7);
@@ -4021,7 +4129,7 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 	savebufferWriteString_ext(buffer, g_MpSetup.name, MPSETUP_MAXNAME + 1);
 
 	for (i = 0; i < MAX_BOTS; i++) {
-		if (g_MpSetup.chrslots & (1 << (i + 4))) {
+		if (mpIsSimSlotOn(i)) {
 			numsims++;
 		}
 	}
@@ -4037,7 +4145,7 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 	for (i = 0; i < MAX_BOTS; i++) {
 		savebufferOr(buffer, g_BotConfigsArray[i].type, 5);
 
-		if (g_MpSetup.chrslots & (1 << (i + 4))) {
+		if (mpIsSimSlotOn(i)) {
 			savebufferOr(buffer, g_BotConfigsArray[i].difficulty, 3);
 		} else {
 			savebufferOr(buffer, BOTDIFF_DISABLED, 3);

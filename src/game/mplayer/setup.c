@@ -2948,7 +2948,7 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		if (botnum < 0) {
 			botnum = mpGetSlotForNewBot();
 			creating = 1;
-		} else if ((g_MpSetup.chrslots & (1 << (botnum + 4))) == 0) {
+		} else if (!mpIsSimSlotOn(botnum)) {
 			creating = 1;
 		}
 
@@ -3206,7 +3206,7 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 	case MENUOP_SET:
 		g_Menus[g_MpPlayerNum].mpsetup.slotindex = item->param;
 
-		if ((g_MpSetup.chrslots & (1 << (item->param + 4))) == 0) {
+		if (!mpIsSimSlotOn(item->param)) {
 			menuPushDialog(&g_MpAddSimulantMenuDialog);
 		} else if (IS4MB()) {
 			menuPushDialog(&g_MpEditSimulant4MbMenuDialog);
@@ -3232,11 +3232,35 @@ char *mpMenuTextSimulantName(struct menuitem *item)
 {
 	s32 index = item->param;
 
-	if (g_BotConfigsArray[index].base.name[0] == '\0' || (g_MpSetup.chrslots & 1 << (index + 4)) == 0) {
+	if (g_BotConfigsArray[index].base.name[0] == '\0' || !mpIsSimSlotOn(index)) {
 		return "";
 	}
 
 	return g_BotConfigsArray[index].base.name;
+}
+
+/**
+ * Row label for simulant slots that have no ROM string. The ROM only has
+ * "1:" through "8:" (L_MPMENU_085..092), so slots beyond MAX_BOTS_CONFIG get
+ * their label built here.
+ *
+ * Each slot keeps its own buffer so that several rows can be laid out without
+ * aliasing one shared string.
+ */
+char *mpMenuTextSimulantSlotLabel(struct menuitem *item)
+{
+	static char labels[MAX_BOTS][8];
+	s32 index = item->param;
+
+	if (index < 0 || index >= MAX_BOTS) {
+		return "";
+	}
+
+	if (labels[index][0] == '\0') {
+		snprintf(labels[index], sizeof(labels[index]), "%d:", index + 1);
+	}
+
+	return labels[index];
 }
 
 char *func0f17d3dc(struct menuitem *item)
@@ -3244,7 +3268,7 @@ char *func0f17d3dc(struct menuitem *item)
 	s32 index = item->param;
 
 	if (g_BotConfigsArray[index].base.name[0] == '\0'
-			|| ((g_MpSetup.chrslots & 1 << (index + 4)) == 0)) {
+			|| (!mpIsSimSlotOn(index))) {
 		return "";
 	}
 
@@ -3481,6 +3505,262 @@ struct menuitem g_MpSimulantsMenuItems[] = {
 		menuhandlerMpSimulantSlot,
 	},
 	{
+		MENUITEMTYPE_SELECTABLE,
+		8,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		9,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		10,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		11,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		12,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		13,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		14,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		15,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		16,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		17,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		18,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		19,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		20,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		21,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		22,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		23,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		24,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		25,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		26,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		27,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		28,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		29,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		30,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		31,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		32,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		33,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		34,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		35,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		36,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		37,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		38,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		39,
+		0,
+		(uintptr_t)&mpMenuTextSimulantSlotLabel,
+		(uintptr_t)&mpMenuTextSimulantName,
+		menuhandlerMpSimulantSlot,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -3616,7 +3896,7 @@ MenuItemHandlerResult menuhandlerMpMaximumTeams(s32 operation, struct menuitem *
 		u8 team = 0;
 
 		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (mpIsChrSlotOn(i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = team++;
@@ -3639,7 +3919,7 @@ MenuItemHandlerResult menuhandlerMpHumansVsSimulants(s32 operation, struct menui
 		s32 i;
 
 		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (mpIsChrSlotOn(i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				mpchr->team = i < 4 ? 0 : 1;
@@ -3661,7 +3941,7 @@ MenuItemHandlerResult menuhandlerMpHumanSimulantPairs(s32 operation, struct menu
 		s32 simindex = 0;
 
 		for (i = 0; i != MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1 << i)) {
+			if (mpIsChrSlotOn(i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
 				if (i < 4) {

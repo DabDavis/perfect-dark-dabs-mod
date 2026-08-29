@@ -14,7 +14,15 @@
 #define true  1
 
 #define MAX_ARTIFACTS          120
-#define MAX_BOTS               8
+// Number of simulant slots stored in ROM-resident structs (struct mpconfig,
+// struct mpstrings). This MUST stay 8: preprocessMpConfigs() casts raw ROM
+// bytes to struct mpconfig and strides by sizeof(struct mpconfig), so growing
+// it would desync the built-in challenge/config records.
+#define MAX_BOTS_CONFIG        8
+
+// Runtime simulant cap. Only affects arrays allocated at runtime, never the
+// ROM-resident structs above.
+#define MAX_BOTS               40
 #define MAX_CHRSPERSQUADRON    16
 #define MAX_CHRSPERTEAM        32
 #define MAX_CHRWAYPOINTS       6

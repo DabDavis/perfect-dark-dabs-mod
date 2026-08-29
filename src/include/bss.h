@@ -289,6 +289,7 @@ extern u8 g_MpSimulantDifficultiesPerNumPlayers[MAX_BOTS][MAX_PLAYERS];
 extern struct mpplayerconfig g_PlayerConfigsArray[MAX_MPPLAYERCONFIGS];
 extern u8 g_AmBotCommands[9];
 extern struct mpsetup g_MpSetup;
+extern u64 g_MpSimSlots;
 extern struct bossfile g_BossFile;
 extern struct chrdata *g_MpBotChrPtrs[MAX_BOTS];
 extern s32 g_JpnMaxCacheItems;

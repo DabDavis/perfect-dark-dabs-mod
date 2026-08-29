@@ -224,7 +224,7 @@ void challengeDetermineUnlockedFeatures(void)
 	// If the ability to have 8 simulants hasn't been unlocked, limit them to 4
 	if (!challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
 		for (k = 4; k < MAX_BOTS; k++) {
-			if (g_MpSetup.chrslots & (1 << (MAX_PLAYERS + k))) {
+			if (mpIsSimSlotOn(k)) {
 				mpRemoveSimulant(k);
 			}
 		}
@@ -252,12 +252,14 @@ void challengePerformSanityChecks(void)
 		// Turn off all simulants and turn them on if enabled
 		// for this number of players
 		g_MpSetup.chrslots &= 0x000f;
+		g_MpSimSlots = 0;
 
-		for (i = 0; i < MAX_BOTS; i++) {
+		// Challenges are ROM-defined and only describe MAX_BOTS_CONFIG simulants.
+		for (i = 0; i < MAX_BOTS_CONFIG; i++) {
 			g_BotConfigsArray[i].difficulty = g_MpSimulantDifficultiesPerNumPlayers[i][numplayers - 1];
 
 			if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-				g_MpSetup.chrslots |= 1 << (i + MAX_PLAYERS);
+				mpSetSimSlotOn(i, true);
 			}
 		}
 
@@ -266,7 +268,8 @@ void challengePerformSanityChecks(void)
 		}
 	} else if (!challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
 		// Limit to 4 players and 4 simulants
-		g_MpSetup.chrslots &= 0x00ff;
+		g_MpSimSlots &= 0xf;
+		mpSyncChrSlots();
 	}
 }
 

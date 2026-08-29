@@ -141,7 +141,7 @@ void ctcInit(void)
 	}
 
 	for (k = 0; k < MAX_MPCHRS; k++) {
-		if (g_MpSetup.chrslots & (1 << k)) {
+		if (mpIsChrSlotOn(k)) {
 			struct mpchrconfig *mpchr = MPCHR(k);
 
 			while (mpchr->team >= scenarioGetMaxTeams()) {
@@ -230,7 +230,7 @@ void ctcInitProps(void)
 	}
 
 	for (k = 0; k < MAX_MPCHRS; k++) {
-		if (g_MpSetup.chrslots & (1 << k)) {
+		if (mpIsChrSlotOn(k)) {
 			mpchr = MPCHR(k);
 
 			while (mpchr->team >= scenarioGetMaxTeams()) {

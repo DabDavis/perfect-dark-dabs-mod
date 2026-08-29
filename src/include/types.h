@@ -5027,7 +5027,8 @@ struct mpconfigsim {
 
 struct mpconfig {
 	struct mpsetup setup;
-	struct mpconfigsim simulants[MAX_BOTS];
+	// ROM-resident: see MAX_BOTS_CONFIG in constants.h
+	struct mpconfigsim simulants[MAX_BOTS_CONFIG];
 };
 
 struct mpweapon {
@@ -5044,7 +5045,8 @@ struct mpweapon {
 
 struct mpstrings {
 	char description[200];
-	char aibotnames[MAX_BOTS][15];
+	// ROM-resident: see MAX_BOTS_CONFIG in constants.h
+	char aibotnames[MAX_BOTS_CONFIG][15];
 };
 
 struct mpconfigfull {

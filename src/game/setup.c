@@ -1400,6 +1400,17 @@ void setupLoadFiles(s32 stagenum)
 			numobjs += g_Vars.numaibuddies; // the buddy's weapon
 		}
 
+		if (g_Vars.normmplayerisrunning) {
+			// Simulants are spawned at runtime and are not in the setup file,
+			// so they must be budgeted for explicitly. Size from the number
+			// actually enabled rather than MAX_BOTS, so a small match does not
+			// reserve slots for simulants that will never spawn.
+			s32 numsims = mpGetNumSimSlotsOn();
+
+			numchrs += numsims;
+			numobjs += numsims; // each simulant's weapon
+		}
+
 		numobjs += setupCountCommandType(OBJTYPE_WEAPON);
 		numobjs += setupCountCommandType(OBJTYPE_KEY);
 		numobjs += setupCountCommandType(OBJTYPE_HAT);
@@ -1529,6 +1540,10 @@ void setupCreateProps(s32 stagenum)
 					&& g_MissionConfig.iscoop
 					&& g_Vars.numaibuddies > 0) {
 				numchrs += g_Vars.numaibuddies;
+			}
+
+			if (g_Vars.normmplayerisrunning) {
+				numchrs += mpGetNumSimSlotsOn();
 			}
 
 			chrmgrConfigure(numchrs);
@@ -2111,8 +2126,7 @@ void setupCreateProps(s32 stagenum)
 						slotnum = (slotnum + 1) % maxsimulants;
 					}
 
-					if ((g_MpSetup.chrslots & (1 << (slotnum + 4)))
-							&& mpIsSimSlotEnabled(slotnum)) {
+					if (mpIsSimSlotOn(slotnum)) {
 						botmgrAllocateBot(chrnum, slotnum);
 						chrnum++;
 					}

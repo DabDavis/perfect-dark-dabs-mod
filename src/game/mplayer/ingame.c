@@ -40,7 +40,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		data->list.value = 0;
 
 		for (v0 = 0; v0 < MAX_MPCHRS; v0++) {
-			if (g_MpSetup.chrslots & (1 << v0)) {
+			if (mpIsChrSlotOn(v0)) {
 				data->list.value++;
 			}
 		}
@@ -49,7 +49,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (a1 = 0; a1 < MAX_MPCHRS; a1++) {
-			if (g_MpSetup.chrslots & (1 << a1)) {
+			if (mpIsChrSlotOn(a1)) {
 				mpchr = MPCHR(a1);
 
 				if (v0 == data->list.value) {
@@ -65,7 +65,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (a1 = 0; a1 < MAX_MPCHRS; a1++) {
-			if (g_MpSetup.chrslots & (1 << a1)) {
+			if (mpIsChrSlotOn(a1)) {
 				if (v0);
 
 				if (data->list.value == v0) {
@@ -81,7 +81,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (v1 = 0; v1 < MAX_MPCHRS; v1++) {
-			if (g_MpSetup.chrslots & (1 << v1)) {
+			if (mpIsChrSlotOn(v1)) {
 				if (v0);
 
 				if (g_MpSelectedPlayersForStats[g_MpPlayerNum] == v1) {
@@ -620,7 +620,36 @@ char *mpMenuTextPlacementWithSuffix(struct menuitem *item)
 		L_MPMENU_275, // "12th"
 	};
 
-	return langGet(suffixes[g_PlayerConfigsArray[g_MpPlayerNum].base.placement]);
+	s32 placement = g_PlayerConfigsArray[g_MpPlayerNum].base.placement;
+	s32 n;
+	const char *suffix;
+
+	if (placement < 0) {
+		placement = 0;
+	}
+
+	if (placement < (s32)ARRAYCOUNT(suffixes)) {
+		return langGet(suffixes[placement]);
+	}
+
+	// The ROM only has ordinal strings up to "12th", which was enough for the
+	// original 4 players + 8 simulants. A raised MAX_BOTS can place lower than
+	// that, so build the ordinal at runtime instead of reading off the end of
+	// the table.
+	n = placement + 1;
+	suffix = "th";
+
+	if (n % 100 < 11 || n % 100 > 13) {
+		switch (n % 10) {
+		case 1: suffix = "st"; break;
+		case 2: suffix = "nd"; break;
+		case 3: suffix = "rd"; break;
+		}
+	}
+
+	sprintf(g_StringPointer, "%d%s", n, suffix);
+
+	return g_StringPointer;
 }
 
 MenuItemHandlerResult mpPlacementMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)

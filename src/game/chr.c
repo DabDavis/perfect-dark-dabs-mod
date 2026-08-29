@@ -1094,6 +1094,13 @@ void chrInit(struct prop *prop, u8 *ailist)
 	}
 
 	prop->chr = chr;
+
+	if (chr == NULL) {
+		// No free chr slot. The original game could not hit this because the
+		// pool was always sized to fit, but a raised MAX_BOTS can exhaust it.
+		return;
+	}
+
 	chr->chrnum = chrsGetNextUnusedChrnum();
 	chrRegister(chr->chrnum, i);
 
