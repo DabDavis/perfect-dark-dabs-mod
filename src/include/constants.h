@@ -22,7 +22,7 @@
 
 // Runtime simulant cap. Only affects arrays allocated at runtime, never the
 // ROM-resident structs above.
-#define MAX_BOTS               40
+#define MAX_BOTS               80
 #define MAX_CHRSPERSQUADRON    16
 #define MAX_CHRSPERTEAM        32
 #define MAX_CHRWAYPOINTS       6

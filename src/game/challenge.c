@@ -252,7 +252,7 @@ void challengePerformSanityChecks(void)
 		// Turn off all simulants and turn them on if enabled
 		// for this number of players
 		g_MpSetup.chrslots &= 0x000f;
-		g_MpSimSlots = 0;
+		mpClearSimSlots();
 
 		// Challenges are ROM-defined and only describe MAX_BOTS_CONFIG simulants.
 		for (i = 0; i < MAX_BOTS_CONFIG; i++) {
@@ -268,8 +268,7 @@ void challengePerformSanityChecks(void)
 		}
 	} else if (!challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
 		// Limit to 4 players and 4 simulants
-		g_MpSimSlots &= 0xf;
-		mpSyncChrSlots();
+		mpKeepFirstSimSlots(4);
 	}
 }
 

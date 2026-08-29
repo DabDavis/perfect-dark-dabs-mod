@@ -3960,7 +3960,9 @@ struct menu {
 	/*0x464*/ struct menulayer layers[6];
 	/*0x4f4*/ s16 depth; // index into layers. 1-indexed?
 	/*0x4f8*/ struct menudialog *curdialog;
-	/*0x4fc*/ struct menurow rows[VERSION >= VERSION_NTSC_1_0 ? 88 : 80];
+	// The Simulants dialog contributes one row per simulant slot, and rows
+	// accumulate across every stacked dialog, so this has to scale with MAX_BOTS.
+	/*0x4fc*/ struct menurow rows[(VERSION >= VERSION_NTSC_1_0 ? 88 : 80) + MAX_BOTS];
 	/*0x65c*/ s32 rowend;
 	/*0x660*/ struct menucolumn cols[VERSION >= VERSION_NTSC_1_0 ? 12 : 10];
 	/*0x6d8*/ s32 colend;

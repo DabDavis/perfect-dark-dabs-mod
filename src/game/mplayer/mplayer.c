@@ -57,7 +57,19 @@ struct modeldef *var800acc28[18];
  * the low MAX_BOTS_CONFIG bits are mirrored back into chrslots so that the
  * ROM-resident config, challenge and save paths keep working unchanged.
  */
-u64 g_MpSimSlots = 0;
+/**
+ * Runtime simulant participation, one entry per simulant slot.
+ *
+ * This was a u64 bitmask, which capped MAX_BOTS at 64. Per-slot flags remove
+ * that ceiling so the cap can be raised freely.
+ *
+ * g_MpSetup.chrslots only has 8 simulant bits (0x0ff0) and lives inside
+ * struct mpsetup, whose layout is pinned to ROM records, so it cannot be
+ * widened. This array is the authoritative source; the low MAX_BOTS_CONFIG
+ * entries are mirrored back into chrslots so that the ROM-resident config,
+ * challenge and save paths keep working unchanged.
+ */
+u8 g_MpSimSlots[MAX_BOTS];
 
 #ifndef PLATFORM_N64
 // struct mpconfig and struct mpstrings are cast directly over raw ROM bytes by
@@ -69,15 +81,23 @@ _Static_assert(sizeof(struct mpstrings) == 320, "struct mpstrings is ROM-residen
 #endif
 
 /**
- * Mirror the low MAX_BOTS_CONFIG simulant bits of g_MpSimSlots into
- * g_MpSetup.chrslots. Call after any change to g_MpSimSlots.
+ * Mirror the low MAX_BOTS_CONFIG simulant slots into g_MpSetup.chrslots.
+ * Call after any change to g_MpSimSlots.
  */
 void mpSyncChrSlots(void)
 {
 	const u16 mask = (u16)(((1 << MAX_BOTS_CONFIG) - 1) << MAX_PLAYERS);
+	u16 bits = 0;
+	s32 i;
+
+	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
+		if (g_MpSimSlots[i]) {
+			bits |= (u16)(1 << (i + MAX_PLAYERS));
+		}
+	}
 
 	g_MpSetup.chrslots &= ~mask;
-	g_MpSetup.chrslots |= (u16)((g_MpSimSlots << MAX_PLAYERS) & mask);
+	g_MpSetup.chrslots |= bits;
 }
 
 /**
@@ -87,7 +107,12 @@ void mpSyncChrSlots(void)
  */
 void mpLoadSimSlots(void)
 {
-	g_MpSimSlots = (g_MpSetup.chrslots >> MAX_PLAYERS) & ((1 << MAX_BOTS_CONFIG) - 1);
+	s32 i;
+
+	for (i = 0; i < MAX_BOTS; i++) {
+		g_MpSimSlots[i] = i < MAX_BOTS_CONFIG
+			&& (g_MpSetup.chrslots & (1 << (i + MAX_PLAYERS))) != 0;
+	}
 }
 
 bool mpIsSimSlotOn(s32 slot)
@@ -96,7 +121,7 @@ bool mpIsSimSlotOn(s32 slot)
 		return false;
 	}
 
-	return (g_MpSimSlots >> slot) & 1;
+	return g_MpSimSlots[slot] != 0;
 }
 
 void mpSetSimSlotOn(s32 slot, bool on)
@@ -105,10 +130,34 @@ void mpSetSimSlotOn(s32 slot, bool on)
 		return;
 	}
 
-	if (on) {
-		g_MpSimSlots |= 1ULL << slot;
-	} else {
-		g_MpSimSlots &= ~(1ULL << slot);
+	g_MpSimSlots[slot] = on ? 1 : 0;
+
+	mpSyncChrSlots();
+}
+
+/**
+ * Turn off every simulant slot.
+ */
+void mpClearSimSlots(void)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_BOTS; i++) {
+		g_MpSimSlots[i] = 0;
+	}
+
+	mpSyncChrSlots();
+}
+
+/**
+ * Turn off every simulant slot from the given index onwards.
+ */
+void mpKeepFirstSimSlots(s32 count)
+{
+	s32 i;
+
+	for (i = count; i < MAX_BOTS; i++) {
+		g_MpSimSlots[i] = 0;
 	}
 
 	mpSyncChrSlots();
@@ -694,7 +743,7 @@ void mpInit(bool resetplayers)
 	}
 
 	g_MpSetup.chrslots = 0;
-	g_MpSimSlots = 0;
+	mpClearSimSlots();
 
 	// Extended simulant slots have no ROM config. BOTDIFF_DISABLED is 6, not 0,
 	// so leaving these zeroed would make them read as BOTDIFF_MEAT and enable
@@ -3253,7 +3302,8 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 {
 	s32 headnum = 0;
 	u8 team = mpFindUnusedTeamNum();
-	bool available = false;
+	s32 offset;
+	s32 n;
 	s32 i;
 
 	g_BotConfigsArray[botnum].type = g_BotProfiles[profilenum].type;
@@ -3267,18 +3317,28 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 	strcpy(g_BotConfigsArray[botnum].base.name, "Sim\n");
 	g_BotConfigsArray[botnum].base.team = team;
 
-	while (!available) {
-		headnum = g_BotHeads[rngRandom() % ARRAYCOUNT(g_BotHeads)];
-		available = true;
+	// Prefer a head that no active chr is already wearing. The original picked
+	// heads at random and retried until it found a free one, which cannot
+	// terminate once there are more chrs than the ARRAYCOUNT(g_BotHeads)
+	// distinct heads available. Scan every head from a random starting point
+	// instead, and accept a duplicate if they are all taken.
+	offset = rngRandom() % ARRAYCOUNT(g_BotHeads);
+	headnum = g_BotHeads[offset];
+
+	for (n = 0; n < (s32)ARRAYCOUNT(g_BotHeads); n++) {
+		s32 candidate = g_BotHeads[(offset + n) % ARRAYCOUNT(g_BotHeads)];
+		bool taken = false;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (mpIsChrSlotOn(i)) {
-				struct mpchrconfig *mpchr = MPCHR(i);
-
-				if (mpchr->mpheadnum == headnum) {
-					available = false;
-				}
+			if (mpIsChrSlotOn(i) && MPCHR(i)->mpheadnum == candidate) {
+				taken = true;
+				break;
 			}
+		}
+
+		if (!taken) {
+			headnum = candidate;
+			break;
 		}
 	}
 
@@ -3338,7 +3398,7 @@ void mpCopySimulant(s32 index)
 
 bool mpHasSimulants(void)
 {
-	if (g_MpSimSlots != 0) {
+	if (mpGetNumSimSlotsOn() != 0) {
 		return true;
 	}
 

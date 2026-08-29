@@ -117,6 +117,7 @@ s32 g_MpScoreLimit = 10;
 s32 g_MpTeamScoreLimit = 20;
 struct sndstate *g_MiscAudioHandle = NULL;
 s32 g_NumReasonsToEndMpMatch = 0;
+s32 g_MpEndMatchDelay60 = 0;
 f32 g_StageTimeElapsed1f = 0;
 bool var80084040 = true;
 
@@ -2328,8 +2329,21 @@ void lvTick(void)
 				}
 			}
 
-			if (g_NumReasonsToEndMpMatch > 0 && numdying == 0) {
-				mainEndStage();
+			if (g_NumReasonsToEndMpMatch > 0) {
+				// Normally the match end waits for every death animation to
+				// finish. numdying counts all chrs in ACT_DIE, not just
+				// players, so with a large simulant count there is almost
+				// always at least one dying and the match would never end.
+				// That also strands dead players, because a nonzero
+				// g_NumReasonsToEndMpMatch blocks respawning in playerTick.
+				// Wait for the animations, but not indefinitely.
+				if (numdying == 0 || g_MpEndMatchDelay60 >= TICKS(180)) {
+					mainEndStage();
+				} else {
+					g_MpEndMatchDelay60 += g_Vars.lvupdate60;
+				}
+			} else {
+				g_MpEndMatchDelay60 = 0;
 			}
 		}
 	}

@@ -442,6 +442,7 @@ extern struct stagetableentry g_Stages[61];
 extern s32 g_RoomMtxNumSlots;
 extern u32 g_GfxNumSwaps;
 extern s32 g_NumReasonsToEndMpMatch;
+extern s32 g_MpEndMatchDelay60;
 extern s32 g_MusicEventQueueLength;
 extern bool g_MusicNrgIsActive;
 extern s32 g_MusicInterval240;

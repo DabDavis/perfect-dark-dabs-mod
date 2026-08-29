@@ -104,6 +104,8 @@ void mpLoadSimSlots(void);
 bool mpIsSimSlotOn(s32 slot);
 void mpSetSimSlotOn(s32 slot, bool on);
 s32 mpGetNumSimSlotsOn(void);
+void mpClearSimSlots(void);
+void mpKeepFirstSimSlots(s32 count);
 bool mpIsChrSlotOn(s32 slot);
 s32 mpFindBotProfile(s32 type, s32 difficulty);
 void mpGenerateBotNames(void);
