@@ -18,7 +18,13 @@
 #define DEFAULT_BASEDIR_NAME "data"
 
 static char baseDir[FS_MAXPATH + 1]; // replaces $B
-static char modDir[FS_MAXPATH + 1];  // replaces $M
+// Mod directories are overlaid on top of the base directory and searched in
+// the order given, so the first one that has a file wins. $M expands to the
+// first. The stock port had a single slot; mods that ship several directories
+// need more than one.
+#define FS_MAXMODDIRS 8
+static char modDirs[FS_MAXMODDIRS][FS_MAXPATH + 1];
+static s32 numModDirs;
 static char saveDir[FS_MAXPATH + 1]; // replaces $S
 static char homeDir[FS_MAXPATH + 1]; // replaces $H
 static char exeDir[FS_MAXPATH + 1];  // replaces $E
@@ -62,7 +68,7 @@ const char *fsFullPath(const char *relPath)
 		switch (relPath[1]) {
 			case 'E': expStr = exeDir; break;
 			case 'H': expStr = homeDir; break;
-			case 'M': expStr = modDir; break;
+			case 'M': expStr = numModDirs ? modDirs[0] : NULL; break;
 			case 'B': expStr = baseDir; break;
 			case 'S': expStr = saveDir; break;
 			default: break;
@@ -83,8 +89,8 @@ const char *fsFullPath(const char *relPath)
 	}
 
 	// path relative to mod or base dir; this will be a read request, so check where the file actually is
-	if (modDir[0]) {
-		snprintf(pathBuf, FS_MAXPATH, "%s/%s", modDir, relPath);
+	for (s32 i = 0; i < numModDirs; ++i) {
+		snprintf(pathBuf, FS_MAXPATH, "%s/%s", modDirs[i], relPath);
 		if (fsFileSize(pathBuf) >= 0) {
 			return pathBuf;
 		}
@@ -121,28 +127,58 @@ s32 fsInit(void)
 	}
 	strncpy(baseDir, fsFullPath(path), FS_MAXPATH);
 
-	// get path to mod dir and expand it if needed
-	// mod directory is overlaid on top of base directory
-	path = sysArgGetString("--moddir");
-	if (path) {
-		if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
-			// path is explicit; check as-is
-			if (fsFileSize(path) >= 0) {
-				strncpy(modDir, fsFullPath(path), FS_MAXPATH);
-			}
-		} else {
-			// path is relative to workdir; try to find it
-			const char *priority[] = { ".", "$E", "$H" };
-			for (s32 i = 0; i < 2 + (portable != 0); ++i) {
-				char *tmp = strFmt("%s/%s", priority[i], path);
-				if (fsFileSize(tmp) >= 0) {
-					strncpy(modDir, fsFullPath(tmp), FS_MAXPATH);
+	// get paths to the mod dirs and expand them if needed
+	// mod directories are overlaid on top of the base directory, in order
+	{
+		// --moddir may be repeated. The remaining names are the flags used by
+		// the All in One mod's launcher, accepted so its command line works
+		// unchanged.
+		static const char *const modDirArgs[] = {
+			"--moddir",
+			"--gexmoddir",
+			"--kakarikomoddir",
+			"--darknoonmoddir",
+			"--goldfinger64moddir",
+		};
+
+		for (u32 a = 0; a < sizeof(modDirArgs) / sizeof(modDirArgs[0]); ++a) {
+			for (s32 n = 0; ; ++n) {
+				path = sysArgGetStringN(modDirArgs[a], n);
+				if (!path) {
 					break;
 				}
+
+				if (numModDirs >= FS_MAXMODDIRS) {
+					sysLogPrintf(LOG_WARNING, "too many mod dirs, ignoring `%s`", path);
+					break;
+				}
+
+				char *dst = modDirs[numModDirs];
+				dst[0] = '\0';
+
+				if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
+					// path is explicit; check as-is
+					if (fsFileSize(path) >= 0) {
+						strncpy(dst, fsFullPath(path), FS_MAXPATH);
+					}
+				} else {
+					// path is relative to workdir; try to find it
+					const char *priority[] = { ".", "$E", "$H" };
+					for (s32 i = 0; i < 2 + (portable != 0); ++i) {
+						char *tmp = strFmt("%s/%s", priority[i], path);
+						if (fsFileSize(tmp) >= 0) {
+							strncpy(dst, fsFullPath(tmp), FS_MAXPATH);
+							break;
+						}
+					}
+				}
+
+				if (dst[0]) {
+					++numModDirs;
+				} else {
+					sysLogPrintf(LOG_WARNING, "could not find specified moddir `%s`", path);
+				}
 			}
-		}
-		if (!modDir[0]) {
-			sysLogPrintf(LOG_WARNING, "could not find specified moddir `%s`", path);
 		}
 	}
 
@@ -173,8 +209,8 @@ s32 fsInit(void)
 
 	strncpy(saveDir, fsFullPath(path), FS_MAXPATH);
 
-	if (modDir[0]) {
-		sysLogPrintf(LOG_NOTE, " mod dir: %s", modDir);
+	for (s32 i = 0; i < numModDirs; ++i) {
+		sysLogPrintf(LOG_NOTE, " mod dir: %s", modDirs[i]);
 	}
 	sysLogPrintf(LOG_NOTE, "base dir: %s", baseDir);
 	sysLogPrintf(LOG_NOTE, "save dir: %s", saveDir);
@@ -184,7 +220,7 @@ s32 fsInit(void)
 
 const char *fsGetModDir(void)
 {
-	return modDir[0] ? modDir : NULL;
+	return numModDirs ? modDirs[0] : NULL;
 }
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)

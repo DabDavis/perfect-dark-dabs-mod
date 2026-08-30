@@ -18,6 +18,7 @@ void sysInit(void);
 
 s32 sysArgCheck(const char *arg);
 const char *sysArgGetString(const char *arg);
+const char *sysArgGetStringN(const char *arg, s32 n);
 s32 sysArgGetInt(const char *arg, s32 defval);
 
 u64 sysGetMicroseconds(void);

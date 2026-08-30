@@ -138,6 +138,27 @@ const char *sysArgGetString(const char *arg)
 	return NULL;
 }
 
+/**
+ * Value of the nth (0-based) occurrence of a repeated argument, or NULL.
+ */
+const char *sysArgGetStringN(const char *arg, s32 n)
+{
+	s32 seen = 0;
+
+	for (s32 i = 1; i < sysArgc; ++i) {
+		if (!strcasecmp(sysArgv[i], arg)) {
+			if (i < sysArgc - 1) {
+				if (seen == n) {
+					return sysArgv[i + 1];
+				}
+				++seen;
+			}
+		}
+	}
+
+	return NULL;
+}
+
 s32 sysArgGetInt(const char *arg, s32 defval)
 {
 	for (s32 i = 1; i < sysArgc; ++i) {
