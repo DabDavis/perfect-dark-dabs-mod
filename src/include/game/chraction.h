@@ -112,6 +112,8 @@ bool chrIsOneShotAnimPlaying(struct chrdata *chr);
 #ifndef PLATFORM_N64
 void chrPlayPunchAnimation(struct chrdata *chr);
 void chrPlayRollAnimation(struct chrdata *chr, bool toleft);
+void chrPlayArghAnimation(struct chrdata *chr, f32 angle, s32 hitpart);
+void chrPlayThrowAnimation(struct chrdata *chr, s32 handnum);
 #endif
 struct eyespy *chrToEyespy(struct chrdata *chr);
 void chrTickStand(struct chrdata *chr);

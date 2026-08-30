@@ -398,6 +398,12 @@ void botactThrow(struct chrdata *chr)
 
 	bgunCreateThrownProjectile2(chr, &gset, &prop->pos, prop->rooms, &sp164, &sp228);
 
+#ifndef PLATFORM_N64
+	// The arm that threw it. Stock never animates this, so a simulant's
+	// grenades leave a body that is still running.
+	chrPlayThrowAnimation(chr, HAND_RIGHT);
+#endif
+
 	if (gset.weaponnum == WEAPON_REMOTEMINE) {
 		chr->aibot->flags |= BOTFLAG_THREWREMOTEMINE;
 	}

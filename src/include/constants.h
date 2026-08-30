@@ -3024,6 +3024,17 @@
  * starts from standing rather than out of the middle of the first.
  */
 #define ROLL_COOLDOWN TICKS(60)
+
+/**
+ * How fast a thrown grenade's animation plays on a third person body.
+ *
+ * The guards use chrGetRangedSpeed(chr, 0.5, 1.2), scaled by how good a shot
+ * the guard is. Nobody here has a speed rating to scale by, so this is the top
+ * of that range: the arm goes over in about half a second, which is roughly
+ * where bondgun's own throw leaves the grenade.
+ */
+#define THROW_ANIMSPEED 1.2f
+
 /**
  * How high JUMP_IMPULSE actually gets, v * v / (2 * 0.27777779), rounded up.
  *

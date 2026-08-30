@@ -6103,7 +6103,17 @@ void playerChooseThirdPersonAnimation(struct chrdata *chr, s32 crouchpos, f32 sp
 	}
 
 	if (reconfigure) {
-		if (chr->model->anim->animnum2 == 0) {
+		// A death goes on the body whatever it was in the middle of. Everything
+		// else waits for a merge to finish, because starting an animation on
+		// top of a blend that is still settling makes a walk jitter - but a
+		// body that takes a bullet and then a fatal one a few frames later has
+		// a flinch merging into it when the death arrives, and waiting the
+		// merge out spends the first quarter second of dying on a stagger.
+		//
+		// modelCopyAnimForMerge() is built for this: handed a model already
+		// merging, it takes the blend in progress as the thing to blend out of,
+		// so the death still eases in from wherever the body had got to.
+		if (chr->model->anim->animnum2 == 0 || chrIsDead(chr)) {
 			modelSetAnimation(chr->model, animnum, false, startframe >= 0 ? startframe : 0, speed, 16);
 
 			if (startframe >= 0) {

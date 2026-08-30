@@ -1495,6 +1495,9 @@ void handTickAttack(s32 handnum)
 			break;
 		case HANDATTACKTYPE_THROWPROJECTILE:
 			bgunCreateThrownProjectile(handnum, &gset);
+#ifndef PLATFORM_N64
+			chrPlayThrowAnimation(g_Vars.currentplayer->prop->chr, handnum);
+#endif
 			break;
 		case HANDATTACKTYPE_RCP120CLOAK:
 			cloaked = (g_Vars.currentplayer->devicesactive & DEVICE_CLOAKRCP120) != 0;
