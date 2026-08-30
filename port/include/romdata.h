@@ -12,6 +12,7 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize);
 void romdataFilePreprocess(s32 fileNum, s32 loadType, u8 *data, u32 size, u32 *outSize);
 void romdataFileFree(s32 fileNum);
 const char *romdataFileGetName(s32 fileNum);
+s32 romdataRegisterModFile(const char *name, s32 modDirIndex);
 
 u8 *romdataFileGetData(s32 fileNum);
 s32 romdataFileGetSize(s32 fileNum);

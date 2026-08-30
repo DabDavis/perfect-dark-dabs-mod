@@ -84,6 +84,10 @@ struct romfile {
 	s32 preprocessed;
 	const struct romfilepatch *patches;
 	u32 numpatches;
+	// 0 = resolve normally through the mod search order; otherwise 1-based
+	// index of the mod dir this slot is pinned to. Mod suites reuse the same
+	// filenames for different maps, so a slot has to name its own mod.
+	s32 moddir;
 };
 
 /* patches for individual files; applied on file load, before preprocFuncs, but */
@@ -93,6 +97,14 @@ static const struct romfilepatch filePatches[] = {
 	{ 0x92a2, 1, "\x6c", "\x99" },
 	{ 0x92b0, 1, "\x6c", "\x99" },
 };
+
+// Names for slots registered at runtime. fileSlots only holds a pointer, and
+// the ROM's own names live in the loaded file list, so mod names need storage
+// of their own.
+#define ROMDATA_MAX_MODFILES 512
+#define ROMDATA_MODFILE_NAMELEN 96
+static char modFileNames[ROMDATA_MAX_MODFILES][ROMDATA_MODFILE_NAMELEN];
+static s32 numModFileNames;
 
 static struct romfile fileSlots[ROMDATA_MAX_FILES] = {
 	[FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 },
@@ -464,6 +476,39 @@ s32 romdataFileGetSize(s32 fileNum)
 	return -1;
 }
 
+/**
+ * Claim a spare file slot for a file inside a specific mod directory.
+ *
+ * The ROM's slots are contiguous from 1, so the first slot with no name is the
+ * append point. Returns the new file number, or 0 if there is no room.
+ */
+s32 romdataRegisterModFile(const char *name, s32 modDirIndex)
+{
+	if (!name || modDirIndex < 0 || modDirIndex >= fsGetNumModDirs()) {
+		return 0;
+	}
+
+	if (numModFileNames >= ROMDATA_MAX_MODFILES) {
+		sysLogPrintf(LOG_ERROR, "romdataRegisterModFile: name pool full for %s", name);
+		return 0;
+	}
+
+	for (s32 i = 1; i < ROMDATA_MAX_FILES; ++i) {
+		if (!fileSlots[i].name) {
+			char *stored = modFileNames[numModFileNames++];
+			snprintf(stored, ROMDATA_MODFILE_NAMELEN, "%s", name);
+			fileSlots[i].name = stored;
+			fileSlots[i].moddir = modDirIndex + 1;
+			fileSlots[i].source = SRC_UNLOADED;
+			return i;
+		}
+	}
+
+	sysLogPrintf(LOG_ERROR, "romdataRegisterModFile: no free file slots for %s", name);
+
+	return 0;
+}
+
 u8 *romdataFileGetData(s32 fileNum)
 {
 	return romdataFileLoad(fileNum, NULL);
@@ -481,7 +526,17 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 	// try to load external file
 	if (fileSlots[fileNum].source == SRC_UNLOADED) {
 		char tmp[FS_MAXPATH] = { 0 };
-		snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[fileNum].name);
+		if (fileSlots[fileNum].moddir) {
+			// pinned: build an absolute path so the mod search order cannot
+			// substitute another mod's file of the same name
+			const char *dir = fsGetModDirAt(fileSlots[fileNum].moddir - 1);
+			if (!dir) {
+				return NULL;
+			}
+			snprintf(tmp, sizeof(tmp), "%s/" ROMDATA_FILEDIR "/%s", dir, fileSlots[fileNum].name);
+		} else {
+			snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[fileNum].name);
+		}
 		if (fsFileSize(tmp) > 0) {
 			u32 size = 0;
 			out = fsFileLoad(tmp, &size);

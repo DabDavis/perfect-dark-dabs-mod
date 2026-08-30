@@ -12,6 +12,7 @@
 #include "audio.h"
 #include "input.h"
 #include "fs.h"
+#include "modloader.h"
 #include "romdata.h"
 #include "config.h"
 #include "mod.h"
@@ -108,6 +109,7 @@ int main(int argc, const char **argv)
 	inputInit();
 	audioInit();
 	romdataInit();
+	modloaderInit();
 
 	g_ValidGbcRomFound = romdataCheckGbcRom();
 

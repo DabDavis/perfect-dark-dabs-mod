@@ -13,6 +13,9 @@
 #include "fs.h"
 #ifdef PLATFORM_WIN32
 #include <direct.h>
+#include <windows.h>
+#else
+#include <dirent.h>
 #endif
 
 #define DEFAULT_BASEDIR_NAME "data"
@@ -216,6 +219,79 @@ s32 fsInit(void)
 	sysLogPrintf(LOG_NOTE, "save dir: %s", saveDir);
 
 	return 0;
+}
+
+/**
+ * Call cb() once per regular file in a directory. Returns the number of
+ * entries visited, or -1 if the directory could not be opened.
+ *
+ * Used to discover what a mod ships rather than requiring it to list its
+ * contents somewhere.
+ */
+s32 fsScanDir(const char *path, fsScanCallback cb, void *arg)
+{
+	const char *full = fsFullPath(path);
+	s32 count = 0;
+
+#ifdef PLATFORM_WIN32
+	char pattern[FS_MAXPATH + 1];
+	snprintf(pattern, sizeof(pattern), "%s/*", full);
+
+	WIN32_FIND_DATA fd;
+	HANDLE h = FindFirstFile(pattern, &fd);
+	if (h == INVALID_HANDLE_VALUE) {
+		return -1;
+	}
+
+	do {
+		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+			if (cb) {
+				cb(fd.cFileName, arg);
+			}
+			++count;
+		}
+	} while (FindNextFile(h, &fd));
+
+	FindClose(h);
+#else
+	DIR *d = opendir(full);
+	if (!d) {
+		return -1;
+	}
+
+	struct dirent *e;
+	while ((e = readdir(d))) {
+		if (e->d_name[0] == '.') {
+			continue;
+		}
+		if (cb) {
+			cb(e->d_name, arg);
+		}
+		++count;
+	}
+
+	closedir(d);
+#endif
+
+	return count;
+}
+
+s32 fsGetNumModDirs(void)
+{
+	return numModDirs;
+}
+
+/**
+ * Path of the nth mod directory, or NULL. Used to pin a file to one specific
+ * mod rather than letting the search order decide.
+ */
+const char *fsGetModDirAt(s32 index)
+{
+	if (index < 0 || index >= numModDirs) {
+		return NULL;
+	}
+
+	return modDirs[index];
 }
 
 const char *fsGetModDir(void)
