@@ -12,6 +12,9 @@ void bwalk0f0c3b38(struct coord *param_1, struct defaultobj *obj);
 s32 bwalkTryMoveUpwards(f32 amount);
 bool bwalkCanMoveUpwards(f32 amount);
 void bwalkTryJump(void);
+#ifndef PLATFORM_N64
+void bwalkTryRoll(void);
+#endif
 bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, f32 extrawidth, s32 arg4);
 bool bwalkCalculateNewPositionWithPush(struct coord *delta, f32 rotateamount, bool apply, f32 extrawidth, s32 types);
 s32 bwalk0f0c4764(struct coord *delta, struct coord *arg1, struct coord *arg2, s32 types);

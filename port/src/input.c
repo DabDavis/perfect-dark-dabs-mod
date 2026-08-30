@@ -211,6 +211,7 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 		{ CK_4000,          SDL_SCANCODE_LSHIFT, 0                   },
 		{ CK_2000,          SDL_SCANCODE_LCTRL,  0                   },
 		{ CK_1000,          SDL_SCANCODE_V,      0                   },
+		{ CK_0800,          SDL_SCANCODE_C,      0                   },
 		{ CK_ACCEPT,        SDL_SCANCODE_RETURN, SDL_SCANCODE_E      },
 		{ CK_CANCEL,        VK_MOUSE_RIGHT,      0                   },
 	};
@@ -232,7 +233,8 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 		{ CK_ACCEPT, SDL_CONTROLLER_BUTTON_A             },
 		{ CK_CANCEL, SDL_CONTROLLER_BUTTON_B             },
 		{ CK_8000,   SDL_CONTROLLER_BUTTON_LEFTSTICK     },
-		{ CK_1000,   SDL_CONTROLLER_BUTTON_RIGHTSTICK    },
+		{ CK_1000,   SDL_CONTROLLER_BUTTON_BACK          },
+		{ CK_0800,   SDL_CONTROLLER_BUTTON_RIGHTSTICK    },
 	};
 
 	static const u32 n64kbbinds[][3] = {
@@ -670,12 +672,69 @@ static inline void inputParseBindString(const s32 ctrl, const u32 ck, char *bind
 	}
 }
 
+/**
+ * Move the right stick click off the third person toggle and onto the combat
+ * roll, on a config that predates the roll existing.
+ *
+ * The roll's key was in the enum long before it meant anything, so every config
+ * ever written has a line for it, saying NONE - an explicit unbind, which the
+ * loader honours over the default. Left alone, that config keeps the right
+ * stick on the third person toggle and gives the roll no button at all, and no
+ * amount of changing the defaults reaches it.
+ *
+ * The pair is the fingerprint: a roll with nothing bound to it and a right
+ * stick still sitting on the toggle can only have been written by a build where
+ * the roll did not exist. A fresh config gets the defaults instead of coming
+ * through here, and anyone who binds the roll to anything, or moves the toggle
+ * off the right stick, has said what they want and is left with it.
+ */
+static void inputMigrateRollBind(s32 ctrl)
+{
+	const u32 rstick = VK_JOY_BEGIN + ctrl * INPUT_MAX_CONTROLLER_BUTTONS + SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+	const u32 back = VK_JOY_BEGIN + ctrl * INPUT_MAX_CONTROLLER_BUTTONS + SDL_CONTROLLER_BUTTON_BACK;
+	s32 b;
+
+	for (b = 0; b < INPUT_MAX_BINDS; ++b) {
+		if (binds[ctrl][CK_0800][b]) {
+			// The roll has a button already.
+			return;
+		}
+	}
+
+	for (b = 0; b < INPUT_MAX_BINDS; ++b) {
+		if (binds[ctrl][CK_1000][b] == rstick) {
+			binds[ctrl][CK_1000][b] = back;
+			inputKeyBind(ctrl, CK_0800, -1, rstick);
+
+			// The keyboard half of the same default, for the player who has
+			// one, and only while nothing else has taken the key.
+			if (ctrl == 0) {
+				u32 ck;
+
+				for (ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
+					for (b = 0; b < INPUT_MAX_BINDS; ++b) {
+						if (binds[ctrl][ck][b] == SDL_SCANCODE_C) {
+							return;
+						}
+					}
+				}
+
+				inputKeyBind(ctrl, CK_0800, -1, SDL_SCANCODE_C);
+			}
+
+			return;
+		}
+	}
+}
+
 static inline void inputLoadBinds(void)
 {
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i) {
 		for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
 			inputParseBindString(i, ck, bindStrs[i][ck]);
 		}
+
+		inputMigrateRollBind(i);
 	}
 }
 

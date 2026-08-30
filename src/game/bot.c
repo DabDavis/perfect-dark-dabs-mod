@@ -223,6 +223,7 @@ void botReset(struct chrdata *chr, u8 respawning)
 		aibot->fadeintimer60 = TICKS(120);
 #ifndef PLATFORM_N64
 		aibot->jumptimer60 = 0;
+		aibot->rolltimer60 = 0;
 		chr->fallspeed.y = 0;
 #endif
 	}
@@ -238,6 +239,26 @@ void botReset(struct chrdata *chr, u8 respawning)
  */
 #define BOTJUMP_COOLDOWN TICKS(90)
 #define BOTJUMP_CHANCE   45
+
+/**
+ * How long a bot waits between rolls, and how many hits it takes on average to
+ * decide one is worth throwing.
+ *
+ * The cooldown does most of the limiting - a roll moves a bot a couple of
+ * hundred units off the line its AI was walking and it has to find its way
+ * back - and the chance is there so a pack that all took fire at once does not
+ * roll in unison.
+ */
+#define BOTROLL_COOLDOWN TICKS(150)
+#define BOTROLL_CHANCE   3
+
+/**
+ * How much room a bot wants before it rolls. The push covers about 225 units;
+ * the guards ask for 200 before one of theirs rolls, and a bot that ends a roll
+ * with its nose in a wall looks worse than one that stood still.
+ */
+#define BOTROLL_CLEARANCE 200
+
 
 /**
  * Leave the ground, if the bot is on it.
@@ -283,6 +304,76 @@ static void botTickJump(struct chrdata *chr)
 	}
 
 	botTryJump(chr);
+}
+
+/**
+ * Roll out of the way, the move guards have always had and simulants never did.
+ *
+ * The push is the same one the player's roll uses, in the field an explosion
+ * already shoves a chr with: fallspeed is horizontal as well as vertical, gets
+ * added to the position every tick and decays by 0.9 on the ground, so a roll
+ * is one value in it and the existing collision does the rest. Nothing touches
+ * actiontype - the bot keeps whatever its AI was doing and walks the roll off,
+ * the same reason botTryJump() leaves it alone.
+ */
+void botTryRoll(struct chrdata *chr, bool toleft)
+{
+	struct coord side;
+
+	if (!chr->aibot
+			|| chr->fallspeed.y != 0.0f
+			|| chr->manground > chr->ground
+			|| chrIsDead(chr)) {
+		return;
+	}
+
+	// The game's own idea of which way is left, so that the push and the
+	// animation - which chrAttackRoll() picks from the same flag - agree.
+	chrGetSideVector(chr, toleft, &side);
+
+	chr->fallspeed.x = side.x * ROLL_IMPULSE;
+	chr->fallspeed.z = side.z * ROLL_IMPULSE;
+	chr->aibot->rolltimer60 = g_Vars.lvframe60 + BOTROLL_COOLDOWN;
+
+	chrPlayRollAnimation(chr, toleft);
+}
+
+/**
+ * Decide whether to dodge the shot that just landed.
+ *
+ * Called from the damage rather than polled from the tick, because there is
+ * nothing on a chr to poll: chr->timeshooter reads like the record of a recent
+ * hit and two stock functions test it that way, but nothing in the game ever
+ * writes a positive value into it. The hit itself is the signal, and taking it
+ * where it happens means a bot dodges the shot that prompted it rather than one
+ * some number of frames later.
+ *
+ * No target is required. Being shot is the whole of the reason, and a bot shot
+ * from behind by someone it has not seen yet is the one that most wants to be
+ * somewhere else.
+ */
+void botTryDodge(struct chrdata *chr)
+{
+	bool toleft;
+
+	if (!g_Vars.normmplayerisrunning || !chr->aibot) {
+		return;
+	}
+
+	if (g_Vars.lvframe60 < chr->aibot->rolltimer60 || rngRandom() % BOTROLL_CHANCE) {
+		return;
+	}
+
+	// Somewhere to roll to, checked the way the guards check it before one of
+	// theirs rolls: pick a side, take the other one if the first is a wall, and
+	// stay put if both are.
+	toleft = (rngRandom() % 2) == 0;
+
+	if (chrCanRollInDirection(chr, toleft, BOTROLL_CLEARANCE)) {
+		botTryRoll(chr, toleft);
+	} else if (chrCanRollInDirection(chr, !toleft, BOTROLL_CLEARANCE)) {
+		botTryRoll(chr, !toleft);
+	}
 }
 #endif
 

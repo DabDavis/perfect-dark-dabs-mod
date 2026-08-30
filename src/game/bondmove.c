@@ -1671,10 +1671,23 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					// view setting and not a movement one. playerIsThirdPerson()
 					// is what decides; this only carries the request, and solo
 					// play acts on it by building the body it needs to look at.
+					//
+					// The combat roll is taken on the same terms and from the
+					// same loop, being the other thing on this pad that happens
+					// on a press rather than while a button is down.
 					if (allowc1buttons) {
 						for (i = 0; i < numsamples; i++) {
-							if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons) & BUTTON_THIRDPERSON) {
+							u32 pressed = joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons);
+
+							if (pressed & BUTTON_THIRDPERSON) {
 								g_Vars.currentplayer->thirdperson = !g_Vars.currentplayer->thirdperson;
+							}
+
+							if (pressed & BUTTON_ROLL) {
+								bwalkTryRoll();
+							}
+
+							if (pressed & (BUTTON_THIRDPERSON | BUTTON_ROLL)) {
 								break;
 							}
 						}

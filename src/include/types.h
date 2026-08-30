@@ -852,6 +852,8 @@ struct aibot {
 	// aibot is mempAlloc'd in botmgrAllocateBot() and nothing casts ROM bytes to
 	// it, so growing it costs nothing but the N64 build's matching.
 	s32 jumptimer60;
+	// Earliest lvframe60 at which this bot may roll again, on the same terms.
+	s32 rolltimer60;
 #endif
 };
 
@@ -2851,6 +2853,13 @@ struct player {
 	// by the HUD, which draws the first person gun whenever the camera is on
 	// the eye.
 	f32 thirdpersondist;
+	// The combat roll's push, in world units per tick, and the frame the roll
+	// started. Held as a vector rather than a direction and a speed so that
+	// turning mid roll does not curve it, and decayed rather than run for a
+	// fixed duration - the same arrangement as a chr's fallspeed, which is what
+	// carries the simulant side of the same move.
+	struct coord rollspeed;
+	s32 rolltime60;
 	// Where the camera ended up on the last frame it was behind a living
 	// player. Death stops the camera here and turns it to watch the body fall,
 	// so the two are read together: a distance of 0 means there is no frozen

@@ -570,6 +570,10 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->thirdpersoncampos.x = 0;
 	g_Vars.players[index]->thirdpersoncampos.y = 0;
 	g_Vars.players[index]->thirdpersoncampos.z = 0;
+	g_Vars.players[index]->rollspeed.x = 0;
+	g_Vars.players[index]->rollspeed.y = 0;
+	g_Vars.players[index]->rollspeed.z = 0;
+	g_Vars.players[index]->rolltime60 = 0;
 #endif
 	g_Vars.players[index]->pausemode = PAUSEMODE_UNPAUSED;
 	g_Vars.players[index]->pausetime60 = 0;

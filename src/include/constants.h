@@ -2983,6 +2983,48 @@
 #define JUMP_IMPULSE 5.75f
 
 /**
+ * The combat roll.
+ *
+ * Perfect Dark's guards have rolled since release - chrAttackRoll() picks out of
+ * g_RollAttackAnims and ACT_ATTACKROLL runs it, firing on the way through - and
+ * neither a player nor a simulant has ever had one, because neither has an
+ * action that could hold it.
+ *
+ * The push is an impulse rather than a speed held for a duration, because both
+ * movers already had somewhere to put one that decays: a chr's fallspeed is
+ * horizontal as well as vertical, applied to the position every tick and
+ * decayed by 0.9 while it is on the ground, which is how an explosion throws a
+ * body. The player gets the same treatment through its own copy of that
+ * velocity, added where bondforcespeed is added and decayed on the same curve,
+ * so the two roll the same distance out of the same numbers.
+ *
+ * 22.5 a tick decaying by 0.9 covers about 225 units before it drops below the
+ * tenth of a unit that counts as stopped - a little over Jo's standing height,
+ * so the roll clears a doorway and no more. Most of it is spent in the first
+ * half second, which is what makes it read as a dodge rather than a sprint.
+ */
+#define ROLL_IMPULSE  22.5f
+#define ROLL_DECAY    (PAL ? 0.88120001554489f : 0.9f)
+#define ROLL_STOPPED  0.1f
+
+/**
+ * How fast the roll animation plays.
+ *
+ * The guards' own speed is chrGetRangedSpeed(chr, 0.5, 0.8), which spends over
+ * a second and a half on the 78 frames of the longest roll. That is a guard
+ * taking cover with a rifle; this is a dodge, and it wants to be over while the
+ * push it was started with is still moving the body.
+ */
+#define ROLL_ANIMSPEED 1.5f
+
+/**
+ * How long before another roll can be started.
+ *
+ * Long enough that the animation is off the body first, so the second roll
+ * starts from standing rather than out of the middle of the first.
+ */
+#define ROLL_COOLDOWN TICKS(60)
+/**
  * How high JUMP_IMPULSE actually gets, v * v / (2 * 0.27777779), rounded up.
  *
  * Only used to bound how far below an airborne simulant its collision cylinder
@@ -4834,6 +4876,7 @@ enum weaponnum {
 #define BUTTON_HALF_CROUCH    CONT_4000
 #define BUTTON_FULL_CROUCH    CONT_2000
 #define BUTTON_THIRDPERSON    CONT_1000
+#define BUTTON_ROLL           CONT_0800
 
 #define BUTTON_UI_ACCEPT      CONT_0010
 #define BUTTON_UI_CANCEL      CONT_0020

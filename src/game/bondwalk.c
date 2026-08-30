@@ -62,6 +62,13 @@ void bwalkInit(void)
 	g_Vars.currentplayer->bondforcespeed.y = 0;
 	g_Vars.currentplayer->bondforcespeed.z = 0;
 
+#ifndef PLATFORM_N64
+	g_Vars.currentplayer->rollspeed.x = 0;
+	g_Vars.currentplayer->rollspeed.y = 0;
+	g_Vars.currentplayer->rollspeed.z = 0;
+	g_Vars.currentplayer->rolltime60 = 0;
+#endif
+
 	if (prevmode != MOVEMODE_WALK && prevmode != MOVEMODE_CUTSCENE) {
 		g_Vars.currentplayer->sumcrouch = 0;
 		g_Vars.currentplayer->crouchheight = 0;
@@ -318,6 +325,64 @@ void bwalkTryJump(void)
 
 	g_Vars.currentplayer->bdeltapos.y = impulse;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Throw the player sideways, and the body with them.
+ *
+ * The push goes in where bondforcespeed goes in and decays on the chr's curve,
+ * so a roll covers the same ground whoever throws it - see ROLL_IMPULSE. It is
+ * held in world space rather than as a direction and a speed, so a player who
+ * spins the mouse mid roll still lands where the roll was aimed.
+ *
+ * Which way is the way they are already going: the strafe the roll came out of
+ * is the one they meant, and standing still rolls right.
+ *
+ * The direction comes off bond2.unk00, the flat look direction, and not off
+ * chrGetSideVector() the way the simulants' does. A simulant's look angle is
+ * where it is going, but a player's body carries angleoffset - the lean the
+ * walk animation is given so a strafe points where it is headed - and rolling
+ * along that would send the roll somewhere the camera is not pointing. The
+ * camera is what the player aimed the roll with.
+ *
+ * The animation is only half of it and can be missing entirely - solo in first
+ * person has no body to roll - so it is asked for and not waited on. The push
+ * is the move.
+ */
+void bwalkTryRoll(void)
+{
+	struct chrdata *chr = g_Vars.currentplayer->prop->chr;
+	struct coord side;
+	bool toleft;
+
+	if (g_Vars.currentplayer->isdead
+			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK
+			|| g_Vars.currentplayer->isfalling
+			|| g_Vars.currentplayer->onladder
+			|| g_Vars.lvframe60 - g_Vars.currentplayer->rolltime60 < ROLL_COOLDOWN) {
+		return;
+	}
+
+	toleft = g_Vars.currentplayer->speedsideways < 0;
+
+	// chrGetSideVector()'s left, written out of the player's own basis:
+	// strafing right is bond2.unk00 turned that way, so left is its negative.
+	side.x = -g_Vars.currentplayer->bond2.unk00.z;
+	side.z = g_Vars.currentplayer->bond2.unk00.x;
+
+	if (toleft) {
+		side.x = -side.x;
+		side.z = -side.z;
+	}
+
+	g_Vars.currentplayer->rollspeed.x = side.x * ROLL_IMPULSE;
+	g_Vars.currentplayer->rollspeed.y = 0;
+	g_Vars.currentplayer->rollspeed.z = side.z * ROLL_IMPULSE;
+	g_Vars.currentplayer->rolltime60 = g_Vars.lvframe60;
+
+	chrPlayRollAnimation(chr, toleft);
+}
+#endif
 
 bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, f32 extrawidth, s32 checktypes)
 {
@@ -1729,6 +1794,31 @@ void bwalk0f0c69b8(void)
 			spcc.f[0] += g_Vars.currentplayer->bondforcespeed.f[0] * g_Vars.lvupdate60freal;
 			spcc.f[2] += g_Vars.currentplayer->bondforcespeed.f[2] * g_Vars.lvupdate60freal;
 		}
+
+#ifndef PLATFORM_N64
+		// The combat roll, pushed in alongside the scripted one above and taken
+		// through the same collision, then decayed a tick at a time the way a
+		// chr sheds the shove an explosion gave it. Movement input is left
+		// alone rather than locked out, so a roll thrown while running carries
+		// the run with it.
+		if (g_Vars.currentplayer->rollspeed.f[0] != 0.0f || g_Vars.currentplayer->rollspeed.f[2] != 0.0f) {
+			spcc.f[0] += g_Vars.currentplayer->rollspeed.f[0] * g_Vars.lvupdate60freal;
+			spcc.f[2] += g_Vars.currentplayer->rollspeed.f[2] * g_Vars.lvupdate60freal;
+
+			for (i = 0; i < g_Vars.lvupdate60; i++) {
+				g_Vars.currentplayer->rollspeed.f[0] *= ROLL_DECAY;
+				g_Vars.currentplayer->rollspeed.f[2] *= ROLL_DECAY;
+			}
+
+			if (g_Vars.currentplayer->rollspeed.f[0] < ROLL_STOPPED
+					&& g_Vars.currentplayer->rollspeed.f[0] > -ROLL_STOPPED
+					&& g_Vars.currentplayer->rollspeed.f[2] < ROLL_STOPPED
+					&& g_Vars.currentplayer->rollspeed.f[2] > -ROLL_STOPPED) {
+				g_Vars.currentplayer->rollspeed.f[0] = 0;
+				g_Vars.currentplayer->rollspeed.f[2] = 0;
+			}
+		}
+#endif
 
 		if (g_Vars.currentplayer->onladder) {
 			guNormalize(&g_Vars.currentplayer->laddernormal.x, &g_Vars.currentplayer->laddernormal.y, &g_Vars.currentplayer->laddernormal.z);

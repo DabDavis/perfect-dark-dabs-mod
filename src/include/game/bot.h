@@ -9,6 +9,8 @@ bool botroomFindPos(RoomNum room, struct coord *pos, f32 *angleptr, s32 *padnump
 bool botIsDizzy(struct chrdata *chr);
 void botReset(struct chrdata *chr, u8 respawning);
 void botTryJump(struct chrdata *chr);
+void botTryRoll(struct chrdata *chr, bool toleft);
+void botTryDodge(struct chrdata *chr);
 void botSpawn(struct chrdata *chr, u8 full);
 void botSpawnAll(void);
 u32 add87654321(u32 value);

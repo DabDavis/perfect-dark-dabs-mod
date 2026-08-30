@@ -5050,6 +5050,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					if (chr->damage >= chr->maxdamage) {
 						chrDie(chr, aplayernum);
 					}
+#ifndef PLATFORM_N64
+					else {
+						botTryDodge(chr);
+					}
+#endif
 				} else if (explosion) {
 					// Chrs die instantly from explosion damage provided they
 					// don't have any armour (the chr has armour if their
@@ -8104,6 +8109,68 @@ void chrPlayPunchAnimation(struct chrdata *chr)
 	chr->oneshotanim = anims[index].animnum;
 }
 #endif
+
+#ifndef PLATFORM_N64
+/**
+ * Roll, on a chr that is driving its own movement.
+ *
+ * chrAttackRoll() is the guards' version and, like chrTryPunch() before it, it
+ * is the whole move: ACT_ATTACKROLL, a gun fired on the way through, a recoil,
+ * and a follow on animation chosen when the roll lands. A player or a bot is
+ * pushed by its own mover - a decaying sideways velocity either way - and
+ * cannot be put into that action without handing its movement over, so this
+ * takes the animation and nothing else.
+ *
+ * The four rolls come in a left pair and a right pair, and again at index 4 as
+ * the one handed cut of the same four. Which of a pair is thrown is a coin
+ * toss, the way chrAttackRoll() throws it. flip mirrors the animation, so the
+ * pair is chosen against it rather than for the direction directly, and it is
+ * set by which hand the gun is in: mirroring a roll swaps the arm the body
+ * rolls over.
+ */
+void chrPlayRollAnimation(struct chrdata *chr, bool toleft)
+{
+	struct attackanimconfig *animcfg;
+	struct prop *leftgun;
+	struct prop *rightgun;
+	bool onehanded;
+	bool flip;
+
+	if (!chrCanPlayOneShotAnim(chr)) {
+		return;
+	}
+
+	leftgun = chrGetHeldProp(chr, HAND_LEFT);
+	rightgun = chrGetHeldProp(chr, HAND_RIGHT);
+
+	if (leftgun && rightgun) {
+		onehanded = true;
+		flip = rngRandom() % 2;
+	} else {
+		onehanded = weaponIsOneHanded(leftgun) || weaponIsOneHanded(rightgun);
+		flip = leftgun != NULL;
+	}
+
+	if ((toleft && !flip) || (!toleft && flip)) {
+		animcfg = (rngRandom() % 2) ? &g_RollAttackAnims[0] : &g_RollAttackAnims[2];
+	} else {
+		animcfg = (rngRandom() % 2) ? &g_RollAttackAnims[1] : &g_RollAttackAnims[3];
+	}
+
+	if (onehanded) {
+		animcfg += 4;
+	}
+
+	// unk10 is the frame the guards start a roll on and unk18 the frame it
+	// lands. What is past that is the guard coming up firing, which is
+	// ACT_ATTACKROLL's business and not a dodge's.
+	modelSetAnimation(chr->model, animcfg->animnum, flip, animcfg->unk10, ROLL_ANIMSPEED, 16);
+	modelSetAnimEndFrame(chr->model, animcfg->unk18);
+
+	chr->oneshotanim = animcfg->animnum;
+}
+#endif
+
 void func0f03c03c(void)
 {
 	// empty
