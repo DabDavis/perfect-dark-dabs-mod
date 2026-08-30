@@ -6932,6 +6932,42 @@ MenuItemHandlerResult menuhandlerMpSpawnWeapon(s32 operation, struct menuitem *i
 	return 0;
 }
 
+/**
+ * Off, or how high a jump goes as a multiple of the base height.
+ *
+ * On/off and height are one control because they are one three-bit field: the
+ * last three bits of mpsetup.options. A separate checkbox would have needed a
+ * fourth bit that does not exist, and would have had to forget the chosen
+ * height every time it was unticked.
+ */
+MenuItemHandlerResult menuhandlerMpJump(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static char *labels[JUMPHEIGHT_MAX + 1] = {
+		"Off",
+		"1x",
+		"2x",
+		"3x",
+		"4x",
+		"5x",
+	};
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(labels);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)labels[data->dropdown.value];
+	case MENUOP_SET:
+		mpSetJumpHeight(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = mpGetJumpHeight();
+		break;
+	}
+
+	return 0;
+}
+
 struct menuitem g_MpExtGameOptionsMenuItems[] = {
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -6940,6 +6976,14 @@ struct menuitem g_MpExtGameOptionsMenuItems[] = {
 		(uintptr_t)"Start Armed\n",
 		0,
 		menuhandlerMpSpawnWeapon,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LOCKABLEMINOR | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Jump\n",
+		0,
+		menuhandlerMpJump,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

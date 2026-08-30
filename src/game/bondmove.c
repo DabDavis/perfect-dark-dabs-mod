@@ -1661,6 +1661,22 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						while (g_Vars.currentplayer->crouchpos > oldcrouchpos && !bwalkCanUncrouch()) {
 							g_Vars.currentplayer->crouchpos--;
 						}
+
+						// Jump, when the arena has it turned on. Taken on the
+						// button's edge rather than while it is held, so that
+						// resting on the key does not bounce.
+						//
+						// bmoveProcessInput() runs before bwalkUpdateVertical()
+						// in the same tick, so the impulse this leaves in
+						// bdeltapos.y is integrated immediately.
+						if (g_Vars.normmplayerisrunning && mpIsJumpEnabled()) {
+							for (i = 0; i < numsamples; i++) {
+								if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons) & BUTTON_JUMP) {
+									bwalkTryJump();
+									break;
+								}
+							}
+						}
 					}
 #endif
 

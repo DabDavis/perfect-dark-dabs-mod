@@ -5002,6 +5002,24 @@ bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		// A simulant that is off the floor - jumping, or thrown by a blast -
+		// otherwise gets a collision cylinder that floats with it, so shots and
+		// pushes pass underneath. ACT_SKJUMP needs the separate case above
+		// because that path overwrites chr->ground with manground.
+		//
+		// Reach down to the floor but never further than a jump: chr->ground is
+		// about -100000 where there is nothing under the chr, and a bot falling
+		// down a shaft should not grow a cylinder the length of the drop.
+		if (chr->aibot && chr->manground > chr->ground) {
+			chr->geo.ymin = chr->manground - mpGetJumpApex();
+
+			if (chr->geo.ymin < chr->ground) {
+				chr->geo.ymin = chr->ground;
+			}
+		}
+#endif
+
 		chr->geo.x = prop->pos.x;
 		chr->geo.z = prop->pos.z;
 		chr->geo.radius = chr->radius;
@@ -5033,6 +5051,19 @@ void chrGetBbox(struct prop *prop, f32 *radius, f32 *ymax, f32 *ymin)
 	if (chr->actiontype == ACT_SKJUMP && chr->act_skjump.ground < chr->manground) {
 		*ymin = chr->act_skjump.ground + 20;
 	}
+
+#ifndef PLATFORM_N64
+	// Same bound as chrGetColCyl(): the floor, but never more than a jump down.
+	if (chr->aibot && chr->ground < chr->manground) {
+		*ymin = chr->manground - mpGetJumpApex();
+
+		if (*ymin < chr->ground) {
+			*ymin = chr->ground;
+		}
+
+		*ymin += 20;
+	}
+#endif
 }
 
 f32 chrGetGround(struct prop *prop)

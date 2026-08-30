@@ -2917,6 +2917,46 @@
 // build reading a setup file that has both set just spawns everyone with the
 // arena's first weapon slot, which is what Start Armed used to mean.
 #define MPOPTION_SPAWNWITHRANDOMWEAPON  0x10000000
+// Jump is a three-bit field rather than a flag: 0 is off, 1 to JUMPHEIGHT_MAX
+// select the height multiplier. These are the last three bits of the word, so
+// an on/off flag plus a separate height would not have fitted - and would have
+// been two settings for what is one choice. options is saved as a flat 32 bits,
+// so a field inside it needs no save format change.
+#define MPOPTION_JUMP_SHIFT             29
+#define MPOPTION_JUMP_MASK              0xe0000000
+
+/**
+ * Upward velocity a jump starts with, in units per tick at 60fps.
+ *
+ * Gravity is 0.27777779 units per tick squared for both the player
+ * (bwalkUpdateVertical) and chrs (func0f0965e4), so the apex is
+ * v * v / (2 * 0.27777779): 5.75 clears a little under 60 units. That is
+ * between a duck (-45) and a full squat (-90) - enough for a railing, not
+ * enough to reach anywhere an arena was not built to be stood on.
+ *
+ * Two ceilings constrain this from above, both on the simulant side.
+ * posIsArrivingAtPos() refuses to count a waypoint as reached while the chr is
+ * more than 150 units off its height, and chrTickGoPos() damages a chr that has
+ * not moved for a second. A hop this size is 60 units and 0.7 seconds, so it
+ * clears neither.
+ *
+ * For the player it also lands at -5.75, in the gap between the knee bend at
+ * -5 and the grunt and footstep sound at -6, so a hop bends the knees on
+ * landing without Jo complaining about it every time.
+ */
+#define JUMP_IMPULSE 5.75f
+
+/**
+ * How high JUMP_IMPULSE actually gets, v * v / (2 * 0.27777779), rounded up.
+ *
+ * Only used to bound how far below an airborne simulant its collision cylinder
+ * is allowed to reach. chr->ground is around -100000 where there is no floor
+ * under the chr at all, so it cannot be used as that bound unguarded.
+ */
+#define JUMP_APEX 60.0f
+
+#define JUMPHEIGHT_MIN 1
+#define JUMPHEIGHT_MAX 5
 
 #define MPPAUSEMODE_UNPAUSED 0
 #define MPPAUSEMODE_PAUSED   1
@@ -4757,6 +4797,7 @@ enum weaponnum {
 #define BUTTON_CROUCH_CYCLE   CONT_8000
 #define BUTTON_HALF_CROUCH    CONT_4000
 #define BUTTON_FULL_CROUCH    CONT_2000
+#define BUTTON_JUMP           CONT_1000
 
 #define BUTTON_UI_ACCEPT      CONT_0010
 #define BUTTON_UI_CANCEL      CONT_0020

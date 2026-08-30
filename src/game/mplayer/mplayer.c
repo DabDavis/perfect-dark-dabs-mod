@@ -1108,6 +1108,74 @@ s32 func0f188bcc(void)
 }
 
 /**
+ * The arena's jump setting: 0 for off, otherwise the height multiplier.
+ */
+s32 mpGetJumpHeight(void)
+{
+	s32 mult = (g_MpSetup.options & MPOPTION_JUMP_MASK) >> MPOPTION_JUMP_SHIFT;
+
+	// The field holds three bits but only six of the eight values mean
+	// anything, so clamp rather than trust a setup file to be sane.
+	if (mult > JUMPHEIGHT_MAX) {
+		mult = JUMPHEIGHT_MAX;
+	}
+
+	return mult;
+}
+
+bool mpIsJumpEnabled(void)
+{
+	return mpGetJumpHeight() != 0;
+}
+
+void mpSetJumpHeight(s32 mult)
+{
+	if (mult < 0) {
+		mult = 0;
+	} else if (mult > JUMPHEIGHT_MAX) {
+		mult = JUMPHEIGHT_MAX;
+	}
+
+	g_MpSetup.options &= ~MPOPTION_JUMP_MASK;
+	g_MpSetup.options |= (u32)mult << MPOPTION_JUMP_SHIFT;
+}
+
+/**
+ * Upward velocity a jump starts with, scaled for the arena's jump height.
+ *
+ * The apex is v * v / (2 * gravity), so height goes with the square of the
+ * impulse: a jump twice as high wants sqrt(2) times the velocity, not twice.
+ * These are those roots, written out rather than computed because this runs on
+ * every jump.
+ */
+f32 mpGetJumpImpulse(void)
+{
+	static const f32 scale[JUMPHEIGHT_MAX] = { 1.0f, 1.4142135f, 1.7320508f, 2.0f, 2.2360680f };
+	s32 mult = mpGetJumpHeight();
+
+	if (mult < JUMPHEIGHT_MIN) {
+		mult = JUMPHEIGHT_MIN;
+	}
+
+	return JUMP_IMPULSE * scale[mult - JUMPHEIGHT_MIN];
+}
+
+/**
+ * How high that impulse reaches. Bounds how far below an airborne simulant its
+ * collision cylinder may extend, so it has to scale with the setting too.
+ */
+f32 mpGetJumpApex(void)
+{
+	s32 mult = mpGetJumpHeight();
+
+	if (mult < JUMPHEIGHT_MIN) {
+		mult = JUMPHEIGHT_MIN;
+	}
+
+	return JUMP_APEX * mult;
+}
+
+/**
  * Can a player or simulant spawn holding this g_MpWeapons entry?
  *
  * Nothing, Shield and Disabled are weapon set placeholders rather than weapons.

@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "game/bondmove.h"
 #include "game/bondwalk.h"
+#include "game/mplayer/mplayer.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/debug.h"
@@ -276,6 +277,35 @@ bool bwalkCanMoveUpwards(f32 amount)
 	g_Vars.enableslopes = true;
 
 	return (result == CDRESULT_NOCOLLISION);
+}
+
+/**
+ * Leave the ground, if we are on it.
+ *
+ * bdeltapos.y is the player's vertical velocity and the integrator that reads
+ * it is symmetric, so a jump is just a positive value in it - see the matching
+ * change in bwalkUpdateVertical(), which otherwise only looks at that velocity
+ * once something else has already lifted the player off the floor.
+ *
+ * The headroom test is not strictly needed, since bwalkTryMoveUpwards() stops
+ * the ascent at a ceiling anyway, but starting a jump with nothing overhead to
+ * rise into just spends the impulse on nothing.
+ */
+void bwalkTryJump(void)
+{
+	if (g_Vars.currentplayer->isfalling
+			|| g_Vars.currentplayer->bdeltapos.y > 0.0f
+			|| g_Vars.currentplayer->vv_manground > g_Vars.currentplayer->vv_ground) {
+		return;
+	}
+
+	const f32 impulse = mpGetJumpImpulse();
+
+	if (!bwalkCanMoveUpwards(impulse)) {
+		return;
+	}
+
+	g_Vars.currentplayer->bdeltapos.y = impulse;
 }
 
 bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, f32 extrawidth, s32 checktypes)
@@ -965,8 +995,13 @@ void bwalkUpdateVertical(void)
 		}
 	}
 
-	if (g_Vars.currentplayer->vv_manground > g_Vars.currentplayer->vv_ground) {
-		// Not standing on ground - probably falling, or on an object of some sort
+	// A jump leaves the player still standing on the ground with an upward
+	// bdeltapos.y. Without the second test that velocity would sit there unread
+	// until something else lifted them off the floor, so the impulse would do
+	// nothing at all.
+	if (g_Vars.currentplayer->vv_manground > g_Vars.currentplayer->vv_ground
+			|| g_Vars.currentplayer->bdeltapos.y > 0.0f) {
+		// Not standing on ground - probably falling, jumping, or on an object
 		fallspeed = g_Vars.currentplayer->bdeltapos.y;
 		newmanground = g_Vars.currentplayer->vv_manground;
 

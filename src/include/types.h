@@ -846,6 +846,13 @@ struct aibot {
 	/*0x2d4*/ f32 randomfrac;
 	/*0x2d8*/ u32 unk2d8; // unused
 	/*0x2dc*/ u32 unk2dc; // unused
+#ifndef PLATFORM_N64
+	// Earliest lvframe60 at which this bot may jump again. Appended rather than
+	// folded into one of the unused fields above so the ROM offsets stay honest;
+	// aibot is mempAlloc'd in botmgrAllocateBot() and nothing casts ROM bytes to
+	// it, so growing it costs nothing but the N64 build's matching.
+	s32 jumptimer60;
+#endif
 };
 
 struct geo {

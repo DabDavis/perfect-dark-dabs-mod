@@ -221,8 +221,70 @@ void botReset(struct chrdata *chr, u8 respawning)
 
 		aibot->respawning = true;
 		aibot->fadeintimer60 = TICKS(120);
+#ifndef PLATFORM_N64
+		aibot->jumptimer60 = 0;
+		chr->fallspeed.y = 0;
+#endif
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Simulants jump while they are fighting, not while they are walking around.
+ *
+ * The cooldown is a floor rather than a period; the roll on top of it is what
+ * stops a pack of bots chasing the same target from falling into step and
+ * hopping in unison.
+ */
+#define BOTJUMP_COOLDOWN TICKS(90)
+#define BOTJUMP_CHANCE   45
+
+/**
+ * Leave the ground, if the bot is on it.
+ *
+ * chrdata already carries a vertical velocity in fallspeed.y, and chr0f01f378()
+ * integrates it under gravity and clamps it back to the floor on landing, so a
+ * bot jump needs no physics of its own - only the impulse. In stock PD the only
+ * thing that ever sets fallspeed.y is chrYeetFromPos(), throwing a corpse away
+ * from an explosion, which is why this must not touch actiontype the way that
+ * does: a jumping bot is very much alive.
+ */
+void botTryJump(struct chrdata *chr)
+{
+	if (!chr->aibot
+			|| chr->fallspeed.y != 0.0f
+			|| chr->manground > chr->ground
+			|| chr->actiontype == ACT_DIE
+			|| chr->actiontype == ACT_DEAD
+			|| chrIsDead(chr)) {
+		return;
+	}
+
+	chr->fallspeed.y = mpGetJumpImpulse();
+	chr->aibot->jumptimer60 = g_Vars.lvframe60 + BOTJUMP_COOLDOWN;
+}
+
+/**
+ * Decide whether to jump this tick. Only while engaging someone, so bots do not
+ * hop their way across an empty arena.
+ */
+static void botTickJump(struct chrdata *chr)
+{
+	if (!g_Vars.normmplayerisrunning || !mpIsJumpEnabled()) {
+		return;
+	}
+
+	if (chr->target == -1 || g_Vars.lvframe60 < chr->aibot->jumptimer60) {
+		return;
+	}
+
+	if (rngRandom() % BOTJUMP_CHANCE) {
+		return;
+	}
+
+	botTryJump(chr);
+}
+#endif
 
 void botSpawn(struct chrdata *chr, u8 respawning)
 {
@@ -1044,6 +1106,10 @@ s32 botTick(struct prop *prop)
 				aibot->realignangleframe = g_Vars.lvframe60;
 			}
 		}
+
+#ifndef PLATFORM_N64
+		botTickJump(chr);
+#endif
 
 		botApplyMovement(chr);
 
