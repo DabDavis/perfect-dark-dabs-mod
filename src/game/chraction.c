@@ -10995,6 +10995,45 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 									}
 
 									chrEmitSparks(hitchr, hitprop, hitpart, &hitpos, &vector, chr);
+
+									// HITPART_GENERAL rather than the hitpart
+									// just computed, here and at every other
+									// place a chr's bullet lands. It is why a
+									// simulant shot by another simulant always
+									// dies of a torso hit: chrDamage() remaps
+									// GENERAL to the torso, so the death
+									// animation comes out of that one table
+									// however the shot arrived.
+									//
+									// Measured before assuming it was worth
+									// changing, and it is not.
+									//
+									// Passing the computed hitpart buys almost
+									// nothing. chrCalculateShieldHit() does not
+									// trace the shot against the model - it
+									// takes the bbox node whose origin is
+									// nearest the impact point, and on a body
+									// height cylinder that is the torso: 115
+									// hits out of 129 in a match of eight
+									// simulants, and never once a head.
+									//
+									// The answer a player's shot gets comes
+									// from somewhere else entirely -
+									// modelTestForHit() and func0f06bea0() in
+									// chr.c, tracing the shot through the
+									// model's boxes in screen space. That needs
+									// the victim on screen, and a simulant
+									// shooting a simulant is usually nowhere
+									// near the camera: 13 of those 129 hits.
+									//
+									// And it would not be an animation change.
+									// GENERAL is halved on the way to becoming
+									// a torso hit, which is then doubled, so a
+									// chr's bullet does its face value today. A
+									// real torso hit is twice that and a real
+									// head hit four times it, so handing chrs
+									// their hit locations would make every
+									// simulant in the game sharply deadlier.
 									func0f0341dc(hitchr, damage, &vector, &gset, chr->prop, HITPART_GENERAL, hitprop, node, model, side, NULL);
 								} else {
 									makebeam = false;
