@@ -673,6 +673,25 @@ void challengeForceUnlockBotFeatures(void)
 	challengeDetermineUnlockedFeatures();
 }
 
+/**
+ * Force unlock one feature, on top of whatever is already forced.
+ *
+ * challengeForceUnlockBotFeatures() rebuilds the whole array from the current
+ * simulant configuration. This appends to it instead, for callers that know a
+ * feature is needed but are not part of that rebuild.
+ */
+void challengeForceUnlockOneFeature(s32 featurenum)
+{
+	s32 tail = 0;
+
+	while (tail < ARRAYCOUNT(g_MpFeaturesForceUnlocked) && g_MpFeaturesForceUnlocked[tail]) {
+		tail++;
+	}
+
+	challengeForceUnlockFeature(featurenum, g_MpFeaturesForceUnlocked, tail, ARRAYCOUNT(g_MpFeaturesForceUnlocked));
+	challengeDetermineUnlockedFeatures();
+}
+
 void challengeRemoveForceUnlocks(void)
 {
 	s32 i;

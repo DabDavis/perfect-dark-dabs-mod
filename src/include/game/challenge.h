@@ -18,6 +18,7 @@ s32 challengeForceUnlockFeature(s32 featurenum, u8 *array, s32 tail, s32 len);
 s32 challengeForceUnlockSetupFeatures(struct mpsetup *mpsetup, u8 *array, s32 len);
 void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 len, s32 challengeindex);
 void challengeForceUnlockBotFeatures(void);
+void challengeForceUnlockOneFeature(s32 featurenum);
 void challengeApply(void);
 char *challengeGetCurrentDescription(void);
 char *challengeGetConfigDescription(struct mpconfigfull *mpconfig);

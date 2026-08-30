@@ -457,7 +457,22 @@ void mainLoop(void)
 
 		playermgrAllocatePlayers(numplayers);
 
-		if (argFindByPrefix(1, "-mpbots")) {
+		// Debug aid: --mpsims N boots straight into a Combat Sim match against
+		// N simulants. Several of the faults that only appear on a mod arena
+		// need multiplayer to be running, and reaching one otherwise means
+		// driving the menus by hand for every attempt.
+		//
+		// It applies to the stage booted into and nothing after it. This block
+		// runs on every stage load, so leaving the match would otherwise re-arm
+		// lvmpbotlevel and apply the whole Combat Sim setup to the Carrington
+		// Institute, undoing the teardown menutick.c just did. The CI has no
+		// arena spawn pads, so playerReset() reaches cdFindGroundInfoAtCyl()
+		// with a room list nothing filled in and the game hangs walking geo
+		// from a garbage room number.
+		static bool mpsimsapplied = false;
+		const s32 mpsims = mpsimsapplied ? -1 : sysArgGetInt("--mpsims", -1);
+
+		if (argFindByPrefix(1, "-mpbots") || mpsims > 0) {
 			g_Vars.lvmpbotlevel = 1;
 		}
 
@@ -486,7 +501,25 @@ void mainLoop(void)
 			}
 
 			g_MpSetup.stagenum = g_StageNum;
+
+			for (s32 s = 0; s < mpsims && s < MAX_BOTS; ++s) {
+				mpSetSimSlotOn(s, true);
+			}
+
+			if (mpsims > 0) {
+				mpsimsapplied = true;
+			}
+
 			mpReset();
+
+			// setupCreateProps() caps simulant allocation at 4 unless
+			// MPFEATURE_8BOTS is unlocked, and only ever considers slots below
+			// that cap, so the rest are dropped without a word. This path loads
+			// no profile, so nothing is unlocked. Force the feature the same
+			// way the game does for a setup file that uses more than four.
+			if (mpGetNumSimSlotsOn() > 4) {
+				challengeForceUnlockOneFeature(MPFEATURE_8BOTS);
+			}
 		}
 
 		gfxReset();
