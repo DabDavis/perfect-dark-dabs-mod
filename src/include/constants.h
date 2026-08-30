@@ -4777,7 +4777,11 @@ enum weaponnum {
 // stay comfortably larger than what mpsetupfileSaveWad() writes.
 #define MPSETUP_BLOCKSIZE (96 + (MAX_BOTS * 25 + 7) / 8)
 
+// Base file format: MAX_BOTS_CONFIG simulants, readable by unmodified builds.
+#define MPSETUP_VERSION_BASE 1
+
 // File format version that first stored more than MAX_BOTS_CONFIG simulants.
+// Only used when a setup actually needs it, so files stay interoperable.
 #define MPSETUP_VERSION_EXTENDEDSIMS 2
 
 #endif

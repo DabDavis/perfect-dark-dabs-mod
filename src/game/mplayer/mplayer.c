@@ -4200,15 +4200,33 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 	challengeForceUnlockBotFeatures();
 }
 
-void mpsetupfileSaveWad(struct savebuffer *buffer)
+/**
+ * True if any simulant above the base format's capacity is in use, meaning the
+ * setup can only be stored in the extended file format.
+ */
+bool mpNeedsExtendedSims(void)
 {
+	s32 i;
+
+	for (i = MAX_BOTS_CONFIG; i < MAX_BOTS; i++) {
+		if (mpIsSimSlotOn(i)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void mpsetupfileSaveWad(struct savebuffer *buffer, u8 version)
+{
+	s32 numbots = version >= MPSETUP_VERSION_EXTENDEDSIMS ? MAX_BOTS : MAX_BOTS_CONFIG;
 	s32 numsims = 0;
 	s32 mpbodynum;
 	s32 i;
 
 	savebufferWriteString_ext(buffer, g_MpSetup.name, MPSETUP_MAXNAME + 1);
 
-	for (i = 0; i < MAX_BOTS; i++) {
+	for (i = 0; i < numbots; i++) {
 		if (mpIsSimSlotOn(i)) {
 			numsims++;
 		}
@@ -4228,8 +4246,8 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 
 	savebufferOr(buffer, g_MpSetup.options, 32);
 
-	// 25 bits per simulant. MPSETUP_BLOCKSIZE is sized to hold MAX_BOTS of them.
-	for (i = 0; i < MAX_BOTS; i++) {
+	// 25 bits per simulant, as many as this format version stores.
+	for (i = 0; i < numbots; i++) {
 		savebufferOr(buffer, g_BotConfigsArray[i].type, 5);
 
 		if (mpIsSimSlotOn(i)) {
