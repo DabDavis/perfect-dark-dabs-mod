@@ -3251,13 +3251,27 @@ void playerConfigureVi(void)
  * drives it. In multiplayer every player carries a body at all times, because
  * the other players have to see it, and playerRemoveChrBody() is already a
  * no-op there.
+ *
+ * Aiming gives first person back for as long as it lasts. The camera sits 200
+ * units behind the eye and the crosshair still marks where the gun points, but
+ * those 200 units are 200 units of the player's own back and shoulder between
+ * the eye and the shot. Aim mode is the moment the player asks for the precise
+ * view, and the precise view is the one from the eye. insightaimmode is the
+ * whole of that request whichever way it was made - held, toggled, or forced
+ * on by the horizon scanner.
+ *
+ * The toggle itself is left alone, so lowering the gun returns the player to
+ * wherever they had put the camera.
  */
 bool playerIsThirdPerson(struct player *player)
 {
 #ifdef PLATFORM_N64
 	return false;
 #else
-	return player->thirdperson && player->haschrbody && g_Vars.mplayerisrunning;
+	return player->thirdperson
+		&& !player->insightaimmode
+		&& player->haschrbody
+		&& g_Vars.mplayerisrunning;
 #endif
 }
 
