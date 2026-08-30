@@ -22,6 +22,9 @@
 #include "lib/str.h"
 #include "lib/joy.h"
 #include "data.h"
+#ifndef PLATFORM_N64
+#include "fs.h"
+#endif
 #include "gbiex.h"
 #include "types.h"
 #include "system.h"
@@ -125,11 +128,79 @@ struct mparena g_MpArenas[] = {
 	{ STAGE_MP_COMPLEX,    MPFEATURE_STAGE_COMPLEX,    L_MPMENU_134 },
 	{ STAGE_MP_FELICITY,   MPFEATURE_STAGE_FELICITY,   L_MPMENU_135 },
 	{ 1,                   0,                          L_MPMENU_136 }, // "Random"
+
+	// Arenas below here only appear when a mod directory is loaded; stock
+	// data has no multiplayer setup for these stages. They sit after "Random"
+	// so that the stock list is exactly the first MP_NUM_STOCK_ARENAS entries.
+	// Names come from g_MpArenaModNames because the text IDs a mod uses for
+	// them are not known to us.
+	{ STAGE_CRASHSITE,     0,                          0 },
+	{ STAGE_CHICAGO,       0,                          0 },
+	{ STAGE_G5BUILDING,    0,                          0 },
+	{ STAGE_PELAGIC,       0,                          0 },
+	{ STAGE_AIRBASE,       0,                          0 },
+	{ STAGE_SKEDARRUINS,   0,                          0 },
+	{ STAGE_VILLA,         0,                          0 },
+	{ STAGE_INFILTRATION,  0,                          0 },
+	{ STAGE_DEFECTION,     0,                          0 },
+	{ STAGE_AIRFORCEONE,   0,                          0 },
+	{ STAGE_INVESTIGATION, 0,                          0 },
+	{ STAGE_ATTACKSHIP,    0,                          0 },
+	{ STAGE_DEEPSEA,       0,                          0 },
+	{ STAGE_TEST_ARCH,     0,                          0 },
+	{ STAGE_TEST_DEST,     0,                          0 },
+	{ STAGE_TEST_MP2,      0,                          0 },
+	{ STAGE_TEST_MP6,      0,                          0 },
 };
+
+// 16 arenas plus "Random".
+#define MP_NUM_STOCK_ARENAS 17
+
+/**
+ * Names for the mod-only arenas, indexed from MP_NUM_STOCK_ARENAS.
+ *
+ * The trailing newline is required: textMeasure() only adds a line of height
+ * when it sees one, so a name without it renders clipped.
+ */
+static const char *g_MpArenaModNames[] = {
+	"Crash Site\n",
+	"Chicago\n",
+	"G5 Building\n",
+	"Pelagic II\n",
+	"Air Base\n",
+	"Skedar Ruins\n",
+	"Villa\n",
+	"Infiltration\n",
+	"Defection\n",
+	"Air Force One\n",
+	"Investigation\n",
+	"Attack Ship\n",
+	"Deep Sea\n",
+	"Arch\n",
+	"Dest\n",
+	"MP2\n",
+	"MP6\n",
+};
+
+char *mpGetArenaName(s32 index)
+{
+	if (index >= MP_NUM_STOCK_ARENAS && index < (s32)ARRAYCOUNT(g_MpArenas)) {
+		return (char *)g_MpArenaModNames[index - MP_NUM_STOCK_ARENAS];
+	}
+
+	return langGet(g_MpArenas[index].name);
+}
 
 s32 mpGetNumStages(void)
 {
-	return 17;
+#ifndef PLATFORM_N64
+	// The extra arenas need level data that only a mod provides.
+	if (fsGetModDir()) {
+		return ARRAYCOUNT(g_MpArenas);
+	}
+#endif
+
+	return MP_NUM_STOCK_ARENAS;
 }
 
 s16 mpChooseRandomStage(void)
@@ -173,7 +244,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		for (i = 0; i < ARRAYCOUNT(g_MpArenas); i++) {
+		for (i = 0; i < mpGetNumStages(); i++) {
 			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
 				count++;
 			}
@@ -182,10 +253,10 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		data->list.value = count;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		for (i = 0; i < ARRAYCOUNT(g_MpArenas); i++) {
+		for (i = 0; i < mpGetNumStages(); i++) {
 			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
 				if (count == data->list.value) {
-					return (uintptr_t)langGet(g_MpArenas[i].name);
+					return (uintptr_t)mpGetArenaName(i);
 				}
 
 				count++;
@@ -193,7 +264,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		}
 		break;
 	case MENUOP_SET:
-		for (i = 0; i < ARRAYCOUNT(g_MpArenas); i++) {
+		for (i = 0; i < mpGetNumStages(); i++) {
 			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
 				if (count == data->list.value) {
 					break;
@@ -206,7 +277,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		g_MpSetup.stagenum = g_MpArenas[i].stagenum;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		for (i = 0; i < ARRAYCOUNT(g_MpArenas); i++) {
+		for (i = 0; i < mpGetNumStages(); i++) {
 			if (g_MpSetup.stagenum == g_MpArenas[i].stagenum) {
 				data->list.value = count;
 			}
@@ -2350,7 +2421,7 @@ char *mpMenuTextMpconfigMarquee(struct menuitem *item)
 			sprintf(g_StringPointer, langGet(L_MPMENU_140),
 					filename,
 					langGet(g_MpScenarioOverviews[scenarionum].name),
-					langGet(g_MpArenas[arenanum].name),
+					mpGetArenaName(arenanum),
 					numsims);
 		} else {
 			return "";
@@ -2360,7 +2431,7 @@ char *mpMenuTextMpconfigMarquee(struct menuitem *item)
 		sprintf(g_StringPointer, langGet(L_MPMENU_140),
 				filename,
 				langGet(g_MpScenarioOverviews[scenarionum].name),
-				langGet(g_MpArenas[arenanum].name),
+				mpGetArenaName(arenanum),
 				numsims);
 #endif
 
@@ -5667,7 +5738,7 @@ char *mpMenuTextArenaName(struct menuitem *item)
 
 	for (i = 0; i != ARRAYCOUNT(g_MpArenas); i++) {
 		if (g_MpArenas[i].stagenum == g_MpSetup.stagenum) {
-			return langGet(g_MpArenas[i].name);
+			return mpGetArenaName(i);
 		}
 	}
 
