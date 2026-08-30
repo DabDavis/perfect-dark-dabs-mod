@@ -1370,6 +1370,11 @@ struct chrdata {
 	// still running, and the walk it would otherwise have chosen is never one
 	// of these, so a stale value cannot hold the body hostage either.
 	s16 oneshotanim;
+	// The death animation the body was given for where the fatal shot landed,
+	// or 0 if it was not given one. Not a one shot: a death is never handed
+	// back, because its last frame is the corpse, so this is held for as long
+	// as the body is playing it rather than until an end frame.
+	s16 deathanim;
 #endif
 };
 

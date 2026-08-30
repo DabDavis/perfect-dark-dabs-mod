@@ -3463,13 +3463,32 @@ static bool chrIsRollAnimPlaying(struct chrdata *chr)
 }
 
 /**
+ * Whether this chr's animation is playerChooseThirdPersonAnimation()'s to pick.
+ *
+ * A player under ACT_BONDMULTI, or a bot, which botApplyMovement() puts through
+ * the same chooser whatever action its AI is holding. Anything else - a
+ * cutscene, an eyespy, a solo guard - is running its own animation for a
+ * reason, and the animations below are all written on the assumption that the
+ * chooser will take the body back afterwards.
+ */
+static bool chrIsThirdPersonBody(struct chrdata *chr)
+{
+	if (chr == NULL || chr->model == NULL || chr->model->anim == NULL) {
+		return false;
+	}
+
+	if (chr->aibot == NULL && chr->actiontype != ACT_BONDMULTI) {
+		return false;
+	}
+
+	return true;
+}
+
+/**
  * Whether a one shot animation can be started on this chr at all.
  *
- * Only a body whose animation playerChooseThirdPersonAnimation() is choosing,
- * which is what leaves an animation free to be interrupted and given back: a
- * player under ACT_BONDMULTI, or a bot, which botApplyMovement() puts through
- * the same chooser whatever action its AI is holding. Anything else - a
- * cutscene, an eyespy, a death - is running its own animation for a reason.
+ * A body the chooser is driving, and one that is still alive: a one shot is
+ * borrowed and given back, and a death is neither.
  *
  * A body part way through a merge is not refused, though the chooser refuses
  * its own walk transitions on exactly that test. The chooser can afford to
@@ -3484,19 +3503,7 @@ static bool chrIsRollAnimPlaying(struct chrdata *chr)
  */
 static bool chrCanPlayOneShotAnim(struct chrdata *chr)
 {
-	if (chr == NULL || chr->model == NULL || chr->model->anim == NULL) {
-		return false;
-	}
-
-	if (chr->aibot == NULL && chr->actiontype != ACT_BONDMULTI) {
-		return false;
-	}
-
-	if (chrIsDead(chr)) {
-		return false;
-	}
-
-	return true;
+	return chrIsThirdPersonBody(chr) && !chrIsDead(chr);
 }
 
 #endif
@@ -3742,6 +3749,150 @@ void chrPlayArghAnimation(struct chrdata *chr, f32 angle, s32 hitpart)
 	}
 
 	chrBeginArghWithAction(chr, angle, hitpart, true);
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * Die, on a third person body that was driving its own movement.
+ *
+ * chrBeginDeath() picks a guard's death animation out of g_AnimTablesByRace by
+ * where the fatal shot landed, and out of a directional set when it came from
+ * behind. Neither a player nor a simulant has ever reached that: a bot dies
+ * through chrDie(), which assigns ACT_DIE and no animation, and a player
+ * through playerDieByShooter(), which assigns neither. What both get instead is
+ * playerChooseThirdPersonAnimation()'s dead branch, and that picks one of eight
+ * animations at random - the same eight for a shot to the head as for one to
+ * the foot.
+ *
+ * So this is the selection and nothing else. The action, the items dropped, the
+ * kill recorded and the corpse's own tick are all the caller's, and already
+ * done by the time it gets here.
+ *
+ * The animation is not handed back at an end frame the way a one shot is,
+ * because a death's last frame is the corpse. The chooser recognises it by
+ * chr->deathanim instead, and leaves the body alone for as long as it is
+ * playing it.
+ *
+ * Two things in chrBeginDeath() are deliberately not copied:
+ *
+ * The slump against a wall - one in twenty, when a wall is close behind - sets
+ * chr->radius to 10 so the body can sit in it, and nothing puts it back.
+ * botReset() does not, and a player's radius is written only when they spawn.
+ * A guard never gets up; a simulant does, and would carry the smaller radius
+ * for the rest of the match, choosing its next spawn point with it.
+ *
+ * And the impact force a magnum is meant to throw a body with, which is written
+ * to chr->act_die.timeextra and chr->act_die.extraspeed. Nothing reads those.
+ * The fields the movement code reads are chr->timeextra and chr->extraspeed on
+ * the chr itself, so the block does nothing in stock either.
+ */
+void chrPlayDeathAnimation(struct chrdata *chr, f32 relangle, s32 hitpart)
+{
+	struct model *model = chr->model;
+	s32 race = CHRRACE(chr);
+	struct animtablerow *row = NULL;
+	struct animtable *table;
+	bool frombehind = relangle > 2.3558194637299f && relangle < 3.9263656139374f;
+	bool flip = false;
+	f32 endframe = -1;
+	s32 index = -1;
+	s32 i;
+
+	if (!chrIsThirdPersonBody(chr) || !chrIsDead(chr)) {
+		return;
+	}
+
+	// Dropped before the selection rather than after it, so that a death which
+	// finds no row leaves the chooser reading nothing rather than the number
+	// from the last time this body died.
+	chr->deathanim = 0;
+
+	// The other three races have no death animations in the table at all.
+	// A simulant is one or the other of these; so is a player, whose race
+	// comes off the body they picked.
+	if (race != RACE_HUMAN && race != RACE_SKEDAR) {
+		return;
+	}
+
+	for (i = 0; g_AnimTablesByRace[race][i].hitpart != -1; i++) {
+		if (g_AnimTablesByRace[race][i].hitpart == hitpart) {
+			index = i;
+			break;
+		}
+	}
+
+	if (race == RACE_HUMAN && frombehind && rngRandom() % 5 < 2) {
+		// Shot in the back: two in five fall forwards instead. The animations
+		// and the odds are chrBeginDeath()'s, and so is the arm that chooses
+		// between them - a bicep hit falls the way the arm was hit.
+		struct animtablerow rows[] = {
+			{ 0x005b, 0, -1, 0.6, 0, 27, -1 },
+			{ 0x0255, 0, -1, 0.5, 0, 25, -1 },
+		};
+
+		if (hitpart == HITPART_LBICEP || hitpart == HITPART_RBICEP) {
+			row = &rows[0];
+			flip = hitpart == HITPART_LBICEP;
+		} else {
+			row = &rows[1];
+			flip = rngRandom() % 2;
+		}
+
+		if (row->endframe >= 0) {
+			endframe = chrGetRangedArghSpeed(chr, row->endframe, 8);
+		} else {
+			endframe = chrGetRangedArghSpeed(chr, animGetNumFrames(row->animnum) - 1, 8);
+		}
+	} else if (race == RACE_SKEDAR && frombehind) {
+		// A Skedar shot from behind takes a random leg's death animations
+		// rather than the ones for where the shot landed. chrBeginDeath()
+		// indexes those six tables and their first three rows without checking
+		// either is there, and can afford to: tables 1 to 6 are the feet, shins
+		// and thighs, and each holds exactly three.
+		row = &g_AnimTablesByRace[race][1 + (rngRandom() % 6)].deathanims[rngRandom() % 3];
+		flip = row->flip;
+		endframe = row->endframe;
+	} else if (index >= 0) {
+		table = &g_AnimTablesByRace[race][index];
+
+		if (table->deathanims && table->deathanimcount > 0) {
+			row = &table->deathanims[rngRandom() % table->deathanimcount];
+			flip = row->flip;
+			endframe = row->endframe;
+		}
+	}
+
+	// No animation for this hit location: a hat, a gun, or whatever an
+	// explosion reports. The chooser's random pick still covers it, which is
+	// what every death in the Combat Simulator has always been.
+	if (row == NULL) {
+		return;
+	}
+
+	// Merged rather than instant, and merged even if the body is already
+	// merging. A death arrives on a body that was flinching from the shot
+	// before it more often than not, and modelCopyAnimForMerge() takes a blend
+	// in progress as the thing to blend out of.
+	modelSetAnimationWithMerge(model, row->animnum, flip, 0, row->speed, 16, true);
+
+	if (endframe >= 0) {
+		modelSetAnimEndFrame(model, endframe);
+	}
+
+	chr->deathanim = row->animnum;
+
+	// The frames the body lands on, which chrTickDie() turns into thuds. A bot
+	// is in ACT_DIE by now, so act_die is the live member of its action union
+	// and the tick that reads these is running. A player is not: their chr
+	// holds ACT_BONDMULTI right through being dead, because player.c assigns it
+	// every tick to any body the chooser is driving, so act_die there is
+	// act_bondmulti's animcfg pointer wearing another name. Player bodies land
+	// silently.
+	if (chr->aibot) {
+		chr->act_die.thudframe1 = row->thudframe1;
+		chr->act_die.thudframe2 = row->thudframe2;
+	}
 }
 #endif
 
@@ -5041,7 +5192,17 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					if (g_Vars.currentplayer->haschrbody) {
 						chrFlinchBody(chr);
 #ifndef PLATFORM_N64
-						chrPlayArghAnimation(chr, angle, hitpart);
+						// playerDieByShooter() has already run above if this was
+						// the shot that killed, so chrIsDead() is the question
+						// of which of the two the body wants. The flinch would
+						// refuse a dead body anyway; asking here is what says
+						// the death is the more interesting thing that just
+						// happened to it.
+						if (chrIsDead(chr)) {
+							chrPlayDeathAnimation(chr, angle, hitpart);
+						} else {
+							chrPlayArghAnimation(chr, angle, hitpart);
+						}
 #endif
 					}
 				}
@@ -5197,6 +5358,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 
 					if (chr->damage >= chr->maxdamage) {
 						chrDie(chr, aplayernum);
+#ifndef PLATFORM_N64
+						// After chrDie(), which puts the bot in ACT_DIE and
+						// leaves the animation to whoever wants it.
+						chrPlayDeathAnimation(chr, angle, hitpart);
+#endif
 					}
 #ifndef PLATFORM_N64
 					else {

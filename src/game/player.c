@@ -5911,18 +5911,31 @@ void playerChooseThirdPersonAnimation(struct chrdata *chr, s32 crouchpos, f32 sp
 		// Choose a death animation
 		bool found = false;
 
-		for (i = 0; i < g_NumDeathAnimations; i++) {
-			if (g_DeathAnimations[i] == prevanimnum) {
-				found = true;
-				break;
-			}
-		}
-
-		if (found) {
+		// Unless one has already been chosen for where the fatal shot landed.
+		// chrPlayDeathAnimation() started it at the moment of death and left
+		// its number here, and unlike a one shot it is never given back: the
+		// last frame of a death is the corpse, so the test is what the body is
+		// playing and not how far through it is. Leaving the speed as it was
+		// started keeps the reconfigure at the bottom from touching it.
+		if (chr->deathanim != 0 && prevanimnum == chr->deathanim) {
 			animnum = prevanimnum;
-			speed = 0.5f;
+			speed = modelGetAnimSpeed(chr->model);
 		} else {
-			animnum = g_DeathAnimations[rngRandom() % g_NumDeathAnimations];
+			for (i = 0; i < g_NumDeathAnimations; i++) {
+				if (g_DeathAnimations[i] == prevanimnum) {
+					found = true;
+					break;
+				}
+			}
+
+			if (found) {
+				animnum = prevanimnum;
+			} else {
+				// A death that reached no animation table: a fall into a pit,
+				// a hit location with no rows of its own, a race with none.
+				animnum = g_DeathAnimations[rngRandom() % g_NumDeathAnimations];
+			}
+
 			speed = 0.5f;
 		}
 
