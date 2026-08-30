@@ -2836,6 +2836,11 @@ struct player {
 	// by the HUD, which draws the first person gun whenever the camera is on
 	// the eye.
 	f32 thirdpersondist;
+	// Where the camera ended up on the last frame it was behind a living
+	// player. Death stops the camera here and turns it to watch the body fall,
+	// so the two are read together: a distance of 0 means there is no frozen
+	// camera to go back to, and the death is the stock first person one.
+	struct coord thirdpersoncampos;
 #endif
 };
 

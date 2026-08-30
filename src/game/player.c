@@ -3317,6 +3317,11 @@ void playerConfigureVi(void)
  *
  * The toggle itself is left alone, so lowering the gun returns the player to
  * wherever they had put the camera.
+ *
+ * A dead player is not aiming, whatever insightaimmode still says. Nothing
+ * clears it on death - bmoveProcessInput() stops reading the controller
+ * instead - so dying with the gun up would otherwise leave the request set for
+ * the whole death and hand back the one view the death has no use for.
  */
 bool playerIsThirdPerson(struct player *player)
 {
@@ -3324,7 +3329,7 @@ bool playerIsThirdPerson(struct player *player)
 	return false;
 #else
 	return playerWantsThirdPerson(player)
-		&& !player->insightaimmode
+		&& (!player->insightaimmode || player->isdead)
 		&& player->haschrbody;
 #endif
 }
@@ -3381,6 +3386,75 @@ static void playerPullBackCamera(struct coord *campos)
 	campos->x -= g_Vars.currentplayer->bond2.unk1c.x * dist;
 	campos->y -= g_Vars.currentplayer->bond2.unk1c.y * dist;
 	campos->z -= g_Vars.currentplayer->bond2.unk1c.z * dist;
+
+	// Kept for the death camera, which stops here rather than working out
+	// somewhere of its own to stand.
+	g_Vars.currentplayer->thirdpersoncampos = *campos;
+}
+
+/**
+ * Watch the body fall, from wherever the camera was standing when it did.
+ *
+ * Death is a first person animation. bheadStartDeathAnimation() plays it on
+ * the player's own model and bheadUpdate() hands the head bone's position and
+ * orientation to the camera, which is how stock collapses the view to the
+ * floor. Pulling the camera back along that orientation does not survive it:
+ * within a few frames the head is looking at the carpet, so the trace behind
+ * the eye is straight into the floor, the clamp cuts it below
+ * THIRDPERSON_CAMMINDIST, and the death plays out in first person - the one
+ * view where the animation everyone else can see is the one thing not on
+ * screen.
+ *
+ * So the death camera stops using the head. The eye is still worth having as
+ * the thing to look at, since it is the head bone and follows the body down,
+ * but the camera holds the position it had on the last living frame and turns
+ * to keep the eye centred. It is where the player was already watching from,
+ * so there is nothing to cut to: the picture is unchanged at the moment of
+ * death and the camera simply stays put while the body drops out from under
+ * it.
+ *
+ * That last position is also the last one a wall was traced against, and the
+ * body is not going anywhere, so the clearance it was given still holds and
+ * there is nothing to re-clamp. A distance of 0 means the camera was on the
+ * eye when the player died - first person, or backed into a wall - and stock
+ * takes the death from here.
+ */
+static void playerDeathCamera(struct coord *campos, struct coord *camup, struct coord *camlook)
+{
+	struct coord look;
+	f32 len;
+
+	if (g_Vars.currentplayer->thirdpersondist <= 0
+			|| !playerIsThirdPerson(g_Vars.currentplayer)) {
+		return;
+	}
+
+	look.x = campos->x - g_Vars.currentplayer->thirdpersoncampos.x;
+	look.y = campos->y - g_Vars.currentplayer->thirdpersoncampos.y;
+	look.z = campos->z - g_Vars.currentplayer->thirdpersoncampos.z;
+
+	len = sqrtf(look.x * look.x + look.y * look.y + look.z * look.z);
+
+	// The body would have to have been thrown into the camera's lap for this,
+	// but a look vector of no length has no direction to give.
+	if (len < 1) {
+		return;
+	}
+
+	*campos = g_Vars.currentplayer->thirdpersoncampos;
+
+	// Unit length, because that is what the rest of the game gets from
+	// bond2.unk1c and reads cam_look as. The camera matrix would normalise it
+	// either way; the star field and the gas cloud would not.
+	camlook->x = look.x / len;
+	camlook->y = look.y / len;
+	camlook->z = look.z / len;
+
+	// The head is rolling with the animation and the camera is not following it
+	// any more, so up is up. The camera matrix squares the two off.
+	camup->x = 0;
+	camup->y = 1;
+	camup->z = 0;
 }
 
 void playerTick(bool arg0)
@@ -3942,6 +4016,8 @@ void playerTick(bool arg0)
 		f32 b = 0;
 		f32 c = 0;
 		struct coord spf4;
+		struct coord camup;
+		struct coord camlook;
 		struct prop *prop;
 		struct chrdata *chr;
 		s32 i;
@@ -3980,16 +4056,22 @@ void playerTick(bool arg0)
 		spf4.y = b + spf4.y;
 		spf4.z = c + spf4.z;
 
-		// The eye position and both basis vectors are left alone, so everything
-		// downstream carries on as if the camera had not moved - including the
-		// room search below, which is handed the player's own position as the
-		// hint and so resolves the camera's room the way the Slayer rocket's
-		// does.
-		playerPullBackCamera(&spf4);
+		camup = g_Vars.currentplayer->bond2.unk28;
+		camlook = g_Vars.currentplayer->bond2.unk1c;
 
-		player0f0c1840(&spf4,
-				&g_Vars.currentplayer->bond2.unk28,
-				&g_Vars.currentplayer->bond2.unk1c,
+		// The eye position and both basis vectors in bond2 are left alone, so
+		// everything downstream carries on as if the camera had not moved -
+		// including the room search below, which is handed the player's own
+		// position as the hint and so resolves the camera's room the way the
+		// Slayer rocket's does. Only the copies the camera is built from move,
+		// and while the player is alive only the position of it does.
+		if (g_Vars.currentplayer->isdead) {
+			playerDeathCamera(&spf4, &camup, &camlook);
+		} else {
+			playerPullBackCamera(&spf4);
+		}
+
+		player0f0c1840(&spf4, &camup, &camlook,
 				&g_Vars.currentplayer->prop->pos,
 				g_Vars.currentplayer->prop->rooms);
 
