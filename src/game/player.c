@@ -1114,14 +1114,12 @@ void playerSpawn(void)
 				invGiveSingleWeapon(WEAPON_NIGHTVISION);
 			}
 
-			if (g_Vars.normmplayerisrunning
-					&& (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)
-					&& g_MpSetup.weapons[0] != MPWEAPON_NONE
-					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
-					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-				struct mpweapon *mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
+			const s32 spawnweapon = mpGetSpawnWeapon();
+
+			if (spawnweapon >= 0) {
+				struct mpweapon *mpweapon = &g_MpWeapons[spawnweapon];
 				invGiveSingleWeapon(mpweapon->weaponnum);
-				const s32 ammotype = (g_MpSetup.weapons[0] == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
+				const s32 ammotype = (spawnweapon == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
 				if (ammotype) {
 					s32 startammo = mpweapon->priammoqty / 2;
 					if (startammo == 0) {

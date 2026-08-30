@@ -2913,6 +2913,10 @@
 #define MPOPTION_FRIENDLYFIRE           0x02000000
 #define MPOPTION_NOPLAYERONRADAR        0x04000000
 #define MPOPTION_NODOORS                0x08000000
+// Modifies MPOPTION_SPAWNWITHWEAPON, and is meaningless without it. An older
+// build reading a setup file that has both set just spawns everyone with the
+// arena's first weapon slot, which is what Start Armed used to mean.
+#define MPOPTION_SPAWNWITHRANDOMWEAPON  0x10000000
 
 #define MPPAUSEMODE_UNPAUSED 0
 #define MPPAUSEMODE_PAUSED   1
@@ -3830,6 +3834,10 @@
 #define AUTORANDOMWEAPON_OFF   0
 #define AUTORANDOMWEAPON_START 1
 #define AUTORANDOMWEAPON_END   2
+
+#define SPAWNWEAPON_OFF    0
+#define SPAWNWEAPON_FIRST  1
+#define SPAWNWEAPON_RANDOM 2
 
 #define SMOKETYPE_NONE             0
 #define SMOKETYPE_ELECTRICAL       1 // Dr Caroll, mainframes in Infiltration bunker

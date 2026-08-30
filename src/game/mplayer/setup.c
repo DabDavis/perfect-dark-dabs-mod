@@ -6890,14 +6890,58 @@ void func0f17fcb0(s32 silent)
 	}
 }
 
+/**
+ * Off, or which weapon everyone spawns holding.
+ *
+ * This was a Start Armed checkbox meaning "the arena's first weapon slot".
+ * MPOPTION_SPAWNWITHWEAPON still means exactly that on its own, so setups saved
+ * by an older build keep working and read back as First Weapon.
+ */
+MenuItemHandlerResult menuhandlerMpSpawnWeapon(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static char *labels[] = {
+		"Off",
+		"First Weapon",
+		"Random",
+	};
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(labels);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)labels[data->dropdown.value];
+	case MENUOP_SET:
+		g_MpSetup.options &= ~(MPOPTION_SPAWNWITHWEAPON | MPOPTION_SPAWNWITHRANDOMWEAPON);
+
+		if (data->dropdown.value == SPAWNWEAPON_FIRST) {
+			g_MpSetup.options |= MPOPTION_SPAWNWITHWEAPON;
+		} else if (data->dropdown.value == SPAWNWEAPON_RANDOM) {
+			g_MpSetup.options |= MPOPTION_SPAWNWITHWEAPON | MPOPTION_SPAWNWITHRANDOMWEAPON;
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		if (g_MpSetup.options & MPOPTION_SPAWNWITHRANDOMWEAPON) {
+			data->dropdown.value = SPAWNWEAPON_RANDOM;
+		} else if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
+			data->dropdown.value = SPAWNWEAPON_FIRST;
+		} else {
+			data->dropdown.value = SPAWNWEAPON_OFF;
+		}
+		break;
+	}
+
+	return 0;
+}
+
 struct menuitem g_MpExtGameOptionsMenuItems[] = {
 	{
-		MENUITEMTYPE_CHECKBOX,
+		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LOCKABLEMINOR | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Start Armed",
-		MPOPTION_SPAWNWITHWEAPON,
-		menuhandlerMpCheckboxOption,
+		(uintptr_t)"Start Armed\n",
+		0,
+		menuhandlerMpSpawnWeapon,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

@@ -1107,6 +1107,87 @@ s32 func0f188bcc(void)
 	return NUM_MPWEAPONS;
 }
 
+/**
+ * Can a player or simulant spawn holding this g_MpWeapons entry?
+ *
+ * Nothing, Shield and Disabled are weapon set placeholders rather than weapons.
+ * The unlock check mirrors mpGetNumWeaponOptions(), so a random roll cannot hand
+ * out something the weapon menu would not offer.
+ */
+static bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
+{
+	if (mpweapon->weaponnum == WEAPON_NONE
+			|| mpweapon->weaponnum == WEAPON_MPSHIELD
+			|| mpweapon->weaponnum == WEAPON_DISABLED) {
+		return false;
+	}
+
+	return challengeIsFeatureUnlocked(mpweapon->unlockfeature);
+}
+
+/**
+ * The g_MpWeapons index a player or simulant should spawn holding, or -1 to
+ * spawn unarmed.
+ *
+ * SPAWNWEAPON_FIRST hands out the arena's first weapon slot, which is what the
+ * stock Start Armed checkbox did.
+ *
+ * SPAWNWEAPON_RANDOM rolls the whole weapon table rather than the arena's six
+ * slots. The arena's slots are what everyone is meant to be fighting over, and
+ * with 80 simulants they are gone within seconds of the match starting, so
+ * drawing spawn weapons from them would still leave most of the lobby unarmed.
+ *
+ * This is rolled per spawn, so it applies at the start of the match and again
+ * on every respawn.
+ *
+ * Models are not preloaded for the pool. Both weaponCreateForChr() and
+ * weaponCreateProjectileFromGset() call setupLoadModeldef() themselves, which is
+ * how solo missions already hand out weapons the stage never spawns; preloading
+ * 40-odd weapons and their projectiles up front would cost more MEMPOOL_STAGE
+ * than it saves.
+ */
+s32 mpGetSpawnWeapon(void)
+{
+	s32 count = 0;
+	s32 i;
+
+	if (!g_Vars.normmplayerisrunning || (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) == 0) {
+		return -1;
+	}
+
+	if ((g_MpSetup.options & MPOPTION_SPAWNWITHRANDOMWEAPON) == 0) {
+		s32 slot = g_MpSetup.weapons[0];
+
+		if (slot >= ARRAYCOUNT(g_MpWeapons) || !mpCanSpawnWithWeapon(&g_MpWeapons[slot])) {
+			return -1;
+		}
+
+		return slot;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
+		if (mpCanSpawnWithWeapon(&g_MpWeapons[i])) {
+			count++;
+		}
+	}
+
+	if (count == 0) {
+		return -1;
+	}
+
+	// Walk the table a second time rather than build a candidate array; this
+	// runs once per spawn, and the table is fixed at NUM_MPWEAPONS entries.
+	count = rngRandom() % count;
+
+	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
+		if (mpCanSpawnWithWeapon(&g_MpWeapons[i]) && count-- == 0) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
 s32 mpGetNumWeaponOptions(void)
 {
 	s32 count = 0;
