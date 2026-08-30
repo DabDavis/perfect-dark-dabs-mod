@@ -114,7 +114,7 @@ struct menudialogdef g_MpDropOutMenuDialog = {
 
 // Arenas written into the tables at build time: the stock ones plus those for
 // stages mod_allinone supplies. The loader appends to these at runtime.
-#define MP_NUM_MOD_ARENAS_STATIC 20
+#define MP_NUM_MOD_ARENAS_STATIC 19
 #define MP_NUM_ARENAS_STATIC (MP_NUM_STOCK_ARENAS + MP_NUM_MOD_ARENAS_STATIC)
 
 struct mparena g_MpArenas[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES] = {
@@ -161,7 +161,6 @@ struct mparena g_MpArenas[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES] = {
 	{ STAGE_TEST_MP6,      0,                          0 },
 	{ STAGE_TEST_LAM,      0,                          0 },
 	{ STAGE_DEFENSE,       0,                          0 },
-	{ STAGE_WAR,           0,                          0 },
 };
 
 // Grows as the mod loader registers arenas.
@@ -197,7 +196,6 @@ static const char *g_MpArenaModNames[MP_NUM_MOD_ARENAS_STATIC + MAX_MODSTAGES] =
 	"MP6\n",
 	"Lam\n",
 	"Defense\n",
-	"WAR!\n",
 };
 
 char *mpGetArenaName(s32 index)
