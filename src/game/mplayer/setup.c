@@ -151,6 +151,8 @@ struct mparena g_MpArenas[] = {
 	{ STAGE_TEST_DEST,     0,                          0 },
 	{ STAGE_TEST_MP2,      0,                          0 },
 	{ STAGE_TEST_MP6,      0,                          0 },
+	{ STAGE_TEST_LAM,      0,                          0 },
+	{ STAGE_DEFENSE,       0,                          0 },
 };
 
 // 16 arenas plus "Random".
@@ -180,6 +182,8 @@ static const char *g_MpArenaModNames[] = {
 	"Dest\n",
 	"MP2\n",
 	"MP6\n",
+	"Lam\n",
+	"Defense\n",
 };
 
 char *mpGetArenaName(s32 index)
