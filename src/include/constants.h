@@ -404,6 +404,42 @@
 #define CAMERAMODE_THIRDPERSON 1
 #define CAMERAMODE_EYESPY      2
 
+/**
+ * How far behind the eye the playable third person camera sits, and how much
+ * clearance it keeps from whatever it backs into.
+ *
+ * The offset is along the view axis and nothing else. Screen centre then lies
+ * on the same ray the eye was already looking down, so the crosshair still
+ * marks where the gun points and none of the aiming code needs to know the
+ * camera moved at all. A sideways or vertical offset would break that and cost
+ * a reprojection pass.
+ *
+ * 200 units is a little over Joanna's standing height - vv_eyeheight comes out
+ * of g_HeadsAndBodies at around 160 - which is far enough back to see her
+ * without the camera spending every corridor pinned against a wall.
+ *
+ * The clearance is held back from a wall the camera would otherwise sit inside.
+ * The near plane is close enough that geometry does not visibly clip, but a
+ * camera flush against a wall fills the screen with that wall's texture.
+ */
+#define THIRDPERSON_CAMDIST      200.0f
+#define THIRDPERSON_CAMCLEARANCE 30.0f
+
+/**
+ * The shortest pull-back worth having.
+ *
+ * A corridor or a corner can clamp the camera down to nothing, and a camera
+ * sitting inside Joanna's head is neither view: it looks like first person with
+ * the gun missing, because the view model is dropped whenever the camera is off
+ * the eye. Below this the camera stays on the eye and the gun comes back, so a
+ * tight spot gives first person for as long as it lasts rather than a broken
+ * third one.
+ *
+ * 60 is roughly where she stops filling the screen - a third of the standing
+ * height, which is about 180 units.
+ */
+#define THIRDPERSON_CAMMINDIST 60.0f
+
 #define CASING_NONE     -1
 #define CASING_STANDARD 0
 #define CASING_REAPER   1
@@ -4797,6 +4833,7 @@ enum weaponnum {
 #define BUTTON_CROUCH_CYCLE   CONT_8000
 #define BUTTON_HALF_CROUCH    CONT_4000
 #define BUTTON_FULL_CROUCH    CONT_2000
+#define BUTTON_THIRDPERSON    CONT_1000
 
 #define BUTTON_UI_ACCEPT      CONT_0010
 #define BUTTON_UI_CANCEL      CONT_0020

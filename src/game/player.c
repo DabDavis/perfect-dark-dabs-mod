@@ -3241,6 +3241,80 @@ void playerConfigureVi(void)
 	viSetBufSize(playerGetFbWidth(), playerGetFbHeight());
 }
 
+/**
+ * Whether this player is currently watching themselves from behind.
+ *
+ * Multiplayer only. In solo play playerRemoveChrBody() frees the body model and
+ * hands its memory to the first person gun - the two share one gunmem pool, and
+ * lv.c stops loading the gun entirely once the camera is off the eye - so there
+ * would be nothing to look at until that swap is driven the way a cutscene
+ * drives it. In multiplayer every player carries a body at all times, because
+ * the other players have to see it, and playerRemoveChrBody() is already a
+ * no-op there.
+ */
+bool playerIsThirdPerson(struct player *player)
+{
+#ifdef PLATFORM_N64
+	return false;
+#else
+	return player->thirdperson && player->haschrbody && g_Vars.mplayerisrunning;
+#endif
+}
+
+/**
+ * Back the camera off along the view axis for third person, stopping short of
+ * whatever is behind the player.
+ *
+ * cdExamLos08() reports the first thing between the eye and where the camera
+ * wants to be and cdGetPos() gives the point it hit. The camera stops
+ * THIRDPERSON_CAMCLEARANCE short of that rather than at it, because sitting
+ * flush against a wall fills the screen with that wall.
+ *
+ * The trace starts at the eye rather than at the player's feet so that it
+ * follows the camera exactly, and only BG and closed doors block it. Props do
+ * not: pulling the view in every time a simulant walked behind you would be
+ * unusable in a match with twenty of them, and a body between the camera and
+ * the player reads as an obstruction anyway.
+ */
+static void playerPullBackCamera(struct coord *campos)
+{
+	struct coord back;
+	struct coord hit;
+	f32 dist = THIRDPERSON_CAMDIST;
+
+	g_Vars.currentplayer->thirdpersondist = 0;
+
+	if (!playerIsThirdPerson(g_Vars.currentplayer)) {
+		return;
+	}
+
+	back.x = campos->x - g_Vars.currentplayer->bond2.unk1c.x * dist;
+	back.y = campos->y - g_Vars.currentplayer->bond2.unk1c.y * dist;
+	back.z = campos->z - g_Vars.currentplayer->bond2.unk1c.z * dist;
+
+	if (cdExamLos08(campos, g_Vars.currentplayer->prop->rooms, &back,
+				CDTYPE_BG | CDTYPE_CLOSEDDOORS,
+				GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT) == CDRESULT_COLLISION) {
+		cdGetPos(&hit, __LINE__, "player.c");
+
+		dist = sqrtf((hit.x - campos->x) * (hit.x - campos->x)
+				+ (hit.y - campos->y) * (hit.y - campos->y)
+				+ (hit.z - campos->z) * (hit.z - campos->z)) - THIRDPERSON_CAMCLEARANCE;
+
+		// Nothing between here and THIRDPERSON_CAMMINDIST is a view: leave the
+		// camera on the eye and let the HUD put the gun back.
+		if (dist < THIRDPERSON_CAMMINDIST) {
+			return;
+		}
+	}
+
+	g_Vars.currentplayer->thirdpersondist = dist;
+
+	campos->x -= g_Vars.currentplayer->bond2.unk1c.x * dist;
+	campos->y -= g_Vars.currentplayer->bond2.unk1c.y * dist;
+	campos->z -= g_Vars.currentplayer->bond2.unk1c.z * dist;
+}
+
 void playerTick(bool arg0)
 {
 	f32 aspectratio;
@@ -3822,6 +3896,13 @@ void playerTick(bool arg0)
 		spf4.x = a + spf4.x;
 		spf4.y = b + spf4.y;
 		spf4.z = c + spf4.z;
+
+		// The eye position and both basis vectors are left alone, so everything
+		// downstream carries on as if the camera had not moved - including the
+		// room search below, which is handed the player's own position as the
+		// hint and so resolves the camera's room the way the Slayer rocket's
+		// does.
+		playerPullBackCamera(&spf4);
 
 		player0f0c1840(&spf4,
 				&g_Vars.currentplayer->bond2.unk28,
@@ -4619,7 +4700,20 @@ Gfx *playerRenderHud(Gfx *gdl)
 	if (g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY) {
 		bgunTickGameplay2();
 		gdl = boltbeamsRender(gdl);
-		bgunRender(&gdl);
+
+		// In third person the gun is in Joanna's hands, drawn with the rest of
+		// her. The view model is drawn in screen space from an eye the camera
+		// is no longer sitting at, so it would hang across the picture. Only
+		// the model goes: bgunTickGameplay2() above still runs, and the
+		// crosshair below is still correct, the camera having moved only along
+		// the axis it aims down.
+		//
+		// The distance rather than the toggle, because a wall can hold the
+		// camera on the eye, and that frame wants its gun.
+		if (g_Vars.currentplayer->thirdpersondist <= 0) {
+			bgunRender(&gdl);
+		}
+
 		gdl = lasersightRenderDot(gdl);
 
 		if (g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
@@ -5486,9 +5580,14 @@ s32 playerTickThirdPerson(struct prop *prop)
 		}
 	}
 
+	// The first of these is every other player in a multiplayer match: input
+	// drives the player and the body follows it, which is exactly what our own
+	// body needs to do once we can see it. The condition has never had to
+	// include the player looking through their own eyes before.
 	if (player->haschrbody
 			&& player->model00d4
 			&& ((g_Vars.mplayerisrunning && g_Vars.currentplayernum != playernum)
+				|| playerIsThirdPerson(player)
 				|| player->cameramode == CAMERAMODE_EYESPY
 				|| (player->cameramode == CAMERAMODE_THIRDPERSON && player->visionmode == VISIONMODE_SLAYERROCKET))) {
 		chr->actiontype = ACT_BONDMULTI;

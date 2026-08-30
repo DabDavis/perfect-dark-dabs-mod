@@ -2827,6 +2827,15 @@ struct player {
 	/*0x1c72*/ s16 amdowntime; // for alt-modes, used like invdowntime and amdowntime
 #ifndef PLATFORM_N64
 	/*0x1c74*/ f32 swivelpos[2];
+	// Whether this player is watching the match from behind themselves. It is
+	// how one player is looking at the arena rather than a rule of it, so it
+	// lives here and not in mpsetup.options, and is not saved.
+	bool thirdperson;
+	// How far back the camera actually got this frame after walls were taken
+	// into account, or 0 when it could not get far enough to be worth it. Read
+	// by the HUD, which draws the first person gun whenever the camera is on
+	// the eye.
+	f32 thirdpersondist;
 #endif
 };
 

@@ -78,6 +78,7 @@ void playerSetShieldFrac(f32 frac);
 s32 playerGetMissionTime(void);
 s32 playerTickBeams(struct prop *prop);
 s32 playerTickThirdPerson(struct prop *prop);
+bool playerIsThirdPerson(struct player *player);
 void playerChooseThirdPersonAnimation(struct chrdata *chr, s32 crouchpos, f32 speedsideways, f32 speedforwards, f32 speedtheta, f32 *angleoffset, struct attackanimconfig **animcfg);
 Gfx *playerRender(struct prop *prop, Gfx *gdl, bool xlupass);
 Gfx *playerLoadMatrix(Gfx *gdl);
