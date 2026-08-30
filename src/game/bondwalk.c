@@ -290,9 +290,20 @@ bool bwalkCanMoveUpwards(f32 amount)
  * The headroom test is not strictly needed, since bwalkTryMoveUpwards() stops
  * the ascent at a ceiling anyway, but starting a jump with nothing overhead to
  * rise into just spends the impulse on nothing.
+ *
+ * Called from lvRender() on a use press that found nothing to use, which is a
+ * frame later than the tick that read the button. bwalkUpdateVertical() takes
+ * the branch on the velocity itself, not on being airborne, so an impulse left
+ * here survives to the next tick and is integrated there.
  */
 void bwalkTryJump(void)
 {
+	if (!g_Vars.normmplayerisrunning
+			|| !mpIsJumpEnabled()
+			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK) {
+		return;
+	}
+
 	if (g_Vars.currentplayer->isfalling
 			|| g_Vars.currentplayer->bdeltapos.y > 0.0f
 			|| g_Vars.currentplayer->vv_manground > g_Vars.currentplayer->vv_ground) {

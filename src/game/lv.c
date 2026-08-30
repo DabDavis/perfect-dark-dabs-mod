@@ -10,6 +10,7 @@
 #include "game/bondhead.h"
 #include "game/bondmove.h"
 #include "game/bondview.h"
+#include "game/bondwalk.h"
 #include "game/camdraw.h"
 #include "game/casing.h"
 #include "game/cheats.h"
@@ -1341,7 +1342,7 @@ Gfx *lvRender(Gfx *gdl)
 					}
 				}
 
-				// Handle opening doors and reloading
+				// Handle opening doors, jumping and reloading
 				if (g_Vars.currentplayer->bondactivateorreload & JO_ACTION_ACTIVATE) {
 					if (!currentPlayerInteract(false)) {
 #ifndef PLATFORM_N64
@@ -1351,6 +1352,17 @@ Gfx *lvRender(Gfx *gdl)
 						}
 #endif
 					}
+#ifndef PLATFORM_N64
+					else {
+						// Jump shares the use button, and loses to it. This is
+						// the same test the door itself gets: currentPlayerInteract()
+						// returns true only when propFindForInteract() found
+						// nothing in front of the player to open or operate, so
+						// a press that reached a door - even a locked one - is
+						// spent on the door and never becomes a jump.
+						bwalkTryJump();
+					}
+#endif
 				} else if (g_Vars.currentplayer->eyespy
 						&& g_Vars.currentplayer->eyespy->active
 						&& g_Vars.currentplayer->eyespy->opendoor) {
