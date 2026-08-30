@@ -209,9 +209,13 @@ u32 langGetLangBankIndexFromStagenum(s32 stagenum)
 	case STAGE_MBR:           bank = LANGBANK_WAX; break;
 	case STAGE_TEST_SILO:     bank = LANGBANK_SILO; break;
 	default:
-		while (true) {
-			// empty
-		}
+		// The original spins here forever. Every stage number the N64 game
+		// could reach appears above, so the case was unreachable - but a stage
+		// registered at runtime by the mod loader is not, and freezing on an
+		// unknown stage is never the better outcome. Fall back to the bank of
+		// the stage those entries are cloned from.
+		bank = LANGBANK_OAT;
+		break;
 	}
 
 	return bank;
