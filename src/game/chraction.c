@@ -8118,12 +8118,13 @@ bool chrTryPunch(struct chrdata *chr, u8 reverse)
  * The animation each race's melee combo finishes on, as an index into its punch
  * table.
  *
- * The skedar one is not a guess: chrTryPunch() labels index 5 the kick behind
- * and only reaches it when asked to punch in reverse, which nothing ever asks,
- * so it is a kick the game has never played. The human table has no such label.
- * 11 is the entry chrTryPunch()'s modulus leaves out, so it is the other
- * animation in the ROM no guard has thrown, and it stands in until the kick is
- * picked out by eye.
+ * Neither is a guess. chrTryPunch() labels skedar index 5 the kick behind and
+ * only reaches it when asked to punch in reverse, which nothing ever asks. The
+ * human table has no labels at all, but 11 is the entry chrTryPunch()'s modulus
+ * leaves out, which made it the one animation in that table no guard has ever
+ * thrown and the obvious candidate; watching the combo confirmed it is a kick.
+ *
+ * So both finishers are animations the game has never played.
  */
 #define PUNCHANIM_HUMANKICK  11
 #define PUNCHANIM_SKEDARKICK 5
