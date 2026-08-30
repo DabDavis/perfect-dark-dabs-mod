@@ -3026,6 +3026,20 @@
 #define ROLL_COOLDOWN TICKS(60)
 
 /**
+ * How long a roll has the body to itself.
+ *
+ * A roll is a commitment: no shooting, no punching, no throwing and no jumping
+ * until it is over. That is the trade for the distance it covers, and it is the
+ * only way the animation is ever seen - a simulant that punches or throws two
+ * frames into a roll replaces the roll on the body with the swing, and all that
+ * is left of the dodge is a bot sliding sideways in its running pose.
+ *
+ * Three quarters of a second is about what the four rolls take at
+ * ROLL_ANIMSPEED, so the block lifts as the body comes back up.
+ */
+#define ROLL_BUSY TICKS(45)
+
+/**
  * How fast a thrown grenade's animation plays on a third person body.
  *
  * The guards use chrGetRangedSpeed(chr, 0.5, 1.2), scaled by how good a shot

@@ -223,7 +223,7 @@ void botReset(struct chrdata *chr, u8 respawning)
 		aibot->fadeintimer60 = TICKS(120);
 #ifndef PLATFORM_N64
 		aibot->jumptimer60 = 0;
-		aibot->rolltimer60 = 0;
+		aibot->rolltime60 = 0;
 		chr->fallspeed.y = 0;
 #endif
 	}
@@ -238,19 +238,26 @@ void botReset(struct chrdata *chr, u8 respawning)
  * hopping in unison.
  */
 #define BOTJUMP_COOLDOWN TICKS(90)
-#define BOTJUMP_CHANCE   45
 
 /**
- * How long a bot waits between rolls, and how many hits it takes on average to
- * decide one is worth throwing.
+ * How often a bot with someone to fight considers getting out of the way.
  *
- * The cooldown does most of the limiting - a roll moves a bot a couple of
- * hundred units off the line its AI was walking and it has to find its way
- * back - and the chance is there so a pack that all took fire at once does not
- * roll in unison.
+ * One in this many ticks, so about once a second while engaged. Which way it
+ * gets out of the way is a coin toss between the jump and the roll: a bot that
+ * only ever rolled when it was hit rolled far too rarely to be seen, and a bot
+ * that only ever jumped was the same thing every time.
+ */
+#define BOTEVADE_CHANCE 45
+
+/**
+ * How long a bot waits between rolls.
+ *
+ * The whole of the limiting, now that a roll is reached from two directions - a
+ * hit taken, and the evade above - and there is no chance rolled on either. A
+ * roll moves a bot a couple of hundred units off the line its AI was walking
+ * and it has to find its way back, and it cannot shoot on the way.
  */
 #define BOTROLL_COOLDOWN TICKS(150)
-#define BOTROLL_CHANCE   3
 
 /**
  * How much room a bot wants before it rolls. The push covers about 225 units;
@@ -277,7 +284,10 @@ void botTryJump(struct chrdata *chr)
 			|| chr->manground > chr->ground
 			|| chr->actiontype == ACT_DIE
 			|| chr->actiontype == ACT_DEAD
-			|| chrIsDead(chr)) {
+			|| chrIsDead(chr)
+			|| botIsRolling(chr)
+			|| !mpIsJumpEnabled()
+			|| g_Vars.lvframe60 < chr->aibot->jumptimer60) {
 		return;
 	}
 
@@ -286,24 +296,34 @@ void botTryJump(struct chrdata *chr)
 }
 
 /**
- * Decide whether to jump this tick. Only while engaging someone, so bots do not
- * hop their way across an empty arena.
+ * Decide whether to get out of the way this tick, and how.
+ *
+ * Only while engaging someone, so bots do not hop and roll their way across an
+ * empty arena.
+ *
+ * The two moves are picked between rather than each polled on their own, so
+ * that a bot in a firefight is doing one or the other instead of always the
+ * same thing. Each keeps its own cooldown and its own reasons to refuse, so a
+ * toss that lands on a move which cannot be made right now simply spends the
+ * tick - which is also what happens to every jump in an arena with jumping
+ * turned off, and is why the toss is weighted to the roll there rather than
+ * throwing half the evades away.
  */
-static void botTickJump(struct chrdata *chr)
+static void botTickEvade(struct chrdata *chr)
 {
-	if (!g_Vars.normmplayerisrunning || !mpIsJumpEnabled()) {
+	if (!g_Vars.normmplayerisrunning || chr->target == -1) {
 		return;
 	}
 
-	if (chr->target == -1 || g_Vars.lvframe60 < chr->aibot->jumptimer60) {
+	if (rngRandom() % BOTEVADE_CHANCE) {
 		return;
 	}
 
-	if (rngRandom() % BOTJUMP_CHANCE) {
-		return;
+	if (mpIsJumpEnabled() && (rngRandom() % 2) == 0) {
+		botTryJump(chr);
+	} else {
+		botTryDodge(chr);
 	}
-
-	botTryJump(chr);
 }
 
 /**
@@ -333,16 +353,34 @@ void botTryRoll(struct chrdata *chr, bool toleft)
 
 	chr->fallspeed.x = side.x * ROLL_IMPULSE;
 	chr->fallspeed.z = side.z * ROLL_IMPULSE;
-	chr->aibot->rolltimer60 = g_Vars.lvframe60 + BOTROLL_COOLDOWN;
+	chr->aibot->rolltime60 = g_Vars.lvframe60;
 
 	chrPlayRollAnimation(chr, toleft);
 }
 
 /**
+ * Whether a roll still has this bot's body.
+ *
+ * Nothing else may be started while it does - see ROLL_BUSY. Measured from the
+ * frame the roll was thrown rather than read off the animation, so that it is
+ * the same rule whether or not anyone is looking at the bot, and the same one
+ * the player's roll follows.
+ */
+bool botIsRolling(struct chrdata *chr)
+{
+	if (!chr->aibot || chr->aibot->rolltime60 == 0) {
+		return false;
+	}
+
+	return g_Vars.lvframe60 - chr->aibot->rolltime60 < ROLL_BUSY;
+}
+
+/**
  * Decide whether to dodge the shot that just landed.
  *
- * Called from the damage rather than polled from the tick, because there is
- * nothing on a chr to poll: chr->timeshooter reads like the record of a recent
+ * One of the two ways a bot reaches a roll, the other being botTickEvade().
+ * This one is called from the damage rather than polled from the tick, because
+ * there is nothing on a chr to poll: chr->timeshooter reads like the record of a recent
  * hit and two stock functions test it that way, but nothing in the game ever
  * writes a positive value into it. The hit itself is the signal, and taking it
  * where it happens means a bot dodges the shot that prompted it rather than one
@@ -360,7 +398,7 @@ void botTryDodge(struct chrdata *chr)
 		return;
 	}
 
-	if (g_Vars.lvframe60 < chr->aibot->rolltimer60 || rngRandom() % BOTROLL_CHANCE) {
+	if (g_Vars.lvframe60 - chr->aibot->rolltime60 < BOTROLL_COOLDOWN) {
 		return;
 	}
 
@@ -1199,7 +1237,7 @@ s32 botTick(struct prop *prop)
 		}
 
 #ifndef PLATFORM_N64
-		botTickJump(chr);
+		botTickEvade(chr);
 #endif
 
 		botApplyMovement(chr);
@@ -3516,7 +3554,15 @@ void botTickUnpaused(struct chrdata *chr)
 					aibot->nextbullettimer60[i] = 1;
 				}
 
-				if (aibot->skrocket == NULL && aibot->changeguntimer60 <= 0) {
+				// A roll has the body until it is over: no shooting, no
+				// punching, no throwing. Otherwise the first attack after the
+				// dodge starts replaces the roll animation with its own and
+				// the dodge is never seen.
+				if (aibot->skrocket == NULL && aibot->changeguntimer60 <= 0
+#ifndef PLATFORM_N64
+						&& !botIsRolling(chr)
+#endif
+						) {
 					if (aibot->ismeleeweapon) {
 						// Consider punching, pistol whipping etc
 						// Despite the name, punchtimer60 is used for all close

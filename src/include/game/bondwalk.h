@@ -14,6 +14,7 @@ bool bwalkCanMoveUpwards(f32 amount);
 void bwalkTryJump(void);
 #ifndef PLATFORM_N64
 void bwalkTryRoll(void);
+bool bwalkIsRolling(void);
 #endif
 bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, f32 extrawidth, s32 arg4);
 bool bwalkCalculateNewPositionWithPush(struct coord *delta, f32 rotateamount, bool apply, f32 extrawidth, s32 types);

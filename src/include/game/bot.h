@@ -11,6 +11,7 @@ void botReset(struct chrdata *chr, u8 respawning);
 void botTryJump(struct chrdata *chr);
 void botTryRoll(struct chrdata *chr, bool toleft);
 void botTryDodge(struct chrdata *chr);
+bool botIsRolling(struct chrdata *chr);
 void botSpawn(struct chrdata *chr, u8 full);
 void botSpawnAll(void);
 u32 add87654321(u32 value);

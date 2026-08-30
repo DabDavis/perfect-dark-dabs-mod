@@ -286,6 +286,25 @@ bool bwalkCanMoveUpwards(f32 amount)
 	return (result == CDRESULT_NOCOLLISION);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether a roll still has the player's body.
+ *
+ * Nothing else may be started while it does - see ROLL_BUSY. Measured from the
+ * frame the roll was thrown rather than read off the body's animation, because
+ * in solo first person there is no body and the roll has to be the same move
+ * either way.
+ */
+bool bwalkIsRolling(void)
+{
+	if (g_Vars.currentplayer->rolltime60 == 0) {
+		return false;
+	}
+
+	return g_Vars.lvframe60 - g_Vars.currentplayer->rolltime60 < ROLL_BUSY;
+}
+#endif
+
 /**
  * Leave the ground, if we are on it.
  *
@@ -316,6 +335,12 @@ void bwalkTryJump(void)
 			|| g_Vars.currentplayer->vv_manground > g_Vars.currentplayer->vv_ground) {
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	if (bwalkIsRolling()) {
+		return;
+	}
+#endif
 
 	const f32 impulse = mpGetJumpImpulse();
 

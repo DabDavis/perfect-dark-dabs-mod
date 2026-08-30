@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
+#include "game/bondwalk.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/inv.h"
@@ -11958,6 +11959,14 @@ void bgunTickGameplay(bool triggeron)
 		g_Vars.currentplayer->hands[HAND_LEFT].firing = false;
 		g_Vars.currentplayer->hands[HAND_RIGHT].firing = false;
 	}
+
+#ifndef PLATFORM_N64
+	// A roll has the body until it is over, the same as it does for a simulant.
+	// Anything already in flight finishes; nothing new starts.
+	if (bwalkIsRolling()) {
+		triggeron = false;
+	}
+#endif
 
 	player->playertriggerprev = player->playertriggeron;
 	player->playertriggeron = triggeron;
