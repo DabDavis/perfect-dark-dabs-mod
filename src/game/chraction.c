@@ -3404,6 +3404,74 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether the third person body is part way through a one shot animation.
+ *
+ * The punches, the roll, the flinch and the throw are all started the same way:
+ * on a body whose animation playerChooseThirdPersonAnimation() picks a frame at
+ * a time, with an end frame, and with the animation number left in oneshotanim
+ * so this can tell that the body is still busy with it. The chooser asks, and
+ * gets the walk back on the frame the animation runs out.
+ *
+ * A body that has reached the end frame is done even though the pose is still
+ * the last frame of it, and something else changing the animation ends it too.
+ * Either way the record is dropped, so the next question is answered without
+ * looking at a stale one.
+ */
+bool chrIsOneShotAnimPlaying(struct chrdata *chr)
+{
+	if (chr == NULL || chr->model == NULL || chr->oneshotanim == 0) {
+		return false;
+	}
+
+	if (modelGetAnimNum(chr->model) != chr->oneshotanim
+			|| modelGetCurAnimFrame(chr->model) >= modelGetAnimEndFrame(chr->model)) {
+		chr->oneshotanim = 0;
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * Whether a one shot animation can be started on this chr at all.
+ *
+ * Only a body whose animation playerChooseThirdPersonAnimation() is choosing,
+ * which is what leaves an animation free to be interrupted and given back: a
+ * player under ACT_BONDMULTI, or a bot, which botApplyMovement() puts through
+ * the same chooser whatever action its AI is holding. Anything else - a
+ * cutscene, an eyespy, a death - is running its own animation for a reason.
+ *
+ * A body part way through a merge is not refused, though the chooser refuses
+ * its own walk transitions on exactly that test. The chooser can afford to
+ * wait, because the walk it wanted will still be the walk it wants next frame;
+ * these cannot, because the throw or the punch happened on this one. And a
+ * moving body is merging most of the time - every change of walk row starts
+ * another sixteen frames of it - so waiting meant the throw played when
+ * standing still and was dropped on the spot when running.
+ *
+ * modelCopyAnimForMerge() is built for it: handed a model already merging, it
+ * takes the blend in progress as the thing to blend out of.
+ */
+static bool chrCanPlayOneShotAnim(struct chrdata *chr)
+{
+	if (chr == NULL || chr->model == NULL || chr->model->anim == NULL) {
+		return false;
+	}
+
+	if (chr->aibot == NULL && chr->actiontype != ACT_BONDMULTI) {
+		return false;
+	}
+
+	if (chrIsDead(chr)) {
+		return false;
+	}
+
+	return true;
+}
+
+#endif
 void chrBeginArgh(struct chrdata *chr, f32 angle, s32 hitpart)
 {
 	bool doneanim = false;
@@ -7882,6 +7950,160 @@ bool chrTryPunch(struct chrdata *chr, u8 reverse)
 	return false;
 }
 
+/**
+ * The animation each race's melee combo finishes on, as an index into its punch
+ * table.
+ *
+ * The skedar one is not a guess: chrTryPunch() labels index 5 the kick behind
+ * and only reaches it when asked to punch in reverse, which nothing ever asks,
+ * so it is a kick the game has never played. The human table has no such label.
+ * 11 is the entry chrTryPunch()'s modulus leaves out, so it is the other
+ * animation in the ROM no guard has thrown, and it stands in until the kick is
+ * picked out by eye.
+ */
+#define PUNCHANIM_HUMANKICK  11
+#define PUNCHANIM_SKEDARKICK 5
+
+/**
+ * How many swings the combo is, and how long a gap ends one.
+ *
+ * The window has to cover the slowest melee anyone throws, or the combo never
+ * reaches its last swing: a bot on the meat difficulty waits two seconds
+ * between punches with some weapons, but half of that is the longest a player
+ * holding the trigger down ever waits.
+ */
+#define PUNCHCOMBO_LENGTH 3
+#define PUNCHCOMBO_WINDOW TICKS(90)
+
+/**
+ * One melee attack can be reported twice - the arm coming up and the blow
+ * landing - and dual wielding can land two on the same frame. Neither is a
+ * second swing.
+ */
+#define PUNCHCOMBO_DEBOUNCE TICKS(10)
+
+/**
+ * How far through the punch tables the combo's cycle has got.
+ *
+ * The swings before the last one walk the table in order rather than picking at
+ * random, so that every animation in it gets thrown and none of them can hide.
+ * The cursor is per table and not per chr, so a match with several bots
+ * swinging walks the list faster rather than each of them starting over.
+ */
+static s32 g_NextHumanPunchAnim = 0;
+static s32 g_NextSkedarPunchAnim = 0;
+
+/**
+ * The punch animations available to this chr's race, and the frame the guards
+ * start them on.
+ *
+ * The whole table, not the part chrTryPunch() draws from: an animation that was
+ * legal to start is still legal to be in the middle of, whatever the chr has
+ * picked up or dropped since.
+ */
+static struct punchanim *chrGetPunchAnims(struct chrdata *chr, s32 *count, f32 *startframe)
+{
+	if (CHRRACE(chr) == RACE_HUMAN) {
+		*count = ARRAYCOUNT(g_HumanPunchAnims);
+		*startframe = 10;
+		return g_HumanPunchAnims;
+	}
+
+	if (CHRRACE(chr) == RACE_SKEDAR) {
+		*count = ARRAYCOUNT(g_SkedarPunchAnims);
+		*startframe = 20;
+		return g_SkedarPunchAnims;
+	}
+
+	return NULL;
+}
+
+#ifndef PLATFORM_N64
+/**
+ * Play a punch or kick on a chr that is driving its own movement.
+ *
+ * chrTryPunch() is the solo version and it is the whole attack: the guard goes
+ * into ACT_ANIM and that action's tick reads the hit frame, radius and damage
+ * out of the same table to land the blow. Players and bots arrive here having
+ * already dealt their own damage - bondgun's melee state machine for one,
+ * botTick() for the other - and neither can be put into ACT_ANIM without
+ * handing its movement to the animation. So this takes the animation and
+ * nothing else.
+ *
+ * Nothing else was missing. The kicks and the rifle butts are stock and have
+ * always been in the ROM; a player has never thrown one because the third
+ * person body only ever had a walk and an aim, and a bot has never thrown one
+ * for the same reason.
+ */
+void chrPlayPunchAnimation(struct chrdata *chr)
+{
+	struct punchanim *anims;
+	bool flip = (rngRandom() % 256) > 128;
+	f32 startframe;
+	s32 elapsed;
+	s32 count;
+	s32 index;
+	s32 step;
+
+	if (!chrCanPlayOneShotAnim(chr)) {
+		return;
+	}
+
+	anims = chrGetPunchAnims(chr, &count, &startframe);
+
+	if (anims == NULL) {
+		return;
+	}
+
+	// A swing already under way is interrupted rather than left to finish. That
+	// is what makes the combo a combo: the second punch lands on top of the
+	// first through the same 16 frame merge every other change of animation
+	// uses, instead of waiting for a body that is still following through.
+	elapsed = g_Vars.lvframe60 - chr->punchtime60;
+
+	if (elapsed >= 0 && elapsed < PUNCHCOMBO_DEBOUNCE) {
+		return;
+	}
+
+	if (elapsed < 0 || elapsed > PUNCHCOMBO_WINDOW) {
+		// Long enough since the last swing that this one starts a new combo.
+		step = 0;
+	} else {
+		step = chr->punchstep;
+	}
+
+	if (step >= PUNCHCOMBO_LENGTH - 1) {
+		index = (CHRRACE(chr) == RACE_HUMAN) ? PUNCHANIM_HUMANKICK : PUNCHANIM_SKEDARKICK;
+		chr->punchstep = 0;
+	} else {
+		s32 *cursor = (CHRRACE(chr) == RACE_HUMAN) ? &g_NextHumanPunchAnim : &g_NextSkedarPunchAnim;
+
+		if (*cursor == PUNCHANIM_HUMANKICK && CHRRACE(chr) == RACE_HUMAN) {
+			*cursor = (*cursor + 1) % count;
+		} else if (*cursor == PUNCHANIM_SKEDARKICK && CHRRACE(chr) == RACE_SKEDAR) {
+			*cursor = (*cursor + 1) % count;
+		}
+
+		index = *cursor;
+		*cursor = (*cursor + 1) % count;
+		chr->punchstep = step + 1;
+	}
+
+	chr->punchtime60 = g_Vars.lvframe60;
+
+	if (CHRRACE(chr) == RACE_SKEDAR && index >= 3 && index <= 4
+			&& (!chr->weapons_held[HAND_RIGHT] || !chr->weapons_held[HAND_LEFT])) {
+		// Skedar 3 and 4 swing whichever gun the animation was built around, so
+		// swing with the hand the gun is actually in.
+		flip = chr->weapons_held[HAND_LEFT] != NULL;
+	}
+
+	modelSetAnimation(chr->model, anims[index].animnum, flip, startframe, 0.85f, 16);
+	modelSetAnimEndFrame(chr->model, anims[index].endframe);
+
+	chr->oneshotanim = anims[index].animnum;
+}
+#endif
 void func0f03c03c(void)
 {
 	// empty

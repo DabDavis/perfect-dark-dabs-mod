@@ -1352,6 +1352,21 @@ struct chrdata {
 	/*0x362*/ u8 drcarollimage_left : 4;
 	/*0x362*/ u8 drcarollimage_right : 4;
 	/*0x364*/ struct prop *lift;
+#ifndef PLATFORM_N64
+	// Which swing of the melee combo the next attack is, and the frame the last
+	// one was thrown on; a combo left alone for long enough starts over, so the
+	// two are read together. Out here rather than in the action union, because
+	// bots melee without ever being in ACT_BONDMULTI - they hold whichever
+	// action their AI is running, and the union belongs to that.
+	s32 punchstep;
+	s32 punchtime60;
+	// The animation number of the one shot the third person body is part way
+	// through - a punch, a roll, a flinch, a throw - or 0 for none.
+	// playerChooseThirdPersonAnimation() leaves the body alone while this is
+	// still running, and the walk it would otherwise have chosen is never one
+	// of these, so a stale value cannot hold the body hostage either.
+	s16 oneshotanim;
+#endif
 };
 
 // This appears to be misnamed. Not only is it projectiles such as grenades and

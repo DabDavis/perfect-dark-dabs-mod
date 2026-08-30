@@ -1156,6 +1156,11 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->aireturnlist = -1;
 	chr->aishotlist = -1;
 	chr->aipunchdodgelist = -1;
+#ifndef PLATFORM_N64
+	chr->punchstep = 0;
+	chr->punchtime60 = 0;
+	chr->oneshotanim = 0;
+#endif
 	chr->aishootingatmelist = -1;
 	chr->aidarkroomlist = -1;
 	chr->aiplayerdeadlist = -1;

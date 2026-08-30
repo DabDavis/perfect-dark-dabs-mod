@@ -5927,6 +5927,17 @@ void playerChooseThirdPersonAnimation(struct chrdata *chr, s32 crouchpos, f32 sp
 		}
 
 		animcfg = NULL;
+	} else if (chrIsOneShotAnimPlaying(chr)) {
+		// A punch, a kick, a combat roll, a flinch or a throw, started at the
+		// moment the thing itself happened. Each is a one shot animation with
+		// an end frame, so the test stops being true when it runs out and the
+		// walk selector below has the body back; until then this leaves both
+		// the animation and its speed exactly as they were started, which is
+		// what keeps the reconfigure at the bottom from restarting it every
+		// frame.
+		animnum = prevanimnum;
+		speed = modelGetAnimSpeed(chr->model);
+		animcfg = NULL;
 	} else {
 		struct prop *chrprop = chr->prop;
 

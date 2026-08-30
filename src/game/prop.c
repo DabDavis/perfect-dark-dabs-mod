@@ -1458,6 +1458,15 @@ void handTickAttack(s32 handnum)
 		case HANDATTACKTYPE_MELEE:
 			chrUncloakTemporarily(g_Vars.currentplayer->prop->chr);
 			handInflictMeleeDamage(handnum, &gset, false);
+
+			// The blow landing, and the one report a swing always makes: the
+			// other melee type below is the arm coming up, which only weapons
+			// with a first person melee animation report at all. Taking the
+			// landing gives the body one swing per attack whatever is being
+			// swung, which is what the combo counts.
+#ifndef PLATFORM_N64
+			chrPlayPunchAnimation(g_Vars.currentplayer->prop->chr);
+#endif
 			break;
 		case HANDATTACKTYPE_MELEENOUNCLOAK:
 			handInflictMeleeDamage(handnum, &gset, true);
