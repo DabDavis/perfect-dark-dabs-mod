@@ -1304,6 +1304,53 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 }
 
 /**
+ * Whether the player has asked for the third person camera.
+ *
+ * This is the request. playerIsThirdPerson() answers the different question of
+ * whether they are getting it this frame, which aiming and a close wall can
+ * both say no to, and that is what the camera, the HUD and the body animation
+ * ask.
+ *
+ * The body is built for the request rather than for the answer: aiming only
+ * moves the camera, and building the body around every shot would be a model
+ * load each way.
+ */
+static bool playerWantsThirdPerson(struct player *player)
+{
+#ifdef PLATFORM_N64
+	return false;
+#else
+	return player->thirdperson;
+#endif
+}
+
+/**
+ * Whether this player's chr body is built inside gunmem.
+ *
+ * Stock, a solo player only ever has a body for a cutscene, an eyespy or a
+ * Slayer rocket - occasions where the first person gun is not being drawn - so
+ * the body is built in gunmem and the gun is evicted for as long as it lasts.
+ * Multiplayer cannot do that, because every player needs a body and a gun at
+ * the same time, so it loads the body the ordinary way instead.
+ *
+ * Playable third person needs the multiplayer arrangement in solo too. Aiming
+ * puts the camera back on the eye and wants the gun there, and it does that
+ * several times a fight: swapping gunmem each way would be a model load each
+ * way, and bgunChangeGunMem() takes ticks and a locked screen to do it.
+ *
+ * The body remembers which of the two it was through gunmem2, so a body built
+ * one way is always taken down the same way.
+ */
+static bool playerBodyUsesGunMem(void)
+{
+	if (playerWantsThirdPerson(g_Vars.currentplayer)) {
+		return false;
+	}
+
+	return !g_Vars.mplayerisrunning || (IS4MB() && PLAYERCOUNT() == 1);
+}
+
+/**
  * Ensure the chr's "chrbody" is set up, then tick it.
  *
  * The majority of this function is code that sets up the chrbody. The chrbody
@@ -1392,7 +1439,7 @@ void playerTickChrBody(void)
 			headnum = HEAD_DARK_COMBAT;
 		}
 
-		if (!g_Vars.mplayerisrunning || (IS4MB() && PLAYERCOUNT() == 1)) {
+		if (playerBodyUsesGunMem()) {
 			// 1 player
 			if (g_Vars.currentplayer->gunmem2 == NULL) {
 				if (!var8009dfc0 && bgunChangeGunMem(GUNMEMOWNER_CHRBODY)) {
@@ -1486,7 +1533,7 @@ void playerTickChrBody(void)
 
 			texGetPoolLeftPos(&texpool);
 		} else {
-			// 2-4 players
+			// 2-4 players, and solo third person
 			if (g_HeadsAndBodies[bodynum].modeldef == NULL) {
 				g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[bodynum].filenum);
 			}
@@ -1558,7 +1605,9 @@ void playerTickChrBody(void)
 		g_Vars.currentplayer->vv_height = g_Vars.currentplayer->vv_eyeheight;
 
 		if (weaponmodelnum >= 0) {
-			if (g_Vars.mplayerisrunning == false) {
+			// The same choice as the body above: allocation, offset1, offset2
+			// and texpool only exist when the gunmem branch ran.
+			if (playerBodyUsesGunMem()) {
 				weaponmodeldef = modeldefLoad(g_ModelStates[weaponmodelnum].fileid, allocation + offset1, offset2 - offset1, &texpool);
 				fileGetLoadedSize(g_ModelStates[weaponmodelnum].fileid);
 				modelAllocateRwData(weaponmodeldef);
@@ -1594,8 +1643,15 @@ void playerRemoveChrBody(void)
 			chrRemove(g_Vars.currentplayer->prop, false);
 			g_Vars.currentplayer->model00d4 = NULL;
 			bmoveUpdateRooms(g_Vars.currentplayer);
-			bgunFreeGunMem();
-			g_Vars.currentplayer->gunmem2 = NULL;
+
+			// A solo third person body was built out of the heap and chrRemove()
+			// has already given it back. gunmem belongs to the first person gun
+			// in that case, and freeing it here would strand the gun with no
+			// memory and no reload pending.
+			if (g_Vars.currentplayer->gunmem2) {
+				bgunFreeGunMem();
+				g_Vars.currentplayer->gunmem2 = NULL;
+			}
 		}
 	}
 }
@@ -3244,13 +3300,12 @@ void playerConfigureVi(void)
 /**
  * Whether this player is currently watching themselves from behind.
  *
- * Multiplayer only. In solo play playerRemoveChrBody() frees the body model and
- * hands its memory to the first person gun - the two share one gunmem pool, and
- * lv.c stops loading the gun entirely once the camera is off the eye - so there
- * would be nothing to look at until that swap is driven the way a cutscene
- * drives it. In multiplayer every player carries a body at all times, because
- * the other players have to see it, and playerRemoveChrBody() is already a
- * no-op there.
+ * haschrbody is the whole of the condition beyond the request. Multiplayer
+ * always has a body; solo gets one from the TICKMODE_NORMAL branch of
+ * playerTick() for as long as the request stands, built out of the heap rather
+ * than out of gunmem so that the first person gun keeps its memory. Either way
+ * the frame in which the body is still being built is one the player spends
+ * looking through their own eyes.
  *
  * Aiming gives first person back for as long as it lasts. The camera sits 200
  * units behind the eye and the crosshair still marks where the gun points, but
@@ -3268,10 +3323,9 @@ bool playerIsThirdPerson(struct player *player)
 #ifdef PLATFORM_N64
 	return false;
 #else
-	return player->thirdperson
+	return playerWantsThirdPerson(player)
 		&& !player->insightaimmode
-		&& player->haschrbody
-		&& g_Vars.mplayerisrunning;
+		&& player->haschrbody;
 #endif
 }
 
@@ -3892,7 +3946,22 @@ void playerTick(bool arg0)
 		struct chrdata *chr;
 		s32 i;
 
-		playerRemoveChrBody();
+		// Solo play tears the body down every tick, having nothing to look at
+		// through its own eyes. Third person is the exception, and needs the
+		// body kept across aiming as well, because aiming only moves the
+		// camera.
+		if (playerWantsThirdPerson(g_Vars.currentplayer)) {
+			if (g_Vars.currentplayer->gunmem2) {
+				// Left over from a cutscene, and so built in gunmem, which is
+				// the first person gun's. Take it down; the next tick builds
+				// ours out of the heap in its place.
+				playerRemoveChrBody();
+			} else {
+				playerTickChrBody();
+			}
+		} else {
+			playerRemoveChrBody();
+		}
 
 		if (g_PlayersWithControl[g_Vars.currentplayernum]) {
 			bmoveTick(1, 1, arg0, 0);

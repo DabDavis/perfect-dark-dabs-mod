@@ -1668,11 +1668,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 					// Third person, on the button's edge rather than while it is
 					// held. Outside the CONTROLMODE_PC block above because it is a
-					// view setting and not a movement one, and multiplayer only
-					// because that is where the body model to look at exists.
-					// playerIsThirdPerson() is what decides; this only carries the
-					// request.
-					if (allowc1buttons && g_Vars.mplayerisrunning) {
+					// view setting and not a movement one. playerIsThirdPerson()
+					// is what decides; this only carries the request, and solo
+					// play acts on it by building the body it needs to look at.
+					if (allowc1buttons) {
 						for (i = 0; i < numsamples; i++) {
 							if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons) & BUTTON_THIRDPERSON) {
 								g_Vars.currentplayer->thirdperson = !g_Vars.currentplayer->thirdperson;
