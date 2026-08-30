@@ -3968,7 +3968,7 @@ void chrReactToDamage(struct chrdata *chr, struct coord *vector, f32 angle, s32 
 /**
  * Launch a chr away from the given pos (for explosions).
  */
-void chrYeetFromPos(struct chrdata *chr, struct coord *exppos, f32 force)
+static bool chrYeetFromPosWithAction(struct chrdata *chr, struct coord *exppos, f32 force, bool animonly)
 {
 	struct model *model = chr->model;
 	struct prop *prop = chr->prop;
@@ -4026,34 +4026,100 @@ void chrYeetFromPos(struct chrdata *chr, struct coord *exppos, f32 force)
 			row = &g_YeetAnimsSkedar[g_YeetAnimIndexesByRaceAngle[race][angleindex].indexes[subindex]];
 		}
 
-		chrStopFiring(chr);
-		chrUncloak(chr, true);
+		if (!animonly) {
+			chrStopFiring(chr);
+			chrUncloak(chr, true);
 
 #if VERSION >= VERSION_NTSC_1_0
-		chr->chrflags &= ~CHRCFLAG_HIDDEN;
+			chr->chrflags &= ~CHRCFLAG_HIDDEN;
 #endif
 
-		chr->actiontype = ACT_DIE;
+			chr->actiontype = ACT_DIE;
 
-		chr->act_die.notifychrindex = 0;
-		chr->act_die.thudframe1 = row->thudframe;
-		chr->act_die.thudframe2 = -1;
-		chr->act_die.timeextra = 0;
-		chr->act_die.drcarollimagedelay = TICKS(45);
+			chr->act_die.notifychrindex = 0;
+			chr->act_die.thudframe1 = row->thudframe;
+			chr->act_die.thudframe2 = -1;
+			chr->act_die.timeextra = 0;
+			chr->act_die.drcarollimagedelay = TICKS(45);
 
-		if (chr->race == RACE_DRCAROLL) {
-			chr->drcarollimage_left = 1 + (s32)((rngRandom() % 400) * 0.01f);
-			chr->drcarollimage_right = 1 + (s32)((rngRandom() % 400) * 0.01f);
+			if (chr->race == RACE_DRCAROLL) {
+				chr->drcarollimage_left = 1 + (s32)((rngRandom() % 400) * 0.01f);
+				chr->drcarollimage_right = 1 + (s32)((rngRandom() % 400) * 0.01f);
+			}
+
+			chr->sleep = 0;
 		}
 
-		chr->sleep = 0;
 		modelSetAnimation(model, row->animnum, row->flip, row->startframe, row->speed, 8);
 
 		if (row->endframe >= 0.0f) {
 			modelSetAnimEndFrame(model, row->endframe);
 		}
+
+		return true;
 	}
+
+	return false;
 }
+
+void chrYeetFromPos(struct chrdata *chr, struct coord *exppos, f32 force)
+{
+	chrYeetFromPosWithAction(chr, exppos, force, false);
+}
+
+#ifndef PLATFORM_N64
+/**
+ * Be thrown by the explosion that killed you, on a third person body.
+ *
+ * A solo chr caught in a blast is thrown: chrYeetFromPos() puts the distance
+ * and direction into chr->fallspeed, which chr0f01f378() integrates under
+ * gravity and drops back onto the floor, and picks a flailing animation out of
+ * g_YeetAnimsHuman by the angle the blast came from, so a body thrown from
+ * behind goes over differently from one thrown sideways.
+ *
+ * Neither a simulant nor a player has ever been thrown by anything. chrDamage()
+ * reaches the throw down its solo branch, and a bot is turned away one branch
+ * earlier while a player returns before either - so a rocket that kills has
+ * always left the body standing where it stood, folding into an ordinary death
+ * on the spot.
+ *
+ * A bot takes the whole of it. chrDie() has already put it in ACT_DIE by the
+ * time this runs, so act_die is the live member of its union and the thud frame
+ * lands where chrTickDie() will read it, and the fallspeed is what the throw
+ * actually is.
+ *
+ * A player takes the animation alone. Their chr holds ACT_BONDMULTI right
+ * through being dead, so the action and act_die are not theirs to write, and
+ * fallspeed moves a chr rather than a player - bondshotspeed already carries
+ * the blast's push for them, added a few lines up from the call. So the body
+ * flails the right way while being shoved by the player's own copy of the same
+ * force rather than the chr's.
+ *
+ * Returns false for a body that got no animation, which is every race but human
+ * and skedar - not reachable from a player or a simulant, but the caller has an
+ * ordinary death to fall back on and may as well use it.
+ */
+bool chrPlayYeetAnimation(struct chrdata *chr, struct coord *exppos, f32 force)
+{
+	if (!chrIsThirdPersonBody(chr) || !chrIsDead(chr) || exppos == NULL) {
+		return false;
+	}
+
+	chr->deathanim = 0;
+
+	if (!chrYeetFromPosWithAction(chr, exppos, force, chr->aibot == NULL)) {
+		return false;
+	}
+
+	// Read back rather than passed out, because the throw is stock code that
+	// has just set the animation it chose on the model. Held for the same
+	// reason a death animation is: the chooser would otherwise put one of its
+	// eight back on the next frame.
+	chr->deathanim = modelGetAnimNum(chr->model);
+
+	return true;
+}
+#endif
 
 s32 gsetGetBlurAmount(struct gset *gset)
 {
@@ -5198,10 +5264,10 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 						// refuse a dead body anyway; asking here is what says
 						// the death is the more interesting thing that just
 						// happened to it.
-						if (chrIsDead(chr)) {
-							chrPlayDeathAnimation(chr, angle, hitpart);
-						} else {
+						if (!chrIsDead(chr)) {
 							chrPlayArghAnimation(chr, angle, hitpart);
+						} else if (!explosion || !chrPlayYeetAnimation(chr, explosionpos, explosionforce)) {
+							chrPlayDeathAnimation(chr, angle, hitpart);
 						}
 #endif
 					}
@@ -5360,8 +5426,12 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 						chrDie(chr, aplayernum);
 #ifndef PLATFORM_N64
 						// After chrDie(), which puts the bot in ACT_DIE and
-						// leaves the animation to whoever wants it.
-						chrPlayDeathAnimation(chr, angle, hitpart);
+						// leaves the animation to whoever wants it. A blast
+						// throws the body; anything else drops it where the
+						// shot landed.
+						if (!explosion || !chrPlayYeetAnimation(chr, explosionpos, explosionforce)) {
+							chrPlayDeathAnimation(chr, angle, hitpart);
+						}
 #endif
 					}
 #ifndef PLATFORM_N64
