@@ -60,6 +60,17 @@ static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c
 	}
 }
 
+/**
+ * Drive the gun function toggle from the dedicated alt button.
+ *
+ * The use button used to work this too, as a use+fire chord. That cost nothing
+ * while use was only ever pressed at a door, but jump shares use now, and
+ * punching means holding fire - so every jump thrown mid-punch arrived here as
+ * the chord and inverted the function, which for fists is the whole difference
+ * between punch and disarm. The chord is gone and BUTTON_ALTMODE is the only
+ * way in; a use press that is not also BUTTON_ALTMODE now falls to the release
+ * branch below, where an altdowntime of 0 means it does nothing.
+ */
 static void bgunProcessInputAltButton(struct movedata *data, s8 contpad, s32 i)
 {
 	s32 buttons = joyGetButtonsOnSample(i, contpad, 0xffffffff);
@@ -81,16 +92,8 @@ static void bgunProcessInputAltButton(struct movedata *data, s8 contpad, s32 i)
 				g_Vars.currentplayer->altdowntime = -4;
 			}
 		}
-	} else if (buttons & (BUTTON_CANCEL_USE | BUTTON_ACCEPT_USE)) {
-		if (g_Vars.currentplayer->altdowntime >= -1) {
-			if (buttons & (Z_TRIG)
-					&& g_Vars.currentplayer->altdowntime >= 0
-					&& bgunConsiderToggleGunFunction(g_Vars.currentplayer->altdowntime, true, false, true) != USETIMER_CONTINUE) {
-				g_Vars.currentplayer->altdowntime = -3;
-			}
-		}
 	} else {
-		// Released L
+		// Released the alt button
 		if (g_Vars.currentplayer->altdowntime != 0) {
 			const bool trigpressed = (g_Vars.currentplayer->altdowntime == -3);
 			s32 result = bgunConsiderToggleGunFunction(g_Vars.currentplayer->altdowntime, trigpressed, false, true);
