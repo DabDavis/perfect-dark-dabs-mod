@@ -109,7 +109,15 @@ struct menudialogdef g_MpDropOutMenuDialog = {
 	NULL,
 };
 
-struct mparena g_MpArenas[] = {
+// 16 arenas plus "Random".
+#define MP_NUM_STOCK_ARENAS 17
+
+// Arenas written into the tables at build time: the stock ones plus those for
+// stages mod_allinone supplies. The loader appends to these at runtime.
+#define MP_NUM_MOD_ARENAS_STATIC 20
+#define MP_NUM_ARENAS_STATIC (MP_NUM_STOCK_ARENAS + MP_NUM_MOD_ARENAS_STATIC)
+
+struct mparena g_MpArenas[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES] = {
 	// Stage, unlock, name
 	{ STAGE_MP_SKEDAR,     0,                          L_MPMENU_119 },
 	{ STAGE_MP_PIPES,      0,                          L_MPMENU_120 },
@@ -156,8 +164,12 @@ struct mparena g_MpArenas[] = {
 	{ STAGE_WAR,           0,                          0 },
 };
 
-// 16 arenas plus "Random".
-#define MP_NUM_STOCK_ARENAS 17
+// Grows as the mod loader registers arenas.
+static s32 g_MpNumArenas = MP_NUM_ARENAS_STATIC;
+
+// Names for arenas registered at runtime; g_MpArenaModNames only holds
+// pointers.
+static char g_MpModArenaNames[MAX_MODSTAGES][32];
 
 /**
  * Names for the mod-only arenas, indexed from MP_NUM_STOCK_ARENAS.
@@ -165,7 +177,7 @@ struct mparena g_MpArenas[] = {
  * The trailing newline is required: textMeasure() only adds a line of height
  * when it sees one, so a name without it renders clipped.
  */
-static const char *g_MpArenaModNames[] = {
+static const char *g_MpArenaModNames[MP_NUM_MOD_ARENAS_STATIC + MAX_MODSTAGES] = {
 	"Crash Site\n",
 	"Chicago\n",
 	"G5 Building\n",
@@ -191,10 +203,42 @@ static const char *g_MpArenaModNames[] = {
 char *mpGetArenaName(s32 index)
 {
 	if (index >= MP_NUM_STOCK_ARENAS && index < (s32)ARRAYCOUNT(g_MpArenas)) {
-		return (char *)g_MpArenaModNames[index - MP_NUM_STOCK_ARENAS];
+		const char *name = g_MpArenaModNames[index - MP_NUM_STOCK_ARENAS];
+		return (char *)(name ? name : "");
 	}
 
 	return langGet(g_MpArenas[index].name);
+}
+
+/**
+ * Add an arena for a stage the mod loader set up. Returns false if there is no
+ * room left. The name is copied, and gets the trailing newline textMeasure()
+ * needs to give the row a height.
+ */
+bool mpRegisterArena(s16 stagenum, const char *name)
+{
+	const s32 slot = g_MpNumArenas;
+	const s32 nameslot = slot - MP_NUM_STOCK_ARENAS;
+
+	if (slot >= (s32)ARRAYCOUNT(g_MpArenas) || nameslot >= (s32)ARRAYCOUNT(g_MpArenaModNames)) {
+		return false;
+	}
+
+	if (nameslot - MP_NUM_MOD_ARENAS_STATIC >= MAX_MODSTAGES) {
+		return false;
+	}
+
+	char *stored = g_MpModArenaNames[nameslot - MP_NUM_MOD_ARENAS_STATIC];
+	snprintf(stored, sizeof(g_MpModArenaNames[0]), "%s\n", name);
+
+	g_MpArenas[slot].stagenum = stagenum;
+	g_MpArenas[slot].requirefeature = 0;
+	g_MpArenas[slot].name = 0;
+	g_MpArenaModNames[nameslot] = stored;
+
+	g_MpNumArenas = slot + 1;
+
+	return true;
 }
 
 s32 mpGetNumStages(void)
@@ -202,7 +246,7 @@ s32 mpGetNumStages(void)
 #ifndef PLATFORM_N64
 	// The extra arenas need level data that only a mod provides.
 	if (fsGetModDir()) {
-		return ARRAYCOUNT(g_MpArenas);
+		return g_MpNumArenas;
 	}
 #endif
 

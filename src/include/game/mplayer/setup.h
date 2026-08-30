@@ -120,6 +120,7 @@ MenuItemHandlerResult menuhandlerMpDropOut(s32 operation, struct menuitem *item,
 MenuItemHandlerResult menuhandlerMpTeamsLabel(s32 operation, struct menuitem *item, union handlerdata *data);
 s32 mpGetNumStages(void);
 char *mpGetArenaName(s32 index);
+bool mpRegisterArena(s16 stagenum, const char *name);
 MenuItemHandlerResult menuhandlerMpControlStyle(s32 operation, struct menuitem *item, union handlerdata *data);
 MenuItemHandlerResult menuhandlerMpWeaponSlot(s32 operation, struct menuitem *item, union handlerdata *data);
 MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menuitem *item, union handlerdata *data);

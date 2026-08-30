@@ -18,6 +18,12 @@
 // struct mpstrings). This MUST stay 8: preprocessMpConfigs() casts raw ROM
 // bytes to struct mpconfig and strides by sizeof(struct mpconfig), so growing
 // it would desync the built-in challenge/config records.
+// Spare stage table entries the mod loader fills at runtime. Stage numbers are
+// stored in 7 bits by the MP setup save format, so ids must stay under 128;
+// the stock table tops out at 0x50, leaving room for these.
+#define MAX_MODSTAGES          48
+#define MODSTAGE_FIRST_ID      0x51
+
 #define MAX_BOTS_CONFIG        8
 
 // Runtime simulant cap. Only affects arrays allocated at runtime, never the

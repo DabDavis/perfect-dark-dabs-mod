@@ -48,7 +48,9 @@
 #error "This ROM version is unsupported."
 #endif
 
-#define ROMDATA_MAX_FILES 2048
+// The ROM uses most of the first 2048. The rest are spares for files the mod
+// loader registers, at up to four per map.
+#define ROMDATA_MAX_FILES 3072
 
 #define GBC_ROM_NAME "pd.gbc"
 #define GBC_ROM_SIZE 4194304

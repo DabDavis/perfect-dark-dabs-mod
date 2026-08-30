@@ -28,6 +28,15 @@ static char baseDir[FS_MAXPATH + 1]; // replaces $B
 #define FS_MAXMODDIRS 8
 static char modDirs[FS_MAXMODDIRS][FS_MAXPATH + 1];
 static s32 numModDirs;
+
+// How many mod dirs take part in the general file search. Only the first does.
+//
+// Mod suites ship a full asset set per directory - textures, character models,
+// text banks - all under the same names. Letting every mounted directory
+// overlay would have one mod's textures replace stock ones everywhere, not
+// just in its own levels. Directories past the first are reached solely
+// through file slots pinned to them by the mod loader.
+static s32 numOverlayModDirs;
 static char saveDir[FS_MAXPATH + 1]; // replaces $S
 static char homeDir[FS_MAXPATH + 1]; // replaces $H
 static char exeDir[FS_MAXPATH + 1];  // replaces $E
@@ -92,7 +101,7 @@ const char *fsFullPath(const char *relPath)
 	}
 
 	// path relative to mod or base dir; this will be a read request, so check where the file actually is
-	for (s32 i = 0; i < numModDirs; ++i) {
+	for (s32 i = 0; i < numOverlayModDirs; ++i) {
 		snprintf(pathBuf, FS_MAXPATH, "%s/%s", modDirs[i], relPath);
 		if (fsFileSize(pathBuf) >= 0) {
 			return pathBuf;
@@ -177,6 +186,10 @@ s32 fsInit(void)
 				}
 
 				if (dst[0]) {
+					// only the first mod dir overlays; see numOverlayModDirs
+					if (numModDirs == 0) {
+						numOverlayModDirs = 1;
+					}
 					++numModDirs;
 				} else {
 					sysLogPrintf(LOG_WARNING, "could not find specified moddir `%s`", path);
@@ -213,7 +226,7 @@ s32 fsInit(void)
 	strncpy(saveDir, fsFullPath(path), FS_MAXPATH);
 
 	for (s32 i = 0; i < numModDirs; ++i) {
-		sysLogPrintf(LOG_NOTE, " mod dir: %s", modDirs[i]);
+		sysLogPrintf(LOG_NOTE, " mod dir: %s%s", modDirs[i], i < numOverlayModDirs ? "" : " (maps only)");
 	}
 	sysLogPrintf(LOG_NOTE, "base dir: %s", baseDir);
 	sysLogPrintf(LOG_NOTE, "save dir: %s", saveDir);

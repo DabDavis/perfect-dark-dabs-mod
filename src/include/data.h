@@ -438,7 +438,7 @@ extern struct drawslot *g_BgSpecialDrawSlot;
 extern u16 g_BgFrameCount;
 extern s32 g_BgNumPortalCameraCacheItems;
 extern f32 var8007fcb4;
-extern struct stagetableentry g_Stages[61];
+extern struct stagetableentry g_Stages[61 + MAX_MODSTAGES];
 extern s32 g_RoomMtxNumSlots;
 extern u32 g_GfxNumSwaps;
 extern s32 g_NumReasonsToEndMpMatch;
