@@ -270,6 +270,14 @@ u32 botinvGetItemType(struct chrdata *chr, u32 weaponnum)
  * Give a single weapon to the bot.
  *
  * There is no pickup pad, so this is likely for dropped items.
+ *
+ * Returns whether the weapon is now in the inventory - not, as it used to,
+ * whether the bot was missing it. Those differ only when the bot has no free
+ * slot, which is unreachable on stock arenas: botmgrAllocateBot() gives every
+ * bot ten of them and no stock weapon set comes close. botinvGiveProp() reads
+ * the weapon back out and writes the pickup pad through the result, so the
+ * false positive was a NULL dereference the moment an arena offered an
+ * eleventh distinct weapon. Every other caller ignores the return.
  */
 bool botinvGiveSingleWeapon(struct chrdata *chr, u32 weaponnum)
 {
@@ -286,7 +294,7 @@ bool botinvGiveSingleWeapon(struct chrdata *chr, u32 weaponnum)
 			item->type_weap.pickuppad = -1;
 		}
 
-		return true;
+		return item != NULL;
 	}
 
 	return false;
