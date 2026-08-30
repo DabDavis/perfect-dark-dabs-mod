@@ -21,6 +21,8 @@
 #include "system.h"
 #include "modloader.h"
 
+extern struct stageallocation g_StageAllocations8Mb[];
+
 /**
  * True if any mounted mod supplies this file. fsFullPath() searches the mod
  * dirs before the base dir, and the base dir holds the ROM rather than loose
@@ -78,6 +80,61 @@ struct modloaderScan {
 static s32 g_ModStageNextSlot = 61; // spares start after the stock table
 
 /**
+ * Which mod each registered stage came from, indexed by stage number and
+ * holding the mod dir index plus one. Stage ids are always below STAGE_TITLE.
+ */
+static u8 g_ModStageDirs[STAGE_TITLE];
+
+/**
+ * The mod directory a runtime-registered stage belongs to, or NULL for a stock
+ * stage.
+ *
+ * Only the first mod dir joins the general file search, so an asset a later mod
+ * replaces is unreachable by name. Anything loaded per stage can consult this
+ * to reach the right mod's copy.
+ */
+const char *modloaderGetStageModDir(s32 stagenum)
+{
+	if (stagenum < 0 || stagenum >= (s32)ARRAYCOUNT(g_ModStageDirs) || !g_ModStageDirs[stagenum]) {
+		return NULL;
+	}
+
+	return fsGetModDirAt(g_ModStageDirs[stagenum] - 1);
+}
+
+/**
+ * The memory allocation string a runtime-registered stage should use, or NULL
+ * for a stock stage.
+ *
+ * g_StageAllocations8Mb has no entry for these, so the lookup walks off the end
+ * of the table and uses its sentinel: -mgfx120 -mvtx98 -ma300. A Combat Sim
+ * arena is given -mgfx200 -mvtx200 -ma400, so a mod arena runs with half the
+ * vertex pool the map was built for.
+ *
+ * Neither graphics pool bounds checks - gfxAllocateVertices() and friends just
+ * bump g_GfxMemPos - so the overflow lands in whatever MEMPOOL_STAGE handed out
+ * next and corrupts it silently. That is how a mod arena came to crash in
+ * setCurrentPlayerNum(): the overrun had rewritten g_HudMessages, and
+ * hudmsgsTick() then read a playernum of 283365012 out of it.
+ *
+ * These stages are cloned from STAGE_MP_SKEDAR, so they get its allocation too.
+ */
+const char *modloaderGetStageAllocation(s32 stagenum)
+{
+	if (!modloaderGetStageModDir(stagenum)) {
+		return NULL;
+	}
+
+	for (const struct stageallocation *p = g_StageAllocations8Mb; p->stagenum; ++p) {
+		if (p->stagenum == STAGE_MP_SKEDAR) {
+			return p->string;
+		}
+	}
+
+	return NULL;
+}
+
+/**
  * Stage numbers that are in use without appearing in the stage table. Handing
  * one to a map makes selecting it load the title screen, the credits or a
  * menu, so they have to be skipped explicitly.
@@ -120,24 +177,41 @@ static s32 modloaderNextStageId(void)
 }
 
 /**
- * Does this file exist inside one specific mod dir? The search order is no use
- * here: several mods ship the same filenames for different maps.
+ * Size of a file inside one specific mod dir, or -1 if it is not there. The
+ * search order is no use here: several mods ship the same filenames for
+ * different maps.
  */
-static bool modloaderModHasFile(s32 modIndex, const char *fmt, const char *name)
+static s32 modloaderModFileSize(s32 modIndex, const char *fmt, const char *name)
 {
 	char path[FS_MAXPATH + 1];
 	char rel[128];
 	const char *dir = fsGetModDirAt(modIndex);
 
 	if (!dir) {
-		return false;
+		return -1;
 	}
 
 	snprintf(rel, sizeof(rel), fmt, name);
 	snprintf(path, sizeof(path), "%s/files/%s", dir, rel);
 
-	return fsFileSize(path) > 0;
+	return fsFileSize(path);
 }
+
+static bool modloaderModHasFile(s32 modIndex, const char *fmt, const char *name)
+{
+	return modloaderModFileSize(modIndex, fmt, name) > 0;
+}
+
+/**
+ * Smallest bg a real map can be built from.
+ *
+ * Mods ship placeholder geometry under names they reach some other way - the
+ * GoldenEye X suite has three 512 byte bg files, and remaps the stock stages
+ * that use them through its modconfig instead. Registering one as an arena
+ * gives a map with no rooms, which crashes as soon as it is entered. The
+ * smallest real map in that suite is 4320 bytes.
+ */
+#define MODSTAGE_MIN_BG_SIZE 2048
 
 static s32 modloaderRegister(s32 modIndex, const char *fmt, const char *name)
 {
@@ -204,6 +278,9 @@ static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLa
 	}
 
 	++g_ModStageNextSlot;
+	g_ModStageDirs[stageId] = modIndex + 1;
+
+	sysLogPrintf(LOG_NOTE, "modloader: %s -> stage 0x%02x", label, stageId);
 
 	return true;
 }
@@ -229,6 +306,11 @@ static void modloaderScanEntry(const char *name, void *arg)
 
 	// a map is only playable if the mod also gives it a multiplayer setup
 	if (!modloaderModHasFile(scan->modIndex, "Ump_setup%sZ", mapName)) {
+		return;
+	}
+
+	if (modloaderModFileSize(scan->modIndex, "bgdata/bg_%s.seg", mapName) < MODSTAGE_MIN_BG_SIZE) {
+		sysLogPrintf(LOG_NOTE, "modloader: %s has only placeholder geometry; skipped", mapName);
 		return;
 	}
 

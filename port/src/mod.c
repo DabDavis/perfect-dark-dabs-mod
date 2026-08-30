@@ -7,6 +7,8 @@
 #include "utils.h"
 #include "romdata.h"
 #include "mod.h"
+#include "modloader.h"
+#include "lib/main.h"
 #include "data.h"
 #include "game/stagetable.h"
 
@@ -416,8 +418,44 @@ s32 modConfigLoad(const char *fname)
 	return success;
 }
 
+/**
+ * Whether texture ids currently resolve against the running stage's own mod.
+ *
+ * A texture id means different things to different mods, so it has to be
+ * resolved against the mod that supplied the file referencing it. A mod stage's
+ * own art wants that mod's textures; a stock prop model that happens to share
+ * an id does not, and pointing it at the mod's copy is how ammo crates ended up
+ * wearing GoldenEye art on a GoldenEye X map. Model files turn this off while
+ * their display lists are scanned.
+ */
+static s32 g_ModTextureStageOff = 0;
+
+s32 modSetTextureFromStage(s32 on)
+{
+	const s32 prev = !g_ModTextureStageOff;
+
+	g_ModTextureStageOff = !on;
+
+	return prev;
+}
+
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 {
+	char path[FS_MAXPATH + 1];
+	const char *stageDir = g_ModTextureStageOff
+		? NULL
+		: modloaderGetStageModDir(mainGetStageNum());
+
+	if (stageDir) {
+		snprintf(path, sizeof(path), "%s/" MOD_TEXTURES_DIR "/%04x.bin", stageDir, num);
+
+		const s32 ret = fsFileLoadTo(path, dst, dstSize);
+		if (ret > 0) {
+			sysLogPrintf(LOG_NOTE, "mod: loaded texture %04x from this stage's mod", num);
+			return ret;
+		}
+	}
+
 	static s32 dirExists = -1;
 	if (dirExists < 0) {
 		dirExists = (fsFileSize(MOD_TEXTURES_DIR) >= 0);
@@ -427,7 +465,6 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 		return -1;
 	}
 
-	char path[FS_MAXPATH + 1];
 	snprintf(path, sizeof(path), MOD_TEXTURES_DIR "/%04x.bin", num);
 
 	const s32 ret = fsFileLoadTo(path, dst, dstSize);

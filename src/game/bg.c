@@ -2829,6 +2829,17 @@ void bgLoadRoom(s32 roomnum)
 	alloclen = alloclen * 4; // just to be safe for now, adjust properly later #TODO
 #endif
 
+	// The compressed data is read into the top of this same allocation, so it
+	// has to fit too. gfxdatalen comes from the bg file and a mod's room can
+	// understate it; the bail-outs below then leave gfxdata unset and the room
+	// simply never renders. Collision comes from the tiles and still works, so
+	// it reads as a hole in the level rather than as a failure. Size for both.
+	readlen = ((g_BgRooms[roomnum + 1].unk00 - g_BgRooms[roomnum].unk00) + 0xf) & ~0xf;
+
+	if (alloclen < readlen + 0x20) {
+		alloclen = readlen + 0x20;
+	}
+
 
 #ifdef PLATFORM_N64
 	bgGarbageCollectRooms(alloclen, false);
@@ -2842,13 +2853,13 @@ void bgLoadRoom(s32 roomnum)
 	if (allocation != NULL) {
 		dyntexSetCurrentRoom(roomnum);
 
-		// Calculate the file offset and read length
-		// of the compressed room data in the BG file
-		readlen = ((g_BgRooms[roomnum + 1].unk00 - g_BgRooms[roomnum].unk00) + 0xf) & ~0xf;
+		// Calculate the file offset of the compressed room data in the BG file
 		fileoffset = (g_BgPrimaryData + g_BgRooms[roomnum].unk00 - g_BgPrimaryData) - 0x0f000000;
 		fileoffset -= var8007fc54;
 
 		if (readlen > alloclen) {
+			sysLogPrintf(LOG_WARNING, "bg: room %d not rendered: %d compressed bytes do not fit %d",
+					roomnum, readlen, alloclen);
 			dyntexSetCurrentRoom(-1);
 			return;
 		}
@@ -2859,6 +2870,8 @@ void bgLoadRoom(s32 roomnum)
 		bgLoadFile(memaddr, fileoffset, readlen);
 
 		if (rzipIs1173(memaddr) && readlen + 0x20 > alloclen) {
+			sysLogPrintf(LOG_WARNING, "bg: room %d not rendered: no room to inflate %d bytes in %d",
+					roomnum, readlen, alloclen);
 			dyntexSetCurrentRoom(-1);
 			return;
 		}

@@ -4,6 +4,7 @@
 #include "game/stubs/game_175f50.h"
 #include "bss.h"
 #include "lib/args.h"
+#include "lib/main.h"
 #include "lib/rzip.h"
 #include "lib/dma.h"
 #include "lib/memp.h"
@@ -12,6 +13,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "system.h"
 
 /**
  * This file handles memory usage for graphics related tasks.
@@ -51,6 +53,7 @@ u8 *g_VtxBuffers[NUM_GFXTASKS + 1];
 u8 *g_GfxMemPos;
 u8 g_GfxActiveBufferIndex;
 u32 g_GfxRequestedDisplayList;
+static bool g_GfxVtxOverflowReported = false;
 
 u32 g_GfxSizesByPlayerCount[] = {
 	0x00010000 * GFX_SIZE_MULTIPLIER,
@@ -124,6 +127,7 @@ void gfxReset(void)
 	g_GfxActiveBufferIndex = 0;
 	g_GfxRequestedDisplayList = false;
 	g_GfxMemPos = g_VtxBuffers[0];
+	g_GfxVtxOverflowReported = false;
 }
 
 Gfx *gfxGetMasterDisplayList(void)
@@ -133,11 +137,49 @@ Gfx *gfxGetMasterDisplayList(void)
 	return (Gfx *)g_GfxBuffers[g_GfxActiveBufferIndex];
 }
 
+/**
+ * None of the allocators below bounds check - they just bump g_GfxMemPos.
+ *
+ * On N64 that was safe by construction: every stage had a -mvtx figure tuned
+ * until the stage fitted, so the pool could not be overrun. A stage the
+ * allocation table does not know about falls through to the table's default
+ * entry instead, and anything past the end lands in whatever MEMPOOL_STAGE
+ * handed out next - silent corruption surfacing a long way from here.
+ *
+ * Report the first overflow of each stage rather than fixing it up: the
+ * allocation is what is wrong, and callers hold the returned pointers.
+ */
+static void gfxCheckVtxPool(const char *what)
+{
+	const u8 *end = g_VtxBuffers[g_GfxActiveBufferIndex + 1];
+
+	if (g_GfxMemPos > end && !g_GfxVtxOverflowReported) {
+		g_GfxVtxOverflowReported = true;
+		sysLogPrintf(LOG_ERROR, "gfx: stage 0x%02x overran the vtx pool in %s: %d bytes past a %d byte buffer",
+				mainGetStageNum(), what, (s32)(g_GfxMemPos - end),
+				(s32)(g_VtxBuffers[1] - g_VtxBuffers[0]));
+	}
+}
+
+void gfxCheckGfxPool(const Gfx *gdl)
+{
+	static bool reported = false;
+	const Gfx *end = (const Gfx *)g_GfxBuffers[g_GfxActiveBufferIndex + 1];
+
+	if (gdl > end && !reported) {
+		reported = true;
+		sysLogPrintf(LOG_ERROR, "gfx: stage 0x%02x overran the master display list: %d commands past a %d command buffer",
+				mainGetStageNum(), (s32)(gdl - end),
+				(s32)((const Gfx *)g_GfxBuffers[1] - (const Gfx *)g_GfxBuffers[0]));
+	}
+}
+
 Vtx *gfxAllocateVertices(u32 count)
 {
 	void *ptr = g_GfxMemPos;
 	g_GfxMemPos += count * sizeof(Vtx);
 	g_GfxMemPos = (u8 *)ALIGN16((uintptr_t)g_GfxMemPos);
+	gfxCheckVtxPool("vertices");
 
 	return ptr;
 }
@@ -146,6 +188,7 @@ void *gfxAllocateMatrix(void)
 {
 	void *ptr = g_GfxMemPos;
 	g_GfxMemPos += sizeof(Mtx);
+	gfxCheckVtxPool("a matrix");
 
 	return ptr;
 }
@@ -163,6 +206,7 @@ LookAt *gfxAllocateLookAt(s32 count)
 #else
 	g_GfxMemPos += count * (sizeof(LookAt) / 2);
 #endif
+	gfxCheckVtxPool("a lookat");
 
 	return ptr;
 }
@@ -172,6 +216,7 @@ Col *gfxAllocateColours(s32 count)
 	void *ptr = g_GfxMemPos;
 	count = ALIGN16(count * sizeof(Col));
 	g_GfxMemPos += count;
+	gfxCheckVtxPool("colours");
 
 	return ptr;
 }
@@ -181,6 +226,7 @@ void *gfxAllocate(u32 size)
 	void *ptr = g_GfxMemPos;
 	size = ALIGN16(size);
 	g_GfxMemPos += size;
+	gfxCheckVtxPool("a general allocation");
 
 	return ptr;
 }

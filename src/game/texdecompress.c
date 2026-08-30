@@ -2245,9 +2245,11 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 		tex = texFindInPool(g_TexNumToLoad, pool);
 
 		if (tex == NULL) {
+#ifdef PLATFORM_N64
 			if (g_TexNumToLoad >= NUM_TEXTURES) {
 				return;
 			}
+#endif
 
 			alignedcompbuffer = (u8 *) (((uintptr_t)compbuffer + 0xf) >> 4 << 4);
 
@@ -2257,21 +2259,31 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			osWritebackDCacheAll();
 			osInvalDCache(alignedcompbuffer, DCACHE_SIZE);
 
-			thisoffset = g_Textures[g_TexNumToLoad].dataoffset;
-			nextoffset = g_Textures[g_TexNumToLoad + 1].dataoffset;
-
-			if (thisoffset == nextoffset) {
-				// The texture has no data
-				return;
-			}
-
 #ifndef PLATFORM_N64
-			// try to load external replacement if present
+			// Ask the mods before the ROM table, not after it.
+			//
+			// A mod can supply a texture the stock table cannot describe: an id
+			// past its end, or one whose slot is empty. GoldenEye X ships 1393
+			// textures and 650 of them are numbered at or above NUM_TEXTURES,
+			// so testing the table first rejected every one of those before the
+			// mod was ever asked, and its maps drew them as stock art.
 			if (modTextureLoad(g_TexNumToLoad, alignedcompbuffer, 4096) > 0) {
 				compptr = alignedcompbuffer;
 			} else
 #endif
 			{
+				if (g_TexNumToLoad >= NUM_TEXTURES) {
+					return;
+				}
+
+				thisoffset = g_Textures[g_TexNumToLoad].dataoffset;
+				nextoffset = g_Textures[g_TexNumToLoad + 1].dataoffset;
+
+				if (thisoffset == nextoffset) {
+					// The texture has no data
+					return;
+				}
+
 				// Copy the compressed texture to RAM
 				dmaExec(alignedcompbuffer,
 						(romptr_t) REF_SEG _texturesdataSegmentRomStart + (thisoffset & 0xfffffff8),

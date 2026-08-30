@@ -2021,3 +2021,18 @@
 #else
 #define NUM_FILES 2013
 #endif
+
+/**
+ * Number of entries in the per-file arrays.
+ *
+ * NUM_FILES counts the files in the ROM. The mod loader registers files the ROM
+ * does not have, and numbers them from the first free slot upwards - past
+ * NUM_FILES. Anything indexed by a file number therefore has to be sized for
+ * the spare slots too, or a mod file reads its size from whatever global
+ * follows the array. Must be >= ROMDATA_MAX_FILES.
+ */
+#ifdef PLATFORM_N64
+#define NUM_FILE_SLOTS NUM_FILES
+#else
+#define NUM_FILE_SLOTS 3072
+#endif

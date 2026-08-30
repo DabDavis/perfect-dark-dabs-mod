@@ -4,5 +4,7 @@
 #include <PR/ultratypes.h>
 
 void modloaderInit(void);
+const char *modloaderGetStageModDir(s32 stagenum);
+const char *modloaderGetStageAllocation(s32 stagenum);
 
 #endif

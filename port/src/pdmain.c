@@ -73,6 +73,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "modloader.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -409,7 +410,12 @@ void mainLoop(void)
 					}
 				}
 
-				argSetString(g_StageAllocations8Mb[index].string);
+				// A stage the mod loader registered is not in the table, so the
+				// loop above stopped on the sentinel. Its allocation is smaller
+				// than any arena's and the graphics pools do not bounds check.
+				const char *modalloc = modloaderGetStageAllocation(g_StageNum);
+
+				argSetString(modalloc ? (char *)modalloc : g_StageAllocations8Mb[index].string);
 			}
 		}
 
@@ -601,6 +607,7 @@ void mainTick(void)
 
 			gDPFullSync(gdl++);
 			gSPEndDisplayList(gdl++);
+			gfxCheckGfxPool(gdl);
 		}
 
 		if (g_MainGameLogicEnabled) {

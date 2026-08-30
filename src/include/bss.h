@@ -240,7 +240,7 @@ extern RoomNum *g_RoomMtxLinkedRooms;
 extern RoomNum *g_RoomMtxBaseRooms;
 extern f32 *g_RoomMtxScales;
 extern Mtxf *g_RoomMtxMatrices;
-extern struct fileinfo g_FileInfo[NUM_FILES];
+extern struct fileinfo g_FileInfo[NUM_FILE_SLOTS];
 extern u8 *g_VtxBuffers[3];
 extern u8 *g_GfxMemPos;
 extern u8 g_GfxActiveBufferIndex;

@@ -6,6 +6,8 @@
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
 #include "romdata.h"
+#include "modloader.h"
+#include "lib/main.h"
 #include "fs.h"
 #include "system.h"
 #include "preprocess.h"
@@ -52,6 +54,11 @@
 // loader registers, at up to four per map.
 #define ROMDATA_MAX_FILES 3072
 
+// Slots handed out here are used as indices into the game's per-file arrays,
+// which are sized by NUM_FILE_SLOTS.
+_Static_assert(ROMDATA_MAX_FILES <= NUM_FILE_SLOTS,
+		"mod file slots must fit the arrays indexed by file number");
+
 #define GBC_ROM_NAME "pd.gbc"
 #define GBC_ROM_SIZE 4194304
 
@@ -90,6 +97,9 @@ struct romfile {
 	// index of the mod dir this slot is pinned to. Mod suites reuse the same
 	// filenames for different maps, so a slot has to name its own mod.
 	s32 moddir;
+	// Mod dir the cached data actually came from, so a slot resolved for one
+	// stage is not reused unchanged by a stage belonging to a different mod.
+	const char *loadeddir;
 };
 
 /* patches for individual files; applied on file load, before preprocFuncs, but */
@@ -525,20 +535,54 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 
 	u8 *out = NULL;
 
+	// Which mod should supply this file? A pinned slot names its own.
+	//
+	// An unpinned slot can optionally follow the running stage, so that a mod
+	// arena uses its own mod's models and props. That is off by default and is
+	// not safe in general: a file id means whatever the mod put under that
+	// name, and suites disagree. GoldenEye X ships Pmulti_ammo_crateZ, but its
+	// contents are not the crate the stock setup expects, so its arenas draw a
+	// giant one. --modfiles enables it anyway for experimenting.
+	const char *wantdir = NULL;
+
+	if (fileSlots[fileNum].moddir) {
+		wantdir = fsGetModDirAt(fileSlots[fileNum].moddir - 1);
+		if (!wantdir) {
+			return NULL;
+		}
+	} else if (sysArgCheck("--modfiles")) {
+		wantdir = modloaderGetStageModDir(mainGetStageNum());
+	}
+
+	// Slots are cached for the life of the process, so a file resolved for one
+	// mod's stage would otherwise be handed to the next stage unchanged.
+	if (fileSlots[fileNum].source != SRC_UNLOADED && fileSlots[fileNum].loadeddir != wantdir) {
+		if (fileSlots[fileNum].source == SRC_EXTERNAL && fileSlots[fileNum].data) {
+			sysMemFree(fileSlots[fileNum].data);
+			fileSlots[fileNum].data = NULL;
+		}
+		fileSlots[fileNum].source = SRC_UNLOADED;
+	}
+
 	// try to load external file
 	if (fileSlots[fileNum].source == SRC_UNLOADED) {
 		char tmp[FS_MAXPATH] = { 0 };
-		if (fileSlots[fileNum].moddir) {
-			// pinned: build an absolute path so the mod search order cannot
-			// substitute another mod's file of the same name
-			const char *dir = fsGetModDirAt(fileSlots[fileNum].moddir - 1);
-			if (!dir) {
-				return NULL;
-			}
-			snprintf(tmp, sizeof(tmp), "%s/" ROMDATA_FILEDIR "/%s", dir, fileSlots[fileNum].name);
+
+		fileSlots[fileNum].loadeddir = wantdir;
+
+		if (wantdir) {
+			// build an absolute path so the mod search order cannot substitute
+			// another mod's file of the same name
+			snprintf(tmp, sizeof(tmp), "%s/" ROMDATA_FILEDIR "/%s", wantdir, fileSlots[fileNum].name);
 		} else {
 			snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[fileNum].name);
 		}
+
+		if (fsFileSize(tmp) <= 0 && !fileSlots[fileNum].moddir && wantdir) {
+			// the stage's mod does not have it; fall back to the search order
+			snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[fileNum].name);
+		}
+
 		if (fsFileSize(tmp) > 0) {
 			u32 size = 0;
 			out = fsFileLoad(tmp, &size);
@@ -551,8 +595,11 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 				fileSlots[fileNum].numpatches = 0;
 			}
 		}
-		// tried and failed, fall back to ROM
-		fileSlots[fileNum].source = SRC_ROM;
+
+		if (fileSlots[fileNum].source != SRC_EXTERNAL) {
+			// tried and failed, fall back to ROM
+			fileSlots[fileNum].source = SRC_ROM;
+		}
 	}
 
 	if (!out) {
@@ -647,9 +694,14 @@ u32 romdataSegGetSize(const char *segName)
 u32 romdataFileGetEstimatedSize(const u32 size, const u32 loadtype)
 {
 #ifdef PLATFORM_64BIT
+	// The multipliers cover pointer widening, which is a fixed cost per pointer
+	// rather than a share of the file. A small, pointer-dense file therefore
+	// grows by much more than its percentage: GoldenEye X ships 512-byte
+	// placeholder bgs whose 124-byte section 1 converts to 164, overrunning a
+	// 1.1x estimate and killing the game on load. The flat term covers those.
 	switch (loadtype) {
-	case LOADTYPE_BG:	   return (u32)(size * 1.1f);
-	case LOADTYPE_TILES: return (u32)(size * 1.1f);
+	case LOADTYPE_BG:	   return (u32)(size * 1.1f) + 1024;
+	case LOADTYPE_TILES: return (u32)(size * 1.1f) + 1024;
 	case LOADTYPE_LANG:  return (u32)(size * 1.3f);
 	case LOADTYPE_SETUP: return (u32)(size * 1.5f);
 	case LOADTYPE_PADS:  return (u32)(size * 1.7f);

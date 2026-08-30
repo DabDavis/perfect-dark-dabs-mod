@@ -22,6 +22,9 @@
 #include "lib/main.h"
 #include "lib/model.h"
 #include "data.h"
+#ifndef PLATFORM_N64
+#include "mod.h"
+#endif
 #include "types.h"
 
 struct skeleton *g_Skeletons[] = {
@@ -160,7 +163,15 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 				vertices = NULL;
 			}
 
+#ifndef PLATFORM_N64
+			// A model's texture ids belong to the file the model came from, not
+			// to whatever stage is loaded.
+			const s32 prevtexstage = modSetTextureFromStage(0);
+#endif
 			s5 += texLoadFromGdl((Gfx *)((uintptr_t)modeldef + (UNSEGADDR(s0) & 0xffffff) + sp84), s4, (Gfx *)((uintptr_t)modeldef + (UNSEGADDR(s5) & 0xffffff)), texpool, (u8 *) vertices);
+#ifndef PLATFORM_N64
+			modSetTextureFromStage(prevtexstage);
+#endif
 		}
 
 		fileSetSize(filenum, modeldef, (((uintptr_t)modeldef + (UNSEGADDR(s5) & 0xffffff)) - (uintptr_t)modeldef + 0xf) & ~0xf, arg5);
