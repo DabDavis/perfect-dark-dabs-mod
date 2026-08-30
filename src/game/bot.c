@@ -269,8 +269,10 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			botinvGiveSingleWeapon(chr, mpweapon->weaponnum);
 			const s32 ammotype = (spawnweapon == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
 			if (ammotype) {
-				s32 startammo = mpweapon->priammoqty / 2;
-				if (startammo == 0) {
+				// botactGiveAmmoByType() clamps to this same capacity, so this
+				// fills the bot up rather than overshooting.
+				s32 startammo = bgunGetCapacityByAmmotype(ammotype);
+				if (startammo <= 0) {
 					startammo = 1;
 				}
 				botactGiveAmmoByType(aibot, ammotype, startammo);

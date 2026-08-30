@@ -1121,8 +1121,11 @@ void playerSpawn(void)
 				invGiveSingleWeapon(mpweapon->weaponnum);
 				const s32 ammotype = (spawnweapon == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
 				if (ammotype) {
-					s32 startammo = mpweapon->priammoqty / 2;
-					if (startammo == 0) {
+					// Full capacity for the ammo type, not the weapon's pickup
+					// quantity: with a lobby this size you are not going to find
+					// a crate before someone finds you.
+					s32 startammo = bgunGetCapacityByAmmotype(ammotype);
+					if (startammo <= 0) {
 						startammo = 1;
 					}
 					bgunSetAmmoQuantity(ammotype, startammo);
