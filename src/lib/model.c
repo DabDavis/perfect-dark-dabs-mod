@@ -98,6 +98,31 @@ bool var8005efd8_2 = false;
 Vtx *(*g_ModelVtxAllocatorFunc)(s32 numvertices) = NULL;
 void (*g_ModelJointPositionedFunc)(s32 mtxindex, Mtxf *mtx) = NULL;
 
+#ifndef PLATFORM_N64
+/**
+ * Build the matrices in model space rather than screen space.
+ *
+ * A pose that is standing still is the same pose from every camera, so the
+ * expensive half of building it - decompressing the animation and walking the
+ * skeleton - only has to happen once if the result is kept somewhere the
+ * camera has not been multiplied into yet. The caller passes an identity where
+ * it would normally pass the world to screen matrix, and the matrices come out
+ * relative to the model instead. Multiplying each of them by the camera on a
+ * later frame gives back exactly what this pass would have produced, because
+ * that is the only place the camera was ever applied.
+ *
+ * The one thing that does not survive the move is the distance node: it picks
+ * a level of detail from the screen space Z of its own matrix, which in model
+ * space is meaningless. While this is set the distance nodes keep all of their
+ * children instead of choosing, so that every matrix the model owns is written
+ * whichever level of detail is chosen later. The real choice is made per frame
+ * by modelUpdateRelations(), on matrices that do have the camera in them.
+ *
+ * See modbodies.c, which is the only thing that sets this.
+ */
+bool g_ModelPoseCapture = false;
+#endif
+
 void modelSetDistanceChecksDisabled(bool disabled)
 {
 	g_ModelDistanceDisabled = disabled;
@@ -1219,6 +1244,16 @@ void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 	union modelrwdata *rwdata = modelGetNodeRwData(model, node);
 	Mtxf *mtx = modelFindNodeMtx(model, node, 0);
 	f32 distance;
+
+#ifndef PLATFORM_N64
+	if (g_ModelPoseCapture) {
+		// Model space: keep every level of detail so that all of the matrices
+		// below this node get written. See g_ModelPoseCapture.
+		rwdata->distance.visible = true;
+		node->child = rodata->distance.target;
+		return;
+	}
+#endif
 
 	if (g_ModelDistanceDisabled || !mtx) {
 		distance = 0;

@@ -441,6 +441,16 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 				f0 = -t0mtx->m[3][2] * g_Vars.currentplayer->c_lodscalez * g_ModelDistanceScale;
 			}
 
+#ifndef PLATFORM_N64
+			// Model space: keep every level of detail so that all of the
+			// matrices below this node get written. See g_ModelPoseCapture.
+			if (g_ModelPoseCapture) {
+				rwdata->distance.visible = true;
+				node->child = node->rodata->distance.target;
+				break;
+			}
+#endif
+
 			if ((node->rodata->distance.near == 0.0f || f0 > node->rodata->distance.near * model->scale)
 					&& f0 <= node->rodata->distance.far * model->scale) {
 				rwdata->distance.visible = true;

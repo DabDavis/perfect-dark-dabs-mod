@@ -153,6 +153,34 @@ u32 mempGetStageFree(void)
 	return free;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The stage pool's free space across both banks.
+ *
+ * mempGetStageFree() answers for one bank, which is all the N64 needed to know:
+ * with an expansion pak the onboard stage pool was assumed full and the pak was
+ * the stage pool. The port splits its heap the same way but mempAlloc() fills
+ * the onboard bank first and only falls through to the expansion bank when that
+ * is out, so anything asking "is there room" has to add the two.
+ */
+u32 mempGetStageFreeTotal(void)
+{
+	u32 free = 0;
+
+	if (g_MempOnboardPools[MEMPOOL_STAGE].leftpos
+			&& g_MempOnboardPools[MEMPOOL_STAGE].rightpos > g_MempOnboardPools[MEMPOOL_STAGE].leftpos) {
+		free += g_MempOnboardPools[MEMPOOL_STAGE].rightpos - g_MempOnboardPools[MEMPOOL_STAGE].leftpos;
+	}
+
+	if (g_MempExpansionPools[MEMPOOL_STAGE].leftpos
+			&& g_MempExpansionPools[MEMPOOL_STAGE].rightpos > g_MempExpansionPools[MEMPOOL_STAGE].leftpos) {
+		free += g_MempExpansionPools[MEMPOOL_STAGE].rightpos - g_MempExpansionPools[MEMPOOL_STAGE].leftpos;
+	}
+
+	return free;
+}
+#endif
+
 void *mempGetNextStageAllocation(void)
 {
 	void *next;

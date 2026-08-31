@@ -61,6 +61,7 @@ void func0f065dfc(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomN
 void func0f065e74(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomNum *newrooms);
 void func0f065e98(struct coord *pos, RoomNum *rooms, struct coord *pos2, RoomNum *rooms2);
 void roomGetProps(RoomNum *room, s16 *propnums, s32 len);
+void roomPropSeenAlloc(s32 maxprops);
 void propsDefragRoomProps(void);
 void propGetBbox(struct prop *prop, f32 *radius, f32 *ymax, f32 *ymin);
 bool propUpdateGeometry(struct prop *prop, u8 **start, u8 **end);

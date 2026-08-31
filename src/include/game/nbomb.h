@@ -13,6 +13,9 @@ void func0f0099a4(void);
 void nbombInflictDamage(struct nbomb *nbomb);
 void nbombTick(struct nbomb *nbomb);
 void nbombsTick(void);
+#ifndef PLATFORM_N64
+void nbombsUnrefOwner(struct prop *prop);
+#endif
 Gfx *nbombsRender(Gfx *gdl);
 void nbombCreateStorm(struct coord *pos, struct prop *ownerprop);
 f32 gasGetDoorFrac(s32 tagnum);

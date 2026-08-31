@@ -29,16 +29,62 @@
 // Runtime simulant cap. Only affects arrays allocated at runtime, never the
 // ROM-resident structs above.
 #define MAX_BOTS               80
+#ifdef PLATFORM_N64
 #define MAX_CHRSPERSQUADRON    16
 #define MAX_CHRSPERTEAM        32
+#else
+// rebuildTeams() and rebuildSquadrons() list every chr in the level under its
+// team and its squadron, and both lists are one flat array with the per-group
+// limit multiplied by the number of groups. That works while chrs are spread
+// across groups. They are not: every simulant and every body it leaves behind
+// is squadron 0, and a team holds all of them too. Sized for the chr pool
+// instead, which is 48KB of MEMPOOL_STAGE and cannot be exceeded by anything
+// the game can create.
+#define MAX_CHRSPERSQUADRON    1024
+#define MAX_CHRSPERTEAM        1024
+#endif
 #define MAX_CHRWAYPOINTS       6
 #define MAX_EYESPYDARTS        8
 #define MAX_MPCHRS             (MAX_PLAYERS + MAX_BOTS)
 #define MAX_MPPLAYERCONFIGS    (MAX_PLAYERS + 2)
 #define MAX_OBJECTIVES         10
 #define MAX_PLAYERS            4
+#ifdef PLATFORM_N64
+#define MAX_ONSCREENPROPS      200
+#else
+// propsSort() collects every prop drawn this frame into one array to sort by
+// depth, and stock sized both that array and its stack of depths for 200 - the
+// most an N64 could ever have drawn at once. A room of bodies is well past it,
+// and going past it writes prop depths over the stack.
+#define MAX_ONSCREENPROPS      2048
+#endif
+
 #define MAX_PROPSPERROOMCHUNK  7
+#ifdef PLATFORM_N64
+// The size of a roomGetProps() list, terminator included. Every caller declares
+// one of these on the stack, and stock made it 256 everywhere - which was the
+// number a room and its neighbours could not exceed on an N64. Temple with
+// eighty simulants and five hundred bodies reaches 453 in one room group, so
+// the callers are given room and roomGetProps() stops at the end of what it is
+// given either way. Two kilobytes of stack a call.
+#define MAX_ROOMPROPS 256
+#else
+#define MAX_ROOMPROPS 1024
+#endif
+
+#ifdef PLATFORM_N64
 #define MAX_ROOMPROPLISTCHUNKS 256
+#else
+// Seven propnums to a chunk, and a prop spends one entry per room it is in, so
+// stock allows the whole level 1792 of them. That was generous for a stage with
+// a hundred objects and eight chrs and is not for eighty simulants, their
+// weapons and five hundred bodies left where they fell: past the end
+// roomAllocatePropListChunk() returns -1 and propRegisterRoom() quietly drops
+// the prop, which is a body that is there but in no room. Sixteen bytes each,
+// so this is 64KB. The index is an s16 in the chunk and in
+// g_RoomPropListChunkIndexes, which is the ceiling that matters.
+#define MAX_ROOMPROPLISTCHUNKS 4096
+#endif
 #define MAX_SQUADRONS          16
 #define MAX_TEAMS              8
 #define MAX_EXPLOSIONS_DEFAULT 6

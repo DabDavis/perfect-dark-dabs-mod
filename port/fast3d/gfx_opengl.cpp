@@ -1141,6 +1141,10 @@ static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, 
 }
 
 bool gfx_opengl_start_draw_to_framebuffer(int fb_id, float noise_scale) {
+    if (fb_id < 0 || (size_t)fb_id >= framebuffers.size()) {
+        return false;
+    }
+
     if (gfx_framebuffers_enabled && fb_id < (int)framebuffers.size()) {
         Framebuffer& fb = framebuffers[fb_id];
         if (noise_scale != 0.0f) {
@@ -1195,6 +1199,15 @@ void* gfx_opengl_get_framebuffer_texture_id(int fb_id) {
 }
 
 void gfx_opengl_select_texture_fb(int fb_id) {
+    // The id comes out of a display list, and the game holds framebuffer ids
+    // across a renderer re-init that resizes this vector back down to one -
+    // chr.c's shield textures are created on the first stage load and kept for
+    // the life of the process. An id from before that is not a texture to bind,
+    // it is a read off the end of the vector.
+    if (fb_id < 0 || (size_t)fb_id >= framebuffers.size()) {
+        return;
+    }
+
     // glDisable(GL_DEPTH_TEST);
     glActiveTexture(GL_TEXTURE0 + 0);
     glBindTexture(GL_TEXTURE_2D, framebuffers[fb_id].clrbuf);
@@ -1203,6 +1216,11 @@ void gfx_opengl_select_texture_fb(int fb_id) {
 }
 
 void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool flip_y, bool use_back) {
+    if (fb_dst < 0 || (size_t)fb_dst >= framebuffers.size()
+            || fb_src < 0 || (size_t)fb_src >= framebuffers.size()) {
+        return;
+    }
+
     if (!gfx_framebuffers_enabled || fb_dst >= (int)framebuffers.size() || fb_src >= (int)framebuffers.size()) {
         return;
     }

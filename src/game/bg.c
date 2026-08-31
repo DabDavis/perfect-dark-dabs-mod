@@ -145,12 +145,12 @@ void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 	struct defaultobj *obj;
 	s16 *propnumptr;
 	RoomNum rooms[2];
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
 	rooms[0] = roomnum;
 	rooms[1] = -1;
 
-	roomGetProps(rooms, propnums, 256);
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 
 	propnumptr = propnums;
 
@@ -163,12 +163,27 @@ void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 				 * @bug: A missing prop->type check means this is inadvertently
 				 * casting other pointer types to obj pointers. By chance this
 				 * happens to be harmless.
+				 *
+				 * It stopped being harmless. The union is a chrdata for a chr
+				 * prop and NULL for one propAllocate() has handed out but not
+				 * yet filled in, and reading a type out of either is luck. A
+				 * room holding hundreds of bodies is a room where that luck
+				 * runs out, in bgTickPortals(), while drawing.
 				 */
+#ifndef PLATFORM_N64
+				obj = (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR
+						|| prop->type == PROPTYPE_WEAPON) ? prop->obj : NULL;
+
+				if (obj && obj->type == OBJTYPE_TINTEDGLASS) {
+					propUnpause(prop);
+				}
+#else
 				obj = prop->obj;
 
 				if (obj->type == OBJTYPE_TINTEDGLASS) {
 					propUnpause(prop);
 				}
+#endif
 			} else {
 				propUnpause(prop);
 			}
@@ -882,7 +897,7 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 	RoomNum *room;
 	s16 i;
 	s32 j;
-	RoomNum roomnumsbyprop[200];
+	RoomNum roomnumsbyprop[MAX_ONSCREENPROPS];
 	struct prop *prop;
 	struct prop **ptr;
 	s32 k;
@@ -978,7 +993,7 @@ Gfx *bgRenderScene(Gfx *gdl)
 	s32 firstroomnum = -1;
 	s32 i;
 	s32 roomnum;
-	RoomNum roomnumsbyprop[200];
+	RoomNum roomnumsbyprop[MAX_ONSCREENPROPS];
 	struct prop **ptr;
 	struct drawslot *thing;
 	RoomNum *roomnumptr;

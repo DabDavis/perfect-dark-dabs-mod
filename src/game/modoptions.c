@@ -19,6 +19,9 @@ struct modoptions g_ModOptions = {
 	THIRDPERSON_CAMDIST,      // camdist
 	THIRDPERSON_CAMCLEARANCE, // camclearance
 	THIRDPERSON_CAMMINDIST,   // cammindist
+	MODBODIES_DEFAULT,        // bodies
+	MODBODYTIME_OFF,          // bodytime
+	64,                       // bodiesdrawn
 };
 
 /**
@@ -116,4 +119,58 @@ s32 modGetSpawnWeapon(void)
 	}
 
 	return g_ModOptions.spawnweapon;
+}
+
+/**
+ * How many bodies are left lying around, or MODBODIES_OFF.
+ */
+s32 modGetBodiesKept(void)
+{
+	if (g_ModOptions.bodies < MODBODIES_OFF) {
+		return MODBODIES_OFF;
+	}
+
+	if (g_ModOptions.bodies > MODBODIES_MAX) {
+		return MODBODIES_MAX;
+	}
+
+	return g_ModOptions.bodies;
+}
+
+/**
+ * Seconds a body lies there before it fades, or MODBODYTIME_OFF for as long as
+ * the cap will hold it.
+ */
+s32 modGetBodyTime(void)
+{
+	if (g_ModOptions.bodytime < MODBODYTIME_OFF) {
+		return MODBODYTIME_OFF;
+	}
+
+	if (g_ModOptions.bodytime > MODBODYTIME_MAX) {
+		return MODBODYTIME_MAX;
+	}
+
+	return g_ModOptions.bodytime;
+}
+
+/**
+ * How many kept bodies may be drawn in one frame, or MODBODIESDRAWN_ALL.
+ */
+s32 modGetBodiesDrawn(void)
+{
+	if (g_ModOptions.bodiesdrawn < MODBODIESDRAWN_ALL) {
+		return MODBODIESDRAWN_ALL;
+	}
+
+	if (g_ModOptions.bodiesdrawn > MODBODIESDRAWN_MAX) {
+		return MODBODIESDRAWN_MAX;
+	}
+
+	return g_ModOptions.bodiesdrawn;
+}
+
+bool modKeepsBodies(void)
+{
+	return modGetBodiesKept() != MODBODIES_OFF;
 }

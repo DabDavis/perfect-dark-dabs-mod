@@ -3122,7 +3122,7 @@ bool projectileFindCollidingProp(struct prop *prop, struct coord *pos1, struct c
 	bool result = false;
 	f32 dist;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	f32 spa8;
 	bool spa4 = false;
 	struct coord sp98;
@@ -3162,7 +3162,7 @@ bool projectileFindCollidingProp(struct prop *prop, struct coord *pos1, struct c
 	spa8 = dist;
 
 	if (cdtypes != 0) {
-		roomGetProps(rooms, propnums, 256);
+		roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 
 		for (propnumptr = propnums; *propnumptr >= 0; propnumptr++) {
 			struct prop *iterprop = &g_Vars.props[*propnumptr];
@@ -5968,13 +5968,13 @@ void platformDisplaceProps2(struct prop *platform, Mtxf *arg1)
 {
 	struct prop *prop;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	u8 *sp9c;
 	u8 *sp98;
 	Mtxf sp58;
 
 	if (propUpdateGeometry(platform, &sp9c, &sp98)) {
-		roomGetProps(platform->rooms, propnums, 256);
+		roomGetProps(platform->rooms, propnums, MAX_ROOMPROPS);
 
 		propnumptr = propnums;
 
@@ -14743,12 +14743,12 @@ void objDestroySupportedObjects(struct prop *tableprop, s32 playernum)
 {
 	struct prop *prop;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	u8 *start;
 	u8 *end;
 
 	if (propUpdateGeometry(tableprop, &start, &end)) {
-		roomGetProps(tableprop->rooms, propnums, 256);
+		roomGetProps(tableprop->rooms, propnums, MAX_ROOMPROPS);
 
 		propnumptr = propnums;
 
@@ -19045,9 +19045,9 @@ bool doorIsRangeEmpty(struct doorobj *door)
 {
 	u32 stack;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
-	roomGetProps(door->base.prop->rooms, propnums, 256);
+	roomGetProps(door->base.prop->rooms, propnums, MAX_ROOMPROPS);
 	propnumptr = propnums;
 
 	while (*propnumptr >= 0) {
@@ -19077,9 +19077,9 @@ void doorsCheckAutomatic(void)
 {
 	struct prop *doorprop;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
-	roomGetProps(g_Vars.currentplayer->prop->rooms, propnums, 256);
+	roomGetProps(g_Vars.currentplayer->prop->rooms, propnums, MAX_ROOMPROPS);
 	propnumptr = propnums;
 
 	while (*propnumptr >= 0) {

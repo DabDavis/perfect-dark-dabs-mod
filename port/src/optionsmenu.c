@@ -2068,6 +2068,124 @@ static MenuItemHandlerResult menuhandlerModFlinch(s32 operation, struct menuitem
 }
 
 /**
+ * Bodies left lying where they fell, and how long each one lies there.
+ *
+ * Presets rather than sliders: the numbers worth choosing between are far
+ * apart, and a slider that has to be pushed five hundred times to reach the
+ * other end is not a control.
+ *
+ * The cap is read again at stage load, where the chr, model, anim and prop
+ * slots a body needs are reserved. Raising it during a match therefore buys
+ * nothing until the next one - handovers past the reserve simply fail, and
+ * those bodies fade the way they used to. Lowering it takes effect at once.
+ */
+static const s32 g_ModBodiesValues[] = { MODBODIES_OFF, 8, 16, 32, 64, 128, 250, MODBODIES_MAX };
+static const s32 g_ModBodyTimeValues[] = { MODBODYTIME_OFF, 15, 30, 60, 120, 300, MODBODYTIME_MAX };
+static const s32 g_ModBodiesDrawnValues[] = { 8, 16, 32, 64, 128, 250, MODBODIESDRAWN_ALL };
+
+static s32 menuhandlerModPresetIndex(const s32 *values, s32 count, s32 value)
+{
+	s32 index = 0;
+	s32 i;
+
+	for (i = 0; i < count; i++) {
+		if (value >= values[i]) {
+			index = i;
+		}
+	}
+
+	return index;
+}
+
+static MenuItemHandlerResult menuhandlerModBodies(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "8", "16", "32", "64", "128", "250", "500" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.bodies = g_ModBodiesValues[data->dropdown.value];
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_ModBodiesValues,
+				ARRAYCOUNT(g_ModBodiesValues), modGetBodiesKept());
+	}
+
+	return 0;
+}
+
+/**
+ * Kept and drawn are separate numbers because they cost differently: a body
+ * lying in the next room is nearly free, and the same body on screen is not.
+ * Drawing is where the frame goes, so this is the one to lower first.
+ */
+static MenuItemHandlerResult menuhandlerModBodiesDrawn(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "8", "16", "32", "64", "128", "250", "All" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !modKeepsBodies();
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.bodiesdrawn = g_ModBodiesDrawnValues[data->dropdown.value];
+		break;
+	case MENUOP_GETSELECTEDINDEX: {
+		s32 drawn = modGetBodiesDrawn();
+		s32 i;
+
+		// All is last in the list but zero as a value, so it is not the
+		// nearest-below match the other dropdowns look for.
+		data->dropdown.value = ARRAYCOUNT(opts) - 1;
+
+		if (drawn != MODBODIESDRAWN_ALL) {
+			data->dropdown.value = 0;
+
+			for (i = 0; i < ARRAYCOUNT(g_ModBodiesDrawnValues) - 1; i++) {
+				if (drawn >= g_ModBodiesDrawnValues[i]) {
+					data->dropdown.value = i;
+				}
+			}
+		}
+		break;
+	}
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModBodyTime(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Until Replaced", "15 Seconds", "30 Seconds", "1 Minute", "2 Minutes", "5 Minutes", "10 Minutes" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !modKeepsBodies();
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.bodytime = g_ModBodyTimeValues[data->dropdown.value];
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_ModBodyTimeValues,
+				ARRAYCOUNT(g_ModBodyTimeValues), modGetBodyTime());
+	}
+
+	return 0;
+}
+
+/**
  * The camera sliders run from the closest the camera may sit rather than from
  * zero, because a third person camera on the eye is not a third person camera.
  */
@@ -2225,6 +2343,30 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Start Armed",
 		0,
 		menuhandlerModStartArmed,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Bodies",
+		0,
+		menuhandlerModBodies,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Body Time",
+		0,
+		menuhandlerModBodyTime,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Bodies Drawn",
+		0,
+		menuhandlerModBodiesDrawn,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

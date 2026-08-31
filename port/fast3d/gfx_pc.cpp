@@ -52,6 +52,14 @@ uintptr_t gfxFramebuffer;
 #define RATIO_X (gfx_current_dimensions.width / (float)SCREEN_WIDTH)
 #define RATIO_Y (gfx_current_dimensions.height / (float)SCREEN_HEIGHT)
 
+// The most triangles that can sit in buf_vbo waiting for a draw call.
+//
+// Left at what fast3d shipped with, because measuring said to. The guess was
+// that a stage full of bodies would be flushing on this cap constantly; it
+// never reached it once. Every draw call in a room of five hundred bodies was
+// ended by a texture change instead - about 5000 of them a frame against 950
+// distinct textures - and the cap contributed none. g_GfxMaxBufferedTris still
+// makes it tunable from the command line for anyone who wants to check again.
 #define MAX_BUFFERED 256
 #define MAX_LIGHTS 4
 #define MAX_VERTICES 128
@@ -229,6 +237,91 @@ static float buf_vbo[MAX_BUFFERED * (32 * 3)]; // 3 vertices in a triangle and 3
 static size_t buf_vbo_len;
 static size_t buf_vbo_num_tris;
 
+extern "C" {
+
+/**
+ * How many triangles may be batched into one draw call. Lower it from gdb to
+ * compare against the value fast3d shipped with:
+ *
+ *     set g_GfxMaxBufferedTris = 256
+ *
+ * Clamped to MAX_BUFFERED, which is what buf_vbo is actually sized for.
+ */
+uint32_t g_GfxMaxBufferedTris = MAX_BUFFERED;
+
+/**
+ * What the last frame cost the renderer.
+ *
+ * These answer the question a stage full of bodies raises, which is whether
+ * the frame is bound by transforming vertices or by issuing draw calls, and
+ * those want opposite fixes. The one that tells them apart is
+ * g_GfxNumBufferFullFlushes: a draw call fast3d made because buf_vbo filled
+ * up, rather than because the render state changed. If most of the draw calls
+ * are those, the batch size is the limit and raising g_GfxMaxBufferedTris is
+ * the whole fix; if hardly any are, the frame is being cut into pieces by
+ * texture and combiner changes and a bigger buffer will not help.
+ *
+ * Read them from gdb, or set g_GfxLogStats to a frame count to have a line
+ * printed that often:
+ *
+ *     set g_GfxLogStats = 60
+ */
+uint32_t g_GfxNumDrawCalls = 0;
+uint32_t g_GfxNumBufferFullFlushes = 0;
+
+/**
+ * Draw calls of the last frame, by the thing that ended the batch.
+ *
+ * A frame of bodies comes out at seven triangles a draw call, so what matters
+ * is not how much geometry there is but what keeps cutting it up. Indexed by
+ * enum GfxFlushReason; only flushes that actually drew something are counted,
+ * since a flush with an empty buffer costs nothing.
+ */
+uint32_t g_GfxFlushReasons[GFX_FLUSH_COUNT] = {0};
+
+/**
+ * How many *distinct* textures were bound in the last frame, against the
+ * number of binds.
+ *
+ * This is the number that decides what to do about a frame spent almost
+ * entirely on texture binds. If the distinct count is small, the same handful
+ * of textures are being rebound over and over because the draw order walks one
+ * body at a time, and sorting the opaque pass by texture collapses it. If it
+ * is close to the bind count, the textures really are all different and the
+ * answer is an atlas or an array instead.
+ */
+uint32_t g_GfxNumDistinctTextures = 0;
+
+/**
+ * Textures decoded and uploaded to the GPU during the last frame, and cache
+ * entries thrown out to make room for them.
+ *
+ * The texture cache holds g_GfxTexCacheSize entries and evicts least recently
+ * used. That is fine while a frame's working set fits. Once it does not, the
+ * cache is being asked for more distinct textures than it can hold and every
+ * one of them evicts another that the same frame is about to want again - so a
+ * frame stops binding textures it already has and starts decoding and
+ * reuploading them from scratch, hundreds of times, every frame. That is a
+ * cliff rather than a slope, and these two numbers are what it looks like:
+ * uploads climbing to meet the bind count, and evictions alongside them.
+ *
+ * A frame in a room full of bodies was seen holding 879 distinct textures
+ * against a cache of 1024, and still climbing.
+ */
+uint32_t g_GfxNumTexUploads = 0;
+uint32_t g_GfxNumTexEvictions = 0;
+
+/**
+ * How many textures the cache may hold. Raise it from the command line with
+ * --gfxtexcache to buy a bigger working set at the cost of video memory.
+ */
+uint32_t g_GfxTexCacheSize = TEXTURE_CACHE_MAX_SIZE;
+uint32_t g_GfxNumTris = 0;
+uint32_t g_GfxNumVerts = 0;
+uint32_t g_GfxLogStats = 0;
+
+}
+
 static struct GfxWindowManagerAPI* gfx_wapi;
 static struct GfxRenderingAPI* gfx_rapi;
 
@@ -248,12 +341,36 @@ static constexpr float clampf(const float x, const float min, const float max) {
     return (x < min) ? min : (x > max) ? max : x;
 }
 
+// Texture ids bound this frame, for g_GfxNumDistinctTextures. Cleared each
+// frame; a plain set because this only runs while stats are switched on.
+static std::set<uint32_t> gfx_frame_textures;
+
+static void gfx_note_texture_bound(uint32_t texture_id) {
+    if (g_GfxLogStats) {
+        gfx_frame_textures.insert(texture_id);
+        g_GfxNumDistinctTextures = gfx_frame_textures.size();
+    }
+}
+
 static void gfx_flush(void) {
     if (buf_vbo_len > 0) {
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
+        g_GfxNumDrawCalls++;
+        g_GfxNumTris += buf_vbo_num_tris;
         buf_vbo_len = 0;
         buf_vbo_num_tris = 0;
     }
+}
+
+/**
+ * Flush, recording what caused it. Only the sites that can fire per model are
+ * tagged; the rest are once-a-frame things and fall under GFX_FLUSH_OTHER.
+ */
+static void gfx_flush_for(enum GfxFlushReason reason) {
+    if (buf_vbo_len > 0) {
+        g_GfxFlushReasons[reason]++;
+    }
+    gfx_flush();
 }
 
 static struct ShaderProgram* gfx_lookup_or_create_shader_program(uint64_t shader_id0, uint32_t shader_id1) {
@@ -500,14 +617,14 @@ static struct ColorCombiner* gfx_lookup_or_create_color_combiner(const ColorComb
     if (prev_combiner != color_combiner_pool.end()) {
         return &prev_combiner->second;
     }
-    gfx_flush();
+    gfx_flush_for(GFX_FLUSH_OTHER);
     prev_combiner = color_combiner_pool.insert(std::make_pair(key, ColorCombiner())).first;
     gfx_generate_cc(&prev_combiner->second, key);
     return &prev_combiner->second;
 }
 
 void gfx_texture_cache_clear() {
-    gfx_flush();
+    gfx_flush_for(GFX_FLUSH_OTHER);
     for (const auto& entry : gfx_texture_cache.map) {
         gfx_texture_cache.free_texture_ids.push_back(entry.second.texture_id);
     }
@@ -522,6 +639,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     TextureCacheNode** n = &rendering_state.textures[i];
 
     if (it != gfx_texture_cache.map.end()) {
+        gfx_note_texture_bound(it->second.texture_id);
         gfx_rapi->select_texture(i, it->second.texture_id, it->second.linear_filter);
         *n = &*it;
         gfx_texture_cache.lru.splice(gfx_texture_cache.lru.end(), gfx_texture_cache.lru,
@@ -529,8 +647,9 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
         return true;
     }
 
-    if (gfx_texture_cache.map.size() >= TEXTURE_CACHE_MAX_SIZE) {
+    if (gfx_texture_cache.map.size() >= g_GfxTexCacheSize) {
         // Remove the texture that was least recently used
+        g_GfxNumTexEvictions++;
         it = gfx_texture_cache.lru.front().it;
         gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
         gfx_texture_cache.map.erase(it);
@@ -550,14 +669,19 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     node->second.texture_id = texture_id;
     node->second.lru_location = gfx_texture_cache.lru.insert(gfx_texture_cache.lru.end(), { it });
 
+    gfx_note_texture_bound(texture_id);
     gfx_rapi->select_texture(i, texture_id, false);
     gfx_rapi->set_sampler_parameters(i, false, 0, 0, rdp.tex_lod);
     *n = node;
+
+    // Returning false is what makes the caller decode and upload it.
+    g_GfxNumTexUploads++;
+
     return false;
 }
 
 void gfx_texture_cache_delete(const uint8_t* orig_addr) {
-    gfx_flush();
+    gfx_flush_for(GFX_FLUSH_OTHER);
 
     for (int i = 0; i < 2; ++i) {
         if (rendering_state.textures[i] && rendering_state.textures[i]->first.texture_addr == orig_addr) {
@@ -586,7 +710,7 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
 }
 
 void gfx_texture_cache_delete_range(const uint8_t* start, const uint8_t* end) {
-    gfx_flush();
+    gfx_flush_for(GFX_FLUSH_OTHER);
 
     for (int i = 0; i < 2; ++i) {
         if (rendering_state.textures[i]
@@ -1055,6 +1179,8 @@ static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height)
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
 
+    g_GfxNumVerts += n_vertices;
+
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const Vtx* v = &vertices[i];
         struct LoadedVertex* d = &rsp.loaded_vertices[dest_index];
@@ -1269,19 +1395,19 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     uint8_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6);
 
     if (depth_mode != rendering_state.depth_mode) {
-        gfx_flush();
+        gfx_flush_for(GFX_FLUSH_DEPTH);
         gfx_rapi->set_depth_mode(depth_test, depth_update, depth_compare, depth_source_prim, zmode);
         rendering_state.depth_mode = depth_mode;
     }
 
     if (rdp.viewport_or_scissor_changed) {
         if (memcmp(&rdp.viewport, &rendering_state.viewport, sizeof(rdp.viewport)) != 0) {
-            gfx_flush();
+            gfx_flush_for(GFX_FLUSH_VIEWPORT);
             gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
             rendering_state.viewport = rdp.viewport;
         }
         if (memcmp(&rdp.scissor, &rendering_state.scissor, sizeof(rdp.scissor)) != 0) {
-            gfx_flush();
+            gfx_flush_for(GFX_FLUSH_VIEWPORT);
             gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
             rendering_state.scissor = rdp.scissor;
         }
@@ -1352,7 +1478,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         const uint32_t tile = rdp.first_tile_index + gfx_lod_tile_offset(i);
         if (comb->used_textures[i]) {
             if (rdp.textures_changed[i]) {
-                gfx_flush();
+                gfx_flush_for(GFX_FLUSH_TEXTURE);
                 import_texture(i, tile, false);
                 rdp.textures_changed[i] = false;
             }
@@ -1403,7 +1529,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                 bool linear_filter = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT;
                 if (linear_filter != rendering_state.textures[i]->second.linear_filter ||
                     cms != rendering_state.textures[i]->second.cms || cmt != rendering_state.textures[i]->second.cmt) {
-                    gfx_flush();
+                    gfx_flush_for(GFX_FLUSH_SAMPLER);
                     gfx_rapi->set_sampler_parameters(i, linear_filter, cms, cmt, rdp.tex_lod);
                     rendering_state.textures[i]->second.linear_filter = linear_filter;
                     rendering_state.textures[i]->second.cms = cms;
@@ -1419,13 +1545,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             gfx_lookup_or_create_shader_program(comb->shader_id0, comb->shader_id1 | (tm * SHADER_OPT_TEXEL0_CLAMP_S));
     }
     if (prg != rendering_state.shader_program) {
-        gfx_flush();
+        gfx_flush_for(GFX_FLUSH_SHADER);
         gfx_rapi->unload_shader(rendering_state.shader_program);
         gfx_rapi->load_shader(prg);
         rendering_state.shader_program = prg;
     }
     if (use_alpha != rendering_state.alpha_blend || use_modulate != rendering_state.modulate) {
-        gfx_flush();
+        gfx_flush_for(GFX_FLUSH_BLEND);
         gfx_rapi->set_use_alpha(use_alpha, use_modulate);
         rendering_state.alpha_blend = use_alpha;
         rendering_state.modulate = use_modulate;
@@ -1587,8 +1713,11 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         }
     }
 
-    if (++buf_vbo_num_tris == MAX_BUFFERED) {
-        gfx_flush();
+    // >= rather than ==, because g_GfxMaxBufferedTris can be lowered from gdb
+    // partway through a frame and must not be stepped straight over.
+    if (++buf_vbo_num_tris >= g_GfxMaxBufferedTris) {
+        g_GfxNumBufferFullFlushes++;
+        gfx_flush_for(GFX_FLUSH_BUFFERFULL);
     }
 }
 
@@ -2355,7 +2484,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             }
             case G_SETTIMG_FB_EXT:
-                gfx_flush();
+                gfx_flush_for(GFX_FLUSH_OTHER);
                 gfx_rapi->select_texture_fb(cmd->words.w1);
                 rdp.textures_changed[0] = false;
                 rdp.textures_changed[1] = false;
@@ -2486,7 +2615,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_dp_set_color_image(C0(21, 3), C0(19, 2), C0(0, 11), seg_addr(cmd->words.w1));
                 break;
             case G_SETFB_EXT:
-                gfx_flush();
+                gfx_flush_for(GFX_FLUSH_OTHER);
                 if (cmd->words.w1) {
                     // don't care about noise here
                     gfx_set_framebuffer(cmd->words.w1, 1.f);
@@ -2517,10 +2646,10 @@ static void gfx_run_dl(Gfx* cmd) {
                 // the port renders the sky in a different manner
                 break;
             case G_RDPFLUSH_EXT:
-                gfx_flush();
+                gfx_flush_for(GFX_FLUSH_OTHER);
                 break;
             case G_CLEAR_DEPTH_EXT:
-                gfx_flush();
+                gfx_flush_for(GFX_FLUSH_OTHER);
                 gfx_rapi->clear_framebuffer(false, true);
                 break;
             case G_RDPPIPESYNC:
@@ -2590,6 +2719,55 @@ extern "C" struct GfxRenderingAPI* gfx_get_current_rendering_api(void) {
 }
 
 extern "C" void gfx_start_frame(void) {
+    // Report and clear what the frame just finished cost, before anything is
+    // added to the totals for the next one.
+    if (g_GfxLogStats) {
+        static uint32_t framessincelog = 0;
+
+        if (++framessincelog >= g_GfxLogStats) {
+            framessincelog = 0;
+            sysLogPrintf(LOG_NOTE,
+                    "gfx: %u draws, %u tris, %u verts, %.1f tris/draw",
+                    g_GfxNumDrawCalls,
+                    g_GfxNumTris,
+                    g_GfxNumVerts,
+                    g_GfxNumDrawCalls ? (float)g_GfxNumTris / g_GfxNumDrawCalls : 0.0f);
+            sysLogPrintf(LOG_NOTE,
+                    "gfx:   tex %u (%u distinct), shader %u, blend %u, sampler %u, depth %u, viewport %u, bufferfull %u, other %u",
+                    g_GfxFlushReasons[GFX_FLUSH_TEXTURE],
+                    g_GfxNumDistinctTextures,
+                    g_GfxFlushReasons[GFX_FLUSH_SHADER],
+                    g_GfxFlushReasons[GFX_FLUSH_BLEND],
+                    g_GfxFlushReasons[GFX_FLUSH_SAMPLER],
+                    g_GfxFlushReasons[GFX_FLUSH_DEPTH],
+                    g_GfxFlushReasons[GFX_FLUSH_VIEWPORT],
+                    g_GfxFlushReasons[GFX_FLUSH_BUFFERFULL],
+                    g_GfxFlushReasons[GFX_FLUSH_OTHER]);
+            sysLogPrintf(LOG_NOTE,
+                    "gfx:   tex uploads %u, evictions %u, cache %u/%u",
+                    g_GfxNumTexUploads,
+                    g_GfxNumTexEvictions,
+                    (uint32_t)gfx_texture_cache.map.size(),
+                    g_GfxTexCacheSize);
+        }
+    }
+
+    if (g_GfxMaxBufferedTris < 1) {
+        g_GfxMaxBufferedTris = 1;
+    } else if (g_GfxMaxBufferedTris > MAX_BUFFERED) {
+        g_GfxMaxBufferedTris = MAX_BUFFERED;
+    }
+
+    g_GfxNumDrawCalls = 0;
+    g_GfxNumBufferFullFlushes = 0;
+    g_GfxNumTris = 0;
+    g_GfxNumVerts = 0;
+    memset(g_GfxFlushReasons, 0, sizeof(g_GfxFlushReasons));
+    gfx_frame_textures.clear();
+    g_GfxNumDistinctTextures = 0;
+    g_GfxNumTexUploads = 0;
+    g_GfxNumTexEvictions = 0;
+
     gfx_wapi->handle_events();
     gfx_wapi->get_dimensions(&gfx_current_window_dimensions.width, &gfx_current_window_dimensions.height,
                              &gfx_current_window_position_x, &gfx_current_window_position_y);
@@ -2683,7 +2861,7 @@ extern "C" void gfx_run(Gfx* commands) {
     rendering_state.viewport = {};
     rendering_state.scissor = {};
     gfx_run_dl(commands);
-    gfx_flush();
+    gfx_flush_for(GFX_FLUSH_OTHER);
     gfxFramebuffer = 0;
 
     if (game_renders_to_framebuffer) {

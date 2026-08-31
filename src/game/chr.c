@@ -4,9 +4,11 @@
 #include "game/bondmove.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
+#include "game/modbodies.h"
 #include "game/debug.h"
 #include "game/chr.h"
 #include "game/env.h"
+#include "game/nbomb.h"
 #include "game/prop.h"
 #include "game/propsnd.h"
 #include "game/objectives.h"
@@ -1161,6 +1163,8 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->punchstep = 0;
 	chr->punchtime60 = 0;
 	chr->oneshotanim = 0;
+	chr->keptbody60 = -1;
+	chr->bodynodraw = false;
 #endif
 	chr->aishootingatmelist = -1;
 	chr->aidarkroomlist = -1;
@@ -1440,6 +1444,10 @@ void chrRemove(struct prop *prop, bool free)
 
 		chrClearReferences(prop - g_Vars.props);
 		projectilesUnrefOwner(prop);
+#ifndef PLATFORM_N64
+		nbombsUnrefOwner(prop);
+		explosionsUnrefSource(prop);
+#endif
 
 		if (g_Vars.normmplayerisrunning == false && g_MissionConfig.iscoop) {
 			s32 i;
@@ -1632,7 +1640,15 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx)
 			return;
 		}
 
-		mtx00015be0(camGetProjectionMtxF(), mtx);
+		// The rotation this applies is a world space one, so the camera comes off
+		// the joint here and goes back on at the end. A pose being captured in
+		// model space has no camera on it to take off or put back.
+#ifndef PLATFORM_N64
+		if (!g_ModelPoseCapture)
+#endif
+		{
+			mtx00015be0(camGetProjectionMtxF(), mtx);
+		}
 
 		sp138.x = mtx->m[3][0];
 		sp138.y = mtx->m[3][1];
@@ -1678,7 +1694,12 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx)
 		mtx->m[3][1] = sp138.y;
 		mtx->m[3][2] = sp138.z;
 
-		mtx00015be0(camGetWorldToScreenMtxf(), mtx);
+#ifndef PLATFORM_N64
+		if (!g_ModelPoseCapture)
+#endif
+		{
+			mtx00015be0(camGetWorldToScreenMtxf(), mtx);
+		}
 	} else {
 		if (g_CurModelChr->model->definition->skel == &g_SkelChr) {
 			lshoulderjoint = 2;
@@ -1841,7 +1862,15 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx)
 					yrot += M_BADTAU;
 				}
 
-				mtx00015be0(camGetProjectionMtxF(), mtx);
+				// The rotation this applies is a world space one, so the camera comes off
+				// the joint here and goes back on at the end. A pose being captured in
+				// model space has no camera on it to take off or put back.
+#ifndef PLATFORM_N64
+				if (!g_ModelPoseCapture)
+#endif
+				{
+					mtx00015be0(camGetProjectionMtxF(), mtx);
+				}
 
 				sp70.x = mtx->m[3][0];
 				sp70.y = mtx->m[3][1];
@@ -1886,7 +1915,12 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx)
 				mtx->m[3][1] = sp70.y;
 				mtx->m[3][2] = sp70.z;
 
-				mtx00015be0(camGetWorldToScreenMtxf(), mtx);
+#ifndef PLATFORM_N64
+				if (!g_ModelPoseCapture)
+#endif
+				{
+					mtx00015be0(camGetWorldToScreenMtxf(), mtx);
+				}
 			}
 		}
 	}
@@ -2008,6 +2042,14 @@ void chr0f022214(struct chrdata *chr, struct prop *prop, bool fulltick)
 		} else {
 			thing.unk00 = sp104;
 		}
+
+#ifndef PLATFORM_N64
+		// Out of matrix space for this frame: leave the held object out of it
+		// rather than take a pointer past the end of the pool. See gfxmemory.c.
+		if (!gfxHasVtxSpace(model->definition->nummatrices * sizeof(Mtxf))) {
+			return;
+		}
+#endif
 
 		thing.unk10 = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
 		modelSetMatrices(&thing, model);
@@ -2382,6 +2424,12 @@ s32 chrTick(struct prop *prop)
 	struct prop *child;
 	struct prop *next;
 	bool fulltick = false;
+#ifndef PLATFORM_N64
+	// Whether this body's matrices are waiting on the draw budget, in which
+	// case it has none this frame, has taken nothing out of the frame's pool
+	// to put them in, and has had its depth set already. See modbodies.c.
+	bool deferred = false;
+#endif
 	s32 race = CHRRACE(chr);
 	s32 sp1e8;
 	Mtxf sp1a8;
@@ -2719,6 +2767,27 @@ s32 chrTick(struct prop *prop)
 			sp210.unk00 = camGetWorldToScreenMtxf();
 		}
 
+#ifndef PLATFORM_N64
+		// A kept body is lying in a pose that does not change, so the
+		// animation only has to be decompressed and walked into matrices once.
+		// What is left per frame is the camera multiply, and even that waits
+		// here until the draw budget has said whether the body is being drawn
+		// at all - which is also what keeps it out of the pool below. See
+		// modbodies.c.
+		deferred = modBodyPoseHold(chr, &sp210);
+
+		// Same again for the chr itself, and this is the one that runs out: a
+		// room holding a match's worth of bodies asks for two kilobytes each,
+		// every frame. A body that cannot be given matrices is taken off this
+		// frame's screen rather than drawn from a pointer past the pool - it
+		// keeps neither stale matrices nor a place in the draw order.
+		if (!deferred && !gfxHasVtxSpace(model->definition->nummatrices * sizeof(Mtxf))) {
+			prop->flags &= ~PROPFLAG_ONTHISSCREENTHISTICK;
+			return TICKOP_NONE;
+		}
+
+		if (!deferred)
+#endif
 		sp210.unk10 = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
 
 		if (fulltick && g_CurModelChr->flinchcnt >= 0) {
@@ -2793,6 +2862,12 @@ s32 chrTick(struct prop *prop)
 			}
 #endif
 
+#ifndef PLATFORM_N64
+			// A body that was not held - one still holding the gun it died
+			// with, whose child prop is positioned from these matrices before
+			// this tick is out - still has its pose to build them from.
+			if (!deferred && !modBodyPoseApply(chr, &sp210))
+#endif
 			modelSetMatricesWithAnim(&sp210, model);
 
 			if (restore) {
@@ -2809,7 +2884,11 @@ s32 chrTick(struct prop *prop)
 				colourTween(chr->shadecol, chr->nextcol);
 			}
 
+#ifndef PLATFORM_N64
+			if (!deferred)
+#endif
 			prop->z = modelGetScreenDistance(model);
+
 			child = prop->child;
 
 			while (child) {
@@ -2989,10 +3068,85 @@ void chr0f02472c(void)
 	var80062964 = 0;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The doors chr0f024738() found for a set of rooms, so that a room full of
+ * bodies asks the room for its props once instead of once per body.
+ *
+ * Finding the doors is the whole cost of that function: roomGetProps() fills
+ * two kilobytes of stack with every prop in the chr's room group and the loop
+ * walks all of them looking for the handful that are doors. In a mission that
+ * list is short. With five hundred bodies lying in a room the bodies are most
+ * of the list - Temple reaches 453 - and every body is walking past every other
+ * body, once per render pass, per player, to find the same two doors.
+ *
+ * Which doors those are depends on the rooms and not on the chr, and props are
+ * rendered a room at a time, so consecutive bodies ask the identical question.
+ * The answer is kept and the per chr half - where the body is lying relative to
+ * each door - still runs for every one of them.
+ *
+ * Keyed on the frame and the player as well as the rooms, because whether a
+ * door is on screen is a per frame thing and each player sees its own.
+ */
+static RoomNum g_ChrDoorRooms[8];
+static s16 g_ChrDoors[15];
+static s32 g_ChrNumDoors = 0;
+static s32 g_ChrDoorFrame = -1;
+static s32 g_ChrDoorPlayer = -1;
+static bool g_ChrDoorValid = false;
+
+static bool chrDoorCacheMatches(RoomNum *rooms)
+{
+	s32 i;
+
+	if (!g_ChrDoorValid
+			|| g_ChrDoorFrame != g_Vars.lvframe60
+			|| g_ChrDoorPlayer != (s32)g_Vars.currentplayernum) {
+		return false;
+	}
+
+	for (i = 0; i < 8; i++) {
+		if (g_ChrDoorRooms[i] != rooms[i]) {
+			return false;
+		}
+
+		if (rooms[i] < 0) {
+			return true;
+		}
+	}
+
+	return true;
+}
+
+static void chrDoorCacheStore(RoomNum *rooms)
+{
+	s32 i;
+
+	for (i = 0; i < 8; i++) {
+		g_ChrDoorRooms[i] = rooms[i];
+
+		if (rooms[i] < 0) {
+			break;
+		}
+	}
+
+	// A room list longer than the array is not something the cache can
+	// describe, so it simply does not claim to.
+	g_ChrDoorValid = i < 8;
+	g_ChrDoorFrame = g_Vars.lvframe60;
+	g_ChrDoorPlayer = g_Vars.currentplayernum;
+}
+#endif
+
 bool chr0f024738(struct chrdata *chr)
 {
 	s16 *propnumptr;
-	s16 propnums[256];
+#ifndef PLATFORM_N64
+	bool cached = chrDoorCacheMatches(chr->prop->rooms);
+	s16 propnums[1];
+#else
+	s16 propnums[MAX_ROOMPROPS];
+#endif
 	s32 i;
 	struct var80062960 *thing;
 	struct coord *campos;
@@ -3002,8 +3156,44 @@ bool chr0f024738(struct chrdata *chr)
 		var80062960[i].unk004 = 0;
 	}
 
-	roomGetProps(chr->prop->rooms, propnums, 256);
-	propnumptr = propnums;
+#ifndef PLATFORM_N64
+	if (cached) {
+		// The doors are already known. What is left is the half that really is
+		// about this body: which side of each door it is lying on.
+		for (i = 0; i < g_ChrNumDoors; i++) {
+			struct coord pos;
+
+			thing = &var80062960[g_ChrDoors[i]];
+
+			modelGetRootPosition(chr->model, &pos);
+
+			thing->unk008 = (
+					thing->unk06c.m[0][2] * pos.f[0] +
+					thing->unk06c.m[1][2] * pos.f[1] +
+					thing->unk06c.m[2][2] * pos.f[2]) + thing->unk06c.m[3][2];
+
+			if ((thing->unk008 > thing->bbox.zmax && thing->unk12c < thing->bbox.zmin)
+					|| (thing->unk008 < thing->bbox.zmin && thing->unk12c > thing->bbox.zmax)) {
+				thing->unk004 = true;
+				result = true;
+			}
+		}
+
+		return result;
+	}
+
+	{
+		s16 roompropnums[MAX_ROOMPROPS];
+
+		g_ChrNumDoors = 0;
+		roomGetProps(chr->prop->rooms, roompropnums, MAX_ROOMPROPS);
+		chrDoorCacheStore(chr->prop->rooms);
+		propnumptr = roompropnums;
+#else
+	{
+		roomGetProps(chr->prop->rooms, propnums, MAX_ROOMPROPS);
+		propnumptr = propnums;
+#endif
 
 	while (*propnumptr >= 0) {
 		struct prop *prop = &g_Vars.props[*propnumptr];
@@ -3035,6 +3225,7 @@ bool chr0f024738(struct chrdata *chr)
 							goto next;
 						}
 
+						i = var80062964;
 						thing = &var80062960[var80062964];
 						thing->prop = prop;
 						thing->unk00c = 0;
@@ -3043,6 +3234,14 @@ bool chr0f024738(struct chrdata *chr)
 
 						var80062964++;
 					}
+
+#ifndef PLATFORM_N64
+					// Remember it for the bodies behind this one.
+					if (g_ChrNumDoors < 15) {
+						g_ChrDoors[g_ChrNumDoors] = i;
+						g_ChrNumDoors++;
+					}
+#endif
 
 					if (!thing->unk00c) {
 						struct modelrodata_bbox *bbox = objFindBboxRodata(obj);
@@ -3081,6 +3280,8 @@ bool chr0f024738(struct chrdata *chr)
 
 next:
 		propnumptr++;
+	}
+
 	}
 
 	return result;
@@ -3365,6 +3566,15 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	struct model *model = chr->model;
 	f32 shadecolourfracs[4];
 	s32 shademode;
+#ifndef PLATFORM_N64
+	// A kept body that lost this frame's draw budget, or the debug switch that
+	// takes all of them out at once. Both leave the body where it is - it is
+	// still shot at, still walked around, still counted - and only skip the
+	// drawing, which is the part that costs.
+	if (modBodyIsKept(chr) && (g_ModBodiesNoDraw || chr->bodynodraw)) {
+		return gdl;
+	}
+#endif
 	s32 sp100;
 	s32 alpha;
 	struct eyespy *eyespy;

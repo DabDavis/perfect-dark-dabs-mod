@@ -1375,6 +1375,21 @@ struct chrdata {
 	// back, because its last frame is the corpse, so this is held for as long
 	// as the body is playing it rather than until an end frame.
 	s16 deathanim;
+	// The frame this body was claimed by the kept body pool, or -1 for a body
+	// the pool is not keeping. Set when the body lands rather than when it is
+	// handed a chr of its own, so a simulant's body is already spoken for
+	// during the ninety ticks its owner spends dead, and so its age is counted
+	// from the death rather than from the handover. See modbodies.c.
+	s32 keptbody60;
+	// Set each frame by propsSort() on the kept bodies that lost the draw
+	// budget - the furthest ones, when more are on screen than the budget
+	// allows. Meaningless for anything that is not a kept body.
+	bool bodynodraw;
+	// Set by modBodyPoseHold() on a kept body whose matrices are waiting on
+	// this frame's draw budget, and cleared by whichever of modBodyPoseDraw()
+	// or modBodyPoseDrop() answers it. While it is set the body has no
+	// matrices for this frame and model->matrices must not be read.
+	bool bodyposeheld;
 #endif
 };
 

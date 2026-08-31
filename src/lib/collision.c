@@ -802,14 +802,14 @@ void cdGetPropsOnPlatform(struct prop *platform, s16 *propnums, s32 maxlen)
 {
 	u8 *start;
 	u8 *end;
-	s16 roompropnums[257];
+	s16 roompropnums[MAX_ROOMPROPS];
 	struct prop *prop;
 	s16 *roompropnumptr;
 	struct geo *geo;
 	s32 len = 0;
 
 	if (propUpdateGeometry(platform, &start, &end)) {
-		roomGetProps(platform->rooms, roompropnums, 256);
+		roomGetProps(platform->rooms, roompropnums, MAX_ROOMPROPS);
 		roompropnumptr = roompropnums;
 
 		while (*roompropnumptr >= 0) {
@@ -973,7 +973,7 @@ void cdFindClosestVertical(struct coord *pos, RoomNum *rooms, u16 geoflags, stru
 	s32 room = 0;
 	struct prop *bestprop = NULL;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
 	if (ceiling) {
 		closesty = 4294967296;
@@ -996,7 +996,7 @@ void cdFindClosestVertical(struct coord *pos, RoomNum *rooms, u16 geoflags, stru
 		roomnum = *roomptr2;
 	}
 
-	roomGetProps(rooms, propnums, 256);
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 	propnumptr = propnums;
 
 	while (*propnumptr >= 0) {
@@ -1270,7 +1270,7 @@ void cdCollectGeoForCyl(struct coord *pos, f32 radius, RoomNum *rooms, u32 types
 	u8 *end;
 	s32 numcollisions = 0;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
 	// Check BG
 	if (types & CDTYPE_BG) {
@@ -1294,12 +1294,31 @@ void cdCollectGeoForCyl(struct coord *pos, f32 radius, RoomNum *rooms, u32 types
 		}
 	}
 
-	// Check props
-	roomGetProps(rooms, propnums, 256);
+	// Check props.
+	//
+	// CDTYPE_BG is the background and nothing else, so a caller asking only
+	// for that cannot match a prop whatever is lying in the room - and two of
+	// the five callers ask only for that. Gathering the room's props to reject
+	// every one of them is work worth skipping when the room holds five
+	// hundred bodies.
+#ifndef PLATFORM_N64
+	if (types & ~CDTYPE_BG) {
+#endif
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 	propnumptr = propnums;
 
 	while (*propnumptr >= 0) {
 		struct prop *prop = &g_Vars.props[*propnumptr];
+
+#ifndef PLATFORM_N64
+		// A dead chr is rejected by propIsOfCdType() every time, and in a room
+		// of bodies almost every prop is one. Said here so that the common
+		// case does not pay for the call.
+		if (prop->type == PROPTYPE_CHR && prop->chr && prop->chr->actiontype == ACT_DEAD) {
+			propnumptr++;
+			continue;
+		}
+#endif
 
 		if (propIsOfCdType(prop, types) && propUpdateGeometry(prop, &start, &end)) {
 			cdCollectGeoForCylFromList(pos, radius, start, end, geoflags, checkvertical, ymax, ymin, prop, collisions, maxcollisions, &numcollisions, prop->rooms[0]);
@@ -1311,6 +1330,9 @@ void cdCollectGeoForCyl(struct coord *pos, f32 radius, RoomNum *rooms, u32 types
 
 		propnumptr++;
 	}
+#ifndef PLATFORM_N64
+	}
+#endif
 
 end:
 	collisions[numcollisions].geo = NULL;
@@ -1598,7 +1620,7 @@ void cdCollectGeoForCylMove(struct coord *pos, f32 width, RoomNum *rooms, u32 ty
 	u8 *end;
 	s32 numcollisions = 0;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
 	// Check BG
 	if (types & CDTYPE_BG) {
@@ -1618,12 +1640,24 @@ void cdCollectGeoForCylMove(struct coord *pos, f32 width, RoomNum *rooms, u32 ty
 		}
 	}
 
-	// Check props
-	roomGetProps(rooms, propnums, 256);
+	// Check props. Same two skips as cdCollectGeoForCyl(): a caller wanting
+	// only the background cannot match a prop, and a dead chr is rejected by
+	// propIsOfCdType() every time.
+#ifndef PLATFORM_N64
+	if (types & ~CDTYPE_BG) {
+#endif
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 	propnumptr = propnums;
 
 	while (*propnumptr >= 0) {
 		struct prop *prop = &g_Vars.props[*propnumptr];
+
+#ifndef PLATFORM_N64
+		if (prop->type == PROPTYPE_CHR && prop->chr && prop->chr->actiontype == ACT_DEAD) {
+			propnumptr++;
+			continue;
+		}
+#endif
 
 		if (propIsOfCdType(prop, types) && propUpdateGeometry(prop, &start, &end)) {
 			cdCollectGeoForCylMoveFromList(start, end, pos, width, geoflags, checkvertical, ymax, ymin, prop, collisions, maxcollisions, &numcollisions);
@@ -1631,6 +1665,9 @@ void cdCollectGeoForCylMove(struct coord *pos, f32 width, RoomNum *rooms, u32 ty
 
 		propnumptr++;
 	}
+#ifndef PLATFORM_N64
+	}
+#endif
 
 	collisions[numcollisions].geo = NULL;
 }
@@ -3345,7 +3382,7 @@ bool cdTestAToB(struct coord *pos, struct coord *coord2, RoomNum *rooms, u32 typ
 	u8 *end;
 	struct coord sp27c;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
 	sp27c.x = coord2->x - pos->x;
 	sp27c.y = coord2->y - pos->y;
@@ -3371,7 +3408,7 @@ bool cdTestAToB(struct coord *pos, struct coord *coord2, RoomNum *rooms, u32 typ
 		}
 	}
 
-	roomGetProps(rooms, propnums, 256);
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 
 	propnumptr = propnums;
 
@@ -3405,7 +3442,7 @@ s32 cdExamAToB(struct coord *arg0, struct coord *arg1, RoomNum *rooms, s32 types
 	f32 sp298 = 4294967296;
 	struct geo *sp294;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 
 	sp2c4.x = arg1->x - arg0->x;
 	sp2c4.y = arg1->y - arg0->y;
@@ -3432,7 +3469,7 @@ s32 cdExamAToB(struct coord *arg0, struct coord *arg1, RoomNum *rooms, s32 types
 		}
 	}
 
-	roomGetProps(rooms, propnums, 256);
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 	propnumptr = propnums;
 
 	while (*propnumptr >= 0) {
@@ -3818,7 +3855,7 @@ s32 cdTestBlockOverlapsAnyProp(struct geoblock *geo, RoomNum *rooms, u32 types)
 	u8 *start;
 	u8 *end;
 	RoomNum *roomptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	s16 *propnumptr;
 
 	// Check BG
@@ -3846,7 +3883,7 @@ s32 cdTestBlockOverlapsAnyProp(struct geoblock *geo, RoomNum *rooms, u32 types)
 
 	// Check props
 	if (result != CDRESULT_COLLISION) {
-		roomGetProps(rooms, propnums, 256);
+		roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 		propnumptr = propnums;
 
 		while (*propnumptr >= 0) {
@@ -4072,7 +4109,7 @@ bool cd0002f02c(struct geoblock *block, RoomNum *rooms, s32 types)
 	u8 *start;
 	u8 *end;
 	s32 next;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	s16 *propnumptr;
 	bool result = true;
 	struct coord verts[8];
@@ -4114,7 +4151,7 @@ bool cd0002f02c(struct geoblock *block, RoomNum *rooms, s32 types)
 	}
 
 	if (result) {
-		roomGetProps(rooms, propnums, 256);
+		roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 
 		propnumptr = propnums;
 

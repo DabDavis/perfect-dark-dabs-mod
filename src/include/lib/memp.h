@@ -7,6 +7,9 @@
 void mempInit(void);
 void mempSetHeap(u8 *heapstart, u32 heaplen);
 u32 mempGetStageFree(void);
+#ifndef PLATFORM_N64
+u32 mempGetStageFreeTotal(void);
+#endif
 void *mempGetNextStageAllocation(void);
 void *mempAlloc(u32 len, u8 pool);
 s32 mempRealloc(void *allocation, s32 newsize, u8 poolnum);

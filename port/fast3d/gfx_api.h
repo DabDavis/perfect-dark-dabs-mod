@@ -37,6 +37,34 @@ extern float gfx_current_native_aspect; // The aspect ratio of the above mode
 extern bool gfx_framebuffers_enabled;
 extern bool gfx_detail_textures_enabled;
 
+// What ended a batch and forced a draw call. See g_GfxFlushReasons.
+enum GfxFlushReason {
+    GFX_FLUSH_TEXTURE,      // a different texture had to be bound
+    GFX_FLUSH_SHADER,       // a different colour combiner
+    GFX_FLUSH_BLEND,        // alpha blend / modulate changed
+    GFX_FLUSH_SAMPLER,      // filter or clamp mode changed on a bound texture
+    GFX_FLUSH_DEPTH,        // depth test/write/compare mode changed
+    GFX_FLUSH_VIEWPORT,     // viewport or scissor moved
+    GFX_FLUSH_BUFFERFULL,   // buf_vbo hit g_GfxMaxBufferedTris
+    GFX_FLUSH_OTHER,        // framebuffer switches and other once-a-frame work
+    GFX_FLUSH_COUNT
+};
+
+extern uint32_t g_GfxFlushReasons[GFX_FLUSH_COUNT];
+extern uint32_t g_GfxNumDistinctTextures;
+extern uint32_t g_GfxNumTexUploads;
+extern uint32_t g_GfxNumTexEvictions;
+extern uint32_t g_GfxTexCacheSize;
+
+// Renderer cost of the last frame, and the batch size that shapes it.
+// See the comments on these in gfx_pc.cpp, and --gfxstats / --gfxbatch.
+extern uint32_t g_GfxMaxBufferedTris;
+extern uint32_t g_GfxNumDrawCalls;
+extern uint32_t g_GfxNumBufferFullFlushes;
+extern uint32_t g_GfxNumTris;
+extern uint32_t g_GfxNumVerts;
+extern uint32_t g_GfxLogStats;
+
 void gfx_init(const struct GfxInitSettings *settings);
 void gfx_destroy(void);
 struct GfxRenderingAPI* gfx_get_current_rendering_api(void);

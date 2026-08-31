@@ -13,6 +13,9 @@ void *gfxAllocateMatrix(void);
 LookAt *gfxAllocateLookAt(s32 count);
 Col *gfxAllocateColours(s32 count);
 void *gfxAllocate(u32 size);
+#ifndef PLATFORM_N64
+bool gfxHasVtxSpace(u32 size);
+#endif
 void gfxSwapBuffers(void);
 s32 gfxGetFreeGfx(Gfx *gdl);
 

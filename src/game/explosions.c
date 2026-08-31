@@ -670,7 +670,7 @@ void explosionInflictDamage(struct prop *expprop)
 	struct explosion *exp = expprop->explosion;
 	struct explosiontype *type = &g_ExplosionTypes[exp->type];
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	bool isfirstframe = exp->age <= 0;
 	s32 i;
 	f32 k;
@@ -755,7 +755,7 @@ void explosionInflictDamage(struct prop *expprop)
 	}
 
 	// Damage props
-	roomGetProps(expprop->rooms, propnums, 256);
+	roomGetProps(expprop->rooms, propnums, MAX_ROOMPROPS);
 
 	propnumptr = propnums;
 
@@ -1013,6 +1013,28 @@ void explosionInflictDamage(struct prop *expprop)
 		propnumptr++;
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Forget a prop that is about to be freed.
+ *
+ * An explosion keeps the prop that created it for its whole life and reads a
+ * position and rooms straight out of it when it makes smoke. That outlived
+ * nothing on the N64, where a chr prop was not freed while its explosion was
+ * still burning; a body that is kept and later retired frees one, and what the
+ * smoke then reads is whatever the prop became.
+ */
+void explosionsUnrefSource(struct prop *prop)
+{
+	s32 i;
+
+	for (i = 0; i < g_MaxExplosions; i++) {
+		if (g_Explosions[i].source == prop) {
+			g_Explosions[i].source = NULL;
+		}
+	}
+}
+#endif
 
 u32 explosionTick(struct prop *prop)
 {

@@ -1246,7 +1246,7 @@ void frEndSession(bool hidetargets)
 {
 	s32 i;
 	s32 j;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	s16 *propnumptr;
 #ifdef AVOID_UB
 	RoomNum rooms[21];
@@ -1296,7 +1296,7 @@ void frEndSession(bool hidetargets)
 		}
 
 		// Remove projectiles and throwables
-		roomGetProps(rooms, propnums, 256);
+		roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 
 		propnumptr = propnums;
 
@@ -1514,7 +1514,7 @@ bool frIsAmmoWasted(void)
 	s32 ammoloaded[2];
 	s32 ammototal[2];
 	s16 *propnumptr;
-	s16 propnums[258];
+	s16 propnums[MAX_ROOMPROPS];
 	RoomNum rooms20[22];
 	RoomNum rooms10[12];
 	u32 stack[4];
@@ -1569,7 +1569,7 @@ bool frIsAmmoWasted(void)
 				roomsAppend(rooms10, rooms20, 20);
 			}
 
-			roomGetProps(rooms20, propnums, 256);
+			roomGetProps(rooms20, propnums, MAX_ROOMPROPS);
 			propnumptr = propnums;
 
 			while (*propnumptr >= 0) {
@@ -3161,7 +3161,7 @@ void htEnd(void)
 {
 	struct prop *prop;
 	s16 *propnum;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	RoomNum rooms[5] = { 0x0016, 0x0017, 0x0018, 0x0019, -1 };
 	struct waypoint *waypoints = g_StageSetup.waypoints;
 
@@ -3174,7 +3174,7 @@ void htEnd(void)
 	navEnableSegment(&waypoints[0x20], &waypoints[0x31]);
 
 	g_Vars.currentplayer->training = false;
-	roomGetProps(rooms, propnums, 256);
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
 	propnum = &propnums[0];
 
 	// Remove dropped weapons

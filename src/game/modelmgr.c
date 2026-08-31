@@ -231,6 +231,19 @@ struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// A model with no rwdata is a crash waiting to happen - every node reads its
+	// own state through that pointer - and mempAlloc() returns NULL rather than
+	// failing loudly when the stage pool is out. The N64 could not reach this,
+	// because the pool was sized to fit what the stage could hold, but a raised
+	// simulant count or anything that instantiates models during a match can
+	// exhaust it. Callers can cope with NULL; they cannot cope with this.
+	if (model && rwdatas == NULL && modeldef->rwdatalen > 0) {
+		sysLogPrintf(LOG_WARNING, "modelmgrInstantiateModel: out of rwdata for a %d word model", modeldef->rwdatalen);
+		model = NULL;
+	}
+#endif
+
 	if (model) {
 		if (withanim) {
 			model->anim = modelmgrInstantiateAnim();

@@ -436,7 +436,7 @@ void nbombInflictDamage(struct nbomb *nbomb)
 {
 	s32 index = 0;
 	u32 stack;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	struct coord bbmin;
 	struct coord bbmax;
 	RoomNum roomnums[54];
@@ -480,7 +480,7 @@ void nbombInflictDamage(struct nbomb *nbomb)
 	if (1);
 
 	// Iterate props in the affected rooms and damage any chrs
-	roomGetProps(roomnums, propnums, 256);
+	roomGetProps(roomnums, propnums, MAX_ROOMPROPS);
 
 	propnumptr = propnums;
 
@@ -576,6 +576,31 @@ void nbombTick(struct nbomb *nbomb)
 		}
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Forget a prop that is about to be freed.
+ *
+ * A gas cloud outlives the thing that threw it and keeps a raw pointer to it
+ * for as long as it hangs there, handing it to chrDamage() as the attacker on
+ * every chr it touches. Nothing used to free a chr prop mid-match often enough
+ * for that to matter; bodies that are kept and later retired do, and a freed
+ * prop still says PROPTYPE_CHR with a NULL chr behind it - which is exactly the
+ * shape chrDamage() checks for and passes.
+ *
+ * Called from chrRemove(), alongside projectilesUnrefOwner().
+ */
+void nbombsUnrefOwner(struct prop *prop)
+{
+	s32 i;
+
+	for (i = 0; i < ARRAYCOUNT(g_Nbombs); i++) {
+		if (g_Nbombs[i].ownerprop == prop) {
+			g_Nbombs[i].ownerprop = NULL;
+		}
+	}
+}
+#endif
 
 void nbombsTick(void)
 {

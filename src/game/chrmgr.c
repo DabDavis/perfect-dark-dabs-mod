@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/game_00b820.h"
+#include "game/modbodies.h"
 #include "game/title.h"
 #include "bss.h"
 #include "lib/memp.h"
@@ -70,4 +71,10 @@ void chrmgrConfigure(s32 numchrs)
 		g_Chrnums[i] = -1;
 		g_ChrIndexes[i] = -1;
 	}
+
+#ifndef PLATFORM_N64
+	// One kept body pose per chr slot, sized against the slots that were just
+	// decided so the two cannot disagree. See modbodies.c.
+	modBodiesAllocatePoses(g_NumChrSlots);
+#endif
 }

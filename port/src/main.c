@@ -10,6 +10,7 @@
 #include "data.h"
 
 #include "video.h"
+#include "../fast3d/gfx_api.h"
 #include "audio.h"
 #include "input.h"
 #include "fs.h"
@@ -21,7 +22,13 @@
 #include "utils.h"
 
 u32 g_OsMemSize = 0;
-s32 g_OsMemSizeMb = 16;
+// Upstream's 16 is the N64's 8MB with room to spare. This fork spends memory the
+// N64 never had: eighty simulants rather than eight - each one a head modeldef of
+// its own, some fifty kilobytes, because a head is offset to fit its body - and
+// bodies that stay where they fell. 64MB is nothing on a PC and is what those
+// cost with room over; pd.ini wins over this, so a file written by an older build
+// still says 16 and will want raising by hand.
+s32 g_OsMemSizeMb = 64;
 u8 g_Is4Mb = 0;
 s8 g_Resetting = false;
 OSSched g_Sched;
@@ -137,6 +144,13 @@ int main(int argc, const char **argv)
 
 	g_SndDisabled = sysArgCheck("--no-sound");
 
+	// Renderer cost, printed every N frames. --gfxbatch caps how many triangles
+	// may share a draw call, which is what tells a frame that is bound by
+	// issuing draw calls apart from one bound by transforming vertices.
+	g_GfxLogStats = sysArgGetInt("--gfxstats", 0);
+	g_GfxMaxBufferedTris = sysArgGetInt("--gfxbatch", g_GfxMaxBufferedTris);
+	g_GfxTexCacheSize = sysArgGetInt("--gfxtexcache", g_GfxTexCacheSize);
+
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 
 	if (g_StageNum == STAGE_TITLE && (sysArgCheck("--skip-intro") || g_SkipIntro)) {
@@ -185,6 +199,9 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterFloat("Mod.ThirdPersonDistance", &g_ModOptions.camdist, 60.f, 600.f);
 	configRegisterFloat("Mod.ThirdPersonClearance", &g_ModOptions.camclearance, 0.f, 120.f);
 	configRegisterFloat("Mod.ThirdPersonMinDistance", &g_ModOptions.cammindist, 0.f, 300.f);
+	configRegisterInt("Mod.Bodies", &g_ModOptions.bodies, MODBODIES_OFF, MODBODIES_MAX);
+	configRegisterInt("Mod.BodyTime", &g_ModOptions.bodytime, MODBODYTIME_OFF, MODBODYTIME_MAX);
+	configRegisterInt("Mod.BodiesDrawn", &g_ModOptions.bodiesdrawn, MODBODIESDRAWN_ALL, MODBODIESDRAWN_MAX);
 
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;

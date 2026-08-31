@@ -45,6 +45,25 @@
 #define GFX_SIZE_MULTIPLIER 1
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * How much bigger the two graphics pools are than the stage asked for.
+ *
+ * Both are sized per stage for what an N64 could draw. The master display list
+ * holds one frame's GBI, and the vtx pool holds the matrices - every chr that
+ * ticks takes nummatrices * sizeof(Mtxf) out of it, some two kilobytes each, so
+ * a stage's two hundred kilobytes is about a hundred chrs. Eighty simulants and
+ * a match's worth of bodies in one room is several times that, and neither
+ * allocator checks: g_GfxMemPos walks straight off the end of the vtx pool and
+ * into the display list sitting next to it, which the renderer then reads as
+ * GBI and stops on with "Unknown GBI opcode".
+ *
+ * This is memory the N64 did not have. The guards below are what makes running
+ * out survivable rather than merely unlikely.
+ */
+#define GFX_POOL_SCALE 8
+#endif
+
 u8 *g_GfxBuffers[NUM_GFXTASKS + 1];
 u32 var800aa58c;
 u8 *g_VtxBuffers[NUM_GFXTASKS + 1];
@@ -111,15 +130,27 @@ void gfxReset(void)
 		g_VtxSizesByPlayerCount[PLAYERCOUNT() - 1] = strtol(argFindByPrefix(1, "-mvtx"), NULL, 0) * 1024;
 	}
 
-	// %d Players : Allocating %d bytes for master dl's\n
-	g_GfxBuffers[0] = mempAlloc(g_GfxSizesByPlayerCount[PLAYERCOUNT() - 1] * NUM_GFXTASKS, MEMPOOL_STAGE);
-	g_GfxBuffers[1] = g_GfxBuffers[0] + g_GfxSizesByPlayerCount[PLAYERCOUNT() - 1];
-	g_GfxBuffers[2] = g_GfxBuffers[1] + g_GfxSizesByPlayerCount[PLAYERCOUNT() - 1];
+	// Scaled into locals rather than back into the tables, which gfxReset()
+	// would otherwise multiply again on every stage load.
+	{
+		u32 gfxsize = g_GfxSizesByPlayerCount[PLAYERCOUNT() - 1];
+		u32 vtxsize = g_VtxSizesByPlayerCount[PLAYERCOUNT() - 1];
 
-	// Allocating %d bytes for mtxvtx space\n
-	g_VtxBuffers[0] = mempAlloc(g_VtxSizesByPlayerCount[PLAYERCOUNT() - 1] * NUM_GFXTASKS, MEMPOOL_STAGE);
-	g_VtxBuffers[1] = g_VtxBuffers[0] + g_VtxSizesByPlayerCount[PLAYERCOUNT() - 1];
-	g_VtxBuffers[2] = g_VtxBuffers[1] + g_VtxSizesByPlayerCount[PLAYERCOUNT() - 1];
+#ifndef PLATFORM_N64
+		gfxsize *= GFX_POOL_SCALE;
+		vtxsize *= GFX_POOL_SCALE;
+#endif
+
+		// %d Players : Allocating %d bytes for master dl's\n
+		g_GfxBuffers[0] = mempAlloc(gfxsize * NUM_GFXTASKS, MEMPOOL_STAGE);
+		g_GfxBuffers[1] = g_GfxBuffers[0] + gfxsize;
+		g_GfxBuffers[2] = g_GfxBuffers[1] + gfxsize;
+
+		// Allocating %d bytes for mtxvtx space\n
+		g_VtxBuffers[0] = mempAlloc(vtxsize * NUM_GFXTASKS, MEMPOOL_STAGE);
+		g_VtxBuffers[1] = g_VtxBuffers[0] + vtxsize;
+		g_VtxBuffers[2] = g_VtxBuffers[1] + vtxsize;
+	}
 
 	g_GfxActiveBufferIndex = 0;
 	g_GfxRequestedDisplayList = false;
@@ -149,6 +180,21 @@ void *gfxAllocateMatrix(void)
 
 	return ptr;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Whether the vtx pool can still give out this much.
+ *
+ * Callers of gfxAllocate() do not check what they get back, and cannot: the
+ * pool never used to run out. Anything that can now ask for a lot of it - one
+ * chr's matrices, once per chr per frame - asks here first and goes without,
+ * rather than being handed a pointer past the end of the pool.
+ */
+bool gfxHasVtxSpace(u32 size)
+{
+	return (u32)(g_VtxBuffers[g_GfxActiveBufferIndex + 1] - g_GfxMemPos) > size;
+}
+#endif
 
 /**
  * sizeof(LookAt) is 0x10 and it consists of two Light structs of 0x8 each.

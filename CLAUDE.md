@@ -36,6 +36,34 @@ pool was exhausted; `mpCreateBotFromProfile()` looped forever once chrs outnumbe
 the 53 available heads; `langGetLangBankIndexFromStagenum()` had `default: while(true){}`.
 When raising any cap, grep for fixed-size arrays indexed by the thing you are scaling.
 
+## A chr's prop and model are read before its tick, not during
+
+`chrTick()` (`src/game/chr.c`) reads `prop` and `model` once, then calls into the
+action handler and keeps using those locals afterwards — `chrRemove(prop, true)` at
+the end is on the prop it read at the top. So anything that moves a body between chrs
+has to happen outside the prop tick. `modBodiesTick()` runs from `chraTickBg()`, which
+is the first thing `propsTick()` does and the one point in the frame where no prop is
+part way through its own tick; the dead simulant is left waiting a tick rather than
+respawned from inside `chrTickDead()`.
+
+## Memory: what an MP chr costs, and which pool it comes from
+
+`body0f02ce8c()` (`src/game/body.c`) takes a different path in multiplayer: with no
+`headmodeldef` passed in it calls `modeldefLoadToNew()` **every time**, a fresh ~50KB
+copy of the head from `MEMPOOL_STAGE` that is never freed, because each simulant's
+head is offset to fit its own body. Stock pays that once per bot at match start.
+Anything that creates chr models *during* a match must pass the modeldefs in, or it
+empties the stage pool in about a minute.
+
+`mempAlloc()` fills the onboard bank first and falls through to the expansion bank,
+which is a hardcoded 8MB (`MEMP_EXPANSION_POOL_SIZE`) no matter what `Game.MemorySize`
+says — that setting grows the onboard side only. So `mempGetStageFree()`, which
+answers for one bank, is not "how much room is left"; `mempGetStageFreeTotal()` is.
+A pool-full warning naming one pool is the onboard bank spilling over, not the end.
+
+`mempAlloc()` returns NULL when both are out, and most callers do not check.
+`modelmgrInstantiateModel()` now does.
+
 ## ROM-resident structures — never grow these
 
 `preprocessMpConfigs()` (`port/src/preprocess/misc.c`) casts raw ROM bytes to

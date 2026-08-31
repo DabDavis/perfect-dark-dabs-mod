@@ -14,7 +14,13 @@ void varsReset(void)
 	s32 i;
 
 	g_Vars.props = mempAlloc(ALIGN64(g_Vars.maxprops * sizeof(struct prop)), MEMPOOL_STAGE);
-	g_Vars.onscreenprops = mempAlloc(ALIGN64(200 * sizeof(void *)), MEMPOOL_STAGE);
+	g_Vars.onscreenprops = mempAlloc(ALIGN64((MAX_ONSCREENPROPS + 1) * sizeof(void *)), MEMPOOL_STAGE);
+
+#ifndef PLATFORM_N64
+	// One stamp per prop, so roomGetProps() can tell whether it has already
+	// written a propnum without rescanning what it has written. See prop.c.
+	roomPropSeenAlloc(g_Vars.maxprops);
+#endif
 
 	g_AutoAimScale = 1;
 
@@ -33,6 +39,16 @@ void varsReset(void)
 	for (i = 0; i < g_Vars.maxprops - 1; i++) {
 		g_Vars.props[i].next = &g_Vars.props[i + 1];
 	}
+
+#ifndef PLATFORM_N64
+	// There is a way now. Eighty simulants dying into bodies that stay where
+	// they fell, each one a prop, will find the end of this list, and what
+	// propAllocate() hands out at that point is whatever the last prop's next
+	// pointer happened to contain - a non-NULL pointer to nothing, which every
+	// caller's "if (prop)" check waves through. Terminating the list turns that
+	// into the NULL they all already handle.
+	g_Vars.props[g_Vars.maxprops - 1].next = NULL;
+#endif
 
 	varsResetRoomProps();
 

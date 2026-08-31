@@ -876,7 +876,7 @@ void botCheckPickups(struct chrdata *chr)
 {
 	s32 i;
 	s16 *propnumptr;
-	s16 propnums[260];
+	s16 propnums[MAX_ROOMPROPS];
 	RoomNum allrooms[22];
 	RoomNum neighbours[12];
 
@@ -887,7 +887,7 @@ void botCheckPickups(struct chrdata *chr)
 		roomsAppend(neighbours, allrooms, 20);
 	}
 
-	roomGetProps(allrooms, propnums, 256);
+	roomGetProps(allrooms, propnums, MAX_ROOMPROPS);
 	propnumptr = propnums;
 
 	while (*propnumptr >= 0) {

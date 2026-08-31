@@ -54,6 +54,7 @@
 #include "lib/anim.h"
 #include "lib/collision.h"
 #include "lib/vi.h"
+#include "game/modbodies.h"
 #include "game/modoptions.h"
 #include "data.h"
 #include "types.h"
@@ -2749,6 +2750,13 @@ void chrBeginDead(struct chrdata *chr)
 		chr->act_dead.notifychrindex = 0;
 		chr->sleep = 0;
 
+#ifndef PLATFORM_N64
+		// Whether this body is one of the ones left lying around, decided here
+		// rather than when the fade would have taken it, so that a simulant's
+		// body is already spoken for while its owner is dead. See modbodies.c.
+		modBodiesClaim(chr);
+#endif
+
 		if (chr->race == RACE_DRCAROLL) {
 			chr->drcarollimage_left = DRCAROLLIMAGE_STATIC;
 			chr->drcarollimage_right = DRCAROLLIMAGE_STATIC;
@@ -3792,7 +3800,7 @@ void chrPlayDeathAnimation(struct chrdata *chr, f32 relangle, s32 hitpart)
 {
 	struct model *model = chr->model;
 	s32 race = CHRRACE(chr);
-	struct animtablerow *row = NULL;
+	const struct animtablerow *row = NULL;
 	struct animtable *table;
 	bool frombehind = relangle > 2.3558194637299f && relangle < 3.9263656139374f;
 	bool flip = false;
@@ -3827,7 +3835,13 @@ void chrPlayDeathAnimation(struct chrdata *chr, f32 relangle, s32 hitpart)
 		// Shot in the back: two in five fall forwards instead. The animations
 		// and the odds are chrBeginDeath()'s, and so is the arm that chooses
 		// between them - a bicep hit falls the way the arm was hit.
-		struct animtablerow rows[] = {
+		// Static, because row points into this for the rest of the function and
+		// the block it was declared in ends long before then. As a plain local
+		// it is dead stack by the time the animation is set, and what gets read
+		// out of it is an animation number - which is an index into g_Anims,
+		// followed wherever it happens to point. AddressSanitizer catches it as
+		// a stack-use-after-scope on the first simulant shot in the back.
+		static const struct animtablerow rows[] = {
 			{ 0x005b, 0, -1, 0.6, 0, 27, -1 },
 			{ 0x0255, 0, -1, 0.5, 0, 25, -1 },
 		};
@@ -4806,6 +4820,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	// hit their target
 	if (aprop
 			&& aprop->type == PROPTYPE_CHR
+#ifndef PLATFORM_N64
+			// propFree() clears the chr but leaves the type, so a prop that has
+			// been freed still answers PROPTYPE_CHR with nothing behind it.
+			&& aprop->chr
+#endif
 			&& chrGetTargetProp(aprop->chr) == chr->prop) {
 		aprop->chr->chrflags |= CHRCFLAG_INJUREDTARGET;
 	}
@@ -7949,7 +7968,7 @@ bool chrGoToCoverProp(struct chrdata *chr)
 	struct prop *targetprop = chrGetTargetProp(chr);
 	struct prop *chrprop = chr->prop;
 	s16 i;
-	s16 propnums[258];
+	s16 propnums[MAX_ROOMPROPS];
 	struct defaultobj *obj;
 	s16 numprops;
 	s16 startindex;
@@ -7959,7 +7978,7 @@ bool chrGoToCoverProp(struct chrdata *chr)
 	}
 
 	if (chrIsReadyForOrders(chr)) {
-		roomGetProps(chrprop->rooms, propnums, 256);
+		roomGetProps(chrprop->rooms, propnums, MAX_ROOMPROPS);
 
 		for (numprops = 0; propnums[numprops] >= 0; numprops++);
 
@@ -8922,6 +8941,19 @@ void chrTickDead(struct chrdata *chr)
 	// If fade is active, handle it
 	if (chr->act_dead.fadetimer60 >= 0) {
 		chr->act_dead.fadetimer60 += g_Vars.lvupdate60;
+
+#ifndef PLATFORM_N64
+		// A simulant's body that the pool has claimed spends the window lying
+		// there at full opacity rather than fading, and does not respawn its
+		// owner at the end of it. modBodiesTick() hands the body a chr of its
+		// own first and starts the simulant on the far side of that, out where
+		// no prop is part way through its tick; the respawn still lands on the
+		// tick it always did.
+		if (aibot && modBodyIsKept(chr)) {
+			chr->fadealpha = 255;
+			return;
+		}
+#endif
 
 		if (chr->act_dead.fadetimer60 >= TICKS(90)) {
 			// Fade finished
@@ -14325,6 +14357,13 @@ void chraTickBg(void)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// Hand over the bodies of simulants whose respawn is waiting on them, and
+	// hold the kept bodies to their cap and their timer. Before the counting
+	// below, so that a simulant which gets up on this tick is counted alive.
+	modBodiesTick();
+#endif
+
 	// Calculate alive/dead counters. For *spawned* chrs that have died,
 	// allow 10 corpses and start fading if there's more.
 	{
@@ -14334,6 +14373,15 @@ void chraTickBg(void)
 			struct chrdata *chr = &g_ChrSlots[i];
 
 			if (chr->model && chr->prop) {
+#ifndef PLATFORM_N64
+				// A body the pool is keeping is not the corpse budget's to
+				// spend: it neither counts against the number allowed on screen
+				// nor gets picked to make room for another.
+				if (modBodyIsKept(chr)) {
+					continue;
+				}
+#endif
+
 				if (chr->actiontype != ACT_DEAD && chr->actiontype != ACT_DRUGGEDKO) {
 					numalive++;
 				}
@@ -14422,6 +14470,12 @@ void chraTickBg(void)
 			struct chrdata *chr = &g_ChrSlots[i];
 
 			if (chr->model) {
+#ifndef PLATFORM_N64
+				if (modBodyIsKept(chr)) {
+					continue;
+				}
+#endif
+
 #if VERSION < VERSION_NTSC_1_0
 				if (!g_Vars.mplayerisrunning
 						&& chrGetTargetProp(chr)->type == PROPTYPE_PLAYER
@@ -15527,7 +15581,7 @@ bool chrSetChrPresetToChrNearPos(u8 checktype, struct chrdata *chr, f32 distance
 {
 	s32 i;
 	s16 *propnumptr;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	RoomNum allrooms[21];
 	f32 xmin = pos->x - distance;
 	f32 xmax = pos->x + distance;
@@ -15544,7 +15598,7 @@ bool chrSetChrPresetToChrNearPos(u8 checktype, struct chrdata *chr, f32 distance
 		roomsAppend(neighbours, allrooms, 20);
 	}
 
-	roomGetProps(allrooms, propnums, 256);
+	roomGetProps(allrooms, propnums, MAX_ROOMPROPS);
 
 	propnumptr = propnums;
 
@@ -16700,6 +16754,16 @@ void rebuildTeams(void)
 			chr = &g_ChrSlots[i];
 
 			if (chr->chrnum >= 0 && (chr->team & teammasks[team])) {
+#ifndef PLATFORM_N64
+				// The check below this loop only runs between teams, so one
+				// team holding more chrs than the whole list can carry writes
+				// off the end of it - and in an arena one team holds every
+				// simulant and every body. Stop with room for the terminator.
+				if (index >= (MAX_CHRSPERTEAM + 1) * MAX_TEAMS - 1) {
+					break;
+				}
+#endif
+
 				g_TeamList[index] = chr->chrnum;
 				index++;
 			}
@@ -16741,6 +16805,15 @@ void rebuildSquadrons(void)
 
 			if (chr->chrnum >= 0 && chr->squadron == squadron) {
 				if (chr->prop == NULL || chr->prop->type != PROPTYPE_PLAYER) {
+#ifndef PLATFORM_N64
+					// Same as rebuildTeams(): squadron 0 is where every
+					// simulant and every body goes, and the check below the
+					// loop is too late for it.
+					if (index >= (MAX_CHRSPERSQUADRON + 1) * MAX_SQUADRONS - 1) {
+						break;
+					}
+#endif
+
 					g_SquadronList[index] = chr->chrnum;
 					index++;
 				}

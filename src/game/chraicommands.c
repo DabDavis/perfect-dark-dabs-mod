@@ -1580,10 +1580,10 @@ bool aiIfSeesSuspiciousItem(void)
 	ubool pass = false;
 	struct prop *prop;
 	struct defaultobj *obj;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	struct prop *chrprop = g_Vars.chrdata->prop;
 
-	roomGetProps(chrprop->rooms, &propnums[0], 256);
+	roomGetProps(chrprop->rooms, &propnums[0], MAX_ROOMPROPS);
 
 	ptr = &propnums[0];
 

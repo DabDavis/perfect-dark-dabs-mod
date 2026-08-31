@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifndef PLATFORM_N64
+#include <stdlib.h>
+#endif
 #include "constants.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
@@ -6,6 +9,9 @@
 #include "game/chraction.h"
 #include "game/dlights.h"
 #include "game/chr.h"
+#include "game/modbodies.h"
+#include "game/modoptions.h"
+#include "game/gfxmemory.h"
 #include "game/prop.h"
 #include "game/propsnd.h"
 #include "game/objectives.h"
@@ -34,11 +40,13 @@
 #include "lib/model.h"
 #include "lib/snd.h"
 #include "lib/rng.h"
+#include "lib/memp.h"
 #include "lib/mtx.h"
 #include "lib/anim.h"
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include <string.h>
 
 s16 *g_RoomPropListChunkIndexes;
 struct roomproplistchunk *g_RoomPropListChunks;
@@ -58,20 +66,50 @@ f32 g_AutoAimScale = 1;
  * Populate g_Vars.onscreenprops. This is an array of prop pointers, filtered by
  * props that are on screen and sorted by distance descending (furthest first).
  */
+#ifndef PLATFORM_N64
+/**
+ * Furthest first, which is the order stock's selection sort produced.
+ */
+static int propsSortCompare(const void *a, const void *b)
+{
+	const f32 za = (*(struct prop **)a)->z;
+	const f32 zb = (*(struct prop **)b)->z;
+
+	if (za < zb) {
+		return 1;
+	}
+
+	if (za > zb) {
+		return -1;
+	}
+
+	return 0;
+}
+#endif
+
 void propsSort(void)
 {
 	s32 count = 0;
 	struct prop *prop = g_Vars.activeprops;
+#ifdef PLATFORM_N64
 	s32 swapindex;
 	f32 depth;
 	s32 i;
 	s32 j;
 	f32 depths[201];
+#endif
 
 	// Populate onscreenprops with the list of props
 	while (prop != g_Vars.pausedprops) {
 		if ((prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ENABLED)) == (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ENABLED)) {
+#ifndef PLATFORM_N64
+			// Both arrays end here, and one of them is on the stack.
+			if (count >= MAX_ONSCREENPROPS) {
+				break;
+			}
+#else
 			depths[count] = prop->z;
+#endif
 			g_Vars.onscreenprops[count] = prop;
 			count++;
 		}
@@ -83,6 +121,67 @@ void propsSort(void)
 	g_Vars.onscreenprops[count] = NULL;
 	g_Vars.endonscreenprops = &g_Vars.onscreenprops[count];
 
+#ifndef PLATFORM_N64
+	// Stock sorts by repeatedly scanning the remainder for the furthest prop,
+	// which is fine for the two hundred an N64 could draw and quadratic
+	// everywhere else: a room holding a match's worth of bodies turns a frame's
+	// draw order into millions of comparisons. The depths array goes with it -
+	// it only ever cached prop->z, which the comparator can read directly.
+	qsort(g_Vars.onscreenprops, count, sizeof(struct prop *), propsSortCompare);
+
+	// Hand out the frame's body draw budget, now that the list is in depth
+	// order. Walking it from the near end gives the budget to the bodies that
+	// are largest on screen and drops the ones behind them. See modbodies.c.
+	{
+		s32 budget = modGetBodiesDrawn();
+		// Held separately because the budget counts down to zero, which is the
+		// same value MODBODIESDRAWN_ALL uses to mean no limit at all.
+		bool unlimited = budget == MODBODIESDRAWN_ALL;
+		s32 i;
+
+		for (i = count - 1; i >= 0; i--) {
+			struct prop *sorted = g_Vars.onscreenprops[i];
+
+			if (sorted && sorted->type == PROPTYPE_CHR && sorted->chr) {
+				struct chrdata *sortedchr = sorted->chr;
+
+				if (modBodyIsKept(sortedchr)) {
+					if (unlimited || budget > 0) {
+						sortedchr->bodynodraw = false;
+						budget--;
+
+						// Being drawn after all, so the matrices its tick held
+						// back are built now. See modbodies.c.
+						if (!modBodyPoseDraw(sortedchr)) {
+							// Except that the frame's pool had nothing left
+							// for them, so it comes out of the list after all.
+							sortedchr->bodynodraw = true;
+							g_Vars.onscreenprops[i] = NULL;
+						}
+					} else {
+						sortedchr->bodynodraw = true;
+
+						// A body that held its matrices back and then lost the
+						// budget never builds any, so it comes out of this
+						// frame's list rather than being left in it with
+						// nothing to read: the hit tests walk this array and
+						// go straight to model->matrices, and an invisible
+						// body has no business stopping a bullet either.
+						if (sortedchr->bodyposeheld) {
+							modBodyPoseDrop(sortedchr);
+							g_Vars.onscreenprops[i] = NULL;
+						}
+					}
+				} else if (sortedchr->bodyposeheld) {
+					// Stopped being a kept body between its own tick and here.
+					// Nothing is going to give it matrices now either.
+					modBodyPoseDrop(sortedchr);
+					g_Vars.onscreenprops[i] = NULL;
+				}
+			}
+		}
+	}
+#else
 	// Sort the onscreenprops list
 	for (i = 0; i < count; i++) {
 		swapindex = -1;
@@ -106,6 +205,7 @@ void propsSort(void)
 			depths[swapindex] = depth;
 		}
 	}
+#endif
 }
 
 /**
@@ -391,11 +491,31 @@ Gfx *propRender(Gfx *gdl, struct prop *prop, bool xlupass)
  * terminal in the pre-bg pass and the screen in the post-bg pass, likely to
  * avoid Z-fighting issues.
  */
+#ifndef PLATFORM_N64
+/**
+ * How much of the master display list to keep back for the rest of the frame.
+ *
+ * Nothing in the render path checks how much room is left in it - the pool was
+ * always bigger than an N64 frame - so a room holding a match's worth of bodies
+ * writes GBI past the end of the buffer and the renderer stops on whatever it
+ * reads next as an opcode. propRender() is where the volume is, so it is where
+ * the check goes: props stop being added once the list is nearly full, and the
+ * HUD, the menus and the frame's own tail still have their room.
+ */
+#define PROPS_RENDER_GFX_RESERVE 4096
+#endif
+
 Gfx *propsRender(Gfx *gdl, RoomNum renderroomnum, s32 renderpass, RoomNum *roomnumsbyprop)
 {
 	struct prop **ptr;
 	struct prop *prop;
 	RoomNum *proprooms;
+
+#ifndef PLATFORM_N64
+	if (gfxGetFreeGfx(gdl) < PROPS_RENDER_GFX_RESERVE) {
+		return gdl;
+	}
+#endif
 
 	if (renderpass == RENDERPASS_OPA_PREBG || renderpass == RENDERPASS_OPA_POSTBG) {
 		// Iterate onscreen props near to far
@@ -411,6 +531,12 @@ Gfx *propsRender(Gfx *gdl, RoomNum renderroomnum, s32 renderpass, RoomNum *roomn
 				if (prop) {
 					if ((renderpass == RENDERPASS_OPA_PREBG && (prop->flags & (PROPFLAG_DRAWONTOP | PROPFLAG_RENDERPOSTBG)) == 0)
 							|| (renderpass == RENDERPASS_OPA_POSTBG && (prop->flags & (PROPFLAG_DRAWONTOP | PROPFLAG_RENDERPOSTBG)) == PROPFLAG_RENDERPOSTBG)) {
+#ifndef PLATFORM_N64
+						if (gfxGetFreeGfx(gdl) < PROPS_RENDER_GFX_RESERVE) {
+							return gdl;
+						}
+#endif
+
 						gdl = propRender(gdl, prop, false);
 					}
 				}
@@ -2462,7 +2588,7 @@ void propsTestForPickup(void)
 {
 	s16 *propnumptr;
 	s32 i;
-	s16 propnums[256];
+	s16 propnums[MAX_ROOMPROPS];
 	RoomNum allrooms[21];
 	RoomNum tmp[11];
 
@@ -2476,7 +2602,7 @@ void propsTestForPickup(void)
 			roomsAppend(tmp, allrooms, 20);
 		}
 
-		roomGetProps(allrooms, propnums, 256);
+		roomGetProps(allrooms, propnums, MAX_ROOMPROPS);
 		propnumptr = propnums;
 
 		while (*propnumptr >= 0) {
@@ -3305,14 +3431,73 @@ void func0f065e98(struct coord *pos, RoomNum *rooms, struct coord *pos2, RoomNum
  * to get 256 props in a small space without exhausing the memory of the
  * console, you could potentially achieve arbitrary code execution.
  */
+/**
+ * Collect the propnums in the given rooms into propnums, terminated by -1.
+ *
+ * len is the caller's buffer, terminator included: every caller passes a stack
+ * array of 256 and asks for 256, and one of them - cdTestVolume()'s platform
+ * check - already allowed itself 257, which is the tell.
+ *
+ * It used to be decorative. The loop wrote every prop it found and the -1 after
+ * them, however many that was, because on an N64 no room and its neighbours
+ * could hold enough props to fill a caller's array. Eighty simulants, their
+ * weapons, and a level's worth of bodies left where they fell can: the widest
+ * asker is botCheckPickups(), which takes a room and up to twenty of its
+ * neighbours in one go, and what it loses first is its own return address.
+ */
+#ifndef PLATFORM_N64
+/**
+ * Which props roomGetProps() has already written this call.
+ *
+ * Stock deduplicates by scanning everything written so far for each propnum it
+ * is about to add, which is quadratic in the size of the room group. That was
+ * free when a room held a dozen props. A room holding five hundred bodies
+ * reaches 453, so the scan runs about a hundred thousand comparisons per call -
+ * and collision asks for the list once per living chr per frame, so the eighty
+ * simulants pay it eighty times over while the bodies just lie there.
+ *
+ * One slot per prop, holding the number of the call that last wrote it. A
+ * stamp rather than a flag so that nothing has to be cleared between calls,
+ * which would put the quadratic straight back.
+ */
+static u32 *g_RoomPropSeen = NULL;
+static u32 g_RoomPropSeenStamp = 0;
+
+void roomPropSeenAlloc(s32 maxprops)
+{
+	g_RoomPropSeen = mempAlloc(ALIGN16(maxprops * sizeof(u32)), MEMPOOL_STAGE);
+	g_RoomPropSeenStamp = 0;
+
+	if (g_RoomPropSeen) {
+		memset(g_RoomPropSeen, 0, maxprops * sizeof(u32));
+	}
+}
+#endif
+
 void roomGetProps(RoomNum *rooms, s16 *propnums, s32 len)
 {
 	s16 *writeptr = propnums;
+#ifndef PLATFORM_N64
+	s16 *endptr = propnums + len - 1;
+#endif
 	RoomNum room;
 	s32 i;
 	s32 j;
 
 	room = *rooms;
+
+#ifndef PLATFORM_N64
+	if (g_RoomPropSeen) {
+		g_RoomPropSeenStamp++;
+
+		// Wrapped, so every slot could look current. Cheaper than checking for
+		// it, and it happens once in four billion calls.
+		if (g_RoomPropSeenStamp == 0) {
+			memset(g_RoomPropSeen, 0, g_Vars.maxprops * sizeof(u32));
+			g_RoomPropSeenStamp = 1;
+		}
+	}
+#endif
 
 	// Iterate rooms
 	while (room != -1) {
@@ -3326,18 +3511,42 @@ void roomGetProps(RoomNum *rooms, s16 *propnums, s32 len)
 				s16 propnum = g_RoomPropListChunks[chunkindex].propnums[i];
 
 				if (propnum >= 0) {
-					// Check if it's in the list already
-					s16 *ptr = propnums;
+					// Whether it is in the list already. The stamp answers it
+					// in one read; the scan is what the N64 did and what this
+					// falls back to if the stamps could not be allocated.
+					bool isnew;
 
-					while (ptr < writeptr) {
-						if (*ptr == propnum) {
-							break;
+#ifndef PLATFORM_N64
+					if (g_RoomPropSeen && propnum < g_Vars.maxprops) {
+						isnew = g_RoomPropSeen[propnum] != g_RoomPropSeenStamp;
+						g_RoomPropSeen[propnum] = g_RoomPropSeenStamp;
+					} else
+#endif
+					{
+						s16 *ptr = propnums;
+
+						while (ptr < writeptr) {
+							if (*ptr == propnum) {
+								break;
+							}
+
+							ptr++;
 						}
 
-						ptr++;
+						isnew = ptr == writeptr;
 					}
 
-					if (ptr == writeptr) {
+					if (isnew) {
+#ifndef PLATFORM_N64
+						// Full. The caller gets what fits, which is what it
+						// would have got anyway had the array been read only
+						// that far.
+						if (writeptr >= endptr) {
+							*writeptr = -1;
+							return;
+						}
+#endif
+
 						// Prop is not in the list, so insert it
 						writeptr++;
 						writeptr[-1] = propnum;

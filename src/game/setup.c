@@ -21,6 +21,7 @@
 #include "game/mplayer/scenarios.h"
 #include "game/challenge.h"
 #include "game/lang.h"
+#include "game/modbodies.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/propobj.h"
@@ -1411,6 +1412,11 @@ void setupLoadFiles(s32 stagenum)
 			numobjs += numsims; // each simulant's weapon
 		}
 
+		// Bodies that outlive their owner need a chr, a model, an anim and a
+		// prop each, and none of those pools grow after this. Decided here and
+		// read back below, so the two agree. See modbodies.c.
+		numchrs += modBodiesSetReserve();
+
 		numobjs += setupCountCommandType(OBJTYPE_WEAPON);
 		numobjs += setupCountCommandType(OBJTYPE_KEY);
 		numobjs += setupCountCommandType(OBJTYPE_HAT);
@@ -1469,6 +1475,16 @@ void setupLoadFiles(s32 stagenum)
 	if (IS4MB());
 
 	g_Vars.maxprops = numobjs + numchrs + extra + 40;
+
+#ifndef PLATFORM_N64
+	// Headroom for what the count above does not know about, which is anything
+	// that appears during a match rather than being placed in the setup file:
+	// the weapon every simulant drops when it dies and nobody picks up, the
+	// smoke and explosions eighty of them make, and the bodies part way through
+	// leaving while their replacements arrive. Stock's forty covered that for
+	// eight chrs. Props are about eighty bytes each, so this is 20KB.
+	g_Vars.maxprops += 256;
+#endif
 }
 
 static void setupMarkLiftDoors()
@@ -1545,6 +1561,8 @@ void setupCreateProps(s32 stagenum)
 			if (g_Vars.normmplayerisrunning) {
 				numchrs += mpGetNumSimSlotsOn();
 			}
+
+			numchrs += modBodiesGetReserve();
 
 			chrmgrConfigure(numchrs);
 		} else {

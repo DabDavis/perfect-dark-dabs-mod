@@ -5,6 +5,9 @@
 #include "types.h"
 
 void explosionsReset(void);
+#ifndef PLATFORM_N64
+void explosionsUnrefSource(struct prop *prop);
+#endif
 
 void explosionsStop(void);
 
