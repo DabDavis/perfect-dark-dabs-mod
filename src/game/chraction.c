@@ -8894,6 +8894,26 @@ void chrFadeCorpseWhenOffScreen(struct chrdata *chr)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * How long a corpse lies at full opacity before the fade takes it.
+ *
+ * The ninety tick window itself is not ours to lengthen. It is the simulant
+ * respawn clock: botSpawn() below is the only thing in the game that restarts a
+ * dead simulant, and the corpse and the simulant that gets up are the same
+ * chrdata, so every frame the body is kept is a frame its owner is out of the
+ * match. Solo's -1, which means never fade, would mean never come back.
+ *
+ * What the window can do is spend itself differently. Stock runs the alpha
+ * linearly across the whole of it, so a body is half transparent three quarters
+ * of a second after it lands, which is most of the time anyone has to look at
+ * it - simulants die out of a fight and the fight is what you are watching. Two
+ * thirds solid and a third fading reads as a corpse that goes, rather than one
+ * that was never quite there.
+ */
+#define CORPSE_SOLID_TICKS TICKS(60)
+#endif
+
 void chrTickDead(struct chrdata *chr)
 {
 	struct aibot *aibot = chr->aibot;
@@ -8913,7 +8933,20 @@ void chrTickDead(struct chrdata *chr)
 			}
 		} else {
 			// Still fading
+#ifndef PLATFORM_N64
+			if (chr->act_dead.fadetimer60 < CORPSE_SOLID_TICKS) {
+				chr->fadealpha = 255;
+			} else {
+				// Same end points as stock, over the remainder of the window
+				// rather than the whole of it. Written against the difference
+				// so the two halves meet exactly at 255 whatever TICKS()
+				// rounds to.
+				chr->fadealpha = (TICKS(90) - chr->act_dead.fadetimer60) * 255
+					/ (TICKS(90) - CORPSE_SOLID_TICKS);
+			}
+#else
 			chr->fadealpha = (TICKS(90) - chr->act_dead.fadetimer60) * 255 / TICKS(90);
+#endif
 		}
 	} else {
 		// If fade has been triggered (this can happen when the corpse is on
