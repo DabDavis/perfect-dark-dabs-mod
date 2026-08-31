@@ -33,6 +33,7 @@
 #include "lib/anim.h"
 #include "data.h"
 #include "types.h"
+#include "game/modoptions.h"
 
 #define PICKUPCRITERIA_DEFAULT  0
 #define PICKUPCRITERIA_CRITICAL 1
@@ -286,12 +287,12 @@ void botTryJump(struct chrdata *chr)
 			|| chr->actiontype == ACT_DEAD
 			|| chrIsDead(chr)
 			|| botIsRolling(chr)
-			|| !mpIsJumpEnabled()
+			|| !modCanChrJump()
 			|| g_Vars.lvframe60 < chr->aibot->jumptimer60) {
 		return;
 	}
 
-	chr->fallspeed.y = mpGetJumpImpulse();
+	chr->fallspeed.y = modGetJumpImpulse();
 	chr->aibot->jumptimer60 = g_Vars.lvframe60 + BOTJUMP_COOLDOWN;
 }
 
@@ -319,7 +320,7 @@ static void botTickEvade(struct chrdata *chr)
 		return;
 	}
 
-	if (mpIsJumpEnabled() && (rngRandom() % 2) == 0) {
+	if (modCanChrJump() && (rngRandom() % 2) == 0) {
 		botTryJump(chr);
 	} else {
 		botTryDodge(chr);
@@ -341,6 +342,7 @@ void botTryRoll(struct chrdata *chr, bool toleft)
 	struct coord side;
 
 	if (!chr->aibot
+			|| !modCanChrRoll()
 			|| chr->fallspeed.y != 0.0f
 			|| chr->manground > chr->ground
 			|| chrIsDead(chr)) {

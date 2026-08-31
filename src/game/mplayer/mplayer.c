@@ -18,6 +18,7 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/modoptions.h"
 #include "game/pak.h"
 #include "bss.h"
 #include "lib/args.h"
@@ -1108,74 +1109,6 @@ s32 func0f188bcc(void)
 }
 
 /**
- * The arena's jump setting: 0 for off, otherwise the height multiplier.
- */
-s32 mpGetJumpHeight(void)
-{
-	s32 mult = (g_MpSetup.options & MPOPTION_JUMP_MASK) >> MPOPTION_JUMP_SHIFT;
-
-	// The field holds three bits but only six of the eight values mean
-	// anything, so clamp rather than trust a setup file to be sane.
-	if (mult > JUMPHEIGHT_MAX) {
-		mult = JUMPHEIGHT_MAX;
-	}
-
-	return mult;
-}
-
-bool mpIsJumpEnabled(void)
-{
-	return mpGetJumpHeight() != 0;
-}
-
-void mpSetJumpHeight(s32 mult)
-{
-	if (mult < 0) {
-		mult = 0;
-	} else if (mult > JUMPHEIGHT_MAX) {
-		mult = JUMPHEIGHT_MAX;
-	}
-
-	g_MpSetup.options &= ~MPOPTION_JUMP_MASK;
-	g_MpSetup.options |= (u32)mult << MPOPTION_JUMP_SHIFT;
-}
-
-/**
- * Upward velocity a jump starts with, scaled for the arena's jump height.
- *
- * The apex is v * v / (2 * gravity), so height goes with the square of the
- * impulse: a jump twice as high wants sqrt(2) times the velocity, not twice.
- * These are those roots, written out rather than computed because this runs on
- * every jump.
- */
-f32 mpGetJumpImpulse(void)
-{
-	static const f32 scale[JUMPHEIGHT_MAX] = { 1.0f, 1.4142135f, 1.7320508f, 2.0f, 2.2360680f };
-	s32 mult = mpGetJumpHeight();
-
-	if (mult < JUMPHEIGHT_MIN) {
-		mult = JUMPHEIGHT_MIN;
-	}
-
-	return JUMP_IMPULSE * scale[mult - JUMPHEIGHT_MIN];
-}
-
-/**
- * How high that impulse reaches. Bounds how far below an airborne simulant its
- * collision cylinder may extend, so it has to scale with the setting too.
- */
-f32 mpGetJumpApex(void)
-{
-	s32 mult = mpGetJumpHeight();
-
-	if (mult < JUMPHEIGHT_MIN) {
-		mult = JUMPHEIGHT_MIN;
-	}
-
-	return JUMP_APEX * mult;
-}
-
-/**
  * Can a player or simulant spawn holding this g_MpWeapons entry?
  *
  * Nothing, Shield and Disabled are weapon set placeholders rather than weapons.
@@ -1219,11 +1152,11 @@ s32 mpGetSpawnWeapon(void)
 	s32 count = 0;
 	s32 i;
 
-	if (!g_Vars.normmplayerisrunning || (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) == 0) {
+	if (!g_Vars.normmplayerisrunning || modGetSpawnWeapon() == SPAWNWEAPON_OFF) {
 		return -1;
 	}
 
-	if ((g_MpSetup.options & MPOPTION_SPAWNWITHRANDOMWEAPON) == 0) {
+	if (modGetSpawnWeapon() != SPAWNWEAPON_RANDOM) {
 		s32 slot = g_MpSetup.weapons[0];
 
 		if (slot >= ARRAYCOUNT(g_MpWeapons) || !mpCanSpawnWithWeapon(&g_MpWeapons[slot])) {

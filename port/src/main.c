@@ -5,6 +5,7 @@
 #include <PR/os_message.h>
 
 #include "lib/main.h"
+#include "game/modoptions.h"
 #include "bss.h"
 #include "data.h"
 
@@ -172,6 +173,19 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Game.DisableMpDeathMusic", &g_MusicDisableMpDeath, 0, 1);
 	configRegisterInt("Game.GEMuzzleFlashes", &g_BgunGeMuzzleFlashes, 0, 1);
 	configRegisterInt("Game.MaxExplosions", &g_MaxExplosions, 6, 96);
+
+	// Dab's Mod Options: what this fork added, and how to turn it off. See
+	// src/include/game/modoptions.h.
+	configRegisterInt("Mod.JumpHeight", &g_ModOptions.jumpheight, 0, JUMPHEIGHT_MAX);
+	configRegisterInt("Mod.JumpFor", &g_ModOptions.jumpwho, MODWHO_EVERYONE, MODWHO_PLAYERSONLY);
+	configRegisterInt("Mod.CombatRoll", &g_ModOptions.roll, MODROLL_OFF, MODROLL_PLAYERSONLY);
+	configRegisterInt("Mod.MeleeCombos", &g_ModOptions.melee, 0, 1);
+	configRegisterInt("Mod.FlinchWhenShot", &g_ModOptions.flinch, 0, 1);
+	configRegisterInt("Mod.StartArmed", &g_ModOptions.spawnweapon, SPAWNWEAPON_OFF, SPAWNWEAPON_RANDOM);
+	configRegisterFloat("Mod.ThirdPersonDistance", &g_ModOptions.camdist, 60.f, 600.f);
+	configRegisterFloat("Mod.ThirdPersonClearance", &g_ModOptions.camclearance, 0.f, 120.f);
+	configRegisterFloat("Mod.ThirdPersonMinDistance", &g_ModOptions.cammindist, 0.f, 300.f);
+
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;
 		configRegisterFloat(strFmt("Game.Player%d.FovY", i), &g_PlayerExtCfg[j].fovy, 5.f, 175.f);

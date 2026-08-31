@@ -54,6 +54,7 @@
 #include "lib/anim.h"
 #include "lib/collision.h"
 #include "lib/vi.h"
+#include "game/modoptions.h"
 #include "data.h"
 #include "types.h"
 
@@ -3744,7 +3745,7 @@ void chrPlayThrowAnimation(struct chrdata *chr, s32 handnum)
  */
 void chrPlayArghAnimation(struct chrdata *chr, f32 angle, s32 hitpart)
 {
-	if (!chrCanPlayOneShotAnim(chr) || chrIsRollAnimPlaying(chr)) {
+	if (!modIsFlinchEnabled() || !chrCanPlayOneShotAnim(chr) || chrIsRollAnimPlaying(chr)) {
 		return;
 	}
 
@@ -8446,7 +8447,7 @@ void chrPlayPunchAnimation(struct chrdata *chr)
 	s32 index;
 	s32 step;
 
-	if (!chrCanPlayOneShotAnim(chr)) {
+	if (!modIsMeleeComboEnabled() || !chrCanPlayOneShotAnim(chr)) {
 		return;
 	}
 

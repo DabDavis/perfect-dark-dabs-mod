@@ -2949,15 +2949,12 @@
 #define MPOPTION_FRIENDLYFIRE           0x02000000
 #define MPOPTION_NOPLAYERONRADAR        0x04000000
 #define MPOPTION_NODOORS                0x08000000
-// Modifies MPOPTION_SPAWNWITHWEAPON, and is meaningless without it. An older
-// build reading a setup file that has both set just spawns everyone with the
-// arena's first weapon slot, which is what Start Armed used to mean.
+// Retired, and reserved rather than reused. Start Armed and Jump were arena
+// rules kept in these bits until they became global settings - see
+// game/modoptions.h - and setups saved while they lived here still carry
+// whatever was set. Handing the bits to something else would read those old
+// setups as having asked for it.
 #define MPOPTION_SPAWNWITHRANDOMWEAPON  0x10000000
-// Jump is a three-bit field rather than a flag: 0 is off, 1 to JUMPHEIGHT_MAX
-// select the height multiplier. These are the last three bits of the word, so
-// an on/off flag plus a separate height would not have fitted - and would have
-// been two settings for what is one choice. options is saved as a flat 32 bits,
-// so a field inside it needs no save format change.
 #define MPOPTION_JUMP_SHIFT             29
 #define MPOPTION_JUMP_MASK              0xe0000000
 

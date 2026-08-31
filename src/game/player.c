@@ -33,6 +33,7 @@
 #include "game/filemgr.h"
 #include "game/inv.h"
 #include "game/playermgr.h"
+#include "game/modoptions.h"
 #include "game/explosions.h"
 #include "game/bondview.h"
 #include "game/game_1531a0.h"
@@ -3405,7 +3406,7 @@ static void playerSyncBodyWeapons(struct player *player)
  *
  * cdExamLos08() reports the first thing between the eye and where the camera
  * wants to be and cdGetPos() gives the point it hit. The camera stops
- * THIRDPERSON_CAMCLEARANCE short of that rather than at it, because sitting
+ * the wall clearance setting short of that rather than at it, because sitting
  * flush against a wall fills the screen with that wall.
  *
  * The trace starts at the eye rather than at the player's feet so that it
@@ -3418,7 +3419,7 @@ static void playerPullBackCamera(struct coord *campos)
 {
 	struct coord back;
 	struct coord hit;
-	f32 dist = THIRDPERSON_CAMDIST;
+	f32 dist = g_ModOptions.camdist;
 
 	g_Vars.currentplayer->thirdpersondist = 0;
 
@@ -3437,11 +3438,11 @@ static void playerPullBackCamera(struct coord *campos)
 
 		dist = sqrtf((hit.x - campos->x) * (hit.x - campos->x)
 				+ (hit.y - campos->y) * (hit.y - campos->y)
-				+ (hit.z - campos->z) * (hit.z - campos->z)) - THIRDPERSON_CAMCLEARANCE;
+				+ (hit.z - campos->z) * (hit.z - campos->z)) - g_ModOptions.camclearance;
 
-		// Nothing between here and THIRDPERSON_CAMMINDIST is a view: leave the
+		// Nothing between here and the minimum distance is a view: leave the
 		// camera on the eye and let the HUD put the gun back.
-		if (dist < THIRDPERSON_CAMMINDIST) {
+		if (dist < g_ModOptions.cammindist) {
 			return;
 		}
 	}
@@ -3466,7 +3467,7 @@ static void playerPullBackCamera(struct coord *campos)
  * floor. Pulling the camera back along that orientation does not survive it:
  * within a few frames the head is looking at the carpet, so the trace behind
  * the eye is straight into the floor, the clamp cuts it below
- * THIRDPERSON_CAMMINDIST, and the death plays out in first person - the one
+ * the minimum distance, and the death plays out in first person - the one
  * view where the animation everyone else can see is the one thing not on
  * screen.
  *

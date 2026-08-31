@@ -27,6 +27,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "game/modoptions.h"
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
 #endif
@@ -321,11 +322,13 @@ bool bwalkIsRolling(void)
  * frame later than the tick that read the button. bwalkUpdateVertical() takes
  * the branch on the velocity itself, not on being airborne, so an impulse left
  * here survives to the next tick and is integrated there.
+ *
+ * Solo jumps too. This was once an arena rule and could not, but it is a global
+ * setting now - see modoptions.h - and a mission is somewhere to use it.
  */
 void bwalkTryJump(void)
 {
-	if (!g_Vars.normmplayerisrunning
-			|| !mpIsJumpEnabled()
+	if (!modIsJumpEnabled()
 			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK) {
 		return;
 	}
@@ -342,7 +345,7 @@ void bwalkTryJump(void)
 	}
 #endif
 
-	const f32 impulse = mpGetJumpImpulse();
+	const f32 impulse = modGetJumpImpulse();
 
 	if (!bwalkCanMoveUpwards(impulse)) {
 		return;
@@ -380,7 +383,8 @@ void bwalkTryRoll(void)
 	struct coord side;
 	bool toleft;
 
-	if (g_Vars.currentplayer->isdead
+	if (!modCanPlayerRoll()
+			|| g_Vars.currentplayer->isdead
 			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK
 			|| g_Vars.currentplayer->isfalling
 			|| g_Vars.currentplayer->onladder

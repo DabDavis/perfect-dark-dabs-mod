@@ -10,6 +10,7 @@
 #include "game/menu.h"
 #include "game/gamefile.h"
 #include "game/player.h"
+#include "game/modoptions.h"
 #include "lib/joy.h"
 #include "video.h"
 #include "input.h"
@@ -1744,8 +1745,8 @@ static const struct menubind menuBinds[] = {
 	{ CK_8000,   "Cycle Crouch [+]\n",  "N64 Ext 8000\n" },
 	{ CK_4000,   "Half Crouch [+]\n",   "N64 Ext 4000\n" },
 	{ CK_2000,   "Full Crouch [+]\n",   "N64 Ext 2000\n" },
-	{ CK_1000,   "Third Person [+]\n",  "N64 Ext 1000\n" },
-	{ CK_0800,   "Combat Roll [+]\n",   "N64 Ext 0800\n" },
+	// Third Person and Combat Roll are not here. They belong to this fork, so
+	// they are bound from Dab's Mod Options with the settings they drive.
 	{ CK_ACCEPT, "UI Accept [+]\n",     "EXT UI Accept\n" },
 	{ CK_CANCEL, "UI Cancel [+]\n",     "EXT UI Cancel\n" },
 };
@@ -1766,8 +1767,6 @@ static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menu
 	}
 
 struct menuitem g_ExtendedBindsMenuItems[] = {
-	DEFINE_MENU_BIND(),
-	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
@@ -1949,6 +1948,368 @@ static MenuItemHandlerResult menuhandlerOpenBindsMenu(s32 operation, struct menu
 	return 0;
 }
 
+/**
+ * Dab's Mod Options - the fork's own settings, all in one page.
+ *
+ * Jump and Start Armed were arena rules in mpsetup.options until they moved
+ * here. They are global now, kept in pd.ini with the rest of the port's
+ * settings, which is what lets the jump work in a solo mission: an arena rule
+ * only exists while a Combat Sim match does.
+ *
+ * The two key binds this fork added live here as well rather than on the Key
+ * Bindings page, next to the settings they drive.
+ */
+static MenuItemHandlerResult menuhandlerModJump(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[JUMPHEIGHT_MAX + 1] = { "Off", "1x", "2x", "3x", "4x", "5x" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.jumpheight = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modGetJumpHeight();
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModJumpFor(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Everyone", "Players Only" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !modIsJumpEnabled();
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.jumpwho = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.jumpwho;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Everyone", "Players Only" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.roll = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.roll;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModStartArmed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "First Weapon", "Random" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.spawnweapon = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modGetSpawnWeapon();
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModMelee(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.melee;
+	case MENUOP_SET:
+		g_ModOptions.melee = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModFlinch(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.flinch;
+	case MENUOP_SET:
+		g_ModOptions.flinch = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * The camera sliders run from the closest the camera may sit rather than from
+ * zero, because a third person camera on the eye is not a third person camera.
+ */
+#define MODCAM_MINDIST 60
+
+static MenuItemHandlerResult menuhandlerModCamDist(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_ModOptions.camdist + 0.5f) - MODCAM_MINDIST;
+		break;
+	case MENUOP_SET:
+		g_ModOptions.camdist = (f32)(data->slider.value + MODCAM_MINDIST);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", (s32)data->slider.value + MODCAM_MINDIST);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModCamClearance(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_ModOptions.camclearance + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_ModOptions.camclearance = (f32)data->slider.value;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", (s32)data->slider.value);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModCamMinDist(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_ModOptions.cammindist + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_ModOptions.cammindist = (f32)data->slider.value;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", (s32)data->slider.value);
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * The same two rows the Key Bindings page draws, for the binds that were taken
+ * off it. The row says which bind it is in param3, rather than by where it sits
+ * in the array the way menuhandlerBind() does, so the settings above can be
+ * reordered without silently rebinding anything.
+ */
+static const struct menubind modMenuBinds[] = {
+	{ CK_1000, "Third Person [+]\n", "N64 Ext 1000\n" },
+	{ CK_0800, "Combat Roll [+]\n",  "N64 Ext 0800\n" },
+};
+
+static const char *menutextModBind(struct menuitem *item)
+{
+	return g_PlayerExtCfg[g_ExtMenuPlayer].extcontrols ?
+		modMenuBinds[item->param3].name :
+		modMenuBinds[item->param3].n64name;
+}
+
+static MenuItemHandlerResult menuhandlerModBind(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const s32 idx = item->param3;
+	const u32 *binds;
+
+	static char keyname[128];
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = INPUT_MAX_BINDS;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		binds = inputKeyGetBinds(g_ExtMenuPlayer, modMenuBinds[idx].ck);
+		if (binds && binds[data->dropdown.value]) {
+			strncpy(keyname, inputGetKeyName(binds[data->dropdown.value]), sizeof(keyname) - 1);
+			for (char *p = keyname; *p; ++p) {
+				if (*p == '_') *p = ' ';
+			}
+			return (intptr_t)keyname;
+		}
+		return (intptr_t)"NONE";
+	case MENUOP_SET:
+		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)modMenuBinds[idx].name;
+		g_BindIndex = data->dropdown.value;
+		g_BindContKey = modMenuBinds[idx].ck;
+		inputClearLastKey();
+		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = 0;
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedDabsModMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Jump",
+		0,
+		menuhandlerModJump,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Jump For",
+		0,
+		menuhandlerModJumpFor,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Combat Roll",
+		0,
+		menuhandlerModRoll,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Melee Combos",
+		0,
+		menuhandlerModMelee,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Flinch When Shot",
+		0,
+		menuhandlerModFlinch,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Start Armed",
+		0,
+		menuhandlerModStartArmed,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Camera Distance",
+		540,
+		menuhandlerModCamDist,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Camera Wall Clearance",
+		120,
+		menuhandlerModCamClearance,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Camera Minimum Distance",
+		300,
+		menuhandlerModCamMinDist,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		0,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		1,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedDabsModMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Dab's Mod Options",
+	g_ExtendedDabsModMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 struct menuitem g_ExtendedMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -1997,6 +2358,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Key Bindings\n",
 		0,
 		menuhandlerOpenBindsMenu,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Dab's Mod Options\n",
+		0,
+		(void *)&g_ExtendedDabsModMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
