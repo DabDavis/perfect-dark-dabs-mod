@@ -3334,6 +3334,71 @@ bool playerIsThirdPerson(struct player *player)
 #endif
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Put the weapons the player is holding into the body's hands, and take out
+ * the ones they are not.
+ *
+ * playermgrCreateWeapon() is called from exactly one place: the frame the
+ * change gun animation raises a new weapon, and then only in multiplayer.
+ * Every other way a gun reaches the player's hands leaves the body empty
+ * handed - spawning holding one, an equip that finds the weapon already
+ * current and returns early, a model that had no slot free on the frame it was
+ * asked for. None of it showed before, because the only body the game drew was
+ * somebody else's, and theirs is filled by their own tick.
+ *
+ * This runs every frame the body is animated, so a create that fails for want
+ * of a model slot is retried on the next frame rather than lost for the life.
+ * playermgrCreateWeapon() only builds what is missing, so the frames where
+ * nothing has changed cost a pointer test per hand.
+ *
+ * The one time empty hands are meant is a gun change: the stock code takes the
+ * old weapon out of them while the arms lower it and puts the new one there as
+ * they raise it. A switch in progress is left to it.
+ *
+ * Everything here works on g_Vars.currentplayer, so it is only ever called for
+ * the player whose tick this is.
+ */
+static void playerSyncBodyWeapons(struct player *player)
+{
+	struct chrdata *chr = player->prop->chr;
+	s32 handnum;
+
+	// A dead player's hands are the death's business: the weapon is freed and
+	// dropped where they fell, and gunctrl keeps naming it for a while yet.
+	// Nothing here should put it back.
+	if (player->isdead) {
+		return;
+	}
+
+	if (player->gunctrl.switchtoweaponnum != -1) {
+		return;
+	}
+
+	for (handnum = 0; handnum < 2; handnum++) {
+		struct prop *held = chr->weapons_held[handnum];
+
+		if (player->hands[handnum].state == HANDSTATE_CHANGEGUN) {
+			continue;
+		}
+
+		// A gun the player has stopped holding. Whatever they hold now is
+		// about to go into the same hand, and the wrong gun reads worse than
+		// no gun.
+		if (held && held->weapon && held->weapon->weaponnum != bgunGetWeaponNum(handnum)) {
+			playermgrDeleteWeapon(handnum);
+			held = NULL;
+		}
+
+		if (held == NULL) {
+			// Does nothing when what they hold has no model to hold: fists,
+			// and the left hand of anything not being dual wielded.
+			playermgrCreateWeapon(handnum);
+		}
+	}
+}
+#endif
+
 /**
  * Back the camera off along the view axis for third person, stopping short of
  * whatever is behind the player.
@@ -5758,6 +5823,16 @@ s32 playerTickThirdPerson(struct prop *prop)
 		chr->actiontype = ACT_BONDMULTI;
 
 		if ((chr->hidden & CHRHFLAG_00000800) == 0) {
+#ifndef PLATFORM_N64
+			// Our own body, and only on the tick that belongs to it. Another
+			// player's body is reached from here too, during whichever tick is
+			// looking at it, and the weapon calls would give the gun to
+			// whoever that tick belongs to instead.
+			if (playernum == g_Vars.currentplayernum && playerWantsThirdPerson(player)) {
+				playerSyncBodyWeapons(player);
+			}
+#endif
+
 			leftprop = chrGetHeldProp(chr, HAND_LEFT);
 			rightprop = chrGetHeldProp(chr, HAND_RIGHT);
 			animnum = modelGetAnimNum(chr->model);
