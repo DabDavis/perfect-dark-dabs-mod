@@ -1,7 +1,9 @@
 # Dab's Mod
 
-**[Download the latest build](https://github.com/DabDavis/perfect-dark-dabs-mod/releases/tag/dabs-mod-dev)**
+**[Download](https://github.com/DabDavis/perfect-dark-dabs-mod/releases/latest)**
 — Windows, Linux and macOS. You supply the ROM; see [You need a ROM](#you-need-a-rom).
+There is also a [rolling dev build](https://github.com/DabDavis/perfect-dark-dabs-mod/releases/tag/dabs-mod-dev)
+of the newest commit, if you want fixes before they reach a release.
 
 A fork of the [Perfect Dark PC port](https://github.com/perfect-dark-pc-port/perfect_dark),
 which is itself a port of the [Perfect Dark decompilation](https://github.com/n64decomp/perfect_dark).
