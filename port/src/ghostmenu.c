@@ -85,18 +85,20 @@ static MenuItemHandlerResult menuhandlerGhostRacers(s32 operation, struct menuit
 }
 
 /**
- * Off, or on with or without a field to chase.
+ * What a trial does: run alone against the clock, or against the field.
  *
- * The run is recorded in both of the on modes, so the choice here is only
- * whether anybody is in front of you while you set it. Racing does not turn
- * recording off, because the run worth keeping is usually the one raced, and a
- * mode that watched a good run go past without writing it down would be a trap
- * rather than a setting. The labels say so rather than leaving Record Runs and
- * Race Ghosts looking like alternatives.
+ * There is no Off. A trial records - that is what the door is for - and a
+ * player who wants to play the mission without any of this plays Solo
+ * Missions. Racing does not turn recording off either, because the run worth
+ * keeping is usually the one raced, and a mode that watched a good run go past
+ * without writing it down would be a trap rather than a setting.
+ *
+ * The values are the MODGHOST_* ones, so the list is offset by Record Only
+ * rather than starting at zero.
  */
 static MenuItemHandlerResult menuhandlerGhostMode(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	static const char *opts[] = { "Off", "Record Only", "Record + Race" };
+	static const char *opts[] = { "Record Only", "Record + Race" };
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -105,10 +107,11 @@ static MenuItemHandlerResult menuhandlerGhostMode(s32 operation, struct menuitem
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)opts[data->dropdown.value];
 	case MENUOP_SET:
-		g_ModGhostMode = data->dropdown.value;
+		g_ModGhostMode = data->dropdown.value + MODGHOST_RECORD;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_ModGhostMode;
+		data->dropdown.value = g_ModGhostMode <= MODGHOST_RECORD
+			? 0 : g_ModGhostMode - MODGHOST_RECORD;
 	}
 
 	return 0;
@@ -473,7 +476,7 @@ struct menuitem g_GhostOptionsMenuItems[] = {
 		MENUITEMTYPE_LABEL,
 		0,
 		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Trials run with Jump and Combat Roll off.\n",
+		(uintptr_t)"Trials record, with Jump and Combat Roll off.\n",
 		0,
 		NULL,
 	},

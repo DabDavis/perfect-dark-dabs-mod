@@ -471,7 +471,21 @@ class Handler(BaseHTTPRequestHandler):
             # Editing is the same effort as inventing a time outright, which
             # nothing here can catch either - see the note at the top about
             # what validating a run would actually take.
-            if info["owner"] and info["owner"].lower() != username.lower():
+            # A ghost has to say which account set it, and it has to be this
+            # one. Treating an absent owner as "anybody's" was a hole with a
+            # worked example: a second account on the same machine uploaded a
+            # first account's run, because the client fell back to comparing
+            # the agent - a save file name, which does not change when the
+            # ghost account does - and this end agreed by not asking.
+            #
+            # Files recorded before ghosts carried an owner are therefore
+            # nobody's to publish. That is the safe direction: the alternative
+            # lets anyone holding the file claim it.
+            if not info["owner"]:
+                return self.send_json(403, {"ok": False,
+                    "error": "that ghost does not say which account recorded it"})
+
+            if info["owner"].lower() != username.lower():
                 return self.send_json(403, {"ok": False,
                     "error": "that ghost was recorded by %s" % info["owner"]})
 

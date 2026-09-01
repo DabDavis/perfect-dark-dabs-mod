@@ -23,15 +23,34 @@
  */
 
 /**
- * Off, recording only, or recording while racing whatever ghost is on disk.
+ * What a trial does: record on its own, or record while racing the field.
  *
- * Recording happens in both of the on modes. There is no mode that races
- * without recording, because a run good enough to be worth watching is not
- * announced in advance.
+ * Recording happens in both, because a run good enough to be worth keeping is
+ * not announced in advance, and there is no mode that races without recording.
+ *
+ * OFF is not something the player can choose. It is what modGhostGetMode()
+ * answers outside a trial, which is every mission started any other way -
+ * runs are recorded in Ghost Trials and nowhere else, so that everything
+ * reaching a leaderboard was set under the same rules.
  */
 #define MODGHOST_OFF    0
 #define MODGHOST_RECORD 1
 #define MODGHOST_RACE   2
+
+/**
+ * Header flags: what a run was set under, kept with the run.
+ *
+ * A ghost outlives the settings that produced it and travels to machines whose
+ * settings are different again, so the file has to answer for itself. One bit
+ * so far, and it means the moves this fork added were off - which is what a
+ * trial enforces and what makes two times worth comparing.
+ *
+ * Zero is "unknown", not "no rules": every ghost recorded before this was made
+ * when the fork's moves were available and there is no asking now which were
+ * on. A board that wants to compare like with like has to treat those as the
+ * different thing they are.
+ */
+#define MODGHOSTHF_TRIALRULES 0x01
 
 /**
  * Which of the ghosts on disk for this stage and difficulty gets raced.

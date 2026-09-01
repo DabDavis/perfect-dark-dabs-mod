@@ -2471,14 +2471,17 @@ static MenuItemHandlerResult menuhandlerModRecordIndicator(s32 operation, struct
 /**
  * Ghost Time Trial.
  *
- * Recording is on in both of the modes that are not off, because a run is only
- * worth keeping once it has turned out to be a good one, and by then it has
- * been played. The choice the player is really making here is whether they
- * want someone in front of them while they do it.
+ * The same setting the Ghost Trials page shows, kept here because this is where
+ * every other thing the fork added is. It says what a trial does rather than
+ * which missions record: nothing outside Ghost Trials records at all, so that
+ * every run on a board was set under the same rules.
+ *
+ * Recording is on in both, because a run is only worth keeping once it has
+ * turned out to be a good one, and by then it has been played.
  */
 static MenuItemHandlerResult menuhandlerModGhost(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	static const char *opts[] = { "Off", "Record Only", "Record + Race" };
+	static const char *opts[] = { "Record Only", "Record + Race" };
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -2487,10 +2490,11 @@ static MenuItemHandlerResult menuhandlerModGhost(s32 operation, struct menuitem 
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)opts[data->dropdown.value];
 	case MENUOP_SET:
-		g_ModGhostMode = data->dropdown.value;
+		g_ModGhostMode = data->dropdown.value + MODGHOST_RECORD;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_ModGhostMode;
+		data->dropdown.value = g_ModGhostMode <= MODGHOST_RECORD
+			? 0 : g_ModGhostMode - MODGHOST_RECORD;
 	}
 
 	return 0;

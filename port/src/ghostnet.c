@@ -300,20 +300,12 @@ static bool ghostnetUploadFile(const char *rel, char *msg, u32 msgsize)
  * different question - two people can both play as Joanna, and an agent name
  * was never a claim on anything.
  *
- * Runs from before the owner field, and runs recorded while signed out, carry
- * no owner at all. Those fall back to the agent name, because the alternative
- * is telling a player the runs they already have belong to nobody. It is the
- * weaker test and it is why the server checks the same thing again: what the
- * client sends is a proposal, and the file that arrives is what decides.
+ * Runs from before the owner field, and runs recorded while signed out, name
+ * nobody and are sent by nobody. The server refuses them too: what the client
+ * sends is a proposal, and the file that arrives is what decides.
  *
  * One button that means "publish my times".
  */
-static const char *ghostnetMyAgentName(void)
-{
-	// The same rule the recorder writes the header with, so that a run saved
-	// before an agent was named is still recognised as that agent's.
-	return g_GameFile.name[0] ? g_GameFile.name : "player";
-}
 
 struct ghostnetuploadscan {
 	s32 sent;
@@ -331,11 +323,19 @@ struct ghostnetuploadscan {
  */
 static bool ghostnetOwns(const struct modghostentry *entry)
 {
-	if (entry->owner[0]) {
-		return strcasecmp(entry->owner, g_GhostNetUser) == 0;
+	// A run that cannot say whose it is is nobody's to publish. There was a
+	// fallback here comparing the agent instead, and it was a hole rather than
+	// a kindness: an agent is a save file and does not change when the ghost
+	// account does, so signing in as somebody new and pressing Upload
+	// published every unowned run on the machine under the new name. That is
+	// the theft the owner field exists to stop, arrived at by being helpful
+	// about old files. They still race and still list locally; they just do
+	// not go on a board.
+	if (entry->owner[0] == '\0') {
+		return false;
 	}
 
-	return strncmp(entry->player, ghostnetMyAgentName(), MODGHOST_NAMELEN) == 0;
+	return strcasecmp(entry->owner, g_GhostNetUser) == 0;
 }
 
 static bool ghostnetIsBestOfMine(const struct modghostentry *entry)
@@ -589,8 +589,8 @@ static int ghostnetWorker(void *arg)
 			// means the runs on disk were set by a different one, and a
 			// message that does not say whose runs it was looking for gives
 			// the player nothing to go on.
-			snprintf(msg, sizeof(msg), "no runs of yours here - %d belong to others",
-					scan.skipped);
+			snprintf(msg, sizeof(msg), "no runs by %s here - %d are not yours",
+					g_GhostNetUser, scan.skipped);
 			ok = true;
 		} else if (scan.failed) {
 			snprintf(msg, sizeof(msg), "sent %d, %d failed: %s",

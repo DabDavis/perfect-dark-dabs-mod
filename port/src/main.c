@@ -224,7 +224,11 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.BodiesDrawn", &g_ModOptions.bodiesdrawn, MODBODIESDRAWN_ALL, MODBODIESDRAWN_MAX);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);
 	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);
-	configRegisterInt("Mod.GhostTimeTrial", &g_ModGhostMode, MODGHOST_OFF, MODGHOST_RACE);
+	// Recording is not a mission setting any more - it is what Ghost Trials
+	// does - so the lowest this goes is Record Only. A config written when Off
+	// was a choice clamps up to it rather than leaving trials recording
+	// nothing.
+	configRegisterInt("Mod.GhostTimeTrial", &g_ModGhostMode, MODGHOST_RECORD, MODGHOST_RACE);
 	configRegisterInt("Mod.GhostOpponent", &g_ModGhostPick, MODGHOSTPICK_FASTEST, MODGHOSTPICK_MINE);
 	configRegisterInt("Mod.GhostVisibility", &g_ModGhostAlpha, 8, 254);
 	configRegisterInt("Mod.GhostSplitTimes", &g_ModGhostSplits, 0, 1);

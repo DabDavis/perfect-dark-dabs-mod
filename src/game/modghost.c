@@ -110,15 +110,30 @@ bool modGhostTrialRulesApply(void)
 }
 
 /**
- * The mode actually in force, which a trial overrides.
+ * The mode actually in force, which is nothing at all outside a trial.
+ *
+ * Recording used to happen in any mission with the setting on, and the runs it
+ * produced went to the same leaderboard as the ones set under trial rules -
+ * with a jump, against guards that could jump, on a route nobody else could
+ * take. A board that mixes those is measuring settings rather than driving.
+ *
+ * So a run is recorded when it is a trial and not otherwise, and the setting
+ * chooses what a trial does rather than which missions record. Somebody who
+ * wants to play the game with the fork's moves on plays Solo Missions, which
+ * is the door that means exactly that.
+ *
+ * The same predicate that switches the moves off decides this, so the two can
+ * never disagree about whether a run counts - including the multiplayer case,
+ * where an armed trial that outlived its mission must not start recording a
+ * Combat Simulator match.
  */
 static s32 modGhostGetMode(void)
 {
-	if (g_ModGhostTrial) {
-		return MODGHOST_RACE;
+	if (!modGhostTrialRulesApply()) {
+		return MODGHOST_OFF;
 	}
 
-	return g_ModGhostMode;
+	return g_ModGhostMode < MODGHOST_RECORD ? MODGHOST_RECORD : g_ModGhostMode;
 }
 s32 g_ModGhostPick = MODGHOSTPICK_FASTEST;
 
@@ -2055,6 +2070,12 @@ void modGhostSaveRun(void)
 	hdr.numsamples = g_ModGhostRecCount;
 	hdr.time60 = time60;
 	hdr.rate60 = MODGHOST_RATE60;
+	// What the run was set under, so that a file outlives the settings that
+	// made it. Runs recorded before this carry a zero here, which reads as
+	// "unknown" rather than as "no rules" - they were made when the fork's
+	// moves were available and there is no way to ask now which were on.
+	hdr.flags = MODGHOSTHF_TRIALRULES;
+
 	hdr.stagenum = g_Vars.stagenum;
 	hdr.difficulty = g_MissionConfig.difficulty;
 	hdr.stageindex = g_MissionConfig.stageindex;
