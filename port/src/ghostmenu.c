@@ -918,10 +918,16 @@ struct menudialogdef g_GhostShareMenuDialog = {
  * from context, because this page is reached from the main menu where there is
  * no mission in progress to guess from.
  *
- * Changing either dropdown drops the rows it was showing but does not go and
- * get new ones: a dropdown is scrolled through on the way to the entry the
- * player wanted, and fetching at every step would be twenty requests to answer
- * one question. Load Times is the request.
+ * Choosing in either dropdown fetches that board. These open a list and commit
+ * once rather than stepping through values in place, so choosing is a single
+ * decision and costs a single request - the fear that scrolling a dropdown
+ * would fire twenty of them was about a control this menu does not use.
+ *
+ * The rows are cleared first. A fetch is not instant and the old board under
+ * the new mission's name is a leaderboard that is lying for a moment.
+ *
+ * Load Times stays as the way to ask again when a fetch failed or the board has
+ * moved on, which is the only thing left that needs asking for.
  */
 static s32 g_GhostBoardStageIndex = 0;
 static s32 g_GhostBoardDiff = 0;
@@ -937,6 +943,7 @@ static MenuItemHandlerResult menuhandlerGhostBoardStage(s32 operation, struct me
 	case MENUOP_SET:
 		g_GhostBoardStageIndex = data->dropdown.value;
 		ghostnetClearBoard();
+		ghostnetFetchBoard(g_SoloStages[g_GhostBoardStageIndex].stagenum, g_GhostBoardDiff);
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = g_GhostBoardStageIndex;
@@ -958,6 +965,7 @@ static MenuItemHandlerResult menuhandlerGhostBoardDiff(s32 operation, struct men
 	case MENUOP_SET:
 		g_GhostBoardDiff = data->dropdown.value;
 		ghostnetClearBoard();
+		ghostnetFetchBoard(g_SoloStages[g_GhostBoardStageIndex].stagenum, g_GhostBoardDiff);
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = g_GhostBoardDiff;
@@ -1022,7 +1030,7 @@ static char *menutextGhostBoardStatus(struct menuitem *item)
 				"Network support is not built into this copy.\n");
 	} else if (state == GHOSTNET_IDLE && ghostnetGetBoardCount() < 1) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Pick a mission, then Load Times.\n");
+				"No times on this board yet - Load Times asks again.\n");
 	} else if (state == GHOSTNET_IDLE) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				"A on a time downloads that ghost.\n");
@@ -1035,14 +1043,21 @@ static char *menutextGhostBoardStatus(struct menuitem *item)
 
 static MenuDialogHandlerResult menudialogGhostBoard(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
-	// Opening the page does not go to the server. Nothing else in Ghost Trials
-	// needs a network - a run is recorded, saved, listed and raced entirely on
-	// disk - and a page that dialled out because it was looked at made the
-	// mod feel like it wanted an internet connection to work. It does not: the
-	// board is fetched when it is asked for, and a machine that is offline
-	// waits twenty seconds for nothing only if the player asked it to.
+	// Opening the board fetches it. That is one request because a player asked
+	// to look at a leaderboard, which is not the thing "no continuous
+	// connections" was about - nothing here polls, nothing is held open, and
+	// every other page in Ghost Trials works with the network unplugged.
+	//
+	// It briefly did not fetch here, on the theory that every connection
+	// should be asked for out loud. What that produced was a leaderboard that
+	// was empty until you found the button, which is a worse answer to a
+	// player who has just uploaded a time and wants to see it.
 	if (operation == MENUOP_OPEN) {
 		ghostnetClearState();
+
+		if (ghostnetIsAvailable()) {
+			ghostnetFetchBoard(g_SoloStages[g_GhostBoardStageIndex].stagenum, g_GhostBoardDiff);
+		}
 	}
 
 	return 0;
