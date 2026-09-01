@@ -1,10 +1,14 @@
 name: C/C++ CI
 
+# Upstream's CI, kept for reference and for merging cleanly, but not run here.
+# It builds seven targets and publishes to a ci-dev-build release that exists in
+# upstream's repo and not in this one, so every push to this branch would spend
+# an hour to fail at the last step. Dab's Mod has its own workflow.
+#
+# Only the triggers are changed, so upstream's edits to the jobs below still
+# merge without a conflict. workflow_dispatch is left so it can still be run by
+# hand if there is ever a reason to.
 on:
-  push:
-    branches: [ "port" ]
-  pull_request:
-    branches: [ "port" ]
   workflow_dispatch:
 
 jobs:
