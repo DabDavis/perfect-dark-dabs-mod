@@ -124,8 +124,17 @@ image - set `DefaultFullscreen=0` in pd.ini before trusting a headless capture.
 
 ## Feeding ffmpeg two raw pipes
 
-The recorder hands ffmpeg the picture on fd 3 and the sound on fd 4 and lets it
-mux. Two things about that are not obvious and both hang the game:
+The recorder has two backends and `fork()` picks which. With it, ffmpeg gets the
+picture on fd 3 and the sound on fd 4 and muxes them itself. Without it there is
+only `popen()` and one pipe, so the picture goes to an ffmpeg of its own while
+the sound is written as a wav here, and a second ffmpeg (`-c:v copy`) puts them
+together at stop - about half a second for a twelve second recording.
+
+**Build the second one on Linux to test it**: `#define RECORD_FORCE_TWOPASS 1`
+above the includes in `record.c`. It is the only way to find out whether the
+Windows path works, and it did not the first time.
+
+Two things about the two-pipe backend are not obvious and both hang the game:
 
 **ffmpeg probes an input before it reads the next one.** With default
 `probesize`/`analyzeduration` it will read five seconds of the audio pipe before
@@ -142,6 +151,14 @@ with `F_DUPFD, 10` first, then everything else closes, then they come back down.
 `kill()` needs `_DEFAULT_SOURCE` defined before the first system header: the
 build is `-std=c11`, and that is strict enough to hide it while leaving `fork()`,
 `pipe()` and `waitpid()` visible.
+
+SDL2 has no join with a timeout, and a thread stuck in a write to an encoder
+that has stopped reading cannot be woken - `popen()` gives back a stream and no
+process to kill. So the writers count themselves out, `recordStop()` polls that,
+and past five seconds it detaches them and leaks their buffers rather than
+freeing memory they are still reading. That ends recording for the session:
+the next one would hand its encoder to a thread still writing the last one's
+frames.
 
 ## Mod directories
 

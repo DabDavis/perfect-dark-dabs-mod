@@ -14,6 +14,10 @@
  *
  * Sound is taken where the port already hands a finished buffer to SDL, in
  * audioEndFrame(), so what is recorded is what was played.
+ *
+ * Where there is no fork() there is no second pipe, so the picture goes down the
+ * one popen() gives and the sound is written here as a wav, and a second ffmpeg
+ * puts them in one file when recording stops.
  */
 
 void recordInit(void);
