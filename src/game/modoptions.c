@@ -1,6 +1,9 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/modoptions.h"
+#ifndef PLATFORM_N64
+#include "game/modghost.h"
+#endif
 #include "types.h"
 
 /**
@@ -41,8 +44,24 @@ s32 modGetJumpHeight(void)
 	return mult;
 }
 
+/**
+ * Whether anybody may jump.
+ *
+ * Off inside a Ghost Trial, whoever asked for it in the options. A time trial
+ * is runs measured against each other, and a jump is worth seconds on a route:
+ * a board where some runs had one and some did not is a board that measures
+ * settings rather than driving. Simulants and guards lose it too, through
+ * modCanChrJump below, because a guard that vaults a railing is a different
+ * obstacle than one that does not.
+ */
 bool modIsJumpEnabled(void)
 {
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+#endif
+
 	return modGetJumpHeight() != 0;
 }
 
@@ -92,11 +111,23 @@ f32 modGetJumpApex(void)
 
 bool modCanPlayerRoll(void)
 {
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+#endif
+
 	return g_ModOptions.roll != MODROLL_OFF;
 }
 
 bool modCanChrRoll(void)
 {
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+#endif
+
 	return g_ModOptions.roll == MODROLL_EVERYONE;
 }
 

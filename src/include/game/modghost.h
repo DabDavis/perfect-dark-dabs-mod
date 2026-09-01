@@ -202,6 +202,7 @@ bool modGhostIsChr(struct chrdata *chr);
 s32 modGhostGetAlpha(void);
 
 void modGhostArmTrial(void);
+bool modGhostTrialRulesApply(void);
 void modGhostDisarmTrial(void);
 void modGhostReset(void);
 void modGhostRecordSample(void);

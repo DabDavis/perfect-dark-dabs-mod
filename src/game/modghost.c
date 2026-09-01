@@ -90,6 +90,26 @@ void modGhostDisarmTrial(void)
 }
 
 /**
+ * Whether the moves this fork added are switched off right now.
+ *
+ * A trial is a time to be compared against other times, and a run made with a
+ * jump the ghost beside it did not have is not the same run. The fork's own
+ * settings are left alone - this overrides them for the duration rather than
+ * writing to them, so a player who came in through Ghost Trials for one
+ * mission gets their jump back afterwards without having to remember to.
+ *
+ * The multiplayer test is here because the armed flag outlives the mission: it
+ * is meant to survive a retry, and is only cleared by the ordinary Solo
+ * Missions item on the way past. Without this, arming a trial and then opening
+ * the Combat Simulator would leave everyone in the arena unable to jump, which
+ * is a strange bug to arrive at from a leaderboard.
+ */
+bool modGhostTrialRulesApply(void)
+{
+	return g_ModGhostTrial && g_Vars.normmplayerisrunning == false;
+}
+
+/**
  * The mode actually in force, which a trial overrides.
  */
 static s32 modGhostGetMode(void)

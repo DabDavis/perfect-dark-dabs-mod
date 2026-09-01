@@ -467,6 +467,17 @@ struct menudialogdef g_GhostMineMenuDialog = {
 
 struct menuitem g_GhostOptionsMenuItems[] = {
 	{
+		// Said here rather than left to be discovered mid run. A player who
+		// presses jump in a trial and does not leave the ground has found a
+		// bug unless something told them otherwise.
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Trials run with Jump and Combat Roll off.\n",
+		0,
+		NULL,
+	},
+	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
