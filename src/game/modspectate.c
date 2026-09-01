@@ -369,6 +369,20 @@ void modSpectateTick(void)
 
 	bmoveUpdateRooms(g_Vars.currentplayer);
 
+	// The body's height is not taken from the prop - chr0f01f378() reads
+	// player->vv_manground for a player prop and puts the model there, which is
+	// how a walking body ends up on the floor it is standing on. bwalkTick()
+	// keeps that up to date, and this stands in for bwalkTick(), so without
+	// this the model stays on the floor the camera took off from while the
+	// camera flies away from it.
+	//
+	// The prop is the eye, not the feet - playerReset() spawns it at
+	// groundy + vv_eyeheight - so the ground under a flying camera is that far
+	// below it. bondbike.c does the same thing for the same reason: a movement
+	// mode that is not the walk has to say where its own ground is.
+	g_Vars.currentplayer->vv_ground = prop->pos.y - g_Vars.currentplayer->vv_height;
+	g_Vars.currentplayer->vv_manground = g_Vars.currentplayer->vv_ground;
+
 	// The tail of bwalkTick(), and the part that is easy to leave out: moving
 	// the prop does not move the view. bmove0f0cc654() refreshes the look and
 	// up vectors, and bmove0f0cc19c() puts the eye on the prop - the camera is
