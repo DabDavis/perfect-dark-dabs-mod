@@ -1,0 +1,14 @@
+[Unit]
+Description=Perfect Dark Ghost Server (Dab's Mod)
+After=network.target
+
+[Service]
+Type=simple
+User=sdg
+WorkingDirectory=/home/sdg
+ExecStart=/usr/bin/python3 /home/sdg/pdghostd.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
