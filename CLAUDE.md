@@ -1,7 +1,7 @@
 # Perfect Dark port — simulant/mod fork
 
 Fork of the [fgsfdsfgs/perfect_dark](https://github.com/fgsfdsfgs/perfect_dark) port.
-`port` tracks upstream; work happens on `mod/dabs-mod`.
+`port` tracks upstream; work happens on `dabs-mod`.
 
 `git checkout port` returns to stock at any time.
 

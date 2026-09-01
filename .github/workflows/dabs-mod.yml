@@ -1,13 +1,13 @@
 name: Dab's Mod CI
 
 # A separate workflow from c-cpp.yml on purpose: that file is upstream's and is
-# left untouched, so pulling from the port branch never conflicts here. Disable
-# "C/C++ CI" in this fork's Actions tab so a `port` sync does not also kick off
+# left untouched, so merging from the port branch never conflicts here. Disable
+# "C/C++ CI" in this repo's Actions tab so a `port` sync does not also kick off
 # an eight-target build that has no release to upload to.
 
 on:
   push:
-    branches: [ "mod/dabs-mod" ]
+    branches: [ "dabs-mod" ]
   workflow_dispatch:
 
 env:
@@ -157,5 +157,5 @@ jobs:
           gh release view dabs-mod-dev >/dev/null 2>&1 || \
             gh release create dabs-mod-dev --prerelease \
               --title "Dab's Mod (latest dev build)" \
-              --notes "Automatic build of the latest \`mod/dabs-mod\` commit. You need your own Perfect Dark \`ntsc-final\` ROM — see README-dabs-mod.md inside the download."
+              --notes "Automatic build of the latest \`dabs-mod\` commit. You need your own Perfect Dark \`ntsc-final\` ROM — see README-dabs-mod.md inside the download."
           gh release upload --clobber dabs-mod-dev ci-release/*

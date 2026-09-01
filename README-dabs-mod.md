@@ -125,12 +125,11 @@ or pass `--savedir <path>`.
 
 ## Building from source
 
-Same as the stock port, on the `mod/dabs-mod` branch:
+Same as the stock port:
 
 ```sh
-git clone --recursive https://github.com/DabDavis/perfect_dark.git
-cd perfect_dark
-git checkout mod/dabs-mod
+git clone --recursive https://github.com/DabDavis/perfect-dark-dabs-mod.git
+cd perfect-dark-dabs-mod
 cmake -G"Unix Makefiles" -Bbuild .
 cmake --build build -j8
 ```
