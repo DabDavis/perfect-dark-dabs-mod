@@ -97,13 +97,26 @@ static bool g_ModSpectateBodyStale[MAX_PLAYERS] = { false, false, false, false }
 // Which stage --spectate has already been acted on for.
 static s32 g_ModSpectateAppliedStage = -1;
 
-bool modSpectateIsOn(void)
+/**
+ * Whether the given player is spectating.
+ *
+ * The per player form exists because playerTickThirdPerson() runs for a player
+ * that is not the current one - in splitscreen it is reached once per player
+ * per frame, from whichever tick is looking at that body - and asking about the
+ * current player there would answer about the wrong one.
+ */
+bool modSpectateIsOnForPlayer(s32 playernum)
 {
-	if (g_Vars.currentplayernum < 0 || g_Vars.currentplayernum >= MAX_PLAYERS) {
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
 		return false;
 	}
 
-	return g_ModSpectating[g_Vars.currentplayernum];
+	return g_ModSpectating[playernum];
+}
+
+bool modSpectateIsOn(void)
+{
+	return modSpectateIsOnForPlayer(g_Vars.currentplayernum);
 }
 
 void modSpectateSetOn(bool on)

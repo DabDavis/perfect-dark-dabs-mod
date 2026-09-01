@@ -8,6 +8,7 @@ extern f32 g_ModSpectateSpeed;
 extern s32 g_ModSpectateStart;
 extern s32 g_ModSpectateStartArg;
 
+bool modSpectateIsOnForPlayer(s32 playernum);
 bool modSpectateIsOn(void);
 void modSpectateSetOn(bool on);
 void modSpectateToggle(void);

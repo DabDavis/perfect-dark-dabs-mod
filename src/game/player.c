@@ -5831,7 +5831,29 @@ s32 playerTickThirdPerson(struct prop *prop)
 		chr->hidden &= ~CHRHFLAG_00000800;
 	}
 
-	if (player->haschrbody && player->model00d4) {
+	/**
+	 * This branch is the one where the body drives the player rather than the
+	 * other way round: chrTick() below moves prop->pos to wherever the body's
+	 * model root ended up, and the two lines after it copy the body's ground
+	 * back into the player. bwalkTick() survives that because it recomputes the
+	 * position from the floor every tick, so whatever the body did is gone by
+	 * the next frame.
+	 *
+	 * A spectator has no bwalkTick(). modSpectateTick() flies the camera by
+	 * adding to the position it reads back out of the prop, so the gap between
+	 * the eye height it assumes and the body's model root - around 70 units for
+	 * Dr Caroll - is added again every frame, and the camera walks down out of
+	 * the level. CAMERAMODE_THIRDPERSON is not a rare thing to be in either:
+	 * playerTickMpSwirl() sets it for the spawn swirl at the start of every
+	 * Combat Sim match, which is a hundred frames of sinking before the player
+	 * has touched anything, and is why --spectate used to begin under the floor.
+	 *
+	 * So a spectating player skips the branch however it was entered, and falls
+	 * through to the one below, which lets input drive the player and has the
+	 * body follow. That branch already names this fork's third person, and a
+	 * spectator is in it.
+	 */
+	if (player->haschrbody && player->model00d4 && !modSpectateIsOnForPlayer(playernum)) {
 		if (var80075d60 == 0
 				|| var80075d60 == 1
 				|| (player->cameramode == CAMERAMODE_THIRDPERSON && player->visionmode != VISIONMODE_SLAYERROCKET)) {
