@@ -2249,6 +2249,7 @@ static MenuItemHandlerResult menuhandlerModCamMinDist(s32 operation, struct menu
  * reordered without silently rebinding anything.
  */
 static const struct menubind modMenuBinds[] = {
+	{ CK_0400, "Spectator [+]\n", "N64 Ext 0400\n" },
 	{ CK_1000, "Third Person [+]\n", "N64 Ext 1000\n" },
 	{ CK_0800, "Combat Roll [+]\n",  "N64 Ext 0800\n" },
 };

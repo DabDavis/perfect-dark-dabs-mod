@@ -4945,6 +4945,7 @@ enum weaponnum {
 #define BUTTON_FULL_CROUCH    CONT_2000
 #define BUTTON_THIRDPERSON    CONT_1000
 #define BUTTON_ROLL           CONT_0800
+#define BUTTON_SPECTATE       CONT_0400
 
 #define BUTTON_UI_ACCEPT      CONT_0010
 #define BUTTON_UI_CANCEL      CONT_0020

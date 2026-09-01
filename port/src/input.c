@@ -210,6 +210,7 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 		{ CK_STICK_YPOS,    SDL_SCANCODE_UP,     0                   },
 		{ CK_4000,          SDL_SCANCODE_LSHIFT, 0                   },
 		{ CK_2000,          SDL_SCANCODE_LCTRL,  0                   },
+		{ CK_0400,          SDL_SCANCODE_F,      0                   },
 		{ CK_1000,          SDL_SCANCODE_V,      0                   },
 		{ CK_0800,          SDL_SCANCODE_C,      0                   },
 		{ CK_ACCEPT,        SDL_SCANCODE_RETURN, SDL_SCANCODE_E      },

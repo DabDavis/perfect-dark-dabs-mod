@@ -6,6 +6,7 @@
 
 #include "lib/main.h"
 #include "game/modoptions.h"
+#include "game/modspectate.h"
 #include "bss.h"
 #include "data.h"
 
@@ -151,6 +152,10 @@ int main(int argc, const char **argv)
 	g_GfxMaxBufferedTris = sysArgGetInt("--gfxbatch", g_GfxMaxBufferedTris);
 	g_GfxTexCacheSize = sysArgGetInt("--gfxtexcache", g_GfxTexCacheSize);
 
+	// Spectator from the first frame. A button press cannot happen before the
+	// stage loads, and the headless runs that want this cannot press one at all.
+	g_ModSpectateStart = sysArgCheck("--spectate");
+
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 
 	if (g_StageNum == STAGE_TITLE && (sysArgCheck("--skip-intro") || g_SkipIntro)) {
@@ -202,6 +207,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.Bodies", &g_ModOptions.bodies, MODBODIES_OFF, MODBODIES_MAX);
 	configRegisterInt("Mod.BodyTime", &g_ModOptions.bodytime, MODBODYTIME_OFF, MODBODYTIME_MAX);
 	configRegisterInt("Mod.BodiesDrawn", &g_ModOptions.bodiesdrawn, MODBODIESDRAWN_ALL, MODBODIESDRAWN_MAX);
+	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);
 
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;

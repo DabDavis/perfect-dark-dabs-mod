@@ -4,6 +4,7 @@
 #include "game/bondgun.h"
 #include "game/player.h"
 #include "game/playermgr.h"
+#include "game/modspectate.h"
 #include "game/propobj.h"
 #include "bss.h"
 #include "lib/memp.h"
@@ -656,6 +657,12 @@ void playermgrAllocatePlayer(s32 index)
 
 	g_Vars.bondvisible = true;
 	g_Vars.bondcollisions = true;
+
+	// The two lines above are half of what leaving spectator mode puts back, so
+	// the mode cannot be allowed to survive them: it would be on, with the
+	// world visible and colliding, holding a saved bondvisible from a stage
+	// that is gone and a perimeter it disabled on a prop that no longer exists.
+	modSpectateReset();
 }
 
 void playermgrCalculateAiBuddyNums(void)
