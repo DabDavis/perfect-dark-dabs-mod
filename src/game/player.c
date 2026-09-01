@@ -32,6 +32,7 @@
 #include "game/file.h"
 #include "game/filemgr.h"
 #include "game/inv.h"
+#include "game/modspectate.h"
 #include "game/playermgr.h"
 #include "game/modoptions.h"
 #include "game/explosions.h"
@@ -1370,6 +1371,28 @@ void playerTickChrBody(void)
 {
 	f32 turnangle = (360.0f - g_Vars.currentplayer->vv_theta) * M_BADTAU / 360.0f;
 
+	// Entering or leaving spectator changes which model the body is, and the
+	// body is built once and kept. Taking the old one down here rather than
+	// where the mode changes is deliberate: this is the point in the tick that
+	// owns the body, and the build below puts the new one up in the same call,
+	// so nothing else ever sees the player without one.
+	//
+	// The mark is taken whether or not there is a body to take down, because a
+	// body built after it was set is already the right model and the mark has
+	// nothing left to say.
+	if (modSpectateTakeBodyStale() && g_Vars.currentplayer->haschrbody) {
+		playerRemoveChrBody();
+
+		if (g_Vars.currentplayer->haschrbody) {
+			// Multiplayer keeps its bodies, so playerRemoveChrBody() left this
+			// one standing. Take it down the way playerSpawnAnti() does when it
+			// puts the player into a different model mid-match.
+			g_Vars.currentplayer->haschrbody = false;
+			g_Vars.currentplayer->model00d4 = NULL;
+			chrRemove(g_Vars.currentplayer->prop, false);
+		}
+	}
+
 	if (g_Vars.currentplayer->haschrbody == false) {
 		struct chrdata *chr;
 		struct texpool texpool;
@@ -1418,6 +1441,7 @@ void playerTickChrBody(void)
 		};
 
 		s32 weaponmodelnum;
+		s32 spectatorbody;
 		s32 weaponnum = bgunGetWeaponNum2(HAND_RIGHT);
 		s32 bodynum = BODY_DARK_COMBAT;
 		s32 headnum = HEAD_DARK_COMBAT;
@@ -1428,6 +1452,29 @@ void playerTickChrBody(void)
 
 		g_Vars.currentplayer->haschrbody = true;
 		playerChooseBodyAndHead(&bodynum, &headnum, &sp60);
+
+		// The spectator is not taking part, and wears a model that says so.
+		// This overrides everything playerChooseBodyAndHead() decided, the
+		// anti's stolen body included: while the camera is off the player, what
+		// the player would have looked like is not the question being asked.
+		//
+		// It is done here rather than inside that function because its other
+		// two callers are asking different questions. bondgun.c wants the
+		// handfilenum for the first person hands, which a flying laptop does not
+		// have, and playerReset() is recording what the player will be when they
+		// are one again.
+		spectatorbody = modSpectateGetBodyNum();
+
+		if (spectatorbody >= 0) {
+			bodynum = spectatorbody;
+
+			// BODY_DRCAROLL carries its own head. The branch below that builds
+			// a multiplayer body works this out from unk00_01 on its own; the
+			// gunmem branch does not, and would make room for a head model that
+			// body0f02ce8c() then ignores.
+			headnum = -1;
+			sp60 = false;
+		}
 
 		if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
 			weaponnum = g_DefaultWeapons[0];
@@ -1580,6 +1627,15 @@ void playerTickChrBody(void)
 		chr->bodynum = bodynum;
 		chr->race = bodyGetRace(chr->bodynum);
 		chr->radius = g_Vars.currentplayer->bond2.radius;
+
+		// The eyes on the screen are the half of Dr Caroll that makes the model
+		// read as something watching. chrRender() sets the screen from these
+		// two every frame it draws one, and the only place that fills them in is
+		// the setup file's spawn path, which a player body does not take.
+		if (chr->race == RACE_DRCAROLL) {
+			chr->drcarollimage_left = DRCAROLLIMAGE_EYESDEFAULT;
+			chr->drcarollimage_right = DRCAROLLIMAGE_EYESDEFAULT;
+		}
 
 		g_Vars.currentplayer->vv_eyeheight = (s32)g_HeadsAndBodies[bodynum].height;
 
@@ -4087,6 +4143,16 @@ void playerTick(bool arg0)
 		struct prop *prop;
 		struct chrdata *chr;
 		s32 i;
+
+		// A body built before the spectator mode changed is the wrong model,
+		// and neither branch below would replace it: playerRemoveChrBody()
+		// leaves a multiplayer body standing, and playerTickChrBody() is not
+		// reached at all with the camera on the eye. Solo falls out of this on
+		// its own - it has no body standing to swap unless it is in third
+		// person, and then the branch below does the work anyway.
+		if (modSpectateBodyIsStale() && g_Vars.currentplayer->haschrbody) {
+			playerTickChrBody();
+		}
 
 		// Solo play tears the body down every tick, having nothing to look at
 		// through its own eyes. Third person is the exception, and needs the
