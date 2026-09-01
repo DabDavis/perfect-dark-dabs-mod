@@ -250,16 +250,24 @@ struct modghostentry {
 /**
  * Where a ghost's name floats, and what colour it is drawn in.
  *
- * Two hundred and twenty units is clear of the head - the comment in
- * constants.h puts Joanna's standing height a little under two hundred - and
- * close enough that a crowd at the same corner still has each name over its
- * own body rather than in a row above all of them.
+ * Measured from the ghost's feet, which is not where its prop is: the prop is
+ * carried a hundred units up so that the portal walk that moves it between
+ * rooms starts from inside the body rather than at the floor. The name height
+ * subtracts that again rather than being tuned against it, because a number
+ * that silently depends on another number is one that goes wrong the day the
+ * other one changes - which is how the first version ended up drawing the tag
+ * a whole body length above the head.
+ *
+ * A hundred and eighty five is just clear of the scalp: vv_eyeheight is 159 for
+ * Joanna and the top of the head is a little above that. The text is then drawn
+ * upwards from the anchor, so this is where it sits, not where it starts.
  *
  * Solid white at a fixed alpha rather than the ghost's own translucency: the
  * body is faint on purpose and the label saying whose it is is the part that
  * has to be readable while both of you are moving.
  */
-#define MODGHOST_NAMEHEIGHT 220.0f
+#define MODGHOST_NAMEHEIGHT 185.0f
+#define MODGHOST_PROPLIFT   100.0f
 #define MODGHOST_NAMECOLOUR 0xffffffb4
 
 s32 modGhostScanCatalogue(void);

@@ -905,7 +905,7 @@ static void modGhostPose(struct modghostracer *racer, struct modghostsample *sam
 	// a door that this run has not opened stays in a room the renderer can
 	// draw it from.
 	dstpos.x = sample->x;
-	dstpos.y = sample->y + 100.0f;
+	dstpos.y = sample->y + MODGHOST_PROPLIFT;
 	dstpos.z = sample->z;
 
 	func0f065e74(&prop->pos, prop->rooms, &dstpos, dstrooms);
@@ -1954,7 +1954,7 @@ Gfx *modGhostRenderNames(Gfx *gdl)
 		}
 
 		world.x = racer->chr->prop->pos.x;
-		world.y = racer->chr->prop->pos.y + MODGHOST_NAMEHEIGHT;
+		world.y = racer->chr->prop->pos.y - MODGHOST_PROPLIFT + MODGHOST_NAMEHEIGHT;
 		world.z = racer->chr->prop->pos.z;
 
 		// False means the point is behind the camera, where the projection
