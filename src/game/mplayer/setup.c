@@ -3343,7 +3343,7 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 		}
 		break;
 	case MENUOP_CHECKHIDDEN:
-		if (item->param >= 4 && !challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
+		if (item->param >= mpGetSimSlotCap()) {
 			return true;
 		}
 		break;
@@ -6039,7 +6039,7 @@ MenuItemHandlerResult menuhandlerMpNumberOfSimulants(s32 operation, struct menui
 {
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = !challengeIsFeatureUnlocked(MPFEATURE_8BOTS) ? 4 : MAX_BOTS;
+		data->dropdown.value = mpGetSimSlotCap();
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		sprintf(g_StringPointer, "%d\n", data->dropdown.value + 1);

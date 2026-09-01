@@ -2127,11 +2127,7 @@ void setupCreateProps(s32 stagenum)
 				s32 maxsimulants;
 				s32 slotnum;
 
-				if (challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
-					maxsimulants = MAX_BOTS;
-				} else {
-					maxsimulants = 4;
-				}
+				maxsimulants = mpGetSimSlotCap();
 
 				for (i = 0; i < MAX_BOTS; i++) {
 					slotsdone[i] = false;

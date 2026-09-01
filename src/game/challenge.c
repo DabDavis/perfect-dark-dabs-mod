@@ -221,17 +221,17 @@ void challengeDetermineUnlockedFeatures(void)
 
 	func0f1895e8();
 
-	// If the ability to have 8 simulants hasn't been unlocked, limit them to 4
-	if (!challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
-		for (k = 4; k < MAX_BOTS; k++) {
-			if (mpIsSimSlotOn(k)) {
-				mpRemoveSimulant(k);
-			}
+	// Trim anything past the cap. Stock put four here unless MPFEATURE_8BOTS
+	// was unlocked; the fork's cap is MAX_BOTS, so nothing is trimmed and a
+	// setup keeps every simulant it was saved with.
+	for (k = mpGetSimSlotCap(); k < MAX_BOTS; k++) {
+		if (mpIsSimSlotOn(k)) {
+			mpRemoveSimulant(k);
 		}
+	}
 
-		if (g_Vars.mpquickteamnumsims > 4) {
-			g_Vars.mpquickteamnumsims = 4;
-		}
+	if (g_Vars.mpquickteamnumsims > mpGetSimSlotCap()) {
+		g_Vars.mpquickteamnumsims = mpGetSimSlotCap();
 	}
 }
 
@@ -266,9 +266,8 @@ void challengePerformSanityChecks(void)
 		if (g_MpSetup.scenario == MPSCENARIO_KINGOFTHEHILL) {
 			g_Vars.mphilltime = 10;
 		}
-	} else if (!challengeIsFeatureUnlocked(MPFEATURE_8BOTS)) {
-		// Limit to 4 players and 4 simulants
-		mpKeepFirstSimSlots(4);
+	} else {
+		mpKeepFirstSimSlots(mpGetSimSlotCap());
 	}
 }
 

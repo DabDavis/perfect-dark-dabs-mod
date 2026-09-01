@@ -74,8 +74,12 @@ Minimum Distance tune the framing.
 ### Simulants
 
 Up to **80** in a Combat Simulator match, set the usual way in the simulant
-menu. The save file only grows past the stock 8-simulant format when a setup
-actually needs it, so ordinary setups stay readable by an unmodified port.
+menu. Stock hides any count above four until ten Combat Simulator challenges
+are done; this fork does not gate its own cap, so all 80 are there on a fresh
+profile. The four Bond heads that share that unlock are still earned normally.
+
+The save file only grows past the stock 8-simulant format when a setup actually
+needs it, so ordinary setups stay readable by an unmodified port.
 
 ### Bodies
 

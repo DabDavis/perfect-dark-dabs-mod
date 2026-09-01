@@ -100,6 +100,7 @@ void mpRemoveSimulant(s32 index);
 void mpCopySimulant(s32 index);
 #endif
 bool mpHasSimulants(void);
+s32 mpGetSimSlotCap(void);
 bool mpHasUnusedBotSlots(void);
 bool mpIsSimSlotEnabled(s32 slot);
 void mpSyncChrSlots(void);

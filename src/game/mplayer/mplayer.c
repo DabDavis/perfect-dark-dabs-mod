@@ -3505,9 +3505,26 @@ bool mpHasSimulants(void)
 	return false;
 }
 
+/**
+ * How many simulant slots a match may use.
+ *
+ * Stock gates this on MPFEATURE_8BOTS, which ten Combat Sim challenges unlock,
+ * and offers four until then. This fork does not: the raised cap is the reason
+ * someone installs it, and a fresh profile that shows four simulants looks like
+ * the build is broken rather than like progression.
+ *
+ * Only the count is ungated. MPFEATURE_8BOTS also unlocks the four Bond heads
+ * (see g_MpHeads and BODY_CONNERY in this file), and those stay earned - so
+ * this returns a cap rather than forcing the feature flag on.
+ */
+s32 mpGetSimSlotCap(void)
+{
+	return MAX_BOTS;
+}
+
 bool mpHasUnusedBotSlots(void)
 {
-	s32 numvacant = challengeIsFeatureUnlocked(MPFEATURE_8BOTS) ? MAX_BOTS : 4;
+	s32 numvacant = mpGetSimSlotCap();
 
 	numvacant -= mpGetNumSimSlotsOn();
 
