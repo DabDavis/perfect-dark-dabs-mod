@@ -26,6 +26,14 @@
 #define GHOSTNET_ERROR 3
 
 #define GHOSTNET_MAXBOARD 100
+
+/**
+ * How many ghost accounts this machine remembers, the active one included.
+ *
+ * Four because a shared machine is a couch with a few people on it rather than
+ * a login server, and every slot is a username and a PIN written into pd.ini.
+ */
+#define GHOSTNET_MAXACCOUNTS 4
 // Fifteen rather than twenty: an account name is written into a ghost's owner
 // field, which is MODGHOST_OWNERLEN bytes, and a name that has to be truncated
 // to fit is a name that can be confused with somebody else's.
@@ -41,10 +49,16 @@ struct ghostboardentry {
 
 extern char g_GhostNetUser[GHOSTNET_MAXUSER + 2];
 extern char g_GhostNetPin[GHOSTNET_MAXPIN + 2];
+extern char g_GhostNetSavedUser[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXUSER + 2];
+extern char g_GhostNetSavedPin[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXPIN + 2];
 extern char g_GhostNetUrl[256];
 
 bool ghostnetIsAvailable(void);
 const char *ghostnetGetAccountName(void);
+s32 ghostnetGetNumAccounts(void);
+const char *ghostnetGetAccountAt(s32 index);
+void ghostnetSelectAccount(s32 index);
+void ghostnetBeginNewAccount(void);
 bool ghostnetHasAccount(void);
 s32 ghostnetGetState(void);
 const char *ghostnetGetMessage(void);

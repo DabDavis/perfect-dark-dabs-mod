@@ -237,6 +237,19 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// protection is.
 	configRegisterString("Mod.GhostUser", g_GhostNetUser, GHOSTNET_MAXUSER);
 	configRegisterString("Mod.GhostPin", g_GhostNetPin, GHOSTNET_MAXPIN);
+
+	// The accounts this machine remembers besides the active one. Numbered
+	// from two so that Mod.GhostUser stays the one in use and a pd.ini written
+	// before there was a chooser still signs the same person in.
+	for (s32 i = 0; i < GHOSTNET_MAXACCOUNTS - 1; i++) {
+		char key[32];
+
+		snprintf(key, sizeof(key), "Mod.GhostUser%d", i + 2);
+		configRegisterString(key, g_GhostNetSavedUser[i], GHOSTNET_MAXUSER);
+
+		snprintf(key, sizeof(key), "Mod.GhostPin%d", i + 2);
+		configRegisterString(key, g_GhostNetSavedPin[i], GHOSTNET_MAXPIN);
+	}
 	configRegisterString("Mod.GhostServer", g_GhostNetUrl, sizeof(g_GhostNetUrl) - 1);
 
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {

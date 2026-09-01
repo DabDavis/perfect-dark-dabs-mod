@@ -26,8 +26,23 @@
  * already linked and its mutexes work the same on all three platforms.
  */
 
+/**
+ * The account in use, and the ones this machine remembers.
+ *
+ * Slot zero is the active account and is what every request sends, which is
+ * why it keeps the plain Mod.GhostUser and Mod.GhostPin names in pd.ini: a
+ * config file written by an older build still signs the same person in. The
+ * rest are accounts that were signed into before and can be switched back to
+ * without typing a PIN again, the way the game remembers agents rather than
+ * making you name one every time you sit down.
+ *
+ * Switching swaps rather than copies, so nothing is lost by choosing: the
+ * account you were using goes into the slot the one you chose came out of.
+ */
 char g_GhostNetUser[GHOSTNET_MAXUSER + 2] = { 0 };
 char g_GhostNetPin[GHOSTNET_MAXPIN + 2] = { 0 };
+char g_GhostNetSavedUser[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXUSER + 2] = { 0 };
+char g_GhostNetSavedPin[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXPIN + 2] = { 0 };
 char g_GhostNetUrl[256] = "https://texturepacks.art/pdghosts";
 
 static s32 g_State = GHOSTNET_IDLE;
@@ -632,6 +647,101 @@ const char *ghostnetGetAccountName(void)
 	return g_GhostNetUser;
 }
 
+static char *ghostnetSlotUser(s32 index)
+{
+	return index == 0 ? g_GhostNetUser : g_GhostNetSavedUser[index - 1];
+}
+
+static char *ghostnetSlotPin(s32 index)
+{
+	return index == 0 ? g_GhostNetPin : g_GhostNetSavedPin[index - 1];
+}
+
+/**
+ * How many slots the chooser lists: the ones with a name in them, plus the
+ * first empty one if there is room, which is the row that means "another".
+ */
+s32 ghostnetGetNumAccounts(void)
+{
+	s32 i;
+
+	for (i = 0; i < GHOSTNET_MAXACCOUNTS; i++) {
+		if (ghostnetSlotUser(i)[0] == '\0') {
+			return i;
+		}
+	}
+
+	return GHOSTNET_MAXACCOUNTS;
+}
+
+const char *ghostnetGetAccountAt(s32 index)
+{
+	if (index < 0 || index >= GHOSTNET_MAXACCOUNTS) {
+		return "";
+	}
+
+	return ghostnetSlotUser(index);
+}
+
+/**
+ * Make a remembered account the active one and prove it against the server.
+ *
+ * The swap is the whole of the local work; the login that follows is what says
+ * whether the PIN still opens that account. Choosing an account offline leaves
+ * it selected with an error on screen, which is the right outcome: recording
+ * carries on and stamps runs with the account the player chose, and the
+ * uploading those runs will need is the thing that was never going to work
+ * without a network anyway.
+ */
+void ghostnetSelectAccount(s32 index)
+{
+	char user[GHOSTNET_MAXUSER + 2];
+	char pin[GHOSTNET_MAXPIN + 2];
+
+	if (index <= 0 || index >= GHOSTNET_MAXACCOUNTS || ghostnetSlotUser(index)[0] == '\0') {
+		return;
+	}
+
+	snprintf(user, sizeof(user), "%s", g_GhostNetUser);
+	snprintf(pin, sizeof(pin), "%s", g_GhostNetPin);
+
+	snprintf(g_GhostNetUser, sizeof(g_GhostNetUser), "%s", ghostnetSlotUser(index));
+	snprintf(g_GhostNetPin, sizeof(g_GhostNetPin), "%s", ghostnetSlotPin(index));
+
+	snprintf(ghostnetSlotUser(index), GHOSTNET_MAXUSER + 2, "%s", user);
+	snprintf(ghostnetSlotPin(index), GHOSTNET_MAXPIN + 2, "%s", pin);
+
+	if (ghostnetIsAvailable()) {
+		ghostnetLogin();
+	}
+}
+
+/**
+ * Put the active account aside and clear the fields for a new one.
+ *
+ * Without this, making a second account would type over the first and the
+ * player would find they had signed out of something they never left. If every
+ * slot is full the oldest remembered one goes, which is the only slot that can
+ * go without losing what is in front of the player.
+ */
+void ghostnetBeginNewAccount(void)
+{
+	s32 i;
+
+	if (g_GhostNetUser[0]) {
+		for (i = GHOSTNET_MAXACCOUNTS - 1; i > 1; i--) {
+			snprintf(ghostnetSlotUser(i), GHOSTNET_MAXUSER + 2, "%s", ghostnetSlotUser(i - 1));
+			snprintf(ghostnetSlotPin(i), GHOSTNET_MAXPIN + 2, "%s", ghostnetSlotPin(i - 1));
+		}
+
+		snprintf(ghostnetSlotUser(1), GHOSTNET_MAXUSER + 2, "%s", g_GhostNetUser);
+		snprintf(ghostnetSlotPin(1), GHOSTNET_MAXPIN + 2, "%s", g_GhostNetPin);
+	}
+
+	g_GhostNetUser[0] = '\0';
+	g_GhostNetPin[0] = '\0';
+}
+
 void ghostnetInit(void)
 {
 	g_Lock = SDL_CreateMutex();
@@ -725,6 +835,10 @@ void ghostnetUploadMine(void) {}
 void ghostnetFetchBoard(s32 stagenum, s32 difficulty) {}
 void ghostnetDownload(s32 index) {}
 void ghostnetClearBoard(void) {}
+s32 ghostnetGetNumAccounts(void) { return g_GhostNetUser[0] ? 1 : 0; }
+const char *ghostnetGetAccountAt(s32 index) { return index == 0 ? g_GhostNetUser : ""; }
+void ghostnetSelectAccount(s32 index) {}
+void ghostnetBeginNewAccount(void) { g_GhostNetUser[0] = '\0'; g_GhostNetPin[0] = '\0'; }
 s32 ghostnetGetState(void) { return GHOSTNET_IDLE; }
 
 const char *ghostnetGetMessage(void)

@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
 #include "data.h"
@@ -29,6 +30,19 @@
  */
 
 static char g_GhostRowText[96];
+
+/**
+ * Whose a ghost is, for the player to read.
+ *
+ * The account if the file carries one, because that is the name on the
+ * leaderboard and the thing another player can be found by. The agent name is
+ * the fallback for runs recorded before ghosts carried an account, and it is
+ * only ever a label on a save file - two people can both be Joanna.
+ */
+static const char *menuGhostWhose(const struct modghostentry *entry)
+{
+	return entry->owner[0] ? entry->owner : entry->player;
+}
 
 /**
  * Start a mission as a trial: recording on whatever the global setting says.
@@ -208,7 +222,7 @@ static MenuItemHandlerResult menuhandlerGhostChooser(s32 operation, struct menui
 				modGhostStageName(entry->stagenum),
 				entry->difficulty < 3 ? diffs[entry->difficulty] : "?",
 				entry->time60 / 3600, (entry->time60 / 60) % 60,
-				entry->player);
+				menuGhostWhose(entry));
 
 		return (intptr_t)g_GhostRowText;
 	case MENUOP_SET:
@@ -310,9 +324,12 @@ static s32 g_GhostMineArmed = -1;
 
 static bool menuIsMyGhost(const struct modghostentry *entry)
 {
-	const char *mine = g_GameFile.name[0] ? g_GameFile.name : "player";
+	if (entry->owner[0]) {
+		return strcasecmp(entry->owner, ghostnetGetAccountName()) == 0;
+	}
 
-	return strncmp(entry->player, mine, MODGHOST_NAMELEN) == 0;
+	return strncmp(entry->player, g_GameFile.name[0] ? g_GameFile.name : "player",
+			MODGHOST_NAMELEN) == 0;
 }
 
 static MenuItemHandlerResult menuhandlerGhostMine(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -341,7 +358,7 @@ static MenuItemHandlerResult menuhandlerGhostMine(s32 operation, struct menuitem
 				entry->difficulty < 3 ? diffs[entry->difficulty] : "?",
 				entry->time60 / 3600, (entry->time60 / 60) % 60,
 				(entry->time60 % 60) * 100 / 60,
-				entry->player);
+				menuGhostWhose(entry));
 
 		return (intptr_t)g_GhostRowText;
 	case MENUOP_SET:
@@ -742,6 +759,161 @@ struct menudialogdef g_GhostPinMenuDialog = {
 	NULL,
 };
 
+/**
+ * Ghost Account: who you are on the boards, chosen the way an agent is.
+ *
+ * The game opens by asking which agent you are and remembers the ones on the
+ * machine, and this is the same question one level up - an agent is a save
+ * file, an account is a name on a leaderboard, and a couch with three people
+ * on it needs both. Accounts are remembered with their PINs in pd.ini so that
+ * coming back is choosing a row rather than typing a PIN again.
+ *
+ * Nothing here gates play. A player with no account records, races and keeps
+ * ghosts exactly as before; what they cannot do is publish them, and the page
+ * says so rather than standing in the way.
+ */
+extern struct menudialogdef g_GhostAccountMenuDialog;
+
+static char g_GhostAccountsMsg[128];
+
+static char *menutextGhostAccountsStatus(struct menuitem *item)
+{
+	s32 state = ghostnetGetState();
+
+	if (!ghostnetIsAvailable()) {
+		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
+				"Network support is not built into this copy.\n");
+	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
+		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg), "%s\n", ghostnetGetMessage());
+	} else if (ghostnetHasAccount()) {
+		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
+				"Racing as %s - A on a name switches.\n", ghostnetGetAccountName());
+	} else {
+		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
+				"No account - ghosts stay on this machine.\n");
+	}
+
+	return g_GhostAccountsMsg;
+}
+
+static MenuItemHandlerResult menuhandlerGhostAccountList(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->list.value = ghostnetGetNumAccounts();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		// The active account is marked rather than moved to the top, because a
+		// list that reorders itself under the cursor is a list you cannot
+		// point at.
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c %.15s",
+				data->list.value == 0 ? '*' : ' ',
+				ghostnetGetAccountAt(data->list.value));
+
+		return (intptr_t)g_GhostRowText;
+	case MENUOP_SET:
+		ghostnetSelectAccount(data->list.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->list.value = 0xfffff;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostNewAccount(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !ghostnetIsAvailable() || ghostnetGetState() == GHOSTNET_BUSY;
+	case MENUOP_SET:
+		// The account in use is put aside first, so that making a second one
+		// does not type over the first and sign the player out of something
+		// they never left.
+		ghostnetBeginNewAccount();
+		menuPushDialog(&g_GhostAccountMenuDialog);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuDialogHandlerResult menudialogGhostAccounts(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		ghostnetClearState();
+	}
+
+	return 0;
+}
+
+// A list takes the height that is left over, so anything placed after one is
+// pushed off the bottom of the dialog and simply does not appear - which is
+// where New Account and Sign In first went. Everything that is not the list
+// goes above it, and the list is followed by Back and nothing else, which is
+// the shape the chooser pages in this file already use.
+struct menuitem g_GhostAccountsMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostAccountsStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"New Account...\n",
+		0,
+		menuhandlerGhostNewAccount,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Name And PIN...\n",
+		0,
+		(void *)&g_GhostAccountMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LIST,
+		0,
+		0,
+		0x00000078,
+		0,
+		menuhandlerGhostAccountList,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostAccountsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Account",
+	g_GhostAccountsMenuItems,
+	menudialogGhostAccounts,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 struct menuitem g_GhostAccountMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
@@ -881,7 +1053,7 @@ struct menuitem g_GhostShareMenuItems[] = {
 		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Account...\n",
 		0,
-		(void *)&g_GhostAccountMenuDialog,
+		(void *)&g_GhostAccountsMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -1124,7 +1296,60 @@ struct menudialogdef g_GhostBoardMenuDialog = {
 	NULL,
 };
 
+/**
+ * The line at the top of Ghost Trials, saying who the runs will belong to.
+ *
+ * Worth the row because everything below it is stamped with that name: a run
+ * recorded now carries the account that recorded it, and a player who thought
+ * they were signed in as somebody else finds out at upload time otherwise.
+ */
+static char g_GhostTrialsMsg[96];
+
+static char *menutextGhostTrialsStatus(struct menuitem *item)
+{
+	if (ghostnetHasAccount()) {
+		snprintf(g_GhostTrialsMsg, sizeof(g_GhostTrialsMsg),
+				"Racing as %s\n", ghostnetGetAccountName());
+	} else {
+		snprintf(g_GhostTrialsMsg, sizeof(g_GhostTrialsMsg),
+				"No account - runs stay on this machine\n");
+	}
+
+	return g_GhostTrialsMsg;
+}
+
+/**
+ * Offer the account chooser the first time somebody opens Ghost Trials.
+ *
+ * Once per run of the game, and only when there is no account at all, because
+ * the point is to ask a new player the question rather than to keep asking it.
+ * Backing out of it leaves everything working: recording, racing and the
+ * ghosts directory need no account and never did.
+ */
+static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	static bool asked = false;
+
+	if (operation == MENUOP_OPEN && !asked) {
+		asked = true;
+
+		if (ghostnetIsAvailable() && !ghostnetHasAccount()) {
+			menuPushDialog(&g_GhostAccountsMenuDialog);
+		}
+	}
+
+	return 0;
+}
+
 struct menuitem g_GhostTrialsMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostTrialsStatus,
+		0,
+		NULL,
+	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
@@ -1156,6 +1381,14 @@ struct menuitem g_GhostTrialsMenuItems[] = {
 		0,
 		0,
 		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Account\n",
+		0,
+		(void *)&g_GhostAccountsMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -1196,7 +1429,7 @@ struct menudialogdef g_GhostTrialsMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
 	(uintptr_t)"Ghost Trials",
 	g_GhostTrialsMenuItems,
-	NULL,
+	menudialogGhostTrials,
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
 };

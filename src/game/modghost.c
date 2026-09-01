@@ -1735,7 +1735,13 @@ static void modGhostLoad(void)
 		racer->weaponheld = -1;
 		racer->angleoffset = 0.0f;
 
-		strncpy(racer->name, hdr.player, MODGHOST_NAMELEN - 1);
+		// The account, when the file has one. A nametag is there to say who
+		// you are racing on the board you are trying to climb, and that is an
+		// account rather than an agent: the agent name is whatever the person
+		// called their save file, and two of them can be Joanna. Runs from
+		// before ghosts carried an owner fall back to it, because a name that
+		// is only sometimes right beats no name at all.
+		strncpy(racer->name, hdr.owner[0] ? hdr.owner : hdr.player, MODGHOST_NAMELEN - 1);
 		racer->name[MODGHOST_NAMELEN - 1] = '\0';
 
 		g_ModGhostNumRacers++;
