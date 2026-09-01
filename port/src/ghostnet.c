@@ -6,6 +6,7 @@
 #include "platform.h"
 #include "types.h"
 #include "game/modghost.h"
+#include "bss.h"
 #include "fs.h"
 #include "system.h"
 #include "ghostnet.h"
@@ -276,15 +277,32 @@ static bool ghostnetUploadFile(const char *rel, char *msg, u32 msgsize)
 }
 
 /**
- * Upload every ghost in the directory that this account set.
+ * Upload the runs this agent set.
  *
- * Whose a ghost is comes from the name in its header rather than from its
- * filename, so a run downloaded from somebody else is not uploaded back under
- * your name. Everything of yours goes up, including attempts that were not
- * your best: which runs deserve a place is the board's question, and it ranks
- * a hundred times without caring how many of them belong to one player. One
- * button that means "publish my times", plural.
+ * Which ghosts are candidates comes from the name in the header - the agent
+ * who was playing when the run was recorded - rather than from the filename or
+ * from the account. Those are three different things and the first version of
+ * this compared the header against the account name, which meant a player
+ * whose agent is Dark and whose account is dab was told they had nothing to
+ * upload while holding a directory full of their own runs. An account is who
+ * publishes; an agent is who ran it.
+ *
+ * The check is what keeps a run downloaded from somebody else from being
+ * published back under your name. It cannot tell yours from a stranger's who
+ * plays under the same agent name, which is a narrower hole than it sounds -
+ * the ghost has to have been downloaded, and the two agents have to be named
+ * the same - and closing it properly means stamping the account into the file
+ * at save time, which is a format change and not this fix.
+ *
+ * One button that means "publish my times".
  */
+static const char *ghostnetMyAgentName(void)
+{
+	// The same rule the recorder writes the header with, so that a run saved
+	// before an agent was named is still recognised as that agent's.
+	return g_GameFile.name[0] ? g_GameFile.name : "player";
+}
+
 struct ghostnetuploadscan {
 	s32 sent;
 	s32 skipped;
@@ -328,7 +346,7 @@ static void ghostnetUploadScan(const char *name, void *arg)
 			continue;
 		}
 
-		if (strncmp(entry->player, g_GhostNetUser, GHOSTNET_MAXUSER) != 0) {
+		if (strncmp(entry->player, ghostnetMyAgentName(), MODGHOST_NAMELEN) != 0) {
 			scan->skipped++;
 			return;
 		}
@@ -534,7 +552,12 @@ static int ghostnetWorker(void *arg)
 		ok = scan.failed == 0;
 
 		if (scan.sent == 0 && scan.failed == 0) {
-			snprintf(msg, sizeof(msg), "nothing of yours to upload");
+			// Naming the agent matters here: an empty result almost always
+			// means the runs on disk were set by a different one, and a
+			// message that does not say whose runs it was looking for gives
+			// the player nothing to go on.
+			snprintf(msg, sizeof(msg), "no runs by %s here to upload",
+					ghostnetMyAgentName());
 			ok = true;
 		} else if (scan.failed) {
 			snprintf(msg, sizeof(msg), "sent %d, %d failed: %s",
