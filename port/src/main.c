@@ -155,7 +155,10 @@ int main(int argc, const char **argv)
 
 	// Spectator from the first frame. A button press cannot happen before the
 	// stage loads, and the headless runs that want this cannot press one at all.
-	g_ModSpectateStart = sysArgCheck("--spectate");
+	//
+	// This is not the Start Spectating setting: that one is saved on exit, and a
+	// flag passed once should not tick a box in Dab's Mod Options for good.
+	g_ModSpectateStartArg = sysArgCheck("--spectate");
 	g_MpEndlessMatch = sysArgCheck("--endless");
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
@@ -209,6 +212,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.Bodies", &g_ModOptions.bodies, MODBODIES_OFF, MODBODIES_MAX);
 	configRegisterInt("Mod.BodyTime", &g_ModOptions.bodytime, MODBODYTIME_OFF, MODBODYTIME_MAX);
 	configRegisterInt("Mod.BodiesDrawn", &g_ModOptions.bodiesdrawn, MODBODIESDRAWN_ALL, MODBODIESDRAWN_MAX);
+	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);
 	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);
 
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {

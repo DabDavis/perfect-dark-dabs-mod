@@ -41,10 +41,35 @@
 // How far the camera moves in one frame at full stick.
 f32 g_ModSpectateSpeed = 20.0f;
 
-// --spectate: begin the stage already spectating. There is no way to press a
-// button before the first frame, and driving the menus is exactly what the
-// headless benchmark runs cannot do.
+// Start Spectating in Dab's Mod Options: begin every stage already spectating.
+// This one is the player's setting, and is saved to pd.ini with the rest.
 s32 g_ModSpectateStart = 0;
+
+// --spectate, which is the same request for one run of the game. It is a
+// separate variable rather than a write to the setting above because the
+// setting is saved on exit: a debugging flag that quietly ticked a box in
+// Dab's Mod Options would leave every later game spectating.
+//
+// There is no way to press a button before the first frame, and driving the
+// menus is exactly what the headless benchmark runs cannot do.
+s32 g_ModSpectateStartArg = 0;
+
+// Spectator Start Game in the Combat Sim menus: begin the next stage
+// spectating, and only that one. It is separate from the setting above so that
+// watching one match does not leave every later match watched.
+//
+// Two flags rather than one, because the stage the menu was opened from is
+// still running behind it - the Combat Sim menus are reached from the
+// Carrington Institute, whose player keeps ticking - and one flag is spent
+// there by the first movement tick after it is set, before the arena has even
+// loaded. So the menu only arms, modSpectateReset() promotes that to live when
+// the next stage loads, and the arena's first movement tick is what spends it.
+//
+// They are global rather than per player, the way the mode's other state is: in
+// splitscreen every player would start spectating, which is the same thing
+// g_Vars.bondvisible already does to a splitscreen spectator.
+static bool g_ModSpectateStartArmed = false;
+static bool g_ModSpectateStartLive = false;
 
 static bool g_ModSpectating[MAX_PLAYERS] = { false, false, false, false };
 
@@ -115,17 +140,45 @@ void modSpectateToggle(void)
 }
 
 /**
- * Act on --spectate, once per stage.
+ * Arm and disarm the one-shot that Spectator Start Game sets.
+ *
+ * Disarming is what every ordinary way into the Ready dialog does - the stock
+ * Start Game items, the Start button shortcut, Start Challenge - because they
+ * all go through menudialogMpReady()'s MENUOP_OPEN. That is why arming happens
+ * after the dialog is pushed rather than before it: the push runs MENUOP_OPEN
+ * synchronously, so a player who arms this, backs out of Ready and then starts
+ * the ordinary way gets the ordinary match.
+ */
+void modSpectateStartNext(void)
+{
+	g_ModSpectateStartArmed = true;
+}
+
+void modSpectateClearStartNext(void)
+{
+	g_ModSpectateStartArmed = false;
+	g_ModSpectateStartLive = false;
+}
+
+/**
+ * Act on --spectate, Start Spectating and Spectator Start Game, once per stage.
  *
  * It cannot be done at boot: playermgrAllocatePlayer() ends by putting
  * bondvisible and bondcollisions back to true, so anything set before it runs
  * is undone. It waits for a prop as well, because entering the mode turns the
  * prop's perimeter off. The first movement tick of a stage is the first moment
  * both are true.
+ *
+ * Spectator Start Game's flag is spent here rather than when the match starts,
+ * because this is the first point at which it has actually been honoured.
  */
 void modSpectateApplyStart(void)
 {
-	if (!g_ModSpectateStart || g_ModSpectateAppliedStage == g_Vars.stagenum) {
+	if (!g_ModSpectateStart && !g_ModSpectateStartArg && !g_ModSpectateStartLive) {
+		return;
+	}
+
+	if (g_ModSpectateAppliedStage == g_Vars.stagenum) {
 		return;
 	}
 
@@ -134,12 +187,18 @@ void modSpectateApplyStart(void)
 	}
 
 	g_ModSpectateAppliedStage = g_Vars.stagenum;
+	g_ModSpectateStartLive = false;
 	modSpectateSetOn(true);
 }
 
 /**
  * Forget the mode across a stage load. The prop and the room list on the far
  * side belong to a different level, and the saved bondvisible does not.
+ *
+ * This is also where Spectator Start Game's promise comes due: the stage it was
+ * armed in has gone, so the next movement tick is the arena's own. The
+ * promotion is one way and idempotent because this runs once per player, and a
+ * second player must not undo what the first one promoted.
  */
 void modSpectateReset(void)
 {
@@ -147,6 +206,11 @@ void modSpectateReset(void)
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		g_ModSpectating[i] = false;
+	}
+
+	if (g_ModSpectateStartArmed) {
+		g_ModSpectateStartArmed = false;
+		g_ModSpectateStartLive = true;
 	}
 
 	g_ModSpectateOldVisible = true;

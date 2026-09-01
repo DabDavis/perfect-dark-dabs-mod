@@ -5,6 +5,7 @@
 #include "game/savebuffer.h"
 #include "game/menu.h"
 #include "game/mainmenu.h"
+#include "game/modspectate.h"
 #include "game/filemgr.h"
 #include "game/game_1531a0.h"
 #include "game/music.h"
@@ -2667,6 +2668,14 @@ MenuDialogHandlerResult menudialogMpReady(s32 operation, struct menudialogdef *d
 		if (g_PlayerConfigsArray[g_MpPlayerNum].fileguid.fileid && g_PlayerConfigsArray[g_MpPlayerNum].fileguid.deviceserial) {
 			filemgrSaveOrLoad(&g_PlayerConfigsArray[g_MpPlayerNum].fileguid, FILEOP_SAVE_MPPLAYER, g_MpPlayerNum);
 		}
+
+		// Every way into this dialog is a request for an ordinary match, and
+		// there are several of them: the Start Game items, the Start button
+		// shortcut in menuTick(), Start Challenge. Spectator Start Game arms
+		// the one-shot again immediately after pushing this, so it is the only
+		// one that leaves it armed - and a player who arms it, backs out of
+		// Ready and then starts the ordinary way gets the ordinary match.
+		modSpectateClearStartNext();
 	}
 
 	return false;
@@ -5608,6 +5617,30 @@ MenuItemHandlerResult menuhandlerMpAbortChallenge(s32 operation, struct menuitem
 	return 0;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Start Game, watching rather than playing.
+ *
+ * Readying up is the same act either way - this pushes the dialog the stock
+ * item opens, and the match begins when every player has - so the only
+ * difference is the one-shot armed afterwards. Afterwards because the push runs
+ * menudialogMpReady()'s MENUOP_OPEN synchronously, and that clears it.
+ *
+ * The one-shot is global, so in splitscreen this starts every player
+ * spectating rather than the one who chose it. That is the same limit
+ * g_Vars.bondvisible already puts on splitscreen spectating.
+ */
+MenuItemHandlerResult menuhandlerMpSpectatorStartGame(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		menuPushDialog(&g_MpReadyMenuDialog);
+		modSpectateStartNext();
+	}
+
+	return 0;
+}
+#endif
+
 MenuItemHandlerResult menuhandlerMpStartChallenge(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKHIDDEN) {
@@ -6276,6 +6309,16 @@ struct menuitem g_MpStuffMenuItems[] = {
 		0,
 		(void *)&g_MpReadyMenuDialog,
 	},
+#ifndef PLATFORM_N64
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Spectator Start Game\n",
+		0,
+		menuhandlerMpSpectatorStartGame,
+	},
+#endif
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
@@ -6572,6 +6615,16 @@ struct menuitem g_MpQuickGoMenuItems[] = {
 		0,
 		(void *)&g_MpReadyMenuDialog,
 	},
+#ifndef PLATFORM_N64
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Spectator Start Game\n",
+		0,
+		menuhandlerMpSpectatorStartGame,
+	},
+#endif
 #if VERSION >= VERSION_NTSC_1_0
 	{
 		MENUITEMTYPE_SELECTABLE,

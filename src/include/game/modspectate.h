@@ -6,10 +6,13 @@
 
 extern f32 g_ModSpectateSpeed;
 extern s32 g_ModSpectateStart;
+extern s32 g_ModSpectateStartArg;
 
 bool modSpectateIsOn(void);
 void modSpectateSetOn(bool on);
 void modSpectateToggle(void);
+void modSpectateStartNext(void);
+void modSpectateClearStartNext(void);
 void modSpectateApplyStart(void);
 void modSpectateTick(void);
 void modSpectateReset(void);

@@ -11,6 +11,7 @@
 #include "game/gamefile.h"
 #include "game/player.h"
 #include "game/modoptions.h"
+#include "game/modspectate.h"
 #include "lib/joy.h"
 #include "video.h"
 #include "input.h"
@@ -2243,10 +2244,56 @@ static MenuItemHandlerResult menuhandlerModCamMinDist(s32 operation, struct menu
 }
 
 /**
- * The same two rows the Key Bindings page draws, for the binds that were taken
- * off it. The row says which bind it is in param3, rather than by where it sits
- * in the array the way menuhandlerBind() does, so the settings above can be
+ * Spectator: the camera that comes off the player and flies.
+ *
+ * Start Spectating is the setting --spectate sets, and it holds for every stage
+ * rather than for one match - which is what makes it the wrong control for
+ * watching a single Combat Sim match. Spectator Start Game in the Combat Sim
+ * menus is that one, and it does not touch this.
+ *
+ * The speed is units per frame at full stick, so the slider starts at 1 rather
+ * than 0: a camera that does not move is what leaving the mode is for.
+ */
+#define MODSPECTATE_MINSPEED 1
+
+static MenuItemHandlerResult menuhandlerModSpectateStart(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModSpectateStart;
+	case MENUOP_SET:
+		g_ModSpectateStart = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModSpectateSpeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_ModSpectateSpeed + 0.5f) - MODSPECTATE_MINSPEED;
+		break;
+	case MENUOP_SET:
+		g_ModSpectateSpeed = (f32)(data->slider.value + MODSPECTATE_MINSPEED);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", (s32)data->slider.value + MODSPECTATE_MINSPEED);
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * The same rows the Key Bindings page draws, for the binds that were taken off
+ * it. The row says which bind it is in param3, rather than by where it sits in
+ * the array the way menuhandlerBind() does, so the settings above can be
  * reordered without silently rebinding anything.
+ *
+ * One row per entry below - a bind with no row of its own can only be rebound
+ * by editing pd.ini.
  */
 static const struct menubind modMenuBinds[] = {
 	{ CK_0400, "Spectator [+]\n", "N64 Ext 0400\n" },
@@ -2410,6 +2457,30 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		NULL,
 	},
 	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Start Spectating",
+		0,
+		menuhandlerModSpectateStart,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Spectator Speed",
+		199,
+		menuhandlerModSpectateSpeed,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		0,
@@ -2423,6 +2494,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		(uintptr_t)menutextModBind,
 		1,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		2,
 		menuhandlerModBind,
 	},
 	{
