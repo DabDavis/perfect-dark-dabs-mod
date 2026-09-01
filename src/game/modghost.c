@@ -1860,20 +1860,32 @@ void modGhostTick(void)
  * lock the directory out of ever getting its first one.
  */
 /**
- * The player's name, reduced to something safe to put in a path.
+ * Whose name goes in the filename, reduced to something safe to put in a path.
  *
- * The name comes off the game file, where the player typed it, and it ends up
- * in a filename. The character set the file select screen offers is small, but
- * it is not this build's to guarantee - and a ghost file is meant to be handed
- * around, so a name that is awkward on one filesystem is a name that is
- * awkward on somebody else's. Letters and digits survive; everything else
- * becomes an underscore. The name inside the header is untouched, because that
- * is the one that gets shown.
+ * The account, when there is one. A ghost downloaded from the server is named
+ * after the account that set it, so naming local runs the same way means one
+ * directory with one convention in it rather than two - and it stops the same
+ * run appearing twice under two names when the agent is renamed or a second
+ * agent records on the same account, which is what happened before this.
+ *
+ * The agent name is the fallback, because a player with no account still needs
+ * their files to be told apart from a housemate's.
+ *
+ * Either way it ends up in a path. The character sets both names come from are
+ * small, but neither is this build's to guarantee, and a ghost file is meant to
+ * be handed around: a name that is awkward on one filesystem is awkward on
+ * somebody else's. Letters and digits survive, everything else becomes an
+ * underscore, and the names inside the header are untouched because those are
+ * the ones that get shown.
  */
 static void modGhostSafeName(char *dst, u32 dstsize)
 {
-	const char *src = g_GameFile.name;
+	const char *src = ghostnetGetAccountName();
 	u32 i;
+
+	if (src[0] == '\0') {
+		src = g_GameFile.name;
+	}
 
 	for (i = 0; i + 1 < dstsize && src[i]; i++) {
 		char c = src[i];
