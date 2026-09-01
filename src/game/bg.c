@@ -26,6 +26,7 @@
 #include "game/room.h"
 #include "game/file.h"
 #include "game/lv.h"
+#include "game/modspectate.h"
 #include "game/texdecompress.h"
 #include "game/wallhit.h"
 #include "bss.h"
@@ -86,7 +87,35 @@
 #define VTXBATCHTYPE_OPA 0x01
 #define VTXBATCHTYPE_XLU 0x02
 
-struct drawslot g_BgDrawSlots[61];
+/**
+ * How many rooms can be drawn in one frame, plus one for the special slot at
+ * the end that rooms with ROOMFLAG_BBOXHACK borrow their screen box from.
+ *
+ * A camera inside the level sees the handful of rooms the portal walk reaches,
+ * which is what 60 was chosen for. A spectator camera outside the level looks
+ * at the whole thing at once (bgTickPortalsSpectate), so the port raises this
+ * to give those rooms somewhere to go. The slots are 12 bytes each and the two
+ * parallel arrays bgRenderScene() sorts are on its stack, so the cost of the
+ * raise is a few KB and a bubble sort over a longer list.
+ */
+#ifdef PLATFORM_N64
+#define MAX_DRAWSLOTS 60
+#else
+#define MAX_DRAWSLOTS 256
+#endif
+
+/**
+ * The X-ray scanner keeps the stock cap whatever the above becomes.
+ *
+ * It is not the same kind of budget: bgRenderRoomInXray() walks a room's
+ * triangles one at a time in C and rebuilds them, so its cost per room is
+ * nothing like an ordinary room's, and the rooms it draws are the ones within
+ * the scanner's range rather than the ones in the frustum. Raising it would buy
+ * nothing and cost a lot.
+ */
+#define MAX_XRAY_DRAWSLOTS 60
+
+struct drawslot g_BgDrawSlots[MAX_DRAWSLOTS + 1];
 u8 *g_BgPrimaryData;
 u32 var800a4920;
 u32 g_BgSection3;
@@ -127,7 +156,7 @@ s32 g_NumRoomsWithGlares = 0;
 u32 var8007fc18 = 0x01000100;
 u32 var8007fc1c = 0;
 s32 g_CamRoom = 1;
-struct drawslot *g_BgSpecialDrawSlot = &g_BgDrawSlots[60];
+struct drawslot *g_BgSpecialDrawSlot = &g_BgDrawSlots[MAX_DRAWSLOTS];
 s32 g_BgLoadCandidateTimer240 = 0;
 s32 g_BgNumDrawSlots = 0;
 s32 g_BgNumAttemptedDrawSlots = 0;
@@ -207,10 +236,10 @@ void bgSetRoomOnscreen(s32 roomnum, s32 draworder, struct screenbox *box)
 #endif
 
 		if (g_Rooms[roomnum].flags & ROOMFLAG_BBOXHACK) {
-			box->xmin = g_BgDrawSlots[60].box.xmin;
-			box->ymin = g_BgDrawSlots[60].box.ymin;
-			box->xmax = g_BgDrawSlots[60].box.xmax;
-			box->ymax = g_BgDrawSlots[60].box.ymax;
+			box->xmin = g_BgDrawSlots[MAX_DRAWSLOTS].box.xmin;
+			box->ymin = g_BgDrawSlots[MAX_DRAWSLOTS].box.ymin;
+			box->xmax = g_BgDrawSlots[MAX_DRAWSLOTS].box.xmax;
+			box->ymax = g_BgDrawSlots[MAX_DRAWSLOTS].box.ymax;
 		}
 
 		if (g_BgFrameCount == g_BgDrawSlotsByRoom[roomnum].updatedframe) {
@@ -232,8 +261,8 @@ void bgSetRoomOnscreen(s32 roomnum, s32 draworder, struct screenbox *box)
 		} else {
 			index = g_BgNumDrawSlots;
 
-			if (index > 59) {
-				index = 59;
+			if (index > MAX_DRAWSLOTS - 1) {
+				index = MAX_DRAWSLOTS - 1;
 			}
 
 			g_BgDrawSlots[index].roomnum = roomnum;
@@ -257,7 +286,7 @@ void bgSetRoomOnscreen(s32 roomnum, s32 draworder, struct screenbox *box)
 
 			g_BgNumAttemptedDrawSlots++;
 
-			if (g_BgNumAttemptedDrawSlots < 60) {
+			if (g_BgNumAttemptedDrawSlots < MAX_DRAWSLOTS) {
 				g_BgNumDrawSlots = g_BgNumAttemptedDrawSlots;
 			}
 
@@ -281,7 +310,7 @@ void bgGetRoomBrightnessRange(s32 roomnum, u8 *min, u8 *max)
 
 struct drawslot *bgGetRoomDrawSlot(s32 roomnum)
 {
-	s32 index = 60;
+	s32 index = MAX_DRAWSLOTS;
 
 	if (g_BgFrameCount == g_BgDrawSlotsByRoom[roomnum].updatedframe) {
 		index = g_BgDrawSlotsByRoom[roomnum].slotnum;
@@ -1000,8 +1029,8 @@ Gfx *bgRenderScene(Gfx *gdl)
 	struct prop *prop;
 	s16 tmp;
 	RoomNum *room;
-	s16 roomorder[60];
-	RoomNum roomnums[60];
+	s16 roomorder[MAX_DRAWSLOTS];
+	RoomNum roomnums[MAX_DRAWSLOTS];
 
 #ifdef PLATFORM_N64
 	g_NumRoomsWithGlares = 0;
@@ -2193,6 +2222,22 @@ void bgTick(void)
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		var8007fc10 = 100;
 	}
+
+#ifndef PLATFORM_N64
+	/**
+	 * How many rooms bgSetRoomOnscreen() is allowed to load this frame.
+	 *
+	 * bgRenderRoomOpaque() returns without drawing anything for a room that is
+	 * not loaded, so with the stock budget of four, a spectator camera looking
+	 * at a whole level would watch it arrive a few rooms at a time and start
+	 * over every time it turned. The budget is there for the N64's cartridge
+	 * reads and its 4KB-at-a-time inflate; on PC rooms come from the heap, and
+	 * bgGarbageCollectRooms() is compiled out entirely for that reason.
+	 */
+	if (modSpectateIsOn()) {
+		var8007fc10 = 200;
+	}
+#endif
 
 	g_CamRoom = g_Vars.currentplayer->cam_room;
 
@@ -5410,12 +5455,12 @@ void bgTickPortalsXray(void)
 	g_BgNumDrawSlots = 0;
 	g_BgNumAttemptedDrawSlots = 0;
 
-	g_BgDrawSlots[60].roomnum = -1;
-	g_BgDrawSlots[60].draworder = 255;
-	g_BgDrawSlots[60].box.xmin = xmin;
-	g_BgDrawSlots[60].box.ymin = ymin;
-	g_BgDrawSlots[60].box.xmax = xmax;
-	g_BgDrawSlots[60].box.ymax = ymax;
+	g_BgDrawSlots[MAX_DRAWSLOTS].roomnum = -1;
+	g_BgDrawSlots[MAX_DRAWSLOTS].draworder = 255;
+	g_BgDrawSlots[MAX_DRAWSLOTS].box.xmin = xmin;
+	g_BgDrawSlots[MAX_DRAWSLOTS].box.ymin = ymin;
+	g_BgDrawSlots[MAX_DRAWSLOTS].box.xmax = xmax;
+	g_BgDrawSlots[MAX_DRAWSLOTS].box.ymax = ymax;
 
 	g_BgMaxDrawOrder = 0;
 	g_BgMinDrawOrder = 0x7fff;
@@ -5432,7 +5477,7 @@ void bgTickPortalsXray(void)
 			if (1);
 			if (1);
 
-			if (index < 60) {
+			if (index < MAX_XRAY_DRAWSLOTS) {
 				f32 x;
 				f32 y;
 				f32 z;
@@ -5818,6 +5863,107 @@ void bgChooseRoomsToLoad(void)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * True for the rooms that are not part of the level but a sky trick: the
+ * Defection moon, the Attack Ship planet and their like.
+ *
+ * bgRenderScene() draws these itself, before everything else and without the
+ * depth buffer, because they are meant to sit behind the level however far away
+ * the geometry claims to be. A room drawn there and drawn again as an ordinary
+ * room is a planet in the middle of the level, so the room walks skip them -
+ * the portal-less branch of bgTickPortals() has always skipped them inline, and
+ * this is that list, kept in one place now that there are two callers.
+ */
+static bool bgRoomIsSkyTrick(s32 room)
+{
+	switch (g_StageIndex) {
+	case STAGEINDEX_INFILTRATION:
+	case STAGEINDEX_RESCUE:
+	case STAGEINDEX_ESCAPE:
+	case STAGEINDEX_MAIANSOS:
+		return room == 0x0f;
+	case STAGEINDEX_SKEDARRUINS:
+	case STAGEINDEX_WAR:
+		return room == 0x02;
+	case STAGEINDEX_DEFECTION:
+	case STAGEINDEX_EXTRACTION:
+	case STAGEINDEX_MBR:
+	case STAGEINDEX_TEST_OLD:
+		return room == 0x01;
+	case STAGEINDEX_ATTACKSHIP:
+		return room == 0x71;
+	}
+
+	return false;
+}
+
+/**
+ * Room visibility for the spectator camera.
+ *
+ * The portal walk answers "which rooms can be seen from the room the camera is
+ * in", and a camera that has flown out of the level is in no room at all. It
+ * keeps the last room it was in - modSpectate's move never returns an empty room
+ * list - and every portal of that room faces back into a level the camera has
+ * left, so the walk reaches nothing else. One room is drawn, from outside, where
+ * its faces are backfacing and cull away. That is the void.
+ *
+ * So spectating swaps the walk for the test that levels without portal data
+ * already use, in the branch just below: a room is onscreen if its bounding box
+ * is in the view frustum. bgTickPortalsXray() does the same thing for the same
+ * reason - the scanner also has to see rooms no portal leads to.
+ *
+ * Draw order is distance from the camera, in units of 100, which is what the
+ * X-ray path measures and what the renderer wants: it draws the opaque pass
+ * nearest first and the translucent pass furthest first. The opaque pass does
+ * not actually depend on it, being depth buffered; the translucent one does.
+ *
+ * The screen box every room gets is the whole viewport rather than the slice of
+ * screen a portal chain narrowed it to, so the per-room scissor stops doing
+ * anything. Nothing is drawn wrongly by that, only more of it than a portal walk
+ * would have needed.
+ */
+static void bgTickPortalsSpectate(struct screenbox *box)
+{
+	struct coord *campos = &g_Vars.currentplayer->cam_pos;
+	s32 room;
+
+	bgSetRoomOnscreen(g_CamRoom, 0, box);
+
+	for (room = 1; room < g_Vars.roomcount; room++) {
+		f32 x;
+		f32 y;
+		f32 z;
+		s32 draworder;
+
+		if (g_BgNumAttemptedDrawSlots >= MAX_DRAWSLOTS) {
+			break;
+		}
+
+		if (room == g_CamRoom || bgRoomIsSkyTrick(room)) {
+			continue;
+		}
+
+		if (!bgRoomIntersectsScreenBox(room, box)) {
+			continue;
+		}
+
+		x = (g_Rooms[room].bbmin[0] + g_Rooms[room].bbmax[0]) * 0.5f - campos->x;
+		y = (g_Rooms[room].bbmin[1] + g_Rooms[room].bbmax[1]) * 0.5f - campos->y;
+		z = (g_Rooms[room].bbmin[2] + g_Rooms[room].bbmax[2]) * 0.5f - campos->z;
+
+		// The field is a u8, and a room can be further away than 25500 units.
+		draworder = sqrtf(x * x + y * y + z * z) / 100.0f;
+
+		if (draworder > 255) {
+			draworder = 255;
+		}
+
+		bgSetRoomOnscreen(room, draworder, box);
+	}
+}
+#endif
+
 void bgTickPortals(void)
 {
 	s32 i;
@@ -5853,20 +5999,25 @@ void bgTickPortals(void)
 		g_BgNumAttemptedDrawSlots = 0;
 		g_BgMaxDrawOrder = 0;
 		g_BgMinDrawOrder = 32767;
-		g_BgDrawSlots[60].roomnum = -1;
-		g_BgDrawSlots[60].draworder = 255;
+		g_BgDrawSlots[MAX_DRAWSLOTS].roomnum = -1;
+		g_BgDrawSlots[MAX_DRAWSLOTS].draworder = 255;
 		g_BgSnake.count = 0;
 		g_BgSnake.headindex = 0;
 		g_BgSnake.tailindex = 0;
 		g_BgRoomTestsDisabled = false;
-		g_BgDrawSlots[60].box.xmin = box.xmin;
-		g_BgDrawSlots[60].box.ymin = box.ymin;
-		g_BgDrawSlots[60].box.xmax = box.xmax;
-		g_BgDrawSlots[60].box.ymax = box.ymax;
+		g_BgDrawSlots[MAX_DRAWSLOTS].box.xmin = box.xmin;
+		g_BgDrawSlots[MAX_DRAWSLOTS].box.ymin = box.ymin;
+		g_BgDrawSlots[MAX_DRAWSLOTS].box.xmax = box.xmax;
+		g_BgDrawSlots[MAX_DRAWSLOTS].box.ymax = box.ymax;
 
 		bgCmdExecute(g_BgCommands);
 
 		if (!g_BgRoomTestsDisabled) {
+#ifndef PLATFORM_N64
+			if (modSpectateIsOn()) {
+				bgTickPortalsSpectate(&box);
+			} else
+#endif
 			if (g_BgPortals[0].verticesoffset == 0) {
 				for (room = 1; room < g_Vars.roomcount; room++) {
 					if (bgRoomIntersectsScreenBox(room, &box)
