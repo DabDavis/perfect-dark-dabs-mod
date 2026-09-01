@@ -1,0 +1,161 @@
+name: Dab's Mod CI
+
+# A separate workflow from c-cpp.yml on purpose: that file is upstream's and is
+# left untouched, so pulling from the port branch never conflicts here. Disable
+# "C/C++ CI" in this fork's Actions tab so a `port` sync does not also kick off
+# an eight-target build that has no release to upload to.
+
+on:
+  push:
+    branches: [ "mod/dabs-mod" ]
+  workflow_dispatch:
+
+env:
+  # CMakeLists.txt puts `git rev-parse --abbrev-ref HEAD` on the title screen as
+  # "Perfect Dark (<branch>)". actions/checkout leaves a detached HEAD, which it
+  # reads as "port-custom", so each job names the checked out commit first.
+  MOD_BRANCH: dabs-mod
+  # ntsc-final only. The mod has never been tested against PAL or JPN, and
+  # building all three would triple the time for two ROMs nobody has asked for.
+  ROMID: ntsc-final
+
+jobs:
+  build-x86_64-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-cmake
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Name the branch for the version string
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          git checkout -B "$MOD_BRANCH"
+      - name: Build pd.x86_64.exe
+        run: cmake -G"Unix Makefiles" -Bbuild . && cmake --build build -j
+      - name: Prepare artifact for packaging
+        run: |
+          mkdir -p bin/data
+          cp build/pd.x86_64.exe bin/
+          cp /mingw64/bin/{SDL2.dll,zlib1.dll,libwinpthread-1.dll,libgcc_s_seh-1.dll} bin/
+          cp README-dabs-mod.md LICENSE bin/
+          touch bin/data/put_your_rom_here.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pd-dabs-mod-x86_64-windows
+          path: bin/
+          retention-days: 0
+
+  build-x86_64-linux:
+    # 22.04, not ubuntu-latest: the binary is dynamically linked against the
+    # builder's glibc, and 24.04 would refuse to start on anything older.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git gcc g++ make cmake libsdl2-dev zlib1g-dev
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Name the branch for the version string
+        run: git checkout -B "$MOD_BRANCH"
+      - name: Build pd.x86_64
+        run: cmake -G"Unix Makefiles" -Bbuild . && cmake --build build -j
+      - name: Prepare artifact for packaging
+        run: |
+          mkdir -p bin/data
+          cp build/pd.x86_64 bin/
+          cp README-dabs-mod.md LICENSE bin/
+          touch bin/data/put_your_rom_here.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pd-dabs-mod-x86_64-linux
+          path: bin/
+          retention-days: 0
+
+  build-osx:
+    runs-on: macos-14
+    strategy:
+      matrix:
+        arch: [ x86_64, arm64 ]
+    steps:
+      - name: Install dependencies
+        run: |
+          brew install zlib
+          wget http://libsdl.org/release/SDL2-2.30.9.dmg -O SDL2.dmg
+          hdiutil mount SDL2.dmg
+          sudo cp -vr /Volumes/SDL2/SDL2.framework /Library/Frameworks
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Name the branch for the version string
+        run: git checkout -B "$MOD_BRANCH"
+      - name: Build pd.${{ matrix.arch }}
+        run: |
+          cmake -G"Unix Makefiles" -Bbuild -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} .
+          cmake --build build --target pd -j4 --clean-first
+      - name: Prepare artifact for packaging
+        run: |
+          mkdir -p bin/data
+          cp build/pd.${{ matrix.arch }} bin/
+          cp -vr /Library/Frameworks/SDL2.framework bin/
+          cp README-dabs-mod.md LICENSE bin/
+          touch bin/data/put_your_rom_here.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pd-dabs-mod-${{ matrix.arch }}-osx
+          path: bin/
+          retention-days: 0
+
+  publish-latest-build:
+    runs-on: ubuntu-latest
+    needs: [ build-x86_64-windows, build-x86_64-linux, build-osx ]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: ci-artifacts
+      - name: Publish latest dev build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir ci-release
+          pushd ci-artifacts
+          # upload-artifact round-trips through a zip and drops the executable
+          # bit, so the tarballs would ship a game nobody can start.
+          chmod +x pd-dabs-mod-x86_64-linux/pd.x86_64 \
+                   pd-dabs-mod-x86_64-osx/pd.x86_64 \
+                   pd-dabs-mod-arm64-osx/pd.arm64
+          tar czf ../ci-release/pd-dabs-mod-x86_64-linux.tar.gz pd-dabs-mod-x86_64-linux
+          tar cJf ../ci-release/pd-dabs-mod-x86_64-osx.tar.xz pd-dabs-mod-x86_64-osx
+          tar cJf ../ci-release/pd-dabs-mod-arm64-osx.tar.xz pd-dabs-mod-arm64-osx
+          zip -r ../ci-release/pd-dabs-mod-x86_64-windows.zip pd-dabs-mod-x86_64-windows
+          popd
+          git tag --force dabs-mod-dev "$GITHUB_SHA"
+          git push --force origin refs/tags/dabs-mod-dev
+          # Upstream's workflow assumes the release already exists, because in
+          # its repo someone made it by hand years ago. A fresh fork has no such
+          # release and `gh release upload` would fail on the first run.
+          gh release view dabs-mod-dev >/dev/null 2>&1 || \
+            gh release create dabs-mod-dev --prerelease \
+              --title "Dab's Mod (latest dev build)" \
+              --notes "Automatic build of the latest \`mod/dabs-mod\` commit. You need your own Perfect Dark \`ntsc-final\` ROM — see README-dabs-mod.md inside the download."
+          gh release upload --clobber dabs-mod-dev ci-release/*
