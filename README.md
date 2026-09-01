@@ -66,6 +66,7 @@ Mod Options**. Each one persists to `pd.ini` under a `Mod.` key.
 | Melee Combos | The punch and kick combos solo play has always had, in multiplayer |
 | Flinch When Shot | Bodies react to where the shot landed instead of ignoring it |
 | Start Armed | Spawn holding a weapon — the arena's, or a random one. Off by default, because stock is off |
+| Start Armed For | Whether simulants spawn armed too, or only players |
 
 ### Third person
 

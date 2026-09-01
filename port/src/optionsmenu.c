@@ -2016,6 +2016,32 @@ static MenuItemHandlerResult menuhandlerModJumpFor(s32 operation, struct menuite
 	return 0;
 }
 
+/**
+ * Who Start Armed applies to. Greyed out while Start Armed is off, the way Jump
+ * For is greyed out while Jump is off.
+ */
+static MenuItemHandlerResult menuhandlerModStartArmedFor(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Everyone", "Players Only" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return modGetSpawnWeapon() == SPAWNWEAPON_OFF;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.spawnweaponwho = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.spawnweaponwho;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -2542,6 +2568,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Start Armed",
 		0,
 		menuhandlerModStartArmed,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Start Armed For",
+		0,
+		menuhandlerModStartArmedFor,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

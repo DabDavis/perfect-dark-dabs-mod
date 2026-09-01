@@ -16,6 +16,7 @@ struct modoptions g_ModOptions = {
 	true,                     // melee
 	true,                     // flinch
 	SPAWNWEAPON_OFF,          // spawnweapon
+	MODWHO_EVERYONE,          // spawnweaponwho
 	THIRDPERSON_CAMDIST,      // camdist
 	THIRDPERSON_CAMCLEARANCE, // camclearance
 	THIRDPERSON_CAMMINDIST,   // cammindist
@@ -119,6 +120,17 @@ s32 modGetSpawnWeapon(void)
 	}
 
 	return g_ModOptions.spawnweapon;
+}
+
+/**
+ * Whether a simulant spawns holding the weapon too. Players Only leaves the
+ * arena's pickups as the simulants' only source, which is the setting for
+ * anyone who wants the head start without handing it to eighty opponents.
+ */
+bool modCanChrSpawnArmed(void)
+{
+	return modGetSpawnWeapon() != SPAWNWEAPON_OFF
+		&& g_ModOptions.spawnweaponwho == MODWHO_EVERYONE;
 }
 
 /**

@@ -79,6 +79,7 @@ struct modoptions {
 	s32 melee;       // the punch and kick combo
 	s32 flinch;      // the body twitching where a shot landed
 	s32 spawnweapon; // SPAWNWEAPON_*: what everyone spawns holding in an arena
+	s32 spawnweaponwho; // MODWHO_*: whether simulants spawn armed too
 	f32 camdist;     // third person camera, units behind the eye
 	f32 camclearance;// how far short of a wall it stops
 	f32 cammindist;  // below which it is not worth leaving the eye at all
@@ -99,6 +100,7 @@ bool modCanChrRoll(void);
 bool modIsMeleeComboEnabled(void);
 bool modIsFlinchEnabled(void);
 s32 modGetSpawnWeapon(void);
+bool modCanChrSpawnArmed(void);
 s32 modGetBodiesKept(void);
 s32 modGetBodyTime(void);
 s32 modGetBodiesDrawn(void);

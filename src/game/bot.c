@@ -455,7 +455,7 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		func0f02e9a0(chr, 0);
 
 #ifndef PLATFORM_N64
-		const s32 spawnweapon = mpGetSpawnWeapon();
+		const s32 spawnweapon = modCanChrSpawnArmed() ? mpGetSpawnWeapon() : -1;
 
 		if (spawnweapon >= 0) {
 			struct mpweapon *mpweapon = &g_MpWeapons[spawnweapon];
