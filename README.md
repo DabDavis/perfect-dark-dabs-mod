@@ -1,214 +1,163 @@
-# Perfect Dark port
+# Dab's Mod
 
-This repository contains a work-in-progress port of the [Perfect Dark decompilation](https://github.com/n64decomp/perfect_dark) to modern platforms.
+**[Download the latest build](https://github.com/DabDavis/perfect-dark-dabs-mod/releases/tag/dabs-mod-dev)**
+— Windows, Linux and macOS. You supply the ROM; see [You need a ROM](#you-need-a-rom).
 
-To run the port, you must already have a Perfect Dark ROM, specifically one of the following:
-* `ntsc-final`/`US V1.1`/`US Rev 1` (md5 `e03b088b6ac9e0080440efed07c1e40f`).  
-  **This is the recommended version to use**.  
-  Called `NTSC version 8.7 final` on the boot screen.
-* `ntsc-1.0`/`US V1.0` (md5 `7f4171b0c8d17815be37913f535e4e93`).  
-  Technically supported, but not recommended.  
-  Called `NTSC version 8.7 final` on the boot screen as well.
-* `jpn-final` (md5 `538d2b75945eae069b29c46193e74790`).  
-  Technically supported, but requires a separate custom-built executable.  
-  Called `JPN version 8.9 final` on the boot screen.
-* `pal-final` (md5 `d9b5cd305d228424891ce38e71bc9213`).  
-  Technically supported, but requires a separate custom-built executable.  
-  Called `PAL 8.7 final` on the boot screen.
+A fork of the [Perfect Dark PC port](https://github.com/perfect-dark-pc-port/perfect_dark),
+which is itself a port of the [Perfect Dark decompilation](https://github.com/n64decomp/perfect_dark).
 
-## Status
+It adds movement the N64 game never had — jump, a combat roll, melee combos, a
+third person camera — raises the Combat Simulator simulant cap from 8 to 80,
+keeps bodies lying where they fell, and gives you a free-flying spectator
+camera, a screenshot key and a video recorder for watching the results.
 
-The game is in a mostly functional state, with both singleplayer and split-screen multiplayer modes fully working.  
-There are minor graphics- and gameplay-related issues, and possibly occasional crashes.
+Everything here is engine-side and lives in the executable. No custom levels or
+assets are bundled, and none are needed.
 
-**The following extra features are implemented:**
-* mouselook;
-* dual analog controller support;
-* widescreen resolution support;
-* configurable field of view;
-* 60 FPS support, including fixes for some framerate-related issues;
-* fixes for a couple original bugs and crashes;
-* basic mod support, currently enough to load a few custom levels;
-* slightly expanded memory heap size;
-* experimental high framerate support (up to 240 FPS):
-  * enable `Uncap Tickrate` in `Extended Video Options` to activate;
-  * in practice the game will have issues running faster than ~165 FPS, so use VSync or `Video.FramerateLimit` to cap it.
-* emulate the Transfer Pak functionality the game has on the Nintendo 64 to unlock some cheats automatically.
+## You need a ROM
 
-**The following platforms are officially supported and tested:**
-* Windows 7+: i686, x86_64
-* Linux: i686, x86_64
-* MacOS: x86_64 (OS 10.9+), arm64 (OS 11.0+)
-* Nintendo Switch: arm64
+This is an executable, not a game. It reads every texture, model, level and line
+of dialogue out of a Perfect Dark ROM at startup, and ships with none of that.
 
-## Download
+You need `Perfect Dark (USA) (Rev 1)`, also called `ntsc-final` or `US V1.1` —
+md5 `e03b088b6ac9e0080440efed07c1e40f`, and the one the boot screen calls
+`NTSC version 8.7 final`. Dumping it from your own cartridge is on you; don't
+ask here.
 
-Latest [automatic builds](https://github.com/fgsfdsfgs/perfect_dark/releases/tag/ci-dev-build) for supported platforms:
-* [x86_64-windows](https://github.com/fgsfdsfgs/perfect_dark/releases/download/ci-dev-build/pd-x86_64-windows.zip)
-* [i686-windows](https://github.com/fgsfdsfgs/perfect_dark/releases/download/ci-dev-build/pd-i686-windows.zip)
-* [x86_64-linux](https://github.com/fgsfdsfgs/perfect_dark/releases/download/ci-dev-build/pd-x86_64-linux.tar.gz)
-* [i686-linux](https://github.com/fgsfdsfgs/perfect_dark/releases/download/ci-dev-build/pd-i686-linux.tar.gz)
-* [arm64-nswitch](https://github.com/fgsfdsfgs/perfect_dark/releases/download/ci-dev-build/pd-arm64-nswitch.zip)
+PAL and JPN ROMs are not supported by this fork. The stock port supports them if
+you need one.
 
-If you are looking for netplay builds (the `port-net` branch), see [this link](https://github.com/fgsfdsfgs/perfect_dark/blob/port-net/README.md#download).
+## Running it
 
-## Running
+1. Unpack the download somewhere.
+2. Put your ROM in the `data` folder next to the executable, named exactly
+   **`pd.ntsc-final.z64`**. (The folder is already there, with a
+   `put_your_rom_here.txt` in it.)
+3. Run it:
+   - **Windows** — `pd.x86_64.exe`
+   - **Linux** — `./pd.x86_64`
+   - **macOS** — `./pd.x86_64` or `./pd.arm64`, whichever matches your machine
 
-You must already have a Perfect Dark ROM to run the game, as specified above.  
+If the ROM is missing or is the wrong one, the game says so in a dialog box and
+names the exact directory it looked in. On Linux and macOS you can put the `data`
+folder in `~/.local/share/perfectdark` or `~/Library/Application Support/perfectdark`
+instead, and `--basedir <path>` overrides both.
 
-This assumes that you're using an x86_64 build. If you aren't, replace `x86_64` below with your arch (e.g. `i686`).
+macOS will refuse to run an unsigned binary downloaded from the internet. Either
+right-click → Open, or run `xattr -dr com.apple.quarantine .` in the unpacked
+folder.
 
-1. Create a directory named `data` next to `pd.x86_64` if it's not there.
-2. Put your Perfect Dark NTSC ROM named `pd.ntsc-final.z64` into it.
-3. Run the `pd.x86_64` executable.
+A GPU with OpenGL 3.0 / ES 3.0 or better is required.
 
-If you want to use a PAL or JPN ROM instead, put them into the `data` directory and run the appropriate executable:
-* PAL: ROM name `pd.pal-final.z64`, executable name `pd.pal.x86_64`.
-* JPN: ROM name `pd.jpn-final.z64`, executable name `pd.jpn.x86_64`.
+## What it adds
 
-Optionally, you can also put your Perfect Dark for GameBoy Color ROM named `pd.gbc` in the `data` directory if you want to emulate having the Nintendo 64's Transfer Pak and unlock some cheats automatically.
+All of the fork's settings are on one page: **Options → Extended Options → Dab's
+Mod Options**. Each one persists to `pd.ini` under a `Mod.` key.
 
-Optionally, you can move the data folder to `~/.local/share/perfectdark` on Linux or `~/Library/Application Support/perfectdark` on MacOS.
+### Movement
 
-Additional information can be found in the [wiki](https://github.com/fgsfdsfgs/perfect_dark/wiki).
+| Setting | What it does |
+| - | - |
+| Jump | Off, or a height from 1 to 5. Bound to the **use** button, behind whatever that button opens — doors and objects still take priority |
+| Jump For | Whether simulants jump too, or only players |
+| Combat Roll | A dodge roll. **C** on the keyboard, right stick click on a pad |
+| Melee Combos | The punch and kick combos solo play has always had, in multiplayer |
+| Flinch When Shot | Bodies react to where the shot landed instead of ignoring it |
+| Start Armed | Spawn holding a weapon — the arena's, or a random one. Off by default, because stock is off |
 
-A GPU supporting OpenGL 3.0/ES3.0 or above is required to run the port.
+### Third person
 
-### Installing the Nintendo Switch version
+**V** on the keyboard, Back on a pad, in solo and multiplayer both. You drop back
+to first person while aiming. Camera Distance, Camera Wall Clearance and Camera
+Minimum Distance tune the framing.
 
-The Nintendo Switch build ZIP comes with all 3 regions in different folders: `perfectdark`, `perfectdark_pal` and `perfectdark_jpn`.
+### Simulants
 
-Take the folder for the region you want and put it into the `/switch` folder on your SD card, then put your ROM into the `data` folder inside of the folder you extracted as described above.
+Up to **80** in a Combat Simulator match, set the usual way in the simulant
+menu. The save file only grows past the stock 8-simulant format when a setup
+actually needs it, so ordinary setups stay readable by an unmodified port.
 
-## Controls
+### Bodies
 
-1964GEPD-style and Xbox-style bindings are implemented.
+Bodies stay where they fell instead of vanishing. **Bodies** caps how many are
+kept (up to 500), **Body Time** how long each lies there, and **Bodies Drawn**
+how many may be drawn in one frame — lower that one first if the frame rate
+suffers, since the bodies still exist, they just aren't all rendered.
 
-N64 pad buttons X and Y (or `X_BUTTON`, `Y_BUTTON` in the code) refer to the reserved buttons `0x40` and `0x80`, which are also leveraged by 1964GEPD.
+### Spectator
 
-Support for one controller, two-stick configurations are enabled for 1.2.
+A camera that comes off the player and flies through the level, including
+outside it. **F** on the keyboard. **Start Spectating** enters it automatically
+on every stage; **Spectator Start Game** in the Combat Simulator menu arms it for
+one match only. Spectator Speed sets how fast it flies. Combined with a match
+with no time or score limit, it's the tool for watching 80 simulants fight.
 
-Note that the mouse only controls player 1.
+### Screenshots and video
 
-Controls can be rebound in `pd.ini`. Default control scheme is as follows:
+- **F12** writes a PNG to `screenshots/` beside your `pd.ini`.
+- **F11** starts and stops recording an MP4 in `recordings/`, picture and sound.
 
-| Action           | Keyboard and mouse     | Xbox pad                 | N64 pad                   |
-| -                | -                      | -                        | -                         |
-| Fire / Accept    | LMB/Space              | RT                       | Z Trigger                 |
-| Aim mode         | RMB/Z                  | LT                       | R Trigger                 |
-| Use / Cancel     | E                      | N/A                      | B                         |
-| Use / Accept     | N/A                    | A                        | A                         |
-| Crouch cycle     | N/A                    | LS Click                 | `0x80000000` (Extra)      |
-| Half-Crouch      | Shift                  | N/A                      | `0x40000000` (Extra)      |
-| Full-Crouch      | Control                | N/A                      | `0x20000000` (Extra)      |
-| Reload           | R                      | X                        | X `(0x40)`                |
-| Previous weapon  | Mousewheel forward     | B                        | D-Left                    |
-| Next weapon      | Mousewheel back        | Y                        | Y `(0x80)`                |
-| Radial menu      | Q                      | LB                       | D-Down                    |
-| Alt fire mode    | F                      | RB                       | L Trigger                 |
-| Alt-fire oneshot | `F + LMB` or `E + LMB` | `A + RT` or  `RB + RT`   | `A + Z`     or `L + Z`    |
-| Quick-detonate   | `E + Q`   or `E + R`   | `A + B`  or  `A + X`     | `A + D-Left`or `A + X`    |
+Recording shells out to **ffmpeg**, which is not bundled — install it and make
+sure it's on your `PATH`, or point `Mod.RecordEncoder` in `pd.ini` at the
+binary. Frame rate, quality and the on-screen red dot are in the options page.
+Screenshots need nothing extra.
 
-## Building
+## Optional: custom levels
 
-### Windows
+The port can mount mod directories, and this fork extends that to stages and
+Combat Simulator arenas a mod supplies. Pass one or more with `--moddir`:
 
-1. Install [MSYS2](https://www.msys2.org).
-2. Open the `MINGW64` prompt if building for x86_64, or the `MINGW32` prompt if building for i686. (**NOTE:** _do not_ use the `MSYS` prompt)
-3. Install dependencies:  
-   `pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-SDL2 mingw-w64-x86_64-zlib mingw-w64-x86_64-cmake mingw-w64-x86_64-python3 mingw-w64-i686-toolchain mingw-w64-i686-SDL2 mingw-w64-i686-zlib mingw-w64-i686-cmake mingw-w64-i686-python3 make git`
-4. Get the source code:  
-   `git clone --recursive https://github.com/fgsfdsfgs/perfect_dark.git && cd perfect_dark`
-5. Run `cmake -G"Unix Makefiles" -Bbuild .`.
-   * Add ` -DROMID=pal-final` or ` -DROMID=jpn-final` at the end of the command if you want to build a PAL or JPN executable respectively.\
-6. Run `cmake --build build -j4 -- -O`.
-7. The resulting executable will be at `build/pd.x86_64.exe` (or at `build/pd.i686.exe` if building for i686).
-8. If you don't know where you downloaded the source to, you can run `explorer .` to open the current directory.
+```
+pd.x86_64 --moddir mod_allinone
+```
 
-### Linux
+The directory is looked for next to the executable and in your home data
+directory. Nothing is bundled here — the **All in One Mod** and similar packs
+are other people's work, and you should get them from their authors. The command
+line flags that mod's own launcher uses (`--gexmoddir` and friends) are accepted
+as aliases so its scripts work unchanged.
 
-1. Ensure you have gcc, g++ (version 10.0+), make, cmake, git, python3 and SDL2 (version 2.0.12+), libGL and ZLib installed on your system.
-   * If you wish to crosscompile, you will also need to have libraries and compilers for the target platform installed, e.g. `gcc-multilib` and `g++-multilib` for x86_64 -> i686 crosscompilation.
-2. Get the source code:  
-   `git clone --recursive https://github.com/fgsfdsfgs/perfect_dark.git && cd perfect_dark`
-3. Run the following command:
-   * ```cmake -G"Unix Makefiles" -Bbuild .```
-   * Add ` -DROMID=pal-final` or ` -DROMID=jpn-final` at the end of the command if you want to build a PAL or JPN executable respectively.
-   * Add ` -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32` at the end of the command if you want to crosscompile from x86_64 to x86.
-4. Run `cmake --build build -j4`.
-5. The resulting executable will be at `build/pd.<arch>` (for example `build/pd.x86_64`).
+## Sharing a machine with the stock port
 
-### MacOS
+The config file is called `pd.ini` regardless of which build wrote it, so a
+Dab's Mod build unpacked into the same folder as a stock port will share its
+settings and saves. The `Mod.` keys are ignored by builds that don't know them,
+and MP setups stay in the base format unless they need more than 8 simulants, so
+nothing breaks — but if you want them kept apart, unpack into separate folders,
+or pass `--savedir <path>`.
 
-1. Set up Homebrew.
-2. Install dependencies:
-   * Execute command: `brew install cmake gcc python3 zlib git`
-3. Install SDL2:
-   * Execute commands:
-     ```
-     wget http://libsdl.org/release/SDL2-2.30.9.dmg -O SDL2.dmg
-     hdiutil mount SDL2.dmg
-     sudo cp -vr /Volumes/SDL2/SDL2.framework /Library/Frameworks
-     hdiutil detach /Volumes/SDL2
-     ```
-   * This installs SDL2 system-wide and this is how the automatic builds are done. The game will also look for it in the executable path, so you could
-     download it locally instead.
-4. Get the source code:  
-   `git clone --recursive https://github.com/fgsfdsfgs/perfect_dark.git && cd perfect_dark`
-5. Configure:
-   * Execute command: `cmake -G"Unix Makefiles" -Bbuild -DCMAKE_OSX_ARCHITECTURES=x86_64 .`
-   * Replace `x86_64` with `arm64` if building for an ARM64 Mac.
-   * Add ` -DROMID=pal-final` or ` -DROMID=jpn-final` at the end of the command if you want to build a PAL or JPN executable respectively.
-6. Build:
-   * Execute command: `cmake --build build --target pd -j4 --clean-first`
-7. The resulting executable will be at `build/pd.<arch>` (for example `build/pd.x86_64`).
-   * You might need to execute `chmod +x build/pd.x86-64` before you can run it.
+## Building from source
 
-### Nintendo Switch
+Same as the stock port:
 
-1. Set up the [devkitA64 environment](https://devkitpro.org/wiki/Getting_Started).
-   * On Windows you can do it under MSYS2 or WSL, usually MSYS2 is recommended.
-   * If using MSYS2, make sure to use the **MSYS2** shell, **not** MINGW32 or MINGW64.
-2. Install host dependencies:
-   * On MSYS2: execute command `pacman -Syuu && pacman -S git make cmake python3`
-   * On Linux: use your package manager as normal to install the above dependencies.
-3. Install Switch toolchain and dependencies:
-   * Execute commands:
-     ```
-     dkp-pacman -Syuu
-     dkp-pacman -S devkitA64 libnx switch-zlib switch-sdl2 switch-cmake dkp-toolchain-vars
-     ```
-   * If in MSYS2 or `dkp-pacman` doesn't work, replace it with just `pacman`.
-4. Get the source code:  
-   `git clone --recursive https://github.com/fgsfdsfgs/perfect_dark.git && cd perfect_dark`
-5. Ensure devkitA64 environment variables are set:
-   * Execute command: `source /opt/devkitpro/switchvars.sh`
-   * If your `$DEVKITPRO` path is different, substitute that instead or set the variables manually.
-6. Configure:
-   * Execute command: `aarch64-none-elf-cmake -G"Unix Makefiles" -Bbuild .`
-   * Add ` -DROMID=pal-final` or ` -DROMID=jpn-final` at the end of the command if you want to build a PAL or JPN executable respectively.
-7. Build:
-   * Execute command: `make -C build -j4`
-8. The resulting executable will be at `build/pd.arm64.nro`.
+```sh
+git clone --recursive https://github.com/DabDavis/perfect-dark-dabs-mod.git
+cd perfect-dark-dabs-mod
+cmake -G"Unix Makefiles" -Bbuild .
+cmake --build build -j8
+```
 
-### Notes
+You need gcc/g++ 10+, cmake, python3, SDL2 2.0.12+, libGL and zlib. Windows
+builds go through MSYS2's MINGW64 prompt; see the
+[upstream README](https://github.com/perfect-dark-pc-port/perfect_dark#building)
+for the package list.
 
-Alternate compilers or toolchains can be specified by passing `-DCMAKE_TOOLCHAIN_FILE=whatever` as normal. The port does not build with Visual Studio.
+Non-debug builds compile at `-Og`, not `-O2` — that's upstream's setting, not an
+oversight, and the official port binaries are built the same way. `-O2` breaks
+decompiled code that relies on undefined behaviour.
 
-You will need to provide a `jpn-final` or `pal-final` ROM to run executables built for those regions, named `pd.jpn-final.z64` or `pd.pal-final.z64`.
+## Anything not listed here
 
-It might be possible to build and run the game on platforms that are not specified in the supported platforms list (e.g. Linux on armv7), but this has not been tested.
+Controls and rebinding, PAL/JPN and Nintendo Switch builds, video and audio
+settings, and the rest of the port's behaviour are unchanged from upstream and
+documented in its [README](https://github.com/perfect-dark-pc-port/perfect_dark#readme)
+and [wiki](https://github.com/perfect-dark-pc-port/perfect_dark/wiki).
 
-## Credits
+## Credits and licence
 
-* the original [decompilation project](https://github.com/n64decomp/perfect_dark) authors;
-* Ryan Dwyer for the above, additional help, and `pd-extract`;
-* doomhack for the only other publicly available [PD porting effort](https://github.com/doomhack/perfect_dark) I could find;
-* [sm64-port](https://github.com/sm64-port/sm64-port) authors for the audio mixer and some other changes;
-* [Ship of Harkinian team](https://github.com/Kenix3/libultraship/tree/main/src/fast), Emill and MaikelChan for the libultraship version of fast3d that this port uses;
-* lieff for [minimp3](https://github.com/lieff/minimp3);
-* Mouse Injector and 1964GEPD authors for some of the 60FPS- and mouselook-related fixes;
-* Raf for the 64-bit port;
-* NicNamSam for the icon;
-* everyone who has submitted pull requests and issues to this repository and tested the port;
-* probably more I'm forgetting.
+MIT, same as the port and the decompilation it came from — see `LICENSE`.
+
+- The decompilation: [n64decomp/perfect_dark](https://github.com/n64decomp/perfect_dark), Ryan Dwyer and contributors
+- The PC port: [perfect-dark-pc-port/perfect_dark](https://github.com/perfect-dark-pc-port/perfect_dark) and contributors
+- Perfect Dark is © Rare / Microsoft. This project ships no game assets and is
+  not affiliated with either.

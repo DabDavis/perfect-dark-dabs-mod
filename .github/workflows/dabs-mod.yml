@@ -52,7 +52,7 @@ jobs:
           mkdir -p bin/data
           cp build/pd.x86_64.exe bin/
           cp /mingw64/bin/{SDL2.dll,zlib1.dll,libwinpthread-1.dll,libgcc_s_seh-1.dll} bin/
-          cp README-dabs-mod.md LICENSE bin/
+          cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -80,7 +80,7 @@ jobs:
         run: |
           mkdir -p bin/data
           cp build/pd.x86_64 bin/
-          cp README-dabs-mod.md LICENSE bin/
+          cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -114,7 +114,7 @@ jobs:
           mkdir -p bin/data
           cp build/pd.${{ matrix.arch }} bin/
           cp -vr /Library/Frameworks/SDL2.framework bin/
-          cp README-dabs-mod.md LICENSE bin/
+          cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -157,5 +157,5 @@ jobs:
           gh release view dabs-mod-dev >/dev/null 2>&1 || \
             gh release create dabs-mod-dev --prerelease \
               --title "Dab's Mod (latest dev build)" \
-              --notes "Automatic build of the latest \`dabs-mod\` commit. You need your own Perfect Dark \`ntsc-final\` ROM — see README-dabs-mod.md inside the download."
+              --notes "Automatic build of the latest \`dabs-mod\` commit. You need your own Perfect Dark \`ntsc-final\` ROM — see README.md inside the download."
           gh release upload --clobber dabs-mod-dev ci-release/*
