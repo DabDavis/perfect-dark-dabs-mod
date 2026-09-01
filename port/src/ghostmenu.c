@@ -1175,8 +1175,13 @@ static MenuItemHandlerResult menuhandlerGhostBoard(s32 operation, struct menuite
 			return (intptr_t)"";
 		}
 
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%2d. %d:%02d.%02d  %.14s",
+		// A row that cannot show it was set under trial rules is marked rather
+		// than hidden. The server refuses to store one, so this should never
+		// appear - and if it ever does, the player should be able to see why a
+		// time beside theirs is not a time beside theirs.
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%2d.%c%d:%02d.%02d  %.14s",
 				(s32)data->list.value + 1,
+				entry->trialrules ? ' ' : '?',
 				entry->time60 / 3600, (entry->time60 / 60) % 60,
 				(entry->time60 % 60) * 100 / 60,
 				entry->user);

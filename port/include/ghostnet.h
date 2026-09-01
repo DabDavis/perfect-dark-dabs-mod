@@ -44,7 +44,8 @@ struct ghostboardentry {
 	s32 id;
 	u32 time60;
 	char user[GHOSTNET_MAXUSER + 1];
-	bool have;   // already in the ghosts directory
+	bool have;       // already in the ghosts directory
+	bool trialrules; // set with the fork's added moves off
 };
 
 extern char g_GhostNetUser[GHOSTNET_MAXUSER + 2];

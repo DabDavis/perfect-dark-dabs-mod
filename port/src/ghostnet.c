@@ -474,6 +474,16 @@ static bool ghostnetFetchBoardNow(char *msg, u32 msgsize)
 			g_Board[count].user[0] = '\0';
 		}
 
+		// Sent by the server for every row. Nothing without it can be stored
+		// there, so this is a belt on top of braces - but a row that arrived
+		// from a server with a looser policy should be readable as what it is
+		// rather than quietly ranked beside runs it cannot be compared with.
+		if (ghostnetJsonField(at, "trialrules", num, sizeof(num))) {
+			g_Board[count].trialrules = atoi(num) != 0;
+		} else {
+			g_Board[count].trialrules = false;
+		}
+
 		g_Board[count].have = false;
 		count++;
 	}

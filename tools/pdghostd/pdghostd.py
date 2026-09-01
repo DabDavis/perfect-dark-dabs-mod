@@ -58,6 +58,13 @@ UPLOAD_WINDOW = 3600
 # written when a player had one ghost per stage and no reason to re-send it.
 UPLOAD_MAX = 120
 
+# The header flag that says a run was set with the fork's added moves off -
+# MODGHOSTHF_TRIALRULES in the client's modghost.h. A run without it was made
+# under unknown rules, which is not the same as fair rules: everything recorded
+# before the flag existed had jump and the combat roll available, and there is
+# no asking now which were on. A board that mixes them ranks settings.
+GHOST_TRIALRULES = 0x01
+
 # How many rows a board keeps, and so how many blobs a stage and difficulty
 # can cost. One row per player is the other half of that bound: the client
 # stores every attempt because a run cannot be judged while it is being set,
@@ -154,7 +161,8 @@ def init_db():
                 numsamples INTEGER NOT NULL,
                 bytes      INTEGER NOT NULL,
                 uploaded   INTEGER NOT NULL,
-                blob       TEXT NOT NULL
+                blob       TEXT NOT NULL,
+                flags      INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS ghosts_board
                 ON ghosts(stagenum, difficulty, time60);
@@ -166,6 +174,27 @@ def init_db():
         # them goes back on - creating it against duplicate rows would fail
         # and take the service down on a restart, which is a bad way to find
         # out. Their blobs are collected afterwards by the sweep below.
+        # The column is added rather than assumed, because a database made
+        # before the flag existed has every other column already and CREATE
+        # TABLE IF NOT EXISTS will not go back and fill one in.
+        have = {r[1] for r in conn.execute("PRAGMA table_info(ghosts)")}
+
+        if "flags" not in have:
+            conn.execute("ALTER TABLE ghosts ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
+
+        # Rows that cannot show they were set under trial rules go, with their
+        # files. Uploads are refused on the same test, so this runs once in
+        # practice and finds nothing afterwards - but it is what makes the
+        # board's promise true of the rows already in it rather than only of
+        # the next ones.
+        stale = conn.execute(
+            "SELECT COUNT(*) FROM ghosts WHERE flags & ? = 0",
+            (GHOST_TRIALRULES,)).fetchone()[0]
+
+        if stale:
+            print("dropping %d run(s) not recorded under trial rules" % stale, flush=True)
+            conn.execute("DELETE FROM ghosts WHERE flags & ? = 0", (GHOST_TRIALRULES,))
+
         conn.execute("DROP INDEX IF EXISTS ghosts_one_per_time")
         conn.execute("""
             DELETE FROM ghosts WHERE id NOT IN (
@@ -236,7 +265,7 @@ def parse_ghost_header(data):
     return {
         "version": version, "numsamples": numsamples, "time60": time60,
         "rate60": rate60, "stagenum": stagenum, "difficulty": difficulty,
-        "player": player, "owner": owner,
+        "player": player, "owner": owner, "flags": flags,
     }
 
 
@@ -351,14 +380,19 @@ class Handler(BaseHTTPRequestHandler):
                 # the same time60 are two places on the board and the earlier
                 # upload takes the higher one.
                 rows = conn.execute(
-                    "SELECT id, username, time60, uploaded FROM ghosts "
+                    "SELECT id, username, time60, uploaded, flags FROM ghosts "
                     "WHERE stagenum = ? AND difficulty = ? "
                     "ORDER BY time60 ASC, id ASC LIMIT ?",
                     (stage, diff, limit)).fetchall()
 
+            # trialrules is sent even though nothing without it can be stored,
+            # so a client can mark a row rather than having to assume. If this
+            # policy is ever loosened to grandfather old runs, the boards will
+            # already be able to say which are which.
             return self.send_json(200, {"ok": True, "entries": [
                 {"id": r["id"], "user": r["username"], "time60": r["time60"],
-                 "uploaded": r["uploaded"]} for r in rows]})
+                 "uploaded": r["uploaded"],
+                 "trialrules": 1 if r["flags"] & GHOST_TRIALRULES else 0} for r in rows]})
 
         if path == "/download":
             try:
@@ -489,6 +523,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(403, {"ok": False,
                     "error": "that ghost was recorded by %s" % info["owner"]})
 
+            # Set under the rules the board ranks, or not on the board. A run
+            # made with the fork's moves available is a different event on the
+            # same map, and the file is the only thing that can say which this
+            # was.
+            if not info["flags"] & GHOST_TRIALRULES:
+                return self.send_json(403, {"ok": False,
+                    "error": "that run was not recorded in Ghost Trials"})
+
             # One file per player per level, overwritten in place, so a
             # replaced run leaves nothing behind to collect. The .gz is in the
             # name because what is on disk really is a gzip file, and a name
@@ -537,13 +579,14 @@ class Handler(BaseHTTPRequestHandler):
                     doomed.append(held["blob"])
 
                 conn.execute(
-                    "INSERT INTO ghosts (username, stagenum, difficulty, time60, numsamples, bytes, uploaded, blob) "
-                    "VALUES (?,?,?,?,?,?,?,?) "
+                    "INSERT INTO ghosts (username, stagenum, difficulty, time60, numsamples, bytes, uploaded, blob, flags) "
+                    "VALUES (?,?,?,?,?,?,?,?,?) "
                     "ON CONFLICT(username, stagenum, difficulty) DO UPDATE SET "
                     "time60=excluded.time60, numsamples=excluded.numsamples, "
-                    "bytes=excluded.bytes, uploaded=excluded.uploaded, blob=excluded.blob",
+                    "bytes=excluded.bytes, uploaded=excluded.uploaded, blob=excluded.blob, "
+                    "flags=excluded.flags",
                     (username, info["stagenum"], info["difficulty"], info["time60"],
-                     info["numsamples"], len(body), int(time.time()), name))
+                     info["numsamples"], len(body), int(time.time()), name, info["flags"]))
 
                 # Whatever fell off the end of the board goes, whoever it
                 # belonged to. Ordered the same way the leaderboard is read so
