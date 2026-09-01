@@ -856,8 +856,23 @@ s32 mpCalculateTeamScoreLimit(void)
 	return limit;
 }
 
+// --endless: run the match with no score, team score or time limit.
+//
+// It cannot be done by writing the limits from outside once the match is up:
+// mpApplyLimits() has already derived them by then, and with eighty simulants
+// the score limit is reached in the seconds it takes to attach. The decision
+// has to be made where the limits are decided.
+s32 g_MpEndlessMatch = 0;
+
 void mpApplyLimits(void)
 {
+	if (g_MpEndlessMatch) {
+		lvSetMpTimeLimit60(0);
+		lvSetMpScoreLimit(0);
+		lvSetMpTeamScoreLimit(0);
+		return;
+	}
+
 	if (g_MpSetup.timelimit >= 60) {
 		lvSetMpTimeLimit60(0);
 	} else {

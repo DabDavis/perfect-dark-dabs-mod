@@ -4,6 +4,8 @@
 #include "data.h"
 #include "types.h"
 
+extern s32 g_MpEndlessMatch;
+
 f32 mpHandicapToDamageScale(u8 value);
 void func0f187838(struct mpchrconfig *mpchr);
 void mpStartMatch(void);

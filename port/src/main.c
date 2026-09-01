@@ -7,6 +7,7 @@
 #include "lib/main.h"
 #include "game/modoptions.h"
 #include "game/modspectate.h"
+#include "game/mplayer/mplayer.h"
 #include "bss.h"
 #include "data.h"
 
@@ -155,6 +156,7 @@ int main(int argc, const char **argv)
 	// Spectator from the first frame. A button press cannot happen before the
 	// stage loads, and the headless runs that want this cannot press one at all.
 	g_ModSpectateStart = sysArgCheck("--spectate");
+	g_MpEndlessMatch = sysArgCheck("--endless");
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 
