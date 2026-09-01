@@ -4,6 +4,7 @@
 #include "platform.h"
 #include "config.h"
 #include "audio.h"
+#include "record.h"
 #include "system.h"
 
 static SDL_AudioDeviceID dev;
@@ -12,6 +13,7 @@ static u32 nextSize = 0;
 
 static s32 bufferSize = 512;
 static s32 queueLimit = 8192;
+static s32 sampleRate = 22020;
 
 s32 audioInit(void)
 {
@@ -38,7 +40,14 @@ s32 audioInit(void)
 
 	SDL_PauseAudioDevice(dev, 0);
 
+	sampleRate = have.freq;
+
 	return 0;
+}
+
+s32 audioGetSampleRate(void)
+{
+	return sampleRate;
 }
 
 s32 audioGetBytesBuffered(void)
@@ -62,6 +71,9 @@ void audioEndFrame(void)
 	if (nextBuf && nextSize) {
 		if (audioGetSamplesBuffered() < queueLimit) {
 			SDL_QueueAudio(dev, nextBuf, nextSize);
+			// Inside the check on purpose: a recording should hold what was
+			// played, and a buffer dropped for a full queue was not.
+			recordPushAudio(nextBuf, nextSize);
 		}
 		nextBuf = NULL;
 		nextSize = 0;

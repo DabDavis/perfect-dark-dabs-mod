@@ -18,6 +18,7 @@
 #include "fs.h"
 #include "modloader.h"
 #include "romdata.h"
+#include "record.h"
 #include "screenshot.h"
 #include "config.h"
 #include "mod.h"
@@ -98,6 +99,8 @@ static void gameInit(void)
 static void cleanup(void)
 {
 	sysLogPrintf(LOG_NOTE, "shutdown");
+	// Before anything else: an unfinished mp4 has no index and will not play.
+	recordStop();
 	inputSaveBinds();
 	configSave(CONFIG_PATH);
 	videoShutdown();
@@ -119,6 +122,7 @@ int main(int argc, const char **argv)
 	videoInit();
 	inputInit();
 	screenshotInit();
+	recordInit();
 	audioInit();
 	romdataInit();
 	modloaderInit();

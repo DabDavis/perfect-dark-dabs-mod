@@ -25,6 +25,7 @@
 #include "audio.h"
 #include "input.h"
 #include "mixer.h"
+#include "record.h"
 #include "screenshot.h"
 
 /*
@@ -294,6 +295,7 @@ void schedEndFrame(OSSched *sc)
 	// After inputUpdate() and before the next frame is submitted: the shot is
 	// taken in that frame's pre-swap callback, one frame after the key press.
 	screenshotTick();
+	recordTick();
 
 	joyStartReadData(&g_PiMesgQueue);
 	joyReadData();

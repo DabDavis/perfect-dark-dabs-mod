@@ -78,8 +78,9 @@ void videoCopyFramebuffer(s32 dst, s32 src, s32 left, s32 top);
 void videoResizeFramebuffer(s32 target, u32 w, u32 h, s32 upscale, s32 autoresize);
 s32 videoFramebuffersSupported(void);
 
-// Called once per frame with the frame drawn and not yet presented. NULL to unhook.
-void videoSetPreSwapCallback(void (*cb)(void));
+// Called once per frame with the frame drawn and not yet presented, in the order
+// they were added. Anything that wants the finished image registers here.
+void videoAddPreSwapCallback(void (*cb)(void));
 
 // Reads the window's back buffer into rgb as tightly packed RGB triples, bottom
 // row first. Only meaningful from the pre-swap callback above.

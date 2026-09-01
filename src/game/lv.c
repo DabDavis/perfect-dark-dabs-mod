@@ -99,6 +99,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "video.h"
+#include "record.h"
 #endif
 
 struct sndstate *g_MiscSfxAudioHandles[3];
@@ -993,6 +994,51 @@ Gfx *lvRenderFPS(Gfx *gdl)
 
 	return gdl;
 }
+
+/**
+ * The red dot, and how long it has been on.
+ *
+ * It is drawn before the frame is read back, so it is in the recording as well
+ * as on the screen - there is no later moment to draw it in, the capture being
+ * the last thing that happens to a frame. That is the trade the setting is for.
+ *
+ * Only levels draw it. This is the level's render, and the menus have their own,
+ * so a recording started from a menu shows nothing until the level appears.
+ */
+Gfx *lvRenderRecording(Gfx *gdl)
+{
+	const s32 secs = (s32)recordGetElapsed();
+	const s32 dot = 5;
+	s32 x = 27, y = 27;
+	char buffer[16];
+
+	if (!g_CharsHandelGothicSm || !g_FontHandelGothicSm) {
+		return gdl;
+	}
+
+	snprintf(buffer, sizeof buffer, "%d:%02d", secs / 60, secs % 60);
+
+	gSPSetExtraGeometryModeEXT(gdl++, g_HudAlignModeL);
+
+	gdl = text0f153628(gdl);
+
+	// Blinking would be the ordinary thing, and it is wrong here: a still frame
+	// pulled out of the recording has to say whether it was being recorded.
+	gdl = textSetPrimColour(gdl, 0xdd2020c0);
+	gDPFillRectangleScaled(gdl++, x, y, x + dot, y + dot);
+	gdl = text0f153838(gdl);
+
+	x += dot + 4;
+	y -= 1;
+	gdl = textRender(gdl, &x, &y, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm,
+			0xffffffc0, 0x000000a0, viGetWidth(), viGetHeight(), 0, 0);
+
+	gdl = text0f153780(gdl);
+
+	gSPClearExtraGeometryModeEXT(gdl++, g_HudAlignModeL);
+
+	return gdl;
+}
 #endif
 
 /**
@@ -1803,6 +1849,10 @@ Gfx *lvRender(Gfx *gdl)
 #ifndef PLATFORM_N64
 	if (videoGetDisplayFPS()) {
 		gdl = lvRenderFPS(gdl);
+	}
+
+	if (recordShowsIndicator()) {
+		gdl = lvRenderRecording(gdl);
 	}
 #endif
 

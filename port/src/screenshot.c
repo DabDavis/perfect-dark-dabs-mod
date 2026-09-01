@@ -276,7 +276,7 @@ void screenshotTick(void)
 
 void screenshotInit(void)
 {
-	videoSetPreSwapCallback(screenshotPreSwap);
+	videoAddPreSwapCallback(screenshotPreSwap);
 }
 
 PD_CONSTRUCTOR static void screenshotConfigInit(void)

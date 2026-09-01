@@ -216,9 +216,28 @@ s32 videoGetWindowHeight(void)
 	return gfx_current_window_dimensions.height;
 }
 
-void videoSetPreSwapCallback(void (*cb)(void))
+// The renderer holds one hook and there are two things that want it - the
+// screenshot key and the recorder - so the list lives here.
+#define VIDEO_MAX_PRESWAP_CALLBACKS 4
+
+static void (*vidPreSwapCallbacks[VIDEO_MAX_PRESWAP_CALLBACKS])(void);
+static s32 vidNumPreSwapCallbacks;
+
+static void videoPreSwap(void)
 {
-	gfx_set_pre_swap_callback(cb);
+	for (s32 i = 0; i < vidNumPreSwapCallbacks; ++i) {
+		vidPreSwapCallbacks[i]();
+	}
+}
+
+void videoAddPreSwapCallback(void (*cb)(void))
+{
+	if (!cb || vidNumPreSwapCallbacks >= VIDEO_MAX_PRESWAP_CALLBACKS) {
+		return;
+	}
+
+	vidPreSwapCallbacks[vidNumPreSwapCallbacks++] = cb;
+	gfx_set_pre_swap_callback(videoPreSwap);
 }
 
 s32 videoReadScreenPixels(void *rgb, s32 width, s32 height)

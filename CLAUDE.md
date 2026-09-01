@@ -113,7 +113,7 @@ Only 27 ids are free below `STAGE_TITLE`.
 `gfx_run()` ends with `swap_buffers_begin()`, which is the `SDL_GL_SwapWindow()`
 call, so by the time `videoEndFrame()` runs the back buffer is already gone and
 reading it back gives garbage. Anything that needs the finished image hooks
-`videoSetPreSwapCallback()`, which fires inside `gfx_run()` with the frame drawn
+`videoAddPreSwapCallback()`, which fires inside `gfx_run()` with the frame drawn
 and not yet swapped. That is where the screenshot key reads its pixels.
 
 `gfx_current_window_dimensions` is `SDL_GL_GetDrawableSize()`, and under Xvfb
@@ -121,6 +121,27 @@ with no window manager a fullscreen-desktop window reports the screen size while
 the X window stays 640x480. Reading a rect larger than the real drawable leaves
 those pixels undefined, which looks like heap garbage in the corner of the
 image - set `DefaultFullscreen=0` in pd.ini before trusting a headless capture.
+
+## Feeding ffmpeg two raw pipes
+
+The recorder hands ffmpeg the picture on fd 3 and the sound on fd 4 and lets it
+mux. Two things about that are not obvious and both hang the game:
+
+**ffmpeg probes an input before it reads the next one.** With default
+`probesize`/`analyzeduration` it will read five seconds of the audio pipe before
+it looks at the video pipe at all. The video pipe fills at 64KB, the game blocks
+in `recordPreSwap()` holding a frame it cannot hand over, which stops the tick
+that produces audio, and nothing moves again. `-probesize 32 -analyzeduration 0`
+on both inputs is the fix - the flags already say everything there is to know
+about a raw stream, so there is nothing to probe for.
+
+**`pipe(2)` hands out whatever is free, usually 3 to 6.** So `dup2(fd, 3)` in the
+child lands on one of the other three ends. Both read ends go up out of the way
+with `F_DUPFD, 10` first, then everything else closes, then they come back down.
+
+`kill()` needs `_DEFAULT_SOURCE` defined before the first system header: the
+build is `-std=c11`, and that is strict enough to hide it while leaving `fork()`,
+`pipe()` and `waitpid()` visible.
 
 ## Mod directories
 

@@ -16,6 +16,7 @@
 #include "video.h"
 #include "input.h"
 #include "config.h"
+#include "record.h"
 #include "screenshot.h"
 
 static s32 g_ExtMenuPlayer = 0;
@@ -24,9 +25,11 @@ static struct menudialogdef *g_ExtNextDialog = NULL;
 static s32 g_BindIndex = 0;
 static u32 g_BindContKey = 0;
 
-// The bind dialog is shared. The screenshot key is not a controller button, so
-// the row that opened the dialog says which of the two the pressed key goes to.
-static s32 g_BindScreenshot = 0;
+// The bind dialog is shared. The screenshot and recording keys are not
+// controller buttons, so a row that owns one hands the dialog the setter to call
+// with the key that gets pressed; a controller row leaves it null and the key
+// goes to inputKeyBind() as before.
+static void (*g_BindKeySetter)(s32 vk) = NULL;
 
 static MenuItemHandlerResult menuhandlerSelectPlayer(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -1851,8 +1854,8 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 	const s32 key = inputGetLastKey();
 	if (key && key != VK_ESCAPE) {
 		const s32 vk = (key == VK_DELETE) ? 0 : key;
-		if (g_BindScreenshot) {
-			screenshotSetKey(vk);
+		if (g_BindKeySetter) {
+			g_BindKeySetter(vk);
 		} else {
 			inputKeyBind(g_ExtMenuPlayer, g_BindContKey, g_BindIndex, vk);
 		}
@@ -1894,7 +1897,7 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)menuBinds[idx].name;
 		g_BindIndex = data->dropdown.value;
 		g_BindContKey = menuBinds[idx].ck;
-		g_BindScreenshot = 0;
+		g_BindKeySetter = NULL;
 		inputClearLastKey();
 		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
 		break;
@@ -2344,7 +2347,7 @@ static MenuItemHandlerResult menuhandlerModBind(s32 operation, struct menuitem *
 		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)modMenuBinds[idx].name;
 		g_BindIndex = data->dropdown.value;
 		g_BindContKey = modMenuBinds[idx].ck;
-		g_BindScreenshot = 0;
+		g_BindKeySetter = NULL;
 		inputClearLastKey();
 		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
 		break;
@@ -2356,18 +2359,111 @@ static MenuItemHandlerResult menuhandlerModBind(s32 operation, struct menuitem *
 }
 
 /**
+ * Recording: the key, what it writes, and whether the red dot goes on screen.
+ *
+ * Frame Rate and Quality are the two knobs worth a row. Everything else about
+ * the encode - the codec, the preset, the container - is fixed, because the
+ * point of the feature is a file that plays, and a menu that can produce one
+ * that does not is not doing anyone a favour. Mod.RecordEncoder in pd.ini names
+ * the ffmpeg to run, for anyone who keeps theirs somewhere unusual.
+ *
+ * The frame rate is the recording's, not the game's. A game frame that arrives
+ * early is not captured and one that arrives late is written twice, so the file
+ * runs at the speed the match was watched at whatever the game managed.
+ */
+static const s32 g_ModRecordFpsValues[] = { 24, 30, 60 };
+
+// libx264's CRF, low to high: lower is a bigger file and a better picture.
+static const s32 g_ModRecordQualityValues[] = { 28, 24, 21, 17 };
+
+static MenuItemHandlerResult menuhandlerModRecordFps(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "24", "30", "60" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return recordIsActive();
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		recordSetFps(g_ModRecordFpsValues[data->dropdown.value]);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_ModRecordFpsValues,
+				ARRAYCOUNT(g_ModRecordFpsValues), recordGetFps());
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModRecordQuality(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Small", "Medium", "Good", "Best" };
+	s32 i;
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return recordIsActive();
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		recordSetQuality(g_ModRecordQualityValues[data->dropdown.value]);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		// The values run downwards, so the shared preset search does not fit.
+		data->dropdown.value = 0;
+		for (i = 0; i < (s32)ARRAYCOUNT(g_ModRecordQualityValues); i++) {
+			if (recordGetQuality() <= g_ModRecordQualityValues[i]) {
+				data->dropdown.value = i;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModRecordIndicator(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return recordGetIndicator();
+	case MENUOP_SET:
+		recordSetIndicator(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * The screenshot key. One key rather than the four slots a controller bind has,
  * and no N64 name, because there is no controller button behind it: it is read
  * straight off the keyboard so that a menu or a cutscene can be shot too.
  */
-static const char *menutextModScreenshotBind(struct menuitem *item)
+static const struct {
+	const char *name;
+	s32 (*get)(void);
+	void (*set)(s32 vk);
+} modKeyBinds[] = {
+	{ "Screenshot\n",     screenshotGetKey, screenshotSetKey },
+	{ "Record Video\n",   recordGetKey,     recordSetKey     },
+};
+
+static const char *menutextModKeyBind(struct menuitem *item)
 {
-	return "Screenshot\n";
+	return modKeyBinds[item->param3].name;
 }
 
-static MenuItemHandlerResult menuhandlerModScreenshotBind(s32 operation, struct menuitem *item, union handlerdata *data)
+static MenuItemHandlerResult menuhandlerModKeyBind(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	const s32 vk = screenshotGetKey();
+	const s32 idx = item->param3;
+	const s32 vk = modKeyBinds[idx].get();
 
 	static char keyname[128];
 
@@ -2386,8 +2482,8 @@ static MenuItemHandlerResult menuhandlerModScreenshotBind(s32 operation, struct 
 		}
 		return (intptr_t)"NONE";
 	case MENUOP_SET:
-		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)menutextModScreenshotBind(item);
-		g_BindScreenshot = 1;
+		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)modKeyBinds[idx].name;
+		g_BindKeySetter = modKeyBinds[idx].set;
 		inputClearLastKey();
 		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
 		break;
@@ -2563,9 +2659,49 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		0,
-		(uintptr_t)menutextModScreenshotBind,
+		(uintptr_t)menutextModKeyBind,
 		0,
-		menuhandlerModScreenshotBind,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		1,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Recording Frame Rate",
+		0,
+		menuhandlerModRecordFps,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Recording Quality",
+		0,
+		menuhandlerModRecordQuality,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Recording Indicator",
+		0,
+		menuhandlerModRecordIndicator,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
