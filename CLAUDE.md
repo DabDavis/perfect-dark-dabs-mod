@@ -1,7 +1,7 @@
 # Perfect Dark port — simulant/mod fork
 
 Fork of the [fgsfdsfgs/perfect_dark](https://github.com/fgsfdsfgs/perfect_dark) port.
-`port` tracks upstream; work happens on `mod/more-simulants`.
+`port` tracks upstream; work happens on `mod/dabs-mod`.
 
 `git checkout port` returns to stock at any time.
 
@@ -107,6 +107,20 @@ Adding stages at runtime is constrained from several directions at once:
   allocation. Too small means `MEMPOOL_STAGE` exhaustion surfacing far from the cause.
 
 Only 27 ids are free below `STAGE_TITLE`.
+
+## The frame is presented before videoEndFrame()
+
+`gfx_run()` ends with `swap_buffers_begin()`, which is the `SDL_GL_SwapWindow()`
+call, so by the time `videoEndFrame()` runs the back buffer is already gone and
+reading it back gives garbage. Anything that needs the finished image hooks
+`videoSetPreSwapCallback()`, which fires inside `gfx_run()` with the frame drawn
+and not yet swapped. That is where the screenshot key reads its pixels.
+
+`gfx_current_window_dimensions` is `SDL_GL_GetDrawableSize()`, and under Xvfb
+with no window manager a fullscreen-desktop window reports the screen size while
+the X window stays 640x480. Reading a rect larger than the real drawable leaves
+those pixels undefined, which looks like heap garbage in the corner of the
+image - set `DefaultFullscreen=0` in pd.ini before trusting a headless capture.
 
 ## Mod directories
 

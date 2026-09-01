@@ -83,4 +83,13 @@ void gfx_set_framebuffer(int fb, float noise_scale) ;
 void gfx_reset_framebuffer(void);
 void gfx_copy_framebuffer(int fb_dst, int fb_src, int left, int top, int use_back);
 
+// Called once per frame with the frame drawn and not yet presented, which is
+// the only moment the finished image can be read back. NULL to unhook.
+typedef void (*GfxPreSwapCallback)(void);
+void gfx_set_pre_swap_callback(GfxPreSwapCallback cb);
+
+// Reads a rect of the window's back buffer into rgb as tightly packed RGB
+// triples, bottom row first. Only meaningful from a pre-swap callback.
+bool gfx_read_screen_pixels(int x, int y, int width, int height, void *rgb);
+
 #endif

@@ -1287,6 +1287,35 @@ void gfx_opengl_set_mipmap_filter(MipmapFilteringMode mode) {
     current_mipmap_filter_mode = mode;
 }
 
+// Reads the frame out of the window's back buffer. framebuffers[0] is the
+// default framebuffer, and it is what ends up on screen: the game draws into it
+// directly unless MSAA is on, in which case the multisampled buffer is resolved
+// into it just before the frame is presented.
+//
+// glReadPixels gives rows bottom-up. Rather than flip them here the caller is
+// told about it, because the one caller writing a PNG walks the rows anyway.
+static bool gfx_opengl_read_screen_pixels(int x, int y, int width, int height, void *rgb) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+
+    GLint prevalign = 4;
+    glGetIntegerv(GL_PACK_ALIGNMENT, &prevalign);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
+    while (glGetError() != GL_NO_ERROR) {
+        // drain anything that was already pending, so the check below is ours
+    }
+
+    glReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, rgb);
+
+    const bool ok = (glGetError() == GL_NO_ERROR);
+
+    glPixelStorei(GL_PACK_ALIGNMENT, prevalign);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffers[current_framebuffer].fbo);
+
+    return ok;
+}
+
 static int gfx_opengl_get_max_anisotropy_level() {
 	GLfloat max_aniso_level;
 	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max_aniso_level);
@@ -1335,5 +1364,6 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_get_texture_filter,
     gfx_opengl_set_mipmap_filter,
     gfx_opengl_set_anisotropy_level,
-    gfx_opengl_get_max_anisotropy_level
+    gfx_opengl_get_max_anisotropy_level,
+    gfx_opengl_read_screen_pixels
 };

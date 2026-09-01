@@ -56,6 +56,9 @@ struct GfxRenderingAPI {
     void (*set_mipmap_filter)(enum MipmapFilteringMode mode);
 	void (*set_anisotropy_level)(int);
 	int (*get_max_anisotropy_level)(void);
+    // Reads a rect of the window's back buffer into rgb as tightly packed RGB
+    // triples, bottom row first. Only valid before the frame is presented.
+    bool (*read_screen_pixels)(int x, int y, int width, int height, void *rgb);
 };
 
 #endif

@@ -30,6 +30,8 @@ s32 videoGetNativeHeight(void);
 
 s32 videoGetWidth(void);
 s32 videoGetHeight(void);
+s32 videoGetWindowWidth(void);
+s32 videoGetWindowHeight(void);
 f32 videoGetAspect(void);
 s32 videoGetFullscreen(void);
 s32 videoGetFullscreenMode(void);
@@ -75,6 +77,13 @@ void videoResetFramebuffer(void);
 void videoCopyFramebuffer(s32 dst, s32 src, s32 left, s32 top);
 void videoResizeFramebuffer(s32 target, u32 w, u32 h, s32 upscale, s32 autoresize);
 s32 videoFramebuffersSupported(void);
+
+// Called once per frame with the frame drawn and not yet presented. NULL to unhook.
+void videoSetPreSwapCallback(void (*cb)(void));
+
+// Reads the window's back buffer into rgb as tightly packed RGB triples, bottom
+// row first. Only meaningful from the pre-swap callback above.
+s32 videoReadScreenPixels(void *rgb, s32 width, s32 height);
 
 void videoResetTextureCache(void);
 void videoFreeCachedTexture(const void *texptr);

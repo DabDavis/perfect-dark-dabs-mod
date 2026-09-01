@@ -206,6 +206,30 @@ s32 videoGetHeight(void)
 	return gfx_current_dimensions.height;
 }
 
+s32 videoGetWindowWidth(void)
+{
+	return gfx_current_window_dimensions.width;
+}
+
+s32 videoGetWindowHeight(void)
+{
+	return gfx_current_window_dimensions.height;
+}
+
+void videoSetPreSwapCallback(void (*cb)(void))
+{
+	gfx_set_pre_swap_callback(cb);
+}
+
+s32 videoReadScreenPixels(void *rgb, s32 width, s32 height)
+{
+	if (!initDone || width <= 0 || height <= 0) {
+		return false;
+	}
+
+	return gfx_read_screen_pixels(0, 0, width, height, rgb);
+}
+
 s32 videoGetFullscreen(void)
 {
 	vidFullscreen = wmAPI->get_fullscreen_state();

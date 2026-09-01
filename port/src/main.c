@@ -18,6 +18,7 @@
 #include "fs.h"
 #include "modloader.h"
 #include "romdata.h"
+#include "screenshot.h"
 #include "config.h"
 #include "mod.h"
 #include "system.h"
@@ -117,6 +118,7 @@ int main(int argc, const char **argv)
 	configInit();
 	videoInit();
 	inputInit();
+	screenshotInit();
 	audioInit();
 	romdataInit();
 	modloaderInit();

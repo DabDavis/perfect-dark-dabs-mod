@@ -284,6 +284,7 @@ static int game_framebuffer_msaa_resolved;
 uint32_t gfx_msaa_level = 1;
 
 static bool dropped_frame;
+static GfxPreSwapCallback gfx_pre_swap_callback;
 
 static float buf_vbo[MAX_BUFFERED * (32 * 3)]; // 3 vertices in a triangle and 32 floats per vtx
 static size_t buf_vbo_len;
@@ -3118,7 +3119,25 @@ extern "C" void gfx_run(Gfx* commands) {
     }
 
     gfx_rapi->end_frame();
+
+    // Last chance to read the frame back: swap_buffers_begin() presents it and
+    // leaves the back buffer undefined.
+    if (gfx_pre_swap_callback) {
+        gfx_pre_swap_callback();
+    }
+
     gfx_wapi->swap_buffers_begin();
+}
+
+extern "C" void gfx_set_pre_swap_callback(GfxPreSwapCallback cb) {
+    gfx_pre_swap_callback = cb;
+}
+
+extern "C" bool gfx_read_screen_pixels(int x, int y, int width, int height, void *rgb) {
+    if (!gfx_rapi || !gfx_rapi->read_screen_pixels) {
+        return false;
+    }
+    return gfx_rapi->read_screen_pixels(x, y, width, height, rgb);
 }
 
 extern "C" void gfx_end_frame(void) {

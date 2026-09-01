@@ -16,12 +16,17 @@
 #include "video.h"
 #include "input.h"
 #include "config.h"
+#include "screenshot.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
 
 static s32 g_BindIndex = 0;
 static u32 g_BindContKey = 0;
+
+// The bind dialog is shared. The screenshot key is not a controller button, so
+// the row that opened the dialog says which of the two the pressed key goes to.
+static s32 g_BindScreenshot = 0;
 
 static MenuItemHandlerResult menuhandlerSelectPlayer(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -1845,7 +1850,12 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 
 	const s32 key = inputGetLastKey();
 	if (key && key != VK_ESCAPE) {
-		inputKeyBind(g_ExtMenuPlayer, g_BindContKey, g_BindIndex, (key == VK_DELETE ? 0 : key));
+		const s32 vk = (key == VK_DELETE) ? 0 : key;
+		if (g_BindScreenshot) {
+			screenshotSetKey(vk);
+		} else {
+			inputKeyBind(g_ExtMenuPlayer, g_BindContKey, g_BindIndex, vk);
+		}
 		menuPopDialog();
 	}
 
@@ -1884,6 +1894,7 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)menuBinds[idx].name;
 		g_BindIndex = data->dropdown.value;
 		g_BindContKey = menuBinds[idx].ck;
+		g_BindScreenshot = 0;
 		inputClearLastKey();
 		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
 		break;
@@ -2333,6 +2344,50 @@ static MenuItemHandlerResult menuhandlerModBind(s32 operation, struct menuitem *
 		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)modMenuBinds[idx].name;
 		g_BindIndex = data->dropdown.value;
 		g_BindContKey = modMenuBinds[idx].ck;
+		g_BindScreenshot = 0;
+		inputClearLastKey();
+		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = 0;
+	}
+
+	return 0;
+}
+
+/**
+ * The screenshot key. One key rather than the four slots a controller bind has,
+ * and no N64 name, because there is no controller button behind it: it is read
+ * straight off the keyboard so that a menu or a cutscene can be shot too.
+ */
+static const char *menutextModScreenshotBind(struct menuitem *item)
+{
+	return "Screenshot\n";
+}
+
+static MenuItemHandlerResult menuhandlerModScreenshotBind(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const s32 vk = screenshotGetKey();
+
+	static char keyname[128];
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 1;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		if (vk > 0) {
+			strncpy(keyname, inputGetKeyName(vk), sizeof(keyname) - 1);
+			keyname[sizeof(keyname) - 1] = '\0';
+			for (char *p = keyname; *p; ++p) {
+				if (*p == '_') *p = ' ';
+			}
+			return (intptr_t)keyname;
+		}
+		return (intptr_t)"NONE";
+	case MENUOP_SET:
+		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)menutextModScreenshotBind(item);
+		g_BindScreenshot = 1;
 		inputClearLastKey();
 		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
 		break;
@@ -2503,6 +2558,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)menutextModBind,
 		2,
 		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModScreenshotBind,
+		0,
+		menuhandlerModScreenshotBind,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
