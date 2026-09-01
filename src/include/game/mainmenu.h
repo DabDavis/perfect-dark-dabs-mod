@@ -7,6 +7,10 @@
 extern u16 g_ControlStyleOptions[];
 
 extern struct menudialogdef g_AcceptMissionMenuDialog;
+extern struct menudialogdef g_SelectMissionMenuDialog;
+#ifndef PLATFORM_N64
+extern struct menudialogdef g_GhostTrialsMenuDialog;
+#endif
 extern struct menudialogdef g_PreAndPostMissionBriefingMenuDialog;
 extern struct menudialogdef g_RetryMissionMenuDialog;
 extern struct menudialogdef g_NextMissionMenuDialog;

@@ -7,6 +7,7 @@
 #include "game/bondwalk.h"
 #include "game/cheats.h"
 #include "game/modspectate.h"
+#include "game/modghost.h"
 #include "game/chraction.h"
 #include "game/footstep.h"
 #include "game/game_006900.h"
@@ -2457,6 +2458,14 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 			}
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// Take the ghost's sample of this frame. At the end of the movement tick
+	// because the position it stores has to be the one the walk settled on,
+	// not the one it started from - a sample taken earlier would replay the
+	// run a frame behind where it was.
+	modGhostRecordSample();
+#endif
 }
 
 void bmoveUpdateVerta(void)

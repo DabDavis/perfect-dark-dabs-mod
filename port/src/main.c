@@ -6,6 +6,8 @@
 
 #include "lib/main.h"
 #include "game/modoptions.h"
+#include "game/modghost.h"
+#include "ghostnet.h"
 #include "game/modspectate.h"
 #include "game/mplayer/mplayer.h"
 #include "bss.h"
@@ -123,6 +125,7 @@ int main(int argc, const char **argv)
 	inputInit();
 	screenshotInit();
 	recordInit();
+	ghostnetInit();
 	audioInit();
 	romdataInit();
 	modloaderInit();
@@ -221,6 +224,20 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.BodiesDrawn", &g_ModOptions.bodiesdrawn, MODBODIESDRAWN_ALL, MODBODIESDRAWN_MAX);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);
 	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);
+	configRegisterInt("Mod.GhostTimeTrial", &g_ModGhostMode, MODGHOST_OFF, MODGHOST_RACE);
+	configRegisterInt("Mod.GhostOpponent", &g_ModGhostPick, MODGHOSTPICK_FASTEST, MODGHOSTPICK_MINE);
+	configRegisterInt("Mod.GhostVisibility", &g_ModGhostAlpha, 8, 254);
+	configRegisterInt("Mod.GhostSplitTimes", &g_ModGhostSplits, 0, 1);
+	configRegisterInt("Mod.GhostRacers", &g_ModGhostMaxRacers, 1, MODGHOST_MAXRACERS);
+
+	// The leaderboard account. The PIN is stored as typed, which is what a PIN
+	// with no password behind it amounts to - it is a claim on a name on a
+	// game leaderboard, not a credential worth protecting on disk. It travels
+	// over TLS and the server rate limits guesses, which is where the actual
+	// protection is.
+	configRegisterString("Mod.GhostUser", g_GhostNetUser, GHOSTNET_MAXUSER);
+	configRegisterString("Mod.GhostPin", g_GhostNetPin, GHOSTNET_MAXPIN);
+	configRegisterString("Mod.GhostServer", g_GhostNetUrl, sizeof(g_GhostNetUrl) - 1);
 
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;

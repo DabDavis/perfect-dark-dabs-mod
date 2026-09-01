@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modghost.h"
 #include "game/bossfile.h"
 #include "game/cheats.h"
 #include "game/game_006900.h"
@@ -1558,6 +1559,14 @@ void endscreenPrepare(void)
 				if (secs < prevbest || prevbest == 0) {
 					g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty] = secs;
 				}
+
+#ifndef PLATFORM_N64
+				// Write the ghost out under the conditions that already decide
+				// whether a run counts. A time trial's ghost is the pace
+				// everything else is measured against, so a run that was not
+				// allowed to set a time is not allowed to set that either.
+				modGhostSaveRun();
+#endif
 #else
 				prevbest = g_GameFile.besttimes[g_MissionConfig.stageindex][g_MissionConfig.difficulty];
 

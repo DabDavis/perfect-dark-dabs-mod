@@ -224,6 +224,21 @@ list(APPEND LIBS "${SDL2_LIBRARY}")
 
 # ZLib
 find_package(ZLIB REQUIRED)
+
+# libcurl is optional. It is what makes the ghost server reachable over TLS,
+# and reimplementing that is not on the table - but it is also a dependency the
+# Windows package would have to carry, so a build without it still compiles and
+# the ghost network menus say the feature is not built in.
+find_package(CURL QUIET)
+
+if(CURL_FOUND)
+  message(STATUS "libcurl found - ghost server support enabled")
+  add_definitions(-DPD_HAVE_CURL)
+  include_directories(SYSTEM ${CURL_INCLUDE_DIRS})
+  list(APPEND LIBS ${CURL_LIBRARIES})
+else()
+  message(STATUS "libcurl not found - ghost server support disabled")
+endif()
 if(ZLIB_INCLUDE_DIR)
   include_directories(SYSTEM "${ZLIB_INCLUDE_DIR}")
 endif()

@@ -10,7 +10,18 @@
 
 #define CONFIG_MAX_SECNAME 128
 #define CONFIG_MAX_KEYNAME 256
-#define CONFIG_MAX_SETTINGS 300
+/**
+ * The table every configurable setting registers into.
+ *
+ * Raised from 300, which the fork's own settings had exactly filled: every
+ * registration past the limit is dropped with a warning, so the settings that
+ * lost were whichever happened to register last - the per player block at the
+ * end of gameConfigInit(). Losing a registration is quiet in the way that
+ * matters, because a setting that never registered is simply not read from
+ * pd.ini and not written back to it, and looks like one that will not stay
+ * changed.
+ */
+#define CONFIG_MAX_SETTINGS 512
 
 typedef enum {
 	CFG_NONE,

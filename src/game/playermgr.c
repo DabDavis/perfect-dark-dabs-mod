@@ -5,6 +5,7 @@
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/modspectate.h"
+#include "game/modghost.h"
 #include "game/propobj.h"
 #include "bss.h"
 #include "lib/memp.h"
@@ -663,6 +664,11 @@ void playermgrAllocatePlayer(s32 index)
 	// world visible and colliding, holding a saved bondvisible from a stage
 	// that is gone and a perimeter it disabled on a prop that no longer exists.
 	modSpectateReset();
+
+	// Same reasoning, for the ghost: its body was built out of the stage pool
+	// that has just gone, and the run it was recording belongs to the stage
+	// that has just ended.
+	modGhostReset();
 }
 
 void playermgrCalculateAiBuddyNums(void)

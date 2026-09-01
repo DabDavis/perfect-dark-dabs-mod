@@ -11,6 +11,7 @@
 #include "game/gamefile.h"
 #include "game/player.h"
 #include "game/modoptions.h"
+#include "game/modghost.h"
 #include "game/modspectate.h"
 #include "lib/joy.h"
 #include "video.h"
@@ -2468,6 +2469,104 @@ static MenuItemHandlerResult menuhandlerModRecordIndicator(s32 operation, struct
 }
 
 /**
+ * Ghost Time Trial.
+ *
+ * Recording is on in both of the modes that are not off, because a run is only
+ * worth keeping once it has turned out to be a good one, and by then it has
+ * been played. The choice the player is really making here is whether they
+ * want someone in front of them while they do it.
+ */
+static MenuItemHandlerResult menuhandlerModGhost(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Record Only", "Record + Race" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModGhostMode = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModGhostMode;
+	}
+
+	return 0;
+}
+
+/**
+ * Whose ghost gets raced, out of the ones in the ghosts directory for this
+ * stage and difficulty.
+ *
+ * Fastest is the leaderboard answer: drop somebody's run in the directory and
+ * it is what you are chasing if it is better than yours. My Best is for the
+ * days when that is not a useful thing to be chasing.
+ */
+static MenuItemHandlerResult menuhandlerModGhostPick(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Fastest Available", "My Best Only" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModGhostMode != MODGHOST_RACE;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModGhostPick = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModGhostPick;
+	}
+
+	return 0;
+}
+
+static const s32 g_ModGhostAlphaValues[] = { 60, 110, 170, 230 };
+
+static MenuItemHandlerResult menuhandlerModGhostAlpha(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Faint", "Normal", "Strong", "Solid" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModGhostMode != MODGHOST_RACE;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModGhostAlpha = g_ModGhostAlphaValues[data->dropdown.value];
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_ModGhostAlphaValues,
+				ARRAYCOUNT(g_ModGhostAlphaValues), g_ModGhostAlpha);
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModGhostSplits(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModGhostMode != MODGHOST_RACE;
+	case MENUOP_GET:
+		return g_ModGhostSplits;
+	case MENUOP_SET:
+		g_ModGhostSplits = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * The screenshot key. One key rather than the four slots a controller bind has,
  * and no N64 name, because there is no controller button behind it: it is read
  * straight off the keyboard so that a menu or a cutscene can be shot too.
@@ -2704,6 +2803,46 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)menutextModKeyBind,
 		1,
 		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Time Trial",
+		0,
+		menuhandlerModGhost,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Opponent",
+		0,
+		menuhandlerModGhostPick,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Visibility",
+		0,
+		menuhandlerModGhostAlpha,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Split Times",
+		0,
+		menuhandlerModGhostSplits,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

@@ -1,0 +1,1187 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <PR/ultratypes.h>
+#include "platform.h"
+#include "data.h"
+#include "types.h"
+#include "game/mainmenu.h"
+#include "game/menu.h"
+#include "bss.h"
+#include "game/modghost.h"
+#include "config.h"
+#include "ghostnet.h"
+#include "game/lang.h"
+
+/**
+ * Ghost Trials - the ghost feature's own corner of the main menu.
+ *
+ * Everything here was reachable before through Dab's Mod Options and a mission
+ * started the ordinary way, which is fine for a setting and wrong for a mode.
+ * A time trial is a way of playing the game rather than a preference about it,
+ * so it gets a door next to the one marked Solo Missions.
+ *
+ * Ghost Mission does not clone the mission select. It arms the trial and then
+ * pushes the same dialog the stock Solo Missions item pushes, so the mission
+ * list, the difficulty, the briefing, the accept screen and every unlock rule
+ * behind them are the ones the game already has. A copy of that flow would be
+ * a second place for those rules to be wrong.
+ */
+
+static char g_GhostRowText[96];
+
+/**
+ * Start a mission as a trial: recording on whatever the global setting says.
+ *
+ * The arming is a flag rather than a write to g_ModGhostMode, because the mode
+ * is saved to pd.ini. Coming in through this door for one mission should not
+ * leave every later mission recording, and the stock Solo Missions item
+ * disarms it on the way past for exactly that reason.
+ */
+static MenuItemHandlerResult menuhandlerGhostMission(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		g_MissionConfig.iscoop = false;
+		g_MissionConfig.isanti = false;
+
+		modGhostArmTrial();
+		menuPushDialog(&g_SelectMissionMenuDialog);
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostRacers(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = MODGHOST_MAXRACERS;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%d", (s32)data->dropdown.value + 1);
+		return (intptr_t)g_GhostRowText;
+	case MENUOP_SET:
+		g_ModGhostMaxRacers = data->dropdown.value + 1;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModGhostMaxRacers - 1;
+	}
+
+	return 0;
+}
+
+/**
+ * Off, or on with or without a field to chase.
+ *
+ * The run is recorded in both of the on modes, so the choice here is only
+ * whether anybody is in front of you while you set it. Racing does not turn
+ * recording off, because the run worth keeping is usually the one raced, and a
+ * mode that watched a good run go past without writing it down would be a trap
+ * rather than a setting. The labels say so rather than leaving Record Runs and
+ * Race Ghosts looking like alternatives.
+ */
+static MenuItemHandlerResult menuhandlerGhostMode(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Record Only", "Record + Race" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModGhostMode = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModGhostMode;
+	}
+
+	return 0;
+}
+
+/**
+ * Which ghosts make up the field.
+ *
+ * Fastest and My Best pick themselves from whatever is on disk and need no
+ * upkeep. Chosen races exactly what was ticked in the chooser, which is the
+ * one that lets a downloaded run be raced against your own on purpose rather
+ * than because it happened to be quick.
+ */
+static MenuItemHandlerResult menuhandlerGhostPick(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Fastest Available", "My Best Only", "Chosen Ghosts" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModGhostPick = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModGhostPick;
+	}
+
+	return 0;
+}
+
+static const s32 g_GhostAlphaValues[] = { 60, 110, 170, 230 };
+
+static MenuItemHandlerResult menuhandlerGhostAlpha(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Faint", "Normal", "Strong", "Solid" };
+	s32 i;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModGhostAlpha = g_GhostAlphaValues[data->dropdown.value];
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = 0;
+
+		for (i = 0; i < (s32)ARRAYCOUNT(g_GhostAlphaValues); i++) {
+			if (g_ModGhostAlpha >= g_GhostAlphaValues[i]) {
+				data->dropdown.value = i;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostSplits(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModGhostSplits;
+	case MENUOP_SET:
+		g_ModGhostSplits = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * The chooser: every ghost on disk, ticked or not.
+ *
+ * A list rather than a page of checkboxes because the number of them is not
+ * known until the directory is read, and the menu item tables here are static.
+ * MENUITEMTYPE_LIST is the game's own answer to that - it asks the handler how
+ * many rows there are and what each one says, which is exactly the shape of a
+ * directory listing.
+ *
+ * Selecting a row toggles it. Ten is the ceiling and an eleventh is refused
+ * rather than pushing one out, so the row simply does not change and the
+ * counter above it explains why.
+ */
+static MenuItemHandlerResult menuhandlerGhostChooser(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct modghostentry *entry;
+	static const char *diffs[] = { "A", "SA", "PA" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->list.value = modGhostGetCatalogueCount();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		entry = modGhostGetCatalogueEntry(data->list.value);
+
+		if (entry == NULL) {
+			return (intptr_t)"";
+		}
+
+		// Bounded rather than trusted: the stage name comes from the ROM but
+		// the player name came out of a file that may have been written
+		// anywhere, and a row wide enough to push the dialog off screen is a
+		// thing a downloaded ghost should not be able to do.
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c %.18s %-2s %d:%02d %.10s",
+				entry->chosen ? '*' : '-',
+				modGhostStageName(entry->stagenum),
+				entry->difficulty < 3 ? diffs[entry->difficulty] : "?",
+				entry->time60 / 3600, (entry->time60 / 60) % 60,
+				entry->player);
+
+		return (intptr_t)g_GhostRowText;
+	case MENUOP_SET:
+		modGhostToggleChosen(data->list.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->list.value = 0xfffff;
+		break;
+	}
+
+	return 0;
+}
+
+static char *menutextGhostChosenCount(struct menuitem *item)
+{
+	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%d of %d chosen - A to toggle\n",
+			modGhostGetNumChosen(), MODGHOST_MAXRACERS);
+
+	return g_GhostRowText;
+}
+
+static MenuDialogHandlerResult menudialogGhostChooser(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	// Read the directory when the page opens rather than every frame: it is a
+	// header read per file, and nothing changes it while the page is up.
+	if (operation == MENUOP_OPEN) {
+		modGhostScanCatalogue();
+	}
+
+	return 0;
+}
+
+struct menuitem g_GhostChooserMenuItems[] = {
+	{
+		// No MENUITEMFLAG_LITERAL_TEXT: that flag says param2 is a string, and
+		// this one is a function that builds the string. menuResolveText()
+		// calls anything above 0x5a00 that is not marked literal, which is the
+		// only way a row can say something that changes.
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostChosenCount,
+		0,
+		NULL,
+	},
+	{
+		// param2 is the list width in menu units. The default of 80 clips a
+		// row that names a stage, a difficulty, a time and a player.
+		MENUITEMTYPE_LIST,
+		0,
+		0,
+		0x000000c8,
+		0,
+		menuhandlerGhostChooser,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostChooserMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Choose Ghosts",
+	g_GhostChooserMenuItems,
+	menudialogGhostChooser,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * My Ghosts: everything in the ghosts directory, whoever ran it.
+ *
+ * The chooser next door answers "which of these do I want to race" and is
+ * therefore about ticks. This page answers "what have I got", which is a
+ * different question now that every finished run is kept rather than only the
+ * one that beat the last: a stage you have practised is a column of your own
+ * attempts, and a run somebody sent you is in among them.
+ *
+ * So the name goes on every row. Stage, difficulty and time no longer identify
+ * a run - two of yours can share all three across a retry, and a downloaded
+ * one can land on top of a time of your own - and a list that cannot tell
+ * whose a ghost is would show the same row twice with no way to read it. The
+ * time carries hundredths for the same reason: whole seconds tie too often
+ * between attempts at the same route.
+ *
+ * It is also where ghosts get thrown away. Keeping every run is what makes the
+ * directory grow, so the page that shows the growth is the page that trims it.
+ * A is a delete and deletes are not undoable, so the first press arms the row
+ * and the second one does it: a confirmation that costs a keypress rather than
+ * a dialog, in a list where the player is holding A to move through rows.
+ */
+static s32 g_GhostMineArmed = -1;
+
+static bool menuIsMyGhost(const struct modghostentry *entry)
+{
+	const char *mine = g_GameFile.name[0] ? g_GameFile.name : "player";
+
+	return strncmp(entry->player, mine, MODGHOST_NAMELEN) == 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostMine(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct modghostentry *entry;
+	static const char *diffs[] = { "A", "SA", "PA" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->list.value = modGhostGetCatalogueCount();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		entry = modGhostGetCatalogueEntry(data->list.value);
+
+		if (entry == NULL) {
+			return (intptr_t)"";
+		}
+
+		// Bounded the same way the chooser bounds it: the stage name comes
+		// from the ROM, the player name came out of a file that may have been
+		// written anywhere, and a row wide enough to push the dialog off
+		// screen is not something a downloaded ghost gets to do.
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c %.16s %-2s %d:%02d.%02d %.12s",
+				(s32)data->list.value == g_GhostMineArmed ? '!' : ' ',
+				modGhostStageName(entry->stagenum),
+				entry->difficulty < 3 ? diffs[entry->difficulty] : "?",
+				entry->time60 / 3600, (entry->time60 / 60) % 60,
+				(entry->time60 % 60) * 100 / 60,
+				entry->player);
+
+		return (intptr_t)g_GhostRowText;
+	case MENUOP_SET:
+		if ((s32)data->list.value == g_GhostMineArmed) {
+			modGhostDeleteCatalogueEntry(g_GhostMineArmed);
+			g_GhostMineArmed = -1;
+		} else {
+			g_GhostMineArmed = data->list.value;
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->list.value = 0xfffff;
+		break;
+	}
+
+	return 0;
+}
+
+static char *menutextGhostMineCount(struct menuitem *item)
+{
+	// Its own buffer rather than the row one: the label and the rows are
+	// resolved by the same pass over the page, and a count that shares storage
+	// with the row text is a count that reads as a ghost.
+	static char text[96];
+
+	s32 count = modGhostGetCatalogueCount();
+	s32 mine = 0;
+	s32 i;
+
+	for (i = 0; i < count; i++) {
+		struct modghostentry *entry = modGhostGetCatalogueEntry(i);
+
+		if (entry && menuIsMyGhost(entry)) {
+			mine++;
+		}
+	}
+
+	// Both lines are kept inside the width the dialog gets from the list under
+	// them. The unarmed one said "from others" and "deletes one" until the
+	// last two characters of it were drawn over the border.
+	if (g_GhostMineArmed >= 0 && g_GhostMineArmed < count) {
+		snprintf(text, sizeof(text), "A again deletes the marked run - B to leave it\n");
+	} else {
+		snprintf(text, sizeof(text), "%d here: %d yours, %d others - A twice deletes\n",
+				count, mine, count - mine);
+	}
+
+	return text;
+}
+
+static MenuDialogHandlerResult menudialogGhostMine(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	// Read on open, like the chooser: a header read per file, and the
+	// directory only changes here, from a delete that rescans as it goes.
+	//
+	// Nothing is armed on the way in. Leaving the page and coming back is how
+	// a player takes back a press they did not mean, and an arm that survived
+	// that would turn the next A into a delete of whatever row had inherited
+	// the index.
+	if (operation == MENUOP_OPEN) {
+		g_GhostMineArmed = -1;
+		modGhostScanCatalogue();
+	}
+
+	return 0;
+}
+
+struct menuitem g_GhostMineMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostMineCount,
+		0,
+		NULL,
+	},
+	{
+		// Same width as the chooser: a row names a stage, a difficulty, a time
+		// and a player, and the default of 80 clips it.
+		MENUITEMTYPE_LIST,
+		0,
+		0,
+		0x000000c8,
+		0,
+		menuhandlerGhostMine,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostMineMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"My Ghosts",
+	g_GhostMineMenuItems,
+	menudialogGhostMine,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+struct menuitem g_GhostOptionsMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Time Trial",
+		0,
+		menuhandlerGhostMode,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghosts Raced At Once",
+		0,
+		menuhandlerGhostRacers,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Field",
+		0,
+		menuhandlerGhostPick,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Choose Ghosts...\n",
+		0,
+		(void *)&g_GhostChooserMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Visibility",
+		0,
+		menuhandlerGhostAlpha,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Split Times",
+		0,
+		menuhandlerGhostSplits,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostOptionsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Options",
+	g_GhostOptionsMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+
+/**
+ * The leaderboard account.
+ *
+ * A username and a PIN, no password, and the server keeps usernames unique -
+ * so signing in on a second machine is typing the same two things rather than
+ * moving a file about. Both are kept in pd.ini; see the note where they are
+ * registered for why a PIN is written there as typed.
+ */
+static char g_GhostAccountMsg[128];
+
+static char *menutextGhostAccountStatus(struct menuitem *item)
+{
+	s32 state = ghostnetGetState();
+
+	if (!ghostnetIsAvailable()) {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Network support is not built into this copy.\n");
+	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
+	} else if (ghostnetHasAccount()) {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Signed in as %s\n", g_GhostNetUser);
+	} else {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Pick a name and a PIN, then Create Account.\n");
+	}
+
+	return g_GhostAccountMsg;
+}
+
+/**
+ * The name, edited on the game's own on screen keyboard.
+ *
+ * handlerdata.keyboard.string is a pointer to the menu's editing buffer, not
+ * the buffer itself, so the length has to be named: sizeof() on it is the size
+ * of a pointer and silently cuts the name to seven characters. The buffer it
+ * points at is char[MPSETUP_MAXNAME + 1], which is shorter than a name the
+ * server would accept, so this is also what keeps a long name out of the
+ * fields that follow it in the menu data.
+ */
+static MenuItemHandlerResult menuhandlerGhostUser(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETTEXT:
+		snprintf(data->keyboard.string, MPSETUP_MAXNAME + 1, "%s", g_GhostNetUser);
+		break;
+	case MENUOP_SETTEXT:
+		snprintf(g_GhostNetUser, sizeof(g_GhostNetUser), "%s", data->keyboard.string);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostPin(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETTEXT:
+		snprintf(data->keyboard.string, MPSETUP_MAXNAME + 1, "%s", g_GhostNetPin);
+		break;
+	case MENUOP_SETTEXT:
+		snprintf(g_GhostNetPin, sizeof(g_GhostNetPin), "%s", data->keyboard.string);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostCreate(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !ghostnetIsAvailable() || !ghostnetHasAccount()
+			|| ghostnetGetState() == GHOSTNET_BUSY;
+	case MENUOP_SET:
+		ghostnetRegister();
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostSignIn(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !ghostnetIsAvailable() || !ghostnetHasAccount()
+			|| ghostnetGetState() == GHOSTNET_BUSY;
+	case MENUOP_SET:
+		ghostnetLogin();
+		break;
+	}
+
+	return 0;
+}
+
+static MenuDialogHandlerResult menudialogGhostAccount(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	// Whatever the last request said belongs to the last time the page was
+	// open. Clearing it means the status line reads as the state of the
+	// account rather than as the outcome of something the player has
+	// forgotten doing.
+	if (operation == MENUOP_OPEN) {
+		ghostnetClearState();
+	}
+
+	return 0;
+}
+
+static char *menutextGhostName(struct menuitem *item)
+{
+	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "Name: %s\n",
+			g_GhostNetUser[0] ? g_GhostNetUser : "(not set)");
+
+	return g_GhostRowText;
+}
+
+static char *menutextGhostPinRow(struct menuitem *item)
+{
+	// Shown as dots. It is a four digit PIN on a game leaderboard rather than
+	// a secret worth much, but a page you might be streaming should not put it
+	// on screen.
+	char dots[GHOSTNET_MAXPIN + 1];
+	u32 len = strlen(g_GhostNetPin);
+	u32 i;
+
+	if (len > GHOSTNET_MAXPIN) {
+		len = GHOSTNET_MAXPIN;
+	}
+
+	for (i = 0; i < len; i++) {
+		dots[i] = '*';
+	}
+
+	dots[len] = '\0';
+
+	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "PIN: %s\n",
+			len ? dots : "(not set)");
+
+	return g_GhostRowText;
+}
+
+/**
+ * The name and the PIN each get a page of their own.
+ *
+ * Both on one page is what this started as, and the game's on screen keyboard
+ * is tall enough that two of them pushed Create Account, Sign In and Back off
+ * the bottom of the dialog with no way to reach them. One keyboard per page is
+ * also how the file manager does renaming.
+ */
+struct menuitem g_GhostNameMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"3-20 characters: letters, digits, _ . -\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_KEYBOARD,
+		0,
+		0,
+		0,
+		0,
+		menuhandlerGhostUser,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostNameMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Account Name",
+	g_GhostNameMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+struct menuitem g_GhostPinMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"4-8 digits\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_KEYBOARD,
+		0,
+		0,
+		0,
+		0,
+		menuhandlerGhostPin,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostPinMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Account PIN",
+	g_GhostPinMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+struct menuitem g_GhostAccountMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostAccountStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
+		(uintptr_t)&menutextGhostName,
+		0,
+		(void *)&g_GhostNameMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
+		(uintptr_t)&menutextGhostPinRow,
+		0,
+		(void *)&g_GhostPinMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Create Account\n",
+		0,
+		menuhandlerGhostCreate,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Sign In\n",
+		0,
+		menuhandlerGhostSignIn,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostAccountMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Account",
+	g_GhostAccountMenuItems,
+	menudialogGhostAccount,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * Ghost Share: publish what you have set.
+ *
+ * One button rather than a file picker. The server keeps one run per player
+ * per mission per difficulty and refuses anything slower than what it already
+ * has, so sending everything is both cheap and idempotent - and "publish my
+ * times" is the only thing anybody actually wants from this page.
+ */
+static MenuItemHandlerResult menuhandlerGhostUpload(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !ghostnetIsAvailable() || !ghostnetHasAccount()
+			|| ghostnetGetState() == GHOSTNET_BUSY;
+	case MENUOP_SET:
+		ghostnetUploadMine();
+		break;
+	}
+
+	return 0;
+}
+
+static MenuDialogHandlerResult menudialogGhostShare(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		ghostnetClearState();
+	}
+
+	return 0;
+}
+
+struct menuitem g_GhostShareMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostAccountStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Upload My Ghosts\n",
+		0,
+		menuhandlerGhostUpload,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Account...\n",
+		0,
+		(void *)&g_GhostAccountMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostShareMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Share",
+	g_GhostShareMenuItems,
+	menudialogGhostShare,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * Leaderboards: the top hundred for one mission and difficulty.
+ *
+ * Which mission is a dropdown over the solo stage table rather than a guess
+ * from context, because this page is reached from the main menu where there is
+ * no mission in progress to guess from.
+ *
+ * Changing either dropdown drops the rows it was showing but does not go and
+ * get new ones: a dropdown is scrolled through on the way to the entry the
+ * player wanted, and fetching at every step would be twenty requests to answer
+ * one question. Load Times is the request.
+ */
+static s32 g_GhostBoardStageIndex = 0;
+static s32 g_GhostBoardDiff = 0;
+
+static MenuItemHandlerResult menuhandlerGhostBoardStage(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = NUM_SOLOSTAGES;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)langGet(g_SoloStages[data->dropdown.value].name3);
+	case MENUOP_SET:
+		g_GhostBoardStageIndex = data->dropdown.value;
+		ghostnetClearBoard();
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_GhostBoardStageIndex;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostBoardDiff(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Agent", "Special Agent", "Perfect Agent" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_GhostBoardDiff = data->dropdown.value;
+		ghostnetClearBoard();
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_GhostBoardDiff;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostBoard(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct ghostboardentry *entry;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->list.value = ghostnetGetBoardCount();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		entry = ghostnetGetBoardEntry(data->list.value);
+
+		if (entry == NULL) {
+			return (intptr_t)"";
+		}
+
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%2d. %d:%02d.%02d  %.14s",
+				(s32)data->list.value + 1,
+				entry->time60 / 3600, (entry->time60 / 60) % 60,
+				(entry->time60 % 60) * 100 / 60,
+				entry->user);
+
+		return (intptr_t)g_GhostRowText;
+	case MENUOP_SET:
+		// Selecting a time downloads the run that set it.
+		ghostnetDownload(data->list.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->list.value = 0xfffff;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostBoardLoad(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !ghostnetIsAvailable() || ghostnetGetState() == GHOSTNET_BUSY;
+	case MENUOP_SET:
+		ghostnetFetchBoard(g_SoloStages[g_GhostBoardStageIndex].stagenum, g_GhostBoardDiff);
+		break;
+	}
+
+	return 0;
+}
+
+static char *menutextGhostBoardStatus(struct menuitem *item)
+{
+	s32 state = ghostnetGetState();
+
+	if (!ghostnetIsAvailable()) {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Network support is not built into this copy.\n");
+	} else if (state == GHOSTNET_IDLE && ghostnetGetBoardCount() < 1) {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Pick a mission, then Load Times.\n");
+	} else if (state == GHOSTNET_IDLE) {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"A on a time downloads that ghost.\n");
+	} else {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
+	}
+
+	return g_GhostAccountMsg;
+}
+
+static MenuDialogHandlerResult menudialogGhostBoard(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	// Opening the page does not go to the server. Nothing else in Ghost Trials
+	// needs a network - a run is recorded, saved, listed and raced entirely on
+	// disk - and a page that dialled out because it was looked at made the
+	// mod feel like it wanted an internet connection to work. It does not: the
+	// board is fetched when it is asked for, and a machine that is offline
+	// waits twenty seconds for nothing only if the player asked it to.
+	if (operation == MENUOP_OPEN) {
+		ghostnetClearState();
+	}
+
+	return 0;
+}
+
+struct menuitem g_GhostBoardMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mission",
+		0,
+		menuhandlerGhostBoardStage,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Difficulty",
+		0,
+		menuhandlerGhostBoardDiff,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Load Times\n",
+		0,
+		menuhandlerGhostBoardLoad,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostBoardStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LIST,
+		0,
+		0,
+		0x000000c8,
+		0,
+		menuhandlerGhostBoard,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostBoardMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Leaderboards",
+	g_GhostBoardMenuItems,
+	menudialogGhostBoard,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+struct menuitem g_GhostTrialsMenuItems[] = {
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Mission\n",
+		0,
+		menuhandlerGhostMission,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Options\n",
+		0,
+		(void *)&g_GhostOptionsMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"My Ghosts\n",
+		0,
+		(void *)&g_GhostMineMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Share\n",
+		0,
+		(void *)&g_GhostShareMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Leaderboards\n",
+		0,
+		(void *)&g_GhostBoardMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostTrialsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Trials",
+	g_GhostTrialsMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};

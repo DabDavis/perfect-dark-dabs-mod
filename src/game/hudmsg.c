@@ -6,6 +6,7 @@
 #include "game/player.h"
 #include "game/savebuffer.h"
 #include "game/hudmsg.h"
+#include "game/modghost.h"
 #include "game/menugfx.h"
 #include "game/playermgr.h"
 #include "game/game_1531a0.h"
@@ -112,6 +113,17 @@ extern s32 viGetHeight_hack(void);
 #define viGetHeight_hack viGetHeight
 #endif
 
+/**
+ * How far under the mission timer the ghost split sits.
+ *
+ * A line height taken from the font would be the obvious way to place it, and
+ * it does not work here: the numeric font's fontchar entries carry no height
+ * or baseline at all - textRender() derives its line height from
+ * chars['['], which for this font is zero - so a split placed that way lands
+ * on top of the clock. This is the height the digits actually occupy.
+ */
+#define HUDMSG_SPLITLINEHEIGHT 11
+
 Gfx *hudmsgRenderMissionTimer(Gfx *gdl, u32 alpha)
 {
 	s32 x;
@@ -198,6 +210,41 @@ Gfx *hudmsgRenderMissionTimer(Gfx *gdl, u32 alpha)
 	gdl = textRender(gdl, &x, &y, buffer, g_CharsNumeric, g_FontNumeric, textcolour, 0x000000a0, viGetWidth(), viGetHeight_hack(), 0, 0);
 
 #ifndef PLATFORM_N64
+	// The split against the ghost, on the line under the clock it is a
+	// commentary on. Green for ahead of the ghost and red for behind, which is
+	// the part that can be read without reading it.
+	//
+	// Nothing is drawn while the player is somewhere the ghost never went. A
+	// split is the difference between two runs at the same place, and off the
+	// route there is no same place - a number held over from the last one
+	// would keep changing while meaning nothing.
+	if (modGhostHasSplit()) {
+		s32 split = modGhostGetSplit60();
+		u32 splitcolour = alpha * 160 / 255;
+		char splitbuf[24];
+
+		splitbuf[0] = split < 0 ? '-' : '+';
+		formatTime(splitbuf + 1, split < 0 ? -split : split, TIMEPRECISION_HUNDREDTHS);
+
+		// The trailing newline is not decoration. A string without one
+		// measures as no height at all and is rendered clipped to it, and
+		// formatTime() does not add one - the strings the timer above renders
+		// come out of the ROM with theirs already on.
+		strcat(splitbuf, "\n");
+
+		if (split < 0) {
+			splitcolour |= 0x40ff4000;
+		} else {
+			splitcolour |= 0xff604000;
+		}
+
+		x = viewleft + g_HudPaddingX + 3;
+		y = timery + HUDMSG_SPLITLINEHEIGHT;
+
+		gdl = textRender(gdl, &x, &y, splitbuf, g_CharsHandelGothicXs, g_FontHandelGothicXs,
+				splitcolour, 0x000000a0, viGetWidth(), viGetHeight_hack(), 0, 0);
+	}
+
 	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
 #endif
 
@@ -1634,12 +1681,16 @@ Gfx *hudmsgsRender(Gfx *gdl)
 	}
 
 	if (timerthing) {
-		if (optionsGetShowMissionTime(g_Vars.currentplayerstats->mpindex)
+		// Racing a ghost brings the clock with it, whether or not the player
+		// asked for one, and keeps it in third person where the stock timer
+		// steps aside. A time trial without a time on screen is not one, and
+		// third person is where a ghost is worth watching.
+		if ((optionsGetShowMissionTime(g_Vars.currentplayerstats->mpindex) || modGhostHasSplit())
 				&& var80075d60 == 2
 				&& g_Vars.normmplayerisrunning == false
 				&& g_Vars.stagenum != STAGE_CITRAINING
 				&& g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY
-				&& g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON) {
+				&& (g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON || modGhostHasSplit())) {
 			gdl = hudmsgRenderMissionTimer(gdl, timerthing);
 		}
 
@@ -1649,6 +1700,13 @@ Gfx *hudmsgsRender(Gfx *gdl)
 
 		gdl = countdownTimerRender(gdl);
 	}
+
+#ifndef PLATFORM_N64
+	// Ghost names last, so they sit over the world rather than under the
+	// message that happens to be on screen, and inside this function because
+	// it is already the one place per frame where text is set up and flushed.
+	gdl = modGhostRenderNames(gdl);
+#endif
 
 	gdl = text0f153780(gdl);
 

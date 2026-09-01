@@ -14,6 +14,7 @@
 #include "game/lang.h"
 #include "game/lv.h"
 #include "game/mainmenu.h"
+#include "game/modghost.h"
 #include "game/menu.h"
 #include "game/mplayer/ingame.h"
 #include "game/mplayer/mplayer.h"
@@ -4805,6 +4806,14 @@ MenuItemHandlerResult menuhandlerMainMenuSoloMissions(s32 operation, struct menu
 	if (operation == MENUOP_SET) {
 		g_MissionConfig.iscoop = false;
 		g_MissionConfig.isanti = false;
+
+#ifndef PLATFORM_N64
+		// The ordinary way into a mission is also what takes the trial back
+		// off, so that arming one from Ghost Trials and then starting a
+		// mission from here gets the ordinary mission.
+		modGhostDisarmTrial();
+#endif
+
 		menuPushDialog(&g_SelectMissionMenuDialog);
 	}
 
@@ -4918,6 +4927,16 @@ struct menuitem g_MainMenuMenuItems[] = {
 		0x00000002,
 		menuhandlerMainMenuSoloMissions,
 	},
+#ifndef PLATFORM_N64
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Trials",
+		0x00000008,
+		(void *)&g_GhostTrialsMenuDialog,
+	},
+#endif
 	{
 		MENUITEMTYPE_SELECTABLE,
 		1,

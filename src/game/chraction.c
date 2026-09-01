@@ -56,6 +56,7 @@
 #include "lib/vi.h"
 #include "game/modbodies.h"
 #include "game/modoptions.h"
+#include "game/modghost.h"
 #include "data.h"
 #include "types.h"
 
@@ -14362,6 +14363,12 @@ void chraTickBg(void)
 	// hold the kept bodies to their cap and their timer. Before the counting
 	// below, so that a simulant which gets up on this tick is counted alive.
 	modBodiesTick();
+
+	// Replay the ghost's frame. Here for the same reason the bodies are: it is
+	// before any prop has been ticked, so the ghost's body can be built or
+	// taken away without a prop being part way through its own tick, and the
+	// pose written now is the one the body's tick will draw from.
+	modGhostTick();
 #endif
 
 	// Calculate alive/dead counters. For *spawned* chrs that have died,
