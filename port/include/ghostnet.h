@@ -26,7 +26,10 @@
 #define GHOSTNET_ERROR 3
 
 #define GHOSTNET_MAXBOARD 100
-#define GHOSTNET_MAXUSER  20
+// Fifteen rather than twenty: an account name is written into a ghost's owner
+// field, which is MODGHOST_OWNERLEN bytes, and a name that has to be truncated
+// to fit is a name that can be confused with somebody else's.
+#define GHOSTNET_MAXUSER  (MODGHOST_OWNERLEN - 1)
 #define GHOSTNET_MAXPIN   8
 
 struct ghostboardentry {
@@ -41,6 +44,7 @@ extern char g_GhostNetPin[GHOSTNET_MAXPIN + 2];
 extern char g_GhostNetUrl[256];
 
 bool ghostnetIsAvailable(void);
+const char *ghostnetGetAccountName(void);
 bool ghostnetHasAccount(void);
 s32 ghostnetGetState(void);
 const char *ghostnetGetMessage(void);

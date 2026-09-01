@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <PR/ultratypes.h>
 #include <SDL2/SDL.h>
 #include "platform.h"
@@ -279,20 +280,16 @@ static bool ghostnetUploadFile(const char *rel, char *msg, u32 msgsize)
 /**
  * Upload the runs this agent set.
  *
- * Which ghosts are candidates comes from the name in the header - the agent
- * who was playing when the run was recorded - rather than from the filename or
- * from the account. Those are three different things and the first version of
- * this compared the header against the account name, which meant a player
- * whose agent is Dark and whose account is dab was told they had nothing to
- * upload while holding a directory full of their own runs. An account is who
- * publishes; an agent is who ran it.
+ * A run recorded since ghosts carried an owner is yours to send if that owner
+ * is your account. The agent in the header says who ran it, which is a
+ * different question - two people can both play as Joanna, and an agent name
+ * was never a claim on anything.
  *
- * The check is what keeps a run downloaded from somebody else from being
- * published back under your name. It cannot tell yours from a stranger's who
- * plays under the same agent name, which is a narrower hole than it sounds -
- * the ghost has to have been downloaded, and the two agents have to be named
- * the same - and closing it properly means stamping the account into the file
- * at save time, which is a format change and not this fix.
+ * Runs from before the owner field, and runs recorded while signed out, carry
+ * no owner at all. Those fall back to the agent name, because the alternative
+ * is telling a player the runs they already have belong to nobody. It is the
+ * weaker test and it is why the server checks the same thing again: what the
+ * client sends is a proposal, and the file that arrives is what decides.
  *
  * One button that means "publish my times".
  */
@@ -310,6 +307,22 @@ struct ghostnetuploadscan {
 	char msg[128];
 };
 
+/**
+ * Whether this account may publish this run.
+ *
+ * Case insensitively, because the server holds usernames that way and Dab and
+ * dab are one account there: a comparison here that disagreed would offer to
+ * upload a file the server then refused.
+ */
+static bool ghostnetOwns(const struct modghostentry *entry)
+{
+	if (entry->owner[0]) {
+		return strcasecmp(entry->owner, g_GhostNetUser) == 0;
+	}
+
+	return strncmp(entry->player, ghostnetMyAgentName(), MODGHOST_NAMELEN) == 0;
+}
+
 static bool ghostnetIsBestOfMine(const struct modghostentry *entry)
 {
 	s32 count = modGhostGetCatalogueCount();
@@ -318,10 +331,15 @@ static bool ghostnetIsBestOfMine(const struct modghostentry *entry)
 	for (i = 0; i < count; i++) {
 		const struct modghostentry *other = modGhostGetCatalogueEntry(i);
 
+		// Only runs this account may publish get a say in which of them is
+		// the best. Without that, a downloaded ghost sitting in the directory
+		// with a quicker time would be found first and would answer no for a
+		// run of your own - the stolen file cannot be uploaded and would
+		// silently stop yours from being uploaded either.
 		if (other == NULL
 				|| other->stagenum != entry->stagenum
 				|| other->difficulty != entry->difficulty
-				|| strncmp(other->player, entry->player, MODGHOST_NAMELEN) != 0) {
+				|| !ghostnetOwns(other)) {
 			continue;
 		}
 
@@ -346,7 +364,7 @@ static void ghostnetUploadScan(const char *name, void *arg)
 			continue;
 		}
 
-		if (strncmp(entry->player, ghostnetMyAgentName(), MODGHOST_NAMELEN) != 0) {
+		if (!ghostnetOwns(entry)) {
 			scan->skipped++;
 			return;
 		}
@@ -556,8 +574,8 @@ static int ghostnetWorker(void *arg)
 			// means the runs on disk were set by a different one, and a
 			// message that does not say whose runs it was looking for gives
 			// the player nothing to go on.
-			snprintf(msg, sizeof(msg), "no runs by %s here to upload",
-					ghostnetMyAgentName());
+			snprintf(msg, sizeof(msg), "no runs of yours here - %d belong to others",
+					scan.skipped);
 			ok = true;
 		} else if (scan.failed) {
 			snprintf(msg, sizeof(msg), "sent %d, %d failed: %s",
@@ -607,6 +625,11 @@ static bool ghostnetStart(s32 job)
 bool ghostnetIsAvailable(void)
 {
 	return true;
+}
+
+const char *ghostnetGetAccountName(void)
+{
+	return g_GhostNetUser;
 }
 
 void ghostnetInit(void)
@@ -693,6 +716,7 @@ const char *ghostnetGetMessage(void)
 #else // PD_HAVE_CURL
 
 bool ghostnetIsAvailable(void) { return false; }
+const char *ghostnetGetAccountName(void) { return ""; }
 void ghostnetInit(void) {}
 void ghostnetShutdown(void) {}
 void ghostnetRegister(void) {}

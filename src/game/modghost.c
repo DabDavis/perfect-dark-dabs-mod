@@ -25,6 +25,7 @@
 #include "fs.h"
 #include "system.h"
 #include "versioninfo.h"
+#include "ghostnet.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1463,6 +1464,7 @@ static void modGhostCatalogueFile(const char *name, void *arg)
 
 	strncpy(entry->filename, name, sizeof(entry->filename) - 1);
 	strncpy(entry->player, hdr.player, sizeof(entry->player) - 1);
+	strncpy(entry->owner, hdr.owner, sizeof(entry->owner) - 1);
 	entry->time60 = hdr.time60;
 	entry->stagenum = hdr.stagenum;
 	entry->difficulty = hdr.difficulty;
@@ -2023,6 +2025,14 @@ void modGhostSaveRun(void)
 
 	strncpy(hdr.player, g_GameFile.name[0] ? g_GameFile.name : "player", MODGHOST_NAMELEN - 1);
 	strncpy(hdr.build, VERSION_BUILD, MODGHOST_NAMELEN - 1);
+
+	// Whose run this is to publish, as opposed to who ran it. Written now
+	// rather than at upload time because the file is what travels: by the time
+	// somebody else is holding it, the only thing that can say it was not
+	// theirs is the file itself. Empty when nobody is signed in, which is not
+	// a failure - it is a run recorded before an account existed, and it
+	// stays uploadable by the agent that set it.
+	strncpy(hdr.owner, ghostnetGetAccountName(), MODGHOST_OWNERLEN - 1);
 
 	f = fsFileOpenWrite(rel);
 

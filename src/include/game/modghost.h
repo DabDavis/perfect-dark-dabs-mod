@@ -75,6 +75,25 @@
 #define MODGHOST_NAMELEN  32
 
 /**
+ * Room for the ghost account that recorded a run, written into the file.
+ *
+ * The player name already in the header is the agent out of the game file,
+ * which says who ran it and not who may publish it - two people can both play
+ * as Joanna. This is the account, and the server refuses an upload whose owner
+ * is not the account doing the uploading, so a run downloaded from somebody
+ * else cannot be sent back up under your name by pressing a button.
+ *
+ * Sixteen bytes because that is what the header had reserved, and the account
+ * name is capped at fifteen characters to fit it exactly rather than being
+ * truncated into it - a truncated owner would match the wrong account.
+ *
+ * Empty means the file predates this, or was recorded by someone not signed
+ * in. Those are still uploadable by the agent that set them, because the
+ * alternative is telling players their existing runs are nobody's.
+ */
+#define MODGHOST_OWNERLEN 16
+
+/**
  * One sample every this many 60ths of a second, and how many of them a run may
  * hold.
  *
@@ -157,7 +176,7 @@ struct modghostheader {
 	/*0x2c*/ u32 pad;
 	/*0x30*/ char player[MODGHOST_NAMELEN];
 	/*0x50*/ char build[MODGHOST_NAMELEN];
-	/*0x70*/ u32 reserved[4];
+	/*0x70*/ char owner[MODGHOST_OWNERLEN];
 };
 
 /**
@@ -206,6 +225,7 @@ s32 modGhostGetNumRacers(void);
 struct modghostentry {
 	char filename[64];
 	char player[MODGHOST_NAMELEN];
+	char owner[MODGHOST_OWNERLEN];
 	u32 time60;
 	u8 stagenum;
 	u8 difficulty;

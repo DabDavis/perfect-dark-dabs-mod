@@ -689,7 +689,7 @@ struct menuitem g_GhostNameMenuItems[] = {
 		MENUITEMTYPE_LABEL,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)"3-20 characters: letters, digits, _ . -\n",
+		(uintptr_t)"3-15 characters: letters, digits, _ . -\n",
 		0,
 		NULL,
 	},

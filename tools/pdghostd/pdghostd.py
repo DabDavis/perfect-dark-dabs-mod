@@ -39,7 +39,12 @@ MAX_SAMPLES = 65536
 HEADER_SIZE = 128
 MAGIC = b"PDGHOST\0"
 
-USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,20}$")
+# Fifteen characters, because a name has to fit the owner field a ghost carries
+# (MODGHOST_OWNERLEN in the client's modghost.h, sixteen bytes with the
+# terminator). A name that did not fit would be truncated into the file and
+# then match the wrong account. Only registration is checked, so an account
+# made under the older limit can still sign in.
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,15}$")
 PIN_RE = re.compile(r"^[0-9]{4,8}$")
 
 # A PIN is four digits. Ten thousand guesses is nothing without a limiter, so
@@ -211,6 +216,7 @@ def parse_ghost_header(data):
     version, headersize, samplesize, numsamples, time60, rate60 = struct.unpack_from("<6I", data, 8)
     stagenum, difficulty, stageindex, flags = struct.unpack_from("<4B", data, 0x20)
     player = data[0x30:0x50].split(b"\0")[0].decode("ascii", "replace")
+    owner = data[0x70:0x80].split(b"\0")[0].decode("ascii", "replace")
 
     if version < 1 or version > 16:
         return None
@@ -230,7 +236,7 @@ def parse_ghost_header(data):
     return {
         "version": version, "numsamples": numsamples, "time60": time60,
         "rate60": rate60, "stagenum": stagenum, "difficulty": difficulty,
-        "player": player,
+        "player": player, "owner": owner,
     }
 
 
@@ -401,7 +407,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if not USERNAME_RE.match(username):
                 return self.send_json(400, {"ok": False,
-                    "error": "3-20 chars, letters, digits, _ . - only"})
+                    "error": "3-15 chars, letters, digits, _ . - only"})
             if not PIN_RE.match(pin):
                 return self.send_json(400, {"ok": False, "error": "pin must be 4-8 digits"})
 
@@ -453,6 +459,21 @@ class Handler(BaseHTTPRequestHandler):
             info = parse_ghost_header(body)
             if info is None:
                 return self.send_json(400, {"ok": False, "error": "not a valid ghost file"})
+
+            # A run recorded since ghosts carried an owner says which account
+            # set it, and only that account may publish it. This is the check
+            # that means something: the client does the same one to decide what
+            # to offer, but the client is the part a thief controls, and the
+            # file is what actually arrives here.
+            #
+            # It is a claim in a file rather than a signature, so it stops
+            # somebody publishing a downloaded ghost, not somebody editing one.
+            # Editing is the same effort as inventing a time outright, which
+            # nothing here can catch either - see the note at the top about
+            # what validating a run would actually take.
+            if info["owner"] and info["owner"].lower() != username.lower():
+                return self.send_json(403, {"ok": False,
+                    "error": "that ghost was recorded by %s" % info["owner"]})
 
             # One file per player per level, overwritten in place, so a
             # replaced run leaves nothing behind to collect. The .gz is in the
