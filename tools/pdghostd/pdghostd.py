@@ -243,7 +243,9 @@ def init_db():
                 bytes      INTEGER NOT NULL,
                 uploaded   INTEGER NOT NULL,
                 blob       TEXT NOT NULL,
-                flags      INTEGER NOT NULL DEFAULT 0
+                flags      INTEGER NOT NULL DEFAULT 0,
+                mpbody     INTEGER NOT NULL DEFAULT 0,
+                mphead     INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS ghosts_board
                 ON ghosts(stagenum, difficulty, time60);
@@ -262,6 +264,14 @@ def init_db():
 
         if "flags" not in have:
             conn.execute("ALTER TABLE ghosts ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
+
+        # Rows stored before the board carried a character default to zero,
+        # which is the same "nobody in particular" the client reads out of a
+        # run recorded before the picker existed. They correct themselves the
+        # next time that player uploads.
+        for col in ("mpbody", "mphead"):
+            if col not in have:
+                conn.execute("ALTER TABLE ghosts ADD COLUMN %s INTEGER NOT NULL DEFAULT 0" % col)
 
         # Rows that cannot show they were set under trial rules go, with their
         # files. Uploads are refused on the same test, so this runs once in
@@ -335,6 +345,11 @@ def parse_ghost_header(data):
 
     version, headersize, samplesize, numsamples, time60, rate60 = struct.unpack_from("<6I", data, 8)
     stagenum, difficulty, stageindex, flags = struct.unpack_from("<4B", data, 0x20)
+    # The Combat Simulator body and head the run was set as, plus one so that
+    # zero can mean "whoever Joanna comes with" - MODGHOST_BODY_DEFAULT in the
+    # client's modghost.h. Stored so a board can say who a time belongs to
+    # rather than only what they were called.
+    mpbody, mphead = struct.unpack_from("<2B", data, 0x2c)
     player = data[0x30:0x50].split(b"\0")[0].decode("ascii", "replace")
     owner = data[0x70:0x80].split(b"\0")[0].decode("ascii", "replace")
 
@@ -363,6 +378,7 @@ def parse_ghost_header(data):
         "version": version, "numsamples": numsamples, "time60": time60,
         "rate60": rate60, "stagenum": stagenum, "difficulty": difficulty,
         "player": player, "owner": owner, "flags": flags,
+        "mpbody": mpbody, "mphead": mphead,
     }
 
 
@@ -518,7 +534,7 @@ class Handler(BaseHTTPRequestHandler):
                 # the same time60 are two places on the board and the earlier
                 # upload takes the higher one.
                 rows = conn.execute(
-                    "SELECT id, username, time60, uploaded, flags FROM ghosts "
+                    "SELECT id, username, time60, uploaded, flags, mpbody, mphead FROM ghosts "
                     "WHERE stagenum = ? AND difficulty = ? "
                     "ORDER BY time60 ASC, id ASC LIMIT ?",
                     (stage, diff, limit)).fetchall()
@@ -530,7 +546,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"ok": True, "entries": [
                 {"id": r["id"], "user": r["username"], "time60": r["time60"],
                  "uploaded": r["uploaded"],
-                 "trialrules": 1 if r["flags"] & GHOST_TRIALRULES else 0} for r in rows]})
+                 "trialrules": 1 if r["flags"] & GHOST_TRIALRULES else 0,
+                 "mpbody": r["mpbody"], "mphead": r["mphead"]} for r in rows]})
 
         if path == "/download":
             # The only endpoint that hands back megabytes, and the only one
@@ -750,14 +767,15 @@ class Handler(BaseHTTPRequestHandler):
                     doomed.append(held["blob"])
 
                 conn.execute(
-                    "INSERT INTO ghosts (username, stagenum, difficulty, time60, numsamples, bytes, uploaded, blob, flags) "
-                    "VALUES (?,?,?,?,?,?,?,?,?) "
+                    "INSERT INTO ghosts (username, stagenum, difficulty, time60, numsamples, bytes, uploaded, blob, flags, mpbody, mphead) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
                     "ON CONFLICT(username, stagenum, difficulty) DO UPDATE SET "
                     "time60=excluded.time60, numsamples=excluded.numsamples, "
                     "bytes=excluded.bytes, uploaded=excluded.uploaded, blob=excluded.blob, "
-                    "flags=excluded.flags",
+                    "flags=excluded.flags, mpbody=excluded.mpbody, mphead=excluded.mphead",
                     (username, info["stagenum"], info["difficulty"], info["time60"],
-                     info["numsamples"], len(body), int(time.time()), name, info["flags"]))
+                     info["numsamples"], len(body), int(time.time()), name, info["flags"],
+                     info["mpbody"], info["mphead"]))
 
                 # Whatever fell off the end of the board goes, whoever it
                 # belonged to. Ordered the same way the leaderboard is read so

@@ -945,6 +945,12 @@ static bool ghostnetFetchBoardNow(char *msg, u32 msgsize)
 			g_Board[count].trialrules = false;
 		}
 
+		// The character, when the server is new enough to send it. A board that
+		// does not know about these leaves them zero, which reads as the
+		// default rather than as a body index that means something else.
+		g_Board[count].mpbody = ghostnetJsonField(at, "mpbody", num, sizeof(num)) ? (u8)atoi(num) : 0;
+		g_Board[count].mphead = ghostnetJsonField(at, "mphead", num, sizeof(num)) ? (u8)atoi(num) : 0;
+
 		g_Board[count].have = false;
 		count++;
 	}

@@ -377,24 +377,18 @@ static union menuitemdata *menuGhostItemData(struct menudialog *dialog, struct m
 // last page left behind.
 static u32 g_GhostModelParams = 0;
 
-static void menuGhostTickModel(struct menudialog *dialog, struct menuitem *listitem)
+/**
+ * Stand the model up as one character and keep it turning.
+ *
+ * Split from the pages that call it because two different kinds of list want
+ * it: My Ghosts and Choose Ghosts read a character out of a file on disk, and
+ * Leaderboards reads one out of a row the server sent. Where it comes from is
+ * their business; what it looks like is this.
+ */
+static void menuGhostShowCharacter(s32 mpbody, s32 mphead)
 {
-	union menuitemdata *data = menuGhostItemData(dialog, listitem);
 	struct menumodel *model = &g_Menus[g_MpPlayerNum].menumodel;
-	struct modghostentry *entry;
-	s32 mpbody = MPBODY_DARK_AF1;
-	s32 mphead = MPHEAD_DARK_COMBAT;
 	u32 params;
-
-	if (data == NULL) {
-		return;
-	}
-
-	entry = modGhostGetCatalogueEntry(data->list.index);
-
-	if (entry != NULL) {
-		modGhostEntryCharacter(entry, &mpbody, &mphead);
-	}
 
 	params = MENUMODELPARAMS_SET_MP_HEADBODY(mphead, mpbody);
 
@@ -424,6 +418,12 @@ static void menuGhostTickModel(struct menudialog *dialog, struct menuitem *listi
 		// meet it.
 		model->curposx = model->newposx = 168.0f;
 		model->curposy = model->newposy = -4.1f;
+		// curscale only, the way the arena page does it: menuConfigureModel()
+		// leaves newscale at the 1 it was passed and the model grows towards
+		// it a fraction a frame, which is the zoom in. Pinning both makes it
+		// too small to see. It does mean a page left open a long time keeps
+		// growing the character - the Leaderboards framing wants a pass of its
+		// own, and is noted as such.
 		model->curscale = 0.002f;
 		model->curroty = model->newroty = -0.2f;
 		model->rottimer60 = TICKS(60);
@@ -452,6 +452,63 @@ static void menuGhostTickModel(struct menudialog *dialog, struct menuitem *listi
 		model->curroty += 0.01f * g_Vars.diffframe60f;
 		model->newroty = model->curroty;
 	}
+}
+
+/**
+ * The character of the run under the cursor on a page listing local ghosts.
+ */
+static void menuGhostTickCatalogueModel(struct menudialog *dialog, struct menuitem *listitem)
+{
+	union menuitemdata *data = menuGhostItemData(dialog, listitem);
+	struct modghostentry *entry;
+	s32 mpbody = MPBODY_DARK_AF1;
+	s32 mphead = MPHEAD_DARK_COMBAT;
+
+	if (data == NULL) {
+		return;
+	}
+
+	entry = modGhostGetCatalogueEntry(data->list.index);
+
+	if (entry != NULL) {
+		modGhostEntryCharacter(entry, &mpbody, &mphead);
+	}
+
+	menuGhostShowCharacter(mpbody, mphead);
+}
+
+/**
+ * The same, for a row of the leaderboard.
+ *
+ * The board carries the character the same way a file does, so a time can be
+ * shown as whoever set it before it has been downloaded - which is the point,
+ * since deciding whether to download is what the page is for. A row from a
+ * server too old to send one, or a run recorded before the picker existed,
+ * leaves the two at zero and gets the default.
+ */
+static void menuGhostTickBoardModel(struct menudialog *dialog, struct menuitem *listitem)
+{
+	union menuitemdata *data = menuGhostItemData(dialog, listitem);
+	struct ghostboardentry *entry;
+	s32 mpbody = MPBODY_DARK_AF1;
+	s32 mphead = MPHEAD_DARK_COMBAT;
+
+	if (data == NULL) {
+		return;
+	}
+
+	entry = ghostnetGetBoardEntry(data->list.index);
+
+	if (entry != NULL && entry->mpbody > MODGHOST_BODY_DEFAULT
+			&& (s32)entry->mpbody - 1 < (s32)mpGetNumBodies()) {
+		mpbody = entry->mpbody - 1;
+		mphead = (entry->mphead > MODGHOST_BODY_DEFAULT
+				&& (s32)entry->mphead - 1 < mpGetNumHeads2())
+			? entry->mphead - 1
+			: mpGetMpheadnumByMpbodynum(mpbody);
+	}
+
+	menuGhostShowCharacter(mpbody, mphead);
 }
 
 /**
@@ -598,7 +655,7 @@ static MenuDialogHandlerResult menudialogGhostChooser(s32 operation, struct menu
 	if (operation == MENUOP_TICK
 			&& g_Menus[g_MpPlayerNum].curdialog
 			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
-		menuGhostTickModel(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[3]);
+		menuGhostTickCatalogueModel(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[3]);
 	}
 
 	return 0;
@@ -806,7 +863,7 @@ static MenuDialogHandlerResult menudialogGhostMine(s32 operation, struct menudia
 	if (operation == MENUOP_TICK
 			&& g_Menus[g_MpPlayerNum].curdialog
 			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
-		menuGhostTickModel(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[1]);
+		menuGhostTickCatalogueModel(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[1]);
 	}
 
 	return 0;
@@ -1642,6 +1699,15 @@ static MenuDialogHandlerResult menudialogGhostBoard(s32 operation, struct menudi
 		if (ghostnetIsAvailable()) {
 			ghostnetFetchBoard(g_SoloStages[g_GhostBoardStageIndex].stagenum, g_GhostBoardDiff);
 		}
+
+		g_GhostModelParams = 0;
+	}
+
+	// items[4] is the list of times; see the table below.
+	if (operation == MENUOP_TICK
+			&& g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
+		menuGhostTickBoardModel(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[4]);
 	}
 
 	return 0;
@@ -1704,7 +1770,7 @@ struct menudialogdef g_GhostBoardMenuDialog = {
 	(uintptr_t)"Leaderboards",
 	g_GhostBoardMenuItems,
 	menudialogGhostBoard,
-	MENUDIALOGFLAG_LITERAL_TEXT,
+	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_0002,
 	NULL,
 };
 

@@ -46,6 +46,11 @@ struct ghostboardentry {
 	char user[GHOSTNET_MAXUSER + 1];
 	bool have;       // already in the ghosts directory
 	bool trialrules; // set with the fork's added moves off
+	// The character the run was set as, in the same plus-one encoding the
+	// ghost header uses, so a board row can be shown as whoever set it. Zero
+	// from a row stored before the board carried one.
+	u8 mpbody;
+	u8 mphead;
 };
 
 extern char g_GhostNetUser[GHOSTNET_MAXUSER + 2];
