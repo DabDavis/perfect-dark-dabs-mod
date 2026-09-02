@@ -76,6 +76,8 @@ char g_GhostNetUser[GHOSTNET_MAXUSER + 2] = { 0 };
 char g_GhostNetPin[GHOSTNET_MAXPIN + 2] = { 0 };
 char g_GhostNetSavedUser[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXUSER + 2] = { 0 };
 char g_GhostNetSavedPin[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXPIN + 2] = { 0 };
+s32 g_GhostNetSavedBody[GHOSTNET_MAXACCOUNTS - 1] = { 0 };
+s32 g_GhostNetSavedHead[GHOSTNET_MAXACCOUNTS - 1] = { 0 };
 char g_GhostNetUrl[256] = "https://texturepacks.art/pdghosts";
 
 static s32 g_State = GHOSTNET_IDLE;
@@ -1112,6 +1114,25 @@ static char *ghostnetSlotPin(s32 index)
 }
 
 /**
+ * The character slot, which for the active account is the live setting.
+ *
+ * Pointers rather than values so that the same swap and shift that move names
+ * and PINs between slots move the character with them, and the one place the
+ * active account's character lives stays g_ModGhostBody - the picker, the
+ * recorder and the header writer all read it directly and none of them should
+ * have to know an account exists.
+ */
+static s32 *ghostnetSlotBody(s32 index)
+{
+	return index == 0 ? &g_ModGhostBody : &g_GhostNetSavedBody[index - 1];
+}
+
+static s32 *ghostnetSlotHead(s32 index)
+{
+	return index == 0 ? &g_ModGhostHead : &g_GhostNetSavedHead[index - 1];
+}
+
+/**
  * How many slots the chooser lists: the ones with a name in them, plus the
  * first empty one if there is room, which is the row that means "another".
  */
@@ -1151,6 +1172,8 @@ void ghostnetSelectAccount(s32 index)
 {
 	char user[GHOSTNET_MAXUSER + 2];
 	char pin[GHOSTNET_MAXPIN + 2];
+	s32 body;
+	s32 head;
 
 	if (index <= 0 || index >= GHOSTNET_MAXACCOUNTS || ghostnetSlotUser(index)[0] == '\0') {
 		return;
@@ -1158,12 +1181,18 @@ void ghostnetSelectAccount(s32 index)
 
 	snprintf(user, sizeof(user), "%s", g_GhostNetUser);
 	snprintf(pin, sizeof(pin), "%s", g_GhostNetPin);
+	body = *ghostnetSlotBody(0);
+	head = *ghostnetSlotHead(0);
 
 	snprintf(g_GhostNetUser, sizeof(g_GhostNetUser), "%s", ghostnetSlotUser(index));
 	snprintf(g_GhostNetPin, sizeof(g_GhostNetPin), "%s", ghostnetSlotPin(index));
+	*ghostnetSlotBody(0) = *ghostnetSlotBody(index);
+	*ghostnetSlotHead(0) = *ghostnetSlotHead(index);
 
 	snprintf(ghostnetSlotUser(index), GHOSTNET_MAXUSER + 2, "%s", user);
 	snprintf(ghostnetSlotPin(index), GHOSTNET_MAXPIN + 2, "%s", pin);
+	*ghostnetSlotBody(index) = body;
+	*ghostnetSlotHead(index) = head;
 
 	if (ghostnetIsAvailable()) {
 		ghostnetLogin();
@@ -1186,14 +1215,25 @@ void ghostnetBeginNewAccount(void)
 		for (i = GHOSTNET_MAXACCOUNTS - 1; i > 1; i--) {
 			snprintf(ghostnetSlotUser(i), GHOSTNET_MAXUSER + 2, "%s", ghostnetSlotUser(i - 1));
 			snprintf(ghostnetSlotPin(i), GHOSTNET_MAXPIN + 2, "%s", ghostnetSlotPin(i - 1));
+			*ghostnetSlotBody(i) = *ghostnetSlotBody(i - 1);
+			*ghostnetSlotHead(i) = *ghostnetSlotHead(i - 1);
 		}
 
 		snprintf(ghostnetSlotUser(1), GHOSTNET_MAXUSER + 2, "%s", g_GhostNetUser);
 		snprintf(ghostnetSlotPin(1), GHOSTNET_MAXPIN + 2, "%s", g_GhostNetPin);
+		*ghostnetSlotBody(1) = *ghostnetSlotBody(0);
+		*ghostnetSlotHead(1) = *ghostnetSlotHead(0);
 	}
 
 	g_GhostNetUser[0] = '\0';
 	g_GhostNetPin[0] = '\0';
+
+	// A new account starts as Joanna rather than inheriting whoever the last
+	// one was being played as. The character the player had is not lost - it
+	// went into slot one with the account it belonged to, and comes back with
+	// it.
+	g_ModGhostBody = MODGHOST_BODY_DEFAULT;
+	g_ModGhostHead = MODGHOST_BODY_DEFAULT;
 }
 
 /**
@@ -1400,7 +1440,13 @@ void ghostnetDownload(s32 index) {}
 s32 ghostnetGetNumAccounts(void) { return g_GhostNetUser[0] ? 1 : 0; }
 const char *ghostnetGetAccountAt(s32 index) { return index == 0 ? g_GhostNetUser : ""; }
 void ghostnetSelectAccount(s32 index) {}
-void ghostnetBeginNewAccount(void) { g_GhostNetUser[0] = '\0'; g_GhostNetPin[0] = '\0'; }
+void ghostnetBeginNewAccount(void)
+{
+	g_GhostNetUser[0] = '\0';
+	g_GhostNetPin[0] = '\0';
+	g_ModGhostBody = MODGHOST_BODY_DEFAULT;
+	g_ModGhostHead = MODGHOST_BODY_DEFAULT;
+}
 s32 ghostnetGetState(void) { return GHOSTNET_IDLE; }
 
 const char *ghostnetGetMessage(void)

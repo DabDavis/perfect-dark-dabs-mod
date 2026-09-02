@@ -57,6 +57,18 @@ extern char g_GhostNetUser[GHOSTNET_MAXUSER + 2];
 extern char g_GhostNetPin[GHOSTNET_MAXPIN + 2];
 extern char g_GhostNetSavedUser[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXUSER + 2];
 extern char g_GhostNetSavedPin[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXPIN + 2];
+/**
+ * The trial character each remembered account runs as.
+ *
+ * The active account's is g_ModGhostBody/g_ModGhostHead, which is where the
+ * picker writes and where a recorded run reads: an account's character is not
+ * a separate setting, it is the setting, held for whoever is signed in. These
+ * are the same two values for the accounts that are not signed in, swapped
+ * with the live pair whenever the active account changes, so that switching
+ * back to a name brings back the character that name was being played as.
+ */
+extern s32 g_GhostNetSavedBody[GHOSTNET_MAXACCOUNTS - 1];
+extern s32 g_GhostNetSavedHead[GHOSTNET_MAXACCOUNTS - 1];
 extern char g_GhostNetUrl[256];
 
 bool ghostnetIsAvailable(void);

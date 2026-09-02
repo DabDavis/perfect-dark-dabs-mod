@@ -264,6 +264,16 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 
 		snprintf(key, sizeof(key), "Mod.GhostPin%d", i + 2);
 		configRegisterString(key, g_GhostNetSavedPin[i], GHOSTNET_MAXPIN);
+
+		// Each remembered account keeps its own character, in the same range
+		// as the active one above. Without these, switching accounts brought
+		// the name back and left whoever the last account was being played as
+		// wearing it.
+		snprintf(key, sizeof(key), "Mod.GhostCharacter%d", i + 2);
+		configRegisterInt(key, &g_GhostNetSavedBody[i], 0, 61);
+
+		snprintf(key, sizeof(key), "Mod.GhostCharacterHead%d", i + 2);
+		configRegisterInt(key, &g_GhostNetSavedHead[i], 0, 255);
 	}
 	configRegisterString("Mod.GhostServer", g_GhostNetUrl, sizeof(g_GhostNetUrl) - 1);
 
