@@ -3140,6 +3140,33 @@ extern "C" bool gfx_read_screen_pixels(int x, int y, int width, int height, void
     return gfx_rapi->read_screen_pixels(x, y, width, height, rgb);
 }
 
+extern "C" int gfx_capture_start(int width, int height) {
+    if (!gfx_rapi || !gfx_rapi->capture_start) {
+        return GFX_CAPTURE_NONE;
+    }
+    return gfx_rapi->capture_start(width, height);
+}
+
+extern "C" bool gfx_capture_read(void *dst) {
+    if (!gfx_rapi || !gfx_rapi->capture_read) {
+        return false;
+    }
+    return gfx_rapi->capture_read(dst);
+}
+
+extern "C" bool gfx_capture_drain(void *dst) {
+    if (!gfx_rapi || !gfx_rapi->capture_drain) {
+        return false;
+    }
+    return gfx_rapi->capture_drain(dst);
+}
+
+extern "C" void gfx_capture_stop(void) {
+    if (gfx_rapi && gfx_rapi->capture_stop) {
+        gfx_rapi->capture_stop();
+    }
+}
+
 extern "C" void gfx_end_frame(void) {
     if (!dropped_frame) {
         gfx_rapi->finish_render();

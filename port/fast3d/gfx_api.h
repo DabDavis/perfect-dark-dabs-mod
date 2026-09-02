@@ -90,6 +90,45 @@ void gfx_set_pre_swap_callback(GfxPreSwapCallback cb);
 
 // Reads a rect of the window's back buffer into rgb as tightly packed RGB
 // triples, bottom row first. Only meaningful from a pre-swap callback.
+//
+// Synchronous: it waits for the GPU to finish the frame and the driver repacks
+// every row, RGB being nobody's native layout. That is the right trade for one
+// screenshot and the wrong one sixty times a second - see gfx_capture_start().
 bool gfx_read_screen_pixels(int x, int y, int width, int height, void *rgb);
+
+/**
+ * Streaming capture of the back buffer, for the video recorder.
+ *
+ * Where gfx_read_screen_pixels() stalls the pipeline until the frame it asked
+ * for has landed, this reads into a ring of pixel buffer objects and hands back
+ * the frame from the call before: the GPU is given the whole frame to do the
+ * copy in and nothing waits on it. The cost is that what comes out is one frame
+ * behind, which is not a sync problem - a fixed rate stream timestamps by frame
+ * index, and no index is skipped.
+ *
+ * The format is whatever the driver reads back without repacking, which is BGRA
+ * everywhere that matters, and it is reported rather than converted: four byte
+ * pixels are also what a GPU encoder wants uploaded.
+ *
+ * All of these are only valid on the thread holding the GL context.
+ */
+#define GFX_CAPTURE_NONE 0
+#define GFX_CAPTURE_BGRA 1
+#define GFX_CAPTURE_RGBA 2
+
+// Returns the GFX_CAPTURE_ format frames will arrive in, or GFX_CAPTURE_NONE if
+// the size is bad. Replaces any capture already running.
+int gfx_capture_start(int width, int height);
+
+// Issues this frame's read and copies out the previous one, into width*height*4
+// bytes at dst, bottom row first. False when there is nothing ready yet, which
+// is every call until the ring has filled.
+bool gfx_capture_read(void *dst);
+
+// The frames still in flight, newest last, so the recording does not lose its
+// tail to the ring. False if there were none.
+bool gfx_capture_drain(void *dst);
+
+void gfx_capture_stop(void);
 
 #endif

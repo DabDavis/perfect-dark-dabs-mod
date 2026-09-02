@@ -59,6 +59,12 @@ struct GfxRenderingAPI {
     // Reads a rect of the window's back buffer into rgb as tightly packed RGB
     // triples, bottom row first. Only valid before the frame is presented.
     bool (*read_screen_pixels)(int x, int y, int width, int height, void *rgb);
+    // Streaming capture of the back buffer, one frame behind and without a
+    // stall. See gfx_capture_start() in gfx_api.h. May be null.
+    int (*capture_start)(int width, int height);
+    bool (*capture_read)(void *dst);
+    bool (*capture_drain)(void *dst);
+    void (*capture_stop)(void);
 };
 
 #endif

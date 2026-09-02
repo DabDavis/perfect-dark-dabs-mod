@@ -83,8 +83,29 @@ s32 videoFramebuffersSupported(void);
 void videoAddPreSwapCallback(void (*cb)(void));
 
 // Reads the window's back buffer into rgb as tightly packed RGB triples, bottom
-// row first. Only meaningful from the pre-swap callback above.
+// row first. Only meaningful from the pre-swap callback above. Stalls the frame:
+// for anything that runs every frame use the capture calls below.
 s32 videoReadScreenPixels(void *rgb, s32 width, s32 height);
+
+/**
+ * Streaming capture of the back buffer, for the recorder. Unlike the read above
+ * this never waits on the GPU - the frame it hands back is the one from the call
+ * before. See gfx_capture_start() in port/fast3d/gfx_api.h.
+ *
+ * Frames are four bytes a pixel, bottom row first, in whichever of these the
+ * driver reads back without repacking.
+ */
+#define VIDEO_CAPTURE_NONE 0
+#define VIDEO_CAPTURE_BGRA 1
+#define VIDEO_CAPTURE_RGBA 2
+
+s32 videoCaptureStart(s32 width, s32 height);
+s32 videoCaptureRead(void *dst);
+s32 videoCaptureDrain(void *dst);
+void videoCaptureStop(void);
+
+// The ffmpeg name for a VIDEO_CAPTURE_ format, or NULL.
+const char *videoCaptureFormatName(s32 fmt);
 
 void videoResetTextureCache(void);
 void videoFreeCachedTexture(const void *texptr);

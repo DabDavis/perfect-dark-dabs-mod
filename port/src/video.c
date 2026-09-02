@@ -249,6 +249,48 @@ s32 videoReadScreenPixels(void *rgb, s32 width, s32 height)
 	return gfx_read_screen_pixels(0, 0, width, height, rgb);
 }
 
+// video.h names these so that nothing outside the port has to reach into
+// fast3d for a constant, which leaves two sets of them to keep in step.
+_Static_assert(VIDEO_CAPTURE_NONE == GFX_CAPTURE_NONE, "capture format mismatch");
+_Static_assert(VIDEO_CAPTURE_BGRA == GFX_CAPTURE_BGRA, "capture format mismatch");
+_Static_assert(VIDEO_CAPTURE_RGBA == GFX_CAPTURE_RGBA, "capture format mismatch");
+
+s32 videoCaptureStart(s32 width, s32 height)
+{
+	if (!initDone) {
+		return VIDEO_CAPTURE_NONE;
+	}
+
+	return gfx_capture_start(width, height);
+}
+
+s32 videoCaptureRead(void *dst)
+{
+	return initDone && gfx_capture_read(dst);
+}
+
+s32 videoCaptureDrain(void *dst)
+{
+	return initDone && gfx_capture_drain(dst);
+}
+
+void videoCaptureStop(void)
+{
+	if (initDone) {
+		gfx_capture_stop();
+	}
+}
+
+const char *videoCaptureFormatName(s32 fmt)
+{
+	switch (fmt) {
+	case VIDEO_CAPTURE_BGRA: return "bgra";
+	case VIDEO_CAPTURE_RGBA: return "rgba";
+	}
+
+	return NULL;
+}
+
 s32 videoGetFullscreen(void)
 {
 	vidFullscreen = wmAPI->get_fullscreen_state();

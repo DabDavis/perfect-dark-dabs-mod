@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <map>
 #include <unordered_map>
@@ -1316,6 +1317,215 @@ static bool gfx_opengl_read_screen_pixels(int x, int y, int width, int height, v
     return ok;
 }
 
+/**
+ * Streaming capture. See gfx_capture_start() in gfx_api.h for what it is for.
+ *
+ * Two pixel buffer objects, used in turn: the glReadPixels below names a bound
+ * PBO as its destination, which makes it a request rather than a transfer, and
+ * the map on the other one collects the request made last frame. Neither call
+ * waits for the frame it was issued in, so the pipeline is never drained - which
+ * is the whole difference from gfx_opengl_read_screen_pixels() above, and it is
+ * worth more than the codec is.
+ *
+ * Two is enough on every driver tried; more only buys latency. Where there are
+ * no PBOs at all the read goes straight to the caller and stalls, because a
+ * recording that costs frames still beats one that cannot be made.
+ */
+#define GFX_CAPTURE_PBOS 2
+
+static GLuint capture_pbos[GFX_CAPTURE_PBOS];
+static int capture_width;
+static int capture_height;
+static int capture_format;
+static GLenum capture_gl_format;
+static int capture_next;    // the PBO the next read is issued into
+static int capture_pending; // reads issued and not yet collected
+static bool capture_direct; // no PBOs, so every read stalls
+
+static bool gfx_opengl_capture_supported(void) {
+    if (!glad_glGenBuffers || !glad_glBindBuffer || !glad_glBufferData || !glad_glUnmapBuffer) {
+        return false;
+    }
+
+    if (!glad_glMapBufferRange && !glad_glMapBuffer) {
+        return false;
+    }
+
+    // GL_PIXEL_PACK_BUFFER is 2.1 on desktop and ES 3.0; below either of those
+    // glBindBuffer will take the enum and quietly do nothing useful.
+    return gl_es ? (GLVersion.major >= 3) : (GLVersion.major > 2 || (GLVersion.major == 2 && GLVersion.minor >= 1));
+}
+
+static void gfx_opengl_capture_stop(void) {
+    if (capture_pbos[0]) {
+        glDeleteBuffers(GFX_CAPTURE_PBOS, capture_pbos);
+    }
+
+    for (int i = 0; i < GFX_CAPTURE_PBOS; i++) {
+        capture_pbos[i] = 0;
+    }
+
+    capture_width = capture_height = 0;
+    capture_format = GFX_CAPTURE_NONE;
+    capture_next = capture_pending = 0;
+    capture_direct = false;
+}
+
+static int gfx_opengl_capture_start(int width, int height) {
+    gfx_opengl_capture_stop();
+
+    if (width <= 0 || height <= 0) {
+        return GFX_CAPTURE_NONE;
+    }
+
+    capture_width = width;
+    capture_height = height;
+
+    // BGRA is the layout the framebuffer is already in on desktop drivers, so
+    // asking for it is what makes the read a copy rather than a conversion. ES
+    // may or may not have it and says which through the read format query; RGBA
+    // is always legal, and the caller is told which one it got.
+    capture_gl_format = GL_BGRA;
+    capture_format = GFX_CAPTURE_BGRA;
+
+    if (gl_es) {
+        GLint pref = 0;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_FORMAT, &pref);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffers[current_framebuffer].fbo);
+
+        if (pref != GL_BGRA) {
+            capture_gl_format = GL_RGBA;
+            capture_format = GFX_CAPTURE_RGBA;
+        }
+    }
+
+    if (!gfx_opengl_capture_supported()) {
+        sysLogPrintf(LOG_WARNING, "GL: no pixel buffer objects, capture will stall the frame");
+        capture_direct = true;
+        return capture_format;
+    }
+
+    while (glGetError() != GL_NO_ERROR) {
+        // drain anything already pending, so the check below is ours
+    }
+
+    glGenBuffers(GFX_CAPTURE_PBOS, capture_pbos);
+
+    for (int i = 0; i < GFX_CAPTURE_PBOS; i++) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, capture_pbos[i]);
+        glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)width * height * 4, NULL, GL_STREAM_READ);
+    }
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+    if (glGetError() != GL_NO_ERROR) {
+        sysLogPrintf(LOG_WARNING, "GL: could not allocate capture buffers, capture will stall the frame");
+        glDeleteBuffers(GFX_CAPTURE_PBOS, capture_pbos);
+        for (int i = 0; i < GFX_CAPTURE_PBOS; i++) {
+            capture_pbos[i] = 0;
+        }
+        capture_direct = true;
+    }
+
+    return capture_format;
+}
+
+// Both halves of a capture bind the default framebuffer to read from it and put
+// back whatever the renderer had bound, the same as the screenshot path.
+static void gfx_opengl_capture_bind(GLint *prevalign) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glGetIntegerv(GL_PACK_ALIGNMENT, prevalign);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+}
+
+static void gfx_opengl_capture_unbind(GLint prevalign) {
+    glPixelStorei(GL_PACK_ALIGNMENT, prevalign);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffers[current_framebuffer].fbo);
+}
+
+// Collects one issued read. The map is the only call here that can wait, and by
+// then the frame it is waiting on has had a whole frame of its own to land.
+static bool gfx_opengl_capture_collect(void *dst) {
+    const int slot = (capture_next - capture_pending + GFX_CAPTURE_PBOS) % GFX_CAPTURE_PBOS;
+    const GLsizeiptr size = (GLsizeiptr)capture_width * capture_height * 4;
+    const void *src;
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, capture_pbos[slot]);
+
+    src = glad_glMapBufferRange
+        ? glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, size, GL_MAP_READ_BIT)
+        : glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+
+    if (src) {
+        memcpy(dst, src, (size_t)size);
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    }
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    capture_pending--;
+
+    return src != NULL;
+}
+
+static bool gfx_opengl_capture_read(void *dst) {
+    GLint prevalign = 4;
+
+    if (!capture_width || !dst) {
+        return false;
+    }
+
+    if (capture_direct) {
+        gfx_opengl_capture_bind(&prevalign);
+        glReadPixels(0, 0, capture_width, capture_height, capture_gl_format, GL_UNSIGNED_BYTE, dst);
+        gfx_opengl_capture_unbind(prevalign);
+        return true;
+    }
+
+    gfx_opengl_capture_bind(&prevalign);
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, capture_pbos[capture_next]);
+    glReadPixels(0, 0, capture_width, capture_height, capture_gl_format, GL_UNSIGNED_BYTE, NULL);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+    capture_next = (capture_next + 1) % GFX_CAPTURE_PBOS;
+    capture_pending++;
+
+    // Until the ring has filled there is nothing behind this frame to hand back.
+    // That costs the recording its first frame or two, at the start, where the
+    // player has not pressed anything yet.
+    if (capture_pending < GFX_CAPTURE_PBOS) {
+        gfx_opengl_capture_unbind(prevalign);
+        return false;
+    }
+
+    const bool ok = gfx_opengl_capture_collect(dst);
+
+    gfx_opengl_capture_unbind(prevalign);
+
+    return ok;
+}
+
+static bool gfx_opengl_capture_drain(void *dst) {
+    GLint prevalign = 4;
+    bool got = false;
+
+    if (!capture_width || capture_direct || !capture_pending || !dst) {
+        return false;
+    }
+
+    gfx_opengl_capture_bind(&prevalign);
+
+    while (capture_pending > 0) {
+        got = gfx_opengl_capture_collect(dst) || got;
+    }
+
+    gfx_opengl_capture_unbind(prevalign);
+
+    return got;
+}
+
 static int gfx_opengl_get_max_anisotropy_level() {
 	GLfloat max_aniso_level;
 	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max_aniso_level);
@@ -1365,5 +1575,9 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_set_mipmap_filter,
     gfx_opengl_set_anisotropy_level,
     gfx_opengl_get_max_anisotropy_level,
-    gfx_opengl_read_screen_pixels
+    gfx_opengl_read_screen_pixels,
+    gfx_opengl_capture_start,
+    gfx_opengl_capture_read,
+    gfx_opengl_capture_drain,
+    gfx_opengl_capture_stop
 };
