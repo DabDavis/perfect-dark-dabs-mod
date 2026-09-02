@@ -7,16 +7,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <SDL2/SDL.h>
+#include <errno.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
-#include "types.h"
-#include "fs.h"
-#include "system.h"
-#include "ghostnet.h"
-#include "update.h"
-#include "versioninfo.h"
 
+// Every system header this needs comes before the project ones, the way
+// ghostnet.c orders its own. types.h does `#define bool s32`, and a system
+// header that pulls in <stdbool.h> - mach-o/dyld.h does - puts bool back to
+// _Bool underneath it. Included after update.h, that made every function
+// declared there disagree with its definition below, on macOS only.
 #ifdef PLATFORM_WIN32
 #include <windows.h>
 #include <process.h>
@@ -29,7 +28,13 @@
 #include <mach-o/dyld.h>
 #endif
 
-#include <errno.h>
+#include <SDL2/SDL.h>
+#include "types.h"
+#include "fs.h"
+#include "system.h"
+#include "ghostnet.h"
+#include "update.h"
+#include "versioninfo.h"
 
 /**
  * See update.h for what this is. This file is the how.
