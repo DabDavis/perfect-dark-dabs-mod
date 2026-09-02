@@ -154,6 +154,17 @@
 #define MODGHOST_RATE60     3
 #define MODGHOST_MAXSAMPLES 65536
 
+/**
+ * How far from the origin a recorded position may be and still be a place.
+ *
+ * Levels are thousands of units across and the deepest of them runs to about
+ * nine thousand below zero, so this is far outside any of them. It is a bound
+ * on what a float in a file is allowed to mean rather than a description of a
+ * level, and it exists so that a position out of a downloaded file cannot be
+ * handed to the room lookup - see modGhostReadFile().
+ */
+#define MODGHOST_MAXCOORD 1000000.0f
+
 // Sample flags.
 #define MODGHOSTSF_FIRINGLEFT  0x01
 #define MODGHOSTSF_FIRINGRIGHT 0x02

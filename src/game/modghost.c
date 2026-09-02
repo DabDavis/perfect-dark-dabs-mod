@@ -242,6 +242,15 @@ s32 g_ModGhostSplits = 1;
 // What the recording buffer grows by, in samples. Twenty seconds at a time.
 #define MODGHOST_GROWBY (20 * 60 / MODGHOST_RATE60)
 
+/**
+ * How many rooms a ghost's position may be looked up as being in.
+ *
+ * Seven, because struct prop holds rooms[8] and one of those is the
+ * terminator, so a list longer than this cannot be given to a body. The arrays
+ * it is written into are one longer again - see modGhostBuild().
+ */
+#define MODGHOST_FINDROOMS 7
+
 // The run being recorded.
 static struct modghostsample *g_ModGhostRec = NULL;
 static s32 g_ModGhostRecCount = 0;
@@ -972,7 +981,9 @@ static bool modGhostBuild(struct modghostracer *racer, struct modghostsample *sa
 	struct model *model;
 	struct prop *prop;
 	struct coord pos;
-	RoomNum rooms[8];
+	RoomNum *rooms;
+	RoomNum inrooms[MODGHOST_FINDROOMS + 1];
+	RoomNum aboverooms[MODGHOST_FINDROOMS + 1];
 
 	// Two chr slots free rather than one, the way modbodies.c asks: chrInit()
 	// returning nothing is dereferenced by its caller, so the slot has to be
@@ -991,7 +1002,37 @@ static bool modGhostBuild(struct modghostracer *racer, struct modghostsample *sa
 	pos.y = sample->y;
 	pos.z = sample->z;
 
-	bgFindRoomsByPos(&pos, g_Vars.currentplayer->prop->rooms, rooms, ARRAYCOUNT(rooms), NULL);
+	// Both of the middle arguments are outputs: the rooms the position is
+	// inside, and the rooms it is above. The first used to be the player's own
+	// prop->rooms, which reads like context and is not - so every ghost body
+	// built overwrote the player's room list with rooms found at the ghost's
+	// position, and wrote a terminator one past the end of it when eight rooms
+	// qualified. The ghost then inherited a list of its own with no terminator
+	// in it, and an unterminated room list is what portal00018148() walks off
+	// the end of: it copies eight entries into a sixteen entry array, finds no
+	// terminator to stop at, and reads uninitialised stack as room numbers.
+	// The crash lands in the portal code a second or so later and somewhere
+	// else entirely, which is why it looked like a portal bug.
+	//
+	// Seven rather than eight, and arrays one longer than that, because
+	// bgFindRoomsByPos() writes its terminator at index max: an array of
+	// exactly max has that terminator written past its end. func0f065e98()
+	// passes 20 with RoomNum[21] for the same reason. Seven is also what
+	// struct prop's own rooms[8] can hold once its terminator is counted, so
+	// what comes back always fits the body it is about to be given to.
+	bgFindRoomsByPos(&pos, inrooms, aboverooms, MODGHOST_FINDROOMS, NULL);
+
+	// Inside a room for preference, above one otherwise, the way
+	// func0f065e98() picks. Neither means the sample is somewhere no room
+	// covers, so no body is built this frame and the next one tries again.
+	if (inrooms[0] != -1) {
+		rooms = inrooms;
+	} else if (aboverooms[0] != -1) {
+		rooms = aboverooms;
+	} else {
+		modelmgrFreeModel(model);
+		return false;
+	}
 
 	prop = chrAllocate(model, &pos, rooms, 0.0f, NULL);
 
@@ -1044,7 +1085,13 @@ static void modGhostPose(struct modghostracer *racer, struct modghostsample *sam
 	struct prop *prop = chr->prop;
 	struct coord dstpos;
 	struct coord rootpos;
-	RoomNum dstrooms[8];
+	// Room to spare on purpose. func0f065d1c() fills this with one entry per
+	// room that contains the destination and then writes a terminator after
+	// them, without knowing how long the array is - so an array of exactly
+	// eight has its terminator written past the end the moment eight rooms
+	// qualify, and what is left behind has no terminator in it at all.
+	RoomNum dstrooms[24];
+	s32 numrooms;
 	f32 angle;
 	f32 shootrotx;
 	f32 shootroty;
@@ -1068,7 +1115,20 @@ static void modGhostPose(struct modghostracer *racer, struct modghostsample *sam
 	prop->pos.z = dstpos.z;
 
 	propDeregisterRooms(prop);
-	roomsCopy(dstrooms, prop->rooms);
+
+	// Copied by hand rather than with roomsCopy(), which reads until it finds
+	// a terminator and writes however much it read: a longer list than
+	// struct prop's rooms[8] can hold would be written straight past the end
+	// of the prop. The list is trimmed to what fits instead, which costs the
+	// furthest rooms of an overlapping stack and keeps the body in the ones
+	// the renderer will draw it from.
+	for (numrooms = 0; numrooms < ARRAYCOUNT(prop->rooms) - 1
+			&& dstrooms[numrooms] != -1; numrooms++) {
+		prop->rooms[numrooms] = dstrooms[numrooms];
+	}
+
+	prop->rooms[numrooms] = -1;
+
 	propActivateThisFrame(prop);
 
 	// Where the feet are. chrTick() draws the body from the ground the chr
@@ -1341,6 +1401,32 @@ static bool modGhostReadFile(const char *rel, struct modghostheader *hdr, struct
 
 	fclose(f);
 
+	// Every position is checked before any of them is replayed. The header is
+	// picked over field by field above and the samples were then believed
+	// whole, which is the wrong way round for the half of the file that gets
+	// handed to the engine: a position becomes prop->pos and is fed to the
+	// portal walk, and a NaN or a coordinate a long way outside the level
+	// sends that walking rooms that do not exist. A file arrives here from a
+	// download or a directory somebody dropped it in, so it does not get to
+	// decide where a prop goes without being read first.
+	//
+	// The bound is generous on purpose - it is a sanity check on the range a
+	// coordinate can hold, not a claim about how big a level is. Anything past
+	// it was not recorded by a run.
+	for (i = 0; i < hdr->numsamples; i++) {
+		if (!(samples[i].x > -MODGHOST_MAXCOORD && samples[i].x < MODGHOST_MAXCOORD)
+				|| !(samples[i].y > -MODGHOST_MAXCOORD && samples[i].y < MODGHOST_MAXCOORD)
+				|| !(samples[i].z > -MODGHOST_MAXCOORD && samples[i].z < MODGHOST_MAXCOORD)) {
+			// Written as a pair of > and < rather than fabsf() < so that a NaN
+			// fails it: every comparison against a NaN is false, including the
+			// one that would have let it through.
+			sysLogPrintf(LOG_WARNING, "ghost: %s has a position at sample %u that is not a place, ignoring it",
+					rel, i);
+			free(samples);
+			return false;
+		}
+	}
+
 	// The hash is over the samples as this build understands them, which is
 	// the same bytes the writer hashed as long as the sample size matches. A
 	// file from a build with a longer sample is read but not checked, there
@@ -1416,8 +1502,38 @@ static bool modGhostHasExt(const char *name, u32 len)
 struct modghostcandidate {
 	char filename[64];
 	char player[MODGHOST_NAMELEN];
+	char owner[MODGHOST_OWNERLEN];
 	u32 time60;
 };
+
+/**
+ * Whether a candidate and a header were set by the same person.
+ *
+ * The account when both name one, because that is who a run belongs to: the
+ * agent is a save file, and two accounts on one machine share it. Comparing
+ * agents made Fastest treat every account on a machine as one person and keep
+ * only the quickest of them, so a couch with two players on it raced one ghost
+ * and the second player's runs were never in the field at all.
+ *
+ * This is the same distinction My Best Only already draws. It was fixed there
+ * and missed here, which is why the two picks disagreed about how many runners
+ * a directory held.
+ *
+ * Runs with no owner fall back to the agent, which is the best either of them
+ * can say about a file recorded before accounts existed.
+ */
+static bool modGhostSameRunner(const struct modghostcandidate *entry, const struct modghostheader *hdr)
+{
+	if (entry->owner[0] && hdr->owner[0]) {
+		return strncmp(entry->owner, hdr->owner, MODGHOST_OWNERLEN) == 0;
+	}
+
+	if (entry->owner[0] || hdr->owner[0]) {
+		return false;
+	}
+
+	return strncmp(entry->player, hdr->player, MODGHOST_NAMELEN) == 0;
+}
 
 struct modghostscan {
 	s32 stagenum;
@@ -1842,7 +1958,7 @@ static void modGhostScanFile(const char *name, void *arg)
 	// which is the same answer whatever order the directory is scanned in.
 	if (scan->pick == MODGHOSTPICK_FASTEST) {
 		for (i = 0; i < scan->count; i++) {
-			if (strncmp(scan->entries[i].player, hdr.player, MODGHOST_NAMELEN) != 0) {
+			if (!modGhostSameRunner(&scan->entries[i], &hdr)) {
 				continue;
 			}
 
@@ -1885,6 +2001,8 @@ static void modGhostScanFile(const char *name, void *arg)
 	scan->entries[at].filename[sizeof(scan->entries[at].filename) - 1] = '\0';
 	strncpy(scan->entries[at].player, hdr.player, MODGHOST_NAMELEN - 1);
 	scan->entries[at].player[MODGHOST_NAMELEN - 1] = '\0';
+	strncpy(scan->entries[at].owner, hdr.owner, MODGHOST_OWNERLEN - 1);
+	scan->entries[at].owner[MODGHOST_OWNERLEN - 1] = '\0';
 }
 
 /**
