@@ -420,10 +420,24 @@ static bool updateFetchManifest(char *err, u32 errsize)
  */
 static bool updateIsNewer(void)
 {
+	u32 mine = (u32)strlen(VERSION_HASH);
+	u32 theirs;
 	bool differs;
 
 	SDL_LockMutex(g_Lock);
-	differs = strcmp(g_Commit, VERSION_HASH) != 0;
+	theirs = (u32)strlen(g_Commit);
+	// Whichever is shorter decides how much is compared, because the two ends
+	// do not agree on how long a short hash is. `git rev-parse --short` picks
+	// its own length out of how many objects the repository has, so the CI
+	// runner's fresh clone says 2969ab9 where a working copy that has been
+	// fetched into for weeks says 2969ab9a2. They are the same commit, and a
+	// straight strcmp told anyone building locally that they were a release
+	// behind themselves.
+	//
+	// A prefix match cannot say one is newer than the other and is not asked
+	// to: what it answers is whether the release is a different build, and the
+	// only release ever offered is the latest one on this build's channel.
+	differs = strncmp(g_Commit, VERSION_HASH, mine < theirs ? mine : theirs) != 0;
 	SDL_UnlockMutex(g_Lock);
 
 	return differs;
