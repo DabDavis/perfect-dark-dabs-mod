@@ -147,6 +147,14 @@ s32 g_ModGhostPick = MODGHOSTPICK_FASTEST;
 s32 g_ModGhostBody = MODGHOST_BODY_DEFAULT;
 
 /**
+ * The head, separately, because the picker offers it separately.
+ *
+ * Zero means whichever head the body comes with, which is what choosing a body
+ * alone should give and what a run recorded before heads were pickable has.
+ */
+s32 g_ModGhostHead = MODGHOST_BODY_DEFAULT;
+
+/**
  * Turn a stored character into the body and head the model loader wants.
  *
  * Returns false for the default, which is the caller's cue to leave whatever
@@ -158,16 +166,26 @@ s32 g_ModGhostBody = MODGHOST_BODY_DEFAULT;
  * the decomp that is documented where it lives and cheaper to avoid than to
  * fix under a matching build.
  */
-static bool modGhostResolveCharacter(s32 stored, s32 *bodynum, s32 *headnum)
+static bool modGhostResolveCharacter(s32 storedbody, s32 storedhead, s32 *bodynum, s32 *headnum)
 {
-	s32 index = stored - 1;
+	s32 body = storedbody - 1;
+	s32 head = storedhead - 1;
 
-	if (stored <= MODGHOST_BODY_DEFAULT || index >= (s32)mpGetNumBodies()) {
+	if (storedbody <= MODGHOST_BODY_DEFAULT || body >= (s32)mpGetNumBodies()) {
 		return false;
 	}
 
-	*bodynum = mpGetBodyId(index);
-	*headnum = mpGetHeadId(mpGetMpheadnumByMpbodynum(index));
+	*bodynum = mpGetBodyId(body);
+
+	// A head of its own if one was chosen and the table still has it, else the
+	// one the body was built with. Heads past mpGetNumHeads2() are the ones the
+	// arena treats as a face rather than a head model, and asking mpGetHeadId()
+	// for those returns something that does not belong on this body.
+	if (storedhead > MODGHOST_BODY_DEFAULT && head < mpGetNumHeads2()) {
+		*headnum = mpGetHeadId(head);
+	} else {
+		*headnum = mpGetHeadId(mpGetMpheadnumByMpbodynum(body));
+	}
 
 	return true;
 }
@@ -184,7 +202,7 @@ bool modGhostGetTrialCharacter(s32 *bodynum, s32 *headnum)
 		return false;
 	}
 
-	return modGhostResolveCharacter(g_ModGhostBody, bodynum, headnum);
+	return modGhostResolveCharacter(g_ModGhostBody, g_ModGhostHead, bodynum, headnum);
 }
 
 // How solid the ghost is drawn, out of 255. Low enough to read as not really
@@ -246,6 +264,7 @@ struct modghostracer {
 	s32 time60;
 	char name[MODGHOST_NAMELEN];
 	s32 body;                 // stored character, MODGHOST_BODY_DEFAULT for Joanna
+	s32 head;
 	struct chrdata *chr;
 	s32 chrnum;
 	s32 weaponheld;
@@ -885,13 +904,21 @@ static struct model *modGhostBuildModel(struct modghostracer *racer)
 	struct model *model;
 	s32 i;
 
-	// The character the run was set as, out of its own file. A ghost that
-	// arrived from somebody else should look like the person who set it, and
-	// a run of your own from before the picker existed carries nothing, which
-	// leaves the game to choose the way it always did.
-	if (!modGhostResolveCharacter(racer->body, &bodynum, &headnum)) {
-		playerChooseBodyAndHead(&bodynum, &headnum, &sunglasses);
+	// The character the run was set as, out of its own file, and Joanna when
+	// the file names nobody.
+	//
+	// It used to ask playerChooseBodyAndHead() for that second case, which was
+	// right while every ghost was Joanna and became a bug the moment a trial
+	// character existed: that function now answers with the character the
+	// player picked, so changing your own outfit restyled every older ghost on
+	// the track. A ghost is a record of somebody's run and does not follow the
+	// person watching it.
+	if (!modGhostResolveCharacter(racer->body, racer->head, &bodynum, &headnum)) {
+		bodynum = BODY_DARK_COMBAT;
+		headnum = HEAD_DARK_COMBAT;
 	}
+
+	(void)sunglasses;
 
 	for (i = 0; i < g_ModGhostNumBodyDefs; i++) {
 		if (g_ModGhostBodyDefs[i].bodynum != bodynum) {
@@ -1904,6 +1931,7 @@ static void modGhostLoad(void)
 		// before ghosts carried an owner fall back to it, because a name that
 		// is only sometimes right beats no name at all.
 		racer->body = hdr.mpbody;
+		racer->head = hdr.mphead;
 
 		strncpy(racer->name, hdr.owner[0] ? hdr.owner : hdr.player, MODGHOST_NAMELEN - 1);
 		racer->name[MODGHOST_NAMELEN - 1] = '\0';
@@ -2210,7 +2238,7 @@ void modGhostSaveRun(void)
 	// is; the picker cannot reach a value that would not fit, but a config
 	// file edited by hand can.
 	hdr.mpbody = (u8)(g_ModGhostBody > 0 && g_ModGhostBody < 256 ? g_ModGhostBody : 0);
-	hdr.mphead = hdr.mpbody;
+	hdr.mphead = (u8)(g_ModGhostHead > 0 && g_ModGhostHead < 256 ? g_ModGhostHead : 0);
 
 	hdr.stagenum = g_Vars.stagenum;
 	hdr.difficulty = g_MissionConfig.difficulty;

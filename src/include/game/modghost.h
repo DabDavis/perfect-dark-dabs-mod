@@ -233,6 +233,7 @@ struct modghostchoice {
 
 extern s32 g_ModGhostMode;
 extern s32 g_ModGhostBody;
+extern s32 g_ModGhostHead;
 extern s32 g_ModGhostPick;
 extern s32 g_ModGhostAlpha;
 extern s32 g_ModGhostSplits;

@@ -14,6 +14,7 @@
 #include "ghostnet.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/setup.h"
 
 /**
  * Ghost Trials - the ghost feature's own corner of the main menu.
@@ -160,38 +161,124 @@ static MenuItemHandlerResult menuhandlerGhostPick(s32 operation, struct menuitem
 }
 
 /**
- * Who the player is in a trial, and therefore who their ghost is.
+ * Customize Character: who the player is in a trial, and so who their ghost is.
  *
- * The Combat Simulator body list, with Joanna in front of it as the default
- * that solo has always given. A dropdown rather than the carousel the arena
- * character page uses: that one is built around a rotating model preview and
- * lives inside the multiplayer menus, and what is wanted here is the name of
- * whoever the run will be set as.
+ * The Combat Simulator character page, pointed at the trial's own storage. The
+ * two carousels and the turning model beside them are that page's handlers -
+ * mpCharacterBodyMenuHandler and mpCharacterHeadMenuHandler both take the body
+ * and head to show as arguments, so what makes the arena page the arena page is
+ * only which variables the wrappers read. These wrappers read the trial's.
  *
- * The choice is written into every run recorded afterwards, so changing it
- * does not restyle the ghosts already on disk - they keep whoever set them.
+ * Reusing them rather than copying them is the difference between one character
+ * picker with two entry points and two pickers that drift apart. The preview
+ * model, the unlock check on bodies, the head that follows a body unless it was
+ * chosen on purpose - all of that is behaviour the arena page already has and
+ * this one would otherwise have to grow badly.
+ *
+ * The choice is written into every run recorded afterwards, so changing it does
+ * not restyle the ghosts already on disk. They keep whoever set them.
  */
-static MenuItemHandlerResult menuhandlerGhostCharacter(s32 operation, struct menuitem *item, union handlerdata *data)
+static char *menutextGhostCharacterName(struct menuitem *item)
 {
-	switch (operation) {
-	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = mpGetNumBodies() + 1;
-		break;
-	case MENUOP_GETOPTIONTEXT:
-		if (data->dropdown.value == MODGHOST_BODY_DEFAULT) {
-			return (intptr_t)"Joanna";
-		}
+	if (g_ModGhostBody <= MODGHOST_BODY_DEFAULT) {
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "Joanna\n");
+	} else {
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s\n",
+				mpGetBodyName(g_ModGhostBody - 1));
+	}
 
-		return (intptr_t)mpGetBodyName(data->dropdown.value - 1);
+	return g_GhostRowText;
+}
+
+static MenuItemHandlerResult menuhandlerGhostCharacterBody(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	// The stored values are one above the index, so that zero can mean the
+	// default. The arena handlers deal in the index itself.
+	s32 body = g_ModGhostBody > MODGHOST_BODY_DEFAULT ? g_ModGhostBody - 1 : 0;
+	s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : mpGetMpheadnumByMpbodynum(body);
+
+	switch (operation) {
 	case MENUOP_SET:
-		g_ModGhostBody = data->dropdown.value;
+		g_ModGhostBody = data->carousel.value + 1;
+
+		// A body brings its own head unless one was picked on purpose, which
+		// is what the arena page does and the reason a head can be left alone.
+		if (g_ModGhostHead <= MODGHOST_BODY_DEFAULT) {
+			g_ModGhostHead = mpGetMpheadnumByMpbodynum(data->carousel.value) + 1;
+		}
 		break;
-	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_ModGhostBody;
+	case MENUOP_CHECKPREFOCUSED:
+		mpCharacterBodyMenuHandler(operation, item, data, body, head, true);
+		return true;
+	}
+
+	return mpCharacterBodyMenuHandler(operation, item, data, body, head, true);
+}
+
+static MenuItemHandlerResult menuhandlerGhostCharacterHead(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : 0;
+
+	if (operation == MENUOP_SET) {
+		g_ModGhostHead = data->carousel.value + 1;
+	}
+
+	return mpCharacterHeadMenuHandler(operation, item, data, head, true);
+}
+
+static MenuDialogHandlerResult menudialogGhostCharacter(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	// Keep the model turning while neither carousel has the focus, the way the
+	// arena page does. Without it the preview freezes the moment the cursor
+	// sits on the name at the top.
+	if (operation == MENUOP_TICK
+			&& g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef
+			&& g_Menus[g_MpPlayerNum].curdialog->focuseditem != &dialogdef->items[1]
+			&& g_Menus[g_MpPlayerNum].curdialog->focuseditem != &dialogdef->items[2]) {
+		union handlerdata scratch;
+		menuhandlerGhostCharacterBody(MENUOP_11, &dialogdef->items[2], &scratch);
 	}
 
 	return 0;
 }
+
+struct menuitem g_GhostCharacterMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_DARKERBG,
+		(uintptr_t)&menutextGhostCharacterName,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_CAROUSEL,
+		0,
+		0,
+		0,
+		0x00000022,
+		menuhandlerGhostCharacterHead,
+	},
+	{
+		MENUITEMTYPE_CAROUSEL,
+		0,
+		0,
+		0,
+		0x0000001b,
+		menuhandlerGhostCharacterBody,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostCharacterMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Customize Character",
+	g_GhostCharacterMenuItems,
+	menudialogGhostCharacter,
+	MENUDIALOGFLAG_0002 | MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
 
 static const s32 g_GhostAlphaValues[] = { 60, 110, 170, 230 };
 
@@ -630,12 +717,12 @@ struct menuitem g_GhostOptionsMenuItems[] = {
 		menuhandlerGhostMode,
 	},
 	{
-		MENUITEMTYPE_DROPDOWN,
+		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Trial Character",
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Customize Character...\n",
 		0,
-		menuhandlerGhostCharacter,
+		(void *)&g_GhostCharacterMenuDialog,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

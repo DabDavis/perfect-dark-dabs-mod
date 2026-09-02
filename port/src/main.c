@@ -243,6 +243,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// where it is used, since mpGetBodyId() reads off the end of its array for
 	// the value just above the last valid one.
 	configRegisterInt("Mod.GhostCharacter", &g_ModGhostBody, 0, 61);
+	configRegisterInt("Mod.GhostCharacterHead", &g_ModGhostHead, 0, 255);
 
 	// The leaderboard account. The PIN is stored as typed, which is what a PIN
 	// with no password behind it amounts to - it is a claim on a name on a
