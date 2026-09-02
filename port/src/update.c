@@ -102,6 +102,19 @@ static bool g_Staged = false;
 // relaunch would start the build that was just replaced.
 static char g_StagedPath[FS_MAXPATH] = { 0 };
 
+// Set by Re-Download Update: treat the release as different from this build
+// even when it is the same commit, so the whole download-verify-swap path can
+// be run again without a commit being pushed to give it something to want.
+// Cleared once an install has been through it.
+static bool g_Force = false;
+
+// The reply being written to disk, while it is being written. It is a file
+// static rather than a local so the menu can ask how far along it is: len is
+// counted up by the transport on the worker thread and read on the main one,
+// which is a race with nothing at stake - the answer is a number on a screen,
+// and a stale one is last frame's.
+static struct ghostnetbuf g_Download = { NULL, 0, NULL };
+
 // What the last check found, and what an install afterwards acts on. Written
 // on the worker under the lock and read by the menu, like everything else here.
 static char g_Version[UPDATE_MAXVERSION + 1] = { 0 };
@@ -504,10 +517,40 @@ static bool updateIsNewer(void)
 	// A prefix match cannot say one is newer than the other and is not asked
 	// to: what it answers is whether the release is a different build, and the
 	// only release ever offered is the latest one on this build's channel.
-	differs = strncmp(g_Commit, VERSION_HASH, mine < theirs ? mine : theirs) != 0;
+	differs = g_Force || strncmp(g_Commit, VERSION_HASH, mine < theirs ? mine : theirs) != 0;
 	SDL_UnlockMutex(g_Lock);
 
 	return differs;
+}
+
+/**
+ * Arm a re-download of the release this build already is.
+ *
+ * Testing the updater otherwise means pushing a commit for the release job to
+ * build, waiting for it, and doing that again for the next thing worth trying
+ * - which is a repository history made of things that were not worth
+ * committing. This says "want it anyway" instead.
+ *
+ * It arms rather than downloads: the check still has to succeed and the
+ * manifest still has to describe a build for this platform, so what is
+ * exercised is the whole path rather than a shortcut into the middle of it.
+ */
+void updateForceRedownload(void)
+{
+	SDL_LockMutex(g_Lock);
+	g_Force = true;
+	SDL_UnlockMutex(g_Lock);
+}
+
+bool updateIsForced(void)
+{
+	bool forced;
+
+	SDL_LockMutex(g_Lock);
+	forced = g_Force;
+	SDL_UnlockMutex(g_Lock);
+
+	return forced;
 }
 
 /**
@@ -527,7 +570,7 @@ static bool updateIsNewer(void)
  */
 static bool updateDownload(char *msg, u32 msgsize)
 {
-	struct ghostnetbuf buf = { NULL, 0, NULL };
+	struct ghostnetbuf *buf = &g_Download;
 	struct ghostnetreq req;
 	char url[512];
 	char newpath[FS_MAXPATH];
@@ -568,9 +611,11 @@ static bool updateDownload(char *msg, u32 msgsize)
 	req.url = url;
 	req.redirect = true;
 	req.timeout = UPDATE_DOWNLOADTIMEOUT;
-	buf.sink = f;
+	buf->data = NULL;
+	buf->len = 0;
+	buf->sink = f;
 
-	if (!ghostnetSend(&req, &buf, &status, msg, msgsize)) {
+	if (!ghostnetSend(&req, buf, &status, msg, msgsize)) {
 		fclose(f);
 		remove(newpath);
 		return false;
@@ -584,8 +629,8 @@ static bool updateDownload(char *msg, u32 msgsize)
 		return false;
 	}
 
-	if (buf.len != size) {
-		snprintf(msg, msgsize, "the download stopped early (%u of %u bytes)", (u32)buf.len, size);
+	if (buf->len != size) {
+		snprintf(msg, msgsize, "the download stopped early (%u of %u bytes)", (u32)buf->len, size);
 		remove(newpath);
 		return false;
 	}
@@ -636,6 +681,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 
 	SDL_LockMutex(g_Lock);
 	g_Staged = true;
+	g_Force = false;
 	snprintf(g_StagedPath, sizeof(g_StagedPath), "%s", curpath);
 	SDL_UnlockMutex(g_Lock);
 
@@ -656,7 +702,13 @@ static int updateWorker(void *arg)
 			updateSetResult(UPDATE_ERROR, msg);
 		} else if (updateIsNewer()) {
 			SDL_LockMutex(g_Lock);
-			snprintf(msg, sizeof(msg), "%s is out. You have %s.", g_Version, VERSION_HASH);
+
+			if (g_Force) {
+				snprintf(msg, sizeof(msg), "Ready to install %s again.", g_Version);
+			} else {
+				snprintf(msg, sizeof(msg), "%s is out. You have %s.", g_Version, VERSION_HASH);
+			}
+
 			SDL_UnlockMutex(g_Lock);
 			updateSetResult(UPDATE_FOUND, msg);
 		} else {
@@ -666,7 +718,7 @@ static int updateWorker(void *arg)
 		}
 	} else if (job == UPDATE_JOB_INSTALL) {
 		if (updateDownload(msg, sizeof(msg))) {
-			updateSetResult(UPDATE_STAGED, "Installed. It starts when you quit and open the game again.");
+			updateSetResult(UPDATE_STAGED, "Installed. Restart to start using it.");
 		} else {
 			updateSetResult(UPDATE_ERROR, msg);
 		}
@@ -739,18 +791,53 @@ s32 updateGetState(void)
 	return state;
 }
 
+/**
+ * The result and the release name, copied out from under the lock.
+ *
+ * The worker writes both, and returning the buffers themselves handed the menu
+ * a string that could change halfway through being drawn. The copies are
+ * per-call statics, which is safe for the one caller there is: the menu, on
+ * the main thread, once a frame.
+ */
 const char *updateGetMessage(void)
 {
+	static char copy[sizeof(g_Message)];
+
 	if (!updateIsAvailable()) {
 		return "this build has no network support";
 	}
 
-	return g_Message;
+	SDL_LockMutex(g_Lock);
+	snprintf(copy, sizeof(copy), "%s", g_Message);
+	SDL_UnlockMutex(g_Lock);
+
+	return copy;
 }
 
 const char *updateGetVersion(void)
 {
-	return g_Version;
+	static char copy[sizeof(g_Version)];
+
+	SDL_LockMutex(g_Lock);
+	snprintf(copy, sizeof(copy), "%s", g_Version);
+	SDL_UnlockMutex(g_Lock);
+
+	return copy;
+}
+
+/**
+ * How much of the new build has arrived, in bytes, and how much there is.
+ *
+ * Zero for the total until a check has found something, which is also how the
+ * menu knows there is nothing to say yet.
+ */
+void updateGetProgress(u32 *done, u32 *total)
+{
+	SDL_LockMutex(g_Lock);
+	*total = g_Size;
+	SDL_UnlockMutex(g_Lock);
+
+	*done = (u32)g_Download.len;
 }
 
 bool updateIsStaged(void)

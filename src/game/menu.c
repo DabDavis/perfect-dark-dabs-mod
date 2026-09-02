@@ -3924,6 +3924,10 @@ Gfx *menuRenderDialogs(Gfx *gdl)
 	// The Ghost Trials nameplate and rules. After the dialogs because they are
 	// not dialogs: they draw in the corners the dialogs leave empty.
 	gdl = ghostmenuRenderOverlay(gdl);
+
+	// And the update page's download bar, for the same reason: a menu item
+	// cannot draw, and this is a bar rather than a row.
+	gdl = updatemenuRenderProgress(gdl);
 #endif
 
 	return gdl;

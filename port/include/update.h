@@ -46,6 +46,10 @@ bool updateIsAvailable(void);
 s32 updateGetState(void);
 const char *updateGetMessage(void);
 const char *updateGetVersion(void);
+void updateGetProgress(u32 *done, u32 *total);
+
+void updateForceRedownload(void);
+bool updateIsForced(void);
 
 void updateCheck(void);
 void updateInstall(void);

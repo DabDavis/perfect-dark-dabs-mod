@@ -312,6 +312,21 @@ void textReset(void)
 	var8007fae8 = 0;
 
 	if (g_Vars.stagenum == STAGE_TITLE) {
+#ifndef PLATFORM_N64
+		// Stock leaves the extra small font out here, because the only stock
+		// items that ask for it are marquees and menuCalculateItemSize()
+		// answers for a marquee without measuring any text. This fork's menus
+		// use MENUITEMFLAG_SMALLFONT on labels, which do get measured - and
+		// textMeasure() reads the '[' out of the font it is handed before it
+		// looks at the string, so an unloaded font is a null dereference the
+		// moment such a page is opened from the title screen rather than from
+		// inside the Carrington Institute.
+		//
+		// Loading it is about eight kilobytes and makes the flag mean the same
+		// thing wherever a menu is open. Guarding the nine places that choose
+		// a font instead would leave the tenth to find out the hard way.
+		textLoadFont(REF_SEG _fonthandelgothicxsSegmentRomStart, REF_SEG _fonthandelgothicxsSegmentRomEnd, &g_FontHandelGothicXs, &g_CharsHandelGothicXs, false);
+#endif
 		textLoadFont(REF_SEG _fonthandelgothicsmSegmentRomStart, REF_SEG _fonthandelgothicsmSegmentRomEnd, &g_FontHandelGothicSm, &g_CharsHandelGothicSm, false);
 		textLoadFont(REF_SEG _fonthandelgothicmdSegmentRomStart, REF_SEG _fonthandelgothicmdSegmentRomEnd, &g_FontHandelGothicMd, &g_CharsHandelGothicMd, false);
 		textLoadFont(REF_SEG _fonthandelgothiclgSegmentRomStart, REF_SEG _fonthandelgothiclgSegmentRomEnd, &g_FontHandelGothicLg, &g_CharsHandelGothicLg, false);

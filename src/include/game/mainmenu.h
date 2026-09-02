@@ -14,6 +14,7 @@ extern struct menudialogdef g_GhostTrialsMenuDialog;
 // inside one. See the comments on the definitions in port/src/ghostmenu.c.
 Gfx *ghostmenuRenderOverlay(Gfx *gdl);
 extern struct menudialogdef g_UpdateMenuDialog;
+Gfx *updatemenuRenderProgress(Gfx *gdl);
 #endif
 extern struct menudialogdef g_PreAndPostMissionBriefingMenuDialog;
 extern struct menudialogdef g_RetryMissionMenuDialog;
