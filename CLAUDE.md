@@ -5,6 +5,33 @@ Fork of the [fgsfdsfgs/perfect_dark](https://github.com/fgsfdsfgs/perfect_dark) 
 
 `git checkout port` returns to stock at any time.
 
+## What is written down here
+
+Each section is a thing that was got wrong once. If you are about to touch the
+area, read its section first — none of them are inferable from the code.
+
+- [Build and run](#build-and-run) — the two build trees, and which warnings are not yours
+- [This is a decompilation](#this-is-a-decompilation) — ROM layout, and why raising a limit is how every bug here started
+- [A chr's prop and model are read before its tick, not during](#a-chrs-prop-and-model-are-read-before-its-tick-not-during) — where body swaps have to happen
+- [Memory: what an MP chr costs, and which pool it comes from](#memory-what-an-mp-chr-costs-and-which-pool-it-comes-from) — the ~50KB head copy that empties the stage pool
+- [One head modeldef cannot sit on two bodies](#one-head-modeldef-cannot-sit-on-two-bodies)
+- [ROM-resident structures — never grow these](#rom-resident-structures--never-grow-these)
+- [Save format](#save-format) — eeprom, and what a virgin one costs you
+- [Text rendering](#text-rendering) — fonts, and menu units versus pixels
+- [Stage numbers](#stage-numbers)
+- [The frame is presented before videoEndFrame()](#the-frame-is-presented-before-videoendframe) — why the pre-swap callback exists
+- [Feeding ffmpeg two raw pipes](#feeding-ffmpeg-two-raw-pipes) — the recorder: GPU capture, encoder detection, and what happens when one falls behind
+- [Ghost Trials talks over two different transports](#ghost-trials-talks-over-two-different-transports) — WinHTTP and libcurl, and why not one of them
+- [The game replaces itself](#the-game-replaces-itself) — the updater's internals
+- [Mod directories](#mod-directories)
+- [Debugging](#debugging) — the two commands that actually find things
+
+**[DabDavisGitHub.md](DabDavisGitHub.md)** is the companion to this file: the
+GitHub remote, how commits are written, how a push becomes a release, and how the
+stable and dev channels reach a player. Read it before pushing or tagging —
+`dabs-mod` is a public default branch and a push to it rebuilds what every
+dev-channel player's Check for Updates points at.
+
 ## Build and run
 
 ```sh
@@ -188,10 +215,42 @@ build is `-std=c11`, and that is strict enough to hide it while leaving `fork()`
 SDL2 has no join with a timeout, and a thread stuck in a write to an encoder
 that has stopped reading cannot be woken - `popen()` gives back a stream and no
 process to kill. So the writers count themselves out, `recordStop()` polls that,
-and past five seconds it detaches them and leaks their buffers rather than
+and past the deadline it detaches them and leaks their buffers rather than
 freeing memory they are still reading. That ends recording for the session:
 the next one would hand its encoder to a thread still writing the last one's
 frames.
+
+**The readback must not stall the frame.** `videoReadScreenPixels()` waits for
+the GPU to finish and repacks every row into RGB triples, which is right for one
+screenshot and ruinous sixty times a second. The recorder uses the capture calls
+instead (`gfx_capture_*`, `port/fast3d/gfx_opengl.cpp`): `glReadPixels` into a
+bound pixel buffer object is a request rather than a transfer, so a ring of two
+PBOs issues this frame's read and collects the one issued last frame, and nothing
+waits on the GPU. What comes out is a frame behind - which is latency and not
+drift, because a fixed-rate stream timestamps by index and no index is skipped.
+The format is reported rather than converted, BGRA being what desktop drivers
+hand back without repacking and four-byte pixels being what a GPU encoder wants
+uploaded. `gfx_capture_drain()` collects what is still in flight at stop, or the
+recording loses its tail to the ring.
+
+**Which encoder a machine has is asked, not guessed.** nvenc, vaapi and qsv on
+Linux, nvenc/amf/qsv/mf on Windows, videotoolbox on macOS - each put past ffmpeg
+once as three frames of black, first that survives kept, answer remembered in
+`Mod.RecordCodec` so the search never runs twice. The filter chains are probed
+the same way and matter more than the codec: the first has the GPU convert to
+NV12, the second falls back to swscale for a driver that will not take the
+upload. On the Polaris card here at 1080p that is 5ms a frame against 29ms, and
+against 59ms across six cores for libx264 - which is deliberately not in the
+table and reachable only by naming it, for a machine with nothing on its GPU.
+
+**Too slow and stopped altogether look identical from the game thread** - the
+queue is full and stays full - and they must not end the same way. So the process
+is asked (`waitpid(WNOHANG)`), and one still running is given its backlog and
+left to write the container's index: the recording ends early instead of leaving
+an mp4 with no moov atom that will not open in anything. Only an encoder that has
+actually exited is given up on, and the unplayable file it leaves is removed.
+Ending early writes the queued frames once apiece rather than at their repeat
+counts, which bounds the wait to about a second.
 
 ## Ghost Trials talks over two different transports
 
