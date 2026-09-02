@@ -19,6 +19,7 @@
 #include "game/menugfx.h"
 #include "game/game_1531a0.h"
 #include "game/camdraw.h"
+#include "video.h"
 
 /**
  * Ghost Trials - the ghost feature's own corner of the main menu.
@@ -1836,16 +1837,19 @@ struct menudialogdef g_GhostBoardMenuDialog = {
  * draws for every other window, at a rectangle of our own choosing.
  */
 
-// The plaque, in menu units. Inset from the top right corner of the view: the
-// top left is where the frame counter is drawn, and a nameplate underneath it
-// is a nameplate with a number over its title bar.
-#define MODGHOST_PLAQUEX     6
-#define MODGHOST_PLAQUEY     6
+// The plaque, in menu units. Inset from the top right corner of the screen -
+// see the alignment note in ghostmenuRenderPlaque() for why the corner of the
+// screen and the corner of the view are not the same place. The right rather
+// than the left because the frame counter is drawn in the top left, and a
+// nameplate underneath it is a nameplate with a number over its title bar.
+#define MODGHOST_PLAQUEMARGIN 2
+#define MODGHOST_PLAQUEY      6
 // The window is measured to the name rather than fixed, because a nameplate
 // sized for the longest name a rule allows is mostly empty for every real one:
-// accounts are called dab and dnx. These bound it - wide enough for the title
-// bar to read, and not so wide that a fifteen character name walks it into the
-// dialog underneath.
+// accounts are called dab and dnx. The floor is a plaque that still reads as
+// one when the dialog underneath leaves no corner to sit in; the ceiling stops
+// a fifteen character name from becoming a banner across the top of the
+// screen.
 #define MODGHOST_PLAQUEMINW  54
 #define MODGHOST_PLAQUEMAXW  108
 // The body below the title bar: tall enough for a head with a name beside it.
@@ -1972,6 +1976,41 @@ static void menuGhostPlaqueModel(s32 mphead, s32 x, s32 y, s32 size)
 }
 
 /**
+ * How far the right hand alignment moves what is drawn under it, in menu units.
+ *
+ * G_ASPECT_RIGHT_EXT is an offset applied to vertices as they are projected:
+ * fast3d adds aspect_ofs, which is the window's aspect over the view's less
+ * one, and that is half the screen's worth of it. Everything drawn moves by
+ * that and nothing has to know - except the model, whose viewport
+ * menuRenderModel() builds out of g_MenuScissor without ever seeing a vertex.
+ * So the model's rectangle is moved by hand, by the amount everything else
+ * moves by itself, or the head is drawn beside the viewport it is clipped to
+ * and nothing appears at all.
+ *
+ * SCREEN_WIDTH_LO / 2 rather than the view's own half width: the offset is
+ * given in the projection's units, and that is the pair menuRenderModel()
+ * already works in when it turns a rectangle into a viewport.
+ */
+static s32 menuGhostPlaqueAlignOffset(void)
+{
+	f32 window = videoGetAspect();
+	f32 native = (f32)videoGetNativeWidth() / (f32)videoGetNativeHeight();
+	f32 ofs = window / native - 1.0f;
+
+	if (ofs <= 0.0f) {
+		return 0;
+	}
+
+	// The cap G_ASPECT_WIDE_EXT applies, so an ultrawide display puts the
+	// plaque beside the menu rather than a foot away from it.
+	if (window > 16.0f / 9.0f) {
+		ofs *= (16.0f / 9.0f) / window;
+	}
+
+	return (s32)(ofs * (SCREEN_WIDTH_LO / 2));
+}
+
+/**
  * Draw the plaque: the window, the head and the name.
  *
  * Called after the dialogs rather than among them, because it belongs to no
@@ -2045,7 +2084,14 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 		width = MODGHOST_PLAQUEMAXW;
 	}
 
-	x2 = viewright - MODGHOST_PLAQUEX;
+	// The right edge of the view, which with the alignment set below is the
+	// right edge of the screen. Everything the menu draws is in view units and
+	// stays inside them - text0f15568c() drops any glyph past viGetWidth()
+	// whatever the scissor says - so the way out of the middle of the screen
+	// is not a bigger coordinate, it is drawing the same coordinates somewhere
+	// else. Two units of margin rather than none, because the last character
+	// of a name has to land inside the view rather than on the line.
+	x2 = viewright - MODGHOST_PLAQUEMARGIN;
 	x1 = x2 - width;
 	y1 = viewtop + MODGHOST_PLAQUEY;
 	y2 = y1 + LINEHEIGHT + MODGHOST_PLAQUEBODYH;
@@ -2070,6 +2116,34 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 	plaque.y = y1;
 	plaque.width = width;
 	plaque.height = y2 - y1;
+
+	// Pin the plaque to the right of the screen rather than to the right of
+	// the menu.
+	//
+	// menuRender() draws everything after the background with
+	// G_ASPECT_CENTER_EXT, which holds the menu at the view's own aspect in
+	// the middle of the window, so on a widescreen display there is a pillar
+	// of screen either side that no dialog reaches and the plaque was sitting
+	// on the corner of the dialog instead. G_ASPECT_CENTER_EXT is
+	// G_ASPECT_LEFT_EXT | G_ASPECT_RIGHT_EXT and dropping the left half of it
+	// is the port's own way of saying "hold this against the right edge" -
+	// what the HUD's Align setting does with g_HudAlignModeR. The plaque moves
+	// out into the pillar at the size and shape it already had, because the
+	// alignment is an offset rather than a stretch, and the scissor follows it
+	// out because fast3d shifts that by the same offset.
+	//
+	// WIDE stops the offset growing past 16:9, so an ultrawide display puts
+	// the plaque beside the menu rather than a foot away from it.
+	//
+	// On a 4:3 window there is no pillar, the offset is zero and this is the
+	// corner of the view, which is where it was.
+	//
+	// Before the scissor rather than after: fast3d turns a scissor rectangle
+	// into pixels at the moment the command is sent, using the alignment in
+	// force then, so a scissor set first stays behind in the middle of the
+	// screen and cuts the plaque in half.
+	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_LEFT_EXT);
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
 
 	g_MenuScissorX1 = viewleft;
 	g_MenuScissorY1 = viewtop;
@@ -2126,9 +2200,28 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 		mphead = g_ModGhostHead - 1;
 	}
 
-	menuGhostPlaqueModel(mphead, headx, heady, MODGHOST_PLAQUEHEADW);
+	// The scissor stays the plaque's - the whole view, shifted with everything
+	// else - and the head's square is only ever the model's viewport. That is
+	// deliberate: a scissor is turned into pixels with the alignment offset
+	// added and a viewport is not, so one rectangle cannot serve as both out
+	// here. The head is drawn well inside its square anyway; the square is
+	// where it stands, not what clips it.
+	//
+	// Taking the frame's z-buffer here is what lets that be true.
+	// menuRenderModel() prepares it on the first model of the frame and
+	// applies g_MenuScissor while it is at it, which would put the shifted
+	// square back in the scissor's place. Doing its work first leaves it
+	// nothing to do.
+	if (g_MenuData.usezbuf) {
+		gdl = viPrepareZbuf(gdl);
+		gdl = vi0000b1d0(gdl);
+		g_MenuData.usezbuf = false;
+		gdl = menuApplyScissor(gdl);
+	}
 
-	gdl = menuApplyScissor(gdl);
+	menuGhostPlaqueModel(mphead, headx + menuGhostPlaqueAlignOffset(), heady,
+			MODGHOST_PLAQUEHEADW);
+
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
 	gdl = menuRenderModel(gdl, &g_Menus[g_MpPlayerNum].menumodel, MENUMODELTYPE_DEFAULT);
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
@@ -2139,6 +2232,10 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 	viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
 	viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
 			g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
+
+	// Back to the menu's own alignment for whatever draws next.
+	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_LEFT_EXT);
 
 	// And the scissor, which is otherwise left as a square in the corner for
 	// whatever draws next to be clipped to.
