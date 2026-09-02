@@ -1500,6 +1500,7 @@ static void modGhostCatalogueFile(const char *name, void *arg)
 	strncpy(entry->filename, name, sizeof(entry->filename) - 1);
 	strncpy(entry->player, hdr.player, sizeof(entry->player) - 1);
 	strncpy(entry->owner, hdr.owner, sizeof(entry->owner) - 1);
+	entry->flags = hdr.flags;
 	entry->time60 = hdr.time60;
 	entry->stagenum = hdr.stagenum;
 	entry->difficulty = hdr.difficulty;
@@ -1646,6 +1647,20 @@ static void modGhostScanFile(const char *name, void *arg)
 	}
 
 	if (hdr.stagenum != scan->stagenum || hdr.difficulty != scan->difficulty) {
+		return;
+	}
+
+	// Raced under the same rules or not raced. A ghost recorded when jump and
+	// the combat roll were available took a route this run cannot take, so
+	// pacing yourself against it teaches the wrong thing - and the boards
+	// refuse it for the same reason, which would otherwise leave the field and
+	// the leaderboard disagreeing about which runs exist.
+	//
+	// This is checked here rather than in the catalogue because My Ghosts is an
+	// inventory: a file that cannot be raced is still a file the player has,
+	// and hiding it would leave them unable to find the thing they wanted to
+	// delete.
+	if ((hdr.flags & MODGHOSTHF_TRIALRULES) == 0) {
 		return;
 	}
 

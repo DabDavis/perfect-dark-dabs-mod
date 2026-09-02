@@ -45,6 +45,19 @@ static const char *menuGhostWhose(const struct modghostentry *entry)
 }
 
 /**
+ * The mark on a run that cannot be raced or published.
+ *
+ * A question mark, because what is wrong with it is not that it is slow: it was
+ * recorded before trials fixed the rules, so nothing can say whether it was set
+ * with a jump. Marked rather than hidden - it is still a file the player has,
+ * and a row they cannot see is a row they cannot delete.
+ */
+static char menuGhostMark(const struct modghostentry *entry)
+{
+	return (entry->flags & MODGHOSTHF_TRIALRULES) ? ' ' : '?';
+}
+
+/**
  * Start a mission as a trial: recording on whatever the global setting says.
  *
  * The arming is a flag rather than a write to g_ModGhostMode, because the mode
@@ -220,8 +233,9 @@ static MenuItemHandlerResult menuhandlerGhostChooser(s32 operation, struct menui
 		// the player name came out of a file that may have been written
 		// anywhere, and a row wide enough to push the dialog off screen is a
 		// thing a downloaded ghost should not be able to do.
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c %.18s %-2s %d:%02d %.10s",
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c%c%.18s %-2s %d:%02d %.10s",
 				entry->chosen ? '*' : '-',
+				menuGhostMark(entry),
 				modGhostStageName(entry->stagenum),
 				entry->difficulty < 3 ? diffs[entry->difficulty] : "?",
 				entry->time60 / 3600, (entry->time60 / 60) % 60,
@@ -355,8 +369,9 @@ static MenuItemHandlerResult menuhandlerGhostMine(s32 operation, struct menuitem
 		// from the ROM, the player name came out of a file that may have been
 		// written anywhere, and a row wide enough to push the dialog off
 		// screen is not something a downloaded ghost gets to do.
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c %.16s %-2s %d:%02d.%02d %.12s",
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c%c%.16s %-2s %d:%02d.%02d %.12s",
 				(s32)data->list.value == g_GhostMineArmed ? '!' : ' ',
+				menuGhostMark(entry),
 				modGhostStageName(entry->stagenum),
 				entry->difficulty < 3 ? diffs[entry->difficulty] : "?",
 				entry->time60 / 3600, (entry->time60 / 60) % 60,
@@ -389,13 +404,22 @@ static char *menutextGhostMineCount(struct menuitem *item)
 
 	s32 count = modGhostGetCatalogueCount();
 	s32 mine = 0;
+	s32 unraceable = 0;
 	s32 i;
 
 	for (i = 0; i < count; i++) {
 		struct modghostentry *entry = modGhostGetCatalogueEntry(i);
 
-		if (entry && menuIsMyGhost(entry)) {
+		if (entry == NULL) {
+			continue;
+		}
+
+		if (menuIsMyGhost(entry)) {
 			mine++;
+		}
+
+		if (menuGhostMark(entry) != ' ') {
+			unraceable++;
 		}
 	}
 
@@ -405,8 +429,8 @@ static char *menutextGhostMineCount(struct menuitem *item)
 	if (g_GhostMineArmed >= 0 && g_GhostMineArmed < count) {
 		snprintf(text, sizeof(text), "A again deletes the marked run - B to leave it\n");
 	} else {
-		snprintf(text, sizeof(text), "%d here: %d yours, %d others - A twice deletes\n",
-				count, mine, count - mine);
+		snprintf(text, sizeof(text), "%d here: %d yours, %d unraceable - A twice deletes\n",
+				count, mine, unraceable);
 	}
 
 	return text;

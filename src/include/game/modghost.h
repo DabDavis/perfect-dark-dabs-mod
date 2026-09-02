@@ -246,6 +246,7 @@ struct modghostentry {
 	char filename[64];
 	char player[MODGHOST_NAMELEN];
 	char owner[MODGHOST_OWNERLEN];
+	u8 flags;
 	u32 time60;
 	u8 stagenum;
 	u8 difficulty;
