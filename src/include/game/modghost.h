@@ -256,6 +256,14 @@ extern s32 g_ModGhostAlpha;
 extern s32 g_ModGhostSplits;
 extern s32 g_ModGhostMaxRacers;
 
+// How many Combat Simulator bodies modGhostBodyDefaultHead() remembers a head
+// for. Sixty one is the range the trial character setting is clamped to in
+// pd.ini, and the function falls back to asking rather than reading off the
+// end if the table ever grows past this.
+#define MODGHOST_MAXBODIES 64
+
+s32 modGhostBodyDefaultHead(s32 mpbody);
+
 bool modGhostIsChr(struct chrdata *chr);
 s32 modGhostGetAlpha(void);
 

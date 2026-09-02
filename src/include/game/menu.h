@@ -21,6 +21,12 @@ extern s32 g_MenuScissorY1;
 extern s32 g_MenuScissorX2;
 extern s32 g_MenuScissorY2;
 
+#ifndef PLATFORM_N64
+// The viewport a model outside a dialog is drawn through. See the definition
+// in menu.c; NULL means the one the dialogs use.
+extern Vp *g_MenuModelViewport;
+#endif
+
 void menuTick(void);
 
 void menuStop(void);

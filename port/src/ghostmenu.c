@@ -20,6 +20,7 @@
 #include "game/game_1531a0.h"
 #include "game/camdraw.h"
 #include "video.h"
+#include "system.h"
 
 /**
  * Ghost Trials - the ghost feature's own corner of the main menu.
@@ -204,7 +205,7 @@ static MenuItemHandlerResult menuhandlerGhostCharacterBody(s32 operation, struct
 	// The stored values are one above the index, so that zero can mean the
 	// default. The arena handlers deal in the index itself.
 	s32 body = g_ModGhostBody > MODGHOST_BODY_DEFAULT ? g_ModGhostBody - 1 : 0;
-	s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : mpGetMpheadnumByMpbodynum(body);
+	s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : modGhostBodyDefaultHead(body);
 
 	switch (operation) {
 	case MENUOP_SET:
@@ -213,7 +214,7 @@ static MenuItemHandlerResult menuhandlerGhostCharacterBody(s32 operation, struct
 		// A body brings its own head unless one was picked on purpose, which
 		// is what the arena page does and the reason a head can be left alone.
 		if (g_ModGhostHead <= MODGHOST_BODY_DEFAULT) {
-			g_ModGhostHead = mpGetMpheadnumByMpbodynum(data->carousel.value) + 1;
+			g_ModGhostHead = modGhostBodyDefaultHead(data->carousel.value) + 1;
 		}
 		break;
 	case MENUOP_CHECKPREFOCUSED:
@@ -546,7 +547,7 @@ static void menuGhostTickBoardModel(struct menudialog *dialog, struct menuitem *
 		mphead = (entry->mphead > MODGHOST_BODY_DEFAULT
 				&& (s32)entry->mphead - 1 < mpGetNumHeads2())
 			? entry->mphead - 1
-			: mpGetMpheadnumByMpbodynum(mpbody);
+			: modGhostBodyDefaultHead(mpbody);
 	}
 
 	menuGhostShowCharacter(dialog, mpbody, mphead);
@@ -1860,28 +1861,89 @@ struct menudialogdef g_GhostBoardMenuDialog = {
 #define MODGHOST_PLAQUEHEADW 24
 
 /**
- * Whether the plaque can have the model this frame.
+ * Whether the plaque is on screen at all.
  *
- * There is one menumodel per player and every page that shows a character uses
- * it: Customize Character turns one, and My Ghosts, Choose Ghosts and
- * Leaderboards stand one beside their rows. Those pages are marked with
- * MENUDIALOGFLAG_0002, which is the menu's own word for "this dialog draws the
- * model", so the flag on the dialog holding the cursor answers the question
- * without a list of dialogs to keep up to date.
- *
- * The plaque is hidden rather than drawn empty on those pages, which is also
- * the right thing to look at: they already have a character on screen, and a
- * second face in the corner would compete with the one being chosen.
+ * Every page under Ghost Trials, and the mission select and briefing that
+ * Ghost Mission opens, because all of them are the same trial being set up and
+ * the account and character are what the plaque is there to keep in front of
+ * the player throughout.
  */
 static bool menuGhostPlaqueVisible(void)
 {
 	struct menu *menu = &g_Menus[g_MpPlayerNum];
 
-	if (menu->curdialog == NULL || !menuIsDialogOpen(&g_GhostTrialsMenuDialog)) {
-		return false;
+	return menu->curdialog != NULL && menuIsDialogOpen(&g_GhostTrialsMenuDialog);
+}
+
+/**
+ * The plaque's own model, and the memory it loads into.
+ *
+ * There is one menumodel per player and the pages that show a character have
+ * it: Customize Character turns one, and My Ghosts, Choose Ghosts and
+ * Leaderboards stand one beside their rows. The plaque used to stand down on
+ * those pages for exactly that reason, which left the account and the
+ * character invisible on the three pages where you are picking between other
+ * people's runs - the place a player is most likely to be wondering whose
+ * name is about to go on theirs.
+ *
+ * So it has one of its own. A head is a small model and this is a head-sized
+ * buffer, taken once from the host and never given back.
+ *
+ * Not from the game's own pools, which are the obvious place and both wrong.
+ * MEMPOOL_STAGE is emptied on every stage load, so the pointer would outlive
+ * the pool it came from and the plaque would have to notice; MEMPOOL_PERMANENT
+ * is closed off the first time the stage pool is reset, which is before any
+ * menu the plaque appears in, so it has nothing left to give - asking it
+ * returns NULL and the head silently never loaded. osVirtualToPhysical() is
+ * the identity here and the port already loads whole ROM segments into
+ * sysMemAlloc() memory, so plain host memory is what the renderer wants.
+ *
+ * The buffer must never be left NULL when the model is drawn. menuRenderModel()
+ * answers a null allocstart by helping itself to the gun memory, which is
+ * where the page's own model lives - the preview beside the rows would go out
+ * to make room for the head in the corner. If the allocation fails the plaque
+ * draws without a face instead.
+ */
+#ifdef PLATFORM_64BIT
+#define MODGHOST_PLAQUEMODELMEM 0x38400
+#else
+#define MODGHOST_PLAQUEMODELMEM 0x25800
+#endif
+
+static struct menumodel g_GhostPlaqueModel = { 0 };
+
+// Two entries because vi0000af00() writes into the one the frame's back buffer
+// index names, the same shape as the array the dialogs use.
+static Vp g_GhostPlaqueViewport[2];
+
+// The character the plaque's head was last placed for. Its own rather than the
+// one the previews beside the lists use, now that the two are different models
+// and both can be on screen at once.
+static u32 g_GhostPlaqueParams = 0;
+
+static struct menumodel *menuGhostPlaqueModelAlloc(void)
+{
+	if (g_GhostPlaqueModel.allocstart == NULL) {
+		// Rounded up to a 64 byte boundary, which is the alignment the model
+		// loader assumes of the buffer it is handed and the one mempAlloc()
+		// would have given it.
+		u8 *mem = sysMemAlloc(MODGHOST_PLAQUEMODELMEM + 64);
+
+		if (mem == NULL) {
+			return NULL;
+		}
+
+		menuResetModel(&g_GhostPlaqueModel, MODGHOST_PLAQUEMODELMEM, false);
+
+		g_GhostPlaqueModel.allocstart = (u8 *)ALIGN64((uintptr_t)mem);
+
+		// menuResetModel() leaves a load pending for the head and body pair,
+		// which is not what this model ever shows. The placement below names
+		// the head it wants on the first frame it draws.
+		g_GhostPlaqueModel.newparams = 0;
 	}
 
-	return (menu->curdialog->definition->flags & MENUDIALOGFLAG_0002) == 0;
+	return &g_GhostPlaqueModel;
 }
 
 /**
@@ -1899,13 +1961,8 @@ static bool menuGhostPlaqueVisible(void)
  * and the previews rotate, both of which say "there is more of this to see".
  * There is not: this is a label.
  */
-static void menuGhostPlaqueModel(s32 mphead, s32 x, s32 y, s32 size)
+static void menuGhostPlaqueModel(struct menumodel *model, s32 mphead, s32 x, s32 y, s32 size)
 {
-	struct menumodel *model = &g_Menus[g_MpPlayerNum].menumodel;
-	s32 savedx1 = g_MenuScissorX1;
-	s32 savedy1 = g_MenuScissorY1;
-	s32 savedx2 = g_MenuScissorX2;
-	s32 savedy2 = g_MenuScissorY2;
 	s32 headnum;
 	u32 params;
 
@@ -1927,8 +1984,8 @@ static void menuGhostPlaqueModel(s32 mphead, s32 x, s32 y, s32 size)
 		params = MENUMODELPARAMS_SET_FILENUM(g_HeadsAndBodies[headnum].filenum);
 	}
 
-	if (g_GhostModelParams != params) {
-		g_GhostModelParams = params;
+	if (g_GhostPlaqueParams != params) {
+		g_GhostPlaqueParams = params;
 
 		model->isperfecthead = mphead >= mpGetNumHeads2();
 		model->perfectheadnum = model->isperfecthead ? mphead - mpGetNumHeads2() : 0;
@@ -2011,6 +2068,23 @@ static s32 menuGhostPlaqueAlignOffset(void)
 }
 
 /**
+ * Put back what the plaque borrowed: the menu's own alignment, and a scissor
+ * that is the view rather than a square in the corner of it.
+ */
+static Gfx *menuGhostPlaqueRestore(Gfx *gdl, s32 viewleft, s32 viewtop, s32 viewright)
+{
+	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_LEFT_EXT);
+
+	g_MenuScissorX1 = viewleft;
+	g_MenuScissorY1 = viewtop;
+	g_MenuScissorX2 = viewright;
+	g_MenuScissorY2 = viewtop + viGetViewHeight();
+
+	return menuApplyScissor(gdl);
+}
+
+/**
  * Draw the plaque: the window, the head and the name.
  *
  * Called after the dialogs rather than among them, because it belongs to no
@@ -2028,22 +2102,16 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 	static struct menudialog plaque = { 0 };
 
 	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
-	// The dialog the plaque last drew over, per player.
+	// The dialog the plaque last drew over, per player, and NULL for a player
+	// it is not drawing for.
 	//
 	// Per player because menuRender() walks every player's menu each frame and
 	// three of the four have no dialog open at all; one shared latch was
 	// cleared by those three every frame, so the plaque re-placed the head on
 	// every one of its own frames and the load never got to the end of its
 	// delay - an empty box, forever.
-	//
-	// The dialog rather than a was-visible flag because menuPushDialog(),
-	// menuSwipe() and the pages that show a character all unload the model,
-	// and every one of them changes which dialog holds the cursor. Watching
-	// that catches all three: opening Ghost Options from Ghost Trials leaves
-	// the plaque on screen throughout, and without this the head came back
-	// from that unload at raw scale with no zoom - a couple of stray polygons
-	// where a face was.
 	static struct menudialogdef *lastdialog[MAX_PLAYERS] = { NULL };
+	struct menumodel *model;
 	s32 viewleft = viGetViewLeft() / g_ScaleX;
 	s32 viewtop = viGetViewTop();
 	s32 viewright = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
@@ -2099,10 +2167,17 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 	headx = x1 + 2;
 	heady = bodytop + 1;
 
-	if (lastdialog[g_MpPlayerNum] != g_Menus[g_MpPlayerNum].curdialog->definition) {
-		lastdialog[g_MpPlayerNum] = g_Menus[g_MpPlayerNum].curdialog->definition;
-		g_GhostModelParams = 0;
+	// Only on the way back from not being drawn at all, not on every page.
+	// The plaque's model is its own and menuPushDialog() does not unload it,
+	// so moving between the pages of Ghost Trials leaves the head where it is
+	// rather than blinking it out for the length of a load. What it does catch
+	// is coming back to the menu later, when the model in the buffer is from
+	// before whatever the game did in between.
+	if (lastdialog[g_MpPlayerNum] == NULL) {
+		g_GhostPlaqueParams = 0;
 	}
+
+	lastdialog[g_MpPlayerNum] = g_Menus[g_MpPlayerNum].curdialog->definition;
 
 	// Ghost Trials rather than the dialog on screen: the plaque belongs to
 	// that page wherever the cursor has got to, and nothing reads this except
@@ -2185,6 +2260,15 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 
 	gdl = text0f153780(gdl);
 
+	model = menuGhostPlaqueModelAlloc();
+
+	if (model == NULL) {
+		// No buffer, so no face. The window and the name are the half of this
+		// that costs nothing, and drawing them is better than the corner
+		// disappearing because a pool was full.
+		return menuGhostPlaqueRestore(gdl, viewleft, viewtop, viewright);
+	}
+
 	// The character, from the same two settings a recorded run is stamped
 	// with, so a face here that is not the face in the ghost file would be a
 	// bug rather than a difference of opinion.
@@ -2193,7 +2277,7 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 
 	if (g_ModGhostBody > MODGHOST_BODY_DEFAULT && g_ModGhostBody - 1 < (s32)mpGetNumBodies()) {
 		mpbody = g_ModGhostBody - 1;
-		mphead = mpGetMpheadnumByMpbodynum(mpbody);
+		mphead = modGhostBodyDefaultHead(mpbody);
 	}
 
 	if (g_ModGhostHead > MODGHOST_BODY_DEFAULT && g_ModGhostHead - 1 < mpGetNumHeads2()) {
@@ -2219,11 +2303,17 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 		gdl = menuApplyScissor(gdl);
 	}
 
-	menuGhostPlaqueModel(mphead, headx + menuGhostPlaqueAlignOffset(), heady,
+	menuGhostPlaqueModel(model, mphead, headx + menuGhostPlaqueAlignOffset(), heady,
 			MODGHOST_PLAQUEHEADW);
 
+	// A viewport of its own for the same reason it has a model of its own: the
+	// page's model was rendered a moment ago and the display list still points
+	// at the Vp it was given, so sharing one would draw the character beside
+	// the rows through the little square in the corner and it would disappear.
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
-	gdl = menuRenderModel(gdl, &g_Menus[g_MpPlayerNum].menumodel, MENUMODELTYPE_DEFAULT);
+	g_MenuModelViewport = g_GhostPlaqueViewport;
+	gdl = menuRenderModel(gdl, model, MENUMODELTYPE_DEFAULT);
+	g_MenuModelViewport = NULL;
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
 	// menuRenderModel() leaves the viewport it drew through behind it. Every
@@ -2233,19 +2323,7 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 	viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
 			g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
 
-	// Back to the menu's own alignment for whatever draws next.
-	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
-	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_LEFT_EXT);
-
-	// And the scissor, which is otherwise left as a square in the corner for
-	// whatever draws next to be clipped to.
-	g_MenuScissorX1 = viewleft;
-	g_MenuScissorY1 = viewtop;
-	g_MenuScissorX2 = viewright;
-	g_MenuScissorY2 = viewtop + viGetViewHeight();
-	gdl = menuApplyScissor(gdl);
-
-	return gdl;
+	return menuGhostPlaqueRestore(gdl, viewleft, viewtop, viewright);
 }
 
 /**

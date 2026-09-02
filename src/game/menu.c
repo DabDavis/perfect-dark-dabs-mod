@@ -81,6 +81,22 @@ s32 g_MenuScissorY1;
 s32 g_MenuScissorY2;
 Vp var800a2048[MAX_PLAYERS][2];
 
+#ifndef PLATFORM_N64
+/**
+ * A viewport for a model drawn outside a dialog, or NULL for the usual one.
+ *
+ * vi0000af00() writes the viewport into the Vp it is handed and the display
+ * list points at that memory rather than copying it, so two models rendered in
+ * one frame for one player both end up drawn through whichever of them wrote
+ * last. That never happened while the only model was the one a dialog draws;
+ * it happens the moment something else draws one beside it, and it shows as
+ * the dialog's model vanishing rather than as anything to do with viewports.
+ *
+ * So a second caller lends its own.
+ */
+Vp *g_MenuModelViewport = NULL;
+#endif
+
 #if VERSION >= VERSION_NTSC_1_0
 struct menudialogdef g_PakCannotReadGameBoyMenuDialog;
 struct menudialogdef g_PakDamagedMenuDialog;
@@ -2352,7 +2368,11 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 				viSetViewPosition(x1 * g_ScaleX, g_MenuScissorY1);
 				viSetFovAspectAndSize(g_Vars.currentplayer->fovy, aspect, (x2 - x1) * g_ScaleX, g_MenuScissorY2 - g_MenuScissorY1);
 
+#ifndef PLATFORM_N64
+				gdl = vi0000af00(gdl, g_MenuModelViewport ? g_MenuModelViewport : var800a2048[g_MpPlayerNum]);
+#else
 				gdl = vi0000af00(gdl, var800a2048[g_MpPlayerNum]);
+#endif
 				gdl = vi0000aca4(gdl, znear, zfar);
 			}
 		}

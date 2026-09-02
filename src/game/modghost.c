@@ -155,6 +155,45 @@ s32 g_ModGhostBody = MODGHOST_BODY_DEFAULT;
 s32 g_ModGhostHead = MODGHOST_BODY_DEFAULT;
 
 /**
+ * The head a body comes with, decided once and then remembered.
+ *
+ * mpGetMpheadnumByMpbodynum() answers with a random head for any body that
+ * accepts one - which is most of them - so it is a different face every time
+ * it is asked. That is right for a simulant being made up on the spot, and
+ * wrong everywhere here. A menu that asks every frame shows a different face
+ * every frame; worse, a menu model reloads whenever the face it is showing
+ * changes, so it never reaches the end of a load and the character simply
+ * never appears. The nameplate in the corner of Ghost Trials was an empty box
+ * for exactly that reason, and so was any preview of a run whose body had no
+ * head of its own.
+ *
+ * It also matters away from the menus: a trial recorded as a body with no
+ * chosen head would be a different face each time the mission started, and the
+ * ghost of that run a different face again on every playback.
+ *
+ * So the answer is kept. Per body, because that is what the question is about,
+ * and for the run of the game, because the whole point is that it stops
+ * changing. The table is indexed by the Combat Simulator body index and holds
+ * the head plus one, so that zero means "not asked yet" rather than a head; a
+ * body past the end of it - there is no such body today - falls through to the
+ * random answer rather than off the end of the array.
+ */
+s32 modGhostBodyDefaultHead(s32 mpbody)
+{
+	static u8 heads[MODGHOST_MAXBODIES];
+
+	if (mpbody < 0 || mpbody >= (s32)ARRAYCOUNT(heads)) {
+		return mpGetMpheadnumByMpbodynum(mpbody);
+	}
+
+	if (heads[mpbody] == 0) {
+		heads[mpbody] = (u8)(mpGetMpheadnumByMpbodynum(mpbody) + 1);
+	}
+
+	return heads[mpbody] - 1;
+}
+
+/**
  * Turn a stored character into the body and head the model loader wants.
  *
  * Returns false for the default, which is the caller's cue to leave whatever
@@ -184,7 +223,7 @@ static bool modGhostResolveCharacter(s32 storedbody, s32 storedhead, s32 *bodynu
 	if (storedhead > MODGHOST_BODY_DEFAULT && head < mpGetNumHeads2()) {
 		*headnum = mpGetHeadId(head);
 	} else {
-		*headnum = mpGetHeadId(mpGetMpheadnumByMpbodynum(body));
+		*headnum = mpGetHeadId(modGhostBodyDefaultHead(body));
 	}
 
 	return true;
@@ -214,7 +253,7 @@ bool modGhostEntryCharacter(const struct modghostentry *entry, s32 *mpbody, s32 
 	*mpbody = body;
 	*mphead = (entry->mphead > MODGHOST_BODY_DEFAULT && head < mpGetNumHeads2())
 		? head
-		: mpGetMpheadnumByMpbodynum(body);
+		: modGhostBodyDefaultHead(body);
 
 	return true;
 }
