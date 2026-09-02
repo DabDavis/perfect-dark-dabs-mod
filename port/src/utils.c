@@ -60,7 +60,16 @@ char *strTrim(char *str)
 	}
 
 	// left trim
-	while (*str && (u8)*str < ' ') {
+	//
+	// <= rather than <, so that an actual space is trimmed and not only the
+	// control characters below it. The right trim below has always used
+	// isspace(), which does include the space, and the disagreement was
+	// invisible until a string setting was written the way an ini is usually
+	// written: `Key = value` kept the space, and `Key = "value"` kept the
+	// space and therefore never reached the unquoting below it either, so the
+	// value came out with its quotes still attached. Mod.GhostServer set that
+	// way pointed every request at a URL beginning with a space.
+	while (*str && (u8)*str <= ' ') {
 		++str;
 	}
 
