@@ -11,6 +11,17 @@ on:
     # stable release that is never rewritten afterwards.
     branches: [ "dabs-mod" ]
     tags: [ "v*" ]
+    # Four builds and a new executable offered to every dev-channel player is
+    # too much to ask for a change to a file that is not in the download and
+    # not in the binary. Only these two qualify: README.md and LICENSE are
+    # copied into every package by the packaging steps below, so a fix to one
+    # of those has to be built and published like any other change.
+    #
+    # This is safe for releases: GitHub does not evaluate path filters for tag
+    # pushes at all, so a v* tag still builds whatever it points at.
+    paths-ignore:
+      - 'CLAUDE.md'
+      - 'DabDavisGitHub.md'
   workflow_dispatch:
 
 env:

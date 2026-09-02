@@ -91,6 +91,17 @@ git tag v2.0.4 && git push origin v2.0.4    # cuts the stable release
 There is nothing else to do — no release notes to write by hand, no assets to
 upload. Existing tags: `v2.0.3`, `v2.0.2`, `v2.0.1`, `v2.0.0`.
 
+**A push that changes only `CLAUDE.md` or `DabDavisGitHub.md` does not build.**
+Four builds and a fresh executable offered to every dev-channel player is too
+much to ask for a file that is neither in the download nor in the binary. The
+`paths-ignore` naming those two is deliberately that short: `README.md` and
+`LICENSE` are copied into every package by the packaging steps, so a fix to one
+of them does have to be built and published like anything else. And it is safe
+for stable releases, because **GitHub does not evaluate path filters for tag
+pushes at all** — a `v*` tag builds whatever it points at, docs-only or not.
+That asymmetry is real and undocumented; do not reason about it from the branch
+case.
+
 Each release carries four archives — a zip for Windows, a `.tar.gz` for Linux and
 a `.tar.xz` for each macOS build — *and* the four bare executables beside them,
 because the updater downloads one file and puts it where the running program is.
