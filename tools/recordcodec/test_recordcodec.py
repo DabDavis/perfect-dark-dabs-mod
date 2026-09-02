@@ -330,11 +330,11 @@ def record_once(game, savedir):
 
     # The stop line only appears once the file has been finished properly.
     done = game.await_log(re.escape(path) + r" \(capture ([\d.]+)ms, "
-                          r"encoder wait ([\d.]+)ms\)", timeout=RECORD_TIMEOUT)
+                          r"(\d+) skipped\)", timeout=RECORD_TIMEOUT)
     frames = game.await_log(r"record: (\d+) frames to " + re.escape(path)).group(1)
 
     return {"claimed": claimed, "path": path, "frames": int(frames),
-            "capture_ms": float(done.group(1)), "wait_ms": float(done.group(2))}
+            "capture_ms": float(done.group(1)), "skipped": int(done.group(2))}
 
 
 def check(game, savedir, want, note, failures):
@@ -355,8 +355,8 @@ def check(game, savedir, want, note, failures):
     if got["frames"] < FPS:
         failures.append("%s: only %d frames, which is under a second" % (note, got["frames"]))
 
-    print("      %-14s %3d frames  capture %5.2fms  wait %5.2fms  file says: %s"
-          % (want, got["frames"], got["capture_ms"], got["wait_ms"], tag))
+    print("      %-14s %3d frames  capture %5.2fms  %3d skipped  file says: %s"
+          % (want, got["frames"], got["capture_ms"], got["skipped"], tag))
     return got
 
 

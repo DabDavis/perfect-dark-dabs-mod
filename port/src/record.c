@@ -59,11 +59,16 @@
  * Four frames of slack between the game and the encoder.
  *
  * The queue is there to absorb the encoder taking longer on one frame than on
- * another, not to let it fall behind: a game frame with nowhere to put its
- * picture waits rather than dropping it, because a dropped frame in a raw
- * stream is not a shorter video, it is a video that runs fast from that point
- * on. So the game stutters when the encoder cannot keep up, and the recording
- * stays honest. libx264 at veryfast has never made that happen here.
+ * another. A game frame that finds it full is not captured at all and the clock
+ * goes back, so the next frame through is written as many times as the wait was
+ * worth: a dropped frame in a raw stream would be a video that runs fast from
+ * that point on, and a duplicated one is only a video that stutters.
+ *
+ * What it must never do is wait. The game thread is what produces sound as well
+ * as pictures, so blocking it here stops the audio that ffmpeg interleaves the
+ * video against - and an encoder waiting for sound that is waiting for the
+ * encoder is a recording that ends itself several seconds later, having frozen
+ * the game first. That is what an 80 simulant match at 1080p60 did.
  *
  * Four frames of 1280x720 is 14MB, allocated when recording starts and freed
  * when it stops. Frames are four bytes a pixel: that is what the GPU reads back
@@ -79,9 +84,10 @@
 // A hitch should not be paid back as a hundred duplicated frames.
 #define RECORD_MAX_DUPES 8
 
-// How long a frame may wait for room in the queue before the recording is
-// declared lost. Long enough that a slow disk is not mistaken for a dead
-// encoder, short enough that a dead encoder is not mistaken for a hang.
+// How long the writer threads are given to finish once a recording is stopped.
+// Nothing waits on the encoder while one is running any more, so this is only
+// the shutdown deadline: long enough that a slow disk is not mistaken for a
+// dead encoder, short enough that a dead one is not mistaken for a hang.
 #define RECORD_STALL_MS 5000
 
 // How long the tail of a recording may take to drain once the encoder has been
@@ -136,11 +142,18 @@ static char outPath[FS_MAXPATH + 1];
 static const char *capFormat = "bgra";
 
 // What the recording cost the game, to say at the end. The capture is the
-// readback and the copy out of it; the wait is time the game spent with a
-// finished frame and nowhere to put it, which is the encoder falling behind.
+// readback and the copy out of it; the skips are frames that found the queue
+// full and were covered by repeating their neighbour, and are the number that
+// says whether the encoder is keeping up.
 static f64 statCaptureTime;
-static f64 statWaitTime;
 static u32 statCaptureCount;
+static u32 statSkipped;
+
+// Consecutive skips, and whether the player has been told. A hitch is a few of
+// these in a row; a second of them is a machine that cannot record at this size
+// and rate, which is worth saying once and not once a frame.
+static u32 skipRun;
+static bool warnedSlow;
 
 // Written by the writer threads, read by the game thread to decide whether to
 // give up. Only ever set from false to true, so no lock is needed to read it.
@@ -157,8 +170,9 @@ static SDL_atomic_t writersDone;
 static s32 writersStarted;
 
 static SDL_mutex *vidMutex;
-static SDL_cond *vidCanFill;  // a slot came free
-static SDL_cond *vidCanDrain; // a slot was filled
+static SDL_cond *vidCanDrain; // a slot was filled. There is no "a slot came
+                              // free" to match it: the game thread never waits
+                              // for one, it skips the frame and carries on.
 static SDL_Thread *vidThread;
 static u8 *vidFrames[RECORD_VIDEO_QUEUE];
 static s32 vidRepeat[RECORD_VIDEO_QUEUE];
@@ -1183,7 +1197,6 @@ static int recordVideoThread(void *arg)
 		SDL_LockMutex(vidMutex);
 		vidHead = (vidHead + 1) % RECORD_VIDEO_QUEUE;
 		vidCount--;
-		SDL_CondSignal(vidCanFill);
 		SDL_UnlockMutex(vidMutex);
 
 		if (encoderGone) {
@@ -1342,8 +1355,11 @@ static void recordStart(void)
 	vidHead = vidTail = vidCount = 0;
 	sndHead = sndTail = sndCount = 0;
 	framesWritten = 0;
-	statCaptureTime = statWaitTime = 0.0;
+	statCaptureTime = 0.0;
 	statCaptureCount = 0;
+	statSkipped = 0;
+	skipRun = 0;
+	warnedSlow = false;
 	encoderGone = false;
 	fellBehind = false;
 	finishing = false;
@@ -1462,7 +1478,6 @@ void recordStop(void)
 	}
 
 	SDL_CondBroadcast(vidCanDrain);
-	SDL_CondBroadcast(vidCanFill);
 	SDL_UnlockMutex(vidMutex);
 
 	SDL_LockMutex(sndMutex);
@@ -1524,13 +1539,12 @@ void recordStop(void)
 	} else {
 		const f64 n = statCaptureCount ? (f64)statCaptureCount : 1.0;
 
-		// What the recording cost the game, per captured frame. The capture is
-		// the readback and the copy out of it; the wait is the game holding a
-		// finished frame with nowhere to put it, and is the number that says
-		// whether the encoder is keeping up.
-		sysLogPrintf(LOG_NOTE, "record: %u frames to %s (capture %.2fms, encoder wait %.2fms)",
-				framesWritten, outPath,
-				statCaptureTime * 1000.0 / n, statWaitTime * 1000.0 / n);
+		// What the recording cost the game, per captured frame, and how often
+		// the encoder had nowhere to put one. Skips are not lost time - each is
+		// covered by repeating the frame either side of it - but a lot of them
+		// is a recording that is smooth in the file and was not on the screen.
+		sysLogPrintf(LOG_NOTE, "record: %u frames to %s (capture %.2fms, %u skipped)",
+				framesWritten, outPath, statCaptureTime * 1000.0 / n, statSkipped);
 	}
 }
 
@@ -1652,38 +1666,48 @@ static void recordPreSwap(void)
 		vidNextFrameTime = now + period;
 	}
 
-	// Waiting for a free slot is what makes the game stutter rather than drop a
-	// frame, and it is only ever meant to be a wait. An encoder that has stopped
-	// reading altogether would otherwise hang the game for good, which is why
-	// the wait has an end: past it the recording is over, not the game.
+	// Nothing is waited for. A full queue means the encoder has not got through
+	// what it already has, and the answer is to leave it alone until it does -
+	// see the comment on RECORD_VIDEO_QUEUE for why waiting here is worse than
+	// anything it could buy.
 	SDL_LockMutex(vidMutex);
 
-	while (vidCount == RECORD_VIDEO_QUEUE && !encoderGone) {
-		if (SDL_CondWaitTimeout(vidCanFill, vidMutex, RECORD_STALL_MS) == SDL_MUTEX_TIMEDOUT) {
-			SDL_UnlockMutex(vidMutex);
+	if (vidCount == RECORD_VIDEO_QUEUE) {
+		SDL_UnlockMutex(vidMutex);
 
-			// An encoder that is still running is behind, not gone: it is given
-			// what is queued and left to write the container's index, so what
-			// comes out is a recording that stops early rather than a file that
-			// will not open. Only one that has actually exited is given up on.
+		// The clock goes back, so this frame's worth of time is carried and the
+		// next frame that does get a slot is written for both of them.
+		vidNextFrameTime = prevFrameTime;
+		statSkipped++;
+		skipRun++;
+
+		// A hitch is a handful of these; a second of them is a machine that
+		// cannot record at this size and rate, and the player is better told
+		// than left to wonder why the file is not smooth. Said once.
+		if (skipRun >= recordFps && !warnedSlow) {
+			warnedSlow = true;
+			fellBehind = true;
+
 			if (recordEncoderAlive()) {
-				sysLogPrintf(LOG_WARNING, "record: the encoder cannot keep up, ending the recording here");
-				fellBehind = true;
+				sysLogPrintf(LOG_WARNING,
+						"record: %s cannot take %dx%d at %dfps - the recording is being padded out"
+						" with repeated frames. A lower Recording Frame Rate is the fix.",
+						chosen.codec ? chosen.codec->encoder : "the encoder",
+						vidWidth, vidHeight, recordFps);
 			} else {
 				sysLogPrintf(LOG_ERROR, "record: the encoder is no longer running, giving up");
 				encoderGone = true;
+				recordStop();
 			}
-
-			recordStop();
-			return;
 		}
+
+		return;
 	}
 
+	skipRun = 0;
 	slot = vidFrames[vidTail];
 
 	SDL_UnlockMutex(vidMutex);
-
-	statWaitTime += recordNow() - now;
 
 	if (encoderGone || !slot) {
 		return;
@@ -1954,7 +1978,6 @@ void recordInit(void)
 #endif
 
 	vidMutex = SDL_CreateMutex();
-	vidCanFill = SDL_CreateCond();
 	vidCanDrain = SDL_CreateCond();
 	sndMutex = SDL_CreateMutex();
 	sndCanDrain = SDL_CreateCond();
