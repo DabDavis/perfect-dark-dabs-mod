@@ -58,6 +58,11 @@ UPLOAD_WINDOW = 3600
 # written when a player had one ghost per stage and no reason to re-send it.
 UPLOAD_MAX = 120
 
+# Downloading a board's worth of ghosts is a legitimate afternoon; downloading
+# the same one two hundred times an hour is not something the client does.
+DOWNLOAD_WINDOW = 3600
+DOWNLOAD_MAX = 200
+
 # The header flag that says a run was set with the fork's added moves off -
 # MODGHOSTHF_TRIALRULES in the client's modghost.h. A run without it was made
 # under unknown rules, which is not the same as fair rules: everything recorded
@@ -75,12 +80,37 @@ BOARD_KEEP = 100
 _lock = threading.Lock()
 _auth_failures = {}
 _upload_counts = {}
+_download_counts = {}
 
 
 def db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def blob_name(username, stagenum, difficulty):
+    """What one player's run on one level is called on disk.
+
+    The readable part is the username with anything awkward folded to an
+    underscore, and that fold is not injective: usernames may contain _ . and
+    -, and all three land on _, so dab.2, dab-2 and dab_2 are three accounts
+    that were being handed one filename. The second to upload overwrote the
+    first, and the first's row went on pointing at it - so a board served one
+    player's ghost under another player's name.
+
+    The tag is what actually tells them apart. It is over the lowercased name
+    because usernames are unique case insensitively, so Dab and dab are one
+    account and must not be two files.
+
+    Rows written under the old scheme point at the old name and keep working:
+    /download reads the name out of the row, and the upload path already drops
+    a file the row has moved away from.
+    """
+    canon = username.lower()
+    safe = re.sub(r"[^a-z0-9]", "_", canon)
+    tag = hashlib.sha256(canon.encode()).hexdigest()[:8]
+    return "%s-%s-s%02d-d%d.pdg.gz" % (safe, tag, stagenum, difficulty)
 
 
 def blob_write(path, data):
@@ -218,9 +248,19 @@ def hash_pin(pin, salt):
     return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 120000)
 
 
+# Keys live in these tables until something clears them, and one key is one
+# address. Past this many the expired ones are swept, which is cheap and
+# bounded and stops a stream of addresses from growing the process forever.
+RATE_TABLE_MAX = 4096
+
+
 def rate_ok(table, key, window, limit):
     now = time.time()
     with _lock:
+        if len(table) > RATE_TABLE_MAX:
+            for dead in [k for k, v in table.items() if not v or now - v[-1] >= window]:
+                del table[dead]
+
         hits = [t for t in table.get(key, []) if now - t < window]
         if len(hits) >= limit:
             table[key] = hits
@@ -259,6 +299,12 @@ def parse_ghost_header(data):
         return None
     if difficulty > 3:
         return None
+    # The engine's own test for "is this a real level" is stagenum < 0x5a, and
+    # nothing above it can be played, so nothing above it can be run. Without
+    # this a byte's worth of invented stage numbers is a byte's worth of
+    # separate boards, each willing to hold its hundred files.
+    if stagenum >= 0x5a:
+        return None
     if len(data) < headersize + numsamples * samplesize:
         return None
 
@@ -272,14 +318,49 @@ def parse_ghost_header(data):
 class Handler(BaseHTTPRequestHandler):
     server_version = "pdghostd/1.0"
     protocol_version = "HTTP/1.1"
+    # A thread per connection with no timeout is a thread a client can hold
+    # open by sending a Content-Length and then nothing. nginx buffers a
+    # request body before it forwards it, so this should never fire in
+    # production - it is what keeps that true rather than assumed.
+    timeout = 30
 
     def log_message(self, fmt, *args):
         print("%s - %s" % (self.client_ip(), fmt % args), flush=True)
 
+    def log_error(self, fmt, *args):
+        # An idle keep-alive connection hitting the timeout above is how a
+        # connection ends, not a fault, and logging one per client would fill
+        # the journal with the service working correctly.
+        msg = fmt % args
+        if msg.startswith("Request timed out"):
+            return
+        self.log_message("%s", msg)
+
     def client_ip(self):
+        """Who is asking, as far as the rate limiter is concerned.
+
+        X-Real-IP first, because the nginx in front of this sets it from
+        $remote_addr and a client cannot influence it.
+
+        X-Forwarded-For is read from the RIGHT. $proxy_add_x_forwarded_for
+        appends the peer address to whatever the client sent, so the first
+        element is whatever the client wanted it to be and the last is the one
+        our own proxy wrote. Taking the first meant every guess could carry a
+        fresh invented address, which is the whole rate limiter - and the rate
+        limiter, not the four digits, is what actually guards a PIN.
+
+        Both headers are only trustworthy because nothing reaches this except
+        through the proxy. Exposing it directly hands the limiter back to the
+        client; see the note at the top of this file.
+        """
+        real = self.headers.get("X-Real-IP", "").strip()
+        if real:
+            return real
+
         fwd = self.headers.get("X-Forwarded-For", "")
         if fwd:
-            return fwd.split(",")[0].strip()
+            return fwd.rsplit(",", 1)[-1].strip()
+
         return self.client_address[0]
 
     def send_json(self, code, payload):
@@ -370,7 +451,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 stage = int(query.get("stage", "-1"))
                 diff = int(query.get("diff", "-1"))
-                limit = min(int(query.get("limit", "100")), 100)
+                # Clamped at both ends: SQLite reads a negative LIMIT as no
+                # limit at all, so an unclamped one served the whole board.
+                limit = max(1, min(int(query.get("limit", "100")), 100))
             except ValueError:
                 return self.send_json(400, {"ok": False, "error": "bad query"})
 
@@ -395,6 +478,11 @@ class Handler(BaseHTTPRequestHandler):
                  "trialrules": 1 if r["flags"] & GHOST_TRIALRULES else 0} for r in rows]})
 
         if path == "/download":
+            # The only endpoint that hands back megabytes, and the only one
+            # with nothing else bounding how often it may be asked.
+            if not rate_ok(_download_counts, self.client_ip(), DOWNLOAD_WINDOW, DOWNLOAD_MAX):
+                return self.send_json(429, {"ok": False, "error": "too many downloads, wait a while"})
+
             try:
                 ghost_id = int(query.get("id", "-1"))
             except ValueError:
@@ -536,8 +624,7 @@ class Handler(BaseHTTPRequestHandler):
             # name because what is on disk really is a gzip file, and a name
             # that lies about that is a trap for whoever looks in the
             # directory later.
-            name = "%s-s%02d-d%d.pdg.gz" % (
-                re.sub(r"[^A-Za-z0-9]", "_", username), info["stagenum"], info["difficulty"])
+            name = blob_name(username, info["stagenum"], info["difficulty"])
             blob_path = os.path.join(BLOB_DIR, name)
             doomed = []
 

@@ -24,6 +24,12 @@ comes back out is byte-identical, so nothing about the ghost's sample rate or
 quality is traded for disk. Files written before compression are still served:
 two bytes at the front of the file decide, not a flag in the database.
 
+Blob filenames are the account name with anything awkward folded to an
+underscore plus a hash of it. The hash is not decoration: `_`, `.` and `-` are
+all legal in a username and all fold to `_`, so without it `dab.2` and `dab-2`
+share a file and one player's board row serves the other player's ghost. Rows
+written before this point at their old filenames and keep working.
+
 Each board keeps its hundred quickest times and deletes the rest with their
 files. That and one-row-per-player are the only things bounding the blob
 directory, since nothing else here ever removes a ghost.
@@ -40,8 +46,13 @@ sudo cp tools/pdghostd/pdghostd.service /etc/systemd/system/
 sudo systemctl enable --now pdghostd
 ```
 
-It listens on `127.0.0.1:8090` and trusts `X-Forwarded-For` for the client
-address, so it must not be exposed directly. Behind nginx:
+It listens on `127.0.0.1:8090` and takes the client address from `X-Real-IP`,
+falling back to the **last** element of `X-Forwarded-For` — the one
+`$proxy_add_x_forwarded_for` appends. Both are only trustworthy because nothing
+reaches it except through the proxy, so it must not be exposed directly: a
+client that can set those headers can set the address the rate limiter counts
+against, and the rate limiter rather than the four digit PIN is what actually
+guards an account. Behind nginx:
 
 ```nginx
 location /pdghosts/ {
