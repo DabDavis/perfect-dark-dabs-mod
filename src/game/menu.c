@@ -1977,6 +1977,37 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					menumodel->bodymodel.anim = &menumodel->bodyanim;
 
 					body0f02ce8c(bodynum, headnum, menumodel->bodymodeldef, menumodel->headmodeldef, totalfilelen * 0, &menumodel->bodymodel, false, 1);
+
+#ifndef PLATFORM_N64
+					// A head arrives with both of its eye layers switched on.
+					// modelInitRwData() starts every toggle visible, and on a
+					// chr chrRender() then picks one every frame - open unless
+					// dying. Nothing does that for a menu model, so the open
+					// eyes and the closed eyes are drawn on top of each other,
+					// the lids win, and the character in the preview has none.
+					// Stock has this on the Combat Simulator character page
+					// for every head that carries a closed-eyes layer; the
+					// Ghost Trials pages put more of those heads in front of
+					// the player, which is how it got noticed.
+					//
+					// Once, here, because a menu model is only ever awake or
+					// gone. Through modelGetNodeRwData() rather than by hand,
+					// which is safe here for the reason it is not in a level:
+					// this head was loaded a moment ago into the menu's own
+					// memory and is attached to exactly one body.
+					if (menumodel->headmodeldef) {
+						struct modelnode *open = modelGetPart(menumodel->headmodeldef, MODELPART_HEAD_EYESOPEN);
+						struct modelnode *closed = modelGetPart(menumodel->headmodeldef, MODELPART_HEAD_EYESCLOSED);
+
+						if (open && (open->type & 0xff) == MODELNODETYPE_TOGGLE) {
+							((union modelrwdata *)modelGetNodeRwData(&menumodel->bodymodel, open))->toggle.visible = true;
+						}
+
+						if (closed && (closed->type & 0xff) == MODELNODETYPE_TOGGLE) {
+							((union modelrwdata *)modelGetNodeRwData(&menumodel->bodymodel, closed))->toggle.visible = false;
+						}
+					}
+#endif
 				} else {
 					totalfilelen = ALIGN64(fileGetInflatedSize(menumodel->newparams, LOADTYPE_MODEL)) + 0x4000;
 					if (1);
