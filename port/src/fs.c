@@ -72,7 +72,20 @@ s32 fsPathIsCwdRelative(const char *path)
 
 const char *fsFullPath(const char *relPath)
 {
-	static char pathBuf[FS_MAXPATH + 1];
+	// Per thread, not shared. Every file call in the port comes through here -
+	// fsFileOpenRead/Write, fsFileSize, fsCreateDir and fsScanDir all expand
+	// their argument into this buffer and hand the result straight to the
+	// system - so two threads composing a path at once produce one path made
+	// of both, and the loser opens or creates a file under a name nobody
+	// asked for.
+	//
+	// The ghost server client is the second thread: it loads a run to upload
+	// and writes a downloaded one from its worker while the menu that started
+	// it is still drawing, and a menu draw reads files of its own. Making the
+	// scratch thread local is the whole fix and costs a kilobyte a thread;
+	// the directories it expands from are written once at startup and read
+	// only afterwards, so they need nothing.
+	static _Thread_local char pathBuf[FS_MAXPATH + 1];
 
 	if (relPath[0] == '$') {
 		// expandable placeholder $X; will be replaced with the corresponding path, if any
