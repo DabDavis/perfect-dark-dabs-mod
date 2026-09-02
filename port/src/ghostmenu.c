@@ -36,7 +36,7 @@ static char g_GhostRowText[96];
 
 // How far in from the right edge of a dialog the character preview stands, in
 // menu units. Far enough that a whole body is inside the window it is drawn in.
-#define MODGHOST_MODELINSET 24
+#define MODGHOST_MODELINSET 40
 
 /**
  * Whose a ghost is, for the player to read.
@@ -447,7 +447,7 @@ static void menuGhostShowCharacter(struct menudialog *dialog, s32 mpbody, s32 mp
 		// wrong on one you sit on: the model kept growing until it was larger
 		// than the window and the window is what clips it, which showed as an
 		// arm crossing the rows now and then.
-		model->curscale = model->newscale = 0.78f;
+		model->curscale = model->newscale = 0.58f;
 		model->curroty = model->newroty = -0.2f;
 		model->rottimer60 = TICKS(60);
 		// Parked at a phase and left there. menuGetLinearOscPauseFrac() holds

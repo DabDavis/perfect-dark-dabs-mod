@@ -718,7 +718,7 @@ class Handler(BaseHTTPRequestHandler):
 
             with db_write(undo_blob) as conn:
                 held = conn.execute(
-                    "SELECT time60, blob FROM ghosts WHERE username = ? AND stagenum = ? "
+                    "SELECT time60, blob, mpbody, mphead FROM ghosts WHERE username = ? AND stagenum = ? "
                     "AND difficulty = ?",
                     (username, info["stagenum"], info["difficulty"])).fetchone()
 
@@ -728,8 +728,33 @@ class Handler(BaseHTTPRequestHandler):
                 # one that did, and storing the rest is disk spent on rows
                 # nobody would read.
                 if held is not None and info["time60"] >= held["time60"]:
+                    # The run does not displace what is held, but it may still
+                    # know something the row does not. A row stored before the
+                    # board carried a character has none, and the only file
+                    # that can supply one is the run itself - which is this
+                    # one, since the client sends its best per level and the
+                    # best is what is on the board. Without this the character
+                    # could only ever arrive by beating your own time, so every
+                    # row that predates the column would have stayed blank for
+                    # good.
+                    #
+                    # Only ever fills a blank. It does not overwrite a
+                    # character already recorded, and it does not touch the
+                    # time, the blob or the ranking.
+                    filled = False
+
+                    if (held["mpbody"] == 0 and held["mphead"] == 0
+                            and (info["mpbody"] or info["mphead"])):
+                        conn.execute(
+                            "UPDATE ghosts SET mpbody = ?, mphead = ? "
+                            "WHERE username = ? AND stagenum = ? AND difficulty = ?",
+                            (info["mpbody"], info["mphead"], username,
+                             info["stagenum"], info["difficulty"]))
+                        filled = True
+
                     return self.send_json(200, {"ok": True, "stored": False,
-                        "reason": "you already have a faster time", "best60": held["time60"]})
+                        "reason": "you already have a faster time",
+                        "best60": held["time60"], "character": filled})
 
                 # Whether a new placement makes the board is asked before the
                 # file is written, so a slow run on a full board costs a query
