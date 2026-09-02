@@ -31,6 +31,7 @@
 #include "game/gamefile.h"
 #include "game/gfxmemory.h"
 #include "game/lang.h"
+#include "game/mainmenu.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pak.h"
 #include "game/options.h"
@@ -3898,6 +3899,13 @@ Gfx *menuRenderDialogs(Gfx *gdl)
 			}
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// The Ghost Trials nameplate. After the dialogs because it is not one of
+	// them: it draws in the corner the dialogs leave empty, and it takes the
+	// menumodel on the pages that are not using it.
+	gdl = ghostmenuRenderPlaque(gdl);
+#endif
 
 	return gdl;
 }

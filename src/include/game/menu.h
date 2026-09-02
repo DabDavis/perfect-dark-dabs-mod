@@ -8,6 +8,19 @@ extern const struct menucolourpalette g_MenuColours[];
 extern const struct menucolourpalette g_MenuWave1Colours[];
 extern const struct menucolourpalette g_MenuWave2Colours[];
 
+/**
+ * The rectangle menu drawing is currently clipped to, in menu units.
+ *
+ * dialogRender() sets these to the dialog it is drawing and menuApplyScissor()
+ * turns them into the scissor. menuRenderModel() builds a model's viewport out
+ * of them too, so anything drawing outside a dialog - a plaque beside one, say
+ * - has to set them for itself and put them back afterwards.
+ */
+extern s32 g_MenuScissorX1;
+extern s32 g_MenuScissorY1;
+extern s32 g_MenuScissorX2;
+extern s32 g_MenuScissorY2;
+
 void menuTick(void);
 
 void menuStop(void);

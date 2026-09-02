@@ -16,6 +16,9 @@
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/setup.h"
+#include "game/menugfx.h"
+#include "game/game_1531a0.h"
+#include "game/camdraw.h"
 
 /**
  * Ghost Trials - the ghost feature's own corner of the main menu.
@@ -1812,25 +1815,340 @@ struct menudialogdef g_GhostBoardMenuDialog = {
 };
 
 /**
- * The line at the top of Ghost Trials, saying who the runs will belong to.
+ * The nameplate in the top left corner of Ghost Trials.
  *
- * Worth the row because everything below it is stamped with that name: a run
- * recorded now carries the account that recorded it, and a player who thought
- * they were signed in as somebody else finds out at upload time otherwise.
+ * Every page under this door acts on behalf of one account and records as one
+ * character, and neither of those is visible from the rows: "Upload My Ghosts"
+ * uploads as somebody, "Ghost Mission" records as somebody wearing something.
+ * A player with three accounts on one machine has no way to check which of
+ * them is loaded short of opening the account page and coming back.
+ *
+ * So it is drawn rather than listed - a window in the corner with the face
+ * that will be recorded and the name it will be filed under. A row of text
+ * could say the same thing and did, but a face is the thing that is wrong at a
+ * glance when the wrong account is loaded.
+ *
+ * It is not a dialog. A dialog would be pushed onto the menu stack and become
+ * the current one, and the current dialog is the one input goes to, so the
+ * page behind it would stop responding - the same reason the character preview
+ * beside a list is drawn rather than pushed. What is here instead is the parts
+ * a dialog is made of: the same background, borders and title bar the menu
+ * draws for every other window, at a rectangle of our own choosing.
  */
-static char g_GhostTrialsMsg[96];
 
-static char *menutextGhostTrialsStatus(struct menuitem *item)
+// The plaque, in menu units. Inset from the top right corner of the view: the
+// top left is where the frame counter is drawn, and a nameplate underneath it
+// is a nameplate with a number over its title bar.
+#define MODGHOST_PLAQUEX     6
+#define MODGHOST_PLAQUEY     6
+// The window is measured to the name rather than fixed, because a nameplate
+// sized for the longest name a rule allows is mostly empty for every real one:
+// accounts are called dab and dnx. These bound it - wide enough for the title
+// bar to read, and not so wide that a fifteen character name walks it into the
+// dialog underneath.
+#define MODGHOST_PLAQUEMINW  54
+#define MODGHOST_PLAQUEMAXW  108
+// The body below the title bar: tall enough for a head with a name beside it.
+#define MODGHOST_PLAQUEBODYH 26
+// The square the head is drawn in, at the left of the body. It is the model's
+// whole viewport, so the head is centred in it without any offset being asked
+// for - see the scale note below for why an offset would be the hard way.
+#define MODGHOST_PLAQUEHEADW 24
+
+/**
+ * Whether the plaque can have the model this frame.
+ *
+ * There is one menumodel per player and every page that shows a character uses
+ * it: Customize Character turns one, and My Ghosts, Choose Ghosts and
+ * Leaderboards stand one beside their rows. Those pages are marked with
+ * MENUDIALOGFLAG_0002, which is the menu's own word for "this dialog draws the
+ * model", so the flag on the dialog holding the cursor answers the question
+ * without a list of dialogs to keep up to date.
+ *
+ * The plaque is hidden rather than drawn empty on those pages, which is also
+ * the right thing to look at: they already have a character on screen, and a
+ * second face in the corner would compete with the one being chosen.
+ */
+static bool menuGhostPlaqueVisible(void)
 {
-	if (ghostnetHasAccount()) {
-		snprintf(g_GhostTrialsMsg, sizeof(g_GhostTrialsMsg),
-				"Racing as %s\n", ghostnetGetAccountName());
-	} else {
-		snprintf(g_GhostTrialsMsg, sizeof(g_GhostTrialsMsg),
-				"No account - runs stay on this machine\n");
+	struct menu *menu = &g_Menus[g_MpPlayerNum];
+
+	if (menu->curdialog == NULL || !menuIsDialogOpen(&g_GhostTrialsMenuDialog)) {
+		return false;
 	}
 
-	return g_GhostTrialsMsg;
+	return (menu->curdialog->definition->flags & MENUDIALOGFLAG_0002) == 0;
+}
+
+/**
+ * Stand the trial character's head up in the plaque, facing the player.
+ *
+ * The head on its own rather than a whole body, because at the size of a
+ * corner window a whole character is a blue smudge. This is the model the
+ * arena's head carousel shows and it is loaded the same way: a head is its own
+ * file, so the params are a file number rather than the head-and-body pair the
+ * previews beside the lists use. The two encodings cannot collide - a
+ * head-and-body params word always has 0xffff in its low half - which is what
+ * lets one "what is the model showing" variable serve both.
+ *
+ * Facing forward and still. The carousel turns its head a little off centre
+ * and the previews rotate, both of which say "there is more of this to see".
+ * There is not: this is a label.
+ */
+static void menuGhostPlaqueModel(s32 mphead, s32 x, s32 y, s32 size)
+{
+	struct menumodel *model = &g_Menus[g_MpPlayerNum].menumodel;
+	s32 savedx1 = g_MenuScissorX1;
+	s32 savedy1 = g_MenuScissorY1;
+	s32 savedx2 = g_MenuScissorX2;
+	s32 savedy2 = g_MenuScissorY2;
+	s32 headnum;
+	u32 params;
+
+	// The sunglasses, the closed eyes and the hudpiece are parts of a head
+	// model that the head carousel hides and a face on a nameplate should not
+	// be wearing either.
+	static struct modelpartvisibility visibility[] = {
+		{ MODELPART_HEAD_SUNGLASSES, false },
+		{ MODELPART_HEAD_EYESCLOSED, false },
+		{ MODELPART_HEAD_HUDPIECE,   false },
+		{ 255, false },
+	};
+
+	if (mphead < mpGetNumHeads2()) {
+		headnum = mpGetHeadId(mphead);
+		params = MENUMODELPARAMS_SET_FILENUM(g_HeadsAndBodies[headnum].filenum);
+	} else {
+		headnum = mpGetBeauHeadId(func0f14a9f8(mphead - mpGetNumHeads2()));
+		params = MENUMODELPARAMS_SET_FILENUM(g_HeadsAndBodies[headnum].filenum);
+	}
+
+	if (g_GhostModelParams != params) {
+		g_GhostModelParams = params;
+
+		model->isperfecthead = mphead >= mpGetNumHeads2();
+		model->perfectheadnum = model->isperfecthead ? mphead - mpGetNumHeads2() : 0;
+
+		menuConfigureModel(model, 0, 0, 0, 0, 0, 0, 1, MENUMODELFLAG_HASSCALE);
+
+		// Centred in its own viewport, so no offset within the plaque is asked
+		// for. The model's position is worked out against the whole view and
+		// then drawn through a viewport the size of the scissor, which shrinks
+		// every distance by the ratio between the two - about a seventh here.
+		// Placing a head a few units left of centre would mean asking for a
+		// few hundred, and the number would change with the size of the box.
+		// Giving the head a box of its own costs one rectangle and no
+		// arithmetic at all.
+		model->curposx = model->newposx = 0.0f;
+		model->curposy = model->newposy = 0.0f;
+
+		// Same shrink, in reverse: zoom 30 is the size the head carousel asks
+		// for against a dialog most of the screen tall, and this viewport is a
+		// fraction of that, so scale puts back roughly what the ratio takes
+		// away. It is tuned by eye rather than derived, because fovy is the
+		// player's setting and the ratio is not the only term.
+		model->curscale = model->newscale = 1.0f;
+		model->zoom = 30.0f;
+
+		// Square on to the player and left there. rottimer60 is what the
+		// previews count down before they start turning; never touching it
+		// again is what keeps this one still.
+		model->currotx = model->newrotx = 0.0f;
+		model->curroty = model->newroty = 0.0f;
+		model->currotz = model->newrotz = 0.0f;
+
+		model->loaddelay = 8;
+		model->removingpiece = false;
+	}
+
+	model->newparams = params;
+	model->newanimnum = 0;
+	model->partvisibility = visibility;
+
+	g_MenuScissorX1 = x;
+	g_MenuScissorY1 = y;
+	g_MenuScissorX2 = x + size;
+	g_MenuScissorY2 = y + size;
+}
+
+/**
+ * Draw the plaque: the window, the head and the name.
+ *
+ * Called after the dialogs rather than among them, because it belongs to no
+ * dialog. That also means the scissor is wherever the last dialog left it, so
+ * every part of this sets its own and the model's viewport is put back before
+ * anything else is drawn through it.
+ */
+Gfx *ghostmenuRenderPlaque(Gfx *gdl)
+{
+	// Standing in for a dialog where the menu's own drawing wants one. Only
+	// its type and transition are read, and both say the same thing every
+	// frame: an ordinary blue window, not mid-change. Keeping it separate from
+	// the dialog on screen is deliberate - a red confirmation over the top
+	// should not turn the nameplate red with it.
+	static struct menudialog plaque = { 0 };
+
+	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
+	// The dialog the plaque last drew over, per player.
+	//
+	// Per player because menuRender() walks every player's menu each frame and
+	// three of the four have no dialog open at all; one shared latch was
+	// cleared by those three every frame, so the plaque re-placed the head on
+	// every one of its own frames and the load never got to the end of its
+	// delay - an empty box, forever.
+	//
+	// The dialog rather than a was-visible flag because menuPushDialog(),
+	// menuSwipe() and the pages that show a character all unload the model,
+	// and every one of them changes which dialog holds the cursor. Watching
+	// that catches all three: opening Ghost Options from Ghost Trials leaves
+	// the plaque on screen throughout, and without this the head came back
+	// from that unload at raw scale with no zoom - a couple of stray polygons
+	// where a face was.
+	static struct menudialogdef *lastdialog[MAX_PLAYERS] = { NULL };
+	s32 viewleft = viGetViewLeft() / g_ScaleX;
+	s32 viewtop = viGetViewTop();
+	s32 viewright = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
+	s32 width;
+	s32 textwidth;
+	s32 textheight;
+	s32 x1;
+	s32 x2;
+	s32 y1;
+	s32 y2;
+	s32 bodytop;
+	s32 headx;
+	s32 heady;
+	s32 mpbody;
+	s32 mphead;
+	s32 x;
+	s32 y;
+
+	if (!menuGhostPlaqueVisible()) {
+		lastdialog[g_MpPlayerNum] = NULL;
+		return gdl;
+	}
+
+	// The account, or the fact that there is not one. A run recorded without
+	// an account still goes in the ghosts directory and still carries the
+	// character, so the plaque has something true to say either way.
+	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s\n",
+			ghostnetHasAccount() ? ghostnetGetAccountName() : "No Account");
+
+	textMeasure(&textheight, &textwidth, g_GhostRowText, g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, 0);
+
+	width = MODGHOST_PLAQUEHEADW + textwidth + 9;
+
+	if (width < MODGHOST_PLAQUEMINW) {
+		width = MODGHOST_PLAQUEMINW;
+	} else if (width > MODGHOST_PLAQUEMAXW) {
+		width = MODGHOST_PLAQUEMAXW;
+	}
+
+	x2 = viewright - MODGHOST_PLAQUEX;
+	x1 = x2 - width;
+	y1 = viewtop + MODGHOST_PLAQUEY;
+	y2 = y1 + LINEHEIGHT + MODGHOST_PLAQUEBODYH;
+	bodytop = y1 + LINEHEIGHT;
+	headx = x1 + 2;
+	heady = bodytop + 1;
+
+	if (lastdialog[g_MpPlayerNum] != g_Menus[g_MpPlayerNum].curdialog->definition) {
+		lastdialog[g_MpPlayerNum] = g_Menus[g_MpPlayerNum].curdialog->definition;
+		g_GhostModelParams = 0;
+	}
+
+	// Ghost Trials rather than the dialog on screen: the plaque belongs to
+	// that page wherever the cursor has got to, and nothing reads this except
+	// code that would want the page it came from.
+	plaque.definition = &g_GhostTrialsMenuDialog;
+	plaque.type = MENUDIALOGTYPE_DEFAULT;
+	plaque.type2 = MENUDIALOGTYPE_DEFAULT;
+	plaque.transitionfrac = -1.0f;
+	plaque.colourweight = 0;
+	plaque.x = x1;
+	plaque.y = y1;
+	plaque.width = width;
+	plaque.height = y2 - y1;
+
+	g_MenuScissorX1 = viewleft;
+	g_MenuScissorY1 = viewtop;
+	g_MenuScissorX2 = viewright;
+	g_MenuScissorY2 = viewtop + viGetViewHeight();
+	gdl = menuApplyScissor(gdl);
+
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+
+	// The window: title bar, its two shimmers, then the body and its borders -
+	// the same calls dialogRender() makes, in the same order, so the plaque
+	// weathers a change to how a window looks along with every other window.
+	gdl = menugfxRenderGradient(gdl, x1 - 2, y1, x2 + 2, bodytop,
+			colours->dialog_border1, colours->dialog_titlebg, colours->dialog_border2);
+	gdl = menugfxDrawShimmer(gdl, x1 - 2, y1, x2 + 2, y1 + 1,
+			(colours->dialog_border1 & 0xff) >> 1, 1, 40, 0);
+	gdl = menugfxDrawShimmer(gdl, x1 - 2, y1 + 10, x2 + 2, bodytop,
+			(colours->dialog_border1 & 0xff) >> 1, 0, 40, 1);
+	gdl = menugfxRenderDialogBackground(gdl, x1 + 1, bodytop, x2 - 1, y2, &plaque,
+			colours->dialog_bodybg, colours->unused14, -1.0f);
+
+	gdl = text0f153628(gdl);
+
+	x = x1 + 3;
+	y = y1 + 3;
+	gdl = textRenderProjected(gdl, &x, &y, "Player\n", g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, colours->dialog_titlefg & 0xff, width, viGetHeight(), 0, 0);
+
+	x = x1 + 2;
+	y = y1 + 2;
+	gdl = textRenderProjected(gdl, &x, &y, "Player\n", g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, colours->dialog_titlefg, width, viGetHeight(), 0, 0);
+
+	x = headx + MODGHOST_PLAQUEHEADW + 3;
+	y = bodytop + 9;
+	gdl = textRenderProjected(gdl, &x, &y, g_GhostRowText, g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, colours->item_unfocused,
+			x2 - x, viGetHeight(), 0, 0);
+
+	gdl = text0f153780(gdl);
+
+	// The character, from the same two settings a recorded run is stamped
+	// with, so a face here that is not the face in the ghost file would be a
+	// bug rather than a difference of opinion.
+	mpbody = MPBODY_DARK_AF1;
+	mphead = MPHEAD_DARK_COMBAT;
+
+	if (g_ModGhostBody > MODGHOST_BODY_DEFAULT && g_ModGhostBody - 1 < (s32)mpGetNumBodies()) {
+		mpbody = g_ModGhostBody - 1;
+		mphead = mpGetMpheadnumByMpbodynum(mpbody);
+	}
+
+	if (g_ModGhostHead > MODGHOST_BODY_DEFAULT && g_ModGhostHead - 1 < mpGetNumHeads2()) {
+		mphead = g_ModGhostHead - 1;
+	}
+
+	menuGhostPlaqueModel(mphead, headx, heady, MODGHOST_PLAQUEHEADW);
+
+	gdl = menuApplyScissor(gdl);
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+	gdl = menuRenderModel(gdl, &g_Menus[g_MpPlayerNum].menumodel, MENUMODELTYPE_DEFAULT);
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+
+	// menuRenderModel() leaves the viewport it drew through behind it. Every
+	// other caller puts the player's back and so does this one, because the
+	// next thing to draw is whatever the menu draws after the dialogs.
+	viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
+	viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
+			g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
+
+	// And the scissor, which is otherwise left as a square in the corner for
+	// whatever draws next to be clipped to.
+	g_MenuScissorX1 = viewleft;
+	g_MenuScissorY1 = viewtop;
+	g_MenuScissorX2 = viewright;
+	g_MenuScissorY2 = viewtop + viGetViewHeight();
+	gdl = menuApplyScissor(gdl);
+
+	return gdl;
 }
 
 /**
@@ -1867,16 +2185,12 @@ static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menud
  * Customize Character lives here for the same reason. It was in Ghost Options
  * because it began as a dropdown among settings, but choosing who runs is part
  * of setting up a trial rather than a preference about how trials behave.
+ *
+ * There is no account line above the rows any more. It said "Racing as dab"
+ * and the plaque in the corner says the same thing with the face beside it, so
+ * the row was the same sentence twice on one screen.
  */
 struct menuitem g_GhostTrialsMenuItems[] = {
-	{
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)&menutextGhostTrialsStatus,
-		0,
-		NULL,
-	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,

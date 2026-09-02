@@ -10,6 +10,9 @@ extern struct menudialogdef g_AcceptMissionMenuDialog;
 extern struct menudialogdef g_SelectMissionMenuDialog;
 #ifndef PLATFORM_N64
 extern struct menudialogdef g_GhostTrialsMenuDialog;
+// The Ghost Trials nameplate, drawn beside the dialogs rather than inside one.
+// See the comment on the definition in port/src/ghostmenu.c.
+Gfx *ghostmenuRenderPlaque(Gfx *gdl);
 #endif
 extern struct menudialogdef g_PreAndPostMissionBriefingMenuDialog;
 extern struct menudialogdef g_RetryMissionMenuDialog;
