@@ -1686,8 +1686,13 @@ static void modGhostScanFile(const char *name, void *arg)
 		return;
 	}
 
+	// Mine means this account's, not this agent's. The agent is a save file
+	// and two accounts on one machine share it, so comparing it meant My Best
+	// Only raced somebody else's runs - dab2 signed in, pacing against dab.
+	// Runs with no owner cannot race at all, so there is nothing to fall back
+	// to and nothing that needs one.
 	if (scan->pick == MODGHOSTPICK_MINE
-			&& strncmp(hdr.player, g_GameFile.name, MODGHOST_NAMELEN) != 0) {
+			&& strncmp(hdr.owner, ghostnetGetAccountName(), MODGHOST_OWNERLEN) != 0) {
 		return;
 	}
 
@@ -1766,6 +1771,13 @@ static void modGhostLoad(void)
 	struct modghostsample *samples;
 	char rel[FS_MAXPATH + 1];
 	s32 i;
+
+	// The ticked list is read here rather than only by the chooser. It used to
+	// be loaded as a side effect of opening Choose Ghosts, so racing Chosen
+	// Ghosts worked in a session where that page had been visited and raced
+	// nothing at all in one where it had not - including every session that
+	// started the mission straight from the menu.
+	modGhostLoadChoices();
 
 	memset(&scan, 0, sizeof(scan));
 	scan.stagenum = g_Vars.stagenum;

@@ -229,7 +229,10 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// was a choice clamps up to it rather than leaving trials recording
 	// nothing.
 	configRegisterInt("Mod.GhostTimeTrial", &g_ModGhostMode, MODGHOST_RECORD, MODGHOST_RACE);
-	configRegisterInt("Mod.GhostOpponent", &g_ModGhostPick, MODGHOSTPICK_FASTEST, MODGHOSTPICK_MINE);
+	// Up to Chosen, not My Best. The range stopped one short of the last pick,
+	// so choosing Chosen Ghosts was clamped back to My Best Only the moment
+	// the config was read - the menu offered a mode the file could not hold.
+	configRegisterInt("Mod.GhostOpponent", &g_ModGhostPick, MODGHOSTPICK_FASTEST, MODGHOSTPICK_CHOSEN);
 	configRegisterInt("Mod.GhostVisibility", &g_ModGhostAlpha, 8, 254);
 	configRegisterInt("Mod.GhostSplitTimes", &g_ModGhostSplits, 0, 1);
 	configRegisterInt("Mod.GhostRacers", &g_ModGhostMaxRacers, 1, MODGHOST_MAXRACERS);

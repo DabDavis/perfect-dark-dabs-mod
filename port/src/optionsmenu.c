@@ -2510,7 +2510,7 @@ static MenuItemHandlerResult menuhandlerModGhost(s32 operation, struct menuitem 
  */
 static MenuItemHandlerResult menuhandlerModGhostPick(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	static const char *opts[] = { "Fastest Available", "My Best Only" };
+	static const char *opts[] = { "Fastest Available", "My Best Only", "Chosen Ghosts" };
 
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
