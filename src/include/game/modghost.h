@@ -41,22 +41,33 @@
  * Header flags: what a run was set under, kept with the run.
  *
  * A ghost outlives the settings that produced it and travels to machines whose
- * settings are different again, so the file has to answer for itself. One bit
- * so far, and it means the things this fork added that change a run were off -
+ * settings are different again, so the file has to answer for itself.
+ *
+ * TRIALRULES means the things this fork added that change a run were off -
  * jump, the combat roll, the melee combo and flinch - which is what a trial
- * enforces and what makes two times worth comparing.
+ * enforces and what makes two times worth comparing. NOCHEATS means the game's
+ * own cheats were off with them.
+ *
+ * They are two bits rather than one because they arrived in that order, and a
+ * run recorded in between carries the first and not the second: it was made by
+ * a build that held the fork's moves off and let Invincible through. Nothing
+ * refuses those yet - the runs that exist are the ones the boards are made of,
+ * and there is no evidence any of them was cheated - but which guarantee a
+ * file carries is a thing the file can say, and it cannot be worked out later
+ * from anything else.
  *
  * The list is the one modGhostTrialRulesApply() is consulted from, and the two
  * have to be kept in step: a flag that claims more than the predicate turns off
  * is a board saying runs are comparable when they are not. Anything added to
  * the fork later that changes how a mission plays belongs in both.
  *
- * Zero is "unknown", not "no rules": every ghost recorded before this was made
- * when the fork's moves were available and there is no asking now which were
- * on. A board that wants to compare like with like has to treat those as the
- * different thing they are.
+ * No flags at all is "unknown", not "no rules": every ghost recorded before
+ * any of this was made when the fork's moves were available and there is no
+ * asking now which were on. A board that wants to compare like with like has
+ * to treat those as the different thing they are.
  */
 #define MODGHOSTHF_TRIALRULES 0x01
+#define MODGHOSTHF_NOCHEATS   0x02
 
 /**
  * The character a trial is run and replayed as.

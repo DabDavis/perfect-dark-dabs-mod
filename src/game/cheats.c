@@ -9,6 +9,9 @@
 #include "game/training.h"
 #include "game/gamefile.h"
 #include "game/lang.h"
+#ifndef PLATFORM_N64
+#include "game/modghost.h"
+#endif
 #include "game/pak.h"
 #include "bss.h"
 #include "data.h"
@@ -260,6 +263,30 @@ void cheatsInit(void)
 void cheatsReset(void)
 {
 	s32 cheat_id;
+
+#ifndef PLATFORM_N64
+	// No cheats in a trial, for the same reason there is no jump in one: a run
+	// is only worth putting beside another run if both were made under the
+	// same rules, and invincibility or a full set of weapons is a bigger
+	// change to a route than any move this fork added.
+	//
+	// Here rather than in cheatIsActive(), because this is the one place the
+	// enabled set becomes the active set - it is what CI training already does
+	// to keep cheats out of the range - and because cheatActivate() below has
+	// effects rather than only answers: it makes the player invincible and
+	// fills their inventory, and a predicate that lied about a cheat being off
+	// would leave those already done.
+	//
+	// The player's cheat settings are not touched, only overridden for the
+	// duration, the way the fork's own settings are. Somebody who came in
+	// through Ghost Trials for one mission gets their cheats back afterwards
+	// without having to remember to turn them on again.
+	if (modGhostTrialRulesApply()) {
+		g_CheatsActiveBank0 = 0;
+		g_CheatsActiveBank1 = 0;
+		return;
+	}
+#endif
 
 	// Copy enabled cheats to active cheats, unless in CI training
 	// or weapon cheats not in solo

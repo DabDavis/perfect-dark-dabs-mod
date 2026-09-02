@@ -91,13 +91,16 @@ void modGhostDisarmTrial(void)
 }
 
 /**
- * Whether the moves this fork added are switched off right now.
+ * Whether trial rules are in force right now: the moves this fork added are
+ * switched off, and so are the cheats the game ships with.
  *
  * A trial is a time to be compared against other times, and a run made with a
- * jump the ghost beside it did not have is not the same run. The fork's own
- * settings are left alone - this overrides them for the duration rather than
- * writing to them, so a player who came in through Ghost Trials for one
- * mission gets their jump back afterwards without having to remember to.
+ * jump the ghost beside it did not have is not the same run. Nor is one made
+ * with Invincible on, which is why cheatsReset() asks this too. The settings
+ * behind both are left alone - this overrides them for the duration rather
+ * than writing to them, so a player who came in through Ghost Trials for one
+ * mission gets their jump and their cheats back afterwards without having to
+ * remember to.
  *
  * The multiplayer test is here because the armed flag outlives the mission: it
  * is meant to survive a retry, and is only cleared by the ordinary Solo
@@ -2455,7 +2458,7 @@ void modGhostSaveRun(void)
 	// made it. Runs recorded before this carry a zero here, which reads as
 	// "unknown" rather than as "no rules" - they were made when the fork's
 	// moves were available and there is no way to ask now which were on.
-	hdr.flags = MODGHOSTHF_TRIALRULES;
+	hdr.flags = MODGHOSTHF_TRIALRULES | MODGHOSTHF_NOCHEATS;
 
 	// Who the run was set as, so the ghost of it looks like the person who set
 	// it wherever it ends up. Clamped to a byte because that is what the field

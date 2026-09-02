@@ -81,6 +81,15 @@ DOWNLOAD_MAX = 200
 # no asking now which were on. A board that mixes them ranks settings.
 GHOST_TRIALRULES = 0x01
 
+# The second flag, MODGHOSTHF_NOCHEATS, says the game's own cheats were off as
+# well. It arrived later than the first, so a run can carry TRIALRULES without
+# it: that one was set by a build which held the fork's moves off and let
+# Invincible through. Nothing here refuses those - the rows on the boards today
+# are all of that generation and there is no evidence any was cheated - but the
+# flags column carries the whole byte, so the distinction is on the server for
+# the day it is wanted.
+GHOST_NOCHEATS = 0x02
+
 # How many rows a board keeps, and so how many blobs a stage and difficulty
 # can cost. One row per player is the other half of that bound: the client
 # stores every attempt because a run cannot be judged while it is being set,
