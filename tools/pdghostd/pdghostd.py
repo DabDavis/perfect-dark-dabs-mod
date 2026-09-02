@@ -34,11 +34,56 @@ ROOT = os.path.expanduser("~/pdghosts")
 DB_PATH = os.path.join(ROOT, "ghosts.db")
 BLOB_DIR = os.path.join(ROOT, "blobs")
 
-# A fifty minute run is about 1.5MB. Eight is generous and still bounded.
-MAX_BODY = 8 * 1024 * 1024
+# The client writes one shape of file and this end takes only that shape: a
+# 128 byte header and 24 byte samples (struct modghostheader and struct
+# modghostsample in the client's modghost.h, the second pinned by a static
+# assert in modghost.c), at most MODGHOST_MAXSAMPLES of them, one every
+# MODGHOST_RATE60 sixtieths. The longest run the recorder can hold is under
+# 1.5MB, so two is generous and still bounded.
+MAX_BODY = 2 * 1024 * 1024
 MAX_SAMPLES = 65536
 HEADER_SIZE = 128
+SAMPLE_SIZE = 24
+RATE60 = 3
+VERSION_MAX = 2
 MAGIC = b"PDGHOST\0"
+
+# How much one account may hold across all its rows, counted in the bytes it
+# uploaded rather than the smaller number that landed on disk. A full set of
+# the longest possible runs on every board is more than this, which is the
+# point: an account is a player's best times, not a place to keep files.
+USER_QUOTA = 64 * 1024 * 1024
+
+# The stages a trial can be set on: the solo missions, as g_SoloStages in the
+# client's mainmenu.c lists them. modGhostStageIsEligible() in modghost.c is
+# looser - anything below STAGE_TITLE that is not the Institute - but the rest
+# of that range is Combat Simulator arenas, which have no clock to race, and
+# ids the mod loader hands out at runtime, which name different maps on
+# different machines. A board for either would be a board of nothing.
+STAGES = frozenset((
+    0x30,  # Defection
+    0x33,  # Investigation
+    0x22,  # Extraction
+    0x2c,  # Villa
+    0x1d,  # Chicago
+    0x1e,  # G5 Building
+    0x2f,  # Infiltration
+    0x35,  # Rescue
+    0x19,  # Escape
+    0x27,  # Air Base
+    0x31,  # Air Force One
+    0x1c,  # Crash Site
+    0x21,  # Pelagic II
+    0x38,  # Deep Sea
+    0x2d,  # Defense
+    0x34,  # Attack Ship
+    0x2a,  # Skedar Ruins
+    0x37,  # Mr Blonde's Revenge
+    0x09,  # Maian SOS
+    0x16,  # WAR!
+    0x4f,  # The Duel
+))
+DIFFICULTIES = (0, 1, 2)
 
 # Fifteen characters, because a name has to fit the owner field a ghost carries
 # (MODGHOST_OWNERLEN in the client's modghost.h, sixteen bytes with the
@@ -53,13 +98,27 @@ PIN_RE = re.compile(r"^[0-9]{4,8}$")
 AUTH_WINDOW = 300
 AUTH_MAX_FAILURES = 8
 
+# The same again per account, whoever is asking. The address limiter stops
+# one machine guessing; it does nothing about many machines each guessing a
+# few times at one account, and a four digit PIN is ten thousand guesses.
+# Eight in fifteen minutes makes that a matter of weeks. The cost is that
+# anybody can lock an account for a quarter of an hour by naming it, which is
+# the trade every lockout makes and the cheaper one here.
+USER_WINDOW = 900
+USER_MAX_FAILURES = 8
+
 # Every check of a PIN costs a PBKDF2, which is the point for a stored secret
-# and a cost for a server. The failure budget above does not bound that work,
-# because a success clears it - so anyone holding one valid account could ask
-# for it as often as they liked. This budget counts attempts rather than
-# failures and is never cleared, so it is the ceiling on how much hashing an
-# address can buy. Thirty in five minutes is far above signing in and far
-# below being useful as a way to spend somebody else's processor.
+# and a cost for a server. The failure budget above is cleared by a success,
+# so an address holding one valid account could keep failing between
+# sign-ins. This budget counts failures too but is never cleared, so it is
+# the ceiling on how much hashing a wrong guess can buy. Thirty in five
+# minutes is far above mistyping a PIN and far below being useful as a way
+# to spend somebody else's processor.
+#
+# Successes are not counted here, and uploads do not touch it at all: one
+# press of Upload is one PIN check per ghost sent, and UPLOAD_MAX below is
+# what bounds those. Counting them here meant a player with more than thirty
+# runs to send was refused on the thirty-first for "too many attempts".
 AUTH_ATTEMPT_WINDOW = 300
 AUTH_ATTEMPT_MAX = 30
 UPLOAD_WINDOW = 3600
@@ -92,6 +151,7 @@ BOARD_KEEP = 100
 _lock = threading.Lock()
 _auth_failures = {}
 _auth_attempts = {}
+_user_failures = {}
 _upload_counts = {}
 _download_counts = {}
 
@@ -246,7 +306,8 @@ def init_db():
                 blob       TEXT NOT NULL,
                 flags      INTEGER NOT NULL DEFAULT 0,
                 mpbody     INTEGER NOT NULL DEFAULT 0,
-                mphead     INTEGER NOT NULL DEFAULT 0
+                mphead     INTEGER NOT NULL DEFAULT 0,
+                evicted    INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS ghosts_board
                 ON ghosts(stagenum, difficulty, time60);
@@ -273,6 +334,13 @@ def init_db():
         for col in ("mpbody", "mphead"):
             if col not in have:
                 conn.execute("ALTER TABLE ghosts ADD COLUMN %s INTEGER NOT NULL DEFAULT 0" % col)
+
+        # A row that fell off the end of its board stays, hidden, so that
+        # the file it names stays too - see the eviction note in the upload
+        # path. Every row before the column existed is one that is on its
+        # board, so the default is right for all of them.
+        if "evicted" not in have:
+            conn.execute("ALTER TABLE ghosts ADD COLUMN evicted INTEGER NOT NULL DEFAULT 0")
 
         # Rows that cannot show they were set under trial rules go, with their
         # files. Uploads are refused on the same test, so this runs once in
@@ -316,7 +384,13 @@ def hash_pin(pin, salt):
 RATE_TABLE_MAX = 4096
 
 
-def rate_ok(table, key, window, limit):
+def rate_ok(table, key, window, limit, record=True):
+    """Whether a key is under its limit, counting this call against it.
+
+    record=False only asks. That is for the limiters that count failures: an
+    attempt is checked before the work it guards and counted, with rate_hit()
+    below, only once it has failed.
+    """
     now = time.time()
     with _lock:
         if len(table) > RATE_TABLE_MAX:
@@ -327,9 +401,44 @@ def rate_ok(table, key, window, limit):
         if len(hits) >= limit:
             table[key] = hits
             return False
-        hits.append(now)
-        table[key] = hits
+        if record:
+            hits.append(now)
+        if hits or key in table:
+            table[key] = hits
         return True
+
+
+def rate_hit(table, key):
+    """Count one against a key without asking whether it is over."""
+    with _lock:
+        table.setdefault(key, []).append(time.time())
+
+
+def fnv1a(data):
+    """FNV-1a over a byte string, as modGhostHash() in the client's modghost.c.
+
+    32 bit, offset basis 2166136261, prime 16777619, one byte at a time in
+    file order. The client hashes the sample block alone - see the header
+    comment in modghost.h - and so does the caller here. A pure Python loop
+    over the biggest block the recorder can produce is a few tenths of a
+    second, which an upload can afford and nothing else here calls.
+    """
+    h = 2166136261
+    for b in data:
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def query_int(query, key, default):
+    """An integer query parameter, or ValueError if it is not one SQLite holds.
+
+    int() reads a number of any size and sqlite3 raises OverflowError binding
+    one past 64 bits - from inside the execute, where nothing was catching it.
+    """
+    value = int(query.get(key, default))
+    if value < -(1 << 63) or value >= (1 << 63):
+        raise ValueError(key)
+    return value
 
 
 def parse_ghost_header(data):
@@ -346,6 +455,7 @@ def parse_ghost_header(data):
 
     version, headersize, samplesize, numsamples, time60, rate60 = struct.unpack_from("<6I", data, 8)
     stagenum, difficulty, stageindex, flags = struct.unpack_from("<4B", data, 0x20)
+    (hash_,) = struct.unpack_from("<I", data, 0x24)
     # The Combat Simulator body and head the run was set as, plus one so that
     # zero can mean "whoever Joanna comes with" - MODGHOST_BODY_DEFAULT in the
     # client's modghost.h. Stored so a board can say who a time belongs to
@@ -354,25 +464,37 @@ def parse_ghost_header(data):
     player = data[0x30:0x50].split(b"\0")[0].decode("ascii", "replace")
     owner = data[0x70:0x80].split(b"\0")[0].decode("ascii", "replace")
 
-    if version < 1 or version > 16:
+    # What the client writes, not what it would read. modGhostReadFile()
+    # accepts a header or a sample larger than its own so that a later build
+    # can add fields; none has, so every file the game has ever saved has
+    # exactly this shape, and one that does not came from something else.
+    if version < 1 or version > VERSION_MAX:
         return None
-    if headersize < HEADER_SIZE or samplesize < 16 or samplesize > 1024:
+    if headersize != HEADER_SIZE or samplesize != SAMPLE_SIZE:
         return None
     if numsamples < 2 or numsamples > MAX_SAMPLES:
         return None
-    if rate60 < 1 or rate60 > 60:
+    if rate60 != RATE60:
         return None
-    if time60 < 1 or time60 > 0xFFFFFF:
+    # The recorder - modGhostRecordSample() in modghost.c - keeps
+    # (numsamples - 1) * rate60 <= clock < numsamples * rate60 at every sample
+    # it takes, and the time in the header is read when the run is saved from
+    # the end screen, where the mission clock has stopped. One interval of
+    # slack on either side covers a frame between the last sample and the
+    # stop; a time outside that describes a different run than the samples do.
+    if time60 < (numsamples - 1) * rate60 or time60 > (numsamples + 1) * rate60:
         return None
-    if difficulty > 3:
+    if stagenum not in STAGES or difficulty not in DIFFICULTIES:
         return None
-    # The engine's own test for "is this a real level" is stagenum < 0x5a, and
-    # nothing above it can be played, so nothing above it can be run. Without
-    # this a byte's worth of invented stage numbers is a byte's worth of
-    # separate boards, each willing to hold its hundred files.
-    if stagenum >= 0x5a:
+    # The whole file and nothing else. Trailing bytes are not a ghost, and
+    # they would count against the quota as if they were.
+    if len(data) != headersize + numsamples * samplesize:
         return None
-    if len(data) < headersize + numsamples * samplesize:
+    # The hash covers the sample block, as modGhostHash() takes it: the bytes
+    # after the header, numsamples * samplesize of them, in file order. It is
+    # what tells a complete file from a truncated or edited one; it says
+    # nothing about whether the run happened, which nothing here can tell.
+    if hash_ != fnv1a(data[headersize:headersize + numsamples * samplesize]):
         return None
 
     return {
@@ -421,21 +543,49 @@ class Handler(BaseHTTPRequestHandler):
         through the proxy. Exposing it directly hands the limiter back to the
         client; see the note at the top of this file.
         """
-        real = self.headers.get("X-Real-IP", "").strip()
+        # A request line too long or too malformed to parse is answered from
+        # inside parse_request(), before there are any headers, and the answer
+        # is logged through here. Reaching for self.headers then raised in
+        # the log call and the 400 was never written.
+        headers = getattr(self, "headers", None)
+        if headers is None:
+            return self.client_address[0]
+
+        real = headers.get("X-Real-IP", "").strip()
         if real:
             return real
 
-        fwd = self.headers.get("X-Forwarded-For", "")
+        fwd = headers.get("X-Forwarded-For", "")
         if fwd:
             return fwd.rsplit(",", 1)[-1].strip()
 
         return self.client_address[0]
+
+    def body_pending(self):
+        """Whether the request carried a body that has not been read.
+
+        Anything answered before the body is read - a refused PIN, an
+        oversized upload - leaves that body in the socket, where the next
+        request on the connection would be parsed out of it. Those answers
+        close the connection instead.
+        """
+        if getattr(self, "body_done", False):
+            return False
+        if self.headers.get("Transfer-Encoding"):
+            return True
+        try:
+            return int(self.headers.get("Content-Length", "0")) > 0
+        except ValueError:
+            return True
 
     def send_json(self, code, payload):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if self.body_pending():
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
 
@@ -454,7 +604,28 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if length <= 0 or length > MAX_BODY:
             return None
-        return self.rfile.read(length)
+        body = self.rfile.read(length)
+        self.body_done = True
+        return body
+
+    def read_json(self):
+        """The body as a JSON object, or None if it is not one.
+
+        Not an object covers a lot: a body that is not JSON, one that is JSON
+        but a list or a number, and one nested deeply enough that the parser
+        gives up on it. Each of those was a different exception, and only the
+        first was being caught.
+        """
+        body = self.read_body()
+        if body is None:
+            return None
+        try:
+            req = json.loads(body)
+        except (ValueError, RecursionError):
+            return None
+        if not isinstance(req, dict):
+            return None
+        return req
 
     def path_parts(self):
         path = self.path.split("?", 1)
@@ -467,47 +638,58 @@ class Handler(BaseHTTPRequestHandler):
         return path[0].rstrip("/"), query
 
     def drop_blobs(self, names):
-        """Remove blob files that no row references, ignoring what is missing."""
+        """Remove blob files, ignoring what is missing.
+
+        Whether a file is still referenced is decided by the caller inside
+        the transaction that changed the rows, not here after it: asked
+        afterwards, the answer is about whatever the rows have become since.
+        """
         for name in names:
-            with db() as conn:
-                still = conn.execute(
-                    "SELECT 1 FROM ghosts WHERE blob = ? LIMIT 1", (name,)).fetchone()
-
-            if still is not None:
-                continue
-
             try:
                 os.remove(os.path.join(BLOB_DIR, name))
             except OSError:
                 pass
 
     def authenticate(self, username, pin):
-        """Check a username and PIN. Returns (ok, error)."""
-        if not rate_ok(_auth_failures, self.client_ip(), AUTH_WINDOW, AUTH_MAX_FAILURES):
+        """Check a username and PIN. Returns (ok, error).
+
+        Nothing is counted until it fails, and a failure counts against the
+        address and against the account named, so that neither one machine
+        nor many can sit and guess. The answer is the same whether the account
+        exists or the PIN was wrong: the difference between those is the list
+        of usernames, and a guesser should have to guess those as well.
+        """
+        ip = self.client_ip()
+        user = username.lower()
+
+        if (not rate_ok(_auth_failures, ip, AUTH_WINDOW, AUTH_MAX_FAILURES, record=False)
+                or not rate_ok(_auth_attempts, ip, AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX, record=False)
+                or not rate_ok(_user_failures, user, USER_WINDOW, USER_MAX_FAILURES, record=False)):
             return False, "too many attempts, wait a few minutes"
 
         if not username or not pin:
             return False, "username and pin required"
 
-        # Counted before the hash below, which is the expensive part.
-        if not rate_ok(_auth_attempts, self.client_ip(), AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX):
-            return False, "too many attempts, wait a few minutes"
-
         with db() as conn:
             row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
         if row is None:
-            return False, "no such account"
+            # Hashed anyway, against nothing, so that a name that is not an
+            # account takes as long to refuse as a PIN that is wrong.
+            salt, expect = b"\0" * 16, b"\0" * 32
+        else:
+            salt, expect = bytes(row["pin_salt"]), bytes(row["pin_hash"])
 
-        expect = bytes(row["pin_hash"])
-        actual = hash_pin(pin, bytes(row["pin_salt"]))
+        if row is None or not hmac.compare_digest(expect, hash_pin(pin, salt)):
+            rate_hit(_auth_failures, ip)
+            rate_hit(_auth_attempts, ip)
+            rate_hit(_user_failures, user)
+            return False, "wrong username or pin"
 
-        if not hmac.compare_digest(expect, actual):
-            return False, "wrong pin"
-
-        # A success clears the failure budget for this address.
+        # A success clears the failure budgets for this address and account.
         with _lock:
-            _auth_failures.pop(self.client_ip(), None)
+            _auth_failures.pop(ip, None)
+            _user_failures.pop(user, None)
 
         return True, None
 
@@ -521,12 +703,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/leaderboard":
             try:
-                stage = int(query.get("stage", "-1"))
-                diff = int(query.get("diff", "-1"))
+                stage = query_int(query, "stage", "-1")
+                diff = query_int(query, "diff", "-1")
                 # Clamped at both ends: SQLite reads a negative LIMIT as no
                 # limit at all, so an unclamped one served the whole board.
-                limit = max(1, min(int(query.get("limit", "100")), 100))
-            except ValueError:
+                limit = max(1, min(query_int(query, "limit", "100"), 100))
+            except (ValueError, OverflowError):
                 return self.send_json(400, {"ok": False, "error": "bad query"})
 
             with db() as conn:
@@ -536,7 +718,7 @@ class Handler(BaseHTTPRequestHandler):
                 # upload takes the higher one.
                 rows = conn.execute(
                     "SELECT id, username, time60, uploaded, flags, mpbody, mphead FROM ghosts "
-                    "WHERE stagenum = ? AND difficulty = ? "
+                    "WHERE stagenum = ? AND difficulty = ? AND evicted = 0 "
                     "ORDER BY time60 ASC, id ASC LIMIT ?",
                     (stage, diff, limit)).fetchall()
 
@@ -557,8 +739,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(429, {"ok": False, "error": "too many downloads, wait a while"})
 
             try:
-                ghost_id = int(query.get("id", "-1"))
-            except ValueError:
+                ghost_id = query_int(query, "id", "-1")
+            except (ValueError, OverflowError):
                 return self.send_json(400, {"ok": False, "error": "bad id"})
 
             with db() as conn:
@@ -588,14 +770,9 @@ class Handler(BaseHTTPRequestHandler):
         path, query = self.path_parts()
 
         if path == "/register":
-            body = self.read_body()
-            if body is None:
+            req = self.read_json()
+            if req is None:
                 return self.send_json(400, {"ok": False, "error": "bad body"})
-
-            try:
-                req = json.loads(body)
-            except ValueError:
-                return self.send_json(400, {"ok": False, "error": "bad json"})
 
             username = str(req.get("username", "")).strip()
             pin = str(req.get("pin", "")).strip()
@@ -626,13 +803,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"ok": True, "username": username})
 
         if path == "/login":
-            body = self.read_body()
-            if body is None:
+            req = self.read_json()
+            if req is None:
                 return self.send_json(400, {"ok": False, "error": "bad body"})
-            try:
-                req = json.loads(body)
-            except ValueError:
-                return self.send_json(400, {"ok": False, "error": "bad json"})
 
             ok, err = self.authenticate(str(req.get("username", "")).strip(),
                                         str(req.get("pin", "")).strip())
@@ -644,12 +817,16 @@ class Handler(BaseHTTPRequestHandler):
             username = self.headers.get("X-Ghost-User", "").strip()
             pin = self.headers.get("X-Ghost-Pin", "").strip()
 
+            # Counted before the PIN is checked, so that this and not the
+            # sign-in limiter is what bounds the hashing an upload can ask
+            # for. A refused PIN spends one of the account's hundred and
+            # twenty, which is nothing next to the lockout it also spends.
+            if not rate_ok(_upload_counts, username.lower(), UPLOAD_WINDOW, UPLOAD_MAX):
+                return self.send_json(429, {"ok": False, "error": "too many uploads this hour"})
+
             ok, err = self.authenticate(username, pin)
             if not ok:
                 return self.send_json(403, {"ok": False, "error": err})
-
-            if not rate_ok(_upload_counts, username.lower(), UPLOAD_WINDOW, UPLOAD_MAX):
-                return self.send_json(429, {"ok": False, "error": "too many uploads this hour"})
 
             body = self.read_body()
             if body is None:
@@ -718,9 +895,11 @@ class Handler(BaseHTTPRequestHandler):
                         pass
 
             with db_write(undo_blob) as conn:
+                # An evicted row counts as held: its file is still the best
+                # run this player has sent, and a slower one is not news.
                 held = conn.execute(
-                    "SELECT time60, blob, mpbody, mphead FROM ghosts WHERE username = ? AND stagenum = ? "
-                    "AND difficulty = ?",
+                    "SELECT time60, blob, bytes, mpbody, mphead, evicted FROM ghosts "
+                    "WHERE username = ? AND stagenum = ? AND difficulty = ?",
                     (username, info["stagenum"], info["difficulty"])).fetchone()
 
                 # One row per player per level, replaced only by a quicker run.
@@ -759,18 +938,35 @@ class Handler(BaseHTTPRequestHandler):
 
                 # Whether a new placement makes the board is asked before the
                 # file is written, so a slow run on a full board costs a query
-                # rather than a write and a delete. A player already holding a
-                # row is on the board by definition and is only getting faster.
-                if held is None:
+                # rather than a write and a delete. A player holding a row on
+                # the board is there by definition and is only getting faster;
+                # one holding an evicted row is asking to get back on.
+                if held is None or held["evicted"]:
                     faster = conn.execute(
                         "SELECT COUNT(*) FROM ghosts WHERE stagenum = ? AND difficulty = ? "
-                        "AND time60 <= ?",
+                        "AND evicted = 0 AND time60 <= ?",
                         (info["stagenum"], info["difficulty"], info["time60"])).fetchone()[0]
 
                     if faster >= BOARD_KEEP:
                         return self.send_json(200, {"ok": True, "stored": False,
                             "reason": "outside the top %d" % BOARD_KEEP,
                             "time60": info["time60"]})
+
+                # What the account holds across every board, less the row
+                # this run replaces, plus this run, against the cap. Asked
+                # here rather than before the board check so that a run that
+                # was never going to be stored is not refused for a reason
+                # that would not have applied.
+                used = conn.execute(
+                    "SELECT COALESCE(SUM(bytes), 0) FROM ghosts WHERE username = ?",
+                    (username,)).fetchone()[0]
+
+                if held is not None:
+                    used -= held["bytes"]
+
+                if used + len(body) > USER_QUOTA:
+                    return self.send_json(413, {"ok": False,
+                        "error": "your account is out of storage"})
 
                 # The file goes down before the row that points at it, so a
                 # failure between them leaves a file nothing references rather
@@ -798,33 +994,42 @@ class Handler(BaseHTTPRequestHandler):
                     "ON CONFLICT(username, stagenum, difficulty) DO UPDATE SET "
                     "time60=excluded.time60, numsamples=excluded.numsamples, "
                     "bytes=excluded.bytes, uploaded=excluded.uploaded, blob=excluded.blob, "
-                    "flags=excluded.flags, mpbody=excluded.mpbody, mphead=excluded.mphead",
+                    "flags=excluded.flags, mpbody=excluded.mpbody, mphead=excluded.mphead, "
+                    "evicted=0",
                     (username, info["stagenum"], info["difficulty"], info["time60"],
                      info["numsamples"], len(body), int(time.time()), name, info["flags"],
                      info["mpbody"], info["mphead"]))
 
-                # Whatever fell off the end of the board goes, whoever it
-                # belonged to. Ordered the same way the leaderboard is read so
-                # that the hundred rows kept here are the hundred rows served,
-                # with the id breaking a tie that time60 alone cannot.
-                doomed += [r["blob"] for r in conn.execute(
-                    "SELECT blob FROM ghosts WHERE stagenum = ? AND difficulty = ? "
-                    "ORDER BY time60 ASC, id ASC LIMIT -1 OFFSET ?",
-                    (info["stagenum"], info["difficulty"], BOARD_KEEP)).fetchall()]
-
+                # Whatever fell off the end of the board is hidden, whoever it
+                # belonged to, and its file stays. A run somebody set is not
+                # this end's to destroy because a hundred people were quicker,
+                # and the client keeps no copy of what it uploaded from a
+                # machine it may since have lost. Ordered the same way the
+                # leaderboard is read so that the hundred rows shown are the
+                # hundred rows kept, with the id breaking a tie that time60
+                # alone cannot. Evicted rows keep their bytes on the account's
+                # quota, which is the only thing bounding them now.
                 conn.execute(
-                    "DELETE FROM ghosts WHERE id IN ("
-                    "  SELECT id FROM ghosts WHERE stagenum = ? AND difficulty = ? "
+                    "UPDATE ghosts SET evicted = 1 WHERE id IN ("
+                    "  SELECT id FROM ghosts WHERE stagenum = ? AND difficulty = ? AND evicted = 0 "
                     "  ORDER BY time60 ASC, id ASC LIMIT -1 OFFSET ?)",
                     (info["stagenum"], info["difficulty"], BOARD_KEEP))
 
                 rank = conn.execute(
-                    "SELECT COUNT(*) + 1 FROM ghosts WHERE stagenum = ? AND difficulty = ? AND time60 < ?",
+                    "SELECT COUNT(*) + 1 FROM ghosts WHERE stagenum = ? AND difficulty = ? "
+                    "AND evicted = 0 AND time60 < ?",
                     (info["stagenum"], info["difficulty"], info["time60"])).fetchone()[0]
 
-            # After the commit, and only for files nothing points at any more.
-            # A row left with no file downloads as a 410, which is a worse
-            # failure than a file left with no row: that one is invisible.
+                # Only a file no row names any more, decided here where the
+                # rows cannot change under the answer. The old naming folded
+                # dab.2 and dab-2 onto one file, so the row that moved away
+                # from it may not have been the only one pointing at it.
+                doomed = [n for n in doomed if conn.execute(
+                    "SELECT 1 FROM ghosts WHERE blob = ? LIMIT 1", (n,)).fetchone() is None]
+
+            # After the commit, so that a row is never left naming a file that
+            # is gone: that downloads as a 410, which is a worse failure than
+            # a file left with no row, which is invisible.
             self.drop_blobs(doomed)
 
             return self.send_json(200, {"ok": True, "stored": True, "rank": rank,

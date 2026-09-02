@@ -10,5 +10,20 @@ ExecStart=/usr/bin/python3 /home/sdg/pdghostd.py
 Restart=on-failure
 RestartSec=5
 
+# The process sees an empty home apart from its data directory and its own
+# script, a read-only system, no devices and no way to gain anything it did
+# not start with. If the script moves, BindReadOnlyPaths= has to move with it
+# - see the README.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/sdg/pdghosts
+BindReadOnlyPaths=/home/sdg/pdghostd.py
+ReadWritePaths=/home/sdg/pdghosts
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+
 [Install]
 WantedBy=multi-user.target
