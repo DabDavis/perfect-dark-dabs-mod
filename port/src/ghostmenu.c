@@ -11,6 +11,7 @@
 #include "bss.h"
 #include "game/modghost.h"
 #include "config.h"
+#include "lib/vi.h"
 #include "ghostnet.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
@@ -32,6 +33,10 @@
  */
 
 static char g_GhostRowText[96];
+
+// How far in from the right edge of a dialog the character preview stands, in
+// menu units. Far enough that a whole body is inside the window it is drawn in.
+#define MODGHOST_MODELINSET 24
 
 /**
  * Whose a ghost is, for the player to read.
@@ -385,7 +390,7 @@ static u32 g_GhostModelParams = 0;
  * Leaderboards reads one out of a row the server sent. Where it comes from is
  * their business; what it looks like is this.
  */
-static void menuGhostShowCharacter(s32 mpbody, s32 mphead)
+static void menuGhostShowCharacter(struct menudialog *dialog, s32 mpbody, s32 mphead)
 {
 	struct menumodel *model = &g_Menus[g_MpPlayerNum].menumodel;
 	u32 params;
@@ -411,17 +416,25 @@ static void menuGhostShowCharacter(s32 mpbody, s32 mphead)
 
 		// posx and posy are offsets from the centre of the view in menu units:
 		//   screenpos[0] = posx * g_ScaleX + viewleft + viewwidth * 0.5
-		// - so a unit is about a pixel at this resolution, and this stands the
-		// model to the right of the rows inside the window.
+		// - which is an offset from the middle of the view, in the same menu
+		// units the dialog is measured in, times g_ScaleX. So it is worked out
+		// from the dialog rather than written down: a constant that stands the
+		// model beside the rows at one resolution walks it off the side of the
+		// screen at another, which is what a fixed 168 did.
 		//
-		// MENUDIALOGFLAG_MODELOVERLAY would lift it out of the window and draw
-		// it over the top, unclipped, which is where this wants to go. It is
-		// implemented and works; what is not solved is the framing once the
-		// viewport is the whole view instead of the dialog, because scale and
-		// the engine's own zoom combine differently at that size and I could
-		// not get a whole character in frame. Turning the flag on for these
-		// dialogs is all that is needed once that is worked out.
-		model->curposx = model->newposx = 168.0f;
+		// MODELINSET is from the right edge of the dialog to the middle of the
+		// model, so the whole of it is inside the window - the window is what
+		// clips it. MENUDIALOGFLAG_MODELOVERLAY would lift it out and draw it
+		// over the top instead, but menuRenderModel() takes both its scissor
+		// and its viewport from the same four numbers, so widening one widens
+		// the other and the model changes size with it. Splitting those is
+		// what that idea needs and it is not done.
+		model->curposx = model->newposx =
+			(f32)(dialog->x + dialog->width - MODGHOST_MODELINSET)
+			- (viGetViewLeft() + viGetViewWidth() * 0.5f) / (f32)g_ScaleX;
+
+		// posy is pixels rather than menu units - menu.c adds it to the middle
+		// of the view without scaling it - so it stays a small nudge.
 		model->curposy = model->newposy = -4.1f;
 		// Full size at once, rather than the arena's zoom in.
 		//
@@ -498,7 +511,7 @@ static void menuGhostTickCatalogueModel(struct menudialog *dialog, struct menuit
 		modGhostEntryCharacter(entry, &mpbody, &mphead);
 	}
 
-	menuGhostShowCharacter(mpbody, mphead);
+	menuGhostShowCharacter(dialog, mpbody, mphead);
 }
 
 /**
@@ -532,7 +545,7 @@ static void menuGhostTickBoardModel(struct menudialog *dialog, struct menuitem *
 			: mpGetMpheadnumByMpbodynum(mpbody);
 	}
 
-	menuGhostShowCharacter(mpbody, mphead);
+	menuGhostShowCharacter(dialog, mpbody, mphead);
 }
 
 /**
