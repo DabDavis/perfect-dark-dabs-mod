@@ -42,8 +42,14 @@
  *
  * A ghost outlives the settings that produced it and travels to machines whose
  * settings are different again, so the file has to answer for itself. One bit
- * so far, and it means the moves this fork added were off - which is what a
- * trial enforces and what makes two times worth comparing.
+ * so far, and it means the things this fork added that change a run were off -
+ * jump, the combat roll, the melee combo and flinch - which is what a trial
+ * enforces and what makes two times worth comparing.
+ *
+ * The list is the one modGhostTrialRulesApply() is consulted from, and the two
+ * have to be kept in step: a flag that claims more than the predicate turns off
+ * is a board saying runs are comparable when they are not. Anything added to
+ * the fork later that changes how a mission plays belongs in both.
  *
  * Zero is "unknown", not "no rules": every ghost recorded before this was made
  * when the fork's moves were available and there is no asking now which were

@@ -476,6 +476,20 @@ static void modGhostFreeRacer(struct modghostracer *racer)
 	racer->angleoffset = 0.0f;
 }
 
+/**
+ * Drop the field, keeping the model definitions it was wearing.
+ *
+ * The definitions belong to the stage rather than to the field, and they are
+ * dropped by modGhostReset() when the stage ends. Clearing them here as well
+ * looked tidy and leaked: the field is rebuilt without leaving the mission
+ * whenever a ghost setting changes, and Extended Options reaches two of those
+ * from the pause menu. With the cache cleared, the next body calls
+ * bodyAllocateModel(), which is body0f02d338() with no definitions passed in,
+ * which loads a fresh fifty kilobyte copy of the head out of MEMPOOL_STAGE and
+ * never frees it. Toggling Record and Record + Race a few times mid mission
+ * emptied the stage pool - the exact trap CLAUDE.md names, arrived at from the
+ * other side.
+ */
 static void modGhostFreePlayback(void)
 {
 	s32 i;
@@ -485,7 +499,6 @@ static void modGhostFreePlayback(void)
 	}
 
 	g_ModGhostNumRacers = 0;
-	g_ModGhostNumBodyDefs = 0;
 }
 
 /**
@@ -1277,6 +1290,20 @@ static bool modGhostReadFile(const char *rel, struct modghostheader *hdr, struct
 		return false;
 	}
 
+	// The two names in the header are used as C strings from here on - copied
+	// into the catalogue, into a racer's nametag, compared against an account.
+	// Nothing in the format says they are terminated, and a file written
+	// anywhere may fill them to the last byte: owner is the final field of the
+	// header, so a full sixteen bytes of it sent a strncpy() reading a name
+	// length off the end of the struct and into whatever followed it on the
+	// stack, which then went up over a ghost's head as its name.
+	//
+	// Terminating at the last byte truncates a name that used every one of
+	// them, which is the right answer - the writer at the other end caps them
+	// one shorter for exactly this reason.
+	hdr->player[MODGHOST_NAMELEN - 1] = '\0';
+	hdr->owner[MODGHOST_OWNERLEN - 1] = '\0';
+
 	if (outsamples == NULL) {
 		// A header-only read, for choosing between the files in the directory
 		// before committing to reading one of them.
@@ -1991,6 +2018,15 @@ void modGhostTick(void)
 		// The bodies belong to the field being replaced, so they go with it.
 		modGhostRetireAll();
 		modGhostFreePlayback();
+
+		// The split is measured against a sample index in the old field, and
+		// the new one is a different set of runs of different lengths. Left
+		// alone, an index past the end of the shorter one puts the search
+		// window's start beyond its end, so the loop never runs, no sample
+		// ever matches, and the index that would have been pulled back is only
+		// written on a match - the split stops for the rest of the mission.
+		g_ModGhostSplitIdx = 0;
+		g_ModGhostSplitValid = false;
 
 		if (modGhostGetMode() == MODGHOST_RACE) {
 			modGhostLoad();

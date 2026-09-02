@@ -131,13 +131,42 @@ bool modCanChrRoll(void)
 	return g_ModOptions.roll == MODROLL_EVERYONE;
 }
 
+/**
+ * Whether the punch and kick combo is available.
+ *
+ * Off in a trial, with jump and the roll. It is a move this fork added and it
+ * is worth time on a route: a guard taken down in one exchange rather than
+ * three is seconds, and a board where some runs had it and some did not is a
+ * board that ranks settings.
+ */
 bool modIsMeleeComboEnabled(void)
 {
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+#endif
+
 	return g_ModOptions.melee != 0;
 }
 
+/**
+ * Whether a body twitches where a shot landed.
+ *
+ * Off in a trial too, and this one is less obvious than the moves: it is not
+ * something the player does, it is something a guard does, and a guard that
+ * staggers where it was hit is a guard that shoots back later. That is the
+ * same mission played against different opposition, which is the thing a time
+ * trial is trying not to be.
+ */
 bool modIsFlinchEnabled(void)
 {
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+#endif
+
 	return g_ModOptions.flinch != 0;
 }
 
