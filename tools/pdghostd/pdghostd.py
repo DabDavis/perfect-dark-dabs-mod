@@ -15,6 +15,7 @@ geometry, which is a different project. What is enforced here is the shape of
 the data, so that a malformed or enormous upload cannot cost disk or CPU.
 """
 
+import contextlib
 import gzip
 import hashlib
 import hmac
@@ -51,6 +52,16 @@ PIN_RE = re.compile(r"^[0-9]{4,8}$")
 # the limiter is the actual security control here rather than the PIN length.
 AUTH_WINDOW = 300
 AUTH_MAX_FAILURES = 8
+
+# Every check of a PIN costs a PBKDF2, which is the point for a stored secret
+# and a cost for a server. The failure budget above does not bound that work,
+# because a success clears it - so anyone holding one valid account could ask
+# for it as often as they liked. This budget counts attempts rather than
+# failures and is never cleared, so it is the ceiling on how much hashing an
+# address can buy. Thirty in five minutes is far above signing in and far
+# below being useful as a way to spend somebody else's processor.
+AUTH_ATTEMPT_WINDOW = 300
+AUTH_ATTEMPT_MAX = 30
 UPLOAD_WINDOW = 3600
 
 # One press of Upload sends what the client thinks is worth sending, which is
@@ -79,6 +90,7 @@ BOARD_KEEP = 100
 
 _lock = threading.Lock()
 _auth_failures = {}
+_auth_attempts = {}
 _upload_counts = {}
 _download_counts = {}
 
@@ -87,6 +99,45 @@ def db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextlib.contextmanager
+def db_write(on_rollback=None):
+    """A connection whose reads and writes are one transaction.
+
+    BEGIN IMMEDIATE takes the write lock before the first SELECT rather than at
+    the first INSERT, which is what makes a decision taken from a read still
+    true when it is acted on. The upload path reads the board to decide whether
+    a run makes it and then writes on the answer, and without this two uploads
+    arriving together could both read a board with one place left and both take
+    it - a board of a hundred and one, with the hundred and first invisible to
+    every reader that asks for a hundred.
+
+    isolation_level=None turns off the driver's own transaction handling so the
+    BEGIN below is the only one, and commit and rollback are explicit.
+
+    on_rollback is for the things a rollback cannot undo - a blob already
+    written for a row that then failed to commit.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield conn
+    except BaseException:
+        conn.execute("ROLLBACK")
+
+        # Whatever was put on disk in the expectation that this would commit.
+        # The database undoes itself; files do not.
+        if on_rollback is not None:
+            on_rollback()
+
+        raise
+    else:
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
 
 
 def blob_name(username, stagenum, difficulty):
@@ -421,6 +472,10 @@ class Handler(BaseHTTPRequestHandler):
         if not username or not pin:
             return False, "username and pin required"
 
+        # Counted before the hash below, which is the expensive part.
+        if not rate_ok(_auth_attempts, self.client_ip(), AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX):
+            return False, "too many attempts, wait a few minutes"
+
         with db() as conn:
             row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
@@ -536,6 +591,10 @@ class Handler(BaseHTTPRequestHandler):
             if not rate_ok(_auth_failures, self.client_ip(), AUTH_WINDOW, AUTH_MAX_FAILURES):
                 return self.send_json(429, {"ok": False, "error": "too many attempts"})
 
+            # Registering hashes a PIN as well, and needs no account to reach.
+            if not rate_ok(_auth_attempts, self.client_ip(), AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX):
+                return self.send_json(429, {"ok": False, "error": "too many attempts"})
+
             salt = os.urandom(16)
             try:
                 with db() as conn:
@@ -627,8 +686,20 @@ class Handler(BaseHTTPRequestHandler):
             name = blob_name(username, info["stagenum"], info["difficulty"])
             blob_path = os.path.join(BLOB_DIR, name)
             doomed = []
+            # Whether this file was already there decides what may be undone if
+            # the row that is about to reference it never commits.
+            existed = os.path.exists(blob_path)
 
-            with db() as conn:
+            def undo_blob():
+                # Only a file this request created. One that was already there
+                # belongs to the row that is still pointing at it.
+                if not existed:
+                    try:
+                        os.remove(blob_path)
+                    except OSError:
+                        pass
+
+            with db_write(undo_blob) as conn:
                 held = conn.execute(
                     "SELECT time60, blob FROM ghosts WHERE username = ? AND stagenum = ? "
                     "AND difficulty = ?",
@@ -658,7 +729,20 @@ class Handler(BaseHTTPRequestHandler):
                             "reason": "outside the top %d" % BOARD_KEEP,
                             "time60": info["time60"]})
 
-                blob_write(blob_path, body)
+                # The file goes down before the row that points at it, so a
+                # failure between them leaves a file nothing references rather
+                # than a row whose file is missing - the first is invisible and
+                # swept at startup, the second is a download that 410s.
+                #
+                # If the row does not commit, a file that was not there before
+                # is taken back off. One that was there has been overwritten and
+                # cannot be restored; its row is unchanged and still names it, so
+                # what is left is a board row whose file holds a newer run by the
+                # same player on the same level, which the next upload corrects.
+                try:
+                    blob_write(blob_path, body)
+                except OSError:
+                    return self.send_json(500, {"ok": False, "error": "could not store the ghost"})
 
                 # A row written under the older naming points at a different
                 # file, which nothing will reference once this row moves.

@@ -34,6 +34,12 @@ Each board keeps its hundred quickest times and deletes the rest with their
 files. That and one-row-per-player are the only things bounding the blob
 directory, since nothing else here ever removes a ghost.
 
+An upload reads the board to decide whether a run makes it and then writes on
+that answer, so it runs in a `BEGIN IMMEDIATE` transaction: the two halves are
+one decision, and two uploads arriving together cannot both take the last place
+on a full board. The blob goes down before the row that names it, and comes
+back off if that row does not commit.
+
 Times are accepted as submitted. Validating a run properly means replaying it
 against the stage geometry, which is a different project. What is enforced is
 the shape of the data, so a malformed or enormous upload cannot cost disk or CPU.
