@@ -7,5 +7,11 @@
 #define VERSION_BUILD "@VERSION_BUILD@"
 #define VERSION_HASH "@VERSION_HASH@"
 #define VERSION_BRANCH "@VERSION_BRANCH@"
+// What this build's own executable is called, without the directory. The
+// updater needs it to name the file it downloads and the one it moves aside.
+#define VERSION_BINNAME "@VERSION_BINNAME@"
+// "stable" or "dev": which release Check for Updates follows. See the note in
+// CMakeLists.txt for why this is baked in rather than worked out at runtime.
+#define VERSION_CHANNEL "@VERSION_CHANNEL@"
 
 #endif

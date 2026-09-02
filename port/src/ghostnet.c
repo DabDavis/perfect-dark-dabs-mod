@@ -12,32 +12,6 @@
 #include "system.h"
 #include "ghostnet.h"
 
-/**
- * Which transport this build talks HTTPS over.
- *
- * Windows has one in the box. WinHTTP has shipped with every version since XP,
- * verifies against the certificate store Windows already keeps and updates,
- * and adds nothing to the package - where libcurl on Windows means shipping
- * libcurl and the dozen DLLs underneath it (OpenSSL, nghttp2, brotli, idn2,
- * psl, zstd) and then answering for a CA bundle that OpenSSL looks for at a
- * path no player's machine has. That is a lot of moving parts for four
- * requests, and every one of them is a thing that can be missing from a zip.
- *
- * Everywhere else libcurl is the answer, because everywhere else there is no
- * system HTTP API to use instead: macOS carries libcurl in the SDK so there is
- * nothing to bundle, and on Linux libcurl is on every desktop already.
- *
- * WinHTTP wins where both are available - a build on Windows that happens to
- * find libcurl still uses the one with nothing to ship.
- */
-#if defined(PLATFORM_WIN32)
-#define PD_GHOST_WINHTTP 1
-#endif
-
-#if defined(PD_GHOST_WINHTTP) || defined(PD_HAVE_CURL)
-#define PD_GHOST_NET 1
-#endif
-
 #ifdef PD_GHOST_WINHTTP
 #include <windows.h>
 #include <winhttp.h>
@@ -141,11 +115,6 @@ static s32 g_JobUploadSkipped = 0;
 #define GHOSTNET_MAXREPLY (8 * 1024 * 1024)
 #define GHOSTNET_TIMEOUT  20L
 
-struct ghostnetbuf {
-	char *data;
-	size_t len;
-};
-
 /**
  * Add to the reply, refusing to grow past what a reply may be.
  *
@@ -159,6 +128,16 @@ static bool ghostnetBufAppend(struct ghostnetbuf *buf, const void *ptr, size_t a
 	char *grown;
 
 	if (add == 0) {
+		return true;
+	}
+
+	if (buf->sink) {
+		if (fwrite(ptr, 1, add, buf->sink) != add) {
+			return false;
+		}
+
+		buf->len += add;
+
 		return true;
 	}
 
@@ -179,33 +158,6 @@ static bool ghostnetBufAppend(struct ghostnetbuf *buf, const void *ptr, size_t a
 
 	return true;
 }
-
-/**
- * One request, in the terms both backends can answer.
- *
- * Four shapes are all this ever needs: a GET, a GET whose reply is a file, a
- * POST of a small JSON body, and a POST of a ghost. So the request is a URL, an
- * optional body with a type, and whether the account headers go on it.
- */
-struct ghostnetreq {
-	const char *url;
-	const void *body;   // NULL for a GET
-	u32 bodylen;
-	const char *type;   // Content-Type, when there is a body
-	bool auth;          // send X-Ghost-User and X-Ghost-Pin
-};
-
-/**
- * Carry out one request. Defined once per backend, below.
- *
- * Returns false only when the exchange did not happen at all - no route, no
- * name, a refused certificate - with why in err. A server that answered is a
- * true return whatever it said, and what it said is in status and buf, because
- * "the board is empty" and "the network is down" are different things to tell
- * a player and only the caller knows which reply means which.
- */
-static bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
-		s32 *status, char *err, u32 errsize);
 
 static void ghostnetSetResult(s32 state, const char *msg)
 {
@@ -309,7 +261,7 @@ static void ghostnetWinError(DWORD code, char *err, u32 errsize)
 	}
 }
 
-static bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
+bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		s32 *status, char *err, u32 errsize)
 {
 	wchar_t wurl[512];
@@ -363,8 +315,10 @@ static bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 
 	// Milliseconds, and the same budget the curl backend is given: ten seconds
 	// to connect and twenty for the whole exchange.
-	WinHttpSetTimeouts(session, 10000, 10000, (int)(GHOSTNET_TIMEOUT * 1000),
-			(int)(GHOSTNET_TIMEOUT * 1000));
+	{
+		int budget = (int)((req->timeout > 0 ? req->timeout : GHOSTNET_TIMEOUT) * 1000);
+		WinHttpSetTimeouts(session, 10000, 10000, budget, budget);
+	}
 
 	connect = WinHttpConnect(session, whost, parts.nPort, 0);
 
@@ -385,11 +339,14 @@ static bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		goto done;
 	}
 
-	// Redirects are not part of this protocol and following one would carry
-	// the account headers to wherever it pointed. See the same decision in the
-	// curl backend.
-	option = WINHTTP_DISABLE_REDIRECTS;
-	WinHttpSetOption(request, WINHTTP_OPTION_DISABLE_FEATURE, &option, sizeof(option));
+	// Redirects are not part of the ghost protocol and following one would
+	// carry the account headers to wherever it pointed. See the same decision
+	// in the curl backend, and the note on the field for why the updater is
+	// allowed what the ghost client is not.
+	if (!req->redirect) {
+		option = WINHTTP_DISABLE_REDIRECTS;
+		WinHttpSetOption(request, WINHTTP_OPTION_DISABLE_FEATURE, &option, sizeof(option));
+	}
 
 	headers[0] = '\0';
 
@@ -492,7 +449,7 @@ static size_t ghostnetCurlWrite(void *ptr, size_t size, size_t nmemb, void *arg)
 	return ghostnetBufAppend(arg, ptr, add) ? add : 0;
 }
 
-static bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
+bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		s32 *status, char *err, u32 errsize)
 {
 	CURL *curl = curl_easy_init();
@@ -511,17 +468,29 @@ static bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	curl_easy_setopt(curl, CURLOPT_URL, req->url);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, ghostnetCurlWrite);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, buf);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, GHOSTNET_TIMEOUT);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)(req->timeout > 0 ? req->timeout : GHOSTNET_TIMEOUT));
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, GHOSTNET_AGENT);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
-	// Redirects are not followed. The endpoints are exact paths on a server
-	// this file was written against, so a redirect is not part of the protocol
-	// and there is nothing to gain by chasing one - while there is something
-	// to lose, because curl carries a custom header across hosts even though
-	// it strips Authorization, and the PIN travels as a custom header.
-	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+	// Redirects are not followed for the ghost server. Its endpoints are exact
+	// paths on a machine this file was written against, so a redirect is not
+	// part of the protocol and there is nothing to gain by chasing one - while
+	// there is something to lose, because curl carries a custom header across
+	// hosts even though it strips Authorization, and the PIN travels as a
+	// custom header. The updater asks for "the latest release" and is answered
+	// with a redirect by design; it sends no headers to lose.
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, req->redirect ? 1L : 0L);
+	curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 8L);
+	// A redirect that leaves TLS is not a redirect this follows. Both things
+	// fetched are files to be run, and http is not where either comes from.
+#if LIBCURL_VERSION_NUM >= 0x075500
+	curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+#else
+	// The same restriction under the name it had before 7.85. Ubuntu 22.04,
+	// which is what the Linux release is built on, ships 7.81.
+	curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+#endif
 
 	if (req->type) {
 		snprintf(header, sizeof(header), "Content-Type: %s", req->type);

@@ -126,6 +126,18 @@ s32 sysArgCheck(const char *arg)
 	return 0;
 }
 
+/**
+ * The command line this process was started with.
+ *
+ * For the updater, which hands it to the copy of the game it downloaded: a
+ * player who started this one with --savedir or a list of mods gets the same
+ * game back rather than a default one.
+ */
+const char *const *sysGetArgv(void)
+{
+	return sysArgv;
+}
+
 const char *sysArgGetString(const char *arg)
 {
 	for (s32 i = 1; i < sysArgc; ++i) {

@@ -8,6 +8,7 @@
 #include "game/modoptions.h"
 #include "game/modghost.h"
 #include "ghostnet.h"
+#include "update.h"
 #include "game/modspectate.h"
 #include "game/mplayer/mplayer.h"
 #include "bss.h"
@@ -108,6 +109,19 @@ static void cleanup(void)
 	videoShutdown();
 	crashShutdown();
 	// TODO: actually shut down all subsystems
+
+	// Waits for the update worker if one is running, which matters: quitting
+	// in the middle of a download is fine and leaves a file the next start
+	// deletes, but quitting between the two renames that swap the binary would
+	// leave the game somewhere it cannot be started from.
+	updateShutdown();
+
+	// Last, and only if Check for Updates put a new build in place. It goes
+	// here rather than after mainProc() because what starts must not be
+	// sharing a window, an audio device or a config file with what it
+	// replaces, and this is the point where none of those are open any more.
+	// On everything but Windows it never returns.
+	updateRelaunchIfStaged();
 }
 
 int main(int argc, const char **argv)
@@ -126,6 +140,7 @@ int main(int argc, const char **argv)
 	screenshotInit();
 	recordInit();
 	ghostnetInit();
+	updateInit();
 	audioInit();
 	romdataInit();
 	modloaderInit();
@@ -276,6 +291,9 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 		configRegisterInt(key, &g_GhostNetSavedHead[i], 0, 255);
 	}
 	configRegisterString("Mod.GhostServer", g_GhostNetUrl, sizeof(g_GhostNetUrl) - 1);
+	// Empty for the releases this build's channel points at. See the note in
+	// update.c for what setting it means.
+	configRegisterString("Mod.UpdateServer", g_UpdateUrl, sizeof(g_UpdateUrl) - 1);
 
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;

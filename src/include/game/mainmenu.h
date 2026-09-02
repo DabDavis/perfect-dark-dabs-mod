@@ -13,6 +13,7 @@ extern struct menudialogdef g_GhostTrialsMenuDialog;
 // The Ghost Trials nameplate and rules, drawn beside the dialogs rather than
 // inside one. See the comments on the definitions in port/src/ghostmenu.c.
 Gfx *ghostmenuRenderOverlay(Gfx *gdl);
+extern struct menudialogdef g_UpdateMenuDialog;
 #endif
 extern struct menudialogdef g_PreAndPostMissionBriefingMenuDialog;
 extern struct menudialogdef g_RetryMissionMenuDialog;

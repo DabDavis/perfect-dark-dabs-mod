@@ -113,6 +113,29 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
+# Which release Check for Updates follows. A build made from a v* tag looks at
+# the stable release; anything else - the CI's branch builds, and a copy
+# somebody compiled themselves - looks at the rolling dev prerelease. The CI
+# passes this; the default is dev because that is what a build off a branch is.
+#
+# It has to be decided here rather than worked out at runtime: the release job
+# forces the branch name to dabs-mod for both kinds of build, so the binary has
+# nothing in it that says which one it was.
+if(NOT DEFINED UPDATE_CHANNEL)
+  set(UPDATE_CHANNEL "dev")
+endif()
+if(NOT ((UPDATE_CHANNEL STREQUAL "dev") OR (UPDATE_CHANNEL STREQUAL "stable")))
+  message(FATAL_ERROR "UPDATE_CHANNEL must be dev or stable, not ${UPDATE_CHANNEL}")
+endif()
+set(VERSION_CHANNEL "${UPDATE_CHANNEL}")
+message(STATUS "Update channel: ${VERSION_CHANNEL}")
+
+# The file name this build is written to, so the game knows what to call the
+# copy Check for Updates downloads. It is worked out here rather than at the
+# add_executable() below because versioninfo.h is generated before that point,
+# and the two must not be able to disagree about the name.
+set(VERSION_BINNAME "pd${BIN_REGION}.${TARGET_ARCH}")
+
 set(VERSION_TARGET "${TARGET_PLATFORM}")
 set(VERSION_ARCH "${TARGET_ARCH}")
 set(VERSION_ROMID "${ROMID}")
@@ -371,7 +394,7 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
 # Game target
 
-set(BIN_NAME "pd${BIN_REGION}.${TARGET_ARCH}")
+set(BIN_NAME "${VERSION_BINNAME}")
 add_executable(pd ${SRC})
 add_dependencies(pd pd_headers)
 target_link_libraries(pd ${LIBS})

@@ -18,6 +18,12 @@ env:
   # "Perfect Dark (<branch>)". actions/checkout leaves a detached HEAD, which it
   # reads as "port-custom", so each job names the checked out commit first.
   MOD_BRANCH: dabs-mod
+  # Which release the built copy's Check for Updates follows. A tag build is a
+  # stable release and looks for the next stable release; everything else is
+  # the rolling dev prerelease and looks for the next one of those. The binary
+  # cannot work this out for itself, because the checkout step below forces the
+  # branch name to dabs-mod either way.
+  UPDATE_CHANNEL: ${{ github.ref_type == 'tag' && 'stable' || 'dev' }}
   # ntsc-final only. The mod has never been tested against PAL or JPN, and
   # building all three would triple the time for two ROMs nobody has asked for.
   ROMID: ntsc-final
@@ -49,7 +55,7 @@ jobs:
           git config --global --add safe.directory "$(pwd)"
           git checkout -B "$MOD_BRANCH"
       - name: Build pd.x86_64.exe
-        run: cmake -G"Unix Makefiles" -Bbuild . && cmake --build build -j
+        run: cmake -G"Unix Makefiles" -Bbuild -DUPDATE_CHANNEL="$UPDATE_CHANNEL" . && cmake --build build -j
       - name: Prepare artifact for packaging
         run: |
           mkdir -p bin/data
@@ -97,7 +103,7 @@ jobs:
       - name: Name the branch for the version string
         run: git checkout -B "$MOD_BRANCH"
       - name: Build pd.x86_64
-        run: cmake -G"Unix Makefiles" -Bbuild . && cmake --build build -j
+        run: cmake -G"Unix Makefiles" -Bbuild -DUPDATE_CHANNEL="$UPDATE_CHANNEL" . && cmake --build build -j
       - name: Prepare artifact for packaging
         run: |
           mkdir -p bin/data
@@ -133,7 +139,7 @@ jobs:
         run: git checkout -B "$MOD_BRANCH"
       - name: Build pd.${{ matrix.arch }}
         run: |
-          cmake -G"Unix Makefiles" -Bbuild -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} .
+          cmake -G"Unix Makefiles" -Bbuild -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} -DUPDATE_CHANNEL="$UPDATE_CHANNEL" .
           cmake --build build --target pd -j4 --clean-first
       - name: Prepare artifact for packaging
         run: |
@@ -178,6 +184,51 @@ jobs:
           tar cJf ../ci-release/pd-dabs-mod-arm64-osx.tar.xz pd-dabs-mod-arm64-osx
           zip -r ../ci-release/pd-dabs-mod-x86_64-windows.zip pd-dabs-mod-x86_64-windows
           popd
+
+      # The bare executables, beside the packages rather than instead of them.
+      # Check for Updates downloads one file and puts it where the running one
+      # is, so what it wants is the program on its own - a package would mean
+      # teaching the game to open a zip and two kinds of tarball, one of which
+      # is xz and has no decompressor linked into it.
+      #
+      # Named after the platform string the binary carries in VERSION_TARGET,
+      # because that is what the game matches against and because pd.x86_64 for
+      # Linux and pd.x86_64 for macOS would otherwise be one asset name for two
+      # different programs.
+      - name: Lay out the bare builds and write the update manifest
+        run: |
+          set -eu
+          cp ci-artifacts/pd-dabs-mod-x86_64-windows/pd.x86_64.exe ci-release/pd.x86_64-windows.exe
+          cp ci-artifacts/pd-dabs-mod-x86_64-linux/pd.x86_64         ci-release/pd.x86_64-linux
+          cp ci-artifacts/pd-dabs-mod-x86_64-osx/pd.x86_64           ci-release/pd.x86_64-osx
+          cp ci-artifacts/pd-dabs-mod-arm64-osx/pd.arm64             ci-release/pd.arm64-osx
+
+          # The commit the binaries were built from, in the same form CMake put
+          # inside them: `git rev-parse --short` picks its own length and both
+          # sides have to agree, so both sides ask git rather than cutting a
+          # fixed number of characters off $GITHUB_SHA.
+          COMMIT="$(git rev-parse --short HEAD)"
+          # A tag names itself. The rolling build has no name of its own and is
+          # a different program every push, so it is named after the commit -
+          # which is what the game shows the player next to "is out".
+          VERSION="${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+          VERSION="${VERSION:-dev-$COMMIT}"
+
+          {
+            echo "version $VERSION"
+            echo "commit $COMMIT"
+            for target in x86_64-windows.exe x86_64-linux x86_64-osx arm64-osx; do
+              file="pd.$target"
+              # The target string is the file name without the .exe, which is
+              # part of the name Windows needs and not part of the platform.
+              name="${target%.exe}"
+              sha="$(sha256sum "ci-release/$file" | cut -d" " -f1)"
+              size="$(stat -c%s "ci-release/$file")"
+              echo "build $name $file $sha $size"
+            done
+          } > ci-release/update.txt
+
+          cat ci-release/update.txt
 
       # A tag is a release someone will still be downloading in a year, so it is
       # created once and only ever has assets added. `gh release create` without
