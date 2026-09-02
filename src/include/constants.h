@@ -1719,6 +1719,21 @@
 #define MENUDIALOGFLAG_1000              0x1000
 #ifndef PLATFORM_N64
 #define MENUDIALOGFLAG_LITERAL_TEXT      0x2000
+/**
+ * Draw this dialog's model over the whole view instead of inside the dialog.
+ *
+ * A dialog's model is given the dialog's own rectangle as its viewport, so a
+ * character stood beside a list is clipped by the window the list is in - it
+ * loses its head against the title bar and an arm over the border. Which is
+ * right for a model that is the content of a page, and wrong for one that is a
+ * preview of the row under the cursor.
+ *
+ * With this the model gets the view to itself and is layered over the dialog,
+ * without a second dialog being pushed to hold it: pushing one would make it
+ * the current dialog, and the current dialog is the one input goes to, so the
+ * list underneath would stop responding to the cursor that drives the preview.
+ */
+#define MENUDIALOGFLAG_MODELOVERLAY      0x4000
 #endif
 
 #define MENUDIALOGSTATE_PREOPEN    0

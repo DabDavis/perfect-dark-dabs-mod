@@ -411,23 +411,38 @@ static void menuGhostShowCharacter(s32 mpbody, s32 mphead)
 
 		// posx and posy are offsets from the centre of the view in menu units:
 		//   screenpos[0] = posx * g_ScaleX + viewleft + viewwidth * 0.5
-		// - so a unit is about a pixel at this resolution. This puts the model
-		// clear to the right of the rows rather than behind them; the arena's
-		// character page uses 8.2 against a much narrower dialog, which here
-		// left it standing on the list. The row formats below are trimmed to
-		// meet it.
+		// - so a unit is about a pixel at this resolution, and this stands the
+		// model to the right of the rows inside the window.
+		//
+		// MENUDIALOGFLAG_MODELOVERLAY would lift it out of the window and draw
+		// it over the top, unclipped, which is where this wants to go. It is
+		// implemented and works; what is not solved is the framing once the
+		// viewport is the whole view instead of the dialog, because scale and
+		// the engine's own zoom combine differently at that size and I could
+		// not get a whole character in frame. Turning the flag on for these
+		// dialogs is all that is needed once that is worked out.
 		model->curposx = model->newposx = 168.0f;
 		model->curposy = model->newposy = -4.1f;
-		// curscale only, the way the arena page does it: menuConfigureModel()
-		// leaves newscale at the 1 it was passed and the model grows towards
-		// it a fraction a frame, which is the zoom in. Pinning both makes it
-		// too small to see. It does mean a page left open a long time keeps
-		// growing the character - the Leaderboards framing wants a pass of its
-		// own, and is noted as such.
-		model->curscale = 0.002f;
+		// Full size at once, rather than the arena's zoom in.
+		//
+		// scale multiplies zoom, and zoom is the size that matters: menu.c
+		// works out zoomy = zoom / (half the model's bounding box height), so
+		// zoom is an on screen height in menu units whatever the character's
+		// own proportions are, and scale 1 is the size that height describes.
+		// Starting at 0.002 and creeping towards 1 a fraction a frame is the
+		// arena page's zoom in, which is fine on a page you flick through and
+		// wrong on one you sit on: the model kept growing until it was larger
+		// than the window and the window is what clips it, which showed as an
+		// arm crossing the rows now and then.
+		model->curscale = model->newscale = 0.78f;
 		model->curroty = model->newroty = -0.2f;
 		model->rottimer60 = TICKS(60);
-		model->zoomtimer60 = TICKS(120);
+		// Parked at a phase and left there. menuGetLinearOscPauseFrac() holds
+		// frac at 1 for timer values between TICKS(120) and TICKS(240), and
+		// frac 1 is the far end of the swell and the only phase with no
+		// vertical shove - so the model sits still, level with the rows, at a
+		// size scale below then fixes.
+		model->zoomtimer60 = TICKS(180);
 		model->loaddelay = 8;
 		model->removingpiece = false;
 	}
@@ -438,13 +453,22 @@ static void menuGhostShowCharacter(s32 mpbody, s32 mphead)
 	model->newparams = params;
 	model->newanimnum = ANIM_01FC;
 	model->partvisibility = NULL;
-	model->zoom = 30;
 
 	model->zoomtimer60 += g_Vars.diffframe60;
 
 	if (model->zoomtimer60 > TICKS(480)) {
 		model->zoomtimer60 -= TICKS(480);
 	}
+	// zoom is deliberately not assigned. menuRenderModel() writes it itself
+	// from the phase of zoomtimer60:
+	//
+	//     zoom      = 100 + (1 - frac) * 270
+	//     zoompos.y = -(height / 7.6) * (1 - frac * frac)
+	//
+	// which is the arena page's slow swell from far to near and back, and the
+	// vertical drift that goes with it. Anything set here is overwritten on
+	// the next frame, so the way to change the size is scale, and the way to
+	// stop the swell is to stop advancing the timer below.
 
 	if (model->rottimer60 > 0) {
 		model->rottimer60 -= g_Vars.diffframe60;

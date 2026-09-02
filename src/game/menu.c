@@ -2894,6 +2894,25 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 				&& (dialog->definition->flags & MENUDIALOGFLAG_0002)
 				&& !lightweight
 				&& !g_Menus[g_MpPlayerNum].menumodel.drawbehinddialog) {
+#ifndef PLATFORM_N64
+			s32 savedx1 = g_MenuScissorX1;
+			s32 savedx2 = g_MenuScissorX2;
+			s32 savedy1 = g_MenuScissorY1;
+			s32 savedy2 = g_MenuScissorY2;
+
+			// menuRenderModel() builds the model's viewport out of these, so
+			// widening them to the view is what lifts the model out of the
+			// dialog and puts it over the top. Put back below, because the
+			// rest of the dialog is drawn with them.
+			if (dialog->definition->flags & MENUDIALOGFLAG_MODELOVERLAY) {
+				g_MenuScissorX1 = viewleft;
+				g_MenuScissorX2 = viewright;
+				g_MenuScissorY1 = viewtop;
+				g_MenuScissorY2 = viewbottom;
+				gdl = menuApplyScissor(gdl);
+			}
+#endif
+
 			gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
 			gdl = menuRenderModel(gdl, &g_Menus[g_MpPlayerNum].menumodel, MENUMODELTYPE_DEFAULT);
@@ -2903,6 +2922,16 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 			viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
 			viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
 					g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
+
+#ifndef PLATFORM_N64
+			if (dialog->definition->flags & MENUDIALOGFLAG_MODELOVERLAY) {
+				g_MenuScissorX1 = savedx1;
+				g_MenuScissorX2 = savedx2;
+				g_MenuScissorY1 = savedy1;
+				g_MenuScissorY2 = savedy2;
+				gdl = menuApplyScissor(gdl);
+			}
+#endif
 		}
 
 		// Render menu items
