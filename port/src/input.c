@@ -1,5 +1,6 @@
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include <PR/os_thread.h>
