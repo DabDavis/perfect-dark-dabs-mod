@@ -415,12 +415,14 @@ static void menuGhostTickModel(struct menudialog *dialog, struct menuitem *listi
 
 		menuConfigureModel(model, 0, 0, 0, 0, 0, 0, 1, MENUMODELFLAG_HASSCALE);
 
-		// The arena character page's framing. posx is distance rather than a
-		// screen offset - raising it walks the model towards the camera, it
-		// does not move it aside - so the model stands centred behind the rows
-		// and the text is drawn over it. Legible, but it wants a proper layout
-		// pass before it is something to be pleased with.
-		model->curposx = model->newposx = 8.2f;
+		// posx and posy are offsets from the centre of the view in menu units:
+		//   screenpos[0] = posx * g_ScaleX + viewleft + viewwidth * 0.5
+		// - so a unit is about a pixel at this resolution. This puts the model
+		// clear to the right of the rows rather than behind them; the arena's
+		// character page uses 8.2 against a much narrower dialog, which here
+		// left it standing on the list. The row formats below are trimmed to
+		// meet it.
+		model->curposx = model->newposx = 168.0f;
 		model->curposy = model->newposy = -4.1f;
 		model->curscale = 0.002f;
 		model->curroty = model->newroty = -0.2f;
@@ -714,8 +716,10 @@ static MenuItemHandlerResult menuhandlerGhostMine(s32 operation, struct menuitem
 		// Bounded the same way the chooser bounds it: the stage name comes
 		// from the ROM, the player name came out of a file that may have been
 		// written anywhere, and a row wide enough to push the dialog off
-		// screen is not something a downloaded ghost gets to do.
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c%c%.16s %-2s %d:%02d.%02d %.12s",
+		// screen is not something a downloaded ghost gets to do. The widths
+		// are also what leaves the right of the dialog free for the character
+		// model - see menuGhostTickModel().
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c%c%.13s %-2s %d:%02d.%02d %.9s",
 				(s32)data->list.value == g_GhostMineArmed ? '!' : ' ',
 				menuGhostMark(entry),
 				modGhostStageName(entry->stagenum),
