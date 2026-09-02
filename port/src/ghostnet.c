@@ -589,6 +589,13 @@ static int ghostnetWorker(void *arg)
 		struct ghostnetuploadscan scan;
 
 		memset(&scan, 0, sizeof(scan));
+
+		// Every stage, whatever the chooser was last looking at. The catalogue
+		// is shared and its filter is left set by whoever read it last, so a
+		// page that wants all of it has to say so - otherwise pressing Upload
+		// after visiting Choose Ghosts would publish one mission's runs and
+		// quietly call that everything.
+		modGhostSetCatalogueFilter(-1, -1);
 		modGhostScanCatalogue();
 		fsScanDir(MODGHOST_DIR, ghostnetUploadScan, &scan);
 

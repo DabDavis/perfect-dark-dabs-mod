@@ -1321,6 +1321,23 @@ static s32 g_ModGhostNumChoices = 0;
 static struct modghostentry g_ModGhostCatalogue[MODGHOST_MAXCATALOGUE];
 static s32 g_ModGhostCatalogueCount = 0;
 
+/**
+ * Which stage and difficulty the catalogue is being read for, or -1 for all.
+ *
+ * The chooser asks about one mission at a time, because a field is raced on one
+ * mission and a list of every run on disk is a list you scroll past to find the
+ * three rows you meant. My Ghosts asks for all of them, because that one is an
+ * inventory rather than a question about a race.
+ */
+static s32 g_ModGhostCatalogueStage = -1;
+static s32 g_ModGhostCatalogueDiff = -1;
+
+void modGhostSetCatalogueFilter(s32 stagenum, s32 difficulty)
+{
+	g_ModGhostCatalogueStage = stagenum;
+	g_ModGhostCatalogueDiff = difficulty;
+}
+
 #define MODGHOST_CHOSENFILE MODGHOST_DIR "/chosen.txt"
 
 static bool modGhostIsChosen(const char *name)
@@ -1449,6 +1466,11 @@ static void modGhostCatalogueFile(const char *name, void *arg)
 	snprintf(rel, sizeof(rel), MODGHOST_DIR "/%s", name);
 
 	if (!modGhostReadFile(rel, &hdr, NULL)) {
+		return;
+	}
+
+	if ((g_ModGhostCatalogueStage >= 0 && hdr.stagenum != g_ModGhostCatalogueStage)
+			|| (g_ModGhostCatalogueDiff >= 0 && hdr.difficulty != g_ModGhostCatalogueDiff)) {
 		return;
 	}
 

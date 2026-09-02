@@ -233,12 +233,14 @@ static MenuItemHandlerResult menuhandlerGhostChooser(s32 operation, struct menui
 		// the player name came out of a file that may have been written
 		// anywhere, and a row wide enough to push the dialog off screen is a
 		// thing a downloaded ghost should not be able to do.
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c%c%.18s %-2s %d:%02d %.10s",
+		// No stage or difficulty on the row: the dropdowns above say what
+		// they would say, and the space buys the hundredths that tell two
+		// attempts at the same route apart.
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%c%c%d:%02d.%02d  %.16s",
 				entry->chosen ? '*' : '-',
 				menuGhostMark(entry),
-				modGhostStageName(entry->stagenum),
-				entry->difficulty < 3 ? diffs[entry->difficulty] : "?",
 				entry->time60 / 3600, (entry->time60 / 60) % 60,
+				(entry->time60 % 60) * 100 / 60,
 				menuGhostWhose(entry));
 
 		return (intptr_t)g_GhostRowText;
@@ -261,12 +263,75 @@ static char *menutextGhostChosenCount(struct menuitem *item)
 	return g_GhostRowText;
 }
 
+/**
+ * Which mission the chooser is choosing a field for.
+ *
+ * A field is raced on one mission, so the page asks about one mission. Listing
+ * every run on disk meant scrolling past four stages to find the three rows
+ * that could possibly be raced, and ticking one from the wrong stage did
+ * nothing at all - the scan that builds the field filters by stage anyway, so
+ * the chooser was offering choices that could not have an effect.
+ *
+ * The pair is kept across openings rather than reset, because the mission
+ * somebody is working on is the one they were working on a minute ago.
+ */
+static s32 g_GhostChooserStageIndex = 0;
+static s32 g_GhostChooserDiff = 0;
+
+static void menuGhostChooserRescan(void)
+{
+	modGhostSetCatalogueFilter(g_SoloStages[g_GhostChooserStageIndex].stagenum,
+			g_GhostChooserDiff);
+	modGhostScanCatalogue();
+}
+
+static MenuItemHandlerResult menuhandlerGhostChooserStage(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = NUM_SOLOSTAGES;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)langGet(g_SoloStages[data->dropdown.value].name3);
+	case MENUOP_SET:
+		g_GhostChooserStageIndex = data->dropdown.value;
+		menuGhostChooserRescan();
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_GhostChooserStageIndex;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostChooserDiff(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Agent", "Special Agent", "Perfect Agent" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_GhostChooserDiff = data->dropdown.value;
+		menuGhostChooserRescan();
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_GhostChooserDiff;
+	}
+
+	return 0;
+}
+
 static MenuDialogHandlerResult menudialogGhostChooser(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	// Read the directory when the page opens rather than every frame: it is a
-	// header read per file, and nothing changes it while the page is up.
+	// header read per file, and nothing changes it while the page is up
+	// except a tick, which does not change which files are there.
 	if (operation == MENUOP_OPEN) {
-		modGhostScanCatalogue();
+		menuGhostChooserRescan();
 	}
 
 	return 0;
@@ -286,8 +351,24 @@ struct menuitem g_GhostChooserMenuItems[] = {
 		NULL,
 	},
 	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mission",
+		0,
+		menuhandlerGhostChooserStage,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Difficulty",
+		0,
+		menuhandlerGhostChooserDiff,
+	},
+	{
 		// param2 is the list width in menu units. The default of 80 clips a
-		// row that names a stage, a difficulty, a time and a player.
+		// row that names a time and a player.
 		MENUITEMTYPE_LIST,
 		0,
 		0,
@@ -447,6 +528,7 @@ static MenuDialogHandlerResult menudialogGhostMine(s32 operation, struct menudia
 	// the index.
 	if (operation == MENUOP_OPEN) {
 		g_GhostMineArmed = -1;
+		modGhostSetCatalogueFilter(-1, -1);
 		modGhostScanCatalogue();
 	}
 

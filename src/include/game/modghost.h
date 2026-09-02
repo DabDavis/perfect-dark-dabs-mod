@@ -291,6 +291,7 @@ struct modghostentry {
 #define MODGHOST_PROPLIFT   100.0f
 #define MODGHOST_NAMECOLOUR 0xffffffb4
 
+void modGhostSetCatalogueFilter(s32 stagenum, s32 difficulty);
 s32 modGhostScanCatalogue(void);
 s32 modGhostGetCatalogueCount(void);
 struct modghostentry *modGhostGetCatalogueEntry(s32 index);
