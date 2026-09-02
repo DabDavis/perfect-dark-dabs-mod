@@ -33,6 +33,7 @@
 #include "string.h"
 #ifndef PLATFORM_N64
 #include "video.h"
+#include "update.h"
 #endif
 
 #ifdef PLATFORM_N64
@@ -370,6 +371,27 @@ Gfx *titleRenderLegal(Gfx *gdl)
 #if !defined(PLATFORM_N64) && defined(VERSION_HASH)
 				if (elem->textid == L_OPTIONS_084) {
 					elem->textptr = VERSION_HASH " (" VERSION_TARGET ")";
+
+					// Gold, once, when this is the first run of a build Check
+					// for Updates put in place. The version is already the
+					// thing on this screen worth reading after an update, so
+					// it is the thing that changes colour rather than a
+					// message somewhere else - and the next start shows it in
+					// the ordinary blue with nothing to dismiss.
+					if (updateWasJustInstalled()) {
+						static bool announced = false;
+
+						colour = 0xffd700ff;
+
+						// A guard noticing you, which is the shortest way the
+						// game already has of saying something is different.
+						// Once per run: this is inside the loop that draws the
+						// screen and the screen is drawn every frame.
+						if (!announced) {
+							announced = true;
+							sndStart(var80095200, SFX_M2_TARGET_SIGHTED, 0, -1, -1, -1.0f, -1, -1);
+						}
+					}
 				} else if (elem->textid == L_OPTIONS_083) {
 					elem->textptr = VERSION_ROMID;
 				} else if (elem->textid == L_OPTIONS_082) {

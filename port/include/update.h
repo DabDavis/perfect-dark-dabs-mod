@@ -70,6 +70,15 @@ void updateShutdown(void);
  * that was moved aside. It cannot be done by the process that moved it,
  * because on Windows that file is the running program.
  */
+/**
+ * Whether this is the first run of a build Check for Updates put in place.
+ *
+ * True for exactly one start, however long after the install that start is.
+ * The title screen uses it to say so - the version turns gold and a guard says
+ * target sighted - and the run after that looks like every other run.
+ */
+bool updateWasJustInstalled(void);
+
 bool updateIsStaged(void);
 void updateRelaunchIfStaged(void);
 void updateCleanUp(void);

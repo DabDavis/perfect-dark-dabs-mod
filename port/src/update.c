@@ -108,6 +108,15 @@ static char g_StagedPath[FS_MAXPATH] = { 0 };
 // Cleared once an install has been through it.
 static bool g_Force = false;
 
+// Whether this process is the first run of a build that was just put in place.
+//
+// It has to survive the handover, and the only thing that does is a file: the
+// process that swaps the binary is not the process that gets to say so, and
+// between them there is an exec. So the swap leaves a marker beside the new
+// build and the next start picks it up and removes it - which makes it true
+// exactly once, however long it is until somebody actually starts the game.
+static bool g_JustInstalled = false;
+
 // The reply being written to disk, while it is being written. It is a file
 // static rather than a local so the menu can ask how far along it is: len is
 // counted up by the transport on the worker thread and read on the main one,
@@ -679,6 +688,25 @@ static bool updateDownload(char *msg, u32 msgsize)
 		return false;
 	}
 
+	// The marker for the next start, written against curpath rather than
+	// asking where this process is running from: by now that is the file that
+	// was moved aside.
+	{
+		char marker[FS_MAXPATH];
+		FILE *m;
+
+		snprintf(marker, sizeof(marker), "%s.updated", curpath);
+
+		m = fopen(marker, "wb");
+
+		if (m) {
+			SDL_LockMutex(g_Lock);
+			fprintf(m, "%s\n", g_Version);
+			SDL_UnlockMutex(g_Lock);
+			fclose(m);
+		}
+	}
+
 	SDL_LockMutex(g_Lock);
 	g_Staged = true;
 	g_Force = false;
@@ -860,9 +888,23 @@ bool updateIsStaged(void)
  * game is untidy and nothing else, and there is no point telling a player
  * about it on the way into a menu they did not ask for.
  */
+bool updateWasJustInstalled(void)
+{
+	return g_JustInstalled;
+}
+
 void updateCleanUp(void)
 {
 	char oldpath[FS_MAXPATH];
+
+	// The marker the install left, if this is the first start after one. Read
+	// and removed in the same breath, so a second start is an ordinary start.
+	updatePath(".updated", oldpath, sizeof(oldpath));
+
+	if (fsFileSize(oldpath) >= 0) {
+		g_JustInstalled = true;
+		remove(oldpath);
+	}
 
 	updatePath(".old", oldpath, sizeof(oldpath));
 	remove(oldpath);
