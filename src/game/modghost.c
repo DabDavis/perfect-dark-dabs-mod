@@ -2458,7 +2458,7 @@ void modGhostSaveRun(void)
 	// made it. Runs recorded before this carry a zero here, which reads as
 	// "unknown" rather than as "no rules" - they were made when the fork's
 	// moves were available and there is no way to ask now which were on.
-	hdr.flags = MODGHOSTHF_TRIALRULES | MODGHOSTHF_NOCHEATS;
+	hdr.flags = MODGHOSTHF_TRIALRULES;
 
 	// Who the run was set as, so the ghost of it looks like the person who set
 	// it wherever it ends up. Clamped to a byte because that is what the field

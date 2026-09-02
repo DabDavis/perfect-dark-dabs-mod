@@ -74,21 +74,13 @@ UPLOAD_MAX = 120
 DOWNLOAD_WINDOW = 3600
 DOWNLOAD_MAX = 200
 
-# The header flag that says a run was set with the fork's added moves off -
-# MODGHOSTHF_TRIALRULES in the client's modghost.h. A run without it was made
-# under unknown rules, which is not the same as fair rules: everything recorded
-# before the flag existed had jump and the combat roll available, and there is
-# no asking now which were on. A board that mixes them ranks settings.
+# The header flag that says a run was set under trial rules - the fork's added
+# moves off, and the game's own cheats with them. MODGHOSTHF_TRIALRULES in the
+# client's modghost.h. A run without it was made under unknown rules, which is
+# not the same as fair rules: everything recorded before the flag existed had
+# jump and the combat roll available, and there is no asking now which were on.
+# A board that mixes them ranks settings.
 GHOST_TRIALRULES = 0x01
-
-# The second flag, MODGHOSTHF_NOCHEATS, says the game's own cheats were off as
-# well. It arrived later than the first, so a run can carry TRIALRULES without
-# it: that one was set by a build which held the fork's moves off and let
-# Invincible through. Nothing here refuses those - the rows on the boards today
-# are all of that generation and there is no evidence any was cheated - but the
-# flags column carries the whole byte, so the distinction is on the server for
-# the day it is wanted.
-GHOST_NOCHEATS = 0x02
 
 # How many rows a board keeps, and so how many blobs a stage and difficulty
 # can cost. One row per player is the other half of that bound: the client
