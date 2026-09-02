@@ -54,7 +54,21 @@ jobs:
         run: |
           mkdir -p bin/data
           cp build/pd.x86_64.exe bin/
-          cp /mingw64/bin/{SDL2.dll,zlib1.dll,libwinpthread-1.dll,libgcc_s_seh-1.dll} bin/
+          # Taken from the binary rather than written out by hand: a list
+          # maintained by hand is a list that is one DLL short the first time a
+          # dependency changes, which is a game that does not start with no
+          # error a player can act on. ldd reports the whole transitive
+          # closure; anything outside /mingw64 ships with Windows already -
+          # winhttp.dll, which carries Ghost Trials' network half, among them.
+          ldd bin/pd.x86_64.exe | awk '/=> \/mingw64/ { print $3 }' | sort -u | xargs -r cp -t bin/
+          for dll in SDL2.dll zlib1.dll libwinpthread-1.dll libgcc_s_seh-1.dll; do
+            test -f "bin/$dll" || { echo "::error::$dll is missing from the package"; exit 1; }
+          done
+          # Ghost Trials talks to the server through WinHTTP, so the check that
+          # the network half survived is that the import is there rather than
+          # that a DLL was copied.
+          objdump -p bin/pd.x86_64.exe | grep -qi 'DLL Name: WINHTTP' \
+            || { echo "::error::built without WinHTTP - ghost server support is missing"; exit 1; }
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
       - name: Upload artifact
@@ -72,7 +86,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git gcc g++ make cmake libsdl2-dev zlib1g-dev
+          # libcurl4-openssl-dev is what builds Ghost Trials' accounts,
+          # leaderboards and uploads in. The runtime side of it, libcurl4, is
+          # on every desktop distribution already - the binary is dynamically
+          # linked against the builder's glibc and SDL2 regardless, so this
+          # adds a dependency of the same kind rather than a new sort of one.
+          sudo apt-get install -y git gcc g++ make cmake libsdl2-dev zlib1g-dev libcurl4-openssl-dev
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Name the branch for the version string
@@ -83,6 +102,10 @@ jobs:
         run: |
           mkdir -p bin/data
           cp build/pd.x86_64 bin/
+          # See the Windows job: the build drops the ghost network menus
+          # rather than failing when libcurl is absent, so the packaging step
+          # is what refuses to ship a release that lost them.
+          ldd bin/pd.x86_64 | grep -q libcurl || { echo "::error::built without libcurl"; exit 1; }
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
       - name: Upload artifact
@@ -116,6 +139,11 @@ jobs:
         run: |
           mkdir -p bin/data
           cp build/pd.${{ matrix.arch }} bin/
+          # macOS carries libcurl in the SDK, so find_package picks up
+          # /usr/lib/libcurl.dylib and there is nothing to bundle - but the
+          # same silent degradation is possible here, so it is checked the
+          # same way the other two are.
+          otool -L bin/pd.${{ matrix.arch }} | grep -q libcurl || { echo "::error::built without libcurl"; exit 1; }
           cp -vr /Library/Frameworks/SDL2.framework bin/
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt

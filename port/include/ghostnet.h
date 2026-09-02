@@ -61,6 +61,7 @@ const char *ghostnetGetAccountAt(s32 index);
 void ghostnetSelectAccount(s32 index);
 void ghostnetBeginNewAccount(void);
 bool ghostnetHasAccount(void);
+bool ghostnetAccountIsValid(void);
 s32 ghostnetGetState(void);
 const char *ghostnetGetMessage(void);
 void ghostnetClearState(void);

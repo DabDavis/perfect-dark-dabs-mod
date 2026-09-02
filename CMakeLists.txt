@@ -225,19 +225,35 @@ list(APPEND LIBS "${SDL2_LIBRARY}")
 # ZLib
 find_package(ZLIB REQUIRED)
 
-# libcurl is optional. It is what makes the ghost server reachable over TLS,
-# and reimplementing that is not on the table - but it is also a dependency the
-# Windows package would have to carry, so a build without it still compiles and
-# the ghost network menus say the feature is not built in.
-find_package(CURL QUIET)
-
-if(CURL_FOUND)
-  message(STATUS "libcurl found - ghost server support enabled")
-  add_definitions(-DPD_HAVE_CURL)
-  include_directories(SYSTEM ${CURL_INCLUDE_DIRS})
-  list(APPEND LIBS ${CURL_LIBRARIES})
+# What Ghost Trials reaches the ghost server over. See the note at the top of
+# port/src/ghostnet.c for why this is two different things.
+if(WIN32)
+  # WinHTTP, which is part of Windows. Nothing to find and nothing to ship -
+  # no libcurl, none of the dozen DLLs under it, and no CA bundle question,
+  # because certificates are the operating system's business.
+  message(STATUS "using WinHTTP - ghost server support enabled")
+  list(APPEND LIBS winhttp)
 else()
-  message(STATUS "libcurl not found - ghost server support disabled")
+  # libcurl everywhere else, there being no system HTTP API to use instead.
+  # macOS carries it in the SDK; on Linux it is libcurl4-openssl-dev to build
+  # against and libcurl4, which every desktop already has, to run.
+  find_package(CURL QUIET)
+
+  if(CURL_FOUND)
+    message(STATUS "libcurl found - ghost server support enabled")
+    add_definitions(-DPD_HAVE_CURL)
+    include_directories(SYSTEM ${CURL_INCLUDE_DIRS})
+    list(APPEND LIBS ${CURL_LIBRARIES})
+  else()
+    # Loudly, and naming the package. This was a STATUS line that nobody reads
+    # away from a developer machine where curl happens to be installed, and
+    # every CI job silently built accounts, leaderboards and uploads out of
+    # the release for as long as it stayed one.
+    message(WARNING
+      "libcurl not found - Ghost Trials will build WITHOUT accounts, leaderboards "
+      "or uploads, and its network menus will say so. Install libcurl4-openssl-dev "
+      "on Debian or Ubuntu.")
+  endif()
 endif()
 if(ZLIB_INCLUDE_DIR)
   include_directories(SYSTEM "${ZLIB_INCLUDE_DIR}")

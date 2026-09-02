@@ -338,7 +338,6 @@ static MenuItemHandlerResult menuhandlerGhostSplits(s32 operation, struct menuit
 static MenuItemHandlerResult menuhandlerGhostChooser(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct modghostentry *entry;
-	static const char *diffs[] = { "A", "SA", "PA" };
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -379,10 +378,16 @@ static MenuItemHandlerResult menuhandlerGhostChooser(s32 operation, struct menui
 
 static char *menutextGhostChosenCount(struct menuitem *item)
 {
-	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%d of %d chosen - A to toggle\n",
+	// Its own buffer rather than the row one, for the reason spelled out over
+	// menutextGhostMineCount(): the label and the list rows on this page are
+	// resolved by the same pass, and a label sharing storage with the rows
+	// reads as whichever row was drawn last.
+	static char text[96];
+
+	snprintf(text, sizeof(text), "%d of %d chosen - A to toggle\n",
 			modGhostGetNumChosen(), MODGHOST_MAXRACERS);
 
-	return g_GhostRowText;
+	return text;
 }
 
 /**
@@ -704,7 +709,7 @@ struct menuitem g_GhostOptionsMenuItems[] = {
 		MENUITEMTYPE_LABEL,
 		0,
 		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Trials record, with Jump and Combat Roll off.\n",
+		(uintptr_t)"Trials record. Jump, Roll, Melee Combo and Flinch off.\n",
 		0,
 		NULL,
 	},
@@ -812,9 +817,15 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 				"Network support is not built into this copy.\n");
 	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
-	} else if (ghostnetHasAccount()) {
+	} else if (ghostnetAccountIsValid()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				"Signed in as %s\n", g_GhostNetUser);
+	} else if (ghostnetHasAccount()) {
+		// Both are filled in and one of them is not something the server will
+		// take. Saying which beats letting the player press a greyed out
+		// button and wonder, or press a live one and be refused by a machine.
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Name needs 3-15 of letters, digits, _ . - and PIN 4-8 digits.\n");
 	} else {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				"Pick a name and a PIN, then Create Account.\n");
@@ -865,7 +876,7 @@ static MenuItemHandlerResult menuhandlerGhostCreate(s32 operation, struct menuit
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return !ghostnetIsAvailable() || !ghostnetHasAccount()
+		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
 			|| ghostnetGetState() == GHOSTNET_BUSY;
 	case MENUOP_SET:
 		ghostnetRegister();
@@ -879,7 +890,7 @@ static MenuItemHandlerResult menuhandlerGhostSignIn(s32 operation, struct menuit
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return !ghostnetIsAvailable() || !ghostnetHasAccount()
+		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
 			|| ghostnetGetState() == GHOSTNET_BUSY;
 	case MENUOP_SET:
 		ghostnetLogin();
@@ -904,10 +915,14 @@ static MenuDialogHandlerResult menudialogGhostAccount(s32 operation, struct menu
 
 static char *menutextGhostName(struct menuitem *item)
 {
-	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "Name: %s\n",
+	// Its own buffer: this and the PIN row below are two rows of one page, and
+	// a page is resolved in one pass. See menutextGhostMineCount().
+	static char text[64];
+
+	snprintf(text, sizeof(text), "Name: %s\n",
 			g_GhostNetUser[0] ? g_GhostNetUser : "(not set)");
 
-	return g_GhostRowText;
+	return text;
 }
 
 static char *menutextGhostPinRow(struct menuitem *item)
@@ -915,6 +930,7 @@ static char *menutextGhostPinRow(struct menuitem *item)
 	// Shown as dots. It is a four digit PIN on a game leaderboard rather than
 	// a secret worth much, but a page you might be streaming should not put it
 	// on screen.
+	static char text[64];
 	char dots[GHOSTNET_MAXPIN + 1];
 	u32 len = strlen(g_GhostNetPin);
 	u32 i;
@@ -929,10 +945,9 @@ static char *menutextGhostPinRow(struct menuitem *item)
 
 	dots[len] = '\0';
 
-	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "PIN: %s\n",
-			len ? dots : "(not set)");
+	snprintf(text, sizeof(text), "PIN: %s\n", len ? dots : "(not set)");
 
-	return g_GhostRowText;
+	return text;
 }
 
 /**
