@@ -24,6 +24,9 @@
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/player.h"
+#ifndef PLATFORM_N64
+#include "game/modghost.h"
+#endif
 #include "game/modeldef.h"
 #include "game/healthbar.h"
 #include "game/hudmsg.h"
@@ -1204,6 +1207,21 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		*bodynum = g_Vars.antibodynum;
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	// A trial is played as whoever the player picked for it. Combat Simulator
+	// has always let somebody choose who they are and solo never has, which is
+	// the right line for a campaign and the wrong one for a time trial: the
+	// ghost that comes out of the run is the player, and a field of identical
+	// Joannas is hard to read however good the names above them are.
+	//
+	// Here rather than at the two or three places that pose a player, because
+	// this is the function all of them ask, and the ghost's own body asks it
+	// too when its file does not name a character.
+	if (modGhostGetTrialCharacter(bodynum, headnum)) {
+		return;
+	}
+#endif
 
 	if (g_Vars.normmplayerisrunning) {
 		if (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum < mpGetNumHeads2()) {

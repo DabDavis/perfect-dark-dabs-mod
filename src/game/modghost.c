@@ -8,6 +8,7 @@
 #include "game/game_0b0fd0.h"
 #include "game/modelmgr.h"
 #include "game/lang.h"
+#include "game/mplayer/mplayer.h"
 #include "game/modghost.h"
 #include "game/player.h"
 #include "game/playermgr.h"
@@ -137,6 +138,55 @@ static s32 modGhostGetMode(void)
 }
 s32 g_ModGhostPick = MODGHOSTPICK_FASTEST;
 
+/**
+ * Who the player is in a trial, as a Combat Simulator body index plus one.
+ *
+ * Zero is Joanna, which is what solo has always given and what somebody who
+ * never opens the picker keeps.
+ */
+s32 g_ModGhostBody = MODGHOST_BODY_DEFAULT;
+
+/**
+ * Turn a stored character into the body and head the model loader wants.
+ *
+ * Returns false for the default, which is the caller's cue to leave whatever
+ * the game would have chosen alone rather than to substitute something.
+ *
+ * The index is clamped against the table rather than trusted: it arrives from
+ * pd.ini or from a file somebody else wrote, and mpGetBodyId() reads one past
+ * the end of its array for the value just above the last valid one - a bug in
+ * the decomp that is documented where it lives and cheaper to avoid than to
+ * fix under a matching build.
+ */
+static bool modGhostResolveCharacter(s32 stored, s32 *bodynum, s32 *headnum)
+{
+	s32 index = stored - 1;
+
+	if (stored <= MODGHOST_BODY_DEFAULT || index >= (s32)mpGetNumBodies()) {
+		return false;
+	}
+
+	*bodynum = mpGetBodyId(index);
+	*headnum = mpGetHeadId(mpGetMpheadnumByMpbodynum(index));
+
+	return true;
+}
+
+/**
+ * The character this trial is being played as, for the player's own body.
+ *
+ * Only during a trial: the picker is a Ghost Trials setting and a mission
+ * started any other way is the campaign, where Joanna is who you are.
+ */
+bool modGhostGetTrialCharacter(s32 *bodynum, s32 *headnum)
+{
+	if (!modGhostTrialRulesApply()) {
+		return false;
+	}
+
+	return modGhostResolveCharacter(g_ModGhostBody, bodynum, headnum);
+}
+
 // How solid the ghost is drawn, out of 255. Low enough to read as not really
 // there, high enough to follow across a lit room.
 s32 g_ModGhostAlpha = 110;
@@ -195,6 +245,7 @@ struct modghostracer {
 	s32 rate60;
 	s32 time60;
 	char name[MODGHOST_NAMELEN];
+	s32 body;                 // stored character, MODGHOST_BODY_DEFAULT for Joanna
 	struct chrdata *chr;
 	s32 chrnum;
 	s32 weaponheld;
@@ -205,16 +256,28 @@ static struct modghostracer g_ModGhostRacers[MODGHOST_MAXRACERS];
 static s32 g_ModGhostNumRacers = 0;
 
 /**
- * The body modeldefs, shared by every ghost in the field.
+ * The body modeldefs, shared by every ghost wearing the same character.
  *
- * The first body loads them; the rest are handed the same pair. Ten loads
- * would be ten copies of one head out of MEMPOOL_STAGE, never freed, which is
- * the trap CLAUDE.md names and modbodies.c already had to climb out of.
+ * The first body of a character loads them; every later one is handed the same
+ * pair. Ten loads would be ten copies of one head out of MEMPOOL_STAGE, never
+ * freed, which is the trap CLAUDE.md names and modbodies.c already had to
+ * climb out of.
+ *
+ * Keyed by character rather than being one shared pair, since ghosts stopped
+ * all being Joanna. A field of ten runs by ten people costs ten loads because
+ * it is ten different models; a field of one person's ten attempts costs one,
+ * which is the case that made sharing worth doing in the first place.
  *
  * They belong to the stage, so they are dropped rather than freed when it ends.
  */
-static struct modeldef *g_ModGhostBodyDef = NULL;
-static struct modeldef *g_ModGhostHeadDef = NULL;
+struct modghostbodydef {
+	s32 bodynum;
+	struct modeldef *bodydef;
+	struct modeldef *headdef;
+};
+
+static struct modghostbodydef g_ModGhostBodyDefs[MODGHOST_MAXRACERS];
+static s32 g_ModGhostNumBodyDefs = 0;
 
 // What the ghost on hand was loaded for, so that a stage entered twice is not
 // read off disk twice and a stage that has no ghost is not scanned for one
@@ -403,8 +466,7 @@ static void modGhostFreePlayback(void)
 	}
 
 	g_ModGhostNumRacers = 0;
-	g_ModGhostBodyDef = NULL;
-	g_ModGhostHeadDef = NULL;
+	g_ModGhostNumBodyDefs = 0;
 }
 
 /**
@@ -815,34 +877,50 @@ static void modGhostSetIntangible(struct chrdata *chr)
  * modelmgrInstantiateModel() hands out, so sharing them is what every chr in a
  * mission already does with its race's models.
  */
-static struct model *modGhostBuildModel(void)
+static struct model *modGhostBuildModel(struct modghostracer *racer)
 {
 	s32 bodynum = BODY_DARK_COMBAT;
 	s32 headnum = HEAD_DARK_COMBAT;
 	s32 sunglasses = false;
 	struct model *model;
+	s32 i;
 
-	playerChooseBodyAndHead(&bodynum, &headnum, &sunglasses);
+	// The character the run was set as, out of its own file. A ghost that
+	// arrived from somebody else should look like the person who set it, and
+	// a run of your own from before the picker existed carries nothing, which
+	// leaves the game to choose the way it always did.
+	if (!modGhostResolveCharacter(racer->body, &bodynum, &headnum)) {
+		playerChooseBodyAndHead(&bodynum, &headnum, &sunglasses);
+	}
 
-	if (g_ModGhostBodyDef) {
+	for (i = 0; i < g_ModGhostNumBodyDefs; i++) {
+		if (g_ModGhostBodyDefs[i].bodynum != bodynum) {
+			continue;
+		}
+
 		// The head definition is allowed to be NULL - some bodies carry their
 		// own - and passing it back as NULL is the same instruction it was the
 		// first time. What must not happen is passing NULL for the body and
 		// having the head loaded again against it.
-		return body0f02d338(bodynum, g_ModGhostHeadDef ? 1 : headnum,
-				g_ModGhostBodyDef, g_ModGhostHeadDef, false, false);
+		return body0f02d338(bodynum,
+				g_ModGhostBodyDefs[i].headdef ? 1 : headnum,
+				g_ModGhostBodyDefs[i].bodydef, g_ModGhostBodyDefs[i].headdef,
+				false, false);
 	}
 
 	model = bodyAllocateModel(bodynum, headnum, SPAWNFLAG_FIXEDHEIGHT);
 
-	if (model && model->definition) {
+	if (model && model->definition && g_ModGhostNumBodyDefs < MODGHOST_MAXRACERS) {
 		struct modelnode *node = modelGetPart(model->definition, MODELPART_CHR_HEADSPOT);
+		struct modghostbodydef *def = &g_ModGhostBodyDefs[g_ModGhostNumBodyDefs++];
 
-		g_ModGhostBodyDef = model->definition;
+		def->bodynum = bodynum;
+		def->bodydef = model->definition;
+		def->headdef = NULL;
 
 		if (node) {
 			struct modelrwdata_headspot *rwdata = modelGetNodeRwData(model, node);
-			g_ModGhostHeadDef = rwdata->headmodeldef;
+			def->headdef = rwdata->headmodeldef;
 		}
 	}
 
@@ -863,7 +941,7 @@ static bool modGhostBuild(struct modghostracer *racer, struct modghostsample *sa
 		return false;
 	}
 
-	model = modGhostBuildModel();
+	model = modGhostBuildModel(racer);
 
 	if (model == NULL) {
 		return false;
@@ -1825,6 +1903,8 @@ static void modGhostLoad(void)
 		// called their save file, and two of them can be Joanna. Runs from
 		// before ghosts carried an owner fall back to it, because a name that
 		// is only sometimes right beats no name at all.
+		racer->body = hdr.mpbody;
+
 		strncpy(racer->name, hdr.owner[0] ? hdr.owner : hdr.player, MODGHOST_NAMELEN - 1);
 		racer->name[MODGHOST_NAMELEN - 1] = '\0';
 
@@ -2125,6 +2205,13 @@ void modGhostSaveRun(void)
 	// moves were available and there is no way to ask now which were on.
 	hdr.flags = MODGHOSTHF_TRIALRULES;
 
+	// Who the run was set as, so the ghost of it looks like the person who set
+	// it wherever it ends up. Clamped to a byte because that is what the field
+	// is; the picker cannot reach a value that would not fit, but a config
+	// file edited by hand can.
+	hdr.mpbody = (u8)(g_ModGhostBody > 0 && g_ModGhostBody < 256 ? g_ModGhostBody : 0);
+	hdr.mphead = hdr.mpbody;
+
 	hdr.stagenum = g_Vars.stagenum;
 	hdr.difficulty = g_MissionConfig.difficulty;
 	hdr.stageindex = g_MissionConfig.stageindex;
@@ -2191,8 +2278,7 @@ void modGhostReset(void)
 	}
 
 	// The shared definitions belong to the stage as well.
-	g_ModGhostBodyDef = NULL;
-	g_ModGhostHeadDef = NULL;
+	g_ModGhostNumBodyDefs = 0;
 
 	g_ModGhostSplitIdx = 0;
 	g_ModGhostSplit60 = 0;

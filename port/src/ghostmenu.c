@@ -13,6 +13,7 @@
 #include "config.h"
 #include "ghostnet.h"
 #include "game/lang.h"
+#include "game/mplayer/mplayer.h"
 
 /**
  * Ghost Trials - the ghost feature's own corner of the main menu.
@@ -153,6 +154,40 @@ static MenuItemHandlerResult menuhandlerGhostPick(s32 operation, struct menuitem
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = g_ModGhostPick;
+	}
+
+	return 0;
+}
+
+/**
+ * Who the player is in a trial, and therefore who their ghost is.
+ *
+ * The Combat Simulator body list, with Joanna in front of it as the default
+ * that solo has always given. A dropdown rather than the carousel the arena
+ * character page uses: that one is built around a rotating model preview and
+ * lives inside the multiplayer menus, and what is wanted here is the name of
+ * whoever the run will be set as.
+ *
+ * The choice is written into every run recorded afterwards, so changing it
+ * does not restyle the ghosts already on disk - they keep whoever set them.
+ */
+static MenuItemHandlerResult menuhandlerGhostCharacter(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = mpGetNumBodies() + 1;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		if (data->dropdown.value == MODGHOST_BODY_DEFAULT) {
+			return (intptr_t)"Joanna";
+		}
+
+		return (intptr_t)mpGetBodyName(data->dropdown.value - 1);
+	case MENUOP_SET:
+		g_ModGhostBody = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModGhostBody;
 	}
 
 	return 0;
@@ -593,6 +628,14 @@ struct menuitem g_GhostOptionsMenuItems[] = {
 		(uintptr_t)"Ghost Time Trial",
 		0,
 		menuhandlerGhostMode,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Trial Character",
+		0,
+		menuhandlerGhostCharacter,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

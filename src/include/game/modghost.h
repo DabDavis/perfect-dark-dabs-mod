@@ -53,6 +53,24 @@
 #define MODGHOSTHF_TRIALRULES 0x01
 
 /**
+ * The character a trial is run and replayed as.
+ *
+ * Combat Simulator lets a player pick who they are and solo does not, which is
+ * a reasonable line for a campaign and the wrong one for a time trial: a field
+ * of ten identical Joannas is hard to read even with names over it, and the
+ * person setting the time has no say in who sets it.
+ *
+ * Stored as the Combat Simulator body index plus one, so that zero means
+ * Joanna - which is what every ghost recorded before this has in those bytes,
+ * and what a player who never opens the picker gets.
+ *
+ * It goes in the file rather than being applied from the local setting at
+ * replay time, because the character is part of the run: a ghost sent to
+ * somebody else should look like whoever set it, not like whoever is watching.
+ */
+#define MODGHOST_BODY_DEFAULT 0
+
+/**
  * Which of the ghosts on disk for this stage and difficulty gets raced.
  *
  * The directory is a pile of files rather than a slot per stage: every run you
@@ -192,7 +210,9 @@ struct modghostheader {
 	/*0x23*/ u8 flags;
 	/*0x24*/ u32 hash;
 	/*0x28*/ u32 timestamp;
-	/*0x2c*/ u32 pad;
+	/*0x2c*/ u8 mpbody;   // Combat Simulator body index plus one, 0 for Joanna
+	/*0x2d*/ u8 mphead;   // its head, likewise
+	/*0x2e*/ u16 pad;
 	/*0x30*/ char player[MODGHOST_NAMELEN];
 	/*0x50*/ char build[MODGHOST_NAMELEN];
 	/*0x70*/ char owner[MODGHOST_OWNERLEN];
@@ -212,6 +232,7 @@ struct modghostchoice {
 };
 
 extern s32 g_ModGhostMode;
+extern s32 g_ModGhostBody;
 extern s32 g_ModGhostPick;
 extern s32 g_ModGhostAlpha;
 extern s32 g_ModGhostSplits;
@@ -234,6 +255,7 @@ s32 modGhostGetSplit60(void);
 s32 modGhostGetTargetTime60(void);
 const char *modGhostGetTargetName(void);
 s32 modGhostGetNumRacers(void);
+bool modGhostGetTrialCharacter(s32 *bodynum, s32 *headnum);
 
 /**
  * The ghosts on disk, for the chooser to list and tick.

@@ -237,6 +237,13 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.GhostSplitTimes", &g_ModGhostSplits, 0, 1);
 	configRegisterInt("Mod.GhostRacers", &g_ModGhostMaxRacers, 1, MODGHOST_MAXRACERS);
 
+	// The trial character, as a Combat Simulator body index plus one. Zero is
+	// Joanna. The ceiling is the table's length rather than one less, because
+	// the value stored is the index plus one; anything past it is clamped
+	// where it is used, since mpGetBodyId() reads off the end of its array for
+	// the value just above the last valid one.
+	configRegisterInt("Mod.GhostCharacter", &g_ModGhostBody, 0, 61);
+
 	// The leaderboard account. The PIN is stored as typed, which is what a PIN
 	// with no password behind it amounts to - it is a claim on a name on a
 	// game leaderboard, not a credential worth protecting on disk. It travels
