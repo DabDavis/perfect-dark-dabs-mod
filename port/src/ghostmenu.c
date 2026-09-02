@@ -717,14 +717,6 @@ struct menuitem g_GhostOptionsMenuItems[] = {
 		menuhandlerGhostMode,
 	},
 	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Customize Character...\n",
-		0,
-		(void *)&g_GhostCharacterMenuDialog,
-	},
-	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
@@ -1596,6 +1588,18 @@ static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menud
 	return 0;
 }
 
+/**
+ * The rows are the main menu's, not the options menu's.
+ *
+ * MENUITEMFLAG_BIGFONT and no trailing newline is how every row of the Perfect
+ * Menu is written, and this page sits next to Solo Missions rather than inside
+ * Options - a door to a way of playing rather than a list of settings. Reading
+ * like the settings pages was the wrong signal about what it is.
+ *
+ * Customize Character lives here for the same reason. It was in Ghost Options
+ * because it began as a dropdown among settings, but choosing who runs is part
+ * of setting up a trial rather than a preference about how trials behave.
+ */
 struct menuitem g_GhostTrialsMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
@@ -1608,24 +1612,32 @@ struct menuitem g_GhostTrialsMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Ghost Mission\n",
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Mission",
 		0,
 		menuhandlerGhostMission,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Ghost Options\n",
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Customize Character",
+		0,
+		(void *)&g_GhostCharacterMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Options",
 		0,
 		(void *)&g_GhostOptionsMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"My Ghosts\n",
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"My Ghosts",
 		0,
 		(void *)&g_GhostMineMenuDialog,
 	},
@@ -1640,24 +1652,24 @@ struct menuitem g_GhostTrialsMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Ghost Account\n",
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Account",
 		0,
 		(void *)&g_GhostAccountsMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Ghost Share\n",
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Ghost Share",
 		0,
 		(void *)&g_GhostShareMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Leaderboards\n",
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Leaderboards",
 		0,
 		(void *)&g_GhostBoardMenuDialog,
 	},
@@ -1672,7 +1684,7 @@ struct menuitem g_GhostTrialsMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_BIGFONT,
 		L_OPTIONS_213, // "Back"
 		0,
 		NULL,
