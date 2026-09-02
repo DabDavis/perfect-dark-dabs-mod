@@ -1,6 +1,9 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/cheats.h"
+#ifndef PLATFORM_N64
+#include "game/modghost.h"
+#endif
 #include "game/chraction.h"
 #include "game/chr.h"
 #include "game/body.h"
@@ -196,7 +199,44 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 				} else if (headnum > 0) {
 					if (headmodeldef == NULL) {
-						if (g_Vars.normmplayerisrunning && !IS4MB()) {
+						// A head that is not the one this body was built with
+						// needs its own copy, and needs offsetting to sit on
+						// this body - which is what the multiplayer branch
+						// below does and the solo one does not.
+						//
+						// Solo shares one modeldef per head number and never
+						// offsets, because stock solo only ever pairs a head
+						// with its own body: HEAD_ELVIS comes on BODY_THEKING
+						// and nowhere else. Ghost Trials breaks that
+						// assumption twice over - the player wears whichever
+						// Combat Simulator character they picked, and the
+						// ghosts beside them wear whoever set those runs - so
+						// one head modeldef ends up on several different
+						// bodies at once.
+						//
+						// That is not a sharing problem, it is a tree problem:
+						// modelAttachHead() re-parents the head's root nodes
+						// to the headspot of whichever body attached last, and
+						// modelGetNodeRwData() walks up from a head node to
+						// find a headspot and takes its rwdatas. Every body
+						// but the last one to attach then resolves the head
+						// against a headspot belonging to a different
+						// definition, reads a meaningless index into its own
+						// rwdata, and writes through whatever is there. It
+						// showed as a write to 0x5008b7d - the same address
+						// every run, because what is being read as a pointer
+						// is model data out of the ROM.
+						//
+						// So a trial takes the multiplayer path. It costs a
+						// fresh head per body, which is the cost multiplayer
+						// has always paid for letting anyone wear anything.
+						bool ownhead = g_Vars.normmplayerisrunning;
+
+#ifndef PLATFORM_N64
+						ownhead = ownhead || modGhostTrialRulesApply();
+#endif
+
+						if (ownhead && !IS4MB()) {
 							headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
 							g_HeadsAndBodies[headnum].modeldef = headmodeldef;
 							g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;

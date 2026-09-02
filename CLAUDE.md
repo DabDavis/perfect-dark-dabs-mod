@@ -64,6 +64,28 @@ A pool-full warning naming one pool is the onboard bank spilling over, not the e
 `mempAlloc()` returns NULL when both are out, and most callers do not check.
 `modelmgrInstantiateModel()` now does.
 
+## One head modeldef cannot sit on two bodies
+
+`modelAttachHead()` re-parents the head's root nodes to the headspot of
+whichever body attached it last, and `modelGetNodeRwData()` walks *up* from a
+head node to find a headspot and take its `rwdatas`. So a head modeldef shared
+between two *different* body definitions resolves correctly for one of them and
+reads a meaningless index into the other's rwdata — which showed as a write to
+`0x5008b7d`, the same address every run, because what was being read as a
+pointer was model data out of the ROM.
+
+Stock never hits it: solo shares one modeldef per head number but only ever
+pairs a head with the body it was built for, and multiplayer loads a fresh copy
+per chr *and* calls `bodyCalculateHeadOffset()` for the body it is going on.
+Ghost Trials puts any head on any body in solo, so a trial takes the
+multiplayer path — in **both** places that decision is made: `body0f02ce8c()`
+for everyone, and the player's own copy in `player.c`, which is what runs the
+moment third person is switched on. Fixing the first alone moved the crash and
+did not remove it.
+
+ASan only reports if the game's own `SIGSEGV` handler is out of the way: run
+with `--no-crash-handler`, or every report is a bare backtrace in a dialog.
+
 ## ROM-resident structures — never grow these
 
 `preprocessMpConfigs()` (`port/src/preprocess/misc.c`) casts raw ROM bytes to

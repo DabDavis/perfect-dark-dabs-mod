@@ -1610,7 +1610,22 @@ void playerTickChrBody(void)
 				headnum = -1;
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);
-			} else if (g_Vars.normmplayerisrunning && IS8MB()) {
+			} else if ((g_Vars.normmplayerisrunning
+#ifndef PLATFORM_N64
+					// A trial too. This is the player's own copy of the choice
+					// body0f02ce8c() makes for everyone else, and it has to
+					// agree with it: the moment third person is switched on
+					// the player's body is rebuilt through here, and the else
+					// branch below would hand it the shared modeldef for its
+					// head - which, in a trial, is a private copy some ghost
+					// loaded and stored into the global. Attaching it here
+					// re-parents that head to the player's body, and the
+					// ghost renders its head against the player's headspot
+					// from then on. See the note in body0f02ce8c() for the
+					// whole mechanism; this is the second door to it.
+					|| modGhostTrialRulesApply()
+#endif
+					) && IS8MB()) {
 				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
 				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
 				g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
