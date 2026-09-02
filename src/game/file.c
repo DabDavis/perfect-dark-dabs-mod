@@ -2083,7 +2083,7 @@ extern void *_file_PjappdZ;
 extern void *_filenamesSegmentRomStart;
 #endif // PLATFORM_N64
 
-struct fileinfo g_FileInfo[NUM_FILES];
+struct fileinfo g_FileInfo[NUM_FILE_SLOTS];
 
 #if VERSION >= VERSION_NTSC_1_0
 u32 var800aa570;
@@ -4114,7 +4114,7 @@ u32 g_FileTable[] = {
 	(uintptr_t) &_filenamesSegmentRomStart,
 };
 #else // PLATFORM_N64
-uintptr_t g_FileTable[NUM_FILES + 1]; // TODO: this is only used to get the filenum, remove this
+uintptr_t g_FileTable[NUM_FILE_SLOTS + 1]; // TODO: this is only used to get the filenum, remove this
 #endif // PLATFORM_N64
 
 romptr_t fileGetRomAddress(s32 filenum)

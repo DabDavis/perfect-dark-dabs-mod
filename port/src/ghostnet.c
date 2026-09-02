@@ -131,6 +131,10 @@ static bool ghostnetBufAppend(struct ghostnetbuf *buf, const void *ptr, size_t a
 		return true;
 	}
 
+	if (buf->maxlen && buf->len + add > buf->maxlen) {
+		return false;
+	}
+
 	if (buf->sink) {
 		if (fwrite(ptr, 1, add, buf->sink) != add) {
 			return false;
@@ -387,6 +391,11 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		DWORD got = 0;
 		char chunk[8192];
 
+		if (req->cancel && *req->cancel) {
+			snprintf(err, errsize, "cancelled");
+			goto done;
+		}
+
 		if (!WinHttpQueryDataAvailable(request, &avail)) {
 			ghostnetWinError(GetLastError(), err, errsize);
 			goto done;
@@ -449,6 +458,14 @@ static size_t ghostnetCurlWrite(void *ptr, size_t size, size_t nmemb, void *arg)
 	return ghostnetBufAppend(arg, ptr, add) ? add : 0;
 }
 
+static int ghostnetCurlProgress(void *arg, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow)
+{
+	const struct ghostnetreq *req = arg;
+
+	// Nonzero is how a progress callback aborts the transfer.
+	return req->cancel && *req->cancel ? 1 : 0;
+}
+
 bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		s32 *status, char *err, u32 errsize)
 {
@@ -472,6 +489,9 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, GHOSTNET_AGENT);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ghostnetCurlProgress);
+	curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void *)req);
+	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
 	// Redirects are not followed for the ghost server. Its endpoints are exact
 	// paths on a machine this file was written against, so a redirect is not
@@ -1284,6 +1304,14 @@ void ghostnetUploadMine(void)
 
 void ghostnetFetchBoard(s32 stagenum, s32 difficulty)
 {
+	// The job is the worker's while it runs, the stage included: the label a
+	// board arrives under is read from here at the end of the fetch, so a
+	// dropdown changed halfway through would put Chicago's times under the
+	// word Villa. The start below refuses when busy; this has to as well.
+	if (ghostnetGetState() == GHOSTNET_BUSY) {
+		return;
+	}
+
 	g_JobStage = stagenum;
 	g_JobDiff = difficulty;
 	ghostnetStart(JOB_BOARD);
@@ -1478,8 +1506,18 @@ bool ghostnetAccountIsValid(void)
 
 void ghostnetClearState(void)
 {
+	// A page opening is not the end of a job. Four of them clear the state on
+	// the way in, and the one worker may still be uploading or writing a
+	// download: forgetting that here let the next request join it on the
+	// main thread, or rename its file underneath it.
+	if (ghostnetGetState() == GHOSTNET_BUSY) {
+		return;
+	}
+
+	SDL_LockMutex(g_Lock);
 	g_State = GHOSTNET_IDLE;
 	g_Message[0] = '\0';
+	SDL_UnlockMutex(g_Lock);
 }
 
 /**

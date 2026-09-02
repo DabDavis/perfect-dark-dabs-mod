@@ -4793,6 +4793,9 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			&& aprop
 			&& aprop != vprop
 			&& (aprop->type == PROPTYPE_PLAYER || aprop->type == PROPTYPE_CHR)
+			// A freed prop keeps its type and loses its chr; the guard
+			// further down says the same and this read comes first.
+			&& aprop->chr
 			&& chr->team == aprop->chr->team) {
 		return;
 	}

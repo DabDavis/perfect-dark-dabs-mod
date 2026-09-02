@@ -75,6 +75,10 @@ struct ghostnetbuf {
 	// written through to it as it arrives. len still counts every byte either
 	// way, which is what the caller checks against the size it was promised.
 	FILE *sink;
+	// The most len may reach, or zero for the in-memory cap. A caller that was
+	// promised a size sets it, so a reply that runs past what was promised is
+	// refused as it arrives rather than after it has all been written.
+	size_t maxlen;
 };
 
 /**
@@ -100,6 +104,10 @@ struct ghostnetreq {
 	// Seconds for the whole exchange, or zero for the ordinary budget. A reply
 	// that is a copy of the game takes longer than one that is a leaderboard.
 	s32 timeout;
+	// Somewhere to look for a request to stop, or NULL. Read between reads
+	// of the reply; set from another thread by whoever wants the transfer
+	// over with, which is the game shutting down under a download.
+	volatile bool *cancel;
 };
 
 /**

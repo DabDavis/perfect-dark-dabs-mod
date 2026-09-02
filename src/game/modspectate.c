@@ -3,6 +3,7 @@
 #include "game/bondmove.h"
 #include "game/bondwalk.h"
 #include "game/body.h"
+#include "game/modghost.h"
 #include "game/modspectate.h"
 #include "game/prop.h"
 #include "bss.h"
@@ -126,6 +127,15 @@ void modSpectateSetOn(bool on)
 	}
 
 	if (g_ModSpectating[g_Vars.currentplayernum] == on) {
+		return;
+	}
+
+	// Spectating is a camera with no collisions that cannot die. A trial is a
+	// run that is measured, and a run that flew to the exit through the walls
+	// would be measured too, uploaded with the trial flag set. So the mode
+	// cannot be entered while the rules apply, from the key or from Spectator
+	// Start Game - leaving it is always allowed.
+	if (on && modGhostTrialRulesApply()) {
 		return;
 	}
 

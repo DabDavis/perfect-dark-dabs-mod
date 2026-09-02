@@ -2021,3 +2021,13 @@
 #else
 #define NUM_FILES 2013
 #endif
+
+// How many file ids the tables indexed by one are sized for. The port hands
+// out ids past the ROM's own to files that mods register (ROMDATA_MAX_FILES
+// in port/src/romdata.c is defined as this), and the game-side tables have to
+// reach as far as the ids do or a mod's file is an index past the end of them.
+#ifndef PLATFORM_N64
+#define NUM_FILE_SLOTS 3072
+#else
+#define NUM_FILE_SLOTS NUM_FILES
+#endif

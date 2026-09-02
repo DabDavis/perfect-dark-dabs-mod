@@ -543,8 +543,51 @@ static s32 mpsetupLoadFile(struct mpsetupfile *setupfile, u8 op)
 	return 0;
 }
 
+/**
+ * Bring the current file and the one being imported to the same format
+ * version, the higher of the two, so blocks can be compared and copied between
+ * them. A block is a bit stream laid out for its version: a base-format block
+ * read as an extended one takes its weapons and limits from where the
+ * simulants used to be.
+ *
+ * Decodes through the live MP globals, like every re-encode here, and puts
+ * the live setup back afterwards.
+ */
+static void mpsetupAlignImportVersion(void)
+{
+	struct savebuffer live;
+	struct savebuffer setup;
+	u8 version;
+
+	if (g_ImportMpSetupFile.version == g_MpSetupFile.version) {
+		return;
+	}
+
+	version = g_ImportMpSetupFile.version > g_MpSetupFile.version
+		? g_ImportMpSetupFile.version : g_MpSetupFile.version;
+
+	savebufferClear(&live);
+	mpsetupfileSaveWad(&live, MPSETUP_VERSION_EXTENDEDSIMS);
+
+	if (g_MpSetupFile.version != version) {
+		mpsetupReencodeBlocks(&g_MpSetupFile, version, -1);
+		g_MpSetupFile.version = version;
+	}
+
+	if (g_ImportMpSetupFile.version != version) {
+		mpsetupReencodeBlocks(&g_ImportMpSetupFile, version, -1);
+		g_ImportMpSetupFile.version = version;
+	}
+
+	savebufferClear(&setup);
+	memcpy(setup.bytes, live.bytes, MPSETUP_BLOCKSIZE);
+	mpsetupfileLoadWad(&setup, MPSETUP_VERSION_EXTENDEDSIMS);
+}
+
 static s32 mpsetupImportFile(u8 op, u8 skipOverlap)
 {
+	mpsetupAlignImportVersion();
+
 	if (!skipOverlap) {
 		// check for names overlap
 		u8 overlap = false;

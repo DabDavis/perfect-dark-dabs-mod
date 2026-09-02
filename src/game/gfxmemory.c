@@ -192,7 +192,10 @@ void *gfxAllocateMatrix(void)
  */
 bool gfxHasVtxSpace(u32 size)
 {
-	return (u32)(g_VtxBuffers[g_GfxActiveBufferIndex + 1] - g_GfxMemPos) > size;
+	// Compared as pointers rather than as an unsigned difference: the callers
+	// that do not check can already have pushed g_GfxMemPos past the end of
+	// the pool, and a negative difference cast to u32 is a very large one.
+	return g_GfxMemPos + size <= g_VtxBuffers[g_GfxActiveBufferIndex + 1];
 }
 #endif
 

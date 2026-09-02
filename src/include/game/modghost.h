@@ -44,7 +44,9 @@
  * settings are different again, so the file has to answer for itself. One bit,
  * and it means the run was set under trial rules: the things this fork added
  * that change a run were off - jump, the combat roll, the melee combo and
- * flinch - and so were the cheats the game ships with.
+ * flinch - and so were the cheats the game ships with, and the spectator
+ * camera, which is a body with no collisions that cannot die, could not be
+ * entered.
  *
  * The cheats came into that list later than the moves, so a run recorded in
  * between carries the flag from a build that did not yet hold them off. Those

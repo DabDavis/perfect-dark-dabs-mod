@@ -1447,6 +1447,7 @@ void chrRemove(struct prop *prop, bool free)
 #ifndef PLATFORM_N64
 		nbombsUnrefOwner(prop);
 		explosionsUnrefSource(prop);
+		chrsUnrefPoisonProp(prop);
 #endif
 
 		if (g_Vars.normmplayerisrunning == false && g_MissionConfig.iscoop) {
@@ -2301,6 +2302,31 @@ s32 chrGetCloakAlpha(struct chrdata *chr)
 
 	return alpha;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Forget a prop as the source of anyone's poison.
+ *
+ * A thrown knife leaves the thrower's prop in the victim's poisonprop for as
+ * long as the poison lasts, and every three seconds it is handed back to
+ * chrDamage() as the attacker. Nothing used to clear it: on N64 a chr's prop
+ * outlives any poison it dealt, but here a dead simulant's prop follows its
+ * body and is freed when the body is retired, which can be well inside the
+ * fourteen seconds a hit lasts. The other things that hold an attacker - the
+ * projectiles, nbombs and explosions - are unreferenced on the way out, and
+ * this is the same thing for poison.
+ */
+void chrsUnrefPoisonProp(struct prop *prop)
+{
+	s32 i;
+
+	for (i = 0; i < g_NumChrSlots; i++) {
+		if (g_ChrSlots[i].poisonprop == prop) {
+			g_ChrSlots[i].poisonprop = NULL;
+		}
+	}
+}
+#endif
 
 void chrSetPoisoned(struct chrdata *chr, struct prop *poisonprop)
 {

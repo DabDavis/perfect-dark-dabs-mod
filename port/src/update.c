@@ -66,8 +66,10 @@
 // leaderboard gets. The manifest itself keeps the ordinary budget.
 #define UPDATE_DOWNLOADTIMEOUT 600
 
-// Bigger than any build has been and small enough that a redirect to something
-// else entirely is refused rather than written to disk.
+// Bigger than any build has been. It bounds what a manifest may claim; what a
+// download may actually deliver is bounded by the manifest's own figure, so a
+// redirect to something else entirely is refused at the byte it goes past it
+// rather than written to disk first.
 #define UPDATE_MAXBYTES (192 * 1024 * 1024)
 
 #define UPDATE_JOB_NONE    0
@@ -122,7 +124,12 @@ static bool g_JustInstalled = false;
 // counted up by the transport on the worker thread and read on the main one,
 // which is a race with nothing at stake - the answer is a number on a screen,
 // and a stale one is last frame's.
-static struct ghostnetbuf g_Download = { NULL, 0, NULL };
+static struct ghostnetbuf g_Download = { NULL, 0, NULL, 0 };
+
+// Raised by updateShutdown() so a transfer in flight gives up at its next
+// read instead of the game waiting on it, windowless, for as long as the
+// download budget allows. Only ever set, and only at shutdown.
+static volatile bool g_Cancel = false;
 
 // What the last check found, and what an install afterwards acts on. Written
 // on the worker under the lock and read by the menu, like everything else here.
@@ -475,6 +482,7 @@ static bool updateFetchManifest(char *err, u32 errsize)
 	memset(&req, 0, sizeof(req));
 	req.url = url;
 	req.redirect = true;
+	req.cancel = &g_Cancel;
 
 	if (!ghostnetSend(&req, &buf, &status, err, errsize)) {
 		free(buf.data);
@@ -620,9 +628,13 @@ static bool updateDownload(char *msg, u32 msgsize)
 	req.url = url;
 	req.redirect = true;
 	req.timeout = UPDATE_DOWNLOADTIMEOUT;
+	req.cancel = &g_Cancel;
 	buf->data = NULL;
 	buf->len = 0;
 	buf->sink = f;
+	// The manifest said how big the file is. Anything past that is not the
+	// file, and is refused as it arrives rather than written to disk first.
+	buf->maxlen = size;
 
 	if (!ghostnetSend(&req, buf, &status, msg, msgsize)) {
 		fclose(f);
@@ -928,6 +940,67 @@ void updateCleanUp(void)
  * the new copy is started alongside and this one falls off the end of main()
  * immediately afterwards.
  */
+#ifdef PLATFORM_WIN32
+/**
+ * One argument, quoted so the C runtime's command line parser gives it back
+ * whole. Arguments that need no quoting are returned as they are. The result
+ * is for a process that is about to exec and is never freed.
+ */
+static const char *updateQuoteArg(const char *arg)
+{
+	size_t len = strlen(arg);
+	size_t slashes = 0;
+	size_t i;
+	char *out;
+	char *p;
+
+	if (len > 0 && strpbrk(arg, " \t\"") == NULL) {
+		return arg;
+	}
+
+	// Worst case is every character a backslash that has to be doubled,
+	// plus the quotes and the terminator.
+	out = malloc(len * 2 + 3);
+
+	if (out == NULL) {
+		return arg;
+	}
+
+	p = out;
+	*p++ = '"';
+
+	for (i = 0; i < len; i++) {
+		if (arg[i] == '\\') {
+			slashes++;
+			continue;
+		}
+
+		if (arg[i] == '"') {
+			// Backslashes before a quote are doubled, then the quote is
+			// escaped.
+			memset(p, '\\', slashes * 2 + 1);
+			p += slashes * 2 + 1;
+			slashes = 0;
+			*p++ = '"';
+			continue;
+		}
+
+		memset(p, '\\', slashes);
+		p += slashes;
+		slashes = 0;
+		*p++ = arg[i];
+	}
+
+	// Trailing backslashes precede the closing quote, so they double too.
+	memset(p, '\\', slashes * 2);
+	p += slashes * 2;
+	*p++ = '"';
+	*p = '\0';
+
+	return out;
+}
+#endif
+
 void updateRelaunchIfStaged(void)
 {
 	char path[FS_MAXPATH];
@@ -948,7 +1021,30 @@ void updateRelaunchIfStaged(void)
 	fflush(NULL);
 
 #ifdef PLATFORM_WIN32
-	_spawnv(_P_NOWAIT, path, sysGetArgv());
+	{
+		// The spawn family builds the child's command line by joining the
+		// strings with spaces and nothing else, so an argument with a space
+		// in it - a save directory under a name like John Smith - arrives as
+		// two. Each one is quoted the way the C runtime on the other side
+		// takes them apart: quotes around the whole, a backslash before
+		// each quote, and backslashes doubled only where they precede one.
+		const char **argv = sysGetArgv();
+		s32 argc = 0;
+		const char **quoted;
+		s32 i;
+
+		while (argv[argc]) {
+			argc++;
+		}
+
+		quoted = calloc(argc + 1, sizeof(char *));
+
+		for (i = 0; quoted && i < argc; i++) {
+			quoted[i] = updateQuoteArg(argv[i]);
+		}
+
+		_spawnv(_P_NOWAIT, path, quoted ? quoted : argv);
+	}
 #else
 	execv(path, (char *const *)sysGetArgv());
 	// Only reached if the new build could not be started at all, which leaves
@@ -976,6 +1072,12 @@ void updateInit(void)
 
 void updateShutdown(void)
 {
+	// Anything still downloading stops at its next read and fails, which
+	// removes the partial file. Anything past the download - the hash, the
+	// two renames - is short and runs to the end, which is the part that
+	// must not be interrupted.
+	g_Cancel = true;
+
 	if (g_Thread) {
 		SDL_WaitThread(g_Thread, NULL);
 		g_Thread = NULL;

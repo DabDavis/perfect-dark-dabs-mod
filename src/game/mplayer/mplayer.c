@@ -3574,7 +3574,8 @@ void mpGenerateBotNames(void)
 	s32 counts[ARRAYCOUNT(g_BotProfiles)];
 	s32 profilenum;
 	s32 i;
-	char name[16];
+	char suffix[8];
+	s32 room;
 
 	for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
 		counts[i] = 0;
@@ -3610,12 +3611,22 @@ void mpGenerateBotNames(void)
 				if (counts[profilenum] >= 0) {
 					// Multiple bots using this profile - append the number
 					counts[profilenum]++;
-					sprintf(name, "%s:%d\n", langGet(g_BotProfiles[profilenum].name), counts[profilenum]);
-					strcpy(g_BotConfigsArray[i - 4].base.name, name);
+
+					// The field is 15 bytes and "PacifistSim:8\n" filled it
+					// exactly, which was the most stock could ask of it. With
+					// 80 simulants the counter reaches two digits, so the
+					// name gives up letters rather than the number and the
+					// newline: the number is what tells two of them apart,
+					// and the newline is what makes the text measure.
+					snprintf(suffix, sizeof(suffix), ":%d\n", counts[profilenum]);
+					room = (s32)sizeof(g_BotConfigsArray[i - 4].base.name) - 1 - (s32)strlen(suffix);
+					snprintf(g_BotConfigsArray[i - 4].base.name, sizeof(g_BotConfigsArray[i - 4].base.name),
+							"%.*s%s", room, langGet(g_BotProfiles[profilenum].name), suffix);
 				} else {
 					// One bots using this profile - just use the profile name
-					sprintf(name, "%s\n", langGet(g_BotProfiles[profilenum].name));
-					strcpy(g_BotConfigsArray[i - 4].base.name, name);
+					room = (s32)sizeof(g_BotConfigsArray[i - 4].base.name) - 2;
+					snprintf(g_BotConfigsArray[i - 4].base.name, sizeof(g_BotConfigsArray[i - 4].base.name),
+							"%.*s\n", room, langGet(g_BotProfiles[profilenum].name));
 				}
 			}
 		}
@@ -4253,6 +4264,12 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 	}
 
 	g_MpSetup.chrslots &= 0x000f;
+
+	// Stock cleared every simulant bit with that mask. The slots now live in
+	// their own array, and the loop below only ever turns entries on, so
+	// without this a setup with two simulants loaded after one with eight
+	// keeps the other six - running as bots with no difficulty and no name.
+	mpClearSimSlots();
 
 	// Format version 1 and the pak import path (version 0) store
 	// MAX_BOTS_CONFIG simulants; version 2 onwards stores MAX_BOTS. Reading

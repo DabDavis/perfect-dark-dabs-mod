@@ -29,6 +29,9 @@ void chr0f022214(struct chrdata *chr, struct prop *child, bool fulltick);
 void chrUpdateCloak(struct chrdata *chr);
 s32 chrGetCloakAlpha(struct chrdata *chr);
 void chrSetPoisoned(struct chrdata *chr, struct prop *poisonprop);
+#ifndef PLATFORM_N64
+void chrsUnrefPoisonProp(struct prop *prop);
+#endif
 void chrTickPoisoned(struct chrdata *chr);
 bool chrTickBeams(struct prop *prop);
 s32 chrTick(struct prop *prop);

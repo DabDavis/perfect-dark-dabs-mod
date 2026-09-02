@@ -110,10 +110,10 @@ static void cleanup(void)
 	crashShutdown();
 	// TODO: actually shut down all subsystems
 
-	// Waits for the update worker if one is running, which matters: quitting
-	// in the middle of a download is fine and leaves a file the next start
-	// deletes, but quitting between the two renames that swap the binary would
-	// leave the game somewhere it cannot be started from.
+	// Stops a download in flight and waits for the update worker, which
+	// matters: a download given up on leaves a file the next start deletes,
+	// but quitting between the two renames that swap the binary would leave
+	// the game somewhere it cannot be started from.
 	updateShutdown();
 
 	// Last, and only if Check for Updates put a new build in place. It goes

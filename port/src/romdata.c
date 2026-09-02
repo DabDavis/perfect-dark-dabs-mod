@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
+#include "files.h"
 #include "romdata.h"
 #include "fs.h"
 #include "system.h"
@@ -50,7 +51,8 @@
 
 // The ROM uses most of the first 2048. The rest are spares for files the mod
 // loader registers, at up to four per map.
-#define ROMDATA_MAX_FILES 3072
+// The game's own tables are sized to match; see NUM_FILE_SLOTS in files.h.
+#define ROMDATA_MAX_FILES NUM_FILE_SLOTS
 
 #define GBC_ROM_NAME "pd.gbc"
 #define GBC_ROM_SIZE 4194304
