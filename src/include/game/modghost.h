@@ -290,6 +290,11 @@ struct modghostentry {
 	u32 time60;
 	u8 stagenum;
 	u8 difficulty;
+	// The character the run was set as, straight out of the header and in the
+	// same plus-one encoding, so that a page listing runs can show who was
+	// wearing what without opening the file again.
+	u8 mpbody;
+	u8 mphead;
 	bool chosen;
 };
 
@@ -335,6 +340,7 @@ void modGhostSetCatalogueFilter(s32 stagenum, s32 difficulty);
 s32 modGhostScanCatalogue(void);
 s32 modGhostGetCatalogueCount(void);
 struct modghostentry *modGhostGetCatalogueEntry(s32 index);
+bool modGhostEntryCharacter(const struct modghostentry *entry, s32 *mpbody, s32 *mphead);
 s32 modGhostGetNumChosen(void);
 void modGhostToggleChosen(s32 index);
 bool modGhostDeleteCatalogueEntry(s32 index);

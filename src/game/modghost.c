@@ -191,6 +191,35 @@ static bool modGhostResolveCharacter(s32 storedbody, s32 storedhead, s32 *bodynu
 }
 
 /**
+ * A catalogue row's character, as the two indices a menu model wants.
+ *
+ * The header stores the Combat Simulator body and head plus one so that zero
+ * can mean "whatever Joanna comes with", which is also what every run recorded
+ * before the picker existed carries. MENUMODELPARAMS_SET_MP_HEADBODY() wants
+ * the indices themselves, so the plus one comes off here, and a body with no
+ * head of its own is given the one it was built with.
+ *
+ * False for a run that names nobody, which is the caller's cue to show the
+ * default rather than to substitute an index that means something else.
+ */
+bool modGhostEntryCharacter(const struct modghostentry *entry, s32 *mpbody, s32 *mphead)
+{
+	s32 body = (s32)entry->mpbody - 1;
+	s32 head = (s32)entry->mphead - 1;
+
+	if (entry->mpbody <= MODGHOST_BODY_DEFAULT || body >= (s32)mpGetNumBodies()) {
+		return false;
+	}
+
+	*mpbody = body;
+	*mphead = (entry->mphead > MODGHOST_BODY_DEFAULT && head < mpGetNumHeads2())
+		? head
+		: mpGetMpheadnumByMpbodynum(body);
+
+	return true;
+}
+
+/**
  * The character this trial is being played as, for the player's own body.
  *
  * Only during a trial: the picker is a Ghost Trials setting and a mission
@@ -1772,6 +1801,8 @@ static void modGhostCatalogueFile(const char *name, void *arg)
 	strncpy(entry->owner, hdr.owner, sizeof(entry->owner) - 1);
 	entry->flags = hdr.flags;
 	entry->time60 = hdr.time60;
+	entry->mpbody = hdr.mpbody;
+	entry->mphead = hdr.mphead;
 	entry->stagenum = hdr.stagenum;
 	entry->difficulty = hdr.difficulty;
 	entry->chosen = modGhostIsChosen(name);

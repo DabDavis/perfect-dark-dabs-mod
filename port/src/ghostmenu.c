@@ -323,6 +323,136 @@ static MenuItemHandlerResult menuhandlerGhostSplits(s32 operation, struct menuit
 }
 
 /**
+ * The live state of one of this dialog's items, by identity.
+ *
+ * A list keeps which row the cursor is on in its own menuitemdata, which the
+ * menu owns rather than the handler: the handler is asked for a row's text and
+ * told which row, never which row is focused. So a page that wants to react to
+ * the cursor moving has to go and look, and this walks the dialog's rows the
+ * way menu.c walks them to render them.
+ *
+ * NULL when the item has no data block yet, which is the frame the dialog
+ * opens on.
+ */
+static union menuitemdata *menuGhostItemData(struct menudialog *dialog, struct menuitem *item)
+{
+	struct menu *menu = &g_Menus[g_MpPlayerNum];
+	s32 colindex;
+	s32 j;
+
+	for (colindex = dialog->colstart; colindex < dialog->colstart + dialog->numcols; colindex++) {
+		for (j = 0; j < menu->cols[colindex].numrows; j++) {
+			s32 rowindex = menu->cols[colindex].rowstart + j;
+
+			if (&dialog->definition->items[menu->rows[rowindex].itemindex] == item
+					&& menu->rows[rowindex].blockindex != -1) {
+				return (union menuitemdata *)&menu->blocks[menu->rows[rowindex].blockindex];
+			}
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * Show the run under the cursor as the character who set it.
+ *
+ * A row of a list is a time and a name, and a field of ghosts is a field of
+ * people wearing different things - the one thing a row cannot say. The header
+ * already carries the character, so the page that lists runs can stand the
+ * model up beside them and the choice becomes "which of these am I racing"
+ * rather than a column of names.
+ *
+ * The model is the menu's own, the same one the Combat Simulator's character
+ * page turns: pointing it at a different body and head is the whole of the
+ * work, and the dialog renders it for having MENUDIALOGFLAG_0002 set. Params
+ * are only written when they change, because assigning newparams is what makes
+ * the model reload.
+ *
+ * A run that names nobody - anything recorded before the picker existed - gets
+ * Joanna, which is who it was.
+ */
+// The character the preview was last placed for. Cleared when a page opens, so
+// that coming back to one sets the model up again rather than trusting what the
+// last page left behind.
+static u32 g_GhostModelParams = 0;
+
+static void menuGhostTickModel(struct menudialog *dialog, struct menuitem *listitem)
+{
+	union menuitemdata *data = menuGhostItemData(dialog, listitem);
+	struct menumodel *model = &g_Menus[g_MpPlayerNum].menumodel;
+	struct modghostentry *entry;
+	s32 mpbody = MPBODY_DARK_AF1;
+	s32 mphead = MPHEAD_DARK_COMBAT;
+	u32 params;
+
+	if (data == NULL) {
+		return;
+	}
+
+	entry = modGhostGetCatalogueEntry(data->list.index);
+
+	if (entry != NULL) {
+		modGhostEntryCharacter(entry, &mpbody, &mphead);
+	}
+
+	params = MENUMODELPARAMS_SET_MP_HEADBODY(mphead, mpbody);
+
+	// Placing the model is a one off. menuConfigureModel() starts a transition
+	// to where it is being put, so calling it every frame restarts that
+	// transition every frame and the model never arrives anywhere. The arena's
+	// character page does this once when a body is chosen; here the equivalent
+	// moment is the cursor landing on a different run.
+	//
+	// What is remembered is the character this was last placed for, and not
+	// model->curparams: curparams is only written once the load has finished,
+	// so testing it re-entered this every frame while the load was still going
+	// and set loaddelay again, which restarted the load that was about to
+	// complete. The model stayed unloaded for exactly as long as the page was
+	// open.
+	if (g_GhostModelParams != params) {
+		g_GhostModelParams = params;
+
+		menuConfigureModel(model, 0, 0, 0, 0, 0, 0, 1, MENUMODELFLAG_HASSCALE);
+
+		// The arena character page's framing. posx is distance rather than a
+		// screen offset - raising it walks the model towards the camera, it
+		// does not move it aside - so the model stands centred behind the rows
+		// and the text is drawn over it. Legible, but it wants a proper layout
+		// pass before it is something to be pleased with.
+		model->curposx = model->newposx = 8.2f;
+		model->curposy = model->newposy = -4.1f;
+		model->curscale = 0.002f;
+		model->curroty = model->newroty = -0.2f;
+		model->rottimer60 = TICKS(60);
+		model->zoomtimer60 = TICKS(120);
+		model->loaddelay = 8;
+		model->removingpiece = false;
+	}
+
+	// And this is the every frame half, which is what the arena page does from
+	// its own tick: name the character, keep the idle animation, and turn the
+	// model slowly once it has settled.
+	model->newparams = params;
+	model->newanimnum = ANIM_01FC;
+	model->partvisibility = NULL;
+	model->zoom = 30;
+
+	model->zoomtimer60 += g_Vars.diffframe60;
+
+	if (model->zoomtimer60 > TICKS(480)) {
+		model->zoomtimer60 -= TICKS(480);
+	}
+
+	if (model->rottimer60 > 0) {
+		model->rottimer60 -= g_Vars.diffframe60;
+	} else {
+		model->curroty += 0.01f * g_Vars.diffframe60f;
+		model->newroty = model->curroty;
+	}
+}
+
+/**
  * The chooser: every ghost on disk, ticked or not.
  *
  * A list rather than a page of checkboxes because the number of them is not
@@ -458,7 +588,15 @@ static MenuDialogHandlerResult menudialogGhostChooser(s32 operation, struct menu
 	// header read per file, and nothing changes it while the page is up
 	// except a tick, which does not change which files are there.
 	if (operation == MENUOP_OPEN) {
+		g_GhostModelParams = 0;
 		menuGhostChooserRescan();
+	}
+
+	// items[3] is the list; see the table below.
+	if (operation == MENUOP_TICK
+			&& g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
+		menuGhostTickModel(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[3]);
 	}
 
 	return 0;
@@ -519,7 +657,7 @@ struct menudialogdef g_GhostChooserMenuDialog = {
 	(uintptr_t)"Choose Ghosts",
 	g_GhostChooserMenuItems,
 	menudialogGhostChooser,
-	MENUDIALOGFLAG_LITERAL_TEXT,
+	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_0002,
 	NULL,
 };
 
@@ -655,8 +793,16 @@ static MenuDialogHandlerResult menudialogGhostMine(s32 operation, struct menudia
 	// the index.
 	if (operation == MENUOP_OPEN) {
 		g_GhostMineArmed = -1;
+		g_GhostModelParams = 0;
 		modGhostSetCatalogueFilter(-1, -1);
 		modGhostScanCatalogue();
+	}
+
+	// items[1] is the list; see the table below.
+	if (operation == MENUOP_TICK
+			&& g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
+		menuGhostTickModel(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[1]);
 	}
 
 	return 0;
@@ -697,7 +843,7 @@ struct menudialogdef g_GhostMineMenuDialog = {
 	(uintptr_t)"My Ghosts",
 	g_GhostMineMenuItems,
 	menudialogGhostMine,
-	MENUDIALOGFLAG_LITERAL_TEXT,
+	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_0002,
 	NULL,
 };
 
