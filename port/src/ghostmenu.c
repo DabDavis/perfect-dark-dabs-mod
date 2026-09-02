@@ -950,18 +950,16 @@ struct menudialogdef g_GhostMineMenuDialog = {
 	NULL,
 };
 
+/**
+ * The rules are not listed here any more.
+ *
+ * They were a line at the top of this page, which is a page a player opens to
+ * change how trials look rather than to find out what one is. They are in a
+ * window of their own on the Ghost Trials page now - see
+ * menuGhostRenderRules() - which is the door everything here is behind and the
+ * last thing read before a run starts.
+ */
 struct menuitem g_GhostOptionsMenuItems[] = {
-	{
-		// Said here rather than left to be discovered mid run. A player who
-		// presses jump in a trial and does not leave the ground has found a
-		// bug unless something told them otherwise.
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Trials record. Jump, Roll, Melee Combo and Flinch off.\n",
-		0,
-		NULL,
-	},
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
@@ -2033,6 +2031,69 @@ static void menuGhostPlaqueModel(struct menumodel *model, s32 mphead, s32 x, s32
 }
 
 /**
+ * The window a corner plaque is drawn in.
+ *
+ * Title bar, its two shimmers, the body and its borders, then the title: the
+ * same calls dialogRender() makes in the same order, so these weather a change
+ * to how a window looks along with every other window in the game.
+ *
+ * The alignment and the scissor are the caller's, because the caller is the
+ * one holding on to an edge of the screen. What the caller draws inside is its
+ * own too - this only puts the box there.
+ */
+static Gfx *menuGhostWindow(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, char *title)
+{
+	// Standing in for a dialog where the menu's own drawing wants one. Only
+	// its type and transition are read, and both say the same thing every
+	// frame: an ordinary blue window, not mid-change. Keeping it separate from
+	// the dialog on screen is deliberate - a red confirmation over the top
+	// should not turn these red with it. Ghost Trials is named as the
+	// definition because that is the page they belong to wherever the cursor
+	// has got to, and nothing reads it except code that would want that.
+	static struct menudialog window = { 0 };
+
+	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
+	s32 bodytop = y1 + LINEHEIGHT;
+	s32 x;
+	s32 y;
+
+	window.definition = &g_GhostTrialsMenuDialog;
+	window.type = MENUDIALOGTYPE_DEFAULT;
+	window.type2 = MENUDIALOGTYPE_DEFAULT;
+	window.transitionfrac = -1.0f;
+	window.colourweight = 0;
+	window.x = x1;
+	window.y = y1;
+	window.width = x2 - x1;
+	window.height = y2 - y1;
+
+	gdl = menugfxRenderGradient(gdl, x1 - 2, y1, x2 + 2, bodytop,
+			colours->dialog_border1, colours->dialog_titlebg, colours->dialog_border2);
+	gdl = menugfxDrawShimmer(gdl, x1 - 2, y1, x2 + 2, y1 + 1,
+			(colours->dialog_border1 & 0xff) >> 1, 1, 40, 0);
+	gdl = menugfxDrawShimmer(gdl, x1 - 2, y1 + 10, x2 + 2, bodytop,
+			(colours->dialog_border1 & 0xff) >> 1, 0, 40, 1);
+	gdl = menugfxRenderDialogBackground(gdl, x1 + 1, bodytop, x2 - 1, y2, &window,
+			colours->dialog_bodybg, colours->unused14, -1.0f);
+
+	gdl = text0f153628(gdl);
+
+	x = x1 + 3;
+	y = y1 + 3;
+	gdl = textRenderProjected(gdl, &x, &y, title, g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, colours->dialog_titlefg & 0xff, window.width, viGetHeight(), 0, 0);
+
+	x = x1 + 2;
+	y = y1 + 2;
+	gdl = textRenderProjected(gdl, &x, &y, title, g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, colours->dialog_titlefg, window.width, viGetHeight(), 0, 0);
+
+	gdl = text0f153780(gdl);
+
+	return gdl;
+}
+
+/**
  * How far the right hand alignment moves what is drawn under it, in menu units.
  *
  * G_ASPECT_RIGHT_EXT is an offset applied to vertices as they are projected:
@@ -2068,13 +2129,43 @@ static s32 menuGhostPlaqueAlignOffset(void)
 }
 
 /**
- * Put back what the plaque borrowed: the menu's own alignment, and a scissor
- * that is the view rather than a square in the corner of it.
+ * Hold what follows against one edge of the screen instead of the middle.
+ *
+ * menuRender() draws everything after the background with G_ASPECT_CENTER_EXT,
+ * which holds the menu at the view's own aspect in the middle of the window,
+ * so on a widescreen display there is a pillar of screen either side that no
+ * dialog reaches. G_ASPECT_CENTER_EXT is G_ASPECT_LEFT_EXT |
+ * G_ASPECT_RIGHT_EXT, and dropping one half of it is the port's own way of
+ * saying "hold this against that edge" - what the HUD's Align setting does
+ * with g_HudAlignModeL and g_HudAlignModeR. What is drawn moves out into the
+ * pillar at the size and shape it already had, because the alignment is an
+ * offset rather than a stretch.
+ *
+ * WIDE stops the offset growing past 16:9, so an ultrawide display puts these
+ * beside the menu rather than a foot away from it. On a 4:3 window there is no
+ * pillar, the offset is zero, and this is the corner of the view.
+ *
+ * Called before the scissor rather than after: fast3d turns a scissor
+ * rectangle into pixels at the moment the command is sent, using the alignment
+ * in force then, so a scissor set first stays behind in the middle of the
+ * screen and cuts the window in half.
  */
-static Gfx *menuGhostPlaqueRestore(Gfx *gdl, s32 viewleft, s32 viewtop, s32 viewright)
+static Gfx *menuGhostAlign(Gfx *gdl, s32 side)
+{
+	gSPClearExtraGeometryModeEXT(gdl++, side == G_ASPECT_RIGHT_EXT ? G_ASPECT_LEFT_EXT : G_ASPECT_RIGHT_EXT);
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
+
+	return gdl;
+}
+
+/**
+ * Put back what these borrowed: the menu's own alignment, and a scissor that
+ * is the view rather than a square in the corner of it.
+ */
+static Gfx *menuGhostAlignRestore(Gfx *gdl, s32 viewleft, s32 viewtop, s32 viewright)
 {
 	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
-	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_LEFT_EXT);
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 
 	g_MenuScissorX1 = viewleft;
 	g_MenuScissorY1 = viewtop;
@@ -2085,6 +2176,136 @@ static Gfx *menuGhostPlaqueRestore(Gfx *gdl, s32 viewleft, s32 viewtop, s32 view
 }
 
 /**
+ * What a trial does to the game, said on the way in.
+ *
+ * This was a line of small text at the top of Ghost Options, which is where it
+ * went when it was one sentence and the wrong place for it from the start: a
+ * player opens Ghost Options to change how the ghosts look, and the rules of
+ * the mode are not a setting. Somebody who pressed jump in a trial and did not
+ * leave the ground had found a bug unless something had told them otherwise,
+ * and nothing on the way in did.
+ *
+ * So it is a window on the Ghost Trials page instead, next to the door rather
+ * than behind it. Down the left because that is where the room is: the Ghost
+ * Trials dialog is as tall as the view has room for, so there is no bottom of
+ * the screen to put it along, and holding it against the left edge puts the
+ * whole of it in the pillar the menu does not reach on a widescreen display.
+ *
+ * Short lines rather than sentences, and written out rather than wrapped. The
+ * room is what it is - the gap between the left of the screen and the left of
+ * the dialog is about ninety menu units, which is fifteen characters of the
+ * font the menus are written in - and the alternatives were both worse. The
+ * font one size down is capitals only and barely narrower, and a window wide
+ * enough for sentences would have to sit on top of the dialog, which is the
+ * thing the plaque was moved out of the way to stop doing.
+ *
+ * A list is what a rules box wants to be anyway: something to be taken in at a
+ * glance on the way past, not read.
+ */
+static char *g_GhostRulesLines[] = {
+	"Recording on.\n",
+	"No Jump, Roll\n",
+	"or Melee Combo\n",
+	"No Flinch.\n",
+	"Cheats are off\n",
+	"automatically.\n",
+};
+
+// How far down the window each line sits, and how far its text is inset.
+#define MODGHOST_RULESLINE   9
+#define MODGHOST_RULESINSET  3
+// How far into the dialog's own left margin the window may go when there is no
+// screen beside the menu to go into instead.
+#define MODGHOST_RULESBITE   32
+
+static Gfx *menuGhostRenderRules(Gfx *gdl)
+{
+	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	s32 viewleft = viGetViewLeft() / g_ScaleX;
+	s32 viewtop = viGetViewTop();
+	s32 viewright = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
+	s32 width = 0;
+	s32 maxwidth;
+	s32 textwidth;
+	s32 textheight;
+	s32 x1;
+	s32 x2;
+	s32 y1;
+	s32 y2;
+	s32 x;
+	s32 y;
+	s32 i;
+
+	// The page itself, not everything under it. On the pages inside Ghost
+	// Trials the rules have already been read and the room down the left is
+	// wanted by whatever those pages are showing.
+	if (dialog == NULL || dialog->definition != &g_GhostTrialsMenuDialog) {
+		return gdl;
+	}
+
+	for (i = 0; i < (s32)ARRAYCOUNT(g_GhostRulesLines); i++) {
+		textMeasure(&textheight, &textwidth, g_GhostRulesLines[i],
+				g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+
+		if (textwidth > width) {
+			width = textwidth;
+		}
+	}
+
+	width += MODGHOST_RULESINSET * 2;
+
+	// How far right it may reach. The alignment moves this window left and
+	// leaves the dialog where it was, so on a widescreen display the gap
+	// between the two is worth that many units of extra width - the difference
+	// between three lines of this and six.
+	//
+	// On a 4:3 window there is no such gap and the honest width would be ten
+	// characters, so a little of the dialog is allowed. Its rows are centred
+	// and its own left margin is wider than this, so what is covered is the
+	// window's background rather than anything written on it. The natural
+	// width is what it is: this is a ceiling, and on any display wide enough
+	// the lines fit inside the gap and never reach it.
+	x1 = viewleft + MODGHOST_PLAQUEMARGIN;
+	maxwidth = dialog->x + MODGHOST_RULESBITE - 2 + menuGhostPlaqueAlignOffset() - x1;
+
+	if (width > maxwidth) {
+		width = maxwidth;
+	}
+
+	x2 = x1 + width;
+	y2 = viewtop + viGetViewHeight() - MODGHOST_PLAQUEY;
+	y1 = y2 - LINEHEIGHT - ARRAYCOUNT(g_GhostRulesLines) * MODGHOST_RULESLINE - 3;
+
+	gdl = menuGhostAlign(gdl, G_ASPECT_LEFT_EXT);
+
+	g_MenuScissorX1 = viewleft;
+	g_MenuScissorY1 = viewtop;
+	g_MenuScissorX2 = viewright;
+	g_MenuScissorY2 = viewtop + viGetViewHeight();
+	gdl = menuApplyScissor(gdl);
+
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+
+	gdl = menuGhostWindow(gdl, x1, y1, x2, y2, "Trial Rules\n");
+
+	gdl = text0f153628(gdl);
+
+	for (i = 0; i < (s32)ARRAYCOUNT(g_GhostRulesLines); i++) {
+		x = x1 + MODGHOST_RULESINSET;
+		y = y1 + LINEHEIGHT + 1 + i * MODGHOST_RULESLINE;
+
+		gdl = textRenderProjected(gdl, &x, &y, g_GhostRulesLines[i],
+				g_CharsHandelGothicSm, g_FontHandelGothicSm, colours->item_unfocused,
+				x2 - x, viGetHeight(), 0, 0);
+	}
+
+	gdl = text0f153780(gdl);
+
+	return menuGhostAlignRestore(gdl, viewleft, viewtop, viewright);
+}
+
+/**
  * Draw the plaque: the window, the head and the name.
  *
  * Called after the dialogs rather than among them, because it belongs to no
@@ -2092,15 +2313,8 @@ static Gfx *menuGhostPlaqueRestore(Gfx *gdl, s32 viewleft, s32 viewtop, s32 view
  * every part of this sets its own and the model's viewport is put back before
  * anything else is drawn through it.
  */
-Gfx *ghostmenuRenderPlaque(Gfx *gdl)
+static Gfx *menuGhostRenderPlaque(Gfx *gdl)
 {
-	// Standing in for a dialog where the menu's own drawing wants one. Only
-	// its type and transition are read, and both say the same thing every
-	// frame: an ordinary blue window, not mid-change. Keeping it separate from
-	// the dialog on screen is deliberate - a red confirmation over the top
-	// should not turn the nameplate red with it.
-	static struct menudialog plaque = { 0 };
-
 	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
 	// The dialog the plaque last drew over, per player, and NULL for a player
 	// it is not drawing for.
@@ -2179,46 +2393,8 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 
 	lastdialog[g_MpPlayerNum] = g_Menus[g_MpPlayerNum].curdialog->definition;
 
-	// Ghost Trials rather than the dialog on screen: the plaque belongs to
-	// that page wherever the cursor has got to, and nothing reads this except
-	// code that would want the page it came from.
-	plaque.definition = &g_GhostTrialsMenuDialog;
-	plaque.type = MENUDIALOGTYPE_DEFAULT;
-	plaque.type2 = MENUDIALOGTYPE_DEFAULT;
-	plaque.transitionfrac = -1.0f;
-	plaque.colourweight = 0;
-	plaque.x = x1;
-	plaque.y = y1;
-	plaque.width = width;
-	plaque.height = y2 - y1;
-
-	// Pin the plaque to the right of the screen rather than to the right of
-	// the menu.
-	//
-	// menuRender() draws everything after the background with
-	// G_ASPECT_CENTER_EXT, which holds the menu at the view's own aspect in
-	// the middle of the window, so on a widescreen display there is a pillar
-	// of screen either side that no dialog reaches and the plaque was sitting
-	// on the corner of the dialog instead. G_ASPECT_CENTER_EXT is
-	// G_ASPECT_LEFT_EXT | G_ASPECT_RIGHT_EXT and dropping the left half of it
-	// is the port's own way of saying "hold this against the right edge" -
-	// what the HUD's Align setting does with g_HudAlignModeR. The plaque moves
-	// out into the pillar at the size and shape it already had, because the
-	// alignment is an offset rather than a stretch, and the scissor follows it
-	// out because fast3d shifts that by the same offset.
-	//
-	// WIDE stops the offset growing past 16:9, so an ultrawide display puts
-	// the plaque beside the menu rather than a foot away from it.
-	//
-	// On a 4:3 window there is no pillar, the offset is zero and this is the
-	// corner of the view, which is where it was.
-	//
-	// Before the scissor rather than after: fast3d turns a scissor rectangle
-	// into pixels at the moment the command is sent, using the alignment in
-	// force then, so a scissor set first stays behind in the middle of the
-	// screen and cuts the plaque in half.
-	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_LEFT_EXT);
-	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
+	// Against the right of the screen, out of the middle where the dialog is.
+	gdl = menuGhostAlign(gdl, G_ASPECT_RIGHT_EXT);
 
 	g_MenuScissorX1 = viewleft;
 	g_MenuScissorY1 = viewtop;
@@ -2228,29 +2404,9 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
-	// The window: title bar, its two shimmers, then the body and its borders -
-	// the same calls dialogRender() makes, in the same order, so the plaque
-	// weathers a change to how a window looks along with every other window.
-	gdl = menugfxRenderGradient(gdl, x1 - 2, y1, x2 + 2, bodytop,
-			colours->dialog_border1, colours->dialog_titlebg, colours->dialog_border2);
-	gdl = menugfxDrawShimmer(gdl, x1 - 2, y1, x2 + 2, y1 + 1,
-			(colours->dialog_border1 & 0xff) >> 1, 1, 40, 0);
-	gdl = menugfxDrawShimmer(gdl, x1 - 2, y1 + 10, x2 + 2, bodytop,
-			(colours->dialog_border1 & 0xff) >> 1, 0, 40, 1);
-	gdl = menugfxRenderDialogBackground(gdl, x1 + 1, bodytop, x2 - 1, y2, &plaque,
-			colours->dialog_bodybg, colours->unused14, -1.0f);
+	gdl = menuGhostWindow(gdl, x1, y1, x2, y2, "Player\n");
 
 	gdl = text0f153628(gdl);
-
-	x = x1 + 3;
-	y = y1 + 3;
-	gdl = textRenderProjected(gdl, &x, &y, "Player\n", g_CharsHandelGothicSm,
-			g_FontHandelGothicSm, colours->dialog_titlefg & 0xff, width, viGetHeight(), 0, 0);
-
-	x = x1 + 2;
-	y = y1 + 2;
-	gdl = textRenderProjected(gdl, &x, &y, "Player\n", g_CharsHandelGothicSm,
-			g_FontHandelGothicSm, colours->dialog_titlefg, width, viGetHeight(), 0, 0);
 
 	x = headx + MODGHOST_PLAQUEHEADW + 3;
 	y = bodytop + 9;
@@ -2266,7 +2422,7 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 		// No buffer, so no face. The window and the name are the half of this
 		// that costs nothing, and drawing them is better than the corner
 		// disappearing because a pool was full.
-		return menuGhostPlaqueRestore(gdl, viewleft, viewtop, viewright);
+		return menuGhostAlignRestore(gdl, viewleft, viewtop, viewright);
 	}
 
 	// The character, from the same two settings a recorded run is stamped
@@ -2323,7 +2479,7 @@ Gfx *ghostmenuRenderPlaque(Gfx *gdl)
 	viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
 			g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
 
-	return menuGhostPlaqueRestore(gdl, viewleft, viewtop, viewright);
+	return menuGhostAlignRestore(gdl, viewleft, viewtop, viewright);
 }
 
 /**
@@ -2457,3 +2613,18 @@ struct menudialogdef g_GhostTrialsMenuDialog = {
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
 };
+
+/**
+ * Everything Ghost Trials draws beside the menu rather than inside it.
+ *
+ * Two windows, both held against an edge of the screen: who the runs will
+ * belong to in the top right, and what a trial does to the game down the left.
+ * Neither is a dialog, for the reason on menuGhostRenderPlaque().
+ */
+Gfx *ghostmenuRenderOverlay(Gfx *gdl)
+{
+	gdl = menuGhostRenderPlaque(gdl);
+	gdl = menuGhostRenderRules(gdl);
+
+	return gdl;
+}

@@ -3921,10 +3921,9 @@ Gfx *menuRenderDialogs(Gfx *gdl)
 	}
 
 #ifndef PLATFORM_N64
-	// The Ghost Trials nameplate. After the dialogs because it is not one of
-	// them: it draws in the corner the dialogs leave empty, and it takes the
-	// menumodel on the pages that are not using it.
-	gdl = ghostmenuRenderPlaque(gdl);
+	// The Ghost Trials nameplate and rules. After the dialogs because they are
+	// not dialogs: they draw in the corners the dialogs leave empty.
+	gdl = ghostmenuRenderOverlay(gdl);
 #endif
 
 	return gdl;
