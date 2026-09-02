@@ -1387,7 +1387,10 @@ void ghostnetLogin(void) {}
 void ghostnetUploadMine(void) {}
 void ghostnetFetchBoard(s32 stagenum, s32 difficulty) {}
 void ghostnetDownload(s32 index) {}
-void ghostnetClearBoard(void) {}
+// ghostnetClearBoard() is not stubbed here. It only resets the counters below
+// the #endif, needs no transport to do it, and is defined unconditionally
+// there - a stub as well was a redefinition, which nothing noticed for as long
+// as nothing built this branch.
 s32 ghostnetGetNumAccounts(void) { return g_GhostNetUser[0] ? 1 : 0; }
 const char *ghostnetGetAccountAt(s32 index) { return index == 0 ? g_GhostNetUser : ""; }
 void ghostnetSelectAccount(s32 index) {}
