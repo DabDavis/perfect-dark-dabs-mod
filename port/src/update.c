@@ -1,3 +1,9 @@
+// The build is -std=c11, which is strict enough that unistd.h hides readlink().
+// As in record.c, this has to come before the first system header.
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,11 +18,18 @@
 #include "versioninfo.h"
 
 #ifdef PLATFORM_WIN32
+#include <windows.h>
 #include <process.h>
 #else
 #include <unistd.h>
 #include <sys/stat.h>
 #endif
+
+#ifdef PLATFORM_OSX
+#include <mach-o/dyld.h>
+#endif
+
+#include <errno.h>
 
 /**
  * See update.h for what this is. This file is the how.
@@ -76,6 +89,13 @@ static s32 g_Job = UPDATE_JOB_NONE;
 static s32 g_State = UPDATE_IDLE;
 static char g_Message[160] = { 0 };
 static bool g_Staged = false;
+
+// Where the new build was put, remembered rather than worked out again later.
+// updateSelfPath() asks the operating system which file this process is running
+// out of, and after the swap the honest answer is the one that was moved aside:
+// on Linux /proc/self/exe follows the inode through a rename. Recomputing it at
+// relaunch would start the build that was just replaced.
+static char g_StagedPath[FS_MAXPATH] = { 0 };
 
 // What the last check found, and what an install afterwards acts on. Written
 // on the worker under the lock and read by the menu, like everything else here.
@@ -258,26 +278,68 @@ static void updateSetResult(s32 state, const char *msg)
 }
 
 /**
- * Where this build's own executable is, and what to call the one beside it.
+ * The file this process is running out of, asked of the operating system.
  *
- * $E is the directory the game was started from, which fs.c works out at
- * startup, and VERSION_BINNAME is what CMake called the file. The two together
- * rather than argv[0] because argv[0] is whatever the shell felt like passing
- * and may be a name found on PATH, a symlink, or nothing at all - while these
- * two are what the release package actually contains.
+ * Every platform will say, and saying is the only answer that is always right.
+ * Building the name instead - the directory the game started from plus the one
+ * CMake wrote - was wrong twice over. On Windows CMake appends .exe to
+ * OUTPUT_NAME itself, so VERSION_BINNAME is the name without it and the file
+ * that was looked for did not exist; and on any platform a player who renamed
+ * their copy would have had the running one left alone and a stranger written
+ * beside it.
  *
- * A player who renamed the executable is the case this gets wrong, and gets
- * wrong safely: the file it writes is the one the package would have had, so
- * the next start is the old copy under the new name, not a broken one.
+ * The reconstructed name is still the fallback, for a platform with no answer
+ * to this question. It is a guess, and the failure it leads to is the one that
+ * was reported: nothing to move aside.
+ */
+static bool updateSelfPath(char *out, u32 outsize)
+{
+#if defined(PLATFORM_WIN32)
+	wchar_t wide[FS_MAXPATH];
+	DWORD len = GetModuleFileNameW(NULL, wide, ARRAYCOUNT(wide));
+
+	if (len > 0 && len < ARRAYCOUNT(wide)) {
+		if (WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int)outsize, NULL, NULL) > 0) {
+			return true;
+		}
+	}
+#elif defined(PLATFORM_OSX)
+	uint32_t size = outsize;
+
+	if (_NSGetExecutablePath(out, &size) == 0) {
+		return true;
+	}
+#else
+	ssize_t len = readlink("/proc/self/exe", out, outsize - 1);
+
+	if (len > 0) {
+		out[len] = '\0';
+		return true;
+	}
+#endif
+
+	{
+		char dir[FS_MAXPATH];
+
+		dir[0] = '\0';
+		sysGetExecutablePath(dir, sizeof(dir));
+		snprintf(out, outsize, "%s/" VERSION_BINNAME, dir);
+	}
+
+	return false;
+}
+
+/**
+ * That path, with a suffix on the end for the copies that stand beside it
+ * while the swap happens.
  */
 static void updatePath(const char *suffix, char *out, u32 outsize)
 {
-	char dir[FS_MAXPATH];
+	char self[FS_MAXPATH];
 
-	dir[0] = '\0';
-	sysGetExecutablePath(dir, sizeof(dir));
+	updateSelfPath(self, sizeof(self));
 
-	snprintf(out, outsize, "%s/" VERSION_BINNAME "%s", dir, suffix ? suffix : "");
+	snprintf(out, outsize, "%s%s", self, suffix ? suffix : "");
 }
 
 /**
@@ -491,7 +553,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 	f = fopen(newpath, "wb");
 
 	if (f == NULL) {
-		snprintf(msg, msgsize, "cannot write next to the game - is it installed somewhere read only?");
+		snprintf(msg, msgsize, "cannot write %s (%s)", newpath, strerror(errno));
 		return false;
 	}
 
@@ -549,7 +611,10 @@ static bool updateDownload(char *msg, u32 msgsize)
 	remove(oldpath);
 
 	if (rename(curpath, oldpath) != 0) {
-		snprintf(msg, msgsize, "could not move the running build aside");
+		// The path is in the message because the only way this fails is that
+		// the path is not the file it was meant to be, and a player cannot act
+		// on being told that something did not work.
+		snprintf(msg, msgsize, "could not move %s aside (%s)", curpath, strerror(errno));
 		remove(newpath);
 		return false;
 	}
@@ -566,6 +631,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 
 	SDL_LockMutex(g_Lock);
 	g_Staged = true;
+	snprintf(g_StagedPath, sizeof(g_StagedPath), "%s", curpath);
 	SDL_UnlockMutex(g_Lock);
 
 	return true;
@@ -736,9 +802,16 @@ void updateRelaunchIfStaged(void)
 		return;
 	}
 
-	updatePath(NULL, path, sizeof(path));
+	SDL_LockMutex(g_Lock);
+	snprintf(path, sizeof(path), "%s", g_StagedPath);
+	SDL_UnlockMutex(g_Lock);
 
 	sysLogPrintf(LOG_NOTE, "update: starting %s", path);
+
+	// exec does not flush what stdout is holding, and on the path that works
+	// there is no later chance to. The one line worth having in the log when
+	// somebody asks why the game came back different is this one.
+	fflush(NULL);
 
 #ifdef PLATFORM_WIN32
 	_spawnv(_P_NOWAIT, path, sysGetArgv());

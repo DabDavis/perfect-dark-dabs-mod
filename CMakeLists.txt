@@ -134,7 +134,15 @@ message(STATUS "Update channel: ${VERSION_CHANNEL}")
 # copy Check for Updates downloads. It is worked out here rather than at the
 # add_executable() below because versioninfo.h is generated before that point,
 # and the two must not be able to disagree about the name.
-set(VERSION_BINNAME "pd${BIN_REGION}.${TARGET_ARCH}")
+set(BIN_BASENAME "pd${BIN_REGION}.${TARGET_ARCH}")
+if(WIN32)
+  # CMake appends .exe to OUTPUT_NAME itself, so the name the target is given
+  # and the name on disk are not the same string. The updater wants the one on
+  # disk; add_executable() below wants the other.
+  set(VERSION_BINNAME "${BIN_BASENAME}.exe")
+else()
+  set(VERSION_BINNAME "${BIN_BASENAME}")
+endif()
 
 set(VERSION_TARGET "${TARGET_PLATFORM}")
 set(VERSION_ARCH "${TARGET_ARCH}")
@@ -394,7 +402,7 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
 # Game target
 
-set(BIN_NAME "${VERSION_BINNAME}")
+set(BIN_NAME "${BIN_BASENAME}")
 add_executable(pd ${SRC})
 add_dependencies(pd pd_headers)
 target_link_libraries(pd ${LIBS})
