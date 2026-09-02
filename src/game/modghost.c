@@ -2462,6 +2462,27 @@ void modGhostReset(void)
 	// The shared definitions belong to the stage as well.
 	g_ModGhostNumBodyDefs = 0;
 
+	// Forget which field is loaded, so the next mission reads the directory
+	// again.
+	//
+	// modGhostTick() only re-reads when the stage, the difficulty, the mode,
+	// the pick or the count has changed since last time, and starting the same
+	// mission over changes none of them - which is exactly what a time trial
+	// is: the same mission over and over. So the field was whatever the first
+	// run of the session loaded, and every run finished afterwards was written
+	// to disk and never seen again. A player recording four attempts watched
+	// the same two ghosts the whole evening and reasonably concluded the new
+	// ones were not being saved.
+	//
+	// This runs from playermgrAllocatePlayer(), which is every stage load
+	// including a retry, so it is the one place that knows a mission is
+	// starting rather than continuing.
+	g_ModGhostLoadedStage = -1;
+	g_ModGhostLoadedDiff = -1;
+	g_ModGhostLoadedMode = -1;
+	g_ModGhostLoadedPick = -1;
+	g_ModGhostLoadedMax = -1;
+
 	g_ModGhostSplitIdx = 0;
 	g_ModGhostSplit60 = 0;
 	g_ModGhostSplitValid = false;
