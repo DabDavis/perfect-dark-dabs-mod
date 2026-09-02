@@ -124,8 +124,16 @@ static u32 startTicks;
 static u32 framesWritten;
 static char outPath[FS_MAXPATH + 1];
 
-// The name ffmpeg knows the readback format by, from videoCaptureFormatName().
-static const char *capFormat;
+/**
+ * The name ffmpeg knows the readback format by, from videoCaptureFormatName().
+ *
+ * It starts as bgra rather than nothing so that the menu can probe encoders
+ * before a recording has ever set it. That is not a guess at what the GPU will
+ * hand over: both formats are four bytes a pixel and every chain here takes
+ * either, so which one it is cannot change whether an encoder works - only
+ * recordStart() needs the real answer, and it asks for it.
+ */
+static const char *capFormat = "bgra";
 
 // What the recording cost the game, to say at the end. The capture is the
 // readback and the copy out of it; the wait is time the game spent with a
@@ -230,6 +238,7 @@ enum {
 
 struct recordCodec {
 	const char *name;       // what goes in the config, and what the log calls it
+	const char *label;      // what the menu calls it: whose hardware, not ffmpeg's name
 	const char *encoder;    // ffmpeg's -c:v
 	const char *device;     // global arguments before the inputs, %s = a device
 	const char *filters[3]; // chains to try after vflip, best first, NULL ended
@@ -255,36 +264,36 @@ struct recordCodec {
  */
 static const struct recordCodec recordCodecs[] = {
 #if defined(PLATFORM_WIN32)
-	{ "nvenc", "h264_nvenc", NULL,
+	{ "nvenc", "Nvidia NVENC", "h264_nvenc", NULL,
 		{ "hwupload_cuda,scale_cuda=format=nv12", "format=nv12", NULL },
 		"-preset p4 -tune hq -rc constqp -qp %d -b:v 0", RECORD_Q_QP },
-	{ "amf", "h264_amf", NULL,
+	{ "amf", "AMD AMF", "h264_amf", NULL,
 		{ "format=nv12", NULL },
 		"-usage transcoding -rc cqp -qp_i %d -qp_p %d -qp_b %d", RECORD_Q_QP },
-	{ "qsv", "h264_qsv", "-init_hw_device qsv=pdhw -filter_hw_device pdhw",
+	{ "qsv", "Intel QuickSync", "h264_qsv", "-init_hw_device qsv=pdhw -filter_hw_device pdhw",
 		{ "format=nv12,hwupload=extra_hw_frames=64", "format=nv12", NULL },
 		"-preset veryfast -global_quality %d", RECORD_Q_QP },
-	{ "mf", "h264_mf", NULL,
+	{ "mf", "Media Foundation", "h264_mf", NULL,
 		{ "format=nv12", NULL },
 		"-rate_control quality -quality %d", RECORD_Q_PCT },
 #elif defined(PLATFORM_OSX)
 	// VideoToolbox takes a constant quality on Apple silicon and a bitrate on
 	// the Intel machines, and says so by refusing the option rather than by
 	// anything that can be asked in advance. Both are listed; the probe picks.
-	{ "videotoolbox", "h264_videotoolbox", NULL,
+	{ "videotoolbox", "VideoToolbox", "h264_videotoolbox", NULL,
 		{ "format=nv12", NULL },
 		"-q:v %d", RECORD_Q_PCT },
-	{ "videotoolbox-vbr", "h264_videotoolbox", NULL,
+	{ "videotoolbox-vbr", "VideoToolbox VBR", "h264_videotoolbox", NULL,
 		{ "format=nv12", NULL },
 		"-b:v %dk", RECORD_Q_KBPS },
 #else
-	{ "nvenc", "h264_nvenc", NULL,
+	{ "nvenc", "Nvidia NVENC", "h264_nvenc", NULL,
 		{ "hwupload_cuda,scale_cuda=format=nv12", "format=nv12", NULL },
 		"-preset p4 -tune hq -rc constqp -qp %d -b:v 0", RECORD_Q_QP },
-	{ "vaapi", "h264_vaapi", "-init_hw_device vaapi=pdhw:%s -filter_hw_device pdhw",
+	{ "vaapi", "VAAPI (AMD/Intel)", "h264_vaapi", "-init_hw_device vaapi=pdhw:%s -filter_hw_device pdhw",
 		{ "hwupload,scale_vaapi=format=nv12", "format=nv12,hwupload", NULL },
 		"-rc_mode CQP -qp %d", RECORD_Q_QP },
-	{ "qsv", "h264_qsv", "-init_hw_device qsv=pdhw -filter_hw_device pdhw",
+	{ "qsv", "Intel QuickSync", "h264_qsv", "-init_hw_device qsv=pdhw -filter_hw_device pdhw",
 		{ "format=nv12,hwupload=extra_hw_frames=64", "format=nv12", NULL },
 		"-preset veryfast -global_quality %d", RECORD_Q_QP },
 #endif
@@ -299,7 +308,7 @@ static const struct recordCodec recordCodecs[] = {
  * asks for one by name in the config.
  */
 static const struct recordCodec recordSoftwareCodec = {
-	"software", "libx264", NULL,
+	"software", "Software (Slow)", "libx264", NULL,
 	{ "format=yuv420p", NULL },
 	"-preset veryfast -crf %d", RECORD_Q_QP,
 };
@@ -1755,6 +1764,166 @@ void recordSetQuality(s32 q)
 	if (q >= RECORD_QUALITY_MIN && q <= RECORD_QUALITY_MAX) {
 		recordQuality = q;
 	}
+}
+
+/**
+ * The codec list as the menu sees it: Auto, then this platform's encoders in
+ * the order they would be probed, then the software one at the end.
+ *
+ * Auto is not a codec but a decision not yet made, and it does not survive being
+ * made: recordResolveCodec() writes what it found back into codecName, so a
+ * moment after the first recording starts the menu is showing that instead. That
+ * is the honest thing for it to show, and picking Auto again is how the search
+ * is asked to run a second time - on another machine, or after a driver arrives.
+ */
+static const struct recordCodec *recordCodecByIndex(s32 index)
+{
+	if (index >= 1 && index <= RECORD_CODEC_COUNT) {
+		return &recordCodecs[index - 1];
+	}
+
+	if (index == RECORD_CODEC_COUNT + 1) {
+		return &recordSoftwareCodec;
+	}
+
+	return NULL;
+}
+
+s32 recordGetCodecCount(void)
+{
+	return RECORD_CODEC_COUNT + 2;
+}
+
+/**
+ * Which of them this machine can actually use.
+ *
+ * Most of the list cannot work anywhere: an AMD card has no NVENC and an Nvidia
+ * one has no VAAPI, so a menu that offers all of them equally is offering a
+ * player several ways to pick something that will quietly be replaced by
+ * something else at the next recording. The probe that recordResolveCodec()
+ * would run eventually is run when the dropdown is opened instead, and what it
+ * finds is written next to each name.
+ *
+ * On a thread, because it is the best part of a second of starting ffmpeg over
+ * and over - a menu that stops dead for that long looks like a game that has
+ * crashed, and a driver nobody here has seen could take far longer. The list
+ * fills in as the answers arrive.
+ *
+ * Each entry is a byte written once by that thread and read by the menu; a torn
+ * read is not possible and a stale one costs a frame of saying "checking".
+ */
+#define RECORD_AVAIL_UNKNOWN 0
+#define RECORD_AVAIL_WORKS   1
+#define RECORD_AVAIL_NO      2
+
+static u8 codecAvail[RECORD_CODEC_COUNT + 2];
+static bool availStarted;
+static char codecLabelText[RECORD_CODEC_COUNT + 2][48];
+
+static int recordAvailThread(void *arg)
+{
+	struct recordEncoder scratch;
+
+	(void)arg;
+
+	for (s32 i = 1; i < recordGetCodecCount(); i++) {
+		const struct recordCodec *c = recordCodecByIndex(i);
+
+		codecAvail[i] = recordTryCodec(c, &scratch) ? RECORD_AVAIL_WORKS : RECORD_AVAIL_NO;
+	}
+
+	return 0;
+}
+
+void recordProbeCodecs(void)
+{
+	SDL_Thread *thread;
+
+	// Once a session is enough, and never while recording: the probe starts
+	// ffmpeg several times over, and the encoder that is running wants the CPU
+	// more than the menu does. The row is disabled during a recording anyway.
+	if (availStarted || active) {
+		return;
+	}
+
+	availStarted = true;
+
+	for (s32 i = 0; i < recordGetCodecCount(); i++) {
+		codecAvail[i] = RECORD_AVAIL_UNKNOWN;
+	}
+
+	thread = SDL_CreateThread(recordAvailThread, "pd-rec-probe", NULL);
+
+	if (thread) {
+		// Nothing waits for it. It touches only the array above and is finished
+		// long before anything could care, so there is nothing to join.
+		SDL_DetachThread(thread);
+	} else {
+		// No thread, so no answers: the names go back to standing alone rather
+		// than all saying "checking" for the rest of the session.
+		availStarted = false;
+	}
+}
+
+const char *recordGetCodecLabel(s32 index)
+{
+	const struct recordCodec *c = recordCodecByIndex(index);
+	const char *suffix;
+
+	// Auto is the one entry that is always right, being a decision to let the
+	// same probe run and take whatever it finds.
+	if (!c) {
+		return "Auto";
+	}
+
+	if (!availStarted) {
+		return c->label;
+	}
+
+	switch (codecAvail[index]) {
+	case RECORD_AVAIL_WORKS:
+		return c->label;
+	case RECORD_AVAIL_NO:
+		suffix = " (unavailable)";
+		break;
+	default:
+		suffix = " (checking)";
+		break;
+	}
+
+	snprintf(codecLabelText[index], sizeof(codecLabelText[index]), "%s%s", c->label, suffix);
+
+	return codecLabelText[index];
+}
+
+s32 recordGetCodecIndex(void)
+{
+	for (s32 i = 1; i < recordGetCodecCount(); i++) {
+		if (!strcmp(codecName, recordCodecByIndex(i)->name)) {
+			return i;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Nothing is probed here - the menu is not the place to spend half a second
+ * finding out - so this only says what to try, and the next recording finds out
+ * whether it works. One that does not falls back to the search, which then
+ * writes what it found into codecName and so into this menu: a pick that cannot
+ * work corrects itself in front of the player rather than silently recording
+ * with something else.
+ */
+void recordSetCodecIndex(s32 index)
+{
+	const struct recordCodec *c = recordCodecByIndex(index);
+
+	snprintf(codecName, sizeof(codecName), "%s", c ? c->name : RECORD_DEFAULT_CODEC);
+
+	// Whatever was worked out before was for the old answer.
+	codecResolved = false;
+	chosen.codec = NULL;
 }
 
 s32 recordGetIndicator(void)

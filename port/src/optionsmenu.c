@@ -2388,11 +2388,13 @@ static MenuItemHandlerResult menuhandlerModBind(s32 operation, struct menuitem *
 /**
  * Recording: the key, what it writes, and whether the red dot goes on screen.
  *
- * Frame Rate and Quality are the two knobs worth a row. Everything else about
- * the encode - the codec, the preset, the container - is fixed, because the
- * point of the feature is a file that plays, and a menu that can produce one
- * that does not is not doing anyone a favour. Mod.RecordEncoder in pd.ini names
- * the ffmpeg to run, for anyone who keeps theirs somewhere unusual.
+ * Frame Rate, Quality and Encoder get a row each. The preset and the container
+ * do not and never will: the point of the feature is a file that plays, and a
+ * menu that can produce one that does not is not doing anyone a favour. Encoder
+ * is on the list because every option in it produces a file that plays - the
+ * choice is what does the work and what it costs, not whether it works.
+ * Mod.RecordEncoder in pd.ini names the ffmpeg to run, for anyone who keeps
+ * theirs somewhere unusual.
  *
  * The frame rate is the recording's, not the game's. A game frame that arrives
  * early is not captured and one that arrives late is written twice, so the file
@@ -2450,6 +2452,56 @@ static MenuItemHandlerResult menuhandlerModRecordQuality(s32 operation, struct m
 				data->dropdown.value = i;
 			}
 		}
+	}
+
+	return 0;
+}
+
+/**
+ * Which encoder does the work.
+ *
+ * Auto is the right answer nearly always: it tries each of this machine's in
+ * turn and keeps the first that works, which is a few hundred milliseconds once
+ * and never again. The row is here for the times it is not - a driver that
+ * accepts the probe and then makes a mess of real frames, a second GPU that
+ * should be doing this instead of the first, or wanting to see for yourself what
+ * a different one costs.
+ *
+ * Software is libx264 across every core the machine has, which is the thing
+ * recording on the GPU was for. It is on the list because a machine with nothing
+ * on its GPU can still make a recording that way, not because anyone should
+ * choose it otherwise.
+ *
+ * Most of the list cannot work on any one machine - an AMD card has no NVENC,
+ * an Nvidia one has no VAAPI - so opening the dropdown starts the same probe a
+ * recording would have run, and each name says whether it is any use here. It
+ * is a thread and takes about a second, so the list says "checking" first and
+ * fills in; nothing waits for it and a pick made meanwhile still works.
+ *
+ * A pick that turns out not to work is still not an error - the next recording
+ * falls back to the search and writes what it found back here, so the row
+ * corrects itself rather than quietly recording with something else. That is
+ * the second line of defence now rather than the first.
+ */
+static MenuItemHandlerResult menuhandlerModRecordCodec(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return recordIsActive();
+	case MENUOP_GETOPTIONCOUNT:
+		// menuitemDropdownOverlay() asks for the count as it opens the list, so
+		// this is the moment the player has said they want to choose - and the
+		// last one before they are looking at names they could be misled by.
+		recordProbeCodecs();
+		data->dropdown.value = recordGetCodecCount();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)recordGetCodecLabel(data->dropdown.value);
+	case MENUOP_SET:
+		recordSetCodecIndex(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = recordGetCodecIndex();
 	}
 
 	return 0;
@@ -2871,6 +2923,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Recording Quality",
 		0,
 		menuhandlerModRecordQuality,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Recording Encoder",
+		0,
+		menuhandlerModRecordCodec,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
