@@ -60,6 +60,19 @@ reads it: a 128 byte header, 24 byte samples, version 1 or 2, `rate60` equal to
 of 0-2, no trailing bytes, and the FNV-1a hash over the sample block exactly as
 `modGhostHash()` computes it.
 
+## Testing it
+
+```sh
+python3 tools/pdghostd/test_pdghostd.py
+```
+
+Runs a patched copy on port 8392 (`PDGHOSTD_TEST_PORT` to change it) against
+a temporary directory and takes it through registration, uploads built the
+way the game builds them, two dozen forged headers, the hot-account slowdown,
+the quota, eviction, and the malformed requests that used to drop the
+connection. Standard library only; nothing outside the temporary directory is
+touched, and the live database is never involved.
+
 ## Running it
 
 ```sh
@@ -83,9 +96,15 @@ client that can set those headers can set the address the rate limiter counts
 against, and the rate limiter rather than the four digit PIN is what actually
 guards an account.
 
-Wrong PINs are counted per address (8 in 5 minutes, and 30 in 5 minutes as a
-ceiling on hashing) and per account (8 in 15 minutes, whoever is asking), and
-a refused sign-in says `wrong username or pin` whether or not the account
+Wrong PINs are counted per address (8 in 5 minutes refuses, and 30 in 5
+minutes as a ceiling on hashing) and per account (8 in 15 minutes, whoever is
+asking). The account count does not lock — a lock would let anyone keep a
+player off the board by naming them. Past it the account is *hot*: attempts
+from an address it has not signed in from before are taken one at a time,
+each after a 3 second wait, and at most two may queue before the next is told
+to try again in a moment. The addresses an account has signed in from (the
+last five, including the one that registered it) skip the wait entirely. A
+refused sign-in says `wrong username or pin` whether or not the account
 exists. Uploads are counted separately, 120 an hour per account, and a valid
 PIN counts against nothing. Behind nginx:
 

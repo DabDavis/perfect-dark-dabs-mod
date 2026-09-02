@@ -101,11 +101,28 @@ AUTH_MAX_FAILURES = 8
 # The same again per account, whoever is asking. The address limiter stops
 # one machine guessing; it does nothing about many machines each guessing a
 # few times at one account, and a four digit PIN is ten thousand guesses.
-# Eight in fifteen minutes makes that a matter of weeks. The cost is that
-# anybody can lock an account for a quarter of an hour by naming it, which is
-# the trade every lockout makes and the cheaper one here.
+#
+# This one does not lock. A lock is a gift to anybody who wants a player off
+# the board: every name on it is an account, and eight wrong guesses every
+# quarter of an hour would keep its owner from ever signing in. So past
+# USER_MAX_FAILURES the account is "hot", and what that changes is the price
+# of a guess rather than whether one is allowed: attempts from an address the
+# account has not signed in from before are taken one at a time and each one
+# waits USER_SLOW_DELAY seconds first, whoever it is. Ten thousand guesses at
+# one every few seconds is hours across any number of addresses, and the
+# right PIN still gets in - after the wait, from a new machine; at once, from
+# one that has signed in before, because those addresses are remembered and
+# skip all of this.
+#
+# USER_SLOW_WAITING is how many attempts may queue for one account. Past it
+# an attempt is told to come back, so that a flood cannot make everyone else
+# wait behind it - a flood can make a stranger's first sign-in retry, which
+# is the most it can do now.
 USER_WINDOW = 900
 USER_MAX_FAILURES = 8
+USER_SLOW_DELAY = 3.0
+USER_SLOW_WAITING = 2
+KNOWN_IPS_MAX = 5
 
 # Every check of a PIN costs a PBKDF2, which is the point for a stored secret
 # and a cost for a server. The failure budget above is cleared by a success,
@@ -152,6 +169,7 @@ _lock = threading.Lock()
 _auth_failures = {}
 _auth_attempts = {}
 _user_failures = {}
+_user_serial = {}    # account -> (lock, waiting count), while any attempt is in it
 _upload_counts = {}
 _download_counts = {}
 
@@ -292,7 +310,8 @@ def init_db():
                 username   TEXT PRIMARY KEY COLLATE NOCASE,
                 pin_salt   BLOB NOT NULL,
                 pin_hash   BLOB NOT NULL,
-                created    INTEGER NOT NULL
+                created    INTEGER NOT NULL,
+                known_ips  TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS ghosts (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -341,6 +360,15 @@ def init_db():
         # board, so the default is right for all of them.
         if "evicted" not in have:
             conn.execute("ALTER TABLE ghosts ADD COLUMN evicted INTEGER NOT NULL DEFAULT 0")
+
+        # The addresses an account has signed in from, newest first, so that
+        # its owner is not slowed by a stranger guessing at it. Empty for
+        # every account that predates the column; it fills in at their next
+        # sign-in.
+        have = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+
+        if "known_ips" not in have:
+            conn.execute("ALTER TABLE users ADD COLUMN known_ips TEXT NOT NULL DEFAULT ''")
 
         # Rows that cannot show they were set under trial rules go, with their
         # files. Uploads are refused on the same test, so this runs once in
@@ -412,6 +440,47 @@ def rate_hit(table, key):
     """Count one against a key without asking whether it is over."""
     with _lock:
         table.setdefault(key, []).append(time.time())
+
+
+def known_ips(row):
+    return [a for a in (row["known_ips"] or "").split(",") if a]
+
+
+def remember_ip(username, ip):
+    """Put an address at the front of an account's remembered list."""
+    with db() as conn:
+        row = conn.execute("SELECT known_ips FROM users WHERE username = ?", (username,)).fetchone()
+        if row is None:
+            return
+        ips = [ip] + [a for a in known_ips(row) if a != ip]
+        conn.execute("UPDATE users SET known_ips = ? WHERE username = ?",
+                     (",".join(ips[:KNOWN_IPS_MAX]), username))
+
+
+def user_slot_take(user):
+    """Join the queue for a hot account, or None if it is full.
+
+    Returns the account's lock; the caller holds it for the delay and the
+    check, so attempts at one account happen one at a time, and gives the
+    slot back with user_slot_give() whatever happens.
+    """
+    with _lock:
+        lock, waiting = _user_serial.get(user, (None, 0))
+        if waiting >= USER_SLOW_WAITING:
+            return None
+        if lock is None:
+            lock = threading.Lock()
+        _user_serial[user] = (lock, waiting + 1)
+        return lock
+
+
+def user_slot_give(user):
+    with _lock:
+        lock, waiting = _user_serial[user]
+        if waiting <= 1:
+            del _user_serial[user]
+        else:
+            _user_serial[user] = (lock, waiting - 1)
 
 
 def fnv1a(data):
@@ -651,20 +720,21 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
     def authenticate(self, username, pin):
-        """Check a username and PIN. Returns (ok, error).
+        """Check a username and PIN. Returns (ok, error message).
 
         Nothing is counted until it fails, and a failure counts against the
-        address and against the account named, so that neither one machine
-        nor many can sit and guess. The answer is the same whether the account
-        exists or the PIN was wrong: the difference between those is the list
-        of usernames, and a guesser should have to guess those as well.
+        address and against the account named. The address limits refuse;
+        the account one slows - see USER_SLOW_DELAY - and never for an
+        address the account has signed in from before. The answer is the
+        same whether the account exists or the PIN was wrong: the difference
+        between those is the list of usernames, and a guesser should have to
+        guess those as well.
         """
         ip = self.client_ip()
         user = username.lower()
 
         if (not rate_ok(_auth_failures, ip, AUTH_WINDOW, AUTH_MAX_FAILURES, record=False)
-                or not rate_ok(_auth_attempts, ip, AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX, record=False)
-                or not rate_ok(_user_failures, user, USER_WINDOW, USER_MAX_FAILURES, record=False)):
+                or not rate_ok(_auth_attempts, ip, AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX, record=False)):
             return False, "too many attempts, wait a few minutes"
 
         if not username or not pin:
@@ -673,25 +743,48 @@ class Handler(BaseHTTPRequestHandler):
         with db() as conn:
             row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
-        if row is None:
-            # Hashed anyway, against nothing, so that a name that is not an
-            # account takes as long to refuse as a PIN that is wrong.
-            salt, expect = b"\0" * 16, b"\0" * 32
-        else:
-            salt, expect = bytes(row["pin_salt"]), bytes(row["pin_hash"])
+        known = row is not None and ip in known_ips(row)
+        hot = not rate_ok(_user_failures, user, USER_WINDOW, USER_MAX_FAILURES, record=False)
 
-        if row is None or not hmac.compare_digest(expect, hash_pin(pin, salt)):
+        if hot and not known:
+            slot = user_slot_take(user)
+            if slot is None:
+                return False, "this account is busy, try again in a moment"
+            try:
+                with slot:
+                    time.sleep(USER_SLOW_DELAY)
+                    ok = self.check_pin(row, pin)
+            finally:
+                user_slot_give(user)
+        else:
+            ok = self.check_pin(row, pin)
+
+        if not ok:
             rate_hit(_auth_failures, ip)
             rate_hit(_auth_attempts, ip)
             rate_hit(_user_failures, user)
             return False, "wrong username or pin"
 
-        # A success clears the failure budgets for this address and account.
+        # A success clears the failure budgets for this address and account,
+        # and the address joins the ones the account is not slowed from.
         with _lock:
             _auth_failures.pop(ip, None)
             _user_failures.pop(user, None)
 
+        if not known:
+            remember_ip(row["username"], ip)
+
         return True, None
+
+    @staticmethod
+    def check_pin(row, pin):
+        """One PBKDF2, whether or not there is an account: a name that is not
+        one takes as long to refuse as a PIN that is wrong."""
+        if row is None:
+            salt, expect = b"\0" * 16, b"\0" * 32
+        else:
+            salt, expect = bytes(row["pin_salt"]), bytes(row["pin_hash"])
+        return row is not None and hmac.compare_digest(expect, hash_pin(pin, salt))
 
     # ---------------------------------------------------------------- routes
 
@@ -793,9 +886,12 @@ class Handler(BaseHTTPRequestHandler):
             salt = os.urandom(16)
             try:
                 with db() as conn:
+                    # The address that made the account is its first known
+                    # one, so its owner is never slowed on the machine they
+                    # registered from.
                     conn.execute(
-                        "INSERT INTO users (username, pin_salt, pin_hash, created) VALUES (?,?,?,?)",
-                        (username, salt, hash_pin(pin, salt), int(time.time())))
+                        "INSERT INTO users (username, pin_salt, pin_hash, created, known_ips) VALUES (?,?,?,?,?)",
+                        (username, salt, hash_pin(pin, salt), int(time.time()), self.client_ip()))
             except sqlite3.IntegrityError:
                 # Unique usernames, case-insensitively.
                 return self.send_json(409, {"ok": False, "error": "username already taken"})
