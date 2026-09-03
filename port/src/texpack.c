@@ -13,17 +13,23 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "platform.h"
 #include "config.h"
 #include "fs.h"
+#include "pngread.h"
 #include "pngwrite.h"
 #include "system.h"
 #include "texpack.h"
 #include "versioninfo.h"
 
 #define TEXPACK_DUMP_DIR_NAME "texturedump"
+
+// Matches the "textures" directory modTextureLoad() already reads its %04x.bin
+// replacements from, so one pack directory holds both kinds.
+#define TEXPACK_DIR_NAME "textures"
 
 // Slots are never fewer than this, so the table is allocated once for a level
 // rather than grown through the small sizes on the way up.
@@ -43,6 +49,11 @@ static struct texpackslot *slots;
 static u32 numSlots;    // always a power of two
 static u32 numOccupied; // live entries plus tombstones
 static u32 numLive;
+
+static s32 loadTextures = 1;
+static char **replacePaths;   // one per texture number, NULL where there is none
+static s32 replaceScanned;    // the scan runs once, on the first texture drawn
+static s32 numReplacements;
 
 static s32 dumpTextures = 0;
 static char dumpDir[FS_MAXPATH + 1];
@@ -245,6 +256,184 @@ void texpackForgetAll(void)
 	numLive = 0;
 }
 
+/**
+ * Records one candidate filename against its texture number.
+ *
+ * The name is <texnum>.png, four lowercase hex digits, optionally followed by
+ * an underscore and anything at all - which is what the dumper writes
+ * (0a9a_i8.png), so a dump can be edited and dropped back in without renaming.
+ */
+static void texpackIndexFile(const char *name, void *arg)
+{
+	const char *dir = arg;
+	char digits[5];
+	const char *rest;
+	char *end;
+	char *path;
+	u32 len;
+	s32 texturenum;
+
+	if (strlen(name) < 8) { // 4 digits + ".png"
+		return;
+	}
+
+	memcpy(digits, name, 4);
+	digits[4] = '\0';
+
+	texturenum = (s32)strtol(digits, &end, 16);
+
+	if (*end || texturenum < 0 || texturenum >= NUM_TEXTURES) {
+		return;
+	}
+
+	rest = name + 4;
+
+	if (*rest == '_') {
+		rest = strrchr(rest, '.');
+
+		if (!rest) {
+			return;
+		}
+	}
+
+	if (strcasecmp(rest, ".png")) {
+		return;
+	}
+
+	len = strlen(dir) + strlen(name) + 2;
+	path = malloc(len);
+
+	if (!path) {
+		return;
+	}
+
+	snprintf(path, len, "%s/%s", dir, name);
+
+	// A later directory outranks an earlier one: the scan walks from the base
+	// directory up through the mod directories in reverse priority order, so
+	// whatever is found last is what the path search would have picked.
+	if (replacePaths[texturenum]) {
+		free(replacePaths[texturenum]);
+	} else {
+		numReplacements++;
+	}
+
+	replacePaths[texturenum] = path;
+}
+
+static void texpackScanDir(const char *dir)
+{
+	char path[FS_MAXPATH + 1];
+
+	snprintf(path, sizeof(path), "%s/" TEXPACK_DIR_NAME, dir);
+
+	// fsScanDir() takes a VFS path and resolves it through the search order,
+	// which would collapse every mod directory onto whichever one wins. These
+	// are absolute paths precisely so each is scanned in its own right.
+	fsScanDir(path, texpackIndexFile, path);
+}
+
+/**
+ * Builds the texture-number-to-file index, once.
+ *
+ * Done up front rather than by looking for a file per texture: a miss is the
+ * common case by far, and a stat on every texture load - through the mod search
+ * path, so several stats - would be paid forever for packs that do not exist.
+ */
+static void texpackScan(void)
+{
+	s32 i;
+
+	replaceScanned = 1;
+
+	if (!loadTextures) {
+		return;
+	}
+
+	replacePaths = calloc(NUM_TEXTURES, sizeof(char *));
+
+	if (!replacePaths) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not alloc the replacement index");
+		return;
+	}
+
+	texpackScanDir(fsFullPath("$B"));
+
+	for (i = fsGetNumModDirs() - 1; i >= 0; i--) {
+		texpackScanDir(fsGetModDirAt(i));
+	}
+
+	if (numReplacements) {
+		sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
+	} else {
+		free(replacePaths);
+		replacePaths = NULL;
+	}
+}
+
+s32 texpackHaveReplacements(void)
+{
+	if (!replaceScanned) {
+		texpackScan();
+	}
+
+	return replacePaths != NULL;
+}
+
+u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
+{
+	s32 texturenum;
+	u8 *rgba;
+	s32 width;
+	s32 height;
+	s32 y;
+
+	if (!texpackHaveReplacements()) {
+		return NULL;
+	}
+
+	texturenum = texpackGetTextureNum(data);
+
+	if (texturenum < 0 || texturenum >= NUM_TEXTURES || !replacePaths[texturenum]) {
+		return NULL;
+	}
+
+	rgba = pngRead(replacePaths[texturenum], &width, &height);
+
+	if (!rgba) {
+		// Whatever is wrong with the file will not fix itself, and retrying on
+		// every cache miss would log it forever. Drop it and draw the original.
+		free(replacePaths[texturenum]);
+		replacePaths[texturenum] = NULL;
+		numReplacements--;
+		return NULL;
+	}
+
+	// Back into the game's row order. See the note over the dump for why the
+	// two disagree.
+	for (y = 0; y < height / 2; y++) {
+		u8 *a = rgba + (size_t)width * 4 * y;
+		u8 *b = rgba + (size_t)width * 4 * (height - 1 - y);
+		u32 x;
+
+		for (x = 0; x < (u32)width * 4; x++) {
+			const u8 tmp = a[x];
+			a[x] = b[x];
+			b[x] = tmp;
+		}
+	}
+
+	*outWidth = width;
+	*outHeight = height;
+
+	return rgba;
+}
+
+void texpackFreeReplacement(u8 *rgba)
+{
+	free(rgba);
+}
+
 s32 texpackDumpEnabled(void)
 {
 	return dumpTextures != 0;
@@ -350,5 +539,6 @@ void texpackDumpTexture(const void *data, const u8 *rgba32, u32 width, u32 heigh
 
 PD_CONSTRUCTOR static void texpackConfigInit(void)
 {
+	configRegisterInt("Mod.LoadTextures", &loadTextures, 0, 1);
 	configRegisterInt("Mod.DumpTextures", &dumpTextures, 0, 1);
 }

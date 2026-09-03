@@ -1113,6 +1113,22 @@ static void import_texture(int i, int tile, bool importReplacement) {
         return;
     }
 
+    // A pack replaces the pixels and nothing else. The tile geometry the rest
+    // of gfx_pc works from - and every texture coordinate derived from it - is
+    // still the N64's, so a higher resolution image needs no other allowance:
+    // UVs are normalised by the tile, not by what was uploaded.
+    if (texpackHaveReplacements()) {
+        int32_t rep_width;
+        int32_t rep_height;
+        uint8_t* rep = texpackLoadReplacement(orig_addr, &rep_width, &rep_height);
+
+        if (rep) {
+            gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
+            texpackFreeReplacement(rep);
+            return;
+        }
+    }
+
     last_upload_width = 0;
 
     if (fmt == G_IM_FMT_RGBA) {

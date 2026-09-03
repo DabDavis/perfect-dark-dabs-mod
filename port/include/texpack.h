@@ -32,6 +32,30 @@ void texpackForgetAll(void);
 s32 texpackGetTextureNum(const void *data);
 
 /**
+ * Looks for a replacement image for whatever texture lives at data, decodes it,
+ * and hands back an RGBA32 buffer for the renderer to upload in place of the
+ * game's own texels. Returns NULL when there is no replacement, which is the
+ * usual answer and costs one array lookup.
+ *
+ * The buffer is the caller's until it passes it to texpackFreeReplacement().
+ * Rows come back in the same bottom-up order the game's texture data uses, so
+ * the renderer uploads it exactly as it would the real thing.
+ *
+ * A pack is a "textures" directory of <texnum>.png - four lowercase hex digits,
+ * optionally followed by _<anything> so the dumper's own filenames can be
+ * edited and dropped straight back in. Mod directories are searched ahead of
+ * the base directory, and in mod order, so packs layer.
+ */
+u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight);
+void texpackFreeReplacement(u8 *rgba);
+
+/**
+ * Whether any replacement pack was found at all. The renderer checks this
+ * before it bothers looking a texture up.
+ */
+s32 texpackHaveReplacements(void);
+
+/**
  * Whether Mod.DumpTextures is on. Checked before the renderer bothers working
  * out what it would pass to texpackDumpTexture().
  */
