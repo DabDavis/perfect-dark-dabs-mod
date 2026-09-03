@@ -2636,7 +2636,7 @@ static const struct {
 	{ "Screenshot\n",       screenshotGetKey, screenshotSetKey  },
 	{ "Record Video\n",     recordGetKey,     recordSetKey      },
 	{ "Dump Textures\n",    texpackDumpGetKey,   texpackDumpSetKey   },
-	{ "Reload Texture Pack\n", texpackReloadGetKey, texpackReloadSetKey },
+	{ "Texture Packs On/Off\n", texpackToggleGetKey, texpackToggleSetKey },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)

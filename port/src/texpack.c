@@ -120,9 +120,9 @@ static s32 packsListed;
 static char packName[TEXPACK_NAMELEN];  // the selected pack, empty for none
 
 static char dumpKeyName[TEXPACK_KEYNAME_LEN] = "F7";
-static char reloadKeyName[TEXPACK_KEYNAME_LEN] = "F8";
+static char toggleKeyName[TEXPACK_KEYNAME_LEN] = "F8";
 static s32 dumpKeyVk = -1;    // -1 until the name has been looked up
-static s32 reloadKeyVk = -1;
+static s32 toggleKeyVk = -1;
 
 static s32 loadTextures = 1;
 static char **replacePaths;   // one per texture number, NULL where there is none
@@ -504,6 +504,14 @@ static void texpackBuildRiceIndex(void)
 		size = texGetSizeInBytes(tex, 0) * 8;
 		width = texGetWidthAtLod(tex, 0);
 		height = texGetHeightAtLod(tex, 0);
+
+		// A 32-bit texel is split across the two halves of TMEM, so the tile
+		// line counts half of it and the data is twice as long as the line
+		// suggests. gfx_pc does the same doubling when it loads one.
+		if (tex->depth == G_IM_SIZ_32b) {
+			stride *= 2;
+			size *= 2;
+		}
 
 		if (size <= 0 || size > TEXPACK_RICE_SCRATCH || width <= 0 || height <= 0 || stride <= 0) {
 			continue;
@@ -1352,6 +1360,7 @@ void texpackSetLoadEnabled(s32 enabled)
 	if (want != loadTextures) {
 		loadTextures = want;
 		texpackReload();
+		sysLogPrintf(LOG_NOTE, "texpack: texture packs %s", want ? "on" : "off");
 	}
 }
 
@@ -1428,20 +1437,20 @@ void texpackDumpSetKey(s32 vk)
 	texpackSetKey(vk, dumpKeyName, sizeof(dumpKeyName), &dumpKeyVk);
 }
 
-s32 texpackReloadGetKey(void)
+s32 texpackToggleGetKey(void)
 {
-	return texpackResolveKey(reloadKeyName, &reloadKeyVk);
+	return texpackResolveKey(toggleKeyName, &toggleKeyVk);
 }
 
-void texpackReloadSetKey(s32 vk)
+void texpackToggleSetKey(s32 vk)
 {
-	texpackSetKey(vk, reloadKeyName, sizeof(reloadKeyName), &reloadKeyVk);
+	texpackSetKey(vk, toggleKeyName, sizeof(toggleKeyName), &toggleKeyVk);
 }
 
 void texpackTick(void)
 {
 	const s32 dumpVk = texpackDumpGetKey();
-	const s32 reloadVk = texpackReloadGetKey();
+	const s32 toggleVk = texpackToggleGetKey();
 
 	// inputKeyJustPressed() consumes the edge, so each key wants asking about
 	// exactly once a frame and only when it is actually bound.
@@ -1449,8 +1458,11 @@ void texpackTick(void)
 		texpackSetDumpEnabled(!dumpTextures);
 	}
 
-	if (reloadVk > 0 && inputKeyJustPressed(reloadVk)) {
-		texpackReload();
+	// Off and on again rather than a reload, because turning it off is what
+	// you want when comparing against the original - and switching it back on
+	// re-reads the pack anyway, so an edited image still shows up.
+	if (toggleVk > 0 && inputKeyJustPressed(toggleVk)) {
+		texpackSetLoadEnabled(!loadTextures);
 	}
 }
 
@@ -1685,8 +1697,11 @@ void texpackDumpAll(void)
 		// texGetLineSizeInBytes() and texGetSizeInBytes() are both named for
 		// bytes and both return 64-bit words - the RDP's "line" - so the
 		// manifest converts once here rather than leaving every reader to
-		// discover it.
-		size = texGetSizeInBytes(tex, 0) * 8;
+		// discover it. A 32-bit texel is split across the two halves of TMEM,
+		// so both are half of what the texture really occupies.
+		const s32 wide = tex->depth == G_IM_SIZ_32b ? 2 : 1;
+
+		size = texGetSizeInBytes(tex, 0) * 8 * wide;
 
 		if (size <= 0) {
 			continue;
@@ -1694,7 +1709,7 @@ void texpackDumpAll(void)
 
 		fprintf(manifest, "%04x,%u,%u,%d,%d,%d,%d,0,%u,%u\n", n, tex->gbiformat, tex->depth,
 				texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
-				texGetLineSizeInBytes(tex, 0) * 8, size, tex->numlods, tex->hasloddata);
+				texGetLineSizeInBytes(tex, 0) * 8 * wide, size, tex->numlods, tex->hasloddata);
 
 		snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, n);
 		f = fopen(path, "wb");
@@ -1721,7 +1736,7 @@ PD_CONSTRUCTOR static void texpackConfigInit(void)
 	configRegisterInt("Mod.LoadTextures", &loadTextures, 0, 1);
 	configRegisterString("Mod.TexturePack", packName, sizeof(packName));
 	configRegisterString("Mod.DumpTexturesKey", dumpKeyName, sizeof(dumpKeyName));
-	configRegisterString("Mod.ReloadTexturesKey", reloadKeyName, sizeof(reloadKeyName));
+	configRegisterString("Mod.TexturePackKey", toggleKeyName, sizeof(toggleKeyName));
 	configRegisterInt("Mod.DumpTextures", &dumpTextures, 0, 1);
 	configRegisterInt("Mod.DumpTextureData", &dumpTextureData, 0, 1);
 }

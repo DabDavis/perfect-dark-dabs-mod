@@ -133,11 +133,14 @@ void texpackReload(void);
 s32 texpackGetDumpEnabled(void);
 void texpackSetDumpEnabled(s32 enabled);
 
-/** Hotkeys: F7 dumps, F8 reloads. Same shape as the screenshot bind. */
+/**
+ * Hotkeys: F7 dumps, F8 turns packs off and on. Same shape as the screenshot
+ * bind. Switching back on re-reads the pack, so F8 twice is also a reload.
+ */
 s32 texpackDumpGetKey(void);
 void texpackDumpSetKey(s32 vk);
-s32 texpackReloadGetKey(void);
-void texpackReloadSetKey(s32 vk);
+s32 texpackToggleGetKey(void);
+void texpackToggleSetKey(s32 vk);
 
 /** Polled once a frame from the scheduler, like screenshotTick(). */
 void texpackTick(void);
