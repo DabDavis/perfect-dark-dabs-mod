@@ -4755,6 +4755,8 @@ enum weaponnum {
 #define WEAPONFLAG2_UNEQUIPPEDRELOAD 0x00000001 // Reloads while unequipped; the animation is unequippedreloadindex
 #define WEAPONFLAG2_PUMPACTION       0x00000002 // Keeps the gun moving while the reload animation plays
 #define WEAPONFLAG2_CHARGEABLE       0x00000004 // Holding the trigger winds the shot up
+#define WEAPONFLAG2_MISSIONCRITICAL  0x00000008 // Never dropped on disarm: the mission may need it
+#define WEAPONFLAG2_NOEJECT          0x00000010 // Throws the whole thing, so there is no casing to eject
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

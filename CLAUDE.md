@@ -488,12 +488,16 @@ mod that brings its own guns under different numbers. `modconfig.txt` sets them:
 weapon 15 { unequippedreload 1 unequippedreloadindex 1 pumpaction 1 }
 ```
 
-Three are converted so far (`WEAPONFLAG2_UNEQUIPPEDRELOAD`, `_PUMPACTION`,
-`_CHARGEABLE`); `bondgun.c` alone still has around 150 weapon-number
-comparisons, and `tools/modcodediff` says which of them a given mod cares about.
-When converting another, check the enum value against the position in
-`g_Weapons[]` before moving a behaviour onto a weapon - the two are only kept in
-step by hand.
+Read them with `weaponHasFlag2()`, beside the `weaponHasFlag()` the first word
+already had. Five are converted so far; `bondgun.c` still has around 140 weapon
+number comparisons, and `tools/modcodediff` says which of them a given mod cares
+about.
+
+`g_Weapons[]` is written with designated initialisers - `[WEAPON_SHOTGUN] =
+&invitem_shotgun` - so a behaviour can no longer be put on the wrong gun by
+miscounting, and a `_Static_assert` keeps its length tied to the enum. It was a
+plain positional list until the first of these conversions, where an off-by-one
+would have been silent.
 
 ## Debugging
 

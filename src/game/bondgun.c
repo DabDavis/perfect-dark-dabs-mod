@@ -1572,7 +1572,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 						hand->incrementalreloading = true;
 					}
 
-					if (info->weaponnum == WEAPON_GRENADE || info->weaponnum == WEAPON_NBOMB) {
+					if (weaponHasFlag2(info->weaponnum, WEAPONFLAG2_NOEJECT)) {
 						hand->ejectstate = EJECTSTATE_INACTIVE;
 					}
 				} else {
@@ -2004,9 +2004,7 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 				hand->lastshootframe60 = g_Vars.lvframe60;
 
-				const struct weapon *chargeweapon = bgunGetWeaponDefinition(hand->gset.weaponnum);
-
-				if (chargeweapon && (chargeweapon->flags2 & WEAPONFLAG2_CHARGEABLE) && handle) {
+				if (weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_CHARGEABLE) && handle) {
 					s32 matmot = hand->matmot1;
 					f32 tmp;
 					f32 frac = matmot / 3.0f;
@@ -2267,12 +2265,8 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			sp68 = true;
 		}
 
-		{
-			const struct weapon *weapon = bgunGetWeaponDefinition(hand->gset.weaponnum);
-
-			if (weapon && (weapon->flags2 & WEAPONFLAG2_PUMPACTION) && hand->animmode == HANDANIMMODE_BUSY) {
-				sp68 = false;
-			}
+		if (weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_PUMPACTION) && hand->animmode == HANDANIMMODE_BUSY) {
+			sp68 = false;
 		}
 
 		hand->matmot2 = hand->gs_float1;
@@ -2281,12 +2275,8 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			hand->matmot2 = 0;
 		}
 
-		{
-			const struct weapon *weapon = bgunGetWeaponDefinition(hand->gset.weaponnum);
-
-			if (weapon && (weapon->flags2 & WEAPONFLAG2_CHARGEABLE)) {
-				hand->matmot1 = 0;
-			}
+		if (weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_CHARGEABLE)) {
+			hand->matmot1 = 0;
 		}
 
 		return sp68;
@@ -6324,14 +6314,7 @@ void bgunHandlePlayerDead(void)
 #if VERSION >= VERSION_NTSC_1_0
 bool bgunIsMissionCritical(s32 weaponnum)
 {
-	if (weaponnum == WEAPON_TIMEDMINE
-			|| weaponnum == WEAPON_REMOTEMINE
-			|| weaponnum == WEAPON_ECMMINE
-			|| weaponnum == WEAPON_TRACERBUG) {
-		return true;
-	}
-
-	return false;
+	return weaponHasFlag2(weaponnum, WEAPONFLAG2_MISSIONCRITICAL);
 }
 #endif
 

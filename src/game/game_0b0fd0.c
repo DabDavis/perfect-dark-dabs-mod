@@ -301,6 +301,17 @@ bool weaponHasFlag(s32 itemid, u32 flag)
 	return (weapon->flags & flag) != 0;
 }
 
+/**
+ * The same for the second flags word, which holds the behaviours that used to
+ * be decided by comparing the weapon number. No cheat touches these.
+ */
+bool weaponHasFlag2(s32 itemid, u32 flag)
+{
+	struct weapon *weapon = weaponFindById(itemid);
+
+	return weapon && (weapon->flags2 & flag) != 0;
+}
+
 bool weaponHasAimFlag(s32 weaponnum, u32 flag)
 {
 	struct weapon *weapon = weaponFindById(weaponnum);

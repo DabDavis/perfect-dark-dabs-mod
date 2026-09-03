@@ -433,6 +433,8 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "unequippedreload", WEAPONFLAG2_UNEQUIPPEDRELOAD },
 			{ "pumpaction",       WEAPONFLAG2_PUMPACTION },
 			{ "chargeable",       WEAPONFLAG2_CHARGEABLE },
+			{ "missioncritical",  WEAPONFLAG2_MISSIONCRITICAL },
+			{ "noeject",          WEAPONFLAG2_NOEJECT },
 		};
 
 		s32 handled = false;

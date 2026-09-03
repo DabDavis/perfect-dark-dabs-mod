@@ -3170,6 +3170,7 @@ struct weapon invitem_timedmine = {
 	L_GUN_000, // manufacturer
 	L_GUN_185, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS,
+	WEAPONFLAG2_MISSIONCRITICAL, // flags2
 };
 
 struct gunviscmd gunviscmds_remotemine[] = {
@@ -3264,6 +3265,7 @@ struct weapon invitem_remotemine = {
 	L_GUN_000, // manufacturer
 	L_GUN_187, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS,
+	WEAPONFLAG2_MISSIONCRITICAL, // flags2
 };
 
 struct weaponfunc_throw invfunc_proxymine_throw = {
@@ -3378,6 +3380,7 @@ struct weapon invitem_ecmmine = {
 	L_GUN_000, // manufacturer
 	L_GUN_188, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS | WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN | WEAPONFLAG_UNDROPPABLE,
+	WEAPONFLAG2_MISSIONCRITICAL, // flags2
 };
 
 // Some unfinished Reaper-like gun. The name is "Timed Mine". The primary
@@ -3485,6 +3488,7 @@ struct weapon invitem_grenade = {
 	L_GUN_000, // manufacturer
 	L_GUN_183, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_00000004 | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_00008000 | WEAPONFLAG_HASHANDS,
+	WEAPONFLAG2_NOEJECT, // flags2
 };
 
 struct weaponfunc_throw invfunc_nbomb_throw = {
@@ -3546,6 +3550,7 @@ struct weapon invitem_nbomb = {
 	L_GUN_000, // manufacturer
 	L_GUN_184, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_00000004 | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_00008000 | WEAPONFLAG_HASHANDS | WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN,
+	WEAPONFLAG2_NOEJECT, // flags2
 };
 
 struct gunviscmd gunviscmds_farsight[] = {
@@ -5064,6 +5069,7 @@ struct weapon invitem_tracerbug = {
 	L_GUN_000, // manufacturer
 	L_GUN_205, // description
 	WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_UNDROPPABLE,
+	WEAPONFLAG2_MISSIONCRITICAL, // flags2
 };
 
 struct weapon invitem_targetamplifier = {
@@ -6205,100 +6211,105 @@ struct weapon invitem_tester = {
 };
 
 struct weapon *g_Weapons[] = {
-	&invitem_nothing,
-	&invitem_unarmed,
-	&invitem_falcon2,
-	&invitem_falcon2silencer,
-	&invitem_falcon2scope,
-	&invitem_magsec,
-	&invitem_mauler,
-	&invitem_phoenix,
-	&invitem_dy357,
-	&invitem_dy357lx,
-	&invitem_cmp150,
-	&invitem_cyclone,
-	&invitem_callisto,
-	&invitem_rcp120,
-	&invitem_laptopgun,
-	&invitem_dragon,
-	&invitem_k7avenger,
-	&invitem_ar34,
-	&invitem_superdragon,
-	&invitem_shotgun,
-	&invitem_reaper,
-	&invitem_sniperrifle,
-	&invitem_farsight,
-	&invitem_devastator,
-	&invitem_rocketlauncher,
-	&invitem_slayer,
-	&invitem_combatknife,
-	&invitem_crossbow,
-	&invitem_tranquilizer,
-	&invitem_laser,
-	&invitem_grenade,
-	&invitem_nbomb,
-	&invitem_timedmine,
-	&invitem_proximitymine,
-	&invitem_remotemine,
-	&invitem_combatboost,
-	&invitem_pp9i,
-	&invitem_cc13,
-	&invitem_kl01313,
-	&invitem_kf7special,
-	&invitem_zzt9mm,
-	&invitem_dmc,
-	&invitem_ar53,
-	&invitem_rcp45,
-	&invitem_psychosisgun,
-	&invitem_nightvision,
-	&invitem_camspy,
-	&invitem_xrayscanner,
-	&invitem_irscanner,
-	&invitem_cloakingdevice,
-	&invitem_horizonscanner,
-	&invitem_tester,
-	&invitem_rocketlauncher_34,
-	&invitem_ecmmine,
-	&invitem_datauplink,
-	&invitem_rtracker,
-	&invitem_presidentscanner,
-	&invitem_doordecoder,
-	&invitem_autosurgeon,
-	&invitem_explosives,
-	&invitem_skedarbomb,
-	&invitem_commsrider,
-	&invitem_tracerbug,
-	&invitem_targetamplifier,
-	&invitem_disguise40,
-	&invitem_disguise41,
-	&invitem_flightplans,
-	&invitem_researchtape,
-	&invitem_backupdisk,
-	&invitem_keycard,
-	&invitem_keycard,
-	&invitem_keycard,
-	&invitem_keycard,
-	&invitem_keycard,
-	&invitem_keycard,
-	&invitem_keycard,
-	&invitem_keycard,
-	&invitem_suitcase,
-	&invitem_briefcase,
-#if VERSION >= VERSION_NTSC_1_0
-	&invitem_shieldtechitem,
-#endif
-	&invitem_necklace,
-	&invitem_hammer,
-	&invitem_hammer,
-	&invitem_rocket,
-	&invitem_homingrocket,
-	&invitem_grenaderound,
-	&invitem_bolt,
-	&invitem_briefcase2,
-	&invitem_rocket,
-	&invitem_choppergun,
-	&invitem_watchlaser,
-	&invitem_hammer,
-	&invitem_hammer,
-	&invitem_suicidepill,
+	// Indexed by weapon number. Written out by hand for years, and
+	// the pairing only held because nobody miscounted: a behaviour put
+	// on the wrong gun by an off-by-one here would be silent. The
+	// designators say it instead of implying it.
+	[WEAPON_NONE             ] = &invitem_nothing,
+	[WEAPON_UNARMED          ] = &invitem_unarmed,
+	[WEAPON_FALCON2          ] = &invitem_falcon2,
+	[WEAPON_FALCON2_SILENCER ] = &invitem_falcon2silencer,
+	[WEAPON_FALCON2_SCOPE    ] = &invitem_falcon2scope,
+	[WEAPON_MAGSEC4          ] = &invitem_magsec,
+	[WEAPON_MAULER           ] = &invitem_mauler,
+	[WEAPON_PHOENIX          ] = &invitem_phoenix,
+	[WEAPON_DY357MAGNUM      ] = &invitem_dy357,
+	[WEAPON_DY357LX          ] = &invitem_dy357lx,
+	[WEAPON_CMP150           ] = &invitem_cmp150,
+	[WEAPON_CYCLONE          ] = &invitem_cyclone,
+	[WEAPON_CALLISTO         ] = &invitem_callisto,
+	[WEAPON_RCP120           ] = &invitem_rcp120,
+	[WEAPON_LAPTOPGUN        ] = &invitem_laptopgun,
+	[WEAPON_DRAGON           ] = &invitem_dragon,
+	[WEAPON_K7AVENGER        ] = &invitem_k7avenger,
+	[WEAPON_AR34             ] = &invitem_ar34,
+	[WEAPON_SUPERDRAGON      ] = &invitem_superdragon,
+	[WEAPON_SHOTGUN          ] = &invitem_shotgun,
+	[WEAPON_REAPER           ] = &invitem_reaper,
+	[WEAPON_SNIPERRIFLE      ] = &invitem_sniperrifle,
+	[WEAPON_FARSIGHT         ] = &invitem_farsight,
+	[WEAPON_DEVASTATOR       ] = &invitem_devastator,
+	[WEAPON_ROCKETLAUNCHER   ] = &invitem_rocketlauncher,
+	[WEAPON_SLAYER           ] = &invitem_slayer,
+	[WEAPON_COMBATKNIFE      ] = &invitem_combatknife,
+	[WEAPON_CROSSBOW         ] = &invitem_crossbow,
+	[WEAPON_TRANQUILIZER     ] = &invitem_tranquilizer,
+	[WEAPON_LASER            ] = &invitem_laser,
+	[WEAPON_GRENADE          ] = &invitem_grenade,
+	[WEAPON_NBOMB            ] = &invitem_nbomb,
+	[WEAPON_TIMEDMINE        ] = &invitem_timedmine,
+	[WEAPON_PROXIMITYMINE    ] = &invitem_proximitymine,
+	[WEAPON_REMOTEMINE       ] = &invitem_remotemine,
+	[WEAPON_COMBATBOOST      ] = &invitem_combatboost,
+	[WEAPON_PP9I             ] = &invitem_pp9i,
+	[WEAPON_CC13             ] = &invitem_cc13,
+	[WEAPON_KL01313          ] = &invitem_kl01313,
+	[WEAPON_KF7SPECIAL       ] = &invitem_kf7special,
+	[WEAPON_ZZT              ] = &invitem_zzt9mm,
+	[WEAPON_DMC              ] = &invitem_dmc,
+	[WEAPON_AR53             ] = &invitem_ar53,
+	[WEAPON_RCP45            ] = &invitem_rcp45,
+	[WEAPON_PSYCHOSISGUN     ] = &invitem_psychosisgun,
+	[WEAPON_NIGHTVISION      ] = &invitem_nightvision,
+	[WEAPON_EYESPY           ] = &invitem_camspy,
+	[WEAPON_XRAYSCANNER      ] = &invitem_xrayscanner,
+	[WEAPON_IRSCANNER        ] = &invitem_irscanner,
+	[WEAPON_CLOAKINGDEVICE   ] = &invitem_cloakingdevice,
+	[WEAPON_HORIZONSCANNER   ] = &invitem_horizonscanner,
+	[WEAPON_TESTER           ] = &invitem_tester,
+	[WEAPON_ROCKETLAUNCHER_34] = &invitem_rocketlauncher_34,
+	[WEAPON_ECMMINE          ] = &invitem_ecmmine,
+	[WEAPON_DATAUPLINK       ] = &invitem_datauplink,
+	[WEAPON_RTRACKER         ] = &invitem_rtracker,
+	[WEAPON_PRESIDENTSCANNER ] = &invitem_presidentscanner,
+	[WEAPON_DOORDECODER      ] = &invitem_doordecoder,
+	[WEAPON_AUTOSURGEON      ] = &invitem_autosurgeon,
+	[WEAPON_EXPLOSIVES       ] = &invitem_explosives,
+	[WEAPON_SKEDARBOMB       ] = &invitem_skedarbomb,
+	[WEAPON_COMMSRIDER       ] = &invitem_commsrider,
+	[WEAPON_TRACERBUG        ] = &invitem_tracerbug,
+	[WEAPON_TARGETAMPLIFIER  ] = &invitem_targetamplifier,
+	[WEAPON_DISGUISE40       ] = &invitem_disguise40,
+	[WEAPON_DISGUISE41       ] = &invitem_disguise41,
+	[WEAPON_FLIGHTPLANS      ] = &invitem_flightplans,
+	[WEAPON_RESEARCHTAPE     ] = &invitem_researchtape,
+	[WEAPON_BACKUPDISK       ] = &invitem_backupdisk,
+	[WEAPON_KEYCARD45        ] = &invitem_keycard,
+	[WEAPON_KEYCARD46        ] = &invitem_keycard,
+	[WEAPON_KEYCARD47        ] = &invitem_keycard,
+	[WEAPON_KEYCARD48        ] = &invitem_keycard,
+	[WEAPON_KEYCARD49        ] = &invitem_keycard,
+	[WEAPON_KEYCARD4A        ] = &invitem_keycard,
+	[WEAPON_KEYCARD4B        ] = &invitem_keycard,
+	[WEAPON_KEYCARD4C        ] = &invitem_keycard,
+	[WEAPON_SUITCASE         ] = &invitem_suitcase,
+	[WEAPON_BRIEFCASE        ] = &invitem_briefcase,
+	[WEAPON_SHIELDTECHITEM   ] = &invitem_shieldtechitem,
+	[WEAPON_NECKLACE         ] = &invitem_necklace,
+	[WEAPON_HAMMER           ] = &invitem_hammer,
+	[WEAPON_SCREWDRIVER      ] = &invitem_hammer,
+	[WEAPON_ROCKET           ] = &invitem_rocket,
+	[WEAPON_HOMINGROCKET     ] = &invitem_homingrocket,
+	[WEAPON_GRENADEROUND     ] = &invitem_grenaderound,
+	[WEAPON_BOLT             ] = &invitem_bolt,
+	[WEAPON_BRIEFCASE2       ] = &invitem_briefcase2,
+	[WEAPON_SKROCKET         ] = &invitem_rocket,
+	[WEAPON_CHOPPERGUN       ] = &invitem_choppergun,
+	[WEAPON_WATCHLASER       ] = &invitem_watchlaser,
+	[WEAPON_MPSHIELD         ] = &invitem_hammer,
+	[WEAPON_DISABLED         ] = &invitem_hammer,
+	[WEAPON_SUICIDEPILL      ] = &invitem_suicidepill,
 };
+
+_Static_assert(ARRAYCOUNT(g_Weapons) == WEAPON_SUICIDEPILL + 1,
+		"g_Weapons must have an entry per weapon number");
