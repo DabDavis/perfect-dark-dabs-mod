@@ -24,6 +24,8 @@ void fsFileFree(FILE *f);
 const char *fsGetModDir(void);
 typedef void (*fsScanCallback)(const char *name, void *arg);
 s32 fsScanDir(const char *path, fsScanCallback cb, void *arg);
+s32 fsAddModDir(const char *path);
+void fsReplaceModDir(const char *path);
 s32 fsGetNumModDirs(void);
 const char *fsGetModDirAt(s32 index);
 s32 fsCreateDir(const char *path);

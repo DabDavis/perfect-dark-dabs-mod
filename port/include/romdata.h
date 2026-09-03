@@ -14,6 +14,11 @@ void romdataFileFree(s32 fileNum);
 const char *romdataFileGetName(s32 fileNum);
 s32 romdataRegisterModFile(const char *name, s32 modDirIndex);
 
+// Drops every loaded file and rebuilds the slots from the ROM, so that the next
+// load of each one searches the mod directories again. For switching mods at
+// runtime; segments are not affected and cannot be.
+void romdataResetFiles(void);
+
 u8 *romdataFileGetData(s32 fileNum);
 s32 romdataFileGetSize(s32 fileNum);
 

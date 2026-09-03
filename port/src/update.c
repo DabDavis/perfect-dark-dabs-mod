@@ -1001,18 +1001,11 @@ static const char *updateQuoteArg(const char *arg)
 }
 #endif
 
-void updateRelaunchIfStaged(void)
+/**
+ * Start `path` and let this process end. Never returns on POSIX.
+ */
+static void updateExec(const char *path)
 {
-	char path[FS_MAXPATH];
-
-	if (!updateIsStaged()) {
-		return;
-	}
-
-	SDL_LockMutex(g_Lock);
-	snprintf(path, sizeof(path), "%s", g_StagedPath);
-	SDL_UnlockMutex(g_Lock);
-
 	sysLogPrintf(LOG_NOTE, "update: starting %s", path);
 
 	// exec does not flush what stdout is holding, and on the path that works
@@ -1052,6 +1045,38 @@ void updateRelaunchIfStaged(void)
 	// there is left to do from here.
 	sysLogPrintf(LOG_ERROR, "update: could not start %s", path);
 #endif
+}
+
+void updateRelaunchIfStaged(void)
+{
+	char path[FS_MAXPATH];
+
+	if (!updateIsStaged()) {
+		return;
+	}
+
+	SDL_LockMutex(g_Lock);
+	snprintf(path, sizeof(path), "%s", g_StagedPath);
+	SDL_UnlockMutex(g_Lock);
+
+	updateExec(path);
+}
+
+/**
+ * Start this same build again, with the same arguments. Used by the Mods page,
+ * where a new selection only takes hold on a fresh start - and by the same
+ * route the updater takes out, so that everything is written first.
+ */
+void updateRelaunchSelf(void)
+{
+	char path[FS_MAXPATH];
+
+	if (!updateSelfPath(path, sizeof(path))) {
+		sysLogPrintf(LOG_ERROR, "update: could not work out what to restart");
+		return;
+	}
+
+	updateExec(path);
 }
 
 void updateInit(void)

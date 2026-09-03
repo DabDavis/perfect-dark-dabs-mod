@@ -409,6 +409,42 @@ directories — so overlaying them all replaces stock textures everywhere.
 Files are cached per file id, so two mods shipping the same filename need separate
 slots. `--modstages` enables runtime stage registration; it is incomplete.
 
+**Load Mods** (Extended Options) picks one of them, and only one — a menu that
+let you stack them would be offering something the single overlay slot does not
+do. The name goes in the config as `Mod.ModDir`; `modListApplySelection()`
+mounts it in `main()` **between `configInit()` and `romdataInit()`**, which is
+the only window there is: the config is where the name lives, and romdata is
+what goes looking for the files. `fsInit()` cannot do it, being what has to be
+up before the config can be found at all.
+
+**Files swap live; segments cannot.** Choosing a mod calls `modListSwap()`,
+which drops every file slot (`romdataResetFiles()`), the sizes the game
+remembers for them (`filesInit()`), the stage tables and the caches saying which
+of a mod's optional directories exist, then re-runs `modloaderInit()` and
+`modConfigLoad()`. Nothing outside romdata holds file data — `fileLoad()`
+inflates into the stage pool and reads no further — so this is safe with a stage
+loaded; the pool is wiped on the next stage load and everything comes back from
+the new mod. The menu backdrop you are looking at stays as it was until then.
+
+A mod with a `segs/` directory is the exception and gets the restart path
+instead, in both directions. Segments are read once at boot and land in
+`MEMPOOL_PERMANENT`, which is never cleared and is closed off as soon as the
+stage pool is placed after it (see the header comment in `memp.c`) — `texInit()`
+copies the texture list into it, `sndInit()` builds the audio banks once, and
+the game holds raw pointers into all of it. Swapping only such a mod's files
+would leave the game half converted, which is worse than restarting. Restart Now
+goes out through `exit()` and comes back in `cleanup()` via
+`updateRelaunchSelf()`; that ordering is the updater's, and for its reason:
+everything is written before anything starts again.
+
+The list is directories under `mods/` plus loose `mod*` folders beside the
+executable, each one having to contain `files/`, `segs/`, `textures/` or a
+`modconfig.txt` before it counts. A `--moddir` on the command line wins over the
+config and the page says so — the All in One launcher passes several, and a
+stored choice quietly displacing them would be a bug nobody could see.
+
+`tools/importmod` builds a mod directory out of a console mod's xdelta.
+
 ## Debugging
 
 Guessing from source failed repeatedly here; the stack was right every time.

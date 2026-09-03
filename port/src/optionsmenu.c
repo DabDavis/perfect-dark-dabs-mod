@@ -23,6 +23,8 @@
 #include "config.h"
 #include "record.h"
 #include "screenshot.h"
+#include "mod.h"
+#include "system.h"
 #include "texpack.h"
 #include "upscale.h"
 
@@ -4048,6 +4050,201 @@ struct menudialogdef g_ExtendedTexturePackMenuDialog = {
 	NULL,
 };
 
+/**
+ * Load Mods.
+ *
+ * A mod replaces asset files and ROM segments, and both are read once at
+ * startup and pointed at from everywhere after that - so this page can only
+ * choose what the next start loads. That is the whole difference from the
+ * texture pack page above, which swaps its pack where it stands.
+ *
+ * The list is re-read whenever the dropdown opens, the same as texture packs,
+ * so a mod folder dropped in while the game is running turns up without
+ * needing this start to have known about it.
+ */
+static MenuItemHandlerResult menuhandlerModDir(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return modListIsFromArgs();
+	case MENUOP_GETOPTIONCOUNT:
+		modListRefresh();
+		data->dropdown.value = modListGetCount() + 1; // plus "None"
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == 0
+				? "None" : modListGetName(data->dropdown.value - 1));
+	case MENUOP_SET:
+		{
+			const s32 index = (s32)data->dropdown.value - 1;
+
+			// Swapped where we stand when the mod allows it; otherwise this is
+			// only a note of what the next start should mount.
+			if (!modListSwap(index)) {
+				modListSetSelected(index);
+			}
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modListGetSelected() + 1;
+	}
+
+	return 0;
+}
+
+/**
+ * Whether the selection and what is loaded are the same thing. The name is what
+ * is compared rather than the list index, because the mod that is loaded may
+ * have been mounted from the command line and never be in the list at all.
+ */
+static bool menuModDirPending(void)
+{
+	const char *loaded = modListGetLoadedName();
+	const char *selected = modListGetSelectedName();
+
+	if (modListIsFromArgs()) {
+		return false;
+	}
+
+	if (!loaded) {
+		return selected[0] != '\0';
+	}
+
+	return strcmp(loaded, selected) != 0;
+}
+
+static char g_ModDirStatusText[160];
+
+static const char *menutextModDirStatus(struct menuitem *item)
+{
+	const char *loaded = modListGetLoadedName();
+	const char *selected = modListGetSelectedName();
+
+	if (modListIsFromArgs()) {
+		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText),
+				"Loaded from the command line: %s\n", loaded ? loaded : "none");
+	} else if (menuModDirPending()) {
+		// Only a mod that replaces ROM segments gets this far; anything else
+		// was swapped in when it was chosen.
+		if (selected[0]) {
+			snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText),
+					"%s replaces ROM segments. Restart to load it.\n", selected);
+		} else {
+			snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText),
+					"Restart to play without a mod.\n");
+		}
+	} else if (loaded) {
+		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText), "Loaded: %s\n", loaded);
+	} else {
+		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText), "No mod is loaded.\n");
+	}
+
+	return g_ModDirStatusText;
+}
+
+static MenuItemHandlerResult menuhandlerModDirRestart(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKDISABLED) {
+		return !menuModDirPending();
+	}
+
+	if (operation == MENUOP_SET) {
+		// The way out is the ordinary one - the same exit() Exit Game calls -
+		// so that the config naming the mod, the binds and an unfinished
+		// recording are all written before anything starts again. cleanup()
+		// does the starting, once there is nothing left open to share.
+		sysRequestRestart();
+		exit(0);
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedModsMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mod",
+		0,
+		menuhandlerModDir,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextModDirStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Restart Now\n",
+		0,
+		menuhandlerModDirRestart,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"One mod at a time. Mods live in mods/, or beside\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"the game in a folder named mod-something. One that\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"replaces ROM audio or textures needs a restart.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedModsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Load Mods",
+	g_ExtendedModsMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 struct menuitem g_ExtendedMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -4112,6 +4309,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Texture Packs\n",
 		0,
 		(void *)&g_ExtendedTexturePackMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Load Mods\n",
+		0,
+		(void *)&g_ExtendedModsMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

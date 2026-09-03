@@ -81,6 +81,10 @@ bool updateWasJustInstalled(void);
 
 bool updateIsStaged(void);
 void updateRelaunchIfStaged(void);
+
+// Starts this same build again with the same arguments. For a setting that only
+// takes hold at startup; see sysRequestRestart().
+void updateRelaunchSelf(void);
 void updateCleanUp(void);
 
 #endif

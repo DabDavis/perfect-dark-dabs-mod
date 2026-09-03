@@ -122,6 +122,12 @@ static void cleanup(void)
 	// replaces, and this is the point where none of those are open any more.
 	// On everything but Windows it never returns.
 	updateRelaunchIfStaged();
+
+	// Same thing for a restart the player asked for, and last for the same
+	// reason: the config that names the mod to mount has just been written.
+	if (sysRestartRequested()) {
+		updateRelaunchSelf();
+	}
 }
 
 int main(int argc, const char **argv)
@@ -135,6 +141,10 @@ int main(int argc, const char **argv)
 	sysInit();
 	fsInit();
 	configInit();
+
+	// After the config, because that is where the chosen mod is written, and
+	// before romdataInit(), which is what goes looking for the files it holds.
+	modListApplySelection();
 	videoInit();
 	inputInit();
 	screenshotInit();

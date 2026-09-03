@@ -386,6 +386,36 @@ static inline void romdataInitFiles(void)
 	}
 }
 
+/**
+ * Forget every file, so that the next load of each one searches again.
+ *
+ * For switching mods without restarting. External data is freed and the slots
+ * are rebuilt from the ROM, which matters both ways round: a file the outgoing
+ * mod replaced has to fall back to the ROM's copy, and one the incoming mod
+ * adds has to find a slot that is not still pinned to the mod before it.
+ *
+ * Safe because nothing outside here holds these pointers - fileLoad() inflates
+ * or copies into the stage pool and reads the source no further.
+ *
+ * Segments are deliberately not touched. They are read once at boot into memory
+ * that is never given back (see MEMPOOL_PERMANENT in memp.c), so a mod that
+ * carries any cannot be swapped in while the game runs.
+ */
+void romdataResetFiles(void)
+{
+	for (s32 i = 1; i < ROMDATA_MAX_FILES; ++i) {
+		if (fileSlots[i].source == SRC_EXTERNAL && fileSlots[i].data) {
+			sysMemFree(fileSlots[i].data);
+		}
+
+		memset(&fileSlots[i], 0, sizeof(fileSlots[i]));
+	}
+
+	numModFileNames = 0;
+
+	romdataInitFiles();
+}
+
 static inline struct romfile *romdataGetSeg(const char *name)
 {
 	struct romfile *seg = romSegs;

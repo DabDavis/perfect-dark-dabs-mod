@@ -29,6 +29,12 @@ void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
 s32 sysLogIsOpen(void);
 void sysLogPrintf(s32 level, const char *fmt, ...);
 
+// Ask for the game to start itself again once it has shut down. For a setting
+// that is only read at startup - the chosen mod - where quitting and coming
+// back is the only way it can take effect.
+void sysRequestRestart(void);
+s32 sysRestartRequested(void);
+
 void sysGetExecutablePath(char *outPath, const u32 outLen);
 void sysGetHomePath(char *outPath, const u32 outLen);
 

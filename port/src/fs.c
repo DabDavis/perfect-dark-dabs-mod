@@ -37,6 +37,10 @@ static s32 numModDirs;
 // just in its own levels. Directories past the first are reached solely
 // through file slots pinned to them by the mod loader.
 static s32 numOverlayModDirs;
+// --portable: everything lives beside the executable. Set in fsInit(), and kept
+// because fsAddModDir() is called again after the config is read.
+static s32 portable;
+
 static char saveDir[FS_MAXPATH + 1]; // replaces $S
 static char homeDir[FS_MAXPATH + 1]; // replaces $H
 static char exeDir[FS_MAXPATH + 1];  // replaces $E
@@ -270,12 +274,63 @@ static void fsMigrateSaves(const char *from, const char *to)
 	}
 }
 
+/**
+ * Mount a mod directory. Returns its index, or -1 if it is not there.
+ *
+ * Called for each --moddir at startup and once more after the config is read,
+ * for the mod chosen in the menu - which cannot happen in fsInit(), the config
+ * file being one of the things fs has to be up to find.
+ */
+s32 fsAddModDir(const char *path)
+{
+	if (!path || !path[0]) {
+		return -1;
+	}
+
+	if (numModDirs >= FS_MAXMODDIRS) {
+		sysLogPrintf(LOG_WARNING, "too many mod dirs, ignoring `%s`", path);
+		return -1;
+	}
+
+	char *dst = modDirs[numModDirs];
+	dst[0] = '\0';
+
+	if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
+		// path is explicit; check as-is
+		if (fsFileSize(path) >= 0) {
+			strncpy(dst, fsFullPath(path), FS_MAXPATH);
+		}
+	} else {
+		// path is relative to workdir; try to find it
+		const char *priority[] = { ".", "$E", "$H" };
+		for (s32 i = 0; i < 2 + (portable != 0); ++i) {
+			char *tmp = strFmt("%s/%s", priority[i], path);
+			if (fsFileSize(tmp) >= 0) {
+				strncpy(dst, fsFullPath(tmp), FS_MAXPATH);
+				break;
+			}
+		}
+	}
+
+	if (!dst[0]) {
+		sysLogPrintf(LOG_WARNING, "could not find specified moddir `%s`", path);
+		return -1;
+	}
+
+	// only the first mod dir overlays; see numOverlayModDirs
+	if (numModDirs == 0) {
+		numOverlayModDirs = 1;
+	}
+
+	return numModDirs++;
+}
+
 s32 fsInit(void)
 {
 	sysGetExecutablePath(exeDir, FS_MAXPATH);
 
 	// if this is set, default to exe path for everything
-	const s32 portable = sysArgCheck("--portable");
+	portable = sysArgCheck("--portable");
 	if (portable) {
 		strcpy(homeDir, exeDir);
 	} else {
@@ -317,40 +372,8 @@ s32 fsInit(void)
 				if (!path) {
 					break;
 				}
-
-				if (numModDirs >= FS_MAXMODDIRS) {
-					sysLogPrintf(LOG_WARNING, "too many mod dirs, ignoring `%s`", path);
+				if (fsAddModDir(path) < 0 && numModDirs >= FS_MAXMODDIRS) {
 					break;
-				}
-
-				char *dst = modDirs[numModDirs];
-				dst[0] = '\0';
-
-				if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
-					// path is explicit; check as-is
-					if (fsFileSize(path) >= 0) {
-						strncpy(dst, fsFullPath(path), FS_MAXPATH);
-					}
-				} else {
-					// path is relative to workdir; try to find it
-					const char *priority[] = { ".", "$E", "$H" };
-					for (s32 i = 0; i < 2 + (portable != 0); ++i) {
-						char *tmp = strFmt("%s/%s", priority[i], path);
-						if (fsFileSize(tmp) >= 0) {
-							strncpy(dst, fsFullPath(tmp), FS_MAXPATH);
-							break;
-						}
-					}
-				}
-
-				if (dst[0]) {
-					// only the first mod dir overlays; see numOverlayModDirs
-					if (numModDirs == 0) {
-						numOverlayModDirs = 1;
-					}
-					++numModDirs;
-				} else {
-					sysLogPrintf(LOG_WARNING, "could not find specified moddir `%s`", path);
 				}
 			}
 		}
@@ -493,6 +516,22 @@ s32 fsScanDir(const char *path, fsScanCallback cb, void *arg)
 s32 fsGetNumModDirs(void)
 {
 	return numModDirs;
+}
+
+/**
+ * Swap the mounted mod for another, or for none at all.
+ *
+ * Only for the single mod the menu manages. Several directories can be mounted
+ * from the command line, and those are left alone - the caller checks.
+ */
+void fsReplaceModDir(const char *path)
+{
+	numModDirs = 0;
+	numOverlayModDirs = 0;
+
+	if (path && path[0]) {
+		fsAddModDir(path);
+	}
 }
 
 /**

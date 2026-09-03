@@ -247,6 +247,18 @@ void sysFatalError(const char *fmt, ...)
 	exit(1);
 }
 
+static s32 restartRequested;
+
+void sysRequestRestart(void)
+{
+	restartRequested = 1;
+}
+
+s32 sysRestartRequested(void)
+{
+	return restartRequested;
+}
+
 void sysGetExecutablePath(char *outPath, const u32 outLen)
 {
 	// try asking SDL
