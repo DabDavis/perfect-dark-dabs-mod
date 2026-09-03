@@ -106,6 +106,7 @@ static char packDir[FS_MAXPATH + 1];
 static u8 *poolBuffer;
 static s32 nextTexture;
 static s32 pollTimer;
+static s32 numWritten; // images handed to the upscaler, which is fewer than the table
 
 static SDL_Thread *worker;
 static SDL_atomic_t workerDone;   // set when the worker has finished
@@ -691,8 +692,18 @@ s32 upscaleGetPercent(void)
 	case UPSCALE_PREPARING:
 		return preparedTotal ? (prepared * 100) / preparedTotal : 0;
 	case UPSCALE_RUNNING:
-	case UPSCALE_FINISHING:
-		return preparedTotal ? (SDL_AtomicGet(&workerCount) * 100) / preparedTotal : 0;
+	case UPSCALE_FINISHING: {
+		// Against what was actually written, not the whole texture table:
+		// the ones too small to upscale never went in, so measuring against
+		// the table would stop short of full.
+		const s32 done = SDL_AtomicGet(&workerCount);
+
+		if (numWritten <= 0) {
+			return 0;
+		}
+
+		return done >= numWritten ? 100 : (done * 100) / numWritten;
+	}
 	case UPSCALE_DONE:
 		return 100;
 	}
@@ -780,6 +791,30 @@ static void upscaleRemoveFile(const char *name, void *arg)
 
 	snprintf(path, sizeof(path), "%s/%s", (const char *)arg, name);
 	remove(path);
+}
+
+/**
+ * Empties a scratch directory.
+ *
+ * Removing entries while reading the same directory is not required to visit
+ * every one of them, so this goes round until a pass finds nothing left or
+ * stops making progress - a few hundred files surviving one pass would
+ * otherwise be counted as work already done by the next run.
+ */
+static void upscalePurgeDir(const char *dir)
+{
+	s32 last = -1;
+	s32 i;
+
+	for (i = 0; i < 8; i++) {
+		const s32 left = fsScanDir(dir, upscaleRemoveFile, (void *)dir);
+
+		if (left <= 0 || left == last) {
+			break;
+		}
+
+		last = left;
+	}
 }
 
 /**
@@ -923,8 +958,8 @@ static s32 upscaleWorker(void *arg)
 
 	// The scratch copies are the whole texture table twice over; leaving them
 	// behind would cost more disk than the pack does.
-	fsScanDir(inDir, upscaleRemoveFile, inDir);
-	fsScanDir(outDir, upscaleRemoveFile, outDir);
+	upscalePurgeDir(inDir);
+	upscalePurgeDir(outDir);
 
 	SDL_AtomicSet(&workerDone, 1);
 
@@ -981,6 +1016,13 @@ s32 upscaleStart(void)
 		return 0;
 	}
 
+	// Whatever a previous run left behind. Without this its output counts as
+	// this run's progress - a finished run leaves as many files as this one
+	// will make, so the bar starts at nearly full - and anything it wrote that
+	// this run does not overwrite would be filed into the new pack.
+	upscalePurgeDir(inDir);
+	upscalePurgeDir(outDir);
+
 	SDL_AtomicSet(&workerDone, 0);
 	SDL_AtomicSet(&workerFailed, 0);
 	SDL_AtomicSet(&workerCount, 0);
@@ -988,6 +1030,7 @@ s32 upscaleStart(void)
 
 	nextTexture = 0;
 	prepared = 0;
+	numWritten = 0;
 	pollTimer = 0;
 	preparedTotal = NUM_TEXTURES;
 	state = UPSCALE_PREPARING;
@@ -1037,7 +1080,11 @@ static void upscalePrepareChunk(void)
 					? upscalePadWrapped(rgba, width, height, optPadding, &pw, &ph) : NULL;
 
 			snprintf(path, sizeof(path), "%s/%04x.png", inDir, n);
-			pngWrite(path, padded ? padded : rgba, pw, ph, 4, 0);
+
+			if (pngWrite(path, padded ? padded : rgba, pw, ph, 4, 0)) {
+				numWritten++;
+			}
+
 			free(padded);
 		}
 

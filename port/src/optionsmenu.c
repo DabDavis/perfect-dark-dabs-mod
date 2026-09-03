@@ -3055,6 +3055,96 @@ static MenuItemHandlerResult menuhandlerTexturePackReload(s32 operation, struct 
 }
 
 /**
+ * Deleting a pack, having asked. A pack is a folder of a few thousand files and
+ * there is no undo, so the name goes in the question.
+ */
+static char g_TexturePackDeleteText[96];
+
+static const char *menutextTexturePackDeleteAsk(struct menuitem *item)
+{
+	snprintf(g_TexturePackDeleteText, sizeof(g_TexturePackDeleteText), "Delete %s?\n",
+			texpackGetPackName(texpackGetSelectedPack()));
+
+	return g_TexturePackDeleteText;
+}
+
+static MenuItemHandlerResult menuhandlerTexturePackDeleteConfirm(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		texpackDeletePack(texpackGetSelectedPack());
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedTexturePackDeleteMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextTexturePackDeleteAsk,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"Its files are removed from disk.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_SELECTABLE_CENTRE,
+		L_OPTIONS_385, // "No"
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_SELECTABLE_CENTRE,
+		L_OPTIONS_386, // "Yes"
+		0,
+		menuhandlerTexturePackDeleteConfirm,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedTexturePackDeleteMenuDialog = {
+	MENUDIALOGTYPE_DANGER,
+	(uintptr_t)"Delete Texture Pack",
+	g_ExtendedTexturePackDeleteMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+static MenuItemHandlerResult menuhandlerTexturePackDelete(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		// Nothing selected is nothing to delete.
+		return texpackGetSelectedPack() < 0;
+	case MENUOP_SET:
+		menuPushDialog(&g_ExtendedTexturePackDeleteMenuDialog);
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * The reload row, which doubles as where the pack's coverage is reported.
  *
  * A text function, which is what param2 is when MENUITEMFLAG_LITERAL_TEXT is
@@ -3720,6 +3810,14 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		(uintptr_t)menutextTexturePackReload,
 		0,
 		menuhandlerTexturePackReload,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Delete Pack...",
+		0,
+		menuhandlerTexturePackDelete,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

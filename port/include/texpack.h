@@ -116,6 +116,18 @@ void texpackSetSelectedPack(s32 index);
 s32 texpackLoadEnabled(void);
 void texpackSetLoadEnabled(s32 enabled);
 
+/**
+ * Deletes a pack and everything in it, and stops using it.
+ *
+ * Only ever a pack this listed, which means a directory or an archive directly
+ * inside one of the two pack folders - a texture pack is not something worth
+ * removing a directory tree over unless it is certain which tree that is. An
+ * archive takes its unpacked copy with it.
+ *
+ * Returns 0 if it would not, and says why in the log.
+ */
+s32 texpackDeletePack(s32 index);
+
 /** How many textures the current pack actually replaces. */
 s32 texpackGetNumReplacements(void);
 

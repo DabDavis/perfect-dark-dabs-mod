@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include <strings.h>
 #include <ultra64.h>
 #include "bss.h"
@@ -1387,6 +1388,131 @@ void texpackSetSelectedPack(s32 index)
 	packName[sizeof(packName) - 1] = '\0';
 
 	texpackReload();
+}
+
+/**
+ * Removes a directory and its contents, to a bounded depth.
+ *
+ * Deliberately unhelpful: it refuses anything that is not inside one of the
+ * pack folders, and it does not follow directory symlinks - remove() takes the
+ * link and leaves whatever it pointed at alone. A pack is not worth deleting a
+ * tree over unless it is certain which tree that is.
+ */
+static s32 texpackPathIsInPacksDir(const char *path)
+{
+	const char *roots[2];
+	u32 i;
+
+	roots[0] = texpackPacksDir();
+	roots[1] = texpackUpscaylPacksDir();
+
+	for (i = 0; i < 2; i++) {
+		const u32 len = roots[i] ? strlen(roots[i]) : 0;
+
+		// Inside it, not merely starting with its name: "texture-packsX" is
+		// not "texture-packs/X".
+		if (len && !strncmp(path, roots[i], len) && path[len] == '/' && path[len + 1]) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+struct texpackdelete {
+	const char *dir;
+	s32 depth;
+};
+
+static void texpackDeleteEntry(const char *name, void *arg);
+
+static void texpackDeleteTree(const char *path, s32 depth)
+{
+	struct texpackdelete scan = { path, depth };
+	char marker[FS_MAXPATH + 1];
+	s32 i;
+
+	if (depth > TEXPACK_MAXDEPTH) {
+		return;
+	}
+
+	// fsScanDir() does not report names beginning with a dot, so the marker
+	// written into an unpacked archive is invisible to the loop below - and a
+	// directory with one file left in it does not go away.
+	snprintf(marker, sizeof(marker), "%s/" TEXPACK_DONE_FILE, path);
+	remove(marker);
+
+	// Same reason upscalePurgeDir() goes round more than once: removing
+	// entries while reading the directory need not visit all of them.
+	for (i = 0; i < 8; i++) {
+		if (fsScanDir(path, texpackDeleteEntry, &scan) <= 0) {
+			break;
+		}
+	}
+
+	rmdir(path);
+}
+
+static void texpackDeleteEntry(const char *name, void *arg)
+{
+	const struct texpackdelete *scan = arg;
+	char path[FS_MAXPATH + 1];
+
+	snprintf(path, sizeof(path), "%s/%s", scan->dir, name);
+
+	if (remove(path) == 0) {
+		return;
+	}
+
+	// remove() fails on a directory that is not empty, which is the only
+	// reason to look inside one.
+	texpackDeleteTree(path, scan->depth + 1);
+}
+
+s32 texpackDeletePack(s32 index)
+{
+	char cache[FS_MAXPATH + 1];
+	struct texpackpack pack;
+
+	if (index < 0 || index >= texpackGetNumPacks()) {
+		return 0;
+	}
+
+	// Copied, because the list is rebuilt underneath us in a moment.
+	pack = packs[index];
+
+	if (!texpackPathIsInPacksDir(pack.path)) {
+		sysLogPrintf(LOG_ERROR, "texpack: refusing to delete %s - it is not in a pack folder",
+				pack.path);
+		return 0;
+	}
+
+	if (index == texpackGetSelectedPack()) {
+		texpackSetSelectedPack(-1);
+	}
+
+	if (pack.isArchive) {
+		remove(pack.path);
+
+		// And the copy that was unpacked from it, which is the larger half.
+		{
+			const char *root = texpackPacksDir();
+
+			if (root) {
+				snprintf(cache, sizeof(cache), "%s/" TEXPACK_CACHE_DIR "/%s", root, pack.name);
+				texpackDeleteTree(cache, 0);
+			}
+		}
+	} else {
+		texpackDeleteTree(pack.path, 0);
+	}
+
+	sysLogPrintf(LOG_NOTE, "texpack: deleted %s", pack.name);
+
+	texpackRefreshPacks();
+	texpackReload();
+
+	return 1;
 }
 
 s32 texpackLoadEnabled(void)
