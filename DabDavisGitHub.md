@@ -14,6 +14,22 @@ upstream  https://github.com/perfect-dark-pc-port/perfect_dark.git
 `gh` is authenticated as **DabDavis** over ssh, so `git push` and `gh release`
 both work without a prompt.
 
+**Set the default repository in a fresh clone**, or `gh` reads the wrong one:
+
+```sh
+gh repo set-default DabDavis/perfect-dark-dabs-mod
+```
+
+With no default set and two remotes, `gh` picks by remote *name* against a
+preference list that puts `upstream` ahead of `origin` — so a bare `gh run list`
+answers about the port's CI rather than this fork's, and does it silently. What
+comes back is green runs of `C/C++ CI`, which is a workflow name this repository
+also has, inherited from upstream in `c-cpp.yml` — so nothing about the output
+looks foreign, and it was read once as "the push built fine". The setting lives
+in `.git/config` as `remote.origin.gh-resolved`, which is local to the clone and
+comes back the moment anyone clones again; `-R DabDavis/perfect-dark-dabs-mod`
+says it per command.
+
 **`dabs-mod` is the repository's default branch and the repository is public.**
 A push is immediately what a visitor sees, and — if it is a push to `dabs-mod`
 rather than a topic branch — it also rebuilds the dev release that every dev-channel
