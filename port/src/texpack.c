@@ -1064,6 +1064,35 @@ void texpackRefreshPacks(void)
 	if (dir) {
 		fsScanDir(dir, texpackListEntry, (void *)dir);
 	}
+
+	// "Why is my pack not in the list" is the question this feature invites,
+	// and the answer is usually that what was dropped in is a file rather than
+	// a folder or an archive - which is visible here and nowhere else.
+	{
+		// Long enough for the handful anybody installs; a longer list is cut
+		// short, the count in front of it being the part that answers the
+		// question either way.
+		char names[512];
+		u32 len = 0;
+		s32 i;
+
+		for (i = 0; i < numPacks && len < sizeof(names) - 1; i++) {
+			// snprintf answers with what it would have written rather than
+			// what it did, so past the end this runs over the buffer - the
+			// loop bound is what keeps the next offset inside it.
+			const s32 n = snprintf(names + len, sizeof(names) - len, "%s%s",
+					len ? ", " : "", packs[i].name);
+
+			if (n <= 0) {
+				break;
+			}
+
+			len += (u32)n;
+		}
+
+		sysLogPrintf(LOG_NOTE, "texpack: %d pack%s%s%s", numPacks,
+				numPacks == 1 ? "" : "s", numPacks ? ": " : "", numPacks ? names : "");
+	}
 }
 
 s32 texpackGetNumPacks(void)
