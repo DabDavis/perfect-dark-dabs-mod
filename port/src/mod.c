@@ -482,6 +482,45 @@ static char *modConfigParseWeapon(char *p, char *token)
 	return p;
 }
 
+/**
+ * tvscreen NUMBER { sameas NUMBER }
+ *
+ * Which command list a screen program draws with. Twelve of the stock programs
+ * already share a list with another; this lets a mod say the same thing.
+ */
+static char *modConfigParseTvScreen(char *p, char *token)
+{
+	s32 num = 0;
+	s32 src = 0;
+
+	p = modConfigParseIntValue(p, token, &num);
+	if (!p || num < 0 || num >= (s32)ARRAYCOUNT(g_TvCmdlists)) {
+		sysLogPrintf(LOG_ERROR, "modconfig: tvscreen: invalid program number: %s", token);
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		if (!strcmp(token, "sameas")) {
+			PARSE_INT("tvscreen", "sameas", src, 0, (s32)ARRAYCOUNT(g_TvCmdlists) - 1, NULL);
+			g_TvCmdlists[num] = g_TvCmdlists[src];
+		} else {
+			sysLogPrintf(LOG_ERROR, "modconfig: tvscreen %d: invalid key: %s", num, token);
+			return NULL;
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	return p;
+}
+
 s32 modConfigLoad(const char *fname)
 {
 	u32 dataLen = 0;
@@ -495,7 +534,16 @@ s32 modConfigLoad(const char *fname)
 	char *end = data + dataLen;
 	char *p = strParseToken(data, token, NULL);
 	while (p && token[0]) {
-		if (!strcmp(token, "weapon")) {
+		if (!strcmp(token, "tvscreen")) {
+			// tvscreen NUMBER { sameas NUMBER }
+			char *prev = p;
+			p = modConfigParseTvScreen(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed tvscreen block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "weapon")) {
 			// weapon NUMBER { KEYVALUES... }
 			char *prev = p;
 			p = modConfigParseWeapon(p, token);

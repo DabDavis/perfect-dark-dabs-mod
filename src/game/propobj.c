@@ -11981,67 +11981,82 @@ u32 var8006aae4[] = {
 	tvcmd_restart(),
 };
 
+/**
+ * Which command list each screen program draws with.
+ *
+ * This was a switch of fifty-five cases, twelve of which are deliberate
+ * aliases - programs 09 to 0E all draw list 03, and 1E to 23 all draw list 08.
+ * As a table the aliases are visible, and a mod can point a program somewhere
+ * else; as a switch it was the single largest thing GE-X had to patch in this
+ * file.
+ */
+u32 *g_TvCmdlists[] = {
+	[TVCMDLIST_00  ] = g_TvCmdlist00,
+	[TVCMDLIST_01  ] = g_TvCmdlist01,
+	[TVCMDLIST_02  ] = g_TvCmdlist02,
+	[TVCMDLIST_03  ] = g_TvCmdlist03,
+	[TVCMDLIST_04  ] = g_TvCmdlist04,
+	[TVCMDLIST_05  ] = g_TvCmdlist05,
+	[TVCMDLIST_06  ] = g_TvCmdlist06,
+	[TVCMDLIST_07  ] = g_TvCmdlist07,
+	[TVCMDLIST_08  ] = g_TvCmdlist08,
+	[TVCMDLIST_09  ] = g_TvCmdlist03,
+	[TVCMDLIST_0A  ] = g_TvCmdlist03,
+	[TVCMDLIST_0B  ] = g_TvCmdlist03,
+	[TVCMDLIST_0C  ] = g_TvCmdlist03,
+	[TVCMDLIST_0D  ] = g_TvCmdlist03,
+	[TVCMDLIST_0E  ] = g_TvCmdlist03,
+	[TVCMDLIST_0F  ] = g_TvCmdlist0F,
+	[TVCMDLIST_10  ] = g_TvCmdlist10,
+	[TVCMDLIST_11  ] = g_TvCmdlist11,
+	[TVCMDLIST_12  ] = g_TvCmdlist12,
+	[TVCMDLIST_13  ] = g_TvCmdlist13,
+	[TVCMDLIST_14  ] = g_TvCmdlist14,
+	[TVCMDLIST_15  ] = g_TvCmdlist15,
+	[TVCMDLIST_16  ] = g_TvCmdlist16,
+	[TVCMDLIST_17  ] = g_TvCmdlist17,
+	[TVCMDLIST_18  ] = g_TvCmdlist18,
+	[TVCMDLIST_19  ] = g_TvCmdlist19,
+	[TVCMDLIST_1A  ] = g_TvCmdlist1A,
+	[TVCMDLIST_1B  ] = g_TvCmdlist1B,
+	[TVCMDLIST_1C  ] = g_TvCmdlist1C,
+	[TVCMDLIST_1D  ] = g_TvCmdlist1D,
+	[TVCMDLIST_1E  ] = g_TvCmdlist08,
+	[TVCMDLIST_1F  ] = g_TvCmdlist08,
+	[TVCMDLIST_20  ] = g_TvCmdlist08,
+	[TVCMDLIST_21  ] = g_TvCmdlist08,
+	[TVCMDLIST_22  ] = g_TvCmdlist08,
+	[TVCMDLIST_23  ] = g_TvCmdlist08,
+	[TVCMDLIST_24  ] = g_TvCmdlist24,
+	[TVCMDLIST_25  ] = g_TvCmdlist25,
+	[TVCMDLIST_26  ] = g_TvCmdlist26,
+	[TVCMDLIST_27  ] = g_TvCmdlist27,
+	[TVCMDLIST_28  ] = g_TvCmdlist28,
+	[TVCMDLIST_29  ] = g_TvCmdlist29,
+	[TVCMDLIST_2A  ] = g_TvCmdlist2A,
+	[TVCMDLIST_2B  ] = g_TvCmdlist2B,
+	[TVCMDLIST_2C  ] = g_TvCmdlist2C,
+	[TVCMDLIST_2D  ] = g_TvCmdlist2D,
+	[TVCMDLIST_2E  ] = g_TvCmdlist2E,
+	[TVCMDLIST_2F  ] = g_TvCmdlist2F,
+	[TVCMDLIST_30  ] = g_TvCmdlist30,
+	[TVCMDLIST_31  ] = g_TvCmdlist31,
+	[TVCMDLIST_32  ] = g_TvCmdlist32,
+	[TVCMDLIST_33  ] = g_TvCmdlist33,
+	[TVCMDLIST_34  ] = g_TvCmdlist34,
+	[TVCMDLIST_35  ] = g_TvCmdlist35,
+	[TVCMDLIST_36  ] = g_TvCmdlist36,
+};
+
+_Static_assert(ARRAYCOUNT(g_TvCmdlists) == TVCMDLIST_36 + 1,
+		"g_TvCmdlists must have an entry per screen program");
+
 void tvscreenSetImageByNum(struct tvscreen *screen, s32 imagenum)
 {
 	u32 *image = g_TvCmdlist00;
 
-	switch (imagenum) {
-	case TVCMDLIST_01: image = g_TvCmdlist01; break;
-	case TVCMDLIST_02: image = g_TvCmdlist02; break;
-	case TVCMDLIST_03: image = g_TvCmdlist03; break;
-	case TVCMDLIST_04: image = g_TvCmdlist04; break;
-	case TVCMDLIST_05: image = g_TvCmdlist05; break;
-	case TVCMDLIST_06: image = g_TvCmdlist06; break;
-	case TVCMDLIST_07: image = g_TvCmdlist07; break;
-	case TVCMDLIST_08: image = g_TvCmdlist08; break;
-	case TVCMDLIST_09: image = g_TvCmdlist03; break;
-	case TVCMDLIST_0A: image = g_TvCmdlist03; break;
-	case TVCMDLIST_0B: image = g_TvCmdlist03; break;
-	case TVCMDLIST_0C: image = g_TvCmdlist03; break;
-	case TVCMDLIST_0D: image = g_TvCmdlist03; break;
-	case TVCMDLIST_0E: image = g_TvCmdlist03; break;
-	case TVCMDLIST_0F: image = g_TvCmdlist0F; break;
-	case TVCMDLIST_10: image = g_TvCmdlist10; break;
-	case TVCMDLIST_11: image = g_TvCmdlist11; break;
-	case TVCMDLIST_12: image = g_TvCmdlist12; break;
-	case TVCMDLIST_13: image = g_TvCmdlist13; break;
-	case TVCMDLIST_14: image = g_TvCmdlist14; break;
-	case TVCMDLIST_15: image = g_TvCmdlist15; break;
-	case TVCMDLIST_16: image = g_TvCmdlist16; break;
-	case TVCMDLIST_17: image = g_TvCmdlist17; break;
-	case TVCMDLIST_18: image = g_TvCmdlist18; break;
-	case TVCMDLIST_19: image = g_TvCmdlist19; break;
-	case TVCMDLIST_1A: image = g_TvCmdlist1A; break;
-	case TVCMDLIST_1B: image = g_TvCmdlist1B; break;
-	case TVCMDLIST_1C: image = g_TvCmdlist1C; break;
-	case TVCMDLIST_1D: image = g_TvCmdlist1D; break;
-	case TVCMDLIST_24: image = g_TvCmdlist24; break;
-	case TVCMDLIST_1E: image = g_TvCmdlist08; break;
-	case TVCMDLIST_1F: image = g_TvCmdlist08; break;
-	case TVCMDLIST_20: image = g_TvCmdlist08; break;
-	case TVCMDLIST_21: image = g_TvCmdlist08; break;
-	case TVCMDLIST_22: image = g_TvCmdlist08; break;
-	case TVCMDLIST_23: image = g_TvCmdlist08; break;
-	case TVCMDLIST_25: image = g_TvCmdlist25; break;
-	case TVCMDLIST_26: image = g_TvCmdlist26; break;
-	case TVCMDLIST_27: image = g_TvCmdlist27; break;
-	case TVCMDLIST_28: image = g_TvCmdlist28; break;
-	case TVCMDLIST_29: image = g_TvCmdlist29; break;
-	case TVCMDLIST_2A: image = g_TvCmdlist2A; break;
-	case TVCMDLIST_2B: image = g_TvCmdlist2B; break;
-	case TVCMDLIST_2C: image = g_TvCmdlist2C; break;
-	case TVCMDLIST_2D: image = g_TvCmdlist2D; break;
-	case TVCMDLIST_2E: image = g_TvCmdlist2E; break;
-	case TVCMDLIST_2F: image = g_TvCmdlist2F; break;
-	case TVCMDLIST_30: image = g_TvCmdlist30; break;
-	case TVCMDLIST_31: image = g_TvCmdlist31; break;
-	case TVCMDLIST_32: image = g_TvCmdlist32; break;
-	case TVCMDLIST_33: image = g_TvCmdlist33; break;
-	case TVCMDLIST_34: image = g_TvCmdlist34; break;
-	case TVCMDLIST_35: image = g_TvCmdlist35; break;
-	case TVCMDLIST_36: image = g_TvCmdlist36; break;
-	case TVCMDLIST_00:
-		break;
+	if (imagenum >= 0 && imagenum < ARRAYCOUNT(g_TvCmdlists) && g_TvCmdlists[imagenum]) {
+		image = g_TvCmdlists[imagenum];
 	}
 
 	tvscreenSetCmdlist(screen, image);
