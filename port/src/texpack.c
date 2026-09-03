@@ -1643,6 +1643,135 @@ void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 si
  */
 #define TEXPACK_DUMPALL_POOL (128 * 1024)
 
+/**
+ * Expanding a texture's texels to RGBA, outside the renderer.
+ *
+ * The renderer does this in import_texture_* on its way to the GPU, from RDP
+ * state it only has while drawing. Doing it from a struct tex instead is what
+ * lets the whole texture table be written out without the game having to draw
+ * every texture first - which is how a pack gets built from every texture
+ * rather than only the ones somebody walked past.
+ *
+ * Where this and gfx_pc disagree, gfx_pc is right.
+ */
+
+#define TEXPACK_SCALE_5_8(v) (((v) * 0xff) / 0x1f)
+#define TEXPACK_SCALE_4_8(v) ((v) * 0x11)
+#define TEXPACK_SCALE_3_8(v) ((v) * 0x24)
+
+// lutmodeindex values: 2 means RGBA16 palette entries, 3 means IA16
+#define TEXPACK_LUT_RGBA16 2
+#define TEXPACK_LUT_IA16   3
+
+static void texpackPaletteEntryToRgba(u16 entry, s32 lutmode, u8 *dst)
+{
+	if (lutmode == TEXPACK_LUT_IA16) {
+		dst[0] = dst[1] = dst[2] = entry & 0xff;
+		dst[3] = entry >> 8;
+	} else {
+		dst[0] = TEXPACK_SCALE_5_8(entry >> 11);
+		dst[1] = TEXPACK_SCALE_5_8((entry >> 6) & 0x1f);
+		dst[2] = TEXPACK_SCALE_5_8((entry >> 1) & 0x1f);
+		dst[3] = (entry & 1) ? 255 : 0;
+	}
+}
+
+/**
+ * Converts one texture to a freshly malloc'd RGBA32 buffer, bottom row first -
+ * the order pngWrite() wants for an image that should look the right way up.
+ *
+ * The size is the padded row rather than the tile: an RDP row is a whole number
+ * of 64-bit words, so a 44 wide 4-bit texture occupies 48 across, and that is
+ * what the renderer uploads and what texture coordinates are normalised
+ * against.
+ */
+static u8 *texpackTexToRgba(struct tex *tex, s32 *outWidth, s32 *outHeight)
+{
+	const s32 fmt = tex->gbiformat;
+	const s32 siz = tex->depth;
+	const s32 wide = siz == G_IM_SIZ_32b ? 2 : 1;
+	const s32 stride = texGetLineSizeInBytes(tex, 0) * 8 * wide;
+	const s32 size = texGetSizeInBytes(tex, 0) * 8 * wide;
+	const s32 line = stride / wide;
+	const s32 width = siz == G_IM_SIZ_4b ? line * 2 : siz == G_IM_SIZ_8b ? line : line / 2;
+	const s32 height = stride ? size / stride : 0;
+	const u8 *data = tex->data;
+	const u16 *palette = NULL;
+	u8 *rgba;
+	s32 y;
+
+	if (width <= 0 || height <= 0 || stride <= 0 || !data) {
+		return NULL;
+	}
+
+	if (tex->lutmodeindex) {
+		s32 depth;
+		s32 len;
+
+		// A paletted texture keeps its palette in the same allocation, right
+		// after the pixels of every LOD, which is what this measures - in
+		// 16-bit units.
+		texGetDepthAndSize(tex, &depth, &len);
+		palette = (const u16 *)(data + len * 2);
+	}
+
+	rgba = malloc((size_t)width * height * 4);
+
+	if (!rgba) {
+		return NULL;
+	}
+
+	for (y = 0; y < height; y++) {
+		const u8 *row = data + (size_t)stride * y;
+		u8 *dst = rgba + (size_t)width * 4 * (height - 1 - y);
+		s32 x;
+
+		for (x = 0; x < width; x++, dst += 4) {
+			if (fmt == G_IM_FMT_RGBA && siz == G_IM_SIZ_16b) {
+				const u16 c = (row[x * 2] << 8) | row[x * 2 + 1];
+				dst[0] = TEXPACK_SCALE_5_8(c >> 11);
+				dst[1] = TEXPACK_SCALE_5_8((c >> 6) & 0x1f);
+				dst[2] = TEXPACK_SCALE_5_8((c >> 1) & 0x1f);
+				dst[3] = (c & 1) ? 255 : 0;
+			} else if (fmt == G_IM_FMT_RGBA && siz == G_IM_SIZ_32b) {
+				// Stored byte-swapped within the texel; the renderer undoes it
+				// with PD_BE32.
+				dst[0] = row[x * 4 + 3];
+				dst[1] = row[x * 4 + 2];
+				dst[2] = row[x * 4 + 1];
+				dst[3] = row[x * 4];
+			} else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_16b) {
+				dst[0] = dst[1] = dst[2] = row[x * 2];
+				dst[3] = row[x * 2 + 1];
+			} else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_8b) {
+				dst[0] = dst[1] = dst[2] = TEXPACK_SCALE_4_8(row[x] >> 4);
+				dst[3] = TEXPACK_SCALE_4_8(row[x] & 0xf);
+			} else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_4b) {
+				const u8 part = (row[x / 2] >> (4 - (x % 2) * 4)) & 0xf;
+				dst[0] = dst[1] = dst[2] = TEXPACK_SCALE_3_8(part >> 1);
+				dst[3] = (part & 1) ? 255 : 0;
+			} else if (fmt == G_IM_FMT_I && siz == G_IM_SIZ_8b) {
+				dst[0] = dst[1] = dst[2] = dst[3] = row[x];
+			} else if (fmt == G_IM_FMT_I && siz == G_IM_SIZ_4b) {
+				const u8 v = TEXPACK_SCALE_4_8((row[x / 2] >> (4 - (x % 2) * 4)) & 0xf);
+				dst[0] = dst[1] = dst[2] = dst[3] = v;
+			} else if (fmt == G_IM_FMT_CI && palette) {
+				const u8 idx = siz == G_IM_SIZ_4b
+						? ((row[x / 2] >> (4 - (x % 2) * 4)) & 0xf) : row[x];
+				texpackPaletteEntryToRgba(PD_BE16(palette[idx]), tex->lutmodeindex, dst);
+			} else {
+				free(rgba);
+				return NULL;
+			}
+		}
+	}
+
+	*outWidth = width;
+	*outHeight = height;
+
+	return rgba;
+}
+
 void texpackDumpAll(void)
 {
 	char path[FS_MAXPATH + 1];
@@ -1718,6 +1847,19 @@ void texpackDumpAll(void)
 		if (f) {
 			fwrite(tex->data, 1, size, f);
 			fclose(f);
+		}
+
+		{
+			s32 pngWidth;
+			s32 pngHeight;
+			u8 *rgba = texpackTexToRgba(tex, &pngWidth, &pngHeight);
+
+			if (rgba) {
+				snprintf(path, sizeof(path), "%s/%04x_%s.png", dumpDir, n,
+						texpackFormatName(tex->gbiformat, tex->depth));
+				pngWrite(path, rgba, pngWidth, pngHeight, 4, 0);
+				free(rgba);
+			}
 		}
 
 		// A paletted texture keeps its palette in the same allocation, right
