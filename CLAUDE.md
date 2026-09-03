@@ -20,7 +20,7 @@ area, read its section first — none of them are inferable from the code.
 - [Text rendering](#text-rendering) — fonts, and menu units versus pixels
 - [Stage numbers](#stage-numbers)
 - [The frame is presented before videoEndFrame()](#the-frame-is-presented-before-videoendframe) — why the pre-swap callback exists
-- [Feeding ffmpeg two raw pipes](#feeding-ffmpeg-two-raw-pipes) — the recorder: GPU capture, encoder detection, and what happens when one falls behind
+- [Feeding ffmpeg two raw pipes](#feeding-ffmpeg-two-raw-pipes) — the recorder: NV12 conversion on the GPU, encoder detection, and why it must never wait for one
 - [Ghost Trials talks over two different transports](#ghost-trials-talks-over-two-different-transports) — WinHTTP and libcurl, and why not one of them
 - [The game replaces itself](#the-game-replaces-itself) — the updater's internals
 - [Mod directories](#mod-directories)
@@ -228,10 +228,32 @@ bound pixel buffer object is a request rather than a transfer, so a ring of two
 PBOs issues this frame's read and collects the one issued last frame, and nothing
 waits on the GPU. What comes out is a frame behind - which is latency and not
 drift, because a fixed-rate stream timestamps by index and no index is skipped.
-The format is reported rather than converted, BGRA being what desktop drivers
-hand back without repacking and four-byte pixels being what a GPU encoder wants
-uploaded. `gfx_capture_drain()` collects what is still in flight at stop, or the
-recording loses its tail to the ring.
+`gfx_capture_drain()` collects what is still in flight at stop, or the recording
+loses its tail to the ring.
+
+**Convert before you download.** The readback costs in proportion to the bytes
+moved, and four bytes a pixel at 1080p60 is 497 MB/s off the GPU, down a pipe and
+back onto the GPU for the encoder - measured, this card tops out at 77fps with
+nothing else running, which an eighty simulant match does not leave room inside
+of. So the frame is converted to NV12 first, by two shader passes into an R8 luma
+target and a half size R8G8 chroma one, and only then read back: a byte and a
+half a pixel, 187 MB/s, and the encoder wanted NV12 anyway. This is what OBS does
+and where it was taken from - `libobs/obs.c` and `format_conversion.effect` - and
+it is not DMA-BUF or zero-copy or anything needing a library linked in.
+
+The flip comes free by rendering the planes upside down, so ffmpeg no longer does
+it. Desktop GL 3.0 and up only; anything older keeps the four-byte readback,
+which is why `GFX_CAPTURE_BGRA` is still there. **The passes must put back every
+piece of GL state they touch** - `gfx_opengl_start_frame()` only counts frames,
+so nothing else restores the program, the vertex array, the viewport or the
+enables, and the symptom of missing one is the next frame drawn wrongly.
+
+The colour is BT.709 limited range, and it is tagged with the `h264_metadata`
+bitstream filter rather than `-colorspace`. Those are a request to *convert*, and
+ffmpeg answers one by inserting a scaler that cannot touch a frame already on the
+GPU: "Impossible to convert between the formats supported by the filter
+Parsed_scale_vaapi_1 and the filter auto_scale_0". Leaving it untagged is also
+wrong, because a player then guesses from the picture's size and gets 480p wrong.
 
 **Which encoder a machine has is asked, not guessed.** nvenc, vaapi and qsv on
 Linux, nvenc/amf/qsv/mf on Windows, videotoolbox on macOS - each put past ffmpeg
@@ -243,14 +265,22 @@ upload. On the Polaris card here at 1080p that is 5ms a frame against 29ms, and
 against 59ms across six cores for libx264 - which is deliberately not in the
 table and reachable only by naming it, for a machine with nothing on its GPU.
 
-**Too slow and stopped altogether look identical from the game thread** - the
-queue is full and stays full - and they must not end the same way. So the process
-is asked (`waitpid(WNOHANG)`), and one still running is given its backlog and
-left to write the container's index: the recording ends early instead of leaving
-an mp4 with no moov atom that will not open in anything. Only an encoder that has
-actually exited is given up on, and the unplayable file it leaves is removed.
-Ending early writes the queued frames once apiece rather than at their repeat
-counts, which bounds the wait to about a second.
+**Never wait for the encoder.** A frame that finds the queue full is not
+captured; the clock goes back and the next frame that gets a slot is written for
+both of them, which is what the repeat counts already did for a game running
+below the recording's rate. The stream stays fixed rate and the sound stays put.
+
+Waiting was the original design - stutter rather than drop a frame - and it was
+wrong for a reason worth remembering: **the game thread produces the sound as
+well as the pictures.** Blocking it stops the audio that ffmpeg interleaves the
+video against, so the encoder ends up waiting for sound that is waiting for the
+encoder, and what that looks like from the outside is the recorder dying a few
+seconds into an eighty simulant match, having frozen the game first. Anything
+added here that can block the render thread brings that back.
+
+An encoder that has actually exited is still given up on - the writers find it
+when a write fails - and the unplayable file it leaves behind is removed, since
+nothing without a moov atom will open in anything.
 
 ## Ghost Trials talks over two different transports
 
