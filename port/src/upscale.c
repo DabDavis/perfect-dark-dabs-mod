@@ -13,6 +13,12 @@
  * down - is files, and runs on a worker while the game carries on.
  */
 
+// -std=c11 is strict enough to hide kill(), fork() and waitpid() behind this;
+// it has to come before the first system header. See the same note in record.c.
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -31,6 +37,10 @@
 // earlier reads as false and leaves CreateProcess undeclared.
 #ifdef PLATFORM_WIN32
 #include <windows.h>
+#else
+#include <signal.h>
+#include <sys/wait.h>
+#include <errno.h>
 #endif
 #include "config.h"
 #include "fs.h"
@@ -887,19 +897,34 @@ static void upscaleCropFile(const char *name, void *arg)
 }
 
 /**
+ * The upscaler, while it is running, so that cancelling can reach it.
+ *
+ * Guarded because the worker thread starts and reaps it while the menu thread
+ * is what asks for it to stop. On POSIX the reap happens under the same lock as
+ * the kill, which is what stops a cancel arriving a moment late from signalling
+ * a pid the system has already handed to somebody else.
+ */
+static SDL_mutex *runLock;
+#ifdef PLATFORM_WIN32
+static HANDLE runProc;
+#else
+static pid_t runPid = -1;
+#endif
+
+/**
  * Runs a command line, waits for it, and answers its exit code.
  *
- * Windows does not go through system() for this. system() runs the line under
- * cmd.exe, cmd.exe gets a console of its own, and a new console takes the
- * foreground - so starting a run pulled focus off the game and left the player
- * clicking back into the window to reach the menu they started it from. A run
- * is minutes long, so it is not a flash: the console is there for all of it.
+ * Neither platform uses system(). Windows because system() runs the line under
+ * cmd.exe and cmd.exe gets a console of its own, which takes the foreground and
+ * leaves the game unfocused for the several minutes a run lasts. POSIX because
+ * system() hands back nothing to stop - and a Cancel that cannot stop the
+ * upscaler is a Cancel that waits the whole run out and then throws the result
+ * away, which is what this used to do.
  *
- * CreateProcess with CREATE_NO_WINDOW spawns the upscaler directly and gives
- * it no console to steal focus with. Nothing is lost by not having one - the
- * upscaler's progress is counted from the files it writes, never read from its
- * output - and the extra pair of quotes cmd.exe needed round the whole line
- * goes with it, there being no cmd.exe left to strip them.
+ * The extra pair of quotes cmd.exe wanted round the whole line is not here and
+ * must not be: CreateProcess reads the program name from the first token, and a
+ * leading quote makes that token empty - it fails with error 87 rather than
+ * running.
  */
 #ifdef PLATFORM_WIN32
 static s32 upscaleRun(const char *cmd)
@@ -929,19 +954,91 @@ static s32 upscaleRun(const char *cmd)
 	}
 
 	free(line);
+	CloseHandle(pi.hThread);
 
+	SDL_LockMutex(runLock);
+	runProc = pi.hProcess;
+	SDL_UnlockMutex(runLock);
+
+	// TerminateProcess() from upscaleCancel() is what ends this early.
 	WaitForSingleObject(pi.hProcess, INFINITE);
 	GetExitCodeProcess(pi.hProcess, &code);
+
+	// Cleared before it is closed, so a cancel arriving in between finds
+	// nothing rather than a handle that has gone.
+	SDL_LockMutex(runLock);
+	runProc = NULL;
+	SDL_UnlockMutex(runLock);
+
 	CloseHandle(pi.hProcess);
-	CloseHandle(pi.hThread);
 
 	return (s32)code;
 }
 #else
 static s32 upscaleRun(const char *cmd)
 {
-	// No console to conjure, and no window to lose focus from.
-	return system(cmd);
+	// How long a cancelled upscaler is given to go quietly before it is made
+	// to, in milliseconds.
+	enum { POLL = 200, PATIENCE = 3000 };
+
+	s32 sinceCancel = -1;
+	int status = 0;
+	pid_t pid = fork();
+
+	if (pid < 0) {
+		sysLogPrintf(LOG_ERROR, "upscale: could not start the upscaler (%s)", strerror(errno));
+		return -1;
+	}
+
+	if (pid == 0) {
+		// Its own process group, so that cancelling reaches the upscaler and
+		// not just the shell: sh usually execs a single command and becomes it,
+		// but it is not required to, and signalling the group covers both.
+		setsid();
+		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+		_exit(127);
+	}
+
+	SDL_LockMutex(runLock);
+	runPid = pid;
+	SDL_UnlockMutex(runLock);
+
+	for (;;) {
+		pid_t r;
+
+		// Reaped under the lock the kill takes, so a cancel cannot signal a pid
+		// this has already collected.
+		SDL_LockMutex(runLock);
+		r = waitpid(pid, &status, WNOHANG);
+
+		if (r == pid || (r < 0 && errno != EINTR)) {
+			runPid = -1;
+		}
+
+		SDL_UnlockMutex(runLock);
+
+		if (r == pid) {
+			break;
+		}
+
+		if (r < 0 && errno != EINTR) {
+			return -1;
+		}
+
+		if (SDL_AtomicGet(&cancelled)) {
+			// SIGTERM went out with the cancel. Anything still here after a few
+			// seconds is not going to answer it.
+			sinceCancel = sinceCancel < 0 ? 0 : sinceCancel + POLL;
+
+			if (sinceCancel == PATIENCE) {
+				kill(-pid, SIGKILL);
+			}
+		}
+
+		SDL_Delay(POLL);
+	}
+
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 #endif
 
@@ -1019,6 +1116,27 @@ static s32 upscaleWorker(void *arg)
 void upscaleCancel(void)
 {
 	SDL_AtomicSet(&cancelled, 1);
+
+	// And the upscaler itself. Without this the flag is only read between
+	// files, so a cancel during the run - which is all of it, the run being the
+	// part that takes minutes - was noticed when the upscaler finished of its
+	// own accord and did nothing but throw the result away.
+	if (!runLock) {
+		return;
+	}
+
+	SDL_LockMutex(runLock);
+#ifdef PLATFORM_WIN32
+	if (runProc) {
+		TerminateProcess(runProc, 1);
+	}
+#else
+	if (runPid > 0) {
+		// The group, not the process: see the setsid() in upscaleRun().
+		kill(-runPid, SIGTERM);
+	}
+#endif
+	SDL_UnlockMutex(runLock);
 }
 
 /**
@@ -1104,6 +1222,16 @@ s32 upscaleStart(void)
 
 	snprintf(packDir, sizeof(packDir), "%s/%s/textures", fsFullPath(rel), packName);
 	fsCreateDir(packDir);
+
+	if (!runLock) {
+		runLock = SDL_CreateMutex();
+
+		if (!runLock) {
+			upscaleSetStatus("could not start");
+			state = UPSCALE_FAILED;
+			return 0;
+		}
+	}
 
 	poolBuffer = malloc(UPSCALE_POOL);
 
