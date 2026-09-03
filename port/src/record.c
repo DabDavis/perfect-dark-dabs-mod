@@ -265,42 +265,63 @@ static f64 recordNow(void)
  * console to put them on; NULL sends them to NUL. Only read back when the
  * child exits badly - see recordLogChildErrors().
  */
+static void recordCloseIfOpen(HANDLE h)
+{
+	if (h != INVALID_HANDLE_VALUE && h != NULL) {
+		CloseHandle(h);
+	}
+}
+
 static HANDLE recordSpawn(const char *cmd, HANDLE in, const char *errPath)
 {
 	SECURITY_ATTRIBUTES sa;
 	STARTUPINFO si;
 	PROCESS_INFORMATION pi;
 	HANDLE err;
+	HANDLE nul;
 	char *line;
 
 	memset(&sa, 0, sizeof(sa));
 	sa.nLength = sizeof(sa);
 	sa.bInheritHandle = TRUE;
 
-	err = CreateFile(errPath ? errPath : "NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-			&sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	err = errPath ? CreateFile(errPath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+			&sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL) : INVALID_HANDLE_VALUE;
 
 	if (err == INVALID_HANDLE_VALUE) {
-		// Not worth refusing to record over; the child simply says nothing.
+		// Nowhere to keep what it says, or nowhere asked for. Not worth
+		// refusing to record over; the child simply says nothing.
 		err = CreateFile("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
 				&sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	}
 
+	// A child with no pipe to read still needs somewhere for its stdin to
+	// point. STARTF_USESTDHANDLES means all three are the ones named here, and
+	// INVALID_HANDLE_VALUE is not one a child can be given - it is what
+	// CreateFile answers failure with, not a handle to nothing.
+	nul = in ? INVALID_HANDLE_VALUE
+			: CreateFile("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+					&sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
 	memset(&si, 0, sizeof(si));
 	si.cb = sizeof(si);
-	si.dwFlags = STARTF_USESTDHANDLES;
-	si.hStdInput = in ? in : INVALID_HANDLE_VALUE;
+	si.hStdInput = in ? in : nul;
 	si.hStdOutput = err;
 	si.hStdError = err;
+
+	// Only claim the three handles if all three are real. Naming one that is
+	// not is how CreateProcess is made to fail outright.
+	if (si.hStdInput != INVALID_HANDLE_VALUE && err != INVALID_HANDLE_VALUE) {
+		si.dwFlags = STARTF_USESTDHANDLES;
+	}
 
 	// CreateProcess is allowed to write to the command line it is handed, so
 	// it does not get the caller's.
 	line = strdup(cmd);
 
 	if (!line) {
-		if (err != INVALID_HANDLE_VALUE) {
-			CloseHandle(err);
-		}
+		recordCloseIfOpen(err);
+		recordCloseIfOpen(nul);
 		return NULL;
 	}
 
@@ -308,19 +329,17 @@ static HANDLE recordSpawn(const char *cmd, HANDLE in, const char *errPath)
 		sysLogPrintf(LOG_ERROR, "record: could not start the encoder (error %lu)",
 				(unsigned long)GetLastError());
 		free(line);
-		if (err != INVALID_HANDLE_VALUE) {
-			CloseHandle(err);
-		}
+		recordCloseIfOpen(err);
+		recordCloseIfOpen(nul);
 		return NULL;
 	}
 
 	free(line);
 	CloseHandle(pi.hThread);
 
-	if (err != INVALID_HANDLE_VALUE) {
-		// The child holds its own copy now.
-		CloseHandle(err);
-	}
+	// The child holds its own copies now.
+	recordCloseIfOpen(err);
+	recordCloseIfOpen(nul);
 
 	return pi.hProcess;
 }
