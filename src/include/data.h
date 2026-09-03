@@ -242,6 +242,7 @@ extern u16 var8006af0c[];
 extern u16 var8006af8c[];
 extern struct weapon *g_Weapons[];
 extern u32 *g_TvCmdlists[TVCMDLIST_36 + 1];
+extern s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1];
 extern u32 g_BgunGunMemBaseSize4Mb2P;
 extern bool g_CasingsActive;
 extern s32 g_MaxModels;

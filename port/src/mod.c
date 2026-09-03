@@ -441,6 +441,7 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "detonatorhand",    WEAPONFLAG2_DETONATORHAND },
 			{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND },
 			{ "pickupsingle",     WEAPONFLAG2_PICKUPSINGLE },
+			{ "explodeswhenshot", WEAPONFLAG2_EXPLODESWHENSHOT },
 		};
 
 		s32 handled = false;

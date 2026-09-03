@@ -15420,13 +15420,11 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 			// zeroing its timer
 			weapon = (struct weaponobj *) obj;
 
-			if (weapon->weaponnum == WEAPON_GRENADE
-					|| weapon->weaponnum == WEAPON_TIMEDMINE
-					|| weapon->weaponnum == WEAPON_REMOTEMINE
-					|| weapon->weaponnum == WEAPON_PROXIMITYMINE
+			if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_EXPLODESWHENSHOT)
+					// the rocket shares its definition with the Skedar rocket,
+					// which is not on this list, so it cannot carry the flag
 					|| weapon->weaponnum == WEAPON_ROCKET
-					|| weapon->weaponnum == WEAPON_HOMINGROCKET
-					|| weapon->weaponnum == WEAPON_GRENADEROUND
+					// and the Dragon only counts in its mine mode
 					|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
 				// Homing rockets are immune to remote mines? Or maybe they just
 				// don't explode because the mine is exploding anyway
@@ -16959,6 +16957,36 @@ void currentPlayerQueuePickupAmmoHudmsg(s32 ammotype, s32 pickupqty)
 	hudmsgCreateWithFlags(buffer, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE);
 }
 
+/**
+ * The weapon an ammo type hands you when you pick it up, or -1.
+ *
+ * Ten of the thirty-two ammo types are really a whole weapon - you do not pick
+ * up grenades, you pick up a grenade. This was ten comparisons in a row inside
+ * ammoHandlePickup; as a table a mod can say which of its own weapons an ammo
+ * type gives. Zero means none, and no ammo type gives WEAPON_NONE.
+ */
+s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1] = {
+	[AMMOTYPE_GRENADE]     = WEAPON_GRENADE,
+	[AMMOTYPE_REMOTE_MINE] = WEAPON_REMOTEMINE,
+	[AMMOTYPE_PROXY_MINE]  = WEAPON_PROXIMITYMINE,
+	[AMMOTYPE_TIMED_MINE]  = WEAPON_TIMEDMINE,
+	[AMMOTYPE_NBOMB]       = WEAPON_NBOMB,
+	[AMMOTYPE_KNIFE]       = WEAPON_COMBATKNIFE,
+	[AMMOTYPE_ECM_MINE]    = WEAPON_ECMMINE,
+	[AMMOTYPE_TOKEN]       = WEAPON_BRIEFCASE2,
+	[AMMOTYPE_CLOAK]       = WEAPON_CLOAKINGDEVICE,
+	[AMMOTYPE_BOOST]       = WEAPON_COMBATBOOST,
+};
+
+s32 ammotypeGetWeapon(s32 ammotype)
+{
+	if (ammotype >= 0 && ammotype < ARRAYCOUNT(g_AmmoTypeWeapons) && g_AmmoTypeWeapons[ammotype]) {
+		return g_AmmoTypeWeapons[ammotype];
+	}
+
+	return -1;
+}
+
 void ammoHandlePickup(s32 ammotype, s32 quantity, bool withsound, bool withhudmsg)
 {
 	s32 weapon;
@@ -16976,29 +17004,7 @@ void ammoHandlePickup(s32 ammotype, s32 quantity, bool withsound, bool withhudms
 			ammotypePlayPickupSound(ammotype);
 		}
 
-		if (ammotype == AMMOTYPE_GRENADE) {
-			weapon = WEAPON_GRENADE;
-		} else if (ammotype == AMMOTYPE_REMOTE_MINE) {
-			weapon = WEAPON_REMOTEMINE;
-		} else if (ammotype == AMMOTYPE_PROXY_MINE) {
-			weapon = WEAPON_PROXIMITYMINE;
-		} else if (ammotype == AMMOTYPE_TIMED_MINE) {
-			weapon = WEAPON_TIMEDMINE;
-		} else if (ammotype == AMMOTYPE_NBOMB) {
-			weapon = WEAPON_NBOMB;
-		} else if (ammotype == AMMOTYPE_KNIFE) {
-			weapon = WEAPON_COMBATKNIFE;
-		} else if (ammotype == AMMOTYPE_ECM_MINE) {
-			weapon = WEAPON_ECMMINE;
-		} else if (ammotype == AMMOTYPE_TOKEN) {
-			weapon = WEAPON_BRIEFCASE2;
-		} else if (ammotype == AMMOTYPE_CLOAK) {
-			weapon = WEAPON_CLOAKINGDEVICE;
-		} else if (ammotype == AMMOTYPE_BOOST) {
-			weapon = WEAPON_COMBATBOOST;
-		} else {
-			weapon = -1;
-		}
+		weapon = ammotypeGetWeapon(ammotype);
 
 		if (weapon >= 0) {
 			invGiveSingleWeapon(weapon);
