@@ -146,6 +146,14 @@ void texpackToggleSetKey(s32 vk);
 void texpackTick(void);
 
 /**
+ * Expands one texture to RGBA32, bottom row first, in a buffer the caller
+ * frees. The size comes back in outWidth/outHeight and is the padded row rather
+ * than the tile - what the renderer uploads, and what a replacement has to
+ * match. NULL for a texture whose format this does not know.
+ */
+u8 *texpackTexToRgba(struct tex *tex, s32 *outWidth, s32 *outHeight);
+
+/**
  * Whether Mod.DumpTextures is on. Checked before the renderer bothers working
  * out what it would pass to texpackDumpTexture().
  */

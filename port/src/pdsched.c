@@ -28,6 +28,7 @@
 #include "record.h"
 #include "screenshot.h"
 #include "texpack.h"
+#include "upscale.h"
 
 /*
  * private typedefs and defines
@@ -297,6 +298,7 @@ void schedEndFrame(OSSched *sc)
 	// taken in that frame's pre-swap callback, one frame after the key press.
 	screenshotTick();
 	texpackTick();
+	upscaleTick();
 	recordTick();
 
 	joyStartReadData(&g_PiMesgQueue);

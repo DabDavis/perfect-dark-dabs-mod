@@ -8,6 +8,9 @@
 #include "types.h"
 #include "game/mainmenu.h"
 #include "game/menu.h"
+#include "game/menugfx.h"
+#include "lib/vi.h"
+#include "bss.h"
 #include "game/gamefile.h"
 #include "game/player.h"
 #include "game/modoptions.h"
@@ -20,6 +23,7 @@
 #include "record.h"
 #include "screenshot.h"
 #include "texpack.h"
+#include "upscale.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -3092,6 +3096,371 @@ static const char *menutextTexturePackReload(struct menuitem *item)
 	return g_TexturePackCountText;
 }
 
+/**
+ * Upscaling, as a page of the options.
+ *
+ * The settings are Upscayl's own, so someone who has used it recognises them.
+ * Padding is ours - see upscalePadWrapped().
+ */
+static MenuItemHandlerResult menuhandlerUpscaleModel(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !upscaleIsAvailable() || upscaleGetState() == UPSCALE_PREPARING
+				|| upscaleGetState() == UPSCALE_RUNNING;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = upscaleGetNumModels();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)upscaleGetModelName(data->dropdown.value);
+	case MENUOP_SET:
+		upscaleSetModel(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = upscaleGetModel();
+	}
+
+	return 0;
+}
+
+static const s32 g_UpscaleScaleValues[] = { 2, 3, 4 };
+static const char *const g_UpscaleScaleNames[] = { "2x", "3x", "4x" };
+
+static MenuItemHandlerResult menuhandlerUpscaleScale(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(g_UpscaleScaleValues);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)g_UpscaleScaleNames[data->dropdown.value];
+	case MENUOP_SET:
+		upscaleSetScale(g_UpscaleScaleValues[data->dropdown.value]);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_UpscaleScaleValues,
+				ARRAYCOUNT(g_UpscaleScaleValues), upscaleGetScale());
+	}
+
+	return 0;
+}
+
+static const s32 g_UpscalePaddingValues[] = { 0, 4, 8, 16 };
+static const char *const g_UpscalePaddingNames[] = { "Off", "4 texels", "8 texels", "16 texels" };
+
+static MenuItemHandlerResult menuhandlerUpscalePadding(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(g_UpscalePaddingValues);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)g_UpscalePaddingNames[data->dropdown.value];
+	case MENUOP_SET:
+		upscaleSetPadding(g_UpscalePaddingValues[data->dropdown.value]);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_UpscalePaddingValues,
+				ARRAYCOUNT(g_UpscalePaddingValues), upscaleGetPadding());
+	}
+
+	return 0;
+}
+
+static const s32 g_UpscaleTileValues[] = { 0, 128, 256, 512 };
+static const char *const g_UpscaleTileNames[] = { "Auto", "128", "256", "512" };
+
+static MenuItemHandlerResult menuhandlerUpscaleTile(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(g_UpscaleTileValues);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)g_UpscaleTileNames[data->dropdown.value];
+	case MENUOP_SET:
+		upscaleSetTileSize(g_UpscaleTileValues[data->dropdown.value]);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_UpscaleTileValues,
+				ARRAYCOUNT(g_UpscaleTileValues), upscaleGetTileSize());
+	}
+
+	return 0;
+}
+
+static const s32 g_UpscaleGpuValues[] = { -1, 0, 1, 2 };
+static const char *const g_UpscaleGpuNames[] = { "Auto", "0", "1", "2" };
+
+static MenuItemHandlerResult menuhandlerUpscaleGpu(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(g_UpscaleGpuValues);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)g_UpscaleGpuNames[data->dropdown.value];
+	case MENUOP_SET:
+		upscaleSetGpu(g_UpscaleGpuValues[data->dropdown.value]);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_UpscaleGpuValues,
+				ARRAYCOUNT(g_UpscaleGpuValues), upscaleGetGpu());
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerUpscaleTta(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+	case MENUOP_GET:
+		return upscaleGetTta();
+	case MENUOP_SET:
+		upscaleSetTta(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerUpscaleStart(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const s32 state = upscaleGetState();
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !upscaleIsAvailable();
+	case MENUOP_SET:
+		if (state == UPSCALE_PREPARING || state == UPSCALE_RUNNING || state == UPSCALE_FINISHING) {
+			upscaleCancel();
+		} else {
+			upscaleStart();
+		}
+		break;
+	}
+
+	return 0;
+}
+
+static char g_UpscaleStartText[80];
+
+static const char *menutextUpscaleStart(struct menuitem *item)
+{
+	const s32 state = upscaleGetState();
+
+	if (!upscaleIsAvailable()) {
+		snprintf(g_UpscaleStartText, sizeof(g_UpscaleStartText), "Upscayl not found\n");
+	} else if (state == UPSCALE_PREPARING || state == UPSCALE_RUNNING || state == UPSCALE_FINISHING) {
+		snprintf(g_UpscaleStartText, sizeof(g_UpscaleStartText), "Cancel\n");
+	} else {
+		snprintf(g_UpscaleStartText, sizeof(g_UpscaleStartText), "Build Texture Pack\n");
+	}
+
+	return g_UpscaleStartText;
+}
+
+static char g_UpscaleStatusText[128];
+
+static const char *menutextUpscaleStatus(struct menuitem *item)
+{
+	const s32 state = upscaleGetState();
+
+	if (!upscaleIsAvailable()) {
+		snprintf(g_UpscaleStatusText, sizeof(g_UpscaleStatusText),
+				"Set Mod.UpscaylPath to an Upscayl install\n");
+	} else if (state == UPSCALE_IDLE) {
+		snprintf(g_UpscaleStatusText, sizeof(g_UpscaleStatusText),
+				"Ready - this takes several minutes\n");
+	} else {
+		snprintf(g_UpscaleStatusText, sizeof(g_UpscaleStatusText), "%s  %d%%\n",
+				upscaleGetStatus(), upscaleGetPercent());
+	}
+
+	return g_UpscaleStatusText;
+}
+
+struct menuitem g_ExtendedUpscaleMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Model",
+		0,
+		menuhandlerUpscaleModel,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Scale",
+		0,
+		menuhandlerUpscaleScale,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Tile Size",
+		0,
+		menuhandlerUpscaleTile,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GPU",
+		0,
+		menuhandlerUpscaleGpu,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Seamless Padding",
+		0,
+		menuhandlerUpscalePadding,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"TTA Mode (slow)",
+		0,
+		menuhandlerUpscaleTta,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		0,
+		(uintptr_t)menutextUpscaleStart,
+		0,
+		menuhandlerUpscaleStart,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)menutextUpscaleStatus,
+		0,
+		NULL,
+	},
+	{
+		// The blank row the progress bar is drawn in.
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)" \n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedUpscaleMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Upscale Textures",
+	g_ExtendedUpscaleMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * A bar for the run, drawn rather than written.
+ *
+ * The same reasoning as the updater's - see updatemenuRenderProgress() -
+ * including why MENUITEMTYPE_METER is no use: it is the pak repair meter, a
+ * fixed nine units wide with no handler behind it. This one has longer to run
+ * than a download does, so a bar matters more, not less.
+ *
+ * It goes in the blank row at the bottom of the page, and is drawn after the
+ * dialogs because a menu item cannot draw and this is not one.
+ */
+#define UPSCALE_BARINSET  8
+#define UPSCALE_BARHEIGHT 5
+
+Gfx *upscalemenuRenderProgress(Gfx *gdl)
+{
+	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	const s32 state = upscaleGetState();
+	s32 viewleft = viGetViewLeft() / g_ScaleX;
+	s32 viewtop = viGetViewTop();
+	s32 x1;
+	s32 x2;
+	s32 y1;
+	s32 y2;
+	s32 fill;
+
+	if (dialog == NULL || dialog->definition != &g_ExtendedUpscaleMenuDialog) {
+		return gdl;
+	}
+
+	if (state != UPSCALE_PREPARING && state != UPSCALE_RUNNING && state != UPSCALE_FINISHING) {
+		return gdl;
+	}
+
+	x1 = dialog->x + UPSCALE_BARINSET;
+	x2 = dialog->x + dialog->width - UPSCALE_BARINSET;
+	y2 = dialog->y + dialog->height - 4;
+	y1 = y2 - UPSCALE_BARHEIGHT;
+
+	fill = ((x2 - x1) * upscaleGetPercent()) / 100;
+
+	g_MenuScissorX1 = viewleft;
+	g_MenuScissorY1 = viewtop;
+	g_MenuScissorX2 = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
+	g_MenuScissorY2 = viewtop + viGetViewHeight();
+	gdl = menuApplyScissor(gdl);
+
+	gdl = menugfxDrawFilledRect(gdl, x1, y1, x2, y2,
+			(colours->item_unfocused & 0xffffff00) | 0x40,
+			(colours->item_unfocused & 0xffffff00) | 0x40);
+
+	if (fill > 0) {
+		gdl = menugfxDrawFilledRect(gdl, x1, y1, x1 + fill, y2,
+				colours->item_focused_inner, colours->item_focused_outer);
+	}
+
+	return gdl;
+}
+
+
 struct menuitem g_ExtendedTexturePackMenuItems[] = {
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -3132,6 +3501,14 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		(uintptr_t)"Dump Textures To Disk",
 		0,
 		menuhandlerTexturePackDump,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Upscale Textures...\n",
+		0,
+		(void *)&g_ExtendedUpscaleMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

@@ -1685,7 +1685,7 @@ static void texpackPaletteEntryToRgba(u16 entry, s32 lutmode, u8 *dst)
  * what the renderer uploads and what texture coordinates are normalised
  * against.
  */
-static u8 *texpackTexToRgba(struct tex *tex, s32 *outWidth, s32 *outHeight)
+u8 *texpackTexToRgba(struct tex *tex, s32 *outWidth, s32 *outHeight)
 {
 	const s32 fmt = tex->gbiformat;
 	const s32 siz = tex->depth;

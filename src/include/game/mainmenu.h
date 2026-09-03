@@ -15,6 +15,7 @@ extern struct menudialogdef g_GhostTrialsMenuDialog;
 Gfx *ghostmenuRenderOverlay(Gfx *gdl);
 extern struct menudialogdef g_UpdateMenuDialog;
 Gfx *updatemenuRenderProgress(Gfx *gdl);
+Gfx *upscalemenuRenderProgress(Gfx *gdl);
 #endif
 extern struct menudialogdef g_PreAndPostMissionBriefingMenuDialog;
 extern struct menudialogdef g_RetryMissionMenuDialog;
