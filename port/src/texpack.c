@@ -16,6 +16,8 @@
 #include <strings.h>
 #include <ultra64.h>
 #include "constants.h"
+#include "game/tex.h"
+#include "game/texdecompress.h"
 #include "platform.h"
 #include "config.h"
 #include "fs.h"
@@ -56,6 +58,8 @@ static s32 replaceScanned;    // the scan runs once, on the first texture drawn
 static s32 numReplacements;
 
 static s32 dumpTextures = 0;
+static s32 dumpTextureData = 0;
+static FILE *dumpManifest;
 static char dumpDir[FS_MAXPATH + 1];
 static s32 dumpDirState; // 0 = not looked at yet, 1 = ready, -1 = gave up
 static u8 dumpDone[(NUM_TEXTURES + 7) / 8];
@@ -493,7 +497,70 @@ static s32 texpackOpenDumpDir(void)
 	return 1;
 }
 
-void texpackDumpTexture(const void *data, const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 siz)
+/**
+ * Writes the N64 texel bytes and the tile geometry they sit under, for a
+ * converter that has to reproduce an existing pack's checksum of them.
+ *
+ * One manifest line per texture plus a .raw beside it, and for a CI texture the
+ * palette as big-endian 16 bit entries - the byte order it has in the ROM,
+ * which is what a checksum computed by an emulator saw.
+ */
+static void texpackDumpRaw(s32 texturenum, u32 fmt, u32 siz, const struct texpackrawinfo *raw)
+{
+	char path[FS_MAXPATH + 1];
+	FILE *f;
+
+	if (!raw || !raw->data || !raw->sizeBytes) {
+		return;
+	}
+
+	if (!dumpManifest) {
+		snprintf(path, sizeof(path), "%s/manifest.csv", dumpDir);
+		dumpManifest = fopen(path, "wb");
+
+		if (!dumpManifest) {
+			sysLogPrintf(LOG_ERROR, "texpack: could not open %s", path);
+			dumpTextureData = 0;
+			return;
+		}
+
+		fprintf(dumpManifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx\n");
+	}
+
+	fprintf(dumpManifest, "%04x,%u,%u,%u,%u,%u,%u,%u\n", texturenum, fmt, siz,
+			raw->tileWidth, raw->tileHeight, raw->lineSizeBytes, raw->sizeBytes, raw->paletteIndex);
+
+	// A dumping session usually ends by killing the game rather than quitting
+	// it, and the manifest is worth nothing if the last buffer never lands.
+	fflush(dumpManifest);
+
+	snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, texturenum);
+	f = fopen(path, "wb");
+
+	if (f) {
+		fwrite(raw->data, 1, raw->sizeBytes, f);
+		fclose(f);
+	}
+
+	if (raw->palette) {
+		snprintf(path, sizeof(path), "%s/%04x.pal", dumpDir, texturenum);
+		f = fopen(path, "wb");
+
+		if (f) {
+			s32 i;
+
+			for (i = 0; i < 256; i++) {
+				const u8 be[2] = { raw->palette[i] >> 8, raw->palette[i] & 0xff };
+				fwrite(be, 1, 2, f);
+			}
+
+			fclose(f);
+		}
+	}
+}
+
+void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 siz,
+		const struct texpackrawinfo *raw)
 {
 	char path[FS_MAXPATH + 1];
 	s32 texturenum;
@@ -502,7 +569,7 @@ void texpackDumpTexture(const void *data, const u8 *rgba32, u32 width, u32 heigh
 		return;
 	}
 
-	texturenum = texpackGetTextureNum(data);
+	texturenum = texpackGetTextureNum(raw ? raw->data : NULL);
 
 	if (texturenum < 0 || texturenum >= NUM_TEXTURES) {
 		// Framebuffer captures, the Japanese font glyph cache and anything
@@ -535,10 +602,107 @@ void texpackDumpTexture(const void *data, const u8 *rgba32, u32 width, u32 heigh
 		sysLogPrintf(LOG_NOTE, "texpack: dumped %04x %ux%u %s",
 				texturenum, width, height, texpackFormatName(fmt, siz));
 	}
+
+	if (dumpTextureData) {
+		texpackDumpRaw(texturenum, fmt, siz, raw);
+	}
+}
+
+/**
+ * Enough for the largest texture in the ROM plus the tex that describes it. The
+ * pool is re-initialised per texture rather than left to fill, because nothing
+ * here needs two textures at once.
+ */
+#define TEXPACK_DUMPALL_POOL (128 * 1024)
+
+void texpackDumpAll(void)
+{
+	char path[FS_MAXPATH + 1];
+	struct texpool pool;
+	FILE *manifest;
+	u8 *buffer;
+	s32 count = 0;
+	s32 n;
+
+	if (!sysArgCheck("--dump-textures")) {
+		return;
+	}
+
+	if (!texpackOpenDumpDir()) {
+		return;
+	}
+
+	buffer = malloc(TEXPACK_DUMPALL_POOL);
+
+	if (!buffer) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not alloc a pool to dump into");
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/manifest.csv", dumpDir);
+	manifest = fopen(path, "wb");
+
+	if (!manifest) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not open %s", path);
+		free(buffer);
+		return;
+	}
+
+	fprintf(manifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx\n");
+
+	for (n = 0; n < NUM_TEXTURES; n++) {
+		struct tex *tex;
+		s32 size;
+		FILE *f;
+
+		texInitPool(&pool, buffer, TEXPACK_DUMPALL_POOL);
+		texLoadFromTextureNum(n, &pool);
+
+		tex = texFindInPool(n, &pool);
+
+		if (!tex || !tex->data) {
+			// Texture numbers with no data behind them are normal: the table
+			// has gaps where a texture was cut.
+			continue;
+		}
+
+		// texGetLineSizeInBytes() and texGetSizeInBytes() are both named for
+		// bytes and both return 64-bit words - the RDP's "line" - so the
+		// manifest converts once here rather than leaving every reader to
+		// discover it.
+		size = texGetSizeInBytes(tex, 0) * 8;
+
+		if (size <= 0) {
+			continue;
+		}
+
+		fprintf(manifest, "%04x,%u,%u,%d,%d,%d,%d,0\n", n, tex->gbiformat, tex->depth,
+				texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
+				texGetLineSizeInBytes(tex, 0) * 8, size);
+
+		snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, n);
+		f = fopen(path, "wb");
+
+		if (f) {
+			fwrite(tex->data, 1, size, f);
+			fclose(f);
+		}
+
+		count++;
+	}
+
+	fclose(manifest);
+	free(buffer);
+
+	sysLogPrintf(LOG_NOTE, "texpack: wrote raw data for %d of %d textures to %s",
+			count, NUM_TEXTURES, dumpDir);
+
+	exit(0);
 }
 
 PD_CONSTRUCTOR static void texpackConfigInit(void)
 {
 	configRegisterInt("Mod.LoadTextures", &loadTextures, 0, 1);
 	configRegisterInt("Mod.DumpTextures", &dumpTextures, 0, 1);
+	configRegisterInt("Mod.DumpTextureData", &dumpTextureData, 0, 1);
 }

@@ -1172,7 +1172,15 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // Only ever reached on a cache miss, so a texture is written out once per
     // eviction at worst - and texpackDumpTexture() drops the repeats.
     if (last_upload_width && texpackDumpEnabled()) {
-        texpackDumpTexture(orig_addr, tex_upload_buffer, last_upload_width, last_upload_height, fmt, siz);
+        struct texpackrawinfo raw;
+        raw.data = orig_addr;
+        raw.sizeBytes = loaded_texture.size_bytes;
+        raw.lineSizeBytes = rdp.texture_tile[tile].line_size_bytes;
+        raw.tileWidth = rdp.texture_tile[tile].width;
+        raw.tileHeight = rdp.texture_tile[tile].height;
+        raw.paletteIndex = palette_index;
+        raw.palette = fmt == G_IM_FMT_CI ? rdp.palette : NULL;
+        texpackDumpTexture(tex_upload_buffer, last_upload_width, last_upload_height, fmt, siz, &raw);
     }
 }
 

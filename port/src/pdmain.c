@@ -73,6 +73,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "texpack.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -250,6 +251,7 @@ void mainInit(void)
 	challengesInit();
 	utilsInit();
 	texInit();
+	texpackDumpAll(); // --dump-textures only; exits when it does anything
 	langInit();
 	lvInit();
 	cheatsInit();

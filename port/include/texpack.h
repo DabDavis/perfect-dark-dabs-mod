@@ -56,10 +56,38 @@ void texpackFreeReplacement(u8 *rgba);
 s32 texpackHaveReplacements(void);
 
 /**
+ * Writes the raw texel bytes and tile geometry of every texture in the ROM,
+ * then exits. Does nothing unless --dump-textures was passed.
+ *
+ * The per-texture dump above only sees what the game actually draws, which for
+ * a converter means playing through every room of every level. This walks the
+ * texture table instead, so one run covers all of them.
+ */
+void texpackDumpAll(void);
+
+/**
  * Whether Mod.DumpTextures is on. Checked before the renderer bothers working
  * out what it would pass to texpackDumpTexture().
  */
 s32 texpackDumpEnabled(void);
+
+/**
+ * What the renderer knows about a texture besides its finished pixels: the N64
+ * texel bytes as the game stored them, the tile geometry they are laid out
+ * under, and the palette a CI texture indexes into.
+ *
+ * Only Mod.DumpTextureData uses it, to write the input a pack converter needs -
+ * existing packs name their files after a checksum of exactly this.
+ */
+struct texpackrawinfo {
+	const u8 *data;
+	u32 sizeBytes;
+	u32 lineSizeBytes;
+	u32 tileWidth;
+	u32 tileHeight;
+	u32 paletteIndex;
+	const u16 *palette; // 256 entries in host order, or NULL when not CI
+};
 
 /**
  * Writes a texture out as a PNG, once per texture number per run.
@@ -69,7 +97,8 @@ s32 texpackDumpEnabled(void);
  * G_IM_FMT_* and G_IM_SIZ_* the texture came in as, and go in the filename for
  * whoever is drawing the replacement.
  */
-void texpackDumpTexture(const void *data, const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 siz);
+void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 siz,
+		const struct texpackrawinfo *raw);
 
 #ifdef __cplusplus
 }
