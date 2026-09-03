@@ -643,7 +643,17 @@ const char *upscaleGetModelName(s32 index)
 }
 
 s32 upscaleGetModel(void) { return optModel; }
-void upscaleSetModel(s32 index) { if (index >= 0 && index < numModels) optModel = index; }
+void upscaleSetModel(s32 index)
+{
+	// The list is filled by the first look for an install, which may not have
+	// happened yet - without this, setting a model before anything has asked
+	// how many there are is quietly ignored.
+	upscaleIsAvailable();
+
+	if (index >= 0 && index < numModels) {
+		optModel = index;
+	}
+}
 s32 upscaleGetScale(void) { return optScale; }
 void upscaleSetScale(s32 scale) { if (scale >= 2 && scale <= 4) optScale = scale; }
 s32 upscaleGetCompress(void) { return optCompress; }
@@ -1060,8 +1070,22 @@ void upscaleTick(void)
 				state = UPSCALE_FAILED;
 				upscaleSetStatus("The upscaler failed - see the log");
 			} else {
+				s32 i;
+
 				state = UPSCALE_DONE;
-				upscaleSetStatus("Done - select %s", packName);
+
+				// Select it, rather than telling someone where to find what
+				// they just waited ten minutes for.
+				texpackRefreshPacks();
+
+				for (i = 0; i < texpackGetNumPacks(); i++) {
+					if (!strcmp(texpackGetPackName(i), packName)) {
+						texpackSetSelectedPack(i);
+						break;
+					}
+				}
+
+				upscaleSetStatus("Done - %s is now selected", packName);
 			}
 		}
 	}

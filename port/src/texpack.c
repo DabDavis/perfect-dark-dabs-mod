@@ -997,23 +997,24 @@ static const char *texpackPacksDir(void)
 static const char *texpackUpscaylPacksDir(void)
 {
 	static char dir[FS_MAXPATH + 1];
-	static s32 state;
 
-	if (!state) {
-		state = -1;
+	// Looked for every time rather than remembered. The Upscayl page creates
+	// this folder when it builds something, which is usually after the list
+	// has already been read once - so a remembered "not there" would hide the
+	// pack the player just spent ten minutes making.
+	snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$E"));
 
-		snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$E"));
-
-		if (fsFileSize(dir) < 0) {
-			snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$S"));
-		}
-
-		if (fsFileSize(dir) >= 0) {
-			state = 1;
-		}
+	if (fsFileSize(dir) >= 0) {
+		return dir;
 	}
 
-	return state > 0 ? dir : NULL;
+	snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$S"));
+
+	if (fsFileSize(dir) >= 0) {
+		return dir;
+	}
+
+	return NULL;
 }
 
 void texpackRefreshPacks(void)

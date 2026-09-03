@@ -3737,6 +3737,14 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		0,
 		menuhandlerTexturePackDump,
 	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Upscayl\n",
+		0,
+		(void *)&g_ExtendedUpscaleMenuDialog,
+	},
 
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -3822,14 +3830,6 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Dab's Mod Options\n",
 		0,
 		(void *)&g_ExtendedDabsModMenuDialog,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Upscayl\n",
-		0,
-		(void *)&g_ExtendedUpscaleMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
