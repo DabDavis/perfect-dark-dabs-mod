@@ -27,6 +27,11 @@
 #include "game/tex.h"
 #include "game/texdecompress.h"
 #include "platform.h"
+// After platform.h, which is what defines PLATFORM_WIN32 - guarding on it any
+// earlier reads as false and leaves CreateProcess undeclared.
+#ifdef PLATFORM_WIN32
+#include <windows.h>
+#endif
 #include "config.h"
 #include "fs.h"
 #include "pngread.h"
@@ -882,6 +887,65 @@ static void upscaleCropFile(const char *name, void *arg)
 }
 
 /**
+ * Runs a command line, waits for it, and answers its exit code.
+ *
+ * Windows does not go through system() for this. system() runs the line under
+ * cmd.exe, cmd.exe gets a console of its own, and a new console takes the
+ * foreground - so starting a run pulled focus off the game and left the player
+ * clicking back into the window to reach the menu they started it from. A run
+ * is minutes long, so it is not a flash: the console is there for all of it.
+ *
+ * CreateProcess with CREATE_NO_WINDOW spawns the upscaler directly and gives
+ * it no console to steal focus with. Nothing is lost by not having one - the
+ * upscaler's progress is counted from the files it writes, never read from its
+ * output - and the extra pair of quotes cmd.exe needed round the whole line
+ * goes with it, there being no cmd.exe left to strip them.
+ */
+#ifdef PLATFORM_WIN32
+static s32 upscaleRun(const char *cmd)
+{
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+	DWORD code = (DWORD)-1;
+	char *line;
+
+	memset(&si, 0, sizeof(si));
+	si.cb = sizeof(si);
+	memset(&pi, 0, sizeof(pi));
+
+	// CreateProcess is allowed to write to the command line it is handed, so
+	// it does not get the caller's.
+	line = strdup(cmd);
+
+	if (!line) {
+		return -1;
+	}
+
+	if (!CreateProcess(NULL, line, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+		sysLogPrintf(LOG_ERROR, "upscale: could not start the upscaler (error %lu)",
+				(unsigned long)GetLastError());
+		free(line);
+		return -1;
+	}
+
+	free(line);
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+	GetExitCodeProcess(pi.hProcess, &code);
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+
+	return (s32)code;
+}
+#else
+static s32 upscaleRun(const char *cmd)
+{
+	// No console to conjure, and no window to lose focus from.
+	return system(cmd);
+}
+#endif
+
+/**
  * Runs the upscaler and crops its output back down.
  *
  * Both halves are files and a subprocess, so they happen off the main thread.
@@ -930,22 +994,7 @@ static s32 upscaleWorker(void *arg)
 	SDL_AtomicSet(&workerStage, UPSCALE_RUNNING);
 	SDL_AtomicSet(&workerCount, 0);
 
-#ifdef PLATFORM_WIN32
-	{
-		// cmd.exe strips the first and last quote of a command line that
-		// begins with one - so a quoted program path followed by quoted
-		// arguments comes apart into nonsense. Wrapping the whole line in one
-		// more pair is the documented way round it, and every path here is
-		// quoted because an install can sit under a directory with a space.
-		char wrapped[sizeof(cmd) + 4];
-
-		snprintf(wrapped, sizeof(wrapped), "\"%s\"", cmd);
-		memcpy(cmd, wrapped, sizeof(cmd) - 1);
-		cmd[sizeof(cmd) - 1] = '\0';
-	}
-#endif
-
-	if (system(cmd) != 0) {
+	if (upscaleRun(cmd) != 0) {
 		sysLogPrintf(LOG_ERROR, "upscale: the upscaler did not finish");
 		SDL_AtomicSet(&workerFailed, 1);
 		SDL_AtomicSet(&workerDone, 1);
