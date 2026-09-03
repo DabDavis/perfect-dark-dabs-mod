@@ -1270,7 +1270,7 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 
 			// Consider switching to another weapon
 			if (weaponHasFlag(info->weaponnum, WEAPONFLAG_THROWABLE)
-					&& (info->weaponnum != WEAPON_REMOTEMINE || handnum != HAND_LEFT)
+					&& (!weaponHasFlag2(info->weaponnum, WEAPONFLAG2_DETONATORHAND) || handnum != HAND_LEFT)
 					&& bgunSetState(handnum, HANDSTATE_AUTOSWITCH)) {
 				return lvupdate;
 			}
@@ -1443,7 +1443,7 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 				hand->gset.weaponfunc = gunfunc;
 			}
 
-			if (info->weaponnum == WEAPON_REMOTEMINE
+			if (weaponHasFlag2(info->weaponnum, WEAPONFLAG2_DETONATORHAND)
 					&& gunfunc != hand->gset.weaponfunc
 					&& bgunSetState(handnum, HANDSTATE_CHANGEFUNC)) {
 				return lvupdate;
@@ -1663,25 +1663,8 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 					&& bgunIsLoaded()
 					&& !g_PlayerInvincible
 					&& !g_Vars.currentplayer->isdead) {
-				switch (info->weaponnum) {
-				case WEAPON_NONE:
-				case WEAPON_UNARMED:
-				case WEAPON_COMBATKNIFE:
-				case WEAPON_LASER:
-				case WEAPON_GRENADE:
-				case WEAPON_TIMEDMINE:
-				case WEAPON_PROXIMITYMINE:
-				case WEAPON_REMOTEMINE:
-				case WEAPON_ECMMINE:
-				case WEAPON_COMMSRIDER:
-				case WEAPON_TRACERBUG:
-				case WEAPON_TARGETAMPLIFIER:
-				case WEAPON_BRIEFCASE2:
-					// No reload sound
-					break;
-				default:
+				if (!weaponHasFlag2(info->weaponnum, WEAPONFLAG2_NORELOADSOUND)) {
 					sndStart(var80095200, SFX_RELOAD_DEFAULT, 0, -1, -1, -1, -1, -1);
-					break;
 				}
 			}
 		}
@@ -2340,7 +2323,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 			return true;
 		}
 
-		if (hand->gset.weaponnum == WEAPON_REMOTEMINE
+		if (weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_DETONATORHAND)
 				&& bgunIsUsingSecondaryFunction() == true
 				&& hand->triggerreleased
 				&& hand->triggeron) {
@@ -2856,7 +2839,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 		bool skipanim = false;
 
 		if (weaponHasFlag(info->weaponnum, WEAPONFLAG_THROWABLE)
-				&& !(info->weaponnum == WEAPON_REMOTEMINE && handnum == HAND_LEFT)
+				&& !(weaponHasFlag2(info->weaponnum, WEAPONFLAG2_DETONATORHAND) && handnum == HAND_LEFT)
 				&& bgun0f098ca0(0, info, hand) < 0) {
 			skipanim = true;
 		}
@@ -2999,7 +2982,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 			bgun0f098f8c(info, hand);
 
 			if (weaponHasFlag(info->weaponnum, WEAPONFLAG_THROWABLE)
-					&& (info->weaponnum != WEAPON_REMOTEMINE || handnum != HAND_LEFT)
+					&& (!weaponHasFlag2(info->weaponnum, WEAPONFLAG2_DETONATORHAND) || handnum != HAND_LEFT)
 					&& bgun0f098ca0(0, info, hand) < 0
 					&& bgunSetState(handnum, HANDSTATE_AUTOSWITCH)) {
 				hand->stateminor = HANDSTATEMINOR_AUTOSWITCH_DELETE;
@@ -5092,7 +5075,7 @@ void bgunSwivel(f32 screenx, f32 screeny, f32 crossdamp, f32 aimdamp)
 		}
 	}
 
-	if (player->hands[HAND_LEFT].gset.weaponnum == WEAPON_REMOTEMINE) {
+	if (weaponHasFlag2(player->hands[HAND_LEFT].gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 		x[HAND_LEFT] = g_Vars.currentplayer->speedtheta * 0.3f + g_Vars.currentplayer->gunextraaimx;
 		y[HAND_LEFT] = -g_Vars.currentplayer->speedverta * 0.1f + g_Vars.currentplayer->gunextraaimy;
 		ignore[HAND_LEFT] = true;
@@ -5518,7 +5501,7 @@ void bgunTickSwitch2(void)
 				righthand->inuse = true;
 			}
 
-			if (ctrl->weaponnum == WEAPON_REMOTEMINE) {
+			if (weaponHasFlag2(ctrl->weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 				ctrl->dualwielding = true;
 			}
 
@@ -5717,7 +5700,7 @@ void bgunCycleBack(void)
 		weaponnum1 = bgunGetSwitchToWeapon(HAND_RIGHT);
 		weaponnum2 = bgunGetSwitchToWeapon(HAND_LEFT);
 
-		if (weaponnum2 == WEAPON_REMOTEMINE) {
+		if (weaponHasFlag2(weaponnum2, WEAPONFLAG2_DETONATORHAND)) {
 			weaponnum2 = WEAPON_NONE;
 		}
 
@@ -6602,7 +6585,7 @@ void bgunStartDetonateAnimation(s32 playernum)
 	s32 prevplayernum = g_Vars.currentplayernum;
 	setCurrentPlayerNum(playernum);
 
-	if (g_Vars.currentplayer->hands[HAND_LEFT].gset.weaponnum == WEAPON_REMOTEMINE) {
+	if (weaponHasFlag2(g_Vars.currentplayer->hands[HAND_LEFT].gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 		bgunStartAnimation(var80070200, 1, &g_Vars.currentplayer->hands[HAND_LEFT]);
 	}
 
@@ -7586,7 +7569,7 @@ void bgun0f0a5550(s32 handnum)
 
 	weapondef = weaponFindById(weaponnum);
 
-	if (handnum == HAND_LEFT && weaponnum == WEAPON_REMOTEMINE) {
+	if (handnum == HAND_LEFT && weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 		isdetonator = true;
 	}
 
@@ -11962,7 +11945,7 @@ void bgunTickGameplay(bool triggeron)
 
 		if (player->hands[HAND_LEFT].inuse
 				&& player->hands[HAND_RIGHT].inuse
-				&& player->gunctrl.weaponnum != WEAPON_REMOTEMINE) {
+				&& !weaponHasFlag2(player->gunctrl.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 			if (player->playertrigtime240 > TICKS(80)) {
 				gunsfiring[player->curguntofire] = 1;
 
@@ -11985,7 +11968,7 @@ void bgunTickGameplay(bool triggeron)
 				player->curguntofire = 1 - player->curguntofire;
 			}
 
-			if (player->gunctrl.weaponnum == WEAPON_REMOTEMINE) {
+			if (weaponHasFlag2(player->gunctrl.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 				player->curguntofire = 0;
 			}
 
@@ -13039,7 +13022,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 	// Left hand - mag
 	if (lefthand->inuse
 			&& weapon->ammos[ammoindex] != NULL
-			&& lefthand->gset.weaponnum != WEAPON_REMOTEMINE) {
+			&& !weaponHasFlag2(lefthand->gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 		xpos = viGetViewLeft() / g_ScaleX + 24;
 
 		if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()) && playernum == 1) {
@@ -13273,7 +13256,7 @@ void bgun0f0abd30(s32 handnum)
 
 			hand->clipsizes[i] = weapon->ammos[i]->clipsize;
 
-			if (handnum == HAND_LEFT && hand->gset.weaponnum == WEAPON_REMOTEMINE) {
+			if (handnum == HAND_LEFT && weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 				hand->clipsizes[i] = 0;
 			}
 

@@ -438,6 +438,8 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "landsonhit",       WEAPONFLAG2_LANDSONHIT },
 			{ "nocarteject",      WEAPONFLAG2_NOCARTEJECT },
 			{ "heavysmoke",       WEAPONFLAG2_HEAVYSMOKE },
+			{ "detonatorhand",    WEAPONFLAG2_DETONATORHAND },
+			{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND },
 		};
 
 		s32 handled = false;
