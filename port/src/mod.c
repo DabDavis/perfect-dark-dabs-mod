@@ -14,6 +14,7 @@
 #include "game/file.h"
 #include "data.h"
 #include "game/stagetable.h"
+#include "game/bondgun.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -393,6 +394,83 @@ static char *modConfigParseStage(char *p, char *token)
 	return p;
 }
 
+/**
+ * weapon NUMBER { KEYVALUES... }
+ *
+ * The behaviours the game used to decide by comparing the weapon number. A mod
+ * that brings its own guns renumbers them, and no amount of asset importing
+ * tells the code that its number 15 is a pump-action - this does.
+ */
+static char *modConfigParseWeapon(char *p, char *token)
+{
+	s32 weaponnum = 0;
+
+	p = modConfigParseIntValue(p, token, &weaponnum);
+	if (!p || weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL) {
+		sysLogPrintf(LOG_ERROR, "modconfig: weapon: invalid weapon number: %s", token);
+		return NULL;
+	}
+
+	struct weapon *weapon = bgunGetWeaponDefinition(weaponnum);
+
+	if (!weapon) {
+		sysLogPrintf(LOG_ERROR, "modconfig: weapon 0x%02x: no such weapon", weaponnum);
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		static const struct {
+			const char *name;
+			u32 flag;
+		} flags[] = {
+			{ "unequippedreload", WEAPONFLAG2_UNEQUIPPEDRELOAD },
+			{ "pumpaction",       WEAPONFLAG2_PUMPACTION },
+			{ "chargeable",       WEAPONFLAG2_CHARGEABLE },
+		};
+
+		s32 handled = false;
+		s32 tmp = 0;
+
+		for (u32 i = 0; i < ARRAYCOUNT(flags); ++i) {
+			if (strcmp(token, flags[i].name)) {
+				continue;
+			}
+
+			PARSE_INT("weapon", "flag", tmp, 0, 1, NULL);
+
+			if (tmp) {
+				weapon->flags2 |= flags[i].flag;
+			} else {
+				weapon->flags2 &= ~flags[i].flag;
+			}
+
+			handled = true;
+			break;
+		}
+
+		if (!handled) {
+			if (!strcmp(token, "unequippedreloadindex")) {
+				PARSE_INT("weapon", "unequippedreloadindex", tmp, -1, 127, NULL);
+				weapon->unequippedreloadindex = tmp;
+			} else {
+				sysLogPrintf(LOG_ERROR, "modconfig: weapon 0x%02x: invalid key: %s", weaponnum, token);
+				return NULL;
+			}
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	return p;
+}
+
 s32 modConfigLoad(const char *fname)
 {
 	u32 dataLen = 0;
@@ -406,7 +484,16 @@ s32 modConfigLoad(const char *fname)
 	char *end = data + dataLen;
 	char *p = strParseToken(data, token, NULL);
 	while (p && token[0]) {
-		if (!strcmp(token, "stage")) {
+		if (!strcmp(token, "weapon")) {
+			// weapon NUMBER { KEYVALUES... }
+			char *prev = p;
+			p = modConfigParseWeapon(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed weapon block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "stage")) {
 			// stage NUMBER { KEYVALUES... }
 			char *prev = p;
 			p = modConfigParseStage(p, token);

@@ -4749,6 +4749,13 @@ enum weaponnum {
 #define WEAPONFLAG_AIMTRACK          0x40000000 // Allow drawing red box around targets in aim mode
 #define WEAPONFLAG_FIRETOACTIVATE    0x80000000 // For devices/gadgets
 
+// A second flags word, because the first has all 32 bits spoken for. These are
+// behaviours the game used to decide by comparing the weapon number, which a
+// mod that renumbers the weapons cannot change. See modconfig's weapon block.
+#define WEAPONFLAG2_UNEQUIPPEDRELOAD 0x00000001 // Reloads while unequipped; the animation is unequippedreloadindex
+#define WEAPONFLAG2_PUMPACTION       0x00000002 // Keeps the gun moving while the reload animation plays
+#define WEAPONFLAG2_CHARGEABLE       0x00000004 // Holding the trigger winds the shot up
+
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d
 #define WEAPONSET_CUSTOM     0x0e

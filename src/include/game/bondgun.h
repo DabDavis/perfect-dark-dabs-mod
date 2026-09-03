@@ -94,6 +94,7 @@ s32 bgunGetShotsToTake(s32 handnum);
 void bgunFreeWeapon(s32 handnum);
 void bgunTickSwitch2(void);
 void bgunEquipWeapon(s32 weaponnum);
+struct weapon *bgunGetWeaponDefinition(s32 weaponnum);
 s32 bgunGetWeaponNum(s32 handnum);
 bool bgun0f0a1a10(s32 weaponnum);
 s32 bgunGetSwitchToWeapon(s32 handnum);

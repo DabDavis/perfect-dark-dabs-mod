@@ -3124,6 +3124,8 @@ struct weapon {
 	/*0x48*/ u16 manufacturer;
 	/*0x4a*/ u16 description;
 	/*0x4c*/ u32 flags;
+	/*0x50*/ u32 flags2;
+	/*0x54*/ s8 unequippedreloadindex;
 };
 
 struct cutscene {

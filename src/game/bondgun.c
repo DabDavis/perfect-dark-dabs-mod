@@ -459,22 +459,19 @@ glabel bgunRumble
 );
 #endif
 
+/**
+ * Which unequipped reload animation this weapon uses, or -1 for none.
+ *
+ * This was four weapon numbers written into the code. It is a property of the
+ * weapon, so it lives on the weapon - which is the only way a mod that brings
+ * its own guns can say which of them reload out of sight.
+ */
 s32 bgunGetUnequippedReloadIndex(s32 weaponnum)
 {
-	if (weaponnum == WEAPON_CROSSBOW) {
-		return 0;
-	}
+	const struct weapon *weapon = bgunGetWeaponDefinition(weaponnum);
 
-	if (weaponnum == WEAPON_SHOTGUN) {
-		return 1;
-	}
-
-	if (weaponnum == WEAPON_DY357MAGNUM) {
-		return 2;
-	}
-
-	if (weaponnum == WEAPON_DY357LX) {
-		return 3;
+	if (weapon && (weapon->flags2 & WEAPONFLAG2_UNEQUIPPEDRELOAD)) {
+		return weapon->unequippedreloadindex;
 	}
 
 	return -1;
@@ -2007,7 +2004,9 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 				hand->lastshootframe60 = g_Vars.lvframe60;
 
-				if (hand->gset.weaponnum == WEAPON_MAULER && handle) {
+				const struct weapon *chargeweapon = bgunGetWeaponDefinition(hand->gset.weaponnum);
+
+				if (chargeweapon && (chargeweapon->flags2 & WEAPONFLAG2_CHARGEABLE) && handle) {
 					s32 matmot = hand->matmot1;
 					f32 tmp;
 					f32 frac = matmot / 3.0f;
@@ -2268,8 +2267,12 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			sp68 = true;
 		}
 
-		if (hand->gset.weaponnum == WEAPON_SHOTGUN && hand->animmode == HANDANIMMODE_BUSY) {
-			sp68 = false;
+		{
+			const struct weapon *weapon = bgunGetWeaponDefinition(hand->gset.weaponnum);
+
+			if (weapon && (weapon->flags2 & WEAPONFLAG2_PUMPACTION) && hand->animmode == HANDANIMMODE_BUSY) {
+				sp68 = false;
+			}
 		}
 
 		hand->matmot2 = hand->gs_float1;
@@ -2278,8 +2281,12 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			hand->matmot2 = 0;
 		}
 
-		if (hand->gset.weaponnum == WEAPON_MAULER) {
-			hand->matmot1 = 0;
+		{
+			const struct weapon *weapon = bgunGetWeaponDefinition(hand->gset.weaponnum);
+
+			if (weapon && (weapon->flags2 & WEAPONFLAG2_CHARGEABLE)) {
+				hand->matmot1 = 0;
+			}
 		}
 
 		return sp68;
@@ -6010,6 +6017,19 @@ s32 bgunIsFiring(s32 handnum)
 s32 bgunGetAttackType(s32 handnum)
 {
 	return g_Vars.currentplayer->hands[handnum].attacktype;
+}
+
+/**
+ * The weapon's definition, or NULL. g_Weapons is indexed by weapon number and
+ * the callers here are given one by a mod as readily as by the game.
+ */
+struct weapon *bgunGetWeaponDefinition(s32 weaponnum)
+{
+	if (weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL) {
+		return NULL;
+	}
+
+	return g_Weapons[weaponnum];
 }
 
 char *bgunGetName(s32 weaponnum)

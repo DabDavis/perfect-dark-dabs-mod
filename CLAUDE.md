@@ -477,6 +477,24 @@ differ are all `addiu`/`lw`/`sw`/`jal` immediates pointing at the segments that
 did move. Function addresses are therefore right, and that check - entry points
 identical - is the one to repeat if the file is ever regenerated.
 
+## Weapon behaviour belongs on the weapon
+
+`struct weapon` carries a second flags word, `flags2`, because the first has all
+32 bits spoken for. It holds behaviours the game used to decide by comparing the
+weapon number - `if (weaponnum == WEAPON_SHOTGUN)` - which is unanswerable for a
+mod that brings its own guns under different numbers. `modconfig.txt` sets them:
+
+```
+weapon 15 { unequippedreload 1 unequippedreloadindex 1 pumpaction 1 }
+```
+
+Three are converted so far (`WEAPONFLAG2_UNEQUIPPEDRELOAD`, `_PUMPACTION`,
+`_CHARGEABLE`); `bondgun.c` alone still has around 150 weapon-number
+comparisons, and `tools/modcodediff` says which of them a given mod cares about.
+When converting another, check the enum value against the position in
+`g_Weapons[]` before moving a behaviour onto a weapon - the two are only kept in
+step by hand.
+
 ## Debugging
 
 Guessing from source failed repeatedly here; the stack was right every time.
