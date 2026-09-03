@@ -3623,15 +3623,6 @@ struct menuitem g_ExtendedUpscaleMenuItems[] = {
 		NULL,
 	},
 	{
-		// The blank row the progress bar is drawn in.
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
-		(uintptr_t)" \n",
-		0,
-		NULL,
-	},
-	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -3644,6 +3635,19 @@ struct menuitem g_ExtendedUpscaleMenuItems[] = {
 		0,
 		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
 		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{
+		// The blank row the progress bar is drawn in, and it has to be the
+		// last item on the page: the bar is placed against the bottom of the
+		// dialog rather than against any row of it, so anything below this
+		// gets drawn over. It was under Back, which put the bar through it.
+		// g_UpdateMenuItems ends the same way for the same reason.
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)" \n",
 		0,
 		NULL,
 	},
