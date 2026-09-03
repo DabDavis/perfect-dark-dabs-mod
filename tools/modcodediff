@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+
+# Shows what a console mod changed in the game's code, so it can be written
+# again in C.
+#
+# The port runs decomp code rather than the ROM's, so importmod's asset import
+# leaves a mod's code changes behind entirely. This is the other half: it pulls
+# the MIPS binary out of both ROMs, finds where they differ, and disassembles
+# each difference side by side. What comes out is a list of functions and the
+# instructions that changed in them - which is the thing you need in front of
+# you to make the same change in the port's C.
+#
+# Two kinds of mod come through here and only one of them can be read this way:
+#
+#   patched   the stock binary with instructions overwritten in place. Nothing
+#             moves, so a word that differs is a change somebody made. GE-X is
+#             one of these: 2187 of 452216 words.
+#
+#   rebuilt   compiled from source, so every address is its own. Diffing says
+#             everything changed and means nothing. The performance mod is one
+#             of these - its binary is 500KB smaller than stock.
+#
+# The report says which it is before it says anything else.
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import math
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import zlib
+
+# The game binary is paged in at this address; see VM_VIRTUAL_ADDR in
+# src/include/lib/vm.h. Every address in the report is one you can look up.
+GAME_VRAM = 0x7f000000
+
+# Table of compressed chunks for the game binary, per romid, as tools/extract
+# has them. Mods move it, and it is found by its shape when it is not here.
+GAME_TABLE = {
+    'ntsc-final': 0x4fc40,
+    'pal-final':  0x4fc40,
+    'jpn-final':  0x4fc40,
+}
+
+OBJDUMPS = ('mips-linux-gnu-objdump', 'mips64-linux-gnuabi64-objdump',
+            'mipsel-linux-gnu-objdump', 'mips64-elf-objdump', 'mips-elf-objdump')
+
+MIPS_JR_RA = 0x03e00008
+
+# Above this share of differing words the binary was rebuilt rather than patched
+# and a diff of it says nothing.
+REBUILT_THRESHOLD = 0.25
+
+# Constants worth fingerprinting on. 0 and 1 are everywhere and say nothing;
+# anything past 16 bits is usually an address rather than a value.
+CONST_MIN = 1
+CONST_MAX = 0x10000
+
+# A name is only offered when the best match is this good and this far ahead of
+# the next one.
+IDENT_MIN_SCORE = 20.0
+IDENT_MIN_MARGIN = 1.25
+
+# A region this much of which objdump could not decode is a table, not a
+# function, and is reported as words rather than instructions.
+DATA_THRESHOLD_PCT = 30
+
+
+def die(msg):
+    sys.stderr.write('error: %s\n' % msg)
+    sys.exit(1)
+
+
+def load_importmod():
+    """importmod already knows how to apply a patch and read a ROM header."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'importmod')
+    loader = importlib.machinery.SourceFileLoader('importmod', path)
+    spec = importlib.util.spec_from_loader('importmod', loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def be32(buf, ofs):
+    return int.from_bytes(buf[ofs:ofs + 4], 'big')
+
+
+def inflate(buf):
+    return zlib.decompressobj(wbits=-15).decompress(buf[5:])
+
+
+def find_game_table(rom, expected):
+    """The chunk table is a run of offsets, each landing on a 1173 header a
+    couple of bytes along. Distinctive enough to find when a mod has moved it."""
+    def valid(at):
+        for i in range(4):
+            v = be32(rom, at + i * 4)
+            if not 0 < v < 0x400000:
+                return False
+            if rom[at + v + 2:at + v + 4] != b'\x11\x73':
+                return False
+        return True
+
+    if expected and valid(expected):
+        return expected
+
+    for at in range(0x20000, 0x200000, 4):
+        if valid(at):
+            return at
+
+    return None
+
+
+def extract_game(rom, table):
+    """The binary, inflated from its chunks. Mirrors tools/extract."""
+    out = b''
+    i = table
+
+    while True:
+        ofs = table + be32(rom, i) + 2
+        if rom[ofs:ofs + 2] != b'\x11\x73':
+            break
+        part = inflate(rom[ofs:ofs + 0x1000])
+        out += part
+        if len(part) != 0x1000:
+            break
+        i += 4
+
+    return out
+
+
+def find_objdump():
+    for name in OBJDUMPS:
+        try:
+            subprocess.run([name, '--version'], capture_output=True, check=True)
+            return name
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    die('no MIPS objdump found. Install one of: %s\n'
+        '       (debian/ubuntu: apt install binutils-mips-linux-gnu)' % ', '.join(OBJDUMPS))
+
+
+def disassemble(objdump, path):
+    """Address -> instruction text, for the whole binary in one pass."""
+    out = subprocess.run(
+        [objdump, '-D', '-b', 'binary', '-m', 'mips:4300', '-EB',
+         '--adjust-vma=%#x' % GAME_VRAM, path],
+        capture_output=True)
+
+    if out.returncode != 0:
+        die('objdump failed: %s' % out.stderr.decode('utf-8', 'replace').strip())
+
+    lines = {}
+    for line in out.stdout.decode('utf-8', 'replace').splitlines():
+        m = re.match(r'\s+([0-9a-f]+):\t[0-9a-f ]+\t(.*)', line)
+        if m:
+            lines[int(m.group(1), 16)] = ' '.join(m.group(2).split())
+
+    return lines
+
+
+def function_starts(code):
+    """Where each run of code begins, taken as the instruction after a
+    `jr ra` and its delay slot.
+
+    A guess, and an honest one: the ROM carries no symbols, and a function with
+    more than one return comes out as more than one block. It is enough to group
+    a scattering of changed words into the handful of places they belong to,
+    which is what the report is for. Pass --map if you have built the decomp and
+    want real names.
+    """
+    starts = [0]
+
+    for i in range(0, len(code) - 8, 4):
+        if be32(code, i) == MIPS_JR_RA:
+            starts.append(i + 8)
+
+    return starts
+
+
+def port_functions(path):
+    """Every function in the port's own binary, with the constants it mentions.
+
+    The port is this same code compiled for x86 with symbols, so a function that
+    carries distinctive numbers - a list of stage ids, a table of weapon flags -
+    carries the same ones on both sides. That is enough to put a name to a MIPS
+    function without a symbol table for the ROM, when the numbers are unusual
+    enough to be worth anything. See identify().
+    """
+    out = subprocess.run(['objdump', '-d', '--no-show-raw-insn', path], capture_output=True)
+
+    if out.returncode != 0:
+        die('could not disassemble %s' % path)
+
+    funcs = {}
+    cur = None
+
+    for line in out.stdout.decode('utf-8', 'replace').splitlines():
+        m = re.match(r'^[0-9a-f]+ <(.+)>:', line)
+        if m:
+            cur = m.group(1)
+            funcs[cur] = set()
+            continue
+        if cur is None:
+            continue
+        for v in re.findall(r'\$0x([0-9a-f]+)', line):
+            n = int(v, 16)
+            if CONST_MIN < n < CONST_MAX:
+                funcs[cur].add(n)
+
+    return funcs
+
+
+def identify(funcs, document, consts):
+    """The port function whose constants best match this MIPS one.
+
+    Scored the way a search engine scores a rare word: a constant that only two
+    functions in the binary mention says far more than one that four hundred do.
+    Only answered when the best is well clear of the second best, because a
+    function with nothing distinctive in it matches everything equally badly.
+    """
+    if not consts:
+        return None
+
+    scored = []
+
+    for name, have in funcs.items():
+        score = 0.0
+        for c in consts:
+            if c in have:
+                score += math.log(len(funcs) / (1 + document.get(c, 0)))
+        if score:
+            scored.append((score, name))
+
+    if not scored:
+        return None
+
+    scored.sort(reverse=True)
+    best = scored[0]
+    second = scored[1][0] if len(scored) > 1 else 0.0
+
+    if best[0] < IDENT_MIN_SCORE or best[0] < second * IDENT_MIN_MARGIN:
+        return None
+
+    return best[1], best[0]
+
+
+def looks_like_data(dis, lo, hi):
+    """The game binary carries its tables as well as its code, and a table read
+    as instructions is nonsense. objdump says so itself: a word it cannot decode
+    comes out as `.word`, and a run of those is data."""
+    words = 0
+    undecoded = 0
+
+    for addr in range(lo, min(hi, lo + 0x400), 4):
+        text = dis.get(addr)
+        if text is None:
+            continue
+        words += 1
+        if text.startswith('.word') or text.startswith('.byte') or text.startswith('.short'):
+            undecoded += 1
+
+    return words > 0 and undecoded * 100 // words >= DATA_THRESHOLD_PCT
+
+
+def mips_constants(dis, lo, hi):
+    consts = set()
+
+    for addr in range(lo, hi, 4):
+        text = dis.get(addr, '')
+        for v in re.findall(r'(?:li|addiu|ori|slti|sltiu|andi|xori)\s+[^,]+,(?:[^,]+,)?(-?\d+)', text):
+            n = abs(int(v))
+            if CONST_MIN < n < CONST_MAX:
+                consts.add(n)
+
+    return consts
+
+
+def default_symbols(romid):
+    """The symbol file kept beside this script, if there is one for this ROM.
+
+    It was cut from a matching decomp build's ld map. The game segment sits at a
+    fixed address, so its symbols are exact even though the rest of that build
+    was not - see the note at the top of the file.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.sym' % romid)
+
+    return path if os.path.exists(path) else None
+
+
+def read_map(path):
+    """Symbols from an ld map or from a plain `<addr> <name>` list, for the game
+    segment. Anything of that shape counts, which is what ld writes too."""
+    syms = []
+
+    with open(path, 'r', errors='replace') as fd:
+        for line in fd:
+            m = re.match(r'\s*(?:0x)?([0-9a-f]+)\s+([A-Za-z_][\w.]*)\s*$', line)
+            if m:
+                addr = int(m.group(1), 16)
+                if GAME_VRAM <= addr < GAME_VRAM + 0x400000:
+                    syms.append((addr - GAME_VRAM, m.group(2)))
+
+    syms.sort()
+
+    return syms
+
+
+def enclosing(sorted_starts, ofs):
+    lo, hi = 0, len(sorted_starts)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if sorted_starts[mid] <= ofs:
+            lo = mid + 1
+        else:
+            hi = mid
+    return sorted_starts[lo - 1] if lo else sorted_starts[0]
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Disassemble what a console mod changed in the game's code.")
+    ap.add_argument('--rom', required=True, help='the stock ROM')
+    ap.add_argument('--patch', help='the mod patch (xdelta, BPS or IPS)')
+    ap.add_argument('--patched-rom', help='an already patched ROM, instead of --patch')
+    ap.add_argument('--out', help='write the report here (default: stdout)')
+    ap.add_argument('--map', dest='mapfile',
+                    help='an ld map or symbol list for real names (default: tools/pd.<romid>.sym)')
+    ap.add_argument('--no-symbols', action='store_true', help='ignore the bundled symbol file')
+    ap.add_argument('--port-binary', help="the port's own executable, to guess names from its symbols")
+    ap.add_argument('--context', type=int, default=2, help='unchanged instructions to show around a change')
+    ap.add_argument('--summary', action='store_true', help='list the changed functions and stop')
+    args = ap.parse_args()
+
+    if bool(args.patch) == bool(args.patched_rom):
+        die('pass exactly one of --patch or --patched-rom.')
+
+    im = load_importmod()
+
+    with open(args.rom, 'rb') as fd:
+        stock = fd.read()
+
+    romid = im.identify_rom(stock)
+    if romid is None:
+        die('%s is not a supported Perfect Dark ROM.' % args.rom)
+
+    workdir = tempfile.mkdtemp(prefix='modcodediff')
+
+    try:
+        if args.patch:
+            mod, kind = im.apply_patch(args.rom, stock, args.patch, workdir)
+        else:
+            with open(args.patched_rom, 'rb') as fd:
+                mod = fd.read()
+            kind = 'pre-patched ROM'
+
+        report(stock, mod, romid, kind, workdir, args)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def report(stock, mod, romid, kind, workdir, args):
+    out = open(args.out, 'w') if args.out else sys.stdout
+
+    def say(msg=''):
+        print(msg, file=out)
+
+    stocktab = find_game_table(stock, GAME_TABLE.get(romid))
+    modtab = find_game_table(mod, GAME_TABLE.get(romid))
+
+    if stocktab is None or modtab is None:
+        die('could not find the game binary in the %s ROM.'
+            % ('stock' if stocktab is None else 'patched'))
+
+    a = extract_game(stock, stocktab)
+    b = extract_game(mod, modtab)
+
+    say('stock ROM:  %s (%s), game binary at %06x, %d bytes' % (args.rom, romid, stocktab, len(a)))
+    say('patched:    %s (%s), game binary at %06x, %d bytes' % (args.patch or args.patched_rom, kind, modtab, len(b)))
+    say('loaded at:  %08x' % GAME_VRAM)
+    say()
+
+    n = min(len(a), len(b))
+    changed = [i for i in range(0, n & ~3, 4) if a[i:i + 4] != b[i:i + 4]]
+    share = len(changed) / max(1, (n // 4))
+
+    if len(a) != len(b) or share > REBUILT_THRESHOLD:
+        say('%d of %d words differ (%.1f%%), and the binary is %+d bytes.'
+            % (len(changed), n // 4, share * 100, len(b) - len(a)))
+        say()
+        say('This mod was rebuilt from source rather than patched in place, so every')
+        say('address in it is its own and a diff against the stock binary says nothing.')
+        say('What it changed can only come from its own source, or from watching it run.')
+        if out is not sys.stdout:
+            out.close()
+        return
+
+    say('%d of %d words differ (%.2f%%). Same length, so this mod was patched in'
+        % (len(changed), n // 4, share * 100))
+    say('place: every differing word is an instruction somebody changed.')
+    say()
+
+    if not changed:
+        if out is not sys.stdout:
+            out.close()
+        return
+
+    if not args.mapfile and not args.no_symbols:
+        args.mapfile = default_symbols(romid)
+
+    if args.mapfile:
+        syms = read_map(args.mapfile)
+        starts = [s[0] for s in syms]
+        names = dict(syms)
+    else:
+        starts = function_starts(a)
+        names = {}
+
+    groups = {}
+    for ofs in changed:
+        groups.setdefault(enclosing(starts, ofs), []).append(ofs)
+
+    apath = os.path.join(workdir, 'stock.bin')
+    bpath = os.path.join(workdir, 'mod.bin')
+    with open(apath, 'wb') as fd:
+        fd.write(a)
+    with open(bpath, 'wb') as fd:
+        fd.write(b)
+
+    objdump = find_objdump()
+    da = disassemble(objdump, apath)
+    db = disassemble(objdump, bpath)
+
+    ends = {}
+    for i, start in enumerate(starts):
+        ends[start] = starts[i + 1] if i + 1 < len(starts) else len(a)
+
+    isdata = { start: looks_like_data(da, GAME_VRAM + start, GAME_VRAM + ends.get(start, start + 0x400))
+               for start in groups }
+
+    for start in groups:
+        if isdata[start] and start not in names:
+            names[start] = 'data_%08x' % (GAME_VRAM + start)
+
+    guessed = {}
+
+    if args.port_binary and not args.mapfile:
+        funcs = port_functions(args.port_binary)
+        document = {}
+        for have in funcs.values():
+            for c in have:
+                document[c] = document.get(c, 0) + 1
+
+        for start in groups:
+            if isdata[start]:
+                continue  # a table's numbers are its content, not its fingerprint
+            consts = mips_constants(da, GAME_VRAM + start, GAME_VRAM + ends.get(start, start + 0x400))
+            guess = identify(funcs, document, consts)
+            if guess:
+                guessed[start] = guess
+
+        # one name, one region: where two regions want the same name only the
+        # better match keeps it, the other having matched on nothing particular
+        best = {}
+        for start, (name, score) in guessed.items():
+            if name not in best or score > guessed[best[name]][1]:
+                best[name] = start
+
+        for name, start in best.items():
+            names[start] = name + '?'
+
+    ndata = sum(1 for s in groups if isdata[s])
+    nnamed = sum(1 for s in groups if s in names and not isdata[s])
+
+    say('%d region%s changed - %d code, %d data%s:'
+        % (len(groups), '' if len(groups) == 1 else 's', len(groups) - ndata, ndata,
+           ', %d named from the port binary' % nnamed if args.port_binary else ''))
+    say()
+
+    order = sorted(groups, key=lambda s: -len(groups[s]))
+
+    for start in order:
+        say('  %-34s %4d %s at %08x'
+            % (names.get(start, 'func_%08x' % (GAME_VRAM + start)),
+               len(groups[start]),
+               'words' if isdata[start] else ('instruction' if len(groups[start]) == 1 else 'instructions'),
+               GAME_VRAM + groups[start][0]))
+
+    if args.summary:
+        if out is not sys.stdout:
+            out.close()
+        return
+
+    say()
+    say('=' * 72)
+
+    for start in sorted(groups):
+        offsets = groups[start]
+        say()
+        say('%s   (%08x, %d changed)'
+            % (names.get(start, 'func_%08x' % (GAME_VRAM + start)),
+               GAME_VRAM + start, len(offsets)))
+        say('-' * 72)
+
+        wanted = set()
+        for ofs in offsets:
+            for k in range(-args.context, args.context + 1):
+                wanted.add(ofs + k * 4)
+
+        prev = None
+        for ofs in sorted(wanted):
+            if ofs < 0 or ofs >= n:
+                continue
+            addr = GAME_VRAM + ofs
+            if prev is not None and ofs != prev + 4:
+                say('        ...')
+            prev = ofs
+            if isdata[start]:
+                # words, because that is what a table is
+                if a[ofs:ofs + 4] == b[ofs:ofs + 4]:
+                    say('        %08x  %08x' % (addr, int.from_bytes(a[ofs:ofs + 4], 'big')))
+                else:
+                    say('      - %08x  %08x' % (addr, int.from_bytes(a[ofs:ofs + 4], 'big')))
+                    say('      + %08x  %08x' % (addr, int.from_bytes(b[ofs:ofs + 4], 'big')))
+            elif a[ofs:ofs + 4] == b[ofs:ofs + 4]:
+                say('        %08x  %s' % (addr, da.get(addr, '?')))
+            else:
+                say('      - %08x  %s' % (addr, da.get(addr, '?')))
+                say('      + %08x  %s' % (addr, db.get(addr, '?')))
+
+    if out is not sys.stdout:
+        out.close()
+        print('wrote %s' % args.out)
+
+
+if __name__ == '__main__':
+    main()

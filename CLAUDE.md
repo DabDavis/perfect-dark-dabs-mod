@@ -443,7 +443,32 @@ executable, each one having to contain `files/`, `segs/`, `textures/` or a
 config and the page says so — the All in One launcher passes several, and a
 stored choice quietly displacing them would be a bug nobody could see.
 
-`tools/importmod` builds a mod directory out of a console mod's xdelta.
+`tools/importmod` builds a mod directory out of a console mod's xdelta, and
+`tools/modcodediff` shows what that mod changed in the ROM's code.
+
+### The ROM symbol file
+
+`tools/pd.ntsc-final.sym` is 5149 game-segment symbols, and `modcodediff` reads
+it to put real names on a mod's changes. It was cut from a matching decomp
+build, which this tree cannot produce — its `platform.h` detects win32/linux and
+x86/arm only, so `ultra64.h` drags in the host's `stdint.h` and IDO's `cfe`
+cannot parse it. The port fork had let the ROM build rot before it dropped the
+Makefile.
+
+It came from a clone of the upstream decomp instead, built with the IDO 5.3 in
+`../n64-toolchain/ido5.3_recomp` (`build/recomp/{5.3,7.1}`, with `recomp` itself
+touched old so make does not try to rebuild it), `armips` on PATH, and zeroed
+stubs for `build/*/rsp/*.bin` because armips 0.11 rejects the RSP microcode.
+IDO 7.1 is not needed: the files that want it are all `src/lib/` audio, which is
+the lib segment.
+
+**Why the symbols are exact even though that ROM does not match.** The game
+segment is linked at a fixed `0x7f000000`, so nothing outside it moves its
+contents. The built segment is the same length as the real one and every one of
+its 3264 `jal` entry points is at the same address; the 3.1% of words that
+differ are all `addiu`/`lw`/`sw`/`jal` immediates pointing at the segments that
+did move. Function addresses are therefore right, and that check - entry points
+identical - is the one to repeat if the file is ever regenerated.
 
 ## Debugging
 
