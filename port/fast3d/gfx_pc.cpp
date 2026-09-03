@@ -1122,6 +1122,16 @@ static void import_texture(int i, int tile, bool importReplacement) {
         int32_t rep_height;
         uint8_t* rep = texpackLoadReplacement(orig_addr, &rep_width, &rep_height);
 
+        // A model's textures live inside the model file and never get a texture
+        // number, so nothing above can find them. What is being drawn is right
+        // here though, and a pack built for an emulator named its files after a
+        // checksum of exactly these bytes.
+        if (!rep && texpackHaveUnplacedFiles()) {
+            rep = texpackLoadReplacementForTexels(orig_addr, loaded_texture.size_bytes,
+                    rdp.texture_tile[tile].width, rdp.texture_tile[tile].height,
+                    siz, rdp.texture_tile[tile].line_size_bytes, &rep_width, &rep_height);
+        }
+
         if (rep) {
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
             texpackFreeReplacement(rep);

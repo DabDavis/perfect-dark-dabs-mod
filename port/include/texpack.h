@@ -56,6 +56,34 @@ void texpackFreeReplacement(u8 *rgba);
 s32 texpackHaveReplacements(void);
 
 /**
+ * The same, for a texture that has no texture number.
+ *
+ * Models carry their own textures inside the model file rather than in the
+ * global table - see preprocessModelTextures() - so nothing keyed on a texture
+ * number can reach them. A pack built for an emulator has them, because an
+ * emulator only ever sees texels. This checksums the texels being drawn and
+ * looks that up instead, which is the slow path in every sense and is only
+ * taken for pack files the texture-number pass could not place.
+ *
+ * data is the N64 texel bytes; the tile geometry is what the renderer is about
+ * to draw them under. Returns NULL when there is nothing to swap in.
+ */
+u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 height,
+		s32 siz, s32 stride, s32 *outWidth, s32 *outHeight);
+
+/** Whether any pack file is waiting to be matched that way. */
+s32 texpackHaveUnplacedFiles(void);
+
+/**
+ * How many pack files no texture number claimed, and how many of those have
+ * since turned up in something drawn. The second number climbs as models come
+ * on screen, which is what tells you a pack is being used in full rather than
+ * merely installed.
+ */
+s32 texpackGetNumUnplaced(void);
+s32 texpackGetNumTexelMatched(void);
+
+/**
  * Writes the raw texel bytes and tile geometry of every texture in the ROM,
  * then exits. Does nothing unless --dump-textures was passed.
  *

@@ -39,9 +39,9 @@ the executable.
 a .7z is unpacked to a temporary directory first, because its files usually
 share one solid compressed block and there is no cheap way to pull one out.
 
-Pillow is needed only for packs that split colour and alpha into _rgb/_a pairs;
-everything else is copied through untouched. Reading a .7z needs either the
-py7zr module or a 7z command on PATH.
+Pillow is needed: emulator packs store their images upside down relative to this
+port, so converting has to turn them over rather than copy them. Reading a .7z
+needs either the py7zr module or a 7z command on PATH.
 """
 
 import argparse
@@ -286,12 +286,35 @@ def group_pack(source):
     return groups
 
 
-def combine_rgb_alpha(rgb_bytes, alpha_bytes, out_path):
-    """Merges a pack's separate colour and alpha images into one RGBA file."""
+def _pil():
     try:
         from PIL import Image
     except ImportError:
-        return False
+        sys.exit('Pillow is needed to convert a pack (pip install pillow).\n'
+                 'Emulator packs store their images upside down relative to this\n'
+                 'port, so the files have to be turned over rather than copied.')
+    return Image
+
+
+def write_image(data, out_path):
+    """
+    Writes one pack image out the way this port wants it.
+
+    Turned over, because the two conventions disagree. GlideHQ dumps a texture
+    in raw N64 row order, which is upside down on screen, and pack artists have
+    always edited them that way; the port's own dumps are written the right way
+    up so they can be opened in an image editor. The game knows the difference
+    from the filename, and a converted file carries our name.
+    """
+    Image = _pil()
+    im = Image.open(io.BytesIO(data))
+    im = im.convert('RGBA') if im.mode not in ('RGB', 'RGBA') else im
+    im.transpose(Image.FLIP_TOP_BOTTOM).save(out_path)
+
+
+def combine_rgb_alpha(rgb_bytes, alpha_bytes, out_path):
+    """Merges a pack's separate colour and alpha images into one RGBA file."""
+    Image = _pil()
 
     rgb = Image.open(io.BytesIO(rgb_bytes)).convert('RGB')
     alpha = Image.open(io.BytesIO(alpha_bytes)).convert('L')
@@ -301,7 +324,7 @@ def combine_rgb_alpha(rgb_bytes, alpha_bytes, out_path):
 
     out = rgb.convert('RGBA')
     out.putalpha(alpha)
-    out.save(out_path)
+    out.transpose(Image.FLIP_TOP_BOTTOM).save(out_path)
 
     return True
 
@@ -331,7 +354,6 @@ def main():
 
         converted = 0
         unmatched = 0
-        needed_pillow = 0
 
         for crc, kinds in sorted(groups.items()):
             texnum = crcs.get(crc)
@@ -344,28 +366,18 @@ def main():
             src = next((kinds[k] for k in WHOLE_IMAGE_KINDS if k in kinds), None)
 
             if src:
-                # Already a whole image: copy the bytes through rather than
-                # re-encode, so nothing is lost and the file stays exactly what
-                # the artist saved.
-                with open(out_path, 'wb') as f:
-                    f.write(source.read(src))
+                write_image(source.read(src), out_path)
                 converted += 1
             elif 'rgb' in kinds and 'a' in kinds:
-                if combine_rgb_alpha(source.read(kinds['rgb']), source.read(kinds['a']), out_path):
-                    converted += 1
-                else:
-                    needed_pillow += 1
+                combine_rgb_alpha(source.read(kinds['rgb']), source.read(kinds['a']), out_path)
+                converted += 1
             elif 'rgb' in kinds:
-                with open(out_path, 'wb') as f:
-                    f.write(source.read(kinds['rgb']))
+                write_image(source.read(kinds['rgb']), out_path)
                 converted += 1
             else:
                 unmatched += 1
 
     print(f'\nwrote {converted} textures to {outdir}')
-
-    if needed_pillow:
-        print(f'{needed_pillow} split colour/alpha textures were skipped - install Pillow for those')
 
     if unmatched:
         print(f'{unmatched} pack textures had no match in the dump')

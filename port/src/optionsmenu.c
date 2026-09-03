@@ -3071,8 +3071,19 @@ static const char *menutextTexturePackReload(struct menuitem *item)
 		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
 				"Reload Pack (turned off)\n");
 	} else if (count > 0) {
-		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
-				"Reload Pack (%d replaced)\n", count);
+		const s32 unplaced = texpackGetNumUnplaced();
+
+		if (unplaced) {
+			// The second pair is the pack's model textures, which have no
+			// texture number and are only recognised once something draws
+			// them - so it climbs as you play rather than being known up front.
+			snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
+					"Reload Pack (%d + %d of %d)\n", count,
+					texpackGetNumTexelMatched(), unplaced);
+		} else {
+			snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
+					"Reload Pack (%d replaced)\n", count);
+		}
 	} else {
 		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
 				"Reload Pack (none found)\n");

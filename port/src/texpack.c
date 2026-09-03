@@ -59,6 +59,11 @@
 // swizzled copy, because the original has to stay as the renderer wants it.
 #define TEXPACK_RICE_SCRATCH (128 * 1024)
 
+// Pack files that no texture number claimed, kept to be matched against the
+// texels of whatever gets drawn. A power of two well clear of how many there
+// usually are - 259 of 1509 for the pack this was built against.
+#define TEXPACK_UNPLACED_SLOTS 2048
+
 // Which image a pack file holds, best first. A Rice pack may ship several for
 // one texture, and only some of them are the whole picture.
 #define TEXPACK_KIND_NATIVE 0 // <texnum>.png, ours
@@ -92,6 +97,16 @@ struct texpackricecrc {
 
 static struct texpackricecrc *riceCrcs;
 static s32 riceIndexState; // 0 = not built, 1 = built, -1 = gave up
+
+struct texpackunplaced {
+	u32 crc;
+	char *path;
+};
+
+static struct texpackunplaced *unplaced;
+static s32 numUnplaced;
+static s32 numTexelMatched; // of those, how many have actually turned up
+static u8 *riceScratch;
 
 struct texpackpack {
 	char name[TEXPACK_NAMELEN];
@@ -668,6 +683,69 @@ static s32 texpackParseNativeName(const char *name)
 	return (s32)texturenum;
 }
 
+static void texpackAddUnplaced(u32 crc, char *path)
+{
+	u32 slot;
+	u32 i;
+
+	if (!path) {
+		return;
+	}
+
+	if (!unplaced) {
+		unplaced = calloc(TEXPACK_UNPLACED_SLOTS, sizeof(struct texpackunplaced));
+
+		if (!unplaced) {
+			free(path);
+			return;
+		}
+	}
+
+	slot = crc & (TEXPACK_UNPLACED_SLOTS - 1);
+
+	for (i = 0; i < TEXPACK_UNPLACED_SLOTS; i++, slot = (slot + 1) & (TEXPACK_UNPLACED_SLOTS - 1)) {
+		if (!unplaced[slot].path) {
+			unplaced[slot].crc = crc;
+			unplaced[slot].path = path;
+			numUnplaced++;
+			return;
+		}
+
+		if (unplaced[slot].crc == crc) {
+			// The same texture under another kind of file. The first found is
+			// the better one, because kinds are looked at in that order.
+			free(path);
+			return;
+		}
+	}
+
+	free(path);
+}
+
+static const char *texpackFindUnplaced(u32 crc)
+{
+	u32 slot;
+	u32 i;
+
+	if (!unplaced) {
+		return NULL;
+	}
+
+	slot = crc & (TEXPACK_UNPLACED_SLOTS - 1);
+
+	for (i = 0; i < TEXPACK_UNPLACED_SLOTS; i++, slot = (slot + 1) & (TEXPACK_UNPLACED_SLOTS - 1)) {
+		if (!unplaced[slot].path) {
+			return NULL;
+		}
+
+		if (unplaced[slot].crc == crc) {
+			return unplaced[slot].path;
+		}
+	}
+
+	return NULL;
+}
+
 static char *texpackJoin(const char *dir, const char *name)
 {
 	const u32 len = strlen(dir) + strlen(name) + 2;
@@ -727,8 +805,13 @@ static void texpackIndexFile(const char *name, void *arg)
 		texturenum = texpackRiceLookup(crc);
 
 		if (texturenum < 0) {
-			// A texture this ROM does not have, or a mip level. Nothing to do
-			// with it but leave it out.
+			// No texture in the table has these texels. It may still be drawn:
+			// a model's textures live inside the model file and never get a
+			// number. Keep it to be matched against what is drawn instead.
+			if (!isAlpha) {
+				texpackAddUnplaced(crc, texpackJoin(dir, name));
+			}
+
 			return;
 		}
 	}
@@ -778,13 +861,23 @@ static void texpackFreeIndex(void)
 		free(replaceAlphaPaths[i]);
 	}
 
+	for (i = 0; unplaced && i < TEXPACK_UNPLACED_SLOTS; i++) {
+		free(unplaced[i].path);
+	}
+
 	free(replacePaths);
 	free(replaceAlphaPaths);
 	free(replaceKinds);
+	free(unplaced);
+	free(riceScratch);
 
 	replacePaths = NULL;
 	replaceAlphaPaths = NULL;
 	replaceKinds = NULL;
+	unplaced = NULL;
+	riceScratch = NULL;
+	numUnplaced = 0;
+	numTexelMatched = 0;
 }
 
 /**
@@ -1041,6 +1134,11 @@ static void texpackScan(void)
 
 	if (numReplacements) {
 		sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
+
+		if (numUnplaced) {
+			sysLogPrintf(LOG_NOTE, "texpack: %d more are matched by their texels when drawn"
+					" - models keep their textures to themselves", numUnplaced);
+		}
 	} else {
 		if (packName[0]) {
 			sysLogPrintf(LOG_WARNING, "texpack: nothing in %s matches a texture in this ROM",
@@ -1060,62 +1158,28 @@ s32 texpackHaveReplacements(void)
 	return replacePaths != NULL;
 }
 
-u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
+/**
+ * Decodes one replacement image into the row order the game's texture data uses.
+ *
+ * Which way that is depends on where the file came from. Our own dumps are
+ * written the right way up, because someone opens them in an image editor - see
+ * the note over the dump - so they get flipped back here. A pack built for an
+ * emulator is not: GlideHQ writes textures out in raw N64 row order, which is
+ * upside down on screen, and its artists have always edited them that way. Such
+ * a file is already in the order wanted and must be left alone.
+ */
+static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outHeight)
 {
-	s32 texturenum;
-	u8 *rgba;
 	s32 width;
 	s32 height;
 	s32 y;
-
-	if (!texpackHaveReplacements()) {
-		return NULL;
-	}
-
-	texturenum = texpackGetTextureNum(data);
-
-	if (texturenum < 0 || texturenum >= NUM_TEXTURES || !replacePaths[texturenum]) {
-		return NULL;
-	}
-
-	rgba = pngRead(replacePaths[texturenum], &width, &height);
-
-	if (rgba && replaceAlphaPaths[texturenum] && replaceKinds[texturenum] == TEXPACK_KIND_RGB) {
-		// A Rice pack may split a texture into colour and alpha images. The
-		// colour one is opaque on its own, so the alpha has to be pasted back
-		// over it; only its red channel carries anything.
-		s32 alphaWidth;
-		s32 alphaHeight;
-		u8 *alpha = pngRead(replaceAlphaPaths[texturenum], &alphaWidth, &alphaHeight);
-
-		if (alpha) {
-			if (alphaWidth == width && alphaHeight == height) {
-				s32 i;
-
-				for (i = 0; i < width * height; i++) {
-					rgba[i * 4 + 3] = alpha[i * 4];
-				}
-			} else {
-				sysLogPrintf(LOG_WARNING, "texpack: %s is %dx%d but its alpha is %dx%d",
-						replacePaths[texturenum], width, height, alphaWidth, alphaHeight);
-			}
-
-			free(alpha);
-		}
-	}
+	u8 *rgba = pngRead(path, &width, &height);
 
 	if (!rgba) {
-		// Whatever is wrong with the file will not fix itself, and retrying on
-		// every cache miss would log it forever. Drop it and draw the original.
-		free(replacePaths[texturenum]);
-		replacePaths[texturenum] = NULL;
-		numReplacements--;
 		return NULL;
 	}
 
-	// Back into the game's row order. See the note over the dump for why the
-	// two disagree.
-	for (y = 0; y < height / 2; y++) {
+	for (y = 0; flip && y < height / 2; y++) {
 		u8 *a = rgba + (size_t)width * 4 * y;
 		u8 *b = rgba + (size_t)width * 4 * (height - 1 - y);
 		u32 x;
@@ -1129,6 +1193,113 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 
 	*outWidth = width;
 	*outHeight = height;
+
+	return rgba;
+}
+
+s32 texpackGetNumUnplaced(void)
+{
+	return numUnplaced;
+}
+
+s32 texpackGetNumTexelMatched(void)
+{
+	return numTexelMatched;
+}
+
+s32 texpackHaveUnplacedFiles(void)
+{
+	return texpackHaveReplacements() && numUnplaced > 0;
+}
+
+u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 height,
+		s32 siz, s32 stride, s32 *outWidth, s32 *outHeight)
+{
+	const char *path;
+	u32 crc;
+
+	if (!data || !size || size > TEXPACK_RICE_SCRATCH
+			|| width <= 0 || height <= 0 || stride <= 0) {
+		return NULL;
+	}
+
+	if (!riceScratch) {
+		riceScratch = malloc(TEXPACK_RICE_SCRATCH);
+
+		if (!riceScratch) {
+			return NULL;
+		}
+	}
+
+	// The checksum is over the texels as the N64 wants them, which is not how
+	// the port keeps them - so a swizzled copy is made to hash.
+	memcpy(riceScratch, data, size);
+	texpackSwizzle(riceScratch, width, height, siz, size);
+	crc = texpackRiceCrc(riceScratch, size, width, height, siz, stride);
+
+	path = texpackFindUnplaced(crc);
+
+	if (!path) {
+		return NULL;
+	}
+
+	numTexelMatched++;
+
+	return texpackLoadImage(path, 0, outWidth, outHeight);
+}
+
+u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
+{
+	s32 texturenum;
+	u8 *rgba;
+
+	if (!texpackHaveReplacements()) {
+		return NULL;
+	}
+
+	texturenum = texpackGetTextureNum(data);
+
+	if (texturenum < 0 || texturenum >= NUM_TEXTURES || !replacePaths[texturenum]) {
+		return NULL;
+	}
+
+	// Only our own naming means the file was written the right way up.
+	rgba = texpackLoadImage(replacePaths[texturenum],
+			replaceKinds[texturenum] == TEXPACK_KIND_NATIVE, outWidth, outHeight);
+
+	if (!rgba) {
+		// Whatever is wrong with the file will not fix itself, and retrying on
+		// every cache miss would log it forever. Drop it and draw the original.
+		free(replacePaths[texturenum]);
+		replacePaths[texturenum] = NULL;
+		numReplacements--;
+		return NULL;
+	}
+
+	if (replaceAlphaPaths[texturenum] && replaceKinds[texturenum] == TEXPACK_KIND_RGB) {
+		// A Rice pack may split a texture into colour and alpha images. The
+		// colour one is opaque on its own, so the alpha has to be pasted back
+		// over it; only its red channel carries anything. Both halves come out
+		// of texpackLoadImage() the same way up, so they line up.
+		s32 alphaWidth;
+		s32 alphaHeight;
+		u8 *alpha = texpackLoadImage(replaceAlphaPaths[texturenum], 0, &alphaWidth, &alphaHeight);
+
+		if (alpha) {
+			if (alphaWidth == *outWidth && alphaHeight == *outHeight) {
+				s32 i;
+
+				for (i = 0; i < alphaWidth * alphaHeight; i++) {
+					rgba[i * 4 + 3] = alpha[i * 4];
+				}
+			} else {
+				sysLogPrintf(LOG_WARNING, "texpack: %s is %dx%d but its alpha is %dx%d",
+						replacePaths[texturenum], *outWidth, *outHeight, alphaWidth, alphaHeight);
+			}
+
+			free(alpha);
+		}
+	}
 
 	return rgba;
 }
@@ -1493,7 +1664,7 @@ void texpackDumpAll(void)
 		return;
 	}
 
-	fprintf(manifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx\n");
+	fprintf(manifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx,numlods,hasloddata\n");
 
 	for (n = 0; n < NUM_TEXTURES; n++) {
 		struct tex *tex;
@@ -1521,9 +1692,9 @@ void texpackDumpAll(void)
 			continue;
 		}
 
-		fprintf(manifest, "%04x,%u,%u,%d,%d,%d,%d,0\n", n, tex->gbiformat, tex->depth,
+		fprintf(manifest, "%04x,%u,%u,%d,%d,%d,%d,0,%u,%u\n", n, tex->gbiformat, tex->depth,
 				texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
-				texGetLineSizeInBytes(tex, 0) * 8, size);
+				texGetLineSizeInBytes(tex, 0) * 8, size, tex->numlods, tex->hasloddata);
 
 		snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, n);
 		f = fopen(path, "wb");
