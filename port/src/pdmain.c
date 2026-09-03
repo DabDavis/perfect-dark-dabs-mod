@@ -74,6 +74,7 @@
 #include "types.h"
 #include "system.h"
 #include "texpack.h"
+#include "upscale.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -252,6 +253,7 @@ void mainInit(void)
 	utilsInit();
 	texInit();
 	texpackDumpAll(); // --dump-textures only; exits when it does anything
+	upscaleFetchFromCommandLine(); // --upscayl-fetch only; likewise
 	langInit();
 	lvInit();
 	cheatsInit();

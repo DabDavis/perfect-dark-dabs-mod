@@ -56,6 +56,9 @@ s32 upscaleIsInstalling(void);
 const char *upscaleGetInstallStatus(void);
 void upscaleRedetect(void);
 
+/** --upscayl-fetch: download and exit, for scripted setup. */
+void upscaleFetchFromCommandLine(void);
+
 /**
  * Settings, as the menu sets them. These are the knobs Upscayl itself exposes,
  * plus the padding, which is ours: most game textures tile, and an upscaler

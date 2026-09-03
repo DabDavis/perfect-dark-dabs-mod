@@ -507,7 +507,16 @@ static s32 upscaleInstaller(void *arg)
 	}
 
 	// And the model that is selected, which is the only one that is needed.
-	if (numModels > 0 && !upscaleFetchModel(modelNames[optModel])) {
+	// A decoder with no model cannot upscale anything, so no model is a
+	// failure rather than a thing to pass over.
+	if (numModels <= 0) {
+		upscaleSetInstallStatus("No models to choose from");
+		SDL_AtomicSet(&installFailed, 1);
+		SDL_AtomicSet(&installBusy, 0);
+		return 0;
+	}
+
+	if (!upscaleFetchModel(modelNames[optModel])) {
 		upscaleSetInstallStatus("Could not download the model");
 		SDL_AtomicSet(&installFailed, 1);
 		SDL_AtomicSet(&installBusy, 0);
@@ -566,6 +575,11 @@ s32 upscaleInstall(void)
 	if (SDL_AtomicGet(&installBusy)) {
 		return 0;
 	}
+
+	// Fills in the model list, which the worker needs to know which model to
+	// fetch. Without it a download quietly brings the decoder and no model,
+	// and then reports success.
+	upscaleIsAvailable();
 
 	if (installer) {
 		SDL_WaitThread(installer, NULL);
@@ -880,6 +894,21 @@ static s32 upscaleWorker(void *arg)
 	SDL_AtomicSet(&workerStage, UPSCALE_RUNNING);
 	SDL_AtomicSet(&workerCount, 0);
 
+#ifdef PLATFORM_WIN32
+	{
+		// cmd.exe strips the first and last quote of a command line that
+		// begins with one - so a quoted program path followed by quoted
+		// arguments comes apart into nonsense. Wrapping the whole line in one
+		// more pair is the documented way round it, and every path here is
+		// quoted because an install can sit under a directory with a space.
+		char wrapped[sizeof(cmd) + 4];
+
+		snprintf(wrapped, sizeof(wrapped), "\"%s\"", cmd);
+		memcpy(cmd, wrapped, sizeof(cmd) - 1);
+		cmd[sizeof(cmd) - 1] = '\0';
+	}
+#endif
+
 	if (system(cmd) != 0) {
 		sysLogPrintf(LOG_ERROR, "upscale: the upscaler did not finish");
 		SDL_AtomicSet(&workerFailed, 1);
@@ -1028,6 +1057,36 @@ static void upscalePrepareChunk(void)
 			state = UPSCALE_FAILED;
 		}
 	}
+}
+
+/**
+ * --upscayl-fetch: download Upscayl and stop, without touching the menus.
+ *
+ * The same job the page does, for a machine being set up by a script and for
+ * checking the download works on a platform where driving the menus is not
+ * practical.
+ */
+void upscaleFetchFromCommandLine(void)
+{
+	if (!sysArgCheck("--upscayl-fetch")) {
+		return;
+	}
+
+	if (!upscaleInstall()) {
+		sysLogPrintf(LOG_ERROR, "upscale: could not start the download");
+		exit(1);
+	}
+
+	while (SDL_AtomicGet(&installBusy)) {
+		SDL_Delay(200);
+	}
+
+	upscaleRedetect();
+
+	sysLogPrintf(LOG_NOTE, "upscale: %s (%s)",
+			upscaleIsAvailable() ? "installed" : "failed", upscaleGetInstallStatus());
+
+	exit(upscaleIsAvailable() ? 0 : 1);
 }
 
 void upscaleTick(void)
