@@ -20,11 +20,14 @@
 #include "game/texdecompress.h"
 #include "platform.h"
 #include "config.h"
+#include "archive.h"
 #include "fs.h"
+#include "input.h"
 #include "pngread.h"
 #include "pngwrite.h"
 #include "system.h"
 #include "texpack.h"
+#include "video.h"
 #include "versioninfo.h"
 
 #define TEXPACK_DUMP_DIR_NAME "texturedump"
@@ -32,6 +35,20 @@
 // Matches the "textures" directory modTextureLoad() already reads its %04x.bin
 // replacements from, so one pack directory holds both kinds.
 #define TEXPACK_DIR_NAME "textures"
+
+// Where packs are looked for, and where an archive is unpacked to: its own
+// folder beside the executable, the way screenshots and recordings get one -
+// see fsChooseOutputDir(). The cache name starts with a dot so the scan skips
+// it when listing packs.
+#define TEXPACK_PACKS_DIR "texture-packs"
+#define TEXPACK_CACHE_DIR ".cache"
+#define TEXPACK_MAXPACKS 32
+#define TEXPACK_NAMELEN 48
+#define TEXPACK_KEYNAME_LEN 32
+
+// Written into an unpacked archive once it is complete, so an extraction that
+// was interrupted is done again rather than half used.
+#define TEXPACK_DONE_FILE ".extracted"
 
 // Slots are never fewer than this, so the table is allocated once for a level
 // rather than grown through the small sizes on the way up.
@@ -51,6 +68,22 @@ static struct texpackslot *slots;
 static u32 numSlots;    // always a power of two
 static u32 numOccupied; // live entries plus tombstones
 static u32 numLive;
+
+struct texpackpack {
+	char name[TEXPACK_NAMELEN];
+	char path[FS_MAXPATH + 1];
+	s32 isArchive;
+};
+
+static struct texpackpack packs[TEXPACK_MAXPACKS];
+static s32 numPacks;
+static s32 packsListed;
+static char packName[TEXPACK_NAMELEN];  // the selected pack, empty for none
+
+static char dumpKeyName[TEXPACK_KEYNAME_LEN] = "F7";
+static char reloadKeyName[TEXPACK_KEYNAME_LEN] = "F8";
+static s32 dumpKeyVk = -1;    // -1 until the name has been looked up
+static s32 reloadKeyVk = -1;
 
 static s32 loadTextures = 1;
 static char **replacePaths;   // one per texture number, NULL where there is none
@@ -325,16 +358,204 @@ static void texpackIndexFile(const char *name, void *arg)
 	replacePaths[texturenum] = path;
 }
 
+/**
+ * Indexes one directory of images. path is absolute: fsScanDir() resolves a
+ * relative one through the mod search order, which would collapse every mod
+ * directory onto whichever one wins.
+ */
+static void texpackScanPath(const char *path)
+{
+	fsScanDir(path, texpackIndexFile, (void *)path);
+}
+
 static void texpackScanDir(const char *dir)
 {
 	char path[FS_MAXPATH + 1];
 
 	snprintf(path, sizeof(path), "%s/" TEXPACK_DIR_NAME, dir);
+	texpackScanPath(path);
+}
 
-	// fsScanDir() takes a VFS path and resolves it through the search order,
-	// which would collapse every mod directory onto whichever one wins. These
-	// are absolute paths precisely so each is scanned in its own right.
-	fsScanDir(path, texpackIndexFile, path);
+static void texpackListEntry(const char *name, void *arg)
+{
+	const char *dir = arg;
+	struct texpackpack *pack;
+	const char *dot;
+	s32 i;
+	u32 len;
+
+	if (name[0] == '.' || numPacks >= TEXPACK_MAXPACKS) {
+		return;
+	}
+
+	pack = &packs[numPacks];
+	pack->isArchive = archiveIsSupported(name);
+
+	// An archive is listed under its name without the extension, so that
+	// mypack.zip and a mypack folder do not read as two different things.
+	dot = pack->isArchive ? strrchr(name, '.') : NULL;
+	len = dot ? (u32)(dot - name) : strlen(name);
+
+	if (len == 0 || len >= TEXPACK_NAMELEN) {
+		return;
+	}
+
+	memcpy(pack->name, name, len);
+	pack->name[len] = '\0';
+
+	for (i = 0; i < numPacks; i++) {
+		if (!strcasecmp(packs[i].name, pack->name)) {
+			// Already found in a directory searched earlier, which outranks
+			// this one the same way the file search order does.
+			return;
+		}
+	}
+
+	snprintf(pack->path, sizeof(pack->path), "%s/%s", dir, name);
+	numPacks++;
+}
+
+/**
+ * The texture-packs folder, created on the first look.
+ *
+ * Beside the executable where that can be written and in the save directory
+ * where it cannot, which is where a player would expect to drop a pack and
+ * where screenshots and recordings already go. Returns NULL if neither works.
+ */
+static const char *texpackPacksDir(void)
+{
+	static char dir[FS_MAXPATH + 1];
+	static s32 state; // 0 = not looked at yet, 1 = ready, -1 = gave up
+	char rel[FS_MAXPATH + 1];
+
+	if (state) {
+		return state > 0 ? dir : NULL;
+	}
+
+	state = -1;
+
+	if (fsChooseOutputDir(TEXPACK_PACKS_DIR, rel, sizeof(rel)) != 0) {
+		sysLogPrintf(LOG_ERROR, "texpack: nowhere to put %s that can be written",
+				TEXPACK_PACKS_DIR);
+		return NULL;
+	}
+
+	strncpy(dir, fsFullPath(rel), sizeof(dir) - 1);
+	dir[sizeof(dir) - 1] = '\0';
+	state = 1;
+
+	return dir;
+}
+
+void texpackRefreshPacks(void)
+{
+	const char *dir = texpackPacksDir();
+
+	numPacks = 0;
+	packsListed = 1;
+
+	if (dir) {
+		fsScanDir(dir, texpackListEntry, (void *)dir);
+	}
+}
+
+s32 texpackGetNumPacks(void)
+{
+	if (!packsListed) {
+		texpackRefreshPacks();
+	}
+
+	return numPacks;
+}
+
+const char *texpackGetPackName(s32 index)
+{
+	if (index < 0 || index >= texpackGetNumPacks()) {
+		return "None";
+	}
+
+	return packs[index].name;
+}
+
+s32 texpackGetSelectedPack(void)
+{
+	s32 i;
+
+	if (!packName[0]) {
+		return -1;
+	}
+
+	for (i = 0; i < texpackGetNumPacks(); i++) {
+		if (!strcasecmp(packs[i].name, packName)) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * Unpacks an archive pack into texturepacks/.cache/<name>, once.
+ *
+ * Returns the directory to read the pack from, which for a folder pack is the
+ * folder itself, or NULL if there is nothing usable.
+ */
+static const char *texpackResolveSelected(void)
+{
+	static char dir[FS_MAXPATH + 1];
+	char marker[FS_MAXPATH + 1];
+	const struct texpackpack *pack;
+	const s32 index = texpackGetSelectedPack();
+	s32 count;
+
+	if (index < 0) {
+		return NULL;
+	}
+
+	pack = &packs[index];
+
+	if (!pack->isArchive) {
+		return pack->path;
+	}
+
+	{
+		const char *root = texpackPacksDir();
+
+		if (!root) {
+			return NULL;
+		}
+
+		snprintf(dir, sizeof(dir), "%s/" TEXPACK_CACHE_DIR, root);
+		fsCreateDir(dir);
+		snprintf(dir, sizeof(dir), "%s/" TEXPACK_CACHE_DIR "/%s", root, pack->name);
+	}
+
+	snprintf(marker, sizeof(marker), "%s/" TEXPACK_DONE_FILE, dir);
+
+	if (fsFileSize(marker) >= 0) {
+		return dir;
+	}
+
+	sysLogPrintf(LOG_NOTE, "texpack: unpacking %s, this happens once", pack->name);
+
+	count = archiveExtract(pack->path, dir);
+
+	if (count <= 0) {
+		sysLogPrintf(LOG_ERROR, "texpack: nothing came out of %s", pack->path);
+		return NULL;
+	}
+
+	{
+		FILE *f = fopen(marker, "wb");
+
+		if (f) {
+			fclose(f);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "texpack: unpacked %d files from %s", count, pack->name);
+
+	return dir;
 }
 
 /**
@@ -367,9 +588,31 @@ static void texpackScan(void)
 		texpackScanDir(fsGetModDirAt(i));
 	}
 
+	{
+		// Last, so the pack the player chose in the menu wins over any
+		// textures/ a mod happens to ship. Both layouts are accepted: images
+		// at the root of the pack, or under a textures/ inside it.
+		const char *dir = texpackResolveSelected();
+
+		if (dir) {
+			texpackScanPath(dir);
+			texpackScanDir(dir);
+		}
+	}
+
 	if (numReplacements) {
 		sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
 	} else {
+		if (packName[0]) {
+			// Almost always a pack built for an emulator, whose files are named
+			// after a checksum instead of a texture number. Saying so beats
+			// leaving someone to wonder why their pack does nothing.
+			sysLogPrintf(LOG_WARNING,
+					"texpack: %s has no textures this can use - if its files are named"
+					" after a CRC, convert it with tools/texpack/riceconvert.py",
+					packName);
+		}
+
 		free(replacePaths);
 		replacePaths = NULL;
 	}
@@ -436,6 +679,160 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 void texpackFreeReplacement(u8 *rgba)
 {
 	free(rgba);
+}
+
+/**
+ * Drops the index and the renderer's texture cache so the pack is read again.
+ *
+ * The id registry is deliberately left alone: it maps pool addresses to texture
+ * numbers and nothing about those has changed, and the entries are only put
+ * back when the game loads a texture, which it has no reason to do again.
+ */
+void texpackReload(void)
+{
+	s32 i;
+
+	if (replacePaths) {
+		for (i = 0; i < NUM_TEXTURES; i++) {
+			free(replacePaths[i]);
+		}
+
+		free(replacePaths);
+		replacePaths = NULL;
+	}
+
+	numReplacements = 0;
+	replaceScanned = 0;
+	packsListed = 0;
+
+	videoResetTextureCache();
+
+	sysLogPrintf(LOG_NOTE, "texpack: reloaded %s",
+			packName[0] ? packName : "textures (no pack selected)");
+}
+
+void texpackSetSelectedPack(s32 index)
+{
+	const char *name = (index >= 0 && index < texpackGetNumPacks()) ? packs[index].name : "";
+
+	strncpy(packName, name, sizeof(packName) - 1);
+	packName[sizeof(packName) - 1] = '\0';
+
+	texpackReload();
+}
+
+s32 texpackLoadEnabled(void)
+{
+	return loadTextures;
+}
+
+void texpackSetLoadEnabled(s32 enabled)
+{
+	const s32 want = enabled ? 1 : 0;
+
+	if (want != loadTextures) {
+		loadTextures = want;
+		texpackReload();
+	}
+}
+
+s32 texpackGetNumReplacements(void)
+{
+	if (!replaceScanned) {
+		texpackScan();
+	}
+
+	return numReplacements;
+}
+
+s32 texpackGetDumpEnabled(void)
+{
+	return dumpTextures;
+}
+
+void texpackSetDumpEnabled(s32 enabled)
+{
+	dumpTextures = enabled ? 1 : 0;
+
+	if (dumpTextures) {
+		// Everything already uploaded would otherwise never come back through
+		// the importer, so a dump turned on mid-level would write out only
+		// whatever happened to be loaded next.
+		videoResetTextureCache();
+	}
+
+	sysLogPrintf(LOG_NOTE, "texpack: dumping %s", dumpTextures ? "on" : "off");
+}
+
+/**
+ * Resolves a key name to a scancode on first use, the way the screenshot bind
+ * does: inputInit() is what fills the table it is looked up in, so it cannot be
+ * done when the config is read.
+ */
+static s32 texpackResolveKey(const char *name, s32 *vk)
+{
+	if (*vk < 0) {
+		if (!name[0] || !strcmp(name, "NONE")) {
+			*vk = 0;
+		} else {
+			*vk = inputGetKeyByName(name);
+
+			if (*vk < 0) {
+				*vk = 0;
+			}
+		}
+	}
+
+	return *vk;
+}
+
+static void texpackSetKey(s32 vk, char *name, u32 nameSize, s32 *keyVk)
+{
+	if (vk <= 0 || vk >= VK_TOTAL_COUNT) {
+		name[0] = '\0';
+		*keyVk = 0;
+		return;
+	}
+
+	strncpy(name, inputGetKeyName(vk), nameSize - 1);
+	name[nameSize - 1] = '\0';
+	*keyVk = vk;
+}
+
+s32 texpackDumpGetKey(void)
+{
+	return texpackResolveKey(dumpKeyName, &dumpKeyVk);
+}
+
+void texpackDumpSetKey(s32 vk)
+{
+	texpackSetKey(vk, dumpKeyName, sizeof(dumpKeyName), &dumpKeyVk);
+}
+
+s32 texpackReloadGetKey(void)
+{
+	return texpackResolveKey(reloadKeyName, &reloadKeyVk);
+}
+
+void texpackReloadSetKey(s32 vk)
+{
+	texpackSetKey(vk, reloadKeyName, sizeof(reloadKeyName), &reloadKeyVk);
+}
+
+void texpackTick(void)
+{
+	const s32 dumpVk = texpackDumpGetKey();
+	const s32 reloadVk = texpackReloadGetKey();
+
+	// inputKeyJustPressed() consumes the edge, so each key wants asking about
+	// exactly once a frame and only when it is actually bound.
+	if (dumpVk > 0 && inputKeyJustPressed(dumpVk)) {
+		texpackSetDumpEnabled(!dumpTextures);
+	}
+
+	if (reloadVk > 0 && inputKeyJustPressed(reloadVk)) {
+		texpackReload();
+	}
 }
 
 s32 texpackDumpEnabled(void)
@@ -703,6 +1100,9 @@ void texpackDumpAll(void)
 PD_CONSTRUCTOR static void texpackConfigInit(void)
 {
 	configRegisterInt("Mod.LoadTextures", &loadTextures, 0, 1);
+	configRegisterString("Mod.TexturePack", packName, sizeof(packName));
+	configRegisterString("Mod.DumpTexturesKey", dumpKeyName, sizeof(dumpKeyName));
+	configRegisterString("Mod.ReloadTexturesKey", reloadKeyName, sizeof(reloadKeyName));
 	configRegisterInt("Mod.DumpTextures", &dumpTextures, 0, 1);
 	configRegisterInt("Mod.DumpTextureData", &dumpTextureData, 0, 1);
 }

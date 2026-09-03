@@ -66,6 +66,55 @@ s32 texpackHaveReplacements(void);
 void texpackDumpAll(void);
 
 /**
+ * Texture packs, as the Extended Options menu sees them.
+ *
+ * A pack is a directory or an archive inside a "texturepacks" folder, in the
+ * base directory, any mod directory or the save directory. Selecting an archive
+ * unpacks it once into a cache beside it and uses that - see archiveExtract()
+ * for why it is not read where it lies.
+ *
+ * The chosen pack outranks any textures/ a mod ships, because it is the one the
+ * player picked.
+ */
+void texpackRefreshPacks(void);
+s32 texpackGetNumPacks(void);
+const char *texpackGetPackName(s32 index);
+
+/** The index into the pack list, or -1 for none. */
+s32 texpackGetSelectedPack(void);
+void texpackSetSelectedPack(s32 index);
+
+/** Whether packs are used at all - Mod.LoadTextures. */
+s32 texpackLoadEnabled(void);
+void texpackSetLoadEnabled(s32 enabled);
+
+/** How many textures the current pack actually replaces. */
+s32 texpackGetNumReplacements(void);
+
+/**
+ * Re-reads the selected pack and drops the renderer's texture cache, so an
+ * edited image shows up without restarting. Bound to a key for exactly that.
+ */
+void texpackReload(void);
+
+/**
+ * Dumping, as a thing that can be turned on mid-game. Switching it on clears
+ * the texture cache, so everything on screen is written out as it comes back
+ * rather than only what happens to be loaded next.
+ */
+s32 texpackGetDumpEnabled(void);
+void texpackSetDumpEnabled(s32 enabled);
+
+/** Hotkeys: F7 dumps, F8 reloads. Same shape as the screenshot bind. */
+s32 texpackDumpGetKey(void);
+void texpackDumpSetKey(s32 vk);
+s32 texpackReloadGetKey(void);
+void texpackReloadSetKey(s32 vk);
+
+/** Polled once a frame from the scheduler, like screenshotTick(). */
+void texpackTick(void);
+
+/**
  * Whether Mod.DumpTextures is on. Checked before the renderer bothers working
  * out what it would pass to texpackDumpTexture().
  */

@@ -19,6 +19,7 @@
 #include "config.h"
 #include "record.h"
 #include "screenshot.h"
+#include "texpack.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -2632,8 +2633,10 @@ static const struct {
 	s32 (*get)(void);
 	void (*set)(s32 vk);
 } modKeyBinds[] = {
-	{ "Screenshot\n",     screenshotGetKey, screenshotSetKey },
-	{ "Record Video\n",   recordGetKey,     recordSetKey     },
+	{ "Screenshot\n",       screenshotGetKey, screenshotSetKey  },
+	{ "Record Video\n",     recordGetKey,     recordSetKey      },
+	{ "Dump Textures\n",    texpackDumpGetKey,   texpackDumpSetKey   },
+	{ "Reload Texture Pack\n", texpackReloadGetKey, texpackReloadSetKey },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
@@ -2861,6 +2864,22 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		menuhandlerModKeyBind,
 	},
 	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		2,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		3,
+		menuhandlerModKeyBind,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -2968,6 +2987,169 @@ struct menudialogdef g_ExtendedDabsModMenuDialog = {
 	NULL,
 };
 
+/**
+ * Texture packs.
+ *
+ * The list is re-read whenever the dropdown is opened rather than at startup,
+ * so a pack dropped into texture-packs/ while the game is running turns up
+ * without a restart - which is most of the point of the reload key.
+ */
+static MenuItemHandlerResult menuhandlerTexturePack(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		texpackRefreshPacks();
+		data->dropdown.value = texpackGetNumPacks() + 1; // plus "None"
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == 0
+				? "None" : texpackGetPackName(data->dropdown.value - 1));
+	case MENUOP_SET:
+		texpackSetSelectedPack((s32)data->dropdown.value - 1);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = texpackGetSelectedPack() + 1;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerTexturePackEnabled(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return texpackLoadEnabled();
+	case MENUOP_SET:
+		texpackSetLoadEnabled(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerTexturePackDump(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return texpackGetDumpEnabled();
+	case MENUOP_SET:
+		texpackSetDumpEnabled(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerTexturePackReload(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		texpackReload();
+	}
+
+	return 0;
+}
+
+/**
+ * The reload row, which doubles as where the pack's coverage is reported.
+ *
+ * A text function, which is what param2 is when MENUITEMFLAG_LITERAL_TEXT is
+ * absent - see menuResolveParam2Text(). Setting that flag on a function pointer
+ * hands the menu a "string" that is really machine code, which is a crash on
+ * the first draw rather than a wrong label.
+ *
+ * The count rides on this item rather than a MENUITEMTYPE_LABEL of its own
+ * because a label following a selectable is laid out on the same row as it and
+ * draws over the top.
+ */
+static char g_TexturePackCountText[64];
+
+static const char *menutextTexturePackReload(struct menuitem *item)
+{
+	const s32 count = texpackGetNumReplacements();
+
+	if (!texpackLoadEnabled()) {
+		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
+				"Reload Pack (turned off)\n");
+	} else if (count > 0) {
+		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
+				"Reload Pack (%d replaced)\n", count);
+	} else {
+		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
+				"Reload Pack (none found)\n");
+	}
+
+	return g_TexturePackCountText;
+}
+
+struct menuitem g_ExtendedTexturePackMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Texture Pack",
+		0,
+		menuhandlerTexturePack,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Use Texture Packs",
+		0,
+		menuhandlerTexturePackEnabled,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		0,
+		(uintptr_t)menutextTexturePackReload,
+		0,
+		menuhandlerTexturePackReload,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Dump Textures To Disk",
+		0,
+		menuhandlerTexturePackDump,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedTexturePackMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Texture Packs",
+	g_ExtendedTexturePackMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 struct menuitem g_ExtendedMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -3024,6 +3206,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Dab's Mod Options\n",
 		0,
 		(void *)&g_ExtendedDabsModMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Texture Packs\n",
+		0,
+		(void *)&g_ExtendedTexturePackMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

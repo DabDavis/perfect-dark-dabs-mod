@@ -137,6 +137,10 @@ void texReset(void)
 	// reset backend texture cache
 	videoResetTextureCache();
 
+	// and the texture numbers behind the old pool addresses, which are about
+	// to be handed out again to different textures
+	videoResetTextureIds();
+
 	// get backend texture settings
 	g_TexFilter2D = videoGetTextureFilter2D() ? G_TF_BILERP : G_TF_POINT;
 

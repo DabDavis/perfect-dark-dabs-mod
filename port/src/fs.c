@@ -430,7 +430,10 @@ s32 fsScanDir(const char *path, fsScanCallback cb, void *arg)
 	}
 
 	do {
-		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+		// Directories are reported too, the way the POSIX branch does. Callers
+		// that only want files already filter by extension, and a texture pack
+		// may be a folder as readily as an archive.
+		if (fd.cFileName[0] != '.') {
 			if (cb) {
 				cb(fd.cFileName, arg);
 			}

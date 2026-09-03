@@ -659,13 +659,24 @@ void videoCopyFramebuffer(s32 dst, s32 src, s32 left, s32 top)
 }
 
 // The texture id registry is keyed on the same pool addresses the renderer's
-// cache is, and goes stale the same way when a pool is reused, so the two are
-// dropped together. A registry entry outliving its pool is worse than a missing
-// one: it would name whichever texture landed on that address next.
+// cache is, and goes stale the same way when a pool is reused. A registry entry
+// outliving its pool is worse than a missing one: it would name whichever
+// texture landed on that address next.
+//
+// It does not follow the cache being purged, though. bgunFreeGunMem() clears
+// the whole cache mid-level because it cannot purge one weapon's textures on
+// its own, and the pools are untouched by that - so dropping the ids there
+// would leave every texture already loaded with no number, and nothing would
+// put one back until the next level. Resetting the ids is its own call, made
+// where the pools really are rebuilt.
 
 void videoResetTextureCache(void)
 {
 	gfx_texture_cache_clear();
+}
+
+void videoResetTextureIds(void)
+{
 	texpackForgetAll();
 }
 
