@@ -1,0 +1,1158 @@
+#!/usr/bin/env python3
+
+# Converts a console mod - an xdelta/BPS/IPS patch against the stock ROM, or an
+# already patched ROM - into a mod directory the port can mount with --moddir.
+#
+# A patched ROM cannot just be dropped in place of the stock one. The port runs
+# decomp code, not the ROM's MIPS code, and it reads the ROM at the fixed
+# segment offsets baked into port/src/romdata.c - offsets that stop matching the
+# moment a mod changes the ROM's layout. What does carry over is the mod's
+# content: the asset files it replaces or adds, and the segments it rebuilds.
+#
+# So this diffs the patched ROM against the stock one and writes out only what
+# differs, in the layouts romdata.c and mod.c already load:
+#
+#   <out>/files/<rom filename>  asset file replacements and additions
+#   <out>/segs/<segment name>   segment replacements
+#   <out>/textures/%04x.bin     individual texture replacements
+#   <out>/IMPORT.txt            what was imported, and what could not be
+#
+# What the port cannot use is set aside rather than dropped: files a mod built
+# for its own copy of the game code, in files.incompatible/, and segments whose
+# place in the patched ROM could not be established, in segs.unlocated/.
+
+import argparse
+import hashlib
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import zlib
+
+ROM_SIZE = 33554432
+
+# Mirrors port/src/romdata.c. verify_segment_table() checks this against the
+# real thing when the port source is next to us, so drift gets noticed.
+ROMS = {
+    'ntsc-final': { 'title': 'Perfect Dark', 'code': 'NPDE', 'data': 0x39850, 'files': 0x28080 },
+    'pal-final':  { 'title': 'Perfect Dark', 'code': 'NPDP', 'data': 0x39850, 'files': 0x28910 },
+    'jpn-final':  { 'title': 'PERFECT DARK', 'code': 'NPDJ', 'data': 0x39850, 'files': 0x28800 },
+}
+
+# name, size, then the offset per romid. A size of 0 means "runs up to the next
+# segment", exactly as romdata.c computes it.
+SEGMENTS = [
+    # name                 size        ntsc-final  pal-final   jpn-final
+    ('fontjpnsingle',      0x0,        0x194b20,   0x180330,   0x0      ),
+    ('fontjpnmulti',       0x0,        0x19fb40,   0x18b340,   0x0      ),
+    ('animations',         0x0,        0x1a15c0,   0x18cdc0,   0x190c50 ),
+    ('mpconfigs',          0x11e0,     0x7d0a40,   0x7bc240,   0x7c00d0 ),
+    ('mpstringsE',         0x3700,     0x7d1c20,   0x7bd420,   0x7c12b0 ),
+    ('mpstringsJ',         0x3700,     0x7d5320,   0x7c0b20,   0x7c49b0 ),
+    ('mpstringsP',         0x3700,     0x7d8a20,   0x7c4220,   0x7c80b0 ),
+    ('mpstringsG',         0x3700,     0x7dc120,   0x7c7920,   0x7cb7b0 ),
+    ('mpstringsF',         0x3700,     0x7df820,   0x7cb020,   0x7ceeb0 ),
+    ('mpstringsS',         0x3700,     0x7e2f20,   0x7ce720,   0x7d25b0 ),
+    ('mpstringsI',         0x3700,     0x7e6620,   0x7d1e20,   0x7d5cb0 ),
+    ('firingrange',        0x1550,     0x7e9d20,   0x7d5520,   0x7d93b0 ),
+    ('fonttahoma',         0x0,        0x7f7860,   0x7e3060,   0x7e6ef0 ),
+    ('fontnumeric',        0x0,        0x7f8b20,   0x7e4320,   0x7e81b0 ),
+    ('fonthandelgothicsm', 0x0,        0x7f9d30,   0x7e5530,   0x7e93c0 ),
+    ('fonthandelgothicxs', 0x0,        0x7fbfb0,   0x7e87b0,   0x7ec640 ),
+    ('fonthandelgothicmd', 0x0,        0x7fdd80,   0x7eae20,   0x7eecb0 ),
+    ('fonthandelgothiclg', 0x0,        0x8008e0,   0x7eee70,   0x7f2d00 ),
+    ('sfxctl',             0x2fb80,    0x80a250,   0x7f87e0,   0x7fc670 ),
+    ('sfxtbl',             0x4c2160,   0x839dd0,   0x828360,   0x82c1f0 ),
+    ('seqctl',             0xa060,     0xcfbf30,   0xcea4c0,   0xcee350 ),
+    ('seqtbl',             0x17c070,   0xd05f90,   0xcf4520,   0xcf83b0 ),
+    ('sequences',          0x563a0,    0xe82000,   0xe70590,   0xe74420 ),
+    ('texturesdata',       0x0,        0x1d65f40,  0x1d5ca20,  0x1d61f90),
+    ('textureslist',       0x0,        0x1ff7ca0,  0x1fee780,  0x1ff68f0),
+    ('copyright',          0xb30,      0x1ffea20,  0x1ff5500,  0x1ffd6b0),
+    ('fontjpn',            0x17920,    0x0,        0x0,        0x178c40 ),
+]
+
+ROMID_COLUMN = { 'ntsc-final': 0, 'pal-final': 1, 'jpn-final': 2 }
+
+# How much of a segment to match on when hunting for it in the patched ROM, and
+# how far that is stretched when the short match is not unique.
+FINGERPRINT_LEN = 256
+FINGERPRINT_MAX = 0x10000
+
+# The data segment lives in the first few MB; no point scanning past that.
+DATA_SEG_SEARCH_END = 0x400000
+
+# Bounds on a plausible file table. The stock ROMs have a little over 2000
+# files and the port's own table (NUM_FILE_SLOTS) is not much bigger.
+MIN_FILES = 500
+MAX_FILES = 8192
+
+# texdecompress.c reads a replacement texture into a 4096 byte buffer.
+MAX_TEXTURE_SIZE = 4096
+
+
+def log(msg=''):
+    print(msg)
+    REPORT.append(msg)
+
+
+REPORT = []
+
+
+def die(msg):
+    sys.stderr.write('error: %s\n' % msg)
+    sys.exit(1)
+
+
+# -- rzip / 1173 ------------------------------------------------------------
+
+def is1173(buf, ofs=0):
+    return len(buf) >= ofs + 5 and buf[ofs] == 0x11 and buf[ofs + 1] == 0x73
+
+
+def inflate1173(buf, ofs=0):
+    """Returns (inflated, consumed). The 5 byte header is 1173 then a 24 bit
+    inflated length; the rest is raw deflate."""
+    if not is1173(buf, ofs):
+        raise ValueError('not 1173 compressed')
+    obj = zlib.decompressobj(wbits=-15)
+    out = obj.decompress(buf[ofs + 5:])
+    out += obj.flush()
+    return out, len(buf) - ofs - len(obj.unused_data)
+
+
+def be32(buf, ofs):
+    return int.from_bytes(buf[ofs:ofs + 4], 'big')
+
+
+def be16(buf, ofs):
+    return int.from_bytes(buf[ofs:ofs + 2], 'big')
+
+
+def align16(n):
+    return (n + 15) & ~15
+
+
+# -- patch formats ----------------------------------------------------------
+
+def apply_xdelta(rompath, patchpath, outpath):
+    """xdelta3 patches in the wild use secondary compression - the two in this
+    repo use static Huffman and lzma respectively - so shell out rather than
+    carry a decoder for every compressor a mod author might have used."""
+    if not shutil.which('xdelta3'):
+        die('this is an xdelta patch and the xdelta3 binary was not found.\n'
+            '       install it (debian/ubuntu: apt install xdelta3) or pass a\n'
+            '       pre-patched ROM with --patched-rom instead.')
+    cmd = ['xdelta3', '-d', '-f', '-s', rompath, patchpath, outpath]
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode != 0:
+        msg = proc.stderr.decode('utf-8', 'replace').strip()
+        die('xdelta3 failed: %s\n       (is this patch built against a different base ROM?)' % msg)
+
+
+def bps_varint(data, i):
+    result = 0
+    shift = 1
+    while True:
+        x = data[i]
+        i += 1
+        result += (x & 0x7f) * shift
+        if x & 0x80:
+            return result, i
+        shift <<= 7
+        result += shift
+
+
+def apply_bps(rom, patch):
+    if patch[:4] != b'BPS1':
+        raise ValueError('not a BPS patch')
+    if zlib.crc32(patch[:-4]) != int.from_bytes(patch[-4:], 'little'):
+        die('BPS patch is corrupt (checksum mismatch).')
+
+    i = 4
+    srclen, i = bps_varint(patch, i)
+    dstlen, i = bps_varint(patch, i)
+    metalen, i = bps_varint(patch, i)
+    i += metalen
+
+    if srclen != len(rom):
+        die('BPS patch expects a %u byte source ROM, got %u.' % (srclen, len(rom)))
+    if zlib.crc32(rom) != int.from_bytes(patch[-12:-8], 'little'):
+        die('BPS patch is for a different base ROM (source checksum mismatch).')
+
+    out = bytearray(dstlen)
+    end = len(patch) - 12
+    outpos = srcpos = dstpos = 0
+
+    while i < end:
+        cmd, i = bps_varint(patch, i)
+        action = cmd & 3
+        length = (cmd >> 2) + 1
+        if action == 0:  # SourceRead
+            out[outpos:outpos + length] = rom[outpos:outpos + length]
+            outpos += length
+        elif action == 1:  # TargetRead
+            out[outpos:outpos + length] = patch[i:i + length]
+            i += length
+            outpos += length
+        else:  # SourceCopy / TargetCopy
+            raw, i = bps_varint(patch, i)
+            delta = (raw >> 1) * (-1 if raw & 1 else 1)
+            if action == 2:
+                srcpos += delta
+                out[outpos:outpos + length] = rom[srcpos:srcpos + length]
+                srcpos += length
+                outpos += length
+            else:
+                dstpos += delta
+                # may overlap itself, so copy a byte at a time
+                for _ in range(length):
+                    out[outpos] = out[dstpos]
+                    outpos += 1
+                    dstpos += 1
+
+    out = bytes(out)
+    if zlib.crc32(out) != int.from_bytes(patch[-8:-4], 'little'):
+        die('BPS patch applied but the result checksum does not match.')
+
+    return out
+
+
+def apply_ips(rom, patch):
+    if patch[:5] != b'PATCH':
+        raise ValueError('not an IPS patch')
+
+    out = bytearray(rom)
+    i = 5
+    truncated = False
+
+    while i < len(patch):
+        if patch[i:i + 3] == b'EOF':
+            # a 3 byte truncation length may follow
+            if len(patch) - i == 6:
+                del out[int.from_bytes(patch[i + 3:i + 6], 'big'):]
+            break
+        ofs = int.from_bytes(patch[i:i + 3], 'big')
+        size = int.from_bytes(patch[i + 3:i + 5], 'big')
+        i += 5
+        if size:
+            out[ofs:ofs + size] = patch[i:i + size]
+            i += size
+        else:
+            rle = int.from_bytes(patch[i:i + 2], 'big')
+            out[ofs:ofs + rle] = bytes([patch[i + 2]]) * rle
+            i += 3
+        if ofs + max(size, 1) >= 0x1000000:
+            truncated = True
+
+    if truncated:
+        log('warning: IPS offsets are 24 bit, so nothing past 16MB of the ROM')
+        log('         can be patched. Parts of this mod are almost certainly missing.')
+
+    return bytes(out)
+
+
+def apply_patch(rompath, rom, patchpath, workdir):
+    with open(patchpath, 'rb') as fd:
+        head = fd.read(8)
+
+    if head[:4] == b'\xd6\xc3\xc4\x00':
+        outpath = os.path.join(workdir, 'patched.z64')
+        apply_xdelta(rompath, patchpath, outpath)
+        with open(outpath, 'rb') as fd:
+            return fd.read(), 'xdelta'
+
+    with open(patchpath, 'rb') as fd:
+        patch = fd.read()
+
+    if head[:4] == b'BPS1':
+        return apply_bps(rom, patch), 'bps'
+    if head[:5] == b'PATCH':
+        return apply_ips(rom, patch), 'ips'
+
+    die('unrecognised patch format (not xdelta, BPS or IPS).')
+
+
+# -- ROM parsing ------------------------------------------------------------
+
+def identify_rom(rom):
+    for romid, info in ROMS.items():
+        if rom[0x20:0x20 + len(info['title'])] == info['title'].encode() \
+                and rom[0x3b:0x3f] == info['code'].encode():
+            return romid
+    return None
+
+
+def find_data_segment(rom, expected):
+    """The compressed data segment holds the file table. It sits at a fixed
+    offset in the stock ROM, but a mod that rebuilds it moves it - so fall back
+    to hunting for the 1173 blob that actually contains a file table.
+
+    Returns (rom offset, inflated segment, file table offset)."""
+    got = try_data_segment(rom, expected)
+    if got:
+        return (expected,) + got
+
+    i = 0
+    while True:
+        i = rom.find(b'\x11\x73', i, DATA_SEG_SEARCH_END)
+        if i < 0:
+            return None, None, None
+        length = int.from_bytes(rom[i + 2:i + 5], 'big')
+        if 0x10000 < length < 0x400000:
+            got = try_data_segment(rom, i)
+            if got:
+                return (i,) + got
+        i += 1
+
+
+def try_data_segment(rom, ofs):
+    """Inflate a candidate and see whether it holds a file table."""
+    if not is1173(rom, ofs):
+        return None
+    try:
+        data, _ = inflate1173(rom, ofs)
+    except zlib.error:
+        return None
+    if len(data) < 0x10000:
+        return None
+    filesofs = find_file_table(rom, data)
+    if filesofs is None:
+        return None
+    return data, filesofs
+
+
+def find_file_table(rom, dataseg):
+    """The file table is a run of ascending big endian ROM offsets whose last
+    entry points at the name table. Mods move it, so look for that shape rather
+    than trusting ROMDATA_FILES_OFS."""
+    runstart = None
+    prev = 0
+    i = 0
+
+    while i + 4 <= len(dataseg):
+        v = be32(dataseg, i)
+        if 0x1000 <= v <= len(rom) and v >= prev:
+            if runstart is None:
+                runstart = i
+            prev = v
+        else:
+            if runstart is not None and (i - runstart) // 4 > MIN_FILES \
+                    and read_name_table(rom, prev) is not None:
+                # step back onto the leading zero entry so that file numbers and
+                # name numbers line up, the way romdataInitFiles() indexes them
+                if runstart >= 4 and be32(dataseg, runstart - 4) == 0:
+                    return runstart - 4
+                return runstart
+            runstart = None
+            prev = 0
+        i += 4
+
+    return None
+
+
+def read_name_table(rom, ofs):
+    """Names are a zero terminated array of offsets relative to the table,
+    followed by the strings. Returns None if this is not one.
+
+    Anything unreadable ends the table rather than rejecting it: mods leave
+    junk in the spare slots past their last real file, and the entries before
+    it are still good.
+    """
+    if ofs + 8 > len(rom) or be32(rom, ofs) != 0:
+        return None
+
+    names = ['']
+    prev = 0
+    i = ofs + 4
+
+    while i + 4 <= len(rom) and len(names) <= MAX_FILES:
+        rel = be32(rom, i)
+        if rel == 0 or rel < prev or ofs + rel >= len(rom):
+            break
+        end = rom.find(b'\0', ofs + rel, ofs + rel + 256)
+        if end < 0:
+            break
+        name = rom[ofs + rel:end]
+        if not all(32 <= c < 127 for c in name):
+            break
+        names.append(name.decode('ascii'))
+        prev = rel
+        i += 4
+
+    return names if len(names) > MIN_FILES else None
+
+
+def read_file_table(rom, dataseg, filesofs):
+    """Returns (offsets, names). Mirrors romdataInitFiles(): the table is a run
+    of ascending big endian ROM offsets, and the last of them points at the name
+    table rather than a file. The first entry is the unused slot 0.
+
+    romdataInitFiles() stops at a zero entry; stop at anything that is not a
+    plausible next offset, because mods leave other junk past the end.
+    """
+    offsets = [be32(dataseg, filesofs)]
+    i = filesofs + 4
+
+    while i + 4 <= len(dataseg):
+        ofs = be32(dataseg, i)
+        if ofs < 0x1000 or ofs < offsets[-1] or ofs > len(rom):
+            break
+        offsets.append(ofs)
+        i += 4
+
+    if len(offsets) < MIN_FILES:
+        return None, None
+
+    names = read_name_table(rom, offsets[-1])
+    if names is None:
+        return None, None
+
+    return offsets, names
+
+
+def read_files(rom, romid, label):
+    """Every asset in the ROM, by its ROM filename."""
+    dataofs, dataseg, filesofs = find_data_segment(rom, ROMS[romid]['data'])
+    if dataofs is None:
+        die('could not find a file table in the %s ROM.\n'
+            '       Either it is not a Perfect Dark ROM or the mod rebuilt the data\n'
+            '       segment in a shape this tool does not recognise.' % label)
+
+    offsets, names = read_file_table(rom, dataseg, filesofs)
+    if offsets is None:
+        die('could not read the file table in the %s ROM.' % label)
+
+    files = {}
+    # index 0 is unused, and the final offset is the name table
+    for n in range(1, len(offsets) - 1):
+        if n >= len(names):
+            break
+        name = names[n]
+        if not name:
+            continue  # unnamed spare slot
+        if name.startswith('/') or '..' in name.split('/'):
+            log('warning: skipping file %d with suspicious name %r' % (n, name))
+            continue
+        files[name] = trim_padding(rom[offsets[n]:offsets[n + 1]])
+
+    return files, dataofs, filesofs
+
+
+def trim_padding(content):
+    """Files are padded to an alignment in the ROM. Drop whatever the deflate
+    stream did not consume so identical files compare equal."""
+    if is1173(content):
+        try:
+            _, consumed = inflate1173(content)
+            return content[:consumed]
+        except zlib.error:
+            pass
+    return content
+
+
+def check_pads(d):
+    """See preprocessPadsFile(): a 20 byte header, then one u16 offset per pad."""
+    if len(d) < 24:
+        return 'too short for a pads file'
+    npads, ncovers = be32(d, 0), be32(d, 4)
+    if npads > 20000 or ncovers > 20000:
+        return 'implausible pad/cover counts (%d/%d)' % (npads, ncovers)
+    for ofs in (be32(d, 8), be32(d, 12), be32(d, 16)):
+        # a section may be empty, and then points at the end of the file
+        if not 0 < ofs <= len(d):
+            return 'header pointer %#x is outside the file' % ofs
+    first = 20 + npads * 2
+    if first > len(d):
+        return 'offset table does not fit'
+    for i in range(npads):
+        ofs = be16(d, 20 + i * 2)
+        if not first <= ofs < len(d):
+            return 'the pad offset table is not the stock 16 bit one'
+    return None
+
+
+def check_setup(d):
+    """See convertSetup(): eight pointers, of which four are always used."""
+    if len(d) < 32:
+        return 'too short for a setup file'
+    for n, field in ((3, 'intro'), (4, 'props'), (5, 'paths'), (6, 'ailists')):
+        ofs = be32(d, n * 4)
+        if not 0 < ofs <= len(d):
+            return '%s pointer %#x is outside the file' % (field, ofs)
+    return None
+
+
+def check_file(name, content):
+    """Is this file in the format the port's preprocessors expect? A mod built
+    for its own modified game code can ship assets in a format only that code
+    reads, and the port will crash on them rather than reject them."""
+    data = content
+    if is1173(content):
+        try:
+            data, _ = inflate1173(content)
+        except zlib.error:
+            return 'not decompressible'
+
+    base = name.rsplit('/', 1)[-1]
+    if base.endswith('padsZ'):
+        return check_pads(data)
+    if base.startswith('U'):
+        return check_setup(data)
+    return None
+
+
+def content_equal(a, b):
+    if a == b:
+        return True
+    # different compressed bytes can still be the same asset
+    if is1173(a) and is1173(b):
+        try:
+            return inflate1173(a)[0] == inflate1173(b)[0]
+        except zlib.error:
+            return False
+    return False
+
+
+# -- segments ---------------------------------------------------------------
+
+ALBANK_MAGIC = b'\x42\x31\x00\x01'  # ALBankFile revision "B1", one bank list
+
+
+def albank_extents(rom, ofs, limit):
+    """Walk an ALBankFile the way preprocessALBankFile() does and return
+    (bytes it occupies, bytes of sample data it references in its .tbl).
+
+    Both come out a little short of the real segment sizes because the ROM pads
+    them, so they are used as lower bounds: the .tbl's true start is measured
+    backwards from the segment that follows it.
+    """
+    seen = set()
+    ctlend = 0
+    tblend = 0
+
+    def mark(o, n):
+        nonlocal ctlend
+        if o < 0 or o + n > limit:
+            raise ValueError('offset out of range')
+        ctlend = max(ctlend, o + n)
+
+    def u16(o):
+        mark(o, 2)
+        return be16(rom, ofs + o)
+
+    def u32(o):
+        mark(o, 4)
+        return be32(rom, ofs + o)
+
+    nbanks = u16(2)
+    if not 0 < nbanks < 256:
+        raise ValueError('implausible bank count')
+    mark(0, 4 + 4 * nbanks)
+
+    for i in range(nbanks):
+        bank = u32(4 + 4 * i)
+        if bank in seen:
+            continue
+        seen.add(bank)
+        ninst = u16(bank)
+        mark(bank, 12 + 4 * ninst)
+        insts = [u32(bank + 8)] if u32(bank + 8) else []
+        insts += [u32(bank + 12 + 4 * k) for k in range(ninst)]
+
+        for inst in insts:
+            if not inst or inst in seen:
+                continue
+            seen.add(inst)
+            nsnd = u16(inst + 14)
+            mark(inst, 16 + 4 * nsnd)
+
+            for k in range(nsnd):
+                sound = u32(inst + 16 + 4 * k)
+                if not sound or sound in seen:
+                    continue
+                seen.add(sound)
+                mark(sound, 16)
+                env, keymap, wave = u32(sound), u32(sound + 4), u32(sound + 8)
+                if env:
+                    mark(env, 14)
+                if keymap:
+                    mark(keymap, 6)
+                if not wave or wave in seen:
+                    continue
+                seen.add(wave)
+                mark(wave, 20)
+                tblend = max(tblend, u32(wave) + u32(wave + 4))
+                if rom[ofs + wave + 8] == 0:  # AL_ADPCM_WAVE
+                    loop, book = u32(wave + 12), u32(wave + 16)
+                    if loop:
+                        mark(loop, 44)
+                    if book:
+                        mark(book, 8 + 16 * u32(book) * u32(book + 4))
+                else:
+                    if u32(wave + 12):
+                        mark(u32(wave + 12), 12)
+
+    return align16(ctlend), align16(tblend)
+
+
+def find_albankfile(rom, near, span=0x400000):
+    """sfxctl and seqctl both start with the ALBankFile revision word."""
+    for start, end in ((max(0, near - span), near + span), (0, len(rom))):
+        at = rom.find(ALBANK_MAGIC, start, end)
+        while at >= 0:
+            try:
+                albank_extents(rom, at, min(0x800000, len(rom) - at))
+                return at
+            except (ValueError, IndexError):
+                pass
+            at = rom.find(ALBANK_MAGIC, at + 1, end)
+    return None
+
+
+def seqtable_extent(rom, ofs):
+    """The sequences segment is a count, then {romaddr, binlen, ziplen} entries
+    at offset 4, with the sequence data behind them. romaddr is relative to the
+    segment itself (see sndInit), so the table also gives its total size."""
+    count = be16(rom, ofs)
+    if not 0 < count < 0x400:
+        raise ValueError('implausible sequence count')
+
+    end = 4 + count * 8
+    prev = end
+    if be32(rom, ofs + 4) != end:
+        raise ValueError('sequence data does not follow the table')
+    for i in range(count):
+        addr = be32(rom, ofs + 4 + i * 8)
+        binlen = be16(rom, ofs + 8 + i * 8)
+        ziplen = be16(rom, ofs + 10 + i * 8)
+        if addr < prev or not 0 < ziplen <= binlen or addr + ziplen > 0x400000:
+            raise ValueError('bad sequence entry %d' % i)
+        prev = end = addr + ziplen
+
+    return align16(end)
+
+
+def find_seqtable(rom, lo, hi):
+    for at in range(max(0, lo), min(len(rom) - 16, hi), 4):
+        try:
+            seqtable_extent(rom, at)
+            return at
+        except (ValueError, IndexError):
+            pass
+    return None
+
+
+def find_texture_table(rom, near, count, span=0x400000):
+    """textureslist is an array of 8 byte entries whose second, third and fourth
+    bytes are an ascending offset into texturesdata, starting at zero."""
+    def dataofs(at, i):
+        return int.from_bytes(rom[at + i * 8 + 1:at + i * 8 + 4], 'big')
+
+    def valid(at):
+        if dataofs(at, 0) != 0:
+            return False
+        prev = 0
+        for i in range(1, min(count, 256)):
+            ofs = dataofs(at, i)
+            if ofs < prev:
+                return False
+            prev = ofs
+        return prev > 0
+
+    for at in range(max(0, near - span), min(len(rom) - count * 8, near + span), 4):
+        if valid(at):
+            return at
+    return None
+
+
+def stock_segments(romid):
+    """The port's segment table for this ROM, sorted by offset, with each
+    segment's stock size resolved the way romdataInitSegment() resolves it."""
+    col = ROMID_COLUMN[romid]
+    segs = [(name, size, offsets[col]) for (name, size, *offsets) in SEGMENTS if offsets[col]]
+    segs.sort(key=lambda s: s[2])
+
+    out = []
+    for n, (name, size, ofs) in enumerate(segs):
+        if not size:
+            size = (segs[n + 1][2] if n + 1 < len(segs) else ROM_SIZE) - ofs
+        out.append({ 'name': name, 'ofs': ofs, 'size': size })
+    return out
+
+
+def locate_segment(stock, mod, seg, hint):
+    """Find where a segment moved to. Its bytes are copied verbatim by the patch
+    wherever the mod did not touch it, so an exact match pins it down; a mod
+    that rewrote the segment has to be found some other way.
+
+    A short match is tried first, because a mod that edited a segment may have
+    left only its first bytes alone. It is lengthened only when it turns out to
+    match in several places, which is what a featureless start does - fonttahoma
+    opens with a long run of zeroes.
+    """
+    at = None
+
+    for length in (FINGERPRINT_LEN, FINGERPRINT_LEN * 16, FINGERPRINT_MAX):
+        fp = stock[seg['ofs']:seg['ofs'] + min(length, seg['size'])]
+        if len(fp) < 16:
+            return None, 'too small to fingerprint'
+
+        # try the shift the previous segment used, then no shift at all
+        for cand in (seg['ofs'] + hint, seg['ofs']):
+            if cand >= 0 and mod[cand:cand + len(fp)] == fp:
+                return cand, None
+
+        near = max(0, seg['ofs'] - 0x200000)
+        at = mod.find(fp, near, seg['ofs'] + 0x200000)
+        if at < 0:
+            at = mod.find(fp)
+        if at < 0:
+            return None, 'not found'
+        if mod.find(fp, at + 1) < 0:
+            return at, None
+        if len(fp) >= seg['size']:
+            break
+
+    return at, 'ambiguous'
+
+
+def match_segments(stock, mod, romid):
+    """Work out where each segment ended up in the patched ROM, and how big it
+    is there.
+
+    Fingerprinting finds anything the mod left alone. For what it rewrote,
+    the segments that describe themselves - the two audio bank files, the
+    sequence table, the texture table - can be found by their structure, and
+    those in turn pin down their neighbours: a .tbl segment's true start is its
+    following segment's start minus the sample bytes its .ctl accounts for.
+    """
+    segs = stock_segments(romid)
+    byname = { s['name']: s for s in segs }
+    hint = 0
+
+    for seg in segs:
+        at, note = locate_segment(stock, mod, seg, hint)
+        seg['modofs'] = at
+        seg['note'] = note
+        if at is not None and note != 'ambiguous':
+            hint = at - seg['ofs']
+
+    locate_structurally(mod, byname)
+    locate_by_adjacency(segs)
+
+    # anything still missing moved with its neighbour, as far as we know
+    hint = 0
+    for seg in segs:
+        if seg['modofs'] is None:
+            seg['modofs'] = seg['ofs'] + hint
+            seg['assumed'] = True
+        else:
+            hint = seg['modofs'] - seg['ofs']
+
+    size_segments(segs)
+
+    return segs
+
+
+def locate_structurally(mod, byname):
+    """Find the self-describing segments, then derive their neighbours."""
+    def seg(name):
+        return byname.get(name)
+
+    def near(s):
+        return s['modofs'] if s['modofs'] is not None else s['ofs']
+
+    for name in ('sfxctl', 'seqctl'):
+        s = seg(name)
+        if s and s['modofs'] is None:
+            s['modofs'] = find_albankfile(mod, near(s))
+            if s['modofs'] is not None:
+                s['found'] = 'ALBankFile header'
+
+    s = seg('sequences')
+    if s and s['modofs'] is None:
+        # it follows seqctl and seqtbl, so start looking past the bank file
+        lo = seg('seqctl')['modofs'] if seg('seqctl') and seg('seqctl')['modofs'] is not None else near(s) - 0x400000
+        s['modofs'] = find_seqtable(mod, lo + 0x1000, lo + 0x800000)
+        if s['modofs'] is not None:
+            s['found'] = 'sequence table'
+    if s and s['modofs'] is not None:
+        try:
+            s['modsize'] = seqtable_extent(mod, s['modofs'])
+        except (ValueError, IndexError):
+            pass
+
+    # a .tbl holds nothing but samples, so measure it back from the segment
+    # after it using the byte count its .ctl accounts for
+    for ctlname, tblname, nextname in (('sfxctl', 'sfxtbl', 'seqctl'),
+                                       ('seqctl', 'seqtbl', 'sequences')):
+        ctl, tbl, nxt = seg(ctlname), seg(tblname), seg(nextname)
+        if not (ctl and tbl and nxt) or ctl['modofs'] is None or nxt['modofs'] is None:
+            continue
+        try:
+            _, tblsize = albank_extents(mod, ctl['modofs'], nxt['modofs'] - ctl['modofs'])
+        except (ValueError, IndexError):
+            continue
+        start = nxt['modofs'] - tblsize
+        if start <= ctl['modofs']:
+            continue
+        if tbl['modofs'] is not None and tbl['modofs'] != start:
+            log('warning: %s fingerprints at %08x but its samples say %08x; using the latter'
+                % (tblname, tbl['modofs'], start))
+        tbl['modofs'], tbl['modsize'] = start, tblsize
+        tbl['found'] = '%s wave table sizes' % ctlname
+        ctl['modsize'] = start - ctl['modofs']
+
+    tl, td, cp = seg('textureslist'), seg('texturesdata'), seg('copyright')
+    if tl and tl['modofs'] is None:
+        tl['modofs'] = find_texture_table(mod, near(tl), tl['size'] // 8)
+        if tl['modofs'] is not None:
+            tl['found'] = 'texture table'
+    if tl and tl['modofs'] is not None and td and td['modofs'] is None:
+        # the last entry's offset is the length of the data it indexes, and the
+        # table sits directly behind that data
+        count = tl['size'] // 8
+        last = int.from_bytes(mod[tl['modofs'] + (count - 1) * 8 + 1:tl['modofs'] + (count - 1) * 8 + 4], 'big')
+        td['modofs'], td['modsize'] = tl['modofs'] - align16(last), align16(last)
+        td['found'] = 'texture table offsets'
+    if tl and tl['modofs'] is not None and cp and cp['modofs'] is None:
+        # the copyright segment is a 1173 blob just past the texture table
+        at = mod.find(b'\x11\x73', tl['modofs'] + tl['size'] - 64, tl['modofs'] + tl['size'] + 0x1000)
+        if at >= 0:
+            cp['modofs'] = at
+            cp['found'] = '1173 header after the texture table'
+            tl['modsize'] = at - tl['modofs']
+
+
+def locate_by_adjacency(segs):
+    """Place what is left from a neighbour that was found.
+
+    Two segments that touch in the stock ROM still touch in the patched one, so
+    a segment sitting directly against one that was found is only as unknown as
+    its own length - and the fixed-size tables (mpconfigs, the mp strings, the
+    firing range) do not change length, because the port and the game both read
+    them at a fixed size.
+    """
+    for _ in range(len(segs)):
+        for n, seg in enumerate(segs):
+            if seg['modofs'] is not None:
+                continue
+            after = segs[n + 1] if n + 1 < len(segs) else None
+            before = segs[n - 1] if n else None
+            if after and after['modofs'] is not None and after['ofs'] == seg['ofs'] + seg['size']:
+                seg['modofs'] = after['modofs'] - seg['size']
+                seg['found'] = 'position against %s' % after['name']
+            elif before and before['modofs'] is not None and not before.get('modsize') \
+                    and seg['ofs'] == before['ofs'] + before['size']:
+                seg['modofs'] = before['modofs'] + before['size']
+                seg['found'] = 'position against %s' % before['name']
+
+
+def size_segments(segs):
+    """A resized segment has to come out whole rather than truncated at its
+    stock length. Where a segment's own structure did not give a size, the gap
+    to the next segment is the only measure - but only where the two really are
+    adjacent. Most are not: the whole asset file area sits between sequences and
+    texturesdata, for instance, so that gap moves with the files, not with the
+    segment."""
+    for n, seg in enumerate(segs):
+        if seg.get('modsize'):
+            seg['resized'] = seg['modsize'] != seg['size']
+            continue
+        seg['modsize'] = seg['size']
+        if n + 1 < len(segs) and not segs[n + 1].get('assumed') and not seg.get('assumed'):
+            gapstock = segs[n + 1]['ofs'] - seg['ofs']
+            if gapstock != seg['size']:
+                continue
+            gapmod = segs[n + 1]['modofs'] - seg['modofs']
+            if gapmod != gapstock and 0 < gapmod:
+                seg['modsize'] = gapmod
+                seg['resized'] = True
+
+
+# -- textures ---------------------------------------------------------------
+
+def texture_offsets(listdata):
+    """textureslist is an array of struct texture; the low 24 bits of the first
+    word are the texture's offset into texturesdata (see preprocessTexturesList
+    and texdecompress.c)."""
+    return [int.from_bytes(listdata[i + 1:i + 4], 'big') for i in range(0, len(listdata) - 7, 8)]
+
+
+def split_textures(stocklist, stockdata, modlist, moddata):
+    """Per texture replacements, but only when the mod kept the texture table
+    identical. Once the offsets move, an overridden list and a stock data
+    segment disagree for every texture the mod did not replace, so the caller
+    has to ship both segments whole instead."""
+    if stocklist != modlist:
+        return None
+
+    offsets = texture_offsets(stocklist)
+    changed = {}
+
+    for n in range(len(offsets) - 1):
+        start, end = offsets[n], offsets[n + 1]
+        if start == end or end > len(stockdata) or end > len(moddata):
+            continue
+        if stockdata[start:end] != moddata[start:end]:
+            if end - start > MAX_TEXTURE_SIZE:
+                return None  # too big for the port's load buffer; ship the segment
+            changed[n] = moddata[start:end]
+
+    return changed
+
+
+# -- output -----------------------------------------------------------------
+
+def write_file(outdir, relpath, content, dryrun):
+    path = os.path.join(outdir, relpath)
+    if not dryrun:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as fd:
+            fd.write(content)
+    return len(content)
+
+
+def verify_segment_table():
+    """Warn if romdata.c has moved on without us."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = os.path.join(here, '..', 'port', 'src', 'romdata.c')
+    if not os.path.exists(src):
+        return
+    with open(src, 'r') as fd:
+        text = fd.read()
+
+    found = re.findall(
+        r'ROMSEG_DECL_SEG\(\s*(\w+),\s*(0x[0-9a-f]+),\s*(0x[0-9a-f]+),\s*(0x[0-9a-f]+),\s*(0x[0-9a-f]+)',
+        text)
+    if not found:
+        return
+
+    theirs = [(n, int(s, 16), int(a, 16), int(b, 16), int(c, 16)) for (n, a, b, c, s) in found]
+    ours = [(n, s, a, b, c) for (n, s, a, b, c) in SEGMENTS]
+    if theirs != ours:
+        log('warning: the segment table here does not match port/src/romdata.c.')
+        log('         Segment offsets may be wrong; update SEGMENTS in this script.')
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description='Import a console mod (ROM patch) into a mod directory for the port.')
+    ap.add_argument('--rom', required=True, help='the stock ROM, e.g. pd.ntsc-final.z64')
+    ap.add_argument('--patch', help='the mod patch (xdelta, BPS or IPS)')
+    ap.add_argument('--patched-rom', help='an already patched ROM, instead of --patch')
+    ap.add_argument('--out', required=True, help='mod directory to write')
+    ap.add_argument('--keep-patched-rom', metavar='PATH', help='also save the patched ROM here')
+    ap.add_argument('--dry-run', action='store_true', help='report what would be written')
+    args = ap.parse_args()
+
+    if bool(args.patch) == bool(args.patched_rom):
+        die('pass exactly one of --patch or --patched-rom.')
+
+    with open(args.rom, 'rb') as fd:
+        stock = fd.read()
+
+    if len(stock) != ROM_SIZE:
+        die('%s is %u bytes; a Perfect Dark ROM is %u. Is it byteswapped (.n64/.v64) or an archive?'
+            % (args.rom, len(stock), ROM_SIZE))
+
+    romid = identify_rom(stock)
+    if romid is None:
+        die('%s is not a supported Perfect Dark ROM (need ntsc-final, pal-final or jpn-final).' % args.rom)
+
+    verify_segment_table()
+
+    workdir = tempfile.mkdtemp(prefix='importmod')
+    try:
+        if args.patch:
+            mod, kind = apply_patch(args.rom, stock, args.patch, workdir)
+        else:
+            with open(args.patched_rom, 'rb') as fd:
+                mod = fd.read()
+            kind = 'pre-patched ROM'
+
+        if args.keep_patched_rom and not args.dry_run:
+            with open(args.keep_patched_rom, 'wb') as fd:
+                fd.write(mod)
+
+        run(stock, mod, romid, kind, args)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def run(stock, mod, romid, kind, args):
+    outdir = args.out
+    dryrun = args.dry_run
+
+    log('stock ROM:   %s (%s, md5 %s)' % (args.rom, romid, hashlib.md5(stock).hexdigest()))
+    log('patch:       %s (%s)' % (args.patch or args.patched_rom, kind))
+    log('patched ROM: %u bytes, md5 %s' % (len(mod), hashlib.md5(mod).hexdigest()))
+
+    if len(mod) != len(stock):
+        log('warning: the patched ROM is %u bytes, not %u. Offsets past the end will be skipped.'
+            % (len(mod), len(stock)))
+
+    modid = identify_rom(mod)
+    if modid is None:
+        log('note:    the patched ROM has a modified header; the port would reject it directly.')
+    elif modid != romid:
+        die('the patched ROM identifies as %s but the stock ROM is %s.' % (modid, romid))
+    log()
+
+    written = 0
+    counts = { 'changed': 0, 'new': 0, 'segs': 0, 'textures': 0 }
+
+    # -- asset files
+    stockfiles, stockdataofs, stockfilesofs = read_files(stock, romid, 'stock')
+    modfiles, moddataofs, modfilesofs = read_files(mod, romid, 'patched')
+
+    if moddataofs != stockdataofs or modfilesofs != stockfilesofs:
+        log('note:    this mod moved the data segment to %06x (port expects %06x) and its'
+            % (moddataofs, stockdataofs))
+        log('         file table to %05x (port expects %05x). Both are hardcoded in'
+            % (modfilesofs, stockfilesofs))
+        log('         romdata.c, so the port could not read this ROM directly in any case.')
+        log()
+
+    log('files: %u in the stock ROM, %u in the patched one' % (len(stockfiles), len(modfiles)))
+
+    incompatible = []
+
+    for name in sorted(modfiles):
+        content = modfiles[name]
+        isnew = name not in stockfiles
+        if not isnew and content_equal(stockfiles[name], content):
+            continue
+
+        reason = check_file(name, content)
+        if reason:
+            # the port would not reject this, it would crash on it
+            incompatible.append((name, reason))
+            write_file(outdir, 'files.incompatible/' + name, content, dryrun)
+            continue
+
+        counts['new' if isnew else 'changed'] += 1
+        written += write_file(outdir, 'files/' + name, content, dryrun)
+        log('  %s  files/%s (%u bytes)' % ('new    ' if isnew else 'changed', name, len(content)))
+
+    missing = [n for n in stockfiles if n not in modfiles]
+    if missing:
+        log('  %u stock file(s) are absent from the mod; the port keeps its own copies' % len(missing))
+
+    if incompatible:
+        log()
+        log('  %u changed file(s) are not in the format the port reads:' % len(incompatible))
+        reasons = {}
+        for name, reason in incompatible:
+            reasons.setdefault(reason, []).append(name)
+        for reason in sorted(reasons, key=lambda r: -len(reasons[r])):
+            names = reasons[reason]
+            shown = ', '.join(sorted(names)[:4]) + (', ...' if len(names) > 4 else '')
+            log('    %u file(s): %s' % (len(names), reason))
+            log('      %s' % shown)
+        log('  This mod built them for its own copy of the game code, which reads them')
+        log('  differently. The port would crash on them rather than ignore them, so they')
+        log('  are in files.incompatible/, which the port does not read.')
+    log()
+
+    # -- segments
+    segs = match_segments(stock, mod, romid)
+    changedsegs = []
+
+    for seg in segs:
+        seg['shift'] = seg['modofs'] - seg['ofs']
+        if stock[seg['ofs']:seg['ofs'] + seg['size']] != mod[seg['modofs']:seg['modofs'] + seg['modsize']]:
+            changedsegs.append(seg)
+
+    shifts = sorted(set(s['shift'] for s in segs))
+    log('segments: %u, shifted by %s' %
+        (len(segs), ', '.join('%+d' % s for s in shifts) if shifts != [0] else 'nothing (same layout)'))
+
+    for seg in segs:
+        if seg.get('found'):
+            log('  found %s by its %s at %08x' % (seg['name'], seg['found'], seg['modofs']))
+        elif seg['note'] == 'ambiguous':
+            log('  warning: %s matched in more than one place; took the first at %08x'
+                % (seg['name'], seg['modofs']))
+
+    bynames = { s['name']: s for s in segs }
+    texsplit = None
+    if bynames.get('texturesdata') in changedsegs or bynames.get('textureslist') in changedsegs:
+        td, tl = bynames['texturesdata'], bynames['textureslist']
+        if not td.get('assumed') and not tl.get('assumed'):
+            texsplit = split_textures(
+                stock[tl['ofs']:tl['ofs'] + tl['size']], stock[td['ofs']:td['ofs'] + td['size']],
+                mod[tl['modofs']:tl['modofs'] + tl['modsize']], mod[td['modofs']:td['modofs'] + td['modsize']])
+
+    unlocated = []
+
+    for seg in changedsegs:
+        if texsplit is not None and seg['name'] in ('texturesdata', 'textureslist'):
+            continue
+        data = mod[seg['modofs']:seg['modofs'] + seg['modsize']]
+        if seg.get('assumed'):
+            # its position is a guess, so keep it out of the way rather than
+            # hand the port a segment that is probably off by some bytes
+            unlocated.append(seg)
+            write_file(outdir, 'segs.unlocated/' + seg['name'], data, dryrun)
+            continue
+        counts['segs'] += 1
+        note = ' (resized %+d)' % (seg['modsize'] - seg['size']) if seg.get('resized') else ''
+        written += write_file(outdir, 'segs/' + seg['name'], data, dryrun)
+        log('  changed  segs/%s (%u bytes)%s' % (seg['name'], seg['modsize'], note))
+
+    if texsplit is not None:
+        for num in sorted(texsplit):
+            counts['textures'] += 1
+            written += write_file(outdir, 'textures/%04x.bin' % num, texsplit[num], dryrun)
+        log('  changed  %u texture(s) -> textures/*.bin (the texture table is unchanged,'
+            % counts['textures'])
+        log('           so they can go in one at a time instead of as whole segments)')
+
+    if unlocated:
+        log()
+        log('  %u segment(s) changed but could not be found in the patched ROM:' % len(unlocated))
+        log('    %s' % ', '.join(s['name'] for s in unlocated))
+        log('  Nothing left in them to fingerprint and no structure to go by, so their')
+        log('  offsets are only inferred from the segments around them. They are in')
+        log('  segs.unlocated/, which the port ignores. Move one into segs/ to try it.')
+    log()
+
+    # -- what could not come across
+    firstseg = min(s['ofs'] for s in segs)
+    common = os.path.commonprefix([stock[:firstseg], mod[:firstseg]])
+    if len(common) < firstseg:
+        log('the first %u bytes of the ROM - boot code, game code and the compressed data' % firstseg)
+        log('segment - differ from 0x%06x onwards. The port runs decomp code rather than the'
+            % len(common))
+        log('ROM\'s, so whatever this mod changed there is NOT imported and will have no effect.')
+        log()
+
+    log('imported %u changed file(s), %u new file(s), %u segment(s), %u texture(s) - %.1f MB'
+        % (counts['changed'], counts['new'], counts['segs'], counts['textures'], written / 1048576.0))
+    if incompatible or unlocated:
+        log('set aside %u file(s) and %u segment(s) the port cannot use'
+            % (len(incompatible), len(unlocated)))
+    if not (counts['changed'] or counts['new'] or counts['segs'] or counts['textures']):
+        log()
+        log('Nothing in this mod carries over. What it changes is either ROM code, which the')
+        log('port does not run, or assets in a format only its own code reads.')
+
+    if dryrun:
+        log()
+        log('(dry run: nothing was written)')
+        return
+
+    if counts['changed'] or counts['new'] or counts['segs'] or counts['textures']:
+        log()
+        log('run it with:  pd --moddir %s' % outdir)
+
+    with open(os.path.join(outdir, 'IMPORT.txt'), 'w') as fd:
+        fd.write('\n'.join(REPORT) + '\n')
+
+
+if __name__ == '__main__':
+    main()
