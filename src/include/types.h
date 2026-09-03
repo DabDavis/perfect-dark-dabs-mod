@@ -3126,6 +3126,7 @@ struct weapon {
 	/*0x4c*/ u32 flags;
 	/*0x50*/ u32 flags2;
 	/*0x54*/ s8 unequippedreloadindex;
+	/*0x56*/ u16 pickupsound; // 0 to let the pickup code choose
 };
 
 struct cutscene {

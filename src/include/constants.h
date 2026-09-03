@@ -4762,6 +4762,7 @@ enum weaponnum {
 #define WEAPONFLAG2_HEAVYSMOKE       0x00000080 // Smokes harder per shot
 #define WEAPONFLAG2_DETONATORHAND    0x00000100 // The left hand holds a detonator for it, not a second one
 #define WEAPONFLAG2_NORELOADSOUND    0x00000200 // Makes no sound when reloaded
+#define WEAPONFLAG2_PICKUPSINGLE     0x00000400 // Picked up one at a time rather than by the magazine
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

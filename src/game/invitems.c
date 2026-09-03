@@ -3173,6 +3173,8 @@ struct weapon invitem_timedmine = {
 	L_GUN_185, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS,
 	WEAPONFLAG2_MISSIONCRITICAL | WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_MINE, // pickup sound
 };
 
 struct gunviscmd gunviscmds_remotemine[] = {
@@ -3268,6 +3270,8 @@ struct weapon invitem_remotemine = {
 	L_GUN_187, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS,
 	WEAPONFLAG2_MISSIONCRITICAL | WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_DETONATORHAND | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_MINE, // pickup sound
 };
 
 struct weaponfunc_throw invfunc_proxymine_throw = {
@@ -3316,6 +3320,8 @@ struct weapon invitem_proximitymine = {
 	L_GUN_186, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS,
 	WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_MINE, // pickup sound
 };
 
 struct guncmd invanim_ecmmine_equip[] = {
@@ -3384,6 +3390,8 @@ struct weapon invitem_ecmmine = {
 	L_GUN_188, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS | WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN | WEAPONFLAG_UNDROPPABLE,
 	WEAPONFLAG2_MISSIONCRITICAL | WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_MINE, // pickup sound
 };
 
 // Some unfinished Reaper-like gun. The name is "Timed Mine". The primary
@@ -3492,6 +3500,8 @@ struct weapon invitem_grenade = {
 	L_GUN_183, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_00000004 | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_00008000 | WEAPONFLAG_HASHANDS,
 	WEAPONFLAG2_NOEJECT | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_AMMO, // pickup sound
 };
 
 struct weaponfunc_throw invfunc_nbomb_throw = {
@@ -4200,6 +4210,8 @@ struct weapon invitem_laser = {
 	L_GUN_189, // description
 	WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_DUALFLIP | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_00008000 | WEAPONFLAG_HASHANDS | WEAPONFLAG_DONTCOUNTSHOTS | WEAPONFLAG_04000000,
 	WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_LASER, // pickup sound
 };
 
 struct modelpartvisibility invpartvisibility_classic[] = {
@@ -4988,7 +5000,9 @@ struct weapon invitem_combatknife = {
 	L_GUN_000, // manufacturer
 	L_GUN_182, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_DUALFLIP | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_DUALWIELD | WEAPONFLAG_00002000 | WEAPONFLAG_00004000 | WEAPONFLAG_00008000 | WEAPONFLAG_HASHANDS | WEAPONFLAG_04000000,
-	WEAPONFLAG2_NORELOADSOUND, // flags2
+	WEAPONFLAG2_NORELOADSOUND | WEAPONFLAG2_PICKUPSINGLE, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_KNIFE, // pickup sound
 };
 
 struct weaponfunc_throw invfunc_bug_throw = {
@@ -5051,6 +5065,8 @@ struct weapon invitem_commsrider = {
 	L_GUN_204, // description
 	WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_UNDROPPABLE,
 	WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_MINE, // pickup sound
 };
 
 struct weapon invitem_tracerbug = {
@@ -5077,6 +5093,8 @@ struct weapon invitem_tracerbug = {
 	L_GUN_205, // description
 	WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_UNDROPPABLE,
 	WEAPONFLAG2_MISSIONCRITICAL | WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_MINE, // pickup sound
 };
 
 struct weapon invitem_targetamplifier = {
@@ -5103,6 +5121,8 @@ struct weapon invitem_targetamplifier = {
 	L_GUN_206, // description
 	WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_UNDROPPABLE,
 	WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_MINE, // pickup sound
 };
 
 struct weaponfunc_device invfunc_nightvision_primary = {
@@ -5663,6 +5683,8 @@ struct weapon invitem_rocket = {
 	L_GUN_000, // manufacturer
 	L_GUN_000, // description
 	0, // flags
+	0, // flags2
+	0, // unequipped reload index
 };
 
 struct weapon invitem_homingrocket = {
@@ -5689,6 +5711,9 @@ struct weapon invitem_homingrocket = {
 	L_GUN_000, // manufacturer
 	L_GUN_000, // description
 	0, // flags
+	0, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_AMMO, // pickup sound
 };
 
 struct weapon invitem_grenaderound = {
@@ -5714,6 +5739,9 @@ struct weapon invitem_grenaderound = {
 	L_GUN_000, // manufacturer
 	L_GUN_000, // description
 	0, // flags
+	0, // flags2
+	0, // unequipped reload index
+	SFX_PICKUP_AMMO, // pickup sound
 };
 
 struct weapon invitem_bolt = {
@@ -5739,6 +5767,7 @@ struct weapon invitem_bolt = {
 	L_GUN_000, // manufacturer
 	L_GUN_000, // description
 	0, // flags
+	WEAPONFLAG2_PICKUPSINGLE, // flags2
 };
 
 struct weaponfunc_special invfunc_unused_8006f9a4 = {

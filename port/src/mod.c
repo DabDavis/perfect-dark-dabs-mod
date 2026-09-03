@@ -440,6 +440,7 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "heavysmoke",       WEAPONFLAG2_HEAVYSMOKE },
 			{ "detonatorhand",    WEAPONFLAG2_DETONATORHAND },
 			{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND },
+			{ "pickupsingle",     WEAPONFLAG2_PICKUPSINGLE },
 		};
 
 		s32 handled = false;
@@ -466,6 +467,9 @@ static char *modConfigParseWeapon(char *p, char *token)
 			if (!strcmp(token, "unequippedreloadindex")) {
 				PARSE_INT("weapon", "unequippedreloadindex", tmp, -1, 127, NULL);
 				weapon->unequippedreloadindex = tmp;
+			} else if (!strcmp(token, "pickupsound")) {
+				PARSE_INT("weapon", "pickupsound", tmp, 0, 0xffff, NULL);
+				weapon->pickupsound = tmp;
 			} else {
 				sysLogPrintf(LOG_ERROR, "modconfig: weapon 0x%02x: invalid key: %s", weaponnum, token);
 				return NULL;

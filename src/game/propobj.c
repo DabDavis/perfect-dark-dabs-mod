@@ -16851,23 +16851,13 @@ s32 propPlayPickupSound(struct prop *prop, s32 weapon)
 {
 	s16 sound;
 
-	if (weapon == WEAPON_COMBATKNIFE || weapon == WEAPON_COMBATKNIFE) {
-		sound = SFX_PICKUP_KNIFE;
-	} else if (weapon == WEAPON_REMOTEMINE
-			|| weapon == WEAPON_PROXIMITYMINE
-			|| weapon == WEAPON_TIMEDMINE
-			|| weapon == WEAPON_COMMSRIDER
-			|| weapon == WEAPON_TRACERBUG
-			|| weapon == WEAPON_TARGETAMPLIFIER
-			|| weapon == WEAPON_ECMMINE) {
-		sound = SFX_PICKUP_MINE;
-	} else if (weapon == WEAPON_GRENADE
-			|| weapon == WEAPON_GRENADEROUND
-			|| weapon == WEAPON_ROCKET
-			|| weapon == WEAPON_HOMINGROCKET) {
+	const struct weapon *definition = bgunGetWeaponDefinition(weapon);
+
+	if (definition && definition->pickupsound) {
+		sound = definition->pickupsound;
+	} else if (weapon == WEAPON_ROCKET) {
+		// see weaponPlayPickupSound: shared with the Skedar rocket
 		sound = SFX_PICKUP_AMMO;
-	} else if (weapon == WEAPON_LASER) {
-		sound = SFX_PICKUP_LASER;
 	} else {
 		sound = SFX_PICKUP_GUN;
 	}
@@ -16880,23 +16870,14 @@ void weaponPlayPickupSound(s32 weaponnum)
 {
 	s32 sound;
 
-	if (weaponnum == WEAPON_COMBATKNIFE || weaponnum == WEAPON_COMBATKNIFE) {
-		sound = SFX_PICKUP_KNIFE;
-	} else if (weaponnum == WEAPON_REMOTEMINE
-			|| weaponnum == WEAPON_PROXIMITYMINE
-			|| weaponnum == WEAPON_TIMEDMINE
-			|| weaponnum == WEAPON_TRACERBUG
-			|| weaponnum == WEAPON_TARGETAMPLIFIER
-			|| weaponnum == WEAPON_COMMSRIDER
-			|| weaponnum == WEAPON_ECMMINE) {
-		sound = SFX_PICKUP_MINE;
-	} else if (weaponnum == WEAPON_GRENADE
-			|| weaponnum == WEAPON_GRENADEROUND
-			|| weaponnum == WEAPON_ROCKET
-			|| weaponnum == WEAPON_HOMINGROCKET) {
+	const struct weapon *definition = bgunGetWeaponDefinition(weaponnum);
+
+	if (definition && definition->pickupsound) {
+		sound = definition->pickupsound;
+	} else if (weaponnum == WEAPON_ROCKET) {
+		// the rocket and the Skedar rocket share one definition, so this one
+		// cannot move onto it: they take different sounds
 		sound = SFX_PICKUP_AMMO;
-	} else if (weaponnum == WEAPON_LASER) {
-		sound = SFX_PICKUP_LASER;
 	} else if (weaponnum == WEAPON_BOLT) {
 		sound = SFX_PICKUP_GUN;
 	} else if (weaponnum == WEAPON_EYESPY) {
@@ -17046,7 +17027,7 @@ s32 weaponGetPickupAmmoQty(struct weaponobj *weapon)
 
 	ammotype = bgunGetAmmoTypeForWeapon(weapon->weaponnum, 0);
 
-	if (weapon->weaponnum == WEAPON_COMBATKNIFE || weapon->weaponnum == WEAPON_BOLT) {
+	if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_PICKUPSINGLE)) {
 		return 1;
 	}
 
