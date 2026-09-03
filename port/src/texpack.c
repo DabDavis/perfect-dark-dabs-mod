@@ -15,6 +15,7 @@
 #include <string.h>
 #include <strings.h>
 #include <ultra64.h>
+#include "bss.h"
 #include "constants.h"
 #include "game/tex.h"
 #include "game/texdecompress.h"
@@ -50,6 +51,21 @@
 // was interrupted is done again rather than half used.
 #define TEXPACK_DONE_FILE ".extracted"
 
+// Slots in the checksum index. A power of two comfortably over the number of
+// textures, so the table stays half empty and probes stay short.
+#define TEXPACK_RICE_SLOTS 8192
+
+// Enough for the largest texture in the ROM. The checksum is taken over a
+// swizzled copy, because the original has to stay as the renderer wants it.
+#define TEXPACK_RICE_SCRATCH (128 * 1024)
+
+// Which image a pack file holds, best first. A Rice pack may ship several for
+// one texture, and only some of them are the whole picture.
+#define TEXPACK_KIND_NATIVE 0 // <texnum>.png, ours
+#define TEXPACK_KIND_ALL    1 // _all, _allciByRGBA, _ciByRGBA, _ci
+#define TEXPACK_KIND_RGB    2 // _rgb, whose alpha is a separate _a file
+#define TEXPACK_KIND_NONE   127
+
 // Slots are never fewer than this, so the table is allocated once for a level
 // rather than grown through the small sizes on the way up.
 #define TEXPACK_MIN_SLOTS 4096
@@ -69,6 +85,14 @@ static u32 numSlots;    // always a power of two
 static u32 numOccupied; // live entries plus tombstones
 static u32 numLive;
 
+struct texpackricecrc {
+	u32 crc;
+	s32 texturenum; // -1 in an empty slot
+};
+
+static struct texpackricecrc *riceCrcs;
+static s32 riceIndexState; // 0 = not built, 1 = built, -1 = gave up
+
 struct texpackpack {
 	char name[TEXPACK_NAMELEN];
 	char path[FS_MAXPATH + 1];
@@ -87,6 +111,8 @@ static s32 reloadKeyVk = -1;
 
 static s32 loadTextures = 1;
 static char **replacePaths;   // one per texture number, NULL where there is none
+static char **replaceAlphaPaths; // the _a half of a Rice pack's split images
+static u8 *replaceKinds;      // what kind of file replacePaths[i] is
 static s32 replaceScanned;    // the scan runs once, on the first texture drawn
 static s32 numReplacements;
 
@@ -294,33 +320,335 @@ void texpackForgetAll(void)
 }
 
 /**
+ * The N64's every-other-row word swap, applied to a copy.
+ *
+ * texSwizzle() is a stub on PC - "The N64 GPU wants swizzled textures, we
+ * don't" - so the port's texture data is in a shape no emulator ever sees. A
+ * Rice checksum was taken over the swizzled form, so it has to be put back
+ * before one can be reproduced. Only the pixel size matters here, which is why
+ * this keys on siz rather than the full texture format.
+ */
+static void texpackSwizzle(u8 *data, s32 width, s32 height, s32 siz, u32 len)
+{
+	// Words per row, matching texSwizzleInternal()'s padding for each depth.
+	const s32 wordsPerRow = siz == G_IM_SIZ_32b ? ((width + 3) & 0xffc)
+			: siz == G_IM_SIZ_16b ? (((width + 3) & 0xffc) >> 1)
+			: siz == G_IM_SIZ_8b ? (((width + 7) & 0xff8) >> 2)
+			: (((width + 0xf) & 0xff0) >> 3);
+	const s32 step = siz == G_IM_SIZ_32b ? 4 : 2;
+	s32 y;
+
+	for (y = 1; y < height; y += 2) {
+		u32 *row = (u32 *)data + (u32)y * wordsPerRow;
+		s32 x;
+
+		for (x = 0; x + step <= wordsPerRow; x += step) {
+			s32 k;
+
+			for (k = 0; k < step / 2; k++) {
+				u32 *a = row + x + k;
+				u32 *b = row + x + k + step / 2;
+				u32 tmp;
+
+				if ((u8 *)(b + 1) > data + len) {
+					break;
+				}
+
+				tmp = *a;
+				*a = *b;
+				*b = tmp;
+			}
+		}
+	}
+}
+
+static u32 texpackReadBE32(const u8 *p)
+{
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
+}
+
+/**
+ * Rice's CRC32, as GlideHQ computes it - see TxUtil::RiceCRC32() in Project64.
+ *
+ * Rows are walked forwards while the counter mixed into each runs backwards,
+ * and each row is read from its end towards its start in 32-bit steps. Words
+ * are read big-endian, the order they have in the ROM and the order an
+ * emulator's RDRAM presents them in. wordHash deliberately survives between
+ * rows: a row too narrow for a single word contributes the previous row's
+ * value, and packs were built against that.
+ */
+static u32 texpackRiceCrc(const u8 *data, u32 len, s32 width, s32 height, s32 siz, s32 stride)
+{
+	const s32 bytesPerWidth = ((width << siz) + 1) >> 1;
+	u32 crc = 0;
+	u32 wordHash = 0;
+	s32 row = 0;
+	s32 counter;
+
+	for (counter = height - 1; counter >= 0; counter--) {
+		s32 pos;
+
+		for (pos = bytesPerWidth - 4; pos >= 0; pos -= 4) {
+			if ((u32)(row + pos + 4) > len) {
+				return 0;
+			}
+
+			wordHash = (u32)pos ^ texpackReadBE32(data + row + pos);
+			crc = wordHash + ((crc << 4) | (crc >> 28));
+		}
+
+		crc += (u32)counter ^ wordHash;
+		row += stride;
+	}
+
+	return crc;
+}
+
+static void texpackRiceInsert(u32 crc, s32 texturenum)
+{
+	u32 slot = crc & (TEXPACK_RICE_SLOTS - 1);
+	u32 i;
+
+	for (i = 0; i < TEXPACK_RICE_SLOTS; i++, slot = (slot + 1) & (TEXPACK_RICE_SLOTS - 1)) {
+		if (riceCrcs[slot].texturenum < 0) {
+			riceCrcs[slot].crc = crc;
+			riceCrcs[slot].texturenum = texturenum;
+			return;
+		}
+
+		if (riceCrcs[slot].crc == crc) {
+			// Two textures with identical bytes. Either draws the same, so the
+			// first found is as good an answer as the second.
+			return;
+		}
+	}
+}
+
+/**
+ * Checksums every texture in the ROM, so a pack named after those checksums can
+ * be matched to texture numbers without being converted first.
+ *
+ * Costs well under a second - the whole table, decompressed, is about that -
+ * and only runs when a pack with such names is actually installed.
+ */
+static void texpackBuildRiceIndex(void)
+{
+	struct texcacheitem savedItems[ARRAYCOUNT(g_TexCacheItems)];
+	const s32 savedCount = g_TexCacheCount;
+	struct texpool pool;
+	u8 *buffer;
+	u8 *scratch;
+	s32 count = 0;
+	s32 n;
+
+	riceIndexState = -1;
+
+	if (!g_Textures) {
+		return;
+	}
+
+	riceCrcs = malloc(TEXPACK_RICE_SLOTS * sizeof(struct texpackricecrc));
+	buffer = malloc(TEXPACK_RICE_SCRATCH);
+	scratch = malloc(TEXPACK_RICE_SCRATCH);
+
+	if (!riceCrcs || !buffer || !scratch) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not alloc the checksum index");
+		free(riceCrcs);
+		free(buffer);
+		free(scratch);
+		riceCrcs = NULL;
+		return;
+	}
+
+	// -1 in every texturenum, which is what marks a slot empty.
+	memset(riceCrcs, 0xff, TEXPACK_RICE_SLOTS * sizeof(struct texpackricecrc));
+
+	// Loading a texture appends to the LOD size cache, which is a ring of 150
+	// and is read for textures the game currently has on screen. Walking the
+	// whole table would push every real entry out of it, so it is put back.
+	memcpy(savedItems, g_TexCacheItems, sizeof(savedItems));
+
+	for (n = 0; n < NUM_TEXTURES; n++) {
+		struct tex *tex;
+		s32 width;
+		s32 height;
+		s32 stride;
+		s32 size;
+
+		texInitPool(&pool, buffer, TEXPACK_RICE_SCRATCH);
+		texLoadFromTextureNum(n, &pool);
+
+		tex = texFindInPool(n, &pool);
+
+		if (!tex || !tex->data) {
+			continue;
+		}
+
+		// Both of these are named for bytes and both return 64-bit words.
+		stride = texGetLineSizeInBytes(tex, 0) * 8;
+		size = texGetSizeInBytes(tex, 0) * 8;
+		width = texGetWidthAtLod(tex, 0);
+		height = texGetHeightAtLod(tex, 0);
+
+		if (size <= 0 || size > TEXPACK_RICE_SCRATCH || width <= 0 || height <= 0 || stride <= 0) {
+			continue;
+		}
+
+		memcpy(scratch, tex->data, size);
+		texpackSwizzle(scratch, width, height, tex->depth, size);
+		texpackRiceInsert(texpackRiceCrc(scratch, size, width, height, tex->depth, stride), n);
+		count++;
+	}
+
+	memcpy(g_TexCacheItems, savedItems, sizeof(savedItems));
+	g_TexCacheCount = savedCount;
+
+	free(buffer);
+	free(scratch);
+
+	riceIndexState = 1;
+
+	sysLogPrintf(LOG_NOTE, "texpack: checksummed %d textures to match this pack", count);
+}
+
+static s32 texpackRiceLookup(u32 crc)
+{
+	u32 slot;
+	u32 i;
+
+	if (!riceIndexState) {
+		texpackBuildRiceIndex();
+	}
+
+	if (riceIndexState < 0) {
+		return -1;
+	}
+
+	slot = crc & (TEXPACK_RICE_SLOTS - 1);
+
+	for (i = 0; i < TEXPACK_RICE_SLOTS; i++, slot = (slot + 1) & (TEXPACK_RICE_SLOTS - 1)) {
+		if (riceCrcs[slot].texturenum < 0) {
+			return -1;
+		}
+
+		if (riceCrcs[slot].crc == crc) {
+			return riceCrcs[slot].texturenum;
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * Reads exactly n hex digits, and only that many.
+ */
+static s32 texpackHex(const char *s, s32 n, u32 *out)
+{
+	u32 value = 0;
+	s32 i;
+
+	for (i = 0; i < n; i++) {
+		const char c = s[i];
+
+		if (c >= '0' && c <= '9') {
+			value = (value << 4) | (u32)(c - '0');
+		} else if (c >= 'a' && c <= 'f') {
+			value = (value << 4) | (u32)(c - 'a' + 10);
+		} else if (c >= 'A' && c <= 'F') {
+			value = (value << 4) | (u32)(c - 'A' + 10);
+		} else {
+			return 0;
+		}
+	}
+
+	*out = value;
+
+	return 1;
+}
+
+/**
+ * Pulls the checksum and the image kind out of a Rice pack's filename:
+ *
+ *     Perfect Dark#1135D097#3#1_all.png
+ *                  ^crc     ^f ^siz ^kind
+ *
+ * The ROM name in front is ignored - it is whatever the pack's author had, and
+ * the checksum already says which texture this is.
+ */
+static s32 texpackParseRiceName(const char *name, u32 *crc, s32 *kind, s32 *isAlpha)
+{
+	const char *p;
+
+	for (p = strchr(name, '#'); p; p = strchr(p + 1, '#')) {
+		u32 fmt;
+		u32 siz;
+		u32 palcrc;
+		const char *rest;
+
+		if (!texpackHex(p + 1, 8, crc) || p[9] != '#'
+				|| !texpackHex(p + 10, 1, &fmt) || p[11] != '#'
+				|| !texpackHex(p + 12, 1, &siz)) {
+			continue;
+		}
+
+		rest = p + 13;
+
+		if (*rest == '#' && texpackHex(rest + 1, 8, &palcrc)) {
+			rest += 9;
+		}
+
+		if (*rest != '_') {
+			continue;
+		}
+
+		rest++;
+		*isAlpha = 0;
+
+		if (!strcasecmp(rest, "all.png") || !strcasecmp(rest, "allciByRGBA.png")
+				|| !strcasecmp(rest, "ciByRGBA.png") || !strcasecmp(rest, "ci.png")) {
+			*kind = TEXPACK_KIND_ALL;
+			return 1;
+		}
+
+		if (!strcasecmp(rest, "rgb.png")) {
+			*kind = TEXPACK_KIND_RGB;
+			return 1;
+		}
+
+		if (!strcasecmp(rest, "a.png")) {
+			*kind = TEXPACK_KIND_RGB;
+			*isAlpha = 1;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
  * Records one candidate filename against its texture number.
  *
  * The name is <texnum>.png, four lowercase hex digits, optionally followed by
  * an underscore and anything at all - which is what the dumper writes
  * (0a9a_i8.png), so a dump can be edited and dropped back in without renaming.
  */
-static void texpackIndexFile(const char *name, void *arg)
+/**
+ * The texture number a file is for, by our own naming: four hex digits,
+ * optionally followed by an underscore and anything at all - which is what the
+ * dumper writes (0a9a_i8.png), so a dump can be edited and dropped back in
+ * without renaming. Returns -1 if the name is not one of ours.
+ */
+static s32 texpackParseNativeName(const char *name)
 {
-	const char *dir = arg;
-	char digits[5];
 	const char *rest;
-	char *end;
-	char *path;
-	u32 len;
-	s32 texturenum;
+	u32 texturenum;
 
 	if (strlen(name) < 8) { // 4 digits + ".png"
-		return;
+		return -1;
 	}
 
-	memcpy(digits, name, 4);
-	digits[4] = '\0';
-
-	texturenum = (s32)strtol(digits, &end, 16);
-
-	if (*end || texturenum < 0 || texturenum >= NUM_TEXTURES) {
-		return;
+	if (!texpackHex(name, 4, &texturenum) || texturenum >= NUM_TEXTURES) {
+		return -1;
 	}
 
 	rest = name + 4;
@@ -329,33 +657,134 @@ static void texpackIndexFile(const char *name, void *arg)
 		rest = strrchr(rest, '.');
 
 		if (!rest) {
-			return;
+			return -1;
 		}
 	}
 
 	if (strcasecmp(rest, ".png")) {
-		return;
+		return -1;
 	}
 
-	len = strlen(dir) + strlen(name) + 2;
-	path = malloc(len);
+	return (s32)texturenum;
+}
+
+static char *texpackJoin(const char *dir, const char *name)
+{
+	const u32 len = strlen(dir) + strlen(name) + 2;
+	char *path = malloc(len);
+
+	if (path) {
+		snprintf(path, len, "%s/%s", dir, name);
+	}
+
+	return path;
+}
+
+/**
+ * Records one candidate filename against its texture number.
+ *
+ * Two namings are accepted. Ours is <texnum>.png and costs nothing to resolve.
+ * A pack built for an emulator names its files after a checksum of the original
+ * texels instead, because that is all an emulator has to go on; those are
+ * resolved through the index above, which is built the first time one is seen.
+ */
+// How deep a pack's own folders are followed. A Rice pack sorts its images into
+// a folder per level, and the ones in the wild are two or three deep.
+#define TEXPACK_MAXDEPTH 8
+
+struct texpackscan {
+	const char *dir;
+	s32 depth;
+};
+
+static void texpackScanPathAt(const char *path, s32 depth);
+
+static void texpackIndexFile(const char *name, void *arg)
+{
+	const struct texpackscan *scan = arg;
+	const char *dir = scan->dir;
+	s32 texturenum = texpackParseNativeName(name);
+	s32 kind = TEXPACK_KIND_NATIVE;
+	s32 isAlpha = 0;
+	char *path;
+
+	if (texturenum < 0) {
+		u32 crc;
+
+		if (!texpackParseRiceName(name, &crc, &kind, &isAlpha)) {
+			// Not an image this understands - but a pack sorts its files into
+			// folders, and the only way to tell one from a file here is to try
+			// opening it as one.
+			if (scan->depth < TEXPACK_MAXDEPTH) {
+				char sub[FS_MAXPATH + 1];
+				snprintf(sub, sizeof(sub), "%s/%s", dir, name);
+				texpackScanPathAt(sub, scan->depth + 1);
+			}
+
+			return;
+		}
+
+		texturenum = texpackRiceLookup(crc);
+
+		if (texturenum < 0) {
+			// A texture this ROM does not have, or a mip level. Nothing to do
+			// with it but leave it out.
+			return;
+		}
+	}
+
+	path = texpackJoin(dir, name);
 
 	if (!path) {
 		return;
 	}
 
-	snprintf(path, len, "%s/%s", dir, name);
+	if (isAlpha) {
+		// The alpha half of a split image. Kept aside; it is only used if the
+		// colour half is what ends up chosen.
+		free(replaceAlphaPaths[texturenum]);
+		replaceAlphaPaths[texturenum] = path;
+		return;
+	}
 
-	// A later directory outranks an earlier one: the scan walks from the base
-	// directory up through the mod directories in reverse priority order, so
-	// whatever is found last is what the path search would have picked.
+	// A whole image beats a colour-only one, and a later directory outranks an
+	// earlier one - the scan walks from the base directory up through the mod
+	// directories in reverse priority order, so whatever is found last is what
+	// the file search would have picked.
 	if (replacePaths[texturenum]) {
+		if (kind > replaceKinds[texturenum]) {
+			free(path);
+			return;
+		}
+
 		free(replacePaths[texturenum]);
 	} else {
 		numReplacements++;
 	}
 
 	replacePaths[texturenum] = path;
+	replaceKinds[texturenum] = (u8)kind;
+}
+
+static void texpackFreeIndex(void)
+{
+	s32 i;
+
+	for (i = 0; replacePaths && i < NUM_TEXTURES; i++) {
+		free(replacePaths[i]);
+	}
+
+	for (i = 0; replaceAlphaPaths && i < NUM_TEXTURES; i++) {
+		free(replaceAlphaPaths[i]);
+	}
+
+	free(replacePaths);
+	free(replaceAlphaPaths);
+	free(replaceKinds);
+
+	replacePaths = NULL;
+	replaceAlphaPaths = NULL;
+	replaceKinds = NULL;
 }
 
 /**
@@ -363,9 +792,16 @@ static void texpackIndexFile(const char *name, void *arg)
  * relative one through the mod search order, which would collapse every mod
  * directory onto whichever one wins.
  */
+static void texpackScanPathAt(const char *path, s32 depth)
+{
+	struct texpackscan scan = { path, depth };
+
+	fsScanDir(path, texpackIndexFile, &scan);
+}
+
 static void texpackScanPath(const char *path)
 {
-	fsScanDir(path, texpackIndexFile, (void *)path);
+	texpackScanPathAt(path, 0);
 }
 
 static void texpackScanDir(const char *dir)
@@ -576,9 +1012,12 @@ static void texpackScan(void)
 	}
 
 	replacePaths = calloc(NUM_TEXTURES, sizeof(char *));
+	replaceAlphaPaths = calloc(NUM_TEXTURES, sizeof(char *));
+	replaceKinds = calloc(NUM_TEXTURES, sizeof(u8));
 
-	if (!replacePaths) {
+	if (!replacePaths || !replaceAlphaPaths || !replaceKinds) {
 		sysLogPrintf(LOG_ERROR, "texpack: could not alloc the replacement index");
+		texpackFreeIndex();
 		return;
 	}
 
@@ -604,17 +1043,11 @@ static void texpackScan(void)
 		sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
 	} else {
 		if (packName[0]) {
-			// Almost always a pack built for an emulator, whose files are named
-			// after a checksum instead of a texture number. Saying so beats
-			// leaving someone to wonder why their pack does nothing.
-			sysLogPrintf(LOG_WARNING,
-					"texpack: %s has no textures this can use - if its files are named"
-					" after a CRC, convert it with tools/texpack/riceconvert.py",
+			sysLogPrintf(LOG_WARNING, "texpack: nothing in %s matches a texture in this ROM",
 					packName);
 		}
 
-		free(replacePaths);
-		replacePaths = NULL;
+		texpackFreeIndex();
 	}
 }
 
@@ -646,6 +1079,30 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 	}
 
 	rgba = pngRead(replacePaths[texturenum], &width, &height);
+
+	if (rgba && replaceAlphaPaths[texturenum] && replaceKinds[texturenum] == TEXPACK_KIND_RGB) {
+		// A Rice pack may split a texture into colour and alpha images. The
+		// colour one is opaque on its own, so the alpha has to be pasted back
+		// over it; only its red channel carries anything.
+		s32 alphaWidth;
+		s32 alphaHeight;
+		u8 *alpha = pngRead(replaceAlphaPaths[texturenum], &alphaWidth, &alphaHeight);
+
+		if (alpha) {
+			if (alphaWidth == width && alphaHeight == height) {
+				s32 i;
+
+				for (i = 0; i < width * height; i++) {
+					rgba[i * 4 + 3] = alpha[i * 4];
+				}
+			} else {
+				sysLogPrintf(LOG_WARNING, "texpack: %s is %dx%d but its alpha is %dx%d",
+						replacePaths[texturenum], width, height, alphaWidth, alphaHeight);
+			}
+
+			free(alpha);
+		}
+	}
 
 	if (!rgba) {
 		// Whatever is wrong with the file will not fix itself, and retrying on
@@ -690,16 +1147,7 @@ void texpackFreeReplacement(u8 *rgba)
  */
 void texpackReload(void)
 {
-	s32 i;
-
-	if (replacePaths) {
-		for (i = 0; i < NUM_TEXTURES; i++) {
-			free(replacePaths[i]);
-		}
-
-		free(replacePaths);
-		replacePaths = NULL;
-	}
+	texpackFreeIndex();
 
 	numReplacements = 0;
 	replaceScanned = 0;
