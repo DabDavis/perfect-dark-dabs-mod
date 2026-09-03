@@ -1676,7 +1676,7 @@ void texpackDumpAll(void)
 		return;
 	}
 
-	fprintf(manifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx,numlods,hasloddata\n");
+	fprintf(manifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx,numlods,hasloddata,lutmode,numcolours\n");
 
 	for (n = 0; n < NUM_TEXTURES; n++) {
 		struct tex *tex;
@@ -1707,9 +1707,10 @@ void texpackDumpAll(void)
 			continue;
 		}
 
-		fprintf(manifest, "%04x,%u,%u,%d,%d,%d,%d,0,%u,%u\n", n, tex->gbiformat, tex->depth,
+		fprintf(manifest, "%04x,%u,%u,%d,%d,%d,%d,0,%u,%u,%u,%u\n", n, tex->gbiformat, tex->depth,
 				texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
-				texGetLineSizeInBytes(tex, 0) * 8 * wide, size, tex->numlods, tex->hasloddata);
+				texGetLineSizeInBytes(tex, 0) * 8 * wide, size, tex->numlods, tex->hasloddata,
+				tex->lutmodeindex, tex->unk0a + 1);
 
 		snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, n);
 		f = fopen(path, "wb");
@@ -1717,6 +1718,24 @@ void texpackDumpAll(void)
 		if (f) {
 			fwrite(tex->data, 1, size, f);
 			fclose(f);
+		}
+
+		// A paletted texture keeps its palette in the same allocation, right
+		// after the pixels of every LOD - which is what texGetDepthAndSize()
+		// measures, in 16-bit units.
+		if (tex->lutmodeindex) {
+			s32 depth;
+			s32 len;
+
+			texGetDepthAndSize(tex, &depth, &len);
+
+			snprintf(path, sizeof(path), "%s/%04x.pal", dumpDir, n);
+			f = fopen(path, "wb");
+
+			if (f) {
+				fwrite(tex->data + len * 2, 2, tex->unk0a + 1, f);
+				fclose(f);
+			}
 		}
 
 		count++;
