@@ -3179,6 +3179,13 @@ static const char *menutextTexturePackReload(struct menuitem *item)
 			snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
 					"Reload Pack (%d replaced)\n", count);
 		}
+	} else if (texpackGetNumUnplaced()) {
+		// A pack can be nothing but model textures, which have no texture
+		// number - so none are placed up front and "none found" would be
+		// wrong about a pack that works.
+		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
+				"Reload Pack (%d of %d by texels)\n",
+				texpackGetNumTexelMatched(), texpackGetNumUnplaced());
 	} else {
 		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
 				"Reload Pack (none found)\n");
@@ -3284,14 +3291,28 @@ static void menuUpscaleAskToDownload(void)
  * The settings are Upscayl's own, so someone who has used it recognises them.
  * Padding is ours - see upscalePadWrapped().
  */
+/**
+ * Whether a run is under way, and so whether its settings are still the ones it
+ * is using.
+ *
+ * The worker reads the padding and the scale while it crops, which is the
+ * FINISHING stage - so a setting left editable there would be changed out from
+ * under the run it belongs to.
+ */
+static s32 menuUpscaleBusy(void)
+{
+	const s32 state = upscaleGetState();
+
+	return state == UPSCALE_PREPARING || state == UPSCALE_RUNNING || state == UPSCALE_FINISHING;
+}
+
 static MenuItemHandlerResult menuhandlerUpscaleModel(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
 		// Pickable before anything is installed: choosing which model to
 		// fetch is the point of marking the missing ones.
-		return upscaleGetState() == UPSCALE_PREPARING
-				|| upscaleGetState() == UPSCALE_RUNNING;
+		return menuUpscaleBusy();
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = upscaleGetNumModels();
 		break;
@@ -3324,7 +3345,7 @@ static MenuItemHandlerResult menuhandlerUpscaleScale(s32 operation, struct menui
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+		return menuUpscaleBusy();
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = ARRAYCOUNT(g_UpscaleScaleValues);
 		break;
@@ -3348,7 +3369,7 @@ static MenuItemHandlerResult menuhandlerUpscalePadding(s32 operation, struct men
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+		return menuUpscaleBusy();
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = ARRAYCOUNT(g_UpscalePaddingValues);
 		break;
@@ -3372,7 +3393,7 @@ static MenuItemHandlerResult menuhandlerUpscaleTile(s32 operation, struct menuit
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+		return menuUpscaleBusy();
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = ARRAYCOUNT(g_UpscaleTileValues);
 		break;
@@ -3396,7 +3417,7 @@ static MenuItemHandlerResult menuhandlerUpscaleGpu(s32 operation, struct menuite
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+		return menuUpscaleBusy();
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = ARRAYCOUNT(g_UpscaleGpuValues);
 		break;
@@ -3425,7 +3446,7 @@ static MenuItemHandlerResult menuhandlerUpscaleCompress(s32 operation, struct me
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+		return menuUpscaleBusy();
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = ARRAYCOUNT(g_UpscaleCompressValues);
 		break;
@@ -3446,7 +3467,7 @@ static MenuItemHandlerResult menuhandlerUpscaleTta(s32 operation, struct menuite
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+		return menuUpscaleBusy();
 	case MENUOP_GET:
 		return upscaleGetTta();
 	case MENUOP_SET:
@@ -3815,7 +3836,7 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Delete Pack...",
+		(uintptr_t)"Delete Pack...\n",
 		0,
 		menuhandlerTexturePackDelete,
 	},

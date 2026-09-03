@@ -136,10 +136,15 @@ const char *fsFullPath(const char *relPath)
  * first time, once, and left where they are as well: this is somebody's save
  * file and the safe failure is a duplicate, not a hole.
  *
- * Copied, not moved, and only what the game writes - the config, the saves, the
- * ghosts, the exported setups. Screenshots and recordings are deliberately left
- * behind: they can be gigabytes, they are the player's to move, and nothing
- * stops working if they stay.
+ * Copied, not moved. Every file at the top of the old directory comes across,
+ * rather than a list of the ones the game is known to write: that directory is
+ * one the game itself chose and has been saving into, and a file missed by an
+ * allowlist is a save silently left behind - which is the whole failure this
+ * exists to prevent. In practice it is the config, the eeprom and the setups.
+ *
+ * Of the subdirectories only ghosts/ and exported/ are named. Screenshots and
+ * recordings are deliberately left where they are: they can be gigabytes, they
+ * are the player's to move, and nothing stops working if they stay.
  */
 struct fsCopyCtx {
 	const char *srcDir;
@@ -147,39 +152,54 @@ struct fsCopyCtx {
 	s32 copied;
 };
 
-static void fsCopyOneFile(const char *src, const char *dst)
+static s32 fsCopyOneFile(const char *src, const char *dst)
 {
 	FILE *in;
 	FILE *out;
 	char buf[16 * 1024];
 	size_t n;
+	s32 ok = 1;
 
 	// Never over the top of something already there. A second run of this must
 	// not undo whatever the player has done since the first.
 	struct stat st;
 	if (stat(dst, &st) == 0) {
-		return;
+		return 0;
 	}
 
 	in = fopen(src, "rb");
 	if (!in) {
-		return;
+		return 0;
 	}
 
 	out = fopen(dst, "wb");
 	if (!out) {
 		fclose(in);
-		return;
+		return 0;
 	}
 
 	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
 		if (fwrite(buf, 1, n, out) != n) {
+			ok = 0;
 			break;
 		}
 	}
 
+	if (ferror(in) || fclose(out) != 0) {
+		ok = 0;
+	}
+
 	fclose(in);
-	fclose(out);
+
+	// A half written eeprom is worse than none at all: nothing here ever
+	// overwrites a file that exists, so a truncated one would be loaded as the
+	// player's save every run from now on.
+	if (!ok) {
+		sysLogPrintf(LOG_ERROR, "could not copy %s to %s", src, dst);
+		remove(dst);
+	}
+
+	return ok;
 }
 
 static void fsCopyEntry(const char *name, void *arg)
@@ -201,8 +221,7 @@ static void fsCopyEntry(const char *name, void *arg)
 	snprintf(dst, sizeof(dst), "%s/%s", ctx->dstDir, name);
 
 	if (stat(dst, &st) != 0) {
-		fsCopyOneFile(src, dst);
-		ctx->copied++;
+		ctx->copied += fsCopyOneFile(src, dst);
 	}
 }
 
@@ -408,8 +427,14 @@ s32 fsInit(void)
 }
 
 /**
- * Call cb() once per regular file in a directory. Returns the number of
- * entries visited, or -1 if the directory could not be opened.
+ * Call cb() once per entry in a directory, skipping only names that begin with
+ * a dot. Returns the number of entries visited, or -1 if the directory could
+ * not be opened.
+ *
+ * Directories are reported alongside files on both platforms - a texture pack
+ * may be a folder as readily as an archive - so a caller that wants files
+ * filters by extension, and one that wants directories finds out by trying to
+ * scan the name in turn.
  *
  * Used to discover what a mod ships rather than requiring it to list its
  * contents somewhere.

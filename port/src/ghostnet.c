@@ -1419,6 +1419,22 @@ const char *ghostnetGetMessage(void)
 	return copy;
 }
 
+void ghostnetClearState(void)
+{
+	// A page opening is not the end of a job. Four of them clear the state on
+	// the way in, and the one worker may still be uploading or writing a
+	// download: forgetting that here let the next request join it on the
+	// main thread, or rename its file underneath it.
+	if (ghostnetGetState() == GHOSTNET_BUSY) {
+		return;
+	}
+
+	SDL_LockMutex(g_Lock);
+	g_State = GHOSTNET_IDLE;
+	g_Message[0] = '\0';
+	SDL_UnlockMutex(g_Lock);
+}
+
 #else // PD_GHOST_NET
 
 bool ghostnetIsAvailable(void) { return false; }
@@ -1449,6 +1465,33 @@ s32 ghostnetGetState(void) { return GHOSTNET_IDLE; }
 const char *ghostnetGetMessage(void)
 {
 	return "this build has no network support";
+}
+
+// There is no job to be part way through, and no lock to take: the state this
+// would clear is only ever the idle one.
+void ghostnetClearState(void) { }
+
+/**
+ * The one seam every caller goes through, answered here so that none of them
+ * has to know whether a transport was built in.
+ *
+ * The updater and the Upscayl download are not ghost server features and are
+ * guarded by nothing of their own - they simply want an HTTP request. Stubbing
+ * the seam is what keeps a build with no transport linking, rather than
+ * scattering the same #ifdef through every caller.
+ */
+bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
+		s32 *status, char *err, u32 errsize)
+{
+	if (status) {
+		*status = 0;
+	}
+
+	if (err && errsize) {
+		snprintf(err, errsize, "this build has no network support");
+	}
+
+	return false;
 }
 
 #endif // PD_GHOST_NET
@@ -1502,22 +1545,6 @@ bool ghostnetAccountIsValid(void)
 	}
 
 	return true;
-}
-
-void ghostnetClearState(void)
-{
-	// A page opening is not the end of a job. Four of them clear the state on
-	// the way in, and the one worker may still be uploading or writing a
-	// download: forgetting that here let the next request join it on the
-	// main thread, or rename its file underneath it.
-	if (ghostnetGetState() == GHOSTNET_BUSY) {
-		return;
-	}
-
-	SDL_LockMutex(g_Lock);
-	g_State = GHOSTNET_IDLE;
-	g_Message[0] = '\0';
-	SDL_UnlockMutex(g_Lock);
 }
 
 /**

@@ -1113,6 +1113,13 @@ static void import_texture(int i, int tile, bool importReplacement) {
         return;
     }
 
+    // A 32-bit texel is split across the two halves of TMEM, so the tile's line
+    // counts half a row and the data is twice as long as it suggests - the same
+    // doubling import_texture_rgba32() and loaded_texture.size_bytes apply. The
+    // checksum and the raw dump both want the real pitch.
+    const uint32_t tex_row_bytes =
+        rdp.texture_tile[tile].line_size_bytes * (siz == G_IM_SIZ_32b ? 2 : 1);
+
     // A pack replaces the pixels and nothing else. The tile geometry the rest
     // of gfx_pc works from - and every texture coordinate derived from it - is
     // still the N64's, so a higher resolution image needs no other allowance:
@@ -1129,7 +1136,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
         if (!rep && texpackHaveUnplacedFiles()) {
             rep = texpackLoadReplacementForTexels(orig_addr, loaded_texture.size_bytes,
                     rdp.texture_tile[tile].width, rdp.texture_tile[tile].height,
-                    siz, rdp.texture_tile[tile].line_size_bytes, &rep_width, &rep_height);
+                    siz, tex_row_bytes, &rep_width, &rep_height);
         }
 
         if (rep) {
@@ -1185,7 +1192,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
         struct texpackrawinfo raw;
         raw.data = orig_addr;
         raw.sizeBytes = loaded_texture.size_bytes;
-        raw.lineSizeBytes = rdp.texture_tile[tile].line_size_bytes;
+        raw.lineSizeBytes = tex_row_bytes;
         raw.tileWidth = rdp.texture_tile[tile].width;
         raw.tileHeight = rdp.texture_tile[tile].height;
         raw.paletteIndex = palette_index;

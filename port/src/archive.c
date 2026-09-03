@@ -41,6 +41,18 @@
 static u32 archiveReadU32(const u8 *p) { return p[0] | (p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24); }
 static u32 archiveReadU16(const u8 *p) { return p[0] | (p[1] << 8); }
 
+/**
+ * Whether [ofs, ofs + len) lies inside a file of size bytes.
+ *
+ * Every offset and length below comes out of the archive, so a check written
+ * the obvious way round - ofs + len > size - wraps for a large enough offset
+ * and lets the read through. Subtracting instead cannot.
+ */
+static s32 archiveFits(u32 ofs, u32 len, u32 size)
+{
+	return ofs <= size && len <= size - ofs;
+}
+
 static const char *archiveExt(const char *path)
 {
 	const char *dot = strrchr(path, '.');
@@ -234,7 +246,7 @@ static s32 archiveExtractZip(const char *path, const char *destDir)
 		u32 method, csize, usize, nameLen, extraLen, commentLen, localOfs, dataOfs;
 		u8 *data;
 
-		if (pos + 46 > (u32)fileSize || archiveReadU32(file + pos) != ZIP_CDIR_SIG) {
+		if (!archiveFits(pos, 46, (u32)fileSize) || archiveReadU32(file + pos) != ZIP_CDIR_SIG) {
 			break;
 		}
 
@@ -246,7 +258,10 @@ static s32 archiveExtractZip(const char *path, const char *destDir)
 		commentLen = archiveReadU16(file + pos + 32);
 		localOfs = archiveReadU32(file + pos + 42);
 
-		if (pos + 46 + nameLen > (u32)fileSize || nameLen >= sizeof(name)) {
+		// A zero length name would be read backwards a moment later, and is
+		// not a name a pack has any reason to contain.
+		if (nameLen == 0 || nameLen >= sizeof(name)
+				|| !archiveFits(pos + 46, nameLen, (u32)fileSize)) {
 			break;
 		}
 
@@ -265,7 +280,8 @@ static s32 archiveExtractZip(const char *path, const char *destDir)
 			continue;
 		}
 
-		if (localOfs + 30 > (u32)fileSize || archiveReadU32(file + localOfs) != ZIP_LOCAL_SIG) {
+		if (!archiveFits(localOfs, 30, (u32)fileSize)
+				|| archiveReadU32(file + localOfs) != ZIP_LOCAL_SIG) {
 			continue;
 		}
 
@@ -273,7 +289,7 @@ static s32 archiveExtractZip(const char *path, const char *destDir)
 		// which is not the same length as the one in the directory.
 		dataOfs = localOfs + 30 + archiveReadU16(file + localOfs + 26) + archiveReadU16(file + localOfs + 28);
 
-		if (dataOfs + csize > (u32)fileSize) {
+		if (!archiveFits(dataOfs, csize, (u32)fileSize)) {
 			continue;
 		}
 

@@ -186,10 +186,15 @@ that choice for the player's own files and `fsInit()` makes it for the saves.
 **The first run of a build that does this copies the old save directory across**
 (`fsMigrateSaves()`), because otherwise someone who has played before starts with
 a fresh eeprom, no unlocks and the simulant count back at four — which looks
-exactly like the fork being broken. It copies rather than moves, never writes
-over a file already there, and only takes what the game writes: the config, the
-saves, `ghosts/` and `exported/`. Screenshots and recordings are left behind
-deliberately, being potentially gigabytes and nothing that stops working.
+exactly like the fork being broken. It copies rather than moves and never writes
+over a file already there. It takes every file at the top of the old directory
+rather than a named list — that directory is one the game itself chose and has
+been saving into, and a save missed by an allowlist is exactly the failure this
+exists to prevent — plus `ghosts/` and `exported/`. Screenshots and recordings
+are left behind deliberately, being potentially gigabytes and nothing that stops
+working. A copy that fails part way removes what it wrote, because nothing here
+overwrites an existing file and a truncated eeprom would be loaded every run
+from then on.
 
 The old default was the working directory whenever a config happened to be
 sitting in one, and that was never checked for writability — it is now, or a

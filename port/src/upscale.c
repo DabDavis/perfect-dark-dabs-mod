@@ -18,6 +18,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <SDL.h>
 #include <ultra64.h>
@@ -971,6 +972,53 @@ void upscaleCancel(void)
 	SDL_AtomicSet(&cancelled, 1);
 }
 
+/**
+ * Drops the scratch pool, and the texture ids that were handed out of it.
+ *
+ * texLoad() registers every texture it loads against the address it landed at,
+ * and those addresses are about to belong to something else. An entry
+ * outliving its pool names whichever texture lands there next, which is worse
+ * than no entry at all - see the note over videoResetTextureIds().
+ */
+static void upscaleFreePool(void)
+{
+	if (poolBuffer) {
+		texpackForgetRange(poolBuffer, poolBuffer + UPSCALE_POOL);
+		free(poolBuffer);
+		poolBuffer = NULL;
+	}
+}
+
+/**
+ * Throws away the pack a cancelled run had started building.
+ *
+ * rmdir() removes an empty directory and nothing else, which is the guarantee
+ * wanted: a cancel that left images behind keeps them, and one that did not
+ * leaves nothing in the pack list for somebody to pick and find empty.
+ */
+static void upscaleDiscardPack(void)
+{
+	char parent[FS_MAXPATH + 1];
+	char *slash;
+
+	if (!packDir[0]) {
+		return;
+	}
+
+	rmdir(packDir);
+
+	strncpy(parent, packDir, sizeof(parent) - 1);
+	parent[sizeof(parent) - 1] = '\0';
+	slash = strrchr(parent, '/');
+
+	if (slash) {
+		*slash = '\0';
+		rmdir(parent);
+	}
+
+	packDir[0] = '\0';
+}
+
 s32 upscaleStart(void)
 {
 	char rel[FS_MAXPATH + 1];
@@ -1027,6 +1075,12 @@ s32 upscaleStart(void)
 	SDL_AtomicSet(&workerFailed, 0);
 	SDL_AtomicSet(&workerCount, 0);
 	SDL_AtomicSet(&cancelled, 0);
+
+	// Set here rather than left to the worker: upscaleTick() reads it the
+	// moment the state turns to UPSCALE_RUNNING, and the thread need not have
+	// run a line by then. Reading a stale zero would put the state machine
+	// back to idle and orphan the run.
+	SDL_AtomicSet(&workerStage, UPSCALE_RUNNING);
 
 	nextTexture = 0;
 	prepared = 0;
@@ -1094,8 +1148,7 @@ static void upscalePrepareChunk(void)
 	if (nextTexture >= NUM_TEXTURES) {
 		state = UPSCALE_RUNNING;
 		upscaleSetStatus("Upscaling, this takes a while...");
-		free(poolBuffer);
-		poolBuffer = NULL;
+		upscaleFreePool();
 
 		worker = SDL_CreateThread(upscaleWorker, "pd-upscale", NULL);
 
@@ -1200,8 +1253,8 @@ void upscaleTick(void)
 {
 	if (state == UPSCALE_PREPARING) {
 		if (SDL_AtomicGet(&cancelled)) {
-			free(poolBuffer);
-			poolBuffer = NULL;
+			upscaleFreePool();
+			upscaleDiscardPack();
 			state = UPSCALE_IDLE;
 			upscaleSetStatus("Cancelled");
 			return;
@@ -1232,7 +1285,15 @@ void upscaleTick(void)
 			SDL_WaitThread(worker, NULL);
 			worker = NULL;
 
-			if (SDL_AtomicGet(&workerFailed)) {
+			if (SDL_AtomicGet(&cancelled)) {
+				// The upscaler cannot be called off once it has the files, so
+				// a cancel here is waiting it out and then dropping what came
+				// back. Falling through would announce a pack holding nothing
+				// and select it.
+				state = UPSCALE_IDLE;
+				upscaleSetStatus("Cancelled");
+				upscaleDiscardPack();
+			} else if (SDL_AtomicGet(&workerFailed)) {
 				state = UPSCALE_FAILED;
 				upscaleSetStatus("The upscaler failed - see the log");
 			} else {
@@ -1261,6 +1322,8 @@ PD_CONSTRUCTOR static void upscaleConfigInit(void)
 {
 	configRegisterString("Mod.UpscaylPath", upscaylPath, sizeof(upscaylPath));
 	configRegisterString("Mod.UpscaylNcnnTag", ncnnTag, sizeof(ncnnTag));
+	configRegisterInt("Mod.UpscaleModel", &optModel, 0,
+			(s32)(sizeof(upscaleKnownModels) / sizeof(upscaleKnownModels[0])) - 1);
 	configRegisterInt("Mod.UpscaleScale", &optScale, 2, 4);
 	configRegisterInt("Mod.UpscaleCompress", &optCompress, 0, 100);
 	configRegisterInt("Mod.UpscaleTta", &optTta, 0, 1);

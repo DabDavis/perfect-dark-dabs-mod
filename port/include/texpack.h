@@ -7,6 +7,12 @@
 extern "C" {
 #endif
 
+// texpackTexToRgba() takes one. Declared here rather than by including
+// game/tex.h, which is a decomp header and pulls the world in; without it the
+// prototype's struct is local to the prototype and every caller that has not
+// already included tex.h gets a type incompatible with the one it passes.
+struct tex;
+
 /**
  * Texture identity registry.
  *

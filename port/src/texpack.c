@@ -398,7 +398,8 @@ static u32 texpackReadBE32(const u8 *p)
  * rows: a row too narrow for a single word contributes the previous row's
  * value, and packs were built against that.
  */
-static u32 texpackRiceCrc(const u8 *data, u32 len, s32 width, s32 height, s32 siz, s32 stride)
+static s32 texpackRiceCrc(const u8 *data, u32 len, s32 width, s32 height, s32 siz, s32 stride,
+		u32 *outCrc)
 {
 	const s32 bytesPerWidth = ((width << siz) + 1) >> 1;
 	u32 crc = 0;
@@ -411,6 +412,8 @@ static u32 texpackRiceCrc(const u8 *data, u32 len, s32 width, s32 height, s32 si
 
 		for (pos = bytesPerWidth - 4; pos >= 0; pos -= 4) {
 			if ((u32)(row + pos + 4) > len) {
+				// Ran out of data. Answering 0 would be a checksum a pack
+				// file can legitimately be named after, and so a false match.
 				return 0;
 			}
 
@@ -422,7 +425,9 @@ static u32 texpackRiceCrc(const u8 *data, u32 len, s32 width, s32 height, s32 si
 		row += stride;
 	}
 
-	return crc;
+	*outCrc = crc;
+
+	return 1;
 }
 
 static void texpackRiceInsert(u32 crc, s32 texturenum)
@@ -495,6 +500,7 @@ static void texpackBuildRiceIndex(void)
 		s32 height;
 		s32 stride;
 		s32 size;
+		u32 crc;
 
 		texInitPool(&pool, buffer, TEXPACK_RICE_SCRATCH);
 		texLoadFromTextureNum(n, &pool);
@@ -525,12 +531,22 @@ static void texpackBuildRiceIndex(void)
 
 		memcpy(scratch, tex->data, size);
 		texpackSwizzle(scratch, width, height, tex->depth, size);
-		texpackRiceInsert(texpackRiceCrc(scratch, size, width, height, tex->depth, stride), n);
+
+		if (!texpackRiceCrc(scratch, size, width, height, tex->depth, stride, &crc)) {
+			continue;
+		}
+
+		texpackRiceInsert(crc, n);
 		count++;
 	}
 
 	memcpy(g_TexCacheItems, savedItems, sizeof(savedItems));
 	g_TexCacheCount = savedCount;
+
+	// texLoad() registered every one of those against an address in buffer,
+	// which is about to stop meaning anything. An entry outliving its pool
+	// names whichever texture lands there next - see the note in video.c.
+	texpackForgetRange(buffer, buffer + TEXPACK_RICE_SCRATCH);
 
 	free(buffer);
 	free(scratch);
@@ -934,6 +950,18 @@ static void texpackListEntry(const char *name, void *arg)
 	pack = &packs[numPacks];
 	pack->isArchive = archiveIsSupported(name);
 
+	if (!pack->isArchive) {
+		char sub[FS_MAXPATH + 1];
+
+		// Anything else in here is somebody's readme, not a pack. Opening it
+		// as a directory is how the rest of this file tells the two apart.
+		snprintf(sub, sizeof(sub), "%s/%s", dir, name);
+
+		if (fsScanDir(sub, NULL, NULL) < 0) {
+			return;
+		}
+	}
+
 	// An archive is listed under its name without the extension, so that
 	// mypack.zip and a mypack folder do not read as two different things.
 	dot = pack->isArchive ? strrchr(name, '.') : NULL;
@@ -1172,22 +1200,28 @@ static void texpackScan(void)
 
 	{
 		// Last, so the pack the player chose in the menu wins over any
-		// textures/ a mod happens to ship. Both layouts are accepted: images
-		// at the root of the pack, or under a textures/ inside it.
+		// textures/ a mod happens to ship. One scan covers both layouts -
+		// images at the root of the pack, or under a textures/ inside it -
+		// because it walks whatever folders it finds on the way down.
 		const char *dir = texpackResolveSelected();
 
 		if (dir) {
 			texpackScanPath(dir);
-			texpackScanDir(dir);
 		}
 	}
 
-	if (numReplacements) {
-		sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
+	// Either kind on its own is a working pack. A Rice pack can be all model
+	// textures, and dropping the index because no texture number claimed one
+	// would throw the whole thing away.
+	if (numReplacements || numUnplaced) {
+		if (numReplacements) {
+			sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
+		}
 
 		if (numUnplaced) {
-			sysLogPrintf(LOG_NOTE, "texpack: %d more are matched by their texels when drawn"
-					" - models keep their textures to themselves", numUnplaced);
+			sysLogPrintf(LOG_NOTE, "texpack: %d%s are matched by their texels when drawn"
+					" - models keep their textures to themselves",
+					numUnplaced, numReplacements ? " more" : "");
 		}
 	} else {
 		if (packName[0]) {
@@ -1285,7 +1319,10 @@ u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 hei
 	// the port keeps them - so a swizzled copy is made to hash.
 	memcpy(riceScratch, data, size);
 	texpackSwizzle(riceScratch, width, height, siz, size);
-	crc = texpackRiceCrc(riceScratch, size, width, height, siz, stride);
+
+	if (!texpackRiceCrc(riceScratch, size, width, height, siz, stride, &crc)) {
+		return NULL;
+	}
 
 	path = texpackFindUnplaced(crc);
 
@@ -1430,6 +1467,7 @@ static void texpackDeleteTree(const char *path, s32 depth)
 {
 	struct texpackdelete scan = { path, depth };
 	char marker[FS_MAXPATH + 1];
+	s32 last = -1;
 	s32 i;
 
 	if (depth > TEXPACK_MAXDEPTH) {
@@ -1443,11 +1481,17 @@ static void texpackDeleteTree(const char *path, s32 depth)
 	remove(marker);
 
 	// Same reason upscalePurgeDir() goes round more than once: removing
-	// entries while reading the directory need not visit all of them.
+	// entries while reading the directory need not visit all of them. And the
+	// same stop condition - a pass that removed nothing will not do better on
+	// the next one.
 	for (i = 0; i < 8; i++) {
-		if (fsScanDir(path, texpackDeleteEntry, &scan) <= 0) {
+		const s32 left = fsScanDir(path, texpackDeleteEntry, &scan);
+
+		if (left <= 0 || left == last) {
 			break;
 		}
+
+		last = left;
 	}
 
 	rmdir(path);
@@ -2051,6 +2095,11 @@ void texpackDumpAll(void)
 	}
 
 	fclose(manifest);
+
+	// As in texpackBuildRiceIndex(): the ids point into a pool that is going
+	// away. This exits immediately afterwards, but the pairing is the point.
+	texpackForgetRange(buffer, buffer + TEXPACK_DUMPALL_POOL);
+
 	free(buffer);
 
 	sysLogPrintf(LOG_NOTE, "texpack: wrote raw data for %d of %d textures to %s",

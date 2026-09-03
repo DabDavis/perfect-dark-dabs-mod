@@ -143,7 +143,7 @@ static u8 *pngGatherChunks(struct pngstate *st, const char *path, u32 *outSize)
 		if (!memcmp(type, "IHDR", 4)) {
 			if (len < 13) {
 				sysLogPrintf(LOG_ERROR, "png: %s has a short IHDR", path);
-				return NULL;
+				goto fail;
 			}
 
 			st->width = (s32)pngReadU32(data);
@@ -154,7 +154,7 @@ static u8 *pngGatherChunks(struct pngstate *st, const char *path, u32 *outSize)
 					|| st->width > PNG_MAX_DIMENSION || st->height > PNG_MAX_DIMENSION) {
 				sysLogPrintf(LOG_ERROR, "png: %s is %dx%d, which is not a usable size",
 						path, st->width, st->height);
-				return NULL;
+				goto fail;
 			}
 
 			st->bitDepth = data[8];
@@ -166,12 +166,12 @@ static u8 *pngGatherChunks(struct pngstate *st, const char *path, u32 *outSize)
 			if (st->bitDepth != 8 && st->bitDepth != 4 && st->bitDepth != 2 && st->bitDepth != 1) {
 				sysLogPrintf(LOG_ERROR, "png: %s is %d bits per channel, which is not supported",
 						path, st->bitDepth);
-				return NULL;
+				goto fail;
 			}
 
 			if (data[12] != 0) {
 				sysLogPrintf(LOG_ERROR, "png: %s is interlaced, which is not supported", path);
-				return NULL;
+				goto fail;
 			}
 
 			switch (st->colourType) {
@@ -183,13 +183,13 @@ static u8 *pngGatherChunks(struct pngstate *st, const char *path, u32 *outSize)
 			default:
 				sysLogPrintf(LOG_ERROR, "png: %s has colour type %d, which is not supported",
 						path, st->colourType);
-				return NULL;
+				goto fail;
 			}
 
 			if (st->bitDepth != 8 && st->channels != 1) {
 				sysLogPrintf(LOG_ERROR, "png: %s is colour type %d at %d bits, which cannot exist",
 						path, st->colourType, st->bitDepth);
-				return NULL;
+				goto fail;
 			}
 
 			seenHeader = 1;
@@ -241,13 +241,19 @@ static u8 *pngGatherChunks(struct pngstate *st, const char *path, u32 *outSize)
 
 	if (!seenHeader || !idat) {
 		sysLogPrintf(LOG_ERROR, "png: %s has no %s", path, seenHeader ? "image data" : "header");
-		free(idat);
-		return NULL;
+		goto fail;
 	}
 
 	*outSize = idatSize;
 
 	return idat;
+
+fail:
+	// IDAT may already have been gathered: the chunk order is the file's to
+	// choose, so a header this refuses can arrive after megabytes of it.
+	free(idat);
+
+	return NULL;
 }
 
 /**
