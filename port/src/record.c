@@ -33,7 +33,9 @@
 #include <errno.h>
 #endif
 
-#define RECORD_DIR "$S/recordings"
+// Beside the executable where that can be written, and in the save directory
+// where it cannot - see fsChooseOutputDir().
+#define RECORD_DIR_NAME "recordings"
 #define RECORD_KEYNAME_LEN 32
 #define RECORD_DEFAULT_KEY "F11"
 #define RECORD_DEFAULT_ENCODER "ffmpeg"
@@ -1297,11 +1299,12 @@ static bool recordPickFilename(char *out, u32 outSize)
 {
 	const time_t now = time(NULL);
 	const struct tm *lt = localtime(&now);
+	static char dir[FS_MAXPATH + 1];
 	char stamp[32];
 	char rel[FS_MAXPATH + 1];
 
-	if (fsFileSize(RECORD_DIR) < 0 && fsCreateDir(RECORD_DIR) != 0) {
-		sysLogPrintf(LOG_ERROR, "record: could not create %s", fsFullPath(RECORD_DIR));
+	if (!dir[0] && fsChooseOutputDir(RECORD_DIR_NAME, dir, sizeof(dir)) != 0) {
+		sysLogPrintf(LOG_ERROR, "record: nowhere to put %s that can be written", RECORD_DIR_NAME);
 		return false;
 	}
 
@@ -1311,7 +1314,7 @@ static bool recordPickFilename(char *out, u32 outSize)
 		snprintf(stamp, sizeof(stamp), "%llu", (unsigned long long)now);
 	}
 
-	snprintf(rel, sizeof(rel), RECORD_DIR "/pd-%s.mp4", stamp);
+	snprintf(rel, sizeof(rel), "%s/pd-%s.mp4", dir, stamp);
 	strncpy(out, fsFullPath(rel), outSize - 1);
 	out[outSize - 1] = '\0';
 

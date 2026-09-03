@@ -32,6 +32,9 @@ instead, with the row correcting itself to name it. Falling back silently while
 the menu goes on claiming the encoder the player chose is the failure this is
 really looking for.
 
+Recordings are written beside the game's executable, so this leaves files in
+build/recordings while it runs and removes the ones it made at the end.
+
 Nothing but the standard library. Needs Xvfb, xdotool, gdb and ffprobe, a build
 in build/ and its ROM; it says which is missing and skips rather than failing if
 the machine cannot run it.
@@ -319,6 +322,13 @@ def press_until(game, pattern, what):
     raise Failure("six presses and the game never %s:\n%s" % (what, game.tail()))
 
 
+# Every file a run made. Recordings land beside the game's executable now, not
+# in the throwaway save directory, so they outlive it and have to be swept up by
+# hand - a test that leaves a dozen clips in someone's build directory is a test
+# nobody runs twice.
+made = []
+
+
 def record_once(game, savedir):
     """Press record, wait for a finished file, and report what the log claimed."""
     started = press_until(game, r"record: \d+x\d+ at \d+fps, (\S+), to (\S+)",
@@ -332,6 +342,8 @@ def record_once(game, savedir):
     done = game.await_log(re.escape(path) + r" \(capture ([\d.]+)ms, "
                           r"(\d+) skipped\)", timeout=RECORD_TIMEOUT)
     frames = game.await_log(r"record: (\d+) frames to " + re.escape(path)).group(1)
+
+    made.append(path)
 
     return {"claimed": claimed, "path": path, "frames": int(frames),
             "capture_ms": float(done.group(1)), "skipped": int(done.group(2))}
@@ -496,6 +508,13 @@ def main(failures):
         except Exception:
             pass
         xvfb.terminate()
+
+        for f in made:
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
+
         if failures:
             print("\n  logs and recordings left in %s" % tmp)
         else:

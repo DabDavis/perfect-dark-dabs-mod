@@ -125,6 +125,132 @@ const char *fsFullPath(const char *relPath)
 	return pathBuf;
 }
 
+
+/**
+ * Moving a player's saves when the save directory moves under them.
+ *
+ * The default became the executable's own folder, so that a copy of the game is
+ * one folder holding everything - which is worth nothing to somebody who has
+ * played before and would find a fresh eeprom, no unlocks and the simulant
+ * count back at four. So the old directory's contents are copied across the
+ * first time, once, and left where they are as well: this is somebody's save
+ * file and the safe failure is a duplicate, not a hole.
+ *
+ * Copied, not moved, and only what the game writes - the config, the saves, the
+ * ghosts, the exported setups. Screenshots and recordings are deliberately left
+ * behind: they can be gigabytes, they are the player's to move, and nothing
+ * stops working if they stay.
+ */
+struct fsCopyCtx {
+	const char *srcDir;
+	const char *dstDir;
+	s32 copied;
+};
+
+static void fsCopyOneFile(const char *src, const char *dst)
+{
+	FILE *in;
+	FILE *out;
+	char buf[16 * 1024];
+	size_t n;
+
+	// Never over the top of something already there. A second run of this must
+	// not undo whatever the player has done since the first.
+	struct stat st;
+	if (stat(dst, &st) == 0) {
+		return;
+	}
+
+	in = fopen(src, "rb");
+	if (!in) {
+		return;
+	}
+
+	out = fopen(dst, "wb");
+	if (!out) {
+		fclose(in);
+		return;
+	}
+
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+		if (fwrite(buf, 1, n, out) != n) {
+			break;
+		}
+	}
+
+	fclose(in);
+	fclose(out);
+}
+
+static void fsCopyEntry(const char *name, void *arg)
+{
+	struct fsCopyCtx *ctx = (struct fsCopyCtx *)arg;
+	char src[FS_MAXPATH + 1];
+	char dst[FS_MAXPATH + 1];
+	struct stat st;
+
+	snprintf(src, sizeof(src), "%s/%s", ctx->srcDir, name);
+
+	// fsScanDir hands back directories on POSIX and not on Windows, so they are
+	// filtered here rather than relied on either way. The ones worth taking are
+	// named explicitly by the caller.
+	if (stat(src, &st) != 0 || S_ISDIR(st.st_mode)) {
+		return;
+	}
+
+	snprintf(dst, sizeof(dst), "%s/%s", ctx->dstDir, name);
+
+	if (stat(dst, &st) != 0) {
+		fsCopyOneFile(src, dst);
+		ctx->copied++;
+	}
+}
+
+// The files directly inside srcDir, into dstDir, which is created if it is not
+// there. Returns how many were copied.
+static s32 fsCopyDirFiles(const char *srcDir, const char *dstDir)
+{
+	struct fsCopyCtx ctx = { srcDir, dstDir, 0 };
+	struct stat st;
+
+	if (stat(srcDir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+		return 0;
+	}
+
+	if (stat(dstDir, &st) != 0) {
+#ifdef PLATFORM_WIN32
+		_mkdir(dstDir);
+#else
+		mkdir(dstDir, 0777);
+#endif
+	}
+
+	fsScanDir(srcDir, fsCopyEntry, &ctx);
+
+	return ctx.copied;
+}
+
+static void fsMigrateSaves(const char *from, const char *to)
+{
+	// What the game writes into a save directory, and nothing else.
+	static const char *const subdirs[] = { "ghosts", "exported" };
+	char src[FS_MAXPATH + 1];
+	char dst[FS_MAXPATH + 1];
+	s32 copied;
+
+	copied = fsCopyDirFiles(from, to);
+
+	for (u32 i = 0; i < sizeof(subdirs) / sizeof(subdirs[0]); i++) {
+		snprintf(src, sizeof(src), "%s/%s", from, subdirs[i]);
+		snprintf(dst, sizeof(dst), "%s/%s", to, subdirs[i]);
+		copied += fsCopyDirFiles(src, dst);
+	}
+
+	if (copied > 0) {
+		sysLogPrintf(LOG_NOTE, "moved %d save files from %s - the originals are still there", copied, from);
+	}
+}
+
 s32 fsInit(void)
 {
 	sysGetExecutablePath(exeDir, FS_MAXPATH);
@@ -217,22 +343,56 @@ s32 fsInit(void)
 		if (portable) {
 			path = "$E";
 		} else {
+			// Where it used to go, and still goes when the executable's own
+			// folder cannot be written to.
+			const char *legacy;
 #if defined(PLATFORM_LINUX) || defined(PLATFORM_OSX)
 			// check if there's a config in the working directory, otherwise default to homeDir
 			if (fsFileSize("./" CONFIG_FNAME) >= 0) {
-				path = ".";
+				legacy = ".";
 			} else {
-				path = "$H";
+				legacy = "$H";
 			}
 #else
 			// check if working directory is writable, otherwise default to homeDir
 			if (fsPathIsWritable("./")) {
-				path = ".";
+				legacy = ".";
 			} else {
 				sysLogPrintf(LOG_WARNING, "cannot write to working directory, will use %s for saves instead", homeDir);
-				path = "$H";
+				legacy = "$H";
 			}
 #endif
+
+			// One folder holding the game, its saves, its screenshots and its
+			// recordings, because that is the folder a player already has open
+			// and ~/.local/share is not. An installed copy, a read-only mount
+			// or an app bundle cannot have it, and keeps the old location.
+			if (fsPathIsWritable(exeDir)) {
+				if (fsFileSize("$E/" CONFIG_FNAME) < 0) {
+					char from[FS_MAXPATH + 1];
+
+					// fsFullPath hands back one buffer, so the old directory is
+					// taken out of it before anything else expands a path.
+					strncpy(from, fsFullPath(legacy), FS_MAXPATH);
+					from[FS_MAXPATH] = '\0';
+
+					fsMigrateSaves(from, exeDir);
+				}
+
+				path = "$E";
+			} else {
+				path = legacy;
+
+				// The old default is not a guarantee either: on Linux and macOS
+				// it is the working directory whenever a config happens to be
+				// sitting in one, and that can be anywhere, including the
+				// read-only place the executable was just refused.
+				if (!fsPathIsWritable(fsFullPath(path))) {
+					sysLogPrintf(LOG_WARNING, "cannot write to %s, using %s for saves instead",
+							fsFullPath(path), homeDir);
+					path = "$H";
+				}
+			}
 		}
 	}
 
@@ -420,6 +580,46 @@ FILE *fsFileOpenRead(const char *name)
 void fsFileFree(FILE *f)
 {
 	fclose(f);
+}
+
+/**
+ * Where the player's own files go - the pictures and videos they made.
+ *
+ * Beside the executable, because for an extracted release that is the folder
+ * they already have open, and not inside a save directory that is under
+ * ~/.local/share on Linux and somewhere nobody browses to on macOS. A file the
+ * player made and cannot find is most of the way to not having been made.
+ *
+ * Where the executable's directory cannot be written to - installed under /usr,
+ * a read-only mount, an app bundle - the save directory takes them instead,
+ * because a recording that is awkward to find still beats one that could not be
+ * written at all.
+ *
+ * dst gets the "$E/name" or "$S/name" form rather than an expanded path, so the
+ * caller can go on composing filenames with it and leave the expansion to
+ * fsFullPath() the way everything else here does.
+ */
+s32 fsChooseOutputDir(const char *name, char *dst, u32 dstSize)
+{
+	static const char *const roots[] = { "$E", "$S" };
+
+	for (u32 i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
+		snprintf(dst, dstSize, "%s/%s", roots[i], name);
+
+		// Existing and not a directory is not worth working around: it is
+		// somebody's file, and the next root will do.
+		if (fsFileSize(dst) < 0 && fsCreateDir(dst) != 0) {
+			continue;
+		}
+
+		if (fsPathIsWritable(fsFullPath(dst))) {
+			return 0;
+		}
+	}
+
+	dst[0] = '\0';
+
+	return -1;
 }
 
 s32 fsCreateDir(const char *path)

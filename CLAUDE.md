@@ -16,7 +16,7 @@ area, read its section first — none of them are inferable from the code.
 - [Memory: what an MP chr costs, and which pool it comes from](#memory-what-an-mp-chr-costs-and-which-pool-it-comes-from) — the ~50KB head copy that empties the stage pool
 - [One head modeldef cannot sit on two bodies](#one-head-modeldef-cannot-sit-on-two-bodies)
 - [ROM-resident structures — never grow these](#rom-resident-structures--never-grow-these)
-- [Save format](#save-format) — eeprom, and what a virgin one costs you
+- [Save format](#save-format) — eeprom, where everything now lives, and the migration that keeps it
 - [Text rendering](#text-rendering) — fonts, and menu units versus pixels
 - [Stage numbers](#stage-numbers)
 - [The frame is presented before videoEndFrame()](#the-frame-is-presented-before-videoendframe) — why the pre-swap callback exists
@@ -136,6 +136,25 @@ stay in the base format unless a setup actually needs >8 simulants, so unmodifie
 builds can still read them; changing version re-encodes every block.
 
 `savebufferOr()` does no bounds checking. `stagenum` is stored in 7 bits.
+
+**Everything lives beside the executable now** — saves, `pd.ini`, screenshots and
+recordings — because a copy of the game should be one folder a player can open,
+back up or move. `~/.local/share/perfectdark` is where it used to be and is still
+the fallback for a copy that cannot write to its own directory: installed under
+`/usr`, on a read-only mount, inside an app bundle. `fsChooseOutputDir()` makes
+that choice for the player's own files and `fsInit()` makes it for the saves.
+
+**The first run of a build that does this copies the old save directory across**
+(`fsMigrateSaves()`), because otherwise someone who has played before starts with
+a fresh eeprom, no unlocks and the simulant count back at four — which looks
+exactly like the fork being broken. It copies rather than moves, never writes
+over a file already there, and only takes what the game writes: the config, the
+saves, `ghosts/` and `exported/`. Screenshots and recordings are left behind
+deliberately, being potentially gigabytes and nothing that stops working.
+
+The old default was the working directory whenever a config happened to be
+sitting in one, and that was never checked for writability — it is now, or a
+read-only working directory silently swallows every save.
 
 ## Text rendering
 

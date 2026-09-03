@@ -15,7 +15,11 @@
 #include "system.h"
 #include "video.h"
 
-#define SCREENSHOT_DIR "$S/screenshots"
+// Beside the executable where that can be written, and in the save directory
+// where it cannot - see fsChooseOutputDir(). Worked out on the first shot,
+// because it creates the directory and there is no sense doing that for a
+// session where nobody presses the key.
+#define SCREENSHOT_DIR_NAME "screenshots"
 #define SCREENSHOT_KEYNAME_LEN 32
 #define SCREENSHOT_DEFAULT_KEY "F12"
 
@@ -140,18 +144,20 @@ static bool screenshotWritePng(const char *filename, const u8 *rgb, s32 width, s
 }
 
 /**
- * $S/screenshots/pd-20260901-143012.png, with -2, -3 and so on appended when a
+ * screenshots/pd-20260901-143012.png, with -2, -3 and so on appended when a
  * second holds more than one shot.
  */
 static bool screenshotPickFilename(char *out, u32 outSize)
 {
+	static char dir[FS_MAXPATH + 1];
 	const time_t now = time(NULL);
 	const struct tm *lt = localtime(&now);
 	char stamp[32];
 	s32 dupe;
 
-	if (fsFileSize(SCREENSHOT_DIR) < 0 && fsCreateDir(SCREENSHOT_DIR) != 0) {
-		sysLogPrintf(LOG_ERROR, "screenshot: could not create %s", fsFullPath(SCREENSHOT_DIR));
+	if (!dir[0] && fsChooseOutputDir(SCREENSHOT_DIR_NAME, dir, sizeof(dir)) != 0) {
+		sysLogPrintf(LOG_ERROR, "screenshot: nowhere to put %s that can be written",
+				SCREENSHOT_DIR_NAME);
 		return false;
 	}
 
@@ -165,9 +171,9 @@ static bool screenshotPickFilename(char *out, u32 outSize)
 		char rel[FS_MAXPATH + 1];
 
 		if (dupe == 1) {
-			snprintf(rel, sizeof(rel), SCREENSHOT_DIR "/pd-%s.png", stamp);
+			snprintf(rel, sizeof(rel), "%s/pd-%s.png", dir, stamp);
 		} else {
-			snprintf(rel, sizeof(rel), SCREENSHOT_DIR "/pd-%s-%d.png", stamp, dupe);
+			snprintf(rel, sizeof(rel), "%s/pd-%s-%d.png", dir, stamp, dupe);
 		}
 
 		if (fsFileSize(rel) < 0) {

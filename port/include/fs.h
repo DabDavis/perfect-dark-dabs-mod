@@ -28,4 +28,9 @@ s32 fsGetNumModDirs(void);
 const char *fsGetModDirAt(s32 index);
 s32 fsCreateDir(const char *path);
 
+// Picks and creates the directory a player's own files should go in: beside the
+// executable where that can be written, and in the save directory where it
+// cannot. dst gets the "$E/name" or "$S/name" form. Returns 0 on success.
+s32 fsChooseOutputDir(const char *name, char *dst, u32 dstSize);
+
 #endif
