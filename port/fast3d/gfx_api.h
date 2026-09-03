@@ -115,6 +115,11 @@ bool gfx_read_screen_pixels(int x, int y, int width, int height, void *rgb);
 #define GFX_CAPTURE_NONE 0
 #define GFX_CAPTURE_BGRA 1
 #define GFX_CAPTURE_RGBA 2
+// Converted on the GPU before it is read back, so a frame costs a byte and a
+// half a pixel instead of four - see gfx_opengl.cpp. Rows run top down, the
+// planes are Y then interleaved UV, and there is nothing left for the encoder
+// to convert or flip. Preferred wherever the driver can do it.
+#define GFX_CAPTURE_NV12 3
 
 // Returns the GFX_CAPTURE_ format frames will arrive in, or GFX_CAPTURE_NONE if
 // the size is bad. Replaces any capture already running.

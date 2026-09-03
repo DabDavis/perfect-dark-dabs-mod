@@ -254,6 +254,7 @@ s32 videoReadScreenPixels(void *rgb, s32 width, s32 height)
 _Static_assert(VIDEO_CAPTURE_NONE == GFX_CAPTURE_NONE, "capture format mismatch");
 _Static_assert(VIDEO_CAPTURE_BGRA == GFX_CAPTURE_BGRA, "capture format mismatch");
 _Static_assert(VIDEO_CAPTURE_RGBA == GFX_CAPTURE_RGBA, "capture format mismatch");
+_Static_assert(VIDEO_CAPTURE_NV12 == GFX_CAPTURE_NV12, "capture format mismatch");
 
 s32 videoCaptureStart(s32 width, s32 height)
 {
@@ -286,9 +287,37 @@ const char *videoCaptureFormatName(s32 fmt)
 	switch (fmt) {
 	case VIDEO_CAPTURE_BGRA: return "bgra";
 	case VIDEO_CAPTURE_RGBA: return "rgba";
+	case VIDEO_CAPTURE_NV12: return "nv12";
 	}
 
 	return NULL;
+}
+
+u32 videoCaptureFrameSize(s32 fmt, s32 width, s32 height)
+{
+	if (width <= 0 || height <= 0) {
+		return 0;
+	}
+
+	switch (fmt) {
+	case VIDEO_CAPTURE_BGRA:
+	case VIDEO_CAPTURE_RGBA:
+		return (u32)width * height * 4;
+	case VIDEO_CAPTURE_NV12:
+		// A full size luma plane and a quarter size chroma one, two bytes to a
+		// chroma sample: three bytes for every two pixels.
+		return (u32)width * height * 3 / 2;
+	}
+
+	return 0;
+}
+
+s32 videoCaptureIsFlipped(s32 fmt)
+{
+	// NV12 comes out of the conversion the right way up, having been rendered
+	// upside down to arrive that way. The rest is whatever glReadPixels gives,
+	// which is bottom row first.
+	return fmt != VIDEO_CAPTURE_NV12;
 }
 
 s32 videoGetFullscreen(void)

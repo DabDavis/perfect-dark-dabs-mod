@@ -1331,6 +1331,296 @@ static bool gfx_opengl_read_screen_pixels(int x, int y, int width, int height, v
  * no PBOs at all the read goes straight to the caller and stalls, because a
  * recording that costs frames still beats one that cannot be made.
  */
+/**
+ * Converting to NV12 before the frame is read back.
+ *
+ * The readback is the expensive half of recording, and it is expensive in
+ * proportion to the bytes moved: 1080p60 of four-byte pixels is 497 MB/s off
+ * the GPU, down a pipe and back onto the GPU for the encoder, which is more
+ * than a busy machine has to spare. NV12 is a byte and a half a pixel, so the
+ * same recording is 187 MB/s, and the encoder wants NV12 anyway - the
+ * conversion has to happen somewhere and the GPU is where it is nearly free.
+ *
+ * This is what OBS does, and for the same reason. Two render targets, a luma
+ * plane at full size and a chroma plane at half in both directions, and a
+ * shader pass into each: one dot product per pixel for Y, four samples averaged
+ * and two dot products for UV. Then one readback of each into the same buffer,
+ * Y first and UV after it, which is exactly NV12's layout.
+ *
+ * The vertical flip goes in the shader, where it costs nothing: the game's
+ * picture is bottom row first and the encoder wants it top row first, so the
+ * planes are rendered upside down and read back the right way up.
+ *
+ * BT.709 limited range, being what HD video is, and what the encoder is told
+ * the frames are - see recordAddVideoEncoder(). Getting this wrong is a colour
+ * cast rather than a failure, so it is written out in full below.
+ */
+#define NV12_MIN_GL_MAJOR 3
+
+static GLuint nv12_prog;
+static GLint nv12_loc_plane, nv12_loc_texel;
+static GLuint nv12_vao;
+static GLuint nv12_src_tex, nv12_src_fbo;
+static GLuint nv12_y_tex, nv12_y_fbo;
+static GLuint nv12_uv_tex, nv12_uv_fbo;
+
+static const char *nv12_vs =
+    "#version 130\n"
+    "out vec2 vUV;\n"
+    "void main() {\n"
+    // One triangle big enough to cover the target, so there is no vertex buffer
+    // and nothing of the renderer's to disturb to draw it.
+    "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+    "    vUV = p;\n"
+    "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+    "}\n";
+
+static const char *nv12_fs =
+    "#version 130\n"
+    "uniform sampler2D uTex;\n"
+    "uniform vec2 uTexel;\n"  // one source pixel, for the chroma taps
+    "uniform int uPlane;\n"   // 0 = luma, 1 = chroma
+    "in vec2 vUV;\n"
+    "out vec4 oCol;\n"
+    "void main() {\n"
+    // The flip. Everything below samples through this, and the chroma taps are
+    // symmetric about it, so the sign of their offsets does not matter.
+    "    vec2 b = vec2(vUV.x, 1.0 - vUV.y);\n"
+    "    if (uPlane == 0) {\n"
+    "        vec3 c = texture(uTex, b).rgb;\n"
+    "        oCol = vec4(dot(vec3(0.18259, 0.61423, 0.06201), c) + 0.06275, 0.0, 0.0, 1.0);\n"
+    "    } else {\n"
+    // The four pixels this chroma sample stands for. The source is sampled
+    // nearest, so these are four whole pixels rather than sixteen blended ones.
+    "        vec3 c = 0.25 * (texture(uTex, b + vec2(-0.5, -0.5) * uTexel).rgb\n"
+    "                       + texture(uTex, b + vec2( 0.5, -0.5) * uTexel).rgb\n"
+    "                       + texture(uTex, b + vec2(-0.5,  0.5) * uTexel).rgb\n"
+    "                       + texture(uTex, b + vec2( 0.5,  0.5) * uTexel).rgb);\n"
+    "        oCol = vec4(dot(vec3(-0.10064, -0.33857,  0.43922), c) + 0.50196,\n"
+    "                    dot(vec3( 0.43922, -0.39894, -0.04027), c) + 0.50196, 0.0, 1.0);\n"
+    "    }\n"
+    "}\n";
+
+static GLuint gfx_opengl_nv12_compile(GLenum type, const char *src) {
+    GLuint sh = glCreateShader(type);
+    GLint ok = 0;
+
+    glShaderSource(sh, 1, &src, NULL);
+    glCompileShader(sh);
+    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+
+    if (!ok) {
+        char log[512] = { 0 };
+        glGetShaderInfoLog(sh, sizeof(log) - 1, NULL, log);
+        sysLogPrintf(LOG_WARNING, "GL: NV12 capture shader would not compile: %s", log);
+        glDeleteShader(sh);
+        return 0;
+    }
+
+    return sh;
+}
+
+// One colour target, and the framebuffer that draws into it.
+static bool gfx_opengl_nv12_target(GLuint *tex, GLuint *fbo, GLint internal, int w, int h) {
+    glGenTextures(1, tex);
+    glBindTexture(GL_TEXTURE_2D, *tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, internal, w, h, 0,
+                 internal == GL_RGBA8 ? GL_RGBA : (internal == GL_R8 ? GL_RED : GL_RG),
+                 GL_UNSIGNED_BYTE, NULL);
+    // Nearest everywhere: the luma pass is one pixel to one pixel and the
+    // chroma pass wants the four it asks for, not a blend of sixteen.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *tex, 0);
+
+    return glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+}
+
+static void gfx_opengl_nv12_free(void) {
+    if (nv12_prog) {
+        glDeleteProgram(nv12_prog);
+        nv12_prog = 0;
+    }
+    if (nv12_vao) {
+        glDeleteVertexArrays(1, &nv12_vao);
+        nv12_vao = 0;
+    }
+    GLuint *texs[] = { &nv12_src_tex, &nv12_y_tex, &nv12_uv_tex };
+    GLuint *fbos[] = { &nv12_src_fbo, &nv12_y_fbo, &nv12_uv_fbo };
+    for (int i = 0; i < 3; i++) {
+        if (*fbos[i]) { glDeleteFramebuffers(1, fbos[i]); *fbos[i] = 0; }
+        if (*texs[i]) { glDeleteTextures(1, texs[i]); *texs[i] = 0; }
+    }
+}
+
+/**
+ * Whether this driver can do it, and everything it needs if so.
+ *
+ * Desktop GL 3.0 and up only. The single-channel targets are 3.0 (ARB_texture_rg),
+ * the blit is 3.0, gl_VertexID in GLSL is 1.30, and an ES device is not the
+ * machine anyone is recording an eighty simulant match on - it keeps the older
+ * path rather than being given a second one to go wrong.
+ */
+static bool gfx_opengl_nv12_init(int width, int height) {
+    GLuint vs, fs;
+    GLint ok = 0;
+
+    if (gl_es || GLVersion.major < NV12_MIN_GL_MAJOR) {
+        return false;
+    }
+
+    if (!glad_glGenFramebuffers || !glad_glBlitFramebuffer || !glad_glGenVertexArrays ||
+        !glad_glCreateShader || !glad_glDrawArrays) {
+        return false;
+    }
+
+    // Odd sizes have no half, and h264 wants even anyway - the caller has
+    // already rounded, so this only catches a caller that has not.
+    if ((width & 1) || (height & 1)) {
+        return false;
+    }
+
+    while (glGetError() != GL_NO_ERROR) {
+        // anything already pending is not ours
+    }
+
+    vs = gfx_opengl_nv12_compile(GL_VERTEX_SHADER, nv12_vs);
+    fs = vs ? gfx_opengl_nv12_compile(GL_FRAGMENT_SHADER, nv12_fs) : 0;
+
+    if (!vs || !fs) {
+        if (vs) glDeleteShader(vs);
+        if (fs) glDeleteShader(fs);
+        return false;
+    }
+
+    nv12_prog = glCreateProgram();
+    glAttachShader(nv12_prog, vs);
+    glAttachShader(nv12_prog, fs);
+    glBindFragDataLocation(nv12_prog, 0, "oCol");
+    glLinkProgram(nv12_prog);
+    glGetProgramiv(nv12_prog, GL_LINK_STATUS, &ok);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    if (!ok) {
+        char log[512] = { 0 };
+        glGetProgramInfoLog(nv12_prog, sizeof(log) - 1, NULL, log);
+        sysLogPrintf(LOG_WARNING, "GL: NV12 capture shader would not link: %s", log);
+        gfx_opengl_nv12_free();
+        return false;
+    }
+
+    nv12_loc_plane = glGetUniformLocation(nv12_prog, "uPlane");
+    nv12_loc_texel = glGetUniformLocation(nv12_prog, "uTexel");
+
+    glGenVertexArrays(1, &nv12_vao);
+
+    if (!gfx_opengl_nv12_target(&nv12_src_tex, &nv12_src_fbo, GL_RGBA8, width, height) ||
+        !gfx_opengl_nv12_target(&nv12_y_tex, &nv12_y_fbo, GL_R8, width, height) ||
+        !gfx_opengl_nv12_target(&nv12_uv_tex, &nv12_uv_fbo, GL_RG8, width / 2, height / 2)) {
+        sysLogPrintf(LOG_WARNING, "GL: NV12 capture targets are not complete, falling back");
+        gfx_opengl_nv12_free();
+        return false;
+    }
+
+    if (glGetError() != GL_NO_ERROR) {
+        sysLogPrintf(LOG_WARNING, "GL: NV12 capture setup failed, falling back");
+        gfx_opengl_nv12_free();
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Both passes, into a PBO if there is one.
+ *
+ * Everything this disturbs is put back. The renderer resets nothing at the top
+ * of a frame - gfx_opengl_start_frame() only counts - so a program or a
+ * viewport left changed here would come out as the next frame drawn wrongly,
+ * which is a bug that looks like anything but the recorder.
+ */
+static void gfx_opengl_nv12_convert(int width, int height) {
+    GLint prev_prog = 0, prev_vao = 0, prev_tex = 0, prev_active = GL_TEXTURE0;
+    GLint prev_viewport[4] = { 0, 0, 0, 0 };
+    const GLboolean was_blend = glIsEnabled(GL_BLEND);
+    const GLboolean was_depth = glIsEnabled(GL_DEPTH_TEST);
+    const GLboolean was_scissor = glIsEnabled(GL_SCISSOR_TEST);
+    const GLboolean was_cull = glIsEnabled(GL_CULL_FACE);
+
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev_prog);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prev_active);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex);
+    glGetIntegerv(GL_VIEWPORT, prev_viewport);
+
+    // The back buffer is not a texture, so it is copied into one first. On the
+    // GPU, and the only copy in the whole path that does not leave it.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, nv12_src_fbo);
+    glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_CULL_FACE);
+
+    glUseProgram(nv12_prog);
+    glBindVertexArray(nv12_vao);
+    glBindTexture(GL_TEXTURE_2D, nv12_src_tex);
+    glUniform1i(glGetUniformLocation(nv12_prog, "uTex"), 0);
+    glUniform2f(nv12_loc_texel, 1.0f / (float)width, 1.0f / (float)height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, nv12_y_fbo);
+    glViewport(0, 0, width, height);
+    glUniform1i(nv12_loc_plane, 0);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, nv12_uv_fbo);
+    glViewport(0, 0, width / 2, height / 2);
+    glUniform1i(nv12_loc_plane, 1);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    if (was_blend) glEnable(GL_BLEND);
+    if (was_depth) glEnable(GL_DEPTH_TEST);
+    if (was_scissor) glEnable(GL_SCISSOR_TEST);
+    if (was_cull) glEnable(GL_CULL_FACE);
+
+    glBindVertexArray((GLuint)prev_vao);
+    glUseProgram((GLuint)prev_prog);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex);
+    glActiveTexture((GLenum)prev_active);
+    glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+}
+
+// The two planes into one buffer, Y then UV, which is NV12 as it stands. dst is
+// a byte offset into a bound pack buffer, or a pointer when there is none.
+static void gfx_opengl_nv12_readback(int width, int height, void *base) {
+    GLint prevalign = 4;
+
+    glGetIntegerv(GL_PACK_ALIGNMENT, &prevalign);
+    // A luma row is one byte a pixel, so it is only four byte aligned by luck.
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, nv12_y_fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glReadPixels(0, 0, width, height, GL_RED, GL_UNSIGNED_BYTE, base);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, nv12_uv_fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glReadPixels(0, 0, width / 2, height / 2, GL_RG, GL_UNSIGNED_BYTE,
+                 (char *)base + (size_t)width * height);
+
+    glPixelStorei(GL_PACK_ALIGNMENT, prevalign);
+}
+
 #define GFX_CAPTURE_PBOS 2
 
 static GLuint capture_pbos[GFX_CAPTURE_PBOS];
@@ -1338,6 +1628,7 @@ static int capture_width;
 static int capture_height;
 static int capture_format;
 static GLenum capture_gl_format;
+static size_t capture_bytes; // one frame of capture_format
 static int capture_next;    // the PBO the next read is issued into
 static int capture_pending; // reads issued and not yet collected
 static bool capture_direct; // no PBOs, so every read stalls
@@ -1365,8 +1656,11 @@ static void gfx_opengl_capture_stop(void) {
         capture_pbos[i] = 0;
     }
 
+    gfx_opengl_nv12_free();
+
     capture_width = capture_height = 0;
     capture_format = GFX_CAPTURE_NONE;
+    capture_bytes = 0;
     capture_next = capture_pending = 0;
     capture_direct = false;
 }
@@ -1385,8 +1679,19 @@ static int gfx_opengl_capture_start(int width, int height) {
     // asking for it is what makes the read a copy rather than a conversion. ES
     // may or may not have it and says which through the read format query; RGBA
     // is always legal, and the caller is told which one it got.
+    // A third of the bytes, already converted and already the right way up. It
+    // is only refused where the driver is too old for it - see
+    // gfx_opengl_nv12_init() - and then the four-byte readback stands in.
+    if (gfx_opengl_nv12_init(width, height)) {
+        capture_format = GFX_CAPTURE_NV12;
+        capture_gl_format = GL_NONE;
+        capture_bytes = (size_t)width * height * 3 / 2;
+        sysLogPrintf(LOG_NOTE, "GL: capturing NV12, converted on the GPU");
+    } else {
+
     capture_gl_format = GL_BGRA;
     capture_format = GFX_CAPTURE_BGRA;
+    capture_bytes = (size_t)width * height * 4;
 
     if (gl_es) {
         GLint pref = 0;
@@ -1398,6 +1703,8 @@ static int gfx_opengl_capture_start(int width, int height) {
             capture_gl_format = GL_RGBA;
             capture_format = GFX_CAPTURE_RGBA;
         }
+    }
+
     }
 
     if (!gfx_opengl_capture_supported()) {
@@ -1414,7 +1721,7 @@ static int gfx_opengl_capture_start(int width, int height) {
 
     for (int i = 0; i < GFX_CAPTURE_PBOS; i++) {
         glBindBuffer(GL_PIXEL_PACK_BUFFER, capture_pbos[i]);
-        glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)width * height * 4, NULL, GL_STREAM_READ);
+        glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)capture_bytes, NULL, GL_STREAM_READ);
     }
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
@@ -1449,7 +1756,7 @@ static void gfx_opengl_capture_unbind(GLint prevalign) {
 // then the frame it is waiting on has had a whole frame of its own to land.
 static bool gfx_opengl_capture_collect(void *dst) {
     const int slot = (capture_next - capture_pending + GFX_CAPTURE_PBOS) % GFX_CAPTURE_PBOS;
-    const GLsizeiptr size = (GLsizeiptr)capture_width * capture_height * 4;
+    const GLsizeiptr size = (GLsizeiptr)capture_bytes;
     const void *src;
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, capture_pbos[slot]);
@@ -1469,6 +1776,26 @@ static bool gfx_opengl_capture_collect(void *dst) {
     return src != NULL;
 }
 
+/**
+ * Ask the GPU for this frame, into a bound pack buffer or straight to memory.
+ *
+ * The NV12 path runs its two shader passes first and reads back the planes they
+ * wrote; the older one reads the back buffer as it stands. Neither waits: with
+ * a pack buffer bound these are requests, and the frame they are for is
+ * collected on a later call.
+ */
+static void gfx_opengl_capture_issue(void *target) {
+    if (capture_format == GFX_CAPTURE_NV12) {
+        gfx_opengl_nv12_convert(capture_width, capture_height);
+        gfx_opengl_nv12_readback(capture_width, capture_height, target);
+        return;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, capture_width, capture_height, capture_gl_format, GL_UNSIGNED_BYTE, target);
+}
+
 static bool gfx_opengl_capture_read(void *dst) {
     GLint prevalign = 4;
 
@@ -1478,7 +1805,7 @@ static bool gfx_opengl_capture_read(void *dst) {
 
     if (capture_direct) {
         gfx_opengl_capture_bind(&prevalign);
-        glReadPixels(0, 0, capture_width, capture_height, capture_gl_format, GL_UNSIGNED_BYTE, dst);
+        gfx_opengl_capture_issue(dst);
         gfx_opengl_capture_unbind(prevalign);
         return true;
     }
@@ -1486,7 +1813,7 @@ static bool gfx_opengl_capture_read(void *dst) {
     gfx_opengl_capture_bind(&prevalign);
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, capture_pbos[capture_next]);
-    glReadPixels(0, 0, capture_width, capture_height, capture_gl_format, GL_UNSIGNED_BYTE, NULL);
+    gfx_opengl_capture_issue(NULL);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
     capture_next = (capture_next + 1) % GFX_CAPTURE_PBOS;

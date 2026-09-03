@@ -141,6 +141,13 @@ static char outPath[FS_MAXPATH + 1];
  */
 static const char *capFormat = "bgra";
 
+// The format the renderer reported, and what follows from it: how big a frame
+// is, and whether it arrives upside down. Not known until a recording starts -
+// NV12 is three bytes to two pixels and already the right way up.
+static s32 capFmt = VIDEO_CAPTURE_BGRA;
+static u32 capBytes;
+static bool capFlip = true;
+
 // What the recording cost the game, to say at the end. The capture is the
 // readback and the copy out of it; the skips are frames that found the queue
 // full and were covered by repeating their neighbour, and are the number that
@@ -546,7 +553,8 @@ static bool recordProbeChain(const struct recordCodec *c, const char *device, co
 	recordArgAddSplit(&a, device);
 	recordArgAdd(&a, "-f"); recordArgAdd(&a, "lavfi");
 	recordArgAdd(&a, "-i"); recordArgAdd(&a, "color=c=black:s=" RECORD_PROBE_SIZE ":r=%d", recordFps);
-	recordArgAdd(&a, "-vf"); recordArgAdd(&a, "format=%s,vflip,%s", capFormat, filters);
+	recordArgAdd(&a, "-vf"); recordArgAdd(&a, "format=%s,%s%s", capFormat,
+			capFlip ? "vflip," : "", filters);
 	recordArgAdd(&a, "-c:v"); recordArgAdd(&a, "%s", c->encoder);
 	recordArgAddRc(&a, c->rc, recordQualityValue(c));
 	recordArgAdd(&a, "-frames:v"); recordArgAdd(&a, "3");
@@ -708,9 +716,26 @@ static void recordAddVideoInput(struct recordArgs *a, const char *pipeName)
 
 static void recordAddVideoEncoder(struct recordArgs *a, const struct recordEncoder *enc)
 {
-	recordArgAdd(a, "-vf"); recordArgAdd(a, "vflip,%s", enc->filters);
+	recordArgAdd(a, "-vf"); recordArgAdd(a, "%s%s", capFlip ? "vflip," : "", enc->filters);
 	recordArgAdd(a, "-c:v"); recordArgAdd(a, "%s", enc->codec->encoder);
 	recordArgAddRc(a, enc->codec->rc, recordQualityValue(enc->codec));
+
+	// Frames converted on our GPU are BT.709 limited range, because that is the
+	// matrix the shader was written with. Nothing in a raw stream says so and a
+	// player left to guess uses the picture's size to decide, which is wrong for
+	// anything below 720p - so it is written down.
+	//
+	// As a bitstream filter, not as -colorspace. Those are a request to convert
+	// rather than a note of what the frames already are, and ffmpeg answers one
+	// by inserting a scaler that cannot touch a frame already on the GPU:
+	// "Impossible to convert between the formats supported by the filter
+	// Parsed_scale_vaapi_1 and the filter auto_scale_0". This writes the same
+	// four values into the encoded stream's VUI and converts nothing.
+	if (capFmt == VIDEO_CAPTURE_NV12) {
+		recordArgAdd(a, "-bsf:v");
+		recordArgAdd(a, "h264_metadata=colour_primaries=1:transfer_characteristics=1"
+				":matrix_coefficients=1:video_full_range_flag=0");
+	}
 }
 
 #if !RECORD_TWOPASS
@@ -782,6 +807,18 @@ static bool recordSpawnEncoder(const struct recordEncoder *enc, const char *out)
 	if (!recordBuildArgs(&a, enc, out)) {
 		sysLogPrintf(LOG_ERROR, "record: the encoder's arguments do not fit");
 		return false;
+	}
+
+	{
+		// What ffmpeg was actually asked to do. Every recording that goes wrong
+		// goes wrong in this line somewhere, and reconstructing it from the
+		// codec table and the capture format is guesswork nobody should have to
+		// do from a bug report.
+		static char cmd[FS_MAXPATH * 4];
+
+		if (recordJoinArgs(cmd, sizeof(cmd), a.argv)) {
+			sysLogPrintf(LOG_NOTE, "record: %s", cmd);
+		}
 	}
 
 	if (pipe(vpipe) != 0) {
@@ -1188,7 +1225,7 @@ static int recordVideoThread(void *arg)
 		// Safe to touch unlocked: the slot counts as full until it is released
 		// below, and the game thread only ever fills a free one.
 		while (repeat-- > 0) {
-			if (!recordWriteVideo(frame, (u32)vidWidth * vidHeight * 4)) {
+			if (!recordWriteVideo(frame, capBytes)) {
 				encoderGone = true;
 				break;
 			}
@@ -1311,13 +1348,15 @@ static void recordStart(void)
 	// the readback starts.
 	vidWidth = winWidth & ~1;
 	vidHeight = winHeight & ~1;
-	frameSize = (u32)vidWidth * vidHeight * 4;
-
 	// Before the codec is chosen, because which pixels come out of the GPU is
 	// the first thing the chain it is probed with has to know.
-	capFormat = videoCaptureFormatName(videoCaptureStart(vidWidth, vidHeight));
+	capFmt = videoCaptureStart(vidWidth, vidHeight);
+	capFormat = videoCaptureFormatName(capFmt);
+	capBytes = videoCaptureFrameSize(capFmt, vidWidth, vidHeight);
+	capFlip = videoCaptureIsFlipped(capFmt);
+	frameSize = capBytes;
 
-	if (!capFormat) {
+	if (!capFormat || !capBytes) {
 		sysLogPrintf(LOG_ERROR, "record: this renderer cannot hand frames back");
 		return;
 	}

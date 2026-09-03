@@ -92,12 +92,17 @@ s32 videoReadScreenPixels(void *rgb, s32 width, s32 height);
  * this never waits on the GPU - the frame it hands back is the one from the call
  * before. See gfx_capture_start() in port/fast3d/gfx_api.h.
  *
- * Frames are four bytes a pixel, bottom row first, in whichever of these the
- * driver reads back without repacking.
+ * NV12 frames are a byte and a half a pixel, top row first, already converted:
+ * that is a third of the traffic of the RGB formats and the reason to prefer it.
+ * The RGB ones are four bytes a pixel, bottom row first, in whichever of them
+ * the driver reads back without repacking.
+ *
+ * videoCaptureFrameSize() is how many bytes a frame of the reported format is.
  */
 #define VIDEO_CAPTURE_NONE 0
 #define VIDEO_CAPTURE_BGRA 1
 #define VIDEO_CAPTURE_RGBA 2
+#define VIDEO_CAPTURE_NV12 3
 
 s32 videoCaptureStart(s32 width, s32 height);
 s32 videoCaptureRead(void *dst);
@@ -106,6 +111,12 @@ void videoCaptureStop(void);
 
 // The ffmpeg name for a VIDEO_CAPTURE_ format, or NULL.
 const char *videoCaptureFormatName(s32 fmt);
+
+// Bytes in one frame of that format, or 0 if it is not a format.
+u32 videoCaptureFrameSize(s32 fmt, s32 width, s32 height);
+
+// Whether the format arrives bottom row first, and so needs flipping.
+s32 videoCaptureIsFlipped(s32 fmt);
 
 void videoResetTextureCache(void);
 void videoFreeCachedTexture(const void *texptr);
