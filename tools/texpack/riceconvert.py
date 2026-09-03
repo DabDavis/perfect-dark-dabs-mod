@@ -29,22 +29,32 @@ Usage:
 
     tools/texpack/riceconvert.py \\
         --dump ~/.local/share/perfectdark/texturedump/ntsc-final \\
-        --pack "/path/to/Perfect Dark Forever 0.4" \\
+        --pack "/path/to/Perfect Dark Forever 0.4.7z" \\
         --out  ~/.local/share/perfectdark/mypack
 
 Then point the game at the result with --moddir, or copy its textures/ next to
 the executable.
 
+--pack takes a directory, a .zip or a .7z. Zip entries are read where they lie;
+a .7z is unpacked to a temporary directory first, because its files usually
+share one solid compressed block and there is no cheap way to pull one out.
+
 Pillow is needed only for packs that split colour and alpha into _rgb/_a pairs;
-everything else is copied through untouched.
+everything else is copied through untouched. Reading a .7z needs either the
+py7zr module or a 7z command on PATH.
 """
 
 import argparse
+import contextlib
 import csv
+import io
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
+import zipfile
 
 # The name in a Rice pack is <rom>#<crc>#<fmt>#<siz>[#<palettecrc>]_<kind>.png.
 NAME_RE = re.compile(
@@ -160,29 +170,131 @@ def read_dump(dumpdir):
     return crcs, collisions
 
 
-def group_pack(packdir):
-    """Collects a pack's files by checksum, keeping every kind found for each."""
+class DirSource:
+    """A pack that is already a directory on disk."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def names(self):
+        for root, _dirs, files in os.walk(self.path):
+            for name in files:
+                yield os.path.join(root, name)
+
+    def read(self, name):
+        with open(name, 'rb') as f:
+            return f.read()
+
+    def close(self):
+        pass
+
+
+class ZipSource:
+    """
+    A .zip, read where it lies.
+
+    Each entry is deflated on its own, so pulling one out costs only that
+    entry - no reason to unpack the whole thing first.
+    """
+
+    def __init__(self, path):
+        self.zf = zipfile.ZipFile(path)
+
+    def names(self):
+        return [i.filename for i in self.zf.infolist() if not i.is_dir()]
+
+    def read(self, name):
+        return self.zf.read(name)
+
+    def close(self):
+        self.zf.close()
+
+
+def _extract_7z(path, dest):
+    """
+    Unpacks a .7z, by whatever means are to hand.
+
+    py7zr if it is installed, otherwise a 7z command. Unlike zip there is no
+    cheap way to read one entry: the files usually share a single solid block,
+    so anything short of unpacking the archive decompresses most of it anyway.
+    """
+    try:
+        import py7zr
+    except ImportError:
+        pass
+    else:
+        with py7zr.SevenZipFile(path, 'r') as z:
+            z.extractall(dest)
+        return
+
+    for exe in ('7z', '7za', '7zr'):
+        if shutil.which(exe):
+            result = subprocess.run([exe, 'x', '-y', '-o' + dest, path],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                sys.exit(f'{exe} could not read {path}:\n'
+                         + result.stderr.decode(errors='replace').strip())
+            return
+
+    sys.exit(f'{path} is a .7z and there is nothing here that can read one.\n'
+             'Install py7zr (pip install py7zr) or p7zip, or extract it yourself\n'
+             'and pass the directory to --pack.')
+
+
+class SevenZipSource(DirSource):
+    """A .7z, unpacked to a temporary directory and then read as one."""
+
+    def __init__(self, path):
+        self.tmp = tempfile.TemporaryDirectory(prefix='riceconvert-')
+        print(f'unpacking {os.path.basename(path)}...', flush=True)
+        _extract_7z(path, self.tmp.name)
+        super().__init__(self.tmp.name)
+
+    def close(self):
+        self.tmp.cleanup()
+
+
+def open_pack(path):
+    """Opens a pack directory, .zip or .7z, whichever it turns out to be."""
+    if os.path.isdir(path):
+        return DirSource(path)
+
+    if not os.path.exists(path):
+        sys.exit(f'{path} does not exist')
+
+    ext = os.path.splitext(path)[1].lower()
+
+    if ext == '.7z':
+        return SevenZipSource(path)
+
+    if ext in ('.zip', '.pk3'):
+        return ZipSource(path)
+
+    sys.exit(f'{path} is neither a directory nor an archive this can open')
+
+
+def group_pack(source):
+    """Collects a pack's entries by checksum, keeping every kind found for each."""
     groups = {}
 
-    for root, _dirs, files in os.walk(packdir):
-        for name in files:
-            m = NAME_RE.search(name)
-            if m:
-                key = int(m.group('crc'), 16)
-                groups.setdefault(key, {})[m.group('kind')] = os.path.join(root, name)
+    for name in source.names():
+        m = NAME_RE.search(os.path.basename(name))
+        if m:
+            key = int(m.group('crc'), 16)
+            groups.setdefault(key, {})[m.group('kind')] = name
 
     return groups
 
 
-def combine_rgb_alpha(rgb_path, alpha_path, out_path):
+def combine_rgb_alpha(rgb_bytes, alpha_bytes, out_path):
     """Merges a pack's separate colour and alpha images into one RGBA file."""
     try:
         from PIL import Image
     except ImportError:
         return False
 
-    rgb = Image.open(rgb_path).convert('RGB')
-    alpha = Image.open(alpha_path).convert('L')
+    rgb = Image.open(io.BytesIO(rgb_bytes)).convert('RGB')
+    alpha = Image.open(io.BytesIO(alpha_bytes)).convert('L')
 
     if alpha.size != rgb.size:
         alpha = alpha.resize(rgb.size, Image.LANCZOS)
@@ -198,7 +310,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
             formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dump', required=True, help='texturedump/<romid> from --dump-textures')
-    ap.add_argument('--pack', required=True, help='the Rice pack directory')
+    ap.add_argument('--pack', required=True,
+            help='the Rice pack: a directory, a .zip or a .7z')
     ap.add_argument('--out', required=True, help='where to write the converted pack')
     ap.add_argument('--quiet', action='store_true')
     args = ap.parse_args()
@@ -207,41 +320,47 @@ def main():
     print(f'{len(crcs)} distinct textures in the dump'
           + (f' ({collisions} shared their bytes with another)' if collisions else ''))
 
-    groups = group_pack(args.pack)
-    print(f'{len(groups)} distinct textures in the pack')
+    source = open_pack(args.pack)
 
-    outdir = os.path.join(args.out, 'textures')
-    os.makedirs(outdir, exist_ok=True)
+    with contextlib.closing(source):
+        groups = group_pack(source)
+        print(f'{len(groups)} distinct textures in the pack')
 
-    converted = 0
-    unmatched = 0
-    needed_pillow = 0
+        outdir = os.path.join(args.out, 'textures')
+        os.makedirs(outdir, exist_ok=True)
 
-    for crc, kinds in sorted(groups.items()):
-        texnum = crcs.get(crc)
+        converted = 0
+        unmatched = 0
+        needed_pillow = 0
 
-        if texnum is None:
-            unmatched += 1
-            continue
+        for crc, kinds in sorted(groups.items()):
+            texnum = crcs.get(crc)
 
-        out_path = os.path.join(outdir, f'{texnum}.png')
-        src = next((kinds[k] for k in WHOLE_IMAGE_KINDS if k in kinds), None)
+            if texnum is None:
+                unmatched += 1
+                continue
 
-        if src:
-            # Already a whole image: copy it rather than re-encode, so nothing
-            # is lost and the file keeps whatever the artist saved.
-            shutil.copyfile(src, out_path)
-            converted += 1
-        elif 'rgb' in kinds and 'a' in kinds:
-            if combine_rgb_alpha(kinds['rgb'], kinds['a'], out_path):
+            out_path = os.path.join(outdir, f'{texnum}.png')
+            src = next((kinds[k] for k in WHOLE_IMAGE_KINDS if k in kinds), None)
+
+            if src:
+                # Already a whole image: copy the bytes through rather than
+                # re-encode, so nothing is lost and the file stays exactly what
+                # the artist saved.
+                with open(out_path, 'wb') as f:
+                    f.write(source.read(src))
+                converted += 1
+            elif 'rgb' in kinds and 'a' in kinds:
+                if combine_rgb_alpha(source.read(kinds['rgb']), source.read(kinds['a']), out_path):
+                    converted += 1
+                else:
+                    needed_pillow += 1
+            elif 'rgb' in kinds:
+                with open(out_path, 'wb') as f:
+                    f.write(source.read(kinds['rgb']))
                 converted += 1
             else:
-                needed_pillow += 1
-        elif 'rgb' in kinds:
-            shutil.copyfile(kinds['rgb'], out_path)
-            converted += 1
-        else:
-            unmatched += 1
+                unmatched += 1
 
     print(f'\nwrote {converted} textures to {outdir}')
 
