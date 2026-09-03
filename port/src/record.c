@@ -33,6 +33,12 @@
 #include <errno.h>
 #endif
 
+#ifdef PLATFORM_WIN32
+#include <windows.h>
+#include <io.h>
+#include <fcntl.h>
+#endif
+
 // Beside the executable where that can be written, and in the save directory
 // where it cannot - see fsChooseOutputDir().
 #define RECORD_DIR_NAME "recordings"
@@ -237,17 +243,219 @@ static f64 recordNow(void)
  * Wrapping the whole line in another pair is the documented way round it, and
  * on anything else it would just be wrong.
  */
-static const char *recordShellWrap(char *dst, u32 dstSize, const char *cmd)
-{
 #ifdef PLATFORM_WIN32
-	snprintf(dst, dstSize, "\"%s\"", cmd);
-	return dst;
-#else
-	(void)dst;
-	(void)dstSize;
-	return cmd;
-#endif
+
+/**
+ * Spawning ffmpeg without giving it a console.
+ *
+ * system() and _popen() both run the line under cmd.exe, and cmd.exe gets a
+ * console of its own. A new console takes the foreground, so the game loses
+ * focus and the pad stops reaching it - for a moment during encoder detection
+ * and the mux, and for the whole of a recording on this backend, which is the
+ * one Windows uses. CreateProcess with CREATE_NO_WINDOW starts ffmpeg directly
+ * with no console to steal focus with.
+ *
+ * Losing the shell costs two things, both handled here. The redirection
+ * recordRunQuiet() appended has to be done with handles instead. And the extra
+ * pair of quotes cmd.exe wanted round the whole line must not be there:
+ * CreateProcess reads the program name from the first token, and a leading
+ * quote makes that token empty - it fails with error 87 rather than running.
+ *
+ * errPath is where the child's own complaints go, since it no longer has a
+ * console to put them on; NULL sends them to NUL. Only read back when the
+ * child exits badly - see recordLogChildErrors().
+ */
+static HANDLE recordSpawn(const char *cmd, HANDLE in, const char *errPath)
+{
+	SECURITY_ATTRIBUTES sa;
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+	HANDLE err;
+	char *line;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+
+	err = CreateFile(errPath ? errPath : "NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+			&sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (err == INVALID_HANDLE_VALUE) {
+		// Not worth refusing to record over; the child simply says nothing.
+		err = CreateFile("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+				&sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	}
+
+	memset(&si, 0, sizeof(si));
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdInput = in ? in : INVALID_HANDLE_VALUE;
+	si.hStdOutput = err;
+	si.hStdError = err;
+
+	// CreateProcess is allowed to write to the command line it is handed, so
+	// it does not get the caller's.
+	line = strdup(cmd);
+
+	if (!line) {
+		if (err != INVALID_HANDLE_VALUE) {
+			CloseHandle(err);
+		}
+		return NULL;
+	}
+
+	if (!CreateProcess(NULL, line, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+		sysLogPrintf(LOG_ERROR, "record: could not start the encoder (error %lu)",
+				(unsigned long)GetLastError());
+		free(line);
+		if (err != INVALID_HANDLE_VALUE) {
+			CloseHandle(err);
+		}
+		return NULL;
+	}
+
+	free(line);
+	CloseHandle(pi.hThread);
+
+	if (err != INVALID_HANDLE_VALUE) {
+		// The child holds its own copy now.
+		CloseHandle(err);
+	}
+
+	return pi.hProcess;
 }
+
+/**
+ * Waits for one, and hands back what it exited with.
+ */
+static s32 recordSpawnWait(HANDLE proc)
+{
+	DWORD code = (DWORD)-1;
+
+	if (!proc) {
+		return -1;
+	}
+
+	WaitForSingleObject(proc, INFINITE);
+	GetExitCodeProcess(proc, &code);
+	CloseHandle(proc);
+
+	return (s32)code;
+}
+
+/**
+ * Puts the tail of what a failed child said into the log, since nobody is
+ * watching a console for it any more, and takes the file away again - it is a
+ * few hundred bytes and only ever interesting when something went wrong.
+ */
+static void recordLogChildErrors(const char *path)
+{
+	char buf[512];
+	FILE *f;
+	long size;
+	size_t n;
+
+	if (!path || !path[0]) {
+		return;
+	}
+
+	f = fopen(path, "rb");
+
+	if (f) {
+		if (fseek(f, 0, SEEK_END) == 0 && (size = ftell(f)) > 0) {
+			// The last of it: ffmpeg says what went wrong at the end.
+			fseek(f, size > (long)sizeof(buf) - 1 ? size - ((long)sizeof(buf) - 1) : 0, SEEK_SET);
+			n = fread(buf, 1, sizeof(buf) - 1, f);
+			buf[n] = '\0';
+
+			if (n) {
+				sysLogPrintf(LOG_ERROR, "record: the encoder said: %s", buf);
+			}
+		}
+
+		fclose(f);
+	}
+
+	remove(path);
+}
+
+/**
+ * _popen() without the console, for the pipe the encoder is fed down.
+ *
+ * The child reads the pipe as its stdin, so the read end is the inheritable
+ * one and this end is deliberately not - a write end the child also holds is a
+ * pipe that never reports the far side closing.
+ */
+static HANDLE recordPipeProc;
+
+static FILE *recordPipeOpen(const char *cmd, const char *errPath)
+{
+	HANDLE rd = NULL;
+	HANDLE wr = NULL;
+	SECURITY_ATTRIBUTES sa;
+	FILE *f;
+	int fd;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+
+	if (!CreatePipe(&rd, &wr, &sa, 0)) {
+		sysLogPrintf(LOG_ERROR, "record: could not make a pipe for the encoder");
+		return NULL;
+	}
+
+	SetHandleInformation(wr, HANDLE_FLAG_INHERIT, 0);
+
+	recordPipeProc = recordSpawn(cmd, rd, errPath);
+
+	// The child has its own copy, and this end must not keep one.
+	CloseHandle(rd);
+
+	if (!recordPipeProc) {
+		CloseHandle(wr);
+		return NULL;
+	}
+
+	fd = _open_osfhandle((intptr_t)wr, _O_WRONLY | _O_BINARY);
+
+	if (fd < 0) {
+		CloseHandle(wr);
+		recordPipeProc = NULL;
+		return NULL;
+	}
+
+	f = _fdopen(fd, "wb");
+
+	if (!f) {
+		// Closing the fd takes the handle with it.
+		_close(fd);
+		recordPipeProc = NULL;
+		return NULL;
+	}
+
+	return f;
+}
+
+/**
+ * Closes the pipe and waits, the way _pclose() would: the encoder is told the
+ * frames have stopped by the pipe closing, and then given as long as it needs
+ * to write its index out.
+ */
+static s32 recordPipeClose(FILE *f)
+{
+	HANDLE proc = recordPipeProc;
+
+	recordPipeProc = NULL;
+
+	if (f) {
+		fclose(f);
+	}
+
+	return recordSpawnWait(proc);
+}
+
+#endif
 
 /**
  * How a codec's quality setting reaches it. Most take the number the menu sets
@@ -523,19 +731,21 @@ static bool recordJoinArgs(char *dst, u32 dstSize, char *const argv[])
 static bool recordRunQuiet(char *const argv[])
 {
 	char cmd[FS_MAXPATH * 4];
-	char wrapped[FS_MAXPATH * 4 + 4];
 
 	if (!recordJoinArgs(cmd, sizeof(cmd) - 16, argv)) {
 		return false;
 	}
 
 #ifdef PLATFORM_WIN32
-	strcat(cmd, " >NUL 2>&1");
+	// Both streams go to NUL through the child's own handles rather than
+	// through a shell, there being no shell any more. Nothing is lost: this
+	// discarded them either way.
+	return recordSpawnWait(recordSpawn(cmd, NULL, NULL)) == 0;
 #else
 	strcat(cmd, " >/dev/null 2>&1");
-#endif
 
-	return system(recordShellWrap(wrapped, sizeof(wrapped), cmd)) == 0;
+	return system(cmd) == 0;
+#endif
 }
 
 // Three frames of black through the exact chain a recording would use. An
@@ -1003,9 +1213,14 @@ static bool recordEncoderAlive(void)
 }
 #else
 
+// Where a spawned encoder's own messages go on Windows, now that it has no
+// console to put them on. Named after the file being written, so two of them
+// cannot collide, and read back into the log only if the encoder exits badly.
+static char childErrPath[FS_MAXPATH + 1];
+
 #ifdef PLATFORM_WIN32
-#define recordPopen(cmd) _popen(cmd, "wb")
-#define recordPclose(f)  _pclose(f)
+#define recordPopen(cmd) recordPipeOpen(cmd, childErrPath)
+#define recordPclose(f)  recordPipeClose(f)
 #else
 #define recordPopen(cmd) popen(cmd, "w")
 #define recordPclose(f)  pclose(f)
@@ -1055,7 +1270,6 @@ static bool recordSpawnEncoder(const struct recordEncoder *enc, const char *out)
 {
 	static struct recordArgs a;
 	char cmd[FS_MAXPATH * 3];
-	char wrapped[FS_MAXPATH * 3 + 4];
 
 	snprintf(tmpVideoPath, sizeof(tmpVideoPath), "%s.video.mp4", out);
 	snprintf(tmpAudioPath, sizeof(tmpAudioPath), "%s.audio.wav", out);
@@ -1077,7 +1291,9 @@ static bool recordSpawnEncoder(const struct recordEncoder *enc, const char *out)
 		return false;
 	}
 
-	vidPipe = recordPopen(recordShellWrap(wrapped, sizeof(wrapped), cmd));
+	snprintf(childErrPath, sizeof(childErrPath), "%s.log", tmpVideoPath);
+
+	vidPipe = recordPopen(cmd);
 
 	if (!vidPipe) {
 		sysLogPrintf(LOG_ERROR, "record: could not start %s", encoderPath);
@@ -1119,9 +1335,28 @@ static bool recordWriteAudio(const u8 *buf, u32 len)
 static void recordCloseVideo(void)
 {
 	if (vidPipe) {
-		recordPclose(vidPipe);
+		const s32 status = recordPclose(vidPipe);
+
 		vidPipe = NULL;
+
+		if (status != 0) {
+#ifdef PLATFORM_WIN32
+			sysLogPrintf(LOG_ERROR, "record: the encoder exited with %d", status);
+			recordLogChildErrors(childErrPath);
+#else
+			// pclose() answers with a wait status rather than an exit code, so
+			// a plain %d here reads as 2304 for an encoder that exited 9 -
+			// the same decode recordReapEncoder() does on the fork path.
+			sysLogPrintf(LOG_ERROR, "record: the encoder exited with %d",
+					WIFEXITED(status) ? WEXITSTATUS(status) : status);
+#endif
+		}
 	}
+
+#ifdef PLATFORM_WIN32
+	// Nothing to say, so nothing to keep.
+	remove(childErrPath);
+#endif
 }
 
 static void recordCloseAudio(void)
@@ -1162,7 +1397,6 @@ static bool recordEncoderAlive(void)
 static void recordReapEncoder(void)
 {
 	char cmd[FS_MAXPATH * 4];
-	char wrapped[FS_MAXPATH * 4 + 4];
 	s32 status;
 
 	if (!tmpVideoPath[0]) {
@@ -1182,11 +1416,19 @@ static void recordReapEncoder(void)
 			" -c:v copy -c:a aac -b:a 128k -shortest -movflags +faststart \"%s\"",
 			encoderPath, tmpVideoPath, tmpAudioPath, outPath);
 
-	status = system(recordShellWrap(wrapped, sizeof(wrapped), cmd));
+#ifdef PLATFORM_WIN32
+	snprintf(childErrPath, sizeof(childErrPath), "%s.log", tmpVideoPath);
+	status = recordSpawnWait(recordSpawn(cmd, NULL, childErrPath));
+#else
+	status = system(cmd);
+#endif
 
 	if (status != 0) {
 		sysLogPrintf(LOG_ERROR, "record: could not mux %s and the sound into %s",
 				tmpVideoPath, outPath);
+#ifdef PLATFORM_WIN32
+		recordLogChildErrors(childErrPath);
+#endif
 		// The picture alone is worth more than nothing, so it is left where it
 		// is and named, rather than cleared away behind the player's back.
 		sysLogPrintf(LOG_ERROR, "record: the picture is in %s", tmpVideoPath);
@@ -1195,6 +1437,10 @@ static void recordReapEncoder(void)
 		remove(tmpVideoPath);
 		remove(tmpAudioPath);
 	}
+
+#ifdef PLATFORM_WIN32
+	remove(childErrPath);
+#endif
 
 	tmpVideoPath[0] = tmpAudioPath[0] = '\0';
 }
