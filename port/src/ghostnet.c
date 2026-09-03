@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <strings.h>
 #include <PR/ultratypes.h>
@@ -113,6 +114,13 @@ static s32 g_JobUploadSkipped = 0;
 // server. A leaderboard of a hundred rows is a few kilobytes; a ghost is a
 // megabyte or two.
 #define GHOSTNET_MAXREPLY (8 * 1024 * 1024)
+
+// A reply written straight to a file is not held in memory and is deliberately
+// allowed to be larger - an Upscayl model is 32MB and the executable the
+// updater fetches is 21MB, both well over the cap above. It is still a cap: a
+// server answering a request for a 30MB file with an endless stream should not
+// be able to fill the player's disk.
+#define GHOSTNET_MAXSINK (256 * 1024 * 1024)
 #define GHOSTNET_TIMEOUT  20L
 
 /**
@@ -136,6 +144,10 @@ static bool ghostnetBufAppend(struct ghostnetbuf *buf, const void *ptr, size_t a
 	}
 
 	if (buf->sink) {
+		if (buf->len + add > GHOSTNET_MAXSINK) {
+			return false;
+		}
+
 		if (fwrite(ptr, 1, add, buf->sink) != add) {
 			return false;
 		}
@@ -179,33 +191,94 @@ static void ghostnetSetResult(s32 state, const char *msg)
  * dependency. It is still written to survive nonsense: nothing is copied
  * without a length, and a key that is not there simply is not found.
  */
-static bool ghostnetJsonField(const char *json, const char *key, char *out, u32 outsize)
+static bool ghostnetJsonField(const char *json, const char *end, const char *key,
+		char *out, u32 outsize)
 {
+	// What JSON writes an escape as, and what it means.
+	static const char escFrom[] = "\"\\/bfnrt";
+	static const char escTo[]   = "\"\\/\b\f\n\r\t";
 	char pattern[64];
-	const char *at;
+	const char *at = json;
+	u32 patlen;
 	u32 i = 0;
 
-	snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-	at = strstr(json, pattern);
+	patlen = (u32)snprintf(pattern, sizeof(pattern), "\"%s\"", key);
 
-	if (at == NULL) {
-		return false;
+	// end bounds the search to one object. Without it a field missing from a
+	// leaderboard row was answered with the next row's, so the defaults below
+	// every lookup could only ever apply to the last row in the reply.
+	if (end == NULL) {
+		end = json + strlen(json);
 	}
 
-	at += strlen(pattern);
+	for (;;) {
+		const char *p = strstr(at, pattern);
 
-	while (*at == ' ' || *at == ':') {
+		if (p == NULL || p >= end) {
+			return false;
+		}
+
+		at = p + patlen;
+
+		while (at < end && *at == ' ') {
+			at++;
+		}
+
+		// A key is a name with a colon after it. The same characters inside
+		// some other field's value are not this field - a reply whose message
+		// mentioned "error" used to be read as the error itself.
+		if (at < end && *at == ':') {
+			at++;
+			break;
+		}
+	}
+
+	while (at < end && *at == ' ') {
 		at++;
 	}
 
-	if (*at == '"') {
+	if (at < end && *at == '"') {
 		at++;
 
-		while (*at && *at != '"' && i + 1 < outsize) {
-			out[i++] = *at++;
+		while (at < end && *at != '"' && i + 1 < outsize) {
+			const char *esc;
+
+			if (*at != '\\' || at + 1 >= end) {
+				out[i++] = *at++;
+				continue;
+			}
+
+			// An escaped quote is not the end of the string, which is what
+			// reading these literally made of it.
+			at++;
+			esc = *at ? strchr(escFrom, *at) : NULL;
+
+			if (esc && *esc) {
+				out[i++] = escTo[esc - escFrom];
+				at++;
+			} else if (*at == 'u' && at + 4 < end) {
+				u32 cp = 0;
+				s32 k;
+
+				at++;
+
+				for (k = 0; k < 4; k++, at++) {
+					const char c = *at;
+
+					cp = (cp << 4) | (u32)(c >= '0' && c <= '9' ? c - '0'
+							: c >= 'a' && c <= 'f' ? c - 'a' + 10
+							: c >= 'A' && c <= 'F' ? c - 'A' + 10 : 0);
+				}
+
+				// A name is shown in the game's own font, which has no more
+				// than ASCII to draw with anyway.
+				out[i++] = cp >= 0x20 && cp < 0x7f ? (char)cp : '?';
+			} else {
+				out[i++] = *at++;
+			}
 		}
 	} else {
-		while (*at && *at != ',' && *at != '}' && *at != ' ' && i + 1 < outsize) {
+		while (at < end && *at && *at != ',' && *at != '}' && *at != ' ' && i + 1 < outsize) {
 			out[i++] = *at++;
 		}
 	}
@@ -233,6 +306,41 @@ static bool ghostnetJsonField(const char *json, const char *key, char *out, u32 
 static bool ghostnetWide(const char *src, wchar_t *dst, s32 dstchars)
 {
 	return MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dstchars) > 0;
+}
+
+/**
+ * Appends one header, and answers where the next one starts.
+ *
+ * snprintf answers with what it would have written rather than what it did, so
+ * adding that to the offset walks past the end of the buffer as soon as one of
+ * these does not fit - and sizeof(buf) - at then underflows into a very large
+ * size, which is a write to wherever the next one lands. Nothing sent here is
+ * close to the buffer today; a longer account name would move it, and
+ * GHOSTNET_MAXUSER is one #define away from the name length in the ghost file
+ * format.
+ *
+ * A full buffer answers with the buffer's size, which every later call passes
+ * straight back, so the caller can refuse the request rather than send a header
+ * that stops in the middle of a PIN.
+ */
+static u32 ghostnetHeaderAdd(char *dst, u32 dstsize, u32 at, const char *fmt, ...)
+{
+	va_list args;
+	s32 n;
+
+	if (at >= dstsize) {
+		return dstsize;
+	}
+
+	va_start(args, fmt);
+	n = vsnprintf(dst + at, dstsize - at, fmt, args);
+	va_end(args);
+
+	if (n < 0 || at + (u32)n >= dstsize) {
+		return dstsize;
+	}
+
+	return at + (u32)n;
 }
 
 /**
@@ -282,7 +390,7 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	DWORD flags = 0;
 	DWORD option;
 	bool ok = false;
-	s32 at = 0;
+	u32 at = 0;
 
 	*status = 0;
 
@@ -355,12 +463,18 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	headers[0] = '\0';
 
 	if (req->type) {
-		at += snprintf(headers + at, sizeof(headers) - at, "Content-Type: %s\r\n", req->type);
+		at = ghostnetHeaderAdd(headers, sizeof(headers), at, "Content-Type: %s\r\n", req->type);
 	}
 
 	if (req->auth) {
-		at += snprintf(headers + at, sizeof(headers) - at, "X-Ghost-User: %s\r\n", g_JobUser);
-		at += snprintf(headers + at, sizeof(headers) - at, "X-Ghost-Pin: %s\r\n", g_JobPin);
+		at = ghostnetHeaderAdd(headers, sizeof(headers), at, "X-Ghost-User: %s\r\n", g_JobUser);
+		at = ghostnetHeaderAdd(headers, sizeof(headers), at, "X-Ghost-Pin: %s\r\n", g_JobPin);
+	}
+
+	if (at >= sizeof(headers)) {
+		// Half a PIN is worse than no request.
+		snprintf(err, errsize, "could not build the request");
+		goto done;
 	}
 
 	if (headers[0] && !ghostnetWide(headers, wheaders, ARRAYCOUNT(wheaders))) {
@@ -602,6 +716,21 @@ static void ghostnetJsonEscape(const char *src, char *dst, u32 dstsize)
 	dst[i] = '\0';
 }
 
+/**
+ * Whether a reply says it worked.
+ *
+ * Read as a field rather than matched as text: "\"ok\": true" is one server's
+ * choice of spacing, and a server that answered "\"ok\":true" - the same reply
+ * without the space, which most JSON writers emit - was read as a failure.
+ */
+static bool ghostnetJsonOk(const char *json)
+{
+	char value[8];
+
+	return ghostnetJsonField(json, NULL, "ok", value, sizeof(value))
+			&& !strcasecmp(value, "true");
+}
+
 static bool ghostnetPostCredentials(const char *endpoint, char *msg, u32 msgsize)
 {
 	struct ghostnetbuf buf = { NULL, 0 };
@@ -630,12 +759,12 @@ static bool ghostnetPostCredentials(const char *endpoint, char *msg, u32 msgsize
 		return false;
 	}
 
-	if (buf.data && strstr(buf.data, "\"ok\": true")) {
+	if (buf.data && ghostnetJsonOk(buf.data)) {
 		ok = true;
 	} else {
 		char err[96];
 
-		if (buf.data && ghostnetJsonField(buf.data, "error", err, sizeof(err))) {
+		if (buf.data && ghostnetJsonField(buf.data, NULL, "error", err, sizeof(err))) {
 			snprintf(msg, msgsize, "%s", err);
 		} else {
 			snprintf(msg, msgsize, "server said %d", status);
@@ -680,12 +809,12 @@ static bool ghostnetUploadFile(const char *rel, char *msg, u32 msgsize)
 		return false;
 	}
 
-	if (buf.data && strstr(buf.data, "\"ok\": true")) {
+	if (buf.data && ghostnetJsonOk(buf.data)) {
 		ok = true;
 	} else {
 		char err[96];
 
-		if (buf.data && ghostnetJsonField(buf.data, "error", err, sizeof(err))) {
+		if (buf.data && ghostnetJsonField(buf.data, NULL, "error", err, sizeof(err))) {
 			snprintf(msg, msgsize, "%s", err);
 		} else {
 			snprintf(msg, msgsize, "upload refused (%d)", status);
@@ -902,27 +1031,34 @@ static bool ghostnetFetchBoardNow(char *msg, u32 msgsize)
 
 	while (count < GHOSTNET_MAXBOARD) {
 		char num[24];
-		const char *next = strstr(at, "{\"id\"");
+		const char *row = strstr(at, "{\"id\"");
+		const char *rowend;
 
-		if (next == NULL) {
+		if (row == NULL) {
 			break;
 		}
 
-		at = next + 1;
+		// Past the brace, so the search for where this row ends does not find
+		// this row's own opening again. Every lookup below is bounded to the
+		// span between the two, which is what stops a row missing a field from
+		// quietly taking the next row's.
+		row++;
+		rowend = strstr(row, "{\"id\"");
+		at = rowend ? rowend : row;
 
-		if (!ghostnetJsonField(at, "id", num, sizeof(num))) {
+		if (!ghostnetJsonField(row, rowend, "id", num, sizeof(num))) {
 			break;
 		}
 
 		g_Board[count].id = atoi(num);
 
-		if (ghostnetJsonField(at, "time60", num, sizeof(num))) {
+		if (ghostnetJsonField(row, rowend, "time60", num, sizeof(num))) {
 			g_Board[count].time60 = (u32)atoi(num);
 		} else {
 			g_Board[count].time60 = 0;
 		}
 
-		if (!ghostnetJsonField(at, "user", g_Board[count].user, sizeof(g_Board[count].user))) {
+		if (!ghostnetJsonField(row, rowend, "user", g_Board[count].user, sizeof(g_Board[count].user))) {
 			g_Board[count].user[0] = '\0';
 		}
 
@@ -930,7 +1066,7 @@ static bool ghostnetFetchBoardNow(char *msg, u32 msgsize)
 		// there, so this is a belt on top of braces - but a row that arrived
 		// from a server with a looser policy should be readable as what it is
 		// rather than quietly ranked beside runs it cannot be compared with.
-		if (ghostnetJsonField(at, "trialrules", num, sizeof(num))) {
+		if (ghostnetJsonField(row, rowend, "trialrules", num, sizeof(num))) {
 			g_Board[count].trialrules = atoi(num) != 0;
 		} else {
 			g_Board[count].trialrules = false;
@@ -939,8 +1075,8 @@ static bool ghostnetFetchBoardNow(char *msg, u32 msgsize)
 		// The character, when the server is new enough to send it. A board that
 		// does not know about these leaves them zero, which reads as the
 		// default rather than as a body index that means something else.
-		g_Board[count].mpbody = ghostnetJsonField(at, "mpbody", num, sizeof(num)) ? (u8)atoi(num) : 0;
-		g_Board[count].mphead = ghostnetJsonField(at, "mphead", num, sizeof(num)) ? (u8)atoi(num) : 0;
+		g_Board[count].mpbody = ghostnetJsonField(row, rowend, "mpbody", num, sizeof(num)) ? (u8)atoi(num) : 0;
+		g_Board[count].mphead = ghostnetJsonField(row, rowend, "mphead", num, sizeof(num)) ? (u8)atoi(num) : 0;
 
 		g_Board[count].have = false;
 		count++;
@@ -1054,7 +1190,9 @@ static int ghostnetWorker(void *arg)
 
 static bool ghostnetStart(s32 job)
 {
-	if (g_State == GHOSTNET_BUSY) {
+	// Through the accessor, which takes the lock. The worker writes g_State
+	// under it, and this file's rule is that nothing reads it any other way.
+	if (ghostnetGetState() == GHOSTNET_BUSY) {
 		return false;
 	}
 
