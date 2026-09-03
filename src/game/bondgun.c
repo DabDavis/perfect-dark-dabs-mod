@@ -6721,7 +6721,7 @@ void bgunUpdateGangsta(struct hand *hand, s32 handnum, struct coord *arg2, struc
 void bgunUpdateSmoke(struct hand *hand, s32 handnum, s32 weaponnum, struct weaponfunc *funcdef)
 {
 	if (hand->firing) {
-		if (weaponnum == WEAPON_DY357MAGNUM || weaponnum == WEAPON_DY357LX) {
+		if (weaponHasFlag2(weaponnum, WEAPONFLAG2_HEAVYSMOKE)) {
 			if ((funcdef->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 				hand->gunsmokepoint += 0.6f;
 			}
@@ -7446,7 +7446,7 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 	if (funcdef) {
 		ground = g_Vars.currentplayer->vv_ground;
 
-		if (modeldef && weaponnum != WEAPON_DY357MAGNUM && weaponnum != WEAPON_DY357LX) {
+		if (modeldef && !weaponHasFlag2(weaponnum, WEAPONFLAG2_NOCARTEJECT)) {
 			s32 partnum = MODELPART_GUN_CARTEJECTPOS;
 			struct modelnode *node;
 
@@ -11231,13 +11231,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		return;
 	}
 
-	if (gset->weaponnum == WEAPON_REMOTEMINE
-			|| gset->weaponnum == WEAPON_PROXIMITYMINE
-			|| gset->weaponnum == WEAPON_TIMEDMINE
-			|| gset->weaponnum == WEAPON_COMMSRIDER
-			|| gset->weaponnum == WEAPON_TRACERBUG
-			|| gset->weaponnum == WEAPON_TARGETAMPLIFIER
-			|| gset->weaponnum == WEAPON_ECMMINE) {
+	if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LANDSONHIT)) {
 		psCreate(NULL, prop, SFX_80AA, -1, -1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
 		return;
 	}
@@ -11376,13 +11370,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		return;
 	}
 
-	if (gset->weaponnum == WEAPON_REMOTEMINE
-			|| gset->weaponnum == WEAPON_PROXIMITYMINE
-			|| gset->weaponnum == WEAPON_TIMEDMINE
-			|| gset->weaponnum == WEAPON_COMMSRIDER
-			|| gset->weaponnum == WEAPON_TRACERBUG
-			|| gset->weaponnum == WEAPON_TARGETAMPLIFIER
-			|| gset->weaponnum == WEAPON_ECMMINE) {
+	if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LANDSONHIT)) {
 		psCreate(NULL, prop, SFX_80AA, -1, -1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
 		return;
 	}
@@ -11551,13 +11539,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 			soundnum = SFX_HIT_METAL_8079;
 			sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 			overridden = true;
-		} else if (gset->weaponnum == WEAPON_REMOTEMINE
-				|| gset->weaponnum == WEAPON_PROXIMITYMINE
-				|| gset->weaponnum == WEAPON_TIMEDMINE
-				|| gset->weaponnum == WEAPON_COMMSRIDER
-				|| gset->weaponnum == WEAPON_TRACERBUG
-				|| gset->weaponnum == WEAPON_TARGETAMPLIFIER
-				|| gset->weaponnum == WEAPON_ECMMINE) {
+		} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LANDSONHIT)) {
 			// Mine landing/activation sound
 			soundnum = SFX_80AA;
 			sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
@@ -11645,13 +11627,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 			soundnum = SFX_HIT_METAL_8079;
 			sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 			overridden = true;
-		} else if (gset->weaponnum == WEAPON_REMOTEMINE
-				|| gset->weaponnum == WEAPON_PROXIMITYMINE
-				|| gset->weaponnum == WEAPON_TIMEDMINE
-				|| gset->weaponnum == WEAPON_COMMSRIDER
-				|| gset->weaponnum == WEAPON_TRACERBUG
-				|| gset->weaponnum == WEAPON_TARGETAMPLIFIER
-				|| gset->weaponnum == WEAPON_ECMMINE) {
+		} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LANDSONHIT)) {
 			// Mine landing/activation sound
 			sndStart(var80095200, SFX_80AA, handle, -1, -1, -1, -1, -1);
 			overridden = true;

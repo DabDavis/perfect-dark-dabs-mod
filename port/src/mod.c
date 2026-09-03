@@ -435,6 +435,9 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "chargeable",       WEAPONFLAG2_CHARGEABLE },
 			{ "missioncritical",  WEAPONFLAG2_MISSIONCRITICAL },
 			{ "noeject",          WEAPONFLAG2_NOEJECT },
+			{ "landsonhit",       WEAPONFLAG2_LANDSONHIT },
+			{ "nocarteject",      WEAPONFLAG2_NOCARTEJECT },
+			{ "heavysmoke",       WEAPONFLAG2_HEAVYSMOKE },
 		};
 
 		s32 handled = false;

@@ -4757,6 +4757,9 @@ enum weaponnum {
 #define WEAPONFLAG2_CHARGEABLE       0x00000004 // Holding the trigger winds the shot up
 #define WEAPONFLAG2_MISSIONCRITICAL  0x00000008 // Never dropped on disarm: the mission may need it
 #define WEAPONFLAG2_NOEJECT          0x00000010 // Throws the whole thing, so there is no casing to eject
+#define WEAPONFLAG2_LANDSONHIT       0x00000020 // A device that lands rather than strikes: mine sound, no ricochet
+#define WEAPONFLAG2_NOCARTEJECT      0x00000040 // No cartridge eject position on the model
+#define WEAPONFLAG2_HEAVYSMOKE       0x00000080 // Smokes harder per shot
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

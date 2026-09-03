@@ -489,7 +489,7 @@ weapon 15 { unequippedreload 1 unequippedreloadindex 1 pumpaction 1 }
 ```
 
 Read them with `weaponHasFlag2()`, beside the `weaponHasFlag()` the first word
-already had. Five are converted so far; `bondgun.c` still has around 140 weapon
+already had. Eight are converted so far; `bondgun.c` still has around 114 weapon
 number comparisons, and `tools/modcodediff` says which of them a given mod cares
 about.
 
@@ -498,6 +498,12 @@ about.
 miscounting, and a `_Static_assert` keeps its length tied to the enum. It was a
 plain positional list until the first of these conversions, where an off-by-one
 would have been silent.
+
+**Dump the flags and check them against the list you replaced.** The designators
+stop a behaviour landing on the wrong gun; they do not stop it landing in the
+wrong *field*. Appending a second `flags2` initialiser to a weapon that already
+had one put `WEAPONFLAG2_LANDSONHIT` into `unequippedreloadindex`, which built
+cleanly and gave the remote mine a reload index of 32.
 
 ## Debugging
 
