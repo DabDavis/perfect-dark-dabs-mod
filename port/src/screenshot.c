@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
-#include <zlib.h>
 #include <PR/ultratypes.h>
 #include <PR/os_thread.h>
 #include <PR/os_cont.h>
@@ -11,6 +10,7 @@
 #include "config.h"
 #include "fs.h"
 #include "input.h"
+#include "pngwrite.h"
 #include "screenshot.h"
 #include "system.h"
 #include "video.h"
@@ -31,117 +31,6 @@
 static char keyName[SCREENSHOT_KEYNAME_LEN] = SCREENSHOT_DEFAULT_KEY;
 static s32 keyVk = -1; // -1 until keyName has been looked up
 static bool pending;
-
-/**
- * PNG is a zlib stream wrapped in chunks, and zlib is already a dependency
- * because the ROM is compressed with it, so the whole encoder is these two
- * functions rather than another vendored header.
- */
-static void pngWriteU32(FILE *f, u32 val)
-{
-	const u8 buf[4] = { val >> 24, val >> 16, val >> 8, val };
-	fwrite(buf, 1, sizeof(buf), f);
-}
-
-static void pngWriteChunk(FILE *f, const char *type, const u8 *data, u32 len)
-{
-	u32 crc = crc32(0, (const u8 *)type, 4);
-
-	if (len) {
-		crc = crc32(crc, data, len);
-	}
-
-	pngWriteU32(f, len);
-	fwrite(type, 1, 4, f);
-
-	if (len) {
-		fwrite(data, 1, len, f);
-	}
-
-	pngWriteU32(f, crc);
-}
-
-/**
- * rgb holds tightly packed RGB triples with the bottom row first, which is what
- * the renderer reads back and the reverse of the order PNG stores. The flip
- * happens here, while the rows are being copied anyway to make room for the
- * per-row filter byte that PNG puts in front of each one. Filter 0 (none) is
- * used throughout: the frame is already going through deflate, and choosing
- * filters per row would cost more than it saves on a picture this size.
- */
-static bool screenshotWritePng(const char *filename, const u8 *rgb, s32 width, s32 height)
-{
-	const uLong stride = 1 + (uLong)width * 3;
-	const uLong rawSize = stride * (uLong)height;
-	uLong zSize = compressBound(rawSize);
-	u8 *raw = malloc(rawSize);
-	u8 *z = malloc(zSize);
-	FILE *f = NULL;
-	u8 ihdr[13];
-	s32 y;
-
-	if (!raw || !z) {
-		free(raw);
-		free(z);
-		sysLogPrintf(LOG_ERROR, "screenshot: could not alloc %lu bytes", (unsigned long)(rawSize + zSize));
-		return false;
-	}
-
-	for (y = 0; y < height; y++) {
-		u8 *dst = raw + stride * y;
-		*dst++ = 0;
-		memcpy(dst, rgb + (uLong)(height - 1 - y) * width * 3, (uLong)width * 3);
-	}
-
-	if (compress2(z, &zSize, raw, rawSize, Z_DEFAULT_COMPRESSION) != Z_OK) {
-		free(raw);
-		free(z);
-		sysLogPrintf(LOG_ERROR, "screenshot: could not compress %s", filename);
-		return false;
-	}
-
-	free(raw);
-
-	f = fopen(filename, "wb");
-
-	if (!f) {
-		free(z);
-		sysLogPrintf(LOG_ERROR, "screenshot: could not open %s for writing", filename);
-		return false;
-	}
-
-	fwrite("\x89PNG\r\n\x1a\n", 1, 8, f);
-
-	ihdr[0] = width >> 24;
-	ihdr[1] = width >> 16;
-	ihdr[2] = width >> 8;
-	ihdr[3] = width;
-	ihdr[4] = height >> 24;
-	ihdr[5] = height >> 16;
-	ihdr[6] = height >> 8;
-	ihdr[7] = height;
-	ihdr[8] = 8;  // bits per channel
-	ihdr[9] = 2;  // colour type: truecolour, no alpha
-	ihdr[10] = 0; // deflate
-	ihdr[11] = 0; // adaptive filtering
-	ihdr[12] = 0; // no interlace
-
-	pngWriteChunk(f, "IHDR", ihdr, sizeof(ihdr));
-	pngWriteChunk(f, "IDAT", z, zSize);
-	pngWriteChunk(f, "IEND", NULL, 0);
-
-	free(z);
-
-	if (ferror(f)) {
-		fclose(f);
-		sysLogPrintf(LOG_ERROR, "screenshot: could not write %s", filename);
-		return false;
-	}
-
-	fclose(f);
-
-	return true;
-}
 
 /**
  * screenshots/pd-20260901-143012.png, with -2, -3 and so on appended when a
@@ -223,7 +112,7 @@ static void screenshotPreSwap(void)
 	}
 
 	if (screenshotPickFilename(filename, sizeof(filename))
-			&& screenshotWritePng(filename, rgb, width, height)) {
+			&& pngWrite(filename, rgb, width, height, 3, true)) {
 		sysLogPrintf(LOG_NOTE, "screenshot: %s", filename);
 	}
 

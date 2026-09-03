@@ -7,6 +7,7 @@
 #include "platform.h"
 #include "config.h"
 #include "system.h"
+#include "texpack.h"
 #include "video.h"
 
 #include "../fast3d/gfx_api.h"
@@ -657,19 +658,27 @@ void videoCopyFramebuffer(s32 dst, s32 src, s32 left, s32 top)
 	gfx_copy_framebuffer(dst, src, left, top, false);
 }
 
+// The texture id registry is keyed on the same pool addresses the renderer's
+// cache is, and goes stale the same way when a pool is reused, so the two are
+// dropped together. A registry entry outliving its pool is worse than a missing
+// one: it would name whichever texture landed on that address next.
+
 void videoResetTextureCache(void)
 {
 	gfx_texture_cache_clear();
+	texpackForgetAll();
 }
 
 void videoFreeCachedTexture(const void *texptr)
 {
 	gfx_texture_cache_delete(texptr);
+	texpackForgetTexture(texptr);
 }
 
 void videoFreeCachedTextures(const void *start, const void *end)
 {
 	gfx_texture_cache_delete_range(start, end);
+	texpackForgetRange(start, end);
 }
 
 void videoShutdown(void)

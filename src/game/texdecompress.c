@@ -13,6 +13,7 @@
 #ifndef PLATFORM_N64
 #include "mod.h"
 #include "platform.h"
+#include "texpack.h"
 #endif
 
 struct texture *g_Textures;
@@ -2377,6 +2378,13 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 				texGetPoolFreeBytes(pool);
 			}
 		}
+
+#ifndef PLATFORM_N64
+		// Past this point the texture is only ever a pointer: the GBI carries
+		// tex->data and nothing else, so the renderer cannot tell one texture
+		// from another. Record the pairing while both halves are still in hand.
+		texpackRegisterTexture(tex->data, tex->texturenum);
+#endif
 
 		*updateword = osVirtualToPhysical(tex->data);
 	}
