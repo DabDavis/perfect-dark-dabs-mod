@@ -5851,6 +5851,11 @@ Gfx *menuRender(Gfx *gdl)
 	}
 
 #ifndef PLATFORM_N64
+	// While a texture pack is being built. Here rather than at the end of the
+	// frame because the 2D state this needs is the one already set up around
+	// everything else menuRender() draws.
+	gdl = upscalemenuRenderOverlay(gdl);
+
 	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
 #endif
 

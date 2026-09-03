@@ -42,6 +42,7 @@
 #include "game/lang.h"
 #include "game/lv.h"
 #include "game/menu.h"
+#include "game/mainmenu.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
 #include "game/mplayer/setup.h"
@@ -1441,6 +1442,13 @@ Gfx *lvRender(Gfx *gdl)
 
 				if (var80075d60 == 2) {
 					gdl = playerRenderHud(gdl);
+
+#ifndef PLATFORM_N64
+					// While a texture pack is being built. Drawn with the HUD
+					// because that is the 2D pass over the world; menuRender()
+					// only runs when the menu system is up.
+					gdl = upscalemenuRenderOverlay(gdl);
+#endif
 
 #ifdef DEBUG
 					gdl = lvRenderManPosIfEnabled(gdl);

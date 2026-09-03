@@ -9,6 +9,7 @@
 #include "game/mainmenu.h"
 #include "game/menu.h"
 #include "game/menugfx.h"
+#include "game/game_1531a0.h"
 #include "lib/vi.h"
 #include "bss.h"
 #include "game/gamefile.h"
@@ -3460,6 +3461,74 @@ Gfx *upscalemenuRenderProgress(Gfx *gdl)
 	return gdl;
 }
 
+
+/**
+ * The same bar again, in the corner of the screen, so a run can be left going.
+ *
+ * Seven minutes is long enough that nobody should have to sit on the options
+ * page watching it, and the work is on a worker thread and a subprocess - the
+ * game is perfectly playable meanwhile. Drawn at the end of the frame, over
+ * whatever the game happens to be showing.
+ *
+ * Hidden while the page that starts it is open, which draws its own.
+ */
+#define UPSCALE_HUDMARGIN 8
+
+Gfx *upscalemenuRenderOverlay(Gfx *gdl)
+{
+	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	const s32 state = upscaleGetState();
+	const s32 percent = upscaleGetPercent();
+	char text[64];
+	s32 viewleft;
+	s32 viewtop;
+	s32 x1;
+	s32 y1;
+	s32 x;
+	s32 y;
+
+	if (state != UPSCALE_PREPARING && state != UPSCALE_RUNNING && state != UPSCALE_FINISHING) {
+		return gdl;
+	}
+
+	if (dialog && dialog->definition == &g_ExtendedUpscaleMenuDialog) {
+		return gdl;
+	}
+
+	viewleft = viGetViewLeft() / g_ScaleX;
+	viewtop = viGetViewTop();
+
+	x1 = viewleft + UPSCALE_HUDMARGIN;
+	y1 = viewtop + viGetViewHeight() - UPSCALE_HUDMARGIN - UPSCALE_BARHEIGHT;
+
+	// Written rather than drawn. menugfxDrawFilledRect() renders nothing from
+	// the HUD pass - with or without a scissor of our own - while the text
+	// path does, and a percentage says as much as a bar of this size would.
+	// The page that starts the run draws a real bar; see
+	// upscalemenuRenderProgress().
+	snprintf(text, sizeof(text), "Upscaling %d%%", percent);
+
+	gdl = text0f153628(gdl);
+
+	// Drawn twice, the darker copy a pixel down and right, so the label stays
+	// readable over whatever colour the game is showing behind it.
+	x = x1 + 1;
+	y = y1 - 10;
+	gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, colours->dialog_titlefg & 0xff,
+			viGetViewWidth() / g_ScaleX, viGetHeight(), 0, 0);
+
+	x = x1;
+	y = y1 - 11;
+	gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, colours->dialog_titlefg,
+			viGetViewWidth() / g_ScaleX, viGetHeight(), 0, 0);
+
+	gdl = text0f153780(gdl);
+
+	return gdl;
+}
 
 struct menuitem g_ExtendedTexturePackMenuItems[] = {
 	{
