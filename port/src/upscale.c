@@ -1089,6 +1089,66 @@ void upscaleFetchFromCommandLine(void)
 	exit(upscaleIsAvailable() ? 0 : 1);
 }
 
+/**
+ * --upscayl-build: build a pack and stop, without touching the menus.
+ *
+ * Downloads whatever is missing first, so one command takes a machine from
+ * nothing to a finished pack. Also the only way to exercise the run on a
+ * platform where driving the menus is not practical.
+ */
+void upscaleBuildFromCommandLine(void)
+{
+	s32 last = -1;
+
+	if (!sysArgCheck("--upscayl-build")) {
+		return;
+	}
+
+	if (upscaleGetDownloadMb() > 0) {
+		if (!upscaleInstall()) {
+			sysLogPrintf(LOG_ERROR, "upscale: could not start the download");
+			exit(1);
+		}
+
+		while (SDL_AtomicGet(&installBusy)) {
+			SDL_Delay(200);
+		}
+
+		upscaleRedetect();
+	}
+
+	if (!upscaleIsAvailable()) {
+		sysLogPrintf(LOG_ERROR, "upscale: %s", installStatus);
+		exit(1);
+	}
+
+	if (!upscaleStart()) {
+		sysLogPrintf(LOG_ERROR, "upscale: %s", statusText);
+		exit(1);
+	}
+
+	while (state != UPSCALE_DONE && state != UPSCALE_FAILED) {
+		const s32 pct = upscaleGetPercent();
+
+		upscaleTick();
+
+		if (pct / 10 != last) {
+			last = pct / 10;
+			sysLogPrintf(LOG_NOTE, "upscale: %s %d%%", statusText, pct);
+		}
+
+		// Only the writing-out stage wants the main thread; the rest is a
+		// worker, and spinning on it would take a core off the upscaler.
+		if (state != UPSCALE_PREPARING) {
+			SDL_Delay(250);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "upscale: %s", statusText);
+
+	exit(state == UPSCALE_DONE ? 0 : 1);
+}
+
 void upscaleTick(void)
 {
 	if (state == UPSCALE_PREPARING) {

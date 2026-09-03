@@ -254,6 +254,7 @@ void mainInit(void)
 	texInit();
 	texpackDumpAll(); // --dump-textures only; exits when it does anything
 	upscaleFetchFromCommandLine(); // --upscayl-fetch only; likewise
+	upscaleBuildFromCommandLine(); // --upscayl-build only; likewise
 	langInit();
 	lvInit();
 	cheatsInit();
