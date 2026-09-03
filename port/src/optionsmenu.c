@@ -3098,6 +3098,97 @@ static const char *menutextTexturePackReload(struct menuitem *item)
 }
 
 /**
+ * Asking before downloading anything.
+ *
+ * Upscayl is not shipped with the game and is not small, and it lands in the
+ * player's game directory - all three of which are things to say before doing
+ * it rather than after. The size is worked out from what is actually missing,
+ * because the models are not all the same size and the decoder only comes down
+ * once.
+ */
+static char g_UpscaleDownloadText[128];
+
+static const char *menutextUpscaleDownloadSize(struct menuitem *item)
+{
+	snprintf(g_UpscaleDownloadText, sizeof(g_UpscaleDownloadText),
+			"Download Upscayl? About %dMB.\n", upscaleGetDownloadMb());
+
+	return g_UpscaleDownloadText;
+}
+
+static MenuItemHandlerResult menuhandlerUpscaleDownloadConfirm(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		upscaleInstall();
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedUpscaleDownloadMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextUpscaleDownloadSize,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"It will be saved in your game directory.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_SELECTABLE_CENTRE,
+		L_OPTIONS_385, // "No"
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_SELECTABLE_CENTRE,
+		L_OPTIONS_386, // "Yes"
+		0,
+		menuhandlerUpscaleDownloadConfirm,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedUpscaleDownloadMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Upscayl",
+	g_ExtendedUpscaleDownloadMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * Downloads if there is something to download, having asked first.
+ */
+static void menuUpscaleAskToDownload(void)
+{
+	if (upscaleGetDownloadMb() > 0) {
+		menuPushDialog(&g_ExtendedUpscaleDownloadMenuDialog);
+	}
+}
+
+/**
  * Upscaling, as a page of the options.
  *
  * The settings are Upscayl's own, so someone who has used it recognises them.
@@ -3107,7 +3198,9 @@ static MenuItemHandlerResult menuhandlerUpscaleModel(s32 operation, struct menui
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return !upscaleIsAvailable() || upscaleGetState() == UPSCALE_PREPARING
+		// Pickable before anything is installed: choosing which model to
+		// fetch is the point of marking the missing ones.
+		return upscaleGetState() == UPSCALE_PREPARING
 				|| upscaleGetState() == UPSCALE_RUNNING;
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = upscaleGetNumModels();
@@ -3123,9 +3216,9 @@ static MenuItemHandlerResult menuhandlerUpscaleModel(s32 operation, struct menui
 	}
 	case MENUOP_SET:
 		upscaleSetModel(data->dropdown.value);
-		// Fetch it now rather than at the start of a run, so that choosing is
-		// separate from waiting.
-		upscaleInstall();
+		// Ask now rather than at the start of a run, so that choosing a model
+		// is separate from waiting for one.
+		menuUpscaleAskToDownload();
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = upscaleGetModel();
@@ -3284,10 +3377,10 @@ static MenuItemHandlerResult menuhandlerUpscaleStart(s32 operation, struct menui
 	case MENUOP_SET:
 		if (state == UPSCALE_PREPARING || state == UPSCALE_RUNNING || state == UPSCALE_FINISHING) {
 			upscaleCancel();
-		} else if (!upscaleIsAvailable()) {
-			// Nothing to run yet, so this button fetches it instead. The next
-			// press starts the run.
-			upscaleInstall();
+		} else if (upscaleGetDownloadMb() > 0) {
+			// Nothing to run with yet, so this button asks about fetching it.
+			// The next press starts the run.
+			menuUpscaleAskToDownload();
 		} else {
 			upscaleStart();
 		}

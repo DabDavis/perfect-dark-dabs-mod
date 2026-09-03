@@ -46,6 +46,12 @@ s32 upscaleModelIsPresent(s32 index);
  * releases and the chosen model from the Upscayl repository, one at a time.
  */
 s32 upscaleInstall(void);
+
+/**
+ * How much a download would be, in megabytes, counting only what is missing.
+ * Zero when there is nothing to fetch.
+ */
+s32 upscaleGetDownloadMb(void);
 s32 upscaleIsInstalling(void);
 const char *upscaleGetInstallStatus(void);
 void upscaleRedetect(void);

@@ -216,6 +216,14 @@ static const char *const upscaleKnownModels[] = {
 	"digital-art-4x",
 };
 
+// Roughly what each comes to on disk, for the prompt. They are not all the same
+// size - the lite one is a fortieth of the others - so a single figure would be
+// wrong for most of them.
+static const s32 upscaleModelMb[] = { 32, 3, 32, 32, 32, 32, 9 };
+
+// And the decoder itself, unpacked.
+#define UPSCALE_BIN_MB 12
+
 static void upscaleScanModels(void)
 {
 	s32 i;
@@ -510,6 +518,28 @@ static s32 upscaleInstaller(void *arg)
 	SDL_AtomicSet(&installBusy, 0);
 
 	return 0;
+}
+
+/**
+ * How much would be downloaded if it started now, in megabytes.
+ *
+ * Only what is actually missing: with the decoder already down, choosing
+ * another model is just that model.
+ */
+s32 upscaleGetDownloadMb(void)
+{
+	s32 mb = 0;
+
+	if (!upscaleIsAvailable()) {
+		mb += UPSCALE_BIN_MB;
+	}
+
+	if (!upscaleModelIsPresent(optModel)) {
+		mb += optModel < (s32)(sizeof(upscaleModelMb) / sizeof(upscaleModelMb[0]))
+				? upscaleModelMb[optModel] : 32;
+	}
+
+	return mb;
 }
 
 s32 upscaleIsInstalling(void)
