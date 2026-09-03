@@ -8,18 +8,26 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include <stdbool.h>
 #include <string.h>
 #include <time.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include <PR/os_thread.h>
 #include <PR/os_cont.h>
+#include <ultra64.h>
 #include "platform.h"
+// bool, true and false the way the rest of the port has them - <stdbool.h> and
+// types.h's `#define bool s32` cannot both be in one file, and every other
+// source here takes these two. ultra64.h comes first because constants.h
+// defines osSyncPrintf away, and os_libc.h still has to declare it.
+#include "constants.h"
+#include "types.h"
 #include "audio.h"
 #include "config.h"
 #include "fs.h"
 #include "input.h"
+#include "archive.h"
+#include "ghostnet.h"
 #include "record.h"
 #include "system.h"
 #include "video.h"
@@ -47,6 +55,39 @@
 #define RECORD_DEFAULT_ENCODER "ffmpeg"
 #define RECORD_CODECNAME_LEN 24
 #define RECORD_DEFAULT_CODEC "auto"
+
+/**
+ * Where a Windows player gets an encoder from.
+ *
+ * Nothing is bundled. ffmpeg is not ours to ship, the game spawns it rather
+ * than linking it - which is the same arrangement the upscaler has, and the
+ * reason neither one's licence reaches the release - and on Linux and macOS it
+ * is a package away and usually already there. Windows has no such thing, so
+ * the encoder is offered as a download the first time recording is switched on.
+ *
+ * The official FFmpeg repository publishes source and no binaries, so this
+ * comes from BtbN's builds, which are the ones everything else points at. The
+ * tag is pinned rather than "latest": latest is a rolling release whose assets
+ * are rebuilt daily, and a build that is known to work beats whichever one was
+ * published this morning.
+ *
+ * The shared build rather than the static one - 73MB against 162MB - so the
+ * whole bin/ folder is kept together and the exe inside it is what gets run.
+ */
+#define RECORD_FFMPEG_TAG   "autobuild-2026-09-02-13-13"
+#define RECORD_FFMPEG_ASSET "ffmpeg-N-126390-g9fc8c785e2-win64-gpl-shared.zip"
+#define RECORD_FFMPEG_URL   "https://github.com/BtbN/FFmpeg-Builds/releases/download"
+
+// What the download comes to, and what it leaves on disk once the player, the
+// prober and the documentation have been taken back off - both said in the
+// prompt, because they are not close and somebody agreeing to spend 73MB should
+// not be surprised by what lands. Measured, not estimated: the pruned install
+// is 165MB, of which 161MB is the three big libraries and not reducible.
+#define RECORD_FFMPEG_MB    73
+#define RECORD_FFMPEG_DISK  165
+
+// Where it lands, beside the game the way the upscaler does.
+#define RECORD_FFMPEG_DIR   "ffmpeg"
 
 // What the encoder detection encodes: three frames of black, big enough that no
 // encoder refuses it for being under its minimum.
@@ -115,6 +156,16 @@
 
 static char keyName[RECORD_KEYNAME_LEN] = RECORD_DEFAULT_KEY;
 static char encoderPath[FS_MAXPATH + 1] = RECORD_DEFAULT_ENCODER;
+
+/**
+ * Whether recording is on at all.
+ *
+ * -1 until something asks, because what the answer should be depends on the
+ * config having been read - see recordResolveEnabled().
+ */
+static s32 recordEnabled = -1;
+
+static s32 recordResolveEnabled(void);
 static char codecName[RECORD_CODECNAME_LEN] = RECORD_DEFAULT_CODEC;
 static s32 keyVk = -1; // -1 until keyName has been looked up
 static s32 recordFps = 60;
@@ -1859,9 +1910,18 @@ void recordToggle(void)
 {
 	if (active) {
 		recordStop();
-	} else {
-		recordStart();
+		return;
 	}
+
+	// A key press is not a reason to go and fetch an encoder. The row in Dab's
+	// Mod Options is where that is asked for, and until it has been the key
+	// does nothing rather than failing loudly once a frame.
+	if (!recordResolveEnabled()) {
+		sysLogPrintf(LOG_NOTE, "record: turn Video Recording on in Dab's Mod Options first");
+		return;
+	}
+
+	recordStart();
 }
 
 s32 recordIsActive(void)
@@ -2276,12 +2336,385 @@ void recordTick(void)
 	}
 }
 
+/**
+ * Whether recording is on, deciding it the first time it is asked.
+ *
+ * Off on Windows, where the encoder is a download that has not happened yet and
+ * the point of the setting is to ask before spending 73MB of somebody's
+ * connection. On for everyone else, where ffmpeg is a package away and usually
+ * already installed.
+ *
+ * The exception is a config that already names a codec: the search writes what
+ * it found back into Mod.RecordCodec, so a name there means this machine has
+ * recorded successfully before. Switching that off under somebody who has been
+ * using it would be a regression wearing a default's clothes.
+ */
+static s32 recordResolveEnabled(void)
+{
+	if (recordEnabled < 0) {
+#ifdef PLATFORM_WIN32
+		recordEnabled = codecName[0] && strcmp(codecName, RECORD_DEFAULT_CODEC) ? 1 : 0;
+#else
+		recordEnabled = 1;
+#endif
+	}
+
+	return recordEnabled;
+}
+
+s32 recordIsEnabled(void)
+{
+	return recordResolveEnabled();
+}
+
+void recordSetEnabled(s32 enabled)
+{
+	recordEnabled = enabled ? 1 : 0;
+}
+
+#ifdef PLATFORM_WIN32
+
+static SDL_atomic_t ffmpegBusy;
+static SDL_atomic_t ffmpegFailed;
+static char ffmpegStatus[128];
+static char ffmpegDir[FS_MAXPATH + 1];
+static SDL_Thread *ffmpegThread;
+
+static void recordFfmpegSetStatus(const char *fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(ffmpegStatus, sizeof(ffmpegStatus), fmt, args);
+	va_end(args);
+}
+
+/**
+ * Looks for bin/ffmpeg.exe one level down, so the folder the zip unpacks to can
+ * be named after whichever build it was without this having to know.
+ */
+struct recordFfmpegFind {
+	const char *root;
+	char found[FS_MAXPATH + 1];
+};
+
+static void recordFfmpegLookIn(const char *name, void *arg)
+{
+	struct recordFfmpegFind *find = arg;
+	char path[FS_MAXPATH + 1];
+
+	if (find->found[0]) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/%s/bin/ffmpeg.exe", find->root, name);
+
+	if (fsFileSize(path) > 0) {
+		snprintf(find->found, sizeof(find->found), "%s", path);
+	}
+}
+
+/**
+ * The downloaded encoder, if one is here. Empty when there is not.
+ */
+static const char *recordFfmpegInstalled(void)
+{
+	static char path[FS_MAXPATH + 1];
+	struct recordFfmpegFind find;
+	const char *roots[2];
+	u32 i;
+
+	roots[0] = fsFullPath("$E/" RECORD_FFMPEG_DIR);
+	snprintf(path, sizeof(path), "%s", roots[0]);
+	roots[0] = path;
+
+	{
+		static char alt[FS_MAXPATH + 1];
+		snprintf(alt, sizeof(alt), "%s", fsFullPath("$S/" RECORD_FFMPEG_DIR));
+		roots[1] = alt;
+	}
+
+	for (i = 0; i < 2; i++) {
+		memset(&find, 0, sizeof(find));
+		find.root = roots[i];
+		fsScanDir(roots[i], recordFfmpegLookIn, &find);
+
+		if (find.found[0]) {
+			snprintf(path, sizeof(path), "%s", find.found);
+			return path;
+		}
+	}
+
+	return "";
+}
+
+/**
+ * The parts of a shared build that a recorder never runs: the player, the
+ * prober, the documentation and the licences. Three quarters of what is on disk
+ * after this is avcodec and avfilter, which are not optional - but eighteen
+ * megabytes of ffplay.exe and a folder of HTML are.
+ */
+static void recordFfmpegPruneEntry(const char *name, void *arg)
+{
+	const char *dir = arg;
+	char path[FS_MAXPATH + 1];
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	remove(path);
+}
+
+static void recordFfmpegPrune(const char *binPath)
+{
+	char path[FS_MAXPATH + 1];
+	char root[FS_MAXPATH + 1];
+	char *cut;
+	s32 i;
+
+	// binPath is <root>/bin/ffmpeg.exe; the two cuts walk back up to <root>.
+	snprintf(root, sizeof(root), "%s", binPath);
+	cut = strrchr(root, '/');
+
+	if (!cut) {
+		return;
+	}
+
+	*cut = '\0';
+
+	snprintf(path, sizeof(path), "%s/ffplay.exe", root);
+	remove(path);
+	snprintf(path, sizeof(path), "%s/ffprobe.exe", root);
+	remove(path);
+
+	cut = strrchr(root, '/');
+
+	if (!cut) {
+		return;
+	}
+
+	*cut = '\0';
+
+	// fsScanDir does not report names beginning with a dot, and nothing here
+	// starts with one. Round more than once because removing entries while
+	// reading a directory need not visit all of them.
+	snprintf(path, sizeof(path), "%s/doc", root);
+
+	for (i = 0; i < 8; i++) {
+		if (fsScanDir(path, recordFfmpegPruneEntry, path) <= 0) {
+			break;
+		}
+	}
+
+	rmdir(path);
+}
+
+static int recordFfmpegWorker(void *arg)
+{
+	char url[512];
+	char zip[FS_MAXPATH + 1];
+	struct ghostnetreq req;
+	struct ghostnetbuf buf;
+	char err[256];
+	s32 status = 0;
+	FILE *f;
+	const char *bin;
+
+	(void)arg;
+
+	snprintf(url, sizeof(url), RECORD_FFMPEG_URL "/%s/%s", RECORD_FFMPEG_TAG, RECORD_FFMPEG_ASSET);
+	snprintf(zip, sizeof(zip), "%s/ffmpeg.zip", ffmpegDir);
+
+	recordFfmpegSetStatus("Downloading ffmpeg...");
+
+	f = fopen(zip, "wb");
+
+	if (!f) {
+		recordFfmpegSetStatus("Could not write to %s", ffmpegDir);
+		SDL_AtomicSet(&ffmpegFailed, 1);
+		SDL_AtomicSet(&ffmpegBusy, 0);
+		return 0;
+	}
+
+	memset(&req, 0, sizeof(req));
+	memset(&buf, 0, sizeof(buf));
+	req.url = url;
+	req.redirect = true; // a release asset is a redirect to wherever it lives
+	req.timeout = 1800;
+	buf.sink = f;
+
+	if (!ghostnetSend(&req, &buf, &status, err, sizeof(err)) || status != 200) {
+		fclose(f);
+		remove(zip);
+		sysLogPrintf(LOG_ERROR, "record: %s: %s", url, err[0] ? err : "download failed");
+		recordFfmpegSetStatus("Could not download ffmpeg");
+		SDL_AtomicSet(&ffmpegFailed, 1);
+		SDL_AtomicSet(&ffmpegBusy, 0);
+		return 0;
+	}
+
+	fclose(f);
+
+	recordFfmpegSetStatus("Unpacking ffmpeg...");
+
+	if (archiveExtract(zip, ffmpegDir) <= 0) {
+		remove(zip);
+		recordFfmpegSetStatus("Could not unpack ffmpeg");
+		SDL_AtomicSet(&ffmpegFailed, 1);
+		SDL_AtomicSet(&ffmpegBusy, 0);
+		return 0;
+	}
+
+	remove(zip);
+
+	bin = recordFfmpegInstalled();
+
+	if (!bin[0]) {
+		recordFfmpegSetStatus("No ffmpeg.exe in what was unpacked");
+		SDL_AtomicSet(&ffmpegFailed, 1);
+		SDL_AtomicSet(&ffmpegBusy, 0);
+		return 0;
+	}
+
+	recordFfmpegPrune(bin);
+
+	// Named outright rather than left to the PATH, which is where it is not.
+	snprintf(encoderPath, sizeof(encoderPath), "%s", bin);
+	sysLogPrintf(LOG_NOTE, "record: using %s", encoderPath);
+
+	recordFfmpegSetStatus("Ready");
+	SDL_AtomicSet(&ffmpegBusy, 0);
+
+	return 0;
+}
+
+s32 recordEncoderIsMissing(void)
+{
+	// Something the player named themselves is theirs to get right.
+	if (strcmp(encoderPath, RECORD_DEFAULT_ENCODER)) {
+		return 0;
+	}
+
+	return recordFfmpegInstalled()[0] == '\0';
+}
+
+s32 recordEncoderDownloadMb(void)
+{
+	return recordEncoderIsMissing() ? RECORD_FFMPEG_MB : 0;
+}
+
+s32 recordEncoderDownloadDiskMb(void)
+{
+	return RECORD_FFMPEG_DISK;
+}
+
+s32 recordEncoderIsFetching(void)
+{
+	return SDL_AtomicGet(&ffmpegBusy);
+}
+
+const char *recordEncoderFetchStatus(void)
+{
+	return ffmpegStatus;
+}
+
+/**
+ * --fetch-ffmpeg: download it and stop, for a machine being set up by a script.
+ *
+ * The same job the menu row does, without the menu - which is also the only way
+ * to exercise the download, the unpacking and the pruning end to end, the page
+ * that starts it not being drivable from a test.
+ */
+void recordFetchFromCommandLine(void)
+{
+#ifdef PLATFORM_WIN32
+	if (!sysArgCheck("--fetch-ffmpeg")) {
+		return;
+	}
+
+	if (!recordFetchEncoder()) {
+		sysLogPrintf(LOG_ERROR, "record: %s", ffmpegStatus);
+		exit(1);
+	}
+
+	while (SDL_AtomicGet(&ffmpegBusy)) {
+		SDL_Delay(200);
+	}
+
+	sysLogPrintf(LOG_NOTE, "record: %s", ffmpegStatus);
+	sysLogPrintf(LOG_NOTE, "record: encoder is %s", encoderPath);
+
+	exit(SDL_AtomicGet(&ffmpegFailed) ? 1 : 0);
+#endif
+}
+
+s32 recordFetchEncoder(void)
+{
+	char rel[FS_MAXPATH + 1];
+
+	if (SDL_AtomicGet(&ffmpegBusy)) {
+		return 0;
+	}
+
+	if (ffmpegThread) {
+		SDL_WaitThread(ffmpegThread, NULL);
+		ffmpegThread = NULL;
+	}
+
+	if (fsChooseOutputDir(RECORD_FFMPEG_DIR, rel, sizeof(rel)) != 0) {
+		recordFfmpegSetStatus("Nowhere to install ffmpeg");
+		return 0;
+	}
+
+	snprintf(ffmpegDir, sizeof(ffmpegDir), "%s", fsFullPath(rel));
+
+	SDL_AtomicSet(&ffmpegBusy, 1);
+	SDL_AtomicSet(&ffmpegFailed, 0);
+	recordFfmpegSetStatus("Starting...");
+
+	ffmpegThread = SDL_CreateThread(recordFfmpegWorker, "pd-ffmpeg-get", NULL);
+
+	if (!ffmpegThread) {
+		SDL_AtomicSet(&ffmpegBusy, 0);
+		recordFfmpegSetStatus("Could not start the download");
+		return 0;
+	}
+
+	return 1;
+}
+
+#else
+
+s32 recordEncoderIsMissing(void) { return 0; }
+s32 recordEncoderDownloadMb(void) { return 0; }
+s32 recordEncoderDownloadDiskMb(void) { return 0; }
+s32 recordEncoderIsFetching(void) { return 0; }
+const char *recordEncoderFetchStatus(void) { return ""; }
+s32 recordFetchEncoder(void) { return 0; }
+void recordFetchFromCommandLine(void) { }
+
+#endif
+
 void recordInit(void)
 {
 #ifdef PLATFORM_POSIX
 	// A write to a pipe whose reader has gone raises SIGPIPE, which by default
 	// takes the game down. The writer threads check for the error instead.
 	signal(SIGPIPE, SIG_IGN);
+#endif
+
+	// Settled here so the sentinel never reaches pd.ini, and so the answer is
+	// taken while the config that decides it has just been read.
+	recordResolveEnabled();
+
+#ifdef PLATFORM_WIN32
+	{
+		// A downloaded encoder is not on the PATH, so it has to be named. Only
+		// when the player has not named one of their own.
+		const char *bin = recordFfmpegInstalled();
+
+		if (bin[0] && !strcmp(encoderPath, RECORD_DEFAULT_ENCODER)) {
+			snprintf(encoderPath, sizeof(encoderPath), "%s", bin);
+			sysLogPrintf(LOG_NOTE, "record: using %s", encoderPath);
+		}
+	}
 #endif
 
 	vidMutex = SDL_CreateMutex();
@@ -2300,4 +2733,7 @@ PD_CONSTRUCTOR static void recordConfigInit(void)
 	configRegisterInt("Mod.RecordFps", &recordFps, RECORD_FPS_MIN, RECORD_FPS_MAX);
 	configRegisterInt("Mod.RecordQuality", &recordQuality, RECORD_QUALITY_MIN, RECORD_QUALITY_MAX);
 	configRegisterInt("Mod.RecordIndicator", &recordIndicator, 0, 1);
+	// -1 is "not chosen yet" - see recordResolveEnabled(). It never survives a
+	// run, recordInit() settling it either way.
+	configRegisterInt("Mod.RecordEnabled", &recordEnabled, -1, 1);
 }

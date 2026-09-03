@@ -77,6 +77,35 @@ void recordSetCodecIndex(s32 index);
  */
 void recordProbeCodecs(void);
 
+/**
+ * Whether recording is switched on at all - the row in Dab's Mod Options.
+ *
+ * Off by default on Windows, where the encoder is a download rather than
+ * something the machine already has, so that the first thing a player meets is
+ * a question rather than a 73MB transfer. On everywhere else, and on for a
+ * Windows config that has recorded before - see recordResolveEnabled().
+ */
+s32 recordIsEnabled(void);
+void recordSetEnabled(s32 enabled);
+
+/**
+ * Fetching an encoder, where there is none to be had otherwise.
+ *
+ * Only Windows does anything here; on Linux and macOS ffmpeg is a package and
+ * recordEncoderIsMissing() is always false, so the menu row never offers a
+ * download nobody needs. The shape is the Upscayl page's: ask first, say how
+ * big, then a worker fetches it while the game carries on.
+ */
+s32 recordEncoderIsMissing(void);
+s32 recordEncoderDownloadMb(void);
+s32 recordEncoderDownloadDiskMb(void);
+s32 recordEncoderIsFetching(void);
+const char *recordEncoderFetchStatus(void);
+s32 recordFetchEncoder(void);
+
+/** --fetch-ffmpeg: download it and exit, for scripted setup. Windows only. */
+void recordFetchFromCommandLine(void);
+
 s32 recordGetIndicator(void);
 void recordSetIndicator(s32 on);
 

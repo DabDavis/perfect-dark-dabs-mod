@@ -2411,6 +2411,147 @@ static const s32 g_ModRecordFpsValues[] = { 24, 30, 60 };
 // libx264's CRF, low to high: lower is a bigger file and a better picture.
 static const s32 g_ModRecordQualityValues[] = { 28, 24, 21, 17 };
 
+/**
+ * Turning recording on, and fetching an encoder if that is what it takes.
+ *
+ * Windows has no ffmpeg of its own and nothing is bundled, so the first time
+ * this is switched on there is a download to agree to. Everywhere else the box
+ * is just a box: recordEncoderIsMissing() is false and no dialog appears.
+ */
+static char g_RecordDownloadText[160];
+
+static const char *menutextRecordDownloadSize(struct menuitem *item)
+{
+	snprintf(g_RecordDownloadText, sizeof(g_RecordDownloadText),
+			"Download ffmpeg? About %dMB.\n", recordEncoderDownloadMb());
+
+	return g_RecordDownloadText;
+}
+
+static char g_RecordDownloadDiskText[160];
+
+static const char *menutextRecordDownloadDisk(struct menuitem *item)
+{
+	// Said out loud because the two numbers are not close: a shared build
+	// compresses to well under half of what it occupies.
+	snprintf(g_RecordDownloadDiskText, sizeof(g_RecordDownloadDiskText),
+			"It unpacks to about %dMB in your game directory.\n",
+			recordEncoderDownloadDiskMb());
+
+	return g_RecordDownloadDiskText;
+}
+
+static MenuItemHandlerResult menuhandlerRecordDownloadConfirm(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		recordSetEnabled(1);
+		recordFetchEncoder();
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedRecordDownloadMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextRecordDownloadSize,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextRecordDownloadDisk,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_SELECTABLE_CENTRE,
+		L_OPTIONS_385, // "No"
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_SELECTABLE_CENTRE,
+		L_OPTIONS_386, // "Yes"
+		0,
+		menuhandlerRecordDownloadConfirm,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedRecordDownloadMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Video Recording",
+	g_ExtendedRecordDownloadMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+static MenuItemHandlerResult menuhandlerModRecordEnabled(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		// Not while one is running, and not while the encoder is on its way.
+		return recordIsActive() || recordEncoderIsFetching();
+	case MENUOP_GET:
+		return recordIsEnabled();
+	case MENUOP_SET:
+		if (!data->checkbox.value) {
+			recordSetEnabled(0);
+			break;
+		}
+
+		if (recordEncoderIsMissing()) {
+			// Left off until the download is agreed to, so a No leaves the row
+			// where it was rather than on with nothing behind it.
+			menuPushDialog(&g_ExtendedRecordDownloadMenuDialog);
+			break;
+		}
+
+		recordSetEnabled(1);
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * What the row says while there is something to say.
+ */
+static char g_RecordEnabledText[96];
+
+static const char *menutextModRecordEnabled(struct menuitem *item)
+{
+	if (recordEncoderIsFetching()) {
+		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText), "Video Recording - %s\n",
+				recordEncoderFetchStatus());
+	} else if (recordIsEnabled() && recordEncoderIsMissing()) {
+		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText),
+				"Video Recording (no encoder)\n");
+	} else {
+		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText), "Video Recording\n");
+	}
+
+	return g_RecordEnabledText;
+}
+
 static MenuItemHandlerResult menuhandlerModRecordFps(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "24", "30", "60" };
@@ -2931,6 +3072,16 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		0,
 		NULL,
+	},
+	{
+		// A text function rather than a literal, so the row can say what the
+		// download is doing while it happens.
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		0,
+		(uintptr_t)menutextModRecordEnabled,
+		0,
+		menuhandlerModRecordEnabled,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

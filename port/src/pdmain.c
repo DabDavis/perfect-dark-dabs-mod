@@ -73,6 +73,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "record.h"
 #include "texpack.h"
 #include "upscale.h"
 
@@ -255,6 +256,7 @@ void mainInit(void)
 	texpackDumpAll(); // --dump-textures only; exits when it does anything
 	upscaleFetchFromCommandLine(); // --upscayl-fetch only; likewise
 	upscaleBuildFromCommandLine(); // --upscayl-build only; likewise
+	recordFetchFromCommandLine(); // --fetch-ffmpeg only; likewise
 	langInit();
 	lvInit();
 	cheatsInit();
