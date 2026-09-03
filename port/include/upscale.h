@@ -31,9 +31,24 @@ s32 upscaleIsAvailable(void);
 const char *upscaleGetBinPath(void);
 const char *upscaleGetModelsPath(void);
 
-/** The models found beside the binary, for the menu to offer. */
+/**
+ * Every model Upscayl has, whether or not it is here yet: choosing one that is
+ * missing fetches it. upscaleModelIsPresent() says which are already down.
+ */
 s32 upscaleGetNumModels(void);
 const char *upscaleGetModelName(s32 index);
+s32 upscaleModelIsPresent(s32 index);
+
+/**
+ * Downloading Upscayl, rather than shipping it. Started when the page opens, so
+ * that somebody who has never used this finds it working rather than finding a
+ * row telling them to install something. The binary comes from upscayl-ncnn's
+ * releases and the chosen model from the Upscayl repository, one at a time.
+ */
+s32 upscaleInstall(void);
+s32 upscaleIsInstalling(void);
+const char *upscaleGetInstallStatus(void);
+void upscaleRedetect(void);
 
 /**
  * Settings, as the menu sets them. These are the knobs Upscayl itself exposes,

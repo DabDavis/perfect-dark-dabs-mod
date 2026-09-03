@@ -42,6 +42,11 @@
 // see fsChooseOutputDir(). The cache name starts with a dot so the scan skips
 // it when listing packs.
 #define TEXPACK_PACKS_DIR "texture-packs"
+
+// Packs the Upscayl page built. Kept apart from the ones a player
+// installed, but offered in the same list, because to the loader they are
+// the same thing.
+#define TEXPACK_UPSCAYL_DIR "upscayl-packs"
 #define TEXPACK_CACHE_DIR ".cache"
 #define TEXPACK_MAXPACKS 32
 #define TEXPACK_NAMELEN 48
@@ -984,12 +989,47 @@ static const char *texpackPacksDir(void)
 	return dir;
 }
 
+/**
+ * The upscayl-packs folder, if it has been made. Not created on demand: the
+ * Upscayl page makes it when it builds something, and a folder that appears
+ * for everyone whether or not they use it is clutter.
+ */
+static const char *texpackUpscaylPacksDir(void)
+{
+	static char dir[FS_MAXPATH + 1];
+	static s32 state;
+
+	if (!state) {
+		state = -1;
+
+		snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$E"));
+
+		if (fsFileSize(dir) < 0) {
+			snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$S"));
+		}
+
+		if (fsFileSize(dir) >= 0) {
+			state = 1;
+		}
+	}
+
+	return state > 0 ? dir : NULL;
+}
+
 void texpackRefreshPacks(void)
 {
-	const char *dir = texpackPacksDir();
+	const char *dir;
 
 	numPacks = 0;
 	packsListed = 1;
+
+	dir = texpackPacksDir();
+
+	if (dir) {
+		fsScanDir(dir, texpackListEntry, (void *)dir);
+	}
+
+	dir = texpackUpscaylPacksDir();
 
 	if (dir) {
 		fsScanDir(dir, texpackListEntry, (void *)dir);

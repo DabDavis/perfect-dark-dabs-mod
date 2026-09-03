@@ -3112,10 +3112,20 @@ static MenuItemHandlerResult menuhandlerUpscaleModel(s32 operation, struct menui
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = upscaleGetNumModels();
 		break;
-	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)upscaleGetModelName(data->dropdown.value);
+	case MENUOP_GETOPTIONTEXT: {
+		// A model that is not here yet is still offered; the mark says which
+		// ones would have to be fetched first.
+		static char name[80];
+		const s32 i = data->dropdown.value;
+		snprintf(name, sizeof(name), "%s%s", upscaleGetModelName(i),
+				upscaleModelIsPresent(i) ? "" : " (download)");
+		return (intptr_t)name;
+	}
 	case MENUOP_SET:
 		upscaleSetModel(data->dropdown.value);
+		// Fetch it now rather than at the start of a run, so that choosing is
+		// separate from waiting.
+		upscaleInstall();
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = upscaleGetModel();
@@ -3220,6 +3230,35 @@ static MenuItemHandlerResult menuhandlerUpscaleGpu(s32 operation, struct menuite
 	return 0;
 }
 
+static const s32 g_UpscaleCompressValues[] = { 0, 30, 60, 80 };
+static const char *const g_UpscaleCompressNames[] = { "None", "Light", "Medium", "Heavy" };
+
+/**
+ * How hard the upscaler squeezes its PNGs. A whole pack is the texture table at
+ * four times the size, so this is the difference between a folder somebody
+ * notices and one they do not.
+ */
+static MenuItemHandlerResult menuhandlerUpscaleCompress(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return upscaleGetState() == UPSCALE_PREPARING || upscaleGetState() == UPSCALE_RUNNING;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(g_UpscaleCompressValues);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)g_UpscaleCompressNames[data->dropdown.value];
+	case MENUOP_SET:
+		upscaleSetCompress(g_UpscaleCompressValues[data->dropdown.value]);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_UpscaleCompressValues,
+				ARRAYCOUNT(g_UpscaleCompressValues), upscaleGetCompress());
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerUpscaleTta(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -3241,10 +3280,14 @@ static MenuItemHandlerResult menuhandlerUpscaleStart(s32 operation, struct menui
 
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return !upscaleIsAvailable();
+		return upscaleIsInstalling();
 	case MENUOP_SET:
 		if (state == UPSCALE_PREPARING || state == UPSCALE_RUNNING || state == UPSCALE_FINISHING) {
 			upscaleCancel();
+		} else if (!upscaleIsAvailable()) {
+			// Nothing to run yet, so this button fetches it instead. The next
+			// press starts the run.
+			upscaleInstall();
 		} else {
 			upscaleStart();
 		}
@@ -3260,8 +3303,8 @@ static const char *menutextUpscaleStart(struct menuitem *item)
 {
 	const s32 state = upscaleGetState();
 
-	if (!upscaleIsAvailable()) {
-		snprintf(g_UpscaleStartText, sizeof(g_UpscaleStartText), "Upscayl not found\n");
+	if (upscaleIsInstalling()) {
+		snprintf(g_UpscaleStartText, sizeof(g_UpscaleStartText), "Downloading...\n");
 	} else if (state == UPSCALE_PREPARING || state == UPSCALE_RUNNING || state == UPSCALE_FINISHING) {
 		snprintf(g_UpscaleStartText, sizeof(g_UpscaleStartText), "Cancel\n");
 	} else {
@@ -3277,9 +3320,12 @@ static const char *menutextUpscaleStatus(struct menuitem *item)
 {
 	const s32 state = upscaleGetState();
 
-	if (!upscaleIsAvailable()) {
+	if (upscaleIsInstalling()) {
+		snprintf(g_UpscaleStatusText, sizeof(g_UpscaleStatusText), "%s\n",
+				upscaleGetInstallStatus());
+	} else if (!upscaleIsAvailable()) {
 		snprintf(g_UpscaleStatusText, sizeof(g_UpscaleStatusText),
-				"Set Mod.UpscaylPath to an Upscayl install\n");
+				"Upscayl will be downloaded when you start\n");
 	} else if (state == UPSCALE_IDLE) {
 		snprintf(g_UpscaleStatusText, sizeof(g_UpscaleStatusText),
 				"Ready - this takes several minutes\n");
@@ -3331,6 +3377,14 @@ struct menuitem g_ExtendedUpscaleMenuItems[] = {
 		(uintptr_t)"Seamless Padding",
 		0,
 		menuhandlerUpscalePadding,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Compression",
+		0,
+		menuhandlerUpscaleCompress,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -3392,11 +3446,30 @@ struct menuitem g_ExtendedUpscaleMenuItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
+static MenuDialogHandlerResult menudialogUpscale(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	static s32 wasInstalling;
+
+	if (operation == MENUOP_TICK) {
+		const s32 installing = upscaleIsInstalling();
+
+		// Look again once a download finishes, so the page turns from
+		// "downloading" to ready without anyone having to leave and come back.
+		if (wasInstalling && !installing) {
+			upscaleRedetect();
+		}
+
+		wasInstalling = installing;
+	}
+
+	return 0;
+}
+
 struct menudialogdef g_ExtendedUpscaleMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Upscale Textures",
+	(uintptr_t)"Upscayl",
 	g_ExtendedUpscaleMenuItems,
-	NULL,
+	menudialogUpscale,
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
 };
@@ -3571,14 +3644,7 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		0,
 		menuhandlerTexturePackDump,
 	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Upscale Textures...\n",
-		0,
-		(void *)&g_ExtendedUpscaleMenuDialog,
-	},
+
 	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
@@ -3663,6 +3729,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Dab's Mod Options\n",
 		0,
 		(void *)&g_ExtendedDabsModMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Upscayl\n",
+		0,
+		(void *)&g_ExtendedUpscaleMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,

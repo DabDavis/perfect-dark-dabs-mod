@@ -18,6 +18,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <SDL.h>
 #include <ultra64.h>
 #include "bss.h"
@@ -29,6 +30,8 @@
 #include "fs.h"
 #include "pngread.h"
 #include "pngwrite.h"
+#include "ghostnet.h"
+#include "archive.h"
 #include "system.h"
 #include "texpack.h"
 #include "types.h"
@@ -51,6 +54,25 @@
 
 #define UPSCALE_WORK_DIR ".upscale"
 
+// Packs built here get their own folder rather than sharing texture-packs: one
+// of these is the whole texture table at four times the size, and a player
+// should be able to tell what they made from what they installed.
+#define UPSCALE_PACKS_DIR "upscayl-packs"
+
+// Where a downloaded Upscayl is put, beside the game.
+#define UPSCALE_INSTALL_DIR "upscayl"
+
+// Pinned rather than asked for. A release name here is a timestamp, so a
+// "latest" URL cannot name an asset, and a version that is known to work beats
+// whatever was published this morning. Mod.UpscaylNcnnTag overrides it.
+#define UPSCALE_NCNN_REPO "https://github.com/upscayl/upscayl-ncnn/releases/download"
+#define UPSCALE_NCNN_TAG  "20251207-174704"
+
+// Models are not in that release; they live in the Upscayl repository and are
+// fetched one at a time, because all seven come to 171MB and nobody needs the
+// six they did not pick.
+#define UPSCALE_MODELS_URL "https://raw.githubusercontent.com/upscayl/upscayl/main/resources/models"
+
 static char upscaylPath[FS_MAXPATH + 1];
 static char binPath[FS_MAXPATH + 1];
 static char modelsPath[FS_MAXPATH + 1];
@@ -66,6 +88,12 @@ static s32 optTta;
 static s32 optGpu = -1; // auto
 static s32 optTileSize;  // 0 = auto
 static s32 optPadding = 8;
+static char ncnnTag[32] = UPSCALE_NCNN_TAG;
+static char installDir[FS_MAXPATH + 1];
+static SDL_atomic_t installBusy;
+static SDL_atomic_t installFailed;
+static char installStatus[128];
+static SDL_Thread *installer;
 
 static s32 state;
 static s32 prepared;      // textures written out so far
@@ -170,37 +198,51 @@ static s32 upscaleTryInstall(const char *root)
 	return 0;
 }
 
+/**
+ * Upscayl's models, by name.
+ *
+ * All of them are offered whether or not they are here yet: a model is 2 to
+ * 32MB and choosing one that is missing fetches it, which is what makes
+ * switching between them a choice rather than a download decision. Listed in a
+ * fixed order so the menu does not shuffle between runs.
+ */
+static const char *const upscaleKnownModels[] = {
+	"upscayl-standard-4x",
+	"upscayl-lite-4x",
+	"high-fidelity-4x",
+	"remacri-4x",
+	"ultramix-balanced-4x",
+	"ultrasharp-4x",
+	"digital-art-4x",
+};
+
 static void upscaleScanModels(void)
 {
+	s32 i;
+
 	numModels = 0;
 
-	if (!modelsPath[0]) {
-		return;
+	for (i = 0; i < (s32)(sizeof(upscaleKnownModels) / sizeof(upscaleKnownModels[0]))
+			&& numModels < UPSCALE_MAXMODELS; i++) {
+		strncpy(modelNames[numModels], upscaleKnownModels[i], UPSCALE_NAMELEN - 1);
+		numModels++;
+	}
+}
+
+/**
+ * Whether a model's files are here, as opposed to merely offered.
+ */
+s32 upscaleModelIsPresent(s32 index)
+{
+	char path[FS_MAXPATH + 1];
+
+	if (index < 0 || index >= numModels || !modelsPath[0]) {
+		return 0;
 	}
 
-	// The models are named <name>.param beside a <name>.bin; either one alone
-	// is no use, but the .param is what the upscaler is given.
-	{
-		char path[FS_MAXPATH + 1];
-		s32 i;
+	snprintf(path, sizeof(path), "%s/%s.bin", modelsPath, modelNames[index]);
 
-		static const char *const known[] = {
-			"upscayl-standard-4x", "upscayl-lite-4x", "high-fidelity-4x",
-			"remacri-4x", "ultramix-balanced-4x", "ultrasharp-4x", "digital-art-4x",
-		};
-
-		// Listed in a fixed order rather than whatever order the directory
-		// hands back, so the menu does not shuffle between runs. Anything else
-		// present is added after these.
-		for (i = 0; i < (s32)(sizeof(known) / sizeof(known[0])); i++) {
-			snprintf(path, sizeof(path), "%s/%s.param", modelsPath, known[i]);
-
-			if (upscaleFileExists(path) && numModels < UPSCALE_MAXMODELS) {
-				strncpy(modelNames[numModels], known[i], UPSCALE_NAMELEN - 1);
-				numModels++;
-			}
-		}
-	}
+	return fsFileSize(path) > 0;
 }
 
 static void upscaleDetect(void)
@@ -226,6 +268,24 @@ static void upscaleDetect(void)
 
 	if (upscaylPath[0] && upscaleTryInstall(upscaylPath)) {
 		detected = 1;
+	}
+
+	// What this page downloaded, before anything a player installed
+	// themselves: it is the copy the settings here were chosen against.
+	if (detected < 0) {
+		snprintf(home, sizeof(home), "%s/" UPSCALE_INSTALL_DIR, fsFullPath("$E"));
+
+		if (upscaleTryInstall(home)) {
+			detected = 1;
+		}
+	}
+
+	if (detected < 0) {
+		snprintf(home, sizeof(home), "%s/" UPSCALE_INSTALL_DIR, fsFullPath("$S"));
+
+		if (upscaleTryInstall(home)) {
+			detected = 1;
+		}
 	}
 
 	if (detected < 0) {
@@ -277,16 +337,232 @@ static void upscaleDetect(void)
 		sysLogPrintf(LOG_NOTE, "upscale: no Upscayl install found - set Mod.UpscaylPath");
 	}
 
-	if (detected > 0) {
-		upscaleScanModels();
+	upscaleScanModels();
 
-		if (!numModels) {
-			sysLogPrintf(LOG_WARNING, "upscale: %s has no models in it", modelsPath);
-			detected = -1;
-		} else {
-			sysLogPrintf(LOG_NOTE, "upscale: using %s with %d models", binPath, numModels);
+	if (detected > 0) {
+		sysLogPrintf(LOG_NOTE, "upscale: using %s", binPath);
+	}
+}
+
+
+/**
+ * Fetching Upscayl, rather than shipping it.
+ *
+ * The binary is a few megabytes and comes from upscayl-ncnn's releases; the
+ * models are not in those and come one at a time from the Upscayl repository,
+ * because all seven together are 171MB and nobody needs the six they did not
+ * choose. Both land beside the game, in the same shape an install has, so the
+ * detection above finds them without knowing they were downloaded.
+ */
+static const char *upscalePlatformName(void)
+{
+#if defined(PLATFORM_WIN32)
+	return "windows";
+#elif defined(PLATFORM_MACOS)
+	return "macos";
+#else
+	return "linux";
+#endif
+}
+
+static void upscaleSetInstallStatus(const char *fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(installStatus, sizeof(installStatus), fmt, args);
+	va_end(args);
+}
+
+/**
+ * One file, streamed to disk. Uses the same HTTP the updater does.
+ */
+static s32 upscaleFetch(const char *url, const char *path)
+{
+	struct ghostnetreq req;
+	struct ghostnetbuf buf;
+	char err[256];
+	s32 status = 0;
+	FILE *f = fopen(path, "wb");
+
+	if (!f) {
+		sysLogPrintf(LOG_ERROR, "upscale: cannot write %s", path);
+		return 0;
+	}
+
+	memset(&req, 0, sizeof(req));
+	memset(&buf, 0, sizeof(buf));
+	req.url = url;
+	req.redirect = true; // a release asset is a redirect to wherever it lives
+	req.timeout = 600;
+	buf.sink = f;
+
+	if (!ghostnetSend(&req, &buf, &status, err, sizeof(err)) || status != 200) {
+		fclose(f);
+		remove(path);
+		sysLogPrintf(LOG_ERROR, "upscale: %s: %s", url, err[0] ? err : "download failed");
+		return 0;
+	}
+
+	fclose(f);
+
+	return 1;
+}
+
+/**
+ * Puts one model beside the binary, if it is not already there.
+ */
+static s32 upscaleFetchModel(const char *name)
+{
+	char url[512];
+	char path[FS_MAXPATH + 1];
+	const char *ext[] = { "param", "bin" };
+	u32 i;
+
+	for (i = 0; i < 2; i++) {
+		snprintf(path, sizeof(path), "%s/models/%s.%s", installDir, name, ext[i]);
+
+		if (fsFileSize(path) > 0) {
+			continue;
+		}
+
+		snprintf(url, sizeof(url), UPSCALE_MODELS_URL "/%s.%s", name, ext[i]);
+		upscaleSetInstallStatus("Downloading %s.%s...", name, ext[i]);
+
+		if (!upscaleFetch(url, path)) {
+			return 0;
 		}
 	}
+
+	return 1;
+}
+
+static s32 upscaleInstaller(void *arg)
+{
+	char url[512];
+	char zip[FS_MAXPATH + 1];
+	char models[FS_MAXPATH + 1];
+	char bin[FS_MAXPATH + 1];
+
+	snprintf(models, sizeof(models), "%s/models", installDir);
+	fsCreateDir(models);
+
+	// The binary, if it is not already here from a previous go.
+	if (!upscaleTryInstall(installDir)) {
+		snprintf(url, sizeof(url), UPSCALE_NCNN_REPO "/%s/upscayl-bin-%s-%s.zip",
+				ncnnTag, ncnnTag, upscalePlatformName());
+		snprintf(zip, sizeof(zip), "%s/upscayl-bin.zip", installDir);
+
+		upscaleSetInstallStatus("Downloading Upscayl...");
+
+		if (!upscaleFetch(url, zip)) {
+			upscaleSetInstallStatus("Could not download Upscayl");
+			SDL_AtomicSet(&installFailed, 1);
+			SDL_AtomicSet(&installBusy, 0);
+			return 0;
+		}
+
+		upscaleSetInstallStatus("Unpacking Upscayl...");
+
+		if (archiveExtract(zip, installDir) <= 0) {
+			upscaleSetInstallStatus("Could not unpack Upscayl");
+			SDL_AtomicSet(&installFailed, 1);
+			SDL_AtomicSet(&installBusy, 0);
+			return 0;
+		}
+
+		remove(zip);
+
+		// The zip holds one directory named after the release; the binary is
+		// moved up so the layout matches an install and the name stops
+		// mattering.
+		snprintf(bin, sizeof(bin), "%s/upscayl-bin-%s-%s/upscayl-bin%s",
+				installDir, ncnnTag, upscalePlatformName(),
+#ifdef PLATFORM_WIN32
+				".exe");
+#else
+				"");
+#endif
+		{
+			char dst[FS_MAXPATH + 1];
+#ifdef PLATFORM_WIN32
+			snprintf(dst, sizeof(dst), "%s/upscayl-bin.exe", installDir);
+#else
+			snprintf(dst, sizeof(dst), "%s/upscayl-bin", installDir);
+#endif
+			rename(bin, dst);
+
+#ifndef PLATFORM_WIN32
+			// The zip does not carry the executable bit through.
+			chmod(dst, 0755);
+#endif
+		}
+	}
+
+	// And the model that is selected, which is the only one that is needed.
+	if (numModels > 0 && !upscaleFetchModel(modelNames[optModel])) {
+		upscaleSetInstallStatus("Could not download the model");
+		SDL_AtomicSet(&installFailed, 1);
+		SDL_AtomicSet(&installBusy, 0);
+		return 0;
+	}
+
+	upscaleSetInstallStatus("Ready");
+	SDL_AtomicSet(&installBusy, 0);
+
+	return 0;
+}
+
+s32 upscaleIsInstalling(void)
+{
+	return SDL_AtomicGet(&installBusy);
+}
+
+const char *upscaleGetInstallStatus(void)
+{
+	return installStatus;
+}
+
+/**
+ * Starts the download, if there is anything to download.
+ *
+ * Called when the page opens, so that somebody who has never used this finds
+ * it working rather than finding a row telling them to go and install
+ * something.
+ */
+s32 upscaleInstall(void)
+{
+	char rel[FS_MAXPATH + 1];
+
+	if (SDL_AtomicGet(&installBusy)) {
+		return 0;
+	}
+
+	if (installer) {
+		SDL_WaitThread(installer, NULL);
+		installer = NULL;
+	}
+
+	if (fsChooseOutputDir(UPSCALE_INSTALL_DIR, rel, sizeof(rel)) != 0) {
+		upscaleSetInstallStatus("Nowhere to install Upscayl");
+		return 0;
+	}
+
+	strncpy(installDir, fsFullPath(rel), sizeof(installDir) - 1);
+	installDir[sizeof(installDir) - 1] = '\0';
+
+	SDL_AtomicSet(&installBusy, 1);
+	SDL_AtomicSet(&installFailed, 0);
+	upscaleSetInstallStatus("Starting...");
+
+	installer = SDL_CreateThread(upscaleInstaller, "pd-upscayl-get", NULL);
+
+	if (!installer) {
+		SDL_AtomicSet(&installBusy, 0);
+		upscaleSetInstallStatus("Could not start the download");
+		return 0;
+	}
+
+	return 1;
 }
 
 s32 upscaleIsAvailable(void)
@@ -296,6 +572,15 @@ s32 upscaleIsAvailable(void)
 	}
 
 	return detected > 0;
+}
+
+/**
+ * Looks again, after something has been put in place.
+ */
+void upscaleRedetect(void)
+{
+	detected = 0;
+	upscaleIsAvailable();
 }
 
 const char *upscaleGetBinPath(void)
@@ -596,13 +881,15 @@ s32 upscaleStart(void)
 		return 0;
 	}
 
-	if (fsChooseOutputDir("texture-packs", rel, sizeof(rel)) != 0) {
+	if (fsChooseOutputDir(UPSCALE_PACKS_DIR, rel, sizeof(rel)) != 0) {
 		upscaleSetStatus("nowhere to write a pack");
 		state = UPSCALE_FAILED;
 		return 0;
 	}
 
-	snprintf(packName, sizeof(packName), "Upscayl %s", modelNames[optModel]);
+	// The scale is in the name so that the same model at two sizes gives two
+	// packs rather than one overwriting the other.
+	snprintf(packName, sizeof(packName), "%s %dx", modelNames[optModel], optScale);
 
 	snprintf(inDir, sizeof(inDir), "%s/" UPSCALE_WORK_DIR, fsFullPath(rel));
 	fsCreateDir(inDir);
@@ -753,6 +1040,7 @@ void upscaleTick(void)
 PD_CONSTRUCTOR static void upscaleConfigInit(void)
 {
 	configRegisterString("Mod.UpscaylPath", upscaylPath, sizeof(upscaylPath));
+	configRegisterString("Mod.UpscaylNcnnTag", ncnnTag, sizeof(ncnnTag));
 	configRegisterInt("Mod.UpscaleScale", &optScale, 2, 4);
 	configRegisterInt("Mod.UpscaleCompress", &optCompress, 0, 100);
 	configRegisterInt("Mod.UpscaleTta", &optTta, 0, 1);
