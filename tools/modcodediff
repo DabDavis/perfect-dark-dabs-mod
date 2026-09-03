@@ -46,6 +46,46 @@ GAME_TABLE = {
     'jpn-final':  0x4fc40,
 }
 
+# Where the N64 tools were put; see the symbol file section in CLAUDE.md.
+TOOLCHAIN = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), 'n64-toolchain')
+
+PD_DIFF_SH = r"""#!/bin/sh
+# Read one function of this mod's changes with asm-differ, which aligns the two
+# instruction streams rather than pairing them by address - what a rewritten
+# function needs.
+#
+#   ./pd-diff shieldhit_health_to_rgb
+#   ./pd-diff 0x295f8 0x29700
+#
+# The N64 toolchain lives outside the repo; DIFF_PY, DIFF_PYTHON and SYMS
+# override where this looks for it.
+set -e
+cd "$(dirname "$0")"
+DIFF_PY="${DIFF_PY:-%s}"
+DIFF_PYTHON="${DIFF_PYTHON:-%s}"
+SYMS="${SYMS:-%s}"
+
+case "$1" in
+    '') echo "usage: $0 <function|start [end]>" >&2; exit 1 ;;
+    0x*) exec "$DIFF_PYTHON" "$DIFF_PY" --no-pager "$@" ;;
+esac
+
+# a name: its address comes from the symbol file, its end from the next symbol
+addr=$(awk -v n="$1" '$2 == n { print $1; exit }' "$SYMS")
+if [ -z "$addr" ]; then
+    echo "$1 is not in $SYMS" >&2
+    exit 1
+fi
+next=$(awk -v a="$addr" '$1 > a { print $1; exit }' "$SYMS")
+shift
+
+start=$(printf '0x%%x' $(( 0x$addr - %#x )))
+end=$(printf '0x%%x' $(( 0x${next:-7f1b99e0} - %#x )))
+
+exec "$DIFF_PYTHON" "$DIFF_PY" --no-pager "$start" "$end" "$@"
+"""
+
 OBJDUMPS = ('mips-linux-gnu-objdump', 'mips64-linux-gnuabi64-objdump',
             'mipsel-linux-gnu-objdump', 'mips64-elf-objdump', 'mips-elf-objdump')
 
@@ -388,6 +428,44 @@ def enclosing(sorted_starts, ofs):
     return sorted_starts[lo - 1] if lo else sorted_starts[0]
 
 
+def prepare_diff(outdir, a, b, args):
+    """Set up asm-differ against these two binaries.
+
+    The side-by-side in this report pairs instructions by address, which is
+    right for a region where only the numbers moved and wrong for one that was
+    rewritten: a single inserted instruction makes everything after it look
+    changed. asm-differ aligns the two sequences instead, and is what you want
+    for those. It takes file offsets, so the wrapper converts a name for you.
+    """
+    os.makedirs(outdir, exist_ok=True)
+
+    with open(os.path.join(outdir, 'stock.bin'), 'wb') as fd:
+        fd.write(a)
+    with open(os.path.join(outdir, 'mod.bin'), 'wb') as fd:
+        fd.write(b)
+
+    with open(os.path.join(outdir, 'diff_settings.py'), 'w') as fd:
+        fd.write("""def apply(config, args):
+    config['arch'] = 'mips'
+    config['baseimg'] = 'stock.bin'
+    config['myimg'] = 'mod.bin'
+    config['objdump_executable'] = '%s'
+    config['build_command'] = ['true']
+""" % find_objdump())
+
+    syms = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.sym' % args.romid)
+    wrapper = os.path.join(outdir, 'pd-diff')
+
+    with open(wrapper, 'w') as fd:
+        fd.write(PD_DIFF_SH % (os.path.join(TOOLCHAIN, 'diff.py'),
+                               os.path.join(TOOLCHAIN, 'venv', 'bin', 'python'),
+                               syms, GAME_VRAM, GAME_VRAM))
+
+    os.chmod(wrapper, 0o755)
+
+    sys.stderr.write('wrote %s: stock.bin, mod.bin, diff_settings.py, pd-diff\n' % outdir)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Disassemble what a console mod changed in the game's code.")
@@ -402,6 +480,8 @@ def main():
     ap.add_argument('--port-binary', help="the port's own executable, to guess names from its symbols")
     ap.add_argument('--context', type=int, default=2, help='unchanged instructions to show around a change')
     ap.add_argument('--summary', action='store_true', help='list the changed functions and stop')
+    ap.add_argument('--prepare-diff', metavar='DIR',
+                    help='write both binaries and an asm-differ setup here, for reading a rewritten function')
     args = ap.parse_args()
 
     if bool(args.patch) == bool(args.patched_rom):
@@ -432,6 +512,7 @@ def main():
 
 
 def report(stock, mod, romid, kind, workdir, args):
+    args.romid = romid
     out = open(args.out, 'w') if args.out else sys.stdout
 
     def say(msg=''):
@@ -496,6 +577,9 @@ def report(stock, mod, romid, kind, workdir, args):
     groups = {}
     for ofs in changed:
         groups.setdefault(enclosing(starts, ofs), []).append(ofs)
+
+    if args.prepare_diff:
+        prepare_diff(args.prepare_diff, a, b, args)
 
     apath = os.path.join(workdir, 'stock.bin')
     bpath = os.path.join(workdir, 'mod.bin')

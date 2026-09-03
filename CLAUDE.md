@@ -462,6 +462,13 @@ stubs for `build/*/rsp/*.bin` because armips 0.11 rejects the RSP microcode.
 IDO 7.1 is not needed: the files that want it are all `src/lib/` audio, which is
 the lib segment.
 
+`modcodediff --prepare-diff DIR` writes both binaries and a `pd-diff` wrapper
+there, for reading a rewritten function with asm-differ - which aligns the two
+instruction streams rather than pairing them by address, and is the difference
+between reading a rewritten function and staring at it. diff.py needs colorama,
+watchdog and levenshtein, and pip refuses to install them system-wide (PEP 668),
+so they are in a venv at `../n64-toolchain/venv`.
+
 **Why the symbols are exact even though that ROM does not match.** The game
 segment is linked at a fixed `0x7f000000`, so nothing outside it moves its
 contents. The built segment is the same length as the real one and every one of
