@@ -69,6 +69,9 @@ IDENT_MIN_MARGIN = 1.25
 # function, and is reported as words rather than instructions.
 DATA_THRESHOLD_PCT = 30
 
+# beq, bne, blez, bgtz, regimm (bltz/bgez), beql..bgtzl
+BRANCH_OPS = { 0x01, 0x04, 0x05, 0x06, 0x07, 0x14, 0x15, 0x16, 0x17 }
+
 
 def die(msg):
     sys.stderr.write('error: %s\n' % msg)
@@ -292,6 +295,70 @@ def default_symbols(romid):
     return path if os.path.exists(path) else None
 
 
+def default_files(romid):
+    """The source file map kept beside this script, if there is one."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.files' % romid)
+
+    return path if os.path.exists(path) else None
+
+
+def read_files(path):
+    """`<addr> <size> <section> <source file>` per object, cut from the same ld
+    map. Which file a change lands in is the thing you actually need - it is the
+    file to open in the port - and the section says whether it is code at all,
+    which beats guessing from whether objdump could decode it."""
+    ranges = []
+
+    with open(path, 'r', errors='replace') as fd:
+        for line in fd:
+            parts = line.split()
+            if len(parts) == 4:
+                try:
+                    ranges.append((int(parts[0], 16) - GAME_VRAM, int(parts[1], 16), parts[2], parts[3]))
+                except ValueError:
+                    pass
+
+    ranges.sort()
+
+    return ranges
+
+
+def range_for(ranges, ofs):
+    lo, hi = 0, len(ranges)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if ranges[mid][0] <= ofs:
+            lo = mid + 1
+        else:
+            hi = mid
+    if not lo:
+        return None
+    start, size, section, name = ranges[lo - 1]
+    return ranges[lo - 1] if ofs < start + size else None
+
+
+def file_for(ranges, ofs):
+    got = range_for(ranges, ofs)
+    return got[3] if got else None
+
+
+def classify(a, b, offsets):
+    """What kind of change this is, which is what says how much work porting it
+    is. A region where only the immediates moved is a list of numbers somebody
+    edited; one where the opcodes moved is code that was rewritten."""
+    kinds = set()
+
+    for ofs in offsets:
+        x = int.from_bytes(a[ofs:ofs + 4], 'big')
+        y = int.from_bytes(b[ofs:ofs + 4], 'big')
+        if (x >> 16) != (y >> 16):
+            return 'rewritten'
+        op = x >> 26
+        kinds.add('branches' if op in BRANCH_OPS else 'constants')
+
+    return 'branches' if 'branches' in kinds else 'constants'
+
+
 def read_map(path):
     """Symbols from an ld map or from a plain `<addr> <name>` list, for the game
     segment. Anything of that shape counts, which is what ld writes too."""
@@ -330,7 +397,8 @@ def main():
     ap.add_argument('--out', help='write the report here (default: stdout)')
     ap.add_argument('--map', dest='mapfile',
                     help='an ld map or symbol list for real names (default: tools/pd.<romid>.sym)')
-    ap.add_argument('--no-symbols', action='store_true', help='ignore the bundled symbol file')
+    ap.add_argument('--no-symbols', action='store_true', help='ignore the bundled symbol and source file lists')
+    ap.add_argument('--files', dest='filesfile', help='a source file list (default: tools/pd.<romid>.files)')
     ap.add_argument('--port-binary', help="the port's own executable, to guess names from its symbols")
     ap.add_argument('--context', type=int, default=2, help='unchanged instructions to show around a change')
     ap.add_argument('--summary', action='store_true', help='list the changed functions and stop')
@@ -412,6 +480,11 @@ def report(stock, mod, romid, kind, workdir, args):
     if not args.mapfile and not args.no_symbols:
         args.mapfile = default_symbols(romid)
 
+    if not args.filesfile and not args.no_symbols:
+        args.filesfile = default_files(romid)
+
+    ranges = read_files(args.filesfile) if args.filesfile else []
+
     if args.mapfile:
         syms = read_map(args.mapfile)
         starts = [s[0] for s in syms]
@@ -439,8 +512,15 @@ def report(stock, mod, romid, kind, workdir, args):
     for i, start in enumerate(starts):
         ends[start] = starts[i + 1] if i + 1 < len(starts) else len(a)
 
-    isdata = { start: looks_like_data(da, GAME_VRAM + start, GAME_VRAM + ends.get(start, start + 0x400))
-               for start in groups }
+    # the section a region is in when the map knows it, and objdump's opinion
+    # of whether it decodes when it does not
+    isdata = {}
+    for start in groups:
+        got = range_for(ranges, start) if ranges else None
+        if got:
+            isdata[start] = got[2] != 'text'
+        else:
+            isdata[start] = looks_like_data(da, GAME_VRAM + start, GAME_VRAM + ends.get(start, start + 0x400))
 
     for start in groups:
         if isdata[start] and start not in names:
@@ -476,19 +556,52 @@ def report(stock, mod, romid, kind, workdir, args):
     ndata = sum(1 for s in groups if isdata[s])
     nnamed = sum(1 for s in groups if s in names and not isdata[s])
 
-    say('%d region%s changed - %d code, %d data%s:'
+    kinds = { start: ('data' if isdata[start] else classify(a, b, groups[start])) for start in groups }
+
+    say('%d region%s changed - %d code, %d data%s.'
         % (len(groups), '' if len(groups) == 1 else 's', len(groups) - ndata, ndata,
            ', %d named from the port binary' % nnamed if args.port_binary else ''))
+
+    counts = {}
+    for start in groups:
+        counts[kinds[start]] = counts.get(kinds[start], 0) + 1
+    say('Of the code: %s.' % ', '.join('%d %s' % (counts[k], k)
+                                       for k in ('constants', 'branches', 'rewritten') if k in counts))
+    say()
+    say('constants  only the numbers changed - usually a table to edit, not code to write')
+    say('branches   the same tests, jumping elsewhere')
+    say('rewritten  different instructions')
     say()
 
-    order = sorted(groups, key=lambda s: -len(groups[s]))
+    if ranges:
+        byfile = {}
+        for start in groups:
+            byfile.setdefault(file_for(ranges, start) or '(unattributed)', []).append(start)
 
-    for start in order:
-        say('  %-34s %4d %s at %08x'
-            % (names.get(start, 'func_%08x' % (GAME_VRAM + start)),
-               len(groups[start]),
-               'words' if isdata[start] else ('instruction' if len(groups[start]) == 1 else 'instructions'),
-               GAME_VRAM + groups[start][0]))
+        say('%d source file%s:' % (len(byfile), '' if len(byfile) == 1 else 's'))
+        say()
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        for path in sorted(byfile, key=lambda p: -sum(len(groups[s]) for s in byfile[p])):
+            words = sum(len(groups[s]) for s in byfile[path])
+            gone = '' if path == '(unattributed)' or os.path.exists(os.path.join(here, path)) \
+                    else '   [not in this tree]'
+            say('  %-34s %4d word%s in %d region%s%s'
+                % (path, words, '' if words == 1 else 's',
+                   len(byfile[path]), '' if len(byfile[path]) == 1 else 's', gone))
+
+            for start in sorted(byfile[path], key=lambda s: -len(groups[s])):
+                say('      %-30s %4d  %s at %08x'
+                    % (names.get(start, 'func_%08x' % (GAME_VRAM + start)),
+                       len(groups[start]), kinds[start], GAME_VRAM + groups[start][0]))
+            say()
+    else:
+        for start in sorted(groups, key=lambda s: -len(groups[s])):
+            say('  %-34s %4d %s  %s at %08x'
+                % (names.get(start, 'func_%08x' % (GAME_VRAM + start)),
+                   len(groups[start]), 'words' if isdata[start] else 'instructions',
+                   kinds[start], GAME_VRAM + groups[start][0]))
 
     if args.summary:
         if out is not sys.stdout:
@@ -501,9 +614,10 @@ def report(stock, mod, romid, kind, workdir, args):
     for start in sorted(groups):
         offsets = groups[start]
         say()
-        say('%s   (%08x, %d changed)'
+        say('%s   (%08x, %d changed, %s%s)'
             % (names.get(start, 'func_%08x' % (GAME_VRAM + start)),
-               GAME_VRAM + start, len(offsets)))
+               GAME_VRAM + start, len(offsets), kinds[start],
+               ' in %s' % file_for(ranges, start) if ranges and file_for(ranges, start) else ''))
         say('-' * 72)
 
         wanted = set()
