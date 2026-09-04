@@ -200,6 +200,63 @@ static void texpackFontFromJobId(s32 id, s32 *outline, s32 *font, s32 *index)
 	*font = (n / TEXPACK_FONT_CHARS) % TEXPACK_NUM_FONTS;
 	*outline = n / (TEXPACK_FONT_CHARS * TEXPACK_NUM_FONTS);
 }
+
+/**
+ * Decoded glyphs, kept for as long as the pack is.
+ *
+ * A texture's decode waits in a queue slot until the renderer claims it, and is
+ * the renderer's from then on. A glyph cannot be handed over like that: a screen
+ * of text is hundreds of them, the renderer's cache is not big enough to hold
+ * them all against a stage's textures, so one is evicted, asked for again and
+ * would have to be decoded again - a frame of the game's own glyph each time,
+ * which is the whole screen flickering. Nor can it stay in its slot: the queue
+ * is 32 slots, the first 32 glyphs would hold them all forever, and nothing
+ * else - glyph or texture - would ever decode again.
+ *
+ * So a decoded glyph moves out of its slot into here the moment it is seen, and
+ * a claim copies it out. The whole PD Plus set is 722 images of a few tens of
+ * kilobytes each; that is the price of text that holds still.
+ */
+struct texpackglyph {
+	u8 *rgba;
+	s32 width;
+	s32 height;
+};
+
+static struct texpackglyph fontDecoded[2][TEXPACK_NUM_FONTS][TEXPACK_FONT_CHARS];
+
+static void texpackGlyphsFree(void)
+{
+	s32 o;
+	s32 f;
+	s32 c;
+
+	for (o = 0; o < 2; o++) {
+		for (f = 0; f < TEXPACK_NUM_FONTS; f++) {
+			for (c = 0; c < TEXPACK_FONT_CHARS; c++) {
+				free(fontDecoded[o][f][c].rgba);
+				fontDecoded[o][f][c].rgba = NULL;
+			}
+		}
+	}
+}
+
+static u8 *texpackGlyphCopy(const struct texpackglyph *glyph, s32 *outWidth, s32 *outHeight)
+{
+	const u32 bytes = (u32)glyph->width * (u32)glyph->height * 4;
+	u8 *rgba = malloc(bytes);
+
+	if (!rgba) {
+		return NULL;
+	}
+
+	memcpy(rgba, glyph->rgba, bytes);
+	*outWidth = glyph->width;
+	*outHeight = glyph->height;
+
+	return rgba;
+}
+
 static s32 replaceScanned;    // the scan runs once, on the first texture drawn
 static s32 numReplacements;
 
@@ -1089,6 +1146,7 @@ static void texpackFreeIndex(void)
 	}
 
 	numFontReplacements = 0;
+	texpackGlyphsFree();
 
 	free(replacePaths);
 	free(replaceAlphaPaths);
@@ -1721,6 +1779,110 @@ static u32 texpackJobBytes(const struct texpackjob *job)
 }
 
 /**
+ * Moves a decoded glyph out of its queue slot and into fontDecoded, freeing the
+ * slot. Called with the lock held, on a job that is READY and is a glyph's.
+ */
+static struct texpackglyph *texpackGlyphKeep(struct texpackjob *job)
+{
+	struct texpackglyph *glyph;
+	s32 outline;
+	s32 font;
+	s32 index;
+
+	texpackFontFromJobId(job->texturenum, &outline, &font, &index);
+	glyph = &fontDecoded[outline][font][index];
+
+	free(glyph->rgba);
+	glyph->rgba = job->rgba;
+	glyph->width = job->width;
+	glyph->height = job->height;
+
+	jobReadyBytes -= texpackJobBytes(job);
+	job->rgba = NULL;
+	job->state = TEXPACK_JOB_FREE;
+
+	return glyph;
+}
+
+/**
+ * Requests the queue had no room for.
+ *
+ * A request that finds every slot taken cannot just be dropped. The renderer
+ * caches the original it draws in the meantime and does not ask again until
+ * something evicts that entry, so the texture would stay the game's own for as
+ * long as it stayed on screen. That was invisible while a frame rarely wanted
+ * more than 32 new textures; a screen of text wants hundreds of glyphs in one
+ * frame, and a reload on the main menu came back with the small font replaced
+ * and the portrait and the large font not.
+ *
+ * So a refused request is remembered here, one bit per job id, and moved into
+ * the queue as slots free up - from texpackPollDecoded(), once a frame. Order
+ * is by id rather than by request, which nothing depends on.
+ */
+#define TEXPACK_NUM_JOB_IDS (TEXPACK_FONT_ID_BASE + 2 * TEXPACK_NUM_FONTS * TEXPACK_FONT_CHARS)
+
+static u8 jobBacklog[(TEXPACK_NUM_JOB_IDS + 7) / 8];
+static s32 jobBacklogCount;
+
+/** Puts a request in a free slot and wakes the worker. Called with the lock held. */
+static void texpackEnqueue(s32 slot, s32 texturenum)
+{
+	jobs[slot].state = TEXPACK_JOB_QUEUED;
+	jobs[slot].texturenum = texturenum;
+	jobs[slot].serial = ++jobSerial;
+	jobs[slot].reported = 0;
+	SDL_CondSignal(jobWake);
+}
+
+static void texpackBacklogAdd(s32 texturenum)
+{
+	if (texturenum < 0 || texturenum >= TEXPACK_NUM_JOB_IDS) {
+		return;
+	}
+
+	if (!(jobBacklog[texturenum >> 3] & (1 << (texturenum & 7)))) {
+		jobBacklog[texturenum >> 3] |= (u8)(1 << (texturenum & 7));
+		jobBacklogCount++;
+	}
+}
+
+/** Queues as much of the backlog as there are free slots for. Called with the lock held. */
+static void texpackBacklogRefill(void)
+{
+	s32 slot = 0;
+	s32 id;
+
+	for (id = 0; jobBacklogCount > 0 && id < TEXPACK_NUM_JOB_IDS; id++) {
+		if (!jobBacklog[id >> 3]) {
+			id |= 7; // whole byte empty; the loop's increment steps past it
+			continue;
+		}
+
+		if (!(jobBacklog[id >> 3] & (1 << (id & 7)))) {
+			continue;
+		}
+
+		while (slot < TEXPACK_MAX_PENDING && jobs[slot].state != TEXPACK_JOB_FREE) {
+			slot++;
+		}
+
+		if (slot >= TEXPACK_MAX_PENDING) {
+			return;
+		}
+
+		jobBacklog[id >> 3] &= (u8)~(1 << (id & 7));
+		jobBacklogCount--;
+		texpackEnqueue(slot, id);
+	}
+}
+
+static void texpackBacklogClear(void)
+{
+	memset(jobBacklog, 0, sizeof(jobBacklog));
+	jobBacklogCount = 0;
+}
+
+/**
  * Frees the oldest decoded-but-unclaimed image until the budget is met. Called
  * with the lock held.
  */
@@ -1903,6 +2065,7 @@ static void texpackAsyncReset(void)
 	}
 
 	jobReadyBytes = 0;
+	texpackBacklogClear();
 
 	SDL_UnlockMutex(jobLock);
 }
@@ -1934,21 +2097,12 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 				*outHeight = jobs[i].height;
 
 				if (texturenum >= TEXPACK_FONT_ID_BASE) {
-					// Kept rather than handed over. There are hundreds of
-					// glyphs and the renderer's cache is not big enough to hold
-					// them all against a stage's textures, so one gets evicted,
-					// asked for again, and would have to be decoded again - a
-					// frame of the game's own glyph every time, which is the
-					// flicker on a screen full of text. A copy costs a memcpy
-					// of a few tens of kilobytes, and only on a miss; the byte
-					// budget below still reclaims them.
-					const u32 bytes = texpackJobBytes(&jobs[i]);
-
-					rgba = malloc(bytes);
-
-					if (rgba) {
-						memcpy(rgba, jobs[i].rgba, bytes);
-					}
+					// A glyph is kept, not handed over - see fontDecoded. The
+					// renderer never sees the slot's buffer, so no report to
+					// it is owed: this claim is the draw that uploads the
+					// replacement, and there is no entry holding the original
+					// for it to drop.
+					rgba = texpackGlyphCopy(texpackGlyphKeep(&jobs[i]), outWidth, outHeight);
 				} else {
 					rgba = jobs[i].rgba;
 					jobReadyBytes -= texpackJobBytes(&jobs[i]);
@@ -1969,14 +2123,13 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 		}
 	}
 
-	// A full queue is not an error - the textures that missed out ask again
-	// next time they are drawn, by which point it has drained.
+	// A full queue is not an error, but the request cannot be forgotten either:
+	// the renderer will cache the original it is about to draw and not ask
+	// again. It goes in the backlog and is queued as slots free up.
 	if (free1 >= 0) {
-		jobs[free1].state = TEXPACK_JOB_QUEUED;
-		jobs[free1].texturenum = texturenum;
-		jobs[free1].serial = ++jobSerial;
-		jobs[free1].reported = 0;
-		SDL_CondSignal(jobWake);
+		texpackEnqueue(free1, texturenum);
+	} else {
+		texpackBacklogAdd(texturenum);
 	}
 
 	SDL_UnlockMutex(jobLock);
@@ -2006,6 +2159,13 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 		if (jobs[i].state == TEXPACK_JOB_READY && !jobs[i].reported) {
 			jobs[i].reported = 1;
 			out[count++] = jobs[i].texturenum;
+
+			// A glyph leaves the queue here, so the slot is free again for
+			// whatever is drawn next; the copy the renderer gets when it asks
+			// comes from fontDecoded.
+			if (jobs[i].texturenum >= TEXPACK_FONT_ID_BASE) {
+				texpackGlyphKeep(&jobs[i]);
+			}
 		} else if (jobs[i].state == TEXPACK_JOB_FAILED) {
 			// Whatever is wrong with the file will not fix itself, and retrying
 			// on every cache miss would log it forever. Drop it and draw the
@@ -2036,6 +2196,9 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 			jobs[i].state = TEXPACK_JOB_FREE;
 		}
 	}
+
+	// Slots were freed above, and by the claims made since the last call.
+	texpackBacklogRefill();
 
 	SDL_UnlockMutex(jobLock);
 
@@ -2079,6 +2242,10 @@ u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight)
 
 	if (!fontReplacePaths[outline][font][index]) {
 		return NULL;
+	}
+
+	if (fontDecoded[outline][font][index].rgba) {
+		return texpackGlyphCopy(&fontDecoded[outline][font][index], outWidth, outHeight);
 	}
 
 	return texpackClaimDecoded(texpackFontJobId(outline, font, index), outWidth, outHeight);

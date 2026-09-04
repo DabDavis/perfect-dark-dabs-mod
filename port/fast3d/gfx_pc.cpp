@@ -159,8 +159,6 @@ struct LoadedTexture {
     uint32_t line_size_bytes;
     uint32_t tex_flags;
     uint32_t glyph;      // gDPSetFontGlyphEXT, 0 when this is not a font glyph
-    uint32_t glyph_dims; // the character's own size, packed as w<<8|h
-    bool glyph_replaced; // a pack image went into this slot in its place
     struct RawTexMetadata raw_tex_metadata;
 };
 
@@ -169,7 +167,6 @@ static struct RDP {
     // is the one it describes. Cleared there either way, so it can never carry
     // over onto a texture that is not a glyph.
     uint32_t pending_glyph;
-    uint32_t pending_glyph_dims;
     uint16_t palette[256];
     const uint8_t* palette_addrs[2];
     uint32_t palette_fmt;
@@ -179,7 +176,6 @@ static struct RDP {
         uint32_t width;
         uint32_t tex_flags;
         uint32_t glyph;
-        uint32_t glyph_dims;
         struct RawTexMetadata raw_tex_metadata;
     } texture_to_load;
     struct {
@@ -1146,7 +1142,6 @@ static void import_texture(int i, int tile, bool importReplacement) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
         loaded_texture.addr = rdp.texture_to_load.addr;
         loaded_texture.glyph = rdp.texture_to_load.glyph;
-        loaded_texture.glyph_dims = rdp.texture_to_load.glyph_dims;
         loaded_texture.line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
         loaded_texture.full_image_line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
         loaded_texture.full_size_bytes = loaded_texture.full_image_line_size_bytes * rdp.texture_tile[tile].height;
@@ -1163,17 +1158,19 @@ static void import_texture(int i, int tile, bool importReplacement) {
     const uint8_t* orig_addr = loaded_texture.addr;
     SUPPORT_CHECK(orig_addr);
 
+    // A glyph adds its name to the key rather than replacing it. The palette
+    // still matters for one that is not replaced: the fonts are CI4 through a
+    // 16-entry bank of the TLUT that the tile's palette index picks, and the
+    // same pixel data is meant to look different through a different bank -
+    // keyed on the name alone, whichever palette drew a character first was
+    // the one every later draw got, and the numeric font came out as solid
+    // blocks. A replaced glyph gets one entry per palette it is drawn at, each
+    // a copy out of texpack's store; nothing is decoded twice for it.
     TextureCacheKey key;
-    if (loaded_texture.glyph) {
-        // Keyed on what the glyph is and nothing else. Its address and palette
-        // say less than the name does - the same character is drawn at more
-        // than one palette index, which would otherwise be two entries for one
-        // image, each of them queueing the decode the other had just done.
-        key = { nullptr, {}, 0, 0, 0, loaded_texture.glyph };
-    } else if (fmt == G_IM_FMT_CI) {
-        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index, 0 };
+    if (fmt == G_IM_FMT_CI) {
+        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index, loaded_texture.glyph };
     } else {
-        key = { orig_addr, {}, fmt, siz, palette_index, 0 };
+        key = { orig_addr, {}, fmt, siz, palette_index, loaded_texture.glyph };
     }
 
     if (gfx_texture_cache_lookup(i, key)) {
@@ -1214,7 +1211,6 @@ static void import_texture(int i, int tile, bool importReplacement) {
         }
 
         if (rep) {
-            loaded_texture.glyph_replaced = loaded_texture.glyph != 0;
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
             texpackFreeReplacement(rep);
             return;
@@ -1728,35 +1724,7 @@ static void gfx_derive_batch_state(void) {
         const uint32_t tile = rdp.first_tile_index + gfx_lod_tile_offset(t);
         const int shift[2] = { rdp.texture_tile[tile].shifts, rdp.texture_tile[tile].shiftt };
         const float origin[2] = { rdp.texture_tile[tile].uls / 4.0f, rdp.texture_tile[tile].ult / 4.0f };
-        float inv_size[2] = { 1.0f / tex_width[t], 1.0f / tex_height[t] };
-
-        {
-            /*
-             * A replaced glyph's image is of the character alone, but the tile
-             * it came out of is a bigger block with the character in a corner -
-             * so normalising by the tile shows that fraction of the image,
-             * magnified. What the image stands for is the span the glyph's own
-             * texture coordinates cover, and the renderers put
-             * (size + 1) << 6 in the vertices: through the divide by 32 and the
-             * halving that comes with a non-perspective cycle, that is
-             * (size + 1) * 2 * persp texels.
-             *
-             * Only the scale is touched. tex_width and tex_height still decide
-             * the clamp mode and tex_clamp, which are about the tile and have
-             * not changed.
-             */
-            const LoadedTexture& lt = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
-
-            if (lt.glyph_replaced && lt.glyph_dims) {
-                const float gw = (float)((lt.glyph_dims >> 8) & 0xff);
-                const float gh = (float)(lt.glyph_dims & 0xff);
-
-                if (gw > 0.0f && gh > 0.0f) {
-                    inv_size[0] = 1.0f / ((gw + 1.0f) * 2.0f * persp);
-                    inv_size[1] = 1.0f / ((gh + 1.0f) * 2.0f * persp);
-                }
-            }
-        }
+        const float inv_size[2] = { 1.0f / tex_width[t], 1.0f / tex_height[t] };
 
         for (int axis = 0; axis < 2; axis++) {
             float sf = 1.0f;
@@ -2286,7 +2254,6 @@ static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t wi
     gfx_mark_state_dirty();
     rdp.texture_to_load.addr = (const uint8_t*)addr;
     rdp.texture_to_load.glyph = rdp.pending_glyph;
-    rdp.texture_to_load.glyph_dims = rdp.pending_glyph_dims;
     rdp.pending_glyph = 0;
     rdp.texture_to_load.siz = size;
     rdp.texture_to_load.width = width;
@@ -2405,8 +2372,6 @@ static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.addr = rdp.texture_to_load.addr;
     loaded_texture.glyph = rdp.texture_to_load.glyph;
-    loaded_texture.glyph_dims = rdp.texture_to_load.glyph_dims;
-    loaded_texture.glyph_replaced = false;
 
     rdp.textures_changed[0] = rdp.textures_changed[1] = true;
 }
@@ -2449,8 +2414,6 @@ static void gfx_dp_load_tile(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.addr = rdp.texture_to_load.addr + start_offset_bytes;
     loaded_texture.glyph = rdp.texture_to_load.glyph;
-    loaded_texture.glyph_dims = rdp.texture_to_load.glyph_dims;
-    loaded_texture.glyph_replaced = false;
 
     rdp.texture_tile[tile].uls = uls;
     rdp.texture_tile[tile].ult = ult;
@@ -3032,7 +2995,6 @@ static void gfx_run_dl(Gfx* cmd) {
                 // handed to texpack, which takes it apart. Bit 31 marks it set,
                 // so a real glyph 0 of font 0 is still non-zero.
                 rdp.pending_glyph = 0x80000000u | cmd->words.w1;
-                rdp.pending_glyph_dims = cmd->words.w0 & 0xffff;
                 break;
             case G_COPYFB_EXT:
                 gfx_copy_framebuffer(C0(11, 11), C0(0, 11), (int16_t)C1(16, 16), (int16_t)C1(0, 16), C0(22, 1));

@@ -27,7 +27,7 @@ area, read its section first — none of them are inferable from the code.
 - [Where a texture pack goes](#where-a-texture-pack-goes) — four directories, one of which is read by nothing
 - [Replacement textures are decoded off the render thread](#replacement-textures-are-decoded-off-the-render-thread) — why the stutter was never the decoder
 - [Pack image formats, and which way up they go](#pack-image-formats-and-which-way-up-they-go) — PNG is ours, JPEG is stb_image; and the two row orders
-- [Replacing font glyphs](#replacing-font-glyphs) — a glyph has no texture number, and its tile is bigger than it is
+- [Replacing font glyphs](#replacing-font-glyphs) — a glyph has no texture number, its image is of the whole tile, and hundreds of them at once break a small queue
 - [Texture pack keys](#texture-pack-keys) — F7/F8/F9/F10
 - [Debugging](#debugging) — the two commands that actually find things
 
@@ -510,6 +510,16 @@ byte budget, because a texture that goes off screen may never ask again. Losing
 one costs a re-decode and nothing else. `texpackFreeIndex()` stops the worker
 before freeing anything: the worker reads the index and only stops between jobs.
 
+**A request the full queue turns away is not dropped.** The renderer caches the
+original it draws in the meantime and does not ask again until something evicts
+that entry, so a texture refused for want of a slot would stay the game's own
+for as long as it stayed on screen. The queue is 32 slots and a screen of text
+asks for hundreds of glyphs in one frame, which is how it showed: F9 on the main
+menu came back with the small font replaced and the portrait and large font not.
+Refused ids go in `jobBacklog`, a bit per job id, and `texpackPollDecoded()`
+moves them into slots as they free - so the queue's size now bounds how much is
+decoding at once, not what gets decoded.
+
 JPEG is decoded the same way, on the same thread - see the format note below.
 
 ### Pack image formats, and which way up they go
@@ -566,28 +576,40 @@ outline (it is only reachable from `textRender`). The fill and the outline come
 from the same `pixeldata`, so the address cannot tell them apart and a pack ships
 a different image for each.
 
-**Two things this got wrong first, both worth knowing:**
+**The image is of the tile, not the character.** A glyph is loaded as a 16-texel
+wide CI4 block, `height + 2` rows tall, with the character in its top-left corner
+(a `fontnumeric` digit is 3x5 in a 16x7 tile), and every image in the PD Plus
+pack is exactly that block at an integer scale: 128x56 for the digits, 128x72,
+144x45, 112x63 for the small font - all a multiple of 16 wide, all `16:(h+2)`.
+Open one over black and the character sits in the left part of a wide image. So
+the renderer maps it as it maps the game's own texels, normalised by the tile,
+and **nothing is corrected**. A first version of this took the image to be the
+character alone and rescaled the UVs to the glyph's own size; that shows the
+corner of the image blown up, and because the flag driving it was only set on a
+cache miss it came and went with the cache, which is a bug that looks like
+flicker and reads like a scale error. Do not reintroduce it.
 
-- The renderer's cache is keyed on address and palette, and the same character is
-  drawn at more than one palette index - two entries for one image, each queueing
-  the decode the other had just done, four re-decodes a frame forever. A glyph is
-  keyed on what it is and nothing else, the way the VR fork does it.
-- A glyph's tile is a fixed block with the character in a corner of it (a
-  `fontnumeric` digit is 3x5 in a 16x7 tile), and the pack's image is of the
-  character alone. Normalising by the tile therefore shows a fraction of the
-  image, magnified. What the image stands for is the span the glyph's own texture
-  coordinates cover. The renderers put `(size + 1) << 6` in the vertices, and
-  `uv_scale` divides by 32 **and by two again** when the cycle is not
-  perspective-corrected - which 2D text never is - so the span is
-  `(size + 1) * 2 * persp` texels. Getting the `persp` wrong shows the top-left
-  quarter of every glyph blown up: large ones survive it, small ones turn to
-  blobs. Only the scale is adjusted; `tex_width` and `tex_height` still decide
-  the clamp mode and `tex_clamp`, which are about the tile and have not changed.
+**Three more things this got wrong first:**
+
+- The renderer's cache key **keeps the palette** for a glyph; the glyph id is
+  added to the stock key, not substituted for it. The fonts are CI4 through a
+  16-entry TLUT bank picked by the tile's palette index, and `textRender` draws
+  the same pixel data through palette 0 and palette 1 in one two-cycle pass -
+  that is how the outline is made. Keyed on the glyph alone, whichever palette
+  drew a character first was what every later draw got, and with no pack at all
+  the numeric font rendered as solid blocks. The two-entries-per-glyph cost that
+  once argued for dropping the palette was only a problem while each entry
+  re-decoded the image; with `fontDecoded` a second entry is a memcpy.
 - A decoded glyph is **kept** rather than handed over. There are hundreds of them
   and the renderer's cache is not big enough to hold them all against a stage's
   textures, so one gets evicted, asked for again, and would be decoded again -
   showing the game's own glyph for a frame each time, which is a screen of text
-  flickering. Claiming one copies it instead; the byte budget still reclaims.
+  flickering. `fontDecoded` in `texpack.c` holds them and a claim copies out.
+- They cannot be kept **in the decode queue**. It has 32 slots and a ready image
+  holds its slot until claimed; leaving glyphs there as "claimed but kept" meant
+  the first 32 glyphs drawn owned every slot for good, and no further decode -
+  glyph or stage texture - ever ran. A glyph now leaves its slot the moment
+  `texpackPollDecoded()` or a claim sees it ready.
 
 **Check it on a menu, not the HUD.** The ammo counter is a handful of digits that
 may not be replaced at the moment you look, and reading it cost a long detour

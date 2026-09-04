@@ -231,17 +231,16 @@
  * image for each. The display list is built before it is run, so which one this
  * is cannot be known later from anything else; it has to be said here.
  *
- * Applies to the next gDPSetTextureImage and nothing after it. w and h are the
- * character's own size, which is what a replacement image is of - the tile it
- * sits in is a fixed 32 texels square and the glyph is a corner of it, so the
- * renderer has to be told how much of the tile the image stands for.
+ * Applies to the next gDPSetTextureImage and nothing after it. Nothing about
+ * the glyph's size travels with it: a replacement image is of the whole tile
+ * the glyph is loaded as - 16 texels wide, the character in its top-left
+ * corner - so the renderer maps it exactly as it maps the game's own texels.
  */
-#define gDPSetFontGlyphEXT(pkt, font, glyph, outline, w, h)    \
+#define gDPSetFontGlyphEXT(pkt, font, glyph, outline)          \
 {                                                              \
     Gfx *_g = (Gfx *)(pkt);                                    \
                                                                \
-    _g->words.w0 = _SHIFTL(G_SETFONTGLYPH_EXT, 24, 8)          \
-        | _SHIFTL(w, 8, 8) | _SHIFTL(h, 0, 8);                 \
+    _g->words.w0 = _SHIFTL(G_SETFONTGLYPH_EXT, 24, 8);         \
     _g->words.w1 = _SHIFTL(outline, 24, 8)                     \
         | _SHIFTL(font, 16, 8) | _SHIFTL(glyph, 0, 16);        \
 }

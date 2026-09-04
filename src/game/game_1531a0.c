@@ -1426,7 +1426,7 @@ static Gfx *textSetFontGlyph(Gfx *gdl, struct font *font, struct fontchar *curch
 		return gdl;
 	}
 
-	gDPSetFontGlyphEXT(gdl++, id, index, outline, curchar->width, curchar->height);
+	gDPSetFontGlyphEXT(gdl++, id, index, outline);
 
 	return gdl;
 }
