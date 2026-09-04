@@ -32,8 +32,17 @@ Usage:
         --pack "/path/to/Perfect Dark Forever 0.4.7z" \\
         --out  ~/.local/share/perfectdark/mypack
 
-Then point the game at the result with --moddir, or copy its textures/ next to
-the executable.
+The result is a mod-shaped directory with a textures/ in it. Three places the
+game will read it from:
+
+  * --moddir /path/to/it, which is the one that needs nothing moved.
+  * as texture-packs/<name>/ beside the executable, which is the only one that
+    puts it in the Texture Pack list in Extended Options.
+  * its textures/ copied into the base directory - the one holding the ROM, so
+    data/textures/ in a normal build. Beside the executable is NOT read.
+
+Any of them needs Mod.LoadTextures=1 in pd.ini, which is what the Load Texture
+Packs option in Extended Options sets.
 
 --pack takes a directory, a .zip or a .7z. Zip entries are read where they lie;
 a .7z is unpacked to a temporary directory first, because its files usually
@@ -288,11 +297,19 @@ def group_pack(source):
 
 def _pil():
     try:
-        from PIL import Image
+        from PIL import Image, ImageFile
     except ImportError:
         sys.exit('Pillow is needed to convert a pack (pip install pillow).\n'
                  'Emulator packs store their images upside down relative to this\n'
                  'port, so the files have to be turned over rather than copied.')
+
+    # Pack images have been through a lot of editors, and some carry a colour
+    # profile whose checksum no longer matches. Pillow rejects the whole file
+    # for that; every other viewer ignores it, because the pixels are fine.
+    # This setting relaxes the check for ancillary chunks only - a bad IHDR or
+    # IDAT checksum is still an error, so genuinely broken images do not pass.
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+
     return Image
 
 
@@ -354,6 +371,7 @@ def main():
 
         converted = 0
         unmatched = 0
+        unreadable = []
 
         for crc, kinds in sorted(groups.items()):
             texnum = crcs.get(crc)
@@ -365,19 +383,32 @@ def main():
             out_path = os.path.join(outdir, f'{texnum}.png')
             src = next((kinds[k] for k in WHOLE_IMAGE_KINDS if k in kinds), None)
 
-            if src:
-                write_image(source.read(src), out_path)
-                converted += 1
-            elif 'rgb' in kinds and 'a' in kinds:
-                combine_rgb_alpha(source.read(kinds['rgb']), source.read(kinds['a']), out_path)
-                converted += 1
-            elif 'rgb' in kinds:
-                write_image(source.read(kinds['rgb']), out_path)
-                converted += 1
-            else:
-                unmatched += 1
+            # One unreadable file is not a reason to lose the other 1500. A pack
+            # is a decade of other people's edits and something in it is always
+            # damaged; name it at the end and convert the rest.
+            try:
+                if src:
+                    write_image(source.read(src), out_path)
+                    converted += 1
+                elif 'rgb' in kinds and 'a' in kinds:
+                    combine_rgb_alpha(source.read(kinds['rgb']), source.read(kinds['a']), out_path)
+                    converted += 1
+                elif 'rgb' in kinds:
+                    write_image(source.read(kinds['rgb']), out_path)
+                    converted += 1
+                else:
+                    unmatched += 1
+            except Exception as ex:
+                unreadable.append((src or kinds.get('rgb') or next(iter(kinds.values())), ex))
 
     print(f'\nwrote {converted} textures to {outdir}')
+
+    if unreadable:
+        print(f'{len(unreadable)} pack file(s) could not be read and were skipped:')
+        for name, ex in unreadable[:10]:
+            print(f'  {os.path.basename(name)}: {ex}')
+        if len(unreadable) > 10:
+            print(f'  ... and {len(unreadable) - 10} more')
 
     if unmatched:
         print(f'{unmatched} pack textures had no match in the dump')

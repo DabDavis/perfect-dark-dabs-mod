@@ -24,6 +24,7 @@ area, read its section first — none of them are inferable from the code.
 - [Ghost Trials talks over two different transports](#ghost-trials-talks-over-two-different-transports) — WinHTTP and libcurl, and why not one of them
 - [The game replaces itself](#the-game-replaces-itself) — the updater's internals
 - [Mod directories](#mod-directories)
+- [Where a texture pack goes](#where-a-texture-pack-goes) — four directories, one of which is read by nothing
 - [Debugging](#debugging) — the two commands that actually find things
 
 **[DabDavisGitHub.md](DabDavisGitHub.md)** is the companion to this file: the
@@ -456,6 +457,24 @@ table, and the top-level loop stops at the first block it cannot parse. GE-X
 opens with `stage 0x10`, which took its three valid remaps down with it; stage
 0x49 then loaded `bg_mp17` under `bg_mp5`'s tiles and died in
 `preprocessBgSection1()`. The remaining warnings are the mod's, not ours.
+
+### Where a texture pack goes
+
+Four directories are involved and only one of them puts a pack in the menu.
+
+- `texture-packs/<name>/` **beside the executable** (or in the save directory if
+  that is not writable) is the pack list — the two `fsChooseOutputDir()` tries.
+  A `.zip` or `.7z` counts, and is unpacked once into `texture-packs/.cache/`.
+- `textures/` in the **base** directory (the one holding the ROM, so `data/` in a
+  normal build) and in **every mod directory** is read as well, by
+  `texpackScan()`, but is not a pack: it cannot be chosen or switched off from
+  the menu, and the chosen pack outranks it.
+- `textures/` **beside the executable is read by nothing.** It is the obvious
+  place to put one and it silently does nothing.
+
+All of it needs `Mod.LoadTextures=1`. The images are `<texnum>.png`, four
+lowercase hex digits; a mod's `textures/*.bin` is the raw-N64-data path instead
+and is unrelated. `tools/texpack/riceconvert.py` writes the first kind.
 
 ### The ROM symbol file
 

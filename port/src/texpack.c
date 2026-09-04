@@ -1131,7 +1131,7 @@ s32 texpackGetSelectedPack(void)
 }
 
 /**
- * Unpacks an archive pack into texturepacks/.cache/<name>, once.
+ * Unpacks an archive pack into texture-packs/.cache/<name>, once.
  *
  * Returns the directory to read the pack from, which for a folder pack is the
  * folder itself, or NULL if there is nothing usable.

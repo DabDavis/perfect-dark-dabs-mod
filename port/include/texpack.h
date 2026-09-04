@@ -102,8 +102,11 @@ void texpackDumpAll(void);
 /**
  * Texture packs, as the Extended Options menu sees them.
  *
- * A pack is a directory or an archive inside a "texturepacks" folder, in the
- * base directory, any mod directory or the save directory. Selecting an archive
+ * A pack is a directory or an archive inside a "texture-packs" folder beside
+ * the executable, or in the save directory if that is not writable - the two
+ * fsChooseOutputDir() tries. Nowhere else puts one in this list: a textures/ in
+ * the base directory or a mod directory is read too (texpackScan()), but is not
+ * a pack and cannot be chosen or turned off from the menu. Selecting an archive
  * unpacks it once into a cache beside it and uses that - see archiveExtract()
  * for why it is not read where it lies.
  *
