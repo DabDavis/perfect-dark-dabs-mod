@@ -234,3 +234,52 @@ comparing packs otherwise meant quitting, swapping folders and relaunching.
 
 Both are safe with the decode worker running - the reload path stops it first -
 and both are worth re-testing on Windows, threads being what they are.
+
+## Emulator cache files, and matching font glyphs by checksum (2026-09-04)
+
+GE-X ships its text pack as GLideN64's own cache file,
+`1964_HIRES_Files/GoldenEye X_HIRESTEXTURES.htc` (the `.dat` beside it is
+Glide64's older layout with S3TC-compressed images and is not read). The
+`.htc` is one gzip stream: a config word, then a record per texture - the
+64-bit Rice checksum, width, height, the GL format (`0x8058` RGBA8, top bit =
+zlib-compressed), texture format and pixel type, a hires flag, the data length
+and the data. `texpackIndexHtc()` inflates the whole file into memory once,
+indexes every RGBA8 record as if it were a Rice-named file, and hands out a
+pseudo path `htc://<record>` that `texpackLoadImage()` decodes with zlib's
+`uncompress()`. The records are in the pack's own row order, like a Rice PNG,
+so nothing is turned over. `mod.c` copies any `.htc` found beside an imported
+patch into the mod's `textures/`, which the scan reads - behind
+`Mod.LoadTextures`, as everything is.
+
+**The pack is the fonts.** 708 records, 675 of them 256x256; 361 distinct
+texel checksums are glyphs of the five fonts. Two things it took to match them:
+
+- **The tile is 32 by 32 at an 8 byte stride.** The text renderer's
+  `gDPSetTileSize` says 0x7c, so the emulator hashed 32 rows of 16 bytes at
+  the 8 byte line the LoadBlock set - which reads on past the glyph's own
+  `height + 2` rows into the data after it. `texpackGlyphIndexBuild()` hashes
+  every character of every font that way, from the ROM's bytes where the
+  segment is the stock one (the tail past a font's last glyph is the next
+  thing in the ROM, which the preprocessed segment does not have). The
+  experiment that found this tried widths 16 and 32, heights h, h+1, h+2, 16
+  and 32, swizzled or not, strides 8 and 16: exactly one variant matched.
+- **The palette checksum is the outline pass.** Rice's CI checksum puts
+  `RiceCRC32(palette, cimax + 1, 1, 16-bit, 32)` in the high word, cimax
+  being the largest index used in the hashed window. Every palette-tagged
+  record in GE-X's pack hashes through TLUT bank 0 - the body-plus-border
+  palette `textRender` draws tile 0 with - and none through bank 1. So a
+  record with a palette is the `outlines/` image and one without is the
+  plain glyph, which also fills the outline slot where the pack has no
+  palette record, as the plugin falls back to the checksum alone.
+
+**The image is the emulator's tile, not our block.** Our glyph images are the
+16-wide, `height + 2` block the game loads, at a scale; the emulator's are the
+declared 32x32 tile at a scale, with the glyph in the top-left. Handed over
+whole, every character drew at half width and squashed (the first screenshot
+looked like widely spaced tiny letters). `texpackHtcCropGlyph()` records the
+left half and the top `(height + 2) * scale` rows for each glyph record, and
+`texpackHtcLoad()` cuts the image to that. Checked on the file-select screen
+under Xvfb: "GoldenEye X", "Select File", "New Agent..." in the pack's font.
+
+Several characters can share one tile (and so one checksum); the pack has one
+image for all of them, and `texpackGlyphMatches()` returns every one.

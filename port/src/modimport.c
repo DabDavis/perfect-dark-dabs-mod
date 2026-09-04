@@ -2562,7 +2562,7 @@ static void resetState(void)
 	namesMissingNoted = 0;
 }
 
-s32 modImportPatch(const char *patchPath, const char *outDir)
+s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePatchPath)
 {
 	u8 *stock = NULL, *patch = NULL, *mod = NULL;
 	u32 stocklen = 0, patchlen = 0, modlen = 0;
@@ -2575,6 +2575,9 @@ s32 modImportPatch(const char *patchPath, const char *outDir)
 	char err[256];
 	const char *romid, *modid;
 	const char *patchname = strrchr(patchPath, '/');
+	const char *basename = basePatchPath ? strrchr(basePatchPath, '/') : NULL;
+	u8 *base = NULL;
+	u32 baselen = 0;
 	s32 result = -1;
 	u32 written = 0;
 	u32 numchanged = 0, numnew = 0, numsegs = 0, numtextures = 0;
@@ -2582,11 +2585,16 @@ s32 modImportPatch(const char *patchPath, const char *outDir)
 	u32 expectedDataOfs = 0x39850;
 
 	patchname = patchname ? patchname + 1 : patchPath;
+	basename = basePatchPath ? (basename ? basename + 1 : basePatchPath) : NULL;
 	resetState();
 	memset(&stockfiles, 0, sizeof(stockfiles));
 	memset(&modfiles, 0, sizeof(modfiles));
 
-	sysLogPrintf(LOG_NOTE, "modimport: importing %s into %s", patchname, outDir);
+	if (basename) {
+		sysLogPrintf(LOG_NOTE, "modimport: importing %s on top of %s into %s", patchname, basename, outDir);
+	} else {
+		sysLogPrintf(LOG_NOTE, "modimport: importing %s into %s", patchname, outDir);
+	}
 
 	// -- the ROMs
 	stock = fsFileLoad(romdataGetRomName(), &stocklen);
@@ -2604,22 +2612,45 @@ s32 modImportPatch(const char *patchPath, const char *outDir)
 		goto done;
 	}
 
+	if (basePatchPath) {
+		// a patch against another mod: build that mod's ROM first
+		u8 *basepatch = loadWhole(basePatchPath, &patchlen);
+		if (!basepatch) {
+			rep("error: could not read %s.", basePatchPath);
+			goto done;
+		}
+		kind = rompatchApply(stock, stocklen, basepatch, patchlen, &base, &baselen, err, sizeof(err));
+		free(basepatch);
+		if (kind < 0) {
+			rep("error: could not apply the base patch %s: %s", basename, err);
+			goto done;
+		}
+	}
+
 	patch = loadWhole(patchPath, &patchlen);
 	if (!patch) {
 		rep("error: could not read %s.", patchPath);
 		goto done;
 	}
 
-	kind = rompatchApply(stock, stocklen, patch, patchlen, &mod, &modlen, err, sizeof(err));
+	kind = rompatchApply(base ? base : stock, base ? baselen : stocklen, patch, patchlen, &mod, &modlen, err, sizeof(err));
 	if (kind < 0) {
-		rep("error: could not apply %s: %s", patchname, err);
+		rep("error: could not apply %s%s%s: %s", patchname, basename ? " on top of " : "", basename ? basename : "", err);
 		rep("       (is this patch built against a different base ROM?)");
+		if (!basename && rompatchIdentify(patch, patchlen) != ROMPATCH_IPS) {
+			// a patch for another mod's ROM applies on top of that mod's
+			// patch; the caller can try the ones beside it
+			result = MODIMPORT_NEEDS_BASE;
+		}
 		goto done;
 	}
 	free(patch);
 	patch = NULL;
 
 	rep("stock ROM:   %s (%s, crc32 %08x)", romdataGetRomName(), romid, (u32)crc32(0L, stock, stocklen));
+	if (basename) {
+		rep("base patch:  %s (applied first; this mod was made on top of it)", basename);
+	}
 	rep("patch:       %s (%s)", patchname, rompatchKindName(kind));
 	rep("patched ROM: %u bytes, crc32 %08x", modlen, (u32)crc32(0L, mod, modlen));
 
@@ -3037,6 +3068,7 @@ done:
 	free(stockgame);
 	free(modgame);
 	free(mod);
+	free(base);
 	free(patch);
 	free(stock);
 	resetState();

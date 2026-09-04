@@ -145,10 +145,17 @@ delete a folder to have it done again, for instance after replacing the zip
 with a newer version.
 
 A patch that was made against a different ROM is refused, and `IMPORT.txt`
-says so - the Japanese-region patches need the Japanese ROM, and a patch that
-has to be applied on top of another one cannot be applied on its own. A mod
-that changed only the game's code has nothing the port can carry over, and its
-folder says that too. Neither shows up on the Load Mods page.
+says so - the Japanese-region patches need the Japanese ROM. A patch made on
+top of another mod's patch is tried on top of each patch found beside it, so
+a download that ships both works as it comes. A mod that changed only the
+game's code has nothing the port can carry over, and its folder says that
+too. Neither shows up on the Load Mods page.
+
+A console mod's download may include the hi-res texture pack made for it, as
+an emulator cache file (`..._HIRESTEXTURES.htc`). That is picked up too and
+loads with the mod - once **Use Texture Packs** is switched on, in Extended
+Options under Texture Packs (it is off by default; F8 toggles it in play).
+GE-X's is a text pack: its fonts.
 
 What a console mod built for its own patched code cannot be used as is - a
 setup or character model in a format the port does not read - is set aside in

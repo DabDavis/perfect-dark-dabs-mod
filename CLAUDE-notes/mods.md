@@ -76,12 +76,26 @@ reads a copy taken before `romdataInitSegment()` rewrites the live one.
 **Keep the two importers in step**: the Python one runs where there is no
 game, and its `IMPORT.txt` is what the game's gets compared against.
 
-Two things to know about the import. xdelta3 declares a window's source
+Three things to know about the import. xdelta3 declares a window's source
 segment by its window size and lets it run past the end of the file (Mario
 Characters' Peach), so the decoder keeps the declared length for address
-arithmetic and bounds reads by what exists. And 45 patches at once take a
-couple of minutes at boot with nothing on screen but the log; a single mod is
-two or three seconds.
+arithmetic and bounds reads by what exists. 45 patches at once take under a
+minute at boot with nothing on screen but the log; a single mod is a second
+or two. And **a patch that does not apply to the stock ROM is tried on top of
+each patch beside it that did** - GE Gun Name Display's "PD Names" is a patch
+against its own first patch. `modImportPatch()` returns `MODIMPORT_NEEDS_BASE`
+for a checksum mismatch (xdelta and BPS carry one; an IPS cannot tell), and
+`modListPrepareDir()`'s second pass retries with a `basePatchPath`, which is
+applied to the stock ROM first; the result is still diffed against stock, so
+the mod directory carries both patches' changes. The tool's earlier
+`pd_names` directory had missed the second patch's own change to
+`UsetupdishZ`; the in-game import's ROM matches xdelta3's stacked result.
+
+**A mod's emulator texture pack comes with it.** `modListAdoptTextureCaches()`
+copies any `.htc` found beside an imported patch (two folders down) into the
+mod's `textures/`, where `texpack.c` reads it - see "Emulator cache files" in
+[texture-packs.md](texture-packs.md). It needs `Mod.LoadTextures` on ("Use Texture Packs" on the
+Texture Packs page), which the log says when it copies one.
 
 `tools/importmod` builds a mod directory out of a console mod's xdelta, and
 `tools/modcodediff` shows what that mod changed in the ROM's code.

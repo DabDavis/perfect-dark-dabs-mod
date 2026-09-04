@@ -17,6 +17,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <strings.h>
+#include <zlib.h>
 #include <ultra64.h>
 #include "bss.h"
 #include "constants.h"
@@ -31,6 +32,7 @@
 #include "jpegread.h"
 #include "pngwrite.h"
 #include "system.h"
+#include "romdata.h"
 #include "texpack.h"
 #include "video.h"
 #include "versioninfo.h"
@@ -1172,6 +1174,582 @@ static void texpackIndexGlyph(const struct texpackscan *scan, const char *name)
 	}
 }
 
+/**
+ * Emulator texture caches.
+ *
+ * A pack for GLideN64 (and the 1964 builds that carry it) is distributed as
+ * the plugin's own cache file, `<rom name>_HIRESTEXTURES.htc`: one gzip stream
+ * holding a config word and then every texture as a record - the 64-bit Rice
+ * checksum, width, height, the GL format, and the image zlib-compressed. GE-X
+ * ships its text pack this way. The records are the same images a Rice pack
+ * would hold as PNGs, keyed the same way, so the file is read into memory once
+ * and each record indexed as if it were a file named for its checksum; a
+ * pseudo path `htc://<record>` stands in for the file name, and
+ * texpackLoadImage() decodes the record where it would read a PNG.
+ *
+ * The checksum's high word is the palette checksum, present on a CI texture.
+ * GE-X's pack is nearly all font glyphs: the outline pass draws a glyph
+ * through palette bank 0 and the plain pass through bank 1, and the pack has
+ * an image per glyph for bank 0 and one without a palette for everything
+ * else - which is the outlines/ and plain split our font folders make. The
+ * glyph checksums are over the tile as the game sets it up - 32 by 32 CI4 at
+ * an 8 byte stride, which runs on past the glyph into the data after it -
+ * and are matched through an index built from the font segments.
+ */
+#define TEXPACK_HTC_MAXFILES 8
+
+struct texpackhtcfile {
+	u8 *data; // the inflated cache file, records and all
+	u32 len;
+};
+
+struct texpackhtcentry {
+	s32 file;
+	u32 dataofs; // the zlib stream of the image, inside the file
+	u32 datalen;
+	s32 width;
+	s32 height;
+	// For a glyph: the part of the image to hand over. The emulator drew the
+	// 32 by 32 tile the game declares; the port maps a glyph image onto the
+	// 16-wide, height + 2 block it loads (see texpackLoadFontReplacement), so
+	// the image is cut to that block at the emulator's scale. 0 = whole.
+	s32 cropw;
+	s32 croph;
+};
+
+static struct texpackhtcfile htcFiles[TEXPACK_HTC_MAXFILES];
+static s32 numHtcFiles;
+static struct texpackhtcentry *htcEntries;
+static s32 numHtcEntries;
+static s32 capHtcEntries;
+
+struct texpackglyphcrc {
+	u32 crc;
+	u32 palcrc; // through palette bank 0, the outline pass
+	u8 font;
+	u8 index;
+	u8 height; // the character's, so the block is height + 2 rows
+};
+
+static struct texpackglyphcrc *glyphCrcs;
+static s32 numGlyphCrcs;
+static s32 glyphIndexState; // 0 = not built, 1 = built, -1 = gave up
+
+// The glyph tile as the text renderer sets it up: SetTileSize says 32 by 32,
+// LoadBlock loads 8 bytes a row.
+#define TEXPACK_GLYPH_TILE   32
+#define ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
+#define TEXPACK_GLYPH_STRIDE 8
+
+// The fonts' TLUT: bank 0 is body plus border, bank 1 the body alone.
+extern u16 var8007fb5c[];
+
+static void texpackGlyphIndexBuild(void)
+{
+	extern u8 *_fonthandelgothicsmSegmentRomStart, *_fonthandelgothicsmSegmentRomEnd;
+	extern u8 *_fonthandelgothicmdSegmentRomStart, *_fonthandelgothicmdSegmentRomEnd;
+	extern u8 *_fonthandelgothicxsSegmentRomStart, *_fonthandelgothicxsSegmentRomEnd;
+	extern u8 *_fonthandelgothiclgSegmentRomStart, *_fonthandelgothiclgSegmentRomEnd;
+	extern u8 *_fontnumericSegmentRomStart, *_fontnumericSegmentRomEnd;
+	const u8 *starts[TEXPACK_NUM_FONTS] = {
+		_fonthandelgothicsmSegmentRomStart, _fonthandelgothicmdSegmentRomStart,
+		_fonthandelgothicxsSegmentRomStart, _fonthandelgothiclgSegmentRomStart,
+		_fontnumericSegmentRomStart,
+	};
+	const u8 *ends[TEXPACK_NUM_FONTS] = {
+		_fonthandelgothicsmSegmentRomEnd, _fonthandelgothicmdSegmentRomEnd,
+		_fonthandelgothicxsSegmentRomEnd, _fonthandelgothiclgSegmentRomEnd,
+		_fontnumericSegmentRomEnd,
+	};
+	static const char *const segNames[TEXPACK_NUM_FONTS] = {
+		"fonthandelgothicsm", "fonthandelgothicmd", "fonthandelgothicxs", "fonthandelgothiclg", "fontnumeric",
+	};
+	u8 pal[32];
+	s32 f;
+	s32 dbgRom = 0, dbgMem = 0, dbgSkip = 0;
+
+	glyphIndexState = -1;
+
+	// the palette as the emulator hashes it: big endian words in memory
+	for (s32 i = 0; i < 16; i++) {
+		pal[i * 2] = (u8)(var8007fb5c[i] >> 8);
+		pal[i * 2 + 1] = (u8)var8007fb5c[i];
+	}
+
+	glyphCrcs = malloc(TEXPACK_NUM_FONTS * TEXPACK_FONT_CHARS * sizeof(struct texpackglyphcrc));
+	numGlyphCrcs = 0;
+
+	if (!glyphCrcs) {
+		return;
+	}
+
+	for (f = 0; f < TEXPACK_NUM_FONTS; f++) {
+		// The segment as preprocessFont() left it: the kerning table, the
+		// character table with each pixeldata an offset from the segment's
+		// start, then the pixel data as one block in the ROM's order.
+		const struct font *font = (const struct font *)starts[f];
+		s32 numchars = 94;
+		s32 c;
+		u32 romofs = 0;
+		u32 romsize = 0;
+		u32 diff;
+
+		if (!font || !ends[f] || ends[f] <= starts[f]) {
+			continue;
+		}
+
+#if VERSION == VERSION_PAL_FINAL
+		if (f == 0 || f == 1 || f == 2) {
+			numchars = 135;
+		}
+#endif
+
+		// The hash runs 264 bytes from a glyph, which for the last glyphs of
+		// a font is past the segment - where the emulator read whatever the
+		// ROM has next. The ROM is here too, so a glyph whose bytes are the
+		// ROM's is hashed from the ROM, tail and all. preprocessFont() grew
+		// each character record from 12 bytes to sizeof(struct fontchar) and
+		// aligned the table, which is how far the pixel data moved.
+		for (s32 i = 0; i < romdataGetNumSegments(); i++) {
+			const char *segname = romdataGetSegmentInfo(i, &romofs, &romsize);
+			if (segname && !strcmp(segname, segNames[f])) {
+				break;
+			}
+			romofs = 0;
+		}
+
+		diff = (ALIGN_UP(13 * 13 * 4, sizeof(uintptr_t)) + numchars * sizeof(struct fontchar))
+			- (ALIGN_UP(13 * 13 * 4, sizeof(u32)) + numchars * 12);
+
+		for (c = 0; c < numchars && c < TEXPACK_FONT_CHARS; c++) {
+			const uintptr_t ofs = (uintptr_t)font->chars[c].pixeldata;
+			const u8 *data;
+			u32 crc;
+			u32 cimax = 0;
+			s32 r;
+
+			// The hash reads 16 bytes a row for 32 rows at an 8 byte stride,
+			// so it takes in 264 bytes from the glyph's start. Past the end
+			// of the segment the emulator saw the next thing in the ROM,
+			// which is not here; those few glyphs go unmatched.
+			if (!ofs || ofs >= (uintptr_t)(ends[f] - starts[f])) {
+				continue;
+			}
+
+			data = starts[f] + ofs;
+
+			{
+				const u32 span = (TEXPACK_GLYPH_TILE - 1) * TEXPACK_GLYPH_STRIDE + 16;
+				const u32 inseg = (u32)(ends[f] - data) < span ? (u32)(ends[f] - data) : span;
+				const u32 rompos = romofs + (u32)ofs - diff;
+
+				if (romofs && g_RomFile && ofs >= diff && rompos + span <= g_RomFileSize
+						&& !memcmp(g_RomFile + rompos, data, inseg)) {
+					data = g_RomFile + rompos;
+					dbgRom++;
+				} else if (inseg < span) {
+					dbgSkip++;
+					continue;
+				} else {
+					dbgMem++;
+				}
+			}
+
+			if (!texpackRiceCrc(data, (TEXPACK_GLYPH_TILE - 1) * TEXPACK_GLYPH_STRIDE + 16,
+					TEXPACK_GLYPH_TILE, TEXPACK_GLYPH_TILE, G_IM_SIZ_4b, TEXPACK_GLYPH_STRIDE, &crc)) {
+				continue;
+			}
+
+			// the palette checksum runs over as many entries as the tile
+			// uses, which the same window decides
+			for (r = 0; r < TEXPACK_GLYPH_TILE; r++) {
+				for (s32 x = 0; x < 16; x++) {
+					const u8 b = data[r * TEXPACK_GLYPH_STRIDE + x];
+					if ((u32)(b >> 4) > cimax) cimax = b >> 4;
+					if ((u32)(b & 15) > cimax) cimax = b & 15;
+				}
+			}
+
+			glyphCrcs[numGlyphCrcs].crc = crc;
+			glyphCrcs[numGlyphCrcs].font = (u8)f;
+			glyphCrcs[numGlyphCrcs].index = (u8)c;
+			glyphCrcs[numGlyphCrcs].height = font->chars[c].height;
+
+			if (!texpackRiceCrc(pal, sizeof(pal), (s32)cimax + 1, 1, G_IM_SIZ_16b, 32, &glyphCrcs[numGlyphCrcs].palcrc)) {
+				glyphCrcs[numGlyphCrcs].palcrc = 0;
+			}
+
+			numGlyphCrcs++;
+		}
+	}
+
+	glyphIndexState = 1;
+
+	sysLogPrintf(LOG_NOTE, "texpack: checksummed %d font glyphs to match this pack (%d from the ROM, %d from the segment, %d skipped)", numGlyphCrcs, dbgRom, dbgMem, dbgSkip);
+}
+
+/**
+ * The glyphs with this texel checksum, and this palette checksum when one is
+ * given - several, when characters share a tile, since a pack keyed by
+ * checksum has one image for all of them. Fills fonts[] and indexes[] up to
+ * max and returns how many.
+ */
+static s32 texpackGlyphMatches(u32 crc, u32 palcrc, s32 *fonts, s32 *indexes, s32 *heights, s32 max)
+{
+	s32 n = 0;
+
+	if (!glyphIndexState) {
+		texpackGlyphIndexBuild();
+	}
+
+	if (glyphIndexState < 0) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < numGlyphCrcs && n < max; i++) {
+		if (glyphCrcs[i].crc == crc && (!palcrc || glyphCrcs[i].palcrc == palcrc)) {
+			fonts[n] = glyphCrcs[i].font;
+			indexes[n] = glyphCrcs[i].index;
+			heights[n] = glyphCrcs[i].height;
+			n++;
+		}
+	}
+
+	return n;
+}
+
+static void texpackHtcFree(void)
+{
+	for (s32 i = 0; i < numHtcFiles; i++) {
+		free(htcFiles[i].data);
+		htcFiles[i].data = NULL;
+	}
+
+	numHtcFiles = 0;
+	free(htcEntries);
+	htcEntries = NULL;
+	numHtcEntries = 0;
+	capHtcEntries = 0;
+	free(glyphCrcs);
+	glyphCrcs = NULL;
+	numGlyphCrcs = 0;
+	glyphIndexState = 0;
+}
+
+static u32 texpackReadLE32(const u8 *p) { return p[0] | (p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24); }
+static u32 texpackReadLE16(const u8 *p) { return p[0] | (p[1] << 8); }
+
+// Inflates the whole cache file into memory. Returns its slot, or -1.
+static s32 texpackHtcRead(const char *path)
+{
+	gzFile gz;
+	u8 *buf = NULL;
+	u32 len = 0;
+	u32 cap = 0;
+
+	if (numHtcFiles >= TEXPACK_HTC_MAXFILES) {
+		sysLogPrintf(LOG_WARNING, "texpack: more than %d cache files; %s is left out", TEXPACK_HTC_MAXFILES, path);
+		return -1;
+	}
+
+	gz = gzopen(path, "rb");
+
+	if (!gz) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not open %s", path);
+		return -1;
+	}
+
+	for (;;) {
+		int got;
+
+		if (len + 0x100000 > cap) {
+			u8 *grown;
+			cap = cap ? cap * 2 : 0x400000;
+			grown = realloc(buf, cap);
+			if (!grown) {
+				free(buf);
+				gzclose(gz);
+				sysLogPrintf(LOG_ERROR, "texpack: out of memory reading %s", path);
+				return -1;
+			}
+			buf = grown;
+		}
+
+		got = gzread(gz, buf + len, cap - len);
+
+		if (got < 0) {
+			free(buf);
+			gzclose(gz);
+			sysLogPrintf(LOG_ERROR, "texpack: %s is not a gzip stream", path);
+			return -1;
+		}
+		if (got == 0) {
+			break;
+		}
+
+		len += (u32)got;
+	}
+
+	gzclose(gz);
+
+	htcFiles[numHtcFiles].data = buf;
+	htcFiles[numHtcFiles].len = len;
+
+	return numHtcFiles++;
+}
+
+static char *texpackHtcPath(s32 entry)
+{
+	char tmp[32];
+	snprintf(tmp, sizeof(tmp), "htc://%d", entry);
+	return strdup(tmp);
+}
+
+// Cuts a glyph record to its block: the left 16 of the tile's 32 texels, and
+// height + 2 of its 32 rows, at whatever scale the image was drawn.
+static void texpackHtcCropGlyph(s32 entry, s32 glyphHeight)
+{
+	struct texpackhtcentry *e = &htcEntries[entry];
+
+	if (e->width % TEXPACK_GLYPH_TILE || e->height % TEXPACK_GLYPH_TILE || glyphHeight + 2 > TEXPACK_GLYPH_TILE) {
+		return;
+	}
+
+	e->cropw = e->width / 2;
+	e->croph = e->height / TEXPACK_GLYPH_TILE * (glyphHeight + 2);
+}
+
+/**
+ * Indexes every record of a cache file. GLideN64's record: checksum u64,
+ * width s32, height s32, format u32 (a GL internal format, with the top bit
+ * meaning the data is zlib-compressed), texture_format u16, pixel_type u16,
+ * is_hires_tex u8, data length u32, data. Only RGBA8 records are read: the
+ * plugin can also cache S3TC and 16-bit forms, which no pack for this game has
+ * used, and Glide64's older .dat layout is another file again.
+ */
+static void texpackIndexHtc(const char *dir, const char *name)
+{
+	char *path = texpackJoin(dir, name);
+	s32 file;
+	const u8 *d;
+	u32 len;
+	u32 p;
+	s32 records = 0, glyphsOutline = 0, glyphsPlain = 0, textures = 0, unplacedHere = 0, skipped = 0;
+	s32 firstEntry;
+
+	if (!path) {
+		return;
+	}
+
+	file = texpackHtcRead(path);
+	free(path);
+
+	if (file < 0) {
+		return;
+	}
+
+	d = htcFiles[file].data;
+	len = htcFiles[file].len;
+	firstEntry = numHtcEntries;
+
+	// the records are parsed once, then placed in two passes: the palette
+	// ones first, so a glyph's outline image is not taken by the plain one
+	for (p = 4; p + 29 <= len; ) {
+		const u32 crc = texpackReadLE32(d + p);
+		const u32 palcrc = texpackReadLE32(d + p + 4);
+		const s32 width = (s32)texpackReadLE32(d + p + 8);
+		const s32 height = (s32)texpackReadLE32(d + p + 12);
+		const u32 format = texpackReadLE32(d + p + 16);
+		const u32 texformat = texpackReadLE16(d + p + 20);
+		const u32 pixtype = texpackReadLE16(d + p + 22);
+		const u32 datalen = texpackReadLE32(d + p + 25);
+		const u32 dataofs = p + 29;
+
+		if (datalen > len - dataofs) {
+			sysLogPrintf(LOG_WARNING, "texpack: %s is cut short at record %d", name, records);
+			break;
+		}
+
+		p = dataofs + datalen;
+		records++;
+
+		// GL_RGBA8 / GL_RGBA / GL_UNSIGNED_BYTE, compressed
+		if ((format & 0xffff) != 0x8058 || texformat != 0x1908 || pixtype != 0x1401 || !(format & 0x80000000)
+				|| width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+			skipped++;
+			continue;
+		}
+
+		if (numHtcEntries == capHtcEntries) {
+			capHtcEntries = capHtcEntries ? capHtcEntries * 2 : 1024;
+			htcEntries = realloc(htcEntries, capHtcEntries * sizeof(struct texpackhtcentry));
+		}
+
+		htcEntries[numHtcEntries].file = file;
+		htcEntries[numHtcEntries].dataofs = dataofs;
+		htcEntries[numHtcEntries].datalen = datalen;
+		htcEntries[numHtcEntries].width = width;
+		htcEntries[numHtcEntries].height = height;
+		htcEntries[numHtcEntries].cropw = 0;
+		htcEntries[numHtcEntries].croph = 0;
+		numHtcEntries++;
+
+		(void)crc;
+		(void)palcrc;
+	}
+
+	for (s32 pass = 0; pass < 2; pass++) {
+		s32 e = firstEntry;
+
+		for (p = 4; p + 29 <= len && e < numHtcEntries; ) {
+			const u32 crc = texpackReadLE32(d + p);
+			const u32 palcrc = texpackReadLE32(d + p + 4);
+			const u32 format = texpackReadLE32(d + p + 16);
+			const u32 texformat = texpackReadLE16(d + p + 20);
+			const u32 pixtype = texpackReadLE16(d + p + 22);
+			const u32 datalen = texpackReadLE32(d + p + 25);
+			const s32 width = (s32)texpackReadLE32(d + p + 8);
+			const s32 height = (s32)texpackReadLE32(d + p + 12);
+			s32 fonts[16], indexes[16], heights[16], nglyphs;
+			s32 texturenum;
+
+			if (datalen > len - (p + 29)) {
+				break;
+			}
+
+			p = p + 29 + datalen;
+
+			if ((format & 0xffff) != 0x8058 || texformat != 0x1908 || pixtype != 0x1401 || !(format & 0x80000000)
+					|| width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+				continue; // not indexed above either
+			}
+
+			const s32 entry = e++;
+
+			if ((pass == 0) != (palcrc != 0)) {
+				continue;
+			}
+
+			if (palcrc) {
+				// a CI texture through a palette: for this game's fonts,
+				// the outline pass
+				nglyphs = texpackGlyphMatches(crc, palcrc, fonts, indexes, heights, 16);
+
+				if (nglyphs) {
+					texpackHtcCropGlyph(entry, heights[0]);
+				}
+
+				for (s32 g = 0; g < nglyphs; g++) {
+					free(fontReplacePaths[1][fonts[g]][indexes[g]]);
+					fontReplacePaths[1][fonts[g]][indexes[g]] = texpackHtcPath(entry);
+					fontReplaceFlip[1][fonts[g]][indexes[g]] = 0;
+					numFontReplacements++;
+					glyphsOutline++;
+				}
+
+				if (!nglyphs) {
+					unplacedHere++;
+					texpackAddUnplaced(crc, texpackHtcPath(entry));
+				}
+				continue;
+			}
+
+			texturenum = texpackRiceLookup(crc);
+
+			if (texturenum >= 0) {
+				if (!replacePaths[texturenum]) {
+					numReplacements++;
+				}
+				free(replacePaths[texturenum]);
+				replacePaths[texturenum] = texpackHtcPath(entry);
+				replaceKinds[texturenum] = TEXPACK_KIND_ALL;
+				replaceFlip[texturenum] = 0;
+				textures++;
+				continue;
+			}
+
+			nglyphs = texpackGlyphMatches(crc, 0, fonts, indexes, heights, 16);
+
+			if (nglyphs) {
+				texpackHtcCropGlyph(entry, heights[0]);
+
+				// the plain pass; and the outline pass too where the pack
+				// had no image for it, as the plugin falls back
+				for (s32 g = 0; g < nglyphs; g++) {
+					const s32 font = fonts[g];
+					const s32 index = indexes[g];
+
+					free(fontReplacePaths[0][font][index]);
+					fontReplacePaths[0][font][index] = texpackHtcPath(entry);
+					fontReplaceFlip[0][font][index] = 0;
+					numFontReplacements++;
+					glyphsPlain++;
+
+					if (!fontReplacePaths[1][font][index]) {
+						fontReplacePaths[1][font][index] = texpackHtcPath(entry);
+						fontReplaceFlip[1][font][index] = 0;
+						numFontReplacements++;
+					}
+				}
+				continue;
+			}
+
+			unplacedHere++;
+			texpackAddUnplaced(crc, texpackHtcPath(entry));
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "texpack: %s: %d records - %d textures, %d glyphs plus %d outlines, %d matched when drawn, %d in a format not read",
+			name, records, textures, glyphsPlain, glyphsOutline, unplacedHere, skipped);
+}
+
+// Decodes one record: the image, RGBA8, in the row order the pack was drawn in
+static u8 *texpackHtcLoad(s32 entry, s32 *outWidth, s32 *outHeight)
+{
+	const struct texpackhtcentry *e;
+	uLongf outlen;
+	u8 *rgba;
+
+	if (entry < 0 || entry >= numHtcEntries) {
+		return NULL;
+	}
+
+	e = &htcEntries[entry];
+	outlen = (uLongf)e->width * e->height * 4;
+	rgba = malloc(outlen);
+
+	if (!rgba) {
+		return NULL;
+	}
+
+	if (uncompress(rgba, &outlen, htcFiles[e->file].data + e->dataofs, e->datalen) != Z_OK
+			|| outlen != (uLongf)e->width * e->height * 4) {
+		sysLogPrintf(LOG_WARNING, "texpack: cache record %d (%dx%d) did not inflate", entry, e->width, e->height);
+		free(rgba);
+		return NULL;
+	}
+
+	if (e->cropw && e->croph && e->cropw <= e->width && e->croph <= e->height) {
+		u8 *cut = malloc((size_t)e->cropw * e->croph * 4);
+
+		if (cut) {
+			for (s32 y = 0; y < e->croph; y++) {
+				memcpy(cut + (size_t)y * e->cropw * 4, rgba + (size_t)y * e->width * 4, (size_t)e->cropw * 4);
+			}
+
+			free(rgba);
+			*outWidth = e->cropw;
+			*outHeight = e->croph;
+			return cut;
+		}
+	}
+
+	*outWidth = e->width;
+	*outHeight = e->height;
+
+	return rgba;
+}
+
 static void texpackIndexFile(const char *name, void *arg)
 {
 	const struct texpackscan *scan = arg;
@@ -1183,6 +1761,16 @@ static void texpackIndexFile(const char *name, void *arg)
 	if (scan->fontId >= 0 && texpackParseGlyphName(name) >= 0) {
 		texpackIndexGlyph(scan, name);
 		return;
+	}
+
+	{
+		// an emulator's texture cache file, records indexed one by one
+		const char *dot = strrchr(name, '.');
+
+		if (dot && !strcasecmp(dot, ".htc")) {
+			texpackIndexHtc(dir, name);
+			return;
+		}
 	}
 
 	texturenum = texpackParseNativeName(name);
@@ -1305,6 +1893,7 @@ static void texpackFreeIndex(void)
 	numFontReplacements = 0;
 	texpackGlyphsFree();
 	texpackKeptFree();
+	texpackHtcFree();
 
 	free(replacePaths);
 	free(replaceAlphaPaths);
@@ -1748,11 +2337,21 @@ static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outH
 	s32 width;
 	s32 height;
 	s32 y;
-	const char *dot = strrchr(path, '.');
-	const s32 isJpeg = dot && texpackImageExt(dot) == TEXPACK_EXT_JPEG;
-	u8 *rgba = isJpeg ? jpegRead(path, &width, &height) : pngRead(path, &width, &height);
+	const char *dot;
+	s32 isJpeg;
+	u8 *rgba;
 
-	if (!rgba && !isJpeg) {
+	if (!strncmp(path, "htc://", 6)) {
+		// a record of an emulator cache, already in the pack's row order
+		rgba = texpackHtcLoad(atoi(path + 6), &width, &height);
+		flip = 0;
+	} else {
+		dot = strrchr(path, '.');
+		isJpeg = dot && texpackImageExt(dot) == TEXPACK_EXT_JPEG;
+		rgba = isJpeg ? jpegRead(path, &width, &height) : pngRead(path, &width, &height);
+	}
+
+	if (!rgba && strncmp(path, "htc://", 6) && !isJpeg) {
 		// pngread.c refuses what it does not handle rather than guessing.
 		// stb_image is linked for JPEG anyway, and reads more of PNG than it.
 		rgba = pngReadFallback(path, &width, &height);

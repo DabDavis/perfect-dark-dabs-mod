@@ -1207,11 +1207,98 @@ static bool modListUnpackOne(const char *dir, const char *name)
 }
 
 /**
+ * Copies one file, for the texture cache below. Read whole: they are tens of
+ * megabytes at most and this happens once.
+ */
+static bool modCopyFile(const char *srcFull, const char *dstFull)
+{
+	FILE *in = fopen(srcFull, "rb");
+	FILE *out;
+	u8 buf[65536];
+	size_t n;
+
+	if (!in) {
+		return false;
+	}
+
+	out = fopen(dstFull, "wb");
+
+	if (!out) {
+		fclose(in);
+		return false;
+	}
+
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+		fwrite(buf, 1, n, out);
+	}
+
+	fclose(in);
+	fclose(out);
+	return true;
+}
+
+/**
+ * A console mod's download may carry the emulator texture pack made for it
+ * as the plugin's cache file (GE-X: `1964_HIRES_Files/GoldenEye
+ * X_HIRESTEXTURES.htc`). texpack.c reads that file from a mod's textures/,
+ * so any found beside the patch, two folders down, is copied there. Returns
+ * how many.
+ */
+static s32 modListAdoptTextureCaches(const char *dir, const char *dest, s32 depth)
+{
+	struct modnamelist list = { NULL, 0, 0 };
+	s32 adopted = 0;
+
+	if (modNameListCollect(dir, &list) < 0) {
+		free(list.names);
+		return 0;
+	}
+
+	for (s32 i = 0; i < list.count; ++i) {
+		const char *name = list.names[i];
+		const char *dot = strrchr(name, '.');
+		char path[FS_MAXPATH + 1];
+
+		snprintf(path, sizeof(path), "%s/%s", dir, name);
+
+		if (dot && !strcasecmp(dot, ".htc")) {
+			char texdir[FS_MAXPATH + 1];
+			char target[FS_MAXPATH + 1];
+			char srcFull[FS_MAXPATH + 1];
+
+			snprintf(texdir, sizeof(texdir), "%s/textures", dest);
+			snprintf(target, sizeof(target), "%s/%s", texdir, name);
+
+			if (fsFileSize(target) >= 0) {
+				continue;
+			}
+
+			fsCreateDir(texdir);
+			strncpy(srcFull, fsFullPath(path), FS_MAXPATH);
+			srcFull[FS_MAXPATH] = '\0';
+
+			if (modCopyFile(srcFull, fsFullPath(target))) {
+				sysLogPrintf(LOG_NOTE, "mod: %s is an emulator texture cache; copied into the mod's textures/", name);
+				++adopted;
+			} else {
+				sysLogPrintf(LOG_WARNING, "mod: could not copy %s into %s", name, texdir);
+			}
+		} else if (depth < 2 && modPathIsDir(path) && strcasecmp(name, "textures") && strcasecmp(name, "files")
+				&& strcasecmp(name, "segs") && strcasecmp(name, "files.incompatible") && strcasecmp(name, "segs.unlocated")) {
+			adopted += modListAdoptTextureCaches(path, dest, depth + 1);
+		}
+	}
+
+	free(list.names);
+	return adopted;
+}
+
+/**
  * Imports the console patch at patchPath into container/<stem>, the stem
  * prefixed with "mod_" beside the executable so the loose scan sees it. Done
  * once: an IMPORT.txt in the directory, or a mod already there, means so.
  */
-static void modListImportPatch(const char *container, bool loose, const char *patchPath, const char *name)
+static s32 modListImportPatch(const char *container, bool loose, const char *patchPath, const char *name, const char *basePath)
 {
 	char stem[MOD_NAME_LEN];
 	char destName[MOD_NAME_LEN];
@@ -1220,10 +1307,13 @@ static void modListImportPatch(const char *container, bool loose, const char *pa
 	char patchFull[FS_MAXPATH + 1];
 	char destFull[FS_MAXPATH + 1];
 
+	char baseFull[FS_MAXPATH + 1];
+	s32 result;
+
 	modStemName(name, stem, sizeof(stem));
 
 	if (!stem[0]) {
-		return;
+		return -1;
 	}
 
 	if (loose && strncasecmp(stem, "mod", 3)) {
@@ -1235,12 +1325,12 @@ static void modListImportPatch(const char *container, bool loose, const char *pa
 	snprintf(dest, sizeof(dest), "%s/%s", container, destName);
 	snprintf(marker, sizeof(marker), "%s/" MOD_IMPORT_REPORT, dest);
 
-	if (fsFileSize(marker) >= 0) {
-		return; // imported before, or tried and failed - either way, not again
+	if (fsFileSize(marker) >= 0 && !basePath) {
+		return 0; // imported before, or tried and failed - either way, not again
 	}
 
 	if (fsFileSize(dest) >= 0 && modListLooksLikeMod(dest)) {
-		return; // a mod of that name is already there
+		return 0; // a mod of that name is already there
 	}
 
 	fsCreateDir(dest);
@@ -1250,13 +1340,41 @@ static void modListImportPatch(const char *container, bool loose, const char *pa
 	strncpy(destFull, fsFullPath(dest), FS_MAXPATH);
 	destFull[FS_MAXPATH] = '\0';
 
-	sysLogPrintf(LOG_NOTE, "mod: importing the console patch %s into %s, this happens once", name, destName);
+	if (basePath) {
+		strncpy(baseFull, fsFullPath(basePath), FS_MAXPATH);
+		baseFull[FS_MAXPATH] = '\0';
+	} else {
+		sysLogPrintf(LOG_NOTE, "mod: importing the console patch %s into %s, this happens once", name, destName);
+	}
 
-	if (modImportPatch(patchFull, destFull) < 0) {
+	result = modImportPatch(patchFull, destFull, basePath ? baseFull : NULL);
+
+	if (result >= 1) {
+		// the emulator texture pack that came with it, if one did
+		char patchDir[FS_MAXPATH + 1];
+		const char *slash;
+
+		snprintf(patchDir, sizeof(patchDir), "%s", patchPath);
+		slash = strrchr(patchDir, '/');
+
+		if (slash) {
+			patchDir[slash - patchDir] = '\0';
+
+			if (modListAdoptTextureCaches(patchDir, dest, 0) > 0) {
+				sysLogPrintf(LOG_NOTE, "mod: %s's textures load with the mod once Use Texture Packs is on (Extended Options > Texture Packs; Mod.LoadTextures in pd.ini)", destName);
+			}
+		}
+	}
+
+	if (result == MODIMPORT_NEEDS_BASE) {
+		// the caller tries the patches beside it as a base; quiet until then
+	} else if (result < 0) {
 		sysLogPrintf(LOG_WARNING, "mod: %s could not be imported; %s/" MOD_IMPORT_REPORT " says why", name, destName);
 	} else if (!modListLooksLikeMod(dest)) {
 		sysLogPrintf(LOG_WARNING, "mod: %s carried nothing the port can use; %s/" MOD_IMPORT_REPORT " says what it changed", name, destName);
 	}
+
+	return result;
 }
 
 /**
@@ -1286,9 +1404,14 @@ static void modListPrepareDir(const char *container, const char *dir, s32 depth,
 		return;
 	}
 
+	// the patches in this directory and how each went, for the second pass
+	s32 *results = calloc(list.count ? list.count : 1, sizeof(s32));
+
 	for (s32 i = 0; i < list.count; ++i) {
 		const char *name = list.names[i];
 		char path[FS_MAXPATH + 1];
+
+		results[i] = -1;
 
 		if (filter && (strncasecmp(name, "mod", 3) || !strcasecmp(name, MOD_MODS_DIR))) {
 			// beside the executable only mod* names are touched, and mods/
@@ -1300,12 +1423,42 @@ static void modListPrepareDir(const char *container, const char *dir, s32 depth,
 		snprintf(path, sizeof(path), "%s/%s", dir, name);
 
 		if (rompatchIsPatchName(name)) {
-			modListImportPatch(container, loose, path, name);
+			results[i] = modListImportPatch(container, loose, path, name, NULL);
 		} else if (depth < MOD_UNPACK_DEPTH && modPathIsDir(path) && !modListLooksLikeMod(path)) {
 			modListPrepareDir(container, path, depth + 1, loose);
 		}
 	}
 
+	// A patch that does not apply to the stock ROM may have been made against
+	// another mod's - GE Gun Name Display's "PD Names" is a patch on top of
+	// its first patch. The ones beside it that did apply are tried as a base.
+	for (s32 i = 0; i < list.count; ++i) {
+		char path[FS_MAXPATH + 1];
+
+		if (results[i] != MODIMPORT_NEEDS_BASE) {
+			continue;
+		}
+
+		snprintf(path, sizeof(path), "%s/%s", dir, list.names[i]);
+
+		for (s32 j = 0; j < list.count && results[i] == MODIMPORT_NEEDS_BASE; ++j) {
+			char basePath[FS_MAXPATH + 1];
+
+			if (j == i || results[j] < 0 || !rompatchIsPatchName(list.names[j])) {
+				continue;
+			}
+
+			snprintf(basePath, sizeof(basePath), "%s/%s", dir, list.names[j]);
+			sysLogPrintf(LOG_NOTE, "mod: %s does not apply to the stock ROM; trying it on top of %s", list.names[i], list.names[j]);
+			results[i] = modListImportPatch(container, loose, path, list.names[i], basePath);
+		}
+
+		if (results[i] == MODIMPORT_NEEDS_BASE) {
+			sysLogPrintf(LOG_WARNING, "mod: %s does not apply to the stock ROM or on top of any patch beside it; its IMPORT.txt says so", list.names[i]);
+		}
+	}
+
+	free(results);
 	free(list.names);
 }
 

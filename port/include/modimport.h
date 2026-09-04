@@ -16,12 +16,22 @@ extern "C" {
  * The in-game equivalent of tools/importmod, which it mirrors step for step.
  *
  * Both paths are taken as the file system has them (already expanded).
+ * With basePatchPath, that patch is applied to the stock ROM first and the
+ * patch under import on top of it - for a mod distributed as a patch against
+ * another mod's ROM. The result is still diffed against the stock ROM.
+ *
  * Returns 1 when something usable was written, 0 when the mod carried nothing
- * the port can use, and -1 when it could not be imported at all (a patch for
- * another ROM, a broken patch, no stock ROM to apply it to). IMPORT.txt is
- * written in every case so the attempt is not repeated on the next start.
+ * the port can use, MODIMPORT_NEEDS_BASE when the patch does not apply to the
+ * stock ROM, and -1 when it could not be imported at all (a broken patch, no
+ * stock ROM to apply it to). IMPORT.txt is written in every case so the
+ * attempt is not repeated on the next start.
  */
-s32 modImportPatch(const char *patchPath, const char *outDir);
+s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePatchPath);
+
+// modImportPatch() returns this when the patch does not apply to the stock
+// ROM: it may be one made on top of another mod, and a sibling patch that did
+// apply is worth trying as basePatchPath.
+#define MODIMPORT_NEEDS_BASE (-2)
 
 #ifdef __cplusplus
 }
