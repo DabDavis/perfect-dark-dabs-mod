@@ -1375,9 +1375,14 @@ static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outH
 	s32 height;
 	s32 y;
 	const char *dot = strrchr(path, '.');
-	u8 *rgba = (dot && texpackImageExt(dot) == TEXPACK_EXT_JPEG)
-			? jpegRead(path, &width, &height)
-			: pngRead(path, &width, &height);
+	const s32 isJpeg = dot && texpackImageExt(dot) == TEXPACK_EXT_JPEG;
+	u8 *rgba = isJpeg ? jpegRead(path, &width, &height) : pngRead(path, &width, &height);
+
+	if (!rgba && !isJpeg) {
+		// pngread.c refuses what it does not handle rather than guessing, and a
+		// pack's glyphs may be interlaced. stb_image is linked for JPEG anyway.
+		rgba = pngReadFallback(path, &width, &height);
+	}
 
 	if (!rgba) {
 		return NULL;

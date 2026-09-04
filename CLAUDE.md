@@ -519,8 +519,12 @@ through `jpegread.c`, which is stb_image and the only thing in the port that use
 it - baseline JPEG is Huffman tables, an inverse DCT and chroma upsampling, and
 progressive is more again, none of it worth writing. `STBI_ONLY_JPEG` keeps that
 vendored header to the one decoder, so the two can never disagree about a file.
-JPEG has no alpha: stb fills it with 255, and a texture needing transparency has
-to ship as PNG. The Rice naming (`_all`, `_rgb`, `_a`) is still PNG-only, those
+It is also the fallback for a PNG that `pngread.c` declines: that decoder handles
+what image editors write and refuses the rest rather than guessing, and Adam7
+interlacing is one of the refusals - which the PD Plus pack ships several hundred
+of among its font glyphs. `pngRead()` is still tried first, so nothing that
+worked before changes hands. JPEG has no alpha: stb fills it with 255, and a
+texture needing transparency has to ship as PNG. The Rice naming (`_all`, `_rgb`, `_a`) is still PNG-only, those
 packs being PNG by convention.
 
 **Row order.** A texture's data in the port has its first row at the bottom, and

@@ -8,9 +8,12 @@
  * - the same decoder the VR fork uses, which is also what the packs shipping
  * .jpg were tested against.
  *
- * STBI_ONLY_JPEG keeps it to just that: pngRead() stays the PNG path, and the
- * two decoders cannot disagree about a file because only one of them is ever
- * compiled to read it.
+ * It is also the fallback for a PNG that pngread.c declines. That decoder
+ * handles what image editors write and refuses the rest rather than guessing -
+ * and an Adam7 interlaced file is one of the refusals, which the PD Plus pack
+ * turns out to ship a few hundred of among its font glyphs. Rather than write
+ * a deinterlacer, the exotic ones go to the decoder already linked for JPEG.
+ * pngRead() is still tried first, so nothing that worked before changes hands.
  */
 
 #include <stdlib.h>
@@ -19,12 +22,16 @@
 #include "jpegread.h"
 
 #define STBI_ONLY_JPEG
+#define STBI_ONLY_PNG
 #define STBI_NO_STDIO_WRITE
 #define STBI_ASSERT(x) ((void)0)
 #define STB_IMAGE_IMPLEMENTATION
 #include "external/stb_image.h"
 
-u8 *jpegRead(const char *path, s32 *outWidth, s32 *outHeight)
+/**
+ * Decodes anything stb is compiled for here, which is JPEG and PNG.
+ */
+static u8 *stbRead(const char *path, s32 *outWidth, s32 *outHeight, const char *what)
 {
 	s32 width = 0;
 	s32 height = 0;
@@ -37,7 +44,7 @@ u8 *jpegRead(const char *path, s32 *outWidth, s32 *outHeight)
 	rgba = stbi_load(path, &width, &height, &channels, 4);
 
 	if (!rgba) {
-		sysLogPrintf(LOG_ERROR, "jpegRead: %s: %s", path, stbi_failure_reason());
+		sysLogPrintf(LOG_ERROR, "%s: %s: %s", what, path, stbi_failure_reason());
 		return NULL;
 	}
 
@@ -53,4 +60,14 @@ u8 *jpegRead(const char *path, s32 *outWidth, s32 *outHeight)
 	// callers free with. Kept explicit because it is the one thing that would
 	// go wrong quietly if stb's defaults ever changed.
 	return rgba;
+}
+
+u8 *jpegRead(const char *path, s32 *outWidth, s32 *outHeight)
+{
+	return stbRead(path, outWidth, outHeight, "jpegRead");
+}
+
+u8 *pngReadFallback(const char *path, s32 *outWidth, s32 *outHeight)
+{
+	return stbRead(path, outWidth, outHeight, "pngReadFallback");
 }

@@ -170,7 +170,9 @@ static u8 *pngGatherChunks(struct pngstate *st, const char *path, u32 *outSize)
 			}
 
 			if (data[12] != 0) {
-				sysLogPrintf(LOG_ERROR, "png: %s is interlaced, which is not supported", path);
+				// Not an error any more: texpack retries an interlaced file
+				// through stb_image, which does handle it.
+				sysLogPrintf(LOG_NOTE, "png: %s is interlaced, leaving it to the fallback", path);
 				goto fail;
 			}
 
