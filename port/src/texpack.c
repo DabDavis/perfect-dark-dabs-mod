@@ -28,6 +28,7 @@
 #include "fs.h"
 #include "input.h"
 #include "pngread.h"
+#include "jpegread.h"
 #include "pngwrite.h"
 #include "system.h"
 #include "texpack.h"
@@ -141,6 +142,7 @@ static s32 loadTextures = 1;
 static char **replacePaths;   // one per texture number, NULL where there is none
 static char **replaceAlphaPaths; // the _a half of a Rice pack's split images
 static u8 *replaceKinds;      // what kind of file replacePaths[i] is
+static u8 *replaceFlip;       // whether it has to be turned over on load
 static s32 replaceScanned;    // the scan runs once, on the first texture drawn
 static s32 numReplacements;
 
@@ -685,6 +687,30 @@ static s32 texpackParseRiceName(const char *name, u32 *crc, s32 *kind, s32 *isAl
  * (0a9a_i8.png), so a dump can be edited and dropped back in without renaming.
  */
 /**
+ * Whether a filename ends in an image extension this can decode, and which.
+ *
+ * PNG is ours (pngread.c) and JPEG is stb_image (jpegread.c). Packs in the wild
+ * use both - the PD Plus pack is 74% .jpg - and a pack may mix them file by
+ * file, so this is asked per name rather than once per pack.
+ */
+#define TEXPACK_EXT_NONE 0
+#define TEXPACK_EXT_PNG  1
+#define TEXPACK_EXT_JPEG 2
+
+static s32 texpackImageExt(const char *ext)
+{
+	if (!strcasecmp(ext, ".png")) {
+		return TEXPACK_EXT_PNG;
+	}
+
+	if (!strcasecmp(ext, ".jpg") || !strcasecmp(ext, ".jpeg")) {
+		return TEXPACK_EXT_JPEG;
+	}
+
+	return TEXPACK_EXT_NONE;
+}
+
+/**
  * The texture number a file is for, by our own naming: four hex digits,
  * optionally followed by an underscore and anything at all - which is what the
  * dumper writes (0a9a_i8.png), so a dump can be edited and dropped back in
@@ -713,7 +739,7 @@ static s32 texpackParseNativeName(const char *name)
 		}
 	}
 
-	if (strcasecmp(rest, ".png")) {
+	if (texpackImageExt(rest) == TEXPACK_EXT_NONE) {
 		return -1;
 	}
 
@@ -810,9 +836,10 @@ static char *texpackJoin(const char *dir, const char *name)
 struct texpackscan {
 	const char *dir;
 	s32 depth;
+	s32 bottomUp; // this folder's images are already in N64 row order
 };
 
-static void texpackScanPathAt(const char *path, s32 depth);
+static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp);
 
 static void texpackIndexFile(const char *name, void *arg)
 {
@@ -833,7 +860,7 @@ static void texpackIndexFile(const char *name, void *arg)
 			if (scan->depth < TEXPACK_MAXDEPTH) {
 				char sub[FS_MAXPATH + 1];
 				snprintf(sub, sizeof(sub), "%s/%s", dir, name);
-				texpackScanPathAt(sub, scan->depth + 1);
+				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp);
 			}
 
 			return;
@@ -884,6 +911,9 @@ static void texpackIndexFile(const char *name, void *arg)
 
 	replacePaths[texturenum] = path;
 	replaceKinds[texturenum] = (u8)kind;
+	// Rice images are already in the game's row order, and so is anything in a
+	// folder that says so; our own naming is written the right way up.
+	replaceFlip[texturenum] = (u8)(kind == TEXPACK_KIND_NATIVE && !scan->bottomUp);
 }
 
 static void texpackAsyncReset(void);
@@ -911,12 +941,14 @@ static void texpackFreeIndex(void)
 	free(replacePaths);
 	free(replaceAlphaPaths);
 	free(replaceKinds);
+	free(replaceFlip);
 	free(unplaced);
 	free(riceScratch);
 
 	replacePaths = NULL;
 	replaceAlphaPaths = NULL;
 	replaceKinds = NULL;
+	replaceFlip = NULL;
 	unplaced = NULL;
 	riceScratch = NULL;
 	numUnplaced = 0;
@@ -940,16 +972,46 @@ static void texpackFreeIndex(void)
  *
  * Inherited by subfolders, so the marker goes at the top of the pack once.
  */
-static void texpackScanPathAt(const char *path, s32 depth)
+static s32 texpackDirIsBottomUp(const char *path)
 {
-	struct texpackscan scan = { path, depth };
+	const char *slash = strrchr(path, '/');
+	const char *name = slash ? slash + 1 : path;
+	char marker[FS_MAXPATH + 1];
+
+	if (!strcasecmp(name, "ext_tex")) {
+		return 1;
+	}
+
+	snprintf(marker, sizeof(marker), "%s/bottomup.txt", path);
+
+	return fsFileSize(marker) >= 0;
+}
+
+static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp)
+{
+	struct texpackscan scan;
+
+	if (!bottomUp) {
+		bottomUp = texpackDirIsBottomUp(path);
+
+		if (bottomUp) {
+			// Worth saying: it is the difference between a pack looking right
+			// and every texture in it being upside down, and the only place it
+			// is decided.
+			sysLogPrintf(LOG_NOTE, "texpack: %s is in N64 row order, not turning it over", path);
+		}
+	}
+
+	scan.dir = path;
+	scan.depth = depth;
+	scan.bottomUp = bottomUp;
 
 	fsScanDir(path, texpackIndexFile, &scan);
 }
 
 static void texpackScanPath(const char *path)
 {
-	texpackScanPathAt(path, 0);
+	texpackScanPathAt(path, 0, 0);
 }
 
 static void texpackScanDir(const char *dir)
@@ -1239,8 +1301,9 @@ static void texpackScan(void)
 	replacePaths = calloc(NUM_TEXTURES, sizeof(char *));
 	replaceAlphaPaths = calloc(NUM_TEXTURES, sizeof(char *));
 	replaceKinds = calloc(NUM_TEXTURES, sizeof(u8));
+	replaceFlip = calloc(NUM_TEXTURES, sizeof(u8));
 
-	if (!replacePaths || !replaceAlphaPaths || !replaceKinds) {
+	if (!replacePaths || !replaceAlphaPaths || !replaceKinds || !replaceFlip) {
 		sysLogPrintf(LOG_ERROR, "texpack: could not alloc the replacement index");
 		texpackFreeIndex();
 		return;
@@ -1311,7 +1374,10 @@ static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outH
 	s32 width;
 	s32 height;
 	s32 y;
-	u8 *rgba = pngRead(path, &width, &height);
+	const char *dot = strrchr(path, '.');
+	u8 *rgba = (dot && texpackImageExt(dot) == TEXPACK_EXT_JPEG)
+			? jpegRead(path, &width, &height)
+			: pngRead(path, &width, &height);
 
 	if (!rgba) {
 		return NULL;
@@ -1399,12 +1465,11 @@ u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 hei
  * with nothing held.
  */
 static u8 *texpackDecodeReplacement(const char *path, const char *alphaPath, s32 kind,
-		s32 *outWidth, s32 *outHeight)
+		s32 flip, s32 *outWidth, s32 *outHeight)
 {
 	u8 *rgba;
 
-	// Only our own naming means the file was written the right way up.
-	rgba = texpackLoadImage(path, kind == TEXPACK_KIND_NATIVE, outWidth, outHeight);
+	rgba = texpackLoadImage(path, flip, outWidth, outHeight);
 
 	if (!rgba) {
 		return NULL;
@@ -1528,6 +1593,7 @@ static int texpackDecodeWorker(void *arg)
 		char *path = NULL;
 		char *alphaPath = NULL;
 		s32 kind;
+		s32 flip;
 		s32 found = -1;
 		s32 i;
 		s32 width = 0;
@@ -1557,11 +1623,12 @@ static int texpackDecodeWorker(void *arg)
 		}
 
 		kind = replaceKinds ? replaceKinds[jobs[found].texturenum] : TEXPACK_KIND_NATIVE;
+		flip = replaceFlip ? replaceFlip[jobs[found].texturenum] : 1;
 		jobs[found].state = TEXPACK_JOB_DECODING;
 
 		SDL_UnlockMutex(jobLock);
 
-		rgba = path ? texpackDecodeReplacement(path, alphaPath, kind, &width, &height) : NULL;
+		rgba = path ? texpackDecodeReplacement(path, alphaPath, kind, flip, &width, &height) : NULL;
 
 		free(path);
 		free(alphaPath);

@@ -26,6 +26,7 @@ area, read its section first — none of them are inferable from the code.
 - [Mod directories](#mod-directories)
 - [Where a texture pack goes](#where-a-texture-pack-goes) — four directories, one of which is read by nothing
 - [Replacement textures are decoded off the render thread](#replacement-textures-are-decoded-off-the-render-thread) — why the stutter was never the decoder
+- [Pack image formats, and which way up they go](#pack-image-formats-and-which-way-up-they-go) — PNG is ours, JPEG is stb_image; and the two row orders
 - [Texture pack keys](#texture-pack-keys) — F7/F8/F9/F10
 - [Debugging](#debugging) — the two commands that actually find things
 
@@ -508,8 +509,40 @@ byte budget, because a texture that goes off screen may never ask again. Losing
 one costs a re-decode and nothing else. `texpackFreeIndex()` stops the worker
 before freeing anything: the worker reads the index and only stops between jobs.
 
-JPEG is a separate question and still unsupported: `pngread.c` is PNG-only, and
-74% of the PD Plus pack is `.jpg`, so that pack loads 335 of its 4151 files.
+JPEG is decoded the same way, on the same thread - see the format note below.
+
+### Pack image formats, and which way up they go
+
+**Formats.** `<texnum>.png` goes through `pngread.c`, which is ours because PNG is
+a zlib stream in chunks and zlib was already linked. `<texnum>.jpg` / `.jpeg` goes
+through `jpegread.c`, which is stb_image and the only thing in the port that uses
+it - baseline JPEG is Huffman tables, an inverse DCT and chroma upsampling, and
+progressive is more again, none of it worth writing. `STBI_ONLY_JPEG` keeps that
+vendored header to the one decoder, so the two can never disagree about a file.
+JPEG has no alpha: stb fills it with 255, and a texture needing transparency has
+to ship as PNG. The Rice naming (`_all`, `_rgb`, `_a`) is still PNG-only, those
+packs being PNG by convention.
+
+**Row order.** A texture's data in the port has its first row at the bottom, and
+two conventions exist that a filename cannot tell apart:
+
+- Our own dumps are written the right way up, for editing, and are turned over on
+  load. This is the default for `<texnum>.png`.
+- Emulator (Rice) packs, and packs built for the VR fork, are already in N64 row
+  order and must **not** be turned over.
+
+So the folder says which it is, and `replaceFlip[]` records it per texture:
+
+- a folder named **`ext_tex`** - what the VR fork reads, so a pack built for it
+  works unpacked and dropped in as it comes.
+- a folder holding a **`bottomup.txt`** - the same, for a pack under any other
+  name.
+
+Inherited by subfolders, so the marker goes at the top of the pack once. It is
+logged when it fires, because getting it wrong means every texture in the pack is
+upside down and nothing else says so. The trap in `pd-texture-data-is-bottom-up`
+applies to checking this by eye: pick a texture with lettering, not a symmetric
+one.
 
 ### Texture pack keys
 
