@@ -29,6 +29,7 @@ import os
 import math
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -354,7 +355,7 @@ def read_files(path):
             parts = line.split()
             if len(parts) == 4:
                 try:
-                    ranges.append((int(parts[0], 16) - GAME_VRAM, int(parts[1], 16), parts[2], parts[3]))
+                    ranges.append((int(parts[0], 16), int(parts[1], 16), parts[2], parts[3]))
                 except ValueError:
                     pass
 
@@ -466,6 +467,384 @@ def prepare_diff(outdir, a, b, args):
     sys.stderr.write('wrote %s: stock.bin, mod.bin, diff_settings.py, pd-diff\n' % outdir)
 
 
+# -- the data segment -------------------------------------------------------
+#
+# The code is half of a mod. The other half is the tables the code reads: the
+# weapon definitions, which weapon number points at which of them, the Combat
+# Simulator's weapon list, the stage table, the heads and bodies. None of that
+# is in the game code segment. It is .data, and .data is its own segment in the
+# ROM - one compressed blob at ROMDATA_DATA_OFS - so a diff of the code alone
+# misses it entirely. GE-X, for one, renumbers its whole weapon set there.
+#
+# tools/mkdatasym cuts the segment's symbols out of a decomp build's map, and
+# with them a change lands on a name; and for the tables whose layout is known
+# it is read back as fields rather than words, which is the form a modconfig
+# block wants it in.
+
+DATA_REBUILT_THRESHOLD = 0.5
+
+
+def default_datasym(romid):
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.datasym' % romid)
+    return path if os.path.exists(path) else None
+
+
+def read_datasym(path):
+    """`<addr> <name>` per symbol, at the real ROM's addresses."""
+    syms = []
+    with open(path, 'r', errors='replace') as fd:
+        for line in fd:
+            m = re.match(r'\s*(?:0x)?([0-9a-f]+)\s+([A-Za-z_][\w.]*)\s*$', line)
+            if m:
+                addr = int(m.group(1), 16)
+                if 0x80000000 <= addr < 0x80100000:
+                    syms.append((addr, m.group(2)))
+    syms.sort()
+    return syms
+
+
+def port_header(name):
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(here, 'src', 'include', name)
+    return path if os.path.exists(path) else None
+
+
+def header_defines(header, prefix):
+    """`#define PREFIX_X value` from one of the port's headers, value -> X, so a
+    table reads back with the names the port uses. Empty outside the tree."""
+    names = {}
+    path = port_header(header)
+    if not path:
+        return names
+    with open(path, errors='replace') as fd:
+        for line in fd:
+            m = re.match(r'#define\s+%s_(\w+)\s+(0x[0-9a-fA-F]+|-?\d+)\b' % prefix, line)
+            if m:
+                names.setdefault(int(m.group(2), 0), m.group(1))
+    return names
+
+
+def weapon_enum():
+    """enum weaponnum in order, from constants.h."""
+    names = []
+    path = port_header('constants.h')
+    if not path:
+        return names
+    inside = False
+    with open(path, errors='replace') as fd:
+        for line in fd:
+            if line.startswith('enum weaponnum'):
+                inside = True
+                continue
+            if inside:
+                if line.startswith('}'):
+                    break
+                m = re.search(r'\bWEAPON_(\w+)', line)
+                if m:
+                    names.append(m.group(1))
+    return names
+
+
+# (offset, size, signed, field, kind) - the N64 layouts, pointers being 4 bytes
+STRUCT_WEAPON = [
+    (0x00, 2, 0, 'hi_model', 'file'), (0x02, 2, 0, 'lo_model', 'file'),
+    (0x04, 4, 0, 'equip_animation', 'ptr'), (0x08, 4, 0, 'unequip_animation', 'ptr'),
+    (0x0c, 4, 0, 'pritosec_animation', 'ptr'), (0x10, 4, 0, 'sectopri_animation', 'ptr'),
+    (0x14, 4, 0, 'functions[0]', 'ptr'), (0x18, 4, 0, 'functions[1]', 'ptr'),
+    (0x1c, 4, 0, 'ammos[0]', 'ptr'), (0x20, 4, 0, 'ammos[1]', 'ptr'),
+    (0x24, 4, 0, 'aimsettings', 'ptr'),
+    (0x28, 4, 0, 'muzzlez', 'f32'), (0x2c, 4, 0, 'posx', 'f32'),
+    (0x30, 4, 0, 'posy', 'f32'), (0x34, 4, 0, 'posz', 'f32'), (0x38, 4, 0, 'sway', 'f32'),
+    (0x3c, 4, 0, 'gunviscmds', 'ptr'), (0x40, 4, 0, 'partvisibility', 'ptr'),
+    (0x44, 2, 0, 'shortname', 'text'), (0x46, 2, 0, 'name', 'text'),
+    (0x48, 2, 0, 'manufacturer', 'text'), (0x4a, 2, 0, 'description', 'text'),
+    (0x4c, 4, 0, 'flags', 'hex'),
+]
+STRUCT_WEAPONFUNC = [
+    (0x00, 4, 1, 'type', 'hex'), (0x04, 2, 0, 'name', 'text'), (0x07, 1, 1, 'ammoindex', 'int'),
+    (0x08, 4, 0, 'noisesettings', 'ptr'), (0x0c, 4, 0, 'fire_animation', 'ptr'), (0x10, 4, 0, 'flags', 'hex'),
+]
+STRUCT_AMMO = [
+    (0x00, 4, 0, 'type', 'ammotype'), (0x04, 4, 0, 'casingeject', 'int'), (0x08, 2, 1, 'clipsize', 'int'),
+    (0x0c, 4, 0, 'reload_animation', 'ptr'), (0x10, 1, 0, 'flags', 'hex'),
+]
+STRUCT_MPWEAPON = [
+    (0, 1, 0, 'weapon', 'weapon'), (1, 1, 1, 'priammotype', 'ammotype'), (2, 1, 0, 'priammoqty', 'int'),
+    (3, 1, 1, 'secammotype', 'ammotype'), (4, 1, 0, 'secammoqty', 'int'), (5, 1, 0, 'hasweapon:1/unlockfeature:7', 'mpfeature'),
+    (6, 2, 1, 'model', 'model'), (8, 2, 1, 'extrascale', 'int'),
+]
+STRUCT_MPWEAPONSET = [(0, 2, 0, 'name', 'text')] + \
+    [(2 + i, 1, 0, 'slots[%d]' % i, 'int') for i in range(6)] + \
+    [(8 + i, 1, 0, 'requirefeatures[%d]' % i, 'mpfeature') for i in range(4)] + \
+    [(0x0c + i, 1, 0, 'unk%02x' % (0x0c + i), 'int') for i in range(6)]
+STRUCT_MPARENA = [(0, 2, 1, 'stagenum', 'stage'), (2, 1, 0, 'requirefeature', 'mpfeature'), (4, 2, 0, 'name', 'text')]
+STRUCT_MPHEAD = [(0, 2, 1, 'headnum', 'int'), (2, 1, 0, 'requirefeature', 'mpfeature')]
+STRUCT_MPBODY = [(0, 2, 1, 'bodynum', 'int'), (2, 2, 1, 'name', 'text'), (4, 2, 1, 'headnum', 'int'), (6, 1, 0, 'requirefeature', 'mpfeature')]
+STRUCT_MPTRACK = [(0, 2, 0, 'musicnum:7/duration:9', 'hex'), (2, 2, 1, 'name', 'text'), (4, 2, 1, 'unlockstage', 'stage')]
+STRUCT_STAGE = [
+    (0x00, 2, 1, 'id', 'stage'), (0x08, 2, 0, 'bgfileid', 'file'), (0x0a, 2, 0, 'tilefileid', 'file'),
+    (0x0c, 2, 0, 'padsfileid', 'file'), (0x0e, 2, 0, 'setupfileid', 'file'), (0x10, 2, 0, 'mpsetupfileid', 'file'),
+    (0x38, 2, 1, 'alarm', 'int'), (0x3a, 2, 0, 'extragunmem', 'int'),
+]
+STRUCT_STAGEMUSIC = [(0, 2, 1, 'stagenum', 'stage'), (2, 2, 1, 'primarytrack', 'int'), (4, 2, 1, 'ambienttrack', 'int'), (6, 2, 1, 'xtrack', 'int')]
+
+# tables: symbol -> (layout or 'ptrtable', element size, what the index is)
+TABLES = {
+    'g_Weapons':      ('ptrtable', 4, 'weapon'),
+    'g_TvCmdlists':   ('ptrtable', 4, None),
+    'g_MpWeapons':    (STRUCT_MPWEAPON, 10, None),
+    'g_MpWeaponSets': (STRUCT_MPWEAPONSET, 0x12, None),
+    'g_MpArenas':     (STRUCT_MPARENA, 6, None),
+    'g_MpHeads':      (STRUCT_MPHEAD, 4, None),
+    'g_MpBodies':     (STRUCT_MPBODY, 8, None),
+    'g_MpTracks':     (STRUCT_MPTRACK, 6, None),
+    'g_Stages':       (STRUCT_STAGE, 0x3c, None),
+    'g_StageTracks':  (STRUCT_STAGEMUSIC, 8, None),
+}
+
+# single structs, by symbol prefix
+STRUCTS = [
+    ('invitem_', STRUCT_WEAPON, 'struct weapon'),
+    ('invfunc_', STRUCT_WEAPONFUNC, 'struct weaponfunc'),
+    ('invammo_', STRUCT_AMMO, 'struct inventory_ammo'),
+]
+
+
+class DataNames:
+    """Turns raw field values into the names the port uses for them."""
+
+    def __init__(self, syms, filenames):
+        self.syms = syms
+        self.starts = [s[0] for s in syms]
+        self.bysym = dict(syms)
+        self.filenames = filenames or []
+        self.weapons = weapon_enum()
+        self.ammotypes = header_defines('constants.h', 'AMMOTYPE')
+        self.models = header_defines('constants.h', 'MODEL')
+        self.features = header_defines('constants.h', 'MPFEATURE')
+        self.stages = header_defines('constants.h', 'STAGE')
+        self.banks = header_defines('lang.h', 'LANGBANK')
+
+    def symbol(self, addr):
+        if not self.syms or addr < self.starts[0] or addr >= self.starts[-1] + 0x10000:
+            return None
+        start = enclosing(self.starts, addr)
+        name = self.bysym[start]
+        return name if addr == start else '%s+%x' % (name, addr - start)
+
+    def pointer(self, v):
+        if (v >> 24) not in (0x80, 0x7f) or v & 3 or not self.syms:
+            return None
+        if v < self.starts[0] or v >= self.starts[-1] + 0x10000:
+            return None
+        start = enclosing(self.starts, v)
+        if v - start >= 0x400:
+            return None
+        return self.symbol(v)
+
+    def fmt(self, kind, v):
+        if kind == 'ptr':
+            if v == 0:
+                return 'NULL'
+            return self.symbol(v) or '%08x' % v
+        if kind == 'f32':
+            return '%g' % struct.unpack('>f', struct.pack('>I', v & 0xffffffff))[0]
+        if kind == 'hex':
+            return '0x%x' % (v & 0xffffffff)
+        if kind == 'text':
+            bank, index = v >> 9, v & 0x1ff
+            return '%s:%03d' % (self.banks.get(bank, 'bank%02x' % bank), index)
+        if kind == 'file':
+            if 0 < v < len(self.filenames) and self.filenames[v]:
+                return self.filenames[v]
+            return 'file %d' % v
+        if kind == 'weapon':
+            return self.weapons[v] if 0 <= v < len(self.weapons) else 'weapon %d' % v
+        if kind == 'ammotype':
+            return self.ammotypes.get(v, 'ammo %d' % v) if v else 'none'
+        if kind == 'model':
+            return self.models.get(v, 'model 0x%x' % v)
+        if kind == 'stage':
+            return self.stages.get(v, 'stage 0x%x' % v)
+        if kind == 'mpfeature':
+            has = 'has ' if v & 0x80 else ''
+            f = v & 0x7f
+            return has + (self.features.get(f, 'feature %d' % f) if f else 'always')
+        return str(v)
+
+
+def field_diff(a, b, base, layout, names):
+    """Which fields of one struct differ, as `field old -> new` strings, then
+    any differing words the layout does not cover."""
+    out = []
+    covered = set()
+    for ofs, size, signed, field, kind in layout:
+        covered.update(range(base + ofs, base + ofs + size))
+        x = int.from_bytes(a[base + ofs:base + ofs + size], 'big', signed=bool(signed))
+        y = int.from_bytes(b[base + ofs:base + ofs + size], 'big', signed=bool(signed))
+        if x != y:
+            out.append('%s %s -> %s' % (field, names.fmt(kind, x), names.fmt(kind, y)))
+    return out, covered
+
+
+def data_diff(stock, mod, romid, args):
+    """The data segment of both ROMs, and where they differ, with names."""
+    im = load_importmod()
+    _, a, filesofs = im.find_data_segment(stock, im.ROMS[romid]['data'])
+    _, b, _ = im.find_data_segment(mod, im.ROMS[romid]['data'])
+    if a is None or b is None:
+        return None
+
+    syms = read_datasym(args.datasym) if args.datasym else []
+    base = None
+    for addr, name in syms:
+        if name == 'g_FileTable':
+            base = addr - filesofs  # the segment header says where the table is
+            break
+
+    _, filenames = im.read_file_table(stock, a, filesofs)
+
+    n = min(len(a), len(b)) & ~3
+    changed = [i for i in range(0, n, 4) if a[i:i + 4] != b[i:i + 4]]
+
+    d = {
+        'a': a, 'b': b, 'base': base, 'syms': syms, 'changed': changed, 'n': n,
+        'names': DataNames(syms, filenames),
+        'rebuilt': len(a) != len(b) or len(changed) / max(1, n // 4) > DATA_REBUILT_THRESHOLD,
+    }
+
+    # group by enclosing symbol; without symbols, by 64-byte run
+    groups = {}
+    if syms and base is not None:
+        starts = [s[0] for s in syms]
+        for ofs in changed:
+            groups.setdefault(enclosing(starts, base + ofs), []).append(ofs)
+        d['symnames'] = dict(syms)
+        d['ends'] = { starts[i]: (starts[i + 1] if i + 1 < len(starts) else starts[-1] + 0x10000)
+                      for i in range(len(starts)) }
+    else:
+        run = None
+        for ofs in changed:
+            if run is None or ofs - run > 64:
+                run = ofs
+            groups.setdefault(run, []).append(ofs)
+        d['symnames'] = {}
+        d['ends'] = {}
+    d['groups'] = groups
+    return d
+
+
+def data_summary(say, d, ranges):
+    a, b = d['a'], d['b']
+    changed, n = d['changed'], d['n']
+    say('=' * 72)
+    say('Data segment: %d of %d words differ (%.1f%%)%s.'
+        % (len(changed), n // 4, 100.0 * len(changed) / max(1, n // 4),
+           '' if len(a) == len(b) else ', and it is %+d bytes' % (len(b) - len(a))))
+    if d['rebuilt']:
+        say('That is a rebuilt segment, not a patched one; the changes below are not')
+        say('individually meaningful.')
+        say()
+        return
+    if not changed:
+        say()
+        return
+    if not d['syms']:
+        say('No data symbols (tools/pd.<romid>.datasym); see tools/mkdatasym.')
+        say()
+        return
+    say('The tables the code reads - what a weapon number is, what the Combat Simulator')
+    say('offers, which stage is which - live here rather than in the code.')
+    say()
+
+    groups, base, symnames = d['groups'], d['base'], d['symnames']
+    byfile = {}
+    for start in groups:
+        byfile.setdefault(file_for(ranges, start) or '(unattributed)', []).append(start)
+
+    say('%d source file%s:' % (len(byfile), '' if len(byfile) == 1 else 's'))
+    say()
+    for path in sorted(byfile, key=lambda p: -sum(len(groups[s]) for s in byfile[p])):
+        words = sum(len(groups[s]) for s in byfile[path])
+        say('  %-34s %4d word%s in %d symbol%s'
+            % (path, words, '' if words == 1 else 's',
+               len(byfile[path]), '' if len(byfile[path]) == 1 else 's'))
+        shown = sorted(byfile[path], key=lambda s: -len(groups[s]))
+        for start in shown[:12]:
+            say('      %-36s %4d  at %08x' % (symnames.get(start, 'data_%08x' % start), len(groups[start]), start))
+        if len(shown) > 12:
+            say('      ... and %d more' % (len(shown) - 12))
+        say()
+
+
+def data_details(say, d):
+    if d['rebuilt'] or not d['changed'] or not d['syms']:
+        return
+    a, b, base, names = d['a'], d['b'], d['base'], d['names']
+    groups, symnames, ends = d['groups'], d['symnames'], d['ends']
+
+    say()
+    say('=' * 72)
+    say('DATA SEGMENT')
+    say('=' * 72)
+
+    for start in sorted(groups):
+        sym = symnames.get(start, 'data_%08x' % start)
+        ofs = start - base
+        size = ends.get(start, start + 4) - start
+        offsets = groups[start]
+        say()
+
+        table = TABLES.get(sym)
+        layout = next((l for p, l, _ in STRUCTS if sym.startswith(p)), None)
+        kind = next((k for p, _, k in STRUCTS if sym.startswith(p)), None)
+
+        if table:
+            layout, elem, indexkind = table
+            count = size // elem
+            hit = sorted(set((o - ofs) // elem for o in offsets if 0 <= o - ofs < count * elem))
+            say('%s   (%08x, %d entries of %d bytes, %d changed)' % (sym, start, count, elem, len(hit)))
+            say('-' * 72)
+            for i in hit:
+                label = '[%d]' % i if indexkind is None else '[%d %s]' % (i, names.fmt(indexkind, i))
+                at = ofs + i * elem
+                if layout == 'ptrtable':
+                    x = int.from_bytes(a[at:at + 4], 'big')
+                    y = int.from_bytes(b[at:at + 4], 'big')
+                    say('  %-24s %s -> %s' % (label, names.fmt('ptr', x), names.fmt('ptr', y)))
+                else:
+                    fields, _ = field_diff(a, b, at, layout, names)
+                    say('  %-24s %s' % (label, ', '.join(fields) if fields else '(padding)'))
+            continue
+
+        if layout:
+            fields, covered = field_diff(a, b, ofs, layout, names)
+            say('%s   (%08x, %s, %d changed)' % (sym, start, kind, len(offsets)))
+            say('-' * 72)
+            for f in fields:
+                say('  ' + f)
+            extra = [o for o in offsets if o not in covered]
+            for o in extra[:8]:
+                say('  +0x%02x  %08x -> %08x' % (o - ofs, int.from_bytes(a[o:o + 4], 'big'), int.from_bytes(b[o:o + 4], 'big')))
+            if len(extra) > 8:
+                say('  ... and %d more words' % (len(extra) - 8))
+            continue
+
+        say('%s   (%08x, %d of %d words changed)' % (sym, start, len(offsets), size // 4))
+        say('-' * 72)
+        for o in offsets[:16]:
+            x = int.from_bytes(a[o:o + 4], 'big')
+            y = int.from_bytes(b[o:o + 4], 'big')
+            # a word that lands on a symbol, aligned, is probably a pointer to it;
+            # one that lands 0xf6 bytes into a pointer table is packed data
+            px = names.pointer(x)
+            py = names.pointer(y)
+            say('  +0x%04x  %08x -> %08x%s' % (o - ofs, x, y, '   %s -> %s' % (px or '', py or '') if px or py else ''))
+        if len(offsets) > 16:
+            say('  ... and %d more words' % (len(offsets) - 16))
+
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Disassemble what a console mod changed in the game's code.")
@@ -482,6 +861,7 @@ def main():
     ap.add_argument('--summary', action='store_true', help='list the changed functions and stop')
     ap.add_argument('--prepare-diff', metavar='DIR',
                     help='write both binaries and an asm-differ setup here, for reading a rewritten function')
+    ap.add_argument('--datasym', help='data segment symbols (default: tools/pd.<romid>.datasym)')
     args = ap.parse_args()
 
     if bool(args.patch) == bool(args.patched_rom):
@@ -532,6 +912,12 @@ def report(stock, mod, romid, kind, workdir, args):
     say('patched:    %s (%s), game binary at %06x, %d bytes' % (args.patch or args.patched_rom, kind, modtab, len(b)))
     say('loaded at:  %08x' % GAME_VRAM)
     say()
+    if not args.datasym and not args.no_symbols:
+        args.datasym = default_datasym(romid)
+    if not args.filesfile and not args.no_symbols:
+        args.filesfile = default_files(romid)
+    data = data_diff(stock, mod, romid, args)
+    dataranges = read_files(args.filesfile) if args.filesfile else []
 
     n = min(len(a), len(b))
     changed = [i for i in range(0, n & ~3, 4) if a[i:i + 4] != b[i:i + 4]]
@@ -544,6 +930,9 @@ def report(stock, mod, romid, kind, workdir, args):
         say('This mod was rebuilt from source rather than patched in place, so every')
         say('address in it is its own and a diff against the stock binary says nothing.')
         say('What it changed can only come from its own source, or from watching it run.')
+        say()
+        if data:
+            data_summary(say, data, dataranges)
         if out is not sys.stdout:
             out.close()
         return
@@ -564,7 +953,7 @@ def report(stock, mod, romid, kind, workdir, args):
     if not args.filesfile and not args.no_symbols:
         args.filesfile = default_files(romid)
 
-    ranges = read_files(args.filesfile) if args.filesfile else []
+    ranges = dataranges
 
     if args.mapfile:
         syms = read_map(args.mapfile)
@@ -600,7 +989,7 @@ def report(stock, mod, romid, kind, workdir, args):
     # of whether it decodes when it does not
     isdata = {}
     for start in groups:
-        got = range_for(ranges, start) if ranges else None
+        got = range_for(ranges, GAME_VRAM + start) if ranges else None
         if got:
             isdata[start] = got[2] != 'text'
         else:
@@ -660,7 +1049,7 @@ def report(stock, mod, romid, kind, workdir, args):
     if ranges:
         byfile = {}
         for start in groups:
-            byfile.setdefault(file_for(ranges, start) or '(unattributed)', []).append(start)
+            byfile.setdefault(file_for(ranges, GAME_VRAM + start) or '(unattributed)', []).append(start)
 
         say('%d source file%s:' % (len(byfile), '' if len(byfile) == 1 else 's'))
         say()
@@ -687,6 +1076,9 @@ def report(stock, mod, romid, kind, workdir, args):
                    len(groups[start]), 'words' if isdata[start] else 'instructions',
                    kinds[start], GAME_VRAM + groups[start][0]))
 
+    if data:
+        data_summary(say, data, ranges)
+
     if args.summary:
         if out is not sys.stdout:
             out.close()
@@ -701,7 +1093,8 @@ def report(stock, mod, romid, kind, workdir, args):
         say('%s   (%08x, %d changed, %s%s)'
             % (names.get(start, 'func_%08x' % (GAME_VRAM + start)),
                GAME_VRAM + start, len(offsets), kinds[start],
-               ' in %s' % file_for(ranges, start) if ranges and file_for(ranges, start) else ''))
+               ' in %s' % file_for(ranges, GAME_VRAM + start)
+               if ranges and file_for(ranges, GAME_VRAM + start) else ''))
         say('-' * 72)
 
         wanted = set()
@@ -729,6 +1122,9 @@ def report(stock, mod, romid, kind, workdir, args):
             else:
                 say('      - %08x  %s' % (addr, da.get(addr, '?')))
                 say('      + %08x  %s' % (addr, db.get(addr, '?')))
+
+    if data:
+        data_details(say, data)
 
     if out is not sys.stdout:
         out.close()

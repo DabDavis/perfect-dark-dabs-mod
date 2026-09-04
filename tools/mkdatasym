@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+
+# Cuts the data segment's symbols out of a decomp build's ld map, for
+# modcodediff to name what a mod changed in the ROM's data.
+#
+# The game's tables - the weapon definitions, the Combat Simulator weapon list,
+# the stage table, the heads and bodies - are not in the game code segment that
+# tools/pd.<romid>.sym covers. They are .data, and .data is its own segment: one
+# compressed blob at a fixed ROM offset (romdata.c's ROMDATA_DATA_OFS), holding
+# the .data of every lib/ and game/ object in link order.
+#
+# The decomp build that the .sym file was cut from does not match the real ROM
+# here: its lib/ is a different size, so everything in the segment is shifted by
+# a constant, and the segment is a different length. The shift is found by
+# correlating each object's .data against the real segment, which is also the
+# check that it is a constant - it is, at -0x270 for ntsc-final - and then
+# confirmed against the one address the ROM states outright: the file table,
+# whose offset is in the segment's own header. So the addresses written out are
+# the real ROM's, not the build's.
+#
+#   tools/mkdatasym --map ../pd-upstream/build/ntsc-final/pd.map \
+#                   --built ../pd-upstream/build/ntsc-final/pd.z64 \
+#                   --rom build/data/pd.ntsc-final.z64
+#
+# writes tools/pd.<romid>.datasym (`<addr> <name>` per symbol) and appends the
+# objects' .data ranges to tools/pd.<romid>.files (`<addr> <size> data <source>`).
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import re
+import struct
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_importmod():
+    loader = importlib.machinery.SourceFileLoader('importmod', os.path.join(HERE, 'importmod'))
+    spec = importlib.util.spec_from_loader('importmod', loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def die(msg):
+    sys.stderr.write('error: %s\n' % msg)
+    sys.exit(1)
+
+
+def read_map(path):
+    """The .data section of every object, and the symbols inside each."""
+    objs = []
+    syms = []
+    cur = None
+    segstart = None
+
+    with open(path, 'r', errors='replace') as fd:
+        for line in fd:
+            m = re.match(r'^\.data\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+load address', line)
+            if m:
+                segstart = int(m.group(1), 16)
+                continue
+
+            m = re.match(r'^ \.data\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+(\S+)$', line)
+            if m:
+                addr, size, obj = int(m.group(1), 16), int(m.group(2), 16), m.group(3)
+                cur = None
+                if 0x80000000 <= addr < 0x80100000 and size:
+                    cur = (addr, size, obj)
+                    objs.append(cur)
+                continue
+
+            m = re.match(r'^\s+0x([0-9a-f]+)\s+([A-Za-z_]\w*)$', line)
+            if m and cur:
+                addr = int(m.group(1), 16)
+                if cur[0] <= addr < cur[0] + cur[1]:
+                    syms.append((addr, m.group(2)))
+
+    if segstart is None:
+        die('no .data segment in %s' % path)
+
+    return segstart, objs, syms
+
+
+def source_for(obj):
+    """build/<romid>/game/invitems.o -> src/game/invitems.c, as the .files list
+    names things. RSP microcode and the like have no source here."""
+    m = re.match(r'^build/[^/]+/(.+)\.o$', obj)
+    if not m:
+        return None
+    path = m.group(1)
+    if path.startswith('rsp/') or path.startswith('assets/'):
+        return None
+    return 'src/%s.c' % path
+
+
+def words(buf):
+    return [struct.unpack('>I', buf[i:i + 4])[0] for i in range(0, len(buf) - 3, 4)]
+
+
+def is_pointer(w):
+    # anything into RAM or the game/lib virtual ranges moves with the build
+    return w != 0 and (w >> 24) in (0x80, 0x7f, 0x70)
+
+
+def correlate(builtseg, realseg, objs, segstart):
+    """The shift, in bytes, of each object's .data between the build and the
+    real ROM, from where its non-pointer words turn up."""
+    real = words(realseg)
+    shifts = {}
+
+    for addr, size, obj in objs:
+        ofs = addr - segstart
+        mine = words(builtseg[ofs:ofs + size])
+        fixed = [(i, w) for i, w in enumerate(mine) if w and not is_pointer(w)]
+        if not fixed:
+            continue
+
+        best = None
+        for shift in range(-0x1000, 0x1000, 4):
+            base = (ofs + shift) // 4
+            hits = 0
+            for i, w in fixed:
+                j = base + i
+                if 0 <= j < len(real) and real[j] == w:
+                    hits += 1
+            if best is None or hits > best[0]:
+                best = (hits, shift)
+
+        shifts[obj] = (best[1], best[0], len(fixed))
+
+    return shifts
+
+
+def find_base_delta(rom, romid, syms, shift, segstart):
+    """How far the real segment's base is from the build's, from which of the
+    candidate addresses the game code actually loads its tables through."""
+    loader = importlib.machinery.SourceFileLoader('modcodediff', os.path.join(HERE, 'modcodediff'))
+    spec = importlib.util.spec_from_loader('modcodediff', loader)
+    mcd = importlib.util.module_from_spec(spec)
+    loader.exec_module(mcd)
+
+    table = mcd.find_game_table(rom, mcd.GAME_TABLE.get(romid))
+    if table is None:
+        die('could not find the game binary in the ROM')
+    code = words(mcd.extract_game(rom, table))
+
+    # every lui, and the low half of the address-forming instruction after it
+    pairs = {}
+    for i, x in enumerate(code):
+        if (x >> 16) & 0xfc00 != 0x3c00:
+            continue
+        rt = (x >> 16) & 0x1f
+        for y in code[i + 1:i + 4]:
+            op = y >> 26
+            if (y >> 21) & 0x1f == rt and op in (0x08, 0x09, 0x20, 0x21, 0x23, 0x24, 0x25, 0x28, 0x29, 0x2b):
+                key = ((x & 0xffff) << 16) + (y & 0xffff)
+                if y & 0x8000:
+                    key -= 0x10000
+                pairs[key] = pairs.get(key, 0) + 1
+                break
+
+    # Several tables, and the base that the code reaches all of them at wins;
+    # one hot global at the wrong offset must not outvote the rest.
+    wanted = ('g_FileTable', 'g_Weapons', 'g_Stages', 'g_MpWeapons', 'g_MpBodies', 'g_MpHeads',
+              'g_HeadsAndBodies', 'g_MpArenas', 'g_MpWeaponSets', 'g_StageTracks')
+    anchors = [addr for addr, name in syms if name in wanted]
+    best = None
+    for delta in range(-0x1000, 0x1000, 0x10):
+        refs = [pairs.get(a + shift + delta, 0) for a in anchors]
+        score = (sum(1 for r in refs if r), sum(refs))
+        if best is None or score > best[0]:
+            best = (score, delta)
+
+    if best[0][0] < len(anchors):
+        die('no base has the game code reaching every table (best reaches %d of %d)'
+            % (best[0][0], len(anchors)))
+
+    return best[1]
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Cut the data segment's symbols out of a decomp build.")
+    ap.add_argument('--map', required=True, help="the decomp build's pd.map")
+    ap.add_argument('--built', required=True, help="the ROM that build produced")
+    ap.add_argument('--rom', required=True, help='the real ROM')
+    ap.add_argument('--out-dir', default=HERE, help='where to write (default: beside this script)')
+    args = ap.parse_args()
+
+    im = load_importmod()
+
+    with open(args.rom, 'rb') as fd:
+        rom = fd.read()
+    with open(args.built, 'rb') as fd:
+        built = fd.read()
+
+    romid = im.identify_rom(rom)
+    if romid is None:
+        die('%s is not a supported Perfect Dark ROM.' % args.rom)
+
+    dataofs = im.ROMS[romid]['data']
+    _, realseg, filesofs = im.find_data_segment(rom, dataofs)
+    _, builtseg, _ = im.find_data_segment(built, dataofs)
+
+    segstart, objs, syms = read_map(args.map)
+    shifts = correlate(builtseg, realseg, objs, segstart)
+
+    # every object with enough to match on must agree; one with a word or two
+    # of content can find those words anywhere
+    seen = {}
+    for obj, (shift, hits, total) in shifts.items():
+        if total < 4:
+            continue
+        if hits < max(1, total * 0.8):
+            print('warning: %s matched %d/%d words at %+x; ignoring' % (obj, hits, total, shift))
+            continue
+        seen[shift] = seen.get(shift, 0) + 1
+
+    if len(seen) != 1:
+        die('the objects do not agree on one shift: %s' % ', '.join('%+x (%d)' % kv for kv in seen.items()))
+
+    shift = next(iter(seen))
+
+    # That places everything within the segment. Where the segment itself
+    # loads is a different question - the build's base is not the ROM's, the
+    # RSP microcode ahead of the .data being a different size - and the answer
+    # is in the game code, which reaches every table through a lui/addiu pair
+    # holding its real address. Try each base and keep the one the code uses.
+    delta = find_base_delta(rom, romid, syms, shift, segstart)
+    ramstart = segstart + delta
+
+    # and the file table's offset in the segment header agrees, or it is all wrong
+    for addr, name in syms:
+        if name == 'g_FileTable':
+            if addr + shift + delta != ramstart + filesofs:
+                die('g_FileTable lands at %08x but the segment header puts it at %08x'
+                    % (addr + shift + delta, ramstart + filesofs))
+            break
+    else:
+        die('g_FileTable is not in the map')
+
+    print('%s: data segment at %08x (%x bytes; build had %08x, %x bytes), symbols shifted %+x'
+          % (romid, ramstart, len(realseg), segstart, len(builtseg), shift + delta))
+
+    symspath = os.path.join(args.out_dir, 'pd.%s.datasym' % romid)
+    with open(symspath, 'w') as fd:
+        for addr, name in sorted(syms):
+            fd.write('%08x %s\n' % (addr + shift + delta, name))
+    print('wrote %s (%d symbols)' % (symspath, len(syms)))
+
+    filespath = os.path.join(args.out_dir, 'pd.%s.files' % romid)
+    lines = []
+    if os.path.exists(filespath):
+        with open(filespath) as fd:
+            lines = [l for l in fd if not re.match(r'^[0-9a-f]+ [0-9a-f]+ data src/', l)]
+    for addr, size, obj in objs:
+        src = source_for(obj)
+        if src:
+            lines.append('%08x %x data %s\n' % (addr + shift + delta, size, src))
+    with open(filespath, 'w') as fd:
+        fd.writelines(lines)
+    print('wrote %s' % filespath)
+
+
+if __name__ == '__main__':
+    main()

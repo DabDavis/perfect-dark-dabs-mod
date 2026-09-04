@@ -87,3 +87,49 @@ its 3264 `jal` entry points is at the same address; the 3.1% of words that
 differ are all `addiu`/`lw`/`sw`/`jal` immediates pointing at the segments that
 did move. Function addresses are therefore right, and that check - entry points
 identical - is the one to repeat if the file is ever regenerated.
+
+## The data segment, and `pd.ntsc-final.datasym`
+
+The game code segment is only half of what a console mod patches. The other
+half is the ROM's **data segment** - one compressed blob at `ROMDATA_DATA_OFS`
+(0x39850), inflated to 0x30e40 bytes at RAM 0x80059fe0 - which holds the
+`.data` of every lib and game object: the weapon definitions (`invitem_*` and
+everything they point at), `g_Weapons[]` (which number is which definition),
+`g_MpWeapons`, `g_MpWeaponSets`, `g_MpHeads`/`g_MpBodies`, `g_Stages`,
+`g_HeadsAndBodies`, `g_ModelStates`, the fog tables, the TV screen command
+lists. None of that is in `pd.ntsc-final.sym` or `.files`, and until 2026-09-04
+`modcodediff` did not look at it at all - so GE-X's whole weapon set, which is
+a renumbering *and* a rewrite of nearly every definition, was invisible. Its
+44 changed words in `g_Weapons` and 1207 in `invitems.c` explain the
+`li at,26` -> `li at,2` constant swaps in the code: slot 2 is now the knife.
+
+`tools/pd.ntsc-final.datasym` (2328 symbols, real addresses) and the `data`
+lines in `pd.ntsc-final.files` were cut by `tools/mkdatasym` from the same
+upstream decomp build as the `.sym` (`../pd-upstream/build/ntsc-final/pd.map`
+and its `pd.z64`). Unlike the code segment, **the build's data addresses are
+not the ROM's**: its lib is a different size, so everything is shifted by a
+constant (-0x270 on ntsc-final) and the segment is 0x170 bytes shorter. The
+tool finds the shift by correlating each object's content, then finds the base
+by trying every candidate against the `lui`/`addiu` pairs in the stock game
+code until every anchor table is one the code actually reaches - which is
+what caught the first version being 0x90 off, and then 0x200 off with a
+single hot global outvoting the rest. Regenerating it means re-running that
+check, not trusting the map.
+
+`modcodediff` now reports the segment after the code: per file, per symbol,
+and for the tables whose layout it knows (`TABLES` and `STRUCTS` in the
+script) as fields with the port's names on them. A mod that rebuilt its data
+segment (the performance mod: 85.8% differs, -44560 bytes) gets one line
+saying so, as with its code.
+
+**What this means for importing a mod.** A `weapon N { definition M }` key -
+"slot N uses stock definition M" - was written and thrown away the same day:
+GE-X edits the definitions themselves (models, ammo, functions, positions,
+text ids, flags; `invitem_falcon2` is gutted to a placeholder and
+`invitem_falcon2silencer` becomes a Maian SMG), so pointing at stock ones
+would give the wrong guns everywhere. The port equivalent of a mod's weapon
+set is the whole definition graph - `struct weapon` and, through it, the
+functions by type, ammos, aim settings, gun command lists (with their
+`include`/`random` pointers), gunviscmds, part visibility, noise and recoil
+settings, vibration arrays - read out of the mod's data segment and rebuilt
+in the port's own layout. That is the next piece of work.
