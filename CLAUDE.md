@@ -446,6 +446,17 @@ stored choice quietly displacing them would be a bug nobody could see.
 `tools/importmod` builds a mod directory out of a console mod's xdelta, and
 `tools/modcodediff` shows what that mod changed in the ROM's code.
 
+**A modconfig is optional, and one bad block used to cost the rest of the file.**
+`files/`, `segs/` and `textures/` each make a mod dir on their own, so an
+imported console mod has no `modconfig.txt` at all and `modConfigLoad()` checks
+before asking for it — `fsFileLoad()` logs every miss as an error. Inside the
+file, a `stage` block naming a stage this build does not have is skipped rather
+than fatal to the parse: mod configs are written against the mod's own stage
+table, and the top-level loop stops at the first block it cannot parse. GE-X
+opens with `stage 0x10`, which took its three valid remaps down with it; stage
+0x49 then loaded `bg_mp17` under `bg_mp5`'s tiles and died in
+`preprocessBgSection1()`. The remaining warnings are the mod's, not ours.
+
 ### The ROM symbol file
 
 `tools/pd.ntsc-final.sym` is 5149 game-segment symbols, and `modcodediff` reads

@@ -4053,10 +4053,13 @@ struct menudialogdef g_ExtendedTexturePackMenuDialog = {
 /**
  * Load Mods.
  *
- * A mod replaces asset files and ROM segments, and both are read once at
- * startup and pointed at from everywhere after that - so this page can only
- * choose what the next start loads. That is the whole difference from the
- * texture pack page above, which swaps its pack where it stands.
+ * Choosing a mod swaps it where we stand, the same as the texture pack page
+ * above: nothing outside romdata holds file data, so dropping the file slots
+ * and reading them again is enough. A mod with a segs/ directory is the one
+ * exception and only records what the next start should mount - segments are
+ * read once into MEMPOOL_PERMANENT, which is never given back, and the game
+ * holds raw pointers into all of it. modListSwap() returns false for those,
+ * and the Restart Now item below is what finishes the job.
  *
  * The list is re-read whenever the dropdown opens, the same as texture packs,
  * so a mod folder dropped in while the game is running turns up without

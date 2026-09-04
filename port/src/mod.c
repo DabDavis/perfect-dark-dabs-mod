@@ -297,6 +297,34 @@ static char *modConfigParseStageWeather(char *p, char *token, s32 stagenum)
 	return p;
 }
 
+/**
+ * Consume tokens up to the } closing a block whose { has already been eaten,
+ * counting nested blocks on the way. Returns NULL if the file ends first.
+ */
+static char *modConfigSkipBlock(char *p, char *token)
+{
+	s32 depth = 1;
+
+	while (p) {
+		p = strParseToken(p, token, NULL);
+		if (!token[0]) {
+			break;
+		}
+
+		// a quoted filename keeps its quotes, so a brace inside one is not
+		// token[0] and cannot be miscounted here
+		if (token[0] == '{' && !token[1]) {
+			++depth;
+		} else if (token[0] == '}' && !token[1]) {
+			if (--depth == 0) {
+				return p;
+			}
+		}
+	}
+
+	return NULL;
+}
+
 static char *modConfigParseStage(char *p, char *token)
 {
 	// stage number
@@ -319,8 +347,14 @@ static char *modConfigParseStage(char *p, char *token)
 	if (sidx >= 0) {
 		stab = &g_Stages[sidx];
 	} else {
-		sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: unknown stage number", stagenum);
-		return NULL;
+		// A stage this build does not have is not a syntax error: the config is
+		// written against the mod's own stage table. Skipping the block keeps
+		// the rest of the file, which aborting here threw away. GE-X opens with
+		// a stage number we do not carry, and the three valid map remaps behind
+		// it were lost with it, leaving stage 0x49 to load a bg whose tiles did
+		// not match and take the fatal in preprocessBgSection1().
+		sysLogPrintf(LOG_WARNING, "modconfig: stage 0x%02x: unknown stage number, skipping block", stagenum);
+		return modConfigSkipBlock(p, token);
 	}
 	for (struct stageallocation *p = g_StageAllocations8Mb; p->stagenum; ++p) {
 		if (p->stagenum == stagenum) {
@@ -611,6 +645,13 @@ static char *modConfigParseWeaponFunc(char *p, char *token)
 
 s32 modConfigLoad(const char *fname)
 {
+	// A mod need not ship one: files/, segs/ and textures/ each make a mod dir
+	// on their own, and an imported console mod has none of this. Asking
+	// fsFileLoad() for it anyway logs the miss as an error.
+	if (fsFileSize(fname) < 0) {
+		return false;
+	}
+
 	u32 dataLen = 0;
 	char *data = fsFileLoad(fname, &dataLen);
 	if (!data) {
