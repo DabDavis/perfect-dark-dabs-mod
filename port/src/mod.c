@@ -447,6 +447,7 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "nopickupinflight", WEAPONFLAG2_NOPICKUPINFLIGHT },
 			{ "nowallhit",        WEAPONFLAG2_NOWALLHIT },
 			{ "isproximitymine",  WEAPONFLAG2_ISPROXIMITYMINE },
+			{ "stickstowall",     WEAPONFLAG2_STICKSTOWALL },
 		};
 
 		s32 handled = false;

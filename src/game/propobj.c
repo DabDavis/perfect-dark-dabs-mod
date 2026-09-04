@@ -6905,18 +6905,12 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						} else if (obj->type == OBJTYPE_WEAPON) {
 							weapon2 = (struct weaponobj *) obj;
 
-							if (weapon2->weaponnum == WEAPON_REMOTEMINE
-									|| weapon2->weaponnum == WEAPON_TIMEDMINE
-									|| weapon2->weaponnum == WEAPON_PROXIMITYMINE
-									|| weapon2->weaponnum == WEAPON_COMMSRIDER
-									|| weapon2->weaponnum == WEAPON_TRACERBUG
-									|| weapon2->weaponnum == WEAPON_TARGETAMPLIFIER
-									|| weapon2->weaponnum == WEAPON_BOLT
-									|| weapon2->weaponnum == WEAPON_COMBATKNIFE
-									|| weapon2->weaponnum == WEAPON_ECMMINE
+							if (weaponHasFlag2(weapon2->weaponnum, WEAPONFLAG2_STICKSTOWALL)
 									|| gsetHasFunctionFlags(&weapon2->gset, FUNCFLAG_STICKTOWALL)) {
 								stick = true;
 
+								// not a function flag: the wall hugger function is
+								// the Devastator's own, which sticks in its own right
 								if (weapon2->weaponnum == WEAPON_GRENADEROUND && weapon2->gunfunc == FUNC_SECONDARY) {
 									if (weapon2->timer240 == 1) {
 										stick = false;
