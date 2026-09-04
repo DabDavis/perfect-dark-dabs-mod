@@ -41,6 +41,7 @@
 // Matches the "textures" directory modTextureLoad() already reads its %04x.bin
 // replacements from, so one pack directory holds both kinds.
 #define TEXPACK_DIR_NAME "textures"
+#define FONT_OUTLINES_DIR "outlines"
 
 // Where packs are looked for, and where an archive is unpacked to: its own
 // folder beside the executable, the way screenshots and recordings get one -
@@ -143,6 +144,62 @@ static char **replacePaths;   // one per texture number, NULL where there is non
 static char **replaceAlphaPaths; // the _a half of a Rice pack's split images
 static u8 *replaceKinds;      // what kind of file replacePaths[i] is
 static u8 *replaceFlip;       // whether it has to be turned over on load
+
+/**
+ * Font glyph replacements, which are indexed by what they are rather than by a
+ * texture number - a glyph has none.
+ *
+ * A pack keeps them in a folder named after the font (fonthandelgothicsm and
+ * the rest), one image per character named by its index in hex, and an
+ * outlines/ inside that for the same characters as the outline renderer draws
+ * them. Small enough to hold outright rather than through the sparse index the
+ * numbered textures use: five fonts of at most 135 characters, twice.
+ */
+#define TEXPACK_NUM_FONTS   5
+#define TEXPACK_FONT_CHARS  135
+
+// Ids above every texture number, so a glyph can go through the same decode
+// queue as everything else without a second one.
+#define TEXPACK_FONT_ID_BASE 0x10000
+
+static char *fontReplacePaths[2][TEXPACK_NUM_FONTS][TEXPACK_FONT_CHARS];
+static u8 fontReplaceFlip[2][TEXPACK_NUM_FONTS][TEXPACK_FONT_CHARS];
+static s32 numFontReplacements;
+
+static const char *const fontDirNames[TEXPACK_NUM_FONTS] = {
+	"fonthandelgothicsm",
+	"fonthandelgothicmd",
+	"fonthandelgothicxs",
+	"fonthandelgothiclg",
+	"fontnumeric",
+};
+
+static s32 texpackFontIdFromName(const char *name)
+{
+	s32 i;
+
+	for (i = 0; i < TEXPACK_NUM_FONTS; i++) {
+		if (!strcasecmp(name, fontDirNames[i])) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static s32 texpackFontJobId(s32 outline, s32 font, s32 index)
+{
+	return TEXPACK_FONT_ID_BASE + ((outline * TEXPACK_NUM_FONTS + font) * TEXPACK_FONT_CHARS) + index;
+}
+
+static void texpackFontFromJobId(s32 id, s32 *outline, s32 *font, s32 *index)
+{
+	const s32 n = id - TEXPACK_FONT_ID_BASE;
+
+	*index = n % TEXPACK_FONT_CHARS;
+	*font = (n / TEXPACK_FONT_CHARS) % TEXPACK_NUM_FONTS;
+	*outline = n / (TEXPACK_FONT_CHARS * TEXPACK_NUM_FONTS);
+}
 static s32 replaceScanned;    // the scan runs once, on the first texture drawn
 static s32 numReplacements;
 
@@ -837,15 +894,84 @@ struct texpackscan {
 	const char *dir;
 	s32 depth;
 	s32 bottomUp; // this folder's images are already in N64 row order
+	s32 fontId;   // the font this folder holds glyphs for, or -1
+	s32 outline;  // and whether they are the outline set
 };
 
-static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp);
+static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline);
+
+/**
+ * The character index a glyph image is for: its name in hex, any number of
+ * digits, and an extension we can decode. `21.png` and `0021.jpg` are the same
+ * character.
+ */
+static s32 texpackParseGlyphName(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+	u32 index = 0;
+	s32 digits;
+
+	if (!dot || dot == name || texpackImageExt(dot) == TEXPACK_EXT_NONE) {
+		return -1;
+	}
+
+	for (digits = 0; name + digits < dot; digits++) {
+		const char c = name[digits];
+
+		if (c >= '0' && c <= '9') {
+			index = (index << 4) | (u32)(c - '0');
+		} else if (c >= 'a' && c <= 'f') {
+			index = (index << 4) | (u32)(c - 'a' + 10);
+		} else if (c >= 'A' && c <= 'F') {
+			index = (index << 4) | (u32)(c - 'A' + 10);
+		} else {
+			return -1;
+		}
+	}
+
+	if (digits == 0 || digits > 4 || index >= TEXPACK_FONT_CHARS) {
+		return -1;
+	}
+
+	return (s32)index;
+}
+
+static void texpackIndexGlyph(const struct texpackscan *scan, const char *name)
+{
+	const s32 index = texpackParseGlyphName(name);
+	char **slot;
+
+	if (index < 0) {
+		return;
+	}
+
+	slot = &fontReplacePaths[scan->outline][scan->fontId][index];
+
+	free(*slot);
+	*slot = texpackJoin(scan->dir, name);
+
+	if (*slot) {
+		// A glyph is written the right way up like everything else our naming
+		// covers, unless the folder said otherwise.
+		fontReplaceFlip[scan->outline][scan->fontId][index] = (u8)!scan->bottomUp;
+		numFontReplacements++;
+	}
+}
 
 static void texpackIndexFile(const char *name, void *arg)
 {
 	const struct texpackscan *scan = arg;
 	const char *dir = scan->dir;
-	s32 texturenum = texpackParseNativeName(name);
+	s32 texturenum;
+
+	// Inside a font's folder a name means a character, not a texture number:
+	// 21.png is '!', not texture 0x0021.
+	if (scan->fontId >= 0 && texpackParseGlyphName(name) >= 0) {
+		texpackIndexGlyph(scan, name);
+		return;
+	}
+
+	texturenum = texpackParseNativeName(name);
 	s32 kind = TEXPACK_KIND_NATIVE;
 	s32 isAlpha = 0;
 	char *path;
@@ -859,8 +985,17 @@ static void texpackIndexFile(const char *name, void *arg)
 			// opening it as one.
 			if (scan->depth < TEXPACK_MAXDEPTH) {
 				char sub[FS_MAXPATH + 1];
+				s32 subFont = scan->fontId;
+				s32 subOutline = scan->outline;
+
+				if (subFont < 0) {
+					subFont = texpackFontIdFromName(name);
+				} else if (!strcasecmp(name, FONT_OUTLINES_DIR)) {
+					subOutline = 1;
+				}
+
 				snprintf(sub, sizeof(sub), "%s/%s", dir, name);
-				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp);
+				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, subFont, subOutline);
 			}
 
 			return;
@@ -938,6 +1073,23 @@ static void texpackFreeIndex(void)
 		free(unplaced[i].path);
 	}
 
+	{
+		s32 o;
+		s32 f;
+		s32 c;
+
+		for (o = 0; o < 2; o++) {
+			for (f = 0; f < TEXPACK_NUM_FONTS; f++) {
+				for (c = 0; c < TEXPACK_FONT_CHARS; c++) {
+					free(fontReplacePaths[o][f][c]);
+					fontReplacePaths[o][f][c] = NULL;
+				}
+			}
+		}
+	}
+
+	numFontReplacements = 0;
+
 	free(replacePaths);
 	free(replaceAlphaPaths);
 	free(replaceKinds);
@@ -987,7 +1139,7 @@ static s32 texpackDirIsBottomUp(const char *path)
 	return fsFileSize(marker) >= 0;
 }
 
-static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp)
+static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline)
 {
 	struct texpackscan scan;
 
@@ -1005,13 +1157,15 @@ static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp)
 	scan.dir = path;
 	scan.depth = depth;
 	scan.bottomUp = bottomUp;
+	scan.fontId = fontId;
+	scan.outline = outline;
 
 	fsScanDir(path, texpackIndexFile, &scan);
 }
 
 static void texpackScanPath(const char *path)
 {
-	texpackScanPathAt(path, 0, 0);
+	texpackScanPathAt(path, 0, 0, -1, 0);
 }
 
 static void texpackScanDir(const char *dir)
@@ -1330,9 +1484,13 @@ static void texpackScan(void)
 	// Either kind on its own is a working pack. A Rice pack can be all model
 	// textures, and dropping the index because no texture number claimed one
 	// would throw the whole thing away.
-	if (numReplacements || numUnplaced) {
+	if (numReplacements || numUnplaced || numFontReplacements) {
 		if (numReplacements) {
 			sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
+		}
+
+		if (numFontReplacements) {
+			sysLogPrintf(LOG_NOTE, "texpack: %d font glyphs", numFontReplacements);
 		}
 
 		if (numUnplaced) {
@@ -1619,16 +1777,31 @@ static int texpackDecodeWorker(void *arg)
 
 		// Copied under the lock, because texpackFreeIndex() may free the index
 		// itself - it stops this thread first, but only between jobs.
-		if (replacePaths && replacePaths[jobs[found].texturenum]) {
-			path = strdup(replacePaths[jobs[found].texturenum]);
-		}
+		if (jobs[found].texturenum >= TEXPACK_FONT_ID_BASE) {
+			s32 outline;
+			s32 font;
+			s32 index;
 
-		if (replaceAlphaPaths && replaceAlphaPaths[jobs[found].texturenum]) {
-			alphaPath = strdup(replaceAlphaPaths[jobs[found].texturenum]);
-		}
+			texpackFontFromJobId(jobs[found].texturenum, &outline, &font, &index);
 
-		kind = replaceKinds ? replaceKinds[jobs[found].texturenum] : TEXPACK_KIND_NATIVE;
-		flip = replaceFlip ? replaceFlip[jobs[found].texturenum] : 1;
+			if (fontReplacePaths[outline][font][index]) {
+				path = strdup(fontReplacePaths[outline][font][index]);
+			}
+
+			kind = TEXPACK_KIND_NATIVE;
+			flip = fontReplaceFlip[outline][font][index];
+		} else {
+			if (replacePaths && replacePaths[jobs[found].texturenum]) {
+				path = strdup(replacePaths[jobs[found].texturenum]);
+			}
+
+			if (replaceAlphaPaths && replaceAlphaPaths[jobs[found].texturenum]) {
+				alphaPath = strdup(replaceAlphaPaths[jobs[found].texturenum]);
+			}
+
+			kind = replaceKinds ? replaceKinds[jobs[found].texturenum] : TEXPACK_KIND_NATIVE;
+			flip = replaceFlip ? replaceFlip[jobs[found].texturenum] : 1;
+		}
 		jobs[found].state = TEXPACK_JOB_DECODING;
 
 		SDL_UnlockMutex(jobLock);
@@ -1757,9 +1930,10 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 	for (i = 0; i < TEXPACK_MAX_PENDING; i++) {
 		if (jobs[i].state != TEXPACK_JOB_FREE && jobs[i].texturenum == texturenum) {
 			if (jobs[i].state == TEXPACK_JOB_READY) {
-				rgba = jobs[i].rgba;
 				*outWidth = jobs[i].width;
 				*outHeight = jobs[i].height;
+
+				rgba = jobs[i].rgba;
 				jobReadyBytes -= texpackJobBytes(&jobs[i]);
 				jobs[i].rgba = NULL;
 				jobs[i].state = TEXPACK_JOB_FREE;
@@ -1819,7 +1993,21 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 			// on every cache miss would log it forever. Drop it and draw the
 			// original. Done here rather than on the worker because the index
 			// belongs to this thread.
-			if (replacePaths && replacePaths[jobs[i].texturenum]) {
+			if (jobs[i].texturenum >= TEXPACK_FONT_ID_BASE) {
+				s32 outline;
+				s32 font;
+				s32 index;
+
+				texpackFontFromJobId(jobs[i].texturenum, &outline, &font, &index);
+
+				if (fontReplacePaths[outline][font][index]) {
+					sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it",
+							fontReplacePaths[outline][font][index]);
+					free(fontReplacePaths[outline][font][index]);
+					fontReplacePaths[outline][font][index] = NULL;
+					numFontReplacements--;
+				}
+			} else if (replacePaths && replacePaths[jobs[i].texturenum]) {
 				sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it",
 						replacePaths[jobs[i].texturenum]);
 				free(replacePaths[jobs[i].texturenum]);
@@ -1851,6 +2039,48 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 	}
 
 	return texpackClaimDecoded(texturenum, outWidth, outHeight);
+}
+
+u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight)
+{
+	s32 outline;
+	s32 font;
+	s32 index;
+
+	if (!(glyph & TEXPACK_GLYPH_SET) || !texpackHaveReplacements()) {
+		return NULL;
+	}
+
+	outline = TEXPACK_GLYPH_IS_OUTLINE(glyph) ? 1 : 0;
+	font = TEXPACK_GLYPH_FONT(glyph);
+	index = TEXPACK_GLYPH_INDEX(glyph);
+
+	if (font >= TEXPACK_NUM_FONTS || index >= TEXPACK_FONT_CHARS) {
+		return NULL;
+	}
+
+	if (!fontReplacePaths[outline][font][index]) {
+		return NULL;
+	}
+
+	return texpackClaimDecoded(texpackFontJobId(outline, font, index), outWidth, outHeight);
+}
+
+s32 texpackDecodedIsGlyph(s32 id, u32 glyph)
+{
+	s32 outline;
+	s32 font;
+	s32 index;
+
+	if (id < TEXPACK_FONT_ID_BASE || !(glyph & TEXPACK_GLYPH_SET)) {
+		return 0;
+	}
+
+	texpackFontFromJobId(id, &outline, &font, &index);
+
+	return outline == (TEXPACK_GLYPH_IS_OUTLINE(glyph) ? 1 : 0)
+		&& font == (s32)TEXPACK_GLYPH_FONT(glyph)
+		&& index == (s32)TEXPACK_GLYPH_INDEX(glyph);
 }
 
 void texpackFreeReplacement(u8 *rgba)

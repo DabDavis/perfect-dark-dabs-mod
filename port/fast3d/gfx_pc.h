@@ -25,13 +25,17 @@ struct TextureCacheKey {
     const uint8_t* palette_addrs[2];
     uint8_t fmt, siz;
     uint8_t palette_index;
+    // Which font glyph this is, 0 for anything that is not one. The fill and
+    // the outline of a glyph are uploaded from the same pixeldata, so without
+    // this they would share one entry and whichever drew first would win.
+    uint32_t glyph;
 
     bool operator==(const TextureCacheKey&) const noexcept = default;
 
     struct Hasher {
         size_t operator()(const TextureCacheKey& key) const noexcept {
             uintptr_t addr = (uintptr_t)key.texture_addr;
-            return (size_t)(addr ^ (addr >> 5));
+            return (size_t)(addr ^ (addr >> 5) ^ ((size_t)key.glyph << 3));
         }
     };
 };

@@ -27,6 +27,7 @@ area, read its section first — none of them are inferable from the code.
 - [Where a texture pack goes](#where-a-texture-pack-goes) — four directories, one of which is read by nothing
 - [Replacement textures are decoded off the render thread](#replacement-textures-are-decoded-off-the-render-thread) — why the stutter was never the decoder
 - [Pack image formats, and which way up they go](#pack-image-formats-and-which-way-up-they-go) — PNG is ours, JPEG is stb_image; and the two row orders
+- [Replacing font glyphs](#replacing-font-glyphs) — a glyph has no texture number, and its tile is bigger than it is
 - [Texture pack keys](#texture-pack-keys) — F7/F8/F9/F10
 - [Debugging](#debugging) — the two commands that actually find things
 
@@ -547,6 +548,42 @@ logged when it fires, because getting it wrong means every texture in the pack i
 upside down and nothing else says so. The trap in `pd-texture-data-is-bottom-up`
 applies to checking this by eye: pick a texture with lettering, not a symmetric
 one.
+
+### Replacing font glyphs
+
+A pack can replace the font as well, one image per character in a folder named
+after the font (`fonthandelgothicsm`, `md`, `xs`, `lg`, `fontnumeric`), named by
+the character's index in hex, with an `outlines/` inside it for the same
+characters as the outline renderer draws them. The PD Plus pack has 722 of them.
+
+**A glyph has no texture number.** It is uploaded straight out of the font by
+`gDPSetTextureImage(..., curchar->pixeldata)`, so nothing in the texture registry
+can name it. `gDPSetFontGlyphEXT` says what it is in the display list instead -
+which is also the only place it can be said, the list being built before it runs.
+Emitted inside the three renderers that draw a glyph rather than at their call
+sites: `text0f154f38` and `text0f15568c` are the fill, `textRenderChar` is the
+outline (it is only reachable from `textRender`). The fill and the outline come
+from the same `pixeldata`, so the address cannot tell them apart and a pack ships
+a different image for each.
+
+**Two things this got wrong first, both worth knowing:**
+
+- The renderer's cache is keyed on address and palette, and the same character is
+  drawn at more than one palette index - two entries for one image, each queueing
+  the decode the other had just done, four re-decodes a frame forever. A glyph is
+  keyed on what it is and nothing else, the way the VR fork does it.
+- A glyph's tile is a fixed block with the character in a corner of it (a
+  `fontnumeric` digit is 3x5 in a 16x7 tile), and the pack's image is of the
+  character alone. Normalising by the tile therefore shows a fraction of the
+  image, magnified. What the image stands for is the span the glyph's own texture
+  coordinates cover: the renderers put `(size + 1) << 6` in the vertices and
+  `uv_scale` divides by 32, so `tex_width`/`tex_height` become `(size + 1) * 2`
+  for a replaced glyph. Nothing else in gfx_pc needs the allowance.
+
+**Check it on a menu, not the HUD.** The ammo counter is a handful of digits that
+may not be replaced at the moment you look, and reading it cost a long detour
+here; the file select screen is dense with text in three fonts and is the same
+every time.
 
 ### Texture pack keys
 

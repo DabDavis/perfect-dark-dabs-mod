@@ -179,6 +179,25 @@ void texpackTick(void);
  * one arrives, its cache having already answered with the original.
  */
 s32 texpackPollDecoded(s32 *out, s32 max);
+
+/**
+ * The replacement for one font glyph, named by gDPSetFontGlyphEXT.
+ *
+ * A glyph is uploaded straight out of the font and has no texture number, so it
+ * is identified by what the display list says it is rather than by its address:
+ * the fill and the outline come from the same pixeldata and a pack ships a
+ * different image for each. Queued and returned the same way as any other
+ * replacement, so the first call gets NULL and draws the game's own.
+ */
+#define TEXPACK_GLYPH_SET         0x80000000u
+#define TEXPACK_GLYPH_IS_OUTLINE(g) (((g) >> 24) & 0x7f)
+#define TEXPACK_GLYPH_FONT(g)     (((g) >> 16) & 0xff)
+#define TEXPACK_GLYPH_INDEX(g)    ((g) & 0xffff)
+
+u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight);
+
+/** Whether a decoded id reported by texpackPollDecoded() is this glyph. */
+s32 texpackDecodedIsGlyph(s32 id, u32 glyph);
 void texpackAsyncShutdown(void);
 
 /**
