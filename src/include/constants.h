@@ -4764,6 +4764,9 @@ enum weaponnum {
 #define WEAPONFLAG2_NORELOADSOUND    0x00000200 // Makes no sound when reloaded
 #define WEAPONFLAG2_PICKUPSINGLE     0x00000400 // Picked up one at a time rather than by the magazine
 #define WEAPONFLAG2_EXPLODESWHENSHOT 0x00000800 // Lying on the ground, it goes off when damaged
+#define WEAPONFLAG2_NOPICKUPWHILEARMED 0x00001000 // Not picked up while its timer is running
+#define WEAPONFLAG2_NOPICKUPINFLIGHT 0x00002000 // Not picked up while it is still flying
+#define WEAPONFLAG2_NOWALLHIT        0x00004000 // Leaves no bullet hole
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

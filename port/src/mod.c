@@ -442,6 +442,9 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND },
 			{ "pickupsingle",     WEAPONFLAG2_PICKUPSINGLE },
 			{ "explodeswhenshot", WEAPONFLAG2_EXPLODESWHENSHOT },
+			{ "nopickupwhilearmed", WEAPONFLAG2_NOPICKUPWHILEARMED },
+			{ "nopickupinflight", WEAPONFLAG2_NOPICKUPINFLIGHT },
+			{ "nowallhit",        WEAPONFLAG2_NOWALLHIT },
 		};
 
 		s32 handled = false;

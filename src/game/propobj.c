@@ -15844,10 +15844,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 	// Create wall hit (bullet hole)
 	if (!ismeleefunc
 			&& hit->hitthing.texturenum != 10000
-			&& shotdata->gset.weaponnum != WEAPON_UNARMED
-			&& shotdata->gset.weaponnum != WEAPON_LASER
-			&& shotdata->gset.weaponnum != WEAPON_TRANQUILIZER
-			&& shotdata->gset.weaponnum != WEAPON_FARSIGHT) {
+			&& !weaponHasFlag2(shotdata->gset.weaponnum, WEAPONFLAG2_NOWALLHIT)) {
 		if (!hit->slowsbullet) {
 			struct prop *hitprop = hit->prop;
 			s8 iswindoweddoor = obj->model->definition->skel == &g_SkelWindowedDoor ? true : false;
@@ -17538,32 +17535,21 @@ s32 objTestForPickup(struct prop *prop)
 		s32 leftweaponnum;
 		s32 rightweaponnum;
 
-		if (weapon->weaponnum == WEAPON_GRENADE
-				|| weapon->weaponnum == WEAPON_GRENADEROUND
-				|| weapon->weaponnum == WEAPON_NBOMB
-				|| weapon->weaponnum == WEAPON_SKROCKET) {
+		// two lists with the same body, so one test: thrown explosives and
+		// placed devices are both off limits while their timer runs
+		if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_NOPICKUPWHILEARMED)
+				// shares its definition with the rocket, which is not on this list
+				|| weapon->weaponnum == WEAPON_SKROCKET
+				|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
 			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
 				return TICKOP_NONE;
 			}
 		}
 
-		if (weapon->weaponnum == WEAPON_REMOTEMINE
-				|| weapon->weaponnum == WEAPON_PROXIMITYMINE
-				|| weapon->weaponnum == WEAPON_TIMEDMINE
-				|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)
-				|| weapon->weaponnum == WEAPON_TRACERBUG
-				|| weapon->weaponnum == WEAPON_TARGETAMPLIFIER
-				|| weapon->weaponnum == WEAPON_COMMSRIDER
-				|| weapon->weaponnum == WEAPON_ECMMINE) {
-			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
-				return TICKOP_NONE;
-			}
-		}
-
-		if (weapon->weaponnum == WEAPON_ROCKET
-				|| weapon->weaponnum == WEAPON_HOMINGROCKET
-				|| weapon->weaponnum == WEAPON_BOLT
-				|| weapon->weaponnum == WEAPON_COMBATKNIFE) {
+		if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_NOPICKUPINFLIGHT)
+				// and here it is the rocket that is on the list and the Skedar
+				// one that is not
+				|| weapon->weaponnum == WEAPON_ROCKET) {
 			if (obj->hidden & OBJHFLAG_PROJECTILE) {
 				return TICKOP_NONE;
 			}
