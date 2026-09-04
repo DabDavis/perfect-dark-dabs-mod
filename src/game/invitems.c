@@ -1863,7 +1863,7 @@ struct weaponfunc_throw invfunc_dragon_selfdestruct = {
 	-1, // ammoindex
 	&invnoisesettings_silent,
 	NULL, // fire animation
-	FUNCFLAG_NOAUTOAIM | FUNCFLAG_NOMUZZLEFLASH | FUNCFLAG_DISCARDWEAPON,
+	FUNCFLAG_NOAUTOAIM | FUNCFLAG_NOMUZZLEFLASH | FUNCFLAG_DISCARDWEAPON | FUNCFLAG_PROXIMITYMINE,
 	MODEL_CHRDRAGON, // projectilemodelnum
 	240, // activatetime60
 	60, // recoverytime60
@@ -3319,7 +3319,7 @@ struct weapon invitem_proximitymine = {
 	L_GUN_000, // manufacturer
 	L_GUN_186, // description
 	WEAPONFLAG_THROWABLE | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS,
-	WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND | WEAPONFLAG2_EXPLODESWHENSHOT | WEAPONFLAG2_NOPICKUPWHILEARMED, // flags2
+	WEAPONFLAG2_LANDSONHIT | WEAPONFLAG2_NORELOADSOUND | WEAPONFLAG2_EXPLODESWHENSHOT | WEAPONFLAG2_NOPICKUPWHILEARMED | WEAPONFLAG2_ISPROXIMITYMINE, // flags2
 	0, // unequipped reload index
 	SFX_PICKUP_MINE, // pickup sound
 };
@@ -3461,7 +3461,7 @@ struct weaponfunc_throw invfunc_grenade_pinball = {
 	0, // ammoindex
 	&invnoisesettings_silent,
 	invanim_grenade_throw, // fire animation
-	FUNCFLAG_NOAUTOAIM | FUNCFLAG_NOMUZZLEFLASH,
+	FUNCFLAG_NOAUTOAIM | FUNCFLAG_NOMUZZLEFLASH | FUNCFLAG_PROXIMITYMINE | FUNCFLAG_LEAVESSMOKE,
 	MODEL_CHRGRENADE, // projectilemodelnum
 	90, // activatetime60
 	60, // recoverytime60
@@ -3525,7 +3525,7 @@ struct weaponfunc_throw invfunc_nbomb_proxy = {
 	0, // ammoindex
 	&invnoisesettings_silent,
 	invanim_grenade_throw, // fire animation
-	FUNCFLAG_NOAUTOAIM | FUNCFLAG_MAKEDIZZY | FUNCFLAG_DISARM | FUNCFLAG_NOMUZZLEFLASH,
+	FUNCFLAG_NOAUTOAIM | FUNCFLAG_MAKEDIZZY | FUNCFLAG_DISARM | FUNCFLAG_NOMUZZLEFLASH | FUNCFLAG_PROXIMITYMINE,
 	MODEL_CHRNBOMB, // projectilemodelnum
 	240, // activatetime60
 	60, // recoverytime60

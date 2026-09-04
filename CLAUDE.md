@@ -499,6 +499,15 @@ miscounting, and a `_Static_assert` keeps its length tied to the enum. It was a
 plain positional list until the first of these conversions, where an off-by-one
 would have been silent.
 
+Behaviour that belongs to one *function* of a weapon rather than to the weapon -
+`weaponnum == WEAPON_DRAGON && gunfunc == FUNC_SECONDARY` - goes in
+`struct weaponfunc`'s existing `flags` word, read with `weaponfuncHasFlag()` and
+set from a modconfig `weaponfunc` block. **Ten function definitions are shared
+between weapons**, which bites harder than the shared weapon definitions: the
+proximity mine's threat detector is the timed mine's too, so "is a proximity
+mine" had to be a weapon flag for the mine and a function flag for the three
+weapons that only become one on their second function.
+
 **Three weapon definitions are shared by more than one weapon number** -
 `invitem_keycard` by eight, `invitem_hammer` by four, `invitem_rocket` by the
 rocket and the Skedar rocket. A per-weapon field cannot tell those apart, and

@@ -2412,20 +2412,13 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			weapon->dualweapon = NULL;
 		}
 
-		if (weapon->weaponnum == WEAPON_PROXIMITYMINE) {
+		// four blocks that each unregistered the proxy, and at most one of
+		// them could ever match
+		if (weaponIsProximityMine(weapon->weaponnum, weapon->gunfunc)) {
 			weaponUnregisterProxy(weapon);
 		}
 
-		if (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY) {
-			weaponUnregisterProxy(weapon);
-		}
-
-		if (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_SECONDARY) {
-			weaponUnregisterProxy(weapon);
-		}
-
-		if (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
-			weaponUnregisterProxy(weapon);
+		if (weaponfuncHasFlag(weapon->weaponnum, weapon->gunfunc, FUNCFLAG_LEAVESSMOKE)) {
 			smokeClearForProp(obj->prop);
 		}
 
@@ -4499,10 +4492,7 @@ void weaponTick(struct prop *prop)
 				obj->hidden |= OBJHFLAG_DELETING;
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_PROXIMITYMINE
-			|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)
-			|| (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY)
-			|| (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_SECONDARY)) {
+	} else if (weaponIsProximityMine(weapon->weaponnum, weapon->gunfunc)) {
 		// Handle proximity items
 		if (weapon->timer240 >= 2) {
 			// The timer is still active, so the proxy isn't active yet

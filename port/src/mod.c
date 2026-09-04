@@ -15,6 +15,7 @@
 #include "data.h"
 #include "game/stagetable.h"
 #include "game/bondgun.h"
+#include "game/game_0b0fd0.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -445,6 +446,7 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "nopickupwhilearmed", WEAPONFLAG2_NOPICKUPWHILEARMED },
 			{ "nopickupinflight", WEAPONFLAG2_NOPICKUPINFLIGHT },
 			{ "nowallhit",        WEAPONFLAG2_NOWALLHIT },
+			{ "isproximitymine",  WEAPONFLAG2_ISPROXIMITYMINE },
 		};
 
 		s32 handled = false;
@@ -525,6 +527,85 @@ static char *modConfigParseTvScreen(char *p, char *token)
 	return p;
 }
 
+/**
+ * weaponfunc WEAPON FUNCTION { KEYVALUES... }
+ *
+ * Behaviour that belongs to one function of a weapon rather than to the weapon.
+ * Ten function definitions are shared between weapons, so setting one here can
+ * reach further than the weapon named - check invitems.c before assuming it
+ * does not.
+ */
+static char *modConfigParseWeaponFunc(char *p, char *token)
+{
+	s32 weaponnum = 0;
+	s32 funcnum = 0;
+
+	p = modConfigParseIntValue(p, token, &weaponnum);
+	if (!p || weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL) {
+		sysLogPrintf(LOG_ERROR, "modconfig: weaponfunc: invalid weapon number: %s", token);
+		return NULL;
+	}
+
+	p = modConfigParseIntValue(p, token, &funcnum);
+	if (!p || funcnum < 0 || funcnum > 1) {
+		sysLogPrintf(LOG_ERROR, "modconfig: weaponfunc 0x%02x: invalid function number: %s", weaponnum, token);
+		return NULL;
+	}
+
+	struct weaponfunc *func = weaponGetFunctionById(weaponnum, funcnum);
+
+	if (!func) {
+		sysLogPrintf(LOG_ERROR, "modconfig: weaponfunc 0x%02x %d: no such function", weaponnum, funcnum);
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		static const struct {
+			const char *name;
+			u32 flag;
+		} flags[] = {
+			{ "proximitymine", FUNCFLAG_PROXIMITYMINE },
+			{ "leavessmoke",   FUNCFLAG_LEAVESSMOKE },
+		};
+
+		s32 handled = false;
+		s32 tmp = 0;
+
+		for (u32 i = 0; i < ARRAYCOUNT(flags); ++i) {
+			if (strcmp(token, flags[i].name)) {
+				continue;
+			}
+
+			PARSE_INT("weaponfunc", "flag", tmp, 0, 1, NULL);
+
+			if (tmp) {
+				func->flags |= flags[i].flag;
+			} else {
+				func->flags &= ~flags[i].flag;
+			}
+
+			handled = true;
+			break;
+		}
+
+		if (!handled) {
+			sysLogPrintf(LOG_ERROR, "modconfig: weaponfunc 0x%02x %d: invalid key: %s", weaponnum, funcnum, token);
+			return NULL;
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	return p;
+}
+
 s32 modConfigLoad(const char *fname)
 {
 	u32 dataLen = 0;
@@ -538,7 +619,16 @@ s32 modConfigLoad(const char *fname)
 	char *end = data + dataLen;
 	char *p = strParseToken(data, token, NULL);
 	while (p && token[0]) {
-		if (!strcmp(token, "tvscreen")) {
+		if (!strcmp(token, "weaponfunc")) {
+			// weaponfunc WEAPON FUNCTION { KEYVALUES... }
+			char *prev = p;
+			p = modConfigParseWeaponFunc(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed weaponfunc block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "tvscreen")) {
 			// tvscreen NUMBER { sameas NUMBER }
 			char *prev = p;
 			p = modConfigParseTvScreen(p, token);

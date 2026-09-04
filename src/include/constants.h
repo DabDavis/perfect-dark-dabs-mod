@@ -1127,6 +1127,8 @@
 
 #define FUNCFLAG_00000001               0x00000001
 #define FUNCFLAG_BURST3                 0x00000002
+#define FUNCFLAG_PROXIMITYMINE          0x00000004 // What it leaves behind acts as a proximity mine
+#define FUNCFLAG_LEAVESSMOKE            0x00000008 // And leaves smoke to be cleared with it
 #define FUNCFLAG_BURST50                0x00000020 // automatics only
 #define FUNCFLAG_NOAUTOAIM              0x00000040
 #define FUNCFLAG_STICKTOWALL            0x00000100
@@ -4767,6 +4769,7 @@ enum weaponnum {
 #define WEAPONFLAG2_NOPICKUPWHILEARMED 0x00001000 // Not picked up while its timer is running
 #define WEAPONFLAG2_NOPICKUPINFLIGHT 0x00002000 // Not picked up while it is still flying
 #define WEAPONFLAG2_NOWALLHIT        0x00004000 // Leaves no bullet hole
+#define WEAPONFLAG2_ISPROXIMITYMINE  0x00008000 // The weapon itself is a proximity mine, whichever function threw it
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

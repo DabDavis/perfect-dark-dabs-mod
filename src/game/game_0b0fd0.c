@@ -312,6 +312,33 @@ bool weaponHasFlag2(s32 itemid, u32 flag)
 	return weapon && (weapon->flags2 & flag) != 0;
 }
 
+/**
+ * Some behaviour belongs to one function of a weapon rather than to the weapon:
+ * the Dragon is a rifle until you throw it down, and then it is a mine. Written
+ * out, that is `weaponnum == WEAPON_DRAGON && gunfunc == FUNC_SECONDARY`, which
+ * a mod cannot answer any more than it can the plain number tests.
+ */
+bool weaponfuncHasFlag(s32 itemid, s32 funcnum, u32 flag)
+{
+	struct weaponfunc *func = weaponGetFunctionById(itemid, funcnum);
+
+	return func && (func->flags & flag) != 0;
+}
+
+/**
+ * Whether this shot leaves something behind that acts as a proximity mine.
+ *
+ * Two answers because the proximity mine is one whichever way you throw it,
+ * while the Dragon, the grenade and the N-bomb are one only on their second
+ * function. The weapon flag cannot be a function flag: the mine's threat
+ * detector function is the timed mine's as well, and that is not a proxy.
+ */
+bool weaponIsProximityMine(s32 itemid, s32 funcnum)
+{
+	return weaponHasFlag2(itemid, WEAPONFLAG2_ISPROXIMITYMINE)
+		|| weaponfuncHasFlag(itemid, funcnum, FUNCFLAG_PROXIMITYMINE);
+}
+
 bool weaponHasAimFlag(s32 weaponnum, u32 flag)
 {
 	struct weapon *weapon = weaponFindById(weaponnum);
