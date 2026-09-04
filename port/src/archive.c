@@ -1,11 +1,15 @@
 /**
- * Archive extraction for texture packs.
+ * Archive extraction for texture packs and mods.
  *
- * Two formats, for opposite reasons. Zip is here because zlib is already linked
+ * Three formats, for three reasons. Zip is here because zlib is already linked
  * and the container around it is a few structures. 7z is here because that is
  * how the packs in the wild are actually distributed, and it needs the LZMA
  * decoder under port/src/external/lzma - the same public domain SDK Project64
- * carries, cut down to what reading an archive needs.
+ * carries, cut down to what reading an archive needs. RAR is here because two
+ * of the console mods in circulation come that way, and its format is
+ * proprietary: the decoder is RARLAB's own unrar source under
+ * port/src/external/unrar, which its licence allows in any software that
+ * reads RAR archives (see license.txt there).
  */
 
 #include <stdlib.h>
@@ -23,6 +27,17 @@
 #include "external/lzma/7zAlloc.h"
 #include "external/lzma/7zCrc.h"
 #include "external/lzma/7zFile.h"
+
+// RARLAB's unrar, as its library build: its dll.hpp wants the Windows types
+// on Windows and defines its own under _UNIX.
+#ifdef PLATFORM_WIN32
+#include <windows.h>
+#else
+#ifndef _UNIX
+#define _UNIX
+#endif
+#endif
+#include "external/unrar/dll.hpp"
 
 // Enough for any path a pack has business containing, and a bound on what a
 // malformed archive can ask to be written.
@@ -63,7 +78,7 @@ s32 archiveIsSupported(const char *path)
 {
 	const char *ext = archiveExt(path);
 
-	return !strcasecmp(ext, ".zip") || !strcasecmp(ext, ".7z") || !strcasecmp(ext, ".pk3");
+	return !strcasecmp(ext, ".zip") || !strcasecmp(ext, ".7z") || !strcasecmp(ext, ".pk3") || !strcasecmp(ext, ".rar");
 }
 
 /**
@@ -406,6 +421,75 @@ static s32 archiveExtract7z(const char *path, const char *destDir)
 	return written;
 }
 
+/**
+ * unrar does the walking and the writing itself: RARProcessFile() extracts
+ * the current entry under destDir with its own name, creating the folders
+ * on the way. What is checked here is the name, the same as for the others.
+ */
+static s32 archiveExtractRar(const char *path, const char *destDir)
+{
+	struct RAROpenArchiveDataEx open;
+	struct RARHeaderDataEx header;
+	char arcName[FS_MAXPATH + 1];
+	char dest[FS_MAXPATH + 1];
+	HANDLE h;
+	s32 written = 0;
+	int ret;
+
+	snprintf(arcName, sizeof(arcName), "%s", path);
+	snprintf(dest, sizeof(dest), "%s", destDir);
+
+	memset(&open, 0, sizeof(open));
+	open.ArcName = arcName;
+	open.OpenMode = RAR_OM_EXTRACT;
+
+	h = RAROpenArchiveEx(&open);
+
+	if (!h || open.OpenResult != ERAR_SUCCESS) {
+		sysLogPrintf(LOG_ERROR, "archive: could not open %s as a RAR archive (unrar error %u)", path, open.OpenResult);
+		if (h) {
+			RARCloseArchive(h);
+		}
+		return -1;
+	}
+
+	memset(&header, 0, sizeof(header));
+
+	while ((ret = RARReadHeaderEx(h, &header)) == ERAR_SUCCESS) {
+		const char *name = header.FileName;
+		int op = RAR_EXTRACT;
+
+		if (header.Flags & RHDF_DIRECTORY) {
+			op = RAR_SKIP; // made by the files inside it
+		} else if (header.Flags & RHDF_ENCRYPTED) {
+			sysLogPrintf(LOG_WARNING, "archive: %s in %s is encrypted; skipped", name, path);
+			op = RAR_SKIP;
+		} else if (!archiveNameIsSafe(name)) {
+			sysLogPrintf(LOG_WARNING, "archive: skipping %s in %s", name, path);
+			op = RAR_SKIP;
+		}
+
+		ret = RARProcessFile(h, op, op == RAR_EXTRACT ? dest : NULL, NULL);
+
+		if (ret != ERAR_SUCCESS) {
+			sysLogPrintf(LOG_WARNING, "archive: could not extract %s from %s (unrar error %d)", name, path, ret);
+			continue;
+		}
+
+		if (op == RAR_EXTRACT) {
+			written++;
+		}
+	}
+
+	if (ret != ERAR_END_ARCHIVE) {
+		sysLogPrintf(LOG_WARNING, "archive: %s ended early (unrar error %d)", path, ret);
+	}
+
+	RARCloseArchive(h);
+
+	return written;
+}
+
 s32 archiveExtract(const char *path, const char *destDir)
 {
 	const char *ext = archiveExt(path);
@@ -421,6 +505,10 @@ s32 archiveExtract(const char *path, const char *destDir)
 
 	if (!strcasecmp(ext, ".zip") || !strcasecmp(ext, ".pk3")) {
 		return archiveExtractZip(path, destDir);
+	}
+
+	if (!strcasecmp(ext, ".rar")) {
+		return archiveExtractRar(path, destDir);
 	}
 
 	sysLogPrintf(LOG_ERROR, "archive: %s is not an archive this can open", path);

@@ -121,10 +121,11 @@ mods are other people's work, and you get them from their authors.
 1. Make a folder called `mods` next to `pd.x86_64` (or `pd.x86_64.exe`).
 2. Put the mod in it, exactly as you downloaded it. Any of these work:
    - a mod folder (one holding `files/`, `segs/` or `textures/`);
-   - the `.zip` that folder came in;
-   - a console mod's download: a `.zip` with its `.xdelta`, `.bps` or `.ips`
-     patch inside, or the bare patch file;
-   - a whole collection of the above in one archive. Nested zips are fine.
+   - the `.zip`, `.rar` or `.7z` that folder came in;
+   - a console mod's download: an archive with its `.xdelta`, `.bps` or
+     `.ips` patch inside, or the bare patch file;
+   - a whole collection of the above in one archive. Nested archives are
+     fine.
 3. Start the game. Archives are unpacked and patches are converted on that
    first start - a few seconds for one mod, up to a minute for a big
    collection, with nothing on screen yet while it happens.
@@ -221,3 +222,15 @@ MIT, same as the port and the decompilation it came from — see `LICENSE`.
 - The PC port: [perfect-dark-pc-port/perfect_dark](https://github.com/perfect-dark-pc-port/perfect_dark) and contributors
 - Perfect Dark is © Rare / Microsoft. This project ships no game assets and is
   not affiliated with either.
+- RAR archives are read with RARLAB's UnRAR source (`port/src/external/unrar`),
+  © Alexander Roshal, under its own licence: UnRAR source code may be used in
+  any software to handle RAR archives without limitations free of charge, but
+  cannot be used to develop RAR (WinRAR) compatible archiver and to re-create
+  RAR compression algorithm, which is proprietary. Distribution of modified
+  UnRAR source code in separate form or as a part of other software is
+  permitted, provided that full text of this paragraph, starting from "UnRAR
+  source code" words, is included in license, or in documentation if license
+  is not available, and in source code comments of resulting package. The
+  full text is in `license.txt` beside the source.
+- 7z archives are read with the LZMA SDK (`port/src/external/lzma`), public
+  domain, Igor Pavlov.

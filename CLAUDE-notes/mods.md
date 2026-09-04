@@ -45,10 +45,14 @@ holds 64 (`MOD_MAX_MODS`); the archive trial's 44 overflowed the old 32.
 
 **An archive in those places is unpacked, and a console patch is imported**
 (2026-09-04): `modListPrepareDir()` in `mod.c` runs before each scan. It unpacks
-any `.zip`, `.7z` or `.pk3` in `mods/` (and any `mod*.zip` beside the
+any `.zip`, `.7z`, `.pk3` or `.rar` in `mods/` (and any `mod*.zip` beside the
 executable) into a directory of the archive's name through `archiveExtract()`,
-the texture packs' reader in `archive.c`, hoisting a mod that was zipped one
-folder deep (`fsRename()` of the inner folder over the outer). Then any
+the texture packs' reader in `archive.c`, hoisting a wrapper folder
+(`fsRename()` of the sole inner folder over the outer). RAR is RARLAB's own
+unrar source under `port/src/external/unrar`, compiled as its library build
+(`RARDLL`, the makefile's object list plus `isnt` and `motw` for Windows,
+`powrprof` linked there; its capitalised Windows includes were lowercased for
+mingw). Two of the archive's mods are RARs, one with a RAR nested inside. Then any
 `.xdelta`, `.bps` or `.ips` it finds - at the top, or inside an unpacked folder
 that is not itself a mod, three levels down, nested archives unpacked on the
 way - goes through `modImportPatch()` into `mods/<patch name>/`, which is then

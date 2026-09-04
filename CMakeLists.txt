@@ -321,6 +321,27 @@ list(APPEND LIBS "${EXTRA_LIBRARIES}")
 
 file(GLOB_RECURSE SRC_PORT "${CMAKE_SOURCE_DIR}/port/*.c")
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
+# RARLAB's unrar, for .rar mod downloads (port/src/external/unrar, see its
+# license.txt). Its files include one another, so only the makefile's objects
+# are compiled, as its library target does.
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX "/external/unrar/")
+set(SRC_UNRAR
+  strlist strfn pathfn smallfn global file filefn filcreat archive arcread unicode
+  system crypt crc rawread encname resource match timefn rdwrfn consio options
+  errhnd rarvm secpassword rijndael getbits sha1 sha256 blake2s hash extinfo
+  extract volume list find unpack headers threadpool rs16 cmddata ui largepage
+  filestr scantree dll qopen
+)
+if(WIN32)
+  list(APPEND SRC_UNRAR isnt motw) # Windows-only sources, unguarded
+endif()
+list(TRANSFORM SRC_UNRAR PREPEND "${CMAKE_SOURCE_DIR}/port/src/external/unrar/")
+list(TRANSFORM SRC_UNRAR APPEND ".cpp")
+set_source_files_properties(${SRC_UNRAR} PROPERTIES
+  COMPILE_DEFINITIONS "RARDLL;SILENT;_FILE_OFFSET_BITS=64;_LARGEFILE_SOURCE"
+  COMPILE_OPTIONS "-w"
+)
+list(APPEND SRC_PORT_CXX ${SRC_UNRAR})
 
 file(GLOB_RECURSE SRC_GAME "${CMAKE_SOURCE_DIR}/src/game/*.c")
 
@@ -387,6 +408,7 @@ set(SRC
 
 if(WIN32)
   list(APPEND SRC "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
+  list(APPEND LIBS powrprof) # unrar's system.cpp
 endif()
 
 # Asset files
