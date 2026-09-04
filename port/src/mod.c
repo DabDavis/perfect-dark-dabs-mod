@@ -1296,6 +1296,29 @@ static s32 modListAdoptTextureCaches(const char *dir, const char *dest, s32 dept
 	return adopted;
 }
 
+// Whether dir holds an IMPORT.txt written by an importer older than this one
+static bool modImportIsStale(const char *dir)
+{
+	char marker[FS_MAXPATH + 1];
+	char first[128] = "";
+	FILE *f;
+
+	snprintf(marker, sizeof(marker), "%s/" MOD_IMPORT_REPORT, dir);
+	f = fsFileOpenRead(marker);
+
+	if (!f) {
+		return false;
+	}
+
+	if (!fgets(first, sizeof(first), f)) {
+		first[0] = '\0';
+	}
+
+	fclose(f);
+
+	return strncmp(first, MODIMPORT_VERSION_LINE, strlen(MODIMPORT_VERSION_LINE)) != 0;
+}
+
 // Deletes a directory and everything in it, for redoing an import
 static void modRemoveTree(const char *dir)
 {
@@ -1484,7 +1507,10 @@ static void modListPrepareDir(const char *container, const char *dir, s32 depth,
 
 		if (rompatchIsPatchName(name)) {
 			results[i] = modListImportPatch(container, loose, path, name, NULL);
-		} else if (depth < MOD_UNPACK_DEPTH && modPathIsDir(path) && !modListLooksLikeMod(path)) {
+		} else if (depth < MOD_UNPACK_DEPTH && modPathIsDir(path)
+				&& (!modListLooksLikeMod(path) || modImportIsStale(path))) {
+			// a finished mod is left alone - unless an earlier importer made
+			// it, when its patch is still inside and wants doing again
 			modListPrepareDir(container, path, depth + 1, loose);
 		}
 	}
