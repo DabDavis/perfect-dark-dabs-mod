@@ -576,9 +576,18 @@ a different image for each.
   `fontnumeric` digit is 3x5 in a 16x7 tile), and the pack's image is of the
   character alone. Normalising by the tile therefore shows a fraction of the
   image, magnified. What the image stands for is the span the glyph's own texture
-  coordinates cover: the renderers put `(size + 1) << 6` in the vertices and
-  `uv_scale` divides by 32, so `tex_width`/`tex_height` become `(size + 1) * 2`
-  for a replaced glyph. Nothing else in gfx_pc needs the allowance.
+  coordinates cover. The renderers put `(size + 1) << 6` in the vertices, and
+  `uv_scale` divides by 32 **and by two again** when the cycle is not
+  perspective-corrected - which 2D text never is - so the span is
+  `(size + 1) * 2 * persp` texels. Getting the `persp` wrong shows the top-left
+  quarter of every glyph blown up: large ones survive it, small ones turn to
+  blobs. Only the scale is adjusted; `tex_width` and `tex_height` still decide
+  the clamp mode and `tex_clamp`, which are about the tile and have not changed.
+- A decoded glyph is **kept** rather than handed over. There are hundreds of them
+  and the renderer's cache is not big enough to hold them all against a stage's
+  textures, so one gets evicted, asked for again, and would be decoded again -
+  showing the game's own glyph for a frame each time, which is a screen of text
+  flickering. Claiming one copies it instead; the byte budget still reclaims.
 
 **Check it on a menu, not the HUD.** The ammo counter is a handful of digits that
 may not be replaced at the moment you look, and reading it cost a long detour

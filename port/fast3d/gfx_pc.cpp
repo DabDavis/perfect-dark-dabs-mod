@@ -1651,27 +1651,6 @@ static void gfx_derive_batch_state(void) {
             }
             tex_width[i] = line_size;
 
-            {
-                // A replaced glyph's image is of the character alone, but the
-                // tile it came out of is a fixed block with the character in a
-                // corner - so normalising by the tile shows that fraction of
-                // the image, magnified. What the image stands for is the span
-                // the glyph's own texture coordinates cover: the renderers put
-                // (size + 1) << 6 in the vertices and uv_scale divides by 32,
-                // so that is (size + 1) * 2 texels each way.
-                const LoadedTexture& lt = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
-
-                if (lt.glyph_replaced && lt.glyph_dims) {
-                    const uint32_t gw = (lt.glyph_dims >> 8) & 0xff;
-                    const uint32_t gh = lt.glyph_dims & 0xff;
-
-                    if (gw && gh) {
-                        tex_width[i] = (gw + 1) * 2;
-                        tex_height[i] = (gh + 1) * 2;
-                    }
-                }
-            }
-
             tex_width2[i] = (rdp.texture_tile[tile].lrs - rdp.texture_tile[tile].uls + 4) / 4;
             tex_height2[i] = (rdp.texture_tile[tile].lrt - rdp.texture_tile[tile].ult + 4) / 4;
 
@@ -1749,7 +1728,35 @@ static void gfx_derive_batch_state(void) {
         const uint32_t tile = rdp.first_tile_index + gfx_lod_tile_offset(t);
         const int shift[2] = { rdp.texture_tile[tile].shifts, rdp.texture_tile[tile].shiftt };
         const float origin[2] = { rdp.texture_tile[tile].uls / 4.0f, rdp.texture_tile[tile].ult / 4.0f };
-        const float inv_size[2] = { 1.0f / tex_width[t], 1.0f / tex_height[t] };
+        float inv_size[2] = { 1.0f / tex_width[t], 1.0f / tex_height[t] };
+
+        {
+            /*
+             * A replaced glyph's image is of the character alone, but the tile
+             * it came out of is a bigger block with the character in a corner -
+             * so normalising by the tile shows that fraction of the image,
+             * magnified. What the image stands for is the span the glyph's own
+             * texture coordinates cover, and the renderers put
+             * (size + 1) << 6 in the vertices: through the divide by 32 and the
+             * halving that comes with a non-perspective cycle, that is
+             * (size + 1) * 2 * persp texels.
+             *
+             * Only the scale is touched. tex_width and tex_height still decide
+             * the clamp mode and tex_clamp, which are about the tile and have
+             * not changed.
+             */
+            const LoadedTexture& lt = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
+
+            if (lt.glyph_replaced && lt.glyph_dims) {
+                const float gw = (float)((lt.glyph_dims >> 8) & 0xff);
+                const float gh = (float)(lt.glyph_dims & 0xff);
+
+                if (gw > 0.0f && gh > 0.0f) {
+                    inv_size[0] = 1.0f / ((gw + 1.0f) * 2.0f * persp);
+                    inv_size[1] = 1.0f / ((gh + 1.0f) * 2.0f * persp);
+                }
+            }
+        }
 
         for (int axis = 0; axis < 2; axis++) {
             float sf = 1.0f;
@@ -1770,8 +1777,8 @@ static void gfx_derive_batch_state(void) {
             batch.uv_ofs_rect[t][axis] = -origin[axis] * inv_size[axis];
         }
 
-        batch.tex_clamp[t][0] = (tex_width2[t] - 0.5f) * inv_size[0];
-        batch.tex_clamp[t][1] = (tex_height2[t] - 0.5f) * inv_size[1];
+        batch.tex_clamp[t][0] = (tex_width2[t] - 0.5f) / tex_width[t];
+        batch.tex_clamp[t][1] = (tex_height2[t] - 0.5f) / tex_height[t];
         batch.tex_size[t][0] = tex_width[t];
         batch.tex_size[t][1] = tex_height[t];
     }

@@ -1933,10 +1933,28 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 				*outWidth = jobs[i].width;
 				*outHeight = jobs[i].height;
 
-				rgba = jobs[i].rgba;
-				jobReadyBytes -= texpackJobBytes(&jobs[i]);
-				jobs[i].rgba = NULL;
-				jobs[i].state = TEXPACK_JOB_FREE;
+				if (texturenum >= TEXPACK_FONT_ID_BASE) {
+					// Kept rather than handed over. There are hundreds of
+					// glyphs and the renderer's cache is not big enough to hold
+					// them all against a stage's textures, so one gets evicted,
+					// asked for again, and would have to be decoded again - a
+					// frame of the game's own glyph every time, which is the
+					// flicker on a screen full of text. A copy costs a memcpy
+					// of a few tens of kilobytes, and only on a miss; the byte
+					// budget below still reclaims them.
+					const u32 bytes = texpackJobBytes(&jobs[i]);
+
+					rgba = malloc(bytes);
+
+					if (rgba) {
+						memcpy(rgba, jobs[i].rgba, bytes);
+					}
+				} else {
+					rgba = jobs[i].rgba;
+					jobReadyBytes -= texpackJobBytes(&jobs[i]);
+					jobs[i].rgba = NULL;
+					jobs[i].state = TEXPACK_JOB_FREE;
+				}
 			}
 
 			// Queued, decoding, or failed: nothing to hand over now. A failed
