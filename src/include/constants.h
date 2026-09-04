@@ -4771,6 +4771,8 @@ enum weaponnum {
 #define WEAPONFLAG2_NOWALLHIT        0x00004000 // Leaves no bullet hole
 #define WEAPONFLAG2_ISPROXIMITYMINE  0x00008000 // The weapon itself is a proximity mine, whichever function threw it
 #define WEAPONFLAG2_STICKSTOWALL     0x00010000 // Thrown, it stays where it lands
+#define WEAPONFLAG2_HARDWHENLANDED   0x00020000 // Once down it cannot be shot off again
+#define WEAPONFLAG2_POISONS          0x00040000 // Poisons whatever it embeds itself in
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

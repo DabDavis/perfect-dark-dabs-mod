@@ -4112,10 +4112,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 	if (obj->type == OBJTYPE_WEAPON) {
 		struct weaponobj *weapon = (struct weaponobj *)obj;
 
-		if (weapon->weaponnum == WEAPON_ECMMINE
-				|| weapon->weaponnum == WEAPON_COMMSRIDER
-				|| weapon->weaponnum == WEAPON_TRACERBUG
-				|| weapon->weaponnum == WEAPON_TARGETAMPLIFIER) {
+		if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_HARDWHENLANDED)) {
 			obj->flags |= OBJFLAG_INVINCIBLE;
 			obj->flags |= OBJFLAG_FORCENOBOUNCE;
 			obj->flags2 |= OBJFLAG2_IMMUNETOGUNFIRE;
@@ -4148,7 +4145,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 
 			bgunPlayPropHitSound(&weapon->gset, g_EmbedProp, -1);
 
-			if (weapon->weaponnum == WEAPON_COMBATKNIFE
+			if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_POISONS)
 					&& (g_EmbedProp->type == PROPTYPE_CHR || g_EmbedProp->type == PROPTYPE_PLAYER)) {
 				chrSetPoisoned(g_EmbedProp->chr, ownerprop);
 			}

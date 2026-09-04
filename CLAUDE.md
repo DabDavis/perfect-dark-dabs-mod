@@ -489,8 +489,8 @@ weapon 15 { unequippedreload 1 unequippedreloadindex 1 pumpaction 1 }
 ```
 
 Read them with `weaponHasFlag2()`, beside the `weaponHasFlag()` the first word
-already had. Eleven are converted so far, plus a `pickupsound` field; `bondgun.c` still has
-around 100 weapon number comparisons, and `tools/modcodediff` says which of them a given mod cares
+already had. Nineteen are converted so far, plus a `pickupsound` field; `bondgun.c` still has
+around 100 weapon number comparisons and `propobj.c` around 74, and `tools/modcodediff` says which of them a given mod cares
 about.
 
 `g_Weapons[]` is written with designated initialisers - `[WEAPON_SHOTGUN] =

@@ -448,6 +448,8 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "nowallhit",        WEAPONFLAG2_NOWALLHIT },
 			{ "isproximitymine",  WEAPONFLAG2_ISPROXIMITYMINE },
 			{ "stickstowall",     WEAPONFLAG2_STICKSTOWALL },
+			{ "hardwhenlanded",   WEAPONFLAG2_HARDWHENLANDED },
+			{ "poisons",          WEAPONFLAG2_POISONS },
 		};
 
 		s32 handled = false;
