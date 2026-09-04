@@ -24,6 +24,9 @@ s32 romdataFileGetSize(s32 fileNum);
 
 s32 romdataFileGetNumForName(const char *name);
 
+// The stock ROM's inflated data segment, for reading its tables at their ROM addresses.
+const u8 *romdataGetDataSeg(u32 *outSize);
+
 u8 *romdataSegGetData(const char *segName);
 u8 *romdataSegGetDataEnd(const char *segName);
 u32 romdataSegGetSize(const char *segName);

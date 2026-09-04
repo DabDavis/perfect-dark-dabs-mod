@@ -60,6 +60,13 @@ extern struct stageallocation g_StageAllocations8Mb[];
 	} \
 	v = strUnquote(token);
 
+#define PARSE_ADDR(sec, name, v, ret) \
+	p = modConfigParseAddrValue(p, token, &v); \
+	if (!p || !v) { \
+		sysLogPrintf(LOG_ERROR, "mod: %s: invalid " name " value: %s", sec, token); \
+		return ret; \
+	}
+
 #define PARSE_INT(sec, name, v, min, max, ret) \
 	p = modConfigParseIntValue(p, token, &v); \
 	if (!p || v < (min) || v > (max)) { \
@@ -87,6 +94,22 @@ static inline char *modConfigParseFileValue(char *p, char *token, s32 *filenum)
 	}
 	// the filename was invalid
 	return NULL;
+}
+
+// a ROM address: past what an s32 holds, so not modConfigParseIntValue
+static inline char *modConfigParseAddrValue(char *p, char *token, u32 *out)
+{
+	p = strParseToken(p, token, NULL);
+	if (!token[0]) {
+		return NULL;
+	}
+	char *endp = token;
+	const unsigned long num = strtoul(token, &endp, 0);
+	if (endp == token || *endp != '\0') {
+		return NULL;
+	}
+	*out = (u32)num;
+	return p;
 }
 
 static inline char *modConfigParseIntValue(char *p, char *token, s32 *out)
@@ -643,6 +666,68 @@ static char *modConfigParseWeaponFunc(char *p, char *token)
 	return p;
 }
 
+/**
+ * datasegment { file "segs/data" names "segs/data.names" base ADDR weapons ADDR COUNT ... }
+ *
+ * A mod's ROM data segment and where its tables sit in it; the weapon
+ * definitions and model tables are rebuilt from it. tools/importmod writes
+ * this block. It goes before any weapon block, since those edit what this
+ * puts in place.
+ */
+static char *modConfigParseDataSegment(char *p, char *token)
+{
+	struct moddataspec spec;
+
+	memset(&spec, 0, sizeof(spec));
+
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		if (!strcmp(token, "file") || !strcmp(token, "names")) {
+			char *dst = token[0] == 'f' ? spec.file : spec.names;
+			p = strParseToken(p, token, NULL);
+			if (!p || !token[0]) {
+				sysLogPrintf(LOG_ERROR, "modconfig: datasegment: missing file name");
+				return NULL;
+			}
+			strncpy(dst, strUnquote(token), sizeof(spec.file) - 1);
+		} else if (!strcmp(token, "base")) {
+			PARSE_ADDR("datasegment", "base", spec.base, NULL);
+		} else if (!strcmp(token, "weapons")) {
+			PARSE_ADDR("datasegment", "weapons", spec.weapons, NULL);
+			PARSE_INT("datasegment", "weapons count", spec.numweapons, 0, 4096, NULL);
+		} else if (!strcmp(token, "modelstates")) {
+			PARSE_ADDR("datasegment", "modelstates", spec.modelstates, NULL);
+			PARSE_INT("datasegment", "modelstates count", spec.nummodelstates, 0, 4096, NULL);
+		} else if (!strcmp(token, "mpweapons")) {
+			PARSE_ADDR("datasegment", "mpweapons", spec.mpweapons, NULL);
+			PARSE_INT("datasegment", "mpweapons count", spec.nummpweapons, 0, 4096, NULL);
+		} else if (!strcmp(token, "mpweaponsets")) {
+			PARSE_ADDR("datasegment", "mpweaponsets", spec.mpweaponsets, NULL);
+			PARSE_INT("datasegment", "mpweaponsets count", spec.nummpweaponsets, 0, 4096, NULL);
+		} else {
+			sysLogPrintf(LOG_ERROR, "modconfig: datasegment: invalid key: %s", token);
+			return NULL;
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (!spec.file[0] || !spec.base) {
+		sysLogPrintf(LOG_ERROR, "modconfig: datasegment: needs a file and a base address");
+		return NULL;
+	}
+
+	modDataImport(&spec);
+
+	return p;
+}
+
 s32 modConfigLoad(const char *fname)
 {
 	// A mod need not ship one: files/, segs/ and textures/ each make a mod dir
@@ -687,6 +772,15 @@ s32 modConfigLoad(const char *fname)
 			p = modConfigParseWeapon(p, token);
 			if (!p) {
 				sysLogPrintf(LOG_ERROR, "modconfig: malformed weapon block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "datasegment")) {
+			// datasegment { file "..." base ADDR weapons ADDR COUNT ... }
+			char *prev = p;
+			p = modConfigParseDataSegment(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed datasegment block at offset %d", prev - data);
 				success = false;
 				break;
 			}
@@ -1039,6 +1133,10 @@ const char *modListGetLoadedName(void)
  */
 static struct stagetableentry stagesSnapshot[ARRAYCOUNT(g_Stages)];
 static struct weathercfg weatherSnapshot[ARRAYCOUNT(g_WeatherConfig)];
+static struct weapon *weaponsSnapshot[WEAPON_SUICIDEPILL + 1];
+static struct modelstate modelStatesSnapshot[NUM_MODELS];
+static struct mpweapon mpWeaponsSnapshot[NUM_MPWEAPONS];
+static struct mpweaponset mpWeaponSetsSnapshot[ARRAYCOUNT(g_MpWeaponSets)];
 static struct stagemusic *tracksSnapshot;
 static s32 numTracksSnapshot;
 static struct stageallocation *allocsSnapshot;
@@ -1053,6 +1151,10 @@ static void modTablesSnapshot(void)
 
 	memcpy(stagesSnapshot, g_Stages, sizeof(stagesSnapshot));
 	memcpy(weatherSnapshot, g_WeatherConfig, sizeof(weatherSnapshot));
+	memcpy(weaponsSnapshot, g_Weapons, sizeof(weaponsSnapshot));
+	memcpy(modelStatesSnapshot, g_ModelStates, sizeof(modelStatesSnapshot));
+	memcpy(mpWeaponsSnapshot, g_MpWeapons, sizeof(mpWeaponsSnapshot));
+	memcpy(mpWeaponSetsSnapshot, g_MpWeaponSets, sizeof(mpWeaponSetsSnapshot));
 
 	while (g_StageTracks[numTracksSnapshot].stagenum) {
 		++numTracksSnapshot;
@@ -1084,6 +1186,10 @@ static bool modTablesRestore(void)
 
 	memcpy(g_Stages, stagesSnapshot, sizeof(stagesSnapshot));
 	memcpy(g_WeatherConfig, weatherSnapshot, sizeof(weatherSnapshot));
+	memcpy(g_Weapons, weaponsSnapshot, sizeof(weaponsSnapshot));
+	memcpy(g_ModelStates, modelStatesSnapshot, sizeof(modelStatesSnapshot));
+	memcpy(g_MpWeapons, mpWeaponsSnapshot, sizeof(mpWeaponsSnapshot));
+	memcpy(g_MpWeaponSets, mpWeaponSetsSnapshot, sizeof(mpWeaponSetsSnapshot));
 	memcpy(g_StageTracks, tracksSnapshot, sizeof(struct stagemusic) * numTracksSnapshot);
 	memcpy(g_StageAllocations8Mb, allocsSnapshot, sizeof(struct stageallocation) * numAllocsSnapshot);
 

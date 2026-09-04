@@ -23,6 +23,8 @@
 
 import argparse
 import hashlib
+import importlib.machinery
+import importlib.util
 import os
 import re
 import shutil
@@ -983,6 +985,285 @@ def main():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def read_datasym(romid):
+    """tools/pd.<romid>.datasym, if it is beside us: `<addr> <name>` per symbol."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.datasym' % romid)
+    syms = {}
+    if os.path.exists(path):
+        with open(path) as fd:
+            for line in fd:
+                parts = line.split()
+                if len(parts) == 2:
+                    syms[parts[1]] = int(parts[0], 16)
+    return syms
+
+
+
+def load_modcodediff():
+    """modcodediff knows how to pull the game binary out of a ROM."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'modcodediff')
+    loader = importlib.machinery.SourceFileLoader('modcodediff', path)
+    spec = importlib.util.spec_from_loader('modcodediff', loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def address_pairs(code):
+    """Every lui and the instruction after it that completes an address, as
+    {index of the lui: address formed}. What the game code reaches its tables
+    through."""
+    words = [int.from_bytes(code[i:i + 4], 'big') for i in range(0, len(code) - 3, 4)]
+    pairs = {}
+    for i, x in enumerate(words):
+        if (x >> 16) & 0xfc00 != 0x3c00:
+            continue
+        rt = (x >> 16) & 0x1f
+        for j in range(i + 1, min(i + 4, len(words))):
+            y = words[j]
+            op = y >> 26
+            if (y >> 21) & 0x1f == rt and op in (0x08, 0x09, 0x20, 0x21, 0x23, 0x24, 0x25, 0x28, 0x29, 0x2b):
+                addr = ((x & 0xffff) << 16) + (y & 0xffff)
+                if y & 0x8000:
+                    addr -= 0x10000
+                pairs[i] = addr & 0xffffffff
+                break
+    return pairs
+
+
+def follow_table(stockpairs, modpairs, stockaddr, size):
+    """Where the mod's code keeps a table the stock code kept at stockaddr.
+
+    A mod that patched its code in place left every lui/addiu pair where it
+    was and changed the numbers in it, so the pairs that formed the stock
+    address now form the new one. The compiler folds field offsets into the
+    pair, so any pair landing inside the table counts and the offset is taken
+    back off. One landing just before it does not, however close: the word
+    before g_MpWeaponSets is the end of g_MpWeapons, and a loop over that table
+    holds a pointer to it. Returns (address, votes), or (None, 0).
+    """
+    votes = {}
+    for i, formed in stockpairs.items():
+        delta = formed - stockaddr
+        if 0 <= delta < size and i in modpairs:
+            got = (modpairs[i] - delta) & 0xffffffff
+            votes[got] = votes.get(got, 0) + 1
+    if not votes:
+        return None, 0
+    best = max(votes.items(), key=lambda kv: kv[1])
+    return best
+
+
+def follow_immediate(stockcode, modcode, start, end, stockvalue):
+    """The immediate a function loads, as the mod's code has it: the `li v0,39`
+    in mp_get_num_mpweapons is where the ROM says how long its Combat Simulator
+    weapon list is. Returns None when the stock instruction is not there or the
+    mod's word at that spot is not the same instruction with another number."""
+    for ofs in range(start, min(end, len(stockcode) - 3), 4):
+        x = int.from_bytes(stockcode[ofs:ofs + 4], 'big')
+        if (x >> 26) in (0x08, 0x09) and (x >> 21) & 0x1f == 0 and (x & 0xffff) == stockvalue:
+            y = int.from_bytes(modcode[ofs:ofs + 4], 'big')
+            if (y >> 16) == (x >> 16):
+                return y & 0xffff
+            return None
+    return None
+
+
+def read_codesym(romid):
+    """tools/pd.<romid>.sym, name -> (start, end)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.sym' % romid)
+    syms = []
+    if os.path.exists(path):
+        with open(path) as fd:
+            for line in fd:
+                parts = line.split()
+                if len(parts) == 2:
+                    syms.append((int(parts[0], 16), parts[1]))
+    syms.sort()
+    out = {}
+    for i, (addr, name) in enumerate(syms):
+        end = syms[i + 1][0] if i + 1 < len(syms) else addr + 0x400
+        out[name] = (addr, end)
+    return out
+
+
+def count_mpweapons(seg, base, addr, limit=64):
+    """How many entries at addr read as Combat Simulator weapons."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 10
+        if ofs + 10 > len(seg):
+            break
+        e = seg[ofs:ofs + 10]
+        weaponnum, pri, sec = e[0], e[1], e[3]
+        model = int.from_bytes(e[6:8], 'big', signed=True)
+        if weaponnum > 0x5d or (pri > 0x21 and pri < 0x80) or (sec > 0x21 and sec < 0x80) or not 0 <= model < 0x1b9:
+            break
+        n += 1
+    return n
+
+
+def count_mpweaponsets(seg, base, addr, numweapons, limit=32):
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 18
+        if ofs + 18 > len(seg):
+            break
+        e = seg[ofs:ofs + 18]
+        name = int.from_bytes(e[0:2], 'big')
+        # slots are weapon numbers, with 0x5b (the shield) and 0x5c (disabled) as sentinels
+        if (name >> 9) > 0x40 or any(slot > 0x5d for slot in e[2:8]):
+            break
+        n += 1
+    return n
+
+def write_data_segment(stock, mod, romid, outdir, dryrun):
+    """The mod's inflated data segment, its file names, and a modconfig block
+    saying where its tables are.
+
+    The weapon definitions and the model, Combat Simulator and weapon set
+    tables are .data - compiled into the game, in the ROM's data segment, not
+    in any file - and a mod that brings its own guns rewrites them there. The
+    port rebuilds them from the segment at load (port/src/moddata.c); it needs
+    the segment, the names its file ids mean, and the addresses.
+
+    The addresses are the stock ones when the mod patched the segment in
+    place, which the symbol file knows. A rebuilt segment has its own, and
+    nothing here finds them yet: the block is left out and the report says so.
+    """
+    _, stockseg, stockfilesofs = find_data_segment(stock, ROMS[romid]['data'])
+    dataofs, seg, filesofs = find_data_segment(mod, ROMS[romid]['data'])
+    if seg is None:
+        return 0, None
+
+    _, names = read_file_table(mod, seg, filesofs)
+    if names is None:
+        names = []
+
+    written = write_file(outdir, 'segs/data', seg, dryrun)
+    written += write_file(outdir, 'segs/data.names',
+                          '\n'.join(n or '' for n in names).encode('utf-8'), dryrun)
+
+    syms = read_datasym(romid)
+    if not syms or 'g_FileTable' not in syms:
+        return written, 'no data symbols for %s (tools/pd.%s.datasym), so the tables in it cannot be located' % (romid, romid)
+
+    base = syms['g_FileTable'] - stockfilesofs
+
+    if len(seg) != len(stockseg) or filesofs != stockfilesofs:
+        return written, ('the data segment was rebuilt (%d bytes against %d), so its tables are not at the\n'
+                         '           stock addresses and the port cannot read them yet' % (len(seg), len(stockseg)))
+
+    # Where each table is now. A mod may move one - GE-X rebuilt the Combat
+    # Simulator list somewhere else and left junk at the stock address - and
+    # the only thing that knows is its code, which still reaches every table
+    # through the same lui/addiu pairs, now holding the new address.
+    mcd = load_modcodediff()
+    stocktab = mcd.find_game_table(stock, mcd.GAME_TABLE.get(romid))
+    modtab = mcd.find_game_table(mod, mcd.GAME_TABLE.get(romid))
+    stockcode = mcd.extract_game(stock, stocktab) if stocktab else b''
+    modcode = mcd.extract_game(mod, modtab) if modtab else b''
+    followed = len(stockcode) == len(modcode) and len(stockcode) > 0
+    stockpairs = address_pairs(stockcode) if followed else {}
+    modpairs = address_pairs(modcode) if followed else {}
+
+    # sizes from the symbol spacing, so a build that grows a table is followed
+    ordered = sorted(syms.items(), key=lambda kv: kv[1])
+    ends = { name: (ordered[i + 1][1] if i + 1 < len(ordered) else addr) for i, (name, addr) in enumerate(ordered) }
+
+    def locate(name):
+        if name not in syms:
+            return None, ''
+        if not followed:
+            return syms[name], ''
+        addr, votes = follow_table(stockpairs, modpairs, syms[name], ends[name] - syms[name])
+        if addr is None:
+            return syms[name], ''
+        if addr != syms[name]:
+            return addr, ' (moved from %08x; %d references in the code agree)' % (syms[name], votes)
+        return addr, ''
+
+    def stockcount(name, elem):
+        return (ends[name] - syms[name]) // elem if name in syms else 0
+
+    lines = []
+    notes = []
+
+    weapons, note = locate('g_Weapons')
+    if weapons:
+        lines.append('  weapons 0x%08x %d' % (weapons, stockcount('g_Weapons', 4)))
+        notes.append('weapons at %08x%s' % (weapons, note))
+
+    models, note = locate('g_ModelStates')
+    if models:
+        lines.append('  modelstates 0x%08x %d' % (models, stockcount('g_ModelStates', 8)))
+        notes.append('model states at %08x%s' % (models, note))
+
+    # the lengths are numbers in the code, and the code is the authority;
+    # counting entries that read as one is the fallback
+    codesyms = read_codesym(romid) if followed else {}
+
+    mpweapons, note = locate('g_MpWeapons')
+    nummp = 0
+    if mpweapons:
+        if 'mp_get_num_mpweapons' in codesyms:
+            start, end = codesyms['mp_get_num_mpweapons']
+            nummp = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000,
+                                     stockcount('g_MpWeapons', 10)) or 0
+        if not nummp:
+            nummp = count_mpweapons(seg, base, mpweapons)
+        elif count_mpweapons(seg, base, mpweapons, nummp) < nummp:
+            notes.append('the code says %d Combat Simulator weapons but fewer read as one' % nummp)
+            nummp = count_mpweapons(seg, base, mpweapons, nummp)
+    if mpweapons and nummp:
+        lines.append('  mpweapons 0x%08x %d' % (mpweapons, nummp))
+        notes.append('%d Combat Simulator weapons at %08x%s' % (nummp, mpweapons, note))
+    elif mpweapons:
+        notes.append('what is at %08x does not read as the Combat Simulator weapon list; left out' % mpweapons)
+
+    mpsets, note = locate('g_MpWeaponSets')
+    numsets = 0
+    if mpsets:
+        # likewise: mp_get_num_weaponset_slots loads the count of sets
+        if 'mp_get_num_weaponset_slots' in codesyms:
+            start, end = codesyms['mp_get_num_weaponset_slots']
+            numsets = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000,
+                                       stockcount('g_MpWeaponSets', 18)) or 0
+        if not numsets:
+            numsets = count_mpweaponsets(seg, base, mpsets, nummp)
+        elif count_mpweaponsets(seg, base, mpsets, nummp, numsets) < numsets:
+            notes.append('the code says %d weapon sets but fewer read as one' % numsets)
+            numsets = count_mpweaponsets(seg, base, mpsets, nummp, numsets)
+    if mpsets and numsets:
+        lines.append('  mpweaponsets 0x%08x %d' % (mpsets, numsets))
+        notes.append('%d weapon sets at %08x%s' % (numsets, mpsets, note))
+    elif mpsets:
+        notes.append('what is at %08x does not read as the weapon set table; left out' % mpsets)
+
+    block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
+             '# the weapon definitions and the model tables from this at load; weapon blocks\n'
+             '# after it edit what it put in place. Written by tools/importmod.\n'
+             'datasegment {\n'
+             '  file "segs/data"\n'
+             '  names "segs/data.names"\n'
+             '  base 0x%08x\n' % base
+             + '\n'.join(lines) + ('\n' if lines else '')
+             + '}\n')
+    for n in notes:
+        log('  %s' % n)
+
+    path = os.path.join(outdir, 'modconfig.txt')
+    existing = ''
+    if os.path.exists(path):
+        with open(path) as fd:
+            existing = fd.read()
+        # replace an earlier block of ours rather than stacking them
+        existing = re.sub(r'(#[^\n]*\n)*datasegment \{[^}]*\}\n*', '', existing)
+    written += write_file(outdir, 'modconfig.txt', (block + '\n' + existing).encode('utf-8'), dryrun)
+
+    return written, None
+
+
 def run(stock, mod, romid, kind, args):
     outdir = args.out
     dryrun = args.dry_run
@@ -1112,6 +1393,15 @@ def run(stock, mod, romid, kind, args):
             % counts['textures'])
         log('           so they can go in one at a time instead of as whole segments)')
 
+    log()
+    datawritten, datanote = write_data_segment(stock, mod, romid, outdir, dryrun)
+    written += datawritten
+    if datawritten:
+        log('data segment: segs/data (%u bytes), the weapon definitions and model tables' % datawritten)
+        if datanote:
+            log('  note:    %s' % datanote)
+        else:
+            log('  and a datasegment block in modconfig.txt saying where its tables are')
     if unlocated:
         log()
         log('  %u segment(s) changed but could not be found in the patched ROM:' % len(unlocated))

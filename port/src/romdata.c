@@ -645,6 +645,14 @@ const char *romdataFileGetName(s32 fileNum)
 	return fileSlots[fileNum].name;
 }
 
+const u8 *romdataGetDataSeg(u32 *outSize)
+{
+	if (outSize) {
+		*outSize = g_RomFile ? romDataSegSize : 0;
+	}
+	return g_RomFile ? romDataSeg : NULL;
+}
+
 s32 romdataFileGetNumForName(const char *name)
 {
 	if (!name || !name[0]) {

@@ -128,8 +128,91 @@ GE-X edits the definitions themselves (models, ammo, functions, positions,
 text ids, flags; `invitem_falcon2` is gutted to a placeholder and
 `invitem_falcon2silencer` becomes a Maian SMG), so pointing at stock ones
 would give the wrong guns everywhere. The port equivalent of a mod's weapon
-set is the whole definition graph - `struct weapon` and, through it, the
-functions by type, ammos, aim settings, gun command lists (with their
-`include`/`random` pointers), gunviscmds, part visibility, noise and recoil
-settings, vibration arrays - read out of the mod's data segment and rebuilt
-in the port's own layout. That is the next piece of work.
+set is the whole definition graph, and that is what the next section does.
+
+## Importing the data segment: where this stands (2026-09-04)
+
+**Done and working.** GE-X boots into a Combat Simulator match with its own
+arsenal in the weapon table (knife at 2, PP7 at 3, DD44 at 5, Klobb at 6, KF7 at 7, ZMG at
+8, D5K at 9, AR33 at 12, RC-P90 at 13, shotgun at 14, Cougar Magnum at 19,
+Golden Gun at 20 ...), the shotgun having inherited its pump-action flags.
+
+- `tools/importmod` writes the mod's inflated data segment to `segs/data`,
+  its file names one per id to `segs/data.names`, and a `datasegment` block
+  at the top of `modconfig.txt` saying where the tables are. It finds each
+  table by **following the mod's code**: the lui/addiu pairs that formed the
+  stock address (from `pd.<romid>.datasym`) form the new one in a
+  patched-in-place mod. GE-X moved `g_MpWeapons` to 0x800877c0 (36 entries,
+  the count read from the `li v0,N` in `mp_get_num_mpweapons`) and put its
+  14 weapon sets at 0x800873d0, over the old list's tail. Only references
+  landing *inside* a table count: the word before `g_MpWeaponSets` is the end
+  of `g_MpWeapons`, and a loop over that table holds a pointer to it, which
+  is how the first version was 0x20 off. A rebuilt data segment (performance
+  mod) is written out but gets no block - its tables cannot be located yet.
+- `port/src/moddata.c` reads the block, loads the segment and walks the
+  graph from every `g_Weapons` slot: `struct weapon`, the functions by type
+  (sizes verified against symbol spacing: shootsingle 0x40, shootauto 0x54,
+  projectile 0x64, throw 0x24, melee 0x4c, special 0x20, device 0x18), ammo
+  (0x14), aim settings (0x20, two bitfields at the *top* of the word on
+  MIPS), gun command lists (8-byte entries to `GUNCMD_END`, `include` and
+  `random` carrying pointers), gunviscmds (10 bytes each to type 0), part
+  visibility (2 bytes to part 255), noise and recoil settings, the 12-float
+  vibration arrays. Every object is converted once, so sharing survives. It
+  also copies `g_ModelStates` (fileid and scale), `g_MpWeapons` and
+  `g_MpWeaponSets`, each validated before use - a table the mod moved leaves
+  junk at the stock address, and importing that once put a weapon set of
+  nonsense into a match (no gun, no pickups, the first symptom seen).
+- File ids go through `segs/data.names` to the port's slot for that name;
+  a name the port lacks (GE-X's `GplatinumZ`, `GrudolphwppkZ`) is registered
+  as the mod's own with `romdataRegisterModFile()`. `flags2`,
+  `unequippedreloadindex` and `pickupsound` are the port's fields, so a
+  definition at a stock definition's address inherits them from the *stock*
+  pointer table as it was before the import began - not from `g_Weapons[k]`
+  mid-loop, which slot 72 once inherited the knife's flags from.
+- `--moddata-trace` logs one line per slot and Combat Simulator entry.
+- The port's `g_MpWeapons` is **not laid out like the ROM's**: it inserts
+  two scanners and the classic guns in the middle and keeps the shield and
+  the "disabled" entry at fixed indexes (`MPWEAPON_SHIELD` 0x2f,
+  `MPWEAPON_DISABLED` 0x30) that `mpconfigs.c` names directly. A mod's
+  entries go in order into the slots before the shield, its own shield and
+  disabled entries are skipped, and the slots left before the shield are set
+  to `WEAPON_NONE` behind feature 79, which nothing unlocks, so PD's extras
+  do not show up naming GE-X's guns. `g_MpWeaponSets[12]` is fixed size and
+  GE-X has 14: the last two are dropped with a warning. Growing it is the
+  fixed-size-table class of change (see CLAUDE.md).
+- **How it was verified, and how not to.** Feed the converter the stock
+  ROM's own segment (a mod dir with just `segs/data`, `segs/data.names` and
+  the block at the stock addresses; `--moddata-trace` then compares every
+  converted field against the port's own struct at the same address and logs
+  each difference). It is a no-op except for flag bits this fork itself added
+  to stock (`FUNCFLAG_PROXIMITYMINE` on the Dragon's mine mode, a device bit
+  on the scanners), which no ROM has - so those are carried across as a
+  delta over the ROM's stock flags. Screenshots of a headless `--boot-stage
+  0x32` match are **not** a check: the spawn pad is random, two identical
+  stock runs look nothing alike, and an hour went into "the gun draws
+  exploded" that was the Temple's own pillars from a different pad.
+- The mod swap snapshot (`modTablesSnapshot`) now covers `g_Weapons`,
+  `g_ModelStates`, `g_MpWeapons` and `g_MpWeaponSets` too; moot for a mod
+  with `segs/` (restart rule) but right.
+
+**Not done yet, in the order it probably wants doing:**
+
+1. Play it, with a person at the keyboard: the match boots and the trace
+   reads right, but nobody has yet held a GE-X gun in the port and fired it.
+   `./build/pd.x86_64 --moddir build/mod_gex_data`, Combat Simulator, any
+   arena. `#warning: memory pool ... is full` lines appear in that run with
+   or without the data import - GE-X's resized segments fill the stage pool
+   - and are a separate problem.
+2. The heads and bodies: `g_HeadsAndBodies` (210 words changed), `g_MpHeads`,
+   `g_MpBodies`, `g_BotHeads`, the guard head lists in `body.c`. Same shape
+   as the model states (file ids through names) once
+   [chrs-and-memory.md](chrs-and-memory.md) has been read.
+3. `g_Stages` (44 words), `g_MpArenas` (30), `g_StageTracks` (48): stage
+   blocks already cover some of this by hand; the block could be generated.
+4. The TV screen command lists (`g_TvCmdlist*`, ~600 words): u32 arrays
+   with the odd pointer, importable as blobs.
+5. The remaining code changes are then the behaviours GE-X keyed on its new
+   weapon numbers, which is what [weapons.md](weapons.md) is about - and with
+   the definitions imported, `modcodediff`'s constant swaps (`li at,26` ->
+   `li at,2`) could be turned into `weapon` blocks mechanically, since the
+   port's flag for each stock site is known.

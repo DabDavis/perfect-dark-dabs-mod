@@ -9,6 +9,26 @@ struct animtableentry;
 
 s32 modConfigLoad(const char *path);
 
+// A mod's ROM data segment, and where its tables are in it. Filled in from a
+// modconfig `datasegment` block, which tools/importmod writes.
+struct moddataspec {
+	char file[256];      // the inflated segment
+	char names[256];     // the mod's file names, one per id (optional)
+	u32 base;            // where the segment loads
+	u32 weapons;         // g_Weapons[] and its length
+	s32 numweapons;
+	u32 modelstates;     // g_ModelStates[]
+	s32 nummodelstates;
+	u32 mpweapons;       // g_MpWeapons[]
+	s32 nummpweapons;
+	u32 mpweaponsets;    // g_MpWeaponSets[]
+	s32 nummpweaponsets;
+};
+
+// Rebuild the weapon definitions and model tables from that segment. Once per
+// run: what it allocates is never given back.
+s32 modDataImport(const struct moddataspec *spec);
+
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize);
 
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim);
