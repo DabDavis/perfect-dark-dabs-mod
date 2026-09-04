@@ -14,7 +14,7 @@ keeps bodies lying where they fell, and gives you a free-flying spectator
 camera, a screenshot key and a video recorder for watching the results.
 
 Everything here is engine-side and lives in the executable. No custom levels or
-assets are bundled, and none are needed.
+assets are bundled, and none are needed - but mods drop in, see [Mods](#mods).
 
 ## You need a ROM
 
@@ -109,36 +109,66 @@ sure it's on your `PATH`, or point `Mod.RecordEncoder` in `pd.ini` at the
 binary. Frame rate, quality and the on-screen red dot are in the options page.
 Screenshots need nothing extra.
 
-## Optional: custom levels
+## Mods
 
 The port can mount mod directories, and this fork extends that to stages,
-Combat Simulator arenas, weapons and characters a mod supplies.
+Combat Simulator arenas, weapons and characters a mod supplies - including
+console mods, the ROM patches made for the N64 game. Nothing is bundled here:
+mods are other people's work, and you get them from their authors.
 
-**Plug and play:** make a `mods` folder next to the game and drop the mod in -
-as a folder, as the `.zip` it came as, or as the console mod's own download
-with its `.xdelta`, `.bps` or `.ips` patch inside. Start the game, open Options,
-Extended Options, Load Mods, and pick it. A mod with its own segments asks for
-a restart and comes back loaded. The choice is remembered between runs.
+### Dropping a mod in
 
-A zip is unpacked once, on first sight, into a folder of the same name, and a
-console patch is converted once into a folder named after it, with an
-`IMPORT.txt` inside saying what came across and what the port cannot use.
-Delete the folder to have either done again. A patch made against a different
-ROM is refused and says so in that file. The first start after dropping a whole
-collection of mods in takes a while, a few seconds per patch.
+1. Make a folder called `mods` next to `pd.x86_64` (or `pd.x86_64.exe`).
+2. Put the mod in it, exactly as you downloaded it. Any of these work:
+   - a mod folder (one holding `files/`, `segs/` or `textures/`);
+   - the `.zip` that folder came in;
+   - a console mod's download: a `.zip` with its `.xdelta`, `.bps` or `.ips`
+     patch inside, or the bare patch file;
+   - a whole collection of the above in one archive. Nested zips are fine.
+3. Start the game. Archives are unpacked and patches are converted on that
+   first start - a few seconds for one mod, up to a minute for a big
+   collection, with nothing on screen yet while it happens.
+4. Go to **Options > Extended Options > Load Mods** and pick the mod from
+   the list. One mod at a time.
+5. If the game offers **Restart Now**, take it: a mod that replaces ROM audio,
+   textures or its data tables can only be read at start-up. The choice is
+   remembered, so the next start comes up with the mod loaded.
 
-Or pass one or more on the command line, which wins over the menu choice:
+To go back to the stock game, choose **None** on the same page.
+
+### What ends up in `mods/`
+
+Each zip is unpacked into a folder of the same name, and each console patch
+becomes a folder named after the patch, with an `IMPORT.txt` inside that says
+what came across and what the port could not use. Everything happens once;
+delete a folder to have it done again, for instance after replacing the zip
+with a newer version.
+
+A patch that was made against a different ROM is refused, and `IMPORT.txt`
+says so - the Japanese-region patches need the Japanese ROM, and a patch that
+has to be applied on top of another one cannot be applied on its own. A mod
+that changed only the game's code has nothing the port can carry over, and its
+folder says that too. Neither shows up on the Load Mods page.
+
+What a console mod built for its own patched code cannot be used as is - a
+setup or character model in a format the port does not read - is set aside in
+`files.incompatible/` inside its folder rather than crashing the game. The
+stock file stands in for it.
+
+### From the command line
+
+Pass one or more directories with `--moddir`, which wins over the menu choice:
 
 ```
 pd.x86_64 --moddir mod_allinone
 ```
 
 The directory is looked for next to the executable and in your home data
-directory. `tools/importmod` does the same conversion of a console patch
-outside the game, for a machine without it. Nothing is bundled here — the **All in One Mod** and similar packs
-are other people's work, and you should get them from their authors. The command
-line flags that mod's own launcher uses (`--gexmoddir` and friends) are accepted
-as aliases so its scripts work unchanged.
+directory. Folders whose name starts with `mod` sitting next to the executable
+are listed too, which is how mods have shipped for the stock port. The command
+line flags the All in One Mod's own launcher uses (`--gexmoddir` and friends)
+are accepted as aliases so its scripts work unchanged. `tools/importmod` in
+the source tree does the same conversion of a console patch outside the game.
 
 ## Sharing a machine with the stock port
 
