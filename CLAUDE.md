@@ -25,6 +25,7 @@ area, read its section first — none of them are inferable from the code.
 - [The game replaces itself](#the-game-replaces-itself) — the updater's internals
 - [Mod directories](#mod-directories)
 - [Where a texture pack goes](#where-a-texture-pack-goes) — four directories, one of which is read by nothing
+- [Replacement textures are decoded off the render thread](#replacement-textures-are-decoded-off-the-render-thread) — why the stutter was never the decoder
 - [Debugging](#debugging) — the two commands that actually find things
 
 **[DabDavisGitHub.md](DabDavisGitHub.md)** is the companion to this file: the
@@ -475,6 +476,39 @@ Four directories are involved and only one of them puts a pack in the menu.
 All of it needs `Mod.LoadTextures=1`. The images are `<texnum>.png`, four
 lowercase hex digits; a mod's `textures/*.bin` is the raw-N64-data path instead
 and is unrelated. `tools/texpack/riceconvert.py` writes the first kind.
+
+### Replacement textures are decoded off the render thread
+
+`texpackLoadReplacement()` used to decode where it was called, which is inside
+`import_texture()` in `gfx_pc.cpp` - so the first draw of each texture paid for a
+whole PNG on the render thread. That is the stutter testers describe as a pack
+"streaming in": measured over the PD Plus pack, 57.9 Mpx/s, about 4.6ms for an
+average texture and roughly a whole frame for a 1024x1024.
+
+**The decoder was never the slow part.** `pngread.c` and stb_image measure the
+same to within a fraction of a percent on PNG (57.9 vs 57.8 Mpx/s), so swapping
+in a vendored library buys nothing. Being on the render thread is the whole cost.
+
+So a request queues the work and returns NULL, the caller draws the original
+exactly as it does for a texture no pack replaces, and `gfx_texpack_poll()` at
+the top of the next frame drops the cache entries holding the original so the
+draw after that asks again and gets the replacement. Two things this depends on:
+
+- `gfx_texture_cache_lookup()` answers **before** the pack is ever consulted, so
+  the entry has to be erased or the original stays on screen forever. Eviction
+  goes by `texpackGetTextureNum(key.texture_addr)`, not by address: one texture
+  number can sit at several addresses.
+- `rendering_state.textures` holds pointers into that map, so erasing anything
+  means clearing it and setting `textures_changed`, the same as
+  `gfx_texture_cache_clear()` does.
+
+Decoded images wait in their slot to be claimed - normally one frame - under a
+byte budget, because a texture that goes off screen may never ask again. Losing
+one costs a re-decode and nothing else. `texpackFreeIndex()` stops the worker
+before freeing anything: the worker reads the index and only stops between jobs.
+
+JPEG is a separate question and still unsupported: `pngread.c` is PNG-only, and
+74% of the PD Plus pack is `.jpg`, so that pack loads 335 of its 4151 files.
 
 ### The ROM symbol file
 

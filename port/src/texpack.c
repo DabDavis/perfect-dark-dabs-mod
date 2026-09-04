@@ -10,6 +10,8 @@
  * named after a checksum.
  */
 
+#define _DEFAULT_SOURCE 1 // strdup
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +33,7 @@
 #include "texpack.h"
 #include "video.h"
 #include "versioninfo.h"
+#include <SDL.h>
 
 #define TEXPACK_DUMP_DIR_NAME "texturedump"
 
@@ -879,9 +882,15 @@ static void texpackIndexFile(const char *name, void *arg)
 	replaceKinds[texturenum] = (u8)kind;
 }
 
+static void texpackAsyncReset(void);
+
 static void texpackFreeIndex(void)
 {
 	s32 i;
+
+	// Before anything below is freed: the worker reads the index, and only
+	// stops between jobs.
+	texpackAsyncReset();
 
 	for (i = 0; replacePaths && i < NUM_TEXTURES; i++) {
 		free(replacePaths[i]);
@@ -914,6 +923,18 @@ static void texpackFreeIndex(void)
  * Indexes one directory of images. path is absolute: fsScanDir() resolves a
  * relative one through the mod search order, which would collapse every mod
  * directory onto whichever one wins.
+ */
+/**
+ * Whether a folder holds images already in the row order the game wants.
+ *
+ * Two conventions are in the wild and a filename cannot tell them apart, so a
+ * folder says which it is (see the row order note over texpackLoadImage()):
+ *
+ * - named `ext_tex`, which is what the VR fork reads and therefore the shape
+ *   every pack built for it already has, unpacked and dropped in as it comes.
+ * - holding a `bottomup.txt`, for a pack in that order under any other name.
+ *
+ * Inherited by subfolders, so the marker goes at the top of the pack once.
  */
 static void texpackScanPathAt(const char *path, s32 depth)
 {
@@ -1364,10 +1385,384 @@ u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 hei
 	return texpackLoadImage(path, 0, outWidth, outHeight);
 }
 
+/**
+ * Decodes one indexed replacement, alpha and all.
+ *
+ * Split out of texpackLoadReplacement() so the worker thread can run exactly
+ * what the render thread used to. It takes copies of the two paths rather than
+ * the index entries themselves: the caller holds the lock while it copies, and
+ * the decode - the slow part, and the whole reason for the thread - then runs
+ * with nothing held.
+ */
+static u8 *texpackDecodeReplacement(const char *path, const char *alphaPath, s32 kind,
+		s32 *outWidth, s32 *outHeight)
+{
+	u8 *rgba;
+
+	// Only our own naming means the file was written the right way up.
+	rgba = texpackLoadImage(path, kind == TEXPACK_KIND_NATIVE, outWidth, outHeight);
+
+	if (!rgba) {
+		return NULL;
+	}
+
+	if (alphaPath && kind == TEXPACK_KIND_RGB) {
+		// A Rice pack may split a texture into colour and alpha images. The
+		// colour one is opaque on its own, so the alpha has to be pasted back
+		// over it; only its red channel carries anything. Both halves come out
+		// of texpackLoadImage() the same way up, so they line up.
+		s32 alphaWidth;
+		s32 alphaHeight;
+		u8 *alpha = texpackLoadImage(alphaPath, 0, &alphaWidth, &alphaHeight);
+
+		if (alpha) {
+			if (alphaWidth == *outWidth && alphaHeight == *outHeight) {
+				s32 i;
+
+				for (i = 0; i < alphaWidth * alphaHeight; i++) {
+					rgba[i * 4 + 3] = alpha[i * 4];
+				}
+			} else {
+				sysLogPrintf(LOG_WARNING, "texpack: %s is %dx%d but its alpha is %dx%d",
+						path, *outWidth, *outHeight, alphaWidth, alphaHeight);
+			}
+
+			free(alpha);
+		}
+	}
+
+	return rgba;
+}
+
+/**
+ * Decoding off the render thread.
+ *
+ * texpackLoadReplacement() used to decode where it stood, which put a whole PNG
+ * on the render thread the first time each texture was drawn. Measured over the
+ * PD Plus pack that is 57.9 Mpx/s, so about 4.6ms for an average texture in it
+ * and roughly a frame for a 1024x1024 - the stutter testers report as a pack
+ * "streaming in". The decoder is not the slow part (stb_image measures the same
+ * to within a fraction of a percent); being on the render thread is.
+ *
+ * So a request now returns NULL and queues the work, the caller draws the
+ * original exactly as it does for a texture no pack replaces, and the frame
+ * that finds the job done throws away the cache entry holding the original so
+ * the next draw asks again and gets the replacement. Nothing waits.
+ *
+ * A decoded image sits in its slot until claimed. That is normally the next
+ * frame, but a texture that goes off screen may never ask again, so the ready
+ * ones are held to a byte budget and the oldest is dropped when it is passed -
+ * dropping one costs only a re-decode if it is ever drawn again.
+ */
+#define TEXPACK_MAX_PENDING  32
+#define TEXPACK_READY_BUDGET (48 * 1024 * 1024)
+
+enum texpackjobstate {
+	TEXPACK_JOB_FREE = 0,
+	TEXPACK_JOB_QUEUED,
+	TEXPACK_JOB_DECODING,
+	TEXPACK_JOB_READY,
+	TEXPACK_JOB_FAILED,
+};
+
+struct texpackjob {
+	s32 state;
+	s32 texturenum;
+	u8 *rgba;
+	s32 width;
+	s32 height;
+	u32 serial;
+	u8 reported; // told to the renderer once, so it evicts once
+};
+
+static struct texpackjob jobs[TEXPACK_MAX_PENDING];
+static SDL_mutex *jobLock;
+static SDL_cond *jobWake;
+static SDL_Thread *jobThread;
+static s32 jobThreadRun;
+static u32 jobSerial;
+static u32 jobReadyBytes;
+
+static u32 texpackJobBytes(const struct texpackjob *job)
+{
+	return (u32)job->width * (u32)job->height * 4;
+}
+
+/**
+ * Frees the oldest decoded-but-unclaimed image until the budget is met. Called
+ * with the lock held.
+ */
+static void texpackTrimReady(void)
+{
+	while (jobReadyBytes > TEXPACK_READY_BUDGET) {
+		s32 oldest = -1;
+		s32 i;
+
+		for (i = 0; i < TEXPACK_MAX_PENDING; i++) {
+			if (jobs[i].state == TEXPACK_JOB_READY
+					&& (oldest < 0 || jobs[i].serial < jobs[oldest].serial)) {
+				oldest = i;
+			}
+		}
+
+		if (oldest < 0) {
+			break;
+		}
+
+		jobReadyBytes -= texpackJobBytes(&jobs[oldest]);
+		free(jobs[oldest].rgba);
+		jobs[oldest].rgba = NULL;
+		jobs[oldest].state = TEXPACK_JOB_FREE;
+	}
+}
+
+static int texpackDecodeWorker(void *arg)
+{
+	SDL_LockMutex(jobLock);
+
+	while (jobThreadRun) {
+		char *path = NULL;
+		char *alphaPath = NULL;
+		s32 kind;
+		s32 found = -1;
+		s32 i;
+		s32 width = 0;
+		s32 height = 0;
+		u8 *rgba;
+
+		for (i = 0; i < TEXPACK_MAX_PENDING; i++) {
+			if (jobs[i].state == TEXPACK_JOB_QUEUED) {
+				found = i;
+				break;
+			}
+		}
+
+		if (found < 0) {
+			SDL_CondWait(jobWake, jobLock);
+			continue;
+		}
+
+		// Copied under the lock, because texpackFreeIndex() may free the index
+		// itself - it stops this thread first, but only between jobs.
+		if (replacePaths && replacePaths[jobs[found].texturenum]) {
+			path = strdup(replacePaths[jobs[found].texturenum]);
+		}
+
+		if (replaceAlphaPaths && replaceAlphaPaths[jobs[found].texturenum]) {
+			alphaPath = strdup(replaceAlphaPaths[jobs[found].texturenum]);
+		}
+
+		kind = replaceKinds ? replaceKinds[jobs[found].texturenum] : TEXPACK_KIND_NATIVE;
+		jobs[found].state = TEXPACK_JOB_DECODING;
+
+		SDL_UnlockMutex(jobLock);
+
+		rgba = path ? texpackDecodeReplacement(path, alphaPath, kind, &width, &height) : NULL;
+
+		free(path);
+		free(alphaPath);
+
+		SDL_LockMutex(jobLock);
+
+		// The slot may have been reclaimed while the lock was up - by
+		// texpackAsyncReset(), which is the only thing that does it - in which
+		// case this image is nobody's and goes back.
+		if (jobs[found].state != TEXPACK_JOB_DECODING) {
+			free(rgba);
+			continue;
+		}
+
+		if (rgba) {
+			jobs[found].rgba = rgba;
+			jobs[found].width = width;
+			jobs[found].height = height;
+			jobs[found].state = TEXPACK_JOB_READY;
+			jobReadyBytes += texpackJobBytes(&jobs[found]);
+			texpackTrimReady();
+		} else {
+			jobs[found].state = TEXPACK_JOB_FAILED;
+		}
+	}
+
+	SDL_UnlockMutex(jobLock);
+
+	return 0;
+}
+
+static void texpackAsyncStart(void)
+{
+	if (jobThread) {
+		return;
+	}
+
+	if (!jobLock) {
+		jobLock = SDL_CreateMutex();
+		jobWake = SDL_CreateCond();
+	}
+
+	if (!jobLock || !jobWake) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not create the decode lock");
+		return;
+	}
+
+	jobThreadRun = 1;
+	jobThread = SDL_CreateThread(texpackDecodeWorker, "pd-texpack", NULL);
+
+	if (!jobThread) {
+		// Not fatal: without the thread every request simply misses forever and
+		// the game draws its own textures, which is what no pack at all does.
+		jobThreadRun = 0;
+		sysLogPrintf(LOG_ERROR, "texpack: could not start the decode thread");
+	}
+}
+
+void texpackAsyncShutdown(void)
+{
+	if (!jobThread) {
+		return;
+	}
+
+	SDL_LockMutex(jobLock);
+	jobThreadRun = 0;
+	SDL_CondBroadcast(jobWake);
+	SDL_UnlockMutex(jobLock);
+
+	SDL_WaitThread(jobThread, NULL);
+	jobThread = NULL;
+}
+
+/**
+ * Empties the queue. The thread is stopped first, so a decode in flight is
+ * finished and thrown away rather than left writing into a slot being freed.
+ */
+static void texpackAsyncReset(void)
+{
+	s32 i;
+
+	texpackAsyncShutdown();
+
+	if (!jobLock) {
+		return;
+	}
+
+	SDL_LockMutex(jobLock);
+
+	for (i = 0; i < TEXPACK_MAX_PENDING; i++) {
+		free(jobs[i].rgba);
+		jobs[i].rgba = NULL;
+		jobs[i].state = TEXPACK_JOB_FREE;
+	}
+
+	jobReadyBytes = 0;
+
+	SDL_UnlockMutex(jobLock);
+}
+
+/**
+ * Hands over a decoded image if one is waiting, and queues the work if not.
+ *
+ * Returns NULL either way when there is nothing to give yet, which the caller
+ * reads as "this texture has no replacement" and draws the original.
+ */
+static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
+{
+	u8 *rgba = NULL;
+	s32 free1 = -1;
+	s32 i;
+
+	texpackAsyncStart();
+
+	if (!jobThread) {
+		return NULL;
+	}
+
+	SDL_LockMutex(jobLock);
+
+	for (i = 0; i < TEXPACK_MAX_PENDING; i++) {
+		if (jobs[i].state != TEXPACK_JOB_FREE && jobs[i].texturenum == texturenum) {
+			if (jobs[i].state == TEXPACK_JOB_READY) {
+				rgba = jobs[i].rgba;
+				*outWidth = jobs[i].width;
+				*outHeight = jobs[i].height;
+				jobReadyBytes -= texpackJobBytes(&jobs[i]);
+				jobs[i].rgba = NULL;
+				jobs[i].state = TEXPACK_JOB_FREE;
+			}
+
+			// Queued, decoding, or failed: nothing to hand over now. A failed
+			// one is cleared by texpackPollDecoded(), which also drops the path
+			// so it is never asked for again.
+			SDL_UnlockMutex(jobLock);
+			return rgba;
+		}
+
+		if (jobs[i].state == TEXPACK_JOB_FREE && free1 < 0) {
+			free1 = i;
+		}
+	}
+
+	// A full queue is not an error - the textures that missed out ask again
+	// next time they are drawn, by which point it has drained.
+	if (free1 >= 0) {
+		jobs[free1].state = TEXPACK_JOB_QUEUED;
+		jobs[free1].texturenum = texturenum;
+		jobs[free1].serial = ++jobSerial;
+		jobs[free1].reported = 0;
+		SDL_CondSignal(jobWake);
+	}
+
+	SDL_UnlockMutex(jobLock);
+
+	return NULL;
+}
+
+/**
+ * Texture numbers that finished decoding since the last call.
+ *
+ * The renderer caches by texture address and looked its entry up before ever
+ * asking about a replacement, so the entry holding the original has to go for
+ * the replacement to be seen at all. Reporting them lets it drop exactly those.
+ */
+s32 texpackPollDecoded(s32 *out, s32 max)
+{
+	s32 count = 0;
+	s32 i;
+
+	if (!jobThread || !jobLock) {
+		return 0;
+	}
+
+	SDL_LockMutex(jobLock);
+
+	for (i = 0; i < TEXPACK_MAX_PENDING && count < max; i++) {
+		if (jobs[i].state == TEXPACK_JOB_READY && !jobs[i].reported) {
+			jobs[i].reported = 1;
+			out[count++] = jobs[i].texturenum;
+		} else if (jobs[i].state == TEXPACK_JOB_FAILED) {
+			// Whatever is wrong with the file will not fix itself, and retrying
+			// on every cache miss would log it forever. Drop it and draw the
+			// original. Done here rather than on the worker because the index
+			// belongs to this thread.
+			if (replacePaths && replacePaths[jobs[i].texturenum]) {
+				sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it",
+						replacePaths[jobs[i].texturenum]);
+				free(replacePaths[jobs[i].texturenum]);
+				replacePaths[jobs[i].texturenum] = NULL;
+				numReplacements--;
+			}
+
+			jobs[i].state = TEXPACK_JOB_FREE;
+		}
+	}
+
+	SDL_UnlockMutex(jobLock);
+
+	return count;
+}
+
 u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 {
 	s32 texturenum;
-	u8 *rgba;
 
 	if (!texpackHaveReplacements()) {
 		return NULL;
@@ -1379,45 +1774,7 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 		return NULL;
 	}
 
-	// Only our own naming means the file was written the right way up.
-	rgba = texpackLoadImage(replacePaths[texturenum],
-			replaceKinds[texturenum] == TEXPACK_KIND_NATIVE, outWidth, outHeight);
-
-	if (!rgba) {
-		// Whatever is wrong with the file will not fix itself, and retrying on
-		// every cache miss would log it forever. Drop it and draw the original.
-		free(replacePaths[texturenum]);
-		replacePaths[texturenum] = NULL;
-		numReplacements--;
-		return NULL;
-	}
-
-	if (replaceAlphaPaths[texturenum] && replaceKinds[texturenum] == TEXPACK_KIND_RGB) {
-		// A Rice pack may split a texture into colour and alpha images. The
-		// colour one is opaque on its own, so the alpha has to be pasted back
-		// over it; only its red channel carries anything. Both halves come out
-		// of texpackLoadImage() the same way up, so they line up.
-		s32 alphaWidth;
-		s32 alphaHeight;
-		u8 *alpha = texpackLoadImage(replaceAlphaPaths[texturenum], 0, &alphaWidth, &alphaHeight);
-
-		if (alpha) {
-			if (alphaWidth == *outWidth && alphaHeight == *outHeight) {
-				s32 i;
-
-				for (i = 0; i < alphaWidth * alphaHeight; i++) {
-					rgba[i * 4 + 3] = alpha[i * 4];
-				}
-			} else {
-				sysLogPrintf(LOG_WARNING, "texpack: %s is %dx%d but its alpha is %dx%d",
-						replacePaths[texturenum], *outWidth, *outHeight, alphaWidth, alphaHeight);
-			}
-
-			free(alpha);
-		}
-	}
-
-	return rgba;
+	return texpackClaimDecoded(texturenum, outWidth, outHeight);
 }
 
 void texpackFreeReplacement(u8 *rgba)

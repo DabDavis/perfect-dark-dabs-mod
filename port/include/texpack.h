@@ -167,6 +167,17 @@ void texpackToggleSetKey(s32 vk);
 void texpackTick(void);
 
 /**
+ * Texture numbers whose replacement finished decoding since the last call, and
+ * stopping the thread that decodes them.
+ *
+ * A replacement is decoded on a worker rather than where it is asked for - see
+ * the comment over the queue in texpack.c - so the renderer has to be told when
+ * one arrives, its cache having already answered with the original.
+ */
+s32 texpackPollDecoded(s32 *out, s32 max);
+void texpackAsyncShutdown(void);
+
+/**
  * Expands one texture to RGBA32, bottom row first, in a buffer the caller
  * frees. The size comes back in outWidth/outHeight and is the padded row rather
  * than the tile - what the renderer uploads, and what a replacement has to

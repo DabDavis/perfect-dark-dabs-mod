@@ -22,6 +22,7 @@
 #include "modloader.h"
 #include "romdata.h"
 #include "record.h"
+#include "texpack.h"
 #include "screenshot.h"
 #include "config.h"
 #include "mod.h"
@@ -104,6 +105,9 @@ static void cleanup(void)
 	sysLogPrintf(LOG_NOTE, "shutdown");
 	// Before anything else: an unfinished mp4 has no index and will not play.
 	recordStop();
+	// Before videoShutdown(): the decode worker hands its images to the
+	// renderer, so it has to be the one that stops first.
+	texpackAsyncShutdown();
 	inputSaveBinds();
 	configSave(CONFIG_PATH);
 	videoShutdown();

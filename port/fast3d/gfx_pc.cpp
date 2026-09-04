@@ -712,6 +712,50 @@ void gfx_texture_cache_clear() {
     memset(rendering_state.textures, 0, sizeof(rendering_state.textures));
 }
 
+/**
+ * Drops the cache entries holding the original of a texture whose replacement
+ * has just been decoded.
+ *
+ * The lookup at the top of import_texture() answers before the pack is ever
+ * consulted, so an entry uploaded while the decode was still queued would keep
+ * the original on screen forever. Erasing it makes the next draw a miss, which
+ * is what asks the pack again - and by then texpackClaimDecoded() has the image
+ * in hand. One texture number can be at more than one address, so this goes by
+ * what the address resolves to rather than by the address itself.
+ */
+static void gfx_texture_cache_drop_texnum(int32_t texturenum) {
+    bool dropped = false;
+
+    for (TextureCacheMap::iterator it = gfx_texture_cache.map.begin();
+            it != gfx_texture_cache.map.end(); ) {
+        if (texpackGetTextureNum(it->first.texture_addr) == texturenum) {
+            gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
+            gfx_texture_cache.lru.erase(it->second.lru_location);
+            it = gfx_texture_cache.map.erase(it);
+            dropped = true;
+        } else {
+            ++it;
+        }
+    }
+
+    if (dropped) {
+        // rendering_state.textures holds pointers into the map, and the nodes
+        // they name may be the ones just erased.
+        gfx_mark_state_dirty();
+        rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+        memset(rendering_state.textures, 0, sizeof(rendering_state.textures));
+    }
+}
+
+extern "C" void gfx_texpack_poll(void) {
+    int32_t ready[32];
+    const int32_t count = texpackPollDecoded(ready, (int32_t)(sizeof(ready) / sizeof(ready[0])));
+
+    for (int32_t i = 0; i < count; i++) {
+        gfx_texture_cache_drop_texnum(ready[i]);
+    }
+}
+
 static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     TextureCacheMap::iterator it = gfx_texture_cache.map.find(key);
     TextureCacheNode** n = &rendering_state.textures[i];
@@ -3009,6 +3053,10 @@ extern "C" struct GfxRenderingAPI* gfx_get_current_rendering_api(void) {
 }
 
 extern "C" void gfx_start_frame(void) {
+    // Replacements that finished decoding while the last frame was drawn. Done
+    // here so a frame never both evicts and re-uploads the same texture.
+    gfx_texpack_poll();
+
     // Report and clear what the frame just finished cost, before anything is
     // added to the totals for the next one.
     if (g_GfxLogStats) {
