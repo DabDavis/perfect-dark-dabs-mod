@@ -22,6 +22,20 @@
 // stored in 7 bits by the MP setup save format, so ids must stay under 128;
 // the stock table tops out at 0x50, leaving room for these.
 #define MAX_MODSTAGES          48
+
+// Combat Simulator arenas: 16 plus "Random", then those written into the table
+// at build time for the stages mod_allinone supplies, then whatever the mod
+// loader registers at runtime (up to MAX_MODSTAGES).
+// The Combat Simulator head and body lists: stock has 75 and 61, a mod's
+// data segment can bring more (Mario Characters: 84 bodies), and a player
+// file stores the chosen index in 7 bits. g_MpListCounts says how many are
+// in use.
+#define MAX_MPHEADS  128
+#define MAX_MPBODIES 128
+
+#define MP_NUM_STOCK_ARENAS      17
+#define MP_NUM_MOD_ARENAS_STATIC 19
+#define MP_NUM_ARENAS_STATIC     (MP_NUM_STOCK_ARENAS + MP_NUM_MOD_ARENAS_STATIC)
 #define MODSTAGE_FIRST_ID      0x51
 
 #define MAX_BOTS_CONFIG        8

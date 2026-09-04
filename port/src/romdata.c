@@ -615,7 +615,8 @@ void romdataFilePreprocess(s32 fileNum, s32 loadType, u8 *data, u32 size, u32 *o
 					sysLogPrintf(LOG_NOTE, "file %d (%s) patched at offset 0x%x", fileNum, fileSlots[fileNum].name, p->ofs);
 				}
 			}
-			// then preprocess
+			// then preprocess; the model converter names the file if it refuses it
+			preprocessModelSetName(fileSlots[fileNum].name);
 			filePreprocFuncs[loadType](data, size, outSize);
 			// fileSlots[fileNum].preprocessed = 1;
 		}

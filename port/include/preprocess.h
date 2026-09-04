@@ -26,6 +26,8 @@ u8 *preprocessLangFile(u8 *data, u32 size, u32 *outSize);
 u8 *preprocessPadsFile(u8 *data, u32 size, u32 *outSize);
 u8 *preprocessTilesFile(u8 *data, u32 size, u32 *outSize);
 u8 *preprocessSetupFile(u8 *data, u32 size, u32 *outSize);
+// names the file for the model converter's refusal message
+void preprocessModelSetName(const char *name);
 u8 *preprocessModelFile(u8 *data, u32 size, u32 *outSize);
 u8 *preprocessGunFile(u8 *data, u32 size, u32 *outSize);
 

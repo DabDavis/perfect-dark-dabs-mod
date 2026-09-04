@@ -1931,6 +1931,14 @@ void setupCreateProps(s32 stagenum)
 
 						prop = obj->prop;
 
+						if (prop == NULL) {
+							// Not created: its pad has no room. A console mod's
+							// setup can carry a hovercar its own code placed
+							// (the Weather Mod's rain emitter in the Temple),
+							// and this one used to be dereferenced regardless.
+							break;
+						}
+
 						car->speed = 0;
 						car->speedaim = 0;
 						car->turnrot60 = 0;
@@ -1955,6 +1963,10 @@ void setupCreateProps(s32 stagenum)
 						struct chopperobj *chopper = (struct chopperobj *)obj;
 
 						setupCreateObject(obj, index);
+
+						if (obj->prop == NULL) {
+							break;
+						}
 
 						obj->flags |= OBJFLAG_CHOPPER_INIT;
 						obj->prop->forcetick = true;

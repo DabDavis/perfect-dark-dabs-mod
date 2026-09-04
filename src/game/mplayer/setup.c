@@ -110,14 +110,8 @@ struct menudialogdef g_MpDropOutMenuDialog = {
 	NULL,
 };
 
-// 16 arenas plus "Random".
-#define MP_NUM_STOCK_ARENAS 17
-
-// Arenas written into the tables at build time: the stock ones plus those for
-// stages mod_allinone supplies. The loader appends to these at runtime.
-#define MP_NUM_MOD_ARENAS_STATIC 19
-#define MP_NUM_ARENAS_STATIC (MP_NUM_STOCK_ARENAS + MP_NUM_MOD_ARENAS_STATIC)
-
+// MP_NUM_STOCK_ARENAS, MP_NUM_MOD_ARENAS_STATIC and MP_NUM_ARENAS_STATIC are in
+// constants.h, so that data.h can size this table for the mod loader.
 struct mparena g_MpArenas[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES] = {
 	// Stage, unlock, name
 	{ STAGE_MP_SKEDAR,     0,                          L_MPMENU_119 },
@@ -165,11 +159,19 @@ struct mparena g_MpArenas[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES] = {
 };
 
 // Grows as the mod loader registers arenas.
-static s32 g_MpNumArenas = MP_NUM_ARENAS_STATIC;
+s32 g_MpNumArenas = MP_NUM_ARENAS_STATIC;
+
+// Set once a mod's data segment has supplied the whole list (mpImportArenas):
+// the names are then its text ids, not g_MpArenaModNames.
+bool g_MpArenasImported = false;
+
+// langGet() strings for imported arenas, with the newline textMeasure() wants.
+static char g_MpImportedArenaNames[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES][40];
 
 // Names for arenas registered at runtime; g_MpArenaModNames only holds
-// pointers.
-static char g_MpModArenaNames[MAX_MODSTAGES][32];
+// pointers. Indexed like it, since an imported list (mpImportArenas) can leave
+// the count anywhere, including below the static arenas.
+static char g_MpModArenaNames[MP_NUM_MOD_ARENAS_STATIC + MAX_MODSTAGES][32];
 
 /**
  * Names for the mod-only arenas, indexed from MP_NUM_STOCK_ARENAS.
@@ -201,6 +203,27 @@ static const char *g_MpArenaModNames[MP_NUM_MOD_ARENAS_STATIC + MAX_MODSTAGES] =
 
 char *mpGetArenaName(s32 index)
 {
+	if (g_MpArenasImported && index >= 0 && index < (s32)ARRAYCOUNT(g_MpArenas) && g_MpArenas[index].name) {
+		// The mod's text id, from whichever bank it put the name in: its own
+		// LmpmenuE for a new arena, LoptionsE's mission names for a solo
+		// stage. Copied so the row gets its trailing newline. An arena
+		// registered on top of the list has no text id and is named below.
+		char *stored = g_MpImportedArenaNames[index];
+		const char *name = langGet(g_MpArenas[index].name);
+
+		if (!name || !name[0]) {
+			return "\n";
+		}
+
+		const s32 len = strlen(name);
+		if (name[len - 1] == '\n') {
+			return (char *)name;
+		}
+
+		snprintf(stored, sizeof(g_MpImportedArenaNames[0]), "%s\n", name);
+		return stored;
+	}
+
 	if (index >= MP_NUM_STOCK_ARENAS && index < (s32)ARRAYCOUNT(g_MpArenas)) {
 		const char *name = g_MpArenaModNames[index - MP_NUM_STOCK_ARENAS];
 		return (char *)(name ? name : "");
@@ -219,15 +242,11 @@ bool mpRegisterArena(s16 stagenum, const char *name)
 	const s32 slot = g_MpNumArenas;
 	const s32 nameslot = slot - MP_NUM_STOCK_ARENAS;
 
-	if (slot >= (s32)ARRAYCOUNT(g_MpArenas) || nameslot >= (s32)ARRAYCOUNT(g_MpArenaModNames)) {
+	if (slot >= (s32)ARRAYCOUNT(g_MpArenas) || nameslot < 0 || nameslot >= (s32)ARRAYCOUNT(g_MpArenaModNames)) {
 		return false;
 	}
 
-	if (nameslot - MP_NUM_MOD_ARENAS_STATIC >= MAX_MODSTAGES) {
-		return false;
-	}
-
-	char *stored = g_MpModArenaNames[nameslot - MP_NUM_MOD_ARENAS_STATIC];
+	char *stored = g_MpModArenaNames[nameslot];
 	snprintf(stored, sizeof(g_MpModArenaNames[0]), "%s\n", name);
 
 	g_MpArenas[slot].stagenum = stagenum;
@@ -238,6 +257,36 @@ bool mpRegisterArena(s16 stagenum, const char *name)
 	g_MpNumArenas = slot + 1;
 
 	return true;
+}
+
+/**
+ * Replace the whole list with the one a mod's data segment carries: the
+ * arenas its own game offered, in its order, with its unlock features and its
+ * text ids for the names. Everything past it is cleared so nothing matches a
+ * stale stage number. Returns how many were taken.
+ */
+s32 mpImportArenas(const struct mparena *arenas, s32 count)
+{
+	s32 i;
+
+	if (count < 1 || count > (s32)ARRAYCOUNT(g_MpArenas)) {
+		return 0;
+	}
+
+	for (i = 0; i < count; i++) {
+		g_MpArenas[i] = arenas[i];
+	}
+
+	for (; i < (s32)ARRAYCOUNT(g_MpArenas); i++) {
+		g_MpArenas[i].stagenum = 0;
+		g_MpArenas[i].requirefeature = 0;
+		g_MpArenas[i].name = 0;
+	}
+
+	g_MpNumArenas = count;
+	g_MpArenasImported = true;
+
+	return count;
 }
 
 s32 mpGetNumStages(void)

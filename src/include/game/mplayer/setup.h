@@ -121,6 +121,9 @@ MenuItemHandlerResult menuhandlerMpTeamsLabel(s32 operation, struct menuitem *it
 s32 mpGetNumStages(void);
 char *mpGetArenaName(s32 index);
 bool mpRegisterArena(s16 stagenum, const char *name);
+s32 mpImportArenas(const struct mparena *arenas, s32 count);
+extern s32 g_MpNumArenas;
+extern bool g_MpArenasImported;
 MenuItemHandlerResult menuhandlerMpControlStyle(s32 operation, struct menuitem *item, union handlerdata *data);
 MenuItemHandlerResult menuhandlerMpWeaponSlot(s32 operation, struct menuitem *item, union handlerdata *data);
 MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menuitem *item, union handlerdata *data);

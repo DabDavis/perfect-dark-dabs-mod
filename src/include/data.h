@@ -466,7 +466,7 @@ extern struct menudialogdef g_2PMissionInventoryVMenuDialog;
 extern struct menudialogdef g_MpEndscreenChallengeCheatedMenuDialog;
 extern struct menudialogdef g_MpEndscreenChallengeFailedMenuDialog;
 extern struct menudialogdef g_MpDropOutMenuDialog;
-extern struct mparena g_MpArenas[];
+extern struct mparena g_MpArenas[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES];
 extern struct menudialogdef g_MpWeaponsMenuDialog;
 extern struct menudialogdef g_MpPlayerOptionsMenuDialog;
 extern struct menudialogdef g_MpControlMenuDialog;
@@ -500,9 +500,26 @@ extern s32 var80087260;
 extern bool g_MpEnableMusicSwitching;
 extern struct mpweapon g_MpWeapons[NUM_MPWEAPONS];
 extern struct mpweaponset g_MpWeaponSets[12];
-extern struct mphead g_MpHeads[VERSION == VERSION_JPN_FINAL ? 74 : 75];
+extern struct mphead g_MpHeads[MAX_MPHEADS];
 extern struct botprofile g_BotProfiles[18];
-extern struct mpbody g_MpBodies[61];
+extern struct mpbody g_MpBodies[MAX_MPBODIES];
+extern struct mphead g_MpBeauHeads[5];
+extern u32 g_BotHeads[53];
+extern u32 g_MpMaleHeads[44];
+extern u32 g_MpFemaleHeads[7];
+
+// How much of each Combat Simulator head and body list is in use. The lists
+// are fixed-size arrays; a mod's data segment (port/src/moddata.c) can fill
+// fewer entries than that, and these are what the getters count to.
+struct mplistcounts {
+	s32 heads;
+	s32 bodies;
+	s32 botheads;
+	s32 beauheads;
+	s32 maleheads;
+	s32 femaleheads;
+};
+extern struct mplistcounts g_MpListCounts;
 extern struct mppreset g_MpPresets[];
 extern u32 g_TeamColours[];
 extern u32 var80087ce4[];

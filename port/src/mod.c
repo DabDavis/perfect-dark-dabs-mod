@@ -14,6 +14,7 @@
 #include "game/file.h"
 #include "data.h"
 #include "game/stagetable.h"
+#include "game/mplayer/setup.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
 
@@ -710,6 +711,30 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		} else if (!strcmp(token, "mpweaponsets")) {
 			PARSE_ADDR("datasegment", "mpweaponsets", spec.mpweaponsets, NULL);
 			PARSE_INT("datasegment", "mpweaponsets count", spec.nummpweaponsets, 0, 4096, NULL);
+		} else if (!strcmp(token, "mparenas")) {
+			PARSE_ADDR("datasegment", "mparenas", spec.mparenas, NULL);
+			PARSE_INT("datasegment", "mparenas count", spec.nummparenas, 0, 4096, NULL);
+		} else if (!strcmp(token, "headsandbodies")) {
+			PARSE_ADDR("datasegment", "headsandbodies", spec.headsandbodies, NULL);
+			PARSE_INT("datasegment", "headsandbodies count", spec.numheadsandbodies, 0, 4096, NULL);
+		} else if (!strcmp(token, "mpheads")) {
+			PARSE_ADDR("datasegment", "mpheads", spec.mpheads, NULL);
+			PARSE_INT("datasegment", "mpheads count", spec.nummpheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "mpbodies")) {
+			PARSE_ADDR("datasegment", "mpbodies", spec.mpbodies, NULL);
+			PARSE_INT("datasegment", "mpbodies count", spec.nummpbodies, 0, 4096, NULL);
+		} else if (!strcmp(token, "botheads")) {
+			PARSE_ADDR("datasegment", "botheads", spec.botheads, NULL);
+			PARSE_INT("datasegment", "botheads count", spec.numbotheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "mpbeauheads")) {
+			PARSE_ADDR("datasegment", "mpbeauheads", spec.mpbeauheads, NULL);
+			PARSE_INT("datasegment", "mpbeauheads count", spec.nummpbeauheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "mpmaleheads")) {
+			PARSE_ADDR("datasegment", "mpmaleheads", spec.mpmaleheads, NULL);
+			PARSE_INT("datasegment", "mpmaleheads count", spec.nummpmaleheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "mpfemaleheads")) {
+			PARSE_ADDR("datasegment", "mpfemaleheads", spec.mpfemaleheads, NULL);
+			PARSE_INT("datasegment", "mpfemaleheads count", spec.nummpfemaleheads, 0, 4096, NULL);
 		} else {
 			sysLogPrintf(LOG_ERROR, "modconfig: datasegment: invalid key: %s", token);
 			return NULL;
@@ -1137,6 +1162,17 @@ static struct weapon *weaponsSnapshot[WEAPON_SUICIDEPILL + 1];
 static struct modelstate modelStatesSnapshot[NUM_MODELS];
 static struct mpweapon mpWeaponsSnapshot[NUM_MPWEAPONS];
 static struct mpweaponset mpWeaponSetsSnapshot[ARRAYCOUNT(g_MpWeaponSets)];
+static struct mparena mpArenasSnapshot[ARRAYCOUNT(g_MpArenas)];
+static struct headorbody headsAndBodiesSnapshot[ARRAYCOUNT(g_HeadsAndBodies)];
+static struct mphead mpHeadsSnapshot[ARRAYCOUNT(g_MpHeads)];
+static struct mpbody mpBodiesSnapshot[ARRAYCOUNT(g_MpBodies)];
+static u32 botHeadsSnapshot[ARRAYCOUNT(g_BotHeads)];
+static struct mphead mpBeauHeadsSnapshot[ARRAYCOUNT(g_MpBeauHeads)];
+static u32 mpMaleHeadsSnapshot[ARRAYCOUNT(g_MpMaleHeads)];
+static u32 mpFemaleHeadsSnapshot[ARRAYCOUNT(g_MpFemaleHeads)];
+static struct mplistcounts mpListCountsSnapshot;
+static s32 numMpArenasSnapshot;
+static bool mpArenasImportedSnapshot;
 static struct stagemusic *tracksSnapshot;
 static s32 numTracksSnapshot;
 static struct stageallocation *allocsSnapshot;
@@ -1155,6 +1191,17 @@ static void modTablesSnapshot(void)
 	memcpy(modelStatesSnapshot, g_ModelStates, sizeof(modelStatesSnapshot));
 	memcpy(mpWeaponsSnapshot, g_MpWeapons, sizeof(mpWeaponsSnapshot));
 	memcpy(mpWeaponSetsSnapshot, g_MpWeaponSets, sizeof(mpWeaponSetsSnapshot));
+	memcpy(mpArenasSnapshot, g_MpArenas, sizeof(mpArenasSnapshot));
+	memcpy(headsAndBodiesSnapshot, g_HeadsAndBodies, sizeof(headsAndBodiesSnapshot));
+	memcpy(mpHeadsSnapshot, g_MpHeads, sizeof(mpHeadsSnapshot));
+	memcpy(mpBodiesSnapshot, g_MpBodies, sizeof(mpBodiesSnapshot));
+	memcpy(botHeadsSnapshot, g_BotHeads, sizeof(botHeadsSnapshot));
+	memcpy(mpBeauHeadsSnapshot, g_MpBeauHeads, sizeof(mpBeauHeadsSnapshot));
+	memcpy(mpMaleHeadsSnapshot, g_MpMaleHeads, sizeof(mpMaleHeadsSnapshot));
+	memcpy(mpFemaleHeadsSnapshot, g_MpFemaleHeads, sizeof(mpFemaleHeadsSnapshot));
+	mpListCountsSnapshot = g_MpListCounts;
+	numMpArenasSnapshot = g_MpNumArenas;
+	mpArenasImportedSnapshot = g_MpArenasImported;
 
 	while (g_StageTracks[numTracksSnapshot].stagenum) {
 		++numTracksSnapshot;
@@ -1190,6 +1237,17 @@ static bool modTablesRestore(void)
 	memcpy(g_ModelStates, modelStatesSnapshot, sizeof(modelStatesSnapshot));
 	memcpy(g_MpWeapons, mpWeaponsSnapshot, sizeof(mpWeaponsSnapshot));
 	memcpy(g_MpWeaponSets, mpWeaponSetsSnapshot, sizeof(mpWeaponSetsSnapshot));
+	memcpy(g_MpArenas, mpArenasSnapshot, sizeof(mpArenasSnapshot));
+	memcpy(g_HeadsAndBodies, headsAndBodiesSnapshot, sizeof(headsAndBodiesSnapshot));
+	memcpy(g_MpHeads, mpHeadsSnapshot, sizeof(mpHeadsSnapshot));
+	memcpy(g_MpBodies, mpBodiesSnapshot, sizeof(mpBodiesSnapshot));
+	memcpy(g_BotHeads, botHeadsSnapshot, sizeof(botHeadsSnapshot));
+	memcpy(g_MpBeauHeads, mpBeauHeadsSnapshot, sizeof(mpBeauHeadsSnapshot));
+	memcpy(g_MpMaleHeads, mpMaleHeadsSnapshot, sizeof(mpMaleHeadsSnapshot));
+	memcpy(g_MpFemaleHeads, mpFemaleHeadsSnapshot, sizeof(mpFemaleHeadsSnapshot));
+	g_MpListCounts = mpListCountsSnapshot;
+	g_MpNumArenas = numMpArenasSnapshot;
+	g_MpArenasImported = mpArenasImportedSnapshot;
 	memcpy(g_StageTracks, tracksSnapshot, sizeof(struct stagemusic) * numTracksSnapshot);
 	memcpy(g_StageAllocations8Mb, allocsSnapshot, sizeof(struct stageallocation) * numAllocsSnapshot);
 

@@ -2012,7 +2012,7 @@ struct mphead g_MpBeauHeads[] = {
 	{ HEAD_BEAU6, 0 },
 };
 
-struct mphead g_MpHeads[] = {
+struct mphead g_MpHeads[MAX_MPHEADS] = {
 	// head, require feature
 	{ /*0x00*/ HEAD_DARK_COMBAT,  0                          },
 	{ /*0x01*/ HEAD_DARK_FROCK,   MPFEATURE_CHR_CI           },
@@ -2173,7 +2173,7 @@ struct botprofile g_BotProfiles[] = {
 	{ BOTTYPE_VENGE,   BOTDIFF_NORMAL,  L_MISC_105, MPBODY_ALASKAN_GUARD, 0                         },
 };
 
-struct mpbody g_MpBodies[] = {
+struct mpbody g_MpBodies[MAX_MPBODIES] = {
 	// global body ID,                name,            head,             require feature
 	/*0x00*/ { BODY_DARK_COMBAT,      L_OPTIONS_016,   HEAD_DARK_COMBAT, 0                          },
 	/*0x01*/ { BODY_DARK_TRENCH,      L_OPTIONS_017,   HEAD_DARK_COMBAT, MPFEATURE_CHR_JOTRENCH     },
@@ -2806,14 +2806,25 @@ void mpEndMatch(void)
 	func0f0f820c(NULL, -6);
 }
 
+// A mod's data segment can fill fewer entries than the arrays hold
+// (port/src/moddata.c); everything that counts the lists counts to these.
+struct mplistcounts g_MpListCounts = {
+	VERSION == VERSION_JPN_FINAL ? 74 : 75, // stock g_MpHeads
+	61, // stock g_MpBodies
+	ARRAYCOUNT(g_BotHeads),
+	ARRAYCOUNT(g_MpBeauHeads),
+	ARRAYCOUNT(g_MpMaleHeads),
+	ARRAYCOUNT(g_MpFemaleHeads),
+};
+
 s32 mpGetNumHeads2(void)
 {
-	return ARRAYCOUNT(g_MpHeads);
+	return g_MpListCounts.heads;
 }
 
 s32 mpGetNumHeads(void)
 {
-	return ARRAYCOUNT(g_MpHeads);
+	return g_MpListCounts.heads;
 }
 
 s32 mpGetHeadId(u8 headnum)
@@ -2833,22 +2844,22 @@ s32 mpGetBeauHeadId(u8 headnum)
 
 s32 mpGetNumBeauHeads(void)
 {
-	return ARRAYCOUNT(g_MpBeauHeads);
+	return g_MpListCounts.beauheads;
 }
 
 u32 mpGetNumBodies(void)
 {
-	return ARRAYCOUNT(g_MpBodies);
+	return g_MpListCounts.bodies;
 }
 
 s32 mpGetBodyId(u8 bodynum)
 {
 	/**
 	 * @bug: bodynum 61 (0x3d) would cause an array overflow.
-	 * ARRAYCOUNT(g_MpBodies) is 61.
+	 * g_MpListCounts.bodies is 61.
 	 */
-	if (bodynum > ARRAYCOUNT(g_MpBodies)) {
-		if (bodynum == ARRAYCOUNT(g_MpBodies) + 1) {
+	if (bodynum > g_MpListCounts.bodies) {
+		if (bodynum == g_MpListCounts.bodies + 1) {
 			return BODY_DRCAROLL;
 		}
 
@@ -2863,10 +2874,10 @@ s32 mpGetMpbodynumByBodynum(u16 bodynum)
 	s32 i;
 
 	if (bodynum == BODY_DRCAROLL) {
-		return ARRAYCOUNT(g_MpBodies) + 1;
+		return g_MpListCounts.bodies + 1;
 	}
 
-	for (i = 0; i < ARRAYCOUNT(g_MpBodies); i++) {
+	for (i = 0; i < g_MpListCounts.bodies; i++) {
 		if (g_MpBodies[i].bodynum == bodynum) {
 			return i;
 		}
@@ -2878,7 +2889,7 @@ s32 mpGetMpbodynumByBodynum(u16 bodynum)
 char *mpGetBodyName(u8 mpbodynum)
 {
 	// @bug: This should be >=
-	if (mpbodynum > ARRAYCOUNT(g_MpBodies)) {
+	if (mpbodynum > g_MpListCounts.bodies) {
 		mpbodynum = 0;
 	}
 
@@ -2888,7 +2899,7 @@ char *mpGetBodyName(u8 mpbodynum)
 u8 mpGetBodyRequiredFeature(u8 mpbodynum)
 {
 	// @bug: This should be >=
-	if (mpbodynum > ARRAYCOUNT(g_MpBodies)) {
+	if (mpbodynum > g_MpListCounts.bodies) {
 		mpbodynum = 0;
 	}
 
@@ -2909,13 +2920,13 @@ s32 mpGetMpheadnumByMpbodynum(s32 mpbodynum)
 
 	if (headnum == 1000) {
 		if (g_HeadsAndBodies[g_MpBodies[mpbodynum].bodynum].ismale) {
-			headnum = g_MpMaleHeads[rngRandom() % ARRAYCOUNT(g_MpMaleHeads)];
+			headnum = g_MpMaleHeads[rngRandom() % g_MpListCounts.maleheads];
 		} else {
-			headnum = g_MpFemaleHeads[rngRandom() % ARRAYCOUNT(g_MpFemaleHeads)];
+			headnum = g_MpFemaleHeads[rngRandom() % g_MpListCounts.femaleheads];
 		}
 	}
 
-	for (i = 0; i != ARRAYCOUNT(g_MpHeads); i++) {
+	for (i = 0; i != g_MpListCounts.heads; i++) {
 		if (g_MpHeads[i].headnum == headnum) {
 			index = i;
 		}
@@ -2934,8 +2945,8 @@ void mpFindUnusedHeadAndBody(u8 *mpheadnum, u8 *mpbodynum)
 
 	do {
 		available = true;
-		trympheadnum = rngRandom() % ARRAYCOUNT(g_MpHeads);
-		trympbodynum = rngRandom() % ARRAYCOUNT(g_MpBodies);
+		trympheadnum = rngRandom() % g_MpListCounts.heads;
+		trympbodynum = rngRandom() % g_MpListCounts.bodies;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
 			if (mpIsChrSlotOn(i)) {
@@ -3418,14 +3429,14 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 
 	// Prefer a head that no active chr is already wearing. The original picked
 	// heads at random and retried until it found a free one, which cannot
-	// terminate once there are more chrs than the ARRAYCOUNT(g_BotHeads)
+	// terminate once there are more chrs than the g_MpListCounts.botheads
 	// distinct heads available. Scan every head from a random starting point
 	// instead, and accept a duplicate if they are all taken.
-	offset = rngRandom() % ARRAYCOUNT(g_BotHeads);
+	offset = rngRandom() % g_MpListCounts.botheads;
 	headnum = g_BotHeads[offset];
 
-	for (n = 0; n < (s32)ARRAYCOUNT(g_BotHeads); n++) {
-		s32 candidate = g_BotHeads[(offset + n) % ARRAYCOUNT(g_BotHeads)];
+	for (n = 0; n < g_MpListCounts.botheads; n++) {
+		s32 candidate = g_BotHeads[(offset + n) % g_MpListCounts.botheads];
 		bool taken = false;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {

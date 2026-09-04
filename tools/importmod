@@ -22,6 +22,7 @@
 # place in the patched ROM could not be established, in segs.unlocated/.
 
 import argparse
+import struct
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -326,6 +327,19 @@ def try_data_segment(rom, ofs):
     return data, filesofs
 
 
+# The stock ROM's file names, once it has been read. The game never reads the
+# name table, so an old mod tool could drop it (GE Gun Name Display, 2009,
+# leaves zeros where it was); the file ids still mean the same files, so the
+# stock names stand in for them.
+stock_names = None
+names_missing_noted = False
+
+
+def names_missing(count):
+    """Can a file table of this many entries do without its name table?"""
+    return stock_names is not None and abs(count - len(stock_names)) <= 1
+
+
 def find_file_table(rom, dataseg):
     """The file table is a run of ascending big endian ROM offsets whose last
     entry points at the name table. Mods move it, so look for that shape rather
@@ -342,7 +356,8 @@ def find_file_table(rom, dataseg):
             prev = v
         else:
             if runstart is not None and (i - runstart) // 4 > MIN_FILES \
-                    and read_name_table(rom, prev) is not None:
+                    and (read_name_table(rom, prev) is not None
+                         or names_missing((i - runstart) // 4)):
                 # step back onto the leading zero entry so that file numbers and
                 # name numbers line up, the way romdataInitFiles() indexes them
                 if runstart >= 4 and be32(dataseg, runstart - 4) == 0:
@@ -409,6 +424,15 @@ def read_file_table(rom, dataseg, filesofs):
         return None, None
 
     names = read_name_table(rom, offsets[-1])
+    if names is None and names_missing(len(offsets)):
+        global names_missing_noted
+        if not names_missing_noted:
+            log('note:    this ROM has no file name table (an old mod tool dropped it); using the')
+            log('         stock ROM\'s names, since its %u file ids line up with the stock %u'
+                % (len(offsets) - 2, len(stock_names) - 1))
+            log()
+            names_missing_noted = True
+        names = stock_names
     if names is None:
         return None, None
 
@@ -426,6 +450,10 @@ def read_files(rom, romid, label):
     offsets, names = read_file_table(rom, dataseg, filesofs)
     if offsets is None:
         die('could not read the file table in the %s ROM.' % label)
+
+    if label == 'stock':
+        global stock_names
+        stock_names = names
 
     files = {}
     # index 0 is unused, and the final offset is the name table
@@ -484,6 +512,171 @@ def check_setup(d):
         ofs = be32(d, n * 4)
         if not 0 < ofs <= len(d):
             return '%s pointer %#x is outside the file' % (field, ofs)
+    if len(d) < 0x80:
+        # Every section is an end marker: a Combat Simulator setup with no
+        # spawn pads. The stock ROM has these for every stage that is not an
+        # arena, and a mod rewriting them (PD11 GE Weapons) changes nothing
+        # the port could use - booting a match on one loops forever looking
+        # for somewhere to spawn, with the stock file just the same.
+        return 'stub setup (%u bytes, no objects); not a Combat Simulator arena' % len(d)
+    return None
+
+
+# model node type -> (rodata kind, rodata size), as filemodel.c has them
+MODEL_NODE_RODATA = {
+    0x01: ('chrinfo', 0x0c), 0x02: ('position', 0x18), 0x04: ('gundl', 0x14),
+    0x08: ('distance', 0x10), 0x09: ('reorder', 0x24), 0x0a: ('bbox', 0x1c),
+    0x0c: ('chrgunfire', 0x28), 0x11: ('type11', 0x20), 0x12: ('toggle', 0x08),
+    0x15: ('positionheld', 0x14), 0x16: ('stargunfire', 0x10), 0x17: ('headspot', 0x04),
+    0x18: ('dl', 0x18), 0x19: ('type19', 0x04),
+}
+
+class BadModel(Exception):
+    pass
+
+def walk_model(d):
+    n = len(d)
+    if n < 0x1c:
+        raise BadModel('too short for a model file (%d bytes)' % n)
+
+    def ptr(v, what):
+        """A segmented pointer into the file, as an offset; 0 stays 0."""
+        if v == 0:
+            return 0
+        if (v >> 24) != 0x05:
+            raise BadModel('%s pointer %08x is not in segment 5' % (what, v))
+        o = v & 0xffffff
+        if o >= n:
+            raise BadModel('%s pointer %08x is past the end of the file (%d bytes)' % (what, v, n))
+        return o
+
+    def fits(o, size, what):
+        if o + size > n:
+            raise BadModel('%s at %#x runs past the end of the file' % (what, o))
+
+    rootnode = ptr(be32(d, 0), 'root node')
+    parts = ptr(be32(d, 8), 'parts')
+    numparts = be16(d, 12)
+    nummatrices = be16(d, 14)
+    rwdatalen = be16(d, 20)
+    numtexconfigs = be16(d, 22)
+    texconfigs = ptr(be32(d, 24), 'texture configs')
+    if numparts < 0 or numparts > 512:
+        raise BadModel('%d parts' % numparts)
+    if numtexconfigs > 512:
+        raise BadModel('%d texture configs' % numtexconfigs)
+    if numtexconfigs and texconfigs:
+        fits(texconfigs, numtexconfigs * 12, 'texture configs')
+    if parts:
+        fits(parts, numparts * 6, 'parts table')
+
+    nodes = {}
+    gdls = set()
+    stats = { 'nodes': 0, 'gdls': 0, 'texdata': 0 }
+
+    def node(o, what):
+        if o == 0 or o in nodes:
+            return
+        fits(o, 0x18, what + ' node')
+        t = be16(d, o)
+        kind = t & 0xff
+        rodata = be32(d, o + 4)
+        nodes[o] = kind
+        stats['nodes'] += 1
+        if kind not in MODEL_NODE_RODATA:
+            if rodata:
+                raise BadModel('node at %#x has type %#x, which the port has no rodata for, yet points at rodata' % (o, t))
+            if kind > 0x19:
+                raise BadModel('node at %#x has type %#x, past the port\'s table' % (o, t))
+        else:
+            name, size = MODEL_NODE_RODATA[kind]
+            r = ptr(rodata, '%s rodata' % name)
+            if r:
+                fits(r, size, name + ' rodata')
+                rodatas.append((r, kind))
+        for f, w in ((8, 'parent'), (12, 'next'), (16, 'prev'), (20, 'child')):
+            node(ptr(be32(d, o + f), w), w)
+
+    def gdl(o, what):
+        if o == 0 or o in gdls:
+            return
+        gdls.add(o)
+        stats['gdls'] += 1
+        p = o
+        while True:
+            if p + 8 > n:
+                raise BadModel('%s display list at %#x runs off the file without G_ENDDL' % (what, o))
+            op = d[p]
+            if op == 0xb8:
+                break
+            if op == 0x06:
+                # G_DL: branch or call to another list in the file
+                gdl(ptr(be32(d, p + 4), 'G_DL target'), what)
+            p += 8
+
+    rodatas = []
+    node(rootnode, 'root')
+    if parts:
+        for i in range(numparts):
+            node(ptr(be32(d, parts + i * 4), 'part %d' % i), 'part %d' % i)
+
+    i = 0
+    while i < len(rodatas):
+        r, kind = rodatas[i]
+        i += 1
+        name = MODEL_NODE_RODATA[kind][0]
+        if name == 'gundl':
+            gdl(ptr(be32(d, r), 'opaque'), 'gundl')
+            gdl(ptr(be32(d, r + 4), 'translucent'), 'gundl')
+            v = ptr(be32(d, r + 12), 'gundl vertices')
+            fits(v, be16(d, r + 16) * 12, 'gundl vertices')
+        elif name == 'dl':
+            gdl(ptr(be32(d, r), 'opaque'), 'dl')
+            gdl(ptr(be32(d, r + 4), 'translucent'), 'dl')
+            ptr(be32(d, r + 8), 'dl colours')
+            v = ptr(be32(d, r + 12), 'dl vertices')
+            fits(v, be16(d, r + 16) * 12, 'dl vertices')
+        elif name == 'stargunfire':
+            v = ptr(be32(d, r + 4), 'stargunfire vertices')
+            fits(v, be32(d, r) * 4 * 12, 'stargunfire vertices')
+            gdl(ptr(be32(d, r + 8), 'stargunfire'), 'stargunfire')
+        elif name == 'distance':
+            node(ptr(be32(d, r + 8), 'distance target'), 'distance target')
+        elif name == 'toggle':
+            node(ptr(be32(d, r), 'toggle target'), 'toggle target')
+        elif name == 'reorder':
+            node(ptr(be32(d, r + 24), 'reorder node'), 'reorder node')
+            node(ptr(be32(d, r + 28), 'reorder node'), 'reorder node')
+        elif name == 'chrgunfire':
+            t = ptr(be32(d, r + 24), 'chrgunfire texture')
+            fits(t, 12, 'chrgunfire texture config')
+        elif name == 'type19':
+            fits(r, 4 + be32(d, r) * 12, 'type19 vertices')
+
+    for i in range(numtexconfigs):
+        o = texconfigs + i * 12
+        v = be32(d, o)
+        if (v >> 24) == 0x05:
+            ptr(v, 'texture data')
+            stats['texdata'] += 1
+        elif v >= 0x10000:
+            raise BadModel('texture config %d refers to texture %#x' % (i, v))
+
+    return stats
+
+
+def check_model(d):
+    """See port/src/preprocess/filemodel.c: populateMarkers() follows every
+    pointer in the file - nodes, rodata, display lists, texture configs -
+    with no bounds check, and convertContent() then reads at each one. A
+    model built for a mod's own code can point outside the file (Spooky Dark's
+    CMP150 has its muzzle flash texture at 0x0dc42e88, another segment) and
+    the port crashes reading it. This walks the same graph and says where it
+    leaves the file."""
+    try:
+        walk_model(d)
+    except BadModel as e:
+        return str(e)
     return None
 
 
@@ -503,6 +696,28 @@ def check_file(name, content):
         return check_pads(data)
     if base.startswith('U'):
         return check_setup(data)
+    if base.startswith('bg_') and base.endswith('.seg'):
+        return check_bg(data)
+    if base[0] in 'CPG' and base.endswith('Z'):
+        # chr bodies and heads, props, guns and hands: one converter
+        return check_model(data)
+    return None
+
+
+def check_bg(d):
+    """A background file starts with the inflated size of its primary
+    section (rooms, portals, lights), then that section 1173-compressed. A
+    mod that drops a stage to make room leaves a stub in its place: Aviation
+    Trilogy's Air Force One is 124 bytes of primary section, which the port's
+    bg preprocessor fatals on ("overflow when trying to preprocess a bg
+    file") rather than refusing."""
+    if len(d) < 16:
+        return 'too short for a background file'
+    inflated = be32(d, 0)
+    if inflated < 0x100:
+        return 'stub background (%u byte primary section); the mod removed this stage' % inflated
+    if not is1173(d, 12):
+        return 'primary section is not 1173-compressed'
     return None
 
 
@@ -661,6 +876,12 @@ def find_texture_table(rom, near, count, span=0x400000):
             ofs = dataofs(at, i)
             if ofs < prev:
                 return False
+            # the second word of each entry is the runtime pointer, zero in the
+            # ROM. The file name table is ascending offsets too, but packed
+            # (Mr. X Stalker's sat where this looked, and its 2.7 MB "texture
+            # list" put a garbage texture at every index).
+            if rom[at + i * 8 + 4:at + i * 8 + 8] != b'\0\0\0\0':
+                return False
             prev = ofs
         return prev > 0
 
@@ -742,6 +963,7 @@ def match_segments(stock, mod, romid):
         if at is not None and note != 'ambiguous':
             hint = at - seg['ofs']
 
+    locate_by_code(stock, mod, romid, segs)
     locate_structurally(mod, byname)
     locate_by_adjacency(segs)
 
@@ -757,6 +979,93 @@ def match_segments(stock, mod, romid):
     size_segments(segs)
 
     return segs
+
+
+# The lib segment: a 1173 blob at a fixed offset, holding the code that reaches
+# the audio banks, the sequences and the copyright segment.
+LIB_OFS = 0x3050
+
+
+def locate_by_code(stock, mod, romid, segs):
+    """Where the mod's own code says its segments are.
+
+    The game reaches every segment through a lui/addiu pair holding its ROM
+    offset - the audio banks, the sequences and the copyright from the lib
+    segment, the two texture segments from the game binary (texinit.c reads
+    the list from `_textureslistSegmentRomStart` to `..RomEnd`, and
+    texdecompress.c adds each texture's offset to `_texturesdataSegmentRomStart`).
+    A mod tool that moves a segment rewrites those numbers, so a mod whose
+    code is patched in place tells us exactly where everything went - which
+    the structural search could not for Mr. X Stalker, Kakariko Village, the
+    Mario Characters and Spooky Dark: their texture lists start at 2-byte
+    alignment with junk in the pointer words, and the file name table looked
+    more like a texture table than they did.
+    """
+    blobs = []
+
+    if is1173(stock, LIB_OFS) and is1173(mod, LIB_OFS):
+        try:
+            stocklib, _ = inflate1173(stock, LIB_OFS)
+            modlib, _ = inflate1173(mod, LIB_OFS)
+            if len(stocklib) == len(modlib):
+                blobs.append(('lib', stocklib, modlib))
+        except zlib.error:
+            pass
+
+    try:
+        mcd = load_modcodediff()
+        stocktab = mcd.find_game_table(stock, mcd.GAME_TABLE.get(romid))
+        modtab = mcd.find_game_table(mod, mcd.GAME_TABLE.get(romid))
+        if stocktab and modtab:
+            stockgame = mcd.extract_game(stock, stocktab)
+            modgame = mcd.extract_game(mod, modtab)
+            if len(stockgame) == len(modgame) and stockgame:
+                blobs.append(('game', stockgame, modgame))
+    except (OSError, ImportError, zlib.error):
+        pass
+
+    if not blobs:
+        return
+
+    pairs = [(name, address_pairs(a), address_pairs(b)) for name, a, b in blobs]
+
+    def follow(value, only=None):
+        votes = {}
+        for name, sp, mp in pairs:
+            if only and name != only:
+                continue
+            got, n = follow_table(sp, mp, value, 1)
+            if got is not None:
+                votes[got] = votes.get(got, 0) + n
+        if not votes:
+            return None, 0
+        return max(votes.items(), key=lambda kv: kv[1])
+
+    for seg in segs:
+        got, n = follow(seg['ofs'])
+        if got is None or got >= len(mod):
+            continue
+        if got == seg['ofs'] and seg['modofs'] != got \
+                and mod[got:got + 64] != stock[got:got + 64]:
+            # The code still says the stock offset, but the stock bytes are
+            # not there: a reference the mod tool did not know to update. The
+            # NTSC game never draws the Japanese fonts, and Suburb's tool left
+            # their pointers alone while moving the fonts 300 KB down.
+            continue
+        if seg['modofs'] is not None and seg['modofs'] != got and seg.get('note') != 'ambiguous':
+            log('note:    %s fingerprints at %08x but the mod\'s code reads it from %08x; using the code'
+                % (seg['name'], seg['modofs'], got))
+        seg['modofs'] = got
+        seg['note'] = None
+        seg['found'] = 'code (%d reference%s)' % (n, '' if n == 1 else 's')
+
+    # texinit.c measures the list from its start to its end, and the mod's
+    # code has both: that is the list's size, whatever follows it.
+    for seg in segs:
+        if seg['name'] == 'textureslist' and seg['modofs'] is not None:
+            end, _ = follow(seg['ofs'] + seg['size'], only='game')
+            if end is not None and seg['modofs'] < end <= len(mod):
+                seg['modsize'] = end - seg['modofs']
 
 
 def locate_structurally(mod, byname):
@@ -1117,6 +1426,80 @@ def count_mpweaponsets(seg, base, addr, numweapons, limit=32):
         n += 1
     return n
 
+def count_mparenas(seg, base, addr, limit=64):
+    """How many entries at addr read as Combat Simulator arenas: a stage
+    number (1 is "Random"), an unlock feature, a text id in a bank that
+    exists."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 6
+        if ofs + 6 > len(seg):
+            break
+        e = seg[ofs:ofs + 6]
+        stagenum = int.from_bytes(e[0:2], 'big', signed=True)
+        feature = e[2]
+        name = int.from_bytes(e[4:6], 'big')
+        if not 1 <= stagenum <= 0x5d or feature > 0x7f or name == 0 or (name >> 9) > 0x44:
+            break
+        n += 1
+    return n
+
+
+def count_headsandbodies(seg, base, addr, limit):
+    """Entries to the terminator: a file number, and scales in a sane range."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 0x14
+        if ofs + 0x14 > len(seg):
+            break
+        filenum = be16(seg, ofs + 2)
+        scale, animscale = struct.unpack('>ff', seg[ofs + 4:ofs + 12])
+        if filenum == 0:
+            break
+        if not (0.01 < scale < 100 and 0.01 < animscale < 100):
+            return 0
+        n += 1
+    return n
+
+
+def count_mpheads(seg, base, addr, limit):
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 4
+        if ofs + 4 > len(seg):
+            break
+        headnum = int.from_bytes(seg[ofs:ofs + 2], 'big', signed=True)
+        if not 0 <= headnum < 151 or seg[ofs + 2] > 0x7f:
+            break
+        n += 1
+    return n
+
+
+def count_mpbodies(seg, base, addr, limit):
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 8
+        if ofs + 8 > len(seg):
+            break
+        bodynum = int.from_bytes(seg[ofs:ofs + 2], 'big', signed=True)
+        headnum = int.from_bytes(seg[ofs + 4:ofs + 6], 'big', signed=True)
+        # head 1000 is "the body has its own"
+        if not 0 <= bodynum < 151 or not (-1 <= headnum < 151 or headnum == 1000) or seg[ofs + 6] > 0x7f or (be16(seg, ofs + 2) >> 9) > 0x44:
+            break
+        n += 1
+    return n
+
+
+def count_indexes(seg, base, addr, limit, maxvalue):
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 4
+        if ofs + 4 > len(seg) or be32(seg, ofs) >= maxvalue:
+            break
+        n += 1
+    return n
+
+
 def write_data_segment(stock, mod, romid, outdir, dryrun):
     """The mod's inflated data segment, its file names, and a modconfig block
     saying where its tables are.
@@ -1240,6 +1623,68 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
     elif mpsets:
         notes.append('what is at %08x does not read as the weapon set table; left out' % mpsets)
 
+    # the arena list: mp_get_num_stages loads its length. A mod that adds
+    # solo stages to the Combat Simulator grows it, and since the stock table
+    # has no room after it, moves it.
+    arenas, note = locate('g_MpArenas')
+    numarenas = 0
+    if arenas:
+        if 'mp_get_num_stages' in codesyms:
+            start, end = codesyms['mp_get_num_stages']
+            numarenas = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, 17) or 0
+        if not numarenas:
+            numarenas = count_mparenas(seg, base, arenas)
+        elif count_mparenas(seg, base, arenas, numarenas) < numarenas:
+            # CSMP and CVMP rebuilt the entry as 4 bytes; a list read with the
+            # wrong stride is no list, and a short one is a broken menu
+            notes.append('the code says %d arenas but only %d read as one at %08x; the arena list is left out'
+                         % (numarenas, count_mparenas(seg, base, arenas, numarenas), arenas))
+            numarenas = 0
+            arenas = None
+    if arenas and numarenas:
+        lines.append('  mparenas 0x%08x %d' % (arenas, numarenas))
+        notes.append('%d arenas at %08x%s' % (numarenas, arenas, note))
+    elif arenas:
+        notes.append('what is at %08x does not read as the arena list; left out' % arenas)
+
+    # the characters: g_HeadsAndBodies is what setups, the Combat Simulator
+    # lists and the bot profiles index, and a mod with its own roster (Mario
+    # Characters) rewrites it in place. Its length is the terminator; the
+    # Combat Simulator lists have theirs in the code, like the weapons.
+    hab, note = locate('g_HeadsAndBodies')
+    if hab:
+        n = count_headsandbodies(seg, base, hab, stockcount('g_HeadsAndBodies', 0x14))
+        if n:
+            lines.append('  headsandbodies 0x%08x %d' % (hab, n))
+            notes.append('%d heads and bodies at %08x%s' % (n, hab, note))
+        else:
+            notes.append('what is at %08x does not read as the heads and bodies table; left out' % hab)
+
+    for key, sym, fn, elem, limit in (('mpheads', 'g_MpHeads', 'mp_get_num_heads', 4, 151),
+                                      ('mpbodies', 'g_MpBodies', 'mp_get_num_bodies', 8, 151),
+                                      ('mpbeauheads', 'g_MpBeauHeads', None, 4, 151),
+                                      ('botheads', 'g_BotHeads', None, 4, 75),
+                                      ('mpmaleheads', 'g_MpMaleHeads', None, 4, 151),
+                                      ('mpfemaleheads', 'g_MpFemaleHeads', None, 4, 151)):
+        addr, note = locate(sym)
+        if not addr:
+            continue
+        n = stockcount(sym, elem)
+        if fn and fn in codesyms:
+            start, end = codesyms[fn]
+            n = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, n) or n
+        if elem == 8:
+            ok = count_mpbodies(seg, base, addr, n)
+        elif key in ('mpheads', 'mpbeauheads'):
+            ok = count_mpheads(seg, base, addr, n)
+        else:
+            ok = count_indexes(seg, base, addr, n, limit)
+        if ok == n:
+            lines.append('  %s 0x%08x %d' % (key, addr, n))
+            notes.append('%d %s at %08x%s' % (n, key, addr, note))
+        else:
+            notes.append('the code says %d %s but only %d read as one at %08x; left out' % (n, key, ok, addr))
+
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'
              '# after it edit what it put in place. Written by tools/importmod.\n'
@@ -1301,11 +1746,19 @@ def run(stock, mod, romid, kind, args):
     log('files: %u in the stock ROM, %u in the patched one' % (len(stockfiles), len(modfiles)))
 
     incompatible = []
+    stripped = 0
 
     for name in sorted(modfiles):
         content = modfiles[name]
         isnew = name not in stockfiles
         if not isnew and content_equal(stockfiles[name], content):
+            continue
+        if not content:
+            # Mods empty the files they do not need (usually the other
+            # languages) to make room in the ROM. An empty override would
+            # only be ignored by the port (romdataFileLoad() requires a
+            # size above 0), so leave it out and say so once.
+            stripped += 1
             continue
 
         reason = check_file(name, content)
@@ -1318,6 +1771,9 @@ def run(stock, mod, romid, kind, args):
         counts['new' if isnew else 'changed'] += 1
         written += write_file(outdir, 'files/' + name, content, dryrun)
         log('  %s  files/%s (%u bytes)' % ('new    ' if isnew else 'changed', name, len(content)))
+
+    if stripped:
+        log('  %u stock file(s) are emptied in the mod (space reclaimed); the port keeps its own copies' % stripped)
 
     missing = [n for n in stockfiles if n not in modfiles]
     if missing:
@@ -1374,7 +1830,16 @@ def run(stock, mod, romid, kind, args):
         if texsplit is not None and seg['name'] in ('texturesdata', 'textureslist'):
             continue
         data = mod[seg['modofs']:seg['modofs'] + seg['modsize']]
-        if seg.get('assumed'):
+        guessed = seg.get('assumed') or (
+            # placed against a neighbour, somewhere other than where it was,
+            # and not holding the stock bytes: nothing actually found it. The
+            # segment may not be there at all - Suburb's tool dropped the
+            # Japanese fonts, which the NTSC game never draws, and what sits
+            # against its animations is file data.
+            str(seg.get('found', '')).startswith('position against')
+            and seg['modofs'] != seg['ofs']
+            and data[:64] != stock[seg['ofs']:seg['ofs'] + 64])
+        if guessed:
             # its position is a guess, so keep it out of the way rather than
             # hand the port a segment that is probably off by some bytes
             unlocated.append(seg)

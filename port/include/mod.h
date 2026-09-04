@@ -23,6 +23,22 @@ struct moddataspec {
 	s32 nummpweapons;
 	u32 mpweaponsets;    // g_MpWeaponSets[]
 	s32 nummpweaponsets;
+	u32 mparenas;        // g_MpArenas[]
+	s32 nummparenas;
+	u32 headsandbodies;  // g_HeadsAndBodies[]
+	s32 numheadsandbodies;
+	u32 mpheads;         // g_MpHeads[]
+	s32 nummpheads;
+	u32 mpbodies;        // g_MpBodies[]
+	s32 nummpbodies;
+	u32 botheads;        // g_BotHeads[]
+	s32 numbotheads;
+	u32 mpbeauheads;     // g_MpBeauHeads[]
+	s32 nummpbeauheads;
+	u32 mpmaleheads;     // g_MpMaleHeads[]
+	s32 nummpmaleheads;
+	u32 mpfemaleheads;   // g_MpFemaleHeads[]
+	s32 nummpfemaleheads;
 };
 
 // Rebuild the weapon definitions and model tables from that segment. Once per

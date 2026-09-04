@@ -2,6 +2,8 @@
 #include "constants.h"
 #include "game/cheats.h"
 #ifndef PLATFORM_N64
+#include "romdata.h"
+#include "system.h"
 #include "game/modghost.h"
 #endif
 #include "game/chraction.h"
@@ -296,28 +298,46 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		modelSetScale(model, scale);
 		modelSetAnimScale(model, animscale);
 
-		if (headmodeldef && !g_HeadsAndBodies[bodynum].unk00_01) {
+		// A body with no headspot part takes no head. Stock never pairs a
+		// head with such a body, but a mod's table can (Mario Characters'
+		// Yoshi is a body with the head built in and the "has own head" bit
+		// clear), and the player path passes the head modeldef in regardless
+		// of whether the body has somewhere to put it. The rwdatalen for the
+		// head was only added above when the headspot was found.
+		if (headmodeldef && node && !g_HeadsAndBodies[bodynum].unk00_01) {
 			bodymodeldef->rwdatalen -= headmodeldef->rwdatalen;
 
-			modelmgrAttachHead(model, node, headmodeldef);
+			if (headmodeldef->rootnode && (headmodeldef->rootnode->type & 0xff) == MODELNODETYPE_CHRINFO) {
+				// A body model offered as a head. modelAttachHead() would
+				// re-parent its root under this body's headspot, and the next
+				// chr to wear that body as a body would then find a headspot
+				// above its root and read another model's rwdata through it.
+				// A mod's table index that the port's code still reads as a
+				// stock head number gets here.
+				sysLogPrintf(LOG_WARNING, "body %d: head %d is a body model (file %d %s); the chr goes headless",
+						bodynum, headnum, headnum >= 0 ? g_HeadsAndBodies[headnum].filenum : -1,
+						headnum >= 0 && romdataFileGetName(g_HeadsAndBodies[headnum].filenum) ? romdataFileGetName(g_HeadsAndBodies[headnum].filenum) : "?");
+			} else {
+				modelmgrAttachHead(model, node, headmodeldef);
 
-			if ((s16)*(s32 *)&headmodeldef->skel == SKEL_HEAD) {
-				struct modelnode *node2;
+				if ((s16)*(s32 *)&headmodeldef->skel == SKEL_HEAD) {
+					struct modelnode *node2;
 
-				if (!sunglasses) {
-					node2 = modelGetPart(headmodeldef, MODELPART_HEAD_SUNGLASSES);
+					if (!sunglasses) {
+						node2 = modelGetPart(headmodeldef, MODELPART_HEAD_SUNGLASSES);
+
+						if (node2) {
+							union modelrwdata *rwdata = modelGetNodeRwData(model, node2);
+							rwdata->toggle.visible = false;
+						}
+					}
+
+					node2 = modelGetPart(headmodeldef, MODELPART_HEAD_HUDPIECE);
 
 					if (node2) {
 						union modelrwdata *rwdata = modelGetNodeRwData(model, node2);
 						rwdata->toggle.visible = false;
 					}
-				}
-
-				node2 = modelGetPart(headmodeldef, MODELPART_HEAD_HUDPIECE);
-
-				if (node2) {
-					union modelrwdata *rwdata = modelGetNodeRwData(model, node2);
-					rwdata->toggle.visible = false;
 				}
 			}
 		}

@@ -203,12 +203,11 @@ Golden Gun at 20 ...), the shotgun having inherited its pump-action flags.
    arena. `#warning: memory pool ... is full` lines appear in that run with
    or without the data import - GE-X's resized segments fill the stage pool
    - and are a separate problem.
-2. The heads and bodies: `g_HeadsAndBodies` (210 words changed), `g_MpHeads`,
-   `g_MpBodies`, `g_BotHeads`, the guard head lists in `body.c`. Same shape
-   as the model states (file ids through names) once
-   [chrs-and-memory.md](chrs-and-memory.md) has been read.
-3. `g_Stages` (44 words), `g_MpArenas` (30), `g_StageTracks` (48): stage
-   blocks already cover some of this by hand; the block could be generated.
+2. ~~The heads and bodies~~ - done, see "Heads, bodies and the model
+   validator" below.
+3. `g_Stages` (44 words) and `g_StageTracks` (48): stage blocks already
+   cover some of this by hand; the block could be generated. (`g_MpArenas`
+   is done - see "The arena list" below.)
 4. The TV screen command lists (`g_TvCmdlist*`, ~600 words): u32 arrays
    with the odd pointer, importable as blobs.
 5. The remaining code changes are then the behaviours GE-X keyed on its new
@@ -216,3 +215,184 @@ Golden Gun at 20 ...), the shotgun having inherited its pump-action flags.
    the definitions imported, `modcodediff`'s constant swaps (`li at,26` ->
    `li at,2`) could be turned into `weapon` blocks mechanically, since the
    port's flag for each stock site is known.
+
+## The mod archive trial (2026-09-04)
+
+`../Perfect Dark mods.zip` holds 34 console mods, 48 xdelta patches between
+them; every one went through `tools/importmod` and then a headless boot of
+every stage whose setup it changed (`--boot-stage N`, `--mpsims 1` for the
+Combat Simulator ones). What that trial changed in the importer:
+
+- **Emptied files are not overrides.** Mods zero the files they do not need -
+  the 408 non-English language files, always - to make room, and the importer
+  was writing each as a 0-byte `files/` entry and counting it as "changed".
+  The port ignores an empty override (`romdataFileLoad()` wants a size above
+  0), so they are now skipped and reported once as "emptied in the mod".
+- **A ROM without a file name table** (GE Gun Name Display, 2009: zeros where
+  the table was) uses the stock ROM's names, since the game never reads the
+  table and the ids still mean the same files. Its second patch ("PD Names")
+  applies on top of the first, so it goes in as `--patched-rom`.
+- **Segments are located by following the mod's code first.** The lib segment
+  (`LIB_OFS` 0x3050) forms the ROM offsets of the audio banks, sequences and
+  copyright in lui/addiu pairs; the game binary forms `texturesdata`, and the
+  `textureslist` start *and* end (texinit.c measures the list between them).
+  Mod tools rewrite those numbers, so `locate_by_code()` reads them back the
+  way the data segment tables are followed. The structural search had taken
+  the file *name* table for the texture table in Mr. X Stalker, Kakariko
+  Village, Spooky Dark and the Mario Characters (ascending offsets, so it
+  looked right), shipping a 2.7 MB "list" that put garbage at every texture
+  index and crashed `texAlignIndices()` at boot. Those mods lay the list at
+  2-byte alignment with junk in the pointer words, which is why the finder
+  now also demands the zero pointer word and why the code is asked first.
+  A code reference that still says the stock offset while the stock bytes are
+  no longer there is a pointer the tool did not update (the Japanese fonts,
+  which the NTSC game never draws) and is ignored.
+- **A segment placed only against a neighbour, somewhere new, without the
+  stock bytes** is parked in `segs.unlocated/` like an assumed one. Suburb,
+  the Mario mods, Facility and Car Park drop the Japanese fonts outright;
+  what sat where adjacency put them was file data.
+- **Stub backgrounds are incompatible files.** A mod that removes a stage
+  leaves a 124-byte primary section in its `bg_*.seg` (Aviation Trilogy's Air
+  Force One, Chicago, Skedar and Attack Ship; the Mario mods' ark/mp7/mp8),
+  and `preprocessBgSection1()` fatals on it ("overflow when trying to
+  preprocess a bg file, size 144 newsize 164"). `check_bg()` sends them to
+  `files.incompatible/`, so the port keeps the stock stage.
+
+And in the port: `setupCreateProps()` dereferenced a hovercar's or chopper's
+prop without checking that `setupCreateObject()` made one. The Weather Mod's
+Temple setup carries a hovercar (its rain emitter, placed by its own code) on a
+pad with no room, so no prop; the port now skips it instead of crashing.
+
+A crash in a headless run does not exit: the crash handler forks a helper and
+waits on it, so `timeout` alone leaves the game hanging. `timeout -k 5` is
+what to run under.
+
+**What the trial found, mod by mod.** The imported directories are in
+`build/mods/` (44 of them, 307 MB; the names are the patch names) and the
+port's Load Mods page lists them. Headless results, `--boot-stage` into each
+stage whose setup the mod changed:
+
+- Boot and run their stages, files loading from the mod: 2X Weapons No
+  Reloads, All Solos in Multi (14 solo stages as arenas), both Weather
+  editions (16 each; the Temple needed the hovercar guard), both Aviation
+  Trilogy editions (15 each once the stub backgrounds were parked), Chicago
+  Restaurant (custom map), G5 Car Park, dataDyne Facility, dataDyne Compound,
+  dataDyne Warehouse Cessation, Deep Sea 2X teleports, G5 Base mission, GE
+  Gun Name Display (both patches), Investigation, Mr. X Stalker (both, 21
+  stages each, his own model `CmrxZ` registered as the mod's), Kakariko
+  Village (7 arenas in the test-stage slots), PD Plus, CSMP/CVMP, Suburb
+  (custom geometry, 36 MB ROM), Dark Corps (audio segments), PD Classics
+  Enabled and PD Real Guns (data segment only: the Combat Simulator list
+  comes through with every feature lock cleared; nobody has yet checked the
+  eight classic guns land in the right slots).
+- **Custom character models crash the port's model preprocessor**, and that
+  is the open class: Mario Characters (both v1.3 patches) dies in
+  `modelInitRwData()` the first time a replaced body is instantiated, in 10
+  of 25 stages, and Spooky Dark's skeleton dies in `convertContent()`
+  (`port/src/preprocess/filemodel.c:587`) the moment a chr fires. Mr. X's
+  model is fine, so it is not "any custom model" - it is a model shape
+  `filemodel.c` does not expect. (Since fixed: the importer's `check_model()`
+  parks such files in `files.incompatible/`, the port's `modelCheck()`
+  refuses instead of crashing, and the tables are imported - "Heads, bodies
+  and the model validator" below.)
+- Not mod problems: booting a Combat Simulator map as a solo mission
+  (Kakariko's seven, `--boot-stage N` without `--mpsims`) crashes in
+  `setupPlaceWeapon()`, and a match on a stage with no arena setup (any
+  solo stage with the stock 64-byte `Ump_setup*`, mod or not - checked
+  against stock Investigation) never finds a spawn and loops until killed.
+  The test stages (0x1a dest, mp6/mp7/mp8) have stub backgrounds in the
+  stock ROM too.
+- Could not apply: the two JPN patches (Facility, Car Park) and both
+  JPN-English patches want the Japanese ROM, which is not here.
+
+**What these mods need next from the loader**, by how many want it:
+
+1. ~~Heads and bodies plus the model validator~~: done, next section but one.
+2. Weather: the Weather Mod's rain and snow are its own code driving a
+   hovercar; the port has a `weather` stage key, which is the translation.
+
+(`g_MpArenas`, which every "solo stages in multi" mod rewrites, was the first
+item here and is done - next section.)
+
+## The arena list (2026-09-04)
+
+`mparenas ADDR COUNT` in the `datasegment` block; `importMpArenas()` in
+`moddata.c` copies the mod's `g_MpArenas` whole, through `mpImportArenas()` in
+`mplayer/setup.c`, and the Combat Simulator's Arena list is then exactly what
+the mod's own game offered. Verified in the menu (Xvfb, driven with xdotool -
+see the memory note on headless driving for the recipe): All Solos lists
+"dataDyne Central ... Chicago ... Attack Ship, Skedar Ruins", and a match
+started from it lands in Defection's offices; Kakariko lists "Noche cerrada,
+Stormy, Bizarre" under its own "Kakariko Village" heading; Chicago Restaurant
+lists the stock seventeen and nothing after "Random".
+
+- **Nearly every mod rewrites the table in place** rather than growing it:
+  All Solos, Weather, Aviation and Deep Sea keep seventeen entries and put
+  solo stage numbers over the sixteen arenas, with the names as text ids into
+  `LoptionsE`'s mission titles (bank 43, which the port always has) - so the
+  "solo stages in multi" family needs no name file of its own. The ones that
+  add arenas move the table (Kakariko: 21 at 0x80089fe0, PD Plus 19, 2X
+  Weapons 18, GE-X 23) and are followed the way `g_MpWeapons` is; their
+  count is the `li v0,17` in `mp_get_num_stages`, read back from the mod's
+  code (`follow_immediate`), with `count_mparenas()` as the fallback.
+- **An entry that does not read as one drops the whole list.** CSMP, CVMP and
+  PD11GE rebuilt `struct mparena` as four bytes (stage and feature a byte
+  each) - the same fields, the wrong stride - and the first entry happens to
+  read plausibly. A list of one arena is a broken menu, so unlike the weapon
+  tables a short read leaves the block without an `mparenas` line and the
+  port keeps its own list. Those three mods therefore still get the static
+  behaviour below.
+- **Without an imported list, any mod dir shows the nineteen all-in-one
+  arenas** (`MP_NUM_MOD_ARENAS_STATIC` in `constants.h`, named from
+  `g_MpArenaModNames`), setups or not, and a match on one with no setup
+  loops looking for a spawn pad. That predates this work; it is what
+  `mod_allinone` relies on, and a hand-built mod dir has no way to say
+  otherwise yet. An imported list replaces those entries and clears the tail,
+  and `mpRegisterArena()` (`--modstages`) then appends after the mod's
+  count - which is why `g_MpModArenaNames` is now indexed by name slot,
+  since the count can sit below the static nineteen.
+- **Names**: `mpGetArenaName()` uses `langGet()` on the entry's text id when
+  the list is imported and the id is nonzero, copying the string to add the
+  newline `textMeasure()` needs when the bank's string lacks one; a
+  registered arena (id 0) still reads `g_MpArenaModNames`. The group
+  headings ("Dark" 0-12, "Classic" 13-15, "Random" 16-) are the port's, as
+  they are the ROM's: All Solos shows Felicity under "Random" on a console
+  too, and Kakariko renamed "Random" to "Kakariko Village" in its `LmpmenuE`.
+- The snapshot for mod swaps covers `g_MpArenas`, the count and the imported
+  flag. `g_MpArenas` is sized in `data.h` now (`MP_NUM_ARENAS_STATIC +
+  MAX_MODSTAGES`) so `mod.c` can take `sizeof` it.
+
+## Heads, bodies and the model validator (2026-09-04)
+
+The datasegment block now carries `headsandbodies`, `mpheads`, `mpbodies`,
+`mpbeauheads`, `botheads`, `mpmaleheads` and `mpfemaleheads`, each located the
+way the weapon tables are (stock address from the datasym, or followed through
+the mod's code when moved) and counted by walking the table until an entry
+stops reading as one. `moddata.c` imports them in that order:
+`importHeadsAndBodies()` copies `g_HeadsAndBodies` index for index with the
+file ids resolved through `segs/data.names`, and the Combat Simulator lists
+(`importMpHeads()`, `importMpBodies()`, `importHeadList()`) are validated entry
+by entry against the table's size and the feature range; a bad entry drops the
+list and the port keeps its own. The counts live in `g_MpListCounts` so the
+menus stop at the mod's count rather than the port's. The swap snapshot covers
+all of it.
+
+- **Model validator.** `check_model()` in `tools/importmod` walks a model file
+  the way `convertModel()` does: the parts and texture config tables, every
+  node breadth first with the rodata size the port has for its type, and each
+  display list to `G_ENDDL` following `G_DL` calls and branches, refusing any
+  pointer outside segment 5 or past the end of the file. Files that fail go
+  to `files.incompatible/`. Spooky Dark's CMP150 fails it (its muzzle flash
+  texture lives in another segment). `modelCheck()` in
+  `port/src/preprocess/filemodel.c` is the same walk in C and fatals with the
+  file name and the reason where `convertContent()` used to segfault.
+- **Two guards in `body.c`.** A body whose model has no headspot gets no head
+  attached (Mario Characters' Yoshi: head built in, "has own head" bit clear,
+  and the player path passes a head modeldef regardless). A body model
+  offered as a head is refused with a warning and the chr goes headless:
+  `modelAttachHead()` would re-parent its root under the body's headspot, and
+  the next chr wearing that model as a body would read another model's rwdata
+  through it. Both come from a mod's table index that the port's code still
+  reads as a stock head number.
+- Every dir in `build/mods/` was re-imported with this; Mario Characters,
+  Spooky Dark and Mr. X carry the block.

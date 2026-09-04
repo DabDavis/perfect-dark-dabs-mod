@@ -1057,10 +1057,198 @@ static void preprocessModelTextures(u8 *base, u8 *textures_end)
 	}
 }
 
+static const char *modelFileName = "?";
+
+void preprocessModelSetName(const char *name)
+{
+	modelFileName = name ? name : "?";
+}
+
+/**
+ * Every pointer populateMarkers() will follow, checked against the file
+ * length first. Stock files never fail this; a model built for a mod's own
+ * code can (Spooky Dark's CMP150 keeps its muzzle flash texture in another
+ * segment), and the alternative is a segfault in convertContent().
+ * tools/importmod's check_model() is the same walk, so such a file should
+ * already be in files.incompatible/.
+ */
+#define MODEL_CHECK(cond, ...) \
+	do { if (!(cond)) { sysFatalError("model file %s is not in the port's format: " __VA_ARGS__); } } while (0)
+
+static u32 modelCheckPtr(u32 ptr, u32 srclen, const char *what)
+{
+	if (ptr == 0) {
+		return 0;
+	}
+	MODEL_CHECK((ptr >> 24) == 0x05, "%s pointer %08x is not in segment 5", modelFileName, what, ptr);
+	MODEL_CHECK((ptr & 0xffffff) < srclen, "%s pointer %08x is past the end of the file (%u bytes)", modelFileName, what, ptr, srclen);
+	return ptr & 0xffffff;
+}
+
+static void modelCheckGdl(u8 *src, u32 srclen, u32 ofs)
+{
+	// to G_ENDDL, following G_DL calls
+	for (int depth = 0; depth < 64;) {
+		MODEL_CHECK(ofs + 8 <= srclen, "display list at %#x runs off the file without G_ENDDL", modelFileName, ofs);
+		u8 op = src[ofs];
+		if (op == (G_ENDDL & 0xff)) {
+			return;
+		}
+		if (op == G_DL) {
+			u32 target = modelCheckPtr(PD_BE32(*(u32 *)&src[ofs + 4]), srclen, "G_DL target");
+			if (src[ofs + 1] == G_DL_NOPUSH) {
+				ofs = target; // branch
+				++depth;
+				continue;
+			}
+			// call: check the callee on its own, then carry on
+			modelCheckGdl(src, srclen, target);
+		}
+		ofs += 8;
+	}
+}
+
+static void modelCheck(u8 *src, u32 srclen)
+{
+	MODEL_CHECK(srclen >= sizeof(struct n64_modeldef), "%u bytes is too short for a model", modelFileName, srclen);
+
+	struct n64_modeldef *def = (struct n64_modeldef *)src;
+	u32 numparts = PD_BE16(def->numparts);
+	u32 numtexconfigs = PD_BE16(def->numtexconfigs);
+	u32 parts = modelCheckPtr(PD_BE32(def->ptr_parts), srclen, "parts");
+	u32 texconfigs = modelCheckPtr(PD_BE32(def->ptr_texconfigs), srclen, "texture configs");
+
+	MODEL_CHECK(numparts <= 512 && numtexconfigs <= 512, "%u parts, %u texture configs", modelFileName, numparts, numtexconfigs);
+	MODEL_CHECK(!parts || parts + numparts * 6 <= srclen, "parts table runs past the end of the file", modelFileName);
+	MODEL_CHECK(!texconfigs || texconfigs + numtexconfigs * sizeof(struct n64_textureconfig) <= srclen,
+			"texture configs run past the end of the file", modelFileName);
+
+	// the node graph, breadth first, the way populateMarkers() queues it
+	static u32 queue[ARRAYCOUNT(contentMarkers)];
+	u32 numqueued = 0;
+
+	#define QUEUE_NODE(ptr, what) do { \
+		u32 _o = modelCheckPtr((ptr), srclen, what); \
+		if (_o) { \
+			bool _seen = false; \
+			for (u32 _k = 0; _k < numqueued; ++_k) { if (queue[_k] == _o) { _seen = true; break; } } \
+			if (!_seen) { \
+				MODEL_CHECK(numqueued < ARRAYCOUNT(queue), "more than %u nodes", modelFileName, (u32)ARRAYCOUNT(queue)); \
+				MODEL_CHECK(_o + sizeof(struct n64_modelnode) <= srclen, "%s node at %#x runs past the end of the file", modelFileName, what, _o); \
+				queue[numqueued++] = _o; \
+			} \
+		} \
+	} while (0)
+
+	QUEUE_NODE(PD_BE32(def->ptr_rootnode), "root");
+	for (u32 i = 0; i < numparts && parts; ++i) {
+		QUEUE_NODE(PD_BE32(*(u32 *)&src[parts + i * 4]), "part");
+	}
+
+	for (u32 q = 0; q < numqueued; ++q) {
+		struct n64_modelnode *node = (struct n64_modelnode *)&src[queue[q]];
+		u32 type = PD_BE16(node->type) & 0xff;
+		u32 rodataptr = PD_BE32(node->ptr_rodata);
+
+		MODEL_CHECK(type < ARRAYCOUNT(nodeTypeToContentType), "node at %#x has type %#x", modelFileName, queue[q], type);
+		MODEL_CHECK(!rodataptr || (int)nodeTypeToContentType[type] != -1, "node at %#x has type %#x with rodata", modelFileName, queue[q], type);
+
+		QUEUE_NODE(PD_BE32(node->ptr_parent), "parent");
+		QUEUE_NODE(PD_BE32(node->ptr_next), "next");
+		QUEUE_NODE(PD_BE32(node->ptr_prev), "prev");
+		QUEUE_NODE(PD_BE32(node->ptr_child), "child");
+
+		u32 r = modelCheckPtr(rodataptr, srclen, "rodata");
+		if (!r) {
+			continue;
+		}
+
+		u32 rodatasize = 0;
+		switch (nodeTypeToContentType[type]) {
+		case CT_RODATA_CHRINFO: rodatasize = sizeof(struct generic_rodata_chrinfo); break;
+		case CT_RODATA_POSITION: rodatasize = sizeof(struct generic_rodata_position); break;
+		case CT_RODATA_GUNDL: rodatasize = sizeof(struct n64_rodata_gundl); break;
+		case CT_RODATA_DISTANCE: rodatasize = sizeof(struct n64_rodata_distance); break;
+		case CT_RODATA_REORDER: rodatasize = sizeof(struct n64_rodata_reorder); break;
+		case CT_RODATA_BBOX: rodatasize = sizeof(struct generic_rodata_bbox); break;
+		case CT_RODATA_CHRGUNFIRE: rodatasize = sizeof(struct n64_rodata_chrgunfire); break;
+		case CT_RODATA_11: rodatasize = sizeof(struct n64_rodata_type11); break;
+		case CT_RODATA_TOGGLE: rodatasize = sizeof(struct n64_rodata_toggle); break;
+		case CT_RODATA_POSITIONHELD: rodatasize = sizeof(struct generic_rodata_positionheld); break;
+		case CT_RODATA_STARGUNFIRE: rodatasize = sizeof(struct n64_rodata_stargunfire); break;
+		case CT_RODATA_HEADSPOT: rodatasize = sizeof(struct generic_rodata_headspot); break;
+		case CT_RODATA_DL: rodatasize = sizeof(struct n64_rodata_dl); break;
+		case CT_RODATA_19: rodatasize = sizeof(u32); break;
+		default: break;
+		}
+		MODEL_CHECK(r + rodatasize <= srclen, "rodata of node at %#x runs past the end of the file", modelFileName, queue[q]);
+
+		switch (nodeTypeToContentType[type]) {
+		case CT_RODATA_GUNDL:
+			{
+				struct n64_rodata_gundl *g = (struct n64_rodata_gundl *)&src[r];
+				u32 o = modelCheckPtr(PD_BE32(g->ptr_opagdl), srclen, "gundl opaque gdl");
+				u32 x = modelCheckPtr(PD_BE32(g->ptr_xlugdl), srclen, "gundl translucent gdl");
+				modelCheckPtr(PD_BE32(g->ptr_vertices), srclen, "gundl vertices");
+				if (o) modelCheckGdl(src, srclen, o);
+				if (x) modelCheckGdl(src, srclen, x);
+				break;
+			}
+		case CT_RODATA_DL:
+			{
+				struct n64_rodata_dl *g = (struct n64_rodata_dl *)&src[r];
+				u32 o = modelCheckPtr(PD_BE32(g->ptr_opagdl), srclen, "dl opaque gdl");
+				u32 x = modelCheckPtr(PD_BE32(g->ptr_xlugdl), srclen, "dl translucent gdl");
+				modelCheckPtr(PD_BE32(g->ptr_colours), srclen, "dl colours");
+				modelCheckPtr(PD_BE32(g->ptr_vertices), srclen, "dl vertices");
+				if (o) modelCheckGdl(src, srclen, o);
+				if (x) modelCheckGdl(src, srclen, x);
+				break;
+			}
+		case CT_RODATA_STARGUNFIRE:
+			{
+				struct n64_rodata_stargunfire *g = (struct n64_rodata_stargunfire *)&src[r];
+				modelCheckPtr(PD_BE32(g->ptr_vertices), srclen, "stargunfire vertices");
+				u32 o = modelCheckPtr(PD_BE32(g->ptr_gdl), srclen, "stargunfire gdl");
+				if (o) modelCheckGdl(src, srclen, o);
+				break;
+			}
+		case CT_RODATA_DISTANCE:
+			QUEUE_NODE(PD_BE32(((struct n64_rodata_distance *)&src[r])->ptr_target), "distance target");
+			break;
+		case CT_RODATA_TOGGLE:
+			QUEUE_NODE(PD_BE32(((struct n64_rodata_toggle *)&src[r])->ptr_target), "toggle target");
+			break;
+		case CT_RODATA_REORDER:
+			QUEUE_NODE(PD_BE32(((struct n64_rodata_reorder *)&src[r])->ptr_node_unk18), "reorder node");
+			QUEUE_NODE(PD_BE32(((struct n64_rodata_reorder *)&src[r])->ptr_node_unk1c), "reorder node");
+			break;
+		case CT_RODATA_CHRGUNFIRE:
+			{
+				u32 t = modelCheckPtr(PD_BE32(((struct n64_rodata_chrgunfire *)&src[r])->ptr_texture), srclen, "chrgunfire texture");
+				MODEL_CHECK(!t || t + sizeof(struct n64_textureconfig) <= srclen, "chrgunfire texture config runs past the end of the file", modelFileName);
+				break;
+			}
+		default:
+			break;
+		}
+	}
+	#undef QUEUE_NODE
+
+	for (u32 i = 0; i < numtexconfigs && texconfigs; ++i) {
+		struct n64_textureconfig *t = (struct n64_textureconfig *)&src[texconfigs + i * sizeof(*t)];
+		u32 ptr = PD_BE32(t->ptr);
+		if ((ptr >> 24) == 0x05) {
+			modelCheckPtr(ptr, srclen, "texture data");
+		}
+	}
+}
+
 static int convertModel(u8* dst, u8* src, u32 srclen)
 {
 	u32 dstpos;
 
+	modelCheck(src, srclen);
 	populateMarkers(src);
 	sortMarkers();
 

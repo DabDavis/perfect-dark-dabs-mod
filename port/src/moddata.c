@@ -38,6 +38,8 @@
 #include "romdata.h"
 #include "mod.h"
 #include "data.h"
+#include "game/stagetable.h"
+#include "game/mplayer/setup.h"
 
 #define GUNCMD_MAX_LEN     512
 #define GUNVISCMD_MAX_LEN  256
@@ -51,6 +53,10 @@
 #define N64_MODELSTATE_SIZE        0x08
 #define N64_MPWEAPON_SIZE          0x0a
 #define N64_MPWEAPONSET_SIZE       0x12
+#define N64_MPARENA_SIZE           0x06
+#define N64_HEADORBODY_SIZE        0x14
+#define N64_MPHEAD_SIZE            0x04
+#define N64_MPBODY_SIZE            0x08
 
 // g_MpFeaturesUnlocked has 80 entries and the game defines features up to
 // MPFEATURE_STAGE_GRID (0x29); the last slot is never set by an unlock
@@ -1097,6 +1103,227 @@ static s32 importMpWeaponSets(const struct moddataspec *spec)
 
 /* ---- entry -------------------------------------------------------------- */
 
+/**
+ * The arena list, whole: stage, unlock feature and name text id per entry, in
+ * the mod's order. Every "solo stages in multi" mod rewrites it, most of them
+ * in place over the sixteen stock arenas with the names taken from LoptionsE's
+ * mission titles; the ones that add arenas move it. An entry that does not
+ * read as one (CSMP rebuilt the struct as four bytes) leaves the whole list
+ * alone - a list half-read is a menu of nonsense.
+ */
+static s32 importMpArenas(const struct moddataspec *spec)
+{
+	struct mparena arenas[ARRAYCOUNT(g_MpArenas)];
+	s32 count = spec->nummparenas;
+
+	if (count > (s32)ARRAYCOUNT(arenas)) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d arenas is more than the port's table holds (%d); the last are dropped",
+				count, (s32)ARRAYCOUNT(arenas));
+		count = ARRAYCOUNT(arenas);
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 at = spec->mparenas + i * N64_MPARENA_SIZE;
+		s16 stagenum = (s16)rd16(at);
+		u8 feature = rd8(at + 2);
+		u16 name = rd16(at + 4);
+
+		// 1 is "Random"; the rest must be stages, in a text bank that exists
+		if (stagenum < 1 || stagenum > STAGE_4MBMENU || feature > 0x7f || name == 0 || (name >> 9) >= 69) {
+			sysLogPrintf(LOG_WARNING, "moddata: what is at %08x is not an arena list (entry %d: stage %x feature %d name %x); the port keeps its own",
+					spec->mparenas, i, stagenum, feature, name);
+			return 0;
+		}
+
+		if (stagenum != 1 && stageGetIndex(stagenum) < 0) {
+			sysLogPrintf(LOG_WARNING, "moddata: arena %d is stage %x, which the port has no stage table entry for", i, stagenum);
+		}
+
+		arenas[i].stagenum = stagenum;
+		arenas[i].requirefeature = feature;
+		arenas[i].name = name;
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: arena %2d: stage 0x%02x feature %d name 0x%04x (bank %d index %d)",
+					i, stagenum, feature, name, name >> 9, name & 0x1ff);
+		}
+	}
+
+	return mpImportArenas(arenas, count);
+}
+
+/**
+ * g_HeadsAndBodies, index for index. A mod's setup files, its Combat Simulator
+ * lists and its bot profiles all name characters by index into this table,
+ * and a mod with its own roster (Mario Characters: 148 of 151 entries) rewrites
+ * the table in place - the same file numbers, but the files at them are now
+ * other characters, some of them bodies where the port has heads. The file
+ * numbers go through the mod's name table like the model states do; the flags
+ * are a MIPS bitfield, allocated from the top of the halfword.
+ */
+static s32 importHeadsAndBodies(const struct moddataspec *spec)
+{
+	s32 count = spec->numheadsandbodies;
+	s32 out = 0;
+
+	// the last entry is the terminator bodyreset.c walks to
+	if (count > (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d heads and bodies is more than the port's table holds (%d); the last are dropped",
+				count, (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1);
+		count = ARRAYCOUNT(g_HeadsAndBodies) - 1;
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 at = spec->headsandbodies + i * N64_HEADORBODY_SIZE;
+		u16 bits = rd16(at);
+		u16 modfile = rd16(at + 2);
+		f32 scale = rdf32(at + 4);
+		f32 animscale = rdf32(at + 8);
+		u16 modhand = rd16(at + 16);
+		struct headorbody *e = &g_HeadsAndBodies[i];
+
+		if (modfile == 0 || !(scale > 0.01f && scale < 100.0f) || !(animscale > 0.01f && animscale < 100.0f)) {
+			sysLogPrintf(LOG_WARNING, "moddata: what is at %08x is not the heads and bodies table (entry %d: file %d scale %g/%g); the port keeps its own from here",
+					spec->headsandbodies, i, modfile, scale, animscale);
+			break;
+		}
+
+		u16 fileid = modFileId(modfile);
+		u16 handfileid = modFileId(modhand);
+		if (!fileid) {
+			sysLogPrintf(LOG_WARNING, "moddata: head/body %d: the mod's file %d has no port file; keeping the port's entry", i, modfile);
+			continue;
+		}
+
+		if (modDataTrace && (e->filenum != fileid || e->handfilenum != handfileid || e->height != ((bits >> 2) & 0xff)
+					|| e->ismale != (bits >> 15) || e->type != ((bits >> 10) & 7))) {
+			sysLogPrintf(LOG_NOTE, "moddata: head/body %3d: file %4d (%s) hand %d male %d type %d height %3d scale %g/%g; port had file %d (%s)",
+					i, fileid, romdataFileGetName(fileid) ? romdataFileGetName(fileid) : "?", handfileid,
+					bits >> 15, (bits >> 10) & 7, (bits >> 2) & 0xff, scale, animscale,
+					e->filenum, romdataFileGetName(e->filenum) ? romdataFileGetName(e->filenum) : "?");
+		}
+
+		e->ismale = bits >> 15;
+		e->unk00_01 = (bits >> 14) & 1;
+		e->canvaryheight = (bits >> 13) & 1;
+		e->type = (bits >> 10) & 7;
+		e->height = (bits >> 2) & 0xff;
+		e->filenum = fileid;
+		e->scale = scale;
+		e->animscale = animscale;
+		e->modeldef = NULL;
+		e->handfilenum = handfileid;
+		++out;
+	}
+
+	return out;
+}
+
+/**
+ * The Combat Simulator's head list: entries of a g_HeadsAndBodies index and an
+ * unlock feature. Fills the port's fixed array and sets the count the getters
+ * use, so a shorter list does not leave the port's tail showing.
+ */
+static s32 importMpHeads(u32 addr, s32 count, struct mphead *dst, s32 room, s32 *outcount, const char *what)
+{
+	if (count > room) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d %s is more than the port holds (%d); the last are dropped", count, what, room);
+		count = room;
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 at = addr + i * N64_MPHEAD_SIZE;
+		s16 headnum = (s16)rd16(at);
+		u8 feature = rd8(at + 2);
+
+		if (headnum < 0 || headnum >= (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1 || feature > 0x7f) {
+			sysLogPrintf(LOG_WARNING, "moddata: what is at %08x is not a %s list (entry %d: head %d feature %d); the port keeps its own",
+					addr, what, i, headnum, feature);
+			return 0;
+		}
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: %s %2d: head %3d (%s) feature %d", what, i, headnum,
+					romdataFileGetName(g_HeadsAndBodies[headnum].filenum) ? romdataFileGetName(g_HeadsAndBodies[headnum].filenum) : "?", feature);
+		}
+
+		dst[i].headnum = headnum;
+		dst[i].requirefeature = feature;
+	}
+
+	*outcount = count;
+	return count;
+}
+
+/**
+ * The Combat Simulator's body list: body index, name text id, the head that
+ * goes with it, unlock feature.
+ */
+static s32 importMpBodies(const struct moddataspec *spec)
+{
+	s32 count = spec->nummpbodies;
+
+	if (count > (s32)ARRAYCOUNT(g_MpBodies)) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d Combat Simulator bodies is more than the port holds (%d); the last are dropped",
+				count, (s32)ARRAYCOUNT(g_MpBodies));
+		count = ARRAYCOUNT(g_MpBodies);
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 at = spec->mpbodies + i * N64_MPBODY_SIZE;
+		s16 bodynum = (s16)rd16(at);
+		s16 name = (s16)rd16(at + 2);
+		s16 headnum = (s16)rd16(at + 4);
+		u8 feature = rd8(at + 6);
+
+		if (bodynum < 0 || bodynum >= (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1
+				|| (headnum != 1000 && (headnum < -1 || headnum >= (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1)) // 1000: the body has its own head
+				|| feature > 0x7f || ((u16)name >> 9) >= 69) {
+			sysLogPrintf(LOG_WARNING, "moddata: what is at %08x is not the Combat Simulator body list (entry %d: body %d head %d name %x); the port keeps its own",
+					spec->mpbodies, i, bodynum, headnum, name);
+			return 0;
+		}
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: mpbody %2d: body %3d (%s) head %3d name 0x%04x feature %d", i, bodynum,
+					romdataFileGetName(g_HeadsAndBodies[bodynum].filenum) ? romdataFileGetName(g_HeadsAndBodies[bodynum].filenum) : "?",
+					headnum, (u16)name, feature);
+		}
+
+		g_MpBodies[i].bodynum = bodynum;
+		g_MpBodies[i].name = name;
+		g_MpBodies[i].headnum = headnum;
+		g_MpBodies[i].requirefeature = feature;
+	}
+
+	g_MpListCounts.bodies = count;
+	return count;
+}
+
+/**
+ * A plain list of indexes: g_BotHeads (into g_MpHeads), g_MpMaleHeads and
+ * g_MpFemaleHeads (into g_HeadsAndBodies).
+ */
+static s32 importHeadList(u32 addr, s32 count, u32 *dst, s32 room, s32 limit, s32 *outcount, const char *what)
+{
+	if (count > room) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d %s is more than the port holds (%d); the last are dropped", count, what, room);
+		count = room;
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 v = rd32(addr + i * 4);
+		if (v >= (u32)limit) {
+			sysLogPrintf(LOG_WARNING, "moddata: what is at %08x is not the %s list (entry %d is %u); the port keeps its own", addr, what, i, v);
+			return 0;
+		}
+		dst[i] = v;
+	}
+
+	*outcount = count;
+	return count;
+}
+
 static bool loadNames(const char *path)
 {
 	u32 len = 0;
@@ -1194,6 +1421,47 @@ s32 modDataImport(const struct moddataspec *spec)
 	if (spec->mpweaponsets && spec->nummpweaponsets > 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d weapon sets from %08x",
 				importMpWeaponSets(spec), spec->mpweaponsets);
+	}
+
+	if (spec->mparenas && spec->nummparenas > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d arenas from %08x",
+				importMpArenas(spec), spec->mparenas);
+	}
+
+	if (spec->headsandbodies && spec->numheadsandbodies > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d heads and bodies from %08x",
+				importHeadsAndBodies(spec), spec->headsandbodies);
+	}
+
+	// the lists index the table, so they come after it
+	if (spec->mpheads && spec->nummpheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d Combat Simulator heads from %08x",
+				importMpHeads(spec->mpheads, spec->nummpheads, g_MpHeads, ARRAYCOUNT(g_MpHeads), &g_MpListCounts.heads, "mphead"), spec->mpheads);
+	}
+
+	if (spec->mpbodies && spec->nummpbodies > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d Combat Simulator bodies from %08x",
+				importMpBodies(spec), spec->mpbodies);
+	}
+
+	if (spec->mpbeauheads && spec->nummpbeauheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d Beau heads from %08x",
+				importMpHeads(spec->mpbeauheads, spec->nummpbeauheads, g_MpBeauHeads, ARRAYCOUNT(g_MpBeauHeads), &g_MpListCounts.beauheads, "beau head"), spec->mpbeauheads);
+	}
+
+	if (spec->botheads && spec->numbotheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d bot heads from %08x",
+				importHeadList(spec->botheads, spec->numbotheads, g_BotHeads, ARRAYCOUNT(g_BotHeads), g_MpListCounts.heads, &g_MpListCounts.botheads, "bot head"), spec->botheads);
+	}
+
+	if (spec->mpmaleheads && spec->nummpmaleheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d male heads from %08x",
+				importHeadList(spec->mpmaleheads, spec->nummpmaleheads, g_MpMaleHeads, ARRAYCOUNT(g_MpMaleHeads), ARRAYCOUNT(g_HeadsAndBodies) - 1, &g_MpListCounts.maleheads, "male head"), spec->mpmaleheads);
+	}
+
+	if (spec->mpfemaleheads && spec->nummpfemaleheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d female heads from %08x",
+				importHeadList(spec->mpfemaleheads, spec->nummpfemaleheads, g_MpFemaleHeads, ARRAYCOUNT(g_MpFemaleHeads), ARRAYCOUNT(g_HeadsAndBodies) - 1, &g_MpListCounts.femaleheads, "female head"), spec->mpfemaleheads);
 	}
 
 	if (seg.badreads || seg.badfiles) {
