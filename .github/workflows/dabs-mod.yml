@@ -13,7 +13,7 @@ on:
     tags: [ "v*" ]
     # Four builds and a new executable offered to every dev-channel player is
     # too much to ask for a change to a file that is not in the download and
-    # not in the binary. Only these two qualify: README.md and LICENSE are
+    # not in the binary. Only these qualify: README.md and LICENSE are
     # copied into every package by the packaging steps below, so a fix to one
     # of those has to be built and published like any other change.
     #
@@ -21,6 +21,7 @@ on:
     # pushes at all, so a v* tag still builds whatever it points at.
     paths-ignore:
       - 'CLAUDE.md'
+      - 'CLAUDE-notes/**'
       - 'DabDavisGitHub.md'
   workflow_dispatch:
 

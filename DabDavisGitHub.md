@@ -101,16 +101,16 @@ it the repository's *Latest*, which is where a visitor who is not looking for a
 dev build lands.
 
 ```sh
-git tag v2.0.4 && git push origin v2.0.4    # cuts the stable release
+git tag v3.1.0 && git push origin v3.1.0    # cuts the stable release
 ```
 
 There is nothing else to do — no release notes to write by hand, no assets to
-upload. Existing tags: `v2.0.3`, `v2.0.2`, `v2.0.1`, `v2.0.0`.
+upload. Existing tags: `v3.1.0`, `v3.0.0`, `v2.0.4`, `v2.0.3`, `v2.0.2`, `v2.0.1`, `v2.0.0`.
 
-**A push that changes only `CLAUDE.md` or `DabDavisGitHub.md` does not build.**
+**A push that changes only `CLAUDE.md`, `CLAUDE-notes/` or `DabDavisGitHub.md` does not build.**
 Four builds and a fresh executable offered to every dev-channel player is too
 much to ask for a file that is neither in the download nor in the binary. The
-`paths-ignore` naming those two is deliberately that short: `README.md` and
+`paths-ignore` naming those is deliberately that short: `README.md` and
 `LICENSE` are copied into every package by the packaging steps, so a fix to one
 of them does have to be built and published like anything else. And it is safe
 for stable releases, because **GitHub does not evaluate path filters for tag
@@ -140,7 +140,7 @@ build   arm64-osx      pd.arm64-osx          <sha256> <bytes>
 
 ## The updater, from the release side
 
-`port/src/update.c`. `CLAUDE.md` covers how the game replaces itself; what
+`port/src/update.c`. `CLAUDE-notes/updater.md` covers how the game replaces itself; what
 matters here is that **the channel is baked in at build time and the two channels
 never mix**.
 
