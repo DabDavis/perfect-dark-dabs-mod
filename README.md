@@ -153,7 +153,7 @@ game's code has nothing the port can carry over, and its folder says that
 too. Neither shows up on the Load Mods page.
 
 A console mod's download may include the hi-res texture pack made for it, as
-an emulator cache file (`..._HIRESTEXTURES.htc`). That is picked up too and
+an emulator cache file (`..._HIRESTEXTURES.htc` or `.dat`). That is picked up too and
 loads with the mod - once **Use Texture Packs** is switched on, in Extended
 Options under Texture Packs (it is off by default; F8 toggles it in play).
 GE-X's is a text pack: its fonts.

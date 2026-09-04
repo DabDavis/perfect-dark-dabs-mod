@@ -237,19 +237,31 @@ and both are worth re-testing on Windows, threads being what they are.
 
 ## Emulator cache files, and matching font glyphs by checksum (2026-09-04)
 
-GE-X ships its text pack as GLideN64's own cache file,
-`1964_HIRES_Files/GoldenEye X_HIRESTEXTURES.htc` (the `.dat` beside it is
-Glide64's older layout with S3TC-compressed images and is not read). The
-`.htc` is one gzip stream: a config word, then a record per texture - the
-64-bit Rice checksum, width, height, the GL format (`0x8058` RGBA8, top bit =
-zlib-compressed), texture format and pixel type, a hires flag, the data length
-and the data. `texpackIndexHtc()` inflates the whole file into memory once,
-indexes every RGBA8 record as if it were a Rice-named file, and hands out a
-pseudo path `htc://<record>` that `texpackLoadImage()` decodes with zlib's
-`uncompress()`. The records are in the pack's own row order, like a Rice PNG,
-so nothing is turned over. `mod.c` copies any `.htc` found beside an imported
-patch into the mod's `textures/`, which the scan reads - behind
-`Mod.LoadTextures`, as everything is.
+GE-X ships its text pack as two plugin cache files, `1964_HIRES_Files/GoldenEye
+X_HIRESTEXTURES.htc` and a `.dat` beside it. Both are one gzip stream: a config
+word, then a record per texture, and the two layouts share nothing but their
+start. **GLideN64's** (the `.htc`): 64-bit Rice checksum, width, height, the
+GL format (`0x8058` RGBA8, top bit = zlib-compressed), texture format and
+pixel type, a hires flag, data length, data. **Glide64's** (the `.dat`, and
+the `.htc` of a pack made with that plugin - the extension does not say):
+checksum, width, height, a 16-bit `GR_TEXFMT` (0x8000 = zlib-compressed),
+smallLodLog2, largeLodLog2, aspectRatioLog2, tiles, untiled width and height,
+hires flag, data length, data - a 47 byte header, and the first attempt read
+the format at the wrong offset, which the layout walk did not catch because
+the field it read instead was small enough to pass. `texpackHtcWalk()` tries
+each layout over the whole file and takes the one that reaches the end with
+sane fields; `texpackIndexHtc()` inflates the file into memory once, indexes
+every record as if it were a Rice-named file, and hands out a pseudo path
+`htc://<record>` that `texpackLoadImage()` decodes: `uncompress()` and, for
+a Glide format, `texpackGlideToRgba()` - ARGB8888/4444/1555, RGB565, the
+intensity and alpha-intensity forms, and DXT1/3/5 through `texpackDxtBlock()`
+(GE-X's `.dat` is all DXT5 glyphs and DXT1 textures, and draws the same as
+the `.htc`). The records are in the pack's own row order, like a Rice PNG, so
+nothing is turned over. A `.dat` with an `.htc` of the same name beside it is
+skipped, the `.htc` being lossless. `mod.c` copies any `.htc`, and any
+`_HIRESTEXTURES.dat`, found beside an imported patch into the mod's
+`textures/`, which the scan reads - behind `Mod.LoadTextures`, as everything
+is.
 
 **The pack is the fonts.** 708 records, 675 of them 256x256; 361 distinct
 texel checksums are glyphs of the five fonts. Two things it took to match them:

@@ -1240,9 +1240,9 @@ static bool modCopyFile(const char *srcFull, const char *dstFull)
 /**
  * A console mod's download may carry the emulator texture pack made for it
  * as the plugin's cache file (GE-X: `1964_HIRES_Files/GoldenEye
- * X_HIRESTEXTURES.htc`). texpack.c reads that file from a mod's textures/,
- * so any found beside the patch, two folders down, is copied there. Returns
- * how many.
+ * X_HIRESTEXTURES.htc`, and a `.dat` in Glide64's older layout beside it).
+ * texpack.c reads those from a mod's textures/, so any found beside the
+ * patch, two folders down, is copied there. Returns how many.
  */
 static s32 modListAdoptTextureCaches(const char *dir, const char *dest, s32 depth)
 {
@@ -1261,7 +1261,10 @@ static s32 modListAdoptTextureCaches(const char *dir, const char *dest, s32 dept
 
 		snprintf(path, sizeof(path), "%s/%s", dir, name);
 
-		if (dot && !strcasecmp(dot, ".htc")) {
+		const u32 namelen = strlen(name);
+		const bool isDatCache = namelen > 19 && !strcasecmp(name + namelen - 19, "_HIRESTEXTURES.dat");
+
+		if (dot && (!strcasecmp(dot, ".htc") || isDatCache)) {
 			char texdir[FS_MAXPATH + 1];
 			char target[FS_MAXPATH + 1];
 			char srcFull[FS_MAXPATH + 1];

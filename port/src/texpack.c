@@ -1209,6 +1209,7 @@ struct texpackhtcentry {
 	u32 datalen;
 	s32 width;
 	s32 height;
+	u32 glidefmt; // 0: GLideN64 RGBA8; else Glide64's GR_TEXFMT, with its GZ bit
 	// For a glyph: the part of the image to hand over. The emulator drew the
 	// 32 by 32 tile the game declares; the port maps a glyph image onto the
 	// 16-wide, height + 2 block it loads (see texpackLoadFontReplacement), so
@@ -1520,21 +1521,109 @@ static void texpackHtcCropGlyph(s32 entry, s32 glyphHeight)
 }
 
 /**
- * Indexes every record of a cache file. GLideN64's record: checksum u64,
- * width s32, height s32, format u32 (a GL internal format, with the top bit
- * meaning the data is zlib-compressed), texture_format u16, pixel_type u16,
- * is_hires_tex u8, data length u32, data. Only RGBA8 records are read: the
- * plugin can also cache S3TC and 16-bit forms, which no pack for this game has
- * used, and Glide64's older .dat layout is another file again.
+ * The records of a cache file, in either layout, or 0 when it is neither.
+ *
+ * GLideN64's record: checksum u64, width s32, height s32, format u32 (a GL
+ * internal format, top bit = zlib-compressed), texture_format u16, pixel_type
+ * u16, is_hires_tex u8, data length u32, data. Glide64's (the .dat GE-X ships
+ * beside its .htc, and the .htc of packs made with that plugin): checksum
+ * u64, width s32, height s32, format u16 (a Glide GR_TEXFMT, 0x8000 =
+ * zlib-compressed), smallLodLog2 s32, largeLodLog2 s32, aspectRatioLog2 s32,
+ * tiles s32, untiled_width s32, untiled_height s32, is_hires_tex u8, data
+ * length u32, data. Both start with a config word. Neither says which it is,
+ * so each layout is tried against the whole file and the one that walks it to
+ * the byte with sane fields is it.
+ */
+struct texpackhtcrecord {
+	u32 crc;
+	u32 palcrc;
+	s32 width;
+	s32 height;
+	u32 glidefmt; // 0: GLideN64 RGBA8; else the GR_TEXFMT, GZ bit kept
+	u32 dataofs;
+	u32 datalen;
+};
+
+static s32 texpackGlideFormatReadable(u32 fmt);
+
+static s32 texpackHtcWalk(const u8 *d, u32 len, s32 glide64, struct texpackhtcrecord *out, s32 max)
+{
+	u32 p = 4;
+	s32 n = 0;
+
+	while (p < len) {
+		struct texpackhtcrecord r;
+		u32 hdr;
+
+		if (glide64) {
+			hdr = 47;
+			if (p + hdr > len) {
+				return 0;
+			}
+			r.glidefmt = texpackReadLE16(d + p + 16);
+			r.datalen = texpackReadLE32(d + p + 43);
+			{
+				const u32 tiles = texpackReadLE32(d + p + 30);
+				const u32 fmt = r.glidefmt & 0x7fff;
+				// hires textures are untiled; the format one Glide knows
+				if (tiles != 0 || fmt > 0x1a || d[p + 42] > 1) {
+					return 0;
+				}
+			}
+		} else {
+			hdr = 29;
+			if (p + hdr > len) {
+				return 0;
+			}
+			r.glidefmt = 0;
+			r.datalen = texpackReadLE32(d + p + 25);
+			{
+				const u32 format = texpackReadLE32(d + p + 16);
+				const u32 texformat = texpackReadLE16(d + p + 20);
+				const u32 pixtype = texpackReadLE16(d + p + 22);
+				// GL_RGBA8 / GL_RGBA / GL_UNSIGNED_BYTE, compressed, is all
+				// that plugin has been seen to write for this game
+				if ((format & 0xffff) != 0x8058 || texformat != 0x1908 || pixtype != 0x1401 || !(format & 0x80000000)
+						|| d[p + 24] > 1) {
+					return 0;
+				}
+			}
+		}
+
+		r.crc = texpackReadLE32(d + p);
+		r.palcrc = texpackReadLE32(d + p + 4);
+		r.width = (s32)texpackReadLE32(d + p + 8);
+		r.height = (s32)texpackReadLE32(d + p + 12);
+		r.dataofs = p + hdr;
+
+		if (r.width <= 0 || r.height <= 0 || r.width > 8192 || r.height > 8192 || r.datalen > len - r.dataofs) {
+			return 0;
+		}
+
+		if (n < max && out) {
+			out[n] = r;
+		}
+		n++;
+		p = r.dataofs + r.datalen;
+	}
+
+	return p == len ? n : 0;
+}
+
+/**
+ * Indexes every record of a cache file: a texture by its checksum through
+ * the same index a Rice file name goes through; a glyph through the font
+ * index, palette records first so an outline image is not taken by the plain
+ * one; the rest kept to be matched when drawn.
  */
 static void texpackIndexHtc(const char *dir, const char *name)
 {
 	char *path = texpackJoin(dir, name);
+	struct texpackhtcrecord *recs;
 	s32 file;
-	const u8 *d;
-	u32 len;
-	u32 p;
-	s32 records = 0, glyphsOutline = 0, glyphsPlain = 0, textures = 0, unplacedHere = 0, skipped = 0;
+	s32 numrecs;
+	s32 glide64 = 0;
+	s32 glyphsOutline = 0, glyphsPlain = 0, textures = 0, unplacedHere = 0, skipped = 0;
 	s32 firstEntry;
 
 	if (!path) {
@@ -1548,92 +1637,66 @@ static void texpackIndexHtc(const char *dir, const char *name)
 		return;
 	}
 
-	d = htcFiles[file].data;
-	len = htcFiles[file].len;
+	numrecs = texpackHtcWalk(htcFiles[file].data, htcFiles[file].len, 0, NULL, 0);
+
+	if (!numrecs) {
+		numrecs = texpackHtcWalk(htcFiles[file].data, htcFiles[file].len, 1, NULL, 0);
+		glide64 = 1;
+	}
+
+	if (!numrecs) {
+		sysLogPrintf(LOG_WARNING, "texpack: %s is not a texture cache in a layout this reads", name);
+		return;
+	}
+
+	recs = malloc(numrecs * sizeof(struct texpackhtcrecord));
+
+	if (!recs) {
+		return;
+	}
+
+	texpackHtcWalk(htcFiles[file].data, htcFiles[file].len, glide64, recs, numrecs);
 	firstEntry = numHtcEntries;
 
-	// the records are parsed once, then placed in two passes: the palette
-	// ones first, so a glyph's outline image is not taken by the plain one
-	for (p = 4; p + 29 <= len; ) {
-		const u32 crc = texpackReadLE32(d + p);
-		const u32 palcrc = texpackReadLE32(d + p + 4);
-		const s32 width = (s32)texpackReadLE32(d + p + 8);
-		const s32 height = (s32)texpackReadLE32(d + p + 12);
-		const u32 format = texpackReadLE32(d + p + 16);
-		const u32 texformat = texpackReadLE16(d + p + 20);
-		const u32 pixtype = texpackReadLE16(d + p + 22);
-		const u32 datalen = texpackReadLE32(d + p + 25);
-		const u32 dataofs = p + 29;
-
-		if (datalen > len - dataofs) {
-			sysLogPrintf(LOG_WARNING, "texpack: %s is cut short at record %d", name, records);
-			break;
-		}
-
-		p = dataofs + datalen;
-		records++;
-
-		// GL_RGBA8 / GL_RGBA / GL_UNSIGNED_BYTE, compressed
-		if ((format & 0xffff) != 0x8058 || texformat != 0x1908 || pixtype != 0x1401 || !(format & 0x80000000)
-				|| width <= 0 || height <= 0 || width > 8192 || height > 8192) {
-			skipped++;
-			continue;
-		}
-
+	for (s32 i = 0; i < numrecs; i++) {
 		if (numHtcEntries == capHtcEntries) {
 			capHtcEntries = capHtcEntries ? capHtcEntries * 2 : 1024;
 			htcEntries = realloc(htcEntries, capHtcEntries * sizeof(struct texpackhtcentry));
 		}
 
 		htcEntries[numHtcEntries].file = file;
-		htcEntries[numHtcEntries].dataofs = dataofs;
-		htcEntries[numHtcEntries].datalen = datalen;
-		htcEntries[numHtcEntries].width = width;
-		htcEntries[numHtcEntries].height = height;
+		htcEntries[numHtcEntries].dataofs = recs[i].dataofs;
+		htcEntries[numHtcEntries].datalen = recs[i].datalen;
+		htcEntries[numHtcEntries].width = recs[i].width;
+		htcEntries[numHtcEntries].height = recs[i].height;
+		htcEntries[numHtcEntries].glidefmt = recs[i].glidefmt;
 		htcEntries[numHtcEntries].cropw = 0;
 		htcEntries[numHtcEntries].croph = 0;
 		numHtcEntries++;
-
-		(void)crc;
-		(void)palcrc;
 	}
 
 	for (s32 pass = 0; pass < 2; pass++) {
-		s32 e = firstEntry;
-
-		for (p = 4; p + 29 <= len && e < numHtcEntries; ) {
-			const u32 crc = texpackReadLE32(d + p);
-			const u32 palcrc = texpackReadLE32(d + p + 4);
-			const u32 format = texpackReadLE32(d + p + 16);
-			const u32 texformat = texpackReadLE16(d + p + 20);
-			const u32 pixtype = texpackReadLE16(d + p + 22);
-			const u32 datalen = texpackReadLE32(d + p + 25);
-			const s32 width = (s32)texpackReadLE32(d + p + 8);
-			const s32 height = (s32)texpackReadLE32(d + p + 12);
+		for (s32 i = 0; i < numrecs; i++) {
+			const struct texpackhtcrecord *r = &recs[i];
+			const s32 entry = firstEntry + i;
 			s32 fonts[16], indexes[16], heights[16], nglyphs;
 			s32 texturenum;
 
-			if (datalen > len - (p + 29)) {
-				break;
-			}
-
-			p = p + 29 + datalen;
-
-			if ((format & 0xffff) != 0x8058 || texformat != 0x1908 || pixtype != 0x1401 || !(format & 0x80000000)
-					|| width <= 0 || height <= 0 || width > 8192 || height > 8192) {
-				continue; // not indexed above either
-			}
-
-			const s32 entry = e++;
-
-			if ((pass == 0) != (palcrc != 0)) {
+			if ((pass == 0) != (r->palcrc != 0)) {
 				continue;
 			}
 
-			if (palcrc) {
+			if (r->glidefmt && !texpackGlideFormatReadable(r->glidefmt)) {
+				if (pass == 1) {
+					skipped++;
+				}
+				continue;
+			}
+
+			if (r->palcrc) {
 				// a CI texture through a palette: for this game's fonts,
 				// the outline pass
-				nglyphs = texpackGlyphMatches(crc, palcrc, fonts, indexes, heights, 16);
+				nglyphs = texpackGlyphMatches(r->crc, r->palcrc, fonts, indexes, heights, 16);
 
 				if (nglyphs) {
 					texpackHtcCropGlyph(entry, heights[0]);
@@ -1649,12 +1712,12 @@ static void texpackIndexHtc(const char *dir, const char *name)
 
 				if (!nglyphs) {
 					unplacedHere++;
-					texpackAddUnplaced(crc, texpackHtcPath(entry));
+					texpackAddUnplaced(r->crc, texpackHtcPath(entry));
 				}
 				continue;
 			}
 
-			texturenum = texpackRiceLookup(crc);
+			texturenum = texpackRiceLookup(r->crc);
 
 			if (texturenum >= 0) {
 				if (!replacePaths[texturenum]) {
@@ -1668,13 +1731,13 @@ static void texpackIndexHtc(const char *dir, const char *name)
 				continue;
 			}
 
-			nglyphs = texpackGlyphMatches(crc, 0, fonts, indexes, heights, 16);
+			nglyphs = texpackGlyphMatches(r->crc, 0, fonts, indexes, heights, 16);
 
 			if (nglyphs) {
-				texpackHtcCropGlyph(entry, heights[0]);
-
 				// the plain pass; and the outline pass too where the pack
 				// had no image for it, as the plugin falls back
+				texpackHtcCropGlyph(entry, heights[0]);
+
 				for (s32 g = 0; g < nglyphs; g++) {
 					const s32 font = fonts[g];
 					const s32 index = indexes[g];
@@ -1695,12 +1758,235 @@ static void texpackIndexHtc(const char *dir, const char *name)
 			}
 
 			unplacedHere++;
-			texpackAddUnplaced(crc, texpackHtcPath(entry));
+			texpackAddUnplaced(r->crc, texpackHtcPath(entry));
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "texpack: %s: %d records - %d textures, %d glyphs plus %d outlines, %d matched when drawn, %d in a format not read",
-			name, records, textures, glyphsPlain, glyphsOutline, unplacedHere, skipped);
+	free(recs);
+
+	sysLogPrintf(LOG_NOTE, "texpack: %s (%s layout): %d records - %d textures, %d glyphs plus %d outlines, %d matched when drawn, %d in a format not read",
+			name, glide64 ? "Glide64" : "GLideN64", numrecs, textures, glyphsPlain, glyphsOutline, unplacedHere, skipped);
+}
+
+/* -- Glide pixel formats --------------------------------------------------- */
+
+// The GR_TEXFMT values a cache has been seen to hold, converted to RGBA8
+#define GR_TEXFMT_INTENSITY_8         0x03
+#define GR_TEXFMT_ALPHA_INTENSITY_44  0x04
+#define GR_TEXFMT_RGB_565             0x0a
+#define GR_TEXFMT_ARGB_1555           0x0b
+#define GR_TEXFMT_ARGB_4444           0x0c
+#define GR_TEXFMT_ALPHA_INTENSITY_88  0x0d
+#define GR_TEXFMT_ARGB_8888           0x12
+#define GR_TEXFMT_ARGB_CMP_DXT1       0x16
+#define GR_TEXFMT_ARGB_CMP_DXT3       0x18
+#define GR_TEXFMT_ARGB_CMP_DXT5       0x1a
+#define GR_TEXFMT_GZ                  0x8000
+
+static s32 texpackGlideFormatReadable(u32 fmt)
+{
+	switch (fmt & 0x7fff) {
+	case GR_TEXFMT_INTENSITY_8:
+	case GR_TEXFMT_ALPHA_INTENSITY_44:
+	case GR_TEXFMT_RGB_565:
+	case GR_TEXFMT_ARGB_1555:
+	case GR_TEXFMT_ARGB_4444:
+	case GR_TEXFMT_ALPHA_INTENSITY_88:
+	case GR_TEXFMT_ARGB_8888:
+	case GR_TEXFMT_ARGB_CMP_DXT1:
+	case GR_TEXFMT_ARGB_CMP_DXT3:
+	case GR_TEXFMT_ARGB_CMP_DXT5:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+// Bytes a width by height image takes in this format
+static u32 texpackGlideFormatSize(u32 fmt, s32 width, s32 height)
+{
+	const u32 bw = (u32)(width + 3) / 4;
+	const u32 bh = (u32)(height + 3) / 4;
+
+	switch (fmt & 0x7fff) {
+	case GR_TEXFMT_INTENSITY_8:
+	case GR_TEXFMT_ALPHA_INTENSITY_44:
+		return (u32)width * height;
+	case GR_TEXFMT_RGB_565:
+	case GR_TEXFMT_ARGB_1555:
+	case GR_TEXFMT_ARGB_4444:
+	case GR_TEXFMT_ALPHA_INTENSITY_88:
+		return (u32)width * height * 2;
+	case GR_TEXFMT_ARGB_8888:
+		return (u32)width * height * 4;
+	case GR_TEXFMT_ARGB_CMP_DXT1:
+		return bw * bh * 8;
+	case GR_TEXFMT_ARGB_CMP_DXT3:
+	case GR_TEXFMT_ARGB_CMP_DXT5:
+		return bw * bh * 16;
+	default:
+		return 0;
+	}
+}
+
+static void texpackRgb565(u32 c, u8 *rgb)
+{
+	rgb[0] = (u8)(((c >> 11) & 0x1f) * 255 / 31);
+	rgb[1] = (u8)(((c >> 5) & 0x3f) * 255 / 63);
+	rgb[2] = (u8)((c & 0x1f) * 255 / 31);
+}
+
+/**
+ * One S3TC block into a 4x4 of RGBA8 at dst, rows stride bytes apart.
+ * The colour half is shared by every DXT: two 565 endpoints and 2-bit
+ * indexes; DXT1 with c0 <= c1 has three colours and a transparent fourth.
+ */
+static void texpackDxtBlock(const u8 *block, u32 fmt, u8 *dst, u32 stride, s32 w, s32 h)
+{
+	const u8 *cb = (fmt == GR_TEXFMT_ARGB_CMP_DXT1) ? block : block + 8;
+	const u32 c0 = texpackReadLE16(cb);
+	const u32 c1 = texpackReadLE16(cb + 2);
+	const u32 idx = texpackReadLE32(cb + 4);
+	u8 colours[4][4];
+	u8 alpha[16];
+
+	texpackRgb565(c0, colours[0]);
+	texpackRgb565(c1, colours[1]);
+	colours[0][3] = colours[1][3] = colours[2][3] = colours[3][3] = 255;
+
+	if (fmt != GR_TEXFMT_ARGB_CMP_DXT1 || c0 > c1) {
+		for (s32 k = 0; k < 3; k++) {
+			colours[2][k] = (u8)((2 * colours[0][k] + colours[1][k]) / 3);
+			colours[3][k] = (u8)((colours[0][k] + 2 * colours[1][k]) / 3);
+		}
+	} else {
+		for (s32 k = 0; k < 3; k++) {
+			colours[2][k] = (u8)((colours[0][k] + colours[1][k]) / 2);
+			colours[3][k] = 0;
+		}
+		colours[3][3] = 0;
+	}
+
+	for (s32 i = 0; i < 16; i++) {
+		alpha[i] = 255;
+	}
+
+	if (fmt == GR_TEXFMT_ARGB_CMP_DXT3) {
+		for (s32 i = 0; i < 16; i++) {
+			const u32 a = (block[i / 2] >> ((i & 1) * 4)) & 0xf;
+			alpha[i] = (u8)(a * 17);
+		}
+	} else if (fmt == GR_TEXFMT_ARGB_CMP_DXT5) {
+		const u32 a0 = block[0];
+		const u32 a1 = block[1];
+		u8 table[8];
+		u64 bits = 0;
+
+		table[0] = (u8)a0;
+		table[1] = (u8)a1;
+
+		if (a0 > a1) {
+			for (s32 k = 1; k < 7; k++) {
+				table[k + 1] = (u8)(((7 - k) * a0 + k * a1) / 7);
+			}
+		} else {
+			for (s32 k = 1; k < 5; k++) {
+				table[k + 1] = (u8)(((5 - k) * a0 + k * a1) / 5);
+			}
+			table[6] = 0;
+			table[7] = 255;
+		}
+
+		for (s32 k = 5; k >= 0; k--) {
+			bits = (bits << 8) | block[2 + k];
+		}
+
+		for (s32 i = 0; i < 16; i++) {
+			alpha[i] = table[(bits >> (i * 3)) & 7];
+		}
+	}
+
+	for (s32 y = 0; y < 4 && y < h; y++) {
+		for (s32 x = 0; x < 4 && x < w; x++) {
+			const s32 i = y * 4 + x;
+			const u8 *c = colours[(idx >> (i * 2)) & 3];
+			u8 *o = dst + y * stride + x * 4;
+
+			o[0] = c[0];
+			o[1] = c[1];
+			o[2] = c[2];
+			o[3] = (fmt == GR_TEXFMT_ARGB_CMP_DXT1) ? c[3] : alpha[i];
+		}
+	}
+}
+
+// A Glide image to RGBA8. Little-endian words, as the plugin held them.
+static u8 *texpackGlideToRgba(const u8 *src, u32 fmt, s32 width, s32 height)
+{
+	const u32 f = fmt & 0x7fff;
+	u8 *rgba = malloc((size_t)width * height * 4);
+	const u32 stride = (u32)width * 4;
+
+	if (!rgba) {
+		return NULL;
+	}
+
+	if (f == GR_TEXFMT_ARGB_CMP_DXT1 || f == GR_TEXFMT_ARGB_CMP_DXT3 || f == GR_TEXFMT_ARGB_CMP_DXT5) {
+		const u32 bw = (u32)(width + 3) / 4;
+		const u32 bh = (u32)(height + 3) / 4;
+		const u32 blocksize = f == GR_TEXFMT_ARGB_CMP_DXT1 ? 8 : 16;
+
+		for (u32 by = 0; by < bh; by++) {
+			for (u32 bx = 0; bx < bw; bx++) {
+				texpackDxtBlock(src + (by * bw + bx) * blocksize, f,
+						rgba + by * 4 * stride + bx * 16, stride,
+						width - (s32)bx * 4, height - (s32)by * 4);
+			}
+		}
+
+		return rgba;
+	}
+
+	for (s32 i = 0; i < width * height; i++) {
+		u8 *o = rgba + (size_t)i * 4;
+		u32 c;
+
+		switch (f) {
+		case GR_TEXFMT_ARGB_8888:
+			c = texpackReadLE32(src + i * 4);
+			o[0] = (u8)(c >> 16); o[1] = (u8)(c >> 8); o[2] = (u8)c; o[3] = (u8)(c >> 24);
+			break;
+		case GR_TEXFMT_ARGB_4444:
+			c = texpackReadLE16(src + i * 2);
+			o[0] = (u8)(((c >> 8) & 0xf) * 17); o[1] = (u8)(((c >> 4) & 0xf) * 17);
+			o[2] = (u8)((c & 0xf) * 17); o[3] = (u8)((c >> 12) * 17);
+			break;
+		case GR_TEXFMT_ARGB_1555:
+			c = texpackReadLE16(src + i * 2);
+			o[0] = (u8)(((c >> 10) & 0x1f) * 255 / 31); o[1] = (u8)(((c >> 5) & 0x1f) * 255 / 31);
+			o[2] = (u8)((c & 0x1f) * 255 / 31); o[3] = (c & 0x8000) ? 255 : 0;
+			break;
+		case GR_TEXFMT_RGB_565:
+			c = texpackReadLE16(src + i * 2);
+			texpackRgb565(c, o);
+			o[3] = 255;
+			break;
+		case GR_TEXFMT_ALPHA_INTENSITY_88:
+			o[0] = o[1] = o[2] = src[i * 2];
+			o[3] = src[i * 2 + 1];
+			break;
+		case GR_TEXFMT_ALPHA_INTENSITY_44:
+			o[0] = o[1] = o[2] = (u8)((src[i] & 0xf) * 17);
+			o[3] = (u8)((src[i] >> 4) * 17);
+			break;
+		case GR_TEXFMT_INTENSITY_8:
+		default:
+			o[0] = o[1] = o[2] = o[3] = src[i];
+			break;
+		}
+	}
+
+	return rgba;
 }
 
 // Decodes one record: the image, RGBA8, in the row order the pack was drawn in
@@ -1708,6 +1994,7 @@ static u8 *texpackHtcLoad(s32 entry, s32 *outWidth, s32 *outHeight)
 {
 	const struct texpackhtcentry *e;
 	uLongf outlen;
+	u8 *raw;
 	u8 *rgba;
 
 	if (entry < 0 || entry >= numHtcEntries) {
@@ -1715,18 +2002,45 @@ static u8 *texpackHtcLoad(s32 entry, s32 *outWidth, s32 *outHeight)
 	}
 
 	e = &htcEntries[entry];
-	outlen = (uLongf)e->width * e->height * 4;
-	rgba = malloc(outlen);
+	outlen = e->glidefmt ? texpackGlideFormatSize(e->glidefmt, e->width, e->height) : (uLongf)e->width * e->height * 4;
 
-	if (!rgba) {
+	if (!outlen) {
 		return NULL;
 	}
 
-	if (uncompress(rgba, &outlen, htcFiles[e->file].data + e->dataofs, e->datalen) != Z_OK
-			|| outlen != (uLongf)e->width * e->height * 4) {
-		sysLogPrintf(LOG_WARNING, "texpack: cache record %d (%dx%d) did not inflate", entry, e->width, e->height);
-		free(rgba);
-		return NULL;
+	if (e->glidefmt && !(e->glidefmt & GR_TEXFMT_GZ)) {
+		// stored raw
+		if (e->datalen < outlen) {
+			return NULL;
+		}
+		raw = malloc(outlen);
+		if (!raw) {
+			return NULL;
+		}
+		memcpy(raw, htcFiles[e->file].data + e->dataofs, outlen);
+	} else {
+		const uLongf want = outlen;
+		raw = malloc(outlen);
+
+		if (!raw) {
+			return NULL;
+		}
+
+		if (uncompress(raw, &outlen, htcFiles[e->file].data + e->dataofs, e->datalen) != Z_OK || outlen != want) {
+			sysLogPrintf(LOG_WARNING, "texpack: cache record %d (%dx%d) did not inflate", entry, e->width, e->height);
+			free(raw);
+			return NULL;
+		}
+	}
+
+	if (e->glidefmt) {
+		rgba = texpackGlideToRgba(raw, e->glidefmt, e->width, e->height);
+		free(raw);
+		if (!rgba) {
+			return NULL;
+		}
+	} else {
+		rgba = raw;
 	}
 
 	if (e->cropw && e->croph && e->cropw <= e->width && e->croph <= e->height) {
@@ -1767,7 +2081,16 @@ static void texpackIndexFile(const char *name, void *arg)
 		// an emulator's texture cache file, records indexed one by one
 		const char *dot = strrchr(name, '.');
 
-		if (dot && !strcasecmp(dot, ".htc")) {
+		if (dot && (!strcasecmp(dot, ".htc") || !strcasecmp(dot, ".dat"))) {
+			if (!strcasecmp(dot, ".dat")) {
+				// GE-X ships both: the .htc is the lossless one, so a .dat
+				// with an .htc of the same name beside it is left alone
+				char sibling[FS_MAXPATH + 1];
+				snprintf(sibling, sizeof(sibling), "%s/%.*s.htc", dir, (int)(dot - name), name);
+				if (fsFileSize(sibling) >= 0) {
+					return;
+				}
+			}
 			texpackIndexHtc(dir, name);
 			return;
 		}
