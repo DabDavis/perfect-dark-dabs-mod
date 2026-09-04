@@ -43,18 +43,45 @@ config and the page says so — the All in One launcher passes several, and a
 stored choice quietly displacing them would be a bug nobody could see. The list
 holds 64 (`MOD_MAX_MODS`); the archive trial's 44 overflowed the old 32.
 
-**An archive in those places is unpacked** (2026-09-04): `modListRefresh()`
-first unpacks any `.zip`, `.7z` or `.pk3` in `mods/`, and any `mod*.zip` beside
-the executable, into a directory of the archive's name through `archiveExtract()`
-(the texture packs' reader in `archive.c`), then scans as before. An archive that
-wrapped its directory in one folder is hoisted (`fsRename()` of the inner folder
-over the outer one), so both ways of zipping a mod dir land the same. The archive
-stays where it was and is skipped from then on because the directory exists;
-deleting the directory unpacks it again. A zip of something that is not a mod
-directory - a raw console patch, say - unpacks and is logged as needing
-`tools/importmod`; a broken archive leaves nothing and is logged each boot. This
-runs at boot too (`modListApplySelection()`), so a zip dropped in before starting
-the game is on the page at first sight.
+**An archive in those places is unpacked, and a console patch is imported**
+(2026-09-04): `modListPrepareDir()` in `mod.c` runs before each scan. It unpacks
+any `.zip`, `.7z` or `.pk3` in `mods/` (and any `mod*.zip` beside the
+executable) into a directory of the archive's name through `archiveExtract()`,
+the texture packs' reader in `archive.c`, hoisting a mod that was zipped one
+folder deep (`fsRename()` of the inner folder over the outer). Then any
+`.xdelta`, `.bps` or `.ips` it finds - at the top, or inside an unpacked folder
+that is not itself a mod, three levels down, nested archives unpacked on the
+way - goes through `modImportPatch()` into `mods/<patch name>/`, which is then
+an ordinary mod directory. So GE-X's own download zip (patch, readmes, an
+emulator texture pack) and the whole 34-mod archive both drop in as one file.
+Everything is done once: an archive is skipped while its directory exists, a
+patch while its directory holds an `IMPORT.txt` (written on failure too, so a
+patch for another ROM is not retried every boot). Deleting the directory has it
+done again. This runs at boot as well (`modListApplySelection()`), before
+`romdataInit()`, so the importer loads the stock ROM itself.
+
+**The in-game importer is `port/src/modimport.c`**, a port of `tools/importmod`
+step for step, with `port/src/rompatch.c` decoding the patch: VCDIFF for
+xdelta (RFC 3284 plus xdelta3's app header and per-window adler32; no patch in
+the archive uses secondary compression or a custom code table, and those are
+refused by name), BPS and IPS. Verified against xdelta3 on every patch in the
+archive (40 applicable ones byte-identical; the other five need the Japanese
+ROM or stack on another patch) and against the Python tool on GE-X (files,
+segs, incompatible, unlocated and the modconfig block all identical). The
+data symbol table it needs (`g_Weapons` and friends with their sizes, the five
+`mp_get_num_*` function ranges) is embedded for ntsc-final only; another build
+gets the segment without the block, as the tool does without a datasym. The
+port's declared segment table comes from `romdataGetSegmentInfo()`, which
+reads a copy taken before `romdataInitSegment()` rewrites the live one.
+**Keep the two importers in step**: the Python one runs where there is no
+game, and its `IMPORT.txt` is what the game's gets compared against.
+
+Two things to know about the import. xdelta3 declares a window's source
+segment by its window size and lets it run past the end of the file (Mario
+Characters' Peach), so the decoder keeps the declared length for address
+arithmetic and bounds reads by what exists. And 45 patches at once take a
+couple of minutes at boot with nothing on screen but the log; a single mod is
+two or three seconds.
 
 `tools/importmod` builds a mod directory out of a console mod's xdelta, and
 `tools/modcodediff` shows what that mod changed in the ROM's code.

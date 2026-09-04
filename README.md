@@ -114,12 +114,18 @@ Screenshots need nothing extra.
 The port can mount mod directories, and this fork extends that to stages,
 Combat Simulator arenas, weapons and characters a mod supplies.
 
-**Plug and play:** make a `mods` folder next to the game and drop the mod in,
-as a folder or as the `.zip` it came as. Start the game, open Options, Extended
-Options, Load Mods, and pick it. A mod with its own segments asks for a restart
-and comes back loaded. The choice is remembered between runs. A zip is unpacked
-once, on first sight, into a folder of the same name; delete the folder to have
-it unpacked again.
+**Plug and play:** make a `mods` folder next to the game and drop the mod in -
+as a folder, as the `.zip` it came as, or as the console mod's own download
+with its `.xdelta`, `.bps` or `.ips` patch inside. Start the game, open Options,
+Extended Options, Load Mods, and pick it. A mod with its own segments asks for
+a restart and comes back loaded. The choice is remembered between runs.
+
+A zip is unpacked once, on first sight, into a folder of the same name, and a
+console patch is converted once into a folder named after it, with an
+`IMPORT.txt` inside saying what came across and what the port cannot use.
+Delete the folder to have either done again. A patch made against a different
+ROM is refused and says so in that file. The first start after dropping a whole
+collection of mods in takes a while, a few seconds per patch.
 
 Or pass one or more on the command line, which wins over the menu choice:
 
@@ -128,9 +134,8 @@ pd.x86_64 --moddir mod_allinone
 ```
 
 The directory is looked for next to the executable and in your home data
-directory. Console mods (ROM patches) are not loaded directly: convert one with
-`tools/importmod` first, and it produces a mod folder for the above.
-Nothing is bundled here — the **All in One Mod** and similar packs
+directory. `tools/importmod` does the same conversion of a console patch
+outside the game, for a machine without it. Nothing is bundled here — the **All in One Mod** and similar packs
 are other people's work, and you should get them from their authors. The command
 line flags that mod's own launcher uses (`--gexmoddir` and friends) are accepted
 as aliases so its scripts work unchanged.

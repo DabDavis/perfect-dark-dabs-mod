@@ -7,6 +7,9 @@
 #include "config.h"
 #include "fs.h"
 #include "archive.h"
+#include "rompatch.h"
+#include "modimport.h"
+#include <sys/stat.h>
 #include "utils.h"
 #include "romdata.h"
 #include "modloader.h"
@@ -963,7 +966,8 @@ s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim)
  */
 
 #define MOD_MODS_DIR "mods"
-#define MOD_MAX_MODS 64
+#define MOD_IMPORT_REPORT "IMPORT.txt"
+#define MOD_MAX_MODS 128
 #define MOD_NAME_LEN 64
 
 struct modlistentry {
@@ -1047,44 +1051,69 @@ static void modListScanLooseEntry(const char *name, void *arg)
 }
 
 /**
- * Archives dropped where mod directories go.
+ * Archives and console patches dropped where mod directories go.
  *
- * A mod passed around is a zip of its directory, and asking the player to
- * unpack it by hand is the one step that goes wrong - into the wrong folder,
- * or one folder too deep. So an archive found in mods/ (or a mod*.zip beside
- * the executable) is unpacked into a directory of the same name the first time
- * the list is read, and that directory is what gets listed. The archive stays
- * where it was and is skipped from then on because its directory exists; a
- * player who wants it unpacked again deletes the directory.
+ * A mod passed around is a zip of its directory, or - for a console mod - a
+ * zip holding the ROM patch and a readme, or a whole collection of those. The
+ * one step that goes wrong is asking the player to unpack and convert by hand,
+ * so the list does it: an archive found in mods/ (or a mod*.zip beside the
+ * executable) is unpacked into a directory of its name; a patch found there,
+ * or in a folder that was unpacked and is not itself a mod, is imported by
+ * modImportPatch() into mods/<patch name>/, which is then an ordinary mod
+ * directory. Nested archives are unpacked too, a few levels down, so a
+ * collection of mods drops in as one file.
  *
- * The names are collected during the scan and unpacked after it, since writing
- * into a directory while it is being read is undefined on some filesystems.
+ * Everything is done once: an archive is skipped while its directory exists,
+ * a patch while its directory has an IMPORT.txt. Deleting the directory has it
+ * done again.
+ *
+ * Names are collected before anything is written, since writing into a
+ * directory while it is being read is undefined on some filesystems.
  */
-struct modarchivescan {
-	const char *dir;
-	bool loose;
+#define MOD_ENTRY_LEN 256
+#define MOD_UNPACK_DEPTH 4
+
+struct modnamelist {
+	char (*names)[MOD_ENTRY_LEN];
 	s32 count;
-	char names[MOD_MAX_MODS][MOD_NAME_LEN];
+	s32 cap;
 };
 
-static void modListScanArchiveEntry(const char *name, void *arg)
+static void modNameListAdd(const char *name, void *arg)
 {
-	struct modarchivescan *scan = (struct modarchivescan *)arg;
+	struct modnamelist *list = (struct modnamelist *)arg;
 
-	if (scan->count >= (s32)ARRAYCOUNT(scan->names) || !archiveIsSupported(name)) {
+	if (strlen(name) >= MOD_ENTRY_LEN) {
 		return;
 	}
 
-	if (scan->loose && strncasecmp(name, "mod", 3)) {
-		return;
+	if (list->count == list->cap) {
+		list->cap = list->cap ? list->cap * 2 : 32;
+		list->names = realloc(list->names, list->cap * MOD_ENTRY_LEN);
 	}
 
-	if (strlen(name) >= MOD_NAME_LEN) {
-		sysLogPrintf(LOG_WARNING, "mod: the name of %s/%s is too long to unpack", scan->dir, name);
-		return;
-	}
+	snprintf(list->names[list->count++], MOD_ENTRY_LEN, "%s", name);
+}
 
-	snprintf(scan->names[scan->count++], MOD_NAME_LEN, "%s", name);
+static s32 modNameListCollect(const char *dir, struct modnamelist *list)
+{
+	list->count = 0;
+	return fsScanDir(dir, modNameListAdd, list);
+}
+
+static bool modPathIsDir(const char *path)
+{
+	struct stat st;
+	return stat(fsFullPath(path), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+// The name without its extension, cut to what a mod name may be
+static void modStemName(const char *name, char *dst, u32 dstlen)
+{
+	const char *dot = strrchr(name, '.');
+	const u32 n = dot && dot != name ? (u32)(dot - name) : (u32)strlen(name);
+
+	snprintf(dst, dstlen, "%.*s", (int)(n < dstlen - 1 ? n : dstlen - 1), name);
 }
 
 /**
@@ -1093,7 +1122,7 @@ static void modListScanArchiveEntry(const char *name, void *arg)
  */
 struct modsoleentry {
 	s32 count;
-	char name[MOD_NAME_LEN];
+	char name[MOD_ENTRY_LEN];
 };
 
 static void modListSoleEntry(const char *name, void *arg)
@@ -1104,25 +1133,28 @@ static void modListSoleEntry(const char *name, void *arg)
 	snprintf(sole->name, sizeof(sole->name), "%s", name);
 }
 
-static void modListUnpackOne(const char *dir, const char *name)
+/**
+ * Unpacks dir/name into dir/<stem>, unless that exists. Returns true when the
+ * directory is there afterwards, unpacked now or earlier.
+ */
+static bool modListUnpackOne(const char *dir, const char *name)
 {
 	char archive[FS_MAXPATH + 1];
 	char dest[FS_MAXPATH + 1];
 	char destName[MOD_NAME_LEN];
-	const char *dot = strrchr(name, '.');
 	s32 count;
 
-	snprintf(destName, sizeof(destName), "%.*s", dot ? (int)(dot - name) : (int)strlen(name), name);
+	modStemName(name, destName, sizeof(destName));
 
 	if (!destName[0]) {
-		return;
+		return false;
 	}
 
 	snprintf(dest, sizeof(dest), "%s/%s", dir, destName);
 
 	if (fsFileSize(dest) >= 0) {
 		// already unpacked (or a directory of that name was there first)
-		return;
+		return true;
 	}
 
 	snprintf(archive, sizeof(archive), "%s/%s", dir, name);
@@ -1142,11 +1174,13 @@ static void modListUnpackOne(const char *dir, const char *name)
 	if (count <= 0) {
 		sysLogPrintf(LOG_ERROR, "mod: nothing came out of %s", name);
 		fsRemoveDir(dest); // only goes if it is empty, so a partial unpack stays for a look
-		return;
+		return false;
 	}
 
 	// An archive made of the directory rather than its contents lands one
-	// folder deep. Hoist that folder up so the mod is where the list looks.
+	// folder deep. Hoist that folder up so the mod is where the list looks -
+	// and a collection's wrapper folder too, so its own archives are one
+	// level nearer the top.
 	if (!modListLooksLikeMod(dest)) {
 		struct modsoleentry sole = { 0, "" };
 		char inner[FS_MAXPATH + 1];
@@ -1154,7 +1188,7 @@ static void modListUnpackOne(const char *dir, const char *name)
 		fsScanDir(dest, modListSoleEntry, &sole);
 		snprintf(inner, sizeof(inner), "%s/%s", dest, sole.name);
 
-		if (sole.count == 1 && modListLooksLikeMod(inner)) {
+		if (sole.count == 1 && modPathIsDir(inner)) {
 			char tmp[FS_MAXPATH + 1];
 
 			snprintf(tmp, sizeof(tmp), "%s/%s.unpacking", dir, destName);
@@ -1167,29 +1201,112 @@ static void modListUnpackOne(const char *dir, const char *name)
 		}
 	}
 
-	if (modListLooksLikeMod(dest)) {
-		sysLogPrintf(LOG_NOTE, "mod: unpacked %d files from %s", count, name);
-	} else {
-		sysLogPrintf(LOG_WARNING, "mod: %s unpacked %d files but is not a mod directory: no files/, segs/, textures/ or "
-				MOD_CONFIG_FNAME " inside. A console ROM patch needs tools/importmod first.", name, count);
-	}
+	sysLogPrintf(LOG_NOTE, "mod: unpacked %d files from %s", count, name);
+
+	return true;
 }
 
-static void modListUnpackArchives(const char *dir, bool loose)
+/**
+ * Imports the console patch at patchPath into container/<stem>, the stem
+ * prefixed with "mod_" beside the executable so the loose scan sees it. Done
+ * once: an IMPORT.txt in the directory, or a mod already there, means so.
+ */
+static void modListImportPatch(const char *container, bool loose, const char *patchPath, const char *name)
 {
-	struct modarchivescan scan;
+	char stem[MOD_NAME_LEN];
+	char destName[MOD_NAME_LEN];
+	char dest[FS_MAXPATH + 1];
+	char marker[FS_MAXPATH + 1];
+	char patchFull[FS_MAXPATH + 1];
+	char destFull[FS_MAXPATH + 1];
 
-	scan.dir = dir;
-	scan.loose = loose;
-	scan.count = 0;
+	modStemName(name, stem, sizeof(stem));
 
-	if (fsScanDir(dir, modListScanArchiveEntry, &scan) < 0) {
+	if (!stem[0]) {
 		return;
 	}
 
-	for (s32 i = 0; i < scan.count; ++i) {
-		modListUnpackOne(dir, scan.names[i]);
+	if (loose && strncasecmp(stem, "mod", 3)) {
+		snprintf(destName, sizeof(destName), "mod_%.*s", MOD_NAME_LEN - 5, stem);
+	} else {
+		snprintf(destName, sizeof(destName), "%s", stem);
 	}
+
+	snprintf(dest, sizeof(dest), "%s/%s", container, destName);
+	snprintf(marker, sizeof(marker), "%s/" MOD_IMPORT_REPORT, dest);
+
+	if (fsFileSize(marker) >= 0) {
+		return; // imported before, or tried and failed - either way, not again
+	}
+
+	if (fsFileSize(dest) >= 0 && modListLooksLikeMod(dest)) {
+		return; // a mod of that name is already there
+	}
+
+	fsCreateDir(dest);
+
+	strncpy(patchFull, fsFullPath(patchPath), FS_MAXPATH);
+	patchFull[FS_MAXPATH] = '\0';
+	strncpy(destFull, fsFullPath(dest), FS_MAXPATH);
+	destFull[FS_MAXPATH] = '\0';
+
+	sysLogPrintf(LOG_NOTE, "mod: importing the console patch %s into %s, this happens once", name, destName);
+
+	if (modImportPatch(patchFull, destFull) < 0) {
+		sysLogPrintf(LOG_WARNING, "mod: %s could not be imported; %s/" MOD_IMPORT_REPORT " says why", name, destName);
+	} else if (!modListLooksLikeMod(dest)) {
+		sysLogPrintf(LOG_WARNING, "mod: %s carried nothing the port can use; %s/" MOD_IMPORT_REPORT " says what it changed", name, destName);
+	}
+}
+
+/**
+ * Archives in dir become directories, patches in it become mod directories
+ * in container, and directories that are not mods are looked into for more
+ * of both, to MOD_UNPACK_DEPTH. Beside the executable only names starting
+ * with "mod" are touched, that directory being everyone's.
+ */
+static void modListPrepareDir(const char *container, const char *dir, s32 depth, bool loose)
+{
+	struct modnamelist list = { NULL, 0, 0 };
+	const bool filter = loose && depth == 0;
+
+	if (modNameListCollect(dir, &list) < 0) {
+		free(list.names);
+		return;
+	}
+
+	for (s32 i = 0; i < list.count; ++i) {
+		if (archiveIsSupported(list.names[i]) && !(filter && strncasecmp(list.names[i], "mod", 3))) {
+			modListUnpackOne(dir, list.names[i]);
+		}
+	}
+
+	if (modNameListCollect(dir, &list) < 0) {
+		free(list.names);
+		return;
+	}
+
+	for (s32 i = 0; i < list.count; ++i) {
+		const char *name = list.names[i];
+		char path[FS_MAXPATH + 1];
+
+		if (filter && (strncasecmp(name, "mod", 3) || !strcasecmp(name, MOD_MODS_DIR))) {
+			// beside the executable only mod* names are touched, and mods/
+			// itself is the container scanned in its own right - looking
+			// into it from here imported every patch a second time
+			continue;
+		}
+
+		snprintf(path, sizeof(path), "%s/%s", dir, name);
+
+		if (rompatchIsPatchName(name)) {
+			modListImportPatch(container, loose, path, name);
+		} else if (depth < MOD_UNPACK_DEPTH && modPathIsDir(path) && !modListLooksLikeMod(path)) {
+			modListPrepareDir(container, path, depth + 1, loose);
+		}
+	}
+
+	free(list.names);
 }
 
 void modListRefresh(void)
@@ -1200,12 +1317,12 @@ void modListRefresh(void)
 	numModsListed = 0;
 
 	for (s32 i = 0; i < ARRAYCOUNT(containers); ++i) {
-		modListUnpackArchives(containers[i], false);
+		modListPrepareDir(containers[i], containers[i], 0, false);
 		fsScanDir(containers[i], modListScanEntry, (void *)containers[i]);
 	}
 
 	for (s32 i = 0; i < ARRAYCOUNT(loose); ++i) {
-		modListUnpackArchives(loose[i], true);
+		modListPrepareDir(loose[i], loose[i], 0, true);
 		fsScanDir(loose[i], modListScanLooseEntry, (void *)loose[i]);
 	}
 }

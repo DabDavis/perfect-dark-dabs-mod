@@ -20,6 +20,11 @@
 # What the port cannot use is set aside rather than dropped: files a mod built
 # for its own copy of the game code, in files.incompatible/, and segments whose
 # place in the patched ROM could not be established, in segs.unlocated/.
+#
+# The game does the same thing itself for a patch dropped into mods/:
+# port/src/modimport.c is a port of this script, function for function, with
+# port/src/rompatch.c in place of xdelta3. A change here wants making there too,
+# and the two IMPORT.txt reports for one patch should read the same.
 
 import argparse
 import struct

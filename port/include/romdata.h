@@ -8,6 +8,13 @@ extern u32 g_RomFileSize;
 
 s32 romdataInit(void);
 
+// The ROM file name, with --rom-file honoured; valid before romdataInit().
+const char *romdataGetRomName(void);
+// The segment table as declared for this ROM version: name, stock ROM offset
+// (0 for a segment this version lacks) and size (0 = runs to the next one).
+s32 romdataGetNumSegments(void);
+const char *romdataGetSegmentInfo(s32 index, u32 *romofs, u32 *size);
+
 u8 *romdataFileLoad(s32 fileNum, u32 *outSize);
 void romdataFilePreprocess(s32 fileNum, s32 loadType, u8 *data, u32 size, u32 *outSize);
 void romdataFileFree(s32 fileNum);

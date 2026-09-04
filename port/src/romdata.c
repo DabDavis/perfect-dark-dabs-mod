@@ -425,6 +425,52 @@ static inline struct romfile *romdataGetSeg(const char *name)
 	return seg;
 }
 
+const char *romdataGetRomName(void)
+{
+	const char *altRomName = sysArgGetString("--rom-file");
+	return altRomName ? altRomName : romName;
+}
+
+s32 romdataGetNumSegments(void)
+{
+	s32 n = 0;
+	for (const struct romfile *seg = romSegs; seg->name; ++seg) {
+		++n;
+	}
+	return n;
+}
+
+// The table as declared: romdataInitSegment() rewrites romSegs' data and
+// size once the ROM is loaded, and a segment taken from a mod's segs/ then
+// points at that file, not the ROM. The mod importer wants the stock layout.
+#undef ROMSEG_DECL_SEG
+#if VERSION == VERSION_NTSC_FINAL
+#define ROMSEG_DECL_SEG(name, ofs_ntsc, ofs_pal, ofs_jpn, size, preproc) { #name, ofs_ntsc, size },
+#elif VERSION == VERSION_PAL_FINAL
+#define ROMSEG_DECL_SEG(name, ofs_ntsc, ofs_pal, ofs_jpn, size, preproc) { #name, ofs_pal, size },
+#elif VERSION == VERSION_JPN_FINAL
+#define ROMSEG_DECL_SEG(name, ofs_ntsc, ofs_pal, ofs_jpn, size, preproc) { #name, ofs_jpn, size },
+#endif
+
+static const struct { const char *name; u32 ofs; u32 size; } romSegDecls[] = {
+	ROMSEG_LIST()
+	{ NULL, 0, 0 },
+};
+
+const char *romdataGetSegmentInfo(s32 index, u32 *romofs, u32 *size)
+{
+	if (index < 0 || index >= romdataGetNumSegments()) {
+		return NULL;
+	}
+	if (romofs) {
+		*romofs = romSegDecls[index].ofs;
+	}
+	if (size) {
+		*size = romSegDecls[index].size; // 0: runs to the next segment
+	}
+	return romSegDecls[index].name;
+}
+
 s32 romdataInit(void)
 {
 	const char *altRomName = sysArgGetString("--rom-file");
