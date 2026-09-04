@@ -1296,6 +1296,32 @@ static s32 modListAdoptTextureCaches(const char *dir, const char *dest, s32 dept
 	return adopted;
 }
 
+// Deletes a directory and everything in it, for redoing an import
+static void modRemoveTree(const char *dir)
+{
+	struct modnamelist list = { NULL, 0, 0 };
+
+	if (modNameListCollect(dir, &list) < 0) {
+		free(list.names);
+		return;
+	}
+
+	for (s32 i = 0; i < list.count; ++i) {
+		char path[FS_MAXPATH + 1];
+
+		snprintf(path, sizeof(path), "%s/%s", dir, list.names[i]);
+
+		if (modPathIsDir(path)) {
+			modRemoveTree(path);
+		} else {
+			remove(fsFullPath(path));
+		}
+	}
+
+	free(list.names);
+	fsRemoveDir(dir);
+}
+
 /**
  * Imports the console patch at patchPath into container/<stem>, the stem
  * prefixed with "mod_" beside the executable so the loose scan sees it. Done
@@ -1312,6 +1338,7 @@ static s32 modListImportPatch(const char *container, bool loose, const char *pat
 
 	char baseFull[FS_MAXPATH + 1];
 	s32 result;
+	bool redo = false;
 
 	modStemName(name, stem, sizeof(stem));
 
@@ -1329,11 +1356,41 @@ static s32 modListImportPatch(const char *container, bool loose, const char *pat
 	snprintf(marker, sizeof(marker), "%s/" MOD_IMPORT_REPORT, dest);
 
 	if (fsFileSize(marker) >= 0 && !basePath) {
-		return 0; // imported before, or tried and failed - either way, not again
+		// imported before, or tried and failed - either way, not again,
+		// unless an older importer did it and this one would do it better
+		char first[128] = "";
+		FILE *f = fsFileOpenRead(marker);
+
+		if (f) {
+			if (!fgets(first, sizeof(first), f)) {
+				first[0] = '\0';
+			}
+			fclose(f);
+		}
+
+		if (!strncmp(first, MODIMPORT_VERSION_LINE, strlen(MODIMPORT_VERSION_LINE))) {
+			return 0;
+		}
+
+		sysLogPrintf(LOG_NOTE, "mod: %s was imported by an earlier version; doing it again", destName);
+		redo = true;
 	}
 
-	if (fsFileSize(dest) >= 0 && modListLooksLikeMod(dest)) {
+	if (!redo && fsFileSize(dest) >= 0 && modListLooksLikeMod(dest)) {
 		return 0; // a mod of that name is already there
+	}
+
+	if (redo) {
+		// what the earlier import wrote, so nothing of it outlives this one
+		static const char *const outputs[] = { "files", "segs", "textures", "files.incompatible", "segs.unlocated" };
+
+		for (u32 i = 0; i < ARRAYCOUNT(outputs); ++i) {
+			char sub[FS_MAXPATH + 1];
+			snprintf(sub, sizeof(sub), "%s/%s", dest, outputs[i]);
+			if (modPathIsDir(sub)) {
+				modRemoveTree(sub);
+			}
+		}
 	}
 
 	fsCreateDir(dest);

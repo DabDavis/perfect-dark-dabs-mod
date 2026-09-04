@@ -1605,6 +1605,169 @@ static s32 albankExtents(const u8 *rom, u32 romlen, u32 ofs, u32 limit, u32 *ctl
 	return 1;
 }
 
+/**
+ * (base, len) of every wave an ALBankFile references, in .tbl terms.
+ * Returns how many, 0 when it does not read as one.
+ */
+struct albankwave {
+	u32 base;
+	u32 len;
+};
+
+static u32 albankWaves(const u8 *rom, u32 romlen, u32 ofs, u32 limit, struct albankwave *out, u32 max)
+{
+	struct albankwalk w;
+	u32 nbanks;
+	u32 n = 0;
+
+	memset(&w, 0, sizeof(w));
+	w.rom = rom;
+	w.romlen = romlen;
+	w.ofs = ofs;
+	w.limit = umin(limit, romlen > ofs ? romlen - ofs : 0);
+	w.seen = calloc((w.limit + 7) / 8 + 1, 1);
+
+	nbanks = albankU16(&w, 2);
+	if (w.bad || !(nbanks > 0 && nbanks < 256)) {
+		free(w.seen);
+		return 0;
+	}
+
+	for (u32 i = 0; i < nbanks && !w.bad; ++i) {
+		const u32 bank = albankU32(&w, 4 + 4 * i);
+		u32 ninst;
+
+		if (w.bad || albankSeen(&w, bank)) {
+			continue;
+		}
+
+		ninst = albankU16(&w, bank);
+
+		for (u32 k = 0; k <= ninst && !w.bad; ++k) {
+			const u32 inst = k == 0 ? albankU32(&w, bank + 8) : albankU32(&w, bank + 12 + 4 * (k - 1));
+			u32 nsnd;
+
+			if (w.bad || !inst || albankSeen(&w, inst)) {
+				continue;
+			}
+
+			nsnd = albankU16(&w, inst + 14);
+
+			for (u32 s = 0; s < nsnd && !w.bad; ++s) {
+				const u32 sound = albankU32(&w, inst + 16 + 4 * s);
+				u32 wave;
+
+				if (w.bad || !sound || albankSeen(&w, sound)) {
+					continue;
+				}
+
+				wave = albankU32(&w, sound + 8);
+
+				if (w.bad || !wave || albankSeen(&w, wave)) {
+					continue;
+				}
+
+				if (n < max) {
+					out[n].base = albankU32(&w, wave);
+					out[n].len = albankU32(&w, wave + 4);
+					if (!w.bad) {
+						++n;
+					}
+				}
+			}
+		}
+	}
+
+	free(w.seen);
+	return w.bad ? 0 : n;
+}
+
+#define MAX_WAVES 4096
+
+/**
+ * Where a mod's .tbl starts, from the stock samples it kept.
+ *
+ * Measuring the table back from the segment after it assumes it ends where
+ * its last referenced sample does - and GE-X's does not: its bank file drops
+ * waves and leaves their data in the table, 81KB of it at the end, so the
+ * measured start landed 81KB late and every sample played as noise. A kept
+ * sample's data is at the same offset from the true start in both ROMs, so
+ * each one found in the patched ROM votes for a start, and a mod that kept
+ * any of the stock sounds elects it by hundreds to one.
+ *
+ * Returns the start with *votes set, or -1.
+ */
+static s32 tblStartBySamples(const u8 *stock, u32 stocklen, const u8 *mod, u32 modlen,
+		u32 stockctl, u32 stocktbl, u32 modctl, u32 lo, u32 hi, s32 *votes)
+{
+	struct albankwave *stockwaves = malloc(MAX_WAVES * sizeof(struct albankwave));
+	struct albankwave *modwaves = malloc(MAX_WAVES * sizeof(struct albankwave));
+	struct votes v;
+	u32 nstock, nmod;
+	u32 addr;
+	s32 n, total = 0;
+
+	*votes = 0;
+	v.count = 0;
+
+	if (!stockwaves || !modwaves) {
+		free(stockwaves);
+		free(modwaves);
+		return -1;
+	}
+
+	nstock = albankWaves(stock, stocklen, stockctl, hi > stockctl ? hi - stockctl : 0, stockwaves, MAX_WAVES);
+	nmod = albankWaves(mod, modlen, modctl, hi > modctl ? hi - modctl : 0, modwaves, MAX_WAVES);
+
+	for (u32 i = 0; i < nstock && nmod; ++i) {
+		const u32 base = stockwaves[i].base;
+		const u32 len = stockwaves[i].len;
+		s32 at;
+
+		if (len < 64 || stocktbl + base + 48 > stocklen) {
+			continue;
+		}
+
+		at = findBytes(mod, modlen, lo, hi, stock + stocktbl + base, 48);
+		if (at < 0) {
+			continue;
+		}
+
+		for (u32 j = 0; j < nmod; ++j) {
+			if (modwaves[j].len == len && (u32)at >= modwaves[j].base) {
+				const u32 start = (u32)at - modwaves[j].base;
+				if (start >= lo && start < hi) {
+					vote(&v, start, 1);
+					++total;
+				}
+			}
+		}
+	}
+
+	free(stockwaves);
+	free(modwaves);
+
+	n = bestVote(&v, &addr);
+
+	// one sample matching by chance is one vote, and samples of one length
+	// spread a hit over several starts; the table is the one far ahead
+	{
+		s32 second = 0;
+		for (s32 i = 0; i < v.count; ++i) {
+			if (v.addr[i] != addr && v.n[i] > second) {
+				second = v.n[i];
+			}
+		}
+		if (n < 4 || n < second * 3) {
+			return -1;
+		}
+	}
+	(void)total;
+
+	*votes = n;
+	return (s32)addr;
+}
+
 // sfxctl and seqctl both start with the ALBankFile revision word
 static s32 findAlbankFile(const u8 *rom, u32 romlen, u32 near)
 {
@@ -1724,7 +1887,7 @@ static s32 findTextureTable(const u8 *rom, u32 romlen, u32 near, u32 count)
 	return -1;
 }
 
-static void locateStructurally(const u8 *mod, u32 modlen, struct seg *segs, s32 nsegs)
+static void locateStructurally(const u8 *stock, u32 stocklen, const u8 *mod, u32 modlen, struct seg *segs, s32 nsegs)
 {
 	struct seg *s;
 
@@ -1756,7 +1919,9 @@ static void locateStructurally(const u8 *mod, u32 modlen, struct seg *segs, s32 
 		}
 	}
 
-	// a .tbl holds nothing but samples, so measure it back from the segment
+	// a .tbl holds nothing but samples. A fingerprint pins it; failing that,
+	// the stock samples the mod kept say where it starts (see
+	// tblStartBySamples); failing that, measure it back from the segment
 	// after it using the byte count its .ctl accounts for
 	{
 		static const char *const trios[2][3] = { { "sfxctl", "sfxtbl", "seqctl" }, { "seqctl", "seqtbl", "sequences" } };
@@ -1765,28 +1930,40 @@ static void locateStructurally(const u8 *mod, u32 modlen, struct seg *segs, s32 
 			struct seg *tbl = segByName(segs, nsegs, trios[k][1]);
 			struct seg *nxt = segByName(segs, nsegs, trios[k][2]);
 			u32 ctlend, tblsize, start;
+			s32 voted, votes;
 
 			if (!(ctl && tbl && nxt) || ctl->modofs < 0 || nxt->modofs < 0 || nxt->modofs <= ctl->modofs) {
+				continue;
+			}
+			if (tbl->modofs >= 0 && (!tbl->note || strcmp(tbl->note, "ambiguous"))) {
+				ctl->modsize = tbl->modofs - ctl->modofs;
+				ctl->hasmodsize = 1;
+				tbl->modsize = nxt->modofs - tbl->modofs;
+				tbl->hasmodsize = 1;
 				continue;
 			}
 			if (!albankExtents(mod, modlen, ctl->modofs, nxt->modofs - ctl->modofs, &ctlend, &tblsize)) {
 				continue;
 			}
-			if (tblsize >= (u32)nxt->modofs) {
-				continue;
-			}
-			start = nxt->modofs - tblsize;
-			if (start <= (u32)ctl->modofs) {
-				continue;
-			}
-			if (tbl->modofs >= 0 && tbl->modofs != (s32)start) {
-				rep("warning: %s fingerprints at %08x but its samples say %08x; using the latter",
-						tbl->name, tbl->modofs, start);
+			voted = tblStartBySamples(stock, stocklen, mod, modlen, ctl->ofs, tbl->ofs, ctl->modofs,
+					ctl->modofs + ctlend, nxt->modofs, &votes);
+			if (voted >= 0) {
+				start = (u32)voted;
+				snprintf(tbl->found, sizeof(tbl->found), "%d kept samples", votes);
+				tbl->modsize = nxt->modofs - start;
+			} else {
+				if (tblsize >= (u32)nxt->modofs) {
+					continue;
+				}
+				start = nxt->modofs - tblsize;
+				if (start <= (u32)ctl->modofs) {
+					continue;
+				}
+				snprintf(tbl->found, sizeof(tbl->found), "%s wave table sizes", ctl->name);
+				tbl->modsize = tblsize;
 			}
 			tbl->modofs = (s32)start;
-			tbl->modsize = tblsize;
 			tbl->hasmodsize = 1;
-			snprintf(tbl->found, sizeof(tbl->found), "%s wave table sizes", ctl->name);
 			ctl->modsize = start - ctl->modofs;
 			ctl->hasmodsize = 1;
 		}
@@ -1907,7 +2084,7 @@ static s32 matchSegments(const u8 *stock, u32 stocklen, const u8 *mod, u32 modle
 	}
 
 	locateByCode(stock, stocklen, mod, modlen, segs, nsegs, stockgame, stockgamelen, modgame, modgamelen);
-	locateStructurally(mod, modlen, segs, nsegs);
+	locateStructurally(stock, stocklen, mod, modlen, segs, nsegs);
 	locateByAdjacency(segs, nsegs);
 
 	// anything still missing moved with its neighbour, as far as we know
@@ -2595,6 +2772,8 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 	} else {
 		sysLogPrintf(LOG_NOTE, "modimport: importing %s into %s", patchname, outDir);
 	}
+
+	rep("%s", MODIMPORT_VERSION_LINE);
 
 	// -- the ROMs
 	stock = fsFileLoad(romdataGetRomName(), &stocklen);

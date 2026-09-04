@@ -95,6 +95,25 @@ the mod directory carries both patches' changes. The tool's earlier
 `pd_names` directory had missed the second patch's own change to
 `UsetupdishZ`; the in-game import's ROM matches xdelta3's stacked result.
 
+**The sample tables are placed by the samples a mod kept** (2026-09-04,
+after GE-X's sound came out as noise). `sfxtbl` and `seqtbl` hold nothing
+but sample data, so nothing in them says where they start; the first method
+measured each back from the segment after it by the bytes its `.ctl`
+references, which is exact for stock and wrong for GE-X, whose bank file
+drops waves and leaves 81KB of their data at the table's end - so the start
+landed 81KB late and every offset in the table pointed into the wrong
+sample. `tbl_start_by_samples()` / `tblStartBySamples()` instead search the
+patched ROM for the first 48 bytes of each stock wave; a hit votes for
+`hit - base` of every mod wave of the same length, and the true start wins
+by hundreds (638 for GE-X's sfx, 92 for its music, the runner-up under a
+third of that). Both tables turned out to sit at their stock offsets with
+their stock sizes. The check that proves it: 642 of GE-X's 793 sfx waves are
+byte-identical to a stock sample at their offset in the extracted table. The
+measure-back stays as the fallback for a mod that kept no stock samples.
+`IMPORT.txt` now opens with `importer: N`, and a directory whose report is
+older is imported again on the next start (`MODIMPORT_VERSION`), so a
+tester's GE-X from the first build fixes itself.
+
 **A mod's emulator texture pack comes with it.** `modListAdoptTextureCaches()`
 copies any `.htc` found beside an imported patch (two folders down) into the
 mod's `textures/`, where `texpack.c` reads it - see "Emulator cache files" in

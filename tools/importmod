@@ -820,6 +820,95 @@ def albank_extents(rom, ofs, limit):
     return align16(ctlend), align16(tblend)
 
 
+def albank_waves(rom, ofs, limit):
+    """(base, len) of every wave an ALBankFile references, in .tbl terms."""
+    seen = set()
+    out = []
+
+    def u16(o):
+        if o < 0 or o + 2 > limit:
+            raise ValueError('offset out of range')
+        return be16(rom, ofs + o)
+
+    def u32(o):
+        if o < 0 or o + 4 > limit:
+            raise ValueError('offset out of range')
+        return be32(rom, ofs + o)
+
+    nbanks = u16(2)
+    if not 0 < nbanks < 256:
+        raise ValueError('implausible bank count')
+    for i in range(nbanks):
+        bank = u32(4 + 4 * i)
+        if bank in seen:
+            continue
+        seen.add(bank)
+        ninst = u16(bank)
+        insts = [u32(bank + 8)] if u32(bank + 8) else []
+        insts += [u32(bank + 12 + 4 * k) for k in range(ninst)]
+        for inst in insts:
+            if not inst or inst in seen:
+                continue
+            seen.add(inst)
+            for k in range(u16(inst + 14)):
+                sound = u32(inst + 16 + 4 * k)
+                if not sound or sound in seen:
+                    continue
+                seen.add(sound)
+                wave = u32(sound + 8)
+                if not wave or wave in seen:
+                    continue
+                seen.add(wave)
+                out.append((u32(wave), u32(wave + 4)))
+    return out
+
+
+def tbl_start_by_samples(stock, mod, stockctl, stocktbl, modctl, lo, hi):
+    """Where a mod's .tbl starts, from the stock samples it kept.
+
+    Measuring the table back from the segment after it assumes it ends where
+    its last referenced sample does - and GE-X's does not: its bank file drops
+    waves and leaves their data in the table, 81KB of it at the end, so the
+    measured start landed 81KB late and every sample played as noise. A
+    kept sample's data is at the same offset from the true start in both
+    ROMs, so each one found in the patched ROM votes for a start, and a mod
+    that kept any of the stock sounds elects it by hundreds to one.
+
+    Returns (start, votes), or (None, 0)."""
+    try:
+        stockwaves = albank_waves(stock, stockctl, hi - stockctl)
+        modwaves = albank_waves(mod, modctl, hi - modctl)
+    except (ValueError, IndexError):
+        return None, 0
+
+    bylen = {}
+    for base, length in modwaves:
+        bylen.setdefault(length, []).append(base)
+
+    votes = {}
+    for base, length in stockwaves:
+        if length < 64 or length not in bylen:
+            continue
+        at = mod.find(stock[stocktbl + base:stocktbl + base + 48], lo, hi)
+        if at < 0:
+            continue
+        for modbase in bylen[length]:
+            start = at - modbase
+            if lo <= start < hi:
+                votes[start] = votes.get(start, 0) + 1
+
+    if not votes:
+        return None, 0
+    ranked = sorted(votes.items(), key=lambda kv: -kv[1])
+    start, n = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else 0
+    # one sample matching by chance is one vote, and samples of one length
+    # spread a hit over several starts; the table is the one far ahead
+    if n < 4 or n < second * 3:
+        return None, 0
+    return start, n
+
+
 def find_albankfile(rom, near, span=0x400000):
     """sfxctl and seqctl both start with the ALBankFile revision word."""
     for start, end in ((max(0, near - span), near + span), (0, len(rom))):
@@ -969,7 +1058,7 @@ def match_segments(stock, mod, romid):
             hint = at - seg['ofs']
 
     locate_by_code(stock, mod, romid, segs)
-    locate_structurally(mod, byname)
+    locate_structurally(stock, mod, byname)
     locate_by_adjacency(segs)
 
     # anything still missing moved with its neighbour, as far as we know
@@ -1073,7 +1162,7 @@ def locate_by_code(stock, mod, romid, segs):
                 seg['modsize'] = end - seg['modofs']
 
 
-def locate_structurally(mod, byname):
+def locate_structurally(stock, mod, byname):
     """Find the self-describing segments, then derive their neighbours."""
     def seg(name):
         return byname.get(name)
@@ -1101,25 +1190,34 @@ def locate_structurally(mod, byname):
         except (ValueError, IndexError):
             pass
 
-    # a .tbl holds nothing but samples, so measure it back from the segment
+    # a .tbl holds nothing but samples. A fingerprint pins it; failing that,
+    # the stock samples the mod kept say where it starts (see
+    # tbl_start_by_samples); failing that, measure it back from the segment
     # after it using the byte count its .ctl accounts for
     for ctlname, tblname, nextname in (('sfxctl', 'sfxtbl', 'seqctl'),
                                        ('seqctl', 'seqtbl', 'sequences')):
         ctl, tbl, nxt = seg(ctlname), seg(tblname), seg(nextname)
         if not (ctl and tbl and nxt) or ctl['modofs'] is None or nxt['modofs'] is None:
             continue
+        if tbl['modofs'] is not None and tbl.get('note') != 'ambiguous':
+            ctl['modsize'] = tbl['modofs'] - ctl['modofs']
+            tbl['modsize'] = nxt['modofs'] - tbl['modofs']
+            continue
         try:
-            _, tblsize = albank_extents(mod, ctl['modofs'], nxt['modofs'] - ctl['modofs'])
+            ctlsize, tblsize = albank_extents(mod, ctl['modofs'], nxt['modofs'] - ctl['modofs'])
         except (ValueError, IndexError):
             continue
-        start = nxt['modofs'] - tblsize
-        if start <= ctl['modofs']:
-            continue
-        if tbl['modofs'] is not None and tbl['modofs'] != start:
-            log('warning: %s fingerprints at %08x but its samples say %08x; using the latter'
-                % (tblname, tbl['modofs'], start))
-        tbl['modofs'], tbl['modsize'] = start, tblsize
-        tbl['found'] = '%s wave table sizes' % ctlname
+        start, votes = tbl_start_by_samples(stock, mod, ctl['ofs'], tbl['ofs'], ctl['modofs'],
+                                            ctl['modofs'] + ctlsize, nxt['modofs'])
+        if start is not None:
+            tbl['found'] = '%d kept samples' % votes
+            tbl['modofs'], tbl['modsize'] = start, nxt['modofs'] - start
+        else:
+            start = nxt['modofs'] - tblsize
+            if start <= ctl['modofs']:
+                continue
+            tbl['found'] = '%s wave table sizes' % ctlname
+            tbl['modofs'], tbl['modsize'] = start, tblsize
         ctl['modsize'] = start - ctl['modofs']
 
     tl, td, cp = seg('textureslist'), seg('texturesdata'), seg('copyright')
