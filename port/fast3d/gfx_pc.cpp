@@ -1166,11 +1166,26 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // the one every later draw got, and the numeric font came out as solid
     // blocks. A replaced glyph gets one entry per palette it is drawn at, each
     // a copy out of texpack's store; nothing is decoded twice for it.
+    //
+    // The outline pass (textRender) is where the palette does the most: it
+    // draws one glyph through both banks of its TLUT in a single two-cycle
+    // pass, tile 0 through bank 0, whose alpha covers the body and the border,
+    // and tile 1 through bank 1, whose alpha is the body alone - and the
+    // combiner colours the body from the second and shapes the whole from the
+    // first. A pack's outlines/ image is the first of those and its plain
+    // image is the second, so the tile with palette 1 asks for the plain
+    // glyph. Both tiles taking the outline image is what made every
+    // highlighted menu item a bold glowing blob.
+    uint32_t glyph = loaded_texture.glyph;
+    if (glyph && TEXPACK_GLYPH_IS_OUTLINE(glyph) && palette_index == 1) {
+        glyph &= ~0x7f000000u;
+    }
+
     TextureCacheKey key;
     if (fmt == G_IM_FMT_CI) {
-        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index, loaded_texture.glyph };
+        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index, glyph };
     } else {
-        key = { orig_addr, {}, fmt, siz, palette_index, loaded_texture.glyph };
+        key = { orig_addr, {}, fmt, siz, palette_index, glyph };
     }
 
     if (gfx_texture_cache_lookup(i, key)) {
@@ -1196,8 +1211,8 @@ static void import_texture(int i, int tile, bool importReplacement) {
         // A font glyph has no texture number - it is uploaded straight out of
         // the font - so it is named by the display list instead, and a pack
         // keeps those under a folder per font.
-        if (!rep && loaded_texture.glyph) {
-            rep = texpackLoadFontReplacement(loaded_texture.glyph, &rep_width, &rep_height);
+        if (!rep && glyph) {
+            rep = texpackLoadFontReplacement(glyph, &rep_width, &rep_height);
         }
 
         // A model's textures live inside the model file and never get a texture

@@ -600,6 +600,15 @@ flicker and reads like a scale error. Do not reintroduce it.
   the numeric font rendered as solid blocks. The two-entries-per-glyph cost that
   once argued for dropping the palette was only a problem while each entry
   re-decoded the image; with `fontDecoded` a second entry is a memcpy.
+- **The outline pass wants both images, one per tile.** `textRender`'s two-cycle
+  combiner takes its shape from texel 0 and colours the body from texel 1's
+  alpha; `var8007fb5c` is the TLUT, and its bank 0 (tile 0) is body plus border
+  while bank 1 (tile 1) is the body alone. So tile 0 gets the pack's
+  `outlines/` image and tile 1 the plain one - `import_texture` swaps the
+  outline bit off for palette index 1. Giving both tiles the outline image, as
+  the VR fork does, makes every highlighted menu item and the FPS counter a
+  bold glowing blob; the pack was drawn against that look, so it is not the
+  pack that is wrong.
 - A decoded glyph is **kept** rather than handed over. There are hundreds of them
   and the renderer's cache is not big enough to hold them all against a stage's
   textures, so one gets evicted, asked for again, and would be decoded again -
