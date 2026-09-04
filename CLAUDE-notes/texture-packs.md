@@ -60,6 +60,65 @@ decoding at once, not what gets decoded.
 
 JPEG is decoded the same way, on the same thread - see the format note below.
 
+## Decoded stage textures are kept, not handed over
+
+A decoded image used to be handed to the renderer and forgotten, so every miss
+in the renderer's cache on a replaced texture was a fresh decode - and, the
+decode being off the render thread, **one frame of the game's own texture**
+while it ran. Misses are not rare: the renderer keys by address and holds 1024
+entries, so a prop spawning in, the same texture number loaded a second time
+for another model, and a room whose working set is near the cap all miss. With
+the PD Plus pack it showed as textures popping between the pack's image and the
+original while walking through a stage.
+
+The two-address case was worse than a frame. Both entries for one texture
+number are dropped when its decode lands, whichever asked first got the buffer,
+and the other queued the decode again - every frame, for as long as both were
+on screen.
+
+So `kept[]` in `texpack.c` holds decoded stage textures the way `fontDecoded`
+holds glyphs, one slot per texture number, and a claim is a copy out. The PD
+Plus pack is 2.2GB decoded, so it is held to `Mod.TexturePackCacheMB` (512 by
+default), least recently claimed out first; going over the budget costs the
+re-decode it always cost. It survives a stage change on purpose and is emptied
+with the index. Two details:
+
+- `TextureCacheValue::replaced` marks a renderer entry that already shows the
+  pack's image, and `gfx_texture_cache_drop_texnum()` leaves those alone. That
+  is what stops the two-address ping-pong; the store alone only made it cheap.
+- A claim that finds its job READY mid-frame keeps the image itself, and puts
+  the number in `keptReport` for the next `texpackPollDecoded()` to report,
+  because the same number at another address may still be showing the original.
+
+The shutdown log line `texpack: kept store holds N images ...` says how many
+repeat requests the store answered - each one a decode, and a frame of the
+original, that did not happen - and how many the budget threw out. If the
+second number climbs on a normal stage, raise the budget.
+
+## A pack's image is the tile; the renderer maps the padded row
+
+The N64 loads a texture as whole 8-byte lines, so a 33-texel-wide CI4 tile is
+48 texels of data, and the renderer uploads all 48 with the tile in the left 33
+and normalises every UV by the padded width. Our own dumps are that padded row
+(the header over `texpackTexToRgba()` says so). A pack built for an emulator
+dumped the **tile** - 33 wide, scaled - and uploaded as it comes, the tile's
+UVs show the left 33/48 of it. That is the "a few textures look stretched"
+report: 278 of the PD Plus pack's 3395 images, every one a texture whose width
+is not a multiple of the line (54 of 56, 28 of 32, 8 of 16 ...). The height
+never differs; only the width is padded.
+
+`gfx_pad_replacement()` in `gfx_pc.cpp` fixes it on upload: an image that fits
+the padded shape is left alone, anything else is taken to be the tile and put
+at the origin of a canvas of the padded shape at the same scale, with the last
+column repeated across the padding so the filter does not pull black into the
+tile's edge. One image in the pack is ambiguous (`08B1`, a 59-wide tile whose
+pow2-upscaled image happens to fit 64:32) and is taken as padded. Glyphs are
+not touched: their image is the whole 16-wide block already.
+
+The stretch is easy to reproduce from the manifest: `tilewidth` against
+`linesize * 2 >> siz` is the padded width, and the script that found the 278
+compared each image's aspect to both.
+
 ## Pack image formats, and which way up they go
 
 **Formats.** `<texnum>.png` goes through `pngread.c`, which is ours because PNG is

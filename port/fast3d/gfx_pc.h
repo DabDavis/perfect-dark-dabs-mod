@@ -47,6 +47,9 @@ struct TextureCacheValue {
     uint32_t texture_id;
     uint8_t cms, cmt;
     bool linear_filter;
+    // Holds a texture pack's image rather than the game's own. The drop that
+    // follows a decode leaves these alone: they are already showing it.
+    bool replaced = false;
 
     std::list<struct TextureCacheMapIter>::iterator lru_location;
 };

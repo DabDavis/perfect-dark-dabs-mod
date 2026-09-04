@@ -734,6 +734,15 @@ static void gfx_texture_cache_drop_texnum(int32_t texturenum) {
 
     for (TextureCacheMap::iterator it = gfx_texture_cache.map.begin();
             it != gfx_texture_cache.map.end(); ) {
+        // An entry already showing the replacement has nothing to drop. One
+        // texture number at two addresses is what this is for: without it the
+        // entry uploaded from the first decode went out with the other one's
+        // original, and the two took turns re-queueing the decode.
+        if (it->second.replaced) {
+            ++it;
+            continue;
+        }
+
         // A glyph has no texture number, so it is matched by what the display
         // list called it instead.
         const bool hit = it->first.glyph
@@ -1131,6 +1140,70 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
 	gfx_upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
 }
 
+/**
+ * Re-pads a replacement image to the shape the renderer maps.
+ *
+ * The N64 loads a texture as whole 8-byte lines, so a 33-texel-wide CI4 tile
+ * is 48 texels of data, and the original goes up as those 48 with the tile in
+ * the left 33 of them; every UV is normalised by the padded width. A pack
+ * built for an emulator dumped the tile alone - 33 wide, scaled - and uploaded
+ * over the 48 the tile's UVs show the left 33/48 of it: a stretch, on the few
+ * hundred textures in a pack whose width is not a multiple of the line. Our
+ * own dumps are the padded row and come back as they are.
+ *
+ * So an image that fits the padded shape is left alone, and anything else is
+ * taken to be the tile: scaled onto a canvas of the padded shape at the same
+ * scale, tile at the origin, with the edge repeated across the padding - the
+ * clamp stops at the tile so it is never seen, and repeating the edge keeps
+ * the filter from pulling black into the last texel.
+ *
+ * Returns the buffer to upload, which is either rep itself or a new one with
+ * rep freed - both go back through texpackFreeReplacement().
+ */
+static uint8_t* gfx_pad_replacement(uint8_t* rep, int32_t* rep_width, int32_t* rep_height,
+        uint32_t tile_w, uint32_t tile_h, uint32_t pad_w, uint32_t pad_h) {
+    const uint32_t w = (uint32_t)*rep_width;
+    const uint32_t h = (uint32_t)*rep_height;
+
+    if ((tile_w == pad_w && tile_h == pad_h) || tile_w == 0 || tile_h == 0
+            || tile_w > pad_w || tile_h > pad_h || w == 0 || h == 0) {
+        return rep;
+    }
+
+    if ((uint64_t)w * pad_h == (uint64_t)h * pad_w) {
+        return rep;
+    }
+
+    const uint32_t out_w = (uint32_t)lround((double)w * pad_w / tile_w);
+    const uint32_t out_h = (uint32_t)lround((double)h * pad_h / tile_h);
+
+    if (out_w < w || out_h < h || out_w > 16384 || out_h > 16384) {
+        return rep;
+    }
+
+    uint8_t* out = (uint8_t*)malloc((size_t)out_w * out_h * 4);
+    if (!out) {
+        return rep;
+    }
+
+    for (uint32_t y = 0; y < out_h; y++) {
+        const uint8_t* src = rep + (size_t)(y < h ? y : h - 1) * w * 4;
+        uint8_t* dst = out + (size_t)y * out_w * 4;
+
+        memcpy(dst, src, (size_t)w * 4);
+
+        for (uint32_t x = w; x < out_w; x++) {
+            memcpy(dst + (size_t)x * 4, src + (size_t)(w - 1) * 4, 4);
+        }
+    }
+
+    texpackFreeReplacement(rep);
+    *rep_width = (int32_t)out_w;
+    *rep_height = (int32_t)out_h;
+
+    return out;
+}
+
 static void import_texture(int i, int tile, bool importReplacement) {
     LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
     const uint8_t fmt = rdp.texture_tile[tile].fmt;
@@ -1226,8 +1299,19 @@ static void import_texture(int i, int tile, bool importReplacement) {
         }
 
         if (rep) {
+            // A glyph's image is the whole 16-wide block already - see the
+            // font note in texture-packs.md - so only stage textures are
+            // re-padded.
+            if (!loaded_texture.glyph) {
+                const uint32_t pad_w = (tex_row_bytes * 2) >> siz;
+                const uint32_t pad_h = tex_row_bytes ? loaded_texture.size_bytes / tex_row_bytes : 0;
+                rep = gfx_pad_replacement(rep, &rep_width, &rep_height,
+                        rdp.texture_tile[tile].width, rdp.texture_tile[tile].height, pad_w, pad_h);
+            }
+
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
             texpackFreeReplacement(rep);
+            rendering_state.textures[i]->second.replaced = true;
             return;
         }
     }

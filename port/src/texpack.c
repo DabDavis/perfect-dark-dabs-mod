@@ -257,6 +257,163 @@ static u8 *texpackGlyphCopy(const struct texpackglyph *glyph, s32 *outWidth, s32
 	return rgba;
 }
 
+/**
+ * Decoded stage textures, kept.
+ *
+ * A decoded image used to be handed to the renderer and forgotten, so every
+ * cache miss on a replaced texture cost a fresh decode - and, the decode being
+ * off the render thread, one frame of the game's own texture while it ran.
+ * A miss is not rare: the renderer keys its cache by address and holds 1024
+ * entries, so a prop spawning in, the same texture number loaded a second time
+ * for another model, or a room whose working set is near the cap all miss.
+ * Moving through a stage with a pack on showed it as textures popping between
+ * the pack's image and the original.
+ *
+ * The second-address case was worse than a frame: two entries for one texture
+ * number are dropped together when its decode lands, whichever asked first got
+ * the buffer, and the other queued the decode again - every frame, for as
+ * long as both were on screen.
+ *
+ * So a decoded image stays here, one slot per texture number, and a claim is a
+ * copy out. The PD Plus pack is 2.2GB decoded, so it is held to a byte budget
+ * (Mod.TexturePackCacheMB) and the least recently claimed goes first; losing
+ * one costs the same re-decode it always did. It survives a stage change on
+ * purpose - the numbers do not change - and is emptied with the index.
+ *
+ * Render thread only, like fontDecoded: the worker never sees it.
+ */
+struct texpackkept {
+	u8 *rgba;
+	s32 width;
+	s32 height;
+	u32 lastUse;
+};
+
+static struct texpackkept *kept; // NUM_TEXTURES entries, allocated on first keep
+static u32 keptBytes;
+static u32 keptUseSerial;
+static s32 keptCount;
+static s32 keptBudgetMB = 512; // Mod.TexturePackCacheMB
+static u32 keptHits;     // claims answered from the store, i.e. decodes not repeated
+static u32 keptEvicted;  // images the budget threw out
+
+// Texture numbers kept by a claim rather than by the poll. The poll is what
+// tells the renderer a decode landed, and a claim mid-frame took the slot
+// before it could look - so these are told on the next poll instead.
+static u8 keptReport[(NUM_TEXTURES + 7) / 8];
+static s32 keptReportCount;
+
+static void texpackKeptFree(void)
+{
+	s32 i;
+
+	for (i = 0; kept && i < NUM_TEXTURES; i++) {
+		free(kept[i].rgba);
+	}
+
+	free(kept);
+	kept = NULL;
+	keptBytes = 0;
+	keptCount = 0;
+	memset(keptReport, 0, sizeof(keptReport));
+	keptReportCount = 0;
+}
+
+static u32 texpackKeptBytes(const struct texpackkept *k)
+{
+	return (u32)k->width * (u32)k->height * 4;
+}
+
+/** Drops the least recently claimed images until the budget is met, sparing one. */
+static void texpackKeptTrim(s32 spare)
+{
+	const u64 budget = (u64)keptBudgetMB * 1024 * 1024;
+
+	while (keptBytes > budget && keptCount > 1) {
+		s32 oldest = -1;
+		s32 i;
+
+		for (i = 0; i < NUM_TEXTURES; i++) {
+			if (kept[i].rgba && i != spare
+					&& (oldest < 0 || kept[i].lastUse < kept[oldest].lastUse)) {
+				oldest = i;
+			}
+		}
+
+		if (oldest < 0) {
+			break;
+		}
+
+		keptBytes -= texpackKeptBytes(&kept[oldest]);
+		free(kept[oldest].rgba);
+		kept[oldest].rgba = NULL;
+		keptCount--;
+		keptEvicted++;
+	}
+}
+
+/**
+ * Takes ownership of a decoded image. Returns the slot, or NULL if the store
+ * could not be made - in which case the image is still the caller's.
+ */
+static struct texpackkept *texpackKeptInsert(s32 texturenum, u8 *rgba, s32 width, s32 height)
+{
+	struct texpackkept *k;
+
+	if (!kept) {
+		kept = calloc(NUM_TEXTURES, sizeof(*kept));
+
+		if (!kept) {
+			return NULL;
+		}
+	}
+
+	k = &kept[texturenum];
+
+	if (k->rgba) {
+		keptBytes -= texpackKeptBytes(k);
+		free(k->rgba);
+		keptCount--;
+	}
+
+	k->rgba = rgba;
+	k->width = width;
+	k->height = height;
+	k->lastUse = ++keptUseSerial;
+	keptBytes += texpackKeptBytes(k);
+	keptCount++;
+
+	texpackKeptTrim(texturenum);
+
+	return k;
+}
+
+static u8 *texpackKeptCopy(struct texpackkept *k, s32 *outWidth, s32 *outHeight)
+{
+	const u32 bytes = texpackKeptBytes(k);
+	u8 *rgba = malloc(bytes);
+
+	if (!rgba) {
+		return NULL;
+	}
+
+	memcpy(rgba, k->rgba, bytes);
+	k->lastUse = ++keptUseSerial;
+	*outWidth = k->width;
+	*outHeight = k->height;
+
+	return rgba;
+}
+
+/**
+ * Moves a decoded stage texture out of its queue slot and into the store,
+ * freeing the slot. Called with the lock held, on a job that is READY and is
+ * not a glyph's. If the store will not take it the buffer stays in the slot,
+ * and the caller hands it over the old way.
+ */
+struct texpackjob;
+static struct texpackkept *texpackJobKeep(struct texpackjob *job);
+
 static s32 replaceScanned;    // the scan runs once, on the first texture drawn
 static s32 numReplacements;
 
@@ -1147,6 +1304,7 @@ static void texpackFreeIndex(void)
 
 	numFontReplacements = 0;
 	texpackGlyphsFree();
+	texpackKeptFree();
 
 	free(replacePaths);
 	free(replaceAlphaPaths);
@@ -1804,6 +1962,21 @@ static struct texpackglyph *texpackGlyphKeep(struct texpackjob *job)
 	return glyph;
 }
 
+static struct texpackkept *texpackJobKeep(struct texpackjob *job)
+{
+	struct texpackkept *k = texpackKeptInsert(job->texturenum, job->rgba, job->width, job->height);
+
+	if (!k) {
+		return NULL;
+	}
+
+	jobReadyBytes -= texpackJobBytes(job);
+	job->rgba = NULL;
+	job->state = TEXPACK_JOB_FREE;
+
+	return k;
+}
+
 /**
  * Requests the queue had no room for.
  *
@@ -2033,6 +2206,10 @@ void texpackAsyncShutdown(void)
 		return;
 	}
 
+	// Each hit is a decode - and a frame of the original - that did not happen.
+	sysLogPrintf(LOG_NOTE, "texpack: kept store holds %d images (%u MB), answered %u repeat requests, dropped %u to the budget",
+			keptCount, keptBytes >> 20, keptHits, keptEvicted);
+
 	SDL_LockMutex(jobLock);
 	jobThreadRun = 0;
 	SDL_CondBroadcast(jobWake);
@@ -2082,6 +2259,12 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 	s32 free1 = -1;
 	s32 i;
 
+	// Already decoded once: a copy, and no frame of the original.
+	if (texturenum < TEXPACK_FONT_ID_BASE && kept && kept[texturenum].rgba) {
+		keptHits++;
+		return texpackKeptCopy(&kept[texturenum], outWidth, outHeight);
+	}
+
 	texpackAsyncStart();
 
 	if (!jobThread) {
@@ -2104,10 +2287,25 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 					// for it to drop.
 					rgba = texpackGlyphCopy(texpackGlyphKeep(&jobs[i]), outWidth, outHeight);
 				} else {
-					rgba = jobs[i].rgba;
-					jobReadyBytes -= texpackJobBytes(&jobs[i]);
-					jobs[i].rgba = NULL;
-					jobs[i].state = TEXPACK_JOB_FREE;
+					// Landed since the last poll. Kept, and told to the
+					// renderer on the next one: this draw uploads it, but
+					// the same number at another address may still be
+					// showing the original.
+					struct texpackkept *k = texpackJobKeep(&jobs[i]);
+
+					if (k) {
+						rgba = texpackKeptCopy(k, outWidth, outHeight);
+
+						if (!(keptReport[texturenum >> 3] & (1 << (texturenum & 7)))) {
+							keptReport[texturenum >> 3] |= (u8)(1 << (texturenum & 7));
+							keptReportCount++;
+						}
+					} else {
+						rgba = jobs[i].rgba;
+						jobReadyBytes -= texpackJobBytes(&jobs[i]);
+						jobs[i].rgba = NULL;
+						jobs[i].state = TEXPACK_JOB_FREE;
+					}
 				}
 			}
 
@@ -2155,16 +2353,33 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 
 	SDL_LockMutex(jobLock);
 
+	// Kept by a claim since the last call - see keptReport.
+	for (i = 0; keptReportCount > 0 && count < max && i < NUM_TEXTURES; i++) {
+		if (!keptReport[i >> 3]) {
+			i |= 7;
+			continue;
+		}
+
+		if (keptReport[i >> 3] & (1 << (i & 7))) {
+			keptReport[i >> 3] &= (u8)~(1 << (i & 7));
+			keptReportCount--;
+			out[count++] = i;
+		}
+	}
+
 	for (i = 0; i < TEXPACK_MAX_PENDING && count < max; i++) {
 		if (jobs[i].state == TEXPACK_JOB_READY && !jobs[i].reported) {
 			jobs[i].reported = 1;
 			out[count++] = jobs[i].texturenum;
 
-			// A glyph leaves the queue here, so the slot is free again for
+			// The image leaves the queue here, so the slot is free again for
 			// whatever is drawn next; the copy the renderer gets when it asks
-			// comes from fontDecoded.
+			// comes from fontDecoded or the kept store. A stage texture the
+			// store will not take stays in its slot to be handed over.
 			if (jobs[i].texturenum >= TEXPACK_FONT_ID_BASE) {
 				texpackGlyphKeep(&jobs[i]);
+			} else {
+				texpackJobKeep(&jobs[i]);
 			}
 		} else if (jobs[i].state == TEXPACK_JOB_FAILED) {
 			// Whatever is wrong with the file will not fix itself, and retrying
@@ -3062,4 +3277,5 @@ PD_CONSTRUCTOR static void texpackConfigInit(void)
 	configRegisterString("Mod.TexturePackCycleKey", cycleKeyName, sizeof(cycleKeyName));
 	configRegisterInt("Mod.DumpTextures", &dumpTextures, 0, 1);
 	configRegisterInt("Mod.DumpTextureData", &dumpTextureData, 0, 1);
+	configRegisterInt("Mod.TexturePackCacheMB", &keptBudgetMB, 0, 8192);
 }
