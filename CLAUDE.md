@@ -26,6 +26,7 @@ area, read its section first — none of them are inferable from the code.
 - [Mod directories](#mod-directories)
 - [Where a texture pack goes](#where-a-texture-pack-goes) — four directories, one of which is read by nothing
 - [Replacement textures are decoded off the render thread](#replacement-textures-are-decoded-off-the-render-thread) — why the stutter was never the decoder
+- [Texture pack keys](#texture-pack-keys) — F7/F8/F9/F10
 - [Debugging](#debugging) — the two commands that actually find things
 
 **[DabDavisGitHub.md](DabDavisGitHub.md)** is the companion to this file: the
@@ -509,6 +510,17 @@ before freeing anything: the worker reads the index and only stops between jobs.
 
 JPEG is a separate question and still unsupported: `pngread.c` is PNG-only, and
 74% of the PD Plus pack is `.jpg`, so that pack loads 335 of its 4151 files.
+
+### Texture pack keys
+
+`Mod.DumpTexturesKey` (F7), `Mod.TexturePackKey` (F8, packs on/off),
+`Mod.TexturePackReloadKey` (F9, re-read the pack where you stand) and
+`Mod.TexturePackCycleKey` (F10, next pack, round through "none"). All four are in
+`texpackTick()` and bindable in Extended Options. F9 and F10 exist because
+comparing packs otherwise meant quitting, swapping folders and relaunching.
+
+Both are safe with the decode worker running - the reload path stops it first -
+and both are worth re-testing on Windows, threads being what they are.
 
 ### The ROM symbol file
 

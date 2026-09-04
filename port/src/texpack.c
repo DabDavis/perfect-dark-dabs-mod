@@ -130,8 +130,12 @@ static char packName[TEXPACK_NAMELEN];  // the selected pack, empty for none
 
 static char dumpKeyName[TEXPACK_KEYNAME_LEN] = "F7";
 static char toggleKeyName[TEXPACK_KEYNAME_LEN] = "F8";
+static char reloadKeyName[TEXPACK_KEYNAME_LEN] = "F9";
+static char cycleKeyName[TEXPACK_KEYNAME_LEN] = "F10";
 static s32 dumpKeyVk = -1;    // -1 until the name has been looked up
 static s32 toggleKeyVk = -1;
+static s32 reloadKeyVk = -1;
+static s32 cycleKeyVk = -1;
 
 static s32 loadTextures = 1;
 static char **replacePaths;   // one per texture number, NULL where there is none
@@ -2044,10 +2048,67 @@ void texpackToggleSetKey(s32 vk)
 	texpackSetKey(vk, toggleKeyName, sizeof(toggleKeyName), &toggleKeyVk);
 }
 
+s32 texpackReloadGetKey(void)
+{
+	return texpackResolveKey(reloadKeyName, &reloadKeyVk);
+}
+
+void texpackReloadSetKey(s32 vk)
+{
+	texpackSetKey(vk, reloadKeyName, sizeof(reloadKeyName), &reloadKeyVk);
+}
+
+s32 texpackCycleGetKey(void)
+{
+	return texpackResolveKey(cycleKeyName, &cycleKeyVk);
+}
+
+void texpackCycleSetKey(s32 vk)
+{
+	texpackSetKey(vk, cycleKeyName, sizeof(cycleKeyName), &cycleKeyVk);
+}
+
+/**
+ * Steps to the next installed pack, and round through "none".
+ *
+ * For comparing packs against each other and against the game's own textures
+ * without leaving the level: the list is re-read first, so a folder dropped in
+ * while the game is running is in the rotation.
+ */
+static void texpackCycleSelected(void)
+{
+	s32 count;
+	s32 next;
+
+	packsListed = 0;
+	texpackRefreshPacks();
+
+	count = texpackGetNumPacks();
+
+	if (count <= 0) {
+		sysLogPrintf(LOG_NOTE, "texpack: no packs installed to cycle through");
+		return;
+	}
+
+	// -1 is "none", which is one of the positions worth stopping at.
+	next = texpackGetSelectedPack() + 1;
+
+	if (next >= count) {
+		next = -1;
+	}
+
+	texpackSetSelectedPack(next);
+
+	sysLogPrintf(LOG_NOTE, "texpack: now using %s",
+			next < 0 ? "no pack" : texpackGetPackName(next));
+}
+
 void texpackTick(void)
 {
 	const s32 dumpVk = texpackDumpGetKey();
 	const s32 toggleVk = texpackToggleGetKey();
+	const s32 reloadVk = texpackReloadGetKey();
+	const s32 cycleVk = texpackCycleGetKey();
 
 	// inputKeyJustPressed() consumes the edge, so each key wants asking about
 	// exactly once a frame and only when it is actually bound.
@@ -2060,6 +2121,16 @@ void texpackTick(void)
 	// re-reads the pack anyway, so an edited image still shows up.
 	if (toggleVk > 0 && inputKeyJustPressed(toggleVk)) {
 		texpackSetLoadEnabled(!loadTextures);
+	}
+
+	// Re-reads the pack where you stand, for looking at an image you have just
+	// edited without leaving the level.
+	if (reloadVk > 0 && inputKeyJustPressed(reloadVk)) {
+		texpackReload();
+	}
+
+	if (cycleVk > 0 && inputKeyJustPressed(cycleVk)) {
+		texpackCycleSelected();
 	}
 }
 
@@ -2500,6 +2571,8 @@ PD_CONSTRUCTOR static void texpackConfigInit(void)
 	configRegisterString("Mod.TexturePack", packName, sizeof(packName));
 	configRegisterString("Mod.DumpTexturesKey", dumpKeyName, sizeof(dumpKeyName));
 	configRegisterString("Mod.TexturePackKey", toggleKeyName, sizeof(toggleKeyName));
+	configRegisterString("Mod.TexturePackReloadKey", reloadKeyName, sizeof(reloadKeyName));
+	configRegisterString("Mod.TexturePackCycleKey", cycleKeyName, sizeof(cycleKeyName));
 	configRegisterInt("Mod.DumpTextures", &dumpTextures, 0, 1);
 	configRegisterInt("Mod.DumpTextureData", &dumpTextureData, 0, 1);
 }

@@ -2785,6 +2785,8 @@ static const struct {
 	{ "Record Video\n",     recordGetKey,     recordSetKey      },
 	{ "Dump Textures\n",    texpackDumpGetKey,   texpackDumpSetKey   },
 	{ "Texture Packs On/Off\n", texpackToggleGetKey, texpackToggleSetKey },
+	{ "Reload Texture Pack\n",  texpackReloadGetKey, texpackReloadSetKey },
+	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
@@ -3025,6 +3027,22 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		(uintptr_t)menutextModKeyBind,
 		3,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		4,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		5,
 		menuhandlerModKeyBind,
 	},
 	{

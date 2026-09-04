@@ -162,6 +162,10 @@ s32 texpackDumpGetKey(void);
 void texpackDumpSetKey(s32 vk);
 s32 texpackToggleGetKey(void);
 void texpackToggleSetKey(s32 vk);
+s32 texpackReloadGetKey(void);
+void texpackReloadSetKey(s32 vk);
+s32 texpackCycleGetKey(void);
+void texpackCycleSetKey(s32 vk);
 
 /** Polled once a frame from the scheduler, like screenshotTick(). */
 void texpackTick(void);
