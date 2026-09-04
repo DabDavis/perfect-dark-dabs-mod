@@ -36,9 +36,39 @@ struct pngstate {
 	s32 colourType;
 	s32 bitDepth;
 	s32 channels;
+	s32 interlaced; // Adam7: seven subsampled passes rather than one image
 	u8 palette[256][4];
 	s32 numPaletteEntries;
 };
+
+/**
+ * Adam7. An interlaced file is seven images back to back, each a subsample of
+ * the whole - pass n holds the pixels at (x0 + i * dx, y0 + j * dy) - and each
+ * with its own filter bytes, so it unfilters as a small image of its own and
+ * its pixels are then scattered into place. A pass can be empty for a small
+ * image, and contributes nothing to the stream then.
+ */
+static const s32 pngAdamX0[7] = { 0, 4, 0, 2, 0, 1, 0 };
+static const s32 pngAdamY0[7] = { 0, 0, 4, 0, 2, 0, 1 };
+static const s32 pngAdamDX[7] = { 8, 8, 4, 4, 2, 2, 1 };
+static const s32 pngAdamDY[7] = { 8, 8, 8, 4, 4, 2, 2 };
+
+static void pngPassSize(const struct pngstate *st, s32 pass, s32 *outWidth, s32 *outHeight)
+{
+	if (!st->interlaced) {
+		*outWidth = st->width;
+		*outHeight = st->height;
+		return;
+	}
+
+	*outWidth = (st->width - pngAdamX0[pass] + pngAdamDX[pass] - 1) / pngAdamDX[pass];
+	*outHeight = (st->height - pngAdamY0[pass] + pngAdamDY[pass] - 1) / pngAdamDY[pass];
+}
+
+static u32 pngRowBytes(const struct pngstate *st, s32 width)
+{
+	return ((u32)width * (u32)st->channels * (u32)st->bitDepth + 7) / 8;
+}
 
 static u32 pngReadU32(const u8 *p)
 {
@@ -169,12 +199,13 @@ static u8 *pngGatherChunks(struct pngstate *st, const char *path, u32 *outSize)
 				goto fail;
 			}
 
-			if (data[12] != 0) {
-				// Not an error any more: texpack retries an interlaced file
-				// through stb_image, which does handle it.
-				sysLogPrintf(LOG_NOTE, "png: %s is interlaced, leaving it to the fallback", path);
+			if (data[12] > 1) {
+				sysLogPrintf(LOG_ERROR, "png: %s has interlace method %d, which does not exist",
+						path, data[12]);
 				goto fail;
 			}
+
+			st->interlaced = data[12];
 
 			switch (st->colourType) {
 			case PNG_COLOUR_GREY:       st->channels = 1; break;
@@ -263,14 +294,14 @@ fail:
  * caller's scratch buffer. Palette indices are left as they are; greyscale is
  * scaled so that the deepest value reaches 255 rather than a fraction of it.
  */
-static void pngUnpackRow(const struct pngstate *st, const u8 *src, u8 *dst)
+static void pngUnpackRow(const struct pngstate *st, const u8 *src, u8 *dst, s32 width)
 {
 	const s32 perByte = 8 / st->bitDepth;
 	const u32 mask = (1u << st->bitDepth) - 1;
 	const u32 scale = st->colourType == PNG_COLOUR_PALETTE ? 1 : 255 / mask;
 	s32 x;
 
-	for (x = 0; x < st->width; x++) {
+	for (x = 0; x < width; x++) {
 		const s32 shift = 8 - st->bitDepth * (x % perByte + 1);
 		dst[x] = (u8)(((src[x / perByte] >> shift) & mask) * scale);
 	}
@@ -280,25 +311,25 @@ static void pngUnpackRow(const struct pngstate *st, const u8 *src, u8 *dst)
  * Expands one unfiltered row into RGBA. Kept separate from the unfilter pass so
  * the colour type is switched on once per row rather than once per pixel.
  */
-static void pngRowToRgba(const struct pngstate *st, const u8 *src, u8 *dst)
+static void pngRowToRgba(const struct pngstate *st, const u8 *src, u8 *dst, s32 width)
 {
 	s32 x;
 
 	switch (st->colourType) {
 	case PNG_COLOUR_GREY:
-		for (x = 0; x < st->width; x++, dst += 4) {
+		for (x = 0; x < width; x++, dst += 4) {
 			dst[0] = dst[1] = dst[2] = src[x];
 			dst[3] = 255;
 		}
 		break;
 	case PNG_COLOUR_GREY_ALPHA:
-		for (x = 0; x < st->width; x++, dst += 4) {
+		for (x = 0; x < width; x++, dst += 4) {
 			dst[0] = dst[1] = dst[2] = src[x * 2];
 			dst[3] = src[x * 2 + 1];
 		}
 		break;
 	case PNG_COLOUR_RGB:
-		for (x = 0; x < st->width; x++, dst += 4) {
+		for (x = 0; x < width; x++, dst += 4) {
 			dst[0] = src[x * 3];
 			dst[1] = src[x * 3 + 1];
 			dst[2] = src[x * 3 + 2];
@@ -306,10 +337,10 @@ static void pngRowToRgba(const struct pngstate *st, const u8 *src, u8 *dst)
 		}
 		break;
 	case PNG_COLOUR_RGBA:
-		memcpy(dst, src, (size_t)st->width * 4);
+		memcpy(dst, src, (size_t)width * 4);
 		break;
 	case PNG_COLOUR_PALETTE:
-		for (x = 0; x < st->width; x++, dst += 4) {
+		for (x = 0; x < width; x++, dst += 4) {
 			// An index past the end of PLTE is a broken file; black is a
 			// better answer than reading whatever follows the palette.
 			const u8 idx = src[x] < st->numPaletteEntries ? src[x] : 0;
@@ -334,9 +365,11 @@ u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
 	u8 *rows = NULL;
 	u8 *rgba = NULL;
 	u8 *unpacked = NULL;
+	u8 *line = NULL;
 	uLongf rowsSize;
-	u32 rowSize;
 	u32 bpp;
+	s32 numPasses;
+	s32 pass;
 	s32 y;
 
 	memset(&st, 0, sizeof(st));
@@ -381,11 +414,24 @@ u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
 		return NULL;
 	}
 
-	// Every row is its filter byte plus one byte per channel per pixel, so the
-	// inflated size is known exactly and zlib can be given a fixed buffer.
-	rowSize = ((u32)st.width * (u32)st.channels * (u32)st.bitDepth + 7) / 8;
+	// Every row is its filter byte plus one byte per channel per pixel, and an
+	// interlaced file is its seven passes back to back, so the inflated size
+	// is known exactly either way and zlib can be given a fixed buffer.
+	numPasses = st.interlaced ? 7 : 1;
 	bpp = ((u32)st.channels * (u32)st.bitDepth + 7) / 8;
-	rowsSize = (uLongf)(rowSize + 1) * (u32)st.height;
+	rowsSize = 0;
+
+	for (pass = 0; pass < numPasses; pass++) {
+		s32 passWidth;
+		s32 passHeight;
+
+		pngPassSize(&st, pass, &passWidth, &passHeight);
+
+		if (passWidth > 0 && passHeight > 0) {
+			rowsSize += (uLongf)(pngRowBytes(&st, passWidth) + 1) * (u32)passHeight;
+		}
+	}
+
 	rows = malloc(rowsSize);
 	rgba = malloc((size_t)st.width * st.height * 4);
 
@@ -394,15 +440,13 @@ u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
 		goto fail;
 	}
 
-	if (uncompress(rows, &rowsSize, idat, idatSize) != Z_OK
-			|| rowsSize != (uLongf)(rowSize + 1) * (u32)st.height) {
-		sysLogPrintf(LOG_ERROR, "png: could not inflate %s", path);
-		goto fail;
-	}
+	{
+		const uLongf expected = rowsSize;
 
-	if (!pngUnfilter(rows, st.height, rowSize, bpp)) {
-		sysLogPrintf(LOG_ERROR, "png: %s uses a filter type that does not exist", path);
-		goto fail;
+		if (uncompress(rows, &rowsSize, idat, idatSize) != Z_OK || rowsSize != expected) {
+			sysLogPrintf(LOG_ERROR, "png: could not inflate %s", path);
+			goto fail;
+		}
 	}
 
 	if (st.bitDepth != 8) {
@@ -414,17 +458,66 @@ u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
 		}
 	}
 
-	for (y = 0; y < st.height; y++) {
-		const u8 *row = rows + (u32)(rowSize + 1) * (u32)y + 1;
+	if (st.interlaced) {
+		line = malloc((size_t)st.width * 4);
 
-		if (unpacked) {
-			pngUnpackRow(&st, row, unpacked);
-			row = unpacked;
+		if (!line) {
+			sysLogPrintf(LOG_ERROR, "png: could not alloc a row for %s", path);
+			goto fail;
 		}
-
-		pngRowToRgba(&st, row, rgba + (size_t)st.width * 4 * y);
 	}
 
+	{
+		u8 *cursor = rows;
+
+		for (pass = 0; pass < numPasses; pass++) {
+			s32 passWidth;
+			s32 passHeight;
+			u32 rowSize;
+
+			pngPassSize(&st, pass, &passWidth, &passHeight);
+
+			if (passWidth <= 0 || passHeight <= 0) {
+				continue;
+			}
+
+			rowSize = pngRowBytes(&st, passWidth);
+
+			if (!pngUnfilter(cursor, passHeight, rowSize, bpp)) {
+				sysLogPrintf(LOG_ERROR, "png: %s uses a filter type that does not exist", path);
+				goto fail;
+			}
+
+			for (y = 0; y < passHeight; y++) {
+				const u8 *row = cursor + (rowSize + 1) * (u32)y + 1;
+
+				if (unpacked) {
+					pngUnpackRow(&st, row, unpacked, passWidth);
+					row = unpacked;
+				}
+
+				if (!st.interlaced) {
+					pngRowToRgba(&st, row, rgba + (size_t)st.width * 4 * y, passWidth);
+				} else {
+					// The pass's row lands on every dx-th pixel of its row of
+					// the image.
+					const s32 imageY = pngAdamY0[pass] + y * pngAdamDY[pass];
+					u8 *dst = rgba + ((size_t)imageY * st.width + pngAdamX0[pass]) * 4;
+					s32 x;
+
+					pngRowToRgba(&st, row, line, passWidth);
+
+					for (x = 0; x < passWidth; x++) {
+						memcpy(dst + (size_t)x * pngAdamDX[pass] * 4, line + (size_t)x * 4, 4);
+					}
+				}
+			}
+
+			cursor += (rowSize + 1) * (u32)passHeight;
+		}
+	}
+
+	free(line);
 	free(unpacked);
 
 	free(rows);
@@ -437,6 +530,7 @@ u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
 	return rgba;
 
 fail:
+	free(line);
 	free(unpacked);
 	free(rows);
 	free(rgba);

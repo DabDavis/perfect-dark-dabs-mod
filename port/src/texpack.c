@@ -1595,8 +1595,8 @@ static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outH
 	u8 *rgba = isJpeg ? jpegRead(path, &width, &height) : pngRead(path, &width, &height);
 
 	if (!rgba && !isJpeg) {
-		// pngread.c refuses what it does not handle rather than guessing, and a
-		// pack's glyphs may be interlaced. stb_image is linked for JPEG anyway.
+		// pngread.c refuses what it does not handle rather than guessing.
+		// stb_image is linked for JPEG anyway, and reads more of PNG than it.
 		rgba = pngReadFallback(path, &width, &height);
 	}
 

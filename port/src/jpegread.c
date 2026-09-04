@@ -10,10 +10,11 @@
  *
  * It is also the fallback for a PNG that pngread.c declines. That decoder
  * handles what image editors write and refuses the rest rather than guessing -
- * and an Adam7 interlaced file is one of the refusals, which the PD Plus pack
- * turns out to ship a few hundred of among its font glyphs. Rather than write
- * a deinterlacer, the exotic ones go to the decoder already linked for JPEG.
- * pngRead() is still tried first, so nothing that worked before changes hands.
+ * 16 bit channels, for one - and the exotic ones go to the decoder already
+ * linked for JPEG rather than being read wrong. Adam7 interlacing used to be
+ * among the refusals, until the PD Plus pack turned out to ship a few hundred
+ * such files among its glyphs; pngread.c reads those itself now. pngRead() is
+ * still tried first, so nothing that worked before changes hands.
  */
 
 #include <stdlib.h>

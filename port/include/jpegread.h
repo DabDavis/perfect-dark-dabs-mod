@@ -20,9 +20,9 @@ u8 *jpegRead(const char *path, s32 *outWidth, s32 *outHeight);
 /**
  * A PNG that pngread.c would not take, through stb_image instead.
  *
- * That decoder refuses what it does not handle rather than guessing, and Adam7
- * interlacing is one of those - which a pack's font glyphs may well be. Only
- * worth calling after pngRead() has said no.
+ * That decoder refuses what it does not handle rather than guessing - 16 bit
+ * channels, say - and this is the second opinion. Only worth calling after
+ * pngRead() has said no.
  */
 u8 *pngReadFallback(const char *path, s32 *outWidth, s32 *outHeight);
 
