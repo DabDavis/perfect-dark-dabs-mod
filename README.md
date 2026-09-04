@@ -111,15 +111,26 @@ Screenshots need nothing extra.
 
 ## Optional: custom levels
 
-The port can mount mod directories, and this fork extends that to stages and
-Combat Simulator arenas a mod supplies. Pass one or more with `--moddir`:
+The port can mount mod directories, and this fork extends that to stages,
+Combat Simulator arenas, weapons and characters a mod supplies.
+
+**Plug and play:** make a `mods` folder next to the game and drop the mod in,
+as a folder or as the `.zip` it came as. Start the game, open Options, Extended
+Options, Load Mods, and pick it. A mod with its own segments asks for a restart
+and comes back loaded. The choice is remembered between runs. A zip is unpacked
+once, on first sight, into a folder of the same name; delete the folder to have
+it unpacked again.
+
+Or pass one or more on the command line, which wins over the menu choice:
 
 ```
 pd.x86_64 --moddir mod_allinone
 ```
 
 The directory is looked for next to the executable and in your home data
-directory. Nothing is bundled here — the **All in One Mod** and similar packs
+directory. Console mods (ROM patches) are not loaded directly: convert one with
+`tools/importmod` first, and it produces a mod folder for the above.
+Nothing is bundled here — the **All in One Mod** and similar packs
 are other people's work, and you should get them from their authors. The command
 line flags that mod's own launcher uses (`--gexmoddir` and friends) are accepted
 as aliases so its scripts work unchanged.

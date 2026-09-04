@@ -697,3 +697,24 @@ s32 fsCreateDir(const char *path)
 	return mkdir(fsFullPath(path), 0777);
 #endif
 }
+
+s32 fsRemoveDir(const char *path)
+{
+#ifdef PLATFORM_WIN32
+	return _rmdir(fsFullPath(path));
+#else
+	return rmdir(fsFullPath(path));
+#endif
+}
+
+s32 fsRename(const char *from, const char *to)
+{
+	// fsFullPath hands back one buffer, so the first expansion is copied out
+	// before the second overwrites it
+	char src[FS_MAXPATH + 1];
+
+	strncpy(src, fsFullPath(from), FS_MAXPATH);
+	src[FS_MAXPATH] = '\0';
+
+	return rename(src, fsFullPath(to));
+}

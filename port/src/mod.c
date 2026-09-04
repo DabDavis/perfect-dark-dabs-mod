@@ -6,6 +6,7 @@
 #include "system.h"
 #include "config.h"
 #include "fs.h"
+#include "archive.h"
 #include "utils.h"
 #include "romdata.h"
 #include "modloader.h"
@@ -962,7 +963,7 @@ s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim)
  */
 
 #define MOD_MODS_DIR "mods"
-#define MOD_MAX_MODS 32
+#define MOD_MAX_MODS 64
 #define MOD_NAME_LEN 64
 
 struct modlistentry {
@@ -1045,6 +1046,152 @@ static void modListScanLooseEntry(const char *name, void *arg)
 	}
 }
 
+/**
+ * Archives dropped where mod directories go.
+ *
+ * A mod passed around is a zip of its directory, and asking the player to
+ * unpack it by hand is the one step that goes wrong - into the wrong folder,
+ * or one folder too deep. So an archive found in mods/ (or a mod*.zip beside
+ * the executable) is unpacked into a directory of the same name the first time
+ * the list is read, and that directory is what gets listed. The archive stays
+ * where it was and is skipped from then on because its directory exists; a
+ * player who wants it unpacked again deletes the directory.
+ *
+ * The names are collected during the scan and unpacked after it, since writing
+ * into a directory while it is being read is undefined on some filesystems.
+ */
+struct modarchivescan {
+	const char *dir;
+	bool loose;
+	s32 count;
+	char names[MOD_MAX_MODS][MOD_NAME_LEN];
+};
+
+static void modListScanArchiveEntry(const char *name, void *arg)
+{
+	struct modarchivescan *scan = (struct modarchivescan *)arg;
+
+	if (scan->count >= (s32)ARRAYCOUNT(scan->names) || !archiveIsSupported(name)) {
+		return;
+	}
+
+	if (scan->loose && strncasecmp(name, "mod", 3)) {
+		return;
+	}
+
+	if (strlen(name) >= MOD_NAME_LEN) {
+		sysLogPrintf(LOG_WARNING, "mod: the name of %s/%s is too long to unpack", scan->dir, name);
+		return;
+	}
+
+	snprintf(scan->names[scan->count++], MOD_NAME_LEN, "%s", name);
+}
+
+/**
+ * How many entries dest holds, and the name of the last one seen, for telling
+ * an archive that wrapped its directory in one folder from a flat one.
+ */
+struct modsoleentry {
+	s32 count;
+	char name[MOD_NAME_LEN];
+};
+
+static void modListSoleEntry(const char *name, void *arg)
+{
+	struct modsoleentry *sole = (struct modsoleentry *)arg;
+
+	++sole->count;
+	snprintf(sole->name, sizeof(sole->name), "%s", name);
+}
+
+static void modListUnpackOne(const char *dir, const char *name)
+{
+	char archive[FS_MAXPATH + 1];
+	char dest[FS_MAXPATH + 1];
+	char destName[MOD_NAME_LEN];
+	const char *dot = strrchr(name, '.');
+	s32 count;
+
+	snprintf(destName, sizeof(destName), "%.*s", dot ? (int)(dot - name) : (int)strlen(name), name);
+
+	if (!destName[0]) {
+		return;
+	}
+
+	snprintf(dest, sizeof(dest), "%s/%s", dir, destName);
+
+	if (fsFileSize(dest) >= 0) {
+		// already unpacked (or a directory of that name was there first)
+		return;
+	}
+
+	snprintf(archive, sizeof(archive), "%s/%s", dir, name);
+	strncpy(archive, fsFullPath(archive), FS_MAXPATH);
+	archive[FS_MAXPATH] = '\0';
+
+	sysLogPrintf(LOG_NOTE, "mod: unpacking %s into %s, this happens once", name, destName);
+
+	{
+		char destFull[FS_MAXPATH + 1];
+
+		strncpy(destFull, fsFullPath(dest), FS_MAXPATH);
+		destFull[FS_MAXPATH] = '\0';
+		count = archiveExtract(archive, destFull);
+	}
+
+	if (count <= 0) {
+		sysLogPrintf(LOG_ERROR, "mod: nothing came out of %s", name);
+		fsRemoveDir(dest); // only goes if it is empty, so a partial unpack stays for a look
+		return;
+	}
+
+	// An archive made of the directory rather than its contents lands one
+	// folder deep. Hoist that folder up so the mod is where the list looks.
+	if (!modListLooksLikeMod(dest)) {
+		struct modsoleentry sole = { 0, "" };
+		char inner[FS_MAXPATH + 1];
+
+		fsScanDir(dest, modListSoleEntry, &sole);
+		snprintf(inner, sizeof(inner), "%s/%s", dest, sole.name);
+
+		if (sole.count == 1 && modListLooksLikeMod(inner)) {
+			char tmp[FS_MAXPATH + 1];
+
+			snprintf(tmp, sizeof(tmp), "%s/%s.unpacking", dir, destName);
+
+			if (fsRename(inner, tmp) == 0 && fsRemoveDir(dest) == 0 && fsRename(tmp, dest) == 0) {
+				sysLogPrintf(LOG_NOTE, "mod: %s kept its mod in a folder called %s; hoisted", name, sole.name);
+			} else {
+				sysLogPrintf(LOG_WARNING, "mod: could not hoist %s out of %s; the mod is listed as is", sole.name, destName);
+			}
+		}
+	}
+
+	if (modListLooksLikeMod(dest)) {
+		sysLogPrintf(LOG_NOTE, "mod: unpacked %d files from %s", count, name);
+	} else {
+		sysLogPrintf(LOG_WARNING, "mod: %s unpacked %d files but is not a mod directory: no files/, segs/, textures/ or "
+				MOD_CONFIG_FNAME " inside. A console ROM patch needs tools/importmod first.", name, count);
+	}
+}
+
+static void modListUnpackArchives(const char *dir, bool loose)
+{
+	struct modarchivescan scan;
+
+	scan.dir = dir;
+	scan.loose = loose;
+	scan.count = 0;
+
+	if (fsScanDir(dir, modListScanArchiveEntry, &scan) < 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < scan.count; ++i) {
+		modListUnpackOne(dir, scan.names[i]);
+	}
+}
+
 void modListRefresh(void)
 {
 	static const char *const containers[] = { "$E/" MOD_MODS_DIR, "$H/" MOD_MODS_DIR, "./" MOD_MODS_DIR };
@@ -1053,10 +1200,12 @@ void modListRefresh(void)
 	numModsListed = 0;
 
 	for (s32 i = 0; i < ARRAYCOUNT(containers); ++i) {
+		modListUnpackArchives(containers[i], false);
 		fsScanDir(containers[i], modListScanEntry, (void *)containers[i]);
 	}
 
 	for (s32 i = 0; i < ARRAYCOUNT(loose); ++i) {
+		modListUnpackArchives(loose[i], true);
 		fsScanDir(loose[i], modListScanLooseEntry, (void *)loose[i]);
 	}
 }

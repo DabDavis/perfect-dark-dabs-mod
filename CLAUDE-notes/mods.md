@@ -40,7 +40,21 @@ The list is directories under `mods/` plus loose `mod*` folders beside the
 executable, each one having to contain `files/`, `segs/`, `textures/` or a
 `modconfig.txt` before it counts. A `--moddir` on the command line wins over the
 config and the page says so — the All in One launcher passes several, and a
-stored choice quietly displacing them would be a bug nobody could see.
+stored choice quietly displacing them would be a bug nobody could see. The list
+holds 64 (`MOD_MAX_MODS`); the archive trial's 44 overflowed the old 32.
+
+**An archive in those places is unpacked** (2026-09-04): `modListRefresh()`
+first unpacks any `.zip`, `.7z` or `.pk3` in `mods/`, and any `mod*.zip` beside
+the executable, into a directory of the archive's name through `archiveExtract()`
+(the texture packs' reader in `archive.c`), then scans as before. An archive that
+wrapped its directory in one folder is hoisted (`fsRename()` of the inner folder
+over the outer one), so both ways of zipping a mod dir land the same. The archive
+stays where it was and is skipped from then on because the directory exists;
+deleting the directory unpacks it again. A zip of something that is not a mod
+directory - a raw console patch, say - unpacks and is logged as needing
+`tools/importmod`; a broken archive leaves nothing and is logged each boot. This
+runs at boot too (`modListApplySelection()`), so a zip dropped in before starting
+the game is on the page at first sight.
 
 `tools/importmod` builds a mod directory out of a console mod's xdelta, and
 `tools/modcodediff` shows what that mod changed in the ROM's code.

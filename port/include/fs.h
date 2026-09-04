@@ -29,6 +29,10 @@ void fsReplaceModDir(const char *path);
 s32 fsGetNumModDirs(void);
 const char *fsGetModDirAt(s32 index);
 s32 fsCreateDir(const char *path);
+// Removes an empty directory. Returns 0 on success.
+s32 fsRemoveDir(const char *path);
+// Renames a file or directory; the destination must not exist. Returns 0 on success.
+s32 fsRename(const char *from, const char *to);
 
 // Picks and creates the directory a player's own files should go in: beside the
 // executable where that can be written, and in the save directory where it
