@@ -64,6 +64,10 @@ struct moddataspec {
 	s32 numcommandlengths;
 	u32 solostages;      // g_SoloStages[], the mission list
 	s32 numsolostages;
+	u32 fogenvs;         // g_FogEnvironments[], ROM layout (44 bytes an entry)
+	s32 numfogenvs;
+	u32 nofogenvs;       // g_NoFogEnvironments[], ROM layout (56 bytes an entry)
+	s32 numnofogenvs;
 };
 
 // The solo player's body and head as the mod's code has them, or def.

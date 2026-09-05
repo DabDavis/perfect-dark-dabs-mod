@@ -726,6 +726,12 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		} else if (!strcmp(token, "solostages")) {
 			PARSE_ADDR("datasegment", "solostages", spec.solostages, NULL);
 			PARSE_INT("datasegment", "solostages count", spec.numsolostages, 0, 4096, NULL);
+		} else if (!strcmp(token, "fogenvs")) {
+			PARSE_ADDR("datasegment", "fogenvs", spec.fogenvs, NULL);
+			PARSE_INT("datasegment", "fogenvs count", spec.numfogenvs, 0, 4096, NULL);
+		} else if (!strcmp(token, "nofogenvs")) {
+			PARSE_ADDR("datasegment", "nofogenvs", spec.nofogenvs, NULL);
+			PARSE_INT("datasegment", "nofogenvs count", spec.numnofogenvs, 0, 4096, NULL);
 		} else if (!strcmp(token, "commandlengths")) {
 			PARSE_ADDR("datasegment", "commandlengths", spec.commandlengths, NULL);
 			PARSE_INT("datasegment", "commandlengths count", spec.numcommandlengths, 0, 4096, NULL);

@@ -299,6 +299,21 @@ void envSetStageNum(s32 stagenum)
 	// empty
 }
 
+#ifndef PLATFORM_N64
+// The tables the chooser walks: the port's, until a mod brings its own
+static struct fogenvironment *g_FogEnvs = g_FogEnvironments;
+static struct nofogenvironment *g_NoFogEnvs = g_NoFogEnvironments;
+
+void envSetTables(struct fogenvironment *fog, struct nofogenvironment *nofog)
+{
+	g_FogEnvs = fog ? fog : g_FogEnvironments;
+	g_NoFogEnvs = nofog ? nofog : g_NoFogEnvironments;
+}
+#else
+#define g_FogEnvs g_FogEnvironments
+#define g_NoFogEnvs g_NoFogEnvironments
+#endif
+
 void envChooseAndApply(s32 stagenum, bool allowoverride)
 {
 	struct nofogenvironment *finalenv = NULL;
@@ -313,7 +328,7 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 	// If allowoverride is set, try to find an env1 with stage + 900.
 	// But allowoverride is never set, so this never happens.
 	if (allowoverride) {
-		for (env1 = &g_FogEnvironments[0]; env1->stage != 0; env1++) {
+		for (env1 = &g_FogEnvs[0]; env1->stage != 0; env1++) {
 			if (env1->stage == stagenum + 900) {
 				g_EnvOrigFogEnvironment = env1;
 				g_EnvTransitionFrom = env1;
@@ -325,7 +340,7 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 	}
 
 	// Try to find an env1
-	for (env1 = &g_FogEnvironments[0]; env1->stage != 0; env1++) {
+	for (env1 = &g_FogEnvs[0]; env1->stage != 0; env1++) {
 		if (env1->stage == stagenum) {
 			g_EnvOrigFogEnvironment = env1;
 			g_EnvTransitionFrom = env1;
@@ -336,7 +351,7 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 	}
 
 	// Try to find an env2
-	for (env2 = &g_NoFogEnvironments[0]; env2->stage != 0; env2++) {
+	for (env2 = &g_NoFogEnvs[0]; env2->stage != 0; env2++) {
 		if (env2->stage == stagenum) {
 			finalenv = env2;
 		}
@@ -345,7 +360,7 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 	if (env2);
 
 	if (finalenv == NULL) {
-		finalenv = &g_NoFogEnvironments[0];
+		finalenv = &g_NoFogEnvs[0];
 	}
 
 	envApplyNoFogEnvironment(finalenv);

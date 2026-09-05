@@ -25,3 +25,9 @@ struct distfadesettings *envGetDistFadeSettings(void);
 s32 envGetObjShadeMode(struct prop *prop, f32 arg1[4]);
 
 #endif
+
+#ifndef PLATFORM_N64
+// A mod's own tables in place of g_FogEnvironments and g_NoFogEnvironments,
+// each ending at a 0 stage; NULL keeps the port's
+void envSetTables(struct fogenvironment *fog, struct nofogenvironment *nofog);
+#endif

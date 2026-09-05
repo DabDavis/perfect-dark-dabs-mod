@@ -618,3 +618,22 @@ each is written down because both hunts began in the wrong place.
   right left each glyph a filled block. The arrays are now written with
   `PD_BE16()` so they sit in memory like a ROM palette; `texpackGlyphIndexBuild()`
   hashes them as bytes. Any in-code TLUT a future change adds needs the same.
+
+## The stage environments: sky, fog and clouds (2026-09-05)
+
+"The starting room of Runway is black and the sky is black with pixels." A
+stage's sky colour, fog, clouds, water and suns come from two tables in env.c,
+`g_FogEnvironments` (44 bytes an entry, s16 stage) and `g_NoFogEnvironments`
+(56 bytes, s32 stage), each walked to a 0 stage by `envChooseAndApply()`.
+Neither was imported, so GE-X's Runway, in Extraction's slot, got Extraction's
+entry: black sky, no clouds. GE-X grows the fog table to 55 entries over the
+no-fog table's old place and moves that one (23 entries) to 0x80081b04,
+which `followTable()` finds from the two code references; its Runway entry
+is a fog one, sky 0x103040 with the Area 51 sun.
+
+The block carries `fogenvs` and `nofogenvs`; `importEnvs()` in moddata.c
+rebuilds both in the port's layout (the ROM's differs by the suns pointer,
+which `importSuns()` resolves into the segment) with a zeroed terminator,
+and `envSetTables()` in env.c points the chooser at them - the port's arrays
+are too small for GE-X's fog table, so they are replaced rather than
+overwritten. `--moddata-trace` lists every entry. Importer version 7.

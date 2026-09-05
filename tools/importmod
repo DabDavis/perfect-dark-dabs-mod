@@ -1635,6 +1635,23 @@ def count_stages(seg, base, addr, limit):
     return n
 
 
+def count_envs(seg, base, addr, size, fog, limit):
+    """Entries of an environment table (env.c): a stage number first, s16 in
+    the fog table and s32 in the no-fog one, and a 0 stage ending it."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * size
+        if ofs + size > len(seg):
+            break
+        stagenum = int.from_bytes(seg[ofs:ofs + (2 if fog else 4)], 'big', signed=True)
+        if stagenum == 0:
+            return n
+        if not -1 <= stagenum < 0x400:
+            break
+        n += 1
+    return 0
+
+
 def count_indexes(seg, base, addr, limit, maxvalue):
     n = 0
     while n < limit:
@@ -1855,6 +1872,21 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             notes.append('%d stages at %08x%s' % (n, stages, note))
         else:
             notes.append('what is at %08x does not read as the stage table; left out' % stages)
+
+    # the sky, fog and clouds of each stage: two tables env.c walks to a 0
+    # stage, the fog one first. GE-X grows the fog table over the no-fog one's
+    # old place and moves that one; without them its Runway, in Extraction's
+    # slot, gets Extraction's black indoor sky
+    for key, sym, size, fog in (('fogenvs', 'g_FogEnvironments', 44, True),
+                                ('nofogenvs', 'g_NoFogEnvironments', 56, False)):
+        addr, note = locate(sym)
+        if addr:
+            n = count_envs(seg, base, addr, size, fog, 64)
+            if n:
+                lines.append('  %s 0x%08x %d' % (key, addr, n))
+                notes.append('%d %s at %08x%s' % (n, key, addr, note))
+            else:
+                notes.append('what is at %08x does not read as the %s table; left out' % (addr, key))
 
     # the mission list: which stage each solo mission slot loads and its
     # title ids. GE-X moves six missions to stage ids the menu never used

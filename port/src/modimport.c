@@ -2193,6 +2193,9 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	{ "g_MaleGuardTeamHeads", 0x80062c14, 0x44 },
 	{ "g_FemaleGuardHeads", 0x80062c58, 0x14 },
 	{ "g_FemaleGuardTeamHeads", 0x80062c6c, 0x14 },
+	// the sky, fog and clouds of each stage (env.c)
+	{ "g_FogEnvironments",   0x80081164, 0x268 },
+	{ "g_NoFogEnvironments", 0x800813cc, 0xc84 },
 	{ "g_Stages",         0x8007fcc0, 0xd60 },
 	{ "g_CommandLengths", 0x80068c14, 0x3e4 },
 	{ "g_SoloStages",     0x80071e6c, 0xfc },
@@ -2424,6 +2427,29 @@ static u32 countStages(const struct tablectx *t, u32 addr, u32 limit)
 		++n;
 	}
 	return n;
+}
+
+// Entries of an environment table: a stage number first (s16 in the fog
+// table, s32 in the no-fog one), a 0 stage ending it
+static u32 countEnvs(const struct tablectx *t, u32 addr, u32 size, u32 fog, u32 limit)
+{
+	u32 n = 0;
+	while (n < limit) {
+		const u8 *e = tableEntry(t, addr, n, size);
+		s32 stagenum;
+		if (!e) {
+			break;
+		}
+		stagenum = fog ? (s16)be16(e, 0) : (s32)be32(e, 0);
+		if (stagenum == 0) {
+			return n;
+		}
+		if (!(stagenum >= -1 && stagenum < 0x400)) {
+			break;
+		}
+		++n;
+	}
+	return 0;
 }
 
 static u32 countIndexes(const struct tablectx *t, u32 addr, u32 limit, u32 maxvalue)
@@ -2702,6 +2728,29 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			rep("  %u stages at %08x%s", n, addr, tnote);
 		} else {
 			rep("  what is at %08x does not read as the stage table; left out", addr);
+		}
+	}
+
+	// the sky, fog and clouds of each stage: two tables env.c walks to a 0
+	// stage, the fog one first. GE-X grows the fog table over the no-fog
+	// one's old place and moves that one; without them its Runway, in
+	// Extraction's slot, gets Extraction's black indoor sky
+	{
+		static const struct { const char *key; const char *sym; u32 size; u32 fog; } envs[] = {
+			{ "fogenvs",   "g_FogEnvironments",   44, 1 },
+			{ "nofogenvs", "g_NoFogEnvironments", 56, 0 },
+		};
+		for (u32 i = 0; i < sizeof(envs) / sizeof(envs[0]); ++i) {
+			addr = locateTable(&t, envs[i].sym, tnote, sizeof(tnote));
+			if (addr) {
+				const u32 n = countEnvs(&t, addr, envs[i].size, envs[i].fog, 64);
+				if (n) {
+					LINE("  %s 0x%08x %u\n", envs[i].key, addr, n);
+					rep("  %u %s at %08x%s", n, envs[i].key, addr, tnote);
+				} else {
+					rep("  what is at %08x does not read as the %s table; left out", addr, envs[i].key);
+				}
+			}
 		}
 	}
 

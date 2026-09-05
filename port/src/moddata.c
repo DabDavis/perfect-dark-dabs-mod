@@ -39,6 +39,7 @@
 #include "mod.h"
 #include "data.h"
 #include "game/stagetable.h"
+#include "game/env.h"
 #include "game/mplayer/setup.h"
 
 #define GUNCMD_MAX_LEN     512
@@ -1126,6 +1127,139 @@ static s32 importMpWeaponSets(const struct moddataspec *spec)
 static s32 modPlayerBody = -1;
 static s32 modPlayerHead = -1;
 
+/**
+ * The suns an environment entry points at: numsuns of them, 20 bytes each in
+ * the ROM, at a segment address. NULL when there are none.
+ */
+static struct sun *importSuns(u32 addr, s32 num)
+{
+	struct sun *suns;
+
+	if (!addr || num <= 0 || num > 8) {
+		return NULL;
+	}
+
+	suns = sysMemZeroAlloc(sizeof(struct sun) * num);
+
+	if (!suns) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < num; ++i) {
+		const u32 at = addr + i * 0x14;
+		suns[i].lens_flare = rd8(at + 0);
+		suns[i].red = rd8(at + 1);
+		suns[i].green = rd8(at + 2);
+		suns[i].blue = rd8(at + 3);
+		suns[i].pos[0] = rdf32(at + 4);
+		suns[i].pos[1] = rdf32(at + 8);
+		suns[i].pos[2] = rdf32(at + 12);
+		suns[i].texture_size = (s16)rd16(at + 16);
+		suns[i].orb_size = (s16)rd16(at + 18);
+	}
+
+	return suns;
+}
+
+/**
+ * The sky, fog and clouds of each stage: env.c's two tables, rebuilt from
+ * the segment in the port's layout (the ROM's differs by the suns pointer)
+ * and handed to envChooseAndApply() in place of the port's. Each ends at a
+ * zeroed entry, as the walk there expects.
+ */
+static s32 importEnvs(const struct moddataspec *spec)
+{
+	struct fogenvironment *fog = NULL;
+	struct nofogenvironment *nofog = NULL;
+	s32 nf = 0, nn = 0;
+
+	if (spec->fogenvs && spec->numfogenvs > 0) {
+		fog = sysMemZeroAlloc(sizeof(struct fogenvironment) * (spec->numfogenvs + 1));
+		for (s32 i = 0; fog && i < spec->numfogenvs; ++i) {
+			const u32 at = spec->fogenvs + i * 44;
+			struct fogenvironment *e = &fog[i];
+			e->stage = (s16)rd16(at + 0x00);
+			e->near = (s16)rd16(at + 0x02);
+			e->far = (s16)rd16(at + 0x04);
+			e->opaperc = (s16)rd16(at + 0x06);
+			e->xluperc = (s16)rd16(at + 0x08);
+			e->refdist = (s16)rd16(at + 0x0a);
+			e->fogmin = (s16)rd16(at + 0x0c);
+			e->fogmax = (s16)rd16(at + 0x0e);
+			e->sky_r = rd8(at + 0x10);
+			e->sky_g = rd8(at + 0x11);
+			e->sky_b = rd8(at + 0x12);
+			e->numsuns = rd8(at + 0x13);
+			e->suns = importSuns(rd32(at + 0x14), e->numsuns);
+			if (!e->suns) {
+				e->numsuns = 0;
+			}
+			e->clouds_enabled = rd8(at + 0x18);
+			e->clouds_scale = (s16)rd16(at + 0x1a);
+			e->clouds_type = rd8(at + 0x1c);
+			e->clouds_r = rd8(at + 0x1d);
+			e->clouds_g = rd8(at + 0x1e);
+			e->clouds_b = rd8(at + 0x1f);
+			e->water_enabled = rd8(at + 0x20);
+			e->water_scale = (s16)rd16(at + 0x22);
+			e->water_type = rd8(at + 0x24);
+			e->water_r = rd8(at + 0x25);
+			e->water_g = rd8(at + 0x26);
+			e->water_b = rd8(at + 0x27);
+			e->clouds_height = rd8(at + 0x28);
+			++nf;
+			if (modDataTrace) {
+				sysLogPrintf(LOG_NOTE, "moddata: fog env %d: stage %d sky %02x%02x%02x fog %d-%d clouds %d suns %d",
+						i, e->stage, e->sky_r, e->sky_g, e->sky_b, e->fogmin, e->fogmax, e->clouds_enabled, e->numsuns);
+			}
+		}
+	}
+
+	if (spec->nofogenvs && spec->numnofogenvs > 0) {
+		nofog = sysMemZeroAlloc(sizeof(struct nofogenvironment) * (spec->numnofogenvs + 1));
+		for (s32 i = 0; nofog && i < spec->numnofogenvs; ++i) {
+			const u32 at = spec->nofogenvs + i * 56;
+			struct nofogenvironment *e = &nofog[i];
+			e->stage = (s32)rd32(at + 0x00);
+			e->near = (s16)rd16(at + 0x04);
+			e->far = (s16)rd16(at + 0x06);
+			e->opaperc = (s16)rd16(at + 0x08);
+			e->xluperc = (s16)rd16(at + 0x0a);
+			e->refdist = (s16)rd16(at + 0x0c);
+			e->sky_r = rd8(at + 0x0e);
+			e->sky_g = rd8(at + 0x0f);
+			e->sky_b = rd8(at + 0x10);
+			e->numsuns = rd8(at + 0x11);
+			e->suns = importSuns(rd32(at + 0x14), e->numsuns);
+			if (!e->suns) {
+				e->numsuns = 0;
+			}
+			e->clouds_enabled = rd8(at + 0x18);
+			e->clouds_r = rd8(at + 0x19);
+			e->clouds_g = rd8(at + 0x1a);
+			e->clouds_b = rd8(at + 0x1b);
+			e->clouds_scale = rdf32(at + 0x1c);
+			e->clouds_type = (s16)rd16(at + 0x20);
+			e->water_enabled = rd8(at + 0x22);
+			e->water_r = rd8(at + 0x23);
+			e->water_g = rd8(at + 0x24);
+			e->water_b = rd8(at + 0x25);
+			e->water_scale = rdf32(at + 0x28);
+			e->water_type = (s16)rd16(at + 0x2c);
+			e->clouds_height = rdf32(at + 0x30);
+			e->transparency = rd8(at + 0x34);
+			++nn;
+			if (modDataTrace) {
+				sysLogPrintf(LOG_NOTE, "moddata: no-fog env %d: stage %d sky %02x%02x%02x clouds %d suns %d",
+						i, e->stage, e->sky_r, e->sky_g, e->sky_b, e->clouds_enabled, e->numsuns);
+			}
+		}
+	}
+
+	envSetTables(fog, nofog);
+	return nf + nn;
+}
+
 static s32 importStages(const struct moddataspec *spec)
 {
 	s32 count = spec->numstages;
@@ -1655,6 +1789,11 @@ s32 modDataImport(const struct moddataspec *spec)
 
 	if (spec->stages && spec->numstages > 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d stages from %08x", importStages(spec), spec->stages);
+	}
+
+	if ((spec->fogenvs && spec->numfogenvs > 0) || (spec->nofogenvs && spec->numnofogenvs > 0)) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d stage environments (sky, fog, clouds) from %08x and %08x",
+				importEnvs(spec), spec->fogenvs, spec->nofogenvs);
 	}
 
 	if (spec->solostages && spec->numsolostages > 0) {
