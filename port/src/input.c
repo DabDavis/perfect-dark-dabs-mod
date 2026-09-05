@@ -729,6 +729,75 @@ static void inputMigrateRollBind(s32 ctrl)
 	}
 }
 
+static s32 inputHasBind(s32 ctrl, u32 ck, u32 vk)
+{
+	s32 b;
+
+	for (b = 0; b < INPUT_MAX_BINDS; ++b) {
+		if (binds[ctrl][ck][b] == vk) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static void inputRemoveBind(s32 ctrl, u32 ck, u32 vk)
+{
+	s32 b;
+
+	for (b = 0; b < INPUT_MAX_BINDS; ++b) {
+		if (binds[ctrl][ck][b] == vk) {
+			binds[ctrl][ck][b] = 0;
+		}
+	}
+}
+
+static void inputEnsureBind(s32 ctrl, u32 ck, u32 vk)
+{
+	if (!inputHasBind(ctrl, ck, vk)) {
+		inputKeyBind(ctrl, ck, -1, vk);
+	}
+}
+
+/**
+ * Akimbo Triggers, on every controller: the left trigger becomes the left
+ * hand's own fire button, aim mode moves from the left trigger to the left
+ * bumper, and the radial menu moves from the bumper to D-pad up, which stops
+ * being a duplicate of stick-forward. Off puts each of the three back.
+ *
+ * Only the buttons named are touched, so a controller the player has rebound
+ * elsewhere keeps its other changes; and each move adds the new button only
+ * when it is not already there, so applying the same state twice is harmless.
+ */
+void inputApplyAkimboTriggers(s32 on)
+{
+	s32 ctrl;
+
+	for (ctrl = 0; ctrl < INPUT_MAX_CONTROLLERS; ++ctrl) {
+		const u32 base = VK_JOY_BEGIN + ctrl * INPUT_MAX_CONTROLLER_BUTTONS;
+		const u32 lt = base + (VK_JOY1_LTRIG - VK_JOY1_BEGIN);
+		const u32 lb = base + SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+		const u32 dup = base + SDL_CONTROLLER_BUTTON_DPAD_UP;
+
+		if (on) {
+			inputRemoveBind(ctrl, CK_RTRIG, lt);
+			inputEnsureBind(ctrl, CK_RTRIG, lb);
+			inputRemoveBind(ctrl, CK_DPAD_D, lb);
+			inputEnsureBind(ctrl, CK_DPAD_D, dup);
+			inputRemoveBind(ctrl, CK_C_U, dup);
+			inputEnsureBind(ctrl, CK_0040, lt);
+		} else {
+			inputRemoveBind(ctrl, CK_0040, lt);
+			inputRemoveBind(ctrl, CK_RTRIG, lb);
+			inputEnsureBind(ctrl, CK_RTRIG, lt);
+			inputRemoveBind(ctrl, CK_DPAD_D, dup);
+			inputEnsureBind(ctrl, CK_DPAD_D, lb);
+			inputEnsureBind(ctrl, CK_C_U, dup);
+		}
+	}
+}
+
 static inline void inputLoadBinds(void)
 {
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i) {

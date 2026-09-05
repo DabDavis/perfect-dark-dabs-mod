@@ -55,6 +55,7 @@ bool bgunSetState(s32 handnum, s32 state);
 void bgunTickHand(s32 handnum);
 void bgunTickSwitch(void);
 void bgunInitHandAnims(void);
+void bgunSetLeftTrigger(bool on);
 f32 bgunGetNoiseRadius(s32 handnum);
 void bgunDecreaseNoiseRadius(void);
 void bgunCalculateBlend(s32 hand);

@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/activemenu.h"
+#include "game/modoptions.h"
 #include "game/bondbike.h"
 #include "game/bondgrab.h"
 #include "game/bondmove.h"
@@ -636,6 +637,7 @@ void bmoveResetMoveData(struct movedata *data)
 	data->canswivelgun = 0;
 	data->canmanualaim = 0;
 	data->triggeron = false;
+	data->fireleft = false;
 	data->btapcount = 0;
 	data->canlookahead = false;
 	data->unk14 = 0;
@@ -1241,6 +1243,17 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED
 						&& (c1buttons & A_BUTTON) == 0
 						&& (c2buttons & A_BUTTON) == 0;
+
+#ifndef PLATFORM_N64
+					// Akimbo Triggers: the left hand's own trigger, on the
+					// same terms as the right's
+					movedata.fireleft = modIsAkimboTriggersOn()
+						&& allowc1buttons
+						&& joyGetButtons(shootpad, shootallowedbuttons & BUTTON_FIRELEFT)
+						&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED
+						&& (c1buttons & A_BUTTON) == 0
+						&& (c2buttons & A_BUTTON) == 0;
+#endif
 				}
 
 				movedata.disablelookahead = true;
@@ -1869,6 +1882,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if (controlmode != CONTROLMODE_PC) {
 						movedata.triggeron = movedata.triggeron && ((c1buttons & invbuttons) == 0);
 					}
+
+#ifndef PLATFORM_N64
+					movedata.fireleft = modIsAkimboTriggersOn()
+						&& (c1buttons & BUTTON_FIRELEFT)
+						&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED;
+#endif
 				}
 
 				if (controlmode == CONTROLMODE_12 || controlmode == CONTROLMODE_14 || controlmode == CONTROLMODE_PC) {
@@ -1908,6 +1927,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		movedata.speedvertaup = savedverta;
 	}
 
+#ifndef PLATFORM_N64
+	bgunSetLeftTrigger(movedata.fireleft);
+#endif
 	bgunTickGameplay(movedata.triggeron);
 
 	if (g_Vars.bondvisible && (bgunIsFiring(HAND_RIGHT) || bgunIsFiring(HAND_LEFT))) {

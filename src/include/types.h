@@ -5132,6 +5132,7 @@ struct movedata {
 	/*0x00*/ bool canswivelgun;
 	/*0x04*/ bool canmanualaim;
 	/*0x08*/ bool triggeron;
+	bool fireleft; // Akimbo Triggers: the left hand's trigger, read beside triggeron
 	/*0x0c*/ s32 btapcount;
 	/*0x10*/ bool canlookahead;
 	/*0x14*/ s32 unk14;

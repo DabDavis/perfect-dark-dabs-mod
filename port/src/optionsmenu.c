@@ -1763,6 +1763,7 @@ static const struct menubind menuBinds[] = {
 	{ CK_8000,   "Cycle Crouch [+]\n",  "N64 Ext 8000\n" },
 	{ CK_4000,   "Half Crouch [+]\n",   "N64 Ext 4000\n" },
 	{ CK_2000,   "Full Crouch [+]\n",   "N64 Ext 2000\n" },
+	{ CK_0040,   "Fire Left [+]\n",     "N64 Ext 0040\n" },
 	// Third Person and Combat Roll are not here. They belong to this fork, so
 	// they are bound from Dab's Mod Options with the settings they drive.
 	{ CK_ACCEPT, "UI Accept [+]\n",     "EXT UI Accept\n" },
@@ -1785,6 +1786,7 @@ static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menu
 	}
 
 struct menuitem g_ExtendedBindsMenuItems[] = {
+	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
@@ -2186,6 +2188,24 @@ static MenuItemHandlerResult menuhandlerModAkimbo(s32 operation, struct menuitem
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = g_ModOptions.akimbo;
+	}
+
+	return 0;
+}
+
+/**
+ * Akimbo Triggers: a trigger per hand on a controller. Turning it on or off
+ * rewrites the three controller binds it needs, there and then.
+ */
+static MenuItemHandlerResult menuhandlerModAkimboTriggers(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.akimbotriggers;
+	case MENUOP_SET:
+		g_ModOptions.akimbotriggers = data->checkbox.value;
+		inputApplyAkimboTriggers(g_ModOptions.akimbotriggers);
+		break;
 	}
 
 	return 0;
@@ -3064,6 +3084,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Akimbo",
 		0,
 		menuhandlerModAkimbo,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Akimbo Triggers",
+		0,
+		menuhandlerModAkimboTriggers,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

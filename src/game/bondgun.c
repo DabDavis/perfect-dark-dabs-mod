@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
+#include "game/modoptions.h"
 #include "game/bondwalk.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -11873,11 +11874,29 @@ bool bgunIsUsingSecondaryFunction(void)
  *
  * This function is not called during cutscenes.
  */
+#ifndef PLATFORM_N64
+/**
+ * Akimbo Triggers: the left hand's trigger for this tick, set by the move
+ * tick just before bgunTickGameplay() reads it. Per player, since the two
+ * run for one player at a time.
+ */
+static bool g_BgunLeftTrigger[MAX_PLAYERS];
+
+void bgunSetLeftTrigger(bool on)
+{
+	g_BgunLeftTrigger[g_Vars.currentplayernum] = on;
+}
+#endif
+
 void bgunTickGameplay(bool triggeron)
 {
 	s32 gunsfiring[2] = {false, false};
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
+#ifndef PLATFORM_N64
+	bool lefttrigger = g_BgunLeftTrigger[g_Vars.currentplayernum];
+	bool split = false;
+#endif
 
 	// Remove weapons if in passive mode
 	if (g_Vars.currentplayer->gunctrl.passivemode) {
@@ -11946,6 +11965,29 @@ void bgunTickGameplay(bool triggeron)
 	if (bwalkIsRolling()) {
 		triggeron = false;
 	}
+
+	// Akimbo Triggers: whatever silenced the right trigger silences the left
+	if (g_Vars.currentplayer->gunctrl.passivemode || g_Vars.tickmode == TICKMODE_CUTSCENE || bwalkIsRolling()) {
+		lefttrigger = false;
+	}
+
+	// With a gun in each hand and a trigger for each, the hands are set
+	// straight from their triggers and the alternation below is skipped:
+	// each fires at its own rate for as long as its trigger is held. The
+	// player-level trigger is either, so releasing both still auto-selects
+	// the way releasing the one trigger did.
+	if (modIsAkimboTriggersOn()
+			&& player->hands[HAND_LEFT].inuse
+			&& player->hands[HAND_RIGHT].inuse
+			&& !weaponHasFlag2(player->gunctrl.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
+		split = true;
+		gunsfiring[HAND_RIGHT] = triggeron;
+		gunsfiring[HAND_LEFT] = lefttrigger;
+		triggeron = triggeron || lefttrigger;
+	} else if (lefttrigger) {
+		// One gun: either trigger fires it
+		triggeron = true;
+	}
 #endif
 
 	player->playertriggerprev = player->playertriggeron;
@@ -11958,6 +12000,15 @@ void bgunTickGameplay(bool triggeron)
 
 	// Handle gun firing - particularly alternating
 	// between left and right if dual wielding
+#ifndef PLATFORM_N64
+	if (split) {
+		if (player->playertriggeron) {
+			player->playertrigtime240 += g_Vars.lvupdate240;
+		} else {
+			player->playertrigtime240 = 0;
+		}
+	} else
+#endif
 	if (player->playertriggeron) {
 		player->playertrigtime240 += g_Vars.lvupdate240;
 
