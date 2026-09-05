@@ -5462,6 +5462,19 @@ void bgunTickSwitch2(void)
 				ctrl->dualwielding = false;
 			}
 
+#ifndef PLATFORM_N64
+			// Akimbo never drops: whatever the player switches to comes up
+			// in both hands, cycled to or picked from the menu, whether or
+			// not the inventory holds a dual of it. Both hands run on the
+			// one weapon number, so the pair is always two of the same gun;
+			// the detonator hand keeps its own arrangement.
+			if (modIsAkimboForPlayers()
+					&& modCanAkimbo(ctrl->switchtoweaponnum)
+					&& !weaponHasFlag2(ctrl->switchtoweaponnum, WEAPONFLAG2_DETONATORHAND)) {
+				ctrl->dualwielding = true;
+			}
+#endif
+
 			func0f0d7364();
 
 			bgunFreeWeapon(HAND_LEFT);
