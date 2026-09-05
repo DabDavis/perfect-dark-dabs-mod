@@ -121,6 +121,15 @@ static s32 g_ModAlarmCountdown60 = 0;
 static s32 g_ModAlarmNumWaypoints = 0;
 static s32 g_ModAlarmReserve = 0;
 
+/**
+ * The match's guard tally, by match slot: how many guards each player or
+ * simulant has killed, and how many times a guard has killed them. Guards
+ * are outside the match's own kill table - a guard kill is worth no score -
+ * so this is the count the results screen shows beside it.
+ */
+static s32 g_ModAlarmGuardKills[MAX_MPCHRS];
+static s32 g_ModAlarmGuardDeaths[MAX_MPCHRS];
+
 extern s32 g_ChrSpawnTrace; // chraction.c, --chr-trace
 
 // propobj.c has it, and no header does; it is chrGiveWeapon() with the chr
@@ -296,6 +305,11 @@ void modAlarmReset(void)
 		g_ModAlarmGuards[i].chr = NULL;
 		g_ModAlarmGuards[i].chrnum = -1;
 		g_ModAlarmGuards[i].spawned60 = 0;
+	}
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		g_ModAlarmGuardKills[i] = 0;
+		g_ModAlarmGuardDeaths[i] = 0;
 	}
 
 	g_ModAlarmNumHeads = 0;
@@ -661,6 +675,59 @@ static bool modAlarmSpawnOne(s32 bodynum)
 	return false;
 }
 
+void modAlarmRecordGuardKill(s32 aplayernum)
+{
+	if (aplayernum >= 0 && aplayernum < MAX_MPCHRS) {
+		g_ModAlarmGuardKills[aplayernum]++;
+	}
+}
+
+void modAlarmRecordGuardDeath(s32 vplayernum)
+{
+	if (vplayernum >= 0 && vplayernum < MAX_MPCHRS) {
+		g_ModAlarmGuardDeaths[vplayernum]++;
+	}
+}
+
+s32 modAlarmGetGuardKills(s32 mpindex)
+{
+	if (mpindex < 0 || mpindex >= MAX_MPCHRS) {
+		return 0;
+	}
+
+	return g_ModAlarmGuardKills[mpindex];
+}
+
+s32 modAlarmGetGuardDeaths(s32 mpindex)
+{
+	if (mpindex < 0 || mpindex >= MAX_MPCHRS) {
+		return 0;
+	}
+
+	return g_ModAlarmGuardDeaths[mpindex];
+}
+
+/**
+ * Whether the results have a guard tally to show: the setting was on for
+ * the match, or something was counted before it was turned off.
+ */
+bool modAlarmHasMatchStats(void)
+{
+	s32 i;
+
+	if (modIsGuardsAlertedOn()) {
+		return true;
+	}
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		if (g_ModAlarmGuardKills[i] || g_ModAlarmGuardDeaths[i]) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 /**
  * Whether a chr is one of the reinforcements this spawned and still has.
  */
@@ -852,8 +919,18 @@ void modAlarmTick(void)
 					}
 				}
 
-				sysLogPrintf(LOG_NOTE, "alarm: %d guards up: nearest %.0fcm, %d within 10m, %d moving, %d attacking; %d guards on sims, %d of %d sims on guards",
-						alive, nearest, near, moving, attacking, guardsonsims, simsonguards, numsims);
+				{
+					s32 kills = 0;
+					s32 deaths = 0;
+
+					for (i = 0; i < MAX_MPCHRS; i++) {
+						kills += g_ModAlarmGuardKills[i];
+						deaths += g_ModAlarmGuardDeaths[i];
+					}
+
+					sysLogPrintf(LOG_NOTE, "alarm: %d guards up: nearest %.0fcm, %d within 10m, %d moving, %d attacking; %d guards on sims, %d of %d sims on guards; %d guards killed, %d killed by guards",
+							alive, nearest, near, moving, attacking, guardsonsims, simsonguards, numsims, kills, deaths);
+				}
 			}
 		}
 	}

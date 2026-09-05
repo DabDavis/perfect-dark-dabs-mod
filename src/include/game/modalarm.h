@@ -14,6 +14,11 @@ s32 modAlarmSetReserve(void);
 s32 modAlarmGetReserve(void);
 void modAlarmTick(void);
 bool modAlarmIsGuard(struct chrdata *chr);
+void modAlarmRecordGuardKill(s32 aplayernum);
+void modAlarmRecordGuardDeath(s32 vplayernum);
+s32 modAlarmGetGuardKills(s32 mpindex);
+s32 modAlarmGetGuardDeaths(s32 mpindex);
+bool modAlarmHasMatchStats(void);
 struct chrdata *modAlarmFindGuardForBot(struct chrdata *botchr, f32 maxdist);
 
 #endif

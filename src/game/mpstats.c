@@ -11,6 +11,8 @@
 #include "game/botcmd.h"
 #include "game/botinv.h"
 #include "game/lang.h"
+#include "game/modalarm.h"
+#include "game/modoptions.h"
 #include "game/mplayer/mplayer.h"
 #include "game/options.h"
 #include "bss.h"
@@ -242,7 +244,25 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 	// would decide the score. They are an obstacle, not points: nothing is
 	// recorded. Co-op keeps counting its mission guards as it always has.
 	if (g_Vars.normmplayerisrunning && vplayernum < 0) {
+		modAlarmRecordGuardKill(aplayernum);
+
+		if (aplayernum >= 0 && aplayernum < PLAYERCOUNT()) {
+			// "Guards killed: %d", the way a kill says "Kill count"
+			prevplayernum = g_Vars.currentplayernum;
+			setCurrentPlayerNum(aplayernum);
+			sprintf(text, "Guards killed: %d\n", modAlarmGetGuardKills(aplayernum));
+			hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
+			setCurrentPlayerNum(prevplayernum);
+		}
+
 		return;
+	}
+
+	// A death with no attacker in the match is a guard's doing while the
+	// guards are about - it is what a guard's shot arrives as, since a guard
+	// has no slot to be named by.
+	if (g_Vars.normmplayerisrunning && aplayernum < 0 && vplayernum >= 0 && modIsGuardsAlertedOn()) {
+		modAlarmRecordGuardDeath(vplayernum);
 	}
 #endif
 

@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/camdraw.h"
+#include "game/modalarm.h"
 #include "game/game_006900.h"
 #include "game/objectives.h"
 #include "game/tex.h"
@@ -3793,6 +3794,13 @@ Gfx *menuitemPlayerStatsRender(Gfx *gdl, struct menurendercontext *context)
 
 	mpchr = MPCHR(playernum);
 
+#ifndef PLATFORM_N64
+	// Guards Alerted!: one more row, for the guards
+	if (modAlarmHasMatchStats()) {
+		numchrs++;
+	}
+#endif
+
 	gdl = text0f153628(gdl);
 
 	// Write selected player's name
@@ -4023,6 +4031,32 @@ Gfx *menuitemPlayerStatsRender(Gfx *gdl, struct menurendercontext *context)
 				}
 			}
 		}
+
+#ifndef PLATFORM_N64
+		// Guards Alerted!: the guards as one more opponent. Deaths is how
+		// many times a guard killed this player, kills how many guards they
+		// killed - the same two columns, since that is what the row means.
+		if (modAlarmHasMatchStats()) {
+			x = context->x + 29;
+			y = context->y + ypos;
+			gdl = textRenderProjected(gdl, &x, &y, "Guards\n", g_CharsHandelGothicSm, g_FontHandelGothicSm,
+					0x00ffffff, context->width, context->height, 0, 0);
+
+			sprintf(buffer, "%d\n", modAlarmGetGuardDeaths(playernum));
+			textMeasure(&textheight, &textwidth, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+			x = context->x - textwidth + 120;
+			y = context->y + ypos;
+			gdl = textRenderProjected(gdl, &x, &y, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm,
+					0xff4040ff, context->width, context->height, 0, 0);
+
+			sprintf(buffer, "%d\n", modAlarmGetGuardKills(playernum));
+			textMeasure(&textheight, &textwidth, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+			x = context->x - textwidth + 25;
+			y = context->y + ypos;
+			gdl = textRenderProjected(gdl, &x, &y, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm,
+					0x00ff00ff, context->width, context->height, 0, 0);
+		}
+#endif
 	}
 
 	return text0f153780(gdl);
