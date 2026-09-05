@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/cheats.h"
+#include "game/modoptions.h"
 #include "game/inv.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
@@ -294,6 +295,13 @@ bool weaponHasFlag(s32 itemid, u32 flag)
 #ifndef PLATFORM_N64
 	// always dual-wieldable if cheat is enabled
 	if (cheatIsActive(CHEAT_DUALWIELDALLGUNS) && (flag == WEAPONFLAG_DUALWIELD)) {
+		return true;
+	}
+
+	// Akimbo for players and simulants is the cheat without the cheat: any
+	// gun in each hand, which is also what a second one picked up off the
+	// floor makes. modCanAkimbo() says which items count as guns.
+	if (flag == WEAPONFLAG_DUALWIELD && modIsAkimboForPlayers() && modCanAkimbo(itemid)) {
 		return true;
 	}
 #endif

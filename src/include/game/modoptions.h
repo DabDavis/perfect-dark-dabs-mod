@@ -122,16 +122,27 @@
 #define MODALARM_WEAPONS_RANDOM 1
 
 /**
- * Akimbo: whoever spawns armed spawns with two, when the gun can be held in
- * each hand - pistols and the small automatics carry the flag, rifles do
- * not. Applies to what Start Armed hands a player or simulant and to what
- * a Guards Alerted! guard is given, separately or together.
+ * Akimbo: whoever spawns armed spawns with two, whatever the weapon - a
+ * rifle or a rocket launcher in each hand as readily as a pistol. Applies
+ * to what Start Armed hands a player or simulant and to what a Guards
+ * Alerted! guard is given, separately or together; for players and
+ * simulants it also makes a second one picked up a dual, which is what the
+ * stock "dual wield all guns" cheat does.
  */
 #define MODAKIMBO_OFF            0
 #define MODAKIMBO_EVERYONE       1
 #define MODAKIMBO_PLAYERSANDSIMS 2
 #define MODAKIMBO_GUARDS         3
 #define MODAKIMBO_MAX            MODAKIMBO_GUARDS
+
+/**
+ * Akimbo Triggers: on a controller, the left trigger fires the left hand and
+ * the right trigger the right hand, instead of one trigger alternating them.
+ * Aim mode moves to the left bumper to make room, and the radial menu the
+ * bumper held moves to D-pad up. The binds are rewritten when it is turned
+ * on or off - see inputApplyAkimboTriggers() - and the left hand's trigger
+ * is a key of its own, "Fire Left", that a keyboard can bind too.
+ */
 
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
@@ -152,6 +163,7 @@ struct modoptions {
 	s32 guardspawnspeed; // how fast they come, in guards per ten seconds
 	s32 guardweapons; // MODALARM_WEAPONS_*: what they carry
 	s32 akimbo;      // MODAKIMBO_*: who spawns holding two
+	s32 akimbotriggers; // a trigger per hand on a controller, aim on the left bumper
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 };
 
@@ -178,7 +190,9 @@ s32 modGetGuardSpawnSpeed(void);
 s32 modGetGuardWeapons(void);
 bool modIsAkimboForPlayers(void);
 bool modIsAkimboForGuards(void);
+bool modIsAkimboTriggersOn(void);
 bool modCanAkimbo(s32 weaponnum);
+bool modIsWeaponAGun(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);
 
 #endif

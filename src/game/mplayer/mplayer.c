@@ -1181,8 +1181,10 @@ s32 mpGetSpawnWeapon(void)
 		return slot;
 	}
 
+	// The roll is of the guns: a spawn holding a cloak or a scanner is a
+	// spawn unarmed, which is what Start Armed exists to prevent.
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (mpCanSpawnWithWeapon(&g_MpWeapons[i])) {
+		if (mpCanSpawnWithWeapon(&g_MpWeapons[i]) && modIsWeaponAGun(g_MpWeapons[i].weaponnum)) {
 			count++;
 		}
 	}
@@ -1196,7 +1198,7 @@ s32 mpGetSpawnWeapon(void)
 	count = rngRandom() % count;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (mpCanSpawnWithWeapon(&g_MpWeapons[i]) && count-- == 0) {
+		if (mpCanSpawnWithWeapon(&g_MpWeapons[i]) && modIsWeaponAGun(g_MpWeapons[i].weaponnum) && count-- == 0) {
 			return i;
 		}
 	}

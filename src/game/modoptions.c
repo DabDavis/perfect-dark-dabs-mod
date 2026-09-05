@@ -32,6 +32,7 @@ struct modoptions g_ModOptions = {
 	MODALARM_SPEED_DEFAULT,   // guardspawnspeed
 	MODALARM_WEAPONS_STAGE,   // guardweapons
 	MODAKIMBO_OFF,            // akimbo
+	false,                    // akimbotriggers
 	true,                     // alarmsound
 };
 
@@ -329,13 +330,45 @@ bool modIsAkimboForGuards(void)
 	return g_ModOptions.akimbo == MODAKIMBO_EVERYONE || g_ModOptions.akimbo == MODAKIMBO_GUARDS;
 }
 
+bool modIsAkimboTriggersOn(void)
+{
+	return g_ModOptions.akimbotriggers != 0;
+}
+
 /**
- * Whether a gun can be held in each hand: the weapon table's own flag, the
- * one the inventory checks before it makes a dual.
+ * Whether a weapon number is something to fight with: not the empty hand,
+ * and not the Combat Simulator's gadgets - the shield, the boost, the
+ * cloak and the scanners - which the weapon table lists beside the guns
+ * and which a player spawning "armed" with is unarmed.
+ */
+bool modIsWeaponAGun(s32 weaponnum)
+{
+	switch (weaponnum) {
+	case WEAPON_NONE:
+	case WEAPON_UNARMED:
+	case WEAPON_DISABLED:
+	case WEAPON_MPSHIELD:
+	case WEAPON_COMBATBOOST:
+	case WEAPON_CLOAKINGDEVICE:
+	case WEAPON_XRAYSCANNER:
+	case WEAPON_NIGHTVISION:
+	case WEAPON_IRSCANNER:
+	case WEAPON_BRIEFCASE2:
+		return false;
+	default:
+		return weaponnum > WEAPON_NONE && weaponFindById(weaponnum) != NULL;
+	}
+}
+
+/**
+ * Whether a weapon may be held in each hand under Akimbo: anything that is
+ * a weapon, two-handed or not. The weapon table's own dual-wield flag is
+ * the pistols and the small automatics; the stock cheat "dual wield all
+ * guns" already ignores it for the player, and so does this, for everyone.
  */
 bool modCanAkimbo(s32 weaponnum)
 {
-	return weaponnum > WEAPON_NONE && weaponHasFlag(weaponnum, WEAPONFLAG_DUALWIELD);
+	return modIsWeaponAGun(weaponnum);
 }
 
 /**
