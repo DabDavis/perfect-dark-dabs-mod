@@ -1130,7 +1130,7 @@ s32 func0f188bcc(void)
  * The unlock check mirrors mpGetNumWeaponOptions(), so a random roll cannot hand
  * out something the weapon menu would not offer.
  */
-static bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
+bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
 {
 	if (mpweapon->weaponnum == WEAPON_NONE
 			|| mpweapon->weaponnum == WEAPON_MPSHIELD

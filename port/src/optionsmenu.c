@@ -2125,6 +2125,32 @@ static MenuItemHandlerResult menuhandlerModAlertedGuards(s32 operation, struct m
 	return 0;
 }
 
+/**
+ * What a guard carries: the match's slots or the mission side arms, or a
+ * roll of the whole table, like Start Armed's Random.
+ */
+static MenuItemHandlerResult menuhandlerModGuardWeapons(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Stage Weapons", "Random" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.guardsalerted == MODALARM_OFF;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.guardweapons = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modGetGuardWeapons();
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModAlarmSound(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -2997,6 +3023,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Guard Spawn Speed",
 		MODALARM_SPEED_MAX - MODALARM_SPEED_MIN,
 		menuhandlerModGuardSpawnSpeed,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Guard Weapons",
+		0,
+		menuhandlerModGuardWeapons,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

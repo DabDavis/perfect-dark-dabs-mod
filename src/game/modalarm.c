@@ -9,6 +9,7 @@
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
 #include "game/modoptions.h"
+#include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/prop.h"
 #include "bss.h"
@@ -166,15 +167,55 @@ static bool modAlarmIsGun(s32 weaponnum)
 }
 
 /**
+ * Whether a match may hand a guard this gun: the same rule Start Armed uses
+ * for a player, which is that the weapon is unlocked. A guard drops what it
+ * carries, and a locked gun on the floor is a gun the player has not earned.
+ */
+static bool modAlarmCanMatchUseGun(s32 weaponnum)
+{
+	s32 i;
+
+	for (i = 0; i < NUM_MPWEAPONS; i++) {
+		if (g_MpWeapons[i].weaponnum == weaponnum) {
+			return mpCanSpawnWithWeapon(&g_MpWeapons[i]);
+		}
+	}
+
+	return false;
+}
+
+/**
  * A weapon for the next guard.
  *
- * In a Combat Simulator match it is one of the match's own six slots, so the
- * guards fight with what the arena is stocked with and drop what a player
- * can use. Anywhere else, or when the match holds nothing a guard can carry,
- * the mission side arms.
+ * Random rolls the whole table of guns a guard can hold, the way Start
+ * Armed's Random rolls the whole weapon table for a player: the arena's six
+ * slots are what everyone is fighting over and are gone within seconds of a
+ * big match starting, and eighty guards all carrying the same six is a
+ * dull armoury.
+ *
+ * Otherwise, in a Combat Simulator match it is one of the match's own six
+ * slots, so the guards fight with what the arena is stocked with and drop
+ * what a player can use. Anywhere else, or when the match holds nothing a
+ * guard can carry, the mission side arms.
  */
 static s32 modAlarmChooseGun(void)
 {
+	if (modGetGuardWeapons() == MODALARM_WEAPONS_RANDOM) {
+		u8 guns[ARRAYCOUNT(g_ModAlarmGuns)];
+		s32 numguns = 0;
+		s32 i;
+
+		for (i = 0; i < ARRAYCOUNT(g_ModAlarmGuns); i++) {
+			if (!g_Vars.normmplayerisrunning || modAlarmCanMatchUseGun(g_ModAlarmGuns[i])) {
+				guns[numguns++] = g_ModAlarmGuns[i];
+			}
+		}
+
+		if (numguns > 0) {
+			return guns[rngRandom() % numguns];
+		}
+	}
+
 	if (g_Vars.normmplayerisrunning) {
 		u8 guns[NUM_MPWEAPONSLOTS];
 		s32 numguns = 0;
@@ -495,7 +536,7 @@ static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *ro
  * player one, so the one who is closest is a fairer choice and the AI's own
  * chr_toggle_p1p2 moves it along from there.
  */
-static void modAlarmArm(struct chrdata *chr, s32 playernum)
+static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
 {
 	s32 gun = modAlarmChooseGun();
 
@@ -527,6 +568,8 @@ static void modAlarmArm(struct chrdata *chr, s32 playernum)
 
 	chrGiveWeaponWithAutoModel(chr, gun, 0);
 	rebuildTeams();
+
+	return gun;
 }
 
 /**
@@ -548,6 +591,7 @@ static bool modAlarmSpawnOne(s32 bodynum)
 		f32 angle;
 		s32 playernum;
 		struct chrdata *chr;
+		s32 gun;
 		s32 i;
 
 		padUnpack(waypoint->padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
@@ -586,7 +630,7 @@ static bool modAlarmSpawnOne(s32 bodynum)
 			continue;
 		}
 
-		modAlarmArm(chr, playernum);
+		gun = modAlarmArm(chr, playernum);
 
 		for (i = 0; i < MODALARM_MAXGUARDS; i++) {
 			if (!modAlarmGuardIsValid(&g_ModAlarmGuards[i])) {
@@ -599,8 +643,8 @@ static bool modAlarmSpawnOne(s32 bodynum)
 
 #ifndef PLATFORM_N64
 		if (g_ChrSpawnTrace) {
-			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d at pad %d, %.0fcm from player %d, %d free chr slots",
-					bodynum, chr->headnum, waypoint->padnum, dist, playernum, chrsGetNumFree());
+			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d at pad %d, %.0fcm from player %d, %d free chr slots",
+					bodynum, chr->headnum, gun, waypoint->padnum, dist, playernum, chrsGetNumFree());
 		}
 #endif
 

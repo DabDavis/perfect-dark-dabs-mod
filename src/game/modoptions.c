@@ -29,6 +29,7 @@ struct modoptions g_ModOptions = {
 	MODALARM_OFF,             // guardsalerted: like Start Armed, a choice, not a default
 	MODALARM_GUARDS_DEFAULT,  // alertedguards
 	MODALARM_SPEED_DEFAULT,   // guardspawnspeed
+	MODALARM_WEAPONS_STAGE,   // guardweapons
 	true,                     // alarmsound
 };
 
@@ -300,6 +301,14 @@ s32 modGetGuardSpawnSpeed(void)
 	}
 
 	return g_ModOptions.guardspawnspeed;
+}
+
+/**
+ * MODALARM_WEAPONS_STAGE or MODALARM_WEAPONS_RANDOM.
+ */
+s32 modGetGuardWeapons(void)
+{
+	return g_ModOptions.guardweapons == MODALARM_WEAPONS_RANDOM ? MODALARM_WEAPONS_RANDOM : MODALARM_WEAPONS_STAGE;
 }
 
 /**

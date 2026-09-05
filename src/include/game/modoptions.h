@@ -113,6 +113,14 @@
 #define MODALARM_SPEED_DEFAULT 2
 #define MODALARM_SPEED_MAX     50
 
+/**
+ * What a reinforcement carries. Stage weapons is the match's own six slots,
+ * or the mission side arms outside a match. Random rolls the whole table of
+ * guns a guard can hold, the way Start Armed's Random does for a player.
+ */
+#define MODALARM_WEAPONS_STAGE  0
+#define MODALARM_WEAPONS_RANDOM 1
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -130,6 +138,7 @@ struct modoptions {
 	s32 guardsalerted; // MODALARM_ON: the alarm as a permanent condition
 	s32 alertedguards; // how many reinforcements may be up at once
 	s32 guardspawnspeed; // how fast they come, in guards per ten seconds
+	s32 guardweapons; // MODALARM_WEAPONS_*: what they carry
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 };
 
@@ -153,6 +162,7 @@ bool modKeepsBodies(void);
 bool modIsGuardsAlertedOn(void);
 s32 modGetAlertedGuards(void);
 s32 modGetGuardSpawnSpeed(void);
+s32 modGetGuardWeapons(void);
 bool modIsAlarmSoundEnabled(void);
 
 #endif
