@@ -664,3 +664,17 @@ environment entry (one sun with a lens flare).
 
 Seen on the way: `--boot-stage 0x24` on stock stops with "overflow when
 trying to preprocess a bg file"; 0x24 is not a playable stage.
+
+**Open: the band along the top of the sky, if it is still reported.** The
+Runway's fog entry has `clouds_height` 30, a value no playable stock stage
+has. `skyGetWorldPosFromScreenPos()` casts the corner rays from that many
+rows below the screen top, and the N64 path draws what it finds that many
+rows higher again (`skyConvertVertex()`), so the horizon sits higher on
+screen than the camera's. The port's `#else` branches in `skyRender()` draw
+the sky and water planes as 3D triangles and never apply that shift, which
+would leave a band that high unpainted along the top. A pitch of
+`atan(clouds_height * c_scaley)` applied to the branch's matrix is the
+equivalent; it was written and built but not kept, because no headless view
+showed the band once the pinned room was fixed, and an unverified sign on a
+horizon shift is worse than a band. Check with a person first: look level
+at the runway's horizon.
