@@ -1156,7 +1156,44 @@ void playerSpawn(void)
 					}
 					bgunSetAmmoQuantity(ammotype, startammo);
 				}
-				bgunEquipWeapon2(HAND_LEFT, akimbo ? mpweapon->weaponnum : WEAPON_NONE);
+				{
+					s32 leftweaponnum = akimbo ? mpweapon->weaponnum : WEAPON_NONE;
+
+					// Akimbo with Random: a second roll for the left hand, so
+					// the pair is two different guns when the roll allows it,
+					// with its own ammunition filled the same way
+					if (akimbo && modGetSpawnWeapon() == SPAWNWEAPON_RANDOM && g_Vars.currentplayer->gunctrl.gunmemmixed) {
+						s32 tries;
+
+						for (tries = 0; tries < 8; tries++) {
+							const s32 spawnweapon2 = mpGetSpawnWeapon();
+
+							if (spawnweapon2 >= 0 && spawnweapon2 != MPWEAPON_COMBATBOOST
+									&& g_MpWeapons[spawnweapon2].weaponnum != mpweapon->weaponnum
+									&& modCanAkimbo(g_MpWeapons[spawnweapon2].weaponnum)) {
+								struct mpweapon *mpweapon2 = &g_MpWeapons[spawnweapon2];
+								s32 ammotype2 = mpweapon2->priammotype;
+
+								invGiveSingleWeapon(mpweapon2->weaponnum);
+
+								if (ammotype2) {
+									s32 startammo2 = bgunGetCapacityByAmmotype(ammotype2);
+
+									if (startammo2 <= 0) {
+										startammo2 = 1;
+									}
+
+									bgunSetAmmoQuantity(ammotype2, startammo2);
+								}
+
+								leftweaponnum = mpweapon2->weaponnum;
+								break;
+							}
+						}
+					}
+
+					bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
+				}
 				bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
 			} else
 #endif

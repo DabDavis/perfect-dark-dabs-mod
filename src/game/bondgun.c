@@ -1027,6 +1027,34 @@ void bgunGetWeaponInfo(struct handweaponinfo *info, s32 handnum)
  * 2 = has ammo in clip but none in reserve
  * 3 = gun doesn't use ammo or clip is full
  */
+#ifndef PLATFORM_N64
+/**
+ * Whether a reload should lower the gun off screen and raise it again - the
+ * reload the game gives a weapon with no reload animation - rather than
+ * play the weapon's own. Under Akimbo a rifle or one of the old GE guns is
+ * held in one hand, and its reload animation was made for two: the other
+ * hand reaches in from nowhere. Guns the weapon table lets be dual wielded
+ * have reloads made for one hand and keep them.
+ */
+bool bgunIsAkimboIncompatible(s32 weaponnum)
+{
+	struct weapon *weapon = weaponFindById(weaponnum);
+	struct player *player = g_Vars.currentplayer;
+
+	return modIsAkimboForPlayers()
+		&& player->gunctrl.dualwielding
+		&& player->hands[HAND_LEFT].inuse
+		&& player->hands[HAND_RIGHT].inuse
+		&& weapon
+		&& (weapon->flags & WEAPONFLAG_DUALWIELD) == 0;
+}
+
+bool bgunWantsLoweredReload(s32 weaponnum)
+{
+	return bgunIsAkimboIncompatible(weaponnum);
+}
+#endif
+
 s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
 {
 	s32 result = 3;
@@ -1577,7 +1605,11 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 		if (hand->statecycles == 0) {
 			if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
 				if (info->definition->ammos[func->ammoindex]->reload_animation
-						&& info->weaponnum != WEAPON_COMBATKNIFE) {
+						&& info->weaponnum != WEAPON_COMBATKNIFE
+#ifndef PLATFORM_N64
+						&& !bgunWantsLoweredReload(info->weaponnum)
+#endif
+						) {
 					bgunStartAnimation(info->definition->ammos[func->ammoindex]->reload_animation, handnum, hand);
 
 					hand->unk0d0e_07 = true;
@@ -1740,7 +1772,11 @@ s32 bgunTickIncChangeFunc(struct handweaponinfo *info, s32 handnum, struct hand 
 		if (cmd != NULL) {
 			bgunStartAnimation(cmd, handnum, hand);
 			more = true;
+#ifndef PLATFORM_N64
+			g_Vars.currentplayer->hands[handnum].unk0dd4 = -1;
+#else
 			g_Vars.currentplayer->hands[HAND_RIGHT].unk0dd4 = -1;
+#endif
 		}
 	} else {
 		if (hand->animmode == HANDANIMMODE_BUSY) {
@@ -4321,6 +4357,26 @@ void bgunTickMasterLoad(void)
 							}
 						}
 
+#ifndef PLATFORM_N64
+						// The idle-pose matrix cache is per hand now: a mixed
+						// Akimbo pair has a different model in each hand, and
+						// the pose of one is not the pose of the other. Stock
+						// gave the right hand the only buffer and let both
+						// hands share it, which is only right when the models
+						// are the same.
+						for (i = 0; i < 2; i++) {
+							hand = &player->hands[i];
+							hand->unk0dd4 = -1;
+
+							if (player->gunctrl.memloadremaining > 50 * sizeof(Mtxf)) {
+								hand->unk0dd8 = (Mtxf *) player->gunctrl.memloadptr;
+								player->gunctrl.memloadptr += 50 * sizeof(Mtxf);
+								player->gunctrl.memloadremaining -= 50 * sizeof(Mtxf);
+							} else {
+								hand->unk0dd8 = NULL;
+							}
+						}
+#else
 						hand = &player->hands[0];
 						hand->unk0dd4 = -1;
 
@@ -4331,6 +4387,7 @@ void bgunTickMasterLoad(void)
 						} else {
 							hand->unk0dd8 = NULL;
 						}
+#endif
 
 						bgunCalculateGunMemCapacity();
 
@@ -5606,6 +5663,9 @@ void bgunTickSwitch2(void)
 	struct player *player = g_Vars.currentplayer;
 	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
 	s32 i;
+#ifndef PLATFORM_N64
+	s32 newleftweaponnum = WEAPON_NONE;
+#endif
 
 	if (ctrl->switchtoweaponnum >= 0) {
 		if (bgunCanFreeWeapon(HAND_RIGHT) && bgunCanFreeWeapon(HAND_LEFT)) {
@@ -5629,15 +5689,40 @@ void bgunTickSwitch2(void)
 			}
 
 #ifndef PLATFORM_N64
-			// Akimbo never drops: whatever the player switches to comes up
-			// in both hands, cycled to or picked from the menu, whether or
-			// not the inventory holds a dual of it. Both hands run on the
-			// one weapon number, so the pair is always two of the same gun;
-			// the detonator hand keeps its own arrangement.
+			// Akimbo: what the left hand holds after the switch, decided
+			// here so that the hands are freed and set up to match. A gun
+			// is never doubled out of thin air - two of a gun means the
+			// inventory holds two - so the left hand gets, in order: the
+			// different gun the spawn asked for; the gun that was in the
+			// right hand, carried over, when cycling or picking a single
+			// from the menu; a second copy of the new gun when there is
+			// one; and otherwise nothing, single-wielded.
+			newleftweaponnum = WEAPON_NONE;
+
 			if (modIsAkimboForPlayers()
 					&& modCanAkimbo(ctrl->switchtoweaponnum)
 					&& !weaponHasFlag2(ctrl->switchtoweaponnum, WEAPONFLAG2_DETONATORHAND)) {
-				ctrl->dualwielding = true;
+				s32 newweaponnum = ctrl->switchtoweaponnum;
+
+				if (ctrl->leftwant > WEAPON_NONE
+						&& ctrl->leftwant != newweaponnum
+						&& ctrl->gunmemmixed
+						&& modCanAkimbo(ctrl->leftwant)
+						&& !weaponHasFlag2(ctrl->leftwant, WEAPONFLAG2_DETONATORHAND)
+						&& invHasSingleWeaponIncAllGuns(ctrl->leftwant)) {
+					newleftweaponnum = ctrl->leftwant;
+				} else if (ctrl->leftwant < 0
+						&& ctrl->gunmemmixed
+						&& weaponnum != newweaponnum
+						&& modCanAkimbo(weaponnum)
+						&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)
+						&& invHasSingleWeaponIncAllGuns(weaponnum)) {
+					newleftweaponnum = weaponnum;
+				} else if (invHasDoubleWeaponIncAllGuns(newweaponnum, newweaponnum)) {
+					newleftweaponnum = newweaponnum;
+				}
+
+				ctrl->dualwielding = newleftweaponnum != WEAPON_NONE;
 			}
 #endif
 
@@ -5683,24 +5768,11 @@ void bgunTickSwitch2(void)
 				righthand->inuse = true;
 
 #ifndef PLATFORM_N64
-				// A mixed Akimbo pair: cycling to a new gun brings it up in
-				// the right hand and moves the gun that was there to the
-				// left, so the pair walks through the inventory two at a
-				// time. Only when nothing asked for the left hand in
-				// particular - a dual picked from the menu, or the spawn,
-				// says what the left holds - and only for a gun the player
-				// still owns, in memory sized for two.
-				if (ctrl->dualwielding
-						&& ctrl->gunmemmixed
-						&& modIsAkimboForPlayers()
-						&& ctrl->leftwant < 0
-						&& weaponnum != ctrl->weaponnum
-						&& modCanAkimbo(weaponnum)
-						&& modCanAkimbo(ctrl->weaponnum)
-						&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)
-						&& !weaponHasFlag2(ctrl->weaponnum, WEAPONFLAG2_DETONATORHAND)
-						&& invHasSingleWeaponIncAllGuns(weaponnum)) {
-					ctrl->leftweaponnum = weaponnum;
+				// The left hand as decided above; a mixed pair walks through
+				// the inventory two at a time, the right hand's gun moving
+				// to the left as the next comes up
+				if (ctrl->dualwielding && newleftweaponnum > WEAPON_NONE) {
+					ctrl->leftweaponnum = newleftweaponnum;
 				}
 #endif
 			}
@@ -8116,6 +8188,20 @@ void bgun0f0a5550(s32 handnum)
 			}
 #endif
 
+#ifndef PLATFORM_N64
+			if (a0 && player->hands[handnum].unk0dd8 == NULL) {
+				a0 = false;
+			}
+
+			if (a0) {
+				if (player->hands[handnum].unk0dd4 == -1) {
+					mtx4LoadIdentity(&sp84);
+
+					spc4 = hand->gunmodel.matrices;
+
+					renderdata.unk00 = &sp84;
+					renderdata.unk10 = player->hands[handnum].unk0dd8;
+#else
 			if (a0) {
 				if (player->hands[HAND_RIGHT].unk0dd4 == -1) {
 					mtx4LoadIdentity(&sp84);
@@ -8124,6 +8210,7 @@ void bgun0f0a5550(s32 handnum)
 
 					renderdata.unk00 = &sp84;
 					renderdata.unk10 = player->hands[HAND_RIGHT].unk0dd8;
+#endif
 
 #if VERSION >= VERSION_PAL_BETA
 					var8005efd8_2 = true;
@@ -8143,12 +8230,20 @@ void bgun0f0a5550(s32 handnum)
 					modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
 #endif
 
+#ifndef PLATFORM_N64
+					player->hands[handnum].unk0dd4 = 1;
+#else
 					player->hands[HAND_RIGHT].unk0dd4 = 1;
+#endif
 
 					hand->gunmodel.matrices = spc4;
 				}
 
+#ifndef PLATFORM_N64
+				spc8 = player->hands[handnum].unk0dd8;
+#else
 				spc8 = player->hands[HAND_RIGHT].unk0dd8;
+#endif
 				spc4 = hand->gunmodel.matrices;
 
 				for (spcc = 0; spcc < hand->gunmodel.definition->nummatrices; spcc++) {
@@ -11376,7 +11471,13 @@ void bgunRender(Gfx **gdlptr)
 			modelRender(&renderdata, &hand->gunmodel);
 
 			// Render the hand
-			if (player->gunctrl.handmodeldef && renderhand) {
+			if (player->gunctrl.handmodeldef && renderhand
+#ifndef PLATFORM_N64
+					// The hand model of a two-handed gun held in one hand is
+					// the other hand reaching in from nowhere; leave it off
+					&& !bgunIsAkimboIncompatible(bgunGetWeaponNum(hand - player->hands))
+#endif
+					) {
 				s32 prevcolour = renderdata.envcolour; // 7c
 
 				hand->handmodel.matrices = hand->gunmodel.matrices;
