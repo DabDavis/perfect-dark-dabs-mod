@@ -4979,6 +4979,18 @@ void menuProcessInput(void)
 			}
 #endif
 
+#ifndef PLATFORM_N64
+			// Akimbo Triggers moves the controller's D-pad up off C-up, so
+			// that in a match it opens the quick menu rather than walking
+			// forward; here it is still up, as it was.
+			if (buttons & (U_CBUTTONS | U_JPAD)) {
+				yhelddir = -1;
+			}
+
+			if (buttonsnow & (U_CBUTTONS | U_JPAD)) {
+				ytapdir = -1;
+			}
+#else
 			if (buttons & U_CBUTTONS) {
 				yhelddir = -1;
 			}
@@ -4986,6 +4998,7 @@ void menuProcessInput(void)
 			if (buttonsnow & U_CBUTTONS) {
 				ytapdir = -1;
 			}
+#endif
 
 			if (buttons & D_CBUTTONS) {
 				yhelddir = 1;
