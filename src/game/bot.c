@@ -33,6 +33,7 @@
 #include "lib/anim.h"
 #include "data.h"
 #include "types.h"
+#include "game/modalarm.h"
 #include "game/modoptions.h"
 
 #define PICKUPCRITERIA_DEFAULT  0
@@ -998,6 +999,48 @@ u8 botGetTargetsWeaponNum(struct chrdata *chr)
 	return weaponnum;
 }
 
+/**
+ * A simulant's sight and distance tables are indexed by match slot, and a
+ * Guards Alerted! guard has none, so the two things the tables answer about
+ * a target come through here: the target's own entry when it has one, and
+ * what botSetTarget() worked out directly when it does not.
+ */
+bool botIsTargetInSight(struct chrdata *chr)
+{
+	s32 mpindex;
+
+	if (chr->target == -1) {
+		return false;
+	}
+
+	mpindex = mpPlayerGetIndex(chrGetTargetProp(chr)->chr);
+
+	if (mpindex < 0) {
+		return chr->aibot->targetinsight;
+	}
+
+	return chr->aibot->chrsinsight[mpindex];
+}
+
+f32 botGetDistanceToTarget(struct chrdata *chr)
+{
+	struct prop *target;
+	s32 mpindex;
+
+	if (chr->target == -1) {
+		return 0;
+	}
+
+	target = chrGetTargetProp(chr);
+	mpindex = mpPlayerGetIndex(target->chr);
+
+	if (mpindex < 0) {
+		return chrGetDistanceToCoord(chr, &target->pos);
+	}
+
+	return chr->aibot->chrdistances[mpindex];
+}
+
 bool botIsAboutToAttack(struct chrdata *chr, bool arg1)
 {
 	bool result = false;
@@ -1009,6 +1052,22 @@ bool botIsAboutToAttack(struct chrdata *chr, bool arg1)
 		target = chrGetTargetProp(chr);
 		mpindex = mpPlayerGetIndex(target->chr);
 		result = false;
+
+		if (mpindex < 0) {
+			// A guard: what the tables would say, from the target fields
+			if (chr->aibot->targetinsight) {
+				result = true;
+			}
+
+			if (chr->aibot->config->difficulty > BOTDIFF_MEAT) {
+				if (chr->aibot->targetlastseen60 >= g_Vars.lvframe60 - TICKS(240)
+						|| arrayIntersects(chr->prop->rooms, target->rooms)) {
+					result = true;
+				}
+			}
+
+			return result;
+		}
 
 		if (chr->aibot->chrsinsight[mpindex]) {
 			result = true;
@@ -1518,8 +1577,24 @@ void botSetTarget(struct chrdata *botchr, s32 propnum)
 
 		index = mpPlayerGetIndex(otherchr);
 
-		botchr->aibot->targetinsight = botchr->aibot->chrsinsight[index];
-		botchr->aibot->targetlastseen60 = botchr->aibot->chrslastseen60[index];
+		if (index < 0) {
+			// A Guards Alerted! guard has no slot in the tables, so its
+			// sight is checked here, each time the target is set - which
+			// is every tick the simulant keeps it, the same rate the
+			// tables are refreshed for one participant at a time.
+			RoomNum room = -1;
+
+			botchr->aibot->targetinsight = chrHasLosToChr(botchr, otherchr, &room);
+
+			if (botchr->aibot->targetinsight) {
+				botchr->aibot->targetlastseen60 = g_Vars.lvframe60;
+			} else if (botchr->target != propnum) {
+				botchr->aibot->targetlastseen60 = -1;
+			}
+		} else {
+			botchr->aibot->targetinsight = botchr->aibot->chrsinsight[index];
+			botchr->aibot->targetlastseen60 = botchr->aibot->chrslastseen60[index];
+		}
 	} else {
 		botchr->aibot->targetinsight = false;
 		botchr->aibot->targetlastseen60 = -1;
@@ -1736,6 +1811,28 @@ bool botPassesCowardCheck(struct chrdata *botchr, struct chrdata *otherchr)
  * The function does not compare weapons with the target, nor ammo counts,
  * and does not factor in the bot types (eg. VengeSim).
  */
+/**
+ * The Guards Alerted! guard a simulant should shoot at, if any.
+ *
+ * Guards are not in the match, so the picker below never sees them; this is
+ * asked at the two points where it has found no participant in sight. The
+ * search is a few line of sight tests, so each simulant asks four times a
+ * second rather than every tick - eighty simulants each asking every tick
+ * about eighty guards is the kind of cost that shows.
+ */
+static struct chrdata *botFindGuardTarget(struct chrdata *botchr)
+{
+	if (!modIsGuardsAlertedOn()) {
+		return NULL;
+	}
+
+	if ((g_Vars.lvframenum + mpPlayerGetIndex(botchr)) % 15 != 0) {
+		return NULL;
+	}
+
+	return modAlarmFindGuardForBot(botchr, 2540);
+}
+
 void botChooseGeneralTarget(struct chrdata *botchr)
 {
 	struct aibot *aibot = botchr->aibot;
@@ -1876,6 +1973,15 @@ void botChooseGeneralTarget(struct chrdata *botchr)
 			}
 		}
 
+		// Nobody in the match is in sight. A Guards Alerted! guard that is
+		// comes before a participant that is not: it is the one shooting.
+		trychr = botFindGuardTarget(botchr);
+
+		if (trychr) {
+			botSetTarget(botchr, trychr->prop - g_Vars.props);
+			return;
+		}
+
 		// Use closest out of sight chr
 		if (closestavailablechrnum >= 0) {
 			trychr = mpGetChrFromPlayerIndex(closestavailablechrnum);
@@ -1892,7 +1998,14 @@ void botChooseGeneralTarget(struct chrdata *botchr)
 	// If they're still in sight, keep the target
 	playernum = mpPlayerGetIndex((g_Vars.props + botchr->target)->chr);
 
-	if (aibot->chrsinsight[playernum]) {
+	if (playernum < 0) {
+		// A guard: botSetTarget() looks for itself
+		botSetTarget(botchr, botchr->target);
+
+		if (aibot->targetinsight) {
+			return;
+		}
+	} else if (aibot->chrsinsight[playernum]) {
 		botSetTarget(botchr, botchr->target);
 		return;
 	}
@@ -1911,6 +2024,14 @@ void botChooseGeneralTarget(struct chrdata *botchr)
 				return;
 			}
 		}
+	}
+
+	// No one in the match in sight either; a guard that is comes next
+	trychr = botFindGuardTarget(botchr);
+
+	if (trychr && trychr->prop - g_Vars.props != botchr->target) {
+		botSetTarget(botchr, trychr->prop - g_Vars.props);
+		return;
 	}
 
 	// No one else in sight - maintain original target

@@ -13,5 +13,7 @@ void modAlarmReset(void);
 s32 modAlarmSetReserve(void);
 s32 modAlarmGetReserve(void);
 void modAlarmTick(void);
+bool modAlarmIsGuard(struct chrdata *chr);
+struct chrdata *modAlarmFindGuardForBot(struct chrdata *botchr, f32 maxdist);
 
 #endif

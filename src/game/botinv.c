@@ -667,7 +667,7 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 				if (chr->aibot->config->difficulty > BOTDIFF_MEAT) {
 					if (comparewithtarget) {
 						if (chr->target != -1
-								&& chr->aibot->chrsinsight[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] == 0
+								&& !botIsTargetInSight(chr)
 								&& (chr->aibot->random1 % 2) == 0) {
 							score1 += 10;
 						} else {
@@ -684,7 +684,7 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 				if (chr->aibot->config->difficulty >= BOTDIFF_NORMAL) {
 					if (comparewithtarget) {
 						if (chr->target != -1
-								&& chr->aibot->chrsinsight[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] == 0
+								&& !botIsTargetInSight(chr)
 								&& (chr->aibot->random1 % 2) == 0) {
 							score1 = 178;
 							score2 = 188;
@@ -1017,8 +1017,8 @@ void botinvTick(struct chrdata *chr)
 		if (newweaponnum == WEAPON_COMBATKNIFE
 				&& botactGetAmmoQuantityByWeapon(aibot, WEAPON_COMBATKNIFE, FUNC_SECONDARY, true) >= 2
 				&& chr->target != -1
-				&& chr->aibot->chrdistances[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] > 200
-				&& chr->aibot->chrdistances[mpPlayerGetIndex(chrGetTargetProp(chr)->chr)] < 1500) {
+				&& botGetDistanceToTarget(chr) > 200
+				&& botGetDistanceToTarget(chr) < 1500) {
 			newfuncnum = FUNC_SECONDARY;
 		}
 

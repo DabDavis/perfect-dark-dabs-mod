@@ -21,6 +21,8 @@ void botCheckPickups(struct chrdata *chr);
 s32 botGuessCrouchPos(struct chrdata *chr);
 bool botApplyMovement(struct chrdata *chr);
 bool botIsAboutToAttack(struct chrdata *chr, bool arg1);
+bool botIsTargetInSight(struct chrdata *chr);
+f32 botGetDistanceToTarget(struct chrdata *chr);
 s32 botTick(struct prop *prop);
 f32 botCalculateMaxSpeed(struct chrdata *chr);
 

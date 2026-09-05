@@ -513,7 +513,15 @@ static void modAlarmArm(struct chrdata *chr, s32 playernum)
 
 	chr->target = -1;
 	chr->alertness = 90;
-	chr->flags |= CHRFLAG0_CAN_HEAR_ALARMS | CHRFLAG0_SKIPSAFETYCHECKS;
+
+	// CHRFLAG0_AIVSAI is stock's "fight other AI": the guard lists check
+	// it and run if_enemy_distance_lt_and_los, which is aiDetectEnemy()
+	// scanning the team lists for the nearest chr on another team with a
+	// line of sight. In a match the guard has no team bit and every
+	// simulant has one, so every simulant is an enemy; in a mission the
+	// guard is TEAM_ENEMY and the stage's own guards are its friends,
+	// while the Institute's staff and soldiers are not.
+	chr->flags |= CHRFLAG0_CAN_HEAR_ALARMS | CHRFLAG0_SKIPSAFETYCHECKS | CHRFLAG0_AIVSAI;
 	chr->flags2 |= CHRFLAG1_NOIDLEANIMS;
 	chr->chrflags |= CHRCFLAG_CANCHANGEACTDURINGARGH;
 
@@ -610,6 +618,84 @@ static bool modAlarmSpawnOne(s32 bodynum)
 }
 
 /**
+ * Whether a chr is one of the reinforcements this spawned and still has.
+ */
+bool modAlarmIsGuard(struct chrdata *chr)
+{
+	s32 i;
+
+	if (chr == NULL) {
+		return false;
+	}
+
+	for (i = 0; i < MODALARM_MAXGUARDS; i++) {
+		if (g_ModAlarmGuards[i].chr == chr && modAlarmGuardIsValid(&g_ModAlarmGuards[i])) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * The nearest living guard a simulant can see, within maxdist, or NULL.
+ *
+ * A simulant's own target picker only knows the match's participants - its
+ * sight and distance tables are indexed by match slot - so it asks here for
+ * the guards. The line of sight test is the expensive part, so only the
+ * three nearest are tested; a guard further away than three others that
+ * are all behind walls is not the one to shoot at anyway.
+ */
+struct chrdata *modAlarmFindGuardForBot(struct chrdata *botchr, f32 maxdist)
+{
+	struct chrdata *nearest[3] = { NULL, NULL, NULL };
+	f32 nearestdist[3] = { 0, 0, 0 };
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < MODALARM_MAXGUARDS; i++) {
+		struct modalarmguard *guard = &g_ModAlarmGuards[i];
+		f32 dist;
+
+		if (!modAlarmGuardIsValid(guard) || modAlarmGuardIsDead(guard)
+				|| guard->chr->actiontype == ACT_DIE) {
+			continue;
+		}
+
+		dist = chrGetDistanceToCoord(botchr, &guard->chr->prop->pos);
+
+		if (dist > maxdist) {
+			continue;
+		}
+
+		for (j = 0; j < ARRAYCOUNT(nearest); j++) {
+			if (nearest[j] == NULL || dist < nearestdist[j]) {
+				s32 k;
+
+				for (k = ARRAYCOUNT(nearest) - 1; k > j; k--) {
+					nearest[k] = nearest[k - 1];
+					nearestdist[k] = nearestdist[k - 1];
+				}
+
+				nearest[j] = guard->chr;
+				nearestdist[j] = dist;
+				break;
+			}
+		}
+	}
+
+	for (j = 0; j < ARRAYCOUNT(nearest); j++) {
+		RoomNum room = -1;
+
+		if (nearest[j] && chrHasLosToChr(botchr, nearest[j], &room)) {
+			return nearest[j];
+		}
+	}
+
+	return NULL;
+}
+
+/**
  * Once a frame from alarmTick(), after the alarm itself has been kept on.
  */
 void modAlarmTick(void)
@@ -693,8 +779,38 @@ void modAlarmTick(void)
 				}
 			}
 
-			sysLogPrintf(LOG_NOTE, "alarm: %d guards up: nearest %.0fcm, %d within 10m, %d moving, %d attacking",
-					alive, nearest, near, moving, attacking);
+			{
+				s32 guardsonsims = 0;
+				s32 simsonguards = 0;
+				s32 numsims = 0;
+
+				for (i = 0; i < MODALARM_MAXGUARDS; i++) {
+					struct modalarmguard *guard = &g_ModAlarmGuards[i];
+
+					if (modAlarmGuardIsValid(guard) && !modAlarmGuardIsDead(guard)
+							&& guard->chr->target != -1
+							&& g_Vars.props[guard->chr->target].type == PROPTYPE_CHR
+							&& g_Vars.props[guard->chr->target].chr
+							&& g_Vars.props[guard->chr->target].chr->aibot) {
+						guardsonsims++;
+					}
+				}
+
+				for (i = 0; i < chrsGetNumSlots(); i++) {
+					struct chrdata *chr = &g_ChrSlots[i];
+
+					if (chr->chrnum >= 0 && chr->aibot && chr->prop) {
+						numsims++;
+
+						if (chr->target != -1 && modAlarmIsGuard(g_Vars.props[chr->target].chr)) {
+							simsonguards++;
+						}
+					}
+				}
+
+				sysLogPrintf(LOG_NOTE, "alarm: %d guards up: nearest %.0fcm, %d within 10m, %d moving, %d attacking; %d guards on sims, %d of %d sims on guards",
+						alive, nearest, near, moving, attacking, guardsonsims, simsonguards, numsims);
+			}
 		}
 	}
 #endif
