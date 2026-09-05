@@ -509,6 +509,44 @@ void mainLoop(void)
 
 			g_MpSetup.stagenum = g_StageNum;
 
+			// Debug aid: --mp-weaponset N plays the match with the Nth weapon
+			// set, as the Weapons menu would choose it. A mod's gun is
+			// otherwise only reachable by driving that menu on every attempt.
+			{
+				const s32 weaponset = sysArgGetInt("--mp-weaponset", -1);
+
+				// --mp-weapons a,b,c,d,e,f fills the six slots with those
+				// Combat Simulator weapon indexes instead (as --moddata-trace
+				// numbers them), so a chosen gun can sit in slot 1 and be
+				// the one Start Armed hands out
+				const char *weapons = sysArgGetString("--mp-weapons");
+
+				if (weaponset >= 0 && mpsims > 0) {
+					mpSetWeaponSet(weaponset);
+					mpApplyWeaponSet();
+				}
+
+				if (weapons && mpsims > 0) {
+					for (s32 i = 0; i < NUM_MPWEAPONSLOTS && *weapons; ++i) {
+						char *end;
+						const long v = strtol(weapons, &end, 10);
+
+						if (end == weapons) {
+							break;
+						}
+
+						g_MpSetup.weapons[i] = (v >= 0 && v < NUM_MPWEAPONS) ? (u8)v : MPWEAPON_NONE;
+						weapons = (*end == ',') ? end + 1 : end;
+					}
+				}
+
+				if ((weaponset >= 0 || weapons) && mpsims > 0) {
+					sysLogPrintf(LOG_NOTE, "--mp-weaponset %d --mp-weapons %s: slots %d %d %d %d %d %d", weaponset, weapons ? sysArgGetString("--mp-weapons") : "-",
+							g_MpSetup.weapons[0], g_MpSetup.weapons[1], g_MpSetup.weapons[2],
+							g_MpSetup.weapons[3], g_MpSetup.weapons[4], g_MpSetup.weapons[5]);
+				}
+			}
+
 			for (s32 s = 0; s < mpsims && s < MAX_BOTS; ++s) {
 				mpSetSimSlotOn(s, true);
 			}

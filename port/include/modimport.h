@@ -37,9 +37,10 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // older importer, or none, is imported again on the next start: raise this
 // when a fix changes what an import produces (2: sample tables placed by
 // the stock samples a mod kept, not measured back from the next segment;
-// 3: the stage table and the solo player's body and head; 4: every outfit's).
-#define MODIMPORT_VERSION 4
-#define MODIMPORT_VERSION_LINE "importer: 4 (the game's own)"
+// 3: the stage table and the solo player's body and head; 4: every outfit's;
+// 5: the solo guards' random head lists).
+#define MODIMPORT_VERSION 5
+#define MODIMPORT_VERSION_LINE "importer: 5 (the game's own)"
 
 #ifdef __cplusplus
 }

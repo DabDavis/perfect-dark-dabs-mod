@@ -2188,6 +2188,11 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	{ "g_MpBodies",       0x800877bc, 0x1e8 },
 	{ "g_MpMaleHeads",    0x800879a4, 0xb0 },
 	{ "g_MpFemaleHeads",  0x80087a54, 0x1c },
+	// the solo guards' random heads (body.c), -1 terminated
+	{ "g_MaleGuardHeads",  0x80062b68, 0xac },
+	{ "g_MaleGuardTeamHeads", 0x80062c14, 0x44 },
+	{ "g_FemaleGuardHeads", 0x80062c58, 0x14 },
+	{ "g_FemaleGuardTeamHeads", 0x80062c6c, 0x14 },
 	{ "g_Stages",         0x8007fcc0, 0xd60 },
 	{ "g_CommandLengths", 0x80068c14, 0x3e4 },
 	{ "g_SoloStages",     0x80071e6c, 0xfc },
@@ -2635,13 +2640,23 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 	}
 
 	{
-		static const struct { const char *key; const char *sym; const char *fn; u32 elem; u32 limit; } lists[] = {
-			{ "mpheads",       "g_MpHeads",       "mp_get_num_heads",  4, 151 },
-			{ "mpbodies",      "g_MpBodies",      "mp_get_num_bodies", 8, 151 },
-			{ "mpbeauheads",   "g_MpBeauHeads",   NULL,                4, 151 },
-			{ "botheads",      "g_BotHeads",      NULL,                4, 75 },
-			{ "mpmaleheads",   "g_MpMaleHeads",   NULL,                4, 151 },
-			{ "mpfemaleheads", "g_MpFemaleHeads", NULL,                4, 151 },
+		// terminated: the list ends at its first -1 rather than at a count
+		// in the code, and however many read before it are the list
+		static const struct { const char *key; const char *sym; const char *fn; u32 elem; u32 limit; u32 terminated; } lists[] = {
+			{ "mpheads",       "g_MpHeads",       "mp_get_num_heads",  4, 151, 0 },
+			{ "mpbodies",      "g_MpBodies",      "mp_get_num_bodies", 8, 151, 0 },
+			{ "mpbeauheads",   "g_MpBeauHeads",   NULL,                4, 151, 0 },
+			{ "botheads",      "g_BotHeads",      NULL,                4, 75,  0 },
+			{ "mpmaleheads",   "g_MpMaleHeads",   NULL,                4, 151, 0 },
+			{ "mpfemaleheads", "g_MpFemaleHeads", NULL,                4, 151, 0 },
+			// the heads a solo stage hands its guards at random. GE-X keeps
+			// 25 of its own here; the stock list names heads whose texture
+			// slots GE-X reused, which is what a guard with a scrambled
+			// face was
+			{ "maleguardheads",       "g_MaleGuardHeads",       NULL, 4, 151, 1 },
+			{ "maleguardteamheads",   "g_MaleGuardTeamHeads",   NULL, 4, 151, 1 },
+			{ "femaleguardheads",     "g_FemaleGuardHeads",     NULL, 4, 151, 1 },
+			{ "femaleguardteamheads", "g_FemaleGuardTeamHeads", NULL, 4, 151, 1 },
 		};
 		for (u32 i = 0; i < sizeof(lists) / sizeof(lists[0]); ++i) {
 			u32 n, ok;
@@ -2663,9 +2678,14 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			} else {
 				ok = countIndexes(&t, addr, n, lists[i].limit);
 			}
-			if (ok == n) {
+			if (lists[i].terminated && ok > 0) {
+				LINE("  %s 0x%08x %u\n", lists[i].key, addr, ok);
+				rep("  %u %s at %08x%s", ok, lists[i].key, addr, tnote);
+			} else if (!lists[i].terminated && ok == n) {
 				LINE("  %s 0x%08x %u\n", lists[i].key, addr, n);
 				rep("  %u %s at %08x%s", n, lists[i].key, addr, tnote);
+			} else if (lists[i].terminated) {
+				rep("  what is at %08x does not read as the %s list; left out", addr, lists[i].key);
 			} else {
 				rep("  the code says %u %s but only %u read as one at %08x; left out", n, lists[i].key, ok, addr);
 			}

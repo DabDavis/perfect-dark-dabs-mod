@@ -39,6 +39,16 @@ struct moddataspec {
 	s32 nummpmaleheads;
 	u32 mpfemaleheads;   // g_MpFemaleHeads[]
 	s32 nummpfemaleheads;
+	// the solo guards' random heads: g_MaleGuardHeads[] and the team and
+	// female lists beside it, -1 terminated in the ROM
+	u32 maleguardheads;
+	s32 nummaleguardheads;
+	u32 maleguardteamheads;
+	s32 nummaleguardteamheads;
+	u32 femaleguardheads;
+	s32 numfemaleguardheads;
+	u32 femaleguardteamheads;
+	s32 numfemaleguardteamheads;
 	u32 stages;          // g_Stages[], ROM layout (0x38 bytes an entry)
 	s32 numstages;
 	s32 playerbody;      // the solo player's body and head, -1 for the port's own

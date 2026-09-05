@@ -1805,12 +1805,21 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
         else:
             notes.append('what is at %08x does not read as the heads and bodies table; left out' % hab)
 
-    for key, sym, fn, elem, limit in (('mpheads', 'g_MpHeads', 'mp_get_num_heads', 4, 151),
-                                      ('mpbodies', 'g_MpBodies', 'mp_get_num_bodies', 8, 151),
-                                      ('mpbeauheads', 'g_MpBeauHeads', None, 4, 151),
-                                      ('botheads', 'g_BotHeads', None, 4, 75),
-                                      ('mpmaleheads', 'g_MpMaleHeads', None, 4, 151),
-                                      ('mpfemaleheads', 'g_MpFemaleHeads', None, 4, 151)):
+    # terminated: the list ends at its first -1 rather than at a count in the
+    # code, and however many read before it are the list. The guard head
+    # lists are the heads a solo stage hands its guards at random; GE-X keeps
+    # 25 of its own there, and the stock list names heads whose texture slots
+    # GE-X reused (a guard with a scrambled face)
+    for key, sym, fn, elem, limit, terminated in (('mpheads', 'g_MpHeads', 'mp_get_num_heads', 4, 151, False),
+                                      ('mpbodies', 'g_MpBodies', 'mp_get_num_bodies', 8, 151, False),
+                                      ('mpbeauheads', 'g_MpBeauHeads', None, 4, 151, False),
+                                      ('botheads', 'g_BotHeads', None, 4, 75, False),
+                                      ('mpmaleheads', 'g_MpMaleHeads', None, 4, 151, False),
+                                      ('mpfemaleheads', 'g_MpFemaleHeads', None, 4, 151, False),
+                                      ('maleguardheads', 'g_MaleGuardHeads', None, 4, 151, True),
+                                      ('maleguardteamheads', 'g_MaleGuardTeamHeads', None, 4, 151, True),
+                                      ('femaleguardheads', 'g_FemaleGuardHeads', None, 4, 151, True),
+                                      ('femaleguardteamheads', 'g_FemaleGuardTeamHeads', None, 4, 151, True)):
         addr, note = locate(sym)
         if not addr:
             continue
@@ -1824,9 +1833,14 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             ok = count_mpheads(seg, base, addr, n)
         else:
             ok = count_indexes(seg, base, addr, n, limit)
-        if ok == n:
+        if terminated and ok > 0:
+            lines.append('  %s 0x%08x %d' % (key, addr, ok))
+            notes.append('%d %s at %08x%s' % (ok, key, addr, note))
+        elif not terminated and ok == n:
             lines.append('  %s 0x%08x %d' % (key, addr, n))
             notes.append('%d %s at %08x%s' % (n, key, addr, note))
+        elif terminated:
+            notes.append('what is at %08x does not read as the %s list; left out' % (addr, key))
         else:
             notes.append('the code says %d %s but only %d read as one at %08x; left out' % (n, key, ok, addr))
 

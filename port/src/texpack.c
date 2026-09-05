@@ -4052,8 +4052,9 @@ void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 si
 static void texpackPaletteEntryToRgba(u16 entry, s32 lutmode, u8 *dst)
 {
 	if (lutmode == TEXPACK_LUT_IA16) {
-		dst[0] = dst[1] = dst[2] = entry & 0xff;
-		dst[3] = entry >> 8;
+		// intensity high, alpha low, as in an IA16 texel
+		dst[0] = dst[1] = dst[2] = entry >> 8;
+		dst[3] = entry & 0xff;
 	} else {
 		dst[0] = TEXPACK_SCALE_5_8(entry >> 11);
 		dst[1] = TEXPACK_SCALE_5_8((entry >> 6) & 0x1f);

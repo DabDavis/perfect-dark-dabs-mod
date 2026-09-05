@@ -1067,8 +1067,12 @@ static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, boo
 
 static inline void palette_to_rgba32(const uint16_t palentry, uint8_t *rgba32_buf) {
     if (rdp.palette_fmt == G_TT_IA16) {
-        const uint8_t intensity = (palentry & 0xff);
-        const uint8_t alpha = palentry >> 8;
+        // An IA16 entry is intensity in the high byte, alpha in the low one,
+        // like an IA16 texel; the palette was byte-swapped to that on load.
+        // Read the other way round, a dark opaque grey is a faint white,
+        // which is how GE-X's KF7 magazine drew.
+        const uint8_t intensity = palentry >> 8;
+        const uint8_t alpha = (palentry & 0xff);
         rgba32_buf[0] = intensity;
         rgba32_buf[1] = intensity;
         rgba32_buf[2] = intensity;

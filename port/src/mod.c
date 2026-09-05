@@ -764,6 +764,18 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		} else if (!strcmp(token, "mpfemaleheads")) {
 			PARSE_ADDR("datasegment", "mpfemaleheads", spec.mpfemaleheads, NULL);
 			PARSE_INT("datasegment", "mpfemaleheads count", spec.nummpfemaleheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "maleguardheads")) {
+			PARSE_ADDR("datasegment", "maleguardheads", spec.maleguardheads, NULL);
+			PARSE_INT("datasegment", "maleguardheads count", spec.nummaleguardheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "maleguardteamheads")) {
+			PARSE_ADDR("datasegment", "maleguardteamheads", spec.maleguardteamheads, NULL);
+			PARSE_INT("datasegment", "maleguardteamheads count", spec.nummaleguardteamheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "femaleguardheads")) {
+			PARSE_ADDR("datasegment", "femaleguardheads", spec.femaleguardheads, NULL);
+			PARSE_INT("datasegment", "femaleguardheads count", spec.numfemaleguardheads, 0, 4096, NULL);
+		} else if (!strcmp(token, "femaleguardteamheads")) {
+			PARSE_ADDR("datasegment", "femaleguardteamheads", spec.femaleguardteamheads, NULL);
+			PARSE_INT("datasegment", "femaleguardteamheads count", spec.numfemaleguardteamheads, 0, 4096, NULL);
 		} else {
 			sysLogPrintf(LOG_ERROR, "modconfig: datasegment: invalid key: %s", token);
 			return NULL;

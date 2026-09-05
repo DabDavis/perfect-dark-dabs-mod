@@ -554,3 +554,54 @@ log gets a chr census at frame 300 and every 20s, `setupCreateProps()` reports
 how many chr entries spawned, and an autogun with no model no longer
 dereferences its missing prop. `IMPORT.txt` is at importer version 3, so
 every earlier import is redone.
+
+## GE-X's guard faces and the KF7's white magazine (2026-09-05)
+
+Two reports from the same tester, with two different causes, neither of them
+a texture problem in the sense of the paragraph above. What it took to find
+each is written down because both hunts began in the wrong place.
+
+- **Scrambled faces on some soldiers: the random guard heads.** A solo stage
+  hands its guards heads from `g_MaleGuardHeads` / `g_FemaleGuardHeads` (and
+  the team lists beside them, body.c) through `bodiesReset()` and
+  `bodyChooseHead()`. Those four lists were not in the datasegment block: the
+  port drew from PD's stock list, and GE-X reused the texture slots behind
+  several of those heads (Graham, Duncan, Jon, Mark, Stevem ... decode as
+  foliage and rubble in GE-X's table), so a guard wearing one showed that.
+  The block now carries `maleguardheads`, `maleguardteamheads`,
+  `femaleguardheads` and `femaleguardteamheads`; GE-X's are 25, 14, 4 and 4.
+  These lists end at a -1 rather than at a count in the code, so the table
+  loop in both importers has a `terminated` flag: `countIndexes()` stops at
+  the first entry that is not a head index and whatever it counted is the
+  list. `importGuardHeads()` in moddata.c reads every entry before writing
+  any, writes the terminator, and sets the count - `bodiesInit()` counts
+  again later, so either order works. The C importer resolves symbols from its
+  own `dataSyms[]` table, not the datasym file: a new list needs its address
+  and size added there, or the import says nothing at all (the first attempt
+  wrote no line and no note). Importer version 5.
+- **The KF7's white magazine: an IA16 palette read backwards.** The
+  magazine is texture 0x3f6, a 64x1 `IA16_CI8` strip of 49 opaque greys
+  (`1dff 1fff ...`). Both `palette_to_rgba32()` in fast3d/gfx_pc.cpp and
+  `texpackPaletteEntryToRgba()` in texpack.c took the low byte as intensity
+  and the high byte as alpha; an IA16 entry is intensity high, alpha low,
+  like an IA16 texel, and the TLUT is byte-swapped to that on load. So every
+  dark opaque grey became a nearly transparent white. Stock PD has seven such
+  textures (0x1e7 on the dataDyne fan roof and Skedar plinths, 0x1e8 on the
+  hovercars, 0xb25 on the submarine) which drew wrong all along; GE-X has 56,
+  on the KF7, the rocket launchers, the minigun and many props. The
+  `--dump-textures` PNG of such a texture was wrong the same way, which is
+  why the dump "confirmed" the strip as faint - the game's own decode of a
+  texture is only as trustworthy as the decoder it shares with the renderer.
+- **Getting a gun into the player's hands headlessly.** Combat Simulator
+  spawns unarmed; `Mod.StartArmed=1` in the scratch pd.ini hands out slot 1,
+  and `--mp-weapons 6,5,20,20,47,4` (Combat Simulator weapon indexes as
+  `--moddata-trace` numbers them) fills the slots, `--mp-weaponset N` picks a
+  whole set. Both apply only with `--mpsims`. A real mouse press (xdotool
+  `mousedown 1`) fires and `r` reloads, which is what brought the magazine
+  into frame: the first-person KF7 keeps it below the screen otherwise.
+- **Still open from the same look.** GE-X moved two of the animated-texture
+  numbers `texLoadFromGdl()` compares against (0x6cb -> 0x1c7, 0x90f ->
+  0xc90, "river" and "ocean"); the port still tests the stock numbers. Nothing
+  visible was traced to it. GE-X's face textures 0x561/0x562/0x56a and
+  0x58d/0x58e decode as dithered photo faces and split faces; they are the
+  mod's own data and the console reads them the same way.

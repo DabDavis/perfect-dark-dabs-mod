@@ -1490,6 +1490,45 @@ static s32 importHeadList(u32 addr, s32 count, u32 *dst, s32 room, s32 limit, s3
 	return count;
 }
 
+/**
+ * The heads a solo stage hands its guards at random: g_MaleGuardHeads and
+ * the team and female lists beside it (body.c), each -1 terminated in an
+ * array with one slot more than the stock list, and counted again by
+ * bodiesInit(). Everything is read before anything is written, so a bad
+ * list leaves the port's own in place.
+ */
+static s32 importGuardHeads(u32 addr, s32 count, s32 *dst, s32 room, s32 *num, const char *what)
+{
+	const s32 limit = ARRAYCOUNT(g_HeadsAndBodies) - 1;
+
+	if (count > room - 1) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d %s is more than the port holds (%d); the last are dropped", count, what, room - 1);
+		count = room - 1;
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		const u32 v = rd32(addr + i * 4);
+		if (v >= (u32)limit) {
+			sysLogPrintf(LOG_WARNING, "moddata: what is at %08x is not the %s list (entry %d is %u); the port keeps its own", addr, what, i, v);
+			return 0;
+		}
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		dst[i] = (s32)rd32(addr + i * 4);
+	}
+
+	dst[count] = -1;
+	*num = count;
+	return count;
+}
+
+// The arrays in body.c, terminator included
+#define GUARDHEADS_MALE_ROOM        43
+#define GUARDHEADS_MALETEAM_ROOM    17
+#define GUARDHEADS_FEMALE_ROOM      5
+#define GUARDHEADS_FEMALETEAM_ROOM  5
+
 static bool loadNames(const char *path)
 {
 	u32 len = 0;
@@ -1654,6 +1693,26 @@ s32 modDataImport(const struct moddataspec *spec)
 	if (spec->mpfemaleheads && spec->nummpfemaleheads > 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d female heads from %08x",
 				importHeadList(spec->mpfemaleheads, spec->nummpfemaleheads, g_MpFemaleHeads, ARRAYCOUNT(g_MpFemaleHeads), ARRAYCOUNT(g_HeadsAndBodies) - 1, &g_MpListCounts.femaleheads, "female head"), spec->mpfemaleheads);
+	}
+
+	if (spec->maleguardheads && spec->nummaleguardheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d guard heads from %08x",
+				importGuardHeads(spec->maleguardheads, spec->nummaleguardheads, g_MaleGuardHeads, GUARDHEADS_MALE_ROOM, &g_NumMaleGuardHeads, "guard head"), spec->maleguardheads);
+	}
+
+	if (spec->maleguardteamheads && spec->nummaleguardteamheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d guard team heads from %08x",
+				importGuardHeads(spec->maleguardteamheads, spec->nummaleguardteamheads, g_MaleGuardTeamHeads, GUARDHEADS_MALETEAM_ROOM, &g_NumMaleGuardTeamHeads, "guard team head"), spec->maleguardteamheads);
+	}
+
+	if (spec->femaleguardheads && spec->numfemaleguardheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d female guard heads from %08x",
+				importGuardHeads(spec->femaleguardheads, spec->numfemaleguardheads, g_FemaleGuardHeads, GUARDHEADS_FEMALE_ROOM, &g_NumFemaleGuardHeads, "female guard head"), spec->femaleguardheads);
+	}
+
+	if (spec->femaleguardteamheads && spec->numfemaleguardteamheads > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d female guard team heads from %08x",
+				importGuardHeads(spec->femaleguardteamheads, spec->numfemaleguardteamheads, g_FemaleGuardTeamHeads, GUARDHEADS_FEMALETEAM_ROOM, &g_NumFemaleGuardTeamHeads, "female guard team head"), spec->femaleguardteamheads);
 	}
 
 	if (seg.badreads || seg.badfiles) {
