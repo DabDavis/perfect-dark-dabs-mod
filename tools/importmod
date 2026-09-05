@@ -1481,6 +1481,25 @@ def follow_immediate(stockcode, modcode, start, end, stockvalue):
     return None
 
 
+def follow_stage_loads(stockcode, modcode, start, end, seg, base, modstages):
+    """The `lh rt,OFF(rs)` loads of g_Stages[index].id in a function that the
+    mod changed, as stage ids: the stock index -> the id at the mod's index
+    in the mod's own stage table."""
+    pairs = {}
+    for ofs in range(start, end, 4):
+        x = be32(stockcode, ofs)
+        y = be32(modcode, ofs)
+        if (x >> 26) != 0x21 or (y >> 16) != (x >> 16) or (y & 0xffff) == (x & 0xffff):
+            continue
+        if (x & 0xffff) % 0x38 or (y & 0xffff) % 0x38:
+            continue
+        o = modstages - base + ((y & 0xffff) // 0x38) * 0x38
+        if o + 2 > len(seg):
+            continue
+        pairs.setdefault((x & 0xffff) // 0x38, be16(seg, o))
+    return pairs
+
+
 def follow_immediates(stockcode, modcode, start, end):
     """Every `li rt,N` (addiu rt,zero,N) in [start, end) whose immediate the
     mod changed, as {stock N: mod N}; the first occurrence of a stock value
@@ -1931,6 +1950,27 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                 lines.append('  texconst 0x%x %d' % (k, v))
             notes.append('%d animated texture numbers changed in the mod\'s texture code: %s'
                          % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
+
+    # And roomPopulateMtx(), which pins a room to the camera (the moon, the
+    # Attack Ship's backdrop) by stage and room number: the stages are `lh`
+    # loads of g_Stages[index].id, the rooms are `li`. GE-X points all of
+    # them at its own stages.
+    if followed and 'room_populate_mtx' in codesyms:
+        start, end = codesyms['room_populate_mtx']
+        pairs = follow_immediates(stockcode, modcode, start - 0x7f000000, end - 0x7f000000)
+        for k, v in sorted(pairs.items()):
+            lines.append('  roomnum 0x%x %d' % (k, v))
+        if pairs:
+            notes.append('%d pinned room numbers changed in the mod\'s room code: %s'
+                         % (len(pairs), ', '.join('%#x->%d' % (k, v) for k, v in sorted(pairs.items()))))
+        modstages, _ = locate('g_Stages')
+        if modstages:
+            pairs = follow_stage_loads(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, seg, base, modstages)
+            for k, v in sorted(pairs.items()):
+                lines.append('  roomstage 0x%x %d' % (k, v))
+            if pairs:
+                notes.append('%d pinned rooms\' stages changed in the mod\'s room code: %s'
+                             % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
 
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'

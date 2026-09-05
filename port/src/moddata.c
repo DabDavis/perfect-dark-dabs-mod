@@ -1412,6 +1412,34 @@ s32 modDataTexNum(s32 def)
 	return def;
 }
 
+static s32 modNumRoomNums;
+static u16 modRoomNums[16][2];
+static s32 modNumRoomStages;
+static u16 modRoomStages[16][2];
+
+// A pinned room's number as the mod's room code has it
+s32 modDataRoomNum(s32 def)
+{
+	for (s32 i = 0; i < modNumRoomNums; ++i) {
+		if (modRoomNums[i][0] == (u16)def) {
+			return modRoomNums[i][1];
+		}
+	}
+	return def;
+}
+
+// The stage id a pinned room's site compares against, for the stock stage
+// index that site reads; defid is what the port's own table says there
+s32 modDataRoomStage(s32 stockindex, s32 defid)
+{
+	for (s32 i = 0; i < modNumRoomStages; ++i) {
+		if (modRoomStages[i][0] == (u16)stockindex) {
+			return modRoomStages[i][1];
+		}
+	}
+	return defid;
+}
+
 // The default outfit's body and head come through the map like the rest;
 // playerbody/playerhead in the block are the older form of the same fact
 s32 modDataPlayerBody(s32 def)
@@ -1819,6 +1847,15 @@ s32 modDataImport(const struct moddataspec *spec)
 
 	if (modNumTexConsts) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d of the animated texture numbers are the mod's", modNumTexConsts);
+	}
+
+	modNumRoomNums = spec->numroomnums;
+	memcpy(modRoomNums, spec->roomnums, sizeof(modRoomNums));
+	modNumRoomStages = spec->numroomstages;
+	memcpy(modRoomStages, spec->roomstages, sizeof(modRoomStages));
+
+	if (modNumRoomNums || modNumRoomStages) {
+		sysLogPrintf(LOG_NOTE, "moddata: the camera-pinned rooms are the mod's (%d stages, %d room numbers changed)", modNumRoomStages, modNumRoomNums);
 	}
 
 	if (modPlayerBody >= 0 || modPlayerHead >= 0) {

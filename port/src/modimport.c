@@ -2208,6 +2208,7 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "mp_get_num_bodies",         0x7f18bb88, 0x7f18bb90 },
 	{ "player_choose_body_and_head", 0x7f0b872c, 0x7f0b8ba0 },
 	{ "tex_load_from_gdl",         0x7f1756c0, 0x7f175ef4 },
+	{ "room_populate_mtx",         0x7f166a6c, 0x7f166bc0 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -2783,10 +2784,19 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 	// rivers, the ocean, the power juice) by number: GE-X moved two of them
 	// (0x6cb -> 0x1c7, 0x90f -> 0xc90), and the port compares against the
 	// stock numbers unless told.
-	static const struct { const char *fn; const char *key; const char *what; } consts[] = {
-		{ "player_choose_body_and_head", "playerconst", "body/head constants changed in the mod's outfit code" },
-		{ "tex_load_from_gdl",           "texconst",    "animated texture numbers changed in the mod's texture code" },
+	//
+	// And roomPopulateMtx(), which pins a room to the camera (the moon, the
+	// Attack Ship's backdrop) by stage and room number: the stages are
+	// `lh` loads of g_Stages[index].id, followed as stage ids - the stock
+	// id at the stock index, the mod's table's id at the mod's - and the
+	// rooms are `li`. GE-X points all of them at its own stages.
+	static const struct { const char *fn; const char *key; const char *what; u32 stages; } consts[] = {
+		{ "player_choose_body_and_head", "playerconst", "body/head constants changed in the mod's outfit code", 0 },
+		{ "tex_load_from_gdl",           "texconst",    "animated texture numbers changed in the mod's texture code", 0 },
+		{ "room_populate_mtx",           "roomnum",     "pinned room numbers changed in the mod's room code", 0 },
+		{ "room_populate_mtx",           "roomstage",   "pinned rooms' stages changed in the mod's room code", 1 },
 	};
+	const u32 modstages = t.followed ? locateTable(&t, "g_Stages", tnote, sizeof(tnote)) : 0;
 	for (u32 c = 0; t.followed && c < sizeof(consts) / sizeof(consts[0]); ++c) {
 		u32 start, end;
 		if (codeSym(consts[c].fn, &start, &end)) {
@@ -2795,20 +2805,41 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			u32 listlen = 0;
 			for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= t.stockcodelen && ofs + 4 <= t.modcodelen && n < 64; ofs += 4) {
 				const u32 x = be32(t.stockcode, ofs);
-				if (((x >> 26) == 0x08 || (x >> 26) == 0x09) && ((x >> 21) & 0x1f) == 0) {
-					const u32 y = be32(t.modcode, ofs);
-					if ((y >> 16) == (x >> 16) && (y & 0xffff) != (x & 0xffff)) {
-						u32 k;
-						for (k = 0; k < n; ++k) {
-							if (seen[k] == (x & 0xffff)) {
-								break;
-							}
+				const u32 y = be32(t.modcode, ofs);
+				u32 k, v;
+				if ((y >> 16) != (x >> 16) || (y & 0xffff) == (x & 0xffff)) {
+					continue;
+				}
+				if (consts[c].stages) {
+					// lh rt,OFF(rs): the index into g_Stages, as its id
+					const u8 *e;
+					if ((x >> 26) != 0x21 || (x & 0xffff) % 0x38 || (y & 0xffff) % 0x38 || !modstages) {
+						continue;
+					}
+					k = (x & 0xffff) / 0x38;
+					e = tableEntry(&t, modstages, (y & 0xffff) / 0x38, 0x38);
+					if (!e) {
+						continue;
+					}
+					v = be16(e, 0);
+				} else {
+					if (!(((x >> 26) == 0x08 || (x >> 26) == 0x09) && ((x >> 21) & 0x1f) == 0)) {
+						continue;
+					}
+					k = x & 0xffff;
+					v = y & 0xffff;
+				}
+				{
+					u32 j;
+					for (j = 0; j < n; ++j) {
+						if (seen[j] == k) {
+							break;
 						}
-						if (k == n) {
-							seen[n++] = x & 0xffff;
-							LINE("  %s 0x%x %u\n", consts[c].key, x & 0xffff, y & 0xffff);
-							listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s0x%x->%u", listlen ? ", " : "", x & 0xffff, y & 0xffff);
-						}
+					}
+					if (j == n) {
+						seen[n++] = k;
+						LINE("  %s 0x%x %u\n", consts[c].key, k, v);
+						listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s0x%x->%u", listlen ? ", " : "", k, v);
 					}
 				}
 			}

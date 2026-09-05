@@ -60,6 +60,13 @@ struct moddataspec {
 	// the mod changed: stock -> mod
 	s32 numtexconsts;
 	u16 texconsts[16][2];
+	// the rooms roomPopulateMtx() pins to the camera: room numbers the mod
+	// changed (stock -> mod) and the stages, as stock stage index -> the
+	// mod's stage id
+	s32 numroomnums;
+	u16 roomnums[16][2];
+	s32 numroomstages;
+	u16 roomstages[16][2];
 	u32 commandlengths;  // g_CommandLengths[], for the mod's own AI commands
 	s32 numcommandlengths;
 	u32 solostages;      // g_SoloStages[], the mission list
@@ -76,6 +83,11 @@ s32 modDataPlayerHead(s32 def);
 
 // An animated texture number as the mod's texture code has it, or def.
 s32 modDataTexNum(s32 def);
+
+// The rooms roomPopulateMtx() pins: a room number as the mod's code has it,
+// and the stage id a stock stage index's site compares against.
+s32 modDataRoomNum(s32 def);
+s32 modDataRoomStage(s32 stockindex, s32 defid);
 
 // Rebuild the weapon definitions and model tables from that segment. Once per
 // run: what it allocates is never given back.

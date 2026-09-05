@@ -39,9 +39,9 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // the stock samples a mod kept, not measured back from the next segment;
 // 3: the stage table and the solo player's body and head; 4: every outfit's;
 // 5: the solo guards' random head lists; 6: the animated texture numbers;
-// 7: the stage environments).
-#define MODIMPORT_VERSION 7
-#define MODIMPORT_VERSION_LINE "importer: 7 (the game's own)"
+// 7: the stage environments; 8: the camera-pinned rooms).
+#define MODIMPORT_VERSION 8
+#define MODIMPORT_VERSION_LINE "importer: 8 (the game's own)"
 
 #ifdef __cplusplus
 }

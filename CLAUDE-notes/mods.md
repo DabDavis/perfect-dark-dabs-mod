@@ -637,3 +637,30 @@ which `importSuns()` resolves into the segment) with a zeroed terminator,
 and `envSetTables()` in env.c points the chooser at them - the port's arrays
 are too small for GE-X's fog table, so they are replaced rather than
 overwritten. `--moddata-trace` lists every entry. Importer version 7.
+
+## The camera-pinned rooms (2026-09-05)
+
+"The starting area of Runway is missing its wall and ground textures, and
+there is a black bar across the top of the sky." Neither was a texture:
+`roomPopulateMtx()` (room.c) pins a few rooms to the camera - the moon in
+Defection, Extraction and Maian SOS's room 1, the Skedar ruins' room 2, the
+Attack Ship's backdrop - by comparing the stage against `g_Stages[index].id`
+and the room against a literal. GE-X's Runway sits in Extraction's slot, so
+its room 1, the start area, was drawn at the camera's offset: walls and
+floor elsewhere, and the room's dark ceiling across the top of the view.
+GE-X's own code points every one of those checks at its stage table's
+index 0 (never a played stage) except one, moved to index 26, whose id is
+0x2e in GE-X's table.
+
+The constant-following loop now has a `stages` kind that reads the `lh
+rt,OFF(v1)` loads of `g_Stages[OFF / 0x38].id`, and writes them as stage
+ids: `roomstage STOCKINDEX MODID`, the mod id read from the mod's own stage
+table at the mod's index (its table may be in another order, so an index is
+not carried across). The room literals go through the `li` kind as
+`roomnum`. room.c compares through `ROOMSTAGE(idx)` and `MOD_ROOM(x)`,
+which `modDataRoomStage()` and `modDataRoomNum()` answer. Importer
+version 8. Two suns now show on the Runway, which is GE-X's own
+environment entry (one sun with a lens flare).
+
+Seen on the way: `--boot-stage 0x24` on stock stops with "overflow when
+trying to preprocess a bg file"; 0x24 is not a playable stage.

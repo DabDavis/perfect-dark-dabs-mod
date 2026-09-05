@@ -5,6 +5,9 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "mod.h"
+#endif
 
 /**
  * Room matrices
@@ -95,6 +98,15 @@ s32 roomAllocateMtx(void)
 	return 0;
 }
 
+#ifndef PLATFORM_N64
+// a mod pins other rooms in other stages; its code was followed into these
+#define ROOMSTAGE(idx) modDataRoomStage(idx, g_Stages[idx].id)
+#define MOD_ROOM(x) modDataRoomNum(x)
+#else
+#define ROOMSTAGE(idx) g_Stages[idx].id
+#define MOD_ROOM(x) (x)
+#endif
+
 void roomPopulateMtx(Mtxf *mtx, s32 roomnum)
 {
 	s32 stagenum = g_Vars.stagenum;
@@ -108,16 +120,16 @@ void roomPopulateMtx(Mtxf *mtx, s32 roomnum)
 	// These are rooms that are always active, such as the moon in Defection.
 	// This is probably making those rooms always drawn a certain distance away
 	// relative to the camera, so the moon never gets bigger as you go closer.
-	if (((stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
-					|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
-					|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
-					|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) && roomnum == 0x0f)
-			|| ((stagenum == g_Stages[STAGEINDEX_SKEDARRUINS].id
-					|| stagenum == g_Stages[STAGEINDEX_WAR].id) && roomnum == 0x02)
-			|| ((stagenum == g_Stages[STAGEINDEX_DEFECTION].id
-					|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
-					|| stagenum == g_Stages[STAGEINDEX_MBR].id) && roomnum == 0x01)
-			|| (stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id && roomnum == 0x71)) {
+	if (((stagenum == ROOMSTAGE(STAGEINDEX_INFILTRATION)
+					|| stagenum == ROOMSTAGE(STAGEINDEX_RESCUE)
+					|| stagenum == ROOMSTAGE(STAGEINDEX_ESCAPE)
+					|| stagenum == ROOMSTAGE(STAGEINDEX_MAIANSOS)) && roomnum == MOD_ROOM(0x0f))
+			|| ((stagenum == ROOMSTAGE(STAGEINDEX_SKEDARRUINS)
+					|| stagenum == ROOMSTAGE(STAGEINDEX_WAR)) && roomnum == MOD_ROOM(0x02))
+			|| ((stagenum == ROOMSTAGE(STAGEINDEX_DEFECTION)
+					|| stagenum == ROOMSTAGE(STAGEINDEX_EXTRACTION)
+					|| stagenum == ROOMSTAGE(STAGEINDEX_MBR)) && roomnum == MOD_ROOM(0x01))
+			|| (stagenum == ROOMSTAGE(STAGEINDEX_ATTACKSHIP) && roomnum == MOD_ROOM(0x71))) {
 		mtx->m[3][0] = g_BgRooms[roomnum].pos.x;
 		mtx->m[3][1] = g_BgRooms[roomnum].pos.y;
 		mtx->m[3][2] = g_BgRooms[roomnum].pos.z;

@@ -755,6 +755,27 @@ static char *modConfigParseDataSegment(char *p, char *token)
 				spec.texconsts[spec.numtexconsts][1] = (u16)v;
 				spec.numtexconsts++;
 			}
+		} else if (!strcmp(token, "roomnum")) {
+			// one line per pinned room number the mod's room code changed: stock, mod
+			s32 k = 0, v = 0;
+			PARSE_INT("datasegment", "roomnum stock", k, 0, 0xffff, NULL);
+			PARSE_INT("datasegment", "roomnum mod", v, 0, 0xffff, NULL);
+			if (spec.numroomnums < 16) {
+				spec.roomnums[spec.numroomnums][0] = (u16)k;
+				spec.roomnums[spec.numroomnums][1] = (u16)v;
+				spec.numroomnums++;
+			}
+		} else if (!strcmp(token, "roomstage")) {
+			// one line per pinned room's stage the mod's room code changed:
+			// the stock stage index, the mod's stage id
+			s32 k = 0, v = 0;
+			PARSE_INT("datasegment", "roomstage stock", k, 0, 0xffff, NULL);
+			PARSE_INT("datasegment", "roomstage mod", v, 0, 0xffff, NULL);
+			if (spec.numroomstages < 16) {
+				spec.roomstages[spec.numroomstages][0] = (u16)k;
+				spec.roomstages[spec.numroomstages][1] = (u16)v;
+				spec.numroomstages++;
+			}
 		} else if (!strcmp(token, "playerbody")) {
 			PARSE_INT("datasegment", "playerbody", spec.playerbody, 0, 255, NULL);
 		} else if (!strcmp(token, "playerhead")) {
