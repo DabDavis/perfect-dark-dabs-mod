@@ -21,6 +21,7 @@
 #include "game/mplayer/scenarios.h"
 #include "game/challenge.h"
 #include "game/lang.h"
+#include "game/modalarm.h"
 #include "game/modbodies.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
@@ -202,6 +203,7 @@ void propsReset(void)
 	g_AlarmTimer = 0;
 	g_AlarmAudioHandle = NULL;
 	g_AlarmSpeakerWeight = 64;
+	modAlarmReset();
 
 	g_GasReleaseTimer240 = 0;
 	g_GasReleasing = false;
@@ -1436,6 +1438,16 @@ void setupLoadFiles(s32 stagenum)
 		// read back below, so the two agree. See modbodies.c.
 		numchrs += modBodiesSetReserve();
 
+		// Guards Alerted! reinforcements need a chr each too, on top of the
+		// ten spares a stage gets, and a weapon each like a simulant. See
+		// modalarm.c.
+		{
+			s32 numguards = modAlarmSetReserve();
+
+			numchrs += numguards;
+			numobjs += numguards;
+		}
+
 		numobjs += setupCountCommandType(OBJTYPE_WEAPON);
 		numobjs += setupCountCommandType(OBJTYPE_KEY);
 		numobjs += setupCountCommandType(OBJTYPE_HAT);
@@ -1588,6 +1600,7 @@ void setupCreateProps(s32 stagenum)
 			}
 
 			numchrs += modBodiesGetReserve();
+			numchrs += modAlarmGetReserve();
 
 			chrmgrConfigure(numchrs);
 		} else {

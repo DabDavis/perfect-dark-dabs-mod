@@ -72,6 +72,47 @@
 #define MODBODIESDRAWN_ALL 0
 #define MODBODIESDRAWN_MAX MODBODIES_MAX
 
+/**
+ * Guards Alerted!: the alarm never stops, and guards keep coming.
+ *
+ * In a stock mission the alarm is something a guard raises when the player is
+ * seen or heard, and it has two effects: every guard who can hear it goes
+ * alert and comes looking, and on a few stages the mission script spawns a
+ * handful of reinforcements. Both stop after thirty seconds. This setting is
+ * the alarm as a permanent condition, on every stage - solo, Combat Simulator,
+ * the Institute - with reinforcements the port spawns itself, so a stage whose
+ * script never spawned any gets them too. How many are on their feet at once
+ * and how quickly the next one arrives are settings of their own; see
+ * modalarm.c.
+ *
+ * The siren is separate. It is the sound of the thing, but thirty seconds of
+ * it is one matter and a whole match of it is another, so it can be turned off
+ * on its own while the guards keep coming.
+ */
+#define MODALARM_OFF 0
+#define MODALARM_ON  1
+
+/**
+ * How many alerted guards may be on their feet at once. The ceiling is the
+ * simulant count's, and for the same reason: each one is a chr, a model, an
+ * animation and a prop reserved at stage load, and eighty is where a match
+ * stops feeling like a match.
+ */
+#define MODALARM_GUARDS_MIN     1
+#define MODALARM_GUARDS_DEFAULT 6
+#define MODALARM_GUARDS_MAX     80
+
+/**
+ * How fast they come, in guards per ten seconds. One is a guard every ten
+ * seconds, which keeps a player moving; the default is one every five, about
+ * what the Villa's four-in-two-minutes feels like when it never stops; fifty
+ * is one every fifth of a second, which puts the whole eighty on their feet
+ * inside twenty seconds - a swarm, for anyone who asks for one.
+ */
+#define MODALARM_SPEED_MIN     1
+#define MODALARM_SPEED_DEFAULT 2
+#define MODALARM_SPEED_MAX     50
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -86,6 +127,10 @@ struct modoptions {
 	s32 bodies;      // how many bodies are left lying around, 0 for off
 	s32 bodytime;    // seconds one lies there, 0 for until the cap takes it
 	s32 bodiesdrawn; // how many may be drawn at once, 0 for all of them
+	s32 guardsalerted; // MODALARM_ON: the alarm as a permanent condition
+	s32 alertedguards; // how many reinforcements may be up at once
+	s32 guardspawnspeed; // how fast they come, in guards per ten seconds
+	s32 alarmsound;  // whether the siren plays while the alarm is on
 };
 
 extern struct modoptions g_ModOptions;
@@ -105,5 +150,9 @@ s32 modGetBodiesKept(void);
 s32 modGetBodyTime(void);
 s32 modGetBodiesDrawn(void);
 bool modKeepsBodies(void);
+bool modIsGuardsAlertedOn(void);
+s32 modGetAlertedGuards(void);
+s32 modGetGuardSpawnSpeed(void);
+bool modIsAlarmSoundEnabled(void);
 
 #endif

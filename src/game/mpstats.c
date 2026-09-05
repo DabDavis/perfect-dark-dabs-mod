@@ -234,6 +234,18 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 	s32 prevplayernum;
 	char text[256];
 
+#ifndef PLATFORM_N64
+	// A death in a Combat Simulator match whose victim is not in the match
+	// is one of the Guards Alerted! reinforcements (modalarm.c). Stock never
+	// records one - every victim it knows is a player or a simulant - and
+	// the attacker branch below would credit a kill for it, so the guards
+	// would decide the score. They are an obstacle, not points: nothing is
+	// recorded. Co-op keeps counting its mission guards as it always has.
+	if (g_Vars.normmplayerisrunning && vplayernum < 0) {
+		return;
+	}
+#endif
+
 	if (g_Vars.normmplayerisrunning && g_MpSetup.scenario == MPSCENARIO_POPACAP) {
 		pacHandleDeath(aplayernum, vplayernum);
 	}

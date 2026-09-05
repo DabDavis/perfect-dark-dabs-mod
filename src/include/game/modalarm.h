@@ -1,0 +1,17 @@
+#ifndef _IN_GAME_MODALARM_H
+#define _IN_GAME_MODALARM_H
+
+#include <ultra64.h>
+#include "types.h"
+
+/**
+ * Guards Alerted!: the alarm as a permanent condition, and the guards it keeps
+ * sending. The setting itself lives in modoptions.h; this is the machinery.
+ */
+
+void modAlarmReset(void);
+s32 modAlarmSetReserve(void);
+s32 modAlarmGetReserve(void);
+void modAlarmTick(void);
+
+#endif

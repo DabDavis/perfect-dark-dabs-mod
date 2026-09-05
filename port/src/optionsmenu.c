@@ -2051,6 +2051,95 @@ static MenuItemHandlerResult menuhandlerModStartArmedFor(s32 operation, struct m
 	return 0;
 }
 
+/**
+ * Guards Alerted!: the alarm never stops and guards keep coming, in every
+ * mode. How many at once and how fast are the two items under it; the siren
+ * is its own checkbox, since a whole match of it is a different thing from
+ * thirty seconds. See modalarm.c.
+ */
+static MenuItemHandlerResult menuhandlerModGuardsAlerted(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.guardsalerted != MODALARM_OFF;
+	case MENUOP_SET:
+		g_ModOptions.guardsalerted = data->checkbox.value ? MODALARM_ON : MODALARM_OFF;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Guards per ten seconds. The slider runs from one, a guard every ten
+ * seconds, to fifty, one every fifth of a second - the whole eighty inside
+ * twenty seconds.
+ */
+static MenuItemHandlerResult menuhandlerModGuardSpawnSpeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.guardsalerted == MODALARM_OFF;
+	case MENUOP_GETSLIDER:
+		data->slider.value = modGetGuardSpawnSpeed() - MODALARM_SPEED_MIN;
+		break;
+	case MENUOP_SET:
+		g_ModOptions.guardspawnspeed = data->slider.value + MODALARM_SPEED_MIN;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", (s32)data->slider.value + MODALARM_SPEED_MIN);
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * How many are up at once. The steps are the simulant count's kind of
+ * steps, and the top is the simulant count's top.
+ */
+static const s32 g_ModAlertedGuardsValues[] = { 1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64, MODALARM_GUARDS_MAX };
+
+static s32 menuhandlerModPresetIndex(const s32 *values, s32 count, s32 value);
+
+static MenuItemHandlerResult menuhandlerModAlertedGuards(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "1", "2", "4", "6", "8", "12", "16", "24", "32", "48", "64", "80" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.guardsalerted == MODALARM_OFF;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.alertedguards = g_ModAlertedGuardsValues[data->dropdown.value];
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = menuhandlerModPresetIndex(g_ModAlertedGuardsValues,
+				ARRAYCOUNT(g_ModAlertedGuardsValues), modGetAlertedGuards());
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModAlarmSound(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.guardsalerted == MODALARM_OFF;
+	case MENUOP_GET:
+		return g_ModOptions.alarmsound;
+	case MENUOP_SET:
+		g_ModOptions.alarmsound = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -2884,6 +2973,38 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Start Armed For",
 		0,
 		menuhandlerModStartArmedFor,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Guards Alerted!",
+		0,
+		menuhandlerModGuardsAlerted,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Alerted Guards",
+		0,
+		menuhandlerModAlertedGuards,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Guard Spawn Speed",
+		MODALARM_SPEED_MAX - MODALARM_SPEED_MIN,
+		menuhandlerModGuardSpawnSpeed,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Alarm Sound",
+		0,
+		menuhandlerModAlarmSound,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

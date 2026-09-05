@@ -24,6 +24,8 @@
 #include "game/gunfx.h"
 #include "game/game_0b0fd0.h"
 #include "game/modelmgr.h"
+#include "game/modalarm.h"
+#include "game/modoptions.h"
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/portal.h"
@@ -21021,6 +21023,20 @@ const char var7f1aa1bc[] = "";
 
 void alarmTick(void)
 {
+#ifndef PLATFORM_N64
+	// Guards Alerted!: the alarm is a permanent condition. Kept alive here
+	// rather than by ignoring the timeout below, so that a script's
+	// deactivate_alarm is honoured for the one tick it takes effect and the
+	// timer never grows past the point it would have stopped at anyway.
+	if (modIsGuardsAlertedOn()) {
+		alarmActivate();
+
+		if (g_AlarmTimer > TICKS(1200)) {
+			g_AlarmTimer = TICKS(1200);
+		}
+	}
+#endif
+
 	if (alarmIsActive()) {
 		s16 sound;
 
@@ -21044,6 +21060,13 @@ void alarmTick(void)
 		}
 #endif
 
+#ifndef PLATFORM_N64
+		if (modIsGuardsAlertedOn() && !modIsAlarmSoundEnabled()) {
+			// The siren is off: the alarm stays on, and stays quiet. A siren
+			// already going when the option was turned off stops here.
+			alarmStopAudio();
+		} else
+#endif
 		if (!lvIsPaused()) {
 			if (g_AlarmAudioHandle) {
 				// The sound is currently playing. Cycle between the left/right
@@ -21081,6 +21104,10 @@ void alarmTick(void)
 			|| (g_AlarmTimer > TICKS(3300) && mainGetStageNum() == STAGE_G5BUILDING)) {
 		alarmDeactivate();
 	}
+
+#ifndef PLATFORM_N64
+	modAlarmTick();
+#endif
 
 	gasTick();
 	countdownTimerTick();

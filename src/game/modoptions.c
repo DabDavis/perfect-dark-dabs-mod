@@ -26,6 +26,10 @@ struct modoptions g_ModOptions = {
 	MODBODIES_DEFAULT,        // bodies
 	MODBODYTIME_OFF,          // bodytime
 	64,                       // bodiesdrawn
+	MODALARM_OFF,             // guardsalerted: like Start Armed, a choice, not a default
+	MODALARM_GUARDS_DEFAULT,  // alertedguards
+	MODALARM_SPEED_DEFAULT,   // guardspawnspeed
+	true,                     // alarmsound
 };
 
 /**
@@ -245,4 +249,65 @@ s32 modGetBodiesDrawn(void)
 bool modKeepsBodies(void)
 {
 	return modGetBodiesKept() != MODBODIES_OFF;
+}
+
+/**
+ * Whether the alarm is a permanent condition.
+ *
+ * Off in a Ghost Trial, with the rest of the fork's moves: a run made against
+ * an endless stream of guards is a different route from one made against the
+ * stage's own, and the board should not be ranking which was chosen.
+ */
+bool modIsGuardsAlertedOn(void)
+{
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+#endif
+
+	return g_ModOptions.guardsalerted != MODALARM_OFF;
+}
+
+/**
+ * How many alerted guards may be up at once. Meaningful only while the
+ * setting is on; the pools are sized for it at stage load either way.
+ */
+s32 modGetAlertedGuards(void)
+{
+	if (g_ModOptions.alertedguards < MODALARM_GUARDS_MIN) {
+		return MODALARM_GUARDS_MIN;
+	}
+
+	if (g_ModOptions.alertedguards > MODALARM_GUARDS_MAX) {
+		return MODALARM_GUARDS_MAX;
+	}
+
+	return g_ModOptions.alertedguards;
+}
+
+/**
+ * How fast the reinforcements come, in guards per ten seconds.
+ */
+s32 modGetGuardSpawnSpeed(void)
+{
+	if (g_ModOptions.guardspawnspeed < MODALARM_SPEED_MIN) {
+		return MODALARM_SPEED_MIN;
+	}
+
+	if (g_ModOptions.guardspawnspeed > MODALARM_SPEED_MAX) {
+		return MODALARM_SPEED_MAX;
+	}
+
+	return g_ModOptions.guardspawnspeed;
+}
+
+/**
+ * Whether the siren plays. Only meaningful while the alarm is on, and the
+ * stock alarm - the one a guard raises - keeps its sound whatever this says:
+ * that is thirty seconds, and the mission is telling the player something.
+ */
+bool modIsAlarmSoundEnabled(void)
+{
+	return g_ModOptions.alarmsound != 0;
 }
