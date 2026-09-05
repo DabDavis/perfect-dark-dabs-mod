@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/inv.h"
+#include "game/modoptions.h"
 #include "game/bondgun.h"
 #include "game/stagetable.h"
 #include "bss.h"
@@ -144,13 +145,39 @@ void bgunReset(void)
 		{-1}, // beam
 	};
 
+	g_Vars.currentplayer->gunctrl.gunmemcapacity = 0;
+	g_Vars.currentplayer->gunctrl.gunmemmixed = false;
+
 	if (IS4MB() && PLAYERCOUNT() == 2) {
 		i = ALIGN16(g_BgunGunMemBaseSize4Mb2P);
 	} else {
 		i = ALIGN16(bgunCalculateGunMemCapacity());
 	}
 
+#ifndef PLATFORM_N64
+	extern u32 g_BgunGunMemBaseSizeDefault;
+
+	// Akimbo's mixed pairs load a second gun model behind the first, so the
+	// memory is sized for two while the setting is on. Sized here, at stage
+	// start, and remembered: the loader is told this ceiling rather than the
+	// base calculation, and a pair is only mixed when the room was made.
+	if (modIsAkimboForPlayers()) {
+		i += ALIGN16(g_BgunGunMemBaseSizeDefault);
+		g_Vars.currentplayer->gunctrl.gunmemmixed = true;
+	}
+
+	g_Vars.currentplayer->gunctrl.gunmemcapacity = i;
+#endif
+
 	g_Vars.currentplayer->gunctrl.gunmem = mempAlloc(i, MEMPOOL_STAGE);
+	g_Vars.currentplayer->gunctrl.leftgunmodeldef = NULL;
+	g_Vars.currentplayer->gunctrl.gunmemtypeleft = 0;
+	g_Vars.currentplayer->gunctrl.leftweaponnum = WEAPON_NONE;
+	g_Vars.currentplayer->gunctrl.leftwant = -1;
+	g_Vars.currentplayer->hands[HAND_LEFT].ammotypes[0] = -1;
+	g_Vars.currentplayer->hands[HAND_LEFT].ammotypes[1] = -1;
+	g_Vars.currentplayer->hands[HAND_RIGHT].ammotypes[0] = -1;
+	g_Vars.currentplayer->hands[HAND_RIGHT].ammotypes[1] = -1;
 	g_Vars.currentplayer->gunctrl.handfilenum = 0;
 	g_Vars.currentplayer->gunctrl.handmemloadptr = 0;
 	g_Vars.currentplayer->gunctrl.handmemloadremaining = 0;

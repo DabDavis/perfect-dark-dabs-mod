@@ -72,6 +72,7 @@
 #define MASTERLOADSTATE_GUN    2
 #define MASTERLOADSTATE_CARTS  3
 #define MASTERLOADSTATE_LOADED 4
+#define MASTERLOADSTATE_LEFTGUN 5 // a mixed Akimbo pair's second gun model, after MASTERLOADSTATE_GUN
 
 // Max downwards pitch when changing guns or reloading a classic gun
 #define MAX_PITCH 0.87252569198608f
@@ -1038,7 +1039,7 @@ s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
 	if (func->ammoindex != -1) {
 		s32 ammoindex = func->ammoindex;
 
-		if (info->gunctrl->ammotypes[ammoindex] >= 0
+		if (hand->ammotypes[ammoindex] >= 0
 				&& hand->loadedammo[ammoindex] < hand->clipsizes[ammoindex]) {
 			s32 minqty = 1;
 
@@ -1055,11 +1056,11 @@ s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
 			if (hand->loadedammo[ammoindex] < minqty) {
 				result = 0;
 
-				if (g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0) {
+				if (g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]] == 0) {
 					result = -1;
 				}
 			} else {
-				if (g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0) {
+				if (g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]] == 0) {
 					result = 2;
 				}
 			}
@@ -1076,7 +1077,7 @@ void bgun0f098df8(s32 weaponfunc, struct handweaponinfo *info, struct hand *hand
 	if (func && func->ammoindex != -1) {
 		s32 ammoindex = func->ammoindex;
 
-		if (info->gunctrl->ammotypes[ammoindex] >= 0) {
+		if (hand->ammotypes[ammoindex] >= 0) {
 			s32 amount = hand->clipsizes[ammoindex] - hand->loadedammo[ammoindex];
 
 			s32 reloadindex = bgunGetUnequippedReloadIndex(info->weaponnum);
@@ -1097,8 +1098,8 @@ void bgun0f098df8(s32 weaponfunc, struct handweaponinfo *info, struct hand *hand
 				amount = 1;
 			}
 
-			if (amount > g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]]) {
-				amount = g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]];
+			if (amount > g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]]) {
+				amount = g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]];
 			}
 
 #if VERSION >= VERSION_JPN_FINAL
@@ -1111,10 +1112,10 @@ void bgun0f098df8(s32 weaponfunc, struct handweaponinfo *info, struct hand *hand
 #endif
 
 			hand->loadedammo[ammoindex] += amount;
-			g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] -= amount;
+			g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]] -= amount;
 
 			if (info->definition->ammos[ammoindex]->flags & AMMOFLAG_NORESERVE) {
-				g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] = 0;
+				g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]] = 0;
 			}
 
 			if (func);
@@ -1775,7 +1776,7 @@ s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 	if (hand->triggeron || (hand->stateflags & HANDSTATEFLAG_00000010) == 0 || burst) {
 		if (func->ammoindex >= 0
 				&& hand->loadedammo[func->ammoindex] == 0
-				&& ctrl->ammotypes[func->ammoindex] >= 0) {
+				&& hand->ammotypes[func->ammoindex] >= 0) {
 			// Clip is empty
 			return -1;
 		}
@@ -3627,6 +3628,15 @@ u8 *bgunGetGunMem(void)
 
 u32 bgunCalculateGunMemCapacity(void)
 {
+#ifndef PLATFORM_N64
+	// What bondgunreset.c allocated, once it has: the loader must not be
+	// told a smaller ceiling than the memory it is filling, nor a larger
+	// one, whatever the Akimbo setting says by now
+	if (g_Vars.currentplayer->gunctrl.gunmemcapacity > 0) {
+		return g_Vars.currentplayer->gunctrl.gunmemcapacity;
+	}
+#endif
+
 	if (IS4MB() && PLAYERCOUNT() == 2) {
 		return g_BgunGunMemBaseSize4Mb2P;
 	}
@@ -3681,6 +3691,7 @@ void bgunEnterFlux(void)
 
 	g_Vars.currentplayer->gunctrl.handfilenum = 0xffff;
 	g_Vars.currentplayer->gunctrl.handmodeldef = NULL;
+	g_Vars.currentplayer->gunctrl.leftgunmodeldef = NULL;
 	g_Vars.currentplayer->gunctrl.handmemloadptr = 0;
 	g_Vars.currentplayer->gunctrl.handmemloadremaining = 0;
 	g_Vars.currentplayer->gunctrl.masterloadstate = MASTERLOADSTATE_FLUX;
@@ -3994,6 +4005,38 @@ const char var7f1ac0ec[] = "Gun   : TotalUsed %d, Free %d\n";
 const char var7f1ac10c[] = "BriGun: Set Master State: MASTER_GUN_LOADSTATE_LOADED\n";
 const char var7f1ac144[] = "GunLockTimer: %d\n";
 
+/**
+ * The gun model a hand is drawn and animated with: the left hand's own when
+ * a mixed Akimbo pair has loaded one, the shared one otherwise.
+ */
+struct modeldef *bgunGetGunModelDefForHand(s32 handnum)
+{
+#ifndef PLATFORM_N64
+	if (handnum == HAND_LEFT && g_Vars.currentplayer->gunctrl.leftgunmodeldef) {
+		return g_Vars.currentplayer->gunctrl.leftgunmodeldef;
+	}
+#endif
+
+	return g_Vars.currentplayer->gunctrl.gunmodeldef;
+}
+
+#ifndef PLATFORM_N64
+/**
+ * Whether the load has a second gun model to fetch: the pair is mixed, the
+ * left hand's weapon has a model file, and the memory was sized for two.
+ */
+static bool bgunWantsLeftGunModel(s32 rightweaponnum)
+{
+	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+
+	return ctrl->gunmemmixed
+		&& ctrl->dualwielding
+		&& ctrl->leftweaponnum > WEAPON_NONE
+		&& ctrl->leftweaponnum != rightweaponnum
+		&& weaponGetFileNum(ctrl->leftweaponnum) != 0;
+}
+#endif
+
 void bgunTickMasterLoad(void)
 {
 	s32 newweaponnum;
@@ -4028,7 +4071,11 @@ void bgunTickMasterLoad(void)
 
 			filenum = weaponGetFileNum(newweaponnum);
 
-			if (player->gunctrl.masterloadstate != MASTERLOADSTATE_LOADED || newweaponnum != player->gunctrl.gunmemtype) {
+			if (player->gunctrl.masterloadstate != MASTERLOADSTATE_LOADED || newweaponnum != player->gunctrl.gunmemtype
+#ifndef PLATFORM_N64
+					|| player->gunctrl.leftweaponnum != player->gunctrl.gunmemtypeleft
+#endif
+					) {
 				if (filenum) {
 					hashands = false;
 
@@ -4068,6 +4115,7 @@ void bgunTickMasterLoad(void)
 						}
 
 						player->gunctrl.cartmodeldef = NULL;
+						player->gunctrl.leftgunmodeldef = NULL;
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_HANDS;
 					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_HANDS) {
 						if (hashands) {
@@ -4113,9 +4161,37 @@ void bgunTickMasterLoad(void)
 						bgunTickGunLoad();
 
 						if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
+#ifndef PLATFORM_N64
+							if (bgunWantsLeftGunModel(newweaponnum)) {
+								player->gunctrl.masterloadstate = MASTERLOADSTATE_LEFTGUN;
+							} else
+#endif
+							{
+								player->gunctrl.masterloadstate = MASTERLOADSTATE_CARTS;
+							}
+
+							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+						}
+#ifndef PLATFORM_N64
+					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_LEFTGUN) {
+						// A mixed Akimbo pair: the left hand's gun, loaded behind
+						// the right's with the same loader, into what is left of
+						// the memory, which was sized for two.
+						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX) {
+							player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+							player->gunctrl.loadfilenum = weaponGetFileNum(player->gunctrl.leftweaponnum);
+							player->gunctrl.loadtomodeldef = &player->gunctrl.leftgunmodeldef;
+							player->gunctrl.loadmemptr = (uintptr_t*) &player->gunctrl.memloadptr;
+							player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+						}
+
+						bgunTickGunLoad();
+
+						if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
 							player->gunctrl.masterloadstate = MASTERLOADSTATE_CARTS;
 							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
 						}
+#endif
 					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_CARTS) {
 						if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
 							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
@@ -4167,9 +4243,11 @@ void bgunTickMasterLoad(void)
 						sum = 0;
 
 						for (i = 0; i < 2; i++) {
+							struct modeldef *gunmodeldef = bgunGetGunModelDefForHand(i);
+
 							hand = &player->hands[i];
 
-							modelInit(&hand->gunmodel, player->gunctrl.gunmodeldef, hand->unk0a6c, 0);
+							modelInit(&hand->gunmodel, gunmodeldef, hand->unk0a6c, 0);
 
 							if (player->gunctrl.handmodeldef != 0) {
 								modelInit(&hand->handmodel, player->gunctrl.handmodeldef, hand->handsavedata, false);
@@ -4177,7 +4255,7 @@ void bgunTickMasterLoad(void)
 
 							hand->unk0dcc = (uintptr_t *) player->gunctrl.memloadptr;
 
-							value = bgunCreateModelCmdList(&hand->gunmodel, player->gunctrl.gunmodeldef->rootnode, (uintptr_t *) player->gunctrl.memloadptr);
+							value = bgunCreateModelCmdList(&hand->gunmodel, gunmodeldef->rootnode, (uintptr_t *) player->gunctrl.memloadptr);
 
 							sum += value;
 							player->gunctrl.memloadptr += value;
@@ -4209,6 +4287,7 @@ void bgunTickMasterLoad(void)
 
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_LOADED;
 						player->gunctrl.gunmemtype = newweaponnum;
+						player->gunctrl.gunmemtypeleft = player->gunctrl.leftweaponnum;
 						player->gunctrl.gunmemnew = -1;
 					}
 				}
@@ -4216,6 +4295,7 @@ void bgunTickMasterLoad(void)
 				else {
 					player->gunctrl.masterloadstate = MASTERLOADSTATE_LOADED;
 					player->gunctrl.gunmemtype = newweaponnum;
+					player->gunctrl.gunmemtypeleft = player->gunctrl.leftweaponnum;
 					player->gunctrl.gunmemnew = -1;
 				}
 #endif
@@ -5405,9 +5485,9 @@ void bgunFreeWeapon(s32 handnum)
 
 	if (player->hands[handnum].inuse) {
 		for (i = 0; i < 2; i++) {
-			if (player->gunctrl.ammotypes[i] >= 0) {
+			if (player->hands[handnum].ammotypes[i] >= 0) {
 				s32 spaceinclip = player->hands[handnum].clipsizes[i] - player->hands[handnum].loadedammo[i];
-				s32 index = bgunGetUnequippedReloadIndex(player->gunctrl.weaponnum);
+				s32 index = bgunGetUnequippedReloadIndex(player->hands[handnum].gset.weaponnum);
 
 				if (index != -1) {
 #if VERSION >= VERSION_JPN_FINAL
@@ -5420,7 +5500,7 @@ void bgunFreeWeapon(s32 handnum)
 				}
 
 				if (player->hands[handnum].loadedammo[i] > 0) {
-					player->ammoheldarr[player->gunctrl.ammotypes[i]] += player->hands[handnum].loadedammo[i];
+					player->ammoheldarr[player->hands[handnum].ammotypes[i]] += player->hands[handnum].loadedammo[i];
 				}
 
 				player->hands[handnum].loadedammo[i] = 0;
@@ -5508,12 +5588,38 @@ void bgunTickSwitch2(void)
 				lefthand->inuse = false;
 				righthand->inuse = false;
 				ctrl->weaponnum = WEAPON_NONE;
+				ctrl->leftweaponnum = WEAPON_NONE;
 			} else {
 				bgunSetGunMemWeapon(ctrl->switchtoweaponnum);
 				ctrl->weaponnum = ctrl->switchtoweaponnum;
+				ctrl->leftweaponnum = ctrl->weaponnum;
 				lefthand->inuse = true;
 				righthand->inuse = true;
+
+#ifndef PLATFORM_N64
+				// A mixed Akimbo pair: cycling to a new gun brings it up in
+				// the right hand and moves the gun that was there to the
+				// left, so the pair walks through the inventory two at a
+				// time. Only when nothing asked for the left hand in
+				// particular - a dual picked from the menu, or the spawn,
+				// says what the left holds - and only for a gun the player
+				// still owns, in memory sized for two.
+				if (ctrl->dualwielding
+						&& ctrl->gunmemmixed
+						&& modIsAkimboForPlayers()
+						&& ctrl->leftwant < 0
+						&& weaponnum != ctrl->weaponnum
+						&& modCanAkimbo(weaponnum)
+						&& modCanAkimbo(ctrl->weaponnum)
+						&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)
+						&& !weaponHasFlag2(ctrl->weaponnum, WEAPONFLAG2_DETONATORHAND)
+						&& invHasSingleWeaponIncAllGuns(weaponnum)) {
+					ctrl->leftweaponnum = weaponnum;
+				}
+#endif
 			}
+
+			ctrl->leftwant = -1;
 
 			if (weaponHasFlag2(ctrl->weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 				ctrl->dualwielding = true;
@@ -5552,7 +5658,7 @@ void bgunTickSwitch2(void)
 				player->hands[i].allowshootframe = 0;
 				player->hands[i].lastshootframe60 = 0;
 				player->hands[i].gset.weaponfunc = FUNC_PRIMARY;
-				player->hands[i].gset.weaponnum = ctrl->weaponnum;
+				player->hands[i].gset.weaponnum = i == HAND_LEFT ? ctrl->leftweaponnum : ctrl->weaponnum;
 				player->hands[i].gset.unk0639 = (ctrl->upgradewant >> (i * 4)) & 0xf;
 				player->hands[i].gangstarot = 0.0f;
 
@@ -5618,6 +5724,13 @@ s32 bgunGetWeaponNum(s32 handnum)
 	if (!g_Vars.currentplayer->hands[handnum].inuse) {
 		return WEAPON_NONE;
 	}
+
+#ifndef PLATFORM_N64
+	// The left hand of a mixed Akimbo pair holds its own gun
+	if (handnum == HAND_LEFT && g_Vars.currentplayer->gunctrl.leftweaponnum > WEAPON_NONE) {
+		return g_Vars.currentplayer->gunctrl.leftweaponnum;
+	}
+#endif
 
 	return g_Vars.currentplayer->gunctrl.weaponnum;
 }
@@ -6002,8 +6115,10 @@ void bgunEquipWeapon2(s32 handnum, s32 weaponnum)
 	if (handnum == HAND_LEFT) {
 		if (weaponnum == WEAPON_NONE) {
 			g_Vars.currentplayer->gunctrl.dualwielding = false;
+			g_Vars.currentplayer->gunctrl.leftwant = -1;
 		} else {
 			g_Vars.currentplayer->gunctrl.dualwielding = true;
+			g_Vars.currentplayer->gunctrl.leftwant = weaponnum;
 		}
 	} else {
 		if (weaponnum > WEAPON_SUICIDEPILL) {
@@ -7699,7 +7814,7 @@ void bgun0f0a5550(s32 handnum)
 	}
 
 	if (hand->visible) {
-		modeldef = player->gunctrl.gunmodeldef;
+		modeldef = bgunGetGunModelDefForHand(handnum);
 		mtxallocation = gfxAllocate(modeldef->nummatrices * sizeof(Mtxf));
 
 		if (weaponHasFlag(weaponnum, WEAPONFLAG_02000000)) {
@@ -13336,10 +13451,14 @@ void bgun0f0abd30(s32 handnum)
 			gunctrl->ammotypes[i] = -1;
 		}
 
+		hand->ammotypes[i] = -1;
+
 		if (weapon && weapon->ammos[i]) {
 			if (handnum == HAND_RIGHT) {
 				gunctrl->ammotypes[i] = weapon->ammos[i]->type;
 			}
+
+			hand->ammotypes[i] = weapon->ammos[i]->type;
 
 			hand->clipsizes[i] = weapon->ammos[i]->clipsize;
 

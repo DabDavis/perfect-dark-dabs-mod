@@ -2217,6 +2217,7 @@ struct hand {
 	/*0x0854*/ bool firedrocket;
 	/*0x0858*/ s32 loadedammo[2];
 	/*0x0860*/ s32 clipsizes[2];
+	s8 ammotypes[2]; // this hand's own, for a mixed Akimbo pair; the right hand's are also gunctrl's
 	/*0x0868*/ f32 angledamper;
 	/*0x086c*/ f32 lastrotangx;
 	/*0x0870*/ f32 lastrotangy;
@@ -2389,6 +2390,17 @@ struct gunctrl {
 	/*0x1588*/ s32 gunmemtype; // also a weapon number
 	/*0x158c*/ u8 *gunmem;
 	/*0x1590*/ struct modeldef *gunmodeldef;
+	// Mixed Akimbo pairs: the left hand's own gun, loaded after the right's
+	// into the same gun memory, and what it was loaded for. leftweaponnum
+	// is the left hand's weapon number, equal to weaponnum unless the pair
+	// is mixed; leftwant is what bgunEquipWeapon2() asked for the left hand,
+	// -1 for nothing in particular, consumed by the switch.
+	struct modeldef *leftgunmodeldef;
+	s32 gunmemtypeleft;
+	s32 gunmemcapacity; // what was allocated, the ceiling the loader is given
+	s8 leftweaponnum;
+	s8 leftwant;
+	u8 gunmemmixed; // allocated with room for a second gun model
 	/*0x1594*/ struct modeldef *handmodeldef;
 	/*0x1598*/ struct modeldef *cartmodeldef;
 	/*0x159c*/ u16 handfilenum;
