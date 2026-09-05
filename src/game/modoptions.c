@@ -33,6 +33,7 @@ struct modoptions g_ModOptions = {
 	MODALARM_WEAPONS_STAGE,   // guardweapons
 	MODAKIMBO_OFF,            // akimbo
 	false,                    // akimbotriggers
+	false,                    // explosionshake: the Video page's slider scales it when on
 	true,                     // alarmsound
 };
 
@@ -333,6 +334,16 @@ bool modIsAkimboForGuards(void)
 bool modIsAkimboTriggersOn(void)
 {
 	return g_ModOptions.akimbotriggers != 0;
+}
+
+/**
+ * Whether an explosion shakes the screen. Off by default: eighty guards
+ * with grenades is a screen that never stops moving, and the Video page's
+ * Explosion Shake slider still scales it for anyone who turns it on.
+ */
+bool modIsExplosionShakeOn(void)
+{
+	return g_ModOptions.explosionshake != 0;
 }
 
 /**

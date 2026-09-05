@@ -1534,8 +1534,16 @@ void sndInit(void)
 			g_SeqRomAddrs[i] = g_SeqTable->entries[i].romaddr + (romptr_t) REF_SEG _sequencesSegmentRomStart;
 		}
 
+#ifndef PLATFORM_N64
+		// Thirty voices is the N64's mix. A lobby of 160 guns firing is
+		// culled to the loudest thirty by priority, and an explosion at the
+		// bottom of that list is one that is seen and not heard.
+		synconfig.maxVVoices = 96;
+		synconfig.maxPVoices = 64;
+#else
 		synconfig.maxVVoices = 44;
 		synconfig.maxPVoices = 30;
+#endif
 		synconfig.maxUpdates = 64;
 		synconfig.dmaproc = NULL;
 		synconfig.outputRate = 0;

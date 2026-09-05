@@ -164,6 +164,7 @@ struct modoptions {
 	s32 guardweapons; // MODALARM_WEAPONS_*: what they carry
 	s32 akimbo;      // MODAKIMBO_*: who spawns holding two
 	s32 akimbotriggers; // a trigger per hand on a controller, aim on the left bumper
+	s32 explosionshake; // whether an explosion shakes the screen at all
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 };
 
@@ -191,6 +192,7 @@ s32 modGetGuardWeapons(void);
 bool modIsAkimboForPlayers(void);
 bool modIsAkimboForGuards(void);
 bool modIsAkimboTriggersOn(void);
+bool modIsExplosionShakeOn(void);
 bool modCanAkimbo(s32 weaponnum);
 bool modIsWeaponAGun(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);

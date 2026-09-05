@@ -181,12 +181,26 @@ void propsReset(void)
 		g_Lifts[i] = NULL;
 	}
 
+#ifndef PLATFORM_N64
+	// Sized for a lobby of eighty simulants and eighty guards rather than
+	// for four players. Every held gun is a weapon slot, so 160 armed chrs
+	// on fifty slots had weaponCreate() with nothing to give; a projectile
+	// pool that is full replaces a live one at random, which is a grenade
+	// that never lands; and the rest scale the same way.
+	g_MaxWeaponSlots = 400;
+	g_MaxHatSlots = 40;
+	g_MaxAmmoCrates = 80;
+	g_MaxDebrisSlots = 60;
+	g_MaxProjectiles = 400;
+	g_MaxEmbedments = 200;
+#else
 	g_MaxWeaponSlots = 50;
 	g_MaxHatSlots = 10;
 	g_MaxAmmoCrates = 20;
 	g_MaxDebrisSlots = 15;
 	g_MaxProjectiles = IS4MB() ? 20 : 100;
 	g_MaxEmbedments = IS4MB() ? 40 : 80;
+#endif
 
 	if (g_Vars.stagenum >= STAGE_TITLE) {
 		g_MaxWeaponSlots = 0;

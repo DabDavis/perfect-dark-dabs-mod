@@ -2211,6 +2211,23 @@ static MenuItemHandlerResult menuhandlerModAkimboTriggers(s32 operation, struct 
 	return 0;
 }
 
+/**
+ * Whether an explosion shakes the screen. The Video page's slider is how
+ * much; this is whether.
+ */
+static MenuItemHandlerResult menuhandlerModExplosionShake(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.explosionshake;
+	case MENUOP_SET:
+		g_ModOptions.explosionshake = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -3028,6 +3045,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Flinch When Shot",
 		0,
 		menuhandlerModFlinch,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Explosion Shake",
+		0,
+		menuhandlerModExplosionShake,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

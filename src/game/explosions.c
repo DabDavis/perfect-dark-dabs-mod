@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/chraction.h"
+#include "game/modoptions.h"
 #include "game/dlights.h"
 #include "game/chr.h"
 #include "game/prop.h"
@@ -35,7 +36,14 @@
 #endif
 
 struct explosion *g_Explosions;
+#ifndef PLATFORM_N64
+// Six is the N64's pool, and an explosion with no slot is simply not made;
+// with a lobby throwing grenades that was most of them. Game.MaxExplosions
+// in the config can take it to 96.
+s32 g_MaxExplosions = 48;
+#else
 s32 g_MaxExplosions = MAX_EXPLOSIONS_DEFAULT;
+#endif
 
 s32 g_ExplosionShakeTotalTimer = 0;
 s32 g_ExplosionShakeIntensityTimer = 0;
@@ -576,6 +584,17 @@ void explosionsUpdateShake(struct coord *arg0, struct coord *arg1, struct coord 
 		viShake(0);
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	// Explosion Shake off in Dab's Mod Options: the shake is not started,
+	// so this is the timer==0 case with the timer cleared
+	if (!modIsExplosionShakeOn()) {
+		g_ExplosionShakeTotalTimer = 0;
+		g_ExplosionShakeIntensityTimer = 0;
+		viShake(0);
+		return;
+	}
+#endif
 
 	sp54 = cosf(0.8f) * arg1->f[0] - sinf(0.8f) * arg1->f[2];
 	sp50 = sinf(0.8f) * arg1->f[0] + cosf(0.8f) * arg1->f[2];
