@@ -147,6 +147,11 @@ struct aibotweaponpreference g_AibotWeaponPreferences[] = {
 	/*0x5d*/ { 0,   0,   0,   0,   0, 0, BOTDISTCFG_DEFAULT,        BOTDISTCFG_DEFAULT,        0,             0,   0,  0,  1, 0 }, // WEAPON_SUICIDEPILL
 };
 
+s32 botinvGetNumWeaponPreferences(void)
+{
+	return ARRAYCOUNT(g_AibotWeaponPreferences);
+}
+
 /**
  * Remove all items from the bot's inventory.
  */

@@ -1681,6 +1681,24 @@ def count_mptracks(seg, base, addr, limit):
     return n
 
 
+def count_globalailists(seg, base, addr, limit):
+    """Entries of g_GlobalAilists that read as one: a pointer into the data
+    segment and an id, to the NULL pointer that ends the table."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 8
+        if ofs + 8 > len(seg):
+            break
+        ptr = be32(seg, ofs)
+        aid = be32(seg, ofs + 4)
+        if not ptr:
+            break
+        if not base <= ptr < base + len(seg) or aid > 0x1000:
+            return 0
+        n += 1
+    return n
+
+
 def count_stages(seg, base, addr, limit):
     """Entries of g_Stages that read as one: a stage number, 0x38 bytes each."""
     n = 0
@@ -1991,6 +2009,39 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             notes.append('%d Combat Simulator tracks at %08x%s' % (n, mpt, note))
         else:
             notes.append('what is at %08x does not read as the Combat Simulator track list; left out' % mpt)
+
+    # the fixed-size tables a mod edits in place: ammo types, the explosion
+    # each prop makes, the auto-switch lists, the simulants' weapon
+    # preferences, the HUD message styles. GE-X renumbered its weapons, so
+    # every list keyed on a weapon number is its own
+    for key, sym, what, elem in (('ammotypes', 'g_AmmoTypes', 'ammo types', 12),
+                                 ('explosiontypes', 'g_PropExplosionTypes', 'prop explosion types', 1),
+                                 ('autoswitchprimary', 'g_AutoSwitchWeaponsPrimary', 'primary auto-switch weapons', 1),
+                                 ('autoswitchsecondary', 'g_AutoSwitchWeaponsSecondary', 'secondary auto-switch weapons', 1),
+                                 ('botweaponprefs', 'g_BotWeaponConfigs', 'simulant weapon preferences', 16),
+                                 ('hudmsgtypes', 'g_HudmsgTypes', 'HUD message styles', 32)):
+        addr, note = locate(sym)
+        n = stockcount(sym, elem)
+        if sym == 'g_AmmoTypes':
+            n = 33  # AMMOTYPE_ECM_MINE is the last; the symbol spacing runs 48 bytes past the table
+        if not addr or not n:
+            continue
+        if addr - base + n * elem <= len(seg):
+            lines.append('  %s 0x%08x %d' % (key, addr, n))
+            notes.append('%d %s at %08x%s' % (n, what, addr, note))
+        else:
+            notes.append('the %s at %08x run off the data segment; left out' % (what, addr))
+
+    # the global AI lists: {list, id} pairs to a NULL list. GE-X rewrote
+    # seven of the shared scripts (alerted, bored, the buddies)
+    gal, note = locate('g_GlobalAilists')
+    if gal:
+        n = count_globalailists(seg, base, gal, 64)
+        if n:
+            lines.append('  globalailists 0x%08x %d' % (gal, n))
+            notes.append('%d global AI lists at %08x%s' % (n, gal, note))
+        else:
+            notes.append('what is at %08x does not read as the global AI list table; left out' % gal)
 
     # the AI command length table: a mod's own commands sit in slots this
     # game has no handler for, and their lengths let the port step over them

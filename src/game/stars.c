@@ -13,6 +13,16 @@
 #include "data.h"
 #include "types.h"
 
+#ifndef PLATFORM_N64
+#include "mod.h"
+// The stage ids the star field is keyed on, as the mod's code has them: the
+// same mapping bgRenderScene uses to decide to draw it, so the stages that
+// draw stars are the stages that set them up
+#define BGSTAGE(x) modDataBgStage(x)
+#else
+#define BGSTAGE(x) (x)
+#endif
+
 s32 g_StarCount;
 s8 *g_StarPositions = NULL;
 f32 *g_StarData3;
@@ -94,6 +104,17 @@ void starInsert(s32 index, struct coord *arg1)
 
 #define ABS2(value) ((value) < 0 ? -(value) : (value))
 
+/**
+ * Forget the star table. It lives in the stage pool, which the next stage
+ * load wipes, so a stage that does not set its own up must not render the
+ * last one's: GE-X's Aztec draws Defection's stars (its scene code maps that
+ * stage id to 0x2e) and crashed in starsRender() on Runway's freed table.
+ */
+void starsClear(void)
+{
+	g_StarPositions = NULL;
+}
+
 void starsReset(void)
 {
 	s32 v0;
@@ -117,13 +138,13 @@ void starsReset(void)
 		g_StarsBelowHorizon = false;
 		g_StarGridSize = 3;
 
-		if (g_Vars.stagenum == STAGE_TEST_OLD) {
+		if (g_Vars.stagenum == BGSTAGE(STAGE_TEST_OLD)) {
 			g_StarsBelowHorizon = true;
 			g_StarCount = 1600;
-		} else if (g_Vars.stagenum == STAGE_DEFECTION || g_Vars.stagenum == STAGE_EXTRACTION) {
+		} else if (g_Vars.stagenum == BGSTAGE(STAGE_DEFECTION) || g_Vars.stagenum == BGSTAGE(STAGE_EXTRACTION)) {
 			g_StarCount = 200;
 			g_StarGridSize = 2;
-		} else if (g_Vars.stagenum == STAGE_ATTACKSHIP) {
+		} else if (g_Vars.stagenum == BGSTAGE(STAGE_ATTACKSHIP)) {
 			g_StarsBelowHorizon = true;
 			g_StarCount = 1200;
 		} else {
@@ -220,7 +241,7 @@ Gfx *starsRender(Gfx *gdl)
 		return gdl;
 	}
 
-	if (g_Vars.stagenum == STAGE_DEFECTION || g_Vars.stagenum == STAGE_EXTRACTION) {
+	if (g_Vars.stagenum == BGSTAGE(STAGE_DEFECTION) || g_Vars.stagenum == BGSTAGE(STAGE_EXTRACTION)) {
 		isddtower = true;
 	}
 

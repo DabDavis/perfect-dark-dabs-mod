@@ -743,6 +743,27 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		} else if (!strcmp(token, "mptracks")) {
 			PARSE_ADDR("datasegment", "mptracks", spec.mptracks, NULL);
 			PARSE_INT("datasegment", "mptracks count", spec.nummptracks, 0, 4096, NULL);
+		} else if (!strcmp(token, "ammotypes")) {
+			PARSE_ADDR("datasegment", "ammotypes", spec.ammotypes, NULL);
+			PARSE_INT("datasegment", "ammotypes count", spec.numammotypes, 0, 4096, NULL);
+		} else if (!strcmp(token, "explosiontypes")) {
+			PARSE_ADDR("datasegment", "explosiontypes", spec.explosiontypes, NULL);
+			PARSE_INT("datasegment", "explosiontypes count", spec.numexplosiontypes, 0, 4096, NULL);
+		} else if (!strcmp(token, "autoswitchprimary")) {
+			PARSE_ADDR("datasegment", "autoswitchprimary", spec.autoswitchprimary, NULL);
+			PARSE_INT("datasegment", "autoswitchprimary count", spec.numautoswitchprimary, 0, 4096, NULL);
+		} else if (!strcmp(token, "autoswitchsecondary")) {
+			PARSE_ADDR("datasegment", "autoswitchsecondary", spec.autoswitchsecondary, NULL);
+			PARSE_INT("datasegment", "autoswitchsecondary count", spec.numautoswitchsecondary, 0, 4096, NULL);
+		} else if (!strcmp(token, "botweaponprefs")) {
+			PARSE_ADDR("datasegment", "botweaponprefs", spec.botweaponprefs, NULL);
+			PARSE_INT("datasegment", "botweaponprefs count", spec.numbotweaponprefs, 0, 4096, NULL);
+		} else if (!strcmp(token, "hudmsgtypes")) {
+			PARSE_ADDR("datasegment", "hudmsgtypes", spec.hudmsgtypes, NULL);
+			PARSE_INT("datasegment", "hudmsgtypes count", spec.numhudmsgtypes, 0, 4096, NULL);
+		} else if (!strcmp(token, "globalailists")) {
+			PARSE_ADDR("datasegment", "globalailists", spec.globalailists, NULL);
+			PARSE_INT("datasegment", "globalailists count", spec.numglobalailists, 0, 4096, NULL);
 		} else if (!strcmp(token, "playerconst")) {
 			// one line per constant the mod's outfit chooser changed: stock, mod
 			s32 k = 0, v = 0;

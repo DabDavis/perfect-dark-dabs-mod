@@ -82,6 +82,20 @@ struct moddataspec {
 	s32 numstagetracks;
 	u32 mptracks;        // g_MpTracks[], the Combat Simulator's music (6 bytes an entry)
 	s32 nummptracks;
+	u32 ammotypes;       // g_AmmoTypes[], capacity and pickup size (12 bytes an entry)
+	s32 numammotypes;
+	u32 explosiontypes;  // g_PropExplosionTypes[], one s8 a model
+	s32 numexplosiontypes;
+	u32 autoswitchprimary;   // g_AutoSwitchWeaponsPrimary[], weapon numbers, best first
+	s32 numautoswitchprimary;
+	u32 autoswitchsecondary; // g_AutoSwitchWeaponsSecondary[]
+	s32 numautoswitchsecondary;
+	u32 botweaponprefs;  // g_AibotWeaponPreferences[], a simulant's view of each weapon (16 bytes)
+	s32 numbotweaponprefs;
+	u32 hudmsgtypes;     // g_HudmsgTypes[], ROM layout (32 bytes an entry)
+	s32 numhudmsgtypes;
+	u32 globalailists;   // g_GlobalAilists[], {list, id} pairs to a NULL list
+	s32 numglobalailists;
 };
 
 // The solo player's body and head as the mod's code has them, or def.

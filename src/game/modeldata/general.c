@@ -1308,6 +1308,11 @@ s8 g_PropExplosionTypes[] = {
 	0xff,
 };
 
+s32 propExplosionTypesCount(void)
+{
+	return ARRAYCOUNT(g_PropExplosionTypes);
+}
+
 u32 var8007bff8 = 0x00000000;
 u32 var8007bffc = 0x00000000;
 u32 var8007c000 = 0x00000000;

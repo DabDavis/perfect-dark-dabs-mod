@@ -79,6 +79,11 @@ struct hudmsgtype g_HudmsgTypes[] = {
 #endif
 };
 
+s32 hudmsgGetNumTypes(void)
+{
+	return ARRAYCOUNT(g_HudmsgTypes);
+}
+
 u8 hudmsgsAreActive(void)
 {
 	return g_HudmsgsActive;

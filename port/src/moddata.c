@@ -43,6 +43,10 @@
 #include "game/stagemusic.h"
 #include "game/mplayer/setup.h"
 #include "game/mplayer/mplayer.h"
+#include "constants.h"
+#include "game/hudmsg.h"
+#include "game/botinv.h"
+#include "game/bondgun.h"
 
 #define GUNCMD_MAX_LEN     512
 #define GUNVISCMD_MAX_LEN  256
@@ -1475,6 +1479,205 @@ static s32 importMpTracks(const struct moddataspec *spec)
 	return n;
 }
 
+
+/**
+ * The ammo types: each one's capacity, its pickup count and a scale. GE-X
+ * changed eleven of the stock 37, and its guns ask for ammo by number.
+ */
+static s32 importAmmoTypes(const struct moddataspec *spec)
+{
+	extern struct ammotype g_AmmoTypes[];
+	s32 count = spec->numammotypes;
+	if (count > bgunGetNumAmmoTypes()) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d ammo types is more than the port's %d; the rest are dropped", count, bgunGetNumAmmoTypes());
+		count = bgunGetNumAmmoTypes();
+	}
+	for (s32 i = 0; i < count; ++i) {
+		const u32 at = spec->ammotypes + i * 12;
+		g_AmmoTypes[i].capacity = (s32)rd32(at);
+		g_AmmoTypes[i].unk04 = rd32(at + 4);
+		g_AmmoTypes[i].unk08 = rdf32(at + 8);
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: ammo type %d: capacity %d pickup %u scale %g", i,
+					g_AmmoTypes[i].capacity, g_AmmoTypes[i].unk04, g_AmmoTypes[i].unk08);
+		}
+	}
+	return count;
+}
+
+/**
+ * The explosion each prop model makes, one s8 a model number (plus 8). A
+ * mod's new props take their model numbers' slots.
+ */
+static s32 importExplosionTypes(const struct moddataspec *spec)
+{
+	s32 count = spec->numexplosiontypes;
+	if (count > propExplosionTypesCount()) {
+		count = propExplosionTypesCount();
+	}
+	for (s32 i = 0; i < count; ++i) {
+		g_PropExplosionTypes[i] = (s8)rd8(spec->explosiontypes + i);
+	}
+	return count;
+}
+
+/**
+ * The weapons the player is switched to when the current one runs dry, best
+ * first, ending in unarmed. Weapon numbers, so a mod that renumbered its
+ * guns has its own list; the port's list runs to ARRAYCOUNT, so what the
+ * mod's shorter list leaves is filled with unarmed, which every player has.
+ */
+static s32 importAutoSwitch(u32 addr, s32 count, s32 secondary)
+{
+	s32 portcount = 0;
+	u8 *list = bgunGetAutoSwitchList(secondary, &portcount);
+	s32 n = 0;
+	for (s32 i = 0; i < count && i < portcount; ++i) {
+		const u8 w = rd8(addr + i);
+		if (w == WEAPON_NONE) {
+			break;
+		}
+		list[n++] = w;
+	}
+	for (s32 i = n; i < portcount; ++i) {
+		list[i] = WEAPON_UNARMED;
+	}
+	return n;
+}
+
+/**
+ * How a simulant rates each weapon: its scores, how much ammo it wants and
+ * when it is short, its reload delay. Indexed by weapon number. The bit
+ * fields are read out by hand: IDO packs them from the top of the halfword
+ * and this compiler does not.
+ */
+static s32 importBotWeaponPrefs(const struct moddataspec *spec)
+{
+	s32 count = spec->numbotweaponprefs;
+	if (count > botinvGetNumWeaponPreferences()) {
+		// the ROM has a slot for every weapon number, two past the port's last
+		sysLogPrintf(LOG_NOTE, "moddata: %d simulant weapon preferences is more than the port's %d; the rest are dropped", count, botinvGetNumWeaponPreferences());
+		count = botinvGetNumWeaponPreferences();
+	}
+	for (s32 i = 0; i < count; ++i) {
+		const u32 at = spec->botweaponprefs + i * 16;
+		struct aibotweaponpreference *p = &g_AibotWeaponPreferences[i];
+		const u16 w4 = rd16(at + 4);
+		const u16 w14 = rd16(at + 14);
+		p->unk00 = rd8(at);
+		p->unk01 = rd8(at + 1);
+		p->unk02 = rd8(at + 2);
+		p->unk03 = rd8(at + 3);
+		p->haspriammogoal = (w4 >> 15) & 1;
+		p->hassecammogoal = (w4 >> 14) & 1;
+		p->pridistconfig = (w4 >> 10) & 0xf;
+		p->secdistconfig = (w4 >> 6) & 0xf;
+		p->targetammopri = rd16(at + 6);
+		p->targetammosec = rd16(at + 8);
+		p->criticalammopri = rd16(at + 10);
+		p->criticalammosec = rd16(at + 12);
+		p->reloaddelay = (w14 >> 13) & 7;
+		p->allowpartialreloaddelay = (w14 >> 12) & 1;
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: simulant pref %d: %d %d %d %d goals %d/%d dist %d/%d ammo %d/%d critical %d/%d reload %d%s", i,
+					p->unk00, p->unk01, p->unk02, p->unk03, p->haspriammogoal, p->hassecammogoal, p->pridistconfig, p->secdistconfig,
+					p->targetammopri, p->targetammosec, p->criticalammopri, p->criticalammosec, p->reloaddelay,
+					p->allowpartialreloaddelay ? " partial" : "");
+		}
+	}
+	return count;
+}
+
+/**
+ * The HUD message styles: colour, box, alignment, duration. The two font
+ * pointers in each are the port's own. GE-X recoloured most of them.
+ */
+static s32 importHudmsgTypes(const struct moddataspec *spec)
+{
+	extern struct hudmsgtype g_HudmsgTypes[];
+	s32 count = spec->numhudmsgtypes;
+	if (count > hudmsgGetNumTypes()) {
+		count = hudmsgGetNumTypes();
+	}
+	for (s32 i = 0; i < count; ++i) {
+		const u32 at = spec->hudmsgtypes + i * 32;
+		struct hudmsgtype *t = &g_HudmsgTypes[i];
+		t->unk00 = rd8(at);
+		t->unk01 = rd8(at + 1);
+		t->unk02 = rd8(at + 2);
+		t->colour = rd32(at + 0x0c);
+		t->unk10 = rd32(at + 0x10);
+		t->alignh = rd8(at + 0x14);
+		t->alignv = rd8(at + 0x15);
+		t->unk16 = (s16)rd16(at + 0x16);
+		t->unk18 = (s16)rd16(at + 0x18);
+		t->duration = (s32)rd32(at + 0x1c);
+	}
+	return count;
+}
+
+/**
+ * The global AI lists, the scripts every stage shares: the alerted and bored
+ * behaviours, the buddy set-up, the objective-failed message. The table is
+ * {list, id} pairs to a NULL list; each list's bytes run to the next list
+ * (they sit one after another, and the table after them). A mod's copy
+ * replaces the port's list of the same id; the port's table keeps its
+ * order and setup.c sorts it by id as it always has.
+ */
+static s32 importGlobalAilists(const struct moddataspec *spec)
+{
+	struct { u32 ptr; u32 id; } ents[64];
+	s32 count = 0;
+	s32 n = 0;
+
+	for (s32 i = 0; i < spec->numglobalailists && i < 64; ++i) {
+		const u32 at = spec->globalailists + i * 8;
+		ents[i].ptr = rd32(at);
+		ents[i].id = rd32(at + 4);
+		if (!ents[i].ptr) {
+			break;
+		}
+		++count;
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 end = spec->globalailists;
+		s32 j;
+		for (j = 0; j < count; ++j) {
+			if (ents[j].ptr > ents[i].ptr && ents[j].ptr < end) {
+				end = ents[j].ptr;
+			}
+		}
+		if (ents[i].ptr < seg.base || end > seg.base + seg.len || end <= ents[i].ptr) {
+			sysLogPrintf(LOG_WARNING, "moddata: global AI list %#x at %08x is outside the data segment; kept the port's", ents[i].id, ents[i].ptr);
+			continue;
+		}
+		for (j = 0; g_GlobalAilists[j].list; ++j) {
+			if ((u32)g_GlobalAilists[j].id == ents[i].id) {
+				break;
+			}
+		}
+		if (!g_GlobalAilists[j].list) {
+			sysLogPrintf(LOG_WARNING, "moddata: global AI list %#x is the mod's own; this game has no slot for it", ents[i].id);
+			continue;
+		}
+		{
+			const u32 len = end - ents[i].ptr;
+			u8 *copy = sysMemAlloc(len);
+			if (!copy) {
+				break;
+			}
+			memcpy(copy, seg.data + (ents[i].ptr - seg.base), len);
+			g_GlobalAilists[j].list = copy;
+			++n;
+			if (modDataTrace) {
+				sysLogPrintf(LOG_NOTE, "moddata: global AI list %#x: %u bytes from %08x", ents[i].id, len, ents[i].ptr);
+			}
+		}
+	}
+	return n;
+}
+
 static s32 modNumPlayerConsts;
 static u16 modPlayerConsts[64][2];
 
@@ -1945,6 +2148,33 @@ s32 modDataImport(const struct moddataspec *spec)
 
 	if (spec->mptracks && spec->nummptracks > 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d Combat Simulator tracks from %08x", importMpTracks(spec), spec->mptracks);
+	}
+
+	if (spec->ammotypes && spec->numammotypes > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d ammo types from %08x", importAmmoTypes(spec), spec->ammotypes);
+	}
+
+	if (spec->explosiontypes && spec->numexplosiontypes > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d prop explosion types from %08x", importExplosionTypes(spec), spec->explosiontypes);
+	}
+
+	if (spec->autoswitchprimary && spec->numautoswitchprimary > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d primary and %d secondary auto-switch weapons from %08x and %08x",
+				importAutoSwitch(spec->autoswitchprimary, spec->numautoswitchprimary, 0),
+				spec->autoswitchsecondary ? importAutoSwitch(spec->autoswitchsecondary, spec->numautoswitchsecondary, 1) : 0,
+				spec->autoswitchprimary, spec->autoswitchsecondary);
+	}
+
+	if (spec->botweaponprefs && spec->numbotweaponprefs > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d simulant weapon preferences from %08x", importBotWeaponPrefs(spec), spec->botweaponprefs);
+	}
+
+	if (spec->hudmsgtypes && spec->numhudmsgtypes > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d HUD message styles from %08x", importHudmsgTypes(spec), spec->hudmsgtypes);
+	}
+
+	if (spec->globalailists && spec->numglobalailists > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d global AI lists from %08x", importGlobalAilists(spec), spec->globalailists);
 	}
 
 	modPlayerBody = spec->playerbody;

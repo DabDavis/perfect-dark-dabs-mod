@@ -99,6 +99,7 @@
 #include "lib/vi.h"
 #include "types.h"
 #ifndef PLATFORM_N64
+#include "mod.h"
 #include "video.h"
 #include "record.h"
 #endif
@@ -389,6 +390,21 @@ void lvReset(s32 stagenum)
 	weatherReset();
 	lvResetMiscSfx();
 
+#ifndef PLATFORM_N64
+	// The stages with a star field, as the mod's scene code has them - the
+	// list bgRenderScene() draws for - and nothing left over from the last
+	// stage for the others
+	starsClear();
+
+	if (g_Vars.stagenum == modDataBgStage(STAGE_ESCAPE)
+			|| g_Vars.stagenum == modDataBgStage(STAGE_EXTRACTION)
+			|| g_Vars.stagenum == modDataBgStage(STAGE_INFILTRATION)
+			|| g_Vars.stagenum == modDataBgStage(STAGE_DEFECTION)
+			|| g_Vars.stagenum == modDataBgStage(STAGE_ATTACKSHIP)
+			|| g_Vars.stagenum == modDataBgStage(STAGE_TEST_OLD)) {
+		starsReset();
+	}
+#else
 	switch (g_Vars.stagenum) {
 	case STAGE_ESCAPE:
 	case STAGE_EXTRACTION:
@@ -399,6 +415,7 @@ void lvReset(s32 stagenum)
 		starsReset();
 		break;
 	}
+#endif
 
 	func0f0099a4();
 	boltbeamsReset();

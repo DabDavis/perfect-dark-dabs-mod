@@ -2201,6 +2201,13 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	{ "g_SoloStages",     0x80071e6c, 0xfc },
 	{ "g_StageTracks",    0x80084500, 0xd0 },
 	{ "g_MpTracks",       0x80087a70, 0xfc },
+	{ "g_AmmoTypes",      0x80070368, 0x18c }, // 33 entries; the symbol spacing runs 48 bytes past the table
+	{ "g_PropExplosionTypes", 0x8007be34, 0x1c4 },
+	{ "g_AutoSwitchWeaponsPrimary",   0x800701c0, 0x24 },
+	{ "g_AutoSwitchWeaponsSecondary", 0x800701e4, 0x8 },
+	{ "g_BotWeaponConfigs",  0x80087eb0, 0x600 },
+	{ "g_HudmsgTypes",    0x80070ff0, 0x194 },
+	{ "g_GlobalAilists",  0x8007ac58, 0x178 },
 };
 static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "mp_get_num_stages",         0x7f1790fc, 0x7f179104 },
@@ -2459,6 +2466,30 @@ static u32 countMpTracks(const struct tablectx *t, u32 addr, u32 limit)
 		unlock = (s16)be16(e, 4);
 		if ((w & 0x1ff) == 0 || name == 0 || unlock < -1 || unlock >= 0x60) {
 			break;
+		}
+		++n;
+	}
+	return n;
+}
+
+// Entries of g_GlobalAilists that read as one: a pointer into the data
+// segment and an id, to the NULL pointer that ends the table
+static u32 countGlobalAilists(const struct tablectx *t, u32 addr, u32 limit)
+{
+	u32 n = 0;
+	while (n < limit) {
+		const u8 *e = tableEntry(t, addr, n, 8);
+		u32 ptr, id;
+		if (!e) {
+			break;
+		}
+		ptr = be32(e, 0);
+		id = be32(e, 4);
+		if (!ptr) {
+			break;
+		}
+		if (ptr < t->base || ptr >= t->base + t->seglen || id > 0x1000) {
+			return 0;
 		}
 		++n;
 	}
@@ -2852,6 +2883,44 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			rep("  %u Combat Simulator tracks at %08x%s", n, addr, tnote);
 		} else {
 			rep("  what is at %08x does not read as the Combat Simulator track list; left out", addr);
+		}
+	}
+
+	// the fixed-size tables a mod edits in place: ammo types, the explosion
+	// each prop makes, the auto-switch lists, the simulants' weapon
+	// preferences, the HUD message styles. GE-X renumbered its weapons, so
+	// every list keyed on a weapon number is its own
+	{
+		static const struct { const char *key; const char *sym; const char *what; u32 elem; } fixed[] = {
+			{ "ammotypes",           "g_AmmoTypes",                  "ammo types",                  12 },
+			{ "explosiontypes",      "g_PropExplosionTypes",         "prop explosion types",        1 },
+			{ "autoswitchprimary",   "g_AutoSwitchWeaponsPrimary",   "primary auto-switch weapons", 1 },
+			{ "autoswitchsecondary", "g_AutoSwitchWeaponsSecondary", "secondary auto-switch weapons", 1 },
+			{ "botweaponprefs",      "g_BotWeaponConfigs",       "simulant weapon preferences", 16 },
+			{ "hudmsgtypes",         "g_HudmsgTypes",                "HUD message styles",          32 },
+		};
+		for (u32 i = 0; i < sizeof(fixed) / sizeof(fixed[0]); ++i) {
+			const u32 n = stockCount(fixed[i].sym, fixed[i].elem);
+			addr = locateTable(&t, fixed[i].sym, tnote, sizeof(tnote));
+			if (addr && n && tableEntry(&t, addr, n - 1, fixed[i].elem)) {
+				LINE("  %s 0x%08x %u\n", fixed[i].key, addr, n);
+				rep("  %u %s at %08x%s", n, fixed[i].what, addr, tnote);
+			} else if (addr) {
+				rep("  the %s at %08x run off the data segment; left out", fixed[i].what, addr);
+			}
+		}
+	}
+
+	// the global AI lists: {list, id} pairs to a NULL list. GE-X rewrote
+	// seven of the shared scripts (alerted, bored, the buddies)
+	addr = locateTable(&t, "g_GlobalAilists", tnote, sizeof(tnote));
+	if (addr) {
+		const u32 n = countGlobalAilists(&t, addr, 64);
+		if (n) {
+			LINE("  globalailists 0x%08x %u\n", addr, n);
+			rep("  %u global AI lists at %08x%s", n, addr, tnote);
+		} else {
+			rep("  what is at %08x does not read as the global AI list table; left out", addr);
 		}
 	}
 

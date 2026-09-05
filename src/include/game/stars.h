@@ -6,6 +6,7 @@
 
 void stars0f135c70(void);
 void starInsert(s32 arg0, struct coord *arg1);
+void starsClear(void);
 void starsReset(void);
 Gfx *starsRender(Gfx *gdl);
 

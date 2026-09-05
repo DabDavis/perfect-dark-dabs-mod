@@ -5811,6 +5811,19 @@ u8 g_AutoSwitchWeaponsPrimary[] = {
 	WEAPON_UNARMED,
 };
 
+// The lists and their lengths, for the mod loader to copy a mod's over
+u8 *bgunGetAutoSwitchList(s32 secondary, s32 *count)
+{
+	extern u8 g_AutoSwitchWeaponsSecondary[];
+	extern s32 bgunGetNumAutoSwitchSecondary(void);
+	if (secondary) {
+		*count = bgunGetNumAutoSwitchSecondary();
+		return g_AutoSwitchWeaponsSecondary;
+	}
+	*count = ARRAYCOUNT(g_AutoSwitchWeaponsPrimary);
+	return g_AutoSwitchWeaponsPrimary;
+}
+
 u8 g_AutoSwitchWeaponsSecondary[] = {
 	WEAPON_REAPER,
 	WEAPON_DY357LX,
@@ -5820,6 +5833,11 @@ u8 g_AutoSwitchWeaponsSecondary[] = {
 	WEAPON_FALCON2_SILENCER,
 	WEAPON_UNARMED,
 };
+
+s32 bgunGetNumAutoSwitchSecondary(void)
+{
+	return ARRAYCOUNT(g_AutoSwitchWeaponsSecondary);
+}
 
 /**
  * Automatically choose and equip a new weapon after trying to fire a weapon
@@ -12142,6 +12160,11 @@ struct ammotype g_AmmoTypes[] = {
 	{ 200,          0, 0  }, // AMMOTYPE_1F
 	{ 10,           0, 0  }, // AMMOTYPE_ECM_MINE
 };
+
+s32 bgunGetNumAmmoTypes(void)
+{
+	return ARRAYCOUNT(g_AmmoTypes);
+}
 
 void bgunSetAmmoQuantity(s32 ammotype, s32 quantity)
 {

@@ -31,4 +31,7 @@ void hudmsgsRemoveForDeadPlayer(s32 playernum);
 Gfx *hudmsgsRender(Gfx *gdl);
 void hudmsgsStop(void);
 
+
+s32 hudmsgGetNumTypes(void);
+
 #endif

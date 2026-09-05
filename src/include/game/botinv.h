@@ -27,4 +27,7 @@ void botinvDrop(struct chrdata *chr, s32 weaponnum, u8 dropall);
 void botinvDropAll(struct chrdata *chr, u32 weaponnum);
 void botinvDropOne(struct chrdata *chr, u32 weaponnum);
 
+
+s32 botinvGetNumWeaponPreferences(void);
+
 #endif

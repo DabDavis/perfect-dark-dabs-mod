@@ -185,4 +185,9 @@ s32 bgunGetWeaponNum2(s32 handnum);
 s8 bgunFreeFireslotWrapper(s32 fireslot);
 s8 bgunFreeFireslot(s32 fireslot);
 
+
+// The port's own table sizes, for the mod loader
+u8 *bgunGetAutoSwitchList(s32 secondary, s32 *count);
+s32 bgunGetNumAmmoTypes(void);
+
 #endif

@@ -288,7 +288,12 @@ Golden Gun at 20 ...), the shotgun having inherited its pump-action flags.
    in "Stage music and the Combat Simulator's tracks" below. (`g_MpArenas`
    is done - see "The arena list" below.)
 4. The TV screen command lists (`g_TvCmdlist*`, ~600 words): u32 arrays
-   with the odd pointer, importable as blobs.
+   with the odd pointer, importable as blobs. Also still stock:
+   `g_StageAllocations8Mb` (GE-X moves ten stage ids between entries; the
+   port only consults it for two or more players), `g_GuardQuipBank`,
+   `g_BotProfiles`, `g_HovTypes`, `g_Skeletons` - all changed by GE-X,
+   none looked at yet. The tables that are imported are listed under
+   "The rest of the data segment" below.
 5. The remaining code changes are then the behaviours GE-X keyed on its new
    weapon numbers, which is what [weapons.md](weapons.md) is about - and with
    the definitions imported, `modcodediff`'s constant swaps (`li at,26` ->
@@ -751,3 +756,51 @@ played a random Combat Simulator tune.
   works, and starts sequence 63, its table's main theme. A match on arena 0
   starts a track from the imported list.
 - `IMPORT.txt` `importer: 10`; a GE-X directory from 9 re-imports itself.
+
+## The star field, and GE-X's Aztec crash (2026-09-05)
+
+`bgRenderScene()` draws a star field for six stages, tested by stage id
+through `modDataBgStage()` - the `bgstage` lines, from the constants GE-X's
+scene code changed (Defection 0x30 -> 0x2e, Extraction and the Attack Ship
+-> 9). GE-X's Aztec is stage 0x2e, so the port drew Defection's stars there.
+But `lvReset()`'s switch that calls `starsReset()`, and the tests inside
+`stars.c`, used the raw ids, so 0x2e never allocated a table: after Runway
+(0x22, which does), the pointer was stale in a wiped stage pool and
+`starsRender()` crashed at `stars.c:310` reading it. Booting straight into
+Aztec never showed it (the pointer was NULL, and `starsRender()` returns on
+NULL); the player's backtrace did. Now `lv.c` and `stars.c` go through the
+same mapping, and `starsClear()` drops the table on every `lvReset()`.
+
+`modcodediff` on GE-X shows exactly this: `stars_reset` and `stars_render`
+have the same three constants changed as `bg_render_scene`, and `lv_reset`'s
+switch is a jump table in lv.c's data that GE-X patched (17 words). When a
+stage test in one function is mapped, find the others that test the same
+thing; they are compiled apart and change apart.
+
+## The rest of the data segment (2026-09-05)
+
+Found by diffing GE-X's data segment against stock per `datasym` symbol with
+pointer-shaped words masked (a struct with a string or function pointer
+differs wherever the layout shifted; only the other words mean anything).
+Seven more tables in the `datasegment` block, all edited in place through
+count helpers beside the arrays (`bgunGetNumAmmoTypes()` and the like), so
+the sizes stay where the arrays are:
+
+- `ammotypes` (33; `AMMOTYPE_ECM_MINE` is the last, and the symbol spacing
+  runs 48 bytes past the table - both importers pin the count),
+  `explosiontypes` (one s8 a model), `autoswitchprimary` / `autoswitchsecondary`
+  (weapon numbers, best first; the mod's shorter list is padded with unarmed,
+  which every player has, since the reader runs to `ARRAYCOUNT`),
+  `botweaponprefs` (`g_AibotWeaponPreferences`, `g_BotWeaponConfigs` in the
+  datasym; 16 bytes, two bit fields read out by hand since IDO packs from
+  the top of the halfword), `hudmsgtypes` (the two font pointers stay the
+  port's), `globalailists`.
+- **Global AI lists are `{list, id}` pairs and the lists sit one after
+  another**, the table after them, so a list's length is the distance to the
+  next higher pointer (or the table). Same 46 ids in GE-X, seven rewritten
+  (alerted, bored, buddy init and warp, objective-failed). The copy replaces
+  the port's list of the same id; a mod's own id has no slot and is reported.
+- The per-symbol diff is `python3 - <<EOF` in the session, not a tool; if it
+  is wanted again, the two data segments are `build/mod_stockdata/segs/data`
+  and the mod's, base 0x80059fe0, symbols from `tools/pd.ntsc-final.datasym`.
+- `IMPORT.txt` `importer: 11`.
