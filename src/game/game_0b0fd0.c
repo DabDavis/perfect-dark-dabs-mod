@@ -471,6 +471,17 @@ u16 weaponGetFileNum2(s32 weaponnum)
 void gsetPopulateFromCurrentPlayer(s32 handnum, struct gset *gset)
 {
 	gset->weaponnum = g_Vars.currentplayer->gunctrl.weaponnum;
+
+#ifndef PLATFORM_N64
+	// The left hand of a mixed Akimbo pair attacks with its own gun. With
+	// the right hand's weapon number and the left hand's function index,
+	// the function looked up belonged to the wrong weapon - a throw index
+	// into a pistol's table - and an N-Bomb thrown from the left hand
+	// fetched a projectile model that did not exist.
+	if (handnum == HAND_LEFT && g_Vars.currentplayer->gunctrl.leftweaponnum > WEAPON_NONE) {
+		gset->weaponnum = g_Vars.currentplayer->gunctrl.leftweaponnum;
+	}
+#endif
 	gset->weaponfunc = g_Vars.currentplayer->hands[handnum].gset.weaponfunc;
 	gset->unk063a = g_Vars.currentplayer->hands[handnum].gset.unk063a;
 	gset->unk0639 = g_Vars.currentplayer->hands[handnum].gset.unk0639;
