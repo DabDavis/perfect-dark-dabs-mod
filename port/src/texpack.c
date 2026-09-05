@@ -1272,11 +1272,9 @@ static void texpackGlyphIndexBuild(void)
 
 	glyphIndexState = -1;
 
-	// the palette as the emulator hashes it: big endian words in memory
-	for (s32 i = 0; i < 16; i++) {
-		pal[i * 2] = (u8)(var8007fb5c[i] >> 8);
-		pal[i * 2 + 1] = (u8)var8007fb5c[i];
-	}
+	// the palette as the emulator hashes it: big endian words in memory,
+	// which is how game_1531a0.c now keeps the array
+	memcpy(pal, var8007fb5c, 32);
 
 	glyphCrcs = malloc(TEXPACK_NUM_FONTS * TEXPACK_FONT_CHARS * sizeof(struct texpackglyphcrc));
 	numGlyphCrcs = 0;

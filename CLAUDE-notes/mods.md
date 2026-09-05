@@ -605,3 +605,10 @@ each is written down because both hunts began in the wrong place.
   visible was traced to it. GE-X's face textures 0x561/0x562/0x56a and
   0x58d/0x58e decode as dithered photo faces and split faces; they are the
   mod's own data and the console reads them the same way.
+- **The palette fix broke every font (same day).** The text palettes are
+  `u16` C arrays in game_1531a0.c, in host byte order, and `gfx_dp_load_tlut()`
+  byte-swaps every TLUT entry as if it came from the ROM. The swapped read
+  and the swapped load had cancelled for the fonts, so putting the read
+  right left each glyph a filled block. The arrays are now written with
+  `PD_BE16()` so they sit in memory like a ROM palette; `texpackGlyphIndexBuild()`
+  hashes them as bytes. Any in-code TLUT a future change adds needs the same.
