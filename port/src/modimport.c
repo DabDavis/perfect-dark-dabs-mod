@@ -2204,6 +2204,7 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "mp_get_num_heads",          0x7f18bb24, 0x7f18bb2c },
 	{ "mp_get_num_bodies",         0x7f18bb88, 0x7f18bb90 },
 	{ "player_choose_body_and_head", 0x7f0b872c, 0x7f0b8ba0 },
+	{ "tex_load_from_gdl",         0x7f1756c0, 0x7f175ef4 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -2728,9 +2729,18 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 	// code that chooses them; a mod with its own hero changed the numbers.
 	// Every `li` the function loads that the mod changed goes out as
 	// stock=mod, and the port looks each site's constant up.
-	if (t.followed) {
+	//
+	// The same for texLoadFromGdl(), which picks the animated textures (the
+	// rivers, the ocean, the power juice) by number: GE-X moved two of them
+	// (0x6cb -> 0x1c7, 0x90f -> 0xc90), and the port compares against the
+	// stock numbers unless told.
+	static const struct { const char *fn; const char *key; const char *what; } consts[] = {
+		{ "player_choose_body_and_head", "playerconst", "body/head constants changed in the mod's outfit code" },
+		{ "tex_load_from_gdl",           "texconst",    "animated texture numbers changed in the mod's texture code" },
+	};
+	for (u32 c = 0; t.followed && c < sizeof(consts) / sizeof(consts[0]); ++c) {
 		u32 start, end;
-		if (codeSym("player_choose_body_and_head", &start, &end)) {
+		if (codeSym(consts[c].fn, &start, &end)) {
 			u32 seen[64], n = 0;
 			char list[1024];
 			u32 listlen = 0;
@@ -2747,14 +2757,14 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 						}
 						if (k == n) {
 							seen[n++] = x & 0xffff;
-							LINE("  playerconst 0x%x %u\n", x & 0xffff, y & 0xffff);
+							LINE("  %s 0x%x %u\n", consts[c].key, x & 0xffff, y & 0xffff);
 							listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s0x%x->%u", listlen ? ", " : "", x & 0xffff, y & 0xffff);
 						}
 					}
 				}
 			}
 			if (n) {
-				rep("  %u body/head constants changed in the mod's outfit code: %s", n, list);
+				rep("  %u %s: %s", n, consts[c].what, list);
 			}
 		}
 	}

@@ -599,10 +599,16 @@ each is written down because both hunts began in the wrong place.
   whole set. Both apply only with `--mpsims`. A real mouse press (xdotool
   `mousedown 1`) fires and `r` reloads, which is what brought the magazine
   into frame: the first-person KF7 keeps it below the screen otherwise.
-- **Still open from the same look.** GE-X moved two of the animated-texture
-  numbers `texLoadFromGdl()` compares against (0x6cb -> 0x1c7, 0x90f ->
-  0xc90, "river" and "ocean"); the port still tests the stock numbers. Nothing
-  visible was traced to it. GE-X's face textures 0x561/0x562/0x56a and
+- **The animated texture numbers follow the mod's code too.** `texLoadFromGdl()`
+  picks the rivers, the ocean, the teleport and the power juice by texture
+  number, and GE-X changed three of those constants (0x6cb and 0x6e2 to
+  0x1c7, 0x90f to 0xc90). The constant-following loop that made `playerconst`
+  now runs over a table of functions and writes `texconst 0xSTOCK MOD` lines
+  for `tex_load_from_gdl` as well; `modDataTexNum()` maps each site's
+  stock number and tex.c compares through `MOD_TEX(x)` at all nine sites.
+  Two stock numbers mapping to the same mod number is what the mod's code
+  does, and the sites test in the same order, so the last match wins there
+  as here. Importer version 6. GE-X's face textures 0x561/0x562/0x56a and
   0x58d/0x58e decode as dithered photo faces and split faces; they are the
   mod's own data and the console reads them the same way.
 - **The palette fix broke every font (same day).** The text palettes are

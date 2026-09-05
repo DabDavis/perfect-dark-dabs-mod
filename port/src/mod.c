@@ -739,6 +739,16 @@ static char *modConfigParseDataSegment(char *p, char *token)
 				spec.playerconsts[spec.numplayerconsts][1] = (u16)v;
 				spec.numplayerconsts++;
 			}
+		} else if (!strcmp(token, "texconst")) {
+			// one line per animated texture number the mod's texture code changed: stock, mod
+			s32 k = 0, v = 0;
+			PARSE_INT("datasegment", "texconst stock", k, 0, 0xffff, NULL);
+			PARSE_INT("datasegment", "texconst mod", v, 0, 0xffff, NULL);
+			if (spec.numtexconsts < 16) {
+				spec.texconsts[spec.numtexconsts][0] = (u16)k;
+				spec.texconsts[spec.numtexconsts][1] = (u16)v;
+				spec.numtexconsts++;
+			}
 		} else if (!strcmp(token, "playerbody")) {
 			PARSE_INT("datasegment", "playerbody", spec.playerbody, 0, 255, NULL);
 		} else if (!strcmp(token, "playerhead")) {

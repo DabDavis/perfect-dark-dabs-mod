@@ -9,6 +9,13 @@
 #include "textures.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "mod.h"
+// a mod may give the animated textures below other numbers in its code
+#define MOD_TEX(x) modDataTexNum(x)
+#else
+#define MOD_TEX(x) (x)
+#endif
 
 #define TXMODE_WRAP   0
 #define TXMODE_CLAMP  1
@@ -961,27 +968,27 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 
 				if (spe0 != 0) {
 					// Deep Sea - green river under floor
-					if (texturenum == TEXTURE_06CB) {
+					if (texturenum == MOD_TEX(TEXTURE_06CB)) {
 						dyntexSetCurrentType(DYNTEXTYPE_RIVER);
 						animated = true;
 					}
 
 					// Deep Sea - juice that flows inside SA megaweapon
 					// Attack Ship - juice that flows inside engine power node
-					if (texturenum == TEXTURE_0A6A) {
+					if (texturenum == MOD_TEX(TEXTURE_0A6A)) {
 						dyntexSetCurrentType(DYNTEXTYPE_POWERJUICE);
 						animated = true;
 					}
 
 					// Deep Sea - white rings around SA megaweapon node
 					// Attack Ship - white rings around engine power node
-					if (texturenum == TEXTURE_0A69) {
+					if (texturenum == MOD_TEX(TEXTURE_0A69)) {
 						dyntexSetCurrentType(DYNTEXTYPE_POWERRING);
 						animated = true;
 					}
 
 					// Deep Sea - teleport
-					if (texturenum == TEXTURE_06E2) {
+					if (texturenum == MOD_TEX(TEXTURE_06E2)) {
 						dyntexSetCurrentType(DYNTEXTYPE_TELEPORTAL);
 						animated = true;
 					}
@@ -991,26 +998,26 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 					// 0dae - Chicago - canal
 					// 0dae - Villa - shallow water
 					// 0dae - Sewers (MP)
-					if (texturenum == TEXTURE_01C7 || texturenum == TEXTURE_0DAE) {
+					if (texturenum == MOD_TEX(TEXTURE_01C7) || texturenum == MOD_TEX(TEXTURE_0DAE)) {
 						dyntexSetCurrentType(DYNTEXTYPE_RIVER);
 						animated = true;
 					}
 
 					// Air Force One - Monitor
-					if (texturenum == TEXTURE_029B) {
+					if (texturenum == MOD_TEX(TEXTURE_029B)) {
 						dyntexSetCurrentType(DYNTEXTYPE_MONITOR);
 						animated = true;
 					}
 
 					// Villa - deep water
 					// Complex - water
-					if (texturenum == TEXTURE_090F) {
+					if (texturenum == MOD_TEX(TEXTURE_090F)) {
 						dyntexSetCurrentType(DYNTEXTYPE_OCEAN);
 						animated = true;
 					}
 
 					// Attack Ship - triangular arrows
-					if (texturenum == TEXTURE_0A42) {
+					if (texturenum == MOD_TEX(TEXTURE_0A42)) {
 						dyntexSetCurrentType(DYNTEXTYPE_ARROWS);
 						animated = true;
 					}

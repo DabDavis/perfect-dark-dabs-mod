@@ -1887,6 +1887,19 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             notes.append('%d body/head constants changed in the mod\'s outfit code: %s'
                          % (len(pairs), ', '.join('%#x->%d' % (k, v) for k, v in sorted(pairs.items()))))
 
+    # The same for texLoadFromGdl(), which picks the animated textures (the
+    # rivers, the ocean, the power juice) by number: GE-X moved two of them
+    # (0x6cb -> 0x1c7, 0x90f -> 0xc90), and the port compares against the
+    # stock numbers unless told.
+    if followed and 'tex_load_from_gdl' in codesyms:
+        start, end = codesyms['tex_load_from_gdl']
+        pairs = follow_immediates(stockcode, modcode, start - 0x7f000000, end - 0x7f000000)
+        if pairs:
+            for k, v in sorted(pairs.items()):
+                lines.append('  texconst 0x%x %d' % (k, v))
+            notes.append('%d animated texture numbers changed in the mod\'s texture code: %s'
+                         % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
+
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'
              '# after it edit what it put in place. Written by tools/importmod.\n'

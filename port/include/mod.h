@@ -56,6 +56,10 @@ struct moddataspec {
 	// the outfit chooser's body/head constants the mod changed: stock -> mod
 	s32 numplayerconsts;
 	u16 playerconsts[64][2];
+	// the animated texture numbers texLoadFromGdl() compares against that
+	// the mod changed: stock -> mod
+	s32 numtexconsts;
+	u16 texconsts[16][2];
 	u32 commandlengths;  // g_CommandLengths[], for the mod's own AI commands
 	s32 numcommandlengths;
 	u32 solostages;      // g_SoloStages[], the mission list
@@ -65,6 +69,9 @@ struct moddataspec {
 // The solo player's body and head as the mod's code has them, or def.
 s32 modDataPlayerBody(s32 def);
 s32 modDataPlayerHead(s32 def);
+
+// An animated texture number as the mod's texture code has it, or def.
+s32 modDataTexNum(s32 def);
 
 // Rebuild the weapon definitions and model tables from that segment. Once per
 // run: what it allocates is never given back.

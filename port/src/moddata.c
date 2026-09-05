@@ -1263,6 +1263,21 @@ static s32 modPlayerConst(s32 def)
 	return def;
 }
 
+static s32 modNumTexConsts;
+static u16 modTexConsts[16][2];
+
+// The animated texture number texLoadFromGdl() tests for, as the mod's code
+// has it. Only ever called when a mod loaded; the stock number otherwise.
+s32 modDataTexNum(s32 def)
+{
+	for (s32 i = 0; i < modNumTexConsts; ++i) {
+		if (modTexConsts[i][0] == (u16)def) {
+			return modTexConsts[i][1];
+		}
+	}
+	return def;
+}
+
 // The default outfit's body and head come through the map like the rest;
 // playerbody/playerhead in the block are the older form of the same fact
 s32 modDataPlayerBody(s32 def)
@@ -1658,6 +1673,13 @@ s32 modDataImport(const struct moddataspec *spec)
 
 	if (modNumPlayerConsts) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d of the outfit chooser's body/head constants are the mod's", modNumPlayerConsts);
+	}
+
+	modNumTexConsts = spec->numtexconsts;
+	memcpy(modTexConsts, spec->texconsts, sizeof(modTexConsts));
+
+	if (modNumTexConsts) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d of the animated texture numbers are the mod's", modNumTexConsts);
 	}
 
 	if (modPlayerBody >= 0 || modPlayerHead >= 0) {
