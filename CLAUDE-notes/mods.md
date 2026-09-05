@@ -665,16 +665,25 @@ environment entry (one sun with a lens flare).
 Seen on the way: `--boot-stage 0x24` on stock stops with "overflow when
 trying to preprocess a bg file"; 0x24 is not a playable stage.
 
-**Open: the band along the top of the sky, if it is still reported.** The
-Runway's fog entry has `clouds_height` 30, a value no playable stock stage
-has. `skyGetWorldPosFromScreenPos()` casts the corner rays from that many
-rows below the screen top, and the N64 path draws what it finds that many
-rows higher again (`skyConvertVertex()`), so the horizon sits higher on
+**The band along the top of the sky (same day, later).** The tester still
+saw it after the room fix, and a timelapse of the Runway's intro flyover
+(`import` every two seconds from six seconds in) reproduced it headlessly.
+The Runway's fog entry has `clouds_height` 30, a value no playable stock
+stage has. `skyGetWorldPosFromScreenPos()` casts the corner rays from that
+many rows below the screen top, and the N64 path draws what it finds that
+many rows higher again (`skyConvertVertex()`), so the horizon sits higher on
 screen than the camera's. The port's `#else` branches in `skyRender()` draw
-the sky and water planes as 3D triangles and never apply that shift, which
-would leave a band that high unpainted along the top. A pitch of
-`atan(clouds_height * c_scaley)` applied to the branch's matrix is the
-equivalent; it was written and built but not kept, because no headless view
-showed the band once the pinned room was fixed, and an unverified sign on a
-horizon shift is worse than a band. Check with a person first: look level
-at the runway's horizon.
+the sky and water planes as 3D triangles and never applied that shift, so a
+band that high went unpainted along the top. `skyPitchForCloudHeight()`
+turns the branch's matrix up through `atan(clouds_height * c_scaley)` (a
+row is `c_scaley` of view-space y at unit depth, `cam0f0b4c3c()`), with the
+rotation written out from the ratio because the game's own `atan2f` has its
+own argument convention. Positive is up; checked on the flyover frame.
+
+**"Blocky fog that culls very closely", same report.** `--no-fog` (a debug
+switch in `envStartFog()`) showed the navy wall at the hangar opening is fog
+on the far cliff, not rooms left undrawn. GE-X's Runway fog is 996-1000 of
+the 10..15000 z range: fog from about 21 m, full at 150 m, as heavy as the
+original game's Runway. The fog is per vertex on both machines, so large
+triangles shade in blocks there too. Not changed; if a console capture shows
+the runway from inside the hangar, the port's z range is the next suspect.

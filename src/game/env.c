@@ -8,6 +8,9 @@
 #include "lib/vi.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 
 bool g_FogEnabled;
 bool g_EnvHasTransparency;
@@ -395,6 +398,20 @@ Gfx *envStartFog(Gfx *gdl, bool xlupass)
 	if (!g_FogEnabled) {
 		return gdl;
 	}
+
+#ifndef PLATFORM_N64
+	// Debug aid: --no-fog draws a fogged stage without its fog, to tell
+	// fog from geometry that is not there
+	{
+		static s32 nofog = -1;
+		if (nofog < 0) {
+			nofog = sysArgCheck("--no-fog");
+		}
+		if (nofog) {
+			return gdl;
+		}
+	}
+#endif
 
 	if (xlupass) {
 		gDPSetFogColor(gdl++, g_Env.sky_r, g_Env.sky_g, g_Env.sky_b, 0xff);

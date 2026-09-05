@@ -205,6 +205,37 @@ void skyChooseWaterVtxColour(struct skyvtx3d *arg0, f32 arg1)
 	arg0->a = 0xff;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The sky's corner rays are cast from clouds_height rows below the screen
+ * top (skyGetWorldPosFromScreenPos), and the N64 path draws what it finds
+ * clouds_height rows higher again (skyConvertVertex), so the horizon sits
+ * that much higher on screen than the camera's. The port draws the sky
+ * and water planes as 3D triangles instead, where a row shift is a pitch:
+ * turn the plane up through the angle those rows subtend, or a band that
+ * high stays unpainted along the top (GE-X's Runway, clouds_height 30).
+ */
+static void skyPitchForCloudHeight(Mtxf *mtx)
+{
+	const f32 rows = envGetCurrent()->clouds_height;
+
+	if (rows != 0.0f) {
+		// a row is c_scaley of view-space y at unit depth (cam0f0b4c3c), so
+		// the pitch is atan(rows * c_scaley), written out as its cos and sin
+		const f32 k = rows * g_Vars.currentplayer->c_scaley;
+		const f32 inv = 1.0f / sqrtf(1.0f + k * k);
+		Mtxf rot;
+
+		mtx4LoadIdentity(&rot);
+		rot.m[1][1] = inv;
+		rot.m[1][2] = k * inv;
+		rot.m[2][1] = -k * inv;
+		rot.m[2][2] = inv;
+		mtx4MultMtx4(&rot, mtx, mtx);
+	}
+}
+#endif
+
 Gfx *skyRender(Gfx *gdl)
 {
 	struct coord tl3dpos;
@@ -861,6 +892,7 @@ Gfx *skyRender(Gfx *gdl)
 			Col *cols = gfxAllocateColours(numvertices);
 			Mtxf *mtx = gfxAllocateMatrix();
 			mtx4MultMtx4(camGetWorldToScreenMtxf(), &g_SkyMtx, mtx);
+		skyPitchForCloudHeight(mtx);
 			mtxF2L(mtx, mtx);
 
 			gSPSetExtraGeometryModeEXT(gdl++, G_NO_CLIPPING_EXT);
@@ -1344,6 +1376,7 @@ Gfx *skyRender(Gfx *gdl)
 		Col *cols = gfxAllocateColours(numvertices);
 		Mtxf *mtx = gfxAllocateMatrix();
 		mtx4MultMtx4(camGetWorldToScreenMtxf(), &g_SkyMtx, mtx);
+		skyPitchForCloudHeight(mtx);
 		mtxF2L(mtx, mtx);
 
 		gSPSetExtraGeometryModeEXT(gdl++, G_NO_CLIPPING_EXT);
