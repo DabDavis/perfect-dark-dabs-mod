@@ -35,6 +35,59 @@ dev-channel player's Check for Updates points at. A push that changes only
 When a session gets something wrong that the code could not have told it, write
 it down: a new note, or a section in the one for its area, and a line here.
 
+## GE-X import: where to pick up (2026-09-05)
+
+The console mod GE-X 6a is the reference case for the mod loader. Its assets,
+data tables, missions, music, environments, star field and weather all import
+(`build/mods/GE-X_6a_01-19-25/`, importer version 12); what is left is the code
+GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
+[mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
+end before touching any of it, then:
+
+1. **Regenerate the list** — the summary is the work queue, largest first:
+   ```sh
+   python3 tools/modcodediff --rom ../pd-upstream/pd.ntsc-final.z64 \
+       --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
+   ```
+   `constants` regions are tables to follow (most are done); `rewritten` ones
+   need reading. Remaining rewritten, by size: `shieldhit_health_to_rgb` (32
+   words), `bgun_play_prop_hit_sound` (22), `player_tick` (21),
+   `bgun_tick_inc_attacking_shoot` (19), `casing_create_for_hand` (17),
+   `projectile_tick` and `chr_damage` (16 each), `beam_render` (14),
+   `hand_tick_attack`, `bot_tick_unpaused` (9 each), then a long tail of 1–7
+   words (`menu_render`, `koh_tick`/`koh_init`, `cheat_is_unlocked`,
+   `botinv_score_weapon`, `bwalk_update_horizontal` is a speed cave ...).
+   `--prepare-diff DIR` writes both binaries; `mips-linux-gnu-objdump -b binary
+   -m mips:4300 -EB -D --adjust-vma=0x7f000000` reads them.
+2. **Two ways to follow a change.** A renumbered compare is a
+   `follow_immediate(s)` site (the `playerconst`/`bgstage` pattern, one table
+   row in both importers). A rewritten function is run on the toy MIPS
+   (`emulate()` in `tools/importmod`, `emuRun()` in `port/src/modimport.c`,
+   the weather is the worked example) and written out as the port's own
+   config. Whatever is added goes in **both importers**, `IMPORT.txt`
+   lines identical, and bumps `MODIMPORT_VERSION` so old imports redo
+   themselves.
+3. **Test headlessly** on Runway (0x22) or later — Dam (0x30) and Facility
+   (0x33) are unfinished in the patch and prove nothing:
+   ```sh
+   cd build && timeout -k 5 60 xvfb-run -a ./pd.x86_64 --moddir mods/GE-X_6a_01-19-25 \
+       --savedir /tmp/pdsave --skip-intro --no-sound --boot-stage 0x22 --log
+   ```
+   Exit 124 is "ran until stopped"; 137 is a crash or hang, read the log.
+   `--moddata-trace`, `--chr-trace`, `--setup-trace` and the
+   `weather:`/`music:` log lines say what applied. `--boot-stage` takes the
+   stage id, not the menu slot: GE-X's `g_SoloStages` remaps six missions.
+4. **Open tester reports**: no guards on Dam (GE-X spawns them by AI as the
+   player advances; a headless run cannot exercise it — a person must). Check
+   the tester's binary commit before debugging a report from
+   `sdg@10.8.0.3:~/pd-test/` (`strings pd.x86_64-linux | grep -m1 -E
+   '^[0-9a-f]{7}$'`).
+5. **Known gaps, deliberate**: stages a mod took weather away from keep the
+   port's stock weather entry (inert without a rain/snow script command); the
+   two importers order the older `playerconst`/`bgstage`/`roomstage` lines
+   differently (content identical); mod-only stage ids (GE-X's 0x4d–0x50)
+   are skipped by `stage {}` blocks with a warning.
+
 ## Build and run
 
 ```sh
