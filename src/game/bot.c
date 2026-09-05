@@ -461,6 +461,12 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		if (spawnweapon >= 0) {
 			struct mpweapon *mpweapon = &g_MpWeapons[spawnweapon];
 			botinvGiveSingleWeapon(chr, mpweapon->weaponnum);
+
+			if (modIsAkimboForPlayers() && modCanAkimbo(mpweapon->weaponnum)) {
+				// Turns the single item into a dual, which is how a simulant
+				// holds two; botinvSwitchToWeapon() fills the left hand from it
+				botinvGiveDualWeapon(chr, mpweapon->weaponnum);
+			}
 			const s32 ammotype = (spawnweapon == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
 			if (ammotype) {
 				// botactGiveAmmoByType() clamps to this same capacity, so this

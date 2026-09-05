@@ -581,6 +581,13 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
 	chr->chrflags |= CHRCFLAG_CANCHANGEACTDURINGARGH;
 
 	chrGiveWeaponWithAutoModel(chr, gun, 0);
+
+	if (modIsAkimboForGuards() && modCanAkimbo(gun)) {
+		// A second one for the left hand, the way a mission gives a guard
+		// two magnums: try_equip_weapon with the left-handed flag
+		chrGiveWeaponWithAutoModel(chr, gun, OBJFLAG_WEAPON_LEFTHANDED);
+	}
+
 	rebuildTeams();
 
 	return gun;
@@ -657,8 +664,9 @@ static bool modAlarmSpawnOne(s32 bodynum)
 
 #ifndef PLATFORM_N64
 		if (g_ChrSpawnTrace) {
-			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d at pad %d, %.0fcm from player %d, %d free chr slots",
-					bodynum, chr->headnum, gun, waypoint->padnum, dist, playernum, chrsGetNumFree());
+			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d%s at pad %d, %.0fcm from player %d, %d free chr slots",
+					bodynum, chr->headnum, gun, chr->weapons_held[HAND_LEFT] ? " akimbo" : "",
+					waypoint->padnum, dist, playernum, chrsGetNumFree());
 		}
 #endif
 

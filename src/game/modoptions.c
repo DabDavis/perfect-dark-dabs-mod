@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/game_0b0fd0.h"
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
@@ -30,6 +31,7 @@ struct modoptions g_ModOptions = {
 	MODALARM_GUARDS_DEFAULT,  // alertedguards
 	MODALARM_SPEED_DEFAULT,   // guardspawnspeed
 	MODALARM_WEAPONS_STAGE,   // guardweapons
+	MODAKIMBO_OFF,            // akimbo
 	true,                     // alarmsound
 };
 
@@ -309,6 +311,31 @@ s32 modGetGuardSpawnSpeed(void)
 s32 modGetGuardWeapons(void)
 {
 	return g_ModOptions.guardweapons == MODALARM_WEAPONS_RANDOM ? MODALARM_WEAPONS_RANDOM : MODALARM_WEAPONS_STAGE;
+}
+
+/**
+ * Whether Start Armed hands a player or simulant two of the gun.
+ */
+bool modIsAkimboForPlayers(void)
+{
+	return g_ModOptions.akimbo == MODAKIMBO_EVERYONE || g_ModOptions.akimbo == MODAKIMBO_PLAYERSANDSIMS;
+}
+
+/**
+ * Whether a Guards Alerted! guard is given two of its gun.
+ */
+bool modIsAkimboForGuards(void)
+{
+	return g_ModOptions.akimbo == MODAKIMBO_EVERYONE || g_ModOptions.akimbo == MODAKIMBO_GUARDS;
+}
+
+/**
+ * Whether a gun can be held in each hand: the weapon table's own flag, the
+ * one the inventory checks before it makes a dual.
+ */
+bool modCanAkimbo(s32 weaponnum)
+{
+	return weaponnum > WEAPON_NONE && weaponHasFlag(weaponnum, WEAPONFLAG_DUALWIELD);
 }
 
 /**

@@ -1136,7 +1136,15 @@ void playerSpawn(void)
 
 			if (spawnweapon >= 0) {
 				struct mpweapon *mpweapon = &g_MpWeapons[spawnweapon];
+				bool akimbo = modIsAkimboForPlayers() && modCanAkimbo(mpweapon->weaponnum);
+
 				invGiveSingleWeapon(mpweapon->weaponnum);
+
+				if (akimbo) {
+					// The dual is its own inventory item beside the single,
+					// as it is when a second one is picked up off the floor
+					invGiveDoubleWeapon(mpweapon->weaponnum, mpweapon->weaponnum);
+				}
 				const s32 ammotype = (spawnweapon == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
 				if (ammotype) {
 					// Full capacity for the ammo type, not the weapon's pickup
@@ -1148,7 +1156,7 @@ void playerSpawn(void)
 					}
 					bgunSetAmmoQuantity(ammotype, startammo);
 				}
-				bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+				bgunEquipWeapon2(HAND_LEFT, akimbo ? mpweapon->weaponnum : WEAPON_NONE);
 				bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
 			} else
 #endif

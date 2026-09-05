@@ -2166,6 +2166,31 @@ static MenuItemHandlerResult menuhandlerModAlarmSound(s32 operation, struct menu
 	return 0;
 }
 
+/**
+ * Akimbo: two of the gun for whoever spawns armed, when it can be held in
+ * each hand. Start Armed's players and simulants, the alerted guards, or
+ * both.
+ */
+static MenuItemHandlerResult menuhandlerModAkimbo(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Everyone", "Players & Sims", "Guards" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.akimbo = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.akimbo;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -3031,6 +3056,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Guard Weapons",
 		0,
 		menuhandlerModGuardWeapons,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Akimbo",
+		0,
+		menuhandlerModAkimbo,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

@@ -121,6 +121,18 @@
 #define MODALARM_WEAPONS_STAGE  0
 #define MODALARM_WEAPONS_RANDOM 1
 
+/**
+ * Akimbo: whoever spawns armed spawns with two, when the gun can be held in
+ * each hand - pistols and the small automatics carry the flag, rifles do
+ * not. Applies to what Start Armed hands a player or simulant and to what
+ * a Guards Alerted! guard is given, separately or together.
+ */
+#define MODAKIMBO_OFF            0
+#define MODAKIMBO_EVERYONE       1
+#define MODAKIMBO_PLAYERSANDSIMS 2
+#define MODAKIMBO_GUARDS         3
+#define MODAKIMBO_MAX            MODAKIMBO_GUARDS
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -139,6 +151,7 @@ struct modoptions {
 	s32 alertedguards; // how many reinforcements may be up at once
 	s32 guardspawnspeed; // how fast they come, in guards per ten seconds
 	s32 guardweapons; // MODALARM_WEAPONS_*: what they carry
+	s32 akimbo;      // MODAKIMBO_*: who spawns holding two
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 };
 
@@ -163,6 +176,9 @@ bool modIsGuardsAlertedOn(void);
 s32 modGetAlertedGuards(void);
 s32 modGetGuardSpawnSpeed(void);
 s32 modGetGuardWeapons(void);
+bool modIsAkimboForPlayers(void);
+bool modIsAkimboForGuards(void);
+bool modCanAkimbo(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);
 
 #endif
