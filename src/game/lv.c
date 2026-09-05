@@ -2149,6 +2149,14 @@ void lvTick(void)
 			g_ChrSpawnTrace = sysArgCheck("--chr-trace");
 		}
 	}
+	if (g_Vars.lvframenum == 300) {
+		extern const char *sysArgGetString(const char *arg);
+		extern void texpackDumpTextureNums(const char *list);
+		const char *dump = sysArgGetString("--dump-texture");
+		if (dump) {
+			texpackDumpTextureNums(dump);
+		}
+	}
 	if ((g_Vars.lvframenum == 300 || (g_Vars.lvframenum % 1200 == 0 && g_Vars.lvframenum > 0)) && g_ChrSlots) {
 		extern void sysLogPrintf(s32 level, const char *fmt, ...);
 		s32 n = 0;

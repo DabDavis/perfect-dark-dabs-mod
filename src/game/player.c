@@ -5,9 +5,13 @@
 // a mod with its own hero names another body and head in its code
 #define MOD_PLAYER_BODY modDataPlayerBody(BODY_DARK_COMBAT)
 #define MOD_PLAYER_HEAD modDataPlayerHead(HEAD_DARK_COMBAT)
+#define MOD_BODY(x) modDataPlayerBody(x)
+#define MOD_HEAD(x) modDataPlayerHead(x)
 #else
 #define MOD_PLAYER_BODY BODY_DARK_COMBAT
 #define MOD_PLAYER_HEAD HEAD_DARK_COMBAT
+#define MOD_BODY(x) (x)
+#define MOD_HEAD(x) (x)
 #endif
 #include "game/bondeyespy.h"
 #include "game/bondmove.h"
@@ -1251,8 +1255,8 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	solo = !(g_Vars.coopplayernum >= 0) || (g_Vars.currentplayer != g_Vars.coop);
 
 	if (cheatIsActive(CHEAT_PLAYASELVIS)) {
-		*bodynum = BODY_THEKING;
-		*headnum = HEAD_ELVIS;
+		*bodynum = MOD_BODY(BODY_THEKING);
+		*headnum = MOD_HEAD(HEAD_ELVIS);
 		return;
 	}
 
@@ -1271,63 +1275,63 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	default:
 	case OUTFIT_DEFAULT:
 		*bodynum = MOD_PLAYER_BODY;
-		*headnum = solo ? MOD_PLAYER_HEAD : HEAD_VD;
+		*headnum = solo ? MOD_PLAYER_HEAD : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_ELVIS:
-		*bodynum = BODY_THEKING;
-		*headnum = solo ? HEAD_ELVIS : HEAD_ELVIS;
+		*bodynum = MOD_BODY(BODY_THEKING);
+		*headnum = solo ? MOD_HEAD(HEAD_ELVIS) : MOD_HEAD(HEAD_ELVIS);
 		break;
 	case OUTFIT_TRENT:
-		*bodynum = BODY_TRENT;
-		*headnum = solo ? HEAD_TRENT : HEAD_TRENT;
+		*bodynum = MOD_BODY(BODY_TRENT);
+		*headnum = solo ? MOD_HEAD(HEAD_TRENT) : MOD_HEAD(HEAD_TRENT);
 		break;
 	case OUTFIT_TRENCH:
-		*bodynum = BODY_DARK_TRENCH;
-		*headnum = solo ? HEAD_DARK_COMBAT : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARK_TRENCH);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_COMBAT) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_FROCK_RIPPED:
-		*bodynum = BODY_DARK_RIPPED;
-		*headnum = solo ? HEAD_DARK_FROCK : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARK_RIPPED);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_FROCK) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_FROCK:
-		*bodynum = BODY_DARK_FROCK;
-		*headnum = solo ? HEAD_DARK_FROCK : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARK_FROCK);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_FROCK) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_LEATHER:
-		*bodynum = BODY_DARK_LEATHER;
-		*headnum = solo ? HEAD_DARK_COMBAT : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARK_LEATHER);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_COMBAT) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_DEEPSEA:
-		*bodynum = BODY_DARKWET;
-		*headnum = solo ? HEAD_DARK_COMBAT : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARKWET);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_COMBAT) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_WETSUIT:
-		*bodynum = BODY_DARKAQUALUNG;
-		*headnum = solo ? HEAD_DARKAQUA : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARKAQUALUNG);
+		*headnum = solo ? MOD_HEAD(HEAD_DARKAQUA) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_SNOW:
-		*bodynum = BODY_DARKSNOW;
-		*headnum = solo ? HEAD_DARK_SNOW : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARKSNOW);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_SNOW) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_LAB:
-		*bodynum = BODY_DARKLAB;
-		*headnum = solo ? HEAD_DARK_COMBAT : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARKLAB);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_COMBAT) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_STEWARDESS:
-		*bodynum = BODY_DARK_AF1;
-		*headnum = solo ? HEAD_DARK_FROCK : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARK_AF1);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_FROCK) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_NEGOTIATOR:
-		*bodynum = BODY_DARK_NEGOTIATOR;
-		*headnum = solo ? HEAD_DARK_FROCK : HEAD_VD;
+		*bodynum = MOD_BODY(BODY_DARK_NEGOTIATOR);
+		*headnum = solo ? MOD_HEAD(HEAD_DARK_FROCK) : MOD_HEAD(HEAD_VD);
 		break;
 	case OUTFIT_MRBLONDE:
-		*bodynum = BODY_MRBLONDE;
-		*headnum = solo ? HEAD_MRBLONDE : HEAD_MRBLONDE;
+		*bodynum = MOD_BODY(BODY_MRBLONDE);
+		*headnum = solo ? MOD_HEAD(HEAD_MRBLONDE) : MOD_HEAD(HEAD_MRBLONDE);
 		break;
 	case OUTFIT_MAIAN:
-		*bodynum = BODY_ELVIS1;
-		*headnum = solo ? HEAD_MAIAN_S : HEAD_MAIAN_S;
+		*bodynum = MOD_BODY(BODY_ELVIS1);
+		*headnum = solo ? MOD_HEAD(HEAD_MAIAN_S) : MOD_HEAD(HEAD_MAIAN_S);
 		break;
 	}
 }

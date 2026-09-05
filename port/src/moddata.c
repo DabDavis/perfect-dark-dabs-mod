@@ -1249,14 +1249,32 @@ static s32 importSoloStages(const struct moddataspec *spec)
 	return n;
 }
 
+static s32 modNumPlayerConsts;
+static u16 modPlayerConsts[64][2];
+
+// The outfit chooser's constant as the mod's code has it, or def
+static s32 modPlayerConst(s32 def)
+{
+	for (s32 i = 0; i < modNumPlayerConsts; ++i) {
+		if (modPlayerConsts[i][0] == (u16)def) {
+			return modPlayerConsts[i][1];
+		}
+	}
+	return def;
+}
+
+// The default outfit's body and head come through the map like the rest;
+// playerbody/playerhead in the block are the older form of the same fact
 s32 modDataPlayerBody(s32 def)
 {
-	return modPlayerBody >= 0 ? modPlayerBody : def;
+	const s32 mapped = modPlayerConst(def);
+	return mapped != def ? mapped : (def == 0x56 && modPlayerBody >= 0 ? modPlayerBody : def);
 }
 
 s32 modDataPlayerHead(s32 def)
 {
-	return modPlayerHead >= 0 ? modPlayerHead : def;
+	const s32 mapped = modPlayerConst(def);
+	return mapped != def ? mapped : (def == 0x04 && modPlayerHead >= 0 ? modPlayerHead : def);
 }
 
 static s32 importMpArenas(const struct moddataspec *spec)
@@ -1596,6 +1614,12 @@ s32 modDataImport(const struct moddataspec *spec)
 
 	modPlayerBody = spec->playerbody;
 	modPlayerHead = spec->playerhead;
+	modNumPlayerConsts = spec->numplayerconsts;
+	memcpy(modPlayerConsts, spec->playerconsts, sizeof(modPlayerConsts));
+
+	if (modNumPlayerConsts) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d of the outfit chooser's body/head constants are the mod's", modNumPlayerConsts);
+	}
 
 	if (modPlayerBody >= 0 || modPlayerHead >= 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: the solo player is body %d head %d", modPlayerBody, modPlayerHead);

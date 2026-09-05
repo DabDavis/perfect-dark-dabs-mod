@@ -531,6 +531,24 @@ through `addr2line`, or gdb when the handler had none (`PC=(nil)`):
 - The 21-entry `struct solostage` is 12 bytes in the ROM: `u32 stagenum`,
   `u8 unk04`, pad, three `u16` text ids.
 
+- **Every outfit's body and head, not just the default's** (2026-09-05, "the
+  hand is white"): `playerChooseBodyAndHead()` has a body and head constant
+  per outfit, and GE-X changed 47 of them. Following only the default pair
+  left Runway's outfit on stock `BODY_DARK_TRENCH` (0x62), which GE-X had
+  turned into its Santa - the white glove was Santa's hand, drawn correctly.
+  `follow_immediates()` / the C loop in `modimport.c` now record every `li`
+  in the function the mod changed as `playerconst 0xSTOCK MOD`, one per
+  line, and `modDataPlayerBody/Head()` look each site's constant up
+  (`MOD_BODY(x)`/`MOD_HEAD(x)` on all 45 sites). It is right because
+  modcodediff classes the function as constants-only, so the instructions
+  still mean what they meant. Two traps from that hour: a comma list on one
+  config line breaks the block parser (it tokenises on `=`), and the whole
+  datasegment block is dropped when one line is bad - a stray "invalid key"
+  error in the log means nothing else in the block loaded either. A texture
+  that draws white is almost never a texture problem: `--dump-texture N`
+  writes the port's decode of any texture, and `--texpack-trace` shows the
+  pack image that replaced one when drawn.
+
 Also from that day: `--chr-trace` logs every AI spawn and its result, the
 log gets a chr census at frame 300 and every 20s, `setupCreateProps()` reports
 how many chr entries spawned, and an autogun with no model no longer

@@ -729,6 +729,16 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		} else if (!strcmp(token, "commandlengths")) {
 			PARSE_ADDR("datasegment", "commandlengths", spec.commandlengths, NULL);
 			PARSE_INT("datasegment", "commandlengths count", spec.numcommandlengths, 0, 4096, NULL);
+		} else if (!strcmp(token, "playerconst")) {
+			// one line per constant the mod's outfit chooser changed: stock, mod
+			s32 k = 0, v = 0;
+			PARSE_INT("datasegment", "playerconst stock", k, 0, 0xffff, NULL);
+			PARSE_INT("datasegment", "playerconst mod", v, 0, 0xffff, NULL);
+			if (spec.numplayerconsts < 64) {
+				spec.playerconsts[spec.numplayerconsts][0] = (u16)k;
+				spec.playerconsts[spec.numplayerconsts][1] = (u16)v;
+				spec.numplayerconsts++;
+			}
 		} else if (!strcmp(token, "playerbody")) {
 			PARSE_INT("datasegment", "playerbody", spec.playerbody, 0, 255, NULL);
 		} else if (!strcmp(token, "playerhead")) {

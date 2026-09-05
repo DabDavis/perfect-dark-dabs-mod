@@ -110,6 +110,7 @@ struct texpackricecrc {
 
 static struct texpackricecrc *riceCrcs;
 static s32 riceIndexState; // 0 = not built, 1 = built, -1 = gave up
+static s32 texpackTraceMatches = -1;
 
 struct texpackunplaced {
 	u32 crc;
@@ -2702,6 +2703,81 @@ static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outH
 	return rgba;
 }
 
+/**
+ * --dump-texture N,M,...: write those textures as the port decodes them, to
+ * <exedir>/texdump_N.png, from lvTick() once a stage is up. For looking at
+ * a mod's texture that draws wrong (GE-X's KF7 clip and some faces drew
+ * white) without having to find it on screen.
+ */
+void texpackDumpTextureNums(const char *list)
+{
+	const char *p = list;
+
+	while (p && *p) {
+		char *end;
+		const long n = strtol(p, &end, 0);
+		struct texpool pool;
+		u8 *buffer;
+		struct tex *tex;
+
+		if (end == p) {
+			break;
+		}
+		p = (*end == ',') ? end + 1 : end;
+
+		if (n < 0 || n >= NUM_TEXTURES) {
+			sysLogPrintf(LOG_WARNING, "texpack: texture %ld is out of range", n);
+			continue;
+		}
+
+		buffer = malloc(TEXPACK_RICE_SCRATCH);
+		if (!buffer) {
+			return;
+		}
+
+		texInitPool(&pool, buffer, TEXPACK_RICE_SCRATCH);
+		texLoadFromTextureNum((s32)n, &pool);
+		tex = texFindInPool((s32)n, &pool);
+
+		if (!tex || !tex->data) {
+			sysLogPrintf(LOG_WARNING, "texpack: texture %ld did not load", n);
+		} else {
+			s32 w, h;
+			u8 *rgba = texpackTexToRgba(tex, &w, &h);
+			char path[FS_MAXPATH + 1];
+			snprintf(path, sizeof(path), "$E/texdump_%04lx.png", n);
+			if (rgba) {
+				s32 stride = texGetLineSizeInBytes(tex, 0) * 8;
+				s32 size = texGetSizeInBytes(tex, 0) * 8;
+				s32 rw, rh;
+				u8 *rep;
+
+				pngWrite(fsFullPath(path), rgba, w, h, 4, 0);
+				sysLogPrintf(LOG_NOTE, "texpack: texture %ld: %dx%d fmt %d depth %d -> %s", n, w, h, tex->gbiformat, tex->depth, path);
+				free(rgba);
+
+				// and what the pack would put in its place when drawn
+				if (tex->depth == G_IM_SIZ_32b) {
+					stride *= 2;
+					size *= 2;
+				}
+				texpackTraceMatches = 1;
+				rep = texpackLoadReplacementForTexels(tex->data, size, texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
+						tex->depth, stride, &rw, &rh);
+				if (rep) {
+					sysLogPrintf(LOG_NOTE, "texpack: texture %ld is replaced by a pack image when drawn (%dx%d)", n, rw, rh);
+					free(rep);
+				}
+			} else {
+				sysLogPrintf(LOG_WARNING, "texpack: texture %ld: %dx%d fmt %d depth %d could not be converted", n, tex->width, tex->height, tex->gbiformat, tex->depth);
+			}
+		}
+
+		texpackForgetRange(buffer, buffer + TEXPACK_RICE_SCRATCH);
+		free(buffer);
+	}
+}
+
 s32 texpackGetNumUnplaced(void)
 {
 	return numUnplaced;
@@ -2753,7 +2829,25 @@ u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 hei
 
 	numTexelMatched++;
 
-	return texpackLoadImage(path, 0, outWidth, outHeight);
+	{
+		u8 *rgba = texpackLoadImage(path, 0, outWidth, outHeight);
+
+		if (texpackTraceMatches < 0) {
+			texpackTraceMatches = sysArgCheck("--texpack-trace");
+		}
+
+		if (texpackTraceMatches && rgba) {
+			// --texpack-trace: say which pack image stood in for what was
+			// drawn, and keep the image beside the executable for a look
+			char out[FS_MAXPATH + 1];
+			snprintf(out, sizeof(out), "$E/texmatch_%08x.png", crc);
+			sysLogPrintf(LOG_NOTE, "texpack: %dx%d texels (fmt siz %d) crc %08x -> %s, %dx%d, %s",
+					width, height, siz, crc, path, *outWidth, *outHeight, out);
+			pngWrite(fsFullPath(out), rgba, *outWidth, *outHeight, 4, 0);
+		}
+
+		return rgba;
+	}
 }
 
 /**

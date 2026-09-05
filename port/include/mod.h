@@ -43,6 +43,9 @@ struct moddataspec {
 	s32 numstages;
 	s32 playerbody;      // the solo player's body and head, -1 for the port's own
 	s32 playerhead;
+	// the outfit chooser's body/head constants the mod changed: stock -> mod
+	s32 numplayerconsts;
+	u16 playerconsts[64][2];
 	u32 commandlengths;  // g_CommandLengths[], for the mod's own AI commands
 	s32 numcommandlengths;
 	u32 solostages;      // g_SoloStages[], the mission list

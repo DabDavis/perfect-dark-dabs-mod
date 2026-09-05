@@ -2704,18 +2704,37 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		rep("  %u AI command lengths at %08x%s", n, addr, tnote);
 	}
 
-	// the solo player's body and head are constants in the code that
-	// chooses them; a mod with its own hero changed the numbers
+	// the solo player's body and head, per outfit, are constants in the
+	// code that chooses them; a mod with its own hero changed the numbers.
+	// Every `li` the function loads that the mod changed goes out as
+	// stock=mod, and the port looks each site's constant up.
 	if (t.followed) {
 		u32 start, end;
 		if (codeSym("player_choose_body_and_head", &start, &end)) {
-			static const struct { const char *key; u32 stock; } consts[] = { { "playerbody", 0x56 }, { "playerhead", 0x04 } };
-			for (u32 i = 0; i < 2; ++i) {
-				const s32 got = followImmediate(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, consts[i].stock);
-				if (got >= 0 && (u32)got != consts[i].stock) {
-					LINE("  %s %d\n", consts[i].key, got);
-					rep("  the solo %s is %d in the mod's code (stock %u)", consts[i].key + 6, got, consts[i].stock);
+			u32 seen[64], n = 0;
+			char list[1024];
+			u32 listlen = 0;
+			for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= t.stockcodelen && ofs + 4 <= t.modcodelen && n < 64; ofs += 4) {
+				const u32 x = be32(t.stockcode, ofs);
+				if (((x >> 26) == 0x08 || (x >> 26) == 0x09) && ((x >> 21) & 0x1f) == 0) {
+					const u32 y = be32(t.modcode, ofs);
+					if ((y >> 16) == (x >> 16) && (y & 0xffff) != (x & 0xffff)) {
+						u32 k;
+						for (k = 0; k < n; ++k) {
+							if (seen[k] == (x & 0xffff)) {
+								break;
+							}
+						}
+						if (k == n) {
+							seen[n++] = x & 0xffff;
+							LINE("  playerconst 0x%x %u\n", x & 0xffff, y & 0xffff);
+							listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s0x%x->%u", listlen ? ", " : "", x & 0xffff, y & 0xffff);
+						}
+					}
 				}
+			}
+			if (n) {
+				rep("  %u body/head constants changed in the mod's outfit code: %s", n, list);
 			}
 		}
 	}

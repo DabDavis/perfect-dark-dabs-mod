@@ -2351,6 +2351,21 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
 
 static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t width, uint32_t tex_flags, const void* addr) {
     gfx_mark_state_dirty();
+    if ((uintptr_t)addr < 0x10000000u) {
+        // The game replaces a display list's texture-number marker (0xabcdNNNN)
+        // with a pointer to the loaded texture; one still here at draw time
+        // is a texture that was never loaded, and it draws white. Say so,
+        // once per texture.
+        static uint32_t warned[64];
+        static int nwarned;
+        uint32_t w = (uint32_t)(uintptr_t)addr;
+        int seen = 0;
+        for (int k = 0; k < nwarned; k++) if (warned[k] == w) { seen = 1; break; }
+        if (!seen && nwarned < 64) {
+            warned[nwarned++] = w;
+            sysLogPrintf(LOG_WARNING, "F3D: texture image address %08x was never loaded (texture %u?); it draws white", w, w & 0xffff);
+        }
+    }
     rdp.texture_to_load.addr = (const uint8_t*)addr;
     rdp.texture_to_load.glyph = rdp.pending_glyph;
     rdp.pending_glyph = 0;

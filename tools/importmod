@@ -1481,6 +1481,20 @@ def follow_immediate(stockcode, modcode, start, end, stockvalue):
     return None
 
 
+def follow_immediates(stockcode, modcode, start, end):
+    """Every `li rt,N` (addiu rt,zero,N) in [start, end) whose immediate the
+    mod changed, as {stock N: mod N}; the first occurrence of a stock value
+    wins."""
+    pairs = {}
+    for ofs in range(start, min(end, len(stockcode) - 3), 4):
+        x = int.from_bytes(stockcode[ofs:ofs + 4], 'big')
+        if (x >> 26) in (0x08, 0x09) and (x >> 21) & 0x1f == 0:
+            y = int.from_bytes(modcode[ofs:ofs + 4], 'big')
+            if (y >> 16) == (x >> 16) and (y & 0xffff) != (x & 0xffff):
+                pairs.setdefault(x & 0xffff, y & 0xffff)
+    return pairs
+
+
 def read_codesym(romid):
     """tools/pd.<romid>.sym, name -> (start, end)."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.sym' % romid)
@@ -1846,15 +1860,18 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             lines.append('  commandlengths 0x%08x %d' % (cl, n))
             notes.append('%d AI command lengths at %08x%s' % (n, cl, note))
 
-    # the solo player's body and head are constants in the code that chooses
-    # them; a mod with its own hero (GE-X: Bond) changed the numbers
+    # the solo player's body and head, per outfit, are constants in the code
+    # that chooses them; a mod with its own hero (GE-X: Bond, 47 constants)
+    # changed the numbers. Every `li` the function loads that the mod changed
+    # goes out as stock=mod, and the port looks each site's constant up.
     if followed and 'player_choose_body_and_head' in codesyms:
         start, end = codesyms['player_choose_body_and_head']
-        for key, stockvalue in (('playerbody', 0x56), ('playerhead', 0x04)):
-            got = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, stockvalue)
-            if got is not None and got != stockvalue:
-                lines.append('  %s %d' % (key, got))
-                notes.append('the solo %s is %d in the mod\'s code (stock %d)' % (key[6:], got, stockvalue))
+        pairs = follow_immediates(stockcode, modcode, start - 0x7f000000, end - 0x7f000000)
+        if pairs:
+            for k, v in sorted(pairs.items()):
+                lines.append('  playerconst 0x%x %d' % (k, v))
+            notes.append('%d body/head constants changed in the mod\'s outfit code: %s'
+                         % (len(pairs), ', '.join('%#x->%d' % (k, v) for k, v in sorted(pairs.items()))))
 
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'
