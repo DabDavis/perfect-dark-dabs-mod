@@ -2188,6 +2188,9 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	{ "g_MpBodies",       0x800877bc, 0x1e8 },
 	{ "g_MpMaleHeads",    0x800879a4, 0xb0 },
 	{ "g_MpFemaleHeads",  0x80087a54, 0x1c },
+	{ "g_Stages",         0x8007fcc0, 0xd60 },
+	{ "g_CommandLengths", 0x80068c14, 0x3e4 },
+	{ "g_SoloStages",     0x80071e6c, 0xfc },
 };
 static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "mp_get_num_stages",         0x7f1790fc, 0x7f179104 },
@@ -2195,6 +2198,7 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "mp_get_num_weaponset_slots", 0x7f189058, 0x7f189088 },
 	{ "mp_get_num_heads",          0x7f18bb24, 0x7f18bb2c },
 	{ "mp_get_num_bodies",         0x7f18bb88, 0x7f18bb90 },
+	{ "player_choose_body_and_head", 0x7f0b872c, 0x7f0b8ba0 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -2373,6 +2377,42 @@ static u32 countMpBodies(const struct tablectx *t, u32 addr, u32 limit)
 		headnum = (s16)be16(e, 4);
 		if (!(bodynum >= 0 && bodynum < 151) || !((headnum >= -1 && headnum < 151) || headnum == 1000)
 				|| e[6] > 0x7f || (be16(e, 2) >> 9) > 0x44) {
+			break;
+		}
+		++n;
+	}
+	return n;
+}
+
+static u32 countSoloStages(const struct tablectx *t, u32 addr, u32 limit)
+{
+	u32 n = 0;
+	while (n < limit) {
+		const u8 *e = tableEntry(t, addr, n, 12);
+		u32 stagenum;
+		if (!e) {
+			break;
+		}
+		stagenum = be32(e, 0);
+		if (!(stagenum > 0 && stagenum < 0x60)) {
+			break;
+		}
+		++n;
+	}
+	return n;
+}
+
+static u32 countStages(const struct tablectx *t, u32 addr, u32 limit)
+{
+	u32 n = 0;
+	while (n < limit) {
+		const u8 *e = tableEntry(t, addr, n, 0x38);
+		s32 stagenum;
+		if (!e) {
+			break;
+		}
+		stagenum = (s16)be16(e, 0);
+		if (!(stagenum > 0 && stagenum < 0x60)) {
 			break;
 		}
 		++n;
@@ -2628,6 +2668,54 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				rep("  %u %s at %08x%s", n, lists[i].key, addr, tnote);
 			} else {
 				rep("  the code says %u %s but only %u read as one at %08x; left out", n, lists[i].key, ok, addr);
+			}
+		}
+	}
+
+	// the stage table: which background, pads and setup each stage loads
+	addr = locateTable(&t, "g_Stages", tnote, sizeof(tnote));
+	if (addr) {
+		const u32 n = countStages(&t, addr, stockCount("g_Stages", 0x38));
+		if (n) {
+			LINE("  stages 0x%08x %u\n", addr, n);
+			rep("  %u stages at %08x%s", n, addr, tnote);
+		} else {
+			rep("  what is at %08x does not read as the stage table; left out", addr);
+		}
+	}
+
+	// the mission list: which stage each solo mission slot loads and its
+	// title ids. GE-X moves six missions to stage ids the menu never used
+	addr = locateTable(&t, "g_SoloStages", tnote, sizeof(tnote));
+	if (addr) {
+		const u32 n = countSoloStages(&t, addr, stockCount("g_SoloStages", 12));
+		if (n) {
+			LINE("  solostages 0x%08x %u\n", addr, n);
+			rep("  %u solo missions at %08x%s", n, addr, tnote);
+		}
+	}
+
+	// the AI command length table: a mod's own commands sit in slots this
+	// game has no handler for, and their lengths let the port step over them
+	addr = locateTable(&t, "g_CommandLengths", tnote, sizeof(tnote));
+	if (addr) {
+		const u32 n = stockCount("g_CommandLengths", 2);
+		LINE("  commandlengths 0x%08x %u\n", addr, n);
+		rep("  %u AI command lengths at %08x%s", n, addr, tnote);
+	}
+
+	// the solo player's body and head are constants in the code that
+	// chooses them; a mod with its own hero changed the numbers
+	if (t.followed) {
+		u32 start, end;
+		if (codeSym("player_choose_body_and_head", &start, &end)) {
+			static const struct { const char *key; u32 stock; } consts[] = { { "playerbody", 0x56 }, { "playerhead", 0x04 } };
+			for (u32 i = 0; i < 2; ++i) {
+				const s32 got = followImmediate(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, consts[i].stock);
+				if (got >= 0 && (u32)got != consts[i].stock) {
+					LINE("  %s %d\n", consts[i].key, got);
+					rep("  the solo %s is %d in the mod's code (stock %u)", consts[i].key + 6, got, consts[i].stock);
+				}
 			}
 		}
 	}

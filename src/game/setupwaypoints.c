@@ -80,6 +80,22 @@ void setupLoadWaypoints(void)
 		waypoint = &g_StageSetup.waypoints[g_Vars.waypointnums[i]];
 		padUnpack(waypoint->padnum, PADFIELD_ROOM | PADFIELD_FLAGS, &pad);
 
+#ifndef PLATFORM_N64
+		if (pad.room < 0 || pad.room >= g_Vars.roomcount) {
+			// A pad the room search could not place keeps room -1, and a
+			// mod's level can have waypoints on such pads (GE-X's Aztec has
+			// some outside every room). Writing g_Rooms[-1] here corrupted
+			// whatever sits before the array; leave the waypoint roomless.
+			static s32 warned;
+			if (!warned++) {
+				extern void sysLogPrintf(s32 level, const char *fmt, ...);
+				sysLogPrintf(1, "waypoints: waypoint %d (pad %d) is in room %d, outside this stage's %d; it is left out of the room lists",
+						g_Vars.waypointnums[i], waypoint->padnum, pad.room, g_Vars.roomcount);
+			}
+			continue;
+		}
+#endif
+
 		if (pad.room != currentroom) {
 			currentroom = pad.room;
 			g_Rooms[currentroom].firstwaypoint = i;

@@ -188,8 +188,16 @@ static void convertDefaultObj(struct defaultobj* dstobj, struct n64_defaultobj* 
 	PD_CONV_VAL(dstobj->geocount, srcobj->geocount);
 }
 
+// --setup-trace: log every object the converter walks, to find where a mod's
+// setup stops reading as one
+static s32 setupTraceTypes = -1;
+
 static u32 convertProps(u8* dst, u8* src)
 {
+	if (setupTraceTypes < 0) {
+		setupTraceTypes = sysArgCheck("--setup-trace");
+	}
+
 	u8* start = dst;
 	struct n64_defaultobj* cmd = (struct n64_defaultobj*)src;
 
@@ -197,7 +205,17 @@ static u32 convertProps(u8* dst, u8* src)
 	u8 type = cmd->type;
 
 	while (type != OBJTYPE_END) {
-		//sysLogPrintf(LOG_NOTE, "#%03d obj 0x%02x (%s)", ++i, type, objName(cmd));
+		if (setupTraceTypes) {
+			if (type == OBJTYPE_CHR) {
+				struct n64_packedchr *pc = (struct n64_packedchr *)cmd;
+				sysLogPrintf(LOG_NOTE, "setup: #%03d chr at +%#x chrnum %d pad %d body %d head %d", ++i, (u32)((u8 *)cmd - src),
+						(s16)PD_BE16(pc->chrnum), PD_BE16(pc->padnum), pc->bodynum, pc->headnum);
+			} else {
+				sysLogPrintf(LOG_NOTE, "setup: #%03d type 0x%02x at +%#x model %d pad %d", ++i, type, (u32)((u8 *)cmd - src),
+						(s16)PD_BE16(cmd->modelnum), (s16)PD_BE16(cmd->pad));
+			}
+		}
+		u8 *dstobjstart = dst;
 		switch (type) {
 			case OBJTYPE_DOOR:
 			{
@@ -531,9 +549,7 @@ static u32 convertProps(u8* dst, u8* src)
 			case OBJTYPE_ENDOBJECTIVE:
 			case OBJECTIVETYPE_1F:
 			case OBJTYPE_22:
-			case OBJTYPE_GASBOTTLE:
 			case OBJTYPE_29:
-			case OBJTYPE_SAFE:
 			{
 				struct n64_stdobjective* srcobj = (struct n64_stdobjective*)cmd;
 				struct n64_stdobjective* dstobj = (struct n64_stdobjective*)dst;
@@ -541,6 +557,21 @@ static u32 convertProps(u8* dst, u8* src)
 				convertDefaultObjHdr((struct defaultobj*)dstobj, cmd);
 
 				dst += sizeof(struct n64_stdobjective);
+				break;
+			}
+			case OBJTYPE_GASBOTTLE:
+			case OBJTYPE_SAFE:
+			{
+				// A gas bottle and a safe are default objects and nothing
+				// more - setupGetCmdLength() sizes them so - but they sat in
+				// the four byte objective group above, which left every
+				// object after one misread. No stock setup has either; GE-X's
+				// Facility has gas bottles and its Frigate a safe.
+				struct defaultobj* dstobj = (struct defaultobj*)dst;
+
+				convertDefaultObjHdr(dstobj, cmd);
+
+				dst += sizeof(struct defaultobj);
 				break;
 			}
 			case OBJECTIVETYPE_DESTROYOBJ:
@@ -991,6 +1022,14 @@ static u32 convertProps(u8* dst, u8* src)
 			}
 		}
 
+		if (setupTraceTypes && dst > dstobjstart) {
+			extern u32 setupGetCmdLength(u32 *cmd);
+			const u32 hostlen = setupGetCmdLength((u32 *)dstobjstart) * 4;
+			if (hostlen != (u32)(dst - dstobjstart)) {
+				sysLogPrintf(LOG_WARNING, "setup: type 0x%02x: converter wrote %u bytes but setupGetCmdLength() says %u",
+						type, (u32)(dst - dstobjstart), hostlen);
+			}
+		}
 		cmd = (struct n64_defaultobj*)((u32*)cmd + objSizeN64(cmd));
 		type = cmd->type;
 	}

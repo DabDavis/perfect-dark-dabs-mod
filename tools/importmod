@@ -1593,6 +1593,34 @@ def count_mpbodies(seg, base, addr, limit):
     return n
 
 
+def count_solostages(seg, base, addr, limit):
+    """Entries of g_SoloStages that read as one: a stage number, 12 bytes each."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 12
+        if ofs + 12 > len(seg):
+            break
+        stagenum = be32(seg, ofs)
+        if not 0 < stagenum < 0x60:
+            break
+        n += 1
+    return n
+
+
+def count_stages(seg, base, addr, limit):
+    """Entries of g_Stages that read as one: a stage number, 0x38 bytes each."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 0x38
+        if ofs + 0x38 > len(seg):
+            break
+        stagenum = int.from_bytes(seg[ofs:ofs + 2], 'big', signed=True)
+        if not 0 < stagenum < 0x60:
+            break
+        n += 1
+    return n
+
+
 def count_indexes(seg, base, addr, limit, maxvalue):
     n = 0
     while n < limit:
@@ -1787,6 +1815,46 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             notes.append('%d %s at %08x%s' % (n, key, addr, note))
         else:
             notes.append('the code says %d %s but only %d read as one at %08x; left out' % (n, key, ok, addr))
+
+    # the stage table: which background, pads and setup each stage loads, and
+    # the lighting and fog around them. A mod that puts its own levels in the
+    # stock slots (GE-X: Runway in Extraction's) points them at its own files
+    stages, note = locate('g_Stages')
+    if stages:
+        n = count_stages(seg, base, stages, stockcount('g_Stages', 0x38))
+        if n:
+            lines.append('  stages 0x%08x %d' % (stages, n))
+            notes.append('%d stages at %08x%s' % (n, stages, note))
+        else:
+            notes.append('what is at %08x does not read as the stage table; left out' % stages)
+
+    # the mission list: which stage each solo mission slot loads and its
+    # title ids. GE-X moves six missions to stage ids the menu never used
+    solo, note = locate('g_SoloStages')
+    if solo:
+        n = count_solostages(seg, base, solo, stockcount('g_SoloStages', 12))
+        if n:
+            lines.append('  solostages 0x%08x %d' % (solo, n))
+            notes.append('%d solo missions at %08x%s' % (n, solo, note))
+
+    # the AI command length table: a mod's own commands sit in slots this
+    # game has no handler for, and their lengths let the port step over them
+    cl, note = locate('g_CommandLengths')
+    if cl:
+        n = stockcount('g_CommandLengths', 2)
+        if n:
+            lines.append('  commandlengths 0x%08x %d' % (cl, n))
+            notes.append('%d AI command lengths at %08x%s' % (n, cl, note))
+
+    # the solo player's body and head are constants in the code that chooses
+    # them; a mod with its own hero (GE-X: Bond) changed the numbers
+    if followed and 'player_choose_body_and_head' in codesyms:
+        start, end = codesyms['player_choose_body_and_head']
+        for key, stockvalue in (('playerbody', 0x56), ('playerhead', 0x04)):
+            got = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, stockvalue)
+            if got is not None and got != stockvalue:
+                lines.append('  %s %d' % (key, got))
+                notes.append('the solo %s is %d in the mod\'s code (stock %d)' % (key[6:], got, stockvalue))
 
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'

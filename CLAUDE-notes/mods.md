@@ -474,3 +474,65 @@ all of it.
   reads as a stock head number.
 - Every dir in `build/mods/` was re-imported with this; Mario Characters,
   Spooky Dark and Mr. X carry the block.
+
+## GE-X's solo missions in the port (2026-09-05)
+
+The tester's first run of GE-X's missions: Runway crashed on load, Dam loaded
+with no guards and the player in a Santa suit. Four things, found by booting
+every solo slot and arena headlessly with the mod mounted (`--boot-stage N`,
+four at a time under `timeout -k`) and reading the crash handler's backtrace
+through `addr2line`, or gdb when the handler had none (`PC=(nil)`):
+
+- **The stage table is imported now** (`stages ADDR COUNT` in the datasegment
+  block, `importStages()` in moddata.c). GE-X puts its levels in the stock
+  slots and points them at its own files - Runway is Extraction's slot with
+  `bg_ark` where stock has `bg_ame` - and with the port's table a slot loaded
+  the stock background under the mod's setup. The ROM entry is 0x38 bytes
+  (the port's struct has `alarm` and `extragunmem` after it, which stay);
+  entries match by stage number and the five file ids go through the names.
+  Diffing the tables anchored on an entry's known bytes is how the stride was
+  found: the first attempt walked at the port's 0x3c and read junk.
+- **The solo player's body and head come from the mod's code**
+  (`playerbody`, `playerhead`): `follow_immediate` over
+  `player_choose_body_and_head` for the stock constants 0x56 and 0x04. GE-X
+  says 88 and 6 - `CpresidentZ` and `Ca51faceplateZ` by name, its Bond
+  overwriting those files - and the port's default index had become GE-X's
+  Santa. `MOD_PLAYER_BODY/HEAD` in player.c route the three stock sites.
+- **A mod's own AI commands.** `g_CommandPointers` has empty slots (0x64,
+  0xe6, 0xe7, 0x12d ...) and GE-X fills 0xe6 and 0xe7 with "if <its option
+  byte> goto label" commands, three bytes each. The dispatcher called through
+  the NULL pointer; now a slot with no handler is stepped over by the length
+  the mod's `g_CommandLengths` gives it (`commandlengths ADDR COUNT`,
+  `chraiSetModCommandLength()`), logged once, and a list stops only when no
+  length is known either. Stepping over is "condition false", which is one
+  of the two branches; without the mod's code that is the most the port can do.
+- **The setup converter misread gas bottles and safes.** `filesetup.c` had
+  `OBJTYPE_GASBOTTLE` and `OBJTYPE_SAFE` in the four-byte objective group,
+  while `setupGetCmdLength()` sizes both as a full default object, so every
+  object after one was read at the wrong offset - autoguns with model 0,
+  monitors with model 31754, a truck whose model pointer was 1.0f. No stock
+  setup has either object; GE-X's Facility and Frigate do. Found with
+  `--setup-trace`, which logs each object the converter walks and warns
+  when the bytes it wrote disagree with `setupGetCmdLength()`.
+
+- **The mission list is imported** (`solostages ADDR COUNT`, `importSoloStages()`):
+  `g_SoloStages` says which stage each menu slot loads and its title ids. GE-X
+  keeps the stock order but sends six missions to stage ids the stock menu
+  never lists - Surface 2 to 0x24, Bunker 2 to 0x25, Train to 0x23, Cradle to
+  0x2b, Aztec to 0x2e, Egyptian to 0x1a - each with its own stage table
+  entry. Through the stock list "Aztec" loaded stage 0x09, whose GE-X files
+  are a leftover pair that do not belong together: a 460-pad pads file under
+  a setup whose chrs stand on pad 865, which read garbage positions and then
+  garbage rooms. That crash cost two false fixes first (a door sibling that
+  was never created, which is real and stays guarded, and a roomless
+  waypoint guard, also kept). Booting a slot by stage id with `--boot-stage`
+  is not the same as picking it from the menu once a mod remaps the list:
+  read the mod's `g_SoloStages` first.
+- The 21-entry `struct solostage` is 12 bytes in the ROM: `u32 stagenum`,
+  `u8 unk04`, pad, three `u16` text ids.
+
+Also from that day: `--chr-trace` logs every AI spawn and its result, the
+log gets a chr census at frame 300 and every 20s, `setupCreateProps()` reports
+how many chr entries spawned, and an autogun with no model no longer
+dereferences its missing prop. `IMPORT.txt` is at importer version 3, so
+every earlier import is redone.

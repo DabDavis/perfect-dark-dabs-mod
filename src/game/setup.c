@@ -847,6 +847,14 @@ void setupCreateAutogun(struct autogunobj *autogun, s32 cmdindex)
 {
 	setupCreateObject(&autogun->base, cmdindex);
 
+#ifndef PLATFORM_N64
+	if (!autogun->base.prop) {
+		// no model for it (GE-X's Dam has an autogun with model 0): the
+		// stock code reads the prop's position next
+		return;
+	}
+#endif
+
 	autogun->maxspeed = *(s32 *)&autogun->maxspeed * PALUPF(M_BADTAU) / 65536.0f;
 	autogun->aimdist = *(s32 *)&autogun->aimdist * 100.0f / 65536.0f;
 	autogun->ymaxleft = *(s32 *)&autogun->ymaxleft * M_BADTAU / 65536.0f;
@@ -1150,6 +1158,17 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 		if (door->sibling) {
 			siblingcmdindex = *(s32 *) &door->sibling + cmdindex;
 			door->sibling = (struct doorobj *) setupGetCmdByIndex(siblingcmdindex);
+#ifndef PLATFORM_N64
+			// A mod's setup can name a sibling that is not a door (GE-X's
+			// Maian SOS slot); doorsCalcFrac() would read its frac from
+			// whatever is there.
+			if (door->sibling && door->sibling->base.type != OBJTYPE_DOOR) {
+				extern void sysLogPrintf(s32 level, const char *fmt, ...);
+				sysLogPrintf(1, "setup: door %d names command %d as its sibling, which is type %#x, not a door; unlinked",
+						cmdindex, siblingcmdindex, door->sibling->base.type);
+				door->sibling = NULL;
+			}
+#endif
 		}
 
 		prop = doorInit(door, &pos, &finalmtx, rooms, &sp54, &centre);
@@ -1505,6 +1524,9 @@ static void setupMarkLiftDoors()
 					if (door->sibling) {
 						s32 siblingidx = *(s32 *) &door->sibling + doorindex;
 						struct doorobj *sibling = (struct doorobj *) setupGetCmdByIndex(siblingidx);
+#ifndef PLATFORM_N64
+						if (sibling && sibling->base.type == OBJTYPE_DOOR)
+#endif
 						sibling->extra1 = 1;
 					}
 				}
@@ -1517,6 +1539,9 @@ static void setupMarkLiftDoors()
 
 void setupCreateProps(s32 stagenum)
 {
+#ifndef PLATFORM_N64
+	g_BodySpawnStats.entries = g_BodySpawnStats.collision = g_BodySpawnStats.spawned = 0;
+#endif
 	s32 withchrs = !argFindByPrefix(1, "-nochr") && !argFindByPrefix(1, "-noprop");
 	s32 withobjs = !argFindByPrefix(1, "-noobj") && !argFindByPrefix(1, "-noprop");
 	s32 withhovercars;
@@ -2349,4 +2374,36 @@ void setupCreateProps(s32 stagenum)
 	}
 
 	stageAllocateBgChrs();
+
+#ifndef PLATFORM_N64
+	// A door's sibling that was never created (a mod's setup can gate one of
+	// a pair by difficulty, or name one that fails) still holds its raw
+	// relative index where a pointer is expected, and the sibling walk in
+	// doorsCalcFrac() reads it as one. GE-X's Maian SOS slot. Unlink those.
+	if (g_StageSetup.props) {
+		struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+		s32 index = 0;
+
+		while (obj->type != OBJTYPE_END) {
+			if (obj->type == OBJTYPE_DOOR && obj->prop) {
+				struct doorobj *door = (struct doorobj *)obj;
+
+				if (door->sibling && (door->sibling->base.type != OBJTYPE_DOOR || door->sibling->base.prop == NULL)) {
+					extern void sysLogPrintf(s32 level, const char *fmt, ...);
+					sysLogPrintf(1, "setup: door %d's sibling was never created; unlinked", index);
+					door->sibling = NULL;
+				}
+			}
+
+			obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+			index++;
+		}
+	}
+
+	if (g_BodySpawnStats.entries) {
+		extern void sysLogPrintf(s32 level, const char *fmt, ...);
+		sysLogPrintf(0, "setup: %d chr entries, %d spawned, %d refused for something in the way at the pad",
+				g_BodySpawnStats.entries, g_BodySpawnStats.spawned, g_BodySpawnStats.collision);
+	}
+#endif
 }

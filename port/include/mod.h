@@ -39,7 +39,19 @@ struct moddataspec {
 	s32 nummpmaleheads;
 	u32 mpfemaleheads;   // g_MpFemaleHeads[]
 	s32 nummpfemaleheads;
+	u32 stages;          // g_Stages[], ROM layout (0x38 bytes an entry)
+	s32 numstages;
+	s32 playerbody;      // the solo player's body and head, -1 for the port's own
+	s32 playerhead;
+	u32 commandlengths;  // g_CommandLengths[], for the mod's own AI commands
+	s32 numcommandlengths;
+	u32 solostages;      // g_SoloStages[], the mission list
+	s32 numsolostages;
 };
+
+// The solo player's body and head as the mod's code has them, or def.
+s32 modDataPlayerBody(s32 def);
+s32 modDataPlayerHead(s32 def);
 
 // Rebuild the weapon definitions and model tables from that segment. Once per
 // run: what it allocates is never given back.

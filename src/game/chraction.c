@@ -15953,6 +15953,11 @@ bool chrAdjustPosForSpawn(f32 chrradius, struct coord *pos, RoomNum *rooms, f32 
  * triggered, but the function will not attempt to spawn the chr until the next
  * time it's called.
  */
+#ifndef PLATFORM_N64
+// --chr-trace: log every AI spawn and how it went
+s32 g_ChrSpawnTrace = -1;
+#endif
+
 struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNum *rooms, f32 angle, u8 *ailist, u32 spawnflags)
 {
 	struct prop *prop;
@@ -16064,7 +16069,7 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 	return NULL;
 }
 
-struct prop *chrSpawnAtPad(struct chrdata *basechr, s32 body, s32 head, s32 pad_id, u8 *ailist, u32 spawnflags)
+static struct prop *chrSpawnAtPadInner(struct chrdata *basechr, s32 body, s32 head, s32 pad_id, u8 *ailist, u32 spawnflags)
 {
 	s32 resolved_pad_id = chrResolvePadId(basechr, pad_id);
 	struct pad pad;
@@ -16076,6 +16081,18 @@ struct prop *chrSpawnAtPad(struct chrdata *basechr, s32 body, s32 head, s32 pad_
 	room[1] = -1;
 
 	return chrSpawnAtCoord(body, head, &pad.pos, &room[0], fvalue, ailist, spawnflags);
+}
+
+struct prop *chrSpawnAtPad(struct chrdata *basechr, s32 body, s32 head, s32 pad_id, u8 *ailist, u32 spawnflags)
+{
+	struct prop *prop = chrSpawnAtPadInner(basechr, body, head, pad_id, ailist, spawnflags);
+#ifndef PLATFORM_N64
+	if (g_ChrSpawnTrace) {
+		extern void sysLogPrintf(s32 level, const char *fmt, ...);
+		sysLogPrintf(0, "chr: spawn body %d head %d at pad %d -> %s", body, head, pad_id, prop ? "ok" : "failed");
+	}
+#endif
+	return prop;
 }
 
 struct prop *chrSpawnAtChr(struct chrdata *basechr, s32 body, s32 head, u32 chrnum, u8 *ailist, u32 spawnflags)

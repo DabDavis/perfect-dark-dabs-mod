@@ -36,9 +36,10 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // Written as the first line of IMPORT.txt. A directory whose report names an
 // older importer, or none, is imported again on the next start: raise this
 // when a fix changes what an import produces (2: sample tables placed by
-// the stock samples a mod kept, not measured back from the next segment).
-#define MODIMPORT_VERSION 2
-#define MODIMPORT_VERSION_LINE "importer: 2 (the game's own)"
+// the stock samples a mod kept, not measured back from the next segment;
+// 3: the stage table and the solo player's body and head).
+#define MODIMPORT_VERSION 3
+#define MODIMPORT_VERSION_LINE "importer: 3 (the game's own)"
 
 #ifdef __cplusplus
 }

@@ -403,6 +403,12 @@ s32 bodyChooseHead(s32 bodynum)
  * Chr definitions are stored in a packed format in each stage's setup file.
  * The packed format is used for space saving reasons.
  */
+#ifndef PLATFORM_N64
+// How the setup's chr entries fared, for the log at the end of
+// setupCreateProps(): a mod's guards that never appear show up here.
+struct bodyspawnstats g_BodySpawnStats;
+#endif
+
 void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 {
 	struct pad pad;
@@ -421,9 +427,16 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	rooms[0] = pad.room;
 	rooms[1] = -1;
 
+#ifndef PLATFORM_N64
+	g_BodySpawnStats.entries++;
+#endif
+
 	if (cdTestVolume(&pad.pos, 20, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION
 			&& packed->chair == -1
 			&& (packed->spawnflags & SPAWNFLAG_IGNORECOLLISION) == 0) {
+#ifndef PLATFORM_N64
+		g_BodySpawnStats.collision++;
+#endif
 		return;
 	}
 
@@ -473,6 +486,11 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	if (model != NULL) {
 		angle = atan2f(pad.look.x, pad.look.z);
 		prop = chrAllocate(model, &pad.pos, rooms, angle, ailistFindById(packed->ailistnum));
+#ifndef PLATFORM_N64
+		if (prop) {
+			g_BodySpawnStats.spawned++;
+		}
+#endif
 
 		if (prop != NULL) {
 			propActivate(prop);

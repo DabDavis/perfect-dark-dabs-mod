@@ -1,5 +1,14 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "mod.h"
+// a mod with its own hero names another body and head in its code
+#define MOD_PLAYER_BODY modDataPlayerBody(BODY_DARK_COMBAT)
+#define MOD_PLAYER_HEAD modDataPlayerHead(HEAD_DARK_COMBAT)
+#else
+#define MOD_PLAYER_BODY BODY_DARK_COMBAT
+#define MOD_PLAYER_HEAD HEAD_DARK_COMBAT
+#endif
 #include "game/bondeyespy.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -1261,8 +1270,8 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	switch (outfit) {
 	default:
 	case OUTFIT_DEFAULT:
-		*bodynum = BODY_DARK_COMBAT;
-		*headnum = solo ? HEAD_DARK_COMBAT : HEAD_VD;
+		*bodynum = MOD_PLAYER_BODY;
+		*headnum = solo ? MOD_PLAYER_HEAD : HEAD_VD;
 		break;
 	case OUTFIT_ELVIS:
 		*bodynum = BODY_THEKING;
@@ -1461,8 +1470,8 @@ void playerTickChrBody(void)
 		s32 weaponmodelnum;
 		s32 spectatorbody;
 		s32 weaponnum = bgunGetWeaponNum2(HAND_RIGHT);
-		s32 bodynum = BODY_DARK_COMBAT;
-		s32 headnum = HEAD_DARK_COMBAT;
+		s32 bodynum = MOD_PLAYER_BODY;
+		s32 headnum = MOD_PLAYER_HEAD;
 		bool sp60 = false;
 		struct model *model = NULL;
 		u32 *rwdatas;
@@ -1501,8 +1510,8 @@ void playerTickChrBody(void)
 		weaponmodelnum = playermgrGetModelOfWeapon(weaponnum);
 
 		if (IS4MB()) {
-			bodynum = BODY_DARK_COMBAT;
-			headnum = HEAD_DARK_COMBAT;
+			bodynum = MOD_PLAYER_BODY;
+			headnum = MOD_PLAYER_HEAD;
 		}
 
 		if (playerBodyUsesGunMem()) {

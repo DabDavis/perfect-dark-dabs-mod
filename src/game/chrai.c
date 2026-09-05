@@ -2,6 +2,14 @@
 #include "constants.h"
 #include "game/chraction.h"
 #include "game/chrai.h"
+#ifndef PLATFORM_N64
+#include <string.h>
+extern u16 g_CommandLengths[];
+extern u16 chraiModCommandLength[];
+s32 chraiSetModCommandLength(s32 type, u16 len);
+void chraiClearModCommandLengths(void);
+void chraiWarnModCommand(s32 type);
+#endif
 #include "game/chraicommands.h"
 #include "bss.h"
 #include "lib/rng.h"
@@ -779,10 +787,24 @@ void chraiExecute(void *entity, s32 proptype)
 			u8 *cmd = g_Vars.aioffset + g_Vars.ailist;
 			s32 type = (cmd[0] << 8) + cmd[1];
 
-			if (type >= 0 && type < ARRAYCOUNT(g_CommandPointers)) {
+			if (type >= 0 && type < ARRAYCOUNT(g_CommandPointers) && g_CommandPointers[type]) {
 				if (g_CommandPointers[type]()) {
 					break;
 				}
+#ifndef PLATFORM_N64
+			} else if (type >= 0 && type < ARRAYCOUNT(g_CommandLengths) && chraiModCommandLength[type]) {
+				// A command the mod's own code added in a slot this game left
+				// empty (GE-X fills 0xe6 and 0xe7). Its length came from the
+				// mod's length table, so it can be stepped over; what it did
+				// is lost, which is the best the port can do without its code.
+				chraiWarnModCommand(type);
+				g_Vars.aioffset += chraiModCommandLength[type];
+			} else if (type < 0 || type >= ARRAYCOUNT(g_CommandPointers) || !g_CommandPointers[type]) {
+				// no handler and no length to step over it by: calling on
+				// would be a jump to NULL, so this list stops here
+				chraiWarnModCommand(type);
+				break;
+#endif
 			} else {
 				// This is attempting to handle situations where the command
 				// type is invalid by passing over them and continuing
@@ -792,6 +814,57 @@ void chraiExecute(void *entity, s32 proptype)
 		}
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * The lengths a mod's data segment gives AI commands this game has no
+ * handler for, so its lists can be stepped over them. Zero everywhere
+ * without a mod. See the dispatch in chraiExecute().
+ */
+u16 chraiModCommandLength[ARRAYCOUNT(g_CommandLengths)];
+
+s32 chraiSetModCommandLength(s32 type, u16 len)
+{
+	if (type < 0 || type >= ARRAYCOUNT(g_CommandLengths)) {
+		return 0;
+	}
+
+	if (type < ARRAYCOUNT(g_CommandPointers) && g_CommandPointers[type]) {
+		return 0; // this game's own command; its length is not the mod's to change
+	}
+
+	chraiModCommandLength[type] = len;
+	return 1;
+}
+
+void chraiClearModCommandLengths(void)
+{
+	memset(chraiModCommandLength, 0, sizeof(chraiModCommandLength));
+}
+
+void chraiWarnModCommand(s32 type)
+{
+	static u8 warned[ARRAYCOUNT(g_CommandLengths) / 8 + 1];
+	extern void sysLogPrintf(s32 level, const char *fmt, ...);
+
+	if (type < 0 || type >= ARRAYCOUNT(g_CommandLengths)) {
+		sysLogPrintf(1, "chrai: AI command %#x is past this game's table; the list stops here", type);
+		return;
+	}
+
+	if (warned[type >> 3] & (1 << (type & 7))) {
+		return;
+	}
+
+	warned[type >> 3] |= 1 << (type & 7);
+
+	if (chraiModCommandLength[type]) {
+		sysLogPrintf(1, "chrai: AI command %#x is the mod's own (this game has no handler); stepped over, %d bytes", type, chraiModCommandLength[type]);
+	} else {
+		sysLogPrintf(1, "chrai: AI command %#x has no handler in this game and no length from a mod; the list stops here", type);
+	}
+}
+#endif
 
 u32 chraiGetCommandLength(u8 *ailist, u32 aioffset)
 {
@@ -809,6 +882,11 @@ u32 chraiGetCommandLength(u8 *ailist, u32 aioffset)
 	}
 
 	if (type >= 0 && type < ARRAYCOUNT(g_CommandLengths)) {
+#ifndef PLATFORM_N64
+		if (chraiModCommandLength[type]) {
+			return chraiModCommandLength[type];
+		}
+#endif
 		return g_CommandLengths[type];
 	}
 

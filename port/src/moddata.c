@@ -1111,6 +1111,154 @@ static s32 importMpWeaponSets(const struct moddataspec *spec)
  * read as one (CSMP rebuilt the struct as four bytes) leaves the whole list
  * alone - a list half-read is a menu of nonsense.
  */
+/**
+ * The stage table: which background, tiles, pads and setup each stage loads,
+ * and its lighting and fog. A mod that puts its own levels into the stock
+ * slots points them at its own files - GE-X's Runway sits in Extraction's
+ * slot with a background of its own - and with the port's table it would load
+ * the slot's stock background under the mod's setup, which is what crashed
+ * setupCreateProps() there. Entries are matched by stage number, the file
+ * ids go through the mod's names, and the port's own two fields at the end
+ * (alarm, extragunmem) are kept.
+ */
+#define N64_STAGE_SIZE 0x38
+
+static s32 modPlayerBody = -1;
+static s32 modPlayerHead = -1;
+
+static s32 importStages(const struct moddataspec *spec)
+{
+	s32 count = spec->numstages;
+	s32 n = 0;
+
+	for (s32 i = 0; i < count; ++i) {
+		const u32 at = spec->stages + i * N64_STAGE_SIZE;
+		const s32 stagenum = (s16)rd16(at);
+		const s32 index = stageGetIndex(stagenum);
+		struct stagetableentry *e;
+
+		if (index < 0) {
+			if (modDataTrace) {
+				sysLogPrintf(LOG_NOTE, "moddata: stage %#x is not one the port has; skipped", stagenum);
+			}
+			continue;
+		}
+
+		e = &g_Stages[index];
+		e->light_type = rd8(at + 2);
+		e->light_alpha = rd8(at + 3);
+		e->light_width = rd8(at + 4);
+		e->light_height = rd8(at + 5);
+		e->unk06 = rd16(at + 6);
+		e->bgfileid = modFileId(rd16(at + 8));
+		e->tilefileid = modFileId(rd16(at + 0xa));
+		e->padsfileid = modFileId(rd16(at + 0xc));
+		e->setupfileid = modFileId(rd16(at + 0xe));
+		e->mpsetupfileid = modFileId(rd16(at + 0x10));
+		e->unk14 = rdf32(at + 0x14);
+		e->unk18 = rdf32(at + 0x18);
+		e->unk1c = rdf32(at + 0x1c);
+		e->unk20 = rd16(at + 0x20);
+		e->unk22 = rd8(at + 0x22);
+		e->unk23 = (s8)rd8(at + 0x23);
+		e->unk24 = rd32(at + 0x24);
+		e->unk28 = rd32(at + 0x28);
+		e->unk2c = (s16)rd16(at + 0x2c);
+		e->eraserpropdist = (s16)rd16(at + 0x2e);
+		e->unk30 = (s16)rd16(at + 0x30);
+		e->unk34 = rdf32(at + 0x34);
+		++n;
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: stage %#x: bg %d (%s) tiles %d pads %d setup %d mpsetup %d", stagenum,
+					e->bgfileid, romdataFileGetName(e->bgfileid) ? romdataFileGetName(e->bgfileid) : "?",
+					e->tilefileid, e->padsfileid, e->setupfileid, e->mpsetupfileid);
+		}
+	}
+
+	return n;
+}
+
+/**
+ * The AI command length table. A mod's own code adds commands in slots this
+ * game has no handler for (GE-X: 0xe6 and 0xe7, three bytes each, one byte
+ * in the stock table), and the port can at least step its lists over them
+ * once it knows how long they are. Only slots without a handler are taken:
+ * the port's own commands read their operands at fixed places.
+ */
+static s32 importCommandLengths(const struct moddataspec *spec)
+{
+	extern s32 chraiSetModCommandLength(s32 type, u16 len);
+	s32 n = 0;
+
+	for (s32 i = 0; i < spec->numcommandlengths; ++i) {
+		const u16 len = rd16(spec->commandlengths + i * 2);
+
+		if (len && len < 256 && chraiSetModCommandLength(i, len)) {
+			++n;
+			if (modDataTrace) {
+				sysLogPrintf(LOG_NOTE, "moddata: AI command %#x is the mod's own, %d bytes", i, len);
+			}
+		}
+	}
+
+	return n;
+}
+
+/**
+ * The mission list: the stage each solo slot loads and its three title ids.
+ * GE-X keeps the stock order but sends six missions to stage ids the stock
+ * menu never lists (0x24, 0x25, 0x23, 0x2b, 0x2e, 0x1a), each with its own
+ * entry in the stage table; through the stock list "Aztec" loaded stage 0x09,
+ * where GE-X's files for that slot are a leftover pair that do not belong
+ * together, and the level fell over on a pad its pads file does not have.
+ */
+static s32 importSoloStages(const struct moddataspec *spec)
+{
+	extern struct solostage g_SoloStages[NUM_SOLOSTAGES];
+	s32 count = spec->numsolostages;
+	s32 n = 0;
+
+	if (count > NUM_SOLOSTAGES) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d solo missions is more than the port's list (%d); the rest are dropped", count, NUM_SOLOSTAGES);
+		count = NUM_SOLOSTAGES;
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		const u32 at = spec->solostages + i * 12;
+		const u32 stagenum = rd32(at);
+
+		if (!(stagenum > 0 && stagenum < 0x60)) {
+			sysLogPrintf(LOG_WARNING, "moddata: solo mission %d names stage %#x; the list stops there", i, stagenum);
+			break;
+		}
+
+		g_SoloStages[i].stagenum = stagenum;
+		g_SoloStages[i].unk04 = rd8(at + 4);
+		g_SoloStages[i].name1 = rd16(at + 6);
+		g_SoloStages[i].name2 = rd16(at + 8);
+		g_SoloStages[i].name3 = rd16(at + 10);
+		++n;
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: solo mission %d: stage %#x names %#x %#x %#x", i, stagenum,
+					g_SoloStages[i].name1, g_SoloStages[i].name2, g_SoloStages[i].name3);
+		}
+	}
+
+	return n;
+}
+
+s32 modDataPlayerBody(s32 def)
+{
+	return modPlayerBody >= 0 ? modPlayerBody : def;
+}
+
+s32 modDataPlayerHead(s32 def)
+{
+	return modPlayerHead >= 0 ? modPlayerHead : def;
+}
+
 static s32 importMpArenas(const struct moddataspec *spec)
 {
 	struct mparena arenas[ARRAYCOUNT(g_MpArenas)];
@@ -1431,6 +1579,26 @@ s32 modDataImport(const struct moddataspec *spec)
 	if (spec->headsandbodies && spec->numheadsandbodies > 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d heads and bodies from %08x",
 				importHeadsAndBodies(spec), spec->headsandbodies);
+	}
+
+	if (spec->stages && spec->numstages > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d stages from %08x", importStages(spec), spec->stages);
+	}
+
+	if (spec->solostages && spec->numsolostages > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d solo missions from %08x", importSoloStages(spec), spec->solostages);
+	}
+
+	if (spec->commandlengths && spec->numcommandlengths > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d AI command lengths of the mod's own from %08x",
+				importCommandLengths(spec), spec->commandlengths);
+	}
+
+	modPlayerBody = spec->playerbody;
+	modPlayerHead = spec->playerhead;
+
+	if (modPlayerBody >= 0 || modPlayerHead >= 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: the solo player is body %d head %d", modPlayerBody, modPlayerHead);
 	}
 
 	// the lists index the table, so they come after it

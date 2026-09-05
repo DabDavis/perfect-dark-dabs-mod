@@ -684,6 +684,8 @@ static char *modConfigParseDataSegment(char *p, char *token)
 	struct moddataspec spec;
 
 	memset(&spec, 0, sizeof(spec));
+	spec.playerbody = -1;
+	spec.playerhead = -1;
 
 	p = strParseToken(p, token, NULL);
 	if (token[0] != '{' || token[1] != '\0') {
@@ -718,6 +720,19 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		} else if (!strcmp(token, "mparenas")) {
 			PARSE_ADDR("datasegment", "mparenas", spec.mparenas, NULL);
 			PARSE_INT("datasegment", "mparenas count", spec.nummparenas, 0, 4096, NULL);
+		} else if (!strcmp(token, "stages")) {
+			PARSE_ADDR("datasegment", "stages", spec.stages, NULL);
+			PARSE_INT("datasegment", "stages count", spec.numstages, 0, 4096, NULL);
+		} else if (!strcmp(token, "solostages")) {
+			PARSE_ADDR("datasegment", "solostages", spec.solostages, NULL);
+			PARSE_INT("datasegment", "solostages count", spec.numsolostages, 0, 4096, NULL);
+		} else if (!strcmp(token, "commandlengths")) {
+			PARSE_ADDR("datasegment", "commandlengths", spec.commandlengths, NULL);
+			PARSE_INT("datasegment", "commandlengths count", spec.numcommandlengths, 0, 4096, NULL);
+		} else if (!strcmp(token, "playerbody")) {
+			PARSE_INT("datasegment", "playerbody", spec.playerbody, 0, 255, NULL);
+		} else if (!strcmp(token, "playerhead")) {
+			PARSE_INT("datasegment", "playerhead", spec.playerhead, 0, 255, NULL);
 		} else if (!strcmp(token, "headsandbodies")) {
 			PARSE_ADDR("datasegment", "headsandbodies", spec.headsandbodies, NULL);
 			PARSE_INT("datasegment", "headsandbodies count", spec.numheadsandbodies, 0, 4096, NULL);
@@ -1662,6 +1677,7 @@ const char *modListGetLoadedName(void)
  * does.
  */
 static struct stagetableentry stagesSnapshot[ARRAYCOUNT(g_Stages)];
+static struct solostage soloStagesSnapshot[NUM_SOLOSTAGES];
 static struct weathercfg weatherSnapshot[ARRAYCOUNT(g_WeatherConfig)];
 static struct weapon *weaponsSnapshot[WEAPON_SUICIDEPILL + 1];
 static struct modelstate modelStatesSnapshot[NUM_MODELS];
@@ -1691,6 +1707,7 @@ static void modTablesSnapshot(void)
 	}
 
 	memcpy(stagesSnapshot, g_Stages, sizeof(stagesSnapshot));
+	memcpy(soloStagesSnapshot, g_SoloStages, sizeof(soloStagesSnapshot));
 	memcpy(weatherSnapshot, g_WeatherConfig, sizeof(weatherSnapshot));
 	memcpy(weaponsSnapshot, g_Weapons, sizeof(weaponsSnapshot));
 	memcpy(modelStatesSnapshot, g_ModelStates, sizeof(modelStatesSnapshot));
@@ -1737,6 +1754,7 @@ static bool modTablesRestore(void)
 	}
 
 	memcpy(g_Stages, stagesSnapshot, sizeof(stagesSnapshot));
+	memcpy(g_SoloStages, soloStagesSnapshot, sizeof(soloStagesSnapshot));
 	memcpy(g_WeatherConfig, weatherSnapshot, sizeof(weatherSnapshot));
 	memcpy(g_Weapons, weaponsSnapshot, sizeof(weaponsSnapshot));
 	memcpy(g_ModelStates, modelStatesSnapshot, sizeof(modelStatesSnapshot));

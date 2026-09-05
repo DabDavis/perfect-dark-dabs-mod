@@ -2138,6 +2138,28 @@ s32 lvGetSlowMotionType(void)
 
 void lvTick(void)
 {
+#ifndef PLATFORM_N64
+	// A census a few seconds in, for the log: the chrs a stage has once its
+	// intro AI has run, which is where a mod's guards come from when its
+	// setup lists none (GE-X spawns them).
+	{
+		extern s32 g_ChrSpawnTrace;
+		extern s32 sysArgCheck(const char *arg);
+		if (g_ChrSpawnTrace < 0) {
+			g_ChrSpawnTrace = sysArgCheck("--chr-trace");
+		}
+	}
+	if ((g_Vars.lvframenum == 300 || (g_Vars.lvframenum % 1200 == 0 && g_Vars.lvframenum > 0)) && g_ChrSlots) {
+		extern void sysLogPrintf(s32 level, const char *fmt, ...);
+		s32 n = 0;
+		for (s32 i = 0; i < g_NumChrSlots; i++) {
+			if (g_ChrSlots[i].prop) {
+				n++;
+			}
+		}
+		sysLogPrintf(0, "lv: %d chrs with a prop at frame %d of %d slots", n, g_Vars.lvframenum, g_NumChrSlots);
+	}
+#endif
 	s32 j;
 	s32 i;
 

@@ -20,3 +20,12 @@ struct prop *bodyAllocateEyespy(struct pad *pad, RoomNum room);
 void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum);
 
 #endif
+
+#ifndef PLATFORM_N64
+struct bodyspawnstats {
+	s32 entries;   // chr entries the setup asked for
+	s32 collision; // refused: something already in the way at the pad
+	s32 spawned;   // chrs that got a prop
+};
+extern struct bodyspawnstats g_BodySpawnStats;
+#endif
