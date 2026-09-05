@@ -1195,7 +1195,11 @@ bool bgun0f099188(struct hand *hand, s32 gunfunc)
 	struct weaponfunc *func = weaponGetFunction(&hand->gset, gunfunc);
 	struct weapon *weapon = weaponFindById(hand->gset.weaponnum);
 
+#ifndef PLATFORM_N64
+	if (bgunIsUsingSecondaryFunctionForHand(hand - g_Vars.currentplayer->hands) == gunfunc) {
+#else
 	if (bgunIsUsingSecondaryFunction() == gunfunc) {
+#endif
 		return false;
 	}
 
@@ -1205,7 +1209,11 @@ bool bgun0f099188(struct hand *hand, s32 gunfunc)
 s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
 	bool usesec;
+#ifndef PLATFORM_N64
+	s32 gunfunc = bgunIsUsingSecondaryFunctionForHand(handnum);
+#else
 	s32 gunfunc = bgunIsUsingSecondaryFunction();
+#endif
 	s32 sp34;
 	s32 sp30;
 	bool changefunc;
@@ -1398,7 +1406,11 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 {
 	u32 stack;
 	s32 someval;
+#ifndef PLATFORM_N64
+	s32 gunfunc = bgunIsUsingSecondaryFunctionForHand(handnum);
+#else
 	s32 gunfunc = bgunIsUsingSecondaryFunction();
+#endif
 
 	if (!hand->inuse && bgunSetState(handnum, HANDSTATE_IDLE)) {
 		return lvupdate;
@@ -3692,6 +3704,8 @@ void bgunEnterFlux(void)
 	g_Vars.currentplayer->gunctrl.handfilenum = 0xffff;
 	g_Vars.currentplayer->gunctrl.handmodeldef = NULL;
 	g_Vars.currentplayer->gunctrl.leftgunmodeldef = NULL;
+	g_Vars.currentplayer->gunctrl.leftcartmodeldef = NULL;
+	g_Vars.currentplayer->gunctrl.leftcartdone = false;
 	g_Vars.currentplayer->gunctrl.handmemloadptr = 0;
 	g_Vars.currentplayer->gunctrl.handmemloadremaining = 0;
 	g_Vars.currentplayer->gunctrl.masterloadstate = MASTERLOADSTATE_FLUX;
@@ -4095,7 +4109,11 @@ void bgunTickMasterLoad(void)
 						casing = g_Casings;
 
 						while (casing < &g_Casings[ARRAYCOUNT(g_Casings)]) {
-							if (casing->modeldef == player->gunctrl.cartmodeldef) {
+							if (casing->modeldef == player->gunctrl.cartmodeldef
+#ifndef PLATFORM_N64
+									|| (player->gunctrl.leftcartmodeldef && casing->modeldef == player->gunctrl.leftcartmodeldef)
+#endif
+									) {
 								casing->modeldef = NULL;
 							}
 
@@ -4116,6 +4134,8 @@ void bgunTickMasterLoad(void)
 
 						player->gunctrl.cartmodeldef = NULL;
 						player->gunctrl.leftgunmodeldef = NULL;
+						player->gunctrl.leftcartmodeldef = NULL;
+						player->gunctrl.leftcartdone = false;
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_HANDS;
 					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_HANDS) {
 						if (hashands) {
@@ -4239,6 +4259,35 @@ void bgunTickMasterLoad(void)
 							bgunTickGunLoad();
 							return;
 						}
+
+#ifndef PLATFORM_N64
+						// A mixed Akimbo pair's left hand ejects its own gun's
+						// casing, loaded behind the right's when the two differ.
+						// Considered once per load, whether or not it is wanted.
+						if (!player->gunctrl.leftcartdone && PLAYERCOUNT() == 1) {
+							player->gunctrl.leftcartdone = true;
+
+							if (player->gunctrl.leftweaponnum > WEAPON_NONE
+									&& player->gunctrl.leftweaponnum != player->gunctrl.weaponnum
+									&& player->hands[HAND_LEFT].inuse) {
+								s32 leftcasing = bgunGetCasingIndexForHand(HAND_LEFT);
+								s32 rightcasing = bgunGetCasingIndexForHand(HAND_RIGHT);
+
+								if (leftcasing >= 0 && leftcasing != rightcasing) {
+									player->gunctrl.loadfilenum = g_CartFileNums[leftcasing];
+									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+									player->gunctrl.loadtomodeldef = &player->gunctrl.leftcartmodeldef;
+									player->gunctrl.loadmemptr = (uintptr_t *) &player->gunctrl.memloadptr;
+									player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+								}
+							}
+						}
+
+						if (player->gunctrl.gunloadstate != GUNLOADSTATE_FLUX) {
+							bgunTickGunLoad();
+							return;
+						}
+#endif
 
 						sum = 0;
 
@@ -4379,6 +4428,43 @@ struct modeldef *bgunGetCartModeldef(void)
 {
 	return g_Vars.currentplayer->gunctrl.cartmodeldef;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * The casing a hand ejects: the left hand's own when a mixed Akimbo pair
+ * loaded one, the shared one otherwise.
+ */
+struct modeldef *bgunGetCartModeldefForHand(s32 handnum)
+{
+	if (handnum == HAND_LEFT && g_Vars.currentplayer->gunctrl.leftcartmodeldef) {
+		return g_Vars.currentplayer->gunctrl.leftcartmodeldef;
+	}
+
+	return g_Vars.currentplayer->gunctrl.cartmodeldef;
+}
+
+/**
+ * The casing index of the gun a hand holds, by its current shoot function,
+ * or -1 - what the cart stage of the master load works out for the right
+ * hand, for either hand.
+ */
+s32 bgunGetCasingIndexForHand(s32 handnum)
+{
+	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
+	struct weapon *weapondef = weaponFindById(hand->gset.weaponnum);
+	struct weaponfunc *func = gsetGetWeaponFunction2(&hand->gset);
+
+	if (weapondef && func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT && func->ammoindex >= 0) {
+		struct inventory_ammo *ammodef = weapondef->ammos[func->ammoindex];
+
+		if (ammodef) {
+			return ammodef->casingeject;
+		}
+	}
+
+	return -1;
+}
+#endif
 
 void bgun0f09ebcc(struct defaultobj *obj, struct coord *coord, RoomNum *rooms, Mtxf *matrix1, struct coord *velocity, Mtxf *matrix2, struct prop *prop, struct coord *pos)
 {
@@ -11972,6 +12058,36 @@ void bgun0f0a8c50(void)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The saved function choice for the gun this hand holds. The same as
+ * bgunIsUsingSecondaryFunction() for the right hand and for a pair of the
+ * same gun; the left hand of a mixed Akimbo pair has a gun of its own with
+ * a choice of its own, so its ticks ask here rather than take the right's.
+ */
+bool bgunIsUsingSecondaryFunctionForHand(s32 handnum)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 weaponnum = handnum == HAND_LEFT && player->gunctrl.leftweaponnum > WEAPON_NONE
+		? player->gunctrl.leftweaponnum : player->gunctrl.weaponnum;
+
+	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST) {
+		s32 index = (weaponnum - 1) >> 3;
+		s32 value = 1 << ((weaponnum - 1) & 7);
+
+		if (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[index] & value) {
+			if (player->gunctrl.invertgunfunc == true) {
+				return false;
+			}
+
+			return true;
+		}
+	}
+
+	return player->gunctrl.invertgunfunc == true;
+}
+#endif
+
 bool bgunIsUsingSecondaryFunction(void)
 {
 	struct player *player = g_Vars.currentplayer;
@@ -12956,6 +13072,15 @@ Gfx *bgunDrawHud(Gfx *gdl)
 	struct weaponfunc *func;
 	u16 nameid;
 	struct hand *lefthand = &player->hands[HAND_LEFT];
+#ifndef PLATFORM_N64
+	// A mixed Akimbo pair: the left hand's gun is its own, so its gauge is
+	// read from its own definition, it is named, and it gets a reserve
+	// gauge of its own when its ammunition is not the right hand's.
+	struct weapon *leftweapon = weaponFindById(lefthand->gset.weaponnum);
+	bool mixed = lefthand->inuse && leftweapon != NULL && lefthand->gset.weaponnum != hand->gset.weaponnum;
+	s32 leftammoindex = -1;
+	s32 xposleft;
+#endif
 
 	ctrl = &player->gunctrl;
 
@@ -13073,6 +13198,14 @@ Gfx *bgunDrawHud(Gfx *gdl)
 			ctrl->guntypetimer = 0;
 			ctrl->curgunstr = nameid;
 		}
+
+#ifndef PLATFORM_N64
+		// The left gun changing is a change of name too
+		if (ctrl->curleftgunstr != (u8)(mixed ? lefthand->gset.weaponnum : 0)) {
+			ctrl->guntypetimer = 0;
+			ctrl->curleftgunstr = mixed ? lefthand->gset.weaponnum : 0;
+		}
+#endif
 
 		if (ctrl->guntypetimer < 255) {
 			colour = 0x55ffffff;
@@ -13218,9 +13351,101 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		bgunResetAbmag(&player->hands[HAND_LEFT].abmag);
 		bgunResetAbmag(&hand->abmag);
 		bgunResetAbmag(&ctrl->abmag);
+#ifndef PLATFORM_N64
+		bgunResetAbmag(&ctrl->abmagleft);
+#endif
 		ctrl->lastmag = ammoindex;
 	}
 
+#ifndef PLATFORM_N64
+	if (mixed) {
+		// The left gun's ammo index, from its own function the way the
+		// right's was found above
+		if (leftweapon->functions[lefthand->gset.weaponfunc] != NULL) {
+			leftammoindex = ((struct weaponfunc *)(leftweapon->functions[lefthand->gset.weaponfunc]))->ammoindex;
+		}
+
+		if (leftammoindex == -1 && leftweapon->functions[1 - lefthand->gset.weaponfunc] != NULL) {
+			leftammoindex = ((struct weaponfunc *)(leftweapon->functions[1 - lefthand->gset.weaponfunc]))->ammoindex;
+		}
+	}
+
+	xposleft = viGetViewLeft() / g_ScaleX + 24;
+
+	if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()) && playernum == 1) {
+		xposleft -= 14;
+	} else if (playercount >= 3 && (playernum & 1) == 1) {
+		xposleft -= 14;
+	}
+
+	// Left hand of a mixed pair - its own mag, reserve and name
+	if (mixed && leftammoindex >= 0
+			&& leftweapon->ammos[leftammoindex] != NULL
+			&& !weaponHasFlag2(lefthand->gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
+		s32 lefttype = lefthand->ammotypes[leftammoindex];
+
+		xpos = xposleft;
+
+		if (playercount < 2 || (playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_HORIZONTAL)) {
+			gSPExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT, g_HudAlignModeL);
+		}
+
+		if (lefthand->clipsizes[leftammoindex] > 0 && (leftweapon->ammos[leftammoindex]->flags & AMMOFLAG_EQUIPPEDISRESERVE) == 0) {
+			gdl = bgunDrawHudGauge(gdl,
+					xpos, bottom - reserveheight - clipheight - 3, xpos + barwidth, bottom - reserveheight - 3,
+					&lefthand->abmag, lefthand->loadedammo[leftammoindex], lefthand->clipsizes[leftammoindex],
+					0x00300080, 0x00ff0040, false);
+			gdl = bgunDrawHudInteger(gdl, lefthand->loadedammo[leftammoindex], xpos + barwidth + 2, true,
+					bottom - reserveheight - 8, 0, 0x00ff00a0);
+		}
+
+		// Its own reserve, when its rounds are not the right hand's
+		if (lefttype >= 0
+				&& (ammoindex < 0 || lefttype != ctrl->ammotypes[ammoindex])
+				&& g_AmmoTypes[lefttype].capacity > 0
+				&& (leftweapon->ammos[leftammoindex]->flags & AMMOFLAG_NORESERVE) == 0) {
+			s32 lefttotal = player->ammoheldarr[lefttype];
+
+			if ((leftweapon->ammos[leftammoindex]->flags & AMMOFLAG_EQUIPPEDISRESERVE) && lefthand->clipsizes[leftammoindex] > 0) {
+				lefttotal += lefthand->loadedammo[leftammoindex];
+			}
+
+			gdl = bgunDrawHudGauge(gdl, xpos, bottom - reserveheight, xpos + barwidth,
+					bottom, &ctrl->abmagleft, lefttotal, g_AmmoTypes[lefttype].capacity,
+					0x00403080, 0x00ffc040, true);
+			gdl = bgunDrawHudInteger(gdl, lefttotal, xpos + barwidth + 2, true, bottom - reserveheight + 1, 0, 0x00ffc0a0);
+		}
+
+		// Its name, fading with the right's
+		if (optionsGetShowGunFunction(g_Vars.currentplayerstats->mpindex) && ctrl->guntypetimer < 255) {
+			str = bgunGetName(lefthand->gset.weaponnum);
+			colour = 0x55ffffff;
+
+			textMeasure(&textheight, &textwidth, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
+			textwidth += 2;
+
+			if (textwidth > ctrl->guntypetimer * 3) {
+				textwidth = ctrl->guntypetimer * 3;
+			}
+
+			x = xpos + barwidth + 4;
+			y = bottom - textheight - 15;
+
+			if (ctrl->guntypetimer > 192) {
+				alpha = 255 - (ctrl->guntypetimer - 192) * 255 / 63U;
+				colour = (colour & 0xffffff00) | alpha;
+			}
+
+			gdl = textSetPrimColour(gdl, 0);
+			gDPFillRectangleScaled(gdl++, x - 1, y - 1, x + textwidth, bottom);
+			gdl = text0f153838(gdl);
+			textSetWaveBlend(g_20SecIntervalFrac * 50.0f, 0, 50);
+			textSetWaveColours(0xffffffff, 0xffffffff);
+			gdl = textRenderProjected(gdl, &x, &y, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, colour, textwidth, 1000, 0, 0);
+			textResetBlends();
+		}
+	} else
+#endif
 	// Left hand - mag
 	if (lefthand->inuse
 			&& weapon->ammos[ammoindex] != NULL
@@ -13302,7 +13527,11 @@ Gfx *bgunDrawHud(Gfx *gdl)
 					ammototal += hand->loadedammo[ammoindex];
 				}
 
-				if (lefthand->clipsizes[ammoindex] > 0) {
+				if (lefthand->clipsizes[ammoindex] > 0
+#ifndef PLATFORM_N64
+						&& !mixed
+#endif
+						) {
 					ammototal += lefthand->loadedammo[ammoindex];
 				}
 			}

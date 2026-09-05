@@ -2401,6 +2401,10 @@ struct gunctrl {
 	s8 leftweaponnum;
 	s8 leftwant;
 	u8 gunmemmixed; // allocated with room for a second gun model
+	u8 leftcartdone; // the left hand's casing model has been considered this load
+	u8 curleftgunstr; // the left gun named on the HUD, for the fade
+	struct modeldef *leftcartmodeldef; // the left hand's casing, when it differs
+	struct abmag abmagleft; // the left hand's own reserve gauge
 	/*0x1594*/ struct modeldef *handmodeldef;
 	/*0x1598*/ struct modeldef *cartmodeldef;
 	/*0x159c*/ u16 handfilenum;

@@ -174,6 +174,9 @@ void bgunReset(void)
 	g_Vars.currentplayer->gunctrl.gunmemtypeleft = 0;
 	g_Vars.currentplayer->gunctrl.leftweaponnum = WEAPON_NONE;
 	g_Vars.currentplayer->gunctrl.leftwant = -1;
+	g_Vars.currentplayer->gunctrl.leftcartmodeldef = NULL;
+	g_Vars.currentplayer->gunctrl.leftcartdone = false;
+	g_Vars.currentplayer->gunctrl.curleftgunstr = 0;
 	g_Vars.currentplayer->hands[HAND_LEFT].ammotypes[0] = -1;
 	g_Vars.currentplayer->hands[HAND_LEFT].ammotypes[1] = -1;
 	g_Vars.currentplayer->hands[HAND_RIGHT].ammotypes[0] = -1;

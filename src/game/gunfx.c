@@ -699,7 +699,11 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 
 	mtx4Copy(mtx, &spec);
 
+#ifndef PLATFORM_N64
+	modeldef = bgunGetCartModeldefForHand(handnum);
+#else
 	modeldef = bgunGetCartModeldef();
+#endif
 
 	if (modeldef != NULL) {
 		casing = casingCreate(modeldef, &spec);
