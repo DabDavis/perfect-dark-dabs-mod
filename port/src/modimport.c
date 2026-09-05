@@ -2220,6 +2220,11 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "tex_load_from_gdl",         0x7f1756c0, 0x7f175ef4 },
 	{ "room_populate_mtx",         0x7f166a6c, 0x7f166bc0 },
 	{ "bg_render_scene",           0x7f15a6f4, 0x7f15b114 },
+	{ "weather_reset",             0x7f0132a0, 0x7f013540 },
+	{ "weather_is_room_weatherproof", 0x7f132a1c, 0x7f132e28 },
+	{ "weather_render",            0x7f131060, 0x7f1312d8 },
+	{ "weather_tick_rain",         0x7f131a30, 0x7f1321d0 },
+	{ "weather_allocate_particles", 0x7f131334, 0x7f131610 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -2592,6 +2597,547 @@ static u32 codeCount(const struct tablectx *t, const char *fn, u32 stockvalue)
 	return v > 0 ? (u32)v : 0;
 }
 #endif
+
+/* -- a toy MIPS, for the code a mod rewrote rather than renumbered --------- */
+
+#define EMU_STAGEINDEX 0x8007fc00u   // g_StageIndex
+#define EMU_FAKEPTR    0x80400000u   // what the n-th call not made hands back, n * 0x10000 along
+#define EMU_SENTINEL   0xffffff00u
+#define EMU_MAXMEM     512
+
+// the stage indexes the stock weather code singles out
+#define EMU_STAGEINDEX_CRASHSITE  8
+#define EMU_STAGEINDEX_G5BUILDING 10
+#define EMU_STAGEINDEX_AIRBASE    19
+
+/**
+ * Runs a function of the game binary on a toy machine: integer ops, branches,
+ * single-precision float moves and compares; memory is a scratch list where a
+ * load of g_StageIndex reads `stageindex`, an address inside the binary reads
+ * the binary, and anything else not yet stored reads 0. A `jal` is not
+ * followed: it hands back a fresh fake pointer in v0 and is counted, so a
+ * caller can tell an allocation happened and read what the function stored
+ * through it. That is enough for weather_reset and
+ * weather_is_room_weatherproof, which GE-X rewrote as new chains of compares
+ * that no constant-following can read. The same machine is in tools/importmod.
+ */
+struct emu {
+	const u8 *code;
+	u32 codelen;
+	u32 stageindex;
+	u32 r[32];
+	u32 f[32];
+	u32 hi, lo;
+	s32 fcc;
+	u32 calls;
+	u32 nmem;
+	struct { u32 addr, value; } mem[EMU_MAXMEM];
+};
+
+enum { EMU_NEXT, EMU_BRANCH, EMU_NOBRANCH, EMU_SKIP, EMU_JUMP, EMU_CALL, EMU_RET, EMU_FAIL };
+
+static s32 emuFetch(const struct emu *e, u32 addr, u32 *out)
+{
+	const u32 ofs = addr - GAME_VRAM;
+	if (addr < GAME_VRAM || ofs + 4 > e->codelen || (ofs & 3)) {
+		return 0;
+	}
+	*out = be32(e->code, ofs);
+	return 1;
+}
+
+static u32 emuLoad(const struct emu *e, u32 addr)
+{
+	u32 w;
+	addr &= ~3u;
+	if (addr == EMU_STAGEINDEX) {
+		return e->stageindex;
+	}
+	if (emuFetch(e, addr, &w)) {
+		return w;
+	}
+	for (u32 i = 0; i < e->nmem; ++i) {
+		if (e->mem[i].addr == addr) {
+			return e->mem[i].value;
+		}
+	}
+	return 0;
+}
+
+static s32 emuStore(struct emu *e, u32 addr, u32 value)
+{
+	addr &= ~3u;
+	for (u32 i = 0; i < e->nmem; ++i) {
+		if (e->mem[i].addr == addr) {
+			e->mem[i].value = value;
+			return 1;
+		}
+	}
+	if (e->nmem >= EMU_MAXMEM) {
+		return 0;
+	}
+	e->mem[e->nmem].addr = addr;
+	e->mem[e->nmem].value = value;
+	e->nmem++;
+	return 1;
+}
+
+static u32 emuShift(u32 addr, u32 size)
+{
+	return size == 1 ? (3 - (addr & 3)) * 8 : (2 - (addr & 2)) * 8;
+}
+
+static u32 emuLoadPart(const struct emu *e, u32 addr, u32 size, s32 issigned)
+{
+	const u32 bits = size * 8;
+	u32 v = (emuLoad(e, addr) >> emuShift(addr, size)) & ((1u << bits) - 1);
+	if (issigned && (v & (1u << (bits - 1)))) {
+		v |= ~((1u << bits) - 1);
+	}
+	return v;
+}
+
+static s32 emuStorePart(struct emu *e, u32 addr, u32 size, u32 value)
+{
+	const u32 sh = emuShift(addr, size);
+	const u32 mask = ((1u << (size * 8)) - 1) << sh;
+	return emuStore(e, addr, (emuLoad(e, addr) & ~mask) | ((value << sh) & mask));
+}
+
+static f32 emuF(u32 v) { f32 x; memcpy(&x, &v, 4); return x; }
+static u32 emuI(f32 x) { u32 v; memcpy(&v, &x, 4); return v; }
+
+/**
+ * One instruction. EMU_BRANCH and EMU_JUMP go to *target after the delay
+ * slot, EMU_SKIP is a likely branch not taken (the delay slot goes too),
+ * EMU_CALL is a jal/jalr to *target, EMU_RET a jr.
+ */
+static s32 emuExec(struct emu *e, u32 x, u32 pc, u32 *target)
+{
+	const u32 op = x >> 26, rs = (x >> 21) & 31, rt = (x >> 16) & 31, rd = (x >> 11) & 31, sa = (x >> 6) & 31;
+	const u32 imm = x & 0xffff;
+	const s32 simm = (s16)imm;
+	const u32 btarget = pc + 4 + ((u32)simm << 2);
+	u32 *r = e->r, *f = e->f;
+
+#define SETR(i, v) do { if (i) r[i] = (u32)(v); } while (0)
+#define BRANCH(cond, likely) do { if (cond) { *target = btarget; return EMU_BRANCH; } return (likely) ? EMU_SKIP : EMU_NOBRANCH; } while (0)
+
+	switch (op) {
+	case 0: {
+		const u32 fn = x & 0x3f;
+		switch (fn) {
+		case 0x00: SETR(rd, r[rt] << sa); break;
+		case 0x02: SETR(rd, r[rt] >> sa); break;
+		case 0x03: SETR(rd, (s32)r[rt] >> sa); break;
+		case 0x04: SETR(rd, r[rt] << (r[rs] & 31)); break;
+		case 0x06: SETR(rd, r[rt] >> (r[rs] & 31)); break;
+		case 0x07: SETR(rd, (s32)r[rt] >> (r[rs] & 31)); break;
+		case 0x08: *target = r[rs]; return EMU_RET;
+		case 0x09: SETR(rd, pc + 8); *target = r[rs]; return EMU_CALL;
+		case 0x0a: if (r[rt] == 0) { SETR(rd, r[rs]); } break;
+		case 0x0b: if (r[rt] != 0) { SETR(rd, r[rs]); } break;
+		case 0x0f: break;
+		case 0x10: SETR(rd, e->hi); break;
+		case 0x11: e->hi = r[rs]; break;
+		case 0x12: SETR(rd, e->lo); break;
+		case 0x13: e->lo = r[rs]; break;
+		case 0x18: { const s64 p = (s64)(s32)r[rs] * (s32)r[rt]; e->hi = (u32)(p >> 32); e->lo = (u32)p; } break;
+		case 0x19: { const u64 p = (u64)r[rs] * r[rt]; e->hi = (u32)(p >> 32); e->lo = (u32)p; } break;
+		case 0x1a:
+			if (r[rt] && !(r[rs] == 0x80000000u && r[rt] == 0xffffffffu)) {
+				e->lo = (u32)((s32)r[rs] / (s32)r[rt]);
+				e->hi = (u32)((s32)r[rs] % (s32)r[rt]);
+			}
+			break;
+		case 0x1b: if (r[rt]) { e->lo = r[rs] / r[rt]; e->hi = r[rs] % r[rt]; } break;
+		case 0x20: case 0x21: SETR(rd, r[rs] + r[rt]); break;
+		case 0x22: case 0x23: SETR(rd, r[rs] - r[rt]); break;
+		case 0x24: SETR(rd, r[rs] & r[rt]); break;
+		case 0x25: SETR(rd, r[rs] | r[rt]); break;
+		case 0x26: SETR(rd, r[rs] ^ r[rt]); break;
+		case 0x27: SETR(rd, ~(r[rs] | r[rt])); break;
+		case 0x2a: SETR(rd, (s32)r[rs] < (s32)r[rt]); break;
+		case 0x2b: SETR(rd, r[rs] < r[rt]); break;
+		default: return EMU_FAIL;
+		}
+		return EMU_NEXT;
+	}
+	case 1:
+		if (rt == 0 || rt == 2) {
+			BRANCH((s32)r[rs] < 0, rt == 2);
+		}
+		if (rt == 1 || rt == 3) {
+			BRANCH((s32)r[rs] >= 0, rt == 3);
+		}
+		return EMU_FAIL;
+	case 2: case 3:
+		*target = ((pc + 4) & 0xf0000000u) | ((x & 0x3ffffff) << 2);
+		if (op == 3) {
+			SETR(31, pc + 8);
+			return EMU_CALL;
+		}
+		return EMU_JUMP;
+	case 4: case 0x14: BRANCH(r[rs] == r[rt], op == 0x14);
+	case 5: case 0x15: BRANCH(r[rs] != r[rt], op == 0x15);
+	case 6: case 0x16: BRANCH((s32)r[rs] <= 0, op == 0x16);
+	case 7: case 0x17: BRANCH((s32)r[rs] > 0, op == 0x17);
+	case 8: case 9: SETR(rt, r[rs] + (u32)simm); break;
+	case 0xa: SETR(rt, (s32)r[rs] < simm); break;
+	case 0xb: SETR(rt, r[rs] < (u32)simm); break;
+	case 0xc: SETR(rt, r[rs] & imm); break;
+	case 0xd: SETR(rt, r[rs] | imm); break;
+	case 0xe: SETR(rt, r[rs] ^ imm); break;
+	case 0xf: SETR(rt, imm << 16); break;
+	case 0x11: {
+		const u32 fn = x & 0x3f, fs = rd, ft = rt, fd = sa;
+		if (rs == 0) {
+			SETR(rt, f[fs]);
+		} else if (rs == 4) {
+			f[fs] = r[rt];
+		} else if (rs == 2) {
+			SETR(rt, 0);
+		} else if (rs == 6) {
+			// ctc1: nothing to keep
+		} else if (rs == 8) {
+			BRANCH(e->fcc == (s32)(rt & 1), (rt & 2) != 0);
+		} else if (rs == 0x10) {
+			const f32 a = emuF(f[fs]), b = emuF(f[ft]);
+			switch (fn) {
+			case 0: f[fd] = emuI(a + b); break;
+			case 1: f[fd] = emuI(a - b); break;
+			case 2: f[fd] = emuI(a * b); break;
+			case 3: f[fd] = b != 0 ? emuI(a / b) : 0x7f800000u; break;
+			case 5: f[fd] = emuI(a < 0 ? -a : a); break;
+			case 6: f[fd] = f[fs]; break;
+			case 7: f[fd] = emuI(-a); break;
+			case 0x0d: case 0x24: f[fd] = (a > -2147483648.0f && a < 2147483648.0f) ? (u32)(s32)a : 0x7fffffffu; break;
+			default:
+				if (fn >= 0x30) {
+					e->fcc = ((fn & 2) && a == b) || ((fn & 4) && a < b);
+					break;
+				}
+				return EMU_FAIL;
+			}
+		} else if (rs == 0x14 && fn == 0x20) {
+			f[fd] = emuI((f32)(s32)f[fs]);
+		} else {
+			return EMU_FAIL;
+		}
+		break;
+	}
+	case 0x20: case 0x21: case 0x23: case 0x24: case 0x25:
+	case 0x28: case 0x29: case 0x2b: case 0x31: case 0x39: {
+		const u32 addr = r[rs] + (u32)simm;
+		s32 ok = 1;
+		switch (op) {
+		case 0x20: SETR(rt, emuLoadPart(e, addr, 1, 1)); break;
+		case 0x21: SETR(rt, emuLoadPart(e, addr, 2, 1)); break;
+		case 0x23: SETR(rt, emuLoad(e, addr)); break;
+		case 0x24: SETR(rt, emuLoadPart(e, addr, 1, 0)); break;
+		case 0x25: SETR(rt, emuLoadPart(e, addr, 2, 0)); break;
+		case 0x28: ok = emuStorePart(e, addr, 1, r[rt]); break;
+		case 0x29: ok = emuStorePart(e, addr, 2, r[rt]); break;
+		case 0x2b: ok = emuStore(e, addr, r[rt]); break;
+		case 0x31: f[rt] = emuLoad(e, addr); break;
+		default:   ok = emuStore(e, addr, f[rt]); break;
+		}
+		if (!ok) {
+			return EMU_FAIL;
+		}
+		break;
+	}
+	case 0x2f: case 0x35: case 0x3d:
+		break;   // cache, ldc1, sdc1: nothing the readers below need
+	default:
+		return EMU_FAIL;
+	}
+	return EMU_NEXT;
+
+#undef SETR
+#undef BRANCH
+}
+
+static s32 emuDelaySlot(struct emu *e, u32 pc)
+{
+	u32 x, t;
+	return emuFetch(e, pc + 4, &x) && emuExec(e, x, pc + 4, &t) == EMU_NEXT;
+}
+
+/**
+ * Runs the function at entry with a0 and g_StageIndex set. Returns 1 with v0
+ * and the number of calls it would have made at its `jr ra`, 0 where the toy
+ * meets something it does not do or the function does not end.
+ */
+static s32 emuRun(struct emu *e, u32 entry, u32 a0, u32 stageindex, u32 maxsteps, u32 *v0, u32 *calls)
+{
+	u32 pc = entry;
+
+	memset(e->r, 0, sizeof(e->r));
+	memset(e->f, 0, sizeof(e->f));
+	e->hi = e->lo = 0;
+	e->fcc = 0;
+	e->calls = 0;
+	e->nmem = 0;
+	e->stageindex = stageindex;
+	e->r[4] = a0;
+	e->r[29] = 0x803ff000u;
+	e->r[31] = EMU_SENTINEL;
+
+	for (u32 steps = 0; steps < maxsteps; ++steps) {
+		u32 x, target = 0;
+		if (!emuFetch(e, pc, &x)) {
+			return 0;
+		}
+		switch (emuExec(e, x, pc, &target)) {
+		case EMU_NEXT:
+		case EMU_NOBRANCH:
+			pc += 4;
+			break;
+		case EMU_SKIP:
+			pc += 8;
+			break;
+		case EMU_BRANCH:
+		case EMU_JUMP:
+			if (!emuDelaySlot(e, pc)) {
+				return 0;
+			}
+			pc = target;
+			break;
+		case EMU_CALL:
+			if (!emuDelaySlot(e, pc)) {
+				return 0;
+			}
+			e->r[2] = EMU_FAKEPTR + e->calls * 0x10000;
+			e->calls++;
+			pc += 8;
+			break;
+		case EMU_RET:
+			if (!emuDelaySlot(e, pc)) {
+				return 0;
+			}
+			if (target == EMU_SENTINEL) {
+				*v0 = e->r[2];
+				*calls = e->calls;
+				return 1;
+			}
+			pc = target;
+			break;
+		default:
+			return 0;
+		}
+	}
+	return 0;
+}
+
+/* -- the weather, read from the code that decides it ----------------------- */
+
+#define WEATHER_MAXROOM 0x400
+
+// one stage's weather as the port's config would put it
+struct weatherread {
+	s32 valid;
+	f32 windspeed;
+	s32 include;       // rooms[] are where the weather is, not where it is not
+	s32 zmax;          // -2000 or 0
+	s32 cutscene;
+	s32 constantwind;
+	s32 ymin;          // -500 or -800
+	u32 nrooms;
+	u8 rooms[WEATHER_MAXROOM / 8];
+};
+
+/**
+ * What a build's weather code says about each stage index: the stages
+ * weather_reset allocates weather on, read by running the code. `code` is the
+ * binary asked; `stockcode` is the one the constant sites are found in (the
+ * same for a reading of stock). Returns 0 when a function is missing or the
+ * toy machine cannot run it.
+ *
+ * The rooms come from weather_is_room_weatherproof, asked about every room
+ * number in turn: the weatherproof ones are listed, or the others when those
+ * are the fewer (Air Base, where the weather is only in the cave mouths).
+ * The wind speed is what weather_reset stored into the weatherdata it
+ * allocated. The special cases the stock code keys on a stage index - no
+ * weather below z -2000 (Air Base), only in cutscenes (the G5 Building), a
+ * fixed wind direction (Air Base again), narrower particle bounds (the
+ * Crash Site) - follow those sites' constants, the way the outfit constants do.
+ */
+static s32 weatherFromCode(const u8 *code, u32 codelen, const u8 *stockcode, u32 stockcodelen,
+		u32 nstages, struct weatherread *out)
+{
+	static const char *const need[] = {
+		"weather_reset", "weather_is_room_weatherproof", "weather_render",
+		"weather_tick_rain", "weather_allocate_particles",
+	};
+	u32 reset, resetend, proof, proofend, s, en;
+	s32 zmaxidx, cutidx, windidx, narrowidx;
+	struct emu *e;
+
+	memset(out, 0, sizeof(*out) * nstages);
+
+	for (u32 i = 0; i < sizeof(need) / sizeof(need[0]); ++i) {
+		if (!codeSym(need[i], &s, &en)) {
+			return 0;
+		}
+	}
+
+	codeSym("weather_reset", &reset, &resetend);
+	codeSym("weather_is_room_weatherproof", &proof, &proofend);
+	codeSym("weather_render", &s, &en);
+	zmaxidx = followImmediate(stockcode, stockcodelen, code, codelen, s, en, EMU_STAGEINDEX_AIRBASE);
+	cutidx = followImmediate(stockcode, stockcodelen, code, codelen, s, en, EMU_STAGEINDEX_G5BUILDING);
+	codeSym("weather_tick_rain", &s, &en);
+	windidx = followImmediate(stockcode, stockcodelen, code, codelen, s, en, EMU_STAGEINDEX_AIRBASE);
+	codeSym("weather_allocate_particles", &s, &en);
+	narrowidx = followImmediate(stockcode, stockcodelen, code, codelen, s, en, EMU_STAGEINDEX_CRASHSITE);
+
+	e = malloc(sizeof(*e));
+	e->code = code;
+	e->codelen = codelen;
+
+	for (u32 idx = 0; idx < nstages; ++idx) {
+		struct weatherread w;
+		u32 v0, calls, nproof = 0;
+		f32 windspeed = 0;
+
+		if (!emuRun(e, reset + GAME_VRAM, 0, idx, 4000, &v0, &calls)) {
+			free(e);
+			return 0;
+		}
+		if (!calls) {
+			continue;
+		}
+
+		for (u32 c = 0; c < calls && windspeed <= 0; ++c) {
+			const u32 addr = EMU_FAKEPTR + c * 0x10000 + 0x14;
+			for (u32 i = 0; i < e->nmem; ++i) {
+				if (e->mem[i].addr == addr) {
+					const f32 v = emuF(e->mem[i].value);
+					if (v > 0 && v <= 1024) {
+						windspeed = v;
+					}
+					break;
+				}
+			}
+		}
+		if (windspeed <= 0) {
+			free(e);
+			return 0;
+		}
+
+		memset(&w, 0, sizeof(w));
+		for (u32 room = 1; room < WEATHER_MAXROOM; ++room) {
+			if (!emuRun(e, proof + GAME_VRAM, room, idx, 1000, &v0, &calls) || calls) {
+				free(e);
+				return 0;
+			}
+			if (v0) {
+				w.rooms[room >> 3] |= 1 << (room & 7);
+				nproof++;
+			}
+		}
+		if (nproof > WEATHER_MAXROOM / 2) {
+			for (u32 i = 0; i < sizeof(w.rooms); ++i) {
+				w.rooms[i] = ~w.rooms[i];
+			}
+			w.rooms[0] &= ~1;   // room 0 is nobody's
+			w.include = 1;
+			w.nrooms = WEATHER_MAXROOM - 1 - nproof;
+			if (!w.nrooms) {
+				continue;   // weatherproof everywhere is no weather
+			}
+		} else {
+			w.nrooms = nproof;
+		}
+		w.valid = 1;
+		w.windspeed = windspeed;
+		w.zmax = zmaxidx == (s32)idx ? -2000 : 0;
+		w.cutscene = cutidx == (s32)idx;
+		w.constantwind = windidx == (s32)idx;
+		w.ymin = narrowidx == (s32)idx ? -500 : -800;
+		out[idx] = w;
+	}
+
+	free(e);
+	return 1;
+}
+
+static void appendf(char **buf, u32 *len, u32 *cap, const char *fmt, ...)
+{
+	va_list args;
+	s32 n;
+
+	va_start(args, fmt);
+	n = vsnprintf(NULL, 0, fmt, args);
+	va_end(args);
+	if (n < 0) {
+		return;
+	}
+	if (*len + (u32)n + 1 > *cap) {
+		*cap = (*len + (u32)n + 1) * 2 + 256;
+		*buf = realloc(*buf, *cap);
+	}
+	va_start(args, fmt);
+	vsnprintf(*buf + *len, *cap - *len, fmt, args);
+	va_end(args);
+	*len += (u32)n;
+}
+
+/**
+ * A `stage N { weather { ... } }` block for the port from one reading. Every
+ * value is written, and the room list cleared first, because the port merges
+ * the block into its own table entry for that stage number (GE-X's Bunker
+ * sits at Chicago's number) and what is left unsaid stays as stock had it.
+ */
+static void weatherBlock(char **buf, u32 *len, u32 *cap, u32 stagenum, const struct weatherread *w)
+{
+	appendf(buf, len, cap, "stage 0x%02x {\n  weather {\n", stagenum);
+	appendf(buf, len, cap, "    windspeed %g\n", (f64)w->windspeed);
+	appendf(buf, len, cap, "    ymin %g\n", (f64)w->ymin);
+	appendf(buf, len, cap, "    ymax %g\n", (f64)-w->ymin);
+	appendf(buf, len, cap, "    zmax %g\n", (f64)w->zmax);
+	if (w->cutscene) {
+		appendf(buf, len, cap, "    cutscene_only\n");
+	}
+	if (w->constantwind) {
+		appendf(buf, len, cap, "    constant_wind 1.5707964 0 %g\n", (f64)-w->windspeed);
+	}
+	appendf(buf, len, cap, "    %s_rooms { clear", w->include ? "include" : "exclude");
+	for (u32 room = 1; room < WEATHER_MAXROOM; ++room) {
+		if (w->rooms[room >> 3] & (1 << (room & 7))) {
+			appendf(buf, len, cap, " %u", room);
+		}
+	}
+	appendf(buf, len, cap, " }\n  }\n}\n");
+}
+
+#define WEATHER_BEGIN "# importer: weather begin"
+#define WEATHER_END   "# importer: weather end"
+
+/**
+ * Cuts one of our earlier regions out of a modconfig.txt so a re-import does
+ * not stack them: from the comment lines directly above `at` to just past
+ * `end`, and the blank lines after that.
+ */
+static void cutRegion(char *text, char *at, char *end)
+{
+	char *start = at;
+	while (start > text) {
+		char *prevline = start - 1;
+		while (prevline > text && prevline[-1] != '\n') {
+			--prevline;
+		}
+		if (*prevline != '#') {
+			break;
+		}
+		start = prevline;
+	}
+	while (*end == '\n') {
+		++end;
+	}
+	memmove(start, end, strlen(end) + 1);
+}
 
 /**
  * The mod's inflated data segment, its file names, and a modconfig block
@@ -3022,6 +3568,63 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 
 #undef LINE
 
+	// The weather: which stages have it, in which rooms, how hard the wind
+	// blows. weather_reset and weather_is_room_weatherproof decide those by
+	// stage index, and GE-X rewrote both as new chains of compares rather
+	// than renumbering the old, so they are read by running them (emuRun())
+	// and written as the port's own `stage { weather { } }` blocks, one for
+	// each stage whose reading differs from the same code in stock. What the
+	// mod took the weather away from keeps the port's entry: with no rain or
+	// snow command in the stage's script the weatherdata sits there inert.
+	char *weather = NULL;
+	u32 weatherlen = 0, weathercap = 0;
+	if (t.followed && modstages) {
+		const u32 nstages = countStages(&t, modstages, stockCount("g_Stages", 0x38));
+		struct weatherread *wmod = nstages ? malloc(sizeof(*wmod) * nstages) : NULL;
+		struct weatherread *wstock = nstages ? malloc(sizeof(*wstock) * nstages) : NULL;
+		if (nstages && !weatherFromCode(t.modcode, t.modcodelen, t.stockcode, t.stockcodelen, nstages, wmod)) {
+			u32 s0, e0;
+			if (codeSym("weather_reset", &s0, &e0)) {
+				rep("  the mod's weather code does not run on the toy machine; its weather is left as the port has it");
+			}
+		} else if (nstages) {
+			char lost[256];
+			u32 lostlen = 0, nlost = 0;
+			if (!weatherFromCode(t.stockcode, t.stockcodelen, t.stockcode, t.stockcodelen, nstages, wstock)) {
+				memset(wstock, 0, sizeof(*wstock) * nstages);
+			}
+			for (u32 idx = 0; idx < nstages; ++idx) {
+				const u8 *me = tableEntry(&t, modstages, idx, 0x38);
+				const u32 stagenum = me ? be16(me, 0) : 0;
+				const u32 stocknum = (modstages - t.base + idx * 0x38 + 2 <= stockfiles->dataseglen)
+					? be16(stockfiles->dataseg, modstages - t.base + idx * 0x38) : 0;
+				if (!wmod[idx].valid) {
+					if (wstock[idx].valid) {
+						lostlen += snprintf(lost + lostlen, sizeof(lost) - lostlen, "%s%u", nlost ? ", " : "", idx);
+						nlost++;
+					}
+					continue;
+				}
+				if (!memcmp(&wmod[idx], &wstock[idx], sizeof(wmod[idx])) && stagenum == stocknum) {
+					continue;
+				}
+				if (weatherlen) {
+					appendf(&weather, &weatherlen, &weathercap, "\n");
+				}
+				weatherBlock(&weather, &weatherlen, &weathercap, stagenum, &wmod[idx]);
+				rep("  weather on stage 0x%02x (index %u): wind %g, %s %u rooms%s%s", stagenum, idx,
+						(f64)wmod[idx].windspeed, wmod[idx].include ? "only in" : "except", wmod[idx].nrooms,
+						wmod[idx].cutscene ? ", cutscenes only" : "", wmod[idx].constantwind ? ", fixed wind" : "");
+			}
+			if (nlost) {
+				rep("  the mod has no weather on stage index%s %s, which stock has; the port keeps its entries, inert",
+						nlost > 1 ? "es" : "", lost);
+			}
+		}
+		free(wmod);
+		free(wstock);
+	}
+
 	if (t.followed) {
 		freePairs(&t.sp);
 		freePairs(&t.mp);
@@ -3051,25 +3654,17 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			text[existinglen] = '\0';
 			at = strstr(text, "datasegment {");
 			if (at) {
-				char *start = at;
 				char *end = strchr(at, '}');
-				// the comment lines directly above it are ours too
-				while (start > text) {
-					char *prevline = start - 1;
-					while (prevline > text && prevline[-1] != '\n') {
-						--prevline;
-					}
-					if (*prevline != '#') {
-						break;
-					}
-					start = prevline;
-				}
 				if (end) {
-					++end;
-					while (*end == '\n') {
-						++end;
-					}
-					memmove(start, end, strlen(end) + 1);
+					cutRegion(text, at, end + 1);
+				}
+			}
+			// and the weather blocks behind it, the comment lines above them too
+			at = strstr(text, WEATHER_BEGIN);
+			if (at) {
+				char *end = strstr(at, WEATHER_END);
+				if (end) {
+					cutRegion(text, at, end + strlen(WEATHER_END));
 				}
 			}
 			free(existing);
@@ -3077,12 +3672,17 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s", head, base, lines, existing ? (const char *)existing : "");
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s", head, base, lines,
+				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
+				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
+				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
+				existing ? (const char *)existing : "");
 		written += writeOut(outdir, "modconfig.txt", (const u8 *)block, strlen(block));
 		free(block);
 		free(existing);
+		free(weather);
 	}
 
 	return written;

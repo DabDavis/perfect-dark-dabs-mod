@@ -11,11 +11,21 @@ bool g_WeatherTickEnabled = true;
 
 void weatherTick(void)
 {
+#ifdef PLATFORM_N64
 	if (!g_WeatherData
 			|| (g_StageIndex == STAGEINDEX_AIRBASE && g_Vars.currentplayer->cam_pos.z < -2000.0f)
 			|| (g_StageIndex == STAGEINDEX_G5BUILDING && g_Vars.tickmode != TICKMODE_CUTSCENE)) {
 		return;
 	}
+#else
+	// the same two tests weatherRender() makes, from the stage's config rather
+	// than its stock index: a mod's stages sit anywhere
+	if (!g_WeatherData
+			|| (g_CurWeatherConfig->zmax && g_Vars.currentplayer->cam_pos.z < g_CurWeatherConfig->zmax)
+			|| ((g_CurWeatherConfig->flags & WEATHERFLAG_CUTSCENE_ONLY) && g_Vars.tickmode != TICKMODE_CUTSCENE)) {
+		return;
+	}
+#endif
 
 	mainOverrideVariable("wettick", (u32 *)&g_WeatherTickEnabled);
 	mainOverrideVariable("windspeed", &var80062950);

@@ -4796,7 +4796,7 @@ enum weaponnum {
 #define WEATHERTYPE_SNOW 1
 
 #define WEATHERCFG_MAX_SKIPROOMS 128
-#define WEATHERCFG_MAX_STAGES 16
+#define WEATHERCFG_MAX_STAGES 64 // every stage in the table can have one: a mod may give them all weather
 
 #define WEATHERFLAG_INCLUDE       0x0001 // rooms listed in skiprooms are the only ones that have weather
 #define WEATHERFLAG_CUTSCENE_ONLY 0x0002 // weather only in cutscenes

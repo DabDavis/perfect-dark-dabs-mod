@@ -392,8 +392,9 @@ stage whose setup the mod changed:
 **What these mods need next from the loader**, by how many want it:
 
 1. ~~Heads and bodies plus the model validator~~: done, next section but one.
-2. Weather: the Weather Mod's rain and snow are its own code driving a
-   hovercar; the port has a `weather` stage key, which is the translation.
+2. ~~Weather~~: done, "The weather" at the end. (The Weather Mod's own rain
+   and snow are still its code driving a hovercar; what the port now follows
+   is the game's weather system: which stages have it, in which rooms.)
 
 (`g_MpArenas`, which every "solo stages in multi" mod rewrites, was the first
 item here and is done - next section.)
@@ -804,3 +805,62 @@ the sizes stay where the arrays are:
   is wanted again, the two data segments are `build/mod_stockdata/segs/data`
   and the mod's, base 0x80059fe0, symbols from `tools/pd.ntsc-final.datasym`.
 - `IMPORT.txt` `importer: 11`.
+
+## The weather (2026-09-05)
+
+"weather_is_room_weatherproof looks like the biggest": 179 of GE-X's rewritten
+words are that one function, and `weather_reset` beside it. Both decide by
+stage index - is there weather here, which rooms keep it out, how hard the
+wind blows - and GE-X did not renumber the stock compares, it wrote new chains
+of them (Surface, Surface 2, Bunker, Runway and stage 0x2d instead of Chicago,
+Air Base, the G5 Building and the Crash Site), with the freed words reused as
+code caves for a jump from `bwalk_update_horizontal` and for `weather_reset`'s
+own new test. Constant-following reads nothing from that.
+
+- **The code is read by running it.** `emulate()` in `tools/importmod` and
+  `emuRun()` in `port/src/modimport.c` are a toy MIPS: integer ops, branches,
+  single-float moves and compares, a scratch memory where a load of
+  `g_StageIndex` reads the index asked about and a `jal` is not followed but
+  hands back a fake pointer and is counted. `weather_reset` run per stage
+  index says whether weather is allocated (a call was made) and the wind
+  speed (the float it stored at +0x14 of what the first call returned);
+  `weather_is_room_weatherproof` run per room, 1 to 1023, gives the rooms.
+  The four special cases stock keys on an index - no weather below z -2000
+  and the fixed wind (Air Base, in `weather_render` and `weather_tick_rain`),
+  cutscenes only (the G5 Building), the narrower particle bounds (the Crash
+  Site, in `weather_allocate_particles`) - are still `li` sites and follow
+  the way the outfit constants do.
+- **Run on stock, the reading is the port's own table** (`g_WeatherConfig` in
+  weather.c: Chicago's 53 rooms, Air Base's 19 with the fixed wind and zmax,
+  the Crash Site's 44 at wind 10 and ±500, the G5 Building cutscenes-only),
+  which is the check that the machine reads right.
+- **What comes out is the port's own `stage N { weather { } }` block**, one
+  per stage whose reading differs from stock's at that index, between
+  `# importer: weather begin` and `end` lines after the datasegment block
+  (both importers cut the region out again before rewriting it). Every value
+  is written and the room list starts with `clear`, because the port merges
+  a block into its existing entry for that stage number and GE-X's Bunker
+  sits at Chicago's number: without `clear`, Chicago's rooms would have
+  stayed under Bunker's. The port's rooms parser appends by design (a
+  user's block can add to stock); `clear` is the word for replacing.
+- Stages the mod took the weather away from (GE-X: indexes 8, 10, 19) keep
+  the port's entries. A weatherdata is allocated there but its type stays -1
+  until a stage script says rain or snow, and those scripts come with the
+  setup files, so nothing shows; the report says which.
+- `WEATHERCFG_MAX_STAGES` went from 16 to 64: PDE_E2_LZT (a Combat Simulator
+  weather mod in the archive) made `weather_reset` unconditional and gets a
+  block for every one of its 61 stages, and the 17th used to fail the whole
+  modconfig. A block with no room left now skips itself with a warning.
+  `weatherTick()` in the port had kept the stock `g_StageIndex` tests for the
+  Air Base and G5 special cases while `weatherRender()` read the config; it
+  reads the config now too.
+- `weatherReset()` logs `weather: stage 0xNN has weather except in / only in
+  N rooms, wind W`, so a headless boot shows what applied. GE-X Surface
+  (0x2c) booted with a screenshot of snow falling; Bunker (0x1d) and Runway
+  (0x22) took theirs too. Across the archive, five more mods got blocks
+  (G5 Car Park's Chicago, PD Kakariko, both Weather Mod editions, the two
+  PDE_E2_LZT patches), none reported the machine failing.
+- `IMPORT.txt` `importer: 12`. The two importers' weather lines and blocks
+  are identical for GE-X; the pre-existing difference between them is the
+  order of the `playerconst`/`bgstage`/`roomstage` lines (the tool sorts,
+  the game writes in code order), which is not a difference in content.

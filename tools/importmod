@@ -1514,6 +1514,423 @@ def follow_immediates(stockcode, modcode, start, end):
     return pairs
 
 
+# -- a toy MIPS, for the code a mod rewrote rather than renumbered
+
+GAME_VRAM = 0x7f000000
+STAGEINDEX_ADDR = 0x8007fc00   # g_StageIndex
+FAKEPTR = 0x80400000           # what the n-th call not made hands back, n * 0x10000 along
+
+# the stage indexes the stock weather code singles out
+STAGEINDEX_CRASHSITE = 8
+STAGEINDEX_CHICAGO = 9
+STAGEINDEX_G5BUILDING = 10
+STAGEINDEX_AIRBASE = 19
+
+
+def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000):
+    """Runs a function of the game binary on a toy machine and returns
+    (v0, calls, mem) at its `jr ra`, or None where it meets something the toy
+    does not do. Integer ops, branches, single-precision float moves and
+    compares; memory is a scratch dict where a load of g_StageIndex reads
+    `stageindex`, an address inside the binary reads the binary, and anything
+    else not yet stored reads 0. A `jal` is not followed: it hands back a
+    fresh fake pointer in v0 and is counted, so a caller can tell an
+    allocation happened and read what the function stored through it. That
+    is enough for weather_reset and weather_is_room_weatherproof, which GE-X
+    rewrote as new chains of compares that no constant-following can read."""
+    M = 0xffffffff
+    r = [0] * 32
+    f = [0] * 32
+    hl = [0, 0]
+    fcc = [False]
+    sentinel = 0xffffff00
+    r[4] = a0 & M
+    r[29] = 0x803ff000
+    r[31] = sentinel
+    mem = {}
+    state = {'calls': 0}
+
+    def s32(v):
+        v &= M
+        return v - 0x100000000 if v & 0x80000000 else v
+
+    def s16(v):
+        v &= 0xffff
+        return v - 0x10000 if v & 0x8000 else v
+
+    def fetch(addr):
+        ofs = addr - GAME_VRAM
+        if ofs < 0 or ofs + 4 > len(code) or ofs & 3:
+            return None
+        return int.from_bytes(code[ofs:ofs + 4], 'big')
+
+    def load(addr):
+        addr &= M & ~3
+        if addr == STAGEINDEX_ADDR:
+            return stageindex & M
+        w = fetch(addr)
+        if w is not None:
+            return w
+        return mem.get(addr, 0)
+
+    def store(addr, value):
+        mem[addr & M & ~3] = value & M
+
+    def shift_of(addr, size):
+        return (3 - (addr & 3)) * 8 if size == 1 else (2 - (addr & 2)) * 8
+
+    def loadpart(addr, size, signed):
+        v = (load(addr) >> shift_of(addr, size)) & ((1 << (size * 8)) - 1)
+        if signed and v & (1 << (size * 8 - 1)):
+            v -= 1 << (size * 8)
+        return v & M
+
+    def storepart(addr, size, value):
+        mask = ((1 << (size * 8)) - 1) << shift_of(addr, size)
+        store(addr, (load(addr) & ~mask) | ((value << shift_of(addr, size)) & mask))
+
+    def fl(v):
+        return struct.unpack('>f', struct.pack('>I', v & M))[0]
+
+    def fi(v):
+        try:
+            return struct.unpack('>I', struct.pack('>f', v))[0]
+        except (OverflowError, struct.error):
+            return 0x7f800000
+
+    def exec1(x, pc):
+        """One instruction. Returns (kind, target): 'next', 'branch' (taken,
+        to target), 'nobranch', 'skip' (a likely branch not taken: the delay
+        slot is skipped too), 'jump', 'call', 'ret' or 'fail'."""
+        op = x >> 26
+        rs = (x >> 21) & 31
+        rt = (x >> 16) & 31
+        rd = (x >> 11) & 31
+        sa = (x >> 6) & 31
+        imm = x & 0xffff
+        simm = s16(imm)
+        btarget = (pc + 4 + (simm << 2)) & M
+
+        def setr(i, v):
+            if i:
+                r[i] = v & M
+
+        def branch(taken, likely):
+            if taken:
+                return ('branch', btarget)
+            return ('skip' if likely else 'nobranch', None)
+
+        if op == 0:
+            fn = x & 0x3f
+            if fn == 0:
+                setr(rd, r[rt] << sa)
+            elif fn == 2:
+                setr(rd, r[rt] >> sa)
+            elif fn == 3:
+                setr(rd, s32(r[rt]) >> sa)
+            elif fn == 4:
+                setr(rd, r[rt] << (r[rs] & 31))
+            elif fn == 6:
+                setr(rd, r[rt] >> (r[rs] & 31))
+            elif fn == 7:
+                setr(rd, s32(r[rt]) >> (r[rs] & 31))
+            elif fn == 8:
+                return ('ret', r[rs])
+            elif fn == 9:
+                setr(rd, pc + 8)
+                return ('call', r[rs])
+            elif fn == 0x0a:
+                if r[rt] == 0:
+                    setr(rd, r[rs])
+            elif fn == 0x0b:
+                if r[rt] != 0:
+                    setr(rd, r[rs])
+            elif fn == 0x0f:
+                pass
+            elif fn == 0x10:
+                setr(rd, hl[0])
+            elif fn == 0x11:
+                hl[0] = r[rs]
+            elif fn == 0x12:
+                setr(rd, hl[1])
+            elif fn == 0x13:
+                hl[1] = r[rs]
+            elif fn == 0x18:
+                p = s32(r[rs]) * s32(r[rt])
+                hl[0], hl[1] = (p >> 32) & M, p & M
+            elif fn == 0x19:
+                p = r[rs] * r[rt]
+                hl[0], hl[1] = (p >> 32) & M, p & M
+            elif fn == 0x1a:
+                if r[rt]:
+                    a, b = s32(r[rs]), s32(r[rt])
+                    q = int(a / b)
+                    hl[0], hl[1] = (a - q * b) & M, q & M
+            elif fn == 0x1b:
+                if r[rt]:
+                    hl[0], hl[1] = r[rs] % r[rt], r[rs] // r[rt]
+            elif fn in (0x20, 0x21):
+                setr(rd, r[rs] + r[rt])
+            elif fn in (0x22, 0x23):
+                setr(rd, r[rs] - r[rt])
+            elif fn == 0x24:
+                setr(rd, r[rs] & r[rt])
+            elif fn == 0x25:
+                setr(rd, r[rs] | r[rt])
+            elif fn == 0x26:
+                setr(rd, r[rs] ^ r[rt])
+            elif fn == 0x27:
+                setr(rd, ~(r[rs] | r[rt]))
+            elif fn == 0x2a:
+                setr(rd, 1 if s32(r[rs]) < s32(r[rt]) else 0)
+            elif fn == 0x2b:
+                setr(rd, 1 if r[rs] < r[rt] else 0)
+            else:
+                return ('fail', None)
+            return ('next', None)
+        if op == 1:
+            if rt in (0, 2):
+                return branch(s32(r[rs]) < 0, rt == 2)
+            if rt in (1, 3):
+                return branch(s32(r[rs]) >= 0, rt == 3)
+            return ('fail', None)
+        if op in (2, 3):
+            target = ((pc + 4) & 0xf0000000) | ((x & 0x3ffffff) << 2)
+            if op == 3:
+                setr(31, pc + 8)
+                return ('call', target)
+            return ('jump', target)
+        if op in (4, 0x14):
+            return branch(r[rs] == r[rt], op == 0x14)
+        if op in (5, 0x15):
+            return branch(r[rs] != r[rt], op == 0x15)
+        if op in (6, 0x16):
+            return branch(s32(r[rs]) <= 0, op == 0x16)
+        if op in (7, 0x17):
+            return branch(s32(r[rs]) > 0, op == 0x17)
+        if op in (8, 9):
+            setr(rt, r[rs] + simm)
+        elif op == 0xa:
+            setr(rt, 1 if s32(r[rs]) < simm else 0)
+        elif op == 0xb:
+            setr(rt, 1 if r[rs] < (simm & M) else 0)
+        elif op == 0xc:
+            setr(rt, r[rs] & imm)
+        elif op == 0xd:
+            setr(rt, r[rs] | imm)
+        elif op == 0xe:
+            setr(rt, r[rs] ^ imm)
+        elif op == 0xf:
+            setr(rt, imm << 16)
+        elif op == 0x11:
+            fn = x & 0x3f
+            fs, ft, fd = rd, rt, sa
+            if rs == 0:
+                setr(rt, f[fs])
+            elif rs == 4:
+                f[fs] = r[rt]
+            elif rs == 2:
+                setr(rt, 0)
+            elif rs == 6:
+                pass
+            elif rs == 8:
+                return branch(fcc[0] == bool(rt & 1), bool(rt & 2))
+            elif rs == 0x10:
+                a, b = fl(f[fs]), fl(f[ft])
+                if fn == 0:
+                    f[fd] = fi(a + b)
+                elif fn == 1:
+                    f[fd] = fi(a - b)
+                elif fn == 2:
+                    f[fd] = fi(a * b)
+                elif fn == 3:
+                    f[fd] = fi(a / b) if b else 0x7f800000
+                elif fn == 5:
+                    f[fd] = fi(abs(a))
+                elif fn == 6:
+                    f[fd] = f[fs]
+                elif fn == 7:
+                    f[fd] = fi(-a)
+                elif fn in (0x0d, 0x24):
+                    f[fd] = int(a) & M if abs(a) < 2 ** 31 else 0x7fffffff
+                elif fn >= 0x30:
+                    fcc[0] = bool(((fn & 2) and a == b) or ((fn & 4) and a < b))
+                else:
+                    return ('fail', None)
+            elif rs == 0x14 and fn == 0x20:
+                f[fd] = fi(float(s32(f[fs])))
+            else:
+                return ('fail', None)
+        elif op in (0x20, 0x21, 0x23, 0x24, 0x25, 0x28, 0x29, 0x2b, 0x31, 0x39):
+            addr = (r[rs] + simm) & M
+            if op == 0x20:
+                setr(rt, loadpart(addr, 1, True))
+            elif op == 0x21:
+                setr(rt, loadpart(addr, 2, True))
+            elif op == 0x23:
+                setr(rt, load(addr))
+            elif op == 0x24:
+                setr(rt, loadpart(addr, 1, False))
+            elif op == 0x25:
+                setr(rt, loadpart(addr, 2, False))
+            elif op == 0x28:
+                storepart(addr, 1, r[rt])
+            elif op == 0x29:
+                storepart(addr, 2, r[rt])
+            elif op == 0x2b:
+                store(addr, r[rt])
+            elif op == 0x31:
+                f[rt] = load(addr)
+            else:
+                store(addr, f[rt])
+        elif op in (0x2f, 0x35, 0x3d):
+            pass
+        else:
+            return ('fail', None)
+        return ('next', None)
+
+    def delayslot(pc):
+        x = fetch(pc + 4)
+        if x is None:
+            return False
+        return exec1(x, pc + 4)[0] == 'next'
+
+    pc = entry
+    steps = 0
+    while steps < maxsteps:
+        steps += 1
+        x = fetch(pc)
+        if x is None:
+            return None
+        kind, target = exec1(x, pc)
+        if kind == 'next' or kind == 'nobranch':
+            pc += 4
+        elif kind == 'skip':
+            pc += 8
+        elif kind in ('branch', 'jump'):
+            if not delayslot(pc):
+                return None
+            pc = target
+        elif kind == 'call':
+            if not delayslot(pc):
+                return None
+            r[2] = FAKEPTR + state['calls'] * 0x10000
+            state['calls'] += 1
+            pc += 8
+        elif kind == 'ret':
+            if not delayslot(pc):
+                return None
+            if target == sentinel:
+                return r[2], state['calls'], mem
+            pc = target
+        else:
+            return None
+    return None
+
+
+WEATHER_FUNCTIONS = ('weather_reset', 'weather_is_room_weatherproof', 'weather_render',
+                     'weather_tick_rain', 'weather_allocate_particles')
+WEATHER_MAXROOM = 0x400
+
+
+def weather_from_code(code, stockcode, codesyms, nstages):
+    """What a build's weather code says about each stage index, as the port's
+    weather config would put it: {index: {windspeed, mode, rooms, zmax,
+    cutscene, constantwind, ymin}} for the stages weather_reset allocates
+    weather on, read by running the code. `code` is the binary asked;
+    `stockcode` is the one the constant sites are found in (the same object
+    for a reading of stock). None when a function is missing or the toy
+    machine cannot run it.
+
+    The rooms come from weather_is_room_weatherproof, asked about every room
+    number in turn: 'exclude' lists the rooms it says are weatherproof,
+    'include' the rooms it says are not when those are the fewer (Air Base,
+    where weather is only in the cave mouths). The wind speed is what
+    weather_reset stored into the weatherdata it allocated. The three special
+    cases the stock code keys on a stage index - no weather below z -2000
+    (Air Base), only in cutscenes (the G5 Building), a fixed wind direction
+    (Air Base again), narrower particle bounds (the Crash Site) - follow
+    those sites' constants, the way the outfit constants do."""
+    if any(fn not in codesyms for fn in WEATHER_FUNCTIONS):
+        return None
+
+    def site(fn, value):
+        start, end = codesyms[fn]
+        return follow_immediate(stockcode, code, start - GAME_VRAM, end - GAME_VRAM, value)
+
+    zmax_idx = site('weather_render', STAGEINDEX_AIRBASE)
+    cutscene_idx = site('weather_render', STAGEINDEX_G5BUILDING)
+    wind_idx = site('weather_tick_rain', STAGEINDEX_AIRBASE)
+    narrow_idx = site('weather_allocate_particles', STAGEINDEX_CRASHSITE)
+
+    out = {}
+    for idx in range(nstages):
+        res = emulate(code, codesyms['weather_reset'][0], stageindex=idx)
+        if res is None:
+            return None
+        _, calls, mem = res
+        if not calls:
+            continue
+        windspeed = None
+        for c in range(calls):
+            w = mem.get(FAKEPTR + c * 0x10000 + 0x14)
+            if w is not None:
+                v = struct.unpack('>f', struct.pack('>I', w))[0]
+                if 0 < v <= 1024:
+                    windspeed = v
+                    break
+        if windspeed is None:
+            return None
+        proof = set()
+        for room in range(1, WEATHER_MAXROOM):
+            rr = emulate(code, codesyms['weather_is_room_weatherproof'][0], a0=room, stageindex=idx, maxsteps=1000)
+            if rr is None or rr[1]:
+                return None
+            if rr[0]:
+                proof.add(room)
+        if len(proof) > WEATHER_MAXROOM // 2:
+            mode, rooms = 'include', [x for x in range(1, WEATHER_MAXROOM) if x not in proof]
+            if not rooms:
+                continue   # weatherproof everywhere is no weather
+        else:
+            mode, rooms = 'exclude', sorted(proof)
+        out[idx] = {
+            'windspeed': windspeed,
+            'mode': mode,
+            'rooms': rooms,
+            'zmax': -2000 if zmax_idx == idx else 0,
+            'cutscene': cutscene_idx == idx,
+            'constantwind': wind_idx == idx,
+            'ymin': -500 if narrow_idx == idx else -800,
+        }
+    return out
+
+
+def weather_block(stagenum, cfg):
+    """A `stage N { weather { ... } }` block for the port, from one entry of
+    weather_from_code(). Every value is written, and the room list cleared
+    first, because the port merges the block into its own table entry for
+    that stage number (GE-X's Bunker sits at Chicago's number) and what is
+    left unsaid stays as stock had it."""
+    lines = ['stage 0x%02x {' % stagenum, '  weather {']
+    lines.append('    windspeed %g' % cfg['windspeed'])
+    lines.append('    ymin %g' % cfg['ymin'])
+    lines.append('    ymax %g' % -cfg['ymin'])
+    lines.append('    zmax %g' % cfg['zmax'])
+    if cfg['cutscene']:
+        lines.append('    cutscene_only')
+    if cfg['constantwind']:
+        lines.append('    constant_wind 1.5707964 0 %g' % -cfg['windspeed'])
+    lines.append('    %s_rooms { clear%s }' % (cfg['mode'], ''.join(' %d' % x for x in cfg['rooms'])))
+    lines.append('  }')
+    lines.append('}')
+    return '\n'.join(lines) + '\n'
+
+
+WEATHER_BEGIN = '# importer: weather begin'
+WEATHER_END = '# importer: weather end'
+
+
 def read_codesym(romid):
     """tools/pd.<romid>.sym, name -> (start, end)."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.sym' % romid)
@@ -2114,6 +2531,45 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             notes.append('%d pinned rooms\' stages changed in the mod\'s room and scene code: %s'
                          % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
 
+    # The weather: which stages have it, in which rooms, how hard the wind
+    # blows. weather_reset and weather_is_room_weatherproof decide those by
+    # stage index, and GE-X rewrote both as new chains of compares rather than
+    # renumbering the old, so they are read by running them (emulate()) and
+    # written as the port's own `stage { weather { } }` blocks, one for each
+    # stage whose reading differs from the same code in stock. What the mod
+    # took the weather away from keeps the port's entry: with no rain or snow
+    # command in the stage's script the weatherdata sits there inert.
+    weatherblocks = []
+    if followed and modstages and codesyms:
+        nstages = count_stages(seg, base, modstages, stockcount('g_Stages', 0x38))
+        wmod = weather_from_code(modcode, stockcode, codesyms, nstages) if nstages else None
+        if wmod is None:
+            if nstages and all(fn in codesyms for fn in WEATHER_FUNCTIONS):
+                notes.append("the mod's weather code does not run on the toy machine; its weather is left as the port has it")
+        else:
+            wstock = weather_from_code(stockcode, stockcode, codesyms, nstages) or {}
+            for idx in sorted(wmod):
+                stagenum = be16(seg, modstages - base + idx * 0x38)
+                stocknum = be16(stockseg, modstages - base + idx * 0x38)
+                if wstock.get(idx) == wmod[idx] and stagenum == stocknum:
+                    continue
+                weatherblocks.append(weather_block(stagenum, wmod[idx]))
+                notes.append('weather on stage 0x%02x (index %d): wind %g, %s %d rooms%s%s'
+                             % (stagenum, idx, wmod[idx]['windspeed'],
+                                'only in' if wmod[idx]['mode'] == 'include' else 'except',
+                                len(wmod[idx]['rooms']),
+                                ', cutscenes only' if wmod[idx]['cutscene'] else '',
+                                ', fixed wind' if wmod[idx]['constantwind'] else ''))
+            lost = [idx for idx in wstock if idx not in wmod]
+            if lost:
+                notes.append('the mod has no weather on stage index%s %s, which stock has; the port keeps its entries, inert'
+                             % ('es' if len(lost) > 1 else '', ', '.join(str(i) for i in lost)))
+    weatherregion = ''
+    if weatherblocks:
+        weatherregion = ('# The weather of the mod\'s stages, as its weather code decides it: read by\n'
+                         '# running that code. Written by tools/importmod.\n'
+                         + WEATHER_BEGIN + '\n' + '\n'.join(weatherblocks) + WEATHER_END + '\n')
+
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'
              '# after it edit what it put in place. Written by tools/importmod.\n'
@@ -2133,7 +2589,10 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             existing = fd.read()
         # replace an earlier block of ours rather than stacking them
         existing = re.sub(r'(#[^\n]*\n)*datasegment \{[^}]*\}\n*', '', existing)
-    written += write_file(outdir, 'modconfig.txt', (block + '\n' + existing).encode('utf-8'), dryrun)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(WEATHER_BEGIN) + r'\n.*?' + re.escape(WEATHER_END) + r'\n*',
+                          '', existing, flags=re.S)
+    written += write_file(outdir, 'modconfig.txt',
+                          (block + '\n' + (weatherregion + '\n' if weatherregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 

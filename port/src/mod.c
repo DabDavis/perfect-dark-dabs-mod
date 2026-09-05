@@ -246,6 +246,8 @@ static char *modConfigParseStageWeatherRooms(char *p, char *token, s32 stagenum,
 	return p;
 }
 
+static char *modConfigSkipBlock(char *p, char *token);
+
 static char *modConfigParseStageWeather(char *p, char *token, s32 stagenum)
 {
 	s32 wi;
@@ -257,8 +259,13 @@ static char *modConfigParseStageWeather(char *p, char *token, s32 stagenum)
 	}
 
 	if (wi >= WEATHERCFG_MAX_STAGES) {
-		sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: no more space for weather config", stagenum);
-		return NULL;
+		// not a reason to lose the rest of the file: skip this block
+		sysLogPrintf(LOG_WARNING, "modconfig: stage 0x%02x: no more space for weather config, skipping block", stagenum);
+		p = strParseToken(p, token, NULL);
+		if (token[0] != '{' || token[1] != '\0') {
+			return NULL;
+		}
+		return modConfigSkipBlock(p, token);
 	}
 
 	wcfg = &g_WeatherConfig[wi];

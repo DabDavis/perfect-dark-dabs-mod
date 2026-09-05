@@ -85,6 +85,16 @@ void weatherReset(void)
 		if (g_Vars.stagenum != STAGE_TITLE) {
 			weatherResetRooms();
 		}
+		{
+			extern void sysLogPrintf(s32 level, const char *fmt, ...);
+			s32 n;
+			for (n = 0; n < WEATHERCFG_MAX_SKIPROOMS && g_CurWeatherConfig->skiprooms[n]; ++n);
+			sysLogPrintf(0, "weather: stage 0x%02x has weather %s %d rooms, wind %g%s%s (the type is the script's to set)",
+					g_Vars.stagenum, (g_CurWeatherConfig->flags & WEATHERFLAG_INCLUDE) ? "only in" : "except in", n,
+					g_CurWeatherConfig->windspeed,
+					(g_CurWeatherConfig->flags & WEATHERFLAG_CUTSCENE_ONLY) ? ", cutscenes only" : "",
+					(g_CurWeatherConfig->flags & WEATHERFLAG_FORCE_WINDDIR) ? ", fixed wind" : "");
+		}
 #endif
 
 		g_WeatherData->audiohandles[0] = 0;
