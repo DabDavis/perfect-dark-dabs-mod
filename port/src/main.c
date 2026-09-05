@@ -151,6 +151,12 @@ int main(int argc, const char **argv)
 	modListApplySelection();
 	videoInit();
 	inputInit();
+
+	// Akimbo Triggers rewrites controller binds when it is switched; applying
+	// it again here mends a config written by a build that bound it differently
+	if (g_ModOptions.akimbotriggers) {
+		inputApplyAkimboTriggers(1);
+	}
 	screenshotInit();
 	recordInit();
 	ghostnetInit();

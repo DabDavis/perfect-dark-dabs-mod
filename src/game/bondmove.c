@@ -1608,9 +1608,14 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							}
 						}
 
-						// Handle radial menu (D-Down)
+						// Handle radial menu (D-Down; D-Up too under Akimbo Triggers)
+#ifndef PLATFORM_N64
+						u32 radialbuttons = BUTTON_RADIAL | (modIsAkimboTriggersOn() ? U_JPAD : 0);
+#else
+						u32 radialbuttons = BUTTON_RADIAL;
+#endif
 						for (i = 0; i < numsamples; i++) {
-							if (joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & BUTTON_RADIAL)) {
+							if (joyGetButtonsOnSample(i, contpad1, c1allowedbuttons & radialbuttons)) {
 								if (g_Vars.currentplayer->amdowntime < -2) {
 									g_Vars.currentplayer->amdowntime += numsamples;
 
@@ -1619,7 +1624,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 									}
 								} else {
 									if (g_Vars.currentplayer->amdowntime >= 0) {
-										if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_RADIAL)) {
+										if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & radialbuttons)) {
 											amOpen();
 											g_Vars.currentplayer->amdowntime = -1;
 										} else {

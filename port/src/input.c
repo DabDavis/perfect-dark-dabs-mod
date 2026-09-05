@@ -766,6 +766,14 @@ static void inputEnsureBind(s32 ctrl, u32 ck, u32 vk)
  * bumper, and the radial menu moves from the bumper to D-pad up, which stops
  * being a duplicate of stick-forward. Off puts each of the three back.
  *
+ * D-pad up goes to the N64 D-pad up key rather than to the radial menu's own
+ * key, which is N64 D-pad down: the menus read the N64 D-pad as up and down,
+ * so a D-pad up that sent D-pad down could not climb a menu. Stock gameplay
+ * does nothing with N64 D-pad up, so the radial menu simply listens for it
+ * as well while the option is on - see bondmove.c and activemenutick.c. The
+ * first build of this bound it the other way; on takes it off that key too,
+ * and main() applies on at startup, so a config from that build is mended.
+ *
  * Only the buttons named are touched, so a controller the player has rebound
  * elsewhere keeps its other changes; and each move adds the new button only
  * when it is not already there, so applying the same state twice is harmless.
@@ -784,14 +792,16 @@ void inputApplyAkimboTriggers(s32 on)
 			inputRemoveBind(ctrl, CK_RTRIG, lt);
 			inputEnsureBind(ctrl, CK_RTRIG, lb);
 			inputRemoveBind(ctrl, CK_DPAD_D, lb);
-			inputEnsureBind(ctrl, CK_DPAD_D, dup);
+			inputRemoveBind(ctrl, CK_DPAD_D, dup);
 			inputRemoveBind(ctrl, CK_C_U, dup);
+			inputEnsureBind(ctrl, CK_DPAD_U, dup);
 			inputEnsureBind(ctrl, CK_0040, lt);
 		} else {
 			inputRemoveBind(ctrl, CK_0040, lt);
 			inputRemoveBind(ctrl, CK_RTRIG, lb);
 			inputEnsureBind(ctrl, CK_RTRIG, lt);
 			inputRemoveBind(ctrl, CK_DPAD_D, dup);
+			inputRemoveBind(ctrl, CK_DPAD_U, dup);
 			inputEnsureBind(ctrl, CK_DPAD_D, lb);
 			inputEnsureBind(ctrl, CK_C_U, dup);
 		}

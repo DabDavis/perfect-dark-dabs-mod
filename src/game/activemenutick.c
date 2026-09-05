@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/activemenu.h"
+#include "game/modoptions.h"
 #include "game/pdmode.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
@@ -48,6 +49,13 @@ void amTick(void)
 
 			if (controlmode == CONTROLMODE_PC) {
 				amask = D_JPAD;
+
+#ifndef PLATFORM_N64
+				// Akimbo Triggers opens this menu from D-pad up too
+				if (modIsAkimboTriggersOn()) {
+					amask |= U_JPAD;
+				}
+#endif
 				lrtmask = R_TRIG;
 				umask = U_CBUTTONS;
 				dmask = D_CBUTTONS;
