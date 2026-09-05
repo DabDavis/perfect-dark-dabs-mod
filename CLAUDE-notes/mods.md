@@ -283,8 +283,9 @@ Golden Gun at 20 ...), the shotgun having inherited its pump-action flags.
    - and are a separate problem.
 2. ~~The heads and bodies~~ - done, see "Heads, bodies and the model
    validator" below.
-3. `g_Stages` (44 words) and `g_StageTracks` (48): stage blocks already
-   cover some of this by hand; the block could be generated. (`g_MpArenas`
+3. ~~`g_Stages` (44 words) and `g_StageTracks` (48)~~ - done: `g_Stages`
+   in "GE-X's solo missions in the port", `g_StageTracks` and `g_MpTracks`
+   in "Stage music and the Combat Simulator's tracks" below. (`g_MpArenas`
    is done - see "The arena list" below.)
 4. The TV screen command lists (`g_TvCmdlist*`, ~600 words): u32 arrays
    with the odd pointer, importable as blobs.
@@ -712,3 +713,41 @@ display list:
   fog geometry bit gets multiplier 0 and the fog colour's alpha as offset,
   the constant factor it had before. The Runway's fog itself is the mod's:
   996-1000 of a 10..15000 z range, from about 21 m to full at 150 m.
+
+## Stage music and the Combat Simulator's tracks (2026-09-05)
+
+`stagetracks ADDR COUNT` and `mptracks ADDR COUNT` in the `datasegment`
+block; `importStageTracks()` and `importMpTracks()` in `moddata.c`. Found
+after "the music for levels is not correct for GE-X": every GE-X mission
+played a random Combat Simulator tune.
+
+- **`g_StageTracks` is looked up by stage id and falls through to
+  `mpChooseTrack()`** when the id is not in it. GE-X keeps the table at its
+  stock address with its own 24 stage ids in it (0x30, 0x33, 0x22 ...), none
+  of which the port's table has, so every mission took the fall-through.
+  The table is now a pointer (`stageSetTracks()` in `stagemusic.c`, NULL for
+  the port's own) and the import hands it a 0-terminated copy; the mod swap
+  restore resets the pointer before copying the snapshot back.
+- **`g_MpTracks` is what a match plays and what the music menu lists.** GE-X
+  rewrites all of it (its sequences, durations, two names in its own bank,
+  everything unlocked) and has 44 tracks to the stock 42, so it starts the
+  list 12 bytes earlier, which the code references show (8 agree). The count
+  is the immediate `mp_get_num_unlocked_tracks` loads (0x7f18c200), the way
+  `mp_get_num_stages` gives the arenas. The port's array is `MP_MAX_TRACKS`
+  (48: the save's `multipletracknums` has 48 bits) with `g_MpNumTracks` in
+  place of `ARRAYCOUNT`.
+- **A byte compare at the stock offset is not a check that a table is
+  unchanged.** The volume table (`g_SeqVolumes`, 124 entries) really is
+  untouched by GE-X, but the same compare on `g_MpTracks` read the list two
+  entries in and looked merely rewritten; only following the code showed it
+  moved. Ask the importer where a table is before reading it.
+- **How to see what plays, headlessly:** `lib/music.c` logs
+  `music: sequence N starts as track type T` (1 is the primary) as each
+  track starts, and `--moddata-trace` prints both tables as imported. A
+  stage's own AI script can override the table: GE-X's hub (0x26) starts 108
+  and 89, its intro sting and the menu music, not its table entry - so test
+  a mission. GE-X's first two missions, Dam (0x30) and Facility (0x33), are
+  unfinished and start no music at all; Runway (0x22) is the first that
+  works, and starts sequence 63, its table's main theme. A match on arena 0
+  starts a track from the imported list.
+- `IMPORT.txt` `importer: 10`; a GE-X directory from 9 re-imports itself.

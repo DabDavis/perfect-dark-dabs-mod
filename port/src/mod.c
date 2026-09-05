@@ -18,7 +18,9 @@
 #include "game/file.h"
 #include "data.h"
 #include "game/stagetable.h"
+#include "game/stagemusic.h"
 #include "game/mplayer/setup.h"
+#include "game/mplayer/mplayer.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
 
@@ -33,7 +35,7 @@ static s32 modTexturesDirExists = -1;
 static s32 modAnimationsDirExists = -1;
 static s32 modSequencesDirExists = -1;
 
-extern struct stagemusic g_StageTracks[];
+extern struct stagemusic *g_StageTracks;
 extern struct stageallocation g_StageAllocations8Mb[];
 
 #define PARSE_STAGE_FLOAT(sec, name, v, min, max) \
@@ -735,6 +737,12 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		} else if (!strcmp(token, "commandlengths")) {
 			PARSE_ADDR("datasegment", "commandlengths", spec.commandlengths, NULL);
 			PARSE_INT("datasegment", "commandlengths count", spec.numcommandlengths, 0, 4096, NULL);
+		} else if (!strcmp(token, "stagetracks")) {
+			PARSE_ADDR("datasegment", "stagetracks", spec.stagetracks, NULL);
+			PARSE_INT("datasegment", "stagetracks count", spec.numstagetracks, 0, 4096, NULL);
+		} else if (!strcmp(token, "mptracks")) {
+			PARSE_ADDR("datasegment", "mptracks", spec.mptracks, NULL);
+			PARSE_INT("datasegment", "mptracks count", spec.nummptracks, 0, 4096, NULL);
 		} else if (!strcmp(token, "playerconst")) {
 			// one line per constant the mod's outfit chooser changed: stock, mod
 			s32 k = 0, v = 0;
@@ -1753,6 +1761,9 @@ static struct modelstate modelStatesSnapshot[NUM_MODELS];
 static struct mpweapon mpWeaponsSnapshot[NUM_MPWEAPONS];
 static struct mpweaponset mpWeaponSetsSnapshot[ARRAYCOUNT(g_MpWeaponSets)];
 static struct mparena mpArenasSnapshot[ARRAYCOUNT(g_MpArenas)];
+extern struct mptrack g_MpTracks[];
+static struct mptrack mpTracksSnapshot[MP_MAX_TRACKS];
+static s32 numMpTracksSnapshot;
 static struct headorbody headsAndBodiesSnapshot[ARRAYCOUNT(g_HeadsAndBodies)];
 static struct mphead mpHeadsSnapshot[ARRAYCOUNT(g_MpHeads)];
 static struct mpbody mpBodiesSnapshot[ARRAYCOUNT(g_MpBodies)];
@@ -1783,6 +1794,8 @@ static void modTablesSnapshot(void)
 	memcpy(mpWeaponsSnapshot, g_MpWeapons, sizeof(mpWeaponsSnapshot));
 	memcpy(mpWeaponSetsSnapshot, g_MpWeaponSets, sizeof(mpWeaponSetsSnapshot));
 	memcpy(mpArenasSnapshot, g_MpArenas, sizeof(mpArenasSnapshot));
+	memcpy(mpTracksSnapshot, g_MpTracks, sizeof(mpTracksSnapshot));
+	numMpTracksSnapshot = mpGetNumTracks();
 	memcpy(headsAndBodiesSnapshot, g_HeadsAndBodies, sizeof(headsAndBodiesSnapshot));
 	memcpy(mpHeadsSnapshot, g_MpHeads, sizeof(mpHeadsSnapshot));
 	memcpy(mpBodiesSnapshot, g_MpBodies, sizeof(mpBodiesSnapshot));
@@ -1830,6 +1843,8 @@ static bool modTablesRestore(void)
 	memcpy(g_MpWeapons, mpWeaponsSnapshot, sizeof(mpWeaponsSnapshot));
 	memcpy(g_MpWeaponSets, mpWeaponSetsSnapshot, sizeof(mpWeaponSetsSnapshot));
 	memcpy(g_MpArenas, mpArenasSnapshot, sizeof(mpArenasSnapshot));
+	memcpy(g_MpTracks, mpTracksSnapshot, sizeof(mpTracksSnapshot));
+	mpSetNumTracks(numMpTracksSnapshot);
 	memcpy(g_HeadsAndBodies, headsAndBodiesSnapshot, sizeof(headsAndBodiesSnapshot));
 	memcpy(g_MpHeads, mpHeadsSnapshot, sizeof(mpHeadsSnapshot));
 	memcpy(g_MpBodies, mpBodiesSnapshot, sizeof(mpBodiesSnapshot));
@@ -1840,6 +1855,8 @@ static bool modTablesRestore(void)
 	g_MpListCounts = mpListCountsSnapshot;
 	g_MpNumArenas = numMpArenasSnapshot;
 	g_MpArenasImported = mpArenasImportedSnapshot;
+	// back to the port's own table before the copy, so an imported one is dropped
+	stageSetTracks(NULL);
 	memcpy(g_StageTracks, tracksSnapshot, sizeof(struct stagemusic) * numTracksSnapshot);
 	memcpy(g_StageAllocations8Mb, allocsSnapshot, sizeof(struct stageallocation) * numAllocsSnapshot);
 

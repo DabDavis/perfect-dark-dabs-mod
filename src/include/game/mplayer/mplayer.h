@@ -75,6 +75,12 @@ bool mpIsTrackUnlocked(s32 tracknum);
 s32 mpGetTrackSlotIndex(s32 tracknum);
 s32 mpGetTrackNumAtSlotIndex(s32 slotindex);
 s32 mpGetNumUnlockedTracks(void);
+// The track list holds MP_NUM_TRACKS_STATIC of the game's own and room for a
+// mod's longer one; the save's multipletracknums has a bit for each of 48
+#define MP_NUM_TRACKS_STATIC 42
+#define MP_MAX_TRACKS 48
+s32 mpGetNumTracks(void);
+void mpSetNumTracks(s32 count);
 s32 mpGetTrackMusicNum(s32 slotindex);
 char *mpGetTrackName(s32 slotindex);
 void mpSetUsingMultipleTunes(bool enable);

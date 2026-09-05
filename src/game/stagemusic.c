@@ -10,7 +10,7 @@
 #include "data.h"
 #include "types.h"
 
-struct stagemusic g_StageTracks[] = {
+static struct stagemusic g_StageTracksDefault[] = {
 	// stage,              main theme,           background sfx,          X theme
 	{ STAGE_CITRAINING,    MUSIC_CI,             -1,                      MUSIC_DEFENSE_X       },
 	{ STAGE_DEFECTION,     MUSIC_DEFECTION,      MUSIC_DDTOWER_SFX,       MUSIC_DEFECTION_X     },
@@ -38,6 +38,18 @@ struct stagemusic g_StageTracks[] = {
 	{ STAGE_CREDITS,       MUSIC_ALIEN_CONFLICT, -1,                      MUSIC_ALIEN_CONFLICT  },
 	{ 0,                   0,                    0,                       0  },
 };
+
+// The table in use: the port's own, or a mod's from its data segment
+struct stagemusic *g_StageTracks = g_StageTracksDefault;
+
+/**
+ * Use a mod's stage music table, 0-stage terminated, or the port's own for NULL.
+ * The mod loader hands over its own allocation and takes it back on restore.
+ */
+void stageSetTracks(struct stagemusic *tracks)
+{
+	g_StageTracks = tracks ? tracks : g_StageTracksDefault;
+}
 
 s32 stageGetPrimaryTrack(s32 stagenum)
 {

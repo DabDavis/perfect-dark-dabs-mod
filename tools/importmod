@@ -1640,6 +1640,47 @@ def count_solostages(seg, base, addr, limit):
     return n
 
 
+def count_stagetracks(seg, base, addr, limit):
+    """Entries of g_StageTracks that read as one: a stage number and three
+    track numbers (-1 for none), 8 bytes each, to the 0 stage that ends it."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 8
+        if ofs + 8 > len(seg):
+            break
+        stagenum = be16(seg, ofs)
+        if not 0 < stagenum < 0x60:
+            break
+        for k in range(1, 4):
+            track = be16(seg, ofs + k * 2)
+            if track >= 0x8000:
+                track -= 0x10000
+            if not -1 <= track < 0x200:
+                return 0
+        n += 1
+    return n
+
+
+def count_mptracks(seg, base, addr, limit):
+    """Entries of g_MpTracks that read as one: a sequence and duration packed
+    in a word, a name text id and the mission index that unlocks it (-1 for
+    none), 6 bytes each."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 6
+        if ofs + 6 > len(seg):
+            break
+        w = be16(seg, ofs)
+        name = be16(seg, ofs + 2)
+        unlock = be16(seg, ofs + 4)
+        if unlock >= 0x8000:
+            unlock -= 0x10000
+        if (w & 0x1ff) == 0 or name == 0 or not -1 <= unlock < 0x60:
+            break
+        n += 1
+    return n
+
+
 def count_stages(seg, base, addr, limit):
     """Entries of g_Stages that read as one: a stage number, 0x38 bytes each."""
     n = 0
@@ -1915,6 +1956,41 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
         if n:
             lines.append('  solostages 0x%08x %d' % (solo, n))
             notes.append('%d solo missions at %08x%s' % (n, solo, note))
+
+    # each stage's music: the main theme, the background track and the X
+    # theme. GE-X fills the table with its own stage ids; without it every
+    # GE-X mission played the Combat Simulator's random pick
+    tracks, note = locate('g_StageTracks')
+    if tracks:
+        n = count_stagetracks(seg, base, tracks, stockcount('g_StageTracks', 8))
+        if n:
+            lines.append('  stagetracks 0x%08x %d' % (tracks, n))
+            notes.append("%d stages' music at %08x%s" % (n, tracks, note))
+        else:
+            notes.append('what is at %08x does not read as the stage music table; left out' % tracks)
+
+    # the Combat Simulator's music: which sequence each track plays, for how
+    # long, its name and what unlocks it; mp_get_num_unlocked_tracks loads
+    # its length. GE-X rewrites the whole list and, for two more tracks,
+    # starts it 12 bytes earlier
+    mpt, note = locate('g_MpTracks')
+    if mpt:
+        n = 0
+        if 'mp_get_num_unlocked_tracks' in codesyms:
+            start, end = codesyms['mp_get_num_unlocked_tracks']
+            n = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000,
+                                 stockcount('g_MpTracks', 6)) or 0
+        if not n:
+            n = count_mptracks(seg, base, mpt, 64)
+        elif count_mptracks(seg, base, mpt, n) < n:
+            notes.append('the code says %d Combat Simulator tracks but only %d read as one at %08x; the list is left out'
+                         % (n, count_mptracks(seg, base, mpt, n), mpt))
+            n = 0
+        if n:
+            lines.append('  mptracks 0x%08x %d' % (mpt, n))
+            notes.append('%d Combat Simulator tracks at %08x%s' % (n, mpt, note))
+        else:
+            notes.append('what is at %08x does not read as the Combat Simulator track list; left out' % mpt)
 
     # the AI command length table: a mod's own commands sit in slots this
     # game has no handler for, and their lengths let the port step over them

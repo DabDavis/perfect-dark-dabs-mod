@@ -78,6 +78,10 @@ struct moddataspec {
 	s32 numfogenvs;
 	u32 nofogenvs;       // g_NoFogEnvironments[], ROM layout (56 bytes an entry)
 	s32 numnofogenvs;
+	u32 stagetracks;     // g_StageTracks[], each stage's music (8 bytes an entry)
+	s32 numstagetracks;
+	u32 mptracks;        // g_MpTracks[], the Combat Simulator's music (6 bytes an entry)
+	s32 nummptracks;
 };
 
 // The solo player's body and head as the mod's code has them, or def.

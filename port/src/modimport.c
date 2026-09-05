@@ -2199,9 +2199,12 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	{ "g_Stages",         0x8007fcc0, 0xd60 },
 	{ "g_CommandLengths", 0x80068c14, 0x3e4 },
 	{ "g_SoloStages",     0x80071e6c, 0xfc },
+	{ "g_StageTracks",    0x80084500, 0xd0 },
+	{ "g_MpTracks",       0x80087a70, 0xfc },
 };
 static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "mp_get_num_stages",         0x7f1790fc, 0x7f179104 },
+	{ "mp_get_num_unlocked_tracks", 0x7f18c200, 0x7f18c220 },
 	{ "mp_get_num_mpweapons",      0x7f188bcc, 0x7f188bd4 },
 	{ "mp_get_num_weaponset_slots", 0x7f189058, 0x7f189088 },
 	{ "mp_get_num_heads",          0x7f18bb24, 0x7f18bb2c },
@@ -2406,6 +2409,55 @@ static u32 countSoloStages(const struct tablectx *t, u32 addr, u32 limit)
 		}
 		stagenum = be32(e, 0);
 		if (!(stagenum > 0 && stagenum < 0x60)) {
+			break;
+		}
+		++n;
+	}
+	return n;
+}
+
+// Entries of g_StageTracks that read as one: a stage number and three track
+// numbers (-1 for none), 8 bytes each, to the 0 stage that ends the table
+static u32 countStageTracks(const struct tablectx *t, u32 addr, u32 limit)
+{
+	u32 n = 0;
+	while (n < limit) {
+		const u8 *e = tableEntry(t, addr, n, 8);
+		u32 stagenum;
+		if (!e) {
+			break;
+		}
+		stagenum = be16(e, 0);
+		if (!(stagenum > 0 && stagenum < 0x60)) {
+			break;
+		}
+		for (u32 k = 1; k < 4; ++k) {
+			const s16 track = (s16)be16(e, k * 2);
+			if (track < -1 || track >= 0x200) {
+				return 0;
+			}
+		}
+		++n;
+	}
+	return n;
+}
+
+// Entries of g_MpTracks that read as one: a sequence and duration packed in
+// a word, a name text id and the mission index that unlocks it (-1 for none)
+static u32 countMpTracks(const struct tablectx *t, u32 addr, u32 limit)
+{
+	u32 n = 0;
+	while (n < limit) {
+		const u8 *e = tableEntry(t, addr, n, 6);
+		u32 w, name;
+		s16 unlock;
+		if (!e) {
+			break;
+		}
+		w = be16(e, 0);
+		name = be16(e, 2);
+		unlock = (s16)be16(e, 4);
+		if ((w & 0x1ff) == 0 || name == 0 || unlock < -1 || unlock >= 0x60) {
 			break;
 		}
 		++n;
@@ -2764,6 +2816,42 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		if (n) {
 			LINE("  solostages 0x%08x %u\n", addr, n);
 			rep("  %u solo missions at %08x%s", n, addr, tnote);
+		}
+	}
+
+	// each stage's music: the main theme, the background track and the X
+	// theme. GE-X fills the table with its own stage ids; without it every
+	// GE-X mission played the Combat Simulator's random pick
+	addr = locateTable(&t, "g_StageTracks", tnote, sizeof(tnote));
+	if (addr) {
+		const u32 n = countStageTracks(&t, addr, stockCount("g_StageTracks", 8));
+		if (n) {
+			LINE("  stagetracks 0x%08x %u\n", addr, n);
+			rep("  %u stages' music at %08x%s", n, addr, tnote);
+		} else {
+			rep("  what is at %08x does not read as the stage music table; left out", addr);
+		}
+	}
+
+	// the Combat Simulator's music: which sequence each track plays, for how
+	// long, its name and what unlocks it; mp_get_num_unlocked_tracks loads
+	// its length. GE-X rewrites the whole list and, for two more tracks,
+	// starts it 12 bytes earlier
+	addr = locateTable(&t, "g_MpTracks", tnote, sizeof(tnote));
+	if (addr) {
+		u32 n = codeCount(&t, "mp_get_num_unlocked_tracks", stockCount("g_MpTracks", 6));
+		if (!n) {
+			n = countMpTracks(&t, addr, 64);
+		} else if (countMpTracks(&t, addr, n) < n) {
+			rep("  the code says %u Combat Simulator tracks but only %u read as one at %08x; the list is left out",
+					n, countMpTracks(&t, addr, n), addr);
+			n = 0;
+		}
+		if (n) {
+			LINE("  mptracks 0x%08x %u\n", addr, n);
+			rep("  %u Combat Simulator tracks at %08x%s", n, addr, tnote);
+		} else {
+			rep("  what is at %08x does not read as the Combat Simulator track list; left out", addr);
 		}
 	}
 

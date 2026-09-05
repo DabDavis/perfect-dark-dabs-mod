@@ -40,7 +40,9 @@
 #include "data.h"
 #include "game/stagetable.h"
 #include "game/env.h"
+#include "game/stagemusic.h"
 #include "game/mplayer/setup.h"
+#include "game/mplayer/mplayer.h"
 
 #define GUNCMD_MAX_LEN     512
 #define GUNVISCMD_MAX_LEN  256
@@ -1383,6 +1385,96 @@ static s32 importSoloStages(const struct moddataspec *spec)
 	return n;
 }
 
+/**
+ * Each stage's music: the main theme, the background track and the X theme,
+ * walked to a 0 stage by stagemusic.c. GE-X keeps the table where it was but
+ * fills it with its own stage ids and tracks; through the port's own table a
+ * GE-X stage matched nothing, and stageGetPrimaryTrack() answered with the
+ * Combat Simulator's random pick.
+ */
+static s32 importStageTracks(const struct moddataspec *spec)
+{
+	struct stagemusic *tracks;
+	s32 n = 0;
+
+	tracks = sysMemZeroAlloc(sizeof(struct stagemusic) * (spec->numstagetracks + 1));
+	if (!tracks) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < spec->numstagetracks; ++i) {
+		const u32 at = spec->stagetracks + i * 8;
+		const s16 stagenum = (s16)rd16(at);
+
+		if (stagenum <= 0) {
+			break;
+		}
+
+		tracks[n].stagenum = stagenum;
+		tracks[n].primarytrack = (s16)rd16(at + 2);
+		tracks[n].ambienttrack = (s16)rd16(at + 4);
+		tracks[n].xtrack = (s16)rd16(at + 6);
+		++n;
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: stage %#x music: main %d ambient %d x %d", stagenum,
+					tracks[n - 1].primarytrack, tracks[n - 1].ambienttrack, tracks[n - 1].xtrack);
+		}
+	}
+
+	if (!n) {
+		return 0;
+	}
+
+	stageSetTracks(tracks);
+	return n;
+}
+
+/**
+ * The Combat Simulator's music: each track's sequence, how long a match
+ * plays it before moving on, its name and the mission that unlocks it. The
+ * port's list is a fixed array with room to spare (MP_MAX_TRACKS), so the
+ * mod's is copied over it in place; GE-X rewrites the whole list with its own
+ * sequences and adds two tracks, with names of its own.
+ */
+static s32 importMpTracks(const struct moddataspec *spec)
+{
+	extern struct mptrack g_MpTracks[];
+	s32 count = spec->nummptracks;
+	s32 n = 0;
+
+	if (count > MP_MAX_TRACKS) {
+		sysLogPrintf(LOG_WARNING, "moddata: %d Combat Simulator tracks is more than the port's list (%d); the rest are dropped", count, MP_MAX_TRACKS);
+		count = MP_MAX_TRACKS;
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		const u32 at = spec->mptracks + i * 6;
+		const u16 w = rd16(at);
+
+		g_MpTracks[i].musicnum = w >> 9;
+		g_MpTracks[i].duration = w & 0x1ff;
+		g_MpTracks[i].name = (s16)rd16(at + 2);
+		g_MpTracks[i].unlockstage = (s16)rd16(at + 4);
+		++n;
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: mp track %d: sequence %d for %ds name %#x unlocked by mission %d", i,
+					g_MpTracks[i].musicnum, g_MpTracks[i].duration, g_MpTracks[i].name & 0xffff, g_MpTracks[i].unlockstage);
+		}
+	}
+
+	for (s32 i = n; i < MP_MAX_TRACKS; ++i) {
+		g_MpTracks[i].musicnum = 0;
+		g_MpTracks[i].duration = 0;
+		g_MpTracks[i].name = 0;
+		g_MpTracks[i].unlockstage = 0;
+	}
+
+	mpSetNumTracks(n);
+	return n;
+}
+
 static s32 modNumPlayerConsts;
 static u16 modPlayerConsts[64][2];
 
@@ -1845,6 +1937,14 @@ s32 modDataImport(const struct moddataspec *spec)
 	if (spec->commandlengths && spec->numcommandlengths > 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d AI command lengths of the mod's own from %08x",
 				importCommandLengths(spec), spec->commandlengths);
+	}
+
+	if (spec->stagetracks && spec->numstagetracks > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d stages' music from %08x", importStageTracks(spec), spec->stagetracks);
+	}
+
+	if (spec->mptracks && spec->nummptracks > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d Combat Simulator tracks from %08x", importMpTracks(spec), spec->mptracks);
 	}
 
 	modPlayerBody = spec->playerbody;

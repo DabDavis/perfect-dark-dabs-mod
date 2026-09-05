@@ -10,6 +10,9 @@
 #include "lib/lib_39c80.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 
 #define RESULT_FAIL     0
 #define RESULT_OK_NEXT  1
@@ -89,6 +92,10 @@ s32 musicHandlePlayEvent(struct musicevent *event, s32 result)
 			 */
 			if (n_alCSPGetState(g_SeqInstances[i].seqp) == AL_STOPPED) {
 				osSyncPrintf("MUSIC(Play) : Starting, Guid=%u, Midi=%d, Tune=%d\n", event->id, 0, event->tracktype);
+
+#ifndef PLATFORM_N64
+				sysLogPrintf(LOG_NOTE, "music: sequence %d starts as track type %d", event->tracknum, event->tracktype);
+#endif
 
 				if (seqPlay(&g_SeqInstances[i], event->tracknum)) {
 					seqSetVolume(&g_SeqInstances[i], event->volume);

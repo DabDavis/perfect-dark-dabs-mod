@@ -40,9 +40,10 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // 3: the stage table and the solo player's body and head; 4: every outfit's;
 // 5: the solo guards' random head lists; 6: the animated texture numbers;
 // 7: the stage environments; 8: the camera-pinned rooms;
-// 9: the scene's own copy of them and the star field).
-#define MODIMPORT_VERSION 9
-#define MODIMPORT_VERSION_LINE "importer: 9 (the game's own)"
+// 9: the scene's own copy of them and the star field; 10: each stage's music
+// and the Combat Simulator's track list).
+#define MODIMPORT_VERSION 10
+#define MODIMPORT_VERSION_LINE "importer: 10 (the game's own)"
 
 #ifdef __cplusplus
 }

@@ -3037,7 +3037,7 @@ void mpCalculateLockIfLastWinnerOrLoser(void)
 	}
 }
 
-struct mptrack g_MpTracks[] = {
+struct mptrack g_MpTracks[MP_MAX_TRACKS] = {
 	// Audio ID, duration, name, unlock after stage
 	/*0x00*/ { MUSIC_DARK_COMBAT,     160, L_MISC_124, -1 }, // "Dark Combat"
 	/*0x01*/ { MUSIC_SKEDAR_MYSTERY,  170, L_MISC_125, -1 }, // "Skedar Mystery"
@@ -3088,6 +3088,8 @@ struct mptrack g_MpTracks[] = {
 #endif
 };
 
+s32 g_MpNumTracks = MP_NUM_TRACKS_STATIC;
+
 bool mpIsTrackUnlocked(s32 tracknum)
 {
 	s16 stageindex = g_MpTracks[tracknum].unlockstage;
@@ -3127,7 +3129,7 @@ s32 mpGetTrackNumAtSlotIndex(s32 slotindex)
 	s32 i;
 	s32 numunlocked = 0;
 
-	for (i = 0; i != ARRAYCOUNT(g_MpTracks); i++) {
+	for (i = 0; i != g_MpNumTracks; i++) {
 		if (mpIsTrackUnlocked(i)) {
 			if (numunlocked == slotindex) {
 				break;
@@ -3142,7 +3144,18 @@ s32 mpGetTrackNumAtSlotIndex(s32 slotindex)
 
 s32 mpGetNumUnlockedTracks(void)
 {
-	return mpGetTrackSlotIndex(ARRAYCOUNT(g_MpTracks));
+	return mpGetTrackSlotIndex(g_MpNumTracks);
+}
+
+// How many tracks the list holds; a mod's list is copied over it in place
+s32 mpGetNumTracks(void)
+{
+	return g_MpNumTracks;
+}
+
+void mpSetNumTracks(s32 count)
+{
+	g_MpNumTracks = count < 0 ? 0 : count > MP_MAX_TRACKS ? MP_MAX_TRACKS : count;
 }
 
 s32 mpGetTrackMusicNum(s32 slotindex)
