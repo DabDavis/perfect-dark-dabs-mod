@@ -1955,6 +1955,8 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
     # Attack Ship's backdrop) by stage and room number: the stages are `lh`
     # loads of g_Stages[index].id, the rooms are `li`. GE-X points all of
     # them at its own stages.
+    # bgRenderScene() tests the same stages and rooms again to draw the pinned
+    # room first, and the star field by stage id literal
     if followed and 'room_populate_mtx' in codesyms:
         start, end = codesyms['room_populate_mtx']
         pairs = follow_immediates(stockcode, modcode, start - 0x7f000000, end - 0x7f000000)
@@ -1963,14 +1965,27 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
         if pairs:
             notes.append('%d pinned room numbers changed in the mod\'s room code: %s'
                          % (len(pairs), ', '.join('%#x->%d' % (k, v) for k, v in sorted(pairs.items()))))
-        modstages, _ = locate('g_Stages')
-        if modstages:
-            pairs = follow_stage_loads(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, seg, base, modstages)
-            for k, v in sorted(pairs.items()):
-                lines.append('  roomstage 0x%x %d' % (k, v))
-            if pairs:
-                notes.append('%d pinned rooms\' stages changed in the mod\'s room code: %s'
-                             % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
+    if followed and 'bg_render_scene' in codesyms:
+        start, end = codesyms['bg_render_scene']
+        pairs = follow_immediates(stockcode, modcode, start - 0x7f000000, end - 0x7f000000)
+        for k, v in sorted(pairs.items()):
+            lines.append('  bgstage 0x%x %d' % (k, v))
+        if pairs:
+            notes.append('%d backdrop and star field stage ids changed in the mod\'s scene code: %s'
+                         % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
+    modstages, _ = locate('g_Stages') if followed else (0, '')
+    if modstages:
+        pairs = {}
+        for fn in ('room_populate_mtx', 'bg_render_scene'):
+            if fn in codesyms:
+                start, end = codesyms[fn]
+                for k, v in follow_stage_loads(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, seg, base, modstages).items():
+                    pairs.setdefault(k, v)
+        for k, v in sorted(pairs.items()):
+            lines.append('  roomstage 0x%x %d' % (k, v))
+        if pairs:
+            notes.append('%d pinned rooms\' stages changed in the mod\'s room and scene code: %s'
+                         % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
 
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'

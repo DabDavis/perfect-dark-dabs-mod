@@ -89,6 +89,12 @@ struct LoadedVertex {
     struct RGBA color;
     uint8_t fog;
     uint8_t clip_rej;
+    // The RSP's fog line at the time the vertex was loaded, for the fragment
+    // shader to evaluate at its own depth: factor = z/w * mul + offset. A
+    // per-vertex factor interpolated across a triangle that starts behind
+    // the camera is wrong along most of it - the N64 clips first and
+    // evaluates the line at the new vertices, so this goes one better
+    int16_t fog_mul, fog_offset;
 };
 
 static struct {
@@ -1609,21 +1615,15 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
         d->w = w;
 
         if (rsp.geometry_mode & G_FOG) {
-            if (fabsf(w) < 0.001f) {
-                // To avoid division by zero
-                w = 0.001f;
-            }
-
-            float winv = 1.0f / w;
-            if (winv < 0.0f) {
-                winv = std::numeric_limits<int16_t>::max();
-            }
-
-            float fog_z = z * winv * rsp.fog_mul + rsp.fog_offset;
-            d->fog = clampf(fog_z, 0.f, 255.f);
+            d->fog_mul = rsp.fog_mul;
+            d->fog_offset = rsp.fog_offset;
         } else {
-            d->fog = rdp.fog_color.a;
+
+            // a constant factor: the fog colour's alpha
+            d->fog_mul = 0;
+            d->fog_offset = rdp.fog_color.a;
         }
+        d->fog = 0;
 
         d->color.a = vcn->a; // can be required for SHADE_ALPHA even if fog is enabled
     }
@@ -2081,7 +2081,8 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             buf_vbo[buf_vbo_len++] = rdp.fog_color.r / 255.0f;
             buf_vbo[buf_vbo_len++] = rdp.fog_color.g / 255.0f;
             buf_vbo[buf_vbo_len++] = rdp.fog_color.b / 255.0f;
-            buf_vbo[buf_vbo_len++] = v_arr[i]->fog / 255.0f; // fog factor
+            buf_vbo[buf_vbo_len++] = (float)v_arr[i]->fog_mul; // the fog line, evaluated per fragment
+            buf_vbo[buf_vbo_len++] = (float)v_arr[i]->fog_offset;
         }
 
         if (batch.use_grayscale) {

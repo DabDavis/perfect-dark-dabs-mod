@@ -680,10 +680,35 @@ row is `c_scaley` of view-space y at unit depth, `cam0f0b4c3c()`), with the
 rotation written out from the ratio because the game's own `atan2f` has its
 own argument convention. Positive is up; checked on the flyover frame.
 
-**"Blocky fog that culls very closely", same report.** `--no-fog` (a debug
-switch in `envStartFog()`) showed the navy wall at the hangar opening is fog
-on the far cliff, not rooms left undrawn. GE-X's Runway fog is 996-1000 of
-the 10..15000 z range: fog from about 21 m, full at 150 m, as heavy as the
-original game's Runway. The fog is per vertex on both machines, so large
-triangles shade in blocks there too. Not changed; if a console capture shows
-the runway from inside the hangar, the port's z range is the next suspect.
+**"Blocky fog that culls very closely", same report.** Two things, found
+in that order with `--no-fog` (a debug switch in `envStartFog()` that draws
+a fogged stage without its fog) and a one-frame trace of the renderer's
+display list:
+
+- **The pinned room, again, in `bgRenderScene()`.** bg.c has its own copy
+  of `roomPopulateMtx()`'s stage and room tests: for those stages it draws
+  the pinned room *first*, with fog stopped, and a star field for six stage
+  ids written as literals. On GE-X's Runway that was the start area, drawn
+  through its room list's baked fog blender (`G_RM_FOG_SHADE_A`) with the
+  fog geometry bit clear - a full-fog blend, since the renderer's factor for
+  a vertex without the bit is the fog colour's alpha, 0xff - and the fogged
+  pass behind it lost the depth test. The tester's "stars" were the star
+  field. The constant follower now runs over `bg_render_scene` too: its
+  `g_Stages[index].id` loads join the `roomstage` list (rows sharing a key
+  share one list, so a stage found in both functions comes out once), and
+  its `li` stage ids go out as `bgstage`; bg.c compares through
+  `ROOMSTAGE()`, `MOD_ROOM()` and `MOD_BGSTAGE()`. GE-X points all six star
+  field stages at its stage 9 or 0x2e. Importer version 9.
+- **Fog is now evaluated per fragment.** The renderer used to compute the
+  fog factor per vertex, before the GPU clipped the triangle, and a vertex
+  behind the camera got a factor of 0 that was then lerped in clip space
+  across the near plane - a room polygon reaching from behind the camera to
+  the far wall came out fogged wrong along most of its length ("blocky").
+  The N64 clips first and evaluates the fog line at the new vertices.
+  `aFog` now carries the fog colour and the RSP's multiplier, `aFogOffset`
+  the offset, and the fragment shader evaluates `z/w * mul + offset` at its
+  own depth (`vFogZW` is the clip-space z and w, interpolated perspective
+  correct, so their ratio is the true depth). A vertex loaded without the
+  fog geometry bit gets multiplier 0 and the fog colour's alpha as offset,
+  the constant factor it had before. The Runway's fog itself is the mod's:
+  996-1000 of a 10..15000 z range, from about 21 m to full at 150 m.

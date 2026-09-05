@@ -279,9 +279,16 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         }
     }
     if (cc_features.opt_fog) {
+        // aFog: the fog colour and the RSP fog line's multiplier; the offset
+        // beside it. The factor is evaluated per fragment from z/w, so a
+        // triangle that starts behind the camera fogs as the N64 would after
+        // clipping it, rather than as a lerp from a vertex that is not on screen
         append_line(vs_buf, &vs_len, "INPUT vec4 aFog;");
+        append_line(vs_buf, &vs_len, "INPUT float aFogOffset;");
         append_line(vs_buf, &vs_len, "OUTPUT vec4 vFog;");
-        num_floats += 4;
+        append_line(vs_buf, &vs_len, "OUTPUT float vFogOffset;");
+        append_line(vs_buf, &vs_len, "OUTPUT vec2 vFogZW;");
+        num_floats += 5;
     }
 
     if (cc_features.opt_grayscale) {
@@ -310,6 +317,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
     if (cc_features.opt_fog) {
         append_line(vs_buf, &vs_len, "    vFog = aFog;");
+        append_line(vs_buf, &vs_len, "    vFogOffset = aFogOffset;");
+        append_line(vs_buf, &vs_len, "    vFogZW = aVtxPos.zw;");
     }
     if (cc_features.opt_grayscale) {
         append_line(vs_buf, &vs_len, "    vGrayscaleColor = aGrayscaleColor;");
@@ -362,6 +371,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
     if (cc_features.opt_fog) {
         append_line(fs_buf, &fs_len, "INPUT vec4 vFog;");
+        append_line(fs_buf, &fs_len, "INPUT float vFogOffset;");
+        append_line(fs_buf, &fs_len, "INPUT vec2 vFogZW;");
     }
     if (cc_features.opt_grayscale) {
         append_line(fs_buf, &fs_len, "INPUT vec4 vGrayscaleColor;");
@@ -504,10 +515,12 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     append_line(fs_buf, &fs_len, "    texel = clamp(texel, 0.0, 1.0);");
     // TODO discard if alpha is 0?
     if (cc_features.opt_fog) {
+        append_line(fs_buf, &fs_len, "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;");
+        append_line(fs_buf, &fs_len, "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;");
         if (cc_features.opt_alpha) {
-            append_line(fs_buf, &fs_len, "    texel = vec4(mix(texel.rgb, vFog.rgb, vFog.a), texel.a);");
+            append_line(fs_buf, &fs_len, "    texel = vec4(mix(texel.rgb, vFog.rgb, fogFactor), texel.a);");
         } else {
-            append_line(fs_buf, &fs_len, "    texel = mix(texel, vFog.rgb, vFog.a);");
+            append_line(fs_buf, &fs_len, "    texel = mix(texel, vFog.rgb, fogFactor);");
         }
     }
 
@@ -614,6 +627,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     if (cc_features.opt_fog) {
         prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aFog");
         prg->attrib_sizes[cnt] = 4;
+        ++cnt;
+        prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aFogOffset");
+        prg->attrib_sizes[cnt] = 1;
         ++cnt;
     }
 

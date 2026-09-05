@@ -2209,6 +2209,7 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "player_choose_body_and_head", 0x7f0b872c, 0x7f0b8ba0 },
 	{ "tex_load_from_gdl",         0x7f1756c0, 0x7f175ef4 },
 	{ "room_populate_mtx",         0x7f166a6c, 0x7f166bc0 },
+	{ "bg_render_scene",           0x7f15a6f4, 0x7f15b114 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -2790,17 +2791,30 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 	// `lh` loads of g_Stages[index].id, followed as stage ids - the stock
 	// id at the stock index, the mod's table's id at the mod's - and the
 	// rooms are `li`. GE-X points all of them at its own stages.
+	//
+	// bgRenderScene() tests the same stages and rooms again to draw the
+	// pinned room first, and the star field by stage id literal; rows that
+	// share a key share one list, so the stages found in both functions
+	// come out once.
 	static const struct { const char *fn; const char *key; const char *what; u32 stages; } consts[] = {
 		{ "player_choose_body_and_head", "playerconst", "body/head constants changed in the mod's outfit code", 0 },
 		{ "tex_load_from_gdl",           "texconst",    "animated texture numbers changed in the mod's texture code", 0 },
 		{ "room_populate_mtx",           "roomnum",     "pinned room numbers changed in the mod's room code", 0 },
+		{ "bg_render_scene",             "bgstage",     "backdrop and star field stage ids changed in the mod's scene code", 0 },
 		{ "room_populate_mtx",           "roomstage",   "pinned rooms' stages changed in the mod's room code", 1 },
+		{ "bg_render_scene",             "roomstage",   "pinned rooms' stages changed in the mod's scene code", 1 },
 	};
 	const u32 modstages = t.followed ? locateTable(&t, "g_Stages", tnote, sizeof(tnote)) : 0;
+	u32 seen[64], n = 0;
+	const char *seenkey = NULL;
 	for (u32 c = 0; t.followed && c < sizeof(consts) / sizeof(consts[0]); ++c) {
 		u32 start, end;
+		if (!seenkey || strcmp(seenkey, consts[c].key)) {
+			seenkey = consts[c].key;
+			n = 0;
+		}
 		if (codeSym(consts[c].fn, &start, &end)) {
-			u32 seen[64], n = 0;
+			const u32 nbefore = n;
 			char list[1024];
 			u32 listlen = 0;
 			for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= t.stockcodelen && ofs + 4 <= t.modcodelen && n < 64; ofs += 4) {
@@ -2843,8 +2857,8 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					}
 				}
 			}
-			if (n) {
-				rep("  %u %s: %s", n, consts[c].what, list);
+			if (n > nbefore) {
+				rep("  %u %s: %s", n - nbefore, consts[c].what, list);
 			}
 		}
 	}

@@ -49,6 +49,9 @@
 #include "system.h"
 #include "video.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "mod.h"
+#endif
 #endif
 
 #define BGCMD_END                               0x00
@@ -1016,6 +1019,18 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 	return gdl;
 }
 
+#ifndef PLATFORM_N64
+// a mod pins other rooms in other stages, and draws its star field for its
+// own; its code was followed into these (see room.c, which shares the maps)
+#define ROOMSTAGE(idx) modDataRoomStage(idx, g_Stages[idx].id)
+#define MOD_ROOM(x) modDataRoomNum(x)
+#define MOD_BGSTAGE(x) modDataBgStage(x)
+#else
+#define ROOMSTAGE(idx) g_Stages[idx].id
+#define MOD_ROOM(x) (x)
+#define MOD_BGSTAGE(x) (x)
+#endif
+
 Gfx *bgRenderScene(Gfx *gdl)
 {
 	s32 stagenum = g_Vars.stagenum;
@@ -1074,47 +1089,47 @@ Gfx *bgRenderScene(Gfx *gdl)
 	// Render special "always on" rooms, such as the Defection moon,
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
 	if (!USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
-			&& (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
-				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
-				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
-				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id
-				|| stagenum == g_Stages[STAGEINDEX_SKEDARRUINS].id
-				|| stagenum == g_Stages[STAGEINDEX_WAR].id
-				|| stagenum == g_Stages[STAGEINDEX_DEFECTION].id
-				|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
-				|| stagenum == g_Stages[STAGEINDEX_MBR].id
-				|| stagenum == g_Stages[STAGEINDEX_TEST_OLD].id
-				|| stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id)) {
+			&& (stagenum == ROOMSTAGE(STAGEINDEX_INFILTRATION)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_RESCUE)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_ESCAPE)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_MAIANSOS)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_SKEDARRUINS)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_WAR)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_DEFECTION)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_EXTRACTION)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_MBR)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_TEST_OLD)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_ATTACKSHIP))) {
 		gdl = envStopFog(gdl);
 		gdl = vi0000ab78(gdl);
 
 		roomnum = -1;
 
-		if (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
-				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
-				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
-				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) {
-			roomnum = 0x0f;
-		} else if (stagenum == g_Stages[STAGEINDEX_SKEDARRUINS].id
-				|| stagenum == g_Stages[STAGEINDEX_WAR].id) {
-			roomnum = 0x02;
-		} else if (stagenum == g_Stages[STAGEINDEX_DEFECTION].id
-				|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
-				|| stagenum == g_Stages[STAGEINDEX_MBR].id) {
-			roomnum = 0x01;
-		} else if (stagenum == g_Stages[STAGEINDEX_TEST_OLD].id) {
-			roomnum = 0x01;
-		} else if (stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id) {
-			roomnum = 0x71;
+		if (stagenum == ROOMSTAGE(STAGEINDEX_INFILTRATION)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_RESCUE)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_ESCAPE)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_MAIANSOS)) {
+			roomnum = MOD_ROOM(0x0f);
+		} else if (stagenum == ROOMSTAGE(STAGEINDEX_SKEDARRUINS)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_WAR)) {
+			roomnum = MOD_ROOM(0x02);
+		} else if (stagenum == ROOMSTAGE(STAGEINDEX_DEFECTION)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_EXTRACTION)
+				|| stagenum == ROOMSTAGE(STAGEINDEX_MBR)) {
+			roomnum = MOD_ROOM(0x01);
+		} else if (stagenum == ROOMSTAGE(STAGEINDEX_TEST_OLD)) {
+			roomnum = MOD_ROOM(0x01);
+		} else if (stagenum == ROOMSTAGE(STAGEINDEX_ATTACKSHIP)) {
+			roomnum = MOD_ROOM(0x71);
 		}
 
 		if (PLAYERCOUNT() == 1
-				&& (stagenum == STAGE_DEFECTION
-					|| stagenum == STAGE_EXTRACTION
-					|| stagenum == STAGE_TEST_OLD
-					|| stagenum == STAGE_INFILTRATION
-					|| stagenum == STAGE_ESCAPE
-					|| stagenum == STAGE_ATTACKSHIP)) {
+				&& (stagenum == MOD_BGSTAGE(STAGE_DEFECTION)
+					|| stagenum == MOD_BGSTAGE(STAGE_EXTRACTION)
+					|| stagenum == MOD_BGSTAGE(STAGE_TEST_OLD)
+					|| stagenum == MOD_BGSTAGE(STAGE_INFILTRATION)
+					|| stagenum == MOD_BGSTAGE(STAGE_ESCAPE)
+					|| stagenum == MOD_BGSTAGE(STAGE_ATTACKSHIP))) {
 			gdl = text0f153628(gdl);
 
 			gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);

@@ -1415,7 +1415,7 @@ s32 modDataTexNum(s32 def)
 static s32 modNumRoomNums;
 static u16 modRoomNums[16][2];
 static s32 modNumRoomStages;
-static u16 modRoomStages[16][2];
+static u16 modRoomStages[32][2];
 
 // A pinned room's number as the mod's room code has it
 s32 modDataRoomNum(s32 def)
@@ -1438,6 +1438,20 @@ s32 modDataRoomStage(s32 stockindex, s32 defid)
 		}
 	}
 	return defid;
+}
+
+static s32 modNumBgStages;
+static u16 modBgStages[16][2];
+
+// A star field stage id as the mod's scene code has it
+s32 modDataBgStage(s32 def)
+{
+	for (s32 i = 0; i < modNumBgStages; ++i) {
+		if (modBgStages[i][0] == (u16)def) {
+			return modBgStages[i][1];
+		}
+	}
+	return def;
 }
 
 // The default outfit's body and head come through the map like the rest;
@@ -1854,8 +1868,11 @@ s32 modDataImport(const struct moddataspec *spec)
 	modNumRoomStages = spec->numroomstages;
 	memcpy(modRoomStages, spec->roomstages, sizeof(modRoomStages));
 
-	if (modNumRoomNums || modNumRoomStages) {
-		sysLogPrintf(LOG_NOTE, "moddata: the camera-pinned rooms are the mod's (%d stages, %d room numbers changed)", modNumRoomStages, modNumRoomNums);
+	modNumBgStages = spec->numbgstages;
+	memcpy(modBgStages, spec->bgstages, sizeof(modBgStages));
+
+	if (modNumRoomNums || modNumRoomStages || modNumBgStages) {
+		sysLogPrintf(LOG_NOTE, "moddata: the camera-pinned rooms and star field are the mod's (%d stages, %d room numbers, %d star field stages changed)", modNumRoomStages, modNumRoomNums, modNumBgStages);
 	}
 
 	if (modPlayerBody >= 0 || modPlayerHead >= 0) {

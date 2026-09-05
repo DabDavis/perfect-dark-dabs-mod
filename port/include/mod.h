@@ -66,7 +66,10 @@ struct moddataspec {
 	s32 numroomnums;
 	u16 roomnums[16][2];
 	s32 numroomstages;
-	u16 roomstages[16][2];
+	u16 roomstages[32][2];
+	// the stage ids bgRenderScene() draws its star field for: stock -> mod
+	s32 numbgstages;
+	u16 bgstages[16][2];
 	u32 commandlengths;  // g_CommandLengths[], for the mod's own AI commands
 	s32 numcommandlengths;
 	u32 solostages;      // g_SoloStages[], the mission list
@@ -88,6 +91,9 @@ s32 modDataTexNum(s32 def);
 // and the stage id a stock stage index's site compares against.
 s32 modDataRoomNum(s32 def);
 s32 modDataRoomStage(s32 stockindex, s32 defid);
+
+// A stage id bgRenderScene() tests for its star field, as the mod's code has it
+s32 modDataBgStage(s32 def);
 
 // Rebuild the weapon definitions and model tables from that segment. Once per
 // run: what it allocates is never given back.

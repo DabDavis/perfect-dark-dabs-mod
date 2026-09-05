@@ -771,10 +771,20 @@ static char *modConfigParseDataSegment(char *p, char *token)
 			s32 k = 0, v = 0;
 			PARSE_INT("datasegment", "roomstage stock", k, 0, 0xffff, NULL);
 			PARSE_INT("datasegment", "roomstage mod", v, 0, 0xffff, NULL);
-			if (spec.numroomstages < 16) {
+			if (spec.numroomstages < 32) {
 				spec.roomstages[spec.numroomstages][0] = (u16)k;
 				spec.roomstages[spec.numroomstages][1] = (u16)v;
 				spec.numroomstages++;
+			}
+		} else if (!strcmp(token, "bgstage")) {
+			// one line per star field stage id the mod's scene code changed: stock, mod
+			s32 k = 0, v = 0;
+			PARSE_INT("datasegment", "bgstage stock", k, 0, 0xffff, NULL);
+			PARSE_INT("datasegment", "bgstage mod", v, 0, 0xffff, NULL);
+			if (spec.numbgstages < 16) {
+				spec.bgstages[spec.numbgstages][0] = (u16)k;
+				spec.bgstages[spec.numbgstages][1] = (u16)v;
+				spec.numbgstages++;
 			}
 		} else if (!strcmp(token, "playerbody")) {
 			PARSE_INT("datasegment", "playerbody", spec.playerbody, 0, 255, NULL);
