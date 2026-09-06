@@ -15,11 +15,9 @@
  *   reads as muddy at 30x is the low contrast between neighbouring texels,
  *   then resampled through a Catmull-Rom cubic, which keeps every original
  *   texel where it was and draws a smooth curve rather than a straight line
- *   between them. The curve is held within the two texels it runs between,
- *   so a hard edge gets no overshoot on either side: a bright line on a
- *   dark screen would otherwise grow a rim. The work is done with the
- *   colour premultiplied by the alpha so a cut-out's transparent texels,
- *   which are usually black, do not bleed a dark rim into its edge.
+ *   between them. The work is done with the colour premultiplied by the
+ *   alpha so a cut-out's transparent texels, which are usually black, do not
+ *   bleed a dark rim into its edge.
  *
  * - A font glyph is a shape, not a picture: its colour is flat and the alpha
  *   is the letter. It gets the same cubic and no sharpening, and its coverage
@@ -206,15 +204,11 @@ const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height
                     acc[2] += t[2] * ph->w[k];
                     acc[3] += t[3] * ph->w[k];
                 }
-                // Held between the two texels it lies between: taps 1 and 2
-                const float* n0 = row + (size_t)edge_index(x + ph->base + 1, w, edge_s) * 4;
-                const float* n1 = row + (size_t)edge_index(x + ph->base + 2, w, edge_s) * 4;
                 float* o = orow + ((size_t)x * scale + p) * 4;
-                for (int c = 0; c < 4; c++) {
-                    const float lo = n0[c] < n1[c] ? n0[c] : n1[c];
-                    const float hi = n0[c] < n1[c] ? n1[c] : n0[c];
-                    o[c] = acc[c] < lo ? lo : (acc[c] > hi ? hi : acc[c]);
-                }
+                o[0] = acc[0];
+                o[1] = acc[1];
+                o[2] = acc[2];
+                o[3] = acc[3];
             }
         }
     }
@@ -230,13 +224,8 @@ const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height
             float* orow = dst_buf + ((size_t)y * scale + p) * ow * 4;
             for (int x = 0; x < ow; x++) {
                 for (int c = 0; c < 4; c++) {
-                    float v = rows[0][x * 4 + c] * ph->w[0] + rows[1][x * 4 + c] * ph->w[1] +
-                              rows[2][x * 4 + c] * ph->w[2] + rows[3][x * 4 + c] * ph->w[3];
-                    const float a = rows[1][x * 4 + c];
-                    const float b = rows[2][x * 4 + c];
-                    const float lo = a < b ? a : b;
-                    const float hi = a < b ? b : a;
-                    orow[x * 4 + c] = v < lo ? lo : (v > hi ? hi : v);
+                    orow[x * 4 + c] = rows[0][x * 4 + c] * ph->w[0] + rows[1][x * 4 + c] * ph->w[1] +
+                                      rows[2][x * 4 + c] * ph->w[2] + rows[3][x * 4 + c] * ph->w[3];
                 }
             }
         }

@@ -1380,22 +1380,10 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // The game's own texels: scaled up as they are uploaded, if asked. A row
     // padded past the tile is clamped rather than wrapped, since what lies
     // over its far edge is padding and not the other side of the picture.
-    //
-    // Not when it is point sampled - by this draw's othermode, which is also
-    // where the GUI Texture Filtering switch lands, or by the global Texture
-    // Filtering set to none. The scaler puts a curve between the texels in
-    // place of the bilinear tent, and a texture drawn with nearest filtering
-    // has neither: what nearest showed of a resampled texture was each new
-    // half-tone texel as a block of its own, so a one-texel line of text on
-    // a computer screen came out bolder and stepped. The mode of the first
-    // draw decides, the cache not keying on it; a texture drawn both ways is
-    // rare enough to leave.
     {
         const uint32_t padded_w = (tex_row_bytes * 2) >> siz;
         const bool padded = padded_w != rdp.texture_tile[tile].width;
-        const bool point = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) == G_TF_POINT ||
-                           gfx_rapi->get_texture_filter() == FILTER_NONE;
-        import_enhance_scale = point ? 1 : (loaded_texture.glyph ? gfx_text_smooth_scale : gfx_texture_enhance_scale);
+        import_enhance_scale = loaded_texture.glyph ? gfx_text_smooth_scale : gfx_texture_enhance_scale;
         import_enhance_edge_s = padded ? TEXSCALE_EDGE_CLAMP : gfx_texscale_edge(rdp.texture_tile[tile].cms);
         import_enhance_edge_t = gfx_texscale_edge(rdp.texture_tile[tile].cmt);
         import_enhance_glyph = loaded_texture.glyph != 0;
