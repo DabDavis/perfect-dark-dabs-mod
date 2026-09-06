@@ -3604,6 +3604,11 @@ void bgun0f09d8dc(f32 breathing, f32 arg1, f32 arg2, f32 arg3, f32 arg4)
 		}
 	}
 
+	// Gun Sway With Tilt: the walking share only, which is whatever the
+	// speed put above the idle tenth. That and the breathing floors below
+	// are stock's, so the gun at rest is the gun at rest.
+	player->gunposamplitude = 0.1f + (player->gunposamplitude - 0.1f) * modGetGunSwayScale();
+
 	if (bmoveGetCrouchPos() != CROUCHPOS_SQUAT) {
 		if (player->gunposamplitude < 0.3f * g_Vars.currentplayer->bondbreathing) {
 			player->gunposamplitude = 0.3f * g_Vars.currentplayer->bondbreathing;

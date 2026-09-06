@@ -170,6 +170,16 @@
 #define MODTILT_HEAVY  3
 #define MODTILT_MAX    MODTILT_HEAVY
 
+/**
+ * Gun Sway With Tilt: the gun's own step motion scaled up alongside the
+ * bob, so the two move as one body. The gun is drawn in screen space and
+ * rides with the picture, so at Heavy the world bobs under a steady gun,
+ * which reads as floating; with this on the gun swings with the walk by
+ * the same factor - one and a half times stock at Light, twice at Normal,
+ * three times at Heavy. Nothing without Camera Tilt itself, and the idle
+ * breathing is left at stock either way.
+ */
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -196,6 +206,7 @@ struct modoptions {
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
 	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look, and bobs with a step
+	s32 gunsway;     // the gun's step motion scaled up with the bob
 };
 
 extern struct modoptions g_ModOptions;
@@ -230,5 +241,6 @@ bool modIsWeaponAGun(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);
 bool modIsCleanTextOn(void);
 f32 modGetCameraTiltScale(void);
+f32 modGetGunSwayScale(void);
 
 #endif

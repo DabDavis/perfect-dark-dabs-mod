@@ -2257,6 +2257,26 @@ static MenuItemHandlerResult menuhandlerModCameraTilt(s32 operation, struct menu
 }
 
 /**
+ * Gun Sway With Tilt: the gun's step motion scaled up by the same amount
+ * as the bob, so it does not float over a bobbing world. Nothing to set
+ * with Camera Tilt off.
+ */
+static MenuItemHandlerResult menuhandlerModGunSway(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.cameratilt == MODTILT_OFF;
+	case MENUOP_GET:
+		return g_ModOptions.gunsway;
+	case MENUOP_SET:
+		g_ModOptions.gunsway = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * COD Style Aiming: sights, a little zoom, and moving while aiming.
  */
 static MenuItemHandlerResult menuhandlerModCodAiming(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -3149,6 +3169,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Camera Tilt",
 		0,
 		menuhandlerModCameraTilt,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Gun Sway With Tilt",
+		0,
+		menuhandlerModGunSway,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

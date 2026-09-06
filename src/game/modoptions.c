@@ -39,6 +39,7 @@ struct modoptions g_ModOptions = {
 	true,                     // alarmsound
 	true,                     // cleantext
 	MODTILT_NORMAL,           // cameratilt
+	true,                     // gunsway
 };
 
 /**
@@ -389,6 +390,20 @@ f32 modGetCameraTiltScale(void)
 	}
 
 	return 0.0f;
+}
+
+/**
+ * Gun Sway With Tilt, as a multiplier on the gun's step motion: stock's 1
+ * when off or when Camera Tilt is, else one more than the tilt's own scale
+ * - 1.5 at Light, 2 at Normal, 3 at Heavy.
+ */
+f32 modGetGunSwayScale(void)
+{
+	if (g_ModOptions.gunsway == 0) {
+		return 1.0f;
+	}
+
+	return 1.0f + modGetCameraTiltScale();
 }
 
 /**
