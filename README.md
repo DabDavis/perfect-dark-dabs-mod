@@ -65,7 +65,7 @@ Mod Options**. Each one persists to `pd.ini` under a `Mod.` key.
 | Combat Roll | A dodge roll. **C** on the keyboard, right stick click on a pad |
 | Melee Combos | The punch and kick combos solo play has always had, in multiplayer |
 | Flinch When Shot | Bodies react to where the shot landed instead of ignoring it |
-| Start Armed | Spawn holding a weapon — the arena's, or a random one. Off by default, because stock is off |
+| Start Armed | Spawn holding a weapon — the arena's, or a random one. Off by default, because stock is off. In a solo mission, Random adds a random gun to the mission's kit; First Weapon changes nothing there, the mission having armed you already |
 | Start Armed For | Whether simulants spawn armed too, or only players |
 
 ### Third person

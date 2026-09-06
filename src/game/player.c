@@ -51,6 +51,7 @@
 #include "game/modspectate.h"
 #include "game/playermgr.h"
 #include "game/modoptions.h"
+#include "system.h"
 #include "game/explosions.h"
 #include "game/bondview.h"
 #include "game/game_1531a0.h"
@@ -954,6 +955,112 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Put Start Armed's gun in the hands, or the defaults.
+ *
+ * In a match the defaults are unarmed. In a mission playerReset() has
+ * already handed out the mission's kit and equipped it through
+ * player0f0b9a20(), so the defaults are the mission's own gun, and Akimbo
+ * doubles that; Random adds a gun beside the kit. Either way what ends up
+ * in the hands is recorded in spawnweaponnums, because a mission's script
+ * arms the player again a few frames in with chr_draw_weapon - the Villa
+ * has no default weapon and draws the sniper rifle that way - and
+ * aiChrDrawWeapon() reads the record back rather than undo this.
+ */
+static void playerSpawnWeapons(void)
+{
+	const s32 spawnweapon = mpGetSpawnWeapon();
+
+	if (spawnweapon >= 0) {
+		struct mpweapon *mpweapon = &g_MpWeapons[spawnweapon];
+		bool akimbo = modIsAkimboForPlayers() && modCanAkimbo(mpweapon->weaponnum);
+
+		invGiveSingleWeapon(mpweapon->weaponnum);
+
+		if (akimbo) {
+			// The dual is its own inventory item beside the single,
+			// as it is when a second one is picked up off the floor
+			invGiveDoubleWeapon(mpweapon->weaponnum, mpweapon->weaponnum);
+		}
+		const s32 ammotype = (spawnweapon == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
+		if (ammotype) {
+			// Full capacity for the ammo type, not the weapon's pickup
+			// quantity: with a lobby this size you are not going to find
+			// a crate before someone finds you.
+			s32 startammo = bgunGetCapacityByAmmotype(ammotype);
+			if (startammo <= 0) {
+				startammo = 1;
+			}
+			bgunSetAmmoQuantity(ammotype, startammo);
+		}
+		{
+			s32 leftweaponnum = akimbo ? mpweapon->weaponnum : WEAPON_NONE;
+
+			// Akimbo with Random: a second roll for the left hand, so
+			// the pair is two different guns when the roll allows it,
+			// with its own ammunition filled the same way
+			if (akimbo && modGetSpawnWeapon() == SPAWNWEAPON_RANDOM && g_Vars.currentplayer->gunctrl.gunmemmixed) {
+				s32 tries;
+
+				for (tries = 0; tries < 8; tries++) {
+					const s32 spawnweapon2 = mpGetSpawnWeapon();
+
+					if (spawnweapon2 >= 0 && spawnweapon2 != MPWEAPON_COMBATBOOST
+							&& g_MpWeapons[spawnweapon2].weaponnum != mpweapon->weaponnum
+							&& modCanAkimbo(g_MpWeapons[spawnweapon2].weaponnum)) {
+						struct mpweapon *mpweapon2 = &g_MpWeapons[spawnweapon2];
+						s32 ammotype2 = mpweapon2->priammotype;
+
+						invGiveSingleWeapon(mpweapon2->weaponnum);
+
+						if (ammotype2) {
+							s32 startammo2 = bgunGetCapacityByAmmotype(ammotype2);
+
+							if (startammo2 <= 0) {
+								startammo2 = 1;
+							}
+
+							bgunSetAmmoQuantity(ammotype2, startammo2);
+						}
+
+						leftweaponnum = mpweapon2->weaponnum;
+						break;
+					}
+				}
+			}
+
+			g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] = leftweaponnum;
+			g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] = mpweapon->weaponnum;
+			bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
+		}
+		bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
+	} else {
+		s32 leftweaponnum = g_DefaultWeapons[HAND_LEFT];
+
+		// Akimbo in a mission: the gun the mission starts the player
+		// with is what "spawns armed" means there, so it is doubled
+		// the way a Start Armed gun is, when it is a gun and the
+		// mission did not fill the left hand itself. The dual is its
+		// own inventory item beside the single, as with a pickup. The
+		// mission's ammunition is not topped up: two Falcons empty
+		// its clips twice as fast, which is the trade.
+		if (!g_Vars.normmplayerisrunning
+				&& leftweaponnum <= WEAPON_NONE
+				&& modIsAkimboForPlayers()
+				&& modCanAkimbo(g_DefaultWeapons[HAND_RIGHT])) {
+			invGiveDoubleWeapon(g_DefaultWeapons[HAND_RIGHT], g_DefaultWeapons[HAND_RIGHT]);
+			leftweaponnum = g_DefaultWeapons[HAND_RIGHT];
+		}
+
+		g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] = leftweaponnum;
+
+		bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
+		bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
+	}
+}
+#endif
+
 void playerSpawn(void)
 {
 	f32 xdiff;
@@ -992,6 +1099,14 @@ void playerSpawn(void)
 		playerSetShieldFrac(1);
 		g_Vars.currentplayer->armourscale = 2;
 	}
+
+#ifndef PLATFORM_N64
+	// What this puts in the hands, for aiChrDrawWeapon() to put back when
+	// the mission's script draws the player's weapon; the mission's own
+	// defaults until playerSpawnWeapons() has had its say.
+	g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] = g_DefaultWeapons[HAND_LEFT];
+	g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] = g_DefaultWeapons[HAND_RIGHT];
+#endif
 
 	if (g_Vars.mplayerisrunning) {
 		if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.anti) {
@@ -1132,75 +1247,11 @@ void playerSpawn(void)
 				invGiveSingleWeapon(WEAPON_NIGHTVISION);
 			}
 
-			const s32 spawnweapon = mpGetSpawnWeapon();
-
-			if (spawnweapon >= 0) {
-				struct mpweapon *mpweapon = &g_MpWeapons[spawnweapon];
-				bool akimbo = modIsAkimboForPlayers() && modCanAkimbo(mpweapon->weaponnum);
-
-				invGiveSingleWeapon(mpweapon->weaponnum);
-
-				if (akimbo) {
-					// The dual is its own inventory item beside the single,
-					// as it is when a second one is picked up off the floor
-					invGiveDoubleWeapon(mpweapon->weaponnum, mpweapon->weaponnum);
-				}
-				const s32 ammotype = (spawnweapon == MPWEAPON_COMBATBOOST) ? AMMOTYPE_BOOST : mpweapon->priammotype;
-				if (ammotype) {
-					// Full capacity for the ammo type, not the weapon's pickup
-					// quantity: with a lobby this size you are not going to find
-					// a crate before someone finds you.
-					s32 startammo = bgunGetCapacityByAmmotype(ammotype);
-					if (startammo <= 0) {
-						startammo = 1;
-					}
-					bgunSetAmmoQuantity(ammotype, startammo);
-				}
-				{
-					s32 leftweaponnum = akimbo ? mpweapon->weaponnum : WEAPON_NONE;
-
-					// Akimbo with Random: a second roll for the left hand, so
-					// the pair is two different guns when the roll allows it,
-					// with its own ammunition filled the same way
-					if (akimbo && modGetSpawnWeapon() == SPAWNWEAPON_RANDOM && g_Vars.currentplayer->gunctrl.gunmemmixed) {
-						s32 tries;
-
-						for (tries = 0; tries < 8; tries++) {
-							const s32 spawnweapon2 = mpGetSpawnWeapon();
-
-							if (spawnweapon2 >= 0 && spawnweapon2 != MPWEAPON_COMBATBOOST
-									&& g_MpWeapons[spawnweapon2].weaponnum != mpweapon->weaponnum
-									&& modCanAkimbo(g_MpWeapons[spawnweapon2].weaponnum)) {
-								struct mpweapon *mpweapon2 = &g_MpWeapons[spawnweapon2];
-								s32 ammotype2 = mpweapon2->priammotype;
-
-								invGiveSingleWeapon(mpweapon2->weaponnum);
-
-								if (ammotype2) {
-									s32 startammo2 = bgunGetCapacityByAmmotype(ammotype2);
-
-									if (startammo2 <= 0) {
-										startammo2 = 1;
-									}
-
-									bgunSetAmmoQuantity(ammotype2, startammo2);
-								}
-
-								leftweaponnum = mpweapon2->weaponnum;
-								break;
-							}
-						}
-					}
-
-					bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
-				}
-				bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
-			} else
+			playerSpawnWeapons();
+#else
+			bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
+			bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
 #endif
-			{
-				bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
-				bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
-			}
 
 #if VERSION >= VERSION_NTSC_1_0
 			if (g_Vars.currentplayer->model00d4 == NULL
@@ -1214,6 +1265,14 @@ void playerSpawn(void)
 #endif
 		}
 	}
+#ifndef PLATFORM_N64
+	else {
+		// A mission: solo, or the co-operative and counter-operative modes'
+		// human, which the block above does not reach. Stock had nothing to
+		// do here, the hands being playerReset()'s business.
+		playerSpawnWeapons();
+	}
+#endif
 
 	playerUpdatePerimInfo();
 }
@@ -1697,7 +1756,37 @@ void playerTickChrBody(void)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		// A body needs a chr slot and a model, and either can be gone: a
+		// Guards Alerted! wave at its cap on a full mission takes the last
+		// chr slot, and the stage pool can be out of room for the model.
+		// Stock never gets here - a solo body was built in gunmem, which is
+		// reserved, and a match reserved every body's slot at load - but
+		// third person builds its body out of the heap every time it is
+		// switched on. chrInit() hands back no chr and chr0f020b14() would
+		// dereference it, as it would the missing model. Go without, the
+		// way the gunmem branch above goes without when the gun holds the
+		// memory, and try again next tick.
+		if (g_Vars.currentplayer->prop->chr == NULL && chrsGetNumFree() == 0) {
+			g_Vars.currentplayer->model00d4 = NULL;
+		} else {
+			g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+		}
+
+		if (g_Vars.currentplayer->model00d4 == NULL) {
+			static s32 s_PlayerBodyWarnedFrame = -1;
+
+			if (s_PlayerBodyWarnedFrame < 0 || g_Vars.lvframenum - s_PlayerBodyWarnedFrame > TICKS(600)) {
+				sysLogPrintf(LOG_WARNING, "player: no chr slot, model slot or stage memory for a body (%d chr slots free), staying first person", chrsGetNumFree());
+				s_PlayerBodyWarnedFrame = g_Vars.lvframenum;
+			}
+
+			g_Vars.currentplayer->haschrbody = false;
+			return;
+		}
+#else
 		g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+#endif
 
 		chr0f020b14(g_Vars.currentplayer->prop, g_Vars.currentplayer->model00d4, &g_Vars.currentplayer->prop->pos,
 				g_Vars.currentplayer->prop->rooms, turnangle, 0);
@@ -1911,8 +2000,17 @@ void player0f0b9a20(void)
 	}
 
 	envChooseAndApply(mainGetStageNum(), false);
+#ifndef PLATFORM_N64
+	// What playerSpawn() chose for the hands, which is the mission's
+	// defaults unless Start Armed or Akimbo changed them. At stage start
+	// this runs from playerReset(), before playerSpawn(), and equips the
+	// defaults playerReset() just recorded.
+	bgunEquipWeapon2(HAND_LEFT, g_Vars.currentplayer->spawnweaponnums[HAND_LEFT]);
+	bgunEquipWeapon2(HAND_RIGHT, g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT]);
+#else
 	bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
 	bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
+#endif
 	var8007074c = 0;
 }
 

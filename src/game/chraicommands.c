@@ -39,6 +39,7 @@
 #include "game/propobj.h"
 #include "game/mpstats.h"
 #include "bss.h"
+#include "game/modoptions.h"
 #include "lib/main.h"
 #include "lib/model.h"
 #include "lib/snd.h"
@@ -5408,9 +5409,38 @@ bool aiChrDrawWeapon(void)
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+		s32 weaponnum = (s8)cmd[3];
 		setCurrentPlayerNum(playernum);
-		bgunEquipWeapon2(0, (s8)cmd[3]);
-		bgunEquipWeapon2(1, 0);
+
+#ifndef PLATFORM_N64
+		// This is how a mission arms the player: the Villa's intro has no
+		// default weapon at all and has Jo draw the sniper rifle five
+		// frames in, over whatever playerSpawn() put in the hands. So the
+		// spawn's say is applied here as well. Start Armed's Random gun,
+		// when the spawn rolled one, is the mission's sidearm now and goes
+		// in the hands instead, pair and all; otherwise Akimbo doubles what
+		// the script drew, giving the second one the way a pickup would.
+		// The left hand first, so that the right's switch sees what it is
+		// to pair with (bgunEquipWeapon2() records the left hand's ask).
+		if (g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] != g_DefaultWeapons[HAND_RIGHT]
+				|| g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] > WEAPON_NONE) {
+			bgunEquipWeapon2(HAND_LEFT, g_Vars.currentplayer->spawnweaponnums[HAND_LEFT]);
+			bgunEquipWeapon2(HAND_RIGHT, g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT]);
+		} else if (modIsAkimboForPlayers()
+				&& modCanAkimbo(weaponnum)
+				&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)) {
+			invGiveDoubleWeapon(weaponnum, weaponnum);
+			g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] = weaponnum;
+			g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] = weaponnum;
+			bgunEquipWeapon2(HAND_LEFT, weaponnum);
+			bgunEquipWeapon2(HAND_RIGHT, weaponnum);
+		} else
+#endif
+		{
+			bgunEquipWeapon2(0, weaponnum);
+			bgunEquipWeapon2(1, 0);
+		}
+
 		setCurrentPlayerNum(prevplayernum);
 	}
 

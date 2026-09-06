@@ -64,3 +64,20 @@ bound by `MAX_BOTS_CONFIG`.
 a separate runtime array (`g_MpSimSlots`), mirrored back into `chrslots` for the low
 8 slots. It was a `u64` bitmask until 80 exceeded 64 — prefer per-slot flags over
 bitmasks here.
+
+## The third person body needs an anim slot, and the alarm can take them all
+
+`g_MaxAnims = numchrs + 20` (`modelmgrAllocateSlots()`), and
+`modelmgrInstantiateModel(def, withanim=true)` returns NULL when no anim slot
+is free. `body0f02ce8c()` passes that NULL up and `playerTickChrBody()` handed
+it straight to `chr0f020b14()`, which crashed in `modelSetAnim70()` - seen on a
+Villa run with Guards Alerted at 80 guards in third person, 125 chrs alive of
+128 slots. Stock never built a solo body outside gunmem, so it never needed a
+slot; the port's third person builds one out of the heap.
+
+Now: `setupLoadFiles()` reserves `PLAYERCOUNT()` chrs outside a match for the
+players' bodies (both counts, they must agree), counts two weapons per alerted
+guard under Akimbo and two waves of drops, and `playerTickChrBody()` treats a
+NULL body as "no body this tick" with a warning, the way the gunmem branch
+already did. Reproduce the failure path with `gdb -p` and `set g_MaxAnims = 1`
+before pressing V; restore it and the body builds next tick.

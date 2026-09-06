@@ -124,10 +124,12 @@
 /**
  * Akimbo: whoever spawns armed spawns with two, whatever the weapon - a
  * rifle or a rocket launcher in each hand as readily as a pistol. Applies
- * to what Start Armed hands a player or simulant and to what a Guards
- * Alerted! guard is given, separately or together; for players and
- * simulants it also makes a second one picked up a dual, which is what the
- * stock "dual wield all guns" cheat does.
+ * to what Start Armed hands a player or simulant, to the gun a mission
+ * starts the player with, and to what a Guards Alerted! guard is given,
+ * separately or together; for players and simulants it also makes a second
+ * one picked up a dual, which is what the stock "dual wield all guns" cheat
+ * does. Under Start Armed's Random, or Guard Weapons' Random, the left
+ * hand gets a roll of its own, so the pair is two different guns.
  */
 #define MODAKIMBO_OFF            0
 #define MODAKIMBO_EVERYONE       1

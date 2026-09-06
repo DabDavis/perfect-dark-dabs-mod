@@ -583,9 +583,28 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
 	chrGiveWeaponWithAutoModel(chr, gun, 0);
 
 	if (modIsAkimboForGuards() && modCanAkimbo(gun)) {
+		s32 leftgun = gun;
+
+		// Random: a second roll for the left hand, so the pair is two
+		// different guns when the roll allows it, the way Start Armed's
+		// Random does for a player. The AI fires each hand's own prop
+		// (chrAttackStand() and its kin) and never asks that they match.
+		if (modGetGuardWeapons() == MODALARM_WEAPONS_RANDOM) {
+			s32 tries;
+
+			for (tries = 0; tries < 8; tries++) {
+				s32 roll = modAlarmChooseGun();
+
+				if (roll != gun && modCanAkimbo(roll)) {
+					leftgun = roll;
+					break;
+				}
+			}
+		}
+
 		// A second one for the left hand, the way a mission gives a guard
 		// two magnums: try_equip_weapon with the left-handed flag
-		chrGiveWeaponWithAutoModel(chr, gun, OBJFLAG_WEAPON_LEFTHANDED);
+		chrGiveWeaponWithAutoModel(chr, leftgun, OBJFLAG_WEAPON_LEFTHANDED);
 	}
 
 	rebuildTeams();
@@ -664,8 +683,9 @@ static bool modAlarmSpawnOne(s32 bodynum)
 
 #ifndef PLATFORM_N64
 		if (g_ChrSpawnTrace) {
-			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d%s at pad %d, %.0fcm from player %d, %d free chr slots",
-					bodynum, chr->headnum, gun, chr->weapons_held[HAND_LEFT] ? " akimbo" : "",
+			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d left %d at pad %d, %.0fcm from player %d, %d free chr slots",
+					bodynum, chr->headnum, gun,
+					chr->weapons_held[HAND_LEFT] && chr->weapons_held[HAND_LEFT]->weapon ? chr->weapons_held[HAND_LEFT]->weapon->weaponnum : -1,
 					waypoint->padnum, dist, playernum, chrsGetNumFree());
 		}
 #endif

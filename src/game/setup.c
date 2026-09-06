@@ -22,6 +22,7 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/modalarm.h"
+#include "game/modoptions.h"
 #include "game/modbodies.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
@@ -1453,13 +1454,26 @@ void setupLoadFiles(s32 stagenum)
 		numchrs += modBodiesSetReserve();
 
 		// Guards Alerted! reinforcements need a chr each too, on top of the
-		// ten spares a stage gets, and a weapon each like a simulant. See
-		// modalarm.c.
+		// ten spares a stage gets, and a weapon each like a simulant - two
+		// under Akimbo. A guard drops them when it falls and the floor keeps
+		// what fell while the next wave brings its own, so two waves' worth
+		// of drops are counted beyond the guards' hands: past the slots
+		// counted here a model comes out of the stage pool, and past that
+		// out of nothing. See modalarm.c.
 		{
 			s32 numguards = modAlarmSetReserve();
+			s32 numguns = numguards * (modIsAkimboForGuards() ? 2 : 1);
 
 			numchrs += numguards;
-			numobjs += numguards;
+			numobjs += numguns * 3;
+		}
+
+		// A mission's player bodies are built out of the heap for third
+		// person and are in no setup file; stock never built one outside
+		// gunmem. Without a slot of their own a wave at the cap above takes
+		// theirs. Mirrored in the chr count below.
+		if (!g_Vars.normmplayerisrunning) {
+			numchrs += PLAYERCOUNT();
 		}
 
 		numobjs += setupCountCommandType(OBJTYPE_WEAPON);
@@ -1615,6 +1629,10 @@ void setupCreateProps(s32 stagenum)
 
 			numchrs += modBodiesGetReserve();
 			numchrs += modAlarmGetReserve();
+
+			if (!g_Vars.normmplayerisrunning) {
+				numchrs += PLAYERCOUNT(); // the third person bodies, as above
+			}
 
 			chrmgrConfigure(numchrs);
 		} else {

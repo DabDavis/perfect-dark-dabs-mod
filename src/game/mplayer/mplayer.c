@@ -1142,6 +1142,21 @@ bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
 }
 
 /**
+ * Whether Start Armed's Random may roll this entry. A gun, and in a match an
+ * unlocked one; a mission has every gun, so there the unlock test is not
+ * asked - it is the Combat Simulator's, and a mission's setup does not read
+ * the challenge table.
+ */
+static bool mpCanRollSpawnWeapon(const struct mpweapon *mpweapon)
+{
+	if (!modIsWeaponAGun(mpweapon->weaponnum)) {
+		return false;
+	}
+
+	return !g_Vars.normmplayerisrunning || mpCanSpawnWithWeapon(mpweapon);
+}
+
+/**
  * The g_MpWeapons index a player or simulant should spawn holding, or -1 to
  * spawn unarmed.
  *
@@ -1156,6 +1171,16 @@ bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
  * This is rolled per spawn, so it applies at the start of the match and again
  * on every respawn.
  *
+ * Outside a match - a solo mission, co-operative, counter-operative - the
+ * mission's own kit is what the player spawns with, and Random adds a gun
+ * to it: rolled from every gun, since a mission has all of them, and given
+ * beside the mission's weapons rather than instead of them, because the
+ * kit is what the objectives need. First Weapon is a no-op there, the
+ * mission's first weapon being the one it hands out anyway. Akimbo and the
+ * mixed pair follow the roll the same way they do in a match; without
+ * Random, Akimbo doubles the gun the mission starts the player with (see
+ * playerSpawn()).
+ *
  * Models are not preloaded for the pool. Both weaponCreateForChr() and
  * weaponCreateProjectileFromGset() call setupLoadModeldef() themselves, which is
  * how solo missions already hand out weapons the stage never spawns; preloading
@@ -1167,11 +1192,18 @@ s32 mpGetSpawnWeapon(void)
 	s32 count = 0;
 	s32 i;
 
-	if (!g_Vars.normmplayerisrunning || modGetSpawnWeapon() == SPAWNWEAPON_OFF) {
+	if (modGetSpawnWeapon() == SPAWNWEAPON_OFF) {
 		return -1;
 	}
 
-	if (modGetSpawnWeapon() != SPAWNWEAPON_RANDOM) {
+	if (!g_Vars.normmplayerisrunning) {
+		// A mission arms the player itself, and what it hands out first is
+		// its first weapon, so First Weapon has nothing to add there.
+		// Random is a gun on top of the mission's kit.
+		if (modGetSpawnWeapon() != SPAWNWEAPON_RANDOM) {
+			return -1;
+		}
+	} else if (modGetSpawnWeapon() != SPAWNWEAPON_RANDOM) {
 		s32 slot = g_MpSetup.weapons[0];
 
 		if (slot >= ARRAYCOUNT(g_MpWeapons) || !mpCanSpawnWithWeapon(&g_MpWeapons[slot])) {
@@ -1184,7 +1216,7 @@ s32 mpGetSpawnWeapon(void)
 	// The roll is of the guns: a spawn holding a cloak or a scanner is a
 	// spawn unarmed, which is what Start Armed exists to prevent.
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (mpCanSpawnWithWeapon(&g_MpWeapons[i]) && modIsWeaponAGun(g_MpWeapons[i].weaponnum)) {
+		if (mpCanRollSpawnWeapon(&g_MpWeapons[i])) {
 			count++;
 		}
 	}
@@ -1198,7 +1230,7 @@ s32 mpGetSpawnWeapon(void)
 	count = rngRandom() % count;
 
 	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (mpCanSpawnWithWeapon(&g_MpWeapons[i]) && modIsWeaponAGun(g_MpWeapons[i].weaponnum) && count-- == 0) {
+		if (mpCanRollSpawnWeapon(&g_MpWeapons[i]) && count-- == 0) {
 			return i;
 		}
 	}

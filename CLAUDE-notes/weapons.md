@@ -84,3 +84,35 @@ state; a flag on either one does not hold them.
 surrounding window - the combat knife's two sites in the hand state machine, the
 remote mine's left-hand rule before it was understood as the detonator hand.
 Naming those from a guess is worse than leaving the comparison in place.
+
+## How a mission arms the player, and why Start Armed has to go through the script
+
+Three things put a gun in the player's hands at a mission start, in this order,
+and only the last one sticks:
+
+1. `playerReset()` reads the intro's `INTROCMD_WEAPON` commands into the
+   inventory and `g_DefaultWeapons`, then calls `player0f0b9a20()`, which
+   equips them. This runs **before** `playerSpawn()`.
+2. `playerSpawn()`. In a match the `else` branch under `mplayerisrunning`
+   gives Start Armed's gun; a mission never reached that branch at all, which is
+   why Start Armed and Akimbo did nothing in solo until 2026-09-06.
+   `playerSpawnWeapons()` is now called from both.
+3. The stage script's `chr_draw_weapon` (`aiChrDrawWeapon()`, command 00ec),
+   a few frames in, during the intro cutscene. The Villa has **no** default
+   weapon (`g_DefaultWeapons[HAND_RIGHT]` is `WEAPON_UNARMED`) and draws the
+   sniper rifle this way at frame 5; the command equips the right hand and
+   empties the left, over whatever step 2 did.
+
+So the spawn's choice lives in `player->spawnweaponnums[]` and
+`aiChrDrawWeapon()` applies it instead of the script's gun when the spawn
+changed the hands, or doubles the script's gun under Akimbo. The left hand is
+equipped first: `bgunEquipWeapon2(HAND_LEFT, x)` records `leftwant`, and the
+right hand's switch pairs against it; the other order carries the *previous*
+right-hand gun into the left, which is the mixed-pair pickup behaviour.
+
+Nothing re-equips at the cutscene's end. Trace it with gdb breakpoints on
+`bgunEquipWeapon2` rather than reading for it - the frame-5 draw was invisible
+from the code.
+
+`mpGetSpawnWeapon()` now answers outside a match too: Random rolls every gun
+(the unlock test is the Combat Simulator's), First Weapon is -1 there.

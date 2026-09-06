@@ -371,6 +371,13 @@ void playerReset(void)
 		g_DefaultWeapons[HAND_RIGHT] = WEAPON_UNARMED;
 	}
 
+#ifndef PLATFORM_N64
+	// What player0f0b9a20() puts in the hands, until playerSpawn() has had
+	// its say: the mission's own kit
+	g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] = g_DefaultWeapons[HAND_LEFT];
+	g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] = g_DefaultWeapons[HAND_RIGHT];
+#endif
+
 	g_Vars.currentplayer->prop = propAllocate();
 	g_Vars.currentplayer->prop->chr = NULL;
 	g_Vars.currentplayer->prop->type = PROPTYPE_PLAYER;
