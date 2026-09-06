@@ -571,6 +571,28 @@ Gfx *vi0000aca4(Gfx *gdl, f32 znear, f32 zfar)
 	return gdl;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * vi0000aca4() with the fov given rather than the view's: a projection for
+ * something drawn in the view but not at its zoom, as the gun is at the
+ * sights under COD Style Aiming.
+ */
+Gfx *viSetPerspectiveWithFov(Gfx *gdl, f32 fovy, f32 znear, f32 zfar)
+{
+	u16 scale;
+	Mtxf tmp;
+	Mtx *mtx = gfxAllocateMatrix();
+
+	guPerspectiveF(tmp.m, &scale, fovy, g_ViBackData->aspect, znear, zfar, 1);
+	guMtxF2L(tmp.m, mtx);
+
+	gSPMatrix(gdl++, OS_K0_TO_PHYSICAL(mtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPPerspNormalize(gdl++, scale);
+
+	return gdl;
+}
+#endif
+
 Gfx *vi0000ad5c(Gfx *gdl, Vp *vp)
 {
 	vp[g_ViBackIndex].vp.vscale[0] = g_ViBackData->viewx * 2;

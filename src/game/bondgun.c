@@ -11371,6 +11371,22 @@ void bgunRender(Gfx **gdlptr)
 
 	gdl = vi0000aca4(gdl, 1.5, 1000);
 
+#ifndef PLATFORM_N64
+	// COD Style Aiming: a gun at the sights is drawn at the ADS fov however
+	// far the view has zoomed. The view model goes through the view's own
+	// projection, and at the K7 Avenger's 3x a gun brought to the sights
+	// was three times the size and off the bottom of the screen; with its
+	// own projection the K7 keeps its 3x and sits under the crosshair.
+	if (player->codaimfrac > 0.0f) {
+		f32 adsfov = PLAYER_DEFAULT_FOV * 0.8f;
+		f32 viewfov = viGetFovY();
+
+		if (viewfov < adsfov) {
+			gdl = viSetPerspectiveWithFov(gdl, viewfov + (adsfov - viewfov) * player->codaimfrac, 1.5, 1000);
+		}
+	}
+#endif
+
 	if (g_Vars.currentplayer->teleportstate != TELEPORTSTATE_INACTIVE) {
 		f32 f2;
 
