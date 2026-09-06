@@ -32,6 +32,7 @@ extern struct GfxDimensions
 extern struct XYWidthHeight
     gfx_current_game_window_viewport; // The area of the window the game is drawn to, (0, 0) is top-left corner
 extern uint32_t gfx_msaa_level;
+extern uint32_t gfx_max_msaa_level; // the most the GPU offers, 1 when framebuffers are off; set by gfx_init()
 extern struct XYWidthHeight gfx_current_native_viewport; // The internal/native video mode of the game
 extern float gfx_current_native_aspect; // The aspect ratio of the above mode
 extern bool gfx_framebuffers_enabled;

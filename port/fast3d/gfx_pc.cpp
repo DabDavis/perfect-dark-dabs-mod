@@ -318,6 +318,7 @@ static int game_framebuffer;
 static int game_framebuffer_msaa_resolved;
 
 uint32_t gfx_msaa_level = 1;
+uint32_t gfx_max_msaa_level = 1;
 
 static bool dropped_frame;
 static GfxPreSwapCallback gfx_pre_swap_callback;
@@ -3701,6 +3702,13 @@ extern "C" void gfx_init(const GfxInitSettings *settings) {
         gfx_msaa_level = 1;
     }
 
+    gfx_max_msaa_level = gfx_rapi->get_max_msaa_level ? (uint32_t)gfx_rapi->get_max_msaa_level() : 1;
+    if (gfx_msaa_level > gfx_max_msaa_level) {
+        sysLogPrintf(LOG_WARNING, "F3D: MSAA set to %d, but the GPU offers at most %d; using that",
+                     gfx_msaa_level, gfx_max_msaa_level);
+        gfx_msaa_level = gfx_max_msaa_level;
+    }
+
     for (int i = 0; i < 16; i++) {
         segmentPointers[i] = 0;
     }
@@ -3819,6 +3827,13 @@ extern "C" void gfx_start_frame(void) {
         }
     }
     gfx_prev_dimensions = gfx_current_dimensions;
+
+    // The menu sets gfx_msaa_level mid-run; the GPU's limit still applies.
+    if (gfx_msaa_level > gfx_max_msaa_level) {
+        sysLogPrintf(LOG_WARNING, "F3D: MSAA set to %d, but the GPU offers at most %d; using that",
+                     gfx_msaa_level, gfx_max_msaa_level);
+        gfx_msaa_level = gfx_max_msaa_level;
+    }
 
     bool different_size = gfx_current_dimensions.width != gfx_current_game_window_viewport.width ||
                           gfx_current_dimensions.height != gfx_current_game_window_viewport.height;

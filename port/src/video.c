@@ -367,6 +367,11 @@ s32 videoGetMSAA(void)
 	return vidMSAA;
 }
 
+s32 videoGetMaxMSAA(void)
+{
+	return (s32)gfx_max_msaa_level;
+}
+
 s32 videoGetVsync(void)
 {
 	vidVsync = wmAPI->get_swap_interval();
@@ -650,6 +655,15 @@ s32 videoCreateFramebuffer(u32 w, u32 h, s32 upscale, s32 autoresize)
 void videoSetMSAA(const s32 msaa)
 {
 	vidMSAA = msaa;
+
+	if (initDone && vidMSAA > (s32)gfx_max_msaa_level) {
+		vidMSAA = (s32)gfx_max_msaa_level;
+	}
+
+	if (vidMSAA < 1) {
+		vidMSAA = 1;
+	}
+
 	gfx_msaa_level = (u32)vidMSAA;
 }
 

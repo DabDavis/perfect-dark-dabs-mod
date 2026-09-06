@@ -51,6 +51,7 @@ s32 videoGetVsync(void);
 s32 videoGetFramerateLimit(void);
 s32 videoGetDisplayFPS(void);
 s32 videoGetMSAA(void);
+s32 videoGetMaxMSAA(void);
 f32 videoGetGlareBrightness(void);
 f32 videoGetOverexposureScale(void);
 

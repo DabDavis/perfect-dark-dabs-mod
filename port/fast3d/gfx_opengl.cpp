@@ -1353,6 +1353,8 @@ static int gfx_opengl_create_framebuffer() {
     return i;
 }
 
+static int gfx_opengl_get_max_msaa_level(void);
+
 static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, uint32_t height, uint32_t msaa_level,
                                                      bool opengl_invert_y, bool render_target, bool has_depth_buffer,
                                                      bool can_extract_depth) {
@@ -1394,6 +1396,22 @@ static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, 
                 glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, fb.rbo);
             } else if (fb.has_depth_buffer && !has_depth_buffer) {
                 glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, 0);
+            }
+
+            // A multisampled target the driver would not build (a sample count
+            // it does not offer, a format it will not multisample) draws
+            // nothing, so fall back to a plain one rather than show black.
+            if (msaa_level > 1 && glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                sysLogPrintf(LOG_WARNING, "GL: %ux MSAA framebuffer is not complete (max %d), MSAA off",
+                             msaa_level, gfx_opengl_get_max_msaa_level());
+                fb.width = width;
+                fb.height = height;
+                fb.msaa_level = msaa_level;
+                fb.has_depth_buffer = has_depth_buffer;
+                gfx_msaa_level = 1;
+                gfx_opengl_update_framebuffer_parameters(fb_id, width, height, 1, opengl_invert_y, render_target,
+                                                         has_depth_buffer, can_extract_depth);
+                return;
             }
         }
     } else {
@@ -2129,6 +2147,26 @@ static void gfx_opengl_set_anisotropy_level(int level) {
 	current_anisotropy_level = level;
 }
 
+// GL_MAX_SAMPLES is the most a renderbuffer may be given; asking for more is
+// GL_INVALID_VALUE, the storage is never made and the framebuffer stays
+// incomplete, so every frame drawn into it is thrown away and the window shows
+// black. An RX 580 answers 8, so its 16x was exactly that.
+static int gfx_opengl_get_max_msaa_level() {
+    GLint max_samples = 0;
+
+    if (!gfx_framebuffers_enabled || !glad_glRenderbufferStorageMultisample) {
+        return 1;
+    }
+
+    glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
+
+    int level = 1;
+    while (level * 2 <= max_samples && level < 16) {
+        level *= 2;
+    }
+    return level;
+}
+
 struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_get_name,
     gfx_opengl_get_max_texture_size,
@@ -2168,6 +2206,7 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_set_mipmap_filter,
     gfx_opengl_set_anisotropy_level,
     gfx_opengl_get_max_anisotropy_level,
+    gfx_opengl_get_max_msaa_level,
     gfx_opengl_read_screen_pixels,
     gfx_opengl_capture_start,
     gfx_opengl_capture_read,

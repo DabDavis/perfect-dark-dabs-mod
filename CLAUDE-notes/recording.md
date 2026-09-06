@@ -113,3 +113,25 @@ added here that can block the render thread brings that back.
 An encoder that has actually exited is still given up on - the writers find it
 when a write fails - and the unplayable file it leaves behind is removed, since
 nothing without a moov atom will open in anything.
+
+## Testing on the real GPU without a window
+
+Xvfb is llvmpipe, and llvmpipe's limits are not the player's: it offers 4 MSAA
+samples where the RX 580 in this box offers 8, and it builds framebuffers a real
+driver refuses. To run on the GPU without putting a window on the desktop, start
+the game with `SDL_VIDEODRIVER=offscreen` (EGL surfaceless on radeonsi), and
+take the picture with the game's own screenshot path from gdb:
+
+```sh
+SDL_VIDEODRIVER=offscreen ./pd.x86_64 --savedir SCRATCH --skip-intro --no-sound --boot-stage 0x32 --mpsims 1 &
+sleep 9
+gdb -batch -p $(pgrep -x pd.x86_64) -ex 'print (char*)glad_glGetString(0x1F01)' \
+    -ex 'call (void)screenshotRequest()' -ex detach
+```
+
+The log line `screenshot: PATH` says where it went (`build/screenshots/`, named
+by the second, so run such tests one at a time). `glGetString(GL_RENDERER)`
+confirms it is the GPU and not llvmpipe. This is how the 16x MSAA black screen
+was reproduced: `GL_MAX_SAMPLES` is 8 on that card, and a sample count past it
+leaves the framebuffer incomplete, which draws nothing. `gfx_max_msaa_level`
+now caps it and the menu lists only the levels the GPU has.

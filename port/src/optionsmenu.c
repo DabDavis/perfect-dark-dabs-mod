@@ -808,6 +808,7 @@ static MenuItemHandlerResult menuhandlerFramerateLimit(s32 operation, struct men
 static MenuItemHandlerResult menuhandlerMSAA(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	s32 msaa;
+	s32 count;
 	static const char *opts[] = {
 		"Off",
 		"2x (MSAA)",
@@ -818,7 +819,13 @@ static MenuItemHandlerResult menuhandlerMSAA(s32 operation, struct menuitem *ite
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(opts);
+		// Only the levels this GPU can build: a sample count past GL_MAX_SAMPLES
+		// gives an incomplete framebuffer and a black screen.
+		count = 1;
+		while (count < ARRAYCOUNT(opts) && (1 << count) <= videoGetMaxMSAA()) {
+			count++;
+		}
+		data->dropdown.value = count;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)opts[data->dropdown.value];
