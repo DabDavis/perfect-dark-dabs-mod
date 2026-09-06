@@ -2904,6 +2904,11 @@ struct player {
 	// camera to go back to, and the death is the stock first person one.
 	struct coord thirdpersoncampos;
 	f32 codaimfrac; // COD Style Aiming: how far the gun has come up to the sights, 0 to 1
+	// Camera Tilt: where the lean has got to, in degrees, chasing the
+	// sidestep and the look speed a little behind them so that neither
+	// starting nor stopping is a jolt.
+	f32 camtiltroll;
+	f32 camtiltpitch;
 #endif
 };
 

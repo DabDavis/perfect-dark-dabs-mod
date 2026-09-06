@@ -3670,6 +3670,121 @@ static void playerDeathCamera(struct coord *campos, struct coord *camup, struct 
 	camup->z = 0;
 }
 
+/**
+ * Camera Tilt: lean the view the way the head would.
+ *
+ * A sidestep rolls the picture into the direction of travel, and a look up
+ * or down leans the camera a little further that way for as long as the
+ * view is moving. Both chase their target rather than snapping to it, so a
+ * tap of the strafe key is a nod and not a jolt, and both come back to level
+ * on their own when the input stops.
+ *
+ * Only the copies the camera matrix is built from are rotated. bond2's basis
+ * vectors, which the gun aims and the walk traces along, are left as they
+ * were: the roll is about the look axis, so the centre of the screen still
+ * points where it did, and the lean is a degree or two that is gone by the
+ * time the look settles. The gun is drawn in screen space and comes with the
+ * picture.
+ *
+ * The right vector is look cross up. Strafing right is a positive sideways
+ * speed (bwalkTryRoll() reads a negative one as left), and the world's right
+ * hand is where that cross product points, so a positive roll tips the top
+ * of the picture to the right - into the step, which is what a lean is. A
+ * positive look speed is up, and a positive lean turns the look toward up.
+ *
+ * Dead, or on the hoverbike, the lean is retired: the death camera has its
+ * own ideas about which way is up, and the bike has a roll of its own.
+ */
+#define CAMTILT_ROLL_DEGREES  2.0f  // at a full sidestep, times the setting
+#define CAMTILT_PITCH_DEGREES 1.5f  // at full look speed, times the setting
+#define CAMTILT_RATE          0.15f // of the remaining distance, per 60Hz tick
+
+static void playerTiltCamera(struct coord *camup, struct coord *camlook)
+{
+	struct player *player = g_Vars.currentplayer;
+	f32 scale = modGetCameraTiltScale();
+	f32 rolltarget = 0;
+	f32 pitchtarget = 0;
+	f32 rate;
+	f32 roll;
+	f32 pitch;
+	f32 cosang;
+	f32 sinang;
+	struct coord right;
+	struct coord up;
+	struct coord look;
+
+	if (scale > 0 && !player->isdead && player->bondmovemode == MOVEMODE_WALK) {
+		f32 strafe = player->speedsideways;
+		// Full stick is 0.7, the limit bmoveGetSpeedVertaLimit() gives it;
+		// the mouse can push past that on a flick.
+		f32 lookspeed = player->speedverta / 0.7f;
+
+		if (strafe > 1) {
+			strafe = 1;
+		} else if (strafe < -1) {
+			strafe = -1;
+		}
+
+		if (lookspeed > 1) {
+			lookspeed = 1;
+		} else if (lookspeed < -1) {
+			lookspeed = -1;
+		}
+
+		rolltarget = strafe * CAMTILT_ROLL_DEGREES * scale;
+		pitchtarget = lookspeed * CAMTILT_PITCH_DEGREES * scale;
+	}
+
+	rate = CAMTILT_RATE * g_Vars.lvupdate60freal;
+
+	if (rate > 1) {
+		rate = 1;
+	}
+
+	player->camtiltroll += (rolltarget - player->camtiltroll) * rate;
+	player->camtiltpitch += (pitchtarget - player->camtiltpitch) * rate;
+
+	if (player->camtiltroll > -0.001f && player->camtiltroll < 0.001f
+			&& player->camtiltpitch > -0.001f && player->camtiltpitch < 0.001f) {
+		player->camtiltroll = 0;
+		player->camtiltpitch = 0;
+		return;
+	}
+
+	roll = player->camtiltroll * (M_PI / 180.0f);
+	pitch = player->camtiltpitch * (M_PI / 180.0f);
+
+	up = *camup;
+	look = *camlook;
+
+	right.x = look.y * up.z - look.z * up.y;
+	right.y = look.z * up.x - look.x * up.z;
+	right.z = look.x * up.y - look.y * up.x;
+
+	// The lean first, about the right vector, which it leaves alone
+	cosang = cosf(pitch);
+	sinang = sinf(pitch);
+
+	camlook->x = look.x * cosang + up.x * sinang;
+	camlook->y = look.y * cosang + up.y * sinang;
+	camlook->z = look.z * cosang + up.z * sinang;
+
+	camup->x = up.x * cosang - look.x * sinang;
+	camup->y = up.y * cosang - look.y * sinang;
+	camup->z = up.z * cosang - look.z * sinang;
+
+	// Then the roll, about the look the lean gave, which it leaves alone
+	cosang = cosf(roll);
+	sinang = sinf(roll);
+
+	up = *camup;
+
+	camup->x = up.x * cosang + right.x * sinang;
+	camup->y = up.y * cosang + right.y * sinang;
+	camup->z = up.z * cosang + right.z * sinang;
+}
+
 void playerTick(bool arg0)
 {
 	f32 aspectratio;
@@ -4288,6 +4403,8 @@ void playerTick(bool arg0)
 		// position as the hint and so resolves the camera's room the way the
 		// Slayer rocket's does. Only the copies the camera is built from move,
 		// and while the player is alive only the position of it does.
+		playerTiltCamera(&camup, &camlook);
+
 		if (g_Vars.currentplayer->isdead) {
 			playerDeathCamera(&spf4, &camup, &camlook);
 		} else {

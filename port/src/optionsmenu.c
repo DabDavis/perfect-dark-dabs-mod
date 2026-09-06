@@ -2231,6 +2231,31 @@ static MenuItemHandlerResult menuhandlerModExplosionShake(s32 operation, struct 
 }
 
 /**
+ * Camera Tilt: how far the view leans into a sidestep or a look. An amount
+ * rather than a switch, because the same motion that gives one player a
+ * sense of weight gives another a headache.
+ */
+static MenuItemHandlerResult menuhandlerModCameraTilt(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Light", "Normal", "Heavy" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.cameratilt = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.cameratilt;
+	}
+
+	return 0;
+}
+
+/**
  * COD Style Aiming: sights, a little zoom, and moving while aiming.
  */
 static MenuItemHandlerResult menuhandlerModCodAiming(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -3115,6 +3140,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Explosion Shake",
 		0,
 		menuhandlerModExplosionShake,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Camera Tilt",
+		0,
+		menuhandlerModCameraTilt,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

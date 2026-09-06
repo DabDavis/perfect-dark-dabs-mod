@@ -269,6 +269,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.CodAimLock", &g_ModOptions.codaimlock, 0, 1);
 	configRegisterInt("Mod.AlarmSound", &g_ModOptions.alarmsound, 0, 1);
 	configRegisterInt("Mod.CleanTextOutlines", &g_ModOptions.cleantext, 0, 1);
+	configRegisterInt("Mod.CameraTilt", &g_ModOptions.cameratilt, MODTILT_OFF, MODTILT_MAX);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);
 	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);
 	// Recording is not a mission setting any more - it is what Ghost Trials

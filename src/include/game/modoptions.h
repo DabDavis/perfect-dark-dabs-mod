@@ -144,6 +144,30 @@
  * is a key of its own, "Fire Left", that a keyboard can bind too.
  */
 
+/**
+ * Camera Tilt: the view leans the way the head would. Strafing rolls the
+ * picture a few degrees into the direction of travel, and looking up or
+ * down leans the camera a little further in that direction while the view
+ * is still moving, so a look and a sidestep have some weight to them
+ * rather than sliding the world past a fixed eye.
+ *
+ * Only the picture moves. The camera's own basis vectors, and everything
+ * that aims, walks or traces along them, are untouched - the roll is about
+ * the centre of the screen, so the crosshair points where it always did,
+ * and the lean is a degree or two that lasts only as long as the look does.
+ *
+ * It is the classic head bob's worst habit, exaggerated motion at a retro
+ * field of view, that gives people headaches, so the angles are small and
+ * the setting is how much rather than whether. Normal is two degrees of
+ * roll at a full sidestep, the amount Quake settled on; Light is half that
+ * and Heavy is closer to Turok.
+ */
+#define MODTILT_OFF    0
+#define MODTILT_LIGHT  1
+#define MODTILT_NORMAL 2
+#define MODTILT_HEAVY  3
+#define MODTILT_MAX    MODTILT_HEAVY
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -169,6 +193,7 @@ struct modoptions {
 	s32 codaimlock;  // ... with the crosshair held in the centre and the aim stick turning the view
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
+	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look
 };
 
 extern struct modoptions g_ModOptions;
@@ -202,5 +227,6 @@ bool modCanAkimbo(s32 weaponnum);
 bool modIsWeaponAGun(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);
 bool modIsCleanTextOn(void);
+f32 modGetCameraTiltScale(void);
 
 #endif

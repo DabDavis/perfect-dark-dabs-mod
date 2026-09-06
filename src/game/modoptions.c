@@ -38,6 +38,7 @@ struct modoptions g_ModOptions = {
 	true,                     // codaimlock: what COD Style Aiming means until it is turned off
 	true,                     // alarmsound
 	true,                     // cleantext
+	MODTILT_NORMAL,           // cameratilt
 };
 
 /**
@@ -369,6 +370,25 @@ bool modIsCodAimingOn(void)
 bool modIsCodAimLockOn(void)
 {
 	return g_ModOptions.codaiming != 0 && g_ModOptions.codaimlock != 0;
+}
+
+/**
+ * Camera Tilt, as a multiplier on the angles player.c leans the view by.
+ * 0 is off; Normal is 1, the two degree roll, with Light half of it and
+ * Heavy twice.
+ */
+f32 modGetCameraTiltScale(void)
+{
+	switch (g_ModOptions.cameratilt) {
+	case MODTILT_LIGHT:
+		return 0.5f;
+	case MODTILT_NORMAL:
+		return 1.0f;
+	case MODTILT_HEAVY:
+		return 2.0f;
+	}
+
+	return 0.0f;
 }
 
 /**
