@@ -1095,18 +1095,22 @@ static void gfx_opengl_start_frame(void) {
  * copy is a blit, and both stay on the GPU. It runs before the recorder and
  * the screenshot read the frame, so what they get is what was seen.
  *
- * Saturation is a lerp away from the pixel's own luma, contrast a stretch
- * about mid grey, both in the gamma space the frame is in, which for a
- * setting called Vivid is the right space: it is how every television's
- * "colour" and "contrast" knobs work, and what those knobs do is what was
- * asked for.
+ * Black Level goes first: a floor subtracted and the rest stretched back to
+ * full range, so only the bottom of the range moves - a washed-out picture
+ * is usually a raised pedestal, black shown as dark grey with the mids and
+ * highlights fine, and contrast alone cannot take that off without crushing
+ * the shadows above it. Then saturation, a lerp away from the pixel's own
+ * luma, and contrast, a stretch about mid grey. All in the gamma space the
+ * frame is in, which for settings called Vivid and Black Level is the right
+ * space: it is how a television's "brightness", "colour" and "contrast"
+ * knobs work, and what those knobs do is what was asked for.
  *
  * Desktop GL 3.0 and up, like the NV12 capture pass, and for the same reasons.
  * Everything it touches is put back, since the renderer resets nothing at the
  * top of a frame.
  */
 static GLuint grade_prog, grade_vao, grade_tex, grade_fbo;
-static GLint grade_loc_saturation, grade_loc_contrast;
+static GLint grade_loc_saturation, grade_loc_contrast, grade_loc_black;
 static int grade_width, grade_height;
 static bool grade_failed;
 
@@ -1124,10 +1128,12 @@ static const char *grade_fs =
     "uniform sampler2D uTex;\n"
     "uniform float uSaturation;\n"
     "uniform float uContrast;\n"
+    "uniform float uBlack;\n"
     "in vec2 vUV;\n"
     "out vec4 oCol;\n"
     "void main() {\n"
     "    vec3 c = texture(uTex, vUV).rgb;\n"
+    "    c = max(c - uBlack, 0.0) / (1.0 - uBlack);\n"
     "    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
     "    c = mix(vec3(l), c, uSaturation);\n"
     "    c = (c - 0.5) * uContrast + 0.5;\n"
@@ -1197,6 +1203,7 @@ static bool gfx_opengl_grade_init(void) {
 
     grade_loc_saturation = glGetUniformLocation(grade_prog, "uSaturation");
     grade_loc_contrast = glGetUniformLocation(grade_prog, "uContrast");
+    grade_loc_black = glGetUniformLocation(grade_prog, "uBlack");
 
     glGenVertexArrays(1, &grade_vao);
     glGenTextures(1, &grade_tex);
@@ -1231,7 +1238,7 @@ static void gfx_opengl_grade_frame(void) {
     if (grade_failed || framebuffers.empty()) {
         return;
     }
-    if (gfx_color_saturation == 1.0f && gfx_color_contrast == 1.0f) {
+    if (gfx_color_saturation == 1.0f && gfx_color_contrast == 1.0f && gfx_color_black_level == 0.0f) {
         return;
     }
 
@@ -1285,6 +1292,7 @@ static void gfx_opengl_grade_frame(void) {
         glUniform1i(glGetUniformLocation(grade_prog, "uTex"), 0);
         glUniform1f(grade_loc_saturation, gfx_color_saturation);
         glUniform1f(grade_loc_contrast, gfx_color_contrast);
+        glUniform1f(grade_loc_black, gfx_color_black_level);
         glDrawArrays(GL_TRIANGLES, 0, 3);
     }
 

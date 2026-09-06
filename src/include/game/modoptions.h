@@ -272,6 +272,20 @@
 #define MODVIVID_HEAVY   3
 #define MODVIVID_MAX     MODVIVID_HEAVY
 
+/**
+ * Black Level: a floor taken off the finished frame's blacks, with the rest
+ * stretched back to full range so only the bottom moves. The washed-out
+ * look is mostly a raised pedestal - black shown as dark grey - and Vivid
+ * Colours' contrast can only take it off by crushing the shadows above it,
+ * which is why this is its own setting. Light takes two percent off, Normal
+ * four, Heavy seven. Same pass as Vivid Colours, applied before it.
+ */
+#define MODBLACK_OFF     0
+#define MODBLACK_LIGHT   1
+#define MODBLACK_NORMAL  2
+#define MODBLACK_HEAVY   3
+#define MODBLACK_MAX     MODBLACK_HEAVY
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -304,6 +318,7 @@ struct modoptions {
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened
 	s32 enhancetextures; // MODENHANCE_*: the game's textures scaled up on upload
 	s32 vividcolours; // MODVIVID_*: the frame's saturation and contrast turned up
+	s32 blacklevel;  // MODBLACK_*: the floor taken off the frame's blacks
 };
 
 extern struct modoptions g_ModOptions;
@@ -347,5 +362,6 @@ s32 modGetSmoothTextScale(void);
 s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);
 f32 modGetVividContrast(void);
+f32 modGetBlackLevelLift(void);
 
 #endif

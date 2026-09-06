@@ -311,6 +311,7 @@ int gfx_texture_enhance_scale = 1;
 int gfx_text_smooth_scale = 1;
 float gfx_color_saturation = 1.0f;
 float gfx_color_contrast = 1.0f;
+float gfx_color_black_level = 0.0f;
 
 static bool game_renders_to_framebuffer;
 static int game_framebuffer;

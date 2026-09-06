@@ -67,6 +67,7 @@ void videoSetCleanTextOutlines(s32 on);
 void videoSetModelSmoothing(s32 level, f32 amount);
 void videoSetTextureEnhance(s32 texturescale, s32 textscale);
 void videoSetVividColours(f32 saturation, f32 contrast);
+void videoSetBlackLevel(f32 lift);
 void videoSetDisplayMode(const s32 index);
 void videoSetVsync(const s32 vsync);
 void videoSetFramerateLimit(const s32 limit);

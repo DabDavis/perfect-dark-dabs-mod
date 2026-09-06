@@ -2441,6 +2441,30 @@ static MenuItemHandlerResult menuhandlerModVividColours(s32 operation, struct me
 	return 0;
 }
 
+/**
+ * Black Level: the floor taken off the finished frame's blacks.
+ */
+static MenuItemHandlerResult menuhandlerModBlackLevel(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Light", "Normal", "Heavy" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.blacklevel = data->dropdown.value;
+		videoSetBlackLevel(modGetBlackLevelLift());
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.blacklevel;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -3353,6 +3377,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Vivid Colours",
 		0,
 		menuhandlerModVividColours,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Black Level",
+		0,
+		menuhandlerModBlackLevel,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

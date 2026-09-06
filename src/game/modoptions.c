@@ -45,6 +45,7 @@ struct modoptions g_ModOptions = {
 	true,                     // smoothtext: a fix, so on
 	MODENHANCE_2X,            // enhancetextures: the cheaper of the two
 	MODVIVID_LIGHT,           // vividcolours: the washed-out look was the complaint
+	MODBLACK_LIGHT,           // blacklevel: and the pedestal is most of it
 };
 
 /**
@@ -522,6 +523,25 @@ f32 modGetVividContrast(void)
 	}
 
 	return 1.0f;
+}
+
+/**
+ * Black Level, as the fraction of full range taken off the bottom: 0 for
+ * off. The renderer keeps its own copy (gfx_color_black_level);
+ * videoSetBlackLevel() keeps them together.
+ */
+f32 modGetBlackLevelLift(void)
+{
+	switch (g_ModOptions.blacklevel) {
+	case MODBLACK_LIGHT:
+		return 0.02f;
+	case MODBLACK_NORMAL:
+		return 0.04f;
+	case MODBLACK_HEAVY:
+		return 0.07f;
+	}
+
+	return 0.0f;
 }
 
 /**

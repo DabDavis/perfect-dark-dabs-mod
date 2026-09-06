@@ -51,11 +51,13 @@ extern int gfx_texture_enhance_scale;
 extern int gfx_text_smooth_scale;
 void gfx_set_texture_enhance(int texture_scale, int text_scale);
 
-// Vivid Colours: the finished frame's saturation and contrast, 1.0 for as
-// drawn. Applied by the backend as the last thing before the frame is
+// Vivid Colours and Black Level: the finished frame's saturation and
+// contrast, 1.0 for as drawn, and the floor taken off its blacks, 0.0 for
+// none. Applied by the backend as the last thing before the frame is
 // presented (and before a screenshot or a recording reads it).
 extern float gfx_color_saturation;
 extern float gfx_color_contrast;
+extern float gfx_color_black_level;
 
 // The mesh pass's answer for a model's triangles: for each, the surface
 // normal at each corner (int8 x,y,z per corner, in the order given), keyed

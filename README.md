@@ -86,6 +86,7 @@ Built in, no pack needed. Each is on the same options page.
 | Model LOD | The game's own swap to low-detail bodies at a distance. Off keeps the full model at any range |
 | Enhance Textures | The game's own textures scaled up two or four times over as they load, sharpened and resampled through a curve rather than the GPU's straight blend. Nothing is invented, but a 32-texel wall stops being a grid of soft blobs. 2x by default; 4x costs four times the video memory |
 | Vivid Colours | Saturation and contrast turned up on the finished frame, which was drawn for a CRT and looks flat on a panel. Light by default; Normal and Heavy go further. Screenshots and recordings get it too |
+| Black Level | A floor taken off the frame's blacks, so black is black rather than dark grey, without crushing the shadows above it the way contrast would. Light takes 2% off and is the default; Normal 4%, Heavy 7% |
 
 Texture packs, where installed, are left alone by Enhance Textures and Smooth
 Text: their images are already whatever size their author chose.

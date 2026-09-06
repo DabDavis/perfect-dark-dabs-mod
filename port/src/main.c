@@ -161,6 +161,7 @@ int main(int argc, const char **argv)
 	videoSetModelSmoothing(modGetModelSmoothingLevel(), modGetModelSmoothingAmount());
 	videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
 	videoSetVividColours(modGetVividSaturation(), modGetVividContrast());
+	videoSetBlackLevel(modGetBlackLevelLift());
 	screenshotInit();
 	recordInit();
 	ghostnetInit();
@@ -279,6 +280,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.SmoothText", &g_ModOptions.smoothtext, 0, 1);
 	configRegisterInt("Mod.EnhanceTextures", &g_ModOptions.enhancetextures, MODENHANCE_OFF, MODENHANCE_MAX);
 	configRegisterInt("Mod.VividColours", &g_ModOptions.vividcolours, MODVIVID_OFF, MODVIVID_MAX);
+	configRegisterInt("Mod.BlackLevel", &g_ModOptions.blacklevel, MODBLACK_OFF, MODBLACK_MAX);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);
 	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);
 	// Recording is not a mission setting any more - it is what Ghost Trials

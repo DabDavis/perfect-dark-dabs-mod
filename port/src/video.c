@@ -623,6 +623,15 @@ void videoSetVividColours(f32 saturation, f32 contrast)
 	gfx_color_contrast = contrast < 0.f ? 0.f : (contrast > 4.f ? 4.f : contrast);
 }
 
+/**
+ * Black Level: the floor taken off the finished frame's blacks, 0 to just
+ * short of everything.
+ */
+void videoSetBlackLevel(f32 lift)
+{
+	gfx_color_black_level = lift < 0.f ? 0.f : (lift > 0.5f ? 0.5f : lift);
+}
+
 void videoSetGlareBrightness(f32 bright)
 {
 	vidGlareBrightness = (bright < 0.f ? 0.f : (bright > 1.f ? 1.f : bright));
