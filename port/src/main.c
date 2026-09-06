@@ -266,6 +266,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.AkimboTriggers", &g_ModOptions.akimbotriggers, 0, 1);
 	configRegisterInt("Mod.ExplosionShake", &g_ModOptions.explosionshake, 0, 1);
 	configRegisterInt("Mod.CodAiming", &g_ModOptions.codaiming, 0, 1);
+	configRegisterInt("Mod.CodAimLock", &g_ModOptions.codaimlock, 0, 1);
 	configRegisterInt("Mod.AlarmSound", &g_ModOptions.alarmsound, 0, 1);
 	configRegisterInt("Mod.CleanTextOutlines", &g_ModOptions.cleantext, 0, 1);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);

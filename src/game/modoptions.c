@@ -35,6 +35,7 @@ struct modoptions g_ModOptions = {
 	false,                    // akimbotriggers
 	false,                    // explosionshake: the Video page's slider scales it when on
 	false,                    // codaiming
+	true,                     // codaimlock: what COD Style Aiming means until it is turned off
 	true,                     // alarmsound
 	true,                     // cleantext
 };
@@ -356,6 +357,18 @@ bool modIsExplosionShakeOn(void)
 bool modIsCodAimingOn(void)
 {
 	return g_ModOptions.codaiming != 0;
+}
+
+/**
+ * Aim Lock, under COD Style Aiming: the crosshair is held in the centre
+ * and the aim stick turns the view, as the mouse always does there. Off,
+ * the stick moves the crosshair about the screen as it does in the
+ * game's own aim mode, and the mouse follows Mouse Aim Lock. Nothing
+ * without COD Style Aiming itself.
+ */
+bool modIsCodAimLockOn(void)
+{
+	return g_ModOptions.codaiming != 0 && g_ModOptions.codaimlock != 0;
 }
 
 /**

@@ -166,6 +166,7 @@ struct modoptions {
 	s32 akimbotriggers; // a trigger per hand on a controller, aim on the left bumper
 	s32 explosionshake; // whether an explosion shakes the screen at all
 	s32 codaiming;   // aim down the sights: gun to centre, a little zoom, keep moving
+	s32 codaimlock;  // ... with the crosshair held in the centre and the aim stick turning the view
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
 };
@@ -196,6 +197,7 @@ bool modIsAkimboForGuards(void);
 bool modIsAkimboTriggersOn(void);
 bool modIsExplosionShakeOn(void);
 bool modIsCodAimingOn(void);
+bool modIsCodAimLockOn(void);
 bool modCanAkimbo(s32 weaponnum);
 bool modIsWeaponAGun(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);

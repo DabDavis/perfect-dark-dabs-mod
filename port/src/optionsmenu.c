@@ -2247,6 +2247,25 @@ static MenuItemHandlerResult menuhandlerModCodAiming(s32 operation, struct menui
 }
 
 /**
+ * Aim Lock: under COD Style Aiming, the crosshair held in the centre and
+ * the aim stick turning the view. Off is the game's own free crosshair.
+ */
+static MenuItemHandlerResult menuhandlerModCodAimLock(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.codaiming == 0;
+	case MENUOP_GET:
+		return g_ModOptions.codaimlock;
+	case MENUOP_SET:
+		g_ModOptions.codaimlock = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * Clean Text Outlines: the border of outlined text as a halo rather than
  * the font's filled cell. The renderer keeps its own copy of the setting.
  */
@@ -3104,6 +3123,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"COD Style Aiming",
 		0,
 		menuhandlerModCodAiming,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Aim Lock",
+		0,
+		menuhandlerModCodAimLock,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

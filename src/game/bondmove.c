@@ -821,7 +821,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 #ifndef PLATFORM_N64
 	if (allowmlook) {
 		inputMouseGetScaledDelta(&movedata.freelookdx, &movedata.freelookdy);
-		allowmcross = (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_CLASSIC) && !modIsCodAimingOn() &&
+		allowmcross = (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_CLASSIC) && !modIsCodAimLockOn() &&
 			(movedata.freelookdx || movedata.freelookdy || g_Vars.currentplayer->swivelpos[0] || g_Vars.currentplayer->swivelpos[1]);
 		if (movedata.invertpitch) {
 			movedata.freelookdy = -movedata.freelookdy;
@@ -1288,9 +1288,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						movedata.unk14 = (c2stickx || c2sticky);
 #ifndef PLATFORM_N64
 					} else if (modIsCodAimingOn()) {
-						// COD Style Aiming: still moving, at sixty percent
+						// COD Style Aiming: still moving, at sixty percent.
+						// Forward and back stay with a scope's zoom, which
+						// has no other control.
 						movedata.analogstrafe = c2stickx * 0.6f;
-						movedata.analogwalk = c2sticky * 0.6f;
+						movedata.analogwalk = canmanualzoom ? 0.f : c2sticky * 0.6f;
 						movedata.unk14 = (c2stickx || c2sticky);
 #endif
 					} else {
@@ -1373,7 +1375,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						// aiming, as sixty percent walks on the analogue path,
 						// which is how the walk code takes a speed short of full
 						if (modIsCodAimingOn() && g_Vars.currentplayer->insightaimmode && controlmode == CONTROLMODE_PC) {
-							if (c1buttons & sumask) {
+							if (canmanualzoom) {
+								// forward and back are the scope's zoom
+							} else if (c1buttons & sumask) {
 								movedata.analogwalk = 42.0f;
 							} else if (c1buttons & sdmask) {
 								movedata.analogwalk = -42.0f;
@@ -1385,6 +1389,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								movedata.analogstrafe = -42.0f;
 							}
 
+							// the walk code takes the analogue strafe only with
+							// this set, and the forward speed only with that
+							movedata.unk14 = movedata.unk14 || movedata.analogstrafe != 0;
 							movedata.canlookahead = movedata.analogwalk != 0.0f || movedata.analogstrafe != 0.0f;
 						}
 #endif
@@ -1402,7 +1409,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								movedata.analogwalk = 0;
 								movedata.analoglean = 0.f;
 							}
-							if (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_LOCKED || modIsCodAimingOn() || bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
+							if (modIsCodAimLockOn()) {
+								// Aim Lock: the aim stick turns the view as it
+								// does outside aim mode, the crosshair staying
+								// put, and the mouse with it. The fov scaling
+								// on that path is the lower sensitivity down
+								// the sights.
+								movedata.cannaturalpitch = true;
+								movedata.cannaturalturn = true;
+							} else if (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_LOCKED || bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
 								movedata.cannaturalpitch = movedata.cannaturalpitch || (movedata.freelookdy != 0.0f);
 								movedata.cannaturalturn = movedata.cannaturalturn  || (movedata.freelookdx != 0.0f);
 							}
@@ -1815,7 +1830,17 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if (allowc1buttons && (controlmode != CONTROLMODE_PC || (PLAYER_EXTCFG().crouchmode & CROUCHMODE_ANALOG))) {
 #endif
 						for (i = 0; i < numsamples; i++) {
-							if (!canmanualzoom && aimonhist[i]) {
+							// COD Style Aiming: the movement keys and stick are
+							// movement while aiming, so up and down do not
+							// crouch there. The aim tap below still stands up.
+							bool aimcrouch = aimonhist[i];
+#ifndef PLATFORM_N64
+							if (modIsCodAimingOn() && controlmode == CONTROLMODE_PC) {
+								aimcrouch = false;
+							}
+#endif
+
+							if (!canmanualzoom && aimcrouch) {
 								bool goUp = joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & sumask);
 								if (controlmode == CONTROLMODE_PC) {
 									goUp = goUp || ((joyGetRStickYOnSample(i, contpad1) > 30 && joyGetRStickYOnSampleIndex(i, contpad1) <= 30));
@@ -1890,7 +1915,14 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						movedata.rleanright = g_Vars.currentplayer->insightaimmode && (c1buttons & srmask);
 #ifndef PLATFORM_N64
 						if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer->insightaimmode) {
-							movedata.analoglean = c2stickx / 127.f;
+							if (modIsCodAimingOn()) {
+								// COD Style Aiming: left and right strafe, and
+								// only strafe
+								movedata.rleanleft = false;
+								movedata.rleanright = false;
+							} else {
+								movedata.analoglean = c2stickx / 127.f;
+							}
 						}
 #endif
 					}
@@ -2351,6 +2383,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		// when holding aim and moving stick
 		bgunSetAimType(0);
 #ifndef PLATFORM_N64
+		if (modIsCodAimLockOn()) {
+			// Aim Lock: the crosshair is held in the centre and the stick
+			// has gone to turning the view
+			bgunSwivelWithoutDamp(0.0f, 0.0f);
+			return;
+		}
+
 		if (allowmcross) {
 			// joystick is inactive, move crosshair using the mouse
 			const f32 xcoeff = 320.f / 1080.f;
