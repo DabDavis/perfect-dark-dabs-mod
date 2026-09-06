@@ -12425,12 +12425,16 @@ void bgunTickGameplay(bool triggeron)
 
 #ifndef PLATFORM_N64
 	// COD Style Aiming: where the guns are on their way to, tweened a
-	// quarter of the way each tick. Not for the empty hand.
+	// quarter of the way each tick. Not for the empty hand, and not for a
+	// scoped gun - the Sniper Rifle, FarSight and Horizon Scanner - whose
+	// zoom is the sights: raised to the eye, the scope's body sat across
+	// the middle of the view and covered what the zoom was showing.
 	{
 		f32 target = modIsCodAimingOn()
 			&& player->insightaimmode
 			&& player->hands[HAND_RIGHT].inuse
-			&& modIsWeaponAGun(player->gunctrl.weaponnum) ? 1.0f : 0.0f;
+			&& modIsWeaponAGun(player->gunctrl.weaponnum)
+			&& !weaponHasAimFlag(player->gunctrl.weaponnum, INVAIMFLAG_MANUALZOOM) ? 1.0f : 0.0f;
 		f32 step = 0.25f * LVUPDATE60FREAL();
 
 		if (step > 1.0f) {
