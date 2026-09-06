@@ -373,9 +373,9 @@ bool modIsCodAimLockOn(void)
 }
 
 /**
- * Camera Tilt, as a multiplier on the angles player.c leans the view by.
- * 0 is off; Normal is 1, the two degree roll, with Light half of it and
- * Heavy twice.
+ * Camera Tilt, as a multiplier on the angles player.c leans the view by
+ * and the height it bobs the eye. 0 is off; Normal is 1, the two degree
+ * roll, with Light half of it and Heavy twice.
  */
 f32 modGetCameraTiltScale(void)
 {

@@ -2231,9 +2231,10 @@ static MenuItemHandlerResult menuhandlerModExplosionShake(s32 operation, struct 
 }
 
 /**
- * Camera Tilt: how far the view leans into a sidestep or a look. An amount
- * rather than a switch, because the same motion that gives one player a
- * sense of weight gives another a headache.
+ * Camera Tilt: how far the view leans into a sidestep or a look, and how
+ * high it bobs with a step. An amount rather than a switch, because the
+ * same motion that gives one player a sense of weight gives another a
+ * headache.
  */
 static MenuItemHandlerResult menuhandlerModCameraTilt(s32 operation, struct menuitem *item, union handlerdata *data)
 {

@@ -2909,6 +2909,10 @@ struct player {
 	// starting nor stopping is a jolt.
 	f32 camtiltroll;
 	f32 camtiltpitch;
+	// ... and the step bob: where in the walk cycle the eye is, in radians,
+	// and how high it is bobbing, chasing the ground speed.
+	f32 camstepphase;
+	f32 camstepamp;
 #endif
 };
 

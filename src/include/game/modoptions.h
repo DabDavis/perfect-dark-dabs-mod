@@ -145,22 +145,24 @@
  */
 
 /**
- * Camera Tilt: the view leans the way the head would. Strafing rolls the
- * picture a few degrees into the direction of travel, and looking up or
- * down leans the camera a little further in that direction while the view
- * is still moving, so a look and a sidestep have some weight to them
- * rather than sliding the world past a fixed eye.
+ * Camera Tilt: the view moves the way the head would, Quake's way. Strafing
+ * rolls the picture a few degrees into the direction of travel, looking up
+ * or down leans the camera a little further in that direction while the
+ * view is still moving, and walking bobs the eye up and down with the
+ * steps, higher the faster the run, so a look and a sidestep have some
+ * weight to them rather than sliding the world past a fixed eye.
  *
- * Only the picture moves. The camera's own basis vectors, and everything
- * that aims, walks or traces along them, are untouched - the roll is about
- * the centre of the screen, so the crosshair points where it always did,
- * and the lean is a degree or two that lasts only as long as the look does.
+ * Only the picture moves. The camera's own basis vectors and position, and
+ * everything that aims, walks or traces along them, are untouched - the
+ * roll is about the centre of the screen, so the crosshair points where it
+ * always did, the lean is a degree or two that lasts only as long as the
+ * look does, and the bob is a few centimetres of eye height.
  *
  * It is the classic head bob's worst habit, exaggerated motion at a retro
- * field of view, that gives people headaches, so the angles are small and
- * the setting is how much rather than whether. Normal is two degrees of
- * roll at a full sidestep, the amount Quake settled on; Light is half that
- * and Heavy is closer to Turok.
+ * field of view, that gives people headaches, so the setting is how much
+ * rather than whether. Normal is two degrees of roll at a full sidestep and
+ * half of Quake's bob; Light is half that again, and Heavy is Quake as
+ * shipped.
  */
 #define MODTILT_OFF    0
 #define MODTILT_LIGHT  1
@@ -193,7 +195,7 @@ struct modoptions {
 	s32 codaimlock;  // ... with the crosshair held in the centre and the aim stick turning the view
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
-	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look
+	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look, and bobs with a step
 };
 
 extern struct modoptions g_ModOptions;

@@ -70,6 +70,8 @@ void bwalkInit(void)
 	g_Vars.currentplayer->rolltime60 = 0;
 	g_Vars.currentplayer->camtiltroll = 0;
 	g_Vars.currentplayer->camtiltpitch = 0;
+	g_Vars.currentplayer->camstepphase = 0;
+	g_Vars.currentplayer->camstepamp = 0;
 #endif
 
 	if (prevmode != MOVEMODE_WALK && prevmode != MOVEMODE_CUTSCENE) {
