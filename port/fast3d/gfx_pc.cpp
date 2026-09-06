@@ -105,6 +105,7 @@ struct LoadedVertex {
     float nx, ny, nz;
     uint8_t lit;
     uint32_t mtx_gen;
+    const void* src; // the Vtx it was loaded from, the mesh table's key; null for a made-up one
 };
 
 static struct {
@@ -1668,6 +1669,7 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 
         gfx_sp_load_vertex(&rsp.loaded_vertices[dest_index], v->v[0], v->v[1], v->v[2],
                            &rsp.vertex_colors[v->colour >> 2], U, V);
+        rsp.loaded_vertices[dest_index].src = v;
     }
 }
 
@@ -2252,6 +2254,102 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
 #define SMOOTH_MAX_LEVEL 4
 #define SMOOTH_MAX_VERTS ((SMOOTH_MAX_LEVEL + 1) * (SMOOTH_MAX_LEVEL + 2) / 2)
 
+/*
+ * The mesh pass's table (modelsmooth.c): per triangle, the surface normal at
+ * each corner, which is what the patch bends with. Keyed by the three vertex
+ * addresses sorted, the entry keeping them so a hash collision is caught.
+ * A triangle that is not in it - a model that skipped the pass, or a vertex
+ * the game copied somewhere - bends with its own normals, as before.
+ *
+ * Entries live as long as the model does, more or less: a model registering
+ * at an address an earlier one used replaces that one's entries, and a stale
+ * entry for a vertex address that has since been reused can only match if
+ * three addresses line up as a triangle again, which flattens one patch.
+ * The whole table is dropped if it ever grows past what a few stages of
+ * models could fill.
+ */
+struct SmoothTri {
+    const void* v[3];
+    int8_t n[3][3];
+};
+
+static std::unordered_map<uint64_t, SmoothTri> smooth_tris;
+static std::unordered_map<const void*, std::vector<uint64_t>> smooth_models;
+static std::vector<uint64_t>* smooth_cur_keys = nullptr;
+
+static inline uint64_t smooth_key(const void* a, const void* b, const void* c) {
+    uint64_t h = (uint64_t)(uintptr_t)a * 0x9E3779B97F4A7C15ull;
+    h ^= ((uint64_t)(uintptr_t)b + 0x7F4A7C15ull) * 0xC2B2AE3D27D4EB4Full;
+    h = (h << 31) | (h >> 33);
+    h ^= ((uint64_t)(uintptr_t)c + 0x27D4EB4Full) * 0x165667B19E3779F9ull;
+    return h ^ (h >> 29);
+}
+
+static inline void smooth_sort3(const void** v, int8_t (*n)[3]) {
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2 - i; j++) {
+            if ((uintptr_t)v[j] > (uintptr_t)v[j + 1]) {
+                std::swap(v[j], v[j + 1]);
+                if (n) {
+                    int8_t t[3];
+                    memcpy(t, n[j], 3);
+                    memcpy(n[j], n[j + 1], 3);
+                    memcpy(n[j + 1], t, 3);
+                }
+            }
+        }
+    }
+}
+
+extern "C" void gfx_smooth_model_begin(const void* base) {
+    if (smooth_tris.size() > 2000000) {
+        smooth_tris.clear();
+        smooth_models.clear();
+    }
+    std::vector<uint64_t>& keys = smooth_models[base];
+    for (uint64_t k : keys) {
+        smooth_tris.erase(k);
+    }
+    keys.clear();
+    smooth_cur_keys = &keys;
+}
+
+extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9]) {
+    if (!smooth_cur_keys) {
+        return;
+    }
+    SmoothTri t;
+    t.v[0] = a;
+    t.v[1] = b;
+    t.v[2] = c;
+    memcpy(t.n, normals, 9);
+    smooth_sort3(t.v, t.n);
+    const uint64_t key = smooth_key(t.v[0], t.v[1], t.v[2]);
+    smooth_tris[key] = t;
+    smooth_cur_keys->push_back(key);
+}
+
+extern "C" void gfx_smooth_model_end(void) {
+    smooth_cur_keys = nullptr;
+}
+
+static const SmoothTri* smooth_find(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3) {
+    if (smooth_tris.empty() || !v1->src || !v2->src || !v3->src) {
+        return nullptr;
+    }
+    const void* v[3] = { v1->src, v2->src, v3->src };
+    smooth_sort3(v, nullptr);
+    auto it = smooth_tris.find(smooth_key(v[0], v[1], v[2]));
+    if (it == smooth_tris.end()) {
+        return nullptr;
+    }
+    const SmoothTri& t = it->second;
+    if (t.v[0] != v[0] || t.v[1] != v[1] || t.v[2] != v[2]) {
+        return nullptr;
+    }
+    return &t;
+}
+
 static inline float smooth_dot(const float a[3], const float b[3]) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -2287,50 +2385,85 @@ static inline void smooth_edge_normal(float out[3], const float Pi[3], const flo
     }
 }
 
-static bool gfx_sp_tri_wants_smoothing(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3) {
+/*
+ * Whether a triangle is drawn as a patch, and at what level: 0 for flat,
+ * else the number of pieces per edge, with the mesh pass's entry for it in
+ * *mesh (null for a triangle it never saw). The level is the setting's,
+ * whatever the distance: a level that fell off with size was tried and
+ * measured (a node's mean edge in model units times the pixels one unit
+ * covers under its matrix predicts the drawn edge well - the Falcon at
+ * about 1.7 pixels a unit with 30-unit edges, a far cutscene figure at 0.04
+ * with 680-unit edges), but the setting is asked for as a look, and the
+ * game's own distance models are held at full detail alongside it, so a
+ * figure that is small on screen is still drawn as the model it is.
+ */
+static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const SmoothTri** mesh) {
+    *mesh = nullptr;
     if (gfx_model_smoothing_level < 2 || gfx_model_smoothing_amount <= 0.0f) {
-        return false;
+        return 0;
     }
     if (!(v1->lit && v2->lit && v3->lit)) {
-        return false;
+        return 0;
     }
     // the new vertices go through the current matrix and lights, so those
     // must still be the ones the corners went through
     if (v1->mtx_gen != rsp.mtx_gen || v2->mtx_gen != rsp.mtx_gen || v3->mtx_gen != rsp.mtx_gen) {
-        return false;
+        return 0;
     }
     if (!(rsp.geometry_mode & G_LIGHTING) || rsp.lights_changed) {
-        return false;
+        return 0;
     }
     if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0 && (v1->clip_rej & v2->clip_rej & v3->clip_rej)) {
-        return false; // off screen; the flat path throws it away for free
+        return 0; // off screen; the flat path throws it away for free
     }
-    return true;
+    *mesh = smooth_find(v1, v2, v3);
+    return gfx_model_smoothing_level > SMOOTH_MAX_LEVEL ? SMOOTH_MAX_LEVEL : gfx_model_smoothing_level;
 }
 
-static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3) {
+static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, int n, const SmoothTri* mesh) {
     static struct LoadedVertex made[SMOOTH_MAX_VERTS];
     struct LoadedVertex* grid[SMOOTH_MAX_VERTS];
     const struct LoadedVertex* corner[3] = { v1, v2, v3 };
-    const int n = gfx_model_smoothing_level > SMOOTH_MAX_LEVEL ? SMOOTH_MAX_LEVEL : gfx_model_smoothing_level;
     const float amount = gfx_model_smoothing_amount > 1.0f ? 1.0f : gfx_model_smoothing_amount;
 
-    float P[3][3], N[3][3];
+    // P and N are the corners as loaded; L is the normal the surface has at
+    // each corner according to the mesh pass, which is what bends the patch,
+    // falling back to N for a triangle the pass never saw. N still shades
+    float P[3][3], N[3][3], L[3][3];
     for (int c = 0; c < 3; c++) {
         P[c][0] = corner[c]->ox; P[c][1] = corner[c]->oy; P[c][2] = corner[c]->oz;
         N[c][0] = corner[c]->nx; N[c][1] = corner[c]->ny; N[c][2] = corner[c]->nz;
+        memcpy(L[c], N[c], sizeof(L[c]));
+        if (mesh) {
+            for (int k = 0; k < 3; k++) {
+                if (mesh->v[k] == corner[c]->src) {
+                    L[c][0] = mesh->n[k][0];
+                    L[c][1] = mesh->n[k][1];
+                    L[c][2] = mesh->n[k][2];
+                    const float len = sqrtf(smooth_dot(L[c], L[c]));
+                    if (len > 1e-6f) {
+                        L[c][0] /= len;
+                        L[c][1] /= len;
+                        L[c][2] /= len;
+                    } else {
+                        memcpy(L[c], N[c], sizeof(L[c]));
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     // the six edge control points, named by the corner they are nearest and
     // the one they lean toward, and the centre point raised off the
     // corners' average by half the edge points' lift
     float b12[3], b21[3], b23[3], b32[3], b31[3], b13[3], b111[3];
-    smooth_edge_point(b12, P[0], P[1], N[0]);
-    smooth_edge_point(b21, P[1], P[0], N[1]);
-    smooth_edge_point(b23, P[1], P[2], N[1]);
-    smooth_edge_point(b32, P[2], P[1], N[2]);
-    smooth_edge_point(b31, P[2], P[0], N[2]);
-    smooth_edge_point(b13, P[0], P[2], N[0]);
+    smooth_edge_point(b12, P[0], P[1], L[0]);
+    smooth_edge_point(b21, P[1], P[0], L[1]);
+    smooth_edge_point(b23, P[1], P[2], L[1]);
+    smooth_edge_point(b32, P[2], P[1], L[2]);
+    smooth_edge_point(b31, P[2], P[0], L[2]);
+    smooth_edge_point(b13, P[0], P[2], L[0]);
     for (int k = 0; k < 3; k++) {
         const float E = (b12[k] + b21[k] + b23[k] + b32[k] + b31[k] + b13[k]) * (1.0f / 6.0f);
         const float V = (P[0][k] + P[1][k] + P[2][k]) * (1.0f / 3.0f);
@@ -2400,6 +2533,7 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
 
             struct LoadedVertex* d = &made[made_count++];
             gfx_sp_load_vertex(d, pos[0], pos[1], pos[2], &vcn, U, V);
+            d->src = nullptr;
             grid[row + i] = d;
         }
     }
@@ -2422,9 +2556,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
     struct LoadedVertex* v3 = &rsp.loaded_vertices[vtx3_idx];
 
-    if (!is_rect && gfx_sp_tri_wants_smoothing(v1, v2, v3)) {
-        gfx_sp_tri_smooth(v1, v2, v3);
-        return;
+    if (!is_rect) {
+        const SmoothTri* mesh;
+        const int n = gfx_sp_tri_smooth_level(v1, v2, v3, &mesh);
+        if (n) {
+            gfx_sp_tri_smooth(v1, v2, v3, n, mesh);
+            return;
+        }
     }
 
     gfx_sp_tri_emit(v1, v2, v3, is_rect);

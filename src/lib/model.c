@@ -17,6 +17,10 @@
 #include "lib/model.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "game/modoptions.h"
+#include "modelsmooth.h"
+#endif
 
 /**
  * -- Model Definitions --
@@ -1255,7 +1259,13 @@ void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	// Model LOD off, or Increase Poly Models holding it off: the near model
+	// at any distance
+	if (g_ModelDistanceDisabled || !mtx || !modIsModelLodOn()) {
+#else
 	if (g_ModelDistanceDisabled || !mtx) {
+#endif
 		distance = 0;
 	} else {
 		distance = -mtx->m[3][2] * camGetLodScaleZ();
@@ -3997,6 +4007,11 @@ void modelPromoteOffsetsToPointers(struct modeldef *modeldef, u32 vma, uintptr_t
 	}
 
 	modelPromoteNodeOffsetsToPointers(modeldef->rootnode, vma, fileramaddr);
+
+#ifndef PLATFORM_N64
+	// Model Smoothing reads the mesh back now that its pointers are real
+	modelSmoothClassify(modeldef);
+#endif
 
 	// Sort parts by part number so they can be bisected during lookup
 	partnums = (s16 *)&modeldef->parts[modeldef->numparts];

@@ -181,9 +181,10 @@
  */
 
 /**
- * Model Smoothing: the characters, weapons and props drawn with more
- * triangles than they were built from, each one bent into a curved patch so
- * that a six-sided arm reads as a round one.
+ * Increase Poly Models (modelsmoothing in the code, Mod.ModelSmoothing in
+ * pd.ini): the characters, weapons and props drawn with more triangles than
+ * they were built from, each one bent into a curved patch so that a
+ * six-sided arm reads as a round one.
  *
  * The models were made for a console that could afford a few hundred
  * triangles per character, and on a monitor every edge of that budget shows.
@@ -194,24 +195,41 @@
  * patch that honours all three, and the patch is drawn as a grid of smaller
  * triangles, each lit by the same lights with a normal blended across the
  * patch. Two triangles that share an edge bend it the same way, so the
- * surface stays sealed. Faces whose normals already agree with them stay
- * flat, so a crate keeps its corners.
+ * surface stays sealed.
+ *
+ * Which normal a corner bends with is decided once per model at load, from
+ * the mesh (port/src/modelsmooth.c): the average of the faces around the
+ * corner that this face joins smoothly, so a box top whose neighbours all
+ * meet it at right angles stays flat and keeps its edges, while a barrel's
+ * sides round together and stop at the rim. Without that the technique
+ * pillows every flat face whose normals were averaged across its edges,
+ * which is most of them. The model's own normals still shade it.
  *
  * Only geometry that came with normals qualifies, which is the lit things;
- * rooms are coloured per vertex and are left alone. The cost is on the GPU
- * and in the renderer's vertex loop: Light is four triangles per triangle,
- * Normal nine, Heavy sixteen.
+ * rooms are coloured per vertex and are left alone. On at any setting it
+ * also holds Model LOD off, below. The level is the same at every distance
+ * - this is asked for as a look - so the cost is on the GPU and in the
+ * renderer's vertex loop for everything lit on screen: Light is four
+ * triangles per triangle, Normal nine, Heavy sixteen.
  *
- * An amount as well as a count, because the technique's known habit is to
- * inflate a large, sparsely modelled surface into a cushion: Light pulls the
- * new vertices half way to the curve, Normal three quarters, Heavy all the
- * way.
+ * An amount as well as a count: Light pulls the new vertices half way to
+ * the curve, Normal three quarters, Heavy all the way.
  */
 #define MODSMOOTH_OFF    0
 #define MODSMOOTH_LIGHT  1
 #define MODSMOOTH_NORMAL 2
 #define MODSMOOTH_HEAVY  3
 #define MODSMOOTH_MAX    MODSMOOTH_HEAVY
+
+/**
+ * Model LOD: whether the game swaps in its low-detail bodies past a few
+ * metres, as it always did. Off, every distance node keeps its near model,
+ * which is the whole model at any range. Increase Poly Models forces this
+ * off while it is on - a rounded figure that turns into the flat far one
+ * across the room is not the look that was asked for - and the menu greys
+ * the checkbox out to say so; the value kept here is what comes back when
+ * the poly setting is turned off again.
+ */
 
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
@@ -240,7 +258,8 @@ struct modoptions {
 	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
 	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look, and bobs with a step
 	s32 gunsway;     // the gun's step motion scaled up with the bob
-	s32 modelsmoothing; // MODSMOOTH_*: lit triangles drawn as curved patches
+	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
+	s32 modellod;    // the game's distance models, forced off under Increase Poly Models
 };
 
 extern struct modoptions g_ModOptions;
@@ -278,5 +297,7 @@ f32 modGetCameraTiltScale(void);
 f32 modGetGunSwayScale(void);
 s32 modGetModelSmoothingLevel(void);
 f32 modGetModelSmoothingAmount(void);
+bool modIsModelSmoothingOn(void);
+bool modIsModelLodOn(void);
 
 #endif

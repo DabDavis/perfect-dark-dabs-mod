@@ -4062,7 +4062,13 @@ struct menu {
 	/*0x65c*/ s32 rowend;
 	/*0x660*/ struct menucolumn cols[VERSION >= VERSION_NTSC_1_0 ? 12 : 10];
 	/*0x6d8*/ s32 colend;
-	/*0x6dc*/ u32 blocks[80]; // for menuitemdata
+	// Item data for every item of every stacked dialog: a dropdown is four
+	// words, a checkbox or slider one. Dab's Mod Options is sixty-odd items
+	// with two dozen dropdowns and needs well over a hundred on its own, and
+	// past the end of this array are blockend and the cursor repeat timers,
+	// which is why the cursor wandered and the bottom of that dialog showed
+	// rows that repeated and could not be selected.
+	/*0x6dc*/ u32 blocks[80 + 400]; // for menuitemdata
 	/*0x81c*/ s32 blockend;
 	/*0x820*/ u8 unk820;
 	/*0x824*/ s32 xrepeattimer60;

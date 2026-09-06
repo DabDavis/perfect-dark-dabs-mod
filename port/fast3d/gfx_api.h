@@ -43,6 +43,14 @@ extern bool gfx_clean_text_outlines;
 extern int gfx_model_smoothing_level;
 extern float gfx_model_smoothing_amount;
 
+// The mesh pass's answer for a model's triangles: for each, the surface
+// normal at each corner (int8 x,y,z per corner, in the order given), keyed
+// by the three vertex addresses. begin() drops what an earlier model at the
+// same address registered. See modelsmooth.c and gfx_sp_tri_smooth.
+void gfx_smooth_model_begin(const void* base);
+void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9]);
+void gfx_smooth_model_end(void);
+
 // What ended a batch and forced a draw call. See g_GfxFlushReasons.
 enum GfxFlushReason {
     GFX_FLUSH_TEXTURE,      // a different texture had to be bound

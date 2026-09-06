@@ -41,6 +41,7 @@ struct modoptions g_ModOptions = {
 	MODTILT_NORMAL,           // cameratilt
 	true,                     // gunsway
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
+	true,                     // modellod: stock's distance models
 };
 
 /**
@@ -408,8 +409,8 @@ f32 modGetGunSwayScale(void)
 }
 
 /**
- * Model Smoothing, as the side of the grid a lit triangle is drawn as: 0
- * for off, else 2, 3 or 4 - four, nine or sixteen triangles for one. The
+ * Increase Poly Models, as the side of the grid a lit triangle is drawn as:
+ * 0 for off, else 2, 3 or 4 - four, nine or sixteen triangles for one. The
  * renderer keeps its own copy (gfx_model_smoothing_level, with the amount
  * below); videoSetModelSmoothing() keeps them together.
  */
@@ -442,6 +443,23 @@ f32 modGetModelSmoothingAmount(void)
 	}
 
 	return 0.0f;
+}
+
+/**
+ * Whether Increase Poly Models is on at any level.
+ */
+bool modIsModelSmoothingOn(void)
+{
+	return modGetModelSmoothingLevel() != 0;
+}
+
+/**
+ * Whether the game's distance models are in use: the Model LOD setting,
+ * except that Increase Poly Models holds it off (modelUpdateDistanceRelations).
+ */
+bool modIsModelLodOn(void)
+{
+	return g_ModOptions.modellod != 0 && !modIsModelSmoothingOn();
 }
 
 /**

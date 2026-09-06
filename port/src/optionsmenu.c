@@ -2330,9 +2330,9 @@ static MenuItemHandlerResult menuhandlerModCleanText(s32 operation, struct menui
 }
 
 /**
- * Model Smoothing: lit models drawn as curved patches of more triangles.
- * An amount rather than a switch, since the same curve that rounds an arm
- * puffs up a table top. The renderer keeps its own copy of the setting.
+ * Increase Poly Models: lit models drawn as curved patches of more
+ * triangles, at the same level whatever the distance. The renderer keeps
+ * its own copy of the setting.
  */
 static MenuItemHandlerResult menuhandlerModModelSmoothing(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -2350,6 +2350,25 @@ static MenuItemHandlerResult menuhandlerModModelSmoothing(s32 operation, struct 
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = g_ModOptions.modelsmoothing;
+	}
+
+	return 0;
+}
+
+/**
+ * Model LOD: the game's own distance models. Greyed out under Increase Poly
+ * Models, which holds it off, and shown as off while it does.
+ */
+static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return modIsModelSmoothingOn();
+	case MENUOP_GET:
+		return modIsModelLodOn();
+	case MENUOP_SET:
+		g_ModOptions.modellod = data->checkbox.value;
+		break;
 	}
 
 	return 0;
@@ -3232,9 +3251,17 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Model Smoothing",
+		(uintptr_t)"Increase Poly Models",
 		0,
 		menuhandlerModModelSmoothing,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Model LOD",
+		0,
+		menuhandlerModModelLod,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
