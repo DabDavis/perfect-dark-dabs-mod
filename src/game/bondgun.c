@@ -8075,6 +8075,26 @@ void bgun0f0a5550(s32 handnum)
 		hand->posoffset.z = 0.0f;
 	}
 
+#ifndef PLATFORM_N64
+	// COD Style Aiming: at the sights the gun holds straight ahead. The
+	// look and up here are the gun animation's sway, which rolls and
+	// pitches the gun as it bobs; at the sights that is faded out to the
+	// rest pose by the tween, and the aim rotation below with it.
+	if (player->codaimfrac > 0.0f) {
+		struct coord look;
+		struct coord up;
+		f32 keep = 1.0f - player->codaimfrac;
+
+		look.x = hand->damplook.x * keep;
+		look.y = hand->damplook.y * keep;
+		look.z = hand->damplook.z * keep - player->codaimfrac;
+		up.x = hand->dampup.x * keep;
+		up.y = hand->dampup.y * keep + player->codaimfrac;
+		up.z = hand->dampup.z * keep;
+
+		mtx00016d58(&sp284, 0.0f, 0.0f, 0.0f, look.x, look.y, look.z, up.x, up.y, up.z);
+	} else
+#endif
 	mtx00016d58(&sp284, 0.0f, 0.0f, 0.0f,
 			hand->damplook.x, hand->damplook.y, hand->damplook.z,
 			hand->dampup.x, hand->dampup.y, hand->dampup.z);
@@ -8093,6 +8113,14 @@ void bgun0f0a5550(s32 handnum)
 
 	sp1a4.y = -bgun0f0a2498(sp118.x, sp118.z, sp274.f[0], sp274.f[2]);
 	sp1a4.x = bgun0f0a2498(sp118.y, sp118.z, sp274.f[1], sp274.f[2]);
+
+#ifndef PLATFORM_N64
+	// COD Style Aiming: the turn towards the crosshair goes with the sway
+	if (player->codaimfrac > 0.0f) {
+		sp1a4.x *= 1.0f - player->codaimfrac;
+		sp1a4.y *= 1.0f - player->codaimfrac;
+	}
+#endif
 
 	hand->lastrotangx = sp1a4.f[0];
 	hand->lastrotangy = sp1a4.f[1];
@@ -12323,15 +12351,16 @@ void bgunSetLeftTrigger(bool on)
 
 #ifndef PLATFORM_N64
 /**
- * Whether aiming this gun zooms the view: a manual zoom (the scopes) or a
- * zoom fov in its aim settings (the Falcon 2 Scope's 2x and the like).
+ * Whether this gun's scope covers the view when the gun is raised to the
+ * eye: the three with a manual zoom - Sniper Rifle, FarSight, Horizon
+ * Scanner - and the Falcon 2 Scope, whose scope sits over the crosshair.
+ * The other guns with a zoom of their own (K7 Avenger, MagSec 4, AR34,
+ * the Dragons) come up to the sights like the rest: a rule of "any gun
+ * that zooms" kept the K7 off to the side, and was asked to be undone.
  */
-bool bgunZoomsWhenAimed(s32 weaponnum)
+bool bgunScopeCoversView(s32 weaponnum)
 {
-	struct weapon *weapon = weaponFindById(weaponnum);
-
-	return weapon
-		&& ((weapon->aimsettings->flags & INVAIMFLAG_MANUALZOOM) || weapon->aimsettings->zoomfov > 0);
+	return weaponHasAimFlag(weaponnum, INVAIMFLAG_MANUALZOOM) || weaponnum == WEAPON_FALCON2_SCOPE;
 }
 #endif
 
@@ -12441,18 +12470,15 @@ void bgunTickGameplay(bool triggeron)
 	// COD Style Aiming: where the guns are on their way to, tweened sixty
 	// percent of the way each tick - settled in four ticks, a snap with a
 	// little motion left in it; a quarter took a third of a second and
-	// read as slow. Not for the empty hand, and not for a
-	// gun that zooms when aimed - the Sniper Rifle, FarSight and Horizon
-	// Scanner with their manual zoom, and the Falcon 2 Scope, MagSec 4,
-	// AR34, K7 Avenger and the rest with a zoom fov of their own - whose
-	// zoom is the sights: raised to the eye, the scope's body sat across
-	// the middle of the view and covered what the zoom was showing.
+	// read as slow. Not for the empty hand, and not for a gun whose scope
+	// would cover the view: raised to the eye, a Sniper Rifle's scope sat
+	// across the middle of it and hid what the zoom was showing.
 	{
 		f32 target = modIsCodAimingOn()
 			&& player->insightaimmode
 			&& player->hands[HAND_RIGHT].inuse
 			&& modIsWeaponAGun(player->gunctrl.weaponnum)
-			&& !bgunZoomsWhenAimed(player->gunctrl.weaponnum) ? 1.0f : 0.0f;
+			&& !bgunScopeCoversView(player->gunctrl.weaponnum) ? 1.0f : 0.0f;
 		f32 step = 0.6f * LVUPDATE60FREAL();
 
 		if (step > 1.0f) {

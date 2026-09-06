@@ -2086,13 +2086,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 #ifndef PLATFORM_N64
 		// COD Style Aiming: a little zoom down the sights for a gun that
-		// comes up to them - the same guns as the pose. A gun that zooms
-		// when aimed has its own, and a gun without one reads as no zoom
-		// at all here, which is why this does not compare against it.
+		// comes up to them - the same guns as the pose - in place of any
+		// zoom of the gun's own: the viewmodel is drawn through the zoomed
+		// projection, and at the K7 Avenger's 3x a gun at the sights is
+		// three times the size and off the bottom of the screen. A gun
+		// without a zoom reads as none at all here, hence set outright.
 		if (modIsCodAimingOn()
 				&& g_Vars.currentplayer->insightaimmode
 				&& modIsWeaponAGun(weaponnum)
-				&& !bgunZoomsWhenAimed(weaponnum)) {
+				&& !bgunScopeCoversView(weaponnum)) {
 			zoomfov = PLAYER_DEFAULT_FOV * 0.8f;
 		}
 #endif

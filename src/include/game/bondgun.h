@@ -63,7 +63,7 @@ bool bgunIsUsingSecondaryFunctionForHand(s32 handnum);
 void bgunToggleFunctionForHand(s32 handnum);
 bool bgunWantsLoweredReload(s32 weaponnum);
 bool bgunIsAkimboIncompatible(s32 weaponnum);
-bool bgunZoomsWhenAimed(s32 weaponnum);
+bool bgunScopeCoversView(s32 weaponnum);
 bool bgunHandHasHands(s32 handnum);
 bool bgunLeftHandSkipsFlip(s32 weaponnum);
 f32 bgunGetNoiseRadius(s32 handnum);
