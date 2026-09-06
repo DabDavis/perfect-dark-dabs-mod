@@ -77,6 +77,42 @@ struct RGBA {
     uint8_t r, g, b, a;
 };
 
+/*
+ * Four floats the compiler carries in one register (SSE on x86, NEON on
+ * ARM): GCC and clang's vector extension, so no intrinsics and no
+ * per-target code. Each lane rounds exactly as the scalar expression it
+ * replaces, so a vertex transformed this way lands on the same bits.
+ */
+typedef float v4f __attribute__((vector_size(16)));
+
+static inline v4f v4f_load(const float* p) {
+    v4f v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline void v4f_store(float* p, v4f v) {
+    memcpy(p, &v, sizeof(v));
+}
+
+static inline v4f v4f_splat(float f) {
+    return v4f{ f, f, f, f };
+}
+
+/*
+ * c / 255.0f for every byte, computed once with the division so the
+ * per-vertex colour reaches the shader on the same bits it always did,
+ * without the divide.
+ */
+static const struct ByteToUnit {
+    float f[256];
+    ByteToUnit() {
+        for (int i = 0; i < 256; i++) {
+            f[i] = i / 255.0f;
+        }
+    }
+} byte_unit;
+
 struct NormalColor {
     union {
         struct { uint8_t r, g, b, a; };
@@ -289,6 +325,7 @@ static struct BatchState {
  * when in doubt it gets set.
  */
 static bool batch_state_dirty = true;
+static bool emit_plan_dirty = true; // the per-vertex layout below gfx_resolve_emit_inputs
 
 static inline void gfx_mark_state_dirty(void) {
     batch_state_dirty = true;
@@ -1566,12 +1603,19 @@ static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height)
  * scaled by the current G_TEXTURE factor. gfx_sp_vertex feeds it a G_VTX
  * command's vertices; gfx_sp_tri_smooth feeds it the ones it makes up.
  */
-static void gfx_sp_load_vertex(struct LoadedVertex* d, float px, float py, float pz, const struct NormalColor* vcn, float U, float V) {
+// inlined into its two callers so gfx_sp_vertex's loop keeps the matrix rows
+// and the mode tests out of the per-vertex work
+static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct LoadedVertex* d, float px, float py, float pz, const struct NormalColor* vcn, float U, float V) {
     {
-        float x = px * rsp.MP_matrix[0][0] + py * rsp.MP_matrix[1][0] + pz * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
-        float y = px * rsp.MP_matrix[0][1] + py * rsp.MP_matrix[1][1] + pz * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
-        float z = px * rsp.MP_matrix[0][2] + py * rsp.MP_matrix[1][2] + pz * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
-        float w = px * rsp.MP_matrix[0][3] + py * rsp.MP_matrix[1][3] + pz * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+        // x, y, z and w are each px*M[0] + py*M[1] + pz*M[2] + M[3] over the
+        // matrix's rows, which is one vector expression across the four
+        // columns; the lanes add in the same order the scalars did.
+        const v4f pos = v4f_splat(px) * v4f_load(rsp.MP_matrix[0]) + v4f_splat(py) * v4f_load(rsp.MP_matrix[1]) +
+                        v4f_splat(pz) * v4f_load(rsp.MP_matrix[2]) + v4f_load(rsp.MP_matrix[3]);
+        float x = pos[0];
+        const float y = pos[1];
+        const float z = pos[2];
+        const float w = pos[3];
 
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
@@ -1662,9 +1706,7 @@ static void gfx_sp_load_vertex(struct LoadedVertex* d, float px, float py, float
                 V = (float)(int32_t)(doty * rsp.texture_scaling_factor.t);
             }
         } else {
-            d->color.r = vcn->r;
-            d->color.g = vcn->g;
-            d->color.b = vcn->b;
+            memcpy(&d->color, vcn, sizeof(d->color));
         }
 
         d->u = U;
@@ -1968,6 +2010,7 @@ static void gfx_derive_batch_state(void) {
     }
 
     batch_state_dirty = false;
+    emit_plan_dirty = true;
 }
 
 #ifdef GFX_VERIFY_BATCH_STATE
@@ -2085,6 +2128,7 @@ static inline bool operator!=(const struct RGBA& a, const struct RGBA& b) {
 }
 
 static void gfx_resolve_emit_inputs(void) {
+    emit_plan_dirty = true;
     emit_inputs.comb = batch.comb;
     emit_inputs.use_alpha = batch.use_alpha;
     emit_inputs.tl_lod = rdp.other_mode_h & G_TL_LOD;
@@ -2168,6 +2212,128 @@ static void gfx_resolve_emit_inputs(void) {
     }
 }
 
+/*
+ * The layout of one vertex in the buffer, as the batch's shader wants it,
+ * worked out once per batch. Most of what goes into a vertex is the same
+ * for every vertex of the batch - the texture clamps, the fog and grayscale
+ * colours, the constant combiner inputs - so those sit in a template that is
+ * copied whole, and the few floats that come from the vertex itself are
+ * listed as slots with an offset each. gfx_sp_tri_emit then does one copy,
+ * one position store and a short run of slot writes per vertex, instead of
+ * rebuilding the layout with a switch per input per vertex. The values are
+ * the same ones as before, from the same expressions.
+ */
+enum EmitSlotKind {
+    EMIT_SLOT_UV0,         // texture 0's s,t: u * scale + offset, two floats
+    EMIT_SLOT_UV1,         // texture 1's
+    EMIT_SLOT_FOG_LINE,    // fog_mul, fog_offset
+    EMIT_SLOT_SHADE_RGB,   // the vertex colour, three floats
+    EMIT_SLOT_SHADE_A_RGB, // the vertex alpha as a grey colour
+    EMIT_SLOT_LOD_RGB,     // the LOD fraction from the depth, three floats
+    EMIT_SLOT_SHADE_A,     // the vertex alpha
+    EMIT_SLOT_LOD_A,       // the LOD fraction, one float
+};
+
+struct EmitSlot {
+    uint8_t kind, off;
+};
+
+#define EMIT_MAX_FLOATS 32 // per vertex; buf_vbo is sized for it
+
+static struct {
+    struct RGBA fog, gray; // the colours the template was built with
+    uint8_t stride;        // floats per vertex
+    uint8_t nslots;
+    struct EmitSlot slots[2 + 1 + 8 * 2];
+    float tmpl[EMIT_MAX_FLOATS];
+} emit_plan;
+
+static void gfx_build_emit_plan(void) {
+    emit_plan_dirty = false;
+    emit_plan.fog = rdp.fog_color;
+    emit_plan.gray = rdp.grayscale_color;
+    memset(emit_plan.tmpl, 0, sizeof(emit_plan.tmpl));
+    int off = 4; // the position
+    int n = 0;
+    float* tmpl = emit_plan.tmpl;
+
+    for (int t = 0; t < 2; t++) {
+        if (!batch.used_textures[t]) {
+            continue;
+        }
+        emit_plan.slots[n++] = { (uint8_t)(EMIT_SLOT_UV0 + t), (uint8_t)off };
+        off += 2;
+        if (batch.tm & (1 << 2 * t)) {
+            tmpl[off++] = batch.tex_clamp[t][0];
+        }
+        if (batch.tm & (1 << (2 * t + 1))) {
+            tmpl[off++] = batch.tex_clamp[t][1];
+        }
+    }
+
+    if (batch.use_fog) {
+        tmpl[off + 0] = byte_unit.f[rdp.fog_color.r];
+        tmpl[off + 1] = byte_unit.f[rdp.fog_color.g];
+        tmpl[off + 2] = byte_unit.f[rdp.fog_color.b];
+        emit_plan.slots[n++] = { EMIT_SLOT_FOG_LINE, (uint8_t)(off + 3) }; // the fog line, evaluated per fragment
+        off += 5;
+    }
+
+    if (batch.use_grayscale) {
+        tmpl[off + 0] = byte_unit.f[rdp.grayscale_color.r];
+        tmpl[off + 1] = byte_unit.f[rdp.grayscale_color.g];
+        tmpl[off + 2] = byte_unit.f[rdp.grayscale_color.b];
+        tmpl[off + 3] = byte_unit.f[rdp.grayscale_color.a]; // lerp interpolation factor (not alpha)
+        off += 4;
+    }
+
+    for (int j = 0; j < batch.num_inputs && j < 8; j++) {
+        const struct EmitInput* in = &emit_inputs.in[j];
+        switch (in->rgb_kind) {
+            case EMIT_IN_SHADE:
+                emit_plan.slots[n++] = { EMIT_SLOT_SHADE_RGB, (uint8_t)off };
+                break;
+            case EMIT_IN_SHADE_ALPHA:
+                emit_plan.slots[n++] = { EMIT_SLOT_SHADE_A_RGB, (uint8_t)off };
+                break;
+            case EMIT_IN_LOD_FRACTION:
+                emit_plan.slots[n++] = { EMIT_SLOT_LOD_RGB, (uint8_t)off };
+                break;
+            default:
+                tmpl[off + 0] = in->rgb[0];
+                tmpl[off + 1] = in->rgb[1];
+                tmpl[off + 2] = in->rgb[2];
+                break;
+        }
+        off += 3;
+        if (batch.use_alpha) {
+            switch (in->a_kind) {
+                case EMIT_IN_SHADE:
+                    emit_plan.slots[n++] = { EMIT_SLOT_SHADE_A, (uint8_t)off };
+                    break;
+                case EMIT_IN_LOD_FRACTION:
+                    emit_plan.slots[n++] = { EMIT_SLOT_LOD_A, (uint8_t)off };
+                    break;
+                default:
+                    tmpl[off] = in->a;
+                    break;
+            }
+            off += 1;
+        }
+    }
+
+    SUPPORT_CHECK(off <= EMIT_MAX_FLOATS);
+    emit_plan.stride = off;
+    emit_plan.nslots = n;
+}
+
+// the LOD fraction the combiner reads, from the vertex's depth
+static inline float gfx_lod_fraction(float w) {
+    const float distance_frac = std::max(0.f, std::min(w / 1024.f, 1.f));
+    const uint8_t c = (uint8_t)((0.7f + distance_frac * 0.3f) * 255.f);
+    return byte_unit.f[c];
+}
+
 static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect, bool cull_tested = false) {
     struct LoadedVertex* v_arr[3] = { v1, v2, v3 };
 
@@ -2245,109 +2411,88 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
     const float (*uv_scale)[2] = is_rect ? batch.uv_scale_rect : batch.uv_scale;
     const float (*uv_ofs)[2] = is_rect ? batch.uv_ofs_rect : batch.uv_ofs;
 
-    for (int i = 0; i < 3; i++) {
-        float z = v_arr[i]->z, w = v_arr[i]->w;
-        if (batch.clip_parameters.z_is_from_0_to_1) {
-            z = (z + w) / 2.0f;
-        }
-
-        buf_vbo[buf_vbo_len++] = v_arr[i]->x;
-        buf_vbo[buf_vbo_len++] = batch.clip_parameters.invert_y ? -v_arr[i]->y : v_arr[i]->y;
-        buf_vbo[buf_vbo_len++] = z;
-        buf_vbo[buf_vbo_len++] = w;
-
-        for (int t = 0; t < 2; t++) {
-            if (!batch.used_textures[t]) {
-                continue;
-            }
-
-            buf_vbo[buf_vbo_len++] = v_arr[i]->u * uv_scale[t][0] + uv_ofs[t][0];
-            buf_vbo[buf_vbo_len++] = v_arr[i]->v * uv_scale[t][1] + uv_ofs[t][1];
-#ifdef GFX_VERIFY_BATCH_STATE
-            gfx_verify_uv(t, is_rect, v_arr[i]->u, v_arr[i]->v, buf_vbo[buf_vbo_len - 2], buf_vbo[buf_vbo_len - 1]);
-#endif
-
-            if (batch.tm & (1 << 2 * t)) {
-                buf_vbo[buf_vbo_len++] = batch.tex_clamp[t][0];
-            }
-            if (batch.tm & (1 << (2 * t + 1))) {
-                buf_vbo[buf_vbo_len++] = batch.tex_clamp[t][1];
-            }
-        }
-
-        if (batch.use_fog) {
-            buf_vbo[buf_vbo_len++] = rdp.fog_color.r / 255.0f;
-            buf_vbo[buf_vbo_len++] = rdp.fog_color.g / 255.0f;
-            buf_vbo[buf_vbo_len++] = rdp.fog_color.b / 255.0f;
-            buf_vbo[buf_vbo_len++] = (float)v_arr[i]->fog_mul; // the fog line, evaluated per fragment
-            buf_vbo[buf_vbo_len++] = (float)v_arr[i]->fog_offset;
-        }
-
-        if (batch.use_grayscale) {
-            buf_vbo[buf_vbo_len++] = rdp.grayscale_color.r / 255.0f;
-            buf_vbo[buf_vbo_len++] = rdp.grayscale_color.g / 255.0f;
-            buf_vbo[buf_vbo_len++] = rdp.grayscale_color.b / 255.0f;
-            buf_vbo[buf_vbo_len++] = rdp.grayscale_color.a / 255.0f; // lerp interpolation factor (not alpha)
-        }
-
-        // The shader inputs. Most of them are a constant for the whole
-        // triangle - the primitive and environment colours - so what each
-        // one is, and its value where it is constant, is worked out once
-        // when any of those change (below) rather than per vertex.
-        if (emit_inputs.comb != batch.comb || emit_inputs.use_alpha != batch.use_alpha ||
-            emit_inputs.prim != rdp.prim_color || emit_inputs.env != rdp.env_color ||
-            emit_inputs.prim_lod_fraction != rdp.prim_lod_fraction ||
-            emit_inputs.tl_lod != (rdp.other_mode_h & G_TL_LOD)) {
-            gfx_resolve_emit_inputs();
-        }
-        for (int j = 0; j < batch.num_inputs; j++) {
-            const struct EmitInput* in = &emit_inputs.in[j];
-            switch (in->rgb_kind) {
-                case EMIT_IN_SHADE:
-                    buf_vbo[buf_vbo_len++] = v_arr[i]->color.r / 255.0f;
-                    buf_vbo[buf_vbo_len++] = v_arr[i]->color.g / 255.0f;
-                    buf_vbo[buf_vbo_len++] = v_arr[i]->color.b / 255.0f;
-                    break;
-                case EMIT_IN_SHADE_ALPHA: {
-                    const float a = v_arr[i]->color.a / 255.0f;
-                    buf_vbo[buf_vbo_len++] = a;
-                    buf_vbo[buf_vbo_len++] = a;
-                    buf_vbo[buf_vbo_len++] = a;
-                    break;
-                }
-                case EMIT_IN_LOD_FRACTION: {
-                    const float distance_frac = std::max(0.f, std::min(w / 1024.f, 1.f));
-                    const uint8_t c = (uint8_t)((0.7f + distance_frac * 0.3f) * 255.f);
-                    const float f = c / 255.0f;
-                    buf_vbo[buf_vbo_len++] = f;
-                    buf_vbo[buf_vbo_len++] = f;
-                    buf_vbo[buf_vbo_len++] = f;
-                    break;
-                }
-                default:
-                    buf_vbo[buf_vbo_len++] = in->rgb[0];
-                    buf_vbo[buf_vbo_len++] = in->rgb[1];
-                    buf_vbo[buf_vbo_len++] = in->rgb[2];
-                    break;
-            }
-            if (batch.use_alpha) {
-                switch (in->a_kind) {
-                    case EMIT_IN_SHADE:
-                        buf_vbo[buf_vbo_len++] = v_arr[i]->color.a / 255.0f;
-                        break;
-                    case EMIT_IN_LOD_FRACTION: {
-                        const float distance_frac = std::max(0.f, std::min(w / 1024.f, 1.f));
-                        const uint8_t c = (uint8_t)((0.7f + distance_frac * 0.3f) * 255.f);
-                        buf_vbo[buf_vbo_len++] = c / 255.0f;
-                        break;
-                    }
-                    default:
-                        buf_vbo[buf_vbo_len++] = in->a;
-                        break;
-                }
-            }
-        }
+    // The shader inputs. Most of them are a constant for the whole
+    // triangle - the primitive and environment colours - so what each
+    // one is, and its value where it is constant, is worked out once
+    // when any of those change (below) rather than per vertex.
+    if (emit_inputs.comb != batch.comb || emit_inputs.use_alpha != batch.use_alpha ||
+        emit_inputs.prim != rdp.prim_color || emit_inputs.env != rdp.env_color ||
+        emit_inputs.prim_lod_fraction != rdp.prim_lod_fraction ||
+        emit_inputs.tl_lod != (rdp.other_mode_h & G_TL_LOD)) {
+        gfx_resolve_emit_inputs();
     }
+    // and the layout, which also carries the fog and grayscale colours
+    if (emit_plan_dirty || emit_plan.fog != rdp.fog_color || emit_plan.gray != rdp.grayscale_color) {
+        gfx_build_emit_plan();
+    }
+
+    // y is flipped by a multiply, which is exact; z is halved into 0..1 only
+    // for a backend that wants it, in the scalar form that always did it
+    const v4f ysign = v4f{ 1.0f, batch.clip_parameters.invert_y ? -1.0f : 1.0f, 1.0f, 1.0f };
+    const size_t stride = emit_plan.stride;
+
+    // The vertex buffer is written through a pointer rather than an index
+    // bumped per float, and a position goes in as one four-float store.
+    float* out = buf_vbo + buf_vbo_len;
+
+    for (int i = 0; i < 3; i++) {
+        const struct LoadedVertex* v = v_arr[i];
+        const float w = v->w;
+
+        // The template, all EMIT_MAX_FLOATS of it as straight-line stores
+        // whatever the stride; the excess is overwritten by the next vertex,
+        // and buf_vbo has room for a full-size vertex at every position
+        for (int k = 0; k < EMIT_MAX_FLOATS; k += 4) {
+            v4f_store(out + k, v4f_load(emit_plan.tmpl + k));
+        }
+
+        v4f pos = v4f_load(&v->x) * ysign;
+        if (batch.clip_parameters.z_is_from_0_to_1) {
+            pos[2] = (v->z + w) / 2.0f;
+        }
+        v4f_store(out, pos);
+
+        for (int k = 0; k < emit_plan.nslots; k++) {
+            float* o = out + emit_plan.slots[k].off;
+            switch (emit_plan.slots[k].kind) {
+                case EMIT_SLOT_UV0:
+                case EMIT_SLOT_UV1: {
+                    const int t = emit_plan.slots[k].kind - EMIT_SLOT_UV0;
+                    o[0] = v->u * uv_scale[t][0] + uv_ofs[t][0];
+                    o[1] = v->v * uv_scale[t][1] + uv_ofs[t][1];
+#ifdef GFX_VERIFY_BATCH_STATE
+                    gfx_verify_uv(t, is_rect, v->u, v->v, o[0], o[1]);
+#endif
+                    break;
+                }
+                case EMIT_SLOT_FOG_LINE:
+                    o[0] = (float)v->fog_mul;
+                    o[1] = (float)v->fog_offset;
+                    break;
+                case EMIT_SLOT_SHADE_RGB:
+                    o[0] = byte_unit.f[v->color.r];
+                    o[1] = byte_unit.f[v->color.g];
+                    o[2] = byte_unit.f[v->color.b];
+                    break;
+                case EMIT_SLOT_SHADE_A_RGB:
+                    o[0] = o[1] = o[2] = byte_unit.f[v->color.a];
+                    break;
+                case EMIT_SLOT_LOD_RGB:
+                    o[0] = o[1] = o[2] = gfx_lod_fraction(w);
+                    break;
+                case EMIT_SLOT_SHADE_A:
+                    o[0] = byte_unit.f[v->color.a];
+                    break;
+                case EMIT_SLOT_LOD_A:
+                    o[0] = gfx_lod_fraction(w);
+                    break;
+            }
+        }
+
+        out += stride;
+    }
+
+    buf_vbo_len = out - buf_vbo;
 
     // >= rather than ==, because g_GfxMaxBufferedTris can be lowered from gdb
     // partway through a frame and must not be stepped straight over.
@@ -2675,10 +2820,12 @@ static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct Loaded
     if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
         return true;
     }
-    float dx1 = v1->x / (v1->w) - v2->x / (v2->w);
-    float dy1 = v1->y / (v1->w) - v2->y / (v2->w);
-    float dx2 = v3->x / (v3->w) - v2->x / (v2->w);
-    float dy2 = v3->y / (v3->w) - v2->y / (v2->w);
+    // the two edges from v2 on screen: (x1/w1 - x2/w2, y1/w1 - y2/w2) and
+    // the same for v3, with the four divisions of each side done as one
+    const v4f p = v4f{ v1->x, v1->y, v3->x, v3->y } / v4f{ v1->w, v1->w, v3->w, v3->w };
+    const v4f q = v4f{ v2->x, v2->y, v2->x, v2->y } / v4f_splat(v2->w);
+    const v4f d = p - q;
+    const float dx1 = d[0], dy1 = d[1], dx2 = d[2], dy2 = d[3];
     float cross = dx1 * dy2 - dy1 * dx2;
     if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
         cross = -cross;

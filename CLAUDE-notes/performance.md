@@ -82,6 +82,57 @@ player alive.
   changed the course of the seeded match after four seconds; the section
   below is what that was.
 
+## The interpreter's vertex load and emit paths (2026-09-06, later)
+
+With the decomp at -O2 the renderer was 60% of the main thread, half of
+that in `gfx_sp_load_vertex` (transform, clip flags) and `gfx_sp_tri_emit`
+(writing the vertex buffer). What changed, same seeded match, main thread:
+
+| | instructions/frame | cycles/frame |
+| - | - | - |
+| before | 24.6M | 16.1M |
+| transform and cull test as four-lane vectors, colour bytes through a table, write pointer | 23.0M | 15.7M |
+| plus the vertex layout as a per-batch template | 22.8M | 15.6M |
+| plus `gfx_sp_load_vertex` inlined into the vertex loop | 22.5M | 15.5M |
+
+- The four dot products of the transform are one expression over GCC's
+  `vector_size(16)` type (`v4f` in gfx_pc.cpp), which is SSE on x86 and
+  NEON on ARM with no intrinsics. Each lane adds in the scalar order, so the
+  positions are bit-identical; the same for the cull test's four divisions.
+- `c / 255.0f` on a colour byte is a 256-entry table filled with that
+  division once, so the shader gets the same floats without the divide.
+- The per-vertex layout (position, texcoords, clamps, fog, grayscale, the
+  combiner inputs) was rebuilt with a switch per input per vertex. It is now
+  a template per batch: the constant floats copied whole (32 floats,
+  straight-line stores; buf_vbo has room for a full-size vertex at every
+  position), then the few slots that come from the vertex. Rebuilt when the
+  batch state or the resolved inputs change, or the fog/grayscale colour.
+- What is left in the load is the aspect-ratio divide, the clip-flag
+  branches and the stores; in the emit, the UV multiply-adds and the slot
+  writes. Neither is worth more without changing the floats that reach the
+  GPU (the divide could be a multiply, but not on the same bits).
+- Not touched, and next in that profile: `gfx_sp_tri_smooth_level` takes
+  three `sqrtf` and three `ceilf` per model triangle (the game's own
+  `ceilf`, a call) to pick the patch level; a squared-length compare against
+  the four thresholds would give the same levels but for ties at a boundary.
+
+**The check for a renderer change is a pixel diff, not the replay alone.**
+The replay proves the game took the same course and the counters match;
+it says nothing about the floats in the vertex buffer. A frame-exact
+screenshot from each binary settles that:
+
+```sh
+gdb -batch -ex "break videoEndFrame if g_Vars.lvframenum == 2400" -ex run \
+    -ex "call (void)screenshotRequest()" -ex delete \
+    -ex "break videoEndFrame if g_Vars.lvframenum == 2410" -ex continue -ex kill \
+    --args ./pd.x86_64 <the perfrun.sh arguments>
+```
+
+The PNG lands in `screenshots/` next to the *binary* (fsChooseOutputDir's
+first root is `$E`), not the save dir. Two captures differ only inside the
+frame-rate counter's box at the top left, which is also the ±1 draw in the
+stats; `PIL.ImageChops.difference(...).getbbox()` shows where.
+
 ## Why the decomp at -O2 played a different game, and how it was bisected
 
 Two causes, neither of them float reordering (GCC does not reorder without
