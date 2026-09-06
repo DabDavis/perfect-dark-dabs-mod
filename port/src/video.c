@@ -605,6 +605,24 @@ void videoSetModelSmoothing(s32 level, f32 amount)
 	gfx_model_smoothing_amount = amount < 0.f ? 0.f : (amount > 1.f ? 1.f : amount);
 }
 
+/**
+ * Enhance Textures and Smooth Text: how many times over the game's textures
+ * and its font glyphs are scaled up on their way to the GPU.
+ */
+void videoSetTextureEnhance(s32 texturescale, s32 textscale)
+{
+	gfx_set_texture_enhance(texturescale, textscale);
+}
+
+/**
+ * Vivid Colours: the finished frame's saturation and contrast.
+ */
+void videoSetVividColours(f32 saturation, f32 contrast)
+{
+	gfx_color_saturation = saturation < 0.f ? 0.f : (saturation > 4.f ? 4.f : saturation);
+	gfx_color_contrast = contrast < 0.f ? 0.f : (contrast > 4.f ? 4.f : contrast);
+}
+
 void videoSetGlareBrightness(f32 bright)
 {
 	vidGlareBrightness = (bright < 0.f ? 0.f : (bright > 1.f ? 1.f : bright));

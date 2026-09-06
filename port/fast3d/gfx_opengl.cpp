@@ -20,6 +20,7 @@
 #include "gfx_cc.h"
 #include "gfx_rendering_api.h"
 #include "gfx_pc.h"
+#include "gfx_api.h"
 
 using namespace std;
 
@@ -1085,7 +1086,224 @@ static void gfx_opengl_start_frame(void) {
     frame_count++;
 }
 
+/**
+ * Vivid Colours: the finished frame, graded.
+ *
+ * The game has drawn everything into the window by now, so the pass is a copy
+ * of the back buffer into a texture and one triangle drawn back over the
+ * window through a shader that turns the saturation and the contrast up. The
+ * copy is a blit, and both stay on the GPU. It runs before the recorder and
+ * the screenshot read the frame, so what they get is what was seen.
+ *
+ * Saturation is a lerp away from the pixel's own luma, contrast a stretch
+ * about mid grey, both in the gamma space the frame is in, which for a
+ * setting called Vivid is the right space: it is how every television's
+ * "colour" and "contrast" knobs work, and what those knobs do is what was
+ * asked for.
+ *
+ * Desktop GL 3.0 and up, like the NV12 capture pass, and for the same reasons.
+ * Everything it touches is put back, since the renderer resets nothing at the
+ * top of a frame.
+ */
+static GLuint grade_prog, grade_vao, grade_tex, grade_fbo;
+static GLint grade_loc_saturation, grade_loc_contrast;
+static int grade_width, grade_height;
+static bool grade_failed;
+
+static const char *grade_vs =
+    "#version 130\n"
+    "out vec2 vUV;\n"
+    "void main() {\n"
+    "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+    "    vUV = p;\n"
+    "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+    "}\n";
+
+static const char *grade_fs =
+    "#version 130\n"
+    "uniform sampler2D uTex;\n"
+    "uniform float uSaturation;\n"
+    "uniform float uContrast;\n"
+    "in vec2 vUV;\n"
+    "out vec4 oCol;\n"
+    "void main() {\n"
+    "    vec3 c = texture(uTex, vUV).rgb;\n"
+    "    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
+    "    c = mix(vec3(l), c, uSaturation);\n"
+    "    c = (c - 0.5) * uContrast + 0.5;\n"
+    "    oCol = vec4(clamp(c, 0.0, 1.0), 1.0);\n"
+    "}\n";
+
+static GLuint gfx_opengl_grade_compile(GLenum type, const char *src) {
+    GLuint sh = glCreateShader(type);
+    GLint ok = 0;
+
+    glShaderSource(sh, 1, &src, NULL);
+    glCompileShader(sh);
+    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+
+    if (!ok) {
+        char log[512] = { 0 };
+        glGetShaderInfoLog(sh, sizeof(log) - 1, NULL, log);
+        sysLogPrintf(LOG_WARNING, "GL: colour grade shader would not compile: %s", log);
+        glDeleteShader(sh);
+        return 0;
+    }
+
+    return sh;
+}
+
+static void gfx_opengl_grade_free(void) {
+    if (grade_prog) { glDeleteProgram(grade_prog); grade_prog = 0; }
+    if (grade_vao) { glDeleteVertexArrays(1, &grade_vao); grade_vao = 0; }
+    if (grade_fbo) { glDeleteFramebuffers(1, &grade_fbo); grade_fbo = 0; }
+    if (grade_tex) { glDeleteTextures(1, &grade_tex); grade_tex = 0; }
+    grade_width = grade_height = 0;
+}
+
+static bool gfx_opengl_grade_init(void) {
+    GLuint vs, fs;
+    GLint ok = 0;
+
+    if (gl_es || GLVersion.major < 3 || !glad_glGenFramebuffers || !glad_glBlitFramebuffer ||
+        !glad_glGenVertexArrays || !glad_glCreateShader || !glad_glDrawArrays) {
+        return false;
+    }
+
+    vs = gfx_opengl_grade_compile(GL_VERTEX_SHADER, grade_vs);
+    fs = vs ? gfx_opengl_grade_compile(GL_FRAGMENT_SHADER, grade_fs) : 0;
+    if (!vs || !fs) {
+        if (vs) glDeleteShader(vs);
+        if (fs) glDeleteShader(fs);
+        return false;
+    }
+
+    grade_prog = glCreateProgram();
+    glAttachShader(grade_prog, vs);
+    glAttachShader(grade_prog, fs);
+    glBindFragDataLocation(grade_prog, 0, "oCol");
+    glLinkProgram(grade_prog);
+    glGetProgramiv(grade_prog, GL_LINK_STATUS, &ok);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    if (!ok) {
+        char log[512] = { 0 };
+        glGetProgramInfoLog(grade_prog, sizeof(log) - 1, NULL, log);
+        sysLogPrintf(LOG_WARNING, "GL: colour grade shader would not link: %s", log);
+        gfx_opengl_grade_free();
+        return false;
+    }
+
+    grade_loc_saturation = glGetUniformLocation(grade_prog, "uSaturation");
+    grade_loc_contrast = glGetUniformLocation(grade_prog, "uContrast");
+
+    glGenVertexArrays(1, &grade_vao);
+    glGenTextures(1, &grade_tex);
+    glGenFramebuffers(1, &grade_fbo);
+
+    return true;
+}
+
+// The copy of the window the pass reads from, at the window's size.
+static bool gfx_opengl_grade_target(int width, int height) {
+    if (width == grade_width && height == grade_height) {
+        return true;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, grade_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, grade_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, grade_tex, 0);
+    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+
+    grade_width = complete ? width : 0;
+    grade_height = complete ? height : 0;
+    return complete;
+}
+
+static void gfx_opengl_grade_frame(void) {
+    if (grade_failed || framebuffers.empty()) {
+        return;
+    }
+    if (gfx_color_saturation == 1.0f && gfx_color_contrast == 1.0f) {
+        return;
+    }
+
+    const int width = (int)framebuffers[0].width;
+    const int height = (int)framebuffers[0].height;
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    if (!grade_prog && !gfx_opengl_grade_init()) {
+        sysLogPrintf(LOG_WARNING, "GL: Vivid Colours needs desktop GL 3.0, off");
+        grade_failed = true;
+        return;
+    }
+
+    GLint prev_prog = 0, prev_vao = 0, prev_tex = 0, prev_active = GL_TEXTURE0;
+    GLint prev_viewport[4] = { 0, 0, 0, 0 };
+    const GLboolean was_blend = glIsEnabled(GL_BLEND);
+    const GLboolean was_depth = glIsEnabled(GL_DEPTH_TEST);
+    const GLboolean was_scissor = glIsEnabled(GL_SCISSOR_TEST);
+    const GLboolean was_cull = glIsEnabled(GL_CULL_FACE);
+
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev_prog);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prev_active);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex);
+    glGetIntegerv(GL_VIEWPORT, prev_viewport);
+
+    if (!gfx_opengl_grade_target(width, height)) {
+        sysLogPrintf(LOG_WARNING, "GL: Vivid Colours target is not complete, off");
+        grade_failed = true;
+    } else {
+        glDisable(GL_SCISSOR_TEST);
+
+        // The window into the texture
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadBuffer(GL_BACK);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, grade_fbo);
+        glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+        // And back over the window, graded
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glViewport(0, 0, width, height);
+        glUseProgram(grade_prog);
+        glBindVertexArray(grade_vao);
+        glBindTexture(GL_TEXTURE_2D, grade_tex);
+        glUniform1i(glGetUniformLocation(grade_prog, "uTex"), 0);
+        glUniform1f(grade_loc_saturation, gfx_color_saturation);
+        glUniform1f(grade_loc_contrast, gfx_color_contrast);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+
+    if (was_blend) glEnable(GL_BLEND);
+    if (was_depth) glEnable(GL_DEPTH_TEST);
+    if (was_scissor) glEnable(GL_SCISSOR_TEST);
+    if (was_cull) glEnable(GL_CULL_FACE);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffers[current_framebuffer].fbo);
+    glReadBuffer(GL_BACK);
+    glBindVertexArray((GLuint)prev_vao);
+    glUseProgram((GLuint)prev_prog);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex);
+    glActiveTexture((GLenum)prev_active);
+    glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+}
+
 static void gfx_opengl_end_frame(void) {
+    gfx_opengl_grade_frame();
     glFlush();
 }
 

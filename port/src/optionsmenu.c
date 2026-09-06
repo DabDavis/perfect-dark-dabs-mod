@@ -2374,6 +2374,73 @@ static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuit
 	return 0;
 }
 
+/**
+ * Smooth Text: the font's glyphs scaled up with their edges sharpened. The
+ * renderer keeps its own copy of this and of Enhance Textures, and drops its
+ * texture cache when either changes, so the switch shows at once.
+ */
+static MenuItemHandlerResult menuhandlerModSmoothText(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.smoothtext;
+	case MENUOP_SET:
+		g_ModOptions.smoothtext = data->checkbox.value;
+		videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Enhance Textures: the game's textures scaled up on their way to the GPU.
+ */
+static MenuItemHandlerResult menuhandlerModEnhanceTextures(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "2x", "4x" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.enhancetextures = data->dropdown.value;
+		videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.enhancetextures;
+	}
+
+	return 0;
+}
+
+/**
+ * Vivid Colours: the finished frame's saturation and contrast turned up.
+ */
+static MenuItemHandlerResult menuhandlerModVividColours(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Light", "Normal", "Heavy" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.vividcolours = data->dropdown.value;
+		videoSetVividColours(modGetVividSaturation(), modGetVividContrast());
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.vividcolours;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -3248,6 +3315,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		menuhandlerModCleanText,
 	},
 	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Smooth Text",
+		0,
+		menuhandlerModSmoothText,
+	},
+	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
@@ -3262,6 +3337,22 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Model LOD",
 		0,
 		menuhandlerModModelLod,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enhance Textures",
+		0,
+		menuhandlerModEnhanceTextures,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Vivid Colours",
+		0,
+		menuhandlerModVividColours,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

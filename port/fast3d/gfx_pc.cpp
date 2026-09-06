@@ -32,6 +32,7 @@
 #include "gfx_screen_config.h"
 
 #include "texpack.h"
+#include "gfx_texscale.h"
 
 uintptr_t gfxFramebuffer;
 
@@ -306,6 +307,10 @@ bool gfx_detail_textures_enabled = true;
 bool gfx_clean_text_outlines = true;
 int gfx_model_smoothing_level = 0;
 float gfx_model_smoothing_amount = 0.0f;
+int gfx_texture_enhance_scale = 1;
+int gfx_text_smooth_scale = 1;
+float gfx_color_saturation = 1.0f;
+float gfx_color_contrast = 1.0f;
 
 static bool game_renders_to_framebuffer;
 static int game_framebuffer;
@@ -904,10 +909,37 @@ void gfx_texture_cache_delete_range(const uint8_t* start, const uint8_t* end) {
 static uint32_t last_upload_width;
 static uint32_t last_upload_height;
 
+// Enhance Textures / Smooth Text, for the import_texture_* underneath
+// import_texture(): the factor to scale the game's texels by on the way up,
+// and how the edges wrap. A pack's replacement never comes through here.
+static int import_enhance_scale;
+static enum TexScaleEdge import_enhance_edge_s;
+static enum TexScaleEdge import_enhance_edge_t;
+static bool import_enhance_glyph;
+
 static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height, bool gen_mipmaps) {
+    // The dump and the dimensions the rest of the import works from stay the
+    // game's; only what reaches the GPU is bigger.
     last_upload_width = width;
     last_upload_height = height;
+
+    if (import_enhance_scale > 1) {
+        const uint8_t* big = gfx_texscale(rgba32_buf, width, height, import_enhance_scale,
+                                          import_enhance_edge_s, import_enhance_edge_t, import_enhance_glyph);
+        if (big) {
+            gfx_rapi->upload_texture(big, width * import_enhance_scale, height * import_enhance_scale, gen_mipmaps);
+            return;
+        }
+    }
+
     gfx_rapi->upload_texture(rgba32_buf, width, height, gen_mipmaps);
+}
+
+static enum TexScaleEdge gfx_texscale_edge(uint8_t cm) {
+    if (cm & G_TX_CLAMP) {
+        return TEXSCALE_EDGE_CLAMP;
+    }
+    return (cm & G_TX_MIRROR) ? TEXSCALE_EDGE_MIRROR : TEXSCALE_EDGE_WRAP;
 }
 
 static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture, bool gen_mipmaps) {
@@ -1344,6 +1376,18 @@ static void import_texture(int i, int tile, bool importReplacement) {
 
     last_upload_width = 0;
 
+    // The game's own texels: scaled up as they are uploaded, if asked. A row
+    // padded past the tile is clamped rather than wrapped, since what lies
+    // over its far edge is padding and not the other side of the picture.
+    {
+        const uint32_t padded_w = (tex_row_bytes * 2) >> siz;
+        const bool padded = padded_w != rdp.texture_tile[tile].width;
+        import_enhance_scale = loaded_texture.glyph ? gfx_text_smooth_scale : gfx_texture_enhance_scale;
+        import_enhance_edge_s = padded ? TEXSCALE_EDGE_CLAMP : gfx_texscale_edge(rdp.texture_tile[tile].cms);
+        import_enhance_edge_t = gfx_texscale_edge(rdp.texture_tile[tile].cmt);
+        import_enhance_glyph = loaded_texture.glyph != 0;
+    }
+
     if (fmt == G_IM_FMT_RGBA) {
         if (siz == G_IM_SIZ_16b) {
             import_texture_rgba16(tile, loaded_texture, rdp.tex_lod);
@@ -1381,6 +1425,8 @@ static void import_texture(int i, int tile, bool importReplacement) {
     } else {
         sysFatalError("Bad texture format in tile %d: %02x %02x", tile, fmt, siz);
     }
+
+    import_enhance_scale = 1;
 
     // Only ever reached on a cache miss, so a texture is written out once per
     // eviction at worst - and texpackDumpTexture() drops the repeats.
@@ -3851,6 +3897,18 @@ extern "C" void reset_texture_state() {
     gfx_rapi->clear_shaders();
     color_combiner_pool.clear();
     prev_combiner = color_combiner_pool.end();
+}
+
+extern "C" void gfx_set_texture_enhance(int texture_scale, int text_scale) {
+    texture_scale = texture_scale < 1 ? 1 : texture_scale;
+    text_scale = text_scale < 1 ? 1 : text_scale;
+    if (texture_scale == gfx_texture_enhance_scale && text_scale == gfx_text_smooth_scale) {
+        return;
+    }
+    gfx_texture_enhance_scale = texture_scale;
+    gfx_text_smooth_scale = text_scale;
+    // Everything cached was uploaded at the old size
+    gfx_texture_cache_clear();
 }
 
 extern "C" void gfx_set_texture_filter(enum FilteringMode mode) {

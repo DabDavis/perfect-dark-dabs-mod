@@ -43,6 +43,20 @@ extern bool gfx_clean_text_outlines;
 extern int gfx_model_smoothing_level;
 extern float gfx_model_smoothing_amount;
 
+// Enhance Textures and Smooth Text: how many times over the game's own
+// textures, and its font glyphs, are scaled up on their way to the GPU (1 for
+// as they are). See gfx_texscale.cpp. Set through gfx_set_texture_enhance(),
+// which drops the texture cache so that what is on screen changes with it.
+extern int gfx_texture_enhance_scale;
+extern int gfx_text_smooth_scale;
+void gfx_set_texture_enhance(int texture_scale, int text_scale);
+
+// Vivid Colours: the finished frame's saturation and contrast, 1.0 for as
+// drawn. Applied by the backend as the last thing before the frame is
+// presented (and before a screenshot or a recording reads it).
+extern float gfx_color_saturation;
+extern float gfx_color_contrast;
+
 // The mesh pass's answer for a model's triangles: for each, the surface
 // normal at each corner (int8 x,y,z per corner, in the order given), keyed
 // by the three vertex addresses. begin() drops what an earlier model at the

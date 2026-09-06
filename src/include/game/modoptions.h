@@ -231,6 +231,47 @@
  * the poly setting is turned off again.
  */
 
+/**
+ * Smooth Text: the font's glyphs scaled up four times over on their way to
+ * the GPU, with the letter's edge sharpened as they go (port/fast3d/
+ * gfx_texscale.cpp). The fonts were drawn one texel to one pixel of a
+ * 320x240 screen, and on a monitor each glyph is a magnified handful of
+ * blurred squares; this reads them as the shapes they are and draws a clean
+ * edge instead. The font's own anti-aliasing texels are kept. A pack's
+ * replacement glyph is left alone, being already whatever size its author
+ * chose. A fix rather than a look, so on by default.
+ */
+
+/**
+ * Enhance Textures: the game's textures scaled up two or four times over as
+ * they are uploaded, sharpened a little at their own resolution first and
+ * then resampled through a cubic curve rather than the GPU's straight-line
+ * blend, so a 32-texel wall reads as a surface rather than a grid of soft
+ * blobs. Nothing is invented: it is a better guess at what lies between the
+ * texels than the bilinear filter's. A texture pack's images, being bigger
+ * already, are not touched. The cost is at upload, once per texture, and in
+ * GPU memory: four times over is sixteen times the texels.
+ */
+#define MODENHANCE_OFF  0
+#define MODENHANCE_2X   1
+#define MODENHANCE_4X   2
+#define MODENHANCE_MAX  MODENHANCE_4X
+
+/**
+ * Vivid Colours: the finished frame's saturation and contrast turned up, as
+ * the last thing before it is shown (and before a screenshot or a recording
+ * reads it, so those match the screen). The game's palette was made for a
+ * CRT through a composite cable, which crushed its blacks and bled its
+ * colours into each other; on a flat panel it is flat and grey. Light is a
+ * touch of both, Normal what a television's picture presets would call
+ * vivid, Heavy more than that.
+ */
+#define MODVIVID_OFF     0
+#define MODVIVID_LIGHT   1
+#define MODVIVID_NORMAL  2
+#define MODVIVID_HEAVY   3
+#define MODVIVID_MAX     MODVIVID_HEAVY
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -260,6 +301,9 @@ struct modoptions {
 	s32 gunsway;     // the gun's step motion scaled up with the bob
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
 	s32 modellod;    // the game's distance models, forced off under Increase Poly Models
+	s32 smoothtext;  // font glyphs scaled up with their edges sharpened
+	s32 enhancetextures; // MODENHANCE_*: the game's textures scaled up on upload
+	s32 vividcolours; // MODVIVID_*: the frame's saturation and contrast turned up
 };
 
 extern struct modoptions g_ModOptions;
@@ -299,5 +343,9 @@ s32 modGetModelSmoothingLevel(void);
 f32 modGetModelSmoothingAmount(void);
 bool modIsModelSmoothingOn(void);
 bool modIsModelLodOn(void);
+s32 modGetSmoothTextScale(void);
+s32 modGetTextureEnhanceScale(void);
+f32 modGetVividSaturation(void);
+f32 modGetVividContrast(void);
 
 #endif

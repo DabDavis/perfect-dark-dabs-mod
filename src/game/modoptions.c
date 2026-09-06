@@ -42,6 +42,9 @@ struct modoptions g_ModOptions = {
 	true,                     // gunsway
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 	true,                     // modellod: stock's distance models
+	true,                     // smoothtext: a fix, so on
+	MODENHANCE_2X,            // enhancetextures: the cheaper of the two
+	MODVIVID_LIGHT,           // vividcolours: the washed-out look was the complaint
 };
 
 /**
@@ -460,6 +463,65 @@ bool modIsModelSmoothingOn(void)
 bool modIsModelLodOn(void)
 {
 	return g_ModOptions.modellod != 0 && !modIsModelSmoothingOn();
+}
+
+/**
+ * Smooth Text, as the factor the font's glyphs are scaled up by: 1 for off.
+ */
+s32 modGetSmoothTextScale(void)
+{
+	return g_ModOptions.smoothtext ? 4 : 1;
+}
+
+/**
+ * Enhance Textures, as the factor the game's textures are scaled up by: 1
+ * for off, else 2 or 4. The renderer keeps its own copy of this and of
+ * Smooth Text (gfx_texture_enhance_scale, gfx_text_smooth_scale);
+ * videoSetTextureEnhance() keeps them together.
+ */
+s32 modGetTextureEnhanceScale(void)
+{
+	switch (g_ModOptions.enhancetextures) {
+	case MODENHANCE_2X:
+		return 2;
+	case MODENHANCE_4X:
+		return 4;
+	}
+
+	return 1;
+}
+
+/**
+ * Vivid Colours, as the frame's saturation and contrast: 1.0 for as drawn.
+ * The renderer keeps its own copy (gfx_color_saturation, gfx_color_contrast);
+ * videoSetVividColours() keeps them together.
+ */
+f32 modGetVividSaturation(void)
+{
+	switch (g_ModOptions.vividcolours) {
+	case MODVIVID_LIGHT:
+		return 1.2f;
+	case MODVIVID_NORMAL:
+		return 1.35f;
+	case MODVIVID_HEAVY:
+		return 1.5f;
+	}
+
+	return 1.0f;
+}
+
+f32 modGetVividContrast(void)
+{
+	switch (g_ModOptions.vividcolours) {
+	case MODVIVID_LIGHT:
+		return 1.08f;
+	case MODVIVID_NORMAL:
+		return 1.15f;
+	case MODVIVID_HEAVY:
+		return 1.25f;
+	}
+
+	return 1.0f;
 }
 
 /**
