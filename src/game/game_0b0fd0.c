@@ -168,6 +168,16 @@ f32 func0f0b131c(s32 hand)
 		weapon = weaponFindById(bgunGetWeaponNum2(0));
 		x = weapon->posx;
 
+#ifndef PLATFORM_N64
+		// A two-handed gun's offset puts it across the body - the Laser's
+		// is negative, the Slayer's is far to the right - which mirrored
+		// into the other hand is the wrong side of the screen or off it.
+		// Held akimbo it sits where a pistol sits.
+		if (bgunIsAkimboIncompatible(bgunGetWeaponNum2(0))) {
+			x = 9.0f;
+		}
+#endif
+
 		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			x -= 3.5f;
 
@@ -178,6 +188,12 @@ f32 func0f0b131c(s32 hand)
 	} else {
 		weapon = weaponFindById(bgunGetWeaponNum2(1));
 		x = -weapon->posx;
+
+#ifndef PLATFORM_N64
+		if (bgunIsAkimboIncompatible(bgunGetWeaponNum2(1))) {
+			x = -9.0f;
+		}
+#endif
 
 		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			x += 3.5f;

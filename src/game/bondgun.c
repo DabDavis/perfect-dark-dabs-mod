@@ -1053,6 +1053,34 @@ bool bgunWantsLoweredReload(s32 weaponnum)
 {
 	return bgunIsAkimboIncompatible(weaponnum);
 }
+
+/**
+ * Whether the hand model belongs on this hand: there is one, and the gun
+ * this hand holds was made to be held in it. The hand model drives its
+ * bones through the gun model's matrices by index, so put on a gun that
+ * has no hands - the Klobb has four matrices and no hand bones - it reads
+ * and writes past the end of them, and the gun explodes. Stock loaded the
+ * hands for the right weapon and gave them to both hands, which is only
+ * right when both hands hold that weapon.
+ */
+/**
+ * Whether a gun in the left hand is drawn as it is rather than mirrored.
+ * The Slayer is the one gun whose model matrices start as identity and are
+ * built by its command list; mirrored, it does not appear at all. Drawn
+ * unmirrored on the left, as the AR34 is, it does.
+ */
+bool bgunLeftHandSkipsFlip(s32 weaponnum)
+{
+	return weaponHasFlag(weaponnum, WEAPONFLAG_02000000) && bgunIsAkimboIncompatible(weaponnum);
+}
+
+bool bgunHandHasHands(s32 handnum)
+{
+	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+	s32 weaponnum = handnum == HAND_LEFT && ctrl->leftweaponnum > WEAPON_NONE ? ctrl->leftweaponnum : ctrl->weaponnum;
+
+	return ctrl->handmodeldef != NULL && weaponHasFlag(weaponnum, WEAPONFLAG_HASHANDS);
+}
 #endif
 
 s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
@@ -4133,6 +4161,16 @@ void bgunTickMasterLoad(void)
 						hashands = true;
 					}
 
+#ifndef PLATFORM_N64
+					// A mixed Akimbo pair: the left hand's gun may want hands
+					// when the right's does not
+					if (player->gunctrl.dualwielding
+							&& player->gunctrl.leftweaponnum > WEAPON_NONE
+							&& weaponHasFlag(player->gunctrl.leftweaponnum, WEAPONFLAG_HASHANDS)) {
+						hashands = true;
+					}
+#endif
+
 					if (newweaponnum == WEAPON_UNARMED) {
 						// For unarmed, the fists are implemented
 						// as weapon models rather than hand models
@@ -4334,11 +4372,12 @@ void bgunTickMasterLoad(void)
 
 							modelInit(&hand->gunmodel, gunmodeldef, hand->unk0a6c, 0);
 
-							if (player->gunctrl.handmodeldef != 0) {
+							if (player->gunctrl.handmodeldef != 0 && bgunHandHasHands(i)) {
 								modelInit(&hand->handmodel, player->gunctrl.handmodeldef, hand->handsavedata, false);
 							}
 
 							hand->unk0dcc = (uintptr_t *) player->gunctrl.memloadptr;
+							hand->unk0dd0 = NULL;
 
 							value = bgunCreateModelCmdList(&hand->gunmodel, gunmodeldef->rootnode, (uintptr_t *) player->gunctrl.memloadptr);
 
@@ -4346,7 +4385,7 @@ void bgunTickMasterLoad(void)
 							player->gunctrl.memloadptr += value;
 							player->gunctrl.memloadremaining -= value;
 
-							if (player->gunctrl.handmodeldef != 0) {
+							if (player->gunctrl.handmodeldef != 0 && bgunHandHasHands(i)) {
 								hand->unk0dd0 = (uintptr_t*) player->gunctrl.memloadptr;
 
 								value = bgunCreateModelCmdList(&hand->handmodel, player->gunctrl.handmodeldef->rootnode, (uintptr_t*) player->gunctrl.memloadptr);
@@ -7984,7 +8023,7 @@ void bgun0f0a5550(s32 handnum)
 
 		bgunExecuteModelCmdList(hand->unk0dcc);
 
-		if (player->gunctrl.handmodeldef != NULL) {
+		if (player->gunctrl.handmodeldef != NULL && hand->unk0dd0 != NULL) {
 			bgunExecuteModelCmdList(hand->unk0dd0);
 		}
 
@@ -8065,7 +8104,11 @@ void bgun0f0a5550(s32 handnum)
 		hand->gunmodel.matrices = (Mtxf *)mtxallocation;
 		hand->handmodel.matrices = (Mtxf *)mtxallocation;
 
-		if (weaponHasFlag(weaponnum, WEAPONFLAG_DUALFLIP) && handnum == HAND_LEFT) {
+		if (weaponHasFlag(weaponnum, WEAPONFLAG_DUALFLIP) && handnum == HAND_LEFT
+#ifndef PLATFORM_N64
+				&& !bgunLeftHandSkipsFlip(weaponnum)
+#endif
+				) {
 			mtx00015e24(-1, &sp2c4);
 		}
 
@@ -11432,7 +11475,11 @@ void bgunRender(Gfx **gdlptr)
 #endif
 			}
 
-			if (weaponHasFlag(weaponnum, WEAPONFLAG_DUALFLIP)) {
+			if (weaponHasFlag(weaponnum, WEAPONFLAG_DUALFLIP)
+#ifndef PLATFORM_N64
+					&& !(i == HAND_LEFT && bgunLeftHandSkipsFlip(weaponnum))
+#endif
+					) {
 				gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
 
 				if (i == HAND_RIGHT) {
@@ -11473,8 +11520,10 @@ void bgunRender(Gfx **gdlptr)
 			// Render the hand
 			if (player->gunctrl.handmodeldef && renderhand
 #ifndef PLATFORM_N64
-					// The hand model of a two-handed gun held in one hand is
-					// the other hand reaching in from nowhere; leave it off
+					// Only on a gun made for hands, and not on a two-handed
+					// gun held in one hand, whose hand model is the other
+					// hand reaching in from nowhere
+					&& hand->unk0dd0 != NULL
 					&& !bgunIsAkimboIncompatible(bgunGetWeaponNum(hand - player->hands))
 #endif
 					) {
@@ -11492,7 +11541,11 @@ void bgunRender(Gfx **gdlptr)
 			// Clean up
 			gdl = renderdata.gdl;
 
-			if (weaponHasFlag(weaponnum, WEAPONFLAG_DUALFLIP)) {
+			if (weaponHasFlag(weaponnum, WEAPONFLAG_DUALFLIP)
+#ifndef PLATFORM_N64
+					&& !(i == HAND_LEFT && bgunLeftHandSkipsFlip(weaponnum))
+#endif
+					) {
 				gSPClearGeometryMode(gdl++, G_CULL_BOTH);
 			}
 

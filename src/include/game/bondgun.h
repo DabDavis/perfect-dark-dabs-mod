@@ -62,6 +62,8 @@ s32 bgunGetCasingIndexForHand(s32 handnum);
 bool bgunIsUsingSecondaryFunctionForHand(s32 handnum);
 bool bgunWantsLoweredReload(s32 weaponnum);
 bool bgunIsAkimboIncompatible(s32 weaponnum);
+bool bgunHandHasHands(s32 handnum);
+bool bgunLeftHandSkipsFlip(s32 weaponnum);
 f32 bgunGetNoiseRadius(s32 handnum);
 void bgunDecreaseNoiseRadius(void);
 void bgunCalculateBlend(s32 hand);
