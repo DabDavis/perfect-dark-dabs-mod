@@ -763,8 +763,10 @@ static void inputEnsureBind(s32 ctrl, u32 ck, u32 vk)
 /**
  * Akimbo Triggers, on every controller: the left trigger becomes the left
  * hand's own fire button, aim mode moves from the left trigger to the left
- * bumper, and the radial menu moves from the bumper to D-pad up, which stops
- * being a duplicate of stick-forward. Off puts each of the three back.
+ * bumper, the radial menu moves from the bumper to D-pad up, and D-pad left
+ * and right become the fire mode buttons for the left and right hand - the
+ * D-pad's duplicates of stick movement give way to all three. Off puts each
+ * of them back.
  *
  * D-pad up goes to the N64 D-pad up key rather than to the radial menu's own
  * key, which is N64 D-pad down: the menus read the N64 D-pad as up and down,
@@ -787,6 +789,8 @@ void inputApplyAkimboTriggers(s32 on)
 		const u32 lt = base + (VK_JOY1_LTRIG - VK_JOY1_BEGIN);
 		const u32 lb = base + SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
 		const u32 dup = base + SDL_CONTROLLER_BUTTON_DPAD_UP;
+		const u32 dleft = base + SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+		const u32 dright = base + SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
 
 		if (on) {
 			inputRemoveBind(ctrl, CK_RTRIG, lt);
@@ -796,6 +800,12 @@ void inputApplyAkimboTriggers(s32 on)
 			inputRemoveBind(ctrl, CK_C_U, dup);
 			inputEnsureBind(ctrl, CK_DPAD_U, dup);
 			inputEnsureBind(ctrl, CK_0040, lt);
+			// D-pad left and right, which duplicated the stick's strafe,
+			// become the fire mode buttons: left hand and right hand
+			inputRemoveBind(ctrl, CK_C_L, dleft);
+			inputEnsureBind(ctrl, CK_0080, dleft);
+			inputRemoveBind(ctrl, CK_C_R, dright);
+			inputEnsureBind(ctrl, CK_LTRIG, dright);
 		} else {
 			inputRemoveBind(ctrl, CK_0040, lt);
 			inputRemoveBind(ctrl, CK_RTRIG, lb);
@@ -804,6 +814,10 @@ void inputApplyAkimboTriggers(s32 on)
 			inputRemoveBind(ctrl, CK_DPAD_U, dup);
 			inputEnsureBind(ctrl, CK_DPAD_D, lb);
 			inputEnsureBind(ctrl, CK_C_U, dup);
+			inputRemoveBind(ctrl, CK_0080, dleft);
+			inputEnsureBind(ctrl, CK_C_L, dleft);
+			inputRemoveBind(ctrl, CK_LTRIG, dright);
+			inputEnsureBind(ctrl, CK_C_R, dright);
 		}
 	}
 }

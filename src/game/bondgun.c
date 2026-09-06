@@ -12260,6 +12260,23 @@ bool bgunIsUsingSecondaryFunctionForHand(s32 handnum)
 }
 #endif
 
+/**
+ * Flip the saved function choice for the gun a hand holds: the left hand's
+ * own fire mode button under Akimbo Triggers. A pair of the same gun shares
+ * the choice, so flipping it for the left flips it for both, which is what
+ * the right hand's button does too.
+ */
+void bgunToggleFunctionForHand(s32 handnum)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 weaponnum = handnum == HAND_LEFT && player->gunctrl.leftweaponnum > WEAPON_NONE
+		? player->gunctrl.leftweaponnum : player->gunctrl.weaponnum;
+
+	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST) {
+		g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(weaponnum - 1) >> 3] ^= 1 << ((weaponnum - 1) & 7);
+	}
+}
+
 bool bgunIsUsingSecondaryFunction(void)
 {
 	struct player *player = g_Vars.currentplayer;

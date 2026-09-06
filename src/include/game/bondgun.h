@@ -60,6 +60,7 @@ struct modeldef *bgunGetGunModelDefForHand(s32 handnum);
 struct modeldef *bgunGetCartModeldefForHand(s32 handnum);
 s32 bgunGetCasingIndexForHand(s32 handnum);
 bool bgunIsUsingSecondaryFunctionForHand(s32 handnum);
+void bgunToggleFunctionForHand(s32 handnum);
 bool bgunWantsLoweredReload(s32 weaponnum);
 bool bgunIsAkimboIncompatible(s32 weaponnum);
 bool bgunHandHasHands(s32 handnum);

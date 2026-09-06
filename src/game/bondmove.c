@@ -1627,6 +1627,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						// handle L button : alt switching
 						for (i = 0; i < numsamples; i++) {
 							bgunProcessInputAltButton(&movedata, contpad1, i);
+
+#ifndef PLATFORM_N64
+							// Akimbo Triggers: the left hand's own fire mode
+							// button, a press for a flip
+							if (modIsAkimboTriggersOn()
+									&& joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_FIREMODELEFT)) {
+								bgunToggleFunctionForHand(HAND_LEFT);
+							}
+#endif
 						}
 
 						// Handle ALT1 / MI Reload Hack

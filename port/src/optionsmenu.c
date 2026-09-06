@@ -1764,6 +1764,7 @@ static const struct menubind menuBinds[] = {
 	{ CK_4000,   "Half Crouch [+]\n",   "N64 Ext 4000\n" },
 	{ CK_2000,   "Full Crouch [+]\n",   "N64 Ext 2000\n" },
 	{ CK_0040,   "Fire Left [+]\n",     "N64 Ext 0040\n" },
+	{ CK_0080,   "Fire Mode Left [+]\n", "N64 Ext 0080\n" },
 	// Third Person and Combat Roll are not here. They belong to this fork, so
 	// they are bound from Dab's Mod Options with the settings they drive.
 	{ CK_ACCEPT, "UI Accept [+]\n",     "EXT UI Accept\n" },
@@ -1786,6 +1787,7 @@ static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menu
 	}
 
 struct menuitem g_ExtendedBindsMenuItems[] = {
+	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
@@ -2541,6 +2543,13 @@ static const struct menubind modMenuBinds[] = {
 	{ CK_0400, "Spectator [+]\n", "N64 Ext 0400\n" },
 	{ CK_1000, "Third Person [+]\n", "N64 Ext 1000\n" },
 	{ CK_0800, "Combat Roll [+]\n",  "N64 Ext 0800\n" },
+	// Akimbo Triggers: what it rebinds, so its layout can be changed here
+	{ CK_0040,   "Fire Left [+]\n",       "N64 Ext 0040\n" },
+	{ CK_ZTRIG,  "Fire Right [ZT]\n",     "N64 Z Trigger\n" },
+	{ CK_0080,   "Fire Mode Left [+]\n",  "N64 Ext 0080\n" },
+	{ CK_LTRIG,  "Fire Mode Right [LT]\n", "N64 L Trigger\n" },
+	{ CK_RTRIG,  "Aim Mode [RT]\n",       "N64 R Trigger\n" },
+	{ CK_DPAD_U, "Quick Menu [DU]\n",     "N64 D-Pad Up\n" },
 };
 
 static const char *menutextModBind(struct menuitem *item)
@@ -3141,6 +3150,54 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Akimbo Triggers",
 		0,
 		menuhandlerModAkimboTriggers,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		3,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		4,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		5,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		6,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		7,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		8,
+		menuhandlerModBind,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
