@@ -71,6 +71,8 @@ struct smoothtri {
 	s32 pos[3];
 	f32 normal[3];
 	f32 area;
+	bool joint;  // drawn under two matrices, so the renderer leaves it flat
+	u8 straight; // bit c: edge from corner c to the next is drawn as a line
 };
 
 struct smoothpos {
@@ -84,6 +86,8 @@ struct smoothmesh {
 	s32 maxtris;
 
 	const Vtx *slots[SMOOTH_SLOTS];
+	u32 slotmtx[SMOOTH_SLOTS]; // the matrix each slot was loaded under
+	u32 curmtx;                // bumped by every matrix command, as the renderer's is
 	const Vtx *vtxbase;
 	s32 numvertices;
 	const u8 *modelbase;
@@ -99,8 +103,12 @@ struct smoothmesh {
 	s32 *inclist;
 };
 
-static void meshAddTri(struct smoothmesh *m, const Vtx *a, const Vtx *b, const Vtx *c)
+static void meshAddTri(struct smoothmesh *m, s32 sa, s32 sb, s32 sc)
 {
+	const Vtx *a = m->slots[sa];
+	const Vtx *b = m->slots[sb];
+	const Vtx *c = m->slots[sc];
+
 	if (!a || !b || !c) {
 		return;
 	}
@@ -114,6 +122,11 @@ static void meshAddTri(struct smoothmesh *m, const Vtx *a, const Vtx *b, const V
 	t->v[0] = a;
 	t->v[1] = b;
 	t->v[2] = c;
+	// A triangle across a joint: some of its vertices went through one
+	// bone's matrix and the rest through the next. The renderer draws it
+	// flat, since a vertex it made up could go through only one.
+	t->joint = m->slotmtx[sa] != m->curmtx || m->slotmtx[sb] != m->curmtx || m->slotmtx[sc] != m->curmtx;
+	t->straight = 0;
 }
 
 /**
@@ -170,11 +183,16 @@ static void meshWalkGdl(struct smoothmesh *m, const Gfx *gdl, s32 depth)
 				}
 
 				m->slots[v0 + i] = v;
+				m->slotmtx[v0 + i] = m->curmtx;
 			}
 			break;
 		}
+		case G_MTX:
+		case (u8)G_POPMTX:
+			m->curmtx++;
+			break;
 		case (u8)G_TRI1:
-			meshAddTri(m, m->slots[((w1 >> 16) & 0xff) / 10], m->slots[((w1 >> 8) & 0xff) / 10], m->slots[(w1 & 0xff) / 10]);
+			meshAddTri(m, ((w1 >> 16) & 0xff) / 10, ((w1 >> 8) & 0xff) / 10, (w1 & 0xff) / 10);
 			break;
 		case (u8)G_TRI4:
 			for (s32 k = 0; k < 4; k++) {
@@ -183,7 +201,7 @@ static void meshWalkGdl(struct smoothmesh *m, const Gfx *gdl, s32 depth)
 				u32 z = (w0 >> (4 * k)) & 0xf;
 
 				if (x || y || z) {
-					meshAddTri(m, m->slots[x], m->slots[y], m->slots[z]);
+					meshAddTri(m, x, y, z);
 				}
 			}
 			break;
@@ -314,6 +332,53 @@ static void meshBuild(struct smoothmesh *m)
 	}
 
 	free(fill);
+
+	// Which edges are drawn as lines however much the surface bends: an
+	// edge with nothing on the other side (the sleeve's end where the hand
+	// begins, which is another mesh), a crease (a box keeps its corners),
+	// and the edges of a joint triangle, which the renderer keeps flat.
+	// The patch on either side puts its boundary on the straight line, so
+	// the two meet exactly; a curve on one side only would open a gap.
+	for (s32 i = 0; i < m->numtris; i++) {
+		struct smoothtri *t = &m->tris[i];
+
+		if (t->area <= 0) {
+			t->straight = 7;
+			continue;
+		}
+
+		for (s32 c = 0; c < 3; c++) {
+			s32 a = t->pos[c];
+			s32 b = t->pos[(c + 1) % 3];
+			bool straight = t->joint;
+			bool found = false;
+
+			for (s32 k = m->incoff[a]; k < m->incoff[a + 1]; k++) {
+				s32 j = m->inclist[k];
+				const struct smoothtri *o = &m->tris[j];
+
+				if (j == i || (o->pos[0] != b && o->pos[1] != b && o->pos[2] != b)) {
+					continue;
+				}
+
+				found = true;
+
+				if (o->joint) {
+					straight = true;
+				}
+
+				f32 dot = t->normal[0] * o->normal[0] + t->normal[1] * o->normal[1] + t->normal[2] * o->normal[2];
+
+				if (dot < SMOOTH_CREASE_COS) {
+					straight = true;
+				}
+			}
+
+			if (!found || straight) {
+				t->straight |= 1 << c;
+			}
+		}
+	}
 }
 
 static bool meshShareEdgeAt(const struct smoothtri *a, const struct smoothtri *b, s32 v)
@@ -419,6 +484,7 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 	}
 
 	memset(&m, 0, sizeof(m));
+	m.curmtx = 1;
 	m.vtxbase = vertices;
 	m.numvertices = numvertices;
 	m.modelbase = modelbase;
@@ -453,7 +519,7 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 			normals[c * 3 + 2] = meshNormalByte(n[2]);
 		}
 
-		gfx_smooth_model_add_tri(t->v[0], t->v[1], t->v[2], normals);
+		gfx_smooth_model_add_tri(t->v[0], t->v[1], t->v[2], normals, t->straight);
 	}
 
 	g_ModelSmoothTris += m.numtris;

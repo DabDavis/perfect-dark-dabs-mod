@@ -65,7 +65,7 @@ extern float gfx_color_black_level;
 // by the three vertex addresses. begin() drops what an earlier model at the
 // same address registered. See modelsmooth.c and gfx_sp_tri_smooth.
 void gfx_smooth_model_begin(const void* base);
-void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9]);
+void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9], uint8_t straight);
 void gfx_smooth_model_end(void);
 
 // A copy the game made of `count` of a model's vertices (`stride` bytes

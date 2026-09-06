@@ -426,6 +426,9 @@ float g_GfxVerifyUvWorst = 0.f;   // largest absolute divergence seen, in textur
 uint32_t g_GfxVerifyMaxTrisFrame = 0; // busiest frame the verifier actually saw
 uint32_t g_GfxNumVerts = 0;
 uint32_t g_GfxLogStats = 0;
+// triangles of the last frame by fate: thrown out as wholly off screen, as
+// facing away, or drawn (and of those, made by Increase Poly Models)
+uint32_t g_GfxTrisClipped = 0, g_GfxTrisCulled = 0, g_GfxTrisSmoothed = 0;
 
 }
 
@@ -2047,49 +2050,137 @@ static void gfx_verify_batch_state(void) {
 }
 #endif
 
-static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect) {
+static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3);
+
+/*
+ * What each shader input of the current combiner is fed from, per vertex.
+ * Colour and alpha are resolved separately since the combiner maps them
+ * separately; a CONST kind carries its value, already scaled to 0..1.
+ */
+enum EmitInputKind {
+    EMIT_IN_CONST,
+    EMIT_IN_SHADE,        // the vertex's colour (or alpha, for the alpha side)
+    EMIT_IN_SHADE_ALPHA,  // the vertex's alpha, as a grey colour
+    EMIT_IN_LOD_FRACTION, // from the vertex's depth
+};
+
+struct EmitInput {
+    uint8_t rgb_kind, a_kind;
+    float rgb[3];
+    float a;
+};
+
+static struct {
+    const ColorCombiner* comb;
+    bool use_alpha;
+    uint32_t tl_lod;
+    struct RGBA prim, env;
+    uint8_t prim_lod_fraction;
+    struct EmitInput in[8];
+} emit_inputs;
+
+static inline bool operator!=(const struct RGBA& a, const struct RGBA& b) {
+    return a.r != b.r || a.g != b.g || a.b != b.b || a.a != b.a;
+}
+
+static void gfx_resolve_emit_inputs(void) {
+    emit_inputs.comb = batch.comb;
+    emit_inputs.use_alpha = batch.use_alpha;
+    emit_inputs.tl_lod = rdp.other_mode_h & G_TL_LOD;
+    emit_inputs.prim = rdp.prim_color;
+    emit_inputs.env = rdp.env_color;
+    emit_inputs.prim_lod_fraction = rdp.prim_lod_fraction;
+
+    for (int j = 0; j < batch.num_inputs && j < 8; j++) {
+        struct EmitInput* in = &emit_inputs.in[j];
+        // the colour side, as the per-vertex switch it replaces had it
+        in->rgb_kind = EMIT_IN_CONST;
+        in->rgb[0] = in->rgb[1] = in->rgb[2] = 0.0f;
+        switch (batch.comb->shader_input_mapping[0][j]) {
+            case G_CCMUX_PRIMITIVE:
+                in->rgb[0] = rdp.prim_color.r / 255.0f;
+                in->rgb[1] = rdp.prim_color.g / 255.0f;
+                in->rgb[2] = rdp.prim_color.b / 255.0f;
+                break;
+            case G_CCMUX_SHADE:
+                in->rgb_kind = EMIT_IN_SHADE;
+                break;
+            case G_CCMUX_SHADE_ALPHA:
+                in->rgb_kind = EMIT_IN_SHADE_ALPHA;
+                break;
+            case G_CCMUX_ENVIRONMENT:
+                in->rgb[0] = rdp.env_color.r / 255.0f;
+                in->rgb[1] = rdp.env_color.g / 255.0f;
+                in->rgb[2] = rdp.env_color.b / 255.0f;
+                break;
+            case G_CCMUX_PRIMITIVE_ALPHA:
+                in->rgb[0] = in->rgb[1] = in->rgb[2] = rdp.prim_color.a / 255.0f;
+                break;
+            case G_CCMUX_ENV_ALPHA:
+                in->rgb[0] = in->rgb[1] = in->rgb[2] = rdp.env_color.a / 255.0f;
+                break;
+            case G_CCMUX_PRIM_LOD_FRAC:
+                in->rgb[0] = in->rgb[1] = in->rgb[2] = rdp.prim_lod_fraction / 255.0f;
+                break;
+            case G_CCMUX_LOD_FRACTION:
+                if (rdp.other_mode_h & G_TL_LOD) {
+                    in->rgb_kind = EMIT_IN_LOD_FRACTION;
+                } else {
+                    in->rgb[0] = in->rgb[1] = in->rgb[2] = 1.0f;
+                }
+                break;
+            case G_ACMUX_PRIM_LOD_FRAC:
+                // only the alpha was set: the colour stays zero
+                break;
+            default:
+                break;
+        }
+        // the alpha side: only the cases that set tmp.a, or read a real
+        // colour, gave anything but zero
+        in->a_kind = EMIT_IN_CONST;
+        in->a = 0.0f;
+        if (batch.use_alpha) {
+            switch (batch.comb->shader_input_mapping[1][j]) {
+                case G_CCMUX_PRIMITIVE:
+                    in->a = rdp.prim_color.a / 255.0f;
+                    break;
+                case G_CCMUX_SHADE:
+                    in->a_kind = EMIT_IN_SHADE;
+                    break;
+                case G_CCMUX_ENVIRONMENT:
+                    in->a = rdp.env_color.a / 255.0f;
+                    break;
+                case G_CCMUX_LOD_FRACTION:
+                    if (rdp.other_mode_h & G_TL_LOD) {
+                        in->a_kind = EMIT_IN_LOD_FRACTION;
+                    } else {
+                        in->a = 1.0f;
+                    }
+                    break;
+                case G_ACMUX_PRIM_LOD_FRAC:
+                    in->a = rdp.prim_lod_fraction / 255.0f;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect, bool cull_tested = false) {
     struct LoadedVertex* v_arr[3] = { v1, v2, v3 };
 
     if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
         if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
             // The whole triangle lies outside the visible area
+            g_GfxTrisClipped++;
             return;
         }
     }
 
-    if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
-        float dx1 = v1->x / (v1->w) - v2->x / (v2->w);
-        float dy1 = v1->y / (v1->w) - v2->y / (v2->w);
-        float dx2 = v3->x / (v3->w) - v2->x / (v2->w);
-        float dy2 = v3->y / (v3->w) - v2->y / (v2->w);
-        float cross = dx1 * dy2 - dy1 * dx2;
-
-        if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
-            // If one vertex lies behind the eye, negating cross will give the correct result.
-            // If all vertices lie behind the eye, the triangle will be rejected anyway.
-            cross = -cross;
-        }
-
-        // If inverted culling is requested, negate the cross
-        // if ((rsp.extra_geometry_mode & G_EX_INVERT_CULLING) == 1) {
-        //     cross = -cross;
-        // }
-
-        switch (rsp.geometry_mode & G_CULL_BOTH) {
-            case G_CULL_FRONT:
-                if (cross <= 0) {
-                    return;
-                }
-                break;
-            case G_CULL_BACK:
-                if (cross >= 0) {
-                    return;
-                }
-                break;
-            case G_CULL_BOTH:
-                // Why is this even an option?
-                return;
-        }
+    if (!cull_tested && gfx_tri_is_culled(v1, v2, v3)) {
+        g_GfxTrisCulled++;
+        return;
     }
 
     bool depth_test = ((rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER || (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM) &&
@@ -2198,68 +2289,60 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
             buf_vbo[buf_vbo_len++] = rdp.grayscale_color.a / 255.0f; // lerp interpolation factor (not alpha)
         }
 
+        // The shader inputs. Most of them are a constant for the whole
+        // triangle - the primitive and environment colours - so what each
+        // one is, and its value where it is constant, is worked out once
+        // when any of those change (below) rather than per vertex.
+        if (emit_inputs.comb != batch.comb || emit_inputs.use_alpha != batch.use_alpha ||
+            emit_inputs.prim != rdp.prim_color || emit_inputs.env != rdp.env_color ||
+            emit_inputs.prim_lod_fraction != rdp.prim_lod_fraction ||
+            emit_inputs.tl_lod != (rdp.other_mode_h & G_TL_LOD)) {
+            gfx_resolve_emit_inputs();
+        }
         for (int j = 0; j < batch.num_inputs; j++) {
-            struct RGBA* color = 0;
-            struct RGBA tmp = { 0 };
-            for (int k = 0; k < 1 + (batch.use_alpha ? 1 : 0); k++) {
-                switch (batch.comb->shader_input_mapping[k][j]) {
-                        // Note: CCMUX constants and ACMUX constants used here have same value, which is why this works
-                        // (except LOD fraction).
-                    case G_CCMUX_PRIMITIVE:
-                        color = &rdp.prim_color;
-                        break;
-                    case G_CCMUX_SHADE:
-                        color = &v_arr[i]->color;
-                        break;
-                    case G_CCMUX_SHADE_ALPHA:
-                        tmp.r = tmp.g = tmp.b = v_arr[i]->color.a;
-                        color = &tmp;
-                        break;
-                    case G_CCMUX_ENVIRONMENT:
-                        color = &rdp.env_color;
-                        break;
-                    case G_CCMUX_PRIMITIVE_ALPHA: {
-                        tmp.r = tmp.g = tmp.b = rdp.prim_color.a;
-                        color = &tmp;
-                        break;
-                    }
-                    case G_CCMUX_ENV_ALPHA: {
-                        tmp.r = tmp.g = tmp.b = rdp.env_color.a;
-                        color = &tmp;
-                        break;
-                    }
-                    case G_CCMUX_PRIM_LOD_FRAC: {
-                        tmp.r = tmp.g = tmp.b = rdp.prim_lod_fraction;
-                        color = &tmp;
-                        break;
-                    }
-                    case G_CCMUX_LOD_FRACTION: {
-                        if (rdp.other_mode_h & G_TL_LOD) {
-                            // HACK: very roughly eyeballed based on the carpets in Defection
-                            // this is actually supposed to be calculated per pixel
-                            const float distance_frac = std::max(0.f, std::min(w / 1024.f, 1.f));
-                            tmp.r = tmp.g = tmp.b = tmp.a = (0.7f + distance_frac * 0.3f) * 255.f;
-                        } else {
-                            tmp.r = tmp.g = tmp.b = tmp.a = 255;
-                        }
-                        color = &tmp;
-                        break;
-                    }
-                    case G_ACMUX_PRIM_LOD_FRAC:
-                        tmp.a = rdp.prim_lod_fraction;
-                        color = &tmp;
-                        break;
-                    default:
-                        memset(&tmp, 0, sizeof(tmp));
-                        color = &tmp;
-                        break;
+            const struct EmitInput* in = &emit_inputs.in[j];
+            switch (in->rgb_kind) {
+                case EMIT_IN_SHADE:
+                    buf_vbo[buf_vbo_len++] = v_arr[i]->color.r / 255.0f;
+                    buf_vbo[buf_vbo_len++] = v_arr[i]->color.g / 255.0f;
+                    buf_vbo[buf_vbo_len++] = v_arr[i]->color.b / 255.0f;
+                    break;
+                case EMIT_IN_SHADE_ALPHA: {
+                    const float a = v_arr[i]->color.a / 255.0f;
+                    buf_vbo[buf_vbo_len++] = a;
+                    buf_vbo[buf_vbo_len++] = a;
+                    buf_vbo[buf_vbo_len++] = a;
+                    break;
                 }
-                if (k == 0) {
-                    buf_vbo[buf_vbo_len++] = color->r / 255.0f;
-                    buf_vbo[buf_vbo_len++] = color->g / 255.0f;
-                    buf_vbo[buf_vbo_len++] = color->b / 255.0f;
-                } else {
-                    buf_vbo[buf_vbo_len++] = color->a / 255.0f;
+                case EMIT_IN_LOD_FRACTION: {
+                    const float distance_frac = std::max(0.f, std::min(w / 1024.f, 1.f));
+                    const uint8_t c = (uint8_t)((0.7f + distance_frac * 0.3f) * 255.f);
+                    const float f = c / 255.0f;
+                    buf_vbo[buf_vbo_len++] = f;
+                    buf_vbo[buf_vbo_len++] = f;
+                    buf_vbo[buf_vbo_len++] = f;
+                    break;
+                }
+                default:
+                    buf_vbo[buf_vbo_len++] = in->rgb[0];
+                    buf_vbo[buf_vbo_len++] = in->rgb[1];
+                    buf_vbo[buf_vbo_len++] = in->rgb[2];
+                    break;
+            }
+            if (batch.use_alpha) {
+                switch (in->a_kind) {
+                    case EMIT_IN_SHADE:
+                        buf_vbo[buf_vbo_len++] = v_arr[i]->color.a / 255.0f;
+                        break;
+                    case EMIT_IN_LOD_FRACTION: {
+                        const float distance_frac = std::max(0.f, std::min(w / 1024.f, 1.f));
+                        const uint8_t c = (uint8_t)((0.7f + distance_frac * 0.3f) * 255.f);
+                        buf_vbo[buf_vbo_len++] = c / 255.0f;
+                        break;
+                    }
+                    default:
+                        buf_vbo[buf_vbo_len++] = in->a;
+                        break;
                 }
             }
         }
@@ -2331,7 +2414,14 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
 struct SmoothTri {
     const void* v[3];
     int8_t n[3][3];
+    uint8_t straight; // bit 0: edge v0-v1, bit 1: v1-v2, bit 2: v0-v2 drawn as a line
 };
+
+// the bit for the edge between two corners, by their indexes
+static inline uint8_t smooth_edge_bit(int a, int b) {
+    const int lo = a < b ? a : b, hi = a < b ? b : a;
+    return (lo == 0 && hi == 1) ? 1 : (lo == 1 && hi == 2) ? 2 : 4;
+}
 
 static std::unordered_map<uint64_t, SmoothTri> smooth_tris;
 static std::unordered_map<const void*, std::vector<uint64_t>> smooth_models;
@@ -2383,7 +2473,7 @@ extern "C" void gfx_smooth_model_begin(const void* base) {
     smooth_cur_keys = &keys;
 }
 
-extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9]) {
+extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9], uint8_t straight) {
     if (!smooth_cur_keys) {
         return;
     }
@@ -2393,6 +2483,24 @@ extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const voi
     t.v[2] = c;
     memcpy(t.n, normals, 9);
     smooth_sort3(t.v, t.n);
+    // the edge bits follow the corners through the sort
+    const void* orig[3] = { a, b, c };
+    t.straight = 0;
+    for (int e = 0; e < 3; e++) {
+        if (straight & (1 << e)) {
+            int ia = -1, ib = -1;
+            for (int k = 0; k < 3; k++) {
+                if (t.v[k] == orig[e] && ia < 0) {
+                    ia = k;
+                } else if (t.v[k] == orig[(e + 1) % 3]) {
+                    ib = k;
+                }
+            }
+            if (ia >= 0 && ib >= 0 && ia != ib) {
+                t.straight |= smooth_edge_bit(ia, ib);
+            }
+        }
+    }
     const uint64_t key = smooth_key(t.v[0], t.v[1], t.v[2]);
     smooth_tris[key] = t;
     smooth_cur_keys->push_back(key);
@@ -2505,55 +2613,171 @@ static inline void smooth_edge_normal(float out[3], const float Pi[3], const flo
 /*
  * Whether a triangle is drawn as a patch, and at what level: 0 for flat,
  * else the number of pieces per edge, with the mesh pass's entry for it in
- * *mesh (null for a triangle it never saw). The level is the setting's,
- * whatever the distance: a level that fell off with size was tried and
- * measured (a node's mean edge in model units times the pixels one unit
- * covers under its matrix predicts the drawn edge well - the Falcon at
- * about 1.7 pixels a unit with 30-unit edges, a far cutscene figure at 0.04
- * with 680-unit edges), but the setting is asked for as a look, and the
- * game's own distance models are held at full detail alongside it, so a
- * figure that is small on screen is still drawn as the model it is.
+ * *mesh (null for a triangle it never saw).
+ *
+ * The setting's level is the most an edge gets; what it actually gets is
+ * decided from its length on screen, in SMOOTH_PX_PER_SEGMENT pixels a
+ * piece (gfx_sp_tri_smooth_level). A figure across the arena has edges a
+ * few pixels long, and a curve through three pixels is the same three
+ * pixels; the same figure filling the screen gets the full level. Measured
+ * in an eighty-simulant match with the whole level on every triangle, the
+ * main thread took 23ms a frame on an i7-3770 - a slide show - against
+ * 5.5ms with the pixel rule, and the figures that were big enough to see
+ * the difference on looked the same.
  */
-static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const SmoothTri** mesh, const void* src[3]) {
+
+// Pixels of screen an edge needs per segment before another segment is worth
+// drawing: below this the curve and its chord are the same pixels.
+#define SMOOTH_PX_PER_SEGMENT 12.0f
+
+/*
+ * Whether the triangle faces away under the current culling mode, by the same
+ * test gfx_sp_tri_emit applies. A patch made from a triangle that is culled
+ * would be culled piece by piece; this lets it be skipped whole.
+ */
+static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3) {
+    if ((rsp.geometry_mode & G_CULL_BOTH) == 0) {
+        return false;
+    }
+    if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
+        return true;
+    }
+    float dx1 = v1->x / (v1->w) - v2->x / (v2->w);
+    float dy1 = v1->y / (v1->w) - v2->y / (v2->w);
+    float dx2 = v3->x / (v3->w) - v2->x / (v2->w);
+    float dy2 = v3->y / (v3->w) - v2->y / (v2->w);
+    float cross = dx1 * dy2 - dy1 * dx2;
+    if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
+        cross = -cross;
+    }
+    if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_FRONT) {
+        return cross <= 0;
+    }
+    return cross >= 0;
+}
+
+/*
+ * How many segments each edge of the triangle is drawn as, from its length
+ * on screen, and the level of the patch as a whole (the most of the three).
+ * 0 for a triangle that is left as it is.
+ *
+ * Deciding per edge, from the edge's two ends alone, is what keeps the
+ * surface sealed: the patch next door sees the same two ends and gives their
+ * shared edge the same count, and gfx_sp_tri_smooth puts its boundary points
+ * on that edge's polyline whatever level its own interior runs at. A corner
+ * behind the eye has no place on screen; the patch then takes the full level.
+ */
+static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const SmoothTri** mesh, const void* src[3], int edgelevel[3]) {
     *mesh = nullptr;
     if (gfx_model_smoothing_level < 2 || gfx_model_smoothing_amount <= 0.0f) {
         return 0;
     }
-    if (!(v1->lit && v2->lit && v3->lit)) {
-        return 0;
-    }
-    // the new vertices go through the current matrix and lights, so those
-    // must still be the ones the corners went through
+    // the new vertices go through the current matrix, so it must still be
+    // the one the corners went through
     if (v1->mtx_gen != rsp.mtx_gen || v2->mtx_gen != rsp.mtx_gen || v3->mtx_gen != rsp.mtx_gen) {
         return 0;
     }
-    if (!(rsp.geometry_mode & G_LIGHTING) || rsp.lights_changed) {
-        return 0;
+    // The game lights almost nothing on the RSP: its characters, weapons and
+    // props carry colours, not normals, and the surface's normals come from
+    // the mesh pass instead. A triangle that is lit shades its new vertices
+    // through the same lights as its corners, which must not have moved
+    if (rsp.geometry_mode & G_LIGHTING) {
+        if (!(v1->lit && v2->lit && v3->lit)) {
+            return 0;
+        }
+        if (rsp.lights_changed) {
+            return 0;
+        }
     }
     if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0 && (v1->clip_rej & v2->clip_rej & v3->clip_rej)) {
         return 0; // off screen; the flat path throws it away for free
     }
+
+    const int level = gfx_model_smoothing_level > SMOOTH_MAX_LEVEL ? SMOOTH_MAX_LEVEL : gfx_model_smoothing_level;
+    int n = 1;
+
+    if (v1->w > 0.0f && v2->w > 0.0f && v3->w > 0.0f) {
+        const float hw = rdp.viewport.width * 0.5f;
+        const float hh = rdp.viewport.height * 0.5f;
+        const struct LoadedVertex* c[3] = { v1, v2, v3 };
+        float sx[3], sy[3];
+        for (int i = 0; i < 3; i++) {
+            sx[i] = c[i]->x / c[i]->w * hw;
+            sy[i] = c[i]->y / c[i]->w * hh;
+        }
+        for (int e = 0; e < 3; e++) {
+            const int a = e, b = (e + 1) % 3; // edges v1-v2, v2-v3, v3-v1
+            const float dx = sx[a] - sx[b], dy = sy[a] - sy[b];
+            const float px = sqrtf(dx * dx + dy * dy);
+            int m = (int)ceilf(px / SMOOTH_PX_PER_SEGMENT);
+            if (m < 1) {
+                m = 1;
+            } else if (m > level) {
+                m = level;
+            }
+            edgelevel[e] = m;
+            if (m > n) {
+                n = m;
+            }
+        }
+    } else {
+        edgelevel[0] = edgelevel[1] = edgelevel[2] = level;
+        n = level;
+    }
+
+    if (n < 2) {
+        return 0; // too small on screen for a curve to show
+    }
+
     *mesh = smooth_find(v1, v2, v3, src);
     if (!*mesh) {
         return 0; // not from a model the mesh pass saw: flat, as built
     }
-    return gfx_model_smoothing_level > SMOOTH_MAX_LEVEL ? SMOOTH_MAX_LEVEL : gfx_model_smoothing_level;
+
+    // edges the mesh pass wants drawn as lines: one segment each
+    if ((*mesh)->straight) {
+        int k[3] = { -1, -1, -1 };
+        for (int c = 0; c < 3; c++) {
+            for (int i = 0; i < 3; i++) {
+                if ((*mesh)->v[i] == src[c]) {
+                    k[c] = i;
+                    break;
+                }
+            }
+        }
+        n = 1;
+        for (int e = 0; e < 3; e++) {
+            const int a = k[e], b = k[(e + 1) % 3];
+            if (a >= 0 && b >= 0 && a != b && ((*mesh)->straight & smooth_edge_bit(a, b))) {
+                edgelevel[e] = 1;
+            }
+            if (edgelevel[e] > n) {
+                n = edgelevel[e];
+            }
+        }
+        if (n < 2) {
+            return 0;
+        }
+    }
+    return n;
 }
 
-static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, int n, const SmoothTri* mesh, const void* src[3]) {
+static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, int n, const SmoothTri* mesh, const void* src[3], const int edgelevel[3]) {
     static struct LoadedVertex made[SMOOTH_MAX_VERTS];
     struct LoadedVertex* grid[SMOOTH_MAX_VERTS];
     const struct LoadedVertex* corner[3] = { v1, v2, v3 };
     const float amount = gfx_model_smoothing_amount > 1.0f ? 1.0f : gfx_model_smoothing_amount;
+    // lit corners were shaded by the RSP's lights and carry the normal that
+    // did it; the rest carry a colour, which the new vertices blend instead
+    const bool lit = (rsp.geometry_mode & G_LIGHTING) != 0;
 
-    // P and N are the corners as loaded; L is the normal the surface has at
-    // each corner according to the mesh pass, which is what bends the patch
-    // (a zero one, a degenerate face, falls back to N). N still shades
+    // P are the corners as loaded; L is the normal the surface has at each
+    // corner according to the mesh pass, which is what bends the patch; N is
+    // the normal the corner was lit with, and L again for an unlit one
     float P[3][3], N[3][3], L[3][3];
     for (int c = 0; c < 3; c++) {
         P[c][0] = corner[c]->ox; P[c][1] = corner[c]->oy; P[c][2] = corner[c]->oz;
-        N[c][0] = corner[c]->nx; N[c][1] = corner[c]->ny; N[c][2] = corner[c]->nz;
-        memcpy(L[c], N[c], sizeof(L[c]));
+        bool havel = false;
         for (int k = 0; k < 3; k++) {
             if (mesh->v[k] == src[c]) {
                 L[c][0] = mesh->n[k][0];
@@ -2564,11 +2788,22 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
                     L[c][0] /= len;
                     L[c][1] /= len;
                     L[c][2] /= len;
-                } else {
-                    memcpy(L[c], N[c], sizeof(L[c]));
+                    havel = true;
                 }
                 break;
             }
+        }
+        if (lit && corner[c]->lit) {
+            N[c][0] = corner[c]->nx; N[c][1] = corner[c]->ny; N[c][2] = corner[c]->nz;
+            if (!havel) {
+                memcpy(L[c], N[c], sizeof(L[c]));
+            }
+        } else {
+            if (!havel) {
+                // a degenerate face with nothing lit: nothing to bend with
+                L[c][0] = L[c][1] = L[c][2] = 0.0f;
+            }
+            memcpy(N[c], L[c], sizeof(N[c]));
         }
     }
 
@@ -2593,6 +2828,24 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
     smooth_edge_normal(n23, P[1], P[2], N[1], N[2]);
     smooth_edge_normal(n31, P[2], P[0], N[2], N[0]);
 
+    // the patch at barycentrics (w toward v1, u toward v2, v toward v3)
+    auto eval = [&](float w, float u, float v, float pos[3], float nrm[3]) {
+        const float w2 = w * w, u2 = u * u, v2f = v * v;
+        for (int k = 0; k < 3; k++) {
+            const float flat = w * P[0][k] + u * P[1][k] + v * P[2][k];
+            const float curved = P[0][k] * w2 * w + P[1][k] * u2 * u + P[2][k] * v2f * v
+                + 3.0f * (b12[k] * w2 * u + b21[k] * w * u2 + b13[k] * w2 * v
+                        + b23[k] * u2 * v + b31[k] * w * v2f + b32[k] * u * v2f)
+                + 6.0f * b111[k] * w * u * v;
+            pos[k] = flat + (curved - flat) * amount;
+
+            const float nflat = w * N[0][k] + u * N[1][k] + v * N[2][k];
+            const float ncurved = N[0][k] * w2 + N[1][k] * u2 + N[2][k] * v2f
+                + n12[k] * w * u + n23[k] * u * v + n31[k] * w * v;
+            nrm[k] = nflat + (ncurved - nflat) * amount;
+        }
+    };
+
     // grid point (i, j): i steps toward v2, j toward v3, from v1 at (0, 0)
     int made_count = 0;
     for (int j = 0; j <= n; j++) {
@@ -2616,33 +2869,66 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
             const float u = (float)i / n;         // toward v2
             const float v = (float)j / n;         // toward v3
             const float w = (float)(n - i - j) / n; // toward v1
-            const float w2 = w * w, u2 = u * u, v2f = v * v;
 
-            float pos[3], nrm[3];
-            for (int k = 0; k < 3; k++) {
-                const float flat = w * P[0][k] + u * P[1][k] + v * P[2][k];
-                const float curved = P[0][k] * w2 * w + P[1][k] * u2 * u + P[2][k] * v2f * v
-                    + 3.0f * (b12[k] * w2 * u + b21[k] * w * u2 + b13[k] * w2 * v
-                            + b23[k] * u2 * v + b31[k] * w * v2f + b32[k] * u * v2f)
-                    + 6.0f * b111[k] * w * u * v;
-                pos[k] = flat + (curved - flat) * amount;
-
-                const float nflat = w * N[0][k] + u * N[1][k] + v * N[2][k];
-                const float ncurved = N[0][k] * w2 + N[1][k] * u2 + N[2][k] * v2f
-                    + n12[k] * w * u + n23[k] * u * v + n31[k] * w * v;
-                nrm[k] = nflat + (ncurved - nflat) * amount;
+            // A boundary point on an edge drawn with fewer segments than the
+            // patch runs at goes onto that edge's polyline: the curve
+            // sampled at the edge's own count, and the chord between the two
+            // samples either side. The neighbour draws that chord exactly.
+            int edge = -1, m = n, step = 0;
+            if (j == 0) {
+                edge = 0; step = i;       // v1 toward v2
+            } else if (i + j == n) {
+                edge = 1; step = j;       // v2 toward v3
+            } else if (i == 0) {
+                edge = 2; step = j;       // v1 toward v3
+            }
+            if (edge >= 0) {
+                m = edgelevel[edge];
             }
 
-            const float nlen = sqrtf(smooth_dot(nrm, nrm));
-            struct NormalColor vcn;
-            if (nlen > 1e-6f) {
-                vcn.x = (int8_t)lroundf(nrm[0] / nlen * 127.0f);
-                vcn.y = (int8_t)lroundf(nrm[1] / nlen * 127.0f);
-                vcn.z = (int8_t)lroundf(nrm[2] / nlen * 127.0f);
+            float pos[3], nrm[3];
+            if (edge >= 0 && m < n) {
+                const float t = (float)step / n;
+                int k = (int)(t * m);
+                if (k >= m) {
+                    k = m - 1;
+                }
+                const float t1 = (float)k / m, t2 = (float)(k + 1) / m;
+                const float f = (t - t1) * m;
+                float ba[3], bb[3]; // barycentrics of the two samples
+                switch (edge) {
+                    case 0: ba[0] = 1.0f - t1; ba[1] = t1; ba[2] = 0.0f; bb[0] = 1.0f - t2; bb[1] = t2; bb[2] = 0.0f; break;
+                    case 1: ba[0] = 0.0f; ba[1] = 1.0f - t1; ba[2] = t1; bb[0] = 0.0f; bb[1] = 1.0f - t2; bb[2] = t2; break;
+                    default: ba[0] = 1.0f - t1; ba[1] = 0.0f; ba[2] = t1; bb[0] = 1.0f - t2; bb[1] = 0.0f; bb[2] = t2; break;
+                }
+                float posa[3], nrma[3], posb[3], nrmb[3];
+                eval(ba[0], ba[1], ba[2], posa, nrma);
+                eval(bb[0], bb[1], bb[2], posb, nrmb);
+                for (int k2 = 0; k2 < 3; k2++) {
+                    pos[k2] = posa[k2] + (posb[k2] - posa[k2]) * f;
+                    nrm[k2] = nrma[k2] + (nrmb[k2] - nrma[k2]) * f;
+                }
             } else {
-                vcn.x = (int8_t)lroundf(N[0][0] * 127.0f);
-                vcn.y = (int8_t)lroundf(N[0][1] * 127.0f);
-                vcn.z = (int8_t)lroundf(N[0][2] * 127.0f);
+                eval(w, u, v, pos, nrm);
+            }
+
+            struct NormalColor vcn;
+            if (lit) {
+                const float nlen = sqrtf(smooth_dot(nrm, nrm));
+                if (nlen > 1e-6f) {
+                    vcn.x = (int8_t)lroundf(nrm[0] / nlen * 127.0f);
+                    vcn.y = (int8_t)lroundf(nrm[1] / nlen * 127.0f);
+                    vcn.z = (int8_t)lroundf(nrm[2] / nlen * 127.0f);
+                } else {
+                    vcn.x = (int8_t)lroundf(N[0][0] * 127.0f);
+                    vcn.y = (int8_t)lroundf(N[0][1] * 127.0f);
+                    vcn.z = (int8_t)lroundf(N[0][2] * 127.0f);
+                }
+            } else {
+                // the colour the corners' shading gives this point
+                vcn.r = (uint8_t)lroundf(w * v1->color.r + u * v2->color.r + v * v3->color.r);
+                vcn.g = (uint8_t)lroundf(w * v1->color.g + u * v2->color.g + v * v3->color.g);
+                vcn.b = (uint8_t)lroundf(w * v1->color.b + u * v2->color.b + v * v3->color.b);
             }
             vcn.a = (uint8_t)lroundf(w * v1->color.a + u * v2->color.a + v * v3->color.a);
 
@@ -2661,8 +2947,10 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
         const int row = j * (n + 1) - j * (j - 1) / 2;
         const int next = row + (n + 1 - j);
         for (int i = 0; i < n - j; i++) {
+            g_GfxTrisSmoothed++;
             gfx_sp_tri_emit(grid[row + i], grid[row + i + 1], grid[next + i], false);
             if (i + j + 1 < n) {
+                g_GfxTrisSmoothed++;
                 gfx_sp_tri_emit(grid[row + i + 1], grid[next + i + 1], grid[next + i], false);
             }
         }
@@ -2675,13 +2963,21 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     struct LoadedVertex* v3 = &rsp.loaded_vertices[vtx3_idx];
 
     if (!is_rect) {
-        const SmoothTri* mesh;
-        const void* src[3];
-        const int n = gfx_sp_tri_smooth_level(v1, v2, v3, &mesh, src);
-        if (n) {
-            gfx_sp_tri_smooth(v1, v2, v3, n, mesh, src);
+        // facing away: neither the triangle nor a patch made from it draws
+        if (gfx_tri_is_culled(v1, v2, v3)) {
+            g_GfxTrisCulled++;
             return;
         }
+        const SmoothTri* mesh;
+        const void* src[3];
+        int edgelevel[3];
+        const int n = gfx_sp_tri_smooth_level(v1, v2, v3, &mesh, src, edgelevel);
+        if (n) {
+            gfx_sp_tri_smooth(v1, v2, v3, n, mesh, src, edgelevel);
+            return;
+        }
+        gfx_sp_tri_emit(v1, v2, v3, false, true);
+        return;
     }
 
     gfx_sp_tri_emit(v1, v2, v3, is_rect);
@@ -3765,6 +4061,9 @@ extern "C" void gfx_start_frame(void) {
                     g_GfxFlushReasons[GFX_FLUSH_BUFFERFULL],
                     g_GfxFlushReasons[GFX_FLUSH_OTHER]);
             sysLogPrintf(LOG_NOTE,
+                    "gfx:   tris clipped %u, culled %u, drawn %u of which smoothed %u",
+                    g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris, g_GfxTrisSmoothed);
+            sysLogPrintf(LOG_NOTE,
                     "gfx:   tex uploads %u, evictions %u, cache %u/%u",
                     g_GfxNumTexUploads,
                     g_GfxNumTexEvictions,
@@ -3783,6 +4082,7 @@ extern "C" void gfx_start_frame(void) {
     g_GfxNumBufferFullFlushes = 0;
     g_GfxNumTris = 0;
     g_GfxNumVerts = 0;
+    g_GfxTrisClipped = g_GfxTrisCulled = g_GfxTrisSmoothed = 0;
     memset(g_GfxFlushReasons, 0, sizeof(g_GfxFlushReasons));
     gfx_frame_textures.clear();
     g_GfxNumDistinctTextures = 0;
