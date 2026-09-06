@@ -14,6 +14,8 @@
 #include "../fast3d/gfx_sdl.h"
 #include "../fast3d/gfx_opengl.h"
 
+extern u32 g_GfxLogStats;
+
 #ifdef PLATFORM_NSWITCH
 #define DEFAULT_VID_WIDTH 1280
 #define DEFAULT_VID_HEIGHT 720
@@ -155,6 +157,11 @@ void videoEndFrame(void)
 		fpsNumFrames = 0;
 		accumDelta = 0.0;
 		fpsTime = endTime + vidDisplayFPSInterval;
+		if (g_GfxLogStats) {
+			// --gfxstats: the frame rate alongside the draw counts, so a headless
+			// run can be measured from its log
+			sysLogPrintf(LOG_NOTE, "fps: %.1f", vidAvgFPS);
+		}
 	}
 }
 

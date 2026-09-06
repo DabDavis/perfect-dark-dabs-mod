@@ -6,6 +6,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "system.h"
+extern s32 g_FixedStep;
 #endif
 
 void frametimeInit(void)
@@ -51,6 +52,18 @@ void frametimeCalculate(void)
 		}
 #endif
 	} while (g_Vars.mininc60 && diffframe60 < g_Vars.mininc60);
+
+#ifndef PLATFORM_N64
+	if (g_FixedStep) {
+		// --fixed-step: every frame is exactly one tick whatever the clock
+		// says, so a headless run with --rng-seed replays the same match
+		diffframe60 = 1;
+		diffframe240 = 4;
+		g_Vars.lostframetime60t = 0;
+		g_Vars.lostframetime240t = 0;
+		diffframet = CYCLES_PER_FRAME;
+	}
+#endif
 
 	g_Vars.lostframetime60t = g_Vars.lostframetime60t + diffframet - diffframe60 * CYCLES_PER_FRAME;
 	g_Vars.lostframetime240t = g_Vars.lostframetime240t + diffframet - diffframe240 * (CYCLES_PER_FRAME / 4);

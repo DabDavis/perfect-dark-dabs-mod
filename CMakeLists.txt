@@ -343,6 +343,38 @@ set_source_files_properties(${SRC_UNRAR} PROPERTIES
 )
 list(APPEND SRC_PORT_CXX ${SRC_UNRAR})
 
+# The display list interpreter (port/fast3d) is the port's own C++, not
+# decompiled code, and it is where a crowded frame spends most of its main
+# thread: every vertex is lit and transformed and every triangle written out
+# in software before the GPU sees it. -Og leaves that path unvectorised and
+# uninlined, so it alone goes at -O2; the -Og above is for the decomp.
+file(GLOB SRC_FAST3D "${CMAKE_SOURCE_DIR}/port/fast3d/*.cpp")
+set_source_files_properties(${SRC_FAST3D} PROPERTIES
+  COMPILE_OPTIONS "-O2;-finline-functions"
+)
+
+# PD_HOT_O2: the decompiled files a crowded match spends its time in
+# (collision, character movement and AI, model animation, room and portal
+# visibility) at -O2 as well. Off by default: see the -Og comment above.
+option(PD_HOT_O2 "Compile the hottest decompiled files at -O2" OFF)
+if(PD_HOT_O2)
+  set(SRC_HOT
+    "${CMAKE_SOURCE_DIR}/src/lib/collision.c"
+    "${CMAKE_SOURCE_DIR}/src/lib/model.c"
+    "${CMAKE_SOURCE_DIR}/src/lib/modelasm_c.c"
+    "${CMAKE_SOURCE_DIR}/src/lib/lib_17ce0.c"
+    "${CMAKE_SOURCE_DIR}/src/game/chr.c"
+    "${CMAKE_SOURCE_DIR}/src/game/chraction.c"
+    "${CMAKE_SOURCE_DIR}/src/game/chrai.c"
+    "${CMAKE_SOURCE_DIR}/src/game/chraicommands.c"
+    "${CMAKE_SOURCE_DIR}/src/game/prop.c"
+    "${CMAKE_SOURCE_DIR}/src/game/bg.c"
+    "${CMAKE_SOURCE_DIR}/src/game/bot.c"
+    "${CMAKE_SOURCE_DIR}/src/game/pad.c"
+  )
+  set_source_files_properties(${SRC_HOT} PROPERTIES COMPILE_OPTIONS "-O2")
+endif()
+
 file(GLOB_RECURSE SRC_GAME "${CMAKE_SOURCE_DIR}/src/game/*.c")
 
 file(GLOB SRC_LIB_MP3 "${CMAKE_SOURCE_DIR}/src/lib/mp3/*.c")

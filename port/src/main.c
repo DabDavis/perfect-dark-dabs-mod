@@ -53,6 +53,7 @@ u32 g_VmNumPageReplaces = 0;
 u8 g_VmShowStats = 0;
 
 s32 g_TickRateDiv = 1;
+s32 g_FixedStep = 0; // --fixed-step, see frametimeCalculate()
 s32 g_TickExtraSleep = true;
 
 s32 g_SkipIntro = false;
@@ -209,6 +210,7 @@ int main(int argc, const char **argv)
 	// flag passed once should not tick a box in Dab's Mod Options for good.
 	g_ModSpectateStartArg = sysArgCheck("--spectate");
 	g_MpEndlessMatch = sysArgCheck("--endless");
+	g_FixedStep = sysArgCheck("--fixed-step");
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 

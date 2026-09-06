@@ -348,7 +348,14 @@ void mainLoop(void)
 		g_StageNum = STAGE_4MBMENU;
 	}
 
-	rngSetSeed(osGetCount());
+	{
+		// --rng-seed N: a fixed seed, so two headless runs play the same match
+		// tick for tick and can be compared (the level ticks once per frame,
+		// so nothing else varies between them)
+		extern s32 sysArgGetInt(const char *arg, s32 defval);
+		const s32 seed = sysArgGetInt("--rng-seed", -1);
+		rngSetSeed(seed >= 0 ? (u32)seed : osGetCount());
+	}
 
 	// Outer loop - this is infinite because ending is never changed
 	while (!ending) {

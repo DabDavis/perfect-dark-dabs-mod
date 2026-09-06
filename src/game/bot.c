@@ -1878,26 +1878,55 @@ void botChooseGeneralTarget(struct chrdata *botchr)
 		}
 	}
 
-	// Update chrnumsbydistanceasc
+	// Update chrnumsbydistanceasc: chr numbers in ascending distance order,
+	// ties by ascending chr number.
+	//
+	// Stock rebuilt this with a selection sort, which is chrs squared per bot
+	// per tick - nothing at eight chrs, and at eighty it was the single most
+	// expensive thing the bots did, about 7% of the whole frame. Only one
+	// distance changes per call (queryplayernum's, above), so last tick's
+	// order is already sorted but for one entry: an insertion sort seeded
+	// from it is a single pass. The order it produces is identical to the
+	// selection sort's, including the tie-break, so the bots behave the same.
+	// The seed is checked for being a permutation (a bot's first tick, or a
+	// chr count that changed, leaves it anything), and rebuilt from the
+	// chr numbers in order if it is not.
 	for (i = 0; i < g_MpNumChrs; i++) {
 		distancesdone[i] = false;
 	}
 
 	for (i = 0; i < g_MpNumChrs; i++) {
-		s32 closestplayernum = -1;
-		f32 closestdistance = 0;
+		j = aibot->chrnumsbydistanceasc[i];
 
-		for (j = 0; j < g_MpNumChrs; j++) {
-			if (!distancesdone[j] && (closestplayernum < 0 || aibot->chrdistances[j] < closestdistance)) {
-				closestplayernum = j;
-				closestdistance = aibot->chrdistances[j];
+		if (j < 0 || j >= g_MpNumChrs || distancesdone[j]) {
+			break;
+		}
+
+		distancesdone[j] = true;
+	}
+
+	if (i < g_MpNumChrs) {
+		for (i = 0; i < g_MpNumChrs; i++) {
+			aibot->chrnumsbydistanceasc[i] = i;
+		}
+	}
+
+	for (i = 1; i < g_MpNumChrs; i++) {
+		s8 num = aibot->chrnumsbydistanceasc[i];
+		f32 dist = aibot->chrdistances[num];
+
+		for (j = i - 1; j >= 0; j--) {
+			s8 prev = aibot->chrnumsbydistanceasc[j];
+			f32 prevdist = aibot->chrdistances[prev];
+
+			if (prevdist < dist || (prevdist == dist && prev < num)) {
+				break;
 			}
+
+			aibot->chrnumsbydistanceasc[j + 1] = prev;
 		}
 
-		if (closestplayernum >= 0) {
-			aibot->chrnumsbydistanceasc[i] = closestplayernum;
-			distancesdone[closestplayernum] = true;
-		}
+		aibot->chrnumsbydistanceasc[j + 1] = num;
 	}
 
 	bot0f192a74(botchr);
