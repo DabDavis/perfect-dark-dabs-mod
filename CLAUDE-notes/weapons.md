@@ -85,6 +85,32 @@ surrounding window - the combat knife's two sites in the hand state machine, the
 remote mine's left-hand rule before it was understood as the detonator hand.
 Naming those from a guess is worse than leaving the comparison in place.
 
+## A number does not say what the function is
+
+`chrTickShoot()` decided "this is a launcher" from the weapon number and cast
+`functions[weaponfunc]` to `weaponfunc_shootprojectile`. With stock's table that
+is true by construction; with a mod's it is not: GE-X puts its timed mine in the
+Crossbow's slot (0x1b), a throw function 0x24 bytes long, and the cast read
+`projectilemodelnum` out of whatever followed it. Guards Alerted! with Random
+weapons rolled that slot on GE-X's Runway, and the guard's first shot crashed in
+`setupLoadModeldef()` (the tester's backtrace) or, when the garbage happened to
+be a mapped address, built a projectile with no bbox and crashed in
+`projectileTick()` a tick later - one bug, two faces (2026-09-06).
+
+The rule: a branch keyed on the number tests the function's type before it
+casts (`chrGetProjectileFunc()`; `bgunCreateFiredProjectile()` already did),
+`weaponCreateProjectileFromGset()` refuses a model number outside
+`g_ModelStates`, `bgunCreateThrownProjectile2()` refuses a function that is not
+a throw, and the guard gun list goes through `modAlarmCanChrFire()` - the
+primary function must shoot - because the list is stock numbers and the AI has
+no attack for anything else.
+
+Reproduce a guard fight headlessly: copy the tester's `pd.ini` (Guards
+Alerted!, Random, Akimbo) into the scratch savedir, boot Runway under gdb with a
+Python breakpoint on `weaponCreateProjectileFromGset` that prints the calling
+`chrTickShoot()`'s `gset` and the chr's `weapons_held`, and fire now and then
+with a real mouse press; the guards arrive and shoot within a minute.
+
 ## How a mission arms the player, and why Start Armed has to go through the script
 
 Three things put a gun in the player's hands at a mission start, in this order,

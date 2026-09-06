@@ -4,6 +4,7 @@
 #include "game/body.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/game_0b0fd0.h"
 #include "game/lv.h"
 #include "game/modalarm.h"
 #include "game/modeldef.h"
@@ -176,6 +177,22 @@ static bool modAlarmIsGun(s32 weaponnum)
 }
 
 /**
+ * Whether the weapon behind a number is one a guard can fire: its primary
+ * function shoots (single, automatic or projectile). The lists above are
+ * stock numbers, and a mod's table can put anything behind one - GE-X's
+ * timed mine sits in the Crossbow's slot - which a guard would then be told
+ * to shoot. chrTickShoot() reading that throw function as a launcher's was
+ * the Guards Alerted! crash on GE-X's Runway.
+ */
+static bool modAlarmCanChrFire(s32 weaponnum)
+{
+	struct weapon *weapon = weaponFindById(weaponnum);
+	struct weaponfunc *func = weapon ? weapon->functions[FUNC_PRIMARY] : NULL;
+
+	return func != NULL && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT;
+}
+
+/**
  * Whether a match may hand a guard this gun: the same rule Start Armed uses
  * for a player, which is that the weapon is unlocked. A guard drops what it
  * carries, and a locked gun on the floor is a gun the player has not earned.
@@ -215,7 +232,8 @@ static s32 modAlarmChooseGun(void)
 		s32 i;
 
 		for (i = 0; i < ARRAYCOUNT(g_ModAlarmGuns); i++) {
-			if (!g_Vars.normmplayerisrunning || modAlarmCanMatchUseGun(g_ModAlarmGuns[i])) {
+			if (modAlarmCanChrFire(g_ModAlarmGuns[i])
+					&& (!g_Vars.normmplayerisrunning || modAlarmCanMatchUseGun(g_ModAlarmGuns[i]))) {
 				guns[numguns++] = g_ModAlarmGuns[i];
 			}
 		}
@@ -233,7 +251,8 @@ static s32 modAlarmChooseGun(void)
 		for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 			s32 slot = g_MpSetup.weapons[i];
 
-			if (slot >= 0 && slot < NUM_MPWEAPONS && modAlarmIsGun(g_MpWeapons[slot].weaponnum)) {
+			if (slot >= 0 && slot < NUM_MPWEAPONS && modAlarmIsGun(g_MpWeapons[slot].weaponnum)
+					&& modAlarmCanChrFire(g_MpWeapons[slot].weaponnum)) {
 				guns[numguns++] = g_MpWeapons[slot].weaponnum;
 			}
 		}
@@ -243,6 +262,24 @@ static s32 modAlarmChooseGun(void)
 		}
 	}
 
+	{
+		u8 guns[ARRAYCOUNT(g_ModAlarmDefaultGuns)];
+		s32 numguns = 0;
+		s32 i;
+
+		for (i = 0; i < ARRAYCOUNT(g_ModAlarmDefaultGuns); i++) {
+			if (modAlarmCanChrFire(g_ModAlarmDefaultGuns[i])) {
+				guns[numguns++] = g_ModAlarmDefaultGuns[i];
+			}
+		}
+
+		if (numguns > 0) {
+			return guns[rngRandom() % numguns];
+		}
+	}
+
+	// A table with no gun behind any of these is not one a guard can use;
+	// stock's answer is as good as any
 	return g_ModAlarmDefaultGuns[rngRandom() % ARRAYCOUNT(g_ModAlarmDefaultGuns)];
 }
 

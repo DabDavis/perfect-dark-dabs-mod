@@ -79,6 +79,9 @@
 #include "textures.h"
 #include "types.h"
 #include "string.h"
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 
 void rng2SetSeed(u32 seed);
 
@@ -18597,6 +18600,22 @@ struct weaponobj *weaponCreateProjectileFromGset(s32 modelnum, struct gset *gset
 	struct prop *prop;
 	struct model *model;
 	struct weaponobj *weapon;
+
+	if (modelnum < 0 || modelnum >= NUM_MODELS) {
+		// A launcher whose function is not a launcher's - a mod's table
+		// behind a stock number - reads its model number out of whatever
+		// follows the function it has. No projectile, rather than a prop
+		// built on memory past g_ModelStates; every caller takes NULL.
+#ifndef PLATFORM_N64
+		static s32 warned = -1;
+
+		if (warned != gset->weaponnum) {
+			sysLogPrintf(LOG_WARNING, "weapon %d: projectile model %d is not a model; no projectile", gset->weaponnum, modelnum);
+			warned = gset->weaponnum;
+		}
+#endif
+		return NULL;
+	}
 
 	setupLoadModeldef(modelnum);
 

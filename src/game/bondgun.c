@@ -4657,6 +4657,16 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		return false;
 	}
 
+	// Only a throw function has a projectile to throw. The hand's throw
+	// state is entered by function type, but the gun-change state throws
+	// whatever a hand holds once gunctrl.throwing is set, and under Akimbo
+	// the other hand can hold anything; a mod's table with a different kind
+	// of function behind a stock number is the other way in. Either reads
+	// the model number out of a shoot function's fields.
+	if ((basefunc->type & 0xff) != INVENTORYFUNCTYPE_THROW) {
+		return NULL;
+	}
+
 	if (gset->weaponnum == WEAPON_COMBATKNIFE) {
 		guRotateF(mtx.m, 90.0f / (RANDOMFRAC() + 12.1f),
 				arg4->m[1][0], arg4->m[1][1], arg4->m[1][2]);
