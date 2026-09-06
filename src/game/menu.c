@@ -53,6 +53,7 @@
 #include "video.h"
 #include "input.h"
 #include "platform.h"
+#include "system.h"
 #define BLUR_OFS 10
 #else
 #define BLUR_OFS 30
@@ -938,6 +939,15 @@ const char var7f1b25a8[] = "IG:) style %d gbHead:%d\n";
 const char var7f1b25c4[] = "GRABBED GUN MEM!\n";
 const char var7f1b25d8[] = "Freeing challenge mem\n";
 
+/**
+ * Lay a dialog's items out as rows and columns in the menu's shared arrays,
+ * and hand each item that keeps state its words of item data.
+ *
+ * The arrays are sized so this never runs out (MENU_MAX_ROWS, MENU_MAX_COLS,
+ * MENU_MAX_BLOCKS in types.h). If a dialog ever does, the rest of its items
+ * are left out and the log says so, rather than writing past the arrays into
+ * blockend and the cursor repeat timers.
+ */
 void func0f0f1d6c(struct menudialogdef *dialogdef, struct menudialog *dialog, struct menu *menu)
 {
 	s32 colindex = menu->colend - 1;
@@ -945,7 +955,7 @@ void func0f0f1d6c(struct menudialogdef *dialogdef, struct menudialog *dialog, st
 	s32 itemindex = 0;
 	s32 numblocksthisitem;
 	struct menuitem *item = dialogdef->items;
-	s16 blockindex = menu->blockend;
+	s32 blockindex = menu->blockend;
 
 	dialog->numcols = 0;
 	dialog->colstart = (u16) colindex + 1;
@@ -957,6 +967,20 @@ void func0f0f1d6c(struct menudialogdef *dialogdef, struct menudialog *dialog, st
 		while (item->type != MENUITEMTYPE_END) {
 			if (item->flags & MENUITEMFLAG_NEWCOLUMN) {
 				newcolumn = true;
+			}
+
+			numblocksthisitem = -1;
+			menuGetItemBlocksRequired(item, &numblocksthisitem);
+
+			if (rowindex >= MENU_MAX_ROWS
+					|| (newcolumn && colindex + 1 >= MENU_MAX_COLS)
+					|| (numblocksthisitem != -1 && blockindex + numblocksthisitem > MENU_MAX_BLOCKS)) {
+#ifndef PLATFORM_N64
+				sysLogPrintf(LOG_ERROR, "menu: dialog %p item %d does not fit (rows %d/%d, cols %d/%d, blocks %d+%d/%d)",
+						dialogdef, itemindex, rowindex, MENU_MAX_ROWS, colindex + 1, MENU_MAX_COLS,
+						blockindex, numblocksthisitem, MENU_MAX_BLOCKS);
+#endif
+				break;
 			}
 
 			if (newcolumn) {
@@ -972,12 +996,9 @@ void func0f0f1d6c(struct menudialogdef *dialogdef, struct menudialog *dialog, st
 				newcolumn = false;
 			}
 
-			numblocksthisitem = -1;
-			menuGetItemBlocksRequired(item, &numblocksthisitem);
-
 			if (numblocksthisitem != -1) {
 				menu->rows[rowindex].blockindex = blockindex;
-				blockindex += (s16)numblocksthisitem;
+				blockindex += numblocksthisitem;
 			} else {
 				menu->rows[rowindex].blockindex = -1;
 			}

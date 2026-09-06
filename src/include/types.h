@@ -4036,10 +4036,21 @@ struct menumodel {
 	/*0x5b4*/ struct modelpartvisibility *partvisibility;
 };
 
+// Every stacked dialog's rows, columns and item data blocks share one set of
+// arrays per player, and a row or column indexes into them. The game kept
+// these as bytes: a row's block index was an s8, so the 33rd dropdown of a
+// stack (block 128) wrapped negative and read item data from before the
+// array. Dab's Mod Options alone needs 169 words, so everything that indexes
+// these arrays is now 16-bit, and the arrays are sized so that no dialog the
+// port will ever have needs to be counted against them again.
+#define MENU_MAX_ROWS   (256 + MAX_BOTS)
+#define MENU_MAX_COLS   32
+#define MENU_MAX_BLOCKS 1024
+
 struct menurow {
 	s16 height;
-	u8 itemindex;
-	s8 blockindex;
+	u16 itemindex;
+	s16 blockindex;
 };
 
 struct menucolumn {
@@ -4047,7 +4058,7 @@ struct menucolumn {
 	s16 height;
 	u8 unk04;
 	u16 rowstart;
-	u8 numrows;
+	u16 numrows;
 };
 
 struct menu {
@@ -4056,19 +4067,19 @@ struct menu {
 	/*0x464*/ struct menulayer layers[6];
 	/*0x4f4*/ s16 depth; // index into layers. 1-indexed?
 	/*0x4f8*/ struct menudialog *curdialog;
-	// The Simulants dialog contributes one row per simulant slot, and rows
-	// accumulate across every stacked dialog, so this has to scale with MAX_BOTS.
-	/*0x4fc*/ struct menurow rows[(VERSION >= VERSION_NTSC_1_0 ? 88 : 80) + MAX_BOTS];
+	// Rows, columns and item data for every item of every stacked dialog (the
+	// game had 88 rows, 12 columns and 80 words). The Simulants dialog adds
+	// one row per simulant slot; a dropdown is four words of item data, a
+	// checkbox or slider one, and Dab's Mod Options needs 169 on its own.
+	// When the words ran past the array they landed on blockend and the
+	// cursor repeat timers, which is why the cursor wandered and the bottom
+	// of that dialog showed rows that repeated and could not be selected.
+	// func0f0f1d6c() refuses an item that would not fit, and logs it.
+	/*0x4fc*/ struct menurow rows[MENU_MAX_ROWS];
 	/*0x65c*/ s32 rowend;
-	/*0x660*/ struct menucolumn cols[VERSION >= VERSION_NTSC_1_0 ? 12 : 10];
+	/*0x660*/ struct menucolumn cols[MENU_MAX_COLS];
 	/*0x6d8*/ s32 colend;
-	// Item data for every item of every stacked dialog: a dropdown is four
-	// words, a checkbox or slider one. Dab's Mod Options is sixty-odd items
-	// with two dozen dropdowns and needs well over a hundred on its own, and
-	// past the end of this array are blockend and the cursor repeat timers,
-	// which is why the cursor wandered and the bottom of that dialog showed
-	// rows that repeated and could not be selected.
-	/*0x6dc*/ u32 blocks[80 + 400]; // for menuitemdata
+	/*0x6dc*/ u32 blocks[MENU_MAX_BLOCKS]; // for menuitemdata
 	/*0x81c*/ s32 blockend;
 	/*0x820*/ u8 unk820;
 	/*0x824*/ s32 xrepeattimer60;
