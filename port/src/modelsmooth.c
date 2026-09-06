@@ -60,11 +60,14 @@
 #define SMOOTH_CREASE_COS 0.2588f // cos 75 degrees
 
 #define SMOOTH_SLOTS   128 // the renderer's vertex cache
+#define SMOOTH_GRIDN      4 // pieces per edge the subdivided surface is kept at
+#define SMOOTH_GRIDPOINTS ((SMOOTH_GRIDN + 1) * (SMOOTH_GRIDN + 2) / 2)
 #define SMOOTH_MAXRING 64  // faces around one vertex we are prepared to walk
 
 // How much has been through here, for gdb
 u32 g_ModelSmoothTris = 0;
 u32 g_ModelSmoothModels = 0;
+u64 g_ModelSmoothUs = 0; // spent in modelSmoothClassify, all models so far
 
 struct smoothtri {
 	const Vtx *v[3];
@@ -73,6 +76,8 @@ struct smoothtri {
 	f32 area;
 	bool joint;  // drawn under two matrices, so the renderer leaves it flat
 	u8 straight; // bit c: edge from corner c to the next is drawn as a line
+	bool hasgrid;
+	f32 grid[SMOOTH_GRIDPOINTS][3]; // the subdivided surface over this triangle, see meshSubdivide
 };
 
 struct smoothpos {
@@ -462,6 +467,545 @@ static void meshLiftNormal(struct smoothmesh *m, s32 tidx, s32 c, f32 out[3])
 	}
 }
 
+/*
+ * The subdivided surface: Modified Butterfly.
+ *
+ * A curved patch bent from one triangle's corners (the renderer's PN
+ * triangles) meets its neighbour along the edge and nowhere else; the two
+ * bulge independently, and a body reads as quilted. Butterfly subdivision
+ * decides each new point from the triangles around it, so the surface is
+ * smooth across the edges as well as along them, and it interpolates: the
+ * corners stay where the model put them, which is what keeps a joint
+ * triangle or the next bone's mesh meeting this one exactly.
+ *
+ * It runs here, once per model node, to SMOOTH_GRIDN pieces per edge, and
+ * the points over each triangle are handed to the renderer in the grid order
+ * it draws them. The mesh is first cut along the edges the renderer draws
+ * straight (creases, joints, open edges), so nothing pulls across a crease
+ * and every straight edge is a boundary, whose midpoint is its middle.
+ */
+struct bfmesh {
+	f32 (*pos)[3];
+	s32 npos;
+	s32 (*tri)[3];
+	s32 ntri;
+	s32 *incoff;  // tris around each vertex, CSR
+	s32 *inclist;
+};
+
+static void bfBuildRings(struct bfmesh *m)
+{
+	m->incoff = calloc(m->npos + 1, sizeof(s32));
+
+	for (s32 i = 0; i < m->ntri; i++) {
+		for (s32 c = 0; c < 3; c++) {
+			m->incoff[m->tri[i][c] + 1]++;
+		}
+	}
+
+	for (s32 i = 0; i < m->npos; i++) {
+		m->incoff[i + 1] += m->incoff[i];
+	}
+
+	m->inclist = malloc(sizeof(s32) * (m->incoff[m->npos] + 1));
+
+	s32 *fill = calloc(m->npos + 1, sizeof(s32));
+
+	for (s32 i = 0; i < m->ntri; i++) {
+		for (s32 c = 0; c < 3; c++) {
+			s32 v = m->tri[i][c];
+			m->inclist[m->incoff[v] + fill[v]++] = i;
+		}
+	}
+
+	free(fill);
+}
+
+static bool bfTriHas(const struct bfmesh *m, s32 t, s32 v)
+{
+	return m->tri[t][0] == v || m->tri[t][1] == v || m->tri[t][2] == v;
+}
+
+// the vertex of tri t that is neither a nor b
+static s32 bfThird(const struct bfmesh *m, s32 t, s32 a, s32 b)
+{
+	for (s32 c = 0; c < 3; c++) {
+		if (m->tri[t][c] != a && m->tri[t][c] != b) {
+			return m->tri[t][c];
+		}
+	}
+
+	return -1;
+}
+
+// the tris sharing edge a-b, up to two; the count found (3 for more)
+static s32 bfEdgeTris(const struct bfmesh *m, s32 a, s32 b, s32 out[2])
+{
+	s32 n = 0;
+
+	for (s32 k = m->incoff[a]; k < m->incoff[a + 1]; k++) {
+		s32 t = m->inclist[k];
+
+		if (bfTriHas(m, t, b)) {
+			if (n < 2) {
+				out[n] = t;
+			}
+
+			n++;
+		}
+	}
+
+	return n > 2 ? 3 : n;
+}
+
+// the tri across edge a-b from tri t, or -1
+static s32 bfAcross(const struct bfmesh *m, s32 t, s32 a, s32 b)
+{
+	s32 pair[2];
+	s32 n = bfEdgeTris(m, a, b, pair);
+
+	if (n != 2) {
+		return -1;
+	}
+
+	return pair[0] == t ? pair[1] : pair[0];
+}
+
+/**
+ * The neighbours of a in order around it, starting from b, walking from
+ * triangle to triangle. Returns how many, and whether the walk came back
+ * to b (a closed ring: an interior vertex).
+ */
+static s32 bfRing(const struct bfmesh *m, s32 a, s32 b, s32 *ring, s32 max, bool *closed)
+{
+	s32 pair[2];
+	s32 n = 0;
+	s32 t;
+	s32 prev = b;
+
+	*closed = false;
+
+	if (bfEdgeTris(m, a, b, pair) < 1) {
+		return 0;
+	}
+
+	t = pair[0];
+	ring[n++] = b;
+
+	while (n < max) {
+		s32 next = bfThird(m, t, a, prev);
+
+		if (next < 0) {
+			break;
+		}
+
+		if (next == b) {
+			*closed = true;
+			break;
+		}
+
+		ring[n++] = next;
+		t = bfAcross(m, t, a, next);
+
+		if (t < 0) {
+			break;
+		}
+
+		prev = next;
+	}
+
+	return n;
+}
+
+static void bfAdd(f32 out[3], const f32 p[3], f32 w)
+{
+	out[0] += p[0] * w;
+	out[1] += p[1] * w;
+	out[2] += p[2] * w;
+}
+
+/**
+ * One end's opinion of the new point on edge a-b, Zorin's rule for a
+ * vertex of any valence: three quarters of a and a weighted ring. Valence
+ * six gives the classic butterfly weights. An open ring (a is on a
+ * boundary) just wants the middle of the edge.
+ */
+static void bfEndRule(const struct bfmesh *m, s32 a, s32 b, f32 out[3])
+{
+	s32 ring[SMOOTH_MAXRING];
+	bool closed;
+	s32 k = bfRing(m, a, b, ring, SMOOTH_MAXRING, &closed);
+
+	out[0] = out[1] = out[2] = 0;
+
+	if (!closed || k < 3) {
+		bfAdd(out, m->pos[a], 0.5f);
+		bfAdd(out, m->pos[b], 0.5f);
+		return;
+	}
+
+	bfAdd(out, m->pos[a], 0.75f);
+
+	if (k == 3) {
+		bfAdd(out, m->pos[ring[0]], 5.0f / 12.0f);
+		bfAdd(out, m->pos[ring[1]], -1.0f / 12.0f);
+		bfAdd(out, m->pos[ring[2]], -1.0f / 12.0f);
+	} else if (k == 4) {
+		bfAdd(out, m->pos[ring[0]], 3.0f / 8.0f);
+		bfAdd(out, m->pos[ring[2]], -1.0f / 8.0f);
+	} else {
+		for (s32 j = 0; j < k; j++) {
+			f32 w = (0.25f + cosf(2.0f * M_PI * j / k) + 0.5f * cosf(4.0f * M_PI * j / k)) / k;
+			bfAdd(out, m->pos[ring[j]], w);
+		}
+	}
+}
+
+static bool bfRegular(const struct bfmesh *m, s32 a, s32 b)
+{
+	s32 ring[SMOOTH_MAXRING];
+	bool closed;
+	s32 k = bfRing(m, a, b, ring, SMOOTH_MAXRING, &closed);
+
+	return closed && k == 6;
+}
+
+/**
+ * The new point on edge a-b.
+ */
+static void bfMidpoint(const struct bfmesh *m, s32 a, s32 b, f32 out[3])
+{
+	s32 pair[2];
+	s32 n = bfEdgeTris(m, a, b, pair);
+
+	out[0] = out[1] = out[2] = 0;
+
+	if (n != 2) {
+		// a boundary (every straight edge is one, after the cut), or worse
+		bfAdd(out, m->pos[a], 0.5f);
+		bfAdd(out, m->pos[b], 0.5f);
+		return;
+	}
+
+	bool rega = bfRegular(m, a, b);
+	bool regb = bfRegular(m, b, a);
+
+	if (rega && regb) {
+		// the eight point stencil: the ends, the two across, four wings
+		s32 c = bfThird(m, pair[0], a, b);
+		s32 d = bfThird(m, pair[1], a, b);
+		s32 wing[4];
+		s32 t;
+
+		bfAdd(out, m->pos[a], 0.5f);
+		bfAdd(out, m->pos[b], 0.5f);
+		bfAdd(out, m->pos[c], 0.125f);
+		bfAdd(out, m->pos[d], 0.125f);
+
+		t = bfAcross(m, pair[0], a, c); wing[0] = t < 0 ? c : bfThird(m, t, a, c);
+		t = bfAcross(m, pair[0], b, c); wing[1] = t < 0 ? c : bfThird(m, t, b, c);
+		t = bfAcross(m, pair[1], a, d); wing[2] = t < 0 ? d : bfThird(m, t, a, d);
+		t = bfAcross(m, pair[1], b, d); wing[3] = t < 0 ? d : bfThird(m, t, b, d);
+
+		for (s32 i = 0; i < 4; i++) {
+			bfAdd(out, m->pos[wing[i]], -0.0625f);
+		}
+		return;
+	}
+
+	if (rega) {
+		bfEndRule(m, b, a, out);
+	} else if (regb) {
+		bfEndRule(m, a, b, out);
+	} else {
+		f32 pa[3], pb[3];
+		bfEndRule(m, a, b, pa);
+		bfEndRule(m, b, a, pb);
+		for (s32 i = 0; i < 3; i++) {
+			out[i] = (pa[i] + pb[i]) * 0.5f;
+		}
+	}
+}
+
+/*
+ * Edges to the vertex made on them, open addressing.
+ */
+struct bfedgemap {
+	s64 *key; // (min << 32 | max) + 1, 0 for empty
+	s32 *val;
+	s32 size;
+};
+
+static void bfEdgeMapInit(struct bfedgemap *e, s32 count)
+{
+	e->size = 64;
+
+	while (e->size < count * 4) {
+		e->size *= 2;
+	}
+
+	e->key = calloc(e->size, sizeof(s64));
+	e->val = malloc(sizeof(s32) * e->size);
+}
+
+static s32 *bfEdgeMapSlot(struct bfedgemap *e, s32 a, s32 b)
+{
+	s32 lo = a < b ? a : b, hi = a < b ? b : a;
+	s64 key = (((s64)lo << 32) | (u32)hi) + 1;
+	u32 h = (u32)(key * 0x9E3779B97F4A7C15ull >> 32) & (e->size - 1);
+
+	for (;;) {
+		if (e->key[h] == 0) {
+			e->key[h] = key;
+			e->val[h] = -1;
+			return &e->val[h];
+		}
+
+		if (e->key[h] == key) {
+			return &e->val[h];
+		}
+
+		h = (h + 1) & (e->size - 1);
+	}
+}
+
+/**
+ * One level: a vertex on every edge, four triangles for each one, in the
+ * order the renderer's grid triangulates them.
+ */
+static void bfSubdivide(const struct bfmesh *in, struct bfmesh *out, struct bfedgemap *edges)
+{
+	bfEdgeMapInit(edges, in->ntri * 3);
+
+	out->npos = in->npos;
+	out->pos = malloc(sizeof(*out->pos) * (in->npos + in->ntri * 3));
+	memcpy(out->pos, in->pos, sizeof(*out->pos) * in->npos);
+	out->ntri = 0;
+	out->tri = malloc(sizeof(*out->tri) * in->ntri * 4);
+
+	for (s32 i = 0; i < in->ntri; i++) {
+		s32 mid[3];
+
+		for (s32 c = 0; c < 3; c++) {
+			s32 a = in->tri[i][c], b = in->tri[i][(c + 1) % 3];
+			s32 *slot = bfEdgeMapSlot(edges, a, b);
+
+			if (*slot < 0) {
+				*slot = out->npos;
+				bfMidpoint(in, a, b, out->pos[out->npos]);
+				out->npos++;
+			}
+
+			mid[c] = *slot;
+		}
+
+		s32 a = in->tri[i][0], b = in->tri[i][1], c = in->tri[i][2];
+		s32 mab = mid[0], mbc = mid[1], mca = mid[2];
+		s32 (*t)[3] = &out->tri[out->ntri];
+		t[0][0] = a;   t[0][1] = mab; t[0][2] = mca;
+		t[1][0] = mab; t[1][1] = b;   t[1][2] = mbc;
+		t[2][0] = mab; t[2][1] = mbc; t[2][2] = mca;
+		t[3][0] = mca; t[3][1] = mbc; t[3][2] = c;
+		out->ntri += 4;
+	}
+
+	bfBuildRings(out);
+}
+
+static void bfFree(struct bfmesh *m)
+{
+	free(m->pos);
+	free(m->tri);
+	free(m->incoff);
+	free(m->inclist);
+	memset(m, 0, sizeof(*m));
+}
+
+static s32 ufFind(s32 *parent, s32 x)
+{
+	while (parent[x] != x) {
+		parent[x] = parent[parent[x]];
+		x = parent[x];
+	}
+
+	return x;
+}
+
+static void ufUnion(s32 *parent, s32 a, s32 b)
+{
+	a = ufFind(parent, a);
+	b = ufFind(parent, b);
+
+	if (a != b) {
+		parent[a] = b;
+	}
+}
+
+// index of grid point (i, j) at n pieces an edge, the renderer's order
+static s32 gridIndex(s32 n, s32 i, s32 j)
+{
+	return j * (n + 1) - j * (j - 1) / 2 + i;
+}
+
+/**
+ * Subdivide the node's mesh twice and keep, for each triangle, the points
+ * of its SMOOTH_GRIDN grid: corner 0 at (0, 0), corner 1 at (n, 0), corner
+ * 2 at (0, n). Needs meshBuild() and the straight edges.
+ */
+static void meshSubdivide(struct smoothmesh *m)
+{
+	// Corners of triangles that meet at a position are one vertex only when
+	// joined through an edge that bends; a straight edge separates the
+	// two sides, and a corner on a crease belongs to one side or the other.
+	s32 *parent = malloc(sizeof(s32) * m->numtris * 3);
+
+	for (s32 i = 0; i < m->numtris * 3; i++) {
+		parent[i] = i;
+	}
+
+	for (s32 i = 0; i < m->numtris; i++) {
+		struct smoothtri *t = &m->tris[i];
+
+		if (t->area <= 0) {
+			continue;
+		}
+
+		for (s32 c = 0; c < 3; c++) {
+			if (t->straight & (1 << c)) {
+				continue;
+			}
+
+			s32 a = t->pos[c], b = t->pos[(c + 1) % 3];
+
+			for (s32 k = m->incoff[a]; k < m->incoff[a + 1]; k++) {
+				s32 j = m->inclist[k];
+				const struct smoothtri *o = &m->tris[j];
+
+				if (j == i || (o->pos[0] != b && o->pos[1] != b && o->pos[2] != b)) {
+					continue;
+				}
+
+				for (s32 oc = 0; oc < 3; oc++) {
+					if (o->pos[oc] == a) {
+						ufUnion(parent, i * 3 + c, j * 3 + oc);
+					} else if (o->pos[oc] == b) {
+						ufUnion(parent, i * 3 + (c + 1) % 3, j * 3 + oc);
+					}
+				}
+			}
+		}
+	}
+
+	struct bfmesh level0;
+	memset(&level0, 0, sizeof(level0));
+	level0.pos = malloc(sizeof(*level0.pos) * m->numtris * 3);
+	level0.tri = malloc(sizeof(*level0.tri) * m->numtris);
+
+	s32 *vertof = malloc(sizeof(s32) * m->numtris * 3); // corner -> level0 vertex
+	s32 *triof = malloc(sizeof(s32) * m->numtris);      // tri -> level0 tri, or -1
+
+	for (s32 i = 0; i < m->numtris * 3; i++) {
+		vertof[i] = -1;
+	}
+
+	for (s32 i = 0; i < m->numtris; i++) {
+		struct smoothtri *t = &m->tris[i];
+
+		triof[i] = -1;
+		t->hasgrid = false;
+
+		if (t->area <= 0) {
+			continue;
+		}
+
+		for (s32 c = 0; c < 3; c++) {
+			s32 root = ufFind(parent, i * 3 + c);
+
+			if (vertof[root] < 0) {
+				vertof[root] = level0.npos;
+				level0.pos[level0.npos][0] = t->v[c]->x;
+				level0.pos[level0.npos][1] = t->v[c]->y;
+				level0.pos[level0.npos][2] = t->v[c]->z;
+				level0.npos++;
+			}
+
+			level0.tri[level0.ntri][c] = vertof[root];
+		}
+
+		triof[i] = level0.ntri++;
+	}
+
+	free(parent);
+	free(vertof);
+
+	if (level0.ntri == 0) {
+		free(level0.pos);
+		free(level0.tri);
+		free(triof);
+		return;
+	}
+
+	bfBuildRings(&level0);
+
+	struct bfmesh level1, level2;
+	struct bfedgemap edges1, edges2;
+	memset(&level1, 0, sizeof(level1));
+	memset(&level2, 0, sizeof(level2));
+	bfSubdivide(&level0, &level1, &edges1);
+	bfSubdivide(&level1, &level2, &edges2);
+
+	for (s32 i = 0; i < m->numtris; i++) {
+		struct smoothtri *t = &m->tris[i];
+		s32 g1[3][3]; // level 1 grid: vertex ids at (i, j), i + j <= 2
+		s32 a, b, c;
+
+		if (triof[i] < 0) {
+			continue;
+		}
+
+		a = level0.tri[triof[i]][0];
+		b = level0.tri[triof[i]][1];
+		c = level0.tri[triof[i]][2];
+		g1[0][0] = a;
+		g1[2][0] = b;
+		g1[0][2] = c;
+		g1[1][0] = *bfEdgeMapSlot(&edges1, a, b);
+		g1[1][1] = *bfEdgeMapSlot(&edges1, b, c);
+		g1[0][1] = *bfEdgeMapSlot(&edges1, a, c);
+
+		for (s32 j = 0; j <= SMOOTH_GRIDN; j++) {
+			for (s32 ii = 0; ii <= SMOOTH_GRIDN - j; ii++) {
+				s32 v;
+
+				if ((ii & 1) == 0 && (j & 1) == 0) {
+					v = g1[ii / 2][j / 2];
+				} else if ((j & 1) == 0) {
+					v = *bfEdgeMapSlot(&edges2, g1[(ii - 1) / 2][j / 2], g1[(ii + 1) / 2][j / 2]);
+				} else if ((ii & 1) == 0) {
+					v = *bfEdgeMapSlot(&edges2, g1[ii / 2][(j - 1) / 2], g1[ii / 2][(j + 1) / 2]);
+				} else {
+					v = *bfEdgeMapSlot(&edges2, g1[(ii + 1) / 2][(j - 1) / 2], g1[(ii - 1) / 2][(j + 1) / 2]);
+				}
+
+				if (v < 0 || v >= level2.npos) {
+					v = a; // cannot happen: every level 1 edge was subdivided
+				}
+
+				memcpy(t->grid[gridIndex(SMOOTH_GRIDN, ii, j)], level2.pos[v], sizeof(f32) * 3);
+			}
+		}
+
+		t->hasgrid = true;
+	}
+
+	free(triof);
+	free(edges1.key); free(edges1.val);
+	free(edges2.key); free(edges2.val);
+	bfFree(&level0);
+	bfFree(&level1);
+	bfFree(&level2);
+}
+
 static s8 meshNormalByte(f32 f)
 {
 	f32 v = f * 127.0f;
@@ -505,6 +1049,7 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 	}
 
 	meshBuild(&m);
+	meshSubdivide(&m);
 
 	for (s32 i = 0; i < m.numtris; i++) {
 		struct smoothtri *t = &m.tris[i];
@@ -519,7 +1064,7 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 			normals[c * 3 + 2] = meshNormalByte(n[2]);
 		}
 
-		gfx_smooth_model_add_tri(t->v[0], t->v[1], t->v[2], normals, t->straight);
+		gfx_smooth_model_add_tri(t->v[0], t->v[1], t->v[2], normals, t->straight, t->hasgrid ? &t->grid[0][0] : NULL);
 	}
 
 	g_ModelSmoothTris += m.numtris;
@@ -534,6 +1079,7 @@ void modelSmoothClassify(struct modeldef *modeldef)
 {
 	struct modelnode *node = modeldef->rootnode;
 	const u8 *modelbase = (const u8 *)modeldef;
+	const u64 start = sysGetMicroseconds();
 
 	gfx_smooth_model_begin(modeldef);
 
@@ -565,6 +1111,7 @@ void modelSmoothClassify(struct modeldef *modeldef)
 
 	gfx_smooth_model_end();
 	g_ModelSmoothModels++;
+	g_ModelSmoothUs += sysGetMicroseconds() - start;
 }
 
 void modelSmoothNoteCopy(const Vtx *copy, const Vtx *orig, s32 numvertices)

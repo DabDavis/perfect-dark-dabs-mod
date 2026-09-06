@@ -429,6 +429,7 @@ uint32_t g_GfxLogStats = 0;
 // triangles of the last frame by fate: thrown out as wholly off screen, as
 // facing away, or drawn (and of those, made by Increase Poly Models)
 uint32_t g_GfxTrisClipped = 0, g_GfxTrisCulled = 0, g_GfxTrisSmoothed = 0;
+uint32_t g_GfxPatchesGrid = 0, g_GfxPatchesPn = 0; // patches drawn from the subdivided surface, and bent on their own
 
 }
 
@@ -2411,11 +2412,23 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
  * The whole table is dropped if it ever grows past what a few stages of
  * models could fill.
  */
+#define SMOOTH_GRIDN 4 // pieces per edge of the mesh pass's subdivided surface
+#define SMOOTH_GRIDPOINTS ((SMOOTH_GRIDN + 1) * (SMOOTH_GRIDN + 2) / 2)
+
 struct SmoothTri {
     const void* v[3];
     int8_t n[3][3];
     uint8_t straight; // bit 0: edge v0-v1, bit 1: v1-v2, bit 2: v0-v2 drawn as a line
+    bool hasgrid;
+    // the subdivided surface over the triangle (modelsmooth.c, Butterfly),
+    // SMOOTH_GRIDN pieces an edge, v[0] at (0, 0), v[1] at (n, 0), v[2] at
+    // (0, n), in the order gfx_sp_tri_smooth draws a grid
+    float grid[SMOOTH_GRIDPOINTS][3];
 };
+
+static inline int smooth_grid_index(int n, int i, int j) {
+    return j * (n + 1) - j * (j - 1) / 2 + i;
+}
 
 // the bit for the edge between two corners, by their indexes
 static inline uint8_t smooth_edge_bit(int a, int b) {
@@ -2473,7 +2486,7 @@ extern "C" void gfx_smooth_model_begin(const void* base) {
     smooth_cur_keys = &keys;
 }
 
-extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9], uint8_t straight) {
+extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9], uint8_t straight, const float* grid) {
     if (!smooth_cur_keys) {
         return;
     }
@@ -2486,6 +2499,26 @@ extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const voi
     // the edge bits follow the corners through the sort
     const void* orig[3] = { a, b, c };
     t.straight = 0;
+    // so does the grid: a point's weights on the corners name it whichever
+    // way the corners are ordered
+    t.hasgrid = grid != nullptr;
+    if (grid) {
+        int origof[3]; // sorted corner k came from input corner origof[k]
+        for (int k = 0; k < 3; k++) {
+            origof[k] = t.v[k] == a ? 0 : (t.v[k] == b ? 1 : 2);
+        }
+        for (int j = 0; j <= SMOOTH_GRIDN; j++) {
+            for (int i = 0; i <= SMOOTH_GRIDN - j; i++) {
+                int ws[3] = { SMOOTH_GRIDN - i - j, i, j }; // weights by sorted corner, in pieces
+                int wi[3];
+                for (int k = 0; k < 3; k++) {
+                    wi[origof[k]] = ws[k];
+                }
+                memcpy(t.grid[smooth_grid_index(SMOOTH_GRIDN, i, j)],
+                       grid + smooth_grid_index(SMOOTH_GRIDN, wi[1], wi[2]) * 3, sizeof(float) * 3);
+            }
+        }
+    }
     for (int e = 0; e < 3; e++) {
         if (straight & (1 << e)) {
             int ia = -1, ib = -1;
@@ -2734,8 +2767,10 @@ static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct L
         return 0; // not from a model the mesh pass saw: flat, as built
     }
 
-    // edges the mesh pass wants drawn as lines: one segment each
-    if ((*mesh)->straight) {
+    // edges the mesh pass wants drawn as lines: one segment each; and the
+    // subdivided surface is kept at levels that halve, so three pieces
+    // become four
+    if ((*mesh)->straight || (*mesh)->hasgrid) {
         int k[3] = { -1, -1, -1 };
         for (int c = 0; c < 3; c++) {
             for (int i = 0; i < 3; i++) {
@@ -2750,6 +2785,9 @@ static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct L
             const int a = k[e], b = k[(e + 1) % 3];
             if (a >= 0 && b >= 0 && a != b && ((*mesh)->straight & smooth_edge_bit(a, b))) {
                 edgelevel[e] = 1;
+            }
+            if ((*mesh)->hasgrid && edgelevel[e] == 3) {
+                edgelevel[e] = 4;
             }
             if (edgelevel[e] > n) {
                 n = edgelevel[e];
@@ -2829,11 +2867,59 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
     smooth_edge_normal(n31, P[2], P[0], N[2], N[0]);
 
     // the patch at barycentrics (w toward v1, u toward v2, v toward v3)
+    // The mesh pass's subdivided surface, if the triangle has one and the
+    // corners are where it was computed from (a copy of the vertices that
+    // the game has rewritten is not; the patch below is drawn instead).
+    // kc[c] is which of the entry's corners drawn corner c is.
+    int kc[3] = { -1, -1, -1 };
+    bool usegrid = mesh->hasgrid;
+    for (int c = 0; c < 3; c++) {
+        for (int i = 0; i < 3; i++) {
+            if (mesh->v[i] == src[c]) {
+                kc[c] = i;
+                break;
+            }
+        }
+        if (kc[c] < 0) {
+            usegrid = false;
+        } else if (usegrid) {
+            const int gi = kc[c] == 1 ? SMOOTH_GRIDN : 0, gj = kc[c] == 2 ? SMOOTH_GRIDN : 0;
+            const float* g = mesh->grid[smooth_grid_index(SMOOTH_GRIDN, gi, gj)];
+            if (fabsf(g[0] - P[c][0]) > 0.05f || fabsf(g[1] - P[c][1]) > 0.05f || fabsf(g[2] - P[c][2]) > 0.05f) {
+                usegrid = false;
+            }
+        }
+    }
+    if (usegrid && (kc[0] == kc[1] || kc[1] == kc[2] || kc[0] == kc[2])) {
+        usegrid = false;
+    }
+    if (usegrid) {
+        g_GfxPatchesGrid++;
+    } else {
+        g_GfxPatchesPn++;
+    }
+
     auto eval = [&](float w, float u, float v, float pos[3], float nrm[3]) {
         const float w2 = w * w, u2 = u * u, v2f = v * v;
+        // the subdivided surface's point here, when there is one exactly
+        // here: every grid point at two or four pieces an edge is
+        const float* gp = nullptr;
+        if (usegrid) {
+            const float bw[3] = { w, u, v };
+            float sw[3];
+            for (int c = 0; c < 3; c++) {
+                sw[kc[c]] = bw[c];
+            }
+            const float fi = sw[1] * SMOOTH_GRIDN, fj = sw[2] * SMOOTH_GRIDN;
+            const int gi = (int)lroundf(fi), gj = (int)lroundf(fj);
+            if (fabsf(fi - gi) < 1e-3f && fabsf(fj - gj) < 1e-3f && gi >= 0 && gj >= 0 && gi + gj <= SMOOTH_GRIDN) {
+                gp = mesh->grid[smooth_grid_index(SMOOTH_GRIDN, gi, gj)];
+            }
+        }
         for (int k = 0; k < 3; k++) {
             const float flat = w * P[0][k] + u * P[1][k] + v * P[2][k];
-            const float curved = P[0][k] * w2 * w + P[1][k] * u2 * u + P[2][k] * v2f * v
+            const float curved = gp ? gp[k]
+                : P[0][k] * w2 * w + P[1][k] * u2 * u + P[2][k] * v2f * v
                 + 3.0f * (b12[k] * w2 * u + b21[k] * w * u2 + b13[k] * w2 * v
                         + b23[k] * u2 * v + b31[k] * w * v2f + b32[k] * u * v2f)
                 + 6.0f * b111[k] * w * u * v;
@@ -4061,8 +4147,8 @@ extern "C" void gfx_start_frame(void) {
                     g_GfxFlushReasons[GFX_FLUSH_BUFFERFULL],
                     g_GfxFlushReasons[GFX_FLUSH_OTHER]);
             sysLogPrintf(LOG_NOTE,
-                    "gfx:   tris clipped %u, culled %u, drawn %u of which smoothed %u",
-                    g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris, g_GfxTrisSmoothed);
+                    "gfx:   tris clipped %u, culled %u, drawn %u of which smoothed %u (patches: %u subdivided, %u bent alone)",
+                    g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris, g_GfxTrisSmoothed, g_GfxPatchesGrid, g_GfxPatchesPn);
             sysLogPrintf(LOG_NOTE,
                     "gfx:   tex uploads %u, evictions %u, cache %u/%u",
                     g_GfxNumTexUploads,
@@ -4083,6 +4169,7 @@ extern "C" void gfx_start_frame(void) {
     g_GfxNumTris = 0;
     g_GfxNumVerts = 0;
     g_GfxTrisClipped = g_GfxTrisCulled = g_GfxTrisSmoothed = 0;
+    g_GfxPatchesGrid = g_GfxPatchesPn = 0;
     memset(g_GfxFlushReasons, 0, sizeof(g_GfxFlushReasons));
     gfx_frame_textures.clear();
     g_GfxNumDistinctTextures = 0;

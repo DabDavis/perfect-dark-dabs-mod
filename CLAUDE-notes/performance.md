@@ -96,6 +96,25 @@ between bent patches and flat neighbours - joint triangles the renderer
 cannot bend, creases, open edges at the hands - are sealed by the mesh pass
 marking those edges straight and both sides drawing them as lines.
 
+**The surface is Modified Butterfly subdivision, not PN patches, since
+2026-09-06.** A PN patch bends each triangle on its own and only meets its
+neighbour along the edge, which read as quilting on a back. The mesh pass
+(`meshSubdivide` in modelsmooth.c) now cuts the node's mesh along its
+straight edges, subdivides twice with Butterfly (interpolating, so the
+corners stay put and joints still seal), and hands the renderer the 15 grid
+points over each triangle; the renderer draws those at two or four pieces an
+edge (three rounds up) and falls back to the PN patch only when a loaded
+corner does not match the precomputed one (a vertex copy the game rewrote:
+`gfx: ... patches: N subdivided, M bent alone` in the stats). The pass is
+load-time only: 279 ms for the 107 models and 30,779 triangles an 80-simulant
+match loads, 2.6 ms a model, measured with `g_ModelSmoothUs`. That is why
+there is no on-disk cache of it: a cache would save a quarter of a second a
+stage and nothing per frame, and the per-frame cost is transforming the
+points, which precomputation cannot remove. Model Depth (a displacement from
+texture brightness) was prototyped the same day and dropped: with no lights
+to shade it, it only moves silhouettes, invisibly at safe strengths and as
+noise and cracks at visible ones.
+
 The visual check is a third-person screenshot of the player:
 `set g_Vars.players[0]->thirdperson = 1` and `->invincible = 1` over gdb,
 then `screenshotRequest()`; the `gfx: tris ... of which smoothed N` stats
