@@ -22,6 +22,7 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/modalarm.h"
+#include "game/modrespawn.h"
 #include "game/modoptions.h"
 #include "game/modbodies.h"
 #include "game/mplayer/mplayer.h"
@@ -219,6 +220,7 @@ void propsReset(void)
 	g_AlarmAudioHandle = NULL;
 	g_AlarmSpeakerWeight = 64;
 	modAlarmReset();
+	modRespawnReset();
 
 	g_GasReleaseTimer240 = 0;
 	g_GasReleasing = false;

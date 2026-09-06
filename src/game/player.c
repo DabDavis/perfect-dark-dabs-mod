@@ -51,6 +51,7 @@
 #include "game/modspectate.h"
 #include "game/playermgr.h"
 #include "game/modoptions.h"
+#include "game/modrespawn.h"
 #include "system.h"
 #include "game/explosions.h"
 #include "game/bondview.h"
@@ -540,13 +541,27 @@ void playerStartNewLife(void)
 	g_Vars.currentplayer->gunammooff = 0;
 	g_Vars.currentplayer->gunsightoff = 2;
 #ifndef PLATFORM_N64
-	g_Vars.currentplayer->prop->chr->blurdrugamount = 0;
-	g_Vars.currentplayer->prop->chr->poisoncounter = 0;
+	if (g_Vars.currentplayer->prop->chr) {
+		g_Vars.currentplayer->prop->chr->blurdrugamount = 0;
+		g_Vars.currentplayer->prop->chr->poisoncounter = 0;
+	}
 #endif
 
 	hudmsgsSetOn(0xffffffff);
 
-	angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop); // var7f1ad534
+#ifndef PLATFORM_N64
+	if (modRespawnIsRespawning()) {
+		// Mission Respawn: where the player fell, facing the way they
+		// faced. The prop has not moved since, so its rooms are the spot's.
+		pos = g_Vars.currentplayer->posdie;
+		rooms[0] = g_Vars.currentplayer->prop->rooms[0];
+		rooms[1] = -1;
+		angle = g_Vars.currentplayer->thetadie * M_BADTAU / 360.0f;
+	} else
+#endif
+	{
+		angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop); // var7f1ad534
+	}
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,
@@ -579,7 +594,14 @@ void playerStartNewLife(void)
 	playerSetCamPropertiesWithRoom(&pos, &g_Vars.currentplayer->bond2.unk28,
 			&g_Vars.currentplayer->bond2.unk1c, rooms[0]);
 
-	if (g_Vars.coopplayernum >= 0) {
+#ifndef PLATFORM_N64
+	// Mission Respawn keeps the inventory the way co-operative does: a
+	// mission's kit is what its objectives need
+	if (g_Vars.coopplayernum >= 0 || modRespawnIsRespawning())
+#else
+	if (g_Vars.coopplayernum >= 0)
+#endif
+	{
 		u32 stack;
 		bool ammotypesheld[33];
 		s32 stack2[2];
@@ -690,6 +712,12 @@ void playerStartNewLife(void)
 	if (g_Vars.currentplayer->prop->chr) {
 		g_Vars.currentplayer->prop->chr->chrflags &= ~CHRCFLAG_HIDDEN;
 	}
+
+#ifndef PLATFORM_N64
+	if (modRespawnIsRespawning()) {
+		modRespawnEnd();
+	}
+#endif
 }
 
 void playerLoadDefaults(void)
@@ -971,6 +999,24 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 static void playerSpawnWeapons(void)
 {
 	const s32 spawnweapon = mpGetSpawnWeapon();
+
+	// Mission Respawn: the guns the player died holding, not another roll
+	// of Start Armed - a mission's inventory is kept, and a gun a life
+	// would fill it
+	if (modRespawnIsRespawning()) {
+		s32 leftweaponnum = modRespawnGetWeapon(HAND_LEFT);
+		s32 rightweaponnum = modRespawnGetWeapon(HAND_RIGHT);
+
+		if (rightweaponnum <= WEAPON_NONE) {
+			rightweaponnum = WEAPON_UNARMED;
+		}
+
+		g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] = leftweaponnum;
+		g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] = rightweaponnum;
+		bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
+		bgunEquipWeapon2(HAND_RIGHT, rightweaponnum);
+		return;
+	}
 
 	if (spawnweapon >= 0) {
 		struct mpweapon *mpweapon = &g_MpWeapons[spawnweapon];
@@ -4987,7 +5033,18 @@ void playerTick(bool arg0)
 
 		if (g_Vars.currentplayer->redbloodfinished && g_Vars.currentplayer->deathanimfinished) {
 			if (g_Vars.mplayerisrunning == false) {
-				mainEndStage();
+#ifndef PLATFORM_N64
+				// Mission Respawn: a new life once the death's fade to black
+				// has finished, instead of the end of the stage
+				if (modRespawnCanRespawn()) {
+					if (playerIsFadeComplete()) {
+						modRespawnBegin();
+					}
+				} else
+#endif
+				{
+					mainEndStage();
+				}
 			} else if (g_Vars.coopplayernum >= 0) {
 				if (g_Vars.currentplayer == g_Vars.bond
 						&& g_Vars.coop->isdead
@@ -5745,6 +5802,9 @@ void playerDieByShooter(u32 shooter, bool force)
 		}
 
 		bmoveSetMode(MOVEMODE_WALK);
+#ifndef PLATFORM_N64
+		modRespawnRecordDeath();
+#endif
 		bgunHandlePlayerDead();
 
 		if (playerGetMissionTime() - g_Vars.currentplayer->lifestarttime60 < g_Vars.currentplayerstats->shortestlife) {

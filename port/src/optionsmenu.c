@@ -2063,6 +2063,50 @@ static MenuItemHandlerResult menuhandlerModStartArmedFor(s32 operation, struct m
 }
 
 /**
+ * Mission Respawn: a death in a mission is a new life where the player
+ * fell, not Mission Failed. Lives is under it. See modrespawn.c.
+ */
+static MenuItemHandlerResult menuhandlerModMissionRespawn(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.missionrespawn;
+	case MENUOP_SET:
+		g_ModOptions.missionrespawn = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * How many lives a mission has in all: unlimited, or five at a time up to
+ * fifty. Greyed out while Mission Respawn is off, the way the guard
+ * settings are under Guards Alerted!.
+ */
+static MenuItemHandlerResult menuhandlerModMissionLives(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Unlimited", "5", "10", "15", "20", "25", "30", "35", "40", "45", "50" };
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.missionrespawn == 0;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.missionlives = data->dropdown.value * MODLIVES_STEP;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modGetMissionLives() / MODLIVES_STEP;
+	}
+
+	return 0;
+}
+
+/**
  * Guards Alerted!: the alarm never stops and guards keep coming, in every
  * mode. How many at once and how fast are the two items under it; the siren
  * is its own checkbox, since a whole match of it is a different thing from
@@ -3408,6 +3452,22 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Start Armed For",
 		0,
 		menuhandlerModStartArmedFor,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mission Respawn",
+		0,
+		menuhandlerModMissionRespawn,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Lives",
+		0,
+		menuhandlerModMissionLives,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

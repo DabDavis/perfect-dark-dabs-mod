@@ -293,6 +293,20 @@
 #define MODBLACK_HEAVY   3
 #define MODBLACK_MAX     MODBLACK_HEAVY
 
+/**
+ * Mission Respawn: a death in a mission is a new life where the player
+ * fell - full health, the inventory and the guns they had, the mission's
+ * clocks and objectives untouched - rather than Mission Failed. Lives is
+ * how many in all, counting the first: with five, the fifth death ends the
+ * mission as it always did. Unlimited is the first setting, because the
+ * point of the option is to keep playing. A mission only; co-operative and
+ * counter-operative keep their own rules for a dead player. See
+ * modrespawn.c.
+ */
+#define MODLIVES_UNLIMITED 0
+#define MODLIVES_STEP      5
+#define MODLIVES_MAX       50
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -326,6 +340,8 @@ struct modoptions {
 	s32 enhancetextures; // MODENHANCE_*: the game's textures scaled up on upload
 	s32 vividcolours; // MODVIVID_*: the frame's saturation and contrast turned up
 	s32 blacklevel;  // MODBLACK_*: the floor taken off the frame's blacks
+	s32 missionrespawn; // a death in a mission is a new life where the player fell
+	s32 missionlives; // how many in all, MODLIVES_UNLIMITED or a multiple of MODLIVES_STEP
 };
 
 extern struct modoptions g_ModOptions;
@@ -370,5 +386,7 @@ s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);
 f32 modGetVividContrast(void);
 f32 modGetBlackLevelLift(void);
+bool modIsMissionRespawnOn(void);
+s32 modGetMissionLives(void);
 
 #endif

@@ -116,3 +116,21 @@ from the code.
 
 `mpGetSpawnWeapon()` now answers outside a match too: Random rolls every gun
 (the unlock test is the Combat Simulator's), First Weapon is -1 there.
+
+## Mission Respawn rides the co-operative restart
+
+A solo death is `playerDieByShooter()`, the death animation, a fade to black,
+then `mainEndStage()` from `playerTick()` (the "Handle mission exit on death"
+block). `modrespawn.c` sets `dostartnewlife` there instead, and `lvRender()`
+calls `playerStartNewLife()` for it - that call is not multiplayer-gated. The
+solo death body lives in gunmem; nothing special takes it down, the ordinary
+per-tick `playerRemoveChrBody()` does once `isdead` is false, and bgun takes
+its memory back. What had to change in `playerStartNewLife()`: the position
+(`posdie`, not the spawn pad), the inventory (the co-operative branch keeps
+it), and the hands (`modRespawnGetWeapon()`, not another Start Armed roll).
+
+Test it with `gdb -p PID -ex 'call (void)playerDie(1)'`; a death to respawn is
+about five seconds. A HUD message of the default type lasts 80 ticks, so a
+screenshot two seconds later misses it; `hudmsgCreateWithDuration()` is the
+longer one. Reading `g_HudMessages[0].state` from an attached gdb showed 0
+while the message was on screen - trust the screenshot, not that field.

@@ -46,6 +46,8 @@ struct modoptions g_ModOptions = {
 	MODENHANCE_2X,            // enhancetextures: the cheaper of the two
 	MODVIVID_LIGHT,           // vividcolours: the washed-out look was the complaint
 	MODBLACK_LIGHT,           // blacklevel: and the pedestal is most of it
+	false,                    // missionrespawn: like Start Armed, a choice, not a default
+	MODLIVES_UNLIMITED,       // missionlives
 };
 
 /**
@@ -601,4 +603,38 @@ bool modIsAlarmSoundEnabled(void)
 bool modIsCleanTextOn(void)
 {
 	return g_ModOptions.cleantext != 0;
+}
+
+/**
+ * Mission Respawn: whether a death in a mission is a new life.
+ */
+bool modIsMissionRespawnOn(void)
+{
+	return g_ModOptions.missionrespawn != 0;
+}
+
+/**
+ * How many lives a mission has in all, MODLIVES_UNLIMITED for no limit.
+ * Anything else is held to a multiple of MODLIVES_STEP up to MODLIVES_MAX,
+ * which is what the menu offers.
+ */
+s32 modGetMissionLives(void)
+{
+	s32 lives = g_ModOptions.missionlives;
+
+	if (lives <= MODLIVES_UNLIMITED) {
+		return MODLIVES_UNLIMITED;
+	}
+
+	lives = (lives + MODLIVES_STEP / 2) / MODLIVES_STEP * MODLIVES_STEP;
+
+	if (lives < MODLIVES_STEP) {
+		lives = MODLIVES_STEP;
+	}
+
+	if (lives > MODLIVES_MAX) {
+		lives = MODLIVES_MAX;
+	}
+
+	return lives;
 }
