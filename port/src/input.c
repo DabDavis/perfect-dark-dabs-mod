@@ -768,6 +768,11 @@ static void inputEnsureBind(s32 ctrl, u32 ck, u32 vk)
  * D-pad's duplicates of stick movement give way to all three. Off puts each
  * of them back.
  *
+ * D-pad right goes to the N64 D-pad right key rather than to the bumper's
+ * key, and left to a key of its own, for the reason D-pad up went to N64
+ * D-pad up: the menus read them as right and left, and a match reads them
+ * as the fire mode buttons - see bondmove.c and menu.c.
+ *
  * D-pad up goes to the N64 D-pad up key rather than to the radial menu's own
  * key, which is N64 D-pad down: the menus read the N64 D-pad as up and down,
  * so a D-pad up that sent D-pad down could not climb a menu. Stock gameplay
@@ -805,7 +810,8 @@ void inputApplyAkimboTriggers(s32 on)
 			inputRemoveBind(ctrl, CK_C_L, dleft);
 			inputEnsureBind(ctrl, CK_0080, dleft);
 			inputRemoveBind(ctrl, CK_C_R, dright);
-			inputEnsureBind(ctrl, CK_LTRIG, dright);
+			inputRemoveBind(ctrl, CK_LTRIG, dright); // where the first build put it
+			inputEnsureBind(ctrl, CK_DPAD_R, dright);
 		} else {
 			inputRemoveBind(ctrl, CK_0040, lt);
 			inputRemoveBind(ctrl, CK_RTRIG, lb);
@@ -817,6 +823,7 @@ void inputApplyAkimboTriggers(s32 on)
 			inputRemoveBind(ctrl, CK_0080, dleft);
 			inputEnsureBind(ctrl, CK_C_L, dleft);
 			inputRemoveBind(ctrl, CK_LTRIG, dright);
+			inputRemoveBind(ctrl, CK_DPAD_R, dright);
 			inputEnsureBind(ctrl, CK_C_R, dright);
 		}
 	}

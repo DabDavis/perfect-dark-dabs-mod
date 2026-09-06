@@ -77,7 +77,15 @@ static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c
 static void bgunProcessInputAltButton(struct movedata *data, s8 contpad, s32 i)
 {
 	s32 buttons = joyGetButtonsOnSample(i, contpad, 0xffffffff);
-	if (buttons & (BUTTON_ALTMODE)) {
+	u32 altbuttons = BUTTON_ALTMODE;
+
+	// Akimbo Triggers: D-pad right is the right hand's fire mode button
+	// too, on the N64 D-pad right key so that a menu still reads it as right
+	if (modIsAkimboTriggersOn()) {
+		altbuttons |= R_JPAD;
+	}
+
+	if (buttons & altbuttons) {
 		if (g_Vars.currentplayer->altdowntime >= -1) {
 			if (buttons & (Z_TRIG)
 					&& g_Vars.currentplayer->altdowntime >= 0

@@ -2547,7 +2547,7 @@ static const struct menubind modMenuBinds[] = {
 	{ CK_0040,   "Fire Left [+]\n",       "N64 Ext 0040\n" },
 	{ CK_ZTRIG,  "Fire Right [ZT]\n",     "N64 Z Trigger\n" },
 	{ CK_0080,   "Fire Mode Left [+]\n",  "N64 Ext 0080\n" },
-	{ CK_LTRIG,  "Fire Mode Right [LT]\n", "N64 L Trigger\n" },
+	{ CK_DPAD_R, "Fire Mode Right [DR]\n", "N64 D-Pad Right\n" },
 	{ CK_RTRIG,  "Aim Mode [RT]\n",       "N64 R Trigger\n" },
 	{ CK_DPAD_U, "Quick Menu [DU]\n",     "N64 D-Pad Up\n" },
 };

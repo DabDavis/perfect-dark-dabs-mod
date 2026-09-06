@@ -5008,20 +5008,41 @@ void menuProcessInput(void)
 				ytapdir = 1;
 			}
 
+#ifndef PLATFORM_N64
+			// Akimbo Triggers moves the controller's D-pad left and right off
+			// C-left and C-right, so that in a match they are the fire mode
+			// buttons; here they are still left and right, as they were
+			if (buttons & (L_CBUTTONS | BUTTON_FIREMODELEFT)) {
+				xhelddir = -1;
+			}
+
+			if (buttonsnow & (L_CBUTTONS | BUTTON_FIREMODELEFT)) {
+				xtapdir = -1;
+#else
 			if (buttons & L_CBUTTONS) {
 				xhelddir = -1;
 			}
 
 			if (buttonsnow & L_CBUTTONS) {
 				xtapdir = -1;
+#endif
 			}
 
+#ifndef PLATFORM_N64
+			if (buttons & (R_CBUTTONS | R_JPAD)) {
+				xhelddir = 1;
+			}
+
+			if (buttonsnow & (R_CBUTTONS | R_JPAD)) {
+				xtapdir = 1;
+#else
 			if (buttons & R_CBUTTONS) {
 				xhelddir = 1;
 			}
 
 			if (buttonsnow & R_CBUTTONS) {
 				xtapdir = 1;
+#endif
 			}
 
 		}
