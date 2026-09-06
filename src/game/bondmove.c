@@ -2085,14 +2085,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		}
 
 #ifndef PLATFORM_N64
-		// COD Style Aiming: a little zoom down the sights, unless the gun's
-		// own scope has already gone further
-		if (modIsCodAimingOn() && g_Vars.currentplayer->insightaimmode) {
-			f32 adsfov = PLAYER_DEFAULT_FOV * 0.8f;
-
-			if (zoomfov > adsfov) {
-				zoomfov = adsfov;
-			}
+		// COD Style Aiming: a little zoom down the sights for a gun that
+		// comes up to them - the same guns as the pose. A gun that zooms
+		// when aimed has its own, and a gun without one reads as no zoom
+		// at all here, which is why this does not compare against it.
+		if (modIsCodAimingOn()
+				&& g_Vars.currentplayer->insightaimmode
+				&& modIsWeaponAGun(weaponnum)
+				&& !bgunZoomsWhenAimed(weaponnum)) {
+			zoomfov = PLAYER_DEFAULT_FOV * 0.8f;
 		}
 #endif
 
