@@ -6,7 +6,7 @@ SCR=${PDPERF_DIR:-/tmp/pdperf}
 S=$SCR/pdsave
 cd $(dirname "$0")/../../build
 export SDL_VIDEODRIVER=offscreen SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6
-timeout -k 5 $((DUR+40)) ./$BIN --moddir mod_allinone --savedir $S --skip-intro --no-sound --boot-stage $STAGE --mpsims $SIMS --spectate --endless --gfxstats 60 --rng-seed ${SEED:-12345} --fixed-step > $SCR/$LABEL.log 2>&1 &
+timeout -k 5 $((DUR+40)) ./$BIN --moddir mod_allinone --savedir $S --skip-intro --no-sound --boot-stage $STAGE --mpsims $SIMS --spectate --endless --gfxstats 60 --rng-seed ${SEED:-12345} --fixed-step $EXTRA > $SCR/$LABEL.log 2>&1 &
 GP=$!
 sleep 25
 PID=$(pgrep -x $BIN)
@@ -30,7 +30,7 @@ def load(p):
         else: t[w[1]]=t.get(w[1],0)+int(w[2])
     return c,t
 (c0,t0),(c1,t1)=load(sys.argv[1]),load(sys.argv[2])
-frames=c1[0]-c0[0]; lv=c1[1]-c0[1]
+frames=c1[0]-c0[0]; lv=c1[-1]-c0[-1]  # with one counter (a -O2 build hides video.c's), both are the level tick
 print(f"{sys.argv[3]}: {frames} frames, {lv} level ticks")
 for k in sorted(t1, key=lambda k:-(t1[k]-t0.get(k,0))):
     ms=(t1[k]-t0.get(k,0))*10.0

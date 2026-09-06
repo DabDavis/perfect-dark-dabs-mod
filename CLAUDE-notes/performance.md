@@ -77,10 +77,71 @@ player alive.
 - The combiner inputs of `gfx_sp_tri_emit` are resolved once when the
   primitive/environment colour or combiner changes, not switched per vertex.
 - A triangle's facing is tested once in `gfx_sp_tri1`, not again per patch.
-- `PD_HOT_O2` (CMake option, off) compiles the hot decomp files at -O2. It
-  changed the course of the seeded match after four seconds (float
-  reordering, or the uninitialised locals the -Og comment warns about), so it
-  is not measurable by the trace test and stays off.
+- `PD_HOT_O2` (CMake option, on since 2026-09-06) compiles the hot decomp
+  files at -O2: 25.4M to 24.6M instructions a frame, about 3%. It first
+  changed the course of the seeded match after four seconds; the section
+  below is what that was.
+
+## Why the decomp at -O2 played a different game, and how it was bisected
+
+Two causes, neither of them float reordering (GCC does not reorder without
+fast-math, and this target has no FMA to contract). Both are fixed.
+
+**The game defines `sinf` and `cosf`** (modelasm_c.c, the N64 table code) and
+at -O2 GCC fuses a `sinf(x)` and `cosf(x)` of the same `x` into one
+`sincosf(x)` call, which resolved to glibc's and differs in the last bits.
+`nm -u` of the -Og and -O2 objects showed the new `sincosf` reference in
+exactly the files that diverged (bot.c, chraction.c, model.c, chr.c). The fix
+is a `sincosf` in modelasm_c.c built on the game's `sinf`. Any libm name the
+game defines itself (also `atan2f`, `acosf`, `asinf`, `floorf`, `ceilf`) is
+exposed to this kind of substitution; diffing the objects' undefined symbols
+is the first check when a file diverges at a new optimisation level.
+
+**`chrTickGoPos` unpacked `pad2` without `PADFIELD_FLAGS` and then tested
+`pad2.flags`**, reading whatever the stack held. That garbage depends on the
+frame layout of every function that ran before it in the tick, so *any*
+change to *any* caller - a tail call instead of a call in a five-line
+function - changed a guard's route. It only showed on a solo mission (Attack
+Ship, 40 s in, with the mod's 80 alerted guards); the match never took that
+branch. Valgrind on the solo run found it in one line
+(`Conditional jump ... chraction.c:13775`, origin a stack allocation in
+`chrTickGoPos`). `cdBlockExcludesBlockLaterally` had an uninitialised `sum2`
+of the same shape, fixed at the same time although the replay never showed it.
+
+**With both fixed, -Og and -O2 replay the match (17,000 frames) and the solo
+mission (14,000 frames) identically**, and the whole decomp at -O2
+(`PD_DECOMP_O2`, off) measured the same 24.6M instructions a frame as the
+twelve hot files, so it stays off. -O3 on the hot files was 24.3M.
+
+The method, for the next time a build diverges:
+
+1. Per-file: compile each suspect file at the new flags into a scratch
+   directory (take the command from `build/compile_commands.json`), copy the
+   object over the one in `build/CMakeFiles/pd.dir/`, and link by running
+   `build/CMakeFiles/pd.dir/link.txt` directly. `make` does not relink after
+   an object is swapped by hand; the first hour of the bisection compared one
+   binary with itself.
+2. Run each binary on the seeded fixed-step match with `--gfxstats 1` and
+   diff the vertex counts of the `gfx: N draws` lines. Draw counts carry a
+   ±1 HUD element that differs between identical runs; vertex counts do not.
+   Ten runs in parallel under `SDL_VIDEODRIVER=offscreen` are fine; each is
+   a 22 MB binary, so mind `/tmp`.
+3. Within a file: insert `#pragma GCC optimize ("O2")` before a range of
+   function signatures and `#pragma GCC optimize ("Og")` after it, compile,
+   link, run. The pragma keeps the command line's `-fno-strict-aliasing`
+   (checked). Halve the range each round; expect several disjoint regions to
+   diverge at the same frame when the cause is a garbage read downstream,
+   because every caller's frame layout feeds it.
+4. When single functions whose -O2 code is semantically identical (a tail
+   call, a smaller frame) still diverge, stop bisecting and run valgrind on
+   the diverging stage: `valgrind --track-origins=yes` takes about 13
+   minutes to reach frame 5,000 of a solo mission here, and names the line.
+   Filter out `texShrink*`/`gfx_texscale` noise (texture decompression reads
+   past its input; harmless, not addressed).
+
+A solo mission (`--boot-stage 0x34`, no `--mpsims`) is a second replay
+worth running for anything that touches chr code; the match alone missed
+the `pad2.flags` read.
 
 ## Increase Poly Models never ran on a character until 2026-09-06
 

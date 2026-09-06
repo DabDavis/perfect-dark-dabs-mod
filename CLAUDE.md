@@ -23,7 +23,7 @@ notes are read when their area comes up.
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
 - **Texture packs** — [texture-packs.md](CLAUDE-notes/texture-packs.md): where a pack goes (one of four directories is read by nothing); decoding off the render thread and the backlog; the kept store and why a decode must never be handed over (textures flicker to the original otherwise); an emulator pack's image is the tile, the renderer maps the padded row; PNG is ours, JPEG is stb_image, and the two row orders; font glyphs (the image is the whole tile, the outline pass wants both images); F7–F10
 - **The Friends of Joanna collab tree, `../pd-fojo-monorepo-collab/`** — [fojo-collab.md](CLAUDE-notes/fojo-collab.md): what their mod loader does that ours does not, why the trees cannot merge, and what is worth borrowing
-- **Measuring a crowded match, `--rng-seed`/`--fixed-step`, where the frame goes, why Increase Poly Models was inert** — [performance.md](CLAUDE-notes/performance.md): compare instructions per frame on a seeded fixed-step match; the renderer is half the main thread and is built at -O2; the smoothing gate wanted RSP lighting the game never uses
+- **Measuring a crowded match, `--rng-seed`/`--fixed-step`, where the frame goes, why Increase Poly Models was inert** — [performance.md](CLAUDE-notes/performance.md): compare instructions per frame on a seeded fixed-step match; the renderer is 60% of the main thread and is built at -O2; why the decomp at -O2 played a different game (game-defined sinf/cosf, an uninitialised pad flag) and how a divergence is bisected; the smoothing gate wanted RSP lighting the game never uses
 - **Weapon numbers, `flags2`, converting a `weaponnum` comparison** — [weapons.md](CLAUDE-notes/weapons.md): the four checks, and what is deliberately not converted
 
 **[DabDavisGitHub.md](DabDavisGitHub.md)** is the companion to this file: the
@@ -98,7 +98,7 @@ cmake --build build -j8
 ./build/pd-modded.sh                   # with the All in One mod
 ```
 
-Release builds use `-Og`, not `-O2` — see the comment in `CMakeLists.txt`. Warnings
+Release builds use `-Og` for the decomp except the hot files (`PD_HOT_O2`) — see the comment in `CMakeLists.txt` and [performance.md](CLAUDE-notes/performance.md). Warnings
 about uninitialised locals in `collision.c`, `model.c`, `menu.c` and `mplayer/setup.c`
 are pre-existing decomp artifacts; check `git diff` before assuming one is yours.
 

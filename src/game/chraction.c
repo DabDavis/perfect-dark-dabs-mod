@@ -13769,7 +13769,13 @@ void chrTickGoPos(struct chrdata *chr)
 				next = chr->act_gopos.waypoints[chr->act_gopos.curindex + 1];
 
 				if (next) {
-					padUnpack(next->padnum, PADFIELD_ROOM | PADFIELD_POS, &pad2);
+					// Stock unpacked only the room and position here and then
+					// tested pad2.flags below, reading whatever the stack held.
+					// Any earlier call with a different frame layout (another
+					// compiler, another optimisation level) changed that
+					// garbage and with it the chr's route, which is why the
+					// decomp at -O2 replayed a different solo mission than -Og.
+					padUnpack(next->padnum, PADFIELD_ROOM | PADFIELD_POS | PADFIELD_FLAGS, &pad2);
 
 					if ((pad.flags & (PADFLAG_AIWAITLIFT | PADFLAG_AIONLIFT))
 							&& (pad2.flags & (PADFLAG_AIWAITLIFT | PADFLAG_AIONLIFT))) {

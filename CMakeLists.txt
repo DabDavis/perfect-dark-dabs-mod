@@ -193,9 +193,19 @@ include_directories("${CMAKE_SOURCE_DIR}/src/lib/ultra/audio")
 include_directories("${CMAKE_SOURCE_DIR}/port/include")
 include_directories("${CMAKE_BINARY_DIR}/port/include")
 
-# Set Release optimization to -Og until I fix the -O2 issues
+# The decomp is built at -Og. Two things that made -O2 play a different game
+# were found on 2026-09-06 (a sincosf the game had to define, and an
+# uninitialised pad2.flags in chrTickGoPos; CLAUDE-notes/performance.md), and
+# with them fixed the seeded replay is identical at -Og and -O2 on a match and
+# a solo mission. The whole decomp at -O2 measured no faster than the hot
+# files alone (PD_HOT_O2 below), so it stays an option.
+option(PD_DECOMP_O2 "Compile the whole decomp at -O2 instead of -Og" OFF)
 if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
-  add_compile_options(-Og)
+  if(PD_DECOMP_O2)
+    add_compile_options(-O2)
+  else()
+    add_compile_options(-Og)
+  endif()
 endif()
 
 # Common CFLAGS
@@ -355,8 +365,10 @@ set_source_files_properties(${SRC_FAST3D} PROPERTIES
 
 # PD_HOT_O2: the decompiled files a crowded match spends its time in
 # (collision, character movement and AI, model animation, room and portal
-# visibility) at -O2 as well. Off by default: see the -Og comment above.
-option(PD_HOT_O2 "Compile the hottest decompiled files at -O2" OFF)
+# visibility) at -O2 as well. Worth about 3% of the main thread on an 80-sim
+# match (25.4M to 24.6M instructions a frame); -O3 gains another 1% and is not
+# worth the code size. Shown behaviour-preserving by the seeded replay.
+option(PD_HOT_O2 "Compile the hottest decompiled files at -O2" ON)
 if(PD_HOT_O2)
   set(SRC_HOT
     "${CMAKE_SOURCE_DIR}/src/lib/collision.c"

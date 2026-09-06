@@ -1601,9 +1601,27 @@ static f32 modelasmAcosOrAsin(f32 f6)
 	return 0.000047937632189132f * t3;
 }
 
+#define COSF_PHASE 1.570796251297f
+
 f32 cosf(f32 radians)
 {
-	return sinf(radians + 1.570796251297f);
+	return sinf(radians + COSF_PHASE);
+}
+
+/**
+ * At -O2, GCC fuses a sinf(x) and a cosf(x) of the same x into one sincosf(x)
+ * call. Without this definition that call resolves to glibc's sincosf, whose
+ * results differ in the last bits from the game's own sinf and cosf above,
+ * and a match replayed with --rng-seed --fixed-step diverges from an -Og
+ * build within seconds (bot.c, chraction.c and model.c all have such pairs).
+ * Defining it here keeps the fused call on the game's tables. The cosine is
+ * spelled out rather than calling cosf so that this function is not itself
+ * fused into a recursive sincosf call.
+ */
+void sincosf(f32 radians, f32 *sine, f32 *cosine)
+{
+	*sine = sinf(radians);
+	*cosine = sinf(radians + COSF_PHASE);
 }
 
 f32 sinf(f32 radians)

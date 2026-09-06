@@ -3742,7 +3742,11 @@ bool cdBlockExcludesBlockLaterally(struct geoblock *block1, struct geoblock *blo
 			}
 		} else {
 			f64 sum1 = block1->vertices[i][0] * diff1 + block1->vertices[i][1] * diff2;
-			f64 sum2;
+			// sum1 is the value the loop below leaves in sum2 when no vertex
+			// is off the edge's line, and what the k loop tests for; stock
+			// left sum2 unset, so a two-vertex block read whatever the stack
+			// held, which differs between compilers and optimisation levels.
+			f64 sum2 = sum1;
 			s32 j = (next + 1) % numvertices0;
 			s32 k;
 
