@@ -111,10 +111,12 @@ that in `gfx_sp_load_vertex` (transform, clip flags) and `gfx_sp_tri_emit`
   branches and the stores; in the emit, the UV multiply-adds and the slot
   writes. Neither is worth more without changing the floats that reach the
   GPU (the divide could be a multiply, but not on the same bits).
-- Not touched, and next in that profile: `gfx_sp_tri_smooth_level` takes
-  three `sqrtf` and three `ceilf` per model triangle (the game's own
-  `ceilf`, a call) to pick the patch level; a squared-length compare against
-  the four thresholds would give the same levels but for ties at a boundary.
+- `gfx_sp_tri_smooth_level` took three `sqrtf` and three `ceilf` per model
+  triangle (the game's own `ceilf`, a call) to pick the patch level. It now
+  compares the squared edge length with the thresholds and does the six
+  screen divisions as two vector ones: 22.5M to 22.3M instructions. An edge
+  within a rounding of a threshold can take the other level; the match
+  replay and the frame-2400 capture showed none.
 
 **The check for a renderer change is a pixel diff, not the replay alone.**
 The replay proves the game took the same course and the counters match;

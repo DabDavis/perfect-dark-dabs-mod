@@ -2879,21 +2879,27 @@ static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct L
     if (v1->w > 0.0f && v2->w > 0.0f && v3->w > 0.0f) {
         const float hw = rdp.viewport.width * 0.5f;
         const float hh = rdp.viewport.height * 0.5f;
-        const struct LoadedVertex* c[3] = { v1, v2, v3 };
-        float sx[3], sy[3];
-        for (int i = 0; i < 3; i++) {
-            sx[i] = c[i]->x / c[i]->w * hw;
-            sy[i] = c[i]->y / c[i]->w * hh;
-        }
+        // the corners on screen, the six divisions as two vector ones
+        const v4f s12 = v4f{ v1->x, v1->y, v2->x, v2->y } / v4f{ v1->w, v1->w, v2->w, v2->w } * v4f{ hw, hh, hw, hh };
+        const v4f s3 = v4f{ v3->x, v3->y, v3->x, v3->y } / v4f_splat(v3->w) * v4f{ hw, hh, hw, hh };
+        const float sx[3] = { s12[0], s12[2], s3[0] };
+        const float sy[3] = { s12[1], s12[3], s3[1] };
         for (int e = 0; e < 3; e++) {
             const int a = e, b = (e + 1) % 3; // edges v1-v2, v2-v3, v3-v1
             const float dx = sx[a] - sx[b], dy = sy[a] - sy[b];
-            const float px = sqrtf(dx * dx + dy * dy);
-            int m = (int)ceilf(px / SMOOTH_PX_PER_SEGMENT);
-            if (m < 1) {
-                m = 1;
-            } else if (m > level) {
-                m = level;
+            const float d2 = dx * dx + dy * dy;
+            // ceil(length / SMOOTH_PX_PER_SEGMENT), 1 to level, as one more
+            // than the number of thresholds (k * SMOOTH_PX_PER_SEGMENT)^2 the
+            // squared length is past: no square root, and no call to ceilf,
+            // which is the game's own. An edge within a rounding of a
+            // threshold can land on the other side of it than the root did.
+            int m = 1;
+            for (int k = 1; k < level; k++) {
+                const float t = k * SMOOTH_PX_PER_SEGMENT;
+                if (!(d2 > t * t)) {
+                    break;
+                }
+                m = k + 1;
             }
             edgelevel[e] = m;
             if (m > n) {
