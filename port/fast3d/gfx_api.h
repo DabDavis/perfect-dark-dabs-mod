@@ -37,6 +37,11 @@ extern float gfx_current_native_aspect; // The aspect ratio of the above mode
 extern bool gfx_framebuffers_enabled;
 extern bool gfx_detail_textures_enabled;
 extern bool gfx_clean_text_outlines;
+// Model Smoothing: lit triangles drawn as curved patches of level*level
+// triangles, 0 or 1 for off; amount blends the curve in, 0..1. See
+// gfx_sp_tri_smooth
+extern int gfx_model_smoothing_level;
+extern float gfx_model_smoothing_amount;
 
 // What ended a batch and forced a draw call. See g_GfxFlushReasons.
 enum GfxFlushReason {

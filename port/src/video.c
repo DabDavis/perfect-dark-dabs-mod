@@ -595,6 +595,16 @@ void videoSetCleanTextOutlines(s32 on)
 	gfx_clean_text_outlines = !!on;
 }
 
+/**
+ * Model Smoothing: how many triangles a lit triangle is drawn as, level
+ * squared, and how far toward the curved patch its new vertices are pulled.
+ */
+void videoSetModelSmoothing(s32 level, f32 amount)
+{
+	gfx_model_smoothing_level = level < 0 ? 0 : level;
+	gfx_model_smoothing_amount = amount < 0.f ? 0.f : (amount > 1.f ? 1.f : amount);
+}
+
 void videoSetGlareBrightness(f32 bright)
 {
 	vidGlareBrightness = (bright < 0.f ? 0.f : (bright > 1.f ? 1.f : bright));

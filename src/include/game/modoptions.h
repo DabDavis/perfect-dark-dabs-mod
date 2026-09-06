@@ -180,6 +180,39 @@
  * breathing is left at stock either way.
  */
 
+/**
+ * Model Smoothing: the characters, weapons and props drawn with more
+ * triangles than they were built from, each one bent into a curved patch so
+ * that a six-sided arm reads as a round one.
+ *
+ * The models were made for a console that could afford a few hundred
+ * triangles per character, and on a monitor every edge of that budget shows.
+ * There is no mesh to refine at runtime - the renderer sees a display list,
+ * which is triangles one at a time with no idea of their neighbours - so the
+ * renderer uses curved PN triangles: each corner's normal is taken as the
+ * surface's true direction there, the flat triangle is bent into a cubic
+ * patch that honours all three, and the patch is drawn as a grid of smaller
+ * triangles, each lit by the same lights with a normal blended across the
+ * patch. Two triangles that share an edge bend it the same way, so the
+ * surface stays sealed. Faces whose normals already agree with them stay
+ * flat, so a crate keeps its corners.
+ *
+ * Only geometry that came with normals qualifies, which is the lit things;
+ * rooms are coloured per vertex and are left alone. The cost is on the GPU
+ * and in the renderer's vertex loop: Light is four triangles per triangle,
+ * Normal nine, Heavy sixteen.
+ *
+ * An amount as well as a count, because the technique's known habit is to
+ * inflate a large, sparsely modelled surface into a cushion: Light pulls the
+ * new vertices half way to the curve, Normal three quarters, Heavy all the
+ * way.
+ */
+#define MODSMOOTH_OFF    0
+#define MODSMOOTH_LIGHT  1
+#define MODSMOOTH_NORMAL 2
+#define MODSMOOTH_HEAVY  3
+#define MODSMOOTH_MAX    MODSMOOTH_HEAVY
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -207,6 +240,7 @@ struct modoptions {
 	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
 	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look, and bobs with a step
 	s32 gunsway;     // the gun's step motion scaled up with the bob
+	s32 modelsmoothing; // MODSMOOTH_*: lit triangles drawn as curved patches
 };
 
 extern struct modoptions g_ModOptions;
@@ -242,5 +276,7 @@ bool modIsAlarmSoundEnabled(void);
 bool modIsCleanTextOn(void);
 f32 modGetCameraTiltScale(void);
 f32 modGetGunSwayScale(void);
+s32 modGetModelSmoothingLevel(void);
+f32 modGetModelSmoothingAmount(void);
 
 #endif

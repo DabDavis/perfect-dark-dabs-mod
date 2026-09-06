@@ -40,6 +40,7 @@ struct modoptions g_ModOptions = {
 	true,                     // cleantext
 	MODTILT_NORMAL,           // cameratilt
 	true,                     // gunsway
+	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 };
 
 /**
@@ -404,6 +405,43 @@ f32 modGetGunSwayScale(void)
 	}
 
 	return 1.0f + modGetCameraTiltScale();
+}
+
+/**
+ * Model Smoothing, as the side of the grid a lit triangle is drawn as: 0
+ * for off, else 2, 3 or 4 - four, nine or sixteen triangles for one. The
+ * renderer keeps its own copy (gfx_model_smoothing_level, with the amount
+ * below); videoSetModelSmoothing() keeps them together.
+ */
+s32 modGetModelSmoothingLevel(void)
+{
+	switch (g_ModOptions.modelsmoothing) {
+	case MODSMOOTH_LIGHT:
+		return 2;
+	case MODSMOOTH_NORMAL:
+		return 3;
+	case MODSMOOTH_HEAVY:
+		return 4;
+	}
+
+	return 0;
+}
+
+/**
+ * How far toward the curved patch the new vertices are pulled, 0 to 1.
+ */
+f32 modGetModelSmoothingAmount(void)
+{
+	switch (g_ModOptions.modelsmoothing) {
+	case MODSMOOTH_LIGHT:
+		return 0.5f;
+	case MODSMOOTH_NORMAL:
+		return 0.75f;
+	case MODSMOOTH_HEAVY:
+		return 1.0f;
+	}
+
+	return 0.0f;
 }
 
 /**

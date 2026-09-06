@@ -2329,6 +2329,32 @@ static MenuItemHandlerResult menuhandlerModCleanText(s32 operation, struct menui
 	return 0;
 }
 
+/**
+ * Model Smoothing: lit models drawn as curved patches of more triangles.
+ * An amount rather than a switch, since the same curve that rounds an arm
+ * puffs up a table top. The renderer keeps its own copy of the setting.
+ */
+static MenuItemHandlerResult menuhandlerModModelSmoothing(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Light", "Normal", "Heavy" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.modelsmoothing = data->dropdown.value;
+		videoSetModelSmoothing(modGetModelSmoothingLevel(), modGetModelSmoothingAmount());
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.modelsmoothing;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -3201,6 +3227,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Clean Text Outlines",
 		0,
 		menuhandlerModCleanText,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Model Smoothing",
+		0,
+		menuhandlerModModelSmoothing,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
