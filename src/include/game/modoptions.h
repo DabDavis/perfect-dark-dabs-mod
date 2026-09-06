@@ -244,13 +244,16 @@
 
 /**
  * Enhance Textures: the game's textures scaled up two or four times over as
- * they are uploaded, sharpened a little at their own resolution first and
- * then resampled through a cubic curve rather than the GPU's straight-line
- * blend, so a 32-texel wall reads as a surface rather than a grid of soft
- * blobs. Nothing is invented: it is a better guess at what lies between the
- * texels than the bilinear filter's. A texture pack's images, being bigger
- * already, are not touched. The cost is at upload, once per texture, and in
- * GPU memory: four times over is sixteen times the texels.
+ * they are uploaded, resampled through a cubic curve rather than the GPU's
+ * straight-line blend, so a 32-texel wall reads as a surface rather than a
+ * grid of soft blobs. Nothing is invented: it is a better guess at what
+ * lies between the texels than the bilinear filter's. A texture that is
+ * itself a one-texel pattern - a halftone portrait, a screen of text-sized
+ * dashes, a blind of single lines - was drawn to be seen through the blur
+ * and is left as it came (port/fast3d/gfx_texscale.cpp). A texture pack's
+ * images, being bigger already, are not touched. The cost is at upload,
+ * once per texture, and in GPU memory: four times over is sixteen times
+ * the texels.
  */
 #define MODENHANCE_OFF  0
 #define MODENHANCE_2X   1

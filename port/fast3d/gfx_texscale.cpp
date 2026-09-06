@@ -11,13 +11,26 @@
  * making more texels here from the ones the game has - not detail it never
  * had, but a better guess at the surface between the texels than a tent:
  *
- * - A texture is first sharpened a little at its own resolution, since what
- *   reads as muddy at 30x is the low contrast between neighbouring texels,
- *   then resampled through a Catmull-Rom cubic, which keeps every original
- *   texel where it was and draws a smooth curve rather than a straight line
- *   between them. The work is done with the colour premultiplied by the
- *   alpha so a cut-out's transparent texels, which are usually black, do not
- *   bleed a dark rim into its edge.
+ * - A texture is resampled through a Catmull-Rom cubic, which keeps every
+ *   original texel where it was and draws a smooth curve rather than a
+ *   straight line between them. The curve is held within the two texels it
+ *   runs between, so a hard edge gets no overshoot on either side. The work
+ *   is done with the colour premultiplied by the alpha so a cut-out's
+ *   transparent texels, which are usually black, do not bleed a dark rim
+ *   into its edge. No sharpening: a first version added an unsharp mask at
+ *   the texture's own resolution, and on a computer screen drawn as a field
+ *   of one-texel dashes it turned each dash into a distinct symbol, so the
+ *   text-at-a-distance the artist painted read as Wingdings.
+ *
+ * - Some textures are the blur. A halftone portrait is a grid of dots, a
+ *   terminal screen a scatter of single texels, a window blind a stack of
+ *   one-texel lines, and each was drawn to be seen through the bilinear
+ *   filter, which is what turns the dots into a face. Any sharper curve
+ *   between the texels undoes that, so a texture whose detail sits mostly at
+ *   texel frequency - the second difference between neighbours large next
+ *   to the first difference across them - is left as it came. Over the
+ *   textures of dataDyne's offices the ratio is about 1.2 for a wall or a
+ *   face and 2.4 and up for every dot pattern and text screen.
  *
  * - A font glyph is a shape, not a picture: its colour is flat and the alpha
  *   is the letter. It gets the same cubic and no sharpening, and its coverage
@@ -42,10 +55,9 @@
 #define TEXSCALE_MAX_TEXELS (8192 * 16)
 #define TEXSCALE_MAX_SCALE 4
 
-// How much a texture is sharpened before the resample: this fraction of the
-// difference between a texel and the mean of its 3x3 neighbourhood is added
-// back.
-#define TEXSCALE_SHARPEN 0.3f
+// Above this ratio of texel-frequency detail to the rest, a texture is a
+// pattern the bilinear filter was meant to blur, and is left alone.
+#define TEXSCALE_PATTERN_RATIO 2.0f
 
 static float* src_buf;   // premultiplied, source size
 static float* mid_buf;   // after the horizontal pass: scaled width, source height
@@ -124,31 +136,39 @@ static void make_phases(struct Phase* phases, int scale) {
     }
 }
 
-static void sharpen(float* img, int w, int h, enum TexScaleEdge edge_s, enum TexScaleEdge edge_t) {
-    float* copy = mid_buf; // free at this point, and at least source size
-    memcpy(copy, img, (size_t)w * h * 4 * sizeof(float));
+// How much of a texture's detail is one texel wide: the mean absolute second
+// difference across each texel, over the mean absolute difference between its
+// two neighbours, both ways, on the premultiplied luma. A smooth surface is
+// near 1; a field of isolated dots or one-texel lines runs well above 2.
+static float pattern_ratio(const float* img, int w, int h, enum TexScaleEdge edge_s, enum TexScaleEdge edge_t) {
+    double d2 = 0.0, d1 = 0.0;
 
     for (int y = 0; y < h; y++) {
+        const int yu = edge_index(y - 1, h, edge_t);
+        const int yd = edge_index(y + 1, h, edge_t);
         for (int x = 0; x < w; x++) {
-            float mean[3] = { 0.0f, 0.0f, 0.0f };
-            for (int dy = -1; dy <= 1; dy++) {
-                const int sy = edge_index(y + dy, h, edge_t);
-                for (int dx = -1; dx <= 1; dx++) {
-                    const int sx = edge_index(x + dx, w, edge_s);
-                    const float* t = copy + ((size_t)sy * w + sx) * 4;
-                    mean[0] += t[0];
-                    mean[1] += t[1];
-                    mean[2] += t[2];
-                }
-            }
-            float* d = img + ((size_t)y * w + x) * 4;
-            for (int c = 0; c < 3; c++) {
-                float v = d[c] + TEXSCALE_SHARPEN * (d[c] - mean[c] / 9.0f);
-                // Premultiplied: never more colour than there is coverage.
-                d[c] = v < 0.0f ? 0.0f : (v > d[3] ? d[3] : v);
-            }
+            const int xl = edge_index(x - 1, w, edge_s);
+            const int xr = edge_index(x + 1, w, edge_s);
+            const float* c = img + ((size_t)y * w + x) * 4;
+            const float* l = img + ((size_t)y * w + xl) * 4;
+            const float* r = img + ((size_t)y * w + xr) * 4;
+            const float* u = img + ((size_t)yu * w + x) * 4;
+            const float* d = img + ((size_t)yd * w + x) * 4;
+            const float lc = 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2];
+            const float ll = 0.2126f * l[0] + 0.7152f * l[1] + 0.0722f * l[2];
+            const float lr = 0.2126f * r[0] + 0.7152f * r[1] + 0.0722f * r[2];
+            const float lu = 0.2126f * u[0] + 0.7152f * u[1] + 0.0722f * u[2];
+            const float ld = 0.2126f * d[0] + 0.7152f * d[1] + 0.0722f * d[2];
+            d2 += fabsf(2.0f * lc - ll - lr) + fabsf(2.0f * lc - lu - ld);
+            d1 += fabsf(ll - lr) + fabsf(lu - ld);
         }
     }
+
+    // A flat texture has nothing at any frequency
+    if (d1 < 1e-3 * (double)w * h) {
+        return 0.0f;
+    }
+    return (float)(d2 / d1);
 }
 
 const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height, int scale,
@@ -182,8 +202,8 @@ const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height
         src_buf[i * 4 + 3] = a;
     }
 
-    if (!glyph) {
-        sharpen(src_buf, w, h, edge_s, edge_t);
+    if (!glyph && pattern_ratio(src_buf, w, h, edge_s, edge_t) > TEXSCALE_PATTERN_RATIO) {
+        return NULL;
     }
 
     struct Phase phases[TEXSCALE_MAX_SCALE];
@@ -204,11 +224,15 @@ const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height
                     acc[2] += t[2] * ph->w[k];
                     acc[3] += t[3] * ph->w[k];
                 }
+                // Held between the two texels it lies between: taps 1 and 2
+                const float* n0 = row + (size_t)edge_index(x + ph->base + 1, w, edge_s) * 4;
+                const float* n1 = row + (size_t)edge_index(x + ph->base + 2, w, edge_s) * 4;
                 float* o = orow + ((size_t)x * scale + p) * 4;
-                o[0] = acc[0];
-                o[1] = acc[1];
-                o[2] = acc[2];
-                o[3] = acc[3];
+                for (int c = 0; c < 4; c++) {
+                    const float lo = n0[c] < n1[c] ? n0[c] : n1[c];
+                    const float hi = n0[c] < n1[c] ? n1[c] : n0[c];
+                    o[c] = acc[c] < lo ? lo : (acc[c] > hi ? hi : acc[c]);
+                }
             }
         }
     }
@@ -224,8 +248,13 @@ const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height
             float* orow = dst_buf + ((size_t)y * scale + p) * ow * 4;
             for (int x = 0; x < ow; x++) {
                 for (int c = 0; c < 4; c++) {
-                    orow[x * 4 + c] = rows[0][x * 4 + c] * ph->w[0] + rows[1][x * 4 + c] * ph->w[1] +
-                                      rows[2][x * 4 + c] * ph->w[2] + rows[3][x * 4 + c] * ph->w[3];
+                    float v = rows[0][x * 4 + c] * ph->w[0] + rows[1][x * 4 + c] * ph->w[1] +
+                              rows[2][x * 4 + c] * ph->w[2] + rows[3][x * 4 + c] * ph->w[3];
+                    const float a = rows[1][x * 4 + c];
+                    const float b = rows[2][x * 4 + c];
+                    const float lo = a < b ? a : b;
+                    const float hi = a < b ? b : a;
+                    orow[x * 4 + c] = v < lo ? lo : (v > hi ? hi : v);
                 }
             }
         }
