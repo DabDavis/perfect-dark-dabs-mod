@@ -36,6 +36,7 @@ struct modoptions g_ModOptions = {
 	false,                    // explosionshake: the Video page's slider scales it when on
 	false,                    // codaiming
 	true,                     // alarmsound
+	true,                     // cleantext
 };
 
 /**
@@ -401,4 +402,17 @@ bool modCanAkimbo(s32 weaponnum)
 bool modIsAlarmSoundEnabled(void)
 {
 	return g_ModOptions.alarmsound != 0;
+}
+
+/**
+ * Clean Text Outlines: the border of outlined text drawn by the renderer as
+ * a halo around the letter rather than the filled cell the font bakes in.
+ * At the N64's resolution the cell reads as a bold outline; at a monitor's
+ * it is a black square behind every glyph. The renderer holds its own copy
+ * of this (gfx_clean_text_outlines); videoSetCleanTextOutlines() keeps them
+ * together.
+ */
+bool modIsCleanTextOn(void)
+{
+	return g_ModOptions.cleantext != 0;
 }

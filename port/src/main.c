@@ -157,6 +157,7 @@ int main(int argc, const char **argv)
 	if (g_ModOptions.akimbotriggers) {
 		inputApplyAkimboTriggers(1);
 	}
+	videoSetCleanTextOutlines(g_ModOptions.cleantext);
 	screenshotInit();
 	recordInit();
 	ghostnetInit();
@@ -266,6 +267,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.ExplosionShake", &g_ModOptions.explosionshake, 0, 1);
 	configRegisterInt("Mod.CodAiming", &g_ModOptions.codaiming, 0, 1);
 	configRegisterInt("Mod.AlarmSound", &g_ModOptions.alarmsound, 0, 1);
+	configRegisterInt("Mod.CleanTextOutlines", &g_ModOptions.cleantext, 0, 1);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);
 	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);
 	// Recording is not a mission setting any more - it is what Ghost Trials

@@ -36,6 +36,7 @@ extern struct XYWidthHeight gfx_current_native_viewport; // The internal/native 
 extern float gfx_current_native_aspect; // The aspect ratio of the above mode
 extern bool gfx_framebuffers_enabled;
 extern bool gfx_detail_textures_enabled;
+extern bool gfx_clean_text_outlines;
 
 // What ended a batch and forced a draw call. See g_GfxFlushReasons.
 enum GfxFlushReason {

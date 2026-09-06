@@ -590,6 +590,11 @@ void videoSetDetailTextures(s32 detail)
 	gfx_detail_textures_enabled = (bool)texDetail;
 }
 
+void videoSetCleanTextOutlines(s32 on)
+{
+	gfx_clean_text_outlines = !!on;
+}
+
 void videoSetGlareBrightness(f32 bright)
 {
 	vidGlareBrightness = (bright < 0.f ? 0.f : (bright > 1.f ? 1.f : bright));

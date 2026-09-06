@@ -63,6 +63,7 @@ void videoSetTextureFilter(u32 filter);
 void videoSetTextureFilter2D(s32 filter);
 void videoSetAnisotropicFilter(u32 filter);
 void videoSetDetailTextures(s32 detail);
+void videoSetCleanTextOutlines(s32 on);
 void videoSetDisplayMode(const s32 index);
 void videoSetVsync(const s32 vsync);
 void videoSetFramerateLimit(const s32 limit);

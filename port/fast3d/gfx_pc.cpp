@@ -107,7 +107,7 @@ struct ColorCombiner {
     uint64_t shader_id0;
     uint32_t shader_id1;
     bool used_textures[2];
-    struct ShaderProgram* prg[16];
+    struct ShaderProgram* prg[32]; // 16 clamp combinations, twice: the second half with SHADER_OPT_TEXT_OUTLINE
     uint8_t shader_input_mapping[2][7];
 };
 
@@ -290,6 +290,7 @@ struct XYWidthHeight gfx_current_native_viewport;
 float gfx_current_native_aspect = 4.f / 3.f;
 bool gfx_framebuffers_enabled = true;
 bool gfx_detail_textures_enabled = true;
+bool gfx_clean_text_outlines = true;
 
 static bool game_renders_to_framebuffer;
 static int game_framebuffer;
@@ -1723,6 +1724,22 @@ static void gfx_derive_batch_state(void) {
                 rdp.textures_changed[i] = false;
             }
 
+            // textRender's outline pass: tile 0 is the glyph through the TLUT
+            // bank that covers body and border, tile 1 through the bank that is
+            // the body alone. The border the font bakes in is not a border but
+            // the whole cell - every texel of an 'e' that is not red is opaque
+            // black - which at 320x240 reads as a bold outline and at 1080p as
+            // a black slab behind each letter. With this on, the shader shapes
+            // the border itself as a one-texel halo around the body. A pack's
+            // outlines/ image already is what its author wanted and is left be.
+            if (i == 0 && gfx_clean_text_outlines && use_2cyc && comb->used_textures[1]) {
+                const LoadedTexture& lt = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
+                if (lt.glyph && TEXPACK_GLYPH_IS_OUTLINE(lt.glyph) && rendering_state.textures[0] &&
+                    !rendering_state.textures[0]->second.replaced) {
+                    tm |= 16;
+                }
+            }
+
             uint8_t cms = rdp.texture_tile[tile].cms;
             uint8_t cmt = rdp.texture_tile[tile].cmt;
 
@@ -1782,7 +1799,8 @@ static void gfx_derive_batch_state(void) {
     struct ShaderProgram* prg = comb->prg[tm];
     if (prg == NULL) {
         comb->prg[tm] = prg =
-            gfx_lookup_or_create_shader_program(comb->shader_id0, comb->shader_id1 | (tm * SHADER_OPT_TEXEL0_CLAMP_S));
+            gfx_lookup_or_create_shader_program(comb->shader_id0, comb->shader_id1 | ((tm & 15) * SHADER_OPT_TEXEL0_CLAMP_S) |
+                                                                     ((tm & 16) ? SHADER_OPT_TEXT_OUTLINE : 0));
     }
 
     batch.comb = comb;

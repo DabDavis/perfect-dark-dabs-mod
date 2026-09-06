@@ -40,6 +40,9 @@ enum {
 #define SHADER_OPT_TEXEL1_CLAMP_S (1 << 10)
 #define SHADER_OPT_TEXEL1_CLAMP_T (1 << 11)
 #define SHADER_OPT_BLUR (1 << 12)
+// The outline pass of the game's own fonts: draw the border as a one-texel
+// halo around the body rather than the filled cell the font bakes in.
+#define SHADER_OPT_TEXT_OUTLINE (1 << 13)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -61,6 +64,7 @@ struct CCFeatures {
     bool opt_invisible;
     bool opt_grayscale;
     bool opt_blur;
+    bool opt_text_outline;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;

@@ -167,6 +167,7 @@ struct modoptions {
 	s32 explosionshake; // whether an explosion shakes the screen at all
 	s32 codaiming;   // aim down the sights: gun to centre, a little zoom, keep moving
 	s32 alarmsound;  // whether the siren plays while the alarm is on
+	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
 };
 
 extern struct modoptions g_ModOptions;
@@ -198,5 +199,6 @@ bool modIsCodAimingOn(void);
 bool modCanAkimbo(s32 weaponnum);
 bool modIsWeaponAGun(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);
+bool modIsCleanTextOn(void);
 
 #endif

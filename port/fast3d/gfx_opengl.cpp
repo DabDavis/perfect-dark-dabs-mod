@@ -488,6 +488,30 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         }
     }
 
+    if (cc_features.opt_text_outline && cc_features.used_textures[0] && cc_features.used_textures[1]) {
+        // The border of an outlined glyph, drawn as a halo around the body
+        // (texel 1's alpha) instead of the filled cell in texel 0. The body's
+        // bilinear alpha is read half a texel out in eight directions and
+        // pushed towards opaque, which makes a border about half a texel wide
+        // with a soft edge; the diagonals count for a little less so the
+        // corners round off, and a faint anti-aliasing texel makes only a
+        // faint border. The cell is still the limit, so nothing is drawn
+        // where the font drew nothing.
+        static const char* offs[8] = { " px.x, 0.0", "-px.x, 0.0", "0.0,  px.y", "0.0, -px.y",
+                                       " px.x,  px.y", "-px.x,  px.y", " px.x, -px.y", "-px.x, -px.y" };
+        char line[256];
+        append_line(fs_buf, &fs_len, "    {");
+        append_line(fs_buf, &fs_len, "        vec2 px = 0.5 / texSize1;");
+        append_line(fs_buf, &fs_len, "        float o = min(1.0, texVal1.a * 2.5);");
+        for (int k = 0; k < 8; k++) {
+            snprintf(line, sizeof(line), "        o = max(o, min(1.0, SAMPLE_TEX(uTex1, vTexCoordAdj1 + vec2(%s)).a * 2.5)%s);",
+                     offs[k], k < 4 ? "" : " * 0.8");
+            append_line(fs_buf, &fs_len, line);
+        }
+        append_line(fs_buf, &fs_len, "        texVal0.a = min(texVal0.a, o);");
+        append_line(fs_buf, &fs_len, "    }");
+    }
+
     append_line(fs_buf, &fs_len, cc_features.opt_alpha ? "    vec4 texel;" : "    vec3 texel;");
     for (int c = 0; c < (cc_features.opt_2cyc ? 2 : 1); c++) {
         append_str(fs_buf, &fs_len, "    texel = ");

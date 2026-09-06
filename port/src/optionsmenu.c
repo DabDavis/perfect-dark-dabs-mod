@@ -2246,6 +2246,24 @@ static MenuItemHandlerResult menuhandlerModCodAiming(s32 operation, struct menui
 	return 0;
 }
 
+/**
+ * Clean Text Outlines: the border of outlined text as a halo rather than
+ * the font's filled cell. The renderer keeps its own copy of the setting.
+ */
+static MenuItemHandlerResult menuhandlerModCleanText(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.cleantext;
+	case MENUOP_SET:
+		g_ModOptions.cleantext = data->checkbox.value;
+		videoSetCleanTextOutlines(g_ModOptions.cleantext);
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -3086,6 +3104,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"COD Style Aiming",
 		0,
 		menuhandlerModCodAiming,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Clean Text Outlines",
+		0,
+		menuhandlerModCleanText,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
