@@ -34,6 +34,7 @@ struct modoptions g_ModOptions = {
 	MODAKIMBO_OFF,            // akimbo
 	false,                    // akimbotriggers
 	false,                    // explosionshake: the Video page's slider scales it when on
+	false,                    // codaiming
 	true,                     // alarmsound
 };
 
@@ -344,6 +345,16 @@ bool modIsAkimboTriggersOn(void)
 bool modIsExplosionShakeOn(void)
 {
 	return g_ModOptions.explosionshake != 0;
+}
+
+/**
+ * COD Style Aiming: aim mode as a modern shooter has it. The crosshair
+ * stays in the centre and the gun comes up to it with a little zoom, and
+ * the player keeps moving, slower. Two guns come in to either side.
+ */
+bool modIsCodAimingOn(void)
+{
+	return g_ModOptions.codaiming != 0;
 }
 
 /**

@@ -7998,6 +7998,24 @@ void bgun0f0a5550(s32 handnum)
 	sp274.f[0] += fspare1;
 	sp274.f[1] -= fspare2;
 
+#ifndef PLATFORM_N64
+	// COD Style Aiming: the gun comes in to the centre and up to the eye
+	// by however far the tween has got, so it swings rather than snaps.
+	// Two guns come in to either side of it, close enough to aim by and
+	// far enough apart to see.
+	if (player->codaimfrac > 0.0f) {
+		f32 inx = 0.0f;
+
+		if (player->gunctrl.dualwielding) {
+			inx = handnum == HAND_RIGHT ? 4.5f : -4.5f;
+		}
+
+		sp274.f[0] += (inx - func0f0b131c(handnum)) * player->codaimfrac;
+		sp274.f[1] += 3.5f * player->codaimfrac;
+		sp274.f[2] += 3.0f * player->codaimfrac;
+	}
+#endif
+
 	hand->visible = true;
 
 	if (!weaponHasFlag(weaponnum, WEAPONFLAG_00000040)
@@ -12385,6 +12403,28 @@ void bgunTickGameplay(bool triggeron)
 	} else if (lefttrigger) {
 		// One gun: either trigger fires it
 		triggeron = true;
+	}
+#endif
+
+#ifndef PLATFORM_N64
+	// COD Style Aiming: where the guns are on their way to, tweened a
+	// quarter of the way each tick. Not for the empty hand.
+	{
+		f32 target = modIsCodAimingOn()
+			&& player->insightaimmode
+			&& player->hands[HAND_RIGHT].inuse
+			&& modIsWeaponAGun(player->gunctrl.weaponnum) ? 1.0f : 0.0f;
+		f32 step = 0.25f * LVUPDATE60FREAL();
+
+		if (step > 1.0f) {
+			step = 1.0f;
+		}
+
+		player->codaimfrac += (target - player->codaimfrac) * step;
+
+		if (player->codaimfrac < 0.01f) {
+			player->codaimfrac = 0.0f;
+		}
 	}
 #endif
 

@@ -813,7 +813,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 #ifndef PLATFORM_N64
 	if (allowmlook) {
 		inputMouseGetScaledDelta(&movedata.freelookdx, &movedata.freelookdy);
-		allowmcross = (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_CLASSIC) &&
+		allowmcross = (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_CLASSIC) && !modIsCodAimingOn() &&
 			(movedata.freelookdx || movedata.freelookdy || g_Vars.currentplayer->swivelpos[0] || g_Vars.currentplayer->swivelpos[1]);
 		if (movedata.invertpitch) {
 			movedata.freelookdy = -movedata.freelookdy;
@@ -1278,6 +1278,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						movedata.analogstrafe = c2stickx;
 						movedata.analogwalk = c2sticky;
 						movedata.unk14 = (c2stickx || c2sticky);
+#ifndef PLATFORM_N64
+					} else if (modIsCodAimingOn()) {
+						// COD Style Aiming: still moving, at sixty percent
+						movedata.analogstrafe = c2stickx * 0.6f;
+						movedata.analogwalk = c2sticky * 0.6f;
+						movedata.unk14 = (c2stickx || c2sticky);
+#endif
 					} else {
 						movedata.analogstrafe = 0.f;
 						movedata.analogwalk = 0.f;
@@ -1352,6 +1359,27 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						movedata.digitalstepforward = !g_Vars.currentplayer->insightaimmode && (c1buttons & sumask);
 						movedata.digitalstepback = !g_Vars.currentplayer->insightaimmode && (c1buttons & sdmask);
 						movedata.canlookahead = (controlmode == CONTROLMODE_PC) && !g_Vars.currentplayer->insightaimmode && (c2stickx || c2sticky);
+
+#ifndef PLATFORM_N64
+						// COD Style Aiming: the movement keys keep working while
+						// aiming, as sixty percent walks on the analogue path,
+						// which is how the walk code takes a speed short of full
+						if (modIsCodAimingOn() && g_Vars.currentplayer->insightaimmode && controlmode == CONTROLMODE_PC) {
+							if (c1buttons & sumask) {
+								movedata.analogwalk = 42.0f;
+							} else if (c1buttons & sdmask) {
+								movedata.analogwalk = -42.0f;
+							}
+
+							if (c1buttons & srmask) {
+								movedata.analogstrafe = 42.0f;
+							} else if (c1buttons & slmask) {
+								movedata.analogstrafe = -42.0f;
+							}
+
+							movedata.canlookahead = movedata.analogwalk != 0.0f || movedata.analogstrafe != 0.0f;
+						}
+#endif
 						movedata.cannaturalpitch = !g_Vars.currentplayer->insightaimmode;
 						movedata.speedvertadown = 0;
 						movedata.speedvertaup = 0;
@@ -1366,7 +1394,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								movedata.analogwalk = 0;
 								movedata.analoglean = 0.f;
 							}
-							if (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_LOCKED || bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
+							if (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_LOCKED || modIsCodAimingOn() || bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
 								movedata.cannaturalpitch = movedata.cannaturalpitch || (movedata.freelookdy != 0.0f);
 								movedata.cannaturalturn = movedata.cannaturalturn  || (movedata.freelookdx != 0.0f);
 							}
@@ -2006,6 +2034,18 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				&& g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY) {
 			zoomfov = currentPlayerGetGunZoomFov();
 		}
+
+#ifndef PLATFORM_N64
+		// COD Style Aiming: a little zoom down the sights, unless the gun's
+		// own scope has already gone further
+		if (modIsCodAimingOn() && g_Vars.currentplayer->insightaimmode) {
+			f32 adsfov = PLAYER_DEFAULT_FOV * 0.8f;
+
+			if (zoomfov > adsfov) {
+				zoomfov = adsfov;
+			}
+		}
+#endif
 
 		if (zoomfov <= 0) {
 			zoomfov = PLAYER_DEFAULT_FOV;

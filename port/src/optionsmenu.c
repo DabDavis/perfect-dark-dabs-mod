@@ -2228,6 +2228,22 @@ static MenuItemHandlerResult menuhandlerModExplosionShake(s32 operation, struct 
 	return 0;
 }
 
+/**
+ * COD Style Aiming: sights, a little zoom, and moving while aiming.
+ */
+static MenuItemHandlerResult menuhandlerModCodAiming(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.codaiming;
+	case MENUOP_SET:
+		g_ModOptions.codaiming = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "Everyone", "Players Only" };
@@ -3053,6 +3069,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Explosion Shake",
 		0,
 		menuhandlerModExplosionShake,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"COD Style Aiming",
+		0,
+		menuhandlerModCodAiming,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

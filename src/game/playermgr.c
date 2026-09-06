@@ -407,6 +407,9 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->gunctrl.gunmemtype = 0;
 	g_Vars.players[index]->gunctrl.gunmem = NULL;
 	g_Vars.players[index]->gunctrl.gunmodeldef = NULL;
+#ifndef PLATFORM_N64
+	g_Vars.players[index]->codaimfrac = 0.0f;
+#endif
 
 	g_Vars.players[index]->gunctrl.weaponnum = WEAPON_NONE;
 	g_Vars.players[index]->gunctrl.prevweaponnum = -1;
