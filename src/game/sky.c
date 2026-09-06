@@ -211,27 +211,31 @@ void skyChooseWaterVtxColour(struct skyvtx3d *arg0, f32 arg1)
  * top (skyGetWorldPosFromScreenPos), and the N64 path draws what it finds
  * clouds_height rows higher again (skyConvertVertex), so the horizon sits
  * that much higher on screen than the camera's. The port draws the sky
- * and water planes as 3D triangles instead, where a row shift is a pitch:
- * turn the plane up through the angle those rows subtend, or a band that
- * high stays unpainted along the top (GE-X's Runway, clouds_height 30).
+ * and water planes as 3D triangles instead, where a row shift is a shear
+ * of view space: y gains rows * c_scaley per unit of depth (a row is
+ * c_scaley of view-space y at unit depth, cam0f0b4c3c; view space looks
+ * down -z with y up), which after the divide is exactly that many rows for
+ * every vertex. Without it a band that high stays unpainted along the top
+ * (GE-X's Runway, clouds_height 30).
+ *
+ * It was a pitch through the angle those rows subtend, which is the same
+ * shift at the screen centre and more towards the edges - tan(a + b) is
+ * more than tan a + tan b - so with the horizon near the top of the screen
+ * the sky plane landed a row or two above the water fill drawn under it,
+ * which is a black line along the horizon: GE-X's Surface from the air,
+ * spectating. The fill under the horizon is the N64's 2D rectangle, which
+ * takes no shift, so the sky's edge has to land exactly where the rays say.
  */
-static void skyPitchForCloudHeight(Mtxf *mtx)
+static void skyShearForCloudHeight(Mtxf *mtx)
 {
 	const f32 rows = envGetCurrent()->clouds_height;
 
 	if (rows != 0.0f) {
-		// a row is c_scaley of view-space y at unit depth (cam0f0b4c3c), so
-		// the pitch is atan(rows * c_scaley), written out as its cos and sin
-		const f32 k = rows * g_Vars.currentplayer->c_scaley;
-		const f32 inv = 1.0f / sqrtf(1.0f + k * k);
-		Mtxf rot;
+		Mtxf shear;
 
-		mtx4LoadIdentity(&rot);
-		rot.m[1][1] = inv;
-		rot.m[1][2] = k * inv;
-		rot.m[2][1] = -k * inv;
-		rot.m[2][2] = inv;
-		mtx4MultMtx4(&rot, mtx, mtx);
+		mtx4LoadIdentity(&shear);
+		shear.m[2][1] = -rows * g_Vars.currentplayer->c_scaley;
+		mtx4MultMtx4(&shear, mtx, mtx);
 	}
 }
 #endif
@@ -892,7 +896,7 @@ Gfx *skyRender(Gfx *gdl)
 			Col *cols = gfxAllocateColours(numvertices);
 			Mtxf *mtx = gfxAllocateMatrix();
 			mtx4MultMtx4(camGetWorldToScreenMtxf(), &g_SkyMtx, mtx);
-		skyPitchForCloudHeight(mtx);
+		skyShearForCloudHeight(mtx);
 			mtxF2L(mtx, mtx);
 
 			gSPSetExtraGeometryModeEXT(gdl++, G_NO_CLIPPING_EXT);
@@ -1376,7 +1380,7 @@ Gfx *skyRender(Gfx *gdl)
 		Col *cols = gfxAllocateColours(numvertices);
 		Mtxf *mtx = gfxAllocateMatrix();
 		mtx4MultMtx4(camGetWorldToScreenMtxf(), &g_SkyMtx, mtx);
-		skyPitchForCloudHeight(mtx);
+		skyShearForCloudHeight(mtx);
 		mtxF2L(mtx, mtx);
 
 		gSPSetExtraGeometryModeEXT(gdl++, G_NO_CLIPPING_EXT);
