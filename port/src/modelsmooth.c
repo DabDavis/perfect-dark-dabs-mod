@@ -26,6 +26,21 @@
  * display list. The model's own normals are left alone: they still shade
  * the surface as the artist saw it, this only decides how it bends.
  *
+ * The game draws some nodes from a copy of their vertices (a door that fits
+ * its frame is stretched into one, a TV screen's quad goes through the
+ * frame's buffer with its texture scrolled, a dead chr is disfigured, a
+ * destroyed prop is crushed), and a copy's addresses are not in the table.
+ * modelRenderNodeDl notes every such copy as it draws it
+ * (modelSmoothNoteCopy) and the renderer looks the triangle up again by
+ * what it is a copy of.
+ *
+ * A lit triangle that still cannot be found is drawn flat rather than bent
+ * with its own normals. Those are the averaged ones this pass exists to see
+ * past, and the case that reaches the renderer is a room surface drawn
+ * with lighting on for its reflection - the Institute lobby's glass table
+ * top, whose corner normals lean out over its bevel - which is room
+ * geometry this pass never reads, and which rose into a dome.
+ *
  * Runs from modelPromoteOffsetsToPointers(), which is where every model file
  * gets its pointers, so a model is in the table before its first frame.
  */
@@ -408,8 +423,10 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 	m.numvertices = numvertices;
 	m.modelbase = modelbase;
 
+	// The renderer runs a node's translucent list straight after its opaque
+	// one (modelRenderNodeDl, mcount 3) with the vertex cache as the opaque
+	// one left it, so the slots carry over between the two walks.
 	meshWalkGdl(&m, meshResolve(&m, (uintptr_t)opagdl), 0);
-	memset(m.slots, 0, sizeof(m.slots));
 	meshWalkGdl(&m, meshResolve(&m, (uintptr_t)xlugdl), 0);
 
 	if (m.numbad) {
@@ -482,4 +499,16 @@ void modelSmoothClassify(struct modeldef *modeldef)
 
 	gfx_smooth_model_end();
 	g_ModelSmoothModels++;
+}
+
+void modelSmoothNoteCopy(const Vtx *copy, const Vtx *orig, s32 numvertices)
+{
+	if (copy != orig && gfx_model_smoothing_level) {
+		gfx_smooth_alias_vertices(copy, orig, numvertices, sizeof(Vtx));
+	}
+}
+
+void modelSmoothForgetRange(const void *start, const void *end)
+{
+	gfx_smooth_alias_forget(start, end);
 }

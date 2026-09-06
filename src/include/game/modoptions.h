@@ -206,7 +206,9 @@
  * which is most of them. The model's own normals still shade it.
  *
  * Only geometry that came with normals qualifies, which is the lit things;
- * rooms are coloured per vertex and are left alone. On at any setting it
+ * rooms are coloured per vertex and are left alone, and the odd room
+ * surface drawn with lighting on for its reflection (the Institute lobby's
+ * glass table top) is drawn flat, as no mesh pass has read it. On at any setting it
  * also holds Model LOD off, below. The level is the same at every distance
  * - this is asked for as a look - so the cost is on the GPU and in the
  * renderer's vertex loop for everything lit on screen: Light is four

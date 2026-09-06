@@ -2305,8 +2305,20 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
  * The mesh pass's table (modelsmooth.c): per triangle, the surface normal at
  * each corner, which is what the patch bends with. Keyed by the three vertex
  * addresses sorted, the entry keeping them so a hash collision is caught.
- * A triangle that is not in it - a model that skipped the pass, or a vertex
- * the game copied somewhere - bends with its own normals, as before.
+ *
+ * The game draws some nodes from a copy of their vertices rather than the
+ * model's own: a door that fits its frame is stretched into a copy, a TV
+ * screen's quad goes through the frame's buffer with its texture scrolled,
+ * a dead chr is disfigured into the vertex store, a destroyed prop is
+ * crushed there. The game registers each such copy as it draws it
+ * (smooth_aliases, from modelRenderNodeDl), and a triangle whose addresses
+ * miss the table is looked up again through them.
+ *
+ * A triangle that still misses is drawn flat. Its own normals are the
+ * averaged ones the pass exists to see past, and what reaches here is a
+ * room surface drawn with lighting on for its reflection - the Institute
+ * lobby's glass table top - which no pass has read and which bent into a
+ * dome when it was drawn with them.
  *
  * Entries live as long as the model does, more or less: a model registering
  * at an address an earlier one used replaces that one's entries, and a stale
@@ -2323,6 +2335,15 @@ struct SmoothTri {
 static std::unordered_map<uint64_t, SmoothTri> smooth_tris;
 static std::unordered_map<const void*, std::vector<uint64_t>> smooth_models;
 static std::vector<uint64_t>* smooth_cur_keys = nullptr;
+
+struct SmoothAlias {
+    const uint8_t* orig;
+    size_t size; // bytes covered from the copy's start
+};
+
+// keyed by the copy's first vertex, so a vertex finds its copy by the
+// nearest start at or below it
+static std::map<const uint8_t*, SmoothAlias> smooth_aliases;
 
 static inline uint64_t smooth_key(const void* a, const void* b, const void* c) {
     uint64_t h = (uint64_t)(uintptr_t)a * 0x9E3779B97F4A7C15ull;
@@ -2380,11 +2401,37 @@ extern "C" void gfx_smooth_model_end(void) {
     smooth_cur_keys = nullptr;
 }
 
-static const SmoothTri* smooth_find(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3) {
-    if (smooth_tris.empty() || !v1->src || !v2->src || !v3->src) {
-        return nullptr;
+extern "C" void gfx_smooth_alias_vertices(const void* copy, const void* orig, int count, int stride) {
+    if (!copy || !orig || count <= 0 || stride <= 0 || copy == orig) {
+        return;
     }
-    const void* v[3] = { v1->src, v2->src, v3->src };
+    smooth_aliases[(const uint8_t*)copy] = SmoothAlias{ (const uint8_t*)orig, (size_t)count * (size_t)stride };
+}
+
+extern "C" void gfx_smooth_alias_forget(const void* start, const void* end) {
+    auto it = smooth_aliases.lower_bound((const uint8_t*)start);
+    while (it != smooth_aliases.end() && it->first < (const uint8_t*)end) {
+        it = smooth_aliases.erase(it);
+    }
+}
+
+// The model vertex a copied one stands for, or the address itself
+static const void* smooth_unalias(const void* addr) {
+    if (smooth_aliases.empty()) {
+        return addr;
+    }
+    const uint8_t* a = (const uint8_t*)addr;
+    auto it = smooth_aliases.upper_bound(a);
+    if (it == smooth_aliases.begin()) {
+        return addr;
+    }
+    --it;
+    const size_t off = (size_t)(a - it->first);
+    return off < it->second.size ? it->second.orig + off : addr;
+}
+
+static const SmoothTri* smooth_lookup(const void* a, const void* b, const void* c) {
+    const void* v[3] = { a, b, c };
     smooth_sort3(v, nullptr);
     auto it = smooth_tris.find(smooth_key(v[0], v[1], v[2]));
     if (it == smooth_tris.end()) {
@@ -2395,6 +2442,28 @@ static const SmoothTri* smooth_find(const struct LoadedVertex* v1, const struct 
         return nullptr;
     }
     return &t;
+}
+
+/*
+ * The mesh pass's entry for a triangle, by its vertices' addresses and
+ * failing that by what they are copies of. `src` is set to the addresses
+ * the entry is keyed by, so the corners can be matched to its normals.
+ */
+static const SmoothTri* smooth_find(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const void* src[3]) {
+    src[0] = v1->src;
+    src[1] = v2->src;
+    src[2] = v3->src;
+    if (smooth_tris.empty() || !src[0] || !src[1] || !src[2]) {
+        return nullptr;
+    }
+    const SmoothTri* t = smooth_lookup(src[0], src[1], src[2]);
+    if (t || smooth_aliases.empty()) {
+        return t;
+    }
+    src[0] = smooth_unalias(src[0]);
+    src[1] = smooth_unalias(src[1]);
+    src[2] = smooth_unalias(src[2]);
+    return smooth_lookup(src[0], src[1], src[2]);
 }
 
 static inline float smooth_dot(const float a[3], const float b[3]) {
@@ -2444,7 +2513,7 @@ static inline void smooth_edge_normal(float out[3], const float Pi[3], const flo
  * game's own distance models are held at full detail alongside it, so a
  * figure that is small on screen is still drawn as the model it is.
  */
-static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const SmoothTri** mesh) {
+static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const SmoothTri** mesh, const void* src[3]) {
     *mesh = nullptr;
     if (gfx_model_smoothing_level < 2 || gfx_model_smoothing_amount <= 0.0f) {
         return 0;
@@ -2463,40 +2532,41 @@ static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct L
     if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0 && (v1->clip_rej & v2->clip_rej & v3->clip_rej)) {
         return 0; // off screen; the flat path throws it away for free
     }
-    *mesh = smooth_find(v1, v2, v3);
+    *mesh = smooth_find(v1, v2, v3, src);
+    if (!*mesh) {
+        return 0; // not from a model the mesh pass saw: flat, as built
+    }
     return gfx_model_smoothing_level > SMOOTH_MAX_LEVEL ? SMOOTH_MAX_LEVEL : gfx_model_smoothing_level;
 }
 
-static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, int n, const SmoothTri* mesh) {
+static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, int n, const SmoothTri* mesh, const void* src[3]) {
     static struct LoadedVertex made[SMOOTH_MAX_VERTS];
     struct LoadedVertex* grid[SMOOTH_MAX_VERTS];
     const struct LoadedVertex* corner[3] = { v1, v2, v3 };
     const float amount = gfx_model_smoothing_amount > 1.0f ? 1.0f : gfx_model_smoothing_amount;
 
     // P and N are the corners as loaded; L is the normal the surface has at
-    // each corner according to the mesh pass, which is what bends the patch,
-    // falling back to N for a triangle the pass never saw. N still shades
+    // each corner according to the mesh pass, which is what bends the patch
+    // (a zero one, a degenerate face, falls back to N). N still shades
     float P[3][3], N[3][3], L[3][3];
     for (int c = 0; c < 3; c++) {
         P[c][0] = corner[c]->ox; P[c][1] = corner[c]->oy; P[c][2] = corner[c]->oz;
         N[c][0] = corner[c]->nx; N[c][1] = corner[c]->ny; N[c][2] = corner[c]->nz;
         memcpy(L[c], N[c], sizeof(L[c]));
-        if (mesh) {
-            for (int k = 0; k < 3; k++) {
-                if (mesh->v[k] == corner[c]->src) {
-                    L[c][0] = mesh->n[k][0];
-                    L[c][1] = mesh->n[k][1];
-                    L[c][2] = mesh->n[k][2];
-                    const float len = sqrtf(smooth_dot(L[c], L[c]));
-                    if (len > 1e-6f) {
-                        L[c][0] /= len;
-                        L[c][1] /= len;
-                        L[c][2] /= len;
-                    } else {
-                        memcpy(L[c], N[c], sizeof(L[c]));
-                    }
-                    break;
+        for (int k = 0; k < 3; k++) {
+            if (mesh->v[k] == src[c]) {
+                L[c][0] = mesh->n[k][0];
+                L[c][1] = mesh->n[k][1];
+                L[c][2] = mesh->n[k][2];
+                const float len = sqrtf(smooth_dot(L[c], L[c]));
+                if (len > 1e-6f) {
+                    L[c][0] /= len;
+                    L[c][1] /= len;
+                    L[c][2] /= len;
+                } else {
+                    memcpy(L[c], N[c], sizeof(L[c]));
                 }
+                break;
             }
         }
     }
@@ -2605,9 +2675,10 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 
     if (!is_rect) {
         const SmoothTri* mesh;
-        const int n = gfx_sp_tri_smooth_level(v1, v2, v3, &mesh);
+        const void* src[3];
+        const int n = gfx_sp_tri_smooth_level(v1, v2, v3, &mesh, src);
         if (n) {
-            gfx_sp_tri_smooth(v1, v2, v3, n, mesh);
+            gfx_sp_tri_smooth(v1, v2, v3, n, mesh, src);
             return;
         }
     }

@@ -3279,6 +3279,9 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 				break;
 			}
 
+#ifndef PLATFORM_N64
+			modelSmoothNoteCopy(rwdata->dl.vertices, rodata->dl.vertices, rodata->dl.numvertices);
+#endif
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->dl.vertices));
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
 
@@ -3302,6 +3305,9 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 				modelApplyCullMode(renderdata);
 			}
 
+#ifndef PLATFORM_N64
+			modelSmoothNoteCopy(rwdata->dl.vertices, rodata->dl.vertices, rodata->dl.numvertices);
+#endif
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->dl.vertices));
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
 

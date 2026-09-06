@@ -12,6 +12,9 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "modelsmooth.h"
+#endif
 
 /**
  * This file handles memory usage for graphics related tasks.
@@ -155,6 +158,9 @@ void gfxReset(void)
 	g_GfxActiveBufferIndex = 0;
 	g_GfxRequestedDisplayList = false;
 	g_GfxMemPos = g_VtxBuffers[0];
+#ifndef PLATFORM_N64
+	modelSmoothForgetRange(NULL, (const void *)UINTPTR_MAX); // a new stage: every copy is gone
+#endif
 }
 
 Gfx *gfxGetMasterDisplayList(void)
@@ -239,6 +245,9 @@ void gfxSwapBuffers(void)
 	g_GfxActiveBufferIndex ^= 1;
 	g_GfxRequestedDisplayList = false;
 	g_GfxMemPos = g_VtxBuffers[g_GfxActiveBufferIndex];
+#ifndef PLATFORM_N64
+	modelSmoothForgetRange(g_VtxBuffers[g_GfxActiveBufferIndex], g_VtxBuffers[g_GfxActiveBufferIndex + 1]);
+#endif
 	g_GfxNumSwapsPerBuffer[g_GfxActiveBufferIndex] = g_GfxNumSwaps;
 	g_GfxNumSwaps++;
 

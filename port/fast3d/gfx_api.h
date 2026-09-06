@@ -67,6 +67,15 @@ void gfx_smooth_model_begin(const void* base);
 void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9]);
 void gfx_smooth_model_end(void);
 
+// A copy the game made of `count` of a model's vertices (`stride` bytes
+// each) and is about to draw instead of them, so a triangle drawn from the
+// copy finds the mesh pass's entry for the original. Registered again each
+// frame a copy is drawn; a copy registered at an address again replaces the
+// earlier one, and forget() drops every copy inside a range - the frame's
+// vertex buffer, when the game starts building into it again.
+void gfx_smooth_alias_vertices(const void* copy, const void* orig, int count, int stride);
+void gfx_smooth_alias_forget(const void* start, const void* end);
+
 // What ended a batch and forced a draw call. See g_GfxFlushReasons.
 enum GfxFlushReason {
     GFX_FLUSH_TEXTURE,      // a different texture had to be bound
