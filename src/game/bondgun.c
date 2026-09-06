@@ -12438,8 +12438,10 @@ void bgunTickGameplay(bool triggeron)
 #endif
 
 #ifndef PLATFORM_N64
-	// COD Style Aiming: where the guns are on their way to, tweened a
-	// quarter of the way each tick. Not for the empty hand, and not for a
+	// COD Style Aiming: where the guns are on their way to, tweened sixty
+	// percent of the way each tick - settled in four ticks, a snap with a
+	// little motion left in it; a quarter took a third of a second and
+	// read as slow. Not for the empty hand, and not for a
 	// gun that zooms when aimed - the Sniper Rifle, FarSight and Horizon
 	// Scanner with their manual zoom, and the Falcon 2 Scope, MagSec 4,
 	// AR34, K7 Avenger and the rest with a zoom fov of their own - whose
@@ -12451,7 +12453,7 @@ void bgunTickGameplay(bool triggeron)
 			&& player->hands[HAND_RIGHT].inuse
 			&& modIsWeaponAGun(player->gunctrl.weaponnum)
 			&& !bgunZoomsWhenAimed(player->gunctrl.weaponnum) ? 1.0f : 0.0f;
-		f32 step = 0.25f * LVUPDATE60FREAL();
+		f32 step = 0.6f * LVUPDATE60FREAL();
 
 		if (step > 1.0f) {
 			step = 1.0f;
