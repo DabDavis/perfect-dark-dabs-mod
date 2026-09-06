@@ -10,7 +10,7 @@ about.
 So the behaviour moves onto the weapon:
 
 - `struct weapon.flags2` - a second flags word, the first having all 32 bits
-  spoken for. 19 behaviours so far, read with `weaponHasFlag2()`.
+  spoken for. 20 behaviours so far, read with `weaponHasFlag2()`.
 - `struct weapon.pickupsound` and `.unequippedreloadindex` - where the answer is
   a value rather than a yes.
 - `struct weaponfunc.flags` - for what belongs to one *function* of a weapon
@@ -104,6 +104,18 @@ casts (`chrGetProjectileFunc()`; `bgunCreateFiredProjectile()` already did),
 a throw, and the guard gun list goes through `modAlarmCanChrFire()` - the
 primary function must shoot - because the list is stock numbers and the AI has
 no attack for anything else.
+
+The Reaper's mechanics are `WEAPONFLAG2_MINIGUN` (2026-09-06): the barrel
+spin (`bgunUpdateReaper()`), the trigger-held spin-up in the melee state and
+the switch into it, the shot every third burst tick, the three muzzles and two
+eject parts, the aim jitter, the smoke, the grinder's boost scale and the
+simulant spin-up. GE-X's Gold PP7 sits in the Reaper's number (0x14) and spun
+in the hand with green smoke; its Reaper is at 0x23, at the stock Reaper's
+address, so the import's by-address inheritance gives it the flag. The switch
+into the secondary now also asks that a secondary exists - a mod's minigun has
+no grinder. Still keyed on the number, as jump tables: the equip sound in
+`bgunTickIncChangeGun()`, the spark colour in `propFindAimingAt()`, the beam
+list in `bgunCreateFx()` and the chr weapon lists.
 
 Reproduce a guard fight headlessly: copy the tester's `pd.ini` (Guards
 Alerted!, Random, Akimbo) into the scratch savedir, boot Runway under gdb with a

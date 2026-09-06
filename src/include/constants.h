@@ -4787,6 +4787,7 @@ enum weaponnum {
 #define WEAPONFLAG2_STICKSTOWALL     0x00010000 // Thrown, it stays where it lands
 #define WEAPONFLAG2_HARDWHENLANDED   0x00020000 // Once down it cannot be shot off again
 #define WEAPONFLAG2_POISONS          0x00040000 // Poisons whatever it embeds itself in
+#define WEAPONFLAG2_MINIGUN          0x00080000 // Fires like the Reaper: the trigger spins the barrel up, a shot lands every third burst tick, three muzzles take turns, its own eject parts and smoke
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

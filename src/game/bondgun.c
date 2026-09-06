@@ -1348,7 +1348,7 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 				sp30 = bgun0f098ca0(1 - hand->gset.weaponfunc, info, hand);
 
 				if (bgun0f099188(hand, 1 - hand->gset.weaponfunc)
-						&& info->weaponnum != WEAPON_REAPER) {
+						&& !weaponHasFlag2(info->weaponnum, WEAPONFLAG2_MINIGUN)) {
 					if (info->gunctrl->wantammo) {
 						func = weaponGetFunction(&hand->gset, 1 - hand->gset.weaponfunc);
 
@@ -2466,7 +2466,7 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 		return true;
 	}
 
-	if (hand->gset.weaponnum == WEAPON_REAPER) {
+	if (weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_MINIGUN)) {
 		if (hand->statecycles == 0) {
 			hand->matmot2 = 0.1f;
 			hand->burstbullets = 0;
@@ -2790,7 +2790,11 @@ s32 bgunTickIncAttack(struct handweaponinfo *info, s32 handnum, struct hand *han
 	}
 
 	if (finished) {
-		if (hand->gset.weaponnum == WEAPON_REAPER && hand->triggeron) {
+		// A minigun without a grinder (a mod's) has no secondary to hold
+		// the trigger into, and switching to one that is not there would
+		// leave the hand in a function that never fires
+		if (weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_MINIGUN) && hand->triggeron
+				&& weaponGetFunctionById(hand->gset.weaponnum, FUNC_SECONDARY)) {
 			hand->gset.weaponfunc = FUNC_SECONDARY;
 			finished = false;
 		}
@@ -7132,14 +7136,19 @@ void bgunUpdateSmoke(struct hand *hand, s32 handnum, s32 weaponnum, struct weapo
 				hand->createsmoke = true;
 			}
 			break;
-		case WEAPON_REAPER:
-			hand->forcecreatesmoke = true;
-			// fall-through
 		case WEAPON_SHOTGUN:
 			if (hand->firing) {
 				hand->createsmoke = true;
 			}
 			break;
+		}
+
+		if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
+			hand->forcecreatesmoke = true;
+
+			if (hand->firing) {
+				hand->createsmoke = true;
+			}
 		}
 	}
 
@@ -7157,12 +7166,13 @@ void bgunUpdateSmoke(struct hand *hand, s32 handnum, s32 weaponnum, struct weapo
 		case WEAPON_DY357LX:
 			smoketype = SMOKETYPE_MUZZLE_PISTOL;
 			break;
-		case WEAPON_REAPER:
-			smoketype = SMOKETYPE_MUZZLE_REAPER;
-			break;
 		case WEAPON_SHOTGUN:
 			smoketype = SMOKETYPE_MUZZLE_SHOTGUN;
 			break;
+		}
+
+		if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
+			smoketype = SMOKETYPE_MUZZLE_REAPER;
 		}
 
 		smokerooms[0] = g_Vars.currentplayer->cam_room;
@@ -7723,7 +7733,7 @@ void bgun0f0a4e44(struct hand *hand, struct weapon *weapondef, struct modeldef *
 	mtx00015ea8(muzzlez, &spd8);
 	mtx4Copy(&spd8, mtx);
 
-	if (shotstotake == 0 && weaponnum != WEAPON_REAPER) {
+	if (shotstotake == 0 && !weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 		shotstotake++;
 	}
 
@@ -7746,7 +7756,7 @@ void bgun0f0a4e44(struct hand *hand, struct weapon *weapondef, struct modeldef *
 		struct modelnode *node = modelGetPart(modeldef, partnum);
 		struct coord sp60;
 
-		if (node && weaponnum != WEAPON_REAPER && weaponnum != WEAPON_SHOTGUN) {
+		if (node && !weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN) && weaponnum != WEAPON_SHOTGUN) {
 			struct modelrodata_position *rodata = &node->rodata->position;
 			s32 mtxindex = modelFindNodeMtxIndex(node, 0);
 
@@ -7792,7 +7802,7 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 			s32 partnum = MODELPART_GUN_CARTEJECTPOS;
 			struct modelnode *node;
 
-			if (weaponnum == WEAPON_REAPER) {
+			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				partnum = (hand->burstbullets & 1) == 1 ? MODELPART_REAPER_CARTEJECTPOS1 : MODELPART_REAPER_CARTEJECTPOS2;
 			}
 
@@ -8200,13 +8210,10 @@ void bgun0f0a5550(s32 handnum)
 		var8009d0dc = -1;
 		var8009d0f0[0] = var8009d0f0[1] = var8009d0f0[2] = -1;
 
-		switch (weaponnum) {
-		case WEAPON_LASER:
+		if (weaponnum == WEAPON_LASER) {
 			bgunUpdateLaser(hand);
-			break;
-		case WEAPON_REAPER:
+		} else if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 			bgunUpdateReaper(hand, modeldef);
-			break;
 		}
 
 		{
@@ -8231,10 +8238,11 @@ void bgun0f0a5550(s32 handnum)
 				a0 = false;
 			}
 
-			switch (weaponnum) {
-			case WEAPON_REAPER:
+			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				a0 = false;
-				break;
+			}
+
+			switch (weaponnum) {
 			case WEAPON_COMBATKNIFE:
 				if (player->hands[HAND_LEFT].loadedammo[0] == 0) {
 					a0 = false;
@@ -8424,7 +8432,7 @@ void bgun0f0a5550(s32 handnum)
 
 			node = modelGetPart(modeldef, MODELPART_GUN_MUZZLEPOS);
 
-			if (weaponnum == WEAPON_REAPER) {
+			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				if (hand->flashon || hand->firing) {
 					node = modelGetPart(modeldef, MODELPART_REAPER_001E + (hand->burstbullets % 3));
 				} else {

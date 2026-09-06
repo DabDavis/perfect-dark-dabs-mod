@@ -5298,7 +5298,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				}
 
 				// Handle player boost
-				if (ismelee && gset->weaponnum == WEAPON_REAPER) {
+				if (ismelee && weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_MINIGUN)) {
 					boostscale = 0.1f;
 				} else if (g_Vars.normmplayerisrunning) {
 					boostscale = 0.75f;
@@ -5383,7 +5383,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			if (chr->aibot) {
 				f32 boostscale;
 
-				if (ismelee && gset->weaponnum == WEAPON_REAPER) {
+				if (ismelee && weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_MINIGUN)) {
 					boostscale = 0.1f;
 				} else {
 					boostscale = 0.75f;
@@ -10715,7 +10715,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 			makebeam = true;
 		} else {
 			if (chr->aibot
-					&& chr->aibot->weaponnum == WEAPON_REAPER
+					&& weaponHasFlag2(chr->aibot->weaponnum, WEAPONFLAG2_MINIGUN)
 					&& chr->aibot->gunfunc == FUNC_PRIMARY) {
 				f32 sp208 = (TICKS(90) - chr->aibot->reaperspeed[handnum]) * (1.0f / TICKS(18.0f));
 				tickspershot *= 1 + sp208;

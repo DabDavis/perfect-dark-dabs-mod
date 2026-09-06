@@ -581,7 +581,7 @@ void weaponPlayWhooshSound(s32 weaponnum, struct prop *prop)
 	if (weaponnum == WEAPON_TRANQUILIZER) {
 		soundnum = SFX_RELOAD_04FB;
 		speed = 2.78f;
-	} else if (weaponnum == WEAPON_REAPER) {
+	} else if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 		// empty
 	} else if (weaponnum == WEAPON_COMBATKNIFE) {
 		soundnum = rngRandom() % 2 == 1 ? SFX_8060 : SFX_8061;
@@ -1226,7 +1226,7 @@ struct prop *propFindAimingAt(s32 handnum, bool isshooting, u32 context)
 
 	bgunCalculatePlayerShotSpread(&gunpos2d, &gundir2d, handnum, context);
 
-	if (context == FINDPROPCONTEXT_SHOOT && bgunGetWeaponNum(HAND_RIGHT) == WEAPON_REAPER) {
+	if (context == FINDPROPCONTEXT_SHOOT && weaponHasFlag2(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG2_MINIGUN)) {
 		gunpos2d.y -= 15 * RANDOMFRAC();
 	}
 
@@ -1536,7 +1536,7 @@ void handTickAttack(s32 handnum)
 	if (g_Vars.currentplayer->hands[handnum].unk0d0f_02) {
 		s32 doit = true;
 
-		if (bgunGetWeaponNum(handnum) == WEAPON_REAPER
+		if (weaponHasFlag2(bgunGetWeaponNum(handnum), WEAPONFLAG2_MINIGUN)
 				&& (g_Vars.currentplayer->hands[handnum].burstbullets % 3) != 1) {
 			doit = false;
 		}

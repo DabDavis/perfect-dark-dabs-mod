@@ -3927,7 +3927,7 @@ void botTickUnpaused(struct chrdata *chr)
 
 								if (aibot->weaponnum == WEAPON_CYCLONE && aibot->gunfunc == FUNC_SECONDARY) {
 									aibot->cyclonedischarging[i] = true;
-								} else if (aibot->weaponnum == WEAPON_REAPER) {
+								} else if (weaponHasFlag2(aibot->weaponnum, WEAPONFLAG2_MINIGUN)) {
 									aibot->reaperspeed[i] += g_Vars.lvupdate60;
 
 									if (aibot->reaperspeed[i] > TICKS(90)) {

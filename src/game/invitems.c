@@ -2721,6 +2721,7 @@ struct weapon invitem_reaper = {
 	L_GUN_152, // manufacturer
 	L_GUN_174, // description
 	WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_HASHANDS,
+	WEAPONFLAG2_MINIGUN, // flags2
 };
 
 struct modelpartvisibility invpartvisibility_rocketlauncher[] = {

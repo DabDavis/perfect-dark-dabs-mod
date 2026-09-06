@@ -521,6 +521,7 @@ static char *modConfigParseWeapon(char *p, char *token)
 			{ "stickstowall",     WEAPONFLAG2_STICKSTOWALL },
 			{ "hardwhenlanded",   WEAPONFLAG2_HARDWHENLANDED },
 			{ "poisons",          WEAPONFLAG2_POISONS },
+			{ "minigun",          WEAPONFLAG2_MINIGUN },
 		};
 
 		s32 handled = false;
