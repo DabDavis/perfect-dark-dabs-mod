@@ -506,6 +506,10 @@ static const struct {
 	{ "pistolcasing",     WEAPONFLAG2_PISTOLCASING },
 	{ "shotgundamage",    WEAPONFLAG2_SHOTGUNDAMAGE },
 	{ "piercesshield",    WEAPONFLAG2_PIERCESSHIELD },
+	{ "laserbeam",        WEAPONFLAG2_LASERBEAM },
+	{ "crossbeam",        WEAPONFLAG2_CROSSBEAM },
+	{ "fainttracer",      WEAPONFLAG2_FAINTTRACER },
+	{ "laserflight",      WEAPONFLAG2_LASERFLIGHT },
 };
 
 /**

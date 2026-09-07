@@ -65,7 +65,7 @@ void beamCreate(struct beam *beam, s32 weaponnum, struct coord *from, struct coo
 		}
 
 		beam->dist = 0;
-	} else if (weaponnum == WEAPON_LASER || weaponnum == WEAPON_WATCHLASER) {
+	} else if (weaponHasFlag2(weaponnum, WEAPONFLAG2_LASERFLIGHT)) {
 		beam->speed = 0.25f * distance;
 		beam->mindist = 0.6f * distance;
 
@@ -346,13 +346,13 @@ Gfx *beamRender(Gfx *gdl, struct beam *beam, bool arg2, u8 arg3)
 			break;
 		}
 
-		if (beam->weaponnum == -1 || beam->weaponnum == WEAPON_CYCLONE) {
+		if (beam->weaponnum == -1 || weaponHasFlag2(beam->weaponnum, WEAPONFLAG2_FAINTTRACER)) {
 			colours[0].word = PD_BE32(0xffffff7f);
 		} else {
 			colours[0].word = 0xffffffff;
 		}
 
-		if (beam->weaponnum == WEAPON_LASER) {
+		if (weaponHasFlag2(beam->weaponnum, WEAPONFLAG2_LASERBEAM)) {
 			// Laser primary
 			sp130 = 50.0f;
 			texconfig = &g_TexLaserConfigs[0];
@@ -419,7 +419,7 @@ Gfx *beamRender(Gfx *gdl, struct beam *beam, bool arg2, u8 arg3)
 		sp118.f[1] *= sp130;
 		sp118.f[2] *= sp130;
 
-		if (beam->weaponnum == WEAPON_LASER) {
+		if (weaponHasFlag2(beam->weaponnum, WEAPONFLAG2_CROSSBEAM)) {
 			vertices = gfxAllocateVertices(8);
 		} else {
 			vertices = gfxAllocateVertices(4);
@@ -514,7 +514,7 @@ Gfx *beamRender(Gfx *gdl, struct beam *beam, bool arg2, u8 arg3)
 					vertices[3].t = texconfig->height * 32;
 					vertices[3].colour = 0;
 
-					if (beam->weaponnum == WEAPON_LASER) {
+					if (weaponHasFlag2(beam->weaponnum, WEAPONFLAG2_CROSSBEAM)) {
 						f14 = campos->f[0] - sp138.f[0];
 						f16 = campos->f[1] - sp138.f[1];
 						f18 = campos->f[2] - sp138.f[2];
@@ -574,7 +574,7 @@ Gfx *beamRender(Gfx *gdl, struct beam *beam, bool arg2, u8 arg3)
 					gDPSetCombineMode(gdl++, G_CC_BLENDIA, G_CC_BLENDIA);
 					gSPColor(gdl++, osVirtualToPhysical(colours), 1);
 
-					if (beam->weaponnum == WEAPON_LASER) {
+					if (weaponHasFlag2(beam->weaponnum, WEAPONFLAG2_CROSSBEAM)) {
 						texSelect(&gdl, &g_TexGroup03Configs[0], 4, arg2, 2, true, NULL);
 
 						gSPVertex(gdl++, osVirtualToPhysical(vertices), 8, 0);

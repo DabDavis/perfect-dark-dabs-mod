@@ -4794,6 +4794,10 @@ enum weaponnum {
 #define WEAPONFLAG2_PISTOLCASING     0x00800000 // Ejects its casing the small pistol's way: a slow tumble out of the side, not the rifle's arc
 #define WEAPONFLAG2_SHOTGUNDAMAGE    0x01000000 // Its damage to a chr falls off with distance the shotgun's way: four to six times at point blank, none past 16 m
 #define WEAPONFLAG2_PIERCESSHIELD    0x02000000 // Goes through a shield the FarSight's way: damages it, and tenfold
+#define WEAPONFLAG2_LASERBEAM        0x04000000 // Its shot is drawn with the laser's texture, 50 wide
+#define WEAPONFLAG2_CROSSBEAM        0x08000000 // Its shot is drawn as two crossed quads, the laser's, not one
+#define WEAPONFLAG2_FAINTTRACER      0x10000000 // Its tracer is drawn at half alpha, the Cyclone's
+#define WEAPONFLAG2_LASERFLIGHT      0x20000000 // Its shot flies as the laser's beam does: a quarter of the way a tick, most of the way at once
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

@@ -1097,3 +1097,49 @@ the damage model. What came out, and what did not:
   the gun (`HITPART_GUN`) and the hat: a rule a `damage` key could carry,
   not read yet. And the shotgun's mid-range multiplier went 3.0 to 3.25.
   Importer version 19.
+
+## beam_render: an element belongs to a chain by its target (2026-09-07)
+
+Fourteen words in GE-X: the laser's beam tests at four places (29 -> 21,
+the first of them also taking 22) and the Cyclone's half-alpha tracer
+folded away so every beam draws solid. The port had all of them as
+`WEAPON_LASER` / `WEAPON_CYCLONE`; they are four flags now - `LASERBEAM`
+(the first site: texture and width), `CROSSBEAM` (the other three: two
+crossed quads), `FAINTTRACER` (the Cyclone), and `LASERFLIGHT` for
+`beam_create`'s laser-or-watch-laser flight, which GE-X also renumbered
+(29, 90 -> 21, 22). A `FLAG_SITES` row can now name *which* occurrences of
+a value in a function are its (`(0,)` / `(1, 2, 3)`; the C row's `occ`
+bitmask), because one stock weapon test can be two behaviours to a mod:
+GE-X's Moonraker (22) gets the laser's texture and flight but is drawn as
+one quad.
+
+- **The compiler hoists an `li at`** as far as thirteen words ahead of its
+  branch. `at` is the assembler's temporary and nothing between writes it,
+  so the window is sixteen words and stops at any other write to `at`.
+- **An element belongs to a chain by where it branches**, and that reads
+  the rearrangements a hack makes. GE-X reused the Cyclone test's offset
+  for its hoisted laser compare, and read as "fainttracer is 22" until the
+  chain's body was compared with stock's: a body that moved more than
+  three words is another test on the stock site's offset, and does not
+  read (so GE-X's Cyclone keeps the inherited flag - it sits at the stock
+  Cyclone's address - where GE-X draws it solid; noted, small). The same
+  rule finds a hoisted element: the words before the site are searched for
+  an `li at,N` branching to the same body, give or take the word a likely
+  branch's delay slot puts before it, which is how the 22 came back.
+- A weapon number is 1..254; the Cyclone chain's partner is `-1` (no
+  weapon, a beam without one), and the site's value is "in the chain",
+  not its head. Importer version 20.
+- **The game's importer hung on the first site that did not read.** The C
+  site loop `break`s out of a flag's rows on a site it cannot read, and
+  then restarted at the same row (`i = j`), reporting the same line
+  forever; no mod had taken that path before the Cyclone's. A loop over a
+  flag's rows now finds the rows' end first and advances past it whatever
+  happens in them. It looked like a boot that never imported with an empty
+  log, because `timeout -k`'s SIGKILL discards the buffered stdout
+  (CLAUDE.md's flush warning, again): `gdb -p PID -batch -ex 'call
+  (int)fflush(0)'` before the kill showed "importing ..." with no end, and
+  `bt` showed `rep()`.
+- Not read: `beam_create_for_hand`, where the laser's secondary stream is
+  keyed on weapon and function (GE-X 22, function 0) and the Mauler's
+  charge beam on the Mauler (GE-X 119, no weapon: taken out, like its
+  charge reset), which is the chargeable flag's disagreement again.

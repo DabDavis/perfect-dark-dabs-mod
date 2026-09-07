@@ -2294,6 +2294,8 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bgun_create_fx",             0x7f0a5300, 0x7f0a5550 },
 	{ "projectile_tick",            0x7f073c6c, 0x7f076f30 },
 	{ "chr_damage",                 0x7f034524, 0x7f036358 },
+	{ "beam_render",                0x7f0acb90, 0x7f0adbbc },
+	{ "beam_create",                0x7f0abe70, 0x7f0ac138 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3608,72 +3610,132 @@ static void hitsoundList(char *buf, u32 buflen, const u8 *nums, u32 count, const
  * when the words at the site are zeros (the test was taken out - GE-X's
  * charge reset), -1 when they are something else.
  */
-static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u32 atofs, u32 reg, u8 *nums, s32 *removed)
+// (branch offset, op, target) for the li at `ofs`: the branch on at and reg
+// within sixteen words (beam_render hoists an li thirteen words ahead of its
+// test), and before anything else writes at
+static s32 chainBranchFor(const u8 *code, u32 codelen, u32 end, u32 ofs, u32 reg, u32 *bofs, u32 *bop, u32 *target)
+{
+	for (u32 o = ofs + 4; o < ofs + 68 && o + 4 <= end && o + 4 <= codelen; o += 4) {
+		const u32 nxt = be32(code, o);
+		const u32 rs = (nxt >> 21) & 0x1f, rt = (nxt >> 16) & 0x1f, op = nxt >> 26;
+		if ((op == 4 || op == 5 || op == 0x14 || op == 0x15) && ((rs == 1 && rt == reg) || (rt == 1 && rs == reg))) {
+			*bofs = o;
+			*bop = op;
+			*target = o + 4 + ((u32)(s16)(nxt & 0xffff) << 2);
+			return 1;
+		}
+		if ((op == 0x08 || op == 0x09 || op == 0x0f || op == 0x0d) && rt == 1) {
+			return 0;
+		}
+	}
+	return 0;
+}
+
+static s32 chainIsLiAt(const u8 *code, u32 codelen, u32 ofs)
+{
+	const u32 x = ofs + 4 <= codelen ? be32(code, ofs) : 0;
+	return ((x >> 26) == 0x08 || (x >> 26) == 0x09) && ((x >> 21) & 0x1f) == 0 && ((x >> 16) & 0x1f) == 1;
+}
+
+/**
+ * The weapon numbers a chain of compares at `atofs` tests `reg` against, and
+ * the chain's match target in *match: `li at,N` then a branch on at and reg
+ * within sixteen words - `beq` to the match target (on to the next compare),
+ * or `bne` past it (the last, its fall-through being the match), the next
+ * `li` allowed in the branch's delay slot or after one word of it. The
+ * compiler runs two tests on one register together (bgun_create_fx: the
+ * magnums' no-eject skip and the Reaper's eject part, 8, 9 then 20 on t1),
+ * and only the targets tell them apart: a chain's beqs all go to one place,
+ * and a bne belongs to it only when falling through lands there.
+ *
+ * An element belongs to a chain by its target, which is what reads a mod's
+ * rearrangements: with `wantmatch` (the stock chain's target, 0 for none) a
+ * chain whose body moved more than three words is another test that landed
+ * on the stock site's offset (GE-X's hoisted laser compare on the Cyclone's
+ * site) and does not read; and the words before the site are searched for an
+ * `li at,N` that branches to the same body (GE-X's second laser, tested
+ * before the stock site). A 0 in a mod's chain is no weapon and is dropped.
+ * Returns the count, 0 with *removed set when the words at the site are
+ * zeros (the test was taken out - GE-X's charge reset), -1 when they are
+ * something else.
+ */
+static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u32 atofs, u32 reg, u32 wantmatch,
+		u8 *nums, s32 *removed, u32 *match)
 {
 	s32 n = 0;
 	u32 ofs = atofs;
-	u32 match = 0;
+	u32 m = 0;
 	s32 havematch = 0;
+	u8 before[8];
+	s32 nbefore = 0;
 
 	*removed = 0;
+	*match = 0;
 	while (ofs >= start && ofs + 8 <= end && ofs + 8 <= codelen && n < 16) {
-		const u32 x = be32(code, ofs);
-		u32 o, op = 0, target = 0;
-		s32 found = 0;
-		if (((x >> 26) != 0x08 && (x >> 26) != 0x09) || ((x >> 21) & 0x1f) != 0 || ((x >> 16) & 0x1f) != 1) {
-			break;
-		}
-		// the branch on at and reg, within four words
-		for (o = ofs + 4; o < ofs + 20 && o + 4 <= end && o + 4 <= codelen; o += 4) {
-			const u32 nxt = be32(code, o);
-			const u32 rs = (nxt >> 21) & 0x1f, rt = (nxt >> 16) & 0x1f;
-			op = nxt >> 26;
-			if ((op == 4 || op == 5 || op == 0x14 || op == 0x15) && ((rs == 1 && rt == reg) || (rt == 1 && rs == reg))) {
-				target = o + 4 + ((u32)(s16)(nxt & 0xffff) << 2);
-				found = 1;
-				break;
-			}
-		}
-		if (!found) {
+		u32 o, op, target;
+		if (!chainIsLiAt(code, codelen, ofs) || !chainBranchFor(code, codelen, end, ofs, reg, &o, &op, &target)) {
 			break;
 		}
 		if (op == 4 || op == 0x14) {
-			// a match, to the chain's one target
-			if (havematch && target != match) {
+			if (havematch && target != m) {
 				break;
 			}
-			match = target;
+			m = target;
 			havematch = 1;
-			if (x & 0xff) {
-				nums[n++] = x & 0xff;
+			if ((be32(code, ofs) & 0xffff) > 0 && (be32(code, ofs) & 0xffff) < 0xff) {
+				nums[n++] = be32(code, ofs) & 0xff;
 			}
-			// the next li: in the delay slot, or after one word of it
 			ofs = o + 4;
-			if (ofs + 8 <= codelen) {
-				const u32 d = be32(code, ofs);
-				if (!(((d >> 26) == 0x08 || (d >> 26) == 0x09) && ((d >> 21) & 0x1f) == 0 && ((d >> 16) & 0x1f) == 1)) {
-					ofs += 4;
-				}
+			if (ofs + 8 <= codelen && !chainIsLiAt(code, codelen, ofs)) {
+				ofs += 4;
 			}
 			continue;
 		}
-		// the last: falling through is the match, the body starting in its
-		// delay slot or after it
-		if (havematch && match != o + 4 && match != o + 8) {
+		if (havematch && m != o + 4 && m != o + 8) {
 			break;
 		}
-		if (x & 0xff) {
-			nums[n++] = x & 0xff;
+		if (!havematch) {
+			m = o + 8;
+			havematch = 1;
 		}
-		return n;
+		if ((be32(code, ofs) & 0xffff) > 0 && (be32(code, ofs) & 0xffff) < 0xff) {
+			nums[n++] = be32(code, ofs) & 0xff;
+		}
+		break;
 	}
-	if (n == 0 && !havematch) {
+	if (!havematch) {
 		if (atofs + 8 <= codelen && be32(code, atofs) == 0 && be32(code, atofs + 4) == 0) {
 			*removed = 1;
+			*match = wantmatch;
 			return 0;
 		}
 		return -1;
 	}
+	if (wantmatch && (m > wantmatch ? m - wantmatch : wantmatch - m) > 12) {
+		return -1;
+	}
+	// hoisted elements before the site that branch to the same body (or the
+	// word before it: a likely branch's delay slot is the body's first word
+	// when not taken, and a beq to it lands there too)
+	for (u32 o = atofs - 4; o >= start && o + 12 * 4 >= atofs && nbefore < 8; o -= 4) {
+		u32 bo, bop, target;
+		if (chainIsLiAt(code, codelen, o) && chainBranchFor(code, codelen, end, o, reg, &bo, &bop, &target)
+				&& (bop == 4 || bop == 0x14) && (target > m ? target - m : m - target) <= 4
+				&& (be32(code, o) & 0xffff) > 0 && (be32(code, o) & 0xffff) < 0xff) {
+			before[nbefore++] = be32(code, o) & 0xff;
+		}
+		if (o == start) {
+			break;
+		}
+	}
+	if (nbefore) {
+		memmove(nums + nbefore, nums, n);
+		for (s32 i = 0; i < nbefore; ++i) {
+			nums[i] = before[nbefore - 1 - i];
+		}
+		n += nbefore;
+	}
+	*match = m;
 	return n;
 }
 
@@ -3707,19 +3769,25 @@ static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 			}
 		}
 		reg = 0;
-		for (u32 o = ofs + 4; o < ofs + 20 && o + 4 <= end && o + 4 <= stocklen; o += 4) {
+		for (u32 o = ofs + 4; o < ofs + 68 && o + 4 <= end && o + 4 <= stocklen; o += 4) {
 			nxt = be32(stockcode, o);
 			if (((nxt >> 26) == 4 || (nxt >> 26) == 5 || (nxt >> 26) == 0x14 || (nxt >> 26) == 0x15)
 					&& (((nxt >> 21) & 0x1f) == 1 || ((nxt >> 16) & 0x1f) == 1)) {
 				reg = ((nxt >> 16) & 0x1f) == 1 ? (nxt >> 21) & 0x1f : (nxt >> 16) & 0x1f;
 				break;
 			}
+			if (((nxt >> 26) == 0x08 || (nxt >> 26) == 0x09 || (nxt >> 26) == 0x0f || (nxt >> 26) == 0x0d) && ((nxt >> 16) & 0x1f) == 1) {
+				break;
+			}
 		}
 		if (!reg) {
 			continue;
 		}
-		*nstock = followCompareChain(stockcode, stocklen, start, end, ofs, reg, stocknums, &removed);
-		*nmod = followCompareChain(modcode, modlen, start, end, ofs, reg, modnums, &removed);
+		{
+			u32 match, modmatch;
+			*nstock = followCompareChain(stockcode, stocklen, start, end, ofs, reg, 0, stocknums, &removed, &match);
+			*nmod = followCompareChain(modcode, modlen, start, end, ofs, reg, match, modnums, &removed, &modmatch);
+		}
 		*ok = *nstock >= 0 && *nmod >= 0;
 		// past this chain: the next site is another chain
 		return ofs + 8 * (*nstock > 1 ? (u32)*nstock : 1);
@@ -3730,17 +3798,26 @@ static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 // the port's weapon flags that stand in for one weapon-number test each, and
 // every site in the code where the game made that test: a flag is written
 // only when the mod's lists agree across all its sites
-static const struct { const char *flag; const char *fn; u32 value; } flagSites[] = {
-	{ "pumpaction",   "bgun_tick_inc_attacking_shoot", 19 },
-	{ "chargeable",   "bgun_tick_inc_attacking_shoot", 6 },
-	{ "chargeable",   "bgun0f09a6f8", 6 },
-	{ "pistolcasing", "casing_create_for_hand", 36 },
-	{ "nocarteject",  "casing_create_for_hand", 8 },
-	{ "nocarteject",  "bgun_create_fx", 8 },
-	{ "stickstowall", "projectile_tick", 34 },
-	{ "bladehit",     "projectile_tick", 86 },
-	{ "shotgundamage", "chr_damage", 19 },
-	{ "piercesshield", "chr_damage", 22 },
+// occ: which occurrences of the value in the function are this row's sites,
+// as a bitmask; 0 for all of them. beam_render tests the laser at four
+// places: the first sets its texture and width, the other three draw it as
+// two crossed quads, and GE-X gives the first to two weapons and the rest to
+// one.
+static const struct { const char *flag; const char *fn; u32 value; u32 occ; } flagSites[] = {
+	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19, 0 },
+	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6, 0 },
+	{ "chargeable", "bgun0f09a6f8", 6, 0 },
+	{ "pistolcasing", "casing_create_for_hand", 36, 0 },
+	{ "nocarteject", "casing_create_for_hand", 8, 0 },
+	{ "nocarteject", "bgun_create_fx", 8, 0 },
+	{ "stickstowall", "projectile_tick", 34, 0 },
+	{ "bladehit", "projectile_tick", 86, 0 },
+	{ "shotgundamage", "chr_damage", 19, 0 },
+	{ "piercesshield", "chr_damage", 22, 0 },
+	{ "laserbeam",    "beam_render", 29, 1 << 0 },
+	{ "crossbeam",    "beam_render", 29, (1 << 1) | (1 << 2) | (1 << 3) },
+	{ "fainttracer",  "beam_render", 11, 0 },
+	{ "laserflight",  "beam_create", 29, 0 },
 };
 
 static int cmpU8(const void *a, const void *b)
@@ -4436,12 +4513,17 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		u32 i = 0;
 		while (i < sizeof(flagSites) / sizeof(flagSites[0])) {
 			const char *flag = flagSites[i].flag;
-			u8 first[16], nums[16], stocknums[16], stockfirst[16];
+			u8 first[24], nums[24], stocknums[24], stockfirst[24];
 			s32 nfirst = -1, ok = 1, agree = 1, nstockfirst = 0;
 			char where[512];
 			u32 wherelen = 0;
-			u32 j = i;
-			for (; j < sizeof(flagSites) / sizeof(flagSites[0]) && !strcmp(flagSites[j].flag, flag); ++j) {
+			u32 j = i, jend = i;
+			// this flag's rows, whatever happens in them: a site that does
+			// not read ends the flag, and the next flag starts after its rows
+			while (jend < sizeof(flagSites) / sizeof(flagSites[0]) && !strcmp(flagSites[jend].flag, flag)) {
+				jend++;
+			}
+			for (; j < jend; ++j) {
 				u32 start, end, from;
 				s32 nstock, nmod, nsites = 0, read;
 				if (!codeSym(flagSites[j].fn, &start, &end)) {
@@ -4449,11 +4531,24 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					break;
 				}
 				from = start;
+				u32 occ = 0;
 				while ((from = followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, from,
 						flagSites[j].value, stocknums, &nstock, nums, &nmod, &read)) != 0) {
-					if (!read || nstock < 1 || stocknums[0] != flagSites[j].value) {
+					const u32 thisocc = occ++;
+					if (flagSites[j].occ && !(flagSites[j].occ & (1u << thisocc))) {
+						continue;   // another row's site
+					}
+					if (!read || nstock < 1) {
 						ok = 0;
 						break;
+					}
+					{
+						s32 k;
+						for (k = 0; k < nstock && stocknums[k] != flagSites[j].value; ++k);
+						if (k == nstock) {
+							ok = 0;
+							break;
+						}
 					}
 					nsites++;
 					qsort(nums, nmod, 1, cmpU8);
@@ -4482,6 +4577,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					break;
 				}
 			}
+			j = jend;
 			if (ok && !agree) {
 				rep("  %s: the mod's code tests different weapons at its sites (%s); the flag is left as the port has it", flag, where);
 			} else if (ok) {
@@ -4509,7 +4605,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					if (hmodkept.count[hs] != (u32)nfirst || memcmp(sorted, first, nfirst)) {
 						rep("  %s: the sites the code tests disagree with the hit sound reading; the hit sounds' stands", flag);
 					}
-					i = j;
+					i = jend;
 					continue;
 				}
 				for (s32 k = 0; k < nfirst; ++k) {

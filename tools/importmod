@@ -1533,33 +1533,50 @@ def follow_call_args(stockcode, modcode, start, end, callee, regs):
     return pairs
 
 
-def follow_compare_chain(code, start, end, at_ofs, reg):
+def follow_compare_chain(code, start, end, at_ofs, reg, want_match=None):
     """The weapon numbers a chain of compares at `at_ofs` tests `reg`
-    against: `li at,N` then a branch on at and reg within three words - `beq`
-    to the match target (on to the next compare), or `bne` past it (the
-    last, its fall-through being the match). The compiler runs two tests on
-    one register together (bgun_create_fx: the magnums' no-eject skip and
-    the Reaper's eject part, 8, 9 then 20 on t1), and only the targets tell
-    them apart: a chain's beqs all go to one place, and a bne belongs to it
-    only when falling through lands there. This is the shape a hack takes
-    when one weapon becomes two: GE-X turned the shotgun's pump-action test
-    into two shotguns. A 0 in a mod's chain is no weapon and is dropped.
-    [] when the words at the site are zeros (the test was taken out - GE-X's
-    charge reset), None when they are something else."""
+    against, and the chain's match target: `li at,N` then a branch on at and
+    reg within sixteen words (beam_render hoists an li thirteen words ahead
+    of its test; nothing between writes at, the assembler's temporary) -
+    `beq` to the match target (on to the next compare), or `bne` past it
+    (the last, its fall-through being the match). The compiler runs two
+    tests on one register together (bgun_create_fx: the magnums' no-eject
+    skip and the Reaper's eject part, 8, 9 then 20 on t1), and only the
+    targets tell them apart: a chain's beqs all go to one place, and a bne
+    belongs to it only when falling through lands there.
+
+    An element belongs to a chain by its target, which is what reads a
+    mod's rearrangements: with `want_match` (the stock chain's target) a
+    chain whose body moved more than three words is another test that
+    landed on the stock site's offset (GE-X's hoisted laser compare on the
+    Cyclone's site) and does not read; and the words before the site are
+    searched for an `li at,N` that branches to the same body (GE-X's second
+    laser, tested before the stock site). A 0 in a mod's chain is no weapon
+    and is dropped. ([], match) when the words at the site are zeros (the
+    test was taken out - GE-X's charge reset), (None, None) when they are
+    something else."""
+    def branch_for(ofs):
+        """(branch offset, op, target) for the li at ofs, or None."""
+        for o in range(ofs + 4, min(ofs + 68, end), 4):
+            nxt = be32(code, o)
+            op = nxt >> 26
+            if op in (4, 5, 0x14, 0x15) and {(nxt >> 21) & 0x1f, (nxt >> 16) & 0x1f} == {1, reg}:
+                return (o, op, (o + 4 + ((nxt & 0xffff) - (0x10000 if nxt & 0x8000 else 0)) * 4) & 0xffffffff)
+            if op in (0x08, 0x09, 0x0f, 0x0d) and (nxt >> 16) & 0x1f == 1:
+                return None
+        return None
+
+    def is_li_at(ofs):
+        x = be32(code, ofs)
+        return (x >> 26) in (0x08, 0x09) and (x >> 21) & 0x1f == 0 and (x >> 16) & 0x1f == 1
+
     nums = []
     ofs = at_ofs
     match = None
     while start <= ofs < end - 4 and len(nums) < 16:
-        x = be32(code, ofs)
-        if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (x >> 16) & 0x1f != 1:
+        if not is_li_at(ofs):
             break
-        br = None
-        for o in range(ofs + 4, min(ofs + 20, end), 4):
-            nxt = be32(code, o)
-            op = nxt >> 26
-            if op in (4, 5, 0x14, 0x15) and {(nxt >> 21) & 0x1f, (nxt >> 16) & 0x1f} == {1, reg}:
-                br = (o, op, (o + 4 + ((nxt & 0xffff) - (0x10000 if nxt & 0x8000 else 0)) * 4) & 0xffffffff)
-                break
+        br = branch_for(ofs)
         if br is None:
             break
         o, op, target = br
@@ -1567,22 +1584,41 @@ def follow_compare_chain(code, start, end, at_ofs, reg):
             if match is not None and target != match:
                 break
             match = target
-            nums.append(x & 0xffff)
+            nums.append(be32(code, ofs) & 0xffff)
             # the next li: in the delay slot, or after one word of it
             ofs = o + 4
-            if ofs + 4 < end and not ((be32(code, ofs) >> 26) in (0x08, 0x09) and (be32(code, ofs) >> 16) & 0x1f == 1
-                                      and (be32(code, ofs) >> 21) & 0x1f == 0):
+            if ofs + 4 < end and not is_li_at(ofs):
                 ofs += 4
             continue
         # the last: falling through is the match, the body starting in its
         # delay slot or after it
+        fall = o + 8
         if match is not None and match not in (o + 4, o + 8):
             break
-        nums.append(x & 0xffff)
+        if match is None:
+            match = fall
+        nums.append(be32(code, ofs) & 0xffff)
         break
-    if not nums and all(be32(code, o) == 0 for o in range(at_ofs, min(at_ofs + 8, end), 4)):
-        return []
-    return [n for n in nums if n] if nums else None
+    if not nums:
+        if all(be32(code, o) == 0 for o in range(at_ofs, min(at_ofs + 8, end), 4)):
+            return [], want_match
+        return None, None
+    if want_match is not None and abs(match - want_match) > 12:
+        return None, None
+    # hoisted elements before the site that branch to the same body (or the
+    # word before it: a likely branch's delay slot is the body's first word
+    # when not taken, and a beq to it lands there too)
+    before = []
+    o = at_ofs - 4
+    while o >= start and o >= at_ofs - 12 * 4:
+        if is_li_at(o):
+            br = branch_for(o)
+            if br and br[1] in (4, 0x14) and abs(br[2] - match) <= 4:
+                before.insert(0, be32(code, o) & 0xffff)
+        o -= 4
+    nums = before + nums
+    # a weapon number is 1..254: 0 and -1 are no weapon
+    return [n for n in nums if 0 < n < 0xff], match
 
 
 def follow_flag_sites(stockcode, modcode, start, end, stockvalue):
@@ -1608,17 +1644,19 @@ def follow_flag_sites(stockcode, modcode, start, end, stockvalue):
                 ofs += 4
                 continue
         reg = None
-        for o in range(ofs + 4, min(ofs + 20, end), 4):
+        for o in range(ofs + 4, min(ofs + 68, end), 4):
             nxt = be32(stockcode, o)
             rs, rt = (nxt >> 21) & 0x1f, (nxt >> 16) & 0x1f
             if (nxt >> 26) in (4, 5, 0x14, 0x15) and 1 in (rs, rt):
                 reg = rs if rt == 1 else rt
                 break
+            if (nxt >> 26) in (0x08, 0x09, 0x0f, 0x0d) and rt == 1:
+                break
         if reg is None:
             ofs += 4
             continue
-        stocklist = follow_compare_chain(stockcode, start, end, ofs, reg)
-        modlist = follow_compare_chain(modcode, start, end, ofs, reg)
+        stocklist, match = follow_compare_chain(stockcode, start, end, ofs, reg)
+        modlist, _ = follow_compare_chain(modcode, start, end, ofs, reg, match)
         sites.append((stocklist, modlist))
         # past this chain: the next site is another chain
         ofs += 4 * (2 * max(len(stocklist or [1]), 1))
@@ -1635,7 +1673,14 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               ('stickstowall', (('projectile_tick', 34),)),
               ('bladehit', (('projectile_tick', 86),)),
               ('shotgundamage', (('chr_damage', 19),)),
-              ('piercesshield', (('chr_damage', 22),)))
+              ('piercesshield', (('chr_damage', 22),)),
+              # beam_render tests the laser at four places: the first sets its
+              # texture and width, the other three draw it as two crossed
+              # quads. GE-X gives the first to two weapons and the rest to one.
+              ('laserbeam', (('beam_render', 29, (0,)),)),
+              ('crossbeam', (('beam_render', 29, (1, 2, 3)),)),
+              ('fainttracer', (('beam_render', 11),)),
+              ('laserflight', (('beam_create', 29),)))
 
 
 def follow_float_immediate(stockcode, modcode, start, end, stockhi):
@@ -3090,13 +3135,17 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
         for flag, sites in FLAG_SITES:
             readings = []
             stocklist = None
-            for fn, value in sites:
+            for site in sites:
+                fn, value = site[0], site[1]
                 if fn not in codesyms:
                     readings = None
                     break
                 start, end = codesyms[fn]
                 found = follow_flag_sites(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, value)
-                if not found or any(not sl or sl[0] != value or ml is None for sl, ml in found):
+                if len(site) > 2:
+                    # this row's occurrences of the value, the others being another flag's
+                    found = [found[i] for i in site[2] if i < len(found)]
+                if not found or any(not sl or value not in sl or ml is None for sl, ml in found):
                     notes.append("the %s test in %s does not read as a compare chain; the flag is left as the port has it" % (flag, fn))
                     readings = None
                     break
@@ -3127,6 +3176,8 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             if modlist != stocklist:
                 notes.append('%s is on weapon%s %s (stock: %s)' % (flag, 's' if len(modlist) != 1 else '',
                              ', '.join(str(n) for n in modlist) or 'none', ', '.join(str(n) for n in stocklist)))
+            # a site keyed on a stock constant that shows up in its own chain only once
+            # (fainttracer's -1 partner is not a weapon) needs no more than this
     # The damage rules chr_damage decides that the mod's code changes
     damageregion = ''
     if followed and codesyms:
