@@ -2296,6 +2296,8 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "chr_damage",                 0x7f034524, 0x7f036358 },
 	{ "beam_render",                0x7f0acb90, 0x7f0adbbc },
 	{ "beam_create",                0x7f0abe70, 0x7f0ac138 },
+	{ "hand_tick_attack",           0x7f062794, 0x7f062b2c },
+	{ "bot_tick_unpaused",          0x7f194b40, 0x7f197544 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3818,6 +3820,10 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; } fl
 	{ "crossbeam",    "beam_render", 29, (1 << 1) | (1 << 2) | (1 << 3) },
 	{ "fainttracer",  "beam_render", 11, 0 },
 	{ "laserflight",  "beam_create", 29, 0 },
+	{ "pellets",      "hand_tick_attack", 19, 0 },
+	{ "botlimitless", "bot_tick_unpaused", 29, 0 },
+	// the second 13 in bot_tick_unpaused is the weapon-preference switch, a dispatch
+	{ "cloakammo",    "bot_tick_unpaused", 13, 1 << 0 },
 };
 
 static int cmpU8(const void *a, const void *b)
@@ -4581,7 +4587,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			if (ok && !agree) {
 				rep("  %s: the mod's code tests different weapons at its sites (%s); the flag is left as the port has it", flag, where);
 			} else if (ok) {
-				char list[64], prose[64];
+				char list[64] = "", prose[64] = "";
 				u32 listlen = 0, proselen = 0;
 				s32 kept = 0, hs = -1;
 				for (s32 k = 0; k < nfirst; ++k) {
@@ -4619,7 +4625,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					for (s32 k = 0; k < nstockfirst; ++k) {
 						stockproselen += snprintf(stockprose + stockproselen, sizeof(stockprose) - stockproselen, "%s%u", k ? ", " : "", stockfirst[k]);
 					}
-					rep("  %s is on weapon%s %s (stock: %s)", flag, nfirst != 1 ? "s" : "", nfirst ? prose : "none", stockprose);
+					rep("  %s is on %s%s%s (stock: %s)", flag, nfirst ? "weapon" : "no weapon", nfirst > 1 ? "s " : nfirst ? " " : "", nfirst ? prose : "", stockprose);
 				}
 			}
 			i = j;

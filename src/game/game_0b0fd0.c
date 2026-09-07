@@ -336,6 +336,13 @@ bool weaponHasFlag2(s32 itemid, u32 flag)
 	return weapon && (weapon->flags2 & flag) != 0;
 }
 
+bool weaponHasFlag3(s32 itemid, u32 flag)
+{
+	struct weapon *weapon = weaponFindById(itemid);
+
+	return weapon && (weapon->flags3 & flag) != 0;
+}
+
 /**
  * Some behaviour belongs to one function of a weapon rather than to the weapon:
  * the Dragon is a rifle until you throw it down, and then it is a mine. Written

@@ -3154,6 +3154,7 @@ struct weapon {
 	/*0x50*/ u32 flags2;
 	/*0x54*/ s8 unequippedreloadindex;
 	/*0x56*/ u16 pickupsound; // 0 to let the pickup code choose
+	/*0x58*/ u32 flags3;      // flags2 ran out of bits at WEAPONFLAG2_BOTLIMITLESS
 };
 
 struct cutscene {

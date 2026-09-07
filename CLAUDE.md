@@ -40,7 +40,7 @@ it down: a new note, or a section in the one for its area, and a line here.
 
 The console mod GE-X 6a is the reference case for the mod loader. Its assets,
 data tables, missions, music, environments, star field, weather, shield
-colours, hit sounds, co-op buddies, the weapon lists behind twelve flags and two damage rules all import (`build/mods/GE-X_6a_01-19-25/`, importer version 20); what is left is the code
+colours, hit sounds, co-op buddies, the weapon lists behind fifteen flags and two damage rules all import (`build/mods/GE-X_6a_01-19-25/`, importer version 21); what is left is the code
 GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
 [mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
 end before touching any of it, then:
@@ -51,10 +51,12 @@ end before touching any of it, then:
        --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
    ```
    `constants` regions are tables to follow (most are done); `rewritten` ones
-   need reading. Remaining rewritten, by size: `hand_tick_attack` and
-   `bot_tick_unpaused` (9 words each), then a long tail of 1–7
-   words (`menu_render`, `koh_tick`/`koh_init`, `cheat_is_unlocked`,
-   `botinv_score_weapon`, `bwalk_update_horizontal` is a speed cave ...).
+   need reading. Every rewritten function of 9 words or more is read;
+   what remains is the tail of 1–7 word changes (`menu_render`,
+   `koh_tick`/`koh_init`, `cheat_is_unlocked`, `botinv_score_weapon`,
+   `bwalk_update_horizontal` is a speed cave ...), and the weapon-number
+   sites the port still tests literally (weapons.md: ~85 in bondgun.c, ~70
+   in propobj.c), each a `FLAG_SITES` row once converted.
    `--prepare-diff DIR` writes both binaries; `mips-linux-gnu-objdump -b binary
    -m mips:4300 -EB -D --adjust-vma=0x7f000000` reads them.
 2. **Two ways to follow a change.** A renumbered compare is a

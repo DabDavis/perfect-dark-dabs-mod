@@ -4798,6 +4798,9 @@ enum weaponnum {
 #define WEAPONFLAG2_CROSSBEAM        0x08000000 // Its shot is drawn as two crossed quads, the laser's, not one
 #define WEAPONFLAG2_FAINTTRACER      0x10000000 // Its tracer is drawn at half alpha, the Cyclone's
 #define WEAPONFLAG2_LASERFLIGHT      0x20000000 // Its shot flies as the laser's beam does: a quarter of the way a tick, most of the way at once
+#define WEAPONFLAG3_CLOAKAMMO        0x00000001 // Its ammo is spent to cloak, the RC-P120's: a simulant weighs its clip before it does
+#define WEAPONFLAG2_PELLETS          0x40000000 // A pull of the trigger is six shots at once, the shotgun's
+#define WEAPONFLAG2_BOTLIMITLESS     0x80000000 // A simulant's clip of it never runs dry, the laser's
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

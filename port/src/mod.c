@@ -475,41 +475,46 @@ static char *modConfigParseStage(char *p, char *token)
 	return p;
 }
 
-// the port's own weapon flags by the name a modconfig uses for them
+// the port's own weapon flags by the name a modconfig uses for them; `word`
+// says which flags word holds it (flags2 ran out at BOTLIMITLESS)
 static const struct {
 	const char *name;
 	u32 flag;
+	u32 word;
 } weaponFlagNames[] = {
-	{ "unequippedreload", WEAPONFLAG2_UNEQUIPPEDRELOAD },
-	{ "pumpaction",       WEAPONFLAG2_PUMPACTION },
-	{ "chargeable",       WEAPONFLAG2_CHARGEABLE },
-	{ "missioncritical",  WEAPONFLAG2_MISSIONCRITICAL },
-	{ "noeject",          WEAPONFLAG2_NOEJECT },
-	{ "landsonhit",       WEAPONFLAG2_LANDSONHIT },
-	{ "nocarteject",      WEAPONFLAG2_NOCARTEJECT },
-	{ "heavysmoke",       WEAPONFLAG2_HEAVYSMOKE },
-	{ "detonatorhand",    WEAPONFLAG2_DETONATORHAND },
-	{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND },
-	{ "pickupsingle",     WEAPONFLAG2_PICKUPSINGLE },
-	{ "explodeswhenshot", WEAPONFLAG2_EXPLODESWHENSHOT },
-	{ "nopickupwhilearmed", WEAPONFLAG2_NOPICKUPWHILEARMED },
-	{ "nopickupinflight", WEAPONFLAG2_NOPICKUPINFLIGHT },
-	{ "nowallhit",        WEAPONFLAG2_NOWALLHIT },
-	{ "isproximitymine",  WEAPONFLAG2_ISPROXIMITYMINE },
-	{ "stickstowall",     WEAPONFLAG2_STICKSTOWALL },
-	{ "hardwhenlanded",   WEAPONFLAG2_HARDWHENLANDED },
-	{ "poisons",          WEAPONFLAG2_POISONS },
-	{ "minigun",          WEAPONFLAG2_MINIGUN },
-	{ "bladehit",         WEAPONFLAG2_BLADEHIT },
-	{ "laserhit",         WEAPONFLAG2_LASERHIT },
-	{ "bluntmelee",       WEAPONFLAG2_BLUNTMELEE },
-	{ "pistolcasing",     WEAPONFLAG2_PISTOLCASING },
-	{ "shotgundamage",    WEAPONFLAG2_SHOTGUNDAMAGE },
-	{ "piercesshield",    WEAPONFLAG2_PIERCESSHIELD },
-	{ "laserbeam",        WEAPONFLAG2_LASERBEAM },
-	{ "crossbeam",        WEAPONFLAG2_CROSSBEAM },
-	{ "fainttracer",      WEAPONFLAG2_FAINTTRACER },
-	{ "laserflight",      WEAPONFLAG2_LASERFLIGHT },
+	{ "unequippedreload", WEAPONFLAG2_UNEQUIPPEDRELOAD, 2 },
+	{ "pumpaction",       WEAPONFLAG2_PUMPACTION, 2 },
+	{ "chargeable",       WEAPONFLAG2_CHARGEABLE, 2 },
+	{ "missioncritical",  WEAPONFLAG2_MISSIONCRITICAL, 2 },
+	{ "noeject",          WEAPONFLAG2_NOEJECT, 2 },
+	{ "landsonhit",       WEAPONFLAG2_LANDSONHIT, 2 },
+	{ "nocarteject",      WEAPONFLAG2_NOCARTEJECT, 2 },
+	{ "heavysmoke",       WEAPONFLAG2_HEAVYSMOKE, 2 },
+	{ "detonatorhand",    WEAPONFLAG2_DETONATORHAND, 2 },
+	{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND, 2 },
+	{ "pickupsingle",     WEAPONFLAG2_PICKUPSINGLE, 2 },
+	{ "explodeswhenshot", WEAPONFLAG2_EXPLODESWHENSHOT, 2 },
+	{ "nopickupwhilearmed", WEAPONFLAG2_NOPICKUPWHILEARMED, 2 },
+	{ "nopickupinflight", WEAPONFLAG2_NOPICKUPINFLIGHT, 2 },
+	{ "nowallhit",        WEAPONFLAG2_NOWALLHIT, 2 },
+	{ "isproximitymine",  WEAPONFLAG2_ISPROXIMITYMINE, 2 },
+	{ "stickstowall",     WEAPONFLAG2_STICKSTOWALL, 2 },
+	{ "hardwhenlanded",   WEAPONFLAG2_HARDWHENLANDED, 2 },
+	{ "poisons",          WEAPONFLAG2_POISONS, 2 },
+	{ "minigun",          WEAPONFLAG2_MINIGUN, 2 },
+	{ "bladehit",         WEAPONFLAG2_BLADEHIT, 2 },
+	{ "laserhit",         WEAPONFLAG2_LASERHIT, 2 },
+	{ "bluntmelee",       WEAPONFLAG2_BLUNTMELEE, 2 },
+	{ "pistolcasing",     WEAPONFLAG2_PISTOLCASING, 2 },
+	{ "shotgundamage",    WEAPONFLAG2_SHOTGUNDAMAGE, 2 },
+	{ "piercesshield",    WEAPONFLAG2_PIERCESSHIELD, 2 },
+	{ "laserbeam",        WEAPONFLAG2_LASERBEAM, 2 },
+	{ "crossbeam",        WEAPONFLAG2_CROSSBEAM, 2 },
+	{ "fainttracer",      WEAPONFLAG2_FAINTTRACER, 2 },
+	{ "laserflight",      WEAPONFLAG2_LASERFLIGHT, 2 },
+	{ "pellets",          WEAPONFLAG2_PELLETS, 2 },
+	{ "botlimitless",     WEAPONFLAG2_BOTLIMITLESS, 2 },
+	{ "cloakammo",        WEAPONFLAG3_CLOAKAMMO, 3 },
 };
 
 /**
@@ -567,6 +572,7 @@ static char *modConfigParseDamage(char *p, char *token)
 static char *modConfigParseWeaponFlags(char *p, char *token)
 {
 	u32 flag = 0;
+	u32 word = 2;
 	s32 tmp = 0;
 
 	p = strParseToken(p, token, NULL);
@@ -574,6 +580,7 @@ static char *modConfigParseWeaponFlags(char *p, char *token)
 	for (u32 i = 0; i < ARRAYCOUNT(weaponFlagNames); ++i) {
 		if (!strcmp(token, weaponFlagNames[i].name)) {
 			flag = weaponFlagNames[i].flag;
+			word = weaponFlagNames[i].word;
 			break;
 		}
 	}
@@ -594,7 +601,7 @@ static char *modConfigParseWeaponFlags(char *p, char *token)
 		for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
 			struct weapon *weapon = bgunGetWeaponDefinition(i);
 			if (weapon) {
-				weapon->flags2 &= ~flag;
+				*(word == 3 ? &weapon->flags3 : &weapon->flags2) &= ~flag;
 			}
 		}
 		p = strParseToken(p, token, NULL);
@@ -612,7 +619,7 @@ static char *modConfigParseWeaponFlags(char *p, char *token)
 
 		weapon = bgunGetWeaponDefinition(tmp);
 		if (weapon) {
-			weapon->flags2 |= flag;
+			*(word == 3 ? &weapon->flags3 : &weapon->flags2) |= flag;
 		} else {
 			sysLogPrintf(LOG_WARNING, "modconfig: weaponflags: no weapon %d to flag", tmp);
 		}
@@ -670,10 +677,13 @@ static char *modConfigParseWeapon(char *p, char *token)
 
 			PARSE_INT("weapon", "flag", tmp, 0, 1, NULL);
 
-			if (tmp) {
-				weapon->flags2 |= weaponFlagNames[i].flag;
-			} else {
-				weapon->flags2 &= ~weaponFlagNames[i].flag;
+			{
+				u32 *word = weaponFlagNames[i].word == 3 ? &weapon->flags3 : &weapon->flags2;
+				if (tmp) {
+					*word |= weaponFlagNames[i].flag;
+				} else {
+					*word &= ~weaponFlagNames[i].flag;
+				}
 			}
 
 			handled = true;

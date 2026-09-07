@@ -1143,3 +1143,27 @@ one quad.
   keyed on weapon and function (GE-X 22, function 0) and the Mauler's
   charge beam on the Mauler (GE-X 119, no weapon: taken out, like its
   charge reset), which is the chargeable flag's disagreement again.
+
+## hand_tick_attack and bot_tick_unpaused, and a third flags word (2026-09-07)
+
+Nine words each in GE-X, both lists. The shotgun's six pellets per pull
+(`hand_tick_attack`, `WEAPONFLAG2_PELLETS`; GE-X 14 and 15, its pump-action
+pair), a simulant's limitless clip of the laser (`bot_tick_unpaused`,
+`WEAPONFLAG2_BOTLIMITLESS`; GE-X 21), and the RC-P120's cloak-by-ammo,
+which GE-X took out: its 13 is an FN P90 that the port's number test would
+have had weighing its clip to cloak. That one is `WEAPONFLAG3_CLOAKAMMO`,
+because **`flags2` ran out of bits at `BOTLIMITLESS`** (0x80000000): `struct
+weapon` has a `flags3` now, after `pickupsound`, with `weaponHasFlag3()`,
+a `word` on each name in mod.c's flag table, and the data import copying
+it with `flags2` by address. A definition that had no `flags2` line yet
+gets the three positional fields before `flags3` written out (the RC-P120:
+`0, // flags2`, `0, // unequipped reload index`, `0, // pickup sound`),
+and a running game's dump says the two stayed 0 - weapons.md's warning
+about positional initialisers, checked rather than trusted.
+
+- The second `13` in `bot_tick_unpaused` is the bots' weapon-preference
+  `switch`, a dispatch, not the cloak: the row selects occurrence 0.
+- Left: the Reaper's tests in both (MINIGUN, on the definition on purpose),
+  the Cyclone's secondary discharge for simulants (weapon and function
+  together), and two fire-rate numbers (30 -> 44 ticks, a modulo made
+  unconditional). Importer version 21.

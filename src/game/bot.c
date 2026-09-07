@@ -2827,7 +2827,7 @@ void botTickUnpaused(struct chrdata *chr)
 		}
 
 		// The laser has unlimited ammo
-		if (aibot->weaponnum == WEAPON_LASER) {
+		if (weaponHasFlag2(aibot->weaponnum, WEAPONFLAG2_BOTLIMITLESS)) {
 			chr->aibot->loadedammo[HAND_RIGHT] = 999;
 		}
 
@@ -2852,8 +2852,8 @@ void botTickUnpaused(struct chrdata *chr)
 		}
 
 		// Consider starting or stopping RC-P120 cloak
-		if (!aibot->cloakdeviceenabled && aibot->weaponnum == WEAPON_RCP120) {
-			s32 qty = botactGetAmmoQuantityByWeapon(aibot, WEAPON_RCP120, FUNC_PRIMARY, true);
+		if (!aibot->cloakdeviceenabled && weaponHasFlag3(aibot->weaponnum, WEAPONFLAG3_CLOAKAMMO)) {
+			s32 qty = botactGetAmmoQuantityByWeapon(aibot, aibot->weaponnum, FUNC_PRIMARY, true);
 
 			if (botIsAboutToAttack(chr, true)) {
 				if (qty > 200 + (aibot->random1 >> 6) % 200) {

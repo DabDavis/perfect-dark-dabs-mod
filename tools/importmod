@@ -1680,7 +1680,11 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               ('laserbeam', (('beam_render', 29, (0,)),)),
               ('crossbeam', (('beam_render', 29, (1, 2, 3)),)),
               ('fainttracer', (('beam_render', 11),)),
-              ('laserflight', (('beam_create', 29),)))
+              ('laserflight', (('beam_create', 29),)),
+              ('pellets', (('hand_tick_attack', 19),)),
+              ('botlimitless', (('bot_tick_unpaused', 29),)),
+              # the second 13 in bot_tick_unpaused is the weapon-preference switch, a dispatch
+              ('cloakammo', (('bot_tick_unpaused', 13, (0,)),)))
 
 
 def follow_float_immediate(stockcode, modcode, start, end, stockhi):
@@ -3174,8 +3178,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                 continue
             flagsiteblocks.append('weaponflags %s { clear%s }' % (flag, ''.join(' %d' % n for n in modlist)))
             if modlist != stocklist:
-                notes.append('%s is on weapon%s %s (stock: %s)' % (flag, 's' if len(modlist) != 1 else '',
-                             ', '.join(str(n) for n in modlist) or 'none', ', '.join(str(n) for n in stocklist)))
+                notes.append('%s is on %s (stock: %s)' % (flag,
+                             ('weapon%s %s' % ('s' if len(modlist) != 1 else '', ', '.join(str(n) for n in modlist))) if modlist else 'no weapon',
+                             ', '.join(str(n) for n in stocklist)))
             # a site keyed on a stock constant that shows up in its own chain only once
             # (fainttracer's -1 partner is not a weapon) needs no more than this
     # The damage rules chr_damage decides that the mod's code changes

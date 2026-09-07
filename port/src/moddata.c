@@ -616,6 +616,7 @@ static struct weapon *cvWeapon(u32 addr)
 	out->flags = rd32(addr + 0x4c);
 	// the port's own fields; inherited or configured, never read from the ROM
 	out->flags2 = 0;
+	out->flags3 = 0;
 	out->unequippedreloadindex = 0;
 	out->pickupsound = 0;
 
@@ -895,6 +896,7 @@ static s32 importWeapons(const struct moddataspec *spec)
 						verifyWeapon(i, w, stockdefs[k]);
 					}
 					w->flags2 = stockdefs[k]->flags2;
+					w->flags3 = stockdefs[k]->flags3;
 					w->unequippedreloadindex = stockdefs[k]->unequippedreloadindex;
 					w->pickupsound = stockdefs[k]->pickupsound;
 					carryPortFlags(w, addr, stockdefs[k], spec);
