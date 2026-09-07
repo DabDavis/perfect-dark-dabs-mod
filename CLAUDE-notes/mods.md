@@ -64,6 +64,15 @@ patch for another ROM is not retried every boot). Deleting the directory has it
 done again. This runs at boot as well (`modListApplySelection()`), before
 `romdataInit()`, so the importer loads the stock ROM itself.
 
+**A folder that is not a mod but holds mods is looked into** (2026-09-07):
+the All in One bundle's zip is a whole Windows distribution - `pd.exe`, the
+DLLs, `data/` and five `mod_*` folders beside them - so after the hoist the
+unpacked directory had nothing the list recognises, and Load Mods on the
+tester's box showed only GE-X. `modListAddAt()` descends such a directory to
+`MOD_UNPACK_DEPTH` and lists every mod it finds under its own folder's name
+(`mod_allinone`, `mod_gex`, ...); a name already listed, say the loose
+`mod_allinone` beside the executable, wins over a nested copy.
+
 **The in-game importer is `port/src/modimport.c`**, a port of `tools/importmod`
 step for step, with `port/src/rompatch.c` decoding the patch: VCDIFF for
 xdelta (RFC 3284 plus xdelta3's app header and per-window adler32; no patch in

@@ -2371,7 +2371,26 @@ static bool modListLooksLikeMod(const char *path)
 	return false;
 }
 
-static void modListAdd(const char *dir, const char *name)
+struct modlistscan {
+	const char *dir;
+	s32 depth;
+};
+
+// How far into a folder the unpacker and the list look for mods.
+#define MOD_UNPACK_DEPTH 4
+
+static void modListScanEntry(const char *name, void *arg);
+static bool modPathIsDir(const char *path);
+
+/**
+ * Lists dir/name if it is a mod. A directory that is not one may still hold
+ * mods: a whole game distribution unpacked from its zip has its mod_* folders
+ * beside the executable and the DLLs (the All in One bundle ships that way),
+ * and a collection has each mod in a folder of its own. Those are looked into,
+ * to MOD_UNPACK_DEPTH like the unpacker, and each mod found is listed under its
+ * own folder's name.
+ */
+static void modListAddAt(const char *dir, const char *name, s32 depth)
 {
 	char path[FS_MAXPATH + 1];
 
@@ -2390,6 +2409,12 @@ static void modListAdd(const char *dir, const char *name)
 	snprintf(path, sizeof(path), "%s/%s", dir, name);
 
 	if (!modListLooksLikeMod(path)) {
+		if (depth < MOD_UNPACK_DEPTH && modPathIsDir(path)) {
+			struct modlistscan sub = { path, depth + 1 };
+
+			fsScanDir(path, modListScanEntry, &sub);
+		}
+
 		return;
 	}
 
@@ -2398,9 +2423,16 @@ static void modListAdd(const char *dir, const char *name)
 	++numModsListed;
 }
 
+static void modListAdd(const char *dir, const char *name)
+{
+	modListAddAt(dir, name, 0);
+}
+
 static void modListScanEntry(const char *name, void *arg)
 {
-	modListAdd((const char *)arg, name);
+	const struct modlistscan *scan = arg;
+
+	modListAddAt(scan->dir, name, scan->depth);
 }
 
 /**
@@ -2437,7 +2469,6 @@ static void modListScanLooseEntry(const char *name, void *arg)
  * directory while it is being read is undefined on some filesystems.
  */
 #define MOD_ENTRY_LEN 256
-#define MOD_UNPACK_DEPTH 4
 
 struct modnamelist {
 	char (*names)[MOD_ENTRY_LEN];
@@ -2922,8 +2953,10 @@ void modListRefresh(void)
 	numModsListed = 0;
 
 	for (s32 i = 0; i < ARRAYCOUNT(containers); ++i) {
+		struct modlistscan scan = { containers[i], 0 };
+
 		modListPrepareDir(containers[i], containers[i], 0, false);
-		fsScanDir(containers[i], modListScanEntry, (void *)containers[i]);
+		fsScanDir(containers[i], modListScanEntry, &scan);
 	}
 
 	for (s32 i = 0; i < ARRAYCOUNT(loose); ++i) {
