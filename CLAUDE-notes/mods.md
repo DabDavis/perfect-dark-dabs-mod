@@ -1032,3 +1032,32 @@ what was missing was the mod's list.
   inherited flag, as GE-X's code says) and the two Reaper tests on
   `MINIGUN`, which GE-X zeroed and which stays deliberately on the
   definition (weapons.md, the Reaper). Importer version 17.
+
+## projectile_tick: a site is a chain's head, and a flag has one reading (2026-09-07)
+
+Sixteen words in GE-X, all lists: the sticks-where-it-lands chain (mines,
+N-bombs, bolt, knife, ECM mine - the port's `STICKSTOWALL`, whose set the
+chain matches exactly), the bolt-or-knife test at four places (a thrown
+blade embedding: `BLADEHIT`, whose set it is), and a `PROPTYPE_CHR /
+PLAYER` test feeding `chrGetShield()` that GE-X made unconditional-off -
+another shield check removed, not a weapon, left like the hit sound's.
+
+- **A site is a chain's head.** Looking for the bolt's `li at,86` found it
+  first *inside* the sticks chain (86 is in that list too) and read a
+  suffix of that chain as a fifth bolt site. The word before a head is not
+  a branch on `at`; an `li` after one is the chain's next element, or the
+  delay-slot form of it. `follow_flag_sites()` / `followFlagSite()` now read
+  every head of a value in a function (the bolt has four) and each is a
+  site that must agree.
+- **A flag has one reading.** The hit sound reader also writes `bladehit`;
+  its reading is direct (what the code stores) and stands over the sites'
+  (what the code compares), which are checked against it and reported if
+  they differ. GE-X: both say 2 and 86.
+- **A chain can be nine long** - the reader's cap was eight, and both the
+  stock and the mod list quietly lost the ECM mine. Mario's "stock" list
+  was wrong the same way and read as right. When a stock reading is the
+  check, compare it with the port's set from a running game (the
+  `flags4.gdb` loop over `g_Weapons[]`), not with itself.
+- GE-X writes 153 where stock had 63 (a number no table has): dropped from
+  the list with a note, not passed to a `weaponflags` line that would warn
+  on every load. Importer version 18.

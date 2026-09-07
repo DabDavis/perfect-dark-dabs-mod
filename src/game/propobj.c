@@ -6936,7 +6936,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								struct defaultobj *embedobj = g_EmbedProp->obj;
 
 								if (weapon
-										&& (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE)
+										&& weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_BLADEHIT)
 										&& embedobj->type == OBJTYPE_WEAPON) {
 									stick = false;
 								}
@@ -6956,7 +6956,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										stick = false;
 									}
 
-									if (weapon && (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE)) {
+									if (weapon && weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 #if VERSION < VERSION_NTSC_1_0
 										if (hitobj->type == OBJTYPE_WEAPON) {
 											stick = false;
@@ -6983,7 +6983,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						if (!handled && g_EmbedProp && obj->type == OBJTYPE_WEAPON) {
 							struct weaponobj *weapon = (struct weaponobj *) obj;
 
-							if (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE) {
+							if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 								if (hitprop->type == PROPTYPE_CHR || (hitprop->type == PROPTYPE_PLAYER && hitprop->chr)) {
 									struct chrdata *hitchr = hitprop->chr;
 
@@ -7081,7 +7081,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							if (obj->type == OBJTYPE_WEAPON) {
 								struct weaponobj *weapon = (struct weaponobj *) obj;
 
-								if (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE) {
+								if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 									if (obj->projectile->ownerprop && obj->projectile->ownerprop->type == PROPTYPE_PLAYER) {
 										s32 prevplayernum = g_Vars.currentplayernum;
 										setCurrentPlayerNum(playermgrGetPlayerNumByProp(obj->projectile->ownerprop));

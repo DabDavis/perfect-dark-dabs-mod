@@ -146,7 +146,9 @@ number (2026-09-07): `FLAG_SITES` in both importers names a flag's sites as
 (mods.md, "One weapon that became two"), and `weaponflags FLAG { clear ...
 }` is written when every site agrees. Pump action, the small pistols'
 casing (`WEAPONFLAG2_PISTOLCASING`, the four in `casingCreateForHand()`)
-and the magnums' no-eject (`NOCARTEJECT`, two sites) are read that way;
+the magnums' no-eject (`NOCARTEJECT`, two sites), the sticks-where-it-lands
+list (`STICKSTOWALL`) and the thrown blade's four embed sites in
+`projectileTick()` (`BLADEHIT`) are read that way;
 the chargeable flag's two sites disagree in GE-X and it is reported
 instead. Adding a converted site to that table is how a mod's list reaches
 the flag. The Reaper's two casing tests in `casingCreateForHand()` are

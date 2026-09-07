@@ -2292,6 +2292,7 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bgun0f09a6f8",               0x7f09a6f8, 0x7f09aba4 },
 	{ "casing_create_for_hand",     0x7f0ade00, 0x7f0ae964 },
 	{ "bgun_create_fx",             0x7f0a5300, 0x7f0a5550 },
+	{ "projectile_tick",            0x7f073c6c, 0x7f076f30 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3614,7 +3615,7 @@ static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u
 	s32 havematch = 0;
 
 	*removed = 0;
-	while (ofs >= start && ofs + 8 <= end && ofs + 8 <= codelen && n < 8) {
+	while (ofs >= start && ofs + 8 <= end && ofs + 8 <= codelen && n < 16) {
 		const u32 x = be32(code, ofs);
 		u32 o, op = 0, target = 0;
 		s32 found = 0;
@@ -3676,23 +3677,34 @@ static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u
 }
 
 /**
- * The stock and mod lists at the site where stock compares a weapon number
- * against `value` in [start, end): the first `li at,VALUE` followed by a
- * branch on `at` and another register. Returns 1 with both lists read (a
- * removed test is an empty list), 0 where either does not read.
+ * The next site at or after `from` in [start, end) where stock compares a
+ * weapon number against `value` - an `li at,VALUE` with a branch on `at` and
+ * another register within four words (the magnums' casing test has three of
+ * the body's own words between) - with both chains read. Returns the offset
+ * past the site to look on from, 0 when there is no more; *ok says whether
+ * both chains read (a removed test is an empty list). projectile_tick tests
+ * the bolt and the knife at four places, and a mod may change them apart.
  */
-static s32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
-		u32 start, u32 end, u32 value, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod)
+static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
+		u32 start, u32 end, u32 from, u32 value, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod, s32 *ok)
 {
-	for (u32 ofs = start; ofs + 8 <= end && ofs + 8 <= stocklen && ofs + 8 <= modlen; ofs += 4) {
+	for (u32 ofs = from; ofs + 8 <= end && ofs + 8 <= stocklen && ofs + 8 <= modlen; ofs += 4) {
 		const u32 x = be32(stockcode, ofs);
 		u32 nxt, reg;
 		s32 removed;
 		if (((x >> 26) != 0x08 && (x >> 26) != 0x09) || ((x >> 21) & 0x1f) != 0 || ((x >> 16) & 0x1f) != 1 || (x & 0xffff) != value) {
 			continue;
 		}
-		// the branch on at, within four words (the magnums' casing test has
-		// three of the body's own words between the li and the beq)
+		// a chain's head, not an li inside one: the word before it is not a
+		// branch on at (the bolt is in the sticks-to-wall chain as well as
+		// at the head of its own four)
+		if (ofs > start) {
+			const u32 prev = be32(stockcode, ofs - 4);
+			if (((prev >> 26) == 4 || (prev >> 26) == 5 || (prev >> 26) == 0x14 || (prev >> 26) == 0x15)
+					&& (((prev >> 21) & 0x1f) == 1 || ((prev >> 16) & 0x1f) == 1)) {
+				continue;
+			}
+		}
 		reg = 0;
 		for (u32 o = ofs + 4; o < ofs + 20 && o + 4 <= end && o + 4 <= stocklen; o += 4) {
 			nxt = be32(stockcode, o);
@@ -3707,7 +3719,9 @@ static s32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 		}
 		*nstock = followCompareChain(stockcode, stocklen, start, end, ofs, reg, stocknums, &removed);
 		*nmod = followCompareChain(modcode, modlen, start, end, ofs, reg, modnums, &removed);
-		return *nstock >= 0 && *nmod >= 0;
+		*ok = *nstock >= 0 && *nmod >= 0;
+		// past this chain: the next site is another chain
+		return ofs + 8 * (*nstock > 1 ? (u32)*nstock : 1);
 	}
 	return 0;
 }
@@ -3722,6 +3736,8 @@ static const struct { const char *flag; const char *fn; u32 value; } flagSites[]
 	{ "pistolcasing", "casing_create_for_hand", 36 },
 	{ "nocarteject",  "casing_create_for_hand", 8 },
 	{ "nocarteject",  "bgun_create_fx", 8 },
+	{ "stickstowall", "projectile_tick", 34 },
+	{ "bladehit",     "projectile_tick", 86 },
 };
 
 static int cmpU8(const void *a, const void *b)
@@ -4329,76 +4345,6 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
-	// The weapon flags that stand in for one number test each - the shotgun's
-	// pump action, the Mauler's charge - read as the compare chains at their
-	// sites: one weapon that became two (GE-X's shotguns), a test taken out.
-	// A flag has the same meaning at every site the game tests it, so it is
-	// written only when the mod's lists agree across them.
-	char *flagsite = NULL;
-	u32 flagsitelen = 0, flagsitecap = 0;
-	if (t.followed) {
-		u32 i = 0;
-		while (i < sizeof(flagSites) / sizeof(flagSites[0])) {
-			const char *flag = flagSites[i].flag;
-			u8 first[8], nums[8], stocknums[8], stockfirst[8];
-			s32 nfirst = -1, ok = 1, agree = 1, nstockfirst = 0;
-			char where[512];
-			u32 wherelen = 0;
-			u32 j = i;
-			for (; j < sizeof(flagSites) / sizeof(flagSites[0]) && !strcmp(flagSites[j].flag, flag); ++j) {
-				u32 start, end;
-				s32 nstock, nmod;
-				if (!codeSym(flagSites[j].fn, &start, &end)
-						|| !followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end,
-							flagSites[j].value, stocknums, &nstock, nums, &nmod)
-						|| nstock < 1 || stocknums[0] != flagSites[j].value) {
-					rep("  the %s test in %s does not read as a compare chain; the flag is left as the port has it", flag, flagSites[j].fn);
-					ok = 0;
-					break;
-				}
-				qsort(nums, nmod, 1, cmpU8);
-				if (nfirst < 0) {
-					nstockfirst = nstock;
-					memcpy(stockfirst, stocknums, nstock);
-					qsort(stockfirst, nstockfirst, 1, cmpU8);
-				}
-				wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, "%s%s:", wherelen ? "; " : "", flagSites[j].fn);
-				for (s32 k = 0; k < nmod; ++k) {
-					wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, " %u", nums[k]);
-				}
-				if (!nmod) {
-					wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, " none");
-				}
-				if (nfirst < 0) {
-					nfirst = nmod;
-					memcpy(first, nums, nmod);
-				} else if (nmod != nfirst || memcmp(first, nums, nmod)) {
-					agree = 0;
-				}
-			}
-			if (ok && !agree) {
-				rep("  %s: the mod's code tests different weapons at its sites (%s); the flag is left as the port has it", flag, where);
-			} else if (ok) {
-				char list[64], prose[64];
-				u32 listlen = 0, proselen = 0;
-				for (s32 k = 0; k < nfirst; ++k) {
-					listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s%u", k ? " " : "", first[k]);
-					proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%s%u", k ? ", " : "", first[k]);
-				}
-				appendf(&flagsite, &flagsitelen, &flagsitecap, "weaponflags %s { clear%s%s }\n", flag, nfirst ? " " : "", list);
-				if (nfirst != nstockfirst || memcmp(first, stockfirst, nfirst)) {
-					char stockprose[64];
-					u32 stockproselen = 0;
-					for (s32 k = 0; k < nstockfirst; ++k) {
-						stockproselen += snprintf(stockprose + stockproselen, sizeof(stockprose) - stockproselen, "%s%u", k ? ", " : "", stockfirst[k]);
-					}
-					rep("  %s is on weapon%s %s (stock: %s)", flag, nfirst != 1 ? "s" : "", nfirst ? prose : "none", stockprose);
-				}
-			}
-			i = j;
-		}
-	}
-
 	// The hit sounds: which weapons strike as a blade, which as the laser,
 	// which land a blow. bgun_play_prop_hit_sound decides by weapon number,
 	// GE-X renumbered the first two and rewrote the third's list, and the
@@ -4406,10 +4352,13 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 	// every number and the flags written for the whole table.
 	char *hitsound = NULL;
 	u32 hitsoundlen = 0, hitsoundcap = 0;
+	const u32 hcount = stockCount("g_Weapons", 4);
+	struct hitsoundread hmodkept;
+	s32 hitsoundread = 0;
+	memset(&hmodkept, 0, sizeof(hmodkept));
 	if (t.followed) {
 		u32 s0, e0;
 		if (codeSym("bgun_play_prop_hit_sound", &s0, &e0)) {
-			const u32 hcount = stockCount("g_Weapons", 4);
 			struct hitsoundread hstock, hmod;
 			s32 stockok = hitsoundFromCode(t.stockcode, t.stockcodelen, hcount, &hstock);
 			for (u32 f = 0; stockok && f < HITSOUND_NUMFLAGS; ++f) {
@@ -4421,6 +4370,8 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				rep("  the mod's hit sound code does not run on the toy machine; its hit sounds are left as the port has them");
 			} else {
 				char list[512], stocklist[64];
+				hmodkept = hmod;
+				hitsoundread = 1;
 				for (u32 f = 0; f < HITSOUND_NUMFLAGS; ++f) {
 					hitsoundList(list, sizeof(list), hmod.nums[f], hmod.count[f], " ");
 					appendf(&hitsound, &hitsoundlen, &hitsoundcap, "weaponflags %s { clear%s%s }\n",
@@ -4440,6 +4391,111 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 							hmod.nbladechr ? "weapon" : "none", hmod.nbladechr > 1 ? "s " : hmod.nbladechr ? " " : "", hmod.nbladechr ? list : "");
 				}
 			}
+		}
+	}
+
+	// The weapon flags that stand in for one number test each - the shotgun's
+	// pump action, the Mauler's charge - read as the compare chains at their
+	// sites: one weapon that became two (GE-X's shotguns), a test taken out.
+	// A flag has the same meaning at every site the game tests it, so it is
+	// written only when the mod's lists agree across them.
+	char *flagsite = NULL;
+	u32 flagsitelen = 0, flagsitecap = 0;
+	if (t.followed) {
+		u32 i = 0;
+		while (i < sizeof(flagSites) / sizeof(flagSites[0])) {
+			const char *flag = flagSites[i].flag;
+			u8 first[16], nums[16], stocknums[16], stockfirst[16];
+			s32 nfirst = -1, ok = 1, agree = 1, nstockfirst = 0;
+			char where[512];
+			u32 wherelen = 0;
+			u32 j = i;
+			for (; j < sizeof(flagSites) / sizeof(flagSites[0]) && !strcmp(flagSites[j].flag, flag); ++j) {
+				u32 start, end, from;
+				s32 nstock, nmod, nsites = 0, read;
+				if (!codeSym(flagSites[j].fn, &start, &end)) {
+					ok = 0;
+					break;
+				}
+				from = start;
+				while ((from = followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, from,
+						flagSites[j].value, stocknums, &nstock, nums, &nmod, &read)) != 0) {
+					if (!read || nstock < 1 || stocknums[0] != flagSites[j].value) {
+						ok = 0;
+						break;
+					}
+					nsites++;
+					qsort(nums, nmod, 1, cmpU8);
+					if (nfirst < 0) {
+						nstockfirst = nstock;
+						memcpy(stockfirst, stocknums, nstock);
+						qsort(stockfirst, nstockfirst, 1, cmpU8);
+					}
+					wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, "%s%s:", wherelen ? "; " : "", flagSites[j].fn);
+					for (s32 k = 0; k < nmod; ++k) {
+						wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, " %u", nums[k]);
+					}
+					if (!nmod) {
+						wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, " none");
+					}
+					if (nfirst < 0) {
+						nfirst = nmod;
+						memcpy(first, nums, nmod);
+					} else if (nmod != nfirst || memcmp(first, nums, nmod)) {
+						agree = 0;
+					}
+				}
+				if (!ok || !nsites) {
+					rep("  the %s test in %s does not read as a compare chain; the flag is left as the port has it", flag, flagSites[j].fn);
+					ok = 0;
+					break;
+				}
+			}
+			if (ok && !agree) {
+				rep("  %s: the mod's code tests different weapons at its sites (%s); the flag is left as the port has it", flag, where);
+			} else if (ok) {
+				char list[64], prose[64];
+				u32 listlen = 0, proselen = 0;
+				s32 kept = 0, hs = -1;
+				for (s32 k = 0; k < nfirst; ++k) {
+					if (first[k] >= hcount) {
+						rep("  %s: the mod's code names weapon %u, past the end of the table; left off the list", flag, first[k]);
+					} else {
+						first[kept++] = first[k];
+					}
+				}
+				nfirst = kept;
+				// a flag the hit sound reader already wrote is that reading's: a direct one, over the sites'
+				for (u32 f = 0; f < HITSOUND_NUMFLAGS; ++f) {
+					if (!strcmp(hitsoundFlagNames[f], flag)) {
+						hs = (s32)f;
+					}
+				}
+				if (hs >= 0 && hitsoundread) {
+					u8 sorted[HITSOUND_MAXWEAPONS];
+					memcpy(sorted, hmodkept.nums[hs], hmodkept.count[hs]);
+					qsort(sorted, hmodkept.count[hs], 1, cmpU8);
+					if (hmodkept.count[hs] != (u32)nfirst || memcmp(sorted, first, nfirst)) {
+						rep("  %s: the sites the code tests disagree with the hit sound reading; the hit sounds' stands", flag);
+					}
+					i = j;
+					continue;
+				}
+				for (s32 k = 0; k < nfirst; ++k) {
+					listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s%u", k ? " " : "", first[k]);
+					proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%s%u", k ? ", " : "", first[k]);
+				}
+				appendf(&flagsite, &flagsitelen, &flagsitecap, "weaponflags %s { clear%s%s }\n", flag, nfirst ? " " : "", list);
+				if (nfirst != nstockfirst || memcmp(first, stockfirst, nfirst)) {
+					char stockprose[64];
+					u32 stockproselen = 0;
+					for (s32 k = 0; k < nstockfirst; ++k) {
+						stockproselen += snprintf(stockprose + stockproselen, sizeof(stockprose) - stockproselen, "%s%u", k ? ", " : "", stockfirst[k]);
+					}
+					rep("  %s is on weapon%s %s (stock: %s)", flag, nfirst != 1 ? "s" : "", nfirst ? prose : "none", stockprose);
+				}
+			}
+			i = j;
 		}
 	}
 

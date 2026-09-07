@@ -1549,7 +1549,7 @@ def follow_compare_chain(code, start, end, at_ofs, reg):
     nums = []
     ofs = at_ofs
     match = None
-    while start <= ofs < end - 4 and len(nums) < 8:
+    while start <= ofs < end - 4 and len(nums) < 16:
         x = be32(code, ofs)
         if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (x >> 16) & 0x1f != 1:
             break
@@ -1585,17 +1585,28 @@ def follow_compare_chain(code, start, end, at_ofs, reg):
     return [n for n in nums if n] if nums else None
 
 
-def follow_flag_site(stockcode, modcode, start, end, stockvalue):
-    """The stock and mod lists at the site where stock compares a weapon
-    number against `stockvalue` in [start, end): the first `li at,VALUE`
-    followed by a branch on `at` and another register. (stocklist, modlist),
-    either None where the chain does not read."""
-    for ofs in range(start, min(end, len(stockcode) - 7), 4):
+def follow_flag_sites(stockcode, modcode, start, end, stockvalue):
+    """Every site in [start, end) where stock compares a weapon number
+    against `stockvalue` - an `li at,VALUE` with a branch on `at` and another
+    register within four words (the magnums' casing test has three of the
+    body's own words between) - as [(stocklist, modlist)], either None where
+    the chain does not read. projectile_tick tests the bolt and the knife at
+    four places, and a mod may change them apart."""
+    sites = []
+    ofs = start
+    while ofs < min(end, len(stockcode) - 7):
         x = be32(stockcode, ofs)
         if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (x >> 16) & 0x1f != 1 or (x & 0xffff) != stockvalue:
+            ofs += 4
             continue
-        # the branch on at, within four words (the magnums' casing test has
-        # three of the body's own words between the li and the beq)
+        # a chain's head, not an li inside one: the word before it is not a
+        # branch on at (the bolt is in the sticks-to-wall chain as well as
+        # at the head of its own four)
+        if ofs > start:
+            prev = be32(stockcode, ofs - 4)
+            if (prev >> 26) in (4, 5, 0x14, 0x15) and 1 in ((prev >> 21) & 0x1f, (prev >> 16) & 0x1f):
+                ofs += 4
+                continue
         reg = None
         for o in range(ofs + 4, min(ofs + 20, end), 4):
             nxt = be32(stockcode, o)
@@ -1604,10 +1615,14 @@ def follow_flag_site(stockcode, modcode, start, end, stockvalue):
                 reg = rs if rt == 1 else rt
                 break
         if reg is None:
+            ofs += 4
             continue
-        return (follow_compare_chain(stockcode, start, end, ofs, reg),
-                follow_compare_chain(modcode, start, end, ofs, reg))
-    return None, None
+        stocklist = follow_compare_chain(stockcode, start, end, ofs, reg)
+        modlist = follow_compare_chain(modcode, start, end, ofs, reg)
+        sites.append((stocklist, modlist))
+        # past this chain: the next site is another chain
+        ofs += 4 * (2 * max(len(stocklist or [1]), 1))
+    return sites
 
 
 # the port's weapon flags that stand in for one weapon-number test each, and
@@ -1616,7 +1631,9 @@ def follow_flag_site(stockcode, modcode, start, end, stockvalue):
 FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               ('chargeable', (('bgun_tick_inc_attacking_shoot', 6), ('bgun0f09a6f8', 6))),
               ('pistolcasing', (('casing_create_for_hand', 36),)),
-              ('nocarteject', (('casing_create_for_hand', 8), ('bgun_create_fx', 8))))
+              ('nocarteject', (('casing_create_for_hand', 8), ('bgun_create_fx', 8))),
+              ('stickstowall', (('projectile_tick', 34),)),
+              ('bladehit', (('projectile_tick', 86),)))
 
 
 BUDDY_FUNCTION = 'player_tick'
@@ -2975,45 +2992,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                         '# game asks: read by running that code. Written by tools/importmod.\n'
                         + SHIELD_BEGIN + '\n' + '\n'.join(shieldblocks) + SHIELD_END + '\n')
 
-    # The weapon flags that stand in for one number test each - the shotgun's
-    # pump action, the Mauler's charge - read as the compare chains at their
-    # sites: one weapon that became two (GE-X's shotguns), a test taken out.
-    # A flag has the same meaning at every site the game tests it, so it is
-    # written only when the mod's lists agree across them.
-    flagsiteblocks = []
-    if followed and codesyms:
-        for flag, sites in FLAG_SITES:
-            readings = []
-            for fn, value in sites:
-                if fn not in codesyms:
-                    readings = None
-                    break
-                start, end = codesyms[fn]
-                stocklist, modlist = follow_flag_site(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, value)
-                if not stocklist or stocklist[0] != value or modlist is None:
-                    notes.append("the %s test in %s does not read as a compare chain; the flag is left as the port has it" % (flag, fn))
-                    readings = None
-                    break
-                readings.append((fn, sorted(modlist)))
-            if not readings:
-                continue
-            if any(r != readings[0][1] for _, r in readings):
-                notes.append("%s: the mod's code tests different weapons at its sites (%s); the flag is left as the port has it"
-                             % (flag, '; '.join('%s: %s' % (fn, ' '.join(str(n) for n in r) or 'none') for fn, r in readings)))
-                continue
-            modlist = readings[0][1]
-            stocklist = sorted(follow_flag_site(stockcode, stockcode, codesyms[sites[0][0]][0] - 0x7f000000,
-                                                codesyms[sites[0][0]][1] - 0x7f000000, sites[0][1])[0])
-            flagsiteblocks.append('weaponflags %s { clear%s }' % (flag, ''.join(' %d' % n for n in modlist)))
-            if modlist != stocklist:
-                notes.append('%s is on weapon%s %s (stock: %s)' % (flag, 's' if len(modlist) != 1 else '',
-                             ', '.join(str(n) for n in modlist) or 'none', ', '.join(str(n) for n in stocklist)))
-    flagsiteregion = ''
-    if flagsiteblocks:
-        flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'
-                          '# its sites. Written by tools/importmod.\n'
-                          + FLAGSITE_BEGIN + '\n' + '\n'.join(flagsiteblocks) + '\n' + FLAGSITE_END + '\n')
-
+    hitsoundwritten = None
     # The hit sounds: which weapons strike as a blade, which as the laser,
     # which land a blow. bgun_play_prop_hit_sound decides by weapon number,
     # GE-X renumbered the first two and rewrote the third's list, and the
@@ -3033,6 +3012,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                 hitsoundregion = ('# Which weapons strike as a blade, which as the laser, which land a blow: read by\n'
                                   '# running the mod\'s hit sound code for every weapon number. Written by tools/importmod.\n'
                                   + HITSOUND_BEGIN + '\n' + hitsound_block(hmod) + HITSOUND_END + '\n')
+                hitsoundwritten = { flag: sorted(hmod[flag]) for flag in HITSOUND_FLAGS }
                 for flag, what in (('bladehit', 'a blade'), ('laserhit', 'the laser'), ('bluntmelee', 'a blow')):
                     if hmod[flag] == hstock[flag]:
                         continue
@@ -3044,6 +3024,60 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                     notes.append("hit sounds: on a chr the mod's code gives the blade sound to %s; the port gives it to the same weapons as on an object"
                                  % (('weapon%s ' % ('s' if len(hmod['bladechr']) != 1 else '')
                                      + ', '.join(str(n) for n in hmod['bladechr'])) if hmod['bladechr'] else 'none'))
+
+    # The weapon flags that stand in for one number test each - the shotgun's
+    # pump action, the Mauler's charge - read as the compare chains at their
+    # sites: one weapon that became two (GE-X's shotguns), a test taken out.
+    # A flag has the same meaning at every site the game tests it, so it is
+    # written only when the mod's lists agree across them.
+    flagsiteblocks = []
+    if followed and codesyms:
+        nweapons = stockcount('g_Weapons', 4)
+        for flag, sites in FLAG_SITES:
+            readings = []
+            stocklist = None
+            for fn, value in sites:
+                if fn not in codesyms:
+                    readings = None
+                    break
+                start, end = codesyms[fn]
+                found = follow_flag_sites(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, value)
+                if not found or any(not sl or sl[0] != value or ml is None for sl, ml in found):
+                    notes.append("the %s test in %s does not read as a compare chain; the flag is left as the port has it" % (flag, fn))
+                    readings = None
+                    break
+                for sl, ml in found:
+                    readings.append((fn, sorted(ml)))
+                    if stocklist is None:
+                        stocklist = sorted(sl)
+            if not readings:
+                continue
+            if any(r != readings[0][1] for _, r in readings):
+                notes.append("%s: the mod's code tests different weapons at its sites (%s); the flag is left as the port has it"
+                             % (flag, '; '.join('%s: %s' % (fn, ' '.join(str(n) for n in r) or 'none') for fn, r in readings)))
+                continue
+            modlist = readings[0][1]
+            beyond = [n for n in modlist if n >= nweapons]
+            if beyond:
+                notes.append("%s: the mod's code names weapon%s %s, past the end of the table; left off the list"
+                             % (flag, 's' if len(beyond) != 1 else '', ', '.join(str(n) for n in beyond)))
+                modlist = [n for n in modlist if n < nweapons]
+            # a flag the hit sound reader already wrote is that reading's: a
+            # direct one, over the sites'
+            if hitsoundwritten is not None and flag in hitsoundwritten:
+                if hitsoundwritten[flag] != modlist:
+                    notes.append("%s: the sites the code tests (%s) disagree with the hit sound reading (%s); the hit sounds' stands"
+                                 % (flag, ', '.join(str(n) for n in modlist) or 'none', ', '.join(str(n) for n in hitsoundwritten[flag]) or 'none'))
+                continue
+            flagsiteblocks.append('weaponflags %s { clear%s }' % (flag, ''.join(' %d' % n for n in modlist)))
+            if modlist != stocklist:
+                notes.append('%s is on weapon%s %s (stock: %s)' % (flag, 's' if len(modlist) != 1 else '',
+                             ', '.join(str(n) for n in modlist) or 'none', ', '.join(str(n) for n in stocklist)))
+    flagsiteregion = ''
+    if flagsiteblocks:
+        flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'
+                          '# its sites. Written by tools/importmod.\n'
+                          + FLAGSITE_BEGIN + '\n' + '\n'.join(flagsiteblocks) + '\n' + FLAGSITE_END + '\n')
 
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'

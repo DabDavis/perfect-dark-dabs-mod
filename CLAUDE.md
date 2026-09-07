@@ -40,7 +40,7 @@ it down: a new note, or a section in the one for its area, and a line here.
 
 The console mod GE-X 6a is the reference case for the mod loader. Its assets,
 data tables, missions, music, environments, star field, weather, shield
-colours, hit sounds, co-op buddies and the weapon lists behind four flags all import (`build/mods/GE-X_6a_01-19-25/`, importer version 17); what is left is the code
+colours, hit sounds, co-op buddies and the weapon lists behind six flags all import (`build/mods/GE-X_6a_01-19-25/`, importer version 18); what is left is the code
 GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
 [mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
 end before touching any of it, then:
@@ -51,8 +51,8 @@ end before touching any of it, then:
        --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
    ```
    `constants` regions are tables to follow (most are done); `rewritten` ones
-   need reading. Remaining rewritten, by size: `projectile_tick` and
-   `chr_damage` (16 words each), `beam_render` (14),
+   need reading. Remaining rewritten, by size: `chr_damage` (16 words),
+   `beam_render` (14),
    `hand_tick_attack`, `bot_tick_unpaused` (9 each), then a long tail of 1–7
    words (`menu_render`, `koh_tick`/`koh_init`, `cheat_is_unlocked`,
    `botinv_score_weapon`, `bwalk_update_horizontal` is a speed cave ...).
