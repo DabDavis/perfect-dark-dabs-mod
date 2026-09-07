@@ -79,11 +79,13 @@
  * seen or heard, and it has two effects: every guard who can hear it goes
  * alert and comes looking, and on a few stages the mission script spawns a
  * handful of reinforcements. Both stop after thirty seconds. This setting is
- * the alarm as a permanent condition, on every stage - solo, Combat Simulator,
- * the Institute - with reinforcements the port spawns itself, so a stage whose
- * script never spawned any gets them too. How many are on their feet at once
- * and how quickly the next one arrives are settings of their own; see
- * modalarm.c.
+ * the alarm as a permanent condition, on every stage - solo and Combat
+ * Simulator - with reinforcements the port spawns itself, so a stage whose
+ * script never spawned any gets them too. The Institute is left out: it is
+ * the hub under the menus and has no alarm of its own, and troopers spawned
+ * there shot at the player behind the Perfect Menu (2026-09-07). How many
+ * are on their feet at once and how quickly the next one arrives are
+ * settings of their own; see modalarm.c.
  *
  * The siren is separate. It is the sound of the thing, but thirty seconds of
  * it is one matter and a whole match of it is another, so it can be turned off

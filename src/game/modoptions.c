@@ -4,6 +4,7 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
+#include "bss.h"
 #endif
 #include "types.h"
 
@@ -280,6 +281,14 @@ bool modIsGuardsAlertedOn(void)
 {
 #ifndef PLATFORM_N64
 	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+
+	// The Institute is the hub the menus sit over, and the stock game never
+	// raises an alarm there. With it on, troopers spawned all over the
+	// building and shot at the player behind the Perfect Menu: the impacts
+	// shook the view and rattled while the menu itself looked fine.
+	if (g_Vars.stagenum == STAGE_CITRAINING) {
 		return false;
 	}
 #endif
