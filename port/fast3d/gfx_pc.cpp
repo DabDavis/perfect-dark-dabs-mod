@@ -959,6 +959,8 @@ static int import_enhance_scale;
 static enum TexScaleEdge import_enhance_edge_s;
 static enum TexScaleEdge import_enhance_edge_t;
 static bool import_enhance_glyph;
+static uint32_t import_enhance_tile_w; // the clamped tile, when narrower than the upload; else 0
+static uint32_t import_enhance_tile_h;
 
 static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height, bool gen_mipmaps) {
     // The dump and the dimensions the rest of the import works from stay the
@@ -968,7 +970,8 @@ static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32
 
     if (import_enhance_scale > 1) {
         const uint8_t* big = gfx_texscale(rgba32_buf, width, height, import_enhance_scale,
-                                          import_enhance_edge_s, import_enhance_edge_t, import_enhance_glyph);
+                                          import_enhance_edge_s, import_enhance_edge_t, import_enhance_glyph,
+                                          import_enhance_tile_w, import_enhance_tile_h);
         if (big) {
             gfx_rapi->upload_texture(big, width * import_enhance_scale, height * import_enhance_scale, gen_mipmaps);
             return;
@@ -1410,6 +1413,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
                         rdp.texture_tile[tile].width, rdp.texture_tile[tile].height, pad_w, pad_h);
             }
 
+            import_enhance_scale = 1; // a pack's image is already what its author wanted
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
             texpackFreeReplacement(rep);
             rendering_state.textures[i]->second.replaced = true;
@@ -1422,13 +1426,29 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // The game's own texels: scaled up as they are uploaded, if asked. A row
     // padded past the tile is clamped rather than wrapped, since what lies
     // over its far edge is padding and not the other side of the picture.
+    //
+    // And a clamped tile smaller than what is uploaded for it - a padded row,
+    // or the mip levels stacked under a mipmapped texture - is resampled on
+    // its own with its edge repeated across the rest, so that the padding
+    // (near-white, as the decompressor leaves it) is not blended into the
+    // last texels the shader's clamp still samples. Measured the way the
+    // batch state measures the clamp (tex_width2 / tex_height2), so the crop
+    // and the shader agree on where the picture ends.
     {
         const uint32_t padded_w = (tex_row_bytes * 2) >> siz;
         const bool padded = padded_w != rdp.texture_tile[tile].width;
+        const uint8_t cms = rdp.texture_tile[tile].cms;
+        const uint8_t cmt = rdp.texture_tile[tile].cmt;
+        const uint32_t tile_w2 = rdp.texture_tile[tile].lrs >= rdp.texture_tile[tile].uls
+            ? (rdp.texture_tile[tile].lrs - rdp.texture_tile[tile].uls + 4) / 4 : 0;
+        const uint32_t tile_h2 = rdp.texture_tile[tile].lrt >= rdp.texture_tile[tile].ult
+            ? (rdp.texture_tile[tile].lrt - rdp.texture_tile[tile].ult + 4) / 4 : 0;
         import_enhance_scale = loaded_texture.glyph ? gfx_text_smooth_scale : gfx_texture_enhance_scale;
-        import_enhance_edge_s = padded ? TEXSCALE_EDGE_CLAMP : gfx_texscale_edge(rdp.texture_tile[tile].cms);
-        import_enhance_edge_t = gfx_texscale_edge(rdp.texture_tile[tile].cmt);
+        import_enhance_edge_s = padded ? TEXSCALE_EDGE_CLAMP : gfx_texscale_edge(cms);
+        import_enhance_edge_t = gfx_texscale_edge(cmt);
         import_enhance_glyph = loaded_texture.glyph != 0;
+        import_enhance_tile_w = (cms & G_TX_CLAMP) && !(cms & G_TX_MIRROR) ? tile_w2 : 0;
+        import_enhance_tile_h = (cmt & G_TX_CLAMP) && !(cmt & G_TX_MIRROR) ? tile_h2 : 0;
     }
 
     if (fmt == G_IM_FMT_RGBA) {

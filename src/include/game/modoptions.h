@@ -264,7 +264,8 @@
 #define MODENHANCE_OFF  0
 #define MODENHANCE_2X   1
 #define MODENHANCE_4X   2
-#define MODENHANCE_MAX  MODENHANCE_4X
+#define MODENHANCE_8X   3
+#define MODENHANCE_MAX  MODENHANCE_8X
 
 /**
  * Vivid Colours: the finished frame's saturation and contrast turned up, as

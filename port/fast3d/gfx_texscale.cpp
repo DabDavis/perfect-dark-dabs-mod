@@ -40,9 +40,20 @@
  *   the ramp, where they were. Read at 4x that is a letter with a clean
  *   outline instead of a staircase of blurred squares.
  *
- * Wrapping textures are sampled across their seam so the join stays clean;
- * a padded upload (the tile narrower than its row) is clamped instead, since
- * its far edge is padding.
+ * Wrapping textures are sampled across their seam so the join stays clean.
+ *
+ * A clamped tile is often narrower than the rows uploaded for it: a 54-wide
+ * texture is stored 56 wide, and a mipmapped one has its smaller levels
+ * stacked under the top one. What lies past the tile is padding, and the
+ * padding is not blank - the decompressor leaves near-white opaque texels
+ * there (0x000e and 0x0858 both do). The shader clamps sampling half a source
+ * texel inside the tile edge, which on the bilinear original lands on the
+ * edge texel alone; but the cubic's last two output texels before the edge
+ * lie between that texel and the padding, and the one at 0.625 is mostly
+ * padding. Drawn clamped that was a white line down the moon and along
+ * cloud edges. So only the tile is resampled, with its edge held as the
+ * boundary, and the scaled edge is repeated across the rest of the canvas,
+ * as gfx_pad_replacement does for a pack.
  */
 
 #include <stdlib.h>
@@ -50,10 +61,10 @@
 #include <math.h>
 #include "gfx_texscale.h"
 
-// A full TMEM of 4-bit texels at four by four. Anything larger is not a
+// A full TMEM of 4-bit texels at eight by eight. Anything larger is not a
 // stock texture and goes up as it came.
-#define TEXSCALE_MAX_TEXELS (8192 * 16)
-#define TEXSCALE_MAX_SCALE 4
+#define TEXSCALE_MAX_TEXELS (8192 * 64)
+#define TEXSCALE_MAX_SCALE 8
 
 // Above this ratio of texel-frequency detail to the rest, a texture is a
 // pattern the bilinear filter was meant to blur, and is left alone.
@@ -172,34 +183,51 @@ static float pattern_ratio(const float* img, int w, int h, enum TexScaleEdge edg
 }
 
 const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height, int scale,
-                            enum TexScaleEdge edge_s, enum TexScaleEdge edge_t, bool glyph) {
+                            enum TexScaleEdge edge_s, enum TexScaleEdge edge_t, bool glyph,
+                            uint32_t tile_w, uint32_t tile_h) {
     if (scale < 2 || scale > TEXSCALE_MAX_SCALE || width == 0 || height == 0) {
         return NULL;
     }
 
-    const int w = (int)width;
-    const int h = (int)height;
+    // The picture, and the canvas it is drawn onto
+    const bool crop_s = tile_w != 0 && tile_w < width;
+    const bool crop_t = tile_h != 0 && tile_h < height;
+    const int w = (int)(crop_s ? tile_w : width);
+    const int h = (int)(crop_t ? tile_h : height);
     const int ow = w * scale;
     const int oh = h * scale;
+    const int cw = (int)width * scale;
+    const int ch = (int)height * scale;
 
-    if ((size_t)ow * oh > TEXSCALE_MAX_TEXELS) {
+    if (crop_s) {
+        edge_s = TEXSCALE_EDGE_CLAMP;
+    }
+    if (crop_t) {
+        edge_t = TEXSCALE_EDGE_CLAMP;
+    }
+
+    if ((size_t)cw * ch > TEXSCALE_MAX_TEXELS) {
         return NULL;
     }
 
     if (!grow((void**)&src_buf, &src_cap, (size_t)w * h * 4 * sizeof(float)) ||
         !grow((void**)&mid_buf, &mid_cap, (size_t)ow * h * 4 * sizeof(float)) ||
         !grow((void**)&dst_buf, &dst_cap, (size_t)ow * oh * 4 * sizeof(float)) ||
-        !grow((void**)&out_buf, &out_cap, (size_t)ow * oh * 4)) {
+        !grow((void**)&out_buf, &out_cap, (size_t)cw * ch * 4)) {
         return NULL;
     }
 
     // In, premultiplied
-    for (size_t i = 0; i < (size_t)w * h; i++) {
-        const float a = rgba[i * 4 + 3] / 255.0f;
-        src_buf[i * 4 + 0] = rgba[i * 4 + 0] / 255.0f * a;
-        src_buf[i * 4 + 1] = rgba[i * 4 + 1] / 255.0f * a;
-        src_buf[i * 4 + 2] = rgba[i * 4 + 2] / 255.0f * a;
-        src_buf[i * 4 + 3] = a;
+    for (int y = 0; y < h; y++) {
+        const uint8_t* in = rgba + (size_t)y * width * 4;
+        float* out = src_buf + (size_t)y * w * 4;
+        for (int x = 0; x < w; x++, in += 4, out += 4) {
+            const float a = in[3] / 255.0f;
+            out[0] = in[0] / 255.0f * a;
+            out[1] = in[1] / 255.0f * a;
+            out[2] = in[2] / 255.0f * a;
+            out[3] = a;
+        }
     }
 
     if (!glyph && pattern_ratio(src_buf, w, h, edge_s, edge_t) > TEXSCALE_PATTERN_RATIO) {
@@ -277,6 +305,21 @@ const uint8_t* gfx_texscale(const uint8_t* rgba, uint32_t width, uint32_t height
             out_buf[i * 4 + c] = (uint8_t)(v * 255.0f + 0.5f);
         }
         out_buf[i * 4 + 3] = (uint8_t)(a * 255.0f + 0.5f);
+    }
+
+    // The padding, as the picture's edge repeated. Written back to front so
+    // the picture's rows, which are already in place at the canvas's origin
+    // when it is as wide as the canvas, are read before they are moved.
+    if (ow != cw || oh != ch) {
+        for (int y = ch - 1; y >= 0; y--) {
+            const int sy = y < oh ? y : oh - 1;
+            const uint8_t* src = out_buf + (size_t)sy * ow * 4;
+            uint8_t* dst = out_buf + (size_t)y * cw * 4;
+            memmove(dst, src, (size_t)ow * 4);
+            for (int x = ow; x < cw; x++) {
+                memcpy(dst + (size_t)x * 4, dst + (size_t)(ow - 1) * 4, 4);
+            }
+        }
     }
 
     return out_buf;

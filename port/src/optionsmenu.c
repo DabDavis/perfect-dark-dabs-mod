@@ -2450,7 +2450,7 @@ static MenuItemHandlerResult menuhandlerModSmoothText(s32 operation, struct menu
  */
 static MenuItemHandlerResult menuhandlerModEnhanceTextures(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	static const char *opts[] = { "Off", "2x", "4x" };
+	static const char *opts[] = { "Off", "2x", "4x", "8x" };
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:

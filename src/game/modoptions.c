@@ -44,7 +44,7 @@ struct modoptions g_ModOptions = {
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 	true,                     // modellod: stock's distance models
 	true,                     // smoothtext: a fix, so on
-	MODENHANCE_2X,            // enhancetextures: the cheaper of the two
+	MODENHANCE_2X,            // enhancetextures: the cheapest of the three
 	MODVIVID_LIGHT,           // vividcolours: the washed-out look was the complaint
 	MODBLACK_LIGHT,           // blacklevel: and the pedestal is most of it
 	false,                    // missionrespawn: like Start Armed, a choice, not a default
@@ -487,7 +487,7 @@ s32 modGetSmoothTextScale(void)
 
 /**
  * Enhance Textures, as the factor the game's textures are scaled up by: 1
- * for off, else 2 or 4. The renderer keeps its own copy of this and of
+ * for off, else 2, 4 or 8. The renderer keeps its own copy of this and of
  * Smooth Text (gfx_texture_enhance_scale, gfx_text_smooth_scale);
  * videoSetTextureEnhance() keeps them together.
  */
@@ -498,6 +498,8 @@ s32 modGetTextureEnhanceScale(void)
 		return 2;
 	case MODENHANCE_4X:
 		return 4;
+	case MODENHANCE_8X:
+		return 8;
 	}
 
 	return 1;

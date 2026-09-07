@@ -363,6 +363,17 @@ set_source_files_properties(${SRC_FAST3D} PROPERTIES
   COMPILE_OPTIONS "-O2;-finline-functions"
 )
 
+# Enhance Textures' resampler is a few float loops over every texel a texture
+# uploads, run on the render thread as the texture is first drawn. Its clamps
+# are min/max on floats, which the vectoriser will not touch while NaN and
+# signed-zero rules apply, so at -O2 a 64x64 texture at 8x costs 7 ms and at
+# -O3 with fast maths 2.3 ms (the down pass alone 4.2 ms to 0.6). Its inputs
+# are bytes over 255 and never NaN; the output differs by one 8-bit step in a
+# few texels in a million.
+set_source_files_properties("${CMAKE_SOURCE_DIR}/port/fast3d/gfx_texscale.cpp" PROPERTIES
+  COMPILE_OPTIONS "-O3;-ffast-math"
+)
+
 # PD_HOT_O2: the decompiled files a crowded match spends its time in
 # (collision, character movement and AI, model animation, room and portal
 # visibility) at -O2 as well. Worth about 3% of the main thread on an 80-sim
