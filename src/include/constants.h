@@ -4792,6 +4792,8 @@ enum weaponnum {
 #define WEAPONFLAG2_LASERHIT         0x00200000 // Hits with the laser's crackle, on chrs and objects alike
 #define WEAPONFLAG2_BLUNTMELEE       0x00400000 // Its melee function is a blow, a fist or a pistol butt: the punch sounds on a chr
 #define WEAPONFLAG2_PISTOLCASING     0x00800000 // Ejects its casing the small pistol's way: a slow tumble out of the side, not the rifle's arc
+#define WEAPONFLAG2_SHOTGUNDAMAGE    0x01000000 // Its damage to a chr falls off with distance the shotgun's way: four to six times at point blank, none past 16 m
+#define WEAPONFLAG2_PIERCESSHIELD    0x02000000 // Goes through a shield the FarSight's way: damages it, and tenfold
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

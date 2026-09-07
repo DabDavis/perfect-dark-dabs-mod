@@ -2293,6 +2293,7 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "casing_create_for_hand",     0x7f0ade00, 0x7f0ae964 },
 	{ "bgun_create_fx",             0x7f0a5300, 0x7f0a5550 },
 	{ "projectile_tick",            0x7f073c6c, 0x7f076f30 },
+	{ "chr_damage",                 0x7f034524, 0x7f036358 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3738,6 +3739,8 @@ static const struct { const char *flag; const char *fn; u32 value; } flagSites[]
 	{ "nocarteject",  "bgun_create_fx", 8 },
 	{ "stickstowall", "projectile_tick", 34 },
 	{ "bladehit",     "projectile_tick", 86 },
+	{ "shotgundamage", "chr_damage", 19 },
+	{ "piercesshield", "chr_damage", 22 },
 };
 
 static int cmpU8(const void *a, const void *b)
@@ -3747,6 +3750,34 @@ static int cmpU8(const void *a, const void *b)
 
 #define FLAGSITE_BEGIN "# importer: weaponsites begin"
 #define FLAGSITE_END   "# importer: weaponsites end"
+
+/* -- the damage rules ------------------------------------------------------ */
+
+#define DAMAGE_BEGIN "# importer: damage begin"
+#define DAMAGE_END   "# importer: damage end"
+
+/**
+ * The float a `lui at,HI` site loads, as the mod's code has it: chr_damage
+ * loads the player's headshot scale that way (0x41c8 is 25.0f, GE-X's 0x3f80
+ * is 1.0f) before multiplying. The first site with the stock value; 0 when
+ * the mod's word is not the same instruction with another number.
+ */
+static s32 followFloatImmediate(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
+		u32 start, u32 end, u32 stockhi, f32 *out)
+{
+	for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= stocklen && ofs + 4 <= modlen; ofs += 4) {
+		const u32 x = be32(stockcode, ofs);
+		if ((x >> 26) == 0x0f && ((x >> 16) & 0x1f) == 1 && (x & 0xffff) == stockhi) {
+			const u32 y = be32(modcode, ofs);
+			if ((y >> 16) != (x >> 16)) {
+				return 0;
+			}
+			*out = emuF((y & 0xffff) << 16);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 /**
  * Cuts one of our earlier regions out of a modconfig.txt so a re-import does
@@ -4499,6 +4530,47 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The damage rules chr_damage decides that the mod's code changes: the
+	// player's headshot scale (a float the code loads: 25 in stock) and
+	// whether a hit that breaks a shield still lands (stock zeroes the damage
+	// in the branch's delay slot; GE-X and three more mods made that word a
+	// nop). Written as the port's own damage block when either differs.
+	char *damagecfg = NULL;
+	u32 damagelen = 0, damagecap = 0;
+	if (t.followed) {
+		u32 start, end;
+		if (codeSym("chr_damage", &start, &end)) {
+			f32 headshot = 0;
+			s32 breakhits = -1;
+			if (!followFloatImmediate(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, 0x41c8, &headshot)) {
+				rep("  the player's headshot scale in chr_damage does not read; left as the port has it");
+				headshot = 25;
+			}
+			// the delay slot that zeroes the damage once the shield is gone:
+			// `mtc1 zero,$f20` after the `bc1fl` past `c.le.s`
+			for (u32 ofs = start; ofs + 8 <= end && ofs + 8 <= t.stockcodelen && ofs + 8 <= t.modcodelen; ofs += 4) {
+				if (be32(t.stockcode, ofs) == 0x4502000au && be32(t.stockcode, ofs + 4) == 0x4480a000u) {
+					const u32 y = be32(t.modcode, ofs + 4);
+					breakhits = y == 0 ? 1 : y == 0x4480a000u ? 0 : -1;
+					break;
+				}
+			}
+			if (breakhits < 0) {
+				rep("  the shield-break damage in chr_damage does not read; left as the port has it");
+				breakhits = 0;
+			}
+			if (headshot != 25 || breakhits) {
+				appendf(&damagecfg, &damagelen, &damagecap, "damage {\n  playerheadshotscale %g\n  shieldbreakhits %d\n}\n", (f64)headshot, breakhits);
+				if (headshot != 25) {
+					rep("  a player's headshot does %g times the damage in a mission (stock: 25)", (f64)headshot);
+				}
+				if (breakhits) {
+					rep("  a hit that breaks a shield still lands on the health behind it (stock: it is absorbed)");
+				}
+			}
+		}
+	}
+
 	if (t.followed) {
 		freePairs(&t.sp);
 		freePairs(&t.mp);
@@ -4562,14 +4634,21 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					cutRegion(text, at, end + strlen(FLAGSITE_END));
 				}
 			}
+			at = strstr(text, DAMAGE_BEGIN);
+			if (at) {
+				char *end = strstr(at, DAMAGE_END);
+				if (end) {
+					cutRegion(text, at, end + strlen(DAMAGE_END));
+				}
+			}
 			free(existing);
 			existing = (u8 *)text;
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -4582,6 +4661,8 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				flagsite ? "# The weapons the mod's code tests for a flag's behaviour, read as the compare chains at\n"
 				           "# its sites. Written by the game's mod importer.\n" FLAGSITE_BEGIN "\n" : "",
 				flagsite ? flagsite : "", flagsite ? FLAGSITE_END "\n\n" : "",
+				damagecfg ? "# The damage rules the mod's code changes, read from it. Written by the game's mod importer.\n" DAMAGE_BEGIN "\n" : "",
+				damagecfg ? damagecfg : "", damagecfg ? DAMAGE_END "\n\n" : "",
 				existing ? (const char *)existing : "");
 		written += writeOut(outdir, "modconfig.txt", (const u8 *)block, strlen(block));
 		free(block);
@@ -4590,6 +4671,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(shield);
 		free(hitsound);
 		free(flagsite);
+		free(damagecfg);
 	}
 
 	return written;

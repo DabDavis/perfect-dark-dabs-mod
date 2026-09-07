@@ -1061,3 +1061,39 @@ another shield check removed, not a weapon, left like the hit sound's.
 - GE-X writes 153 where stock had 63 (a number no table has): dropped from
   the list with a note, not passed to a `weaponflags` line that would warn
   on every load. Importer version 18.
+
+## chr_damage: rules, not lists (2026-09-07)
+
+Sixteen words in GE-X and, for once, mostly not weapon numbers: GE-X tunes
+the damage model. What came out, and what did not:
+
+- **Two one-site flags**, read as compare chains like the rest: the
+  shotgun's distance falloff on a chr (`WEAPONFLAG2_SHOTGUNDAMAGE`; GE-X's
+  15 alone, not the 14 its pump-action list has) and the FarSight's
+  shield-piercing tenfold hit (`WEAPONFLAG2_PIERCESSHIELD`; GE-X's 38).
+- **The player's headshot scale** is a float the code loads with `lui
+  at,0x41c8` (25.0f) at three sites - solo, and the two co-operative
+  branches - and GE-X loads 1.0f: no headshot bonus. `follow_float_immediate()`
+  / `followFloatImmediate()` read a `lui at` the way `follow_immediate()`
+  reads an `addiu`, and it is `g_ModPlayerHeadshotScale`, from a `damage {
+  playerheadshotscale N }` block.
+- **A hit that breaks the shield still lands.** Stock zeroes the damage in
+  the delay slot of the `bc1fl` past `c.le.s` (`mtc1 zero,$f20`, the "shield
+  is now gone" branch, which the C reads as `damage = 0`); GE-X, DEEP SEA X
+  and both Weather Mods make that one word a nop, so the whole hit goes on
+  to health after the shield breaks. The reader looks for the stock pair
+  of words and asks whether the second became 0: `g_ModShieldBreakHits`,
+  `shieldbreakhits 1`. It was read first as "the shield absorbs nothing",
+  which is what the C looks like it says; the other `mtc1 zero,$f20` at
+  the branch's target is not on the taken path, and the delay slot is the
+  only zeroing there. Read the asm's path, not the C's shape, for a
+  one-word change.
+- **Left, and why.** The knife's three sites (the poison choke, the
+  knife-in-the-back kill, the headshot doubling) and the tranquilizer's
+  are the "one weapon with one quirk" class of weapons.md: GE-X's knife has
+  no poison function, so its 26 -> 2 buys nothing there, and it took the
+  tranquilizer test out. A code cave at 0x7f1ac06c (bondgun's data, where
+  modcodediff lists it as `var7f1ac060`) skips shield damage for hits to
+  the gun (`HITPART_GUN`) and the hat: a rule a `damage` key could carry,
+  not read yet. And the shotgun's mid-range multiplier went 3.0 to 3.25.
+  Importer version 19.

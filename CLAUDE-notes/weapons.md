@@ -10,7 +10,7 @@ about.
 So the behaviour moves onto the weapon:
 
 - `struct weapon.flags2` - a second flags word, the first having all 32 bits
-  spoken for. 24 behaviours so far, read with `weaponHasFlag2()`.
+  spoken for. 26 behaviours so far, read with `weaponHasFlag2()`.
 - `struct weapon.pickupsound` and `.unequippedreloadindex` - where the answer is
   a value rather than a yes.
 - `struct weaponfunc.flags` - for what belongs to one *function* of a weapon
@@ -147,8 +147,10 @@ number (2026-09-07): `FLAG_SITES` in both importers names a flag's sites as
 }` is written when every site agrees. Pump action, the small pistols'
 casing (`WEAPONFLAG2_PISTOLCASING`, the four in `casingCreateForHand()`)
 the magnums' no-eject (`NOCARTEJECT`, two sites), the sticks-where-it-lands
-list (`STICKSTOWALL`) and the thrown blade's four embed sites in
-`projectileTick()` (`BLADEHIT`) are read that way;
+list (`STICKSTOWALL`), the thrown blade's four embed sites in
+`projectileTick()` (`BLADEHIT`), the shotgun's distance falloff and the
+FarSight's shield-piercing in `chrDamage()` (`SHOTGUNDAMAGE`,
+`PIERCESSHIELD`) are read that way;
 the chargeable flag's two sites disagree in GE-X and it is reported
 instead. Adding a converted site to that table is how a mod's list reaches
 the flag. The Reaper's two casing tests in `casingCreateForHand()` are

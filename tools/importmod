@@ -1633,7 +1633,61 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               ('pistolcasing', (('casing_create_for_hand', 36),)),
               ('nocarteject', (('casing_create_for_hand', 8), ('bgun_create_fx', 8))),
               ('stickstowall', (('projectile_tick', 34),)),
-              ('bladehit', (('projectile_tick', 86),)))
+              ('bladehit', (('projectile_tick', 86),)),
+              ('shotgundamage', (('chr_damage', 19),)),
+              ('piercesshield', (('chr_damage', 22),)))
+
+
+def follow_float_immediate(stockcode, modcode, start, end, stockhi):
+    """The float a `lui at,HI` site loads, as the mod's code has it:
+    chr_damage loads the player's headshot scale that way (0x41c8 is 25.0f,
+    GE-X's 0x3f80 is 1.0f) before multiplying. The first site with the stock
+    value; None when the mod's word is not the same instruction with another
+    number."""
+    for ofs in range(start, min(end, len(stockcode) - 3), 4):
+        x = be32(stockcode, ofs)
+        if (x >> 26) == 0x0f and (x >> 16) & 0x1f == 1 and (x & 0xffff) == stockhi:
+            y = be32(modcode, ofs)
+            if (y >> 16) != (x >> 16):
+                return None
+            return struct.unpack('>f', struct.pack('>I', (y & 0xffff) << 16))[0]
+    return None
+
+
+DAMAGE_BEGIN = '# importer: damage begin'
+DAMAGE_END = '# importer: damage end'
+
+
+def damage_from_code(stockcode, modcode, codesyms):
+    """The damage rules chr_damage decides that the mod's code changes, as
+    the port's damage block: the player's headshot scale (a float the code
+    loads, 25 in stock) and whether a hit that breaks a shield still lands
+    (stock zeroes the damage in the branch's delay slot, `mtc1 zero,$f20`
+    after the `bc1fl` past `c.le.s`; GE-X and three more mods made that
+    word a nop). {'headshot', 'breakhits', 'notes'}; a rule that does not
+    read is left as stock with a note."""
+    if 'chr_damage' not in codesyms:
+        return None
+    start, end = codesyms['chr_damage']
+    start -= 0x7f000000
+    end -= 0x7f000000
+    out = {'headshot': 25.0, 'breakhits': 0, 'notes': []}
+    headshot = follow_float_immediate(stockcode, modcode, start, end, 0x41c8)
+    if headshot is None:
+        out['notes'].append("the player's headshot scale in chr_damage does not read; left as the port has it")
+    else:
+        out['headshot'] = headshot
+    breakhits = None
+    for ofs in range(start, min(end, len(stockcode) - 7), 4):
+        if be32(stockcode, ofs) == 0x4502000a and be32(stockcode, ofs + 4) == 0x4480a000:
+            y = be32(modcode, ofs + 4)
+            breakhits = 1 if y == 0 else 0 if y == 0x4480a000 else None
+            break
+    if breakhits is None:
+        out['notes'].append("the shield-break damage in chr_damage does not read; left as the port has it")
+    else:
+        out['breakhits'] = breakhits
+    return out
 
 
 BUDDY_FUNCTION = 'player_tick'
@@ -3073,6 +3127,21 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             if modlist != stocklist:
                 notes.append('%s is on weapon%s %s (stock: %s)' % (flag, 's' if len(modlist) != 1 else '',
                              ', '.join(str(n) for n in modlist) or 'none', ', '.join(str(n) for n in stocklist)))
+    # The damage rules chr_damage decides that the mod's code changes
+    damageregion = ''
+    if followed and codesyms:
+        dmg = damage_from_code(stockcode, modcode, codesyms)
+        if dmg:
+            notes.extend(dmg['notes'])
+            if dmg['headshot'] != 25 or dmg['breakhits']:
+                damageregion = ('# The damage rules the mod\'s code changes, read from it. Written by tools/importmod.\n'
+                                + DAMAGE_BEGIN + '\ndamage {\n  playerheadshotscale %g\n  shieldbreakhits %d\n}\n' % (dmg['headshot'], dmg['breakhits'])
+                                + DAMAGE_END + '\n')
+                if dmg['headshot'] != 25:
+                    notes.append("a player's headshot does %g times the damage in a mission (stock: 25)" % dmg['headshot'])
+                if dmg['breakhits']:
+                    notes.append('a hit that breaks a shield still lands on the health behind it (stock: it is absorbed)')
+
     flagsiteregion = ''
     if flagsiteblocks:
         flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'
@@ -3106,11 +3175,14 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(FLAGSITE_BEGIN) + r'\n.*?' + re.escape(FLAGSITE_END) + r'\n*',
                           '', existing, flags=re.S)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(DAMAGE_BEGIN) + r'\n.*?' + re.escape(DAMAGE_END) + r'\n*',
+                          '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
                           (block + '\n' + (weatherregion + '\n' if weatherregion else '')
                            + (shieldregion + '\n' if shieldregion else '')
                            + (hitsoundregion + '\n' if hitsoundregion else '')
-                           + (flagsiteregion + '\n' if flagsiteregion else '') + existing).encode('utf-8'), dryrun)
+                           + (flagsiteregion + '\n' if flagsiteregion else '')
+                           + (damageregion + '\n' if damageregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 

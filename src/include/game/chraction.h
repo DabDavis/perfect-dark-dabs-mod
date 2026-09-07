@@ -345,3 +345,6 @@ bool chrIsAvoiding(struct chrdata *chr);
 void chrDrCarollEmitSparks(struct chrdata *chr);
 
 #endif
+
+extern f32 g_ModPlayerHeadshotScale;
+extern bool g_ModShieldBreakHits;

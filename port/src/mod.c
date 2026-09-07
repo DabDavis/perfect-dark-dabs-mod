@@ -17,6 +17,7 @@
 #include "mod.h"
 #include "game/file.h"
 #include "game/chr.h"
+#include "game/chraction.h"
 #include "data.h"
 #include "game/stagetable.h"
 #include "game/stagemusic.h"
@@ -503,7 +504,51 @@ static const struct {
 	{ "laserhit",         WEAPONFLAG2_LASERHIT },
 	{ "bluntmelee",       WEAPONFLAG2_BLUNTMELEE },
 	{ "pistolcasing",     WEAPONFLAG2_PISTOLCASING },
+	{ "shotgundamage",    WEAPONFLAG2_SHOTGUNDAMAGE },
+	{ "piercesshield",    WEAPONFLAG2_PIERCESSHIELD },
 };
+
+/**
+ * damage { playerheadshotscale N shieldbreakhits 0|1 }
+ *
+ * The rules chr_damage decides that a mod's code changes: how much more a
+ * player's headshot does in a mission (stock 25; GE-X 1), and whether a hit
+ * that breaks a shield still lands on the health behind it (stock no; GE-X
+ * and three more yes). Written by the importer from the mod's code.
+ */
+static char *modConfigParseDamage(char *p, char *token)
+{
+	s32 tmp = 0;
+	f32 tmpf = 0;
+
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		if (!strcmp(token, "playerheadshotscale")) {
+			PARSE_FLOAT("damage", "playerheadshotscale", tmpf, 0.f, 1000.f, NULL);
+			g_ModPlayerHeadshotScale = tmpf;
+		} else if (!strcmp(token, "shieldbreakhits")) {
+			PARSE_INT("damage", "shieldbreakhits", tmp, 0, 1, NULL);
+			g_ModShieldBreakHits = tmp != 0;
+		} else {
+			sysLogPrintf(LOG_ERROR, "modconfig: damage: invalid key: %s", token);
+			return NULL;
+		}
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated damage block");
+		return NULL;
+	}
+
+	return p;
+}
 
 /**
  * weaponflags FLAG { [clear] NUMBER... }
@@ -1150,6 +1195,15 @@ s32 modConfigLoad(const char *fname)
 			p = modConfigParseStage(p, token);
 			if (!p) {
 				sysLogPrintf(LOG_ERROR, "modconfig: malformed stage block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "damage")) {
+			// damage { KEYVALUES... }
+			char *prev = p;
+			p = modConfigParseDamage(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed damage block at offset %d", prev - data);
 				success = false;
 				break;
 			}
@@ -2112,7 +2166,9 @@ static bool modTablesRestore(void)
 	g_MpListCounts = mpListCountsSnapshot;
 	g_MpNumArenas = numMpArenasSnapshot;
 	g_MpArenasImported = mpArenasImportedSnapshot;
-	// the shield colours: the game's own ramp is compiled in, so a mod's is dropped
+	// the damage rules, and the shield colours: the game's own are compiled in
+	g_ModPlayerHeadshotScale = 25;
+	g_ModShieldBreakHits = false;
 	shieldColourSet(SHIELDCOLOUR_HIT, NULL, 0);
 	shieldColourSet(SHIELDCOLOUR_PLAYER, NULL, 0);
 	// back to the port's own table before the copy, so an imported one is dropped

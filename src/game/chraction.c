@@ -71,6 +71,13 @@ u8 g_RecentQuipsIndex;
 f32 g_EnemyAccuracyScale = 1;
 f32 g_PlayerDamageRxScale = 1;
 f32 g_PlayerDamageTxScale = 1;
+
+// The damage rules a mod's chr_damage changes, as the port's own numbers
+// (mod.c's damage block, from the importer reading the mod's code): how much
+// more a player's headshot does in a mission, and whether a hit that breaks a
+// shield still lands on the health behind it (GE-X and three more do that).
+f32 g_ModPlayerHeadshotScale = 25;
+bool g_ModShieldBreakHits = false;
 f32 g_AttackWalkDurationScale = 1;
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -4850,7 +4857,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		} else if (aprop && aprop->type == PROPTYPE_PLAYER) {
 			// Player is attacking
 			damage *= g_PlayerDamageTxScale;
-			headshotdamagescale = 25;
+			headshotdamagescale = g_ModPlayerHeadshotScale;
 		} else if (aprop && aprop->type == PROPTYPE_CHR && vprop->type == PROPTYPE_PLAYER) {
 			// Chr is attacking player
 			damage *= g_PlayerDamageRxScale * pdmodeGetEnemyDamage();
@@ -4872,7 +4879,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			}
 		} else if (aprop && aprop->type == PROPTYPE_PLAYER && vprop->type != PROPTYPE_PLAYER) {
 			damage *= g_PlayerDamageTxScale;
-			headshotdamagescale = 25;
+			headshotdamagescale = g_ModPlayerHeadshotScale;
 		} else if (aprop && aprop->type == PROPTYPE_CHR && vprop->type == PROPTYPE_PLAYER) {
 			damage *= g_PlayerDamageRxScale * pdmodeGetEnemyDamage();
 		}
@@ -4893,7 +4900,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			}
 		} else if (aprop && aprop == g_Vars.bond->prop) {
 			damage *= g_PlayerDamageTxScale;
-			headshotdamagescale = 25;
+			headshotdamagescale = g_ModPlayerHeadshotScale;
 		} else if (aprop && aprop != g_Vars.bond->prop && vprop == g_Vars.bond->prop) {
 			damage *= g_PlayerDamageRxScale * pdmodeGetEnemyDamage();
 		}
@@ -4967,7 +4974,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	}
 
 	// If using the shotgun, scale the damage based on distance
-	if (aprop && aprop->type == PROPTYPE_CHR && gset->weaponnum == WEAPON_SHOTGUN) {
+	if (aprop && aprop->type == PROPTYPE_CHR && weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_SHOTGUNDAMAGE)) {
 		f32 xdiff = aprop->pos.x - vprop->pos.x;
 		f32 ydiff = aprop->pos.y - vprop->pos.y;
 		f32 zdiff = aprop->pos.z - vprop->pos.z;
@@ -4986,7 +4993,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 
 	// damageshield is an argument to this function,
 	// but is forced on if using the Farsight.
-	if (gset && gset->weaponnum == WEAPON_FARSIGHT) {
+	if (gset && weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_PIERCESSHIELD)) {
 		damageshield = true;
 		damage *= 10;
 	}
@@ -5027,7 +5034,10 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				chrSetShield(chr, shield);
 			} else {
 				// Shield is now gone
-				damage = 0;
+				if (!g_ModShieldBreakHits) {
+					damage = 0;
+				}
+
 				chrSetShield(chr, 0);
 			}
 
