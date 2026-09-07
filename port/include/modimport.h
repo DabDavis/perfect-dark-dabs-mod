@@ -44,8 +44,8 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // and the Combat Simulator's track list; 11: ammo and explosion types, the
 // auto-switch lists, simulant weapon preferences, HUD message styles and the
 // global AI lists; 12: the weather, read by running the mod's code).
-#define MODIMPORT_VERSION 13
-#define MODIMPORT_VERSION_LINE "importer: 13 (the game's own)"
+#define MODIMPORT_VERSION 14
+#define MODIMPORT_VERSION_LINE "importer: 14 (the game's own)"
 
 #ifdef __cplusplus
 }

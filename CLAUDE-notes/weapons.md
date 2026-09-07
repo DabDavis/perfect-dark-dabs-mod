@@ -10,7 +10,7 @@ about.
 So the behaviour moves onto the weapon:
 
 - `struct weapon.flags2` - a second flags word, the first having all 32 bits
-  spoken for. 20 behaviours so far, read with `weaponHasFlag2()`.
+  spoken for. 23 behaviours so far, read with `weaponHasFlag2()`.
 - `struct weapon.pickupsound` and `.unequippedreloadindex` - where the answer is
   a value rather than a yes.
 - `struct weaponfunc.flags` - for what belongs to one *function* of a weapon
@@ -28,7 +28,7 @@ tvscreen 5 { sameas 3 }
 
 ## Converting another one
 
-`bondgun.c` still has around 100 of these comparisons and `propobj.c` around 74.
+`bondgun.c` still has around 90 of these comparisons and `propobj.c` around 74.
 Three checks before the edit, one after. Each of them has already caught a
 silent bug.
 
@@ -116,6 +116,29 @@ into the secondary now also asks that a secondary exists - a mod's minigun has
 no grinder. Still keyed on the number, as jump tables: the equip sound in
 `bgunTickIncChangeGun()`, the spark colour in `propFindAimingAt()`, the beam
 list in `bgunCreateFx()` and the chr weapon lists.
+
+**The hit sounds are three flags, read out of the mod's code by running it**
+(2026-09-07). `bgunPlayPropHitSound()` and `bgunPlayBgHitSound()` picked a
+sound by number: the knife and the bolt ring (`WEAPONFLAG2_BLADEHIT`), the
+laser crackles (`WEAPONFLAG2_LASERHIT`), and unarmed or the secondary function
+of five pistols lands a blow (`WEAPONFLAG2_BLUNTMELEE`, with the function in
+use being melee - `bgunIsBluntMelee()`; the type alone would have taken the
+Reaper's grinder and the Tranquilizer's injection, check 3). GE-X renumbered
+the first two (knife 26 -> 2, laser 29 -> 22, its Moonraker at the Dragon's
+address, which inheritance by address could never have flagged) and rewrote
+the pistol list to {3,4,5,17,19,20}, every one a pistol whose secondary is a
+melee function. Following constants through a rewritten list is not a
+reading, so the importer runs the function for every weapon number, on a chr
+with either function and on an object, with the sound tables it copies to its
+stack seeded with markers (`HITSOUND_SEEDS`), and reads which sound it stored
+- the chr branch's in one stack local, the object branch's in another. The
+result is `weaponflags FLAG { clear N... }` lines for the whole table, a
+block that exists for this: a flag *list* rather than a weapon's flags, and
+`clear` because a slot that sits at a stock definition's address inherits its
+flags and the mod's code may not agree. GE-X's chr branch gives the blade to
+nobody (its knife thumps on a chr and rings on a wall); one flag cannot say
+that, so the flag follows the object branch and the report says so. Slots
+41-43 share slot 3's definition and get its flag with it.
 
 Reproduce a guard fight headlessly: copy the tester's `pd.ini` (Guards
 Alerted!, Random, Akimbo) into the scratch savedir, boot Runway under gdb with a

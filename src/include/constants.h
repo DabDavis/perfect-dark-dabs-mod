@@ -4788,6 +4788,9 @@ enum weaponnum {
 #define WEAPONFLAG2_HARDWHENLANDED   0x00020000 // Once down it cannot be shot off again
 #define WEAPONFLAG2_POISONS          0x00040000 // Poisons whatever it embeds itself in
 #define WEAPONFLAG2_MINIGUN          0x00080000 // Fires like the Reaper: the trigger spins the barrel up, a shot lands every third burst tick, three muzzles take turns, its own eject parts and smoke
+#define WEAPONFLAG2_BLADEHIT         0x00100000 // Strikes as a blade: the knife's sound on a chr, metal on anything else, no ricochet
+#define WEAPONFLAG2_LASERHIT         0x00200000 // Hits with the laser's crackle, on chrs and objects alike
+#define WEAPONFLAG2_BLUNTMELEE       0x00400000 // Its melee function is a blow, a fist or a pistol butt: the punch sounds on a chr
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d

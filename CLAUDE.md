@@ -39,8 +39,8 @@ it down: a new note, or a section in the one for its area, and a line here.
 ## GE-X import: where to pick up (2026-09-05)
 
 The console mod GE-X 6a is the reference case for the mod loader. Its assets,
-data tables, missions, music, environments, star field, weather and shield
-colours all import (`build/mods/GE-X_6a_01-19-25/`, importer version 13); what is left is the code
+data tables, missions, music, environments, star field, weather, shield
+colours and hit sounds all import (`build/mods/GE-X_6a_01-19-25/`, importer version 14); what is left is the code
 GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
 [mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
 end before touching any of it, then:
@@ -51,8 +51,7 @@ end before touching any of it, then:
        --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
    ```
    `constants` regions are tables to follow (most are done); `rewritten` ones
-   need reading. Remaining rewritten, by size: `bgun_play_prop_hit_sound` (22
-   words), `player_tick` (21),
+   need reading. Remaining rewritten, by size: `player_tick` (21 words),
    `bgun_tick_inc_attacking_shoot` (19), `casing_create_for_hand` (17),
    `projectile_tick` and `chr_damage` (16 each), `beam_render` (14),
    `hand_tick_attack`, `bot_tick_unpaused` (9 each), then a long tail of 1–7
@@ -65,8 +64,10 @@ end before touching any of it, then:
    row in both importers). A rewritten function is run on the toy MIPS
    (`emulate()` in `tools/importmod`, `emuRunArgs()` in `port/src/modimport.c`,
    the weather is the worked example, the shield colour the one for a
-   function that tests its caller) and written out as the port's own
-   config. Across the archive the most rewritten functions are `player_tick`
+   function that tests its caller, the hit sounds the one for a list of
+   weapon numbers: seed the tables, run per number, read what it stored)
+   and written out as the port's own config. A weapon-number test in the
+   port becomes a flag (weapons.md) and the importer writes `weaponflags`. Across the archive the most rewritten functions are `player_tick`
    (38 mods), then a block of 23 that every "all solos in multi" patch
    shares (`tex_init`, `setup_create_props`, `mp_start_match`, the unlock
    handlers); `modcodediff --summary` over every patch takes four minutes

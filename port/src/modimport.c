@@ -2228,6 +2228,7 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "shieldhit_health_to_rgb",    0x7f0295f8, 0x7f0297a0 },
 	{ "shieldhit_render_component", 0x7f02983c, 0x7f02b7d4 },
 	{ "player_render_shield",       0x7f0c0190, 0x7f0c07c8 },
+	{ "bgun_play_prop_hit_sound",   0x7f0a7d98, 0x7f0a83fc },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -2870,11 +2871,17 @@ static s32 emuDelaySlot(struct emu *e, u32 pc)
 // what a function is run with: a0-a3, the first float argument as its bits,
 // and the address it is returning to (0 for the sentinel) - a function that
 // tests its own return address is asked about each of its call sites in turn
+struct emuseed {
+	u32 addr, value;
+};
+
 struct emuargs {
 	u32 a0, a1, a2, a3;
 	u32 f12;
 	u32 ra;
 	u32 stageindex;
+	const struct emuseed *seed;   // words planted in the scratch memory before the run
+	u32 nseed;
 };
 
 /**
@@ -2902,6 +2909,9 @@ static s32 emuRunArgs(struct emu *e, u32 entry, const struct emuargs *a, u32 max
 	e->f[12] = a->f12;
 	e->r[29] = 0x803ff000u;
 	e->r[31] = sentinel;
+	for (u32 i = 0; i < a->nseed; ++i) {
+		emuStore(e, a->seed[i].addr, a->seed[i].value);
+	}
 
 	for (u32 steps = 0; steps < maxsteps; ++steps) {
 		u32 x, target = 0;
@@ -3362,6 +3372,165 @@ static void shieldBlock(char **buf, u32 *len, u32 *cap, const char *site, const 
 
 #define SHIELD_BEGIN "# importer: shieldcolour begin"
 #define SHIELD_END   "# importer: shieldcolour end"
+
+/* -- the hit sounds, read from the code that picks them -------------------- */
+
+// what bgun_play_prop_hit_sound reads before it can be told apart, planted in
+// the scratch memory: g_Vars.lvupdate240 (it returns at once on 0), and a
+// marker in each of the sound tables it copies to its stack - the punch
+// sounds for a chr, the default ones for a chr, the default ones for anything
+// else
+static const struct emuseed hitsoundSeeds[] = {
+	{ 0x80510000u, 0 },   // the gset: weaponnum, -, unk063a, weaponfunc
+	{ 0x80510100u, 0 },   // the prop: its type
+	{ 0x80510104u, 0x80510200u },   // the prop's chr
+	{ 0x80099ff4u, 1 },
+	{ 0x800702e0u, 0x11110000u },
+	{ 0x800702e8u, 0x22220000u },
+	// 20 entries, indexed by rand % 20
+	{ 0x800702ecu, 0x33333333u }, { 0x800702f0u, 0x33333333u }, { 0x800702f4u, 0x33333333u },
+	{ 0x800702f8u, 0x33333333u }, { 0x800702fcu, 0x33333333u }, { 0x80070300u, 0x33333333u },
+	{ 0x80070304u, 0x33333333u }, { 0x80070308u, 0x33333333u }, { 0x8007030cu, 0x33333333u },
+	{ 0x80070310u, 0x33333333u },
+};
+#define HITSOUND_PUNCH      0x1111
+#define HITSOUND_CHRDEFAULT 0x2222
+#define HITSOUND_OBJDEFAULT 0x3333
+#define HITSOUND_BLADE_CHR  0x05f6
+#define HITSOUND_BLADE_OBJ  0x8079
+#define HITSOUND_LASER_A    91
+#define HITSOUND_LASER_B    92
+#define HITSOUND_GSET       0x80510000u
+#define HITSOUND_PROP       0x80510100u
+// the soundnum local of each branch in the function's frame: a chr's and an object's are two variables
+#define HITSOUND_SOUNDNUM_CHR (0x803ff000u - 200 + 182)
+#define HITSOUND_SOUNDNUM_OBJ (0x803ff000u - 200 + 154)
+#define HITSOUND_MAXWEAPONS 128
+
+enum { HITSOUND_BLADEHIT, HITSOUND_LASERHIT, HITSOUND_BLUNTMELEE, HITSOUND_NUMFLAGS };
+static const char *const hitsoundFlagNames[HITSOUND_NUMFLAGS] = { "bladehit", "laserhit", "bluntmelee" };
+static const char *const hitsoundWhat[HITSOUND_NUMFLAGS] = { "a blade", "the laser", "a blow" };
+// the port's own lists (invitems.c): the knife and the bolt, the laser, and
+// unarmed plus the five pistols with a pistol whip
+static const u8 hitsoundStock[HITSOUND_NUMFLAGS][8] = { { 26, 86 }, { 29 }, { 1, 2, 3, 4, 8, 9 } };
+
+struct hitsoundread {
+	u8 nums[HITSOUND_NUMFLAGS][HITSOUND_MAXWEAPONS];
+	u32 count[HITSOUND_NUMFLAGS];
+	u8 bladechr[HITSOUND_MAXWEAPONS];   // the chr branch's blade list, for the report where it differs
+	u32 nbladechr;
+};
+
+static s32 hitsoundRun(struct emu *e, u32 entry, u32 num, u32 func, u32 proptype, u32 *soundnum)
+{
+	struct emuseed seed[sizeof(hitsoundSeeds) / sizeof(hitsoundSeeds[0])];
+	struct emuargs a;
+	u32 v0, calls, w, at;
+
+	memcpy(seed, hitsoundSeeds, sizeof(seed));
+	seed[0].value = (num << 24) | func;
+	seed[1].value = proptype << 24;
+	memset(&a, 0, sizeof(a));
+	a.a0 = HITSOUND_GSET;
+	a.a1 = HITSOUND_PROP;
+	a.a2 = 0xffffffffu;   // texturenum -1: no surface, no shield
+	a.seed = seed;
+	a.nseed = sizeof(seed) / sizeof(seed[0]);
+	if (!emuRunArgs(e, entry, &a, 2000, &v0, &calls)) {
+		return 0;
+	}
+	at = proptype == 3 ? HITSOUND_SOUNDNUM_CHR : HITSOUND_SOUNDNUM_OBJ;
+	w = emuStored(e, at & ~3u, &w) ? w : 0;
+	*soundnum = (w >> ((2 - (at & 2)) * 8)) & 0xffff;
+	return 1;
+}
+
+static s32 hitsoundKnown(u32 v)
+{
+	return v == 0 || v == HITSOUND_PUNCH || v == HITSOUND_CHRDEFAULT || v == HITSOUND_OBJDEFAULT
+		|| v == HITSOUND_BLADE_CHR || v == HITSOUND_BLADE_OBJ || v == HITSOUND_LASER_A || v == HITSOUND_LASER_B;
+}
+
+/**
+ * Which weapons bgun_play_prop_hit_sound gives the blade's sound, the laser's
+ * and the punch sounds, read by running it for every weapon number: on a chr
+ * with the primary and the secondary function, and on an object. Each run
+ * lands in one of the sound tables (seeded with a marker) or on a constant
+ * (the blade's two, the laser's), and the soundnum it stored says which.
+ * GE-X renumbered the knife and the laser and rewrote the pistol whip list,
+ * and the port keeps those on the weapon as flags (weapons.md). The blade is
+ * the object branch's list; the chr branch has its own, and where the two
+ * differ (GE-X's chr branch has no blade at all) the flag follows the
+ * object's and bladechr carries the other for the report. 0 when the machine
+ * cannot run it or stores a sound that is none of the known ones.
+ */
+static s32 hitsoundFromCode(const u8 *code, u32 codelen, u32 count, struct hitsoundread *out)
+{
+	struct emu *e = malloc(sizeof(*e));
+	u32 fn, fnend;
+
+	memset(out, 0, sizeof(*out));
+	if (!codeSym("bgun_play_prop_hit_sound", &fn, &fnend)) {
+		free(e);
+		return 0;
+	}
+	e->code = code;
+	e->codelen = codelen;
+	if (count > HITSOUND_MAXWEAPONS) {
+		count = HITSOUND_MAXWEAPONS;
+	}
+
+	for (u32 num = 0; num < count; ++num) {
+		u32 chr1, chr2, obj;
+		if (!hitsoundRun(e, fn + GAME_VRAM, num, 0, 3, &chr1) || !hitsoundRun(e, fn + GAME_VRAM, num, 1, 3, &chr2)
+				|| !hitsoundRun(e, fn + GAME_VRAM, num, 0, 1, &obj)
+				|| !hitsoundKnown(chr1) || !hitsoundKnown(chr2) || !hitsoundKnown(obj)) {
+			free(e);
+			return 0;
+		}
+		if (obj == HITSOUND_BLADE_OBJ) {
+			out->nums[HITSOUND_BLADEHIT][out->count[HITSOUND_BLADEHIT]++] = num;
+		}
+		if (chr1 == HITSOUND_BLADE_CHR) {
+			out->bladechr[out->nbladechr++] = num;
+		}
+		if (obj == HITSOUND_LASER_A || obj == HITSOUND_LASER_B) {
+			out->nums[HITSOUND_LASERHIT][out->count[HITSOUND_LASERHIT]++] = num;
+		}
+		if (chr1 == HITSOUND_PUNCH || chr2 == HITSOUND_PUNCH) {
+			out->nums[HITSOUND_BLUNTMELEE][out->count[HITSOUND_BLUNTMELEE]++] = num;
+		}
+	}
+	free(e);
+	return 1;
+}
+
+static s32 hitsoundSame(const struct hitsoundread *r, u32 flag, const u8 *nums, u32 count)
+{
+	return r->count[flag] == count && !memcmp(r->nums[flag], nums, count);
+}
+
+static u32 hitsoundStockCount(u32 flag)
+{
+	u32 n = 0;
+	while (n < 8 && hitsoundStock[flag][n]) {
+		++n;
+	}
+	return n;
+}
+
+// the numbers as a list, for the block and the report
+static void hitsoundList(char *buf, u32 buflen, const u8 *nums, u32 count, const char *sep)
+{
+	u32 len = 0;
+	buf[0] = '\0';
+	for (u32 i = 0; i < count && len < buflen; ++i) {
+		len += snprintf(buf + len, buflen - len, "%s%u", i ? sep : "", nums[i]);
+	}
+}
+
+#define HITSOUND_BEGIN "# importer: hitsounds begin"
+#define HITSOUND_END   "# importer: hitsounds end"
 
 /**
  * Cuts one of our earlier regions out of a modconfig.txt so a re-import does
@@ -3923,6 +4092,50 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The hit sounds: which weapons strike as a blade, which as the laser,
+	// which land a blow. bgun_play_prop_hit_sound decides by weapon number,
+	// GE-X renumbered the first two and rewrote the third's list, and the
+	// port keeps each on the weapon as a flag - so the function is run for
+	// every number and the flags written for the whole table.
+	char *hitsound = NULL;
+	u32 hitsoundlen = 0, hitsoundcap = 0;
+	if (t.followed) {
+		u32 s0, e0;
+		if (codeSym("bgun_play_prop_hit_sound", &s0, &e0)) {
+			const u32 hcount = stockCount("g_Weapons", 4);
+			struct hitsoundread hstock, hmod;
+			s32 stockok = hitsoundFromCode(t.stockcode, t.stockcodelen, hcount, &hstock);
+			for (u32 f = 0; stockok && f < HITSOUND_NUMFLAGS; ++f) {
+				stockok = hitsoundSame(&hstock, f, hitsoundStock[f], hitsoundStockCount(f));
+			}
+			if (!stockok) {
+				rep("  the toy machine does not read the stock hit sound code as the port has it; the mod's hit sounds are left as the port has them");
+			} else if (!hitsoundFromCode(t.modcode, t.modcodelen, hcount, &hmod)) {
+				rep("  the mod's hit sound code does not run on the toy machine; its hit sounds are left as the port has them");
+			} else {
+				char list[512], stocklist[64];
+				for (u32 f = 0; f < HITSOUND_NUMFLAGS; ++f) {
+					hitsoundList(list, sizeof(list), hmod.nums[f], hmod.count[f], " ");
+					appendf(&hitsound, &hitsoundlen, &hitsoundcap, "weaponflags %s { clear%s%s }\n",
+							hitsoundFlagNames[f], hmod.count[f] ? " " : "", list);
+					if (hitsoundSame(&hmod, f, hstock.nums[f], hstock.count[f])) {
+						continue;
+					}
+					hitsoundList(list, sizeof(list), hmod.nums[f], hmod.count[f], ", ");
+					hitsoundList(stocklist, sizeof(stocklist), hstock.nums[f], hstock.count[f], ", ");
+					rep("  hit sounds: %s lands on weapon%s %s (stock: %s)", hitsoundWhat[f],
+							hmod.count[f] != 1 ? "s" : "", hmod.count[f] ? list : "none", stocklist);
+				}
+				if (hmod.nbladechr != hmod.count[HITSOUND_BLADEHIT]
+						|| memcmp(hmod.bladechr, hmod.nums[HITSOUND_BLADEHIT], hmod.nbladechr)) {
+					hitsoundList(list, sizeof(list), hmod.bladechr, hmod.nbladechr, ", ");
+					rep("  hit sounds: on a chr the mod's code gives the blade sound to %s%s%s; the port gives it to the same weapons as on an object",
+							hmod.nbladechr ? "weapon" : "none", hmod.nbladechr > 1 ? "s " : hmod.nbladechr ? " " : "", hmod.nbladechr ? list : "");
+				}
+			}
+		}
+	}
+
 	if (t.followed) {
 		freePairs(&t.sp);
 		freePairs(&t.mp);
@@ -3972,26 +4185,37 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					cutRegion(text, at, end + strlen(SHIELD_END));
 				}
 			}
+			at = strstr(text, HITSOUND_BEGIN);
+			if (at) {
+				char *end = strstr(at, HITSOUND_END);
+				if (end) {
+					cutRegion(text, at, end + strlen(HITSOUND_END));
+				}
+			}
 			free(existing);
 			existing = (u8 *)text;
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
 				shield ? "# The colour of a shield flash, as the mod's code decides it at each place the\n"
 				         "# game asks: read by running that code. Written by the game's mod importer.\n" SHIELD_BEGIN "\n" : "",
 				shield ? shield : "", shield ? SHIELD_END "\n\n" : "",
+				hitsound ? "# Which weapons strike as a blade, which as the laser, which land a blow: read by\n"
+				           "# running the mod's hit sound code for every weapon number. Written by the game's mod importer.\n" HITSOUND_BEGIN "\n" : "",
+				hitsound ? hitsound : "", hitsound ? HITSOUND_END "\n\n" : "",
 				existing ? (const char *)existing : "");
 		written += writeOut(outdir, "modconfig.txt", (const u8 *)block, strlen(block));
 		free(block);
 		free(existing);
 		free(weather);
 		free(shield);
+		free(hitsound);
 	}
 
 	return written;

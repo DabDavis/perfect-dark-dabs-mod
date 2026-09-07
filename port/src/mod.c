@@ -474,6 +474,110 @@ static char *modConfigParseStage(char *p, char *token)
 	return p;
 }
 
+// the port's own weapon flags by the name a modconfig uses for them
+static const struct {
+	const char *name;
+	u32 flag;
+} weaponFlagNames[] = {
+	{ "unequippedreload", WEAPONFLAG2_UNEQUIPPEDRELOAD },
+	{ "pumpaction",       WEAPONFLAG2_PUMPACTION },
+	{ "chargeable",       WEAPONFLAG2_CHARGEABLE },
+	{ "missioncritical",  WEAPONFLAG2_MISSIONCRITICAL },
+	{ "noeject",          WEAPONFLAG2_NOEJECT },
+	{ "landsonhit",       WEAPONFLAG2_LANDSONHIT },
+	{ "nocarteject",      WEAPONFLAG2_NOCARTEJECT },
+	{ "heavysmoke",       WEAPONFLAG2_HEAVYSMOKE },
+	{ "detonatorhand",    WEAPONFLAG2_DETONATORHAND },
+	{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND },
+	{ "pickupsingle",     WEAPONFLAG2_PICKUPSINGLE },
+	{ "explodeswhenshot", WEAPONFLAG2_EXPLODESWHENSHOT },
+	{ "nopickupwhilearmed", WEAPONFLAG2_NOPICKUPWHILEARMED },
+	{ "nopickupinflight", WEAPONFLAG2_NOPICKUPINFLIGHT },
+	{ "nowallhit",        WEAPONFLAG2_NOWALLHIT },
+	{ "isproximitymine",  WEAPONFLAG2_ISPROXIMITYMINE },
+	{ "stickstowall",     WEAPONFLAG2_STICKSTOWALL },
+	{ "hardwhenlanded",   WEAPONFLAG2_HARDWHENLANDED },
+	{ "poisons",          WEAPONFLAG2_POISONS },
+	{ "minigun",          WEAPONFLAG2_MINIGUN },
+	{ "bladehit",         WEAPONFLAG2_BLADEHIT },
+	{ "laserhit",         WEAPONFLAG2_LASERHIT },
+	{ "bluntmelee",       WEAPONFLAG2_BLUNTMELEE },
+};
+
+/**
+ * weaponflags FLAG { [clear] NUMBER... }
+ *
+ * One flag across the whole weapon table: `clear` takes it off every weapon
+ * first, then it goes onto the numbers listed. A `weapon` block says what one
+ * weapon is; this says which weapons a behaviour belongs to, which is the
+ * shape of a list the game's code compares against, and is what the importer
+ * writes when it has read such a list out of a mod's code. A flag sits on the
+ * definition, so a number that shares its definition with another gets it too.
+ */
+static char *modConfigParseWeaponFlags(char *p, char *token)
+{
+	u32 flag = 0;
+	s32 tmp = 0;
+
+	p = strParseToken(p, token, NULL);
+
+	for (u32 i = 0; i < ARRAYCOUNT(weaponFlagNames); ++i) {
+		if (!strcmp(token, weaponFlagNames[i].name)) {
+			flag = weaponFlagNames[i].flag;
+			break;
+		}
+	}
+
+	if (!flag) {
+		sysLogPrintf(LOG_ERROR, "modconfig: weaponflags: unknown flag %s", token);
+		return NULL;
+	}
+
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	if (!strcmp(token, "clear")) {
+		for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
+			struct weapon *weapon = bgunGetWeaponDefinition(i);
+			if (weapon) {
+				weapon->flags2 &= ~flag;
+			}
+		}
+		p = strParseToken(p, token, NULL);
+	}
+
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		struct weapon *weapon;
+		char *endp = token;
+
+		tmp = strtol(token, &endp, 0);
+		if (endp == token || *endp != '\0' || tmp < 0 || tmp > WEAPON_SUICIDEPILL) {
+			sysLogPrintf(LOG_ERROR, "modconfig: weaponflags: invalid weapon number %s", token);
+			return NULL;
+		}
+
+		weapon = bgunGetWeaponDefinition(tmp);
+		if (weapon) {
+			weapon->flags2 |= flag;
+		} else {
+			sysLogPrintf(LOG_WARNING, "modconfig: weaponflags: no weapon %d to flag", tmp);
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated weaponflags block");
+		return NULL;
+	}
+
+	return p;
+}
+
 /**
  * weapon NUMBER { KEYVALUES... }
  *
@@ -506,46 +610,20 @@ static char *modConfigParseWeapon(char *p, char *token)
 	p = strParseToken(p, token, NULL);
 
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		static const struct {
-			const char *name;
-			u32 flag;
-		} flags[] = {
-			{ "unequippedreload", WEAPONFLAG2_UNEQUIPPEDRELOAD },
-			{ "pumpaction",       WEAPONFLAG2_PUMPACTION },
-			{ "chargeable",       WEAPONFLAG2_CHARGEABLE },
-			{ "missioncritical",  WEAPONFLAG2_MISSIONCRITICAL },
-			{ "noeject",          WEAPONFLAG2_NOEJECT },
-			{ "landsonhit",       WEAPONFLAG2_LANDSONHIT },
-			{ "nocarteject",      WEAPONFLAG2_NOCARTEJECT },
-			{ "heavysmoke",       WEAPONFLAG2_HEAVYSMOKE },
-			{ "detonatorhand",    WEAPONFLAG2_DETONATORHAND },
-			{ "noreloadsound",    WEAPONFLAG2_NORELOADSOUND },
-			{ "pickupsingle",     WEAPONFLAG2_PICKUPSINGLE },
-			{ "explodeswhenshot", WEAPONFLAG2_EXPLODESWHENSHOT },
-			{ "nopickupwhilearmed", WEAPONFLAG2_NOPICKUPWHILEARMED },
-			{ "nopickupinflight", WEAPONFLAG2_NOPICKUPINFLIGHT },
-			{ "nowallhit",        WEAPONFLAG2_NOWALLHIT },
-			{ "isproximitymine",  WEAPONFLAG2_ISPROXIMITYMINE },
-			{ "stickstowall",     WEAPONFLAG2_STICKSTOWALL },
-			{ "hardwhenlanded",   WEAPONFLAG2_HARDWHENLANDED },
-			{ "poisons",          WEAPONFLAG2_POISONS },
-			{ "minigun",          WEAPONFLAG2_MINIGUN },
-		};
-
 		s32 handled = false;
 		s32 tmp = 0;
 
-		for (u32 i = 0; i < ARRAYCOUNT(flags); ++i) {
-			if (strcmp(token, flags[i].name)) {
+		for (u32 i = 0; i < ARRAYCOUNT(weaponFlagNames); ++i) {
+			if (strcmp(token, weaponFlagNames[i].name)) {
 				continue;
 			}
 
 			PARSE_INT("weapon", "flag", tmp, 0, 1, NULL);
 
 			if (tmp) {
-				weapon->flags2 |= flags[i].flag;
+				weapon->flags2 |= weaponFlagNames[i].flag;
 			} else {
-				weapon->flags2 &= ~flags[i].flag;
+				weapon->flags2 &= ~weaponFlagNames[i].flag;
 			}
 
 			handled = true;
@@ -1048,6 +1126,15 @@ s32 modConfigLoad(const char *fname)
 			p = modConfigParseStage(p, token);
 			if (!p) {
 				sysLogPrintf(LOG_ERROR, "modconfig: malformed stage block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "weaponflags")) {
+			// weaponflags FLAG { clear NUMBER... }
+			char *prev = p;
+			p = modConfigParseWeaponFlags(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed weaponflags block at offset %d", prev - data);
 				success = false;
 				break;
 			}

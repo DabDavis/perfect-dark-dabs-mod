@@ -1527,7 +1527,7 @@ STAGEINDEX_G5BUILDING = 10
 STAGEINDEX_AIRBASE = 19
 
 
-def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, ra=None):
+def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, ra=None, mem=None):
     """Runs a function of the game binary on a toy machine and returns
     (v0, calls, mem) at its `jr ra`, or None where it meets something the toy
     does not do. Integer ops, branches, single-precision float moves and
@@ -1544,7 +1544,10 @@ def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, r
     when it returns there rather than to the sentinel, so a function that
     tests its own return address - which is how five mods in the archive give
     the shield flash one colour on the player and another on a chr - can be
-    asked about each of its call sites in turn."""
+    asked about each of its call sites in turn. `mem` seeds the scratch
+    memory, {address: word}, for the globals and tables a function reads
+    before it can be told apart: the hit sound reader plants a marker in each
+    sound table and reads back which one the function chose."""
     M = 0xffffffff
     r = [0] * 32
     f = [0] * 32
@@ -1558,7 +1561,7 @@ def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, r
         f[12] = struct.unpack('>I', struct.pack('>f', f12))[0]
     r[29] = 0x803ff000
     r[31] = sentinel
-    mem = {}
+    mem = dict(mem) if mem else {}
     state = {'calls': 0}
 
     def s32(v):
@@ -2068,6 +2071,89 @@ def shield_block(site, reading):
 
 SHIELD_BEGIN = '# importer: shieldcolour begin'
 SHIELD_END = '# importer: shieldcolour end'
+
+
+HITSOUND_FUNCTION = 'bgun_play_prop_hit_sound'
+# what the function reads before it can be told apart, planted in the scratch
+# memory: g_Vars.lvupdate240 (it returns at once on 0), and a marker in each
+# of the sound tables it copies to its stack - the punch sounds for a chr, the
+# default ones for a chr, the default ones for anything else
+HITSOUND_SEEDS = { 0x80099ff4: 1, 0x800702e0: 0x11110000, 0x800702e8: 0x22220000 }
+HITSOUND_SEEDS.update((0x800702ec + i * 4, 0x33333333) for i in range(10))   # 20 entries, indexed by rand % 20
+HITSOUND_PUNCH, HITSOUND_CHRDEFAULT, HITSOUND_OBJDEFAULT = 0x1111, 0x2222, 0x3333
+HITSOUND_BLADE_CHR, HITSOUND_BLADE_OBJ = 0x05f6, 0x8079
+HITSOUND_LASER = (91, 92)
+HITSOUND_GSET, HITSOUND_PROP, HITSOUND_CHR = 0x80510000, 0x80510100, 0x80510200
+# the soundnum local of each branch in the function's frame: a chr's and an object's are two variables
+HITSOUND_SOUNDNUM_CHR = 0x803ff000 - 200 + 182
+HITSOUND_SOUNDNUM_OBJ = 0x803ff000 - 200 + 154
+HITSOUND_FLAGS = ('bladehit', 'laserhit', 'bluntmelee')
+# the port's own lists (invitems.c): the knife and the bolt, the laser, and
+# unarmed plus the five pistols with a pistol whip
+HITSOUND_STOCK = { 'bladehit': (26, 86), 'laserhit': (29,), 'bluntmelee': (1, 2, 3, 4, 8, 9) }
+
+
+def hitsound_from_code(code, codesyms, count):
+    """Which weapons bgun_play_prop_hit_sound gives the blade's sound, the
+    laser's, and the punch sounds, as {flag: sorted numbers}, read by running
+    it for every weapon number: on a chr with the primary and the secondary
+    function, and on an object. Each run lands in one of the sound tables
+    (seeded with a marker) or on a constant (the blade's two, the laser's),
+    and the soundnum it stored says which. GE-X renumbered the knife and the
+    laser and rewrote the pistol whip list, and the port keeps those on the
+    weapon as flags (weapons.md). The blade is the object branch's list; the
+    chr branch has its own, and where the two differ (GE-X's chr branch has
+    no blade at all) the flag follows the object's and 'bladechr' carries the
+    other for the report. None when the machine cannot run it or stores a
+    sound that is none of the known ones."""
+    if HITSOUND_FUNCTION not in codesyms:
+        return None
+    entry = codesyms[HITSOUND_FUNCTION][0]
+    out = { flag: [] for flag in HITSOUND_FLAGS }
+    out['bladechr'] = []
+
+    def run(num, func, proptype):
+        mem = dict(HITSOUND_SEEDS)
+        mem[HITSOUND_GSET] = (num << 24) | func
+        mem[HITSOUND_PROP] = proptype << 24
+        mem[HITSOUND_PROP + 4] = HITSOUND_CHR
+        res = emulate(code, entry, a0=HITSOUND_GSET, args=(HITSOUND_PROP, 0xffffffff), mem=mem, maxsteps=2000)
+        if res is None:
+            return None
+        at = HITSOUND_SOUNDNUM_CHR if proptype == 3 else HITSOUND_SOUNDNUM_OBJ
+        return (res[2].get(at & ~3, 0) >> ((2 - (at & 2)) * 8)) & 0xffff
+
+    for num in range(count):
+        chr1 = run(num, 0, 3)
+        chr2 = run(num, 1, 3)
+        obj = run(num, 0, 1)
+        if None in (chr1, chr2, obj):
+            return None
+        for v in (chr1, chr2, obj):
+            if v not in (0, HITSOUND_PUNCH, HITSOUND_CHRDEFAULT, HITSOUND_OBJDEFAULT, HITSOUND_BLADE_CHR, HITSOUND_BLADE_OBJ) + HITSOUND_LASER:
+                return None
+        if obj == HITSOUND_BLADE_OBJ:
+            out['bladehit'].append(num)
+        if chr1 == HITSOUND_BLADE_CHR:
+            out['bladechr'].append(num)
+        if obj in HITSOUND_LASER:
+            out['laserhit'].append(num)
+        if HITSOUND_PUNCH in (chr1, chr2):
+            out['bluntmelee'].append(num)
+    return out
+
+
+def hitsound_block(reading):
+    """The port's `weaponflags FLAG { clear ... }` lines from a reading: the
+    whole table's worth of each flag, so a weapon that inherited one by
+    sitting at a stock definition's address loses it when the mod's code does
+    not list it."""
+    return ''.join('weaponflags %s { clear%s }\n' % (flag, ''.join(' %d' % n for n in reading[flag]))
+                   for flag in HITSOUND_FLAGS)
+
+
+HITSOUND_BEGIN = '# importer: hitsounds begin'
+HITSOUND_END = '# importer: hitsounds end'
 
 
 def read_codesym(romid):
@@ -2746,6 +2832,37 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                         '# game asks: read by running that code. Written by tools/importmod.\n'
                         + SHIELD_BEGIN + '\n' + '\n'.join(shieldblocks) + SHIELD_END + '\n')
 
+    # The hit sounds: which weapons strike as a blade, which as the laser,
+    # which land a blow. bgun_play_prop_hit_sound decides by weapon number,
+    # GE-X renumbered the first two and rewrote the third's list, and the
+    # port keeps each on the weapon as a flag - so the function is run for
+    # every number and the flags written for the whole table.
+    hitsoundregion = ''
+    if followed and codesyms and HITSOUND_FUNCTION in codesyms:
+        hcount = stockcount('g_Weapons', 4)
+        hstock = hitsound_from_code(stockcode, codesyms, hcount)
+        if hstock is None or any(tuple(hstock[f]) != HITSOUND_STOCK[f] for f in HITSOUND_FLAGS):
+            notes.append("the toy machine does not read the stock hit sound code as the port has it; the mod's hit sounds are left as the port has them")
+        else:
+            hmod = hitsound_from_code(modcode, codesyms, hcount)
+            if hmod is None:
+                notes.append("the mod's hit sound code does not run on the toy machine; its hit sounds are left as the port has them")
+            else:
+                hitsoundregion = ('# Which weapons strike as a blade, which as the laser, which land a blow: read by\n'
+                                  '# running the mod\'s hit sound code for every weapon number. Written by tools/importmod.\n'
+                                  + HITSOUND_BEGIN + '\n' + hitsound_block(hmod) + HITSOUND_END + '\n')
+                for flag, what in (('bladehit', 'a blade'), ('laserhit', 'the laser'), ('bluntmelee', 'a blow')):
+                    if hmod[flag] == hstock[flag]:
+                        continue
+                    notes.append('hit sounds: %s lands on weapon%s %s (stock: %s)'
+                                 % (what, 's' if len(hmod[flag]) != 1 else '',
+                                    ', '.join(str(n) for n in hmod[flag]) or 'none',
+                                    ', '.join(str(n) for n in hstock[flag])))
+                if hmod['bladechr'] != hmod['bladehit']:
+                    notes.append("hit sounds: on a chr the mod's code gives the blade sound to %s; the port gives it to the same weapons as on an object"
+                                 % (('weapon%s ' % ('s' if len(hmod['bladechr']) != 1 else '')
+                                     + ', '.join(str(n) for n in hmod['bladechr'])) if hmod['bladechr'] else 'none'))
+
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'
              '# after it edit what it put in place. Written by tools/importmod.\n'
@@ -2769,9 +2886,12 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(SHIELD_BEGIN) + r'\n.*?' + re.escape(SHIELD_END) + r'\n*',
                           '', existing, flags=re.S)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(HITSOUND_BEGIN) + r'\n.*?' + re.escape(HITSOUND_END) + r'\n*',
+                          '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
                           (block + '\n' + (weatherregion + '\n' if weatherregion else '')
-                           + (shieldregion + '\n' if shieldregion else '') + existing).encode('utf-8'), dryrun)
+                           + (shieldregion + '\n' if shieldregion else '')
+                           + (hitsoundregion + '\n' if hitsoundregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 

@@ -11679,6 +11679,28 @@ struct sndstate **bgunAllocateAudioHandle(void)
 	return NULL;
 }
 
+/**
+ * Is this a blow landing - a fist, or a pistol used as a club? The game asked
+ * "unarmed, or the secondary function of one of five pistols", which is the
+ * weapon's WEAPONFLAG2_BLUNTMELEE and the function in use being a melee one:
+ * the flag alone would take the pistols' shots, the type alone the Reaper's
+ * grinder and the Tranquilizer's injection, which stock leaves on the default
+ * sounds. A mod's pistols are whatever its code lists here (the importer
+ * reads that list by running the code).
+ */
+static bool bgunIsBluntMelee(struct gset *gset)
+{
+	struct weaponfunc *func;
+
+	if (!weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLUNTMELEE)) {
+		return false;
+	}
+
+	func = gsetGetWeaponFunction(gset);
+
+	return func && func->type == INVENTORYFUNCTYPE_MELEE;
+}
+
 void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 {
 #if VERSION >= VERSION_NTSC_1_0
@@ -11712,18 +11734,10 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 
 			if (chrGetShield(chr) > 0) {
 				soundnum = SFX_SHIELD_DAMAGE;
-			} else if (gset->weaponnum == WEAPON_COMBATKNIFE
-					|| gset->weaponnum == WEAPON_COMBATKNIFE // duplicate
-					|| gset->weaponnum == WEAPON_BOLT) {
+			} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 				soundnum = SFX_05F6;
 				overridden = true;
-			} else if (gset->weaponnum == WEAPON_UNARMED
-					|| (gset->weaponfunc == FUNC_SECONDARY
-						&& (gset->weaponnum == WEAPON_FALCON2
-							|| gset->weaponnum == WEAPON_FALCON2_SILENCER
-							|| gset->weaponnum == WEAPON_FALCON2_SCOPE
-							|| gset->weaponnum == WEAPON_DY357MAGNUM
-							|| gset->weaponnum == WEAPON_DY357LX))) {
+			} else if (bgunIsBluntMelee(gset)) {
 				s16 sounds[] = { SFX_002F, SFX_0030, SFX_0031 };
 				soundnum = sounds[rand1 % ARRAYCOUNT(sounds)];
 			} else {
@@ -11755,7 +11769,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 
 			if (texturenum == 10000) {
 				soundnum = SFX_SHIELD_DAMAGE;
-			} else if (gset->weaponnum == WEAPON_LASER) {
+			} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LASERHIT)) {
 				if (gset->weaponfunc == FUNC_PRIMARY || ((gset->unk063a % 4) == 0 && (rngRandom() % 2))) {
 					if ((rngRandom() % 2) == 0) {
 						soundnum = SFX_CLOAK_ON;
@@ -11766,7 +11780,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 
 				overridden = true;
 			} else {
-				if (gset->weaponnum == WEAPON_COMBATKNIFE || gset->weaponnum == WEAPON_BOLT) {
+				if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 					soundnum = SFX_HIT_METAL_8079;
 					overridden = true;
 				} else {
@@ -11850,19 +11864,11 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 			if (chrGetShield(chr) > 0) {
 				sndStart(var80095200, SFX_SHIELD_DAMAGE, handle, -1, -1, -1, -1, -1);
 				soundnum = SFX_SHIELD_DAMAGE;
-			} else if (gset->weaponnum == WEAPON_COMBATKNIFE
-					|| gset->weaponnum == WEAPON_COMBATKNIFE // duplicate
-					|| gset->weaponnum == WEAPON_BOLT) {
+			} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 				sndStart(var80095200, SFX_05F6, handle, -1, -1, -1, -1, -1);
 				soundnum = SFX_05F6;
 				overridden = true;
-			} else if (gset->weaponnum == WEAPON_UNARMED
-					|| (gset->weaponfunc == FUNC_SECONDARY
-						&& (gset->weaponnum == WEAPON_FALCON2
-							|| gset->weaponnum == WEAPON_FALCON2_SILENCER
-							|| gset->weaponnum == WEAPON_FALCON2_SCOPE
-							|| gset->weaponnum == WEAPON_DY357MAGNUM
-							|| gset->weaponnum == WEAPON_DY357LX))) {
+			} else if (bgunIsBluntMelee(gset)) {
 				s16 sounds[] = { SFX_002F, SFX_0030, SFX_0031 };
 				soundnum = sounds[rand1 % ARRAYCOUNT(sounds)];
 				sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
@@ -11899,7 +11905,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 					overridden = true;
 				}
 			} else {
-				if (gset->weaponnum == WEAPON_COMBATKNIFE || gset->weaponnum == WEAPON_BOLT) {
+				if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 					soundnum = SFX_HIT_METAL_8079;
 					sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 					overridden = true;
@@ -11988,7 +11994,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 		soundnum = -1;
 		overridden = false;
 
-		if (gset->weaponnum == WEAPON_LASER) {
+		if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LASERHIT)) {
 			playdefault = false;
 
 			if (gset->weaponfunc == FUNC_PRIMARY || ((gset->unk063a % 4) == 0 && (rngRandom() % 2))) {
@@ -11998,7 +12004,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 				sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 				overridden = true;
 			}
-		} else if (gset->weaponnum == WEAPON_COMBATKNIFE || gset->weaponnum == WEAPON_BOLT) {
+		} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 			// Knives and bolts make a metal sound
 			soundnum = SFX_HIT_METAL_8079;
 			sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
@@ -12086,7 +12092,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 				sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 				overridden = true;
 			}
-		} else if (gset->weaponnum == WEAPON_COMBATKNIFE || gset->weaponnum == WEAPON_BOLT) {
+		} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 			// Knives and bolts make a metal sound
 			soundnum = SFX_HIT_METAL_8079;
 			sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);

@@ -916,3 +916,29 @@ it - the others give the player (96,96,0) - so it is a hack that travels.
   importers cut it out again before rewriting. A mod swap drops a mod's
   tables (`shieldColourSet(site, NULL, 0)`), the stock ramp being compiled
   in. GE-X and the tool write identical blocks; importer version 13.
+
+## The hit sounds, and a list read by running the code (2026-09-07)
+
+`bgun_play_prop_hit_sound` after the shield colour: 22 words, weapon numbers.
+What the port does with a weapon-number test is in
+[weapons.md](weapons.md) ("The hit sounds are three flags"); what belongs
+here is the reading. The function's decisions are the sound number it stores,
+so the machine runs it once per weapon number and per case - a chr with the
+primary function, a chr with the secondary, an object - and the stored sound
+says which branch it took. The branches that copy a table to the stack read
+that table through the data segment, which the machine does not have, so
+`emulate()` / `emuRunArgs()` took a `mem` seed: a marker word in each table
+(the object default has 20 entries and the fake `rngRandom()` indexes entry
+12, so the whole table is seeded), and `g_Vars.lvupdate240`, which the
+function returns on at once when 0. Two things cost time: the chr branch and
+the object branch keep their `soundnum` in different stack slots (182 and
+154), and the tables are indexed by a random the machine fakes as its call
+counter. Run on stock, the reading is the port's three lists exactly, and
+that is checked before the mod is read. The block is the `weaponflags` lines
+between `# importer: hitsounds begin` / `end`, always written when the
+function is read (it is the code's truth for the mod's table, inheritance
+being a guess); importer version 14.
+
+Not carried over: GE-X made the chr-hit shield check unconditional, so its
+guards never play the shield damage sound. That is not a weapon property and
+was left.
