@@ -864,3 +864,55 @@ own new test. Constant-following reads nothing from that.
   are identical for GE-X; the pre-existing difference between them is the
   order of the `playerconst`/`bgstage`/`roomstage` lines (the tool sorts,
   the game writes in code order), which is not a difference in content.
+
+## The shield flash colour, and a function that tests its caller (2026-09-07)
+
+`shieldhit_health_to_rgb` was the largest rewritten function left after the
+weather. It turns shield left into a colour, dark green at none through to
+orange at full, and the game asks in two places: `chrRenderShieldComponent()`
+for the hexagons on a chr or object, and `playerRenderShield()` for the
+player's own flash over the screen. What GE-X did is 32 words that read
+nothing from constant-following: `lui at,0x7f0c; ori at,0x4b0; beq at,ra` -
+**the function tests its own return address**, and answers white (255,255,255)
+to `player_render_shield` and dark grey (64,64,64) to everyone else, whatever
+the shield. **Five mods in the archive carry that identical patch** (GE-X,
+DEEP SEA X, pdrealguns, both Weather Mod editions), with their own colours in
+it - the others give the player (96,96,0) - so it is a hack that travels.
+
+- **Read by running it, per call site.** `emulate()` / `emuRunArgs()` took
+  the extra arguments this needed: `args`/a1-a3 (the three result pointers,
+  at `SHIELD_SCRATCH`), `f12` (the shield, as a float), and `ra` - the run
+  ends when the function returns *there* rather than to the sentinel, so a
+  function that branches on its caller can be asked about each caller in
+  turn. The sites are found by the `jal` and named by the function each sits
+  in (`shield_call_sites()` / `shieldCallSites()`); a mod with more or fewer
+  than one in each is reported and left alone. 2049 samples over 0..8 shield,
+  1/256 apart, which is exact in a float so the machine, the port and the
+  ROM all see the same number.
+- **The port's ramp is data now.** `g_ShieldColourStock` in chr.c is the
+  old `chr0f0295f8()` body as rows of `top, base rgb, slope rgb` (below
+  `top`: `base - (s32)((top - shield) * slope)`, the ROM's arithmetic) with
+  a flat tail; `shieldColourGet(site, ...)` evaluates it or a mod's table
+  for that site, and both decomp callers go through it. The check that the
+  machine reads right: run on stock, every sample at both sites is what
+  `shield_eval()` / `shieldEval()` (the same formula) gives from that table.
+- **What a reading can be**, in `shield_from_code()` / `shieldReadSite()`:
+  *stock* (nothing written); *constant* (every sample one colour, the case
+  the archive has); *ramp* (the stock breakpoints and slopes with each row's
+  colour re-read at its top and the tail at 8, verified back against every
+  sample - so a recoloured ramp imports, a reshaped one does not); *unset*
+  (a channel the code never stored somewhere: the port keeps its ramp and the
+  report says which channel over what shield); *other* (reported, left
+  alone). Spooky Dark Vault is the unset case: one word changed,
+  `sw zero,0(a3)` to `sw t8,0(a1)`, which writes red a second time and never
+  writes blue above 6 shield. That is not a colour, it is a slip, and the
+  toy machine is the only thing that told the difference - the first read of
+  the diff had it as "blue 162 at full shield". Ask the machine what the
+  code *stores*, not what the changed word looks like it means.
+- **The block** is the port's own: `shieldcolour hit|player { ramp TOP R G B
+  SR SG SB ... constant R G B }`, a top-level block (mod.c
+  `modConfigParseShieldColour()`), `constant` alone for one colour, between
+  `# importer: shieldcolour begin` / `end` after the weather region; both
+  importers cut it out again before rewriting. A mod swap drops a mod's
+  tables (`shieldColourSet(site, NULL, 0)`), the stock ramp being compiled
+  in. GE-X and the tool write identical blocks; importer version 13.

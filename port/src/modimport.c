@@ -2225,6 +2225,9 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "weather_render",            0x7f131060, 0x7f1312d8 },
 	{ "weather_tick_rain",         0x7f131a30, 0x7f1321d0 },
 	{ "weather_allocate_particles", 0x7f131334, 0x7f131610 },
+	{ "shieldhit_health_to_rgb",    0x7f0295f8, 0x7f0297a0 },
+	{ "shieldhit_render_component", 0x7f02983c, 0x7f02b7d4 },
+	{ "player_render_shield",       0x7f0c0190, 0x7f0c07c8 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -2864,14 +2867,26 @@ static s32 emuDelaySlot(struct emu *e, u32 pc)
 	return emuFetch(e, pc + 4, &x) && emuExec(e, x, pc + 4, &t) == EMU_NEXT;
 }
 
+// what a function is run with: a0-a3, the first float argument as its bits,
+// and the address it is returning to (0 for the sentinel) - a function that
+// tests its own return address is asked about each of its call sites in turn
+struct emuargs {
+	u32 a0, a1, a2, a3;
+	u32 f12;
+	u32 ra;
+	u32 stageindex;
+};
+
 /**
- * Runs the function at entry with a0 and g_StageIndex set. Returns 1 with v0
- * and the number of calls it would have made at its `jr ra`, 0 where the toy
- * meets something it does not do or the function does not end.
+ * Runs the function at entry with its arguments and g_StageIndex set.
+ * Returns 1 with v0 and the number of calls it would have made when it
+ * returns to where it was called from, 0 where the toy meets something it
+ * does not do or the function does not end.
  */
-static s32 emuRun(struct emu *e, u32 entry, u32 a0, u32 stageindex, u32 maxsteps, u32 *v0, u32 *calls)
+static s32 emuRunArgs(struct emu *e, u32 entry, const struct emuargs *a, u32 maxsteps, u32 *v0, u32 *calls)
 {
 	u32 pc = entry;
+	const u32 sentinel = a->ra ? a->ra : EMU_SENTINEL;
 
 	memset(e->r, 0, sizeof(e->r));
 	memset(e->f, 0, sizeof(e->f));
@@ -2879,10 +2894,14 @@ static s32 emuRun(struct emu *e, u32 entry, u32 a0, u32 stageindex, u32 maxsteps
 	e->fcc = 0;
 	e->calls = 0;
 	e->nmem = 0;
-	e->stageindex = stageindex;
-	e->r[4] = a0;
+	e->stageindex = a->stageindex;
+	e->r[4] = a->a0;
+	e->r[5] = a->a1;
+	e->r[6] = a->a2;
+	e->r[7] = a->a3;
+	e->f[12] = a->f12;
 	e->r[29] = 0x803ff000u;
-	e->r[31] = EMU_SENTINEL;
+	e->r[31] = sentinel;
 
 	for (u32 steps = 0; steps < maxsteps; ++steps) {
 		u32 x, target = 0;
@@ -2916,7 +2935,7 @@ static s32 emuRun(struct emu *e, u32 entry, u32 a0, u32 stageindex, u32 maxsteps
 			if (!emuDelaySlot(e, pc)) {
 				return 0;
 			}
-			if (target == EMU_SENTINEL) {
+			if (target == sentinel) {
 				*v0 = e->r[2];
 				*calls = e->calls;
 				return 1;
@@ -2925,6 +2944,27 @@ static s32 emuRun(struct emu *e, u32 entry, u32 a0, u32 stageindex, u32 maxsteps
 			break;
 		default:
 			return 0;
+		}
+	}
+	return 0;
+}
+
+static s32 emuRun(struct emu *e, u32 entry, u32 a0, u32 stageindex, u32 maxsteps, u32 *v0, u32 *calls)
+{
+	struct emuargs a;
+	memset(&a, 0, sizeof(a));
+	a.a0 = a0;
+	a.stageindex = stageindex;
+	return emuRunArgs(e, entry, &a, maxsteps, v0, calls);
+}
+
+// was this word stored during the run, and what
+static s32 emuStored(const struct emu *e, u32 addr, u32 *value)
+{
+	for (u32 i = 0; i < e->nmem; ++i) {
+		if (e->mem[i].addr == addr) {
+			*value = e->mem[i].value;
+			return 1;
 		}
 	}
 	return 0;
@@ -3114,6 +3154,214 @@ static void weatherBlock(char **buf, u32 *len, u32 *cap, u32 stagenum, const str
 
 #define WEATHER_BEGIN "# importer: weather begin"
 #define WEATHER_END   "# importer: weather end"
+
+/* -- the shield flash colour, read from the code that decides it ----------- */
+
+#define SHIELD_STEPS   2048          // samples over 0..8 shield, 1/256 apart: exact in a float
+#define SHIELD_SCRATCH 0x80500000u   // where the three colour words go
+#define SHIELD_NUMROWS 4
+
+enum { SHIELD_NORUN, SHIELD_STOCK, SHIELD_CONSTANT, SHIELD_RAMP, SHIELD_UNSET, SHIELD_OTHER };
+
+struct shieldrow {
+	f32 top;
+	s32 base[3];
+	f32 slope[3];
+};
+
+// one call site's reading, as the port's shieldcolour block would put it
+struct shieldread {
+	s32 kind;
+	struct shieldrow rows[SHIELD_NUMROWS];   // SHIELD_RAMP
+	s32 tail[3];                             // SHIELD_RAMP and SHIELD_CONSTANT
+	s32 unsetchan;                           // SHIELD_UNSET: which channel, over what shield
+	f32 unsetlo, unsethi;
+};
+
+// the port's own ramp (chr.c g_ShieldColourStock)
+static const struct shieldrow shieldStock[SHIELD_NUMROWS] = {
+	{ 1.5f, { 57, 75, 0 },   { 28.0f, 20.0f, 0 } },
+	{ 3.0f, { 102, 90, 0 },  { 30.0f, 10.0f, 0 } },
+	{ 4.5f, { 174, 129, 0 }, { 48.0f, 26.0f, 0 } },
+	{ 6.0f, { 162, 54, 0 },  { -8.0f, -50.0f, 0 } },
+};
+
+static const struct { const char *site; const char *fn; } shieldSites[] = {
+	{ "hit",    "shieldhit_render_component" },
+	{ "player", "player_render_shield" },
+};
+#define SHIELD_NUMSITES 2
+
+// the port's shieldColourGet()
+static void shieldEval(const struct shieldrow *rows, const s32 *tail, f32 h, s32 *out)
+{
+	for (u32 i = 0; i < SHIELD_NUMROWS; ++i) {
+		if (h < rows[i].top) {
+			for (u32 c = 0; c < 3; ++c) {
+				out[c] = rows[i].base[c] - (s32)((rows[i].top - h) * rows[i].slope[c]);
+			}
+			return;
+		}
+	}
+	for (u32 c = 0; c < 3; ++c) {
+		out[c] = tail[c];
+	}
+}
+
+/**
+ * The return addresses of the two places the game calls
+ * shieldhit_health_to_rgb, by the jal and the function each sits in, in
+ * shieldSites order. 0 unless both are there once: a mod that added or
+ * removed a call is not one the port has a site for.
+ */
+static s32 shieldCallSites(const u8 *code, u32 codelen, u32 *ras)
+{
+	u32 fn, fnend, start[SHIELD_NUMSITES], end[SHIELD_NUMSITES];
+
+	if (!codeSym("shieldhit_health_to_rgb", &fn, &fnend)) {
+		return 0;
+	}
+	for (u32 i = 0; i < SHIELD_NUMSITES; ++i) {
+		if (!codeSym(shieldSites[i].fn, &start[i], &end[i])) {
+			return 0;
+		}
+		ras[i] = 0;
+	}
+
+	for (u32 ofs = 0; ofs + 4 <= codelen; ofs += 4) {
+		const u32 w = be32(code, ofs);
+		if (w >> 26 != 3 || (((GAME_VRAM & 0xf0000000u) | ((w & 0x3ffffff) << 2)) != fn + GAME_VRAM)) {
+			continue;
+		}
+		for (u32 i = 0; i < SHIELD_NUMSITES; ++i) {
+			if (ofs + 8 >= start[i] && ofs + 8 < end[i]) {
+				if (ras[i]) {
+					return 0;
+				}
+				ras[i] = GAME_VRAM + ofs + 8;
+			}
+		}
+	}
+
+	for (u32 i = 0; i < SHIELD_NUMSITES; ++i) {
+		if (!ras[i]) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/**
+ * What a build's shieldhit_health_to_rgb answers at one call site, read by
+ * running it over the shield range with the machine returning there. Five
+ * mods in the archive rewrote it to test its own return address - one colour
+ * for the player's flash, another for a chr's - which is why the site is
+ * what is read. `samples` receives every reading (SHIELD_STEPS + 1 of them,
+ * -1 where a channel went unwritten) and `stock` is the same array from the
+ * stock binary, or NULL when this is that reading.
+ *
+ * The kinds: one colour whatever the shield; the port's own ramp shape with
+ * other colours in it (the stock breakpoints and slopes, each row's colour
+ * re-read at its top, checked back against every sample); stock's reading;
+ * a channel left unwritten somewhere (one hex-edited mod does, above 6
+ * shield: the port keeps its ramp); a shape the port cannot express.
+ */
+static s32 shieldReadSite(const u8 *code, u32 codelen, u32 ra, s32 (*samples)[3], const s32 (*stock)[3],
+		struct shieldread *out)
+{
+	struct emu *e = malloc(sizeof(*e));
+	struct emuargs a;
+	u32 fn, fnend, v0, calls;
+	s32 unset = -1, constant = 1, ok;
+
+	memset(out, 0, sizeof(*out));
+	codeSym("shieldhit_health_to_rgb", &fn, &fnend);
+	e->code = code;
+	e->codelen = codelen;
+
+	for (u32 i = 0; i <= SHIELD_STEPS; ++i) {
+		const f32 h = (f32)i / 256.0f;
+		memset(&a, 0, sizeof(a));
+		a.a1 = SHIELD_SCRATCH;
+		a.a2 = SHIELD_SCRATCH + 4;
+		a.a3 = SHIELD_SCRATCH + 8;
+		a.f12 = emuI(h);
+		a.ra = ra;
+		if (!emuRunArgs(e, fn + GAME_VRAM, &a, 400, &v0, &calls) || calls) {
+			free(e);
+			out->kind = SHIELD_NORUN;
+			return 0;
+		}
+		for (u32 c = 0; c < 3; ++c) {
+			u32 v;
+			if (emuStored(e, SHIELD_SCRATCH + c * 4, &v)) {
+				samples[i][c] = (s32)v;
+			} else {
+				samples[i][c] = -1;
+				if (unset < 0) {
+					unset = i;
+					out->unsetchan = c;
+					out->unsetlo = h;
+				}
+				out->unsethi = h;
+			}
+		}
+		if (i && memcmp(samples[i], samples[0], sizeof(samples[0]))) {
+			constant = 0;
+		}
+	}
+	free(e);
+
+	if (unset >= 0) {
+		out->kind = SHIELD_UNSET;
+		return 1;
+	}
+	if (stock && !memcmp(samples, stock, sizeof(samples[0]) * (SHIELD_STEPS + 1))) {
+		out->kind = SHIELD_STOCK;
+		return 1;
+	}
+	if (constant) {
+		out->kind = SHIELD_CONSTANT;
+		memcpy(out->tail, samples[0], sizeof(out->tail));
+		return 1;
+	}
+
+	memcpy(out->rows, shieldStock, sizeof(out->rows));
+	for (u32 r = 0; r < SHIELD_NUMROWS; ++r) {
+		const u32 i = (u32)(shieldStock[r].top * 256.0f) - 1;   // the sample just below the top
+		memcpy(out->rows[r].base, samples[i], sizeof(out->rows[r].base));
+	}
+	memcpy(out->tail, samples[SHIELD_STEPS], sizeof(out->tail));
+	ok = 1;
+	for (u32 i = 0; i <= SHIELD_STEPS && ok; ++i) {
+		s32 v[3];
+		shieldEval(out->rows, out->tail, (f32)i / 256.0f, v);
+		ok = !memcmp(v, samples[i], sizeof(v));
+	}
+	out->kind = ok ? SHIELD_RAMP : SHIELD_OTHER;
+	return 1;
+}
+
+/**
+ * A `shieldcolour SITE { ... }` block for the port from one site's reading:
+ * `ramp TOP R G B SR SG SB` rows and the `constant R G B` tail, which alone
+ * is the one-colour case.
+ */
+static void shieldBlock(char **buf, u32 *len, u32 *cap, const char *site, const struct shieldread *r)
+{
+	appendf(buf, len, cap, "shieldcolour %s {\n", site);
+	if (r->kind == SHIELD_RAMP) {
+		for (u32 i = 0; i < SHIELD_NUMROWS; ++i) {
+			appendf(buf, len, cap, "  ramp %g %d %d %d %g %g %g\n", (f64)r->rows[i].top,
+					r->rows[i].base[0], r->rows[i].base[1], r->rows[i].base[2],
+					(f64)r->rows[i].slope[0], (f64)r->rows[i].slope[1], (f64)r->rows[i].slope[2]);
+		}
+	}
+	appendf(buf, len, cap, "  constant %d %d %d\n}\n", r->tail[0], r->tail[1], r->tail[2]);
+}
+
+#define SHIELD_BEGIN "# importer: shieldcolour begin"
+#define SHIELD_END   "# importer: shieldcolour end"
 
 /**
  * Cuts one of our earlier regions out of a modconfig.txt so a re-import does
@@ -3625,6 +3873,56 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(wstock);
 	}
 
+	// The shield flash colour: shieldhit_health_to_rgb, run per call site
+	// over the shield range and written as the port's own shieldcolour
+	// blocks for the sites whose reading differs from stock's. The archive's
+	// version of this function tests its return address, so the site is
+	// what is read.
+	char *shield = NULL;
+	u32 shieldlen = 0, shieldcap = 0;
+	if (t.followed) {
+		u32 stockras[SHIELD_NUMSITES], modras[SHIELD_NUMSITES];
+		if (shieldCallSites(t.stockcode, t.stockcodelen, stockras)) {
+			if (!shieldCallSites(t.modcode, t.modcodelen, modras)) {
+				rep("  the mod's shield colour code is not called from the two places the port asks; it is left as the port has it");
+			} else {
+				s32 (*sstock)[3] = malloc(sizeof(*sstock) * (SHIELD_STEPS + 1));
+				s32 (*smod)[3] = malloc(sizeof(*smod) * (SHIELD_STEPS + 1));
+				static const char *const what[SHIELD_NUMSITES] = { "a chr's shield", "the player's shield" };
+				for (u32 i = 0; i < SHIELD_NUMSITES; ++i) {
+					struct shieldread rs, rm;
+					if (!shieldReadSite(t.stockcode, t.stockcodelen, stockras[i], sstock, NULL, &rs)
+							|| !shieldReadSite(t.modcode, t.modcodelen, modras[i], smod, sstock, &rm)) {
+						rep("  the mod's shield colour code does not run on the toy machine; it is left as the port has it");
+						break;
+					}
+					if (rm.kind == SHIELD_STOCK) {
+						continue;
+					}
+					if (rm.kind == SHIELD_CONSTANT || rm.kind == SHIELD_RAMP) {
+						if (shieldlen) {
+							appendf(&shield, &shieldlen, &shieldcap, "\n");
+						}
+						shieldBlock(&shield, &shieldlen, &shieldcap, shieldSites[i].site, &rm);
+					}
+					if (rm.kind == SHIELD_CONSTANT) {
+						rep("  %s flashes %d %d %d whatever the shield", what[i], rm.tail[0], rm.tail[1], rm.tail[2]);
+					} else if (rm.kind == SHIELD_RAMP) {
+						rep("  %s flashes the game's ramp with other colours: %d %d %d at the top", what[i],
+								rm.tail[0], rm.tail[1], rm.tail[2]);
+					} else if (rm.kind == SHIELD_UNSET) {
+						rep("  the mod's shield colour code leaves %s's %c channel unset from %g to %g shield; the port keeps its own ramp there",
+								what[i], "rgb"[rm.unsetchan], (f64)rm.unsetlo, (f64)rm.unsethi);
+					} else {
+						rep("  %s's shield colour is a shape the port cannot express; it is left as the port has it", what[i]);
+					}
+				}
+				free(sstock);
+				free(smod);
+			}
+		}
+	}
+
 	if (t.followed) {
 		freePairs(&t.sp);
 		freePairs(&t.mp);
@@ -3667,22 +3965,33 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					cutRegion(text, at, end + strlen(WEATHER_END));
 				}
 			}
+			at = strstr(text, SHIELD_BEGIN);
+			if (at) {
+				char *end = strstr(at, SHIELD_END);
+				if (end) {
+					cutRegion(text, at, end + strlen(SHIELD_END));
+				}
+			}
 			free(existing);
 			existing = (u8 *)text;
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
+				shield ? "# The colour of a shield flash, as the mod's code decides it at each place the\n"
+				         "# game asks: read by running that code. Written by the game's mod importer.\n" SHIELD_BEGIN "\n" : "",
+				shield ? shield : "", shield ? SHIELD_END "\n\n" : "",
 				existing ? (const char *)existing : "");
 		written += writeOut(outdir, "modconfig.txt", (const u8 *)block, strlen(block));
 		free(block);
 		free(existing);
 		free(weather);
+		free(shield);
 	}
 
 	return written;

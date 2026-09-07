@@ -63,6 +63,23 @@ s32 chr0f02932c(struct prop *prop, s32 arg1);
 s32 chr0f0293ec(struct prop *prop, s32 arg1);
 s32 chr0f0294cc(struct prop *prop, s32 arg1);
 void chr0f0295f8(f32 arg0, s32 *arg1, s32 *arg2, s32 *arg3);
+
+// The colour of a shield flash by how much shield is left. The game asks in
+// two places, and a mod's code can answer each differently (five console
+// mods test their return address for exactly that), so each is its own site.
+#define SHIELDCOLOUR_HIT     0 // a chr's or object's shield: the hexagons, chrRenderShieldComponent
+#define SHIELDCOLOUR_PLAYER  1 // the player's own, over the screen: playerRenderShield
+#define SHIELDCOLOUR_NUMSITES 2
+#define SHIELDCOLOUR_MAXROWS 8
+
+struct shieldcolour {
+	f32 top;      // the row answers for shield below this; 0 on the last row, which answers for everything above the rest
+	s16 base[3];  // r, g, b at the top of the row
+	f32 slope[3]; // taken off per unit of shield below the top, as the game's own ramp does it
+};
+
+void shieldColourGet(s32 site, f32 shield, s32 *r, s32 *g, s32 *b);
+void shieldColourSet(s32 site, const struct shieldcolour *rows, s32 numrows);
 f32 propGetShieldThing(struct prop **propptr);
 Gfx *chrRenderShieldComponent(Gfx *gdl, struct shieldhit *hit, struct prop *prop, struct model *model, struct modelnode *node, s32 side, s32 arg6, s32 arg7, s32 alpha);
 Gfx *shieldhitRender(Gfx *gdl, struct prop *prop1, struct prop *prop2, s32 alpha, bool arg4, s32 cmnum1, s32 cmnum2, s32 cmnum3, s32 cmnum4);

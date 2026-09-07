@@ -16,6 +16,7 @@
 #include "video.h"
 #include "mod.h"
 #include "game/file.h"
+#include "game/chr.h"
 #include "data.h"
 #include "game/stagetable.h"
 #include "game/stagemusic.h"
@@ -70,6 +71,13 @@ extern struct stageallocation g_StageAllocations8Mb[];
 #define PARSE_ADDR(sec, name, v, ret) \
 	p = modConfigParseAddrValue(p, token, &v); \
 	if (!p || !v) { \
+		sysLogPrintf(LOG_ERROR, "mod: %s: invalid " name " value: %s", sec, token); \
+		return ret; \
+	}
+
+#define PARSE_FLOAT(sec, name, v, min, max, ret) \
+	p = modConfigParseFloatValue(p, token, &v); \
+	if (!p || v < (min) || v > (max)) { \
 		sysLogPrintf(LOG_ERROR, "mod: %s: invalid " name " value: %s", sec, token); \
 		return ret; \
 	}
@@ -878,6 +886,106 @@ static char *modConfigParseDataSegment(char *p, char *token)
 	return p;
 }
 
+/**
+ * shieldcolour hit|player { ramp TOP R G B SR SG SB ... constant R G B }
+ *
+ * The colour of a shield flash by how much shield is left, at one of the two
+ * places the game asks (chr.h). Each `ramp` row answers below TOP with
+ * base - (int)((TOP - shield) * slope) per channel, the arithmetic of the
+ * game's own ramp; `constant` is the flat tail for everything above, and is
+ * the last row. A block of only `constant` is one colour whatever the shield,
+ * which is what the console mods that rewrote this function do. Written by
+ * the importer from running the mod's shieldhit_health_to_rgb.
+ */
+static char *modConfigParseShieldColour(char *p, char *token)
+{
+	struct shieldcolour rows[SHIELDCOLOUR_MAXROWS];
+	s32 numrows = 0;
+	s32 site;
+	s32 tmp = 0;
+	f32 tmpf = 0;
+	bool tail = false;
+
+	p = strParseToken(p, token, NULL);
+	if (!strcmp(token, "hit")) {
+		site = SHIELDCOLOUR_HIT;
+	} else if (!strcmp(token, "player")) {
+		site = SHIELDCOLOUR_PLAYER;
+	} else {
+		sysLogPrintf(LOG_ERROR, "modconfig: shieldcolour: unknown site %s (hit or player)", token);
+		return NULL;
+	}
+
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		struct shieldcolour *row = &rows[numrows < SHIELDCOLOUR_MAXROWS ? numrows : SHIELDCOLOUR_MAXROWS - 1];
+		bool isramp = !strcmp(token, "ramp");
+
+		if (!isramp && strcmp(token, "constant") != 0) {
+			sysLogPrintf(LOG_ERROR, "modconfig: shieldcolour: invalid key: %s", token);
+			return NULL;
+		}
+
+		if (tail) {
+			sysLogPrintf(LOG_ERROR, "modconfig: shieldcolour: constant must be the last row");
+			return NULL;
+		}
+
+		memset(row, 0, sizeof(*row));
+
+		if (isramp) {
+			PARSE_FLOAT("shieldcolour", "ramp top", tmpf, 0.f, 64.f, NULL);
+			row->top = tmpf;
+			if (row->top <= 0.f) {
+				sysLogPrintf(LOG_ERROR, "modconfig: shieldcolour: a ramp row needs a top above 0");
+				return NULL;
+			}
+		}
+
+		for (s32 c = 0; c < 3; c++) {
+			PARSE_INT("shieldcolour", "colour", tmp, -32768, 32767, NULL);
+			row->base[c] = tmp;
+		}
+
+		if (isramp) {
+			for (s32 c = 0; c < 3; c++) {
+				PARSE_FLOAT("shieldcolour", "slope", tmpf, -4096.f, 4096.f, NULL);
+				row->slope[c] = tmpf;
+			}
+		} else {
+			tail = true;
+		}
+
+		if (numrows < SHIELDCOLOUR_MAXROWS) {
+			numrows++;
+		} else {
+			sysLogPrintf(LOG_WARNING, "modconfig: shieldcolour: more than %d rows, the rest are dropped", SHIELDCOLOUR_MAXROWS);
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated shieldcolour block");
+		return NULL;
+	}
+
+	if (!tail) {
+		sysLogPrintf(LOG_ERROR, "modconfig: shieldcolour: needs a constant row for the shield above its ramps");
+		return NULL;
+	}
+
+	shieldColourSet(site, rows, numrows);
+
+	return p;
+}
+
 s32 modConfigLoad(const char *fname)
 {
 	// A mod need not ship one: files/, segs/ and textures/ each make a mod dir
@@ -940,6 +1048,15 @@ s32 modConfigLoad(const char *fname)
 			p = modConfigParseStage(p, token);
 			if (!p) {
 				sysLogPrintf(LOG_ERROR, "modconfig: malformed stage block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "shieldcolour")) {
+			// shieldcolour SITE { ramp ... constant ... }
+			char *prev = p;
+			p = modConfigParseShieldColour(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed shieldcolour block at offset %d", prev - data);
 				success = false;
 				break;
 			}
@@ -1884,6 +2001,9 @@ static bool modTablesRestore(void)
 	g_MpListCounts = mpListCountsSnapshot;
 	g_MpNumArenas = numMpArenasSnapshot;
 	g_MpArenasImported = mpArenasImportedSnapshot;
+	// the shield colours: the game's own ramp is compiled in, so a mod's is dropped
+	shieldColourSet(SHIELDCOLOUR_HIT, NULL, 0);
+	shieldColourSet(SHIELDCOLOUR_PLAYER, NULL, 0);
 	// back to the port's own table before the copy, so an imported one is dropped
 	stageSetTracks(NULL);
 	memcpy(g_StageTracks, tracksSnapshot, sizeof(struct stagemusic) * numTracksSnapshot);

@@ -5322,7 +5322,7 @@ Gfx *playerRenderShield(Gfx *gdl)
 		sp88[0] = camGetScreenWidth() * (1.0f + 0.002f * ((g_Vars.currentplayer->shieldshowrnd >> 20) % 100) + (g_Vars.currentplayer->shieldshowtime * (0.2f + 0.002f * (g_Vars.currentplayer->shieldshowrnd % 100)) * (1.0f / 60.0f)));
 		sp88[1] = camGetScreenHeight() * (1.0f + 0.002f * ((g_Vars.currentplayer->shieldshowrnd >> 24) % 100) + (g_Vars.currentplayer->shieldshowtime * (0.2f + 0.002f * ((g_Vars.currentplayer->shieldshowrnd >> 8) % 100)) * (1.0f / 60.0f)));
 
-		chr0f0295f8(shield, &red, &green, &blue);
+		shieldColourGet(SHIELDCOLOUR_PLAYER, shield, &red, &green, &blue);
 
 		if (g_Vars.currentplayer->shieldshowtime < 30) {
 			f20 = 1 - g_Vars.currentplayer->shieldshowtime * (1.0f / 120.0f);

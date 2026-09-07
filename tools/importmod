@@ -1527,7 +1527,7 @@ STAGEINDEX_G5BUILDING = 10
 STAGEINDEX_AIRBASE = 19
 
 
-def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000):
+def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, ra=None):
     """Runs a function of the game binary on a toy machine and returns
     (v0, calls, mem) at its `jr ra`, or None where it meets something the toy
     does not do. Integer ops, branches, single-precision float moves and
@@ -1537,14 +1537,25 @@ def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000):
     fresh fake pointer in v0 and is counted, so a caller can tell an
     allocation happened and read what the function stored through it. That
     is enough for weather_reset and weather_is_room_weatherproof, which GE-X
-    rewrote as new chains of compares that no constant-following can read."""
+    rewrote as new chains of compares that no constant-following can read.
+
+    `args` fills a1 onwards, `f12` is the first float argument as a Python
+    float, and `ra` is the address the function was called from: the run ends
+    when it returns there rather than to the sentinel, so a function that
+    tests its own return address - which is how five mods in the archive give
+    the shield flash one colour on the player and another on a chr - can be
+    asked about each of its call sites in turn."""
     M = 0xffffffff
     r = [0] * 32
     f = [0] * 32
     hl = [0, 0]
     fcc = [False]
-    sentinel = 0xffffff00
+    sentinel = 0xffffff00 if ra is None else ra & M
     r[4] = a0 & M
+    for i, v in enumerate(args):
+        r[5 + i] = v & M
+    if f12 is not None:
+        f[12] = struct.unpack('>I', struct.pack('>f', f12))[0]
     r[29] = 0x803ff000
     r[31] = sentinel
     mem = {}
@@ -1929,6 +1940,134 @@ def weather_block(stagenum, cfg):
 
 WEATHER_BEGIN = '# importer: weather begin'
 WEATHER_END = '# importer: weather end'
+
+
+SHIELD_FUNCTION = 'shieldhit_health_to_rgb'
+SHIELD_SITES = (('hit', 'shieldhit_render_component'), ('player', 'player_render_shield'))
+SHIELD_STEP = 1 / 256.0   # exact in a float, so the toy machine and the port see the same shield
+SHIELD_MAX = 8.0          # playerGetShieldFrac() * 8; the ramp is flat from 6
+SHIELD_SCRATCH = 0x80500000
+# the port's own ramp (chr.c g_ShieldColourStock): rows of (top, base rgb, slope rgb), then the tail
+SHIELD_STOCK = ((1.5, (57, 75, 0), (28.0, 20.0, 0.0)),
+                (3.0, (102, 90, 0), (30.0, 10.0, 0.0)),
+                (4.5, (174, 129, 0), (48.0, 26.0, 0.0)),
+                (6.0, (162, 54, 0), (-8.0, -50.0, 0.0)))
+SHIELD_STOCK_TAIL = (162, 54, 0)
+
+
+def shield_eval(rows, tail, h):
+    """The port's shieldColourGet(): base - (int)((top - h) * slope) on the
+    first row h is below, the tail above them. The products are exact in a
+    float for every sampled h and any slope this reads (stock's), so a double
+    here agrees with the port's f32."""
+    for top, base, slope in rows:
+        if h < top:
+            return tuple(base[c] - int((top - h) * slope[c]) for c in range(3))
+    return tuple(tail)
+
+
+def shield_call_sites(code, codesyms):
+    """{site: return address} for the two places the game calls
+    shieldhit_health_to_rgb, found by the jal and named by the function each
+    sits in. None unless both are there once: a mod that added or removed a
+    call is not one the port has a site for."""
+    if SHIELD_FUNCTION not in codesyms or any(fn not in codesyms for _, fn in SHIELD_SITES):
+        return None
+    target = codesyms[SHIELD_FUNCTION][0]
+    found = {}
+    for ofs in range(0, len(code) - 3, 4):
+        w = int.from_bytes(code[ofs:ofs + 4], 'big')
+        if w >> 26 != 3 or ((GAME_VRAM & 0xf0000000) | ((w & 0x3ffffff) << 2)) != target:
+            continue
+        ra = GAME_VRAM + ofs + 8
+        for site, fn in SHIELD_SITES:
+            start, end = codesyms[fn]
+            if start <= ra < end:
+                if site in found:
+                    return None
+                found[site] = ra
+    return found if len(found) == len(SHIELD_SITES) else None
+
+
+def shield_from_code(code, codesyms, stock=None):
+    """What a build's shieldhit_health_to_rgb answers at each call site, as
+    the port's shieldcolour block would put it, read by running it over the
+    shield range. Five mods in the archive rewrote it to test its own return
+    address - one colour for the player's flash, another for a chr's - which
+    is why a reading is per site, with the machine returning to that site.
+
+    Per site: {'kind': 'constant', 'rgb'} when every shield gives one colour;
+    {'kind': 'ramp', 'rows', 'tail'} when the reading is the port's own ramp
+    shape with other colours in it (the stock breakpoints and slopes, each
+    row's colour re-read at its top, checked back against every sample);
+    'stock' when it is stock's own reading (`stock` is that, from the same
+    call on the stock binary); 'unset' when the code leaves a channel
+    unwritten somewhere (one hex-edited mod does, above 6 shield: the port
+    keeps its ramp); 'other' for a shape the port cannot express. None when
+    the sites are not both there or the machine cannot run the code."""
+    sites = shield_call_sites(code, codesyms)
+    if sites is None:
+        return None
+    entry = codesyms[SHIELD_FUNCTION][0]
+    scratch = (SHIELD_SCRATCH, SHIELD_SCRATCH + 4, SHIELD_SCRATCH + 8)
+    out = {}
+    for site, ra in sites.items():
+        samples = []
+        unset = None
+        for i in range(int(round(SHIELD_MAX / SHIELD_STEP)) + 1):
+            h = i * SHIELD_STEP
+            res = emulate(code, entry, args=scratch, f12=h, ra=ra, maxsteps=400)
+            if res is None or res[1]:
+                return None
+            mem = res[2]
+            missing = [c for c in range(3) if scratch[c] not in mem]
+            if missing:
+                if unset is None:
+                    unset = {'chan': missing[0], 'lo': h, 'hi': h}
+                unset['hi'] = h
+                samples.append(None)
+                continue
+            samples.append(tuple(mem[scratch[c]] - (0x100000000 if mem[scratch[c]] & 0x80000000 else 0) for c in range(3)))
+        if unset is not None:
+            out[site] = {'kind': 'unset', 'chan': unset['chan'], 'lo': unset['lo'], 'hi': unset['hi'], 'samples': samples}
+            continue
+        reading = {'samples': samples}
+        if stock and site in stock and stock[site].get('samples') == samples:
+            reading['kind'] = 'stock'
+        elif len(set(samples)) == 1:
+            reading['kind'] = 'constant'
+            reading['rgb'] = samples[0]
+        else:
+            byi = {int(round(top / SHIELD_STEP)) - 1: top for top, _, _ in SHIELD_STOCK}
+            rows = [(top, samples[i], slope) for (top, _, slope), i in zip(SHIELD_STOCK, sorted(byi))]
+            tail = samples[-1]
+            if all(shield_eval(rows, tail, i * SHIELD_STEP) == v for i, v in enumerate(samples)):
+                reading['kind'] = 'ramp'
+                reading['rows'] = rows
+                reading['tail'] = tail
+            else:
+                reading['kind'] = 'other'
+        out[site] = reading
+    return out
+
+
+def shield_block(site, reading):
+    """A `shieldcolour SITE { ... }` block for the port from one site's
+    reading: `ramp TOP R G B SR SG SB` rows and the `constant R G B` tail,
+    which alone is the one-colour case."""
+    lines = ['shieldcolour %s {' % site]
+    if reading['kind'] == 'ramp':
+        for top, base, slope in reading['rows']:
+            lines.append('  ramp %g %d %d %d %g %g %g' % ((top,) + tuple(base) + tuple(slope)))
+        lines.append('  constant %d %d %d' % tuple(reading['tail']))
+    else:
+        lines.append('  constant %d %d %d' % tuple(reading['rgb']))
+    lines.append('}')
+    return '\n'.join(lines) + '\n'
+
+
+SHIELD_BEGIN = '# importer: shieldcolour begin'
+SHIELD_END = '# importer: shieldcolour end'
 
 
 def read_codesym(romid):
@@ -2570,6 +2709,43 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                          '# running that code. Written by tools/importmod.\n'
                          + WEATHER_BEGIN + '\n' + '\n'.join(weatherblocks) + WEATHER_END + '\n')
 
+    # The shield flash colour: shieldhit_health_to_rgb, run per call site over
+    # the shield range and written as the port's own shieldcolour blocks for
+    # the sites whose reading differs from stock's. The archive's version of
+    # this function tests its return address, so the site is what is read.
+    shieldblocks = []
+    if followed and codesyms:
+        sstock = shield_from_code(stockcode, codesyms)
+        smod = shield_from_code(modcode, codesyms, sstock) if sstock else None
+        if smod is None:
+            if shield_call_sites(stockcode, codesyms) and shield_call_sites(modcode, codesyms) is None:
+                notes.append("the mod's shield colour code is not called from the two places the port asks; it is left as the port has it")
+            elif sstock:
+                notes.append("the mod's shield colour code does not run on the toy machine; it is left as the port has it")
+        else:
+            what = {'hit': "a chr's shield", 'player': "the player's shield"}
+            for site, _ in SHIELD_SITES:
+                r = smod[site]
+                if r['kind'] == 'stock':
+                    continue
+                if r['kind'] == 'constant':
+                    shieldblocks.append(shield_block(site, r))
+                    notes.append('%s flashes %d %d %d whatever the shield' % ((what[site],) + tuple(r['rgb'])))
+                elif r['kind'] == 'ramp':
+                    shieldblocks.append(shield_block(site, r))
+                    notes.append("%s flashes the game's ramp with other colours: %s at the top"
+                                 % (what[site], ' '.join('%d' % v for v in r['tail'])))
+                elif r['kind'] == 'unset':
+                    notes.append("the mod's shield colour code leaves %s's %s channel unset from %g to %g shield; the port keeps its own ramp there"
+                                 % (what[site], 'rgb'[r['chan']], r['lo'], r['hi']))
+                else:
+                    notes.append("%s's shield colour is a shape the port cannot express; it is left as the port has it" % what[site])
+    shieldregion = ''
+    if shieldblocks:
+        shieldregion = ('# The colour of a shield flash, as the mod\'s code decides it at each place the\n'
+                        '# game asks: read by running that code. Written by tools/importmod.\n'
+                        + SHIELD_BEGIN + '\n' + '\n'.join(shieldblocks) + SHIELD_END + '\n')
+
     block = ('# The mod\'s ROM data segment, and where its tables are in it. The port rebuilds\n'
              '# the weapon definitions and the model tables from this at load; weapon blocks\n'
              '# after it edit what it put in place. Written by tools/importmod.\n'
@@ -2591,8 +2767,11 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
         existing = re.sub(r'(#[^\n]*\n)*datasegment \{[^}]*\}\n*', '', existing)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(WEATHER_BEGIN) + r'\n.*?' + re.escape(WEATHER_END) + r'\n*',
                           '', existing, flags=re.S)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(SHIELD_BEGIN) + r'\n.*?' + re.escape(SHIELD_END) + r'\n*',
+                          '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
-                          (block + '\n' + (weatherregion + '\n' if weatherregion else '') + existing).encode('utf-8'), dryrun)
+                          (block + '\n' + (weatherregion + '\n' if weatherregion else '')
+                           + (shieldregion + '\n' if shieldregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 

@@ -39,8 +39,8 @@ it down: a new note, or a section in the one for its area, and a line here.
 ## GE-X import: where to pick up (2026-09-05)
 
 The console mod GE-X 6a is the reference case for the mod loader. Its assets,
-data tables, missions, music, environments, star field and weather all import
-(`build/mods/GE-X_6a_01-19-25/`, importer version 12); what is left is the code
+data tables, missions, music, environments, star field, weather and shield
+colours all import (`build/mods/GE-X_6a_01-19-25/`, importer version 13); what is left is the code
 GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
 [mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
 end before touching any of it, then:
@@ -51,8 +51,8 @@ end before touching any of it, then:
        --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
    ```
    `constants` regions are tables to follow (most are done); `rewritten` ones
-   need reading. Remaining rewritten, by size: `shieldhit_health_to_rgb` (32
-   words), `bgun_play_prop_hit_sound` (22), `player_tick` (21),
+   need reading. Remaining rewritten, by size: `bgun_play_prop_hit_sound` (22
+   words), `player_tick` (21),
    `bgun_tick_inc_attacking_shoot` (19), `casing_create_for_hand` (17),
    `projectile_tick` and `chr_damage` (16 each), `beam_render` (14),
    `hand_tick_attack`, `bot_tick_unpaused` (9 each), then a long tail of 1–7
@@ -63,9 +63,15 @@ end before touching any of it, then:
 2. **Two ways to follow a change.** A renumbered compare is a
    `follow_immediate(s)` site (the `playerconst`/`bgstage` pattern, one table
    row in both importers). A rewritten function is run on the toy MIPS
-   (`emulate()` in `tools/importmod`, `emuRun()` in `port/src/modimport.c`,
-   the weather is the worked example) and written out as the port's own
-   config. Whatever is added goes in **both importers**, `IMPORT.txt`
+   (`emulate()` in `tools/importmod`, `emuRunArgs()` in `port/src/modimport.c`,
+   the weather is the worked example, the shield colour the one for a
+   function that tests its caller) and written out as the port's own
+   config. Across the archive the most rewritten functions are `player_tick`
+   (38 mods), then a block of 23 that every "all solos in multi" patch
+   shares (`tex_init`, `setup_create_props`, `mp_start_match`, the unlock
+   handlers); `modcodediff --summary` over every patch takes four minutes
+   with `xargs -P 8` and is how to know whether a function is one mod's or
+   the archive's. Whatever is added goes in **both importers**, `IMPORT.txt`
    lines identical, and bumps `MODIMPORT_VERSION` so old imports redo
    themselves.
 3. **Test headlessly** on Runway (0x22) or later — Dam (0x30) and Facility
@@ -133,6 +139,24 @@ addr2line -f -C -e build/pd.x86_64 0x11abf5
 # hang: main thread only, Mesa worker threads are noise
 gdb -p $(pgrep -x pd.x86_64) -batch -ex "thread 1" -ex "bt 14"
 ```
+
+**A Windows crash dialog** gives `PC` and `MAIN MODULE: [base]`, and a
+backtrace of `[base]+offset` lines. The offset is from the image base, which
+the release exe has at `0x140000000`, and the exe keeps its DWARF (30 MB for a
+reason), so:
+
+```sh
+gh release download v3.1.2 -p pd.x86_64-windows.exe -O pd-v3.1.2.exe
+x86_64-w64-mingw32-addr2line -f -C -i -e pd-v3.1.2.exe 0x1401ba7a3   # 0x140000000 + offset
+```
+
+Plain `addr2line` says `??` for every line. When the report does not say
+which build, try each stable exe: the right one symbolises to a stack that
+makes sense as a call chain, the wrong ones to functions that could never
+have called each other. The reporter's data is not ours: a crash in a mod's
+model that no stage here reproduces is a model their import has and ours does
+not, and the question to ask them is which mission and what the first line of
+their `mods/<mod>/IMPORT.txt` says.
 
 stdout is block-buffered when redirected, so log lines sit unwritten. Flush a live
 process before reading or killing it — `SIGKILL` discards the buffer:

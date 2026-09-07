@@ -5677,39 +5677,73 @@ s32 chr0f0294cc(struct prop *prop, s32 arg1)
 	return result;
 }
 
+/**
+ * The game's own shield colour ramp, dark green at no shield through to
+ * orange at full, written as data so a mod's reading of the same code can
+ * take its place (mod.c's shieldcolour block, from the importer running
+ * the mod's shieldhit_health_to_rgb). Each row is base - (s32)((top -
+ * shield) * slope), which is the arithmetic the ROM does; the last row is
+ * the flat tail.
+ */
+static const struct shieldcolour g_ShieldColourStock[] = {
+	{ 1.5f, { 57, 75, 0 },   { 28.0f, 20.0f, 0 } },
+	{ 3.0f, { 102, 90, 0 },  { 30.0f, 10.0f, 0 } },
+	{ 4.5f, { 174, 129, 0 }, { 48.0f, 26.0f, 0 } },
+	{ 6.0f, { 162, 54, 0 },  { -8.0f, -50.0f, 0 } },
+	{ 0,    { 162, 54, 0 },  { 0, 0, 0 } },
+};
+
+static struct shieldcolour g_ShieldColours[SHIELDCOLOUR_NUMSITES][SHIELDCOLOUR_MAXROWS];
+static s32 g_ShieldColourRows[SHIELDCOLOUR_NUMSITES]; // 0: the game's own ramp
+
+void shieldColourSet(s32 site, const struct shieldcolour *rows, s32 numrows)
+{
+	if (site < 0 || site >= SHIELDCOLOUR_NUMSITES) {
+		return;
+	}
+
+	if (rows == NULL || numrows <= 0) {
+		g_ShieldColourRows[site] = 0;
+		return;
+	}
+
+	if (numrows > SHIELDCOLOUR_MAXROWS) {
+		numrows = SHIELDCOLOUR_MAXROWS;
+	}
+
+	for (s32 i = 0; i < numrows; i++) {
+		g_ShieldColours[site][i] = rows[i];
+	}
+
+	g_ShieldColourRows[site] = numrows;
+}
+
+void shieldColourGet(s32 site, f32 shield, s32 *r, s32 *g, s32 *b)
+{
+	const struct shieldcolour *rows = g_ShieldColourStock;
+	s32 numrows = ARRAYCOUNT(g_ShieldColourStock);
+	s32 i;
+
+	if (site >= 0 && site < SHIELDCOLOUR_NUMSITES && g_ShieldColourRows[site]) {
+		rows = g_ShieldColours[site];
+		numrows = g_ShieldColourRows[site];
+	}
+
+	for (i = 0; i < numrows; i++) {
+		const struct shieldcolour *row = &rows[i];
+
+		if (row->top == 0 || shield < row->top || i == numrows - 1) {
+			*r = row->base[0] - (s32)((row->top - shield) * row->slope[0]);
+			*g = row->base[1] - (s32)((row->top - shield) * row->slope[1]);
+			*b = row->base[2] - (s32)((row->top - shield) * row->slope[2]);
+			return;
+		}
+	}
+}
+
 void chr0f0295f8(f32 arg0, s32 *arg1, s32 *arg2, s32 *arg3)
 {
-	if (arg0 < 1.5f) {
-		*arg1 = 57 - (s32)((1.5f - arg0) * 28.0f);
-		*arg2 = 75 - (s32)((1.5f - arg0) * 20.0f);
-		*arg3 = 0;
-		return;
-	}
-
-	if (arg0 < 3.0f) {
-		*arg1 = 102 - (s32)((3.0f - arg0) * 30.0f);
-		*arg2 = 90 - (s32)((3.0f - arg0) * 10.0f);
-		*arg3 = 0;
-		return;
-	}
-
-	if (arg0 < 4.5f) {
-		*arg1 = 174 - (s32)((4.5f - arg0) * 48.0f);
-		*arg2 = 129 - (s32)((4.5f - arg0) * 26.0f);
-		*arg3 = 0;
-		return;
-	}
-
-	if (arg0 < 6.0f) {
-		*arg1 = 162 - (s32)((6.0f - arg0) * -8.0f);
-		*arg2 = 54 - (s32)((6.0f - arg0) * -50.0f);
-		*arg3 = 0;
-		return;
-	}
-
-	*arg1 = 162;
-	*arg2 = 54;
-	*arg3 = 0;
+	shieldColourGet(SHIELDCOLOUR_HIT, arg0, arg1, arg2, arg3);
 }
 
 f32 propGetShieldThing(struct prop **propptr)
