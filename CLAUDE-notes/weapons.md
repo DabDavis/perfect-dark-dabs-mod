@@ -140,6 +140,14 @@ nobody (its knife thumps on a chr and rings on a wall); one flag cannot say
 that, so the flag follows the object branch and the report says so. Slots
 41-43 share slot 3's definition and get its flag with it.
 
+**A flag's list can be read from the mod's code** where the game tests one
+number (2026-09-07): `FLAG_SITES` in both importers names a flag's sites as
+(function, stock constant), the compare chain at each is read
+(mods.md, "One weapon that became two"), and `weaponflags FLAG { clear ...
+}` is written when every site agrees. Pump action is read that way; the
+chargeable flag's two sites disagree in GE-X and it is reported instead.
+Adding a converted site to that table is how a mod's list reaches the flag.
+
 Reproduce a guard fight headlessly: copy the tester's `pd.ini` (Guards
 Alerted!, Random, Akimbo) into the scratch savedir, boot Runway under gdb with a
 Python breakpoint on `weaponCreateProjectileFromGset` that prints the calling

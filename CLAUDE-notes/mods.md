@@ -983,3 +983,35 @@ Mario gives them Mario.
   does not start: the mapping was checked live with `gdb -batch -ex 'call
   modDataBuddyConst(1, 0x56)'` on a GE-X boot (122), not by seeing Bond's
   ally spawn.
+
+## One weapon that became two: the compare chains (2026-09-07)
+
+`bgun_tick_inc_attacking_shoot`, 19 words in GE-X, is two things. The
+shotgun's pump-action test, `weaponnum == 19 && animmode == 2`, became
+`weaponnum == 15 || weaponnum == 14` - GE-X has two shotguns - and every
+instruction after it shifted a word, which is why modcodediff calls the
+function rewritten. And the Mauler's charge reset at the end of the same
+function, `if (weaponnum == 6) matmot1 = 0`, was zeroed out. The port has
+both as flags already (`WEAPONFLAG2_PUMPACTION`, `WEAPONFLAG2_CHARGEABLE`);
+what was missing was the mod's list.
+
+- **A chain of compares is a shape.** `follow_compare_chain()` /
+  `followCompareChain()` read `li at,N; beq at,reg` (a match, on to the
+  next) ... `li at,N; bne at,reg` (the last) from the stock site's offset,
+  the next `li` allowed in the branch's delay slot - which is how a hack
+  turns one weapon into a list in place. Zeros at the site are a test taken
+  out, an empty list; anything else does not read. `FLAG_SITES` /
+  `flagSites[]` name each flag's sites as (function, stock constant).
+- **A flag means the same at every site, so its sites must agree.** GE-X
+  took the charge reset out of the shoot tick and kept the Mauler test in
+  `bgun0f09a6f8` (the charge sound), so `chargeable` is reported and left:
+  its PP7 sits at the Mauler's address and keeps the inherited flag, which
+  is the port's charge sound on a gun GE-X's own code half-treats as one.
+  Pump action has one site and writes `weaponflags pumpaction { clear 14 15
+  }` in a `# importer: weaponsites` region; importer version 16. A mod that
+  left the test alone gets the stock list written, which is the same
+  authority-over-inheritance rule as the hit sounds.
+- The port's flag site and the ROM's compare are not always in the same
+  function: `bgun0f09a6f8`'s only GE-X change is 29 -> 21, another laser
+  site, not the Mauler's. Read the diff of every function a flag lives in
+  before assuming a constant that did not change is one the mod agrees with.

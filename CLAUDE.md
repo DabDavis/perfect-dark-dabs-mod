@@ -40,7 +40,7 @@ it down: a new note, or a section in the one for its area, and a line here.
 
 The console mod GE-X 6a is the reference case for the mod loader. Its assets,
 data tables, missions, music, environments, star field, weather, shield
-colours, hit sounds and co-op buddies all import (`build/mods/GE-X_6a_01-19-25/`, importer version 15); what is left is the code
+colours, hit sounds, co-op buddies and the pump-action list all import (`build/mods/GE-X_6a_01-19-25/`, importer version 16); what is left is the code
 GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
 [mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
 end before touching any of it, then:
@@ -51,8 +51,7 @@ end before touching any of it, then:
        --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
    ```
    `constants` regions are tables to follow (most are done); `rewritten` ones
-   need reading. Remaining rewritten, by size:
-   `bgun_tick_inc_attacking_shoot` (19 words), `casing_create_for_hand` (17),
+   need reading. Remaining rewritten, by size: `casing_create_for_hand` (17 words),
    `projectile_tick` and `chr_damage` (16 each), `beam_render` (14),
    `hand_tick_attack`, `bot_tick_unpaused` (9 each), then a long tail of 1–7
    words (`menu_render`, `koh_tick`/`koh_init`, `cheat_is_unlocked`,
@@ -70,7 +69,9 @@ end before touching any of it, then:
    port becomes a flag (weapons.md) and the importer writes `weaponflags`;
    arguments to a call are followed by call and register
    (`follow_call_args()`, the co-op buddies), since one function can hold
-   four number spaces. Across the archive the most rewritten functions are
+   four number spaces; a weapon test that became a list is read as a
+   compare chain (`follow_compare_chain()`, `FLAG_SITES`), and a flag is
+   written only when every site of it agrees. Across the archive the most rewritten functions are
    `player_tick` (38 mods, 27 of them a no-op word - see mods.md), then a
    block of 23 that every "all solos in multi" patch shares (`tex_init`,
    `setup_create_props`, `mp_start_match`, the unlock handlers);

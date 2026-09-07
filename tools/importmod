@@ -1533,6 +1533,59 @@ def follow_call_args(stockcode, modcode, start, end, callee, regs):
     return pairs
 
 
+def follow_compare_chain(code, start, end, at_ofs, reg):
+    """The weapon numbers a chain of compares at `at_ofs` tests `reg`
+    against: `li at,N` then `beq at,reg` (a match, on to the next) or
+    `bne at,reg` (the last one), the next `li` allowed in the branch's delay
+    slot. This is the shape a hack takes when one weapon becomes two: GE-X
+    turned the shotgun's pump-action test into two shotguns. [] when the
+    words at the site are zeros (the test was taken out - GE-X's charge
+    reset), None when they are something else."""
+    nums = []
+    ofs = at_ofs
+    while start <= ofs < end - 4 and len(nums) < 8:
+        x = be32(code, ofs)
+        if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (x >> 16) & 0x1f != 1:
+            break
+        nxt = be32(code, ofs + 4)
+        op = nxt >> 26
+        rs, rt = (nxt >> 21) & 0x1f, (nxt >> 16) & 0x1f
+        if op not in (4, 5, 0x14, 0x15) or {rs, rt} != {1, reg}:
+            break
+        nums.append(x & 0xffff)
+        if op in (5, 0x15):
+            return nums
+        ofs += 8
+    if not nums and all(be32(code, o) == 0 for o in range(at_ofs, min(at_ofs + 8, end), 4)):
+        return []
+    return nums or None
+
+
+def follow_flag_site(stockcode, modcode, start, end, stockvalue):
+    """The stock and mod lists at the site where stock compares a weapon
+    number against `stockvalue` in [start, end): the first `li at,VALUE`
+    followed by a branch on `at` and another register. (stocklist, modlist),
+    either None where the chain does not read."""
+    for ofs in range(start, min(end, len(stockcode) - 7), 4):
+        x = be32(stockcode, ofs)
+        if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (x >> 16) & 0x1f != 1 or (x & 0xffff) != stockvalue:
+            continue
+        nxt = be32(stockcode, ofs + 4)
+        if (nxt >> 26) not in (4, 5, 0x14, 0x15):
+            continue
+        reg = ((nxt >> 21) & 0x1f) if ((nxt >> 16) & 0x1f) == 1 else ((nxt >> 16) & 0x1f)
+        return (follow_compare_chain(stockcode, start, end, ofs, reg),
+                follow_compare_chain(modcode, start, end, ofs, reg))
+    return None, None
+
+
+# the port's weapon flags that stand in for one weapon-number test each, and
+# every site in the code where the game made that test: a flag is written
+# only when the mod's lists agree across all its sites
+FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
+              ('chargeable', (('bgun_tick_inc_attacking_shoot', 6), ('bgun0f09a6f8', 6))))
+
+
 BUDDY_FUNCTION = 'player_tick'
 BUDDY_CALLS = (('chr_spawn_at_coord', { 4: 'body', 5: 'head' }),
                ('chr_give_weapon',    { 5: 'model', 6: 'weapon' }))
@@ -2192,6 +2245,8 @@ def hitsound_block(reading):
 
 HITSOUND_BEGIN = '# importer: hitsounds begin'
 HITSOUND_END = '# importer: hitsounds end'
+FLAGSITE_BEGIN = '# importer: weaponsites begin'
+FLAGSITE_END = '# importer: weaponsites end'
 
 
 def read_codesym(romid):
@@ -2887,6 +2942,43 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                         '# game asks: read by running that code. Written by tools/importmod.\n'
                         + SHIELD_BEGIN + '\n' + '\n'.join(shieldblocks) + SHIELD_END + '\n')
 
+    # The weapon flags that stand in for one number test each - the shotgun's
+    # pump action, the Mauler's charge - read as the compare chains at their
+    # sites: one weapon that became two (GE-X's shotguns), a test taken out.
+    # A flag has the same meaning at every site the game tests it, so it is
+    # written only when the mod's lists agree across them.
+    flagsiteblocks = []
+    if followed and codesyms:
+        for flag, sites in FLAG_SITES:
+            readings = []
+            for fn, value in sites:
+                if fn not in codesyms:
+                    readings = None
+                    break
+                start, end = codesyms[fn]
+                stocklist, modlist = follow_flag_site(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, value)
+                if stocklist != [value] or modlist is None:
+                    notes.append("the %s test in %s does not read as a compare chain; the flag is left as the port has it" % (flag, fn))
+                    readings = None
+                    break
+                readings.append((fn, sorted(modlist)))
+            if not readings:
+                continue
+            if any(r != readings[0][1] for _, r in readings):
+                notes.append("%s: the mod's code tests different weapons at its sites (%s); the flag is left as the port has it"
+                             % (flag, '; '.join('%s: %s' % (fn, ' '.join(str(n) for n in r) or 'none') for fn, r in readings)))
+                continue
+            modlist = readings[0][1]
+            flagsiteblocks.append('weaponflags %s { clear%s }' % (flag, ''.join(' %d' % n for n in modlist)))
+            if modlist != [sites[0][1]]:
+                notes.append('%s is on weapon%s %s (stock: %d)' % (flag, 's' if len(modlist) != 1 else '',
+                             ', '.join(str(n) for n in modlist) or 'none', sites[0][1]))
+    flagsiteregion = ''
+    if flagsiteblocks:
+        flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'
+                          '# its sites. Written by tools/importmod.\n'
+                          + FLAGSITE_BEGIN + '\n' + '\n'.join(flagsiteblocks) + '\n' + FLAGSITE_END + '\n')
+
     # The hit sounds: which weapons strike as a blade, which as the laser,
     # which land a blow. bgun_play_prop_hit_sound decides by weapon number,
     # GE-X renumbered the first two and rewrote the third's list, and the
@@ -2943,10 +3035,13 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(HITSOUND_BEGIN) + r'\n.*?' + re.escape(HITSOUND_END) + r'\n*',
                           '', existing, flags=re.S)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(FLAGSITE_BEGIN) + r'\n.*?' + re.escape(FLAGSITE_END) + r'\n*',
+                          '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
                           (block + '\n' + (weatherregion + '\n' if weatherregion else '')
                            + (shieldregion + '\n' if shieldregion else '')
-                           + (hitsoundregion + '\n' if hitsoundregion else '') + existing).encode('utf-8'), dryrun)
+                           + (hitsoundregion + '\n' if hitsoundregion else '')
+                           + (flagsiteregion + '\n' if flagsiteregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 
