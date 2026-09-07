@@ -2752,6 +2752,232 @@ FLAGSITE_BEGIN = '# importer: weaponsites begin'
 FLAGSITE_END = '# importer: weaponsites end'
 
 
+MOVEMENT_BEGIN = '# importer: movement begin'
+MOVEMENT_END = '# importer: movement end'
+KOH_BEGIN = '# importer: koh begin'
+KOH_END = '# importer: koh end'
+COLOURS_BEGIN = '# importer: colours begin'
+COLOURS_END = '# importer: colours end'
+
+# the colour constants a mod repaints, by stock address of the lui (or li)
+# that loads each: the names are the port's g_ModColours[] entries
+COLOUR_SITES = (('kohhud', 0x7f1828a8),       # koh_render_hud: the hill timer's text
+                ('timer', 0x7f090b38),        # countdown_timer_render: the countdown's digits
+                ('scannerin0', 0x7f148658),   # bview_draw_horizon_scanner: the lens's even lines
+                ('scannerin1', 0x7f148664),   # and its odd lines
+                ('scannerout0', 0x7f148788),  # outside the lens, even
+                ('scannerout1', 0x7f148794),  # and odd
+                ('jointext', 0x7f0fc5d0),     # menu_render: "press start" for a player joining
+                ('joinblend', 0x7f0fc674),    # and the colour it blends from
+                ('interlace0', 0x7f1428a4),   # bview_draw_slayer_rocket_interlace: the two line colours
+                ('interlace1', 0x7f1428b4))
+
+
+def jump_target(w):
+    """The offset a jal or j lands at."""
+    return (0x70000000 | ((w & 0x3ffffff) << 2)) - GAME_VRAM
+
+
+def follow_colour_at(code, addr):
+    """A 32-bit constant the code loads at addr: a `lui r,HI` and, within four
+    words, an `ori r,r,LO` (the pair a colour is built with), or the lui alone,
+    or an `li r,N` (addi and addiu sign-extend, ori does not). None when the
+    word is none of those."""
+    ofs = addr - GAME_VRAM
+    if ofs < 0 or ofs + 4 > len(code):
+        return None
+    x = be32(code, ofs)
+    op = x >> 26
+    rt = (x >> 16) & 0x1f
+    if op == 0x0f:
+        value = (x & 0xffff) << 16
+        for o in range(ofs + 4, min(ofs + 20, len(code) - 3), 4):
+            y = be32(code, o)
+            if (y >> 26) == 0x0d and (y >> 21) & 0x1f == rt and (y >> 16) & 0x1f == rt:
+                return value | (y & 0xffff)
+        return value
+    if op in (0x08, 0x09) and (x >> 21) & 0x1f == 0:
+        v = x & 0xffff
+        return (v - 0x10000 if v & 0x8000 else v) & 0xffffffff
+    if op == 0x0d and (x >> 21) & 0x1f == 0:
+        return x & 0xffff
+    return None
+
+
+def follow_float_store(code, start, end, reg, offset):
+    """The float a function stores at offset(reg) in [start, end): the last
+    `swc1 $fX,offset(reg)` fed by `mtc1 at,$fX` from a `lui at,HI`, or the
+    last `sh at,offset(reg)` fed by an `li at,HI` (a halfword store of the
+    float's top half, which is how GE-X repaints King of the Hill). None when
+    no such store reads."""
+    def lui_at_before(o):
+        for p in range(o - 4, max(start, o - 32 * 4) - 4, -4):
+            z = be32(code, p)
+            zop = z >> 26
+            if (zop == 0x0f or (zop in (0x08, 0x09) and (z >> 21) & 0x1f == 0)) and (z >> 16) & 0x1f == 1:
+                return (z & 0xffff) << 16
+        return None
+    value = None
+    for o in range(start, min(end, len(code) - 3), 4):
+        x = be32(code, o)
+        op = x >> 26
+        imm = x & 0xffff
+        if (x >> 21) & 0x1f != reg or (imm - 0x10000 if imm & 0x8000 else imm) != offset:
+            continue
+        if op == 0x39:
+            fx = (x >> 16) & 0x1f
+            for p in range(o - 4, max(start, o - 32 * 4) - 4, -4):
+                if be32(code, p) == (0x44810000 | (fx << 11)):   # mtc1 at,$fX
+                    v = lui_at_before(p)
+                    if v is not None:
+                        value = v
+                    break
+        elif op == 0x29 and (x >> 16) & 0x1f == 1:
+            v = lui_at_before(o)
+            if v is not None:
+                value = v
+    if value is None:
+        return None
+    return struct.unpack('>f', struct.pack('>I', value))[0]
+
+
+def fastmove_from_code(stockcode, modcode, codesyms):
+    """Fast movement: the multiplier the code uses, and the cheat that turns it
+    on in a mission. Stock multiplies by 1.25 in a match with the option on; a
+    mod renumbers the constant, or (GE-X) jumps into a cave that also tests a
+    cheat outside a match. (scale, cheat), cheat -1 for none; None where the
+    site does not read."""
+    if 'bwalk_update_horizontal' not in codesyms:
+        return None
+    start, end = (a - GAME_VRAM for a in codesyms['bwalk_update_horizontal'])
+    end = min(end, len(stockcode) - 3, len(modcode) - 3)
+    site = None
+    for ofs in range(start, end, 4):
+        x = be32(stockcode, ofs)
+        if (x >> 26) == 0x0f and (x >> 16) & 0x1f == 1 and (x & 0xffff) == 0x3fa0:
+            site = ofs
+            break
+    if site is None:
+        return None
+    y = be32(modcode, site)
+    if (y >> 26) == 0x0f and (y >> 16) & 0x1f == 1:
+        return struct.unpack('>f', struct.pack('>I', (y & 0xffff) << 16))[0], -1
+    cheatfn = codesyms['cheat_is_active'][0] - GAME_VRAM if 'cheat_is_active' in codesyms else None
+    for ofs in range(start, end, 4):
+        w = be32(modcode, ofs)
+        if (w >> 26) != 2:
+            continue
+        target = jump_target(w)
+        if start <= target < end:
+            continue
+        scale, cheat = None, -1
+        for o in range(target, min(target + 0x100, len(modcode) - 7), 4):
+            z = be32(modcode, o)
+            if (z >> 26) == 0x0f and (z >> 16) & 0x1f == 1 and scale is None:
+                scale = struct.unpack('>f', struct.pack('>I', (z & 0xffff) << 16))[0]
+            elif (z >> 26) == 3 and cheatfn is not None and jump_target(z) == cheatfn:
+                d = be32(modcode, o + 4)
+                if (d >> 26) in (0x08, 0x09) and (d >> 21) & 0x1f == 0 and (d >> 16) & 0x1f == 4:
+                    cheat = d & 0xffff
+            elif (z >> 26) == 2:
+                break   # the jump back
+        if scale is None:
+            return None
+        return scale, cheat
+    return None
+
+
+def slowmotion_from_code(stockcode, modcode, codesyms):
+    """The cheat that gives slow motion in a mission: the `jal cheat_is_active;
+    li a0,6` in lv_get_slow_motion_type, as the mod has it: the number, or -1
+    when the mod took the test out (GE-X zeroes the words, its cheat 6 being
+    fast movement now). None where the site does not read."""
+    if 'lv_get_slow_motion_type' not in codesyms or 'cheat_is_active' not in codesyms:
+        return None
+    start, end = (a - GAME_VRAM for a in codesyms['lv_get_slow_motion_type'])
+    cheatfn = codesyms['cheat_is_active'][0] - GAME_VRAM
+    end = min(end, len(stockcode) - 7, len(modcode) - 7)
+    for ofs in range(start, end, 4):
+        x = be32(stockcode, ofs)
+        if (x >> 26) != 3 or jump_target(x) != cheatfn:
+            continue
+        d = be32(stockcode, ofs + 4)
+        if (d >> 26) in (0x08, 0x09) and (d >> 21) & 0x1f == 0 and (d >> 16) & 0x1f == 4 and (d & 0xffff) == 6:
+            y, yd = be32(modcode, ofs), be32(modcode, ofs + 4)
+            if y == 0:
+                return -1
+            if y == x and (yd >> 16) == (d >> 16):
+                return yd & 0xffff
+            return None
+    return None
+
+
+def poison_from_code(stockcode, modcode, codesyms):
+    """The poison: the ticks chr_set_poisoned adds to a chr's counter in a match
+    (`addiu rX,rY,3360; sh rX,OFF(a2)`) and sets in a mission (`li rZ,1680;
+    sh rZ,OFF(a2)`), as the mod has them: the number, or 0 where the store
+    became a nop. (match, mission), or None where either does not read."""
+    if 'chr_set_poisoned' not in codesyms:
+        return None
+    start, end = (a - GAME_VRAM for a in codesyms['chr_set_poisoned'])
+    end = min(end, len(stockcode) - 3, len(modcode) - 3)
+
+    def read(stockvalue, fromzero):
+        for ofs in range(start, end, 4):
+            x = be32(stockcode, ofs)
+            op = x >> 26
+            if op not in (0x08, 0x09) or (x & 0xffff) != stockvalue or ((x >> 21) & 0x1f == 0) != fromzero:
+                continue
+            rx = (x >> 16) & 0x1f
+            for o in range(ofs + 4, min(ofs + 20, end), 4):
+                z = be32(stockcode, o)
+                if (z >> 26) == 0x29 and (z >> 16) & 0x1f == rx:
+                    y, yz = be32(modcode, ofs), be32(modcode, o)
+                    if yz == 0:
+                        return 0
+                    if (y >> 16) == (x >> 16) and yz == z:
+                        return y & 0xffff
+                    return None
+            return None
+        return None
+    match = read(3360, False)
+    mission = read(1680, True)
+    if match is None or mission is None:
+        return None
+    return match, mission
+
+
+def koh_from_code(code, codesyms, init):
+    """King of the Hill's colours in one binary: the hill's at the start
+    (koh_init stores it through a1 at 48, 52, 56) and when no team holds it
+    (koh_tick stores it to its frame at 348, 352, 356 from the site at
+    0x7f182444), as (r, g, b); None where the three stores do not read."""
+    fn = 'koh_init' if init else 'koh_tick'
+    if fn not in codesyms:
+        return None
+    start, end = (a - GAME_VRAM for a in codesyms[fn])
+    if not init:
+        start, end = 0x7f182444 - GAME_VRAM, 0x7f182470 - GAME_VRAM
+    out = []
+    for offset in ((48, 52, 56) if init else (348, 352, 356)):
+        v = follow_float_store(code, start, end, 5 if init else 29, offset)
+        if v is None:
+            return None
+        out.append(v)
+    return tuple(out)
+
+
+def colours_from_code(stockcode, modcode):
+    """The colour constants the mod repaints: [(name, stock, mod)] for the sites
+    where both read and differ, in COLOUR_SITES order."""
+    out = []
+    for name, addr in COLOUR_SITES:
+        a, b = follow_colour_at(stockcode, addr), follow_colour_at(modcode, addr)
+        if a is not None and b is not None and a != b:
+            out.append((name, a, b))
+    return out
+
+
 def read_codesym(romid):
     """tools/pd.<romid>.sym, name -> (start, end)."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pd.%s.sym' % romid)
@@ -3591,17 +3817,29 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
     # The damage rules chr_damage decides that the mod's code changes
     damageregion = ''
     if followed and codesyms:
+        damagelines = []
         dmg = damage_from_code(stockcode, modcode, codesyms)
         if dmg:
             notes.extend(dmg['notes'])
             if dmg['headshot'] != 25 or dmg['breakhits']:
-                damageregion = ('# The damage rules the mod\'s code changes, read from it. Written by tools/importmod.\n'
-                                + DAMAGE_BEGIN + '\ndamage {\n  playerheadshotscale %g\n  shieldbreakhits %d\n}\n' % (dmg['headshot'], dmg['breakhits'])
-                                + DAMAGE_END + '\n')
+                damagelines += ['  playerheadshotscale %g' % dmg['headshot'], '  shieldbreakhits %d' % dmg['breakhits']]
                 if dmg['headshot'] != 25:
                     notes.append("a player's headshot does %g times the damage in a mission (stock: 25)" % dmg['headshot'])
                 if dmg['breakhits']:
                     notes.append('a hit that breaks a shield still lands on the health behind it (stock: it is absorbed)')
+        # and the poison chr_set_poisoned gives, in the same block
+        if 'chr_set_poisoned' in codesyms:
+            poison = poison_from_code(stockcode, modcode, codesyms)
+            if poison is None:
+                notes.append('the poison counters in chr_set_poisoned do not read; left as the port has them')
+            elif poison != (3360, 1680):
+                damagelines += ['  poisonmatch %d' % poison[0], '  poisonmission %d' % poison[1]]
+                notes.append('a poisoning lasts %s in a match and %s in a mission (stock: 3360 and 1680 ticks)'
+                             % ('%d ticks' % poison[0] if poison[0] > 0 else 'no time',
+                                '%d ticks' % poison[1] if poison[1] > 0 else 'no time'))
+        if damagelines:
+            damageregion = ('# The damage rules the mod\'s code changes, read from it. Written by tools/importmod.\n'
+                            + DAMAGE_BEGIN + '\ndamage {\n' + '\n'.join(damagelines) + '\n}\n' + DAMAGE_END + '\n')
 
     # The pickup rules: how much ammo a dropped weapon gives, and which weapon
     # an ammo pickup puts in the inventory, where the mod's code changed them
@@ -3652,6 +3890,60 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
             unlocksregion = ('# What the mod\'s code unlocks outright, read from it. Written by tools/importmod.\n'
                              + UNLOCKS_BEGIN + '\nunlocks {\n' + '\n'.join(lines_) + '\n}\n' + UNLOCKS_END + '\n')
 
+    # The run speed and the slow-motion cheat: what fast movement multiplies
+    # by, and the cheat that gives it in a mission (GE-X's cheat 6, which it
+    # took away from slow motion for the purpose)
+    movementregion = ''
+    if followed and codesyms:
+        lines_ = []
+        if 'bwalk_update_horizontal' in codesyms:
+            fm = fastmove_from_code(stockcode, modcode, codesyms)
+            if fm is None:
+                notes.append('the fast movement multiplier in bwalk_update_horizontal does not read; left as the port has it')
+            elif fm[0] != 1.25 or fm[1] >= 0:
+                lines_.append('movement { fastspeed %g fastcheat %d }' % fm)
+                notes.append('fast movement multiplies the walk speed by %g (stock 1.25)%s'
+                             % (fm[0], ', and cheat %d gives it in a mission' % fm[1] if fm[1] >= 0 else ''))
+        if 'lv_get_slow_motion_type' in codesyms:
+            cheat = slowmotion_from_code(stockcode, modcode, codesyms)
+            if cheat is None:
+                notes.append('the slow-motion cheat test in lv_get_slow_motion_type does not read; left as the port has it')
+            elif cheat != 6:
+                lines_.append('cheats { slowmotion %d }' % cheat)
+                notes.append('cheat %d gives slow motion in a mission (stock: cheat 6)' % cheat if cheat >= 0
+                             else 'no cheat gives slow motion in a mission (stock: cheat 6)')
+        if lines_:
+            movementregion = ('# The run speed the mod\'s code gives fast movement, the cheat that gives it in a\n'
+                              '# mission, and the cheat that gives slow motion, read from it. Written by tools/importmod.\n'
+                              + MOVEMENT_BEGIN + '\n' + '\n'.join(lines_) + '\n' + MOVEMENT_END + '\n')
+
+    # King of the Hill's colours, where the mod's code stores others
+    kohregion = ''
+    if followed and codesyms and 'koh_init' in codesyms and 'koh_tick' in codesyms:
+        parts = []
+        for init, key, what in ((True, 'hillcolour', "the hill's colour at the start"),
+                                (False, 'freecolour', "the hill's colour with no team on it")):
+            a, b = koh_from_code(stockcode, codesyms, init), koh_from_code(modcode, codesyms, init)
+            if a is None or b is None:
+                notes.append('%s in King of the Hill does not read; left as the port has it' % what)
+            elif a != b:
+                parts.append('%s %g %g %g' % ((key,) + b))
+                notes.append('%s in King of the Hill is %g %g %g (stock: %g %g %g)' % ((what,) + b + a))
+        if parts:
+            kohregion = ('# King of the Hill\'s colours, as the mod\'s code stores them. Written by tools/importmod.\n'
+                         + KOH_BEGIN + '\nkoh { ' + ' '.join(parts) + ' }\n' + KOH_END + '\n')
+
+    # The colours the mod repaints, at the sites the port draws with a named constant
+    coloursregion = ''
+    if followed and codesyms:
+        cs = colours_from_code(stockcode, modcode)
+        if cs:
+            for name, a, b in cs:
+                notes.append('the %s colour is %08x (stock: %08x)' % (name, b, a))
+            coloursregion = ('# The colours the mod\'s code draws with where the port draws with a named one,\n'
+                             '# read from it. Written by tools/importmod.\n'
+                             + COLOURS_BEGIN + '\ncolours {\n' + ''.join('  %s 0x%08x\n' % (name, b) for name, a, b in cs) + '}\n' + COLOURS_END + '\n')
+
     flagsiteregion = ''
     if flagsiteblocks:
         flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'
@@ -3693,6 +3985,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(RELOAD_BEGIN) + r'\n.*?' + re.escape(RELOAD_END) + r'\n*',
                           '', existing, flags=re.S)
+        for begin, end in ((MOVEMENT_BEGIN, MOVEMENT_END), (KOH_BEGIN, KOH_END), (COLOURS_BEGIN, COLOURS_END)):
+            existing = re.sub(r'(#[^\n]*\n)*' + re.escape(begin) + r'\n.*?' + re.escape(end) + r'\n*',
+                              '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
                           (block + '\n' + (weatherregion + '\n' if weatherregion else '')
                            + (shieldregion + '\n' if shieldregion else '')
@@ -3701,7 +3996,10 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                            + (damageregion + '\n' if damageregion else '')
                            + (ammoregion + '\n' if ammoregion else '')
                            + (reloadregion + '\n' if reloadregion else '')
-                           + (unlocksregion + '\n' if unlocksregion else '') + existing).encode('utf-8'), dryrun)
+                           + (unlocksregion + '\n' if unlocksregion else '')
+                           + (movementregion + '\n' if movementregion else '')
+                           + (kohregion + '\n' if kohregion else '')
+                           + (coloursregion + '\n' if coloursregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 

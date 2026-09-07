@@ -81,6 +81,7 @@
 #include "string.h"
 #ifndef PLATFORM_N64
 #include "system.h"
+#include "game/modrules.h"
 #endif
 
 void rng2SetSeed(u32 seed);
@@ -21016,10 +21017,10 @@ Gfx *countdownTimerRender(Gfx *gdl)
 #endif
 
 		gdl = text0f153628(gdl);
-		gdl = bgunDrawHudInteger(gdl, (mins % 100) / 10, viewright - 18, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, 0x00ff00a0);
-		gdl = bgunDrawHudInteger(gdl, mins % 10, viewright - 14, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, 0x00ff00a0);
-		gdl = bgunDrawHudString(gdl, fmt, viewright - 8, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, 0x00ff00a0);
-		gdl = bgunDrawHudInteger(gdl, (secs % 60) / 10, viewright - 2, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, 0x00ff00a0);
+		gdl = bgunDrawHudInteger(gdl, (mins % 100) / 10, viewright - 18, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, g_ModColours[MODCOLOUR_TIMER]);
+		gdl = bgunDrawHudInteger(gdl, mins % 10, viewright - 14, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, g_ModColours[MODCOLOUR_TIMER]);
+		gdl = bgunDrawHudString(gdl, fmt, viewright - 8, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, g_ModColours[MODCOLOUR_TIMER]);
+		gdl = bgunDrawHudInteger(gdl, (secs % 60) / 10, viewright - 2, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, g_ModColours[MODCOLOUR_TIMER]);
 		gdl = bgunDrawHudInteger(gdl, secs % 10, viewright + 2, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, 0x00ff00a0);
 		gdl = bgunDrawHudString(gdl, fmt, viewright + 8, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, 0x00ff00a0);
 		gdl = bgunDrawHudInteger(gdl, (ms % 100) / 10, viewright + 14, HUDHALIGN_MIDDLE, y, HUDVALIGN_MIDDLE, 0x00ff00a0);

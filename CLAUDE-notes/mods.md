@@ -123,6 +123,15 @@ Texture Packs page), which the log says when it copies one.
 `tools/importmod` builds a mod directory out of a console mod's xdelta, and
 `tools/modcodediff` shows what that mod changed in the ROM's code.
 
+**Every block's keys are set through one function** (2026-09-07): the
+parsers in mod.c call `modWeaponSetKey()`, `modDamageSetKey()`,
+`modStageSetKey()`, `modDataSpecSetTable()` and the rest (mod.h, "the
+settings a modconfig block can make"), which hold a key's name and range
+once; the `weaponfunc` block and the unlocks each had a private copy of
+their key table before. Adding a key is one function, and the parser block
+that names it. `modConfigParse()` is `modConfigLoad()` split from its file
+read, for text that is already in memory.
+
 **A modconfig is optional, and one bad block used to cost the rest of the file.**
 `files/`, `segs/` and `textures/` each make a mod dir on their own, so an
 imported console mod has no `modconfig.txt` at all and `modConfigLoad()` checks
@@ -1202,6 +1211,28 @@ to-seven-word changes sorts into families:
   `projectile_0f06c28c`) on top of the hit sound's and `chr_damage`'s: GE
   has no shields, and the port keeps its shield logic, which never fires
   when nothing gives a shield. Left as one deliberate gap.
+*(2026-09-07, later: five of these are settings now, importer 29 -
+`src/include/game/modrules.h`, each with the stock value as its default, a
+modconfig block, one setter in mod.c and a reading in both importers. The
+run-speed cave is `movement { fastspeed 1.375 fastcheat 6 }`: the cave
+multiplies by 1.375 in a match with the option on and in a mission while
+cheat 6 is active, and `fastmoveFromCode()` reads the constant in place or
+follows the `j` into the cave for the `lui at` and the `li a0` beside its
+`jal cheat_is_active`. The zeroed slow-motion test is `cheats { slowmotion
+-1 }`. `chr_set_poisoned`'s two nopped stores are `poisonmatch 0
+poisonmission 0` in the `damage` block. King of the Hill's constants are
+`koh { hillcolour R G B freecolour R G B }`, read as the float a function
+stores to an offset of a register - GE-X writes them as `li at,HI; sh
+at,OFF`, the float's top half as a halfword, so `followFloatStore()` takes a
+`swc1` fed by `mtc1 at` from a `lui at` or an `sh at` fed by an `li at`, 32
+words back. Ten of the palette's sites - the two timers' text, the horizon
+scanner's four lines, the menu's join text and its blend, the Slayer rocket
+view's interlace - are `colours { NAME 0xRRGGBBAA }` over `g_ModColours[]`,
+read by `followColourAt()` as a `lui`/`ori` pair, a lone `lui` or an `li`
+(addi and addiu sign-extend: `li s5,-16385` is 0xffffbfff). Left: bot
+weapon scoring, the sight, the hats, the keyboard hack, menugfx's colours
+built from parts, the shield removals. The rest of this list stands.)*
+
 - **The run-speed cave** (`bwalk_update_horizontal`, `j 0x7f132ac0` into
   the weather's freed words): fast movement times 1.375 rather than 1.25,
   and in a mission the same when cheat 6 is on - `CHEAT_SLOMO`, which GE-X

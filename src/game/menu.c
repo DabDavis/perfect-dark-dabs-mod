@@ -54,6 +54,7 @@
 #include "input.h"
 #include "platform.h"
 #include "system.h"
+#include "game/modrules.h"
 #define BLUR_OFS 10
 #else
 #define BLUR_OFS 30
@@ -5826,7 +5827,7 @@ Gfx *menuRender(Gfx *gdl)
 							x = viewleft + 2;
 						}
 
-						gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, g_MenuData.playerjoinalpha[i] | 0x5070ff00, viGetWidth(), viGetHeight(), 0, 0);
+						gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, g_MenuData.playerjoinalpha[i] | g_ModColours[MODCOLOUR_JOINTEXT], viGetWidth(), viGetHeight(), 0, 0);
 
 						if (g_Vars.mpsetupmenu == MPSETUPMENU_GENERAL && g_Vars.waitingtojoin[i]) {
 							// "Ready!"
@@ -5841,7 +5842,7 @@ Gfx *menuRender(Gfx *gdl)
 						} else {
 							// "Press START!"
 							strcpy(text, langGet(L_MPMENU_483));
-							colour = colourBlend(0x00ffff00, 0xffffff00, weight) | g_MenuData.playerjoinalpha[i];
+							colour = colourBlend(g_ModColours[MODCOLOUR_JOINBLEND], 0xffffff00, weight) | g_MenuData.playerjoinalpha[i];
 						}
 
 						gdl = textRenderProjected(gdl, &x, &y, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, colour, viGetWidth(), viGetHeight(), 0, 0);

@@ -28,6 +28,7 @@
 #include "data.h"
 #include "types.h"
 #include "game/modoptions.h"
+#include "game/modrules.h"
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
 #endif
@@ -1668,8 +1669,14 @@ void bwalk0f0c69b8(void)
 
 	spc0 = spc0 / 353.33331298828f + 1.0f;
 
-	if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_FASTMOVEMENT)) {
-		spc0 *= 1.25f;
+	// the multiplier is the mod's to set, and a mission cheat may give it
+	// too (GE-X's cheat 6, game/modrules.h)
+	if (g_Vars.normmplayerisrunning) {
+		if (g_MpSetup.options & MPOPTION_FASTMOVEMENT) {
+			spc0 *= g_ModFastMoveScale;
+		}
+	} else if (g_ModFastMoveCheat >= 0 && cheatIsActive(g_ModFastMoveCheat)) {
+		spc0 *= g_ModFastMoveScale;
 	}
 
 #if VERSION >= VERSION_NTSC_1_0

@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -19,6 +20,7 @@
 #include "game/chr.h"
 #include "game/chraction.h"
 #include "game/modunlocks.h"
+#include "game/modrules.h"
 #include "data.h"
 #include "game/stagetable.h"
 #include "game/stagemusic.h"
@@ -159,17 +161,223 @@ static inline char *modConfigParseFloatValue(char *p, char *token, f32 *out)
 	return p;
 }
 
-static char *modConfigParseStageMusic(char *p, char *token, s32 stagenum)
+/* ---- a stage's settings: the music entry, the weather entry ---------------
+ *
+ * Shared by the `stage` block and the setters' callers. Return 1 applied,
+ * 0 unknown key, -1 value out of range, -2 no such stage or entry.
+ */
+
+s32 modStageLookup(s32 stagenum, struct stagetableentry **stab, struct stageallocation **salloc)
+{
+	const s32 sidx = (stagenum > 0x01 && stagenum <= 0x50) ? stageGetIndex(stagenum) : -1;
+	if (sidx < 0) {
+		return -2;
+	}
+	if (stab) {
+		*stab = &g_Stages[sidx];
+	}
+	if (salloc) {
+		*salloc = NULL;
+		for (struct stageallocation *a = g_StageAllocations8Mb; a->stagenum; ++a) {
+			if (a->stagenum == stagenum) {
+				*salloc = a;
+				break;
+			}
+		}
+	}
+	return 1;
+}
+
+s32 modStageSetKey(s32 stagenum, const char *key, s32 value)
+{
+	struct stagetableentry *stab;
+	if (modStageLookup(stagenum, &stab, NULL) < 0) {
+		return -2;
+	}
+	if (!strcmp(key, "alarm")) {
+		if (value < 1 || value > 0xffff) {
+			return -1;
+		}
+		stab->alarm = value;
+		return 1;
+	}
+	if (!strcmp(key, "extragunmem")) {
+		if (value < 0 || value > 0xffff) {
+			return -1;
+		}
+		stab->extragunmem = value;
+		return 1;
+	}
+	return 0;
+}
+
+// a stage's file slot, by the file's name or its number
+s32 modStageSetFile(s32 stagenum, const char *key, const char *nameOrNum)
+{
+	struct stagetableentry *stab;
+	s32 num;
+	char *endp;
+	if (modStageLookup(stagenum, &stab, NULL) < 0) {
+		return -2;
+	}
+	num = strtol(nameOrNum, &endp, 0);
+	if (endp == nameOrNum || *endp || num <= 0 || !romdataFileGetName(num)) {
+		num = romdataFileGetNumForName(nameOrNum);
+		if (num < 0) {
+			return -1;
+		}
+	}
+	if (!strcmp(key, "bgfile")) {
+		stab->bgfileid = num;
+	} else if (!strcmp(key, "tilesfile")) {
+		stab->tilefileid = num;
+	} else if (!strcmp(key, "padsfile")) {
+		stab->padsfileid = num;
+	} else if (!strcmp(key, "setupfile")) {
+		stab->setupfileid = num;
+	} else if (!strcmp(key, "mpsetupfile")) {
+		stab->mpsetupfileid = num;
+	} else {
+		return 0;
+	}
+	return 1;
+}
+
+s32 modStageSetAllocation(s32 stagenum, const char *str)
+{
+	struct stageallocation *salloc;
+	if (modStageLookup(stagenum, NULL, &salloc) < 0 || !salloc) {
+		return -2;
+	}
+	// FIXME: this leaks
+	char *dup = strDuplicate(str);
+	if (!dup) {
+		return -1;
+	}
+	salloc->string = dup;
+	return 1;
+}
+
+s32 modStageMusicSetKey(s32 stagenum, const char *key, s32 value)
 {
 	struct stagemusic *smus = NULL;
-	for (struct stagemusic *p = g_StageTracks; p->stagenum; ++p) {
-		if (p->stagenum == stagenum) {
-			smus = p;
+	for (struct stagemusic *m = g_StageTracks; m->stagenum; ++m) {
+		if (m->stagenum == stagenum) {
+			smus = m;
 			break;
 		}
 	}
-
 	if (!smus) {
+		return -2;
+	}
+	if (value < 0 || value > 128) {
+		return -1;
+	}
+	if (!strcmp(key, "primarytrack")) {
+		smus->primarytrack = value;
+	} else if (!strcmp(key, "ambienttrack")) {
+		smus->ambienttrack = value;
+	} else if (!strcmp(key, "xtrack")) {
+		smus->xtrack = value;
+	} else {
+		return 0;
+	}
+	return 1;
+}
+
+/**
+ * The weather entry a stage's block edits, made if the stage has none; its
+ * flags are cleared, as every block re-specifies them. NULL when the table
+ * is full.
+ */
+struct weathercfg *modStageWeatherBegin(s32 stagenum)
+{
+	s32 wi;
+	for (wi = 0; wi < ARRAYCOUNT(g_WeatherConfig) && g_WeatherConfig[wi].stagenum; ++wi) {
+		if (g_WeatherConfig[wi].stagenum == stagenum) {
+			break;
+		}
+	}
+	if (wi >= WEATHERCFG_MAX_STAGES) {
+		return NULL;
+	}
+	struct weathercfg *wcfg = &g_WeatherConfig[wi];
+	if (!wcfg->stagenum) {
+		*wcfg = g_DefaultWeatherConfig;
+		wcfg->stagenum = stagenum;
+	} else {
+		wcfg->flags = 0;
+	}
+	return wcfg;
+}
+
+s32 modStageWeatherSetKey(struct weathercfg *wcfg, const char *key, f32 value)
+{
+	if (!strcmp(key, "windspeed")) {
+		if (value < -1024.f || value > 1024.f) {
+			return -1;
+		}
+		wcfg->windspeed = value;
+		return 1;
+	}
+	if (!strcmp(key, "ymin") || !strcmp(key, "ymax") || !strcmp(key, "zmax")) {
+		if (value < -65536.f || value > 65536.f) {
+			return -1;
+		}
+		*(key[0] == 'z' ? &wcfg->zmax : key[2] == 'i' ? &wcfg->ymin : &wcfg->ymax) = value;
+		return 1;
+	}
+	if (!strcmp(key, "cutscene_only")) {
+		if (value != 0.f) {
+			wcfg->flags |= WEATHERFLAG_CUTSCENE_ONLY;
+		}
+		return 1;
+	}
+	return 0;
+}
+
+s32 modStageWeatherSetConstantWind(struct weathercfg *wcfg, f32 anglerad, f32 speedx, f32 speedz)
+{
+	if (anglerad < -M_TAU || anglerad > M_TAU || speedx < -1024.f || speedx > 1024.f || speedz < -1024.f || speedz > 1024.f) {
+		return -1;
+	}
+	wcfg->windanglerad = anglerad;
+	wcfg->windspeedx = speedx;
+	wcfg->windspeedz = speedz;
+	wcfg->flags |= WEATHERFLAG_FORCE_WINDDIR;
+	return 1;
+}
+
+/**
+ * The room list: the rooms that have weather (include) or the rooms that do
+ * not. `clear` empties the list first, else the rooms are appended. A room
+ * out of range is -1 and the list is left as it was up to it; rooms past the
+ * table's end are dropped.
+ */
+s32 modStageWeatherSetRooms(struct weathercfg *wcfg, s32 include, s32 clear, const s32 *rooms, s32 count)
+{
+	s32 idx;
+	if (clear) {
+		memset(wcfg->skiprooms, 0, sizeof(wcfg->skiprooms));
+	}
+	for (idx = 0; idx < WEATHERCFG_MAX_SKIPROOMS && wcfg->skiprooms[idx]; ++idx);
+	for (s32 i = 0; i < count; ++i) {
+		if (rooms[i] <= 0 || rooms[i] > 32767) {
+			return -1;
+		}
+		if (idx < WEATHERCFG_MAX_SKIPROOMS) {
+			wcfg->skiprooms[idx++] = rooms[i];
+		}
+	}
+	if (wcfg->skiprooms[0] && include) {
+		wcfg->flags |= WEATHERFLAG_INCLUDE;
+	}
+	return 1;
+}
+
+static char *modConfigParseStageMusic(char *p, char *token, s32 stagenum)
+{
+	if (modStageMusicSetKey(stagenum, "primarytrack", -2) == -2) {
 		sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: music can't be changed for this stage", stagenum);
 		return NULL;
 	}
@@ -184,17 +392,11 @@ static char *modConfigParseStageMusic(char *p, char *token, s32 stagenum)
 	s32 tmp = 0;
 	p = strParseToken(p, token, NULL);
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		if (!strcmp(token, "primarytrack")) {
-			PARSE_STAGE_INT("music:", "primarytrack", tmp, 0, 128);
-			smus->primarytrack = tmp;
-		} else if (!strcmp(token, "ambienttrack")) {
-			PARSE_STAGE_INT("music:", "ambienttrack", tmp, 0, 128);
-			smus->ambienttrack = tmp;
-		} else if (!strcmp(token, "xtrack")) {
-			PARSE_STAGE_INT("music:", "xtrack", tmp, 0, 128);
-			smus->xtrack = tmp;
-		} else {
-			sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: music: invalid key: %s", stagenum, token);
+		char key[UTIL_MAX_TOKEN + 1];
+		strcpy(key, token);
+		PARSE_STAGE_INT("music:", "track", tmp, 0, 128);
+		if (modStageMusicSetKey(stagenum, key, tmp) != 1) {
+			sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: music: invalid key: %s", stagenum, key);
 			return NULL;
 		}
 		p = strParseToken(p, token, NULL);
@@ -208,11 +410,11 @@ static char *modConfigParseStageMusic(char *p, char *token, s32 stagenum)
 	return p;
 }
 
-static char *modConfigParseStageWeatherRooms(char *p, char *token, s32 stagenum, struct weathercfg *wcfg)
+static char *modConfigParseStageWeatherRooms(char *p, char *token, s32 stagenum, struct weathercfg *wcfg, s32 include)
 {
-	// determine where we can start adding rooms
-	s32 idx;
-	for (idx = 0; idx < WEATHERCFG_MAX_SKIPROOMS && wcfg->skiprooms[idx]; ++idx);
+	s32 rooms[WEATHERCFG_MAX_SKIPROOMS];
+	s32 count = 0;
+	s32 clear = 0;
 
 	// eat opening bracket
 	p = strParseToken(p, token, NULL);
@@ -223,26 +425,24 @@ static char *modConfigParseStageWeatherRooms(char *p, char *token, s32 stagenum,
 	// check if user wants to clear the whole list
 	p = strParseToken(p, token, NULL);
 	if (!strcmp(token, "clear")) {
-		memset(wcfg->skiprooms, 0, sizeof(wcfg->skiprooms));
-		idx = 0;
+		clear = 1;
 		p = strParseToken(p, token, NULL);
 	}
 
-	s32 tmp = 0;
 	while (p && token[0] && strcmp(token, "}") != 0) {
 		if (token[0] == ',' && !token[1]) {
 			p = strParseToken(p, token, NULL);
 			continue;
 		}
 
-		tmp = strtol(token, NULL, 0);
+		const s32 tmp = strtol(token, NULL, 0);
 		if (tmp <= 0 || tmp > 32767) {
 			sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: weather: rooms: invalid room %s", stagenum, token);
 			return NULL;
 		}
 
-		if (idx < WEATHERCFG_MAX_SKIPROOMS) {
-			wcfg->skiprooms[idx++] = tmp;
+		if (count < WEATHERCFG_MAX_SKIPROOMS) {
+			rooms[count++] = tmp;
 		}
 
 		p = strParseToken(p, token, NULL);
@@ -253,6 +453,8 @@ static char *modConfigParseStageWeatherRooms(char *p, char *token, s32 stagenum,
 		return NULL;
 	}
 
+	modStageWeatherSetRooms(wcfg, include, clear, rooms, count);
+
 	return p;
 }
 
@@ -260,15 +462,9 @@ static char *modConfigSkipBlock(char *p, char *token);
 
 static char *modConfigParseStageWeather(char *p, char *token, s32 stagenum)
 {
-	s32 wi;
-	struct weathercfg *wcfg = NULL;
-	for (wi = 0; wi < ARRAYCOUNT(g_WeatherConfig) && g_WeatherConfig[wi].stagenum; ++wi) {
-		if (g_WeatherConfig[wi].stagenum == stagenum) {
-			break;
-		}
-	}
+	struct weathercfg *wcfg = modStageWeatherBegin(stagenum);
 
-	if (wi >= WEATHERCFG_MAX_STAGES) {
+	if (!wcfg) {
 		// not a reason to lose the rest of the file: skip this block
 		sysLogPrintf(LOG_WARNING, "modconfig: stage 0x%02x: no more space for weather config, skipping block", stagenum);
 		p = strParseToken(p, token, NULL);
@@ -278,17 +474,6 @@ static char *modConfigParseStageWeather(char *p, char *token, s32 stagenum)
 		return modConfigSkipBlock(p, token);
 	}
 
-	wcfg = &g_WeatherConfig[wi];
-
-	if (!wcfg->stagenum) {
-		// new weather config; initialize with defaults
-		*wcfg = g_DefaultWeatherConfig;
-		wcfg->stagenum = stagenum;
-	} else {
-		// flags have to be re-specified
-		wcfg->flags = 0;
-	}
-
 	// eat opening bracket
 	p = strParseToken(p, token, NULL);
 	if (token[0] != '{' || token[1] != '\0') {
@@ -296,42 +481,31 @@ static char *modConfigParseStageWeather(char *p, char *token, s32 stagenum)
 	}
 
 	// parse keyvalues until } is reached
-	s32 tmpi = 0;
 	f32 tmpf = 0.f;
 	p = strParseToken(p, token, NULL);
 	while (p && token[0] && strcmp(token, "}") != 0) {
 		if (!strcmp(token, "include_rooms") || !strcmp(token, "exclude_rooms")) {
 			// include_rooms | exclude_rooms { ROOM_NUMBERS... }
-			const s32 include = (token[0] == 'i');
-			p = modConfigParseStageWeatherRooms(p, token, stagenum, wcfg);
+			p = modConfigParseStageWeatherRooms(p, token, stagenum, wcfg, token[0] == 'i');
 			if (!p) {
 				return NULL;
 			}
-			if (wcfg->skiprooms[0] && include) {
-				wcfg->flags |= WEATHERFLAG_INCLUDE;
-			}
 		} else if (!strcmp(token, "cutscene_only")) {
-			wcfg->flags |= WEATHERFLAG_CUTSCENE_ONLY;
+			modStageWeatherSetKey(wcfg, "cutscene_only", 1.f);
 		} else if (!strcmp(token, "constant_wind")) {
-			PARSE_STAGE_FLOAT("weather:", "constant_wind (0)", wcfg->windanglerad, -M_TAU, M_TAU);
-			PARSE_STAGE_FLOAT("weather:", "constant_wind (1)", wcfg->windspeedx, -1024.f, 1024.f);
-			PARSE_STAGE_FLOAT("weather:", "constant_wind (2)", wcfg->windspeedz, -1024.f, 1024.f);
-			wcfg->flags |= WEATHERFLAG_FORCE_WINDDIR;
-		} else if (!strcmp(token, "windspeed")) {
-			PARSE_STAGE_FLOAT("weather:", "windspeed", tmpf, -1024.f, 1024.f);
-			wcfg->windspeed = tmpf;
-		} else if (!strcmp(token, "ymin")) {
-			PARSE_STAGE_FLOAT("weather:", "ymin", tmpf, -65536.f, 65536.f);
-			wcfg->ymin = tmpf;
-		} else if (!strcmp(token, "ymax")) {
-			PARSE_STAGE_FLOAT("weather:", "ymax", tmpf, -65536.f, 65536.f);
-			wcfg->ymax = tmpf;
-		} else if (!strcmp(token, "zmax")) {
-			PARSE_STAGE_FLOAT("weather:", "zmax", tmpf, -65536.f, 65536.f);
-			wcfg->zmax = tmpf;
+			f32 a, x, z;
+			PARSE_STAGE_FLOAT("weather:", "constant_wind (0)", a, -M_TAU, M_TAU);
+			PARSE_STAGE_FLOAT("weather:", "constant_wind (1)", x, -1024.f, 1024.f);
+			PARSE_STAGE_FLOAT("weather:", "constant_wind (2)", z, -1024.f, 1024.f);
+			modStageWeatherSetConstantWind(wcfg, a, x, z);
 		} else {
-			sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: weather: invalid key: %s", stagenum, token);
-			return NULL;
+			char key[UTIL_MAX_TOKEN + 1];
+			strcpy(key, token);
+			PARSE_STAGE_FLOAT("weather:", "value", tmpf, -65536.f, 65536.f);
+			if (modStageWeatherSetKey(wcfg, key, tmpf) != 1) {
+				sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: weather: invalid key or value: %s %s", stagenum, key, token);
+				return NULL;
+			}
 		}
 		p = strParseToken(p, token, NULL);
 	}
@@ -343,6 +517,7 @@ static char *modConfigParseStageWeather(char *p, char *token, s32 stagenum)
 
 	return p;
 }
+
 
 /**
  * Consume tokens up to the } closing a block whose { has already been eaten,
@@ -387,13 +562,7 @@ static char *modConfigParseStage(char *p, char *token)
 		return NULL;
 	}
 
-	// find the stage table pointers this corresponds to
-	struct stagetableentry *stab = NULL;
-	struct stageallocation *salloc = NULL;
-	const s32 sidx = stageGetIndex(stagenum);
-	if (sidx >= 0) {
-		stab = &g_Stages[sidx];
-	} else {
+	if (modStageLookup(stagenum, NULL, NULL) < 0) {
 		// A stage this build does not have is not a syntax error: the config is
 		// written against the mod's own stage table. Skipping the block keeps
 		// the rest of the file, which aborting here threw away. GE-X opens with
@@ -403,53 +572,35 @@ static char *modConfigParseStage(char *p, char *token)
 		sysLogPrintf(LOG_WARNING, "modconfig: stage 0x%02x: unknown stage number, skipping block", stagenum);
 		return modConfigSkipBlock(p, token);
 	}
-	for (struct stageallocation *p = g_StageAllocations8Mb; p->stagenum; ++p) {
-		if (p->stagenum == stagenum) {
-			salloc = p;
-			break;
-		}
-	}
 
 	// parse keyvalues until } is reached
 	s32 tmp = 0;
 	char *tmps = NULL;
 	p = strParseToken(p, token, NULL);
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		if (!strcmp(token, "bgfile")) {
-			// bg FILE_NAME_OR_NUM
-			PARSE_STAGE_FILENAME("", "bgfile", tmp);
-			stab->bgfileid = tmp;
-		} else if (!strcmp(token, "tilesfile")) {
-			// tilesfile FILE_NAME_OR_NUM
-			PARSE_STAGE_FILENAME("", "tilesfile", tmp);
-			stab->tilefileid = tmp;
-		} else if (!strcmp(token, "padsfile")) {
-			// padsfile FILE_NAME_OR_NUM
-			PARSE_STAGE_FILENAME("", "padsfile", tmp);
-			stab->padsfileid = tmp;
-		} else if (!strcmp(token, "setupfile")) {
-			// setupfile FILE_NAME_OR_NUM
-			PARSE_STAGE_FILENAME("", "setupfile", tmp);
-			stab->setupfileid = tmp;
-		} else if (!strcmp(token, "mpsetupfile")) {
-			// mpsetupfile FILE_NAME_OR_NUM
-			PARSE_STAGE_FILENAME("", "mpsetupfile", tmp);
-			stab->mpsetupfileid = tmp;
-		} else if (!strcmp(token, "alarm")) {
-			PARSE_STAGE_INT("", "alarm", tmp, 1, 0xFFFF);
-			stab->alarm = tmp;
-		} else if (!strcmp(token, "extragunmem")) {
-			PARSE_STAGE_INT("", "extragunmem", tmp, 0, 0xFFFF);
-			stab->extragunmem = tmp;
-		}  else if (!strcmp(token, "allocation")) {
+		if (!strcmp(token, "bgfile") || !strcmp(token, "tilesfile") || !strcmp(token, "padsfile")
+				|| !strcmp(token, "setupfile") || !strcmp(token, "mpsetupfile")) {
+			// KEY FILE_NAME_OR_NUM
+			char key[UTIL_MAX_TOKEN + 1];
+			strcpy(key, token);
+			p = strParseToken(p, token, NULL);
+			if (!p || !token[0] || modStageSetFile(stagenum, key, strUnquote(token)) != 1) {
+				sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: invalid %s value: %s", stagenum, key, token);
+				return NULL;
+			}
+		} else if (!strcmp(token, "alarm") || !strcmp(token, "extragunmem")) {
+			char key[UTIL_MAX_TOKEN + 1];
+			strcpy(key, token);
+			PARSE_STAGE_INT("", "value", tmp, 0, 0xFFFF);
+			if (modStageSetKey(stagenum, key, tmp) != 1) {
+				sysLogPrintf(LOG_ERROR, "modconfig: stage 0x%02x: invalid %s value: %s", stagenum, key, token);
+				return NULL;
+			}
+		} else if (!strcmp(token, "allocation")) {
 			// allocation "ALLOCSTRING"
 			PARSE_STAGE_STRING("", "allocation", tmps);
-			// FIXME: this leaks
-			tmps = strDuplicate(tmps);
-			if (tmps) {
-				salloc->string = tmps;
-			}
-		}	else if (!strcmp(token, "music")) {
+			modStageSetAllocation(stagenum, tmps);
+		} else if (!strcmp(token, "music")) {
 			// music { KEYVALUES... }
 			p = modConfigParseStageMusic(p, token, stagenum);
 			if (!p) {
@@ -555,6 +706,358 @@ static const struct {
 	{ "laserstream",   FUNCFLAG_LASERSTREAM },
 };
 
+/* ---- the settings a modconfig block or a script can make -----------------
+ *
+ * Every parser below goes through these, so
+ * a key's name and its range are written once. Return 1 when applied, 0 for
+ * a key or flag name that does not exist, -1 for a value out of range, -2 for
+ * a weapon or function that does not exist.
+ */
+
+s32 modWeaponFlagLookup(const char *name, u32 *flag, u32 *word)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(weaponFlagNames); ++i) {
+		if (!strcmp(name, weaponFlagNames[i].name)) {
+			*flag = weaponFlagNames[i].flag;
+			*word = weaponFlagNames[i].word;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+const char *modWeaponFlagName(s32 index)
+{
+	return (index >= 0 && index < (s32)ARRAYCOUNT(weaponFlagNames)) ? weaponFlagNames[index].name : NULL;
+}
+
+s32 modWeaponFuncFlagLookup(const char *name, u32 *flag)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(weaponFuncFlagNames); ++i) {
+		if (!strcmp(name, weaponFuncFlagNames[i].name)) {
+			*flag = weaponFuncFlagNames[i].flag;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+const char *modWeaponFuncFlagName(s32 index)
+{
+	return (index >= 0 && index < (s32)ARRAYCOUNT(weaponFuncFlagNames)) ? weaponFuncFlagNames[index].name : NULL;
+}
+
+void modWeaponFlagClearAll(u32 flag, u32 word)
+{
+	for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
+		struct weapon *weapon = bgunGetWeaponDefinition(i);
+		if (weapon) {
+			*(word == 3 ? &weapon->flags3 : &weapon->flags2) &= ~flag;
+		}
+	}
+}
+
+s32 modWeaponFlagSet(s32 weaponnum, u32 flag, u32 word, s32 on)
+{
+	struct weapon *weapon = (weaponnum >= 0 && weaponnum <= WEAPON_SUICIDEPILL) ? bgunGetWeaponDefinition(weaponnum) : NULL;
+	if (!weapon) {
+		return -2;
+	}
+	u32 *w = word == 3 ? &weapon->flags3 : &weapon->flags2;
+	if (on) {
+		*w |= flag;
+	} else {
+		*w &= ~flag;
+	}
+	return 1;
+}
+
+s32 modWeaponFlagGet(s32 weaponnum, u32 flag, u32 word)
+{
+	struct weapon *weapon = (weaponnum >= 0 && weaponnum <= WEAPON_SUICIDEPILL) ? bgunGetWeaponDefinition(weaponnum) : NULL;
+	if (!weapon) {
+		return -2;
+	}
+	return ((word == 3 ? weapon->flags3 : weapon->flags2) & flag) != 0;
+}
+
+void modWeaponFuncFlagClearAll(u32 flag)
+{
+	for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
+		for (s32 f = 0; f < 2; ++f) {
+			struct weaponfunc *func = weaponGetFunctionById(i, f);
+			if (func) {
+				func->flags &= ~flag;
+			}
+		}
+	}
+}
+
+s32 modWeaponFuncFlagSet(s32 weaponnum, s32 funcnum, u32 flag, s32 on)
+{
+	if (weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL || funcnum < 0 || funcnum > 1) {
+		return -2;
+	}
+	struct weaponfunc *func = weaponGetFunctionById(weaponnum, funcnum);
+	if (!func) {
+		return -2;
+	}
+	if (on) {
+		func->flags |= flag;
+	} else {
+		func->flags &= ~flag;
+	}
+	return 1;
+}
+
+s32 modWeaponFuncFlagGet(s32 weaponnum, s32 funcnum, u32 flag)
+{
+	if (weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL || funcnum < 0 || funcnum > 1) {
+		return -2;
+	}
+	struct weaponfunc *func = weaponGetFunctionById(weaponnum, funcnum);
+	if (!func) {
+		return -2;
+	}
+	return (func->flags & flag) != 0;
+}
+
+/**
+ * A `weapon` block's key: a flag name with 0 or 1, or one of the two fields.
+ */
+s32 modWeaponSetKey(s32 weaponnum, const char *key, s32 value)
+{
+	struct weapon *weapon = (weaponnum >= 0 && weaponnum <= WEAPON_SUICIDEPILL) ? bgunGetWeaponDefinition(weaponnum) : NULL;
+	u32 flag, word;
+
+	if (!weapon) {
+		return -2;
+	}
+
+	if (modWeaponFlagLookup(key, &flag, &word)) {
+		if (value < 0 || value > 1) {
+			return -1;
+		}
+		return modWeaponFlagSet(weaponnum, flag, word, value != 0);
+	}
+
+	if (!strcmp(key, "unequippedreloadindex")) {
+		if (value < -1 || value > 127) {
+			return -1;
+		}
+		weapon->unequippedreloadindex = value;
+		return 1;
+	}
+
+	if (!strcmp(key, "pickupsound")) {
+		if (value < 0 || value > 0xffff) {
+			return -1;
+		}
+		weapon->pickupsound = value;
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
+ * A `weaponfunc` block's key: a function flag name with 0 or 1.
+ */
+s32 modWeaponFuncSetKey(s32 weaponnum, s32 funcnum, const char *key, s32 value)
+{
+	u32 flag;
+
+	if (!modWeaponFuncFlagLookup(key, &flag)) {
+		return 0;
+	}
+	if (value < 0 || value > 1) {
+		return -1;
+	}
+	return modWeaponFuncFlagSet(weaponnum, funcnum, flag, value != 0);
+}
+
+u32 g_ModUnlocks = 0;
+
+static const struct { const char *name; u32 bit; } unlockKeys[] = {
+	{ "cheats", MODUNLOCK_CHEATS }, { "difficulties", MODUNLOCK_DIFFICULTIES },
+	{ "mpoptions", MODUNLOCK_MPOPTIONS }, { "firingrange", MODUNLOCK_FIRINGRANGE },
+	{ "specialstages", MODUNLOCK_SPECIALSTAGES }, { "completion", MODUNLOCK_COMPLETION },
+	{ "allguns", MODUNLOCK_ALLGUNS },
+};
+
+s32 modUnlockSetKey(const char *key, s32 value)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(unlockKeys); ++i) {
+		if (!strcmp(key, unlockKeys[i].name)) {
+			if (value < 0 || value > 1) {
+				return -1;
+			}
+			if (value) {
+				g_ModUnlocks |= unlockKeys[i].bit;
+			} else {
+				g_ModUnlocks &= ~unlockKeys[i].bit;
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
+s32 modDamageSetKey(const char *key, f32 value)
+{
+	if (!strcmp(key, "playerheadshotscale")) {
+		if (value < 0.f || value > 1000.f) {
+			return -1;
+		}
+		g_ModPlayerHeadshotScale = value;
+		return 1;
+	}
+	if (!strcmp(key, "shieldbreakhits")) {
+		if (value != 0.f && value != 1.f) {
+			return -1;
+		}
+		g_ModShieldBreakHits = value != 0.f;
+		return 1;
+	}
+	if (!strcmp(key, "poisonmatch") || !strcmp(key, "poisonmission")) {
+		if (value < 0.f || value > 65535.f) {
+			return -1;
+		}
+		*(key[7] == 'a' ? &g_ModPoisonMatch : &g_ModPoisonMission) = (s32)value;
+		return 1;
+	}
+	return 0;
+}
+
+s32 modPickupQtySet(s32 mode, s32 ammotype, s32 qty)
+{
+	if (mode < 0 || mode > 1 || ammotype < 0 || ammotype > AMMOTYPE_ECM_MINE) {
+		return -2;
+	}
+	if (qty < 0 || qty > 32767) {
+		return -1;
+	}
+	g_ModPickupQty[mode][ammotype] = qty;
+	return 1;
+}
+
+s32 modAmmoTypeWeaponSet(s32 ammotype, s32 weaponnum)
+{
+	if (ammotype < 0 || ammotype > AMMOTYPE_ECM_MINE) {
+		return -2;
+	}
+	if (weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL) {
+		return -1;
+	}
+	g_AmmoTypeWeapons[ammotype] = weaponnum;
+	return 1;
+}
+
+/* ---- the tail's rules and colours (game/modrules.h) ---------------------- */
+
+s32 modMovementSetKey(const char *key, f32 value)
+{
+	if (!strcmp(key, "fastspeed")) {
+		if (value < 0.1f || value > 8.f) {
+			return -1;
+		}
+		g_ModFastMoveScale = value;
+		return 1;
+	}
+	if (!strcmp(key, "fastcheat")) {
+		if (value < -1.f || value > 63.f) {
+			return -1;
+		}
+		g_ModFastMoveCheat = (s32)value;
+		return 1;
+	}
+	return 0;
+}
+
+s32 modCheatsSetKey(const char *key, s32 value)
+{
+	if (!strcmp(key, "slowmotion")) {
+		if (value < -1 || value > 63) {
+			return -1;
+		}
+		g_ModSlowMotionCheat = value;
+		return 1;
+	}
+	return 0;
+}
+
+s32 modKohSetColour(const char *key, const f32 *rgb)
+{
+	f32 *dst;
+	if (!strcmp(key, "hillcolour")) {
+		dst = g_ModKohHillColour;
+	} else if (!strcmp(key, "freecolour")) {
+		dst = g_ModKohFreeColour;
+	} else {
+		return 0;
+	}
+	for (s32 c = 0; c < 3; c++) {
+		if (rgb[c] < 0.f || rgb[c] > 1.f) {
+			return -1;
+		}
+	}
+	for (s32 c = 0; c < 3; c++) {
+		dst[c] = rgb[c];
+	}
+	return 1;
+}
+
+// the port's colour constants by the name a modconfig uses for them
+static const struct { const char *name; s32 index; } modColourNames[] = {
+	{ "kohhud",      MODCOLOUR_KOHHUD },
+	{ "timer",       MODCOLOUR_TIMER },
+	{ "scannerin0",  MODCOLOUR_SCANNERIN0 },
+	{ "scannerin1",  MODCOLOUR_SCANNERIN1 },
+	{ "scannerout0", MODCOLOUR_SCANNEROUT0 },
+	{ "scannerout1", MODCOLOUR_SCANNEROUT1 },
+	{ "jointext",    MODCOLOUR_JOINTEXT },
+	{ "joinblend",   MODCOLOUR_JOINBLEND },
+	{ "interlace0",  MODCOLOUR_INTERLACE0 },
+	{ "interlace1",  MODCOLOUR_INTERLACE1 },
+};
+
+s32 modColourLookup(const char *name)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(modColourNames); ++i) {
+		if (!strcmp(name, modColourNames[i].name)) {
+			return modColourNames[i].index;
+		}
+	}
+	return -1;
+}
+
+const char *modColourName(s32 index)
+{
+	return (index >= 0 && index < (s32)ARRAYCOUNT(modColourNames)) ? modColourNames[index].name : NULL;
+}
+
+s32 modColourSet(const char *name, u32 rgba)
+{
+	const s32 index = modColourLookup(name);
+	if (index < 0) {
+		return 0;
+	}
+	g_ModColours[index] = rgba;
+	return 1;
+}
+
+s32 modTvScreenSetSameAs(s32 num, s32 src)
+{
+	if (num < 0 || num >= (s32)ARRAYCOUNT(g_TvCmdlists)) {
+		return -2;
+	}
+	if (src < 0 || src >= (s32)ARRAYCOUNT(g_TvCmdlists)) {
+		return -1;
+	}
+	g_TvCmdlists[num] = g_TvCmdlists[src];
+	return 1;
+}
+
 /**
  * weaponfuncflags FLAG { [clear] WEAPON FUNC ... }
  *
@@ -572,14 +1075,7 @@ static char *modConfigParseWeaponFuncFlags(char *p, char *token)
 
 	p = strParseToken(p, token, NULL);
 
-	for (u32 i = 0; i < ARRAYCOUNT(weaponFuncFlagNames); ++i) {
-		if (!strcmp(token, weaponFuncFlagNames[i].name)) {
-			flag = weaponFuncFlagNames[i].flag;
-			break;
-		}
-	}
-
-	if (!flag) {
+	if (!modWeaponFuncFlagLookup(token, &flag)) {
 		sysLogPrintf(LOG_ERROR, "modconfig: weaponfuncflags: unknown flag %s", token);
 		return NULL;
 	}
@@ -592,19 +1088,11 @@ static char *modConfigParseWeaponFuncFlags(char *p, char *token)
 
 	p = strParseToken(p, token, NULL);
 	if (!strcmp(token, "clear")) {
-		for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
-			for (s32 f = 0; f < 2; ++f) {
-				struct weaponfunc *func = weaponGetFunctionById(i, f);
-				if (func) {
-					func->flags &= ~flag;
-				}
-			}
-		}
+		modWeaponFuncFlagClearAll(flag);
 		p = strParseToken(p, token, NULL);
 	}
 
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		struct weaponfunc *func;
 		s32 weaponnum, funcnum;
 		char *endp;
 
@@ -620,10 +1108,7 @@ static char *modConfigParseWeaponFuncFlags(char *p, char *token)
 			return NULL;
 		}
 
-		func = weaponGetFunctionById(weaponnum, funcnum);
-		if (func) {
-			func->flags |= flag;
-		} else {
+		if (modWeaponFuncFlagSet(weaponnum, funcnum, flag, true) < 0) {
 			sysLogPrintf(LOG_WARNING, "modconfig: weaponfuncflags: weapon %d has no function %d to flag", weaponnum, funcnum);
 		}
 
@@ -638,8 +1123,6 @@ static char *modConfigParseWeaponFuncFlags(char *p, char *token)
 	return p;
 }
 
-u32 g_ModUnlocks = 0;
-
 /**
  * unlocks { cheats 1 difficulties 1 mpoptions 1 firingrange 1 specialstages 1 completion 1 allguns 1 }
  *
@@ -648,12 +1131,6 @@ u32 g_ModUnlocks = 0;
  */
 static char *modConfigParseUnlocks(char *p, char *token)
 {
-	static const struct { const char *name; u32 bit; } keys[] = {
-		{ "cheats", MODUNLOCK_CHEATS }, { "difficulties", MODUNLOCK_DIFFICULTIES },
-		{ "mpoptions", MODUNLOCK_MPOPTIONS }, { "firingrange", MODUNLOCK_FIRINGRANGE },
-		{ "specialstages", MODUNLOCK_SPECIALSTAGES }, { "completion", MODUNLOCK_COMPLETION },
-		{ "allguns", MODUNLOCK_ALLGUNS },
-	};
 	s32 tmp = 0;
 
 	// eat opening bracket
@@ -664,21 +1141,12 @@ static char *modConfigParseUnlocks(char *p, char *token)
 
 	p = strParseToken(p, token, NULL);
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		u32 i;
-		for (i = 0; i < ARRAYCOUNT(keys); ++i) {
-			if (!strcmp(token, keys[i].name)) {
-				break;
-			}
-		}
-		if (i == ARRAYCOUNT(keys)) {
-			sysLogPrintf(LOG_ERROR, "modconfig: unlocks: invalid key: %s", token);
-			return NULL;
-		}
+		char key[UTIL_MAX_TOKEN + 1];
+		strcpy(key, token);
 		PARSE_INT("unlocks", "flag", tmp, 0, 1, NULL);
-		if (tmp) {
-			g_ModUnlocks |= keys[i].bit;
-		} else {
-			g_ModUnlocks &= ~keys[i].bit;
+		if (modUnlockSetKey(key, tmp) != 1) {
+			sysLogPrintf(LOG_ERROR, "modconfig: unlocks: invalid key: %s", key);
+			return NULL;
 		}
 		p = strParseToken(p, token, NULL);
 	}
@@ -701,7 +1169,6 @@ static char *modConfigParseUnlocks(char *p, char *token)
  */
 static char *modConfigParseDamage(char *p, char *token)
 {
-	s32 tmp = 0;
 	f32 tmpf = 0;
 
 	// eat opening bracket
@@ -712,14 +1179,11 @@ static char *modConfigParseDamage(char *p, char *token)
 
 	p = strParseToken(p, token, NULL);
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		if (!strcmp(token, "playerheadshotscale")) {
-			PARSE_FLOAT("damage", "playerheadshotscale", tmpf, 0.f, 1000.f, NULL);
-			g_ModPlayerHeadshotScale = tmpf;
-		} else if (!strcmp(token, "shieldbreakhits")) {
-			PARSE_INT("damage", "shieldbreakhits", tmp, 0, 1, NULL);
-			g_ModShieldBreakHits = tmp != 0;
-		} else {
-			sysLogPrintf(LOG_ERROR, "modconfig: damage: invalid key: %s", token);
+		char key[UTIL_MAX_TOKEN + 1];
+		strcpy(key, token);
+		PARSE_FLOAT("damage", "value", tmpf, -1e9f, 1e9f, NULL);
+		if (modDamageSetKey(key, tmpf) != 1) {
+			sysLogPrintf(LOG_ERROR, "modconfig: damage: invalid key or value: %s %s", key, token);
 			return NULL;
 		}
 		p = strParseToken(p, token, NULL);
@@ -773,7 +1237,7 @@ static char *modConfigParsePickupQty(char *p, char *token)
 			sysLogPrintf(LOG_ERROR, "modconfig: pickupqty: invalid quantity %s", token);
 			return NULL;
 		}
-		g_ModPickupQty[mode][ammotype] = qty;
+		modPickupQtySet(mode, ammotype, qty);
 		p = strParseToken(p, token, NULL);
 	}
 
@@ -815,7 +1279,7 @@ static char *modConfigParseAmmoTypeWeapon(char *p, char *token)
 			sysLogPrintf(LOG_ERROR, "modconfig: ammotypeweapon: invalid weapon number %s", token);
 			return NULL;
 		}
-		g_AmmoTypeWeapons[ammotype] = weaponnum;
+		modAmmoTypeWeaponSet(ammotype, weaponnum);
 		p = strParseToken(p, token, NULL);
 	}
 
@@ -845,15 +1309,7 @@ static char *modConfigParseWeaponFlags(char *p, char *token)
 
 	p = strParseToken(p, token, NULL);
 
-	for (u32 i = 0; i < ARRAYCOUNT(weaponFlagNames); ++i) {
-		if (!strcmp(token, weaponFlagNames[i].name)) {
-			flag = weaponFlagNames[i].flag;
-			word = weaponFlagNames[i].word;
-			break;
-		}
-	}
-
-	if (!flag) {
+	if (!modWeaponFlagLookup(token, &flag, &word)) {
 		sysLogPrintf(LOG_ERROR, "modconfig: weaponflags: unknown flag %s", token);
 		return NULL;
 	}
@@ -866,17 +1322,11 @@ static char *modConfigParseWeaponFlags(char *p, char *token)
 
 	p = strParseToken(p, token, NULL);
 	if (!strcmp(token, "clear")) {
-		for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
-			struct weapon *weapon = bgunGetWeaponDefinition(i);
-			if (weapon) {
-				*(word == 3 ? &weapon->flags3 : &weapon->flags2) &= ~flag;
-			}
-		}
+		modWeaponFlagClearAll(flag, word);
 		p = strParseToken(p, token, NULL);
 	}
 
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		struct weapon *weapon;
 		char *endp = token;
 
 		tmp = strtol(token, &endp, 0);
@@ -885,10 +1335,7 @@ static char *modConfigParseWeaponFlags(char *p, char *token)
 			return NULL;
 		}
 
-		weapon = bgunGetWeaponDefinition(tmp);
-		if (weapon) {
-			*(word == 3 ? &weapon->flags3 : &weapon->flags2) |= flag;
-		} else {
+		if (modWeaponFlagSet(tmp, flag, word, true) < 0) {
 			sysLogPrintf(LOG_WARNING, "modconfig: weaponflags: no weapon %d to flag", tmp);
 		}
 
@@ -920,9 +1367,7 @@ static char *modConfigParseWeapon(char *p, char *token)
 		return NULL;
 	}
 
-	struct weapon *weapon = bgunGetWeaponDefinition(weaponnum);
-
-	if (!weapon) {
+	if (!bgunGetWeaponDefinition(weaponnum)) {
 		sysLogPrintf(LOG_ERROR, "modconfig: weapon 0x%02x: no such weapon", weaponnum);
 		return NULL;
 	}
@@ -935,40 +1380,21 @@ static char *modConfigParseWeapon(char *p, char *token)
 	p = strParseToken(p, token, NULL);
 
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		s32 handled = false;
+		char key[UTIL_MAX_TOKEN + 1];
 		s32 tmp = 0;
 
-		for (u32 i = 0; i < ARRAYCOUNT(weaponFlagNames); ++i) {
-			if (strcmp(token, weaponFlagNames[i].name)) {
-				continue;
-			}
+		strcpy(key, token);
+		PARSE_INT("weapon", "value", tmp, -0x7fffffff, 0x7fffffff, NULL);
 
-			PARSE_INT("weapon", "flag", tmp, 0, 1, NULL);
-
-			{
-				u32 *word = weaponFlagNames[i].word == 3 ? &weapon->flags3 : &weapon->flags2;
-				if (tmp) {
-					*word |= weaponFlagNames[i].flag;
-				} else {
-					*word &= ~weaponFlagNames[i].flag;
-				}
-			}
-
-			handled = true;
+		switch (modWeaponSetKey(weaponnum, key, tmp)) {
+		case 1:
 			break;
-		}
-
-		if (!handled) {
-			if (!strcmp(token, "unequippedreloadindex")) {
-				PARSE_INT("weapon", "unequippedreloadindex", tmp, -1, 127, NULL);
-				weapon->unequippedreloadindex = tmp;
-			} else if (!strcmp(token, "pickupsound")) {
-				PARSE_INT("weapon", "pickupsound", tmp, 0, 0xffff, NULL);
-				weapon->pickupsound = tmp;
-			} else {
-				sysLogPrintf(LOG_ERROR, "modconfig: weapon 0x%02x: invalid key: %s", weaponnum, token);
-				return NULL;
-			}
+		case 0:
+			sysLogPrintf(LOG_ERROR, "modconfig: weapon 0x%02x: invalid key: %s", weaponnum, key);
+			return NULL;
+		default:
+			sysLogPrintf(LOG_ERROR, "modconfig: weapon 0x%02x: invalid %s value: %s", weaponnum, key, token);
+			return NULL;
 		}
 
 		p = strParseToken(p, token, NULL);
@@ -1004,7 +1430,7 @@ static char *modConfigParseTvScreen(char *p, char *token)
 	while (p && token[0] && strcmp(token, "}") != 0) {
 		if (!strcmp(token, "sameas")) {
 			PARSE_INT("tvscreen", "sameas", src, 0, (s32)ARRAYCOUNT(g_TvCmdlists) - 1, NULL);
-			g_TvCmdlists[num] = g_TvCmdlists[src];
+			modTvScreenSetSameAs(num, src);
 		} else {
 			sysLogPrintf(LOG_ERROR, "modconfig: tvscreen %d: invalid key: %s", num, token);
 			return NULL;
@@ -1041,9 +1467,7 @@ static char *modConfigParseWeaponFunc(char *p, char *token)
 		return NULL;
 	}
 
-	struct weaponfunc *func = weaponGetFunctionById(weaponnum, funcnum);
-
-	if (!func) {
+	if (!weaponGetFunctionById(weaponnum, funcnum)) {
 		sysLogPrintf(LOG_ERROR, "modconfig: weaponfunc 0x%02x %d: no such function", weaponnum, funcnum);
 		return NULL;
 	}
@@ -1056,37 +1480,14 @@ static char *modConfigParseWeaponFunc(char *p, char *token)
 	p = strParseToken(p, token, NULL);
 
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		static const struct {
-			const char *name;
-			u32 flag;
-		} flags[] = {
-			{ "proximitymine", FUNCFLAG_PROXIMITYMINE },
-			{ "leavessmoke",   FUNCFLAG_LEAVESSMOKE },
-			{ "laserstream",   FUNCFLAG_LASERSTREAM },
-		};
-
-		s32 handled = false;
+		char key[UTIL_MAX_TOKEN + 1];
 		s32 tmp = 0;
 
-		for (u32 i = 0; i < ARRAYCOUNT(flags); ++i) {
-			if (strcmp(token, flags[i].name)) {
-				continue;
-			}
+		strcpy(key, token);
+		PARSE_INT("weaponfunc", "flag", tmp, 0, 1, NULL);
 
-			PARSE_INT("weaponfunc", "flag", tmp, 0, 1, NULL);
-
-			if (tmp) {
-				func->flags |= flags[i].flag;
-			} else {
-				func->flags &= ~flags[i].flag;
-			}
-
-			handled = true;
-			break;
-		}
-
-		if (!handled) {
-			sysLogPrintf(LOG_ERROR, "modconfig: weaponfunc 0x%02x %d: invalid key: %s", weaponnum, funcnum, token);
+		if (modWeaponFuncSetKey(weaponnum, funcnum, key, tmp) != 1) {
+			sysLogPrintf(LOG_ERROR, "modconfig: weaponfunc 0x%02x %d: invalid key: %s", weaponnum, funcnum, key);
 			return NULL;
 		}
 
@@ -1104,13 +1505,197 @@ static char *modConfigParseWeaponFunc(char *p, char *token)
  * this block. It goes before any weapon block, since those edit what this
  * puts in place.
  */
+/* ---- the data segment spec, key by key ------------------------------------
+ *
+ * Shared by the `datasegment` block and its callers: the
+ * tables by name, and the constant lists. Return 1 applied, 0 unknown key,
+ * -1 value out of range, -3 list full (the entry is dropped).
+ */
+
+#define DSTABLE(key, addr, count) { key, offsetof(struct moddataspec, addr), offsetof(struct moddataspec, count) }
+static const struct { const char *key; u16 addrofs; u16 countofs; } dataSegTables[] = {
+	DSTABLE("weapons", weapons, numweapons),
+	DSTABLE("modelstates", modelstates, nummodelstates),
+	DSTABLE("mpweapons", mpweapons, nummpweapons),
+	DSTABLE("mpweaponsets", mpweaponsets, nummpweaponsets),
+	DSTABLE("mparenas", mparenas, nummparenas),
+	DSTABLE("headsandbodies", headsandbodies, numheadsandbodies),
+	DSTABLE("mpheads", mpheads, nummpheads),
+	DSTABLE("mpbodies", mpbodies, nummpbodies),
+	DSTABLE("botheads", botheads, numbotheads),
+	DSTABLE("mpbeauheads", mpbeauheads, nummpbeauheads),
+	DSTABLE("mpmaleheads", mpmaleheads, nummpmaleheads),
+	DSTABLE("mpfemaleheads", mpfemaleheads, nummpfemaleheads),
+	DSTABLE("maleguardheads", maleguardheads, nummaleguardheads),
+	DSTABLE("maleguardteamheads", maleguardteamheads, nummaleguardteamheads),
+	DSTABLE("femaleguardheads", femaleguardheads, numfemaleguardheads),
+	DSTABLE("femaleguardteamheads", femaleguardteamheads, numfemaleguardteamheads),
+	DSTABLE("stages", stages, numstages),
+	DSTABLE("solostages", solostages, numsolostages),
+	DSTABLE("fogenvs", fogenvs, numfogenvs),
+	DSTABLE("nofogenvs", nofogenvs, numnofogenvs),
+	DSTABLE("commandlengths", commandlengths, numcommandlengths),
+	DSTABLE("stagetracks", stagetracks, numstagetracks),
+	DSTABLE("mptracks", mptracks, nummptracks),
+	DSTABLE("ammotypes", ammotypes, numammotypes),
+	DSTABLE("explosiontypes", explosiontypes, numexplosiontypes),
+	DSTABLE("autoswitchprimary", autoswitchprimary, numautoswitchprimary),
+	DSTABLE("autoswitchsecondary", autoswitchsecondary, numautoswitchsecondary),
+	DSTABLE("botweaponprefs", botweaponprefs, numbotweaponprefs),
+	DSTABLE("hudmsgtypes", hudmsgtypes, numhudmsgtypes),
+	DSTABLE("globalailists", globalailists, numglobalailists),
+};
+#undef DSTABLE
+
+// the stock -> mod constant lists: where the pairs go, how many fit, and
+// whether a kind word comes first (the buddies')
+#define DSPAIRS(key, arr, count, width) { key, offsetof(struct moddataspec, arr), offsetof(struct moddataspec, count), \
+	sizeof(((struct moddataspec *)0)->arr) / sizeof(((struct moddataspec *)0)->arr[0]), width }
+static const struct { const char *key; u16 arrofs; u16 countofs; u16 max; u16 width; } dataSegPairs[] = {
+	DSPAIRS("playerconst", playerconsts, numplayerconsts, 2),
+	DSPAIRS("buddyconst", buddyconsts, numbuddyconsts, 3),
+	DSPAIRS("texconst", texconsts, numtexconsts, 2),
+	DSPAIRS("roomnum", roomnums, numroomnums, 2),
+	DSPAIRS("roomstage", roomstages, numroomstages, 2),
+	DSPAIRS("bgstage", bgstages, numbgstages, 2),
+};
+#undef DSPAIRS
+
+static const char *const buddyConstKinds[] = { NULL, "body", "head", "model", "weapon" };
+
+void modDataSpecInit(struct moddataspec *spec)
+{
+	memset(spec, 0, sizeof(*spec));
+	spec->playerbody = -1;
+	spec->playerhead = -1;
+}
+
+s32 modDataSpecIsTableKey(const char *key)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(dataSegTables); ++i) {
+		if (!strcmp(key, dataSegTables[i].key)) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+s32 modDataSpecIsPairKey(const char *key)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(dataSegPairs); ++i) {
+		if (!strcmp(key, dataSegPairs[i].key)) {
+			return dataSegPairs[i].width;
+		}
+	}
+	return 0;
+}
+
+s32 modDataSpecSetTable(struct moddataspec *spec, const char *key, u32 addr, s32 count)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(dataSegTables); ++i) {
+		if (!strcmp(key, dataSegTables[i].key)) {
+			if (!addr || count < 0 || count > 4096) {
+				return -1;
+			}
+			*(u32 *)((u8 *)spec + dataSegTables[i].addrofs) = addr;
+			*(s32 *)((u8 *)spec + dataSegTables[i].countofs) = count;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+// kind is the buddyconst kind word, NULL for the others
+s32 modDataSpecAddPair(struct moddataspec *spec, const char *key, const char *kind, s32 stock, s32 mod)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(dataSegPairs); ++i) {
+		if (strcmp(key, dataSegPairs[i].key)) {
+			continue;
+		}
+		s32 k = 0;
+		if (dataSegPairs[i].width == 3) {
+			for (s32 j = 1; j < 5; ++j) {
+				if (kind && !strcmp(kind, buddyConstKinds[j])) {
+					k = j;
+				}
+			}
+			if (!k) {
+				return -1;
+			}
+		}
+		if (stock < 0 || stock > 0xffff || mod < 0 || mod > 0xffff) {
+			return -1;
+		}
+		s32 *count = (s32 *)((u8 *)spec + dataSegPairs[i].countofs);
+		if (*count >= dataSegPairs[i].max) {
+			return -3;
+		}
+		u16 *row = (u16 *)((u8 *)spec + dataSegPairs[i].arrofs) + *count * dataSegPairs[i].width;
+		if (dataSegPairs[i].width == 3) {
+			*row++ = (u16)k;
+		}
+		row[0] = (u16)stock;
+		row[1] = (u16)mod;
+		(*count)++;
+		return 1;
+	}
+	return 0;
+}
+
+s32 modDataSpecSetValue(struct moddataspec *spec, const char *key, s32 value)
+{
+	if (!strcmp(key, "base")) {
+		if (!value) {
+			return -1;
+		}
+		spec->base = (u32)value;
+		return 1;
+	}
+	if (!strcmp(key, "playerbody") || !strcmp(key, "playerhead")) {
+		if (value < 0 || value > 255) {
+			return -1;
+		}
+		*(key[6] == 'b' ? &spec->playerbody : &spec->playerhead) = value;
+		return 1;
+	}
+	return 0;
+}
+
+s32 modDataSpecSetString(struct moddataspec *spec, const char *key, const char *value)
+{
+	if (!strcmp(key, "file") || !strcmp(key, "names")) {
+		if (!value || !value[0]) {
+			return -1;
+		}
+		strncpy(key[0] == 'f' ? spec->file : spec->names, value, sizeof(spec->file) - 1);
+		return 1;
+	}
+	return 0;
+}
+
+// Rebuild the tables from the segment. -1 without a file and a base.
+s32 modDataSpecApply(const struct moddataspec *spec)
+{
+	if (!spec->file[0] || !spec->base) {
+		return -1;
+	}
+	modDataImport(spec);
+	return 1;
+}
+
+/**
+ * datasegment { file "segs/data" names "segs/data.names" base ADDR weapons ADDR COUNT ... }
+ *
+ * A mod's ROM data segment and where its tables sit in it; the weapon
+ * definitions and model tables are rebuilt from it. tools/importmod writes
+ * this block. It goes before any weapon block, since those edit what this
+ * puts in place.
+ */
 static char *modConfigParseDataSegment(char *p, char *token)
 {
 	struct moddataspec spec;
 
-	memset(&spec, 0, sizeof(spec));
-	spec.playerbody = -1;
-	spec.playerhead = -1;
+	modDataSpecInit(&spec);
 
 	p = strParseToken(p, token, NULL);
 	if (token[0] != '{' || token[1] != '\0') {
@@ -1120,198 +1705,136 @@ static char *modConfigParseDataSegment(char *p, char *token)
 	p = strParseToken(p, token, NULL);
 
 	while (p && token[0] && strcmp(token, "}") != 0) {
-		if (!strcmp(token, "file") || !strcmp(token, "names")) {
-			char *dst = token[0] == 'f' ? spec.file : spec.names;
+		char key[UTIL_MAX_TOKEN + 1];
+		strcpy(key, token);
+
+		if (!strcmp(key, "file") || !strcmp(key, "names")) {
 			p = strParseToken(p, token, NULL);
-			if (!p || !token[0]) {
+			if (!p || !token[0] || modDataSpecSetString(&spec, key, strUnquote(token)) != 1) {
 				sysLogPrintf(LOG_ERROR, "modconfig: datasegment: missing file name");
 				return NULL;
 			}
-			strncpy(dst, strUnquote(token), sizeof(spec.file) - 1);
-		} else if (!strcmp(token, "base")) {
-			PARSE_ADDR("datasegment", "base", spec.base, NULL);
-		} else if (!strcmp(token, "weapons")) {
-			PARSE_ADDR("datasegment", "weapons", spec.weapons, NULL);
-			PARSE_INT("datasegment", "weapons count", spec.numweapons, 0, 4096, NULL);
-		} else if (!strcmp(token, "modelstates")) {
-			PARSE_ADDR("datasegment", "modelstates", spec.modelstates, NULL);
-			PARSE_INT("datasegment", "modelstates count", spec.nummodelstates, 0, 4096, NULL);
-		} else if (!strcmp(token, "mpweapons")) {
-			PARSE_ADDR("datasegment", "mpweapons", spec.mpweapons, NULL);
-			PARSE_INT("datasegment", "mpweapons count", spec.nummpweapons, 0, 4096, NULL);
-		} else if (!strcmp(token, "mpweaponsets")) {
-			PARSE_ADDR("datasegment", "mpweaponsets", spec.mpweaponsets, NULL);
-			PARSE_INT("datasegment", "mpweaponsets count", spec.nummpweaponsets, 0, 4096, NULL);
-		} else if (!strcmp(token, "mparenas")) {
-			PARSE_ADDR("datasegment", "mparenas", spec.mparenas, NULL);
-			PARSE_INT("datasegment", "mparenas count", spec.nummparenas, 0, 4096, NULL);
-		} else if (!strcmp(token, "stages")) {
-			PARSE_ADDR("datasegment", "stages", spec.stages, NULL);
-			PARSE_INT("datasegment", "stages count", spec.numstages, 0, 4096, NULL);
-		} else if (!strcmp(token, "solostages")) {
-			PARSE_ADDR("datasegment", "solostages", spec.solostages, NULL);
-			PARSE_INT("datasegment", "solostages count", spec.numsolostages, 0, 4096, NULL);
-		} else if (!strcmp(token, "fogenvs")) {
-			PARSE_ADDR("datasegment", "fogenvs", spec.fogenvs, NULL);
-			PARSE_INT("datasegment", "fogenvs count", spec.numfogenvs, 0, 4096, NULL);
-		} else if (!strcmp(token, "nofogenvs")) {
-			PARSE_ADDR("datasegment", "nofogenvs", spec.nofogenvs, NULL);
-			PARSE_INT("datasegment", "nofogenvs count", spec.numnofogenvs, 0, 4096, NULL);
-		} else if (!strcmp(token, "commandlengths")) {
-			PARSE_ADDR("datasegment", "commandlengths", spec.commandlengths, NULL);
-			PARSE_INT("datasegment", "commandlengths count", spec.numcommandlengths, 0, 4096, NULL);
-		} else if (!strcmp(token, "stagetracks")) {
-			PARSE_ADDR("datasegment", "stagetracks", spec.stagetracks, NULL);
-			PARSE_INT("datasegment", "stagetracks count", spec.numstagetracks, 0, 4096, NULL);
-		} else if (!strcmp(token, "mptracks")) {
-			PARSE_ADDR("datasegment", "mptracks", spec.mptracks, NULL);
-			PARSE_INT("datasegment", "mptracks count", spec.nummptracks, 0, 4096, NULL);
-		} else if (!strcmp(token, "ammotypes")) {
-			PARSE_ADDR("datasegment", "ammotypes", spec.ammotypes, NULL);
-			PARSE_INT("datasegment", "ammotypes count", spec.numammotypes, 0, 4096, NULL);
-		} else if (!strcmp(token, "explosiontypes")) {
-			PARSE_ADDR("datasegment", "explosiontypes", spec.explosiontypes, NULL);
-			PARSE_INT("datasegment", "explosiontypes count", spec.numexplosiontypes, 0, 4096, NULL);
-		} else if (!strcmp(token, "autoswitchprimary")) {
-			PARSE_ADDR("datasegment", "autoswitchprimary", spec.autoswitchprimary, NULL);
-			PARSE_INT("datasegment", "autoswitchprimary count", spec.numautoswitchprimary, 0, 4096, NULL);
-		} else if (!strcmp(token, "autoswitchsecondary")) {
-			PARSE_ADDR("datasegment", "autoswitchsecondary", spec.autoswitchsecondary, NULL);
-			PARSE_INT("datasegment", "autoswitchsecondary count", spec.numautoswitchsecondary, 0, 4096, NULL);
-		} else if (!strcmp(token, "botweaponprefs")) {
-			PARSE_ADDR("datasegment", "botweaponprefs", spec.botweaponprefs, NULL);
-			PARSE_INT("datasegment", "botweaponprefs count", spec.numbotweaponprefs, 0, 4096, NULL);
-		} else if (!strcmp(token, "hudmsgtypes")) {
-			PARSE_ADDR("datasegment", "hudmsgtypes", spec.hudmsgtypes, NULL);
-			PARSE_INT("datasegment", "hudmsgtypes count", spec.numhudmsgtypes, 0, 4096, NULL);
-		} else if (!strcmp(token, "globalailists")) {
-			PARSE_ADDR("datasegment", "globalailists", spec.globalailists, NULL);
-			PARSE_INT("datasegment", "globalailists count", spec.numglobalailists, 0, 4096, NULL);
-		} else if (!strcmp(token, "playerconst")) {
-			// one line per constant the mod's outfit chooser changed: stock, mod
+		} else if (!strcmp(key, "base")) {
+			u32 addr = 0;
+			PARSE_ADDR("datasegment", "base", addr, NULL);
+			spec.base = addr;
+		} else if (modDataSpecIsTableKey(key)) {
+			u32 addr = 0;
+			s32 count = 0;
+			PARSE_ADDR("datasegment", "table", addr, NULL);
+			PARSE_INT("datasegment", "table count", count, 0, 4096, NULL);
+			modDataSpecSetTable(&spec, key, addr, count);
+		} else if (modDataSpecIsPairKey(key)) {
+			// one line per constant the mod's code changed: [kind] stock mod
+			char kind[UTIL_MAX_TOKEN + 1] = "";
 			s32 k = 0, v = 0;
-			PARSE_INT("datasegment", "playerconst stock", k, 0, 0xffff, NULL);
-			PARSE_INT("datasegment", "playerconst mod", v, 0, 0xffff, NULL);
-			if (spec.numplayerconsts < 64) {
-				spec.playerconsts[spec.numplayerconsts][0] = (u16)k;
-				spec.playerconsts[spec.numplayerconsts][1] = (u16)v;
-				spec.numplayerconsts++;
+			if (modDataSpecIsPairKey(key) == 3) {
+				p = strParseToken(p, token, NULL);
+				strcpy(kind, token);
 			}
-		} else if (!strcmp(token, "buddyconst")) {
-			// one line per co-operative buddy constant the mod's code changed:
-			// its kind, then stock, mod
-			static const char *const kinds[] = { NULL, "body", "head", "model", "weapon" };
-			s32 kind = 0, k = 0, v = 0;
-			p = strParseToken(p, token, NULL);
-			for (s32 i = 1; i < 5; ++i) {
-				if (!strcmp(token, kinds[i])) {
-					kind = i;
-				}
-			}
-			if (!kind) {
-				sysLogPrintf(LOG_ERROR, "mod: datasegment: invalid buddyconst kind: %s", token);
+			PARSE_INT("datasegment", "stock constant", k, 0, 0xffff, NULL);
+			PARSE_INT("datasegment", "mod constant", v, 0, 0xffff, NULL);
+			const s32 r = modDataSpecAddPair(&spec, key, kind[0] ? kind : NULL, k, v);
+			if (r == -1) {
+				sysLogPrintf(LOG_ERROR, "mod: datasegment: invalid %s kind: %s", key, kind);
 				return NULL;
 			}
-			PARSE_INT("datasegment", "buddyconst stock", k, 0, 0xffff, NULL);
-			PARSE_INT("datasegment", "buddyconst mod", v, 0, 0xffff, NULL);
-			if (spec.numbuddyconsts < 32) {
-				spec.buddyconsts[spec.numbuddyconsts][0] = (u16)kind;
-				spec.buddyconsts[spec.numbuddyconsts][1] = (u16)k;
-				spec.buddyconsts[spec.numbuddyconsts][2] = (u16)v;
-				spec.numbuddyconsts++;
-			}
-		} else if (!strcmp(token, "texconst")) {
-			// one line per animated texture number the mod's texture code changed: stock, mod
-			s32 k = 0, v = 0;
-			PARSE_INT("datasegment", "texconst stock", k, 0, 0xffff, NULL);
-			PARSE_INT("datasegment", "texconst mod", v, 0, 0xffff, NULL);
-			if (spec.numtexconsts < 16) {
-				spec.texconsts[spec.numtexconsts][0] = (u16)k;
-				spec.texconsts[spec.numtexconsts][1] = (u16)v;
-				spec.numtexconsts++;
-			}
-		} else if (!strcmp(token, "roomnum")) {
-			// one line per pinned room number the mod's room code changed: stock, mod
-			s32 k = 0, v = 0;
-			PARSE_INT("datasegment", "roomnum stock", k, 0, 0xffff, NULL);
-			PARSE_INT("datasegment", "roomnum mod", v, 0, 0xffff, NULL);
-			if (spec.numroomnums < 16) {
-				spec.roomnums[spec.numroomnums][0] = (u16)k;
-				spec.roomnums[spec.numroomnums][1] = (u16)v;
-				spec.numroomnums++;
-			}
-		} else if (!strcmp(token, "roomstage")) {
-			// one line per pinned room's stage the mod's room code changed:
-			// the stock stage index, the mod's stage id
-			s32 k = 0, v = 0;
-			PARSE_INT("datasegment", "roomstage stock", k, 0, 0xffff, NULL);
-			PARSE_INT("datasegment", "roomstage mod", v, 0, 0xffff, NULL);
-			if (spec.numroomstages < 32) {
-				spec.roomstages[spec.numroomstages][0] = (u16)k;
-				spec.roomstages[spec.numroomstages][1] = (u16)v;
-				spec.numroomstages++;
-			}
-		} else if (!strcmp(token, "bgstage")) {
-			// one line per star field stage id the mod's scene code changed: stock, mod
-			s32 k = 0, v = 0;
-			PARSE_INT("datasegment", "bgstage stock", k, 0, 0xffff, NULL);
-			PARSE_INT("datasegment", "bgstage mod", v, 0, 0xffff, NULL);
-			if (spec.numbgstages < 16) {
-				spec.bgstages[spec.numbgstages][0] = (u16)k;
-				spec.bgstages[spec.numbgstages][1] = (u16)v;
-				spec.numbgstages++;
-			}
-		} else if (!strcmp(token, "playerbody")) {
-			PARSE_INT("datasegment", "playerbody", spec.playerbody, 0, 255, NULL);
-		} else if (!strcmp(token, "playerhead")) {
-			PARSE_INT("datasegment", "playerhead", spec.playerhead, 0, 255, NULL);
-		} else if (!strcmp(token, "headsandbodies")) {
-			PARSE_ADDR("datasegment", "headsandbodies", spec.headsandbodies, NULL);
-			PARSE_INT("datasegment", "headsandbodies count", spec.numheadsandbodies, 0, 4096, NULL);
-		} else if (!strcmp(token, "mpheads")) {
-			PARSE_ADDR("datasegment", "mpheads", spec.mpheads, NULL);
-			PARSE_INT("datasegment", "mpheads count", spec.nummpheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "mpbodies")) {
-			PARSE_ADDR("datasegment", "mpbodies", spec.mpbodies, NULL);
-			PARSE_INT("datasegment", "mpbodies count", spec.nummpbodies, 0, 4096, NULL);
-		} else if (!strcmp(token, "botheads")) {
-			PARSE_ADDR("datasegment", "botheads", spec.botheads, NULL);
-			PARSE_INT("datasegment", "botheads count", spec.numbotheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "mpbeauheads")) {
-			PARSE_ADDR("datasegment", "mpbeauheads", spec.mpbeauheads, NULL);
-			PARSE_INT("datasegment", "mpbeauheads count", spec.nummpbeauheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "mpmaleheads")) {
-			PARSE_ADDR("datasegment", "mpmaleheads", spec.mpmaleheads, NULL);
-			PARSE_INT("datasegment", "mpmaleheads count", spec.nummpmaleheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "mpfemaleheads")) {
-			PARSE_ADDR("datasegment", "mpfemaleheads", spec.mpfemaleheads, NULL);
-			PARSE_INT("datasegment", "mpfemaleheads count", spec.nummpfemaleheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "maleguardheads")) {
-			PARSE_ADDR("datasegment", "maleguardheads", spec.maleguardheads, NULL);
-			PARSE_INT("datasegment", "maleguardheads count", spec.nummaleguardheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "maleguardteamheads")) {
-			PARSE_ADDR("datasegment", "maleguardteamheads", spec.maleguardteamheads, NULL);
-			PARSE_INT("datasegment", "maleguardteamheads count", spec.nummaleguardteamheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "femaleguardheads")) {
-			PARSE_ADDR("datasegment", "femaleguardheads", spec.femaleguardheads, NULL);
-			PARSE_INT("datasegment", "femaleguardheads count", spec.numfemaleguardheads, 0, 4096, NULL);
-		} else if (!strcmp(token, "femaleguardteamheads")) {
-			PARSE_ADDR("datasegment", "femaleguardteamheads", spec.femaleguardteamheads, NULL);
-			PARSE_INT("datasegment", "femaleguardteamheads count", spec.numfemaleguardteamheads, 0, 4096, NULL);
+		} else if (!strcmp(key, "playerbody") || !strcmp(key, "playerhead")) {
+			s32 v = 0;
+			PARSE_INT("datasegment", "player body or head", v, 0, 255, NULL);
+			modDataSpecSetValue(&spec, key, v);
 		} else {
-			sysLogPrintf(LOG_ERROR, "modconfig: datasegment: invalid key: %s", token);
+			sysLogPrintf(LOG_ERROR, "modconfig: datasegment: invalid key: %s", key);
 			return NULL;
 		}
 
 		p = strParseToken(p, token, NULL);
 	}
 
-	if (!spec.file[0] || !spec.base) {
+	if (modDataSpecApply(&spec) < 0) {
 		sysLogPrintf(LOG_ERROR, "modconfig: datasegment: needs a file and a base address");
 		return NULL;
 	}
 
-	modDataImport(&spec);
+	return p;
+}
+
+/**
+ * movement { fastspeed 1.375 fastcheat 6 }, cheats { slowmotion -1 },
+ * colours { NAME 0xRRGGBBAA ... }: one key and one value a line
+ * (game/modrules.h). Written by the importer from the mod's code.
+ */
+static char *modConfigParseRules(char *p, char *token, const char *block)
+{
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		char key[UTIL_MAX_TOKEN + 1];
+		s32 r;
+		strcpy(key, token);
+		if (!strcmp(block, "movement")) {
+			f32 v = 0;
+			PARSE_FLOAT("movement", "value", v, -1e9f, 1e9f, NULL);
+			r = modMovementSetKey(key, v);
+		} else if (!strcmp(block, "cheats")) {
+			s32 v = 0;
+			PARSE_INT("cheats", "value", v, -1, 63, NULL);
+			r = modCheatsSetKey(key, v);
+		} else {
+			u32 v = 0;
+			PARSE_ADDR("colours", "colour", v, NULL);
+			r = modColourSet(key, v);
+		}
+		if (r != 1) {
+			sysLogPrintf(LOG_ERROR, "modconfig: %s: invalid key or value: %s %s", block, key, token);
+			return NULL;
+		}
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated %s block", block);
+		return NULL;
+	}
+
+	return p;
+}
+
+/**
+ * koh { hillcolour R G B freecolour R G B }: King of the Hill's colours, as
+ * fractions (game/modrules.h). Written by the importer from the mod's code.
+ */
+static char *modConfigParseKoh(char *p, char *token)
+{
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		char key[UTIL_MAX_TOKEN + 1];
+		f32 rgb[3];
+		strcpy(key, token);
+		for (s32 c = 0; c < 3; c++) {
+			PARSE_FLOAT("koh", "colour", rgb[c], 0.f, 1.f, NULL);
+		}
+		if (modKohSetColour(key, rgb) != 1) {
+			sysLogPrintf(LOG_ERROR, "modconfig: koh: invalid key: %s", key);
+			return NULL;
+		}
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated koh block");
+		return NULL;
+	}
 
 	return p;
 }
@@ -1327,6 +1850,41 @@ static char *modConfigParseDataSegment(char *p, char *token)
  * which is what the console mods that rewrote this function do. Written by
  * the importer from running the mod's shieldhit_health_to_rgb.
  */
+s32 modShieldColourSiteLookup(const char *name)
+{
+	if (!strcmp(name, "hit")) {
+		return SHIELDCOLOUR_HIT;
+	}
+	if (!strcmp(name, "player")) {
+		return SHIELDCOLOUR_PLAYER;
+	}
+	return -1;
+}
+
+/**
+ * Check rows the way the block does - every ramp row a top above 0, the
+ * last row and only it constant - and set them. -1 when they are not.
+ */
+s32 modShieldColourApply(s32 site, const struct shieldcolour *rows, s32 numrows)
+{
+	if (site < 0 || site >= SHIELDCOLOUR_NUMSITES || numrows < 1 || numrows > SHIELDCOLOUR_MAXROWS) {
+		return -1;
+	}
+	for (s32 i = 0; i < numrows; ++i) {
+		const bool last = i == numrows - 1;
+		if (last ? rows[i].top != 0.f : rows[i].top <= 0.f || rows[i].top > 64.f) {
+			return -1;
+		}
+		for (s32 c = 0; c < 3; ++c) {
+			if (rows[i].slope[c] < -4096.f || rows[i].slope[c] > 4096.f) {
+				return -1;
+			}
+		}
+	}
+	shieldColourSet(site, rows, numrows);
+	return 1;
+}
+
 static char *modConfigParseShieldColour(char *p, char *token)
 {
 	struct shieldcolour rows[SHIELDCOLOUR_MAXROWS];
@@ -1337,11 +1895,8 @@ static char *modConfigParseShieldColour(char *p, char *token)
 	bool tail = false;
 
 	p = strParseToken(p, token, NULL);
-	if (!strcmp(token, "hit")) {
-		site = SHIELDCOLOUR_HIT;
-	} else if (!strcmp(token, "player")) {
-		site = SHIELDCOLOUR_PLAYER;
-	} else {
+	site = modShieldColourSiteLookup(token);
+	if (site < 0) {
 		sysLogPrintf(LOG_ERROR, "modconfig: shieldcolour: unknown site %s (hit or player)", token);
 		return NULL;
 	}
@@ -1411,26 +1966,20 @@ static char *modConfigParseShieldColour(char *p, char *token)
 		return NULL;
 	}
 
-	shieldColourSet(site, rows, numrows);
+	if (modShieldColourApply(site, rows, numrows) < 0) {
+		sysLogPrintf(LOG_ERROR, "modconfig: shieldcolour: rows out of range");
+		return NULL;
+	}
 
 	return p;
 }
 
-s32 modConfigLoad(const char *fname)
+/**
+ * Parse modconfig text and apply it. The buffer is scratch: the tokeniser
+ * writes into it. `what` names the source in the log.
+ */
+s32 modConfigParse(char *data, u32 dataLen, const char *what)
 {
-	// A mod need not ship one: files/, segs/ and textures/ each make a mod dir
-	// on their own, and an imported console mod has none of this. Asking
-	// fsFileLoad() for it anyway logs the miss as an error.
-	if (fsFileSize(fname) < 0) {
-		return false;
-	}
-
-	u32 dataLen = 0;
-	char *data = fsFileLoad(fname, &dataLen);
-	if (!data) {
-		return false;
-	}
-
 	s32 success = true;
 	char token[UTIL_MAX_TOKEN + 1] = { 0 };
 	char *end = data + dataLen;
@@ -1544,14 +2093,55 @@ s32 modConfigLoad(const char *fname)
 				success = false;
 				break;
 			}
+		} else if (!strcmp(token, "movement") || !strcmp(token, "cheats") || !strcmp(token, "colours")) {
+			// movement { fastspeed N fastcheat N }, cheats { slowmotion N }, colours { NAME 0x... }
+			char block[UTIL_MAX_TOKEN + 1];
+			char *prev = p;
+			strcpy(block, token);
+			p = modConfigParseRules(p, token, block);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed %s block at offset %d", block, prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "koh")) {
+			// koh { hillcolour R G B freecolour R G B }
+			char *prev = p;
+			p = modConfigParseKoh(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed koh block at offset %d", prev - data);
+				success = false;
+				break;
+			}
 		} else {
 			// garbage
-			sysLogPrintf(LOG_ERROR, "modconfig: unexpected %s at offset %d", token[0] ? token : "end of file", p - data);
+			sysLogPrintf(LOG_ERROR, "modconfig: %s: unexpected %s at offset %d", what, token[0] ? token : "end of file", p - data);
 			success = false;
 			break;
 		}
 		p = strParseToken(p, token, NULL);
 	}
+
+	(void)end;
+	return success;
+}
+
+s32 modConfigLoad(const char *fname)
+{
+	// A mod need not ship one: files/, segs/ and textures/ each make a mod dir
+	// on their own, and an imported console mod has none of this. Asking
+	// fsFileLoad() for it anyway logs the miss as an error.
+	if (fsFileSize(fname) < 0) {
+		return false;
+	}
+
+	u32 dataLen = 0;
+	char *data = fsFileLoad(fname, &dataLen);
+	if (!data) {
+		return false;
+	}
+
+	s32 success = modConfigParse(data, dataLen, fname);
 
 	sysMemFree(data);
 	return success;
@@ -2489,6 +3079,7 @@ static bool modTablesRestore(void)
 	g_ModUnlocks = 0;
 	g_ModPlayerHeadshotScale = 25;
 	g_ModShieldBreakHits = false;
+	modRulesReset();
 	shieldColourSet(SHIELDCOLOUR_HIT, NULL, 0);
 	shieldColourSet(SHIELDCOLOUR_PLAYER, NULL, 0);
 	// back to the port's own table before the copy, so an imported one is dropped

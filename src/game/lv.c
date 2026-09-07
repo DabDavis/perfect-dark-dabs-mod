@@ -102,6 +102,7 @@
 #include "mod.h"
 #include "video.h"
 #include "record.h"
+#include "game/modrules.h"
 #endif
 
 struct sndstate *g_MiscSfxAudioHandles[3];
@@ -516,6 +517,7 @@ void lvReset(s32 stagenum)
 		}
 	}
 #endif
+
 }
 
 void lvConfigureFade(u32 color, s16 num_frames)
@@ -2139,7 +2141,7 @@ s32 lvGetSlowMotionType(void)
 			return SLOWMOTION_SMART;
 		}
 	} else {
-		if (cheatIsActive(CHEAT_SLOMO)) {
+		if (g_ModSlowMotionCheat >= 0 && cheatIsActive(g_ModSlowMotionCheat)) {
 			return SLOWMOTION_ON;
 		}
 		if (debugGetSlowMotion() == SLOWMOTION_ON) {

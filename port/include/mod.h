@@ -9,6 +9,69 @@ struct animtableentry;
 
 s32 modConfigLoad(const char *path);
 
+// Parse modconfig text from a scratch buffer (the tokeniser writes into it);
+// `what` names the source in the log.
+s32 modConfigParse(char *data, u32 dataLen, const char *what);
+
+// The settings a modconfig block can make, one function a key, so a key's name
+// and range are written once. The
+// key names and ranges live here so both say the same thing. Return 1 when
+// applied, 0 for a key or flag name the game does not know, -1 for a value
+// out of range, -2 for a weapon, function or slot that does not exist.
+s32 modWeaponFlagLookup(const char *name, u32 *flag, u32 *word);
+const char *modWeaponFlagName(s32 index);        // the names in order, NULL past the end
+s32 modWeaponFuncFlagLookup(const char *name, u32 *flag);
+const char *modWeaponFuncFlagName(s32 index);
+void modWeaponFlagClearAll(u32 flag, u32 word);
+s32 modWeaponFlagSet(s32 weaponnum, u32 flag, u32 word, s32 on);
+s32 modWeaponFlagGet(s32 weaponnum, u32 flag, u32 word);
+void modWeaponFuncFlagClearAll(u32 flag);
+s32 modWeaponFuncFlagSet(s32 weaponnum, s32 funcnum, u32 flag, s32 on);
+s32 modWeaponFuncFlagGet(s32 weaponnum, s32 funcnum, u32 flag);
+s32 modWeaponSetKey(s32 weaponnum, const char *key, s32 value);
+s32 modWeaponFuncSetKey(s32 weaponnum, s32 funcnum, const char *key, s32 value);
+s32 modUnlockSetKey(const char *key, s32 value);
+s32 modDamageSetKey(const char *key, f32 value);
+s32 modPickupQtySet(s32 mode, s32 ammotype, s32 qty); // mode 0 mp, 1 solo
+s32 modAmmoTypeWeaponSet(s32 ammotype, s32 weaponnum);
+s32 modTvScreenSetSameAs(s32 num, s32 src);
+s32 modMovementSetKey(const char *key, f32 value);   // fastspeed, fastcheat (-1 none)
+s32 modCheatsSetKey(const char *key, s32 value);     // slowmotion: the cheat, -1 none
+s32 modKohSetColour(const char *key, const f32 *rgb); // hillcolour, freecolour
+s32 modColourLookup(const char *name);               // g_ModColours[] index, -1 unknown
+const char *modColourName(s32 index);                // the names in order, NULL past the end
+s32 modColourSet(const char *name, u32 rgba);
+
+// A stage's settings, as the `stage` block has them (-2: no such stage or entry)
+struct stagetableentry;
+struct stageallocation;
+struct weathercfg;
+s32 modStageLookup(s32 stagenum, struct stagetableentry **stab, struct stageallocation **salloc);
+s32 modStageSetKey(s32 stagenum, const char *key, s32 value);            // alarm, extragunmem
+s32 modStageSetFile(s32 stagenum, const char *key, const char *nameOrNum); // bgfile, tilesfile, padsfile, setupfile, mpsetupfile
+s32 modStageSetAllocation(s32 stagenum, const char *str);
+s32 modStageMusicSetKey(s32 stagenum, const char *key, s32 value);       // primarytrack, ambienttrack, xtrack
+struct weathercfg *modStageWeatherBegin(s32 stagenum);                    // NULL when the table is full
+s32 modStageWeatherSetKey(struct weathercfg *wcfg, const char *key, f32 value); // windspeed, ymin, ymax, zmax, cutscene_only
+s32 modStageWeatherSetConstantWind(struct weathercfg *wcfg, f32 anglerad, f32 speedx, f32 speedz);
+s32 modStageWeatherSetRooms(struct weathercfg *wcfg, s32 include, s32 clear, const s32 *rooms, s32 count);
+
+// The data segment spec, key by key (-3: the list is full, the entry dropped)
+struct moddataspec;
+void modDataSpecInit(struct moddataspec *spec);
+s32 modDataSpecIsTableKey(const char *key);
+s32 modDataSpecIsPairKey(const char *key);   // the pair's width: 2, or 3 with a kind word first
+s32 modDataSpecSetTable(struct moddataspec *spec, const char *key, u32 addr, s32 count);
+s32 modDataSpecAddPair(struct moddataspec *spec, const char *key, const char *kind, s32 stock, s32 mod);
+s32 modDataSpecSetValue(struct moddataspec *spec, const char *key, s32 value);   // base, playerbody, playerhead
+s32 modDataSpecSetString(struct moddataspec *spec, const char *key, const char *value); // file, names
+s32 modDataSpecApply(const struct moddataspec *spec);
+
+// The shield flash colour rows, checked and set (chr.h)
+struct shieldcolour;
+s32 modShieldColourSiteLookup(const char *name);   // "hit" or "player", else -1
+s32 modShieldColourApply(s32 site, const struct shieldcolour *rows, s32 numrows);
+
 // A mod's ROM data segment, and where its tables are in it. Filled in from a
 // modconfig `datasegment` block, which tools/importmod writes.
 struct moddataspec {

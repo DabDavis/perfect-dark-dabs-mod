@@ -25,6 +25,7 @@ notes are read when their area comes up.
 - **The Friends of Joanna collab tree, `../pd-fojo-monorepo-collab/`** — [fojo-collab.md](CLAUDE-notes/fojo-collab.md): what their mod loader does that ours does not, why the trees cannot merge, and what is worth borrowing
 - **Measuring a crowded match, `--rng-seed`/`--fixed-step`, where the frame goes, why Increase Poly Models was inert** — [performance.md](CLAUDE-notes/performance.md): compare instructions per frame on a seeded fixed-step match; the renderer is 60% of the main thread and is built at -O2; why the decomp at -O2 played a different game (game-defined sinf/cosf, an uninitialised pad flag) and how a divergence is bisected; the smoothing gate wanted RSP lighting the game never uses
 - **Weapon numbers, `flags2`, converting a `weaponnum` comparison** — [weapons.md](CLAUDE-notes/weapons.md): the four checks, and what is deliberately not converted; a launcher branch keyed on the number must test the function's type, or a mod's table crashes it
+- **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged
 
 **[DabDavisGitHub.md](DabDavisGitHub.md)** is the companion to this file: the
 GitHub remote, how commits are written, how a push becomes a release, and how the
@@ -59,8 +60,8 @@ end before touching any of it, then:
    propobj.c), each a `FLAG_SITES` row once converted. GE-X's own
    weapon-number regions are all read as of importer 27 (mods.md, the
    four "number sites" sections; the second says why a row also needs a
-   `codeSyms[]` entry in modimport.c); what is left of them is listed at
-   the end of the last.
+   `codeSyms[]` entry in modimport.c), and five of its tail as of 29
+   (mods.md, "The tail": settings in `game/modrules.h`, and what is left).
    `--prepare-diff DIR` writes both binaries; `mips-linux-gnu-objdump -b binary
    -m mips:4300 -EB -D --adjust-vma=0x7f000000` reads them.
 2. **Two ways to follow a change.** A renumbered compare is a

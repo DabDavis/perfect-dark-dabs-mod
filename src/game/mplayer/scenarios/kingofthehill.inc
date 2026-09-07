@@ -175,9 +175,9 @@ void kohInit(void)
 	g_ScenarioData.koh.hillpos.x = 0;
 	g_ScenarioData.koh.hillpos.y = 0;
 	g_ScenarioData.koh.hillpos.z = 0;
-	g_ScenarioData.koh.colourfracr = 0.25;
-	g_ScenarioData.koh.colourfracg = 1;
-	g_ScenarioData.koh.colourfracb = 0.25;
+	g_ScenarioData.koh.colourfracr = g_ModKohHillColour[0];
+	g_ScenarioData.koh.colourfracg = g_ModKohHillColour[1];
+	g_ScenarioData.koh.colourfracb = g_ModKohHillColour[2];
 
 	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.koh.hillpads); i++) {
 		g_ScenarioData.koh.hillpads[i] = -1;
@@ -505,9 +505,9 @@ void kohTick(void)
 
 		// Calculate what colour the hill should tween towards
 		if (g_ScenarioData.koh.occupiedteam == -1) {
-			targetr = 0.25f;
-			targetg = 1;
-			targetb = 0.25f;
+			targetr = g_ModKohFreeColour[0];
+			targetg = g_ModKohFreeColour[1];
+			targetb = g_ModKohFreeColour[2];
 		} else {
 			u32 colour = g_TeamColours[g_ScenarioData.koh.occupiedteam];
 			targetr = ((s32)(colour >> 24 & 0xff) + 0xff) * (1.0f / 512.0f);
@@ -601,10 +601,10 @@ Gfx *kohRenderHud(Gfx *gdl)
 
 #if VERSION >= VERSION_NTSC_1_0
 		gdl = text0f153990(gdl, x, y, textwidth, textheight);
-		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, 0x00ff00a0, 0xa0, viGetWidth(), viGetHeight(), 0, 0);
+		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, g_ModColours[MODCOLOUR_KOHHUD], 0xa0, viGetWidth(), viGetHeight(), 0, 0);
 #else
 		gdl = text0f153858(gdl, &x, &y, &textwidth, &textheight);
-		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, 0x00ff00a0, 0x88, viGetWidth(), viGetHeight(), 0, 0);
+		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, g_ModColours[MODCOLOUR_KOHHUD], 0x88, viGetWidth(), viGetHeight(), 0, 0);
 #endif
 		gdl = text0f153780(gdl);
 

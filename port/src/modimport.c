@@ -2321,6 +2321,13 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bgun_get_unequipped_reload_index", 0x7f097d0c, 0x7f097d64 },
 	{ "beam_create_for_hand",       0x7f0ac138, 0x7f0ac4b8 },
 	{ "fr_is_ammo_wasted",          0x7f19f524, 0x7f19f994 },
+	// the tail: the run speed, the slow-motion cheat, the poison, King of the Hill
+	{ "cheat_is_active",            0x7f106e64, 0x7f106ea0 },
+	{ "bwalk_update_horizontal",    0x7f0c69b8, 0x7f0c785c },
+	{ "lv_get_slow_motion_type",    0x7f16b854, 0x7f16b96c },
+	{ "chr_set_poisoned",           0x7f022cc8, 0x7f022d60 },
+	{ "koh_init",                   0x7f181b70, 0x7f181bfc },
+	{ "koh_tick",                   0x7f181cf0, 0x7f182670 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -4262,6 +4269,304 @@ static s32 followFloatImmediate(const u8 *stockcode, u32 stocklen, const u8 *mod
 	return 0;
 }
 
+/* -- the tail: the run speed, the cheats, the poison, King of the Hill, the colours */
+
+#define MOVEMENT_BEGIN "# importer: movement begin"
+#define MOVEMENT_END   "# importer: movement end"
+#define KOH_BEGIN      "# importer: koh begin"
+#define KOH_END        "# importer: koh end"
+#define COLOURS_BEGIN  "# importer: colours begin"
+#define COLOURS_END    "# importer: colours end"
+
+// the offset a jal or j lands at
+static u32 jumpTarget(u32 w)
+{
+	return (0x70000000u | ((w & 0x3ffffff) << 2)) - GAME_VRAM;
+}
+
+/**
+ * A 32-bit constant the code loads at ofs: a `lui r,HI` and, within four
+ * words, an `ori r,r,LO` (the pair a colour is built with), or the lui
+ * alone, or an `li r,N` (addi and addiu sign-extend, ori does not). 0 when
+ * the word is none of those.
+ */
+static s32 followColourAt(const u8 *code, u32 codelen, u32 ofs, u32 *out)
+{
+	u32 x, op, rt;
+	if (ofs + 4 > codelen) {
+		return 0;
+	}
+	x = be32(code, ofs);
+	op = x >> 26;
+	rt = (x >> 16) & 0x1f;
+	if (op == 0x0f) {
+		u32 value = (x & 0xffff) << 16;
+		for (u32 o = ofs + 4; o < ofs + 20 && o + 4 <= codelen; o += 4) {
+			const u32 y = be32(code, o);
+			if ((y >> 26) == 0x0d && ((y >> 21) & 0x1f) == rt && ((y >> 16) & 0x1f) == rt) {
+				value |= y & 0xffff;
+				break;
+			}
+		}
+		*out = value;
+		return 1;
+	}
+	if ((op == 0x08 || op == 0x09) && ((x >> 21) & 0x1f) == 0) {
+		*out = (u32)(s32)(s16)(x & 0xffff);
+		return 1;
+	}
+	if (op == 0x0d && ((x >> 21) & 0x1f) == 0) {
+		*out = x & 0xffff;
+		return 1;
+	}
+	return 0;
+}
+
+// the `lui at,HI` or `li at,HI` in the 32 words before o, as HI << 16
+static s32 luiAtBefore(const u8 *code, u32 start, u32 o, u32 *out)
+{
+	const u32 lowest = o >= start + 32 * 4 ? o - 32 * 4 : start;
+	for (u32 p = o; p > lowest; ) {
+		u32 z, zop;
+		p -= 4;
+		z = be32(code, p);
+		zop = z >> 26;
+		if ((zop == 0x0f || ((zop == 0x08 || zop == 0x09) && ((z >> 21) & 0x1f) == 0)) && ((z >> 16) & 0x1f) == 1) {
+			*out = (z & 0xffff) << 16;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/**
+ * The float a function stores at offset(reg) in [start, end): the last
+ * `swc1 $fX,offset(reg)` fed by `mtc1 at,$fX` from a `lui at,HI`, or the
+ * last `sh at,offset(reg)` fed by an `li at,HI` (a halfword store of the
+ * float's top half, which is how GE-X repaints King of the Hill). 0 when no
+ * such store reads.
+ */
+static s32 followFloatStore(const u8 *code, u32 codelen, u32 start, u32 end, u32 reg, s32 offset, f32 *out)
+{
+	u32 value = 0;
+	s32 found = 0;
+	for (u32 o = start; o + 4 <= end && o + 4 <= codelen; o += 4) {
+		const u32 x = be32(code, o);
+		const u32 op = x >> 26;
+		if (((x >> 21) & 0x1f) != reg || (s16)(x & 0xffff) != offset) {
+			continue;
+		}
+		if (op == 0x39) {
+			const u32 fx = (x >> 16) & 0x1f;
+			const u32 lowest = o >= start + 32 * 4 ? o - 32 * 4 : start;
+			for (u32 p = o; p > lowest; ) {
+				p -= 4;
+				if (be32(code, p) == (0x44810000u | (fx << 11))) {   // mtc1 at,$fX
+					u32 v;
+					if (luiAtBefore(code, start, p, &v)) {
+						value = v;
+						found = 1;
+					}
+					break;
+				}
+			}
+		} else if (op == 0x29 && ((x >> 16) & 0x1f) == 1) {
+			u32 v;
+			if (luiAtBefore(code, start, o, &v)) {
+				value = v;
+				found = 1;
+			}
+		}
+	}
+	if (!found) {
+		return 0;
+	}
+	*out = emuF(value);
+	return 1;
+}
+
+/**
+ * Fast movement: the multiplier the code uses, and the cheat that turns it
+ * on in a mission. Stock multiplies by 1.25 in a match with the option on;
+ * a mod renumbers the constant, or (GE-X) jumps into a cave that also tests
+ * a cheat outside a match. 0 where the site does not read; cheat is -1 for
+ * none.
+ */
+static s32 fastmoveFromCode(const struct tablectx *t, f32 *scale, s32 *cheat)
+{
+	u32 start, end, cheatfn, cheatend, site = 0;
+	s32 havecheat;
+	if (!codeSym("bwalk_update_horizontal", &start, &end)) {
+		return 0;
+	}
+	havecheat = codeSym("cheat_is_active", &cheatfn, &cheatend);
+	for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= t->stockcodelen && ofs + 4 <= t->modcodelen; ofs += 4) {
+		const u32 x = be32(t->stockcode, ofs);
+		if ((x >> 26) == 0x0f && ((x >> 16) & 0x1f) == 1 && (x & 0xffff) == 0x3fa0) {
+			site = ofs;
+			break;
+		}
+	}
+	if (!site) {
+		return 0;
+	}
+	{
+		const u32 y = be32(t->modcode, site);
+		if ((y >> 26) == 0x0f && ((y >> 16) & 0x1f) == 1) {
+			*scale = emuF((y & 0xffff) << 16);
+			*cheat = -1;
+			return 1;
+		}
+	}
+	// a jump out of the function into a cave: the multiplier is the lui at
+	// there, the cheat the li a0 beside its jal cheat_is_active
+	for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= t->modcodelen; ofs += 4) {
+		const u32 w = be32(t->modcode, ofs);
+		if ((w >> 26) == 2) {
+			const u32 target = jumpTarget(w);
+			if (target < start || target >= end) {
+				s32 gotscale = 0;
+				*cheat = -1;
+				for (u32 o = target; o < target + 0x100 && o + 8 <= t->modcodelen; o += 4) {
+					const u32 z = be32(t->modcode, o);
+					if ((z >> 26) == 0x0f && ((z >> 16) & 0x1f) == 1 && !gotscale) {
+						*scale = emuF((z & 0xffff) << 16);
+						gotscale = 1;
+					} else if ((z >> 26) == 3 && havecheat && jumpTarget(z) == cheatfn) {
+						const u32 d = be32(t->modcode, o + 4);
+						if (((d >> 26) == 0x08 || (d >> 26) == 0x09) && ((d >> 21) & 0x1f) == 0 && ((d >> 16) & 0x1f) == 4) {
+							*cheat = d & 0xffff;
+						}
+					} else if ((z >> 26) == 2) {
+						break;   // the jump back
+					}
+				}
+				return gotscale;
+			}
+		}
+	}
+	return 0;
+}
+
+/**
+ * The cheat that gives slow motion in a mission: the `jal cheat_is_active;
+ * li a0,6` in lv_get_slow_motion_type, as the mod has it: the number, or
+ * -1 when the mod took the test out (GE-X zeroes the words, its cheat 6
+ * being fast movement now). 0 where the site does not read.
+ */
+static s32 slowmotionFromCode(const struct tablectx *t, s32 *cheat)
+{
+	u32 start, end, cheatfn, cheatend;
+	if (!codeSym("lv_get_slow_motion_type", &start, &end) || !codeSym("cheat_is_active", &cheatfn, &cheatend)) {
+		return 0;
+	}
+	for (u32 ofs = start; ofs + 8 <= end && ofs + 8 <= t->stockcodelen && ofs + 8 <= t->modcodelen; ofs += 4) {
+		const u32 x = be32(t->stockcode, ofs);
+		if ((x >> 26) == 3 && jumpTarget(x) == cheatfn) {
+			const u32 d = be32(t->stockcode, ofs + 4);
+			if (((d >> 26) == 0x08 || (d >> 26) == 0x09) && ((d >> 21) & 0x1f) == 0 && ((d >> 16) & 0x1f) == 4 && (d & 0xffff) == 6) {
+				const u32 y = be32(t->modcode, ofs), yd = be32(t->modcode, ofs + 4);
+				if (y == 0) {
+					*cheat = -1;
+					return 1;
+				}
+				if (y == x && (yd >> 16) == (d >> 16)) {
+					*cheat = yd & 0xffff;
+					return 1;
+				}
+				return 0;
+			}
+		}
+	}
+	return 0;
+}
+
+// one of the poison's two counters: the stock immediate and whether the
+// `sh` after it survived in the mod
+static s32 poisonSite(const struct tablectx *t, u32 start, u32 end, u32 stockvalue, s32 fromzero, s32 *out)
+{
+	for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= t->stockcodelen && ofs + 4 <= t->modcodelen; ofs += 4) {
+		const u32 x = be32(t->stockcode, ofs);
+		const u32 op = x >> 26;
+		if ((op == 0x08 || op == 0x09) && (x & 0xffff) == stockvalue && ((((x >> 21) & 0x1f) == 0) == (fromzero != 0))) {
+			const u32 rx = (x >> 16) & 0x1f;
+			for (u32 o = ofs + 4; o < ofs + 20 && o + 4 <= end; o += 4) {
+				const u32 z = be32(t->stockcode, o);
+				if ((z >> 26) == 0x29 && ((z >> 16) & 0x1f) == rx) {
+					const u32 y = be32(t->modcode, ofs), yz = be32(t->modcode, o);
+					if (yz == 0) {
+						*out = 0;
+						return 1;
+					}
+					if ((y >> 16) == (x >> 16) && yz == z) {
+						*out = y & 0xffff;
+						return 1;
+					}
+					return 0;
+				}
+			}
+			return 0;
+		}
+	}
+	return 0;
+}
+
+/**
+ * The poison: the ticks chr_set_poisoned adds to a chr's counter in a match
+ * (`addiu rX,rY,3360; sh rX,OFF(a2)`) and sets in a mission (`li rZ,1680;
+ * sh rZ,OFF(a2)`), as the mod has them: the number, or 0 where the store
+ * became a nop. 0 where either does not read.
+ */
+static s32 poisonFromCode(const struct tablectx *t, s32 *match, s32 *mission)
+{
+	u32 start, end;
+	if (!codeSym("chr_set_poisoned", &start, &end)) {
+		return 0;
+	}
+	return poisonSite(t, start, end, 3360, 0, match) && poisonSite(t, start, end, 1680, 1, mission);
+}
+
+/**
+ * King of the Hill's colours in one binary: the hill's at the start
+ * (koh_init stores it through a1 at 48, 52, 56) and when no team holds it
+ * (koh_tick stores it to its frame at 348, 352, 356 from the site at
+ * 0x7f182444). 0 where the three stores of one do not read.
+ */
+static s32 kohFromCode(const u8 *code, u32 codelen, s32 init, f32 *rgb)
+{
+	static const s32 initofs[3] = { 48, 52, 56 };
+	static const s32 tickofs[3] = { 348, 352, 356 };
+	u32 start, end;
+	if (!codeSym(init ? "koh_init" : "koh_tick", &start, &end)) {
+		return 0;
+	}
+	if (!init) {
+		start = 0x7f182444u - GAME_VRAM;
+		end = 0x7f182470u - GAME_VRAM;
+	}
+	for (s32 c = 0; c < 3; c++) {
+		if (!followFloatStore(code, codelen, start, end, init ? 5 : 29, init ? initofs[c] : tickofs[c], &rgb[c])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+// the colour constants a mod repaints, by stock address of the lui (or li)
+// that loads each: the names are the port's g_ModColours[] entries
+static const struct { const char *name; u32 addr; } colourSites[] = {
+	{ "kohhud",      0x7f1828a8 },   // koh_render_hud: the hill timer's text
+	{ "timer",       0x7f090b38 },   // countdown_timer_render: the countdown's digits
+	{ "scannerin0",  0x7f148658 },   // bview_draw_horizon_scanner: the lens's even lines
+	{ "scannerin1",  0x7f148664 },   // and its odd lines
+	{ "scannerout0", 0x7f148788 },   // outside the lens, even
+	{ "scannerout1", 0x7f148794 },   // and odd
+	{ "jointext",    0x7f0fc5d0 },   // menu_render: "press start" for a player joining
+	{ "joinblend",   0x7f0fc674 },   // and the colour it blends from
+	{ "interlace0",  0x7f1428a4 },   // bview_draw_slayer_rocket_interlace: the two line colours
+	{ "interlace1",  0x7f1428b4 },
+};
+
 /**
  * Cuts one of our earlier regions out of a modconfig.txt so a re-import does
  * not stack them: from the comment lines directly above `at` to just past
@@ -5079,7 +5384,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				breakhits = 0;
 			}
 			if (headshot != 25 || breakhits) {
-				appendf(&damagecfg, &damagelen, &damagecap, "damage {\n  playerheadshotscale %g\n  shieldbreakhits %d\n}\n", (f64)headshot, breakhits);
+				appendf(&damagecfg, &damagelen, &damagecap, "  playerheadshotscale %g\n  shieldbreakhits %d\n", (f64)headshot, breakhits);
 				if (headshot != 25) {
 					rep("  a player's headshot does %g times the damage in a mission (stock: 25)", (f64)headshot);
 				}
@@ -5087,6 +5392,26 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					rep("  a hit that breaks a shield still lands on the health behind it (stock: it is absorbed)");
 				}
 			}
+		}
+		// and the poison chr_set_poisoned gives, in the same block
+		if (codeSym("chr_set_poisoned", &start, &end)) {
+			s32 match, mission;
+			if (!poisonFromCode(&t, &match, &mission)) {
+				rep("  the poison counters in chr_set_poisoned do not read; left as the port has them");
+			} else if (match != 3360 || mission != 1680) {
+				char m[32], n[32];
+				appendf(&damagecfg, &damagelen, &damagecap, "  poisonmatch %d\n  poisonmission %d\n", match, mission);
+				snprintf(m, sizeof(m), match > 0 ? "%d ticks" : "no time", match);
+				snprintf(n, sizeof(n), mission > 0 ? "%d ticks" : "no time", mission);
+				rep("  a poisoning lasts %s in a match and %s in a mission (stock: 3360 and 1680 ticks)", m, n);
+			}
+		}
+		if (damagecfg) {
+			char *lines_ = damagecfg;
+			damagecfg = NULL;
+			damagelen = damagecap = 0;
+			appendf(&damagecfg, &damagelen, &damagecap, "damage {\n%s}\n", lines_);
+			free(lines_);
 		}
 	}
 
@@ -5345,6 +5670,91 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The run speed and the slow-motion cheat: what fast movement multiplies
+	// by, and the cheat that gives it in a mission (GE-X's cheat 6, which it
+	// took away from slow motion for the purpose)
+	char *movementcfg = NULL;
+	u32 movementlen = 0, movementcap = 0;
+	if (t.followed) {
+		u32 start, end;
+		if (codeSym("bwalk_update_horizontal", &start, &end)) {
+			f32 scale;
+			s32 cheat;
+			if (!fastmoveFromCode(&t, &scale, &cheat)) {
+				rep("  the fast movement multiplier in bwalk_update_horizontal does not read; left as the port has it");
+			} else if (scale != 1.25f || cheat >= 0) {
+				char c[64] = "";
+				appendf(&movementcfg, &movementlen, &movementcap, "movement { fastspeed %g fastcheat %d }\n", (f64)scale, cheat);
+				if (cheat >= 0) {
+					snprintf(c, sizeof(c), ", and cheat %d gives it in a mission", cheat);
+				}
+				rep("  fast movement multiplies the walk speed by %g (stock 1.25)%s", (f64)scale, c);
+			}
+		}
+		if (codeSym("lv_get_slow_motion_type", &start, &end)) {
+			s32 cheat;
+			if (!slowmotionFromCode(&t, &cheat)) {
+				rep("  the slow-motion cheat test in lv_get_slow_motion_type does not read; left as the port has it");
+			} else if (cheat != 6) {
+				appendf(&movementcfg, &movementlen, &movementcap, "cheats { slowmotion %d }\n", cheat);
+				if (cheat >= 0) {
+					rep("  cheat %d gives slow motion in a mission (stock: cheat 6)", cheat);
+				} else {
+					rep("  no cheat gives slow motion in a mission (stock: cheat 6)");
+				}
+			}
+		}
+	}
+
+	// King of the Hill's colours, where the mod's code stores others
+	char *kohcfg = NULL;
+	u32 kohlen = 0, kohcap = 0;
+	if (t.followed) {
+		u32 s0, e0, s1, e1;
+		if (codeSym("koh_init", &s0, &e0) && codeSym("koh_tick", &s1, &e1)) {
+			static const char *const keys[2] = { "hillcolour", "freecolour" };
+			static const char *const whats[2] = { "the hill's colour at the start", "the hill's colour with no team on it" };
+			for (s32 which = 0; which < 2; which++) {
+				f32 a[3], b[3];
+				if (!kohFromCode(t.stockcode, t.stockcodelen, which == 0, a) || !kohFromCode(t.modcode, t.modcodelen, which == 0, b)) {
+					rep("  %s in King of the Hill does not read; left as the port has it", whats[which]);
+				} else if (a[0] != b[0] || a[1] != b[1] || a[2] != b[2]) {
+					appendf(&kohcfg, &kohlen, &kohcap, "%s%s %g %g %g", kohlen ? " " : "", keys[which], (f64)b[0], (f64)b[1], (f64)b[2]);
+					rep("  %s in King of the Hill is %g %g %g (stock: %g %g %g)", whats[which], (f64)b[0], (f64)b[1], (f64)b[2], (f64)a[0], (f64)a[1], (f64)a[2]);
+				}
+			}
+			if (kohcfg) {
+				char *inner = kohcfg;
+				kohcfg = NULL;
+				kohlen = kohcap = 0;
+				appendf(&kohcfg, &kohlen, &kohcap, "koh { %s }\n", inner);
+				free(inner);
+			}
+		}
+	}
+
+	// The colours the mod repaints, at the sites the port draws with a
+	// named constant
+	char *colourscfg = NULL;
+	u32 colourslen = 0, colourscap = 0;
+	if (t.followed) {
+		for (u32 i = 0; i < sizeof(colourSites) / sizeof(colourSites[0]); ++i) {
+			u32 a, b;
+			const u32 ofs = colourSites[i].addr - GAME_VRAM;
+			if (followColourAt(t.stockcode, t.stockcodelen, ofs, &a) && followColourAt(t.modcode, t.modcodelen, ofs, &b) && a != b) {
+				appendf(&colourscfg, &colourslen, &colourscap, "  %s 0x%08x\n", colourSites[i].name, b);
+				rep("  the %s colour is %08x (stock: %08x)", colourSites[i].name, b, a);
+			}
+		}
+		if (colourscfg) {
+			char *inner = colourscfg;
+			colourscfg = NULL;
+			colourslen = colourscap = 0;
+			appendf(&colourscfg, &colourslen, &colourscap, "colours {\n%s}\n", inner);
+			free(inner);
+		}
+	}
+
 	if (t.followed) {
 		freePairs(&t.sp);
 		freePairs(&t.mp);
@@ -5436,14 +5846,28 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					cutRegion(text, at, end + strlen(RELOAD_END));
 				}
 			}
+			{
+				static const char *const tailmarks[3][2] = {
+					{ MOVEMENT_BEGIN, MOVEMENT_END }, { KOH_BEGIN, KOH_END }, { COLOURS_BEGIN, COLOURS_END }
+				};
+				for (u32 i = 0; i < 3; ++i) {
+					at = strstr(text, tailmarks[i][0]);
+					if (at) {
+						char *end = strstr(at, tailmarks[i][1]);
+						if (end) {
+							cutRegion(text, at, end + strlen(tailmarks[i][1]));
+						}
+					}
+				}
+			}
 			free(existing);
 			existing = (u8 *)text;
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + unlockslen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -5466,6 +5890,14 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				reloadcfg ? reloadcfg : "", reloadcfg ? RELOAD_END "\n\n" : "",
 				unlocks ? "# What the mod's code unlocks outright, read from it. Written by the game's mod importer.\n" UNLOCKS_BEGIN "\nunlocks {\n" : "",
 				unlocks ? unlocks : "", unlocks ? "}\n" UNLOCKS_END "\n\n" : "",
+				movementcfg ? "# The run speed the mod's code gives fast movement, the cheat that gives it in a\n"
+				              "# mission, and the cheat that gives slow motion, read from it. Written by the game's mod importer.\n" MOVEMENT_BEGIN "\n" : "",
+				movementcfg ? movementcfg : "", movementcfg ? MOVEMENT_END "\n\n" : "",
+				kohcfg ? "# King of the Hill's colours, as the mod's code stores them. Written by the game's mod importer.\n" KOH_BEGIN "\n" : "",
+				kohcfg ? kohcfg : "", kohcfg ? KOH_END "\n\n" : "",
+				colourscfg ? "# The colours the mod's code draws with where the port draws with a named one,\n"
+				             "# read from it. Written by the game's mod importer.\n" COLOURS_BEGIN "\n" : "",
+				colourscfg ? colourscfg : "", colourscfg ? COLOURS_END "\n\n" : "",
 				existing ? (const char *)existing : "");
 		written += writeOut(outdir, "modconfig.txt", (const u8 *)block, strlen(block));
 		free(block);
@@ -5478,6 +5910,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(ammocfg);
 		free(reloadcfg);
 		free(unlocks);
+		free(movementcfg);
+		free(kohcfg);
+		free(colourscfg);
 	}
 
 	return written;

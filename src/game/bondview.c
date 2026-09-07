@@ -23,6 +23,7 @@
 #ifndef PLATFORM_N64
 #include "game/player.h"
 #include "video.h"
+#include "game/modrules.h"
 #endif
 
 #ifdef AVOID_UB
@@ -395,9 +396,9 @@ Gfx *bviewDrawSlayerRocketInterlace(Gfx *gdl, u32 colour, u32 alpha)
 
 		if ((offsety % 8) == 0 || y == viewtop) {
 			if ((offsety % 16) < 8) {
-				gDPSetEnvColor(gdl++, 0xff, 0xff, 0x00, 0xff);
+				gDPSetEnvColor(gdl++, g_ModColours[MODCOLOUR_INTERLACE0] >> 24, (g_ModColours[MODCOLOUR_INTERLACE0] >> 16) & 0xff, (g_ModColours[MODCOLOUR_INTERLACE0] >> 8) & 0xff, g_ModColours[MODCOLOUR_INTERLACE0] & 0xff);
 			} else {
-				gDPSetEnvColor(gdl++, 0xff, 0xff, 0xbf, 0xff);
+				gDPSetEnvColor(gdl++, g_ModColours[MODCOLOUR_INTERLACE1] >> 24, (g_ModColours[MODCOLOUR_INTERLACE1] >> 16) & 0xff, (g_ModColours[MODCOLOUR_INTERLACE1] >> 8) & 0xff, g_ModColours[MODCOLOUR_INTERLACE1] & 0xff);
 			}
 		}
 
@@ -414,9 +415,9 @@ Gfx *bviewDrawSlayerRocketInterlace(Gfx *gdl, u32 colour, u32 alpha)
 
 		if (offsety % 8 == 0 || y == viewtop) {
 			if (offsety % 16 < 8) {
-				gDPSetPrimColor(gdl++, 0, 0, 0xff, 0xff, 0x00, 0xff);
+				gDPSetPrimColor(gdl++, 0, 0, g_ModColours[MODCOLOUR_INTERLACE0] >> 24, (g_ModColours[MODCOLOUR_INTERLACE0] >> 16) & 0xff, (g_ModColours[MODCOLOUR_INTERLACE0] >> 8) & 0xff, g_ModColours[MODCOLOUR_INTERLACE0] & 0xff);
 			} else {
-				gDPSetPrimColor(gdl++, 0, 0, 0xff, 0xff, 0xbf, 0xff);
+				gDPSetPrimColor(gdl++, 0, 0, g_ModColours[MODCOLOUR_INTERLACE1] >> 24, (g_ModColours[MODCOLOUR_INTERLACE1] >> 16) & 0xff, (g_ModColours[MODCOLOUR_INTERLACE1] >> 8) & 0xff, g_ModColours[MODCOLOUR_INTERLACE1] & 0xff);
 			}
 		}
 
@@ -2722,9 +2723,9 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 		if (liney < lenstop + lensheight && liney >= lenstop) {
 			// Inside the lens
 			if ((liney % 2) == 0) {
-				colour = 0x00ffffff;
+				colour = g_ModColours[MODCOLOUR_SCANNERIN0];
 			} else {
-				colour = 0x7fffffff;
+				colour = g_ModColours[MODCOLOUR_SCANNERIN1];
 			}
 
 			range = (liney - lenstop - lensheight * 0.5f) / (lensheight * 0.5f);
@@ -2749,9 +2750,9 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 		} else {
 			// Outside of the lens
 			if ((liney % 2) == 0) {
-				colour = 0x007f7fff;
+				colour = g_ModColours[MODCOLOUR_SCANNEROUT0];
 			} else {
-				colour = 0x7fffffff;
+				colour = g_ModColours[MODCOLOUR_SCANNEROUT1];
 			}
 
 			range = 0;

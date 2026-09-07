@@ -43,9 +43,11 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // 9: the scene's own copy of them and the star field; 10: each stage's music
 // and the Combat Simulator's track list; 11: ammo and explosion types, the
 // auto-switch lists, simulant weapon preferences, HUD message styles and the
-// global AI lists; 12: the weather, read by running the mod's code).
-#define MODIMPORT_VERSION 28
-#define MODIMPORT_VERSION_LINE "importer: 28 (the game's own)"
+// global AI lists; 12: the weather, read by running the mod's code; 29: the
+// tail - the run speed, the slow-motion cheat, the poison, King of the Hill's
+// colours and the repainted constants, game/modrules.h).
+#define MODIMPORT_VERSION 29
+#define MODIMPORT_VERSION_LINE "importer: 29 (the game's own)"
 
 #ifdef __cplusplus
 }

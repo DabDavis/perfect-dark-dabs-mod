@@ -52,6 +52,7 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "video.h"
+#include "game/modrules.h"
 #endif
 
 void rng2SetSeed(u32 seed);
@@ -2337,11 +2338,14 @@ void chrSetPoisoned(struct chrdata *chr, struct prop *poisonprop)
 		playermgrGetPlayerNumByProp(chr->prop);
 	}
 
+	// the ticks are the mod's to set, 0 for no poison (game/modrules.h)
 	if (g_Vars.normmplayerisrunning) {
-		chr->poisonprop = poisonprop;
-		chr->poisoncounter += TICKS(3360);
-	} else if (chr->poisoncounter == 0) {
-		chr->poisoncounter = TICKS(1680);
+		if (g_ModPoisonMatch > 0) {
+			chr->poisonprop = poisonprop;
+			chr->poisoncounter += TICKS(g_ModPoisonMatch);
+		}
+	} else if (chr->poisoncounter == 0 && g_ModPoisonMission > 0) {
+		chr->poisoncounter = TICKS(g_ModPoisonMission);
 		chr->poisonprop = poisonprop;
 	}
 }

@@ -166,6 +166,7 @@ MenuItemHandlerResult menuhandlerMpSlowMotion(s32 operation, struct menuitem *it
 }
 
 // Include the code files where each scenario implements its callbacks
+#include "game/modrules.h"
 #include "scenarios/combat.inc"
 #include "scenarios/holdthebriefcase.inc"
 #include "scenarios/capturethecase.inc"
