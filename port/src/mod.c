@@ -18,6 +18,7 @@
 #include "game/file.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/modunlocks.h"
 #include "data.h"
 #include "game/stagetable.h"
 #include "game/stagemusic.h"
@@ -516,6 +517,59 @@ static const struct {
 	{ "botlimitless",     WEAPONFLAG2_BOTLIMITLESS, 2 },
 	{ "cloakammo",        WEAPONFLAG3_CLOAKAMMO, 3 },
 };
+
+u32 g_ModUnlocks = 0;
+
+/**
+ * unlocks { cheats 1 difficulties 1 mpoptions 1 firingrange 1 specialstages 1 completion 1 allguns 1 }
+ *
+ * What the mod's code unlocks outright: each key a family of tests its
+ * code forced to true (game/modunlocks.h). Written by the importer.
+ */
+static char *modConfigParseUnlocks(char *p, char *token)
+{
+	static const struct { const char *name; u32 bit; } keys[] = {
+		{ "cheats", MODUNLOCK_CHEATS }, { "difficulties", MODUNLOCK_DIFFICULTIES },
+		{ "mpoptions", MODUNLOCK_MPOPTIONS }, { "firingrange", MODUNLOCK_FIRINGRANGE },
+		{ "specialstages", MODUNLOCK_SPECIALSTAGES }, { "completion", MODUNLOCK_COMPLETION },
+		{ "allguns", MODUNLOCK_ALLGUNS },
+	};
+	s32 tmp = 0;
+
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		u32 i;
+		for (i = 0; i < ARRAYCOUNT(keys); ++i) {
+			if (!strcmp(token, keys[i].name)) {
+				break;
+			}
+		}
+		if (i == ARRAYCOUNT(keys)) {
+			sysLogPrintf(LOG_ERROR, "modconfig: unlocks: invalid key: %s", token);
+			return NULL;
+		}
+		PARSE_INT("unlocks", "flag", tmp, 0, 1, NULL);
+		if (tmp) {
+			g_ModUnlocks |= keys[i].bit;
+		} else {
+			g_ModUnlocks &= ~keys[i].bit;
+		}
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated unlocks block");
+		return NULL;
+	}
+
+	return p;
+}
 
 /**
  * damage { playerheadshotscale N shieldbreakhits 0|1 }
@@ -1209,6 +1263,15 @@ s32 modConfigLoad(const char *fname)
 			p = modConfigParseStage(p, token);
 			if (!p) {
 				sysLogPrintf(LOG_ERROR, "modconfig: malformed stage block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "unlocks")) {
+			// unlocks { KEYVALUES... }
+			char *prev = p;
+			p = modConfigParseUnlocks(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed unlocks block at offset %d", prev - data);
 				success = false;
 				break;
 			}
@@ -2180,7 +2243,8 @@ static bool modTablesRestore(void)
 	g_MpListCounts = mpListCountsSnapshot;
 	g_MpNumArenas = numMpArenasSnapshot;
 	g_MpArenasImported = mpArenasImportedSnapshot;
-	// the damage rules, and the shield colours: the game's own are compiled in
+	// the unlocks, the damage rules, and the shield colours: the game's own are compiled in
+	g_ModUnlocks = 0;
 	g_ModPlayerHeadshotScale = 25;
 	g_ModShieldBreakHits = false;
 	shieldColourSet(SHIELDCOLOUR_HIT, NULL, 0);

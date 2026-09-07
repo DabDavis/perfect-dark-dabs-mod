@@ -1705,6 +1705,44 @@ def follow_float_immediate(stockcode, modcode, start, end, stockhi):
 
 DAMAGE_BEGIN = '# importer: damage begin'
 DAMAGE_END = '# importer: damage end'
+UNLOCKS_BEGIN = '# importer: unlocks begin'
+UNLOCKS_END = '# importer: unlocks end'
+
+# The "everything unlocked" patch twenty-three mods of the archive share,
+# site by site: each family is the tests it forces, and is on when every one
+# of them is. The addresses are the stock binary's; what the mod's word has
+# to be is an li of a value into any register, a nop, or an unconditional
+# branch.
+UNLOCK_SITES = (
+    ('cheats', ((0x7f106db8, 'li', 1), (0x7f106dc0, 'li', 1), (0x7f106dc8, 'li', 1),
+                (0x7f106dd0, 'li', 1), (0x7f106dd8, 'li', 1), (0x7f106e10, 'li', 1))),
+    ('difficulties', ((0x7f10390c, 'nop', 0), (0x7f103a04, 'nop', 0))),
+    ('mpoptions', ((0x7f17fe9c, 'li', 1), (0x7f17fe18, 'li', 1), (0x7f17d334, 'li', 1), (0x7f187878, 'li', 1),
+                   (0x7f18789c, 'li', 1), (0x7f18cc94, 'li', 1), (0x7f19b4ac, 'li', 1), (0x7f19b634, 'li', 1))),
+    ('firingrange', ((0x7f19cb00, 'li', 255), (0x7f19c9bc, 'li', 255), (0x7f19cb50, 'li', 255))),
+    ('specialstages', ((0x7f104690, 'li', 1), (0x7f104734, 'li', 1), (0x7f104830, 'nop', 0))),
+    ('completion', ((0x7f110ad4, 'li', 1), (0x7f102c54, 'li', 1), (0x7f103e40, 'li', 1), (0x7f10ec60, 'nop', 0))),
+    ('allguns', ((0x7f111c6c, 'nop', 0), (0x7f111ba8, 'b', 0), (0x7f111bfc, 'b', 0))),
+)
+
+
+def unlock_site_matches(code, addr, kind, value):
+    ofs = addr - GAME_VRAM
+    if ofs + 4 > len(code):
+        return False
+    w = be32(code, ofs)
+    if kind == 'li':
+        return (w >> 26) in (0x08, 0x09) and (w >> 21) & 0x1f == 0 and (w & 0xffff) == value
+    if kind == 'nop':
+        return w == 0
+    return (w >> 26) == 4 and (w >> 21) & 0x1f == 0 and (w >> 16) & 0x1f == 0
+
+
+def unlocks_from_code(modcode):
+    """The families of tests the mod's code forces to true: {family: (on,
+    total)} over UNLOCK_SITES."""
+    return { family: (sum(1 for addr, kind, value in sites if unlock_site_matches(modcode, addr, kind, value)), len(sites))
+             for family, sites in UNLOCK_SITES }
 
 
 def damage_from_code(stockcode, modcode, codesyms):
@@ -3198,6 +3236,20 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                 if dmg['breakhits']:
                     notes.append('a hit that breaks a shield still lands on the health behind it (stock: it is absorbed)')
 
+    # The unlocks: the tests the mod's code forces to true, family by family
+    unlocksregion = ''
+    if followed:
+        lines_ = []
+        for family, (on, total) in unlocks_from_code(modcode).items():
+            if on == total:
+                lines_.append('  %s 1' % family)
+                notes.append("the mod's code unlocks %s outright" % family)
+            elif on:
+                notes.append("the mod's code unlocks %s at %d of its %d sites; left as the game has it" % (family, on, total))
+        if lines_:
+            unlocksregion = ('# What the mod\'s code unlocks outright, read from it. Written by tools/importmod.\n'
+                             + UNLOCKS_BEGIN + '\nunlocks {\n' + '\n'.join(lines_) + '\n}\n' + UNLOCKS_END + '\n')
+
     flagsiteregion = ''
     if flagsiteblocks:
         flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'
@@ -3233,12 +3285,15 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(DAMAGE_BEGIN) + r'\n.*?' + re.escape(DAMAGE_END) + r'\n*',
                           '', existing, flags=re.S)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(UNLOCKS_BEGIN) + r'\n.*?' + re.escape(UNLOCKS_END) + r'\n*',
+                          '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
                           (block + '\n' + (weatherregion + '\n' if weatherregion else '')
                            + (shieldregion + '\n' if shieldregion else '')
                            + (hitsoundregion + '\n' if hitsoundregion else '')
                            + (flagsiteregion + '\n' if flagsiteregion else '')
-                           + (damageregion + '\n' if damageregion else '') + existing).encode('utf-8'), dryrun)
+                           + (damageregion + '\n' if damageregion else '')
+                           + (unlocksregion + '\n' if unlocksregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 

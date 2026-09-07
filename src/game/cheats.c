@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modunlocks.h"
 #include "lib/sched.h"
 #include "lib/str.h"
 #include "game/camdraw.h"
@@ -112,6 +113,10 @@ u32 cheatIsUnlocked(s32 cheat_id)
 {
 	struct cheat *cheat = &g_Cheats[cheat_id];
 	u32 unlocked = 0;
+
+	if (g_ModUnlocks & MODUNLOCK_CHEATS) {
+		return 1;
+	}
 
 	if (cheat->flags & CHEATFLAG_FIRINGRANGE) {
 		if (frIsClassicWeaponUnlocked(cheat->time)) {

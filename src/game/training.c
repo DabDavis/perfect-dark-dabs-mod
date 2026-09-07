@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modunlocks.h"
 #include "game/atan2f.h"
 #include "game/bg.h"
 #include "game/bondgun.h"
@@ -69,6 +70,10 @@ bool ciIsTourDone(void)
 u8 ciGetFiringRangeScore(s32 weaponindex)
 {
 	// Data at firingrangescores is a u8 array where each score uses 2 bits
+	if (g_ModUnlocks & MODUNLOCK_FIRINGRANGE) {
+		return 3;
+	}
+
 
 #if (VERSION == VERSION_JPN_FINAL) && defined(PLATFORM_N64)
 	if (weaponindex == frGetWeaponIndexByWeapon(WEAPON_COMBATKNIFE)) {
@@ -149,6 +154,10 @@ s32 func0f19ca78(u32 weaponnum)
 u8 frIsWeaponFound(s32 weaponnum)
 {
 	u32 byteindex;
+
+	if (g_ModUnlocks & MODUNLOCK_FIRINGRANGE) {
+		return true;
+	}
 
 	if (weaponnum <= WEAPON_UNARMED) {
 		return true;

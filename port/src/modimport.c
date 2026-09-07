@@ -3839,6 +3839,55 @@ static int cmpU8(const void *a, const void *b)
 #define DAMAGE_BEGIN "# importer: damage begin"
 #define DAMAGE_END   "# importer: damage end"
 
+/* -- the unlocks: what the mod's code forces to true ----------------------- */
+
+#define UNLOCKS_BEGIN "# importer: unlocks begin"
+#define UNLOCKS_END   "# importer: unlocks end"
+
+// what the mod's word at a stock site has to be: an li of a value into any
+// register, a nop, or an unconditional branch
+enum { UNLOCK_LI, UNLOCK_NOP, UNLOCK_B };
+
+// The "everything unlocked" patch twenty-three mods of the archive share,
+// site by site: each family is the tests it forces, and is on when every
+// one of them is. The addresses are the stock binary's.
+static const struct { const char *family; u32 addr; u32 kind; u32 value; } unlockSites[] = {
+	{ "cheats",        0x7f106db8, UNLOCK_LI, 1 }, { "cheats", 0x7f106dc0, UNLOCK_LI, 1 },
+	{ "cheats",        0x7f106dc8, UNLOCK_LI, 1 }, { "cheats", 0x7f106dd0, UNLOCK_LI, 1 },
+	{ "cheats",        0x7f106dd8, UNLOCK_LI, 1 }, { "cheats", 0x7f106e10, UNLOCK_LI, 1 },
+	{ "difficulties",  0x7f10390c, UNLOCK_NOP, 0 }, { "difficulties", 0x7f103a04, UNLOCK_NOP, 0 },
+	{ "mpoptions",     0x7f17fe9c, UNLOCK_LI, 1 }, { "mpoptions", 0x7f17fe18, UNLOCK_LI, 1 },
+	{ "mpoptions",     0x7f17d334, UNLOCK_LI, 1 }, { "mpoptions", 0x7f187878, UNLOCK_LI, 1 },
+	{ "mpoptions",     0x7f18789c, UNLOCK_LI, 1 }, { "mpoptions", 0x7f18cc94, UNLOCK_LI, 1 },
+	{ "mpoptions",     0x7f19b4ac, UNLOCK_LI, 1 }, { "mpoptions", 0x7f19b634, UNLOCK_LI, 1 },
+	{ "firingrange",   0x7f19cb00, UNLOCK_LI, 255 }, { "firingrange", 0x7f19c9bc, UNLOCK_LI, 255 },
+	{ "firingrange",   0x7f19cb50, UNLOCK_LI, 255 },
+	{ "specialstages", 0x7f104690, UNLOCK_LI, 1 }, { "specialstages", 0x7f104734, UNLOCK_LI, 1 },
+	{ "specialstages", 0x7f104830, UNLOCK_NOP, 0 },
+	{ "completion",    0x7f110ad4, UNLOCK_LI, 1 }, { "completion", 0x7f102c54, UNLOCK_LI, 1 },
+	{ "completion",    0x7f103e40, UNLOCK_LI, 1 }, { "completion", 0x7f10ec60, UNLOCK_NOP, 0 },
+	{ "allguns",       0x7f111c6c, UNLOCK_NOP, 0 }, { "allguns", 0x7f111ba8, UNLOCK_B, 0 },
+	{ "allguns",       0x7f111bfc, UNLOCK_B, 0 },
+};
+
+static s32 unlockSiteMatches(const u8 *code, u32 codelen, u32 addr, u32 kind, u32 value)
+{
+	const u32 ofs = addr - GAME_VRAM;
+	u32 w;
+	if (ofs + 4 > codelen) {
+		return 0;
+	}
+	w = be32(code, ofs);
+	switch (kind) {
+	case UNLOCK_LI:
+		return ((w >> 26) == 0x08 || (w >> 26) == 0x09) && ((w >> 21) & 0x1f) == 0 && (w & 0xffff) == value;
+	case UNLOCK_NOP:
+		return w == 0;
+	default:
+		return (w >> 26) == 4 && ((w >> 21) & 0x1f) == 0 && ((w >> 16) & 0x1f) == 0;
+	}
+}
+
 /**
  * The float a `lui at,HI` site loads, as the mod's code has it: chr_damage
  * loads the player's headshot scale that way (0x41c8 is 25.0f, GE-X's 0x3f80
@@ -4673,6 +4722,28 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The unlocks: the tests the mod's code forces to true, family by family
+	char *unlocks = NULL;
+	u32 unlockslen = 0, unlockscap = 0;
+	if (t.followed) {
+		u32 i = 0;
+		while (i < sizeof(unlockSites) / sizeof(unlockSites[0])) {
+			const char *family = unlockSites[i].family;
+			u32 j = i, on = 0, total = 0;
+			for (; j < sizeof(unlockSites) / sizeof(unlockSites[0]) && !strcmp(unlockSites[j].family, family); ++j) {
+				total++;
+				on += unlockSiteMatches(t.modcode, t.modcodelen, unlockSites[j].addr, unlockSites[j].kind, unlockSites[j].value) ? 1 : 0;
+			}
+			if (on == total) {
+				appendf(&unlocks, &unlockslen, &unlockscap, "  %s 1\n", family);
+				rep("  the mod's code unlocks %s outright", family);
+			} else if (on) {
+				rep("  the mod's code unlocks %s at %u of its %u sites; left as the game has it", family, on, total);
+			}
+			i = j;
+		}
+	}
+
 	if (t.followed) {
 		freePairs(&t.sp);
 		freePairs(&t.mp);
@@ -4743,14 +4814,21 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					cutRegion(text, at, end + strlen(DAMAGE_END));
 				}
 			}
+			at = strstr(text, UNLOCKS_BEGIN);
+			if (at) {
+				char *end = strstr(at, UNLOCKS_END);
+				if (end) {
+					cutRegion(text, at, end + strlen(UNLOCKS_END));
+				}
+			}
 			free(existing);
 			existing = (u8 *)text;
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + unlockslen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -4765,6 +4843,8 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				flagsite ? flagsite : "", flagsite ? FLAGSITE_END "\n\n" : "",
 				damagecfg ? "# The damage rules the mod's code changes, read from it. Written by the game's mod importer.\n" DAMAGE_BEGIN "\n" : "",
 				damagecfg ? damagecfg : "", damagecfg ? DAMAGE_END "\n\n" : "",
+				unlocks ? "# What the mod's code unlocks outright, read from it. Written by the game's mod importer.\n" UNLOCKS_BEGIN "\nunlocks {\n" : "",
+				unlocks ? unlocks : "", unlocks ? "}\n" UNLOCKS_END "\n\n" : "",
 				existing ? (const char *)existing : "");
 		written += writeOut(outdir, "modconfig.txt", (const u8 *)block, strlen(block));
 		free(block);
@@ -4774,6 +4854,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(hitsound);
 		free(flagsite);
 		free(damagecfg);
+		free(unlocks);
 	}
 
 	return written;

@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modunlocks.h"
 #include "constants.h"
 #include "game/camdraw.h"
 #include "game/cheats.h"
@@ -213,8 +214,8 @@ void bossfileSetDefaults(void)
 	g_Vars.bossfileid = 0;
 	g_Vars.bossdeviceserial = 0;
 	g_Vars.language = (PAL ? 7 : 0);
-	g_AltTitleUnlocked = 0;
-	g_AltTitleEnabled = false;
+	g_AltTitleUnlocked = (g_ModUnlocks & MODUNLOCK_COMPLETION) != 0;
+	g_AltTitleEnabled = (g_ModUnlocks & MODUNLOCK_COMPLETION) != 0;
 
 	bossfileSave();
 }

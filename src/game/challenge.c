@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modunlocks.h"
 #include "game/atan2f.h"
 #include "game/bot.h"
 #include "game/challenge.h"
@@ -886,6 +887,10 @@ void challengeConsiderMarkingComplete(void)
 bool challengeIsFeatureUnlocked(s32 featurenum)
 {
 	if (featurenum == 0) {
+		return true;
+	}
+
+	if ((g_ModUnlocks & MODUNLOCK_MPOPTIONS) && (featurenum == MPFEATURE_SLOWMOTION || featurenum == MPFEATURE_ONEHITKILLS)) {
 		return true;
 	}
 

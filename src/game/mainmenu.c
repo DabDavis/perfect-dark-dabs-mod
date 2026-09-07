@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include <stdlib.h>
 #include "constants.h"
+#include "game/modunlocks.h"
 #include "game/bondgun.h"
 #include "game/bossfile.h"
 #include "game/challenge.h"
@@ -428,7 +429,7 @@ MenuItemHandlerResult menuhandlerAlternativeTitle(s32 operation, struct menuitem
 {
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		if (g_Vars.stagenum != STAGE_CITRAINING || (u8)g_AltTitleUnlocked == false) {
+		if (g_Vars.stagenum != STAGE_CITRAINING || ((u8)g_AltTitleUnlocked == false && !(g_ModUnlocks & MODUNLOCK_COMPLETION))) {
 			return true;
 		}
 		break;
@@ -977,6 +978,10 @@ bool isStageDifficultyUnlocked(s32 stageindex, s32 difficulty)
 	s32 s;
 	s32 d;
 
+	if (g_ModUnlocks & MODUNLOCK_DIFFICULTIES) {
+		return true;
+	}
+
 	// Handle special missions
 	if (stageindex > SOLOSTAGEINDEX_SKEDARRUINS) {
 #if VERSION >= VERSION_NTSC_1_0
@@ -1158,7 +1163,7 @@ MenuItemHandlerResult menuhandlerPdMode(s32 operation, struct menuitem *item, un
 		menuPushDialog(&g_PdModeSettingsMenuDialog);
 		break;
 	case MENUOP_CHECKHIDDEN:
-		if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] == 0) {
+		if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] == 0 && !(g_ModUnlocks & MODUNLOCK_COMPLETION)) {
 			return true;
 		}
 	}
@@ -1782,6 +1787,10 @@ s32 getNumUnlockedSpecialStages(void)
 	s32 count = 0;
 	s32 offsetforduel = 1;
 	s32 i;
+
+	if (g_ModUnlocks & MODUNLOCK_SPECIALSTAGES) {
+		return ARRAYCOUNT(g_GameFile.besttimes[0]) + 1;
+	}
 
 	for (i = 0; i < ARRAYCOUNT(g_GameFile.besttimes[0]); i++) {
 		if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][i]) {

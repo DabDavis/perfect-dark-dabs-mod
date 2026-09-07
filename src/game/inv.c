@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modunlocks.h"
 #include "game/cheats.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
@@ -278,6 +279,10 @@ bool invHasSingleWeaponOrProp(s32 weaponnum)
 
 s32 invAddOneIfCantHaveSlayer(s32 index)
 {
+	if (g_ModUnlocks & MODUNLOCK_ALLGUNS) {
+		return index;
+	}
+
 	if (mainGetStageNum());
 
 	if (mainGetStageNum() != STAGE_ATTACKSHIP
@@ -299,6 +304,10 @@ s32 currentStageForbidsSlayer(void)
 {
 	bool value = VERSION >= VERSION_JPN_FINAL ? 1 : 0;
 
+	if (g_ModUnlocks & MODUNLOCK_ALLGUNS) {
+		return 0;
+	}
+
 	if (mainGetStageNum() != STAGE_ATTACKSHIP && mainGetStageNum() != STAGE_SKEDARRUINS) {
 		value++;
 	}
@@ -309,6 +318,10 @@ s32 currentStageForbidsSlayer(void)
 bool invCanHaveAllGunsWeapon(s32 weaponnum)
 {
 	bool canhave = true;
+
+	if (g_ModUnlocks & MODUNLOCK_ALLGUNS) {
+		return true;
+	}
 
 #if (VERSION == VERSION_JPN_FINAL) && defined(PLATFORM_N64)
 	if (weaponnum == WEAPON_COMBATKNIFE) {

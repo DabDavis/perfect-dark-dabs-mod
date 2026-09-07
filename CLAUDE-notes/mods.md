@@ -1167,3 +1167,56 @@ about positional initialisers, checked rather than trusted.
   the Cyclone's secondary discharge for simulants (weapon and function
   together), and two fire-rate numbers (30 -> 44 ticks, a modulo made
   unconditional). Importer version 21.
+
+## The tail, and the unlocks (2026-09-07)
+
+With every rewritten function of nine words or more read, the tail of one-
+to-seven-word changes sorts into families:
+
+- **"Everything unlocked"** - the patch twenty-three mods of the archive
+  share and GE-X carries: `cheat_is_unlocked`'s six loads made `li 1`,
+  `is_stage_difficulty_unlocked`'s two `beqzl` made nops, eight of the
+  sixty-nine `jal challenge_is_feature_unlocked` made `li v0,1` (the slow
+  motion and one-hit-kills handlers, match start, bot slots, and two in
+  challenge.c - *not* the arenas' or weapons' feature tests, so it is the
+  options, not every feature), the firing range's three loads made 255,
+  the special assignments' two loads and a branch, the alternative title's
+  and Perfect Dark mode's flags, the Slayer's three stage tests. Each is a
+  family in `game/modunlocks.h` (`g_ModUnlocks`), a key in the port's
+  `unlocks { }` block, and a list of (stock address, what the mod's word
+  must be: an `li` of a value, a nop, an unconditional branch) in
+  `UNLOCK_SITES` / `unlockSites[]`, on when every site of the family
+  matches. The port honours each at the function the family names -
+  `cheatIsUnlocked()`, `isStageDifficultyUnlocked()`,
+  `challengeIsFeatureUnlocked()` for the two options,
+  `frIsWeaponFound()`/`ciGetFiringRangeScore()`,
+  `getNumUnlockedSpecialStages()`, the alt title and PD mode handlers and
+  `bossfileSetDefaults()`, the three Slayer tests in inv.c. GE-X: all
+  seven; PD Classics: `mpoptions` only; Mario: five, with `completion` at
+  one site of four - reported, left. Importer version 22. Live on a GE-X
+  boot: cheat 0 unlocked, slow motion and one-hit kills unlocked with an
+  arena's feature still gated, four special stages (three by difficulty and
+  the duel), the Slayer allowed, every firing range score gold.
+- **GE-X's shield removals**, four more one-word `bc1fl -> b` sites
+  (`player_get_shield_frac`, `chr_test_hit`, `chr_emit_sparks`,
+  `projectile_0f06c28c`) on top of the hit sound's and `chr_damage`'s: GE
+  has no shields, and the port keeps its shield logic, which never fires
+  when nothing gives a shield. Left as one deliberate gap.
+- **The run-speed cave** (`bwalk_update_horizontal`, `j 0x7f132ac0` into
+  the weather's freed words): fast movement times 1.375 rather than 1.25,
+  and in a mission the same when cheat 6 is on - `CHEAT_SLOMO`, which GE-X
+  repurposed (`lv_get_slow_motion_type` is zeroed). A `movement { }` rule
+  could carry the multiplier; the cheat repurposing is GE-X's own.
+- **The menu palette** (`menu_render`, `menuitem_keyboard_render`,
+  `menugfx_*`, `bview_draw_slayer_rocket_interlace`, ~30 words of colour
+  constants), **King of the Hill**'s constants (`koh_tick`/`koh_init`,
+  floats made halfword stores), **bot weapon scoring** (`botinv_score_weapon`,
+  three weapon numbers), `chr_hit`'s mine list (already the mines' flags),
+  `gset_get_sight` and `func0f0b278c` (the sight: type and a white colour),
+  `bot_reset` (a float init removed), `hat_get_type` (a jump into a data
+  cave: GE-X's hats, a feature the port has no code for), `chr_set_poisoned`
+  (the poison timer never set), `tex_init` and `env_choose_and_apply` (table
+  addresses the segment locator and env import already follow),
+  `stub0f00b200` (a stub made to return), `setup_create_props` and
+  `obj_get_hov_bob_offset_y` (one branch each). None read; each is a line
+  here so the next session need not disassemble it to know that.
