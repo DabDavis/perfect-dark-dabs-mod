@@ -40,7 +40,7 @@ it down: a new note, or a section in the one for its area, and a line here.
 
 The console mod GE-X 6a is the reference case for the mod loader. Its assets,
 data tables, missions, music, environments, star field, weather, shield
-colours and hit sounds all import (`build/mods/GE-X_6a_01-19-25/`, importer version 14); what is left is the code
+colours, hit sounds and co-op buddies all import (`build/mods/GE-X_6a_01-19-25/`, importer version 15); what is left is the code
 GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
 [mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
 end before touching any of it, then:
@@ -51,8 +51,8 @@ end before touching any of it, then:
        --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
    ```
    `constants` regions are tables to follow (most are done); `rewritten` ones
-   need reading. Remaining rewritten, by size: `player_tick` (21 words),
-   `bgun_tick_inc_attacking_shoot` (19), `casing_create_for_hand` (17),
+   need reading. Remaining rewritten, by size:
+   `bgun_tick_inc_attacking_shoot` (19 words), `casing_create_for_hand` (17),
    `projectile_tick` and `chr_damage` (16 each), `beam_render` (14),
    `hand_tick_attack`, `bot_tick_unpaused` (9 each), then a long tail of 1–7
    words (`menu_render`, `koh_tick`/`koh_init`, `cheat_is_unlocked`,
@@ -67,12 +67,16 @@ end before touching any of it, then:
    function that tests its caller, the hit sounds the one for a list of
    weapon numbers: seed the tables, run per number, read what it stored)
    and written out as the port's own config. A weapon-number test in the
-   port becomes a flag (weapons.md) and the importer writes `weaponflags`. Across the archive the most rewritten functions are `player_tick`
-   (38 mods), then a block of 23 that every "all solos in multi" patch
-   shares (`tex_init`, `setup_create_props`, `mp_start_match`, the unlock
-   handlers); `modcodediff --summary` over every patch takes four minutes
-   with `xargs -P 8` and is how to know whether a function is one mod's or
-   the archive's. Whatever is added goes in **both importers**, `IMPORT.txt`
+   port becomes a flag (weapons.md) and the importer writes `weaponflags`;
+   arguments to a call are followed by call and register
+   (`follow_call_args()`, the co-op buddies), since one function can hold
+   four number spaces. Across the archive the most rewritten functions are
+   `player_tick` (38 mods, 27 of them a no-op word - see mods.md), then a
+   block of 23 that every "all solos in multi" patch shares (`tex_init`,
+   `setup_create_props`, `mp_start_match`, the unlock handlers);
+   `modcodediff --summary` over every patch takes four minutes with `xargs
+   -P 8` and is how to know whether a function is one mod's or the
+   archive's. Whatever is added goes in **both importers**, `IMPORT.txt`
    lines identical, and bumps `MODIMPORT_VERSION` so old imports redo
    themselves.
 3. **Test headlessly** on Runway (0x22) or later — Dam (0x30) and Facility
@@ -92,8 +96,8 @@ end before touching any of it, then:
    '^[0-9a-f]{7}$'`).
 5. **Known gaps, deliberate**: stages a mod took weather away from keep the
    port's stock weather entry (inert without a rain/snow script command); the
-   two importers order the older `playerconst`/`bgstage`/`roomstage` lines
-   differently (content identical); mod-only stage ids (GE-X's 0x4d–0x50)
+   two importers order the `playerconst`/`bgstage`/`roomstage`/`buddyconst`
+   lines differently (content identical); mod-only stage ids (GE-X's 0x4d–0x50)
    are skipped by `stage {}` blocks with a warning.
 
 ## Build and run

@@ -7,11 +7,20 @@
 #define MOD_PLAYER_HEAD modDataPlayerHead(HEAD_DARK_COMBAT)
 #define MOD_BODY(x) modDataPlayerBody(x)
 #define MOD_HEAD(x) modDataPlayerHead(x)
+// and its own co-operative buddies: their bodies, heads and guns
+#define MOD_BUDDY_BODY(x)   modDataBuddyConst(BUDDYCONST_BODY, x)
+#define MOD_BUDDY_HEAD(x)   modDataBuddyConst(BUDDYCONST_HEAD, x)
+#define MOD_BUDDY_MODEL(x)  modDataBuddyConst(BUDDYCONST_MODEL, x)
+#define MOD_BUDDY_WEAPON(x) modDataBuddyConst(BUDDYCONST_WEAPON, x)
 #else
 #define MOD_PLAYER_BODY BODY_DARK_COMBAT
 #define MOD_PLAYER_HEAD HEAD_DARK_COMBAT
 #define MOD_BODY(x) (x)
 #define MOD_HEAD(x) (x)
+#define MOD_BUDDY_BODY(x)   (x)
+#define MOD_BUDDY_HEAD(x)   (x)
+#define MOD_BUDDY_MODEL(x)  (x)
+#define MOD_BUDDY_WEAPON(x) (x)
 #endif
 #include "game/bondeyespy.h"
 #include "game/bondmove.h"
@@ -4622,21 +4631,21 @@ void playerTick(bool arg0)
 								| 1 << CHEAT_HITANDRUN
 								| 1 << CHEAT_ALIEN)) == 0) {
 					if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
-						prop = chrSpawnAtCoord(BODY_DARK_COMBAT, HEAD_VD,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_DARK_COMBAT), MOD_BUDDY_HEAD(HEAD_VD),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta / 2),
 								ailistFindById(GAILIST_INIT_DEFAULT_BUDDY),
 								SPAWNFLAG_ALLOWONSCREEN);
 					} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR) {
-						prop = chrSpawnAtCoord(BODY_MRBLONDE, HEAD_MRBLONDE,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_MRBLONDE), MOD_BUDDY_HEAD(HEAD_MRBLONDE),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
 								ailistFindById(GAILIST_INIT_DEFAULT_BUDDY),
 								SPAWNFLAG_ALLOWONSCREEN);
 					} else {
-						prop = chrSpawnAtCoord(BODY_DARK_COMBAT, HEAD_VD,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_DARK_COMBAT), MOD_BUDDY_HEAD(HEAD_VD),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta / 2),
@@ -4669,20 +4678,20 @@ void playerTick(bool arg0)
 						chr->cloakfadefinished = true;
 						chr->cloakfadefrac = 0;
 
-						chrGiveWeapon(chr, MODEL_CHRFALCON2, WEAPON_FALCON2, 0);
+						chrGiveWeapon(chr, MOD_BUDDY_MODEL(MODEL_CHRFALCON2), MOD_BUDDY_WEAPON(WEAPON_FALCON2), 0);
 					}
 				}
 
 				if (cheatIsActive(CHEAT_PUGILIST)) {
 					if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR) {
-						prop = chrSpawnAtCoord(BODY_MRBLONDE, HEAD_MRBLONDE,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_MRBLONDE), MOD_BUDDY_HEAD(HEAD_MRBLONDE),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
 								ailistFindById(GAILIST_INIT_DEFAULT_BUDDY),
 								SPAWNFLAG_ALLOWONSCREEN);
 					} else {
-						prop = chrSpawnAtCoord(BODY_CARRINGTON, HEAD_JAMIE,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_CARRINGTON), MOD_BUDDY_HEAD(HEAD_JAMIE),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
@@ -4719,14 +4728,14 @@ void playerTick(bool arg0)
 
 				if (cheatIsActive(CHEAT_HITANDRUN)) {
 					if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR) {
-						prop = chrSpawnAtCoord(BODY_MRBLONDE, HEAD_MRBLONDE,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_MRBLONDE), MOD_BUDDY_HEAD(HEAD_MRBLONDE),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
 								ailistFindById(GAILIST_INIT_DEFAULT_BUDDY),
 								SPAWNFLAG_ALLOWONSCREEN);
 					} else {
-						prop = chrSpawnAtCoord(BODY_MRBLONDE, HEAD_MARK2,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_MRBLONDE), MOD_BUDDY_HEAD(HEAD_MARK2),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
@@ -4759,20 +4768,20 @@ void playerTick(bool arg0)
 						chr->cloakfadefinished = true;
 						chr->cloakfadefrac = 0;
 
-						chrGiveWeapon(chr, MODEL_CHRAVENGER, WEAPON_K7AVENGER, 0);
+						chrGiveWeapon(chr, MOD_BUDDY_MODEL(MODEL_CHRAVENGER), MOD_BUDDY_WEAPON(WEAPON_K7AVENGER), 0);
 					}
 				}
 
 				if (cheatIsActive(CHEAT_HOTSHOT)) {
 					if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR) {
-						prop = chrSpawnAtCoord(BODY_MRBLONDE, HEAD_MRBLONDE,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_MRBLONDE), MOD_BUDDY_HEAD(HEAD_MRBLONDE),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
 								ailistFindById(GAILIST_INIT_DEFAULT_BUDDY),
 								SPAWNFLAG_ALLOWONSCREEN);
 					} else {
-						prop = chrSpawnAtCoord(BODY_CISOLDIER, HEAD_CHRIST,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_CISOLDIER), MOD_BUDDY_HEAD(HEAD_CHRIST),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
@@ -4805,21 +4814,21 @@ void playerTick(bool arg0)
 						chr->cloakfadefinished = true;
 						chr->cloakfadefrac = 0;
 
-						chrGiveWeapon(chr, MODEL_CHRDY357TRENT, WEAPON_DY357LX, 0);
-						chrGiveWeapon(chr, MODEL_CHRDY357, WEAPON_DY357MAGNUM, OBJFLAG_WEAPON_LEFTHANDED);
+						chrGiveWeapon(chr, MOD_BUDDY_MODEL(MODEL_CHRDY357TRENT), MOD_BUDDY_WEAPON(WEAPON_DY357LX), 0);
+						chrGiveWeapon(chr, MOD_BUDDY_MODEL(MODEL_CHRDY357), MOD_BUDDY_WEAPON(WEAPON_DY357MAGNUM), OBJFLAG_WEAPON_LEFTHANDED);
 					}
 				}
 
 				if (cheatIsActive(CHEAT_ALIEN)) {
 					if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR) {
-						prop = chrSpawnAtCoord(BODY_MRBLONDE, HEAD_MRBLONDE,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_MRBLONDE), MOD_BUDDY_HEAD(HEAD_MRBLONDE),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
 								ailistFindById(GAILIST_INIT_DEFAULT_BUDDY),
 								SPAWNFLAG_ALLOWONSCREEN);
 					} else {
-						prop = chrSpawnAtCoord(BODY_ELVIS1, HEAD_MAIAN_S,
+						prop = chrSpawnAtCoord(MOD_BUDDY_BODY(BODY_ELVIS1), MOD_BUDDY_HEAD(HEAD_MAIAN_S),
 								&g_Vars.currentplayer->prop->pos,
 								g_Vars.currentplayer->prop->rooms,
 								BADDEG2RAD(g_Vars.currentplayer->vv_theta),
@@ -4852,7 +4861,7 @@ void playerTick(bool arg0)
 						chr->cloakfadefinished = true;
 						chr->cloakfadefrac = 0;
 
-						chrGiveWeapon(chr, MODEL_CHRRCP120, WEAPON_RCP120, 0);
+						chrGiveWeapon(chr, MOD_BUDDY_MODEL(MODEL_CHRRCP120), MOD_BUDDY_WEAPON(WEAPON_RCP120), 0);
 					}
 				}
 

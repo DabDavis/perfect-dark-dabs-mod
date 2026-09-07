@@ -1500,6 +1500,44 @@ def follow_stage_loads(stockcode, modcode, start, end, seg, base, modstages):
     return pairs
 
 
+def follow_call_args(stockcode, modcode, start, end, callee, regs):
+    """The `li aN,` arguments of every call to `callee` in [start, end) that
+    the mod changed, as {(name, stock N): mod N}, `regs` naming which argument
+    register means what ({4: 'body', 5: 'head'} for chr_spawn_at_coord). The
+    argument is the last `li` into that register in the twelve words before
+    the jal, or its delay slot; an argument stock computes rather than loads
+    (`move a1,s4` - which 27 mods of the archive changed to `li a1,19`, the
+    value s4 held) is not one, and is left alone. The kind is what tells the
+    buddies' bodies from their heads from their guns' models from their
+    guns, which are four number spaces in one function."""
+    pairs = {}
+    target = (callee & 0x0fffffff) >> 2
+    for ofs in range(start, min(end, len(stockcode) - 3), 4):
+        x = be32(stockcode, ofs)
+        if (x >> 26) != 3 or (x & 0x3ffffff) != target:
+            continue
+        found = {}
+        for o in range(ofs + 4, max(start, ofs - 12 * 4) - 4, -4):
+            a = be32(stockcode, o)
+            b = be32(modcode, o)
+            if o != ofs and o != ofs + 4 and (a >> 26) == 3:
+                break   # an earlier call: its arguments are not ours
+            if (a >> 26) not in (0x08, 0x09) or (a >> 21) & 0x1f != 0:
+                continue
+            reg = (a >> 16) & 0x1f
+            if reg not in regs or reg in found:
+                continue
+            found[reg] = True
+            if (b >> 16) == (a >> 16) and (b & 0xffff) != (a & 0xffff):
+                pairs.setdefault((regs[reg], a & 0xffff), b & 0xffff)
+    return pairs
+
+
+BUDDY_FUNCTION = 'player_tick'
+BUDDY_CALLS = (('chr_spawn_at_coord', { 4: 'body', 5: 'head' }),
+               ('chr_give_weapon',    { 5: 'model', 6: 'weapon' }))
+
+
 def follow_immediates(stockcode, modcode, start, end):
     """Every `li rt,N` (addiu rt,zero,N) in [start, end) whose immediate the
     mod changed, as {stock N: mod N}; the first occurrence of a stock value
@@ -2706,6 +2744,23 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                 lines.append('  playerconst 0x%x %d' % (k, v))
             notes.append('%d body/head constants changed in the mod\'s outfit code: %s'
                          % (len(pairs), ', '.join('%#x->%d' % (k, v) for k, v in sorted(pairs.items()))))
+
+    # The co-operative buddies: Velvet, and the four cheats' companions, are
+    # spawned by playerTick() with a body, a head, and a gun as a model and a
+    # weapon number, all constants in the code. GE-X gives them its own
+    # (Bond's allies), Mario gives them Mario; the four are four number
+    # spaces, told apart by which call and which register they feed.
+    if followed and BUDDY_FUNCTION in codesyms and all(fn in codesyms for fn, _ in BUDDY_CALLS):
+        start, end = codesyms[BUDDY_FUNCTION]
+        pairs = {}
+        for fn, regs in BUDDY_CALLS:
+            for k, v in follow_call_args(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, codesyms[fn][0], regs).items():
+                pairs.setdefault(k, v)
+        for (kind, k), v in sorted(pairs.items()):
+            lines.append('  buddyconst %s 0x%x %d' % (kind, k, v))
+        if pairs:
+            notes.append("%d of the co-operative buddies' constants changed in the mod's code: %s"
+                         % (len(pairs), ', '.join('%s %#x->%d' % (kind, k, v) for (kind, k), v in sorted(pairs.items()))))
 
     # The same for texLoadFromGdl(), which picks the animated textures (the
     # rivers, the ocean, the power juice) by number: GE-X moved two of them

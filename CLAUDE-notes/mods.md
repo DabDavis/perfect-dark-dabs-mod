@@ -942,3 +942,44 @@ being a guess); importer version 14.
 Not carried over: GE-X made the chr-hit shield check unconditional, so its
 guards never play the shield damage sound. That is not a weapon property and
 was left.
+
+## The co-operative buddies, and a constant that is one of four kinds (2026-09-07)
+
+`player_tick` is the most rewritten function in the archive - 38 of 48 mods -
+and nearly all of that is one word: `move a1,s4` made `li a1,19` at the
+Hotshot buddy's spawn, which is the value `s4` holds there (`li s4,19`
+earlier in the function; HEAD_CHRIST). Twenty-seven mods share it, it is a
+reassembler materialising a constant, and it changes nothing. What the
+rest change (GE-X 21 words, Mario 22, the Warehouse 9) is the co-operative
+buddies: `playerTick()` spawns Velvet and the four cheats' companions with
+`chrSpawnAtCoord(body, head, ...)` and arms them with `chrGiveWeapon(chr,
+model, weapon, ...)`, all constants, and GE-X gives them Bond's allies,
+Mario gives them Mario.
+
+- **Four number spaces in one function.** `follow_immediates()` would have
+  put a body 0x56 and a weapon 2 in one list, and the outfit code already
+  maps 0x56 to something else (GE-X's hero is 88, its Velvet 122). So the
+  follow is by *call*: `follow_call_args()` / `followCallArgs()` take every
+  `jal` to a named callee and the last `li aN,` into each argument register
+  in the twelve words before it (or its delay slot), and a table says what
+  each register means for that callee - `chr_spawn_at_coord` a0 body, a1
+  head; `chr_give_weapon` a1 model, a2 weapon. An argument stock computes
+  rather than loads (the `move a1,s4`) is not an `li` and is left alone,
+  which is what makes the 27-mod word a no-op without a special case.
+- The lines are `buddyconst KIND 0xSTOCK MOD` in the datasegment block;
+  `modDataBuddyConst(kind, def)` answers, and the fifteen sites in
+  `playerTick()` go through `MOD_BUDDY_BODY/HEAD/MODEL/WEAPON()`. A mapping
+  is per function: the same stock body maps differently here and in the
+  outfit chooser, and that is right. Importer version 15. The two importers
+  write the same lines in a different order, the tool sorted and the game
+  in code order, like `playerconst`.
+- **The datasegment block is built in a stack buffer** (`char lines[]` in
+  `writeDataSegment()`), and `LINE()` trusted `snprintf()`'s return value:
+  eighteen more lines took GE-X's block past 2 KB and the stack was smashed
+  with the block's own text (the backtrace was ASCII: `buddyconst ...`).
+  8 KB now, and `LINE()` clamps. Anything that adds lines to the block adds
+  to that buffer.
+- A co-operative buddy needs a co-operative mission, which a headless boot
+  does not start: the mapping was checked live with `gdb -batch -ex 'call
+  modDataBuddyConst(1, 0x56)'` on a GE-X boot (122), not by seeing Bond's
+  ally spawn.

@@ -1692,6 +1692,21 @@ static s32 modPlayerConst(s32 def)
 	return def;
 }
 
+static s32 modNumBuddyConsts;
+static u16 modBuddyConsts[32][3];
+
+// A co-operative buddy's body, head, gun model or gun as the mod's playerTick()
+// spawns it, for the constant the port's code has there
+s32 modDataBuddyConst(s32 kind, s32 def)
+{
+	for (s32 i = 0; i < modNumBuddyConsts; ++i) {
+		if (modBuddyConsts[i][0] == (u16)kind && modBuddyConsts[i][1] == (u16)def) {
+			return modBuddyConsts[i][2];
+		}
+	}
+	return def;
+}
+
 static s32 modNumTexConsts;
 static u16 modTexConsts[16][2];
 
@@ -2184,6 +2199,13 @@ s32 modDataImport(const struct moddataspec *spec)
 
 	if (modNumPlayerConsts) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d of the outfit chooser's body/head constants are the mod's", modNumPlayerConsts);
+	}
+
+	modNumBuddyConsts = spec->numbuddyconsts;
+	memcpy(modBuddyConsts, spec->buddyconsts, sizeof(modBuddyConsts));
+
+	if (modNumBuddyConsts) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d of the co-operative buddies' constants are the mod's", modNumBuddyConsts);
 	}
 
 	modNumTexConsts = spec->numtexconsts;

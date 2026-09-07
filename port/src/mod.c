@@ -868,6 +868,29 @@ static char *modConfigParseDataSegment(char *p, char *token)
 				spec.playerconsts[spec.numplayerconsts][1] = (u16)v;
 				spec.numplayerconsts++;
 			}
+		} else if (!strcmp(token, "buddyconst")) {
+			// one line per co-operative buddy constant the mod's code changed:
+			// its kind, then stock, mod
+			static const char *const kinds[] = { NULL, "body", "head", "model", "weapon" };
+			s32 kind = 0, k = 0, v = 0;
+			p = strParseToken(p, token, NULL);
+			for (s32 i = 1; i < 5; ++i) {
+				if (!strcmp(token, kinds[i])) {
+					kind = i;
+				}
+			}
+			if (!kind) {
+				sysLogPrintf(LOG_ERROR, "mod: datasegment: invalid buddyconst kind: %s", token);
+				return NULL;
+			}
+			PARSE_INT("datasegment", "buddyconst stock", k, 0, 0xffff, NULL);
+			PARSE_INT("datasegment", "buddyconst mod", v, 0, 0xffff, NULL);
+			if (spec.numbuddyconsts < 32) {
+				spec.buddyconsts[spec.numbuddyconsts][0] = (u16)kind;
+				spec.buddyconsts[spec.numbuddyconsts][1] = (u16)k;
+				spec.buddyconsts[spec.numbuddyconsts][2] = (u16)v;
+				spec.numbuddyconsts++;
+			}
 		} else if (!strcmp(token, "texconst")) {
 			// one line per animated texture number the mod's texture code changed: stock, mod
 			s32 k = 0, v = 0;

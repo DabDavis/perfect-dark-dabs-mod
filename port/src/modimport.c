@@ -1267,6 +1267,62 @@ static s32 followImmediate(const u8 *stockcode, u32 stocklen, const u8 *modcode,
 }
 
 /**
+ * The `li aN,` arguments of every call to `callee` in [start, end) that the
+ * mod changed, written into `out` as (kind, stock, mod) with `kinds[reg]`
+ * naming what each argument register means (0 for one not followed). The
+ * argument is the last `li` into that register in the twelve words before
+ * the jal, or its delay slot; an argument stock computes rather than loads
+ * (`move a1,s4` - which 27 mods of the archive changed to `li a1,19`, the
+ * value s4 held) is not one, and is left alone. The kind is what tells the
+ * buddies' bodies from their heads from their guns' models from their guns,
+ * which are four number spaces in one function.
+ */
+static u32 followCallArgs(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
+		u32 start, u32 end, u32 callee, const u8 kinds[8], u16 (*out)[3], u32 nout, u32 max)
+{
+	const u32 target = (callee & 0x0fffffffu) >> 2;
+
+	for (u32 ofs = start; ofs + 4 <= end && ofs + 4 <= stocklen && ofs + 4 <= modlen; ofs += 4) {
+		const u32 x = be32(stockcode, ofs);
+		u32 found = 0;
+		if ((x >> 26) != 3 || (x & 0x3ffffff) != target) {
+			continue;
+		}
+		for (u32 o = ofs + 4; o + 4 >= start + 4 && o + 4 > ofs - 12 * 4 && o + 4 <= stocklen; o -= 4) {
+			const u32 a = be32(stockcode, o);
+			const u32 b = be32(modcode, o);
+			u32 reg, j;
+			if (o != ofs && o != ofs + 4 && (a >> 26) == 3) {
+				break;   // an earlier call: its arguments are not ours
+			}
+			if (((a >> 26) != 0x08 && (a >> 26) != 0x09) || ((a >> 21) & 0x1f) != 0) {
+				continue;
+			}
+			reg = (a >> 16) & 0x1f;
+			if (reg >= 8 || !kinds[reg] || (found & (1u << reg))) {
+				continue;
+			}
+			found |= 1u << reg;
+			if ((b >> 16) != (a >> 16) || (b & 0xffff) == (a & 0xffff)) {
+				continue;
+			}
+			for (j = 0; j < nout; ++j) {
+				if (out[j][0] == kinds[reg] && out[j][1] == (a & 0xffff)) {
+					break;
+				}
+			}
+			if (j == nout && nout < max) {
+				out[nout][0] = kinds[reg];
+				out[nout][1] = a & 0xffff;
+				out[nout][2] = b & 0xffff;
+				nout++;
+			}
+		}
+	}
+	return nout;
+}
+
+/**
  * The chunk table is a run of offsets, each landing on a 1173 header a
  * couple of bytes along. Distinctive enough to find when a mod has moved it.
  */
@@ -2229,6 +2285,9 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "shieldhit_render_component", 0x7f02983c, 0x7f02b7d4 },
 	{ "player_render_shield",       0x7f0c0190, 0x7f0c07c8 },
 	{ "bgun_play_prop_hit_sound",   0x7f0a7d98, 0x7f0a83fc },
+	{ "player_tick",                0x7f0bd904, 0x7f0bfbb8 },
+	{ "chr_spawn_at_coord",         0x7f04b2f4, 0x7f04b2f8 },
+	{ "chr_give_weapon",            0x7f08bad0, 0x7f08bad4 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3568,7 +3627,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 	u32 written = 0;
 	char *namesbuf;
 	u32 nameslen = 0;
-	char lines[2048];
+	char lines[8192];   // the datasegment block: GE-X's is 2.3 KB and grows with every table followed
 	u32 lineslen = 0;
 	char *block;
 	u32 base;
@@ -3630,7 +3689,14 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		t.modcodelen = modgamelen;
 	}
 
-#define LINE(...) do { lineslen += snprintf(lines + lineslen, sizeof(lines) - lineslen, __VA_ARGS__); } while (0)
+// bounded: snprintf() answers with the length the line would have had, and a
+// block past the buffer once smashed the stack with its own text
+#define LINE(...) do { \
+	if (lineslen < sizeof(lines) - 1) { \
+		const int _n = snprintf(lines + lineslen, sizeof(lines) - lineslen, __VA_ARGS__); \
+		lineslen = (_n < 0) ? lineslen : (lineslen + (u32)_n >= sizeof(lines) ? sizeof(lines) - 1 : lineslen + (u32)_n); \
+	} \
+} while (0)
 
 	char tnote[96];
 	u32 addr;
@@ -3979,6 +4045,36 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			}
 			if (n > nbefore) {
 				rep("  %u %s: %s", n - nbefore, consts[c].what, list);
+			}
+		}
+	}
+
+	// The co-operative buddies: Velvet, and the four cheats' companions, are
+	// spawned by playerTick() with a body, a head, and a gun as a model and
+	// a weapon number, all constants in the code. GE-X gives them its own
+	// (Bond's allies), Mario gives them Mario; the four are four number
+	// spaces, told apart by which call and which register they feed.
+	if (t.followed) {
+		static const char *const kindnames[] = { NULL, "body", "head", "model", "weapon" };
+		static const u8 spawnkinds[8] = { 0, 0, 0, 0, 1, 2, 0, 0 };   // a0 body, a1 head
+		static const u8 givekinds[8]  = { 0, 0, 0, 0, 0, 3, 4, 0 };   // a1 model, a2 weapon
+		u32 start, end, spawn, give, e;
+		if (codeSym("player_tick", &start, &end) && codeSym("chr_spawn_at_coord", &spawn, &e)
+				&& codeSym("chr_give_weapon", &give, &e)) {
+			u16 pairs[32][3];
+			u32 npairs = followCallArgs(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end,
+					spawn + GAME_VRAM, spawnkinds, pairs, 0, 32);
+			npairs = followCallArgs(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end,
+					give + GAME_VRAM, givekinds, pairs, npairs, 32);
+			if (npairs) {
+				char list[1024];
+				u32 listlen = 0;
+				for (u32 i = 0; i < npairs; ++i) {
+					LINE("  buddyconst %s 0x%x %u\n", kindnames[pairs[i][0]], pairs[i][1], pairs[i][2]);
+					listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s%s 0x%x->%u",
+							listlen ? ", " : "", kindnames[pairs[i][0]], pairs[i][1], pairs[i][2]);
+				}
+				rep("  %u of the co-operative buddies' constants changed in the mod's code: %s", npairs, list);
 			}
 		}
 	}

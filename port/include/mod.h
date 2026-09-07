@@ -60,6 +60,10 @@ struct moddataspec {
 	// the mod changed: stock -> mod
 	s32 numtexconsts;
 	u16 texconsts[16][2];
+	// the co-operative buddies' bodies, heads, gun models and guns, constants
+	// in playerTick() the mod changed: kind (BUDDYCONST_*), stock, mod
+	s32 numbuddyconsts;
+	u16 buddyconsts[32][3];
 	// the rooms roomPopulateMtx() pins to the camera: room numbers the mod
 	// changed (stock -> mod) and the stages, as stock stage index -> the
 	// mod's stage id
@@ -100,6 +104,13 @@ struct moddataspec {
 
 // The solo player's body and head as the mod's code has them, or def.
 s32 modDataPlayerBody(s32 def);
+
+// the co-operative buddies' constants in playerTick(), as the mod's code has them
+#define BUDDYCONST_BODY   1
+#define BUDDYCONST_HEAD   2
+#define BUDDYCONST_MODEL  3
+#define BUDDYCONST_WEAPON 4
+s32 modDataBuddyConst(s32 kind, s32 def);
 s32 modDataPlayerHead(s32 def);
 
 // An animated texture number as the mod's texture code has it, or def.
