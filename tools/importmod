@@ -1535,30 +1535,54 @@ def follow_call_args(stockcode, modcode, start, end, callee, regs):
 
 def follow_compare_chain(code, start, end, at_ofs, reg):
     """The weapon numbers a chain of compares at `at_ofs` tests `reg`
-    against: `li at,N` then `beq at,reg` (a match, on to the next) or
-    `bne at,reg` (the last one), the next `li` allowed in the branch's delay
-    slot. This is the shape a hack takes when one weapon becomes two: GE-X
-    turned the shotgun's pump-action test into two shotguns. [] when the
-    words at the site are zeros (the test was taken out - GE-X's charge
-    reset), None when they are something else."""
+    against: `li at,N` then a branch on at and reg within three words - `beq`
+    to the match target (on to the next compare), or `bne` past it (the
+    last, its fall-through being the match). The compiler runs two tests on
+    one register together (bgun_create_fx: the magnums' no-eject skip and
+    the Reaper's eject part, 8, 9 then 20 on t1), and only the targets tell
+    them apart: a chain's beqs all go to one place, and a bne belongs to it
+    only when falling through lands there. This is the shape a hack takes
+    when one weapon becomes two: GE-X turned the shotgun's pump-action test
+    into two shotguns. A 0 in a mod's chain is no weapon and is dropped.
+    [] when the words at the site are zeros (the test was taken out - GE-X's
+    charge reset), None when they are something else."""
     nums = []
     ofs = at_ofs
+    match = None
     while start <= ofs < end - 4 and len(nums) < 8:
         x = be32(code, ofs)
         if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (x >> 16) & 0x1f != 1:
             break
-        nxt = be32(code, ofs + 4)
-        op = nxt >> 26
-        rs, rt = (nxt >> 21) & 0x1f, (nxt >> 16) & 0x1f
-        if op not in (4, 5, 0x14, 0x15) or {rs, rt} != {1, reg}:
+        br = None
+        for o in range(ofs + 4, min(ofs + 20, end), 4):
+            nxt = be32(code, o)
+            op = nxt >> 26
+            if op in (4, 5, 0x14, 0x15) and {(nxt >> 21) & 0x1f, (nxt >> 16) & 0x1f} == {1, reg}:
+                br = (o, op, (o + 4 + ((nxt & 0xffff) - (0x10000 if nxt & 0x8000 else 0)) * 4) & 0xffffffff)
+                break
+        if br is None:
+            break
+        o, op, target = br
+        if op in (4, 0x14):
+            if match is not None and target != match:
+                break
+            match = target
+            nums.append(x & 0xffff)
+            # the next li: in the delay slot, or after one word of it
+            ofs = o + 4
+            if ofs + 4 < end and not ((be32(code, ofs) >> 26) in (0x08, 0x09) and (be32(code, ofs) >> 16) & 0x1f == 1
+                                      and (be32(code, ofs) >> 21) & 0x1f == 0):
+                ofs += 4
+            continue
+        # the last: falling through is the match, the body starting in its
+        # delay slot or after it
+        if match is not None and match not in (o + 4, o + 8):
             break
         nums.append(x & 0xffff)
-        if op in (5, 0x15):
-            return nums
-        ofs += 8
+        break
     if not nums and all(be32(code, o) == 0 for o in range(at_ofs, min(at_ofs + 8, end), 4)):
         return []
-    return nums or None
+    return [n for n in nums if n] if nums else None
 
 
 def follow_flag_site(stockcode, modcode, start, end, stockvalue):
@@ -1570,10 +1594,17 @@ def follow_flag_site(stockcode, modcode, start, end, stockvalue):
         x = be32(stockcode, ofs)
         if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (x >> 16) & 0x1f != 1 or (x & 0xffff) != stockvalue:
             continue
-        nxt = be32(stockcode, ofs + 4)
-        if (nxt >> 26) not in (4, 5, 0x14, 0x15):
+        # the branch on at, within four words (the magnums' casing test has
+        # three of the body's own words between the li and the beq)
+        reg = None
+        for o in range(ofs + 4, min(ofs + 20, end), 4):
+            nxt = be32(stockcode, o)
+            rs, rt = (nxt >> 21) & 0x1f, (nxt >> 16) & 0x1f
+            if (nxt >> 26) in (4, 5, 0x14, 0x15) and 1 in (rs, rt):
+                reg = rs if rt == 1 else rt
+                break
+        if reg is None:
             continue
-        reg = ((nxt >> 21) & 0x1f) if ((nxt >> 16) & 0x1f) == 1 else ((nxt >> 16) & 0x1f)
         return (follow_compare_chain(stockcode, start, end, ofs, reg),
                 follow_compare_chain(modcode, start, end, ofs, reg))
     return None, None
@@ -1583,7 +1614,9 @@ def follow_flag_site(stockcode, modcode, start, end, stockvalue):
 # every site in the code where the game made that test: a flag is written
 # only when the mod's lists agree across all its sites
 FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
-              ('chargeable', (('bgun_tick_inc_attacking_shoot', 6), ('bgun0f09a6f8', 6))))
+              ('chargeable', (('bgun_tick_inc_attacking_shoot', 6), ('bgun0f09a6f8', 6))),
+              ('pistolcasing', (('casing_create_for_hand', 36),)),
+              ('nocarteject', (('casing_create_for_hand', 8), ('bgun_create_fx', 8))))
 
 
 BUDDY_FUNCTION = 'player_tick'
@@ -2957,7 +2990,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                     break
                 start, end = codesyms[fn]
                 stocklist, modlist = follow_flag_site(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, value)
-                if stocklist != [value] or modlist is None:
+                if not stocklist or stocklist[0] != value or modlist is None:
                     notes.append("the %s test in %s does not read as a compare chain; the flag is left as the port has it" % (flag, fn))
                     readings = None
                     break
@@ -2969,10 +3002,12 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                              % (flag, '; '.join('%s: %s' % (fn, ' '.join(str(n) for n in r) or 'none') for fn, r in readings)))
                 continue
             modlist = readings[0][1]
+            stocklist = sorted(follow_flag_site(stockcode, stockcode, codesyms[sites[0][0]][0] - 0x7f000000,
+                                                codesyms[sites[0][0]][1] - 0x7f000000, sites[0][1])[0])
             flagsiteblocks.append('weaponflags %s { clear%s }' % (flag, ''.join(' %d' % n for n in modlist)))
-            if modlist != [sites[0][1]]:
-                notes.append('%s is on weapon%s %s (stock: %d)' % (flag, 's' if len(modlist) != 1 else '',
-                             ', '.join(str(n) for n in modlist) or 'none', sites[0][1]))
+            if modlist != stocklist:
+                notes.append('%s is on weapon%s %s (stock: %s)' % (flag, 's' if len(modlist) != 1 else '',
+                             ', '.join(str(n) for n in modlist) or 'none', ', '.join(str(n) for n in stocklist)))
     flagsiteregion = ''
     if flagsiteblocks:
         flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'

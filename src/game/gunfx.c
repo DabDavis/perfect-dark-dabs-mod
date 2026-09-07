@@ -721,8 +721,7 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 
 		casing->ground = ground;
 
-		if (weaponnum == WEAPON_PP9I || weaponnum == WEAPON_CC13
-				|| weaponnum == WEAPON_FALCON2 || weaponnum == WEAPON_MAGSEC4) {
+		if (weaponHasFlag2(weaponnum, WEAPONFLAG2_PISTOLCASING)) {
 			casing->speed.x = -(RANDOMFRAC() * 0.5333333f * 0.0625f + 0.5333333f);
 			casing->speed.y = RANDOMFRAC() * 2.5f * 0.0625f + 2.5f;
 			casing->speed.z = 0.0f;
@@ -759,7 +758,7 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 				casing->speed.z += (player->hands[handnum].posmtx.m[3][2] - player->hands[handnum].prevmtx.m[3][2]) / g_Vars.lvupdate60freal;
 			}
 		} else {
-			if (weaponnum == WEAPON_REAPER) {
+			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				casing->speed.x = -(RANDOMFRAC() * 0.41666666f * 0.125f + 0.41666666f);
 				casing->speed.y = RANDOMFRAC() * 3.3333333f * 0.125f + 3.3333333f;
 			} else {
@@ -769,7 +768,7 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 
 			casing->speed.z = 0.0f;
 
-			if (weaponnum == WEAPON_DY357MAGNUM || weaponnum == WEAPON_DY357LX) {
+			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_NOCARTEJECT)) {
 				casing->speed.x = 0.0f;
 				casing->speed.y = 0.0f;
 				casing->speed.z = -1.0f;
@@ -777,7 +776,7 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 
 			mtx4RotateVecInPlace(mtx, &casing->speed);
 
-			if (weaponnum == WEAPON_REAPER) {
+			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				spa4.x = 2.0f * RANDOMFRAC() * M_BADTAU * 0.015625f - 0.09815914f;
 				spa4.y = 2.0f * RANDOMFRAC() * M_BADTAU * 0.015625f - 0.09815914f;
 				spa4.z = 2.0f * RANDOMFRAC() * M_BADTAU * 0.015625f - 0.09815914f;

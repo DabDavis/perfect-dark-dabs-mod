@@ -502,6 +502,7 @@ static const struct {
 	{ "bladehit",         WEAPONFLAG2_BLADEHIT },
 	{ "laserhit",         WEAPONFLAG2_LASERHIT },
 	{ "bluntmelee",       WEAPONFLAG2_BLUNTMELEE },
+	{ "pistolcasing",     WEAPONFLAG2_PISTOLCASING },
 };
 
 /**

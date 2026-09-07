@@ -2290,6 +2290,8 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "chr_give_weapon",            0x7f08bad0, 0x7f08bad4 },
 	{ "bgun_tick_inc_attacking_shoot", 0x7f09afe4, 0x7f09b260 },
 	{ "bgun0f09a6f8",               0x7f09a6f8, 0x7f09aba4 },
+	{ "casing_create_for_hand",     0x7f0ade00, 0x7f0ae964 },
+	{ "bgun_create_fx",             0x7f0a5300, 0x7f0a5550 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3608,29 +3610,69 @@ static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u
 {
 	s32 n = 0;
 	u32 ofs = atofs;
+	u32 match = 0;
+	s32 havematch = 0;
 
 	*removed = 0;
 	while (ofs >= start && ofs + 8 <= end && ofs + 8 <= codelen && n < 8) {
 		const u32 x = be32(code, ofs);
-		const u32 nxt = be32(code, ofs + 4);
-		const u32 op = nxt >> 26, rs = (nxt >> 21) & 0x1f, rt = (nxt >> 16) & 0x1f;
+		u32 o, op = 0, target = 0;
+		s32 found = 0;
 		if (((x >> 26) != 0x08 && (x >> 26) != 0x09) || ((x >> 21) & 0x1f) != 0 || ((x >> 16) & 0x1f) != 1) {
 			break;
 		}
-		if ((op != 4 && op != 5 && op != 0x14 && op != 0x15) || !((rs == 1 && rt == reg) || (rt == 1 && rs == reg))) {
+		// the branch on at and reg, within four words
+		for (o = ofs + 4; o < ofs + 20 && o + 4 <= end && o + 4 <= codelen; o += 4) {
+			const u32 nxt = be32(code, o);
+			const u32 rs = (nxt >> 21) & 0x1f, rt = (nxt >> 16) & 0x1f;
+			op = nxt >> 26;
+			if ((op == 4 || op == 5 || op == 0x14 || op == 0x15) && ((rs == 1 && rt == reg) || (rt == 1 && rs == reg))) {
+				target = o + 4 + ((u32)(s16)(nxt & 0xffff) << 2);
+				found = 1;
+				break;
+			}
+		}
+		if (!found) {
 			break;
 		}
-		nums[n++] = x & 0xff;
-		if (op == 5 || op == 0x15) {
-			return n;
+		if (op == 4 || op == 0x14) {
+			// a match, to the chain's one target
+			if (havematch && target != match) {
+				break;
+			}
+			match = target;
+			havematch = 1;
+			if (x & 0xff) {
+				nums[n++] = x & 0xff;
+			}
+			// the next li: in the delay slot, or after one word of it
+			ofs = o + 4;
+			if (ofs + 8 <= codelen) {
+				const u32 d = be32(code, ofs);
+				if (!(((d >> 26) == 0x08 || (d >> 26) == 0x09) && ((d >> 21) & 0x1f) == 0 && ((d >> 16) & 0x1f) == 1)) {
+					ofs += 4;
+				}
+			}
+			continue;
 		}
-		ofs += 8;
+		// the last: falling through is the match, the body starting in its
+		// delay slot or after it
+		if (havematch && match != o + 4 && match != o + 8) {
+			break;
+		}
+		if (x & 0xff) {
+			nums[n++] = x & 0xff;
+		}
+		return n;
 	}
-	if (n == 0 && atofs + 8 <= codelen && be32(code, atofs) == 0 && be32(code, atofs + 4) == 0) {
-		*removed = 1;
-		return 0;
+	if (n == 0 && !havematch) {
+		if (atofs + 8 <= codelen && be32(code, atofs) == 0 && be32(code, atofs + 4) == 0) {
+			*removed = 1;
+			return 0;
+		}
+		return -1;
 	}
-	return n ? n : -1;
+	return n;
 }
 
 /**
@@ -3649,11 +3691,20 @@ static s32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 		if (((x >> 26) != 0x08 && (x >> 26) != 0x09) || ((x >> 21) & 0x1f) != 0 || ((x >> 16) & 0x1f) != 1 || (x & 0xffff) != value) {
 			continue;
 		}
-		nxt = be32(stockcode, ofs + 4);
-		if ((nxt >> 26) != 4 && (nxt >> 26) != 5 && (nxt >> 26) != 0x14 && (nxt >> 26) != 0x15) {
+		// the branch on at, within four words (the magnums' casing test has
+		// three of the body's own words between the li and the beq)
+		reg = 0;
+		for (u32 o = ofs + 4; o < ofs + 20 && o + 4 <= end && o + 4 <= stocklen; o += 4) {
+			nxt = be32(stockcode, o);
+			if (((nxt >> 26) == 4 || (nxt >> 26) == 5 || (nxt >> 26) == 0x14 || (nxt >> 26) == 0x15)
+					&& (((nxt >> 21) & 0x1f) == 1 || ((nxt >> 16) & 0x1f) == 1)) {
+				reg = ((nxt >> 16) & 0x1f) == 1 ? (nxt >> 21) & 0x1f : (nxt >> 16) & 0x1f;
+				break;
+			}
+		}
+		if (!reg) {
 			continue;
 		}
-		reg = ((nxt >> 16) & 0x1f) == 1 ? (nxt >> 21) & 0x1f : (nxt >> 16) & 0x1f;
 		*nstock = followCompareChain(stockcode, stocklen, start, end, ofs, reg, stocknums, &removed);
 		*nmod = followCompareChain(modcode, modlen, start, end, ofs, reg, modnums, &removed);
 		return *nstock >= 0 && *nmod >= 0;
@@ -3665,9 +3716,12 @@ static s32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 // every site in the code where the game made that test: a flag is written
 // only when the mod's lists agree across all its sites
 static const struct { const char *flag; const char *fn; u32 value; } flagSites[] = {
-	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19 },
-	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6 },
-	{ "chargeable", "bgun0f09a6f8", 6 },
+	{ "pumpaction",   "bgun_tick_inc_attacking_shoot", 19 },
+	{ "chargeable",   "bgun_tick_inc_attacking_shoot", 6 },
+	{ "chargeable",   "bgun0f09a6f8", 6 },
+	{ "pistolcasing", "casing_create_for_hand", 36 },
+	{ "nocarteject",  "casing_create_for_hand", 8 },
+	{ "nocarteject",  "bgun_create_fx", 8 },
 };
 
 static int cmpU8(const void *a, const void *b)
@@ -4286,8 +4340,8 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		u32 i = 0;
 		while (i < sizeof(flagSites) / sizeof(flagSites[0])) {
 			const char *flag = flagSites[i].flag;
-			u8 first[8], nums[8], stocknums[8];
-			s32 nfirst = -1, ok = 1, agree = 1;
+			u8 first[8], nums[8], stocknums[8], stockfirst[8];
+			s32 nfirst = -1, ok = 1, agree = 1, nstockfirst = 0;
 			char where[512];
 			u32 wherelen = 0;
 			u32 j = i;
@@ -4297,12 +4351,17 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				if (!codeSym(flagSites[j].fn, &start, &end)
 						|| !followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end,
 							flagSites[j].value, stocknums, &nstock, nums, &nmod)
-						|| nstock != 1 || stocknums[0] != flagSites[j].value) {
+						|| nstock < 1 || stocknums[0] != flagSites[j].value) {
 					rep("  the %s test in %s does not read as a compare chain; the flag is left as the port has it", flag, flagSites[j].fn);
 					ok = 0;
 					break;
 				}
 				qsort(nums, nmod, 1, cmpU8);
+				if (nfirst < 0) {
+					nstockfirst = nstock;
+					memcpy(stockfirst, stocknums, nstock);
+					qsort(stockfirst, nstockfirst, 1, cmpU8);
+				}
 				wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, "%s%s:", wherelen ? "; " : "", flagSites[j].fn);
 				for (s32 k = 0; k < nmod; ++k) {
 					wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, " %u", nums[k]);
@@ -4327,8 +4386,13 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%s%u", k ? ", " : "", first[k]);
 				}
 				appendf(&flagsite, &flagsitelen, &flagsitecap, "weaponflags %s { clear%s%s }\n", flag, nfirst ? " " : "", list);
-				if (nfirst != 1 || first[0] != flagSites[i].value) {
-					rep("  %s is on weapon%s %s (stock: %u)", flag, nfirst != 1 ? "s" : "", nfirst ? prose : "none", flagSites[i].value);
+				if (nfirst != nstockfirst || memcmp(first, stockfirst, nfirst)) {
+					char stockprose[64];
+					u32 stockproselen = 0;
+					for (s32 k = 0; k < nstockfirst; ++k) {
+						stockproselen += snprintf(stockprose + stockproselen, sizeof(stockprose) - stockproselen, "%s%u", k ? ", " : "", stockfirst[k]);
+					}
+					rep("  %s is on weapon%s %s (stock: %s)", flag, nfirst != 1 ? "s" : "", nfirst ? prose : "none", stockprose);
 				}
 			}
 			i = j;

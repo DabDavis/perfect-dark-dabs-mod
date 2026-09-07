@@ -1015,3 +1015,20 @@ what was missing was the mod's list.
   function: `bgun0f09a6f8`'s only GE-X change is 29 -> 21, another laser
   site, not the Mauler's. Read the diff of every function a flag lives in
   before assuming a constant that did not change is one the mod agrees with.
+- **Three shapes the compiler gives a chain** (from `casing_create_for_hand`,
+  17 words, the next in the queue): the branch can sit up to four words
+  after its `li` with the body's own words between (the magnums' casing
+  test: `li at,8; addiu; swc1; lw; beq`); the next `li` can follow a word
+  of delay slot rather than be in it; and the closing `bne`'s match is its
+  delay slot as often as the word after. And two tests on one register are
+  run together - `bgun_create_fx` has the magnums' no-eject skip (8, 9) and
+  the Reaper's eject part (20) as one run of compares on t1 - so a chain is
+  the compares whose `beq`s share a target, and a `bne` belongs to it only
+  when falling through lands there. The reader had to learn each of these
+  from a site that read as nothing. `casing_create_for_hand` gave the port
+  `WEAPONFLAG2_PISTOLCASING` (the four small pistols' tumbling casing; GE-X
+  3, 4, 5, 19), put the magnums' straight-down casing on `NOCARTEJECT` (GE-X
+  17 alone: its 19 and 20 sit at the stock magnums' addresses and lose the
+  inherited flag, as GE-X's code says) and the two Reaper tests on
+  `MINIGUN`, which GE-X zeroed and which stays deliberately on the
+  definition (weapons.md, the Reaper). Importer version 17.

@@ -10,7 +10,7 @@ about.
 So the behaviour moves onto the weapon:
 
 - `struct weapon.flags2` - a second flags word, the first having all 32 bits
-  spoken for. 23 behaviours so far, read with `weaponHasFlag2()`.
+  spoken for. 24 behaviours so far, read with `weaponHasFlag2()`.
 - `struct weapon.pickupsound` and `.unequippedreloadindex` - where the answer is
   a value rather than a yes.
 - `struct weaponfunc.flags` - for what belongs to one *function* of a weapon
@@ -144,9 +144,14 @@ that, so the flag follows the object branch and the report says so. Slots
 number (2026-09-07): `FLAG_SITES` in both importers names a flag's sites as
 (function, stock constant), the compare chain at each is read
 (mods.md, "One weapon that became two"), and `weaponflags FLAG { clear ...
-}` is written when every site agrees. Pump action is read that way; the
-chargeable flag's two sites disagree in GE-X and it is reported instead.
-Adding a converted site to that table is how a mod's list reaches the flag.
+}` is written when every site agrees. Pump action, the small pistols'
+casing (`WEAPONFLAG2_PISTOLCASING`, the four in `casingCreateForHand()`)
+and the magnums' no-eject (`NOCARTEJECT`, two sites) are read that way;
+the chargeable flag's two sites disagree in GE-X and it is reported
+instead. Adding a converted site to that table is how a mod's list reaches
+the flag. The Reaper's two casing tests in `casingCreateForHand()` are
+`MINIGUN` and are not in the table: GE-X zeroed them, as it did most of
+its Reaper sites, and the flag stays on the definition on purpose.
 
 Reproduce a guard fight headlessly: copy the tester's `pd.ini` (Guards
 Alerted!, Random, Akimbo) into the scratch savedir, boot Runway under gdb with a

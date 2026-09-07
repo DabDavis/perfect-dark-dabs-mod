@@ -4791,6 +4791,7 @@ enum weaponnum {
 #define WEAPONFLAG2_BLADEHIT         0x00100000 // Strikes as a blade: the knife's sound on a chr, metal on anything else, no ricochet
 #define WEAPONFLAG2_LASERHIT         0x00200000 // Hits with the laser's crackle, on chrs and objects alike
 #define WEAPONFLAG2_BLUNTMELEE       0x00400000 // Its melee function is a blow, a fist or a pistol butt: the punch sounds on a chr
+#define WEAPONFLAG2_PISTOLCASING     0x00800000 // Ejects its casing the small pistol's way: a slow tumble out of the side, not the rifle's arc
 
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d
