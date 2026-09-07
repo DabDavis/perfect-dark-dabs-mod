@@ -117,7 +117,7 @@ void beamCreateForHand(s32 handnum)
 		struct beam *beam;
 		s32 weaponnum = bgunGetWeaponNum(handnum);
 
-		if (hand->gset.weaponnum == WEAPON_LASER && hand->gset.weaponfunc == FUNC_SECONDARY) {
+		if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_LASERSTREAM)) {
 			weaponnum = -2;
 		}
 

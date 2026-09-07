@@ -2319,6 +2319,8 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bgun_create_fired_projectile", 0x7f09fa84, 0x7f0a0394 },
 	{ "obj_attachment_test_hit",    0x7f0859a0, 0x7f085e00 },
 	{ "bgun_get_unequipped_reload_index", 0x7f097d0c, 0x7f097d64 },
+	{ "beam_create_for_hand",       0x7f0ac138, 0x7f0ac4b8 },
+	{ "fr_is_ammo_wasted",          0x7f19f524, 0x7f19f994 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -4037,7 +4039,43 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	{ "deploys",      "bgun_create_thrown_projectile2", 14, 0, 0 },
 	{ "explodeswhenshot", "obj_damage", 30, 0, 0 },
 	{ "botignores",   "bot_is_obj_collectable", 31, 0, 0 },
+	// the laser's shots spend no ammo: the hand's shot count, and the firing
+	// range's waste check
+	{ "freeshots",    "bgun0f09a6f8", 29, 0, 0 },
+	{ "freeshots",    "fr_is_ammo_wasted", 29, 0, 0 },
 };
+
+// the port's function flags that stand in for a test of weapon and function
+// together, and their sites: the weapon site (found by value, or at `at`) and
+// the address of the `li at,F` that tests the function beside it, which may
+// be in a callee (bgun0f0a5550 tests the weapon and bgun_update_laser the
+// function). A site's reading is the set of (weapon, function) pairs; the
+// flag is written when every site agrees. GE-X moves the laser's stream to
+// its Moonraker's primary: (22, 0) at all three.
+static const struct { const char *flag; const char *fn; u32 value; u32 at; u32 funcat; } funcFlagSites[] = {
+	{ "laserstream", "shot_calculate_hits", 29, 0, 0x7f060f00 },
+	{ "laserstream", "beam_create_for_hand", 29, 0, 0x7f0ac1fc },
+	{ "laserstream", "bgun0f0a5550", 29, 0x7f0a613c, 0x7f0a4354 },
+};
+
+// the immediate of the `li at,N` at a stock address in both binaries - 0
+// allowed, since a function number is one; 0 when either word is not one
+static s32 immediatePairAt(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen, u32 at, u32 *stockimm, u32 *modimm)
+{
+	const u32 ofs = at - GAME_VRAM;
+	u32 x, y;
+	if (ofs + 4 > stocklen || ofs + 4 > modlen) {
+		return 0;
+	}
+	x = be32(stockcode, ofs);
+	y = be32(modcode, ofs);
+	if ((x >> 16) != 0x2401 || (y >> 16) != 0x2401) {
+		return 0;
+	}
+	*stockimm = x & 0xffff;
+	*modimm = y & 0xffff;
+	return 1;
+}
 
 // numbers in a flag's stock chain that are not the flag's: a definition shared
 // with a weapon that is not on the list, which the port keeps testing by
@@ -5049,6 +5087,84 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					rep("  a hit that breaks a shield still lands on the health behind it (stock: it is absorbed)");
 				}
 			}
+		}
+	}
+
+	// The function flags: a weapon site and a function immediate at each,
+	// read as (weapon, function) pairs
+	if (t.followed) {
+		u32 i = 0;
+		while (i < sizeof(funcFlagSites) / sizeof(funcFlagSites[0])) {
+			const char *flag = funcFlagSites[i].flag;
+			u8 first[24], stockfirst[24];
+			u32 firstfunc = 0, stockfunc = 0;
+			s32 nfirst = -1, nstockfirst = 0, ok = 1, agree = 1;
+			char where[512];
+			u32 wherelen = 0;
+			u32 j = i, jend = i;
+			while (jend < sizeof(funcFlagSites) / sizeof(funcFlagSites[0]) && !strcmp(funcFlagSites[jend].flag, flag)) {
+				jend++;
+			}
+			for (; j < jend; ++j) {
+				u32 start, end, from, sf, mf;
+				u8 nums[24], stocknums[24];
+				s32 nstock = 0, nmod = 0, read = 0, nsites = 0, k;
+				if (!codeSym(funcFlagSites[j].fn, &start, &end)) {
+					rep("  the %s test in %s cannot be read: no bounds for the function; the flag is left as the port has it", flag, funcFlagSites[j].fn);
+					ok = 0;
+					break;
+				}
+				from = start;
+				while ((from = followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, from,
+						funcFlagSites[j].value, funcFlagSites[j].at, SITE_CHAIN, 0, stocknums, &nstock, nums, &nmod, &read)) != 0) {
+					nsites++;
+					break;   // one site per row
+				}
+				for (k = 0; k < nstock && stocknums[k] != funcFlagSites[j].value; ++k);
+				if (nsites != 1 || !read || nstock < 1 || k == nstock
+						|| !immediatePairAt(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, funcFlagSites[j].funcat, &sf, &mf)) {
+					rep("  the %s test in %s does not read as a weapon and a function; the flag is left as the port has it", flag, funcFlagSites[j].fn);
+					ok = 0;
+					break;
+				}
+				qsort(nums, nmod, 1, cmpU8);
+				wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, "%s%s:", wherelen ? "; " : "", funcFlagSites[j].fn);
+				for (k = 0; k < nmod; ++k) {
+					wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, " %u/%u", nums[k], mf);
+				}
+				if (!nmod) {
+					wherelen += snprintf(where + wherelen, sizeof(where) - wherelen, " none");
+				}
+				if (nfirst < 0) {
+					nfirst = nmod;
+					memcpy(first, nums, nmod);
+					firstfunc = mf;
+					nstockfirst = nstock;
+					memcpy(stockfirst, stocknums, nstock);
+					qsort(stockfirst, nstockfirst, 1, cmpU8);
+					stockfunc = sf;
+				} else if (nmod != nfirst || memcmp(first, nums, nmod) || mf != firstfunc) {
+					agree = 0;
+				}
+			}
+			if (ok && !agree) {
+				rep("  %s: the mod's code tests different weapons and functions at its sites (%s); the flag is left as the port has it", flag, where);
+			} else if (ok) {
+				char list[96] = "", prose[192] = "", stockprose[96] = "";
+				u32 listlen = 0, proselen = 0, stockproselen = 0;
+				for (s32 k = 0; k < nfirst; ++k) {
+					listlen += snprintf(list + listlen, sizeof(list) - listlen, " %u %u", first[k], firstfunc);
+					proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%sweapon %u's function %u", k ? ", " : "", first[k], firstfunc);
+				}
+				for (s32 k = 0; k < nstockfirst; ++k) {
+					stockproselen += snprintf(stockprose + stockproselen, sizeof(stockprose) - stockproselen, "%s%u/%u", k ? ", " : "", stockfirst[k], stockfunc);
+				}
+				appendf(&flagsite, &flagsitelen, &flagsitecap, "weaponfuncflags %s { clear%s }\n", flag, list);
+				if (nfirst != nstockfirst || memcmp(first, stockfirst, nfirst) || firstfunc != stockfunc) {
+					rep("  %s is on %s (stock: %s)", flag, nfirst ? prose : "no weapon", stockprose);
+				}
+			}
+			i = jend;
 		}
 	}
 

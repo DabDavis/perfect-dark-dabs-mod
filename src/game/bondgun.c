@@ -1973,7 +1973,7 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 	} else {
 		hand->shotstotake = 1;
 
-		if (hand->gset.weaponnum == WEAPON_LASER) {
+		if (weaponHasFlag3(hand->gset.weaponnum, WEAPONFLAG3_FREESHOTS)) {
 			usesammo = false;
 		}
 	}
@@ -7508,7 +7508,7 @@ void bgunUpdateShotgun(struct hand *hand, u8 *allocation, bool *arg2, struct mod
 
 void bgunUpdateLaser(struct hand *hand)
 {
-	if (hand->firing && hand->gset.weaponfunc == FUNC_SECONDARY) {
+	if (hand->firing && gsetHasFunctionFlags(&hand->gset, FUNCFLAG_LASERSTREAM)) {
 		if (hand->audiohandle == NULL && g_Vars.lvupdate240 != 0) {
 			sndStart(var80095200, SFX_LASER_STREAM, &hand->audiohandle, -1, -1, -1, -1, -1);
 		}
@@ -8214,7 +8214,7 @@ void bgun0f0a5550(s32 handnum)
 		var8009d0dc = -1;
 		var8009d0f0[0] = var8009d0f0[1] = var8009d0f0[2] = -1;
 
-		if (weaponnum == WEAPON_LASER) {
+		if (weaponfuncHasFlag(weaponnum, FUNC_PRIMARY, FUNCFLAG_LASERSTREAM) || weaponfuncHasFlag(weaponnum, FUNC_SECONDARY, FUNCFLAG_LASERSTREAM)) {
 			bgunUpdateLaser(hand);
 		} else if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 			bgunUpdateReaper(hand, modeldef);

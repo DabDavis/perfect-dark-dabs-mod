@@ -1349,7 +1349,8 @@ at 28 ejecting a tranquilizer dart, its grenades and mines never going off.
   reads the stock list on a mod that never touched the site writes the
   stock list, the same authority-over-inheritance rule as before.
 - Next, by GE-X's constants regions still unread and shaped like weapon
-  numbers: `fr_is_ammo_wasted` (7), `beam_create_for_hand` (4),
+  numbers: `fr_is_ammo_wasted`'s projectile lists (its laser test is
+  `freeshots` now), `beam_create_for_hand`'s Mauler (the stream is read),
   `obj_child_tick_player` (20 -> 0, `MINIGUN`), and `prop_play_pickup_sound`,
   the `pickupsound` field's sites (inheritance by address already gives GE-X
   the right sounds; a reader would run the function per weapon, as the reload
@@ -1499,3 +1500,35 @@ Importer version 27. Two more flags3 and, for the first time, a `weapon N {
   the crossbow's bolt and the launchers' rocket, which GE-X does not
   renumber and which are a projectile number per function - a field, if
   ever, not a flag.
+
+## The laser's stream is a function flag (2026-09-07)
+
+Importer version 28. The one weapon-and-function test worth its own
+machinery: GE-X's Moonraker (22) streams from its *primary*, so every site
+that said `weaponnum == 29 && weaponfunc == 1` had both halves renumbered,
+and neither a weapon flag nor the function test alone could carry it.
+
+- **`FUNCFLAG_LASERSTREAM`** (0x10, a bit stock's table leaves free - GE-X's
+  function flags were dumped from a live boot to be sure it sets no unknown
+  bit) sits on the laser's stream function. `shotCalculateHits()`,
+  `beamCreateForHand()` and `bgunUpdateLaser()` test the gset's function
+  for it; `bgun0f0a5550()` calls the update when either function has it.
+  The hit sounds' `weaponfunc == FUNC_PRIMARY` beside `LASERHIT` is left:
+  it is "not the stream", GE-X's own `beqz` there is unchanged, and for a
+  stream on the primary both codes play the sound every hit.
+- **A `FUNCFLAG_SITES` row is a weapon site and a function address.** The
+  weapon half is read as any `FLAG_SITES` site (by value, or a chain at an
+  address); the function half is the `li at,F` beside it, read in both
+  binaries with 0 allowed (`immediate_pair_at()` / `immediatePairAt()`), and
+  may be in a callee: `bgun0f0a5550` tests the weapon and
+  `bgun_update_laser` the function. A site reads as pairs, the sites must
+  agree, and the line is `weaponfuncflags FLAG { clear W F ... }` in the
+  weaponsites region - a new block, `weaponflags` for a function's flags,
+  with a name table of its own in mod.c (`laserstream`, and the two the
+  `weaponfunc` block already knew). GE-X: (22, 0) at all three.
+- **`WEAPONFLAG3_FREESHOTS`** is the laser's shots spending no ammo, at
+  `bgun0f09a6f8` (the hand's shot count) and `fr_is_ammo_wasted`; GE-X's 21,
+  which is its laser proper: 21 beams and costs nothing, 22 streams and
+  crackles. `gset_populate`'s 29 -> 21 (the burst count the hit sound
+  cadence reads) is left: for a stream on the primary the cadence test is
+  never reached.

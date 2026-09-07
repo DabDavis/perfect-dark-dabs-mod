@@ -768,7 +768,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		}
 	}
 
-	if (shotdata.gset.weaponnum == WEAPON_LASER && shotdata.gset.weaponfunc == FUNC_SECONDARY) {
+	if (gsetHasFunctionFlags(&shotdata.gset, FUNCFLAG_LASERSTREAM)) {
 		laserstream = true;
 	}
 

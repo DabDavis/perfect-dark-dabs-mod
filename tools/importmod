@@ -1771,7 +1771,21 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               ('pinball', (('bgun_create_thrown_projectile', 30, (2,)),)),
               ('deploys', (('bgun_create_thrown_projectile', 14), ('bgun_create_thrown_projectile2', 14))),
               ('explodeswhenshot', (('obj_damage', 30),)),
-              ('botignores', (('bot_is_obj_collectable', 31),)))
+              ('botignores', (('bot_is_obj_collectable', 31),)),
+              # the laser's shots spend no ammo: the hand's shot count, and the
+              # firing range's waste check
+              ('freeshots', (('bgun0f09a6f8', 29), ('fr_is_ammo_wasted', 29))))
+
+# the port's function flags that stand in for a test of weapon and function
+# together, and their sites: the weapon site (as a FLAG_SITES site) and the
+# address of the `li at,F` that tests the function beside it, which may be in
+# a callee (bgun0f0a5550 tests the weapon and bgun_update_laser the function).
+# A site's reading is the set of (weapon, function) pairs; the flag is written
+# when every site agrees. GE-X moves the laser's stream to its Moonraker's
+# primary: (22, 0) at all three.
+FUNCFLAG_SITES = (('laserstream', ((('shot_calculate_hits', 29), 0x7f060f00),
+                                   (('beam_create_for_hand', 29), 0x7f0ac1fc),
+                                   (('bgun0f0a5550', 29, 0x7f0a613c), 0x7f0a4354))),)
 
 # numbers in a flag's stock chain that are not the flag's: a definition shared
 # with a weapon that is not on the list, which the port keeps testing by number
@@ -1819,6 +1833,19 @@ def follow_immediate_at(stockcode, modcode, start, end, addr):
     if (x >> 26) not in (0x08, 0x09, 0x0e) or ((x >> 26) != 0x0e and (x >> 21) & 0x1f != 0) or (y >> 16) != (x >> 16):
         return None, None
     return [x & 0xffff], [n for n in (y & 0xffff,) if 0 < n < 0xff]
+
+
+def immediate_pair_at(stockcode, modcode, addr):
+    """The immediate of the `li at,N` at a stock address in both binaries, as
+    (stock N, mod N) - 0 allowed, since a function number is one - or None
+    when either word is not an li into at."""
+    ofs = addr - GAME_VRAM
+    if ofs + 4 > min(len(stockcode), len(modcode)):
+        return None
+    x, y = be32(stockcode, ofs), be32(modcode, ofs)
+    if (x >> 16) != 0x2401 or (y >> 16) != 0x2401:
+        return None
+    return x & 0xffff, y & 0xffff
 
 
 def follow_range_at(stockcode, modcode, start, end, addr):
@@ -3524,6 +3551,43 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                              ', '.join(str(n) for n in stocklist)))
             # a site keyed on a stock constant that shows up in its own chain only once
             # (fainttracer's -1 partner is not a weapon) needs no more than this
+    # The function flags: a weapon site and a function immediate at each,
+    # read as (weapon, function) pairs
+    if followed and codesyms:
+        for flag, sites in FUNCFLAG_SITES:
+            readings = []
+            stockpairs = None
+            for wsite, faddr in sites:
+                fn, value = wsite[0], wsite[1]
+                if fn not in codesyms:
+                    readings = None
+                    break
+                start, end = codesyms[fn]
+                if len(wsite) > 2:
+                    found = [follow_flag_site_at(stockcode, modcode, start - GAME_VRAM, end - GAME_VRAM, wsite[2])]
+                else:
+                    found = follow_flag_sites(stockcode, modcode, start - GAME_VRAM, end - GAME_VRAM, value)
+                fpair = immediate_pair_at(stockcode, modcode, faddr)
+                if len(found) != 1 or not found[0][0] or value not in found[0][0] or found[0][1] is None or fpair is None:
+                    notes.append("the %s test in %s does not read as a weapon and a function; the flag is left as the port has it" % (flag, fn))
+                    readings = None
+                    break
+                readings.append((fn, sorted((w, fpair[1]) for w in found[0][1])))
+                if stockpairs is None:
+                    stockpairs = sorted((w, fpair[0]) for w in found[0][0])
+            if not readings:
+                continue
+            if any(r != readings[0][1] for _, r in readings):
+                notes.append("%s: the mod's code tests different weapons and functions at its sites (%s); the flag is left as the port has it"
+                             % (flag, '; '.join('%s: %s' % (fn, ' '.join('%d/%d' % p for p in r) or 'none') for fn, r in readings)))
+                continue
+            pairs = readings[0][1]
+            flagsiteblocks.append('weaponfuncflags %s { clear%s }' % (flag, ''.join(' %d %d' % p for p in pairs)))
+            if pairs != stockpairs:
+                notes.append('%s is on %s (stock: %s)' % (flag,
+                             ', '.join("weapon %d's function %d" % p for p in pairs) or 'no weapon',
+                             ', '.join('%d/%d' % p for p in stockpairs)))
+
     # The damage rules chr_damage decides that the mod's code changes
     damageregion = ''
     if followed and codesyms:

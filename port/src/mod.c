@@ -542,7 +542,101 @@ static const struct {
 	{ "chrshotbeam",      WEAPONFLAG3_CHRSHOTBEAM, 3 },
 	{ "sdgrenade",        WEAPONFLAG3_SDGRENADE, 3 },
 	{ "piercesbulletproof", WEAPONFLAG3_PIERCESBULLETPROOF, 3 },
+	{ "freeshots",        WEAPONFLAG3_FREESHOTS, 3 },
 };
+
+// the port's function flags by the name a modconfig uses for them
+static const struct {
+	const char *name;
+	u32 flag;
+} weaponFuncFlagNames[] = {
+	{ "proximitymine", FUNCFLAG_PROXIMITYMINE },
+	{ "leavessmoke",   FUNCFLAG_LEAVESSMOKE },
+	{ "laserstream",   FUNCFLAG_LASERSTREAM },
+};
+
+/**
+ * weaponfuncflags FLAG { [clear] WEAPON FUNC ... }
+ *
+ * One function flag across the whole table: `clear` takes it off every
+ * function of every weapon first, then it goes onto the (weapon, function)
+ * pairs listed. What `weaponflags` is for a weapon's flags, for a function's:
+ * the importer writes it when a test of weapon and function together - the
+ * laser's stream, which GE-X moves to its Moonraker's primary - is read out of
+ * a mod's code. A function definition can be shared between weapons, and a
+ * flag set through one is seen through the other.
+ */
+static char *modConfigParseWeaponFuncFlags(char *p, char *token)
+{
+	u32 flag = 0;
+
+	p = strParseToken(p, token, NULL);
+
+	for (u32 i = 0; i < ARRAYCOUNT(weaponFuncFlagNames); ++i) {
+		if (!strcmp(token, weaponFuncFlagNames[i].name)) {
+			flag = weaponFuncFlagNames[i].flag;
+			break;
+		}
+	}
+
+	if (!flag) {
+		sysLogPrintf(LOG_ERROR, "modconfig: weaponfuncflags: unknown flag %s", token);
+		return NULL;
+	}
+
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	if (!strcmp(token, "clear")) {
+		for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
+			for (s32 f = 0; f < 2; ++f) {
+				struct weaponfunc *func = weaponGetFunctionById(i, f);
+				if (func) {
+					func->flags &= ~flag;
+				}
+			}
+		}
+		p = strParseToken(p, token, NULL);
+	}
+
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		struct weaponfunc *func;
+		s32 weaponnum, funcnum;
+		char *endp;
+
+		weaponnum = strtol(token, &endp, 0);
+		if (endp == token || *endp || weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL) {
+			sysLogPrintf(LOG_ERROR, "modconfig: weaponfuncflags: invalid weapon number %s", token);
+			return NULL;
+		}
+		p = strParseToken(p, token, NULL);
+		funcnum = strtol(token, &endp, 0);
+		if (endp == token || *endp || funcnum < 0 || funcnum > 1) {
+			sysLogPrintf(LOG_ERROR, "modconfig: weaponfuncflags: invalid function number %s", token);
+			return NULL;
+		}
+
+		func = weaponGetFunctionById(weaponnum, funcnum);
+		if (func) {
+			func->flags |= flag;
+		} else {
+			sysLogPrintf(LOG_WARNING, "modconfig: weaponfuncflags: weapon %d has no function %d to flag", weaponnum, funcnum);
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated weaponfuncflags block");
+		return NULL;
+	}
+
+	return p;
+}
 
 u32 g_ModUnlocks = 0;
 
@@ -968,6 +1062,7 @@ static char *modConfigParseWeaponFunc(char *p, char *token)
 		} flags[] = {
 			{ "proximitymine", FUNCFLAG_PROXIMITYMINE },
 			{ "leavessmoke",   FUNCFLAG_LEAVESSMOKE },
+			{ "laserstream",   FUNCFLAG_LASERSTREAM },
 		};
 
 		s32 handled = false;
@@ -1392,6 +1487,15 @@ s32 modConfigLoad(const char *fname)
 			p = modConfigParseUnlocks(p, token);
 			if (!p) {
 				sysLogPrintf(LOG_ERROR, "modconfig: malformed unlocks block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "weaponfuncflags")) {
+			// weaponfuncflags FLAG { clear WEAPON FUNC ... }
+			char *prev = p;
+			p = modConfigParseWeaponFuncFlags(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed weaponfuncflags block at offset %d", prev - data);
 				success = false;
 				break;
 			}

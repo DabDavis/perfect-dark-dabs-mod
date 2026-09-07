@@ -4228,7 +4228,7 @@ struct weaponfunc_shootauto invfunc_laser_stream = {
 	-1, // ammoindex
 	&invnoisesettings_silent,
 	NULL, // fire animation
-	0, // flags
+	FUNCFLAG_LASERSTREAM, // flags
 	&invrecoilsettings_laserstream,
 	0, // recoverytime60
 	0.1, // damage
@@ -4275,7 +4275,7 @@ struct weapon invitem_laser = {
 	WEAPONFLAG2_NORELOADSOUND | WEAPONFLAG2_NOWALLHIT | WEAPONFLAG2_LASERHIT | WEAPONFLAG2_LASERBEAM | WEAPONFLAG2_CROSSBEAM | WEAPONFLAG2_LASERFLIGHT | WEAPONFLAG2_BOTLIMITLESS, // flags2
 	0, // unequipped reload index
 	SFX_PICKUP_LASER, // pickup sound
-	WEAPONFLAG3_CHRSHOTBEAM, // flags3
+	WEAPONFLAG3_CHRSHOTBEAM | WEAPONFLAG3_FREESHOTS, // flags3
 };
 
 struct modelpartvisibility invpartvisibility_classic[] = {

@@ -86,11 +86,12 @@ only the number and the function test stays beside it. The same shape did the
 timed mine (`TIMEDFUSE`), the remote mine (`REMOTEDETONATED`), the grenade's
 held time coming off its fuse and its secondary's bounce (`PINBALL`). What stays
 by number there: the grenade round's and the rockets' ticks (projectile numbers
-no mod renumbers), the N-bomb's storm (GE-X leaves 31 alone everywhere), the
-Devastator's wall hugger, and the laser's update in `bgun0f0a5550`, where GE-X
-renumbered the weapon (29 -> 22) *and* flipped the function inside
-`bgun_update_laser` (its Moonraker streams from the primary) - a function flag
-would hold it, and `beam_create_for_hand`'s stream test is the same case.
+no mod renumbers), the N-bomb's storm (GE-X leaves 31 alone everywhere), and
+the Devastator's wall hugger. Where a mod renumbers *both* halves - GE-X's
+Moonraker streams from its primary, so the laser's `29 && 1` became `22 && 0`
+at three sites - the test is a function flag, `FUNCFLAG_LASERSTREAM`, read as
+(weapon, function) pairs by a `FUNCFLAG_SITES` row and written as a
+`weaponfuncflags` block (mods.md, "The laser's stream is a function flag").
 
 **Some are one weapon with one quirk** whose intent is not visible from the
 surrounding window - the remote mine's left-hand rule before it was understood

@@ -1533,7 +1533,7 @@ bool frIsAmmoWasted(void)
 	struct prop *child;
 
 	// Laser has unlimited ammo
-	if (weaponnum == WEAPON_LASER) {
+	if (weaponHasFlag3(weaponnum, WEAPONFLAG3_FREESHOTS)) {
 		return false;
 	}
 
