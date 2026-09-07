@@ -15699,10 +15699,10 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 
 			hitCreate(shotdata, prop, spd4, hitpart,
 					node1, &hitthing1, spe4, node2,
-					model, isnotglass && shotdata->gset.weaponnum != WEAPON_FARSIGHT,
+					model, isnotglass && !weaponHasFlag3(shotdata->gset.weaponnum, WEAPONFLAG3_XRAYSHOT),
 					(obj->flags2 & OBJFLAG2_BULLETPROOF)
 						&& shotdata->gset.weaponnum != WEAPON_DY357MAGNUM
-						&& shotdata->gset.weaponnum != WEAPON_FARSIGHT,
+						&& !weaponHasFlag3(shotdata->gset.weaponnum, WEAPONFLAG3_XRAYSHOT),
 					&sp7c, &sp70);
 		}
 	}
@@ -15779,7 +15779,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 			frCalculateHit(obj, &sp110, shotdata->gset.unk063a);
 		} else if ((shotdata->gset.weaponnum != WEAPON_CALLISTO || shotdata->gset.weaponfunc != FUNC_SECONDARY)
 #if VERSION >= VERSION_NTSC_1_0
-				&& shotdata->gset.weaponnum != WEAPON_FARSIGHT
+				&& !weaponHasFlag3(shotdata->gset.weaponnum, WEAPONFLAG3_XRAYSHOT)
 #endif
 				) {
 			// For some penetrating weapons, unset hits beyond the shot distance

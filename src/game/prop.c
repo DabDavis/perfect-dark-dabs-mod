@@ -808,7 +808,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 	portal00018148(&playerprop->pos, &shotdata.gunpos3d, playerprop->rooms, spc8, 0, 0);
 	portal00018148(&shotdata.gunpos3d, &hitpos, spc8, spb8, rooms, 30);
 
-	if (shotdata.gset.weaponnum != WEAPON_FARSIGHT || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
+	if (!weaponHasFlag3(shotdata.gset.weaponnum, WEAPONFLAG3_XRAYSHOT) || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
 		roomsptr = rooms;
 
 		while (*roomsptr != -1) {
@@ -844,7 +844,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		}
 	}
 
-	if (hitbg && shotdata.gset.weaponnum != WEAPON_FARSIGHT) {
+	if (hitbg && !weaponHasFlag3(shotdata.gset.weaponnum, WEAPONFLAG3_XRAYSHOT)) {
 		mtx4TransformVec(camGetWorldToScreenMtxf(), &sp694.pos, &sp658);
 
 		if (shotdata.distance > -sp658.z) {
@@ -958,10 +958,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 			bgunSetHitPos(&sp694.pos);
 
 			if (surfacetype->numwallhittexes > 0 && (!func || (func->type & 0xff) != INVENTORYFUNCTYPE_MELEE)) {
-				if (shotdata.gset.weaponnum != WEAPON_UNARMED
-						&& shotdata.gset.weaponnum != WEAPON_LASER
-						&& shotdata.gset.weaponnum != WEAPON_TRANQUILIZER
-						&& shotdata.gset.weaponnum != WEAPON_FARSIGHT) {
+				if (!weaponHasFlag2(shotdata.gset.weaponnum, WEAPONFLAG2_NOWALLHIT)) {
 					texnum = rngRandom() % surfacetype->numwallhittexes;
 					texnum = surfacetype->wallhittexes[texnum];
 
@@ -1051,7 +1048,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		if (hitaprop || hitbg) {
 			func0f060bac(shotdata.gset.weaponnum, g_Vars.currentplayer->prop);
 
-			if (shotdata.gset.weaponnum != WEAPON_UNARMED && shotdata.gset.weaponnum != WEAPON_TRANQUILIZER) {
+			if (!weaponHasFlag3(shotdata.gset.weaponnum, WEAPONFLAG3_NOSPARKS)) {
 				if (hitaprop) {
 					sparksCreate(shotdata.hits[hitindex].prop->rooms[0], NULL, &shotdata.hits[hitindex].pos, &shotdata.gundir3d, &shotdata.hits[hitindex].dir, SPARKTYPE_DEFAULT);
 				} else {

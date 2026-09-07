@@ -40,7 +40,7 @@ it down: a new note, or a section in the one for its area, and a line here.
 
 The console mod GE-X 6a is the reference case for the mod loader. Its assets,
 data tables, missions, music, environments, star field, weather, shield
-colours, hit sounds, co-op buddies, the weapon lists behind fifteen flags, two damage rules and the unlocks all import (`build/mods/GE-X_6a_01-19-25/`, importer version 22); what is left is the code
+colours, hit sounds, co-op buddies, the weapon lists behind eighteen flags, two damage rules and the unlocks all import (`build/mods/GE-X_6a_01-19-25/`, importer version 23); what is left is the code
 GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
 [mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
 end before touching any of it, then:

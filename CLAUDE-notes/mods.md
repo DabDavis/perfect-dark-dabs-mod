@@ -1220,3 +1220,43 @@ to-seven-word changes sorts into families:
   `stub0f00b200` (a stub made to return), `setup_create_props` and
   `obj_get_hov_bob_offset_y` (one branch each). None read; each is a line
   here so the next session need not disassemble it to know that.
+
+## The number sites: shot_calculate_hits and obj_hit (2026-09-07)
+
+The first of the literal weapon-number sites, chosen where GE-X's
+renumbering and the port's compares overlap. `shotCalculateHits()` and
+`objHit()` share three lists: the no-bullet-hole one (unarmed, laser,
+tranquilizer, FarSight) is exactly `WEAPONFLAG2_NOWALLHIT`'s set, reused
+at both; the FarSight's through-walls shot (x-ray, no background hit, the
+glass and bullet-slowing arguments to `hitCreate()`) is
+`WEAPONFLAG3_XRAYSHOT`, five sites; the no-sparks pair (a fist, the
+tranquilizer) is `WEAPONFLAG3_NOSPARKS`. GE-X: no wall hit on 1, 22, 38;
+x-ray on 38; and no sparks on 1 and 28 - it never touched that chain, so
+its 28 (a proximity mine) inherits the tranquilizer's number there, which
+is what its code does and is harmless. The laser's stream test is weapon
+and function, left.
+
+- **A row can name its site by stock address** (`('fn', value, 0x7f...)`;
+  the C row's `at`), for a site the head rule cannot see: the FarSight's
+  `li at,22` in `obj_hit` sits in a delay slot behind a test on another
+  register, and the no-bullet-hole chain's head `li at,1` is the fourth
+  `li at,1` of the function. Read `objdump` for the site and write the
+  address down rather than teaching the finder another shape. One site
+  cannot be read at all: `obj_hit`'s first FarSight `li at,22` is a bnel's
+  delay slot, overwritten by the next `li at` before any linear use - the
+  22 reaches its compare only along the taken branch; the second, which
+  changes with it, stands for both.
+- **A negated list ends in a `beql`.** `if (w != a && w != b && ...)`
+  compiles as `beq`s to the skip and a final `beql` to the word *after*
+  the skip (its delay slot having done the body's first word), so the
+  terminal is a beq whose target is one word past the chain's: the reader
+  takes a target within a word of the first as the same. It read the
+  no-bullet-hole list as three of four - and stock's own reading agreed
+  with itself - until the sets were dumped from a running game. Importer
+  version 23.
+- The order of the remaining sites, by overlap with GE-X's constant
+  regions: `weapon_tick` (8 changed, 12 literal - the thrown weapons'
+  per-kind ticks, weapons.md's "belongs to the shot" class),
+  `bgun0f0a5550` (20 / 7: the gun's held position for thrown devices, the
+  laser's update, the shotgun's flash), `bgun_create_thrown_projectile`
+  (8 / 7), `obj_damage` (12 / 4), `bot_is_obj_collectable` (5 / 8).

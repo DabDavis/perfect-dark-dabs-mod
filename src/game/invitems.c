@@ -335,6 +335,9 @@ struct weapon invitem_unarmed = {
 	L_GUN_155, // description
 	WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00002000 | WEAPONFLAG_HIDEMENUMODEL | WEAPONFLAG_UNDROPPABLE,
 	WEAPONFLAG2_NORELOADSOUND | WEAPONFLAG2_NOWALLHIT | WEAPONFLAG2_BLUNTMELEE, // flags2
+	0, // unequipped reload index
+	0, // pickup sound
+	WEAPONFLAG3_NOSPARKS, // flags3
 };
 
 struct modelpartvisibility invpartvisibility_falcon2[] = {
@@ -3688,6 +3691,9 @@ struct weapon invitem_farsight = {
 	L_GUN_178, // description
 	WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_00004000 | WEAPONFLAG_HASHANDS,
 	WEAPONFLAG2_NOWALLHIT | WEAPONFLAG2_PIERCESSHIELD, // flags2
+	0, // unequipped reload index
+	0, // pickup sound
+	WEAPONFLAG3_XRAYSHOT, // flags3
 };
 
 struct gunviscmd gunviscmds_crossbow[] = {
@@ -3964,6 +3970,9 @@ struct weapon invitem_tranquilizer = {
 	L_GUN_181, // description
 	WEAPONFLAG_00000004 | WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_00004000 | WEAPONFLAG_00008000 | WEAPONFLAG_HASHANDS,
 	WEAPONFLAG2_NOWALLHIT, // flags2
+	0, // unequipped reload index
+	0, // pickup sound
+	WEAPONFLAG3_NOSPARKS, // flags3
 };
 
 struct inventory_ammo invammo_psychosisgun = {

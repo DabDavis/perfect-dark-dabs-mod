@@ -2298,6 +2298,8 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "beam_create",                0x7f0abe70, 0x7f0ac138 },
 	{ "hand_tick_attack",           0x7f062794, 0x7f062b2c },
 	{ "bot_tick_unpaused",          0x7f194b40, 0x7f197544 },
+	{ "shot_calculate_hits",        0x7f060db8, 0x7f061d54 },
+	{ "obj_hit",                    0x7f085eac, 0x7f086918 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3679,10 +3681,15 @@ static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u
 			break;
 		}
 		if (op == 4 || op == 0x14) {
-			if (havematch && target != m) {
+			// to the chain's one target, or the word after it: a negated list
+			// (w != a && w != b) ends in a beql whose delay slot has done the
+			// body's first word already
+			if (havematch && (target > m ? target - m : m - target) > 4) {
 				break;
 			}
-			m = target;
+			if (!havematch) {
+				m = target;
+			}
 			havematch = 1;
 			if ((be32(code, ofs) & 0xffff) > 0 && (be32(code, ofs) & 0xffff) < 0xff) {
 				nums[n++] = be32(code, ofs) & 0xff;
@@ -3751,19 +3758,22 @@ static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u
  * the bolt and the knife at four places, and a mod may change them apart.
  */
 static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
-		u32 start, u32 end, u32 from, u32 value, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod, s32 *ok)
+		u32 start, u32 end, u32 from, u32 value, u32 at, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod, s32 *ok)
 {
 	for (u32 ofs = from; ofs + 8 <= end && ofs + 8 <= stocklen && ofs + 8 <= modlen; ofs += 4) {
 		const u32 x = be32(stockcode, ofs);
 		u32 nxt, reg;
 		s32 removed;
+		if (at && ofs + GAME_VRAM != at) {
+			continue;
+		}
 		if (((x >> 26) != 0x08 && (x >> 26) != 0x09) || ((x >> 21) & 0x1f) != 0 || ((x >> 16) & 0x1f) != 1 || (x & 0xffff) != value) {
 			continue;
 		}
 		// a chain's head, not an li inside one: the word before it is not a
 		// branch on at (the bolt is in the sticks-to-wall chain as well as
-		// at the head of its own four)
-		if (ofs > start) {
+		// at the head of its own four) - unless the row names the site
+		if (ofs > start && !at) {
 			const u32 prev = be32(stockcode, ofs - 4);
 			if (((prev >> 26) == 4 || (prev >> 26) == 5 || (prev >> 26) == 0x14 || (prev >> 26) == 0x15)
 					&& (((prev >> 21) & 0x1f) == 1 || ((prev >> 16) & 0x1f) == 1)) {
@@ -3805,25 +3815,36 @@ static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 // places: the first sets its texture and width, the other three draw it as
 // two crossed quads, and GE-X gives the first to two weapons and the rest to
 // one.
-static const struct { const char *flag; const char *fn; u32 value; u32 occ; } flagSites[] = {
-	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19, 0 },
-	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6, 0 },
-	{ "chargeable", "bgun0f09a6f8", 6, 0 },
-	{ "pistolcasing", "casing_create_for_hand", 36, 0 },
-	{ "nocarteject", "casing_create_for_hand", 8, 0 },
-	{ "nocarteject", "bgun_create_fx", 8, 0 },
-	{ "stickstowall", "projectile_tick", 34, 0 },
-	{ "bladehit", "projectile_tick", 86, 0 },
-	{ "shotgundamage", "chr_damage", 19, 0 },
-	{ "piercesshield", "chr_damage", 22, 0 },
-	{ "laserbeam",    "beam_render", 29, 1 << 0 },
-	{ "crossbeam",    "beam_render", 29, (1 << 1) | (1 << 2) | (1 << 3) },
-	{ "fainttracer",  "beam_render", 11, 0 },
-	{ "laserflight",  "beam_create", 29, 0 },
-	{ "pellets",      "hand_tick_attack", 19, 0 },
-	{ "botlimitless", "bot_tick_unpaused", 29, 0 },
+// at: the site by its stock address, for one that sits in a delay slot or
+// behind another test on at that the head rule cannot see past; 0 to find
+// the sites by value
+static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 at; } flagSites[] = {
+	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19, 0, 0 },
+	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6, 0, 0 },
+	{ "chargeable", "bgun0f09a6f8", 6, 0, 0 },
+	{ "pistolcasing", "casing_create_for_hand", 36, 0, 0 },
+	{ "nocarteject", "casing_create_for_hand", 8, 0, 0 },
+	{ "nocarteject", "bgun_create_fx", 8, 0, 0 },
+	{ "stickstowall", "projectile_tick", 34, 0, 0 },
+	{ "bladehit", "projectile_tick", 86, 0, 0 },
+	{ "shotgundamage", "chr_damage", 19, 0, 0 },
+	{ "piercesshield", "chr_damage", 22, 0, 0 },
+	{ "laserbeam",    "beam_render", 29, 1 << 0, 0 },
+	{ "crossbeam",    "beam_render", 29, (1 << 1) | (1 << 2) | (1 << 3), 0 },
+	{ "fainttracer",  "beam_render", 11, 0, 0 },
+	{ "laserflight",  "beam_create", 29, 0, 0 },
+	{ "pellets",      "hand_tick_attack", 19, 0, 0 },
+	{ "botlimitless", "bot_tick_unpaused", 29, 0, 0 },
 	// the second 13 in bot_tick_unpaused is the weapon-preference switch, a dispatch
-	{ "cloakammo",    "bot_tick_unpaused", 13, 1 << 0 },
+	{ "cloakammo",    "bot_tick_unpaused", 13, 1 << 0, 0 },
+	// the no-bullet-hole list and the FarSight's through-walls shot; the
+	// no-sparks pair GE-X never touched
+	{ "nowallhit",    "shot_calculate_hits", 1, 0, 0x7f061788 },
+	{ "nowallhit",    "obj_hit", 1, 0, 0x7f0862b8 },
+	{ "xrayshot",     "shot_calculate_hits", 22, 0, 0x7f0610a8 },
+	{ "xrayshot",     "shot_calculate_hits", 22, 0, 0x7f061338 },
+	{ "xrayshot",     "obj_hit", 22, 0, 0x7f08606c },
+	{ "nosparks",     "shot_calculate_hits", 1, 0, 0x7f061be0 },
 };
 
 static int cmpU8(const void *a, const void *b)
@@ -4588,7 +4609,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				from = start;
 				u32 occ = 0;
 				while ((from = followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, from,
-						flagSites[j].value, stocknums, &nstock, nums, &nmod, &read)) != 0) {
+						flagSites[j].value, flagSites[j].at, stocknums, &nstock, nums, &nmod, &read)) != 0) {
 					const u32 thisocc = occ++;
 					if (flagSites[j].occ && !(flagSites[j].occ & (1u << thisocc))) {
 						continue;   // another row's site

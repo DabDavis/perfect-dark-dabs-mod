@@ -516,6 +516,8 @@ static const struct {
 	{ "pellets",          WEAPONFLAG2_PELLETS, 2 },
 	{ "botlimitless",     WEAPONFLAG2_BOTLIMITLESS, 2 },
 	{ "cloakammo",        WEAPONFLAG3_CLOAKAMMO, 3 },
+	{ "xrayshot",         WEAPONFLAG3_XRAYSHOT, 3 },
+	{ "nosparks",         WEAPONFLAG3_NOSPARKS, 3 },
 };
 
 u32 g_ModUnlocks = 0;
