@@ -144,7 +144,7 @@ f32 g_CutsceneCurTotalFrame60f;
 s32 g_CutsceneTweenDuration60;
 f32 g_CutsceneTweenFrac; // 0 when bars across the top and bottom, 1 when fullscreen
 u32 var8009de34;
-s16 g_SpawnPoints[24];
+s16 g_SpawnPoints[MAX_SPAWNPOINTS];
 s32 g_NumSpawnPoints;
 
 struct vimode g_ViModes[] = {
@@ -247,9 +247,9 @@ s32 g_NumDeathAnimations = 0;
  */
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *pads, s32 numpads)
 {
-	u8 verybadpads[24];
-	u8 badpads[24];
-	f32 padsqdists[24];
+	u8 verybadpads[MAX_SPAWNPOINTS];
+	u8 badpads[MAX_SPAWNPOINTS];
+	f32 padsqdists[MAX_SPAWNPOINTS];
 
 	u8 stack1[0x10];
 	f32 xdiff;
@@ -277,6 +277,14 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 	RoomNum neighbours[21]; // prevent bgRoomGetNeighbours from writing out of bounds
 #else
 	RoomNum neighbours[20];
+#endif
+
+#ifndef PLATFORM_N64
+	// the per-pad arrays above are sized for the stock setups; a mod's
+	// list past that is cut to what they hold rather than walked off the end
+	if (numpads > MAX_SPAWNPOINTS) {
+		numpads = MAX_SPAWNPOINTS;
+	}
 #endif
 
 	// Iterate all spawn pads and populate the category arrays

@@ -1664,3 +1664,9 @@ the player is not standing in it, so that is the map's setup too. A mod's
 name for `Mod.MapMods` is its directory name as listed, prefix included:
 `mod_allinone`, not `allinone`. The game rewrites pd.ini at exit, so edit
 the scratch config only after the process has gone, or the edit is lost.
+The tester's first crash on a bundle map (All in One's azt as an arena,
+"stack smashing detected" under `playerChooseSpawnLocation`) was the intro's
+spawn pad count: `g_SpawnPoints` and the chooser's three per-pad arrays held
+24, stock's most, and the setup lists more. `MAX_SPAWNPOINTS` (64) sizes all
+four now, the intro reader warns and drops the rest past it, and the chooser
+clamps its count for any caller's list.

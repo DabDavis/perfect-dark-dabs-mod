@@ -33,6 +33,12 @@
 // data segment can bring more (Mario Characters: 84 bodies), and a player
 // file stores the chosen index in 7 bits. g_MpListCounts says how many are
 // in use.
+// Spawn pads a stage's intro can list (g_SpawnPoints and the chooser's
+// per-pad arrays). A mod's setup with more than this overflowed the
+// chooser's stack (All in One's azt as an arena: 2026-09-07); stock lists at most
+// 24, and the arrays are small, so this holds a mod's bigger list whole.
+#define MAX_SPAWNPOINTS 64
+
 #define MAX_MPHEADS  128
 #define MAX_MPBODIES 128
 

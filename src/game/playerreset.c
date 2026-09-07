@@ -168,6 +168,17 @@ void playerReset(void)
 			switch (cmd->type) {
 			case INTROCMD_SPAWN:
 				if (cmd->param2 == 0) {
+#ifndef PLATFORM_N64
+					if (g_NumSpawnPoints >= MAX_SPAWNPOINTS) {
+						if (g_NumSpawnPoints == MAX_SPAWNPOINTS) {
+							extern void sysLogPrintf(s32 level, const char *fmt, ...);
+							sysLogPrintf(1, "setup: more than %d spawn pads in the intro; the rest are not used", MAX_SPAWNPOINTS);
+						}
+						g_NumSpawnPoints++;
+						cmd = (struct cmd32 *)((uintptr_t)cmd + 12);
+						break;
+					}
+#endif
 					g_SpawnPoints[g_NumSpawnPoints++] = cmd->param1;
 				}
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 12);
