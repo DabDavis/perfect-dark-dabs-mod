@@ -6323,6 +6323,54 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 					}
 				}
 			}
+		} else if (tl && td && (changed[tl - segs] || changed[td - segs]) && !tl->assumed && !td->assumed
+				&& (u32)tl->modofs + tl->modsize <= modlen && (u32)td->modofs < modlen) {
+			// The mod rebuilt its texture table, so both segments ship whole
+			// for the mod that overlays - and every texture that differs from
+			// stock's at the same number, or is past stock's end, goes out on
+			// its own as well, for the Stage Loader: a map of this mod played
+			// beside another mod draws with these, by number, from the mod's
+			// own textures/ (modTextureLoad, by stage). One too big for the
+			// port's load buffer is left out, and the report says so.
+			const u32 modcount = tl->modsize / 8;
+			const u32 stockcount = tl->size / 8;
+			const u8 *stockdata = stock + td->ofs;
+			const u8 *moddata = mod + td->modofs;
+			const u32 stockdatalen = td->size;
+			const u32 moddatalen = umin(td->modsize, modlen - td->modofs);
+			u32 own = 0, toobig = 0;
+
+			for (u32 n = 0; n + 1 < modcount; ++n) {
+				const u32 mstart = be24(mod, tl->modofs + n * 8 + 1);
+				const u32 mend = be24(mod, tl->modofs + (n + 1) * 8 + 1);
+				char rel[64];
+				s32 same = 0;
+				if (mstart == mend || mend > moddatalen || mend < mstart) {
+					continue;
+				}
+				if (n + 1 < stockcount) {
+					const u32 sstart = be24(stock, tl->ofs + n * 8 + 1);
+					const u32 send = be24(stock, tl->ofs + (n + 1) * 8 + 1);
+					same = send >= sstart && send <= stockdatalen && send - sstart == mend - mstart
+						&& !memcmp(stockdata + sstart, moddata + mstart, mend - mstart);
+				}
+				if (same) {
+					continue;
+				}
+				if (mend - mstart > MAX_TEXTURE_SIZE) {
+					++toobig;
+					continue;
+				}
+				++own;
+				snprintf(rel, sizeof(rel), "textures/%04x.bin", n);
+				written += writeOut(outDir, rel, moddata + mstart, mend - mstart);
+			}
+			if (own) {
+				rep("  %u texture(s) of the mod's own table -> textures/*.bin, for its maps played beside another mod", own);
+				if (toobig) {
+					rep("  %u of them are too big for the port's texture buffer and are left out", toobig);
+				}
+			}
 		}
 
 		for (s32 i = 0; i < nsegs; ++i) {

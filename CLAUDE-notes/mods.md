@@ -1563,3 +1563,73 @@ and neither a weapon flag nor the function test alone could carry it.
   crackles. `gset_populate`'s 29 -> 21 (the burst count the hit sound
   cadence reads) is left: for a stream on the primary the cadence test is
   never reached.
+
+## The Stage Loader (2026-09-07)
+
+**What it is.** Extended Options > Stage Loader: every installed mod's maps
+as extra Combat Simulator arenas, beside whatever mod is loaded, and no
+stock map or file replaced. `Mod.MapMods` in the config holds the choice:
+`*` for every installed mod, a `;`-separated list of mod names, or empty.
+The page has a checkbox for every mod, a dropdown and a checkbox for one
+mod at a time, a status line and Restart Now.
+
+**How it works.** The file layer already had the mechanism: only the first
+mounted directory overlays the file search, and any mounted after it is
+reached solely through file slots pinned to it (`romfile.moddir`). The
+loader mounts each chosen mod with `fsAddMapsDir()`, which never overlays
+whatever its position - `fsGetModDir()` answers the overlay only, and
+`fsGetNumOverlayModDirs()` is what the texture pack scanner and the mod
+loader iterate by; the limit went from 8 dirs to 128. `modloaderInit()`
+(port/src/modloader.c, the `--modstages` mechanism that was opt-in and
+incomplete) then scans every maps-only dir's `files/bgdata/` for
+`bg_NAME.seg` with a `Ump_setupNAMEZ`, registers the bg, pads, setup and
+tiles as slots pinned to that mod, clones `STAGE_MP_SKEDAR`'s table entry
+under a free stage id, and adds an arena named `NAME (mod)` cut to the
+row's 30 characters. It runs again on a live swap (`modListSwap()`, which
+`modMapsApply()` calls with the loaded mod's own index): the tables are
+restored from the snapshot, the slots dropped, the mounts redone, and the
+scan starts from nothing - the next slot and the stage-to-mod map are reset
+at its top, which the old code did not do.
+
+**What the unfinished branch had found** (`wip/modstages`, merged here):
+a runtime stage has no `g_StageAllocations8Mb` entry and fell through to
+the sentinel's `-mvtx98`, half an arena's vertex pool, and the pools do not
+bounds check - `modloaderGetStageAllocation()` gives it Skedar's, and
+`gfxCheckVtxPool()`/`gfxCheckGfxPool()` log the first overrun of a stage
+rather than corrupt `g_HudMessages`. A mod's room can understate its
+gfxdatalen, so `bgLoadRoom()` sizes for the compressed read too and logs a
+room it cannot render instead of leaving a hole. A 512-byte placeholder bg
+(GE-X ships three) is skipped below `MODSTAGE_MIN_BG_SIZE`. And textures:
+`texLoad()` asks the mods before the ROM table, since a mod's ids run past
+`NUM_TEXTURES`, and `modTextureLoad()` reads `textures/%04x.bin` from the
+running stage's own mod first (`modloaderGetStageModDir()`), with
+`modSetTextureFromStage(0)` around a model's display lists so a stock prop
+does not wear the map's art.
+
+**The textures come from the importer**, version 30: a mod that rebuilt its
+texture table used to ship the two segments whole and nothing else, so its
+maps played beside another mod drew with stock art. Both importers now also
+write every texture of the mod's own table that differs from stock's at
+the same number, or is past stock's end, as `textures/%04x.bin` (GE-X:
+2103), leaving out one too big for the 4 KB load buffer with a report
+line. The overlay case is unchanged: segments whole, and the files beside
+them agree with them.
+
+**Limits, all of the fixed-size kind.** 27 stage ids are free below
+`STAGE_TITLE` (stage-numbers.md), so "every mod" over this archive fills
+them at the tenth mod and the status line says "N of M maps: out of stage
+numbers" - choose mods on the page instead. `g_MpArenas` has
+`MAX_MODSTAGES` (48) spare rows. A map's props are the stock files under
+the setup's ids: a mod that renumbered its file table (GE-X) gets stock
+props on its maps, the crate GE-X calls `Pmulti_ammo_crateZ` being a
+different model - `--modfiles` in romdata.c follows the stage's mod for
+every unpinned slot and is the experiment for that, not safe in general.
+A map whose setup depends on the mod's own AI commands or weapon numbers
+plays as the port has them.
+
+**Testing.** `Mod.MapMods=*` in a scratch savedir's pd.ini, boot with no
+`--moddir`, and `grep modloader pd.log` lists every registration; then
+`--boot-stage <id> --mpsims 4 --rng-seed 1` boots a match on one (the ids
+are in the log), `gdb -p PID -batch -ex 'call (void)screenshotRequest()'`
+takes the picture into `build/screenshots/`. `mod: stage 0x.. draws with
+textures from ...` says a map used its own mod's art.

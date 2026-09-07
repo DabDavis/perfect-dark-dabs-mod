@@ -4149,6 +4149,38 @@ def run(stock, mod, romid, kind, args):
         for num in sorted(texsplit):
             counts['textures'] += 1
             written += write_file(outdir, 'textures/%04x.bin' % num, texsplit[num], dryrun)
+    elif (bynames.get('texturesdata') in changedsegs or bynames.get('textureslist') in changedsegs) \
+            and not bynames['texturesdata'].get('assumed') and not bynames['textureslist'].get('assumed'):
+        # The mod rebuilt its texture table, so both segments ship whole for
+        # the mod that overlays - and every texture that differs from stock's
+        # at the same number, or is past stock's end, goes out on its own as
+        # well, for the Stage Loader: a map of this mod played beside another
+        # mod draws with these, by number, from the mod's own textures/.
+        td, tl = bynames['texturesdata'], bynames['textureslist']
+        stocklist = stock[tl['ofs']:tl['ofs'] + tl['size']]
+        modlist = mod[tl['modofs']:tl['modofs'] + tl['modsize']]
+        stockdata = stock[td['ofs']:td['ofs'] + td['size']]
+        moddata = mod[td['modofs']:td['modofs'] + td['modsize']]
+        sofs, mofs = texture_offsets(stocklist), texture_offsets(modlist)
+        own, toobig = 0, 0
+        for n in range(len(mofs) - 1):
+            mstart, mend = mofs[n], mofs[n + 1]
+            if mstart == mend or mend > len(moddata) or mend < mstart:
+                continue
+            if n + 1 < len(sofs):
+                sstart, send = sofs[n], sofs[n + 1]
+                if send >= sstart and send <= len(stockdata) and stockdata[sstart:send] == moddata[mstart:mend]:
+                    continue
+            if mend - mstart > MAX_TEXTURE_SIZE:
+                toobig += 1
+                continue
+            own += 1
+            written += write_file(outdir, 'textures/%04x.bin' % n, moddata[mstart:mend], dryrun)
+        if own:
+            log("  %u texture(s) of the mod's own table -> textures/*.bin, for its maps played beside another mod" % own)
+            if toobig:
+                log("  %u of them are too big for the port's texture buffer and are left out" % toobig)
+    if texsplit is not None:
         log('  changed  %u texture(s) -> textures/*.bin (the texture table is unchanged,'
             % counts['textures'])
         log('           so they can go in one at a time instead of as whole segments)')

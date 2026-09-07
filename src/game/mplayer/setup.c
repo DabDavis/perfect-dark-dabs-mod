@@ -292,8 +292,9 @@ s32 mpImportArenas(const struct mparena *arenas, s32 count)
 s32 mpGetNumStages(void)
 {
 #ifndef PLATFORM_N64
-	// The extra arenas need level data that only a mod provides.
-	if (fsGetModDir()) {
+	// The extra arenas need level data that only a mod provides - the
+	// overlay mod's, or a directory the Stage Loader mounted for its maps.
+	if (fsGetNumModDirs() > 0) {
 		return g_MpNumArenas;
 	}
 #endif

@@ -2592,7 +2592,10 @@ static void texpackScan(void)
 
 	texpackScanDir(fsFullPath("$B"));
 
-	for (i = fsGetNumModDirs() - 1; i >= 0; i--) {
+	// the overlay mod's textures/ only: a directory the Stage Loader mounted
+	// for its maps keeps its textures for those maps (modTextureLoad reads
+	// them by stage), and must not repaint the whole game
+	for (i = fsGetNumOverlayModDirs() - 1; i >= 0; i--) {
 		texpackScanDir(fsGetModDirAt(i));
 	}
 

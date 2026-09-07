@@ -17,6 +17,7 @@ notes are read when their area comes up.
 - **Saves, eeprom, where pd.ini lives, the migration** — [save-format.md](CLAUDE-notes/save-format.md)
 - **Menu text, `textMeasure()`, reaching the widescreen pillars** — [text-rendering.md](CLAUDE-notes/text-rendering.md)
 - **Adding stages** — [stage-numbers.md](CLAUDE-notes/stage-numbers.md): only 27 ids are free, and four are taken outside the table
+- **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30); what a mod's map still gets from stock
 - **Screenshots, the recorder, ffmpeg, GL capture** — [recording.md](CLAUDE-notes/recording.md): the frame is presented before `videoEndFrame()`; NV12 on the GPU; encoder detection; why it must never wait for the encoder; running on the real GPU with no window (llvmpipe hides driver limits)
 - **Ghost Trials networking** — [ghost-trials.md](CLAUDE-notes/ghost-trials.md): WinHTTP and libcurl, why not one of them, and what the worker thread may touch
 - **Check for Updates** — [updater.md](CLAUDE-notes/updater.md): `update.txt`, the baked-in channel, the two-rename swap

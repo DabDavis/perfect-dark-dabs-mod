@@ -4219,7 +4219,7 @@ void filesInit(void)
 	s32 i;
 	s32 j = 0;
 
-	for (i = 1, j = 0; i < NUM_FILES; i++) {
+	for (i = 1, j = 0; i < NUM_FILE_SLOTS; i++) {
 		struct fileinfo *info = g_FileInfo + i;
 		j = i;
 

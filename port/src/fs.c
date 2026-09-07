@@ -25,7 +25,7 @@ static char baseDir[FS_MAXPATH + 1]; // replaces $B
 // the order given, so the first one that has a file wins. $M expands to the
 // first. The stock port had a single slot; mods that ship several directories
 // need more than one.
-#define FS_MAXMODDIRS 8
+#define FS_MAXMODDIRS 128   // the Stage Loader mounts every installed mod for its maps
 static char modDirs[FS_MAXMODDIRS][FS_MAXPATH + 1];
 static s32 numModDirs;
 
@@ -281,7 +281,7 @@ static void fsMigrateSaves(const char *from, const char *to)
  * for the mod chosen in the menu - which cannot happen in fsInit(), the config
  * file being one of the things fs has to be up to find.
  */
-s32 fsAddModDir(const char *path)
+static s32 fsAddModDirWith(const char *path, s32 overlay)
 {
 	if (!path || !path[0]) {
 		return -1;
@@ -317,12 +317,34 @@ s32 fsAddModDir(const char *path)
 		return -1;
 	}
 
-	// only the first mod dir overlays; see numOverlayModDirs
-	if (numModDirs == 0) {
+	// only the first mod dir overlays; see numOverlayModDirs. A maps-only
+	// dir never does, whatever its position: the Stage Loader mounts them
+	// for their maps alone, and their files stay out of the search order.
+	if (overlay && numModDirs == 0) {
 		numOverlayModDirs = 1;
 	}
 
 	return numModDirs++;
+}
+
+s32 fsAddModDir(const char *path)
+{
+	return fsAddModDirWith(path, 1);
+}
+
+/**
+ * Mount a directory for its maps alone: pinned file slots and the mod loader
+ * reach it, the general file search never does, so nothing in it replaces a
+ * stock file. What the Stage Loader mounts.
+ */
+s32 fsAddMapsDir(const char *path)
+{
+	return fsAddModDirWith(path, 0);
+}
+
+s32 fsGetNumOverlayModDirs(void)
+{
+	return numOverlayModDirs;
 }
 
 s32 fsInit(void)
@@ -547,9 +569,14 @@ const char *fsGetModDirAt(s32 index)
 	return modDirs[index];
 }
 
+/**
+ * The mod that overlays the file search, or NULL: a maps-only mount is not
+ * "the mod", and the loader's, the swap's and the menu's questions are all
+ * about the overlay.
+ */
 const char *fsGetModDir(void)
 {
-	return numModDirs ? modDirs[0] : NULL;
+	return numOverlayModDirs ? modDirs[0] : NULL;
 }
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)

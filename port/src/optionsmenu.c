@@ -24,6 +24,7 @@
 #include "record.h"
 #include "screenshot.h"
 #include "mod.h"
+#include "modloader.h"
 #include "system.h"
 #include "texpack.h"
 #include "upscale.h"
@@ -4954,6 +4955,219 @@ struct menudialogdef g_ExtendedModsMenuDialog = {
 	NULL,
 };
 
+/**
+ * Stage Loader.
+ *
+ * Every installed mod's maps as extra Combat Simulator arenas, beside whatever
+ * mod is loaded. A mod chosen here is mounted for its maps alone
+ * (fsAddMapsDir): the mod loader pins its bg, pads and setup files to it and
+ * gives each map a stage number of its own, so nothing it ships replaces a
+ * stock file or a stock map. Turning a mod on or off swaps where we stand
+ * through the same path Load Mods uses; a loaded mod that replaces ROM
+ * segments cannot be swapped, and then Restart Now finishes it.
+ */
+static s32 g_MapsMenuMod = -1;   // the mod the dropdown shows
+
+static MenuItemHandlerResult menuhandlerMapsAll(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return modListIsFromArgs();
+	case MENUOP_GET:
+		return modMapsAllEnabled();
+	case MENUOP_SET:
+		modMapsSetAll(data->checkbox.value);
+		modMapsApply();
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerMapsMod(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return modListIsFromArgs();
+	case MENUOP_GETOPTIONCOUNT:
+		modListRefresh();
+		data->dropdown.value = modListGetCount();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)modListGetName(data->dropdown.value);
+	case MENUOP_SET:
+		g_MapsMenuMod = (s32)data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		if (g_MapsMenuMod < 0 || g_MapsMenuMod >= modListGetCount()) {
+			g_MapsMenuMod = modListGetCount() > 0 ? 0 : -1;
+		}
+		data->dropdown.value = g_MapsMenuMod < 0 ? 0 : g_MapsMenuMod;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerMapsModEnabled(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const char *name = g_MapsMenuMod >= 0 ? modListGetName(g_MapsMenuMod) : NULL;
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return modListIsFromArgs() || !name || modMapsAllEnabled();
+	case MENUOP_GET:
+		return name ? modMapsIsEnabled(name) : 0;
+	case MENUOP_SET:
+		if (name) {
+			modMapsSetEnabled(name, data->checkbox.value);
+			modMapsApply();
+		}
+		break;
+	}
+
+	return 0;
+}
+
+static char g_MapsStatusText[160];
+
+static const char *menutextMapsStatus(struct menuitem *item)
+{
+	s32 registered, found, mods;
+
+	modloaderGetStats(&registered, &found, &mods);
+
+	if (modListIsFromArgs()) {
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "Mods came from the command line.\n");
+	} else if (modMapsPending()) {
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "The loaded mod replaces ROM segments. Restart to apply.\n");
+	} else if (registered < found) {
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "%d of %d maps from %d mod%s: out of stage numbers.\n",
+				registered, found, mods, mods == 1 ? "" : "s");
+	} else if (registered) {
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "%d map%s from %d mod%s in the Combat Simulator.\n",
+				registered, registered == 1 ? "" : "s", mods, mods == 1 ? "" : "s");
+	} else {
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "No mod maps loaded.\n");
+	}
+
+	return g_MapsStatusText;
+}
+
+static MenuItemHandlerResult menuhandlerMapsRestart(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKDISABLED) {
+		return !modMapsPending();
+	}
+
+	if (operation == MENUOP_SET) {
+		sysRequestRestart();
+		exit(0);
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedMapsMenuItems[] = {
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Use maps from every installed mod\n",
+		0,
+		menuhandlerMapsAll,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mod",
+		0,
+		menuhandlerMapsMod,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Use this mod's maps\n",
+		0,
+		menuhandlerMapsModEnabled,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextMapsStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Restart Now\n",
+		0,
+		menuhandlerMapsRestart,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"A mod's maps join the Combat Simulator's arena list\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"beside the game's own, named after the map and the\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"mod. Nothing in the game's own maps is replaced.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedMapsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Stage Loader",
+	g_ExtendedMapsMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 struct menuitem g_ExtendedMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -5026,6 +5240,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Load Mods\n",
 		0,
 		(void *)&g_ExtendedModsMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Stage Loader\n",
+		0,
+		(void *)&g_ExtendedMapsMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

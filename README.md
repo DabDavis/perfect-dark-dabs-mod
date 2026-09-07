@@ -182,6 +182,16 @@ setup or character model in a format the port does not read - is set aside in
 `files.incompatible/` inside its folder rather than crashing the game. The
 stock file stands in for it.
 
+### Every mod's maps at once
+
+**Options > Extended Options > Stage Loader** puts the maps of installed
+mods into the Combat Simulator's arena list, beside the game's own, named
+after the map and the mod. Tick a mod there, or "every installed mod", and
+its maps appear at once (or after a restart, when the mod you have loaded
+replaces ROM audio or textures). Nothing in the game's own maps is
+replaced: a mod chosen here is read for its maps alone, whatever mod is
+loaded on the Load Mods page. The game has room for 27 extra maps at a
+time, so with a big collection choose the mods you want rather than all.
 ### From the command line
 
 Pass one or more directories with `--moddir`, which wins over the menu choice:

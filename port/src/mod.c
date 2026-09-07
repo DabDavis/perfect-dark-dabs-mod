@@ -21,6 +21,8 @@
 #include "game/chraction.h"
 #include "game/modunlocks.h"
 #include "game/modrules.h"
+#include "modloader.h"
+#include "lib/main.h"
 #include "data.h"
 #include "game/stagetable.h"
 #include "game/stagemusic.h"
@@ -2147,8 +2149,52 @@ s32 modConfigLoad(const char *fname)
 	return success;
 }
 
+/**
+ * Whether texture ids currently resolve against the running stage's own mod.
+ *
+ * A texture id means different things to different mods, so it has to be
+ * resolved against the mod that supplied the file referencing it. A mod stage's
+ * own art wants that mod's textures; a stock prop model that happens to share
+ * an id does not, and pointing it at the mod's copy is how ammo crates ended up
+ * wearing GoldenEye art on a GoldenEye X map. Model files turn this off while
+ * their display lists are scanned.
+ */
+static s32 g_ModTextureStageOff = 0;
+
+s32 modSetTextureFromStage(s32 on)
+{
+	const s32 prev = !g_ModTextureStageOff;
+
+	g_ModTextureStageOff = !on;
+
+	return prev;
+}
+
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 {
+	char path[FS_MAXPATH + 1];
+	const char *stageDir = g_ModTextureStageOff
+		? NULL
+		: modloaderGetStageModDir(mainGetStageNum());
+
+	if (stageDir) {
+		// one line a stage, not one a texture: GE-X's maps load hundreds
+		static const char *loggedDir = NULL;
+		static s32 loggedStage = -1;
+
+		snprintf(path, sizeof(path), "%s/" MOD_TEXTURES_DIR "/%04x.bin", stageDir, num);
+
+		const s32 ret = fsFileLoadTo(path, dst, dstSize);
+		if (ret > 0) {
+			if (loggedDir != stageDir || loggedStage != mainGetStageNum()) {
+				loggedDir = stageDir;
+				loggedStage = mainGetStageNum();
+				sysLogPrintf(LOG_NOTE, "mod: stage 0x%02x draws with textures from %s", loggedStage, stageDir);
+			}
+			return ret;
+		}
+	}
+
 	if (modTexturesDirExists < 0) {
 		modTexturesDirExists = (fsFileSize(MOD_TEXTURES_DIR) >= 0);
 	}
@@ -2157,7 +2203,6 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 		return -1;
 	}
 
-	char path[FS_MAXPATH + 1];
 	snprintf(path, sizeof(path), MOD_TEXTURES_DIR "/%04x.bin", num);
 
 	const s32 ret = fsFileLoadTo(path, dst, dstSize);
@@ -2293,6 +2338,15 @@ static s32 numModsListed;
 // The name in the config, which is not necessarily one of the above: a mod can
 // be deleted between one start and the next.
 static char selectedModName[MOD_NAME_LEN];
+
+// The Stage Loader's choice (Mod.MapMods): "*" for every installed mod's
+// maps, "" for none, else the mods' names separated by ';'. The maps of the
+// mods named are mounted for their maps alone, beside whatever mod is
+// loaded, and the mod loader gives each map its own stage and arena.
+#define MOD_MAPMODS_LEN 2048
+static char mapModsSetting[MOD_MAPMODS_LEN];
+static s32 numMapDirsMounted;
+static s32 modMapsMount(void);
 
 // Whether the mounted mod dirs came from --moddir. The menu leaves those alone.
 static bool modDirsFromArgs;
@@ -3157,6 +3211,7 @@ s32 modListSwap(s32 index)
 	const char *path = (index >= 0 && index < numModsListed) ? modList[index].path : NULL;
 
 	fsReplaceModDir(path);
+	modMapsMount();
 
 	romdataResetFiles();
 	filesInit();          // the game's own record of how big each file was
@@ -3212,30 +3267,169 @@ void modListApplySelection(void)
 				numModsListed ? ": " : "", len ? names : "");
 	}
 
-	if (!selectedModName[0]) {
-		return;
-	}
-
 	if (modDirsFromArgs) {
 		// --moddir was given. An explicit command line is the one the player is
 		// looking at, so it wins, and the menu says which is which.
-		sysLogPrintf(LOG_NOTE, "mod: `%s` is selected but mod dirs came from the command line", selectedModName);
+		if (selectedModName[0]) {
+			sysLogPrintf(LOG_NOTE, "mod: `%s` is selected but mod dirs came from the command line", selectedModName);
+		}
 		return;
 	}
 
-	const s32 index = modListGetSelected();
+	if (selectedModName[0]) {
+		const s32 index = modListGetSelected();
 
-	if (index < 0) {
-		sysLogPrintf(LOG_WARNING, "mod: selected mod `%s` is not installed", selectedModName);
+		if (index < 0) {
+			sysLogPrintf(LOG_WARNING, "mod: selected mod `%s` is not installed", selectedModName);
+		} else if (fsAddModDir(modList[index].path) >= 0) {
+			sysLogPrintf(LOG_NOTE, "mod: mounted `%s`", modList[index].name);
+		}
+	}
+
+	// after the overlay, so it stays first in the search order
+	modMapsMount();
+}
+
+/* ---- the Stage Loader: every installed mod's maps, beside the mod loaded --- */
+
+s32 modMapsAllEnabled(void)
+{
+	return mapModsSetting[0] == '*' && mapModsSetting[1] == '\0';
+}
+
+s32 modMapsIsEnabled(const char *name)
+{
+	const char *p = mapModsSetting;
+	const size_t len = strlen(name);
+
+	if (modMapsAllEnabled()) {
+		return 1;
+	}
+
+	while (*p) {
+		const char *end = strchr(p, ';');
+		const size_t n = end ? (size_t)(end - p) : strlen(p);
+		if (n == len && !strncmp(p, name, len)) {
+			return 1;
+		}
+		if (!end) {
+			break;
+		}
+		p = end + 1;
+	}
+
+	return 0;
+}
+
+void modMapsSetAll(s32 on)
+{
+	if (on) {
+		strcpy(mapModsSetting, "*");
+	} else {
+		mapModsSetting[0] = '\0';
+	}
+}
+
+/**
+ * Turn one mod's maps on or off. Leaving "every mod" writes the list of
+ * every installed mod but this one, so the others stay as they were.
+ */
+void modMapsSetEnabled(const char *name, s32 on)
+{
+	char list[MOD_MAPMODS_LEN] = "";
+	u32 len = 0;
+
+	if (modMapsAllEnabled() && on) {
 		return;
 	}
 
-	if (fsAddModDir(modList[index].path) >= 0) {
-		sysLogPrintf(LOG_NOTE, "mod: mounted `%s`", modList[index].name);
+	for (s32 i = 0; i < numModsListed; ++i) {
+		const char *n = modList[i].name;
+		const s32 keep = !strcmp(n, name) ? on : modMapsIsEnabled(n);
+		if (keep && len + strlen(n) + 2 < sizeof(list)) {
+			len += snprintf(list + len, sizeof(list) - len, "%s%s", len ? ";" : "", n);
+		}
 	}
+
+	strncpy(mapModsSetting, list, sizeof(mapModsSetting) - 1);
+	mapModsSetting[sizeof(mapModsSetting) - 1] = '\0';
+}
+
+/**
+ * Mount the maps of every enabled mod, all but the one loaded, for their maps
+ * alone. After the overlay mount at boot, and again after a swap has emptied
+ * the mount list. Returns how many were mounted.
+ */
+static s32 modMapsMount(void)
+{
+	const char *loaded = fsGetModDir();
+
+	numMapDirsMounted = 0;
+
+	if (modDirsFromArgs) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < numModsListed; ++i) {
+		if (!modMapsIsEnabled(modList[i].name)) {
+			continue;
+		}
+		if (loaded && !strcmp(loaded, modList[i].path)) {
+			continue;
+		}
+		if (fsAddMapsDir(modList[i].path) >= 0) {
+			numMapDirsMounted++;
+		}
+	}
+
+	if (numMapDirsMounted) {
+		sysLogPrintf(LOG_NOTE, "mod: %d mod%s mounted for their maps", numMapDirsMounted, numMapDirsMounted == 1 ? "" : "s");
+	}
+
+	return numMapDirsMounted;
+}
+
+s32 modMapsNumMounted(void)
+{
+	return numMapDirsMounted;
+}
+
+/**
+ * Whether what is mounted for maps matches the setting. A change the menu
+ * could not apply where it stood (a mod with segments loaded) waits for a
+ * restart, and the page says so.
+ */
+s32 modMapsPending(void)
+{
+	s32 want = 0;
+	const char *loaded = fsGetModDir();
+
+	if (modDirsFromArgs) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < numModsListed; ++i) {
+		if (modMapsIsEnabled(modList[i].name) && !(loaded && !strcmp(loaded, modList[i].path))) {
+			want++;
+		}
+	}
+
+	return want != numMapDirsMounted;
+}
+
+/**
+ * Apply the setting now if the loaded mod allows a live swap: the same path
+ * as choosing a mod, which drops the file slots, restores the tables, mounts
+ * again and lets the mod loader register the maps. Returns false when a
+ * restart is what it takes.
+ */
+s32 modMapsApply(void)
+{
+	return modListSwap(modListGetSelected());
 }
 
 PD_CONSTRUCTOR static void modListConfigInit(void)
 {
 	configRegisterString("Mod.ModDir", selectedModName, sizeof(selectedModName));
+	configRegisterString("Mod.MapMods", mapModsSetting, sizeof(mapModsSetting));
 }

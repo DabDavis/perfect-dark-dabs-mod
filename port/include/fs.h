@@ -22,6 +22,11 @@ FILE *fsFileOpenRead(const char *name);
 void fsFileFree(FILE *f);
 
 const char *fsGetModDir(void);
+// A directory mounted for its maps alone: reached by pinned slots and the
+// mod loader, never by the file search. How many of the mounted dirs overlay
+// (0 or 1): those are the ones a texture pack or a modconfig is read from.
+s32 fsAddMapsDir(const char *path);
+s32 fsGetNumOverlayModDirs(void);
 typedef void (*fsScanCallback)(const char *name, void *arg);
 s32 fsScanDir(const char *path, fsScanCallback cb, void *arg);
 s32 fsAddModDir(const char *path);

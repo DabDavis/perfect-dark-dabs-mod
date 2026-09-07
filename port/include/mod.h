@@ -192,6 +192,7 @@ s32 modDataBgStage(s32 def);
 s32 modDataImport(const struct moddataspec *spec);
 
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize);
+s32 modSetTextureFromStage(s32 on);
 
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim);
 void *modAnimationLoadData(u16 num);
@@ -216,5 +217,16 @@ void modListApplySelection(void);
 s32 modListIsFromArgs(void);
 s32 modListSwapIsLive(s32 index);
 s32 modListSwap(s32 index);
+
+// The Stage Loader: every installed mod's maps as extra Combat Simulator
+// arenas, each mod mounted for its maps alone beside the mod loaded (fs.h,
+// fsAddMapsDir). Mod.MapMods holds the choice.
+s32 modMapsAllEnabled(void);
+s32 modMapsIsEnabled(const char *name);
+void modMapsSetAll(s32 on);
+void modMapsSetEnabled(const char *name, s32 on);
+s32 modMapsNumMounted(void);
+s32 modMapsPending(void);   // the setting changed and could not be applied where we stand
+s32 modMapsApply(void);     // apply it now; false when a restart is needed
 
 #endif
