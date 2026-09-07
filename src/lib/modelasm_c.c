@@ -6,6 +6,9 @@
 #include "lib/mtx.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "game/modoptions.h"
+#endif
 
 struct t0slot {
 	u16 unk00;
@@ -437,9 +440,22 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 			rwdata = modelasmGetNodeRwData(model, node, sp7f8);
 			f0 = 0;
 
+			// The same rule as modelUpdateDistanceRelations, which is the
+			// other place a distance node is decided: the Model LOD option
+			// and, under Increase Poly Models, the switch pushed out to
+			// where the figure is as small on screen as the console's.
+			// Without this the option did nothing to the models that come
+			// through here, which is most of them.
+#ifndef PLATFORM_N64
+			if (!g_ModelDistanceDisabled && t0mtx && modIsModelLodOn()) {
+				f0 = -t0mtx->m[3][2] * g_Vars.currentplayer->c_lodscalez * g_ModelDistanceScale
+					* modGetModelLodDistanceScale();
+			}
+#else
 			if (!g_ModelDistanceDisabled && t0mtx) {
 				f0 = -t0mtx->m[3][2] * g_Vars.currentplayer->c_lodscalez * g_ModelDistanceScale;
 			}
+#endif
 
 #ifndef PLATFORM_N64
 			// Model space: keep every level of detail so that all of the

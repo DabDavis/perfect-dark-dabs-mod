@@ -233,3 +233,112 @@ The visual check is a third-person screenshot of the player:
 `set g_Vars.players[0]->thirdperson = 1` and `->invincible = 1` over gdb,
 then `screenshotRequest()`; the `gfx: tris ... of which smoothed N` stats
 line (`--gfxstats 60`) says whether it engaged at all.
+
+## What Increase Poly Models spends its frame on, and what came off (2026-09-07)
+
+Measured after the mesh pass and the pixel rule were in, on the same seeded
+80-simulant match. The setting's own cost is the difference between a run
+with it on and one with it off, which is the number worth quoting: the rest
+of the frame is the same match either way.
+
+**Run to a level frame, not for a wall-clock span.** `--exit-frame N` quits
+when `lvframenum` reaches N (lv.c), and `tools/perf/perfframes.sh` counts a
+whole run with `perf stat`, so two binaries are compared over the very same
+frames however fast each one renders them. `perfrun.sh`'s window of seconds
+answers a different question and gives each binary a different span of
+match. Attach the counter to the game's own thread and after the driver's
+threads exist: `perf stat -t $pid --no-inherit` started four seconds in.
+Counting the process counts Mesa's eight `llvmpipe` threads too, which on
+this box is 25 times the number you want and looks plausible until you
+compare it with the same binary's `perfrun.sh` figure.
+
+| Increase Poly Models Heavy, 2400 frames | instructions/frame | its own cost |
+| - | - | - |
+| before, off | 30.98 | |
+| before, Heavy | 37.62 | 6.65 |
+| after, off | 30.41 | |
+| after, Heavy, 12 px a segment | 35.50 | 5.09 |
+| after, Heavy, 16 px a segment | 33.84 | 3.43 |
+| after, Heavy, 20 px a segment | 33.23 | 2.82 |
+
+Four things came off, in the order they were worth doing:
+
+- **The patch is drawn by index.** The renderer had no index buffer: every
+  triangle wrote its three vertices in full, up to 32 floats each, so a
+  four-piece patch wrote 48 vertices for the 15 distinct points it has.
+  `gfx_sp_tri_emit` is now three parts - `gfx_emit_prepare` (the state, once
+  for a whole patch instead of once a piece), `gfx_emit_vertex` (one vertex,
+  returning its number in the batch) and the index triple - and
+  `gfx_sp_tri_smooth` writes its grid once and names its pieces by number.
+  `buf_ibo` carries three numbers a triangle, a plain triangle's three
+  consecutive, and a batch that never held a patch is drawn from `buf_vbo`
+  alone exactly as before (`draw_triangles_indexed` in the rendering API;
+  `glDrawElements` in the GL backend).
+  - The batch must have room for the whole patch before any of it is
+    written, **in vertices as well as triangles**: a patch brings fewer
+    vertices than three a triangle, but a patch whose every piece is culled
+    brings vertices and no triangle at all, so the triangle count alone does
+    not bound `buf_vbo`.
+- **The normal is not blended for an unlit patch.** The game lights almost
+  nothing on the RSP, so nearly every patch is unlit and takes blended
+  colours instead; the per-vertex loop evaluated the curved normal anyway
+  and threw it away.
+- **`lroundf` is inlined** (`smooth_round`): seven libm calls a made vertex,
+  0.44% of the main thread, and `x - (float)(int)x` is exact below 2^23 so
+  it rounds on the same bits. `__lroundf` is off the profile.
+- **The threshold is 16 pixels a segment, not 12** (`gfx_smooth_px_per_segment`,
+  a global so gdb can try another). See the comment on it: a third-person
+  capture of the player filling half the screen is the same picture at 12,
+  16 and 20 down to a 4x crop of the shoulder, and 12 to 16 is a third of
+  what the setting costs. This is the cheapest lever by a distance and the
+  only one that trades against the look.
+
+**What was not worth doing.** Caching the boundary points two patches share
+(about 40% of made vertices are computed twice, once by each side of an
+edge) would save at most 1.5% of the main thread: with the writes gone, all
+that is left per shared point is a grid lookup and the transform, and
+`gfx_sp_tri_smooth` is 3.9% of the frame in total. A hash lookup and a
+100-byte copy per point would eat most of that back. GPU tessellation needs
+OpenGL 4.0 tessellation shaders, which rules out macOS and GLES, and sits
+outside the software vertex path the port is built on.
+
+**The check that the renderer change is behaviour-preserving is a pixel
+diff.** With Model LOD off on both sides, the before and after binaries
+render frame 2400 of the seeded match identically -
+`ImageChops.difference(...).getbbox()` is `None`, not a bounding box around
+the frame-rate counter - and the `gfx: N tris, N verts` lines match for the
+whole run with the setting on and with it off.
+
+## Model LOD was decided in two places, and does nothing in a match
+
+Increase Poly Models used to force Model LOD off, and the menu greyed the
+checkbox out to say so, on the reasoning that the far model is a different
+mesh and would pop in while the renderer was still bending the near one.
+Both halves of that turned out to be wrong.
+
+`modelUpdateDistanceRelations` (model.c) is not the only place a distance
+node is decided: `modelasm_c.c` has a second copy of the same rule for
+`MODELNODETYPE_DISTANCE`, and it consulted neither the option nor the
+coupling. Most models come through that one, so **turning Model LOD off in
+the menu did nothing to them**, and Increase Poly Models never held their
+distance models off either. Both paths now ask `modIsModelLodOn()` and scale
+the distance by `modGetModelLodDistanceScale()`, which is 1 unless Increase
+Poly Models is on and then `240 / videoGetHeight()`: the thresholds were set
+for a 240-line screen, so this holds the switch off until the figure is as
+small on this screen as it was on the console's, where every edge is under
+the pixels-per-segment rule and the near model draws flat anyway.
+
+None of which changes a frame. In the seeded match, and in Crash Site, Air
+Base and Villa, **Model LOD on and off render the same triangle and vertex
+counts to the digit**, before the change and after it, with the setting on
+or off. 177 distance nodes in the match are past their threshold, so the
+flags do flip; the geometry either side of them is evidently the same. The
+change is worth keeping because the option now means what it says in both
+code paths, but do not expect frames from it, and do not repeat the estimate
+that the near meshes of a distant crowd are costing anything.
+
+**The offscreen driver renders 640x480 whatever pd.ini says.** `videoGetHeight()`
+returns 480 in a `SDL_VIDEODRIVER=offscreen` run with `DefaultHeight=1080`
+in the ini, so a headless measurement is a 480-line measurement and carries
+fewer patches than the desktop it is standing in for. A screenshot taken
+through gdb comes out at the ini's size.

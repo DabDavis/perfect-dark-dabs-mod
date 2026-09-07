@@ -338,7 +338,7 @@ struct modoptions {
 	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look, and bobs with a step
 	s32 gunsway;     // the gun's step motion scaled up with the bob
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
-	s32 modellod;    // the game's distance models, forced off under Increase Poly Models
+	s32 modellod;    // the game's distance models; Increase Poly Models pushes the switch out
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened
 	s32 enhancetextures; // MODENHANCE_*: the game's textures scaled up on upload
 	s32 vividcolours; // MODVIVID_*: the frame's saturation and contrast turned up
@@ -384,6 +384,9 @@ s32 modGetModelSmoothingLevel(void);
 f32 modGetModelSmoothingAmount(void);
 bool modIsModelSmoothingOn(void);
 bool modIsModelLodOn(void);
+#ifndef PLATFORM_N64
+f32 modGetModelLodDistanceScale(void);
+#endif
 s32 modGetSmoothTextScale(void);
 s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);

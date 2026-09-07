@@ -1260,8 +1260,7 @@ void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 #endif
 
 #ifndef PLATFORM_N64
-	// Model LOD off, or Increase Poly Models holding it off: the near model
-	// at any distance
+	// Model LOD off: the near model at any distance
 	if (g_ModelDistanceDisabled || !mtx || !modIsModelLodOn()) {
 #else
 	if (g_ModelDistanceDisabled || !mtx) {
@@ -1273,6 +1272,12 @@ void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 		if (g_ModelDistanceScale != 1) {
 			distance *= g_ModelDistanceScale;
 		}
+
+#ifndef PLATFORM_N64
+		// Increase Poly Models: the switch pushed out to where the figure
+		// is as small on this screen as the console's
+		distance *= modGetModelLodDistanceScale();
+#endif
 	}
 
 	if (distance > rodata->distance.near * model->scale || rodata->distance.near == 0) {

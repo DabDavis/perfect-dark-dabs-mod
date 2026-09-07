@@ -2408,14 +2408,13 @@ static MenuItemHandlerResult menuhandlerModModelSmoothing(s32 operation, struct 
 }
 
 /**
- * Model LOD: the game's own distance models. Greyed out under Increase Poly
- * Models, which holds it off, and shown as off while it does.
+ * Model LOD: the game's own distance models. Under Increase Poly Models the
+ * switch to the far model waits until the figure is too small on screen for
+ * the smoothing to show (modGetModelLodDistanceScale).
  */
 static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
-	case MENUOP_CHECKDISABLED:
-		return modIsModelSmoothingOn();
 	case MENUOP_GET:
 		return modIsModelLodOn();
 	case MENUOP_SET:

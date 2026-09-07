@@ -54,6 +54,7 @@ u8 g_VmShowStats = 0;
 
 s32 g_TickRateDiv = 1;
 s32 g_FixedStep = 0; // --fixed-step, see frametimeCalculate()
+s32 g_ExitFrame = 0; // --exit-frame N: quit when the level reaches frame N, so a measured run covers the same frames whatever its speed (lvTick)
 s32 g_TickExtraSleep = true;
 
 s32 g_SkipIntro = false;
@@ -211,6 +212,7 @@ int main(int argc, const char **argv)
 	g_ModSpectateStartArg = sysArgCheck("--spectate");
 	g_MpEndlessMatch = sysArgCheck("--endless");
 	g_FixedStep = sysArgCheck("--fixed-step");
+	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 

@@ -363,6 +363,19 @@ static GfxPreSwapCallback gfx_pre_swap_callback;
 static float buf_vbo[MAX_BUFFERED * (32 * 3)]; // 3 vertices in a triangle and 32 floats per vtx
 static size_t buf_vbo_len;
 static size_t buf_vbo_num_tris;
+/*
+ * Model Smoothing writes a patch's grid of vertices once and names its
+ * pieces as triples of their numbers (gfx_sp_tri_smooth). A batch holding
+ * one is drawn by index: every vertex in buf_vbo is numbered from 0 in the
+ * order it was written, and buf_ibo holds three numbers per triangle, a
+ * plain triangle's three consecutive. A batch with no patch in it is drawn
+ * from buf_vbo alone, as it always was. A triangle brings at most three
+ * vertices, so both fit whatever the batch holds.
+ */
+static uint16_t buf_ibo[MAX_BUFFERED * 3];
+#define MAX_BUFFERED_VERTS (MAX_BUFFERED * 3)
+static size_t buf_vbo_num_verts;
+static bool buf_indexed;
 
 extern "C" {
 
@@ -502,8 +515,15 @@ static void gfx_note_texture_bound(uint32_t texture_id) {
 
 static void gfx_flush(void) {
     if (buf_vbo_len > 0) {
-        gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
-        g_GfxNumDrawCalls++;
+        if (buf_vbo_num_tris == 0) {
+            // a patch whose every piece was culled: vertices nothing names
+        } else if (buf_indexed) {
+            gfx_rapi->draw_triangles_indexed(buf_vbo, buf_vbo_len, buf_ibo, buf_vbo_num_tris);
+            g_GfxNumDrawCalls++;
+        } else {
+            gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
+            g_GfxNumDrawCalls++;
+        }
         g_GfxNumTris += buf_vbo_num_tris;
 #ifdef GFX_VERIFY_BATCH_STATE
         if (g_GfxNumTris > g_GfxVerifyMaxTrisFrame) {
@@ -512,6 +532,8 @@ static void gfx_flush(void) {
 #endif
         buf_vbo_len = 0;
         buf_vbo_num_tris = 0;
+        buf_vbo_num_verts = 0;
+        buf_indexed = false;
     }
 }
 
@@ -2354,22 +2376,14 @@ static inline float gfx_lod_fraction(float w) {
     return byte_unit.f[c];
 }
 
-static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect, bool cull_tested = false) {
-    struct LoadedVertex* v_arr[3] = { v1, v2, v3 };
-
-    if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
-        if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
-            // The whole triangle lies outside the visible area
-            g_GfxTrisClipped++;
-            return;
-        }
-    }
-
-    if (!cull_tested && gfx_tri_is_culled(v1, v2, v3)) {
-        g_GfxTrisCulled++;
-        return;
-    }
-
+/*
+ * The state a triangle is drawn under - the depth mode, viewport and
+ * scissor, shader and blending, the resolved combiner inputs and the vertex
+ * layout: apply whatever moved, flushing the batch first, so the vertices
+ * written next go out under it. Everything gfx_sp_tri_emit did before it
+ * wrote a vertex; a patch does it once for all its pieces.
+ */
+static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
     bool depth_test = ((rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER || (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM) &&
                       ((rdp.other_mode_h & G_CYC_1CYCLE) == G_CYC_1CYCLE || (rdp.other_mode_h & G_CYC_2CYCLE) == G_CYC_2CYCLE);
     bool depth_update = (rdp.other_mode_l & Z_UPD) == Z_UPD;
@@ -2427,10 +2441,6 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
         rendering_state.modulate = batch.use_modulate;
     }
 
-    /* Rectangles skip the perspective and filter terms, so they use their own pair. */
-    const float (*uv_scale)[2] = is_rect ? batch.uv_scale_rect : batch.uv_scale;
-    const float (*uv_ofs)[2] = is_rect ? batch.uv_ofs_rect : batch.uv_ofs;
-
     // The shader inputs. Most of them are a constant for the whole
     // triangle - the primitive and environment colours - so what each
     // one is, and its value where it is constant, is worked out once
@@ -2445,81 +2455,116 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
     if (emit_plan_dirty || emit_plan.fog != rdp.fog_color || emit_plan.gray != rdp.grayscale_color) {
         gfx_build_emit_plan();
     }
+}
+
+/*
+ * One vertex into buf_vbo in the batch's layout, and its number in the
+ * batch, which an index triple names it by.
+ */
+static inline __attribute__((always_inline)) uint16_t gfx_emit_vertex(const struct LoadedVertex* v, bool is_rect) {
+    /* Rectangles skip the perspective and filter terms, so they use their own pair. */
+    const float (*uv_scale)[2] = is_rect ? batch.uv_scale_rect : batch.uv_scale;
+    const float (*uv_ofs)[2] = is_rect ? batch.uv_ofs_rect : batch.uv_ofs;
 
     // y is flipped by a multiply, which is exact; z is halved into 0..1 only
     // for a backend that wants it, in the scalar form that always did it
     const v4f ysign = v4f{ 1.0f, batch.clip_parameters.invert_y ? -1.0f : 1.0f, 1.0f, 1.0f };
-    const size_t stride = emit_plan.stride;
 
     // The vertex buffer is written through a pointer rather than an index
     // bumped per float, and a position goes in as one four-float store.
     float* out = buf_vbo + buf_vbo_len;
+    const float w = v->w;
 
-    for (int i = 0; i < 3; i++) {
-        const struct LoadedVertex* v = v_arr[i];
-        const float w = v->w;
-
-        // The template, all EMIT_MAX_FLOATS of it as straight-line stores
-        // whatever the stride; the excess is overwritten by the next vertex,
-        // and buf_vbo has room for a full-size vertex at every position
-        for (int k = 0; k < EMIT_MAX_FLOATS; k += 4) {
-            v4f_store(out + k, v4f_load(emit_plan.tmpl + k));
-        }
-
-        v4f pos = v4f_load(&v->x) * ysign;
-        if (batch.clip_parameters.z_is_from_0_to_1) {
-            pos[2] = (v->z + w) / 2.0f;
-        }
-        v4f_store(out, pos);
-
-        for (int k = 0; k < emit_plan.nslots; k++) {
-            float* o = out + emit_plan.slots[k].off;
-            switch (emit_plan.slots[k].kind) {
-                case EMIT_SLOT_UV0:
-                case EMIT_SLOT_UV1: {
-                    const int t = emit_plan.slots[k].kind - EMIT_SLOT_UV0;
-                    o[0] = v->u * uv_scale[t][0] + uv_ofs[t][0];
-                    o[1] = v->v * uv_scale[t][1] + uv_ofs[t][1];
-#ifdef GFX_VERIFY_BATCH_STATE
-                    gfx_verify_uv(t, is_rect, v->u, v->v, o[0], o[1]);
-#endif
-                    break;
-                }
-                case EMIT_SLOT_FOG_LINE:
-                    o[0] = (float)v->fog_mul;
-                    o[1] = (float)v->fog_offset;
-                    break;
-                case EMIT_SLOT_SHADE_RGB:
-                    o[0] = byte_unit.f[v->color.r];
-                    o[1] = byte_unit.f[v->color.g];
-                    o[2] = byte_unit.f[v->color.b];
-                    break;
-                case EMIT_SLOT_SHADE_A_RGB:
-                    o[0] = o[1] = o[2] = byte_unit.f[v->color.a];
-                    break;
-                case EMIT_SLOT_LOD_RGB:
-                    o[0] = o[1] = o[2] = gfx_lod_fraction(w);
-                    break;
-                case EMIT_SLOT_SHADE_A:
-                    o[0] = byte_unit.f[v->color.a];
-                    break;
-                case EMIT_SLOT_LOD_A:
-                    o[0] = gfx_lod_fraction(w);
-                    break;
-            }
-        }
-
-        out += stride;
+    // The template, all EMIT_MAX_FLOATS of it as straight-line stores
+    // whatever the stride; the excess is overwritten by the next vertex,
+    // and buf_vbo has room for a full-size vertex at every position
+    for (int k = 0; k < EMIT_MAX_FLOATS; k += 4) {
+        v4f_store(out + k, v4f_load(emit_plan.tmpl + k));
     }
 
-    buf_vbo_len = out - buf_vbo;
+    v4f pos = v4f_load(&v->x) * ysign;
+    if (batch.clip_parameters.z_is_from_0_to_1) {
+        pos[2] = (v->z + w) / 2.0f;
+    }
+    v4f_store(out, pos);
 
+    for (int k = 0; k < emit_plan.nslots; k++) {
+        float* o = out + emit_plan.slots[k].off;
+        switch (emit_plan.slots[k].kind) {
+            case EMIT_SLOT_UV0:
+            case EMIT_SLOT_UV1: {
+                const int t = emit_plan.slots[k].kind - EMIT_SLOT_UV0;
+                o[0] = v->u * uv_scale[t][0] + uv_ofs[t][0];
+                o[1] = v->v * uv_scale[t][1] + uv_ofs[t][1];
+#ifdef GFX_VERIFY_BATCH_STATE
+                gfx_verify_uv(t, is_rect, v->u, v->v, o[0], o[1]);
+#endif
+                break;
+            }
+            case EMIT_SLOT_FOG_LINE:
+                o[0] = (float)v->fog_mul;
+                o[1] = (float)v->fog_offset;
+                break;
+            case EMIT_SLOT_SHADE_RGB:
+                o[0] = byte_unit.f[v->color.r];
+                o[1] = byte_unit.f[v->color.g];
+                o[2] = byte_unit.f[v->color.b];
+                break;
+            case EMIT_SLOT_SHADE_A_RGB:
+                o[0] = o[1] = o[2] = byte_unit.f[v->color.a];
+                break;
+            case EMIT_SLOT_LOD_RGB:
+                o[0] = o[1] = o[2] = gfx_lod_fraction(w);
+                break;
+            case EMIT_SLOT_SHADE_A:
+                o[0] = byte_unit.f[v->color.a];
+                break;
+            case EMIT_SLOT_LOD_A:
+                o[0] = gfx_lod_fraction(w);
+                break;
+        }
+    }
+
+    buf_vbo_len += emit_plan.stride;
+    return (uint16_t)buf_vbo_num_verts++;
+}
+
+// A triangle is in the batch: count it toward the batch's limit
+static inline __attribute__((always_inline)) void gfx_emit_tri_done(void) {
     // >= rather than ==, because g_GfxMaxBufferedTris can be lowered from gdb
     // partway through a frame and must not be stepped straight over.
     if (++buf_vbo_num_tris >= g_GfxMaxBufferedTris) {
         g_GfxNumBufferFullFlushes++;
         gfx_flush_for(GFX_FLUSH_BUFFERFULL);
     }
+}
+
+static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect, bool cull_tested = false) {
+    if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
+        if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
+            // The whole triangle lies outside the visible area
+            g_GfxTrisClipped++;
+            return;
+        }
+    }
+
+    if (!cull_tested && gfx_tri_is_culled(v1, v2, v3)) {
+        g_GfxTrisCulled++;
+        return;
+    }
+
+    gfx_emit_prepare();
+
+    const uint16_t a = gfx_emit_vertex(v1, is_rect);
+    const uint16_t b = gfx_emit_vertex(v2, is_rect);
+    const uint16_t c = gfx_emit_vertex(v3, is_rect);
+    if (buf_indexed) {
+        uint16_t* ib = buf_ibo + 3 * buf_vbo_num_tris;
+        ib[0] = a;
+        ib[1] = b;
+        ib[2] = c;
+    }
+    gfx_emit_tri_done();
 }
 
 /*
@@ -2777,6 +2822,14 @@ static inline float smooth_dot(const float a[3], const float b[3]) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
+// lroundf for |x| under 2^23 without the libm call: x less its integer part
+// is exact in float, so the half is tested on the same bits lroundf saw
+static inline int smooth_round(float x) {
+    const int t = (int)x;
+    const float f = x - (float)t;
+    return f >= 0.5f ? t + 1 : (f <= -0.5f ? t - 1 : t);
+}
+
 // the Bezier control point a third of the way from Pi to Pj, dropped into
 // the tangent plane of Ni
 static inline void smooth_edge_point(float out[3], const float Pi[3], const float Pj[3], const float Ni[3]) {
@@ -2824,9 +2877,20 @@ static inline void smooth_edge_normal(float out[3], const float Pi[3], const flo
  * the difference on looked the same.
  */
 
-// Pixels of screen an edge needs per segment before another segment is worth
-// drawing: below this the curve and its chord are the same pixels.
-#define SMOOTH_PX_PER_SEGMENT 12.0f
+/*
+ * Pixels of screen an edge needs per segment before another segment is worth
+ * drawing: below this the curve and its chord are the same pixels.
+ *
+ * 16 rather than the 12 it started at. On the seeded 80-simulant match 12
+ * costs 5.1M instructions a frame over the same match with the setting off
+ * and 16 costs 3.4M, a third less, for two thirds of the patches; and a
+ * third-person capture of the player filling half the screen is the same
+ * picture at 12, 16 and 20, down to a 4x crop of the shoulder the
+ * difference is densest on (0.08% of pixels differ between 12 and 16, all
+ * of them on the figure). A global so another value can be tried from gdb.
+ */
+float gfx_smooth_px_per_segment = 16.0f;
+#define SMOOTH_PX_PER_SEGMENT gfx_smooth_px_per_segment
 
 /*
  * Whether the triangle faces away under the current culling mode, by the same
@@ -2979,12 +3043,16 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
     const struct LoadedVertex* corner[3] = { v1, v2, v3 };
     const float amount = gfx_model_smoothing_amount > 1.0f ? 1.0f : gfx_model_smoothing_amount;
     // lit corners were shaded by the RSP's lights and carry the normal that
-    // did it; the rest carry a colour, which the new vertices blend instead
+    // did it, and a new vertex is shaded through the same lights from a
+    // normal blended across the patch; the rest carry a colour, which the
+    // new vertices blend instead, and no normal is blended for them at all
+    // (gfx_sp_tri_smooth_level lets a lit triangle through only with every
+    // corner lit)
     const bool lit = (rsp.geometry_mode & G_LIGHTING) != 0;
 
     // P are the corners as loaded; L is the normal the surface has at each
     // corner according to the mesh pass, which is what bends the patch; N is
-    // the normal the corner was lit with, and L again for an unlit one
+    // the normal the corner was lit with, for a lit patch only
     float P[3][3], N[3][3], L[3][3];
     for (int c = 0; c < 3; c++) {
         P[c][0] = corner[c]->ox; P[c][1] = corner[c]->oy; P[c][2] = corner[c]->oz;
@@ -3004,17 +3072,14 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
                 break;
             }
         }
-        if (lit && corner[c]->lit) {
+        if (lit) {
             N[c][0] = corner[c]->nx; N[c][1] = corner[c]->ny; N[c][2] = corner[c]->nz;
             if (!havel) {
                 memcpy(L[c], N[c], sizeof(L[c]));
             }
-        } else {
-            if (!havel) {
-                // a degenerate face with nothing lit: nothing to bend with
-                L[c][0] = L[c][1] = L[c][2] = 0.0f;
-            }
-            memcpy(N[c], L[c], sizeof(N[c]));
+        } else if (!havel) {
+            // a degenerate face with nothing lit: nothing to bend with
+            L[c][0] = L[c][1] = L[c][2] = 0.0f;
         }
     }
 
@@ -3035,9 +3100,11 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
     }
 
     float n12[3], n23[3], n31[3];
-    smooth_edge_normal(n12, P[0], P[1], N[0], N[1]);
-    smooth_edge_normal(n23, P[1], P[2], N[1], N[2]);
-    smooth_edge_normal(n31, P[2], P[0], N[2], N[0]);
+    if (lit) {
+        smooth_edge_normal(n12, P[0], P[1], N[0], N[1]);
+        smooth_edge_normal(n23, P[1], P[2], N[1], N[2]);
+        smooth_edge_normal(n31, P[2], P[0], N[2], N[0]);
+    }
 
     // the patch at barycentrics (w toward v1, u toward v2, v toward v3)
     // The mesh pass's subdivided surface, if the triangle has one and the
@@ -3072,6 +3139,7 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
         g_GfxPatchesPn++;
     }
 
+    // the position, and for a lit patch the normal, at barycentrics (w, u, v)
     auto eval = [&](float w, float u, float v, float pos[3], float nrm[3]) {
         const float w2 = w * w, u2 = u * u, v2f = v * v;
         // the subdivided surface's point here, when there is one exactly
@@ -3084,7 +3152,7 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
                 sw[kc[c]] = bw[c];
             }
             const float fi = sw[1] * SMOOTH_GRIDN, fj = sw[2] * SMOOTH_GRIDN;
-            const int gi = (int)lroundf(fi), gj = (int)lroundf(fj);
+            const int gi = smooth_round(fi), gj = smooth_round(fj);
             if (fabsf(fi - gi) < 1e-3f && fabsf(fj - gj) < 1e-3f && gi >= 0 && gj >= 0 && gi + gj <= SMOOTH_GRIDN) {
                 gp = mesh->grid[smooth_grid_index(SMOOTH_GRIDN, gi, gj)];
             }
@@ -3097,11 +3165,14 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
                         + b23[k] * u2 * v + b31[k] * w * v2f + b32[k] * u * v2f)
                 + 6.0f * b111[k] * w * u * v;
             pos[k] = flat + (curved - flat) * amount;
-
-            const float nflat = w * N[0][k] + u * N[1][k] + v * N[2][k];
-            const float ncurved = N[0][k] * w2 + N[1][k] * u2 + N[2][k] * v2f
-                + n12[k] * w * u + n23[k] * u * v + n31[k] * w * v;
-            nrm[k] = nflat + (ncurved - nflat) * amount;
+        }
+        if (lit) {
+            for (int k = 0; k < 3; k++) {
+                const float nflat = w * N[0][k] + u * N[1][k] + v * N[2][k];
+                const float ncurved = N[0][k] * w2 + N[1][k] * u2 + N[2][k] * v2f
+                    + n12[k] * w * u + n23[k] * u * v + n31[k] * w * v;
+                nrm[k] = nflat + (ncurved - nflat) * amount;
+            }
         }
     };
 
@@ -3165,7 +3236,11 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
                 eval(bb[0], bb[1], bb[2], posb, nrmb);
                 for (int k2 = 0; k2 < 3; k2++) {
                     pos[k2] = posa[k2] + (posb[k2] - posa[k2]) * f;
-                    nrm[k2] = nrma[k2] + (nrmb[k2] - nrma[k2]) * f;
+                }
+                if (lit) {
+                    for (int k2 = 0; k2 < 3; k2++) {
+                        nrm[k2] = nrma[k2] + (nrmb[k2] - nrma[k2]) * f;
+                    }
                 }
             } else {
                 eval(w, u, v, pos, nrm);
@@ -3175,21 +3250,21 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
             if (lit) {
                 const float nlen = sqrtf(smooth_dot(nrm, nrm));
                 if (nlen > 1e-6f) {
-                    vcn.x = (int8_t)lroundf(nrm[0] / nlen * 127.0f);
-                    vcn.y = (int8_t)lroundf(nrm[1] / nlen * 127.0f);
-                    vcn.z = (int8_t)lroundf(nrm[2] / nlen * 127.0f);
+                    vcn.x = (int8_t)smooth_round(nrm[0] / nlen * 127.0f);
+                    vcn.y = (int8_t)smooth_round(nrm[1] / nlen * 127.0f);
+                    vcn.z = (int8_t)smooth_round(nrm[2] / nlen * 127.0f);
                 } else {
-                    vcn.x = (int8_t)lroundf(N[0][0] * 127.0f);
-                    vcn.y = (int8_t)lroundf(N[0][1] * 127.0f);
-                    vcn.z = (int8_t)lroundf(N[0][2] * 127.0f);
+                    vcn.x = (int8_t)smooth_round(N[0][0] * 127.0f);
+                    vcn.y = (int8_t)smooth_round(N[0][1] * 127.0f);
+                    vcn.z = (int8_t)smooth_round(N[0][2] * 127.0f);
                 }
             } else {
                 // the colour the corners' shading gives this point
-                vcn.r = (uint8_t)lroundf(w * v1->color.r + u * v2->color.r + v * v3->color.r);
-                vcn.g = (uint8_t)lroundf(w * v1->color.g + u * v2->color.g + v * v3->color.g);
-                vcn.b = (uint8_t)lroundf(w * v1->color.b + u * v2->color.b + v * v3->color.b);
+                vcn.r = (uint8_t)smooth_round(w * v1->color.r + u * v2->color.r + v * v3->color.r);
+                vcn.g = (uint8_t)smooth_round(w * v1->color.g + u * v2->color.g + v * v3->color.g);
+                vcn.b = (uint8_t)smooth_round(w * v1->color.b + u * v2->color.b + v * v3->color.b);
             }
-            vcn.a = (uint8_t)lroundf(w * v1->color.a + u * v2->color.a + v * v3->color.a);
+            vcn.a = (uint8_t)smooth_round(w * v1->color.a + u * v2->color.a + v * v3->color.a);
 
             const float U = w * v1->u + u * v2->u + v * v3->u;
             const float V = w * v1->v + u * v2->v + v * v3->v;
@@ -3202,17 +3277,64 @@ static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, 
     }
     g_GfxNumVerts += made_count;
 
+    // Draw it: the state once for the whole patch, room in the batch for
+    // every piece (a piece may not name a vertex a flush has sent), the
+    // batch's triangles so far numbered if it was not indexed yet, the grid's
+    // points written once each, and the pieces as triples of their numbers.
+    // A piece is tested for lying off screen and for facing away as a plain
+    // triangle is: a bent piece can face away from a patch that faces the eye.
+    const int npieces = n * n;
+    const int npoints = (n + 1) * (n + 2) / 2;
+    gfx_emit_prepare();
+    // Room for the whole patch before any of it is written, in triangles and
+    // in vertices both: a patch brings fewer vertices than three a triangle,
+    // but a patch whose pieces are all culled brings vertices and no
+    // triangle at all, so the triangle count alone does not bound the buffer.
+    if (buf_vbo_len > 0 && (buf_vbo_num_tris + npieces > g_GfxMaxBufferedTris ||
+                            buf_vbo_num_verts + npoints > MAX_BUFFERED_VERTS)) {
+        g_GfxNumBufferFullFlushes++;
+        gfx_flush_for(GFX_FLUSH_BUFFERFULL);
+    }
+    if (!buf_indexed) {
+        for (size_t i = 0; i < 3 * buf_vbo_num_tris; i++) {
+            buf_ibo[i] = (uint16_t)i;
+        }
+        buf_indexed = true;
+    }
+    uint16_t idx[SMOOTH_MAX_VERTS];
+    for (int p = 0; p < npoints; p++) {
+        idx[p] = gfx_emit_vertex(grid[p], false);
+    }
+    const bool cliptest = (rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0;
+    auto piece = [&](int a, int b, int c) {
+        g_GfxTrisSmoothed++;
+        if (cliptest && (grid[a]->clip_rej & grid[b]->clip_rej & grid[c]->clip_rej)) {
+            g_GfxTrisClipped++;
+            return;
+        }
+        if (gfx_tri_is_culled(grid[a], grid[b], grid[c])) {
+            g_GfxTrisCulled++;
+            return;
+        }
+        uint16_t* ib = buf_ibo + 3 * buf_vbo_num_tris;
+        ib[0] = idx[a];
+        ib[1] = idx[b];
+        ib[2] = idx[c];
+        buf_vbo_num_tris++;
+    };
     for (int j = 0; j < n; j++) {
         const int row = j * (n + 1) - j * (j - 1) / 2;
         const int next = row + (n + 1 - j);
         for (int i = 0; i < n - j; i++) {
-            g_GfxTrisSmoothed++;
-            gfx_sp_tri_emit(grid[row + i], grid[row + i + 1], grid[next + i], false);
+            piece(row + i, row + i + 1, next + i);
             if (i + j + 1 < n) {
-                g_GfxTrisSmoothed++;
-                gfx_sp_tri_emit(grid[row + i + 1], grid[next + i + 1], grid[next + i], false);
+                piece(row + i + 1, next + i + 1, next + i);
             }
         }
+    }
+    if (buf_vbo_num_tris >= g_GfxMaxBufferedTris) {
+        g_GfxNumBufferFullFlushes++;
+        gfx_flush_for(GFX_FLUSH_BUFFERFULL);
     }
 }
 

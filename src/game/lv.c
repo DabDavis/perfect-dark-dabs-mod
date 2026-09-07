@@ -103,6 +103,10 @@
 #include "video.h"
 #include "record.h"
 #include "game/modrules.h"
+#include <stdlib.h>
+#include "system.h"
+
+extern s32 g_ExitFrame;
 #endif
 
 struct sndstate *g_MiscSfxAudioHandles[3];
@@ -2306,6 +2310,14 @@ void lvTick(void)
 
 	if (g_Vars.lvupdate240 > 0) {
 		g_Vars.lvframenum++;
+
+#ifndef PLATFORM_N64
+		// --exit-frame: a measured run ends on a level frame, not a clock
+		if (g_ExitFrame > 0 && g_Vars.lvframenum >= g_ExitFrame) {
+			sysLogPrintf(LOG_NOTE, "exit-frame %d reached", g_ExitFrame);
+			exit(0);
+		}
+#endif
 	}
 
 	g_Vars.lvupdate60f = g_Vars.lvupdate240 * 0.25f;

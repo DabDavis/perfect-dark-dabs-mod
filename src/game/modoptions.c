@@ -4,6 +4,7 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
+#include "video.h"
 #include "bss.h"
 #endif
 #include "types.h"
@@ -469,13 +470,48 @@ bool modIsModelSmoothingOn(void)
 }
 
 /**
- * Whether the game's distance models are in use: the Model LOD setting,
- * except that Increase Poly Models holds it off (modelUpdateDistanceRelations).
+ * Whether the game's distance models are in use: the Model LOD setting.
+ * Increase Poly Models used to hold it off; now it pushes the switch out
+ * (modGetModelLodDistanceScale).
  */
 bool modIsModelLodOn(void)
 {
-	return g_ModOptions.modellod != 0 && !modIsModelSmoothingOn();
+	return g_ModOptions.modellod != 0;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * What a distance node's distance is scaled by before it is compared with
+ * the model's thresholds (modelUpdateDistanceRelations): 1 for stock.
+ *
+ * Under Increase Poly Models the far model must not replace a near one the
+ * renderer is still bending, and the far model is a different mesh, so the
+ * switch would be a pop. The thresholds were set for a 240-line screen: a
+ * character switches at 900 units, about 44 pixels tall there, and at
+ * 1080p the same distance leaves it 200 pixels tall with edges the
+ * renderer gives two or three segments. So the switch is held off until
+ * the figure is as small on this screen as it was on the console's, where
+ * every edge is under the renderer's pixels-per-segment and it draws the
+ * near model flat anyway: the distance is scaled by 240 over the height
+ * drawn, and never up.
+ */
+f32 modGetModelLodDistanceScale(void)
+{
+	s32 height;
+
+	if (!modIsModelSmoothingOn()) {
+		return 1.0f;
+	}
+
+	height = videoGetHeight();
+
+	if (height <= 240) {
+		return 1.0f;
+	}
+
+	return 240.0f / height;
+}
+#endif
 
 /**
  * Smooth Text, as the factor the font's glyphs are scaled up by: 1 for off.
