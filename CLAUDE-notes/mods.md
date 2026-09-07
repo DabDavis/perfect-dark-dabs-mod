@@ -1349,13 +1349,11 @@ at 28 ejecting a tranquilizer dart, its grenades and mines never going off.
   reads the stock list on a mod that never touched the site writes the
   stock list, the same authority-over-inheritance rule as before.
 - Next, by GE-X's constants regions still unread and shaped like weapon
-  numbers: `fr_is_ammo_wasted` (7), `beam_create_for_hand` (4), and
-  the one-word ones seen in passing: `obj_child_tick_player` (20 -> 0),
-  `bgun_tick_gameplay2` (22 -> 38, twice), `bgun_create_fired_projectile`
-  (18 -> 0), `obj_attachment_test_hit` (three `xori` tests: 22, 8, 22 ->
-  38, 17, 19). `prop_play_pickup_sound` and
-  `bgun_get_unequipped_reload_index` are the `pickupsound` and
-  `unequippedreloadindex` fields' sites, a value each rather than a list.
+  numbers: `fr_is_ammo_wasted` (7), `beam_create_for_hand` (4),
+  `obj_child_tick_player` (20 -> 0, `MINIGUN`), and `prop_play_pickup_sound`,
+  the `pickupsound` field's sites (inheritance by address already gives GE-X
+  the right sounds; a reader would run the function per weapon, as the reload
+  index does below, and trap the sound call's argument).
 
 ## The pickup rules: bgun_draw_hud, ammo_handle_pickup, weapon_get_pickup_ammo_qty (2026-09-07)
 
@@ -1457,3 +1455,47 @@ version 26. Three more flags3 and eight rows; GE-X reads at every one.
   disagreement again), `chr_grunt` (its 15, 41, 58 and 12, 47, 60 are not
   weapons - body numbers, by the look of the sets GE-X made 5 and 4), and
   `chr_shoot`'s 7 -> 39 and 1 -> 0 at 0x7f0418e4, unread.
+
+## The last of the number sites, and a field read by running the code (2026-09-07)
+
+Importer version 27. Two more flags3 and, for the first time, a `weapon N {
+}` block written by the importer.
+
+- **`bgun_tick_gameplay2`'s FarSight is x-ray vision** (aiming through its
+  sight switches the vision mode, and the scanner defers to it): two more
+  `xrayshot` sites, and `obj_attachment_test_hit`'s first `xori` (a
+  bulletproof object's glass gives way to it) a third. GE-X 38 at all of
+  them. The two RC-P120 tests there are `cloakammo`; GE-X took one out and
+  left the other, so the flag is reported and left - and GE-X's 13 does not
+  sit at the RC-P120's address, so it inherits nothing either way.
+- **An `xori` is an immediate too.** `obj_attachment_test_hit` compares with
+  `xori v0,v1,N; sltu` rather than `li at,N; bne`, which no chain reader
+  sees; the `'imm'` kind takes an xori of the tested register as well as an
+  li. Its magnum-and-FarSight pair (a shot through a bulletproof object's
+  parts) is two xoris that are one list, so an `'imm'` site may name a tuple
+  of addresses (C: `at2`), and `FLAG_BYNUMBER` takes the FarSight's 22 out
+  as `XRAYSHOT`'s: `WEAPONFLAG3_PIERCESBULLETPROOF` is the magnum's, and GE-X
+  puts two pistols there (17, 19), not its FarSight - reading the second
+  xori as an `xrayshot` site had the flag disagreeing with itself.
+- **The grenade launchers are a function flag the ROM already had.**
+  `bgun_create_fired_projectile` picked the grenade round by two weapon
+  numbers (the Devastator's, the SuperDragon's); `FUNCFLAG_10000000` sits on
+  exactly those three functions (and the round's own two, which no hand
+  fires), so the port tests it, and the SuperDragon's small burst - its
+  rounds carry `FUNC_2` - is `WEAPONFLAG3_SDGRENADE`. GE-X has none.
+- **A value per weapon is read by running the function per weapon.**
+  `bgun_get_unequipped_reload_index` is pure - a chain of compares returning
+  the animation index or -1 - so `reload_from_code()` / the `reloadcfg`
+  block run it for every weapon number on both binaries (`emulate()` /
+  `emuRun()`, the weather's toy MIPS) and write `weaponflags
+  unequippedreload { clear ... }` and a `weapon N { unequippedreloadindex I
+  }` per weapon in a `# importer: reload` region. GE-X: its second shotgun
+  15 with animation 1 and magnum 17 with 2, the crossbow's and the LX's
+  gone - and its 14, at the stock shotgun's address, *loses* the inherited
+  reload, which is what its code says. Live: 15's flags2 has the bit and
+  index 1, 14's has neither.
+- Left: `fr_is_ammo_wasted`, `beam_create_for_hand`, `chr_grunt`,
+  `prop_play_pickup_sound` (above), and in `bgun_create_fired_projectile`
+  the crossbow's bolt and the launchers' rocket, which GE-X does not
+  renumber and which are a projectile number per function - a field, if
+  ever, not a flag.

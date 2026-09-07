@@ -15703,7 +15703,7 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 					node1, &hitthing1, spe4, node2,
 					model, isnotglass && !weaponHasFlag3(shotdata->gset.weaponnum, WEAPONFLAG3_XRAYSHOT),
 					(obj->flags2 & OBJFLAG2_BULLETPROOF)
-						&& shotdata->gset.weaponnum != WEAPON_DY357MAGNUM
+						&& !weaponHasFlag3(shotdata->gset.weaponnum, WEAPONFLAG3_PIERCESBULLETPROOF)
 						&& !weaponHasFlag3(shotdata->gset.weaponnum, WEAPONFLAG3_XRAYSHOT),
 					&sp7c, &sp70);
 		}

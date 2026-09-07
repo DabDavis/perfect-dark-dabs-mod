@@ -1688,7 +1688,10 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               ('pellets', (('hand_tick_attack', 19),)),
               ('botlimitless', (('bot_tick_unpaused', 29),)),
               # the second 13 in bot_tick_unpaused is the weapon-preference switch, a dispatch
-              ('cloakammo', (('bot_tick_unpaused', 13, (0,)),)),
+              # the player's cloak drains the RC-P120's ammo at two sites in
+              # bgun_tick_gameplay2; GE-X took one out and left the other
+              ('cloakammo', (('bot_tick_unpaused', 13, (0,)), ('bgun_tick_gameplay2', 13, 0x7f0a6e64, 'imm'),
+                             ('bgun_tick_gameplay2', 13, 0x7f0a6e84, 'imm'))),
               # the no-bullet-hole list and the FarSight's through-walls shot, in
               # shot_calculate_hits and obj_hit; named by stock address, since these
               # sit in delay slots and behind other tests on `at` that the head
@@ -1701,7 +1704,19 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
                             ('obj_hit', 22, 0x7f08606c),
                             # a likely branch's delay slot writes at (`lui at,0x4780`) between
                             # the li and its compare, which ends a chain: one immediate
-                            ('chr_shoot', 22, 0x7f040a28, 'imm'))),
+                            ('chr_shoot', 22, 0x7f040a28, 'imm'),
+                            # aiming through the FarSight is x-ray vision; and its shot at a
+                            # bulletproof object's glass, tested with xori rather than li
+                            ('bgun_tick_gameplay2', 22),
+                            ('obj_attachment_test_hit', 22, 0x7f085d58, 'imm'))),
+              # the shots that go through a bulletproof object's parts: two xori
+              # tests that are one list, the magnum's and the FarSight's - the
+              # FarSight's is XRAYSHOT's (FLAG_BYNUMBER), and GE-X puts a second
+              # pistol there (17, 19), not its FarSight
+              ('piercesbulletproof', (('obj_attachment_test_hit', 8, (0x7f085d80, 0x7f085d90), 'imm'),)),
+              # the SuperDragon's rounds; the Devastator's and its own launcher
+              # functions carry FUNCFLAG_10000000, which the port tests instead
+              ('sdgrenade', (('bgun_create_fired_projectile', 18),)),
               ('nosparks', (('shot_calculate_hits', 1, 0x7f061be0),)),
               # weapon_tick's kinds of thrown weapon. The grenade's number is
               # hoisted into a2 for the whole function, and the mines' `li at`
@@ -1765,7 +1780,7 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
 # test that shares the body (bgun0f0a4e44 skips the Reaper's flash sprites too,
 # which is MINIGUN's, on the definition). Taken out of both the stock and the
 # mod's list, so they neither reach the flag nor break agreement.
-FLAG_BYNUMBER = {'explodeswhenshot': (83,), 'botignores': (88,), 'shellparts': (20,)}
+FLAG_BYNUMBER = {'explodeswhenshot': (83,), 'botignores': (88,), 'shellparts': (20,), 'piercesbulletproof': (22,)}
 
 
 def follow_flag_site_at(stockcode, modcode, start, end, addr):
@@ -1799,7 +1814,9 @@ def follow_immediate_at(stockcode, modcode, start, end, addr):
         return None, None
     x = be32(stockcode, ofs)
     y = be32(modcode, ofs)
-    if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (y >> 16) != (x >> 16):
+    # an li (addiu/ori from zero), or an xori of the tested register, which is
+    # how obj_attachment_test_hit compares: the same op and registers, another number
+    if (x >> 26) not in (0x08, 0x09, 0x0e) or ((x >> 26) != 0x0e and (x >> 21) & 0x1f != 0) or (y >> 16) != (x >> 16):
         return None, None
     return [x & 0xffff], [n for n in (y & 0xffff,) if 0 < n < 0xff]
 
@@ -1918,6 +1935,31 @@ def damage_from_code(stockcode, modcode, codesyms):
         out['notes'].append("the shield-break damage in chr_damage does not read; left as the port has it")
     else:
         out['breakhits'] = breakhits
+    return out
+
+
+RELOAD_BEGIN = '# importer: reload begin'
+RELOAD_END = '# importer: reload end'
+
+
+def reload_from_code(stockcode, modcode, codesyms, nweapons):
+    """Which weapons reload while unequipped, and with which animation index,
+    by running bgun_get_unequipped_reload_index for every weapon number on
+    both binaries: a chain of compares returning the index or -1, pure, seven
+    words of which GE-X renumbered (its second shotgun 15 and magnum 17; the
+    crossbow's and the DY357-LX's taken out). {'stock': {w: index}, 'mod':
+    {w: index}}, or None where a run does not finish."""
+    if 'bgun_get_unequipped_reload_index' not in codesyms:
+        return None
+    entry = codesyms['bgun_get_unequipped_reload_index'][0]
+    out = {'stock': {}, 'mod': {}}
+    for name, code in (('stock', stockcode), ('mod', modcode)):
+        for w in range(1, nweapons):
+            res = emulate(code, entry, a0=w, maxsteps=200)
+            if res is None or res[1]:
+                return None
+            if res[0] != 0xffffffff and res[0] < 128:
+                out[name][w] = res[0]
     return out
 
 
@@ -3427,7 +3469,18 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                     break
                 start, end = codesyms[fn]
                 kept = FLAG_BYNUMBER.get(flag, ())
-                if len(site) > 2 and isinstance(site[2], int):
+                if len(site) > 3 and site[3] == 'imm' and isinstance(site[2], tuple):
+                    # several immediates that are one list (two xori tests)
+                    sl, ml = [], []
+                    for addr in site[2]:
+                        a, b = follow_immediate_at(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, addr)
+                        if a is None:
+                            sl, ml = None, None
+                            break
+                        sl += a
+                        ml += b
+                    found = [(sl, ml)]
+                elif len(site) > 2 and isinstance(site[2], int):
                     # a site named by its stock address: the chain there, one
                     # immediate, or a range test
                     reader = {'imm': follow_immediate_at, 'range': follow_range_at}.get(site[3] if len(site) > 3 else None, follow_flag_site_at)
@@ -3504,6 +3557,23 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '# and which weapon an ammo pickup gives. Written by tools/importmod.\n'
                           + AMMO_BEGIN + '\n' + '\n'.join(lines_) + '\n' + AMMO_END + '\n')
 
+    # The unequipped reload: which weapons, and which animation, by running the code
+    reloadregion = ''
+    if followed and codesyms:
+        rl = reload_from_code(stockcode, modcode, codesyms, stockcount('g_Weapons', 4))
+        if rl is None:
+            notes.append('the unequipped reload index in bgun_get_unequipped_reload_index does not run; left as the port has it')
+        else:
+            lines_ = ['weaponflags unequippedreload { clear%s }' % ''.join(' %d' % w for w in sorted(rl['mod']))]
+            lines_ += ['weapon %d { unequippedreloadindex %d }' % (w, i) for w, i in sorted(rl['mod'].items())]
+            reloadregion = ('# Which weapons reload while unequipped, and with which animation: read by running\n'
+                            '# the mod\'s code for every weapon number. Written by tools/importmod.\n'
+                            + RELOAD_BEGIN + '\n' + '\n'.join(lines_) + '\n' + RELOAD_END + '\n')
+            if rl['mod'] != rl['stock']:
+                notes.append('unequipped reload is on %s (stock: %s)'
+                             % (', '.join('weapon %d with animation %d' % (w, i) for w, i in sorted(rl['mod'].items())) or 'no weapon',
+                                ', '.join('%d/%d' % (w, i) for w, i in sorted(rl['stock'].items()))))
+
     # The unlocks: the tests the mod's code forces to true, family by family
     unlocksregion = ''
     if followed:
@@ -3557,6 +3627,8 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(AMMO_BEGIN) + r'\n.*?' + re.escape(AMMO_END) + r'\n*',
                           '', existing, flags=re.S)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(RELOAD_BEGIN) + r'\n.*?' + re.escape(RELOAD_END) + r'\n*',
+                          '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
                           (block + '\n' + (weatherregion + '\n' if weatherregion else '')
                            + (shieldregion + '\n' if shieldregion else '')
@@ -3564,6 +3636,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                            + (flagsiteregion + '\n' if flagsiteregion else '')
                            + (damageregion + '\n' if damageregion else '')
                            + (ammoregion + '\n' if ammoregion else '')
+                           + (reloadregion + '\n' if reloadregion else '')
                            + (unlocksregion + '\n' if unlocksregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None

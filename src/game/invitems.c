@@ -1011,7 +1011,7 @@ struct weapon invitem_dy357 = {
 	WEAPONFLAG2_UNEQUIPPEDRELOAD | WEAPONFLAG2_NOCARTEJECT | WEAPONFLAG2_HEAVYSMOKE | WEAPONFLAG2_BLUNTMELEE, // flags2
 	2, // unequipped reload index
 	0, // pickup sound
-	WEAPONFLAG3_REVOLVER, // flags3
+	WEAPONFLAG3_REVOLVER | WEAPONFLAG3_PIERCESBULLETPROOF, // flags3
 };
 
 struct weapon invitem_dy357lx = {
@@ -2085,6 +2085,10 @@ struct weapon invitem_superdragon = {
 	L_GUN_149, // manufacturer
 	L_GUN_167, // description
 	WEAPONFLAG_AICANUSE | WEAPONFLAG_00000040 | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_00000400 | WEAPONFLAG_00002000 | WEAPONFLAG_00004000 | WEAPONFLAG_HASHANDS,
+	0, // flags2
+	0, // unequipped reload index
+	0, // pickup sound
+	WEAPONFLAG3_SDGRENADE, // flags3
 };
 
 struct gunviscmd gunviscmds_ar34[] = {

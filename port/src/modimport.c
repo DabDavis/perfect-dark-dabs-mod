@@ -2315,6 +2315,10 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bgun_tick_inc_autoswitch",   0x7f099808, 0x7f099c24 },
 	{ "chr_shoot",                  0x7f0404d4, 0x7f041a74 },
 	{ "obj_stick",                  0x7f06f0a0, 0x7f06f314 },
+	{ "bgun_tick_gameplay2",        0x7f0a6c30, 0x7f0a70a8 },
+	{ "bgun_create_fired_projectile", 0x7f09fa84, 0x7f0a0394 },
+	{ "obj_attachment_test_hit",    0x7f0859a0, 0x7f085e00 },
+	{ "bgun_get_unequipped_reload_index", 0x7f097d0c, 0x7f097d64 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3786,16 +3790,20 @@ static s32 followImmediateAt(const u8 *stockcode, u32 stocklen, const u8 *modcod
 {
 	const u32 ofs = at - GAME_VRAM;
 	u32 x, y;
+	*nstock = 0;
+	*nmod = 0;
 	if (ofs + 4 > stocklen || ofs + 4 > modlen) {
 		return 0;
 	}
 	x = be32(stockcode, ofs);
 	y = be32(modcode, ofs);
-	if (((x >> 26) != 0x08 && (x >> 26) != 0x09) || ((x >> 21) & 0x1f) != 0 || (y >> 16) != (x >> 16)) {
+	// an li (addiu/ori from zero), or an xori of the tested register, which
+	// is how obj_attachment_test_hit compares: the same op and registers,
+	// another number
+	if (((x >> 26) != 0x08 && (x >> 26) != 0x09 && (x >> 26) != 0x0e) || ((x >> 26) != 0x0e && ((x >> 21) & 0x1f) != 0)
+			|| (y >> 16) != (x >> 16)) {
 		return 0;
 	}
-	*nstock = 0;
-	*nmod = 0;
 	if ((x & 0xffff) > 0 && (x & 0xffff) < 0xff) {
 		stocknums[(*nstock)++] = x & 0xff;
 	}
@@ -3842,16 +3850,25 @@ static s32 followRangeAt(const u8 *stockcode, u32 stocklen, const u8 *modcode, u
 }
 
 static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
-		u32 start, u32 end, u32 from, u32 value, u32 at, u32 kind, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod, s32 *ok)
+		u32 start, u32 end, u32 from, u32 value, u32 at, u32 kind, u32 at2, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod, s32 *ok)
 {
 	if (kind != SITE_CHAIN) {
 		// one site, read once
 		if (from != start) {
 			return 0;
 		}
-		*ok = kind == SITE_IMM
-			? followImmediateAt(stockcode, stocklen, modcode, modlen, at, stocknums, nstock, modnums, nmod)
-			: followRangeAt(stockcode, stocklen, modcode, modlen, end, at, stocknums, nstock, modnums, nmod);
+		if (kind == SITE_IMM) {
+			*ok = followImmediateAt(stockcode, stocklen, modcode, modlen, at, stocknums, nstock, modnums, nmod);
+			if (*ok && at2) {
+				// a second immediate on the same list
+				s32 ns2, nm2;
+				*ok = followImmediateAt(stockcode, stocklen, modcode, modlen, at2, stocknums + *nstock, &ns2, modnums + *nmod, &nm2);
+				*nstock += ns2;
+				*nmod += nm2;
+			}
+		} else {
+			*ok = followRangeAt(stockcode, stocklen, modcode, modlen, end, at, stocknums, nstock, modnums, nmod);
+		}
 		return start + 4;
 	}
 	for (u32 ofs = from; ofs + 8 <= end && ofs + 8 <= stocklen && ofs + 8 <= modlen; ofs += 4) {
@@ -3912,8 +3929,10 @@ static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 // at: the site by its stock address, for one that sits in a delay slot or
 // behind another test on at that the head rule cannot see past; 0 to find
 // the sites by value
-// kind: how the site is read (SITE_CHAIN unless said)
-static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 at; u32 kind; } flagSites[] = {
+// kind: how the site is read (SITE_CHAIN unless said); at2: a second
+// immediate that is part of the same list (obj_attachment_test_hit's two
+// xori tests), SITE_IMM only
+static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 at; u32 kind; u32 at2; } flagSites[] = {
 	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19, 0, 0 },
 	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6, 0, 0 },
 	{ "chargeable", "bgun0f09a6f8", 6, 0, 0 },
@@ -3932,6 +3951,10 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	{ "botlimitless", "bot_tick_unpaused", 29, 0, 0 },
 	// the second 13 in bot_tick_unpaused is the weapon-preference switch, a dispatch
 	{ "cloakammo",    "bot_tick_unpaused", 13, 1 << 0, 0 },
+	// the player's cloak drains the RC-P120's ammo at two sites in
+	// bgun_tick_gameplay2; GE-X took one out and left the other
+	{ "cloakammo",    "bgun_tick_gameplay2", 13, 0, 0x7f0a6e64, SITE_IMM },
+	{ "cloakammo",    "bgun_tick_gameplay2", 13, 0, 0x7f0a6e84, SITE_IMM },
 	// the no-bullet-hole list and the FarSight's through-walls shot; the
 	// no-sparks pair GE-X never touched
 	{ "nowallhit",    "shot_calculate_hits", 1, 0, 0x7f061788 },
@@ -3942,6 +3965,17 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	// a likely branch's delay slot writes at (lui at,0x4780) between the li
 	// and its compare, which ends a chain: one immediate
 	{ "xrayshot",     "chr_shoot", 22, 0, 0x7f040a28, SITE_IMM },
+	// aiming through the FarSight is x-ray vision; and its shot at a
+	// bulletproof object's glass, tested with xori rather than li
+	{ "xrayshot",     "bgun_tick_gameplay2", 22, 0, 0 },
+	{ "xrayshot",     "obj_attachment_test_hit", 22, 0, 0x7f085d58, SITE_IMM },
+	// the shots that go through a bulletproof object's parts: two xori tests
+	// that are one list, the magnum's and the FarSight's - the FarSight's is
+	// XRAYSHOT's (flagByNumber), and GE-X puts a second pistol there
+	{ "piercesbulletproof", "obj_attachment_test_hit", 8, 0, 0x7f085d80, SITE_IMM, 0x7f085d90 },
+	// the SuperDragon's rounds; the Devastator's and its own launcher
+	// functions carry FUNCFLAG_10000000, which the port tests instead
+	{ "sdgrenade",    "bgun_create_fired_projectile", 18, 0, 0 },
 	{ "nosparks",     "shot_calculate_hits", 1, 0, 0x7f061be0 },
 	// weapon_tick's kinds of thrown weapon: the grenade's number is hoisted
 	// into a2 for the whole function, and the mines' li at sit in the delay
@@ -4013,7 +4047,7 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 // sprites too, which is MINIGUN's, on the definition). Taken out of both the
 // stock and the mod's list, so they neither reach the flag nor break agreement.
 static const struct { const char *flag; u8 num; } flagByNumber[] = {
-	{ "explodeswhenshot", 83 }, { "botignores", 88 }, { "shellparts", 20 },
+	{ "explodeswhenshot", 83 }, { "botignores", 88 }, { "shellparts", 20 }, { "piercesbulletproof", 22 },
 };
 
 static void dropByNumber(const char *flag, u8 *nums, s32 *n)
@@ -4050,6 +4084,11 @@ static int cmpU8(const void *a, const void *b)
 #define AMMO_END   "# importer: ammo end"
 
 #define AMMO_MIN(a, b) ((a) < (b) ? (a) : (b))
+
+/* -- the unequipped reload, by running the code -------------------------- */
+
+#define RELOAD_BEGIN "# importer: reload begin"
+#define RELOAD_END   "# importer: reload end"
 
 /**
  * (table address, count) for the switch whose `jr rY` is at ofs: `lui at,HI`
@@ -4865,7 +4904,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				from = start;
 				u32 occ = 0;
 				while ((from = followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, from,
-						flagSites[j].value, flagSites[j].at, flagSites[j].kind, stocknums, &nstock, nums, &nmod, &read)) != 0) {
+						flagSites[j].value, flagSites[j].at, flagSites[j].kind, flagSites[j].at2, stocknums, &nstock, nums, &nmod, &read)) != 0) {
 					const u32 thisocc = occ++;
 					if (flagSites[j].occ && !(flagSites[j].occ & (1u << thisocc))) {
 						continue;   // another row's site
@@ -5105,6 +5144,69 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// Which weapons reload while unequipped, and with which animation: by
+	// running bgun_get_unequipped_reload_index for every weapon number on both
+	// binaries - a chain of compares returning the index or -1, pure, seven
+	// words of which GE-X renumbered (its second shotgun 15 and magnum 17;
+	// the crossbow's and the DY357-LX's taken out).
+	char *reloadcfg = NULL;
+	u32 reloadlen = 0, reloadcap = 0;
+	if (t.followed) {
+		u32 fn, fnend;
+		if (codeSym("bgun_get_unequipped_reload_index", &fn, &fnend)) {
+			struct emu *e = malloc(sizeof(*e));
+			s32 idx[2][256];
+			s32 ok = 1;
+			for (u32 pass = 0; pass < 2 && ok; ++pass) {
+				e->code = pass ? t.modcode : t.stockcode;
+				e->codelen = pass ? t.modcodelen : t.stockcodelen;
+				for (u32 w = 0; w < 256; ++w) {
+					u32 v0, calls;
+					idx[pass][w] = -1;
+					if (w == 0 || w >= hcount) {
+						continue;
+					}
+					if (!emuRun(e, fn + GAME_VRAM, w, 0, 200, &v0, &calls) || calls) {
+						ok = 0;
+						break;
+					}
+					if (v0 != 0xffffffffu && v0 < 128) {
+						idx[pass][w] = (s32)v0;
+					}
+				}
+			}
+			free(e);
+			if (!ok) {
+				rep("  the unequipped reload index in bgun_get_unequipped_reload_index does not run; left as the port has it");
+			} else {
+				char list[128] = "", prose[256] = "", stockprose[128] = "";
+				u32 listlen = 0, proselen = 0, stocklen2 = 0;
+				s32 differs = 0;
+				for (u32 w = 1; w < hcount && w < 256; ++w) {
+					if (idx[1][w] >= 0) {
+						listlen += snprintf(list + listlen, sizeof(list) - listlen, " %u", w);
+						proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%sweapon %u with animation %d", proselen ? ", " : "", w, idx[1][w]);
+					}
+					if (idx[0][w] >= 0) {
+						stocklen2 += snprintf(stockprose + stocklen2, sizeof(stockprose) - stocklen2, "%s%u/%d", stocklen2 ? ", " : "", w, idx[0][w]);
+					}
+					if (idx[0][w] != idx[1][w]) {
+						differs = 1;
+					}
+				}
+				appendf(&reloadcfg, &reloadlen, &reloadcap, "weaponflags unequippedreload { clear%s }\n", list);
+				for (u32 w = 1; w < hcount && w < 256; ++w) {
+					if (idx[1][w] >= 0) {
+						appendf(&reloadcfg, &reloadlen, &reloadcap, "weapon %u { unequippedreloadindex %d }\n", w, idx[1][w]);
+					}
+				}
+				if (differs) {
+					rep("  unequipped reload is on %s (stock: %s)", proselen ? prose : "no weapon", stockprose);
+				}
+			}
+		}
+	}
+
 	// The unlocks: the tests the mod's code forces to true, family by family
 	char *unlocks = NULL;
 	u32 unlockslen = 0, unlockscap = 0;
@@ -5211,14 +5313,21 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					cutRegion(text, at, end + strlen(AMMO_END));
 				}
 			}
+			at = strstr(text, RELOAD_BEGIN);
+			if (at) {
+				char *end = strstr(at, RELOAD_END);
+				if (end) {
+					cutRegion(text, at, end + strlen(RELOAD_END));
+				}
+			}
 			free(existing);
 			existing = (u8 *)text;
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + unlockslen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + unlockslen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -5236,6 +5345,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				ammocfg ? "# The pickup rules the mod's code changes: what a dropped weapon's ammo counts for,\n"
 				          "# and which weapon an ammo pickup gives. Written by the game's mod importer.\n" AMMO_BEGIN "\n" : "",
 				ammocfg ? ammocfg : "", ammocfg ? AMMO_END "\n\n" : "",
+				reloadcfg ? "# Which weapons reload while unequipped, and with which animation: read by running\n"
+				            "# the mod's code for every weapon number. Written by the game's mod importer.\n" RELOAD_BEGIN "\n" : "",
+				reloadcfg ? reloadcfg : "", reloadcfg ? RELOAD_END "\n\n" : "",
 				unlocks ? "# What the mod's code unlocks outright, read from it. Written by the game's mod importer.\n" UNLOCKS_BEGIN "\nunlocks {\n" : "",
 				unlocks ? unlocks : "", unlocks ? "}\n" UNLOCKS_END "\n\n" : "",
 				existing ? (const char *)existing : "");
@@ -5248,6 +5360,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(flagsite);
 		free(damagecfg);
 		free(ammocfg);
+		free(reloadcfg);
 		free(unlocks);
 	}
 

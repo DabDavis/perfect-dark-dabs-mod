@@ -5170,17 +5170,16 @@ void bgunCreateFiredProjectile(s32 handnum)
 				if (weapon) {
 					weapon->gunfunc = hand->gset.weaponfunc;
 				}
-			} else if (hand->gset.weaponnum == WEAPON_DEVASTATOR) {
+			} else if (funcdef->base.base.flags & FUNCFLAG_10000000) {
+				// a grenade launcher's function: the Devastator's two and
+				// the SuperDragon's secondary carry the flag, which is what
+				// the two weapon numbers here used to say. The round keeps
+				// the hand's function - impact or wall hugger - unless the
+				// weapon's rounds are the SuperDragon's small burst.
 				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
 
 				if (weapon) {
-					weapon->gunfunc = hand->gset.weaponfunc;
-				}
-			} else if (hand->gset.weaponnum == WEAPON_SUPERDRAGON) {
-				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
-
-				if (weapon) {
-					weapon->gunfunc = FUNC_2;
+					weapon->gunfunc = weaponHasFlag3(hand->gset.weaponnum, WEAPONFLAG3_SDGRENADE) ? FUNC_2 : hand->gset.weaponfunc;
 				}
 			} else {
 				weapon = weaponCreateProjectileFromGset(funcdef->projectilemodelnum, &hand->gset, g_Vars.currentplayer->prop->chr);
@@ -8634,7 +8633,7 @@ void bgunTickGameplay2(void)
 	}
 
 	if ((g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit & DEVICE_XRAYSCANNER)
-			&& (bgunGetWeaponNum(HAND_RIGHT) != WEAPON_FARSIGHT || player->gunsightoff)) {
+			&& (!weaponHasFlag3(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG3_XRAYSHOT) || player->gunsightoff)) {
 		// Using normal xray scanner (not Farsight zoom)
 		if (player->visionmode != VISIONMODE_XRAY) {
 			player->erasertime = 0;
@@ -8651,7 +8650,7 @@ void bgunTickGameplay2(void)
 		player->epcol_2 = 1;
 	} else {
 		if (player->gunsightoff == 0) {
-			if (player->hands[HAND_RIGHT].gset.weaponnum == WEAPON_FARSIGHT) {
+			if (weaponHasFlag3(player->hands[HAND_RIGHT].gset.weaponnum, WEAPONFLAG3_XRAYSHOT)) {
 				// Aiming with the Farsight
 				if (player->visionmode != VISIONMODE_XRAY) {
 					player->erasertime = 0;
@@ -8696,7 +8695,7 @@ void bgunTickGameplay2(void)
 
 	if (g_Vars.currentplayer->devicesactive &
 			~g_Vars.currentplayer->devicesinhibit & DEVICE_CLOAKRCP120) {
-		if (player->gunctrl.weaponnum == WEAPON_RCP120) {
+		if (weaponHasFlag3(player->gunctrl.weaponnum, WEAPONFLAG3_CLOAKAMMO)) {
 			struct chrdata *chr = player->prop->chr;
 
 			// Handle RCP120 cloak ammo usage
@@ -8728,7 +8727,7 @@ void bgunTickGameplay2(void)
 			// No longer using RCP120, so turn off cloak
 			player->devicesactive &= ~DEVICE_CLOAKRCP120;
 		}
-	} else if (player->gunctrl.weaponnum == WEAPON_RCP120) {
+	} else if (weaponHasFlag3(player->gunctrl.weaponnum, WEAPONFLAG3_CLOAKAMMO)) {
 		hand = &player->hands[HAND_RIGHT];
 
 		// I think this is handling situations where the player has turned off

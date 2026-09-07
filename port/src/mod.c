@@ -540,6 +540,8 @@ static const struct {
 	{ "knifereload",      WEAPONFLAG3_KNIFERELOAD, 3 },
 	{ "keepsfunction",    WEAPONFLAG3_KEEPSFUNCTION, 3 },
 	{ "chrshotbeam",      WEAPONFLAG3_CHRSHOTBEAM, 3 },
+	{ "sdgrenade",        WEAPONFLAG3_SDGRENADE, 3 },
+	{ "piercesbulletproof", WEAPONFLAG3_PIERCESBULLETPROOF, 3 },
 };
 
 u32 g_ModUnlocks = 0;
