@@ -4819,6 +4819,7 @@ enum weaponnum {
 #define WEAPONFLAG3_PINBALL          0x00040000 // Its secondary function's throw bounces at full speed: the grenade's Proximity Pinball
 #define WEAPONFLAG3_DEPLOYS          0x00080000 // Thrown, it deploys as a sentry gun rather than landing as a weapon, and leaves the hand: the Laptop Gun's
 #define WEAPONFLAG3_BOTIGNORES       0x00100000 // A simulant never picks it up off the ground: a live explosive
+#define WEAPONFLAG3_BOOSTHUD         0x00200000 // The HUD shows the time left on it: the combat boost's
 #define WEAPONFLAG2_PELLETS          0x40000000 // A pull of the trigger is six shots at once, the shotgun's
 #define WEAPONFLAG2_BOTLIMITLESS     0x80000000 // A simulant's clip of it never runs dry, the laser's
 

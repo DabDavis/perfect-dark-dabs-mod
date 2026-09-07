@@ -2307,6 +2307,9 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bgun_create_thrown_projectile2", 0x7f09ee18, 0x7f09f100 },
 	{ "obj_damage",                 0x7f0852ac, 0x7f0859a0 },
 	{ "bot_is_obj_collectable",     0x7f191194, 0x7f19124c },
+	{ "weapon_get_pickup_ammo_qty", 0x7f088254, 0x7f08841c },
+	{ "ammo_handle_pickup",         0x7f088028, 0x7f08819c },
+	{ "bgun_draw_hud",              0x7f0aa86c, 0x7f0abad0 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3952,6 +3955,11 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	// since the function compares a hand state with 8 too, and the rocket
 	// launcher's 24 closes the magnums' chain. The laser sight is a range.
 	{ "detonatorhand", "bgun0f0a5550", 34, 0, 0 },
+	{ "detonatorhand", "bgun_draw_hud", 34, 0, 0 },
+	// the HUD's combat boost timer (GE-X's boost is 31), and the
+	// picked-up-one-at-a-time test (the knife and the bolt)
+	{ "boosthud",     "bgun_draw_hud", 35, 0, 0 },
+	{ "pickupsingle", "weapon_get_pickup_ammo_qty", 26, 0, 0 },
 	{ "ejectsdart",   "bgun0f0a5550", 28, 0, 0 },
 	{ "ejectspin",    "bgun0f0a5550", 30, 0, 0x7f0a609c },
 	{ "heldmuzzle",   "bgun0f0a5550", 30, 0, 0x7f0a6608 },
@@ -4015,6 +4023,75 @@ static int cmpU8(const void *a, const void *b)
 
 #define DAMAGE_BEGIN "# importer: damage begin"
 #define DAMAGE_END   "# importer: damage end"
+
+/* -- the pickup rules: quantities and what ammo gives ---------------------- */
+
+#define AMMO_BEGIN "# importer: ammo begin"
+#define AMMO_END   "# importer: ammo end"
+
+#define AMMO_MIN(a, b) ((a) < (b) ? (a) : (b))
+
+/**
+ * (table address, count) for the switch whose `jr rY` is at ofs: `lui at,HI`
+ * and `lw rY,LO(at)` in the four words before it, the index register from
+ * the `sll rZ,rZ,2` there, and its `sltiu at,rZ,N` anywhere back to the
+ * function's start - the compiler interleaves the two switches' prologues
+ * in weapon_get_pickup_ammo_qty, and the mission's count is thirty-eight
+ * words before its jr.
+ */
+static s32 ammoQtyTable(const u8 *code, u32 codelen, u32 start, u32 ofs, u32 *table, u32 *count)
+{
+	const u32 jr = be32(code, ofs);
+	const u32 ry = (jr >> 21) & 0x1f;
+	s32 hi = -1, lo = 0, havelo = 0, rz = -1;
+	for (u32 o = ofs - 4; o + 4 > start && o + 20 >= ofs; o -= 4) {
+		const u32 z = be32(code, o);
+		if ((z >> 26) == 0x0f && ((z >> 16) & 0x1f) == 1) {
+			hi = z & 0xffff;
+		} else if ((z >> 26) == 0x23 && ((z >> 21) & 0x1f) == 1 && ((z >> 16) & 0x1f) == ry) {
+			lo = (s16)(z & 0xffff);
+			havelo = 1;
+		} else if ((z & 0xfc0007ff) == 0x00000080 && ((z >> 16) & 0x1f) == ((z >> 11) & 0x1f)) {
+			rz = (z >> 16) & 0x1f;
+		}
+		if (o == start) {
+			break;
+		}
+	}
+	if (hi < 0 || !havelo || rz < 0) {
+		return 0;
+	}
+	for (u32 o = ofs - 4; o + 4 > start; o -= 4) {
+		const u32 z = be32(code, o);
+		if ((z >> 26) == 0x0b && ((z >> 16) & 0x1f) == 1 && ((z >> 21) & 0x1f) == (u32)rz) {
+			*table = ((u32)hi << 16) + (u32)lo;
+			*count = z & 0xffff;
+			return 1;
+		}
+		if (o == start) {
+			break;
+		}
+	}
+	return 0;
+}
+
+// the quantity an entry of the table loads: a `b` to the end with `li v1,QTY`
+// in its delay slot, or the default (1) when the delay slot loads nothing;
+// -1 when the entry runs off the code
+static s32 ammoQtyEntry(const u8 *code, u32 codelen, u32 table, u32 i)
+{
+	const u32 o = table - GAME_VRAM + 4 * i;
+	u32 e, w;
+	if (table < GAME_VRAM || o + 4 > codelen) {
+		return -1;
+	}
+	e = be32(code, o);
+	if (e < GAME_VRAM || e - GAME_VRAM + 8 > codelen) {
+		return -1;
+	}
+	w = be32(code, e - GAME_VRAM + 4);
+	return (w >> 16) == 0x2403 ? (s32)(w & 0xffff) : 1;
+}
 
 /* -- the unlocks: what the mod's code forces to true ----------------------- */
 
@@ -4904,6 +4981,98 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The pickup rules the mod's code changes: how much ammo a dropped weapon
+	// gives (weapon_get_pickup_ammo_qty's two tables, a match's then a
+	// mission's) and which weapon an ammo pickup puts in the inventory
+	// (ammo_handle_pickup's chain of `li at,TYPE ... bnel s0,at; ...; b end;
+	// li a0,WEAPON`). Only what differs from stock is written. A site where
+	// the mod changed the ammo type constant itself is not read: the port's
+	// ammo types are the mod's data table's, and what its code means by the
+	// new number is not knowable here.
+	char *ammocfg = NULL;
+	u32 ammolen = 0, ammocap = 0;
+	if (t.followed) {
+		u32 start, end;
+		if (codeSym("weapon_get_pickup_ammo_qty", &start, &end)) {
+			u32 tables[2][2], counts[2][2];
+			s32 ntables = 0;
+			char qtys[512] = "", prose[1024] = "";
+			u32 qtylen = 0, proselen = 0;
+			end = AMMO_MIN(end, AMMO_MIN(t.stockcodelen, t.modcodelen) - 4);
+			for (u32 ofs = start; ofs < end && ntables < 3; ofs += 4) {
+				if ((be32(t.stockcode, ofs) & 0xfc1fffff) != 0x00000008) {
+					continue;
+				}
+				if (ntables < 2 && ammoQtyTable(t.stockcode, t.stockcodelen, start, ofs, &tables[ntables][0], &counts[ntables][0])
+						&& ammoQtyTable(t.modcode, t.modcodelen, start, ofs, &tables[ntables][1], &counts[ntables][1])) {
+					ntables++;
+				} else if (ntables == 2 && ammoQtyTable(t.stockcode, t.stockcodelen, start, ofs, &tables[0][0], &counts[0][0])) {
+					ntables = 3;   // a third switch: not the shape this reads
+				}
+			}
+			if (ntables == 2) {
+				for (s32 m = 0; m < 2; ++m) {
+					const u32 count = AMMO_MIN(counts[m][0], counts[m][1]);
+					for (u32 i = 0; i < count; ++i) {
+						const s32 a = ammoQtyEntry(t.stockcode, t.stockcodelen, tables[m][0], i);
+						const s32 b = ammoQtyEntry(t.modcode, t.modcodelen, tables[m][1], i);
+						if (a >= 0 && b >= 0 && a != b) {
+							qtylen += snprintf(qtys + qtylen, sizeof(qtys) - qtylen, " %s %u %d", m ? "solo" : "mp", i + 1, b);
+							proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%s%s ammo type %u gives %d (stock %d)",
+									proselen ? ", " : "", m ? "solo" : "mp", i + 1, b, a);
+						}
+					}
+				}
+				if (qtylen) {
+					appendf(&ammocfg, &ammolen, &ammocap, "pickupqty {%s }\n", qtys);
+					rep("  pickup quantities the mod's code changes: %s", prose);
+				}
+			} else {
+				rep("  the pickup quantities in weapon_get_pickup_ammo_qty do not read as two tables; left as the port has them");
+			}
+		}
+		if (codeSym("ammo_handle_pickup", &start, &end)) {
+			char pairs[256] = "", prose[512] = "";
+			u32 pairlen = 0, proselen = 0;
+			s32 retyped = 0;
+			end = AMMO_MIN(end, AMMO_MIN(t.stockcodelen, t.modcodelen) - 16);
+			for (u32 ofs = start + 4; ofs < end; ofs += 4) {
+				const u32 x = be32(t.stockcode, ofs);
+				u32 li, b, w, mli, mw;
+				if (((x >> 26) != 5 && (x >> 26) != 0x15) || (((x >> 21) & 0x1f) != 1 && ((x >> 16) & 0x1f) != 1)) {
+					continue;
+				}
+				li = be32(t.stockcode, ofs - 4);
+				b = be32(t.stockcode, ofs + 8);
+				w = be32(t.stockcode, ofs + 12);
+				if ((li >> 16) != 0x2401 || (b >> 16) != 0x1000 || (w >> 16) != 0x2404) {
+					continue;
+				}
+				mli = be32(t.modcode, ofs - 4);
+				mw = be32(t.modcode, ofs + 12);
+				if ((mli >> 16) != 0x2401 || (mw >> 16) != 0x2404) {
+					continue;
+				}
+				if ((mli & 0xffff) != (li & 0xffff)) {
+					retyped++;
+					continue;
+				}
+				if ((mw & 0xffff) != (w & 0xffff) && (mw & 0xffff) > 0 && (mw & 0xffff) < 0xff && (li & 0xffff) <= 0x20) {
+					pairlen += snprintf(pairs + pairlen, sizeof(pairs) - pairlen, " %u %u", li & 0xffff, mw & 0xffff);
+					proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%stype %u -> weapon %u (stock %u)",
+							proselen ? ", " : "", li & 0xffff, mw & 0xffff, w & 0xffff);
+				}
+			}
+			if (pairlen) {
+				appendf(&ammocfg, &ammolen, &ammocap, "ammotypeweapon {%s }\n", pairs);
+				rep("  ammo pickups give the mod's weapons: %s", prose);
+			}
+			if (retyped) {
+				rep("  the mod's code renumbers the ammo type itself at %d of ammo_handle_pickup's sites; those are left as the port has them", retyped);
+			}
+		}
+	}
+
 	// The unlocks: the tests the mod's code forces to true, family by family
 	char *unlocks = NULL;
 	u32 unlockslen = 0, unlockscap = 0;
@@ -5003,14 +5172,21 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					cutRegion(text, at, end + strlen(UNLOCKS_END));
 				}
 			}
+			at = strstr(text, AMMO_BEGIN);
+			if (at) {
+				char *end = strstr(at, AMMO_END);
+				if (end) {
+					cutRegion(text, at, end + strlen(AMMO_END));
+				}
+			}
 			free(existing);
 			existing = (u8 *)text;
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + unlockslen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + unlockslen + 256 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -5025,6 +5201,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				flagsite ? flagsite : "", flagsite ? FLAGSITE_END "\n\n" : "",
 				damagecfg ? "# The damage rules the mod's code changes, read from it. Written by the game's mod importer.\n" DAMAGE_BEGIN "\n" : "",
 				damagecfg ? damagecfg : "", damagecfg ? DAMAGE_END "\n\n" : "",
+				ammocfg ? "# The pickup rules the mod's code changes: what a dropped weapon's ammo counts for,\n"
+				          "# and which weapon an ammo pickup gives. Written by the game's mod importer.\n" AMMO_BEGIN "\n" : "",
+				ammocfg ? ammocfg : "", ammocfg ? AMMO_END "\n\n" : "",
 				unlocks ? "# What the mod's code unlocks outright, read from it. Written by the game's mod importer.\n" UNLOCKS_BEGIN "\nunlocks {\n" : "",
 				unlocks ? unlocks : "", unlocks ? "}\n" UNLOCKS_END "\n\n" : "",
 				existing ? (const char *)existing : "");
@@ -5036,6 +5215,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(hitsound);
 		free(flagsite);
 		free(damagecfg);
+		free(ammocfg);
 		free(unlocks);
 	}
 

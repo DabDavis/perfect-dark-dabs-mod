@@ -536,6 +536,7 @@ static const struct {
 	{ "pinball",          WEAPONFLAG3_PINBALL, 3 },
 	{ "deploys",          WEAPONFLAG3_DEPLOYS, 3 },
 	{ "botignores",       WEAPONFLAG3_BOTIGNORES, 3 },
+	{ "boosthud",         WEAPONFLAG3_BOOSTHUD, 3 },
 };
 
 u32 g_ModUnlocks = 0;
@@ -627,6 +628,100 @@ static char *modConfigParseDamage(char *p, char *token)
 
 	if (token[0] != '}') {
 		sysLogPrintf(LOG_ERROR, "modconfig: unterminated damage block");
+		return NULL;
+	}
+
+	return p;
+}
+
+/**
+ * pickupqty { mp|solo AMMOTYPE QTY ... }
+ *
+ * How much ammo a dropped weapon of each type gives when picked up, in a
+ * match (mp) or a mission (solo), where a mod's code changed it: GE-X halves
+ * most of them. Written by the importer from weapon_get_pickup_ammo_qty's
+ * two tables; 0 puts stock's back.
+ */
+static char *modConfigParsePickupQty(char *p, char *token)
+{
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		s32 mode, ammotype, qty;
+		char *endp;
+		if (!strcmp(token, "mp")) {
+			mode = 0;
+		} else if (!strcmp(token, "solo")) {
+			mode = 1;
+		} else {
+			sysLogPrintf(LOG_ERROR, "modconfig: pickupqty: expected mp or solo, got %s", token);
+			return NULL;
+		}
+		p = strParseToken(p, token, NULL);
+		ammotype = strtol(token, &endp, 0);
+		if (endp == token || *endp || ammotype < 0 || ammotype > AMMOTYPE_ECM_MINE) {
+			sysLogPrintf(LOG_ERROR, "modconfig: pickupqty: invalid ammo type %s", token);
+			return NULL;
+		}
+		p = strParseToken(p, token, NULL);
+		qty = strtol(token, &endp, 0);
+		if (endp == token || *endp || qty < 0 || qty > 32767) {
+			sysLogPrintf(LOG_ERROR, "modconfig: pickupqty: invalid quantity %s", token);
+			return NULL;
+		}
+		g_ModPickupQty[mode][ammotype] = qty;
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated pickupqty block");
+		return NULL;
+	}
+
+	return p;
+}
+
+/**
+ * ammotypeweapon { AMMOTYPE WEAPON ... }
+ *
+ * Which weapon picking up ammo of a type puts in the inventory - grenade ammo
+ * gives the grenade - where a mod's code names another number: GE-X's
+ * grenades are 26. Written by the importer from ammo_handle_pickup's chain.
+ */
+static char *modConfigParseAmmoTypeWeapon(char *p, char *token)
+{
+	// eat opening bracket
+	p = strParseToken(p, token, NULL);
+	if (token[0] != '{' || token[1] != '\0') {
+		return NULL;
+	}
+
+	p = strParseToken(p, token, NULL);
+	while (p && token[0] && strcmp(token, "}") != 0) {
+		s32 ammotype, weaponnum;
+		char *endp;
+		ammotype = strtol(token, &endp, 0);
+		if (endp == token || *endp || ammotype < 0 || ammotype > AMMOTYPE_ECM_MINE) {
+			sysLogPrintf(LOG_ERROR, "modconfig: ammotypeweapon: invalid ammo type %s", token);
+			return NULL;
+		}
+		p = strParseToken(p, token, NULL);
+		weaponnum = strtol(token, &endp, 0);
+		if (endp == token || *endp || weaponnum < 0 || weaponnum > WEAPON_SUICIDEPILL) {
+			sysLogPrintf(LOG_ERROR, "modconfig: ammotypeweapon: invalid weapon number %s", token);
+			return NULL;
+		}
+		g_AmmoTypeWeapons[ammotype] = weaponnum;
+		p = strParseToken(p, token, NULL);
+	}
+
+	if (token[0] != '}') {
+		sysLogPrintf(LOG_ERROR, "modconfig: unterminated ammotypeweapon block");
 		return NULL;
 	}
 
@@ -1292,6 +1387,24 @@ s32 modConfigLoad(const char *fname)
 			p = modConfigParseUnlocks(p, token);
 			if (!p) {
 				sysLogPrintf(LOG_ERROR, "modconfig: malformed unlocks block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "pickupqty")) {
+			// pickupqty { mp|solo AMMOTYPE QTY ... }
+			char *prev = p;
+			p = modConfigParsePickupQty(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed pickupqty block at offset %d", prev - data);
+				success = false;
+				break;
+			}
+		} else if (!strcmp(token, "ammotypeweapon")) {
+			// ammotypeweapon { AMMOTYPE WEAPON ... }
+			char *prev = p;
+			p = modConfigParseAmmoTypeWeapon(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed ammotypeweapon block at offset %d", prev - data);
 				success = false;
 				break;
 			}

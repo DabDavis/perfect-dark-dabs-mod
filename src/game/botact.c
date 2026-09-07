@@ -324,13 +324,16 @@ u32 botactGetProjectileThrowInterval(u32 weapon)
 
 s32 botactGetWeaponByAmmoType(s32 ammotype)
 {
+	// the same table ammoHandlePickup reads, which a mod's ammotypeweapon
+	// block edits; the ROM's own list here named the same six weapons
 	switch (ammotype) {
-	case AMMOTYPE_NBOMB:       return WEAPON_NBOMB;
-	case AMMOTYPE_GRENADE:     return WEAPON_GRENADE;
-	case AMMOTYPE_KNIFE:       return WEAPON_COMBATKNIFE;
-	case AMMOTYPE_REMOTE_MINE: return WEAPON_REMOTEMINE;
-	case AMMOTYPE_PROXY_MINE:  return WEAPON_PROXIMITYMINE;
-	case AMMOTYPE_TIMED_MINE:  return WEAPON_TIMEDMINE;
+	case AMMOTYPE_NBOMB:
+	case AMMOTYPE_GRENADE:
+	case AMMOTYPE_KNIFE:
+	case AMMOTYPE_REMOTE_MINE:
+	case AMMOTYPE_PROXY_MINE:
+	case AMMOTYPE_TIMED_MINE:
+		return g_AmmoTypeWeapons[ammotype];
 	}
 
 	return 0;

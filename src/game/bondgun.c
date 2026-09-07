@@ -13844,7 +13844,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		}
 
 		// Combat boost timer
-		if (hand->gset.weaponnum == WEAPON_COMBATBOOST) {
+		if (weaponHasFlag3(hand->gset.weaponnum, WEAPONFLAG3_BOOSTHUD)) {
 			s32 mins;
 			char text[32];
 

@@ -1349,8 +1349,7 @@ at 28 ejecting a tranquilizer dart, its grenades and mines never going off.
   reads the stock list on a mod that never touched the site writes the
   stock list, the same authority-over-inheritance rule as before.
 - Next, by GE-X's constants regions still unread and shaped like weapon
-  numbers: `bgun_draw_hud` (29 words), `ammo_handle_pickup` (11),
-  `weapon_get_pickup_ammo_qty` (10), `obj_free` (8), `fr_is_ammo_wasted`
+  numbers: `obj_free` (8), `fr_is_ammo_wasted`
   (7), `obj_stick` (6), `chr_grunt` (6), `propobj_interact`, `chr_shoot`,
   `botact_get_weapon_by_ammo_type`, `bgun_tick_inc_reload`,
   `bgun_tick_inc_autoswitch` (5 each), `botact_is_weapon_throwable`,
@@ -1361,3 +1360,48 @@ at 28 ejecting a tranquilizer dart, its grenades and mines never going off.
   38, 17, 19). `prop_play_pickup_sound` and
   `bgun_get_unequipped_reload_index` are the `pickupsound` and
   `unequippedreloadindex` fields' sites, a value each rather than a list.
+
+## The pickup rules: bgun_draw_hud, ammo_handle_pickup, weapon_get_pickup_ammo_qty (2026-09-07)
+
+The next three of GE-X's constants regions. Importer version 25.
+
+- **`bgun_draw_hud`'s 29 words are 27 colours and two weapons.** The colours
+  are the menu palette family (not read). The two numbers: the detonator
+  hand's remote mine (34 -> 29, a second `detonatorhand` site) and the
+  combat boost whose time the HUD counts down (35 -> 31, `WEAPONFLAG3_BOOSTHUD`).
+  GE-X's 31 is therefore a real item - it also inherits `EJECTSPIN` and
+  `BOTIGNORES` from the N-bomb tests GE-X left at 31, and its flags3 on a
+  live boot read 0x300040, which is those three.
+- **Pickup quantities are a table, not a flag.** `weapon_get_pickup_ammo_qty`
+  is two `switch`es on the ammo type (a match's, a mission's), each a jump
+  table whose entries are `b end` with `li v1,QTY` in the delay slot, or the
+  default that loads nothing (1). GE-X halves most of them and moves two
+  entries (its 16 takes the dart's quantities, its 17 the default). Read
+  by `ammo_from_code()` / the `ammocfg` block in modimport.c into a
+  `pickupqty { mp TYPE QTY ... solo TYPE QTY }` block and
+  `g_ModPickupQty[2][]`, applied after the switch and before the mission's
+  ammo scale. The compiler interleaves the two prologues - `sltiu at,t0,21`
+  (the mission's) sits in a `beqzl`'s delay slot thirty-eight words before
+  the mission's `jr` - so a switch is found from its `jr rY` backwards:
+  `lw rY,LO(at)`, `lui at,HI`, `sll rZ,rZ,2` in the four words before it,
+  then the `sltiu at,rZ,N` anywhere back to the function's start. Finding
+  the count by distance read both switches as the match's. And `jr ra` is a
+  jr too: a table that does not read is skipped, not counted.
+- **What an ammo pickup gives is a chain of pairs.** `ammo_handle_pickup`
+  maps the ammo type to the weapon it puts in the inventory: `li at,TYPE
+  ... bnel s0,at,next; li at,NEXT; b end; li a0,WEAPON`. The port keeps the
+  map in `g_AmmoTypeWeapons[]` (and `botactGetWeaponByAmmoType()` reads the
+  same table now, its own six cases having been the same numbers); an
+  `ammotypeweapon { TYPE WEAPON ... }` block edits it. GE-X: grenade ammo
+  gives 26, the mines' 27-29, knife ammo 2 - without which picking up
+  grenades in GE-X armed the player with whatever GE-X keeps at 30.
+- **GE-X renumbers ammo types too, and that is not read.** Four of the
+  chain's `li at,TYPE` changed (32 -> 27, 30 -> 26, 20 -> 0, 21 -> 16), and
+  the quantity tables move 17 to 16 in both modes. The port's ammo types
+  are whatever the mod's `g_AmmoTypes` data table says (the data segment
+  import), and what GE-X's code means by 16 is not knowable from the code
+  alone; a pair whose type changed is counted and reported, not written.
+  The ones that were only weapon changes are.
+- Left: `weapon_get_pickup_ammo_qty`'s knife/bolt test is `pickupsingle`,
+  a row (GE-X 2, 86). `ammocrate_get_pickup_ammo_qty` (the crates' table,
+  inlined after `ammo_handle_pickup` in the ROM) GE-X did not touch.

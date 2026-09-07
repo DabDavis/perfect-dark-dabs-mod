@@ -1719,7 +1719,11 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               # updates; the magnums' 8 by address, since the function
               # compares a hand state with 8 too, and the rocket launcher's 24
               # closes the magnums' chain. The laser sight is a range test.
-              ('detonatorhand', (('bgun0f0a5550', 34),)),
+              ('detonatorhand', (('bgun0f0a5550', 34), ('bgun_draw_hud', 34))),
+              # the HUD's combat boost timer (GE-X's boost is 31), and the
+              # picked-up-one-at-a-time test (the knife and the bolt)
+              ('boosthud', (('bgun_draw_hud', 35),)),
+              ('pickupsingle', (('weapon_get_pickup_ammo_qty', 26),)),
               ('ejectsdart', (('bgun0f0a5550', 28),)),
               ('ejectspin', (('bgun0f0a5550', 30, 0x7f0a609c),)),
               ('heldmuzzle', (('bgun0f0a5550', 30, 0x7f0a6608),)),
@@ -1901,6 +1905,105 @@ def damage_from_code(stockcode, modcode, codesyms):
         out['notes'].append("the shield-break damage in chr_damage does not read; left as the port has it")
     else:
         out['breakhits'] = breakhits
+    return out
+
+
+AMMO_BEGIN = '# importer: ammo begin'
+AMMO_END = '# importer: ammo end'
+
+
+def ammo_from_code(stockcode, modcode, codesyms):
+    """The pickup rules a mod's code changes, as the port's `pickupqty` and
+    `ammotypeweapon` blocks. weapon_get_pickup_ammo_qty is two switches on
+    the ammo type, a match's and a mission's, each a jump table (`sltiu
+    at,rX,COUNT` ... `lui at,HI; lw rY,LO(at); jr`) whose entries are a `b`
+    to the end with `li v1,QTY` in its delay slot, or the default that loads
+    nothing (1); GE-X halves most of them. ammo_handle_pickup maps the type
+    to the weapon the pickup puts in the inventory as a chain of `li at,TYPE
+    ... bnel s0,at,next; ...; b end; li a0,WEAPON`; GE-X's grenade ammo gives
+    26. {'qty': [(mode, type, stock, mod)], 'weapons': [(type, stock, mod)],
+    'notes'}. Only what differs from stock is written. A site where the mod
+    changed the ammo type constant itself (GE-X renumbers four) is not read:
+    the port's ammo types are the mod's data table's, and what its code means
+    by the new number is not knowable here."""
+    out = {'qty': [], 'weapons': [], 'notes': []}
+    if 'weapon_get_pickup_ammo_qty' in codesyms:
+        start, end = (a - GAME_VRAM for a in codesyms['weapon_get_pickup_ammo_qty'])
+        end = min(end, len(stockcode) - 3, len(modcode) - 3)
+
+        def table_at(code, ofs):
+            """(table address, count) for the `jr rY` at ofs: `lui at,HI`
+            and `lw rY,LO(at)` in the four words before it, the index
+            register from the `sll rZ,rZ,2` there, and its `sltiu at,rZ,N`
+            anywhere back to the function's start (the compiler interleaves
+            the two switches' prologues: the mission's count is thirty-eight
+            words before its jr, so the count is found by its register, not
+            its distance)."""
+            jr = be32(code, ofs)
+            ry = (jr >> 21) & 0x1f
+            hi = lo = rz = None
+            for o in range(ofs - 4, max(start, ofs - 20) - 4, -4):
+                z = be32(code, o)
+                if (z >> 26) == 0x0f and (z >> 16) & 0x1f == 1:
+                    hi = z & 0xffff
+                elif (z >> 26) == 0x23 and (z >> 21) & 0x1f == 1 and (z >> 16) & 0x1f == ry:
+                    lo = (z & 0xffff) - (0x10000 if z & 0x8000 else 0)
+                elif (z & 0xfc0007ff) == 0x00000080 and (z >> 16) & 0x1f == (z >> 11) & 0x1f:
+                    rz = (z >> 16) & 0x1f
+            if hi is None or lo is None or rz is None:
+                return None
+            for o in range(ofs - 4, start - 4, -4):
+                z = be32(code, o)
+                if (z >> 26) == 0x0b and (z >> 16) & 0x1f == 1 and (z >> 21) & 0x1f == rz:
+                    return ((hi << 16) + lo) & 0xffffffff, z & 0xffff
+            return None
+
+        def entry_qty(code, table, i):
+            o = table - GAME_VRAM + 4 * i
+            if o < 0 or o + 4 > len(code):
+                return None
+            e = be32(code, o) - GAME_VRAM
+            if e < 0 or e + 8 > len(code):
+                return None
+            w = be32(code, e + 4)
+            return (w & 0xffff) if (w >> 16) == 0x2403 else 1
+
+        tables = []
+        for ofs in range(start, end, 4):
+            if (be32(stockcode, ofs) & 0xfc1fffff) != 0x00000008:   # jr rY
+                continue
+            st, mt = table_at(stockcode, ofs), table_at(modcode, ofs)
+            if st is not None and mt is not None:
+                tables.append((st, mt))
+        if len(tables) == 2:
+            for mode, ((st, count), (mt, mcount)) in zip(('mp', 'solo'), tables):
+                for i in range(min(count, mcount)):
+                    a, b = entry_qty(stockcode, st, i), entry_qty(modcode, mt, i)
+                    if a is not None and b is not None and a != b:
+                        out['qty'].append((mode, i + 1, a, b))
+        else:
+            out['notes'].append("the pickup quantities in weapon_get_pickup_ammo_qty do not read as two tables; left as the port has them")
+    if 'ammo_handle_pickup' in codesyms:
+        start, end = (a - GAME_VRAM for a in codesyms['ammo_handle_pickup'])
+        end = min(end, len(stockcode) - 15, len(modcode) - 15)
+        retyped = 0
+        for ofs in range(start + 4, end, 4):
+            x = be32(stockcode, ofs)
+            if (x >> 26) not in (5, 0x15) or 1 not in ((x >> 21) & 0x1f, (x >> 16) & 0x1f):
+                continue
+            li, b, w = be32(stockcode, ofs - 4), be32(stockcode, ofs + 8), be32(stockcode, ofs + 12)
+            if (li >> 16) != 0x2401 or (b >> 16) != 0x1000 or (w >> 16) != 0x2404:
+                continue
+            mli, mw = be32(modcode, ofs - 4), be32(modcode, ofs + 12)
+            if (mli >> 16) != 0x2401 or (mw >> 16) != 0x2404:
+                continue
+            if (mli & 0xffff) != (li & 0xffff):
+                retyped += 1
+                continue
+            if (mw & 0xffff) != (w & 0xffff) and 0 < (mw & 0xffff) < 0xff and (li & 0xffff) <= 0x20:
+                out['weapons'].append((li & 0xffff, w & 0xffff, mw & 0xffff))
+        if retyped:
+            out['notes'].append("the mod's code renumbers the ammo type itself at %d of ammo_handle_pickup's sites; those are left as the port has them" % retyped)
     return out
 
 
@@ -3370,6 +3473,24 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                 if dmg['breakhits']:
                     notes.append('a hit that breaks a shield still lands on the health behind it (stock: it is absorbed)')
 
+    # The pickup rules: how much ammo a dropped weapon gives, and which weapon
+    # an ammo pickup puts in the inventory, where the mod's code changed them
+    ammoregion = ''
+    if followed and codesyms:
+        am = ammo_from_code(stockcode, modcode, codesyms)
+        notes.extend(am['notes'])
+        lines_ = []
+        if am['qty']:
+            lines_.append('pickupqty {' + ''.join(' %s %d %d' % (m, t, b) for m, t, a, b in am['qty']) + ' }')
+            notes.append('pickup quantities the mod\'s code changes: ' + ', '.join('%s ammo type %d gives %d (stock %d)' % (m, t, b, a) for m, t, a, b in am['qty']))
+        if am['weapons']:
+            lines_.append('ammotypeweapon {' + ''.join(' %d %d' % (t, b) for t, a, b in am['weapons']) + ' }')
+            notes.append('ammo pickups give the mod\'s weapons: ' + ', '.join('type %d -> weapon %d (stock %d)' % (t, b, a) for t, a, b in am['weapons']))
+        if lines_:
+            ammoregion = ('# The pickup rules the mod\'s code changes: what a dropped weapon\'s ammo counts for,\n'
+                          '# and which weapon an ammo pickup gives. Written by tools/importmod.\n'
+                          + AMMO_BEGIN + '\n' + '\n'.join(lines_) + '\n' + AMMO_END + '\n')
+
     # The unlocks: the tests the mod's code forces to true, family by family
     unlocksregion = ''
     if followed:
@@ -3421,12 +3542,15 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(UNLOCKS_BEGIN) + r'\n.*?' + re.escape(UNLOCKS_END) + r'\n*',
                           '', existing, flags=re.S)
+        existing = re.sub(r'(#[^\n]*\n)*' + re.escape(AMMO_BEGIN) + r'\n.*?' + re.escape(AMMO_END) + r'\n*',
+                          '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
                           (block + '\n' + (weatherregion + '\n' if weatherregion else '')
                            + (shieldregion + '\n' if shieldregion else '')
                            + (hitsoundregion + '\n' if hitsoundregion else '')
                            + (flagsiteregion + '\n' if flagsiteregion else '')
                            + (damageregion + '\n' if damageregion else '')
+                           + (ammoregion + '\n' if ammoregion else '')
                            + (unlocksregion + '\n' if unlocksregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None

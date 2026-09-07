@@ -5376,6 +5376,10 @@ struct weapon invitem_combatboost = {
 	L_GUN_000, // manufacturer
 	L_GUN_190, // description
 	WEAPONFLAG_ONEHANDED | WEAPONFLAG_AICANUSE | WEAPONFLAG_04000000 | WEAPONFLAG_DETERMINER_S_SOME | WEAPONFLAG_DETERMINER_F_SOME,
+	0, // flags2
+	0, // unequipped reload index
+	0, // pickup sound
+	WEAPONFLAG3_BOOSTHUD, // flags3
 };
 
 struct weaponfunc_device invfunc_suicidepill_primary = {

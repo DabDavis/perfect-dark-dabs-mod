@@ -16950,6 +16950,11 @@ void currentPlayerQueuePickupAmmoHudmsg(s32 ammotype, s32 pickupqty)
  * ammoHandlePickup; as a table a mod can say which of its own weapons an ammo
  * type gives. Zero means none, and no ammo type gives WEAPON_NONE.
  */
+// a mod's pickup quantity for each ammo type, in a match ([0]) and a
+// mission ([1]); 0 is stock's. Set by a modconfig pickupqty block, which
+// the importer writes from the mod's weapon_get_pickup_ammo_qty.
+s16 g_ModPickupQty[2][AMMOTYPE_ECM_MINE + 1];
+
 s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1] = {
 	[AMMOTYPE_GRENADE]     = WEAPON_GRENADE,
 	[AMMOTYPE_REMOTE_MINE] = WEAPON_REMOTEMINE,
@@ -17057,6 +17062,10 @@ s32 weaponGetPickupAmmoQty(struct weaponobj *weapon)
 		case AMMOTYPE_SEDATIVE:     qty = 16;          break;
 		case AMMOTYPE_BOOST:        qty = 1;           break;
 		}
+
+		if (ammotype >= 0 && ammotype <= AMMOTYPE_ECM_MINE && g_ModPickupQty[0][ammotype]) {
+			qty = g_ModPickupQty[0][ammotype];
+		}
 	} else {
 		switch (ammotype) {
 		case AMMOTYPE_PISTOL:     qty = 10;          break;
@@ -17072,6 +17081,10 @@ s32 weaponGetPickupAmmoQty(struct weaponobj *weapon)
 		case AMMOTYPE_CLOAK:      qty = TICKS(1200); break;
 		case AMMOTYPE_BOOST:      qty = 2;           break;
 		case AMMOTYPE_SEDATIVE:   qty = 16;          break;
+		}
+
+		if (ammotype >= 0 && ammotype <= AMMOTYPE_ECM_MINE && g_ModPickupQty[1][ammotype]) {
+			qty = g_ModPickupQty[1][ammotype];
 		}
 
 		if (qty > 1) {
