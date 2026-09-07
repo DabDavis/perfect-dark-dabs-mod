@@ -217,7 +217,7 @@ int main(int argc, const char **argv)
 	if (g_StageNum == STAGE_TITLE && (sysArgCheck("--skip-intro") || g_SkipIntro)) {
 		// shorthand for --boot-stage 0x26
 		g_StageNum = STAGE_CITRAINING;
-	} else if (g_StageNum < 0x01 || g_StageNum > 0x5d) {
+	} else if (g_StageNum < 0x01 || g_StageNum > STAGE_MAX_ID) {
 		// stage num out of range
 		g_StageNum = STAGE_TITLE;
 	}

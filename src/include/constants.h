@@ -18,10 +18,13 @@
 // struct mpstrings). This MUST stay 8: preprocessMpConfigs() casts raw ROM
 // bytes to struct mpconfig and strides by sizeof(struct mpconfig), so growing
 // it would desync the built-in challenge/config records.
-// Spare stage table entries the mod loader fills at runtime. Stage numbers are
-// stored in 7 bits by the MP setup save format, so ids must stay under 128;
-// the stock table tops out at 0x50, leaving room for these.
-#define MAX_MODSTAGES          48
+// Spare stage table entries the mod loader fills at runtime. A stage number is
+// a byte everywhere the game keeps one (g_MpSetup, struct missionconfig), so
+// ids run to STAGE_MAX_ID: the 27 free below STAGE_TITLE and the 162 above
+// STAGE_4MBMENU, 189 in all, and MAX_MODSTAGES is the table room for every
+// one of them. The MP setup save format stores 7 bits and writes Random for
+// an id that does not fit.
+#define MAX_MODSTAGES          189
 
 // Combat Simulator arenas: 16 plus "Random", then those written into the table
 // at build time for the stages mod_allinone supplies, then whatever the mod
@@ -4273,6 +4276,13 @@
 #define STAGE_BOOTPAKMENU   0x5b
 #define STAGE_CREDITS       0x5c
 #define STAGE_4MBMENU       0x5d
+#define STAGE_MAX_ID        0xff
+
+// A stage number that names a level rather than the title screen, a menu or
+// the credits. The stock game tests "stagenum < STAGE_TITLE" for this; the
+// mod loader hands out ids above STAGE_4MBMENU too once the ones below the
+// title are used up, and they are levels just the same.
+#define STAGE_IS_LEVEL(stagenum) ((stagenum) < STAGE_TITLE || ((stagenum) > STAGE_4MBMENU && (stagenum) <= STAGE_MAX_ID))
 
 #define STAGEFLAG_CI_IN_TRAINING            0x00000001
 #define STAGEFLAG_CI_HOLO_FAILED            0x00000002

@@ -16,7 +16,7 @@ void vtxstoreReset(void)
 		if (PLAYERCOUNT() >= 2) {
 			val = g_VtxstoreTypes[i].valifmp;
 			num = g_VtxstoreTypes[i].numifmp;
-		} else if (g_Vars.stagenum >= STAGE_TITLE) {
+		} else if (!STAGE_IS_LEVEL(g_Vars.stagenum)) {
 			val = g_VtxstoreTypes[i].valifspecial;
 			num = g_VtxstoreTypes[i].numifspecial;
 		} else {

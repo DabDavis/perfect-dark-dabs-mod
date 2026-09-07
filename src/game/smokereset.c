@@ -12,7 +12,7 @@ void smokeReset(void)
 
 	g_MaxSmokes = IS4MB() ? 10 : 20;
 
-	if (g_Vars.stagenum >= STAGE_TITLE) {
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		g_MaxSmokes = 0;
 	}
 

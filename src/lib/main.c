@@ -776,7 +776,7 @@ void mainLoop(void)
 	if (g_StageNum != STAGE_TITLE) {
 		titleSetNextStage(g_StageNum);
 
-		if (g_StageNum < STAGE_TITLE) {
+		if (STAGE_IS_LEVEL(g_StageNum)) {
 			func0f01b148(0);
 
 			if (argFindByPrefix(1, "-hard")) {
@@ -802,7 +802,7 @@ void mainLoop(void)
 			index = -1;
 
 			if (IS4MB()) {
-				if (g_StageNum < STAGE_TITLE && getNumPlayers() >= 2) {
+				if (STAGE_IS_LEVEL(g_StageNum) && getNumPlayers() >= 2) {
 					index = 0; \
 					while (g_StageAllocations4Mb[index].stagenum) { \
 						if (g_StageAllocations4Mb[index].stagenum == g_StageNum + 400) { \
@@ -832,7 +832,7 @@ void mainLoop(void)
 				argSetString(g_StageAllocations4Mb[index].string);
 			} else {
 				// 8MB
-				if (g_StageNum < STAGE_TITLE && getNumPlayers() >= 2) {
+				if (STAGE_IS_LEVEL(g_StageNum) && getNumPlayers() >= 2) {
 					index = 0; \
 					while (g_StageAllocations8Mb[index].stagenum) { \
 						if (g_StageNum + 400 == g_StageAllocations8Mb[index].stagenum) { \
@@ -876,7 +876,7 @@ void mainLoop(void)
 		langReset(g_StageNum);
 		playermgrReset();
 
-		if (g_StageNum >= STAGE_TITLE) {
+		if (!STAGE_IS_LEVEL(g_StageNum)) {
 			numplayers = 0;
 		} else {
 			if (argFindByPrefix(1, "-play")) {
@@ -1039,7 +1039,7 @@ void mainTick(void)
 			lvTick();
 			playermgrShuffle();
 
-			if (g_StageNum < STAGE_TITLE) {
+			if (STAGE_IS_LEVEL(g_StageNum)) {
 				for (i = 0; i < PLAYERCOUNT(); i++) {
 					setCurrentPlayerNum(playermgrGetPlayerAtOrder(i));
 

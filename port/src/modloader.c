@@ -82,9 +82,9 @@ static s32 g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
 
 /**
  * Which mod each registered stage came from, indexed by stage number and
- * holding the mod dir index plus one. Stage ids are always below STAGE_TITLE.
+ * holding the mod dir index plus one.
  */
-static u8 g_ModStageDirs[STAGE_TITLE];
+static u8 g_ModStageDirs[STAGE_MAX_ID + 1];
 
 /**
  * The mod directory a runtime-registered stage belongs to, or NULL for a stock
@@ -152,13 +152,13 @@ static bool modloaderIdIsReserved(s32 id)
 /**
  * Lowest stage number that is free and safe to use, or 0 if there are none.
  *
- * Ids above the stock table are preferred; the gaps below it are used only
- * once those run out.
- *
- * The hard limit is STAGE_TITLE, not the 7 bits the save format allows. The
- * game treats "stagenum < STAGE_TITLE" as "this is a real level" in sixteen
- * places, so a stage numbered at or above it never loads its setup at all -
- * leaving no props and no rooms, and a collision walk that does not terminate.
+ * Ids above the stock table and below the title screen's are preferred, then
+ * the gaps below the table, and last the range above STAGE_4MBMENU up to
+ * STAGE_MAX_ID. The game used to treat "stagenum < STAGE_TITLE" as "this is a
+ * real level" in sixteen places, so a stage numbered above it never loaded its
+ * setup at all - leaving no props and no rooms, and a collision walk that did
+ * not terminate; those sites now ask STAGE_IS_LEVEL(), which admits the high
+ * range. A stage number is a byte in g_MpSetup, so STAGE_MAX_ID is the end.
  */
 static s32 modloaderNextStageId(void)
 {
@@ -169,6 +169,12 @@ static s32 modloaderNextStageId(void)
 	}
 
 	for (s32 id = 2; id < MODSTAGE_FIRST_ID; ++id) {
+		if (!modloaderIdIsReserved(id) && stageGetIndex(id) < 0) {
+			return id;
+		}
+	}
+
+	for (s32 id = STAGE_4MBMENU + 1; id <= STAGE_MAX_ID; ++id) {
 		if (!modloaderIdIsReserved(id) && stageGetIndex(id) < 0) {
 			return id;
 		}

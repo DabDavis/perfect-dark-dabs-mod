@@ -2345,7 +2345,7 @@ void lvTick(void)
 		g_IsTitleDemo = false;
 	}
 
-	if (g_Vars.stagenum < STAGE_TITLE && !g_IsTitleDemo && !g_Vars.in_cutscene) {
+	if (STAGE_IS_LEVEL(g_Vars.stagenum) && !g_IsTitleDemo && !g_Vars.in_cutscene) {
 		if (joyGetButtons(0, 0xffffffff) == 0
 				&& joyGetStickX(0) < 10
 				&& joyGetStickX(0) > -10
@@ -2377,7 +2377,7 @@ void lvTick(void)
 	g_NumReasonsToEndMpMatch = 0;
 
 	// Handle MP match ending
-	if (g_Vars.normmplayerisrunning && g_Vars.stagenum < STAGE_TITLE) {
+	if (g_Vars.normmplayerisrunning && STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		if (g_MpTimeLimit60 > 0) {
 			s32 elapsed = g_StageTimeElapsed60;
 			s32 nexttime = g_Vars.lvupdate60 + g_StageTimeElapsed60;
@@ -2587,7 +2587,7 @@ void lvStop(void)
 		audioStop(g_MiscAudioHandle);
 	}
 
-	if (g_Vars.stagenum < STAGE_TITLE) {
+	if (STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		s32 bank = langGetLangBankIndexFromStagenum(g_Vars.stagenum);
 		langClearBank(bank);
 		stub0f015270();
@@ -2610,7 +2610,7 @@ void lvStop(void)
 	musicStop();
 	hudmsgsStop();
 
-	if (g_Vars.stagenum < STAGE_TITLE) {
+	if (STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		bgStop();
 	}
 

@@ -411,7 +411,7 @@ static bool modGhostStageIsEligible(void)
 		return false;
 	}
 
-	if (g_Vars.stagenum >= STAGE_TITLE || g_Vars.stagenum == STAGE_CITRAINING) {
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum) || g_Vars.stagenum == STAGE_CITRAINING) {
 		return false;
 	}
 

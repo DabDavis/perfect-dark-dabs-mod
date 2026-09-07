@@ -204,7 +204,7 @@ void propsReset(void)
 	g_MaxEmbedments = IS4MB() ? 40 : 80;
 #endif
 
-	if (g_Vars.stagenum >= STAGE_TITLE) {
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		g_MaxWeaponSlots = 0;
 		g_MaxHatSlots = 0;
 		g_MaxAmmoCrates = 0;
@@ -1242,7 +1242,7 @@ void setupCreateHov(struct defaultobj *obj, struct hov *hov)
 
 void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing *briefing)
 {
-	if (stagenum < STAGE_TITLE) {
+	if (STAGE_IS_LEVEL(stagenum)) {
 		s32 stageindex = stageGetIndex(stagenum);
 		struct defaultobj *start;
 		u16 setupfilenum;
@@ -1349,7 +1349,7 @@ void setupLoadFiles(s32 stagenum)
 		g_ModelStates[i].modeldef = NULL;
 	}
 
-	if (stagenum < STAGE_TITLE) {
+	if (STAGE_IS_LEVEL(stagenum)) {
 		if (g_Vars.normmplayerisrunning) {
 			filenum = g_Stages[g_StageIndex].mpsetupfileid;
 		} else {
@@ -1607,7 +1607,7 @@ void setupCreateProps(s32 stagenum)
 
 	g_Briefing.briefingtextnum = L_MISC_042; // "No briefing for this mission"
 
-	if (stagenum < STAGE_TITLE) {
+	if (STAGE_IS_LEVEL(stagenum)) {
 		if (g_StageSetup.padfiledata) {
 			setupPreparePads();
 		}

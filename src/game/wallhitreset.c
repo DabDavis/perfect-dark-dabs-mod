@@ -88,7 +88,7 @@ void wallhitReset(void)
 	g_WallhitsNumBloodSettled = 0;
 	g_WallhitsNumNonbloodSettled = 0;
 
-	if (g_Vars.stagenum >= STAGE_TITLE) {
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		g_WallhitsMax = 0;
 	}
 

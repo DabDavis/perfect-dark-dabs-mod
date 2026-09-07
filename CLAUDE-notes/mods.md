@@ -1616,10 +1616,12 @@ line. The overlay case is unchanged: segments whole, and the files beside
 them agree with them.
 
 **Limits, all of the fixed-size kind.** 27 stage ids are free below
-`STAGE_TITLE` (stage-numbers.md), so "every mod" over this archive fills
-them at the tenth mod and the status line says "N of M maps: out of stage
-numbers" - choose mods on the page instead. `g_MpArenas` has
-`MAX_MODSTAGES` (48) spare rows. A map's props are the stock files under
+`STAGE_TITLE`, and since 2026-09-07 the 162 above `STAGE_4MBMENU` are usable
+too: the sixteen "is this a real level" tests ask `STAGE_IS_LEVEL()`, which
+admits both ranges (stage-numbers.md has the details and the save-format
+clamp), so the whole archive's maps register at once. `g_Stages` and
+`g_MpArenas` have `MAX_MODSTAGES` (189) spare rows, one per usable id; past that the status line
+says "N of M maps: out of stage numbers". A map's props are the stock files under
 the setup's ids: a mod that renumbered its file table (GE-X) gets stock
 props on its maps, the crate GE-X calls `Pmulti_ammo_crateZ` being a
 different model - `--modfiles` in romdata.c follows the stage's mod for
@@ -1632,4 +1634,24 @@ plays as the port has them.
 `--boot-stage <id> --mpsims 4 --rng-seed 1` boots a match on one (the ids
 are in the log), `gdb -p PID -batch -ex 'call (void)screenshotRequest()'`
 takes the picture into `build/screenshots/`. `mod: stage 0x.. draws with
-textures from ...` says a map used its own mod's art.
+textures from ...` says a map used its own mod's art. A match that ran
+logs `lv: 5 chrs with a prop at frame 300 of 143 slots`; `0 chrs ... of 11
+slots` with the N64 logo in the picture means the boot fell back to the
+title, which `--boot-stage` did for every id above 0x5d until 2026-09-07.
+
+**Every map at once (2026-09-07).** The "27 ids" cap is gone: the sixteen
+"real level" tests ask `STAGE_IS_LEVEL()` (stage-numbers.md), so ids
+0x5e-0xff are handed out after the 27, `MAX_MODSTAGES` is 189 (one per
+usable id), and `ROMDATA_MAX_MODFILES` is four names per stage - the name
+pool of 512 was the next wall, at 130 maps. With this tree's every mod dir
+mounted (build/mods plus the `mod_*` dirs, 158 maps) all 158 register, the
+arena list scrolls through them, and matches ran on 0xc0 (All-in-One's
+cave) and 0xe0 (GE-X's mp11, its own textures). One map crashes at any id:
+GE-X's `ear` (53 chr entries, a solo setup with a multiplayer name) dies in
+`hudmsgCreateFromArgs()` from the setup's own commands - not the loader's.
+All-in-One's `cave` shows only "Press START" at any id (0x0a with that mod
+alone, 0xc0 with everything): the match runs (`lv:` counts the chrs) but
+the player is not standing in it, so that is the map's setup too. A mod's
+name for `Mod.MapMods` is its directory name as listed, prefix included:
+`mod_allinone`, not `allinone`. The game rewrites pd.ini at exit, so edit
+the scratch config only after the process has gone, or the edit is lost.

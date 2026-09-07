@@ -15,7 +15,7 @@ void shardsReset(void)
 		g_MaxShards = g_MaxShards / 2;
 	}
 
-	if (g_Vars.stagenum >= STAGE_TITLE) {
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		g_MaxShards = 0;
 	}
 

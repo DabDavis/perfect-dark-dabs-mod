@@ -4428,7 +4428,11 @@ void mpsetupfileSaveWad(struct savebuffer *buffer, u8 version)
 	}
 
 	savebufferOr(buffer, numsims, 4);
-	savebufferOr(buffer, g_MpSetup.stagenum, 7);
+
+	// A stage the mod loader numbered past 0x7f does not fit the 7-bit field,
+	// and its number is only good for the mod set that produced it anyway.
+	// Save Random in its place rather than a truncated id.
+	savebufferOr(buffer, g_MpSetup.stagenum < 0x80 ? g_MpSetup.stagenum : STAGE_MP_RANDOM, 7);
 	savebufferOr(buffer, g_MpSetup.scenario, 3);
 
 	scenarioWriteSave(buffer);
