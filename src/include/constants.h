@@ -4820,6 +4820,9 @@ enum weaponnum {
 #define WEAPONFLAG3_DEPLOYS          0x00080000 // Thrown, it deploys as a sentry gun rather than landing as a weapon, and leaves the hand: the Laptop Gun's
 #define WEAPONFLAG3_BOTIGNORES       0x00100000 // A simulant never picks it up off the ground: a live explosive
 #define WEAPONFLAG3_BOOSTHUD         0x00200000 // The HUD shows the time left on it: the combat boost's
+#define WEAPONFLAG3_KNIFERELOAD      0x00400000 // Reloads the knife's way: the animation plays once the hand is empty, not when the reload starts, and the hand comes back up idle
+#define WEAPONFLAG3_KEEPSFUNCTION    0x00800000 // Its function follows it through an autoswitch: the timed and proximity mines'
+#define WEAPONFLAG3_CHRSHOTBEAM      0x01000000 // A chr's shot with it always draws a beam: the laser's
 #define WEAPONFLAG2_PELLETS          0x40000000 // A pull of the trigger is six shots at once, the shotgun's
 #define WEAPONFLAG2_BOTLIMITLESS     0x80000000 // A simulant's clip of it never runs dry, the laser's
 

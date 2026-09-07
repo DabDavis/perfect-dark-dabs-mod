@@ -537,6 +537,9 @@ static const struct {
 	{ "deploys",          WEAPONFLAG3_DEPLOYS, 3 },
 	{ "botignores",       WEAPONFLAG3_BOTIGNORES, 3 },
 	{ "boosthud",         WEAPONFLAG3_BOOSTHUD, 3 },
+	{ "knifereload",      WEAPONFLAG3_KNIFERELOAD, 3 },
+	{ "keepsfunction",    WEAPONFLAG3_KEEPSFUNCTION, 3 },
+	{ "chrshotbeam",      WEAPONFLAG3_CHRSHOTBEAM, 3 },
 };
 
 u32 g_ModUnlocks = 0;

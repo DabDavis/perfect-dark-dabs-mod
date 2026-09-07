@@ -370,6 +370,23 @@ bool weaponIsProximityMine(s32 itemid, s32 funcnum)
 		|| weaponfuncHasFlag(itemid, funcnum, FUNCFLAG_PROXIMITYMINE);
 }
 
+/**
+ * The weapon that deploys as a sentry gun when thrown (WEAPONFLAG3_DEPLOYS):
+ * the Laptop Gun, or whatever a mod's table puts the flag on - GE-X's is 51.
+ * Where the game names the laptop by number without a gset to read it from:
+ * picking a deployed one back up, and the autogun's own shot at a target.
+ */
+s32 weaponFindDeployable(void)
+{
+	for (s32 i = WEAPON_UNARMED; i <= WEAPON_SUICIDEPILL; ++i) {
+		if (weaponHasFlag3(i, WEAPONFLAG3_DEPLOYS)) {
+			return i;
+		}
+	}
+
+	return WEAPON_LAPTOPGUN;
+}
+
 bool weaponHasAimFlag(s32 weaponnum, u32 flag)
 {
 	struct weapon *weapon = weaponFindById(weaponnum);

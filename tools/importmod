@@ -1698,7 +1698,10 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               # delay slot and is overwritten before any linear use, so only the
               # second reads (both change together)
               ('xrayshot', (('shot_calculate_hits', 22, 0x7f0610a8), ('shot_calculate_hits', 22, 0x7f061338),
-                            ('obj_hit', 22, 0x7f08606c))),
+                            ('obj_hit', 22, 0x7f08606c),
+                            # a likely branch's delay slot writes at (`lui at,0x4780`) between
+                            # the li and its compare, which ends a chain: one immediate
+                            ('chr_shoot', 22, 0x7f040a28, 'imm'))),
               ('nosparks', (('shot_calculate_hits', 1, 0x7f061be0),)),
               # weapon_tick's kinds of thrown weapon. The grenade's number is
               # hoisted into a2 for the whole function, and the mines' `li at`
@@ -1712,14 +1715,24 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
                                    ('weapon_tick', 34, 0x7f06fc84))),
               # the proximity mine heads the chain that goes on to the Dragon's,
               # grenade's and N-bomb's mine modes by function
-              ('isproximitymine', (('weapon_tick', 33, 0x7f06fe70), ('weapon_tick', 33, 0x7f06fc8c, 'imm'))),
+              ('isproximitymine', (('weapon_tick', 33, 0x7f06fe70), ('weapon_tick', 33, 0x7f06fc8c, 'imm'), ('obj_free', 33))),
               # bgun0f0a5550: the detonator hand, the eject switch (the
               # tranquilizer's case heads it, the grenade's pin follows with
               # another body), the held position, and the per-weapon model
               # updates; the magnums' 8 by address, since the function
               # compares a hand state with 8 too, and the rocket launcher's 24
               # closes the magnums' chain. The laser sight is a range test.
-              ('detonatorhand', (('bgun0f0a5550', 34), ('bgun_draw_hud', 34))),
+              ('detonatorhand', (('bgun0f0a5550', 34), ('bgun_draw_hud', 34), ('bgun_tick_inc_autoswitch', 34))),
+              # the hand state machine: the knife's reload quirk at four
+              # places, the mines' function surviving an autoswitch, and the
+              # grenade's no-casing reload (the port's noeject)
+              ('knifereload', (('bgun_tick_inc_reload', 26), ('bgun_tick_inc_autoswitch', 26))),
+              ('keepsfunction', (('bgun_tick_inc_autoswitch', 32),)),
+              ('noeject', (('bgun_tick_inc_reload', 30),)),
+              # a chr's shot: the laser always draws its beam, a simulant's
+              # FarSight shoots through walls; obj_stick's sticks-hard list
+              ('chrshotbeam', (('chr_shoot', 29),)),
+              ('hardwhenlanded', (('obj_stick', 53),)),
               # the HUD's combat boost timer (GE-X's boost is 31), and the
               # picked-up-one-at-a-time test (the knife and the bolt)
               ('boosthud', (('bgun_draw_hud', 35),)),
@@ -3439,7 +3452,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                              % (flag, '; '.join('%s: %s' % (fn, ' '.join(str(n) for n in r) or 'none') for fn, r in readings)))
                 continue
             modlist = readings[0][1]
-            beyond = [n for n in modlist if n >= nweapons]
+            beyond = sorted(set(n for n in modlist if n >= nweapons))
             if beyond:
                 notes.append("%s: the mod's code names weapon%s %s, past the end of the table; left off the list"
                              % (flag, 's' if len(beyond) != 1 else '', ', '.join(str(n) for n in beyond)))

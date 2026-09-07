@@ -1512,7 +1512,7 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 		if (hand->inuse) {
 			someval = bgun0f098ca0(gunfunc, info, hand);
 
-			if (info->weaponnum == WEAPON_TIMEDMINE || info->weaponnum == WEAPON_PROXIMITYMINE) {
+			if (weaponHasFlag3(info->weaponnum, WEAPONFLAG3_KEEPSFUNCTION)) {
 				hand->gset.weaponfunc = gunfunc;
 			}
 
@@ -1558,7 +1558,7 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 					hand->count = 0;
 
 					if (bgunSetState(handnum, HANDSTATE_RELOAD)) {
-						if (info->weaponnum == WEAPON_COMBATKNIFE) {
+						if (weaponHasFlag3(info->weaponnum, WEAPONFLAG3_KNIFERELOAD)) {
 							hand->mode = HANDMODE_11;
 							hand->pausetime60 = TICKS(17);
 							hand->count60 = 0;
@@ -1636,7 +1636,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 		if (hand->statecycles == 0) {
 			if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
 				if (info->definition->ammos[func->ammoindex]->reload_animation
-						&& info->weaponnum != WEAPON_COMBATKNIFE
+						&& !weaponHasFlag3(info->weaponnum, WEAPONFLAG3_KNIFERELOAD)
 #ifndef PLATFORM_N64
 						&& !bgunWantsLoweredReload(info->weaponnum)
 #endif
@@ -1724,7 +1724,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 
 	if (hand->stateminor == HANDSTATEMINOR_RELOAD_SOUND) {
 		if (hand->count == 0) {
-			if (info->weaponnum == WEAPON_COMBATKNIFE
+			if (weaponHasFlag3(info->weaponnum, WEAPONFLAG3_KNIFERELOAD)
 					&& func->ammoindex >= 0
 					&& info->definition->ammos[func->ammoindex]->reload_animation) {
 				bgunStartAnimation(info->definition->ammos[func->ammoindex]->reload_animation, handnum, hand);
@@ -1757,7 +1757,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 	}
 
 	if (hand->stateminor == HANDSTATEMINOR_RELOAD_RAISE) {
-		if (info->weaponnum == WEAPON_COMBATKNIFE) {
+		if (weaponHasFlag3(info->weaponnum, WEAPONFLAG3_KNIFERELOAD)) {
 			hand->animmode = HANDANIMMODE_IDLE;
 		}
 

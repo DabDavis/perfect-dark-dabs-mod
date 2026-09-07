@@ -10739,7 +10739,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 
 				shotdue = true;
 
-				if ((chr->unk32c_12 & (1 << handnum)) || gset.weaponnum == WEAPON_LASER) {
+				if ((chr->unk32c_12 & (1 << handnum)) || weaponHasFlag3(gset.weaponnum, WEAPONFLAG3_CHRSHOTBEAM)) {
 					makebeam = true;
 				}
 
@@ -10827,7 +10827,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 
 				// Handle Farsight shots by aibots specially
 				// because they can shoot through walls.
-				if (chr->aibot && gset.weaponnum == WEAPON_FARSIGHT && !chr->aibot->targetinsight) {
+				if (chr->aibot && weaponHasFlag3(gset.weaponnum, WEAPONFLAG3_XRAYSHOT) && !chr->aibot->targetinsight) {
 					makebeam = true;
 
 					// This function can never return 2 though...

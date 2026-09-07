@@ -2310,6 +2310,11 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "weapon_get_pickup_ammo_qty", 0x7f088254, 0x7f08841c },
 	{ "ammo_handle_pickup",         0x7f088028, 0x7f08819c },
 	{ "bgun_draw_hud",              0x7f0aa86c, 0x7f0abad0 },
+	{ "obj_free",                   0x7f06ad2c, 0x7f06b34c },
+	{ "bgun_tick_inc_reload",       0x7f099c48, 0x7f09a310 },
+	{ "bgun_tick_inc_autoswitch",   0x7f099808, 0x7f099c24 },
+	{ "chr_shoot",                  0x7f0404d4, 0x7f041a74 },
+	{ "obj_stick",                  0x7f06f0a0, 0x7f06f314 },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3934,6 +3939,9 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	{ "xrayshot",     "shot_calculate_hits", 22, 0, 0x7f0610a8 },
 	{ "xrayshot",     "shot_calculate_hits", 22, 0, 0x7f061338 },
 	{ "xrayshot",     "obj_hit", 22, 0, 0x7f08606c },
+	// a likely branch's delay slot writes at (lui at,0x4780) between the li
+	// and its compare, which ends a chain: one immediate
+	{ "xrayshot",     "chr_shoot", 22, 0, 0x7f040a28, SITE_IMM },
 	{ "nosparks",     "shot_calculate_hits", 1, 0, 0x7f061be0 },
 	// weapon_tick's kinds of thrown weapon: the grenade's number is hoisted
 	// into a2 for the whole function, and the mines' li at sit in the delay
@@ -3949,6 +3957,7 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	{ "remotedetonated", "weapon_tick", 34, 0, 0x7f06fc84 },
 	{ "isproximitymine", "weapon_tick", 33, 0, 0x7f06fe70 },
 	{ "isproximitymine", "weapon_tick", 33, 0, 0x7f06fc8c, SITE_IMM },
+	{ "isproximitymine", "obj_free", 33, 0, 0 },
 	// bgun0f0a5550: the detonator hand, the eject switch (the tranquilizer's
 	// case heads it, the grenade's pin follows with another body), the held
 	// position, and the per-weapon model updates; the magnums' 8 by address,
@@ -3956,6 +3965,17 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	// launcher's 24 closes the magnums' chain. The laser sight is a range.
 	{ "detonatorhand", "bgun0f0a5550", 34, 0, 0 },
 	{ "detonatorhand", "bgun_draw_hud", 34, 0, 0 },
+	{ "detonatorhand", "bgun_tick_inc_autoswitch", 34, 0, 0 },
+	// the hand state machine: the knife's reload quirk at four places, the
+	// mines' function surviving an autoswitch, the grenade's no-casing reload
+	{ "knifereload",  "bgun_tick_inc_reload", 26, 0, 0 },
+	{ "knifereload",  "bgun_tick_inc_autoswitch", 26, 0, 0 },
+	{ "keepsfunction", "bgun_tick_inc_autoswitch", 32, 0, 0 },
+	{ "noeject",      "bgun_tick_inc_reload", 30, 0, 0 },
+	// a chr's shot: the laser always draws its beam, a simulant's FarSight
+	// shoots through walls; obj_stick's sticks-hard list
+	{ "chrshotbeam",  "chr_shoot", 29, 0, 0 },
+	{ "hardwhenlanded", "obj_stick", 53, 0, 0 },
 	// the HUD's combat boost timer (GE-X's boost is 31), and the
 	// picked-up-one-at-a-time test (the knife and the bolt)
 	{ "boosthud",     "bgun_draw_hud", 35, 0, 0 },
@@ -4898,11 +4918,23 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				char list[64] = "", prose[64] = "";
 				u32 listlen = 0, proselen = 0;
 				s32 kept = 0, hs = -1;
-				for (s32 k = 0; k < nfirst; ++k) {
-					if (first[k] >= hcount) {
-						rep("  %s: the mod's code names weapon %u, past the end of the table; left off the list", flag, first[k]);
-					} else {
-						first[kept++] = first[k];
+				{
+					char beyond[128] = "";
+					u32 beyondlen = 0;
+					s32 nbeyond = 0;
+					for (s32 k = 0; k < nfirst; ++k) {
+						if (first[k] >= hcount) {
+							// once per number: the list is sorted, so a repeat is the previous one
+							if (k == 0 || first[k] != first[k - 1] || first[k - 1] < hcount) {
+								beyondlen += snprintf(beyond + beyondlen, sizeof(beyond) - beyondlen, "%s%u", nbeyond ? ", " : "", first[k]);
+								nbeyond++;
+							}
+						} else {
+							first[kept++] = first[k];
+						}
+					}
+					if (nbeyond) {
+						rep("  %s: the mod's code names weapon%s %s, past the end of the table; left off the list", flag, nbeyond > 1 ? "s" : "", beyond);
 					}
 				}
 				nfirst = kept;

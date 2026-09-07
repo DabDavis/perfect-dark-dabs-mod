@@ -93,9 +93,17 @@ renumbered the weapon (29 -> 22) *and* flipped the function inside
 would hold it, and `beam_create_for_hand`'s stream test is the same case.
 
 **Some are one weapon with one quirk** whose intent is not visible from the
-surrounding window - the combat knife's two sites in the hand state machine, the
-remote mine's left-hand rule before it was understood as the detonator hand.
-Naming those from a guess is worse than leaving the comparison in place.
+surrounding window - the remote mine's left-hand rule before it was understood
+as the detonator hand. Naming those from a guess is worse than leaving the
+comparison in place. The combat knife's sites in the hand state machine were
+this until read together (2026-09-07): four places that are one reload quirk,
+`WEAPONFLAG3_KNIFERELOAD`.
+
+**A list that is the function types can be the function types.** The bots'
+throwable list was exactly the weapons with a throw function, and
+`botactIsWeaponThrowable()` asks the table now - with the mines' rule kept
+(a weapon thrown by its primary is throwable whichever function is asked
+about), because the first draft lost it and the dumped set said so.
 
 ## A number does not say what the function is
 

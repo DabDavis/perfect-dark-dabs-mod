@@ -287,39 +287,34 @@ s32 botactGetWeaponModel(s32 weapon)
 
 bool botactIsWeaponThrowable(s32 weaponnum, bool is_secondary)
 {
-	switch (weaponnum) {
-	case WEAPON_LAPTOPGUN:
-	case WEAPON_DRAGON:
-	case WEAPON_COMBATKNIFE:
-		return is_secondary;
-	case WEAPON_GRENADE:
-	case WEAPON_NBOMB:
-	case WEAPON_TIMEDMINE:
-	case WEAPON_PROXIMITYMINE:
-	case WEAPON_REMOTEMINE:
+	// what the ROM listed by number - the Laptop Gun's, Dragon's and knife's
+	// secondary, the grenade's, N-bomb's and mines' either function - is
+	// what a mod's table says for itself: a weapon whose primary function is
+	// a throw is throwable whichever function is asked about (a mine's
+	// secondary only arms it another way), and otherwise the function asked
+	// about must be the throw
+	struct weaponfunc *primary = weaponGetFunctionById(weaponnum, FUNC_PRIMARY);
+	struct weaponfunc *func = is_secondary ? weaponGetFunctionById(weaponnum, FUNC_SECONDARY) : primary;
+
+	if (primary && (primary->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
 		return true;
 	}
 
-	return false;
+	return func && (func->type & 0xff) == INVENTORYFUNCTYPE_THROW;
 }
 
 u32 botactGetProjectileThrowInterval(u32 weapon)
 {
-	switch (weapon) {
-	case WEAPON_COMBATKNIFE:
+	// the pace follows the kind of thing thrown: a blade, a grenade, a device
+	if (weaponHasFlag3(weapon, WEAPONFLAG3_THROWNBLADE)) {
 		return TICKS(120);
-	case WEAPON_GRENADE:
-	case WEAPON_NBOMB:
-		return TICKS(90);
-	case WEAPON_CROSSBOW:
-	case WEAPON_TRANQUILIZER:
-	case WEAPON_LASER:
-	case WEAPON_TIMEDMINE:
-	case WEAPON_PROXIMITYMINE:
-	case WEAPON_REMOTEMINE:
-	default:
-		return TICKS(60);
 	}
+
+	if (weaponHasFlag3(weapon, WEAPONFLAG3_GRENADEARC)) {
+		return TICKS(90);
+	}
+
+	return TICKS(60);
 }
 
 s32 botactGetWeaponByAmmoType(s32 ammotype)

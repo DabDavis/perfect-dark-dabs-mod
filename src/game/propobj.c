@@ -9193,7 +9193,7 @@ void autogunTickShoot(struct prop *autogunprop)
 						struct defaultobj *hitobj = hitprop->obj;
 
 						if (hitobj->modelnum == MODEL_TARGET) {
-							struct gset gset = { WEAPON_LAPTOPGUN, 0, 0, FUNC_SECONDARY };
+							struct gset gset = { weaponFindDeployable(), 0, 0, FUNC_SECONDARY };
 
 							missed = false;
 
@@ -16215,14 +16215,18 @@ bool propobjInteract(struct prop *prop)
 			}
 
 			if (playernum >= 0 && laptop == &g_ThrownLaptops[playernum]) {
+				// the weapon that deploys as a sentry gun: the autogun does
+				// not remember which it was thrown as, and the struct is a
+				// setup file's layout
+				const s32 weaponnum = weaponFindDeployable();
 				obj->hidden |= OBJHFLAG_DELETING;
-				invGiveSingleWeapon(WEAPON_LAPTOPGUN);
-				currentPlayerQueuePickupWeaponHudmsg(WEAPON_LAPTOPGUN, false);
-				weaponPlayPickupSound(WEAPON_LAPTOPGUN);
+				invGiveSingleWeapon(weaponnum);
+				currentPlayerQueuePickupWeaponHudmsg(weaponnum, false);
+				weaponPlayPickupSound(weaponnum);
 
 				if (laptop->ammoquantity > 0 && laptop->ammoquantity != 255) {
-					s32 newqty = bgunGetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY) + laptop->ammoquantity;
-					bgunSetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY, newqty);
+					s32 newqty = bgunGetAmmoQtyForWeapon(weaponnum, FUNC_PRIMARY) + laptop->ammoquantity;
+					bgunSetAmmoQtyForWeapon(weaponnum, FUNC_PRIMARY, newqty);
 				}
 			}
 		} else {
@@ -18552,13 +18556,13 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 			laptop->shotbondsum = 0;
 
 			if (chr->aibot) {
-				laptop->ammoquantity = botactTryRemoveAmmoFromReserve(chr->aibot, WEAPON_LAPTOPGUN, FUNC_PRIMARY, 200);
+				laptop->ammoquantity = botactTryRemoveAmmoFromReserve(chr->aibot, gset->weaponnum, FUNC_PRIMARY, 200);
 			} else if (chr->prop->type == PROPTYPE_PLAYER) {
 				s32 qty;
 				s32 prevplayernum = g_Vars.currentplayernum;
 
 				setCurrentPlayerNum(playermgrGetPlayerNumByProp(chr->prop));
-				qty = bgunGetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY);
+				qty = bgunGetAmmoQtyForWeapon(gset->weaponnum, FUNC_PRIMARY);
 
 				if (qty >= 200) {
 					laptop->ammoquantity = 200;
@@ -18572,7 +18576,7 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 					qty -= laptop->ammoquantity;
 				}
 
-				bgunSetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY, qty);
+				bgunSetAmmoQtyForWeapon(gset->weaponnum, FUNC_PRIMARY, qty);
 				setCurrentPlayerNum(prevplayernum);
 			} else {
 				laptop->ammoquantity = 255;

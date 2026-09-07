@@ -1349,11 +1349,7 @@ at 28 ejecting a tranquilizer dart, its grenades and mines never going off.
   reads the stock list on a mod that never touched the site writes the
   stock list, the same authority-over-inheritance rule as before.
 - Next, by GE-X's constants regions still unread and shaped like weapon
-  numbers: `obj_free` (8), `fr_is_ammo_wasted`
-  (7), `obj_stick` (6), `chr_grunt` (6), `propobj_interact`, `chr_shoot`,
-  `botact_get_weapon_by_ammo_type`, `bgun_tick_inc_reload`,
-  `bgun_tick_inc_autoswitch` (5 each), `botact_is_weapon_throwable`,
-  `botact_get_projectile_throw_interval`, `beam_create_for_hand` (4), and
+  numbers: `fr_is_ammo_wasted` (7), `beam_create_for_hand` (4), and
   the one-word ones seen in passing: `obj_child_tick_player` (20 -> 0),
   `bgun_tick_gameplay2` (22 -> 38, twice), `bgun_create_fired_projectile`
   (18 -> 0), `obj_attachment_test_hit` (three `xori` tests: 22, 8, 22 ->
@@ -1405,3 +1401,59 @@ The next three of GE-X's constants regions. Importer version 25.
 - Left: `weapon_get_pickup_ammo_qty`'s knife/bolt test is `pickupsingle`,
   a row (GE-X 2, 86). `ammocrate_get_pickup_ammo_qty` (the crates' table,
   inlined after `ammo_handle_pickup` in the ROM) GE-X did not touch.
+
+## The hand state machine, the bots' throws and the laptop's number (2026-09-07)
+
+The rest of GE-X's weapon-number regions of four words and up. Importer
+version 26. Three more flags3 and eight rows; GE-X reads at every one.
+
+- **The knife's reload is one quirk at four places** (`bgun_tick_inc_reload`
+  three times, `bgun_tick_inc_autoswitch` once): no reload animation when
+  the reload starts, the animation once the hand is empty, the hand coming
+  back up idle, and `HANDMODE_11` on an autoswitch. weapons.md had left the
+  first two as "one weapon with one quirk whose intent is not visible";
+  read together they are one thing, `WEAPONFLAG3_KNIFERELOAD`, and GE-X's
+  knife at 2 would otherwise have reloaded as a gun while its grenade at
+  26 kept the knife's hand. `KEEPSFUNCTION` is the mines' function
+  surviving an autoswitch (GE-X 27, 28), and the grenade's no-casing reload
+  there is the port's `noeject`, a row.
+- **`obj_free`'s eight words are the proximity chain again** (`33 || (15 &&
+  f) || (31 && f) || (30 && f)`): a third `isproximitymine` site, and the
+  port already had it as `weaponIsProximityMine()`. `obj_stick` is the
+  port's `objLand()`: its `{53, 61, 62, 63}` is `hardwhenlanded` (GE-X
+  names 153 for the three it took out, off the end of the table, so its
+  ECM mine alone), and its three knife tests are the `knifeLand()` dispatch
+  weapons.md leaves as a jump table.
+- **`chr_shoot` is `chrTickShoot()`.** The laser's shot always drawing a
+  beam is `CHRSHOTBEAM` (GE-X 21, not its Moonraker 22 - so not the
+  `LASERBEAM` set, and a second flag rather than a disagreement that would
+  have unwritten `laserbeam`). A simulant's FarSight shooting through walls
+  is `xrayshot`, a fourth site - read as one immediate, because the likely
+  branch between the `li at,22` and its `bnel` carries `lui at,0x4780` in
+  its delay slot, a write to `at` that ends a chain. The Reaper's 20 -> 0
+  is `MINIGUN`, on the definition; the 29s inside `chrTickShoot()`'s
+  `case` chains GE-X left alone.
+- **The laptop is named by the gset, or by its flag.** `laptop_deploy` has
+  the gset of the throw and reads `gset->weaponnum`; picking a deployed
+  laptop back up (`propobjInteract()`) and the autogun's own shot at a
+  target (`autogunTickShoot()`) have no gset and no field on the autogun
+  (`struct autogunobj` is a setup file's layout), so `weaponFindDeployable()`
+  finds the weapon carrying `DEPLOYS` - GE-X's 51 - and falls back to the
+  Laptop Gun. That was `propobj_interact`'s five `li a0,14 -> 51`.
+- **The bots' throwables are the table's, not a list.**
+  `botactIsWeaponThrowable()` listed the Laptop Gun's, Dragon's and knife's
+  secondary and the grenade's, N-bomb's and mines' either function; that
+  is "the primary function is a throw, or the function asked about is" (a
+  mine's secondary is not a throw - the first rule drafted, "the function
+  asked about is a throw", lost the mines' secondary against the dumped
+  set, check 3 of weapons.md). `botactGetProjectileThrowInterval()` paces
+  by `THROWNBLADE` (120 ticks) and `GRENADEARC` (90) over the default 60.
+  GE-X rebuilt both switches' jump tables in caves (2..34 and 2..31 at
+  0x7f1b3f00 and 0x7f1b3c60); neither needs reading now.
+- Left: `fr_is_ammo_wasted` (the firing range's eleven-weapon list of
+  shots that may still be live, and the projectiles they leave; six of
+  GE-X's renumberings, in a mode GE-X does not have), `beam_create_for_hand`
+  (weapon and function, and the Mauler's 6 -> 119 - `chargeable`'s
+  disagreement again), `chr_grunt` (its 15, 41, 58 and 12, 47, 60 are not
+  weapons - body numbers, by the look of the sets GE-X made 5 and 4), and
+  `chr_shoot`'s 7 -> 39 and 1 -> 0 at 0x7f0418e4, unread.
