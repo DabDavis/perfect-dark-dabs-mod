@@ -9,7 +9,7 @@
  * out of its display lists and hand the renderer, per triangle corner, the
  * normal the surface really has there. See modelsmooth.c.
  */
-void modelSmoothClassify(struct modeldef *modeldef);
+void modelSmoothClassify(struct modeldef *modeldef, u32 filelen);
 
 /**
  * A node about to be drawn from a copy of its vertices rather than the

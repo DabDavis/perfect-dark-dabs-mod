@@ -4014,11 +4014,6 @@ void modelPromoteOffsetsToPointers(struct modeldef *modeldef, u32 vma, uintptr_t
 
 	modelPromoteNodeOffsetsToPointers(modeldef->rootnode, vma, fileramaddr);
 
-#ifndef PLATFORM_N64
-	// Model Smoothing reads the mesh back now that its pointers are real
-	modelSmoothClassify(modeldef);
-#endif
-
 	// Sort parts by part number so they can be bisected during lookup
 	partnums = (s16 *)&modeldef->parts[modeldef->numparts];
 

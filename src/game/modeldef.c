@@ -18,6 +18,9 @@
 #include "game/mplayer/mplayer.h"
 #include "game/options.h"
 #include "bss.h"
+#ifndef PLATFORM_N64
+#include "modelsmooth.h"
+#endif
 #include "lib/vi.h"
 #include "lib/main.h"
 #include "lib/model.h"
@@ -195,6 +198,13 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 
 	modelPromoteTypeToPointer(modeldef);
 	modelPromoteOffsetsToPointers(modeldef, 0x5000000, (uintptr_t) modeldef);
+
+#ifndef PLATFORM_N64
+	// Model Smoothing reads the mesh back now that its pointers are real,
+	// bounded by the buffer the file was loaded into
+	modelSmoothClassify(modeldef, fileGetAllocationSize(fileid));
+#endif
+
 	modeldef0f1a7560(modeldef, fileid, 0x5000000, modeldef, arg3, dst == NULL);
 
 	return modeldef;

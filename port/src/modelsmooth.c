@@ -41,8 +41,13 @@
  * top, whose corner normals lean out over its bevel - which is room
  * geometry this pass never reads, and which rose into a dome.
  *
- * Runs from modelPromoteOffsetsToPointers(), which is where every model file
- * gets its pointers, so a model is in the table before its first frame.
+ * Runs from modeldefLoad() and the gun loader, straight after
+ * modelPromoteOffsetsToPointers() has given the model file its pointers, so a
+ * model is in the table before its first frame. It is called from there
+ * rather than from inside the promotion, which is decompiled code that is not
+ * told how big the file it is walking is: every address this pass follows is
+ * bounded by that buffer, and there is nothing else that says where a model
+ * ends.
  */
 
 #include <stdlib.h>
@@ -96,7 +101,9 @@ struct smoothmesh {
 	const Vtx *vtxbase;
 	s32 numvertices;
 	const u8 *modelbase;
+	const u8 *fileend;  // one past the model file's buffer; nothing outside it is read
 	s32 numbad; // vertex loads outside the node's array
+	s32 numstray; // display list addresses outside the model file
 
 	// merged positions
 	struct smoothpos *postab;
@@ -137,25 +144,43 @@ static void meshAddTri(struct smoothmesh *m, s32 sa, s32 sb, s32 sc)
 /**
  * A segmented address the way the renderer resolves one while this model is
  * being drawn: segment 4 is the node's vertex array, segment 5 the model.
+ *
+ * Everything this pass reads lives in the model file's own buffer, so an
+ * address outside it is not one of the model's and comes back NULL. Nothing
+ * else here checks: the offset in a segmented address is 24 bits, a raw one
+ * is whatever word the file holds, and a mod's model can carry either. Left
+ * unchecked they are a read wherever they point, which on Linux is usually
+ * mapped heap and silently walks another model, and on Windows was an
+ * access violation in a GE-X mission.
  */
 static const void *meshResolve(struct smoothmesh *m, uintptr_t w1)
 {
+	const u8 *p;
+
 	if (w1 & 1) {
 		u32 seg = (w1 & 0x0f000000) >> 24;
 		uintptr_t off = w1 & 0x00fffffe;
 
 		if (seg == SPSEGMENT_MODEL_VTX) {
-			return (const u8 *)m->vtxbase + off;
+			p = (const u8 *)m->vtxbase + off;
+		} else if (seg == SPSEGMENT_MODEL_COL1) {
+			p = m->modelbase + off;
+		} else {
+			return NULL;
 		}
+	} else {
+		p = (const u8 *)w1;
+	}
 
-		if (seg == SPSEGMENT_MODEL_COL1) {
-			return m->modelbase + off;
+	if (p < m->modelbase || p >= m->fileend) {
+		if (p) {
+			m->numstray++;
 		}
 
 		return NULL;
 	}
 
-	return (const void *)w1;
+	return p;
 }
 
 /**
@@ -169,13 +194,31 @@ static void meshWalkGdl(struct smoothmesh *m, const Gfx *gdl, s32 depth)
 	}
 
 	for (;;) {
-		u32 w0 = (u32)gdl->words.w0;
-		uintptr_t w1 = gdl->words.w1;
-		u32 op = w0 >> 24;
+		u32 w0;
+		uintptr_t w1;
+		u32 op;
+
+		// A list that never reaches its G_ENDDL walks off the end of the
+		// file otherwise, which is the same read as a stray address.
+		if ((const u8 *)(gdl + 1) > m->fileend) {
+			m->numstray++;
+			return;
+		}
+
+		w0 = (u32)gdl->words.w0;
+		w1 = gdl->words.w1;
+		op = w0 >> 24;
 
 		switch (op) {
 		case G_VTX: {
-			s32 n = (w0 & 0xffff) / sizeof(Vtx);
+			// How many vertices, from the count the microcode reads
+			// (gSPVertex writes n-1 above v0), not from the DMA length
+			// beside it: those agree in the game's own lists because one
+			// macro writes both, and GE-X has models whose length was
+			// worked out with the 16 byte Vtx of stock libultra rather
+			// than this game's 12 byte one, which asked for four vertices
+			// past the end of the node's array.
+			s32 n = ((w0 >> 20) & 0xf) + 1;
 			s32 v0 = (w0 >> 16) & 0xf;
 			const Vtx *src = meshResolve(m, w1);
 
@@ -1019,11 +1062,20 @@ static s8 meshNormalByte(f32 f)
 	return (s8)lroundf(v);
 }
 
-static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numvertices, const Gfx *opagdl, const Gfx *xlugdl)
+static void meshClassifyNode(const u8 *modelbase, const u8 *fileend, const Vtx *vertices, s32 numvertices, const Gfx *opagdl, const Gfx *xlugdl)
 {
 	struct smoothmesh m;
 
 	if (!vertices || numvertices <= 0) {
+		return;
+	}
+
+	// The node's own array is the one thing here that is not reached through
+	// meshResolve(), so it is checked against the file the same way. The
+	// subtraction rather than vertices + numvertices because numvertices is
+	// whatever the file says and the sum can leave the address space.
+	if ((const u8 *)vertices < modelbase || (const u8 *)vertices > fileend
+			|| (size_t)(fileend - (const u8 *)vertices) < (size_t)numvertices * sizeof(Vtx)) {
 		return;
 	}
 
@@ -1032,6 +1084,7 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 	m.vtxbase = vertices;
 	m.numvertices = numvertices;
 	m.modelbase = modelbase;
+	m.fileend = fileend;
 
 	// The renderer runs a node's translucent list straight after its opaque
 	// one (modelRenderNodeDl, mcount 3) with the vertex cache as the opaque
@@ -1041,6 +1094,10 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 
 	if (m.numbad) {
 		sysLogPrintf(LOG_WARNING, "modelsmooth: model %p node %p loads %d vertices from outside its array", modelbase, vertices, m.numbad);
+	}
+
+	if (m.numstray) {
+		sysLogPrintf(LOG_WARNING, "modelsmooth: model %p node %p has %d display list addresses outside the model file", modelbase, vertices, m.numstray);
 	}
 
 	if (m.numtris == 0) {
@@ -1075,11 +1132,21 @@ static void meshClassifyNode(const u8 *modelbase, const Vtx *vertices, s32 numve
 	free(m.tris);
 }
 
-void modelSmoothClassify(struct modeldef *modeldef)
+/**
+ * `filelen` is the model file's buffer, which is what bounds every address
+ * this pass follows. A caller that does not know it passes 0, and the pass
+ * does nothing rather than read on trust.
+ */
+void modelSmoothClassify(struct modeldef *modeldef, u32 filelen)
 {
 	struct modelnode *node = modeldef->rootnode;
 	const u8 *modelbase = (const u8 *)modeldef;
+	const u8 *fileend = modelbase + filelen;
 	const u64 start = sysGetMicroseconds();
+
+	if (filelen == 0) {
+		return;
+	}
 
 	gfx_smooth_model_begin(modeldef);
 
@@ -1088,10 +1155,10 @@ void modelSmoothClassify(struct modeldef *modeldef)
 
 		switch (node->type & 0xff) {
 		case MODELNODETYPE_DL:
-			meshClassifyNode(modelbase, rodata->dl.vertices, rodata->dl.numvertices, rodata->dl.opagdl, rodata->dl.xlugdl);
+			meshClassifyNode(modelbase, fileend, rodata->dl.vertices, rodata->dl.numvertices, rodata->dl.opagdl, rodata->dl.xlugdl);
 			break;
 		case MODELNODETYPE_GUNDL:
-			meshClassifyNode(modelbase, rodata->gundl.vertices, rodata->gundl.numvertices, rodata->gundl.opagdl, rodata->gundl.xlugdl);
+			meshClassifyNode(modelbase, fileend, rodata->gundl.vertices, rodata->gundl.numvertices, rodata->gundl.opagdl, rodata->gundl.xlugdl);
 			break;
 		}
 
