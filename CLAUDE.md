@@ -55,8 +55,10 @@ end before touching any of it, then:
    the tail's unlocks family too; what remains of the tail is listed in
    mods.md ("The tail, and the unlocks": the menu palette, the run-speed
    cave, King of the Hill, GE-X's hats ...), and the weapon-number sites
-   the port still tests literally (weapons.md: ~85 in bondgun.c, ~70 in
-   propobj.c), each a `FLAG_SITES` row once converted.
+   the port still tests literally (weapons.md: ~60 in bondgun.c, ~63 in
+   propobj.c), each a `FLAG_SITES` row once converted - the last mods.md
+   section ends with the next ones in GE-X's order, and says why a row
+   also needs a `codeSyms[]` entry in modimport.c.
    `--prepare-diff DIR` writes both binaries; `mips-linux-gnu-objdump -b binary
    -m mips:4300 -EB -D --adjust-vma=0x7f000000` reads them.
 2. **Two ways to follow a change.** A renumbered compare is a

@@ -859,13 +859,11 @@ s32 botIsObjCollectable(struct defaultobj *obj)
 	if (obj->type == OBJTYPE_WEAPON) {
 		struct weaponobj *weapon = (struct weaponobj *)obj;
 
-		if (weapon->weaponnum == WEAPON_NBOMB
-				|| weapon->weaponnum == WEAPON_GRENADE
-				|| weapon->weaponnum == WEAPON_GRENADEROUND
-				|| weapon->weaponnum == WEAPON_PROXIMITYMINE
-				|| weapon->weaponnum == WEAPON_REMOTEMINE
-				|| weapon->weaponnum == WEAPON_TIMEDMINE
+		if (weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_BOTIGNORES)
+				// the Skedar rocket shares its definition with the rocket,
+				// which is not on this list, so it cannot carry the flag
 				|| weapon->weaponnum == WEAPON_SKROCKET
+				// and the Dragon only counts in its mine mode
 				|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
 			return false;
 		}

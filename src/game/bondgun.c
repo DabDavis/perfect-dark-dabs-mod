@@ -4680,14 +4680,14 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		return NULL;
 	}
 
-	if (gset->weaponnum == WEAPON_COMBATKNIFE) {
+	if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_THROWNBLADE)) {
 		guRotateF(mtx.m, 90.0f / (RANDOMFRAC() + 12.1f),
 				arg4->m[1][0], arg4->m[1][1], arg4->m[1][2]);
 	} else {
 		mtxLoadRandomRotation(&mtx);
 	}
 
-	if (gset->weaponnum == WEAPON_LAPTOPGUN) {
+	if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_DEPLOYS)) {
 		autogun = laptopDeploy(func->projectilemodelnum, gset, chr);
 
 		if (autogun != NULL) {
@@ -4706,7 +4706,7 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 				weaponobj->timer240 = TICKS(weaponobj->timer240 * 4);
 			}
 
-			if (weaponobj->weaponnum == WEAPON_GRENADE || weaponobj->weaponnum == WEAPON_NBOMB) {
+			if (weaponHasFlag3(weaponobj->weaponnum, WEAPONFLAG3_GRENADEARC)) {
 				propSetDangerous(weaponobj->base.prop);
 			}
 
@@ -4796,7 +4796,7 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 
 	mtx4LoadIdentity(&sp1f4);
 
-	if (gset->weaponnum == WEAPON_COMBATKNIFE) {
+	if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_THROWNBLADE)) {
 		mtx4LoadZRotation(4.711639f, &sp1f4);
 		mtx4LoadXRotation(3.1410925f, &sp190);
 		mtx4MultMtx4InPlace(&sp190, &sp1f4);
@@ -4888,14 +4888,14 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		velocity.y = gundir.y * 16.666666f;
 		velocity.z = gundir.z * 16.666666f;
 
-		if (gset->weaponnum == WEAPON_GRENADE || gset->weaponnum == WEAPON_NBOMB) {
+		if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_GRENADEARC)) {
 			velocity.y += 1.6666666f;
 		} else {
 			velocity.y += 5.0f;
 		}
 	}
 
-	if (gset->weaponnum == WEAPON_LAPTOPGUN) {
+	if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_DEPLOYS)) {
 		bgunFreeWeapon(handnum);
 	}
 
@@ -4912,7 +4912,7 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		if (obj->type == OBJTYPE_WEAPON) {
 			weapon = (struct weaponobj *)obj;
 
-			if (gset->weaponnum == WEAPON_GRENADE && gset->weaponfunc == FUNC_PRIMARY) {
+			if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_FUSETIMER) && gset->weaponfunc == FUNC_PRIMARY) {
 				if (weapon->timer240 < hand->primetimer60 * 4) {
 					weapon->timer240 = 0;
 				} else {
@@ -4935,11 +4935,11 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 			obj->projectile->nextsteppos.y = muzzlepos.y;
 			obj->projectile->nextsteppos.z = muzzlepos.z;
 
-			if (gset->weaponnum == WEAPON_GRENADE && gset->weaponfunc == FUNC_SECONDARY) {
+			if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_PINBALL) && gset->weaponfunc == FUNC_SECONDARY) {
 				obj->projectile->unk08c = 1.0f;
 			}
 
-			if (gset->weaponnum == WEAPON_COMBATKNIFE) {
+			if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_THROWNBLADE)) {
 				// In theory, weapon can be uninitialised here,
 				// but in practice it's always set.
 				weapon->base.projectile->flags |= PROJECTILEFLAG_00000002;
@@ -7765,7 +7765,7 @@ void bgun0f0a4e44(struct hand *hand, struct weapon *weapondef, struct modeldef *
 		struct modelnode *node = modelGetPart(modeldef, partnum);
 		struct coord sp60;
 
-		if (node && !weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN) && weaponnum != WEAPON_SHOTGUN) {
+		if (node && !weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN) && !weaponHasFlag3(weaponnum, WEAPONFLAG3_SHELLPARTS)) {
 			struct modelrodata_position *rodata = &node->rodata->position;
 			s32 mtxindex = modelFindNodeMtxIndex(node, 0);
 
@@ -8197,16 +8197,12 @@ void bgun0f0a5550(s32 handnum)
 		mtx4Copy(&sp2c4, (Mtxf *)mtxallocation);
 
 		if (hand->unk0cc8_04 > 0) {
-			switch (weaponnum) {
-			case WEAPON_GRENADE:
-			case WEAPON_NBOMB:
+			if (weaponHasFlag3(weaponnum, WEAPONFLAG3_EJECTSPIN)) {
 				hand->ejectstate = EJECTSTATE_INIT;
 				hand->ejecttype = EJECTTYPE_GRENADEPIN;
-				break;
-			case WEAPON_TRANQUILIZER:
+			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_EJECTSDART)) {
 				hand->ejectstate = EJECTSTATE_INIT;
 				hand->ejecttype = EJECTTYPE_TRANQCASE;
-				break;
 			}
 		}
 
@@ -8427,16 +8423,12 @@ void bgun0f0a5550(s32 handnum)
 				*sp1e4[2] = false;
 			}
 
-			switch (weaponnum) {
-			case WEAPON_SNIPERRIFLE:
+			if (weaponHasFlag3(weaponnum, WEAPONFLAG3_SNIPERSCOPE)) {
 				bgunUpdateSniperRifle(modeldef, mtxallocation);
-				break;
-			case WEAPON_DEVASTATOR:
+			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_LOADSLIDE)) {
 				bgunUpdateDevastator(hand, mtxallocation, modeldef);
-				break;
-			case WEAPON_SHOTGUN:
+			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_SHOTGUNMODEL)) {
 				bgunUpdateShotgun(hand, mtxallocation, sp1e4[0], modeldef);
-				break;
 			}
 
 			node = modelGetPart(modeldef, MODELPART_GUN_MUZZLEPOS);
@@ -8464,14 +8456,10 @@ void bgun0f0a5550(s32 handnum)
 
 				hand->muzzlez = -((Mtxf *)((uintptr_t)mtxallocation + sp6c * sizeof(Mtxf)))->m[3][2];
 
-				if (hand->flashon && sp1e0 > 0 && weaponnum != WEAPON_SHOTGUN && g_Vars.lvupdate240 != 0) {
+				if (hand->flashon && sp1e0 > 0 && !weaponHasFlag3(weaponnum, WEAPONFLAG3_SHOTGUNMODEL) && g_Vars.lvupdate240 != 0) {
 					bgun0f0a4e44(hand, weapondef, modeldef, funcdef, sp1e0, mtxallocation, weaponnum, sp1e4, sp6c, &sp234, &sp1f4);
 				}
-			} else if (weaponnum == WEAPON_GRENADE
-					|| weaponnum == WEAPON_TIMEDMINE
-					|| weaponnum == WEAPON_REMOTEMINE
-					|| weaponnum == WEAPON_PROXIMITYMINE
-					|| weaponnum == WEAPON_NBOMB) {
+			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDMUZZLE)) {
 				sp6c = modelFindNodeMtxIndex(modelGetPart(modeldef, MODELPART_GUN_HOLDPOS), 0);
 
 				mtx = (Mtxf *)mtxallocation;
@@ -8505,16 +8493,16 @@ void bgun0f0a5550(s32 handnum)
 		hand->muzzlez = -hand->cammtx.m[3][2];
 	}
 
-	switch (weaponnum) {
-	case WEAPON_ROCKETLAUNCHER:
-		bgunUpdateRocketLauncher(hand, handnum, (struct weaponfunc_shootprojectile *)funcdef);
-		break;
-	case WEAPON_DY357MAGNUM:
-	case WEAPON_DY357LX:
+	if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDROCKET)) {
+		// a mod's table may put the flag on a function that fires no
+		// projectile: test the type before the cast reads its fields
+		if (funcdef && funcdef->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
+			bgunUpdateRocketLauncher(hand, handnum, (struct weaponfunc_shootprojectile *)funcdef);
+		}
+	} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_REVOLVER)) {
 		if (hand->unk0cc8_04 > 0) {
 			bgunUpdateMagnum(hand, handnum, modeldef, (Mtxf *)mtxallocation);
 		}
-		break;
 	}
 
 	if (hand->firing && g_Vars.lvupdate240 != 0) {
@@ -8530,7 +8518,7 @@ void bgun0f0a5550(s32 handnum)
 	}
 
 	if (PLAYERCOUNT() == 1 && IS8MB() && hand->visible
-			&& weaponnum >= WEAPON_FALCON2 && weaponnum <= WEAPON_FALCON2_SCOPE) {
+			&& weaponHasFlag3(weaponnum, WEAPONFLAG3_LASERSIGHT)) {
 		bgunUpdateLasersight(hand, modeldef, handnum, mtxallocation);
 	} else {
 		lasersightFree(handnum);

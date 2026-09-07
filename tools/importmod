@@ -1699,7 +1699,56 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               # second reads (both change together)
               ('xrayshot', (('shot_calculate_hits', 22, 0x7f0610a8), ('shot_calculate_hits', 22, 0x7f061338),
                             ('obj_hit', 22, 0x7f08606c))),
-              ('nosparks', (('shot_calculate_hits', 1, 0x7f061be0),)))
+              ('nosparks', (('shot_calculate_hits', 1, 0x7f061be0),)),
+              # weapon_tick's kinds of thrown weapon. The grenade's number is
+              # hoisted into a2 for the whole function, and the mines' `li at`
+              # sit in the delay slots of the branches that skip them, their
+              # compares far off: those are read as the one immediate ('imm').
+              # A second `li at,32` at 0x7f06fbf8 is on a path a rocket never
+              # takes; GE-X left it alone and it is not a site.
+              ('fusetimer', (('weapon_tick', 30, 0x7f06f560, 'imm'), ('bgun_create_thrown_projectile', 30, (1,)))),
+              ('timedfuse', (('weapon_tick', 32, 0x7f06fa94, 'imm'),)),
+              ('remotedetonated', (('weapon_tick', 34, 0x7f06fc00, 'imm'), ('weapon_tick', 34, 0x7f06fc10, 'imm'),
+                                   ('weapon_tick', 34, 0x7f06fc84))),
+              # the proximity mine heads the chain that goes on to the Dragon's,
+              # grenade's and N-bomb's mine modes by function
+              ('isproximitymine', (('weapon_tick', 33, 0x7f06fe70), ('weapon_tick', 33, 0x7f06fc8c, 'imm'))),
+              # bgun0f0a5550: the detonator hand, the eject switch (the
+              # tranquilizer's case heads it, the grenade's pin follows with
+              # another body), the held position, and the per-weapon model
+              # updates; the magnums' 8 by address, since the function
+              # compares a hand state with 8 too, and the rocket launcher's 24
+              # closes the magnums' chain. The laser sight is a range test.
+              ('detonatorhand', (('bgun0f0a5550', 34),)),
+              ('ejectsdart', (('bgun0f0a5550', 28),)),
+              ('ejectspin', (('bgun0f0a5550', 30, 0x7f0a609c),)),
+              ('heldmuzzle', (('bgun0f0a5550', 30, 0x7f0a6608),)),
+              ('shotgunmodel', (('bgun0f0a5550', 19),)),
+              ('shellparts', (('bgun0f0a4e44', 19, 0x7f0a50f0),)),
+              ('sniperscope', (('bgun0f0a5550', 21),)),
+              ('loadslide', (('bgun0f0a5550', 23),)),
+              ('revolver', (('bgun0f0a5550', 8, 0x7f0a6714),)),
+              ('heldrocket', (('bgun0f0a5550', 24, 0x7f0a6724),)),
+              ('lasersight', (('bgun0f0a5550', 2, 0x7f0a6910, 'range'),)),
+              # the thrown projectile: the knife's spin at two heads and a
+              # delay-slot copy, the grenade's three tests in order (the arc,
+              # the fuse, the pinball), the Laptop Gun's deployment
+              ('thrownblade', (('bgun_create_thrown_projectile', 26), ('bgun_create_thrown_projectile', 26, 0x7f09f7cc, 'imm'),
+                               ('bgun_create_thrown_projectile2', 26))),
+              ('grenadearc', (('bgun_create_thrown_projectile', 30, (0,)), ('bgun_create_thrown_projectile2', 30))),
+              ('pinball', (('bgun_create_thrown_projectile', 30, (2,)),)),
+              ('deploys', (('bgun_create_thrown_projectile', 14), ('bgun_create_thrown_projectile2', 14))),
+              ('explodeswhenshot', (('obj_damage', 30),)),
+              ('botignores', (('bot_is_obj_collectable', 31),)))
+
+# numbers in a flag's stock chain that are not the flag's: a definition shared
+# with a weapon that is not on the list, which the port keeps testing by number
+# (the rocket and the Skedar rocket: obj_damage's explodes-when-shot list has
+# the rocket, bot_is_obj_collectable's the Skedar rocket), or another flag's
+# test that shares the body (bgun0f0a4e44 skips the Reaper's flash sprites too,
+# which is MINIGUN's, on the definition). Taken out of both the stock and the
+# mod's list, so they neither reach the flag nor break agreement.
+FLAG_BYNUMBER = {'explodeswhenshot': (83,), 'botignores': (88,), 'shellparts': (20,)}
 
 
 def follow_flag_site_at(stockcode, modcode, start, end, addr):
@@ -1718,6 +1767,51 @@ def follow_flag_site_at(stockcode, modcode, start, end, addr):
             modlist, _ = follow_compare_chain(modcode, start, end, ofs, reg, match)
             return stocklist, modlist
     return None, None
+
+
+def follow_immediate_at(stockcode, modcode, start, end, addr):
+    """One weapon number the code compares by a constant it loaded somewhere
+    else - hoisted into a register for the whole function (weapon_tick keeps
+    the grenade's in a2), or in the delay slot of the branch that skips its
+    body (weapon_tick's mines) - as the `li REG,N` at the stock address, read
+    as the mod's li into the same register. ([stock], [mod]); the mod's list
+    empty when its number is no weapon; (None, None) when the mod's word is
+    not an li into that register."""
+    ofs = addr - GAME_VRAM
+    if ofs + 4 > min(len(stockcode), len(modcode)):
+        return None, None
+    x = be32(stockcode, ofs)
+    y = be32(modcode, ofs)
+    if (x >> 26) not in (0x08, 0x09) or (x >> 21) & 0x1f != 0 or (y >> 16) != (x >> 16):
+        return None, None
+    return [x & 0xffff], [n for n in (y & 0xffff,) if 0 < n < 0xff]
+
+
+def follow_range_at(stockcode, modcode, start, end, addr):
+    """A range test - `slti at,REG,LO` and, within eight words, `slti
+    at,REG,HI`, the weapon being LO <= w < HI (bgun0f0a5550's laser sight is
+    the Falcon 2's three numbers; GE-X made it 1 <= w < 1, none) - as the
+    lists of numbers in each. (None, None) when either binary lacks the
+    shape."""
+    def read(code):
+        ofs = addr - GAME_VRAM
+        if ofs + 4 > len(code):
+            return None
+        x = be32(code, ofs)
+        if (x >> 26) != 0x0a or (x >> 16) & 0x1f != 1:
+            return None
+        reg = (x >> 21) & 0x1f
+        lo = (x & 0xffff) - (0x10000 if x & 0x8000 else 0)
+        for o in range(ofs + 4, min(ofs + 36, end, len(code) - 3), 4):
+            z = be32(code, o)
+            if (z >> 26) == 0x0a and (z >> 16) & 0x1f == 1 and (z >> 21) & 0x1f == reg:
+                hi = (z & 0xffff) - (0x10000 if z & 0x8000 else 0)
+                return [n for n in range(lo, hi) if 0 < n < 0xff]
+        return None
+    stocklist, modlist = read(stockcode), read(modcode)
+    if stocklist is None or modlist is None:
+        return None, None
+    return stocklist, modlist
 
 
 def follow_float_immediate(stockcode, modcode, start, end, stockhi):
@@ -3216,8 +3310,12 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                     readings = None
                     break
                 start, end = codesyms[fn]
+                kept = FLAG_BYNUMBER.get(flag, ())
                 if len(site) > 2 and isinstance(site[2], int):
-                    found = [follow_flag_site_at(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, site[2])]
+                    # a site named by its stock address: the chain there, one
+                    # immediate, or a range test
+                    reader = {'imm': follow_immediate_at, 'range': follow_range_at}.get(site[3] if len(site) > 3 else None, follow_flag_site_at)
+                    found = [reader(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, site[2])]
                 else:
                     found = follow_flag_sites(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, value)
                     if len(site) > 2:
@@ -3228,9 +3326,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                     readings = None
                     break
                 for sl, ml in found:
-                    readings.append((fn, sorted(ml)))
+                    readings.append((fn, sorted(n for n in ml if n not in kept)))
                     if stocklist is None:
-                        stocklist = sorted(sl)
+                        stocklist = sorted(n for n in sl if n not in kept)
             if not readings:
                 continue
             if any(r != readings[0][1] for _, r in readings):

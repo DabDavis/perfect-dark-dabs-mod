@@ -2300,6 +2300,13 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bot_tick_unpaused",          0x7f194b40, 0x7f197544 },
 	{ "shot_calculate_hits",        0x7f060db8, 0x7f061d54 },
 	{ "obj_hit",                    0x7f085eac, 0x7f086918 },
+	{ "weapon_tick",                0x7f06f54c, 0x7f07063c },
+	{ "bgun0f0a5550",               0x7f0a5550, 0x7f0a695c },
+	{ "bgun0f0a4e44",               0x7f0a4e44, 0x7f0a5300 },
+	{ "bgun_create_thrown_projectile", 0x7f09f100, 0x7f09f848 },
+	{ "bgun_create_thrown_projectile2", 0x7f09ee18, 0x7f09f100 },
+	{ "obj_damage",                 0x7f0852ac, 0x7f0859a0 },
+	{ "bot_is_obj_collectable",     0x7f191194, 0x7f19124c },
 };
 #define HAVE_DATASYMS 1
 #else
@@ -3757,9 +3764,88 @@ static s32 followCompareChain(const u8 *code, u32 codelen, u32 start, u32 end, u
  * both chains read (a removed test is an empty list). projectile_tick tests
  * the bolt and the knife at four places, and a mod may change them apart.
  */
-static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
-		u32 start, u32 end, u32 from, u32 value, u32 at, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod, s32 *ok)
+// how a row's site is read: the compare chain at it (found by value, or at
+// the row's stock address); one immediate - a constant the code hoisted into
+// a register for the whole function (weapon_tick keeps the grenade's in a2)
+// or loaded in the delay slot of the branch that skips its body (its mines),
+// read as the mod's li into the same register; or a range test, `slti
+// at,REG,LO` ... `slti at,REG,HI`, LO <= w < HI (bgun0f0a5550's laser sight
+// is the Falcon 2's three numbers; GE-X made it 1 <= w < 1)
+enum { SITE_CHAIN, SITE_IMM, SITE_RANGE };
+
+static s32 followImmediateAt(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen, u32 at,
+		u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod)
 {
+	const u32 ofs = at - GAME_VRAM;
+	u32 x, y;
+	if (ofs + 4 > stocklen || ofs + 4 > modlen) {
+		return 0;
+	}
+	x = be32(stockcode, ofs);
+	y = be32(modcode, ofs);
+	if (((x >> 26) != 0x08 && (x >> 26) != 0x09) || ((x >> 21) & 0x1f) != 0 || (y >> 16) != (x >> 16)) {
+		return 0;
+	}
+	*nstock = 0;
+	*nmod = 0;
+	if ((x & 0xffff) > 0 && (x & 0xffff) < 0xff) {
+		stocknums[(*nstock)++] = x & 0xff;
+	}
+	if ((y & 0xffff) > 0 && (y & 0xffff) < 0xff) {
+		modnums[(*nmod)++] = y & 0xff;
+	}
+	return 1;
+}
+
+static s32 rangeAt(const u8 *code, u32 codelen, u32 end, u32 at, u8 *nums, s32 *n)
+{
+	const u32 ofs = at - GAME_VRAM;
+	u32 x, reg;
+	s32 lo;
+	if (ofs + 4 > codelen) {
+		return 0;
+	}
+	x = be32(code, ofs);
+	if ((x >> 26) != 0x0a || ((x >> 16) & 0x1f) != 1) {
+		return 0;
+	}
+	reg = (x >> 21) & 0x1f;
+	lo = (s16)(x & 0xffff);
+	for (u32 o = ofs + 4; o < ofs + 36 && o + 4 <= end && o + 4 <= codelen; o += 4) {
+		const u32 z = be32(code, o);
+		if ((z >> 26) == 0x0a && ((z >> 16) & 0x1f) == 1 && ((z >> 21) & 0x1f) == reg) {
+			const s32 hi = (s16)(z & 0xffff);
+			*n = 0;
+			for (s32 w = lo; w < hi && *n < 24; ++w) {
+				if (w > 0 && w < 0xff) {
+					nums[(*n)++] = (u8)w;
+				}
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 followRangeAt(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen, u32 end, u32 at,
+		u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod)
+{
+	return rangeAt(stockcode, stocklen, end, at, stocknums, nstock) && rangeAt(modcode, modlen, end, at, modnums, nmod);
+}
+
+static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, u32 modlen,
+		u32 start, u32 end, u32 from, u32 value, u32 at, u32 kind, u8 *stocknums, s32 *nstock, u8 *modnums, s32 *nmod, s32 *ok)
+{
+	if (kind != SITE_CHAIN) {
+		// one site, read once
+		if (from != start) {
+			return 0;
+		}
+		*ok = kind == SITE_IMM
+			? followImmediateAt(stockcode, stocklen, modcode, modlen, at, stocknums, nstock, modnums, nmod)
+			: followRangeAt(stockcode, stocklen, modcode, modlen, end, at, stocknums, nstock, modnums, nmod);
+		return start + 4;
+	}
 	for (u32 ofs = from; ofs + 8 <= end && ofs + 8 <= stocklen && ofs + 8 <= modlen; ofs += 4) {
 		const u32 x = be32(stockcode, ofs);
 		u32 nxt, reg;
@@ -3818,7 +3904,8 @@ static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 // at: the site by its stock address, for one that sits in a delay slot or
 // behind another test on at that the head rule cannot see past; 0 to find
 // the sites by value
-static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 at; } flagSites[] = {
+// kind: how the site is read (SITE_CHAIN unless said)
+static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 at; u32 kind; } flagSites[] = {
 	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19, 0, 0 },
 	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6, 0, 0 },
 	{ "chargeable", "bgun0f09a6f8", 6, 0, 0 },
@@ -3845,7 +3932,76 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	{ "xrayshot",     "shot_calculate_hits", 22, 0, 0x7f061338 },
 	{ "xrayshot",     "obj_hit", 22, 0, 0x7f08606c },
 	{ "nosparks",     "shot_calculate_hits", 1, 0, 0x7f061be0 },
+	// weapon_tick's kinds of thrown weapon: the grenade's number is hoisted
+	// into a2 for the whole function, and the mines' li at sit in the delay
+	// slots of the branches that skip them, their compares far off. A second
+	// li at,32 at 0x7f06fbf8 is on a path a rocket never takes; GE-X left it
+	// alone and it is not a site. The proximity mine heads the chain that
+	// goes on to the Dragon's, grenade's and N-bomb's mine modes by function.
+	{ "fusetimer",    "weapon_tick", 30, 0, 0x7f06f560, SITE_IMM },
+	{ "fusetimer",    "bgun_create_thrown_projectile", 30, 1 << 1, 0 },
+	{ "timedfuse",    "weapon_tick", 32, 0, 0x7f06fa94, SITE_IMM },
+	{ "remotedetonated", "weapon_tick", 34, 0, 0x7f06fc00, SITE_IMM },
+	{ "remotedetonated", "weapon_tick", 34, 0, 0x7f06fc10, SITE_IMM },
+	{ "remotedetonated", "weapon_tick", 34, 0, 0x7f06fc84 },
+	{ "isproximitymine", "weapon_tick", 33, 0, 0x7f06fe70 },
+	{ "isproximitymine", "weapon_tick", 33, 0, 0x7f06fc8c, SITE_IMM },
+	// bgun0f0a5550: the detonator hand, the eject switch (the tranquilizer's
+	// case heads it, the grenade's pin follows with another body), the held
+	// position, and the per-weapon model updates; the magnums' 8 by address,
+	// since the function compares a hand state with 8 too, and the rocket
+	// launcher's 24 closes the magnums' chain. The laser sight is a range.
+	{ "detonatorhand", "bgun0f0a5550", 34, 0, 0 },
+	{ "ejectsdart",   "bgun0f0a5550", 28, 0, 0 },
+	{ "ejectspin",    "bgun0f0a5550", 30, 0, 0x7f0a609c },
+	{ "heldmuzzle",   "bgun0f0a5550", 30, 0, 0x7f0a6608 },
+	{ "shotgunmodel", "bgun0f0a5550", 19, 0, 0 },
+	{ "shellparts",   "bgun0f0a4e44", 19, 0, 0x7f0a50f0 },
+	{ "sniperscope",  "bgun0f0a5550", 21, 0, 0 },
+	{ "loadslide",    "bgun0f0a5550", 23, 0, 0 },
+	{ "revolver",     "bgun0f0a5550", 8, 0, 0x7f0a6714 },
+	{ "heldrocket",   "bgun0f0a5550", 24, 0, 0x7f0a6724 },
+	{ "lasersight",   "bgun0f0a5550", 2, 0, 0x7f0a6910, SITE_RANGE },
+	// the thrown projectile: the knife's spin at two heads and a delay-slot
+	// copy, the grenade's three tests in order (the arc, the fuse, the
+	// pinball), the Laptop Gun's deployment
+	{ "thrownblade",  "bgun_create_thrown_projectile", 26, 0, 0 },
+	{ "thrownblade",  "bgun_create_thrown_projectile", 26, 0, 0x7f09f7cc, SITE_IMM },
+	{ "thrownblade",  "bgun_create_thrown_projectile2", 26, 0, 0 },
+	{ "grenadearc",   "bgun_create_thrown_projectile", 30, 1 << 0, 0 },
+	{ "grenadearc",   "bgun_create_thrown_projectile2", 30, 0, 0 },
+	{ "pinball",      "bgun_create_thrown_projectile", 30, 1 << 2, 0 },
+	{ "deploys",      "bgun_create_thrown_projectile", 14, 0, 0 },
+	{ "deploys",      "bgun_create_thrown_projectile2", 14, 0, 0 },
+	{ "explodeswhenshot", "obj_damage", 30, 0, 0 },
+	{ "botignores",   "bot_is_obj_collectable", 31, 0, 0 },
 };
+
+// numbers in a flag's stock chain that are not the flag's: a definition shared
+// with a weapon that is not on the list, which the port keeps testing by
+// number (the rocket and the Skedar rocket: obj_damage's explodes-when-shot
+// list has the rocket, bot_is_obj_collectable's the Skedar rocket), or another
+// flag's test that shares the body (bgun0f0a4e44 skips the Reaper's flash
+// sprites too, which is MINIGUN's, on the definition). Taken out of both the
+// stock and the mod's list, so they neither reach the flag nor break agreement.
+static const struct { const char *flag; u8 num; } flagByNumber[] = {
+	{ "explodeswhenshot", 83 }, { "botignores", 88 }, { "shellparts", 20 },
+};
+
+static void dropByNumber(const char *flag, u8 *nums, s32 *n)
+{
+	for (u32 i = 0; i < sizeof(flagByNumber) / sizeof(flagByNumber[0]); ++i) {
+		if (!strcmp(flagByNumber[i].flag, flag)) {
+			s32 kept = 0;
+			for (s32 k = 0; k < *n; ++k) {
+				if (nums[k] != flagByNumber[i].num) {
+					nums[kept++] = nums[k];
+				}
+			}
+			*n = kept;
+		}
+	}
+}
 
 static int cmpU8(const void *a, const void *b)
 {
@@ -4603,13 +4759,16 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				u32 start, end, from;
 				s32 nstock, nmod, nsites = 0, read;
 				if (!codeSym(flagSites[j].fn, &start, &end)) {
+					// a row naming a function codeSyms[] lacks: the table
+					// is this file's, not the symbol file's
+					rep("  the %s test in %s cannot be read: no bounds for the function; the flag is left as the port has it", flag, flagSites[j].fn);
 					ok = 0;
 					break;
 				}
 				from = start;
 				u32 occ = 0;
 				while ((from = followFlagSite(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, start, end, from,
-						flagSites[j].value, flagSites[j].at, stocknums, &nstock, nums, &nmod, &read)) != 0) {
+						flagSites[j].value, flagSites[j].at, flagSites[j].kind, stocknums, &nstock, nums, &nmod, &read)) != 0) {
 					const u32 thisocc = occ++;
 					if (flagSites[j].occ && !(flagSites[j].occ & (1u << thisocc))) {
 						continue;   // another row's site
@@ -4626,6 +4785,8 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 							break;
 						}
 					}
+					dropByNumber(flag, stocknums, &nstock);
+					dropByNumber(flag, nums, &nmod);
 					nsites++;
 					qsort(nums, nmod, 1, cmpU8);
 					if (nfirst < 0) {

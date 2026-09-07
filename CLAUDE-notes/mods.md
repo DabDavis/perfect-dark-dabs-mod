@@ -1260,3 +1260,104 @@ and function, left.
   `bgun0f0a5550` (20 / 7: the gun's held position for thrown devices, the
   laser's update, the shotgun's flash), `bgun_create_thrown_projectile`
   (8 / 7), `obj_damage` (12 / 4), `bot_is_obj_collectable` (5 / 8).
+
+## The number sites: weapon_tick, bgun0f0a5550, the thrown projectile, obj_damage and bot_is_obj_collectable (2026-09-07)
+
+The five functions the last section queued, in GE-X's order of overlap, and
+`bgun_create_thrown_projectile2` and `bgun0f0a4e44` with them because they
+share the lists. Eighteen new `flags3` (constants.h, the names in mod.c) and
+twenty-one `FLAG_SITES` rows; importer version 24. GE-X's readings: grenade
+26, timed mine 27, proximity mine 28, remote mine 29 (fuse, count, arming,
+detonator hand, explodes-when-shot, the bots' hands-off list); knife 2
+(`THROWNBLADE`); its sniper 16 (`SNIPERSCOPE`), magnum 17 (`REVOLVER`),
+second shotgun 15 (`SHELLPARTS`); no laser sight, no dart case, no shotgun
+model update (19 -> 90), the Laptop Gun's deployment on 51. Every one of them
+would otherwise have landed on whatever GE-X keeps at the stock number - its
+pistol at 19 animating as a shotgun and losing its flash, its proximity mine
+at 28 ejecting a tranquilizer dart, its grenades and mines never going off.
+
+- **The game's importer has its own function table.** `codeSyms[]` in
+  modimport.c is a hand-kept list of (name, start, end); the Python reads
+  `tools/pd.ntsc-final.sym`. A row naming a function the C table lacked was
+  skipped without a word - the first boot at version 24 wrote a GE-X import
+  with none of the new lines and nothing in IMPORT.txt to say so - and now
+  reports "cannot be read: no bounds for the function". Adding a row means
+  adding its function's bounds there (the next symbol's address is the end).
+- **A rebuilt binary at the same version does not redo an import.**
+  `modImportIsStale()` compares IMPORT.txt's first line with
+  `MODIMPORT_VERSION_LINE`; to force one, `sed -i '1s/^importer: 24/importer:
+  23/' mods/*/IMPORT.txt`. The 48 patches re-import in about a minute.
+- **Two more site shapes.** `'imm'` (C: `SITE_IMM`): the `li REG,N` at a
+  stock address, read as the mod's li into the same register - for a constant
+  hoisted into a register for the whole function (`weapon_tick` keeps the
+  grenade's 30 in a2, and compares `bnel a2,t7`), and for one loaded in the
+  delay slot of the branch that skips its body, whose compare is far off (the
+  mines' 32, 34, 33 at 0x7f06fa94, fc00, fc10, fc8c). `'range'`
+  (`SITE_RANGE`): `slti at,REG,LO` then `slti at,REG,HI` within eight words,
+  the weapons LO..HI-1; GE-X's laser sight is `1 <= w < 1`.
+- **Heads that are not, and a dead site.** `weapon_tick` has a second `li
+  at,32` at 0x7f06fbf8 on the path a rocket takes when its timer is not yet
+  0 - unreachable as a mine test, and GE-X left it 32; a by-value row would
+  have read it and disagreed with the live one. Its `li at,34` at fc10 passes
+  the head rule (the word before is a `bltzl` on v1, not a branch on at) but
+  is the delay slot's copy. And `bgun0f0a5550` compares a hand state with 8
+  (0x7f0a6234) before the magnums' 8. All of those rows name their address.
+- **`FLAG_BYNUMBER`** (C: `flagByNumber[]`) takes numbers out of both the
+  stock and the mod's chain before agreement and writing: the rocket (83) in
+  `obj_damage`'s explodes-when-shot chain and the Skedar rocket (88) in the
+  bots' list share `invitem_rocket`, and the port tests the odd one by
+  number; and the Reaper's 20 in `bgun0f0a4e44`, whose `beq` lands on the
+  shotgun's body and which the hoisted-element rule would otherwise make part
+  of `SHELLPARTS` (it is `MINIGUN`'s). Without it the game wrote a stock list
+  of "19, 20" and the Python, run before the fix, the same.
+- **One shotgun test is two flags.** `bgun0f0a5550` skips its flash call and
+  runs `bgunUpdateShotgun()` for the shotgun (both 19 -> 90 in GE-X: off);
+  `bgun0f0a4e44` skips positioning parts 0x50-0x52 as flash sprites for it
+  (19 -> 15: GE-X's second shotgun, whose model has the shells). One flag
+  would have disagreed across its sites and left GE-X's pistol at 19 with
+  the stock behaviour; `SHOTGUNMODEL` and `SHELLPARTS` each read.
+- **The idle-matrix switch is a jump table, read and left.** `bgun0f0a5550`
+  decides whether a hand can share its idle matrices by a `switch` the
+  compiler made a table of (`addiu t3,t2,-20; sltiu at,t3,34; ... lw
+  t3,OFF(at); jr t3`), and GE-X rebuilt the table in a cave at 0x7f1b4000
+  for 2..63: the knife case is {2}, the thrown case {26, 27, 28, 29, 53, 61,
+  62} (its sticks-to-wall list less the blades). Both tables read with a
+  dozen lines of Python (entries grouped by target). Not converted: the port
+  made the cache per hand (`hands[handnum].unk0dd8`), so the list only
+  chooses a code path with the same result. If a jump table ever needs
+  reading for real, that is the shape: base, count, table address, targets.
+- **Left, and why.** The laser's update (weapon 29 -> 22 here, and
+  `bgun_update_laser`'s own `li at,1` -> 0: GE-X's Moonraker streams from
+  the primary; a function flag's job, with `beam_create_for_hand`). The
+  N-bomb's storm and the grenade's `nbomb` cases (GE-X leaves 31; its 31
+  gets `EJECTSPIN` and `BOTIGNORES` because its code says so). The Dragon's
+  `EXPLOSIONTYPE_DRAGONBOMBSPY` (15 -> 0; one weapon, one quirk, and its
+  mine mode is by function anyway). The rockets' tick (83, 84, 88,
+  untouched). `obj_damage`'s "a remote mine does not set off a homing rocket"
+  (the *attacker's* 34 -> 29: a rule about two weapons). `obj_damage` also
+  turns object type 21 (`OBJTYPE_SHIELD`) into 16 - not a weapon; GE-X has
+  no shields. `laptop_deploy`'s `li a1,14 -> 51` is a call argument, the
+  deployed gun's weapon, not a test.
+- **What GE-X's code names that stock's table does not use:** 90 for the
+  shotgun tests it took out, 51 for the Laptop Gun's, 31 kept. All three are
+  under the table's length and the loader raised no "no weapon N to flag",
+  so GE-X has definitions there; what they are is the mod's business.
+- Across the archive (every patch re-imported at 24): no row misreads on
+  any mod; GE-X is the only one to renumber most of these, and two others
+  (the 2XW-NR patch, Spooky Dark Vault) move the tranquilizer to 27
+  (`ejectsdart` follows). A row that
+  reads the stock list on a mod that never touched the site writes the
+  stock list, the same authority-over-inheritance rule as before.
+- Next, by GE-X's constants regions still unread and shaped like weapon
+  numbers: `bgun_draw_hud` (29 words), `ammo_handle_pickup` (11),
+  `weapon_get_pickup_ammo_qty` (10), `obj_free` (8), `fr_is_ammo_wasted`
+  (7), `obj_stick` (6), `chr_grunt` (6), `propobj_interact`, `chr_shoot`,
+  `botact_get_weapon_by_ammo_type`, `bgun_tick_inc_reload`,
+  `bgun_tick_inc_autoswitch` (5 each), `botact_is_weapon_throwable`,
+  `botact_get_projectile_throw_interval`, `beam_create_for_hand` (4), and
+  the one-word ones seen in passing: `obj_child_tick_player` (20 -> 0),
+  `bgun_tick_gameplay2` (22 -> 38, twice), `bgun_create_fired_projectile`
+  (18 -> 0), `obj_attachment_test_hit` (three `xori` tests: 22, 8, 22 ->
+  38, 17, 19). `prop_play_pickup_sound` and
+  `bgun_get_unequipped_reload_index` are the `pickupsound` and
+  `unequippedreloadindex` fields' sites, a value each rather than a list.

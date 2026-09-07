@@ -30,7 +30,8 @@ tvscreen 5 { sameas 3 }
 
 ## Converting another one
 
-`bondgun.c` still has around 90 of these comparisons and `propobj.c` around 74.
+`bondgun.c` still has around 60 of these comparisons and `propobj.c` around 63
+(2026-09-07; the `case WEAPON_X:` labels are another 170 and are dispatch, below).
 Three checks before the edit, one after. Each of them has already caught a
 silent bug.
 
@@ -78,9 +79,18 @@ weapon number, and the `case WEAPON_X:` labels in `bondgun.c`, are jump tables.
 A function pointer on the weapon would do it and would be a different kind of
 change - moving code identity into data rather than parameters.
 
-**Some tests belong to the shot, not the gun.** `weaponTick`'s grenade timers and
-the Devastator's wall hugger read weapon and function together with live timer
-state; a flag on either one does not hold them.
+**A weapon-and-function test keeps its function half literal.** `weaponTick`'s
+grenade fuse is `FUSETIMER && gunfunc == FUNC_PRIMARY` (2026-09-07): the
+number was the mod's to renumber, `FUNC_PRIMARY` is not, so the flag replaces
+only the number and the function test stays beside it. The same shape did the
+timed mine (`TIMEDFUSE`), the remote mine (`REMOTEDETONATED`), the grenade's
+held time coming off its fuse and its secondary's bounce (`PINBALL`). What stays
+by number there: the grenade round's and the rockets' ticks (projectile numbers
+no mod renumbers), the N-bomb's storm (GE-X leaves 31 alone everywhere), the
+Devastator's wall hugger, and the laser's update in `bgun0f0a5550`, where GE-X
+renumbered the weapon (29 -> 22) *and* flipped the function inside
+`bgun_update_laser` (its Moonraker streams from the primary) - a function flag
+would hold it, and `beam_create_for_hand`'s stream test is the same case.
 
 **Some are one weapon with one quirk** whose intent is not visible from the
 surrounding window - the combat knife's two sites in the hand state machine, the
@@ -164,6 +174,24 @@ instead. Adding a converted site to that table is how a mod's list reaches
 the flag. The Reaper's two casing tests in `casingCreateForHand()` are
 `MINIGUN` and are not in the table: GE-X zeroed them, as it did most of
 its Reaper sites, and the flag stays on the definition on purpose.
+
+**The thrown weapons' kinds and the gun models' updates are flags3**
+(2026-09-07, mods.md "The number sites: weapon_tick ..."): eighteen of them,
+each a `FLAG_SITES` row, every one of GE-X's renumberings in `weapon_tick`,
+`bgun0f0a5550`, the two thrown-projectile functions, `obj_damage` and
+`bot_is_obj_collectable` read. Two more shapes a row can name besides a chain:
+`'imm'`, one immediate at an address (a constant hoisted into a register for
+the whole function, or loaded in the delay slot of the branch that skips its
+body - `weapon_tick` does both), and `'range'`, an `slti` pair (the Falcon 2
+laser sight's `2 <= w < 5`). And `FLAG_BYNUMBER` takes out of a chain what is
+not the flag's: a shared definition the port keeps testing by number (the
+rocket in `obj_damage`'s list, the Skedar rocket in the bots'), or another
+flag's test sharing the body (the Reaper's, `MINIGUN`, before the shotgun's in
+`bgun0f0a4e44`). The per-weapon model updates (`SHOTGUNMODEL`, `SNIPERSCOPE`,
+`LOADSLIDE`, `REVOLVER`, `HELDROCKET`) are the `MINIGUN` precedent: code
+identity as a flag, because the alternative leaves GE-X's pistol at 19
+animating as a shotgun. `HELDROCKET` tests the function's type before its
+cast, like `chrGetProjectileFunc()`.
 
 Reproduce a guard fight headlessly: copy the tester's `pd.ini` (Guards
 Alerted!, Random, Akimbo) into the scratch savedir, boot Runway under gdb with a

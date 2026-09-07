@@ -4264,8 +4264,10 @@ void weaponTick(struct prop *prop)
 	struct defaultobj *obj = prop->obj;
 	struct weaponobj *weapon = prop->weapon;
 
-	// Handle grenade timers
-	if (((weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_PRIMARY)
+	// Handle grenade timers. The grenade round is a projectile with a
+	// number of its own that no mod renumbers; the grenade is whatever
+	// carries the fuse.
+	if (((weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_FUSETIMER) && weapon->gunfunc == FUNC_PRIMARY)
 				|| weapon->weaponnum == WEAPON_GRENADEROUND)
 			&& weapon->timer240 >= 0) {
 		// Handle Devastator wall hugger timer
@@ -4425,7 +4427,7 @@ void weaponTick(struct prop *prop)
 			}
 #endif
 		}
-	} else if (weapon->weaponnum == WEAPON_TIMEDMINE && weapon->timer240 >= 0) {
+	} else if (weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_TIMEDFUSE) && weapon->timer240 >= 0) {
 		// Handle timed mines
 		if (weapon->gunfunc == FUNC_PRIMARY) {
 			weapon->timer240 -= g_Vars.lvupdate240;
@@ -4439,7 +4441,7 @@ void weaponTick(struct prop *prop)
 		} else {
 			// empty
 		}
-	} else if (weapon->weaponnum == WEAPON_REMOTEMINE) {
+	} else if (weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_REMOTEDETONATED)) {
 		// Handle remote mines
 		if (g_PlayersDetonatingMines != 0) {
 			s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;

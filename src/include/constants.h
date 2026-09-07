@@ -4801,6 +4801,24 @@ enum weaponnum {
 #define WEAPONFLAG3_CLOAKAMMO        0x00000001 // Its ammo is spent to cloak, the RC-P120's: a simulant weighs its clip before it does
 #define WEAPONFLAG3_XRAYSHOT         0x00000002 // Its shot passes through walls in x-ray vision and marks no background hit: the FarSight's
 #define WEAPONFLAG3_NOSPARKS         0x00000004 // Its hits throw no sparks: a fist, the tranquilizer
+#define WEAPONFLAG3_FUSETIMER        0x00000008 // Thrown by its primary function, its fuse counts down and it explodes when it runs out, the time it was held already spent: the grenade's
+#define WEAPONFLAG3_TIMEDFUSE        0x00000010 // Thrown by its primary function, it counts down where it lands and explodes: the timed mine's
+#define WEAPONFLAG3_REMOTEDETONATED  0x00000020 // Lying where it landed, it waits for its owner's detonator: the remote mine's
+#define WEAPONFLAG3_EJECTSPIN        0x00000040 // Each throw ejects a pin from the hand: the grenade's
+#define WEAPONFLAG3_EJECTSDART       0x00000080 // Each shot ejects a dart case: the tranquilizer's
+#define WEAPONFLAG3_HELDMUZZLE       0x00000100 // With no muzzle part, its shot leaves from where the hand holds it: a thrown device's
+#define WEAPONFLAG3_SHOTGUNMODEL     0x00000200 // Its model animates the shotgun's way after a shot, and draws its own muzzle flash
+#define WEAPONFLAG3_SHELLPARTS       0x00000400 // Its model parts 0x50-0x52 are shells, not muzzle flash sprites: the shotgun's
+#define WEAPONFLAG3_SNIPERSCOPE      0x00000800 // Its scope parts slide with the zoom: the sniper rifle's
+#define WEAPONFLAG3_LOADSLIDE        0x00001000 // Its loading part eases forward after a shot: the Devastator's
+#define WEAPONFLAG3_REVOLVER         0x00002000 // Reloading throws spent casings out of its cylinder parts: the magnums'
+#define WEAPONFLAG3_HELDROCKET       0x00004000 // A rocket sits in its muzzle while one is loaded: the rocket launcher's
+#define WEAPONFLAG3_LASERSIGHT       0x00008000 // Has a laser sight, a red dot and beam from its lasersight part: the Falcon 2's
+#define WEAPONFLAG3_THROWNBLADE      0x00010000 // Thrown, it spins end over end, embeds and is picked up again: the knife's
+#define WEAPONFLAG3_GRENADEARC       0x00020000 // Thrown, it is lobbed flat rather than tossed high and is dangerous to anyone near it: the grenade's
+#define WEAPONFLAG3_PINBALL          0x00040000 // Its secondary function's throw bounces at full speed: the grenade's Proximity Pinball
+#define WEAPONFLAG3_DEPLOYS          0x00080000 // Thrown, it deploys as a sentry gun rather than landing as a weapon, and leaves the hand: the Laptop Gun's
+#define WEAPONFLAG3_BOTIGNORES       0x00100000 // A simulant never picks it up off the ground: a live explosive
 #define WEAPONFLAG2_PELLETS          0x40000000 // A pull of the trigger is six shots at once, the shotgun's
 #define WEAPONFLAG2_BOTLIMITLESS     0x80000000 // A simulant's clip of it never runs dry, the laser's
 
