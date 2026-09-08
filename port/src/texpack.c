@@ -33,6 +33,7 @@
 #include "pngwrite.h"
 #include "system.h"
 #include "romdata.h"
+#include "dxt.h"
 #include "texpack.h"
 #include "video.h"
 #include "versioninfo.h"
@@ -48,8 +49,8 @@
 // Where packs are looked for, and where an archive is unpacked to: its own
 // folder beside the executable, the way screenshots and recordings get one -
 // see fsChooseOutputDir(). The cache name starts with a dot so the scan skips
-// it when listing packs.
-#define TEXPACK_PACKS_DIR "texture-packs"
+// it when listing packs. TEXPACK_PACKS_DIR is in texpack.h, because anything
+// that builds a pack has to write it where the scan will find it.
 
 // Packs the Upscayl page built. Kept apart from the ones a player
 // installed, but offered in the same list, because to the loader they are
@@ -1835,87 +1836,13 @@ static void texpackRgb565(u32 c, u8 *rgb)
 	rgb[2] = (u8)((c & 0x1f) * 255 / 31);
 }
 
-/**
- * One S3TC block into a 4x4 of RGBA8 at dst, rows stride bytes apart.
- * The colour half is shared by every DXT: two 565 endpoints and 2-bit
- * indexes; DXT1 with c0 <= c1 has three colours and a transparent fourth.
- */
-static void texpackDxtBlock(const u8 *block, u32 fmt, u8 *dst, u32 stride, s32 w, s32 h)
+// Glide names the DXT kinds by its own numbers; dxt.c does not.
+static s32 texpackDxtKind(u32 fmt)
 {
-	const u8 *cb = (fmt == GR_TEXFMT_ARGB_CMP_DXT1) ? block : block + 8;
-	const u32 c0 = texpackReadLE16(cb);
-	const u32 c1 = texpackReadLE16(cb + 2);
-	const u32 idx = texpackReadLE32(cb + 4);
-	u8 colours[4][4];
-	u8 alpha[16];
-
-	texpackRgb565(c0, colours[0]);
-	texpackRgb565(c1, colours[1]);
-	colours[0][3] = colours[1][3] = colours[2][3] = colours[3][3] = 255;
-
-	if (fmt != GR_TEXFMT_ARGB_CMP_DXT1 || c0 > c1) {
-		for (s32 k = 0; k < 3; k++) {
-			colours[2][k] = (u8)((2 * colours[0][k] + colours[1][k]) / 3);
-			colours[3][k] = (u8)((colours[0][k] + 2 * colours[1][k]) / 3);
-		}
-	} else {
-		for (s32 k = 0; k < 3; k++) {
-			colours[2][k] = (u8)((colours[0][k] + colours[1][k]) / 2);
-			colours[3][k] = 0;
-		}
-		colours[3][3] = 0;
-	}
-
-	for (s32 i = 0; i < 16; i++) {
-		alpha[i] = 255;
-	}
-
-	if (fmt == GR_TEXFMT_ARGB_CMP_DXT3) {
-		for (s32 i = 0; i < 16; i++) {
-			const u32 a = (block[i / 2] >> ((i & 1) * 4)) & 0xf;
-			alpha[i] = (u8)(a * 17);
-		}
-	} else if (fmt == GR_TEXFMT_ARGB_CMP_DXT5) {
-		const u32 a0 = block[0];
-		const u32 a1 = block[1];
-		u8 table[8];
-		u64 bits = 0;
-
-		table[0] = (u8)a0;
-		table[1] = (u8)a1;
-
-		if (a0 > a1) {
-			for (s32 k = 1; k < 7; k++) {
-				table[k + 1] = (u8)(((7 - k) * a0 + k * a1) / 7);
-			}
-		} else {
-			for (s32 k = 1; k < 5; k++) {
-				table[k + 1] = (u8)(((5 - k) * a0 + k * a1) / 5);
-			}
-			table[6] = 0;
-			table[7] = 255;
-		}
-
-		for (s32 k = 5; k >= 0; k--) {
-			bits = (bits << 8) | block[2 + k];
-		}
-
-		for (s32 i = 0; i < 16; i++) {
-			alpha[i] = table[(bits >> (i * 3)) & 7];
-		}
-	}
-
-	for (s32 y = 0; y < 4 && y < h; y++) {
-		for (s32 x = 0; x < 4 && x < w; x++) {
-			const s32 i = y * 4 + x;
-			const u8 *c = colours[(idx >> (i * 2)) & 3];
-			u8 *o = dst + y * stride + x * 4;
-
-			o[0] = c[0];
-			o[1] = c[1];
-			o[2] = c[2];
-			o[3] = (fmt == GR_TEXFMT_ARGB_CMP_DXT1) ? c[3] : alpha[i];
-		}
+	switch (fmt) {
+	case GR_TEXFMT_ARGB_CMP_DXT1: return DXT_KIND_1;
+	case GR_TEXFMT_ARGB_CMP_DXT3: return DXT_KIND_3;
+	default:                      return DXT_KIND_5;
 	}
 }
 
@@ -1937,7 +1864,7 @@ static u8 *texpackGlideToRgba(const u8 *src, u32 fmt, s32 width, s32 height)
 
 		for (u32 by = 0; by < bh; by++) {
 			for (u32 bx = 0; bx < bw; bx++) {
-				texpackDxtBlock(src + (by * bw + bx) * blocksize, f,
+				dxtBlock(src + (by * bw + bx) * blocksize, texpackDxtKind(f),
 						rgba + by * 4 * stride + bx * 16, stride,
 						width - (s32)bx * 4, height - (s32)by * 4);
 			}

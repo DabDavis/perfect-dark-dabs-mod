@@ -14,6 +14,13 @@ extern "C" {
 struct tex;
 
 /**
+ * The folder a pack goes in to be listed in Extended Options - relative, to be
+ * handed to fsChooseOutputDir(). Anything that builds a pack rather than
+ * unpacking one a player installed needs it too, so it lives here.
+ */
+#define TEXPACK_PACKS_DIR "texture-packs"
+
+/**
  * Texture identity registry.
  *
  * The renderer only ever sees a texture as the pointer gDPSetTextureImage was
