@@ -279,6 +279,8 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.AlarmSound", &g_ModOptions.alarmsound, 0, 1);
 	configRegisterInt("Mod.CleanTextOutlines", &g_ModOptions.cleantext, 0, 1);
 	configRegisterInt("Mod.CameraTilt", &g_ModOptions.cameratilt, MODTILT_OFF, MODTILT_MAX);
+	configRegisterInt("Mod.InvertCameraTilt", &g_ModOptions.tiltinvert, 0, 1);
+	configRegisterInt("Mod.ForwardAndBackTilt", &g_ModOptions.tiltforward, 0, 1);
 	configRegisterInt("Mod.GunSwayWithTilt", &g_ModOptions.gunsway, 0, 1);
 	configRegisterInt("Mod.ModelSmoothing", &g_ModOptions.modelsmoothing, MODSMOOTH_OFF, MODSMOOTH_MAX);
 	configRegisterInt("Mod.ModelLod", &g_ModOptions.modellod, 0, 1);

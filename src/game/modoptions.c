@@ -42,6 +42,8 @@ struct modoptions g_ModOptions = {
 	true,                     // alarmsound
 	true,                     // cleantext
 	MODTILT_NORMAL,           // cameratilt
+	false,                    // tiltinvert: the lean the head makes going with the step, not against it
+	false,                    // tiltforward: the tilt shipped as a roll and a bob, so this is a choice
 	true,                     // gunsway
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 	true,                     // modellod: stock's distance models
@@ -409,6 +411,27 @@ f32 modGetCameraTiltScale(void)
 	}
 
 	return 0.0f;
+}
+
+/**
+ * Invert Camera Tilt: whether the leans go the other way about - the roll
+ * away from the sidestep, the lean away from the look, and the run tilt
+ * back rather than forward. The bob is a straight lift and is left alone.
+ * Nothing without Camera Tilt itself.
+ */
+bool modIsCameraTiltInverted(void)
+{
+	return g_ModOptions.cameratilt != MODTILT_OFF && g_ModOptions.tiltinvert != 0;
+}
+
+/**
+ * Forward And Back Tilt: whether running pitches the view down into the run
+ * and backing away pitches it up, on top of the lean the look gives.
+ * Nothing without Camera Tilt itself.
+ */
+bool modIsForwardTiltOn(void)
+{
+	return g_ModOptions.cameratilt != MODTILT_OFF && g_ModOptions.tiltforward != 0;
 }
 
 /**

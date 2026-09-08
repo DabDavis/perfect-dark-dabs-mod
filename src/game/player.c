@@ -4014,11 +4014,23 @@ static void playerDeathCamera(struct coord *campos, struct coord *camup, struct 
  * of the picture to the right - into the step, which is what a lean is. A
  * positive look speed is up, and a positive lean turns the look toward up.
  *
+ * Forward And Back Tilt adds the same lean on the axis the roll leaves out:
+ * a positive forward speed is a run, which pitches the view down into it,
+ * so it subtracts from the lean the look gives, and backing away adds. It
+ * rides on the same chased angle, so the two are one motion rather than
+ * two fighting over the pitch.
+ *
+ * Invert Camera Tilt negates both targets, which turns every lean the other
+ * way about - the roll away from the sidestep, the camera away from the
+ * look, the horizon back rather than down into the run. The bob is a lift
+ * of the eye with no direction to it and is left where it is.
+ *
  * Dead, or on the hoverbike, the lot is retired: the death camera has its
  * own ideas about which way is up, and the bike has a roll of its own.
  */
 #define CAMTILT_ROLL_DEGREES  2.0f  // at a full sidestep, times the setting
 #define CAMTILT_PITCH_DEGREES 1.5f  // at full look speed, times the setting
+#define CAMTILT_FWD_DEGREES   1.5f  // at a full run, times the setting
 #define CAMTILT_RATE          0.15f // of the remaining distance, per 60Hz tick
 #define CAMTILT_BOB_UNITS     6.0f  // peak lift at a full run, times the setting
 #define CAMTILT_BOB_CYCLE     36.0f // 60Hz ticks per step, Quake's cl_bobcycle
@@ -4061,6 +4073,25 @@ static void playerTiltCamera(struct coord *campos, struct coord *camup, struct c
 
 		rolltarget = strafe * CAMTILT_ROLL_DEGREES * scale;
 		pitchtarget = lookspeed * CAMTILT_PITCH_DEGREES * scale;
+
+		if (modIsForwardTiltOn()) {
+			// The stick, not the ground speed: a run into a wall leans the
+			// same way a run does, which is where the walker is pushing.
+			f32 forward = player->speedforwards;
+
+			if (forward > 1) {
+				forward = 1;
+			} else if (forward < -1) {
+				forward = -1;
+			}
+
+			pitchtarget -= forward * CAMTILT_FWD_DEGREES * scale;
+		}
+
+		if (modIsCameraTiltInverted()) {
+			rolltarget = -rolltarget;
+			pitchtarget = -pitchtarget;
+		}
 
 		if (!player->isfalling && g_Vars.lvupdate60freal > 0) {
 			f32 dx = player->prop->pos.x - player->bondprevpos.x;

@@ -2309,6 +2309,47 @@ static MenuItemHandlerResult menuhandlerModCameraTilt(s32 operation, struct menu
 }
 
 /**
+ * Invert Camera Tilt: every lean the other way about - the roll away from
+ * the sidestep, the camera away from the look, the horizon back rather
+ * than down into the run. The bob has no direction and is left alone.
+ * Nothing to set with Camera Tilt off.
+ */
+static MenuItemHandlerResult menuhandlerModTiltInvert(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.cameratilt == MODTILT_OFF;
+	case MENUOP_GET:
+		return g_ModOptions.tiltinvert;
+	case MENUOP_SET:
+		g_ModOptions.tiltinvert = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Forward And Back Tilt: a run pitches the view down into it and backing
+ * away pitches it up, the lean the roll gives a sidestep on the axis the
+ * roll leaves out. Nothing to set with Camera Tilt off.
+ */
+static MenuItemHandlerResult menuhandlerModTiltForward(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.cameratilt == MODTILT_OFF;
+	case MENUOP_GET:
+		return g_ModOptions.tiltforward;
+	case MENUOP_SET:
+		g_ModOptions.tiltforward = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * Gun Sway With Tilt: the gun's step motion scaled up by the same amount
  * as the bob, so it does not float over a bobbing world. Nothing to set
  * with Camera Tilt off.
@@ -3405,6 +3446,22 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Camera Tilt",
 		0,
 		menuhandlerModCameraTilt,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Invert Camera Tilt",
+		0,
+		menuhandlerModTiltInvert,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Forward And Back Tilt",
+		0,
+		menuhandlerModTiltForward,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

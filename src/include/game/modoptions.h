@@ -191,6 +191,31 @@
 #define MODTILT_MAX    MODTILT_HEAVY
 
 /**
+ * Invert Camera Tilt: the leans turned the other way about, so a sidestep
+ * to the right drops the right of the picture rather than lifting it, a
+ * look up leans the camera down, and the run tilt below leans back rather
+ * than forward. It is the lean the head makes to keep its balance against
+ * the step instead of the one it makes going with it, which is what a rider
+ * does and a runner does not, and which of the two reads as weight is a
+ * matter of taste. The bob is a straight lift of the eye and has no
+ * direction to invert, so it is left alone. Nothing without Camera Tilt
+ * itself.
+ */
+
+/**
+ * Forward And Back Tilt: running pitches the view down into the run and
+ * backing away pitches it up, the same lean the roll gives a sidestep, on
+ * the axis the roll leaves out. A degree and a half at a full run, times
+ * the Camera Tilt setting, chasing the ground stick the same way the roll
+ * chases the strafe, and added to the lean the look already gives - a run
+ * forward while looking up is the two against each other.
+ *
+ * Off by default: the tilt shipped as a roll and a bob, and pitching the
+ * horizon with every step forward is the part of it people either want or
+ * cannot stand. Nothing without Camera Tilt itself.
+ */
+
+/**
  * Gun Sway With Tilt: the gun's own step motion scaled up alongside the
  * bob, so the two move as one body. The gun is drawn in screen space and
  * rides with the picture, so at Heavy the world bobs under a steady gun,
@@ -353,6 +378,8 @@ struct modoptions {
 	s32 alarmsound;  // whether the siren plays while the alarm is on
 	s32 cleantext;   // outlined text drawn with a halo, not the font's filled cell
 	s32 cameratilt;  // MODTILT_*: how far the view leans into a sidestep or a look, and bobs with a step
+	s32 tiltinvert;  // the leans turned the other way about; the bob has no direction to invert
+	s32 tiltforward; // ... and a lean into the run itself, down going forward and up backing away
 	s32 gunsway;     // the gun's step motion scaled up with the bob
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
 	s32 modellod;    // the game's distance models; Increase Poly Models pushes the switch out
@@ -396,6 +423,8 @@ bool modIsWeaponAGun(s32 weaponnum);
 bool modIsAlarmSoundEnabled(void);
 bool modIsCleanTextOn(void);
 f32 modGetCameraTiltScale(void);
+bool modIsCameraTiltInverted(void);
+bool modIsForwardTiltOn(void);
 f32 modGetGunSwayScale(void);
 s32 modGetModelSmoothingLevel(void);
 f32 modGetModelSmoothingAmount(void);
