@@ -162,6 +162,41 @@ landing, drawn from a list that includes `BODY_SKEDAR` and `BODY_MINISKEDAR`.
 One body per landing rather than per guard keeps the head loads to one, which
 is what `modbodies.c` learned the expensive way.
 
+## A body is more than a model, and the alarm only built the model
+
+`BODY_CHICROB` is in the run's list, and a robot is the one body whose chr
+carries something the model does not: two `fireslotthing`s in `chr->unk348`,
+allocated out of the stage pool. `bodyAllocateChr()` does it for a setup's own
+chrs; `modAlarmSpawn()`, which is where every one of a run's guards comes from,
+did not. `propsRenderBeams()` reads both beams out of any chr whose race is
+`RACE_ROBOT` without asking whether they are there — stock had nowhere for a
+robot to come from except a setup, so the question could not arise — and a room
+the run dealt robots for went down about five seconds after the landing, in the
+render rather than anywhere near the spawn (`propobj.c`, SIGSEGV,
+`lvRender` one frame up).
+
+The allocation and the two sizes are now `bodyInitSpecialChr()` in `body.c`,
+called by both spawns, and the render skips a robot with no fireslots the way
+`robotAttack()` already declined to attack without them. The general rule: a
+body chosen out of the whole game reaches spawn paths that were written when
+the choice was the stage's, so anything `bodyAllocateChr()` does for a body
+number has to happen in `modAlarmSpawn()` too.
+
+**A seed reproduces it exactly.** `Mod.RandomizerSeed` in the savedir's pd.ini,
+with `Mod.RunMapPool` and `Mod.RunDifficulty` set to what the crash log printed,
+deals the same first stage, the same landing pad and the same body:
+
+```sh
+SDL_VIDEODRIVER=offscreen ./pd.x86_64 --moddir mod_allinone --gexmoddir mod_gex \
+    --savedir /tmp/pdrun --boot-stage 0x26 --random-run --no-sound \
+    --fixed-step --exit-frame 4000
+```
+
+The crash handler's backtrace is module offsets, so `addr2line -f -e pd.x86_64
+0x...` reads it — but only against the binary that produced it. A rebuild moves
+every offset, and the nearest symbol in a binary that is one build out is a
+function with nothing to do with the crash.
+
 ## What moved out of Dab's Mod Options
 
 The four rows the Randomizer had there - the checkbox, the seed, Endless Mode

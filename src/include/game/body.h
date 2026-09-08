@@ -15,6 +15,7 @@ struct model *body0f02d338(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags);
 s32 body0f02d3f8(void);
 s32 bodyChooseHead(s32 bodynum);
+bool bodyInitSpecialChr(struct chrdata *chr, s32 bodynum);
 void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex);
 struct prop *bodyAllocateEyespy(struct pad *pad, RoomNum room);
 void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum);

@@ -11374,8 +11374,14 @@ Gfx *propsRenderBeams(Gfx *gdl)
 			struct chrdata *chr = prop->chr;
 
 			if (CHRRACE(chr) == RACE_ROBOT) {
-				gdl = beamRender(gdl, chr->unk348[0]->beam, true, true);
-				gdl = beamRender(gdl, chr->unk348[1]->beam, true, true);
+				// A robot's fireslots come from its spawn - bodyInitSpecialChr()
+				// - and a robot with none is one the stage pool had no room to
+				// finish. Stock had nowhere for that to come from, so it read
+				// both without asking.
+				if (chr->unk348[0] && chr->unk348[1]) {
+					gdl = beamRender(gdl, chr->unk348[0]->beam, true, true);
+					gdl = beamRender(gdl, chr->unk348[1]->beam, true, true);
+				}
 			} else {
 				if (chr->fireslots[0] >= 0) {
 					gdl = beamRender(gdl, &g_Fireslots[chr->fireslots[0]].beam, true, false);

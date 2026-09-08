@@ -398,6 +398,57 @@ s32 bodyChooseHead(s32 bodynum)
 }
 
 /**
+ * The parts of a chr that come with its body rather than with its model: the
+ * robot's two fireslots, and the sizes the two special bodies stand at instead
+ * of a guard's.
+ *
+ * Out of bodyAllocateChr() because a chr is the same chr however it was
+ * spawned, and a stage's setup file is no longer the only thing that spawns
+ * one. A RACE_ROBOT chr is a chr propsRenderBeams() reads two beams out of
+ * every frame without asking whether they are there, and modalarm.c's
+ * reinforcements wear whatever body they are given - which, once a Randomizer
+ * run is choosing it per landing, includes BODY_CHICROB. A room the run filled
+ * with robots took the game down five seconds in (propobj.c, SIGSEGV).
+ *
+ * False when the stage pool had no room for the fireslots, which leaves them
+ * both NULL rather than half built: robotAttack() already declines to attack
+ * without them, and the render skips a robot that has none.
+ */
+bool bodyInitSpecialChr(struct chrdata *chr, s32 bodynum)
+{
+	if (bodynum == BODY_DRCAROLL) {
+		chr->drcarollimage_left = 0;
+		chr->drcarollimage_right = 0;
+		chr->height = 185;
+		chr->radius = 30;
+	} else if (bodynum == BODY_CHICROB) {
+		chr->height = 200;
+		chr->radius = 42;
+
+		chr->unk348[0] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
+		chr->unk348[1] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
+
+		if (chr->unk348[0] && chr->unk348[1]) {
+			chr->unk348[0]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
+			chr->unk348[1]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
+		}
+
+		if (chr->unk348[0] == NULL || chr->unk348[1] == NULL
+				|| chr->unk348[0]->beam == NULL || chr->unk348[1]->beam == NULL) {
+			chr->unk348[0] = NULL;
+			chr->unk348[1] = NULL;
+
+			return false;
+		}
+
+		chr->unk348[0]->beam->age = -1;
+		chr->unk348[1]->beam->age = -1;
+	}
+
+	return true;
+}
+
+/**
  * Read a "packed" chr definition and create a runtime chr from it.
  *
  * Chr definitions are stored in a packed format in each stage's setup file.
@@ -508,21 +559,7 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 
 			chr->rtracked = false;
 
-			if (bodynum == BODY_DRCAROLL) {
-				chr->drcarollimage_left = 0;
-				chr->drcarollimage_right = 0;
-				chr->height = 185;
-				chr->radius = 30;
-			} else if (bodynum == BODY_CHICROB) {
-				chr->unk348[0] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
-				chr->unk348[1] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
-				chr->unk348[0]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
-				chr->unk348[1]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
-				chr->unk348[0]->beam->age = -1;
-				chr->unk348[1]->beam->age = -1;
-				chr->height = 200;
-				chr->radius = 42;
-			}
+			bodyInitSpecialChr(chr, bodynum);
 
 			if (packed->spawnflags & SPAWNFLAG_INVINCIBLE) {
 				chr->chrflags |= CHRCFLAG_INVINCIBLE;

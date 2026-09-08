@@ -579,6 +579,18 @@ static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *ro
 	chr->flags2 = 0;
 	chr->hidden2 |= CHRH2FLAG_SPAWNED;
 
+	// What the body brings with it besides the model: a robot's fireslots and
+	// the sizes the special bodies stand at. The setup file's spawn does this
+	// and so must this one - the bodies here are the stage's own until a
+	// Randomizer run picks one out of the whole game, and BODY_CHICROB without
+	// its fireslots is a chr the beam render dereferences. See body.c.
+	if (!bodyInitSpecialChr(chr, bodynum)) {
+#ifndef PLATFORM_N64
+		sysLogPrintf(LOG_WARNING, "alarm: no stage pool left for body %d's fireslots; it will not fire",
+				bodynum);
+#endif
+	}
+
 	return chr;
 }
 
