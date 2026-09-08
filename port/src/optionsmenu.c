@@ -2353,9 +2353,9 @@ static MenuItemHandlerResult menuhandlerModRandomizerSeed(s32 operation, struct 
 		}
 
 		if (g_ModOptions.randomseed) {
-			snprintf(text, sizeof(text), "Seed %u", (u32)g_ModOptions.randomseed);
+			snprintf(text, sizeof(text), "%u v%d", (u32)g_ModOptions.randomseed, g_ModOptions.randomversion);
 		} else if (modRandomGetSeed()) {
-			snprintf(text, sizeof(text), "Keep %u", modRandomGetSeed());
+			snprintf(text, sizeof(text), "Keep %u v%d", modRandomGetSeed(), modRandomGetVersion());
 		} else {
 			snprintf(text, sizeof(text), "Keep This Run");
 		}
@@ -2367,8 +2367,10 @@ static MenuItemHandlerResult menuhandlerModRandomizerSeed(s32 operation, struct 
 		} else if (g_ModOptions.randomseed == 0) {
 			// The seed the last mission was dealt from, so that liking a run
 			// and keeping it is one press rather than a number to copy out of
-			// a log.
+			// a log - and the generator that dealt it, because the seed alone
+			// stops meaning the same mission the moment this file changes.
 			g_ModOptions.randomseed = (s32)(modRandomGetSeed() & S32_MAX);
+			g_ModOptions.randomversion = modRandomGetVersion();
 		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:

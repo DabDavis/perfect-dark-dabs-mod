@@ -4,7 +4,12 @@
 #include "data.h"
 #include "types.h"
 
+// The generator this build deals with; a run's own version lives in
+// g_ModOptions.randomversion and may be older. See modrandom.c.
+#define MODRANDOM_VERSION_DEFAULT 1
+
 bool modRandomIsOn(void);
+s32 modRandomGetVersion(void);
 u32 modRandomGetSeed(void);
 void modRandomRoll(s32 stagenum);
 void modRandomTick(void);

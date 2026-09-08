@@ -79,13 +79,44 @@ Tags are resolved by the prop walk, which runs *after* the roll, so
 itself: a tag names the object `cmdoffset` commands along from its own command
 index (`setupGetObjByCmdIndex()`), which is what `setupCreateProps()` does later.
 
-## A seed belongs to a build
+## A seed keeps its mission across a change to this file
 
-The seed feeds this file's own xorshift, never `rngRandom()`, so a seed and a
-stage deal the same mission on any machine. They do **not** deal the same
-mission across a change to the generator: adding a retry loop to the weapon roll
-moves every later draw. Seeds are shareable between players on the same build,
-and not comparable across versions.
+Every decision draws from **its own stream**, seeded from the run (seed, stage,
+difficulty) plus a stream id and an index — not from one PRNG walked from the
+first decision to the last. With a single stream, adding one draw anywhere moves
+every draw after it, and every seed anyone wrote down becomes a different
+mission; that is what happened between the first two builds of this file.
+
+With streams, changing the weapon roll moves weapons and nothing else, and a new
+kind of thing to randomize takes a new stream id and disturbs nothing. Stream
+ids are permanent: renumbering one changes every seed that uses it.
+
+What streams cannot absorb is a change to what a draw *means* — a weapon
+dropped from the pool, a different rule for which pads may be a start. Those go
+behind `g_ModRandomVersion >= N` with the old behaviour left in place, and
+`MODRANDOM_VERSION` (in modrandom.h, so modoptions.c can default to it) goes to
+N. A run keeps the version it was dealt by in `Mod.RandomizerVersion`, written
+beside the seed and shown in the menu as `12345 v1`; a seed asking for a version
+this build does not have is dealt by the newest one it does and says so in the
+log.
+
+Seeds from before versioning — the build that first shipped the Randomizer —
+are not reproducible and are not claimed to be.
+
+### Checking a change did not move old seeds
+
+The log prints a fold of each part of the roll:
+
+```
+randomizer: fold weapons 426344ec guards 40418752 keys 00000000 spawn 000000ae objectives d8a0a69a
+```
+
+Record it for a seed before a change and compare after. The part you changed
+should move and **nothing else should**. That is a real test: adding one draw
+to the weapon roll moves `weapons` from `426344ec` to `a607ddb9` and leaves
+guards, keys, spawn and objectives identical. If a second number moves, the
+change leaked out of its stream and every seed on this build has quietly become
+a different mission.
 
 ## Testing it
 

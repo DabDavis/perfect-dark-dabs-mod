@@ -235,6 +235,13 @@
  * Randomizer Seed is the run: zero deals a fresh mission every time, and any
  * other number is a run that can be written down and handed to somebody else,
  * since a seed and a stage always deal the same mission.
+ *
+ * Randomizer Version is which generator deals it. A seed is only worth
+ * writing down if it still deals the same mission after the generator has
+ * been worked on, so a run keeps the version it was dealt by and the newer
+ * code honours it. It is written beside the seed and travels with it; a
+ * version this build does not have is dealt by the newest one it does, and
+ * says so in the log rather than quietly dealing something else.
  */
 
 /**
@@ -395,6 +402,7 @@ struct modoptions {
 	s32 gunsway;     // the gun's step motion scaled up with the bob
 	s32 randomizer;  // a mission dealt again from its own pieces
 	s32 randomseed;  // the run's seed, 0 for a fresh one every mission
+	s32 randomversion; // the generator the run is dealt by, so a written-down seed keeps dealing it
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
 	s32 modellod;    // the game's distance models; Increase Poly Models pushes the switch out
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened

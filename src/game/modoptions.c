@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "game/game_0b0fd0.h"
 #include "game/modoptions.h"
+#include "game/modrandom.h"
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
 #include "video.h"
@@ -47,6 +48,7 @@ struct modoptions g_ModOptions = {
 	true,                     // gunsway
 	false,                    // randomizer: a way of playing rather than a setting, so off
 	0,                        // randomseed: a fresh mission every time until one is chosen
+	MODRANDOM_VERSION_DEFAULT, // randomversion: whatever this build deals with
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 	true,                     // modellod: stock's distance models
 	true,                     // smoothtext: a fix, so on

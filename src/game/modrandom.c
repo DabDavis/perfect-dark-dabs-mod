@@ -73,7 +73,50 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * always deal the same mission, on any machine, because the roll is this
  * file's own xorshift and never the game's rngRandom(), whose state depends
  * on how many frames the title screen was left running.
+ *
+ * **And it keeps dealing it after this file changes**, which is the point of
+ * the streams: every decision draws from its own, so working on one part of
+ * the roll cannot move the others. What a change to the *meaning* of a draw
+ * does is covered by MODRANDOM_VERSION, and the fold printed with the seed is
+ * how a change is checked - see modRandomOpen() and modRandomFold().
  */
+
+/**
+ * The generator's version, and what it is for.
+ *
+ * A seed is only worth writing down if it deals the same mission tomorrow.
+ * Most of that is the streams below, which keep a change to one decision from
+ * moving every other; this number covers the rest - a change to what the
+ * draws *mean*, which no amount of stream separation can absorb.
+ *
+ * The rule for changing this file: if a change would deal a different mission
+ * from the same seed, put it behind `g_ModRandomVersion >= N`, leave the older
+ * behaviour where it is, and raise this to N. A run then keeps the generator
+ * it was dealt by (Mod.RandomizerVersion in pd.ini, written beside the seed),
+ * and a shared seed carries its version with it. Adding a new stream id, or
+ * changing anything a draw does not feed, needs no bump.
+ *
+ * Version 1 is the first versioned generator. The build before it drew every
+ * decision from one walked stream, so seeds from it are not reproducible here
+ * and are not claimed to be.
+ */
+#define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
+
+// One stream per kind of decision. Ids are permanent: changing one is
+// changing every seed. New kinds take the next number.
+#define MODRANDOM_STREAM_WEAPON    1 // index: which weapon spot
+#define MODRANDOM_STREAM_CRATE     2 // index: which crate
+#define MODRANDOM_STREAM_CHRPADS   3 // the guards' shuffle
+#define MODRANDOM_STREAM_INTROGUN  4 // index: which intro weapon command
+#define MODRANDOM_STREAM_SPAWN     5 // index: which try
+#define MODRANDOM_STREAM_KEYS      6 // index: which try
+#define MODRANDOM_STREAM_OBJCOUNT  7 // how many objectives
+#define MODRANDOM_STREAM_OBJPOOL   8 // the order the fetchable things are taken in
+#define MODRANDOM_STREAM_OBJROOM   9 // index: which objective's room
+
+struct modrandomstream {
+	u32 state;
+};
 
 // The intro stream's command, as playerReset() reads it.
 struct modrandomintrocmd {
@@ -88,7 +131,7 @@ struct modrandomintrocmd {
 #define MODRANDOM_TEXTLEN       64
 
 static u32 g_ModRandomSeed;    // the run's, as the player sees it
-static u32 g_ModRandomState;   // the roll's own PRNG state
+static s32 g_ModRandomVersion; // the generator this run is dealt by
 
 // The generated objectives: their command stream, which objectiveCheck()
 // walks exactly as it walks the setup file's own, and their text, which the
@@ -137,6 +180,15 @@ bool modRandomIsOn(void)
 }
 
 /**
+ * The generator the current mission was dealt by, for the menu to show
+ * beside the seed: the two together are the run.
+ */
+s32 modRandomGetVersion(void)
+{
+	return g_ModRandomVersion ? g_ModRandomVersion : MODRANDOM_VERSION;
+}
+
+/**
  * The seed the current mission was dealt from, for the menu to show.
  */
 u32 modRandomGetSeed(void)
@@ -148,40 +200,87 @@ u32 modRandomGetSeed(void)
  * xorshift32, and a mix on the way in so that seed 1 and seed 2 are different
  * missions rather than the same one a step apart.
  */
-static void modRandomSeed(u32 seed)
+/**
+ * The run's own number, mixed once: the seed, the stage and the difficulty.
+ * Every stream below hangs off it, so one run's Villa and its Chicago are
+ * different missions and Perfect Agent is its own deal rather than the Agent
+ * one with more guards.
+ */
+static u32 g_ModRandomRun;
+
+/**
+ * A 32 bit finalizer - the mix from splitmix64's tail, in 32 bits. Every bit
+ * of the output depends on every bit of the input, which is what makes seed 1
+ * and seed 2 different missions rather than the same one a step apart.
+ */
+static u32 modRandomMix(u32 x)
 {
-	seed ^= seed >> 16;
-	seed *= 0x7feb352d;
-	seed ^= seed >> 15;
-	seed *= 0x846ca68b;
-	seed ^= seed >> 16;
+	x ^= x >> 16;
+	x *= 0x7feb352d;
+	x ^= x >> 15;
+	x *= 0x846ca68b;
+	x ^= x >> 16;
 
-	g_ModRandomState = seed ? seed : 0x9e3779b9;
-}
-
-static u32 modRandomNext(void)
-{
-	g_ModRandomState ^= g_ModRandomState << 13;
-	g_ModRandomState ^= g_ModRandomState >> 17;
-	g_ModRandomState ^= g_ModRandomState << 5;
-
-	return g_ModRandomState;
-}
-
-static u32 modRandomBelow(u32 limit)
-{
-	return limit ? modRandomNext() % limit : 0;
+	return x;
 }
 
 /**
- * Fisher-Yates over an array of pointers.
+ * Open the stream for one decision.
+ *
+ * **This is what makes a seed survive a change to the generator.** A single
+ * PRNG walked from the first decision to the last means every draw's value
+ * depends on how many draws came before it: adding one retry to the weapon
+ * roll moves the guards, the keys and the objectives, and a seed written down
+ * last week deals a different mission today. That is exactly what happened
+ * between the first two builds of this file.
+ *
+ * So there is no single stream. Each decision opens its own, seeded from the
+ * run, a stream id naming what the decision is *about*, and an index naming
+ * which one of them it is - the fourth weapon spot, the second objective. A
+ * draw's value then depends on nothing but those three, so:
+ *
+ * - changing how the weapon roll works moves weapons, and nothing else;
+ * - adding a whole new kind of thing to randomize takes a new stream id and
+ *   disturbs no existing one, which is the common case and needs no version
+ *   bump at all;
+ * - the order the roll runs its steps in stops mattering.
+ *
+ * What it cannot save is a change to what a draw *means* - a weapon dropped
+ * from the pool, a different rule for which pads can be a start. Those change
+ * the mission a seed deals however the numbers are drawn, and those are what
+ * MODRANDOM_VERSION and the guards on it are for.
  */
-static void modRandomShuffle(void **array, s32 count)
+static void modRandomOpen(struct modrandomstream *rng, s32 streamid, s32 index)
+{
+	u32 state = modRandomMix(g_ModRandomRun + modRandomMix(streamid * 0x9e3779b9u + index));
+
+	rng->state = state ? state : 0x9e3779b9;
+}
+
+static u32 modRandomNext(struct modrandomstream *rng)
+{
+	rng->state ^= rng->state << 13;
+	rng->state ^= rng->state >> 17;
+	rng->state ^= rng->state << 5;
+
+	return rng->state;
+}
+
+static u32 modRandomBelow(struct modrandomstream *rng, u32 limit)
+{
+	return limit ? modRandomNext(rng) % limit : 0;
+}
+
+/**
+ * Fisher-Yates over an array of pointers, out of one stream: a shuffle is one
+ * decision however many swaps it takes.
+ */
+static void modRandomShuffle(struct modrandomstream *rng, void **array, s32 count)
 {
 	s32 i;
 
 	for (i = count - 1; i > 0; i--) {
-		s32 j = modRandomBelow(i + 1);
+		s32 j = modRandomBelow(rng, i + 1);
 		void *tmp = array[i];
 
 		array[i] = array[j];
@@ -367,6 +466,7 @@ static void modRandomRollWeapons(struct modrandomlists *lists)
 
 	for (i = 0; i < lists->numweapons; i++) {
 		struct weaponobj *weapon = lists->weapons[i];
+		struct modrandomstream rng;
 		// A weapon in a guard's hands has to be something a guard can fire:
 		// the table holds the specs, the cloaking device and the boost pill
 		// as well, and a guard issued a pair of X-Ray specs is a guard that
@@ -374,8 +474,10 @@ static void modRandomRollWeapons(struct modrandomlists *lists)
 		bool forchr = (weapon->base.flags & OBJFLAG_ASSIGNEDTOCHR) != 0;
 		s32 tries;
 
+		modRandomOpen(&rng, MODRANDOM_STREAM_WEAPON, i);
+
 		for (tries = 0; tries < 16; tries++) {
-			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(NUM_MPWEAPONS - 1)];
+			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
 
 			if (mpweapon->weaponnum == WEAPON_NONE || mpweapon->model < 0) {
 				continue;
@@ -405,10 +507,13 @@ static void modRandomRollCrates(struct modrandomlists *lists)
 
 	for (i = 0; i < lists->numcrates; i++) {
 		struct ammocrateobj *crate = (struct ammocrateobj *)lists->crates[i];
+		struct modrandomstream rng;
 		s32 tries;
 
+		modRandomOpen(&rng, MODRANDOM_STREAM_CRATE, i);
+
 		for (tries = 0; tries < 8; tries++) {
-			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(NUM_MPWEAPONS - 1)];
+			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
 
 			if (mpweapon->priammotype > 0) {
 				crate->ammotype = mpweapon->priammotype;
@@ -432,6 +537,7 @@ static void modRandomRollCrates(struct modrandomlists *lists)
  */
 static void modRandomRollChrs(struct modrandomlists *lists)
 {
+	struct modrandomstream rng;
 	u16 *pads;
 	s32 i;
 
@@ -449,8 +555,10 @@ static void modRandomRollChrs(struct modrandomlists *lists)
 		pads[i] = lists->chrs[i]->padnum;
 	}
 
+	modRandomOpen(&rng, MODRANDOM_STREAM_CHRPADS, 0);
+
 	for (i = lists->numchrs - 1; i > 0; i--) {
-		s32 j = modRandomBelow(i + 1);
+		s32 j = modRandomBelow(&rng, i + 1);
 		u16 tmp = pads[i];
 
 		pads[i] = pads[j];
@@ -685,10 +793,13 @@ static void modRandomRollKeys(struct modrandomlists *lists, s32 spawnroom, u8 *r
 	}
 
 	for (tries = 0; tries < MODRANDOM_MAXTRIES; tries++) {
+		struct modrandomstream rng;
 		s32 reach;
 
+		modRandomOpen(&rng, MODRANDOM_STREAM_KEYS, tries);
+
 		for (i = numfree - 1; i > 0; i--) {
-			s32 j = modRandomBelow(i + 1);
+			s32 j = modRandomBelow(&rng, i + 1);
 			s16 tmp = pads[i];
 
 			pads[i] = pads[j];
@@ -818,7 +929,11 @@ static s32 modRandomRollSpawn(struct modrandomlists *lists, u8 *reached)
 	bestreach = stockreach;
 
 	for (tries = 0; tries < MODRANDOM_MAXTRIES && lists->numchrs > 0; tries++) {
-		s32 padnum = lists->chrs[modRandomBelow(lists->numchrs)]->padnum;
+		struct modrandomstream rng;
+		s32 padnum;
+
+		modRandomOpen(&rng, MODRANDOM_STREAM_SPAWN, tries);
+		padnum = lists->chrs[modRandomBelow(&rng, lists->numchrs)]->padnum;
 		s32 room = modRandomPadRoom(padnum);
 		s32 reach;
 
@@ -856,6 +971,7 @@ static s32 modRandomRollSpawn(struct modrandomlists *lists, u8 *reached)
 static void modRandomRollIntroWeapons(void)
 {
 	struct modrandomintrocmd *cmd = (struct modrandomintrocmd *)g_StageSetup.intro;
+	s32 index = 0;
 
 	while (cmd && cmd->type != INTROCMD_END) {
 		s32 len = modRandomIntroCmdLen(cmd->type);
@@ -865,7 +981,11 @@ static void modRandomRollIntroWeapons(void)
 		}
 
 		if (cmd->type == INTROCMD_WEAPON) {
-			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(NUM_MPWEAPONS - 1)];
+			struct modrandomstream rng;
+			struct mpweapon *mpweapon;
+
+			modRandomOpen(&rng, MODRANDOM_STREAM_INTROGUN, index++);
+			mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
 
 			if (mpweapon->weaponnum != WEAPON_NONE) {
 				cmd->param1 = mpweapon->weaponnum;
@@ -951,6 +1071,7 @@ static u32 *modRandomWriteObjective(u32 *cmd, s32 index, u32 type, u32 param)
 static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reached)
 {
 	struct weaponobj **pool;
+	struct modrandomstream rng;
 	s32 numpool = 0;
 	s32 numwanted;
 	s32 count;
@@ -986,9 +1107,11 @@ static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reache
 		}
 	}
 
-	modRandomShuffle((void **)pool, numpool);
+	modRandomOpen(&rng, MODRANDOM_STREAM_OBJPOOL, 0);
+	modRandomShuffle(&rng, (void **)pool, numpool);
 
-	numwanted = 1 + modRandomBelow(MODRANDOM_MAXOBJECTIVES);
+	modRandomOpen(&rng, MODRANDOM_STREAM_OBJCOUNT, 0);
+	numwanted = 1 + modRandomBelow(&rng, MODRANDOM_MAXOBJECTIVES);
 
 	// Enough room for the worst case: a begin, a requirement and an end each.
 	g_ModRandomObjCmds = modRandomAlloc(numwanted,
@@ -1023,9 +1146,12 @@ static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reache
 			// there, so the deepest room it found is the one furthest from
 			// the start through doors that open - which is a walk across the
 			// level rather than into the next room.
+			struct modrandomstream roomrng;
 			s32 chosen = -1;
 			s32 deepest = 0;
 			s32 j;
+
+			modRandomOpen(&roomrng, MODRANDOM_STREAM_OBJROOM, index);
 
 			for (j = 1; j < g_Vars.roomcount; j++) {
 				if (reached[j] > deepest) {
@@ -1040,7 +1166,7 @@ static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reache
 				if (reached[j] == deepest) {
 					count++;
 
-					if (modRandomBelow(count) == 0) {
+					if (modRandomBelow(&roomrng, count) == 0) {
 						chosen = j;
 					}
 				}
@@ -1070,6 +1196,23 @@ char *modRandomGetObjectiveText(s32 index)
 	}
 
 	return NULL;
+}
+
+/**
+ * A number naming what the roll produced, for checking that a change to this
+ * file left old seeds alone.
+ *
+ * The claim the streams make - that changing one decision moves nothing else -
+ * is only worth as much as it can be checked, and reading a mission to see
+ * whether it is the same mission is not checking. So each part of the roll
+ * gets its own fold of what it decided, printed with the seed: change the
+ * weapon roll and the weapon number moves while the others stand still. If one
+ * of the others moves too, the change leaked, and every seed written down for
+ * this build has quietly become a different mission.
+ */
+static u32 modRandomFold(u32 hash, u32 value)
+{
+	return modRandomMix(hash * 0x9e3779b9u + value);
 }
 
 /**
@@ -1104,11 +1247,28 @@ void modRandomRoll(s32 stagenum)
 	}
 
 	g_ModRandomSeed = g_ModOptions.randomseed ? (u32)g_ModOptions.randomseed : rngRandom();
+	g_ModRandomVersion = g_ModOptions.randomversion;
 
-	// The stage goes into the seed so that one run's Villa and its Chicago are
-	// different missions, and the difficulty with it so that Perfect Agent is
-	// its own deal rather than the Agent one with more guards.
-	modRandomSeed(g_ModRandomSeed + stagenum * 0x9e3779b9u + (lvGetDifficulty() << 24));
+	// A run dealt by a generator this build does not have is dealt by the
+	// newest one it does, and says so: a mission that quietly differs from the
+	// one the seed was written down for is worse than being told it will.
+	if (g_ModRandomVersion < 1 || g_ModRandomVersion > MODRANDOM_VERSION) {
+#ifndef PLATFORM_N64
+		if (g_ModRandomVersion > MODRANDOM_VERSION) {
+			sysLogPrintf(1, "randomizer: seed %u wants generator v%d and this build has v%d; "
+					"dealing it with v%d", g_ModRandomSeed, g_ModRandomVersion,
+					MODRANDOM_VERSION, MODRANDOM_VERSION);
+		}
+#endif
+		g_ModRandomVersion = MODRANDOM_VERSION;
+	}
+
+	// The run's number: the seed, the stage so that one run's Villa and its
+	// Chicago are different missions, and the difficulty so that Perfect Agent
+	// is its own deal rather than the Agent one with more guards. Every stream
+	// hangs off this and nothing else.
+	g_ModRandomRun = modRandomMix(g_ModRandomSeed)
+		+ modRandomMix(stagenum * 0x9e3779b9u + lvGetDifficulty());
 
 	modRandomGather(&lists);
 
@@ -1166,9 +1326,53 @@ void modRandomRoll(s32 stagenum)
 	g_ModRandomSpawnState = spawnpad >= 0 ? 1 : 0;
 
 #ifndef PLATFORM_N64
-	sysLogPrintf(0, "randomizer: stage 0x%02x seed %u - %d weapons, %d guards, %d keys, "
+	{
+		u32 wf = 0;
+		u32 cf = 0;
+		u32 kf = 0;
+		u32 of = 0;
+		s32 i;
+
+		for (i = 0; i < lists.numweapons; i++) {
+			wf = modRandomFold(wf, lists.weapons[i]->weaponnum);
+		}
+
+		for (i = 0; i < lists.numchrs; i++) {
+			cf = modRandomFold(cf, lists.chrs[i]->padnum);
+		}
+
+		for (i = 0; i < lists.numkeys; i++) {
+			kf = modRandomFold(kf, lists.keys[i]->base.pad);
+		}
+
+		{
+			// What each objective asks for: the requirement's type and the tag
+			// or room it names, which is the objective. Folding the objective
+			// struct instead would fold the same four words every time.
+			u32 *cmd = g_ModRandomObjCmds;
+
+			for (i = 0; i < g_ModRandomNumObjectives && cmd; i++) {
+				cmd += setupGetCmdLength(cmd); // past the begin
+
+				while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
+					of = modRandomFold(of, PD_BE32(cmd[0]));
+					of = modRandomFold(of, cmd[1]);
+					cmd += setupGetCmdLength(cmd);
+				}
+
+				cmd += setupGetCmdLength(cmd);
+				cmd = (u32 *)ALIGN16((uintptr_t)cmd);
+			}
+		}
+
+		sysLogPrintf(0, "randomizer: fold weapons %08x guards %08x keys %08x spawn %08x objectives %08x",
+				wf, cf, kf, (u32)spawnpad, of);
+	}
+
+	sysLogPrintf(0, "randomizer: stage 0x%02x seed %u v%d - %d weapons, %d guards, %d keys, "
 			"spawn pad %d room %d, %d/%d rooms reachable, %d objectives",
-			stagenum, g_ModRandomSeed, lists.numweapons, lists.numchrs, lists.numkeys,
+			stagenum, g_ModRandomSeed, g_ModRandomVersion,
+			lists.numweapons, lists.numchrs, lists.numkeys,
 			spawnpad, spawnroom, modRandomCountReached(reached), g_Vars.roomcount,
 			g_ModRandomNumObjectives);
 #endif
