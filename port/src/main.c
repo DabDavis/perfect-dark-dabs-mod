@@ -285,6 +285,8 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.Randomizer", &g_ModOptions.randomizer, 0, 1);
 	configRegisterInt("Mod.RandomizerSeed", &g_ModOptions.randomseed, 0, S32_MAX);
 	configRegisterInt("Mod.RandomizerVersion", &g_ModOptions.randomversion, 1, S32_MAX);
+	configRegisterInt("Mod.RandomizerEndless", &g_ModOptions.randomendless, 0, 1);
+	configRegisterInt("Mod.EndlessBest", &g_ModOptions.endlessbest, 0, S32_MAX);
 	configRegisterInt("Mod.ModelSmoothing", &g_ModOptions.modelsmoothing, MODSMOOTH_OFF, MODSMOOTH_MAX);
 	configRegisterInt("Mod.ModelLod", &g_ModOptions.modellod, 0, 1);
 	configRegisterInt("Mod.SmoothText", &g_ModOptions.smoothtext, 0, 1);

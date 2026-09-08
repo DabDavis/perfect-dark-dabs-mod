@@ -3,11 +3,13 @@
 #include "game/bg.h"
 #include "game/chraction.h"
 #include "game/game_0b0fd0.h"
+#include "game/hudmsg.h"
 #include "game/lang.h"
 #include "game/atan2f.h"
 #include "game/lv.h"
 #include "game/modoptions.h"
 #include "game/modrandom.h"
+#include "mod.h"
 #include "game/objectives.h"
 #include "game/pad.h"
 #include "game/setup.h"
@@ -99,6 +101,11 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * Version 1 is the first versioned generator. The build before it drew every
  * decision from one walked stream, so seeds from it are not reproducible here
  * and are not claimed to be.
+ *
+ * Version 2 widened where a "reach this room" objective may send the player,
+ * from the deepest rooms the walk found to the deep half of them - Endless
+ * Mode asks for a room over and over and four of them is not enough to ask
+ * about. v1 runs keep the narrow rule.
  */
 #define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
 
@@ -127,6 +134,7 @@ struct modrandomintrocmd {
 };
 
 #define MODRANDOM_MAXOBJECTIVES 3  // generated per mission
+#define MODRANDOM_OBJBLOCK      64 // bytes an objective's commands get, 16 aligned
 #define MODRANDOM_MAXTRIES      16 // key placements tried before giving up on the roll
 #define MODRANDOM_TEXTLEN       64
 
@@ -136,16 +144,6 @@ static s32 g_ModRandomVersion; // the generator this run is dealt by
 // The generated objectives: their command stream, which objectiveCheck()
 // walks exactly as it walks the setup file's own, and their text, which the
 // briefing and the HUD ask for by objective index.
-// Where the roll wants the mission to start, and whether the player has been
-// put there yet: 0 nothing to move, 1 waiting for the mission to begin,
-// 2 asked for.
-static s32 g_ModRandomSpawnPad = -1;
-static s32 g_ModRandomSpawnState;
-
-static u32 *g_ModRandomObjCmds;
-static char g_ModRandomObjText[MODRANDOM_MAXOBJECTIVES][MODRANDOM_TEXTLEN];
-static s32 g_ModRandomNumObjectives;
-
 // What the roll found in the stream, gathered once and used by every step.
 struct modrandomlists {
 	struct weaponobj **weapons;   // floor pickups only - see modRandomGather()
@@ -165,18 +163,93 @@ struct modrandomlists {
 	s32 numtags;
 };
 
+// Endless Mode's run: what the level's roll found, kept for the whole level so
+// the next objective can be dealt during play, and the score, which is how much
+// of the level the player got through before dying.
+static struct modrandomlists g_ModRandomLists;
+static u8 *g_ModRandomReached;   // the walk, from the start the roll chose
+static u8 *g_ModRandomVisited;   // rooms the player has stood in
+static s32 g_ModRandomRooms;     // how many of them
+static s32 g_ModRandomCleared;   // objectives finished this run
+static s32 g_ModRandomDealt;     // objectives dealt, which is the draw's index
+static bool g_ModRandomRunOver;
+
+// Where the roll wants the mission to start, and whether the player has been
+// put there yet: 0 nothing to move, 1 waiting for the mission to begin,
+// 2 asked for.
+static s32 g_ModRandomSpawnPad = -1;
+static s32 g_ModRandomSpawnState;
+
+static u32 *g_ModRandomObjCmds;
+static struct weaponobj **g_ModRandomPool; // things left to be asked for, in the order they will be
+static s32 g_ModRandomPoolSize;
+static s32 g_ModRandomLastRoom = -1;       // so the next room objective is not the one just reached
+static char g_ModRandomObjText[MODRANDOM_MAXOBJECTIVES][MODRANDOM_TEXTLEN];
+static s32 g_ModRandomNumObjectives;
+
+
+/**
+ * Whether this stage is one to deal again.
+ *
+ * The Carrington Institute is the backdrop the Perfect Menu is drawn over, and
+ * it is a level like any other as far as the code is concerned - it loads a
+ * setup file with weapons, guards and pads in it, and the first version of
+ * this rolled it. That put a random gun in the firing range, moved where the
+ * player stands behind the menu and dealt an objective in a building with no
+ * mission, all before the title screen had finished drawing.
+ */
+static bool modRandomStageIsMission(s32 stagenum)
+{
+	return STAGE_IS_LEVEL(stagenum) && stagenum != modDataBgStage(STAGE_CITRAINING);
+}
+
 /**
  * Whether a mission is being dealt again.
  *
- * Solo only. The Combat Simulator deals its own arena from mpsetup and the
- * Institute is furniture around a menu; neither has objectives to generate or
- * a mission to make unplayable.
+ * Solo only. The Combat Simulator deals its own arena from mpsetup, and
+ * co-operative and counter-operative have a second player whose start this
+ * would move out from under them.
  */
 bool modRandomIsOn(void)
 {
 	return g_ModOptions.randomizer != 0
 		&& !g_Vars.normmplayerisrunning
-		&& !g_Vars.mplayerisrunning;
+		&& !g_Vars.mplayerisrunning
+		&& modRandomStageIsMission(g_Vars.stagenum);
+}
+
+/**
+ * Endless Mode: the mission never ends, it deals another objective.
+ *
+ * A mission's objectives run out, which is the point of a mission and the
+ * opposite of the point of a randomizer - the interesting part is the next
+ * unknown thing, and stock runs out of those after three. So this deals one
+ * objective at a time and deals another the moment it is finished, and the run
+ * ends where a run should end, at the first death.
+ *
+ * The score is rooms: how much of the level the player got through before
+ * dying, counted as rooms stood in and never counted twice. Kills would score
+ * standing still in a doorway and objectives would score the same run twice,
+ * but a room is ground covered, and covering ground is what the objectives are
+ * for.
+ */
+bool modRandomIsEndless(void)
+{
+	return modRandomIsOn() && g_ModOptions.randomendless != 0;
+}
+
+/**
+ * The run so far: rooms covered and objectives finished. For the menu, and for
+ * anything that wants to show a run's score while it is still being made.
+ */
+s32 modRandomGetRooms(void)
+{
+	return g_ModRandomRooms;
+}
+
+s32 modRandomGetCleared(void)
+{
+	return g_ModRandomCleared;
 }
 
 /**
@@ -1012,6 +1085,8 @@ static void modRandomRollIntroWeapons(void)
  * top byte of the first word wherever a command keeps it, which is what
  * PD_BE32() of a bare type value writes on either endianness.
  */
+static struct objective *modRandomObjectiveAt(s32 slot);
+
 static u32 *modRandomWriteObjective(u32 *cmd, s32 index, u32 type, u32 param)
 {
 	struct objective *objective = (struct objective *)cmd;
@@ -1045,13 +1120,13 @@ static u32 *modRandomWriteObjective(u32 *cmd, s32 index, u32 type, u32 param)
 	cmd += setupGetCmdLength(cmd);
 
 	cmd[0] = PD_BE32(OBJTYPE_ENDOBJECTIVE);
-	cmd += setupGetCmdLength(cmd);
 
-	// The next objective starts on a 16 byte boundary. A criteria struct ends
-	// in a pointer, and three commands do not come to a multiple of eight, so
-	// packing them end to end leaves every second objective's pointer
-	// misaligned - which x86 forgives and the arm64 build does not.
-	return (u32 *)ALIGN16((uintptr_t)cmd);
+	// Nothing to hand back: an objective lives in the block its slot names,
+	// which is also what keeps a criteria struct's trailing pointer aligned -
+	// three commands do not come to a multiple of eight, and packing them end
+	// to end leaves every second one misaligned, which x86 forgives and the
+	// arm64 build does not.
+	return cmd;
 }
 
 /**
@@ -1068,23 +1143,133 @@ static u32 *modRandomWriteObjective(u32 *cmd, s32 index, u32 type, u32 param)
  * and because a generated objective is a sentence with no story behind it -
  * three reads as a mission, seven reads as a chore list.
  */
+static struct objective *modRandomObjectiveAt(s32 slot)
+{
+	if (g_ModRandomObjCmds == NULL || slot < 0 || slot >= MODRANDOM_MAXOBJECTIVES) {
+		return NULL;
+	}
+
+	return (struct objective *)((uintptr_t)g_ModRandomObjCmds + slot * MODRANDOM_OBJBLOCK);
+}
+
+static bool modRandomDealObjective(struct modrandomlists *lists, u8 *reached, s32 slot, s32 ordinal)
+{
+	u32 *cmd = (u32 *)modRandomObjectiveAt(slot);
+
+	if (cmd == NULL) {
+		return false;
+	}
+
+	// A thing to fetch while there are things left to fetch, and somewhere to
+	// be after that. Fetching is the better objective - it names something the
+	// player can see and carry - but each one can only be asked for once: the
+	// item stays in the inventory, so asking again would complete the moment
+	// it was dealt.
+	if (ordinal < g_ModRandomPoolSize) {
+		struct weaponobj *weapon = g_ModRandomPool[ordinal];
+		struct weapon *weapondef = weaponFindById(weapon->weaponnum);
+		char *name = weapondef ? langGet(weapondef->name) : NULL;
+
+		modRandomWriteObjective(cmd, slot, OBJECTIVETYPE_COLLECTOBJ,
+				modRandomTagNumOf(lists, &weapon->base));
+
+		if (name) {
+			snprintf(g_ModRandomObjText[slot], MODRANDOM_TEXTLEN, "Recover the %s", name);
+		} else {
+			strcpy(g_ModRandomObjText[slot], "Recover the stolen hardware");
+		}
+
+		return true;
+	}
+
+	// Somewhere to be: a room out at the far end of what the walk reached.
+	// reached[] holds how many rooms were crossed to get there, so the deep
+	// half of the level is everything at more than half the greatest depth -
+	// which is a walk across the level rather than into the next room, and
+	// still leaves enough rooms to choose between that an endless run does not
+	// send the player to the same corner twice running.
+	{
+		struct modrandomstream rng;
+		s32 deepest = 0;
+		s32 chosen = -1;
+		s32 count = 0;
+		s32 i;
+
+		for (i = 1; i < g_Vars.roomcount; i++) {
+			if (reached[i] > deepest) {
+				deepest = reached[i];
+			}
+		}
+
+		if (deepest <= 1) {
+			return false;
+		}
+
+		modRandomOpen(&rng, MODRANDOM_STREAM_OBJROOM, ordinal);
+
+		for (i = 1; i < g_Vars.roomcount; i++) {
+			// v1 took only the deepest rooms, which is the far end of the
+			// level and about four rooms to choose from; from v2 the deep
+			// half of it, so that an endless run asking again and again has
+			// somewhere else to send the player each time. A change to what
+			// the draw means, so the older runs keep the older rule.
+			bool wanted = g_ModRandomVersion >= 2
+				? (reached[i] * 2 >= deepest && i != g_ModRandomLastRoom)
+				: (reached[i] == deepest);
+
+			if (wanted) {
+				count++;
+
+				if (modRandomBelow(&rng, count) == 0) {
+					chosen = i;
+				}
+			}
+		}
+
+		if (chosen < 0) {
+			return false;
+		}
+
+		g_ModRandomLastRoom = chosen;
+
+		modRandomWriteObjective(cmd, slot, OBJECTIVETYPE_ENTERROOM, chosen);
+		strcpy(g_ModRandomObjText[slot], "Reach the extraction point");
+
+		return true;
+	}
+}
+
+/**
+ * Deal the mission's objectives from what the roll actually placed.
+ *
+ * Every objective names something the generator has just seen standing in a
+ * room the walk reached: a weapon it put down that the stage already had a tag
+ * on, or a room a walk can get to. That is the whole discipline here - an
+ * objective that names a tag the stage does not have, or a room the player
+ * cannot reach, is a mission that cannot be finished, and the player has no
+ * way to tell which of the two it is.
+ *
+ * Three at most, because the briefing draws them and six is where it stops,
+ * and because a generated objective is a sentence with no story behind it -
+ * three reads as a mission, seven reads as a chore list. Endless Mode deals
+ * one at a time instead, and keeps dealing.
+ */
 static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reached)
 {
-	struct weaponobj **pool;
 	struct modrandomstream rng;
-	s32 numpool = 0;
 	s32 numwanted;
-	s32 count;
 	s32 i;
-	u32 *cmd;
 
 	g_ModRandomNumObjectives = 0;
+	g_ModRandomPoolSize = 0;
+	g_ModRandomLastRoom = -1;
 
 	// The weapons the roll left in reachable rooms, which are the things it
-	// can ask for by name.
-	pool = modRandomAlloc(lists->numweapons + 1, sizeof(void *));
+	// can ask for by name. Shuffled once and taken in order, so an endless run
+	// works through them without asking for the same one twice.
+	g_ModRandomPool = modRandomAlloc(lists->numweapons + 1, sizeof(void *));
 
-	if (pool == NULL) {
+	if (g_ModRandomPool == NULL) {
 		return;
 	}
 
@@ -1103,83 +1288,34 @@ static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reache
 		room = modRandomPadRoom(weapon->base.pad);
 
 		if (room > 0 && room < g_Vars.roomcount && reached[room]) {
-			pool[numpool++] = weapon;
+			g_ModRandomPool[g_ModRandomPoolSize++] = weapon;
 		}
 	}
 
 	modRandomOpen(&rng, MODRANDOM_STREAM_OBJPOOL, 0);
-	modRandomShuffle(&rng, (void **)pool, numpool);
+	modRandomShuffle(&rng, (void **)g_ModRandomPool, g_ModRandomPoolSize);
 
-	modRandomOpen(&rng, MODRANDOM_STREAM_OBJCOUNT, 0);
-	numwanted = 1 + modRandomBelow(&rng, MODRANDOM_MAXOBJECTIVES);
+	if (modRandomIsEndless()) {
+		// One at a time: the run is the next objective, not a list of them.
+		numwanted = 1;
+	} else {
+		modRandomOpen(&rng, MODRANDOM_STREAM_OBJCOUNT, 0);
+		numwanted = 1 + modRandomBelow(&rng, MODRANDOM_MAXOBJECTIVES);
+	}
 
-	// Enough room for the worst case: a begin, a requirement and an end each.
-	g_ModRandomObjCmds = modRandomAlloc(numwanted,
-			sizeof(struct objective) + sizeof(struct criteria_roomentered) + sizeof(u32) + 16);
+	g_ModRandomObjCmds = modRandomAlloc(MODRANDOM_MAXOBJECTIVES, MODRANDOM_OBJBLOCK);
 
 	if (g_ModRandomObjCmds == NULL) {
 		return;
 	}
 
-	cmd = g_ModRandomObjCmds;
-
 	for (i = 0; i < numwanted; i++) {
-		s32 index = g_ModRandomNumObjectives;
-
-		if (i < numpool) {
-			struct weapon *weapondef = weaponFindById(pool[i]->weaponnum);
-			char *name = weapondef ? langGet(weapondef->name) : NULL;
-
-			cmd = modRandomWriteObjective(cmd, index, OBJECTIVETYPE_COLLECTOBJ,
-					modRandomTagNumOf(lists, &pool[i]->base));
-
-			if (name) {
-				snprintf(g_ModRandomObjText[index], MODRANDOM_TEXTLEN, "Recover the %s", name);
-			} else {
-				strcpy(g_ModRandomObjText[index], "Recover the stolen hardware");
-			}
-
-			g_ModRandomNumObjectives++;
-		} else {
-			// Nothing left to fetch, so somewhere to be instead: the far end
-			// of the walk. reached[] holds how many rooms it crossed to get
-			// there, so the deepest room it found is the one furthest from
-			// the start through doors that open - which is a walk across the
-			// level rather than into the next room.
-			struct modrandomstream roomrng;
-			s32 chosen = -1;
-			s32 deepest = 0;
-			s32 j;
-
-			modRandomOpen(&roomrng, MODRANDOM_STREAM_OBJROOM, index);
-
-			for (j = 1; j < g_Vars.roomcount; j++) {
-				if (reached[j] > deepest) {
-					deepest = reached[j];
-				}
-			}
-
-			for (j = 1, count = 0; j < g_Vars.roomcount; j++) {
-				// Reservoir over everything at that depth, so two seeds that
-				// agree about the far end of the level still send the player
-				// to different corners of it.
-				if (reached[j] == deepest) {
-					count++;
-
-					if (modRandomBelow(&roomrng, count) == 0) {
-						chosen = j;
-					}
-				}
-			}
-
-			if (chosen < 0 || deepest <= 1) {
-				break;
-			}
-
-			cmd = modRandomWriteObjective(cmd, index, OBJECTIVETYPE_ENTERROOM, chosen);
-			strcpy(g_ModRandomObjText[index], "Reach the extraction point");
-			g_ModRandomNumObjectives++;
+		if (!modRandomDealObjective(lists, reached, i, g_ModRandomDealt)) {
+			break;
 		}
+
+		g_ModRandomDealt++;
+		g_ModRandomNumObjectives++;
 	}
 }
 
@@ -1233,8 +1369,16 @@ void modRandomRoll(s32 stagenum)
 	g_ModRandomObjCmds = NULL;
 	g_ModRandomSpawnPad = -1;
 	g_ModRandomSpawnState = 0;
+	g_ModRandomVisited = NULL;
+	g_ModRandomReached = NULL;
+	g_ModRandomRooms = 0;
+	g_ModRandomCleared = 0;
+	g_ModRandomDealt = 0;
+	g_ModRandomRunOver = false;
 
-	if (!modRandomIsOn() || !STAGE_IS_LEVEL(stagenum)) {
+	// modRandomIsOn() asks about g_Vars.stagenum, which is this stage by the
+	// time the roll runs, but the stage being loaded is the one that matters.
+	if (!modRandomIsOn() || !modRandomStageIsMission(stagenum)) {
 		return;
 	}
 
@@ -1247,7 +1391,17 @@ void modRandomRoll(s32 stagenum)
 	}
 
 	g_ModRandomSeed = g_ModOptions.randomseed ? (u32)g_ModOptions.randomseed : rngRandom();
-	g_ModRandomVersion = g_ModOptions.randomversion;
+
+	// A kept seed keeps the generator it was dealt by; a fresh mission every
+	// time has nothing to keep and takes the newest. Otherwise a config
+	// written by an older build would pin every future run to that build's
+	// generator, which is the opposite of what the setting is for.
+	if (g_ModOptions.randomseed) {
+		g_ModRandomVersion = g_ModOptions.randomversion;
+	} else {
+		g_ModRandomVersion = MODRANDOM_VERSION;
+		g_ModOptions.randomversion = MODRANDOM_VERSION;
+	}
 
 	// A run dealt by a generator this build does not have is dealt by the
 	// newest one it does, and says so: a mission that quietly differs from the
@@ -1325,6 +1479,20 @@ void modRandomRoll(s32 stagenum)
 	g_ModRandomSpawnPad = spawnpad;
 	g_ModRandomSpawnState = spawnpad >= 0 ? 1 : 0;
 
+	// What an endless run needs for the rest of the level: the lists, the
+	// walk, and a room per bit of score.
+	g_ModRandomLists = lists;
+	g_ModRandomReached = reached;
+	g_ModRandomVisited = modRandomAlloc(g_Vars.roomcount, sizeof(u8));
+
+	if (g_ModRandomVisited) {
+		s32 i;
+
+		for (i = 0; i < g_Vars.roomcount; i++) {
+			g_ModRandomVisited[i] = 0;
+		}
+	}
+
 #ifndef PLATFORM_N64
 	{
 		u32 wf = 0;
@@ -1349,9 +1517,13 @@ void modRandomRoll(s32 stagenum)
 			// What each objective asks for: the requirement's type and the tag
 			// or room it names, which is the objective. Folding the objective
 			// struct instead would fold the same four words every time.
-			u32 *cmd = g_ModRandomObjCmds;
+			for (i = 0; i < g_ModRandomNumObjectives; i++) {
+				u32 *cmd = (u32 *)modRandomObjectiveAt(i);
 
-			for (i = 0; i < g_ModRandomNumObjectives && cmd; i++) {
+				if (cmd == NULL) {
+					break;
+				}
+
 				cmd += setupGetCmdLength(cmd); // past the begin
 
 				while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
@@ -1359,14 +1531,19 @@ void modRandomRoll(s32 stagenum)
 					of = modRandomFold(of, cmd[1]);
 					cmd += setupGetCmdLength(cmd);
 				}
-
-				cmd += setupGetCmdLength(cmd);
-				cmd = (u32 *)ALIGN16((uintptr_t)cmd);
 			}
 		}
 
 		sysLogPrintf(0, "randomizer: fold weapons %08x guards %08x keys %08x spawn %08x objectives %08x",
 				wf, cf, kf, (u32)spawnpad, of);
+	}
+
+	{
+		s32 i;
+
+		for (i = 0; i < g_ModRandomNumObjectives; i++) {
+			sysLogPrintf(0, "randomizer: objective %d - %s", i, g_ModRandomObjText[i]);
+		}
 	}
 
 	sysLogPrintf(0, "randomizer: stage 0x%02x seed %u v%d - %d weapons, %d guards, %d keys, "
@@ -1392,8 +1569,12 @@ void modRandomRoll(s32 stagenum)
  * Once, and only for the mission's own player. Every death after this one is
  * the game's business.
  */
+static void modRandomTickEndless(void);
+
 void modRandomTick(void)
 {
+	modRandomTickEndless();
+
 	if (g_ModRandomSpawnState != 1 || !modRandomIsOn()) {
 		return;
 	}
@@ -1408,6 +1589,96 @@ void modRandomTick(void)
 
 	g_ModRandomSpawnState = 2;
 	g_Vars.currentplayer->dostartnewlife = true;
+}
+
+/**
+ * The run: count the ground covered, deal the next objective when the live one
+ * is finished, and end at the first death.
+ *
+ * Everything the deal needs was kept from the level's roll - the lists point
+ * into the setup stream and the walk into the stage pool, both of which live
+ * as long as the level does - so dealing another objective mid-mission is the
+ * same work the roll did, minus the rewriting.
+ */
+static void modRandomTickEndless(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 room;
+
+	if (!modRandomIsEndless() || g_ModRandomRunOver || g_ModRandomVisited == NULL) {
+		return;
+	}
+
+	if (player != g_Vars.bond || g_InCutscene) {
+		return;
+	}
+
+	if (player->isdead) {
+		static char text[64];
+
+		g_ModRandomRunOver = true;
+
+		if (g_ModRandomRooms > g_ModOptions.endlessbest) {
+			g_ModOptions.endlessbest = g_ModRandomRooms;
+			sprintf(text, "%d rooms, %d objectives - best yet\n", g_ModRandomRooms, g_ModRandomCleared);
+		} else {
+			sprintf(text, "%d rooms, %d objectives (best %d)\n",
+					g_ModRandomRooms, g_ModRandomCleared, g_ModOptions.endlessbest);
+		}
+
+		// Four seconds: the death fade is a second and a bit, and a score the
+		// player cannot read is not a score.
+		{
+			extern struct hudmsgtype g_HudmsgTypes[];
+			hudmsgCreateWithDuration(text, HUDMSGTYPE_DEFAULT, &g_HudmsgTypes[HUDMSGTYPE_DEFAULT], TICKS(240));
+		}
+
+		return;
+	}
+
+	// Ground covered. rooms[0] is where the player is standing; a room already
+	// stood in is not covered again, so pacing back and forth scores nothing.
+	room = player->prop->rooms[0];
+
+	if (room > 0 && room < g_Vars.roomcount && !g_ModRandomVisited[room]) {
+		g_ModRandomVisited[room] = 1;
+		g_ModRandomRooms++;
+	}
+
+	// The live objective, and the next one. Dealt in the same tick it is
+	// finished, so objectiveIsAllComplete() is never true for a whole frame -
+	// which is what the stage's own exit trigger asks, and an endless run has
+	// no business ending at the exit.
+	if (g_ModRandomNumObjectives > 0 && objectiveCheck(0) == OBJECTIVE_COMPLETE) {
+		static char text[96];
+
+		g_ModRandomCleared++;
+
+		if (modRandomDealObjective(&g_ModRandomLists, g_ModRandomReached, 0, g_ModRandomDealt)) {
+			g_ModRandomDealt++;
+			g_ObjectiveStatuses[0] = OBJECTIVE_INCOMPLETE;
+
+			// The score rides along with the new objective: a run's number is
+			// no use to the player on the death screen, where the fade and
+			// the failure dialog are what they are looking at.
+			sprintf(text, "%s - %d rooms\n", g_ModRandomObjText[0], g_ModRandomRooms);
+			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
+		} else {
+			// Nothing left to ask for on this stage. The run stands on what it
+			// scored rather than looping an objective the player has done -
+			// and says so, because a run that quietly stops dealing looks
+			// like a bug from the inside.
+			sprintf(text, "Nothing left to find - %d rooms, %d objectives\n",
+					g_ModRandomRooms, g_ModRandomCleared);
+			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
+
+			if (g_ModRandomRooms > g_ModOptions.endlessbest) {
+				g_ModOptions.endlessbest = g_ModRandomRooms;
+			}
+
+			g_ModRandomRunOver = true;
+		}
+	}
 }
 
 /**
@@ -1470,24 +1741,20 @@ void modRandomInsertObjectives(void)
 	g_ObjectiveLastIndex = -1;
 
 	// Re-insert from the buffer the roll wrote, which is where the objective
-	// structs and their requirements live.
-	{
-		u32 *cmd = g_ModRandomObjCmds;
+	// structs and their requirements live. One fixed block each, because
+	// Endless Mode rewrites a block in place while the others stand: packing
+	// them end to end would mean an objective's length deciding where the next
+	// one lives, and a re-deal moving every objective after it.
+	for (i = 0; i < g_ModRandomNumObjectives; i++) {
+		struct objective *objective = modRandomObjectiveAt(i);
 
-		for (i = 0; i < g_ModRandomNumObjectives && cmd; i++) {
-			struct objective *objective = (struct objective *)cmd;
-
-			objectiveInsert(objective);
-
-			g_Briefing.objectivenames[objective->index] = L_MISC_042;
-			g_Briefing.objectivedifficulties[objective->index] = objective->difficulties;
-
-			while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
-				cmd += setupGetCmdLength(cmd);
-			}
-
-			cmd += setupGetCmdLength(cmd);
-			cmd = (u32 *)ALIGN16((uintptr_t)cmd); // as the writer left it
+		if (objective == NULL) {
+			break;
 		}
+
+		objectiveInsert(objective);
+
+		g_Briefing.objectivenames[objective->index] = L_MISC_042;
+		g_Briefing.objectivedifficulties[objective->index] = objective->difficulties;
 	}
 }

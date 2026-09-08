@@ -2381,6 +2381,50 @@ static MenuItemHandlerResult menuhandlerModRandomizerSeed(s32 operation, struct 
 }
 
 /**
+ * The run's score, on a row of its own: what this run has covered while it is
+ * being made, and the best kept otherwise. The death screen is a fade and a
+ * failure dialog, so a number shown there is a number nobody reads; this is
+ * where a player goes looking for it afterwards.
+ */
+static char g_ModRandomRowText[64];
+
+static char *menutextRandomizerBest(struct menuitem *item)
+{
+	if (modRandomIsEndless() && modRandomGetRooms() > 0) {
+		snprintf(g_ModRandomRowText, sizeof(g_ModRandomRowText),
+				"This run: %d rooms, %d objectives (best %d)\n",
+				modRandomGetRooms(), modRandomGetCleared(), g_ModOptions.endlessbest);
+	} else if (g_ModOptions.endlessbest > 0) {
+		snprintf(g_ModRandomRowText, sizeof(g_ModRandomRowText),
+				"Best run: %d rooms\n", g_ModOptions.endlessbest);
+	} else {
+		snprintf(g_ModRandomRowText, sizeof(g_ModRandomRowText), "No run yet\n");
+	}
+
+	return g_ModRandomRowText;
+}
+
+/**
+ * Endless Mode: the mission stops being a mission and becomes a run. One
+ * objective at a time, another the moment it is finished, and it is over at
+ * the first death; the score is rooms covered, and the best is kept.
+ */
+static MenuItemHandlerResult menuhandlerModRandomizerEndless(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.randomizer == 0;
+	case MENUOP_GET:
+		return g_ModOptions.randomendless;
+	case MENUOP_SET:
+		g_ModOptions.randomendless = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * Invert Camera Tilt: every lean the other way about - the roll away from
  * the sidestep, the camera away from the look, the horizon back rather
  * than down into the run. The bob has no direction and is left alone.
@@ -3526,6 +3570,22 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Randomizer Seed",
 		0,
 		menuhandlerModRandomizerSeed,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Endless Mode",
+		0,
+		menuhandlerModRandomizerEndless,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextRandomizerBest,
+		0,
+		NULL,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

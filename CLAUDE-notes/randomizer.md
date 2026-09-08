@@ -103,6 +103,16 @@ log.
 Seeds from before versioning — the build that first shipped the Randomizer —
 are not reproducible and are not claimed to be.
 
+A **kept** seed keeps its version; a seed of 0 (a fresh mission every time) has
+nothing to keep and always takes the newest, or a config written by an older
+build would pin every future run to that build's generator.
+
+Version 2 widened where a "reach this room" objective may send the player, from
+the deepest rooms the walk found to the deep half of them, because Endless Mode
+asks for a room over and over and four of them is not enough to ask about. It
+shows on a stage whose first objective is a room one — Escape (0x19) is one, and
+its objectives fold is `8048d5b7` at v1 and `ff0044df` at v2.
+
 ### Checking a change did not move old seeds
 
 The log prints a fold of each part of the roll:
@@ -118,6 +128,40 @@ guards, keys, spawn and objectives identical. If a second number moves, the
 change leaked out of its stream and every seed on this build has quietly become
 a different mission.
 
+## Endless Mode
+
+One objective at a time, another dealt the moment it is finished, and the run
+ends at the first death — `modRandomTickEndless()`, from `playerTick()`. The
+lists and the walk from the level's roll are kept for the whole level (both are
+stage-pool allocations that live as long as the level), so dealing another
+objective mid-mission is the roll's own work minus the rewriting.
+
+Objectives live one per fixed 64-byte block rather than packed end to end,
+because a re-deal rewrites a block in place: packed, an objective's length
+would decide where the next one starts and re-dealing would move every
+objective after it. `modRandomObjectiveAt()` is the only thing that knows the
+layout. Packing them also misaligns every second criteria struct's trailing
+pointer, which x86 forgives and the arm64 build does not.
+
+The next objective is dealt in the same tick the last one completes, so
+`objectiveIsAllComplete()` is never true for a whole frame — that is what the
+stage's own exit trigger asks, and an endless run has no business ending at the
+exit.
+
+The score is rooms stood in, counted once each. The death screen is a fade and
+then the "Error Saving Game" dialog, so a score shown there is a score nobody
+reads: the running total rides along with each new objective's HUD message
+instead, and the best is kept in `Mod.EndlessBest` and shown on a label row
+under Endless Mode in the menu.
+
+**The Carrington Institute is a level.** It loads a setup file with weapons,
+guards and pads, and it is the backdrop the Perfect Menu is drawn over, so the
+first version of this rolled it — a random gun in the firing range, the
+player's spot behind the menu moved, an objective dealt in a building with no
+mission — before the title screen had finished drawing.
+`modRandomStageIsMission()` excludes it. Anything else that runs on "a level"
+should think about that stage first.
+
 ## Testing it
 
 `--boot-stage 0x1d` (Chicago) is the test bed: it reaches gameplay headlessly in
@@ -129,10 +173,14 @@ randomizer: stage 0x1d seed 12345 - 32 weapons, 32 guards, 0 keys,
 spawn pad 184 room 69, 100/107 rooms reachable, 2 objectives
 ```
 
-**Villa (0x2c), G5 (0x1e) and Air Force One (0x31) never reach gameplay under
-`--boot-stage`** — `lvframenum` stays 0 for minutes — and they do that with the
-randomizer off too, so a run that shows no objectives on those stages is the
-harness, not the roll. Check `lvframenum` before believing anything else.
+**A stage that seems not to reach gameplay is usually a clogged machine.**
+`lvframenum` stuck at 0 for minutes on Villa, G5 and Air Force One looked like
+those stages not booting under `--boot-stage`, with the randomizer off as well;
+it was two earlier runs still spinning at 100% CPU each because their Xvfb had
+been killed out from under them and the game never noticed. Load average was 9.
+`ps aux | grep [p]d.x86_64` and `kill -9` the strays, and the same stage loads
+in thirty seconds. Check `lvframenum` before believing anything about a run,
+and check `uptime` before believing `lvframenum`.
 
 `pd.log` is opened with `"ab"` and appended to, so a run's line is the *last*
 one; delete the file between runs or `head -1` reads the previous run's roll.

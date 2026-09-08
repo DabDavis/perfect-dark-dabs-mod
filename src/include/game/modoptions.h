@@ -236,6 +236,11 @@
  * other number is a run that can be written down and handed to somebody else,
  * since a seed and a stage always deal the same mission.
  *
+ * Endless Mode turns the mission into a run: one objective at a time, another
+ * dealt the moment it is finished, and the run ending at the first death. The
+ * score is rooms - how much of the level was covered before dying, counted
+ * once each - and the best is kept in pd.ini.
+ *
  * Randomizer Version is which generator deals it. A seed is only worth
  * writing down if it still deals the same mission after the generator has
  * been worked on, so a run keeps the version it was dealt by and the newer
@@ -403,6 +408,8 @@ struct modoptions {
 	s32 randomizer;  // a mission dealt again from its own pieces
 	s32 randomseed;  // the run's seed, 0 for a fresh one every mission
 	s32 randomversion; // the generator the run is dealt by, so a written-down seed keeps dealing it
+	s32 randomendless; // Endless Mode: one objective at a time, forever, scored in rooms
+	s32 endlessbest;   // the best run's rooms, kept between sessions
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
 	s32 modellod;    // the game's distance models; Increase Poly Models pushes the switch out
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened

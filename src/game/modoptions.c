@@ -49,6 +49,8 @@ struct modoptions g_ModOptions = {
 	false,                    // randomizer: a way of playing rather than a setting, so off
 	0,                        // randomseed: a fresh mission every time until one is chosen
 	MODRANDOM_VERSION_DEFAULT, // randomversion: whatever this build deals with
+	false,                    // randomendless: a way of playing rather than a setting, so off
+	0,                        // endlessbest: nothing survived yet
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 	true,                     // modellod: stock's distance models
 	true,                     // smoothtext: a fix, so on
