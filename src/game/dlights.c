@@ -29,6 +29,9 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 
 const char var7f1a78e0[] = "LIGHTS : Hit occured on light %d in room %d\n";
 const char var7f1a7910[] = "L2(%d) -> ";
@@ -1499,6 +1502,21 @@ void func0f004384(void)
  */
 void roomFlashLighting(s32 roomnum, s32 start, s32 limit)
 {
+#ifndef PLATFORM_N64
+	// The neighbour lists above are built for rooms 1 to roomcount - 1, so
+	// room 0 and anything past the end have none, and the walk below starts
+	// from whatever the allocation happened to hold. Stock could only be
+	// asked about a room its own bg had; a Randomizer run hops through maps a
+	// mod put behind a stage's own setup, and a pad effect's spark then names
+	// a room this bg does not have.
+	if (var80061420 && (roomnum < 1 || roomnum >= g_Vars.roomcount
+				|| var80061420[roomnum].unk04 == NULL)) {
+		sysLogPrintf(LOG_WARNING, "lighting: room %d of %d has no neighbour list; not flashed",
+				roomnum, g_Vars.roomcount);
+		return;
+	}
+#endif
+
 	if (var80061420 && !(g_Rooms[roomnum].flags & ROOMFLAG_OUTDOORS ? 1 : 0)) {
 		s32 value;
 		s32 sp78 = 0;
