@@ -2106,6 +2106,29 @@ s32 modConfigParse(char *data, u32 dataLen, const char *what)
 				success = false;
 				break;
 			}
+		} else if (!strcmp(token, "maps")) {
+			// maps { map "NAME" bg "..." tiles "..." pads "..." mpsetup "..." }
+			//
+			// The arenas the mod has, by its own name for each and the files
+			// its stage table gives them. Only the Stage Loader wants this,
+			// and it reads it out of the mod's directory itself
+			// (modloaderInit()): a mod mounted for its maps alone is never
+			// loaded, so its config is never parsed here. The mod that is
+			// loaded has its arenas from its own tables already, so this
+			// block is skipped rather than applied twice.
+			char *prev = p;
+			p = strParseToken(p, token, NULL);
+			if (token[0] != '{' || token[1] != '\0') {
+				sysLogPrintf(LOG_ERROR, "modconfig: malformed maps block at offset %d", (s32)(prev - data));
+				success = false;
+				break;
+			}
+			p = modConfigSkipBlock(p, token);
+			if (!p) {
+				sysLogPrintf(LOG_ERROR, "modconfig: unterminated maps block at offset %d", (s32)(prev - data));
+				success = false;
+				break;
+			}
 		} else if (!strcmp(token, "koh")) {
 			// koh { hillcolour R G B freecolour R G B }
 			char *prev = p;

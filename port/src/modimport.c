@@ -2253,6 +2253,9 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	{ "g_FogEnvironments",   0x80081164, 0x268 },
 	{ "g_NoFogEnvironments", 0x800813cc, 0xc84 },
 	{ "g_Stages",         0x8007fcc0, 0xd60 },
+	// not a table the port imports: the row of file ids saying which language
+	// file each text bank is in, for reading an arena's name
+	{ "g_LangFiles",      0x80084124, 0x8c },
 	{ "g_CommandLengths", 0x80068c14, 0x3e4 },
 	{ "g_SoloStages",     0x80071e6c, 0xfc },
 	{ "g_StageTracks",    0x80084500, 0xd0 },
@@ -4277,6 +4280,8 @@ static s32 followFloatImmediate(const u8 *stockcode, u32 stocklen, const u8 *mod
 #define KOH_END        "# importer: koh end"
 #define COLOURS_BEGIN  "# importer: colours begin"
 #define COLOURS_END    "# importer: colours end"
+#define MAPS_BEGIN     "# importer: maps begin"
+#define MAPS_END       "# importer: maps end"
 
 // the offset a jal or j lands at
 static u32 jumpTarget(u32 w)
@@ -4568,6 +4573,234 @@ static const struct { const char *name; u32 addr; } colourSites[] = {
 };
 
 /**
+ * The string a text id means, read out of the mod's own language file.
+ *
+ * A text id is a language bank in its top bits and an index in the low nine.
+ * The bank is a row of g_LangFiles holding a file id, and that file is a table
+ * of u32 offsets into itself, each to a NUL-terminated string (lang.c). A mod
+ * that renamed its arenas shipped the file; one that did not leaves the name
+ * the ROM it was patched from had, which is the stock file.
+ *
+ * Returns a malloc'd string, or NULL when any of that does not read.
+ */
+static char *langString(const struct tablectx *t, const struct romfiles *modfiles,
+		const struct romfiles *stockfiles, const u8 *mod, const u8 *stock, u32 langfiles, u32 textid)
+{
+	const u32 bank = textid >> 9;
+	const u32 index = textid & 0x1ff;
+	const struct fileent *ent;
+	const u8 *rom = mod;
+	const u8 *data;
+	u8 *inflated = NULL;
+	u32 datalen;
+	u32 fileid;
+	u32 at;
+	u32 end;
+	char *out;
+	const char *name;
+	const u8 *e;
+
+	if (!langfiles || !textid || bank > 68) {
+		return NULL;
+	}
+
+	e = tableEntry(t, langfiles, bank, 2);
+	if (!e) {
+		return NULL;
+	}
+
+	fileid = be16(e, 0);
+	name = fileid < modfiles->numnames ? modfiles->names[fileid] : NULL;
+	if (!name || !name[0]) {
+		return NULL;
+	}
+
+	ent = findEnt(modfiles, name);
+	if (!ent) {
+		ent = findEnt(stockfiles, name);
+		rom = stock;
+	}
+	if (!ent || !rom) {
+		return NULL;
+	}
+
+	data = rom + ent->ofs;
+	datalen = ent->len;
+
+	if (is1173(data, datalen, 0)) {
+		u32 consumed = 0;
+		u32 outlen = 0;
+		inflated = inflate1173(data, datalen, 0, &outlen, &consumed);
+		if (!inflated) {
+			return NULL;
+		}
+		data = inflated;
+		datalen = outlen;
+	}
+
+	// the first offset is where the strings start, so it is also the length of
+	// the offset table: an index past it is not a string of this bank
+	if ((index + 1) * 4 > datalen || index * 4 >= be32(data, 0)) {
+		free(inflated);
+		return NULL;
+	}
+
+	at = be32(data, index * 4);
+	if (!at || at >= datalen) {
+		free(inflated);
+		return NULL;
+	}
+
+	for (end = at; end < datalen && data[end]; ++end) {
+		// to the terminator
+	}
+	if (end >= datalen) {
+		free(inflated);
+		return NULL;
+	}
+
+	out = malloc(end - at + 1);
+	if (out) {
+		u32 n = 0;
+		for (u32 i = at; i < end; ++i) {
+			// printable ASCII only, and never a quote: the line it goes on is
+			// quoted, and a name is a menu row the game drew with this font
+			if (data[i] >= ' ' && data[i] <= '~' && data[i] != '"') {
+				out[n++] = (char)data[i];
+			}
+		}
+		out[n] = '\0';
+		while (n && out[n - 1] == ' ') {
+			out[--n] = '\0';
+		}
+		if (!out[0]) {
+			free(out);
+			out = NULL;
+		}
+	}
+
+	free(inflated);
+
+	return out;
+}
+
+/**
+ * Every map the mod offers as a Combat Simulator arena, by name and files.
+ *
+ * The Stage Loader mounts a mod for its maps alone and has to find them
+ * without loading the mod, which it did by scanning for bg_NAME.seg and
+ * assuming bg_NAME_padsZ and Ump_setupNAMEZ went with it. A console mod keeps
+ * Perfect Dark's file names and puts whatever map it likes in each slot, so
+ * that guess is wrong three ways: GoldenEye X's Egyptian is bg_dest.seg with
+ * mp11's pads, three of its arenas borrow another map's geometry and have no
+ * bg of their own to find, and four of the setups that do have one are not
+ * arenas at all (`ear` is a solo setup, and crashes). The names are wrong too -
+ * its `crad` is Aztec, and Cradle is `mp18`.
+ *
+ * All of it is in the mod's own tables: g_MpArenas says which stages are arenas
+ * and what each is called, and g_Stages says which files a stage loads.
+ */
+static void mapsBlock(char **out, u32 *len, u32 *cap, const struct tablectx *t,
+		const struct romfiles *modfiles, const struct romfiles *stockfiles, const u8 *mod, const u8 *stock,
+		u32 stages, u32 numstages, u32 arenas, u32 numarenas, u32 langfiles)
+{
+	u32 written = 0;
+	u32 unnamed = 0;
+
+	if (!stages || !numstages || !arenas || !numarenas) {
+		return;
+	}
+
+	for (u32 i = 0; i < numarenas; ++i) {
+		const u8 *a = tableEntry(t, arenas, i, 6);
+		const u8 *row = NULL;
+		const char *files[4];
+		char *name;
+		s32 stagenum;
+		u32 textid;
+
+		if (!a) {
+			break;
+		}
+
+		stagenum = (s16)be16(a, 0);
+		textid = be16(a, 4);
+
+		if (stagenum <= 1) {
+			continue;   // 1 is "Random", which is no map
+		}
+
+		for (u32 j = 0; j < numstages; ++j) {
+			const u8 *e = tableEntry(t, stages, j, 0x38);
+			if (!e) {
+				break;
+			}
+			if ((s16)be16(e, 0) == stagenum) {
+				row = e;
+				break;
+			}
+		}
+
+		if (!row) {
+			rep("  arena %u is stage %#x, which the stage table has no row for; left out", i, stagenum);
+			continue;
+		}
+
+		// bg, tiles, pads and the multiplayer setup, in the order the block
+		// writes them
+		{
+			static const u32 at[4] = { 8, 0xa, 0xc, 0x10 };
+			for (u32 k = 0; k < 4; ++k) {
+				const u32 fileid = be16(row, at[k]);
+				files[k] = fileid < modfiles->numnames ? modfiles->names[fileid] : "";
+			}
+		}
+
+		if (!files[0][0] || !files[2][0] || !files[3][0]) {
+			rep("  arena %u (stage %#x) has no background, pads or setup file; left out", i, stagenum);
+			continue;
+		}
+
+		name = langString(t, modfiles, stockfiles, mod, stock, langfiles, textid);
+		if (!name) {
+			// the file name of its setup, which is what the loader would have
+			// guessed on its own
+			const char *from = files[3];
+			const u32 pfx = strlen("Ump_setup");
+			if (!strncmp(from, "Ump_setup", pfx) && strlen(from) > pfx + 1) {
+				name = malloc(strlen(from) - pfx);
+				memcpy(name, from + pfx, strlen(from) - pfx - 1);
+				name[strlen(from) - pfx - 1] = '\0';
+			} else {
+				name = malloc(strlen(from) + 1);
+				if (name) {
+					strcpy(name, from);
+				}
+			}
+			++unnamed;
+		}
+
+		if (!name) {
+			continue;   // out of memory; the line would be a nameless arena
+		}
+
+		appendf(out, len, cap, "  map \"%s\" bg \"%s\" tiles \"%s\" pads \"%s\" mpsetup \"%s\"\n",
+				name, files[0], files[1], files[2], files[3]);
+		free(name);
+		++written;
+	}
+
+	if (written) {
+		if (unnamed) {
+			rep("  %u maps in the Combat Simulator, %u of them under a file name: the language file"
+					" the name is in was not read", written, unnamed);
+		} else {
+			rep("  %u maps in the Combat Simulator", written);
+		}
+	}
+}
+
+/**
  * Cuts one of our earlier regions out of a modconfig.txt so a re-import does
  * not stack them: from the comment lines directly above `at` to just past
  * `end`, and the blank lines after that.
@@ -4726,6 +4959,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	u32 arenasAddr = 0, numArenas = 0;
 	addr = locateTable(&t, "g_MpArenas", tnote, sizeof(tnote));
 	if (addr) {
 		u32 numarenas = codeCount(&t, "mp_get_num_stages", 17);
@@ -4740,6 +4974,8 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		if (addr && numarenas) {
 			LINE("  mparenas 0x%08x %u\n", addr, numarenas);
 			rep("  %u arenas at %08x%s", numarenas, addr, tnote);
+			arenasAddr = addr;
+			numArenas = numarenas;
 		} else if (addr) {
 			rep("  what is at %08x does not read as the arena list; left out", addr);
 		}
@@ -4810,16 +5046,24 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 	}
 
 	// the stage table: which background, pads and setup each stage loads
+	u32 stagesAddr = 0, numStages = 0;
 	addr = locateTable(&t, "g_Stages", tnote, sizeof(tnote));
 	if (addr) {
 		const u32 n = countStages(&t, addr, stockCount("g_Stages", 0x38));
 		if (n) {
 			LINE("  stages 0x%08x %u\n", addr, n);
 			rep("  %u stages at %08x%s", n, addr, tnote);
+			stagesAddr = addr;
+			numStages = n;
 		} else {
 			rep("  what is at %08x does not read as the stage table; left out", addr);
 		}
 	}
+
+	// not a table the port imports: the arena names are text ids, and this is
+	// the row of file ids saying which language file each bank is in. Looked up
+	// here, while locateTable() still has the code's address pairs to follow.
+	const u32 langFilesAddr = locateTable(&t, "g_LangFiles", tnote, sizeof(tnote));
 
 	// the sky, fog and clouds of each stage: two tables env.c walks to a 0
 	// stage, the fog one first. GE-X grows the fog table over the no-fog
@@ -5755,6 +5999,19 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The maps the mod offers as arenas, for the Stage Loader
+	char *mapscfg = NULL;
+	u32 mapslen = 0, mapscap = 0;
+	mapsBlock(&mapscfg, &mapslen, &mapscap, &t, modfiles, stockfiles, mod, stock,
+			stagesAddr, numStages, arenasAddr, numArenas, langFilesAddr);
+	if (mapscfg) {
+		char *inner = mapscfg;
+		mapscfg = NULL;
+		mapslen = mapscap = 0;
+		appendf(&mapscfg, &mapslen, &mapscap, "maps {\n%s}\n", inner);
+		free(inner);
+	}
+
 	if (t.followed) {
 		freePairs(&t.sp);
 		freePairs(&t.mp);
@@ -5847,10 +6104,11 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				}
 			}
 			{
-				static const char *const tailmarks[3][2] = {
-					{ MOVEMENT_BEGIN, MOVEMENT_END }, { KOH_BEGIN, KOH_END }, { COLOURS_BEGIN, COLOURS_END }
+				static const char *const tailmarks[4][2] = {
+					{ MOVEMENT_BEGIN, MOVEMENT_END }, { KOH_BEGIN, KOH_END }, { COLOURS_BEGIN, COLOURS_END },
+					{ MAPS_BEGIN, MAPS_END }
 				};
-				for (u32 i = 0; i < 3; ++i) {
+				for (u32 i = 0; i < 4; ++i) {
 					at = strstr(text, tailmarks[i][0]);
 					if (at) {
 						char *end = strstr(at, tailmarks[i][1]);
@@ -5865,9 +6123,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + mapslen + 512 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -5898,6 +6156,12 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				colourscfg ? "# The colours the mod's code draws with where the port draws with a named one,\n"
 				             "# read from it. Written by the game's mod importer.\n" COLOURS_BEGIN "\n" : "",
 				colourscfg ? colourscfg : "", colourscfg ? COLOURS_END "\n\n" : "",
+				mapscfg ? "# Every map the mod offers in the Combat Simulator, as its own tables have\n"
+				          "# them: the arena's name and the files that stage loads. The Stage Loader\n"
+				          "# reads this to mount the mod for its maps beside another mod; without it the\n"
+				          "# maps are guessed from the file names, which are Perfect Dark's and say\n"
+				          "# nothing about the map. Written by the game's mod importer.\n" MAPS_BEGIN "\n" : "",
+				mapscfg ? mapscfg : "", mapscfg ? MAPS_END "\n\n" : "",
 				existing ? (const char *)existing : "");
 		written += writeOut(outdir, "modconfig.txt", (const u8 *)block, strlen(block));
 		free(block);
@@ -5913,6 +6177,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(movementcfg);
 		free(kohcfg);
 		free(colourscfg);
+		free(mapscfg);
 	}
 
 	return written;

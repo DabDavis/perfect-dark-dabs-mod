@@ -19,6 +19,8 @@
 #include "fs.h"
 #include "romdata.h"
 #include "system.h"
+#include "utils.h"
+#include "mod.h"
 #include "modloader.h"
 
 extern struct stageallocation g_StageAllocations8Mb[];
@@ -235,7 +237,8 @@ static s32 modloaderRegister(s32 modIndex, const char *fmt, const char *name)
  * The entry is cloned from a stock multiplayer stage so the lighting, alarm and
  * other tuning are sane, then pointed at this mod's files.
  */
-static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLabel)
+static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *modLabel,
+		s32 bg, s32 tiles, s32 pads, s32 setup)
 {
 	if (g_ModStageNextSlot >= (s32)ARRAYCOUNT(g_Stages)) {
 		return false;
@@ -251,18 +254,8 @@ static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLa
 		return false;
 	}
 
-	const s32 bg = modloaderRegister(modIndex, "bgdata/bg_%s.seg", mapName);
-	const s32 pads = modloaderRegister(modIndex, "bgdata/bg_%s_padsZ", mapName);
-	const s32 setup = modloaderRegister(modIndex, "Ump_setup%sZ", mapName);
-
-	if (!bg || !pads || !setup) {
+	if (bg <= 0 || pads <= 0 || setup <= 0) {
 		return false;
-	}
-
-	// tiles are optional; some maps reuse another stage's
-	s32 tiles = 0;
-	if (modloaderModHasFile(modIndex, "bgdata/bg_%s_tilesZ", mapName)) {
-		tiles = modloaderRegister(modIndex, "bgdata/bg_%s_tilesZ", mapName);
 	}
 
 	struct stagetableentry *dst = &g_Stages[g_ModStageNextSlot];
@@ -272,7 +265,7 @@ static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLa
 	dst->bgfileid = bg;
 	dst->padsfileid = pads;
 	dst->mpsetupfileid = setup;
-	if (tiles) {
+	if (tiles > 0) {
 		dst->tilefileid = tiles;
 	}
 
@@ -297,6 +290,198 @@ static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLa
 	sysLogPrintf(LOG_NOTE, "modloader: %s -> stage 0x%02x", label, stageId);
 
 	return true;
+}
+
+static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLabel)
+{
+	const s32 bg = modloaderRegister(modIndex, "bgdata/bg_%s.seg", mapName);
+	const s32 pads = modloaderRegister(modIndex, "bgdata/bg_%s_padsZ", mapName);
+	const s32 setup = modloaderRegister(modIndex, "Ump_setup%sZ", mapName);
+
+	// tiles are optional; some maps reuse another stage's
+	s32 tiles = 0;
+	if (modloaderModHasFile(modIndex, "bgdata/bg_%s_tilesZ", mapName)) {
+		tiles = modloaderRegister(modIndex, "bgdata/bg_%s_tilesZ", mapName);
+	}
+
+	return modloaderAddStage(modIndex, mapName, modLabel, bg, tiles, pads, setup);
+}
+
+/**
+ * The file slot one of a map's files loads from: the mod's own copy where it
+ * has one, and the port's stock slot where it does not.
+ *
+ * A console mod ships only the files it changed and its maps borrow the rest -
+ * GoldenEye X's Bunker is its own bg_tra.seg with mp6's pads, and a map that
+ * changed nothing but its pads still wants stock geometry. A pinned slot costs
+ * a name out of the pool, so the stock slot is also the cheaper answer.
+ */
+static s32 modloaderFileSlot(s32 modIndex, const char *rel)
+{
+	if (!rel || !rel[0]) {
+		return 0;
+	}
+
+	if (modloaderModHasFile(modIndex, "%s", rel)) {
+		return modloaderRegister(modIndex, "%s", rel);
+	}
+
+	const s32 stock = romdataFileGetNumForName(rel);
+
+	return stock > 0 ? stock : 0;
+}
+
+/**
+ * One `map` line of a mod's `maps` block: the arena's own name, and the four
+ * files its stage row loads.
+ */
+/**
+ * Whether a map in a mod's block is one of the mod's own.
+ *
+ * The block is the mod's whole arena list, and a mod that only adds maps keeps
+ * Perfect Dark's arenas in it - PD Kakariko's list still has Skedar, Ravine and
+ * the Villa. Those load stock files the port already has an arena for, so
+ * registering them would put every stock map in the list a second time. A map
+ * the mod actually brought ships at least one of its four files.
+ */
+static bool modloaderMapIsOwn(s32 modIndex, const char *bg, const char *tiles, const char *pads, const char *mpsetup)
+{
+	const char *const files[4] = { bg, tiles, pads, mpsetup };
+
+	for (s32 i = 0; i < 4; ++i) {
+		if (files[i] && files[i][0] && modloaderModHasFile(modIndex, "%s", files[i])) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char *name,
+		const char *bg, const char *tiles, const char *pads, const char *mpsetup)
+{
+	const s32 size = modloaderModFileSize(modIndex, "%s", bg);
+
+	// a placeholder bg is a map with no rooms, which crashes as soon as it is
+	// entered; one the mod does not ship at all is stock's, and fine
+	if (size >= 0 && size < MODSTAGE_MIN_BG_SIZE) {
+		sysLogPrintf(LOG_NOTE, "modloader: %s has only placeholder geometry; skipped", name);
+		return false;
+	}
+
+	const s32 bgid = modloaderFileSlot(modIndex, bg);
+	const s32 padsid = modloaderFileSlot(modIndex, pads);
+	const s32 setupid = modloaderFileSlot(modIndex, mpsetup);
+	const s32 tilesid = modloaderFileSlot(modIndex, tiles);
+
+	if (!bgid || !padsid || !setupid) {
+		sysLogPrintf(LOG_WARNING, "modloader: %s: no file for %s; skipped", name,
+				!bgid ? bg : (!padsid ? pads : mpsetup));
+		return false;
+	}
+
+	return modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid);
+}
+
+/**
+ * Register a mod's maps from the `maps` block its modconfig.txt carries.
+ *
+ * The block is the mod's own arena list: one line a map, with the name the mod
+ * calls it and the files its stage table gives it (mods.md, "The Stage
+ * Loader"). Scanning for bg_NAME.seg instead gets three things wrong on any
+ * console mod, because the file names are Perfect Dark's and say nothing about
+ * the map: a map that borrows another's geometry is not found at all, a bg the
+ * mod ships but no stage uses is paired with another map's pads, and a setup
+ * that is not an arena is registered as one. The names are wrong too - GE-X's
+ * `crad` is Aztec, and its Cradle is `mp18`.
+ *
+ * The mod is not loaded and its config is not parsed (that would apply its
+ * weapons); only this block is read, straight out of its directory. Returns
+ * false when there is no block, and the caller falls back to the scan.
+ */
+static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modloaderScan *scan)
+{
+	char path[FS_MAXPATH + 1];
+	char token[UTIL_MAX_TOKEN + 1];
+	u32 len = 0;
+	char *data;
+	char *p;
+	bool found = false;
+
+	snprintf(path, sizeof(path), "%s/" MOD_CONFIG_FNAME, dir);
+
+	if (fsFileSize(path) <= 0) {
+		return false;
+	}
+
+	data = fsFileLoad(path, &len);
+	if (!data) {
+		return false;
+	}
+
+	p = strParseToken(data, token, NULL);
+
+	// the block, wherever it is in the file: every other block is somebody
+	// else's and is not parsed here
+	while (p && token[0]) {
+		if (!strcmp(token, "maps")) {
+			p = strParseToken(p, token, NULL);
+			if (token[0] == '{' && !token[1]) {
+				found = true;
+				break;
+			}
+		} else {
+			p = strParseToken(p, token, NULL);
+		}
+	}
+
+	if (found) {
+		p = strParseToken(p, token, NULL);
+
+		while (p && token[0] && strcmp(token, "}") != 0) {
+			char name[UTIL_MAX_TOKEN + 1] = { 0 };
+			char files[4][UTIL_MAX_TOKEN + 1] = { { 0 } };
+
+			if (strcmp(token, "map") != 0) {
+				sysLogPrintf(LOG_WARNING, "modloader: %s: unexpected %s in the maps block", dir, token);
+				break;
+			}
+
+			p = strParseToken(p, token, NULL);
+			snprintf(name, sizeof(name), "%s", strUnquote(token));
+
+			// bg, tiles, pads and mpsetup, each after its key
+			p = strParseToken(p, token, NULL);
+			while (p && token[0] && strcmp(token, "map") != 0 && strcmp(token, "}") != 0) {
+				static const char *const keys[4] = { "bg", "tiles", "pads", "mpsetup" };
+				s32 which = -1;
+				for (s32 i = 0; i < 4; ++i) {
+					if (!strcmp(token, keys[i])) {
+						which = i;
+						break;
+					}
+				}
+				p = strParseToken(p, token, NULL);
+				if (which >= 0) {
+					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
+				}
+				p = strParseToken(p, token, NULL);
+			}
+
+			if (!name[0] || !files[0][0] || !files[2][0] || !files[3][0]) {
+				sysLogPrintf(LOG_WARNING, "modloader: %s: a map line with no name or files", dir);
+			} else if (modloaderMapIsOwn(modIndex, files[0], files[1], files[2], files[3])) {
+				++scan->found;
+				if (modloaderAddConfigMap(modIndex, scan->label, name, files[0], files[1], files[2], files[3])) {
+					++scan->registered;
+				}
+			}
+		}
+	}
+
+	sysMemFree(data);
+
+	return found;
 }
 
 static void modloaderScanEntry(const char *name, void *arg)
@@ -384,15 +569,19 @@ void modloaderInit(void)
 		}
 		scan.label = base;
 
-		snprintf(path, sizeof(path), "%s/files/bgdata", dir);
+		// what the mod says it has, and only if it says nothing, what its
+		// file names look like
+		if (!modloaderAddFromConfig(i, dir, &scan)) {
+			snprintf(path, sizeof(path), "%s/files/bgdata", dir);
 
-		if (fsFileSize(path) < 0) {
-			continue;   // a mod with no maps of its own
-		}
+			if (fsFileSize(path) < 0) {
+				continue;   // a mod with no maps of its own
+			}
 
-		if (fsScanDir(path, modloaderScanEntry, &scan) < 0) {
-			sysLogPrintf(LOG_WARNING, "modloader: could not scan %s", path);
-			continue;
+			if (fsScanDir(path, modloaderScanEntry, &scan) < 0) {
+				sysLogPrintf(LOG_WARNING, "modloader: could not scan %s", path);
+				continue;
+			}
 		}
 
 		sysLogPrintf(LOG_NOTE, "modloader: %s registered %d of %d maps", base, scan.registered, scan.found);

@@ -2758,6 +2758,8 @@ KOH_BEGIN = '# importer: koh begin'
 KOH_END = '# importer: koh end'
 COLOURS_BEGIN = '# importer: colours begin'
 COLOURS_END = '# importer: colours end'
+MAPS_BEGIN = '# importer: maps begin'
+MAPS_END = '# importer: maps end'
 
 # the colour constants a mod repaints, by stock address of the lui (or li)
 # that loads each: the names are the port's g_ModColours[] entries
@@ -3204,7 +3206,112 @@ def count_indexes(seg, base, addr, limit, maxvalue):
     return n
 
 
-def write_data_segment(stock, mod, romid, outdir, dryrun):
+def lang_string(seg, base, names, files, langfiles, textid):
+    """The string a text id means, read out of the mod's own language file.
+
+    A text id is a language bank in its top bits and an index in the low nine.
+    The bank is a row of g_LangFiles holding a file id, and that file is a table
+    of u32 offsets into itself, each to a NUL-terminated string (lang.c). A mod
+    that renamed its arenas shipped the file; one that did not leaves the name
+    the ROM it was patched from had, which is the stock file.
+    """
+    if not langfiles or not textid:
+        return None
+    bank, index = textid >> 9, textid & 0x1ff
+    ofs = langfiles - base + bank * 2
+    if bank > 68 or ofs < 0 or ofs + 2 > len(seg):
+        return None
+    fileid = be16(seg, ofs)
+    name = names[fileid] if 0 <= fileid < len(names) else None
+    data = files(name) if name else None
+    if not data:
+        return None
+    if is1173(data):
+        data, _ = inflate1173(data)
+    if (index + 1) * 4 > len(data):
+        return None
+    # the first offset is where the strings start, so it is also the length of
+    # the offset table: an index past it is not a string of this bank
+    if index * 4 >= be32(data, 0):
+        return None
+    at = be32(data, index * 4)
+    if not 0 < at < len(data):
+        return None
+    end = data.find(b'\0', at)
+    if end < 0:
+        return None
+    try:
+        text = data[at:end].decode('ascii')
+    except UnicodeDecodeError:
+        return None
+    text = ''.join(c for c in text if ' ' <= c <= '~' and c != '"')
+    return text.strip() or None
+
+
+def maps_block(seg, base, names, files, stages, numstages, arenas, numarenas, langfiles):
+    """Every map the mod offers as a Combat Simulator arena, by name and files.
+
+    The Stage Loader mounts a mod for its maps alone and has to find them
+    without loading the mod, which it did by scanning for bg_NAME.seg and
+    assuming bg_NAME_padsZ and Ump_setupNAMEZ went with it. A console mod keeps
+    Perfect Dark's file names and puts whatever map it likes in each slot, so
+    that guess is wrong three ways: GoldenEye X's Egyptian is bg_dest.seg with
+    mp11's pads, three of its arenas borrow another map's geometry and have no
+    bg of their own to find, and four of the setups that do have one are not
+    arenas at all (`ear` is a solo setup, and crashes). The names are wrong too
+    - its `crad` is Aztec, and Cradle is `mp18`.
+
+    All of it is in the mod's own tables: g_MpArenas says which stages are
+    arenas and what each is called, and g_Stages says which files a stage
+    loads. This writes that out for the loader to read.
+    """
+    lines, notes = [], []
+    if not (stages and numstages and arenas and numarenas):
+        return lines, notes
+
+    rows = {}
+    for i in range(numstages):
+        ofs = stages - base + i * 0x38
+        if ofs + 0x38 > len(seg):
+            break
+        stagenum = int.from_bytes(seg[ofs:ofs + 2], 'big', signed=True)
+        rows[stagenum] = [names[f] if 0 <= f < len(names) else ''
+                          for f in (be16(seg, ofs + 8), be16(seg, ofs + 0xa),
+                                    be16(seg, ofs + 0xc), be16(seg, ofs + 0x10))]
+
+    unnamed = 0
+    for i in range(numarenas):
+        ofs = arenas - base + i * 6
+        if ofs + 6 > len(seg):
+            break
+        stagenum = int.from_bytes(seg[ofs:ofs + 2], 'big', signed=True)
+        textid = be16(seg, ofs + 4)
+        if stagenum <= 1:
+            continue    # 1 is "Random", which is no map
+        if stagenum not in rows:
+            notes.append('arena %d is stage %#x, which the stage table has no row for; left out' % (i, stagenum))
+            continue
+        bg, tiles, pads, mpsetup = rows[stagenum]
+        if not bg or not pads or not mpsetup:
+            notes.append('arena %d (stage %#x) has no background, pads or setup file; left out' % (i, stagenum))
+            continue
+        name = lang_string(seg, base, names, files, langfiles, textid)
+        if not name:
+            # the file name of its setup, which is what the loader would have
+            # guessed on its own
+            name = mpsetup[len('Ump_setup'):-1] if mpsetup.startswith('Ump_setup') else mpsetup
+            unnamed += 1
+        lines.append('  map "%s" bg "%s" tiles "%s" pads "%s" mpsetup "%s"'
+                     % (name, bg, tiles or '', pads, mpsetup))
+
+    if lines:
+        notes.append('%d maps in the Combat Simulator%s'
+                     % (len(lines), ', %d of them under a file name: the language file the name is in was not read'
+                        % unnamed if unnamed else ''))
+    return lines, notes
+
+
+def write_data_segment(stock, mod, romid, outdir, dryrun, files):
     """The mod's inflated data segment, its file names, and a modconfig block
     saying where its tables are.
 
@@ -3407,13 +3514,19 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
     # the lighting and fog around them. A mod that puts its own levels in the
     # stock slots (GE-X: Runway in Extraction's) points them at its own files
     stages, note = locate('g_Stages')
+    numstages = 0
     if stages:
-        n = count_stages(seg, base, stages, stockcount('g_Stages', 0x38))
-        if n:
-            lines.append('  stages 0x%08x %d' % (stages, n))
-            notes.append('%d stages at %08x%s' % (n, stages, note))
+        numstages = count_stages(seg, base, stages, stockcount('g_Stages', 0x38))
+        if numstages:
+            lines.append('  stages 0x%08x %d' % (stages, numstages))
+            notes.append('%d stages at %08x%s' % (numstages, stages, note))
         else:
             notes.append('what is at %08x does not read as the stage table; left out' % stages)
+
+    # not a table the port imports: the arena names are text ids, and this is
+    # the row of file ids that says which language file each bank is in. Looked
+    # up here, while locate() still has the code's address pairs to follow.
+    langfiles, _ = locate('g_LangFiles')
 
     # the sky, fog and clouds of each stage: two tables env.c walks to a 0
     # stage, the fog one first. GE-X grows the fog table over the no-fog one's
@@ -3944,6 +4057,18 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                              '# read from it. Written by tools/importmod.\n'
                              + COLOURS_BEGIN + '\ncolours {\n' + ''.join('  %s 0x%08x\n' % (name, b) for name, a, b in cs) + '}\n' + COLOURS_END + '\n')
 
+    # the maps the mod offers as arenas, for the Stage Loader
+    mapsregion = ''
+    maplines, mapnotes = maps_block(seg, base, names, files, stages, numstages, arenas, numarenas, langfiles)
+    notes.extend(mapnotes)
+    if maplines:
+        mapsregion = ("# Every map the mod offers in the Combat Simulator, as its own tables have\n"
+                      "# them: the arena's name and the files that stage loads. The Stage Loader\n"
+                      "# reads this to mount the mod for its maps beside another mod; without it the\n"
+                      "# maps are guessed from the file names, which are Perfect Dark's and say\n"
+                      "# nothing about the map. Written by tools/importmod.\n"
+                      + MAPS_BEGIN + '\nmaps {\n' + '\n'.join(maplines) + '\n}\n' + MAPS_END + '\n')
+
     flagsiteregion = ''
     if flagsiteblocks:
         flagsiteregion = ('# The weapons the mod\'s code tests for a flag\'s behaviour, read as the compare chains at\n'
@@ -3985,7 +4110,8 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(RELOAD_BEGIN) + r'\n.*?' + re.escape(RELOAD_END) + r'\n*',
                           '', existing, flags=re.S)
-        for begin, end in ((MOVEMENT_BEGIN, MOVEMENT_END), (KOH_BEGIN, KOH_END), (COLOURS_BEGIN, COLOURS_END)):
+        for begin, end in ((MOVEMENT_BEGIN, MOVEMENT_END), (KOH_BEGIN, KOH_END), (COLOURS_BEGIN, COLOURS_END),
+                           (MAPS_BEGIN, MAPS_END)):
             existing = re.sub(r'(#[^\n]*\n)*' + re.escape(begin) + r'\n.*?' + re.escape(end) + r'\n*',
                               '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
@@ -3999,7 +4125,8 @@ def write_data_segment(stock, mod, romid, outdir, dryrun):
                            + (unlocksregion + '\n' if unlocksregion else '')
                            + (movementregion + '\n' if movementregion else '')
                            + (kohregion + '\n' if kohregion else '')
-                           + (coloursregion + '\n' if coloursregion else '') + existing).encode('utf-8'), dryrun)
+                           + (coloursregion + '\n' if coloursregion else '')
+                           + (mapsregion + '\n' if mapsregion else '') + existing).encode('utf-8'), dryrun)
 
     return written, None
 
@@ -4186,7 +4313,8 @@ def run(stock, mod, romid, kind, args):
         log('           so they can go in one at a time instead of as whole segments)')
 
     log()
-    datawritten, datanote = write_data_segment(stock, mod, romid, outdir, dryrun)
+    datawritten, datanote = write_data_segment(stock, mod, romid, outdir, dryrun,
+                                               lambda n: modfiles.get(n) or stockfiles.get(n))
     written += datawritten
     if datawritten:
         log('data segment: segs/data (%u bytes), the weapon definitions and model tables' % datawritten)

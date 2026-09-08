@@ -1670,3 +1670,55 @@ spawn pad count: `g_SpawnPoints` and the chooser's three per-pad arrays held
 24, stock's most, and the setup lists more. `MAX_SPAWNPOINTS` (64) sizes all
 four now, the intro reader warns and drops the rest past it, and the chooser
 clamps its count for any caller's list.
+
+**The maps block: a mod's own arenas, by its own names (2026-09-08).** The
+scan above pairs `bg_NAME.seg` with `bg_NAME_padsZ` and `Ump_setupNAMEZ` and
+calls the arena `NAME`, which is wrong four ways on any console mod, because
+the file names are **Perfect Dark's slots** and say nothing about the map. For
+GE-X: `crad` is **Aztec**, and Cradle is `mp18`; its Egyptian is
+`bg_dest.seg` with mp11's pads, while the `bg_mp11.seg` it ships is referenced
+by no stage row and was being registered with mp11's pads instead; Train
+(`bg_run.seg`), Bunker (`bg_tra.seg`) and Facility BZ (`bg_mp5.seg`) borrow
+another map's geometry, so the scan never found them at all; and `ear`, `rit`,
+`mp1` and `mp15` have a `Ump_` setup but are not in its arena list - `ear` is
+the solo setup that crashes in `hudmsgCreateFromArgs()`.
+
+All of it is in the mod's own tables, so **both importers now write a `maps`
+block** (version 31), one line a map:
+
+```
+maps {
+  map "Aztec" bg "bgdata/bg_crad.seg" tiles "bgdata/bg_crad_tilesZ" pads "bgdata/bg_crad_padsZ" mpsetup "Ump_setupcradZ"
+}
+```
+
+`g_MpArenas` says which stages are arenas and what each is called (a text id:
+bank in the top bits, index in the low nine), `g_Stages` says which files a
+stage loads, and the name comes out of the mod's own language file for that
+bank - `g_LangFiles` (0x80084124, a file id a bank) into `data.names`, then
+the file's u32 offset table (`lang_string()` / `langString()`; bank 40 is
+`LmpmenuE`). A mod that did not ship the file gets the stock one, which is the
+name the ROM it was patched from had. Nothing else reads `g_LangFiles`, so it
+is in the symbol tables only for this.
+
+`modloaderAddFromConfig()` reads **only that block**, straight out of the
+mod's directory - a maps-only mount is never loaded and its config is never
+parsed, so its weapons stay where they are; `mod.c` skips the block for the
+mod that *is* loaded, whose arenas come from its own tables anyway. With no
+block the scan runs as before, which is every mod that was not imported here.
+Two rules matter in the loader: a file the mod does not ship comes from the
+**port's stock slot** (`modloaderFileSlot()`), since a console mod ships only
+what it changed - that is how the all-solo-levels and weather mods, which ship
+`Ump_setup*Z` for solo stages and no geometry, register 15 maps each where the
+scan found none; and a map is skipped unless the mod ships **at least one** of
+its four files (`modloaderMapIsOwn()`), or every mod's block would put all of
+Perfect Dark's own arenas in the list a second time.
+
+With all of this tree's mod dirs mounted the arena list is 189 maps of 223
+found - the 189 usable stage ids are now the wall, and the status line says
+so. GE-X's 22 register under Temple, Complex, Caves, Library, Basement, Stack,
+Facility, Bunker, Archives, Caverns, Egyptian, Facility BZ, Frigate, Archives
+BZ, Streets, Train, Cradle, Aztec, Citadel, Labyrinth, Icicle Pyramid and
+Cliff Base. Verified by screenshot: Cradle is the girder walkway under a night
+sky, Egyptian the sandstone room, and Air Base (stock geometry, the mod's own
+pads and setup) draws the Skedar ship.
