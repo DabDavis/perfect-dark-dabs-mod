@@ -312,11 +312,9 @@ which is why only 23 of 80 sampled files appeared to chain.
 #### What is still open
 
 - The material's top two bytes, above.
-- The heads. No `H*` model file carries a mesh id and a character's mesh is
-  headless, so a chr comes out as the release's body under the game's own N64
-  head. Where 4J kept their heads has not been looked for.
 
-The float at `+0x18` and the palette are answered under "Skinning" below.
+The float at `+0x18` and the palette are answered under "Skinning" below, and
+the heads under "The heads".
 
 ### The draw path
 
@@ -514,11 +512,61 @@ runtime, on the evening dress, where all fifteen came out at 1.000 give or take
 the pose's own rotations. A single ratio on its own is a bone the release moved;
 all of them off by one constant is the scale being read wrong.
 
-Two things a character still is not. Its **head** is the game's own, because
-4J kept Perfect Dark's split of body and head model files and no head file
-carries a mesh id — a high resolution body under an N64 head. And a
-**first person** view is the release's hands and gun meshes drawn at their own
-bones, which works, but the Bonds' 10% is the kind of thing to look for there.
+A **first person** view is the release's hands and gun meshes drawn at their
+own bones, which works; the Bonds' 10% is the kind of thing to look for there.
+Heads are their own job — below.
+
+#### The heads
+
+A character's head is a model file of its own (`Chead*Z` — not `H*`, which is
+what a search for them comes up empty on), and 72 of the 76 carry mesh ids like
+everything else. What kept them off the screen was not the data: it was that a
+head is **grafted into the body's tree**. `modelApplyHeadRelations()` makes the
+head modeldef's root a child of the body's `HEADSPOT` node and gives the head's
+top level nodes that node as their parent, so a head's display list arrives at
+`modelRenderNodeDl()` with the **body's** model and the **head's** modeldef —
+and the check that an entry's modeldef is the one being drawn, which is there
+because a freed model's address can come back as something else's node, threw
+every one of them away. `xblaMeshNodeIsGrafted()` is what lets them through: it
+walks the node's parents to the model's own root and wants a `HEADSPOT` on the
+way. That is as strict as the check it replaces — a head is the only thing the
+game ever grafts, every `->parent` the renderer writes being a headspot's — and
+it re-tests the node's address on the way past.
+
+Everything else falls out of the body being the model:
+
+- **A head mesh's vertices are in the body's space, not the head's.** Joanna's
+  head mesh stands at y 1402 to 1680 where her body mesh is 1489 tall, and the
+  stock head's own vertices sit around the origin. The pose puts it right: its
+  posed box comes out at `[-87 -40 -103]..[87 217 123]` against the stock
+  head node's `[-87 -26 -86]..[81 214 112]`.
+- **Palette entry i is matrix i of the body**, the same rule as everywhere
+  else. Entry 0 is the head bone and entry 1 the spine — a head is weighted to
+  both, which is what lets its neck bend — and entry 2 is an identity nothing
+  is weighted to. All 125 head nodes that carry an id load matrix 0 in their
+  own display list, which is the body's head bone and where the game draws the
+  stock head too.
+- **A head model file has one matrix of its own.** Grafted, that does not
+  matter: the matrices come from the body. Drawn on its own it would leave
+  entry 1 unposed, so an entry the model has no matrix for follows entry 0
+  rather than staying at its bind — otherwise the neck trails back to where the
+  body would have been.
+
+**Joanna's three heads are matched by size.** `Cheaddark_combatZ`,
+`Cheaddark_frockZ` and `CheaddarkaquaZ` are the only three models in the
+release that are not ours with two bytes changed: 4J moved the toggled piece —
+the earpiece on the right of her head — in front of the head itself, and added
+a node to the aqua one, so the node-for-node zip refuses them. They are also
+the model a player looks at most, so `xblaMeshMatchBySize()` pairs them by
+vertex count instead: our biggest list is the head and takes part 0, the next
+is the earpiece and takes part 1. That works because the mesh's own groups come
+the same way round — her head group is 2341 vertices against the earpiece's
+672. It runs only after the zip has failed, and only for a model whose release
+copy names one mesh and numbers its parts 0..n-1 with no gaps.
+
+One wrinkle to know about: a mesh is drawn once, at part 0, so a piece the
+game toggles off — that earpiece — draws anyway. The fix for that is a display
+list per group rather than per mesh, which nothing needs yet.
 
 ### The level files were rewritten too
 

@@ -73,6 +73,10 @@
 // How many draws --xbla-mesh-verbose names before it stops
 #define XBLAMESH_DRAWLOG 12
 
+// How far up a node's parents to look for the model that is drawing it. A head
+// hangs off a body, so its nodes are the head's own depth plus the body's.
+#define XBLAMESH_PARENTSCAN 32
+
 // Commands into a node's own list to look for its matrix in. The game's own
 // lists load one inside the first handful, before any geometry.
 #define XBLAMESH_MTXSCAN 32
@@ -704,6 +708,213 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 	return found;
 }
 
+/**
+ * How many vertices one of our nodes draws, or -1 if it is not a list node.
+ */
+static s32 xblaMeshNodeNumVertices(const struct modelnode *node)
+{
+	const u32 type = node->type & 0xff;
+
+	if (!node->rodata) {
+		return -1;
+	}
+
+	if (type == MODELNODETYPE_DL) {
+		return node->rodata->dl.numvertices;
+	}
+
+	if (type == MODELNODETYPE_GUNDL) {
+		return node->rodata->gundl.numvertices;
+	}
+
+	return -1;
+}
+
+/** The next node of our tree, in the order the game's own iteration takes. */
+static struct modelnode *xblaMeshNextNode(struct modelnode *node)
+{
+	if (node->child) {
+		return node->child;
+	}
+
+	while (node) {
+		if (node->next) {
+			return node->next;
+		}
+
+		node = node->parent;
+	}
+
+	return NULL;
+}
+
+/**
+ * The last resort for a model the release rebuilt: pair the parts by size.
+ *
+ * Three files in the release are not ours with two bytes changed - they are
+ * ours with the nodes rearranged, and the zip above refuses them because a
+ * type does not line up. All three are Joanna's own head (combat, frock and
+ * aqua), which is the model a player looks at most in multiplayer, so they are
+ * worth having. What 4J did to them was to move the toggled piece - the
+ * earpiece on the right of her head - in front of the head itself, and in the
+ * aqua one to add a node.
+ *
+ * The pairing that gets all three right is by size: our biggest list is the
+ * head and takes part 0, our next biggest is the earpiece and takes part 1.
+ * That holds because the mesh's own groups come the same way round - the head
+ * group of her mesh is 2341 vertices against the earpiece's 672 - and because
+ * the part number is what says which group a node stands for.
+ *
+ * It is deliberately narrow. It runs only once the zip has failed, it wants
+ * the release's copy to name exactly one mesh and to number its parts 0..n-1
+ * with no gaps, and it wants at least that many lists on our side. Anything
+ * else keeps its own geometry, which is what all three of these did before.
+ */
+static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 len)
+{
+	u32 theiroff[XBLAMESH_MAXPARTS];
+	struct modelnode *ours[XBLAMESH_MAXPARTS];
+	s32 ourverts[XBLAMESH_MAXPARTS];
+	struct modelnode *node;
+	s32 slot = -1;
+	s32 numparts = 0;
+	s32 numours = 0;
+	s32 walked = 0;
+	u32 off = xblaMeshBE32(file) & 0xffffff;
+
+	for (s32 i = 0; i < XBLAMESH_MAXPARTS; i++) {
+		theiroff[i] = 0;
+	}
+
+	// Their side: every node that names a mesh, by part number.
+	while (off && walked++ < 4096) {
+		u32 type;
+		u32 id;
+		u32 child;
+
+		if (off + 24 > len) {
+			return 0;
+		}
+
+		type = xblaMeshBE16(file + off) & 0xff;
+		id = xblaMeshBE16(file + off + 2);
+
+		if (id && id != 0xffff &&
+				(type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL)) {
+			const s32 theirslot = (s32)(id & 0xfff) - 1;
+			const u32 part = id >> 12;
+
+			if ((slot >= 0 && theirslot != slot) || part >= XBLAMESH_MAXPARTS ||
+					theiroff[part]) {
+				return 0;
+			}
+
+			slot = theirslot;
+			theiroff[part] = off;
+
+			if ((s32)part + 1 > numparts) {
+				numparts = (s32)part + 1;
+			}
+		}
+
+		child = xblaMeshFileChild(file, len, off, type);
+
+		if (child) {
+			off = child;
+			continue;
+		}
+
+		while (off) {
+			const u32 next = xblaMeshBE32(file + off + 12) & 0xffffff;
+
+			if (next) {
+				off = next;
+				break;
+			}
+
+			off = xblaMeshBE32(file + off + 8) & 0xffffff;
+
+			if (off && off + 24 > len) {
+				return 0;
+			}
+		}
+	}
+
+	if (slot < 0 || slot >= numRecords || !recUncSize[slot]) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < numparts; i++) {
+		if (!theiroff[i]) {
+			return 0; // a gap in the part numbers
+		}
+	}
+
+	// Our side: the lists, biggest first. An insertion sort, because a model
+	// that gets this far has a handful of them.
+	for (node = modeldef->rootnode; node; node = xblaMeshNextNode(node)) {
+		const s32 verts = xblaMeshNodeNumVertices(node);
+		s32 at = numours < XBLAMESH_MAXPARTS ? numours : XBLAMESH_MAXPARTS - 1;
+
+		if (verts <= 0) {
+			continue;
+		}
+
+		while (at > 0 && ourverts[at - 1] < verts) {
+			ours[at] = ours[at - 1];
+			ourverts[at] = ourverts[at - 1];
+			at--;
+		}
+
+		ours[at] = node;
+		ourverts[at] = verts;
+
+		if (numours < XBLAMESH_MAXPARTS) {
+			numours++;
+		}
+	}
+
+	if (numours < numparts) {
+		return 0;
+	}
+
+	for (s32 part = 0; part < numparts; part++) {
+		struct xblameshentry *e = xblaMeshSlotFor(ours[part]);
+
+		if (!e) {
+			return 0;
+		}
+
+		if (!e->node) {
+			g_XblaMeshNumNodes++;
+		}
+
+		e->node = ours[part];
+		e->modeldef = modeldef;
+		e->slot = (u16)slot;
+		e->part = (u16)part;
+		e->use = xblaMeshUseFor(modeldef, slot);
+
+		if (e->use >= 0) {
+			struct xblameshuse *use = &uses[e->use];
+
+			use->parts[part] = ours[part];
+			use->partmtx[part] = xblaMeshNodeMtx(file, len, theiroff[part]);
+
+			if (part >= use->numparts) {
+				use->numparts = (u16)(part + 1);
+			}
+		}
+
+		if (xblaMeshVerbose) {
+			sysLogPrintf(LOG_NOTE, "xblamesh:   by size: part %d -> node %p, "
+					"%d verts, slot %d", part, ours[part], ourverts[part], slot);
+		}
+	}
+
+	return numparts;
+}
+
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 {
 	u8 *file;
@@ -743,6 +954,15 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 		// Either the release replaced nothing in this model, or the two trees
 		// disagreed and the partial matching has to come back out.
 		xblaMeshForgetModel(modeldef);
+
+		found = xblaMeshMatchBySize(modeldef, file, len);
+
+		if (found == 0) {
+			xblaMeshForgetModel(modeldef);
+		} else if (xblaMeshVerbose) {
+			sysLogPrintf(LOG_NOTE, "xblamesh: model file %d matched %d by size",
+					fileid, found);
+		}
 	}
 
 	free(file);
@@ -1788,10 +2008,21 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct xblameshuse *use,
 	for (s32 i = 0; i < m->nummatrices; i++) {
 		Mtxf step;
 
-		// An entry the model has no matrix for keeps its bind pose, which is
-		// where the mesh already has it.
+		// An entry the model has no matrix for follows the first entry, so the
+		// part of the mesh weighted to it stays rigidly attached to the bone
+		// that does have one rather than being left behind in the mesh's own
+		// space. Every head mesh has three entries against the one matrix a
+		// head model file carries, and its neck is weighted to the second: a
+		// head drawn on its own - not grafted onto a body, which is where the
+		// other eighteen matrices come from - would otherwise trail its neck
+		// back to where the body would have been.
 		if (i >= posable) {
-			mtx4LoadIdentity(&pal[i]);
+			if (posable > 0) {
+				mtx4Copy(&pal[0], &pal[i]);
+			} else {
+				mtx4LoadIdentity(&pal[i]);
+			}
+
 			continue;
 		}
 
@@ -1969,6 +2200,47 @@ static void xblaMeshLogDrawn(struct model *model, struct modelnode *node, s32 sl
 	}
 }
 
+/**
+ * Whether a node from another model is one this model is drawing.
+ *
+ * Perfect Dark keeps a character's head in a model file of its own and hangs
+ * it off the body at a `HEADSPOT` node: `modelApplyHeadRelations()` makes the
+ * head's root a child of that node and gives the head's top level nodes the
+ * body node as their parent. So a head's display list reaches
+ * `modelRenderNodeDl()` with the *body's* model and the *head's* modeldef, and
+ * the definition check above would throw every head away - which is what used
+ * to leave a release body under an N64 head.
+ *
+ * Walking up to the model's own root through a `HEADSPOT` is what says the
+ * node has been grafted into this tree rather than being a stale address that
+ * happens to hash here, so this replaces the definition check rather than
+ * skipping it. A head is the only thing the game grafts - every `->parent`
+ * the renderer writes is a headspot's - so a walk that reaches the root
+ * without passing one is a node of this model's own tree and no business of
+ * an entry that was filed under another model. The walk is a head's depth
+ * plus the body's, both small; the bound is what stops a parent chain that is
+ * being rewritten from going round for ever.
+ */
+static s32 xblaMeshNodeIsGrafted(const struct model *model, const struct modelnode *node)
+{
+	const struct modelnode *root = model->definition->rootnode;
+	s32 crossed = 0;
+
+	for (s32 i = 0; node && i < XBLAMESH_PARENTSCAN; i++) {
+		if (node == root) {
+			return crossed;
+		}
+
+		if ((node->type & 0xff) == MODELNODETYPE_HEADSPOT) {
+			crossed = 1;
+		}
+
+		node = node->parent;
+	}
+
+	return 0;
+}
+
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node)
 {
@@ -1996,8 +2268,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	// A model file can be loaded twice at once, and a freed one's address can
 	// come back as something else's node. The definition the model is being
-	// drawn from is what says this entry is about this model.
-	if (model && model->definition && model->definition != e->modeldef) {
+	// drawn from is what says this entry is about this model - except for a
+	// head, which is a model of its own grafted into the body's tree.
+	if (model && model->definition && model->definition != e->modeldef &&
+			!xblaMeshNodeIsGrafted(model, node)) {
 		return 0;
 	}
 
