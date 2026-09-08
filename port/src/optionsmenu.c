@@ -29,6 +29,7 @@
 #include "system.h"
 #include "texpack.h"
 #include "upscale.h"
+#include "xblaimport.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -5015,6 +5016,191 @@ Gfx *upscalemenuRenderOverlay(Gfx *gdl)
 	return gdl;
 }
 
+/**
+ * Converting the Xbox 360 XBLA release's textures into a pack.
+ *
+ * Nothing like the Upscayl page underneath it, despite sitting beside it: the
+ * console release kept the game's texture numbering, so this is a decode with
+ * nothing to choose and nothing to wait for a subprocess over. The only
+ * setting is whether to keep the textures the release redrew at the original
+ * size as well as the ones it enlarged.
+ */
+static MenuItemHandlerResult menuhandlerXblaUpscalesOnly(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return xblaImportGetUpscalesOnly();
+	case MENUOP_SET:
+		xblaImportSetUpscalesOnly(!xblaImportGetUpscalesOnly());
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerXblaStart(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const s32 state = xblaImportGetState();
+
+	if (operation != MENUOP_SET) {
+		return 0;
+	}
+
+	if (state == XBLAIMPORT_EXTRACTING || state == XBLAIMPORT_READING ||
+			state == XBLAIMPORT_CONVERTING) {
+		xblaImportCancel();
+	} else {
+		xblaImportStart();
+	}
+
+	return 0;
+}
+
+static char g_XblaStartText[80];
+
+static const char *menutextXblaStart(struct menuitem *item)
+{
+	const s32 state = xblaImportGetState();
+
+	if (state == XBLAIMPORT_EXTRACTING || state == XBLAIMPORT_READING ||
+			state == XBLAIMPORT_CONVERTING) {
+		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "Cancel\n");
+	} else {
+		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "Convert Texture Pack\n");
+	}
+
+	return g_XblaStartText;
+}
+
+static char g_XblaStatusText[160];
+
+static const char *menutextXblaStatus(struct menuitem *item)
+{
+	const s32 state = xblaImportGetState();
+
+	if (!xblaImportIsAvailable()) {
+		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
+				"No package found - set Mod.XblaPackage in pd.ini\n");
+	} else if (state == XBLAIMPORT_IDLE) {
+		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
+				"Ready - this takes about a minute\n");
+	} else if (state == XBLAIMPORT_CONVERTING) {
+		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText), "%s  %d%%\n",
+				xblaImportGetStatus(), xblaImportGetPercent());
+	} else {
+		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText), "%s\n",
+				xblaImportGetStatus());
+	}
+
+	return g_XblaStatusText;
+}
+
+// Only the file name is shown, not the whole path, and only this much of it.
+#define XBLA_PATHCHARS 42
+static char g_XblaPathText[128];
+
+static const char *menutextXblaPath(struct menuitem *item)
+{
+	const char *path = xblaImportGetPackagePath();
+	const char *slash;
+
+	if (!path[0]) {
+		snprintf(g_XblaPathText, sizeof(g_XblaPathText), " \n");
+		return g_XblaPathText;
+	}
+
+	// The whole path does not fit and the leading directories are not the
+	// interesting part; the file name says which copy was found.
+	slash = strrchr(path, '/');
+#ifdef PLATFORM_WIN32
+	if (!slash) {
+		slash = strrchr(path, '\\');
+	}
+#endif
+
+	path = slash ? slash + 1 : path;
+
+	// A content id is 42 characters and already fills the row, so a longer
+	// name is cut rather than let run into the panel edge.
+	if (strlen(path) > XBLA_PATHCHARS) {
+		snprintf(g_XblaPathText, sizeof(g_XblaPathText), "From %.*s...\n",
+				XBLA_PATHCHARS - 3, path);
+	} else {
+		snprintf(g_XblaPathText, sizeof(g_XblaPathText), "From %s\n", path);
+	}
+
+	return g_XblaPathText;
+}
+
+struct menuitem g_ExtendedXblaMenuItems[] = {
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enlarged Textures Only",
+		0,
+		menuhandlerXblaUpscalesOnly,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)menutextXblaPath,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		0,
+		(uintptr_t)menutextXblaStart,
+		0,
+		menuhandlerXblaStart,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)menutextXblaStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedXblaMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Xbox 360 Textures",
+	g_ExtendedXblaMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 struct menuitem g_ExtendedTexturePackMenuItems[] = {
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -5071,6 +5257,14 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		(uintptr_t)"Upscayl\n",
 		0,
 		(void *)&g_ExtendedUpscaleMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Xbox 360 Textures\n",
+		0,
+		(void *)&g_ExtendedXblaMenuDialog,
 	},
 
 	{

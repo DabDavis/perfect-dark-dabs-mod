@@ -29,6 +29,7 @@
 #include "screenshot.h"
 #include "texpack.h"
 #include "upscale.h"
+#include "xblaimport.h"
 
 /*
  * private typedefs and defines
@@ -299,6 +300,7 @@ void schedEndFrame(OSSched *sc)
 	screenshotTick();
 	texpackTick();
 	upscaleTick();
+	xblaImportTick();
 	recordTick();
 
 	joyStartReadData(&g_PiMesgQueue);
