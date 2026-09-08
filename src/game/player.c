@@ -3843,6 +3843,12 @@ static void playerPullBackCamera(struct coord *campos)
 		}
 	}
 
+	// Height is straight up in the world and not along the camera's own up
+	// vector, for the same reason forward and back is level: the two of them
+	// place the camera relative to the player, and a placement that swings
+	// about as the view pitches is the thing the pull-back already does.
+	offset.y += g_ModOptions.camheight;
+
 	len = sqrtf(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z);
 
 	// Nowhere to go, and nothing to divide by below.

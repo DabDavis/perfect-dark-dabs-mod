@@ -78,16 +78,17 @@ negative. All three of those are distances from the camera and all three take
 the pull-back. Moving the shot's origin does nothing for melee; this is a
 separate site.
 
-## Three offsets, and what each one is along
+## The offsets, and what each one is along
 
 | setting | axis | what moves it |
 | --- | --- | --- |
 | Camera Distance | `-look`, the look vector itself | pitching the view: looking up walks the camera down towards the floor, looking down lifts it |
 | Camera Sideways | `look x up`, the right hand | nothing; it is the shoulder the picture is taken over |
 | Camera Forward/Back | the facing, flattened level | nothing; it holds its height at every pitch |
+| Camera Height | world Y, straight up | nothing; it is not the camera's own up vector |
 
-The three add into one `offset` and the trace scales all of it together, so a
-wall brings them in as a set and the shoulder is kept.
+They add into one `offset` and the trace scales all of it together, so a wall
+brings them in as a set and the shoulder is kept.
 
 Forward and back takes its direction out of the **right vector**, not out of the
 look vector: `(right.z, -right.x)` is the right hand turned a quarter turn back
@@ -96,6 +97,15 @@ where flattening the look vector leaves nothing to normalise. Positive is
 further back, so it reads the same way round as Camera Distance; negative is
 what puts the camera in front of the player, and that is the case the signed
 pull-back above exists for.
+
+**Height has a usable range, and it is shorter than the slider.** Nothing tilts
+the view to keep the player in frame - the view direction is the aim, and a
+camera that aimed somewhere other than the crosshair would be a different bug
+- so a raised camera looks level over the player's head and the player slides
+down the screen. The player leaves the bottom of it at about
+`atan(camheight / camdist)` past half the vertical FOV, which is around 100 up
+at the default 200 back. Further up than that is for a view that is also
+pitched down, and the slider goes to 150 because a longer distance earns it.
 
 ## The camera trace
 

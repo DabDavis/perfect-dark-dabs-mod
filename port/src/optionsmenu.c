@@ -2784,6 +2784,8 @@ static MenuItemHandlerResult menuhandlerModBodyTime(s32 operation, struct menuit
 #define MODCAM_SIDESTEP 5
 #define MODCAM_MAXFWD   150
 #define MODCAM_FWDSTEP  5
+#define MODCAM_MAXHEIGHT  150
+#define MODCAM_HEIGHTSTEP 5
 
 static MenuItemHandlerResult menuhandlerModCamDist(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -2908,6 +2910,46 @@ static MenuItemHandlerResult menuhandlerModCamFwd(s32 operation, struct menuitem
 			sprintf(data->slider.label, "Forward %d", -fwd);
 		} else if (fwd > 0) {
 			sprintf(data->slider.label, "Back %d", fwd);
+		} else {
+			sprintf(data->slider.label, "Centre");
+		}
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Camera Height, the third of the offsets and the last axis there is: straight
+ * up in the world, so a raised camera looks down over the player without the
+ * view having to be pitched down to find them.
+ */
+static MenuItemHandlerResult menuhandlerModCamHeight(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 height;
+
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		height = (s32)(g_ModOptions.camheight + (g_ModOptions.camheight < 0 ? -0.5f : 0.5f));
+
+		if (height < -MODCAM_MAXHEIGHT) {
+			height = -MODCAM_MAXHEIGHT;
+		} else if (height > MODCAM_MAXHEIGHT) {
+			height = MODCAM_MAXHEIGHT;
+		}
+
+		data->slider.value = (height + MODCAM_MAXHEIGHT) / MODCAM_HEIGHTSTEP;
+		break;
+	case MENUOP_SET:
+		g_ModOptions.camheight = (f32)((s32)data->slider.value * MODCAM_HEIGHTSTEP - MODCAM_MAXHEIGHT);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		height = (s32)data->slider.value * MODCAM_HEIGHTSTEP - MODCAM_MAXHEIGHT;
+
+		if (height < 0) {
+			sprintf(data->slider.label, "Down %d", -height);
+		} else if (height > 0) {
+			sprintf(data->slider.label, "Up %d", height);
 		} else {
 			sprintf(data->slider.label, "Centre");
 		}
@@ -3828,6 +3870,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Camera Forward/Back",
 		2 * MODCAM_MAXFWD / MODCAM_FWDSTEP,
 		menuhandlerModCamFwd,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Camera Height",
+		2 * MODCAM_MAXHEIGHT / MODCAM_HEIGHTSTEP,
+		menuhandlerModCamHeight,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
