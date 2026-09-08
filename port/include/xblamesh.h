@@ -50,6 +50,13 @@ s32 xblaMeshIsAvailable(void);
 
 /** Mod.XblaMeshes: whether to draw them. Off unless the player asks. */
 s32 xblaMeshGetEnabled(void);
+
+/**
+ * Switching the meshes on does not reach a model that is already loaded: a
+ * model is matched against the release's copy as it loads. Off and back on
+ * inside a level brings them straight back, the registry being kept, but a
+ * level loaded with them off stays stock until the next load.
+ */
 void xblaMeshSetEnabled(s32 enabled);
 
 /**

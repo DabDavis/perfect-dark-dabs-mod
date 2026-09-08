@@ -49,10 +49,22 @@ extern "C" {
 const void *xblaTexBind(u32 record);
 
 /**
- * Whether anything has been bound, which is the renderer's early out. Every
- * texture upload in the game goes past this.
+ * Whether anything has been bound and the art is wanted, which is the
+ * renderer's early out. Every texture upload in the game goes past this.
  */
 s32 xblaTexHaveTextures(void);
+
+/**
+ * Mod.XblaMeshTextures, the menu's "Enable Textures".
+ *
+ * A live toggle: a material always binds its stand-in and this decides whether
+ * a picture arrives in its place, so turning it off draws the stand-in's own
+ * white texels times shade - the flat solid an untextured mesh always was -
+ * with nothing rebuilt. The setter drops the texture cache, which is what
+ * makes the change show up on textures already uploaded.
+ */
+s32 xblaTexGetEnabled(void);
+void xblaTexSetEnabled(s32 enabled);
 
 /**
  * The picture for whatever record was bound at addr, decoded to RGBA32, or

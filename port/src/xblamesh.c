@@ -157,7 +157,6 @@ struct xblameshbuilt {
 static s32 optEnabled;
 static s32 optOnlySlot; // Mod.XblaMeshOnly: draw one mesh and leave the rest alone
 static s32 optBoth;     // Mod.XblaMeshBoth: draw the game's geometry over it too
-static s32 optTextures = 1; // Mod.XblaMeshTextures
 
 /**
  * Mod.XblaMeshPose: drive a skinned mesh's palette from the game's matrices.
@@ -1435,7 +1434,12 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material)
 {
 	const u32 record = material & 0x1fff;
 	const s32 alpha = (material >> 15) & 1;
-	const void *tile = optTextures ? xblaTexBind(record) : NULL;
+	// Always bound, whether or not the art is switched on: what a stand-in
+	// holds is white, so a material with the pictures turned off draws the
+	// same flat solid a list built without a texture would. That is what lets
+	// Mod.XblaMeshTextures be a live toggle rather than a rebuild - see
+	// xblaTexSetEnabled().
+	const void *tile = xblaTexBind(record);
 	Gfx *gdl;
 
 	if (!xblaMeshRoomForGfx(b, 12)) {
@@ -2498,6 +2502,18 @@ s32 xblaMeshGetEnabled(void)
 	return optEnabled;
 }
 
+/**
+ * Switched off, nothing draws from the next frame. Switched on, what draws is
+ * whatever is already in the registry - a model is matched against the
+ * release's copy as it loads, so a model loaded while this was off has nothing
+ * to draw until it is loaded again. Turning it off and back on inside a level
+ * brings the meshes straight back, because the entries were never dropped; it
+ * is a level that was loaded with it off that comes up stock, and the page
+ * says so rather than looking like the checkbox did nothing.
+ *
+ * Matching every model whether or not anyone wants a mesh would cost every
+ * level load its time for nothing, which is why registration is gated at all.
+ */
 void xblaMeshSetEnabled(s32 enabled)
 {
 	optEnabled = enabled ? 1 : 0;
@@ -2513,11 +2529,9 @@ PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
 	configRegisterInt("Mod.XblaMeshBoth", &optBoth, 0, 1);
 	configRegisterInt("Mod.XblaMeshPose", &optPose, 0, 1);
 
-	// The release's own art, drawn on the release's own geometry. On, because
-	// an untextured mesh is a flat pale solid and is not what anyone is
-	// turning Mod.XblaMeshes on to see; off is for telling a shape that is
-	// wrong from a texture that is.
-	configRegisterInt("Mod.XblaMeshTextures", &optTextures, 0, 1);
+	// Mod.XblaMeshTextures is registered by xblatex.c, which is where the flag
+	// lives now: read at the point a picture is handed to the renderer rather
+	// than where a list is built, so it can be turned on and off in the menu.
 }
 
 void xblaMeshSetVerbose(s32 verbose)

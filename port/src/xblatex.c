@@ -14,7 +14,9 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
+#include "config.h"
 #include "system.h"
+#include "video.h"
 #include "x360.h"
 #include "xblaimport.h"
 #include "xblatex.h"
@@ -54,6 +56,23 @@ static s32 opened; // 0 untried, 1 open, -1 no package
 static s32 numBound;
 static s32 numDecoded;
 
+/**
+ * Mod.XblaMeshTextures: the release's own art on the release's own meshes.
+ *
+ * On, because an untextured mesh is a flat pale solid and is not what anyone
+ * turns the meshes on to see; off is how a shape that is wrong is told apart
+ * from a texture that is.
+ *
+ * The flag lives here, at the point a picture is handed over, rather than
+ * where a display list is built - which is what makes it a live toggle. A
+ * material always binds its stand-in, and this only decides whether the
+ * release's picture arrives in the stand-in's place; the stand-in's own texels
+ * are white, so with this off a material draws white times shade, which is the
+ * same flat solid as a list built with no texture at all. Nothing has to be
+ * built again, and the menu only has to drop the texture cache.
+ */
+static s32 optEnabled = 1;
+
 static struct x360stfs stfs;
 static struct x360stfsstream stream;
 static u8 *tables;
@@ -73,6 +92,8 @@ static SDL_mutex *lock;
 PD_CONSTRUCTOR static void xblaTexInit(void)
 {
 	lock = SDL_CreateMutex();
+
+	configRegisterInt("Mod.XblaMeshTextures", &optEnabled, 0, 1);
 }
 
 static u32 xblaTexBE32(const u8 *p)
@@ -250,7 +271,28 @@ const void *xblaTexBind(u32 record)
 
 s32 xblaTexHaveTextures(void)
 {
-	return numBound > 0;
+	return numBound > 0 && optEnabled;
+}
+
+s32 xblaTexGetEnabled(void)
+{
+	return optEnabled;
+}
+
+void xblaTexSetEnabled(s32 enabled)
+{
+	enabled = enabled ? 1 : 0;
+
+	if (enabled == optEnabled) {
+		return;
+	}
+
+	optEnabled = enabled;
+
+	// What a texture holds is decided as it is uploaded, and an upload is kept
+	// against the address it came from - so without this the meshes keep the
+	// art they already have until something else evicts it.
+	videoResetTextureCache();
 }
 
 /* -------------------------------------------------------------------------

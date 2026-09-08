@@ -408,6 +408,17 @@ release's panel, because a node whose id is `0xFFFF` keeps its own geometry.
 and is not what anyone turns `Mod.XblaMeshes` on to see. Turning it off is how
 to tell a shape that is wrong from a texture that is.
 
+**A texture pack goes on underneath both, and never has to come off.** The two
+cannot collide by construction: a mesh's materials name records 3741 to 5746,
+past the 3503 that carry a texture number, and what its list binds is a
+stand-in that no pack can name either. `import_texture()` tries the stand-in
+registry first and falls straight through to the pack when the address is not
+one of ours, so a level draws its own art from the pack and its meshes from the
+release in the same frame. The check is the G5 Building with the *PD XBLA* pack
+selected: meshes off, the lift door is the stock door wearing the pack's
+picture of it; meshes on, it is the release's panelled door - and the hazard
+bar on the frame beside it is the pack's either way.
+
 A mesh's materials name `Textures.raw` records **3741 to 5746** — past the 3503
 that carry a texture number — so nothing that goes by number can reach them and
 no texture pack can ship them: `xblaconvert.py` deliberately leaves them out.
@@ -454,6 +465,34 @@ white, and `G_RM_AA_ZB_TEX_EDGE` for a material whose alpha bit is set, since
 this only draws in the opaque pass and a cutout there wants the alpha compare
 rather than the blender. The end of the list puts all of it back, which the
 untextured version did not have to do.
+
+**The two switches are separate, and only one of them is live.** The menu page
+(*Extended Options > Texture Packs > Xbox 360 (XBLA)*) has "Enable
+Models/Meshes" and "Enable Textures", and they are separate because either on
+its own is worth having - an untextured mesh says whether a shape is right
+without an art problem on top of it.
+
+Textures are live and models are not, and the reason is where each is read.
+`Mod.XblaMeshTextures` used to be read in `xblaMeshSetMaterial()`, at the point
+a display list is *built*, so changing it did nothing to a mesh already built.
+It is read here now instead, in `xblaTexHaveTextures()`, at the point a picture
+is handed to the renderer: a material always binds its stand-in, and the flag
+only decides whether a picture arrives in its place. **The stand-in's own texels
+are white**, so with it off the material draws white times shade, which is the
+same flat solid a list built with no texture at all would give - the toggle
+costs a `videoResetTextureCache()` and nothing else. That is the trick worth
+keeping: a switch read where the data is handed over is live, one read where a
+list is built is not.
+
+`Mod.XblaMeshes` cannot be made live the same way, because a model is matched
+against the release's copy as it *loads* (`xblaMeshRegisterModel()`) and there
+is no register of loaded models to walk back over; matching every model whether
+or not anyone wants a mesh would cost every level load its time for nothing.
+Off is immediate, since the draw path tests it too, and off and back on inside
+a level brings the meshes straight back because the registry is kept - it is a
+level *loaded* with it off that stays stock. A status line that tried to tell
+those two apart would be wrong half the time, so the page states the rule
+instead: "Models are matched as each level loads".
 
 **A decode is one LZX stream and it happens on the render thread**, under the
 lock that also covers the registry, because the meshes are built on the game

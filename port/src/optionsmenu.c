@@ -30,6 +30,8 @@
 #include "texpack.h"
 #include "upscale.h"
 #include "xblaimport.h"
+#include "xblamesh.h"
+#include "xblatex.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -5038,6 +5040,68 @@ static MenuItemHandlerResult menuhandlerXblaUpscalesOnly(s32 operation, struct m
 	return 0;
 }
 
+/**
+ * The two halves of the release, switched on separately.
+ *
+ * They are separate because either one on its own is a thing somebody wants:
+ * the meshes are the release's geometry and the textures are its art, and an
+ * untextured mesh is a flat pale solid that says whether a shape is right
+ * without an art problem on top of it. A texture pack goes on underneath both
+ * - the meshes' own materials name records past the ones that carry a texture
+ * number, so a pack cannot reach them and never has to be turned off to see
+ * them.
+ */
+static MenuItemHandlerResult menuhandlerXblaMeshes(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return xblaMeshGetEnabled();
+	case MENUOP_SET:
+		xblaMeshSetEnabled(!xblaMeshGetEnabled());
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return xblaTexGetEnabled();
+	case MENUOP_SET:
+		xblaTexSetEnabled(!xblaTexGetEnabled());
+		break;
+	}
+
+	return 0;
+}
+
+static char g_XblaMeshNoteText[96];
+
+/**
+ * The one thing about the mesh checkbox that is not obvious from watching it.
+ *
+ * A model is matched against the release's copy as it loads, so switching the
+ * meshes on inside a level leaves that level stock - it is the next load that
+ * has them. Said as how it works rather than as a guess at whether it applies
+ * right now: the registry is kept when the checkbox goes off, so off and back
+ * on inside a level does bring them straight back, and a note that tried to
+ * tell those apart would be wrong half the time. Textures need no such note -
+ * they are decided as a picture is handed over, so that one is immediate.
+ */
+static const char *menutextXblaMeshNote(struct menuitem *item)
+{
+	if (!xblaMeshGetEnabled()) {
+		snprintf(g_XblaMeshNoteText, sizeof(g_XblaMeshNoteText), " \n");
+	} else {
+		snprintf(g_XblaMeshNoteText, sizeof(g_XblaMeshNoteText),
+				"Models are matched as each level loads\n");
+	}
+
+	return g_XblaMeshNoteText;
+}
+
 static MenuItemHandlerResult menuhandlerXblaStart(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	const s32 state = xblaImportGetState();
@@ -5148,6 +5212,38 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		MENUITEMTYPE_CHECKBOX,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enable Models/Meshes",
+		0,
+		menuhandlerXblaMeshes,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enable Textures",
+		0,
+		menuhandlerXblaMeshTextures,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)menutextXblaMeshNote,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Enlarged Textures Only",
 		0,
 		menuhandlerXblaUpscalesOnly,
@@ -5205,7 +5301,7 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 
 struct menudialogdef g_ExtendedXblaMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Xbox 360 Textures",
+	(uintptr_t)"Xbox 360 (XBLA)",
 	g_ExtendedXblaMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -5273,7 +5369,7 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Xbox 360 Textures\n",
+		(uintptr_t)"Xbox 360 (XBLA)\n",
 		0,
 		(void *)&g_ExtendedXblaMenuDialog,
 	},
