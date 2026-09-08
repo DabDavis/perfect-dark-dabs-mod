@@ -26,6 +26,7 @@ struct modoptions g_ModOptions = {
 	THIRDPERSON_CAMDIST,      // camdist
 	THIRDPERSON_CAMCLEARANCE, // camclearance
 	THIRDPERSON_CAMMINDIST,   // cammindist
+	THIRDPERSON_CAMSIDE,      // camside: centred, like the view the fork shipped
 	MODBODIES_DEFAULT,        // bodies
 	MODBODYTIME_OFF,          // bodytime
 	64,                       // bodiesdrawn

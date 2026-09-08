@@ -25,6 +25,22 @@
 #define MODROLL_PLAYERSONLY 2
 
 /**
+ * The third person camera: how far back it sits, how far to one side, how much
+ * room it keeps from a wall, and the point below which it gives up and returns
+ * to the eye. The stock values and what they mean are in constants.h.
+ *
+ * Camera Sideways is the over-the-shoulder offset, in units right of the eye
+ * and negative for the left. It moves the camera and nothing else: the picture
+ * does not turn to compensate, so Joanna slides across the screen and the view
+ * past her opens up on the far side. Zero is the fork's own behaviour up to
+ * now, which is why it is the default.
+ *
+ * The three of them are one offset from the eye and one trace clears it, so a
+ * sideways offset costs nothing that the pull-back was not already spending.
+ * playerPullBackCamera() has the rest.
+ */
+
+/**
  * Bodies: how many are left lying where they fell, and how long each one lies
  * there.
  *
@@ -321,6 +337,7 @@ struct modoptions {
 	f32 camdist;     // third person camera, units behind the eye
 	f32 camclearance;// how far short of a wall it stops
 	f32 cammindist;  // below which it is not worth leaving the eye at all
+	f32 camside;     // units to one side of the eye, negative for the left
 	s32 bodies;      // how many bodies are left lying around, 0 for off
 	s32 bodytime;    // seconds one lies there, 0 for until the cap takes it
 	s32 bodiesdrawn; // how many may be drawn at once, 0 for all of them

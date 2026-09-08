@@ -5551,6 +5551,7 @@ void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2
 	f32 spread = 0;
 	f32 scaledspread;
 	f32 randfactor;
+	f32 pullback;
 	struct weaponfunc *func = currentPlayerGetWeaponFunction(handnum);
 	struct player *player = g_Vars.currentplayer;
 
@@ -5594,11 +5595,20 @@ void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2
 	crosspos[1] = player->crosspos[1] + (randfactor * scaledspread * camGetScreenHeight())
 		/ viGetHeight();
 
-	gunpos2d->x = 0;
-	gunpos2d->y = 0;
-	gunpos2d->z = 0;
-
 	cam0f0b4c3c(crosspos, gundir2d, 1);
+
+	// The shot leaves the camera, and this fork's third person camera is not at
+	// the eye. Slide the origin along its own ray to where the player is, so
+	// that everything measuring from it - a melee swing's reach, the laser
+	// stream's length, a rocket's spawn point - measures from the player and
+	// not from the picture's vantage point behind them. The ray does not move,
+	// so nothing a bullet does changes. playerGetShotOriginPullback() has the
+	// rest, and returns 0 for every camera that is on the eye.
+	pullback = playerGetShotOriginPullback();
+
+	gunpos2d->x = gundir2d->x * pullback;
+	gunpos2d->y = gundir2d->y * pullback;
+	gunpos2d->z = gundir2d->z * pullback;
 }
 
 void bgunCalculateBotShotSpread(struct coord *arg0, s32 weaponnum, s32 funcnum, bool arg3, s32 crouchpos, bool dual)
@@ -8491,6 +8501,24 @@ void bgun0f0a5550(s32 handnum)
 
 		hand->muzzlez = -hand->cammtx.m[3][2];
 	}
+
+#ifndef PLATFORM_N64
+	// Every branch above put the muzzle where the view model's is, and the view
+	// model is placed from the camera - posmtx is cammtx through the camera
+	// matrix, and the two node branches transform by it directly. In third
+	// person that lands it beside the camera, behind the player, which is where
+	// the rockets were spawning and where the beams were starting from. Move it
+	// to where it would be if the camera had stayed on the eye.
+	{
+		struct coord eyeoffset;
+
+		if (playerGetCameraToEyeOffset(&eyeoffset)) {
+			hand->muzzlepos.x += eyeoffset.x;
+			hand->muzzlepos.y += eyeoffset.y;
+			hand->muzzlepos.z += eyeoffset.z;
+		}
+	}
+#endif
 
 	if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDROCKET)) {
 		// a mod's table may put the flag on a function that fires no

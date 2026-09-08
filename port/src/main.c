@@ -263,6 +263,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterFloat("Mod.ThirdPersonDistance", &g_ModOptions.camdist, 60.f, 600.f);
 	configRegisterFloat("Mod.ThirdPersonClearance", &g_ModOptions.camclearance, 0.f, 120.f);
 	configRegisterFloat("Mod.ThirdPersonMinDistance", &g_ModOptions.cammindist, 0.f, 300.f);
+	configRegisterFloat("Mod.ThirdPersonSideways", &g_ModOptions.camside, -150.f, 150.f);
 	configRegisterInt("Mod.Bodies", &g_ModOptions.bodies, MODBODIES_OFF, MODBODIES_MAX);
 	configRegisterInt("Mod.BodyTime", &g_ModOptions.bodytime, MODBODYTIME_OFF, MODBODYTIME_MAX);
 	configRegisterInt("Mod.BodiesDrawn", &g_ModOptions.bodiesdrawn, MODBODIESDRAWN_ALL, MODBODIESDRAWN_MAX);

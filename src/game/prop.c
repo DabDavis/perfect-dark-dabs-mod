@@ -1372,6 +1372,26 @@ void handInflictMeleeDamage(s32 handnum, struct gset *gset, bool arg2)
 	struct prop *playerprop;
 	bool skipthething;
 
+	/**
+	 * A swing's reach is measured from the camera, not from the arm. prop->z is
+	 * the distance in front of the camera, and the bbox test below works on
+	 * model matrices that are in camera space too - stock had no reason to tell
+	 * the two apart, the camera being the eye.
+	 *
+	 * Third person is a camera two metres behind the arm, and with nothing done
+	 * about it every one of those distances is two metres too large: a guard
+	 * close enough to touch reads as further away than the fists can reach, and
+	 * a swing at somebody standing against you hits nothing at all. So every
+	 * distance from the camera gets the pull-back added to it, which measures
+	 * them all from the player again. Zero in first person, so the arithmetic is
+	 * stock's.
+	 *
+	 * This does not go through shotCalculateHits() like the guns do, which is
+	 * why moving the shot's origin does nothing for it -
+	 * playerGetShotOriginPullback() is the shared half of the answer.
+	 */
+	f32 pullback = playerGetShotOriginPullback();
+
 	playerprop = g_Vars.currentplayer->prop;
 	ptr = g_Vars.endonscreenprops - 1;
 	skipthething = false;
@@ -1380,7 +1400,7 @@ void handInflictMeleeDamage(s32 handnum, struct gset *gset, bool arg2)
 	while (ptr >= g_Vars.onscreenprops) {
 		struct prop *prop = *ptr;
 
-		if (prop && prop->z < 500) {
+		if (prop && prop->z < 500 + pullback) {
 			/**
 			 * @bug: There is no check to make sure the prop's type is obj
 			 * before accessing the obj properties. prop->obj is a void *
@@ -1458,9 +1478,13 @@ void handInflictMeleeDamage(s32 handnum, struct gset *gset, bool arg2)
 					model = chr->model;
 				}
 
+				// Both of these are camera space z, where in front is negative:
+				// sp110 is the far face of the bounding box and has to be past
+				// the swing's start, distance is the near face and has to be
+				// within its reach. See pullback above for the two subtractions.
 				if (func0f0679ac(model, &distance, &sp110, spfc, spf4)
-						&& sp110 <= 0
-						&& distance >= -rangelimit) {
+						&& sp110 <= -pullback
+						&& distance >= -(rangelimit + pullback)) {
 					cdtypes = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_BG;
 
 					if (isglass) {

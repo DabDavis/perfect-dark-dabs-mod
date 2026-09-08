@@ -2703,8 +2703,17 @@ static MenuItemHandlerResult menuhandlerModBodyTime(s32 operation, struct menuit
 /**
  * The camera sliders run from the closest the camera may sit rather than from
  * zero, because a third person camera on the eye is not a third person camera.
+ *
+ * Sideways is the one that runs either side of zero, and zero is a value a
+ * player wants to be able to land on again - centred is what the view was
+ * before the setting existed. So it steps in fives rather than ones: 150 units
+ * each way is sixty notches to drag through instead of three hundred, five
+ * units is a twelfth of a step of Joanna's and reads as nothing, and the middle
+ * of the bar is exactly centred.
  */
-#define MODCAM_MINDIST 60
+#define MODCAM_MINDIST  60
+#define MODCAM_MAXSIDE  150
+#define MODCAM_SIDESTEP 5
 
 static MenuItemHandlerResult menuhandlerModCamDist(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -2751,6 +2760,46 @@ static MenuItemHandlerResult menuhandlerModCamMinDist(s32 operation, struct menu
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		sprintf(data->slider.label, "%d", (s32)data->slider.value);
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Camera Sideways, as a side and an amount rather than a signed number: the bar
+ * has no minus sign on it to say which end is which, and "Left 80" needs no
+ * explaining.
+ */
+static MenuItemHandlerResult menuhandlerModCamSide(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 side;
+
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		side = (s32)(g_ModOptions.camside + (g_ModOptions.camside < 0 ? -0.5f : 0.5f));
+
+		if (side < -MODCAM_MAXSIDE) {
+			side = -MODCAM_MAXSIDE;
+		} else if (side > MODCAM_MAXSIDE) {
+			side = MODCAM_MAXSIDE;
+		}
+
+		data->slider.value = (side + MODCAM_MAXSIDE) / MODCAM_SIDESTEP;
+		break;
+	case MENUOP_SET:
+		g_ModOptions.camside = (f32)((s32)data->slider.value * MODCAM_SIDESTEP - MODCAM_MAXSIDE);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		side = (s32)data->slider.value * MODCAM_SIDESTEP - MODCAM_MAXSIDE;
+
+		if (side < 0) {
+			sprintf(data->slider.label, "Left %d", -side);
+		} else if (side > 0) {
+			sprintf(data->slider.label, "Right %d", side);
+		} else {
+			sprintf(data->slider.label, "Centre");
+		}
 		break;
 	}
 
@@ -3628,6 +3677,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Camera Minimum Distance",
 		300,
 		menuhandlerModCamMinDist,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Camera Sideways",
+		2 * MODCAM_MAXSIDE / MODCAM_SIDESTEP,
+		menuhandlerModCamSide,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

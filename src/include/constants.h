@@ -474,18 +474,30 @@
 #define CAMERAMODE_EYESPY      2
 
 /**
- * How far behind the eye the playable third person camera sits, and how much
+ * Where the playable third person camera sits relative to the eye, and how much
  * clearance it keeps from whatever it backs into.
  *
- * The offset is along the view axis and nothing else. Screen centre then lies
- * on the same ray the eye was already looking down, so the crosshair still
- * marks where the gun points and none of the aiming code needs to know the
- * camera moved at all. A sideways or vertical offset would break that and cost
- * a reprojection pass.
+ * The offset is a distance back along the view axis and, if asked for, a
+ * distance to one side of it. Neither costs the aiming code anything, because
+ * the shot is not fired from the eye: bgunCalculatePlayerShotSpread() builds it
+ * at the camera's own origin - gunpos2d is the zero vector in camera space, and
+ * mtxf0068 puts it wherever the camera stands - through the pixel the crosshair
+ * is drawn on. The crosshair therefore marks what will be hit from any offset,
+ * which is what an over-the-shoulder view needs and what the pull-back gets for
+ * free by being along the view axis.
+ *
+ * What the sideways offset does change is where the bullet starts. Leaning the
+ * camera past a corner shoots past the corner too, and a shot from the left
+ * shoulder clips the doorframe on that side. That is the trade every
+ * over-the-shoulder shooter makes, and it is why the offset defaults to zero:
+ * a player who has not asked for it gets the view that behaves the way the
+ * fork's always has.
  *
  * 200 units is a little over Joanna's standing height - vv_eyeheight comes out
  * of g_HeadsAndBodies at around 160 - which is far enough back to see her
- * without the camera spending every corridor pinned against a wall.
+ * without the camera spending every corridor pinned against a wall. 150 is as
+ * far to the side as the menu goes, which is about where she leaves the middle
+ * of the screen entirely.
  *
  * The clearance is held back from a wall the camera would otherwise sit inside.
  * The near plane is close enough that geometry does not visibly clip, but a
@@ -493,6 +505,7 @@
  */
 #define THIRDPERSON_CAMDIST      200.0f
 #define THIRDPERSON_CAMCLEARANCE 30.0f
+#define THIRDPERSON_CAMSIDE      0.0f
 
 /**
  * The shortest pull-back worth having.
