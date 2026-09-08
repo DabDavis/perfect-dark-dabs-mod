@@ -74,6 +74,19 @@ void xblaImportRedetect(void);
  */
 const char *xblaImportGetStfsPath(void);
 
+/**
+ * The same, except that it will not unpack anything: the package when there is
+ * one on disk already, and NULL while the player's copy is still inside its
+ * archive.
+ *
+ * This is for work that is done speculatively, on the chance that somebody
+ * wants it - every model load is matched against the release's copy so that
+ * switching the meshes on is a live thing to do, and that must not be what
+ * costs a player who only wanted the texture pack 250MB and a stall. Failing
+ * is not remembered, so the caller that is willing to pay still can.
+ */
+const char *xblaImportGetReadyStfsPath(void);
+
 /** Starts a conversion. Returns 0 if it could not be started. */
 s32 xblaImportStart(void);
 void xblaImportCancel(void);

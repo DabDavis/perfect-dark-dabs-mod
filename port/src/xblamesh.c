@@ -227,7 +227,7 @@ static void xblaMeshCloseUp(void)
  * slots hold leftover bytes rather than zeros and give themselves away by
  * having no inflated size.
  */
-static s32 xblaMeshOpen(void)
+static s32 xblaMeshOpen(s32 mayUnpack)
 {
 	const char *path;
 	s32 index;
@@ -239,13 +239,20 @@ static s32 xblaMeshOpen(void)
 		return opened > 0;
 	}
 
-	opened = -1;
-
-	path = xblaImportGetStfsPath();
+	// Every model load asks for this, so it must not be the thing that unpacks
+	// a 250MB archive on somebody who only wanted the texture pack: at a model
+	// load the package is taken only if it is ready to read. The switch asks
+	// with mayUnpack, which is where that cost belongs - somebody has just
+	// asked for the meshes.
+	path = mayUnpack ? xblaImportGetStfsPath() : xblaImportGetReadyStfsPath();
 
 	if (!path || !path[0]) {
+		// Not a failure while the package is still in its archive: asking
+		// again after the switch has unpacked it has to be able to succeed.
 		return 0;
 	}
+
+	opened = -1;
 
 	if (!x360StfsOpen(&stfs, path)) {
 		sysLogPrintf(LOG_ERROR, "xblamesh: %s is not a package", path);
@@ -924,17 +931,24 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 	return numparts;
 }
 
-void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
+/**
+ * Matches one model's nodes against the release's copy of the same file.
+ *
+ * Runs for every model that loads. It will not unpack an archive to do it -
+ * see xblaMeshRegisterModel() - so on a machine whose package is not ready
+ * this does nothing at all.
+ */
+static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 {
 	u8 *file;
 	u32 len;
 	s32 found;
 
-	if (!optEnabled || !modeldef || !modeldef->rootnode) {
+	if (!modeldef || !modeldef->rootnode) {
 		return;
 	}
 
-	if (!xblaMeshOpen()) {
+	if (!xblaMeshOpen(0)) {
 		return;
 	}
 
@@ -975,6 +989,57 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 	}
 
 	free(file);
+}
+
+/**
+ * Every model is matched as it loads, whether or not the meshes are switched
+ * on, so that switching them on is a live thing to do.
+ *
+ * This used to be gated on the switch, which meant a level loaded with the
+ * meshes off had nothing to draw when they were turned on: the models had
+ * never been looked at, and a register of loaded models to go back over is not
+ * something that can be kept - a modeldef can be freed inside a stage and its
+ * address handed out again, and walking one that has been is a wild pointer
+ * away from a crash (it was: file 1369 in the G5 Building, whose rootnode had
+ * become 0xbe0003ffe0 by the time the switch was flipped).
+ *
+ * So the work is done up front instead, and it is affordable: 55 models in the
+ * G5 Building carry a mesh, matching them is a slot read and a tree walk each,
+ * and five loads of the level with this always on and five with it gated came
+ * out inside each other's run-to-run spread. What is *not* affordable is
+ * unpacking a 250MB archive for somebody who only ever wanted the texture
+ * pack, so this asks for the package only if there is one ready to read -
+ * xblaMeshOpen(0). A player whose copy is still inside its .7z pays for the
+ * unpack the first time they switch the meshes on, and from the next level
+ * load onwards is in the same place as everybody else.
+ */
+void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
+{
+	xblaMeshMatchModel(modeldef, fileid);
+}
+
+/**
+ * Drops everything keyed on a model, because the stage pool that held all of
+ * those addresses has just been handed back.
+ *
+ * Called from lvReset() beside the texture ids, which are dropped there for
+ * exactly the same reason: the addresses are about to be given out again to
+ * different things. Without it the registry carries a stage's worth of dead
+ * nodes into the next stage, where an address that comes back has to be caught
+ * by the modeldef test at draw time; with it there is nothing to catch. The
+ * built meshes themselves stay - they are keyed on a slot in the release's
+ * package, which no stage load can change.
+ */
+void xblaMeshResetModels(void)
+{
+	numUses = 0;
+
+	memset(hash, 0, sizeof(hash));
+	g_XblaMeshNumNodes = 0;
+
+	for (s32 i = 0; i < numRecords && built; i++) {
+		built[i].posedmodel = NULL;
+	}
 }
 
 /* -------------------------------------------------------------------------
@@ -2490,11 +2555,14 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
  * Settings
  * ------------------------------------------------------------------------- */
 
+/**
+ * Whether there is a package to draw from. Asked of xblaimport rather than of
+ * the path, because the path unpacks an archive to answer and this is a
+ * question a menu draw is allowed to ask every frame.
+ */
 s32 xblaMeshIsAvailable(void)
 {
-	const char *path = xblaImportGetStfsPath();
-
-	return path && path[0];
+	return xblaImportIsAvailable();
 }
 
 s32 xblaMeshGetEnabled(void)
@@ -2503,20 +2571,28 @@ s32 xblaMeshGetEnabled(void)
 }
 
 /**
- * Switched off, nothing draws from the next frame. Switched on, what draws is
- * whatever is already in the registry - a model is matched against the
- * release's copy as it loads, so a model loaded while this was off has nothing
- * to draw until it is loaded again. Turning it off and back on inside a level
- * brings the meshes straight back, because the entries were never dropped; it
- * is a level that was loaded with it off that comes up stock, and the page
- * says so rather than looking like the checkbox did nothing.
+ * A live switch either way: the models were matched as they loaded whether or
+ * not this was on, so turning it on draws them from the next frame.
  *
- * Matching every model whether or not anyone wants a mesh would cost every
- * level load its time for nothing, which is why registration is gated at all.
+ * The one thing that happens here rather than at a model load is the unpack.
+ * A machine whose package is still inside its .7z has nothing to match against
+ * and has matched nothing, so the archive comes apart at the moment somebody
+ * first asks for the meshes - a few seconds, once, in a menu they have just
+ * clicked something in - and the level after that has them.
  */
 void xblaMeshSetEnabled(s32 enabled)
 {
-	optEnabled = enabled ? 1 : 0;
+	enabled = enabled ? 1 : 0;
+
+	if (enabled == optEnabled) {
+		return;
+	}
+
+	optEnabled = enabled;
+
+	if (enabled) {
+		xblaMeshOpen(1);
+	}
 }
 
 PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
@@ -2548,5 +2624,6 @@ void xblaMeshFrameReset(void) { }
 s32 xblaMeshIsAvailable(void) { return 0; }
 s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
+void xblaMeshResetModels(void) { }
 
 #endif

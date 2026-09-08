@@ -466,14 +466,14 @@ this only draws in the opaque pass and a cutout there wants the alpha compare
 rather than the blender. The end of the list puts all of it back, which the
 untextured version did not have to do.
 
-**The two switches are separate, and only one of them is live.** The menu page
+**The two switches are separate, and both are live.** The menu page
 (*Extended Options > Texture Packs > Xbox 360 (XBLA)*) has "Enable
 Models/Meshes" and "Enable Textures", and they are separate because either on
 its own is worth having - an untextured mesh says whether a shape is right
 without an art problem on top of it.
 
-Textures are live and models are not, and the reason is where each is read.
-`Mod.XblaMeshTextures` used to be read in `xblaMeshSetMaterial()`, at the point
+They are live for different reasons, and the textures' one is the reusable
+idea. `Mod.XblaMeshTextures` used to be read in `xblaMeshSetMaterial()`, at the point
 a display list is *built*, so changing it did nothing to a mesh already built.
 It is read here now instead, in `xblaTexHaveTextures()`, at the point a picture
 is handed to the renderer: a material always binds its stand-in, and the flag
@@ -484,15 +484,46 @@ costs a `videoResetTextureCache()` and nothing else. That is the trick worth
 keeping: a switch read where the data is handed over is live, one read where a
 list is built is not.
 
-`Mod.XblaMeshes` cannot be made live the same way, because a model is matched
-against the release's copy as it *loads* (`xblaMeshRegisterModel()`) and there
-is no register of loaded models to walk back over; matching every model whether
-or not anyone wants a mesh would cost every level load its time for nothing.
-Off is immediate, since the draw path tests it too, and off and back on inside
-a level brings the meshes straight back because the registry is kept - it is a
-level *loaded* with it off that stays stock. A status line that tried to tell
-those two apart would be wrong half the time, so the page states the rule
-instead: "Models are matched as each level loads".
+`Mod.XblaMeshes` is live too, and getting there took one wrong turn worth
+writing down. A model is matched against the release's copy as it *loads*
+(`xblaMeshRegisterModel()`), so a level loaded with the switch off used to have
+nothing to draw when it went on.
+
+**Do not try to fix that by keeping a list of loaded models to go back over.**
+It looks like the obvious answer - note the `modeldef` and the file id as each
+model loads, and walk the list when the switch is flipped - and it crashes,
+because **a modeldef can be freed inside a stage and its memory handed out
+again**. `lvReset()` is not the only thing that ends a model's life. The
+worked example is file 1369 in the G5 Building: noted with a good `rootnode`,
+and by the time the switch was flipped a minute later its `rootnode` read
+`0xbe0003ffe0`, which `xblaMeshMatchNodes()` walks straight into. Nothing
+cheap distinguishes that from a live model, since the stage pool stays mapped
+and reading it gives garbage rather than a fault.
+
+What works is doing the matching up front for every model, whether or not the
+switch is on, and leaving the switch to the draw path alone. It is affordable:
+the G5 Building loads 55 models that carry a mesh, matching one is a slot read
+and a tree walk, and four loads of the level with this always on (1.75-2.10s)
+sat inside the spread of four with no package present at all (1.84-1.98s).
+
+The one thing that is *not* affordable is unpacking a 250MB archive for
+somebody who only ever wanted the texture pack, so a model load asks for the
+package through `xblaImportGetReadyStfsPath()`, which hands back a package
+already on disk and never extracts one. A player whose copy is still inside its
+`.7z` therefore matches nothing until the first time they switch the meshes on;
+`xblaMeshSetEnabled()` calls `xblaMeshOpen(1)`, which is where the archive
+comes apart, and the next stage load is like everyone else's. That is checked:
+with only a `.7z` in `xbla/` and the switch off, no level load unpacks
+anything; switching it on unpacks once and Chicago then builds 18 meshes.
+
+Two things fall out of matching always. `xblaMeshOpen()` must not remember a
+failure when the package was simply not ready - `opened` is only set to -1
+once a path has been had - or the later call with `mayUnpack` can never
+succeed. And `xblaMeshResetModels()` now drops the node registry and the
+palette uses at `lvReset()`, beside the texture ids that go there for the same
+reason: every address in them belonged to the pool that has just been rebuilt.
+The draw path's modeldef test is still there, but it no longer has a stage's
+worth of dead nodes to catch.
 
 **A decode is one LZX stream and it happens on the render thread**, under the
 lock that also covers the registry, because the meshes are built on the game

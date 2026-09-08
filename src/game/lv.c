@@ -104,6 +104,7 @@
 #include "mod.h"
 #include "video.h"
 #include "record.h"
+#include "xblamesh.h"
 #include "game/modrules.h"
 #include <stdlib.h>
 #include "system.h"
@@ -316,6 +317,13 @@ void lvReset(s32 stagenum)
 	modelmgrSetLvResetting(true);
 	surfaceReset();
 	texReset();
+
+#ifndef PLATFORM_N64
+	// The XBLA meshes hold their registry by modeldef and modelnode address,
+	// and every one of those belonged to the pool texReset() has just rebuilt
+	xblaMeshResetModels();
+#endif
+
 	textReset();
 	hudmsgsReset();
 

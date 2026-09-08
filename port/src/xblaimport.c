@@ -366,7 +366,7 @@ static s32 xblaFindLegacyUnpacked(char *dst, u32 dstLen)
 	return xblaFindPackageIn(sub, dst, dstLen);
 }
 
-static const char *xblaEnsureUnpackedLocked(void)
+static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 {
 	char drop[FS_MAXPATH + 1];
 	char dir[FS_MAXPATH + 1];
@@ -407,6 +407,12 @@ static const char *xblaEnsureUnpackedLocked(void)
 		return unpackedPath;
 	}
 
+	if (!mayUnpack) {
+		// Nothing on disk yet and the caller is not the one who should pay for
+		// it. Not remembered as a failure: the next caller may be.
+		return NULL;
+	}
+
 	sysLogPrintf(LOG_NOTE, "xbla: unpacking %s, this happens once", packagePath);
 
 	fsCreateDir(dir);
@@ -434,7 +440,7 @@ static const char *xblaEnsureUnpackedLocked(void)
 	return unpackedPath;
 }
 
-const char *xblaImportGetStfsPath(void)
+static const char *xblaEnsureUnpacked(s32 mayUnpack)
 {
 	const char *path;
 
@@ -446,13 +452,23 @@ const char *xblaImportGetStfsPath(void)
 		SDL_LockMutex(unpackMutex);
 	}
 
-	path = xblaEnsureUnpackedLocked();
+	path = xblaEnsureUnpackedLocked(mayUnpack);
 
 	if (unpackMutex) {
 		SDL_UnlockMutex(unpackMutex);
 	}
 
 	return path;
+}
+
+const char *xblaImportGetStfsPath(void)
+{
+	return xblaEnsureUnpacked(1);
+}
+
+const char *xblaImportGetReadyStfsPath(void)
+{
+	return xblaEnsureUnpacked(0);
 }
 
 const char *xblaImportGetDropDir(void)

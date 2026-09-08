@@ -52,12 +52,21 @@ s32 xblaMeshIsAvailable(void);
 s32 xblaMeshGetEnabled(void);
 
 /**
- * Switching the meshes on does not reach a model that is already loaded: a
- * model is matched against the release's copy as it loads. Off and back on
- * inside a level brings them straight back, the registry being kept, but a
- * level loaded with them off stays stock until the next load.
+ * A live switch either way, in a level as much as out of one: switching it on
+ * matches every model the stage has already loaded, which is what the loaded
+ * list in xblamesh.c is kept for. On a machine whose package is still inside
+ * its archive, this is also where the archive comes apart.
  */
 void xblaMeshSetEnabled(s32 enabled);
+
+/**
+ * Drops everything keyed on a model - the node registry, the palette uses, the
+ * list of what is loaded - because the stage pool holding all of those
+ * addresses has just been handed back. Called from lvReset(), beside the
+ * texture ids that go for the same reason. Built meshes are keyed on a slot in
+ * the package and stay.
+ */
+void xblaMeshResetModels(void);
 
 /**
  * A model has just been loaded and its pointers made real: note which of its

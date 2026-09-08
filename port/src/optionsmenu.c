@@ -5050,6 +5050,11 @@ static MenuItemHandlerResult menuhandlerXblaUpscalesOnly(s32 operation, struct m
  * - the meshes' own materials name records past the ones that carry a texture
  * number, so a pack cannot reach them and never has to be turned off to see
  * them.
+ *
+ * Both are live in a level, which is why neither needs a note under it saying
+ * when it applies: models are matched against the release's copy as they load
+ * whether or not the switch is on, and a texture is decided as the picture is
+ * handed to the renderer rather than as a display list is built.
  */
 static MenuItemHandlerResult menuhandlerXblaMeshes(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -5075,31 +5080,6 @@ static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct m
 	}
 
 	return 0;
-}
-
-static char g_XblaMeshNoteText[96];
-
-/**
- * The one thing about the mesh checkbox that is not obvious from watching it.
- *
- * A model is matched against the release's copy as it loads, so switching the
- * meshes on inside a level leaves that level stock - it is the next load that
- * has them. Said as how it works rather than as a guess at whether it applies
- * right now: the registry is kept when the checkbox goes off, so off and back
- * on inside a level does bring them straight back, and a note that tried to
- * tell those apart would be wrong half the time. Textures need no such note -
- * they are decided as a picture is handed over, so that one is immediate.
- */
-static const char *menutextXblaMeshNote(struct menuitem *item)
-{
-	if (!xblaMeshGetEnabled()) {
-		snprintf(g_XblaMeshNoteText, sizeof(g_XblaMeshNoteText), " \n");
-	} else {
-		snprintf(g_XblaMeshNoteText, sizeof(g_XblaMeshNoteText),
-				"Models are matched as each level loads\n");
-	}
-
-	return g_XblaMeshNoteText;
 }
 
 static MenuItemHandlerResult menuhandlerXblaStart(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -5223,14 +5203,6 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Textures",
 		0,
 		menuhandlerXblaMeshTextures,
-	},
-	{
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)menutextXblaMeshNote,
-		0,
-		NULL,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
