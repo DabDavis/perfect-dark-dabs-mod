@@ -156,6 +156,29 @@ static MenuItemHandlerResult menuhandlerRunDifficulty(s32 operation, struct menu
 }
 
 /**
+ * Sealed Rooms: whether the doors of a run's room are shut until its objective
+ * is done.
+ *
+ * On is the mode. It is here as a switch because the mode ran the other way
+ * first, and a run where the objective is an offer rather than the price of
+ * the next door is a different game rather than a broken one - a tour of the
+ * whole map pool at the player's own pace, scored on what they chose to stop
+ * for.
+ */
+static MenuItemHandlerResult menuhandlerRunSeal(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.runseal;
+	case MENUOP_SET:
+		g_ModOptions.runseal = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * The seed: the run, or a fresh one every time.
  *
  * There is nowhere in this menu to type a number, and a seed is not a thing
@@ -266,6 +289,14 @@ struct menuitem g_RandomOptionsMenuItems[] = {
 		(uintptr_t)"Run Difficulty",
 		0,
 		menuhandlerRunDifficulty,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Seal Rooms Until Done",
+		0,
+		menuhandlerRunSeal,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

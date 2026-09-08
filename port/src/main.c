@@ -299,6 +299,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// The Randomizer run: one room at a time across every map. See modrun.c.
 	configRegisterInt("Mod.RunMapPool", &g_ModOptions.runpool, 0, MODRUN_POOL_MAX);
 	configRegisterInt("Mod.RunDifficulty", &g_ModOptions.rundifficulty, DIFF_A, DIFF_PA);
+	configRegisterInt("Mod.RunSealRooms", &g_ModOptions.runseal, 0, 1);
 	configRegisterInt("Mod.RunBestScore", &g_ModOptions.runbestscore, 0, S32_MAX);
 	configRegisterInt("Mod.RunBestRooms", &g_ModOptions.runbestrooms, 0, S32_MAX);
 	configRegisterInt("Mod.ModelSmoothing", &g_ModOptions.modelsmoothing, MODSMOOTH_OFF, MODSMOOTH_MAX);

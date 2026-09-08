@@ -1231,10 +1231,15 @@ static bool modRunRoomsHave(const RoomNum *rooms, s32 room)
  * while the run is landing (there is nobody in the room yet) and not with no
  * objective at all - a landing whose objective could not be allocated leaves
  * the room open rather than sealing the player into one with nothing to do.
+ *
+ * Sealed Rooms turned off is the mode as it first shipped, and it is read here
+ * rather than at the landing so that a run already under way answers to the
+ * switch: nothing about a room is dealt differently for it.
  */
 bool modRunIsSealed(void)
 {
-	return g_ModRunState == MODRUN_PLAYING
+	return modIsRunSealOn()
+		&& g_ModRunState == MODRUN_PLAYING
 		&& g_ModRunHasObjective
 		&& !g_ModRunObjective.done
 		&& g_ModRunLandRoom >= 0;

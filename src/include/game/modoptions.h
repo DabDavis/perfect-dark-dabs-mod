@@ -414,6 +414,7 @@ struct modoptions {
 	s32 endlessbest;   // the best run's rooms, kept between sessions
 	s32 runpool;       // MODRUN_POOL_*: which maps a Randomizer run may land in
 	s32 rundifficulty; // the difficulty every room of a run is played on
+	s32 runseal;       // whether a run's room is shut until its objective is done
 	s32 runbestscore;  // the best run's objectives, kept between sessions
 	s32 runbestrooms;  // and how many rooms that run got through
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
@@ -476,6 +477,7 @@ f32 modGetVividContrast(void);
 f32 modGetBlackLevelLift(void);
 s32 modGetRunPool(void);
 s32 modGetRunDifficulty(void);
+bool modIsRunSealOn(void);
 bool modIsMissionRespawnOn(void);
 s32 modGetMissionLives(void);
 bool modIsTranquilizerEffectOn(void);

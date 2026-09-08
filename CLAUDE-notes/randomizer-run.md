@@ -141,6 +141,14 @@ must not move what the seed deals anybody else.
 `--run-autohop N` hops through the seal. It has to: it is what walks a chain of
 maps in a minute, and it is not the player.
 
+**The switch is `Mod.RunSealRooms`**, on by default, and "Seal Rooms Until
+Done" on the Randomizer Options page. `modRunIsSealed()` reads it on every ask
+rather than at the landing, so a run already under way answers to it and
+nothing about a room is dealt differently for it. Off is the mode as it first
+shipped - the objective an offer and the next door always open - which is a
+different game rather than a broken one, and is the whole reason the switch
+exists.
+
 ### Testing it
 
 The mode is a menu door and a sealed room is a thing you walk into, so both
@@ -289,8 +297,8 @@ and its score - are gone from that page and live on the Randomizer page
 instead, the way Ghost Trials took recording out of the settings. The pd.ini
 keys all still work (`Mod.Randomizer` is now ini-only, and is what turns the
 roll on for missions started any other way), and the page adds
-`Mod.RunMapPool`, `Mod.RunDifficulty`, `Mod.RunBestScore` and
-`Mod.RunBestRooms`.
+`Mod.RunMapPool`, `Mod.RunDifficulty`, `Mod.RunSealRooms`, `Mod.RunBestScore`
+and `Mod.RunBestRooms`.
 
 Random Mission arms the roll for one mission rather than writing the setting,
 which is `modRandomArmMission()` - the same shape as `modGhostArmTrial()`, and

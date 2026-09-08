@@ -56,6 +56,7 @@ struct modoptions g_ModOptions = {
 	0,                        // endlessbest: nothing survived yet
 	MODRUN_POOL_ALL,          // runpool: every map the build can load, which is the point of a run
 	DIFF_A,                   // rundifficulty: Agent, since a run is long and its rooms are cold
+	true,                     // runseal: the rule of the mode, not a preference; off is the old free-roaming score
 	0,                        // runbestscore: nothing survived yet
 	0,                        // runbestrooms
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
@@ -751,6 +752,19 @@ s32 modGetRunDifficulty(void)
 	}
 
 	return g_ModOptions.rundifficulty;
+}
+
+/**
+ * Sealed Rooms: whether a run's room is shut until its objective is done.
+ *
+ * On, because it is the rule of the mode rather than a preference about it -
+ * every door being a portal makes leaving free, and free leaving is a run
+ * that scores doors walked through. Off is the mode as it first shipped: the
+ * objective is an offer and moving on is always there.
+ */
+bool modIsRunSealOn(void)
+{
+	return g_ModOptions.runseal != 0;
 }
 
 bool modIsMissionRespawnOn(void)
