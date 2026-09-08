@@ -38,6 +38,12 @@ void modRunStop(void);
 
 void modRunRoll(void);
 void modRunTick(void);
+
+// The seal: the room's doors are shut until its objective is done. The move
+// test is called by the movement code (bondwalk.c, bondbike.c) before it asks
+// the collision system anything, and answers as a wall would.
+bool modRunIsSealed(void);
+bool modRunSealMove(RoomNum *fromrooms, struct coord *frompos, RoomNum *torooms, struct coord *dstpos);
 bool modRunTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle);
 bool modRunIsLanding(void);
 void modRunRestoreInventory(void);

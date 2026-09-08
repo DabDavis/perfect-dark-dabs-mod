@@ -21,6 +21,7 @@
 #include "lib/mtx.h"
 #include "lib/anim.h"
 #include "lib/collision.h"
+#include "game/modrun.h"
 #include "lib/joy.h"
 #include "data.h"
 #include "types.h"
@@ -423,7 +424,14 @@ s32 bbikeCalculateNewPosition(struct coord *vel, f32 angledelta)
 		xdiff = dstpos.x - g_Vars.currentplayer->hoverbike->pos.x;
 		zdiff = dstpos.z - g_Vars.currentplayer->hoverbike->pos.z;
 
-		if (xdiff > halfradius || zdiff > halfradius || xdiff < -halfradius || zdiff < -halfradius) {
+		// A sealed room is sealed to a bike too - see bondwalk.c, which is
+		// where the same test sits for the player on foot. A room the run
+		// dealt a hoverbike in is otherwise a room with a way out of it that
+		// the barrier never sees.
+		if (modRunSealMove(g_Vars.currentplayer->hoverbike->rooms, &g_Vars.currentplayer->hoverbike->pos,
+					dstrooms, &dstpos)) {
+			result = CDRESULT_COLLISION;
+		} else if (xdiff > halfradius || zdiff > halfradius || xdiff < -halfradius || zdiff < -halfradius) {
 			result = cdExamCylMove06(&g_Vars.currentplayer->hoverbike->pos,
 					g_Vars.currentplayer->hoverbike->rooms,
 					&dstpos, dstrooms, radius, CDTYPE_ALL, 1,

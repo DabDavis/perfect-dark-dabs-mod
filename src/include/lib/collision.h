@@ -13,6 +13,7 @@ void cdGetEdge(struct coord *pos1, struct coord *pos2, u32 line, char *file);
 f32 cd00024e98(void);
 s32 cd00024ea4(void);
 struct prop *cdGetObstacleProp(void);
+void cdSetObstacleVtxProp(struct coord *vtx1, struct coord *vtx2, struct prop *prop);
 void cdGetPos(struct coord *pos, u32 line, char *file);
 void cdGetObstacleNormal(struct coord *normal);
 u32 cdGetGeoFlags(void);

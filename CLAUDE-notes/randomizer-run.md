@@ -3,8 +3,9 @@
 `src/game/modrun.c`, and the page it hangs off in `port/src/randommenu.c`. The
 mode drops the player into a random room of a random map, deals that room an
 objective, and treats **every door out of the room as a portal**: walking
-through one ends the level and deals another room somewhere else. It runs until
-the player dies and scores objectives finished.
+through one ends the level and deals another room somewhere else. The doors are
+shut until the room's objective is done. It runs until the player dies and
+scores objectives finished.
 
 The file's own header comment covers the design. This note is what the code
 does not say and what cost a detour.
@@ -92,6 +93,90 @@ and the red fade finish, which pushes the endscreen — over the top of the run'
 score, naming the map's own objectives. During a run that branch does nothing
 and `modRunTick()` ends the run at its own pace: the score for three seconds,
 then the Institute, where the mode's page is.
+
+## The room is sealed until its objective is done
+
+Every door being a portal made leaving free, and free leaving is a mode with
+nothing in it: walk in, walk out, and the score is doors walked through. So
+while the objective stands the doorway is a **wall from the inside** -
+`modRunSealMove()`, called by `bwalkCalculateNewPosition()` before it asks the
+collision system anything - and the door is a door again the moment the
+objective is met.
+
+**A refused move has to leave a collision behind.** Everything that runs after
+one reads what it left: `bwalkCalculateNewPositionWithPush()` asks
+`cdGetObstacleProp()`, and the slide asks `cdGetEdge()`. Return
+`CDRESULT_COLLISION` without writing either and both read whatever the *last
+real* collision left there - a door prop that is nowhere near the player, and
+with `DOORFLAG_DAMAGEONCONTACT` a wall that is not there hurting them. So the
+barrier writes its own: `cdSetObstacleVtxProp(vtx1, vtx2, NULL)`, which sets
+the edge and clears the prop in the same call. The edge is the **portal's own
+plane** - its normal turned a quarter turn in XZ, laid through the point the
+move was going to - so the player slides along the doorway instead of stopping
+dead in front of it.
+
+**The barrier's test is the portal's test.** "Not in `prop->rooms[]` any more",
+the same one the hop is taken on, so the two agree by construction: no move is
+refused that would also have hopped, and nothing hops that did not pass the
+barrier. Leaning through a doorway - a position listing both rooms - is neither,
+which is what lets the player see what is on the other side.
+
+**Only a move that *starts* in the room is refused.** A barrier that tested the
+destination alone would freeze a player who is already outside, and things that
+are not the walk put them there: a lift, a blast, a fall. Outside a sealed room
+the tick does not hop either - the objective is still that room's - it says
+"return to the room" and the seal re-arms when they do.
+
+**A hoverbike is a second way out.** `bbikeCalculateNewPosition()` is the walk
+written again for the bike and moves the player through its own collision
+tests; the same call sits in it.
+
+**A sealed room has to be finishable, or the run cannot go on.** The three
+objectives are not equally certain: the gun a collect objective names can be
+destroyed where it lies, and guards have to reach the room to be killed in it.
+So a room that has stood sealed for `MODRUN_STUCK_SECS` (150) is dealt the one
+thing that always finishes - a clock - from its own stream id, since a re-deal
+must not move what the seed deals anybody else.
+
+`--run-autohop N` hops through the seal. It has to: it is what walks a chain of
+maps in a minute, and it is not the player.
+
+### Testing it
+
+The mode is a menu door and a sealed room is a thing you walk into, so both
+halves are driven from gdb against a landed run. The predicate first:
+
+```sh
+gdb -p PID -batch -ex 'thread 1' \
+  -ex "set \$pl = g_Vars.currentplayer" \
+  -ex "set \$land = 'modrun.c'::g_ModRunLandRoom" \
+  -ex "set \$to = (short *)malloc(16)" \
+  -ex "set \$to[0] = <a room the landing room has a portal to>" -ex "set \$to[1] = -1" \
+  -ex 'printf "%d\n", (int)modRunSealMove($pl->prop->rooms, &$pl->prop->pos, $to, &$pl->prop->pos)'
+```
+
+1 leaving, 0 staying, 0 for a move that starts outside, and 0 for all of them
+with `g_ModRunObjective.done` set.
+
+The wall itself wants a walk, and a walk can be driven: step the player toward
+a portal's centre with repeated `bwalkCalculateNewPositionWithPush()` calls
+(`bgGetPortalVtxInfo()` gives the vertices) and watch `prop->rooms`. **Run the
+open pass first and from the same starting position**, or the test proves
+nothing: a synthetic walk gets stuck on doorframes and closed doors often
+enough that "did not leave the room" on its own is not evidence. On Escape
+(0x19), room 165, all four portals leave the room with the objective done and
+none of them leave it sealed; on Chicago's room 86 neither pass ever got out,
+which is the shape of an inconclusive run rather than a passing one.
+
+The log names what the seal did:
+
+```
+run: sealed in room 38 on stage 0x2a at frame 58 - "Hold this room for 36 seconds"
+run: room 38 on stage 0x2a stood sealed for 150 seconds; dealing a clock - "Hold this room for 20 seconds"
+```
+
+The stuck clock is reachable without waiting two and a half minutes: set
+`g_ModRunObjDealt` back by 100000 and it deals on the next tick.
 
 ## No objective type fits one room, so the run owns a stage flag
 

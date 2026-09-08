@@ -26,6 +26,7 @@
 #include "game/mplayer/setup.h"
 #include "bss.h"
 #include "lang.h"
+#include "lib/collision.h"
 #include "lib/main.h"
 #include "lib/memp.h"
 #include "lib/rng.h"
@@ -34,6 +35,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "math.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -47,8 +49,17 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * A run drops the player into a random room of a random map with something to
  * do there, and every door out of that room is a portal: walk through one and
  * the run lands somewhere else entirely. It keeps going until the player dies,
- * and what it scores is objectives finished, not rooms survived - moving on is
- * always available, so the score is what was chosen rather than what happened.
+ * and what it scores is objectives finished, not rooms survived.
+ *
+ * **The room is sealed until its objective is done.** Every door out being a
+ * portal makes leaving free, and leaving for nothing is a run that never does
+ * anything: walk in, walk out, and what is scored is doors walked through. So
+ * while the objective stands the doorway is a wall from the inside - a move
+ * refused in bwalkCalculateNewPosition(), against an edge that is the portal's
+ * own plane so the player slides along it rather than stopping dead - and the
+ * door is a door again the moment the objective is met. A room whose objective
+ * cannot be answered would be a run that cannot go on, so a room that has been
+ * sealed too long is dealt the one thing that can always be answered: a clock.
  *
  * **A portal is a stage load, because it has to be.** One bg file is resident
  * at a time and a portal's room numbers index that one file, so two rooms of
@@ -116,6 +127,21 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 // How long the run's own messages stay up. The landing message has to survive
 // the fade-in it is shown under, which is a second on its own.
 #define MODRUN_MSGTICKS TICKS(180)
+
+// How long a sealed room may stand unanswered before the run deals it
+// something that cannot fail. Longer than the longest clock a room can ask
+// for, so that holding a room for its full time is never mistaken for being
+// stuck in it, and short enough that a player who has run out of ways to
+// finish is not reading the same objective for ten minutes.
+#define MODRUN_STUCK_SECS 150
+
+// How often the sealed room says so. It is said while the player walks into
+// it, which is every frame they hold the stick forward.
+#define MODRUN_SEALMSG_SECS 5
+
+// Half the length of the wall the doorway becomes. The player slides along it
+// and never reaches its end; it only has to be longer than a doorway.
+#define MODRUN_SEALEDGE 10000.0f
 
 // Objective sizes. One block, the way modrandom.c lays its objectives out, so
 // that re-dealing one at a landing cannot move another.
@@ -201,6 +227,11 @@ static u32 *g_ModRunObjCmds;
 static char g_ModRunObjText[64];
 static bool g_ModRunHasObjective;
 
+// The seal: what keeps the player in the room until the objective is done.
+static s32 g_ModRunObjDealt;    // the tick this room's objective was dealt at
+static s32 g_ModRunSealMsg;     // the tick the seal last said anything
+static bool g_ModRunSealLogged; // whether this room's seal has been logged once
+
 /**
  * What the player is carrying between rooms.
  *
@@ -230,6 +261,7 @@ static bool g_ModRunHasCarry;
 #define MODRUN_STREAM_LAND  2
 #define MODRUN_STREAM_OBJ   3
 #define MODRUN_STREAM_BODY  4
+#define MODRUN_STREAM_STUCK 5
 
 static u32 modRunMix(u32 x)
 {
@@ -1161,8 +1193,229 @@ static void modRunTickObjective(void)
 	{
 		static char text[96];
 
-		sprintf(text, "Objective complete - %d in %d rooms\nFind a door\n",
+		sprintf(text, "Objective complete - %d in %d rooms\nThe way out is open\n",
 				g_ModRunScore, g_ModRunHop);
+		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
+	}
+}
+
+/**
+ * Whether a room list holds a given room. Both lists a move has are -1
+ * terminated and eight long, and either end can come first.
+ */
+static bool modRunRoomsHave(const RoomNum *rooms, s32 room)
+{
+	s32 i;
+
+	if (rooms == NULL || room < 0) {
+		return false;
+	}
+
+	for (i = 0; i < 8; i++) {
+		if (rooms[i] == -1) {
+			break;
+		}
+
+		if (rooms[i] == room) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Is the way out shut?
+ *
+ * The room this hop dealt, with an objective on it that has not been met. Not
+ * while the run is landing (there is nobody in the room yet) and not with no
+ * objective at all - a landing whose objective could not be allocated leaves
+ * the room open rather than sealing the player into one with nothing to do.
+ */
+bool modRunIsSealed(void)
+{
+	return g_ModRunState == MODRUN_PLAYING
+		&& g_ModRunHasObjective
+		&& !g_ModRunObjective.done
+		&& g_ModRunLandRoom >= 0;
+}
+
+/**
+ * Say the way is shut, at a pace a person can read.
+ *
+ * Rate limited because it is said from the walk: the player holding forward
+ * against the barrier asks the question sixty times a second.
+ */
+static void modRunSealSay(const char *why)
+{
+	static char text[128];
+
+	if (g_Vars.lvframe60 - g_ModRunSealMsg < TICKS(MODRUN_SEALMSG_SECS * 60)) {
+		return;
+	}
+
+	g_ModRunSealMsg = g_Vars.lvframe60;
+
+	sprintf(text, "%s\n%s\n", why, g_ModRunObjText);
+	hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
+}
+
+/**
+ * The wall the doorway becomes, for the walk to slide the player along.
+ *
+ * A refused move is a collision like any other and what follows one asks what
+ * it hit: bwalk0f0c494c() projects the move along the edge the collision left
+ * behind, which is what makes a wall something a player slides down rather
+ * than stops dead against. The barrier is a portal, so the edge is the
+ * portal's own plane - its normal turned a quarter turn in XZ, laid through
+ * the point the move was going to.
+ *
+ * The obstacle is nothing. cdSetObstacleVtxProp() writes the edge and clears
+ * the prop with it, which matters: the push that runs after a collision reads
+ * cdGetObstacleProp(), and a stale door left there by the last real collision
+ * would damage the player on a wall that is not there.
+ */
+static void modRunSealEdge(struct coord *frompos, struct coord *dstpos,
+		const RoomNum *torooms, struct coord *vtx1, struct coord *vtx2)
+{
+	struct coord dir;
+	f32 len;
+	s32 i;
+
+	dir.x = 0;
+	dir.y = 0;
+	dir.z = 0;
+
+	if (g_Rooms != NULL && g_RoomPortals != NULL && g_BgPortals != NULL) {
+		const struct room *room = &g_Rooms[g_ModRunLandRoom];
+
+		for (i = 0; i < room->numportals; i++) {
+			const s32 portalnum = g_RoomPortals[room->roomportallistoffset + i];
+			const struct bgportal *portal = &g_BgPortals[portalnum];
+			const s32 other = portal->roomnum1 == g_ModRunLandRoom
+				? portal->roomnum2
+				: portal->roomnum1;
+
+			if (modRunRoomsHave(torooms, other)) {
+				dir.x = g_PortalMetrics[portalnum].normal.z;
+				dir.z = -g_PortalMetrics[portalnum].normal.x;
+				break;
+			}
+		}
+	}
+
+	len = sqrtf(dir.f[0] * dir.f[0] + dir.f[2] * dir.f[2]);
+
+	if (len < 0.01f) {
+		// Out of the room through something that is not one of its portals -
+		// a room reached over a rooms[] overlap rather than through a door.
+		// Across the move, then, which is a wall facing the player.
+		dir.x = -(dstpos->z - frompos->z);
+		dir.z = dstpos->x - frompos->x;
+		len = sqrtf(dir.f[0] * dir.f[0] + dir.f[2] * dir.f[2]);
+	}
+
+	if (len < 0.01f) {
+		dir.x = 1;
+		dir.z = 0;
+		len = 1;
+	}
+
+	dir.x *= MODRUN_SEALEDGE / len;
+	dir.z *= MODRUN_SEALEDGE / len;
+
+	vtx1->x = dstpos->x - dir.x;
+	vtx1->y = dstpos->y;
+	vtx1->z = dstpos->z - dir.z;
+
+	vtx2->x = dstpos->x + dir.x;
+	vtx2->y = dstpos->y;
+	vtx2->z = dstpos->z + dir.z;
+}
+
+/**
+ * Would this move leave the sealed room? From the movement code, before it
+ * asks the collision system anything: a true answer is a wall and the move is
+ * refused.
+ *
+ * "Out of the landing room entirely", the same test the portal is taken by, so
+ * that the barrier and the door agree by construction: there is no move that
+ * is refused and still a hop, and none that hops without having passed the
+ * barrier. Leaning through a doorway - a position that lists both rooms - is
+ * neither, which is what lets the player see what is on the other side.
+ *
+ * A move that starts outside the room is nobody's business here. Something
+ * that is not the walk can put the player out of a sealed room - a lift, a
+ * blast, a fall through a hole - and a barrier that only tested the
+ * destination would freeze them where they landed instead of letting them
+ * walk back in.
+ */
+bool modRunSealMove(RoomNum *fromrooms, struct coord *frompos, RoomNum *torooms, struct coord *dstpos)
+{
+	struct coord vtx1;
+	struct coord vtx2;
+
+	if (!modRunIsSealed()) {
+		return false;
+	}
+
+	if (!modRunRoomsHave(fromrooms, g_ModRunLandRoom)
+			|| modRunRoomsHave(torooms, g_ModRunLandRoom)) {
+		return false;
+	}
+
+	modRunSealEdge(frompos, dstpos, torooms, &vtx1, &vtx2);
+	cdSetObstacleVtxProp(&vtx1, &vtx2, NULL);
+
+	modRunSealSay("The way out is sealed");
+
+#ifndef PLATFORM_N64
+	if (!g_ModRunSealLogged) {
+		g_ModRunSealLogged = true;
+		sysLogPrintf(0, "run: sealed in room %d on stage 0x%02x at frame %d - \"%s\"",
+				g_ModRunLandRoom, g_ModRunStage, g_Vars.lvframenum, g_ModRunObjText);
+	}
+#endif
+
+	return true;
+}
+
+/**
+ * Keep a sealed room finishable.
+ *
+ * The seal makes the objective the only way on, and the three kinds are not
+ * equally certain: the gun a collect objective names can be destroyed where it
+ * lies, and guards sent after the player have to be able to reach the room to
+ * be killed in it. Either one leaves a player shut in a room holding something
+ * that will never be true.
+ *
+ * So a room that has stood sealed for too long is dealt a clock, which runs
+ * out whatever else is or is not happening. It draws from its own stream for
+ * the same reason every other decision does - a re-deal must not move what the
+ * seed deals anybody else.
+ */
+static void modRunTickStuck(void)
+{
+	if (g_Vars.lvframe60 - g_ModRunObjDealt < TICKS(MODRUN_STUCK_SECS * 60)) {
+		return;
+	}
+
+	modRunOpen(MODRUN_STREAM_STUCK, g_ModRunHop);
+	modRunDealFight(true);
+
+	g_ModRunObjective.progress = g_Vars.lvframe60;
+	g_ModRunObjDealt = g_Vars.lvframe60;
+	g_ModRunSealMsg = 0;
+
+#ifndef PLATFORM_N64
+	sysLogPrintf(0, "run: room %d on stage 0x%02x stood sealed for %d seconds; dealing a clock - \"%s\"",
+			g_ModRunLandRoom, g_ModRunStage, MODRUN_STUCK_SECS, g_ModRunObjText);
+#endif
+
+	{
+		static char text[128];
+
+		sprintf(text, "New objective\n%s\n", g_ModRunObjText);
 		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 	}
 }
@@ -1389,6 +1642,12 @@ void modRunTick(void)
 			? (g_Vars.currentplayerstats ? g_Vars.currentplayerstats->killcount : 0)
 			: g_Vars.lvframe60;
 
+		// The seal's own clocks, which start where the player does rather than
+		// at the roll: the roll ran before the level was loaded.
+		g_ModRunObjDealt = g_Vars.lvframe60;
+		g_ModRunSealMsg = 0;
+		g_ModRunSealLogged = false;
+
 		g_ModRunState = MODRUN_PLAYING;
 
 #ifndef PLATFORM_N64
@@ -1414,12 +1673,43 @@ void modRunTick(void)
 	// walking to a door. A headless run cannot walk, and what a chain of hops
 	// exercises - every map in the pool loading, the kit surviving the loads,
 	// the stage pool coming back - is the half of this mode a person cannot
-	// test by playing it once.
+	// test by playing it once. It hops through the seal as well, which is the
+	// only way a chain of maps can be walked in a minute: the seal is a wall
+	// to the player, and this is not the player.
 	if (g_ModRunAutoHop > 0 && g_Vars.lvframenum > g_ModRunAutoHop) {
 		modRunTakePortal();
 		return;
 	}
 #endif
+
+	// Until the objective is done there is no door: the doorway is a wall from
+	// the inside (modRunSealMove(), called by the movement code) and nothing
+	// below this can happen. What can still put the player outside a sealed
+	// room is everything that moves them without asking the walk - a lift, a
+	// blast, a fall - and that is not a portal either: the objective is still
+	// this room's, and the room is still where it has to be answered.
+	if (modRunIsSealed()) {
+		bool inroom = false;
+
+		for (room = 0; room < ARRAYCOUNT(player->prop->rooms); room++) {
+			if (player->prop->rooms[room] == -1) {
+				break;
+			}
+
+			if (player->prop->rooms[room] == g_ModRunLandRoom) {
+				inroom = true;
+				break;
+			}
+		}
+
+		if (!inroom) {
+			modRunSealSay("Return to the room");
+		}
+
+		modRunTickStuck();
+
+		return;
+	}
 
 	// The door. Any room that is not the one landed in is through one, which
 	// is what makes every door in the room a portal without any of them having

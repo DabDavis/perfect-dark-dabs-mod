@@ -28,6 +28,7 @@
 #include "data.h"
 #include "types.h"
 #include "game/modoptions.h"
+#include "game/modrun.h"
 #include "game/modrules.h"
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
@@ -484,7 +485,15 @@ bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, 
 		zdiff = dstpos.z - g_Vars.currentplayer->prop->pos.z;
 		halfradius = radius * 0.5f;
 
-		if (xdiff > halfradius || zdiff > halfradius || xdiff < -halfradius || zdiff < -halfradius) {
+		// The Randomizer's run seals its room until the room's objective is
+		// done, and the doorway is then a wall from the inside. It is answered
+		// here rather than by throwing the move away afterwards because what
+		// follows a collision reads the collision - the slide along the
+		// obstacle's edge, the push - and modRunSealMove() leaves one to read.
+		if (modRunSealMove(g_Vars.currentplayer->prop->rooms, &g_Vars.currentplayer->prop->pos,
+					dstrooms, &dstpos)) {
+			result = CDRESULT_COLLISION;
+		} else if (xdiff > halfradius || zdiff > halfradius || xdiff < -halfradius || zdiff < -halfradius) {
 			result = cdExamCylMove06(&g_Vars.currentplayer->prop->pos,
 					g_Vars.currentplayer->prop->rooms,
 					&dstpos, dstrooms, radius, types, 1,
