@@ -64,6 +64,7 @@ struct modoptions g_ModOptions = {
 	MODBLACK_LIGHT,           // blacklevel: and the pedestal is most of it
 	false,                    // missionrespawn: like Start Armed, a choice, not a default
 	MODLIVES_UNLIMITED,       // missionlives
+	true,                     // tranqeffect: stock's, and the dart is meant to be felt
 };
 
 /**
@@ -779,4 +780,28 @@ s32 modGetMissionLives(void)
 	}
 
 	return lives;
+}
+
+/**
+ * Whether a dizzying hit - the tranquilizer's dart, the crossbow's bolt, an
+ * N-bomb - drugs the player: the screen blurring and swimming until it wears
+ * off, and the head rolling with it in third person.
+ *
+ * Off is for the player who cannot play through it, and it is the player's
+ * own view only: a guard the player darts still sways and still goes down,
+ * because the tranquilizer would otherwise stop being a weapon. The drugged
+ * screen the poison rules give (g_ModPoisonMission) goes with it, being the
+ * same effect from another cause.
+ *
+ * A trial is played by stock's rules, and stock has no way to turn it off.
+ */
+bool modIsTranquilizerEffectOn(void)
+{
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return true;
+	}
+#endif
+
+	return g_ModOptions.tranqeffect != 0;
 }

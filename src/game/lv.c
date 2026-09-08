@@ -43,6 +43,7 @@
 #include "game/lv.h"
 #include "game/menu.h"
 #include "game/mainmenu.h"
+#include "game/modoptions.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
 #include "game/mplayer/setup.h"
@@ -1245,6 +1246,14 @@ Gfx *lvRender(Gfx *gdl)
 #ifndef PLATFORM_N64
 					// reset the drug blur to 0 if it's disabled in MP settings
 					if (g_Vars.mplayerisrunning && (g_MpSetup.options & MPOPTION_NODRUGBLUR)) {
+						bluramount = 0;
+					}
+
+					// ... and the same when the drugged screen is turned off
+					// outright, which clears one already under way rather than
+					// leaving the player to wait it out. The amount above still
+					// runs down, so turning it back on does not restore it.
+					if (!modIsTranquilizerEffectOn()) {
 						bluramount = 0;
 					}
 #endif

@@ -2284,6 +2284,25 @@ static MenuItemHandlerResult menuhandlerModExplosionShake(s32 operation, struct 
 }
 
 /**
+ * Tranquilizer Effect: the drugged screen a dart, a bolt or an N-bomb gives
+ * the player. On is stock. Off is for anyone who cannot play through it, and
+ * takes nothing away from the weapon: a guard the player darts still goes
+ * down. See modIsTranquilizerEffectOn().
+ */
+static MenuItemHandlerResult menuhandlerModTranqEffect(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.tranqeffect;
+	case MENUOP_SET:
+		g_ModOptions.tranqeffect = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * Camera Tilt: how far the view leans into a sidestep or a look, and how
  * high it bobs with a step. An amount rather than a switch, because the
  * same motion that gives one player a sense of weight gives another a
@@ -3446,6 +3465,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Explosion Shake",
 		0,
 		menuhandlerModExplosionShake,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Tranquilizer Effect",
+		0,
+		menuhandlerModTranqEffect,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

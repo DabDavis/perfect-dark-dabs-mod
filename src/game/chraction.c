@@ -5232,7 +5232,8 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				}
 
 				// Handle player dizziness
-				if (makedizzy && g_Vars.currentplayer->invincible == false) {
+				if (makedizzy && g_Vars.currentplayer->invincible == false
+						&& modIsTranquilizerEffectOn()) {
 					f32 blurscale = 1;
 					struct chrdata *achr = NULL;
 

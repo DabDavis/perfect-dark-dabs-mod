@@ -422,6 +422,7 @@ struct modoptions {
 	s32 blacklevel;  // MODBLACK_*: the floor taken off the frame's blacks
 	s32 missionrespawn; // a death in a mission is a new life where the player fell
 	s32 missionlives; // how many in all, MODLIVES_UNLIMITED or a multiple of MODLIVES_STEP
+	s32 tranqeffect; // the drugged screen a dizzying hit gives the player
 };
 
 extern struct modoptions g_ModOptions;
@@ -475,5 +476,6 @@ s32 modGetRunPool(void);
 s32 modGetRunDifficulty(void);
 bool modIsMissionRespawnOn(void);
 s32 modGetMissionLives(void);
+bool modIsTranquilizerEffectOn(void);
 
 #endif
