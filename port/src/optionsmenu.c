@@ -15,6 +15,7 @@
 #include "game/gamefile.h"
 #include "game/player.h"
 #include "game/modoptions.h"
+#include "game/modrandom.h"
 #include "game/modghost.h"
 #include "game/modspectate.h"
 #include "lib/joy.h"
@@ -2309,6 +2310,75 @@ static MenuItemHandlerResult menuhandlerModCameraTilt(s32 operation, struct menu
 }
 
 /**
+ * Randomizer: a mission dealt again from its own pieces - what is in every
+ * weapon spot, what the crates hold, where the guards and keys are, where the
+ * mission starts, and the objectives themselves.
+ */
+static MenuItemHandlerResult menuhandlerModRandomizer(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.randomizer;
+	case MENUOP_SET:
+		g_ModOptions.randomizer = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Randomizer Seed: the run, or a fresh one every mission.
+ *
+ * There is nowhere in this menu to type a number, and a seed is not a thing
+ * anyone invents anyway - it is a thing they keep. So the choice is between
+ * dealing a new mission every time and holding on to the one just dealt,
+ * which is the seed the last mission ran with, shown so it can be written
+ * down. A seed typed by hand goes in pd.ini as Mod.RandomizerSeed, and a run
+ * somebody else hands over arrives the same way.
+ */
+static MenuItemHandlerResult menuhandlerModRandomizerSeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static char text[32];
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_ModOptions.randomizer == 0;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 2;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		if (data->dropdown.value == 0) {
+			return (intptr_t)"New Each Mission";
+		}
+
+		if (g_ModOptions.randomseed) {
+			snprintf(text, sizeof(text), "Seed %u", (u32)g_ModOptions.randomseed);
+		} else if (modRandomGetSeed()) {
+			snprintf(text, sizeof(text), "Keep %u", modRandomGetSeed());
+		} else {
+			snprintf(text, sizeof(text), "Keep This Run");
+		}
+
+		return (intptr_t)text;
+	case MENUOP_SET:
+		if (data->dropdown.value == 0) {
+			g_ModOptions.randomseed = 0;
+		} else if (g_ModOptions.randomseed == 0) {
+			// The seed the last mission was dealt from, so that liking a run
+			// and keeping it is one press rather than a number to copy out of
+			// a log.
+			g_ModOptions.randomseed = (s32)(modRandomGetSeed() & S32_MAX);
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.randomseed ? 1 : 0;
+	}
+
+	return 0;
+}
+
+/**
  * Invert Camera Tilt: every lean the other way about - the roll away from
  * the sidestep, the camera away from the look, the horizon back rather
  * than down into the run. The bob has no direction and is left alone.
@@ -3438,6 +3508,22 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Explosion Shake",
 		0,
 		menuhandlerModExplosionShake,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Randomizer",
+		0,
+		menuhandlerModRandomizer,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Randomizer Seed",
+		0,
+		menuhandlerModRandomizerSeed,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

@@ -25,6 +25,7 @@
 #include "game/modrespawn.h"
 #include "game/modoptions.h"
 #include "game/modbodies.h"
+#include "game/modrandom.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/propobj.h"
@@ -1614,6 +1615,12 @@ void setupCreateProps(s32 stagenum)
 
 		setupLoadWaypoints();
 
+		// Randomizer: the mission is dealt again here, in the gap between the
+		// setup file's copy being loaded and anything being built from it.
+		// After the pads, whose rooms the roll's portal walk reads; before the
+		// walk below, which is what turns the rewritten stream into a level.
+		modRandomRoll(stagenum);
+
 		if (withchrs) {
 			s32 numchrs = 0;
 
@@ -2453,4 +2460,10 @@ void setupCreateProps(s32 stagenum)
 				g_BodySpawnStats.entries, g_BodySpawnStats.spawned, g_BodySpawnStats.collision);
 	}
 #endif
+
+	// Randomizer: the stage's own objectives have been inserted by the walk
+	// above, tags and all; these replace the list the game checks. After the
+	// walk rather than instead of it, so that everything else it does with an
+	// objective command still happens.
+	modRandomInsertObjectives();
 }

@@ -226,6 +226,18 @@
  */
 
 /**
+ * Randomizer: a mission dealt again from its own pieces - what stands in
+ * every weapon spot, what is in the crates, where the guards are, where the
+ * keys are, where the mission starts, and the objectives themselves, all
+ * rolled from a seed. The rooms are the stage's own; a portal walk from the
+ * spawn decides what the objectives are allowed to name. See modrandom.c.
+ *
+ * Randomizer Seed is the run: zero deals a fresh mission every time, and any
+ * other number is a run that can be written down and handed to somebody else,
+ * since a seed and a stage always deal the same mission.
+ */
+
+/**
  * Increase Poly Models (modelsmoothing in the code, Mod.ModelSmoothing in
  * pd.ini): the characters, weapons and props drawn with more triangles than
  * they were built from, each one bent into a curved patch so that a
@@ -381,6 +393,8 @@ struct modoptions {
 	s32 tiltinvert;  // the leans turned the other way about; the bob has no direction to invert
 	s32 tiltforward; // ... and a lean into the run itself, down going forward and up backing away
 	s32 gunsway;     // the gun's step motion scaled up with the bob
+	s32 randomizer;  // a mission dealt again from its own pieces
+	s32 randomseed;  // the run's seed, 0 for a fresh one every mission
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
 	s32 modellod;    // the game's distance models; Increase Poly Models pushes the switch out
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened

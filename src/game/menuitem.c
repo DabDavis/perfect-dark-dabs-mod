@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "game/camdraw.h"
 #include "game/modalarm.h"
+#include "game/modrandom.h"
 #include "game/game_006900.h"
 #include "game/objectives.h"
 #include "game/tex.h"
@@ -1790,6 +1791,17 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 
 	mainOverrideVariable("brcol", &var800711e8);
 	sp120 = langGet(g_Briefing.objectivenames[index]);
+
+#ifndef PLATFORM_N64
+	// ... unless the Randomizer wrote this objective, whose text is its own.
+	{
+		char *generated = modRandomGetObjectiveText(index);
+
+		if (generated) {
+			sp120 = generated;
+		}
+	}
+#endif
 	y = objy;
 	sp12c = MIXCOLOUR(dialog, item_unfocused);
 

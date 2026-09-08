@@ -5,6 +5,7 @@
 #include "game/prop.h"
 #include "game/setuputils.h"
 #include "game/objectives.h"
+#include "game/modrandom.h"
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/hudmsg.h"
@@ -174,6 +175,16 @@ s32 objectiveGetCount(void)
 
 char *objectiveGetText(s32 index)
 {
+#ifndef PLATFORM_N64
+	// A generated objective's text is a sentence about what the roll placed
+	// and is in no language bank. See modrandom.c.
+	char *generated = modRandomGetObjectiveText(index);
+
+	if (generated) {
+		return generated;
+	}
+#endif
+
 	if (index < 10 && g_Objectives[index]) {
 		return langGet(g_Objectives[index]->text);
 	}

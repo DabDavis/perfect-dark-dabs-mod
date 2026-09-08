@@ -45,6 +45,8 @@ struct modoptions g_ModOptions = {
 	false,                    // tiltinvert: the lean the head makes going with the step, not against it
 	false,                    // tiltforward: the tilt shipped as a roll and a bob, so this is a choice
 	true,                     // gunsway
+	false,                    // randomizer: a way of playing rather than a setting, so off
+	0,                        // randomseed: a fresh mission every time until one is chosen
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 	true,                     // modellod: stock's distance models
 	true,                     // smoothtext: a fix, so on

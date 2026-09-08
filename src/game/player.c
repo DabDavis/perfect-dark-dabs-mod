@@ -61,6 +61,7 @@
 #include "game/playermgr.h"
 #include "game/modoptions.h"
 #include "game/modrespawn.h"
+#include "game/modrandom.h"
 #include "system.h"
 #include "game/explosions.h"
 #include "game/bondview.h"
@@ -574,6 +575,9 @@ void playerStartNewLife(void)
 		rooms[0] = g_Vars.currentplayer->prop->rooms[0];
 		rooms[1] = -1;
 		angle = g_Vars.currentplayer->thetadie * M_BADTAU / 360.0f;
+	} else if (modRandomTakeSpawn(&pos, rooms, &angle)) {
+		// Randomizer: the mission's first life starts where the roll said,
+		// which a mission that opens with a cutscene will not do on its own.
 	} else
 #endif
 	{
@@ -4176,6 +4180,12 @@ void playerTick(bool arg0)
 {
 	f32 aspectratio;
 	f32 f20;
+
+#ifndef PLATFORM_N64
+	// Randomizer: the mission's first life is moved to the start the roll
+	// chose, on the first frame the player has control.
+	modRandomTick();
+#endif
 
 	g_ViRes = g_HiResEnabled;
 
