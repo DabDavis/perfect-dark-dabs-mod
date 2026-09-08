@@ -2787,6 +2787,93 @@ static MenuItemHandlerResult menuhandlerModBodyTime(s32 operation, struct menuit
 #define MODCAM_MAXHEIGHT  150
 #define MODCAM_HEIGHTSTEP 5
 
+/**
+ * The offsets as named sets, because a third person view is one combination of
+ * the four and not four decisions taken separately: the shoulder view wants the
+ * distance brought in and the height raised with the sideways, and a player who
+ * moves one slider at a time has to find that out a slider at a time.
+ *
+ * Custom is not a preset and is never applied. It is the row's answer when the
+ * offsets match none of them, which is what moving any slider leaves behind, so
+ * the row follows the sliders rather than having to be put back by hand.
+ *
+ * Wall Clearance and Minimum Distance are left alone: they are what the camera
+ * does about the level rather than where it is put, and a preset that quietly
+ * retuned the collision would be a preset nobody could undo.
+ */
+struct modcampreset {
+	const char *name;
+	f32 dist;
+	f32 side;
+	f32 fwd;
+	f32 height;
+};
+
+#define MODCAM_PRESET_CUSTOM 0
+
+static const struct modcampreset g_ModCamPresets[] = {
+	// name              dist  side  fwd  height
+	{ "Custom",          0,    0,    0,   0   },
+	{ "Default",         200,  0,    0,   0   },
+	{ "Close",           100,  0,    0,   15  },
+	{ "Right Shoulder",  130,  55,   0,   25  },
+	{ "Left Shoulder",   130,  -55,  0,   25  },
+	{ "Wide",            400,  0,    0,   50  },
+	{ "Raised",          250,  0,    0,   90  },
+};
+
+/**
+ * The sliders move in whole units, so anything within half of one is the value
+ * the preset asked for and not a player who happened to stop nearby.
+ */
+static bool menuhandlerModCamPresetMatches(const struct modcampreset *preset)
+{
+	f32 tolerance = 0.5f;
+
+	return g_ModOptions.camdist > preset->dist - tolerance
+		&& g_ModOptions.camdist < preset->dist + tolerance
+		&& g_ModOptions.camside > preset->side - tolerance
+		&& g_ModOptions.camside < preset->side + tolerance
+		&& g_ModOptions.camfwd > preset->fwd - tolerance
+		&& g_ModOptions.camfwd < preset->fwd + tolerance
+		&& g_ModOptions.camheight > preset->height - tolerance
+		&& g_ModOptions.camheight < preset->height + tolerance;
+}
+
+static MenuItemHandlerResult menuhandlerModCamPreset(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 i;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(g_ModCamPresets);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)g_ModCamPresets[data->dropdown.value].name;
+	case MENUOP_SET:
+		i = data->dropdown.value;
+
+		if (i != MODCAM_PRESET_CUSTOM && i < (s32)ARRAYCOUNT(g_ModCamPresets)) {
+			g_ModOptions.camdist = g_ModCamPresets[i].dist;
+			g_ModOptions.camside = g_ModCamPresets[i].side;
+			g_ModOptions.camfwd = g_ModCamPresets[i].fwd;
+			g_ModOptions.camheight = g_ModCamPresets[i].height;
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = MODCAM_PRESET_CUSTOM;
+
+		for (i = MODCAM_PRESET_CUSTOM + 1; i < (s32)ARRAYCOUNT(g_ModCamPresets); i++) {
+			if (menuhandlerModCamPresetMatches(&g_ModCamPresets[i])) {
+				data->dropdown.value = i;
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModCamDist(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -3830,6 +3917,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		0,
 		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Camera Preset",
+		0,
+		menuhandlerModCamPreset,
 	},
 	{
 		MENUITEMTYPE_SLIDER,

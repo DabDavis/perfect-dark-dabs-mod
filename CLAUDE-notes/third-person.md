@@ -98,6 +98,15 @@ further back, so it reads the same way round as Camera Distance; negative is
 what puts the camera in front of the player, and that is the case the signed
 pull-back above exists for.
 
+**Camera Preset is derived, not stored.** `g_ModCamPresets` in optionsmenu.c
+names combinations of the four and writes all four on a pick; the row's own
+answer comes from comparing the live values against the table, so any slider
+move drops it back to Custom without anything having to reset it, and Custom
+itself is never applied. Nothing is registered in `pd.ini` for it - the offsets
+are already there, and a preset that was also a saved setting would be a second
+opinion about the same four numbers. A preset's values have to be reachable by
+the sliders, or picking it would strand the row in Custom for good.
+
 **Height has a usable range, and it is shorter than the slider.** Nothing tilts
 the view to keep the player in frame - the view direction is the aim, and a
 camera that aimed somewhere other than the crosshair would be a different bug
