@@ -83,6 +83,7 @@
 #include "game/vtxstore.h"
 #include "game/wallhit.h"
 #include "game/weather.h"
+#include "screenshot.h"
 #include "lib/anim.h"
 #include "lib/args.h"
 #include "lib/collision.h"
@@ -108,6 +109,7 @@
 #include "system.h"
 
 extern s32 g_ExitFrame;
+extern s32 g_ShotFrame;
 #endif
 
 struct sndstate *g_MiscSfxAudioHandles[3];
@@ -2321,6 +2323,13 @@ void lvTick(void)
 		g_Vars.lvframenum++;
 
 #ifndef PLATFORM_N64
+		// --screenshot-frame: the same picture out of two runs, which a key
+		// pressed by the clock cannot give when one of them draws more
+		if (g_ShotFrame > 0 && g_Vars.lvframenum == g_ShotFrame) {
+			sysLogPrintf(LOG_NOTE, "screenshot-frame %d reached", g_ShotFrame);
+			screenshotRequest();
+		}
+
 		// --exit-frame: a measured run ends on a level frame, not a clock
 		if (g_ExitFrame > 0 && g_Vars.lvframenum >= g_ExitFrame) {
 			sysLogPrintf(LOG_NOTE, "exit-frame %d reached", g_ExitFrame);

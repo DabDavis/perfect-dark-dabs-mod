@@ -56,6 +56,7 @@ u8 g_VmShowStats = 0;
 s32 g_TickRateDiv = 1;
 s32 g_FixedStep = 0; // --fixed-step, see frametimeCalculate()
 s32 g_ExitFrame = 0; // --exit-frame N: quit when the level reaches frame N, so a measured run covers the same frames whatever its speed (lvTick)
+s32 g_ShotFrame = 0; // --screenshot-frame N: take one at that level frame, so two runs can be compared at the same moment (lvTick)
 s32 g_TickExtraSleep = true;
 
 s32 g_SkipIntro = false;
@@ -219,6 +220,7 @@ int main(int argc, const char **argv)
 	g_ModRunAutoHop = sysArgGetInt("--run-autohop", 0);
 	g_FixedStep = sysArgCheck("--fixed-step");
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
+	g_ShotFrame = sysArgGetInt("--screenshot-frame", 0);
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 
