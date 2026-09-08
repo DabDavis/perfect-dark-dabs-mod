@@ -4,9 +4,10 @@ The 2010 XBLA release is the N64 game with its art replaced. Its package is a
 useful source of high resolution textures and it is where the "improved models"
 people ask about live, but the two are nothing like as similar a job as they
 sound: the textures drop straight into the pack loader, and the models are a
-renderer feature. The unskinned ones draw with the release's own art
-(`Mod.XblaMeshes`, `Mod.XblaMeshTextures`); a gun or a character does not yet —
-see "The draw path".
+renderer feature. They draw with the release's own art and, when they are
+skinned, in the pose the game has put their model in (`Mod.XblaMeshes`,
+`Mod.XblaMeshTextures`, `Mod.XblaMeshPose`) — see "The draw path" and
+"Skinning".
 
 Read this before touching `port/src/x360.c`, `port/src/xblaimport.c`,
 `port/src/xblamesh.c`, `port/src/xblatex.c` or `tools/texpack/xblaconvert.py`.
@@ -233,7 +234,7 @@ u32   indexOffset
 u32   drawCount
 u32   drawOffset
 u32   matrixCount
-f32   unknown                            100.0 unskinned, 1000.0 skinned
+f32   scale x 100                        100.0 unskinned, 1000.0 skinned
 u32   groupOffset                        == 32 + 48 * matrixCount
 
 f32   matrices[matrixCount][3][4]        row major, translation in column 3
@@ -244,12 +245,20 @@ u16   indices[]                          to the end of the file
 ```
 
 A vertex is position (3 floats), **UV (2), normal (3, unit length)**, colour
-(one u32). A skinned one adds **two** blend weights, which sum to 1.0 — there
-is no third — and a packed `{bone0, bone1, bone2, influenceCount}` byte quad,
-whose count runs 1 to 6 against those two weights; see "Skinning, and why it is
-not on" below. The two strides are the two forms of the same thing and nothing
-else: stride 36 always comes with `matrixCount` 0, stride 48 always with a
-palette, 318 files and 277.
+(one u32). A skinned one adds **two** blend weights and a packed
+`{bone0, bone1, bone2, count}` byte quad. **The third weight is the one that is
+left**: the two stored ones sum to 1.0 on 93% of the release's skinned vertices
+and to as little as 0.5 on the rest, so `1 - w0 - w1` belongs to `bone2` and
+dropping it pulls those vertices towards the origin. **The fourth byte is not a
+count of influences.** It runs 1 to 6 against three bones, it is the same value
+for every vertex of a draw, and its 2s carry three real influences as often as
+its 3s do — 4.4% of them repeat bone0 in bone1, against 95% that repeat bone1
+in bone2, which is how a vertex with fewer than three bones is written. All
+three always apply and the repeats collapse themselves; see "Skinning" below.
+
+The two strides are the two forms of the same thing and nothing else: stride 36
+always comes with `matrixCount` 0, stride 48 always with a palette, 318 files
+and 277.
 
 The **material** word is a `Textures.raw` record index in bits 0-12, bit 15 set
 when that record has an alpha channel, and two bytes above that whose meaning
@@ -270,8 +279,9 @@ format the paragraph above calls opaque.
 
 **The matrix palette is not a transform to apply to the vertices.** They are in
 the mesh's own space already; multiplying them through folds a character in
-half. The palette is what a skinned draw needs alongside a pose, and a still
-render wants none of it.
+half, because what the palette holds is each bone's *inverse* bind. It is what
+a skinned draw needs alongside a pose, and a still render wants none of it.
+"Skinning" below is how it is read.
 
 #### How this was confirmed
 
@@ -301,13 +311,12 @@ which is why only 23 of 80 sampled files appeared to chain.
 
 #### What is still open
 
-- The float at `+0x18`. 100.0 on every one of the 318 unskinned meshes, 1000.0
-  on 267 of the 277 skinned ones, 200.0 twice and 750.0 once. It does not track
-  the mesh's size, so it is not a bounding radius.
 - The material's top two bytes, above.
-- How the palette is meant to be read. A group is one part of the model and
-  names a palette entry — see "Skinning, and why it is not on" below — but what
-  an entry's matrix is relative to is not established.
+- The heads. No `H*` model file carries a mesh id and a character's mesh is
+  headless, so a chr comes out as the release's body under the game's own N64
+  head. Where 4J kept their heads has not been looked for.
+
+The float at `+0x18` and the palette are answered under "Skinning" below.
 
 ### The draw path
 
@@ -320,8 +329,11 @@ sorting, Model Smoothing and screenshots all carry on working.
 
 Four things it costs a wrong turn to work out again.
 
-**The geometry is the model's own coordinates, 1:1.** An Area 51 crate is 100
-units across in the ROM and 100 in the mesh; a lab door is 4000 by 2800 in both.
+**The geometry is the model's own coordinates, at the header's scale.** That
+scale is 1 for everything unskinned: an Area 51 crate is 100 units across in
+the ROM and 100 in the mesh; a lab door is 4000 by 2800 in both. A skinned mesh
+is nearly always at a tenth, and drawing one without the scale puts a character
+inside its own chest — see "Skinning".
 So a mesh wants no transform of its own — it goes under the node's matrix like
 the display list it replaces — and the floats quantise back to the s16 the
 game's vertices already are with nothing lost. The in-game check is
@@ -440,37 +452,73 @@ release's rusted panel with its red and white hazard bar, at the right size and
 the right way up. Props stay pixel-identical between two seeded runs of each of
 the three levels, which is the check the untextured version passed too.
 
-#### Skinning, and why it is not on
+#### Skinning
 
-`Mod.XblaMeshPose` poses a skinned mesh from the game's matrices. It is off,
-because the release's palette is not Perfect Dark's skeleton in a space this can
-use. What the attempt established, which is worth not finding out again:
+`Mod.XblaMeshPose` poses a skinned mesh from the game's own matrices, and it is
+**on**: without it a whole body draws in its bind pose under one bone's matrix,
+which is a heap of limbs rather than a person. Turning it off is how a shape
+that is wrong is told apart from a pose that is.
 
-- **A vertex has two weights, not three.** The two floats after the colour sum
-  to 1.0 across every skinned vertex in the release, so the third weight the
-  layout looked like it had is not there. The packed byte quad is three bone
-  indices and a count; the count runs 1 to 6 while only two weights exist, and
-  a rigid vertex repeats its bone in all three bytes — `{33,33,33,1}`.
-- **A group is one part of the model.** A model's parts and its mesh's groups
-  come in the same order and the same number — `CdrcarrollZ` has thirteen of
-  each, a Falcon 2 five — and the group's third word is a palette entry.
-- **The part number is not the palette entry, and neither is Perfect Dark's own
-  matrix index**, although both look like it. A Falcon 2's nodes load matrices
-  33, 36, 38, 40 and 42 against a palette of 43; Dr Carroll's load 0 to 3
-  against a palette of exactly 4; and over every model that names a mesh, 242 of
-  243 have every node's matrix index inside the palette. That is a coincidence
-  of ranges. Posing under that assumption gives transforms whose **rotations
-  cancel to an exact identity and whose translations are tens of units out**,
-  and the numbers say why: the release's bind translations are zero for most
-  entries and a unit or two for the rest, where the game's skeleton has those
-  bones tens of units apart. The palette is local to the mesh; the game's
-  matrices are a pose in the world. Getting from one to the other needs whatever
-  hierarchy the mesh keeps its bones in, and nothing found so far says where
-  that is.
-- `--xbla-mesh-verbose` prints, per palette entry, the bind translation the file
-  holds beside the one that would make that entry come out as the identity.
-  Those two columns are what the paragraph above is read off, and they are the
-  first thing to look at again.
+It comes to three facts, and each of them was got at in bulk rather than by
+eye — the same way the mesh id was.
+
+**Palette entry i is matrix i of the model.** Not the part number, and not
+anything the group table has to be read for. The check: take every model that
+names a mesh, walk its joints (the `POSITION` and `CHRINFO` nodes, whose rodata
+holds a translation from the parent joint and the matrix index that joint
+drives), and compare the offset the model file states against the offset the
+palette implies for the same two entries, turned into the parent's frame. Under
+this mapping they agree; under the palette read one, two or three entries along
+they do not. The identity wins for 166 of the 170 models with a palette, and
+the four it does not win are files with one usable joint between them.
+
+**The palette holds the inverse bind, and its last column is a translation.**
+Entry 0 of the evening dress mesh translates by -146 in y where the mesh stands
+from 0 to 149, and the head is at +146: a point at the head lands on the origin
+of the bone, which is what an inverse bind is for. Two mistakes are available
+here and both were made. Inverting it again — reading it as the bind — puts
+every vertex through its bone twice and folds a character in half. Reading the
+last column as the bone's *position* instead of as the translation, and
+rotating and negating it to make a translation, moves every bone that has a
+rotation somewhere else entirely and every bone without one to twice its own
+height away; that one survives a glance, because the bones with identity
+rotations are the spine and the character stands up straight.
+
+**The float at `+0x18` is a scale, times 100.** 100.0 means the mesh is in the
+model file's own coordinates and 1000.0 means it is at a tenth of them. The
+same joint comparison is what says so: of the 100 models with eight or more
+joints to compare, 96 come out at `unknown / 100` exactly. The four that do not
+are 4J's remodelled Bonds — Connery, Dalton, Moore and the DJ — which are a
+uniform 10% larger than the skeleton the game poses them with, and which draw
+10% short at the joints for it. A skinned mesh drawn without the scale is a
+tenth of its size, which is why one used to sit inside its own chest.
+
+So the transform for palette entry i is: out of the bind (the palette entry, in
+the game's units), into the game's matrix for bone i, and back out of the matrix
+the list is drawn under — the first part's, which keeps the result inside the
+s16 a Perfect Dark vertex holds. The posed copy of the vertices goes in a frame
+arena of its own, doubled, because a character is thousands of vertices and the
+game's vtx pool is sized for what an N64 drew.
+
+What it costs: 2000 frames of the G5 Building took 24s with the meshes off, 30s
+with them on and 34s with them posed as well, so the pose itself is about a
+seventh of what the meshes cost there. 1500 frame runs of the G5 Building,
+Chicago, Air Base and Skedar exit clean with nothing failing to build, and two
+seeded runs of the G5 Building are pixel-identical at the same level frame —
+the same check the textures passed.
+
+`--xbla-mesh-verbose` prints, per palette entry, the distance from entry 0 in
+the mesh beside the same distance in the game's matrices, and their ratio. If
+the two rigs are the same rig every ratio is 1 — that is what confirmed this at
+runtime, on the evening dress, where all fifteen came out at 1.000 give or take
+the pose's own rotations. A single ratio on its own is a bone the release moved;
+all of them off by one constant is the scale being read wrong.
+
+Two things a character still is not. Its **head** is the game's own, because
+4J kept Perfect Dark's split of body and head model files and no head file
+carries a mesh id — a high resolution body under an N64 head. And a
+**first person** view is the release's hands and gun meshes drawn at their own
+bones, which works, but the Bonds' 10% is the kind of thing to look for there.
 
 ### The level files were rewritten too
 

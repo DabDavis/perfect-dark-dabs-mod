@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
@@ -131,6 +132,7 @@ struct xblameshbuilt {
 	// Vtx holds, since they are transformed before they are rounded.
 	s32 nummatrices;
 	s32 numgroups;
+	f32 scale;         // mesh units to the game's, out of the header
 	u8 *groupmtx;      // one per group: which palette entry that group's part is
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
@@ -146,12 +148,13 @@ static s32 optTextures = 1; // Mod.XblaMeshTextures
 /**
  * Mod.XblaMeshPose: drive a skinned mesh's palette from the game's matrices.
  *
- * Off, because it is not right yet and what it is not right about is written
- * down in xbla.md - the release's palette is not Perfect Dark's skeleton in a
- * space this can use. What is here is the harness the measurements came out
- * of, and the next attempt wants it rather than a blank page.
+ * On, and what makes a character out of a skinned mesh: without it the whole
+ * body draws in its bind pose under one bone's matrix, which is a heap of
+ * limbs rather than a person. Turning it off is how a shape that is wrong is
+ * told apart from a pose that is - the same job Mod.XblaMeshTextures does for
+ * the art.
  */
-static s32 optPose;
+static s32 optPose = 1;
 static s32 opened; // 0 untried, 1 open, -1 no package
 
 static struct x360stfs stfs;
@@ -822,6 +825,35 @@ static s32 xblaMeshReadHeader(struct xblameshhdr *h, const u8 *file, u32 len, u3
 	return 1;
 }
 
+/**
+ * What one of a mesh's units is worth in the game's.
+ *
+ * The float at +0x18 is a scale: 100.0 means the mesh is in the model file's
+ * own coordinates and 1000.0 means it is at a tenth of them. Every unskinned
+ * mesh says 100 and draws 1:1 against the geometry it replaces - an Area 51
+ * crate is 100 units across in both - and 267 of the 277 skinned ones say
+ * 1000, with 200.0 twice, 750.0 once and 100.0 seven times.
+ *
+ * What says it is a scale rather than a number that happens to sort them: take
+ * every model that names a mesh, walk its joints, and compare the offset the
+ * model file states for each one against the offset the mesh's palette implies
+ * for the same pair of bones. Of the 100 models with eight or more joints to
+ * compare, 96 come out at this exactly. The four that do not are 4J's
+ * remodelled Bonds - Connery, Dalton, Moore and the DJ - which are a uniform
+ * 10% larger than the skeleton the game poses them with.
+ *
+ * A mesh whose header says zero - there is one - keeps its own units rather
+ * than collapsing to a point.
+ */
+static f32 xblaMeshScale(const struct xblameshhdr *h)
+{
+	if (h->unknown <= 0.0f || h->unknown > 100000.0f) {
+		return 1.0f;
+	}
+
+	return h->unknown / 100.0f;
+}
+
 static s16 xblaMeshRound(f32 v)
 {
 	f32 r = v < 0 ? v - 0.5f : v + 0.5f;
@@ -845,6 +877,7 @@ struct xblameshbuilder {
 	f32 *weights;
 	u8 *bones;
 	s32 skinned;
+	f32 scale;
 	s32 numgfx, capgfx;
 	s32 numvtx, capvtx;
 	s32 numtris;
@@ -999,10 +1032,12 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 	vtx = &b->vertices[b->numvtx];
 	col = &b->colours[b->numvtx];
 
-	// position, then the UV pair, then a unit normal, then the colour.
-	vtx->x = xblaMeshRound(xblaMeshBEF32(v));
-	vtx->y = xblaMeshRound(xblaMeshBEF32(v + 4));
-	vtx->z = xblaMeshRound(xblaMeshBEF32(v + 8));
+	// position, then the UV pair, then a unit normal, then the colour. The
+	// position is in the mesh's own units, which the header's scale turns into
+	// the model file's - the identity for everything unskinned.
+	vtx->x = xblaMeshRound(xblaMeshBEF32(v) * b->scale);
+	vtx->y = xblaMeshRound(xblaMeshBEF32(v + 4) * b->scale);
+	vtx->z = xblaMeshRound(xblaMeshBEF32(v + 8) * b->scale);
 	vtx->flags = 0;
 	vtx->colour = (u8)(b->numslots * 4);
 
@@ -1024,39 +1059,39 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 	col->a = 0xff;
 
 	if (b->skinned) {
-		// Two weights and a packed {bone0, bone1, bone2, count}. There are
-		// only the two: they sum to 1.0 on every skinned vertex in the
-		// release, so the third slot below is always zero and is kept only so
-		// the arrays stay three wide. The count runs 1 to 6 against those two
-		// weights, so it is not a count of weights; a rigid vertex repeats its
-		// bone in all three bytes ({33,33,33,1}).
+		// Two weights and a packed {bone0, bone1, bone2, count}. The third
+		// weight is what is left of one: the two stored ones sum to 1.0 on 93%
+		// of the release's skinned vertices and to as little as 0.5 on the
+		// rest, so the remainder belongs to the third bone and dropping it
+		// pulls those vertices towards the origin.
+		//
+		// The byte that reads like a count is not one. It runs 1 to 6 against
+		// three bones, it is the same value for every vertex of a draw, and
+		// its 2s carry three real influences as often as its 3s do - 4.4% of
+		// them have bone0 and bone1 the same where 95% repeat bone1 in bone2,
+		// which is how a vertex with fewer than three bones is written. So all
+		// three are always applied and the repeats collapse themselves.
 		f32 *pos = &b->bindpos[b->numvtx * 3];
 		f32 *wt = &b->weights[b->numvtx * 3];
 		u8 *bn = &b->bones[b->numvtx * 4];
 		const u32 packed = xblaMeshBE32(v + 44);
-		const s32 n = (s32)(packed & 0xff);
 
-		pos[0] = xblaMeshBEF32(v);
-		pos[1] = xblaMeshBEF32(v + 4);
-		pos[2] = xblaMeshBEF32(v + 8);
+		pos[0] = xblaMeshBEF32(v) * b->scale;
+		pos[1] = xblaMeshBEF32(v + 4) * b->scale;
+		pos[2] = xblaMeshBEF32(v + 8) * b->scale;
 
 		wt[0] = xblaMeshBEF32(v + 36);
 		wt[1] = xblaMeshBEF32(v + 40);
 		wt[2] = 1.0f - wt[0] - wt[1];
 
+		if (wt[2] < 0.0f) {
+			wt[2] = 0.0f;
+		}
+
 		bn[0] = (u8)(packed >> 24);
 		bn[1] = (u8)(packed >> 16);
 		bn[2] = (u8)(packed >> 8);
-		bn[3] = (u8)(n < 1 ? 1 : (n > 3 ? 3 : n));
-
-		if (bn[3] < 2) {
-			wt[0] = 1.0f;
-			wt[1] = 0.0f;
-		}
-
-		if (bn[3] < 3) {
-			wt[2] = 0.0f;
-		}
+		bn[3] = (u8)(packed & 0xff);
 	}
 
 	b->slotof[b->numslots] = (s32)index;
@@ -1375,20 +1410,19 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 }
 
 /**
- * The inverse of every bind matrix in the palette.
+ * The palette, which is the inverse of every bind matrix, in the game's terms.
  *
- * The mesh stores a bone's bind pose as three rows of four floats with the
- * translation in the last column, which is the other convention from Perfect
- * Dark's Mtxf - that one is read by mtx4TransformVec as a row of basis vectors
- * with the translation in the fourth row. So the 3x3 is transposed on the way
- * in, and then inverted: a vertex has to come out of the bind pose before the
- * game's pose can be put on it.
- *
- * The rotations here are orthonormal, but this inverts by cofactors anyway - a
- * transpose that is wrong on a scaled bone would be a very quiet mistake.
+ * A vertex has to come out of the bind pose before the game's pose for its
+ * bone can be put on it, and the inverse bind is what the file already holds -
+ * nothing here inverts anything. What it does do is change convention: the
+ * mesh stores three rows of four floats with the translation in the last
+ * column, to be applied on the left of a column vector, and an Mtxf is read by
+ * mtx4TransformVec the other way round - three basis vectors in rows with the
+ * translation in the fourth. So the 3x3 transposes and the column becomes the
+ * row.
  */
 static s32 xblaMeshReadBind(struct xblameshbuilt *m, const u8 *file,
-		const struct xblameshhdr *h)
+		const struct xblameshhdr *h, f32 scale)
 {
 	const u32 numgroups = (h->drawoffset - h->groupoffset) / XBLAMESH_ENTRY;
 
@@ -1448,14 +1482,20 @@ static s32 xblaMeshReadBind(struct xblameshbuilt *m, const u8 *file,
 			dst->m[r][3] = 0.0f;
 		}
 
-		// The 3x3 is the bone's rotation the other way round already - the
-		// game's matrix for a bone and this one cancel to a pure identity,
-		// which is what says the two rigs are the same rig. The last column is
-		// not its translation to match: it is the bone's position in the mesh,
-		// which has to go through the rotation and change sign to become one.
+		// The last column is the translation of that same inverse bind and
+		// goes in as it stands - the bone's *position* is what it is not.
+		// Entry 0 of the evening dress mesh translates by -146 in y where the
+		// mesh stands from 0 to 149, and the head is at +146: a point at the
+		// head lands on the origin of the bone, which is what an inverse bind
+		// is for. Rotating and negating it here to make a position out of it -
+		// which is what this used to do - moves every bone with a rotation to
+		// somewhere else entirely and every bone without one to twice its own
+		// height away.
+		//
+		// In the game's units, since that is what the vertices were read in:
+		// the rotation does not care, the translation does.
 		for (s32 c = 0; c < 3; c++) {
-			dst->m[3][c] = -(row[c][0] * row[0][3] + row[c][1] * row[1][3] +
-					row[c][2] * row[2][3]);
+			dst->m[3][c] = row[c][3] * scale;
 		}
 
 		dst->m[3][3] = 1.0f;
@@ -1492,6 +1532,8 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 
 	memset(&b, 0, sizeof(b));
 	b.skinned = stride == XBLAMESH_STRIDE_SKIN && h.nummatrices > 0;
+	b.scale = xblaMeshScale(&h);
+	m->scale = b.scale;
 
 	if (!xblaMeshBuildLists(&b, file, len, &h, stride) || b.numtris == 0) {
 		free(b.gdl);
@@ -1505,7 +1547,7 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 
 	free(b.batches);
 
-	if (b.skinned && !xblaMeshReadBind(m, file, &h)) {
+	if (b.skinned && !xblaMeshReadBind(m, file, &h, b.scale)) {
 		free(b.gdl);
 		free(b.vertices);
 		free(b.colours);
@@ -1726,12 +1768,17 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct xblameshuse *use,
 
 	xblaMeshInvert(root, &invroot);
 
-	// Entry i of the mesh's palette is matrix i of the model. Not the part
-	// number, which only looked like it because a small model has few of both:
-	// a Falcon 2's nodes load matrices 33, 36, 38, 40 and 42 and its mesh's
-	// palette is 43 entries, and Dr Carroll's nodes load 0 to 3 against a
-	// palette of exactly 4. Over every model that names a mesh, 242 of 243
-	// have every one of their nodes' matrix indexes inside the palette.
+	// Entry i of the mesh's palette is matrix i of the model, and that is the
+	// whole of the mapping: not the part number, which only looked like it
+	// because a small model has few of both.
+	//
+	// It is checked the way the mesh id was. Take every model that names a
+	// mesh, and for each of its joints compare the offset the model file
+	// states from its parent joint against the offset the palette implies for
+	// the same two entries, turned into the parent's frame. Under this mapping
+	// they agree; under the palette read one, two or three entries along they
+	// do not, and the identity wins for 166 of the 170 models with a palette.
+	// It is the same argument as the mesh id's, on the same kind of evidence.
 	posable = m->nummatrices;
 
 	if (posable > model->definition->nummatrices) {
@@ -1758,31 +1805,48 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct xblameshuse *use,
 	if (xblaMeshVerbose && !m->posedlog) {
 		m->posedlog = 1;
 		sysLogPrintf(LOG_NOTE, "xblamesh:   %d palette entries, %d posed by the "
-				"model's %d matrices", m->nummatrices, posable,
-				model->definition->nummatrices);
+				"model's %d matrices, scale %g", m->nummatrices, posable,
+				model->definition->nummatrices, m->scale);
 
-		// If the two rigs are the same rig then every entry's transform comes
-		// out near the identity for a model standing still: the game's matrix
-		// for a bone undoes the mesh's bind for it, leaving only the root.
-		for (s32 i = posable > 10 ? posable - 10 : 0; i < posable; i++) {
-			// What the bind's translation would have to be for this entry to
-			// come out as the identity, against what the file has.
-			Mtxf inv;
-			struct coord want;
-			struct coord in;
+		// Whether the two rigs are the same rig, which is the thing to look at
+		// when a pose comes out wrong. A bone's distance from the first one is
+		// the same in both if they are, once the game's is taken out of the
+		// matrix's own scale - so every ratio here should be the same number,
+		// and it should be near 1. A bone whose ratio is on its own is one the
+		// release moved; all of them being off by a constant is the header's
+		// scale being read wrong.
+		for (s32 i = 0; i < posable && i < 12; i++) {
+			const Mtxf *g = &model->matrices[i];
+			const f32 *b = &m->invbind[i].m[3][0];
+			const f32 *b0 = &m->invbind[0].m[3][0];
+			f32 mesh = 0.0f;
+			f32 game = 0.0f;
+			f32 mscale;
 
-			xblaMeshInvert(&model->matrices[i], &inv);
+			// The bind's translation is the bone's position rotated into the
+			// bone's own frame, so a difference of two is only a distance
+			// after each has come back out of its rotation. Distances are
+			// what this needs, so it takes them one at a time.
+			for (s32 j = 0; j < 3; j++) {
+				const f32 mb = -(b[0] * m->invbind[i].m[j][0] +
+						b[1] * m->invbind[i].m[j][1] + b[2] * m->invbind[i].m[j][2]);
+				const f32 mb0 = -(b0[0] * m->invbind[0].m[j][0] +
+						b0[1] * m->invbind[0].m[j][1] + b0[2] * m->invbind[0].m[j][2]);
+				const f32 gd = g->m[3][j] - model->matrices[0].m[3][j];
 
-			in.x = root->m[3][0] - model->matrices[i].m[3][0];
-			in.y = root->m[3][1] - model->matrices[i].m[3][1];
-			in.z = root->m[3][2] - model->matrices[i].m[3][2];
-			mtx4RotateVec(&inv, &in, &want);
+				mesh += (mb - mb0) * (mb - mb0);
+				game += gd * gd;
+			}
 
-			sysLogPrintf(LOG_NOTE, "xblamesh:     pal %2d  diag %.3f %.3f %.3f"
-					"  have %.2f %.2f %.2f  want %.2f %.2f %.2f", i,
-					pal[i].m[0][0], pal[i].m[1][1], pal[i].m[2][2],
-					m->invbind[i].m[3][0], m->invbind[i].m[3][1], m->invbind[i].m[3][2],
-					want.x, want.y, want.z);
+			mesh = sqrtf(mesh);
+			game = sqrtf(game);
+			mscale = sqrtf(g->m[0][0] * g->m[0][0] + g->m[0][1] * g->m[0][1] +
+					g->m[0][2] * g->m[0][2]);
+
+			sysLogPrintf(LOG_NOTE, "xblamesh:     pal %2d  from pal 0: mesh "
+					"%8.2f  game %8.2f  ratio %6.3f", i, mesh,
+					mscale > 1e-6f ? game / mscale : game,
+					mesh > 1e-3f && mscale > 1e-6f ? game / mscale / mesh : 0.0f);
 		}
 	}
 
@@ -1799,7 +1863,10 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct xblameshuse *use,
 		in.y = pos[1];
 		in.z = pos[2];
 
-		for (s32 j = 0; j < bone[3]; j++) {
+		// All three, always: the fourth byte is not the number of them. A
+		// vertex with fewer repeats a bone in the bytes it does not need and
+		// leaves the weight at zero, so the extra terms add nothing.
+		for (s32 j = 0; j < 3; j++) {
 			struct coord moved;
 			const s32 which = bone[j] < m->nummatrices ? bone[j] : 0;
 

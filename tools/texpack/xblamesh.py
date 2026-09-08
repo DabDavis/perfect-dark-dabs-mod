@@ -21,8 +21,9 @@ parse (see "How this was confirmed" below):
     u32   drawCount
     u32   drawOffset
     u32   matrixCount
-    f32   unknown           100.0 on every unskinned mesh, 1000.0 on nearly
-                            every skinned one
+    f32   scale             what one of the mesh's units is worth in the
+                            model file's, times 100: 100.0 on every unskinned
+                            mesh, 1000.0 on nearly every skinned one
     u32   groupOffset       == 32 + 48 * matrixCount
 
     f32   matrices[matrixCount][3][4]        row major, translation in column 3
@@ -33,10 +34,13 @@ parse (see "How this was confirmed" below):
 
 A vertex is position (3 floats), UV (2), normal (3, unit length), colour
 (one u32). A skinned one adds two blend weights and a packed
-{bone0, bone1, bone2, influenceCount} byte quad. There are only the two
-weights: they sum to 1.0 on every skinned vertex in the release, so there is
-no 1 - w0 - w1 third one, and the count runs 1 to 6 regardless. Stride 36 means unskinned and matrixCount is then always 0;
-stride 48 means skinned and matrixCount is then always non-zero.
+{bone0, bone1, bone2, count} byte quad. The third weight is 1 - w0 - w1: the
+two stored ones sum to 1.0 on 93% of the release's skinned vertices and to as
+little as 0.5 on the rest. The fourth byte is not a count of influences - it
+runs 1 to 6 against three bones and is the same for every vertex of a draw -
+so all three bones always apply, and a vertex with fewer repeats a bone in
+the bytes it does not need. Stride 36 means unskinned and matrixCount is then
+always 0; stride 48 means skinned and matrixCount is then always non-zero.
 
 The material word is a texture record index in Textures.raw in bits 0-12
 (they run 3741 to 5746, which is inside the 2244 records past the game's own
@@ -45,9 +49,12 @@ bit 15 set when that texture has alpha, and two bytes above that whose meaning
 is not known: bits 16-23 hold a value from 0 to 100 and bits 24-31 a small
 ordinal 0-4 that is zero on all but 15 of the 761 distinct materials.
 
-The vertices are in the mesh's own space already. The matrix palette is not a
-transform to apply to them - doing that folds a character in half. It is what
-a skinned draw needs alongside a pose, and a still render wants none of it.
+The vertices are in the mesh's own space already, at the header's scale. The
+palette holds each bone's *inverse* bind - model space to bone space - so
+applying it to the vertices is not a transform into anything and folds a
+character in half; it is what a skinned draw needs alongside a pose. Entry i
+of the palette is matrix i of the Perfect Dark model the mesh replaces, which
+is what port/src/xblamesh.c poses from (see CLAUDE-notes/xbla.md).
 
 How this was confirmed. Every claim above holds over all 595 files at once,
 which is what separates it from a plausible read of one file:
@@ -146,7 +153,7 @@ class Mesh:
                              % (slot, len(data)))
 
         (self.count, self.vertex_offset, self.index_offset, self.num_draws,
-         self.draw_offset, self.num_matrices, self.unknown,
+         self.draw_offset, self.num_matrices, self.scale,
          self.group_offset) = struct.unpack('>6IfI', data[:MESH_HEADER])
 
         if self.count == 0 or self.vertex_offset < MESH_HEADER:
@@ -222,8 +229,8 @@ class Mesh:
             return None
         o = self.vertex_offset + i * self.stride
         w0, w1 = struct.unpack('>2f', self.data[o + 36:o + 44])
-        b0, b1, b2, n = struct.unpack('>4B', self.data[o + 44:o + 48])
-        return (w0, w1, 1.0 - w0 - w1)[:n], (b0, b1, b2)[:n]
+        b0, b1, b2, _count = struct.unpack('>4B', self.data[o + 44:o + 48])
+        return (w0, w1, max(0.0, 1.0 - w0 - w1)), (b0, b1, b2)
 
     def triangles(self):
         for t in range(self.num_indices // 3):
@@ -396,8 +403,9 @@ def show(m):
     print('slot %d: %d vertices, %d triangles, stride %d%s'
           % (m.slot, m.count, m.num_indices // 3, m.stride,
              ', skinned' if m.stride == 48 else ''))
-    print('  unknown float %g, %d matrices, %d groups, %d draws'
-          % (m.unknown, m.num_matrices, m.num_groups, m.num_draws))
+    print('  scale %g (one mesh unit is %g of the model file\'s), %d matrices,'
+          ' %d groups, %d draws'
+          % (m.scale, m.scale / 100.0, m.num_matrices, m.num_groups, m.num_draws))
 
     for i, rows in enumerate(m.matrices()):
         print('    matrix %-3d %s' % (i, '  '.join('[%8.3f %8.3f %8.3f %8.3f]' % r
