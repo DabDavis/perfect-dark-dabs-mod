@@ -46,6 +46,17 @@ camera that is on the eye** - it also returns zero outside `CAMERAMODE_DEFAULT`,
 because `thirdpersondist` is only written by the normal tick and a cutscene or
 an eyespy entered from third person would otherwise carry the last value it had.
 
+**It is signed, and the sign is not in `thirdpersondist`.** Camera Forward/Back
+can bring the camera round in front of the eye, and then every consumer wants
+the correction the other way about: the origin slides *back* down the ray, and
+the melee reach shortens rather than lengthens. `thirdpersondist` is the length
+of an offset that may now point anywhere, so it cannot carry that; the accessor
+reads the side off `(eye - campos) . look` instead and negates. Anything new
+that takes the pull-back has to add it signed, the way bondgun.c and prop.c do.
+`playerGetCameraToEyeOffset()` deliberately does *not* go through the accessor
+for its "is there anything to correct" test - a muzzle in front of the player
+wants putting back at the hands just as much as one behind them.
+
 1. **The shot's origin slides up its own ray** by that distance, in
    `bgunCalculatePlayerShotSpread()`. The ray does not move, so no bullet
    changes and the crosshair stays honest; the origin lands at the player, which
@@ -66,6 +77,25 @@ box in camera space - `min` the far face, `max` the near one, in front being
 negative. All three of those are distances from the camera and all three take
 the pull-back. Moving the shot's origin does nothing for melee; this is a
 separate site.
+
+## Three offsets, and what each one is along
+
+| setting | axis | what moves it |
+| --- | --- | --- |
+| Camera Distance | `-look`, the look vector itself | pitching the view: looking up walks the camera down towards the floor, looking down lifts it |
+| Camera Sideways | `look x up`, the right hand | nothing; it is the shoulder the picture is taken over |
+| Camera Forward/Back | the facing, flattened level | nothing; it holds its height at every pitch |
+
+The three add into one `offset` and the trace scales all of it together, so a
+wall brings them in as a set and the shoulder is kept.
+
+Forward and back takes its direction out of the **right vector**, not out of the
+look vector: `(right.z, -right.x)` is the right hand turned a quarter turn back
+onto the facing, and it is exact with the view straight up or straight down,
+where flattening the look vector leaves nothing to normalise. Positive is
+further back, so it reads the same way round as Camera Distance; negative is
+what puts the camera in front of the player, and that is the case the signed
+pull-back above exists for.
 
 ## The camera trace
 
@@ -107,7 +137,10 @@ gdb -batch -p $(pgrep -x pd.x86_64) \
     -ex 'call (void)screenshotRequest()' -ex detach
 ```
 
-`thirdpersondist` should read `sqrt(camdist^2 + camside^2)`, and `muzzlepos`
+`thirdpersondist` should read `sqrt(camdist^2 + camside^2)` with the view level
+and no wall in the way, and `camdist + camfwd` with only the forward offset set;
+what says the forward offset is *level* is that `(campos - eye).y` does not
+change when it moves, at any pitch. `muzzlepos`
 should sit about 45 units from `bond2.unk10` - the same distance it does in
 first person - rather than 200 units away next to `thirdpersoncampos`. That one
 number is the whole muzzle fix.

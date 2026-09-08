@@ -506,6 +506,7 @@
 #define THIRDPERSON_CAMDIST      200.0f
 #define THIRDPERSON_CAMCLEARANCE 30.0f
 #define THIRDPERSON_CAMSIDE      0.0f
+#define THIRDPERSON_CAMFWD       0.0f
 
 /**
  * The shortest pull-back worth having.

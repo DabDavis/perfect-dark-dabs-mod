@@ -387,6 +387,7 @@ struct modoptions {
 	f32 camclearance;// how far short of a wall it stops
 	f32 cammindist;  // below which it is not worth leaving the eye at all
 	f32 camside;     // units to one side of the eye, negative for the left
+	f32 camfwd;      // units along the facing, flattened level; negative puts the camera in front
 	s32 bodies;      // how many bodies are left lying around, 0 for off
 	s32 bodytime;    // seconds one lies there, 0 for until the cap takes it
 	s32 bodiesdrawn; // how many may be drawn at once, 0 for all of them

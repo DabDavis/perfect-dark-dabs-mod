@@ -3818,6 +3818,31 @@ static void playerPullBackCamera(struct coord *campos)
 		offset.z += (look->x * up->y - look->y * up->x) * g_ModOptions.camside;
 	}
 
+	// Forward and back is along the direction the player faces with the pitch
+	// taken out of it, which is the axis the pull-back above is not: that one
+	// rides the look vector, so looking up walks the camera down towards the
+	// floor and looking down lifts it. This one holds its height whatever the
+	// view is doing, and negative brings the camera round in front of the
+	// player rather than behind them.
+	//
+	// The facing comes back out of the same right vector the sideways offset
+	// uses rather than out of the look vector, because the right vector is
+	// horizontal at every pitch - (right.z, -right.x) is it turned a quarter
+	// turn - and flattening the look vector has nothing left to normalise with
+	// the view straight up or straight down.
+	if (g_ModOptions.camfwd != 0) {
+		struct coord *look = &player->bond2.unk1c;
+		struct coord *up = &player->bond2.unk28;
+		f32 rightx = look->y * up->z - look->z * up->y;
+		f32 rightz = look->x * up->y - look->y * up->x;
+		f32 rightlen = sqrtf(rightx * rightx + rightz * rightz);
+
+		if (rightlen > 0.0001f) {
+			offset.x -= rightz / rightlen * g_ModOptions.camfwd;
+			offset.z += rightx / rightlen * g_ModOptions.camfwd;
+		}
+	}
+
 	len = sqrtf(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z);
 
 	// Nowhere to go, and nothing to divide by below.
@@ -3915,6 +3940,18 @@ f32 playerGetShotOriginPullback(void)
 		return 0;
 	}
 
+	// The forward offset can bring the camera round in front of the eye, and
+	// then the origin belongs back down the ray rather than up it. The distance
+	// itself carries no sign - it is the length of an offset that may point
+	// anywhere - so which side of the eye the camera came to rest on is read
+	// off the look vector, and every consumer of this takes the negative the
+	// same way it takes the positive.
+	if ((player->bond2.unk10.x - player->thirdpersoncampos.x) * player->bond2.unk1c.x
+			+ (player->bond2.unk10.y - player->thirdpersoncampos.y) * player->bond2.unk1c.y
+			+ (player->bond2.unk10.z - player->thirdpersoncampos.z) * player->bond2.unk1c.z < 0) {
+		return -player->thirdpersondist;
+	}
+
 	return player->thirdpersondist;
 #endif
 }
@@ -3940,7 +3977,12 @@ bool playerGetCameraToEyeOffset(struct coord *offset)
 {
 	struct player *player = g_Vars.currentplayer;
 
-	if (playerGetShotOriginPullback() <= 0) {
+	// The distance and not the pullback above: that one is signed by which side
+	// of the eye the camera is on, and a muzzle in front of the player wants
+	// putting back at the hands just as much as one behind them does.
+	if (player->cameramode != CAMERAMODE_DEFAULT
+			|| !playerIsThirdPerson(player)
+			|| player->thirdpersondist <= 0) {
 		return false;
 	}
 

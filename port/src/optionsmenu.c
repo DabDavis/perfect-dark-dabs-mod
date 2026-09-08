@@ -2782,6 +2782,8 @@ static MenuItemHandlerResult menuhandlerModBodyTime(s32 operation, struct menuit
 #define MODCAM_MINDIST  60
 #define MODCAM_MAXSIDE  150
 #define MODCAM_SIDESTEP 5
+#define MODCAM_MAXFWD   150
+#define MODCAM_FWDSTEP  5
 
 static MenuItemHandlerResult menuhandlerModCamDist(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -2865,6 +2867,47 @@ static MenuItemHandlerResult menuhandlerModCamSide(s32 operation, struct menuite
 			sprintf(data->slider.label, "Left %d", -side);
 		} else if (side > 0) {
 			sprintf(data->slider.label, "Right %d", side);
+		} else {
+			sprintf(data->slider.label, "Centre");
+		}
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Camera Forward/Back, read the same way as Camera Sideways: a direction and an
+ * amount, since a bar with a minus sign on it says nothing about which end is
+ * which. Forward is towards where the player is looking, and far enough forward
+ * is round in front of them.
+ */
+static MenuItemHandlerResult menuhandlerModCamFwd(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 fwd;
+
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		fwd = (s32)(g_ModOptions.camfwd + (g_ModOptions.camfwd < 0 ? -0.5f : 0.5f));
+
+		if (fwd < -MODCAM_MAXFWD) {
+			fwd = -MODCAM_MAXFWD;
+		} else if (fwd > MODCAM_MAXFWD) {
+			fwd = MODCAM_MAXFWD;
+		}
+
+		data->slider.value = (fwd + MODCAM_MAXFWD) / MODCAM_FWDSTEP;
+		break;
+	case MENUOP_SET:
+		g_ModOptions.camfwd = (f32)((s32)data->slider.value * MODCAM_FWDSTEP - MODCAM_MAXFWD);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		fwd = (s32)data->slider.value * MODCAM_FWDSTEP - MODCAM_MAXFWD;
+
+		if (fwd < 0) {
+			sprintf(data->slider.label, "Forward %d", -fwd);
+		} else if (fwd > 0) {
+			sprintf(data->slider.label, "Back %d", fwd);
 		} else {
 			sprintf(data->slider.label, "Centre");
 		}
@@ -3777,6 +3820,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Camera Sideways",
 		2 * MODCAM_MAXSIDE / MODCAM_SIDESTEP,
 		menuhandlerModCamSide,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Camera Forward/Back",
+		2 * MODCAM_MAXFWD / MODCAM_FWDSTEP,
+		menuhandlerModCamFwd,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
