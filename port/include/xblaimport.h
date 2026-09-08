@@ -17,10 +17,11 @@ extern "C" {
  * reproduce and nothing to guess, which is what separates this from an
  * emulator pack (see riceconvert.py).
  *
- * Nothing is bundled. Mod.XblaPackage says where the player's own copy is;
- * failing that a few usual places are tried. The same conversion exists
- * offline as tools/texpack/xblaconvert.py, and the two agree - the tool is how
- * this one was checked.
+ * Nothing is bundled. The player drops their own copy - the release's .7z, or
+ * the package out of it - into the xbla/ folder beside the executable, the way
+ * a mod goes in mods/; Mod.XblaPackage names a file somewhere else instead.
+ * The same conversion exists offline as tools/texpack/xblaconvert.py, and the
+ * two agree - the tool is how this one was checked.
  */
 
 #define XBLAIMPORT_IDLE       0
@@ -40,19 +41,36 @@ extern "C" {
  */
 #define XBLAIMPORT_NUM_REPLACED 3503
 
+/**
+ * Makes the xbla/ folder, so there is somewhere to drop a package before there
+ * is a package, and logs what was found there. Called once at startup.
+ */
+void xblaImportInit(void);
+
 /** Whether a package was found. Its path, for the page to show. */
 s32 xblaImportIsAvailable(void);
 const char *xblaImportGetPackagePath(void);
+
+/** The xbla/ folder itself, for the page to tell the player where to look. */
+const char *xblaImportGetDropDir(void);
+
 void xblaImportRedetect(void);
 
 /**
- * A path to an STFS package rather than to whatever the player has.
+ * A path to an STFS package rather than to whatever the player has, unpacking
+ * the archive they dropped in xbla/ if that has not been done yet.
  *
- * The texture conversion can unpack an archive on its way past; anything that
- * reads a file at a time out of the package - the mesh loader - cannot, since
- * a .7z is usually solid. So this hands back the detected path when that is
- * already a package, and otherwise whatever an earlier conversion left
- * unpacked. NULL when there is neither.
+ * Nothing reads a .7z a file at a time: it is one LZMA stream, so a single
+ * file out of it costs the whole archive. It comes apart once into a dot
+ * directory inside xbla/ and a marker file says that finished - a few seconds
+ * and 250MB of disk, once, since the release's archive is already-compressed
+ * data and barely compresses again. NULL when there is no package to be had.
+ *
+ * This blocks for that unpack, so it belongs on the paths that are about to
+ * read the package - the texture conversion's worker, the mesh and texture
+ * loaders with Mod.XblaMeshes on - and not on one that only wants to know
+ * whether a package exists. xblaImportIsAvailable() answers that without
+ * touching the disk beyond a scan.
  */
 const char *xblaImportGetStfsPath(void);
 

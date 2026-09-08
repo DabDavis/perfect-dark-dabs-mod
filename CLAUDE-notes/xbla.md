@@ -626,7 +626,51 @@ only way to exercise it without driving the menus:
 ./build/pd.x86_64 --savedir /tmp/pdsave --xbla-import --no-sound --log
 ```
 
-3503 textures in about 24 seconds. `Mod.XblaPackage` says where the package is;
-failing that the game's data directory, the executable's directory and the save
-directory are searched, by name and then by looking for STFS magic — a package
-is named after a content id hash, so it cannot be found by name alone.
+3503 textures in about 24 seconds, and about four more if the archive still has
+to come apart.
+
+## Where the player puts it: the `xbla/` folder
+
+`xbla/` is to this what `mods/` is to a mod — one folder, drop the file in,
+nothing to configure. `xblaImportInit()` creates it at startup (beside the
+executable where that is writable and in the save directory where it is not,
+`fsChooseOutputDir()`) and logs either what it found or where to put one, so a
+player who has never had a package still has somewhere obvious to put it.
+
+Three placements all work, and each was checked: `Perfect Dark XBLA.7z` itself,
+the STFS package unpacked out of it, and a folder holding either — the scan
+goes two deep, because the release's archive wraps its package in a `Perfect
+Dark/` folder and a player who unpacked it by hand has that folder. A package
+is looked for before an archive across the whole folder, not per entry, so
+somebody with both does not pay for an extraction they have already done.
+`Mod.XblaPackage` still names a file somewhere else, and the older search — the
+game's data directory, the executable's directory and the save directory, by
+name and then by STFS magic — is still there behind `xbla/`, so an install that
+was working before this keeps working.
+
+**A package is found by its magic, not its name**, `LIVE`/`CON `/`PIRS`: it is
+named after a content id hash. An archive is found by its extension, since it
+is not necessarily named anything in particular either.
+
+### The archive is unpacked once, by whoever needs it first
+
+Nothing reads a `.7z` a file at a time — it is one LZMA stream, so one file out
+of it costs the whole archive — so `xblaImportGetStfsPath()` extracts it into
+`xbla/.unpacked/` and writes `.extracted` beside it when that finished. Both
+names start with a dot, so `fsScanDir()` skips them and the unpacked copy is
+never mistaken for the player's own file.
+
+It is worth knowing how cheap that is, because it is what makes doing it on
+demand reasonable rather than a background job with a progress bar: the release's
+233MB archive is already-compressed data and barely compresses again, so it
+unpacks in **about three seconds**, once, for 250MB of disk. The texture
+conversion used to do its own extraction into `texture-packs/.xbla`; both it and
+the mesh loader now go through the one function and whichever gets there first
+pays, under a mutex, since the mesh loader runs on the game thread as a level
+loads and the conversion on its worker. That old directory is still read and
+never written, so an install that already has the 250MB there is not made to
+unpack it again.
+
+`xblaImportIsAvailable()` is the question to ask when all you want to know is
+whether there is a package — it never unpacks. `xblaImportGetStfsPath()` blocks
+for the unpack and belongs only on a path that is about to read the package.

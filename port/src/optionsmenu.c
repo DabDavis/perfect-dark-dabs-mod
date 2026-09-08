@@ -5080,7 +5080,7 @@ static const char *menutextXblaStatus(struct menuitem *item)
 
 	if (!xblaImportIsAvailable()) {
 		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
-				"No package found - set Mod.XblaPackage in pd.ini\n");
+				"No package found - put Perfect Dark XBLA.7z in the xbla folder\n");
 	} else if (state == XBLAIMPORT_IDLE) {
 		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
 				"Ready - this takes about a minute\n");
@@ -5105,7 +5105,18 @@ static const char *menutextXblaPath(struct menuitem *item)
 	const char *slash;
 
 	if (!path[0]) {
-		snprintf(g_XblaPathText, sizeof(g_XblaPathText), " \n");
+		// Nothing found: the folder to drop it in is the useful thing to show,
+		// and its tail is the part a player can act on.
+		const char *dir = xblaImportGetDropDir();
+		const u32 len = strlen(dir);
+
+		if (len > XBLA_PATHCHARS) {
+			snprintf(g_XblaPathText, sizeof(g_XblaPathText), "In ...%s\n",
+					dir + len - (XBLA_PATHCHARS - 3));
+		} else {
+			snprintf(g_XblaPathText, sizeof(g_XblaPathText), "In %s\n", dir);
+		}
+
 		return g_XblaPathText;
 	}
 

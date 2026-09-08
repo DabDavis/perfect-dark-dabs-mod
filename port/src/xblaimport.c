@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <sys/stat.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
@@ -38,7 +39,26 @@
 // pack rather than leaving two of them.
 #define XBLAIMPORT_PACK_NAME "PD XBLA"
 
-// Where an archive is unpacked. Starts with a dot so the pack scan skips it.
+// Where the player puts their copy: a folder of its own beside the executable,
+// the way mods/ has one. Anything in there that is a package, or an archive
+// holding one, is found - so the file keeps whatever name it came with.
+#define XBLAIMPORT_XBLA_DIR "xbla"
+
+// How far into that folder to look. An archive in the wild wraps the package
+// in a folder of its own ("Perfect Dark/<content id>"), and a player who
+// unpacked one by hand has that folder sitting in xbla/.
+#define XBLAIMPORT_SCAN_DEPTH 2
+
+// Where an archive dropped in xbla/ comes apart, and the file written once it
+// has come apart completely - an extraction that was interrupted is done again
+// rather than half used. Both start with a dot, so fsScanDir() skips them and
+// the unpacked copy is never offered as the player's own file.
+#define XBLAIMPORT_UNPACK_DIR ".unpacked"
+#define XBLAIMPORT_DONE_FILE ".extracted"
+
+// Where an archive was unpacked before xbla/ existed, under the texture packs.
+// Read and never written: an install that already has the 250MB package there
+// is not made to unpack it a second time.
 #define XBLAIMPORT_WORK_DIR ".xbla"
 
 // Inside the package. The only file this reads.
@@ -68,8 +88,18 @@ static char packName[XBLAIMPORT_NAMELEN] = XBLAIMPORT_PACK_NAME;
 static char packagePath[FS_MAXPATH + 1];
 static char configuredPath[FS_MAXPATH + 1];
 static char packDir[FS_MAXPATH + 1];
-static char workDir[FS_MAXPATH + 1];
 static s32 detected;
+
+// The package itself, once there is one on disk: what the player dropped when
+// that was already a package, and what came out of it when it was an archive.
+static char unpackedPath[FS_MAXPATH + 1];
+static s32 unpackFailed;
+
+// Held across an unpack, because both the game thread (the mesh loader asking
+// for the package as a level loads) and the import worker can be the one to
+// find it missing, and two of them extracting 250MB into the same directory at
+// once is not something either would survive.
+static SDL_mutex *unpackMutex;
 
 static SDL_Thread *worker;
 static SDL_atomic_t workerDone;
@@ -116,10 +146,21 @@ static s32 xblaLooksLikePackage(const char *path)
 	return ok;
 }
 
+static s32 xblaPathIsDir(const char *path)
+{
+	struct stat st;
+
+	return stat(fsFullPath(path), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 struct xblascan {
 	char found[FS_MAXPATH + 1];
 	const char *dir;
+	s32 archives; // take a .7z or a .zip as well as a package
+	s32 depth;    // directories still to look into
 };
+
+static s32 xblaScanDir(const char *dir, s32 archives, s32 depth, char *dst, u32 dstLen);
 
 static void xblaScanForPackage(const char *name, void *arg)
 {
@@ -132,18 +173,35 @@ static void xblaScanForPackage(const char *name, void *arg)
 
 	snprintf(path, sizeof(path), "%s/%s", scan->dir, name);
 
-	if (xblaLooksLikePackage(path)) {
+	// A package is taken on what it starts with, an archive on its extension:
+	// a package is named after a content id hash and an archive is not
+	// necessarily named anything in particular either.
+	if (xblaLooksLikePackage(path) ||
+			(scan->archives && archiveIsSupported(path) && fsFileSize(path) >= 0)) {
 		strncpy(scan->found, path, sizeof(scan->found) - 1);
+		return;
+	}
+
+	if (scan->depth > 0 && xblaPathIsDir(path)) {
+		xblaScanDir(path, scan->archives, scan->depth - 1, scan->found, sizeof(scan->found));
 	}
 }
 
-/** The first STFS package directly inside dir, if there is one. */
-static s32 xblaFindPackageIn(const char *dir, char *dst, u32 dstLen)
+/**
+ * The first package - or archive, when asked for one - at or under dir.
+ *
+ * dir must already be expanded: xblaLooksLikePackage() opens what it is given
+ * and fsFullPath()'s buffer is one deep, so a "$E/..." handed down through the
+ * recursion would be re-expanded under itself.
+ */
+static s32 xblaScanDir(const char *dir, s32 archives, s32 depth, char *dst, u32 dstLen)
 {
 	struct xblascan scan;
 
 	memset(&scan, 0, sizeof(scan));
 	scan.dir = dir;
+	scan.archives = archives;
+	scan.depth = depth;
 
 	fsScanDir(dir, xblaScanForPackage, &scan);
 
@@ -155,6 +213,12 @@ static s32 xblaFindPackageIn(const char *dir, char *dst, u32 dstLen)
 	dst[dstLen - 1] = '\0';
 
 	return 1;
+}
+
+/** The first STFS package directly inside dir, if there is one. */
+static s32 xblaFindPackageIn(const char *dir, char *dst, u32 dstLen)
+{
+	return xblaScanDir(dir, 0, 0, dst, dstLen);
 }
 
 static s32 xblaTryPath(const char *path)
@@ -178,8 +242,38 @@ static s32 xblaTryPath(const char *path)
 	return 1;
 }
 
+/**
+ * The xbla/ folder: where the player is told to put their copy.
+ *
+ * Beside the executable where that can be written and in the save directory
+ * where it cannot, the same choice screenshots and recordings make - and it is
+ * created here, so a player who has never had a package still has somewhere
+ * obvious to put one. dst gets the expanded path.
+ */
+static s32 xblaDropDir(char *dst, u32 dstLen)
+{
+	char rel[FS_MAXPATH + 1];
+
+	if (fsChooseOutputDir(XBLAIMPORT_XBLA_DIR, rel, sizeof(rel)) != 0) {
+		dst[0] = '\0';
+		return 0;
+	}
+
+	snprintf(dst, dstLen, "%s", fsFullPath(rel));
+
+	return 1;
+}
+
 static void xblaDetect(void)
 {
+	// xbla/ wherever it is, then the places that were searched before it
+	// existed, so an install that was already working keeps working.
+	static const char *const dirs[] = {
+		"$E/" XBLAIMPORT_XBLA_DIR,
+		"$H/" XBLAIMPORT_XBLA_DIR,
+		"./" XBLAIMPORT_XBLA_DIR,
+		"$S/" XBLAIMPORT_XBLA_DIR,
+	};
 	static const char *const roots[] = { "$H", "$E", "$S" };
 
 	detected = 1;
@@ -187,6 +281,25 @@ static void xblaDetect(void)
 
 	if (xblaTryPath(configuredPath)) {
 		return;
+	}
+
+	for (s32 d = 0; d < ARRAYCOUNT(dirs); d++) {
+		// fsFullPath() hands back one buffer, so the expansion is copied out
+		// before anything else is composed against it.
+		char dir[FS_MAXPATH + 1];
+		char path[FS_MAXPATH + 1];
+
+		snprintf(dir, sizeof(dir), "%s", fsFullPath(dirs[d]));
+
+		// A package outright before an archive that would have to be unpacked:
+		// a player who has both has already paid for the extraction once.
+		if (xblaScanDir(dir, 0, XBLAIMPORT_SCAN_DEPTH, path, sizeof(path)) && xblaTryPath(path)) {
+			return;
+		}
+
+		if (xblaScanDir(dir, 1, XBLAIMPORT_SCAN_DEPTH, path, sizeof(path)) && xblaTryPath(path)) {
+			return;
+		}
 	}
 
 	for (s32 r = 0; r < ARRAYCOUNT(roots); r++) {
@@ -228,52 +341,165 @@ const char *xblaImportGetPackagePath(void)
 	return packagePath;
 }
 
-const char *xblaImportGetStfsPath(void)
+/**
+ * The package an earlier run left unpacked under the texture packs, before
+ * xbla/ existed. Read only: 250MB is not worth extracting twice to move it.
+ */
+static s32 xblaFindLegacyUnpacked(char *dst, u32 dstLen)
 {
-	static char stfsPath[FS_MAXPATH + 1];
 	char rel[FS_MAXPATH + 1];
 	char dir[FS_MAXPATH + 1];
 	char sub[FS_MAXPATH + 1];
 
-	if (!xblaImportIsAvailable()) {
-		return NULL;
-	}
-
-	if (xblaLooksLikePackage(packagePath)) {
-		return packagePath;
-	}
-
-	if (stfsPath[0]) {
-		return stfsPath;
-	}
-
-	// What the player has is an archive. An earlier conversion will have left
-	// the package inside it unpacked in the work directory, under whatever the
-	// archive called it - a content id hash, or a subdirectory named after the
-	// game.
 	if (fsChooseOutputDir(TEXPACK_PACKS_DIR, rel, sizeof(rel)) != 0) {
-		return NULL;
+		return 0;
 	}
 
 	snprintf(dir, sizeof(dir), "%s/" XBLAIMPORT_WORK_DIR, fsFullPath(rel));
 
-	if (xblaFindPackageIn(dir, stfsPath, sizeof(stfsPath))) {
-		return stfsPath;
+	if (xblaFindPackageIn(dir, dst, dstLen)) {
+		return 1;
 	}
 
 	snprintf(sub, sizeof(sub), "%s/Perfect Dark", dir);
 
-	if (xblaFindPackageIn(sub, stfsPath, sizeof(stfsPath))) {
-		return stfsPath;
+	return xblaFindPackageIn(sub, dst, dstLen);
+}
+
+static const char *xblaEnsureUnpackedLocked(void)
+{
+	char drop[FS_MAXPATH + 1];
+	char dir[FS_MAXPATH + 1];
+	char marker[FS_MAXPATH + 1];
+	FILE *fp;
+
+	if (unpackedPath[0]) {
+		return unpackedPath;
 	}
 
-	return NULL;
+	if (unpackFailed || !xblaImportIsAvailable()) {
+		return NULL;
+	}
+
+	// What the player dropped is already a package - nothing to do.
+	if (xblaLooksLikePackage(packagePath)) {
+		snprintf(unpackedPath, sizeof(unpackedPath), "%s", packagePath);
+		return unpackedPath;
+	}
+
+	if (!xblaDropDir(drop, sizeof(drop))) {
+		unpackFailed = 1;
+		return NULL;
+	}
+
+	// The archive comes apart in a dot directory inside xbla/, beside the file
+	// it came from, and the marker goes in there with it.
+	snprintf(dir, sizeof(dir), "%s/" XBLAIMPORT_UNPACK_DIR, drop);
+	snprintf(marker, sizeof(marker), "%s/" XBLAIMPORT_DONE_FILE, dir);
+
+	// A previous run's work, here or where it used to go.
+	if (fsFileSize(marker) >= 0 &&
+			xblaScanDir(dir, 0, XBLAIMPORT_SCAN_DEPTH, unpackedPath, sizeof(unpackedPath))) {
+		return unpackedPath;
+	}
+
+	if (xblaFindLegacyUnpacked(unpackedPath, sizeof(unpackedPath))) {
+		return unpackedPath;
+	}
+
+	sysLogPrintf(LOG_NOTE, "xbla: unpacking %s, this happens once", packagePath);
+
+	fsCreateDir(dir);
+
+	if (archiveExtract(packagePath, dir) <= 0) {
+		sysLogPrintf(LOG_ERROR, "xbla: could not unpack %s", packagePath);
+		unpackFailed = 1;
+		return NULL;
+	}
+
+	if (!xblaScanDir(dir, 0, XBLAIMPORT_SCAN_DEPTH, unpackedPath, sizeof(unpackedPath))) {
+		sysLogPrintf(LOG_ERROR, "xbla: no Xbox 360 package inside %s", packagePath);
+		unpackFailed = 1;
+		return NULL;
+	}
+
+	fp = fopen(fsFullPath(marker), "wb");
+
+	if (fp) {
+		fclose(fp);
+	}
+
+	sysLogPrintf(LOG_NOTE, "xbla: unpacked %s", unpackedPath);
+
+	return unpackedPath;
+}
+
+const char *xblaImportGetStfsPath(void)
+{
+	const char *path;
+
+	if (unpackedPath[0]) {
+		return unpackedPath;
+	}
+
+	if (unpackMutex) {
+		SDL_LockMutex(unpackMutex);
+	}
+
+	path = xblaEnsureUnpackedLocked();
+
+	if (unpackMutex) {
+		SDL_UnlockMutex(unpackMutex);
+	}
+
+	return path;
+}
+
+const char *xblaImportGetDropDir(void)
+{
+	static char dir[FS_MAXPATH + 1];
+
+	if (!dir[0]) {
+		xblaDropDir(dir, sizeof(dir));
+	}
+
+	return dir;
 }
 
 void xblaImportRedetect(void)
 {
 	detected = 0;
+	unpackedPath[0] = '\0';
+	unpackFailed = 0;
 	xblaImportIsAvailable();
+}
+
+/**
+ * Makes the xbla/ folder and says in the log what is in it, so a player who
+ * has never had a package still finds somewhere to put one and a player whose
+ * copy was not found can see where it was looked for.
+ *
+ * Nothing is unpacked here: that waits until something actually reads the
+ * package, which is the texture conversion or the mesh loader with
+ * Mod.XblaMeshes on.
+ */
+void xblaImportInit(void)
+{
+	char dir[FS_MAXPATH + 1];
+
+	if (!unpackMutex) {
+		unpackMutex = SDL_CreateMutex();
+	}
+
+	if (!xblaDropDir(dir, sizeof(dir))) {
+		return;
+	}
+
+	if (xblaImportIsAvailable()) {
+		sysLogPrintf(LOG_NOTE, "xbla: using %s", packagePath);
+	} else {
+		sysLogPrintf(LOG_NOTE, "xbla: no package; put Perfect Dark XBLA.7z in %s", dir);
+	}
 }
 
 /**
@@ -480,38 +706,18 @@ static int xblaImportWorker(void *arg)
 
 	(void)arg;
 
-	strncpy(pkgPath, packagePath, sizeof(pkgPath) - 1);
-	pkgPath[sizeof(pkgPath) - 1] = '\0';
-
-	// An archive has to come apart first. A .7z is usually solid, so there is
-	// no reading one file out of it cheaply - see archiveExtract().
-	if (!xblaLooksLikePackage(pkgPath)) {
-		char found[FS_MAXPATH + 1];
-
+	// An archive has to come apart first. A .7z is one LZMA stream, so there
+	// is no reading a single file out of it cheaply - see archiveExtract().
+	// The mesh loader wants the same package, so both go through the one
+	// unpack and whichever gets there first pays for it.
+	if (!xblaLooksLikePackage(packagePath)) {
 		SDL_AtomicSet(&workerStage, XBLAIMPORT_EXTRACTING);
+	}
 
-		if (archiveExtract(pkgPath, workDir) <= 0) {
-			sysLogPrintf(LOG_ERROR, "xbla: could not unpack %s", pkgPath);
-			SDL_AtomicSet(&workerFailed, 1);
-			SDL_AtomicSet(&workerDone, 1);
-			return 0;
-		}
+	{
+		const char *found = xblaImportGetStfsPath();
 
-		// The package inside is named after a content id, so it is found by
-		// its magic. Archives in the wild put it in a subdirectory.
-		if (!xblaFindPackageIn(workDir, found, sizeof(found))) {
-			char sub[FS_MAXPATH + 1];
-			struct xblascan scan;
-
-			memset(&scan, 0, sizeof(scan));
-			snprintf(sub, sizeof(sub), "%s/Perfect Dark", workDir);
-			scan.dir = sub;
-			fsScanDir(sub, xblaScanForPackage, &scan);
-			strncpy(found, scan.found, sizeof(found) - 1);
-		}
-
-		if (!found[0]) {
-			sysLogPrintf(LOG_ERROR, "xbla: no Xbox 360 package inside %s", pkgPath);
+		if (!found) {
 			SDL_AtomicSet(&workerFailed, 1);
 			SDL_AtomicSet(&workerDone, 1);
 			return 0;
@@ -559,9 +765,6 @@ s32 xblaImportStart(void)
 		state = XBLAIMPORT_FAILED;
 		return 0;
 	}
-
-	snprintf(workDir, sizeof(workDir), "%s/" XBLAIMPORT_WORK_DIR, fsFullPath(rel));
-	fsCreateDir(workDir);
 
 	snprintf(packDir, sizeof(packDir), "%s/%s", fsFullPath(rel), packName);
 	fsCreateDir(packDir);
