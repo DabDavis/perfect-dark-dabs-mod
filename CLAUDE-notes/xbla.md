@@ -355,10 +355,30 @@ which always fits. The renderer keeps one table pointer with nothing to save or
 restore it, so the list puts it back to a table of white at the end — white
 being the one wrong answer that cannot darken what draws next.
 
-**Only the first part draws.** One mesh replaces a whole model and every part
-of the model carries its id, so drawing at each of them draws the model over
-itself once per part, each copy under a different bone. Parts past the first
-return without drawing and without falling back to the game's geometry.
+**A part draws its own group, and only its own.** One mesh replaces a whole
+model and every part of the model carries its id, so a list for the whole mesh
+drawn at each of them draws the model over itself once per part — which is
+what turned a room into overlapping sheets, and why this used to draw at part 0
+and nothing at the rest. The list is per group instead: a group is one part, in
+the same order and the same number, and it holds in all **542** (model, mesh)
+pairs the release has, with the parts numbered 0..n-1 and no gaps. So the node
+carrying part p draws group p.
+
+That is what lets a piece the game has hidden stay hidden — a head's earpiece
+or its sunglasses are a part of their own under a toggle — and it is also what
+draws a part whose *first* part is hidden: the golden Magnum's hand was missing
+until this, because the hands model's part 0 is not always the one the game
+walks. A model whose parts do not line up with the groups, which is nothing in
+the release but could be a mod's, falls back to the old rule through a list
+that calls every group in turn.
+
+Every group draws under the **first part's matrix**, whichever part is drawing.
+A group is not in its own part's space: a door's window pane is where the door
+has it, all five multi-part meshes in the release that are not skinned load one
+matrix for every part anyway, and a posed mesh comes out in the first part's
+space by construction. And since a part now draws on its own, the posed copy is
+remembered for the frame and the model it was made for, so Dr Carroll poses
+once a frame rather than thirteen times.
 
 One thing that reads as a bug and is not: a mesh can cover much more of the
 screen than the geometry it replaced. One node is shared by every instance of
@@ -505,6 +525,14 @@ Chicago, Air Base and Skedar exit clean with nothing failing to build, and two
 seeded runs of the G5 Building are pixel-identical at the same level frame —
 the same check the textures passed.
 
+**That check only means anything on a frame with no chr in it.** `--rng-seed
+--fixed-step --screenshot-frame` reproduces frame 900 of the G5 Building to
+the byte across runs and across every build in this file's history, and does
+not reproduce frame 1700, where a guard is walking past: three runs of the
+same binary give three different pictures. That is not the meshes — the build
+before any of this does the same — but it is worth knowing before a chr frame
+is used to tell two builds apart.
+
 `--xbla-mesh-verbose` prints, per palette entry, the distance from entry 0 in
 the mesh beside the same distance in the game's matrices, and their ratio. If
 the two rigs are the same rig every ratio is 1 — that is what confirmed this at
@@ -564,9 +592,12 @@ the same way round — her head group is 2341 vertices against the earpiece's
 672. It runs only after the zip has failed, and only for a model whose release
 copy names one mesh and numbers its parts 0..n-1 with no gaps.
 
-One wrinkle to know about: a mesh is drawn once, at part 0, so a piece the
-game toggles off — that earpiece — draws anyway. The fix for that is a display
-list per group rather than per mesh, which nothing needs yet.
+A head is where the per-group drawing described under "The draw path" earns
+itself: the earpiece and the sunglasses are parts of their own under toggles,
+and a guard whose glasses the game has turned off now has none, where a list
+for the whole mesh gave him a pair whatever the game said. The check that says
+so is the same frame with `Mod.XblaMeshes` off — the stock head has no glasses
+there either.
 
 ### The level files were rewritten too
 

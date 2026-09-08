@@ -137,7 +137,17 @@ struct xblameshbuilt {
 	s32 nummatrices;
 	s32 numgroups;
 	f32 scale;         // mesh units to the game's, out of the header
-	u8 *groupmtx;      // one per group: which palette entry that group's part is
+	s32 groupgfx[XBLAMESH_MAXPARTS]; // into gdl: where each group's list starts
+	s32 allgfx;                      // and the one that calls every group
+
+	// The posed copy already made this frame, and who for. Every part of a
+	// model draws its own group now, so without this Dr Carroll would pose
+	// thirteen copies of himself a frame and fill the arena with twelve of
+	// them. One entry is enough: the renderer walks a model's tree in one go,
+	// so a model's parts are drawn one after another.
+	const struct model *posedmodel;
+	u32 posedframe;
+	Vtx *posedvtx;
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
 	f32 *weights;      // three per emitted vertex; only the first two are ever set
@@ -1098,6 +1108,14 @@ struct xblameshbuilder {
 	u8 *bones;
 	s32 skinned;
 	f32 scale;
+
+	// One list per group, by index into gdl until the array stops moving, and
+	// the little list that calls all of them for a model whose parts and
+	// groups do not line up.
+	s32 groupgfx[XBLAMESH_MAXPARTS];
+	s32 numgroups;
+	s32 allgfx;
+
 	s32 numgfx, capgfx;
 	s32 numvtx, capvtx;
 	s32 numtris;
@@ -1478,8 +1496,22 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material)
  * that would not fit closes the batch before any of it is loaded, which is
  * what keeps a vertex from being stranded in the batch it is not drawn in.
  */
-static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len,
-		const struct xblameshhdr *h, u32 stride)
+/**
+ * One group's worth of the mesh, as a display list of its own.
+ *
+ * A group is one part of the model - the same order and the same count, in all
+ * 542 (model, mesh) pairs the release has, with the parts numbered 0..n-1 and
+ * no gaps - so a list per group is a list per part, and the node that carries
+ * part p draws group p. That is what makes a piece the game hides stay hidden:
+ * a head's earpiece is its own part under a toggle, and one list for the whole
+ * mesh drew it whatever the toggle said.
+ *
+ * Each list stands alone: it sets the geometry mode it wants at the top and
+ * puts the state back at the bottom, because any one of them can be entered
+ * without the others having run.
+ */
+static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len,
+		const struct xblameshhdr *h, u32 stride, u32 firstdraw, u32 numdraws)
 {
 	const u32 numtris = (len - h->indexoffset) / 6;
 
@@ -1510,7 +1542,7 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 	gSPSetGeometryMode(&b->gdl[b->numgfx], G_SHADE | G_SHADING_SMOOTH);
 	b->numgfx++;
 
-	for (u32 d = 0; d < h->numdraws; d++) {
+	for (u32 d = firstdraw; d < firstdraw + numdraws; d++) {
 		const u8 *draw = file + h->drawoffset + d * XBLAMESH_ENTRY;
 		const u32 firsttri = xblaMeshBE32(draw);
 		const u32 drawtris = xblaMeshBE32(draw + 4);
@@ -1524,7 +1556,7 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 		// share one more often than not - a character's head and hands are the
 		// same skin. The batch has to close first: a vertex load and the
 		// triangles that index it belong to the state they were written under.
-		if (d == 0 || material != lastmaterial) {
+		if (d == firstdraw || material != lastmaterial) {
 			if (!xblaMeshCloseBatch(b) || !xblaMeshSetMaterial(b, material) ||
 					!xblaMeshOpenBatch(b)) {
 				return 0;
@@ -1624,7 +1656,71 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 	gSPEndDisplayList(&b->gdl[b->numgfx]);
 	b->numgfx++;
 
+	return 1;
+}
+
+/**
+ * Every group's list, and one that calls all of them.
+ *
+ * The whole-mesh list is what a model draws when its parts and the mesh's
+ * groups do not line up - which nothing in the release does, but a mod's model
+ * or a half matched one could - and what a mesh with no group table at all is
+ * built as. It is a call per group rather than a copy of them, so it costs a
+ * command each and cannot fall out of step with what it calls.
+ */
+static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len,
+		const struct xblameshhdr *h, u32 stride)
+{
+	const u32 intable = (h->drawoffset - h->groupoffset) / XBLAMESH_ENTRY;
+
+	// A mesh with no group table, or with more groups than a model can have
+	// parts, is built as one group of everything - one file in the release has
+	// no group table at all. The count that comes out of here is what a part
+	// number is checked against, so it is always at least the one.
+	const s32 numgroups = (intable >= 1 && intable <= XBLAMESH_MAXPARTS) ? (s32)intable : 1;
+
+	b->numgroups = numgroups;
+
+	for (s32 g = 0; g < numgroups; g++) {
+		u32 firstdraw = 0;
+		u32 numdraws = h->numdraws;
+
+		if ((u32)numgroups == intable) {
+			const u8 *group = file + h->groupoffset + (u32)g * XBLAMESH_ENTRY;
+
+			firstdraw = xblaMeshBE32(group);
+			numdraws = xblaMeshBE32(group + 4);
+
+			if (firstdraw > h->numdraws || numdraws > h->numdraws - firstdraw) {
+				return 0;
+			}
+		}
+
+		b->groupgfx[g] = b->numgfx;
+
+		if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws)) {
+			return 0;
+		}
+	}
+
+	// The list that calls them all. Its commands hold addresses inside the
+	// array they are in, which is still growing, so they go in after the
+	// batches do - by then nothing moves again.
+	b->allgfx = b->numgfx;
+
+	if (!xblaMeshRoomForGfx(b, numgroups + 1)) {
+		return 0;
+	}
+
+	b->numgfx += numgroups + 1;
+
 	xblaMeshWriteBatches(b);
+
+	for (s32 g = 0; g < numgroups; g++) {
+		gSPDisplayList(&b->gdl[b->allgfx + g], &b->gdl[b->groupgfx[g]]);
+	}
+
+	gSPEndDisplayList(&b->gdl[b->allgfx + numgroups]);
 
 	return 1;
 }
@@ -1644,33 +1740,23 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 static s32 xblaMeshReadBind(struct xblameshbuilt *m, const u8 *file,
 		const struct xblameshhdr *h, f32 scale)
 {
-	const u32 numgroups = (h->drawoffset - h->groupoffset) / XBLAMESH_ENTRY;
-
-	if (h->nummatrices > XBLAMESH_MAXMTX || numgroups > XBLAMESH_MAXPARTS) {
+	if (h->nummatrices > XBLAMESH_MAXMTX) {
 		return 0;
 	}
 
 	m->invbind = calloc(h->nummatrices, sizeof(Mtxf));
-	m->groupmtx = calloc(numgroups ? numgroups : 1, 1);
 
-	if (!m->invbind || !m->groupmtx) {
+	if (!m->invbind) {
 		return 0;
 	}
 
 	m->nummatrices = (s32)h->nummatrices;
-	m->numgroups = (s32)numgroups;
 
-	// A group is one part of the model - a model's parts and a mesh's groups
-	// come in the same order and the same number - and the group's third word
-	// says which palette entry that part poses. That is the indirection the
-	// part number on its own does not give: a Falcon 2's five parts are
-	// palette entries 33, 38, 42, 40 and 33, nowhere near 0 to 4.
-	for (u32 i = 0; i < numgroups; i++) {
-		const u32 mtx = xblaMeshBE32(file + h->groupoffset + i * XBLAMESH_ENTRY + 8);
-
-		m->groupmtx[i] = (u8)(mtx < h->nummatrices ? mtx : 0);
-	}
-
+	// A group's third word is a palette entry, and nothing reads it: what
+	// poses a vertex is the bone bytes the vertex itself carries, and the
+	// entry a group names is the one its part is weighted to most. It is worth
+	// knowing when a group is being matched to a part; it is not a step in
+	// drawing one.
 	for (u32 i = 0; i < h->nummatrices; i++) {
 		const u8 *src = file + XBLAMESH_HEADER + i * XBLAMESH_MATRIX;
 		Mtxf *dst = &m->invbind[i];
@@ -1788,7 +1874,13 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	m->bindpos = b.bindpos;
 	m->weights = b.weights;
 	m->bones = b.bones;
+	m->allgfx = b.allgfx;
+	m->numgroups = b.numgroups;
 	m->state = 1;
+
+	for (s32 g = 0; g < XBLAMESH_MAXPARTS; g++) {
+		m->groupgfx[g] = b.groupgfx[g];
+	}
 
 	g_XblaMeshNumMeshes++;
 	g_XblaMeshNumTris += (u32)b.numtris;
@@ -1853,6 +1945,10 @@ static u32 framePos;
 static u32 frameWanted;
 static s32 frameIndex;
 
+// Which frame this is, for the posed copy a mesh keeps. It only has to differ
+// from the frame before it, so wrapping is no more than one wasted pose.
+static u32 frameCount;
+
 void xblaMeshFrameReset(void)
 {
 	if (!optEnabled) {
@@ -1860,6 +1956,7 @@ void xblaMeshFrameReset(void)
 	}
 
 	frameIndex ^= 1;
+	frameCount++;
 
 	if (frameWanted > frameCap[frameIndex] && frameWanted <= XBLAMESH_ARENA_MAX) {
 		u8 *grown = realloc(frameArena[frameIndex], frameWanted);
@@ -2246,8 +2343,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 {
 	struct xblameshentry *e;
 	struct xblameshbuilt *m;
+	struct xblameshuse *use;
 	Mtxf *root;
 	Vtx *posed;
+	Gfx *list;
 
 	if (!optEnabled || opened <= 0 || !node) {
 		return 0;
@@ -2288,30 +2387,59 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		return 0;
 	}
 
-	// One mesh stands in for the whole model, and every part of the model
-	// carries its id - Dr Carroll's 13 nodes all name the same one. Drawing it
-	// at each of them draws the model over itself once per part, every copy
-	// under a different bone's matrix, which is what turned a room into
-	// overlapping sheets. Only the first part draws it; the rest draw nothing,
-	// because the mesh already has their geometry in it.
-	if (e->part != 0) {
+	// Which of the mesh's lists this node draws. A group is one part of the
+	// model, in the same order and the same number - true of all 542 (model,
+	// mesh) pairs in the release, with the parts numbered 0..n-1 - so the node
+	// carrying part p draws group p and nothing else. That is what lets a
+	// piece the game has hidden stay hidden: a head's earpiece is a part of
+	// its own under a toggle, and one list for the whole mesh drew it whatever
+	// the toggle said.
+	//
+	// A model whose parts do not line up with the mesh's groups - which is
+	// nothing in the release, but could be a mod's model or a model matched by
+	// size - falls back to what this did before: the first part draws every
+	// group and the rest draw nothing.
+	use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef)
+			? &uses[e->use] : NULL;
+
+	if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
+		list = &m->gdl[m->groupgfx[e->part]];
+	} else if (e->part == 0) {
+		list = &m->gdl[m->allgfx];
+	} else {
 		return 1;
 	}
 
-	// The matrix this is drawn under: the one the node's own list would have
-	// loaded out of segment 3. A posed mesh needs it named as well as loaded,
-	// because its vertices come out in that matrix's space - which is what
-	// keeps them inside the s16 a Perfect Dark vertex holds.
+	// The matrix this is drawn under is the first part's, whichever part is
+	// drawing. Every group is in the mesh's one space - a door's window pane
+	// is where the door has it, not where its own node would put it, and all
+	// five multi-part meshes the release has that are not skinned load one
+	// matrix for every part anyway - and a posed mesh comes out in the first
+	// part's space by construction. Naming it as well as loading it is what
+	// keeps the vertices inside the s16 a Perfect Dark vertex holds.
 	posed = m->vertices;
 	root = NULL;
 
-	if (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef) {
-		struct xblameshuse *use = &uses[e->use];
-
+	if (use) {
 		root = xblaMeshPartMtx(model, use, 0);
 
 		if (optPose && m->nummatrices && root) {
-			Vtx *pose = xblaMeshPose(m, use, model, root);
+			Vtx *pose;
+
+			if (m->posedmodel == model && m->posedframe == frameCount &&
+					m->posedvtx) {
+				pose = m->posedvtx;
+			} else {
+				pose = xblaMeshPose(m, use, model, root);
+
+				// Not remembered when there was no room this frame, so that
+				// the next part tries again rather than inheriting a miss.
+				if (pose) {
+					m->posedmodel = model;
+					m->posedframe = frameCount;
+					m->posedvtx = pose;
+				}
+			}
 
 			if (pose) {
 				posed = pose;
@@ -2335,9 +2463,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	if (xblaMeshVerbose && xblaMeshDrawLog < XBLAMESH_DRAWLOG) {
 		xblaMeshDrawLog++;
 		sysLogPrintf(LOG_NOTE, "xblamesh: draw %d: slot %d node %p model %p, "
-				"%d palette entries, %s",
-				xblaMeshDrawLog, e->slot, node, model, m->nummatrices,
-				posed == m->vertices ? "bind pose" : "posed");
+				"part %d of %d groups, %d palette entries, %s",
+				xblaMeshDrawLog, e->slot, node, model, e->part, m->numgroups,
+				m->nummatrices, posed == m->vertices ? "bind pose" : "posed");
 	}
 
 	if (root) {
@@ -2346,7 +2474,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	}
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
-	gSPDisplayList(renderdata->gdl++, m->gdl);
+	gSPDisplayList(renderdata->gdl++, list);
 
 	// Mod.XblaMeshBoth: draw the game's geometry as well, so the two can be
 	// seen on top of each other. The only way to tell a mesh that is in the
