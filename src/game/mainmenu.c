@@ -16,6 +16,7 @@
 #include "game/lv.h"
 #include "game/mainmenu.h"
 #include "game/modghost.h"
+#include "game/modrandom.h"
 #include "game/menu.h"
 #include "game/mplayer/ingame.h"
 #include "game/mplayer/mplayer.h"
@@ -4821,6 +4822,10 @@ MenuItemHandlerResult menuhandlerMainMenuSoloMissions(s32 operation, struct menu
 		// off, so that arming one from Ghost Trials and then starting a
 		// mission from here gets the ordinary mission.
 		modGhostDisarmTrial();
+
+		// And a mission armed as a random one from the Randomizer page, for
+		// the same reason: this door is the ordinary mission.
+		modRandomDisarmMission();
 #endif
 
 		menuPushDialog(&g_SelectMissionMenuDialog);
@@ -4944,6 +4949,14 @@ struct menuitem g_MainMenuMenuItems[] = {
 		(uintptr_t)"Ghost Trials",
 		0x00000008,
 		(void *)&g_GhostTrialsMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Randomizer",
+		0x0000000b,
+		(void *)&g_RandomizerMenuDialog,
 	},
 #endif
 	{

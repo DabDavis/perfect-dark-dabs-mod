@@ -8071,6 +8071,20 @@ void bgun0f0a5550(s32 handnum)
 		hand->visible = false;
 	}
 
+#ifndef PLATFORM_N64
+	// A hand with no model behind it is not drawn.
+	//
+	// bgunIsLoaded() answers for the gun memory as a whole, not for this
+	// hand's model, and the two come apart when a hand is filled at a moment
+	// the load sequence did not expect: a Randomizer run's landing is a new
+	// life in the middle of a level, and on a mission whose intro arms both
+	// hands it left the left hand visible with a null modeldef. The HUD render
+	// then dereferenced it - reliably, one landing into a run on Escape.
+	if (hand->visible && bgunGetGunModelDefForHand(handnum) == NULL) {
+		hand->visible = false;
+	}
+#endif
+
 	if (hand->visible) {
 		modeldef = bgunGetGunModelDefForHand(handnum);
 		mtxallocation = gfxAllocate(modeldef->nummatrices * sizeof(Mtxf));

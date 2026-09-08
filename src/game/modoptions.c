@@ -3,6 +3,7 @@
 #include "game/game_0b0fd0.h"
 #include "game/modoptions.h"
 #include "game/modrandom.h"
+#include "game/modrun.h"
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
 #include "video.h"
@@ -51,6 +52,10 @@ struct modoptions g_ModOptions = {
 	MODRANDOM_VERSION_DEFAULT, // randomversion: whatever this build deals with
 	false,                    // randomendless: a way of playing rather than a setting, so off
 	0,                        // endlessbest: nothing survived yet
+	MODRUN_POOL_ALL,          // runpool: every map the build can load, which is the point of a run
+	DIFF_A,                   // rundifficulty: Agent, since a run is long and its rooms are cold
+	0,                        // runbestscore: nothing survived yet
+	0,                        // runbestrooms
 	MODSMOOTH_OFF,            // modelsmoothing: a look rather than a fix, so a choice
 	true,                     // modellod: stock's distance models
 	true,                     // smoothtext: a fix, so on
@@ -303,6 +308,16 @@ bool modIsGuardsAlertedOn(void)
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	// A Randomizer run is a room held against whatever comes for you, so the
+	// stream of guards is the mode rather than a setting it happens to run
+	// under - see modrun.c. The stage's own sleeping guards are somewhere
+	// else on a map entered one room at a time.
+	if (modRunIsOn()) {
+		return true;
+	}
+#endif
+
 	return g_ModOptions.guardsalerted != MODALARM_OFF;
 }
 
@@ -312,6 +327,12 @@ bool modIsGuardsAlertedOn(void)
  */
 s32 modGetAlertedGuards(void)
 {
+#ifndef PLATFORM_N64
+	if (modRunIsOn()) {
+		return modRunGetGuardCount();
+	}
+#endif
+
 	if (g_ModOptions.alertedguards < MODALARM_GUARDS_MIN) {
 		return MODALARM_GUARDS_MIN;
 	}
@@ -328,6 +349,12 @@ s32 modGetAlertedGuards(void)
  */
 s32 modGetGuardSpawnSpeed(void)
 {
+#ifndef PLATFORM_N64
+	if (modRunIsOn()) {
+		return modRunGetGuardSpeed();
+	}
+#endif
+
 	if (g_ModOptions.guardspawnspeed < MODALARM_SPEED_MIN) {
 		return MODALARM_SPEED_MIN;
 	}
@@ -685,6 +712,44 @@ bool modIsCleanTextOn(void)
 /**
  * Mission Respawn: whether a death in a mission is a new life.
  */
+/**
+ * Which maps a Randomizer run may land in.
+ *
+ * Everything by default: a run is a tour of the game and narrowing it is a
+ * thing to reach for when a particular map has spoiled a run, not the state
+ * to start from.
+ */
+s32 modGetRunPool(void)
+{
+	if (g_ModOptions.runpool < 0) {
+		return 0;
+	}
+
+	if (g_ModOptions.runpool > MODRUN_POOL_MAX) {
+		return MODRUN_POOL_MAX;
+	}
+
+	return g_ModOptions.runpool;
+}
+
+/**
+ * The difficulty every room of a run is played on. One setting for the whole
+ * run rather than a choice per map, because a run is one continuous life and
+ * the rooms are not missions.
+ */
+s32 modGetRunDifficulty(void)
+{
+	if (g_ModOptions.rundifficulty < DIFF_A) {
+		return DIFF_A;
+	}
+
+	if (g_ModOptions.rundifficulty > DIFF_PA) {
+		return DIFF_PA;
+	}
+
+	return g_ModOptions.rundifficulty;
+}
+
 bool modIsMissionRespawnOn(void)
 {
 	return g_ModOptions.missionrespawn != 0;

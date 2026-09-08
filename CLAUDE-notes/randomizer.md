@@ -1,5 +1,10 @@
 # The Randomizer
 
+`src/game/modrandom.c`. The mode's *run* - a room at a time across every map,
+which is what the Randomizer page's Start Run does - is
+[randomizer-run.md](randomizer-run.md); this note is the roll a single mission
+is dealt by, which a run's every landing also uses.
+
 `src/game/modrandom.c`. A mission dealt again from its own pieces: what stands
 in every weapon spot, what the crates hold, where the guards are, where the
 keys are, where the mission starts, and the objectives themselves.

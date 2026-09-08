@@ -62,6 +62,7 @@
 #include "game/modoptions.h"
 #include "game/modrespawn.h"
 #include "game/modrandom.h"
+#include "game/modrun.h"
 #include "system.h"
 #include "game/explosions.h"
 #include "game/bondview.h"
@@ -575,6 +576,9 @@ void playerStartNewLife(void)
 		rooms[0] = g_Vars.currentplayer->prop->rooms[0];
 		rooms[1] = -1;
 		angle = g_Vars.currentplayer->thetadie * M_BADTAU / 360.0f;
+	} else if (modRunTakeSpawn(&pos, rooms, &angle)) {
+		// A Randomizer run: the room this hop landed in, which is the whole
+		// of what a hop is. See modrun.c.
 	} else if (modRandomTakeSpawn(&pos, rooms, &angle)) {
 		// Randomizer: the mission's first life starts where the roll said,
 		// which a mission that opens with a cutscene will not do on its own.
@@ -713,6 +717,14 @@ void playerStartNewLife(void)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// A Randomizer run: the guns and the ammunition carried through the
+	// portal, on top of whatever the map's own intro just handed out. Here
+	// rather than from the tick because a gun in a hand is a model to load and
+	// the load runs from the spawn below.
+	modRunRestoreInventory();
+#endif
+
 	if (g_Vars.coopplayernum >= 0 && g_Vars.currentplayer->stealhealth > 0) {
 		g_Vars.currentplayer->bondhealth = g_Vars.currentplayer->stealhealth;
 		g_Vars.currentplayer->oldhealth = 0;
@@ -738,6 +750,10 @@ void playerStartNewLife(void)
 	if (modRespawnIsRespawning()) {
 		modRespawnEnd();
 	}
+
+	// And the damage the run has taken so far, after playerSpawn() has set the
+	// shield back to zero.
+	modRunRestoreHealth();
 #endif
 }
 
@@ -1020,6 +1036,21 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 static void playerSpawnWeapons(void)
 {
 	const s32 spawnweapon = mpGetSpawnWeapon();
+
+	// A Randomizer run: the guns held when the player stepped through the
+	// portal. The same override as Mission Respawn's below and for the same
+	// reason - this is the one place a hand may be filled from, since what
+	// goes in it decides which gun model the spawn loads.
+	if (modRunIsLanding()) {
+		const s32 leftweaponnum = modRunGetHandWeapon(HAND_LEFT);
+		const s32 rightweaponnum = modRunGetHandWeapon(HAND_RIGHT);
+
+		g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] = leftweaponnum;
+		g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] = rightweaponnum;
+		bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
+		bgunEquipWeapon2(HAND_RIGHT, rightweaponnum);
+		return;
+	}
 
 	// Mission Respawn: the guns the player died holding, not another roll
 	// of Start Armed - a mission's inventory is kept, and a gun a life
@@ -4185,6 +4216,10 @@ void playerTick(bool arg0)
 	// Randomizer: the mission's first life is moved to the start the roll
 	// chose, on the first frame the player has control.
 	modRandomTick();
+
+	// A Randomizer run: place the landing, watch the objective, and watch for
+	// the door out of the room, which is the portal to the next map.
+	modRunTick();
 #endif
 
 	g_ViRes = g_HiResEnabled;
@@ -5245,7 +5280,13 @@ void playerTick(bool arg0)
 #ifndef PLATFORM_N64
 				// Mission Respawn: a new life once the death's fade to black
 				// has finished, instead of the end of the stage
-				if (modRespawnCanRespawn()) {
+				if (modRunIsOn()) {
+					// A Randomizer run ends at its own pace: modRunTick() has
+					// the score up and takes the player back to the menu when
+					// it has been read. The stage must not end under it, or
+					// the endscreen arrives over the top of the run's score
+					// and names the map's own objectives.
+				} else if (modRespawnCanRespawn()) {
 					if (playerIsFadeComplete()) {
 						modRespawnBegin();
 					}

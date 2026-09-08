@@ -9,6 +9,7 @@
 #include "game/lv.h"
 #include "game/modoptions.h"
 #include "game/modrandom.h"
+#include "game/modrun.h"
 #include "mod.h"
 #include "game/objectives.h"
 #include "game/pad.h"
@@ -210,9 +211,36 @@ static bool modRandomStageIsMission(s32 stagenum)
  * co-operative and counter-operative have a second player whose start this
  * would move out from under them.
  */
+/**
+ * A mission armed as a random one from the Randomizer page.
+ *
+ * The arming is a flag rather than a write to the setting, the way Ghost
+ * Trials arms a trial: the setting is saved to pd.ini, and coming in through
+ * that door for one mission should not leave every later mission dealt again.
+ * The stock Solo Missions item disarms it on the way past for the same reason.
+ */
+static bool g_ModRandomArmed;
+
+void modRandomArmMission(void)
+{
+	g_ModRandomArmed = true;
+}
+
+void modRandomDisarmMission(void)
+{
+	g_ModRandomArmed = false;
+}
+
+bool modRandomIsArmed(void)
+{
+	return g_ModRandomArmed;
+}
+
 bool modRandomIsOn(void)
 {
-	return g_ModOptions.randomizer != 0
+	// A run deals every map it lands in, whatever the setting says: the roll
+	// is what makes a landing worth making twice. See modrun.c.
+	return (g_ModOptions.randomizer != 0 || g_ModRandomArmed || modRunIsOn())
 		&& !g_Vars.normmplayerisrunning
 		&& !g_Vars.mplayerisrunning
 		&& modRandomStageIsMission(g_Vars.stagenum);
@@ -235,7 +263,10 @@ bool modRandomIsOn(void)
  */
 bool modRandomIsEndless(void)
 {
-	return modRandomIsOn() && g_ModOptions.randomendless != 0;
+	// Not during a run: a run deals its own objective for the room it landed
+	// in and scores that, and Endless Mode dealing a second one across the
+	// whole map would be two modes asking for two different things at once.
+	return modRandomIsOn() && !modRunIsOn() && g_ModOptions.randomendless != 0;
 }
 
 /**
@@ -1325,6 +1356,14 @@ static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reache
  */
 char *modRandomGetObjectiveText(s32 index)
 {
+	// A run's room asks for its own thing, and everything that draws an
+	// objective's text comes through here.
+	char *runtext = modRunGetObjectiveText(index);
+
+	if (runtext) {
+		return runtext;
+	}
+
 	if (modRandomIsOn()
 			&& index >= 0
 			&& index < g_ModRandomNumObjectives) {
@@ -1390,7 +1429,11 @@ void modRandomRoll(s32 stagenum)
 		return;
 	}
 
-	g_ModRandomSeed = g_ModOptions.randomseed ? (u32)g_ModOptions.randomseed : rngRandom();
+	// A run's hop is dealt from the run's seed rather than the menu's, so that
+	// a run written down deals the same rooms with the same guns in them.
+	g_ModRandomSeed = modRunIsOn()
+		? modRunGetSeed()
+		: (g_ModOptions.randomseed ? (u32)g_ModOptions.randomseed : rngRandom());
 
 	// A kept seed keeps the generator it was dealt by; a fresh mission every
 	// time has nothing to keep and takes the newest. Otherwise a config
@@ -1423,6 +1466,12 @@ void modRandomRoll(s32 stagenum)
 	// hangs off this and nothing else.
 	g_ModRandomRun = modRandomMix(g_ModRandomSeed)
 		+ modRandomMix(stagenum * 0x9e3779b9u + lvGetDifficulty());
+
+	// And the hop's number on top of it during a run, so that a run landing on
+	// the same map twice is not the same map twice.
+	if (modRunIsOn()) {
+		g_ModRandomRun += modRandomMix(modRunGetRooms() * 0x85ebca6bu);
+	}
 
 	modRandomGather(&lists);
 
@@ -1473,11 +1522,16 @@ void modRandomRoll(s32 stagenum)
 		spawnroom = modRandomPadRoom(spawnpad);
 	}
 
-	modRandomGenerateObjectives(&lists, reached);
+	// A run's objectives are its room's and its start is its landing, both
+	// dealt by modrun.c: the roll above still moves the guns, the crates, the
+	// guards and the keys, which is everything a landing wants from it.
+	if (!modRunIsOn()) {
+		modRandomGenerateObjectives(&lists, reached);
+	}
 
 	// Nothing to move to if the roll kept the mission's own start.
 	g_ModRandomSpawnPad = spawnpad;
-	g_ModRandomSpawnState = spawnpad >= 0 ? 1 : 0;
+	g_ModRandomSpawnState = (spawnpad >= 0 && !modRunIsOn()) ? 1 : 0;
 
 	// What an endless run needs for the rest of the level: the lists, the
 	// walk, and a room per bit of score.

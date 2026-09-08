@@ -10,6 +10,7 @@
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
 #include "game/modoptions.h"
+#include "game/modrun.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/prop.h"
@@ -294,6 +295,15 @@ static s32 modAlarmChooseGun(void)
  */
 static s32 modAlarmChooseBody(void)
 {
+#ifndef PLATFORM_N64
+	// A Randomizer run is not the stage's fiction, so the guards holding a
+	// room are not the stage's guards: the run picks one body per landing,
+	// out of the whole game. See modrun.c.
+	if (modRunIsOn()) {
+		return modRunChooseBody();
+	}
+#endif
+
 	switch (g_Vars.stagenum) {
 	case STAGE_INFILTRATION:
 	case STAGE_RESCUE:

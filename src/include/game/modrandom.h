@@ -8,6 +8,9 @@
 // g_ModOptions.randomversion and may be older. See modrandom.c.
 #define MODRANDOM_VERSION_DEFAULT 2
 
+void modRandomArmMission(void);
+void modRandomDisarmMission(void);
+bool modRandomIsArmed(void);
 bool modRandomIsOn(void);
 bool modRandomIsEndless(void);
 s32 modRandomGetRooms(void);

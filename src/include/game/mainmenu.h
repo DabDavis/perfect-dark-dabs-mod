@@ -13,6 +13,9 @@ extern struct menudialogdef g_GhostTrialsMenuDialog;
 // The Ghost Trials nameplate and rules, drawn beside the dialogs rather than
 // inside one. See the comments on the definitions in port/src/ghostmenu.c.
 Gfx *ghostmenuRenderOverlay(Gfx *gdl);
+// The Randomizer's own page, next to the door marked Solo Missions. See
+// port/src/randommenu.c.
+extern struct menudialogdef g_RandomizerMenuDialog;
 extern struct menudialogdef g_UpdateMenuDialog;
 Gfx *updatemenuRenderProgress(Gfx *gdl);
 Gfx *upscalemenuRenderProgress(Gfx *gdl);

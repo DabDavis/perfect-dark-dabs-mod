@@ -6,6 +6,7 @@
 
 #include "lib/main.h"
 #include "game/modoptions.h"
+#include "game/modrun.h"
 #include "game/modghost.h"
 #include "ghostnet.h"
 #include "update.h"
@@ -211,6 +212,11 @@ int main(int argc, const char **argv)
 	// flag passed once should not tick a box in Dab's Mod Options for good.
 	g_ModSpectateStartArg = sysArgCheck("--spectate");
 	g_MpEndlessMatch = sysArgCheck("--endless");
+
+	// --random-run: start a Randomizer run from the first level loaded. The
+	// mode is a main menu door, and a headless run cannot press one.
+	g_ModRunAutoStart = sysArgCheck("--random-run");
+	g_ModRunAutoHop = sysArgGetInt("--run-autohop", 0);
 	g_FixedStep = sysArgCheck("--fixed-step");
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 
@@ -287,6 +293,11 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.RandomizerVersion", &g_ModOptions.randomversion, 1, S32_MAX);
 	configRegisterInt("Mod.RandomizerEndless", &g_ModOptions.randomendless, 0, 1);
 	configRegisterInt("Mod.EndlessBest", &g_ModOptions.endlessbest, 0, S32_MAX);
+	// The Randomizer run: one room at a time across every map. See modrun.c.
+	configRegisterInt("Mod.RunMapPool", &g_ModOptions.runpool, 0, MODRUN_POOL_MAX);
+	configRegisterInt("Mod.RunDifficulty", &g_ModOptions.rundifficulty, DIFF_A, DIFF_PA);
+	configRegisterInt("Mod.RunBestScore", &g_ModOptions.runbestscore, 0, S32_MAX);
+	configRegisterInt("Mod.RunBestRooms", &g_ModOptions.runbestrooms, 0, S32_MAX);
 	configRegisterInt("Mod.ModelSmoothing", &g_ModOptions.modelsmoothing, MODSMOOTH_OFF, MODSMOOTH_MAX);
 	configRegisterInt("Mod.ModelLod", &g_ModOptions.modellod, 0, 1);
 	configRegisterInt("Mod.SmoothText", &g_ModOptions.smoothtext, 0, 1);

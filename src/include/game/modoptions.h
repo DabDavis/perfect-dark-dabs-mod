@@ -410,6 +410,10 @@ struct modoptions {
 	s32 randomversion; // the generator the run is dealt by, so a written-down seed keeps dealing it
 	s32 randomendless; // Endless Mode: one objective at a time, forever, scored in rooms
 	s32 endlessbest;   // the best run's rooms, kept between sessions
+	s32 runpool;       // MODRUN_POOL_*: which maps a Randomizer run may land in
+	s32 rundifficulty; // the difficulty every room of a run is played on
+	s32 runbestscore;  // the best run's objectives, kept between sessions
+	s32 runbestrooms;  // and how many rooms that run got through
 	s32 modelsmoothing; // MODSMOOTH_*: Increase Poly Models, lit triangles drawn as curved patches
 	s32 modellod;    // the game's distance models; Increase Poly Models pushes the switch out
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened
@@ -467,6 +471,8 @@ s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);
 f32 modGetVividContrast(void);
 f32 modGetBlackLevelLift(void);
+s32 modGetRunPool(void);
+s32 modGetRunDifficulty(void);
 bool modIsMissionRespawnOn(void);
 s32 modGetMissionLives(void);
 

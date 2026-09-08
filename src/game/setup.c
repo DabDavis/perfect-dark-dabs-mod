@@ -26,6 +26,7 @@
 #include "game/modoptions.h"
 #include "game/modbodies.h"
 #include "game/modrandom.h"
+#include "game/modrun.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/propobj.h"
@@ -1621,6 +1622,10 @@ void setupCreateProps(s32 stagenum)
 		// walk below, which is what turns the rewritten stream into a level.
 		modRandomRoll(stagenum);
 
+		// And the run's own two decisions on top of it: where this hop lands,
+		// and what the room it lands in asks for.
+		modRunRoll();
+
 		if (withchrs) {
 			s32 numchrs = 0;
 
@@ -2466,4 +2471,5 @@ void setupCreateProps(s32 stagenum)
 	// walk rather than instead of it, so that everything else it does with an
 	// objective command still happens.
 	modRandomInsertObjectives();
+	modRunInsertObjectives();
 }
