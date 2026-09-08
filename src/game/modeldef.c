@@ -20,6 +20,7 @@
 #include "bss.h"
 #ifndef PLATFORM_N64
 #include "modelsmooth.h"
+#include "xblamesh.h"
 #endif
 #include "lib/vi.h"
 #include "lib/main.h"
@@ -214,6 +215,11 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	// Model Smoothing reads the mesh back now that its pointers are real,
 	// bounded by the buffer the file was loaded into
 	modelSmoothClassify(modeldef, fileGetAllocationSize(fileid));
+
+	// And the XBLA meshes, for the same reason: the tree is promoted and the
+	// file id is still in hand, which is what it takes to match our nodes
+	// against the release's copy of the same model
+	xblaMeshRegisterModel(modeldef, fileid);
 #endif
 
 	modeldef0f1a7560(modeldef, fileid, 0x5000000, modeldef, arg3, dst == NULL);

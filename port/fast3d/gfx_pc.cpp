@@ -32,6 +32,7 @@
 #include "gfx_screen_config.h"
 
 #include "texpack.h"
+#include "xblatex.h"
 #include "gfx_texscale.h"
 
 uintptr_t gfxFramebuffer;
@@ -1397,6 +1398,26 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // checksum and the raw dump both want the real pitch.
     const uint32_t tex_row_bytes =
         rdp.texture_tile[tile].line_size_bytes * (siz == G_IM_SIZ_32b ? 2 : 1);
+
+    // The XBLA meshes' own textures. They are records in the release's
+    // Textures.raw past the ones that carry a texture number, so no pack can
+    // ship them and nothing keyed on a number can find them; what a mesh's
+    // display list binds is a stand-in tile whose address is the name of a
+    // record. Ahead of the pack lookup because a stand-in is not a texture any
+    // pack has an opinion about, and behind the cache like everything else.
+    if (xblaTexHaveTextures()) {
+        int32_t rep_width;
+        int32_t rep_height;
+        uint8_t* rep = xblaTexLoadReplacement(orig_addr, &rep_width, &rep_height);
+
+        if (rep) {
+            import_enhance_scale = 1; // the release's own art, at the size it drew at
+            gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
+            xblaTexFreeReplacement(rep);
+            rendering_state.textures[i]->second.replaced = true;
+            return;
+        }
+    }
 
     // A pack replaces the pixels and nothing else. The tile geometry the rest
     // of gfx_pc works from - and every texture coordinate derived from it - is

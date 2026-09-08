@@ -1,0 +1,94 @@
+#ifndef _IN_XBLAMESH_H
+#define _IN_XBLAMESH_H
+
+#include <PR/ultratypes.h>
+#include "types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Drawing the XBLA release's high resolution meshes in place of the game's own
+ * display lists.
+ *
+ * The console release is the N64 game with its art replaced, and the models it
+ * replaced are 596 files in 4J's own format sitting past the game's file ids in
+ * the package's PackedSegFile. What says which one stands in for what is a mesh
+ * id 4J wrote into the two padding bytes after `struct modelnode`'s type, which
+ * this port has never read - see CLAUDE-notes/xbla.md for the format and for
+ * how all of it was checked.
+ *
+ * Two things shape this more than they look like they should.
+ *
+ * **The id is in their model file, not ours.** Our copy of a model comes from
+ * the ROM and its padding is zero, so the ids have to be read out of the
+ * release's copy of the same file and matched up node for node. They cannot be
+ * matched by file offset: the port rewrites a model file into native pointers
+ * as it loads it (filemodel.c), so a node sits somewhere else in our buffer
+ * than in theirs, and a 64-bit build moves it further. The two trees are walked
+ * together instead, and a model whose shape does not match is left alone.
+ *
+ * **The geometry is in the model's own space, 1:1.** 4J kept Perfect Dark's
+ * coordinates: an Area 51 crate is 100 units across in the ROM and 100 units
+ * across in their mesh, and a lab door 4000 by 2800 in both. So a mesh needs no
+ * transform of its own - it is drawn under the node's matrix like the display
+ * list it replaces - and the floats quantise back to the s16 the game's own
+ * vertices already are without losing anything.
+ *
+ * What it draws with is an ordinary Perfect Dark display list built once per
+ * mesh, so the renderer, the cull modes, Model Smoothing and everything else
+ * downstream need no changes at all. The one liberty taken is the size of a
+ * vertex batch: `gSP1Triangle` multiplies its indices by 10 into a byte, so a
+ * batch is 25 vertices rather than the 16 the real microcode's cache holds.
+ * That is a lie the RSP would not accept and the renderer does not care about,
+ * and it is why none of this is built for PLATFORM_N64.
+ */
+
+/** Whether a package with meshes in it was found. */
+s32 xblaMeshIsAvailable(void);
+
+/** Mod.XblaMeshes: whether to draw them. Off unless the player asks. */
+s32 xblaMeshGetEnabled(void);
+void xblaMeshSetEnabled(s32 enabled);
+
+/**
+ * A model has just been loaded and its pointers made real: note which of its
+ * nodes the release replaces, and with what.
+ *
+ * Called from modeldefLoad() beside modelSmoothClassify(), for the same reason
+ * - it is the one place that has the file id, the buffer and a promoted tree at
+ * the same time.
+ */
+void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid);
+
+/**
+ * Draws a node from the release's mesh instead of its own display list.
+ *
+ * Returns 0 when there is nothing to draw it from, and the caller carries on
+ * with the game's geometry.
+ */
+s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
+		struct modelnode *node);
+
+/**
+ * A frame is starting: the vertices posed for the last one are two frames old
+ * and their arena can be reused. Called beside modelSmoothForgetRange(), which
+ * is the same moment for the same reason.
+ */
+void xblaMeshFrameReset(void);
+
+/** --xbla-mesh-verbose: log each replaced node's box against its mesh's. */
+void xblaMeshSetVerbose(s32 verbose);
+
+/** How much is loaded, for gdb. */
+extern u32 g_XblaMeshNumMeshes;
+extern u32 g_XblaMeshNumNodes;
+extern u32 g_XblaMeshNumTris;
+extern u32 g_XblaMeshBytes;
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

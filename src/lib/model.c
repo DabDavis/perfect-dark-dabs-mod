@@ -20,6 +20,7 @@
 #ifndef PLATFORM_N64
 #include "game/modoptions.h"
 #include "modelsmooth.h"
+#include "xblamesh.h"
 #endif
 
 /**
@@ -3207,6 +3208,12 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 		return;
 	}
 
+#ifndef PLATFORM_N64
+	if (xblaMeshRenderNode(renderdata, model, node)) {
+		return;
+	}
+#endif
+
 	if ((renderdata->flags & MODELRENDERFLAG_OPA) && rodata->opagdl) {
 		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->baseaddr));
 
@@ -3258,6 +3265,13 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 	if (var8005efc4 && !var8005efc4(model, node)) {
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	// The XBLA release has its own geometry for some of these
+	if (xblaMeshRenderNode(renderdata, model, node)) {
+		return;
+	}
+#endif
 
 	if (renderdata->flags & MODELRENDERFLAG_OPA) {
 		union modelrwdata *rwdata = modelGetNodeRwData(model, node);

@@ -15,6 +15,7 @@
 #include "platform.h"
 #ifndef PLATFORM_N64
 #include "modelsmooth.h"
+#include "xblamesh.h"
 #include "system.h"
 #endif
 
@@ -293,6 +294,7 @@ void gfxSwapBuffers(void)
 	g_GfxMemPos = g_VtxBuffers[g_GfxActiveBufferIndex];
 #ifndef PLATFORM_N64
 	modelSmoothForgetRange(g_VtxBuffers[g_GfxActiveBufferIndex], g_VtxBuffers[g_GfxActiveBufferIndex + 1]);
+	xblaMeshFrameReset();
 #endif
 	g_GfxNumSwapsPerBuffer[g_GfxActiveBufferIndex] = g_GfxNumSwaps;
 	g_GfxNumSwaps++;

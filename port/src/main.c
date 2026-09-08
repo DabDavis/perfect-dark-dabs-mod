@@ -25,6 +25,8 @@
 #include "record.h"
 #include "texpack.h"
 #include "screenshot.h"
+#include "xblamesh.h"
+#include "xblatex.h"
 #include "config.h"
 #include "mod.h"
 #include "system.h"
@@ -115,6 +117,10 @@ static void cleanup(void)
 	inputSaveBinds();
 	configSave(CONFIG_PATH);
 	videoShutdown();
+	// After it, for the same reason as the pack worker: the renderer is what
+	// asks for an XBLA mesh's texture, so nothing may close the package it
+	// comes out of while there is still a frame in flight.
+	xblaTexShutdown();
 	crashShutdown();
 	// TODO: actually shut down all subsystems
 
@@ -221,6 +227,7 @@ int main(int argc, const char **argv)
 	g_FixedStep = sysArgCheck("--fixed-step");
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 	g_ShotFrame = sysArgGetInt("--screenshot-frame", 0);
+	xblaMeshSetVerbose(sysArgCheck("--xbla-mesh-verbose"));
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 
