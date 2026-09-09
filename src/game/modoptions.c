@@ -11,17 +11,25 @@
 #include "types.h"
 
 /**
- * The defaults are the fork's own behaviour, because a build of this fork with
- * nothing in its config is one that has never been to the options menu, and the
- * things it added should be there to find. Start Armed is the exception: it is
- * stock Perfect Dark's, and stock has it off.
+ * The defaults are stock Perfect Dark's, with the fork's fixes on and its
+ * additions off. They used to be the fork's own behaviour, on the theory that
+ * a build with nothing in its config had never been to the options menu and
+ * should have the additions there to find; what a tester found instead was a
+ * game that jumped, rolled, tilted and looked more saturated than the one they
+ * remembered, and a key (F, the Spectator) that flew them out of their body.
+ * So a fresh install plays like the original, and the Settings Preset at the
+ * top of Dab's Mod Options (optionsmenu.c, g_ModPresets) turns the additions
+ * on as a set. Smooth Text, Clean Text Outlines and Model LOD stay on: the
+ * first two are fixes rather than looks, and the third is stock's own
+ * behaviour. A pd.ini written by an older build keeps its values; only a
+ * config with no line for a setting sees these.
  */
 struct modoptions g_ModOptions = {
-	1,                        // jumpheight, the base height
+	0,                        // jumpheight: off, so a fresh install plays like the game people remember
 	MODWHO_EVERYONE,          // jumpwho
-	MODROLL_EVERYONE,         // roll
-	true,                     // melee
-	true,                     // flinch
+	MODROLL_OFF,              // roll
+	false,                    // melee
+	false,                    // flinch
 	SPAWNWEAPON_OFF,          // spawnweapon
 	MODWHO_EVERYONE,          // spawnweaponwho
 	THIRDPERSON_CAMDIST,      // camdist
@@ -32,7 +40,7 @@ struct modoptions g_ModOptions = {
 	THIRDPERSON_CAMHEIGHT,    // camheight: at the eye, likewise
 	MODTETHER_OFF,            // camtether: the rigid camera the fork shipped
 	MODTURN_DEFAULT,          // camturnspeed
-	MODBODIES_DEFAULT,        // bodies
+	MODBODIES_OFF,            // bodies: stock's fade; the Settings Preset turns the pool on
 	MODBODYTIME_OFF,          // bodytime
 	64,                       // bodiesdrawn
 	MODALARM_OFF,             // guardsalerted: like Start Armed, a choice, not a default
@@ -46,7 +54,7 @@ struct modoptions g_ModOptions = {
 	true,                     // codaimlock: what COD Style Aiming means until it is turned off
 	true,                     // alarmsound
 	true,                     // cleantext
-	MODTILT_NORMAL,           // cameratilt
+	MODTILT_OFF,              // cameratilt: the tilt is the first thing a returning player notices
 	false,                    // tiltinvert: the lean the head makes going with the step, not against it
 	false,                    // tiltforward: the tilt shipped as a roll and a bob, so this is a choice
 	true,                     // gunsway
@@ -62,9 +70,9 @@ struct modoptions g_ModOptions = {
 	0,                        // runbestrooms
 	true,                     // modellod: stock's distance models
 	true,                     // smoothtext: a fix, so on
-	MODENHANCE_2X,            // enhancetextures: the cheapest of the three
-	MODVIVID_LIGHT,           // vividcolours: the washed-out look was the complaint
-	MODBLACK_LIGHT,           // blacklevel: and the pedestal is most of it
+	MODENHANCE_OFF,           // enhancetextures
+	MODVIVID_OFF,             // vividcolours
+	MODBLACK_OFF,             // blacklevel
 	false,                    // missionrespawn: like Start Armed, a choice, not a default
 	MODLIVES_UNLIMITED,       // missionlives
 	true,                     // tranqeffect: stock's, and the dart is meant to be felt

@@ -1988,6 +1988,157 @@ static MenuItemHandlerResult menuhandlerOpenBindsMenu(s32 operation, struct menu
 }
 
 /**
+ * Settings Preset: the fork's additions turned on or off as a set.
+ *
+ * Vanilla is stock Perfect Dark with the fixes on; Dab's Settings is what the
+ * fork shipped as its defaults until 2026-09-09; Ghost Trials is Vanilla with
+ * the time trial racing. Custom is any other mix, and is what the dropdown
+ * reads once a single setting is changed away from a preset - the preset is
+ * applied on selection and remembered by nothing, so the settings themselves
+ * are still the truth and a preset never has to be re-read.
+ *
+ * A preset covers what changes how the game plays and looks: movement, the
+ * tilt, the bodies, the picture, and the settings that are a way of playing
+ * (Start Armed, Guards Alerted!, Akimbo, Mission Respawn), which every preset
+ * turns off since none of the three is a way of playing. It leaves alone the
+ * third person camera, which has a preset of its own and which a player
+ * showcasing the fork sets up to taste; the key binds, since Akimbo Triggers
+ * rewrites them; and the Randomizer, the spectator and the recorder, which
+ * are modes and tools rather than settings.
+ */
+struct modpreset {
+	const char *name;
+	s32 jumpheight;
+	s32 roll;
+	s32 melee;
+	s32 flinch;
+	s32 cameratilt;
+	s32 tiltforward;
+	s32 gunsway;
+	s32 bodies;
+	s32 bodytime;
+	s32 bodiesdrawn;
+	s32 codaiming;
+	s32 explosionshake;
+	s32 tranqeffect;
+	s32 cleantext;
+	s32 smoothtext;
+	s32 enhancetextures;
+	s32 vividcolours;
+	s32 blacklevel;
+	s32 modellod;
+	s32 ghostmode;
+	s32 ghostsplits;
+};
+
+#define MODPRESET_CUSTOM 0
+
+static const struct modpreset g_ModPresets[] = {
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0     },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  true,  true,   MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true  },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true  },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  true,  true,   MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true  },
+};
+
+static void menuhandlerModPresetApply(const struct modpreset *preset)
+{
+	g_ModOptions.jumpheight = preset->jumpheight;
+	g_ModOptions.roll = preset->roll;
+	g_ModOptions.melee = preset->melee;
+	g_ModOptions.flinch = preset->flinch;
+	g_ModOptions.cameratilt = preset->cameratilt;
+	g_ModOptions.tiltforward = preset->tiltforward;
+	g_ModOptions.gunsway = preset->gunsway;
+	g_ModOptions.bodies = preset->bodies;
+	g_ModOptions.bodytime = preset->bodytime;
+	g_ModOptions.bodiesdrawn = preset->bodiesdrawn;
+	g_ModOptions.codaiming = preset->codaiming;
+	g_ModOptions.explosionshake = preset->explosionshake;
+	g_ModOptions.tranqeffect = preset->tranqeffect;
+	g_ModOptions.cleantext = preset->cleantext;
+	g_ModOptions.smoothtext = preset->smoothtext;
+	g_ModOptions.enhancetextures = preset->enhancetextures;
+	g_ModOptions.vividcolours = preset->vividcolours;
+	g_ModOptions.blacklevel = preset->blacklevel;
+	g_ModOptions.modellod = preset->modellod;
+	g_ModGhostMode = preset->ghostmode;
+	g_ModGhostSplits = preset->ghostsplits;
+
+	// The ways of playing, off in every preset.
+	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
+	g_ModOptions.guardsalerted = MODALARM_OFF;
+	g_ModOptions.akimbo = MODAKIMBO_OFF;
+	g_ModOptions.missionrespawn = false;
+
+	// What the individual setters would have told the renderer.
+	videoSetCleanTextOutlines(g_ModOptions.cleantext);
+	videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
+	videoSetVividColours(modGetVividSaturation(), modGetVividContrast());
+	videoSetBlackLevel(modGetBlackLevelLift());
+}
+
+static bool menuhandlerModPresetMatches(const struct modpreset *preset)
+{
+	return g_ModOptions.jumpheight == preset->jumpheight
+		&& g_ModOptions.roll == preset->roll
+		&& g_ModOptions.melee == preset->melee
+		&& g_ModOptions.flinch == preset->flinch
+		&& g_ModOptions.cameratilt == preset->cameratilt
+		&& g_ModOptions.tiltforward == preset->tiltforward
+		&& g_ModOptions.gunsway == preset->gunsway
+		&& g_ModOptions.bodies == preset->bodies
+		&& g_ModOptions.bodytime == preset->bodytime
+		&& g_ModOptions.bodiesdrawn == preset->bodiesdrawn
+		&& g_ModOptions.codaiming == preset->codaiming
+		&& g_ModOptions.explosionshake == preset->explosionshake
+		&& g_ModOptions.tranqeffect == preset->tranqeffect
+		&& g_ModOptions.cleantext == preset->cleantext
+		&& g_ModOptions.smoothtext == preset->smoothtext
+		&& g_ModOptions.enhancetextures == preset->enhancetextures
+		&& g_ModOptions.vividcolours == preset->vividcolours
+		&& g_ModOptions.blacklevel == preset->blacklevel
+		&& g_ModOptions.modellod == preset->modellod
+		&& g_ModGhostMode == preset->ghostmode
+		&& g_ModGhostSplits == preset->ghostsplits
+		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
+		&& g_ModOptions.guardsalerted == MODALARM_OFF
+		&& g_ModOptions.akimbo == MODAKIMBO_OFF
+		&& g_ModOptions.missionrespawn == false;
+}
+
+static MenuItemHandlerResult menuhandlerModPreset(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 i;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(g_ModPresets);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)g_ModPresets[data->dropdown.value].name;
+	case MENUOP_SET:
+		i = data->dropdown.value;
+
+		if (i != MODPRESET_CUSTOM && i < (s32)ARRAYCOUNT(g_ModPresets)) {
+			menuhandlerModPresetApply(&g_ModPresets[i]);
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = MODPRESET_CUSTOM;
+
+		for (i = MODPRESET_CUSTOM + 1; i < (s32)ARRAYCOUNT(g_ModPresets); i++) {
+			if (menuhandlerModPresetMatches(&g_ModPresets[i])) {
+				data->dropdown.value = i;
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/**
  * Dab's Mod Options - the fork's own settings, all in one page.
  *
  * Jump and Start Armed were arena rules in mpsetup.options until they moved
@@ -3642,6 +3793,14 @@ static MenuItemHandlerResult menuhandlerModKeyBind(s32 operation, struct menuite
 }
 
 struct menuitem g_ExtendedDabsModMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Settings Preset",
+		0,
+		menuhandlerModPreset,
+	},
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
