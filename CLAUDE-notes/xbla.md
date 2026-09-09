@@ -492,13 +492,58 @@ table, and nothing wrote them if it closed without a vertex. With one batch per
 list that never happened; with one per material it happens wherever two
 materials meet. `xblaMeshCloseBatch()` now takes the reservation back.
 
-The state a material writes is the combiner, the render mode, the texture
-switch and one `gDPLoadTextureBlock`: `G_CC_MODULATERGBA`, because the release
-colours every vertex and the shade is doing work rather than being a flat
-white, and `G_RM_AA_ZB_TEX_EDGE` for a material whose alpha bit is set, since
-this only draws in the opaque pass and a cutout there wants the alpha compare
-rather than the blender. The end of the list puts all of it back, which the
-untextured version did not have to do.
+The state a material writes is the combiner, the texture switch and one
+`gDPLoadTextureBlock`, plus the render mode where the span it is in has one:
+`G_CC_MODULATERGBA`, because the release colours every vertex and the shade is
+doing work rather than being a flat white, and `G_RM_AA_ZB_OPA_SURF`. A
+material whose alpha bit is set is in the alpha span, where the mode is the
+caller's - see "The translucent pass" below. The end of the list puts all of it
+back, which the untextured version did not have to do.
+
+#### The translucent pass
+
+A model's list node holds *two* display lists and an `mcount` that says how the
+pair is used: 1 and 2 draw the first only, 3 draws the second inside the opaque
+pass, and **4 draws the second in the translucent pass** - the window in a door,
+the glass in a table, the canopy of a hovercar. For a long time a mesh drew in
+the opaque pass alone, which left the game drawing its own translucent list over
+the top of the release's model. Counted over the release: **54 of the nodes it
+replaces are `mcount` 4 with a list to draw there**, and 27 of those have the
+same surface in the mesh, marked by the material's alpha bit. Those 27 were
+drawing the same glass twice - once as an opaque cutout in the release's mesh
+and once as the game's own pane over it.
+
+So a group is now built as **two spans**, split by the alpha bit of the material
+each draw names: the solid draws and the alpha ones, each a list of its own
+(`groupgfx` and `groupxlu`, -1 where a group has no alpha material - 124 of the
+556 meshes have one anywhere). Where each span goes is the node's business
+rather than the material's:
+
+  * `mcount` 4 with a translucent list of its own: the alpha span is drawn in
+    the translucent pass, blended (`G_RM_AA_ZB_XLU_SURF`), and the game's own
+    list is not drawn - the mesh has that surface already;
+  * anything else: the alpha span is drawn straight after the solid one in the
+    opaque pass as a cutout (`G_RM_AA_ZB_TEX_EDGE`), which is where every alpha
+    material was drawn before the split. A grille, a fence, the leaves of a
+    plant;
+  * a node with a translucent list the mesh has no alpha for - the other 27 -
+    returns 0 in that pass and the game draws its own, which is the rule the
+    hair follows too: take nothing away that nothing here replaces.
+
+Because the span carries no render mode of its own, the mode is written once by
+whoever draws it. It is the plain translucent surface rather than the fog cycle
+the game's own lists take, the same trade the solid span already makes.
+
+What says it works: the Pelagic II door's porthole (`Ppelagicdoor`, slot 2284
+part 1, 16 triangles) is a flat pale disc before and a pane you can see through
+after, at stage 0x21 frame 700; the dataDyne traffic (`Pdd_hovcar`, `hovcop`,
+`hovtruck`, 40-odd alpha triangles each) loses the solid band across its
+windscreen at stage 0x30 frame 700. The G5 Building's frame 900, which has no
+`mcount` 4 mesh in it, is pixel-identical across the change, 1500-frame runs of
+0x21, 0x30 and 0x1e exit clean, and two seeded runs still match to the byte.
+`--xbla-mesh-verbose` prints `slot N part P draws its alpha span in the
+translucent pass` once per mesh, which is how to tell whether a level has one at
+all - most do not.
 
 **The two switches are separate, and both are live.** The menu page
 (*Extended Options > Texture Packs > Xbox 360 (XBLA)*) has "Enable

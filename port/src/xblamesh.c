@@ -10,7 +10,10 @@
  *   * a model's nodes, matched against the release's copy of the same file as
  *     it loads, which is the only thing that says which mesh replaces what;
  *   * a mesh, read and turned into a display list the first time something
- *     asks to draw it, and kept for as long as the game runs.
+ *     asks to draw it, and kept for as long as the game runs. Two lists per
+ *     group, in fact: the draws whose material carries alpha are a span of
+ *     their own, so that a node the game draws a translucent list for can
+ *     have one too.
  *
  * Nothing here is on the render thread's critical path except the display list
  * pointer it ends up branching to.
@@ -131,6 +134,7 @@ struct xblameshbuilt {
 	s32 numtris;
 	s32 state;         // 0 untried, 1 built, -1 no good
 	s32 logged;
+	s32 xlulogged;
 	s32 posedlog;
 
 	// Skinning, for a mesh that has a matrix palette. The vertices above are
@@ -140,8 +144,10 @@ struct xblameshbuilt {
 	s32 nummatrices;
 	s32 numgroups;
 	f32 scale;         // mesh units to the game's, out of the header
-	s32 groupgfx[XBLAMESH_MAXPARTS]; // into gdl: where each group's list starts
-	s32 allgfx;                      // and the one that calls every group
+	s32 groupgfx[XBLAMESH_MAXPARTS]; // into gdl: where each group's opaque list starts
+	s32 groupxlu[XBLAMESH_MAXPARTS]; // its alpha materials, or -1 if it has none
+	s32 allgfx;                      // and the ones that call every group
+	s32 allxlu;
 
 	// The posed copy already made this frame, and who for. Every part of a
 	// model draws its own group now, so without this Dr Carroll would pose
@@ -1410,9 +1416,16 @@ struct xblameshbuilder {
 	// One list per group, by index into gdl until the array stops moving, and
 	// the little list that calls all of them for a model whose parts and
 	// groups do not line up.
+	//
+	// Twice over: a group's draws are split by the alpha flag of the material
+	// each one names, so that the piece of a model the game draws in the
+	// translucent pass can be drawn there. groupxlu is -1 for a group with no
+	// alpha material in it, which is most of them.
 	s32 groupgfx[XBLAMESH_MAXPARTS];
+	s32 groupxlu[XBLAMESH_MAXPARTS];
 	s32 numgroups;
 	s32 allgfx;
+	s32 allxlu;
 
 	s32 numgfx, capgfx;
 	s32 numvtx, capvtx;
@@ -1738,8 +1751,15 @@ static s32 xblaMeshOpenBatch(struct xblameshbuilder *b)
  * shaded and untextured, which is what the whole mesh looked like before any
  * of this. So a texture that cannot be found costs that one material rather
  * than the mesh.
+ *
+ * `setmode` is clear while an alpha span is being built, where the mode is the
+ * caller's to choose: the same span is drawn as a cutout in the opaque pass and
+ * as a blend in the translucent one, and which of those it is is a fact about
+ * the node being drawn rather than about the material - see
+ * xblaMeshRenderNode(). Everything else the material asks for is written here
+ * either way.
  */
-static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material)
+static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 setmode)
 {
 	const u32 record = material & 0x1fff;
 	const s32 alpha = (material >> 15) & 1;
@@ -1764,13 +1784,10 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material)
 		// vertex, so the shade is doing work here and is not a flat white.
 		gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_MODULATERGBA);
 
-		// A material that carries alpha is a cutout - a grille, a fence, a
-		// leaf - and goes through the alpha compare rather than the blender,
-		// since this only ever draws in the opaque pass. One that does not
-		// keeps the plain opaque mode the untextured list used.
-		if (alpha) {
-			gDPSetRenderMode(gdl++, G_RM_AA_ZB_TEX_EDGE, G_RM_AA_ZB_TEX_EDGE2);
-		} else {
+		// A material that carries alpha is never in the half that sets its own
+		// mode - it is in the alpha span, where the mode belongs to whoever
+		// draws it - so the one written here is the plain opaque one.
+		if (setmode) {
 			gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
 		}
 
@@ -1786,7 +1803,11 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material)
 				XBLATEX_TILE_MASK, XBLATEX_TILE_MASK, G_TX_NOLOD, G_TX_NOLOD);
 	} else {
 		gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
-		gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+
+		if (setmode) {
+			gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+		}
+
 		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_OFF);
 	}
 
@@ -1822,9 +1843,14 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material)
  * Each list stands alone: it sets the geometry mode it wants at the top and
  * puts the state back at the bottom, because any one of them can be entered
  * without the others having run.
+ *
+ * Built twice per group, once for the draws whose material carries alpha and
+ * once for the rest, so that the two can go in different passes. The split is
+ * by material and the order within each half is the file's own.
  */
 static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len,
-		const struct xblameshhdr *h, u32 stride, u32 firstdraw, u32 numdraws)
+		const struct xblameshhdr *h, u32 stride, u32 firstdraw, u32 numdraws,
+		s32 wantalpha)
 {
 	const u32 numtris = (len - h->indexoffset) / 6;
 
@@ -1833,6 +1859,11 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 	// than the part it reads - two draws whose materials differ only up there
 	// get a redundant setup, which is cheaper than being wrong about it.
 	u32 lastmaterial = 0;
+
+	// Whether anything has been written yet, which is what says the material
+	// has to be set - not the first draw of the group, since the first draws
+	// of it may all belong to the other span.
+	s32 emitted = 0;
 
 	// How the mesh is lit, which no draw changes: its own vertex colours,
 	// both faces, no lighting and no generated coordinates.
@@ -1865,17 +1896,23 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 			return 0;
 		}
 
+		if ((s32)((material >> 15) & 1) != wantalpha) {
+			continue;
+		}
+
 		// A draw is one material's worth of triangles, and consecutive draws
 		// share one more often than not - a character's head and hands are the
 		// same skin. The batch has to close first: a vertex load and the
 		// triangles that index it belong to the state they were written under.
-		if (d == firstdraw || material != lastmaterial) {
-			if (!xblaMeshCloseBatch(b) || !xblaMeshSetMaterial(b, material) ||
+		if (!emitted || material != lastmaterial) {
+			if (!xblaMeshCloseBatch(b) ||
+					!xblaMeshSetMaterial(b, material, !wantalpha) ||
 					!xblaMeshOpenBatch(b)) {
 				return 0;
 			}
 
 			lastmaterial = material;
+			emitted = 1;
 		}
 
 		for (u32 t = 0; t < drawtris; t++) {
@@ -1992,11 +2029,15 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 	// number is checked against, so it is always at least the one.
 	const s32 numgroups = (intable >= 1 && intable <= XBLAMESH_MAXPARTS) ? (s32)intable : 1;
 
+	s32 numxlu = 0;
+
 	b->numgroups = numgroups;
+	b->allxlu = -1;
 
 	for (s32 g = 0; g < numgroups; g++) {
 		u32 firstdraw = 0;
 		u32 numdraws = h->numdraws;
+		s32 anyalpha = 0;
 
 		if ((u32)numgroups == intable) {
 			const u8 *group = file + h->groupoffset + (u32)g * XBLAMESH_ENTRY;
@@ -2009,14 +2050,38 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 			}
 		}
 
+		// Whether this group has anything for a second span at all. 124 of the
+		// release's 556 meshes have an alpha material anywhere in them, so for
+		// most groups this is the end of it and groupxlu stays -1.
+		for (u32 d = firstdraw; d < firstdraw + numdraws; d++) {
+			const u32 material = xblaMeshBE32(file + h->drawoffset +
+					d * XBLAMESH_ENTRY + 8);
+
+			if ((material >> 15) & 1) {
+				anyalpha = 1;
+				break;
+			}
+		}
+
 		b->groupgfx[g] = b->numgfx;
 
-		if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws)) {
+		if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws, 0)) {
 			return 0;
+		}
+
+		b->groupxlu[g] = -1;
+
+		if (anyalpha) {
+			b->groupxlu[g] = b->numgfx;
+			numxlu++;
+
+			if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws, 1)) {
+				return 0;
+			}
 		}
 	}
 
-	// The list that calls them all. Its commands hold addresses inside the
+	// The lists that call them all. Their commands hold addresses inside the
 	// array they are in, which is still growing, so they go in after the
 	// batches do - by then nothing moves again.
 	b->allgfx = b->numgfx;
@@ -2027,6 +2092,16 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 
 	b->numgfx += numgroups + 1;
 
+	if (numxlu) {
+		b->allxlu = b->numgfx;
+
+		if (!xblaMeshRoomForGfx(b, numxlu + 1)) {
+			return 0;
+		}
+
+		b->numgfx += numxlu + 1;
+	}
+
 	xblaMeshWriteBatches(b);
 
 	for (s32 g = 0; g < numgroups; g++) {
@@ -2034,6 +2109,19 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 	}
 
 	gSPEndDisplayList(&b->gdl[b->allgfx + numgroups]);
+
+	if (numxlu) {
+		s32 at = 0;
+
+		for (s32 g = 0; g < numgroups; g++) {
+			if (b->groupxlu[g] >= 0) {
+				gSPDisplayList(&b->gdl[b->allxlu + at], &b->gdl[b->groupxlu[g]]);
+				at++;
+			}
+		}
+
+		gSPEndDisplayList(&b->gdl[b->allxlu + at]);
+	}
 
 	return 1;
 }
@@ -2188,11 +2276,15 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	m->weights = b.weights;
 	m->bones = b.bones;
 	m->allgfx = b.allgfx;
+	m->allxlu = b.allxlu;
 	m->numgroups = b.numgroups;
 	m->state = 1;
 
 	for (s32 g = 0; g < XBLAMESH_MAXPARTS; g++) {
 		m->groupgfx[g] = b.groupgfx[g];
+		// The builder is zeroed, and zero is a real index, so a group it never
+		// reached says -1 rather than "the list at the top of the array".
+		m->groupxlu[g] = g < b.numgroups ? b.groupxlu[g] : -1;
 	}
 
 	g_XblaMeshNumMeshes++;
@@ -2665,6 +2757,37 @@ static s32 xblaMeshNodeIsGrafted(const struct model *model, const struct modelno
 	return 0;
 }
 
+/**
+ * Whether the game would draw a translucent list of its own for this node, in
+ * the translucent pass.
+ *
+ * A list node holds two lists and a count that says how the pair is used: 4 is
+ * the one that puts the second list in the translucent pass, and it is the
+ * only one that does. 3 draws it inside the opaque pass, 1 and 2 do not draw
+ * it at all. So this is the question "is there a piece of this node that
+ * belongs in the other pass", asked of the game rather than guessed at, and
+ * the release's own answer - an alpha material in the mesh - is what has to
+ * meet it.
+ */
+static s32 xblaMeshNodeDrawsXlu(const struct modelnode *node)
+{
+	const u32 type = node->type & 0xff;
+
+	if (!node->rodata) {
+		return 0;
+	}
+
+	if (type == MODELNODETYPE_DL) {
+		return node->rodata->dl.mcount == 4 && node->rodata->dl.xlugdl != NULL;
+	}
+
+	if (type == MODELNODETYPE_GUNDL) {
+		return node->rodata->gundl.unk12 == 4 && node->rodata->gundl.xlugdl != NULL;
+	}
+
+	return 0;
+}
+
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node)
 {
@@ -2674,16 +2797,17 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	Mtxf *root;
 	Vtx *posed;
 	Gfx *list;
+	Gfx *xlulist = NULL;
 	s32 grafted = 0;
+	s32 xlupart = -1;
+	const s32 opa = (renderdata->flags & MODELRENDERFLAG_OPA) != 0;
+	const s32 xlu = (renderdata->flags & MODELRENDERFLAG_XLU) != 0;
 
 	if (!optEnabled || opened <= 0 || !node || !g_XblaMeshNumNodes) {
 		return 0;
 	}
 
-	// Only the opaque pass for now: nothing here reads the material's alpha
-	// flag yet, so a mesh drawn again in the translucent pass would be drawn
-	// twice.
-	if (!(renderdata->flags & MODELRENDERFLAG_OPA)) {
+	if (!opa && !xlu) {
 		return 0;
 	}
 
@@ -2747,10 +2871,36 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
 		list = &m->gdl[m->groupgfx[e->part]];
+		xlupart = m->groupxlu[e->part];
 	} else if (e->part == 0) {
 		list = &m->gdl[m->allgfx];
+		xlupart = m->allxlu;
 	} else {
 		return 1;
+	}
+
+	// The release's own translucent geometry, and where it goes.
+	//
+	// A mesh's materials say which of its draws carry alpha, and those are
+	// built as a span of their own. Whether that span is a cutout in the
+	// opaque pass or a blend in the translucent one is the node's business,
+	// not the material's: a node the game draws a translucent list for (mcount
+	// 4, 54 of the nodes the release replaces) has a piece that belongs in the
+	// other pass, and everywhere else an alpha material is a grille or a fence
+	// that the game drew opaque and this keeps drawing opaque.
+	//
+	// Where the span does go in the translucent pass, the game's own list must
+	// not: 27 of those 54 have the same surface in both, and drawing them one
+	// over the other doubles a window's darkening. Where the release has no
+	// alpha for a node that has a translucent list - the other 27 - returning
+	// 0 leaves the game to draw its own, which is the same rule the hair
+	// follows: take nothing away that nothing here replaces.
+	if (xlupart >= 0 && xblaMeshNodeDrawsXlu(node)) {
+		xlulist = &m->gdl[xlupart];
+	}
+
+	if (!opa && !xlulist) {
+		return 0;
 	}
 
 	// The matrix this is drawn under is the first part's, whichever part is
@@ -2817,7 +2967,38 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	}
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
-	gSPDisplayList(renderdata->gdl++, list);
+
+	if (opa) {
+		gSPDisplayList(renderdata->gdl++, list);
+
+		// An alpha span that is not going to the translucent pass is a cutout
+		// and belongs here, after the solid part of the same group - a grille,
+		// a fence, the leaves of a plant. This is where every alpha material
+		// was drawn before the span was split out, and the mode is the one
+		// they carried themselves.
+		if (xlupart >= 0 && !xlulist) {
+			gDPPipeSync(renderdata->gdl++);
+			gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_TEX_EDGE, G_RM_AA_ZB_TEX_EDGE2);
+			gSPDisplayList(renderdata->gdl++, &m->gdl[xlupart]);
+		}
+	}
+
+	if (xlu && xlulist) {
+		if (xblaMeshVerbose && !m->xlulogged) {
+			m->xlulogged = 1;
+			sysLogPrintf(LOG_NOTE, "xblamesh: slot %d part %d draws its alpha span "
+					"in the translucent pass", e->slot, e->part);
+		}
+
+		// The alpha span carries no render mode of its own, so this is the one
+		// that stands for all of it. The pair is the game's translucent
+		// surface, without the fog cycle its own lists take - the same trade
+		// the opaque span already makes, since a mesh's materials set a plain
+		// opaque mode rather than G_RM_FOG_PRIM_A.
+		gDPPipeSync(renderdata->gdl++);
+		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+		gSPDisplayList(renderdata->gdl++, xlulist);
+	}
 
 	// Mod.XblaMeshBoth: draw the game's geometry as well, so the two can be
 	// seen on top of each other. The only way to tell a mesh that is in the
