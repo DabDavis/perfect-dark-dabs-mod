@@ -65,8 +65,24 @@ void xblaMeshSetEnabled(s32 enabled);
  * addresses has just been handed back. Called from lvReset(), beside the
  * texture ids that go for the same reason. Built meshes are keyed on a slot in
  * the package and stay.
+ *
+ * A backstop rather than the guard: memory is recycled inside a stage too, and
+ * that is caught at the load that recycles it (xblaMeshRegisterModel). What is
+ * left for this is the entries of models that are never loaded again.
  */
 void xblaMeshResetModels(void);
+
+/**
+ * The meshes were switched on in a level that could not have any: the player's
+ * copy was still inside its archive as the level loaded, so nothing in it was
+ * matched, and it was this switch that took the archive apart. The level after
+ * this one has the meshes like anybody else's.
+ *
+ * The one thing about either checkbox that is not obvious from watching it,
+ * and true for exactly as long as it is true - xblaMeshResetModels() clears it
+ * at lvReset(), before the next stage's models load.
+ */
+s32 xblaMeshModelsAreLate(void);
 
 /**
  * A model has just been loaded and its pointers made real: note which of its
@@ -75,6 +91,13 @@ void xblaMeshResetModels(void);
  * Called from modeldefLoad() beside modelSmoothClassify(), for the same reason
  * - it is the one place that has the file id, the buffer and a promoted tree at
  * the same time.
+ *
+ * Called for every model whether or not the meshes are switched on, which is
+ * what makes switching them on a live thing to do, and so also for models the
+ * release has no copy of. Those matter too: this is where a model drops
+ * anything registered against the memory it has just been given, which is the
+ * only thing standing between a reused modeldef and the meshes of whatever
+ * held that address before it.
  */
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid);
 

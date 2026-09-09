@@ -5051,10 +5051,11 @@ static MenuItemHandlerResult menuhandlerXblaUpscalesOnly(s32 operation, struct m
  * number, so a pack cannot reach them and never has to be turned off to see
  * them.
  *
- * Both are live in a level, which is why neither needs a note under it saying
- * when it applies: models are matched against the release's copy as they load
- * whether or not the switch is on, and a texture is decided as the picture is
- * handed to the renderer rather than as a display list is built.
+ * Both are live in a level: models are matched against the release's copy as
+ * they load whether or not the switch is on, and a texture is decided as the
+ * picture is handed to the renderer rather than as a display list is built.
+ * Neither needs a note under it saying when it applies, except in the one case
+ * where a model load cannot have done the matching - see menutextXblaMeshLate().
  */
 static MenuItemHandlerResult menuhandlerXblaMeshes(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -5077,6 +5078,50 @@ static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct m
 	case MENUOP_SET:
 		xblaTexSetEnabled(!xblaTexGetEnabled());
 		break;
+	}
+
+	return 0;
+}
+
+static char g_XblaMeshLateText[64];
+
+/**
+ * The one time a checkbox on this page does nothing that can be seen, said
+ * only while it is true.
+ *
+ * A player whose copy is still inside its .7z matches no model as a level
+ * loads, because a model load takes the package only if it is ready and never
+ * unpacks 250MB on somebody who may only want the textures. Their first
+ * switching of the meshes on is what takes the archive apart, and it is over
+ * by the time this draws - but the level behind the menu was loaded before
+ * there was anything to match it against, so it stays stock and the next one
+ * does not.
+ *
+ * This is a fact xblamesh.c holds rather than a guess at whether the switch
+ * applied, which is what the note that used to be here got wrong: it is set
+ * when that unpack happens in a level and cleared at the next lvReset(), so
+ * every other player and every later level never see it.
+ */
+static const char *menutextXblaMeshLate(struct menuitem *item)
+{
+	snprintf(g_XblaMeshLateText, sizeof(g_XblaMeshLateText),
+			"Unpacked now - models from the next level\n");
+
+	return g_XblaMeshLateText;
+}
+
+/**
+ * The row is not there at all the rest of the time.
+ *
+ * A label that draws a blank line still takes one, and every player who has
+ * ever had a package on disk would be paying that gap for a sentence they are
+ * never going to read - which is half of what was wrong with the note that
+ * used to sit here.
+ */
+static MenuItemHandlerResult menuhandlerXblaMeshLate(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !xblaMeshModelsAreLate();
 	}
 
 	return 0;
@@ -5203,6 +5248,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Textures",
 		0,
 		menuhandlerXblaMeshTextures,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)menutextXblaMeshLate,
+		0,
+		menuhandlerXblaMeshLate,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

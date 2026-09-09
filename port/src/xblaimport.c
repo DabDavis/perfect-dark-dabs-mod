@@ -95,6 +95,12 @@ static s32 detected;
 static char unpackedPath[FS_MAXPATH + 1];
 static s32 unpackFailed;
 
+// A lookup that was not allowed to unpack has already come up empty. Set the
+// first time that happens and cleared only by xblaImportRedetect(), because
+// the one other thing that can change the answer - an unpack - fills
+// unpackedPath above and is found before this is read.
+static s32 notReady;
+
 // Held across an unpack, because both the game thread (the mesh loader asking
 // for the package as a level loads) and the import worker can be the one to
 // find it missing, and two of them extracting 250MB into the same directory at
@@ -409,7 +415,10 @@ static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 
 	if (!mayUnpack) {
 		// Nothing on disk yet and the caller is not the one who should pay for
-		// it. Not remembered as a failure: the next caller may be.
+		// it. Not remembered as a *failure* - the next caller may be willing
+		// to unpack, and has to be able to - but remembered as an answer, so
+		// that the model loads still to come get it for a flag read.
+		notReady = 1;
 		return NULL;
 	}
 
@@ -446,6 +455,18 @@ static const char *xblaEnsureUnpacked(s32 mayUnpack)
 
 	if (unpackedPath[0]) {
 		return unpackedPath;
+	}
+
+	// Every model load asks this, so the empty answer has to be cheap. Without
+	// it each one is a mutex, a stat, two directory scans and a read of the
+	// first four bytes of the player's archive to see whether it is a package
+	// after all - straced at 57 opens of a 233MB archive and 110 directory
+	// probes over one load of the G5 Building, all of them re-deciding what
+	// the first one decided. Read outside the lock the way
+	// unpackedPath above is, and for the same reason: the worst a race can do
+	// is one more scan than was needed.
+	if (!mayUnpack && notReady) {
+		return NULL;
 	}
 
 	if (unpackMutex) {
@@ -487,6 +508,7 @@ void xblaImportRedetect(void)
 	detected = 0;
 	unpackedPath[0] = '\0';
 	unpackFailed = 0;
+	notReady = 0;
 	xblaImportIsAvailable();
 }
 

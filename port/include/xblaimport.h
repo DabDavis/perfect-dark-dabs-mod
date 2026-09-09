@@ -82,8 +82,13 @@ const char *xblaImportGetStfsPath(void);
  * This is for work that is done speculatively, on the chance that somebody
  * wants it - every model load is matched against the release's copy so that
  * switching the meshes on is a live thing to do, and that must not be what
- * costs a player who only wanted the texture pack 250MB and a stall. Failing
- * is not remembered, so the caller that is willing to pay still can.
+ * costs a player who only wanted the texture pack 250MB and a stall.
+ *
+ * Coming up empty is remembered, so that the model loads behind the first one
+ * cost a flag read rather than a directory scan each, but it is not remembered
+ * as a *failure*: xblaImportGetStfsPath() ignores it, so the caller that is
+ * willing to pay for the unpack still can, and once it has, the package that
+ * comes out is found before the flag is looked at.
  */
 const char *xblaImportGetReadyStfsPath(void);
 

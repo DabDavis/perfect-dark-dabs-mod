@@ -26,6 +26,7 @@
 #include "types.h"
 #include "config.h"
 #include "system.h"
+#include "lib/main.h"
 #include "lib/model.h"
 #include "lib/mtx.h"
 #include "x360.h"
@@ -169,6 +170,19 @@ static s32 optBoth;     // Mod.XblaMeshBoth: draw the game's geometry over it to
  */
 static s32 optPose = 1;
 static s32 opened; // 0 untried, 1 open, -1 no package
+
+/**
+ * The switch is what opened the package, and it did it in a level.
+ *
+ * True only in the one case the meshes cannot be live in: a player whose copy
+ * was still inside its .7z matched nothing as the level loaded, because a
+ * model load never unpacks, so the level standing behind the menu has no mesh
+ * in it and turning the switch on does not change a thing that is drawn. It is
+ * cleared by xblaMeshResetModels(), which runs at lvReset() before a stage's
+ * models load - so it is set for exactly as long as it is true, and the menu
+ * can say so rather than guess.
+ */
+static s32 openedLate;
 
 static struct x360stfs stfs;
 static struct x360stfsstream packed;
@@ -518,12 +532,23 @@ static s32 xblaMeshUseFor(const struct modeldef *modeldef, s32 slot)
 	return free;
 }
 
+/**
+ * Drops every entry belonging to one modeldef, live or dead.
+ *
+ * Every model load comes through here now (see xblaMeshMatchModel), including
+ * on a machine that has no package at all, so the table walk is skipped when
+ * there is nothing in the table to walk over.
+ */
 static void xblaMeshForgetModel(const struct modeldef *modeldef)
 {
 	for (s32 i = 0; i < numUses; i++) {
 		if (uses[i].modeldef == modeldef) {
 			uses[i].modeldef = NULL;
 		}
+	}
+
+	if (!g_XblaMeshNumNodes) {
+		return;
 	}
 
 	// Open addressing cannot leave a hole behind, so a dropped entry keeps its
@@ -948,6 +973,16 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 		return;
 	}
 
+	// Whatever is registered at this address belongs to a model that has been
+	// freed, since this one has only just been loaded into it. Dropped here,
+	// before anything can return: a model the release has no copy of leaves
+	// through one of the three returns below, and if it kept the dead entries
+	// it would inherit their meshes with them - the draw path's definition
+	// test cannot tell the two apart, both models being the same address. That
+	// is a stage's own doing rather than a stage change's, so lvReset() is not
+	// where it can be caught.
+	xblaMeshForgetModel(modeldef);
+
 	if (!xblaMeshOpen(0)) {
 		return;
 	}
@@ -958,8 +993,6 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 	if (!file) {
 		return;
 	}
-
-	xblaMeshForgetModel(modeldef);
 
 	xblaMeshFileId = fileid;
 
@@ -1029,10 +1062,19 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
  * by the modeldef test at draw time; with it there is nothing to catch. The
  * built meshes themselves stay - they are keyed on a slot in the release's
  * package, which no stage load can change.
+ *
+ * This is not the only place a dead entry goes, and it must not be the one
+ * that is relied on: a modeldef is freed and reused inside a stage as well,
+ * which no reset sees. What covers that is the load itself - a model forgets
+ * whatever was registered at its own address before it looks at anything, so
+ * the table only ever holds entries put there by a model that is still in the
+ * memory they name. This reset is then what clears the ones whose model is
+ * never loaded again.
  */
 void xblaMeshResetModels(void)
 {
 	numUses = 0;
+	openedLate = 0;
 
 	memset(hash, 0, sizeof(hash));
 	g_XblaMeshNumNodes = 0;
@@ -2579,6 +2621,12 @@ s32 xblaMeshGetEnabled(void)
  * and has matched nothing, so the archive comes apart at the moment somebody
  * first asks for the meshes - a few seconds, once, in a menu they have just
  * clicked something in - and the level after that has them.
+ *
+ * Which is the one case where the switch does nothing anybody can see, so it
+ * is noted for the page to say so. The test is that this call is what opened
+ * the package: if it was already open the models were matched as they loaded
+ * and there is nothing to explain, and if it will not open there is no package
+ * and the page's items are not there to read.
  */
 void xblaMeshSetEnabled(s32 enabled)
 {
@@ -2591,8 +2639,17 @@ void xblaMeshSetEnabled(s32 enabled)
 	optEnabled = enabled;
 
 	if (enabled) {
-		xblaMeshOpen(1);
+		const s32 wasopen = opened > 0;
+
+		if (xblaMeshOpen(1) && !wasopen && STAGE_IS_LEVEL(mainGetStageNum())) {
+			openedLate = 1;
+		}
 	}
+}
+
+s32 xblaMeshModelsAreLate(void)
+{
+	return openedLate;
 }
 
 PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
@@ -2625,5 +2682,6 @@ s32 xblaMeshIsAvailable(void) { return 0; }
 s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }
+s32 xblaMeshModelsAreLate(void) { return 0; }
 
 #endif

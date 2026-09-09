@@ -516,14 +516,61 @@ comes apart, and the next stage load is like everyone else's. That is checked:
 with only a `.7z` in `xbla/` and the switch off, no level load unpacks
 anything; switching it on unpacks once and Chicago then builds 18 meshes.
 
-Two things fall out of matching always. `xblaMeshOpen()` must not remember a
-failure when the package was simply not ready - `opened` is only set to -1
-once a path has been had - or the later call with `mayUnpack` can never
-succeed. And `xblaMeshResetModels()` now drops the node registry and the
-palette uses at `lvReset()`, beside the texture ids that go there for the same
-reason: every address in them belonged to the pool that has just been rebuilt.
-The draw path's modeldef test is still there, but it no longer has a stage's
-worth of dead nodes to catch.
+Two things fall out of matching always, and both of them wanted a second pass.
+
+**A "not ready" answer is remembered, a failure is not.** `xblaMeshOpen()`
+cannot set `opened` to -1 when the package was simply not on disk yet, or the
+later call with `mayUnpack` could never succeed - so it does not, and the
+question is asked again by every model that loads. Left there that costs real
+work, because the empty answer is not cheap to reach: `xblaEnsureUnpackedLocked()`
+takes the mutex, reads the first four bytes of the player's archive to see
+whether it is a package after all, stats the `.extracted` marker and scans the
+two legacy directories. Straced over one load of the G5 Building with only a
+`.7z` in `xbla/`, that was **57 opens of the 233MB archive and 110 probes of the
+old texture-packs directory**, every one of them re-deciding what the first one
+decided. So `xblaimport` keeps a `notReady` flag beside `unpackFailed`: set when
+a lookup that was not allowed to unpack comes up empty, read before the mutex,
+ignored by `xblaImportGetStfsPath()`, and cleared by `xblaImportRedetect()`. The
+same run is 3 opens and 2 probes, which is the detection pass and the first
+lookup. The flag cannot strand the switch, because the only other thing that
+changes the answer is an unpack, and that fills `unpackedPath`, which is found
+first - checked in gdb by letting a level load set the flag and then calling
+`xblaMeshSetEnabled(1)`, which unpacks and opens 2616 slots as it did before.
+
+The one thing that is left over is the level the switch was flipped in: its
+models were loaded before there was a package to match them against, so
+turning the meshes on there changes nothing that is drawn, and the level after
+it is like everybody else's. That is the only case on the page where a
+checkbox does nothing visible, so it says so - `xblaMeshModelsAreLate()` is
+true when *this* call to `xblaMeshSetEnabled()` is what opened the package and
+`STAGE_IS_LEVEL(mainGetStageNum())`, and `xblaMeshResetModels()` clears it at
+`lvReset()`, which runs before a stage's models load. So it is set for exactly
+as long as it is true, which is what the note that used to live under the
+checkbox could not manage - that one guessed at whether the switch had applied
+and was wrong half the time. The row is *hidden* rather than blanked
+(`MENUOP_CHECKHIDDEN`), so a player who has ever had a package on disk does not
+carry an empty line for a sentence they will never read: the page is
+byte-for-byte its old self for everyone but the one player it is addressed to.
+
+**A model forgets its own address as it loads, and `lvReset()` is the
+backstop.** `xblaMeshResetModels()` drops the node registry and the palette uses
+at `lvReset()`, beside the texture ids that go there for the same reason: every
+address in them belonged to the pool that has just been rebuilt. That is right
+but it is not sufficient, and it must not be what the registry's correctness
+rests on, **because a modeldef is freed and reused inside a stage as well** -
+the same fact that makes a list of loaded models unwalkable. The hole: the draw
+path tells a live entry from a dead one by the definition the model is drawn
+from, and that test cannot tell the two apart when the new modeldef has landed
+on the old one's address, which is exactly what happens when a file is loaded
+back into the slot it was freed from. `xblaMeshForgetModel()` was being called
+after the release's copy of the file had been read, so a model the release has
+*no* copy of - most of them - returned before it and inherited the dead
+entries, mesh and all. It is called at the top of the match now, before
+anything can return, so the table only ever holds entries put there by a model
+that is still in the memory they name. It is guarded on `g_XblaMeshNumNodes` so
+that a machine with no package does not walk a 4096-entry table per model load,
+and it changes nothing when there is one: the same 56 models match and the same
+14 meshes build in the G5 Building either way.
 
 **A decode is one LZX stream and it happens on the render thread**, under the
 lock that also covers the registry, because the meshes are built on the game
