@@ -1307,6 +1307,9 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 	xblaMeshMatchModel(modeldef, fileid);
 }
 
+// Both sides of the pose arena: kilobytes held and chunks taken.
+static void xblaMeshArenaStats(u32 *kb, s32 *chunks);
+
 /**
  * Drops everything keyed on a model, because the stage pool that held all of
  * those addresses has just been handed back.
@@ -1351,8 +1354,18 @@ void xblaMeshResetModels(void)
 	// Building), so this line is how a session that has drifted upwards would
 	// show itself.
 	if (g_XblaMeshNumMeshes) {
-		sysLogPrintf(LOG_NOTE, "xblamesh: %u meshes built, %u KB",
-				g_XblaMeshNumMeshes, (g_XblaMeshBytes + 1023) / 1024);
+		// The pose arena is named beside them because it is the other thing
+		// that only ever grows, and the two are read together: a level that
+		// wants more poses than the last one keeps the chunks it took for
+		// them.
+		u32 arenakb;
+		s32 chunks;
+
+		xblaMeshArenaStats(&arenakb, &chunks);
+
+		sysLogPrintf(LOG_NOTE, "xblamesh: %u meshes built, %u KB; pose arena %u KB "
+				"in %d chunks", g_XblaMeshNumMeshes,
+				(g_XblaMeshBytes + 1023) / 1024, arenakb, chunks);
 	}
 }
 
@@ -2429,17 +2442,40 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
  * while the next one is being built, so last frame's vertices have to survive
  * one more frame.
  *
- * It only grows between frames. Growing inside one would move vertices that
- * commands already written this frame point at, which is the same mistake as
- * building a list around a growing array; a frame that asks for more than
- * there is draws what fits and the rest next frame, one bigger.
+ * **It grows by adding a chunk, never by growing one.** The obvious arena - one
+ * block per side, `realloc`ed to fit - cannot be grown inside a frame at all,
+ * because a `realloc` moves vertices that commands already written this frame
+ * point at. So it grew between frames instead, to whatever the frame before it
+ * asked for, and the frame that first wanted more than that drew the tail of
+ * its meshes in their **bind pose**: for a head, whose bind vertices are in the
+ * body's space around y 1400, a head hanging a body's height above the body for
+ * one frame. That is every frame a character first comes into view, 12 of them
+ * over 3000 frames of an eight-simulant match.
+ *
+ * A chunk list has neither problem. What has been handed out never moves, so a
+ * chunk can be added in the middle of a frame, and a frame that wants more than
+ * has ever been wanted gets it there and then rather than one frame late. Each
+ * side keeps its own chunks and hands them back at the top of its next frame;
+ * they are not freed, because the cap is what bounds this and what a match
+ * actually holds is small: one chunk a side for eight simulants, six for
+ * eighty.
  */
 #define XBLAMESH_ARENA_MAX (48 * 1024 * 1024)
+#define XBLAMESH_CHUNK (1024 * 1024) // the smallest chunk asked for
 
-static u8 *frameArena[2];
-static u32 frameCap[2];
-static u32 framePos;
-static u32 frameWanted;
+struct xblameshchunk {
+	u8 *data;
+	u32 size;
+	u32 pos;
+};
+
+// One list per side of the double buffer. The descriptors move when the list
+// grows; the chunks they name do not, which is the whole point.
+static struct xblameshchunk *frameChunks[2];
+static s32 frameNumChunks[2];
+static s32 frameCurChunk[2];
+static u32 frameBytes[2];  // held by that side's chunks, against the cap
+static u32 frameWanted;    // this frame's demand, for the log
 static s32 frameIndex;
 
 // Which frame this is, for the posed copy a mesh keeps. It only has to differ
@@ -2462,42 +2498,100 @@ void xblaMeshFrameReset(void)
 	frameIndex ^= 1;
 	frameCount++;
 
-	// Up to the cap rather than only when the whole of what was asked for fits
-	// under it: a frame that wants more than the arena can ever hold used to
-	// leave it at whatever size it already was, so a crowded match would stop
-	// growing it and drop every pose it could not fit - a room full of
-	// characters in their bind pose, which is a heap of limbs. Grown to the
-	// cap, what does not fit is the tail of one frame's meshes and not all of
-	// them.
-	if (frameWanted > frameCap[frameIndex]) {
-		const u32 want = frameWanted < XBLAMESH_ARENA_MAX ? frameWanted : XBLAMESH_ARENA_MAX;
-		u8 *grown = want > frameCap[frameIndex] ? realloc(frameArena[frameIndex], want) : NULL;
-
-		if (grown) {
-			frameArena[frameIndex] = grown;
-			frameCap[frameIndex] = want;
-		}
+	// This side's chunks are two frames old now: the list they were written
+	// for has been run. Handed back where they are rather than freed.
+	for (s32 i = 0; i < frameNumChunks[frameIndex]; i++) {
+		frameChunks[frameIndex][i].pos = 0;
 	}
 
-	framePos = 0;
+	frameCurChunk[frameIndex] = 0;
 	frameWanted = 0;
+}
+
+/**
+ * One more chunk on this side, big enough for what is being asked for.
+ *
+ * A single mesh's pose is one allocation, so a chunk has to be able to hold
+ * whatever the largest of them comes to rather than a fixed size; the minimum
+ * is what keeps a room of characters from taking a chunk each.
+ */
+static struct xblameshchunk *xblaMeshFrameAddChunk(u32 size)
+{
+	const u32 want = size > XBLAMESH_CHUNK ? size : XBLAMESH_CHUNK;
+	struct xblameshchunk *grown;
+	struct xblameshchunk *chunk;
+	u8 *data;
+
+	if (frameBytes[frameIndex] + want > XBLAMESH_ARENA_MAX) {
+		return NULL;
+	}
+
+	grown = realloc(frameChunks[frameIndex],
+			(size_t)(frameNumChunks[frameIndex] + 1) * sizeof(*grown));
+
+	if (!grown) {
+		return NULL;
+	}
+
+	frameChunks[frameIndex] = grown;
+	data = malloc(want);
+
+	if (!data) {
+		return NULL;
+	}
+
+	chunk = &grown[frameNumChunks[frameIndex]];
+	chunk->data = data;
+	chunk->size = want;
+	chunk->pos = 0;
+
+	frameCurChunk[frameIndex] = frameNumChunks[frameIndex];
+	frameNumChunks[frameIndex]++;
+	frameBytes[frameIndex] += want;
+
+	return chunk;
 }
 
 static void *xblaMeshFrameAlloc(u32 size)
 {
+	struct xblameshchunk *chunk = NULL;
 	void *ptr;
 
 	size = (size + 15) & ~15u;
 	frameWanted += size;
 
-	if (framePos + size > frameCap[frameIndex]) {
+	// The chunk being filled, or the next one along that this fits in. A chunk
+	// passed over keeps whatever was left in it until this side comes round
+	// again, which is what a bump allocator trades for never moving anything;
+	// a chunk is large enough that the loss is noise.
+	for (s32 cur = frameCurChunk[frameIndex]; cur < frameNumChunks[frameIndex]; cur++) {
+		struct xblameshchunk *c = &frameChunks[frameIndex][cur];
+
+		if (c->pos + size <= c->size) {
+			frameCurChunk[frameIndex] = cur;
+			chunk = c;
+			break;
+		}
+	}
+
+	if (!chunk) {
+		chunk = xblaMeshFrameAddChunk(size);
+	}
+
+	if (!chunk) {
 		return NULL;
 	}
 
-	ptr = frameArena[frameIndex] + framePos;
-	framePos += size;
+	ptr = chunk->data + chunk->pos;
+	chunk->pos += size;
 
 	return ptr;
+}
+
+static void xblaMeshArenaStats(u32 *kb, s32 *chunks)
+{
+	*kb = (frameBytes[0] + frameBytes[1] + 1023) / 1024;
+	*chunks = frameNumChunks[0] + frameNumChunks[1];
 }
 
 /**
@@ -3162,9 +3256,14 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			if (pose) {
 				posed = pose;
 			} else if (xblaMeshVerbose) {
+				// Only reachable now at the cap or on a failed malloc: the
+				// arena adds a chunk for anything under it, in the frame that
+				// asks. Worth keeping, because what it draws instead is the
+				// bind pose - a head a body's height above the body.
 				sysLogPrintf(LOG_NOTE, "xblamesh: slot %d drew its bind pose - the frame "
-						"arena is full (%u of %u bytes, %u wanted)", e->slot,
-						framePos, frameCap[frameIndex], frameWanted);
+						"arena would not grow (%d chunks, %u bytes held, %u wanted "
+						"this frame)", e->slot, frameNumChunks[frameIndex],
+						frameBytes[frameIndex], frameWanted);
 			}
 		}
 	}

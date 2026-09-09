@@ -777,15 +777,26 @@ very first line of the draw path, before any of the counters, which is precisely
 the leftover case: it had to be found by asking the *match* what it had left
 behind rather than by watching the draw.
 
-**One transient this turned up and did not fix.** The pose arena grows to the
-previous frame's demand, so the frame where a new character first comes into
-view can want more than the arena holds, and `xblaMeshFrameAlloc()` returning
-NULL draws that mesh in its **bind pose** for one frame — for a head, whose bind
-vertices are in the body's space around y 1400, that is a head a body's height
-above the body. 12 of them over 3000 frames of an 8-simulant match, one frame
-each. `--xbla-mesh-verbose` prints `slot N drew its bind pose - the frame arena
-is full`. Growing it needs a chain of chunks rather than a `realloc`, since a
-`realloc` moves memory a display list already points at.
+**The transient this turned up: the pose arena grew one frame late.** It used
+to be one block a side, `realloc`ed between frames to whatever the frame before
+it asked for — because a `realloc` *inside* a frame moves vertices that commands
+already written point at, which is the same mistake as building a display list
+around a growing array. So the frame that first wanted more than the last one
+drew the tail of its meshes in their **bind pose**, and a head's bind vertices
+are in the body's space around y 1400: a head hanging a body's height above the
+body, for one frame, every time a character first comes into view. 12 of them
+over 3000 frames of an 8-simulant match.
+
+It is **a list of chunks** now. What has been handed out never moves, so a chunk
+can be added in the middle of a frame and a frame that wants more gets it there
+and then; each side hands its chunks back at the top of its next frame rather
+than freeing them, since the 48MB cap is what bounds this. The same seeded match
+drops nothing, and what a match holds is small — one 1MB chunk a side for eight
+simulants, six for eighty, read out of `frameBytes` in gdb. The per-level
+`xblamesh: N meshes built, K KB; pose arena K KB in N chunks` line is where a
+session that drifted upwards would show itself, and
+`slot N drew its bind pose - the frame arena would not grow` is now only
+reachable at the cap or on a failed `malloc`.
 
 #### Skinning
 
