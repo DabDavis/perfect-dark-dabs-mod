@@ -731,6 +731,24 @@ void romdataFileFree(s32 fileNum)
 	fileSlots[fileNum].source = SRC_UNLOADED;
 }
 
+/**
+ * Whether this file's contents came out of the ROM rather than off disk.
+ *
+ * False for anything a mod replaced - a mod's file directory, or a loose file
+ * beside the game - which is what the XBLA mesh loader needs to know before it
+ * pairs a model against the release's copy of the same file id. A file id
+ * means whatever the mod put under that name, and the release's mesh is a
+ * mesh for the *stock* model of that id.
+ */
+s32 romdataFileIsStock(s32 fileNum)
+{
+	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES) {
+		return 0;
+	}
+
+	return fileSlots[fileNum].source != SRC_EXTERNAL;
+}
+
 const char *romdataFileGetName(s32 fileNum)
 {
 	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES) {

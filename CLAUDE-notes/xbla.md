@@ -713,6 +713,80 @@ wrap round to the right answer. They matter because **a slot that a mesh id
 names is not always a mesh**: `UsetupdamZ` names slot 1, and every one of these
 reads happens before `xblaMeshReadHeader()` has had the chance to say so.
 
+#### A mod's model is not the release's model
+
+The release's package is keyed on **the game's own file ids**, and a mod
+replaces a file's contents while keeping its id. GoldenEye X's file 447 is a
+GoldenEye character; the release's 447 is `CbiotechZ`. Matched anyway, the
+node-for-node zip refuses it — the trees disagree — and **`xblaMeshMatchBySize()`
+then takes it**, because all that path asks is that the release's copy names one
+mesh and numbers its parts with no gaps. It hands the model's biggest list the
+whole of somebody else's mesh and leaves every other list drawing its own
+geometry through it: on GE-X's file 447, **one 159-vertex list took the mesh and
+the other twenty-four kept drawing** — near LOD lists, toggled pieces, and the
+head's hair.
+
+That is what "the release's models and the game's are both on the screen at
+once, and even the hair floats above the head" is. The hair is one of the
+twenty-four, and it is *not* the hair rule failing: that rule is only ever
+applied by the zip (`xblaMeshMatchNodes()`), and a model that reaches the
+pairing by size has never been near it.
+
+Two things stop it, and both are wanted:
+
+- **A model is only matched when its bytes came out of the ROM** —
+  `romdataFileIsStock()`, which is false for a mod's file directory and for a
+  loose file beside the game. A mod that leaves a file alone still gets the
+  release's mesh for it, which is most of them: 44 of GE-X's models are left
+  alone on Runway and the rest of the level is unchanged.
+- **The pairing by size has to account for every list it did not take.** Each
+  unpaired list must be a far LOD alternative — a distance node whose near
+  threshold is not zero, which the game draws *instead of* the near list rather
+  than beside it. That is exactly what Joanna's three heads leave behind (the
+  combat head's 36-vertex far LOD) and nothing else. Anything else left over is
+  drawn *with* what the mesh replaced, so the whole match is refused and the
+  model keeps all of its own geometry, which is the right answer for a model
+  this cannot read.
+
+The second is the one that matters if a mod ever patches a file in place rather
+than replacing it, since `source` would then say ROM.
+
+**The diagnostic that found it, and how to use it.** `--xbla-mesh-verbose` now
+answers "are two models on top of each other" directly rather than by eye:
+`xblaMeshRenderNode()` counts, per (model, slot) per frame, the nodes that drew
+from the mesh against the nodes it let the game draw, and any pair with both
+prints one `xblamesh: OVERLAP model ... slot N: A nodes drew the mesh and B drew
+the game's own - <reason>` line, deduplicated by slot and reason. Reading it:
+
+- **nothing, on a stock level**, apart from one or two props a level over. Those
+  are the deliberate case from "The translucent pass" — an `mcount` 4 node whose
+  mesh has no alpha span, where the game draws its own pane and the release has
+  nothing to put there.
+- **a reason of "the model is not the one the entry was filed under"** would be
+  the head graft or a stale address, and has never fired.
+- the pairing by size also prints what it refused and why, and
+  `xblamesh: model file N is a mod's, not the release's - left alone` says a file
+  was never looked at.
+
+Two things about writing this diagnostic that cost a wrong turn each. Counting
+every `return 0` in the translucent pass reports **every** replaced node, because
+that is where a node with no alpha span goes and the game draws nothing for it
+either unless its `mcount` is 4 — the count only means something behind
+`xblaMeshNodeDrawsXlu()`. And a node the pairing never registered returns at the
+very first line of the draw path, before any of the counters, which is precisely
+the leftover case: it had to be found by asking the *match* what it had left
+behind rather than by watching the draw.
+
+**One transient this turned up and did not fix.** The pose arena grows to the
+previous frame's demand, so the frame where a new character first comes into
+view can want more than the arena holds, and `xblaMeshFrameAlloc()` returning
+NULL draws that mesh in its **bind pose** for one frame — for a head, whose bind
+vertices are in the body's space around y 1400, that is a head a body's height
+above the body. 12 of them over 3000 frames of an 8-simulant match, one frame
+each. `--xbla-mesh-verbose` prints `slot N drew its bind pose - the frame arena
+is full`. Growing it needs a chain of chunks rather than a `realloc`, since a
+`realloc` moves memory a display list already points at.
+
 #### Skinning
 
 `Mod.XblaMeshPose` poses a skinned mesh from the game's own matrices, and it is

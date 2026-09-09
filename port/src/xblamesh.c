@@ -34,6 +34,7 @@
 #include "lib/mtx.h"
 #include "x360.h"
 #include "xblaimport.h"
+#include "romdata.h"
 #include "xblamesh.h"
 #include "xblatex.h"
 
@@ -1116,6 +1117,67 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 		}
 	}
 
+	// Everything the pairing did not take has to be something it was right to
+	// leave. A model that gets this far is one whose tree did not zip against
+	// the release's copy, so there is nothing to say which of its lists the
+	// mesh stands for beyond their sizes - and the three heads this path
+	// exists for leave exactly one thing behind: a far LOD alternative, which
+	// the game draws instead of the near list rather than beside it.
+	//
+	// Anything else left over is drawn *with* what the mesh replaced, over the
+	// top of it, and that is not a pairing that has understood the model. A
+	// mod's model is the case that showed it: one 159-vertex list took the
+	// whole of a release mesh and the other twenty-four - near lists, toggled
+	// pieces, a head's hair - carried on drawing the game's own geometry
+	// through it. Refused here, the model keeps all of its own geometry, which
+	// is the right answer for a model this cannot read.
+	for (node = modeldef->rootnode; node; node = xblaMeshNextNode(node)) {
+		const struct modelnode *up;
+		s32 paired = 0;
+		s32 lod = 0;
+
+		if (xblaMeshNodeNumVertices(node) <= 0) {
+			continue;
+		}
+
+		for (s32 i = 0; i < numparts; i++) {
+			if (ours[i] == node) {
+				paired = 1;
+				break;
+			}
+		}
+
+		if (paired) {
+			continue;
+		}
+
+		// The far half of an LOD pair: a distance node whose near threshold is
+		// not zero, reached before the root and before any toggle.
+		for (up = node; up && !lod; up = up->parent) {
+			const u32 t = up->type & 0xff;
+
+			if (t == MODELNODETYPE_DISTANCE) {
+				lod = up->rodata && up->rodata->distance.near != 0.0f;
+				break;
+			}
+
+			if (t == MODELNODETYPE_TOGGLE || up == modeldef->rootnode) {
+				break;
+			}
+		}
+
+		if (!lod) {
+			if (xblaMeshVerbose) {
+				sysLogPrintf(LOG_NOTE, "xblamesh:   by size refused slot %d: a %d vertex "
+						"list is neither paired nor an LOD alternative, so the game "
+						"would draw it over the mesh", slot,
+						xblaMeshNodeNumVertices(node));
+			}
+
+			return 0;
+		}
+	}
+
 	return numparts;
 }
 
@@ -1154,6 +1216,30 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 	// ever matched, and the checkbox that would have unpacked it was already
 	// on. Off, this is still the speculative pass that keeps the switch live.
 	if (!xblaMeshOpen(optEnabled)) {
+		return;
+	}
+
+	// A mod's model is not the model this mesh is a mesh for.
+	//
+	// The release's package is keyed on the game's own file ids, and a mod
+	// replaces a file's contents while keeping its id: GoldenEye X's file 447
+	// is a GoldenEye character where the release's 447 is CbiotechZ. Matched
+	// anyway, the node-for-node zip refuses it - the trees disagree - and the
+	// pairing by size then takes it, hands the model's biggest list the whole
+	// of somebody else's mesh, and leaves its other twenty-four lists drawing
+	// their own geometry over it. That is what "the release's models and the
+	// game's are both on the screen, and the hair floats above the head" is:
+	// the head's hair is one of the twenty-four.
+	//
+	// So a model is only paired when its bytes came out of the ROM. A mod that
+	// leaves a file alone still gets the release's mesh for it, which is most
+	// of them.
+	if (!romdataFileIsStock(fileid)) {
+		if (xblaMeshVerbose) {
+			sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is a mod's, not the "
+					"release's - left alone", fileid);
+		}
+
 		return;
 	}
 
@@ -2360,6 +2446,8 @@ static s32 frameIndex;
 // from the frame before it, so wrapping is no more than one wasted pose.
 static u32 frameCount;
 
+static void xblaMeshReportOverlaps(void);
+
 void xblaMeshFrameReset(void)
 {
 	// Unconditional, including with the meshes switched off. The frame counter
@@ -2367,6 +2455,10 @@ void xblaMeshFrameReset(void)
 	// the switch is off is still the current frame when it comes back on - so
 	// the first frame after would draw a pose left over from before, in an
 	// arena whose high water mark had not been given back either.
+	if (xblaMeshVerbose) {
+		xblaMeshReportOverlaps();
+	}
+
 	frameIndex ^= 1;
 	frameCount++;
 
@@ -2716,6 +2808,114 @@ static void xblaMeshLogDrawn(struct model *model, struct modelnode *node, s32 sl
 	}
 }
 
+/* ---------------------------------------------------------------------------
+ * Overlap diagnostic (--xbla-mesh-verbose only)
+ *
+ * "The release's model and the game's are both on the screen" is one question:
+ * did any node of this model draw from the mesh this frame while another node
+ * of the same model was left to draw its own geometry? Counted per (model,
+ * slot) and reported at the end of the frame, with the reason the stock draw
+ * was let through, so a report of two models on top of each other names the
+ * model and the branch rather than needing the level it was seen in.
+ * ------------------------------------------------------------------------- */
+#define XBLAMESH_OVERLAPS 64  // (model, slot) pairs watched in one frame
+#define XBLAMESH_OVERLAPSEEN 96 // (slot, reason) pairs reported before it goes quiet
+
+struct xblameshoverlap {
+	const struct model *model;
+	s32 slot;
+	s32 mesh;   // nodes drawn from the release's mesh this frame
+	s32 stock;  // nodes left to the game this frame
+	s32 reason; // why the last of those was left to it
+};
+
+static struct xblameshoverlap overlaps[XBLAMESH_OVERLAPS];
+static s32 numOverlaps;
+
+// One line per (slot, reason), not per frame: an overlap that is there is there
+// every frame the model is on the screen, and 60 copies a second of it says
+// nothing the first did not.
+static s32 seenSlot[XBLAMESH_OVERLAPSEEN];
+static s32 seenReason[XBLAMESH_OVERLAPSEEN];
+static s32 numSeen;
+
+static const char *const xblaMeshOverlapReasons[] = {
+	"?",
+	"the model is not the one the entry was filed under, and no headspot on the way up",
+	"Mod.XblaMeshOnly names another slot",
+	"a toggled piece the mesh has already, on a node that is not grafted",
+	"the mesh would not build",
+	"the translucent pass, where the mesh has no alpha span",
+	"Mod.XblaMeshBoth",
+};
+
+static void xblaMeshNoteDraw(const struct model *model, s32 slot, s32 mesh, s32 reason)
+{
+	struct xblameshoverlap *o = NULL;
+
+	for (s32 i = 0; i < numOverlaps; i++) {
+		if (overlaps[i].model == model && overlaps[i].slot == slot) {
+			o = &overlaps[i];
+			break;
+		}
+	}
+
+	if (!o) {
+		if (numOverlaps >= XBLAMESH_OVERLAPS) {
+			return;
+		}
+
+		o = &overlaps[numOverlaps++];
+		o->model = model;
+		o->slot = slot;
+		o->mesh = 0;
+		o->stock = 0;
+		o->reason = 0;
+	}
+
+	if (mesh) {
+		o->mesh++;
+	} else {
+		o->stock++;
+		o->reason = reason;
+	}
+}
+
+static void xblaMeshReportOverlaps(void)
+{
+	for (s32 i = 0; i < numOverlaps; i++) {
+		const struct xblameshoverlap *o = &overlaps[i];
+		s32 seen = 0;
+
+		if (!o->mesh || !o->stock) {
+			continue;
+		}
+
+		for (s32 j = 0; j < numSeen; j++) {
+			if (seenSlot[j] == o->slot && seenReason[j] == o->reason) {
+				seen = 1;
+				break;
+			}
+		}
+
+		if (seen || numSeen >= XBLAMESH_OVERLAPSEEN) {
+			continue;
+		}
+
+		seenSlot[numSeen] = o->slot;
+		seenReason[numSeen] = o->reason;
+		numSeen++;
+
+		sysLogPrintf(LOG_NOTE, "xblamesh: OVERLAP model %p slot %d: %d nodes drew the "
+				"mesh and %d drew the game's own - %s",
+				o->model, o->slot, o->mesh, o->stock,
+				xblaMeshOverlapReasons[(u32)o->reason < ARRAYCOUNT(xblaMeshOverlapReasons)
+						? o->reason : 0]);
+	}
+
+	numOverlaps = 0;
+}
+
 /**
  * Whether a node from another model is one this model is drawing.
  *
@@ -2823,6 +3023,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// head, which is a model of its own grafted into the body's tree.
 	if (model && model->definition && model->definition != e->modeldef) {
 		if (!xblaMeshNodeIsGrafted(model, node)) {
+			if (xblaMeshVerbose && !e->suppress) {
+				xblaMeshNoteDraw(model, e->slot, 0, 1);
+			}
+
 			return 0;
 		}
 
@@ -2830,6 +3034,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	}
 
 	if (optOnlySlot && e->slot != optOnlySlot) {
+		if (xblaMeshVerbose) {
+			xblaMeshNoteDraw(model, e->slot, 0, 2);
+		}
+
 		return 0;
 	}
 
@@ -2842,6 +3050,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// Mod.XblaMeshBoth keeps it too, that switch being there to put the two on
 	// top of each other.
 	if (e->suppress) {
+		if (xblaMeshVerbose && !(grafted && !optBoth)) {
+			sysLogPrintf(LOG_NOTE, "xblamesh: a toggled piece the mesh has already drew "
+					"the game's own: model %p node %p grafted %d both %d",
+					model, node, grafted, optBoth);
+		}
+
 		return (grafted && !optBoth) ? 1 : 0;
 	}
 
@@ -2851,6 +3065,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	m = xblaMeshBuild(e->slot);
 
 	if (!m) {
+		if (xblaMeshVerbose) {
+			xblaMeshNoteDraw(model, e->slot, 0, 4);
+		}
+
 		return 0;
 	}
 
@@ -2900,6 +3118,13 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	}
 
 	if (!opa && !xlulist) {
+		// Only a node the game actually draws a translucent list for is a
+		// stock draw; every other replaced node reaches here in the
+		// translucent pass and the game draws nothing for it either.
+		if (xblaMeshVerbose && xblaMeshNodeDrawsXlu(node)) {
+			xblaMeshNoteDraw(model, e->slot, 0, 5);
+		}
+
 		return 0;
 	}
 
@@ -2936,6 +3161,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 			if (pose) {
 				posed = pose;
+			} else if (xblaMeshVerbose) {
+				sysLogPrintf(LOG_NOTE, "xblamesh: slot %d drew its bind pose - the frame "
+						"arena is full (%u of %u bytes, %u wanted)", e->slot,
+						framePos, frameCap[frameIndex], frameWanted);
 			}
 		}
 	}
@@ -2998,6 +3227,14 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		gDPPipeSync(renderdata->gdl++);
 		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
 		gSPDisplayList(renderdata->gdl++, xlulist);
+	}
+
+	if (xblaMeshVerbose) {
+		xblaMeshNoteDraw(model, e->slot, 1, 0);
+
+		if (optBoth) {
+			xblaMeshNoteDraw(model, e->slot, 0, 6);
+		}
 	}
 
 	// Mod.XblaMeshBoth: draw the game's geometry as well, so the two can be
