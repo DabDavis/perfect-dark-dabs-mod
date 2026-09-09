@@ -332,12 +332,18 @@ scale is 1 for everything unskinned: an Area 51 crate is 100 units across in
 the ROM and 100 in the mesh; a lab door is 4000 by 2800 in both. A skinned mesh
 is nearly always at a tenth, and drawing one without the scale puts a character
 inside its own chest — see "Skinning".
-So a mesh wants no transform of its own — it goes under the node's matrix like
-the display list it replaces — and the floats quantise back to the s16 the
-game's vertices already are with nothing lost. The in-game check is
+So an **unskinned** mesh wants no transform of its own — it goes under the
+node's matrix like the display list it replaces, and its floats quantise back
+to the s16 the game's vertices already are with nothing lost, because at scale
+1 they were whole units to begin with. The in-game check is
 `--xbla-mesh-verbose`, which logs each replaced node's stock box beside its
 mesh's; they should sit on top of each other, and when the id mapping was one
 out they did not.
+
+**A skinned one does want a transform of its own, and "nothing lost" was wrong
+for it** — see "The pose is written in sixteenths" under "Skinning". At scale
+10 the mesh states a character to a *tenth* of a unit, and rounding the pose to
+whole ones threw that away.
 
 **A batch is 25 vertices, and the list must not hold a pointer until the arrays
 stop growing.** `gSP1Triangle` multiplies its indices by 10 into a byte, so 25
@@ -845,6 +851,67 @@ the list is drawn under — the first part's, which keeps the result inside the
 s16 a Perfect Dark vertex holds. The posed copy of the vertices goes in a frame
 arena of its own, doubled, because a character is thousands of vertices and the
 game's vtx pool is sized for what an N64 drew.
+
+#### The pose is written in sixteenths
+
+A Perfect Dark vertex holds an s16 and the game's own models are drawn in whole
+units, because that is what an N64 model file could say. **A skinned mesh is
+not**: the header's scale is a tenth for nearly every one of them, so 4J stated
+a character's geometry to a tenth of a unit, and rounding the posed vertices to
+whole ones threw nine tenths of it away.
+
+Where that shows is a **head**. The vertices across a nose are three or four
+units apart, so half a unit of rounding is a tenth of the spacing, landing a
+different way on every vertex; a ridge that should be straight comes out bent,
+and the report it arrived as was "the noses are a tad crooked on the head
+models". On a wall or a crate the same half unit is a hundredth of the spacing,
+which is why nothing else ever looked wrong — and why this survived every check
+that had been run on the loader, all of which measure a box or a position and
+none of which measure a *shape*.
+
+The fix is the one an s16 vertex allows: write the pose in sixteenths of a unit
+and hand the list the bone's matrix with its three rows divided by sixteen, so
+the two cancel at the vertex that reaches the screen. It costs one matrix out
+of the frame arena per posed mesh per frame.
+
+How far it can be taken is bounded without posing anything, which is what
+`xblaMeshPoseFineness()` does: a posed vertex is a blend of one bind position
+put through each palette matrix, and a blend of points inside a box carried
+through an affine matrix stays inside that box's image — so the eight corners of
+the bind box through every palette entry bound every vertex about to be written.
+Every mesh in the G5 Building takes the full sixteen; the widest, a body at
+`[-336 -1017 -109]..[395 434 431]`, still only reaches 16000 of the 32767.
+
+Three things this has to get right:
+
+- **The bone's own matrix goes back afterwards.** A display list node loads no
+  matrix — a chr is drawn under one matrix for the whole model with the pose
+  baked into its vertices — so whatever this leaves loaded is what the next node
+  inherits, and a node that kept its own geometry (a far LOD, a toggled piece)
+  would draw at a sixteenth of its size. Reloading the bone's matrix at the end
+  leaves behind exactly what the undivided version left behind.
+- **A frame with no room for the matrix writes whole units.** The fineness is
+  chosen and the matrix taken before a single vertex is written, so a failed
+  allocation goes back to what this did before rather than drawing a mesh
+  sixteen times its size.
+- **The copied matrix is converted to the N64's s15.16 before the list sees
+  it.** This is what the first landing (`23c75707b`) got wrong, and why it was
+  reverted the same day for wrecking every posed chr: `gSPMatrix` in this port
+  reads fixed point, not floats — `GBI_FLOATS` is never defined and
+  `gfx_sp_matrix` unpacks integer and fraction words. A model's own matrices
+  are floats while the list is built and the game converts them **in place
+  afterwards** with `mtxF2LBulk()` (the end of chrRender's translucent pass,
+  and the same in propobj.c and bondgun.c), which is why a pointer into
+  `model->matrices` has always worked. A copy in the frame arena is nobody's
+  to convert but ours, so `xblaMeshPose()` runs `mtxF2L()` on it in place —
+  safe, it reads all sixteen values before it writes — and the renderer read
+  1.0f, `0x3f800000`, as 16256 until it did. On the real GPU the difference is
+  a whole-frame smear against a frame that differs from the undivided build in
+  1261 pixels, all inside the guard. Any matrix this file ever hands a display
+  list that is not one of the model's own has to go through the same call.
+
+The check is the posed box in `--xbla-mesh-verbose`, which divides back before
+it prints: it reads the same as it did before the change, to the unit.
 
 What it costs: 2000 frames of the G5 Building took 24s with the meshes off, 30s
 with them on and 34s with them posed as well, so the pose itself is about a
