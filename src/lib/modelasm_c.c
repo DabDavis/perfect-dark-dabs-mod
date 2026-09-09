@@ -441,15 +441,12 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 			f0 = 0;
 
 			// The same rule as modelUpdateDistanceRelations, which is the
-			// other place a distance node is decided: the Model LOD option
-			// and, under Increase Poly Models, the switch pushed out to
-			// where the figure is as small on screen as the console's.
+			// other place a distance node is decided: the Model LOD option.
 			// Without this the option did nothing to the models that come
 			// through here, which is most of them.
 #ifndef PLATFORM_N64
 			if (!g_ModelDistanceDisabled && t0mtx && modIsModelLodOn()) {
-				f0 = -t0mtx->m[3][2] * g_Vars.currentplayer->c_lodscalez * g_ModelDistanceScale
-					* modGetModelLodDistanceScale();
+				f0 = -t0mtx->m[3][2] * g_Vars.currentplayer->c_lodscalez * g_ModelDistanceScale;
 			}
 #else
 			if (!g_ModelDistanceDisabled && t0mtx) {

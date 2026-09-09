@@ -21,7 +21,6 @@
 #include "game/game_0b0fd0.h"
 #include "game/modeldef.h"
 #ifndef PLATFORM_N64
-#include "modelsmooth.h"
 #include "xblamesh.h"
 #endif
 #include "game/modelmgr.h"
@@ -3961,10 +3960,6 @@ void bgunTickGunLoad(void)
 		modelPromoteOffsetsToPointers(modeldef, 0x05000000, (uintptr_t)modeldef);
 
 #ifndef PLATFORM_N64
-		// See modeldefLoad: the pass is bounded by the model's buffer, and
-		// here that is the block the gun was loaded into
-		modelSmoothClassify(modeldef, allocsize);
-
 		xblaMeshRegisterModel(modeldef, player->gunctrl.loadfilenum);
 #endif
 

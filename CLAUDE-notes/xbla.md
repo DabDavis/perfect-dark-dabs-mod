@@ -323,7 +323,7 @@ the heads under "The heads".
 release's copy of the same file as the model loads, and builds one Perfect Dark
 display list per mesh the first time something asks to draw it. There is no new
 renderer code at all: the list is ordinary F3D, so the cull modes, the depth
-sorting, Model Smoothing and screenshots all carry on working.
+sorting and screenshots all carry on working.
 
 Four things it costs a wrong turn to work out again.
 

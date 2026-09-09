@@ -2452,35 +2452,7 @@ static MenuItemHandlerResult menuhandlerModCleanText(s32 operation, struct menui
 }
 
 /**
- * Increase Poly Models: lit models drawn as curved patches of more
- * triangles, at the same level whatever the distance. The renderer keeps
- * its own copy of the setting.
- */
-static MenuItemHandlerResult menuhandlerModModelSmoothing(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	static const char *opts[] = { "Off", "Light", "Normal", "Heavy" };
-
-	switch (operation) {
-	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(opts);
-		break;
-	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)opts[data->dropdown.value];
-	case MENUOP_SET:
-		g_ModOptions.modelsmoothing = data->dropdown.value;
-		videoSetModelSmoothing(modGetModelSmoothingLevel(), modGetModelSmoothingAmount());
-		break;
-	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_ModOptions.modelsmoothing;
-	}
-
-	return 0;
-}
-
-/**
- * Model LOD: the game's own distance models. Under Increase Poly Models the
- * switch to the far model waits until the figure is too small on screen for
- * the smoothing to show (modGetModelLodDistanceScale).
+ * Model LOD: the game's own distance models, swapped in past a few metres.
  */
 static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -3742,14 +3714,6 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Smooth Text",
 		0,
 		menuhandlerModSmoothText,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Increase Poly Models",
-		0,
-		menuhandlerModModelSmoothing,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

@@ -35,9 +35,6 @@ struct GfxRenderingAPI {
     void (*set_scissor)(int x, int y, int width, int height);
     void (*set_use_alpha)(bool use_alpha, bool modulate);
     void (*draw_triangles)(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris);
-    // The same batch of vertices, with the triangles named as triples of
-    // vertex numbers instead of taken three at a time
-    void (*draw_triangles_indexed)(float buf_vbo[], size_t buf_vbo_len, const uint16_t indices[], size_t num_tris);
     void (*init)(void);
     void (*on_resize)(void);
     void (*start_frame)(void);

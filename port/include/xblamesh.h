@@ -37,8 +37,8 @@ extern "C" {
  * vertices already are without losing anything.
  *
  * What it draws with is an ordinary Perfect Dark display list built once per
- * mesh, so the renderer, the cull modes, Model Smoothing and everything else
- * downstream need no changes at all. The one liberty taken is the size of a
+ * mesh, so the renderer, the cull modes and everything else downstream need
+ * no changes at all. The one liberty taken is the size of a
  * vertex batch: `gSP1Triangle` multiplies its indices by 10 into a byte, so a
  * batch is 25 vertices rather than the 16 the real microcode's cache holds.
  * That is a lie the RSP would not accept and the renderer does not care about,
@@ -88,9 +88,8 @@ s32 xblaMeshModelsAreLate(void);
  * A model has just been loaded and its pointers made real: note which of its
  * nodes the release replaces, and with what.
  *
- * Called from modeldefLoad() beside modelSmoothClassify(), for the same reason
- * - it is the one place that has the file id, the buffer and a promoted tree at
- * the same time.
+ * Called from modeldefLoad(), which is the one place that has the file id, the
+ * buffer and a promoted tree at the same time.
  *
  * Called for every model whether or not the meshes are switched on, which is
  * what makes switching them on a live thing to do, and so also for models the
@@ -112,8 +111,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 /**
  * A frame is starting: the vertices posed for the last one are two frames old
- * and their arena can be reused. Called beside modelSmoothForgetRange(), which
- * is the same moment for the same reason.
+ * and their arena can be reused.
  */
 void xblaMeshFrameReset(void);
 

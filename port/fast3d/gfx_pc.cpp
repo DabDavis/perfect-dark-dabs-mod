@@ -133,17 +133,6 @@ struct LoadedVertex {
     // the camera is wrong along most of it - the N64 clips first and
     // evaluates the line at the new vertices, so this goes one better
     int16_t fog_mul, fog_offset;
-    // Model Smoothing: what the vertex was made from, so gfx_sp_tri_smooth
-    // can put new vertices on the curved patch between three of them. The
-    // position and normal are model space, the normal unit length; lit is
-    // whether there was a normal at all, and mtx_gen which matrix the
-    // position went through, so a triangle drawn after the matrix moved on
-    // is left flat rather than curved through the wrong one
-    float ox, oy, oz;
-    float nx, ny, nz;
-    uint8_t lit;
-    uint32_t mtx_gen;
-    const void* src; // the Vtx it was loaded from, the mesh table's key; null for a made-up one
 };
 
 static struct {
@@ -171,7 +160,6 @@ static struct RSP {
 
     float MP_matrix[4][4];
     float P_matrix[4][4];
-    uint32_t mtx_gen; // bumped whenever MP_matrix is recomputed
 
 
     Light_t lookat[2];
@@ -343,8 +331,6 @@ float gfx_current_native_aspect = 4.f / 3.f;
 bool gfx_framebuffers_enabled = true;
 bool gfx_detail_textures_enabled = true;
 bool gfx_clean_text_outlines = true;
-int gfx_model_smoothing_level = 0;
-float gfx_model_smoothing_amount = 0.0f;
 int gfx_clamped_edge_mode = CLAMPED_EDGE_STRETCH;
 int gfx_texture_enhance_scale = 1;
 int gfx_text_smooth_scale = 1;
@@ -365,19 +351,6 @@ static GfxPreSwapCallback gfx_pre_swap_callback;
 static float buf_vbo[MAX_BUFFERED * (32 * 3)]; // 3 vertices in a triangle and 32 floats per vtx
 static size_t buf_vbo_len;
 static size_t buf_vbo_num_tris;
-/*
- * Model Smoothing writes a patch's grid of vertices once and names its
- * pieces as triples of their numbers (gfx_sp_tri_smooth). A batch holding
- * one is drawn by index: every vertex in buf_vbo is numbered from 0 in the
- * order it was written, and buf_ibo holds three numbers per triangle, a
- * plain triangle's three consecutive. A batch with no patch in it is drawn
- * from buf_vbo alone, as it always was. A triangle brings at most three
- * vertices, so both fit whatever the batch holds.
- */
-static uint16_t buf_ibo[MAX_BUFFERED * 3];
-#define MAX_BUFFERED_VERTS (MAX_BUFFERED * 3)
-static size_t buf_vbo_num_verts;
-static bool buf_indexed;
 
 extern "C" {
 
@@ -479,9 +452,8 @@ uint32_t g_GfxVerifyMaxTrisFrame = 0; // busiest frame the verifier actually saw
 uint32_t g_GfxNumVerts = 0;
 uint32_t g_GfxLogStats = 0;
 // triangles of the last frame by fate: thrown out as wholly off screen, as
-// facing away, or drawn (and of those, made by Increase Poly Models)
-uint32_t g_GfxTrisClipped = 0, g_GfxTrisCulled = 0, g_GfxTrisSmoothed = 0;
-uint32_t g_GfxPatchesGrid = 0, g_GfxPatchesPn = 0; // patches drawn from the subdivided surface, and bent on their own
+// facing away, or drawn
+uint32_t g_GfxTrisClipped = 0, g_GfxTrisCulled = 0;
 
 }
 
@@ -517,15 +489,8 @@ static void gfx_note_texture_bound(uint32_t texture_id) {
 
 static void gfx_flush(void) {
     if (buf_vbo_len > 0) {
-        if (buf_vbo_num_tris == 0) {
-            // a patch whose every piece was culled: vertices nothing names
-        } else if (buf_indexed) {
-            gfx_rapi->draw_triangles_indexed(buf_vbo, buf_vbo_len, buf_ibo, buf_vbo_num_tris);
-            g_GfxNumDrawCalls++;
-        } else {
-            gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
-            g_GfxNumDrawCalls++;
-        }
+        gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
+        g_GfxNumDrawCalls++;
         g_GfxNumTris += buf_vbo_num_tris;
 #ifdef GFX_VERIFY_BATCH_STATE
         if (g_GfxNumTris > g_GfxVerifyMaxTrisFrame) {
@@ -534,8 +499,6 @@ static void gfx_flush(void) {
 #endif
         buf_vbo_len = 0;
         buf_vbo_num_tris = 0;
-        buf_vbo_num_verts = 0;
-        buf_indexed = false;
     }
 }
 
@@ -1626,7 +1589,6 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
         rsp.lights_changed = 1;
     }
     gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
-    rsp.mtx_gen++;
 }
 
 static void gfx_sp_pop_matrix(uint32_t count) {
@@ -1636,7 +1598,6 @@ static void gfx_sp_pop_matrix(uint32_t count) {
             if (rsp.modelview_matrix_stack_size > 0) {
                 gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1],
                                rsp.P_matrix);
-                rsp.mtx_gen++;
             }
         }
     }
@@ -1665,7 +1626,7 @@ static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height)
  * Transform, light and clip-test one vertex into `d`, from a model-space
  * position, its normal or colour entry, and texture coordinates already
  * scaled by the current G_TEXTURE factor. gfx_sp_vertex feeds it a G_VTX
- * command's vertices; gfx_sp_tri_smooth feeds it the ones it makes up.
+ * command's vertices.
  */
 // inlined into its two callers so gfx_sp_vertex's loop keeps the matrix rows
 // and the mode tests out of the per-vertex work
@@ -1683,23 +1644,7 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
 
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
-        d->ox = px;
-        d->oy = py;
-        d->oz = pz;
-        d->mtx_gen = rsp.mtx_gen;
-        d->lit = 0;
-
         if (rsp.geometry_mode & G_LIGHTING) {
-            // the normal, for Model Smoothing to bend the surface with. A
-            // zero normal is a vertex nobody meant to light, left flat
-            const float nlen = sqrtf((float)vcn->x * vcn->x + (float)vcn->y * vcn->y + (float)vcn->z * vcn->z);
-            if (nlen >= 1.0f) {
-                d->nx = vcn->x / nlen;
-                d->ny = vcn->y / nlen;
-                d->nz = vcn->z / nlen;
-                d->lit = 1;
-            }
-
             if (rsp.lights_changed) {
                 for (int i = 0; i < rsp.current_num_lights - 1; i++) {
                     calculate_normal_dir(&rsp.current_lights[i], rsp.current_lights_coeffs[i]);
@@ -1827,7 +1772,6 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 
         gfx_sp_load_vertex(&rsp.loaded_vertices[dest_index], v->v[0], v->v[1], v->v[2],
                            &rsp.vertex_colors[v->colour >> 2], U, V);
-        rsp.loaded_vertices[dest_index].src = v;
     }
 }
 
@@ -2158,8 +2102,6 @@ static void gfx_verify_batch_state(void) {
 }
 #endif
 
-static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3);
-
 /*
  * What each shader input of the current combiner is fed from, per vertex.
  * Colour and alpha are resolved separately since the combiner maps them
@@ -2403,7 +2345,7 @@ static inline float gfx_lod_fraction(float w) {
  * scissor, shader and blending, the resolved combiner inputs and the vertex
  * layout: apply whatever moved, flushing the batch first, so the vertices
  * written next go out under it. Everything gfx_sp_tri_emit did before it
- * wrote a vertex; a patch does it once for all its pieces.
+ * wrote a vertex.
  */
 static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
     bool depth_test = ((rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER || (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM) &&
@@ -2480,10 +2422,9 @@ static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
 }
 
 /*
- * One vertex into buf_vbo in the batch's layout, and its number in the
- * batch, which an index triple names it by.
+ * One vertex into buf_vbo in the batch's layout.
  */
-static inline __attribute__((always_inline)) uint16_t gfx_emit_vertex(const struct LoadedVertex* v, bool is_rect) {
+static inline __attribute__((always_inline)) void gfx_emit_vertex(const struct LoadedVertex* v, bool is_rect) {
     /* Rectangles skip the perspective and filter terms, so they use their own pair. */
     const float (*uv_scale)[2] = is_rect ? batch.uv_scale_rect : batch.uv_scale;
     const float (*uv_ofs)[2] = is_rect ? batch.uv_ofs_rect : batch.uv_ofs;
@@ -2548,7 +2489,6 @@ static inline __attribute__((always_inline)) uint16_t gfx_emit_vertex(const stru
     }
 
     buf_vbo_len += emit_plan.stride;
-    return (uint16_t)buf_vbo_num_verts++;
 }
 
 // A triangle is in the batch: count it toward the batch's limit
@@ -2561,363 +2501,8 @@ static inline __attribute__((always_inline)) void gfx_emit_tri_done(void) {
     }
 }
 
-static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect, bool cull_tested = false) {
-    if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
-        if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
-            // The whole triangle lies outside the visible area
-            g_GfxTrisClipped++;
-            return;
-        }
-    }
-
-    if (!cull_tested && gfx_tri_is_culled(v1, v2, v3)) {
-        g_GfxTrisCulled++;
-        return;
-    }
-
-    gfx_emit_prepare();
-
-    const uint16_t a = gfx_emit_vertex(v1, is_rect);
-    const uint16_t b = gfx_emit_vertex(v2, is_rect);
-    const uint16_t c = gfx_emit_vertex(v3, is_rect);
-    if (buf_indexed) {
-        uint16_t* ib = buf_ibo + 3 * buf_vbo_num_tris;
-        ib[0] = a;
-        ib[1] = b;
-        ib[2] = c;
-    }
-    gfx_emit_tri_done();
-}
-
 /*
- * Model Smoothing: a lit triangle drawn as a curved patch.
- *
- * The models were built for a console that could afford a few hundred
- * triangles per character, and on a monitor every edge of that budget shows.
- * There is no mesh to refine - a display list is a bag of triangles, and a
- * triangle here does not know its neighbours - so this is curved PN
- * triangles (Vlachos et al., 2001), which need nothing but the three corners
- * and their normals. Each corner's normal is taken as the surface's true
- * direction there, the flat triangle is bent into a cubic Bezier patch that
- * honours all three, and the patch is drawn as n*n small triangles with a
- * quadratically blended normal at each new vertex, lit by the same lights.
- * An edge's shape depends only on its two endpoints, so two patches that
- * share an edge meet along it exactly, and a corner that was left flat by a
- * neighbour (a vertex loaded through another matrix, say) still lands on the
- * same point. Where the normals agree with the face - a box built with a
- * normal per face - the patch stays flat, so hard edges stay hard.
- *
- * gfx_model_smoothing_amount blends the curve in: 1 is the paper's patch, and
- * less pulls it toward the flat triangle, because the technique's known
- * habit is to inflate a large, sparsely modelled surface into a cushion.
- *
- * Only vertices that came with a normal qualify, which in this game is the
- * characters, weapons and props. Room geometry is coloured per vertex rather
- * than lit and keeps its planes.
- */
-#define SMOOTH_MAX_LEVEL 4
-#define SMOOTH_MAX_VERTS ((SMOOTH_MAX_LEVEL + 1) * (SMOOTH_MAX_LEVEL + 2) / 2)
-
-/*
- * The mesh pass's table (modelsmooth.c): per triangle, the surface normal at
- * each corner, which is what the patch bends with. Keyed by the three vertex
- * addresses sorted, the entry keeping them so a hash collision is caught.
- *
- * The game draws some nodes from a copy of their vertices rather than the
- * model's own: a door that fits its frame is stretched into a copy, a TV
- * screen's quad goes through the frame's buffer with its texture scrolled,
- * a dead chr is disfigured into the vertex store, a destroyed prop is
- * crushed there. The game registers each such copy as it draws it
- * (smooth_aliases, from modelRenderNodeDl), and a triangle whose addresses
- * miss the table is looked up again through them.
- *
- * A triangle that still misses is drawn flat. Its own normals are the
- * averaged ones the pass exists to see past, and what reaches here is a
- * room surface drawn with lighting on for its reflection - the Institute
- * lobby's glass table top - which no pass has read and which bent into a
- * dome when it was drawn with them.
- *
- * Entries live as long as the model does, more or less: a model registering
- * at an address an earlier one used replaces that one's entries, and a stale
- * entry for a vertex address that has since been reused can only match if
- * three addresses line up as a triangle again, which flattens one patch.
- * The whole table is dropped if it ever grows past what a few stages of
- * models could fill.
- */
-#define SMOOTH_GRIDN 4 // pieces per edge of the mesh pass's subdivided surface
-#define SMOOTH_GRIDPOINTS ((SMOOTH_GRIDN + 1) * (SMOOTH_GRIDN + 2) / 2)
-
-struct SmoothTri {
-    const void* v[3];
-    int8_t n[3][3];
-    uint8_t straight; // bit 0: edge v0-v1, bit 1: v1-v2, bit 2: v0-v2 drawn as a line
-    bool hasgrid;
-    // the subdivided surface over the triangle (modelsmooth.c, Butterfly),
-    // SMOOTH_GRIDN pieces an edge, v[0] at (0, 0), v[1] at (n, 0), v[2] at
-    // (0, n), in the order gfx_sp_tri_smooth draws a grid
-    float grid[SMOOTH_GRIDPOINTS][3];
-};
-
-static inline int smooth_grid_index(int n, int i, int j) {
-    return j * (n + 1) - j * (j - 1) / 2 + i;
-}
-
-// the bit for the edge between two corners, by their indexes
-static inline uint8_t smooth_edge_bit(int a, int b) {
-    const int lo = a < b ? a : b, hi = a < b ? b : a;
-    return (lo == 0 && hi == 1) ? 1 : (lo == 1 && hi == 2) ? 2 : 4;
-}
-
-static std::unordered_map<uint64_t, SmoothTri> smooth_tris;
-static std::unordered_map<const void*, std::vector<uint64_t>> smooth_models;
-static std::vector<uint64_t>* smooth_cur_keys = nullptr;
-
-struct SmoothAlias {
-    const uint8_t* orig;
-    size_t size; // bytes covered from the copy's start
-};
-
-// keyed by the copy's first vertex, so a vertex finds its copy by the
-// nearest start at or below it
-static std::map<const uint8_t*, SmoothAlias> smooth_aliases;
-
-static inline uint64_t smooth_key(const void* a, const void* b, const void* c) {
-    uint64_t h = (uint64_t)(uintptr_t)a * 0x9E3779B97F4A7C15ull;
-    h ^= ((uint64_t)(uintptr_t)b + 0x7F4A7C15ull) * 0xC2B2AE3D27D4EB4Full;
-    h = (h << 31) | (h >> 33);
-    h ^= ((uint64_t)(uintptr_t)c + 0x27D4EB4Full) * 0x165667B19E3779F9ull;
-    return h ^ (h >> 29);
-}
-
-static inline void smooth_sort3(const void** v, int8_t (*n)[3]) {
-    for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < 2 - i; j++) {
-            if ((uintptr_t)v[j] > (uintptr_t)v[j + 1]) {
-                std::swap(v[j], v[j + 1]);
-                if (n) {
-                    int8_t t[3];
-                    memcpy(t, n[j], 3);
-                    memcpy(n[j], n[j + 1], 3);
-                    memcpy(n[j + 1], t, 3);
-                }
-            }
-        }
-    }
-}
-
-extern "C" void gfx_smooth_model_begin(const void* base) {
-    if (smooth_tris.size() > 2000000) {
-        smooth_tris.clear();
-        smooth_models.clear();
-    }
-    std::vector<uint64_t>& keys = smooth_models[base];
-    for (uint64_t k : keys) {
-        smooth_tris.erase(k);
-    }
-    keys.clear();
-    smooth_cur_keys = &keys;
-}
-
-extern "C" void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9], uint8_t straight, const float* grid) {
-    if (!smooth_cur_keys) {
-        return;
-    }
-    SmoothTri t;
-    t.v[0] = a;
-    t.v[1] = b;
-    t.v[2] = c;
-    memcpy(t.n, normals, 9);
-    smooth_sort3(t.v, t.n);
-    // the edge bits follow the corners through the sort
-    const void* orig[3] = { a, b, c };
-    t.straight = 0;
-    // so does the grid: a point's weights on the corners name it whichever
-    // way the corners are ordered
-    t.hasgrid = grid != nullptr;
-    if (grid) {
-        int origof[3]; // sorted corner k came from input corner origof[k]
-        for (int k = 0; k < 3; k++) {
-            origof[k] = t.v[k] == a ? 0 : (t.v[k] == b ? 1 : 2);
-        }
-        for (int j = 0; j <= SMOOTH_GRIDN; j++) {
-            for (int i = 0; i <= SMOOTH_GRIDN - j; i++) {
-                int ws[3] = { SMOOTH_GRIDN - i - j, i, j }; // weights by sorted corner, in pieces
-                int wi[3];
-                for (int k = 0; k < 3; k++) {
-                    wi[origof[k]] = ws[k];
-                }
-                memcpy(t.grid[smooth_grid_index(SMOOTH_GRIDN, i, j)],
-                       grid + smooth_grid_index(SMOOTH_GRIDN, wi[1], wi[2]) * 3, sizeof(float) * 3);
-            }
-        }
-    }
-    for (int e = 0; e < 3; e++) {
-        if (straight & (1 << e)) {
-            int ia = -1, ib = -1;
-            for (int k = 0; k < 3; k++) {
-                if (t.v[k] == orig[e] && ia < 0) {
-                    ia = k;
-                } else if (t.v[k] == orig[(e + 1) % 3]) {
-                    ib = k;
-                }
-            }
-            if (ia >= 0 && ib >= 0 && ia != ib) {
-                t.straight |= smooth_edge_bit(ia, ib);
-            }
-        }
-    }
-    const uint64_t key = smooth_key(t.v[0], t.v[1], t.v[2]);
-    smooth_tris[key] = t;
-    smooth_cur_keys->push_back(key);
-}
-
-extern "C" void gfx_smooth_model_end(void) {
-    smooth_cur_keys = nullptr;
-}
-
-extern "C" void gfx_smooth_alias_vertices(const void* copy, const void* orig, int count, int stride) {
-    if (!copy || !orig || count <= 0 || stride <= 0 || copy == orig) {
-        return;
-    }
-    smooth_aliases[(const uint8_t*)copy] = SmoothAlias{ (const uint8_t*)orig, (size_t)count * (size_t)stride };
-}
-
-extern "C" void gfx_smooth_alias_forget(const void* start, const void* end) {
-    auto it = smooth_aliases.lower_bound((const uint8_t*)start);
-    while (it != smooth_aliases.end() && it->first < (const uint8_t*)end) {
-        it = smooth_aliases.erase(it);
-    }
-}
-
-// The model vertex a copied one stands for, or the address itself
-static const void* smooth_unalias(const void* addr) {
-    if (smooth_aliases.empty()) {
-        return addr;
-    }
-    const uint8_t* a = (const uint8_t*)addr;
-    auto it = smooth_aliases.upper_bound(a);
-    if (it == smooth_aliases.begin()) {
-        return addr;
-    }
-    --it;
-    const size_t off = (size_t)(a - it->first);
-    return off < it->second.size ? it->second.orig + off : addr;
-}
-
-static const SmoothTri* smooth_lookup(const void* a, const void* b, const void* c) {
-    const void* v[3] = { a, b, c };
-    smooth_sort3(v, nullptr);
-    auto it = smooth_tris.find(smooth_key(v[0], v[1], v[2]));
-    if (it == smooth_tris.end()) {
-        return nullptr;
-    }
-    const SmoothTri& t = it->second;
-    if (t.v[0] != v[0] || t.v[1] != v[1] || t.v[2] != v[2]) {
-        return nullptr;
-    }
-    return &t;
-}
-
-/*
- * The mesh pass's entry for a triangle, by its vertices' addresses and
- * failing that by what they are copies of. `src` is set to the addresses
- * the entry is keyed by, so the corners can be matched to its normals.
- */
-static const SmoothTri* smooth_find(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const void* src[3]) {
-    src[0] = v1->src;
-    src[1] = v2->src;
-    src[2] = v3->src;
-    if (smooth_tris.empty() || !src[0] || !src[1] || !src[2]) {
-        return nullptr;
-    }
-    const SmoothTri* t = smooth_lookup(src[0], src[1], src[2]);
-    if (t || smooth_aliases.empty()) {
-        return t;
-    }
-    src[0] = smooth_unalias(src[0]);
-    src[1] = smooth_unalias(src[1]);
-    src[2] = smooth_unalias(src[2]);
-    return smooth_lookup(src[0], src[1], src[2]);
-}
-
-static inline float smooth_dot(const float a[3], const float b[3]) {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-// lroundf for |x| under 2^23 without the libm call: x less its integer part
-// is exact in float, so the half is tested on the same bits lroundf saw
-static inline int smooth_round(float x) {
-    const int t = (int)x;
-    const float f = x - (float)t;
-    return f >= 0.5f ? t + 1 : (f <= -0.5f ? t - 1 : t);
-}
-
-// the Bezier control point a third of the way from Pi to Pj, dropped into
-// the tangent plane of Ni
-static inline void smooth_edge_point(float out[3], const float Pi[3], const float Pj[3], const float Ni[3]) {
-    const float d[3] = { Pj[0] - Pi[0], Pj[1] - Pi[1], Pj[2] - Pi[2] };
-    const float w = smooth_dot(d, Ni);
-    for (int k = 0; k < 3; k++) {
-        out[k] = (2.0f * Pi[k] + Pj[k] - w * Ni[k]) * (1.0f / 3.0f);
-    }
-}
-
-// the normal control point for the middle of edge ij: the two end normals
-// reflected across the plane perpendicular to the edge, so an S-shaped
-// edge shades as one
-static inline void smooth_edge_normal(float out[3], const float Pi[3], const float Pj[3], const float Ni[3], const float Nj[3]) {
-    const float d[3] = { Pj[0] - Pi[0], Pj[1] - Pi[1], Pj[2] - Pi[2] };
-    const float nn[3] = { Ni[0] + Nj[0], Ni[1] + Nj[1], Ni[2] + Nj[2] };
-    const float dd = smooth_dot(d, d);
-    const float v = dd > 1e-6f ? 2.0f * smooth_dot(d, nn) / dd : 0.0f;
-    for (int k = 0; k < 3; k++) {
-        out[k] = nn[k] - v * d[k];
-    }
-    const float len = sqrtf(smooth_dot(out, out));
-    if (len > 1e-6f) {
-        for (int k = 0; k < 3; k++) {
-            out[k] /= len;
-        }
-    } else {
-        memcpy(out, Ni, sizeof(float) * 3);
-    }
-}
-
-/*
- * Whether a triangle is drawn as a patch, and at what level: 0 for flat,
- * else the number of pieces per edge, with the mesh pass's entry for it in
- * *mesh (null for a triangle it never saw).
- *
- * The setting's level is the most an edge gets; what it actually gets is
- * decided from its length on screen, in SMOOTH_PX_PER_SEGMENT pixels a
- * piece (gfx_sp_tri_smooth_level). A figure across the arena has edges a
- * few pixels long, and a curve through three pixels is the same three
- * pixels; the same figure filling the screen gets the full level. Measured
- * in an eighty-simulant match with the whole level on every triangle, the
- * main thread took 23ms a frame on an i7-3770 - a slide show - against
- * 5.5ms with the pixel rule, and the figures that were big enough to see
- * the difference on looked the same.
- */
-
-/*
- * Pixels of screen an edge needs per segment before another segment is worth
- * drawing: below this the curve and its chord are the same pixels.
- *
- * 16 rather than the 12 it started at. On the seeded 80-simulant match 12
- * costs 5.1M instructions a frame over the same match with the setting off
- * and 16 costs 3.4M, a third less, for two thirds of the patches; and a
- * third-person capture of the player filling half the screen is the same
- * picture at 12, 16 and 20, down to a 4x crop of the shoulder the
- * difference is densest on (0.08% of pixels differ between 12 and 16, all
- * of them on the figure). A global so another value can be tried from gdb.
- */
-float gfx_smooth_px_per_segment = 16.0f;
-#define SMOOTH_PX_PER_SEGMENT gfx_smooth_px_per_segment
-
-/*
- * Whether the triangle faces away under the current culling mode, by the same
- * test gfx_sp_tri_emit applies. A patch made from a triangle that is culled
- * would be culled piece by piece; this lets it be skipped whole.
+ * Whether the triangle faces away under the current culling mode.
  */
 static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3) {
     if ((rsp.geometry_mode & G_CULL_BOTH) == 0) {
@@ -2942,446 +2527,32 @@ static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct Loaded
     return cross >= 0;
 }
 
-/*
- * How many segments each edge of the triangle is drawn as, from its length
- * on screen, and the level of the patch as a whole (the most of the three).
- * 0 for a triangle that is left as it is.
- *
- * Deciding per edge, from the edge's two ends alone, is what keeps the
- * surface sealed: the patch next door sees the same two ends and gives their
- * shared edge the same count, and gfx_sp_tri_smooth puts its boundary points
- * on that edge's polyline whatever level its own interior runs at. A corner
- * behind the eye has no place on screen; the patch then takes the full level.
- */
-static int gfx_sp_tri_smooth_level(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3, const SmoothTri** mesh, const void* src[3], int edgelevel[3]) {
-    *mesh = nullptr;
-    if (gfx_model_smoothing_level < 2 || gfx_model_smoothing_amount <= 0.0f) {
-        return 0;
-    }
-    // the new vertices go through the current matrix, so it must still be
-    // the one the corners went through
-    if (v1->mtx_gen != rsp.mtx_gen || v2->mtx_gen != rsp.mtx_gen || v3->mtx_gen != rsp.mtx_gen) {
-        return 0;
-    }
-    // The game lights almost nothing on the RSP: its characters, weapons and
-    // props carry colours, not normals, and the surface's normals come from
-    // the mesh pass instead. A triangle that is lit shades its new vertices
-    // through the same lights as its corners, which must not have moved
-    if (rsp.geometry_mode & G_LIGHTING) {
-        if (!(v1->lit && v2->lit && v3->lit)) {
-            return 0;
-        }
-        if (rsp.lights_changed) {
-            return 0;
-        }
-    }
-    if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0 && (v1->clip_rej & v2->clip_rej & v3->clip_rej)) {
-        return 0; // off screen; the flat path throws it away for free
-    }
-
-    const int level = gfx_model_smoothing_level > SMOOTH_MAX_LEVEL ? SMOOTH_MAX_LEVEL : gfx_model_smoothing_level;
-    int n = 1;
-
-    if (v1->w > 0.0f && v2->w > 0.0f && v3->w > 0.0f) {
-        const float hw = rdp.viewport.width * 0.5f;
-        const float hh = rdp.viewport.height * 0.5f;
-        // the corners on screen, the six divisions as two vector ones
-        const v4f s12 = v4f{ v1->x, v1->y, v2->x, v2->y } / v4f{ v1->w, v1->w, v2->w, v2->w } * v4f{ hw, hh, hw, hh };
-        const v4f s3 = v4f{ v3->x, v3->y, v3->x, v3->y } / v4f_splat(v3->w) * v4f{ hw, hh, hw, hh };
-        const float sx[3] = { s12[0], s12[2], s3[0] };
-        const float sy[3] = { s12[1], s12[3], s3[1] };
-        for (int e = 0; e < 3; e++) {
-            const int a = e, b = (e + 1) % 3; // edges v1-v2, v2-v3, v3-v1
-            const float dx = sx[a] - sx[b], dy = sy[a] - sy[b];
-            const float d2 = dx * dx + dy * dy;
-            // ceil(length / SMOOTH_PX_PER_SEGMENT), 1 to level, as one more
-            // than the number of thresholds (k * SMOOTH_PX_PER_SEGMENT)^2 the
-            // squared length is past: no square root, and no call to ceilf,
-            // which is the game's own. An edge within a rounding of a
-            // threshold can land on the other side of it than the root did.
-            int m = 1;
-            for (int k = 1; k < level; k++) {
-                const float t = k * SMOOTH_PX_PER_SEGMENT;
-                if (!(d2 > t * t)) {
-                    break;
-                }
-                m = k + 1;
-            }
-            edgelevel[e] = m;
-            if (m > n) {
-                n = m;
-            }
-        }
-    } else {
-        edgelevel[0] = edgelevel[1] = edgelevel[2] = level;
-        n = level;
-    }
-
-    if (n < 2) {
-        return 0; // too small on screen for a curve to show
-    }
-
-    *mesh = smooth_find(v1, v2, v3, src);
-    if (!*mesh) {
-        return 0; // not from a model the mesh pass saw: flat, as built
-    }
-
-    // edges the mesh pass wants drawn as lines: one segment each; and the
-    // subdivided surface is kept at levels that halve, so three pieces
-    // become four
-    if ((*mesh)->straight || (*mesh)->hasgrid) {
-        int k[3] = { -1, -1, -1 };
-        for (int c = 0; c < 3; c++) {
-            for (int i = 0; i < 3; i++) {
-                if ((*mesh)->v[i] == src[c]) {
-                    k[c] = i;
-                    break;
-                }
-            }
-        }
-        n = 1;
-        for (int e = 0; e < 3; e++) {
-            const int a = k[e], b = k[(e + 1) % 3];
-            if (a >= 0 && b >= 0 && a != b && ((*mesh)->straight & smooth_edge_bit(a, b))) {
-                edgelevel[e] = 1;
-            }
-            if ((*mesh)->hasgrid && edgelevel[e] == 3) {
-                edgelevel[e] = 4;
-            }
-            if (edgelevel[e] > n) {
-                n = edgelevel[e];
-            }
-        }
-        if (n < 2) {
-            return 0;
-        }
-    }
-    return n;
-}
-
-static void gfx_sp_tri_smooth(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, int n, const SmoothTri* mesh, const void* src[3], const int edgelevel[3]) {
-    static struct LoadedVertex made[SMOOTH_MAX_VERTS];
-    struct LoadedVertex* grid[SMOOTH_MAX_VERTS];
-    const struct LoadedVertex* corner[3] = { v1, v2, v3 };
-    const float amount = gfx_model_smoothing_amount > 1.0f ? 1.0f : gfx_model_smoothing_amount;
-    // lit corners were shaded by the RSP's lights and carry the normal that
-    // did it, and a new vertex is shaded through the same lights from a
-    // normal blended across the patch; the rest carry a colour, which the
-    // new vertices blend instead, and no normal is blended for them at all
-    // (gfx_sp_tri_smooth_level lets a lit triangle through only with every
-    // corner lit)
-    const bool lit = (rsp.geometry_mode & G_LIGHTING) != 0;
-
-    // P are the corners as loaded; L is the normal the surface has at each
-    // corner according to the mesh pass, which is what bends the patch; N is
-    // the normal the corner was lit with, for a lit patch only
-    float P[3][3], N[3][3], L[3][3];
-    for (int c = 0; c < 3; c++) {
-        P[c][0] = corner[c]->ox; P[c][1] = corner[c]->oy; P[c][2] = corner[c]->oz;
-        bool havel = false;
-        for (int k = 0; k < 3; k++) {
-            if (mesh->v[k] == src[c]) {
-                L[c][0] = mesh->n[k][0];
-                L[c][1] = mesh->n[k][1];
-                L[c][2] = mesh->n[k][2];
-                const float len = sqrtf(smooth_dot(L[c], L[c]));
-                if (len > 1e-6f) {
-                    L[c][0] /= len;
-                    L[c][1] /= len;
-                    L[c][2] /= len;
-                    havel = true;
-                }
-                break;
-            }
-        }
-        if (lit) {
-            N[c][0] = corner[c]->nx; N[c][1] = corner[c]->ny; N[c][2] = corner[c]->nz;
-            if (!havel) {
-                memcpy(L[c], N[c], sizeof(L[c]));
-            }
-        } else if (!havel) {
-            // a degenerate face with nothing lit: nothing to bend with
-            L[c][0] = L[c][1] = L[c][2] = 0.0f;
-        }
-    }
-
-    // the six edge control points, named by the corner they are nearest and
-    // the one they lean toward, and the centre point raised off the
-    // corners' average by half the edge points' lift
-    float b12[3], b21[3], b23[3], b32[3], b31[3], b13[3], b111[3];
-    smooth_edge_point(b12, P[0], P[1], L[0]);
-    smooth_edge_point(b21, P[1], P[0], L[1]);
-    smooth_edge_point(b23, P[1], P[2], L[1]);
-    smooth_edge_point(b32, P[2], P[1], L[2]);
-    smooth_edge_point(b31, P[2], P[0], L[2]);
-    smooth_edge_point(b13, P[0], P[2], L[0]);
-    for (int k = 0; k < 3; k++) {
-        const float E = (b12[k] + b21[k] + b23[k] + b32[k] + b31[k] + b13[k]) * (1.0f / 6.0f);
-        const float V = (P[0][k] + P[1][k] + P[2][k]) * (1.0f / 3.0f);
-        b111[k] = E + (E - V) * 0.5f;
-    }
-
-    float n12[3], n23[3], n31[3];
-    if (lit) {
-        smooth_edge_normal(n12, P[0], P[1], N[0], N[1]);
-        smooth_edge_normal(n23, P[1], P[2], N[1], N[2]);
-        smooth_edge_normal(n31, P[2], P[0], N[2], N[0]);
-    }
-
-    // the patch at barycentrics (w toward v1, u toward v2, v toward v3)
-    // The mesh pass's subdivided surface, if the triangle has one and the
-    // corners are where it was computed from (a copy of the vertices that
-    // the game has rewritten is not; the patch below is drawn instead).
-    // kc[c] is which of the entry's corners drawn corner c is.
-    int kc[3] = { -1, -1, -1 };
-    bool usegrid = mesh->hasgrid;
-    for (int c = 0; c < 3; c++) {
-        for (int i = 0; i < 3; i++) {
-            if (mesh->v[i] == src[c]) {
-                kc[c] = i;
-                break;
-            }
-        }
-        if (kc[c] < 0) {
-            usegrid = false;
-        } else if (usegrid) {
-            const int gi = kc[c] == 1 ? SMOOTH_GRIDN : 0, gj = kc[c] == 2 ? SMOOTH_GRIDN : 0;
-            const float* g = mesh->grid[smooth_grid_index(SMOOTH_GRIDN, gi, gj)];
-            if (fabsf(g[0] - P[c][0]) > 0.05f || fabsf(g[1] - P[c][1]) > 0.05f || fabsf(g[2] - P[c][2]) > 0.05f) {
-                usegrid = false;
-            }
-        }
-    }
-    if (usegrid && (kc[0] == kc[1] || kc[1] == kc[2] || kc[0] == kc[2])) {
-        usegrid = false;
-    }
-    if (usegrid) {
-        g_GfxPatchesGrid++;
-    } else {
-        g_GfxPatchesPn++;
-    }
-
-    // the position, and for a lit patch the normal, at barycentrics (w, u, v)
-    auto eval = [&](float w, float u, float v, float pos[3], float nrm[3]) {
-        const float w2 = w * w, u2 = u * u, v2f = v * v;
-        // the subdivided surface's point here, when there is one exactly
-        // here: every grid point at two or four pieces an edge is
-        const float* gp = nullptr;
-        if (usegrid) {
-            const float bw[3] = { w, u, v };
-            float sw[3];
-            for (int c = 0; c < 3; c++) {
-                sw[kc[c]] = bw[c];
-            }
-            const float fi = sw[1] * SMOOTH_GRIDN, fj = sw[2] * SMOOTH_GRIDN;
-            const int gi = smooth_round(fi), gj = smooth_round(fj);
-            if (fabsf(fi - gi) < 1e-3f && fabsf(fj - gj) < 1e-3f && gi >= 0 && gj >= 0 && gi + gj <= SMOOTH_GRIDN) {
-                gp = mesh->grid[smooth_grid_index(SMOOTH_GRIDN, gi, gj)];
-            }
-        }
-        for (int k = 0; k < 3; k++) {
-            const float flat = w * P[0][k] + u * P[1][k] + v * P[2][k];
-            const float curved = gp ? gp[k]
-                : P[0][k] * w2 * w + P[1][k] * u2 * u + P[2][k] * v2f * v
-                + 3.0f * (b12[k] * w2 * u + b21[k] * w * u2 + b13[k] * w2 * v
-                        + b23[k] * u2 * v + b31[k] * w * v2f + b32[k] * u * v2f)
-                + 6.0f * b111[k] * w * u * v;
-            pos[k] = flat + (curved - flat) * amount;
-        }
-        if (lit) {
-            for (int k = 0; k < 3; k++) {
-                const float nflat = w * N[0][k] + u * N[1][k] + v * N[2][k];
-                const float ncurved = N[0][k] * w2 + N[1][k] * u2 + N[2][k] * v2f
-                    + n12[k] * w * u + n23[k] * u * v + n31[k] * w * v;
-                nrm[k] = nflat + (ncurved - nflat) * amount;
-            }
-        }
-    };
-
-    // grid point (i, j): i steps toward v2, j toward v3, from v1 at (0, 0)
-    int made_count = 0;
-    for (int j = 0; j <= n; j++) {
-        const int row = j * (n + 1) - j * (j - 1) / 2;
-        for (int i = 0; i <= n - j; i++) {
-            if (i == 0 && j == 0) {
-                grid[row + i] = v1;
-                continue;
-            }
-            if (i == n && j == 0) {
-                grid[row + i] = v2;
-                continue;
-            }
-            if (i == 0 && j == n) {
-                grid[row + i] = v3;
-                continue;
-            }
-
-            // barycentrics from integers, so a point shared with the patch
-            // next door is computed from the very same numbers
-            const float u = (float)i / n;         // toward v2
-            const float v = (float)j / n;         // toward v3
-            const float w = (float)(n - i - j) / n; // toward v1
-
-            // A boundary point on an edge drawn with fewer segments than the
-            // patch runs at goes onto that edge's polyline: the curve
-            // sampled at the edge's own count, and the chord between the two
-            // samples either side. The neighbour draws that chord exactly.
-            int edge = -1, m = n, step = 0;
-            if (j == 0) {
-                edge = 0; step = i;       // v1 toward v2
-            } else if (i + j == n) {
-                edge = 1; step = j;       // v2 toward v3
-            } else if (i == 0) {
-                edge = 2; step = j;       // v1 toward v3
-            }
-            if (edge >= 0) {
-                m = edgelevel[edge];
-            }
-
-            float pos[3], nrm[3];
-            if (edge >= 0 && m < n) {
-                const float t = (float)step / n;
-                int k = (int)(t * m);
-                if (k >= m) {
-                    k = m - 1;
-                }
-                const float t1 = (float)k / m, t2 = (float)(k + 1) / m;
-                const float f = (t - t1) * m;
-                float ba[3], bb[3]; // barycentrics of the two samples
-                switch (edge) {
-                    case 0: ba[0] = 1.0f - t1; ba[1] = t1; ba[2] = 0.0f; bb[0] = 1.0f - t2; bb[1] = t2; bb[2] = 0.0f; break;
-                    case 1: ba[0] = 0.0f; ba[1] = 1.0f - t1; ba[2] = t1; bb[0] = 0.0f; bb[1] = 1.0f - t2; bb[2] = t2; break;
-                    default: ba[0] = 1.0f - t1; ba[1] = 0.0f; ba[2] = t1; bb[0] = 1.0f - t2; bb[1] = 0.0f; bb[2] = t2; break;
-                }
-                float posa[3], nrma[3], posb[3], nrmb[3];
-                eval(ba[0], ba[1], ba[2], posa, nrma);
-                eval(bb[0], bb[1], bb[2], posb, nrmb);
-                for (int k2 = 0; k2 < 3; k2++) {
-                    pos[k2] = posa[k2] + (posb[k2] - posa[k2]) * f;
-                }
-                if (lit) {
-                    for (int k2 = 0; k2 < 3; k2++) {
-                        nrm[k2] = nrma[k2] + (nrmb[k2] - nrma[k2]) * f;
-                    }
-                }
-            } else {
-                eval(w, u, v, pos, nrm);
-            }
-
-            struct NormalColor vcn;
-            if (lit) {
-                const float nlen = sqrtf(smooth_dot(nrm, nrm));
-                if (nlen > 1e-6f) {
-                    vcn.x = (int8_t)smooth_round(nrm[0] / nlen * 127.0f);
-                    vcn.y = (int8_t)smooth_round(nrm[1] / nlen * 127.0f);
-                    vcn.z = (int8_t)smooth_round(nrm[2] / nlen * 127.0f);
-                } else {
-                    vcn.x = (int8_t)smooth_round(N[0][0] * 127.0f);
-                    vcn.y = (int8_t)smooth_round(N[0][1] * 127.0f);
-                    vcn.z = (int8_t)smooth_round(N[0][2] * 127.0f);
-                }
-            } else {
-                // the colour the corners' shading gives this point
-                vcn.r = (uint8_t)smooth_round(w * v1->color.r + u * v2->color.r + v * v3->color.r);
-                vcn.g = (uint8_t)smooth_round(w * v1->color.g + u * v2->color.g + v * v3->color.g);
-                vcn.b = (uint8_t)smooth_round(w * v1->color.b + u * v2->color.b + v * v3->color.b);
-            }
-            vcn.a = (uint8_t)smooth_round(w * v1->color.a + u * v2->color.a + v * v3->color.a);
-
-            const float U = w * v1->u + u * v2->u + v * v3->u;
-            const float V = w * v1->v + u * v2->v + v * v3->v;
-
-            struct LoadedVertex* d = &made[made_count++];
-            gfx_sp_load_vertex(d, pos[0], pos[1], pos[2], &vcn, U, V);
-            d->src = nullptr;
-            grid[row + i] = d;
-        }
-    }
-    g_GfxNumVerts += made_count;
-
-    // Draw it: the state once for the whole patch, room in the batch for
-    // every piece (a piece may not name a vertex a flush has sent), the
-    // batch's triangles so far numbered if it was not indexed yet, the grid's
-    // points written once each, and the pieces as triples of their numbers.
-    // A piece is tested for lying off screen and for facing away as a plain
-    // triangle is: a bent piece can face away from a patch that faces the eye.
-    const int npieces = n * n;
-    const int npoints = (n + 1) * (n + 2) / 2;
-    gfx_emit_prepare();
-    // Room for the whole patch before any of it is written, in triangles and
-    // in vertices both: a patch brings fewer vertices than three a triangle,
-    // but a patch whose pieces are all culled brings vertices and no
-    // triangle at all, so the triangle count alone does not bound the buffer.
-    if (buf_vbo_len > 0 && (buf_vbo_num_tris + npieces > g_GfxMaxBufferedTris ||
-                            buf_vbo_num_verts + npoints > MAX_BUFFERED_VERTS)) {
-        g_GfxNumBufferFullFlushes++;
-        gfx_flush_for(GFX_FLUSH_BUFFERFULL);
-    }
-    if (!buf_indexed) {
-        for (size_t i = 0; i < 3 * buf_vbo_num_tris; i++) {
-            buf_ibo[i] = (uint16_t)i;
-        }
-        buf_indexed = true;
-    }
-    uint16_t idx[SMOOTH_MAX_VERTS];
-    for (int p = 0; p < npoints; p++) {
-        idx[p] = gfx_emit_vertex(grid[p], false);
-    }
-    const bool cliptest = (rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0;
-    auto piece = [&](int a, int b, int c) {
-        g_GfxTrisSmoothed++;
-        if (cliptest && (grid[a]->clip_rej & grid[b]->clip_rej & grid[c]->clip_rej)) {
+static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect) {
+    if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
+        if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
+            // The whole triangle lies outside the visible area
             g_GfxTrisClipped++;
             return;
         }
-        if (gfx_tri_is_culled(grid[a], grid[b], grid[c])) {
-            g_GfxTrisCulled++;
-            return;
-        }
-        uint16_t* ib = buf_ibo + 3 * buf_vbo_num_tris;
-        ib[0] = idx[a];
-        ib[1] = idx[b];
-        ib[2] = idx[c];
-        buf_vbo_num_tris++;
-    };
-    for (int j = 0; j < n; j++) {
-        const int row = j * (n + 1) - j * (j - 1) / 2;
-        const int next = row + (n + 1 - j);
-        for (int i = 0; i < n - j; i++) {
-            piece(row + i, row + i + 1, next + i);
-            if (i + j + 1 < n) {
-                piece(row + i + 1, next + i + 1, next + i);
-            }
-        }
     }
-    if (buf_vbo_num_tris >= g_GfxMaxBufferedTris) {
-        g_GfxNumBufferFullFlushes++;
-        gfx_flush_for(GFX_FLUSH_BUFFERFULL);
+
+    if (gfx_tri_is_culled(v1, v2, v3)) {
+        g_GfxTrisCulled++;
+        return;
     }
+
+    gfx_emit_prepare();
+
+    gfx_emit_vertex(v1, is_rect);
+    gfx_emit_vertex(v2, is_rect);
+    gfx_emit_vertex(v3, is_rect);
+    gfx_emit_tri_done();
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     struct LoadedVertex* v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
     struct LoadedVertex* v3 = &rsp.loaded_vertices[vtx3_idx];
-
-    if (!is_rect) {
-        // facing away: neither the triangle nor a patch made from it draws
-        if (gfx_tri_is_culled(v1, v2, v3)) {
-            g_GfxTrisCulled++;
-            return;
-        }
-        const SmoothTri* mesh;
-        const void* src[3];
-        int edgelevel[3];
-        const int n = gfx_sp_tri_smooth_level(v1, v2, v3, &mesh, src, edgelevel);
-        if (n) {
-            gfx_sp_tri_smooth(v1, v2, v3, n, mesh, src, edgelevel);
-            return;
-        }
-        gfx_sp_tri_emit(v1, v2, v3, false, true);
-        return;
-    }
 
     gfx_sp_tri_emit(v1, v2, v3, is_rect);
 }
@@ -4464,8 +3635,8 @@ extern "C" void gfx_start_frame(void) {
                     g_GfxFlushReasons[GFX_FLUSH_BUFFERFULL],
                     g_GfxFlushReasons[GFX_FLUSH_OTHER]);
             sysLogPrintf(LOG_NOTE,
-                    "gfx:   tris clipped %u, culled %u, drawn %u of which smoothed %u (patches: %u subdivided, %u bent alone)",
-                    g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris, g_GfxTrisSmoothed, g_GfxPatchesGrid, g_GfxPatchesPn);
+                    "gfx:   tris clipped %u, culled %u, drawn %u",
+                    g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris);
             sysLogPrintf(LOG_NOTE,
                     "gfx:   tex uploads %u, evictions %u, cache %u/%u",
                     g_GfxNumTexUploads,
@@ -4485,8 +3656,7 @@ extern "C" void gfx_start_frame(void) {
     g_GfxNumBufferFullFlushes = 0;
     g_GfxNumTris = 0;
     g_GfxNumVerts = 0;
-    g_GfxTrisClipped = g_GfxTrisCulled = g_GfxTrisSmoothed = 0;
-    g_GfxPatchesGrid = g_GfxPatchesPn = 0;
+    g_GfxTrisClipped = g_GfxTrisCulled = 0;
     memset(g_GfxFlushReasons, 0, sizeof(g_GfxFlushReasons));
     gfx_frame_textures.clear();
     g_GfxNumDistinctTextures = 0;

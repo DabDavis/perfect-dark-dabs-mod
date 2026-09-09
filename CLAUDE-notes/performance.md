@@ -15,7 +15,7 @@ frame carried. `tools/perf/perfprof.sh BIN LABEL` samples the main thread
 with `perf record` for 20s and prints the flat and inclusive profiles. Both
 expect `$PDPERF_DIR` (default `/tmp/pdperf`) to hold `pdsave/` seeded as in
 headless-game-driving (eeprom.bin, mpsetups.bin, a pd.ini with the settings
-under test: `[Mod]` `ModelSmoothing=3`, `GuardsAlerted=1`, `AlertedGuards=80`,
+under test: `[Mod]` `GuardsAlerted=1`, `AlertedGuards=80`,
 `GuardSpawnSpeed=50`, `StartArmedFor=1`, and `[Video]` `VSync=0`
 `FramerateLimit=240` `DefaultFullscreen=0` `DefaultWidth=1920`
 `DefaultHeight=1080`). The game rewrites pd.ini on exit and writes `[Mod]`
@@ -48,7 +48,7 @@ player alive.
 **gdb's `size()` on a container in this binary returns garbage** (it printed
 0 for a map holding 30,328 entries). Read `_M_h._M_element_count` instead.
 
-## Where the frame went (main thread, 160 chrs, Heavy models)
+## Where the frame went (main thread, 160 chrs)
 
 - Display list interpreter (`gfx_run_dl`, `gfx_sp_tri_emit`,
   `gfx_sp_load_vertex`): about half. Every vertex is transformed and every
@@ -67,16 +67,13 @@ player alive.
 
 | | instructions/frame, main thread |
 | - | - |
-| before, Increase Poly Models off | 24.8M |
-| after, off | 19.7M |
-| after, Heavy, whole level on every triangle | 146M (23ms) |
-| after, Heavy, per-edge pixel level | 25.4M (5.3ms) |
+| before | 24.8M |
+| after | 19.7M |
 
 - `port/fast3d/*.cpp` at `-O2 -finline-functions` (CMakeLists.txt; the
   decomp stays at -Og): -25% on the main thread by itself.
 - The combiner inputs of `gfx_sp_tri_emit` are resolved once when the
   primitive/environment colour or combiner changes, not switched per vertex.
-- A triangle's facing is tested once in `gfx_sp_tri1`, not again per patch.
 - `PD_HOT_O2` (CMake option, on since 2026-09-06) compiles the hot decomp
   files at -O2: 25.4M to 24.6M instructions a frame, about 3%. It first
   changed the course of the seeded match after four seconds; the section
@@ -111,12 +108,6 @@ that in `gfx_sp_load_vertex` (transform, clip flags) and `gfx_sp_tri_emit`
   branches and the stores; in the emit, the UV multiply-adds and the slot
   writes. Neither is worth more without changing the floats that reach the
   GPU (the divide could be a multiply, but not on the same bits).
-- `gfx_sp_tri_smooth_level` took three `sqrtf` and three `ceilf` per model
-  triangle (the game's own `ceilf`, a call) to pick the patch level. It now
-  compares the squared edge length with the thresholds and does the six
-  screen divisions as two vector ones: 22.5M to 22.3M instructions. An edge
-  within a rounding of a threshold can take the other level; the match
-  replay and the frame-2400 capture showed none.
 
 **The check for a renderer change is a pixel diff, not the replay alone.**
 The replay proves the game took the same course and the counters match;
@@ -196,53 +187,9 @@ A solo mission (`--boot-stage 0x34`, no `--mpsims`) is a second replay
 worth running for anything that touches chr code; the match alone missed
 the `pad2.flags` read.
 
-## Increase Poly Models never ran on a character until 2026-09-06
+## Run to a level frame, not for a wall-clock span
 
-The smoothing gate required a *lit* vertex (`G_LIGHTING` on and a normal in
-the colour table). The game lights nothing on the RSP but the title logo and
-glass shards: characters, weapons and props carry colours, not normals, so
-the counters showed zero triangles smoothed in any match or cutscene, and the
-tester reported square shoulders. The mesh pass already computes the surface
-normals from the geometry, so the gate now only needs those; an unlit patch
-blends the corners' colours. Once it ran, Heavy on every triangle was a slide
-show (above), hence the per-edge pixel level, and the seams that appeared
-between bent patches and flat neighbours - joint triangles the renderer
-cannot bend, creases, open edges at the hands - are sealed by the mesh pass
-marking those edges straight and both sides drawing them as lines.
-
-**The surface is Modified Butterfly subdivision, not PN patches, since
-2026-09-06.** A PN patch bends each triangle on its own and only meets its
-neighbour along the edge, which read as quilting on a back. The mesh pass
-(`meshSubdivide` in modelsmooth.c) now cuts the node's mesh along its
-straight edges, subdivides twice with Butterfly (interpolating, so the
-corners stay put and joints still seal), and hands the renderer the 15 grid
-points over each triangle; the renderer draws those at two or four pieces an
-edge (three rounds up) and falls back to the PN patch only when a loaded
-corner does not match the precomputed one (a vertex copy the game rewrote:
-`gfx: ... patches: N subdivided, M bent alone` in the stats). The pass is
-load-time only: 279 ms for the 107 models and 30,779 triangles an 80-simulant
-match loads, 2.6 ms a model, measured with `g_ModelSmoothUs`. That is why
-there is no on-disk cache of it: a cache would save a quarter of a second a
-stage and nothing per frame, and the per-frame cost is transforming the
-points, which precomputation cannot remove. Model Depth (a displacement from
-texture brightness) was prototyped the same day and dropped: with no lights
-to shade it, it only moves silhouettes, invisibly at safe strengths and as
-noise and cracks at visible ones.
-
-The visual check is a third-person screenshot of the player:
-`set g_Vars.players[0]->thirdperson = 1` and `->invincible = 1` over gdb,
-then `screenshotRequest()`; the `gfx: tris ... of which smoothed N` stats
-line (`--gfxstats 60`) says whether it engaged at all.
-
-## What Increase Poly Models spends its frame on, and what came off (2026-09-07)
-
-Measured after the mesh pass and the pixel rule were in, on the same seeded
-80-simulant match. The setting's own cost is the difference between a run
-with it on and one with it off, which is the number worth quoting: the rest
-of the frame is the same match either way.
-
-**Run to a level frame, not for a wall-clock span.** `--exit-frame N` quits
-when `lvframenum` reaches N (lv.c), and `tools/perf/perfframes.sh` counts a
+`--exit-frame N` quits when `lvframenum` reaches N (lv.c), and `tools/perf/perfframes.sh` counts a
 whole run with `perf stat`, so two binaries are compared over the very same
 frames however fast each one renders them. `perfrun.sh`'s window of seconds
 answers a different question and gives each binary a different span of
@@ -252,81 +199,13 @@ Counting the process counts Mesa's eight `llvmpipe` threads too, which on
 this box is 25 times the number you want and looks plausible until you
 compare it with the same binary's `perfrun.sh` figure.
 
-| Increase Poly Models Heavy, 2400 frames | instructions/frame | its own cost |
-| - | - | - |
-| before, off | 30.98 | |
-| before, Heavy | 37.62 | 6.65 |
-| after, off | 30.41 | |
-| after, Heavy, 12 px a segment | 35.50 | 5.09 |
-| after, Heavy, 16 px a segment | 33.84 | 3.43 |
-| after, Heavy, 20 px a segment | 33.23 | 2.82 |
-
-Four things came off, in the order they were worth doing:
-
-- **The patch is drawn by index.** The renderer had no index buffer: every
-  triangle wrote its three vertices in full, up to 32 floats each, so a
-  four-piece patch wrote 48 vertices for the 15 distinct points it has.
-  `gfx_sp_tri_emit` is now three parts - `gfx_emit_prepare` (the state, once
-  for a whole patch instead of once a piece), `gfx_emit_vertex` (one vertex,
-  returning its number in the batch) and the index triple - and
-  `gfx_sp_tri_smooth` writes its grid once and names its pieces by number.
-  `buf_ibo` carries three numbers a triangle, a plain triangle's three
-  consecutive, and a batch that never held a patch is drawn from `buf_vbo`
-  alone exactly as before (`draw_triangles_indexed` in the rendering API;
-  `glDrawElements` in the GL backend).
-  - The batch must have room for the whole patch before any of it is
-    written, **in vertices as well as triangles**: a patch brings fewer
-    vertices than three a triangle, but a patch whose every piece is culled
-    brings vertices and no triangle at all, so the triangle count alone does
-    not bound `buf_vbo`.
-- **The normal is not blended for an unlit patch.** The game lights almost
-  nothing on the RSP, so nearly every patch is unlit and takes blended
-  colours instead; the per-vertex loop evaluated the curved normal anyway
-  and threw it away.
-- **`lroundf` is inlined** (`smooth_round`): seven libm calls a made vertex,
-  0.44% of the main thread, and `x - (float)(int)x` is exact below 2^23 so
-  it rounds on the same bits. `__lroundf` is off the profile.
-- **The threshold is 16 pixels a segment, not 12** (`gfx_smooth_px_per_segment`,
-  a global so gdb can try another). See the comment on it: a third-person
-  capture of the player filling half the screen is the same picture at 12,
-  16 and 20 down to a 4x crop of the shoulder, and 12 to 16 is a third of
-  what the setting costs. This is the cheapest lever by a distance and the
-  only one that trades against the look.
-
-**What was not worth doing.** Caching the boundary points two patches share
-(about 40% of made vertices are computed twice, once by each side of an
-edge) would save at most 1.5% of the main thread: with the writes gone, all
-that is left per shared point is a grid lookup and the transform, and
-`gfx_sp_tri_smooth` is 3.9% of the frame in total. A hash lookup and a
-100-byte copy per point would eat most of that back. GPU tessellation needs
-OpenGL 4.0 tessellation shaders, which rules out macOS and GLES, and sits
-outside the software vertex path the port is built on.
-
-**The check that the renderer change is behaviour-preserving is a pixel
-diff.** With Model LOD off on both sides, the before and after binaries
-render frame 2400 of the seeded match identically -
-`ImageChops.difference(...).getbbox()` is `None`, not a bounding box around
-the frame-rate counter - and the `gfx: N tris, N verts` lines match for the
-whole run with the setting on and with it off.
-
 ## Model LOD was decided in two places, and does nothing in a match
-
-Increase Poly Models used to force Model LOD off, and the menu greyed the
-checkbox out to say so, on the reasoning that the far model is a different
-mesh and would pop in while the renderer was still bending the near one.
-Both halves of that turned out to be wrong.
 
 `modelUpdateDistanceRelations` (model.c) is not the only place a distance
 node is decided: `modelasm_c.c` has a second copy of the same rule for
-`MODELNODETYPE_DISTANCE`, and it consulted neither the option nor the
-coupling. Most models come through that one, so **turning Model LOD off in
-the menu did nothing to them**, and Increase Poly Models never held their
-distance models off either. Both paths now ask `modIsModelLodOn()` and scale
-the distance by `modGetModelLodDistanceScale()`, which is 1 unless Increase
-Poly Models is on and then `240 / videoGetHeight()`: the thresholds were set
-for a 240-line screen, so this holds the switch off until the figure is as
-small on this screen as it was on the console's, where every edge is under
-the pixels-per-segment rule and the near model draws flat anyway.
+`MODELNODETYPE_DISTANCE`, and it did not consult the option at all. Most
+models come through that one, so **turning Model LOD off in the menu did
+nothing to them**. Both paths now ask `modIsModelLodOn()`.
 
 None of which changes a frame. In the seeded match, and in Crash Site, Air
 Base and Villa, **Model LOD on and off render the same triangle and vertex
@@ -339,6 +218,6 @@ that the near meshes of a distant crowd are costing anything.
 
 **The offscreen driver renders 640x480 whatever pd.ini says.** `videoGetHeight()`
 returns 480 in a `SDL_VIDEODRIVER=offscreen` run with `DefaultHeight=1080`
-in the ini, so a headless measurement is a 480-line measurement and carries
-fewer patches than the desktop it is standing in for. A screenshot taken
-through gdb comes out at the ini's size.
+in the ini, so a headless measurement is a 480-line measurement of whatever
+the desktop it stands in for would draw. A screenshot taken through gdb
+comes out at the ini's size.

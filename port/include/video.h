@@ -67,7 +67,6 @@ void videoSetAnisotropicFilter(u32 filter);
 void videoSetDetailTextures(s32 detail);
 void videoSetClampedEdgeMode(s32 mode);
 void videoSetCleanTextOutlines(s32 on);
-void videoSetModelSmoothing(s32 level, f32 amount);
 void videoSetTextureEnhance(s32 texturescale, s32 textscale);
 void videoSetVividColours(f32 saturation, f32 contrast);
 void videoSetBlackLevel(f32 lift);

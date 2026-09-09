@@ -38,12 +38,6 @@ extern float gfx_current_native_aspect; // The aspect ratio of the above mode
 extern bool gfx_framebuffers_enabled;
 extern bool gfx_detail_textures_enabled;
 extern bool gfx_clean_text_outlines;
-// Model Smoothing: lit triangles drawn as curved patches of level*level
-// triangles, 0 or 1 for off; amount blends the curve in, 0..1. See
-// gfx_sp_tri_smooth
-extern int gfx_model_smoothing_level;
-extern float gfx_model_smoothing_amount;
-
 // Enhance Textures and Smooth Text: how many times over the game's own
 // textures, and its font glyphs, are scaled up on their way to the GPU (1 for
 // as they are). See gfx_texscale.cpp. Set through gfx_set_texture_enhance(),
@@ -76,23 +70,6 @@ void gfx_set_texture_enhance(int texture_scale, int text_scale);
 extern float gfx_color_saturation;
 extern float gfx_color_contrast;
 extern float gfx_color_black_level;
-
-// The mesh pass's answer for a model's triangles: for each, the surface
-// normal at each corner (int8 x,y,z per corner, in the order given), keyed
-// by the three vertex addresses. begin() drops what an earlier model at the
-// same address registered. See modelsmooth.c and gfx_sp_tri_smooth.
-void gfx_smooth_model_begin(const void* base);
-void gfx_smooth_model_add_tri(const void* a, const void* b, const void* c, const int8_t normals[9], uint8_t straight, const float* grid);
-void gfx_smooth_model_end(void);
-
-// A copy the game made of `count` of a model's vertices (`stride` bytes
-// each) and is about to draw instead of them, so a triangle drawn from the
-// copy finds the mesh pass's entry for the original. Registered again each
-// frame a copy is drawn; a copy registered at an address again replaces the
-// earlier one, and forget() drops every copy inside a range - the frame's
-// vertex buffer, when the game starts building into it again.
-void gfx_smooth_alias_vertices(const void* copy, const void* orig, int count, int stride);
-void gfx_smooth_alias_forget(const void* start, const void* end);
 
 // What ended a batch and forced a draw call. See g_GfxFlushReasons.
 enum GfxFlushReason {

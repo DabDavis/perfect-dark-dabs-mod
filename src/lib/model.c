@@ -19,7 +19,6 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "game/modoptions.h"
-#include "modelsmooth.h"
 #include "xblamesh.h"
 #endif
 
@@ -1273,12 +1272,6 @@ void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 		if (g_ModelDistanceScale != 1) {
 			distance *= g_ModelDistanceScale;
 		}
-
-#ifndef PLATFORM_N64
-		// Increase Poly Models: the switch pushed out to where the figure
-		// is as small on this screen as the console's
-		distance *= modGetModelLodDistanceScale();
-#endif
 	}
 
 	if (distance > rodata->distance.near * model->scale || rodata->distance.near == 0) {
@@ -3298,9 +3291,6 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 				break;
 			}
 
-#ifndef PLATFORM_N64
-			modelSmoothNoteCopy(rwdata->dl.vertices, rodata->dl.vertices, rodata->dl.numvertices);
-#endif
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->dl.vertices));
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
 
@@ -3324,9 +3314,6 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 				modelApplyCullMode(renderdata);
 			}
 
-#ifndef PLATFORM_N64
-			modelSmoothNoteCopy(rwdata->dl.vertices, rodata->dl.vertices, rodata->dl.numvertices);
-#endif
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->dl.vertices));
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
 

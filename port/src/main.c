@@ -169,7 +169,6 @@ int main(int argc, const char **argv)
 		inputApplyAkimboTriggers(1);
 	}
 	videoSetCleanTextOutlines(g_ModOptions.cleantext);
-	videoSetModelSmoothing(modGetModelSmoothingLevel(), modGetModelSmoothingAmount());
 	videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
 	videoSetVividColours(modGetVividSaturation(), modGetVividContrast());
 	videoSetBlackLevel(modGetBlackLevelLift());
@@ -326,7 +325,6 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.RunSealRooms", &g_ModOptions.runseal, 0, 1);
 	configRegisterInt("Mod.RunBestScore", &g_ModOptions.runbestscore, 0, S32_MAX);
 	configRegisterInt("Mod.RunBestRooms", &g_ModOptions.runbestrooms, 0, S32_MAX);
-	configRegisterInt("Mod.ModelSmoothing", &g_ModOptions.modelsmoothing, MODSMOOTH_OFF, MODSMOOTH_MAX);
 	configRegisterInt("Mod.ModelLod", &g_ModOptions.modellod, 0, 1);
 	configRegisterInt("Mod.SmoothText", &g_ModOptions.smoothtext, 0, 1);
 	configRegisterInt("Mod.EnhanceTextures", &g_ModOptions.enhancetextures, MODENHANCE_OFF, MODENHANCE_MAX);

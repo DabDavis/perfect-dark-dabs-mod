@@ -48,7 +48,6 @@ struct Framebuffer {
 
 static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> shader_program_pool;
 static GLuint opengl_vbo;
-static GLuint opengl_ibo;
 static GLuint opengl_vao;
 static bool current_depth_mask;
 
@@ -895,15 +894,6 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
 }
 
-static void gfx_opengl_draw_triangles_indexed(float buf_vbo[], size_t buf_vbo_len, const uint16_t indices[], size_t num_tris) {
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
-    // bound here rather than trusted from init: the binding lives in the
-    // vertex array object, and the post passes bind their own
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, opengl_ibo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint16_t) * 3 * num_tris, indices, GL_STREAM_DRAW);
-    glDrawElements(GL_TRIANGLES, (GLsizei)(3 * num_tris), GL_UNSIGNED_SHORT, 0);
-}
-
 typedef void (APIENTRY *DEBUGPROC)(GLenum source,
     GLenum type,
     GLuint id,
@@ -1107,7 +1097,6 @@ static void gfx_opengl_init(void) {
 
     glGenBuffers(1, &opengl_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
-    glGenBuffers(1, &opengl_ibo);
 
     if (gl_core_profile || gl_es) {
         // warn user that funny things can happen
@@ -2234,7 +2223,6 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_set_scissor,
     gfx_opengl_set_use_alpha,
     gfx_opengl_draw_triangles,
-    gfx_opengl_draw_triangles_indexed,
     gfx_opengl_init,
     gfx_opengl_on_resize,
     gfx_opengl_start_frame,

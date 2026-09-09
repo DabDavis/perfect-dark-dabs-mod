@@ -626,16 +626,6 @@ void videoSetCleanTextOutlines(s32 on)
 }
 
 /**
- * Model Smoothing: how many triangles a lit triangle is drawn as, level
- * squared, and how far toward the curved patch its new vertices are pulled.
- */
-void videoSetModelSmoothing(s32 level, f32 amount)
-{
-	gfx_model_smoothing_level = level < 0 ? 0 : level;
-	gfx_model_smoothing_amount = amount < 0.f ? 0.f : (amount > 1.f ? 1.f : amount);
-}
-
-/**
  * Enhance Textures and Smooth Text: how many times over the game's textures
  * and its font glyphs are scaled up on their way to the GPU.
  */
