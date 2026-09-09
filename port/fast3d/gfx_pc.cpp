@@ -1400,6 +1400,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
             xblaTexFreeReplacement(rep);
             rendering_state.textures[i]->second.replaced = true;
+            rendering_state.textures[i]->second.exact_uv = true;
             return;
         }
     }
@@ -2013,6 +2014,17 @@ static void gfx_derive_batch_state(void) {
         const float origin[2] = { rdp.texture_tile[tile].uls / 4.0f, rdp.texture_tile[tile].ult / 4.0f };
         const float inv_size[2] = { 1.0f / tex_width[t], 1.0f / tex_height[t] };
 
+        // The half texel a linear filter adds is the N64's: its bilerp puts a
+        // texel's centre on the integer, GL's on the half, and every texture
+        // the game authored - and every pack image scaled from one - carries
+        // that offset in the tile's own texels. A picture authored for a
+        // half-centred sampler is not owed it. The XBLA meshes' art is the
+        // case: their UVs are exact on the picture and the tile they are
+        // measured against is a 32 texel stand-in, so half of one of those is
+        // a sixty-fourth of the picture - eight pixels of a 512 wide face,
+        // which is where a nose ends up beside its bridge.
+        const float tfilt = (rendering_state.textures[t] && rendering_state.textures[t]->second.exact_uv) ? 0.0f : filt;
+
         for (int axis = 0; axis < 2; axis++) {
             float sf = 1.0f;
             if (shift[axis] != 0) {
@@ -2025,7 +2037,7 @@ static void gfx_derive_batch_state(void) {
 
             // Triangles: scale, shift, origin, perspective, filter, normalise.
             batch.uv_scale[t][axis] = sf * persp * inv_size[axis] / 32.0f;
-            batch.uv_ofs[t][axis] = (filt - origin[axis] * persp) * inv_size[axis];
+            batch.uv_ofs[t][axis] = (tfilt - origin[axis] * persp) * inv_size[axis];
 
             // Rectangles bypass the perspective and filter adjustments.
             batch.uv_scale_rect[t][axis] = sf * inv_size[axis] / 32.0f;
@@ -2079,7 +2091,8 @@ static void gfx_verify_uv(int t, bool is_rect, float raw_u, float raw_v, float g
             u *= 0.5f;
             v *= 0.5f;
         }
-        if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
+        if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT &&
+                !(rendering_state.textures[t] && rendering_state.textures[t]->second.exact_uv)) {
             u += 0.5f;
             v += 0.5f;
         }

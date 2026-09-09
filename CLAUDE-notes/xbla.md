@@ -464,6 +464,22 @@ precision of a UV: at 32 texels a UV of one is 1024, so a coordinate runs to 32
 before it overflows the s16 and is good to about a thousandth. `vtx->s = u *
 XBLATEX_TILE_SCALE` is the whole of the mapping.
 
+**Except the half texel, which the renderer owes the N64 and not this art**
+(2026-09-09). Under a linear filter `gfx_pc` adds half a texel to every
+triangle's coordinates, because the N64's bilerp puts a texel's centre on the
+integer and GL's on the half; the game's own textures, and a pack's images
+scaled up from them, are drawn with that offset in mind. That half texel is
+*of the tile*, and for a mesh the tile is the 32 texel stand-in, so the
+picture landed a sixty-fourth of its width to the right and up of where 4J
+drew it - eight pixels of a 512 wide face. The report it came in as was "the
+nose texture is off centre of the nose mesh": on the G5 guard the nose, mouth
+and goatee all hung to the viewer's right of the face's midline. A texture
+`xblaTexLoadReplacement()` supplied is marked `exact_uv` in the cache entry
+and the batch's `uv_ofs` leaves the half texel out for it; a point-filtered
+draw never had it, so the mark costs nothing there. Not fixable at the vertex:
+baking -16 into `s` and `t` would be right under bilerp and wrong by the same
+amount under point, and the filter bit belongs to whoever draws the list.
+
 **The rows are not flipped, and `v` is.** These are one decision and getting
 half of it right is worse than getting neither, so they are written down
 together.

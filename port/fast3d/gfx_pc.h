@@ -50,6 +50,11 @@ struct TextureCacheValue {
     // Holds a texture pack's image rather than the game's own. The drop that
     // follows a decode leaves these alone: they are already showing it.
     bool replaced = false;
+    // The picture was authored for a sampler whose texel centres sit at half
+    // integers (the XBLA release's own art, drawn under Direct3D), so its
+    // coordinates are exact as written and get none of the half texel the
+    // N64's bilinear filter is owed. See gfx_derive_batch_state's uv_ofs.
+    bool exact_uv = false;
 
     std::list<struct TextureCacheMapIter>::iterator lru_location;
 };
