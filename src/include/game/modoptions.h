@@ -191,14 +191,15 @@
 #define MODTILT_MAX    MODTILT_HEAVY
 
 /**
- * Camera Tether: the third person camera on a rod that pivots about the
- * player rather than one bolted to the back of their head. It keeps its
- * distance but not its bearing - walking drags it along behind the way you
- * went, turning leaves it where it stood while the body turns in frame - and
- * it eases back behind the aim so the crosshair is never far from the body.
- * The settings are how far it is allowed to lag and how quickly it comes back:
- * Loose lets it out to sixty degrees and takes its time, Tight holds it within
- * thirty and swings it back in a few frames. Off is the rigid camera.
+ * Camera Tether: the third person camera as a pole attached to the body
+ * rather than bolted to the back of its head. The right stick orbits the
+ * camera round the body, the left stick moves the body in screen space and
+ * the body turns to face the way it goes, and while the trigger is held it
+ * faces the camera, which is where the shot goes. The pole is elastic to the
+ * setting: strafing drags its far end round and it eases back behind the
+ * camera. Loose lets it swing to sixty degrees and takes its time, Tight
+ * holds it within thirty and is close to a rigid pole. Off is the rigid
+ * camera, with the body facing the aim.
  */
 #define MODTETHER_OFF    0
 #define MODTETHER_LOOSE  1

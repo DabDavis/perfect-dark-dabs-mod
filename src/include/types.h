@@ -2911,6 +2911,15 @@ struct player {
 	// eye, starts the rod behind the aim.
 	struct coord thirdpersontetherpos;
 	bool thirdpersontethered;
+	// Camera Tether: the body's own facing, in the radians chrSetLookAngle()
+	// takes, kept apart from vv_theta so the right stick turns the camera and
+	// not the body. It turns to face where the left stick moves the body,
+	// holds while the body stands, and faces the camera for as long as the
+	// trigger is held and a moment after (the countdown, in 60Hz ticks).
+	// Not worth reading until the flag says a frame has written it.
+	f32 thirdpersonbodytheta;
+	bool thirdpersonbodyset;
+	s32 thirdpersonfirehold;
 	f32 codaimfrac; // COD Style Aiming: how far the gun has come up to the sights, 0 to 1
 	s32 spawnweaponnums[2]; // what playerSpawn() put in each hand, for the mission script's chr_draw_weapon to put back
 	// Camera Tilt: where the lean has got to, in degrees, chasing the

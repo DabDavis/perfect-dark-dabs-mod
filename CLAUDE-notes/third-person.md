@@ -132,6 +132,24 @@ is the rigid offset's own, so a shoulder preset still rests over that shoulder.
 every frame that is not third person, so aiming and the first frame of the
 mode both start the rod behind the aim.
 
+**The body has a facing of its own under the tether**, or the right stick turns
+it with the camera and the whole thing reads as the rigid camera with a lag -
+which is what the first cut was, and what was reported. `playerTetherBody()`
+in the body tick keeps `thirdpersonbodytheta` (the radians `chrSetLookAngle()`
+takes, world): it turns towards the direction of travel while the left stick
+moves the body (the same `look - atan2f(sideways, forwards)` the animation
+chooser turns a strafe part way towards, taken the whole way), holds while the
+body stands, and faces the camera while either hand's `triggeron` or `firing`
+is set and for `TETHER_FIRE_HOLD` ticks after, because the shot is fired from
+the camera. The speeds handed to the chooser are re-read relative to the body
+so it plays the forward run rather than a strafe, `speedtheta` is zeroed
+(the look turning is the camera orbiting, not the body), and the chooser's
+own `angleoffset` is applied on top of the body's facing rather than the
+look's. The flag `thirdpersonbodyset` is cleared with the tether's, so coming
+back from aiming starts the body facing the aim, where first person left it.
+Movement needed nothing: the walk is along `vv_theta`, which is now the
+camera's yaw, so the left stick is already screen-relative.
+
 Two things that cost a run each:
 
 - **The rod pivots about `bond2.unk10`, not the `campos` handed in.** That copy

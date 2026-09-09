@@ -76,13 +76,14 @@ Mod Options**. Each one persists to `pd.ini` under a `Mod.` key.
 to first person while aiming. Camera Distance, Camera Wall Clearance and Camera
 Minimum Distance tune the framing.
 
-**Camera Tether** puts the camera on a rod that pivots about you instead of one
-bolted to the back of your head. It keeps its distance but not its bearing:
-walking drags it along behind the way you went, and turning on the spot leaves
-it where it stood while you turn in frame. It eases back behind your aim so the
-crosshair is never far from you. Loose lets it lag further and takes its time
-coming back, Tight holds it close behind the aim and swings back in a few
-frames. Off is the rigid camera, and is the default.
+**Camera Tether** makes the camera a pole attached to you instead of one bolted
+to the back of your head. The right stick orbits the camera all the way round
+you, the left stick moves you in screen space and you turn to face the way you
+go, and holding the trigger turns you to face the camera, which is where the
+shot goes. The pole is elastic: strafing swings it round and it settles back
+behind the camera. Loose lets it swing further and takes its time, Tight holds
+it close and is nearly a rigid pole. Off is the rigid camera, with you always
+facing the aim, and is the default.
 
 ### Picture
 
