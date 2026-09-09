@@ -123,6 +123,7 @@ void xblaMeshSetVerbose(s32 verbose);
 /** How much is loaded, for gdb. */
 extern u32 g_XblaMeshNumMeshes;
 extern u32 g_XblaMeshNumNodes;
+extern u32 g_XblaMeshNumSlots;
 extern u32 g_XblaMeshNumTris;
 extern u32 g_XblaMeshBytes;
 

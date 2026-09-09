@@ -607,6 +607,53 @@ release's rusted panel with its red and white hazard bar, at the right size and
 the right way up. Props stay pixel-identical between two seeded runs of each of
 the three levels, which is the check the untextured version passed too.
 
+#### Four faults that were in here, and what says they are gone
+
+Each of these was found by running the thing rather than by reading it, and
+none of them announces itself.
+
+**`Mod.XblaMeshes=1` in pd.ini with the release still inside its `.7z` drew
+nothing, for ever.** A model load asks for the package with `mayUnpack` clear
+so that somebody who only wanted the texture pack is never charged 250MB — and
+with the switch already on out of the config file, nothing else ever asks: the
+menu's `xblaMeshSetEnabled()` is what unpacks, and it is never called, because
+the checkbox is already ticked. So the package was never opened, no model was
+ever matched, and the page looked right. The match now asks with
+`xblaMeshOpen(optEnabled)`: off it is still the speculative pass that keeps the
+switch live, on it is somebody who has asked, and the first model load of the
+first level pays the three seconds. Checked by emptying `xbla/.unpacked` and
+booting the G5 Building with the flag set — `xbla: unpacking ... this happens
+once` followed by the same 14 meshes, in one run, and frame 900 identical to
+the run with the package already unpacked.
+
+**The node registry filled up with the dead.** A dropped entry has to keep its
+node as a tombstone, since open addressing cannot leave a hole in a probe
+chain, but `xblaMeshSlotFor()` only ever took an *empty* slot - so every model
+freed and loaded again inside a stage (each weapon the player switches to, each
+body and head a simulant spawns with) cost a slot that never came back. Full,
+the table stops registering anything and every lookup in the draw path walks
+all 4096 entries first. The probe now hands back the first tombstone it passes,
+and `g_XblaMeshNumSlots` beside `g_XblaMeshNumNodes` is what says how much of
+the table is gone: 183 and 183 after 9577 frames of an 80-simulant endless
+match, where the count of nodes ever registered is what the old code would
+have held.
+
+**The pose arena stopped growing when a frame wanted more than it can hold.**
+`frameWanted > cap && frameWanted <= 48MB` left the arena at whatever size it
+already was, so one crowded frame past the cap dropped every pose it could not
+fit rather than the tail of them - a room of characters in their bind pose,
+which is a heap of limbs. It grows to the cap now. (What a crowded match
+actually wants: 8MB, in the same 80-simulant match.)
+
+**Three bounds were a word short**, all of them reads of a node the file
+itself pointed at: a distance node's rodata (the target is at `+8`, so the
+bytes reach `+12`), the next link after a step up to a parent (the parent's
+offset came out of the file and had not been looked at), and the draw table's
+extent, which was named as `drawoffset + 12 * numdraws == vertexoffset` and can
+wrap round to the right answer. They matter because **a slot that a mesh id
+names is not always a mesh**: `UsetupdamZ` names slot 1, and every one of these
+reads happens before `xblaMeshReadHeader()` has had the chance to say so.
+
 #### Skinning
 
 `Mod.XblaMeshPose` poses a skinned mesh from the game's own matrices, and it is
@@ -735,6 +782,43 @@ and a guard whose glasses the game has turned off now has none, where a list
 for the whole mesh gave him a pair whatever the game said. The check that says
 so is the same frame with `Mod.XblaMeshes` off — the stock head has no glasses
 there either.
+
+**A head's stock hair is drawn over the release's, and the id says which one
+to keep.** A guard in the G5 Building came out with two hairdos: the release's
+head, which paints its own short hair, and the N64 hair piece hanging in the
+air above it, cut to fit a scalp that is no longer there. It reads as a slab of
+hair floating over the head and it is worth knowing how it was pinned down,
+because two obvious readings of it are both wrong — it is not the head drawn
+low (the posed box is `[-71 -59 -82]..[84 172 122]` against the stock node's
+`[-67 7 -79]..[66 171 118]`, the tops agreeing to a unit) and it is not the
+mesh's own art (`Mod.XblaMeshTextures=0` keeps it). What it is: `Cheadwlab*`
+and its like keep the hair in a **toggled node of its own**, `[-67 146 -79]..[66
+219 112]` on the G5 guard, and the release gives that node **no mesh id** while
+giving the head and the sunglasses beside it one each.
+
+So a zero is not always "no replacement" the way `0xFFFF` is, and the
+difference is exactly where a node sits:
+
+| where | `0xFFFF` | `0x0000` |
+| --- | --- | --- |
+| under a toggle | 54, every one a gun's part or a console's screen | 232, of which 166 are a `Chead*` model's |
+| an LOD alternative | 0 | 163 |
+| a plain node | 0 | 1796 |
+
+4J had a marker for a toggled piece it meant to keep and used it on the things
+that have to keep toggling — a magazine, a laser sight, a screen. The zeros
+under a toggle are the hair. Everything else that is zero is a node its
+exporter never reached, and those still keep their own geometry: the 1796 plain
+ones are why a G5 lab door draws its stock frame around the release's panel,
+and the 163 LOD ones are what a chr twenty metres away is drawn from.
+
+**The rule is a head's alone, and the draw path is what confines it there**
+(`e->suppress`, set while matching and read in `xblaMeshRenderNode()`). The
+other 66 toggled zeros are mostly a weapon's — the Falcon 2 has two beside the
+one it marks `0xFFFF` and the four its mesh replaces — and there the same
+reading would cost a muzzle flash to save nothing that was drawn twice. A
+grafted node is what says a head is a head at draw time, which is a fact the
+game supplies rather than a guess: nothing else is ever grafted.
 
 ### The level files were rewritten too
 

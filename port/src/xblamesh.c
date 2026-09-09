@@ -94,6 +94,7 @@
 
 u32 g_XblaMeshNumMeshes = 0;
 u32 g_XblaMeshNumNodes = 0;
+u32 g_XblaMeshNumSlots = 0; // taken, live or tombstoned - the table's headroom
 u32 g_XblaMeshNumTris = 0;
 u32 g_XblaMeshBytes = 0;
 
@@ -103,6 +104,7 @@ struct xblameshentry {
 	u16 slot;
 	u16 part;
 	s32 use;                           // into uses[], or -1
+	s32 suppress;                      // a stock piece the mesh has already: draw nothing
 };
 
 /**
@@ -415,7 +417,8 @@ static u32 xblaMeshFileChild(const u8 *file, u32 len, u32 off, u32 type)
 	if (type == MODELNODETYPE_DISTANCE) {
 		rodata = xblaMeshBE32(file + off + 4) & 0xffffff;
 
-		if (rodata && rodata + 8 <= len) {
+		// The word is at +8, so the bytes it takes reach +12.
+		if (rodata && rodata + 12 <= len) {
 			// struct modelrodata_distance: near, far, then the target
 			return xblaMeshBE32(file + rodata + 8) & 0xffffff;
 		}
@@ -475,19 +478,44 @@ static s16 xblaMeshNodeMtx(const u8 *file, u32 len, u32 nodeoff)
 	return -1;
 }
 
+/**
+ * The entry for this node, or the slot one would go in.
+ *
+ * Open addressing cannot leave a hole behind, so a dropped entry keeps its node
+ * as a tombstone and only loses its model - a probe has to walk over it to
+ * reach whatever was filed behind it. **Which means a tombstone has to be
+ * handed back for reuse**, because models are freed and loaded again all the
+ * way through a stage - every weapon the player switches to, every body and
+ * head a simulant spawns with - and each of those loads leaves its nodes behind
+ * as tombstones. Taking only empty slots fills the table with the dead in one
+ * long match: registration stops working, and every lookup in the draw path
+ * walks all 4096 entries before giving up. So the probe runs to the end of the
+ * chain looking for the node and hands back the first slot it could take.
+ */
 static struct xblameshentry *xblaMeshSlotFor(const struct modelnode *node)
 {
 	u32 h = (u32)(((uintptr_t)node >> 4) * 2654435761u) & (XBLAMESH_HASHSIZE - 1);
+	struct xblameshentry *reusable = NULL;
 
 	for (s32 i = 0; i < XBLAMESH_HASHSIZE; i++) {
 		struct xblameshentry *e = &hash[(h + i) & (XBLAMESH_HASHSIZE - 1)];
 
-		if (!e->node || e->node == node) {
+		if (e->node == node) {
 			return e;
+		}
+
+		// The end of the chain: nothing is filed past here, so the search is
+		// over and this slot - or a tombstone passed on the way - is the one.
+		if (!e->node) {
+			return reusable ? reusable : e;
+		}
+
+		if (!e->modeldef && !reusable) {
+			reusable = e;
 		}
 	}
 
-	return NULL;
+	return reusable;
 }
 
 /** The record of this model's use of this mesh, made if there is not one. */
@@ -619,6 +647,31 @@ static void xblaMeshLogNode(const struct modelnode *node, u32 type, s32 slot, s3
 }
 
 /**
+ * Whether a node hangs off a toggle, which is what a piece the game turns on
+ * and off does.
+ *
+ * Walked on our side rather than theirs, since the two trees are the same tree
+ * here by construction. A head is not grafted onto a body yet at the load this
+ * runs from, so the walk ends at the head model's own root.
+ */
+static s32 xblaMeshUnderToggle(const struct modelnode *node, const struct modelnode *root)
+{
+	for (s32 i = 0; node && i < XBLAMESH_PARENTSCAN; i++) {
+		if ((node->type & 0xff) == MODELNODETYPE_TOGGLE) {
+			return 1;
+		}
+
+		if (node == root) {
+			break;
+		}
+
+		node = node->parent;
+	}
+
+	return 0;
+}
+
+/**
  * Walks our tree and theirs together, recording every node they replace.
  *
  * The two files hold the same nodes in the same order - the release edited two
@@ -631,6 +684,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 	struct modelnode *ournode = modeldef->rootnode;
 	u32 theiroff = xblaMeshBE32(file) & 0xffffff;
 	s32 found = 0;
+	s32 suppressed = 0;
 	s32 walked = 0;
 
 	// Both walks are the same depth-first order the game's own iteration uses:
@@ -672,8 +726,15 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 			s32 slot = (s32)(id & 0xfff) - 1;
 
 			if (e && slot >= 0 && slot < numRecords && recUncSize[slot]) {
-				if (!e->node) {
+				// A slot with no model in it is empty or a tombstone, and
+				// either way this is one more live entry. One that has a model
+				// is an entry being taken over, which is one out and one in.
+				if (!e->modeldef) {
 					g_XblaMeshNumNodes++;
+				}
+
+				if (!e->node) {
+					g_XblaMeshNumSlots++;
 				}
 
 				e->node = ournode;
@@ -681,6 +742,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				e->slot = (u16)slot;
 				e->part = (u16)(id >> 12);
 				e->use = xblaMeshUseFor(modeldef, slot);
+				e->suppress = 0;
 				found++;
 
 				if (e->use >= 0 && e->part < XBLAMESH_MAXPARTS) {
@@ -707,6 +769,45 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 							xblaMeshFileId, ournode, slot);
 				}
 			}
+		} else if (!id && (ourtype == MODELNODETYPE_DL || ourtype == MODELNODETYPE_GUNDL) &&
+				xblaMeshUnderToggle(ournode->parent, modeldef->rootnode)) {
+			// A toggled piece the release left without an id, which is the
+			// one place a zero and an 0xFFFF mean different things.
+			//
+			// 4J marked a toggled piece it kept with 0xFFFF, and all 54 of
+			// those in the release are a gun's part or a console's screen -
+			// none is a head's. A toggled piece it left at zero is a head's in
+			// 166 of 232 cases, and those are the hair: a release head mesh
+			// carries its own, so drawing the game's over the top gives a
+			// guard two hairdos - the N64 one hanging above the release's
+			// head, where the scalp it was cut to fit no longer is.
+			//
+			// The other 66 are mostly a weapon's, and there the same reading
+			// would cost a muzzle flash to save nothing that is drawn twice,
+			// so the draw path takes only a head's - see xblaMeshRenderNode().
+			// Everywhere else a zero keeps its own geometry regardless: a
+			// plain node's (1796 of them, which is how a G5 lab door keeps its
+			// stock frame around the release's panel) and an LOD
+			// alternative's (163, which a distant chr's head is drawn from).
+			struct xblameshentry *e = xblaMeshSlotFor(ournode);
+
+			if (e) {
+				if (!e->modeldef) {
+					g_XblaMeshNumNodes++;
+				}
+
+				if (!e->node) {
+					g_XblaMeshNumSlots++;
+				}
+
+				e->node = ournode;
+				e->modeldef = modeldef;
+				e->slot = 0;
+				e->part = 0;
+				e->use = -1;
+				e->suppress = 1;
+				suppressed++;
+			}
 		}
 
 		theirchild = xblaMeshFileChild(file, len, theiroff, theirtype);
@@ -722,6 +823,14 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 		}
 
 		while (ournode) {
+			// Every read here is a word out of the node at theiroff, and after
+			// a step up to the parent that offset came out of the file and has
+			// not been looked at - so it is checked against the node's whole
+			// 24 bytes before either link is read out of it.
+			if (theiroff + 24 > len) {
+				return 0;
+			}
+
 			if (ournode->next) {
 				ournode = ournode->next;
 				theiroff = xblaMeshBE32(file + theiroff + 12) & 0xffffff;
@@ -729,12 +838,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 			}
 
 			ournode = ournode->parent;
-
-			if (theiroff + 12 <= len) {
-				theiroff = xblaMeshBE32(file + theiroff + 8) & 0xffffff;
-			} else {
-				return 0;
-			}
+			theiroff = xblaMeshBE32(file + theiroff + 8) & 0xffffff;
 		}
 
 		if (!ournode) {
@@ -744,6 +848,11 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 		if (!theiroff) {
 			return 0;
 		}
+	}
+
+	if (found && suppressed && xblaMeshVerbose) {
+		sysLogPrintf(LOG_NOTE, "xblamesh:   %d toggled stock pieces the mesh has already",
+				suppressed);
 	}
 
 	return found;
@@ -926,8 +1035,12 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 			return 0;
 		}
 
-		if (!e->node) {
+		if (!e->modeldef) {
 			g_XblaMeshNumNodes++;
+		}
+
+		if (!e->node) {
+			g_XblaMeshNumSlots++;
 		}
 
 		e->node = ours[part];
@@ -935,6 +1048,7 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 		e->slot = (u16)slot;
 		e->part = (u16)part;
 		e->use = xblaMeshUseFor(modeldef, slot);
+		e->suppress = 0;
 
 		if (e->use >= 0) {
 			struct xblameshuse *use = &uses[e->use];
@@ -983,7 +1097,14 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 	// where it can be caught.
 	xblaMeshForgetModel(modeldef);
 
-	if (!xblaMeshOpen(0)) {
+	// A model load never unpacks a 250MB archive on somebody who might only
+	// want the texture pack - unless they have already asked for the meshes, in
+	// which case the first model load is exactly who should pay for it. Without
+	// that, Mod.XblaMeshes=1 in pd.ini with the release still inside its .7z
+	// drew no mesh at all and said nothing: nothing unpacked, so nothing was
+	// ever matched, and the checkbox that would have unpacked it was already
+	// on. Off, this is still the speculative pass that keeps the switch live.
+	if (!xblaMeshOpen(optEnabled)) {
 		return;
 	}
 
@@ -1075,9 +1196,11 @@ void xblaMeshResetModels(void)
 {
 	numUses = 0;
 	openedLate = 0;
+	xblaMeshDrawLog = 0;
 
 	memset(hash, 0, sizeof(hash));
 	g_XblaMeshNumNodes = 0;
+	g_XblaMeshNumSlots = 0;
 
 	for (s32 i = 0; i < numRecords && built; i++) {
 		built[i].posedmodel = NULL;
@@ -1132,6 +1255,15 @@ static s32 xblaMeshReadHeader(struct xblameshhdr *h, const u8 *file, u32 len, u3
 		return 0;
 	}
 
+	// The palette is read straight out of the header's count, and the count is
+	// what the group offset below is checked against - so it is bounded here,
+	// where a slot that holds one of the game's own files rather than a mesh is
+	// still being told apart from one that does. The largest palette in the
+	// release has 46 entries; an unskinned mesh has none.
+	if (h->nummatrices > XBLAMESH_MAXMTX) {
+		return 0;
+	}
+
 	if (h->vertexoffset < XBLAMESH_HEADER || h->indexoffset <= h->vertexoffset ||
 			h->indexoffset > len) {
 		return 0;
@@ -1141,8 +1273,11 @@ static s32 xblaMeshReadHeader(struct xblameshhdr *h, const u8 *file, u32 len, u3
 		return 0;
 	}
 
-	if (h->drawoffset < h->groupoffset ||
-			h->drawoffset + XBLAMESH_ENTRY * h->numdraws != h->vertexoffset) {
+	// The draw table sits between the groups and the vertices and fills the gap
+	// exactly. Named as the two ends rather than as one sum, since a wild
+	// offset plus the table's length can wrap round to the right answer.
+	if (h->drawoffset < h->groupoffset || h->drawoffset >= h->vertexoffset ||
+			h->vertexoffset - h->drawoffset != XBLAMESH_ENTRY * h->numdraws) {
 		return 0;
 	}
 
@@ -2072,19 +2207,28 @@ static u32 frameCount;
 
 void xblaMeshFrameReset(void)
 {
-	if (!optEnabled) {
-		return;
-	}
-
+	// Unconditional, including with the meshes switched off. The frame counter
+	// is what a mesh's posed copy is keyed on, and one that stops moving while
+	// the switch is off is still the current frame when it comes back on - so
+	// the first frame after would draw a pose left over from before, in an
+	// arena whose high water mark had not been given back either.
 	frameIndex ^= 1;
 	frameCount++;
 
-	if (frameWanted > frameCap[frameIndex] && frameWanted <= XBLAMESH_ARENA_MAX) {
-		u8 *grown = realloc(frameArena[frameIndex], frameWanted);
+	// Up to the cap rather than only when the whole of what was asked for fits
+	// under it: a frame that wants more than the arena can ever hold used to
+	// leave it at whatever size it already was, so a crowded match would stop
+	// growing it and drop every pose it could not fit - a room full of
+	// characters in their bind pose, which is a heap of limbs. Grown to the
+	// cap, what does not fit is the tail of one frame's meshes and not all of
+	// them.
+	if (frameWanted > frameCap[frameIndex]) {
+		const u32 want = frameWanted < XBLAMESH_ARENA_MAX ? frameWanted : XBLAMESH_ARENA_MAX;
+		u8 *grown = want > frameCap[frameIndex] ? realloc(frameArena[frameIndex], want) : NULL;
 
 		if (grown) {
 			frameArena[frameIndex] = grown;
-			frameCap[frameIndex] = frameWanted;
+			frameCap[frameIndex] = want;
 		}
 	}
 
@@ -2186,8 +2330,7 @@ static Mtxf *xblaMeshPartMtx(struct model *model, struct xblameshuse *use, s32 p
  *
  * NULL when there is no room this frame, and the caller draws the bind pose.
  */
-static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct xblameshuse *use,
-		struct model *model, Mtxf *root)
+static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *root)
 {
 	Mtxf pal[XBLAMESH_MAXMTX];
 	Mtxf invroot;
@@ -2468,8 +2611,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	Mtxf *root;
 	Vtx *posed;
 	Gfx *list;
+	s32 grafted = 0;
 
-	if (!optEnabled || opened <= 0 || !node) {
+	if (!optEnabled || opened <= 0 || !node || !g_XblaMeshNumNodes) {
 		return 0;
 	}
 
@@ -2490,13 +2634,28 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// come back as something else's node. The definition the model is being
 	// drawn from is what says this entry is about this model - except for a
 	// head, which is a model of its own grafted into the body's tree.
-	if (model && model->definition && model->definition != e->modeldef &&
-			!xblaMeshNodeIsGrafted(model, node)) {
-		return 0;
+	if (model && model->definition && model->definition != e->modeldef) {
+		if (!xblaMeshNodeIsGrafted(model, node)) {
+			return 0;
+		}
+
+		grafted = 1;
 	}
 
 	if (optOnlySlot && e->slot != optOnlySlot) {
 		return 0;
+	}
+
+	// A toggled stock piece the release's mesh carries itself: a head's hair.
+	// Drawing nothing is the whole of it, since the mesh beside it has one
+	// already - and it is only ever a head's, because a head is the only model
+	// the evidence for this covers (xblaMeshMatchNodes above). A grafted node
+	// is what says this is one: the game grafts nothing else, so a weapon's
+	// toggled piece reaches here with its own model and keeps its geometry.
+	// Mod.XblaMeshBoth keeps it too, that switch being there to put the two on
+	// top of each other.
+	if (e->suppress) {
+		return (grafted && !optBoth) ? 1 : 0;
 	}
 
 	// The mesh is built before the part is looked at, so that a mesh that will
@@ -2551,7 +2710,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 					m->posedvtx) {
 				pose = m->posedvtx;
 			} else {
-				pose = xblaMeshPose(m, use, model, root);
+				pose = xblaMeshPose(m, model, root);
 
 				// Not remembered when there was no room this frame, so that
 				// the next part tries again rather than inheriting a miss.
