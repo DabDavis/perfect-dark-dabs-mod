@@ -444,11 +444,31 @@ precision of a UV: at 32 texels a UV of one is 1024, so a coordinate runs to 32
 before it overflows the s16 and is good to about a thousandth. `vtx->s = u *
 XBLATEX_TILE_SCALE` is the whole of the mapping.
 
-**The rows are not flipped.** The console stored its art in the same order the
-game's own texture data uses, so what `x360DecodeTexture()` produces is what
-the renderer uploads. The `[::-1]` in `xblamesh.py` and the flip in
-`xblaconvert.py` are both for the PNG's benefit and have no place here — doing
-it "to be consistent with the converter" turns every picture upside down.
+**The rows are not flipped, and `v` is.** These are one decision and getting
+half of it right is worse than getting neither, so they are written down
+together.
+
+The console stored its art in the same order the game's own texture data uses,
+so what `x360DecodeTexture()` produces is what the renderer uploads. The
+`[::-1]` in `xblamesh.py` and the flip in `xblaconvert.py` are both for the
+PNG's benefit and have no place here — doing it "to be consistent with the
+converter" turns every picture upside down. That much a texture pack proves:
+the converter writes a flipped PNG and the pack loader flips it back, so what a
+pack uploads *is* the decode order, and a pack's levels are right.
+
+The other half is that **a mesh's `v` is Direct3D's and counts from the top of
+the picture as it was drawn**, which is the end the game's `t` counts *away*
+from. So `xblaMeshAddVertex()` writes `1 - v` — the coordinate turns over, not
+the picture. This was wrong for a while and is worth knowing how it looked,
+because it never once looked like a flip: a body's texture is an atlas of
+pieces, and mirroring the sheet moves each piece to some *other* piece rather
+than upside down, so what shows up is art that is merely wrong. The CI's lab
+tech wore her white sleeves across her chest and her waistband round her hips;
+a G5 guard lost his belt and gained a patch of skin over his shirt; the
+dumpster's vent panel sat near its rim. The tell, if it comes back: dump the
+mesh and its textures with `xblamesh.py --slot N --textures`, which writes the
+atlas the right way up, and see whether the piece under a given part of the
+model is the piece mirrored about the sheet's middle.
 
 **A draw is one material, and the batch has to close at the boundary**, because
 a vertex load and the triangles indexing it belong to the state they were

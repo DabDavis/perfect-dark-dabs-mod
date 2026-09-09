@@ -1393,8 +1393,18 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 	// under. XBLATEX_TILE_SCALE is what a UV of one comes to; a coordinate
 	// past what a Vtx holds is clamped rather than wrapped round, since a
 	// wrapped one would draw a stripe of the wrong part of the picture.
+	//
+	// **v is turned over on the way in.** The two halves of this meet here and
+	// they count rows from opposite ends: the picture is uploaded in the row
+	// order x360DecodeTexture() produced, which is Perfect Dark's own order
+	// and is why a texture pack needs no flip either, while a mesh's v is
+	// Direct3D's and is measured from the top of the picture as it was drawn.
+	// Left alone, every mesh in the release draws its texture mirrored top to
+	// bottom - which reads as art that is merely wrong rather than as anything
+	// upside down, since a body's own pieces move about: the CI's lab tech
+	// wears her sleeves across her chest and her waistband round her hips.
 	vtx->s = xblaMeshRound(xblaMeshBEF32(v + 12) * XBLATEX_TILE_SCALE);
-	vtx->t = xblaMeshRound(xblaMeshBEF32(v + 16) * XBLATEX_TILE_SCALE);
+	vtx->t = xblaMeshRound((1.0f - xblaMeshBEF32(v + 16)) * XBLATEX_TILE_SCALE);
 
 	colour = xblaMeshBE32(v + 32);
 	col->r = (u8)(colour >> 16);
