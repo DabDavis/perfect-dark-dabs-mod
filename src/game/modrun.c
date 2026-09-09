@@ -61,6 +61,15 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * cannot be answered would be a run that cannot go on, so a room that has been
  * sealed too long is dealt the one thing that can always be answered: a clock.
  *
+ * **It is sealed a room wider than that.** The landing room and every room its
+ * doors open onto - modRunBuildZone() - because a room on its own is sometimes
+ * a stairwell or a corridor two strides across, and a fight held in one of
+ * those is fought against the walls. The rooms touching it are still one
+ * helping of a level and there is somewhere to move. The seal and the door out
+ * ask the same question, so what is sealed is also what a hop is measured
+ * from: the portal is the first door out of those rooms rather than out of the
+ * one landed in.
+ *
  * **A portal is a stage load, because it has to be.** One bg file is resident
  * at a time and a portal's room numbers index that one file, so two rooms of
  * two maps cannot be joined by geometry - see modrandom.c, which learned the
@@ -142,6 +151,11 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 // Half the length of the wall the doorway becomes. The player slides along it
 // and never reaches its end; it only has to be longer than a doorway.
 #define MODRUN_SEALEDGE 10000.0f
+
+// How many rooms the seal may shut the player into: the landing room and the
+// rooms its doors open onto. A room with more doors than this keeps the rest
+// of them shut, which is a smaller area rather than a broken one.
+#define MODRUN_MAXZONE 32
 
 // Objective sizes. One block, the way modrandom.c lays its objectives out, so
 // that re-dealing one at a landing cannot move another.
@@ -231,6 +245,12 @@ static bool g_ModRunHasObjective;
 static s32 g_ModRunObjDealt;    // the tick this room's objective was dealt at
 static s32 g_ModRunSealMsg;     // the tick the seal last said anything
 static bool g_ModRunSealLogged; // whether this room's seal has been logged once
+
+// What the seal shuts: the landing room and the rooms touching it. Built at
+// the landing by modRunBuildZone(), and the thing every test that used to name
+// the landing room asks about now.
+static RoomNum g_ModRunZone[MODRUN_MAXZONE];
+static s32 g_ModRunNumZone;
 
 /**
  * What the player is carrying between rooms.
@@ -573,6 +593,7 @@ static void modRunEnterStage(s32 stagenum)
 	g_ModRunSpawnState = 0;
 	g_ModRunLandPad = -1;
 	g_ModRunLandRoom = -1;
+	g_ModRunNumZone = 0;
 	g_ModRunHasObjective = false;
 	g_ModRunObjCmds = NULL;
 }
@@ -627,6 +648,7 @@ void modRunStop(void)
 	g_ModRunObjCmds = NULL;
 	g_ModRunLandPad = -1;
 	g_ModRunLandRoom = -1;
+	g_ModRunNumZone = 0;
 }
 
 /**
@@ -676,6 +698,7 @@ static void modRunChooseLanding(void)
 
 	g_ModRunLandPad = -1;
 	g_ModRunLandRoom = -1;
+	g_ModRunNumZone = 0;
 
 	modRunOpen(MODRUN_STREAM_LAND, g_ModRunHop);
 
@@ -1225,6 +1248,189 @@ static bool modRunRoomsHave(const RoomNum *rooms, s32 room)
 }
 
 /**
+ * Is this room inside the seal?
+ *
+ * The zone, which is the landing room and the rooms its doors open onto. With
+ * no zone built - a state this should not be in while a room is sealed - the
+ * landing room alone, which is the question this used to ask everywhere.
+ */
+static bool modRunZoneHas(s32 room)
+{
+	s32 i;
+
+	if (room < 0) {
+		return false;
+	}
+
+	if (g_ModRunNumZone <= 0) {
+		return room == g_ModRunLandRoom;
+	}
+
+	for (i = 0; i < g_ModRunNumZone; i++) {
+		if (g_ModRunZone[i] == room) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Is any of this rooms[] list inside the seal? Standing in a doorway lists
+ * both of its rooms, so "in the zone" is any of them, the same way the room
+ * test it replaces was any of them.
+ */
+static bool modRunRoomsInZone(const RoomNum *rooms)
+{
+	s32 i;
+
+	if (rooms == NULL) {
+		return false;
+	}
+
+	for (i = 0; i < 8; i++) {
+		if (rooms[i] == -1) {
+			break;
+		}
+
+		if (modRunZoneHas(rooms[i])) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * The far side of a portal that leaves the zone, or -1.
+ *
+ * A portal of any room in the zone whose other side is both out of the zone
+ * and one of the rooms handed in. What it is for is the wall the doorway
+ * becomes and the check that the zone has a door out of it at all.
+ */
+static s32 modRunZoneExitPortal(const RoomNum *torooms)
+{
+	s32 z;
+	s32 i;
+
+	if (g_Rooms == NULL || g_RoomPortals == NULL || g_BgPortals == NULL) {
+		return -1;
+	}
+
+	for (z = 0; z < g_ModRunNumZone; z++) {
+		const s32 zoneroom = g_ModRunZone[z];
+		const struct room *room;
+
+		if (zoneroom <= 0 || zoneroom >= g_Vars.roomcount) {
+			continue;
+		}
+
+		room = &g_Rooms[zoneroom];
+
+		for (i = 0; i < room->numportals; i++) {
+			const s32 portalnum = g_RoomPortals[room->roomportallistoffset + i];
+			const struct bgportal *portal = &g_BgPortals[portalnum];
+			const s32 other = portal->roomnum1 == zoneroom
+				? portal->roomnum2
+				: portal->roomnum1;
+
+			if (modRunZoneHas(other)) {
+				continue;
+			}
+
+			if (torooms == NULL || modRunRoomsHave(torooms, other)) {
+				return portalnum;
+			}
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * What the seal shuts the player into: the landing room and the rooms touching
+ * it.
+ *
+ * One room on its own is what the mode first shipped with, and a room is
+ * sometimes a stairwell, a lift lobby or a corridor two strides across: a
+ * fight held in one of those is fought against the walls rather than against
+ * the guards, and there is nowhere to break line of sight while a clock runs
+ * down. The landing room and its neighbours is somewhere to move without being
+ * a mission's worth of level.
+ *
+ * The far side of a *portal*, not of a walk: a room that merely overlaps the
+ * landing room in a prop's rooms[] with no door between them is not in it. And
+ * one door deep on purpose - two is most of a small map, and the helping of
+ * level either side of a hop is the whole point of paying for the load.
+ *
+ * Built at the landing rather than at the roll, because the roll runs while
+ * the setup file is being read and the bg's rooms and portals still belong to
+ * the level being torn down.
+ *
+ * **The zone has to have a door out of it**, or a run ends without a death:
+ * with the objective done the seal opens, and if every door of every room in
+ * the zone leads back into the zone there is nothing left to hop through. On a
+ * map small enough for that - an arena of three rooms all touching - the zone
+ * is the landing room alone, which is the mode as it was.
+ */
+static void modRunBuildZone(void)
+{
+	s32 i;
+
+	g_ModRunNumZone = 0;
+
+	if (g_ModRunLandRoom < 0) {
+		return;
+	}
+
+	g_ModRunZone[g_ModRunNumZone++] = g_ModRunLandRoom;
+
+	if (g_Rooms == NULL || g_RoomPortals == NULL || g_BgPortals == NULL
+			|| g_ModRunLandRoom == 0 || g_ModRunLandRoom >= g_Vars.roomcount) {
+		return;
+	}
+
+	{
+		const struct room *room = &g_Rooms[g_ModRunLandRoom];
+
+		for (i = 0; i < room->numportals && g_ModRunNumZone < MODRUN_MAXZONE; i++) {
+			const s32 portalnum = g_RoomPortals[room->roomportallistoffset + i];
+			const struct bgportal *portal = &g_BgPortals[portalnum];
+			const s32 other = portal->roomnum1 == g_ModRunLandRoom
+				? portal->roomnum2
+				: portal->roomnum1;
+
+			// Room 0 is not a room the run lands in and not one it seals into.
+			if (other <= 0 || other >= g_Vars.roomcount || modRunZoneHas(other)) {
+				continue;
+			}
+
+			g_ModRunZone[g_ModRunNumZone++] = other;
+		}
+	}
+
+	if (modRunZoneExitPortal(NULL) < 0) {
+		g_ModRunNumZone = 1;
+	}
+
+#ifndef PLATFORM_N64
+	{
+		char rooms[128];
+		s32 len = 0;
+
+		rooms[0] = '\0';
+
+		for (i = 0; i < g_ModRunNumZone && len < (s32)sizeof(rooms) - 8; i++) {
+			len += sprintf(rooms + len, i == 0 ? "%d" : " %d", g_ModRunZone[i]);
+		}
+
+		sysLogPrintf(0, "run: sealing %d room(s) on stage 0x%02x - %s",
+				g_ModRunNumZone, g_ModRunStage, rooms);
+	}
+#endif
+}
+
+/**
  * Is the way out shut?
  *
  * The room this hop dealt, with an objective on it that has not been met. Not
@@ -1271,8 +1477,9 @@ static void modRunSealSay(const char *why)
  * A refused move is a collision like any other and what follows one asks what
  * it hit: bwalk0f0c494c() projects the move along the edge the collision left
  * behind, which is what makes a wall something a player slides down rather
- * than stops dead against. The barrier is a portal, so the edge is the
- * portal's own plane - its normal turned a quarter turn in XZ, laid through
+ * than stops dead against. The barrier is a portal - the one leaving the
+ * sealed rooms for wherever the move was headed - so the edge is that
+ * portal's own plane: its normal turned a quarter turn in XZ, laid through
  * the point the move was going to.
  *
  * The obstacle is nothing. cdSetObstacleVtxProp() writes the edge and clears
@@ -1285,27 +1492,17 @@ static void modRunSealEdge(struct coord *frompos, struct coord *dstpos,
 {
 	struct coord dir;
 	f32 len;
-	s32 i;
 
 	dir.x = 0;
 	dir.y = 0;
 	dir.z = 0;
 
-	if (g_Rooms != NULL && g_RoomPortals != NULL && g_BgPortals != NULL) {
-		const struct room *room = &g_Rooms[g_ModRunLandRoom];
+	{
+		const s32 portalnum = modRunZoneExitPortal(torooms);
 
-		for (i = 0; i < room->numportals; i++) {
-			const s32 portalnum = g_RoomPortals[room->roomportallistoffset + i];
-			const struct bgportal *portal = &g_BgPortals[portalnum];
-			const s32 other = portal->roomnum1 == g_ModRunLandRoom
-				? portal->roomnum2
-				: portal->roomnum1;
-
-			if (modRunRoomsHave(torooms, other)) {
-				dir.x = g_PortalMetrics[portalnum].normal.z;
-				dir.z = -g_PortalMetrics[portalnum].normal.x;
-				break;
-			}
+		if (portalnum >= 0) {
+			dir.x = g_PortalMetrics[portalnum].normal.z;
+			dir.z = -g_PortalMetrics[portalnum].normal.x;
 		}
 	}
 
@@ -1343,13 +1540,14 @@ static void modRunSealEdge(struct coord *frompos, struct coord *dstpos,
  * asks the collision system anything: a true answer is a wall and the move is
  * refused.
  *
- * "Out of the landing room entirely", the same test the portal is taken by, so
- * that the barrier and the door agree by construction: there is no move that
- * is refused and still a hop, and none that hops without having passed the
- * barrier. Leaning through a doorway - a position that lists both rooms - is
- * neither, which is what lets the player see what is on the other side.
+ * "Out of the sealed rooms entirely" - the landing room and the rooms touching
+ * it, modRunBuildZone() - and the same test the portal is taken by, so that the
+ * barrier and the door agree by construction: there is no move that is refused
+ * and still a hop, and none that hops without having passed the barrier.
+ * Leaning through a doorway - a position that lists both rooms - is neither,
+ * which is what lets the player see what is on the other side.
  *
- * A move that starts outside the room is nobody's business here. Something
+ * A move that starts outside them is nobody's business here. Something
  * that is not the walk can put the player out of a sealed room - a lift, a
  * blast, a fall through a hole - and a barrier that only tested the
  * destination would freeze them where they landed instead of letting them
@@ -1364,8 +1562,7 @@ bool modRunSealMove(RoomNum *fromrooms, struct coord *frompos, RoomNum *torooms,
 		return false;
 	}
 
-	if (!modRunRoomsHave(fromrooms, g_ModRunLandRoom)
-			|| modRunRoomsHave(torooms, g_ModRunLandRoom)) {
+	if (!modRunRoomsInZone(fromrooms) || modRunRoomsInZone(torooms)) {
 		return false;
 	}
 
@@ -1377,8 +1574,9 @@ bool modRunSealMove(RoomNum *fromrooms, struct coord *frompos, RoomNum *torooms,
 #ifndef PLATFORM_N64
 	if (!g_ModRunSealLogged) {
 		g_ModRunSealLogged = true;
-		sysLogPrintf(0, "run: sealed in room %d on stage 0x%02x at frame %d - \"%s\"",
-				g_ModRunLandRoom, g_ModRunStage, g_Vars.lvframenum, g_ModRunObjText);
+		sysLogPrintf(0, "run: sealed in room %d (+%d touching) on stage 0x%02x at frame %d - \"%s\"",
+				g_ModRunLandRoom, g_ModRunNumZone - 1, g_ModRunStage,
+				g_Vars.lvframenum, g_ModRunObjText);
 	}
 #endif
 
@@ -1491,7 +1689,6 @@ static void modRunTakePortal(void)
 void modRunTick(void)
 {
 	struct player *player = g_Vars.currentplayer;
-	s32 room;
 
 #ifndef PLATFORM_N64
 	// --random-run: begin a run as soon as there is a level to leave, so that
@@ -1643,6 +1840,12 @@ void modRunTick(void)
 		// against, which is not always the landing pad's: a stage with no
 		// waypoint in a room with a door starts the player its own way.
 		g_ModRunLandRoom = player->prop->rooms[0];
+
+		// What the seal shuts, which is that room and the rooms touching it.
+		// Here rather than at the roll: the bg the portals belong to is only
+		// this stage's once the stage is loaded.
+		modRunBuildZone();
+
 		g_ModRunObjective.progress = g_ModRunObjective.kind == MODRUN_OBJ_KILL
 			? (g_Vars.currentplayerstats ? g_Vars.currentplayerstats->killcount : 0)
 			: g_Vars.lvframe60;
@@ -1694,20 +1897,7 @@ void modRunTick(void)
 	// blast, a fall - and that is not a portal either: the objective is still
 	// this room's, and the room is still where it has to be answered.
 	if (modRunIsSealed()) {
-		bool inroom = false;
-
-		for (room = 0; room < ARRAYCOUNT(player->prop->rooms); room++) {
-			if (player->prop->rooms[room] == -1) {
-				break;
-			}
-
-			if (player->prop->rooms[room] == g_ModRunLandRoom) {
-				inroom = true;
-				break;
-			}
-		}
-
-		if (!inroom) {
+		if (!modRunRoomsInZone(player->prop->rooms)) {
 			modRunSealSay("Return to the room");
 		}
 
@@ -1716,23 +1906,17 @@ void modRunTick(void)
 		return;
 	}
 
-	// The door. Any room that is not the one landed in is through one, which
-	// is what makes every door in the room a portal without any of them having
-	// to be marked: the run does not care which door, only that the player is
-	// no longer where it put them.
+	// The door. Any room outside the sealed ones is through one, which is what
+	// makes every door out of them a portal without any of them having to be
+	// marked: the run does not care which door, only that the player is no
+	// longer in the rooms it put them in.
 	//
-	// Out of the landing room entirely, not merely standing somewhere whose
-	// first room is another one: a prop straddling a portal lists both rooms
-	// and which of them is rooms[0] changes while the player stands in the
-	// doorway, so testing that alone hops a run for leaning through a door.
-	for (room = 0; room < ARRAYCOUNT(player->prop->rooms); room++) {
-		if (player->prop->rooms[room] == -1) {
-			break;
-		}
-
-		if (player->prop->rooms[room] == g_ModRunLandRoom) {
-			return;
-		}
+	// Out of them entirely, not merely standing somewhere whose first room is
+	// another one: a prop straddling a portal lists both rooms and which of
+	// them is rooms[0] changes while the player stands in the doorway, so
+	// testing that alone hops a run for leaning through a door.
+	if (modRunRoomsInZone(player->prop->rooms)) {
+		return;
 	}
 
 	modRunTakePortal();

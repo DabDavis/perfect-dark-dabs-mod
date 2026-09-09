@@ -111,15 +111,55 @@ real* collision left there - a door prop that is nowhere near the player, and
 with `DOORFLAG_DAMAGEONCONTACT` a wall that is not there hurting them. So the
 barrier writes its own: `cdSetObstacleVtxProp(vtx1, vtx2, NULL)`, which sets
 the edge and clears the prop in the same call. The edge is the **portal's own
-plane** - its normal turned a quarter turn in XZ, laid through the point the
-move was going to - so the player slides along the doorway instead of stopping
-dead in front of it.
+plane** - the portal being left, found by `modRunZoneExitPortal()`; its normal
+turned a quarter turn in XZ, laid through the point the move was going to - so
+the player slides along the doorway instead of stopping dead in front of it.
 
 **The barrier's test is the portal's test.** "Not in `prop->rooms[]` any more",
 the same one the hop is taken on, so the two agree by construction: no move is
 refused that would also have hopped, and nothing hops that did not pass the
 barrier. Leaning through a doorway - a position listing both rooms - is neither,
 which is what lets the player see what is on the other side.
+
+**What is sealed is a room wider than the landing room.** `modRunBuildZone()`:
+the landing room and every room a *portal* of it opens onto, one door deep.
+A single room is sometimes a stairwell or a corridor two strides across and a
+fight held in one of those is fought against the walls, which is what "sometimes
+it's real tight" was. Two doors deep is most of a small map, and the helping of
+level either side of a hop is what pays for the load.
+
+Because the barrier and the door are one test, the zone is **also what a hop is
+measured from**: the portal out is the first door leaving those rooms, not the
+first door out of the one landed in. Extending only the seal would seal a
+neighbour room the player hops out of the instant they enter it.
+
+Three things about the zone are not obvious:
+
+- **It is built at the landing, not at the roll.** The roll runs inside
+  `setupCreateProps()`, where `g_Rooms`, `g_RoomPortals` and `g_BgPortals` still
+  belong to the level being torn down. It is built where `g_ModRunLandRoom` is
+  taken from `player->prop->rooms[0]`, which is also the only point that knows
+  where the player actually stands.
+- **The zone has to have a door out of it**, or a run ends without a death:
+  the seal opens when the objective is done and there is nothing left to hop
+  through. On a map small enough that the landing room's neighbours are the
+  whole of it, the zone falls back to the landing room alone
+  (`modRunZoneExitPortal(NULL) < 0`). An arena of three rooms all touching is a
+  real shape, not a hypothetical one.
+- **Room 0 is not in it.** A landing already rejects it; a neighbour that is
+  room 0 is left outside the seal, where it counts as a way out the same as any
+  other room the run did not land in.
+
+The collect objective still names a gun in the **landing room**, not one
+anywhere in the zone: it is dealt at the roll, from the seed, and widening it
+would move what every existing seed deals.
+
+The zone is logged at every landing, and the seal names it once:
+
+```
+run: sealing 3 room(s) on stage 0x33 - 16 15 17
+run: sealed in room 38 (+4 touching) on stage 0x2a at frame 58 - "Hold this room for 36 seconds"
+```
 
 **Only a move that *starts* in the room is refused.** A barrier that tested the
 destination alone would freeze a player who is already outside, and things that
@@ -164,7 +204,9 @@ gdb -p PID -batch -ex 'thread 1' \
 ```
 
 1 leaving, 0 staying, 0 for a move that starts outside, and 0 for all of them
-with `g_ModRunObjective.done` set.
+with `g_ModRunObjective.done` set. A room the landing room has a portal to is
+now **in** the zone and answers 0: the `sealing N room(s)` log line names the
+rooms, and a room two doors out is the one to point the test at.
 
 The wall itself wants a walk, and a walk can be driven: step the player toward
 a portal's centre with repeated `bwalkCalculateNewPositionWithPush()` calls
@@ -179,7 +221,7 @@ which is the shape of an inconclusive run rather than a passing one.
 The log names what the seal did:
 
 ```
-run: sealed in room 38 on stage 0x2a at frame 58 - "Hold this room for 36 seconds"
+run: sealed in room 38 (+4 touching) on stage 0x2a at frame 58 - "Hold this room for 36 seconds"
 run: room 38 on stage 0x2a stood sealed for 150 seconds; dealing a clock - "Hold this room for 20 seconds"
 ```
 
