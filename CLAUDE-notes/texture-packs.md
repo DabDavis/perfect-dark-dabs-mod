@@ -119,6 +119,68 @@ The stretch is easy to reproduce from the manifest: `tilewidth` against
 `linesize * 2 >> siz` is the padded width, and the script that found the 278
 compared each image's aspect to both.
 
+## The other stretch: a tile sampled past its edge (2026-09-09)
+
+There are **two** unrelated "this texture is stretched" reports and the section
+above is only the first. That one is a pack's image being uploaded into a
+padded row, is a bug, and is fixed. This one is the game.
+
+Where a surface's texture coordinates run past the tile, the RDP repeats the
+tile's last row or column for ever - `masks`/`maskt` of 0 is what makes a
+coordinate saturate rather than wrap, and `gfx_dp_set_tile()` turns that into
+`G_TX_CLAMP` (the line that reads `if (cms == G_TX_WRAP && masks ==
+G_TX_NOMASK) cms = G_TX_CLAMP`). The levels lean on it: a wall was built
+larger than its texture and the last column of texels fills the rest. On a CRT
+at 320x240, with 32 texels of blur, nobody saw it. At a monitor's resolution,
+and far worse with a pack's sharp 512x1024 over the same tile, it is a band of
+smeared pixels - and because it is the *game's* geometry doing it, no amount of
+editing the image fixes it. Blending the edge row only makes the smear a
+smoother smear.
+
+How common it is, measured in the Institute by instrumenting
+`gfx_sp_tri_emit()` with the tile's `cms`/`cmt` and the min/max of the emitted
+UVs: about twenty textures a level overrun, nearly all of them by 5-35% (`0300`
+to v 1.35, `0321` to u 1.31, `0600` both ways), a few by much more (`027b` down
+to v -2.73). So most of the time it is a thin band that no one notices, and
+now and then it is the whole upper half of a wall.
+
+**Stretched Edges** (`Video.StretchedEdges`, and a dropdown on the Dab's Mod
+Options page) is the switch: *Original* keeps the smear, *Mirror* folds the
+tile back on itself at its edge, *Repeat* tiles it. Mirroring is the one to
+reach for - the fold meets the edge exactly, so it cannot seam whatever the
+picture is, where repeating only suits a texture drawn to tile.
+
+The property that makes it safe to leave on: **a fragment whose coordinates lie
+inside the tile samples the same texel under all three**, so nothing that was
+not already stretched can change. Two runs of the Institute lobby a frame apart
+differ by 11 pixels, and six other stages' spawn views by none at all; what
+changes is exactly the smear. That also means a stage can look identical with
+it on and the switch still be working - to see anything you have to be standing
+where a big overrun is on screen.
+
+It goes in in **two places**, because the port clamps in two:
+
+- `gfx_cm_to_opengl()` in `gfx_opengl.cpp` maps `G_TX_CLAMP` to
+  `GL_CLAMP_TO_EDGE`, and now to `GL_MIRRORED_REPEAT`/`GL_REPEAT` instead.
+  This is the usual path - the tile is the whole uploaded texture.
+- The fragment shader does it when the tile is *smaller* than what was
+  uploaded (a padded row, or the mip levels stacked underneath), because a
+  sampler wrapping there would wrap into the padding. That is the
+  `vTexClampS`/`vTexClampT` clamp, now a `texEdge()` helper emitted in the
+  chosen mode. `lo` is the first texel's centre and `hi` the last, so the tile
+  spans `hi + lo` and folding about that is exact.
+
+`gfx_set_clamped_edge_mode()` calls `reset_texture_state()`, which is needed
+both times: the sampler's wrap mode is cached per texture in
+`rendering_state`, and the shader has the mode baked in. It can be flipped
+live from gdb (`call (void)videoSetClampedEdgeMode(1)`) without restarting.
+
+Telling the two stretches apart for a given texture: read `tilewidth` and
+`linesize` out of a dump's `manifest.csv`. If `linesize * 2 >> siz` is bigger
+than `tilewidth` the row is padded and it is the section above; if they are
+equal - `0281`, the Institute rock, is 32x64 with a 16-byte line, so 32 = 32 -
+the pack image is being mapped correctly and any smear is this one.
+
 ## Pack image formats, and which way up they go
 
 **Formats.** `<texnum>.png` goes through `pngread.c`, which is ours because PNG is
