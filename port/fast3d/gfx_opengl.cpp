@@ -454,6 +454,36 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(fs_buf, &fs_len, "out vec4 outColor;");
     }
 
+    // Stretched Edges, for the tiles the sampler cannot do on its own: where
+    // the picture is smaller than what was uploaded for it - a row padded out
+    // to the N64's 8-byte line, or the mip levels stacked underneath one - the
+    // tile ends partway into the texture and the fragment shader is what holds
+    // a coordinate inside it. lo is the first texel's centre and hi the last,
+    // so the tile spans hi + lo and folding about that meets the edge exactly.
+    // Only a coordinate already outside the tile moves, which is the smear.
+    if (cc_features.clamp[0][0] || cc_features.clamp[0][1] || cc_features.clamp[1][0] ||
+        cc_features.clamp[1][1]) {
+        switch (gfx_clamped_edge_mode) {
+            case CLAMPED_EDGE_MIRROR:
+                append_line(fs_buf, &fs_len, "float texEdge(float c, float lo, float hi) {");
+                append_line(fs_buf, &fs_len, "    float per = 2.0 * (hi + lo);");
+                append_line(fs_buf, &fs_len, "    float m = mod(c, per);");
+                append_line(fs_buf, &fs_len, "    return clamp(min(m, per - m), lo, hi);");
+                append_line(fs_buf, &fs_len, "}");
+                break;
+            case CLAMPED_EDGE_REPEAT:
+                append_line(fs_buf, &fs_len, "float texEdge(float c, float lo, float hi) {");
+                append_line(fs_buf, &fs_len, "    return clamp(mod(c, hi + lo), lo, hi);");
+                append_line(fs_buf, &fs_len, "}");
+                break;
+            default:
+                append_line(fs_buf, &fs_len, "float texEdge(float c, float lo, float hi) {");
+                append_line(fs_buf, &fs_len, "    return clamp(c, lo, hi);");
+                append_line(fs_buf, &fs_len, "}");
+                break;
+        }
+    }
+
     append_line(fs_buf, &fs_len, "void main() {");
 
     for (int i = 0; i < 2; i++) {
@@ -467,17 +497,17 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
             } else {
                 if (s && t) {
                     fs_len += sprintf(fs_buf + fs_len,
-                                      "    vec2 vTexCoordAdj%d = clamp(vTexCoord%d, 0.5 / texSize%d, "
-                                      "vec2(vTexClampS%d, vTexClampT%d));\n",
-                                      i, i, i, i, i);
+                                      "    vec2 vTexCoordAdj%d = vec2(texEdge(vTexCoord%d.s, 0.5 / texSize%d.s, "
+                                      "vTexClampS%d), texEdge(vTexCoord%d.t, 0.5 / texSize%d.t, vTexClampT%d));\n",
+                                      i, i, i, i, i, i, i);
                 } else if (s) {
                     fs_len += sprintf(fs_buf + fs_len,
-                                      "    vec2 vTexCoordAdj%d = vec2(clamp(vTexCoord%d.s, 0.5 / "
+                                      "    vec2 vTexCoordAdj%d = vec2(texEdge(vTexCoord%d.s, 0.5 / "
                                       "texSize%d.s, vTexClampS%d), vTexCoord%d.t);\n",
                                       i, i, i, i, i);
                 } else {
                     fs_len += sprintf(fs_buf + fs_len,
-                                      "    vec2 vTexCoordAdj%d = vec2(vTexCoord%d.s, clamp(vTexCoord%d.t, "
+                                      "    vec2 vTexCoordAdj%d = vec2(vTexCoord%d.s, texEdge(vTexCoord%d.t, "
                                       "0.5 / texSize%d.t, vTexClampT%d));\n",
                                       i, i, i, i, i);
                 }
@@ -747,7 +777,13 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
 static uint32_t gfx_cm_to_opengl(uint32_t val) {
     switch (val) {
         case G_TX_NOMIRROR | G_TX_CLAMP:
-            return GL_CLAMP_TO_EDGE;
+            // Stretched Edges: past the tile the N64 repeats its last row or
+            // column, which is the smear. Mirroring meets the edge exactly,
+            // so the join is seamless whatever the picture; repeating tiles
+            // it, which only suits one that was drawn to tile.
+            return gfx_clamped_edge_mode == CLAMPED_EDGE_MIRROR  ? GL_MIRRORED_REPEAT
+                 : gfx_clamped_edge_mode == CLAMPED_EDGE_REPEAT  ? GL_REPEAT
+                                                                 : GL_CLAMP_TO_EDGE;
         case G_TX_MIRROR | G_TX_WRAP:
             return GL_MIRRORED_REPEAT;
         case G_TX_MIRROR | G_TX_CLAMP:

@@ -345,6 +345,7 @@ bool gfx_detail_textures_enabled = true;
 bool gfx_clean_text_outlines = true;
 int gfx_model_smoothing_level = 0;
 float gfx_model_smoothing_amount = 0.0f;
+int gfx_clamped_edge_mode = CLAMPED_EDGE_STRETCH;
 int gfx_texture_enhance_scale = 1;
 int gfx_text_smooth_scale = 1;
 float gfx_color_saturation = 1.0f;
@@ -4687,6 +4688,16 @@ extern "C" void reset_texture_state() {
     gfx_rapi->clear_shaders();
     color_combiner_pool.clear();
     prev_combiner = color_combiner_pool.end();
+}
+
+extern "C" void gfx_set_clamped_edge_mode(int mode) {
+    if (mode < CLAMPED_EDGE_STRETCH || mode > CLAMPED_EDGE_REPEAT || mode == gfx_clamped_edge_mode) {
+        return;
+    }
+    gfx_clamped_edge_mode = mode;
+    // The sampler's wrap mode is cached per texture and the tile-smaller-than-
+    // upload case is baked into the shader, so both have to go.
+    reset_texture_state();
 }
 
 extern "C" void gfx_set_texture_enhance(int texture_scale, int text_scale) {

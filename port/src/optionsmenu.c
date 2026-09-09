@@ -2540,6 +2540,37 @@ static MenuItemHandlerResult menuhandlerModEnhanceTextures(s32 operation, struct
 }
 
 /**
+ * Stretched Edges: what a wall shows where its texture coordinates run past
+ * the tile. The N64 repeats the tile's last row or column for ever, and a
+ * level built to lean on that draws a band of stretched pixels wherever a
+ * surface was made larger than its texture - invisible in 32 texels of blur
+ * on a CRT, a smear once the texture is sharp or replaced by a pack.
+ * Mirroring folds the tile back on itself, which meets the edge exactly and
+ * so cannot seam; repeating tiles it, which suits only a picture drawn to
+ * tile. A fragment inside the tile samples the same texel either way, so
+ * nothing that was not already stretched changes.
+ */
+static MenuItemHandlerResult menuhandlerModStretchedEdges(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Original", "Mirror", "Repeat" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		videoSetClampedEdgeMode(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = videoGetClampedEdgeMode();
+	}
+
+	return 0;
+}
+
+/**
  * Vivid Colours: the finished frame's saturation and contrast turned up.
  */
 static MenuItemHandlerResult menuhandlerModVividColours(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -3736,6 +3767,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Enhance Textures",
 		0,
 		menuhandlerModEnhanceTextures,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Stretched Edges",
+		0,
+		menuhandlerModStretchedEdges,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

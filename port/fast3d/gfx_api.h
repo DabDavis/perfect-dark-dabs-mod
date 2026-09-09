@@ -48,6 +48,23 @@ extern float gfx_model_smoothing_amount;
 // textures, and its font glyphs, are scaled up on their way to the GPU (1 for
 // as they are). See gfx_texscale.cpp. Set through gfx_set_texture_enhance(),
 // which drops the texture cache so that what is on screen changes with it.
+// Stretched Edges: what a surface samples where its texture coordinates run
+// past a tile the game clamped. The N64 repeats the tile's last row or column
+// for ever, which is what a level's oversized wall relies on and what reads as
+// a smear of stretched pixels once the texture is not 32 texels of blur.
+// 0 keeps that, 1 mirrors the tile about its edge, 2 repeats the tile.
+// A fragment whose coordinates stay inside the tile samples the same texel
+// under all three, so this only ever changes the stretched part.
+// Set through gfx_set_clamped_edge_mode(), which drops the shaders and the
+// texture cache so that what is on screen changes with it.
+enum ClampedEdgeMode {
+    CLAMPED_EDGE_STRETCH = 0,
+    CLAMPED_EDGE_MIRROR = 1,
+    CLAMPED_EDGE_REPEAT = 2,
+};
+extern int gfx_clamped_edge_mode;
+void gfx_set_clamped_edge_mode(int mode);
+
 extern int gfx_texture_enhance_scale;
 extern int gfx_text_smooth_scale;
 void gfx_set_texture_enhance(int texture_scale, int text_scale);

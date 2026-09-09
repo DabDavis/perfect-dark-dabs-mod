@@ -59,6 +59,7 @@ static f32 vidOverexposureScale = 1.f;
 static s32 texFilter = FILTER_LINEAR;
 static s32 texFilter2D = true;
 static s32 texDetail = false;
+static s32 texClampedEdge = CLAMPED_EDGE_STRETCH;
 static s32 texMipmapFilter = MIPMAP_LINEAR;
 static u32 texAnisotropicFilter = 4;
 
@@ -82,6 +83,7 @@ s32 videoInit(void)
 	gfx_current_native_aspect = 320.f / 220.f;
 	gfx_framebuffers_enabled = (bool)vidFramebuffers;
 	gfx_detail_textures_enabled = (bool)texDetail;
+	gfx_clamped_edge_mode = texClampedEdge;
 	gfx_msaa_level = vidMSAA;
 
 	struct GfxInitSettings set = {
@@ -602,6 +604,22 @@ void videoSetDetailTextures(s32 detail)
 	gfx_detail_textures_enabled = (bool)texDetail;
 }
 
+/**
+ * Stretched Edges: what is drawn past a clamped tile - the last row of texels
+ * repeated for ever (the N64's own answer, and the smear), the tile mirrored
+ * about its edge, or the tile repeated.
+ */
+void videoSetClampedEdgeMode(s32 mode)
+{
+	texClampedEdge = mode;
+	gfx_set_clamped_edge_mode(mode);
+}
+
+s32 videoGetClampedEdgeMode(void)
+{
+	return texClampedEdge;
+}
+
 void videoSetCleanTextOutlines(s32 on)
 {
 	gfx_clean_text_outlines = !!on;
@@ -778,6 +796,7 @@ PD_CONSTRUCTOR static void videoConfigInit(void)
 	configRegisterInt("Video.TextureFilter", &texFilter, 0, 2);
 	configRegisterInt("Video.TextureFilter2D", &texFilter2D, 0, 1);
 	configRegisterInt("Video.DetailTextures", &texDetail, 0, 1);
+	configRegisterInt("Video.StretchedEdges", &texClampedEdge, CLAMPED_EDGE_STRETCH, CLAMPED_EDGE_REPEAT);
 	configRegisterInt("Video.MipmapFilter", &texMipmapFilter, 0, 2);
 	configRegisterInt("Video.AnisotropicFilter", &texAnisotropicFilter, 0, 16);
 	configRegisterFloat("Video.GlareBrightness", &vidGlareBrightness, 0.f, 1.f);
