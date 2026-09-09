@@ -5,6 +5,7 @@
 #include "lib/sched.h"
 #include "lib/vars.h"
 #include "constants.h"
+#include "game/modoptions.h"
 #include "game/camdraw.h"
 #include "game/cheats.h"
 #include "game/debug.h"
@@ -443,7 +444,20 @@ void mainLoop(void)
 			g_MainMemaHeapSize = strtol(argFindByPrefix(1, "-ma"), NULL, 0) * 1024;
 		}
 
-		memaReset(mempAlloc(g_MainMemaHeapSize, MEMPOOL_STAGE), g_MainMemaHeapSize);
+		{
+			// The vertex store's blood copies for kept bodies come out of
+			// this heap; vtxstoreReset() grows the store by 500 vertex-sized
+			// entries a body, and the heap grows to hold them (12 bytes
+			// each). 300KB is stock's; 128 bodies add 768KB, the full 500
+			// three megabytes, out of a stage pool of 64MB.
+			u32 memasize = g_MainMemaHeapSize;
+
+			if (modKeepsBodies()) {
+				memasize += modGetBodiesKept() * 500 * 12;
+			}
+
+			memaReset(mempAlloc(memasize, MEMPOOL_STAGE), memasize);
+		}
 		langReset(g_StageNum);
 		playermgrReset();
 

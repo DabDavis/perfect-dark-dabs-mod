@@ -13,7 +13,7 @@ and each one cost a detour. This file keeps only what every session needs; the
 notes are read when their area comes up.
 
 - **The Windows build, wine, the pd.ini format** — [windows-build.md](CLAUDE-notes/windows-build.md): mingw prefix, WinHTTP, and why `Mod.LoadTextures=1` on its own line does nothing
-- **chrs, bodies, heads, simulants, memory pools, mpconfig** — [chrs-and-memory.md](CLAUDE-notes/chrs-and-memory.md): a chr's prop is read before its tick; the ~50KB head copy that empties the stage pool; one head modeldef cannot sit on two bodies; ROM-resident structures never grow
+- **chrs, bodies, heads, simulants, memory pools, mpconfig** — [chrs-and-memory.md](CLAUDE-notes/chrs-and-memory.md): a chr's prop is read before its tick; the ~50KB head copy that empties the stage pool; one head modeldef cannot sit on two bodies; ROM-resident structures never grow; why kept bodies still vanished (the chr vertex store's reaper, sized for an N64, fades every off-screen corpse when the blood copies run out)
 - **Saves, eeprom, where pd.ini lives, the migration** — [save-format.md](CLAUDE-notes/save-format.md)
 - **Menu text, `textMeasure()`, reaching the widescreen pillars** — [text-rendering.md](CLAUDE-notes/text-rendering.md)
 - **Adding stages** — [stage-numbers.md](CLAUDE-notes/stage-numbers.md): `STAGE_IS_LEVEL()` admits 0x5e-0xff as well as the 27 free below the title; four ids are taken outside the table; the MP save format holds 7 bits

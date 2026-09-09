@@ -4,6 +4,9 @@
 #include "game/chraction.h"
 #include "game/chr.h"
 #include "game/vtxstore.h"
+#ifndef PLATFORM_N64
+#include "game/modbodies.h"
+#endif
 #include "game/propobj.h"
 #include "bss.h"
 #include "lib/mema.h"
@@ -11,6 +14,9 @@
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 
 const char var7f1b5230[] = "VTXSTORE : vtxfixrefs -> Start - p1=%x, p2=%x\n";
 const char var7f1b5260[] = "vtxfixrefs : Part=%x -- Mapping ptr %x -> %x\n";
@@ -172,6 +178,11 @@ void *vtxstoreAllocate(s32 count, s32 index, struct modelnode *node, s32 level)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	sysLogPrintf(LOG_NOTE, "vtxstore: out of type %d (wanted %d, free %d); fading off-screen corpses",
+			index, count, g_VtxstoreTypes[index].val2);
+#endif
+
 	// Build an array of all corpses. If the array becomes full then enable
 	// reaping on a random corpse and replace its entry in the array.
 	// So at the end, we'll have an array of up to six unreapable corpses and
@@ -186,6 +197,19 @@ void *vtxstoreAllocate(s32 count, s32 index, struct modelnode *node, s32 level)
 				&& chr->prop
 				&& (chr->prop->flags & PROPFLAG_ONANYSCREENPREVTICK) == 0
 				&& chr->actiontype == ACT_DEAD
+#ifndef PLATFORM_N64
+				// A body the pool is keeping is not this reaper's to spend
+				// either. Every hit on a chr in view copies that part's colours
+				// in here for the blood, and the store was sized for an N64:
+				// 120 blocks of either in a mission, 80 in a match. Past
+				// that, this marked every off-screen corpse but six to fade
+				// once it had been out of view for two seconds, kept bodies
+				// included - which is what "the bodies still disappear" was.
+				// The store is sized with the cap now (vtxstorereset.c), and
+				// when it is full anyway the hit goes without its blood
+				// rather than the room going without its dead.
+				&& !modBodyIsKept(chr)
+#endif
 				&& chr->act_dead.fadewheninvis == false) {
 			if (tally < 6) {
 				chrs[tally] = chr;

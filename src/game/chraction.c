@@ -55,6 +55,9 @@
 #include "lib/collision.h"
 #include "lib/vi.h"
 #include "game/modbodies.h"
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 #include "game/modoptions.h"
 #include "game/modghost.h"
 #include "data.h"
@@ -9013,6 +9016,14 @@ void chrTickDead(struct chrdata *chr)
 
 		if (chr->act_dead.fadewheninvis && chr->act_dead.invistimer60 >= TICKS(120)) {
 			// Remove corpse (off-screen)
+#ifndef PLATFORM_N64
+			if (modBodyIsKept(chr)) {
+				// Nothing marks a kept body this way any more (vtxstore.c,
+				// chrSpawnAtCoord()); if one goes here, something new does.
+				sysLogPrintf(LOG_WARNING, "bodies: kept body %d removed off-screen", chr->chrnum);
+			}
+#endif
+
 			if (aibot == NULL) {
 				chr->hidden |= CHRHFLAG_DELETING;
 			}
@@ -16079,6 +16090,16 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 #endif
 
 		do {
+#ifndef PLATFORM_N64
+			// A kept body is not a corpse to be reaped for a slot: the pool
+			// reserved its slots at stage load (modBodiesSetReserve()), so a
+			// spawn short of them is short of the level's own, not the pool's.
+			if (modBodyIsKept(&g_ChrSlots[index])) {
+				index = (index + 1) % g_NumChrSlots;
+				continue;
+			}
+#endif
+
 			if (g_ChrSlots[index].chrnum >= 0 && g_ChrSlots[index].model && g_ChrSlots[index].prop) {
 				if (g_ChrSlots[index].actiontype == ACT_DEAD
 #if VERSION >= VERSION_NTSC_1_0

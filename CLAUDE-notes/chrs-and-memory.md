@@ -81,3 +81,42 @@ guard under Akimbo and two waves of drops, and `playerTickChrBody()` treats a
 NULL body as "no body this tick" with a warning, the way the gunmem branch
 already did. Reproduce the failure path with `gdb -p` and `set g_MaxAnims = 1`
 before pressing V; restore it and the body builds next tick.
+
+## Kept bodies still disappeared: the chr vertex store's reaper (2026-09-09)
+
+A tester with the body pool on still saw bodies vanish. The pool's own tick
+never retired them; two stock reapers did, and neither knew about the pool.
+
+`vtxstoreAllocate()` (`src/game/vtxstore.c`) hands out the writable copies of
+a chr's vertices and colours - every bullet hit on a chr in view copies that
+part's colours in for the blood (`chr0f0260c4()` from propobj.c), an
+explosion copies vertices (`chrDisfigure()`), and the copy lives as long as
+the model does. The store is sized for the N64 (`g_VtxstoreTypes`: 120
+blocks of chr vertices or colours in a mission, 80 in a match, cut from a
+300KB mema heap). When a request does not fit, the function marks **every
+off-screen corpse but six, plus half of those six**, `fadewheninvis`, and
+`chrTickDead()` deletes each one two seconds after it leaves the screen. A
+kept body is a corpse to that loop. So past the eightieth bloodied body the
+whole pool went the moment the player looked away, which is exactly how the
+report read. `chrSpawnAtCoord()` has a smaller reaper of the same shape
+(fewer than four chr slots free - it fades a dead chr for the slot).
+
+Both skip `modBodyIsKept()` now, and `vtxstoreReset()` grows the two chr
+types with the cap (two vertex blocks and three colour blocks a body, 200
+and 300 entries) while `pdmain.c` grows the mema heap by the same 500
+entries a body, 12 bytes each - 768KB at 128 bodies, 3MB at 500, from the
+stage pool. When the store is full anyway the hit simply goes without its
+blood: `vtxstoreAllocate()` returning NULL is handled at every caller. The
+reaper logs `vtxstore: out of type N ...` when it fires and `chrTickDead()`
+warns `bodies: kept body N removed off-screen` if a kept body ever reaches
+the deletion, so a recurrence names itself. Measured on a seeded 32-simulant
+match (`--rng-seed 12345 --fixed-step --mpsims 32 --spectate --endless`,
+gdb counting `keptbody60 >= 0` chrs). A spectator match never reaches the
+allocator at all - the blood copy wants the hit chr *on screen*, and the
+camera sees no fights - so the reaper was invoked by hand: `set
+g_VtxstoreTypes[2].val2 = 0` then `call (void*)vtxstoreAllocate(100, 2, 0,
+0)` at 60s. Before the fix it marked 82 of 95 kept bodies and 12 seconds
+later 33 were left; after it, 0 of 106 marked and 128 kept 12 seconds
+later, the log carrying one `vtxstore: out of type 2` line. Attach with
+`pgrep -x`, not `-f`: `-f` answers with the `timeout` wrapper's pid and gdb
+then says `No symbol "g_NumChrSlots" in current context`.
