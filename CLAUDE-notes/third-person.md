@@ -141,7 +141,9 @@ moves the body (the same `look - atan2f(sideways, forwards)` the animation
 chooser turns a strafe part way towards, taken the whole way), holds while the
 body stands, and faces the camera while either hand's `triggeron` or `firing`
 is set and for `TETHER_FIRE_HOLD` ticks after, because the shot is fired from
-the camera. The speeds handed to the chooser are re-read relative to the body
+the camera. The turn rate is Body Turn Speed (`Mod.ThirdPersonTurnSpeed`,
+`camturnspeed`, degrees per tick, 30 by default; the first cut's fixed eleven
+was reported too slow). The speeds handed to the chooser are re-read relative to the body
 so it plays the forward run rather than a strafe, `speedtheta` is zeroed
 (the look turning is the camera orbiting, not the body), and the chooser's
 own `angleoffset` is applied on top of the body's facing rather than the

@@ -208,6 +208,17 @@
 #define MODTETHER_MAX    MODTETHER_TIGHT
 
 /**
+ * Body Turn Speed: how fast the tethered body comes round to face the way it
+ * is going, in degrees per 60Hz tick. 30 is an about-turn in a tenth of a
+ * second; 90 is as good as instant. The slider's step, so it is not a crawl
+ * through eighty values.
+ */
+#define MODTURN_MIN     5
+#define MODTURN_MAX     90
+#define MODTURN_STEP    5
+#define MODTURN_DEFAULT 30
+
+/**
  * Invert Camera Tilt: the leans turned the other way about, so a sidestep
  * to the right drops the right of the picture rather than lifting it, a
  * look up leans the camera down, and the run tilt below leans back rather
@@ -360,6 +371,7 @@ struct modoptions {
 	f32 camfwd;      // units along the facing, flattened level; negative puts the camera in front
 	f32 camheight;   // units straight up in the world, negative for below the eye
 	s32 camtether;   // MODTETHER_*: the camera on a pivoting rod behind the player, or bolted to the aim
+	s32 camturnspeed; // degrees per tick the tethered body turns to face its travel
 	s32 bodies;      // how many bodies are left lying around, 0 for off
 	s32 bodytime;    // seconds one lies there, 0 for until the cap takes it
 	s32 bodiesdrawn; // how many may be drawn at once, 0 for all of them

@@ -83,7 +83,9 @@ go, and holding the trigger turns you to face the camera, which is where the
 shot goes. The pole is elastic: strafing swings it round and it settles back
 behind the camera. Loose lets it swing further and takes its time, Tight holds
 it close and is nearly a rigid pole. Off is the rigid camera, with you always
-facing the aim, and is the default.
+facing the aim, and is the default. Body Turn Speed is how fast you come round
+to face the way you are going, in degrees per frame: 30 by default, 90 is as
+good as instant.
 
 ### Picture
 

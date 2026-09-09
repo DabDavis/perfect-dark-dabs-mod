@@ -6699,12 +6699,11 @@ s32 playerTickBeams(struct prop *prop)
  * the look's. speedtheta is zeroed: the look turning is the camera orbiting,
  * and the body has nothing to turn in place for.
  *
- * TETHER_BODY_TURN is how fast the body comes round, in radians per 60Hz
- * tick: about eleven degrees, so an about-turn takes a quarter of a second.
+ * Body Turn Speed (camturnspeed) is how fast the body comes round, in
+ * degrees per 60Hz tick; the default's about-turn takes a tenth of a second.
  * TETHER_FIRE_HOLD is how long a released trigger keeps the body facing the
  * camera, so a tap does not flick it.
  */
-#define TETHER_BODY_TURN 0.2f
 #define TETHER_FIRE_HOLD 30
 
 static bool playerTetherBodyActive(struct player *player, s32 playernum)
@@ -6764,7 +6763,7 @@ static void playerTetherBody(struct player *player, struct chrdata *chr, f32 *fa
 			diff += M_TAU;
 		}
 
-		limit = TETHER_BODY_TURN * g_Vars.lvupdate60freal;
+		limit = g_ModOptions.camturnspeed * (M_PI / 180.0f) * g_Vars.lvupdate60freal;
 
 		if (diff > limit) {
 			diff = limit;

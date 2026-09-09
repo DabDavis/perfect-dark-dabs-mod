@@ -31,6 +31,7 @@ struct modoptions g_ModOptions = {
 	THIRDPERSON_CAMFWD,       // camfwd: level with the eye, likewise
 	THIRDPERSON_CAMHEIGHT,    // camheight: at the eye, likewise
 	MODTETHER_OFF,            // camtether: the rigid camera the fork shipped
+	MODTURN_DEFAULT,          // camturnspeed
 	MODBODIES_DEFAULT,        // bodies
 	MODBODYTIME_OFF,          // bodytime
 	64,                       // bodiesdrawn

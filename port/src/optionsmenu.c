@@ -3078,6 +3078,27 @@ static MenuItemHandlerResult menuhandlerModCamTether(s32 operation, struct menui
 }
 
 /**
+ * Body Turn Speed: degrees per tick the tethered body turns to face where the
+ * left stick sends it. Only read with Camera Tether on.
+ */
+static MenuItemHandlerResult menuhandlerModCamTurnSpeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (g_ModOptions.camturnspeed - MODTURN_MIN) / MODTURN_STEP;
+		break;
+	case MENUOP_SET:
+		g_ModOptions.camturnspeed = (s32)data->slider.value * MODTURN_STEP + MODTURN_MIN;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", (s32)data->slider.value * MODTURN_STEP + MODTURN_MIN);
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * Spectator: the camera that comes off the player and flies.
  *
  * Start Spectating is the setting --spectate sets, and it holds for every stage
@@ -4012,6 +4033,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Camera Tether",
 		0,
 		menuhandlerModCamTether,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Body Turn Speed",
+		(MODTURN_MAX - MODTURN_MIN) / MODTURN_STEP,
+		menuhandlerModCamTurnSpeed,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
