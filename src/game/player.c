@@ -6060,15 +6060,27 @@ Gfx *playerRenderHud(Gfx *gdl)
 		//
 		// The distance rather than the toggle, because a wall can hold the
 		// camera on the eye, and that frame wants its gun.
+		//
+		// The light glares go on before the gun rather than after it. A glare
+		// is a depth-less screen rectangle whose only occlusion is the line of
+		// sight test in artifactTestLos(), and the view model is not in the
+		// world that test walks, so a light behind the gun drew its glare on
+		// top of the gun. Drawn first, the opaque gun simply paints over it -
+		// the gun goes into a freshly cleared depth buffer, so this is the
+		// depth test the rectangle cannot have. The tell is a translucent gun
+		// wherever a light sits behind it; the fix is Murk's
+		// (perfect_dark_netplay, PORT_GLARE_OCCLUSION.md). In third person
+		// the gun is not drawn and the body occludes the glare through
+		// shotTestLos() instead.
+		if (g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
+			gdl = bgRenderArtifacts(gdl);
+		}
+
 		if (g_Vars.currentplayer->thirdpersondist <= 0) {
 			bgunRender(&gdl);
 		}
 
 		gdl = lasersightRenderDot(gdl);
-
-		if (g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
-			gdl = bgRenderArtifacts(gdl);
-		}
 
 		if (g_NbombsActive) {
 			gdl = nbombRenderOverlay(gdl);

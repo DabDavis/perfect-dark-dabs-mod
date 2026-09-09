@@ -259,3 +259,23 @@ Two things that waste a run:
 
 Melee, projectiles and the beams still want a real match: they need a target
 walking into you, which nothing here can arrange.
+
+## Light glares draw over the gun, and over the body in third person (2026-09-09)
+
+A glare (the corona sprite round a light, `bgRenderArtifacts()`) is a
+depth-less screen rectangle. Its only occlusion is `artifactTestLos()` ->
+`shotTestLos()` (prop.c), which walks the world and the on-screen props and
+**leaves the current player's own prop out**. The view model is not a prop at
+all. So a light behind the gun drew its glare on top of the gun, and in third
+person a light behind Joanna drew on top of her.
+
+Two halves, both port-only. `playerRenderHud()` draws the glares *before*
+`bgunRender()`: the gun goes into a freshly cleared depth buffer and is
+opaque, so it paints over them, which is the depth test the rectangle cannot
+have (Murk's fix, `perfect_dark_netplay/docs/PORT_GLARE_OCCLUSION.md`; his
+tree stops there because it has no third person). For our third person the
+gun is not drawn, so `shotTestLos()` includes the player's own prop when
+`thirdpersondist > 0` and `chrTestHit()` against the body decides it. The
+glares are `shotTestLos()`'s only caller, so nothing else changes hands.
+Neither half is verified in a picture yet: the headless stages boot into a
+cutscene and a glare wants a light behind the gun, so a person confirms it.
