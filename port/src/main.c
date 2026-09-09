@@ -11,6 +11,7 @@
 #include "ghostnet.h"
 #include "update.h"
 #include "game/modspectate.h"
+#include "game/stagetable.h"
 #include "game/mplayer/mplayer.h"
 #include "bss.h"
 #include "data.h"
@@ -236,6 +237,20 @@ int main(int argc, const char **argv)
 		g_StageNum = STAGE_CITRAINING;
 	} else if (g_StageNum < 0x01 || g_StageNum > STAGE_MAX_ID) {
 		// stage num out of range
+		g_StageNum = STAGE_TITLE;
+	} else if (STAGE_IS_LEVEL(g_StageNum) && stageGetIndex(g_StageNum) < 0) {
+		// In range and no stage of that number. Every level id has to be in
+		// the stage table, and one that is not reaches lvReset(), where
+		// stageGetCurrent() comes back NULL and the first thing to read a
+		// field off it crashes - bgunCalculateGunMemCapacity(), for its
+		// extragunmem. The number people reach for is usually a row of the
+		// table rather than an id: 0x13 is its Air Base row, and Air Base is
+		// STAGE_AIRBASE, 0x27.
+		//
+		// The mod loader's stages count as stages here: modloaderInit() has
+		// registered them by now, above.
+		sysLogPrintf(LOG_WARNING, "boot stage 0x%02x is not a stage; starting at the title screen",
+				g_StageNum);
 		g_StageNum = STAGE_TITLE;
 	}
 

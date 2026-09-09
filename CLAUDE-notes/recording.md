@@ -129,6 +129,15 @@ gdb -batch -p $(pgrep -x pd.x86_64) -ex 'print (char*)glad_glGetString(0x1F01)' 
     -ex 'call (void)screenshotRequest()' -ex detach
 ```
 
+**`--boot-stage` takes a stage id, not a row of the stage table.** Air Base is
+`STAGE_AIRBASE` 0x27, not the 0x13 its row is commented with in
+`stagetable.c`; the CI is 0x26, the Villa 0x2c, Pelagic 0x21, Defection 0x30.
+A number that is in range but is no stage used to segfault at the level load,
+in `bgunCalculateGunMemCapacity()` where `stageGetCurrent()` comes back NULL.
+It is checked at the argument now (`stageGetIndex()`, after the mod loader has
+registered its own stages, so a mod's map still boots) and an unknown one warns
+and starts at the title screen.
+
 The log line `screenshot: PATH` says where it went (`build/screenshots/`, named
 by the second, so run such tests one at a time). `glGetString(GL_RENDERER)`
 confirms it is the GPU and not llvmpipe. This is how the 16x MSAA black screen
