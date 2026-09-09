@@ -60,6 +60,15 @@ s32 xblaMeshGetEnabled(void);
 void xblaMeshSetEnabled(s32 enabled);
 
 /**
+ * Mod.XblaMeshKey (F6): the switch above from a key, polled by xblaMeshTick()
+ * each frame beside texpackTick(). Bound from Dab's Mod Options with the
+ * texture pack keys.
+ */
+s32 xblaMeshToggleGetKey(void);
+void xblaMeshToggleSetKey(s32 vk);
+void xblaMeshTick(void);
+
+/**
  * Drops everything keyed on a model - the node registry, the palette uses, the
  * list of what is loaded - because the stage pool holding all of those
  * addresses has just been handed back. Called from lvReset(), beside the

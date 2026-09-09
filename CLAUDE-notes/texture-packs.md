@@ -293,6 +293,8 @@ every time.
 `Mod.TexturePackCycleKey` (F10, next pack, round through "none"). All four are in
 `texpackTick()` and bindable in Extended Options. F9 and F10 exist because
 comparing packs otherwise meant quitting, swapping folders and relaunching.
+`Mod.XblaMeshKey` (F6, the XBLA meshes on/off, `xblaMeshTick()` in xblamesh.c)
+is the same idea for the release's models, bound on the same page.
 
 Both are safe with the decode worker running - the reload path stops it first -
 and both are worth re-testing on Windows, threads being what they are.

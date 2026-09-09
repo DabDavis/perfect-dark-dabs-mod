@@ -3751,6 +3751,7 @@ static const struct {
 	{ "Texture Packs On/Off\n", texpackToggleGetKey, texpackToggleSetKey },
 	{ "Reload Texture Pack\n",  texpackReloadGetKey, texpackReloadSetKey },
 	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
+	{ "XBLA Meshes On/Off\n",   xblaMeshToggleGetKey, xblaMeshToggleSetKey },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
@@ -4303,6 +4304,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		(uintptr_t)menutextModKeyBind,
 		5,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		6,
 		menuhandlerModKeyBind,
 	},
 	{
