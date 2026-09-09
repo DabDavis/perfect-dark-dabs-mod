@@ -116,6 +116,49 @@ down the screen. The player leaves the bottom of it at about
 at the default 200 back. Further up than that is for a view that is also
 pitched down, and the slider goes to 150 because a longer distance earns it.
 
+## Camera Tether
+
+`Mod.ThirdPersonTether` (Off/Loose/Normal/Tight, `g_ModOptions.camtether`,
+`MODTETHER_*`) is `playerTetherCamera()`, called from `playerPullBackCamera()`
+after the four offsets are summed and before the trace. It keeps the offset's
+length and height and replaces its horizontal bearing with a rod that pivots
+about the eye: this frame's bearing is where the rod's far end stood last
+frame, seen from where the eye is now (`thirdpersontetherpos`, stored
+**untraced** - a wall brings the camera in along the rod, not the rod in), then
+clamped to the setting's angle either side of the rest bearing and eased back
+towards it by the setting's rate (`g_ThirdPersonTethers[]`). The rest bearing
+is the rigid offset's own, so a shoulder preset still rests over that shoulder.
+`thirdpersontethered` says the stored end is worth reading; it is cleared on
+every frame that is not third person, so aiming and the first frame of the
+mode both start the rod behind the aim.
+
+Two things that cost a run each:
+
+- **The rod pivots about `bond2.unk10`, not the `campos` handed in.** That copy
+  already has the damage shake and the tilt's bob added, and a rod pivoting
+  about it reads every shake as the player moving: a simulant's hits sent the
+  camera thirty degrees round. The shake still moves the camera, because the
+  offset is added to `campos` as before; it just does not turn the rod.
+- **The game's `atan2f()` answers in 0 to tau, never negative** (`atan2f.c`,
+  `M_TAU - result` for `x < 0`). A rod a hair to the left of rest read as
+  nearly a full turn and the clamp landed it on the *far* cap, which showed as
+  the camera sitting a few degrees off rest for ever and jumping 45 degrees
+  round every few seconds. Wrap to signed first.
+
+The vertical is deliberately not tethered: nothing tilts the view to follow
+the body, so a rod free to pivot vertically drops the body out of the frame on
+every ledge. And the lag is capped for the same reason the height range is
+short - the view looks where the crosshair is, not at the body, and at the
+default distance the body leaves a 60 degree field of view about 30 degrees
+off the rod.
+
+To test it from gdb, set `g_ModOptions.camtether = 2` alongside `thirdperson`,
+turn the player with `vv_theta` and read `thirdpersontetherpos - bond2.unk10`:
+with `g_ThirdPersonTethers[2].rate` set to 0 (gdb writes to rodata) the rod
+holds exactly the cap's angle on the side it was turned away from, and with the
+rate restored it is back at rest before an attach-and-print can catch it. The
+attach alone takes over half a second, so "sampled 0.1s after the turn" is not.
+
 ## The camera trace
 
 One `cdExamLos08()` from the eye to where the camera wants to be, and the whole

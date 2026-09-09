@@ -191,6 +191,22 @@
 #define MODTILT_MAX    MODTILT_HEAVY
 
 /**
+ * Camera Tether: the third person camera on a rod that pivots about the
+ * player rather than one bolted to the back of their head. It keeps its
+ * distance but not its bearing - walking drags it along behind the way you
+ * went, turning leaves it where it stood while the body turns in frame - and
+ * it eases back behind the aim so the crosshair is never far from the body.
+ * The settings are how far it is allowed to lag and how quickly it comes back:
+ * Loose lets it out to sixty degrees and takes its time, Tight holds it within
+ * thirty and swings it back in a few frames. Off is the rigid camera.
+ */
+#define MODTETHER_OFF    0
+#define MODTETHER_LOOSE  1
+#define MODTETHER_NORMAL 2
+#define MODTETHER_TIGHT  3
+#define MODTETHER_MAX    MODTETHER_TIGHT
+
+/**
  * Invert Camera Tilt: the leans turned the other way about, so a sidestep
  * to the right drops the right of the picture rather than lifting it, a
  * look up leans the camera down, and the run tilt below leans back rather
@@ -342,6 +358,7 @@ struct modoptions {
 	f32 camside;     // units to one side of the eye, negative for the left
 	f32 camfwd;      // units along the facing, flattened level; negative puts the camera in front
 	f32 camheight;   // units straight up in the world, negative for below the eye
+	s32 camtether;   // MODTETHER_*: the camera on a pivoting rod behind the player, or bolted to the aim
 	s32 bodies;      // how many bodies are left lying around, 0 for off
 	s32 bodytime;    // seconds one lies there, 0 for until the cap takes it
 	s32 bodiesdrawn; // how many may be drawn at once, 0 for all of them

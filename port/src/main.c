@@ -300,6 +300,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterFloat("Mod.ThirdPersonSideways", &g_ModOptions.camside, -150.f, 150.f);
 	configRegisterFloat("Mod.ThirdPersonForward", &g_ModOptions.camfwd, -150.f, 150.f);
 	configRegisterFloat("Mod.ThirdPersonHeight", &g_ModOptions.camheight, -150.f, 150.f);
+	configRegisterInt("Mod.ThirdPersonTether", &g_ModOptions.camtether, MODTETHER_OFF, MODTETHER_MAX);
 	configRegisterInt("Mod.Bodies", &g_ModOptions.bodies, MODBODIES_OFF, MODBODIES_MAX);
 	configRegisterInt("Mod.BodyTime", &g_ModOptions.bodytime, MODBODYTIME_OFF, MODBODYTIME_MAX);
 	configRegisterInt("Mod.BodiesDrawn", &g_ModOptions.bodiesdrawn, MODBODIESDRAWN_ALL, MODBODIESDRAWN_MAX);

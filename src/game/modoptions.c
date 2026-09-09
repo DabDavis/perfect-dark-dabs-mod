@@ -30,6 +30,7 @@ struct modoptions g_ModOptions = {
 	THIRDPERSON_CAMSIDE,      // camside: centred, like the view the fork shipped
 	THIRDPERSON_CAMFWD,       // camfwd: level with the eye, likewise
 	THIRDPERSON_CAMHEIGHT,    // camheight: at the eye, likewise
+	MODTETHER_OFF,            // camtether: the rigid camera the fork shipped
 	MODBODIES_DEFAULT,        // bodies
 	MODBODYTIME_OFF,          // bodytime
 	64,                       // bodiesdrawn

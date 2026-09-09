@@ -2903,6 +2903,14 @@ struct player {
 	// so the two are read together: a distance of 0 means there is no frozen
 	// camera to go back to, and the death is the stock first person one.
 	struct coord thirdpersoncampos;
+	// Camera Tether: where the far end of the rod stood last frame, before any
+	// wall brought the camera in, so this frame can read which way round the
+	// player it is pointing. Only x and z are used; the height is not
+	// tethered. Nothing to read until the flag says a frame has written it -
+	// the first frame of third person, and every one after a spell on the
+	// eye, starts the rod behind the aim.
+	struct coord thirdpersontetherpos;
+	bool thirdpersontethered;
 	f32 codaimfrac; // COD Style Aiming: how far the gun has come up to the sights, 0 to 1
 	s32 spawnweaponnums[2]; // what playerSpawn() put in each hand, for the mission script's chr_draw_weapon to put back
 	// Camera Tilt: where the lean has got to, in degrees, chasing the

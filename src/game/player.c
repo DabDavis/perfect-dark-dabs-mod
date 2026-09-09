@@ -3784,6 +3784,160 @@ static void playerSyncBodyWeapons(struct player *player)
  */
 #define THIRDPERSON_EASE_RATE 0.2f // of what is left to give back, per 60Hz tick
 
+/**
+ * Camera Tether: how far the rod may lag behind the aim, and how much of what
+ * is left it gives back per 60Hz tick.
+ *
+ * The lag is capped because the view direction is the aim, not the rod: the
+ * picture always looks where the crosshair is, and a rod swung far enough
+ * round puts the body at the edge of that picture and then outside it. At the
+ * default distance the body leaves a 60 degree field of view about 30 degrees
+ * off the rod, so even Loose is a body at the edge of the frame, briefly,
+ * with the recentre bringing it back.
+ */
+struct thirdpersontether {
+	f32 maxangle; // radians off the rest bearing behind the aim
+	f32 rate;     // of the remaining angle, per 60Hz tick
+};
+
+static const struct thirdpersontether g_ThirdPersonTethers[] = {
+	{ 0,                  0     }, // MODTETHER_OFF, never read
+	{ 60 * M_PI / 180.0f, 0.02f }, // MODTETHER_LOOSE
+	{ 45 * M_PI / 180.0f, 0.05f }, // MODTETHER_NORMAL
+	{ 30 * M_PI / 180.0f, 0.12f }, // MODTETHER_TIGHT
+};
+
+/**
+ * Camera Tether: turn the rigid offset into one on a rod that pivots about the
+ * eye.
+ *
+ * The rigid camera hangs off the back of the aim: turn, and it swings round
+ * with you; walk sideways, and it walks with you. The tethered one keeps the
+ * rigid offset's length and height but not its bearing. Its bearing is
+ * wherever the rod's far end stood last frame, seen from where the eye is
+ * now, so walking drags the camera along behind the direction of travel and
+ * turning on the spot leaves it where it was while the body turns in frame.
+ * That is the whole of the tether: a rod of fixed length, free to pivot, that
+ * the player pulls about the level.
+ *
+ * Only the horizontal bearing is tethered. The height rides the rigid offset
+ * as before, because a rod that could pivot vertically drops the body out of
+ * the bottom of the frame on every stair and ledge, and nothing tilts the
+ * view to follow it down (third-person.md, "Height has a usable range").
+ *
+ * Two things are done to the bearing every frame after the drag. It is held
+ * within the setting's angle of the rest bearing - the one the rigid camera
+ * would use, which is behind the aim with the sideways and forward offsets
+ * folded in, so a shoulder preset still rests over that shoulder - because
+ * the view looks where the crosshair is and a body too far off that line
+ * leaves the picture. And what is left is eased back towards rest, so a turn
+ * finishes with the camera behind the aim again rather than wherever the turn
+ * happened to leave it.
+ *
+ * The far end is remembered untraced. A wall brings the camera in along the
+ * rod; the rod itself is still full length, and the drag next frame wants the
+ * end of the rod and not the camera, or every wall would also shorten the
+ * tether and the camera would swing in against it.
+ *
+ * The rest bearing and the drag are read off the horizontal parts of the
+ * offset and the eye alone, and a rigid offset with no horizontal part (a
+ * camera straight above the eye) has no rod to pivot and is left as it is.
+ *
+ * The eye is bond2's own and not the copy the camera is built from. That copy
+ * has the damage shake and the camera tilt's bob already added, and a rod
+ * that pivoted about it would read every shake as the player moving and turn
+ * it into a bearing: a simulant's hits sent the camera thirty degrees round
+ * the player. The rod pivots about the player; the shake moves the picture
+ * with them.
+ */
+static void playerTetherCamera(struct player *player, struct coord *eye, struct coord *offset)
+{
+	const struct thirdpersontether *tether;
+	f32 rodlen;
+	f32 restx;
+	f32 restz;
+	f32 dirx;
+	f32 dirz;
+	f32 dirlen;
+	f32 angle;
+	f32 rate;
+	f32 sinangle;
+	f32 cosangle;
+
+	if (g_ModOptions.camtether <= MODTETHER_OFF || g_ModOptions.camtether > MODTETHER_MAX) {
+		return;
+	}
+
+	tether = &g_ThirdPersonTethers[g_ModOptions.camtether];
+
+	rodlen = sqrtf(offset->x * offset->x + offset->z * offset->z);
+
+	if (rodlen < 1) {
+		return;
+	}
+
+	restx = offset->x / rodlen;
+	restz = offset->z / rodlen;
+
+	if (player->thirdpersontethered) {
+		// The drag: the rod's end stays put and the eye moves under it.
+		dirx = player->thirdpersontetherpos.x - eye->x;
+		dirz = player->thirdpersontetherpos.z - eye->z;
+		dirlen = sqrtf(dirx * dirx + dirz * dirz);
+	} else {
+		dirlen = 0;
+	}
+
+	if (dirlen < 1) {
+		// Nothing to read, or the player walked exactly onto the rod's end and
+		// left it no bearing: behind the aim it goes.
+		dirx = restx;
+		dirz = restz;
+	} else {
+		dirx /= dirlen;
+		dirz /= dirlen;
+	}
+
+	// The signed angle from rest round to the rod, so the cap and the recentre
+	// are one clamp and one scale on a number. The game's atan2f answers in
+	// 0 to tau and never below zero, so a rod a hair to the other side of rest
+	// comes back as nearly a full turn, and clamping that lands it on the far
+	// cap: the wrap has to come first.
+	angle = atan2f(restx * dirz - restz * dirx, restx * dirx + restz * dirz);
+
+	if (angle > M_PI) {
+		angle -= M_TAU;
+	}
+
+	if (angle > tether->maxangle) {
+		angle = tether->maxangle;
+	} else if (angle < -tether->maxangle) {
+		angle = -tether->maxangle;
+	}
+
+	rate = tether->rate * g_Vars.lvupdate60freal;
+
+	if (rate > 1) {
+		rate = 1;
+	}
+
+	angle -= angle * rate;
+
+	sinangle = sinf(angle);
+	cosangle = cosf(angle);
+
+	dirx = restx * cosangle - restz * sinangle;
+	dirz = restx * sinangle + restz * cosangle;
+
+	offset->x = dirx * rodlen;
+	offset->z = dirz * rodlen;
+
+	player->thirdpersontetherpos.x = eye->x + offset->x;
+	player->thirdpersontetherpos.y = eye->y + offset->y;
+	player->thirdpersontetherpos.z = eye->z + offset->z;
+	player->thirdpersontethered = true;
+}
+
 static void playerPullBackCamera(struct coord *campos)
 {
 	struct player *player = g_Vars.currentplayer;
@@ -3797,6 +3951,9 @@ static void playerPullBackCamera(struct coord *campos)
 	player->thirdpersondist = 0;
 
 	if (!playerIsThirdPerson(player)) {
+		// A spell on the eye - aiming, or the camera off - restarts the tether
+		// behind the aim, the same as the first frame of third person does.
+		player->thirdpersontethered = false;
 		return;
 	}
 
@@ -3848,6 +4005,10 @@ static void playerPullBackCamera(struct coord *campos)
 	// place the camera relative to the player, and a placement that swings
 	// about as the view pitches is the thing the pull-back already does.
 	offset.y += g_ModOptions.camheight;
+
+	// Camera Tether: the same offset, on a rod that pivots about the eye rather
+	// than one bolted to the back of the aim.
+	playerTetherCamera(player, &player->bond2.unk10, &offset);
 
 	len = sqrtf(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z);
 

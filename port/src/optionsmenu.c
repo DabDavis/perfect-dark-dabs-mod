@@ -3052,6 +3052,32 @@ static MenuItemHandlerResult menuhandlerModCamHeight(s32 operation, struct menui
 }
 
 /**
+ * Camera Tether: the third person camera on a rod that pivots about the
+ * player, and how tightly it is held behind the aim. See playerTetherCamera()
+ * in player.c. Nothing to set with the camera on the eye, but the row is
+ * shown either way, like the sliders above it.
+ */
+static MenuItemHandlerResult menuhandlerModCamTether(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Loose", "Normal", "Tight" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.camtether = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.camtether;
+	}
+
+	return 0;
+}
+
+/**
  * Spectator: the camera that comes off the player and flies.
  *
  * Start Spectating is the setting --spectate sets, and it holds for every stage
@@ -3978,6 +4004,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Camera Height",
 		2 * MODCAM_MAXHEIGHT / MODCAM_HEIGHTSTEP,
 		menuhandlerModCamHeight,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Camera Tether",
+		0,
+		menuhandlerModCamTether,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

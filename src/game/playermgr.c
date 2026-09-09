@@ -575,6 +575,10 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->thirdpersoncampos.x = 0;
 	g_Vars.players[index]->thirdpersoncampos.y = 0;
 	g_Vars.players[index]->thirdpersoncampos.z = 0;
+	g_Vars.players[index]->thirdpersontetherpos.x = 0;
+	g_Vars.players[index]->thirdpersontetherpos.y = 0;
+	g_Vars.players[index]->thirdpersontetherpos.z = 0;
+	g_Vars.players[index]->thirdpersontethered = false;
 	g_Vars.players[index]->rollspeed.x = 0;
 	g_Vars.players[index]->rollspeed.y = 0;
 	g_Vars.players[index]->rollspeed.z = 0;
