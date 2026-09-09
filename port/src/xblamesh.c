@@ -647,22 +647,59 @@ static void xblaMeshLogNode(const struct modelnode *node, u32 type, s32 slot, s3
 }
 
 /**
- * Whether a node hangs off a toggle, which is what a piece the game turns on
- * and off does.
+ * Whether this node is the near copy of a head's hair, which is the one piece
+ * of stock geometry the release's mesh has already.
  *
  * Walked on our side rather than theirs, since the two trees are the same tree
- * here by construction. A head is not grafted onto a body yet at the load this
- * runs from, so the walk ends at the head model's own root.
+ * here by construction, and a head is not grafted onto a body yet at the load
+ * this runs from - so the walk ends at the head model's own root.
+ *
+ * The game names it: a head model's parts number its toggled pieces, and
+ * `MODELPART_HEAD_HAT` (1) is the hair - `Cheadwlab`'s slab of it, the piece
+ * that came out hanging in the air over the release's own short hair. 53 of
+ * the 76 heads have one and the release gives **none** of the 53 a mesh id,
+ * where it gives the sunglasses beside them one in 45 of the 51 heads that
+ * have those. A piece 4J modelled gets a group; the hair never does, in any
+ * head, because it is painted into the head itself.
+ *
+ * Two things this will not do, both of which the code it replaced did:
+ *
+ *   * **the sunglasses of the six heads the release left at zero**
+ *     (`Cheadanka`, `Cheaddarling`, `Cheaddavec`, `Cheadfem_guard`,
+ *     `Cheadjon`, `Cheadjonathan`) keep their own geometry. Nothing in the
+ *     mesh replaces them, so suppressing them took a character's glasses off;
+ *   * **a far LOD alternative** keeps its own geometry, hair included. The
+ *     head a chr is drawn from past 6000 units is the game's own - of the
+ *     132 ids the release gives a head, the 124 under a distance node are
+ *     every one on an alternative that starts at 0 - so a distant head that
+ *     lost its hair would just be bald. Only the alternative drawn where the
+ *     mesh is drawn is the one the mesh has already.
  */
-static s32 xblaMeshUnderToggle(const struct modelnode *node, const struct modelnode *root)
+static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode *node)
 {
+	const struct modelnode *hat = modelGetPart(modeldef, MODELPART_HEAD_HAT);
+
+	if (!hat || (hat->type & 0xff) != MODELNODETYPE_TOGGLE) {
+		return 0;
+	}
+
 	for (s32 i = 0; node && i < XBLAMESH_PARENTSCAN; i++) {
-		if ((node->type & 0xff) == MODELNODETYPE_TOGGLE) {
+		const u32 type = node->type & 0xff;
+
+		if (node == hat) {
 			return 1;
 		}
 
-		if (node == root) {
-			break;
+		if (type == MODELNODETYPE_DISTANCE) {
+			// The far alternative of the pair, which the mesh does not stand
+			// in for. Both of a hair piece's two lists are under one of these.
+			if (!node->rodata || node->rodata->distance.near != 0.0f) {
+				return 0;
+			}
+		} else if (type == MODELNODETYPE_TOGGLE || node == modeldef->rootnode) {
+			// Some other toggled piece, or the whole way up without meeting
+			// the hair's toggle.
+			return 0;
 		}
 
 		node = node->parent;
@@ -770,25 +807,31 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				}
 			}
 		} else if (!id && (ourtype == MODELNODETYPE_DL || ourtype == MODELNODETYPE_GUNDL) &&
-				xblaMeshUnderToggle(ournode->parent, modeldef->rootnode)) {
-			// A toggled piece the release left without an id, which is the
-			// one place a zero and an 0xFFFF mean different things.
+				xblaMeshIsHairList(modeldef, ournode)) {
+			// A head's hair, which is the one piece of stock geometry the
+			// release's mesh has already - and so the one place a zero means
+			// something other than "this node keeps what it has".
 			//
-			// 4J marked a toggled piece it kept with 0xFFFF, and all 54 of
-			// those in the release are a gun's part or a console's screen -
-			// none is a head's. A toggled piece it left at zero is a head's in
-			// 166 of 232 cases, and those are the hair: a release head mesh
-			// carries its own, so drawing the game's over the top gives a
-			// guard two hairdos - the N64 one hanging above the release's
-			// head, where the scalp it was cut to fit no longer is.
+			// 4J marked a toggled piece it kept with 0xFFFF and gave one it
+			// remodelled an id; the hair gets neither, in any of the 53 heads
+			// that have one, because it is painted into the head. Drawing the
+			// game's over the top gives a guard two hairdos - the N64 one
+			// hanging above the release's head, where the scalp it was cut to
+			// fit no longer is.
 			//
-			// The other 66 are mostly a weapon's, and there the same reading
-			// would cost a muzzle flash to save nothing that is drawn twice,
-			// so the draw path takes only a head's - see xblaMeshRenderNode().
-			// Everywhere else a zero keeps its own geometry regardless: a
-			// plain node's (1796 of them, which is how a G5 lab door keeps its
-			// stock frame around the release's panel) and an LOD
-			// alternative's (163, which a distant chr's head is drawn from).
+			// Which node that is comes from the game rather than from the
+			// shape of the tree: xblaMeshIsHairList() asks the model for its
+			// MODELPART_HEAD_HAT. The 179 other toggled zeros keep their
+			// geometry, and a good few of them have to - eleven are a gun's
+			// muzzle flash (MODELPART_GUN_MUZZLEFLASH1 on the AK47, the MP5K,
+			// the Uzi, the Skorpion and the minigun in both its models, and
+			// flashes 2 and 3 on the minigun), six are the sunglasses of a
+			// head the release left at zero, and 104 are the far LOD
+			// alternative of a head's toggled piece.
+			// Everywhere else a zero keeps its own geometry too: a plain
+			// node's (1796 of them, which is how a G5 lab door keeps its stock
+			// frame around the release's panel) and an LOD alternative's,
+			// which a distant chr is drawn from.
 			struct xblameshentry *e = xblaMeshSlotFor(ournode);
 
 			if (e) {
@@ -1204,6 +1247,20 @@ void xblaMeshResetModels(void)
 
 	for (s32 i = 0; i < numRecords && built; i++) {
 		built[i].posedmodel = NULL;
+	}
+
+	// What the meshes built so far are holding. They are kept for the life of
+	// the process on purpose - a mesh is the same in every level that uses it,
+	// and the alternative is freeing a display list the render thread may
+	// still be running - and the ceiling is what makes that affordable: there
+	// are 595 meshes in the release and building every one of them comes to
+	// about 69MB, against the 250MB package the player already has on disk. A
+	// level's own set is a small fraction of that (14 meshes in the G5
+	// Building), so this line is how a session that has drifted upwards would
+	// show itself.
+	if (g_XblaMeshNumMeshes) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: %u meshes built, %u KB",
+				g_XblaMeshNumMeshes, (g_XblaMeshBytes + 1023) / 1024);
 	}
 }
 
@@ -2140,8 +2197,14 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 
 	g_XblaMeshNumMeshes++;
 	g_XblaMeshNumTris += (u32)b.numtris;
+
+	// Everything this mesh is now holding, the skinning included - a skinned
+	// mesh keeps a bind position, two weights and its bones for every vertex
+	// it emitted, which is more than the vertices themselves come to.
 	g_XblaMeshBytes += (u32)((size_t)b.numgfx * sizeof(Gfx) +
-			(size_t)b.numvtx * (sizeof(Vtx) + sizeof(Col)));
+			(size_t)b.numvtx * (sizeof(Vtx) + sizeof(Col)) +
+			(size_t)m->nummatrices * sizeof(Mtxf) +
+			(m->bindpos ? (size_t)b.numvtx * (6 * sizeof(f32) + 3) : 0));
 
 	if (xblaMeshVerbose) {
 		s16 lo[3];

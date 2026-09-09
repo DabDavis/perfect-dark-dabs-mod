@@ -401,6 +401,20 @@ in the right place at the right size, and a model the release replaced only
 part of comes out right — a G5 lab door draws its stock frame around the
 release's panel, because a node whose id is `0xFFFF` keeps its own geometry.
 
+**What a built mesh holds, and why it is never freed.** A mesh is built once
+and kept for the life of the process. That is on purpose: a mesh is the same in
+every level that uses it, and the alternative — freeing a display list between
+levels — is freeing something the render thread may still be running. What
+makes it affordable is the ceiling. There are 595 meshes in the release, and
+building every one of them comes to about **69MB** (1.5M vertices and 706K
+triangles; the skinning is over half of it, since a skinned mesh keeps a bind
+position, two weights and three bone bytes per vertex on top of the vertex
+itself). That is against the 250MB package the player already has on disk, and
+no session reaches it: a level's own set is a small fraction — 14 meshes in the
+G5 Building. `xblaMeshResetModels()` logs `xblamesh: N meshes built, K KB` at
+each level load, which is how a session that had drifted upwards would show
+itself; `g_XblaMeshBytes` is the same number for gdb.
+
 #### The textures
 
 `port/src/xblatex.c` draws them with the release's own art, behind
@@ -776,6 +790,13 @@ the same way round — her head group is 2341 vertices against the earpiece's
 672. It runs only after the zip has failed, and only for a model whose release
 copy names one mesh and numbers its parts 0..n-1 with no gaps.
 
+The hair rule below does not have to reach these three: none of Joanna's heads
+has a `MODELPART_HEAD_HAT` node at all, and the only toggled piece they do have
+- the earpiece - is one the release remodelled and gave an id. The combat head
+is the one with a third list, a 36-vertex far LOD, and it sorts below the
+114-vertex earpiece, so the pairing takes the head and the earpiece and leaves
+the LOD its own geometry, which is what it should have.
+
 A head is where the per-group drawing described under "The draw path" earns
 itself: the earpiece and the sunglasses are parts of their own under toggles,
 and a guard whose glasses the game has turned off now has none, where a list
@@ -783,42 +804,91 @@ for the whole mesh gave him a pair whatever the game said. The check that says
 so is the same frame with `Mod.XblaMeshes` off — the stock head has no glasses
 there either.
 
-**A head's stock hair is drawn over the release's, and the id says which one
-to keep.** A guard in the G5 Building came out with two hairdos: the release's
-head, which paints its own short hair, and the N64 hair piece hanging in the
-air above it, cut to fit a scalp that is no longer there. It reads as a slab of
-hair floating over the head and it is worth knowing how it was pinned down,
-because two obvious readings of it are both wrong — it is not the head drawn
-low (the posed box is `[-71 -59 -82]..[84 172 122]` against the stock node's
-`[-67 7 -79]..[66 171 118]`, the tops agreeing to a unit) and it is not the
-mesh's own art (`Mod.XblaMeshTextures=0` keeps it). What it is: `Cheadwlab*`
-and its like keep the hair in a **toggled node of its own**, `[-67 146 -79]..[66
-219 112]` on the G5 guard, and the release gives that node **no mesh id** while
-giving the head and the sunglasses beside it one each.
+**A head's stock hair is drawn over the release's, and the game names the node
+that carries it.** A guard in the G5 Building came out with two hairdos: the
+release's head, which paints its own short hair, and the N64 hair piece hanging
+in the air above it, cut to fit a scalp that is no longer there. It reads as a
+slab of hair floating over the head and it is worth knowing how it was pinned
+down, because two obvious readings of it are both wrong — it is not the head
+drawn low (the posed box is `[-71 -59 -82]..[84 172 122]` against the stock
+node's `[-67 7 -79]..[66 171 118]`, the tops agreeing to a unit) and it is not
+the mesh's own art (`Mod.XblaMeshTextures=0` keeps it). What it is:
+`Cheadwlab*` and its like keep the hair in a **toggled node of its own**,
+`[-67 146 -79]..[66 219 112]` on the G5 guard, and the release gives that node
+**no mesh id** while giving the head beside it one.
 
-So a zero is not always "no replacement" the way `0xFFFF` is, and the
-difference is exactly where a node sits:
+Which node that is does not have to be guessed at from the shape of the tree.
+A head model numbers its toggled pieces and the game has names for them —
+`MODELPART_HEAD_SUNGLASSES` (0), `MODELPART_HEAD_HAT` (1), `EYESOPEN` (2),
+`EYESCLOSED` (3), `HUDPIECE` (4) — and reading the release's parts tables by
+name is what settles the rule:
+
+| head part | given a mesh id | left at zero |
+| --- | --- | --- |
+| HAT (the hair) | 0 | 53 |
+| SUNGLASSES | 45 | 6 |
+| EYESOPEN / EYESCLOSED | 4 + 4 | 0 |
+| HUDPIECE | 3 | 0 |
+
+That asymmetry is the whole argument. A piece 4J remodelled gets a group of its
+own — the sunglasses do, in 45 of the 51 heads that have a pair — and **the
+hair never does, in any of the 53 heads that have one**, because it is painted
+into the head itself. Alex's ponytail and headband are part of his head group
+where his sunglasses are a separate 252-triangle group in front of it, which
+is what a render of the two groups in different colours shows at a glance.
+
+So `xblaMeshIsHairList()` asks the model for its `MODELPART_HEAD_HAT` and
+suppresses the list under that toggle and nothing else. Two things it will not
+do, both of which the first version of this did, and both of which took
+something off the screen that nothing replaced:
+
+  * **the six heads whose sunglasses the release left at zero** — `Cheadanka`,
+    `Cheaddarling`, `Cheaddavec`, `Cheadfem_guard`, `Cheadjon`,
+    `Cheadjonathan` — keep the game's own glasses. Their meshes have one group
+    and it is a bare face: 1180 triangles on Anka against 1494 for Alex's head
+    alone, with no glasses anywhere in the geometry. The stewardess in Air Base
+    is spawned `SPAWNFLAG_FORCESUNGLASSES` and wears Anka's head, so this was a
+    chr the game had dressed and the mesh had undressed;
+  * **a far LOD alternative** keeps its own geometry, hair and all. Of the 132
+    ids the release gives a head's nodes, the 124 that sit under a distance
+    node are every one of them on an alternative that starts at 0 (the other 8
+    are in heads with no LOD pair at all); past 6000 units the game draws its
+    own 30-vertex head, and suppressing the hair there just made it bald.
+
+**The rule is still a head's alone at draw time** (`e->suppress`, set while
+matching and read in `xblaMeshRenderNode()`), and a grafted node is what says
+so — nothing else is ever grafted. That matters because the 179 toggled zeros
+this no longer touches include eleven that have to keep drawing: seven are
+`MODELPART_GUN_MUZZLEFLASH1` (the AK47, the MP5K, the Uzi, the Skorpion and the
+minigun in both its models) and four more are the minigun's flashes 2 and 3.
+4J marked the same part `0xFFFF` on 36 other guns, so its own marking is not
+consistent, and a zero on a weapon has to be read as "keep" whatever a head's
+means. (The Falcon 2's two toggled zeros, mentioned here before as the muzzle
+flash risk, are parts `0x42` and `0x2f`; its flash is one of the 36 marked
+`0xFFFF`. The risk was real, on other guns.)
+
+What says the narrowing is right: the same three frames of the G5 Building
+(0x1e, seeded, frames 1400/1500/1600, a guard's head filling a quarter of the
+screen) are **pixel-identical** between the build that suppressed all three of
+a head's toggled zeros and the one that suppresses only the hair — so nothing
+that was being drawn correctly changed, and the hair is still going. Each head
+model now reports one suppression at load where it reported three. In a
+Combat Simulator match the heads are Joanna's, which have no hat node at all:
+`xblaMeshMatchBySize()` fires for file 412 on all 21 chrs, pairs 816 vertices
+to part 0 and 114 to part 1, and a simulant running past the spectate camera
+has her hair and no seams.
+
+A zero elsewhere keeps its own geometry too, and the counts are why:
 
 | where | `0xFFFF` | `0x0000` |
 | --- | --- | --- |
-| under a toggle | 54, every one a gun's part or a console's screen | 232, of which 166 are a `Chead*` model's |
+| under a toggle | 54, every one a gun's part or a console's screen | 232, of which 166 are a `Chead*` model's and 53 are the hair |
 | an LOD alternative | 0 | 163 |
 | a plain node | 0 | 1796 |
 
-4J had a marker for a toggled piece it meant to keep and used it on the things
-that have to keep toggling — a magazine, a laser sight, a screen. The zeros
-under a toggle are the hair. Everything else that is zero is a node its
-exporter never reached, and those still keep their own geometry: the 1796 plain
-ones are why a G5 lab door draws its stock frame around the release's panel,
-and the 163 LOD ones are what a chr twenty metres away is drawn from.
-
-**The rule is a head's alone, and the draw path is what confines it there**
-(`e->suppress`, set while matching and read in `xblaMeshRenderNode()`). The
-other 66 toggled zeros are mostly a weapon's — the Falcon 2 has two beside the
-one it marks `0xFFFF` and the four its mesh replaces — and there the same
-reading would cost a muzzle flash to save nothing that was drawn twice. A
-grafted node is what says a head is a head at draw time, which is a fact the
-game supplies rather than a guess: nothing else is ever grafted.
+The 1796 plain ones are why a G5 lab door draws its stock frame around the
+release's panel, and the 163 LOD ones are what a chr twenty metres away is
+drawn from.
 
 ### The level files were rewritten too
 
