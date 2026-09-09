@@ -73,7 +73,20 @@
 #define XBLAMESH_STRIDE_RIGID 36
 #define XBLAMESH_STRIDE_SKIN 48
 
-#define XBLAMESH_HASHSIZE 4096 // a power of two; open addressed
+// A power of two; open addressed. Every list node of a matched model takes an
+// entry now, not only the ones the release named - a character body is one
+// named node and fifteen more the mesh covers - so this is ten times the
+// nodes a level used to file, plus the tombstones a stage's reloads leave.
+#define XBLAMESH_HASHSIZE 16384
+
+// Plain list nodes of one model collected while its tree is walked, to be
+// filed as covered once the walk says the model really did match. The most any
+// model in the release has is 22 (the Nintendo logo); a character body has 15.
+#define XBLAMESH_COVERED 64
+
+// What a suppressed entry is suppressed for.
+#define XBLAMESH_SUPPRESS_HAIR 1    // a head's stock hair, which the mesh paints on
+#define XBLAMESH_SUPPRESS_COVERED 2 // geometry the model's own mesh has already
 
 // How many draws --xbla-mesh-verbose names before it stops
 #define XBLAMESH_DRAWLOG 12
@@ -108,7 +121,7 @@ struct xblameshentry {
 	u16 slot;
 	u16 part;
 	s32 use;                           // into uses[], or -1
-	s32 suppress;                      // a stock piece the mesh has already: draw nothing
+	s32 suppress;                      // XBLAMESH_SUPPRESS_*: stock geometry that draws nothing
 };
 
 /**
@@ -716,6 +729,91 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
 }
 
 /**
+ * Whether the model's own mesh has this node's geometry already.
+ *
+ * **A mesh is the whole model, and the release names it on one node.** The id
+ * is written into one list node's padding and the fourteen or fifteen others
+ * of a character - a thigh, a forearm, a shoulder - are left at zero, because
+ * 4J had no reason to mark what their own art already contains. Read as "a
+ * zero keeps its own geometry", which is what this did, every guard in the
+ * game drew the release's body *and* the N64 body inside it: `CcarringtonZ` is
+ * thirty list nodes, one of them named, and the mesh named on it is 4792
+ * vertices over fifteen palette entries - the whole standing figure - while
+ * the other twenty-nine draw 2391 vertices of a complete second character in
+ * the same place. 127 of the 134 character models are that shape, and so are
+ * the Carrington Institute's sofa, its hovercopter and its autosurgeon: 946
+ * list nodes across the release, against 1796 the old reading kept.
+ *
+ * What the mesh does *not* stand in for is the two kinds of list the game
+ * draws instead of, rather than beside, the one it was named on:
+ *
+ *   * **a far LOD alternative** - a distance node whose near threshold is not
+ *     zero. The mesh's own node is under the near alternative of its pair, so
+ *     past that distance nothing of the mesh is drawn and the game's low-poly
+ *     copy is the whole model. Suppressed, a distant guard would be nothing at
+ *     all. (This is the same test xblaMeshMatchBySize's leftovers must pass.)
+ *   * **a toggled piece** - geometry the game switches on and off: a gun's
+ *     muzzle flash (eleven of them), the sunglasses of the six heads the
+ *     release left at zero, the pieces of the two Nintendo logos. 4J marked
+ *     the toggled pieces they *did* remodel with an id and the ones they kept
+ *     with 0xFFFF, so a toggled zero is one they never looked at, and taking
+ *     it away takes a character's glasses off. The one exception is a head's
+ *     hair, which is toggled and *is* in the mesh, and which
+ *     xblaMeshIsHairList() names from the game's own MODELPART_HEAD_HAT
+ *     before this is asked.
+ */
+static s32 xblaMeshIsCovered(struct modeldef *modeldef, const struct modelnode *node)
+{
+	for (s32 i = 0; node && i < XBLAMESH_PARENTSCAN; i++) {
+		const u32 type = node->type & 0xff;
+
+		if (node == modeldef->rootnode) {
+			return 1;
+		}
+
+		if (type == MODELNODETYPE_DISTANCE) {
+			if (!node->rodata || node->rodata->distance.near != 0.0f) {
+				return 0;
+			}
+		} else if (type == MODELNODETYPE_TOGGLE) {
+			return 0;
+		}
+
+		node = node->parent;
+	}
+
+	return 0;
+}
+
+/**
+ * Files a node that draws nothing while the model's mesh is drawn.
+ */
+static void xblaMeshSuppressNode(struct modeldef *modeldef, struct modelnode *node,
+		s32 slot, s32 kind)
+{
+	struct xblameshentry *e = xblaMeshSlotFor(node);
+
+	if (!e) {
+		return;
+	}
+
+	if (!e->modeldef) {
+		g_XblaMeshNumNodes++;
+	}
+
+	if (!e->node) {
+		g_XblaMeshNumSlots++;
+	}
+
+	e->node = node;
+	e->modeldef = modeldef;
+	e->slot = (u16)(slot > 0 ? slot : 0);
+	e->part = 0;
+	e->use = -1;
+	e->suppress = kind;
+}
+
+/**
  * Walks our tree and theirs together, recording every node they replace.
  *
  * The two files hold the same nodes in the same order - the release edited two
@@ -727,6 +825,9 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 {
 	struct modelnode *ournode = modeldef->rootnode;
 	u32 theiroff = xblaMeshBE32(file) & 0xffffff;
+	struct modelnode *covered[XBLAMESH_COVERED];
+	s32 numcovered = 0;
+	s32 firstslot = -1;
 	s32 found = 0;
 	s32 suppressed = 0;
 	s32 walked = 0;
@@ -785,6 +886,17 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				e->modeldef = modeldef;
 				e->slot = (u16)slot;
 				e->part = (u16)(id >> 12);
+
+				// Which mesh the model's covered lists wait on, and whether
+				// there is one at all: only a mesh named on a list the game
+				// draws beside them can stand in for them. `CheadgreyZ` names
+				// its only mesh on a toggled alternative, and suppressing the
+				// head beside it would leave the Grey with no head whenever
+				// that toggle is off.
+				if (firstslot < 0 && xblaMeshIsCovered(modeldef, ournode)) {
+					firstslot = slot;
+				}
+
 				e->use = xblaMeshUseFor(modeldef, slot);
 				e->suppress = 0;
 				found++;
@@ -813,50 +925,31 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 							xblaMeshFileId, ournode, slot);
 				}
 			}
-		} else if (!id && (ourtype == MODELNODETYPE_DL || ourtype == MODELNODETYPE_GUNDL) &&
-				xblaMeshIsHairList(modeldef, ournode)) {
-			// A head's hair, which is the one piece of stock geometry the
-			// release's mesh has already - and so the one place a zero means
-			// something other than "this node keeps what it has".
+		} else if (!id && (ourtype == MODELNODETYPE_DL || ourtype == MODELNODETYPE_GUNDL)) {
+			// A zero is not "this node keeps what it has". The release names a
+			// mesh on one node of a model and leaves the rest of that model's
+			// lists at zero, and the mesh is the whole model - so a zero is
+			// geometry the mesh has already, unless it is one of the lists the
+			// game draws *instead of* the named one. xblaMeshIsCovered() is
+			// where that is decided, and the hair is asked about first because
+			// it is a toggled piece that the mesh does have.
 			//
-			// 4J marked a toggled piece it kept with 0xFFFF and gave one it
-			// remodelled an id; the hair gets neither, in any of the 53 heads
-			// that have one, because it is painted into the head. Drawing the
-			// game's over the top gives a guard two hairdos - the N64 one
-			// hanging above the release's head, where the scalp it was cut to
-			// fit no longer is.
-			//
-			// Which node that is comes from the game rather than from the
-			// shape of the tree: xblaMeshIsHairList() asks the model for its
-			// MODELPART_HEAD_HAT. The 179 other toggled zeros keep their
-			// geometry, and a good few of them have to - eleven are a gun's
-			// muzzle flash (MODELPART_GUN_MUZZLEFLASH1 on the AK47, the MP5K,
-			// the Uzi, the Skorpion and the minigun in both its models, and
-			// flashes 2 and 3 on the minigun), six are the sunglasses of a
-			// head the release left at zero, and 104 are the far LOD
-			// alternative of a head's toggled piece.
-			// Everywhere else a zero keeps its own geometry too: a plain
-			// node's (1796 of them, which is how a G5 lab door keeps its stock
-			// frame around the release's panel) and an LOD alternative's,
-			// which a distant chr is drawn from.
-			struct xblameshentry *e = xblaMeshSlotFor(ournode);
-
-			if (e) {
-				if (!e->modeldef) {
-					g_XblaMeshNumNodes++;
-				}
-
-				if (!e->node) {
-					g_XblaMeshNumSlots++;
-				}
-
-				e->node = ournode;
-				e->modeldef = modeldef;
-				e->slot = 0;
-				e->part = 0;
-				e->use = -1;
-				e->suppress = 1;
+			// 4J marked a toggled piece they kept with 0xFFFF and gave one
+			// they remodelled an id; the hair gets neither, in any of the 53
+			// heads that have one, because it is painted into the head.
+			// Drawing the game's over the top gives a guard two hairdos - the
+			// N64 one hanging above the release's head, where the scalp it was
+			// cut to fit no longer is. Which node that is comes from the game
+			// rather than from the shape of the tree: xblaMeshIsHairList()
+			// asks the model for its MODELPART_HEAD_HAT.
+			if (xblaMeshIsHairList(modeldef, ournode)) {
+				xblaMeshSuppressNode(modeldef, ournode, 0, XBLAMESH_SUPPRESS_HAIR);
 				suppressed++;
+			} else if (xblaMeshIsCovered(modeldef, ournode) && numcovered < XBLAMESH_COVERED) {
+				// Held until the walk is over: a model whose tree stops
+				// matching part way through leaves through one of the returns
+				// above, and nothing of it may be left filed.
+				covered[numcovered++] = ournode;
 			}
 		}
 
@@ -900,9 +993,25 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 		}
 	}
 
-	if (found && suppressed && xblaMeshVerbose) {
-		sysLogPrintf(LOG_NOTE, "xblamesh:   %d toggled stock pieces the mesh has already",
-				suppressed);
+	// Only a model that really did match: the walk registers as it goes, and a
+	// model that names no mesh at all must keep every list it has.
+	if (found && firstslot >= 0) {
+		for (s32 i = 0; i < numcovered; i++) {
+			xblaMeshSuppressNode(modeldef, covered[i], firstslot,
+					XBLAMESH_SUPPRESS_COVERED);
+		}
+	}
+
+	if (found && xblaMeshVerbose) {
+		if (suppressed) {
+			sysLogPrintf(LOG_NOTE, "xblamesh:   %d toggled stock pieces the mesh has already",
+					suppressed);
+		}
+
+		if (numcovered) {
+			sysLogPrintf(LOG_NOTE, "xblamesh:   %d more lists the mesh covers, drawing nothing",
+					numcovered);
+		}
 	}
 
 	return found;
@@ -1332,6 +1441,10 @@ static void xblaMeshArenaStats(u32 *kb, s32 *chunks);
  */
 void xblaMeshResetModels(void)
 {
+	// Read before the table is emptied: this is the level that is ending.
+	const u32 nodes = g_XblaMeshNumNodes;
+	const u32 slots = g_XblaMeshNumSlots;
+
 	numUses = 0;
 	openedLate = 0;
 	xblaMeshDrawLog = 0;
@@ -1363,9 +1476,14 @@ void xblaMeshResetModels(void)
 
 		xblaMeshArenaStats(&arenakb, &chunks);
 
+		// The node table is named too, since every list of a matched model is
+		// filed now and not only the ones the release named - fifteen entries
+		// a character rather than one - and a full table stops registering
+		// anything at all.
 		sysLogPrintf(LOG_NOTE, "xblamesh: %u meshes built, %u KB; pose arena %u KB "
-				"in %d chunks", g_XblaMeshNumMeshes,
-				(g_XblaMeshBytes + 1023) / 1024, arenakb, chunks);
+				"in %d chunks; %u nodes in %u of %d table slots",
+				g_XblaMeshNumMeshes, (g_XblaMeshBytes + 1023) / 1024, arenakb,
+				chunks, nodes, slots, XBLAMESH_HASHSIZE);
 	}
 }
 
@@ -3143,7 +3261,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// toggled piece reaches here with its own model and keeps its geometry.
 	// Mod.XblaMeshBoth keeps it too, that switch being there to put the two on
 	// top of each other.
-	if (e->suppress) {
+	if (e->suppress == XBLAMESH_SUPPRESS_HAIR) {
 		if (xblaMeshVerbose && !(grafted && !optBoth)) {
 			sysLogPrintf(LOG_NOTE, "xblamesh: a toggled piece the mesh has already drew "
 					"the game's own: model %p node %p grafted %d both %d",
@@ -3151,6 +3269,40 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		}
 
 		return (grafted && !optBoth) ? 1 : 0;
+	}
+
+	// A list of a model whose mesh has that geometry already: every list of a
+	// matched model but the one the id was written on, the far LOD
+	// alternatives and the toggled pieces. Drawing it is drawing the N64 model
+	// inside the release's one - fifteen body parts inside every guard.
+	//
+	// It is the mesh being drawn that this depends on, so the mesh is built
+	// here too: one that will not build leaves the model drawing all of its
+	// own geometry rather than most of it drawing nothing at all.
+	if (e->suppress == XBLAMESH_SUPPRESS_COVERED) {
+		m = xblaMeshBuild(e->slot);
+
+		if (!m || optBoth) {
+			if (xblaMeshVerbose) {
+				xblaMeshNoteDraw(model, e->slot, 0, m ? 6 : 4);
+			}
+
+			return 0;
+		}
+
+		// The translucent pass, on one of the fifteen nodes here that draw a
+		// pane of their own: the same rule the replaced nodes follow. A mesh
+		// with an alpha material somewhere has the pane, and one with none
+		// anywhere has nothing to put where the game's would have been.
+		if (!opa && xblaMeshNodeDrawsXlu(node) && m->allxlu < 0) {
+			if (xblaMeshVerbose) {
+				xblaMeshNoteDraw(model, e->slot, 0, 5);
+			}
+
+			return 0;
+		}
+
+		return 1;
 	}
 
 	// The mesh is built before the part is looked at, so that a mesh that will

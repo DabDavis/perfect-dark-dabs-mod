@@ -1008,7 +1008,7 @@ Combat Simulator match the heads are Joanna's, which have no hat node at all:
 to part 0 and 114 to part 1, and a simulant running past the spectate camera
 has her hair and no seams.
 
-A zero elsewhere keeps its own geometry too, and the counts are why:
+The counts a zero comes in:
 
 | where | `0xFFFF` | `0x0000` |
 | --- | --- | --- |
@@ -1016,9 +1016,77 @@ A zero elsewhere keeps its own geometry too, and the counts are why:
 | an LOD alternative | 0 | 163 |
 | a plain node | 0 | 1796 |
 
-The 1796 plain ones are why a G5 lab door draws its stock frame around the
-release's panel, and the 163 LOD ones are what a chr twenty metres away is
-drawn from.
+#### A plain zero is not "keep your own geometry" — it is the mesh's
+
+Read that way, which is what this did until 2026-09-09, **every character in
+the game drew the release's body and the N64 body inside it**, and so did the
+Carrington Institute's sofa. It is the report that opened the session: "in
+game i see both models loaded together, intermingled", walking round the
+Institute and in the Combat Simulator, with no mod loaded.
+
+The id is written on **one** node of a model and the mesh named there is the
+whole model. `CcarringtonZ` is thirty list nodes; one carries an id, and the
+mesh it names is 4792 vertices over a **fifteen-entry palette** — one for each
+of the model's sixteen position nodes — spanning y 0..1449, a whole standing
+figure. The node it is written on draws 54 stock vertices of that figure. The
+other twenty-nine lists, all at zero, draw 2391 vertices: a complete second
+character in the same place, posed by the same bones. 127 of the 134 character
+models are that shape, and the props that are include `Pci_sofaZ` (the mesh's
+box is the whole sofa; the id node is its top and the plain node its base),
+`Pdd_hovercopterZ`, `PautosurgeonZ` and `PtesterbotZ` — the Institute, which
+is where it was seen.
+
+The 1796 figure above is what made the wrong reading look measured. It is a
+count of nodes, and 946 of them are a model's own geometry drawn twice; the G5
+lab door's stock frame is a `0xFFFF`, which is a different row of that table
+and still keeps what it has.
+
+**The rule now** (`xblaMeshIsCovered()`, filed as
+`XBLAMESH_SUPPRESS_COVERED` while matching): a zero on a list of a matched
+model draws nothing, unless it is one of the two kinds of list the game draws
+*instead of* the one the mesh was named on —
+
+  * **a far LOD alternative**, a distance node whose near threshold is not
+    zero. The mesh's own node is under the near alternative of its pair, so
+    past that distance nothing of the mesh is drawn at all and the game's
+    low-poly copy is the whole model: 864 lists. Suppressed, a guard twenty
+    metres away would be nothing at all. (Same test the pairing by size makes
+    its leftovers pass.)
+  * **a toggled piece**, geometry the game switches: 125 lists — the eleven
+    muzzle flashes, the six heads' sunglasses the release left at zero, the
+    Nintendo logos. 4J marked a toggled piece they remodelled with an id and
+    one they kept with `0xFFFF`, so a toggled zero is one they never looked
+    at, and taking it away takes a character's glasses off. The hair is the
+    exception and is named from the game's own `MODELPART_HEAD_HAT` before
+    this is asked.
+
+946 lists across the release are suppressed by that, 844 of them a character's.
+
+**And the mesh has to be named on a list the game draws beside them**, or
+nothing is suppressed at all: `firstslot` is only taken from an id node that
+passes the same `xblaMeshIsCovered()` test. One model in 542 needs it —
+`CheadgreyZ`, whose only mesh id is on a **toggled** 216-vertex alternative
+with the 363-vertex head beside it at zero. Suppress that head and the Grey has
+no head whenever the toggle is off.
+
+Two consequences worth knowing. The node table now files every list of a
+matched model rather than the one that was named, which is fifteen entries a
+character where it was one, so `XBLAMESH_HASHSIZE` is **16384** and the
+per-level line reports `N nodes in M of 16384 table slots` beside the meshes
+built — a full table stops registering anything at all. And the overlap
+diagnostic could never have found this: a node the match never registered
+returns at the first line of `xblaMeshRenderNode()`, before any counter, so
+`--xbla-mesh-verbose` printed a clean bill through all of it. What found it was
+asking the *files* — walk every model that carries an id, count the list nodes
+that do not, and compare what they draw against what the mesh spans
+(`.xbla-work/mesh/`, `cover.py` and the scripts beside it).
+
+What says the fix draws what it should: the same seeded 20-simulant match on
+Temple, before and after, sampled at frame 300 — **198 draws, 14871 triangles,
+36706 vertices** becomes **167 draws, 14573 triangles, 34939 vertices**. The
+draws that went are the body's fifteen; the triangles barely move because the
+mesh was always the bulk of them. The body model reports `14 more lists the
+mesh covers, drawing nothing` as it loads.
 
 ### The level files were rewritten too
 
