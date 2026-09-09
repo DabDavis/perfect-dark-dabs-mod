@@ -3785,6 +3785,170 @@ static void playerSyncBodyWeapons(struct player *player)
 #define THIRDPERSON_EASE_RATE 0.2f // of what is left to give back, per 60Hz tick
 
 /**
+ * Keep the camera out of the walls, the floor and the ceiling.
+ *
+ * The line trace in playerPullBackCamera() stops the camera crossing a wall,
+ * but it is a line of no width and the clearance it takes is along the line.
+ * A wall running beside the line never registers, so a camera behind a player
+ * walking along a wall, or swung round beside one by the tether, sits with
+ * its near plane inside the brickwork. That is the clipping that was reported,
+ * and it needs a volume rather than a line.
+ *
+ * Camera Wall Clearance is the radius. cdExamCylMove02() tests a cylinder of
+ * that radius at the camera and, when it is inside a wall, names the edge it
+ * is inside through cdGetEdge(), so the camera is pushed out along that edge's
+ * normal to the eye's side until it is the radius clear - sideways, off the
+ * wall, rather than back towards the player, which is what keeps the view
+ * from collapsing to first person every time a corridor narrows. A corner
+ * takes a second pass for its second wall; three passes are allowed.
+ *
+ * Floors and ceilings are the other half. The line takes its clearance along
+ * itself, and a line at a shallow angle to the floor - looking up, which
+ * walks the camera down behind the heels - is a hand's breadth above it
+ * after thirty units. The camera is lifted to a vertical clearance above the
+ * ground under it and dropped the same below a ceiling.
+ *
+ * Any push moves the camera off the line the eye was traced along, so the
+ * line is traced again afterwards and clamped the way it was the first time.
+ * If after all that the volume is still not clear - a corridor narrower than
+ * twice the radius has no clear spot in it - the camera comes in along the
+ * line by half the radius at a time until a volume of half the radius fits,
+ * which is what a corridor that narrow has room for. Below the minimum
+ * distance there is no view, and false says so.
+ */
+#define CAMERA_VCLEAR       20.0f // above a floor and below a ceiling
+#define CAMERA_CLEAR_PASSES 3
+#define CAMERA_SHORTEN_PASSES 8
+
+static bool playerClearCamera(struct player *player, struct coord *eye, struct coord *cam)
+{
+	RoomNum camrooms[8];
+	RoomNum crossed[21];
+	struct coord v1;
+	struct coord v2;
+	struct coord hit;
+	f32 radius = g_ModOptions.camclearance;
+	f32 nx;
+	f32 nz;
+	f32 nlen;
+	f32 d;
+	f32 y;
+	f32 dist;
+	s32 pass;
+	bool moved = false;
+
+	if (radius < 1) {
+		radius = 1;
+	}
+
+	for (pass = 0; pass < CAMERA_CLEAR_PASSES; pass++) {
+		func0f065dfc(eye, player->prop->rooms, cam, camrooms, crossed, 20);
+
+		if (cdExamCylMove02(eye, cam, radius, camrooms, CDTYPE_BG | CDTYPE_CLOSEDDOORS,
+					CHECKVERTICAL_YES, CAMERA_VCLEAR, -CAMERA_VCLEAR) != CDRESULT_COLLISION) {
+			break;
+		}
+
+		cdGetEdge(&v1, &v2, __LINE__, "player.c");
+
+		// The edge's normal in the horizontal, turned to the eye's side: the
+		// eye is in the room and so is the face of the wall that matters.
+		nx = v2.z - v1.z;
+		nz = v1.x - v2.x;
+		nlen = sqrtf(nx * nx + nz * nz);
+
+		if (nlen < 0.0001f) {
+			break;
+		}
+
+		nx /= nlen;
+		nz /= nlen;
+
+		if ((eye->x - v1.x) * nx + (eye->z - v1.z) * nz < 0) {
+			nx = -nx;
+			nz = -nz;
+		}
+
+		d = (cam->x - v1.x) * nx + (cam->z - v1.z) * nz;
+
+		if (d >= radius) {
+			// Inside the volume by the edge's end rather than its face; the
+			// normal has nothing to say and the shortening below takes it.
+			break;
+		}
+
+		cam->x += nx * (radius - d);
+		cam->z += nz * (radius - d);
+		moved = true;
+	}
+
+	func0f065dfc(eye, player->prop->rooms, cam, camrooms, crossed, 20);
+
+	y = cdFindGroundAtCyl(cam, radius, camrooms, NULL, NULL);
+
+	if (cam->y - y < CAMERA_VCLEAR) {
+		cam->y = y + CAMERA_VCLEAR;
+		moved = true;
+	}
+
+	y = cam->y + 100000;
+	cdFindCeilingRoomYColourFlagsAtPos(cam, camrooms, &y, NULL, NULL);
+
+	if (y - cam->y < CAMERA_VCLEAR) {
+		cam->y = y - CAMERA_VCLEAR;
+		moved = true;
+	}
+
+	if (moved && cdExamLos08(eye, player->prop->rooms, cam,
+				CDTYPE_BG | CDTYPE_CLOSEDDOORS,
+				GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT
+				| GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_LIFTFLOOR) == CDRESULT_COLLISION) {
+		cdGetPos(&hit, __LINE__, "player.c");
+
+		dist = sqrtf((cam->x - eye->x) * (cam->x - eye->x)
+				+ (cam->y - eye->y) * (cam->y - eye->y)
+				+ (cam->z - eye->z) * (cam->z - eye->z));
+
+		d = sqrtf((hit.x - eye->x) * (hit.x - eye->x)
+				+ (hit.y - eye->y) * (hit.y - eye->y)
+				+ (hit.z - eye->z) * (hit.z - eye->z)) - g_ModOptions.camclearance;
+
+		if (d < g_ModOptions.cammindist || dist < 1) {
+			return false;
+		}
+
+		cam->x = eye->x + (cam->x - eye->x) * (d / dist);
+		cam->y = eye->y + (cam->y - eye->y) * (d / dist);
+		cam->z = eye->z + (cam->z - eye->z) * (d / dist);
+	}
+
+	for (pass = 0; pass < CAMERA_SHORTEN_PASSES; pass++) {
+		func0f065dfc(eye, player->prop->rooms, cam, camrooms, crossed, 20);
+
+		if (cdTestVolume(cam, radius * 0.5f, camrooms, CDTYPE_BG | CDTYPE_CLOSEDDOORS,
+					CHECKVERTICAL_YES, CAMERA_VCLEAR, -CAMERA_VCLEAR)) {
+			return true;
+		}
+
+		dist = sqrtf((cam->x - eye->x) * (cam->x - eye->x)
+				+ (cam->y - eye->y) * (cam->y - eye->y)
+				+ (cam->z - eye->z) * (cam->z - eye->z));
+
+		d = dist - radius * 0.5f;
+
+		if (d < g_ModOptions.cammindist || dist < 1) {
+			return false;
+		}
+
+		cam->x = eye->x + (cam->x - eye->x) * (d / dist);
+		cam->y = eye->y + (cam->y - eye->y) * (d / dist);
+		cam->z = eye->z + (cam->z - eye->z) * (d / dist);
+	}
+
+	return true;
+}
+
+/**
  * Camera Tether: how far the rod may lag behind the aim, and how much of what
  * is left it gives back per 60Hz tick.
  *
@@ -4042,6 +4206,30 @@ static void playerPullBackCamera(struct coord *campos)
 		}
 	}
 
+	// The fraction of the offset that fits, so both axes come in together.
+	back.x = campos->x + offset.x * (dist / len);
+	back.y = campos->y + offset.y * (dist / len);
+	back.z = campos->z + offset.z * (dist / len);
+
+	// Off the walls, the floor and the ceiling: a volume where the line
+	// above was a line. This may move the camera off the line, so the
+	// distance is read back from wherever it ends up.
+	if (!playerClearCamera(player, campos, &back)) {
+		return;
+	}
+
+	offset.x = back.x - campos->x;
+	offset.y = back.y - campos->y;
+	offset.z = back.z - campos->z;
+
+	len = sqrtf(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z);
+
+	if (len < g_ModOptions.cammindist || len < 1) {
+		return;
+	}
+
+	dist = len;
+
 	// Further out than last frame, and last frame was a view of its own rather
 	// than the eye: give the room back over a few frames instead of all at once.
 	if (prevdist > 0 && dist > prevdist) {
@@ -4056,12 +4244,9 @@ static void playerPullBackCamera(struct coord *campos)
 
 	player->thirdpersondist = dist;
 
-	// The fraction of the offset that fits, so both axes come in together.
-	len = dist / len;
-
-	campos->x += offset.x * len;
-	campos->y += offset.y * len;
-	campos->z += offset.z * len;
+	campos->x += offset.x * (dist / len);
+	campos->y += offset.y * (dist / len);
+	campos->z += offset.z * (dist / len);
 
 	// Kept for the death camera, which stops here rather than working out
 	// somewhere of its own to stand.

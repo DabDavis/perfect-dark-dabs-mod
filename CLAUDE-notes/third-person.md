@@ -194,6 +194,27 @@ the pair the rest of the game means by a floor and carries ceilings with it -
 flag - so the same two also stop a low ceiling when looking down.
 `GEOFLAG_LIFTFLOOR` goes with them, the way propobj.c asks for them.
 
+**The line is not enough on its own.** It has no width and takes its clearance
+along itself, so a wall running beside it - the player walking along one, or
+the tether swinging the camera round beside one - never registers and the near
+plane sits inside the brickwork, which is the clipping that was reported.
+`playerClearCamera()` runs after the line: `cdExamCylMove02()` with Camera
+Wall Clearance as the radius, at the camera, and when it is inside a wall
+`cdGetEdge()` names the edge, so the camera is pushed out along that edge's
+normal (turned to the eye's side) until it is the radius clear - sideways,
+off the wall, not back towards the player, or every corridor would drop to
+first person. Three passes for corners. Then `cdFindGroundAtCyl()` and
+`cdFindCeilingRoomYColourFlagsAtPos()` lift it `CAMERA_VCLEAR` off a floor
+and below a ceiling, because a line at a shallow angle to the floor is a
+hand's breadth above it after its thirty units. Any push leaves the line the
+eye was traced along, so it is traced again and clamped as before, and if a
+half-radius `cdTestVolume()` still fails (a corridor narrower than twice the
+radius has no clear spot) the camera comes in along the line half a radius at
+a time. The rooms for every test come from `func0f065dfc()` from the eye's
+rooms to the camera, the way the eyespy finds its own. The distance the ease
+and the HUD read is taken from wherever the camera ended up, since it is no
+longer on the offset's line.
+
 Coming in is immediate, going back out is eased (`THIRDPERSON_EASE_RATE`). They
 are not the same event: a wall arriving is this frame's problem or the camera
 draws the inside of it, while a wall leaving is only space becoming free again.
