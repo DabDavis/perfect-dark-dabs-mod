@@ -171,14 +171,10 @@ struct xblameshbuilt {
 	const struct model *posedmodel;
 	u32 posedframe;
 	Vtx *posedvtx;
-	Mtxf *posedmtx;    // the matrix that copy is drawn under, when it is not the bone's own
-	s32 posedfine;     // and how many steps of that copy make one of the game's units
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
 	f32 *weights;      // three per emitted vertex; only the first two are ever set
 	u8 *bones;         // three per emitted vertex, and the count in the fourth
-	f32 bindlo[3];     // the box the bind positions stand in, which bounds the posed ones
-	f32 bindhi[3];
 };
 
 static s32 optEnabled;
@@ -2501,30 +2497,6 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	m->numgroups = b.numgroups;
 	m->state = 1;
 
-	// The box the bind positions stand in. A posed vertex is a blend of the
-	// same point put through one palette matrix or another, so every one of
-	// them lands inside this box carried through those matrices - which is
-	// what bounds the pose, and so how finely it can be written down.
-	if (m->bindpos) {
-		for (s32 j = 0; j < 3; j++) {
-			m->bindlo[j] = m->bindhi[j] = m->bindpos[j];
-		}
-
-		for (s32 i = 1; i < b.numvtx; i++) {
-			for (s32 j = 0; j < 3; j++) {
-				const f32 v = m->bindpos[i * 3 + j];
-
-				if (v < m->bindlo[j]) {
-					m->bindlo[j] = v;
-				}
-
-				if (v > m->bindhi[j]) {
-					m->bindhi[j] = v;
-				}
-			}
-		}
-	}
-
 	for (s32 g = 0; g < XBLAMESH_MAXPARTS; g++) {
 		m->groupgfx[g] = b.groupgfx[g];
 		// The builder is zeroed, and zero is a real index, so a group it never
@@ -2806,77 +2778,6 @@ static Mtxf *xblaMeshPartMtx(struct model *model, struct xblameshuse *use, s32 p
 }
 
 /**
- * How many steps of a posed copy make one of the game's units.
- *
- * A Perfect Dark vertex holds an s16, and the game's own models are drawn in
- * whole units because that is what an N64 model file could say. **The
- * release's skinned meshes are not**: the header's scale is a tenth for nearly
- * every one of them, so a character's geometry is stated to a tenth of a unit
- * and rounding the pose to whole ones throws nine tenths of what 4J drew away.
- * A head is where that shows - the vertices across a nose are three or four
- * units apart, so half a unit of rounding is a tenth of the spacing, scattered
- * a different way on every vertex, and what should be a straight ridge comes
- * out bent. It is a hundredth of the spacing on a wall or a crate, which is
- * why nothing else looked wrong.
- *
- * A vertex cannot hold more than an s16, but the matrix it is drawn under can
- * be divided: write the pose in sixteenths and hand back the bone's matrix
- * with its three rows divided by sixteen, and the two cancel at the vertex
- * that reaches the screen. The vertices stay inside the s16 as long as the
- * mesh does, so how far the pose can be taken is what the pose *reaches*.
- *
- * Which is bounded without posing anything. A posed vertex is a blend of one
- * bind position put through each of the palette's matrices, and a blend of
- * points inside a box carried through an affine matrix is inside that box's
- * image - so the eight corners of the bind box, through every palette entry,
- * bound every vertex this is about to write. Cheap: 24 entries at most, eight
- * corners each, once a frame per mesh.
- *
- * The cap is 16 because it is already far past what the mesh states - a
- * sixteenth of a unit is a millimetre and a half of a person - and because a
- * bound that is met exactly still has to leave the rounding somewhere to go.
- */
-#define XBLAMESH_MAXFINE 16
-#define XBLAMESH_FINEROOM 30000.0f
-
-static s32 xblaMeshPoseFineness(const struct xblameshbuilt *m, const Mtxf *pal)
-{
-	f32 reach = 0.0f;
-	s32 fine = 1;
-
-	if (!m->bindpos) {
-		return 1;
-	}
-
-	for (s32 i = 0; i < m->nummatrices; i++) {
-		for (s32 corner = 0; corner < 8; corner++) {
-			struct coord in;
-			struct coord out;
-
-			in.x = (corner & 1) ? m->bindhi[0] : m->bindlo[0];
-			in.y = (corner & 2) ? m->bindhi[1] : m->bindlo[1];
-			in.z = (corner & 4) ? m->bindhi[2] : m->bindlo[2];
-
-			mtx4TransformVec((Mtxf *)&pal[i], &in, &out);
-
-			for (s32 j = 0; j < 3; j++) {
-				const f32 v = out.f[j] < 0.0f ? -out.f[j] : out.f[j];
-
-				if (v > reach) {
-					reach = v;
-				}
-			}
-		}
-	}
-
-	while (fine < XBLAMESH_MAXFINE && reach * (fine * 2) <= XBLAMESH_FINEROOM) {
-		fine *= 2;
-	}
-
-	return fine;
-}
-
-/**
  * Poses one mesh into a copy of its vertices, and hands back the copy.
  *
  * Palette entry i is posed by whatever the game has done to the node carrying
@@ -2886,24 +2787,14 @@ static s32 xblaMeshPoseFineness(const struct xblameshbuilt *m, const Mtxf *pal)
  * what keeps the vertices small enough to be the s16 a Perfect Dark vertex
  * holds - they come out in the first part's own space rather than the view's.
  *
- * The copy is written **finer than the game's units**, and the matrix it is
- * drawn under is handed back divided by the same number. See
- * xblaMeshPoseFineness() for why, and for what picks the number.
- *
  * NULL when there is no room this frame, and the caller draws the bind pose.
  */
-static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *root,
-		Mtxf **outmtx, s32 *outfine)
+static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *root)
 {
 	Mtxf pal[XBLAMESH_MAXMTX];
 	Mtxf invroot;
 	Vtx *out;
-	Mtxf *fmtx = NULL;
 	s32 posable;
-	s32 fine;
-
-	*outmtx = NULL;
-	*outfine = 1;
 
 	if (m->nummatrices > XBLAMESH_MAXMTX || !model->definition) {
 		return NULL;
@@ -3010,41 +2901,6 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		}
 	}
 
-	// How finely this pose can be written down, and the matrix that takes the
-	// fineness back out. A mesh whose posed vertices will not fit any finer
-	// than the game's own units gets no copy and no division, and is written
-	// exactly as it was before.
-	fine = xblaMeshPoseFineness(m, pal);
-
-	if (fine > 1) {
-		fmtx = xblaMeshFrameAlloc(sizeof(Mtxf));
-
-		if (fmtx) {
-			const f32 inv = 1.0f / fine;
-
-			for (s32 r = 0; r < 3; r++) {
-				for (s32 c = 0; c < 4; c++) {
-					fmtx->m[r][c] = root->m[r][c] * inv;
-				}
-			}
-
-			// The translation is not divided: it is where the whole thing
-			// stands, and the vertices multiplied by `fine` are what the
-			// divided rows are there to bring back to the game's units.
-			for (s32 c = 0; c < 4; c++) {
-				fmtx->m[3][c] = root->m[3][c];
-			}
-		} else {
-			// No room for the matrix. The vertices have not been written yet,
-			// so this simply goes back to what it did before rather than
-			// drawing a mesh sixteen times its size.
-			fine = 1;
-		}
-	}
-
-	*outmtx = fmtx;
-	*outfine = fine;
-
 	for (s32 i = 0; i < m->numvertices; i++) {
 		const f32 *pos = &m->bindpos[i * 3];
 		const f32 *weight = &m->weights[i * 3];
@@ -3073,9 +2929,9 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		}
 
 		out[i] = m->vertices[i];
-		out[i].x = xblaMeshRound(x * fine);
-		out[i].y = xblaMeshRound(y * fine);
-		out[i].z = xblaMeshRound(z * fine);
+		out[i].x = xblaMeshRound(x);
+		out[i].y = xblaMeshRound(y);
+		out[i].z = xblaMeshRound(z);
 	}
 
 	if (xblaMeshVerbose && m->posedlog == 1) {
@@ -3096,10 +2952,8 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE, "xblamesh:   posed box [%d %d %d]..[%d %d %d], "
-				"written in %ds of a unit",
-				lo[0] / fine, lo[1] / fine, lo[2] / fine,
-				hi[0] / fine, hi[1] / fine, hi[2] / fine, fine);
+		sysLogPrintf(LOG_NOTE, "xblamesh:   posed box [%d %d %d]..[%d %d %d]",
+				lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
 	}
 
 	return out;
@@ -3352,10 +3206,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	struct xblameshentry *e;
 	struct xblameshbuilt *m;
 	struct xblameshuse *use;
-	Mtxf *finemtx = NULL;
-	s32 fine = 1;
 	Mtxf *root;
-	Mtxf *drawmtx = NULL;
 	Vtx *posed;
 	Gfx *list;
 	Gfx *xlulist = NULL;
@@ -3542,9 +3393,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			if (m->posedmodel == model && m->posedframe == frameCount &&
 					m->posedvtx) {
 				pose = m->posedvtx;
-				finemtx = m->posedmtx;
 			} else {
-				pose = xblaMeshPose(m, model, root, &finemtx, &fine);
+				pose = xblaMeshPose(m, model, root);
 
 				// Not remembered when there was no room this frame, so that
 				// the next part tries again rather than inheriting a miss.
@@ -3552,19 +3402,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 					m->posedmodel = model;
 					m->posedframe = frameCount;
 					m->posedvtx = pose;
-					m->posedmtx = finemtx;
-					m->posedfine = fine;
 				}
 			}
 
 			if (pose) {
 				posed = pose;
-
-				// The pose was written finer than the game's units, so it goes
-				// under the matrix that takes that back out rather than under
-				// the bone's own. A pose that could not be taken any finer
-				// leaves this NULL and the bone's matrix stands.
-				drawmtx = finemtx;
 			} else if (xblaMeshVerbose) {
 				// Only reachable now at the cap or on a failed malloc: the
 				// arena adds a chunk for anything under it, in the frame that
@@ -3596,16 +3438,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		sysLogPrintf(LOG_NOTE, "xblamesh: draw %d: slot %d node %p model %p, "
 				"part %d of %d groups, %d palette entries, %s",
 				xblaMeshDrawLog, e->slot, node, model, e->part, m->numgroups,
-				m->nummatrices, posed == m->vertices ? "bind pose" :
-				m->posedfine > 1 ? "posed, in fractions of a unit" : "posed");
+				m->nummatrices, posed == m->vertices ? "bind pose" : "posed");
 	}
 
-	if (!drawmtx) {
-		drawmtx = root;
-	}
-
-	if (drawmtx) {
-		gSPMatrix(renderdata->gdl++, osVirtualToPhysical(drawmtx),
+	if (root) {
+		gSPMatrix(renderdata->gdl++, osVirtualToPhysical(root),
 				G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 	}
 
@@ -3641,18 +3478,6 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		gDPPipeSync(renderdata->gdl++);
 		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
 		gSPDisplayList(renderdata->gdl++, xlulist);
-	}
-
-	// Put the bone's own matrix back, because the divided one is this list's
-	// business and nobody else's. A display list node does not load a matrix -
-	// a chr is drawn under one matrix for the whole model, with the pose baked
-	// into its vertices - so whatever is loaded here is what the next node
-	// inherits, and a node that kept its own geometry would draw at a
-	// sixteenth of its size. This leaves behind exactly what a mesh drawn
-	// without the division leaves behind.
-	if (drawmtx != root && root) {
-		gSPMatrix(renderdata->gdl++, osVirtualToPhysical(root),
-				G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 	}
 
 	if (xblaMeshVerbose) {
