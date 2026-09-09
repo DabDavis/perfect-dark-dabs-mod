@@ -3668,6 +3668,13 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		alpha = chrGetCloakAlpha(chr) * alpha * 0.0039215688593686f;
 	}
 
+#ifndef PLATFORM_N64
+	// The player's own body while a cutscene's camera swoops into its head.
+	if (prop->type == PROPTYPE_PLAYER) {
+		alpha = alpha * playerGetCutsceneBodyAlphaFrac(prop);
+	}
+#endif
+
 	if (alpha < 0xff) {
 		if (!xlupass) {
 			return gdl;

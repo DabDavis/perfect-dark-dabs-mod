@@ -3680,6 +3680,63 @@ bool playerIsThirdPerson(struct player *player)
 
 #ifndef PLATFORM_N64
 /**
+ * How much of the player's own body to draw while a cutscene's camera tweens
+ * into their eyes: 1 for all of it, 0 for none.
+ *
+ * A cutscene that ends with a tween (the Institute's typing scene behind the
+ * Perfect Menu is the one every player sees) slerps the camera over its last
+ * frames from the animation's last shot into the player's eye, and the body
+ * that acted the scene is still standing there while it does. The last third
+ * of the swoop is spent inside the head: the back of the skull fills the frame,
+ * then the inside of the face and eyes, and only then does the tick after the
+ * last frame take the body down. The eased position curve covers most of the
+ * distance in those last frames, so the fade is keyed to how far the camera
+ * still has to go rather than to the tween's fraction.
+ *
+ * Applied in chrRender() as a multiplier on the body's alpha, which puts the
+ * fading body through the translucent pass the way cloaking does. It only ever
+ * bites on the current player's own prop, so other players' bodies in a coop
+ * cutscene, and the body's shot-at and walked-around presence, are untouched.
+ */
+f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop)
+{
+	struct player *player;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+	f32 dist;
+	const f32 gonewithin = 40; // inside the head, whatever the model
+	const f32 fullbeyond = 100; // the shot behind the shoulder is still intact
+
+	if (g_Vars.tickmode != TICKMODE_CUTSCENE
+			|| g_CutsceneTweenDuration60 <= 0
+			|| g_CutsceneTweenFrac <= 0
+			|| prop->type != PROPTYPE_PLAYER
+			|| playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum) {
+		return 1;
+	}
+
+	player = g_Vars.currentplayer;
+
+	dx = player->cam_pos.x - player->bond2.unk10.x;
+	dy = player->cam_pos.y - player->bond2.unk10.y;
+	dz = player->cam_pos.z - player->bond2.unk10.z;
+	dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+	if (dist <= gonewithin) {
+		return 0;
+	}
+
+	if (dist >= fullbeyond) {
+		return 1;
+	}
+
+	return (dist - gonewithin) / (fullbeyond - gonewithin);
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
  * Put the weapons the player is holding into the body's hands, and take out
  * the ones they are not.
  *

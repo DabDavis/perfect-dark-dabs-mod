@@ -79,6 +79,7 @@ s32 playerGetMissionTime(void);
 s32 playerTickBeams(struct prop *prop);
 s32 playerTickThirdPerson(struct prop *prop);
 bool playerIsThirdPerson(struct player *player);
+f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop);
 f32 playerGetShotOriginPullback(void);
 #ifndef PLATFORM_N64
 bool playerGetCameraToEyeOffset(struct coord *offset);
