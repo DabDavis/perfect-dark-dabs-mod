@@ -124,6 +124,19 @@ void texpackRefreshPacks(void);
 s32 texpackGetNumPacks(void);
 const char *texpackGetPackName(s32 index);
 
+/**
+ * Where a pack goes to be listed, absolute, or NULL if neither candidate
+ * directory can be written. What Community Packs downloads into.
+ */
+const char *texpackGetPacksDirPath(void);
+
+/**
+ * Select a pack by name, re-reading the list first - for one that has just
+ * been installed and is not in the list yet. Returns 0 if there is no such
+ * pack.
+ */
+s32 texpackSelectPackByName(const char *name);
+
 /** The index into the pack list, or -1 for none. */
 s32 texpackGetSelectedPack(void);
 void texpackSetSelectedPack(s32 index);

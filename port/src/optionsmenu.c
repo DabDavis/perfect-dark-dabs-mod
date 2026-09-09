@@ -4752,6 +4752,17 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		menuhandlerTexturePackDelete,
 	},
 	{
+		// Packs other people have made, fetched from their own release pages.
+		// Above the separator with the pack list rather than below it with the
+		// tools, because installing one is the same act as choosing one.
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Community Packs...\n",
+		0,
+		(void *)&g_CommunityMenuDialog,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,

@@ -33,6 +33,7 @@
 
 #include "texpack.h"
 #include "xblatex.h"
+#include "menuimage.h"
 #include "gfx_texscale.h"
 
 uintptr_t gfxFramebuffer;
@@ -1362,6 +1363,26 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // checksum and the raw dump both want the real pitch.
     const uint32_t tex_row_bytes =
         rdp.texture_tile[tile].line_size_bytes * (siz == G_IM_SIZ_32b ? 2 : 1);
+
+    // A picture the menu draws that is not one of the game's textures - a
+    // community pack's cover art. Like the meshes' textures below it, what the
+    // list binds is a stand-in tile whose address is the picture's name, so
+    // nothing keyed on a texture number could find it. First because it is the
+    // shortest test of the three: a handful of addresses, and only while such
+    // a page is open.
+    if (menuImageHaveImages()) {
+        int32_t rep_width;
+        int32_t rep_height;
+        uint8_t* rep = menuImageLoadReplacement(orig_addr, &rep_width, &rep_height);
+
+        if (rep) {
+            import_enhance_scale = 1; // a picture at the size it was drawn
+            gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
+            menuImageFreeReplacement(rep);
+            rendering_state.textures[i]->second.replaced = true;
+            return;
+        }
+    }
 
     // The XBLA meshes' own textures. They are records in the release's
     // Textures.raw past the ones that carry a texture number, so no pack can

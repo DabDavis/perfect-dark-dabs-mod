@@ -28,6 +28,7 @@
 #include "record.h"
 #include "screenshot.h"
 #include "texpack.h"
+#include "community.h"
 #include "xblaimport.h"
 
 /*
@@ -298,6 +299,7 @@ void schedEndFrame(OSSched *sc)
 	// taken in that frame's pre-swap callback, one frame after the key press.
 	screenshotTick();
 	texpackTick();
+	communityTick();
 	xblaImportTick();
 	recordTick();
 

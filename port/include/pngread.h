@@ -18,6 +18,12 @@ extern "C" {
  */
 u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight);
 
+/**
+ * The same, over a PNG already in memory - a picture built into the binary
+ * rather than installed beside it. name is only used in the log.
+ */
+u8 *pngReadMem(const void *data, u32 size, const char *name, s32 *outWidth, s32 *outHeight);
+
 #ifdef __cplusplus
 }
 #endif

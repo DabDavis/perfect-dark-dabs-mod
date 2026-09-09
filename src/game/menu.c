@@ -3981,6 +3981,7 @@ Gfx *menuRenderDialogs(Gfx *gdl)
 	// And the update page's download bar, for the same reason: a menu item
 	// cannot draw, and this is a bar rather than a row.
 	gdl = updatemenuRenderProgress(gdl);
+	gdl = communitymenuRenderProgress(gdl);
 #endif
 
 	return gdl;

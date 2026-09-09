@@ -127,6 +127,28 @@ sure it's on your `PATH`, or point `Mod.RecordEncoder` in `pd.ini` at the
 binary. Frame rate, quality and the on-screen red dot are in the options page.
 Screenshots need nothing extra.
 
+### Texture packs
+
+A pack goes in **`texture-packs/`** beside the executable - a folder, or the
+`.zip` or `.7z` it came in - and is chosen in Extended Options under **Texture
+Packs**, where **Use Texture Packs** turns the whole thing on. F8 toggles packs
+in play, F9 re-reads the one you are using, F10 steps to the next.
+
+**Community Packs**, on that page, does the whole of that for you for the packs
+it knows about: it asks the pack's own release page which version is current,
+downloads it, checks it against the hash the release publishes, unpacks it and
+selects it. It also writes the row-order marker a pack needs when its images
+are stored the way an emulator wants them, which is the one thing that is
+invisible when a pack is installed by hand and turns every texture in the game
+upside down when it is missing.
+
+The list is short and everything on it is somebody else's work, credited on the
+page with a link to where it came from:
+
+| Pack | By |
+| - | - |
+| PD Plus HD Textures | Parabolee of Retro Foundry |
+
 ## Mods
 
 The port can mount mod directories, and this fork extends that to stages,

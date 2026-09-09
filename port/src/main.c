@@ -10,6 +10,7 @@
 #include "game/modghost.h"
 #include "ghostnet.h"
 #include "update.h"
+#include "community.h"
 #include "game/modspectate.h"
 #include "game/stagetable.h"
 #include "game/mplayer/mplayer.h"
@@ -130,6 +131,10 @@ static void cleanup(void)
 	// but quitting between the two renames that swap the binary would leave
 	// the game somewhere it cannot be started from.
 	updateShutdown();
+
+	// And a community pack download, which is the same bargain: giving up on
+	// one leaves a file under a dotted name that the next install overwrites.
+	communityShutdown();
 
 	// Last, and only if Check for Updates put a new build in place. It goes
 	// here rather than after mainProc() because what starts must not be

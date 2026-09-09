@@ -3415,6 +3415,42 @@ void texpackReload(void)
 			packName[0] ? packName : "textures (no pack selected)");
 }
 
+/**
+ * Where an installed pack goes, for whatever installs one.
+ *
+ * The same folder texpackRefreshPacks() lists, and the only writable answer -
+ * see texpackPacksDir(). NULL when neither place can be written, which is the
+ * one condition worth reporting to a player who pressed Install.
+ */
+const char *texpackGetPacksDirPath(void)
+{
+	return texpackPacksDir();
+}
+
+/**
+ * Select a pack by the name the list shows, re-reading the list first.
+ *
+ * For a pack that has just appeared on disk: the list is a snapshot and
+ * texpackGetNumPacks() will happily answer out of one taken before the folder
+ * existed. Returns 0 if nothing of that name is installed.
+ */
+s32 texpackSelectPackByName(const char *name)
+{
+	s32 i;
+
+	packsListed = 0;
+	texpackRefreshPacks();
+
+	for (i = 0; i < numPacks; i++) {
+		if (!strcasecmp(packs[i].name, name)) {
+			texpackSetSelectedPack(i);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 void texpackSetSelectedPack(s32 index)
 {
 	const char *name = (index >= 0 && index < texpackGetNumPacks()) ? packs[index].name : "";

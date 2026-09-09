@@ -357,3 +357,80 @@ under Xvfb: "GoldenEye X", "Select File", "New Agent..." in the pack's font.
 
 Several characters can share one tile (and so one checksum); the pack has one
 image for all of them, and `texpackGlyphMatches()` returns every one.
+
+## Community Packs: installing one from inside the game (2026-09-09)
+
+Extended Options -> Texture Packs -> **Community Packs** is a short list of
+packs other people make, with the pack's own cover art, that downloads,
+verifies, unpacks and selects one. `port/src/community.c` is the work and
+`port/src/communitymenu.c` is the page; the shape is `update.c`'s, one worker
+and a menu that polls, because the problem is `update.c`'s.
+
+**What is in the binary is the pack, not the release.** The catalogue holds who
+made it, what it looks like and which file in a release is the one for this
+port; the version, the size, the URL and the hash come from
+`api.github.com/repos/<repo>/releases/latest` every time the page opens. A
+table of URLs would be wrong the week after it shipped, and a player on an old
+build would install an old pack. The file is picked out of the release by
+substring (`match`, and `avoid` for the ones that look like it - the PD Plus
+release carries a Quest build and a spare set of textures beside the pack);
+largest wins among equals, and if nothing matches at all the largest archive is
+taken and the log says so, so a rename is a wrong guess rather than a dead
+page.
+
+**It is unpacked at install time rather than left as an archive**, which is the
+other way a pack can be installed (`texpackResolveSelected()` unpacks one into
+`texture-packs/.cache/` on first use). Two reasons: the row order marker below
+has to go somewhere the scan will read, and that cache copy does not exist
+until after the pack has been selected; and an archive left in place costs its
+own size on disk for ever beside the copy that was unpacked from it.
+
+**The marker is the point.** `bottomup.txt` is written into the installed folder
+whenever the catalogue says a pack is in N64 row order - which is every pack
+built for an emulator or the VR fork, so all of them so far. Until v0.09 the PD
+Plus pack's top folder was called `ext_tex`, which the loader recognises by
+itself; v0.09 renamed it to `PD Plus HD`, and **the pack downloaded by hand
+from that release loads upside down**. Nothing else on disk says which way up a
+pack is, the catalogue knows, and this is where it gets written down.
+
+**The cover art is a picture, and the menus cannot draw one.** Everything the
+menus put on screen is a texture number and a texture number is a record in the
+ROM, so `port/src/menuimage.c` does what `xblatex.c` does: the display list
+binds a 16x16 stand-in tile, and `import_texture()` swaps the real picture in
+against that tile's *address* (the hook is first of the three, ahead of the
+XBLA meshes' and the pack's). The tile's texels are never read; the tile it
+declares is what the texture coordinates are measured against, so a rectangle
+over the whole tile is the whole picture whatever size the picture is.
+
+Two things that were got wrong writing it:
+
+- **The picture is not turned over.** A pack's PNG is flipped on load, so the
+  first version of this flipped too and drew Joanna standing on her head. The
+  flip in `texpack.c` is because a pack is drawn from a *dump*, and a dump is
+  written the right way up for editing; what the renderer uploads is the top
+  row first. `pd-texture-data-is-bottom-up` is about the dump end, not this
+  end.
+- **The row's height comes from `textMeasure()`, not from arithmetic.** The
+  poster sits in a `MENUITEMTYPE_LABEL` of nine blank lines with
+  `MENUITEMFLAG_LIST_CUSTOMRENDER`, which is the menu's own way of handing an
+  item's rectangle to something that draws. `renderdata` gives x, y and width
+  but no height, and `lines * LINEHEIGHT` is two lines more than the label
+  actually got - the picture drew over the button underneath it, which reads
+  as a rendering fault rather than a layout one. Measuring the same string the
+  item holds is exact and cannot drift.
+
+The picture is a PNG compiled in (`port/src/communityart.c`, written by
+`tools/mkmenuimage`, 256 colours at 256x384 - a third of the bytes of
+truecolour and no difference on screen), decoded once on the render thread and
+kept: the renderer's cache is dropped every time a pack is switched, so a
+decode that was handed over would happen again each time.
+
+**Two things moved out of the way to be shared**: SHA-256 is
+`port/src/sha256.c` now rather than a static in `update.c`, and
+`ghostnetJsonField()` is declared in `ghostnet.h` - a GitHub release is JSON
+and the ghost server was the only thing that had needed a reader.
+
+The worker stops at "the files are on disk". `communityTick()`, from the
+scheduler beside `texpackTick()`, does the rest - rescanning the folder,
+selecting the new pack, switching packs on if they were off - because all of
+that is the game thread's.

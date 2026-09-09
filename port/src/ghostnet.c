@@ -191,7 +191,7 @@ static void ghostnetSetResult(s32 state, const char *msg)
  * dependency. It is still written to survive nonsense: nothing is copied
  * without a length, and a key that is not there simply is not found.
  */
-static bool ghostnetJsonField(const char *json, const char *end, const char *key,
+bool ghostnetJsonField(const char *json, const char *end, const char *key,
 		char *out, u32 outsize)
 {
 	// What JSON writes an escape as, and what it means.

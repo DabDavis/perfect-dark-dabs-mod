@@ -123,6 +123,22 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		s32 *status, char *err, u32 errsize);
 
 /**
+ * Pull one value out of a flat JSON object, into a bounded buffer.
+ *
+ * A scanner rather than a parser, for replies that are small and flat - see
+ * the comment on the definition. end bounds the search to one object, which is
+ * what makes it usable over an array: without it a field missing from one
+ * element is answered with the next element's. NULL means "to the end of the
+ * string".
+ *
+ * Here rather than private to ghostnet.c because the ghost server is no longer
+ * the only thing answered in JSON: Community Packs reads a GitHub release the
+ * same way.
+ */
+bool ghostnetJsonField(const char *json, const char *end, const char *key,
+		char *out, u32 outsize);
+
+/**
  * How many ghost accounts this machine remembers, the active one included.
  *
  * Four because a shared machine is a couch with a few people on it rather than

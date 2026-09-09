@@ -18,6 +18,10 @@ Gfx *ghostmenuRenderOverlay(Gfx *gdl);
 extern struct menudialogdef g_RandomizerMenuDialog;
 extern struct menudialogdef g_UpdateMenuDialog;
 Gfx *updatemenuRenderProgress(Gfx *gdl);
+// Community Packs, under Texture Packs. Its download bar is drawn the same
+// way and for the same reason - port/src/communitymenu.c.
+extern struct menudialogdef g_CommunityMenuDialog;
+Gfx *communitymenuRenderProgress(Gfx *gdl);
 #endif
 extern struct menudialogdef g_PreAndPostMissionBriefingMenuDialog;
 extern struct menudialogdef g_RetryMissionMenuDialog;

@@ -353,13 +353,19 @@ static void pngRowToRgba(const struct pngstate *st, const u8 *src, u8 *dst, s32 
 	}
 }
 
-u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
+/**
+ * The decode, over a whole PNG already in memory.
+ *
+ * Split out from pngRead() for the pictures the game carries inside itself - a
+ * community pack's cover art is bytes in the binary rather than a file on disk
+ * - so that a file and a blob go through the same decoder rather than a second
+ * one written for the easy case. path is only ever used to say which image a
+ * complaint is about.
+ */
+static u8 *pngDecode(const u8 *file, u32 fileSize, const char *path, s32 *outWidth, s32 *outHeight)
 {
 	static const u8 signature[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
 	struct pngstate st;
-	FILE *f;
-	long fileSize;
-	u8 *file = NULL;
 	u8 *idat = NULL;
 	u32 idatSize = 0;
 	u8 *rows = NULL;
@@ -374,43 +380,17 @@ u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
 
 	memset(&st, 0, sizeof(st));
 
-	f = fopen(path, "rb");
-
-	if (!f) {
-		sysLogPrintf(LOG_ERROR, "png: could not open %s", path);
-		return NULL;
-	}
-
-	if (fseek(f, 0, SEEK_END) != 0 || (fileSize = ftell(f)) < 8 || fseek(f, 0, SEEK_SET) != 0) {
-		fclose(f);
-		sysLogPrintf(LOG_ERROR, "png: could not size %s", path);
-		return NULL;
-	}
-
-	file = malloc((size_t)fileSize);
-
-	if (!file || fread(file, 1, (size_t)fileSize, f) != (size_t)fileSize) {
-		fclose(f);
-		free(file);
-		sysLogPrintf(LOG_ERROR, "png: could not read %s", path);
-		return NULL;
-	}
-
-	fclose(f);
-
-	if (memcmp(file, signature, sizeof(signature))) {
-		free(file);
+	if (fileSize < 8 || memcmp(file, signature, sizeof(signature))) {
 		sysLogPrintf(LOG_ERROR, "png: %s is not a PNG", path);
 		return NULL;
 	}
 
 	st.file = file;
-	st.fileSize = (u32)fileSize;
+	st.fileSize = fileSize;
 
 	idat = pngGatherChunks(&st, path, &idatSize);
 
 	if (!idat) {
-		free(file);
 		return NULL;
 	}
 
@@ -522,7 +502,6 @@ u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
 
 	free(rows);
 	free(idat);
-	free(file);
 
 	*outWidth = st.width;
 	*outHeight = st.height;
@@ -535,7 +514,53 @@ fail:
 	free(rows);
 	free(rgba);
 	free(idat);
-	free(file);
 
 	return NULL;
+}
+
+u8 *pngRead(const char *path, s32 *outWidth, s32 *outHeight)
+{
+	FILE *f;
+	long fileSize;
+	u8 *file;
+	u8 *rgba;
+
+	f = fopen(path, "rb");
+
+	if (!f) {
+		sysLogPrintf(LOG_ERROR, "png: could not open %s", path);
+		return NULL;
+	}
+
+	if (fseek(f, 0, SEEK_END) != 0 || (fileSize = ftell(f)) < 8 || fseek(f, 0, SEEK_SET) != 0) {
+		fclose(f);
+		sysLogPrintf(LOG_ERROR, "png: could not size %s", path);
+		return NULL;
+	}
+
+	file = malloc((size_t)fileSize);
+
+	if (!file || fread(file, 1, (size_t)fileSize, f) != (size_t)fileSize) {
+		fclose(f);
+		free(file);
+		sysLogPrintf(LOG_ERROR, "png: could not read %s", path);
+		return NULL;
+	}
+
+	fclose(f);
+
+	rgba = pngDecode(file, (u32)fileSize, path, outWidth, outHeight);
+
+	free(file);
+
+	return rgba;
+}
+
+u8 *pngReadMem(const void *data, u32 size, const char *name, s32 *outWidth, s32 *outHeight)
+{
+	if (data == NULL || size == 0) {
+		return NULL;
+	}
+
+	return pngDecode(data, size, name ? name : "image", outWidth, outHeight);
 }
