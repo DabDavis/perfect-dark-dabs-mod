@@ -116,10 +116,10 @@ static s32 g_JobUploadSkipped = 0;
 #define GHOSTNET_MAXREPLY (8 * 1024 * 1024)
 
 // A reply written straight to a file is not held in memory and is deliberately
-// allowed to be larger - an Upscayl model is 32MB and the executable the
-// updater fetches is 21MB, both well over the cap above. It is still a cap: a
-// server answering a request for a 30MB file with an endless stream should not
-// be able to fill the player's disk.
+// allowed to be larger - the executable the updater fetches is 21MB and the
+// encoder recording pulls down is 73MB, both well over the cap above. It is
+// still a cap: a server answering a request for a 30MB file with an endless
+// stream should not be able to fill the player's disk.
 #define GHOSTNET_MAXSINK (256 * 1024 * 1024)
 #define GHOSTNET_TIMEOUT  20L
 
@@ -1613,7 +1613,7 @@ void ghostnetClearState(void) { }
  * The one seam every caller goes through, answered here so that none of them
  * has to know whether a transport was built in.
  *
- * The updater and the Upscayl download are not ghost server features and are
+ * The updater and the encoder download are not ghost server features and are
  * guarded by nothing of their own - they simply want an HTTP request. Stubbing
  * the seam is what keeps a build with no transport linking, rather than
  * scattering the same #ifdef through every caller.

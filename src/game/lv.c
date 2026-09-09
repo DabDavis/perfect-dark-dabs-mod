@@ -1485,13 +1485,6 @@ Gfx *lvRender(Gfx *gdl)
 				if (var80075d60 == 2) {
 					gdl = playerRenderHud(gdl);
 
-#ifndef PLATFORM_N64
-					// While a texture pack is being built. Drawn with the HUD
-					// because that is the 2D pass over the world; menuRender()
-					// only runs when the menu system is up.
-					gdl = upscalemenuRenderOverlay(gdl);
-#endif
-
 #ifdef DEBUG
 					gdl = lvRenderManPosIfEnabled(gdl);
 #endif

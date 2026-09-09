@@ -926,8 +926,8 @@ s32 xblaImportGetPercent(void)
 /**
  * --xbla-import: convert a pack and stop, without touching the menus.
  *
- * The same use as --upscayl-build: setting a machine up without sitting in
- * front of it, and the only way to exercise the conversion in a headless run.
+ * For setting a machine up without sitting in front of it, and the only way to
+ * exercise the conversion in a headless run.
  */
 void xblaImportFromCommandLine(void)
 {

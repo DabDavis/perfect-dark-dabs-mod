@@ -18,8 +18,6 @@ Gfx *ghostmenuRenderOverlay(Gfx *gdl);
 extern struct menudialogdef g_RandomizerMenuDialog;
 extern struct menudialogdef g_UpdateMenuDialog;
 Gfx *updatemenuRenderProgress(Gfx *gdl);
-Gfx *upscalemenuRenderProgress(Gfx *gdl);
-Gfx *upscalemenuRenderOverlay(Gfx *gdl);
 #endif
 extern struct menudialogdef g_PreAndPostMissionBriefingMenuDialog;
 extern struct menudialogdef g_RetryMissionMenuDialog;

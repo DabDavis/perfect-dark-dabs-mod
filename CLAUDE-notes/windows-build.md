@@ -20,7 +20,7 @@ The toolchain file expects a prefix at `~/.local/mingw64`, built once:
   fast3d is C++.
 
 Watch the configure output for `using WinHTTP - ghost server support enabled`;
-without it the updater and the Upscayl download are compiled out.
+without it the updater and the encoder download are compiled out.
 
 Running it under wine: copy `SDL2.dll` from the prefix and
 `/usr/lib/gcc/x86_64-w64-mingw32/*-win32/libgcc_s_seh-1.dll` next to the exe, put

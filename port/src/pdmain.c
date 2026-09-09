@@ -75,7 +75,6 @@
 #include "system.h"
 #include "record.h"
 #include "texpack.h"
-#include "upscale.h"
 #include "xblaimport.h"
 #include "modloader.h"
 
@@ -256,8 +255,6 @@ void mainInit(void)
 	utilsInit();
 	texInit();
 	texpackDumpAll(); // --dump-textures only; exits when it does anything
-	upscaleFetchFromCommandLine(); // --upscayl-fetch only; likewise
-	upscaleBuildFromCommandLine(); // --upscayl-build only; likewise
 	xblaImportInit(); // makes xbla/ and finds what the player put in it
 	xblaImportFromCommandLine(); // --xbla-import only; likewise
 	recordFetchFromCommandLine(); // --fetch-ffmpeg only; likewise

@@ -93,8 +93,8 @@ void recordSetEnabled(s32 enabled);
  *
  * Only Windows does anything here; on Linux and macOS ffmpeg is a package and
  * recordEncoderIsMissing() is always false, so the menu row never offers a
- * download nobody needs. The shape is the Upscayl page's: ask first, say how
- * big, then a worker fetches it while the game carries on.
+ * download nobody needs. The shape is the updater's: ask first, say how big,
+ * then a worker fetches it while the game carries on.
  */
 s32 recordEncoderIsMissing(void);
 s32 recordEncoderDownloadMb(void);

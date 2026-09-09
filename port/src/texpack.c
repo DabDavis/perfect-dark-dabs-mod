@@ -52,10 +52,6 @@
 // it when listing packs. TEXPACK_PACKS_DIR is in texpack.h, because anything
 // that builds a pack has to write it where the scan will find it.
 
-// Packs the Upscayl page built. Kept apart from the ones a player
-// installed, but offered in the same list, because to the loader they are
-// the same thing.
-#define TEXPACK_UPSCAYL_DIR "upscayl-packs"
 #define TEXPACK_CACHE_DIR ".cache"
 #define TEXPACK_MAXPACKS 32
 #define TEXPACK_NAMELEN 48
@@ -2313,34 +2309,6 @@ static const char *texpackPacksDir(void)
 	return dir;
 }
 
-/**
- * The upscayl-packs folder, if it has been made. Not created on demand: the
- * Upscayl page makes it when it builds something, and a folder that appears
- * for everyone whether or not they use it is clutter.
- */
-static const char *texpackUpscaylPacksDir(void)
-{
-	static char dir[FS_MAXPATH + 1];
-
-	// Looked for every time rather than remembered. The Upscayl page creates
-	// this folder when it builds something, which is usually after the list
-	// has already been read once - so a remembered "not there" would hide the
-	// pack the player just spent ten minutes making.
-	snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$E"));
-
-	if (fsFileSize(dir) >= 0) {
-		return dir;
-	}
-
-	snprintf(dir, sizeof(dir), "%s/" TEXPACK_UPSCAYL_DIR, fsFullPath("$S"));
-
-	if (fsFileSize(dir) >= 0) {
-		return dir;
-	}
-
-	return NULL;
-}
-
 void texpackRefreshPacks(void)
 {
 	const char *dir;
@@ -2349,12 +2317,6 @@ void texpackRefreshPacks(void)
 	packsListed = 1;
 
 	dir = texpackPacksDir();
-
-	if (dir) {
-		fsScanDir(dir, texpackListEntry, (void *)dir);
-	}
-
-	dir = texpackUpscaylPacksDir();
 
 	if (dir) {
 		fsScanDir(dir, texpackListEntry, (void *)dir);
@@ -3466,27 +3428,20 @@ void texpackSetSelectedPack(s32 index)
 /**
  * Removes a directory and its contents, to a bounded depth.
  *
- * Deliberately unhelpful: it refuses anything that is not inside one of the
- * pack folders, and it does not follow directory symlinks - remove() takes the
- * link and leaves whatever it pointed at alone. A pack is not worth deleting a
- * tree over unless it is certain which tree that is.
+ * Deliberately unhelpful: it refuses anything that is not inside the pack
+ * folder, and it does not follow directory symlinks - remove() takes the link
+ * and leaves whatever it pointed at alone. A pack is not worth deleting a tree
+ * over unless it is certain which tree that is.
  */
 static s32 texpackPathIsInPacksDir(const char *path)
 {
-	const char *roots[2];
-	u32 i;
+	const char *root = texpackPacksDir();
+	const u32 len = root ? strlen(root) : 0;
 
-	roots[0] = texpackPacksDir();
-	roots[1] = texpackUpscaylPacksDir();
-
-	for (i = 0; i < 2; i++) {
-		const u32 len = roots[i] ? strlen(roots[i]) : 0;
-
-		// Inside it, not merely starting with its name: "texture-packsX" is
-		// not "texture-packs/X".
-		if (len && !strncmp(path, roots[i], len) && path[len] == '/' && path[len + 1]) {
-			return 1;
-		}
+	// Inside it, not merely starting with its name: "texture-packsX" is not
+	// "texture-packs/X".
+	if (len && !strncmp(path, root, len) && path[len] == '/' && path[len + 1]) {
+		return 1;
 	}
 
 	return 0;
@@ -3516,10 +3471,9 @@ static void texpackDeleteTree(const char *path, s32 depth)
 	snprintf(marker, sizeof(marker), "%s/" TEXPACK_DONE_FILE, path);
 	remove(marker);
 
-	// Same reason upscalePurgeDir() goes round more than once: removing
-	// entries while reading the directory need not visit all of them. And the
-	// same stop condition - a pass that removed nothing will not do better on
-	// the next one.
+	// Round more than once: removing entries while reading the directory need
+	// not visit all of them. The stop condition is a pass that removed
+	// nothing, which will not do better on the next one.
 	for (i = 0; i < 8; i++) {
 		const s32 left = fsScanDir(path, texpackDeleteEntry, &scan);
 

@@ -60,10 +60,10 @@
  * Where a Windows player gets an encoder from.
  *
  * Nothing is bundled. ffmpeg is not ours to ship, the game spawns it rather
- * than linking it - which is the same arrangement the upscaler has, and the
- * reason neither one's licence reaches the release - and on Linux and macOS it
- * is a package away and usually already there. Windows has no such thing, so
- * the encoder is offered as a download the first time recording is switched on.
+ * than linking it, which is the reason its licence does not reach the release
+ * - and on Linux and macOS it is a package away and usually already there.
+ * Windows has no such thing, so the encoder is offered as a download the first
+ * time recording is switched on.
  *
  * The official FFmpeg repository publishes source and no binaries, so this
  * comes from BtbN's builds, which are the ones everything else points at. The
@@ -86,7 +86,7 @@
 #define RECORD_FFMPEG_MB    73
 #define RECORD_FFMPEG_DISK  165
 
-// Where it lands, beside the game the way the upscaler does.
+// Where it lands, beside the game the way screenshots and packs do.
 #define RECORD_FFMPEG_DIR   "ffmpeg"
 
 // What the encoder detection encodes: three frames of black, big enough that no
