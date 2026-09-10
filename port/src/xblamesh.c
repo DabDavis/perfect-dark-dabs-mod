@@ -69,6 +69,12 @@
  */
 #define XBLAMESH_BATCH 25
 
+// The three spans a group's draws are sorted into; what each one is, is
+// explained above xblaMeshDrawSpan().
+#define XBLAMESH_SPAN_SOLID 0
+#define XBLAMESH_SPAN_ALPHA 1
+#define XBLAMESH_SPAN_FADE  2
+
 // The two strides, unskinned and skinned. Everything before the weights is
 // laid out the same in both.
 #define XBLAMESH_STRIDE_RIGID 36
@@ -1658,6 +1664,10 @@ struct xblameshbuilder {
 	s32 numvtx, capvtx;
 	s32 numtris;
 
+	// Which span of the group is being built, which is what says whether a
+	// vertex's alpha is kept - see xblaMeshAddVertex().
+	s32 span;
+
 	// The batch being filled: which mesh vertex is in each slot, where its
 	// vertices start, and the two commands reserved at its head for the colour
 	// table and the vertex load, which cannot be written until the batch is
@@ -1841,11 +1851,17 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 	// ARGB. The alpha is real: the roof fan's column of light is written
 	// with 0x7d at the fan and 0 at the top, and that fade is the whole of
 	// what makes it a beam rather than a slab - see xblaMeshDrawFades().
+	//
+	// Kept only in the fading span. Everywhere else it goes in as 255, because
+	// the combiner the game lights a model with reads the vertex alpha - mode 7
+	// is (texel - env) * shade alpha + env - and the three opaque models with
+	// a few stray zeros on a vertex would draw those vertices in the
+	// environment tint, a dark red, where the release means nothing by them.
 	colour = xblaMeshBE32(v + 32);
 	col->r = (u8)(colour >> 16);
 	col->g = (u8)(colour >> 8);
 	col->b = (u8)colour;
-	col->a = (u8)(colour >> 24);
+	col->a = b->span == XBLAMESH_SPAN_FADE ? (u8)(colour >> 24) : 0xff;
 
 	if (b->skinned) {
 		// Two weights and a packed {bone0, bone1, bone2, count}. The third
@@ -1982,14 +1998,37 @@ static s32 xblaMeshOpenBatch(struct xblameshbuilder *b)
  * of this. So a texture that cannot be found costs that one material rather
  * than the mesh.
  *
- * `setmode` is clear while an alpha span is being built, where the mode is the
- * caller's to choose: the same span is drawn as a cutout in the opaque pass and
- * as a blend in the translucent one, and which of those it is is a fact about
- * the node being drawn rather than about the material - see
- * xblaMeshRenderNode(). Everything else the material asks for is written here
- * either way.
+ * What a material does *not* write is the combiner, the cycle type and the
+ * render mode. Those belong to the node, because they are how a Perfect Dark
+ * model is lit: there is no G_LIGHTING in it anywhere. modelRenderNodeDl()
+ * writes, round each of its own lists, a two-cycle combiner against the
+ * environment colour and a G_RM_FOG_PRIM_A blend towards the fog colour, and
+ * the fog colour is the prop's shade colour - the room's brightness and the
+ * floor's colour, as propCalculateShadeColour() worked them out. A list that
+ * wrote a one-cycle texture-times-shade in their place, as this one did, drew
+ * every mesh at full brightness in the darkest room, which was the "the XBLA
+ * models are not affected by lights, they stay bright" report.
+ * xblaMeshRenderNode() writes the same state the game writes for the node,
+ * and the list leaves it alone.
+ *
+ * The fading span is the one exception and carries its own combiner: a beam
+ * of light is not lit by the room, and the game's combiner reads the vertex
+ * alpha as (texel - env) * alpha + env, which would turn the beam's zero into
+ * the environment colour, opaque. G_CC_PASS2 in the second cycle keeps it
+ * right under whichever cycle type the node left behind.
+ *
+ * Tile 1 is declared as a copy of tile 0, as texWriteTileLods() does for a
+ * texture with one level: the props' combiner is G_CC_TRILERP, and the lod
+ * fraction this port feeds it runs 0.7 to 1.0, so TEXEL1 is most of what a
+ * prop draws with. Left undeclared it is whatever the last texture the game
+ * loaded left there.
  */
-static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 setmode)
+// A white RGBA16 tile, for a record that will not bind. The node's combiner
+// reads a texel whatever the material says, so a draw with no picture has to
+// be given a white one to be shade times the room's light like the rest.
+static u16 xblaMeshWhiteTile[XBLATEX_TILE * XBLATEX_TILE] __attribute__((aligned(64)));
+
+static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span)
 {
 	const u32 record = material & 0x1fff;
 	const s32 alpha = (material >> 15) & 1;
@@ -2001,7 +2040,7 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 setm
 	const void *tile = xblaTexBind(record);
 	Gfx *gdl;
 
-	if (!xblaMeshRoomForGfx(b, 12)) {
+	if (!xblaMeshRoomForGfx(b, 13)) {
 		return 0;
 	}
 
@@ -2009,44 +2048,43 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 setm
 
 	gDPPipeSync(gdl++);
 
-	if (tile) {
-		// Texture times shade, in both channels. The release colours every
-		// vertex, so the shade is doing work here and is not a flat white.
-		gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_MODULATERGBA);
-
-		// A material that carries alpha is never in the half that sets its own
-		// mode - it is in the alpha span, where the mode belongs to whoever
-		// draws it - so the one written here is the plain opaque one.
-		if (setmode) {
-			gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
-		}
-
-		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
-
-		// The stand-in tile. Its texels are never read - the renderer swaps the
-		// real picture in against this address, see xblatex.h - but the tile it
-		// declares is real, and is what every texture coordinate is measured
-		// against.
-		gDPLoadTextureBlock(gdl++, tile, G_IM_FMT_RGBA, G_IM_SIZ_16b,
-				XBLATEX_TILE, XBLATEX_TILE, 0,
-				G_TX_WRAP | G_TX_NOMIRROR, G_TX_WRAP | G_TX_NOMIRROR,
-				XBLATEX_TILE_MASK, XBLATEX_TILE_MASK, G_TX_NOLOD, G_TX_NOLOD);
-	} else {
-		gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
-
-		if (setmode) {
-			gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
-		}
-
-		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_OFF);
+	if (span == XBLAMESH_SPAN_FADE) {
+		gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_PASS2);
 	}
+
+	if (!tile) {
+		if (xblaMeshWhiteTile[0] != 0xffff) {
+			memset(xblaMeshWhiteTile, 0xff, sizeof(xblaMeshWhiteTile));
+		}
+
+		tile = xblaMeshWhiteTile;
+	}
+
+	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+
+	// The stand-in tile. Its texels are never read - the renderer swaps the
+	// real picture in against this address, see xblatex.h - but the tile it
+	// declares is real, and is what every texture coordinate is measured
+	// against.
+	gDPLoadTextureBlock(gdl++, tile, G_IM_FMT_RGBA, G_IM_SIZ_16b,
+			XBLATEX_TILE, XBLATEX_TILE, 0,
+			G_TX_WRAP | G_TX_NOMIRROR, G_TX_WRAP | G_TX_NOMIRROR,
+			XBLATEX_TILE_MASK, XBLATEX_TILE_MASK, G_TX_NOLOD, G_TX_NOLOD);
+
+	gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
+			((XBLATEX_TILE * G_IM_SIZ_16b_LINE_BYTES) + 7) >> 3, 0, 1, 0,
+			G_TX_WRAP | G_TX_NOMIRROR, XBLATEX_TILE_MASK, G_TX_NOLOD,
+			G_TX_WRAP | G_TX_NOMIRROR, XBLATEX_TILE_MASK, G_TX_NOLOD);
+	gDPSetTileSize(gdl++, 1, 0, 0,
+			(XBLATEX_TILE - 1) << G_TEXTURE_IMAGE_FRAC,
+			(XBLATEX_TILE - 1) << G_TEXTURE_IMAGE_FRAC);
 
 	b->numgfx = (s32)(gdl - b->gdl);
 
 	if (xblaMeshVerbose) {
 		sysLogPrintf(LOG_NOTE, "xblamesh:   material %08x -> record %u%s%s",
 				material, record, alpha ? " alpha" : "",
-				tile ? "" : " (no texture; shade only)");
+				tile == xblaMeshWhiteTile ? " (no texture; white)" : "");
 	}
 
 	return 1;
@@ -2093,9 +2131,8 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 setm
  * about itself - the fan's node has no translucent list of its own for the
  * span to ride on.
  */
-#define XBLAMESH_SPAN_SOLID 0
-#define XBLAMESH_SPAN_ALPHA 1
-#define XBLAMESH_SPAN_FADE  2
+// (The XBLAMESH_SPAN_* values are defined at the top of the file, since the
+// vertex loader and the material setup need them first.)
 
 // Below this a vertex alpha is a fade and not a rounding. Counted over the
 // release: 26 draws in 18 meshes carry any alpha under 255, and 13 of those
@@ -2165,6 +2202,8 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 	// of it may all belong to the other span.
 	s32 emitted = 0;
 
+	b->span = wantspan;
+
 	// How the mesh is lit, which no draw changes: its own vertex colours,
 	// both faces, no lighting and no generated coordinates.
 	//
@@ -2206,7 +2245,7 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 		// triangles that index it belong to the state they were written under.
 		if (!emitted || material != lastmaterial) {
 			if (!xblaMeshCloseBatch(b) ||
-					!xblaMeshSetMaterial(b, material, wantspan == XBLAMESH_SPAN_SOLID) ||
+					!xblaMeshSetMaterial(b, material, wantspan) ||
 					!xblaMeshOpenBatch(b)) {
 				return 0;
 			}
@@ -2280,17 +2319,16 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 		return 0;
 	}
 
-	// Put the state back to what an untextured list would have left, so that
-	// what leaks past the end of this is the same whether the mesh drew with
-	// textures or without. The next node sets its own before it draws, so this
-	// only has to be harmless rather than right.
+	// Put the texture switch back to what an untextured list would have left,
+	// so that what leaks past the end of this is the same whether the mesh
+	// drew with textures or without. The next node sets its own before it
+	// draws, so this only has to be harmless rather than right. The combiner
+	// and the render mode are not touched: they are the node's, written
+	// before this list by xblaMeshRenderNode(), and the cutout list drawn
+	// straight after this one has to find them still there.
 	gDPPipeSync(&b->gdl[b->numgfx]);
 	b->numgfx++;
 	gSPTexture(&b->gdl[b->numgfx], 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_OFF);
-	b->numgfx++;
-	gDPSetCombineMode(&b->gdl[b->numgfx], G_CC_SHADE, G_CC_SHADE);
-	b->numgfx++;
-	gDPSetRenderMode(&b->gdl[b->numgfx], G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
 	b->numgfx++;
 
 	// Put the colour table back. There is no telling what it was - the
@@ -3470,6 +3508,108 @@ static s32 xblaMeshNodeDrawsXlu(const struct modelnode *node)
 	return 0;
 }
 
+/**
+ * The mode word a node's list is drawn under: the mcount of a display list
+ * node, the unk12 of a gun one, which modelRenderNodeDl() and
+ * modelRenderNodeGunDl() switch on to pick the render mode. 1 is untextured
+ * one-cycle, 2 is a pass-through first cycle, 3 and 4 are the fog blend, and
+ * 4 is also the one whose translucent list the game draws in the translucent
+ * pass.
+ */
+static s32 xblaMeshNodeMode(const struct modelnode *node)
+{
+	const u32 type = node->type & 0xff;
+
+	if (!node->rodata) {
+		return 0;
+	}
+
+	if (type == MODELNODETYPE_DL) {
+		return node->rodata->dl.mcount;
+	}
+
+	if (type == MODELNODETYPE_GUNDL) {
+		return node->rodata->gundl.unk12;
+	}
+
+	return 0;
+}
+
+/**
+ * Writes the state the game writes round the node's own list, by the same
+ * functions modelRenderNodeDl() calls - which is where a model's lighting is.
+ *
+ * A Perfect Dark model has no G_LIGHTING: its vertex colours are baked, and
+ * the room reaches it through the render state. For a chr (mode 7) that is a
+ * two-cycle combiner, (texel - env) * shade alpha + env then times shade,
+ * under a G_RM_FOG_PRIM_A blend towards the fog colour, which chrRender() set
+ * to the chr's shade colour - the floor's colour times the room's brightness,
+ * with an alpha that grows as the room darkens, so that a guard in a dark
+ * room is mixed most of the way to a dark colour. Props are the same blend
+ * under G_CC_TRILERP. The mesh's lists used to write a one-cycle
+ * texture-times-shade over all of that, and drew at full brightness in every
+ * room.
+ *
+ * `opa` is the pass: the opaque one takes the switch the game's opaque draw
+ * takes, the translucent one takes what the game's translucent draw of a
+ * mode-4 node takes.
+ */
+static void xblaMeshApplyNodeMode(struct modelrenderdata *renderdata,
+		const struct modelnode *node, s32 opa)
+{
+	if (!opa) {
+		modelApplyRenderModeType4(renderdata, false);
+		return;
+	}
+
+	switch (xblaMeshNodeMode(node)) {
+	case 1:
+		modelApplyRenderModeType1(renderdata);
+		break;
+	case 3:
+		modelApplyRenderModeType3(renderdata, true);
+		break;
+	case 4:
+		modelApplyRenderModeType4(renderdata, true);
+		break;
+	case 2:
+		modelApplyRenderModeType2(renderdata);
+		break;
+	default:
+		modelApplyRenderModeType3(renderdata, true);
+		break;
+	}
+}
+
+/**
+ * A render mode for the mesh's alpha span that keeps the node's first cycle.
+ *
+ * What the game wrote is two-cycle with the fog blend in the first cycle (or
+ * a pass-through, for mode 2; or one-cycle, for mode 1), and the second cycle
+ * is where the surface type goes. A one-cycle pair written over it - the
+ * cutout's TEX_EDGE, the blend's XLU_SURF - puts the surface in cycle one and
+ * the blend towards the shade colour is gone, and the span draws unlit beside
+ * a body that is lit. So the first cycle is kept as the game set it and only
+ * the second is chosen: `cycle2` is the *2 half of a G_RM pair.
+ */
+static void xblaMeshSetSpanMode(struct modelrenderdata *renderdata,
+		const struct modelnode *node, u32 cycle2, u32 onecycle)
+{
+	const s32 mode = xblaMeshNodeMode(node);
+	u32 word;
+
+	if (mode == 1) {
+		word = onecycle | cycle2;
+	} else if (mode == 2) {
+		word = G_RM_PASS | cycle2;
+	} else {
+		word = G_RM_FOG_PRIM_A | cycle2;
+	}
+
+	gDPPipeSync(renderdata->gdl++);
+	gSPSetOtherMode(renderdata->gdl++, G_SETOTHERMODE_L, G_MDSFT_RENDERMODE, 29, word);
+}
+
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node)
 {
@@ -3746,16 +3886,21 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 
 	if (opa) {
+		// The lighting: the state the game would have written round its own
+		// list for this node. The list itself writes no combiner and no
+		// render mode - see xblaMeshSetMaterial() and xblaMeshApplyNodeMode().
+		xblaMeshApplyNodeMode(renderdata, node, 1);
 		gSPDisplayList(renderdata->gdl++, list);
 
 		// An alpha span that is not going to the translucent pass is a cutout
 		// and belongs here, after the solid part of the same group - a grille,
 		// a fence, the leaves of a plant. This is where every alpha material
-		// was drawn before the span was split out, and the mode is the one
-		// they carried themselves.
+		// was drawn before the span was split out; the mode is TEX_EDGE in the
+		// node's own first cycle, so it stays as lit as the rest.
 		if (xlupart >= 0 && !xlulist) {
-			gDPPipeSync(renderdata->gdl++);
-			gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_TEX_EDGE, G_RM_AA_ZB_TEX_EDGE2);
+			xblaMeshSetSpanMode(renderdata, node,
+					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
+					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
 			gSPDisplayList(renderdata->gdl++, &m->gdl[xlupart]);
 		}
 	}
@@ -3767,13 +3912,14 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 					"in the translucent pass", e->slot, e->part);
 		}
 
-		// The alpha span carries no render mode of its own, so this is the one
-		// that stands for all of it. The pair is the game's translucent
-		// surface, without the fog cycle its own lists take - the same trade
-		// the opaque span already makes, since a mesh's materials set a plain
-		// opaque mode rather than G_RM_FOG_PRIM_A.
-		gDPPipeSync(renderdata->gdl++);
-		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+		// The state the game's translucent draw of this node writes - the
+		// combiner, the fog and environment colours, the cycle - and then the
+		// translucent surface in the second cycle, with the fog blend kept in
+		// the first so the glass is lit like the body it is set in.
+		xblaMeshApplyNodeMode(renderdata, node, 0);
+		xblaMeshSetSpanMode(renderdata, node,
+				renderdata->zbufferenabled ? G_RM_AA_ZB_XLU_SURF2 : G_RM_AA_XLU_SURF2,
+				renderdata->zbufferenabled ? G_RM_AA_ZB_XLU_SURF : G_RM_AA_XLU_SURF);
 		gSPDisplayList(renderdata->gdl++, xlulist);
 	}
 
@@ -3785,7 +3931,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		}
 
 		// Blended by texel times vertex alpha, no depth write: a beam of light
-		// that darkens nothing behind it and hides nothing behind it.
+		// that darkens nothing behind it and hides nothing behind it. Not lit:
+		// the span carries its own combiner (see xblaMeshSetMaterial()) and
+		// the pair here has no fog blend in either cycle.
 		gDPPipeSync(renderdata->gdl++);
 		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
 		gSPDisplayList(renderdata->gdl++, fadelist);

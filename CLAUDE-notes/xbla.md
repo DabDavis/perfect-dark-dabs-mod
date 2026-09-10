@@ -514,13 +514,77 @@ table, and nothing wrote them if it closed without a vertex. With one batch per
 list that never happened; with one per material it happens wherever two
 materials meet. `xblaMeshCloseBatch()` now takes the reservation back.
 
-The state a material writes is the combiner, the texture switch and one
-`gDPLoadTextureBlock`, plus the render mode where the span it is in has one:
-`G_CC_MODULATERGBA`, because the release colours every vertex and the shade is
-doing work rather than being a flat white, and `G_RM_AA_ZB_OPA_SURF`. A
-material whose alpha bit is set is in the alpha span, where the mode is the
-caller's - see "The translucent pass" below. The end of the list puts all of it
-back, which the untextured version did not have to do.
+The state a material writes is the texture switch, one `gDPLoadTextureBlock`
+and a copy of that tile as tile 1. It writes **no combiner and no render
+mode** - those are the node's, because they are how a Perfect Dark model is
+lit; see "The lighting" below. (Until 2026-09-10 it wrote `G_CC_MODULATERGBA`
+and `G_RM_AA_ZB_OPA_SURF` itself, and every mesh drew at full brightness in
+every room.) A material whose alpha bit is set is in the alpha span, where the
+mode is the caller's - see "The translucent pass" below. The end of the list
+puts the texture switch and the colour table back and leaves the rest alone,
+since the cutout list drawn straight after has to find the node's state still
+there.
+
+#### The lighting (2026-09-10)
+
+"The XBLA textures or models are not affected by lights, they stay bright."
+They did, and the reason is worth keeping because it is not where anyone
+would look: **a Perfect Dark model has no `G_LIGHTING` anywhere in it**. Its
+vertex colours are baked, and the room reaches it through the *render state*
+that `modelRenderNodeDl()` writes round each of its own lists - by
+`modelApplyRenderModeType1..4`, switched on the list's `mcount` (a gun list's
+`unk12`). For a chr (`unk30` 7) that is `G_CYC_2CYCLE`, the combiner pair
+`G_CC_CUSTOM_17`/`18` - `(TEXEL0 - ENV) * SHADE_ALPHA + ENV`, then times
+`SHADE` - with the environment colour a dark tint (`var80062a48`, 64/10/10
+by default), under a **`G_RM_FOG_PRIM_A` blend towards the fog colour**, and
+the fog colour is the chr's *shade colour*: `propCalculateShadeColour()`
+takes the floor's colour times the room's brightness, gives it an alpha that
+grows as that gets darker, and `chrRender()` hands it to the renderer as
+`fogcolour`. There is no `G_FOG` in the geometry mode, so gfx_pc's fog factor
+is the fog colour's alpha, constant - a guard in a dark room is mixed most of
+the way to a dark colour. Props are the same blend under `G_CC_TRILERP`
+(`unk30` 9), the gun under 4 or 5.
+
+The mesh lists wrote a one-cycle `G_CC_MODULATERGBA` and a plain
+`G_RM_AA_ZB_OPA_SURF` over all of that, per material, so nothing the room did
+reached them. Now:
+
+- the list writes no combiner and no render mode (`xblaMeshSetMaterial()`),
+  and `xblaMeshRenderNode()` writes exactly what the game would have written
+  for the node (`xblaMeshApplyNodeMode()`: the same four functions, the same
+  switch) before the opaque list, and `modelApplyRenderModeType4(false)` -
+  what the game's translucent pass writes - before the alpha span there;
+- the cutout and the translucent blend keep the node's **first** cycle
+  (`G_RM_FOG_PRIM_A`, or `G_RM_PASS` for mcount 2, or the one-cycle pair for
+  mcount 1) and choose only the second (`xblaMeshSetSpanMode()`). A one-cycle
+  `TEX_EDGE`/`XLU_SURF` pair written over the two-cycle state moves the
+  surface into cycle one and the blend towards the shade colour is gone;
+- **tile 1 is declared as a copy of tile 0**, as `texWriteTileLods()` does
+  for a one-level texture, because the props' `G_CC_TRILERP` reads `TEXEL1`
+  and the lod fraction gfx_pc feeds it (`gfx_lod_fraction()`) runs 0.7 to
+  1.0 - TEXEL1 is most of what a prop draws with, and undeclared it is the
+  last tile 1 the game loaded;
+- the vertex alpha goes in as 255 outside the fading span. The chr combiner
+  reads it, and three opaque models carry a few stray zeros that would have
+  drawn in the environment tint;
+- the fading span is the exception and keeps its own `G_CC_MODULATERGBA`,
+  with `G_CC_PASS2` in the second cycle so it is right under either cycle
+  type. A beam of light is not lit by the room, and the chr combiner would
+  turn its zero alpha into the environment colour, opaque;
+- a record that will not bind gets a white 32x32 tile, since the node's
+  combiner reads a texel whatever the material says.
+
+**How it was proved**, because a lit room shows almost none of this (G5 solo
+at frame 1700, the guard by the car lift: new and old builds differ in 276
+pixels). `propCalculateShadeColour()` has two statics, `scol` and `salp`,
+that the N64 debugger set and that override every prop's shade colour when
+non-zero; the port's `mainOverrideVariable()` is empty but the statics are
+addressable from gdb: `set var propCalculateShadeColour::scol = 8` and
+`::salp = 255` at frame 1200 (break on `videoEndFrame` when
+`g_Vars.lvframenum` reaches it) mixes every model to near-black by frame
+1700. Mean brightness of the guard's head: stock 71, the old loader 102, the
+new loader 68; the gun 34 / 96 / 39. The crate the gun points at, a prop,
+went dark with them.
 
 #### The translucent pass
 
