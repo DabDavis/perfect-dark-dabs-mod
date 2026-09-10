@@ -93,6 +93,15 @@ DIFFICULTIES = (0, 1, 2)
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,15}$")
 PIN_RE = re.compile(r"^[0-9]{4,8}$")
 
+# The security question and its answer travel as ids out of the client's own
+# frozen lists (port/include/ghostrecovery.h), never as the names a player
+# reads: what is stored is a hash of "<question>|<answer>", and the ids are
+# what make that hash the same a year later when somebody has re-picked the
+# same two rows out of a build whose lists have grown. Nothing at this end
+# knows the lists - a client that ships a longer one needs no change here - so
+# the only rule is that an id looks like one.
+QA_RE = re.compile(r"^[a-z0-9_.-]{1,32}$")
+
 # A PIN is four digits. Ten thousand guesses is nothing without a limiter, so
 # the limiter is the actual security control here rather than the PIN length.
 AUTH_WINDOW = 300
@@ -150,6 +159,27 @@ UPLOAD_MAX = 120
 DOWNLOAD_WINDOW = 3600
 DOWNLOAD_MAX = 200
 
+# Resetting a PIN by answering the security question.
+#
+# One category out of ten and one answer out of that category's fifty is about
+# one guess in five hundred, and honestly rather better than that for a
+# guesser, because favourites are not evenly spread and they would start with
+# the popular ones. That is not a password and is not treated as one. What
+# holds the door is that a wrong answer is expensive: five failures a day at
+# any one account, ten an hour from any one address, and every attempt waits
+# RESET_DELAY seconds before it is even checked. A handful of guesses a day at
+# a name somebody has chosen to attack is a long way from five hundred.
+#
+# The account's budget is cleared by a successful sign-in as well as by a
+# successful reset. Somebody who knows the PIN owns the account, and clearing
+# it there means a stranger's guessing cannot stand between the owner and their
+# own recovery for the rest of the day.
+RESET_WINDOW = 86400
+RESET_MAX_FAILURES = 5
+RESET_IP_WINDOW = 3600
+RESET_IP_MAX = 10
+RESET_DELAY = 2.0
+
 # The header flag that says a run was set under trial rules - the fork's added
 # moves off, and the game's own cheats with them. MODGHOSTHF_TRIALRULES in the
 # client's modghost.h. A run without it was made under unknown rules, which is
@@ -172,6 +202,8 @@ _user_failures = {}
 _user_serial = {}    # account -> (lock, waiting count), while any attempt is in it
 _upload_counts = {}
 _download_counts = {}
+_reset_failures = {}   # account -> failed resets, the day's budget
+_reset_ips = {}        # address -> reset attempts, whatever they were for
 
 
 def db():
@@ -311,7 +343,9 @@ def init_db():
                 pin_salt   BLOB NOT NULL,
                 pin_hash   BLOB NOT NULL,
                 created    INTEGER NOT NULL,
-                known_ips  TEXT NOT NULL DEFAULT ''
+                known_ips  TEXT NOT NULL DEFAULT '',
+                rec_salt   BLOB NOT NULL DEFAULT x'',
+                rec_hash   BLOB NOT NULL DEFAULT x''
             );
             CREATE TABLE IF NOT EXISTS ghosts (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -370,6 +404,16 @@ def init_db():
         if "known_ips" not in have:
             conn.execute("ALTER TABLE users ADD COLUMN known_ips TEXT NOT NULL DEFAULT ''")
 
+        # The security question a PIN is reset by, hashed with a salt of its
+        # own. Empty for every account made before the client could ask for
+        # one, and empty is refused a reset - the same refusal a wrong answer
+        # gets, because saying "this account has no question" would say the
+        # account is there. Those accounts fill the columns in from the page
+        # that sets them, which needs the PIN and so needs their owner.
+        for col in ("rec_salt", "rec_hash"):
+            if col not in have:
+                conn.execute("ALTER TABLE users ADD COLUMN %s BLOB NOT NULL DEFAULT x''" % col)
+
         # Rows that cannot show they were set under trial rules go, with their
         # files. Uploads are refused on the same test, so this runs once in
         # practice and finds nothing afterwards - but it is what makes the
@@ -404,6 +448,18 @@ def init_db():
 
 def hash_pin(pin, salt):
     return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 120000)
+
+
+def hash_answer(question, answer, salt):
+    """The security question and its answer, hashed as one secret.
+
+    The category goes into the hash rather than into a column of its own, so
+    that the database does not say which of the ten a player chose. It costs
+    nothing to keep - the owner picks their category from the same dropdown
+    they picked it from before - and it multiplies what a guesser has to get
+    right by ten, which is most of what this has.
+    """
+    return hashlib.pbkdf2_hmac("sha256", ("%s|%s" % (question, answer)).encode(), salt, 120000)
 
 
 # Keys live in these tables until something clears them, and one key is one
@@ -770,11 +826,33 @@ class Handler(BaseHTTPRequestHandler):
         with _lock:
             _auth_failures.pop(ip, None)
             _user_failures.pop(user, None)
+            # And the day's wrong answers at this account's security question.
+            # Whoever holds the PIN holds the account, so a stranger's guessing
+            # at the question cannot keep its owner from resetting it later.
+            _reset_failures.pop(user, None)
 
         if not known:
             remember_ip(row["username"], ip)
 
         return True, None
+
+    @staticmethod
+    def check_answer(row, question, answer):
+        """One PBKDF2 whatever the row is, for the same reason check_pin does.
+
+        An account with no security question hashes against a salt of zeros
+        and fails, rather than returning early: a reset that came back
+        instantly would say which accounts have recovery set and which do not,
+        and that is a list worth having if you are choosing one to attack.
+        """
+        if row is None or not row["rec_hash"]:
+            salt, expect, real = b"\0" * 16, b"\0" * 32, False
+        else:
+            salt, expect, real = bytes(row["rec_salt"]), bytes(row["rec_hash"]), True
+
+        got = hash_answer(question, answer, salt)
+
+        return real and hmac.compare_digest(expect, got)
 
     @staticmethod
     def check_pin(row, pin):
@@ -876,6 +954,25 @@ class Handler(BaseHTTPRequestHandler):
             if not PIN_RE.match(pin):
                 return self.send_json(400, {"ok": False, "error": "pin must be 4-8 digits"})
 
+            # The security question is optional on the wire and required by
+            # the client that asks for it. Builds that predate it register
+            # with two fields and no way to send more, and refusing those
+            # would take the leaderboard away from everybody who has not
+            # updated. What they get is an account with no recovery, which is
+            # what they had before, and a page to set one from when they do
+            # update.
+            question = str(req.get("question", "")).strip().lower()
+            answer = str(req.get("answer", "")).strip().lower()
+            rec_salt, rec_hash = b"", b""
+
+            if question or answer:
+                if not QA_RE.match(question) or not QA_RE.match(answer):
+                    return self.send_json(400, {"ok": False,
+                        "error": "pick a security question and an answer"})
+
+                rec_salt = os.urandom(16)
+                rec_hash = hash_answer(question, answer, rec_salt)
+
             if not rate_ok(_auth_failures, self.client_ip(), AUTH_WINDOW, AUTH_MAX_FAILURES):
                 return self.send_json(429, {"ok": False, "error": "too many attempts"})
 
@@ -890,8 +987,10 @@ class Handler(BaseHTTPRequestHandler):
                     # one, so its owner is never slowed on the machine they
                     # registered from.
                     conn.execute(
-                        "INSERT INTO users (username, pin_salt, pin_hash, created, known_ips) VALUES (?,?,?,?,?)",
-                        (username, salt, hash_pin(pin, salt), int(time.time()), self.client_ip()))
+                        "INSERT INTO users (username, pin_salt, pin_hash, created, known_ips,"
+                        " rec_salt, rec_hash) VALUES (?,?,?,?,?,?,?)",
+                        (username, salt, hash_pin(pin, salt), int(time.time()), self.client_ip(),
+                         rec_salt, rec_hash))
             except sqlite3.IntegrityError:
                 # Unique usernames, case-insensitively.
                 return self.send_json(409, {"ok": False, "error": "username already taken"})
@@ -908,6 +1007,103 @@ class Handler(BaseHTTPRequestHandler):
             if not ok:
                 return self.send_json(403, {"ok": False, "error": err})
             return self.send_json(200, {"ok": True})
+
+        if path == "/setrecovery":
+            # Changing the question needs the PIN, which is the whole of the
+            # authority here: an account that can sign in can say what its
+            # recovery is, and one that cannot has nothing to say about it.
+            req = self.read_json()
+            if req is None:
+                return self.send_json(400, {"ok": False, "error": "bad body"})
+
+            username = str(req.get("username", "")).strip()
+            question = str(req.get("question", "")).strip().lower()
+            answer = str(req.get("answer", "")).strip().lower()
+
+            if not QA_RE.match(question) or not QA_RE.match(answer):
+                return self.send_json(400, {"ok": False,
+                    "error": "pick a security question and an answer"})
+
+            ok, err = self.authenticate(username, str(req.get("pin", "")).strip())
+            if not ok:
+                return self.send_json(403, {"ok": False, "error": err})
+
+            salt = os.urandom(16)
+            with db() as conn:
+                conn.execute(
+                    "UPDATE users SET rec_salt = ?, rec_hash = ? WHERE username = ?",
+                    (salt, hash_answer(question, answer, salt), username))
+
+            return self.send_json(200, {"ok": True})
+
+        if path == "/resetpin":
+            # The one door that opens without the PIN. Everything about it is
+            # the rate limiter: see the RESET_ constants for what a guess is
+            # worth and what it costs.
+            req = self.read_json()
+            if req is None:
+                return self.send_json(400, {"ok": False, "error": "bad body"})
+
+            username = str(req.get("username", "")).strip()
+            question = str(req.get("question", "")).strip().lower()
+            answer = str(req.get("answer", "")).strip().lower()
+            newpin = str(req.get("pin", "")).strip()
+
+            if not USERNAME_RE.match(username):
+                return self.send_json(400, {"ok": False,
+                    "error": "3-15 chars, letters, digits, _ . - only"})
+            if not PIN_RE.match(newpin):
+                return self.send_json(400, {"ok": False, "error": "new pin must be 4-8 digits"})
+            if not QA_RE.match(question) or not QA_RE.match(answer):
+                return self.send_json(400, {"ok": False,
+                    "error": "pick a security question and an answer"})
+
+            user = username.lower()
+
+            # The address budget counts every attempt, right or wrong, because
+            # a machine resetting ten PINs an hour is not a person who forgot
+            # theirs. The account budget counts only failures, so that a
+            # player whose reset worked is not locked out of their next one.
+            if not rate_ok(_reset_ips, self.client_ip(), RESET_IP_WINDOW, RESET_IP_MAX):
+                return self.send_json(429, {"ok": False,
+                    "error": "too many reset attempts, try again later"})
+
+            if not rate_ok(_reset_failures, user, RESET_WINDOW, RESET_MAX_FAILURES, record=False):
+                return self.send_json(429, {"ok": False,
+                    "error": "too many wrong answers today, try again tomorrow"})
+
+            # Before the answer is looked at, so that the wait is the same for
+            # an account that is not there.
+            time.sleep(RESET_DELAY)
+
+            with db() as conn:
+                row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+
+            if not self.check_answer(row, question, answer):
+                rate_hit(_reset_failures, user)
+                # The same sentence for a wrong answer, a wrong category, an
+                # account with no question set and an account that is not
+                # there. Which of those it is is worth more to somebody
+                # working through a list of names than it is to the player,
+                # who is told by the client what the four possibilities are.
+                return self.send_json(403, {"ok": False, "error": "wrong question or answer"})
+
+            salt = os.urandom(16)
+            with db() as conn:
+                conn.execute(
+                    "UPDATE users SET pin_salt = ?, pin_hash = ? WHERE username = ?",
+                    (salt, hash_pin(newpin, salt), row["username"]))
+
+            # The new PIN is this account's PIN now, so nothing it was carrying
+            # from the old one should still be counted against it.
+            with _lock:
+                _reset_failures.pop(user, None)
+                _user_failures.pop(user, None)
+                _auth_failures.pop(self.client_ip(), None)
+
+            print("%s - pin reset for %s" % (self.client_ip(), row["username"]), flush=True)
+
+            return self.send_json(200, {"ok": True, "username": row["username"]})
 
         if path == "/upload":
             username = self.headers.get("X-Ghost-User", "").strip()

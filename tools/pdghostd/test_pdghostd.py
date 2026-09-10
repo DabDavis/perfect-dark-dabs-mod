@@ -52,6 +52,10 @@ def check(cond, what):
 
 
 USER_SLOW_DELAY = 0.6
+# The reset endpoint waits before it checks an answer, which is most of what
+# makes guessing at one expensive. Twenty attempts at two seconds is not a test
+# suite, so the copy under test waits a tenth of that.
+RESET_DELAY = 0.2
 
 
 def build_daemon():
@@ -67,6 +71,7 @@ def build_daemon():
     sub("BOARD_KEEP = 100", "BOARD_KEEP = %d" % BOARD_KEEP)
     sub("USER_QUOTA = 64 * 1024 * 1024", "USER_QUOTA = %d" % USER_QUOTA)
     sub("USER_SLOW_DELAY = 3.0", "USER_SLOW_DELAY = %r" % USER_SLOW_DELAY)
+    sub("RESET_DELAY = 2.0", "RESET_DELAY = %r" % RESET_DELAY)
     open(DAEMON, "w").write(src)
 
 
@@ -121,8 +126,23 @@ def post_json(path, obj, ip=None):
                headers={"Content-Type": "application/json"}, ip=ip)
 
 
-def register(user, pin, ip=None):
-    return post_json("/register", {"username": user, "pin": pin}, ip=ip)
+def register(user, pin, ip=None, question=None, answer=None):
+    body = {"username": user, "pin": pin}
+    if question is not None:
+        body["question"] = question
+    if answer is not None:
+        body["answer"] = answer
+    return post_json("/register", body, ip=ip)
+
+
+def setrecovery(user, pin, question, answer, ip=None):
+    return post_json("/setrecovery", {"username": user, "pin": pin,
+                                      "question": question, "answer": answer}, ip=ip)
+
+
+def resetpin(user, question, answer, newpin, ip=None):
+    return post_json("/resetpin", {"username": user, "question": question,
+                                   "answer": answer, "pin": newpin}, ip=ip)
 
 
 def login(user, pin, ip=None):
@@ -547,6 +567,112 @@ def test_upload_not_auth_limited():
     check(st == 200, "from another address too")
 
 
+def test_recovery():
+    print("resetting a PIN by answering the security question")
+
+    st, body, _ = register("recov", "1234", ip="10.9.0.1", question="game", answer="goldeneye007")
+    check(st == 200, "register with a question")
+
+    st, _, _ = login("recov", "1234", ip="10.9.0.1")
+    check(st == 200, "and it signs in")
+
+    st, body, _ = resetpin("recov", "game", "tetris", "5678", ip="10.9.0.2")
+    check(st == 403 and body["error"] == "wrong question or answer", "wrong answer refused")
+
+    st, body, _ = resetpin("recov", "food", "goldeneye007", "5678", ip="10.9.0.2")
+    check(st == 403, "right answer under the wrong category refused")
+
+    st, _, _ = login("recov", "1234", ip="10.9.0.1")
+    check(st == 200, "and the PIN still works after both")
+
+    st, body, _ = resetpin("recov", "game", "goldeneye007", "5678", ip="10.9.0.2")
+    check(st == 200, "the right pair resets the PIN")
+
+    st, _, _ = login("recov", "1234", ip="10.9.0.1")
+    check(st == 403, "the old PIN is gone")
+
+    st, _, _ = login("recov", "5678", ip="10.9.0.1")
+    check(st == 200, "the new PIN signs in")
+
+    # The question is not the PIN: knowing it a second time is another reset,
+    # not a way in.
+    st, _, _ = login("recov", "0000", ip="10.9.0.1")
+    check(st == 403, "and the answer is not itself a PIN")
+
+    print("accounts made without a question")
+
+    st, _, _ = register("oldreg", "1111", ip="10.9.0.3")
+    check(st == 200, "a two field registration still works")
+
+    st, body, _ = resetpin("oldreg", "game", "goldeneye007", "2222", ip="10.9.0.3")
+    check(st == 403 and body["error"] == "wrong question or answer",
+          "no question set reads as a wrong answer")
+
+    st, _, _ = setrecovery("oldreg", "9999", "drink", "coffee", ip="10.9.0.3")
+    check(st == 403, "setting one needs the account's PIN")
+
+    st, _, _ = setrecovery("oldreg", "1111", "drink", "coffee", ip="10.9.0.3")
+    check(st == 200, "with the PIN it is set")
+
+    st, _, _ = resetpin("oldreg", "drink", "coffee", "2222", ip="10.9.0.4")
+    check(st == 200, "and the reset works")
+
+    st, _, _ = login("oldreg", "2222", ip="10.9.0.3")
+    check(st == 200, "under the new PIN")
+
+    # Changing it replaces it rather than adding to it.
+    st, _, _ = setrecovery("oldreg", "2222", "drink", "beer", ip="10.9.0.3")
+    check(st == 200, "the question can be changed")
+
+    st, _, _ = resetpin("oldreg", "drink", "coffee", "3333", ip="10.9.0.4")
+    check(st == 403, "the old answer stops working")
+
+    print("a name that is not an account answers the same way")
+
+    st, body, _ = resetpin("nosuchname", "game", "goldeneye007", "2222", ip="10.9.0.5")
+    check(st == 403 and body["error"] == "wrong question or answer",
+          "and says nothing about whether it exists")
+
+    print("shapes that are not answers")
+
+    st, _, _ = register("badq", "1234", ip="10.9.0.6", question="game", answer="")
+    check(st == 400, "half a question is refused at registration")
+
+    st, _, _ = register("badq", "1234", ip="10.9.0.6", question="G A M E", answer="x")
+    check(st == 400, "and so is one that is not an id")
+
+    st, _, _ = resetpin("recov", "game", "goldeneye007", "12", ip="10.9.0.7")
+    check(st == 400, "a new PIN of two digits is refused")
+
+    print("guessing at the question is what the limiter is for")
+
+    # Five wrong answers at one account, each from an address of its own so
+    # that it is the account's budget being spent and not one machine's.
+    for i in range(5):
+        st, _, _ = resetpin("recov", "game", "tetris", "9999", ip="10.9.1.%d" % i)
+        check(st == 403, "wrong answer %d/5 refused" % (i + 1))
+
+    st, body, _ = resetpin("recov", "game", "goldeneye007", "9999", ip="10.9.1.9")
+    check(st == 429, "the sixth is refused before the answer is looked at")
+    check(st == 429 and "tomorrow" in body["error"], "and says to come back tomorrow")
+
+    st, _, _ = login("recov", "5678", ip="10.9.0.1")
+    check(st == 200, "the owner can still sign in")
+
+    st, _, _ = resetpin("recov", "game", "tetris", "9999", ip="10.9.1.9")
+    check(st == 403, "and signing in cleared the day's budget")
+
+    # One address, many accounts: the other half of the limiter.
+    for i in range(10):
+        resetpin("floodee%d" % i, "game", "tetris", "9999", ip="10.9.2.2")
+
+    st, body, _ = resetpin("recov", "game", "goldeneye007", "9999", ip="10.9.2.2")
+    check(st == 429 and "later" in body["error"], "ten attempts an hour from one address")
+
+    st, _, _ = resetpin("recov", "game", "tetris", "9999", ip="10.9.2.3")
+    check(st == 403, "which does not stop a different address")
+
+
 def main():
     build_daemon()
     start_server()
@@ -561,6 +687,7 @@ def main():
         test_early_close()
         test_malformed_requests()
         test_upload_not_auth_limited()
+        test_recovery()
     finally:
         stop_server()
     print("\n%d passed, %d failed" % (passed, failed))

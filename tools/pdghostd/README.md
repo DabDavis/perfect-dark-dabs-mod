@@ -69,8 +69,8 @@ python3 tools/pdghostd/test_pdghostd.py
 Runs a patched copy on port 8392 (`PDGHOSTD_TEST_PORT` to change it) against
 a temporary directory and takes it through registration, uploads built the
 way the game builds them, two dozen forged headers, the hot-account slowdown,
-the quota, eviction, and the malformed requests that used to drop the
-connection. Standard library only; nothing outside the temporary directory is
+the quota, eviction, the security question and the two limiters behind
+resetting a PIN, and the malformed requests that used to drop the connection. Standard library only; nothing outside the temporary directory is
 touched, and the live database is never involved.
 
 ## Running it
@@ -106,7 +106,33 @@ to try again in a moment. The addresses an account has signed in from (the
 last five, including the one that registered it) skip the wait entirely. A
 refused sign-in says `wrong username or pin` whether or not the account
 exists. Uploads are counted separately, 120 an hour per account, and a valid
-PIN counts against nothing. Behind nginx:
+PIN counts against nothing.
+
+A PIN that is lost is reset by answering a security question: one category out
+of ten and one answer out of that category's fifty, both chosen from dropdowns
+in the client (`port/include/ghostrecovery.h`). What is stored is a PBKDF2 of
+`"<category id>|<answer id>"` and a salt of its own — not the category, so a
+guesser has to find that as well. **Those ids are a wire format**: renaming or
+reordering one in the client locks out everybody who chose it.
+
+`POST /resetpin` takes the name, the pair and the PIN the account is to have.
+`POST /setrecovery` changes the question and needs the account's PIN, which is
+why a new account picks one at registration: the page that changes it is the
+one somebody who has lost the PIN cannot use. `/register` takes `question` and
+`answer` alongside the PIN and still accepts a body without them, because
+builds that predate the page cannot send them; those accounts are refused a
+reset until their owner sets one.
+
+Ten times fifty is not a password, so the limiter carries it: five wrong
+answers a day at one account, ten attempts an hour from one address, and every
+attempt waits `RESET_DELAY` before the answer is looked at, so an account that
+does not exist takes as long to refuse as one that does. A successful sign-in
+clears the account's budget, so a stranger guessing at the question cannot keep
+its owner from their own recovery. A wrong answer, a wrong category, an account
+with no question and a name that is not an account are one sentence:
+`wrong question or answer`.
+
+Behind nginx:
 
 ```nginx
 location /pdghosts/ {
@@ -135,8 +161,9 @@ the only one there is — back it up first. Migrations that create a unique inde
 must delete the rows that would violate it beforehand, or the service fails to
 start and takes the board down with it.
 
-There is no test suite. Test by patching `ROOT` and `PORT` into a copy and
-running that against a throwaway directory:
+Run `test_pdghostd.py` before deploying — see **Testing it** above. It patches
+`ROOT` and `PORT` into a copy the same way this does, and a change worth making
+is worth a case there:
 
 ```sh
 sed -e 's|^PORT = 8090|PORT = 8391|' \
