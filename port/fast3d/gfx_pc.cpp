@@ -1713,6 +1713,12 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
 static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     float matrix[4][4];
 
+    if (parameters & G_MTX_FLOATS) {
+        // The port's own flag: a matrix a port file built as floats and never
+        // converted (xblamesh.c's divided draw matrix). Read as it is written,
+        // for the precision s15.16 does not have for rows well under one.
+        memcpy(matrix, addr, sizeof(matrix));
+    } else {
 #ifndef GBI_FLOATS
     // Original GBI where fixed point matrices are used
     for (int i = 0; i < 4; i++) {
@@ -1727,6 +1733,7 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     // For a modified GBI where fixed point values are replaced with floats
     memcpy(matrix, addr, sizeof(matrix));
 #endif
+    }
 
     if (parameters & G_MTX_PROJECTION) {
         if (parameters & G_MTX_LOAD) {

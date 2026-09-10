@@ -3177,6 +3177,13 @@ static Mtxf *xblaMeshPartMtx(struct model *model, struct xblameshuse *use, s32 p
  * that reaches the screen. The vertices stay inside the s16 as long as the
  * mesh does, so how far the pose can be taken is what the pose *reaches*.
  *
+ * The divided matrix has to reach the list as floats (G_MTX_FLOATS). The
+ * game's rows carry the model's scale, a tenth, and a tenth of a sixteenth is
+ * 0.006: in the N64's s15.16 that keeps two and a half decimal digits, and
+ * against vertices written sixteen times larger the error is sixteen times
+ * the game's own - a few pixels on a gun held at arm's length, snapping as
+ * the pose turns. See xblaMeshPose().
+ *
  * Which is bounded without posing anything. A posed vertex is a blend of one
  * bind position put through each of the palette's matrices, and a blend of
  * points inside a box carried through an affine matrix is inside that box's
@@ -3387,12 +3394,20 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 				fmtx->m[3][c] = root->m[3][c];
 			}
 
-			// The list reads a matrix as the N64's s15.16, not as floats: the
-			// game converts a model's own matrices in place once the whole
-			// model is listed (mtxF2LBulk at the end of chrRender), which is
-			// why root's pointer works. This copy is nobody's but ours, so
-			// it is converted here. mtxF2L reads all of src before it writes.
-			mtxF2L(fmtx, fmtx);
+			// Not converted to the N64's s15.16, which is what the list reads
+			// a matrix as unless told otherwise: this copy is handed over
+			// with G_MTX_FLOATS and read as the floats it is. It was
+			// converted once (mtxF2L, in place, the way the game converts a
+			// model's own matrices after listing them), and that is what
+			// shook every posed mesh. The game's rows carry the model's
+			// scale, a tenth, so divided by sixteen they are 0.006, and the
+			// s16 fraction's 1/65536 is a quarter of a percent of that -
+			// against vertices written sixteen times larger, up to a tenth
+			// of a unit of error on a gun eighteen units from the eye, three
+			// or four pixels, landing differently each time a row crossed a
+			// step of the fraction. Slow motion showed it as a shake and a
+			// fast one as a blur. A float's fraction is a thousand times
+			// finer, and the error goes with it.
 		} else {
 			// No room for the matrix. The vertices have not been written yet,
 			// so this simply goes back to what it did before rather than
@@ -4232,9 +4247,13 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		drawmtx = root;
 	}
 
+	// The divided copy is floats and says so; the bone's own matrix is one of
+	// the model's, which the game converts to s15.16 in place after listing
+	// the model, and is read the way every matrix of the game's is.
 	if (drawmtx) {
 		gSPMatrix(renderdata->gdl++, osVirtualToPhysical(drawmtx),
-				G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+				G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW |
+				(drawmtx != root ? G_MTX_FLOATS : 0));
 	}
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));

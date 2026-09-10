@@ -253,6 +253,17 @@
 #define G_MTX_LOAD       0x02
 #define G_MTX_NOPUSH     0x00 /* push or not */
 #define G_MTX_PUSH       0x04
+#ifndef PLATFORM_N64
+/*
+ * Port only: the matrix is sixteen floats, not s15.16. For a matrix a port
+ * file builds itself and hands a list once - a copy nothing converts in place
+ * the way the game converts a model's own matrices after listing them. Rows
+ * much smaller than one lose too much in s15.16: the s16 fraction's 1/65536
+ * is a quarter of a percent of a row of 0.006, and the vertices under such a
+ * row are written that many times larger, so the error is theirs to keep.
+ */
+#define G_MTX_FLOATS     0x80
+#endif
 
 /*
  * flags for G_SETGEOMETRYMODE

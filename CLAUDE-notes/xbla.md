@@ -1154,21 +1154,33 @@ Three things this has to get right:
   chosen and the matrix taken before a single vertex is written, so a failed
   allocation goes back to what this did before rather than drawing a mesh
   sixteen times its size.
-- **The copied matrix is converted to the N64's s15.16 before the list sees
-  it.** This is what the first landing (`23c75707b`) got wrong, and why it was
-  reverted the same day for wrecking every posed chr: `gSPMatrix` in this port
-  reads fixed point, not floats — `GBI_FLOATS` is never defined and
-  `gfx_sp_matrix` unpacks integer and fraction words. A model's own matrices
-  are floats while the list is built and the game converts them **in place
-  afterwards** with `mtxF2LBulk()` (the end of chrRender's translucent pass,
-  and the same in propobj.c and bondgun.c), which is why a pointer into
-  `model->matrices` has always worked. A copy in the frame arena is nobody's
-  to convert but ours, so `xblaMeshPose()` runs `mtxF2L()` on it in place —
-  safe, it reads all sixteen values before it writes — and the renderer read
-  1.0f, `0x3f800000`, as 16256 until it did. On the real GPU the difference is
-  a whole-frame smear against a frame that differs from the undivided build in
-  1261 pixels, all inside the guard. Any matrix this file ever hands a display
-  list that is not one of the model's own has to go through the same call.
+- **The copied matrix reaches the list as floats, flagged `G_MTX_FLOATS`.**
+  `gSPMatrix` in this port reads the N64's s15.16 unless told otherwise —
+  `GBI_FLOATS` is never defined and `gfx_sp_matrix` unpacks integer and
+  fraction words. A model's own matrices are floats while the list is built
+  and the game converts them **in place afterwards** with `mtxF2LBulk()` (the
+  end of chrRender's translucent pass, and the same in propobj.c and
+  bondgun.c), which is why a pointer into `model->matrices` has always
+  worked. The first landing (`23c75707b`) handed the copy over unconverted
+  and the renderer read 1.0f, `0x3f800000`, as 16256: every posed chr
+  sixteen thousand times too big, reverted the same day. The re-landing
+  (`8a21a4557`) ran `mtxF2L()` on the copy, which drew right and **shook**:
+  the game's rows carry the model's scale, a tenth, so divided by sixteen
+  they are 0.006, and the s16 fraction's 1/65536 is a quarter of a percent
+  of that — against vertices written sixteen times larger, up to a tenth of
+  a unit on a gun eighteen units from the eye, three or four pixels at
+  1080p, landing differently each time a row crossed a step of the fraction.
+  "The XBLA char models have the shakes", worst walking slowly in third
+  person and on the hands and gun in first (2026-09-10). The fix is the
+  port-only flag `G_MTX_FLOATS` (0x80, `include/PR/gbi.h`, outside
+  `PLATFORM_N64`) on the `gSPMatrix` parameter byte, which `gfx_sp_matrix`
+  answers with a `memcpy` of the sixteen floats; the bone's own matrix put
+  back after the lists is one of the model's and is *not* flagged, the game
+  converts it. Any matrix this file ever hands a display list that is not
+  one of the model's own goes over with the flag and stays float. Measured
+  on the dumped matrices of a seeded G5 frame: the fixed-point error was
+  0.03 units on the Falcon's vertices and 0.07 on a body's; a float's is a
+  thousandth of that.
 
 The check is the posed box in `--xbla-mesh-verbose`, which divides back before
 it prints: it reads the same as it did before the change, to the unit.
