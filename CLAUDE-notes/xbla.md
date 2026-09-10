@@ -567,6 +567,59 @@ windscreen at stage 0x30 frame 700. The G5 Building's frame 900, which has no
 translucent pass` once per mesh, which is how to tell whether a level has one at
 all - most do not.
 
+#### The fading span (2026-09-10)
+
+Report: "the translucency is not working correctly for xbla textures, the
+first level, the fans have light pouring out but it looks like a sheet". It
+was the meshes, not the textures - `XblaMeshes=0` with the pack still on drew
+the beams - and the fans are `Pdd_fanroof` (file 146, slot 2186) and
+`Pdd_fanwall` (147, 2187) on dataDyne's helipad, behind the player at the
+spawn. The game's roof fan is a 9 vertex disc; the release's is that disc, a
+housing, and a **column of light a thousand units tall** the game never had.
+Its 48 triangles use the same alpha material as the grille (record 4180, a
+soft beam whose alpha never reaches 179) and their **vertices carry the fade:
+0x7d alpha at the fan, 0 at the top**. The loader threw the vertex alpha away
+(`col->a = 0xff`) and, the node being `mcount` 4 with no translucent list of
+its own, drew the alpha span as an opaque cutout: a lavender sheet from the
+roof to the sky.
+
+So there is a third span. `xblaMeshDrawSpan()` sorts a draw whose material
+has the alpha flag *and* any vertex under `XBLAMESH_FADE_ALPHA` (0xf0) into
+`groupfade`, and the hook draws that list in the translucent pass under
+`G_RM_AA_ZB_XLU_SURF` whatever the node says about itself - blended by texel
+times vertex alpha, no depth write. The vertex alpha is now kept for every
+span; the solid one ignores it and the cutout one never carries one below
+0xf0, so nothing else moves. Counted with `valpha.py` over the release: 26
+draws in 18 meshes have any alpha under 255, and the threshold plus the
+material flag keep 13 meshes - the two fans, the five hovercars' lights
+(`Pdd_hovcab/hovcar/hovcop/hovmoto/hovtruck`, slots 2188-2193), four flat
+panes at 127 or 153 and a set of lamps running 0..232 - and leave out a
+speaker at 254 on every vertex, a 251 on one vertex of 168, three vertices of
+a 794 vertex body, and the stray zeros on three materials with no alpha
+channel, which draw as they always did. `--xbla-mesh-verbose` says `slot N
+part P draws a fading span in the translucent pass`.
+
+Two things looked like the culprit first and were not, worth not re-deriving:
+
+- the big grey X over the helipad is the game's own searchlight geometry and
+  draws the same with no pack at all;
+- the police car and taxi (`Ppolicecar` 2290, `Ptaxicab` 2337) have beam
+  cones textured with a soft blob (record 4342, DXT1, no alpha, vertex alpha
+  255) on a material with no alpha flag, and the game's own node draws under
+  `modelApplyRenderModeType4` with `unk30` 9 - `G_RM_FOG_PRIM_A` over
+  `G_RM_AA_ZB_OPA_SURF2`, which in this port's `gfx_pc` is **not** an alpha
+  blend (`use_alpha` wants cycle 2's blender to be `CLR_MEM` and `1MA`). Those
+  cones draw dark over the sky as the game's do and are left alone. The
+  material word's top bytes are a number (0, 1, 5, 7, 10..100 in fives, the
+  glow at 45/50, car bodies at 5) with flags in bits 24-26; not decoded, and
+  not the blend mode.
+
+Test: `--boot-stage 0x30`, wait out the intro (75s), then from gdb `set var
+g_Vars.currentplayer->vv_theta = 0` (or 180) and `screenshotRequest()`; the
+fans' columns are at the top of the frame at both yaws. The texture-pack
+side of the same report is in texture-packs.md, "An opaque picture for a
+texture with alpha".
+
 **The two switches are separate, and both are live.** The menu page
 (*Extended Options > Texture Packs > Xbox 360 (XBLA)*) has "Enable
 Models/Meshes" and "Enable Textures", and they are separate because either on

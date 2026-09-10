@@ -220,6 +220,29 @@ upside down and nothing else says so. The trap in `pd-texture-data-is-bottom-up`
 applies to checking this by eye: pick a texture with lettering, not a symmetric
 one.
 
+## An opaque picture for a texture with alpha (2026-09-10)
+
+The XBLA release's art carries no alpha for most of the textures whose N64
+original has some. Measured over the 2227 dumped stage textures against the
+imported pack: 181 of 195 I4, 124 of 153 I8, all 30 IA4, 61 of 63 IA8 and 87
+CI8 replacements are 255 in every pixel where the game's texels are not - the
+records are DXT1 or 8888 with nothing in the channel - and the console's own
+renderer must have taken the shape from the game's texels. Uploaded as they
+came, an I8 light beam (whose alpha on the N64 *is* its intensity) was a solid
+grey sheet and every smoke puff a square.
+
+`gfx_replacement_alpha()` in gfx_pc.cpp now runs on the pack path after
+`gfx_pad_replacement()`: a replacement that is opaque in every pixel, standing
+in for a texture whose own texels are not (decoded through the normal
+`import_texture_*` with `import_decode_only` set, so nothing reaches the GPU),
+is given an alpha - an intensity texture's from the picture's own luminance,
+since that is what the format means and it follows a repaint where the
+original's would not; anything else the original's alpha, bilinear onto the
+picture. A picture with any alpha of its own, or a texture the game keeps at
+255 throughout, is untouched, so an opaque wall stays one. A Rice pack
+missing the `_a` half of a split image gets the same repair. Not applied to
+the menu images or the XBLA meshes' own records, which have no N64 original.
+
 ## Replacing font glyphs
 
 A pack can replace the font as well, one image per character in a folder named

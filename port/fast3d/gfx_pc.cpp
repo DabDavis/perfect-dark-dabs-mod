@@ -949,12 +949,17 @@ static enum TexScaleEdge import_enhance_edge_t;
 static bool import_enhance_glyph;
 static uint32_t import_enhance_tile_w; // the clamped tile, when narrower than the upload; else 0
 static uint32_t import_enhance_tile_h;
+static bool import_decode_only; // decode into tex_upload_buffer and stop short of the GPU
 
 static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height, bool gen_mipmaps) {
     // The dump and the dimensions the rest of the import works from stay the
     // game's; only what reaches the GPU is bigger.
     last_upload_width = width;
     last_upload_height = height;
+
+    if (import_decode_only) {
+        return;
+    }
 
     if (import_enhance_scale > 1) {
         const uint8_t* big = gfx_texscale(rgba32_buf, width, height, import_enhance_scale,
@@ -1296,6 +1301,138 @@ static uint8_t* gfx_pad_replacement(uint8_t* rep, int32_t* rep_width, int32_t* r
     return out;
 }
 
+/**
+ * Decodes the game's own texels for a tile into tex_upload_buffer without
+ * uploading them, leaving the size in last_upload_width/height (0 wide on a
+ * format nothing decodes).
+ */
+static void gfx_decode_original(int tile, const LoadedTexture& loaded_texture, uint8_t fmt, uint8_t siz) {
+    const int saved_scale = import_enhance_scale;
+
+    import_decode_only = true;
+    import_enhance_scale = 1;
+    last_upload_width = 0;
+    last_upload_height = 0;
+
+    if (fmt == G_IM_FMT_RGBA && siz == G_IM_SIZ_16b) {
+        import_texture_rgba16(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_RGBA && siz == G_IM_SIZ_32b) {
+        import_texture_rgba32(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_4b) {
+        import_texture_ia4(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_8b) {
+        import_texture_ia8(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_16b) {
+        import_texture_ia16(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_CI && siz == G_IM_SIZ_4b) {
+        import_texture_ci4(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_CI && siz == G_IM_SIZ_8b) {
+        import_texture_ci8(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_I && siz == G_IM_SIZ_4b) {
+        import_texture_i4(tile, loaded_texture, false);
+    } else if (fmt == G_IM_FMT_I && siz == G_IM_SIZ_8b) {
+        import_texture_i8(tile, loaded_texture, false);
+    }
+
+    import_decode_only = false;
+    import_enhance_scale = saved_scale;
+}
+
+/**
+ * A pack's opaque picture standing in for a texture the game draws with alpha.
+ *
+ * The XBLA release's art carries no alpha for most of the textures whose N64
+ * original has some: its records for them are DXT1 or 8888 with 255 in every
+ * pixel, and the console's renderer must have taken the shape from the game's
+ * own texels, since the pictures draw right there. Uploaded as they are, a
+ * light beam (an I8 gradient, whose alpha on the N64 *is* its intensity) is a
+ * solid grey sheet, and every smoke puff, glare and cutout is a square. A Rice
+ * pack missing the _a half of a split image has the same hole.
+ *
+ * So a replacement that is opaque in every pixel, for a texture whose own
+ * texels are not, is given an alpha:
+ *
+ *   - an intensity texture's alpha is its intensity, so it comes from the
+ *     picture's own luminance. That matches the picture where the release
+ *     redrew it, which the original's alpha would not;
+ *   - anything else takes the original's alpha, resampled onto the picture.
+ *
+ * Nothing changes for a picture that carries any alpha of its own, or for a
+ * texture the game keeps at 255 throughout: an opaque wall stays one.
+ */
+static void gfx_replacement_alpha(uint8_t* rep, int32_t rep_width, int32_t rep_height,
+        int tile, const LoadedTexture& loaded_texture, uint8_t fmt, uint8_t siz) {
+    const size_t count = (size_t)rep_width * rep_height;
+
+    if (!rep || rep_width <= 0 || rep_height <= 0) {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        if (rep[i * 4 + 3] != 255) {
+            return;
+        }
+    }
+
+    gfx_decode_original(tile, loaded_texture, fmt, siz);
+
+    const uint32_t ow = last_upload_width;
+    const uint32_t oh = last_upload_height;
+
+    if (ow == 0 || oh == 0) {
+        return;
+    }
+
+    bool translucent = false;
+    for (size_t i = 0; i < (size_t)ow * oh; i++) {
+        if (tex_upload_buffer[i * 4 + 3] != 255) {
+            translucent = true;
+            break;
+        }
+    }
+
+    if (!translucent) {
+        return;
+    }
+
+    if (fmt == G_IM_FMT_I) {
+        for (size_t i = 0; i < count; i++) {
+            uint8_t* p = rep + i * 4;
+            p[3] = (uint8_t)((p[0] * 77 + p[1] * 151 + p[2] * 28) >> 8);
+        }
+        return;
+    }
+
+    // The original's alpha, bilinear, texel centres on the half - both images
+    // cover the same tile, so the map is by ratio alone.
+    const float sx = (float)ow / (float)rep_width;
+    const float sy = (float)oh / (float)rep_height;
+
+    for (int32_t y = 0; y < rep_height; y++) {
+        float v = ((float)y + 0.5f) * sy - 0.5f;
+        if (v < 0.0f) v = 0.0f;
+        uint32_t y0 = (uint32_t)v;
+        if (y0 >= oh - 1) { y0 = oh - 1; v = (float)y0; }
+        const uint32_t y1 = y0 + 1 < oh ? y0 + 1 : y0;
+        const float fy = v - (float)y0;
+        const uint8_t* row0 = tex_upload_buffer + (size_t)y0 * ow * 4;
+        const uint8_t* row1 = tex_upload_buffer + (size_t)y1 * ow * 4;
+        uint8_t* out = rep + (size_t)y * rep_width * 4;
+
+        for (int32_t x = 0; x < rep_width; x++) {
+            float u = ((float)x + 0.5f) * sx - 0.5f;
+            if (u < 0.0f) u = 0.0f;
+            uint32_t x0 = (uint32_t)u;
+            if (x0 >= ow - 1) { x0 = ow - 1; u = (float)x0; }
+            const uint32_t x1 = x0 + 1 < ow ? x0 + 1 : x0;
+            const float fx = u - (float)x0;
+            const float a0 = row0[x0 * 4 + 3] * (1.0f - fx) + row0[x1 * 4 + 3] * fx;
+            const float a1 = row1[x0 * 4 + 3] * (1.0f - fx) + row1[x1 * 4 + 3] * fx;
+            out[x * 4 + 3] = (uint8_t)(a0 * (1.0f - fy) + a1 * fy + 0.5f);
+        }
+    }
+}
+
 static void import_texture(int i, int tile, bool importReplacement) {
     LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
     const uint8_t fmt = rdp.texture_tile[tile].fmt;
@@ -1440,6 +1577,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
                 const uint32_t pad_h = tex_row_bytes ? loaded_texture.size_bytes / tex_row_bytes : 0;
                 rep = gfx_pad_replacement(rep, &rep_width, &rep_height,
                         rdp.texture_tile[tile].width, rdp.texture_tile[tile].height, pad_w, pad_h);
+                gfx_replacement_alpha(rep, rep_width, rep_height, tile, loaded_texture, fmt, siz);
             }
 
             import_enhance_scale = 1; // a pack's image is already what its author wanted

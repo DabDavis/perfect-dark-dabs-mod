@@ -150,6 +150,7 @@ struct xblameshbuilt {
 	s32 state;         // 0 untried, 1 built, -1 no good
 	s32 logged;
 	s32 xlulogged;
+	s32 fadelogged;
 	s32 posedlog;
 
 	// Skinning, for a mesh that has a matrix palette. The vertices above are
@@ -161,8 +162,10 @@ struct xblameshbuilt {
 	f32 scale;         // mesh units to the game's, out of the header
 	s32 groupgfx[XBLAMESH_MAXPARTS]; // into gdl: where each group's opaque list starts
 	s32 groupxlu[XBLAMESH_MAXPARTS]; // its alpha materials, or -1 if it has none
+	s32 groupfade[XBLAMESH_MAXPARTS]; // its draws that fade by vertex alpha, or -1
 	s32 allgfx;                      // and the ones that call every group
 	s32 allxlu;
+	s32 allfade;
 
 	// The posed copy already made this frame, and who for. Every part of a
 	// model draws its own group now, so without this Dr Carroll would pose
@@ -1645,9 +1648,11 @@ struct xblameshbuilder {
 	// alpha material in it, which is most of them.
 	s32 groupgfx[XBLAMESH_MAXPARTS];
 	s32 groupxlu[XBLAMESH_MAXPARTS];
+	s32 groupfade[XBLAMESH_MAXPARTS];
 	s32 numgroups;
 	s32 allgfx;
 	s32 allxlu;
+	s32 allfade;
 
 	s32 numgfx, capgfx;
 	s32 numvtx, capvtx;
@@ -1833,11 +1838,14 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 	vtx->s = xblaMeshRound(xblaMeshBEF32(v + 12) * XBLATEX_TILE_SCALE);
 	vtx->t = xblaMeshRound((1.0f - xblaMeshBEF32(v + 16)) * XBLATEX_TILE_SCALE);
 
+	// ARGB. The alpha is real: the roof fan's column of light is written
+	// with 0x7d at the fan and 0 at the top, and that fade is the whole of
+	// what makes it a beam rather than a slab - see xblaMeshDrawFades().
 	colour = xblaMeshBE32(v + 32);
 	col->r = (u8)(colour >> 16);
 	col->g = (u8)(colour >> 8);
 	col->b = (u8)colour;
-	col->a = 0xff;
+	col->a = (u8)(colour >> 24);
 
 	if (b->skinned) {
 		// Two weights and a packed {bone0, bone1, bone2, count}. The third
@@ -2070,9 +2078,79 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 setm
  * once for the rest, so that the two can go in different passes. The split is
  * by material and the order within each half is the file's own.
  */
+/**
+ * The three spans a group's draws are sorted into.
+ *
+ * XBLAMESH_SPAN_FADE is the release's own volumetric light: geometry whose
+ * vertex alpha runs below 255. The roof fan on dataDyne's helipad is the
+ * type - a 9 vertex disc in the game's model, and in the release a column
+ * of light a thousand units tall, its vertices 0x7d alpha at the fan and 0 at
+ * the top, textured with a soft beam whose alpha never reaches 179. Drawn as
+ * a cutout with that alpha thrown away it was a solid lavender sheet from the
+ * roof to the sky, which is what the "fans have light pouring out but it
+ * looks like a sheet" report was. A draw like that wants blending and no
+ * depth write, in the translucent pass, whatever the node it hangs off says
+ * about itself - the fan's node has no translucent list of its own for the
+ * span to ride on.
+ */
+#define XBLAMESH_SPAN_SOLID 0
+#define XBLAMESH_SPAN_ALPHA 1
+#define XBLAMESH_SPAN_FADE  2
+
+// Below this a vertex alpha is a fade and not a rounding. Counted over the
+// release: 26 draws in 18 meshes carry any alpha under 255, and 13 of those
+// meshes mean it - the two fans, the five hovercars' lights, four glass panes
+// at a flat 127 or 153 and a set of lamps running 0 to 232 - while a
+// speaker's 254 on every vertex, a 251 on one vertex of 168 and three
+// vertices of a 794 vertex body are texture cutouts that would lose their
+// depth write for nothing. The material's own alpha flag is required as
+// well: a fade on a material with no alpha channel is a few stray zeros on
+// three opaque models, and those draw as they always did.
+#define XBLAMESH_FADE_ALPHA 0xf0
+
+/** Whether any vertex of a draw carries an alpha that reads as a fade. */
+static s32 xblaMeshDrawFades(const u8 *file, u32 len, const struct xblameshhdr *h,
+		u32 stride, u32 firsttri, u32 drawtris)
+{
+	for (u32 t = 0; t < drawtris; t++) {
+		const u8 *idx = file + h->indexoffset + (firsttri + t) * 6;
+
+		for (s32 i = 0; i < 3; i++) {
+			const u32 v = xblaMeshBE16(idx + i * 2);
+
+			if (v < h->numvertices && file[h->vertexoffset + v * stride + 32] < XBLAMESH_FADE_ALPHA) {
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static s32 xblaMeshDrawSpan(const u8 *file, u32 len, const struct xblameshhdr *h,
+		u32 stride, u32 d)
+{
+	const u8 *draw = file + h->drawoffset + d * XBLAMESH_ENTRY;
+	const u32 firsttri = xblaMeshBE32(draw);
+	const u32 drawtris = xblaMeshBE32(draw + 4);
+	const u32 material = xblaMeshBE32(draw + 8);
+	const u32 numtris = (len - h->indexoffset) / 6;
+
+	if (!((material >> 15) & 1)) {
+		return XBLAMESH_SPAN_SOLID;
+	}
+
+	if (firsttri <= numtris && drawtris <= numtris - firsttri &&
+			xblaMeshDrawFades(file, len, h, stride, firsttri, drawtris)) {
+		return XBLAMESH_SPAN_FADE;
+	}
+
+	return XBLAMESH_SPAN_ALPHA;
+}
+
 static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len,
 		const struct xblameshhdr *h, u32 stride, u32 firstdraw, u32 numdraws,
-		s32 wantalpha)
+		s32 wantspan)
 {
 	const u32 numtris = (len - h->indexoffset) / 6;
 
@@ -2118,7 +2196,7 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 			return 0;
 		}
 
-		if ((s32)((material >> 15) & 1) != wantalpha) {
+		if (xblaMeshDrawSpan(file, len, h, stride, d) != wantspan) {
 			continue;
 		}
 
@@ -2128,7 +2206,7 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 		// triangles that index it belong to the state they were written under.
 		if (!emitted || material != lastmaterial) {
 			if (!xblaMeshCloseBatch(b) ||
-					!xblaMeshSetMaterial(b, material, !wantalpha) ||
+					!xblaMeshSetMaterial(b, material, wantspan == XBLAMESH_SPAN_SOLID) ||
 					!xblaMeshOpenBatch(b)) {
 				return 0;
 			}
@@ -2252,14 +2330,17 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 	const s32 numgroups = (intable >= 1 && intable <= XBLAMESH_MAXPARTS) ? (s32)intable : 1;
 
 	s32 numxlu = 0;
+	s32 numfade = 0;
 
 	b->numgroups = numgroups;
 	b->allxlu = -1;
+	b->allfade = -1;
 
 	for (s32 g = 0; g < numgroups; g++) {
 		u32 firstdraw = 0;
 		u32 numdraws = h->numdraws;
 		s32 anyalpha = 0;
+		s32 anyfade = 0;
 
 		if ((u32)numgroups == intable) {
 			const u8 *group = file + h->groupoffset + (u32)g * XBLAMESH_ENTRY;
@@ -2276,28 +2357,38 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 		// release's 556 meshes have an alpha material anywhere in them, so for
 		// most groups this is the end of it and groupxlu stays -1.
 		for (u32 d = firstdraw; d < firstdraw + numdraws; d++) {
-			const u32 material = xblaMeshBE32(file + h->drawoffset +
-					d * XBLAMESH_ENTRY + 8);
+			const s32 span = xblaMeshDrawSpan(file, len, h, stride, d);
 
-			if ((material >> 15) & 1) {
+			if (span == XBLAMESH_SPAN_ALPHA) {
 				anyalpha = 1;
-				break;
+			} else if (span == XBLAMESH_SPAN_FADE) {
+				anyfade = 1;
 			}
 		}
 
 		b->groupgfx[g] = b->numgfx;
 
-		if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws, 0)) {
+		if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws, XBLAMESH_SPAN_SOLID)) {
 			return 0;
 		}
 
 		b->groupxlu[g] = -1;
+		b->groupfade[g] = -1;
 
 		if (anyalpha) {
 			b->groupxlu[g] = b->numgfx;
 			numxlu++;
 
-			if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws, 1)) {
+			if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws, XBLAMESH_SPAN_ALPHA)) {
+				return 0;
+			}
+		}
+
+		if (anyfade) {
+			b->groupfade[g] = b->numgfx;
+			numfade++;
+
+			if (!xblaMeshBuildGroup(b, file, len, h, stride, firstdraw, numdraws, XBLAMESH_SPAN_FADE)) {
 				return 0;
 			}
 		}
@@ -2324,6 +2415,16 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 		b->numgfx += numxlu + 1;
 	}
 
+	if (numfade) {
+		b->allfade = b->numgfx;
+
+		if (!xblaMeshRoomForGfx(b, numfade + 1)) {
+			return 0;
+		}
+
+		b->numgfx += numfade + 1;
+	}
+
 	xblaMeshWriteBatches(b);
 
 	for (s32 g = 0; g < numgroups; g++) {
@@ -2343,6 +2444,19 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 		}
 
 		gSPEndDisplayList(&b->gdl[b->allxlu + at]);
+	}
+
+	if (numfade) {
+		s32 at = 0;
+
+		for (s32 g = 0; g < numgroups; g++) {
+			if (b->groupfade[g] >= 0) {
+				gSPDisplayList(&b->gdl[b->allfade + at], &b->gdl[b->groupfade[g]]);
+				at++;
+			}
+		}
+
+		gSPEndDisplayList(&b->gdl[b->allfade + at]);
 	}
 
 	return 1;
@@ -2499,6 +2613,7 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	m->bones = b.bones;
 	m->allgfx = b.allgfx;
 	m->allxlu = b.allxlu;
+	m->allfade = b.allfade;
 	m->numgroups = b.numgroups;
 	m->state = 1;
 
@@ -2531,6 +2646,7 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 		// The builder is zeroed, and zero is a real index, so a group it never
 		// reached says -1 rather than "the list at the top of the array".
 		m->groupxlu[g] = g < b.numgroups ? b.groupxlu[g] : -1;
+		m->groupfade[g] = g < b.numgroups ? b.groupfade[g] : -1;
 	}
 
 	g_XblaMeshNumMeshes++;
@@ -3367,8 +3483,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	Vtx *posed;
 	Gfx *list;
 	Gfx *xlulist = NULL;
+	Gfx *fadelist = NULL;
 	s32 grafted = 0;
 	s32 xlupart = -1;
+	s32 fadepart = -1;
 	const s32 opa = (renderdata->flags & MODELRENDERFLAG_OPA) != 0;
 	const s32 xlu = (renderdata->flags & MODELRENDERFLAG_XLU) != 0;
 
@@ -3493,11 +3611,19 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
 		list = &m->gdl[m->groupgfx[e->part]];
 		xlupart = m->groupxlu[e->part];
+		fadepart = m->groupfade[e->part];
 	} else if (e->part == 0) {
 		list = &m->gdl[m->allgfx];
 		xlupart = m->allxlu;
+		fadepart = m->allfade;
 	} else {
 		return 1;
+	}
+
+	// The release's own light, which fades by vertex alpha: blended, in the
+	// translucent pass, whatever the node says - see XBLAMESH_SPAN_FADE.
+	if (fadepart >= 0) {
+		fadelist = &m->gdl[fadepart];
 	}
 
 	// The release's own translucent geometry, and where it goes.
@@ -3520,7 +3646,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		xlulist = &m->gdl[xlupart];
 	}
 
-	if (!opa && !xlulist) {
+	if (!opa && !xlulist && !fadelist) {
 		// Only a node the game actually draws a translucent list for is a
 		// stock draw; every other replaced node reaches here in the
 		// translucent pass and the game draws nothing for it either.
@@ -3649,6 +3775,20 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		gDPPipeSync(renderdata->gdl++);
 		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
 		gSPDisplayList(renderdata->gdl++, xlulist);
+	}
+
+	if (xlu && fadelist) {
+		if (xblaMeshVerbose && !m->fadelogged) {
+			m->fadelogged = 1;
+			sysLogPrintf(LOG_NOTE, "xblamesh: slot %d part %d draws a fading span "
+					"in the translucent pass", e->slot, e->part);
+		}
+
+		// Blended by texel times vertex alpha, no depth write: a beam of light
+		// that darkens nothing behind it and hides nothing behind it.
+		gDPPipeSync(renderdata->gdl++);
+		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+		gSPDisplayList(renderdata->gdl++, fadelist);
 	}
 
 	// Put the bone's own matrix back, because the divided one is this list's
