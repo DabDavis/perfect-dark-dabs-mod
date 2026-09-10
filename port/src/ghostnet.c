@@ -184,6 +184,77 @@ static void ghostnetSetResult(s32 state, const char *msg)
 }
 
 /**
+ * The name and PIN the server has actually accepted, and nothing else.
+ *
+ * The account page used to read "Signed in as X" the moment the two boxes held
+ * something the server's rules would allow, which is a claim this end is in no
+ * position to make: a name nobody has registered is as well formed as a name
+ * somebody has. A player who typed a name and a PIN was told they were signed
+ * in, never pressed Create Account because the page said there was no need,
+ * and got "wrong username or pin" from Upload - the server's answer for an
+ * account that does not exist, which is deliberately the same as its answer
+ * for a wrong PIN and so does not say which had happened.
+ *
+ * So being signed in is remembered as the pair a reply said yes to. Anything
+ * that changes either box - editing them, switching accounts, starting a new
+ * one - stops them matching and the page goes back to saying so, without
+ * needing to be told the change happened.
+ */
+static char g_OkUser[GHOSTNET_MAXUSER + 2] = { 0 };
+static char g_OkPin[GHOSTNET_MAXPIN + 2] = { 0 };
+
+static void ghostnetSetVerified(const char *user, const char *pin)
+{
+	SDL_LockMutex(g_Lock);
+	snprintf(g_OkUser, sizeof(g_OkUser), "%s", user);
+	snprintf(g_OkPin, sizeof(g_OkPin), "%s", pin);
+	SDL_UnlockMutex(g_Lock);
+}
+
+/**
+ * Whether anything at all has been signed into since the game started.
+ *
+ * Read from the worker, which is why it asks about the stored pair rather than
+ * about the boxes: the boxes belong to the menu and the worker does not touch
+ * them. See the note on the job snapshot above.
+ */
+static bool ghostnetEverVerified(void)
+{
+	bool any;
+
+	SDL_LockMutex(g_Lock);
+	any = g_OkUser[0] != '\0';
+	SDL_UnlockMutex(g_Lock);
+
+	return any;
+}
+
+/**
+ * Whether the boxes hold the pair the server said yes to.
+ *
+ * Nothing clears that pair, and a failed request in particular does not:
+ * editing either box is what takes the claim away, because the two stop
+ * matching. A refusal is a worse signal than it looks, since the server
+ * answers a wrong PIN, an account that is not there and an address that has
+ * guessed too often all with 403 - so treating one as a sign-out would tell a
+ * player whose only mistake was pressing Upload twice too quickly that they
+ * have no account, and send them to Create Account to be told the name is
+ * taken, by themselves.
+ */
+bool ghostnetIsSignedIn(void)
+{
+	bool same;
+
+	SDL_LockMutex(g_Lock);
+	same = g_OkUser[0] != '\0'
+		&& strcmp(g_OkUser, g_GhostNetUser) == 0
+		&& strcmp(g_OkPin, g_GhostNetPin) == 0;
+	SDL_UnlockMutex(g_Lock);
+
+	return same;
+}
+
+/**
  * Pull one value out of a flat JSON object.
  *
  * The replies this speaks to are small, flat and written by the server on the
@@ -761,6 +832,7 @@ static bool ghostnetPostCredentials(const char *endpoint, char *msg, u32 msgsize
 
 	if (buf.data && ghostnetJsonOk(buf.data)) {
 		ok = true;
+		ghostnetSetVerified(g_JobUser, g_JobPin);
 	} else {
 		char err[96];
 
@@ -811,6 +883,8 @@ static bool ghostnetUploadFile(const char *rel, char *msg, u32 msgsize)
 
 	if (buf.data && ghostnetJsonOk(buf.data)) {
 		ok = true;
+		// An upload the server took is proof of the same thing a sign-in is.
+		ghostnetSetVerified(g_JobUser, g_JobPin);
 	} else {
 		char err[96];
 
@@ -1161,6 +1235,10 @@ static int ghostnetWorker(void *arg)
 
 		if (ok) {
 			snprintf(msg, sizeof(msg), "account created, you are signed in");
+		} else if (strstr(msg, "already taken")) {
+			// The other half of the pair of buttons. A name that is taken may
+			// well be taken by the person reading this.
+			snprintf(msg, sizeof(msg), "that name is taken - Sign In if it is yours");
 		}
 		break;
 	case JOB_LOGIN:
@@ -1181,6 +1259,17 @@ static int ghostnetWorker(void *arg)
 	case JOB_DOWNLOAD:
 		ok = ghostnetDownloadNow(msg, sizeof(msg));
 		break;
+	}
+
+	// The server answers a wrong PIN, an account that does not exist and a
+	// name that was never registered with one sentence, on purpose: which of
+	// them it is is the list of accounts, and it does not hand that out. This
+	// end can still say the useful half of it, because it knows whether
+	// anything has been signed into since the game started - and a player who
+	// filled the two boxes in and never pressed Create Account is the one who
+	// most needs telling that the button is there.
+	if (!ok && !ghostnetEverVerified() && strstr(msg, "username or pin")) {
+		snprintf(msg, sizeof(msg), "wrong name or pin - Create Account if it is new");
 	}
 
 	ghostnetSetResult(ok ? GHOSTNET_OK : GHOSTNET_ERROR, msg);
@@ -1581,6 +1670,7 @@ void ghostnetInit(void) {}
 void ghostnetShutdown(void) {}
 void ghostnetRegister(void) {}
 void ghostnetLogin(void) {}
+bool ghostnetIsSignedIn(void) { return false; }
 void ghostnetUploadMine(void) {}
 void ghostnetFetchBoard(s32 stagenum, s32 difficulty) {}
 void ghostnetDownload(s32 index) {}

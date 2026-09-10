@@ -1064,9 +1064,16 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 				"Network support is not built into this copy.\n");
 	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
-	} else if (ghostnetAccountIsValid()) {
+	} else if (ghostnetIsSignedIn()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				"Signed in as %s\n", g_GhostNetUser);
+	} else if (ghostnetAccountIsValid()) {
+		// Well formed, and that is all this end knows. Whether the name is
+		// registered, and whether the PIN is its PIN, are questions only the
+		// server can answer - so the page names the two buttons that ask it
+		// rather than saying the account works.
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Create Account if %s is new, or Sign In.\n", g_GhostNetUser);
 	} else if (ghostnetHasAccount()) {
 		// Both are filled in and one of them is not something the server will
 		// take. Saying which beats letting the player press a greyed out
@@ -2489,6 +2496,15 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
  * the point is to ask a new player the question rather than to keep asking it.
  * Backing out of it leaves everything working: recording, racing and the
  * ghosts directory need no account and never did.
+ *
+ * An account that is already in pd.ini is checked here instead, on the same
+ * one-per-run terms. It is the only thing the game does that asks the server
+ * whether the two saved values still open an account, and it is worth one
+ * request: the answer is what the account page reports for the rest of the
+ * session, so a player who really is signed in is told so without having to
+ * press anything, and a player whose name was never registered - the case this
+ * exists for - finds out here rather than from a run they have already set and
+ * cannot publish.
  */
 static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
@@ -2497,8 +2513,12 @@ static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menud
 	if (operation == MENUOP_OPEN && !asked) {
 		asked = true;
 
-		if (ghostnetIsAvailable() && !ghostnetHasAccount()) {
-			menuPushDialog(&g_GhostAccountsMenuDialog);
+		if (ghostnetIsAvailable()) {
+			if (!ghostnetHasAccount()) {
+				menuPushDialog(&g_GhostAccountsMenuDialog);
+			} else if (ghostnetAccountIsValid() && !ghostnetIsSignedIn()) {
+				ghostnetLogin();
+			}
 		}
 	}
 
