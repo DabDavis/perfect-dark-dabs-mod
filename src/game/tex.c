@@ -2,6 +2,9 @@
 #include "constants.h"
 #include "game/dyntex.h"
 #include "game/tex.h"
+#ifndef PLATFORM_N64
+#include "xblastage.h"
+#endif
 #include "game/texdecompress.h"
 #include "bss.h"
 #include "data.h"
@@ -900,6 +903,26 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 
 			texturenum = ingdl->words.w1 & 0xfff;
 			flag = ingdl->words.w0 & 0x200;
+
+#ifndef PLATFORM_N64
+			// The XBLA release's rooms name records past the ROM's texture
+			// table, in a number wider than the twelve bits read above
+			// (subcmd 1 keeps its second texture in the bits over them).
+			// Those draw through the meshes' stand-in tile - xblastage.h.
+			if (xblaStageIsRelease() && ingdl->unkc0.subcmd != 1
+					&& (ingdl->words.w1 & 0xffff) >= NUM_TEXTURES) {
+				outgdl = xblaStageWriteTexture(outgdl, ingdl, ingdl->words.w1 & 0xffff);
+
+				// The scale it wrote belongs to that texture alone; the next
+				// one starts a gSPTexture of its own rather than patch it
+				texcmd = NULL;
+				appendtex = true;
+				animated = false;
+				spf4 = 0;
+				ingdl++;
+				break;
+			}
+#endif
 
 			texLoadFromTextureNum(texturenum, pool);
 

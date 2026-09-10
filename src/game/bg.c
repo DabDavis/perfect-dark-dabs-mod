@@ -2915,6 +2915,19 @@ void bgLoadRoom(s32 roomnum)
 		alloclen = readlen + 0x20;
 	}
 
+#ifndef PLATFORM_N64
+	// A room stored uncompressed - the XBLA release's, or a mod's - can carry
+	// a figure that understates it badly (the release's section 3 is mostly
+	// zeros), and nothing below checks the converted room against alloclen:
+	// preprocessBgRoom() doubles the lists into it, texCopyGdls() copies them
+	// again to its far end, and texLoadFromGdl() grows each texture command
+	// into ten. Sized from the data instead. For the ROM's compressed rooms
+	// this is under the file's own figure and changes nothing.
+	if (alloclen < readlen * 6 + 0x2000) {
+		alloclen = readlen * 6 + 0x2000;
+	}
+#endif
+
 
 #ifdef PLATFORM_N64
 	bgGarbageCollectRooms(alloclen, false);

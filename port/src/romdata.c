@@ -7,6 +7,7 @@
 #include "lib/rzip.h"
 #include "files.h"
 #include "romdata.h"
+#include "xblastage.h"
 #include "modloader.h"
 #include "lib/main.h"
 #include "fs.h"
@@ -74,7 +75,8 @@ static const char *romName = ROMDATA_ROM_NAME;
 enum loadsource {
 	SRC_UNLOADED = 0,
 	SRC_ROM,
-	SRC_EXTERNAL
+	SRC_EXTERNAL,
+	SRC_XBLA, // the XBLA release's copy of a level file, see xblastage.h
 };
 
 struct romfilepatch {
@@ -102,6 +104,10 @@ struct romfile {
 	// Mod dir the cached data actually came from, so a slot resolved for one
 	// stage is not reused unchanged by a stage belonging to a different mod.
 	const char *loadeddir;
+	// Where the ROM's copy is, kept aside so that a slot handed to the XBLA
+	// release's level file can be given back to the ROM afterwards.
+	u8 *romdata;
+	u32 romsize;
 };
 
 /* patches for individual files; applied on file load, before preprocFuncs, but */
@@ -383,6 +389,8 @@ static inline void romdataInitFiles(void)
 			const u32 ofs = PD_BE32(offsets[i]);
 			fileSlots[i].data = g_RomFile + ofs;
 			fileSlots[i].size = nextofs - ofs;
+			fileSlots[i].romdata = fileSlots[i].data;
+			fileSlots[i].romsize = fileSlots[i].size;
 			fileSlots[i].source = SRC_UNLOADED;
 			fileSlots[i].preprocessed = 0;
 		}
@@ -414,8 +422,12 @@ static inline void romdataInitFiles(void)
 void romdataResetFiles(void)
 {
 	for (s32 i = 1; i < ROMDATA_MAX_FILES; ++i) {
-		if (fileSlots[i].source == SRC_EXTERNAL && fileSlots[i].data) {
+		if ((fileSlots[i].source == SRC_EXTERNAL || fileSlots[i].source == SRC_XBLA) && fileSlots[i].data) {
 			sysMemFree(fileSlots[i].data);
+		}
+
+		if (fileSlots[i].source == SRC_XBLA) {
+			xblaStageReleased(i);
 		}
 
 		memset(&fileSlots[i], 0, sizeof(fileSlots[i]));
@@ -635,10 +647,26 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 	// Slots are cached for the life of the process, so a file resolved for one
 	// mod's stage would otherwise be handed to the next stage unchanged.
 	if (fileSlots[fileNum].source != SRC_UNLOADED && fileSlots[fileNum].loadeddir != wantdir) {
-		if (fileSlots[fileNum].source == SRC_EXTERNAL && fileSlots[fileNum].data) {
+		if (fileSlots[fileNum].source == SRC_XBLA) {
+			romdataFileFree(fileNum);
+		} else if (fileSlots[fileNum].source == SRC_EXTERNAL && fileSlots[fileNum].data) {
 			sysMemFree(fileSlots[fileNum].data);
 			fileSlots[fileNum].data = NULL;
 		}
+		fileSlots[fileNum].source = SRC_UNLOADED;
+	}
+
+	// The XBLA release's level files. A slot that would come from the ROM
+	// goes to the package instead while a level that wants them is loading,
+	// and comes back to the ROM when one that does not is. The want is
+	// decided once per level (xblaStageLevelReset()), so for as long as a
+	// stage is reading a file the answer here does not change under it.
+	if (fileSlots[fileNum].source == SRC_XBLA) {
+		if (!xblaStageWants(fileNum, fileSlots[fileNum].name)) {
+			romdataFileFree(fileNum);
+		}
+	} else if (fileSlots[fileNum].source == SRC_ROM && !fileSlots[fileNum].moddir
+			&& xblaStageWants(fileNum, fileSlots[fileNum].name)) {
 		fileSlots[fileNum].source = SRC_UNLOADED;
 	}
 
@@ -674,7 +702,22 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 			}
 		}
 
-		if (fileSlots[fileNum].source != SRC_EXTERNAL) {
+		// A level file the release rewrote, unless a mod replaced it: a mod's
+		// file under a stock name means what the mod put there, and the
+		// release's copy is a copy of the ROM's level.
+		if (fileSlots[fileNum].source != SRC_EXTERNAL && !fileSlots[fileNum].moddir
+				&& xblaStageWants(fileNum, fileSlots[fileNum].name)) {
+			u32 size = 0;
+			out = xblaStageLoad(fileNum, fileSlots[fileNum].name, &size);
+			if (out && size) {
+				fileSlots[fileNum].data = out;
+				fileSlots[fileNum].size = size;
+				fileSlots[fileNum].source = SRC_XBLA;
+				fileSlots[fileNum].numpatches = 0;
+			}
+		}
+
+		if (fileSlots[fileNum].source != SRC_EXTERNAL && fileSlots[fileNum].source != SRC_XBLA) {
 			// tried and failed, fall back to ROM
 			fileSlots[fileNum].source = SRC_ROM;
 		}
@@ -726,6 +769,12 @@ void romdataFileFree(s32 fileNum)
 	if (fileSlots[fileNum].source == SRC_EXTERNAL) {
 		sysMemFree(fileSlots[fileNum].data);
 		fileSlots[fileNum].data = NULL;
+	} else if (fileSlots[fileNum].source == SRC_XBLA) {
+		// Back to the ROM's copy, which the slot was pointing at before
+		sysMemFree(fileSlots[fileNum].data);
+		fileSlots[fileNum].data = fileSlots[fileNum].romdata;
+		fileSlots[fileNum].size = fileSlots[fileNum].romsize;
+		xblaStageReleased(fileNum);
 	}
 
 	fileSlots[fileNum].source = SRC_UNLOADED;

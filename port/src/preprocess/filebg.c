@@ -322,8 +322,12 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 infsize, u32 src_ofs)
 
 	curpos_dst = ALIGN8(curpos_dst);
 
-	// vertices
-	uintptr_t ptr_src_vertices = curpos_src = ALIGN8((uintptr_t)dst_header->vertices - src_ofs);
+	// vertices. The source offset is taken as the header gives it: the ROM's
+	// rooms pad the vertex and colour arrays to 8 bytes, but the XBLA
+	// release's rooms do not always, and rounding the offset up reads the
+	// arrays four bytes late and leaves the header's pointers with nothing
+	// to relink to. Only the host side is aligned.
+	uintptr_t ptr_src_vertices = curpos_src = (uintptr_t)dst_header->vertices - src_ofs;
 	uintptr_t ptr_dst_vertices = curpos_dst + dst_roomoffset;
 
 	ptrAdd(curpos_src + src_ofs, curpos_dst + dst_roomoffset);
@@ -355,7 +359,7 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 infsize, u32 src_ofs)
 	uintptr_t ptr_dst_colors = 0;
 
 	if (dst_header->colours) {
-		ptr_src_colors = curpos_src = ALIGN8((uintptr_t)dst_header->colours - src_ofs);
+		ptr_src_colors = curpos_src = (uintptr_t)dst_header->colours - src_ofs;
 		ptr_dst_colors = curpos_dst + dst_roomoffset;
 
 		ptrAdd(curpos_src + src_ofs, curpos_dst + dst_roomoffset);

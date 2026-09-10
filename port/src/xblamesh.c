@@ -4438,6 +4438,16 @@ void xblaMeshSetVerbose(s32 verbose)
 	xblaMeshVerbose = verbose;
 }
 
+u8 *xblaMeshReadFile(u16 fileid, u32 *outLen)
+{
+	if (fileid == 0 || !xblaMeshOpen(0)) {
+		return NULL;
+	}
+
+	// Slot i is file id i + 1, as everywhere in this container
+	return xblaMeshReadSlot((s32)fileid - 1, outLen);
+}
+
 #else
 
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
@@ -4452,5 +4462,6 @@ void xblaMeshToggleSetKey(s32 vk) { }
 void xblaMeshTick(void) { }
 void xblaMeshResetModels(void) { }
 s32 xblaMeshModelsAreLate(void) { return 0; }
+u8 *xblaMeshReadFile(u16 fileid, u32 *outLen) { return NULL; }
 
 #endif

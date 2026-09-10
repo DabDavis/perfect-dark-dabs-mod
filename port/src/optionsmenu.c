@@ -31,6 +31,7 @@
 #include "xblaimport.h"
 #include "xblamesh.h"
 #include "xblatex.h"
+#include "xblastage.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -4699,6 +4700,35 @@ static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct m
 	return 0;
 }
 
+/**
+ * The rooms follow the same rule as the pictures - the release's geometry
+ * is the models feature applied to the levels, so this counts while the
+ * meshes are on - but unlike either of them it is not live: a level's file
+ * is chosen as it loads and kept, since the room table from one copy cannot
+ * read rooms out of the other. The label below says so when it matters.
+ */
+static MenuItemHandlerResult menuhandlerXblaStages(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return xblaStageGetEnabled();
+	case MENUOP_SET:
+		xblaStageSetEnabled(!xblaStageGetEnabled());
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerXblaStagesLate(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !xblaStagePending();
+	}
+
+	return 0;
+}
+
 static char g_XblaMeshLateText[64];
 
 /**
@@ -4864,6 +4894,22 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Textures",
 		0,
 		menuhandlerXblaMeshTextures,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enable Level Geometry",
+		0,
+		menuhandlerXblaStages,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Levels change from the next one loaded\n",
+		0,
+		menuhandlerXblaStagesLate,
 	},
 	{
 		MENUITEMTYPE_LABEL,

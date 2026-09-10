@@ -127,6 +127,15 @@ void xblaMeshFrameReset(void);
 /** --xbla-mesh-verbose: log each replaced node's box against its mesh's. */
 void xblaMeshSetVerbose(s32 verbose);
 
+/**
+ * The release's copy of one of the game's files - file id, not slot - read
+ * out of the package and inflated, in a buffer the caller frees. NULL when
+ * there is no package ready to read (this never unpacks one), no such file,
+ * or nothing in that slot. What the stage loader (xblastage.c) reads the
+ * release's bg files through.
+ */
+u8 *xblaMeshReadFile(u16 fileid, u32 *outLen);
+
 /** How much is loaded, for gdb. */
 extern u32 g_XblaMeshNumMeshes;
 extern u32 g_XblaMeshNumNodes;

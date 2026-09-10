@@ -105,6 +105,7 @@
 #include "video.h"
 #include "record.h"
 #include "xblamesh.h"
+#include "xblastage.h"
 #include "game/modrules.h"
 #include <stdlib.h>
 #include "system.h"
@@ -322,6 +323,10 @@ void lvReset(s32 stagenum)
 	// The XBLA meshes hold their registry by modeldef and modelnode address,
 	// and every one of those belonged to the pool texReset() has just rebuilt
 	xblaMeshResetModels();
+
+	// And the release's level file, if the last stage drew one: the next
+	// decides for itself, under whatever the switches say now
+	xblaStageLevelReset();
 #endif
 
 	textReset();

@@ -28,6 +28,7 @@
 #include "texpack.h"
 #include "screenshot.h"
 #include "xblamesh.h"
+#include "xblastage.h"
 #include "xblatex.h"
 #include "config.h"
 #include "mod.h"
@@ -233,6 +234,7 @@ int main(int argc, const char **argv)
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 	g_ShotFrame = sysArgGetInt("--screenshot-frame", 0);
 	xblaMeshSetVerbose(sysArgCheck("--xbla-mesh-verbose"));
+	xblaStageSetVerbose(sysArgCheck("--xbla-stage-verbose"));
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
 

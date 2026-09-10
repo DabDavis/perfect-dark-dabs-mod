@@ -1385,12 +1385,91 @@ Nintendo, the N64 logo, then the Perfect Dark logo, and the whole thing is over
 by about fourteen seconds. `Mod.LoadTextures=0` still shows it, which is what
 rules the texture packs out - it is the meshes, not the pictures.
 
-### The level files were rewritten too
+## The level files (2026-09-10)
 
-62 `bgdata/bg_*.seg` files changed size, some enormously — `bg_arec.seg` goes
-from 20656 bytes to 72291. Those are not covered by anything above and have not
-been looked at; whatever 4J did to the level geometry is a separate job from the
-models.
+62 `bgdata/bg_*.seg` files differ from the ROM's. 29 are the 512 byte
+placeholders of levels that were never built, two are tile files (collision,
+a few hundred bytes each, left alone), and **31 are real levels rewritten
+with two to four times the triangles** - `bg_arec.seg` goes from 20656 bytes
+to 72291, `bg_rit.seg` from 270K to 1.2M. Bevelled panel edges, rounded
+pipes, the Crash Site wreck. `port/src/xblastage.c` serves them
+(`Mod.XblaStages`, on by default, counted only while `Mod.XblaMeshes` is on;
+"Enable Level Geometry" on the Xbox 360 Textures page).
+
+**It is the game's own room format.** The three sections, the primary data
+with its room table, `struct roomgfxdata` and the 20 byte roomblocks, 12 byte
+`Vtx`, 4 byte colours, the same display list opcodes including the `0xc0`
+texture command - all of it. So nothing draws it but the ordinary bg loader:
+the file is handed to the file slot the ROM's copy would fill
+(`romdataFileLoad()`, a fourth source `SRC_XBLA` beside ROM and external,
+with the ROM pointer kept aside to give back), chosen once per level at
+`lvReset()` and kept until the next, because a room table from one copy
+cannot read rooms out of the other. The two things the release does
+differently and what had to change for each:
+
+- **Section 1 is stored inflated**: the header's primary-stored size equals
+  its inflated size, and every room is raw. The game copes on its own
+  (`bgInflate()` copies what is not `1173`). Seven of the 31 (`depo`, `cryp`,
+  `crad`, `ash`, `mp1`, `mp5`, `mp10`) are stored the ROM's way and are the
+  ROM's geometry to the byte; the loader turns those down and remembers it,
+  so G5 (`depo`) draws from the ROM. Some of the release's files also store
+  section 2 raw, without the `0x8000` bit; the game masks it anyway.
+- **Every `gSPVertex` has a zero byte length.** The count is in the `(n-1)<<4`
+  byte as always and the game's own code reads only that (`bg.c`, `tex.c`),
+  which is why 4J never noticed; `gfx_pc` takes the count from the length and
+  would load nothing. 52665 of 55245 loads. `xblaStageFixRoom()` writes
+  `12 * n` in. Also `G_COL`'s count is zero, and nothing reads it.
+- **Section 3's per-room sizes are mostly zero.** `gfxdatalen` is what
+  `bgLoadRoom()` allocates from (x16 + 0x100, x4 on 64-bit), and the release
+  has 0 for whole levels; nothing downstream checked the converted room
+  against the allocation. `bgLoadRoom()` now floors it at six times the data
+  plus 8K for any room, which is under the ROM's own figure for its
+  compressed rooms and so changes nothing there.
+- **Vertex and colour arrays are not padded to 8.** The port's converter
+  (`convertRoomGfxData`) rounded the *source* offset up, which reads the
+  arrays four bytes late and leaves the header's pointer with nothing to
+  relink to - the `[BG] Unable to relink pointer` fatal on Crash Site.
+  Only the host side is aligned now. (The ROM's two rooms with an odd
+  offset are empty rooms with no vertex pointer at all.)
+- **Two stale blocks in `bg_mp11.seg` room 16** still point at the ROM's
+  layout of the room (negative offsets in the release's). Both are orphans
+  nothing links to, in the ROM's copy too, but the loader relocates every
+  block in the table whether or not it is drawn. Emptied on the way in. The
+  audit that found them (reachability from the opa/xlu heads, every
+  next/child/gdl/vertex/colour pointer checked against the converter's
+  rules) found nothing else in any file.
+- **Five levels bind textures the ROM does not have**: Crash Site (8
+  records), Air Base, Villa, Defection and Air Force One name Textures.raw
+  records 3777-4586, the release's own art, 256 to 1024 square, in a texture
+  number wider than the twelve bits the game reads (`w1 & 0xfff`; subcmd 1
+  keeps its second texture above them, the others leave the bits clear in
+  every ROM file). `struct tex` is twelve bits too, so they cannot go through
+  the pool. `texLoadFromGdl()` asks `xblaStageIsRelease()` and, for a record
+  past `NUM_TEXTURES`, `xblaStageWriteTexture()` writes the meshes' stand-in
+  tile (xblatex.h) with the command's wrap modes and a `gSPTexture` scale of
+  32/width, 32/height: **4J measured those rooms' s and t in texels of the
+  full picture** (a 1024 texture runs to s = 32767, the top of a Vtx), and
+  the renderer scales by the gSPTexture before it divides by the tile, so a
+  picture width lands on the 32 texel tile the replacement is sampled over.
+  Section 2 (the preload list) names none of them, checked.
+
+Not a defect: Defection's skybox floor in the ROM carries a painted street
+strip (texture 133, four vertices) with lamp glows; the release's skybox
+has no strip, so the street far below the roof is black in the intro. The
+translucent list is otherwise the same 212 vertices.
+
+Verified on the real GPU (offscreen, `--fixed-step --rng-seed 1`): Defection,
+Crash Site (the six Xbox-only records bind and draw), Villa, Air Force One,
+Air Base and Felicity (the stale-block arena) all boot from the release and
+run 1200-2000 frames clean with no `bg:` warnings; flipping the switch
+inside Villa from gdb leaves the level on the release's file (frozen) and
+the menu shows the "next level" note. Booting `0x33` with `--mpsims` dies
+with SIGFPE with the release on or off - pre-existing, not this.
+`--xbla-stage-verbose` logs each file taken, each turned down, and each
+Xbox-only record bound with its scale. Headless recipe: the two save dirs
+`/home/sdg/pd-testsave-xs1` (XblaMeshes=1, XblaStages=1, TexturePack=PD
+XBLA) and `-xs0` (XblaStages=0); the game **writes pd.ini on exit**, so a
+setting flipped from gdb is saved and the next run has it.
 
 ## How the two conversions are kept honest
 

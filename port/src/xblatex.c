@@ -377,6 +377,30 @@ static u8 *xblaTexDecode(u32 record, s32 *outWidth, s32 *outHeight)
 	return rgba;
 }
 
+s32 xblaTexRecordSize(u32 record, s32 *outWidth, s32 *outHeight)
+{
+	const u8 *a;
+
+	if (!lock) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (!xblaTexOpen() || record >= numRecords) {
+		SDL_UnlockMutex(lock);
+		return 0;
+	}
+
+	a = tables + record * XBLATEX_RECORD;
+	*outWidth = (s32)xblaTexBE32(a + 4);
+	*outHeight = (s32)xblaTexBE32(a + 8);
+
+	SDL_UnlockMutex(lock);
+
+	return *outWidth > 0 && *outHeight > 0;
+}
+
 u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 {
 	struct xblatexentry *e;

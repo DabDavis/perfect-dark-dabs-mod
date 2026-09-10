@@ -81,6 +81,13 @@ void xblaTexSetEnabled(s32 enabled);
 u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight);
 void xblaTexFreeReplacement(u8 *rgba);
 
+/**
+ * The picture's own width and height for a record, without decoding it -
+ * what a room list has to know to scale its coordinates onto the stand-in.
+ * Zero when there is no package or no such record.
+ */
+s32 xblaTexRecordSize(u32 record, s32 *outWidth, s32 *outHeight);
+
 /** Drops the package handle. The stand-in tiles stay, since lists hold them. */
 void xblaTexShutdown(void);
 
