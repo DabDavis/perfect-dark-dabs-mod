@@ -160,6 +160,39 @@ Checked frame-exact on the card: `--boot-stage 0x1c --fixed-step --rng-seed
 is the crash flythrough. The big untextured wedge in the middle of that view
 is the ROM's own geometry and draws the same with every feature off.
 
+### The other skies, and the slots 4J reused (2026-09-10)
+
+Every level with an outdoor view was screenshotted on the card with the
+pack on and off five frames apart (`texpackSetLoadEnabled(0)` from gdb at a
+`videoEndFrame` stop, same seeded run): Villa, Air Base, Skedar Ruins,
+Defection, Chicago, Pelagic II, Air Force One, Attack Ship, Infiltration,
+Escape, War, and the fifteen arenas with clouds enabled. No sky differs.
+Every stage with clouds is `clouds_type` 0, so 0013 was the whole of it.
+The sun, flare and water records (0014-0019, 0c90, 0c92-0c96) are the ROM's
+pictures enlarged - 0.92 to 0.99 correlation on the channel the combiners
+read. The I8 flares keep their shape in alpha over a near-white colour,
+which is what `skyRenderFlare()`'s `(TEXEL0 * ENV)` alpha wants, and
+`gfx_replacement_alpha()` leaves a picture that carries alpha alone.
+
+**Open: record N is not always 4J's version of texture N.** The sweep
+showed Villa's cliffs as Area 51's "51" wall with the release rooms and the
+pack off, and Crash Site's cliff as a striped panel. A gdb breakpoint on
+`texLoadFromGdl()`'s `texturenum = ...` line, printing `w1 & 0xffff` for a
+Villa run with the release rooms and one with the ROM's, gives 669 reads and
+40 numbers each; the release rooms bind six slots the ROM's never do
+(0222, 0224, 0227, 022f, 08a2, 08a3) and drop seven (08f9, 0904, 0905,
+0916, 0921, 0924, 092a). In the ROM the six are Chicago's police and
+dataDyne signs, a "23" sign, and Area 51's "51" wall and door panel; in the
+release they are cliff and grass. So with the pack off the release rooms
+draw the ROM's signs on cliffs, and with the pack on any ROM room that
+binds those slots - Chicago and Area 51 with the meshes off, or any of the
+seven levels the loader refuses - draws cliffs on its signs. The fix is one
+table of reused slots, from that diff over all 31 rewritten levels: the
+importer leaves them out of the pack, and the release branch in
+`texLoadFromGdl()` binds them through `xblaStageWriteTexture()` like the
+records past `NUM_TEXTURES`, so a release room gets 4J's picture whatever
+pack is on. Not done yet.
+
 ### Row order
 
 The console art is in N64 row order, upside down on screen. A pack file
