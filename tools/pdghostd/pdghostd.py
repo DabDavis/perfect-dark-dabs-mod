@@ -498,6 +498,21 @@ def rate_hit(table, key):
         table.setdefault(key, []).append(time.time())
 
 
+def has_recovery(username):
+    """Whether an account can be reset by answering a question.
+
+    Answered only to somebody who has just proved they hold the PIN, which is
+    what makes it safe to say: to its owner it is the difference between an
+    account that can be recovered and one that cannot, and to anybody else it
+    would be a list of which names are worth attacking.
+    """
+    with db() as conn:
+        row = conn.execute("SELECT rec_hash FROM users WHERE username = ?",
+                           (username,)).fetchone()
+
+    return bool(row and row["rec_hash"])
+
+
 def known_ips(row):
     return [a for a in (row["known_ips"] or "").split(",") if a]
 
@@ -995,18 +1010,25 @@ class Handler(BaseHTTPRequestHandler):
                 # Unique usernames, case-insensitively.
                 return self.send_json(409, {"ok": False, "error": "username already taken"})
 
-            return self.send_json(200, {"ok": True, "username": username})
+            return self.send_json(200, {"ok": True, "username": username,
+                                        "recovery": bool(rec_hash)})
 
         if path == "/login":
             req = self.read_json()
             if req is None:
                 return self.send_json(400, {"ok": False, "error": "bad body"})
 
-            ok, err = self.authenticate(str(req.get("username", "")).strip(),
-                                        str(req.get("pin", "")).strip())
+            username = str(req.get("username", "")).strip()
+
+            ok, err = self.authenticate(username, str(req.get("pin", "")).strip())
             if not ok:
                 return self.send_json(403, {"ok": False, "error": err})
-            return self.send_json(200, {"ok": True})
+
+            # Accounts made before there was a question to ask cannot be
+            # reset, and nothing else would ever tell their owner so. The
+            # client asks this of the server once a run and says so on the
+            # account page.
+            return self.send_json(200, {"ok": True, "recovery": has_recovery(username)})
 
         if path == "/setrecovery":
             # Changing the question needs the PIN, which is the whole of the
@@ -1034,7 +1056,7 @@ class Handler(BaseHTTPRequestHandler):
                     "UPDATE users SET rec_salt = ?, rec_hash = ? WHERE username = ?",
                     (salt, hash_answer(question, answer, salt), username))
 
-            return self.send_json(200, {"ok": True})
+            return self.send_json(200, {"ok": True, "recovery": True})
 
         if path == "/resetpin":
             # The one door that opens without the PIN. Everything about it is
@@ -1103,7 +1125,8 @@ class Handler(BaseHTTPRequestHandler):
 
             print("%s - pin reset for %s" % (self.client_ip(), row["username"]), flush=True)
 
-            return self.send_json(200, {"ok": True, "username": row["username"]})
+            return self.send_json(200, {"ok": True, "username": row["username"],
+                                        "recovery": True})
 
         if path == "/upload":
             username = self.headers.get("X-Ghost-User", "").strip()

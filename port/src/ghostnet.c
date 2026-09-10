@@ -218,12 +218,70 @@ static void ghostnetSetResult(s32 state, const char *msg)
 static char g_OkUser[GHOSTNET_MAXUSER + 2] = { 0 };
 static char g_OkPin[GHOSTNET_MAXPIN + 2] = { 0 };
 
-static void ghostnetSetVerified(const char *user, const char *pin)
+/**
+ * Whether the account the server let in has a security question on it.
+ *
+ * An account made before the game could ask for one cannot be reset, and
+ * nothing about it looks different from the outside: the only place that
+ * knows is the server, and the only moment it will say is a reply to somebody
+ * who has just proved they hold the PIN. So the answer is kept from the last
+ * such reply, and the pages read it from here.
+ */
+static s32 g_OkRecovery = GHOSTNET_RECOVERY_UNKNOWN;
+
+static void ghostnetSetVerified(const char *user, const char *pin, s32 recovery)
 {
 	SDL_LockMutex(g_Lock);
 	snprintf(g_OkUser, sizeof(g_OkUser), "%s", user);
 	snprintf(g_OkPin, sizeof(g_OkPin), "%s", pin);
+	g_OkRecovery = recovery;
 	SDL_UnlockMutex(g_Lock);
+}
+
+/**
+ * Read "recovery" out of a reply that has already said ok.
+ *
+ * Absent means unknown rather than missing. A server from before the question
+ * existed answers a sign-in with {"ok": true} and nothing else, and reading
+ * that as "you have no question" would nag every player of an older board
+ * about a page their server has no route for.
+ */
+static s32 ghostnetReadRecovery(const char *json)
+{
+	char value[8];
+
+	if (json == NULL || !ghostnetJsonField(json, NULL, "recovery", value, sizeof(value))) {
+		return GHOSTNET_RECOVERY_UNKNOWN;
+	}
+
+	return !strcasecmp(value, "true") ? GHOSTNET_RECOVERY_SET : GHOSTNET_RECOVERY_MISSING;
+}
+
+/**
+ * What is remembered, whoever is asking.
+ *
+ * The worker uses this one. ghostnetGetAccountRecovery() below asks whether
+ * the boxes still hold that account as well, which is a question about what
+ * the menu owns and so is the menu's to ask.
+ */
+static s32 ghostnetKeepRecovery(void)
+{
+	s32 recovery;
+
+	SDL_LockMutex(g_Lock);
+	recovery = g_OkRecovery;
+	SDL_UnlockMutex(g_Lock);
+
+	return recovery;
+}
+
+s32 ghostnetGetAccountRecovery(void)
+{
+	if (!ghostnetIsSignedIn()) {
+		return GHOSTNET_RECOVERY_UNKNOWN;
+	}
+
+	return ghostnetKeepRecovery();
 }
 
 /**
@@ -868,7 +926,7 @@ static bool ghostnetPostCredentials(const char *endpoint, bool recovery, char *m
 
 	if (buf.data && ghostnetJsonOk(buf.data)) {
 		ok = true;
-		ghostnetSetVerified(g_JobUser, g_JobPin);
+		ghostnetSetVerified(g_JobUser, g_JobPin, ghostnetReadRecovery(buf.data));
 	} else {
 		char err[96];
 
@@ -920,7 +978,9 @@ static bool ghostnetUploadFile(const char *rel, char *msg, u32 msgsize)
 	if (buf.data && ghostnetJsonOk(buf.data)) {
 		ok = true;
 		// An upload the server took is proof of the same thing a sign-in is.
-		ghostnetSetVerified(g_JobUser, g_JobPin);
+		// It says nothing about the security question, so what is known about
+		// that is left as it was rather than being cleared by an upload.
+		ghostnetSetVerified(g_JobUser, g_JobPin, ghostnetKeepRecovery());
 	} else {
 		char err[96];
 
@@ -1740,6 +1800,7 @@ void ghostnetLogin(void) {}
 void ghostnetSetRecovery(void) {}
 void ghostnetResetPin(void) {}
 bool ghostnetIsSignedIn(void) { return false; }
+s32 ghostnetGetAccountRecovery(void) { return GHOSTNET_RECOVERY_UNKNOWN; }
 void ghostnetUploadMine(void) {}
 void ghostnetFetchBoard(s32 stagenum, s32 difficulty) {}
 void ghostnetDownload(s32 index) {}

@@ -1065,6 +1065,12 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 				"Network support is not built into this copy.\n");
 	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
+	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING) {
+		// Signed in, and the server has said this account cannot be reset.
+		// Only a reply to a correct PIN knows that, so this line is the only
+		// warning its owner will ever get.
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"No Security Question - you cannot reset a lost PIN.\n");
 	} else if (ghostnetIsSignedIn()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				"Signed in as %s\n", g_GhostNetUser);
@@ -1392,9 +1398,19 @@ static char *menutextGhostQuestionStatus(struct menuitem *item)
 
 	if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg), "%s\n", ghostnetGetMessage());
+	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING
+			&& !ghostnetRecoveryIsSet()) {
+		// The state a player is pushed into this page in, having pressed
+		// nothing. The first line has to say why they are looking at it.
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"This account cannot reset a lost PIN yet.\n");
 	} else if (!ghostnetRecoveryIsSet()) {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
 				"Pick a pair you will still know in a year.\n");
+	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING) {
+		// Picked here, but the account still has nothing on it.
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"Not on the account yet - Save To Account.\n");
 	} else {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
 				"Save To Account to change an existing one.\n");
@@ -2920,10 +2936,22 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
  * press anything, and a player whose name was never registered - the case this
  * exists for - finds out here rather than from a run they have already set and
  * cannot publish.
+ *
+ * The sign-in also comes back saying whether the account has a security
+ * question, and an account made before there was one to ask for cannot reset a
+ * PIN at all. Its owner has no way to find that out except by losing the PIN,
+ * so the page they need is put in front of them once, when the answer arrives
+ * - which is a frame or so after the page opened, not during it, and is why
+ * this waits on the tick rather than doing it all in MENUOP_OPEN.
+ *
+ * Once each, and never again in the same run whether or not they set one:
+ * backing out is an answer, and a page that reappears every time this one is
+ * opened is a page people learn to dismiss without reading.
  */
 static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	static bool asked = false;
+	static bool nagged = false;
 
 	if (operation == MENUOP_OPEN && !asked) {
 		asked = true;
@@ -2935,6 +2963,17 @@ static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menud
 				ghostnetLogin();
 			}
 		}
+	}
+
+	// Only while this page is the one on top. A tick reaches every dialog on
+	// the stack, and pushing one from underneath the player's own would open
+	// the security question over whatever they had gone on to open.
+	if (operation == MENUOP_TICK && !nagged
+			&& g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef
+			&& ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING) {
+		nagged = true;
+		menuPushDialog(&g_GhostQuestionMenuDialog);
 	}
 
 	return 0;

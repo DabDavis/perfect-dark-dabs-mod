@@ -209,6 +209,19 @@ bool ghostnetHasAccount(void);
 bool ghostnetAccountIsValid(void);
 bool ghostnetIsSignedIn(void);
 bool ghostnetRecoveryIsSet(void);
+
+/**
+ * What the server last said about the account's own security question.
+ *
+ * UNKNOWN until something signs in - nothing else can be asked, and a server
+ * too old to answer leaves it there for ever, which is what stops an older
+ * board being nagged about a feature it does not have.
+ */
+#define GHOSTNET_RECOVERY_UNKNOWN 0
+#define GHOSTNET_RECOVERY_MISSING 1
+#define GHOSTNET_RECOVERY_SET     2
+
+s32 ghostnetGetAccountRecovery(void);
 s32 ghostnetGetState(void);
 const char *ghostnetGetMessage(void);
 void ghostnetClearState(void);

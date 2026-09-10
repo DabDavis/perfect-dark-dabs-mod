@@ -572,6 +572,7 @@ def test_recovery():
 
     st, body, _ = register("recov", "1234", ip="10.9.0.1", question="game", answer="goldeneye007")
     check(st == 200, "register with a question")
+    check(body.get("recovery") is True, "and the reply says it took one")
 
     st, _, _ = login("recov", "1234", ip="10.9.0.1")
     check(st == 200, "and it signs in")
@@ -587,6 +588,7 @@ def test_recovery():
 
     st, body, _ = resetpin("recov", "game", "goldeneye007", "5678", ip="10.9.0.2")
     check(st == 200, "the right pair resets the PIN")
+    check(body.get("recovery") is True, "and the question is still on the account")
 
     st, _, _ = login("recov", "1234", ip="10.9.0.1")
     check(st == 403, "the old PIN is gone")
@@ -599,10 +601,19 @@ def test_recovery():
     st, _, _ = login("recov", "0000", ip="10.9.0.1")
     check(st == 403, "and the answer is not itself a PIN")
 
+    print("a sign-in says whether the account can be reset")
+
+    st, body, _ = login("recov", "5678", ip="10.9.0.1")
+    check(body.get("recovery") is True, "an account with a question says so")
+
     print("accounts made without a question")
 
-    st, _, _ = register("oldreg", "1111", ip="10.9.0.3")
+    st, body, _ = register("oldreg", "1111", ip="10.9.0.3")
     check(st == 200, "a two field registration still works")
+    check(body.get("recovery") is False, "and admits it has no question")
+
+    st, body, _ = login("oldreg", "1111", ip="10.9.0.3")
+    check(body.get("recovery") is False, "and one without says that instead")
 
     st, body, _ = resetpin("oldreg", "game", "goldeneye007", "2222", ip="10.9.0.3")
     check(st == 403 and body["error"] == "wrong question or answer",
@@ -611,8 +622,12 @@ def test_recovery():
     st, _, _ = setrecovery("oldreg", "9999", "drink", "coffee", ip="10.9.0.3")
     check(st == 403, "setting one needs the account's PIN")
 
-    st, _, _ = setrecovery("oldreg", "1111", "drink", "coffee", ip="10.9.0.3")
+    st, body, _ = setrecovery("oldreg", "1111", "drink", "coffee", ip="10.9.0.3")
     check(st == 200, "with the PIN it is set")
+    check(body.get("recovery") is True, "and the reply says the nagging can stop")
+
+    st, body, _ = login("oldreg", "1111", ip="10.9.0.3")
+    check(body.get("recovery") is True, "as does the next sign-in")
 
     st, _, _ = resetpin("oldreg", "drink", "coffee", "2222", ip="10.9.0.4")
     check(st == 200, "and the reset works")

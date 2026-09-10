@@ -52,8 +52,19 @@ hour from one address, every attempt delayed before it is checked, and a
 successful sign-in clears the account's budget so that a stranger's guessing
 cannot stand between its owner and their own recovery.
 
-The daemon (`pdghostd.py`, on the leaderboard host and not in this tree)
-accepts a registration with no question, because builds that predate the page
-cannot send one. Those accounts get a reset refused with the same sentence a
-wrong answer gets, and their owners set a question from the page once they
-update - which needs the PIN, and so needs them.
+The daemon (`tools/pdghostd/pdghostd.py`, deployed to the leaderboard host and
+kept byte-identical to it) accepts a registration with no question, because
+builds that predate the page cannot send one. Those accounts get a reset
+refused with the same sentence a wrong answer gets.
+
+**Their owners are told once a run.** Nothing about such an account looks
+different from the outside, so a sign-in reply carries `"recovery": true|false`
+— answered only to somebody who has just proved they hold the PIN, which is
+what makes it safe to say — and the client keeps it beside the pair the server
+accepted. A missing field means *unknown*, not *missing*, so a build talking to
+an older server nags nobody. When it is missing, the Ghost Trials dialog pushes
+the Security Question page on the tick after the answer lands (not in
+`MENUOP_OPEN` — the sign-in is a frame or more away), once per run whether or
+not they set one, and only while Ghost Trials is the dialog on top: a tick
+reaches every dialog on the stack, and pushing from underneath would open the
+page over whatever the player had gone on to open.
