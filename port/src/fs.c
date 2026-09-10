@@ -734,6 +734,11 @@ s32 fsRemoveDir(const char *path)
 #endif
 }
 
+s32 fsRemoveFile(const char *path)
+{
+	return remove(fsFullPath(path));
+}
+
 s32 fsRename(const char *from, const char *to)
 {
 	// fsFullPath hands back one buffer, so the first expansion is copied out

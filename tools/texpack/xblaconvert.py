@@ -55,6 +55,15 @@ FETCH_FIELD = 7
 
 PACKAGE_PATH = 'DataFiles/Textures.raw'
 
+# Textures the pack leaves out: the release's copy is a different picture drawn
+# for the console's own renderer, not a version of the ROM's, and the game
+# draws it wrong. 0x13 is the sky's cloud texture (g_TcSkyWaterConfigs[0]):
+# skyRender() lerps sky colour to cloud colour by the texel, and the release's
+# 64x64 noise never rises above 122 and is uncorrelated with the ROM's fractal,
+# so it flattens the sunset over Crash Site to a plain gradient. The in-game
+# conversion (port/src/xblaimport.c, leftOut[]) keeps the same list.
+LEFT_OUT = frozenset([0x13])
+
 
 def read_records(raw):
     """(metadata, fetch constant, data offset) for every texture in the file."""
@@ -169,6 +178,13 @@ def main():
             skipped += 1
             continue
 
+        if n in LEFT_OUT:
+            stale = os.path.join(outdir, '%04x.png' % n)
+            if os.path.exists(stale):
+                os.remove(stale)
+            skipped += 1
+            continue
+
         try:
             surface = x360.lzx_decompress(raw, data_start + offset, csize, usize)
             rgba = x360.decode_texture(surface, width, height, fetch[n])
@@ -190,7 +206,7 @@ def main():
     print('wrote %d textures to %s' % (written, outdir))
 
     if skipped:
-        print('%d records skipped (empty, or not an upscale)' % skipped)
+        print('%d records skipped (empty, not an upscale, or left out)' % skipped)
 
     if failures:
         print('%d records could not be decoded:' % len(failures))

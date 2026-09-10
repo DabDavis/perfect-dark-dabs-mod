@@ -38,6 +38,8 @@ s32 fsCreateDir(const char *path);
 s32 fsRemoveDir(const char *path);
 // Renames a file or directory; the destination must not exist. Returns 0 on success.
 s32 fsRename(const char *from, const char *to);
+// Removes a file. Returns 0 on success.
+s32 fsRemoveFile(const char *path);
 
 // Picks and creates the directory a player's own files should go in: beside the
 // executable where that can be written, and in the save directory where it

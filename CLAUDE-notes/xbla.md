@@ -125,6 +125,41 @@ unambiguous cases — the starburst, the tunnel, the flames, the blinds, the
 Joanna portrait, the bar chart — all landing on their own texture number, plus
 the record count being `NUM_TEXTURES` on the nose.
 
+### The sky's cloud texture is left out (2026-09-10)
+
+One replacement is refused on purpose, in both conversions (`leftOut[]` in
+`xblaimport.c`, `LEFT_OUT` in `xblaconvert.py`): **0013**, the sky's cloud
+texture, `g_TcSkyWaterConfigs[0]`, which every stage with clouds draws (the
+table in `env.c` has every `clouds_type` at 0; 0c90 is never used). The report
+was "the sky is messed up for xbla on levels like crash site", and it bisects
+to the pack alone - not the meshes, not the level files: with only
+`TexturePack=PD XBLA` on, Crash Site's sunset loses its cloud streaks and is a
+flat orange gradient.
+
+`skyRender()` draws the clouds with `(SHADE - ENV) * TEXEL0 + ENV`: the texel
+lerps between the sky colour and the cloud colour, and only its intensity
+counts. The ROM's 0013 is a 64x64 IA8 fractal over the full 0-255 range. The
+release's is 64x64 too (8_8_8_8 tiled, three mips, base first - the record's
+21844 non-zero bytes are exactly the chain) but never rises above 122, and it
+is **a different picture**: correlation with the ROM's is -0.07, and -0.09
+against the ROM's blurred, so it is not a softened or resized copy. It is 4J's
+noise for 4J's own sky, and through the game's combiner it is half-strength
+haze at best. The release's water (0014, RGBA16 32x32) and the unused second
+cloud (0c90) are faithful copies and stay in; so do the sun and glare
+textures, which draw the same either way.
+
+Because the conversion runs only when the player asks for it, a pack already
+on disk keeps the file until something removes it: `xblaImportInit()` looks
+in both places a pack can be (`$E` and `$S`, without creating either) and
+deletes a left-out texture it finds, and `xblaImportStart()` does the same in
+the directory it is about to write, since Enlarged Textures Only leaves files
+it does not rewrite alone. The Python converter deletes it from `--out`.
+
+Checked frame-exact on the card: `--boot-stage 0x1c --fixed-step --rng-seed
+1`, frame 3200 (the player's first view, clouds along the horizon); frame 200
+is the crash flythrough. The big untextured wedge in the middle of that view
+is the ROM's own geometry and draws the same with every feature off.
+
 ### Row order
 
 The console art is in N64 row order, upside down on screen. A pack file

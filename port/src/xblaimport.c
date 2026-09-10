@@ -85,6 +85,56 @@ static s32 state;
 static s32 optUpscalesOnly;
 static char statusText[128];
 static char packName[XBLAIMPORT_NAMELEN] = XBLAIMPORT_PACK_NAME;
+
+/**
+ * Textures the pack leaves out, and clears from a pack already on disk.
+ *
+ * These are the ones whose release copy is not a version of the ROM's picture
+ * but a different one, drawn for the console's own renderer, that the game's
+ * renderer draws wrong.
+ *
+ * 0013 is the sky's cloud texture, g_TcSkyWaterConfigs[0], the one every stage
+ * with clouds uses. skyRender() lerps between the sky colour and the cloud
+ * colour by the texel, so the ROM's full-range fractal is what makes the
+ * streaked sunset over Crash Site. The release's is a 64x64 noise that never
+ * rises above 122 and is uncorrelated with the ROM's - a different picture,
+ * not a blurred or resized one - and through the same combiner it flattens
+ * the sky to a plain gradient (2026-09-10, "the sky is messed up for xbla").
+ * The release's water (0014) and second cloud (0c90) are copies of the ROM's
+ * and stay in.
+ */
+static const u16 leftOut[] = { 0x0013 };
+
+static s32 xblaImportIsLeftOut(u32 n)
+{
+	for (u32 i = 0; i < sizeof(leftOut) / sizeof(leftOut[0]); i++) {
+		if (leftOut[i] == n) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Drops the left-out textures from the pack's textures directory - in the
+ * "$E/..." form or expanded, fsFullPath() takes both - if a conversion from
+ * before they were left out put them there. Nothing is created, so a
+ * directory that is not there is a no-op.
+ */
+static void xblaImportDropLeftOut(const char *texturesDir)
+{
+	char path[FS_MAXPATH + 1];
+
+	for (u32 i = 0; i < sizeof(leftOut) / sizeof(leftOut[0]); i++) {
+		snprintf(path, sizeof(path), "%s/%04x.png", texturesDir, leftOut[i]);
+
+		if (fsFileSize(path) >= 0 && fsRemoveFile(path) == 0) {
+			sysLogPrintf(LOG_NOTE, "xbla: removed texture %04x from the %s pack, "
+					"the game's own is the one that draws right", leftOut[i], packName);
+		}
+	}
+}
 static char packagePath[FS_MAXPATH + 1];
 static char configuredPath[FS_MAXPATH + 1];
 static char packDir[FS_MAXPATH + 1];
@@ -529,6 +579,19 @@ void xblaImportInit(void)
 		unpackMutex = SDL_CreateMutex();
 	}
 
+	// A pack converted before a texture was left out still has it, and a
+	// player is not made to convert again to lose it. Both places a pack can
+	// be are looked at rather than asking texpackPacksDir(), which would
+	// create one; this needs no package, so it goes before the drop folder.
+	{
+		static const char *const roots[] = { "$E", "$S" };
+
+		for (u32 i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
+			snprintf(dir, sizeof(dir), "%s/" TEXPACK_PACKS_DIR "/%s/textures", roots[i], packName);
+			xblaImportDropLeftOut(dir);
+		}
+	}
+
 	if (!xblaDropDir(dir, sizeof(dir))) {
 		return;
 	}
@@ -638,6 +701,10 @@ static s32 xblaConvert(const char *pkgPath)
 		// original size rather than enlarging it. Those are a matter of
 		// taste, so they can be left out.
 		if (optUpscalesOnly && width == srcWidth && height == srcHeight) {
+			continue;
+		}
+
+		if (xblaImportIsLeftOut(n)) {
 			continue;
 		}
 
@@ -808,6 +875,10 @@ s32 xblaImportStart(void)
 	fsCreateDir(packDir);
 	snprintf(packDir, sizeof(packDir), "%s/%s/" "textures", fsFullPath(rel), packName);
 	fsCreateDir(packDir);
+
+	// The upscales-only switch leaves a file from a fuller conversion alone
+	// on purpose, so this cannot ride on the loop skipping the texture.
+	xblaImportDropLeftOut(packDir);
 
 	SDL_AtomicSet(&workerDone, 0);
 	SDL_AtomicSet(&workerFailed, 0);
