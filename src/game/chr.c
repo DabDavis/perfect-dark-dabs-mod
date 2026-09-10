@@ -1169,6 +1169,9 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->oneshotanim = 0;
 	chr->keptbody60 = -1;
 	chr->bodynodraw = false;
+	chr->tracedrawframe = 0;
+	chr->tracedrawbits = 0;
+	chr->tracedrawalpha = 0;
 #endif
 	chr->aishootingatmelist = -1;
 	chr->aidarkroomlist = -1;

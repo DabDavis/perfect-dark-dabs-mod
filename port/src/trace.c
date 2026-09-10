@@ -216,11 +216,15 @@ static void traceChr(FILE *f, const struct player *pl, struct prop *prop, struct
 			chr->chrflags, chr->hidden, chr->fadealpha,
 			(void *)chr->model, chr->model ? (void *)chr->model->definition : NULL,
 			chr->model ? chr->model->scale : 0.0f);
-	fprintf(f, "\n    draw: frame %u (now %d) alpha %d %s\n",
-			chr->tracedrawframe, g_Vars.lvframenum, chr->tracedrawalpha,
-			chr->tracedrawframe == (u32)g_Vars.lvframenum
-				? traceDrawBits(chr->tracedrawbits, bits, sizeof(bits))
-				: "not rendered this frame");
+	if (chr->tracedrawframe == (u32)g_Vars.lvframenum) {
+		fprintf(f, "\n    draw: this frame, alpha %d: %s\n", chr->tracedrawalpha,
+				traceDrawBits(chr->tracedrawbits, bits, sizeof(bits)));
+	} else if (chr->tracedrawframe > 0 && chr->tracedrawframe < (u32)g_Vars.lvframenum) {
+		fprintf(f, "\n    draw: not this frame (last reached by chrRender at frame %u, now %d)\n",
+				chr->tracedrawframe, g_Vars.lvframenum);
+	} else {
+		fprintf(f, "\n    draw: never reached by chrRender\n");
+	}
 
 	if (chr->model) {
 		xblaMeshTraceModel(f, chr->model, "    ");
@@ -261,8 +265,8 @@ static void traceWrite(FILE *f)
 	fprintf(f, "gfx pools (last frame): master list %u of %u commands, vtx pool %u of %u bytes\n",
 			gfxused, gfxsize, vtxused, vtxsize);
 	gfx_trace_stats(&gs);
-	fprintf(f, "renderer (last frame): %u draws, %u tris, %u verts, %u distinct textures, %u uploads, %u evictions, cache %u of %u, %u buffer-full flushes\n",
-			gs.drawcalls, gs.tris, gs.verts, gs.distincttextures, gs.texuploads,
+	fprintf(f, "renderer (last frame): %u draws, %u tris, %u verts, %u texture uploads, %u evictions, cache %u of %u, %u buffer-full flushes\n",
+			gs.drawcalls, gs.tris, gs.verts, gs.texuploads,
 			gs.texevictions, gs.cacheentries, gs.cachesize, gs.bufferfullflushes);
 	xblaMeshTrace(f);
 	xblaTexTrace(f);
