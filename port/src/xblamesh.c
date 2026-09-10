@@ -151,6 +151,7 @@ struct xblameshbuilt {
 	Gfx *gdl;
 	Vtx *vertices;
 	Col *colours;
+	f32 *grad;         // four per emitted vertex: ds/dx dt/dx ds/dy dt/dy; NULL when skinned
 	s32 numvertices;   // as emitted, which repeats one shared between batches
 	s32 numtris;
 	s32 state;         // 0 untried, 1 built, -1 no good
@@ -183,6 +184,17 @@ struct xblameshbuilt {
 	Vtx *posedvtx;
 	Mtxf *posedmtx;    // the matrix that copy is drawn under, when it is not the bone's own
 	s32 posedfine;     // and how many steps of that copy make one of the game's units
+
+	// The trimmed copy already made this frame, for a door the game is
+	// drawing from trimmed vertices - see xblaMeshNodeTrim(). Keyed the way
+	// the posed copy is, plus the trim itself, since two doors of one model
+	// can be open by different amounts in one frame.
+	const struct model *trimmodel;
+	u32 trimframe;
+	s32 trimaxis;
+	s16 trimref;
+	Vtx *trimvtx;
+	s32 trimlogged;
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
 	f32 *weights;      // three per emitted vertex; only the first two are ever set
@@ -1644,6 +1656,13 @@ struct xblameshbuilder {
 	s32 skinned;
 	f32 scale;
 
+	// The texture gradient along x and along y at every emitted vertex, and
+	// how good the triangle it came from was for the purpose - see
+	// xblaMeshNoteTriangle(). Unskinned meshes only: a door is never skinned,
+	// and a character is most of the vertices there are.
+	f32 *grad;
+	f32 *gradscore;
+
 	// One list per group, by index into gdl until the array stops moving, and
 	// the little list that calls all of them for a model whose parts and
 	// groups do not line up.
@@ -1753,6 +1772,23 @@ static s32 xblaMeshRoomForVtx(struct xblameshbuilder *b, s32 want)
 
 	b->colours = grownc;
 
+	if (!b->skinned) {
+		f32 *g = realloc(b->grad, (size_t)b->capvtx * 4 * sizeof(f32));
+
+		if (!g) {
+			return 0;
+		}
+
+		b->grad = g;
+		g = realloc(b->gradscore, (size_t)b->capvtx * 2 * sizeof(f32));
+
+		if (!g) {
+			return 0;
+		}
+
+		b->gradscore = g;
+	}
+
 	if (b->skinned) {
 		f32 *pos = realloc(b->bindpos, (size_t)b->capvtx * 3 * sizeof(f32));
 		f32 *wt;
@@ -1817,6 +1853,15 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 
 	vtx = &b->vertices[b->numvtx];
 	col = &b->colours[b->numvtx];
+
+	if (b->grad) {
+		for (s32 i = 0; i < 4; i++) {
+			b->grad[b->numvtx * 4 + i] = 0.0f;
+		}
+
+		b->gradscore[b->numvtx * 2] = -1.0f;
+		b->gradscore[b->numvtx * 2 + 1] = -1.0f;
+	}
 
 	// position, then the UV pair, then a unit normal, then the colour. The
 	// position is in the mesh's own units, which the header's scale turns into
@@ -2185,6 +2230,86 @@ static s32 xblaMeshDrawSpan(const u8 *file, u32 len, const struct xblameshhdr *h
 	return XBLAMESH_SPAN_ALPHA;
 }
 
+/**
+ * What one triangle says about how its texture runs along x and along y, kept
+ * at each of its three emitted vertices.
+ *
+ * This is for the door trim (xblaMeshNodeTrim()). The game trims a door by
+ * moving a vertex on to the trim plane and sliding its texture coordinate
+ * along the edge to the vertex next to it, so the picture stays put and the
+ * door looks cut rather than squashed. Its models are quads with an edge
+ * along the slide, so "the vertex next to it" is a neighbour on the same
+ * row; the release's meshes are triangles at any angle, so the equivalent is
+ * the texture's gradient along the axis within the triangle's own plane -
+ * the same thing for a face that runs along the axis, which is every face
+ * of a door that the trim can cross. The gradient is the least-squares
+ * answer to "which in-plane direction is the axis", so a face at right
+ * angles to the axis - the door's end - gets a gradient of nothing and keeps
+ * its coordinates, exactly as the game's rule leaves those alone.
+ *
+ * A vertex is shared between the triangles of its batch, so it keeps the
+ * gradient from the triangle whose plane holds the axis best: the score is
+ * the square of how much of the axis lies in the plane, one for a face along
+ * it and nothing for a face across it.
+ */
+static void xblaMeshNoteTriangle(struct xblameshbuilder *b, s32 i0, s32 i1, s32 i2)
+{
+	const Vtx *p0 = &b->vertices[i0];
+	const Vtx *p1 = &b->vertices[i1];
+	const Vtx *p2 = &b->vertices[i2];
+	const s32 idx[3] = { i0, i1, i2 };
+	f32 e1[3], e2[3], n[3];
+	f32 du1, dv1, du2, dv2;
+	f32 a, bb, c, det, nn;
+
+	for (s32 j = 0; j < 3; j++) {
+		e1[j] = (f32)(p1->v[j] - p0->v[j]);
+		e2[j] = (f32)(p2->v[j] - p0->v[j]);
+	}
+
+	du1 = (f32)(p1->s - p0->s);
+	dv1 = (f32)(p1->t - p0->t);
+	du2 = (f32)(p2->s - p0->s);
+	dv2 = (f32)(p2->t - p0->t);
+
+	n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	nn = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+
+	a = e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2];
+	bb = e1[0] * e2[0] + e1[1] * e2[1] + e1[2] * e2[2];
+	c = e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2];
+	det = a * c - bb * bb;
+
+	// A sliver or a point has no plane to speak of.
+	if (nn <= 0.0f || det <= 0.0f) {
+		return;
+	}
+
+	for (s32 axis = 0; axis < 2; axis++) {
+		// The axis as p e1 + q e2, as near as the plane allows.
+		const f32 r1 = e1[axis];
+		const f32 r2 = e2[axis];
+		const f32 p = (c * r1 - bb * r2) / det;
+		const f32 q = (a * r2 - bb * r1) / det;
+		const f32 ds = p * du1 + q * du2;
+		const f32 dt = p * dv1 + q * dv2;
+		const f32 score = 1.0f - n[axis] * n[axis] / nn;
+
+		for (s32 i = 0; i < 3; i++) {
+			f32 *g = &b->grad[idx[i] * 4 + axis * 2];
+			f32 *best = &b->gradscore[idx[i] * 2 + axis];
+
+			if (score > *best) {
+				*best = score;
+				g[0] = ds;
+				g[1] = dt;
+			}
+		}
+	}
+}
+
 static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len,
 		const struct xblameshhdr *h, u32 stride, u32 firstdraw, u32 numdraws,
 		s32 wantspan)
@@ -2308,6 +2433,11 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 			gSP1Triangle(&b->gdl[b->numgfx], slot[0], slot[1], slot[2], 0);
 			b->numgfx++;
 			b->numtris++;
+
+			if (b->grad) {
+				xblaMeshNoteTriangle(b, b->batchvtx + slot[0],
+						b->batchvtx + slot[1], b->batchvtx + slot[2]);
+			}
 		}
 	}
 
@@ -2620,6 +2750,8 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 		free(b.gdl);
 		free(b.vertices);
 		free(b.colours);
+		free(b.grad);
+		free(b.gradscore);
 		free(b.batches);
 		free(file);
 		sysLogPrintf(LOG_ERROR, "xblamesh: slot %d did not build", slot);
@@ -2627,11 +2759,13 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	}
 
 	free(b.batches);
+	free(b.gradscore);
 
 	if (b.skinned && !xblaMeshReadBind(m, file, &h, b.scale)) {
 		free(b.gdl);
 		free(b.vertices);
 		free(b.colours);
+		free(b.grad);
 		free(b.bindpos);
 		free(b.weights);
 		free(b.bones);
@@ -2644,6 +2778,7 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	m->gdl = b.gdl;
 	m->vertices = b.vertices;
 	m->colours = b.colours;
+	m->grad = b.grad;
 	m->numvertices = b.numvtx;
 	m->numtris = b.numtris;
 	m->bindpos = b.bindpos;
@@ -2696,7 +2831,8 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	g_XblaMeshBytes += (u32)((size_t)b.numgfx * sizeof(Gfx) +
 			(size_t)b.numvtx * (sizeof(Vtx) + sizeof(Col)) +
 			(size_t)m->nummatrices * sizeof(Mtxf) +
-			(m->bindpos ? (size_t)b.numvtx * (6 * sizeof(f32) + 3) : 0));
+			(m->bindpos ? (size_t)b.numvtx * (6 * sizeof(f32) + 3) : 0) +
+			(m->grad ? (size_t)b.numvtx * 4 * sizeof(f32) : 0));
 
 	if (xblaMeshVerbose) {
 		s16 lo[3];
@@ -3324,8 +3460,141 @@ static void xblaMeshLogDrawn(struct model *model, struct modelnode *node, s32 sl
 				blo[0], blo[1], blo[2], bhi[0], bhi[1], bhi[2],
 				(alo[0] == blo[0] && ahi[0] == bhi[0] && alo[1] == blo[1] &&
 				 ahi[1] == bhi[1] && alo[2] == blo[2] && ahi[2] == bhi[2])
-						? "" : "  <- the game moved this node's vertices");
+						? "" : "  <- the game moved this node's vertices (a door's trim is mirrored on the mesh)");
 	}
+}
+
+/* ---------------------------------------------------------------------------
+ * The door trim
+ *
+ * A sliding door with DOORFLAG_0004 - nearly every one in dataDyne, the G5
+ * Building's, Chicago's shutters, the Cetan's - does not hide inside the
+ * wall as it opens. The game trims it: door0f08cb20() copies the door's
+ * vertices with everything past a plane moved on to the plane, and the plane
+ * walks across the door with its opening fraction (doorGetBbox()), so what is
+ * drawn is only the part still in the doorway. A vertical door is the same
+ * from the top down. The copy is what the node's rwdata points at, and a mesh
+ * drawn in the node's place from its own authored vertices is the whole door,
+ * standing in the wall it was meant to have slid into - which reads as the
+ * door showing through the wall and fighting it for the surface.
+ *
+ * The trim is read back off the game's copy rather than off the door, which
+ * this has no way to reach from a node: the copy's box against the authored
+ * box says which axis was trimmed and where, exactly, since the plane is at a
+ * whole unit and the vertices are s16. The same trim then goes on to a copy
+ * of the mesh for the frame, with the texture coordinates carried along the
+ * gradient xblaMeshNoteTriangle() kept, so the picture stays where it was.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Whether the game is drawing this node from trimmed vertices, and the trim:
+ * axis 0 is a sliding door, everything at or below ref in x moved to ref;
+ * axis 1 a vertical one, everything at or above ref in y moved to ref.
+ */
+static s32 xblaMeshNodeTrim(struct model *model, struct modelnode *node, s32 *axis, s16 *ref)
+{
+	union modelrodata *rodata = node->rodata;
+	union modelrwdata *rwdata;
+	const Vtx *ro;
+	const Vtx *rw;
+	s16 rominx, rwminx, romaxy, rwmaxy;
+	s32 n;
+
+	if ((node->type & 0xff) != MODELNODETYPE_DL || !model) {
+		return 0;
+	}
+
+	rwdata = modelGetNodeRwData(model, node);
+	ro = rodata->dl.vertices;
+	rw = rwdata ? rwdata->dl.vertices : NULL;
+	n = rodata->dl.numvertices;
+
+	if (!ro || !rw || rw == ro || n <= 0) {
+		return 0;
+	}
+
+	rominx = ro[0].x;
+	rwminx = rw[0].x;
+	romaxy = ro[0].y;
+	rwmaxy = rw[0].y;
+
+	for (s32 i = 1; i < n; i++) {
+		if (ro[i].x < rominx) rominx = ro[i].x;
+		if (rw[i].x < rwminx) rwminx = rw[i].x;
+		if (ro[i].y > romaxy) romaxy = ro[i].y;
+		if (rw[i].y > rwmaxy) rwmaxy = rw[i].y;
+	}
+
+	if (rwminx > rominx) {
+		*axis = 0;
+		*ref = rwminx;
+		return 1;
+	}
+
+	if (rwmaxy < romaxy) {
+		*axis = 1;
+		*ref = rwmaxy;
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
+ * The mesh's vertices with the trim applied, for this frame. The copy lives
+ * in the frame arena like a pose does, and is kept for the model and the
+ * frame so the translucent pass and the other parts find it made.
+ */
+static Vtx *xblaMeshTrimCopy(struct xblameshbuilt *m, const struct model *model,
+		s32 axis, s16 ref)
+{
+	Vtx *out;
+
+	if (m->trimvtx && m->trimmodel == model && m->trimframe == frameCount &&
+			m->trimaxis == axis && m->trimref == ref) {
+		return m->trimvtx;
+	}
+
+	out = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Vtx));
+
+	if (!out) {
+		return NULL;
+	}
+
+	memcpy(out, m->vertices, (size_t)m->numvertices * sizeof(Vtx));
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		Vtx *v = &out[i];
+		const f32 *g = &m->grad[i * 4 + axis * 2];
+		f32 d;
+
+		if (axis == 0) {
+			if (v->x > ref) {
+				continue;
+			}
+
+			d = (f32)(ref - v->x);
+			v->x = ref;
+		} else {
+			if (v->y < ref) {
+				continue;
+			}
+
+			d = (f32)(ref - v->y);
+			v->y = ref;
+		}
+
+		v->s = xblaMeshRound((f32)v->s + d * g[0]);
+		v->t = xblaMeshRound((f32)v->t + d * g[1]);
+	}
+
+	m->trimmodel = model;
+	m->trimframe = frameCount;
+	m->trimaxis = axis;
+	m->trimref = ref;
+	m->trimvtx = out;
+
+	return out;
 }
 
 /* ---------------------------------------------------------------------------
@@ -3848,6 +4117,30 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 						"arena would not grow (%d chunks, %u bytes held, %u wanted "
 						"this frame)", e->slot, frameNumChunks[frameIndex],
 						frameBytes[frameIndex], frameWanted);
+			}
+		}
+	}
+
+	// A door the game is drawing trimmed: trim the mesh the same way. Only
+	// from the bind pose, which is in the model's own units like the game's
+	// vertices; a posed copy is finer and in the first part's space, and
+	// nothing the game trims is skinned.
+	if (posed == m->vertices && m->grad) {
+		s32 axis;
+		s16 ref;
+
+		if (xblaMeshNodeTrim(model, node, &axis, &ref)) {
+			Vtx *trimmed = xblaMeshTrimCopy(m, model, axis, ref);
+
+			if (trimmed) {
+				posed = trimmed;
+			}
+
+			if (xblaMeshVerbose && !m->trimlogged) {
+				m->trimlogged = 1;
+				sysLogPrintf(LOG_NOTE, "xblamesh: slot %d is a door the game trims: "
+						"%s %d, %s", e->slot, axis == 0 ? "x at or below" : "y at or above",
+						ref, trimmed ? "mirrored on the mesh" : "no room in the arena");
 			}
 		}
 	}

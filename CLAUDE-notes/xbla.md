@@ -394,7 +394,9 @@ the first dozen draws with the model each came from, which is what says which
 of the two it is; it also logs each replaced node's authored box against the
 box the game is actually drawing from, since the game moves some nodes'
 vertices at runtime and a mesh in that node's place would not be moved with
-them (no door does, as it turns out).
+them. It said "no door does" here for two days, because every door it was
+checked on was closed: the doors that do are trimmed as they open, and the
+loader mirrors that now - see "The door trim".
 
 A node's own list is what loads the matrix that says where the node is, out of
 segment 3, and this one is drawn in its place — so it loads it too. Without
@@ -804,6 +806,79 @@ on and off. Off, the lift door behind the guard is a white slab; on, it is the
 release's rusted panel with its red and white hazard bar, at the right size and
 the right way up. Props stay pixel-identical between two seeded runs of each of
 the three levels, which is the check the untextured version passed too.
+
+#### The door trim (2026-09-10)
+
+"The doors on dataDyne Defection are z-fighting when open: they slide into
+the wall but show through the wall and fight." True with the meshes on, and
+the mechanism is one the game is quiet about. A sliding door with
+`DOORFLAG_0004` - nearly every one in dataDyne, the G5 Building's, Chicago's
+shutters, the Cetan's, 22 setups in all - does **not** hide inside the wall
+as it opens. `door0f08cb20()` copies the door's vertices with everything past
+a plane moved on to the plane, and the plane walks across the door with the
+opening fraction (`doorGetBbox()`: `xmin + (xmax - xmin) * frac`), so what is
+drawn is only the part still in the doorway; a `DOORTYPE_VERTICAL` door is the
+same from the top down. The copy is what the node's rwdata points at (a
+per-frame `gfxAllocateVertices()` buffer while it moves, `door->unka4` while
+it stands), and a mesh drawn in the node's place from its own authored
+vertices is the whole door, standing in the wall it was meant to have slid
+into. From the corridor it is a door drawn over the wall; from any angle
+where the wall's face and the door's nearly coincide it fights.
+
+The loader mirrors the trim rather than reading the door, which a node has no
+way to reach: `xblaMeshNodeTrim()` compares the game's copy against the
+authored vertices - a raised minimum x is a sliding door trimmed at that x, a
+lowered maximum y a vertical one - and the plane is exact, since the game
+puts it at a whole unit and the vertices are s16. `xblaMeshTrimCopy()` then
+writes the mesh's vertices for the frame into the pose arena with the same
+rule applied. Two things it had to get right:
+
+- **the texture has to be carried, not squashed.** The game slides a moved
+  vertex's s and t along the edge to its neighbour on the same row, so the
+  picture stays put and the door reads as cut. Its models are quads with an
+  edge along the slide; the release's are triangles at any angle. The
+  equivalent is the texture's gradient along the axis within each triangle's
+  own plane, kept per emitted vertex at build time by
+  `xblaMeshNoteTriangle()` (the least-squares answer to "which in-plane
+  direction is the axis", so a face at right angles to the axis - the door's
+  end - gets no gradient and keeps its coordinates, as the game's rule leaves
+  those alone). A vertex shared by a batch's triangles keeps the gradient
+  from the triangle whose plane holds the axis best. Sixteen bytes a vertex,
+  unskinned meshes only - a door is never skinned and a character is most of
+  the vertices there are;
+- **the detection's seed.** The first version seeded the copy's minimum from
+  the *authored* first vertex, so a door whose first vertex sits at the
+  authored minimum (the service door, 36 vertices starting at -1250) could
+  never report a trim, while the office door (first vertex elsewhere) did.
+  Half the doors trimmed and half did not, and it looked like a per-model
+  difference for an hour.
+
+Verified on the real GPU with the door test below: the office door (slot
+2207) and service door (2213) on Defection, and Chicago's shutter (2150) for
+the vertical axis, old binary beside new at the same level frames. Open a
+tenth, the mesh stops at the frame with the grain intact; open 0.95, only the
+stock-sized sliver at the frame edge is left; the shutter's rolled-up part no
+longer hangs over the wall above the doorway. The gun renderer and the screen
+prop also swap a node's vertices and neither can read as a trim: the gun puts
+the node's own back, the screen copies positions unchanged.
+
+**The door test** (`scratchpad/door.py` in the session, worth rewriting from
+this): run the game under `gdb -batch -x door.py` on the real GPU
+(`SDL_VIDEODRIVER=offscreen`), break at `videoEndFrame` once
+`g_Vars.in_cutscene == 0 && g_Vars.tickmode != 6`, walk `g_Vars.activeprops`
+for `type == PROPTYPE_DOOR` with `doorflags & 4`, pick one by model, and put
+the player in front of it: `propDeregisterRooms(prop)`, set `prop->pos` and
+`bondprevpos` to `door->startpos + 230 * normal`, `rooms[0]` to the door's,
+`playerResetBond(&bond2, &pos)`, `vv_theta = atan2(nx, -nz)` in degrees,
+`playerSetCamPropertiesWithRoom(&pos, &bond2.unk28, &bond2.unk1c, room)`.
+The door's normal is row 2 of `door->base.realrot` **normalised** - the
+matrix carries the model's scale, and the raw row put the player 39 units
+from the door facing away. `doorsRequestMode(door, DOORMODE_OPENING)` opens
+it; `frac` reaches 0.41 twenty frames later and 0.95 at fifty. Defection's
+intro is 3840 level frames; Chicago's 2700. Screenshot names are per second
+with a `-N` suffix, and **`ls` sorts `-2.png` before `.png`**, so pair old
+and new by the log's `screenshot:` order, not by name - the first sheet made
+by name paired a closed door with an open one and read as "no difference".
 
 #### Four faults that were in here, and what says they are gone
 
