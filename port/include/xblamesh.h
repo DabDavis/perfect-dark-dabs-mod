@@ -1,6 +1,7 @@
 #ifndef _IN_XBLAMESH_H
 #define _IN_XBLAMESH_H
 
+#include <stdio.h>
 #include <PR/ultratypes.h>
 #include "types.h"
 
@@ -135,6 +136,15 @@ void xblaMeshSetVerbose(s32 verbose);
  * release's bg files through.
  */
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen);
+
+/**
+ * For the F3 trace dump: the loader's state and last frame's counts, and
+ * one line per node of a model that names a mesh (the count of them is
+ * returned; with f NULL nothing is written, so it doubles as "does this
+ * model draw a release mesh").
+ */
+void xblaMeshTrace(FILE *f);
+s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent);
 
 /** How much is loaded, for gdb. */
 extern u32 g_XblaMeshNumMeshes;

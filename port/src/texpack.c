@@ -3106,6 +3106,33 @@ static void texpackAsyncStart(void)
 	}
 }
 
+void texpackTrace(FILE *f)
+{
+	s32 counts[5] = {0};
+	s32 backlog = 0;
+
+	fprintf(f, "texpack: have replacements %d, %d in the index, decode thread %s\n",
+			texpackHaveReplacements(), numReplacements, jobThread ? "running" : "not running");
+
+	if (jobLock) {
+		SDL_LockMutex(jobLock);
+
+		for (s32 i = 0; i < TEXPACK_MAX_PENDING; i++) {
+			if (jobs[i].state >= 0 && jobs[i].state < 5) {
+				counts[jobs[i].state]++;
+			}
+		}
+
+		backlog = jobBacklogCount;
+		SDL_UnlockMutex(jobLock);
+	}
+
+	fprintf(f, "texpack jobs: %d free, %d queued, %d decoding, %d ready, %d failed of %d slots, backlog %d; kept store %d images (%u MB), %u repeat requests answered, %u dropped to the budget\n",
+			counts[TEXPACK_JOB_FREE], counts[TEXPACK_JOB_QUEUED], counts[TEXPACK_JOB_DECODING],
+			counts[TEXPACK_JOB_READY], counts[TEXPACK_JOB_FAILED], TEXPACK_MAX_PENDING, backlog,
+			keptCount, keptBytes >> 20, keptHits, keptEvicted);
+}
+
 void texpackAsyncShutdown(void)
 {
 	if (!jobThread) {

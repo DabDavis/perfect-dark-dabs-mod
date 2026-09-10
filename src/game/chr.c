@@ -53,6 +53,9 @@
 #ifndef PLATFORM_N64
 #include "video.h"
 #include "game/modrules.h"
+#ifndef PLATFORM_N64
+#include "trace.h"
+#endif
 #endif
 
 void rng2SetSeed(u32 seed);
@@ -3601,7 +3604,10 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	// takes all of them out at once. Both leave the body where it is - it is
 	// still shot at, still walked around, still counted - and only skip the
 	// drawing, which is the part that costs.
+	traceChrNote(chr, xlupass ? TRACECHR_CALLED_XLU : TRACECHR_CALLED_OPA);
+
 	if (modBodyIsKept(chr) && (g_ModBodiesNoDraw || chr->bodynodraw)) {
+		traceChrNote(chr, TRACECHR_BODYNODRAW);
 		return gdl;
 	}
 #endif
@@ -3619,10 +3625,16 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 
 		if (eyespy) {
 			if (!eyespy->deployed) {
+#ifndef PLATFORM_N64
+				traceChrNote(chr, TRACECHR_EYESPY);
+#endif
 				return gdl;
 			}
 
 			if (eyespy == g_Vars.currentplayer->eyespy && eyespy->active) {
+#ifndef PLATFORM_N64
+				traceChrNote(chr, TRACECHR_EYESPY);
+#endif
 				return gdl;
 			}
 		}
@@ -3647,6 +3659,9 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		f32 chrdist = sqrtf(ERASERSQDIST(prop->pos.f));
 
 		if (chrdist > g_Vars.currentplayer->eraserpropdist) {
+#ifndef PLATFORM_N64
+			traceChrNote(chr, TRACECHR_XRAYFAR);
+#endif
 			return gdl;
 		}
 
@@ -3675,8 +3690,16 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	traceChrNote(chr, 0);
+	chr->tracedrawalpha = alpha > 0xff ? 0xff : (alpha < 0 ? 0 : alpha);
+#endif
+
 	if (alpha < 0xff) {
 		if (!xlupass) {
+#ifndef PLATFORM_N64
+			traceChrNote(chr, TRACECHR_DEFERRED);
+#endif
 			return gdl;
 		}
 
@@ -3690,6 +3713,12 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	}
 
 	shademode = envGetObjShadeMode(prop, shadecolourfracs);
+
+#ifndef PLATFORM_N64
+	if (!(shademode != SHADEMODE_XLU && alpha > 0)) {
+		traceChrNote(chr, TRACECHR_NODRAW);
+	}
+#endif
 
 	if (chr->unk32c_18) {
 		propCalculateShadeColour(chr->prop, chr->nextcol, chr->floorcol);
@@ -3825,6 +3854,9 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		}
 
 		// Render the chr's model
+#ifndef PLATFORM_N64
+		traceChrNote(chr, TRACECHR_DREW);
+#endif
 		modelRender(&renderdata, model);
 
 		// Render attached props (eg. held guns and attached mines/knives/bolts)

@@ -28,6 +28,7 @@
 #include "record.h"
 #include "texpack.h"
 #include "screenshot.h"
+#include "trace.h"
 #include "xblamesh.h"
 #include "xblastage.h"
 #include "xblatex.h"
@@ -180,6 +181,7 @@ int main(int argc, const char **argv)
 	videoSetVividColours(modGetVividSaturation(), modGetVividContrast());
 	videoSetBlackLevel(modGetBlackLevelLift());
 	screenshotInit();
+	traceInit();
 	recordInit();
 	ghostnetInit();
 	updateInit();

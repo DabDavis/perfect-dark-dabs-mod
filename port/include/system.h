@@ -21,6 +21,8 @@ const char *const *sysGetArgv(void);
 const char *sysArgGetString(const char *arg);
 const char *sysArgGetStringN(const char *arg, s32 n);
 s32 sysArgGetInt(const char *arg, s32 defval);
+// "branch hash (target)", as the log's version line.
+const char *sysGetVersionString(void);
 
 u64 sysGetMicroseconds(void);
 

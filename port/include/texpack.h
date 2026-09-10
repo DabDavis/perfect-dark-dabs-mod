@@ -1,6 +1,7 @@
 #ifndef _IN_TEXPACK_H
 #define _IN_TEXPACK_H
 
+#include <stdio.h>
 #include <PR/ultratypes.h>
 
 #ifdef __cplusplus
@@ -189,6 +190,8 @@ void texpackCycleSetKey(s32 vk);
 
 /** Polled once a frame from the scheduler, like screenshotTick(). */
 void texpackTick(void);
+// The pack, the decode queue and the kept store, for the F3 trace dump.
+void texpackTrace(FILE *f);
 
 /**
  * Texture numbers whose replacement finished decoding since the last call, and

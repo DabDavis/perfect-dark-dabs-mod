@@ -77,6 +77,24 @@ u8 g_GfxActiveBufferIndex;
 u32 g_GfxRequestedDisplayList;
 static bool g_GfxVtxOverflowReported = false;
 
+#ifndef PLATFORM_N64
+// How much of each pool the last frame used, for the F3 trace dump: the
+// master list as gfxCheckGfxPool() saw it at the end of the frame, the vtx
+// pool as it stood when the buffers swapped.
+static u32 g_GfxTraceGfxUsed;
+static u32 g_GfxTraceGfxSize;
+static u32 g_GfxTraceVtxUsed;
+static u32 g_GfxTraceVtxSize;
+
+void gfxTraceGetPools(u32 *gfxused, u32 *gfxsize, u32 *vtxused, u32 *vtxsize)
+{
+	*gfxused = g_GfxTraceGfxUsed;
+	*gfxsize = g_GfxTraceGfxSize;
+	*vtxused = g_GfxTraceVtxUsed;
+	*vtxsize = g_GfxTraceVtxSize;
+}
+#endif
+
 u32 g_GfxSizesByPlayerCount[] = {
 	0x00010000 * GFX_SIZE_MULTIPLIER,
 	0x00018000 * GFX_SIZE_MULTIPLIER,
@@ -200,6 +218,11 @@ void gfxCheckGfxPool(const Gfx *gdl)
 	static bool reported = false;
 	const Gfx *end = (const Gfx *)g_GfxBuffers[g_GfxActiveBufferIndex + 1];
 
+#ifndef PLATFORM_N64
+	g_GfxTraceGfxUsed = (u32)(gdl - (const Gfx *)g_GfxBuffers[g_GfxActiveBufferIndex]);
+	g_GfxTraceGfxSize = (u32)(end - (const Gfx *)g_GfxBuffers[g_GfxActiveBufferIndex]);
+#endif
+
 	if (gdl > end && !reported) {
 		reported = true;
 		sysLogPrintf(LOG_ERROR, "gfx: stage 0x%02x overran the master display list: %d commands past a %d command buffer",
@@ -285,6 +308,10 @@ void *gfxAllocate(u32 size)
 
 void gfxSwapBuffers(void)
 {
+#ifndef PLATFORM_N64
+	g_GfxTraceVtxUsed = (u32)(g_GfxMemPos - g_VtxBuffers[g_GfxActiveBufferIndex]);
+	g_GfxTraceVtxSize = (u32)(g_VtxBuffers[1] - g_VtxBuffers[0]);
+#endif
 	g_GfxActiveBufferIndex ^= 1;
 	g_GfxRequestedDisplayList = false;
 	g_GfxMemPos = g_VtxBuffers[g_GfxActiveBufferIndex];

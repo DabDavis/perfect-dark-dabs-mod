@@ -3026,6 +3026,12 @@ static s32 frameIndex;
 // from the frame before it, so wrapping is no more than one wasted pose.
 static u32 frameCount;
 
+// What this frame has done so far and what the last one did, for the F3
+// trace dump: opaque lists emitted, poses written, poses the arena refused.
+static u32 frameDraws, frameDrawsLast;
+static u32 framePoses, framePosesLast;
+static u32 framePoseFails, framePoseFailsLast;
+
 static void xblaMeshReportOverlaps(void);
 
 void xblaMeshFrameReset(void)
@@ -3050,6 +3056,11 @@ void xblaMeshFrameReset(void)
 
 	frameCurChunk[frameIndex] = 0;
 	frameWanted = 0;
+
+	frameDrawsLast = frameDraws;
+	framePosesLast = framePoses;
+	framePoseFailsLast = framePoseFails;
+	frameDraws = framePoses = framePoseFails = 0;
 }
 
 /**
@@ -4216,6 +4227,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			} else {
 				pose = xblaMeshPose(m, model, root, &finemtx, &fine);
 
+				if (pose) {
+					framePoses++;
+				} else {
+					framePoseFails++;
+				}
+
 				// Not remembered when there was no room this frame, so that
 				// the next part tries again rather than inheriting a miss.
 				if (pose) {
@@ -4315,6 +4332,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// render mode - see xblaMeshSetMaterial() and xblaMeshApplyNodeMode().
 		xblaMeshApplyNodeMode(renderdata, node, 1);
 		gSPDisplayList(renderdata->gdl++, list);
+		frameDraws++;
 
 		// An alpha span that is not going to the translucent pass is a cutout
 		// and belongs here, after the solid part of the same group - a grille,
@@ -4543,8 +4561,95 @@ u8 *xblaMeshReadFile(u16 fileid, u32 *outLen)
 	return xblaMeshReadSlot((s32)fileid - 1, outLen);
 }
 
+void xblaMeshTrace(FILE *f)
+{
+	u32 arenakb = 0;
+	s32 chunks = 0;
+	u32 nodes = 0;
+	u32 slots = 0;
+
+	xblaMeshArenaStats(&arenakb, &chunks);
+
+	for (u32 i = 0; i < XBLAMESH_HASHSIZE; i++) {
+		if (hash[i].node) {
+			slots++;
+
+			if (hash[i].modeldef) {
+				nodes++;
+			}
+		}
+	}
+
+	fprintf(f, "xblamesh: enabled %d opened %d pose %d; %u meshes built, %u KB; pose arena %u KB in %d chunks, cap %d MB; %u nodes in %u of %d table slots; frame %u\n",
+			optEnabled, opened, optPose, g_XblaMeshNumMeshes,
+			(g_XblaMeshBytes + 1023) / 1024, arenakb, chunks,
+			XBLAMESH_ARENA_MAX / (1024 * 1024), nodes, slots, XBLAMESH_HASHSIZE,
+			frameCount);
+	fprintf(f, "xblamesh last frame: %u opaque lists drawn, %u poses written, %u poses refused by the arena (%u bytes wanted)\n",
+			frameDrawsLast, framePosesLast, framePoseFailsLast, frameWanted);
+}
+
+s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
+{
+	struct modelnode *node;
+	s32 count = 0;
+	s32 walked = 0;
+
+	if (!model || !model->definition) {
+		return 0;
+	}
+
+	for (node = model->definition->rootnode; node; node = xblaMeshNextNode(node)) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+		const struct xblameshbuilt *m;
+
+		walked++;
+
+		if (!e || e->node != node) {
+			continue;
+		}
+
+		if (e->modeldef) {
+			count++;
+		}
+
+		if (!f) {
+			continue;
+		}
+
+		m = built && e->slot < numRecords ? &built[e->slot] : NULL;
+
+		fprintf(f, "%snode %p type %02x slot %d part %d def %p%s%s%s built %d",
+				indent ? indent : "", (const void *)node, node->type & 0xff, e->slot, e->part,
+				(const void *)e->modeldef,
+				e->modeldef ? "" : " DROPPED",
+				e->suppress == XBLAMESH_SUPPRESS_HAIR ? " HAIR-suppressed" :
+				e->suppress == XBLAMESH_SUPPRESS_COVERED ? " covered" : "",
+				e->modeldef && e->modeldef != model->definition ? " (grafted or another load)" : "",
+				m ? m->state : 0);
+
+		if (m && m->state > 0) {
+			fprintf(f, " %d verts %d tris %d groups %d matrices, posed for %s at mesh frame %u (now %u) fine %d",
+					m->numvertices, m->numtris, m->numgroups, m->nummatrices,
+					m->posedmodel == model ? "this model" : "another model",
+					m->posedframe, frameCount, m->posedfine);
+		}
+
+		fprintf(f, "\n");
+	}
+
+	if (f && count == 0) {
+		fprintf(f, "%sno release mesh on any of the %d nodes walked (def %p)\n",
+				indent ? indent : "", walked, (const void *)model->definition);
+	}
+
+	return count;
+}
+
 #else
 
+void xblaMeshTrace(FILE *f) { }
+s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent) { return 0; }
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node) { return 0; }

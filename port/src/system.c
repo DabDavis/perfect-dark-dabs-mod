@@ -360,3 +360,8 @@ void sysCpuRelax(void)
 {
 	DO_YIELD();
 }
+
+const char *sysGetVersionString(void)
+{
+	return VERSION_BRANCH " " VERSION_HASH " (" VERSION_TARGET ")";
+}

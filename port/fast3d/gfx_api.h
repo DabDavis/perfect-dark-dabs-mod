@@ -109,6 +109,21 @@ void gfx_set_target_fps(int);
 void gfx_set_texture_filter(enum FilteringMode mode);
 void gfx_set_mipmap_filter(enum MipmapFilteringMode mode);
 void gfx_texture_cache_clear(void);
+
+// What the last complete frame cost, and the state of the texture cache, for
+// the F3 trace dump (port/src/trace.c).
+struct GfxTraceStats {
+    uint32_t drawcalls;
+    uint32_t tris;
+    uint32_t verts;
+    uint32_t distincttextures;
+    uint32_t texuploads;
+    uint32_t texevictions;
+    uint32_t bufferfullflushes;
+    uint32_t cacheentries;
+    uint32_t cachesize;
+};
+void gfx_trace_stats(struct GfxTraceStats *out);
 void gfx_texture_cache_delete(const uint8_t *orig_addr);
 void gfx_texture_cache_delete_range(const uint8_t *start, const uint8_t *end);
 int gfx_create_framebuffer(uint32_t width, uint32_t height, int upscale, int autoresize);

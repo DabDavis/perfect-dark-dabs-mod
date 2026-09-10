@@ -27,6 +27,7 @@
 #include "mixer.h"
 #include "record.h"
 #include "screenshot.h"
+#include "trace.h"
 #include "texpack.h"
 #include "xblamesh.h"
 #include "community.h"
@@ -299,6 +300,7 @@ void schedEndFrame(OSSched *sc)
 	// After inputUpdate() and before the next frame is submitted: the shot is
 	// taken in that frame's pre-swap callback, one frame after the key press.
 	screenshotTick();
+	traceTick();
 	texpackTick();
 	xblaMeshTick();
 	communityTick();

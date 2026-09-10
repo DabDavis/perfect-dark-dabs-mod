@@ -826,6 +826,14 @@ static void gfx_texture_cache_drop_texnum(int32_t texturenum) {
     }
 }
 
+static struct GfxTraceStats g_GfxLastFrame;
+
+extern "C" void gfx_trace_stats(struct GfxTraceStats *out) {
+    *out = g_GfxLastFrame;
+    out->cacheentries = (uint32_t)gfx_texture_cache.map.size();
+    out->cachesize = g_GfxTexCacheSize;
+}
+
 extern "C" void gfx_texpack_poll(void) {
     int32_t ready[32];
     const int32_t count = texpackPollDecoded(ready, (int32_t)(sizeof(ready) / sizeof(ready[0])));
@@ -3830,6 +3838,15 @@ extern "C" void gfx_start_frame(void) {
     } else if (g_GfxMaxBufferedTris > MAX_BUFFERED) {
         g_GfxMaxBufferedTris = MAX_BUFFERED;
     }
+
+    // Kept for the F3 trace dump, which asks mid-frame about the last one.
+    g_GfxLastFrame.drawcalls = g_GfxNumDrawCalls;
+    g_GfxLastFrame.tris = g_GfxNumTris;
+    g_GfxLastFrame.verts = g_GfxNumVerts;
+    g_GfxLastFrame.distincttextures = g_GfxNumDistinctTextures;
+    g_GfxLastFrame.texuploads = g_GfxNumTexUploads;
+    g_GfxLastFrame.texevictions = g_GfxNumTexEvictions;
+    g_GfxLastFrame.bufferfullflushes = g_GfxNumBufferFullFlushes;
 
     g_GfxNumDrawCalls = 0;
     g_GfxNumBufferFullFlushes = 0;

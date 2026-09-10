@@ -1,6 +1,7 @@
 #ifndef _IN_XBLATEX_H
 #define _IN_XBLATEX_H
 
+#include <stdio.h>
 #include <PR/ultratypes.h>
 
 #ifdef __cplusplus
@@ -113,3 +114,6 @@ void xblaTexShutdown(void);
 #endif
 
 #endif
+
+/** The record store's state, for the F3 trace dump. */
+void xblaTexTrace(FILE *f);

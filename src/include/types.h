@@ -1390,6 +1390,12 @@ struct chrdata {
 	// or modBodyPoseDrop() answers it. While it is set the body has no
 	// matrices for this frame and model->matrices must not be read.
 	bool bodyposeheld;
+	// What chrRender() did with this chr on the frame numbered
+	// tracedrawframe: TRACECHR_* bits and the alpha it worked out. Read by
+	// the F3 trace dump (port/src/trace.c), written by nothing else.
+	u32 tracedrawframe;
+	u8 tracedrawbits;
+	u8 tracedrawalpha;
 #endif
 };
 

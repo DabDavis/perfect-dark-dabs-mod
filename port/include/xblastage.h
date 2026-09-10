@@ -1,6 +1,7 @@
 #ifndef _IN_XBLASTAGE_H
 #define _IN_XBLASTAGE_H
 
+#include <stdio.h>
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
 
@@ -95,3 +96,6 @@ void xblaStageSetVerbose(s32 verbose);
 #endif
 
 #endif
+
+/** The level loader's state, for the F3 trace dump. */
+void xblaStageTrace(FILE *f);

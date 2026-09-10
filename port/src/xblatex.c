@@ -557,3 +557,9 @@ void xblaTexShutdown(void)
 		SDL_UnlockMutex(lock);
 	}
 }
+
+void xblaTexTrace(FILE *f)
+{
+	fprintf(f, "xblatex: enabled %d opened %d (0 untried, 1 open, -1 no package), %u records, %d bound, %d decodes\n",
+			optEnabled, opened, numRecords, numBound, numDecoded);
+}

@@ -644,7 +644,16 @@ PD_CONSTRUCTOR static void xblaStageConfigInit(void)
 	configRegisterInt("Mod.XblaStages", &optEnabled, 0, 1);
 }
 
+void xblaStageTrace(FILE *f)
+{
+	fprintf(f, "xblastage: enabled %d want %d, rooms loaded from %s, release file %d: %d rooms, %u bytes, tried %d, current room from release %d\n",
+			optEnabled, xblaStageWant(), roomsWant ? "release" : "ROM",
+			relFileNum, relNumRooms, relLen, relTried, curRoomRelease);
+}
+
 #else
+
+void xblaStageTrace(FILE *f) { }
 
 s32 xblaStageGetEnabled(void) { return 0; }
 void xblaStageSetEnabled(s32 enabled) { }

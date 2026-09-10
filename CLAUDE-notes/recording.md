@@ -144,3 +144,24 @@ confirms it is the GPU and not llvmpipe. This is how the 16x MSAA black screen
 was reproduced: `GL_MAX_SAMPLES` is 8 on that card, and a sample count past it
 leaves the framebuffer incomplete, which draws nothing. `gfx_max_msaa_level`
 now caps it and the menu lists only the levels the GPU has.
+
+## The F3 trace dump (2026-09-10)
+
+`Mod.TraceKey` (F3) writes `traces/pd-<stamp>.txt` beside the executable and
+takes a screenshot under the same stamp, from the pre-swap callback so both
+describe the frame on screen. `port/src/trace.c`. It is the thing to ask a
+tester to press when something is missing from a frame: every chr in the level
+is listed with its position relative to the camera (yaw is degrees left of the
+look vector; the picture edge is about 37 degrees at either aspect ratio),
+its rooms with their draw-slot boxes, its `PROPFLAG_ONTHISSCREENTHISTICK`,
+and what `chrRender()` did with it that frame - `chr->tracedrawbits`, set by
+`traceChrNote()` at each of chrRender's exits: DREW means `modelRender()` was
+called, `deferred-to-xlu` an alpha under 255 in the opaque pass, `NODRAW`
+alpha 0 or an xlu shade mode, `body-budget` a kept body over the draw budget.
+Under each model the release mesh entries of its nodes (slot, part, HAIR or
+covered, built, posed frame). Before that: the memp pools, the master list
+and vtx pool use of the last frame (`gfxTraceGetPools()`), the renderer's last
+frame counts and texture cache (`gfx_trace_stats()`), the mesh loader's arena
+and last-frame draws and refused poses (`xblaMeshTrace()`), the record store,
+the level loader and the pack's decode queue and kept store. From gdb,
+`call (void)traceRequest()` at any stop does the same.
