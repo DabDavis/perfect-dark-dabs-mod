@@ -36,6 +36,7 @@
 #include "x360.h"
 #include "xblaimport.h"
 #include "romdata.h"
+#include "files.h"
 #include "xblamesh.h"
 #include "xblatex.h"
 
@@ -1317,6 +1318,37 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 }
 
 /**
+ * The models the boot sequence draws, which the release remade as its own
+ * boot sequence.
+ *
+ * 4J's package holds a mesh for each of them, and every one of those meshes is
+ * the Xbox 360 release's logo rather than the N64's: file 221's mesh is
+ * "Microsoft Game Studios" where the game's own is the Nintendo wordmark, and
+ * file 1376's is the flat orange Rare plaque on a full screen orange field
+ * where the game's is the gold one on black. Matched, they replace the N64
+ * intro with the 360's, which reads as the logos being discoloured - the Rare
+ * screen turns orange to its edges and the Nintendo screen turns into
+ * Microsoft's.
+ *
+ * They are the one place where the release's mesh is a *different logo*, not a
+ * better model of the same thing, so the boot sequence keeps the game's own.
+ */
+static s32 xblaMeshIsBootLogo(u16 fileid)
+{
+	switch (fileid) {
+	case FILE_PRARELOGO:
+	case FILE_PNINTENDOLOGO:
+	case FILE_PNLOGO:
+	case FILE_PNLOGO2:
+	case FILE_PNLOGO3:
+	case FILE_PJPNLOGO:
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
  * Matches one model's nodes against the release's copy of the same file.
  *
  * Runs for every model that loads. It will not unpack an archive to do it -
@@ -1373,6 +1405,15 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 		if (xblaMeshVerbose) {
 			sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is a mod's, not the "
 					"release's - left alone", fileid);
+		}
+
+		return;
+	}
+
+	if (xblaMeshIsBootLogo(fileid)) {
+		if (xblaMeshVerbose) {
+			sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is a boot logo - the "
+					"release's is a different logo, left alone", fileid);
 		}
 
 		return;

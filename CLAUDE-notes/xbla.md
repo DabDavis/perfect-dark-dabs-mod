@@ -1363,6 +1363,28 @@ draws that went are the body's fifteen; the triangles barely move because the
 mesh was always the bulk of them. The body model reports `14 more lists the
 mesh covers, drawing nothing` as it loads.
 
+### The boot logos are a different logo, not a better model
+
+The one place where 4J's mesh is not a higher-poly version of the same object
+is the boot sequence. `PnintendologoZ` is the Microsoft Game Studios logo,
+`PrarelogoZ` is the flat orange Rare plaque on an orange field that runs to the
+edges of the screen, and the `Pnlogo*Z` pieces are the 360's. Matched, they
+replace the N64 intro with the Xbox 360's, which is what "the Rare logo,
+Microsoft logo and Nintendo 64 logo are all discoloured" is: the Rare screen
+turns orange, the Nintendo wordmark turns into Microsoft's, and the N64 logo
+loses its four colours.
+
+So `xblaMeshIsBootLogo()` refuses six file ids outright - `FILE_PRARELOGO`,
+`FILE_PNINTENDOLOGO`, `FILE_PNLOGO`, `FILE_PNLOGO2`, `FILE_PNLOGO3` and
+`FILE_PJPNLOGO` - before the slot is ever read, and the boot sequence keeps the
+game's own models with `Mod.XblaMeshes` on.
+
+Reproducing it headlessly: boot with the tester's `pd.ini` and shoot the first
+sixteen seconds a frame a second. The sequence is the legal screen, Rare,
+Nintendo, the N64 logo, then the Perfect Dark logo, and the whole thing is over
+by about fourteen seconds. `Mod.LoadTextures=0` still shows it, which is what
+rules the texture packs out - it is the meshes, not the pictures.
+
 ### The level files were rewritten too
 
 62 `bgdata/bg_*.seg` files changed size, some enormously — `bg_arec.seg` goes
