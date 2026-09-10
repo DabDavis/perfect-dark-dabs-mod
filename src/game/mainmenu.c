@@ -4948,7 +4948,7 @@ struct menuitem g_MainMenuMenuItems[] = {
 		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Ghost Trials",
 		0x00000008,
-		(void *)&g_GhostTrialsMenuDialog,
+		(void *)&g_GhostModeMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,

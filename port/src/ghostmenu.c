@@ -1070,7 +1070,10 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 		// Only a reply to a correct PIN knows that, so this line is the only
 		// warning its owner will ever get.
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"No Security Question - you cannot reset a lost PIN.\n");
+				"No Security Questions - you cannot reset a lost PIN.\n");
+	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_PARTIAL) {
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Signed in as %s - set 3 Security Questions.\n", g_GhostNetUser);
 	} else if (ghostnetIsSignedIn()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				"Signed in as %s\n", g_GhostNetUser);
@@ -1080,7 +1083,7 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 		// about once. Signing in is not gated: somebody who set their question
 		// on another machine has nothing to pick here.
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Set a Security Question, then Create Account.\n");
+				"Set 3 Security Questions, then Create Account.\n");
 	} else if (ghostnetAccountIsValid()) {
 		// Well formed, and that is all this end knows. Whether the name is
 		// registered, and whether the PIN is its PIN, are questions only the
@@ -1289,20 +1292,29 @@ struct menudialogdef g_GhostPinMenuDialog = {
 };
 
 /**
- * The security question: one category out of ten, one answer out of its list.
+ * The security questions: three times, one category out of ten and one answer
+ * out of its list.
  *
- * Two dropdowns and no keyboard. A typed answer is a second thing to spell the
- * same way a year later, on a game's on screen keyboard, by somebody who has
- * already forgotten one thing - and the list is also what lets the server hold
- * a hash of a known id rather than of whatever was typed.
+ * Two dropdowns a pair and no keyboard. A typed answer is a second thing to
+ * spell the same way a year later, on a game's on screen keyboard, by somebody
+ * who has already forgotten one thing - and the list is also what lets the
+ * server hold a hash of a known id rather than of whatever was typed.
  *
- * Both indices live in ghostnet.c beside the name and the PIN, and neither is
+ * The indices live in ghostnet.c beside the name and the PIN, and none is
  * written to pd.ini. See the note there: an answer kept next to the PIN it
  * recovers is a decoration on the PIN, not a second thing to know.
+ *
+ * item->param says which of the three a row is. The same two handlers serve
+ * the six rows of the question page and the six of the reset page.
  */
 static MenuItemHandlerResult menuhandlerGhostQuestion(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	const struct ghostrecoverycategory *cat;
+	s32 i = item->param;
+
+	if (i < 0 || i >= GHOSTNET_NUMQUESTIONS) {
+		return 0;
+	}
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -1324,14 +1336,14 @@ static MenuItemHandlerResult menuhandlerGhostQuestion(s32 operation, struct menu
 		// An answer belongs to the category it was picked from, so changing
 		// the category drops it rather than keeping a row number that now
 		// names somebody else's favourite.
-		if (data->dropdown.value - 1 != g_GhostNetQuestion) {
-			g_GhostNetAnswer = -1;
+		if (data->dropdown.value - 1 != g_GhostNetQuestion[i]) {
+			g_GhostNetAnswer[i] = -1;
 		}
 
-		g_GhostNetQuestion = data->dropdown.value - 1;
+		g_GhostNetQuestion[i] = data->dropdown.value - 1;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_GhostNetQuestion + 1;
+		data->dropdown.value = g_GhostNetQuestion[i] + 1;
 		break;
 	}
 
@@ -1340,31 +1352,51 @@ static MenuItemHandlerResult menuhandlerGhostQuestion(s32 operation, struct menu
 
 static MenuItemHandlerResult menuhandlerGhostAnswer(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	s32 i = item->param;
+
+	if (i < 0 || i >= GHOSTNET_NUMQUESTIONS) {
+		return 0;
+	}
+
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return g_GhostNetQuestion < 0;
+		return g_GhostNetQuestion[i] < 0;
 	case MENUOP_GETOPTIONCOUNT:
 		// Zero answers plus "(not set)" while no category is chosen, so the
 		// row is a dropdown with nothing in it rather than a list of the
 		// wrong category's favourites.
-		data->dropdown.value = ghostRecoveryGetNumAnswers(g_GhostNetQuestion) + 1;
+		data->dropdown.value = ghostRecoveryGetNumAnswers(g_GhostNetQuestion[i]) + 1;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value <= 0) {
 			return (intptr_t)"(not set)";
 		}
 
-		return (intptr_t)ghostRecoveryGetAnswerName(g_GhostNetQuestion, data->dropdown.value - 1);
+		return (intptr_t)ghostRecoveryGetAnswerName(g_GhostNetQuestion[i], data->dropdown.value - 1);
 	case MENUOP_SET:
-		g_GhostNetAnswer = data->dropdown.value - 1;
+		g_GhostNetAnswer[i] = data->dropdown.value - 1;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_GhostNetAnswer + 1;
+		data->dropdown.value = g_GhostNetAnswer[i] + 1;
 		break;
 	}
 
 	return 0;
 }
+
+/**
+ * The six dropdown rows, written once.
+ *
+ * Both pages that ask the questions ask all three, and a row is the same row
+ * on either: the pair's number in item->param, the handler above.
+ */
+#define GHOST_QUESTION_ROWS \
+	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Question 1", 0, menuhandlerGhostQuestion }, \
+	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Answer 1", 0, menuhandlerGhostAnswer }, \
+	{ MENUITEMTYPE_DROPDOWN, 1, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Question 2", 0, menuhandlerGhostQuestion }, \
+	{ MENUITEMTYPE_DROPDOWN, 1, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Answer 2", 0, menuhandlerGhostAnswer }, \
+	{ MENUITEMTYPE_DROPDOWN, 2, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Question 3", 0, menuhandlerGhostQuestion }, \
+	{ MENUITEMTYPE_DROPDOWN, 2, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Answer 3", 0, menuhandlerGhostAnswer }
 
 /**
  * Send the question to an account that already exists.
@@ -1404,16 +1436,26 @@ static char *menutextGhostQuestionStatus(struct menuitem *item)
 		// nothing. The first line has to say why they are looking at it.
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
 				"This account cannot reset a lost PIN yet.\n");
+	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_PARTIAL
+			&& !ghostnetRecoveryIsSet()) {
+		// The other state they are pushed in with: an account made when one
+		// question was all there was.
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"Your account has fewer than 3 questions - pick 3.\n");
+	} else if (ghostnetRecoveryIsRepeated()) {
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"Each question must be different.\n");
 	} else if (!ghostnetRecoveryIsSet()) {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"Pick a pair you will still know in a year.\n");
-	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING) {
-		// Picked here, but the account still has nothing on it.
+				"Pick 3 pairs you will still know in a year.\n");
+	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING
+			|| ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_PARTIAL) {
+		// Picked here, but the account still has nothing, or less, on it.
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
 				"Not on the account yet - Save To Account.\n");
 	} else {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"Save To Account to change an existing one.\n");
+				"Save To Account to replace the existing ones.\n");
 	}
 
 	return g_GhostQuestionMsg;
@@ -1453,22 +1495,7 @@ struct menuitem g_GhostQuestionMenuItems[] = {
 		0,
 		NULL,
 	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Question",
-		0,
-		menuhandlerGhostQuestion,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Answer",
-		0,
-		menuhandlerGhostAnswer,
-	},
+	GHOST_QUESTION_ROWS,
 	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
@@ -1498,7 +1525,7 @@ struct menuitem g_GhostQuestionMenuItems[] = {
 
 struct menudialogdef g_GhostQuestionMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Security Question",
+	(uintptr_t)"Security Questions",
 	g_GhostQuestionMenuItems,
 	menudialogGhostQuestion,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -1510,21 +1537,26 @@ struct menudialogdef g_GhostQuestionMenuDialog = {
  *
  * The PIN row on this page is the PIN the account is to have, not the one it
  * has - it is the same box the rest of the pages type into, because a reset is
- * "here is my question, and here is the PIN I want now" and a second PIN box
- * beside the first is a second thing to mistype. The server takes the answer
+ * "here are my answers, and here is the PIN I want now" and a second PIN box
+ * beside the first is a second thing to mistype. The server takes the answers
  * as the authority and writes the PIN that came with it.
+ *
+ * One pair is enough to press the button, not three: an account made when one
+ * question was all there was is reset by its one, and the server reads as many
+ * of the pairs sent as the account holds. Fewer than it holds is refused as a
+ * wrong answer, which the line above the rows warns about.
  *
  * Five wrong answers at one account in a day is all the server will take, and
  * ten reset attempts an hour from one machine, each after a wait. Ten
  * categories times fifty answers is not a password; the limiter is what makes
- * it hold.
+ * it hold, and three different categories is what makes it more than a hint.
  */
 static MenuItemHandlerResult menuhandlerGhostResetPin(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
 		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
-			|| !ghostnetRecoveryIsSet()
+			|| ghostnetRecoveryCount() < 1
 			|| ghostnetGetState() == GHOSTNET_BUSY;
 	case MENUOP_SET:
 		ghostnetResetPin();
@@ -1547,7 +1579,7 @@ static char *menutextGhostResetStatus(struct menuitem *item)
 		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg), "%s\n", ghostnetGetMessage());
 	} else {
 		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg),
-				"Answer your question, then set a new PIN.\n");
+				"Answer every question your account has.\n");
 	}
 
 	return g_GhostResetMsg;
@@ -1619,22 +1651,7 @@ struct menuitem g_GhostResetMenuItems[] = {
 		0,
 		(void *)&g_GhostPinMenuDialog,
 	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Question",
-		0,
-		menuhandlerGhostQuestion,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Answer",
-		0,
-		menuhandlerGhostAnswer,
-	},
+	GHOST_QUESTION_ROWS,
 	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
@@ -1672,17 +1689,157 @@ struct menudialogdef g_GhostResetMenuDialog = {
 };
 
 /**
- * The row on the account page, which says what is chosen without opening it.
+ * The row on the account page, which says how much is chosen and not what.
+ *
+ * It used to name the category, and a category on a page that might be on
+ * stream is a third of the secret handed out with the PIN's dots beside it.
+ * The names are only ever shown on the pages behind the red warning.
  */
 static char *menutextGhostQuestionRow(struct menuitem *item)
 {
 	static char text[64];
-	const struct ghostrecoverycategory *cat = ghostRecoveryGetCategory(g_GhostNetQuestion);
+	s32 count = ghostnetRecoveryCount();
 
-	snprintf(text, sizeof(text), "Security Question: %s\n",
-			ghostnetRecoveryIsSet() && cat ? cat->name : "(not set)");
+	if (ghostnetRecoveryIsSet()) {
+		snprintf(text, sizeof(text), "Security Questions: (set)\n");
+	} else if (count > 0) {
+		snprintf(text, sizeof(text), "Security Questions: (%d of %d)\n", count, GHOSTNET_NUMQUESTIONS);
+	} else {
+		snprintf(text, sizeof(text), "Security Questions: (not set)\n");
+	}
 
 	return text;
+}
+
+/**
+ * Streamer beware: the red window in front of anything that shows a secret.
+ *
+ * The account page itself shows the PIN as dots and the questions as a count,
+ * so it is safe to have on screen. The PIN keyboard shows the digits as they
+ * are typed, the questions page shows three categories and three answers by
+ * name, and Reset PIN shows both - and a player streaming to a hundred people
+ * has no reason to expect a game menu to do that. So each of those pages is
+ * reached through this one, every time: a warning shown once a run is one a
+ * streamer who started their stream after dismissing it never saw.
+ *
+ * MENUDIALOGTYPE_DANGER is the game's own red, the one the abort and delete
+ * confirmations use. The Show It row closes this dialog before its handler
+ * runs (menuitemSelectableTick pops first, then calls), which is what lets
+ * the handler push the page this stood in front of and have it land on top
+ * of the account page rather than on top of the warning.
+ */
+static struct menudialogdef *g_GhostSensitiveNext = NULL;
+
+extern struct menudialogdef g_GhostSensitiveMenuDialog;
+
+static void menuGhostOpenSensitive(struct menudialogdef *next)
+{
+	g_GhostSensitiveNext = next;
+	menuPushDialog(&g_GhostSensitiveMenuDialog);
+}
+
+static MenuItemHandlerResult menuhandlerGhostSensitiveShow(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET && g_GhostSensitiveNext) {
+		menuPushDialog(g_GhostSensitiveNext);
+	}
+
+	return 0;
+}
+
+struct menuitem g_GhostSensitiveMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"The next screen shows sensitive info -\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"your PIN or security answers, readable.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"Streaming or recording? Hide the game first.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Show It\n",
+		0,
+		menuhandlerGhostSensitiveShow,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostSensitiveMenuDialog = {
+	MENUDIALOGTYPE_DANGER,
+	(uintptr_t)"Streamer Beware!",
+	g_GhostSensitiveMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * The three doors on the account page that open through the warning.
+ *
+ * A row that opens a dialog has no handler - the dialog sits where the
+ * handler would - so these are rows with a handler that pushes the warning,
+ * with the page it stands in front of remembered for the Show It row.
+ */
+static MenuItemHandlerResult menuhandlerGhostPinDoor(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		menuGhostOpenSensitive(&g_GhostPinMenuDialog);
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostQuestionDoor(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		menuGhostOpenSensitive(&g_GhostQuestionMenuDialog);
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostResetDoor(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		menuGhostOpenSensitive(&g_GhostResetMenuDialog);
+	}
+
+	return 0;
 }
 
 /**
@@ -1868,18 +2025,18 @@ struct menuitem g_GhostAccountMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
+		0,
 		(uintptr_t)&menutextGhostPinRow,
 		0,
-		(void *)&g_GhostPinMenuDialog,
+		menuhandlerGhostPinDoor,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
+		0,
 		(uintptr_t)&menutextGhostQuestionRow,
 		0,
-		(void *)&g_GhostQuestionMenuDialog,
+		menuhandlerGhostQuestionDoor,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -1908,10 +2065,10 @@ struct menuitem g_GhostAccountMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Forgot My PIN...\n",
 		0,
-		(void *)&g_GhostResetMenuDialog,
+		menuhandlerGhostResetDoor,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -2948,12 +3105,24 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
  * backing out is an answer, and a page that reappears every time this one is
  * opened is a page people learn to dismiss without reading.
  */
+/**
+ * Whether this visit to Ghost Trials is an online one.
+ *
+ * Chosen on the page in front of this one every time it is entered from the
+ * main menu, and remembered by nothing. Offline, the page does not sign in,
+ * does not ask for an account and does not nag about the questions, and the
+ * three rows that talk to the server are greyed out - a trial is recorded
+ * and raced exactly as before, and the runs stay on this machine until a
+ * visit that says Online shares them.
+ */
+static bool g_GhostOnline = false;
+
 static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	static bool asked = false;
 	static bool nagged = false;
 
-	if (operation == MENUOP_OPEN && !asked) {
+	if (operation == MENUOP_OPEN && g_GhostOnline && !asked) {
 		asked = true;
 
 		if (ghostnetIsAvailable()) {
@@ -2967,13 +3136,42 @@ static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menud
 
 	// Only while this page is the one on top. A tick reaches every dialog on
 	// the stack, and pushing one from underneath the player's own would open
-	// the security question over whatever they had gone on to open.
-	if (operation == MENUOP_TICK && !nagged
+	// the security questions over whatever they had gone on to open. Through
+	// the red warning, because the page it opens shows the answers by name.
+	if (operation == MENUOP_TICK && g_GhostOnline && !nagged
 			&& g_Menus[g_MpPlayerNum].curdialog
 			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef
-			&& ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING) {
+			&& (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING
+				|| ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_PARTIAL)) {
 		nagged = true;
-		menuPushDialog(&g_GhostQuestionMenuDialog);
+		menuGhostOpenSensitive(&g_GhostQuestionMenuDialog);
+	}
+
+	return 0;
+}
+
+/**
+ * The three rows that talk to the server, greyed out on an offline visit.
+ *
+ * A row that opens a dialog cannot also be disabled - the dialog sits where
+ * the handler would - so each is a row with a handler that pushes its page.
+ */
+static MenuItemHandlerResult menuhandlerGhostOnlineRow(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct menudialogdef *dialogs[] = {
+		&g_GhostAccountsMenuDialog,
+		&g_GhostShareMenuDialog,
+		&g_GhostBoardMenuDialog,
+	};
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !g_GhostOnline;
+	case MENUOP_SET:
+		if (item->param < (s32)ARRAYCOUNT(dialogs)) {
+			menuPushDialog(dialogs[item->param]);
+		}
+		break;
 	}
 
 	return 0;
@@ -3039,26 +3237,26 @@ struct menuitem g_GhostTrialsMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Ghost Account",
 		0,
-		(void *)&g_GhostAccountsMenuDialog,
+		menuhandlerGhostOnlineRow,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		1,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Ghost Share",
 		0,
-		(void *)&g_GhostShareMenuDialog,
+		menuhandlerGhostOnlineRow,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		2,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Leaderboards",
 		0,
-		(void *)&g_GhostBoardMenuDialog,
+		menuhandlerGhostOnlineRow,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -3084,6 +3282,115 @@ struct menudialogdef g_GhostTrialsMenuDialog = {
 	(uintptr_t)"Ghost Trials",
 	g_GhostTrialsMenuItems,
 	menudialogGhostTrials,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * Offline or Online: the page the main menu's Ghost Trials row opens.
+ *
+ * Ghost Trials used to sign in the moment it opened, and open the account
+ * page over itself for a player with no account - which is the right thing
+ * for somebody here to race the boards and the wrong thing for somebody who
+ * wants to run against their own ghost and has no wish to make an account,
+ * be nagged about one, or have a game menu talk to the internet at all. So
+ * the question is asked first, every time, and the answer decides what the
+ * page behind it does (see g_GhostOnline).
+ *
+ * Both rows close this page before their handler pushes the next, so Back
+ * from Ghost Trials lands on the main menu the way it always did, and coming
+ * in again asks again.
+ */
+static MenuItemHandlerResult menuhandlerGhostOnlineMode(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		// Online needs a transport, and a copy without one has nothing to
+		// offer the row but the sentence the account page would say.
+		return item->param == 1 && !ghostnetIsAvailable();
+	case MENUOP_SET:
+		g_GhostOnline = item->param == 1;
+		menuPushDialog(&g_GhostTrialsMenuDialog);
+		break;
+	}
+
+	return 0;
+}
+
+static char *menutextGhostModeStatus(struct menuitem *item)
+{
+	if (!ghostnetIsAvailable()) {
+		return "Network support is not built into this copy.\n";
+	}
+
+	return "Online signs in to share runs and race the boards.\n";
+}
+
+struct menuitem g_GhostModeMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"Offline keeps your runs on this machine.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostModeStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Offline",
+		0,
+		menuhandlerGhostOnlineMode,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		1,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Online",
+		0,
+		menuhandlerGhostOnlineMode,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_BIGFONT,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostModeMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Ghost Trials",
+	g_GhostModeMenuItems,
+	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
 };

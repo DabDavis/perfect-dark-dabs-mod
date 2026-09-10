@@ -13,6 +13,7 @@ seconds rather than with a hundred accounts and forty megabytes.
 """
 
 import gzip
+import hashlib
 import http.client
 import json
 import os
@@ -126,23 +127,60 @@ def post_json(path, obj, ip=None):
                headers={"Content-Type": "application/json"}, ip=ip)
 
 
-def register(user, pin, ip=None, question=None, answer=None):
+def register(user, pin, ip=None, question=None, answer=None, more=None):
     body = {"username": user, "pin": pin}
     if question is not None:
         body["question"] = question
     if answer is not None:
         body["answer"] = answer
+    body.update(more or {})
     return post_json("/register", body, ip=ip)
 
 
-def setrecovery(user, pin, question, answer, ip=None):
-    return post_json("/setrecovery", {"username": user, "pin": pin,
-                                      "question": question, "answer": answer}, ip=ip)
+def setrecovery(user, pin, question, answer, ip=None, more=None):
+    body = {"username": user, "pin": pin, "question": question, "answer": answer}
+    body.update(more or {})
+    return post_json("/setrecovery", body, ip=ip)
 
 
-def resetpin(user, question, answer, newpin, ip=None):
-    return post_json("/resetpin", {"username": user, "question": question,
-                                   "answer": answer, "pin": newpin}, ip=ip)
+def resetpin(user, question, answer, newpin, ip=None, more=None):
+    body = {"username": user, "question": question, "answer": answer, "pin": newpin}
+    body.update(more or {})
+    return post_json("/resetpin", body, ip=ip)
+
+
+def pairs23(q2, a2, q3, a3):
+    """The second and third security questions, as the client sends them."""
+    return {"question2": q2, "answer2": a2, "question3": q3, "answer3": a3}
+
+
+def seed_old_schema():
+    """A database from before an account could hold three questions.
+
+    Written before the server starts, so that its migration runs over a row
+    whose one-pair hash predates rec_count, and the tests below can ask
+    whether that account still signs in and still resets by its one pair.
+    """
+    import sqlite3
+    os.makedirs(ROOT, exist_ok=True)
+    conn = sqlite3.connect(os.path.join(ROOT, "ghosts.db"))
+    conn.executescript("""
+        CREATE TABLE users (
+            username   TEXT PRIMARY KEY COLLATE NOCASE,
+            pin_salt   BLOB NOT NULL,
+            pin_hash   BLOB NOT NULL,
+            created    INTEGER NOT NULL,
+            known_ips  TEXT NOT NULL DEFAULT '',
+            rec_salt   BLOB NOT NULL DEFAULT x'',
+            rec_hash   BLOB NOT NULL DEFAULT x''
+        );
+    """)
+    pin_salt, rec_salt = b"p" * 16, b"r" * 16
+    conn.execute("INSERT INTO users VALUES (?,?,?,?,?,?,?)", (
+        "migrated", pin_salt, hashlib.pbkdf2_hmac("sha256", b"1234", pin_salt, 120000),
+        1, "", rec_salt, hashlib.pbkdf2_hmac("sha256", b"game|tetris", rec_salt, 120000)))
+    conn.commit()
+    conn.close()
 
 
 def login(user, pin, ip=None):
@@ -688,8 +726,84 @@ def test_recovery():
     check(st == 403, "which does not stop a different address")
 
 
+def test_three_questions():
+    print("three security questions")
+
+    more = pairs23("food", "pizza", "drink", "coffee")
+
+    st, body, _ = register("trio", "1234", ip="10.9.3.1", question="game", answer="goldeneye007",
+                           more=more)
+    check(st == 200 and body.get("questions") == 3, "register with three pairs, counted as three")
+
+    st, body, _ = login("trio", "1234", ip="10.9.3.1")
+    check(body.get("recovery") is True and body.get("questions") == 3, "a sign-in counts them too")
+
+    st, body, _ = resetpin("trio", "game", "goldeneye007", "5678", ip="10.9.3.2")
+    check(st == 403 and body["error"] == "wrong question or answer",
+          "the first pair alone does not reset a three-question account")
+
+    st, _, _ = resetpin("trio", "game", "goldeneye007", "5678", ip="10.9.3.2",
+                        more=pairs23("food", "pizza", "drink", "tea"))
+    check(st == 403, "nor do three with the third wrong")
+
+    st, _, _ = resetpin("trio", "game", "goldeneye007", "5678", ip="10.9.3.2",
+                        more=pairs23("drink", "coffee", "food", "pizza"))
+    check(st == 403, "nor the right three in the wrong order")
+
+    st, body, _ = resetpin("trio", "game", "goldeneye007", "5678", ip="10.9.3.2", more=more)
+    check(st == 200 and body.get("questions") == 3, "all three right reset it")
+
+    st, _, _ = login("trio", "5678", ip="10.9.3.1")
+    check(st == 200, "under the new PIN")
+
+    print("a one-question account answered by a three-question build")
+
+    st, body, _ = register("uno", "1234", ip="10.9.3.3", question="game", answer="tetris")
+    check(body.get("questions") == 1, "registered with one, counted as one")
+
+    st, _, _ = resetpin("uno", "game", "tetris", "5678", ip="10.9.3.4",
+                        more=pairs23("food", "pizza", "drink", "tea"))
+    check(st == 200, "reset by its one, whatever the other two hold")
+
+    st, body, _ = setrecovery("uno", "5678", "game", "tetris", ip="10.9.3.3", more=more)
+    check(st == 200 and body.get("questions") == 3, "and Save To Account makes it three")
+
+    st, body, _ = login("uno", "5678", ip="10.9.3.3")
+    check(body.get("questions") == 3, "which the next sign-in reports")
+
+    st, _, _ = resetpin("uno", "game", "tetris", "9999", ip="10.9.3.5")
+    check(st == 403, "so its one no longer resets it")
+
+    print("an account from before there were three")
+
+    st, body, _ = login("migrated", "1234", ip="10.9.3.7")
+    check(st == 200, "still signs in after the migration")
+    check(body.get("recovery") is True and body.get("questions") == 1,
+          "and is counted as holding one question")
+
+    st, _, _ = resetpin("migrated", "game", "tetris", "4321", ip="10.9.3.8", more=more)
+    check(st == 200, "and is reset by that one")
+
+    st, _, _ = login("migrated", "4321", ip="10.9.3.7")
+    check(st == 200, "under the new PIN")
+
+    print("shapes that are not three questions")
+
+    st, _, _ = register("gap", "1234", ip="10.9.3.6", question="game", answer="tetris",
+                        more={"question3": "drink", "answer3": "tea"})
+    check(st == 400, "a third pair with no second is refused")
+
+    st, _, _ = register("gap", "1234", ip="10.9.3.6", question="game", answer="tetris",
+                        more={"question2": "food"})
+    check(st == 400, "and so is half a second pair")
+
+    st, _, _ = setrecovery("trio", "5678", "", "", ip="10.9.3.1", more=more)
+    check(st == 400, "and pairs two and three without one")
+
+
 def main():
     build_daemon()
+    seed_old_schema()
     start_server()
     try:
         test_register_and_upload()
@@ -703,6 +817,7 @@ def main():
         test_malformed_requests()
         test_upload_not_auth_limited()
         test_recovery()
+        test_three_questions()
     finally:
         stop_server()
     print("\n%d passed, %d failed" % (passed, failed))

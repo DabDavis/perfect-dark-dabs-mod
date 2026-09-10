@@ -172,17 +172,25 @@ extern char g_GhostNetUser[GHOSTNET_MAXUSER + 2];
 extern char g_GhostNetPin[GHOSTNET_MAXPIN + 2];
 
 /**
- * The security question this machine has picked, as indices into the tables in
- * ghostrecovery.h, or -1 for one that has not been chosen.
+ * The security questions this machine has picked, as indices into the tables
+ * in ghostrecovery.h, or -1 for one that has not been chosen.
+ *
+ * Three of them. One category out of ten and one answer out of fifty is a
+ * guess in five hundred, and the reset limiter was all that stood behind it;
+ * three different categories is a guess in a hundred million or so, which is
+ * a secret rather than a hint. The first pair is what an account made before
+ * there were three holds, and travels under the field names it always did.
  *
  * They are not written to pd.ini and are not meant to survive the run. What
- * the server holds is a hash of the pair, and a copy of the answer sitting in
- * a text file next to the PIN it recovers would make the question a decoration
- * on the PIN rather than a second thing to know. Registering sends them;
- * resetting a PIN sends them; nothing else keeps them.
+ * the server holds is a hash of the pairs, and a copy of the answers sitting
+ * in a text file next to the PIN they recover would make the questions a
+ * decoration on the PIN rather than a second thing to know. Registering sends
+ * them; resetting a PIN sends them; nothing else keeps them.
  */
-extern s32 g_GhostNetQuestion;
-extern s32 g_GhostNetAnswer;
+#define GHOSTNET_NUMQUESTIONS 3
+
+extern s32 g_GhostNetQuestion[GHOSTNET_NUMQUESTIONS];
+extern s32 g_GhostNetAnswer[GHOSTNET_NUMQUESTIONS];
 extern char g_GhostNetSavedUser[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXUSER + 2];
 extern char g_GhostNetSavedPin[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXPIN + 2];
 /**
@@ -209,17 +217,22 @@ bool ghostnetHasAccount(void);
 bool ghostnetAccountIsValid(void);
 bool ghostnetIsSignedIn(void);
 bool ghostnetRecoveryIsSet(void);
+s32 ghostnetRecoveryCount(void);
+bool ghostnetRecoveryIsRepeated(void);
 
 /**
- * What the server last said about the account's own security question.
+ * What the server last said about the account's own security questions.
  *
  * UNKNOWN until something signs in - nothing else can be asked, and a server
  * too old to answer leaves it there for ever, which is what stops an older
- * board being nagged about a feature it does not have.
+ * board being nagged about a feature it does not have. PARTIAL is an account
+ * with at least one question and fewer than three: it can be reset, and its
+ * owner is told once a run that it could be harder to guess at.
  */
 #define GHOSTNET_RECOVERY_UNKNOWN 0
 #define GHOSTNET_RECOVERY_MISSING 1
 #define GHOSTNET_RECOVERY_SET     2
+#define GHOSTNET_RECOVERY_PARTIAL 3
 
 s32 ghostnetGetAccountRecovery(void);
 s32 ghostnetGetState(void);

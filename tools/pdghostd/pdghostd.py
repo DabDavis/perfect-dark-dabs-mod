@@ -93,14 +93,48 @@ DIFFICULTIES = (0, 1, 2)
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,15}$")
 PIN_RE = re.compile(r"^[0-9]{4,8}$")
 
-# The security question and its answer travel as ids out of the client's own
-# frozen lists (port/include/ghostrecovery.h), never as the names a player
-# reads: what is stored is a hash of "<question>|<answer>", and the ids are
-# what make that hash the same a year later when somebody has re-picked the
-# same two rows out of a build whose lists have grown. Nothing at this end
-# knows the lists - a client that ships a longer one needs no change here - so
-# the only rule is that an id looks like one.
+# The security questions and their answers travel as ids out of the client's
+# own frozen lists (port/include/ghostrecovery.h), never as the names a player
+# reads: what is stored is a hash of "<question>|<answer>" for every pair the
+# account has, joined in order, and the ids are what make that hash the same a
+# year later when somebody has re-picked the same rows out of a build whose
+# lists have grown. Nothing at this end knows the lists - a client that ships
+# a longer one needs no change here - so the only rule is that an id looks
+# like one.
+#
+# An account holds up to three pairs. The first travels as "question" and
+# "answer", the rest as "question2"/"answer2" and "question3"/"answer3", so a
+# build from before there were three sends one and is stored as one. How many
+# an account has is kept beside the hash (rec_count), because a reset has to
+# know how many of the pairs it was sent to hash - a three-question account is
+# reset by all three, a one-question account by its one, whatever else the
+# client filled in.
 QA_RE = re.compile(r"^[a-z0-9_.-]{1,32}$")
+MAX_QUESTIONS = 3
+
+
+def read_questions(req):
+    """The security question pairs in a request, in order.
+
+    Returns (pairs, error). A pair is present when either half of it is, and
+    then both halves have to be ids; the pairs have to be the first n of the
+    three, because a hash of pairs one and three is a hash nobody can re-make
+    from a page that fills them in from the top. No pairs at all is not an
+    error here - registration allows it, and says so.
+    """
+    pairs = []
+    for i in range(1, MAX_QUESTIONS + 1):
+        suffix = "" if i == 1 else str(i)
+        question = str(req.get("question" + suffix, "")).strip().lower()
+        answer = str(req.get("answer" + suffix, "")).strip().lower()
+        if not question and not answer:
+            continue
+        if not QA_RE.match(question) or not QA_RE.match(answer):
+            return None, "pick a security question and an answer"
+        if len(pairs) != i - 1:
+            return None, "pick a security question and an answer"
+        pairs.append((question, answer))
+    return pairs, None
 
 # A PIN is four digits. Ten thousand guesses is nothing without a limiter, so
 # the limiter is the actual security control here rather than the PIN length.
@@ -414,6 +448,13 @@ def init_db():
             if col not in have:
                 conn.execute("ALTER TABLE users ADD COLUMN %s BLOB NOT NULL DEFAULT x''" % col)
 
+        # How many pairs went into rec_hash. Every hash made before the column
+        # existed is of one pair, so those rows are set to one rather than
+        # left at the default, which is what a row with no question reads.
+        if "rec_count" not in have:
+            conn.execute("ALTER TABLE users ADD COLUMN rec_count INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE users SET rec_count = 1 WHERE rec_hash != x''")
+
         # Rows that cannot show they were set under trial rules go, with their
         # files. Uploads are refused on the same test, so this runs once in
         # practice and finds nothing afterwards - but it is what makes the
@@ -450,16 +491,21 @@ def hash_pin(pin, salt):
     return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 120000)
 
 
-def hash_answer(question, answer, salt):
-    """The security question and its answer, hashed as one secret.
+def hash_answer(pairs, salt):
+    """The security questions and their answers, hashed as one secret.
 
     The category goes into the hash rather than into a column of its own, so
     that the database does not say which of the ten a player chose. It costs
     nothing to keep - the owner picks their category from the same dropdown
     they picked it from before - and it multiplies what a guesser has to get
     right by ten, which is most of what this has.
+
+    Every pair the account has goes in, in order, as "q|a|q|a|q|a": one pair
+    hashes to exactly what it did before there could be three, so an account
+    made with one is still reset by its one.
     """
-    return hashlib.pbkdf2_hmac("sha256", ("%s|%s" % (question, answer)).encode(), salt, 120000)
+    text = "|".join("%s|%s" % (q, a) for q, a in pairs)
+    return hashlib.pbkdf2_hmac("sha256", text.encode(), salt, 120000)
 
 
 # Keys live in these tables until something clears them, and one key is one
@@ -498,19 +544,24 @@ def rate_hit(table, key):
         table.setdefault(key, []).append(time.time())
 
 
-def has_recovery(username):
-    """Whether an account can be reset by answering a question.
+def recovery_state(username):
+    """Whether an account can be reset by answering its questions, and how
+    many it has, as the two reply fields "recovery" and "questions".
 
     Answered only to somebody who has just proved they hold the PIN, which is
     what makes it safe to say: to its owner it is the difference between an
     account that can be recovered and one that cannot, and to anybody else it
-    would be a list of which names are worth attacking.
+    would be a list of which names are worth attacking. The count is what
+    tells a client that an account made with one question could have three.
     """
     with db() as conn:
-        row = conn.execute("SELECT rec_hash FROM users WHERE username = ?",
+        row = conn.execute("SELECT rec_hash, rec_count FROM users WHERE username = ?",
                            (username,)).fetchone()
 
-    return bool(row and row["rec_hash"])
+    if not row or not row["rec_hash"]:
+        return {"recovery": False, "questions": 0}
+
+    return {"recovery": True, "questions": max(1, row["rec_count"])}
 
 
 def known_ips(row):
@@ -852,20 +903,29 @@ class Handler(BaseHTTPRequestHandler):
         return True, None
 
     @staticmethod
-    def check_answer(row, question, answer):
+    def check_answer(row, pairs):
         """One PBKDF2 whatever the row is, for the same reason check_pin does.
 
         An account with no security question hashes against a salt of zeros
         and fails, rather than returning early: a reset that came back
         instantly would say which accounts have recovery set and which do not,
         and that is a list worth having if you are choosing one to attack.
+
+        The account decides how many pairs count. A three-question account is
+        reset by its three; a one-question account by the first pair sent,
+        whatever a newer client filled the other two with - and fewer pairs
+        than the account has is a wrong answer, hashed and refused like one.
         """
         if row is None or not row["rec_hash"]:
-            salt, expect, real = b"\0" * 16, b"\0" * 32, False
+            salt, expect, real, count = b"\0" * 16, b"\0" * 32, False, 1
         else:
             salt, expect, real = bytes(row["rec_salt"]), bytes(row["rec_hash"]), True
+            count = max(1, row["rec_count"])
 
-        got = hash_answer(question, answer, salt)
+        if len(pairs) < count:
+            real = False
+
+        got = hash_answer(pairs[:count], salt)
 
         return real and hmac.compare_digest(expect, got)
 
@@ -969,24 +1029,23 @@ class Handler(BaseHTTPRequestHandler):
             if not PIN_RE.match(pin):
                 return self.send_json(400, {"ok": False, "error": "pin must be 4-8 digits"})
 
-            # The security question is optional on the wire and required by
-            # the client that asks for it. Builds that predate it register
+            # The security questions are optional on the wire and required by
+            # the client that asks for them. Builds that predate them register
             # with two fields and no way to send more, and refusing those
             # would take the leaderboard away from everybody who has not
             # updated. What they get is an account with no recovery, which is
             # what they had before, and a page to set one from when they do
-            # update.
-            question = str(req.get("question", "")).strip().lower()
-            answer = str(req.get("answer", "")).strip().lower()
+            # update. The same goes for a build that asks one question rather
+            # than three: it is stored as one, and told so at every sign-in.
+            pairs, err = read_questions(req)
+            if err:
+                return self.send_json(400, {"ok": False, "error": err})
+
             rec_salt, rec_hash = b"", b""
 
-            if question or answer:
-                if not QA_RE.match(question) or not QA_RE.match(answer):
-                    return self.send_json(400, {"ok": False,
-                        "error": "pick a security question and an answer"})
-
+            if pairs:
                 rec_salt = os.urandom(16)
-                rec_hash = hash_answer(question, answer, rec_salt)
+                rec_hash = hash_answer(pairs, rec_salt)
 
             if not rate_ok(_auth_failures, self.client_ip(), AUTH_WINDOW, AUTH_MAX_FAILURES):
                 return self.send_json(429, {"ok": False, "error": "too many attempts"})
@@ -1003,15 +1062,15 @@ class Handler(BaseHTTPRequestHandler):
                     # registered from.
                     conn.execute(
                         "INSERT INTO users (username, pin_salt, pin_hash, created, known_ips,"
-                        " rec_salt, rec_hash) VALUES (?,?,?,?,?,?,?)",
+                        " rec_salt, rec_hash, rec_count) VALUES (?,?,?,?,?,?,?,?)",
                         (username, salt, hash_pin(pin, salt), int(time.time()), self.client_ip(),
-                         rec_salt, rec_hash))
+                         rec_salt, rec_hash, len(pairs)))
             except sqlite3.IntegrityError:
                 # Unique usernames, case-insensitively.
                 return self.send_json(409, {"ok": False, "error": "username already taken"})
 
             return self.send_json(200, {"ok": True, "username": username,
-                                        "recovery": bool(rec_hash)})
+                                        "recovery": bool(rec_hash), "questions": len(pairs)})
 
         if path == "/login":
             req = self.read_json()
@@ -1027,8 +1086,11 @@ class Handler(BaseHTTPRequestHandler):
             # Accounts made before there was a question to ask cannot be
             # reset, and nothing else would ever tell their owner so. The
             # client asks this of the server once a run and says so on the
-            # account page.
-            return self.send_json(200, {"ok": True, "recovery": has_recovery(username)})
+            # account page - and the count beside it is how an account made
+            # with one question learns it could have three.
+            reply = {"ok": True}
+            reply.update(recovery_state(username))
+            return self.send_json(200, reply)
 
         if path == "/setrecovery":
             # Changing the question needs the PIN, which is the whole of the
@@ -1039,24 +1101,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"ok": False, "error": "bad body"})
 
             username = str(req.get("username", "")).strip()
-            question = str(req.get("question", "")).strip().lower()
-            answer = str(req.get("answer", "")).strip().lower()
+            pairs, err = read_questions(req)
 
-            if not QA_RE.match(question) or not QA_RE.match(answer):
+            if err or not pairs:
                 return self.send_json(400, {"ok": False,
-                    "error": "pick a security question and an answer"})
+                    "error": err or "pick a security question and an answer"})
 
             ok, err = self.authenticate(username, str(req.get("pin", "")).strip())
             if not ok:
                 return self.send_json(403, {"ok": False, "error": err})
 
+            # Replaced as a set, not added to: what is stored is one hash of
+            # every pair, so the pairs sent are the account's pairs now.
             salt = os.urandom(16)
             with db() as conn:
                 conn.execute(
-                    "UPDATE users SET rec_salt = ?, rec_hash = ? WHERE username = ?",
-                    (salt, hash_answer(question, answer, salt), username))
+                    "UPDATE users SET rec_salt = ?, rec_hash = ?, rec_count = ? WHERE username = ?",
+                    (salt, hash_answer(pairs, salt), len(pairs), username))
 
-            return self.send_json(200, {"ok": True, "recovery": True})
+            return self.send_json(200, {"ok": True, "recovery": True, "questions": len(pairs)})
 
         if path == "/resetpin":
             # The one door that opens without the PIN. Everything about it is
@@ -1067,8 +1130,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"ok": False, "error": "bad body"})
 
             username = str(req.get("username", "")).strip()
-            question = str(req.get("question", "")).strip().lower()
-            answer = str(req.get("answer", "")).strip().lower()
+            pairs, err = read_questions(req)
             newpin = str(req.get("pin", "")).strip()
 
             if not USERNAME_RE.match(username):
@@ -1076,9 +1138,9 @@ class Handler(BaseHTTPRequestHandler):
                     "error": "3-15 chars, letters, digits, _ . - only"})
             if not PIN_RE.match(newpin):
                 return self.send_json(400, {"ok": False, "error": "new pin must be 4-8 digits"})
-            if not QA_RE.match(question) or not QA_RE.match(answer):
+            if err or not pairs:
                 return self.send_json(400, {"ok": False,
-                    "error": "pick a security question and an answer"})
+                    "error": err or "pick a security question and an answer"})
 
             user = username.lower()
 
@@ -1101,13 +1163,13 @@ class Handler(BaseHTTPRequestHandler):
             with db() as conn:
                 row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
-            if not self.check_answer(row, question, answer):
+            if not self.check_answer(row, pairs):
                 rate_hit(_reset_failures, user)
-                # The same sentence for a wrong answer, a wrong category, an
-                # account with no question set and an account that is not
-                # there. Which of those it is is worth more to somebody
-                # working through a list of names than it is to the player,
-                # who is told by the client what the four possibilities are.
+                # The same sentence for a wrong answer, a wrong category, too
+                # few answers, an account with no question set and an account
+                # that is not there. Which of those it is is worth more to
+                # somebody working through a list of names than it is to the
+                # player, who is told by the client what the possibilities are.
                 return self.send_json(403, {"ok": False, "error": "wrong question or answer"})
 
             salt = os.urandom(16)
@@ -1126,7 +1188,7 @@ class Handler(BaseHTTPRequestHandler):
             print("%s - pin reset for %s" % (self.client_ip(), row["username"]), flush=True)
 
             return self.send_json(200, {"ok": True, "username": row["username"],
-                                        "recovery": True})
+                                        "recovery": True, "questions": max(1, row["rec_count"])})
 
         if path == "/upload":
             username = self.headers.get("X-Ghost-User", "").strip()

@@ -57,14 +57,14 @@ s32 g_GhostNetSavedHead[GHOSTNET_MAXACCOUNTS - 1] = { 0 };
 char g_GhostNetUrl[256] = "https://texturepacks.art/pdghosts";
 
 /**
- * The security question, as a pair of indices into the ghostrecovery tables.
+ * The security questions, as pairs of indices into the ghostrecovery tables.
  *
- * -1 is "not chosen". Both are chosen from dropdowns and neither is saved: see
+ * -1 is "not chosen". All are chosen from dropdowns and none is saved: see
  * the note in ghostnet.h for why an answer next to the PIN in pd.ini would be
  * worth nothing.
  */
-s32 g_GhostNetQuestion = -1;
-s32 g_GhostNetAnswer = -1;
+s32 g_GhostNetQuestion[GHOSTNET_NUMQUESTIONS] = { -1, -1, -1 };
+s32 g_GhostNetAnswer[GHOSTNET_NUMQUESTIONS] = { -1, -1, -1 };
 
 static s32 g_State = GHOSTNET_IDLE;
 static char g_Message[128] = { 0 };
@@ -119,8 +119,9 @@ static char g_JobFile[FS_MAXPATH + 1];
 
 static char g_JobUser[GHOSTNET_MAXUSER + 2];
 static char g_JobPin[GHOSTNET_MAXPIN + 2];
-static char g_JobQuestion[GHOSTNET_MAXQA + 2];
-static char g_JobAnswer[GHOSTNET_MAXQA + 2];
+static char g_JobQuestion[GHOSTNET_NUMQUESTIONS][GHOSTNET_MAXQA + 2];
+static char g_JobAnswer[GHOSTNET_NUMQUESTIONS][GHOSTNET_MAXQA + 2];
+static s32 g_JobQuestionCount = 0;
 static char g_JobUploads[GHOSTNET_MAXUPLOAD][64];
 static s32 g_JobUploadCount = 0;
 static s32 g_JobUploadSkipped = 0;
@@ -239,12 +240,14 @@ static void ghostnetSetVerified(const char *user, const char *pin, s32 recovery)
 }
 
 /**
- * Read "recovery" out of a reply that has already said ok.
+ * Read "recovery" and "questions" out of a reply that has already said ok.
  *
  * Absent means unknown rather than missing. A server from before the question
  * existed answers a sign-in with {"ok": true} and nothing else, and reading
  * that as "you have no question" would nag every player of an older board
- * about a page their server has no route for.
+ * about a page their server has no route for. The count is newer still: a
+ * server that says "recovery" and not how many is read as an account with
+ * every question it could have, for the same reason.
  */
 static s32 ghostnetReadRecovery(const char *json)
 {
@@ -254,7 +257,16 @@ static s32 ghostnetReadRecovery(const char *json)
 		return GHOSTNET_RECOVERY_UNKNOWN;
 	}
 
-	return !strcasecmp(value, "true") ? GHOSTNET_RECOVERY_SET : GHOSTNET_RECOVERY_MISSING;
+	if (strcasecmp(value, "true") != 0) {
+		return GHOSTNET_RECOVERY_MISSING;
+	}
+
+	if (ghostnetJsonField(json, NULL, "questions", value, sizeof(value))
+			&& atoi(value) < GHOSTNET_NUMQUESTIONS) {
+		return GHOSTNET_RECOVERY_PARTIAL;
+	}
+
+	return GHOSTNET_RECOVERY_SET;
 }
 
 /**
@@ -876,41 +888,60 @@ static bool ghostnetJsonOk(const char *json)
 }
 
 /**
- * Post a name and PIN, and for three of the four endpoints a question with it.
+ * Post a name and PIN, and for three of the four endpoints the questions too.
  *
- * register, setrecovery and resetpin all carry the security question; login
- * does not, having nothing to do with it. The PIN field means the account's
+ * register, setrecovery and resetpin all carry the security questions; login
+ * does not, having nothing to do with them. The PIN field means the account's
  * PIN everywhere except resetpin, where it is the PIN the account is to have -
  * which is why the page that sends it types into the same box as the rest: a
- * reset is "this is my question, and this is the PIN I want now", and a second
- * PIN box to keep them apart would be a second thing to mistype.
+ * reset is "these are my answers, and this is the PIN I want now", and a
+ * second PIN box to keep them apart would be a second thing to mistype.
+ *
+ * The pairs go as "question"/"answer", "question2"/"answer2" and so on, as
+ * many as were chosen from the top: the first pair under the names it had
+ * when it was the only one, so a server from before there were three stores
+ * that one and ignores the rest.
  */
 static bool ghostnetPostCredentials(const char *endpoint, bool recovery, char *msg, u32 msgsize)
 {
 	struct ghostnetbuf buf = { NULL, 0 };
 	struct ghostnetreq req;
 	char url[320];
-	char body[512];
+	char body[512 + GHOSTNET_NUMQUESTIONS * 2 * (GHOSTNET_MAXQA * 6 + 24)];
 	char user[GHOSTNET_MAXUSER * 6 + 2];
 	char pin[GHOSTNET_MAXPIN * 6 + 2];
 	char question[GHOSTNET_MAXQA * 6 + 2];
 	char answer[GHOSTNET_MAXQA * 6 + 2];
 	s32 status = 0;
 	bool ok = false;
+	s32 len;
+	s32 i;
 
 	snprintf(url, sizeof(url), "%s/%s", g_GhostNetUrl, endpoint);
 
 	ghostnetJsonEscape(g_JobUser, user, sizeof(user));
 	ghostnetJsonEscape(g_JobPin, pin, sizeof(pin));
 
+	len = snprintf(body, sizeof(body), "{\"username\":\"%s\",\"pin\":\"%s\"", user, pin);
+
 	if (recovery) {
-		ghostnetJsonEscape(g_JobQuestion, question, sizeof(question));
-		ghostnetJsonEscape(g_JobAnswer, answer, sizeof(answer));
-		snprintf(body, sizeof(body),
-				"{\"username\":\"%s\",\"pin\":\"%s\",\"question\":\"%s\",\"answer\":\"%s\"}",
-				user, pin, question, answer);
-	} else {
-		snprintf(body, sizeof(body), "{\"username\":\"%s\",\"pin\":\"%s\"}", user, pin);
+		for (i = 0; i < g_JobQuestionCount && len < (s32)sizeof(body); i++) {
+			char suffix[4] = "";
+
+			if (i > 0) {
+				snprintf(suffix, sizeof(suffix), "%d", i + 1);
+			}
+
+			ghostnetJsonEscape(g_JobQuestion[i], question, sizeof(question));
+			ghostnetJsonEscape(g_JobAnswer[i], answer, sizeof(answer));
+			len += snprintf(body + len, sizeof(body) - len,
+					",\"question%s\":\"%s\",\"answer%s\":\"%s\"",
+					suffix, question, suffix, answer);
+		}
+	}
+
+	if (len < (s32)sizeof(body)) {
+		snprintf(body + len, sizeof(body) - len, "}");
 	}
 
 	memset(&req, 0, sizeof(req));
@@ -1408,10 +1439,23 @@ static bool ghostnetStart(s32 job)
 	// necessarily the ones this job was started with.
 	snprintf(g_JobUser, sizeof(g_JobUser), "%s", g_GhostNetUser);
 	snprintf(g_JobPin, sizeof(g_JobPin), "%s", g_GhostNetPin);
-	snprintf(g_JobQuestion, sizeof(g_JobQuestion), "%s",
-			ghostRecoveryGetCategoryId(g_GhostNetQuestion));
-	snprintf(g_JobAnswer, sizeof(g_JobAnswer), "%s",
-			ghostRecoveryGetAnswerId(g_GhostNetQuestion, g_GhostNetAnswer));
+
+	// The pairs chosen from the top, and how many. A reset sends what its
+	// page has filled in, which an account from before there were three is
+	// answered by its one; the other two endpoints are refused by their pages
+	// until all three are chosen.
+	g_JobQuestionCount = ghostnetRecoveryCount();
+
+	{
+		s32 i;
+
+		for (i = 0; i < g_JobQuestionCount; i++) {
+			snprintf(g_JobQuestion[i], sizeof(g_JobQuestion[i]), "%s",
+					ghostRecoveryGetCategoryId(g_GhostNetQuestion[i]));
+			snprintf(g_JobAnswer[i], sizeof(g_JobAnswer[i]), "%s",
+					ghostRecoveryGetAnswerId(g_GhostNetQuestion[i], g_GhostNetAnswer[i]));
+		}
+	}
 
 	g_Job = job;
 	ghostnetSetResult(GHOSTNET_BUSY, "talking to the server...");
@@ -1906,20 +1950,71 @@ bool ghostnetAccountIsValid(void)
 }
 
 /**
- * Whether a security question has been chosen and answered.
+ * Whether one security question has been chosen and answered.
  *
  * Both halves are checked against the tables rather than against -1, because
  * the answer index belongs to the category that was selected when it was made
  * and choosing a different category leaves it pointing into a shorter list.
- * Create Account is refused until this is true, so that an account cannot be
- * made without the one thing that can recover it.
+ */
+static bool ghostnetRecoveryPairIsSet(s32 i)
+{
+	return i >= 0 && i < GHOSTNET_NUMQUESTIONS
+		&& g_GhostNetQuestion[i] >= 0
+		&& g_GhostNetQuestion[i] < GHOSTRECOVERY_NUMCATEGORIES
+		&& g_GhostNetAnswer[i] >= 0
+		&& g_GhostNetAnswer[i] < ghostRecoveryGetNumAnswers(g_GhostNetQuestion[i]);
+}
+
+/**
+ * How many pairs are chosen, counting from the first and stopping at a gap.
+ *
+ * What a request sends, and what Reset PIN needs at least one of: the server
+ * hashes the first n pairs it is sent, n being what the account holds, so a
+ * third pair with no second would be a pair it never reads.
+ */
+s32 ghostnetRecoveryCount(void)
+{
+	s32 count = 0;
+
+	while (count < GHOSTNET_NUMQUESTIONS && ghostnetRecoveryPairIsSet(count)) {
+		count++;
+	}
+
+	return count;
+}
+
+/**
+ * Whether two of the chosen pairs share a category.
+ *
+ * The same question asked three times is one question, and the page says so
+ * rather than greying the button out with no reason beside it.
+ */
+bool ghostnetRecoveryIsRepeated(void)
+{
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < GHOSTNET_NUMQUESTIONS; i++) {
+		for (j = i + 1; j < GHOSTNET_NUMQUESTIONS; j++) {
+			if (g_GhostNetQuestion[i] >= 0 && g_GhostNetQuestion[i] == g_GhostNetQuestion[j]) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Whether every security question has been chosen and answered, each from a
+ * different category.
+ *
+ * Create Account and Save To Account are refused until this is true, so that
+ * an account cannot be made with less than the thing that recovers it.
  */
 bool ghostnetRecoveryIsSet(void)
 {
-	return g_GhostNetQuestion >= 0
-		&& g_GhostNetQuestion < GHOSTRECOVERY_NUMCATEGORIES
-		&& g_GhostNetAnswer >= 0
-		&& g_GhostNetAnswer < ghostRecoveryGetNumAnswers(g_GhostNetQuestion);
+	return ghostnetRecoveryCount() == GHOSTNET_NUMQUESTIONS && !ghostnetRecoveryIsRepeated();
 }
 
 /**

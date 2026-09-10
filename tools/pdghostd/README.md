@@ -69,7 +69,8 @@ python3 tools/pdghostd/test_pdghostd.py
 Runs a patched copy on port 8392 (`PDGHOSTD_TEST_PORT` to change it) against
 a temporary directory and takes it through registration, uploads built the
 way the game builds them, two dozen forged headers, the hot-account slowdown,
-the quota, eviction, the security question and the two limiters behind
+the quota, eviction, the three security questions (and accounts with one,
+and one from a database that predates `rec_count`) and the two limiters behind
 resetting a PIN, and the malformed requests that used to drop the connection. Standard library only; nothing outside the temporary directory is
 touched, and the live database is never involved.
 
@@ -108,20 +109,26 @@ refused sign-in says `wrong username or pin` whether or not the account
 exists. Uploads are counted separately, 120 an hour per account, and a valid
 PIN counts against nothing.
 
-A PIN that is lost is reset by answering a security question: one category out
-of ten and one answer out of that category's fifty, both chosen from dropdowns
-in the client (`port/include/ghostrecovery.h`). What is stored is a PBKDF2 of
-`"<category id>|<answer id>"` and a salt of its own — not the category, so a
-guesser has to find that as well. **Those ids are a wire format**: renaming or
-reordering one in the client locks out everybody who chose it.
+A PIN that is lost is reset by answering the account's security questions:
+up to three, each one category out of ten and one answer out of that
+category's fifty, all chosen from dropdowns in the client
+(`port/include/ghostrecovery.h`). What is stored is a PBKDF2 of every pair
+joined in order, `"<category id>|<answer id>|..."`, and a salt of its own —
+not the categories, so a guesser has to find those as well — with `rec_count`
+beside it saying how many pairs went in. **Those ids are a wire format**:
+renaming or reordering one in the client locks out everybody who chose it.
 
-`POST /resetpin` takes the name, the pair and the PIN the account is to have.
-`POST /setrecovery` changes the question and needs the account's PIN, which is
-why a new account picks one at registration: the page that changes it is the
-one somebody who has lost the PIN cannot use. `/register` takes `question` and
-`answer` alongside the PIN and still accepts a body without them, because
-builds that predate the page cannot send them; those accounts are refused a
-reset until their owner sets one.
+`POST /resetpin` takes the name, the pairs and the PIN the account is to have;
+the first `rec_count` pairs sent are hashed, so a three-question account needs
+all three and a one-question account is reset by its one. `POST /setrecovery`
+replaces the questions and needs the account's PIN, which is why a new account
+picks them at registration: the page that changes them is the one somebody
+who has lost the PIN cannot use. `/register` takes `question`/`answer`,
+`question2`/`answer2` and `question3`/`answer3` alongside the PIN and still
+accepts a body with one pair or none, because builds that predate the page
+cannot send more; accounts with none are refused a reset until their owner
+sets some, and a sign-in reply says `"recovery"` and `"questions"` so the
+client can tell an account with one that it could have three.
 
 Ten times fifty is not a password, so the limiter carries it: five wrong
 answers a day at one account, ten attempts an hour from one address, and every

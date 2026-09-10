@@ -22,13 +22,52 @@ Uploading used to rebuild the ghost catalogue from the worker while the page tha
 started it was drawing rows out of that array. `fsFullPath()` is `_Thread_local`
 for the same reason — it is a single scratch buffer every file call expands into.
 
-## An account is a name, a PIN and a security question
+## An account is a name, a PIN and three security questions
 
 Four endpoints take credentials: `register`, `login`, `setrecovery` and
-`resetpin`. All but `login` carry the question with them, and the `pin` field
+`resetpin`. All but `login` carry the questions with them, and the `pin` field
 means the account's PIN in every one except `resetpin`, where it is the PIN the
 account is to have - which is why the Reset PIN page types into the same box
 the account page does.
+
+**Three pairs since 2026-09-10, on the wire as `question`/`answer`,
+`question2`/`answer2`, `question3`/`answer3`.** The first pair keeps the names
+it had when it was the only one, so a build from before sends one and is
+stored as one, and a server from before stores the first and ignores the rest
+(proved against the live server by accident - see the testing section). What
+the server hashes is every pair joined in order, `q|a|q|a|q|a`, which for one
+pair is byte-for-byte the old hash, and `rec_count` beside it says how many
+went in (the migration sets it to 1 wherever a hash already was). A reset
+hashes the first `rec_count` of the pairs it is sent, so a three-question
+account needs all three and a one-question account is reset by its one
+whatever a newer client filled the other two with; fewer than the account
+holds is refused as a wrong answer. The client requires all three, from
+different categories, before Create Account or Save To Account will press
+(`ghostnetRecoveryIsSet()`), and one pair before Reset PIN will
+(`ghostnetRecoveryCount()`), because the reset page cannot know how many the
+account has. A sign-in reply now carries `"questions": n` beside `recovery`;
+fewer than three is `GHOSTNET_RECOVERY_PARTIAL`, which nags once a run the
+way a missing question does. Absent means "as many as it could have", for the
+same reason absent `recovery` means unknown.
+
+**The account page names nothing.** Its row reads `(set)`, `(n of 3)` or
+`(not set)`; the categories and answers are shown only on the questions and
+reset pages, and those, and the PIN keyboard (which shows the digits as they
+are typed), open through the red **Streamer Beware!** dialog
+(`g_GhostSensitiveMenuDialog`, `MENUDIALOGTYPE_DANGER`) every time - once a
+run would miss the streamer who started streaming after dismissing it. A row
+that opens a dialog has no handler, so the three doors are rows with a
+handler that pushes the warning and remembers the page for its Show It row,
+which closes the warning first (`menuitemSelectableTick` pops before it calls)
+and then pushes the page. The nag from the Ghost Trials tick goes through the
+same door.
+
+**Offline or Online is asked in front of Ghost Trials every time**
+(`g_GhostModeMenuDialog`, what the main menu row opens now). Offline: no
+sign-in on open, no account page pushed, no nag, and the Ghost Account, Ghost
+Share and Leaderboards rows are greyed (rows with a handler, for the same
+reason as above); a trial records and races exactly as before. Online is the
+old behaviour. Nothing remembers the choice.
 
 **Being signed in is a fact about the server, not about the boxes.** The page
 said "Signed in as X" for anything that merely matched the server's rules for a
@@ -56,6 +95,19 @@ The daemon (`tools/pdghostd/pdghostd.py`, deployed to the leaderboard host and
 kept byte-identical to it) accepts a registration with no question, because
 builds that predate the page cannot send one. Those accounts get a reset
 refused with the same sentence a wrong answer gets.
+
+## Testing the client against a daemon of your own
+
+The pd.ini key is **`Mod.GhostServer`**, not GhostUrl, and a scratch pd.ini
+copied from the real one carries the live server's URL on that line - so an
+online drive with the wrong key, or with the key added above the existing
+line, talks to production. That is how a `tester`/`1234` account with one
+question came to exist on the live board on 2026-09-10. Before any headless
+drive that presses Create Account or Sign In: `sed -i
+'s#^GhostServer=.*#GhostServer=http://127.0.0.1:8393#'` on the scratch ini
+(every occurrence), and run a copy of the daemon with `PORT` and `ROOT`
+patched the way `test_pdghostd.py` patches its copy. The daemon's log lists
+every request it saw; if it shows only `/ping`, the game went somewhere else.
 
 **Their owners are told once a run.** Nothing about such an account looks
 different from the outside, so a sign-in reply carries `"recovery": true|false`

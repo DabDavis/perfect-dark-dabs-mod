@@ -10,6 +10,8 @@ extern struct menudialogdef g_AcceptMissionMenuDialog;
 extern struct menudialogdef g_SelectMissionMenuDialog;
 #ifndef PLATFORM_N64
 extern struct menudialogdef g_GhostTrialsMenuDialog;
+// Offline or Online, asked in front of it on every entry from the main menu.
+extern struct menudialogdef g_GhostModeMenuDialog;
 // The Ghost Trials nameplate and rules, drawn beside the dialogs rather than
 // inside one. See the comments on the definitions in port/src/ghostmenu.c.
 Gfx *ghostmenuRenderOverlay(Gfx *gdl);
