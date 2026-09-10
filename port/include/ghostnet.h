@@ -151,6 +151,10 @@ bool ghostnetJsonField(const char *json, const char *end, const char *key,
 #define GHOSTNET_MAXUSER  (MODGHOST_OWNERLEN - 1)
 #define GHOSTNET_MAXPIN   8
 
+// An id out of the security question tables, and what it costs to send one
+// as a JSON string with every character escaped.
+#define GHOSTNET_MAXQA    32
+
 struct ghostboardentry {
 	s32 id;
 	u32 time60;
@@ -166,6 +170,19 @@ struct ghostboardentry {
 
 extern char g_GhostNetUser[GHOSTNET_MAXUSER + 2];
 extern char g_GhostNetPin[GHOSTNET_MAXPIN + 2];
+
+/**
+ * The security question this machine has picked, as indices into the tables in
+ * ghostrecovery.h, or -1 for one that has not been chosen.
+ *
+ * They are not written to pd.ini and are not meant to survive the run. What
+ * the server holds is a hash of the pair, and a copy of the answer sitting in
+ * a text file next to the PIN it recovers would make the question a decoration
+ * on the PIN rather than a second thing to know. Registering sends them;
+ * resetting a PIN sends them; nothing else keeps them.
+ */
+extern s32 g_GhostNetQuestion;
+extern s32 g_GhostNetAnswer;
 extern char g_GhostNetSavedUser[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXUSER + 2];
 extern char g_GhostNetSavedPin[GHOSTNET_MAXACCOUNTS - 1][GHOSTNET_MAXPIN + 2];
 /**
@@ -191,12 +208,15 @@ void ghostnetBeginNewAccount(void);
 bool ghostnetHasAccount(void);
 bool ghostnetAccountIsValid(void);
 bool ghostnetIsSignedIn(void);
+bool ghostnetRecoveryIsSet(void);
 s32 ghostnetGetState(void);
 const char *ghostnetGetMessage(void);
 void ghostnetClearState(void);
 
 void ghostnetRegister(void);
 void ghostnetLogin(void);
+void ghostnetSetRecovery(void);
+void ghostnetResetPin(void);
 void ghostnetUploadMine(void);
 void ghostnetFetchBoard(s32 stagenum, s32 difficulty);
 void ghostnetDownload(s32 index);

@@ -12,6 +12,7 @@
 #include "fs.h"
 #include "system.h"
 #include "ghostnet.h"
+#include "ghostrecovery.h"
 
 #ifdef PD_GHOST_WINHTTP
 #include <windows.h>
@@ -55,6 +56,16 @@ s32 g_GhostNetSavedBody[GHOSTNET_MAXACCOUNTS - 1] = { 0 };
 s32 g_GhostNetSavedHead[GHOSTNET_MAXACCOUNTS - 1] = { 0 };
 char g_GhostNetUrl[256] = "https://texturepacks.art/pdghosts";
 
+/**
+ * The security question, as a pair of indices into the ghostrecovery tables.
+ *
+ * -1 is "not chosen". Both are chosen from dropdowns and neither is saved: see
+ * the note in ghostnet.h for why an answer next to the PIN in pd.ini would be
+ * worth nothing.
+ */
+s32 g_GhostNetQuestion = -1;
+s32 g_GhostNetAnswer = -1;
+
 static s32 g_State = GHOSTNET_IDLE;
 static char g_Message[128] = { 0 };
 
@@ -71,6 +82,8 @@ static s32 g_BoardDiff = -1;
 #define JOB_UPLOAD   3
 #define JOB_BOARD    4
 #define JOB_DOWNLOAD 5
+#define JOB_SETRECOVERY 6
+#define JOB_RESETPIN    7
 
 static SDL_mutex *g_Lock = NULL;
 static SDL_Thread *g_Thread = NULL;
@@ -106,6 +119,8 @@ static char g_JobFile[FS_MAXPATH + 1];
 
 static char g_JobUser[GHOSTNET_MAXUSER + 2];
 static char g_JobPin[GHOSTNET_MAXPIN + 2];
+static char g_JobQuestion[GHOSTNET_MAXQA + 2];
+static char g_JobAnswer[GHOSTNET_MAXQA + 2];
 static char g_JobUploads[GHOSTNET_MAXUPLOAD][64];
 static s32 g_JobUploadCount = 0;
 static s32 g_JobUploadSkipped = 0;
@@ -802,14 +817,26 @@ static bool ghostnetJsonOk(const char *json)
 			&& !strcasecmp(value, "true");
 }
 
-static bool ghostnetPostCredentials(const char *endpoint, char *msg, u32 msgsize)
+/**
+ * Post a name and PIN, and for three of the four endpoints a question with it.
+ *
+ * register, setrecovery and resetpin all carry the security question; login
+ * does not, having nothing to do with it. The PIN field means the account's
+ * PIN everywhere except resetpin, where it is the PIN the account is to have -
+ * which is why the page that sends it types into the same box as the rest: a
+ * reset is "this is my question, and this is the PIN I want now", and a second
+ * PIN box to keep them apart would be a second thing to mistype.
+ */
+static bool ghostnetPostCredentials(const char *endpoint, bool recovery, char *msg, u32 msgsize)
 {
 	struct ghostnetbuf buf = { NULL, 0 };
 	struct ghostnetreq req;
 	char url[320];
-	char body[256];
+	char body[512];
 	char user[GHOSTNET_MAXUSER * 6 + 2];
 	char pin[GHOSTNET_MAXPIN * 6 + 2];
+	char question[GHOSTNET_MAXQA * 6 + 2];
+	char answer[GHOSTNET_MAXQA * 6 + 2];
 	s32 status = 0;
 	bool ok = false;
 
@@ -817,7 +844,16 @@ static bool ghostnetPostCredentials(const char *endpoint, char *msg, u32 msgsize
 
 	ghostnetJsonEscape(g_JobUser, user, sizeof(user));
 	ghostnetJsonEscape(g_JobPin, pin, sizeof(pin));
-	snprintf(body, sizeof(body), "{\"username\":\"%s\",\"pin\":\"%s\"}", user, pin);
+
+	if (recovery) {
+		ghostnetJsonEscape(g_JobQuestion, question, sizeof(question));
+		ghostnetJsonEscape(g_JobAnswer, answer, sizeof(answer));
+		snprintf(body, sizeof(body),
+				"{\"username\":\"%s\",\"pin\":\"%s\",\"question\":\"%s\",\"answer\":\"%s\"}",
+				user, pin, question, answer);
+	} else {
+		snprintf(body, sizeof(body), "{\"username\":\"%s\",\"pin\":\"%s\"}", user, pin);
+	}
 
 	memset(&req, 0, sizeof(req));
 	req.url = url;
@@ -1231,7 +1267,7 @@ static int ghostnetWorker(void *arg)
 
 	switch (g_Job) {
 	case JOB_REGISTER:
-		ok = ghostnetPostCredentials("register", msg, sizeof(msg));
+		ok = ghostnetPostCredentials("register", true, msg, sizeof(msg));
 
 		if (ok) {
 			snprintf(msg, sizeof(msg), "account created, you are signed in");
@@ -1242,10 +1278,27 @@ static int ghostnetWorker(void *arg)
 		}
 		break;
 	case JOB_LOGIN:
-		ok = ghostnetPostCredentials("login", msg, sizeof(msg));
+		ok = ghostnetPostCredentials("login", false, msg, sizeof(msg));
 
 		if (ok) {
 			snprintf(msg, sizeof(msg), "signed in as %s", g_JobUser);
+		}
+		break;
+	case JOB_SETRECOVERY:
+		ok = ghostnetPostCredentials("setrecovery", true, msg, sizeof(msg));
+
+		if (ok) {
+			snprintf(msg, sizeof(msg), "security question saved");
+		}
+		break;
+	case JOB_RESETPIN:
+		ok = ghostnetPostCredentials("resetpin", true, msg, sizeof(msg));
+
+		if (ok) {
+			// The PIN in the box is the account's PIN now, which is what the
+			// page asked for and what ghostnetPostCredentials has already
+			// recorded as the pair the server accepted.
+			snprintf(msg, sizeof(msg), "PIN changed, you are signed in");
 		}
 		break;
 	case JOB_UPLOAD:
@@ -1295,6 +1348,10 @@ static bool ghostnetStart(s32 job)
 	// necessarily the ones this job was started with.
 	snprintf(g_JobUser, sizeof(g_JobUser), "%s", g_GhostNetUser);
 	snprintf(g_JobPin, sizeof(g_JobPin), "%s", g_GhostNetPin);
+	snprintf(g_JobQuestion, sizeof(g_JobQuestion), "%s",
+			ghostRecoveryGetCategoryId(g_GhostNetQuestion));
+	snprintf(g_JobAnswer, sizeof(g_JobAnswer), "%s",
+			ghostRecoveryGetAnswerId(g_GhostNetQuestion, g_GhostNetAnswer));
 
 	g_Job = job;
 	ghostnetSetResult(GHOSTNET_BUSY, "talking to the server...");
@@ -1515,6 +1572,16 @@ void ghostnetLogin(void)
 	ghostnetStart(JOB_LOGIN);
 }
 
+void ghostnetSetRecovery(void)
+{
+	ghostnetStart(JOB_SETRECOVERY);
+}
+
+void ghostnetResetPin(void)
+{
+	ghostnetStart(JOB_RESETPIN);
+}
+
 void ghostnetUploadMine(void)
 {
 	// Reading the directory is the slow half of this and it happens here, on
@@ -1670,6 +1737,8 @@ void ghostnetInit(void) {}
 void ghostnetShutdown(void) {}
 void ghostnetRegister(void) {}
 void ghostnetLogin(void) {}
+void ghostnetSetRecovery(void) {}
+void ghostnetResetPin(void) {}
 bool ghostnetIsSignedIn(void) { return false; }
 void ghostnetUploadMine(void) {}
 void ghostnetFetchBoard(s32 stagenum, s32 difficulty) {}
@@ -1773,6 +1842,23 @@ bool ghostnetAccountIsValid(void)
 	}
 
 	return true;
+}
+
+/**
+ * Whether a security question has been chosen and answered.
+ *
+ * Both halves are checked against the tables rather than against -1, because
+ * the answer index belongs to the category that was selected when it was made
+ * and choosing a different category leaves it pointing into a shorter list.
+ * Create Account is refused until this is true, so that an account cannot be
+ * made without the one thing that can recover it.
+ */
+bool ghostnetRecoveryIsSet(void)
+{
+	return g_GhostNetQuestion >= 0
+		&& g_GhostNetQuestion < GHOSTRECOVERY_NUMCATEGORIES
+		&& g_GhostNetAnswer >= 0
+		&& g_GhostNetAnswer < ghostRecoveryGetNumAnswers(g_GhostNetQuestion);
 }
 
 /**

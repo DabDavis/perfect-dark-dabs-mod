@@ -15,6 +15,15 @@ nameplate and rules windows do that. A scissor set before the alignment stays
 behind in the middle of the screen, because fast3d turns a scissor into pixels
 when the command is sent.
 
+A dialog is as wide as its widest *row*, and a `MENUITEMTYPE_LABEL` does not
+count towards that: a long label is drawn from the dialog's left edge and
+simply runs off it, with no wrap and no ellipsis to say it did. The small font
+gets about **46 characters** onto one line of a full width dialog before the
+tail is lost. Ghost Trials' status lines are written to that budget - "Set a
+Security Question to create an account, or Sign In." is 57 and lost its last
+three words on screen while measuring fine in a header. Two shorter labels
+stacked is the fix; the account pages use that.
+
 ## The dark box behind outlined text is the font, not the renderer
 
 `textRender` (the outline pass) draws one glyph twice in a two-cycle

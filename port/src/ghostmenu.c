@@ -13,6 +13,7 @@
 #include "config.h"
 #include "lib/vi.h"
 #include "ghostnet.h"
+#include "ghostrecovery.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/setup.h"
@@ -1067,6 +1068,13 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 	} else if (ghostnetIsSignedIn()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				"Signed in as %s\n", g_GhostNetUser);
+	} else if (ghostnetAccountIsValid() && !ghostnetRecoveryIsSet()) {
+		// Create Account is refused without one, and a greyed out button with
+		// no reason beside it is the thing this page has already been wrong
+		// about once. Signing in is not gated: somebody who set their question
+		// on another machine has nothing to pick here.
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Set a Security Question, then Create Account.\n");
 	} else if (ghostnetAccountIsValid()) {
 		// Well formed, and that is all this end knows. Whether the name is
 		// registered, and whether the PIN is its PIN, are questions only the
@@ -1130,7 +1138,11 @@ static MenuItemHandlerResult menuhandlerGhostCreate(s32 operation, struct menuit
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
+		// A new account picks its security question here or never: the only
+		// other way to set one is to sign in with the PIN, which is exactly
+		// what somebody who has lost it cannot do.
 		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
+			|| !ghostnetRecoveryIsSet()
 			|| ghostnetGetState() == GHOSTNET_BUSY;
 	case MENUOP_SET:
 		ghostnetRegister();
@@ -1269,6 +1281,393 @@ struct menudialogdef g_GhostPinMenuDialog = {
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
 };
+
+/**
+ * The security question: one category out of ten, one answer out of its list.
+ *
+ * Two dropdowns and no keyboard. A typed answer is a second thing to spell the
+ * same way a year later, on a game's on screen keyboard, by somebody who has
+ * already forgotten one thing - and the list is also what lets the server hold
+ * a hash of a known id rather than of whatever was typed.
+ *
+ * Both indices live in ghostnet.c beside the name and the PIN, and neither is
+ * written to pd.ini. See the note there: an answer kept next to the PIN it
+ * recovers is a decoration on the PIN, not a second thing to know.
+ */
+static MenuItemHandlerResult menuhandlerGhostQuestion(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const struct ghostrecoverycategory *cat;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		// The ten, and "(not set)" at the top. A dropdown has no way to say
+		// "nothing chosen", and index zero being a real category would make
+		// the first favourite in the first list the answer for everybody who
+		// opened the page and left.
+		data->dropdown.value = GHOSTRECOVERY_NUMCATEGORIES + 1;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		if (data->dropdown.value <= 0) {
+			return (intptr_t)"(not set)";
+		}
+
+		cat = ghostRecoveryGetCategory(data->dropdown.value - 1);
+
+		return (intptr_t)(cat ? cat->name : "");
+	case MENUOP_SET:
+		// An answer belongs to the category it was picked from, so changing
+		// the category drops it rather than keeping a row number that now
+		// names somebody else's favourite.
+		if (data->dropdown.value - 1 != g_GhostNetQuestion) {
+			g_GhostNetAnswer = -1;
+		}
+
+		g_GhostNetQuestion = data->dropdown.value - 1;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_GhostNetQuestion + 1;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostAnswer(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return g_GhostNetQuestion < 0;
+	case MENUOP_GETOPTIONCOUNT:
+		// Zero answers plus "(not set)" while no category is chosen, so the
+		// row is a dropdown with nothing in it rather than a list of the
+		// wrong category's favourites.
+		data->dropdown.value = ghostRecoveryGetNumAnswers(g_GhostNetQuestion) + 1;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		if (data->dropdown.value <= 0) {
+			return (intptr_t)"(not set)";
+		}
+
+		return (intptr_t)ghostRecoveryGetAnswerName(g_GhostNetQuestion, data->dropdown.value - 1);
+	case MENUOP_SET:
+		g_GhostNetAnswer = data->dropdown.value - 1;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_GhostNetAnswer + 1;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Send the question to an account that already exists.
+ *
+ * A new account carries it in with the registration and never comes here. This
+ * is for the accounts made before there was a question to ask, and for the
+ * player who wants a different one - both of which need the PIN, which is the
+ * whole of the authority the server asks for. Somebody who cannot sign in
+ * cannot change the answer that would let them back in.
+ */
+static MenuItemHandlerResult menuhandlerGhostSaveRecovery(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
+			|| !ghostnetRecoveryIsSet()
+			|| ghostnetGetState() == GHOSTNET_BUSY;
+	case MENUOP_SET:
+		ghostnetSetRecovery();
+		break;
+	}
+
+	return 0;
+}
+
+static char g_GhostQuestionMsg[128];
+
+static char *menutextGhostQuestionStatus(struct menuitem *item)
+{
+	s32 state = ghostnetGetState();
+
+	if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg), "%s\n", ghostnetGetMessage());
+	} else if (!ghostnetRecoveryIsSet()) {
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"Pick a pair you will still know in a year.\n");
+	} else {
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"Save To Account to change an existing one.\n");
+	}
+
+	return g_GhostQuestionMsg;
+}
+
+static MenuDialogHandlerResult menudialogGhostQuestion(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		ghostnetClearState();
+	}
+
+	return 0;
+}
+
+struct menuitem g_GhostQuestionMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostQuestionStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"Used only to reset your PIN if you forget it.\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Question",
+		0,
+		menuhandlerGhostQuestion,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Answer",
+		0,
+		menuhandlerGhostAnswer,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Save To Account\n",
+		0,
+		menuhandlerGhostSaveRecovery,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostQuestionMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Security Question",
+	g_GhostQuestionMenuItems,
+	menudialogGhostQuestion,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * Reset PIN: the one way in that does not need the PIN.
+ *
+ * The PIN row on this page is the PIN the account is to have, not the one it
+ * has - it is the same box the rest of the pages type into, because a reset is
+ * "here is my question, and here is the PIN I want now" and a second PIN box
+ * beside the first is a second thing to mistype. The server takes the answer
+ * as the authority and writes the PIN that came with it.
+ *
+ * Five wrong answers at one account in a day is all the server will take, and
+ * ten reset attempts an hour from one machine, each after a wait. Ten
+ * categories times fifty answers is not a password; the limiter is what makes
+ * it hold.
+ */
+static MenuItemHandlerResult menuhandlerGhostResetPin(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
+			|| !ghostnetRecoveryIsSet()
+			|| ghostnetGetState() == GHOSTNET_BUSY;
+	case MENUOP_SET:
+		ghostnetResetPin();
+		break;
+	}
+
+	return 0;
+}
+
+static char g_GhostResetMsg[128];
+
+static char *menutextGhostResetStatus(struct menuitem *item)
+{
+	s32 state = ghostnetGetState();
+
+	if (!ghostnetIsAvailable()) {
+		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg),
+				"Network support is not built into this copy.\n");
+	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
+		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg), "%s\n", ghostnetGetMessage());
+	} else {
+		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg),
+				"Answer your question, then set a new PIN.\n");
+	}
+
+	return g_GhostResetMsg;
+}
+
+static char *menutextGhostNewPinRow(struct menuitem *item)
+{
+	// The same box as the account page's PIN row, named for what it means
+	// here. See menutextGhostPinRow() for why it is shown as dots.
+	static char text[64];
+	char dots[GHOSTNET_MAXPIN + 1];
+	u32 len = strlen(g_GhostNetPin);
+	u32 i;
+
+	if (len > GHOSTNET_MAXPIN) {
+		len = GHOSTNET_MAXPIN;
+	}
+
+	for (i = 0; i < len; i++) {
+		dots[i] = '*';
+	}
+
+	dots[len] = '\0';
+
+	snprintf(text, sizeof(text), "New PIN: %s\n", len ? dots : "(not set)");
+
+	return text;
+}
+
+static MenuDialogHandlerResult menudialogGhostReset(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		ghostnetClearState();
+	}
+
+	return 0;
+}
+
+struct menuitem g_GhostResetMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostResetStatus,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
+		(uintptr_t)&menutextGhostName,
+		0,
+		(void *)&g_GhostNameMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
+		(uintptr_t)&menutextGhostNewPinRow,
+		0,
+		(void *)&g_GhostPinMenuDialog,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Question",
+		0,
+		menuhandlerGhostQuestion,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Answer",
+		0,
+		menuhandlerGhostAnswer,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Reset PIN\n",
+		0,
+		menuhandlerGhostResetPin,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GhostResetMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Reset PIN",
+	g_GhostResetMenuItems,
+	menudialogGhostReset,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+/**
+ * The row on the account page, which says what is chosen without opening it.
+ */
+static char *menutextGhostQuestionRow(struct menuitem *item)
+{
+	static char text[64];
+	const struct ghostrecoverycategory *cat = ghostRecoveryGetCategory(g_GhostNetQuestion);
+
+	snprintf(text, sizeof(text), "Security Question: %s\n",
+			ghostnetRecoveryIsSet() && cat ? cat->name : "(not set)");
+
+	return text;
+}
 
 /**
  * Ghost Account: who you are on the boards, chosen the way an agent is.
@@ -1459,6 +1858,14 @@ struct menuitem g_GhostAccountMenuItems[] = {
 		(void *)&g_GhostPinMenuDialog,
 	},
 	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
+		(uintptr_t)&menutextGhostQuestionRow,
+		0,
+		(void *)&g_GhostQuestionMenuDialog,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -1481,6 +1888,14 @@ struct menuitem g_GhostAccountMenuItems[] = {
 		(uintptr_t)"Sign In\n",
 		0,
 		menuhandlerGhostSignIn,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Forgot My PIN...\n",
+		0,
+		(void *)&g_GhostResetMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
