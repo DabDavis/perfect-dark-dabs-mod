@@ -64,6 +64,26 @@ PACKAGE_PATH = 'DataFiles/Textures.raw'
 # conversion (port/src/xblaimport.c, leftOut[]) keeps the same list.
 LEFT_OUT = frozenset([0x13])
 
+# Plus the slots the release reused for other pictures (0222 is a Chicago sign
+# in the ROM and a Villa cliff in the release): a ROM room binding one wants
+# the ROM's picture, and the level loader gives a release room the release's
+# whatever pack is on. The list lives in port/include/xblaslots.h, read here
+# so the game and this script cannot drift apart.
+SLOTS_HEADER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            '..', '..', 'port', 'include', 'xblaslots.h')
+
+
+def reused_slots():
+    try:
+        text = open(SLOTS_HEADER).read()
+    except OSError:
+        sys.exit('%s is needed for the list of reused slots' % SLOTS_HEADER)
+    import re
+    m = re.search(r'#define XBLA_REUSED_SLOTS((?:\s*\\\n[^\n]*)+)', text)
+    if not m:
+        sys.exit('no XBLA_REUSED_SLOTS in %s' % SLOTS_HEADER)
+    return frozenset(int(x, 16) for x in re.findall(r'0x[0-9a-fA-F]+', m.group(1)))
+
 
 def read_records(raw):
     """(metadata, fetch constant, data offset) for every texture in the file."""
@@ -166,6 +186,7 @@ def main():
 
     written = skipped = 0
     failures = []
+    left_out = LEFT_OUT | reused_slots()
 
     for n in range(min(count, args.max_texture)):
         offset, width, height, srcw, srch, usize, csize = meta[n][:7]
@@ -178,7 +199,7 @@ def main():
             skipped += 1
             continue
 
-        if n in LEFT_OUT:
+        if n in left_out:
             stale = os.path.join(outdir, '%04x.png' % n)
             if os.path.exists(stale):
                 os.remove(stale)

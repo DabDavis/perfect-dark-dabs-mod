@@ -36,6 +36,7 @@
 #include "xblamesh.h"
 #include "xblatex.h"
 #include "xblastage.h"
+#include "xblaslots.h"
 
 // The bg file's header: primary inflated size, section 1 size, primary stored
 // size. The primary's pointers are in the 0x0f000000 segment.
@@ -511,17 +512,48 @@ void xblaStageRoomDone(void)
 	curRoomRelease = 0;
 }
 
+static const u16 reusedSlots[] = { XBLA_REUSED_SLOTS };
+
+s32 xblaStageSlotIsReused(u32 texturenum)
+{
+	for (u32 i = 0; i < sizeof(reusedSlots) / sizeof(reusedSlots[0]); i++) {
+		if (reusedSlots[i] == texturenum) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 xblaStageLog2(s32 n)
+{
+	s32 bits = 0;
+
+	while (n > 1) {
+		n >>= 1;
+		bits++;
+	}
+
+	return bits;
+}
+
 /**
- * The tile state for a record the ROM has no texture for.
+ * The tile state for a record the ROM's texture table cannot supply: one past
+ * the table, or a slot the release reused (xblaslots.h).
  *
  * What is written is the meshes' material, in the room's terms: the stand-in
  * tile on tile 0 with the command's wrap modes, a copy on tile 1 for a
  * combiner that reads TEXEL1, and a gSPTexture whose scale turns the room's
- * coordinates into the tile's. 4J measured those coordinates in texels of the
- * full picture - a 1024 wide texture runs to s = 32767, the top of what a Vtx
- * holds - and the renderer scales s and t by this before it divides by the
- * tile, so 32/width on a 32 texel tile puts a coordinate of one picture width
- * at one tile width, which is where the replacement is sampled from.
+ * coordinates into the tile's. The room's s and t are in texels of the N64
+ * tile the slot stands for - the record's source size, which is the record's
+ * own size for the release's own art (4J measured those rooms in texels of
+ * the full picture: a 1024 wide texture runs to s = 32767, the top of what a
+ * Vtx holds) and the ROM tile's size for a reused slot. The stand-in is
+ * declared as that tile, halved along its longer side until it fits the
+ * 32x32 buffer and rounded down to a power of two so it can wrap, and the
+ * scale makes up the difference, since the renderer scales s and t by the
+ * gSPTexture before it divides by the tile: a coordinate of one source width
+ * lands at one tile width, which is where the replacement is sampled from.
  */
 Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 {
@@ -532,6 +564,10 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	const void *tile = xblaTexBind(record);
 	s32 width = 0;
 	s32 height = 0;
+	s32 srcw = 0;
+	s32 srch = 0;
+	s32 tilew = XBLATEX_TILE;
+	s32 tileh = XBLATEX_TILE;
 	u32 scales = 0xffff;
 	u32 scalet = 0xffff;
 
@@ -541,14 +577,30 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 		}
 
 		tile = xblaStageWhiteTile;
-	}
+	} else {
+		if (!xblaTexRecordSrcSize(record, &srcw, &srch)) {
+			srcw = width;
+			srch = height;
+		}
 
-	if (width > XBLATEX_TILE) {
-		scales = 0x10000 * XBLATEX_TILE / width;
-	}
+		tilew = 1 << xblaStageLog2(srcw);
+		tileh = 1 << xblaStageLog2(srch);
 
-	if (height > XBLATEX_TILE) {
-		scalet = 0x10000 * XBLATEX_TILE / height;
+		while (tilew * tileh > XBLATEX_TILE * XBLATEX_TILE) {
+			if (tilew >= tileh) {
+				tilew >>= 1;
+			} else {
+				tileh >>= 1;
+			}
+		}
+
+		if (tilew < srcw) {
+			scales = 0x10000 * tilew / srcw;
+		}
+
+		if (tileh < srch) {
+			scalet = 0x10000 * tileh / srch;
+		}
 	}
 
 	if (!g_TexPipeSynced) {
@@ -557,16 +609,16 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	}
 
 	gDPLoadTextureBlock(gdl++, tile, G_IM_FMT_RGBA, G_IM_SIZ_16b,
-			XBLATEX_TILE, XBLATEX_TILE, 0,
-			cms, cmt, XBLATEX_TILE_MASK, XBLATEX_TILE_MASK, G_TX_NOLOD, G_TX_NOLOD);
+			tilew, tileh, 0,
+			cms, cmt, xblaStageLog2(tilew), xblaStageLog2(tileh), G_TX_NOLOD, G_TX_NOLOD);
 
 	gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
-			((XBLATEX_TILE * G_IM_SIZ_16b_LINE_BYTES) + 7) >> 3, 0, 1, 0,
-			cmt, XBLATEX_TILE_MASK, G_TX_NOLOD,
-			cms, XBLATEX_TILE_MASK, G_TX_NOLOD);
+			((tilew * G_IM_SIZ_16b_LINE_BYTES) + 7) >> 3, 0, 1, 0,
+			cmt, xblaStageLog2(tileh), G_TX_NOLOD,
+			cms, xblaStageLog2(tilew), G_TX_NOLOD);
 	gDPSetTileSize(gdl++, 1, 0, 0,
-			(XBLATEX_TILE - 1) << G_TEXTURE_IMAGE_FRAC,
-			(XBLATEX_TILE - 1) << G_TEXTURE_IMAGE_FRAC);
+			(tilew - 1) << G_TEXTURE_IMAGE_FRAC,
+			(tileh - 1) << G_TEXTURE_IMAGE_FRAC);
 
 	gSPTexture(gdl++, scales, scalet, 0, G_TX_RENDERTILE, G_ON);
 
@@ -579,8 +631,9 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	texResetTiles();
 
 	if (xblaStageVerbose) {
-		sysLogPrintf(LOG_NOTE, "xblastage: record %u (%dx%d) bound%s, scale %04x %04x",
-				record, width, height, tile == xblaStageWhiteTile ? " white" : "", scales, scalet);
+		sysLogPrintf(LOG_NOTE, "xblastage: record %u (%dx%d for %dx%d) bound%s as %dx%d, scale %04x %04x",
+				record, width, height, srcw, srch, tile == xblaStageWhiteTile ? " white" : "",
+				tilew, tileh, scales, scalet);
 	}
 
 	return gdl;
@@ -601,6 +654,7 @@ u32 xblaStageRoomSize(s32 roomnum) { return 0; }
 uintptr_t xblaStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void xblaStageRoomDone(void) { }
 s32 xblaStageIsRelease(void) { return 0; }
+s32 xblaStageSlotIsReused(u32 texturenum) { return 0; }
 void xblaStageSetVerbose(s32 verbose) { }
 
 #endif

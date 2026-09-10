@@ -88,6 +88,10 @@ void xblaTexFreeReplacement(u8 *rgba);
  */
 s32 xblaTexRecordSize(u32 record, s32 *outWidth, s32 *outHeight);
 
+// The N64 size the record stands in for: its own for the release's own art,
+// the ROM tile's for a replacement. Zero if the record is not readable.
+s32 xblaTexRecordSrcSize(u32 record, s32 *outWidth, s32 *outHeight);
+
 /**
  * Whether a record's alpha is soft - fewer than one texel in a hundred opaque
  * - so that there is no edge in it for a cutout to cut at. A screen's glow,

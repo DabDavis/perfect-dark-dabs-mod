@@ -907,10 +907,12 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 #ifndef PLATFORM_N64
 			// The XBLA release's rooms name records past the ROM's texture
 			// table, in a number wider than the twelve bits read above
-			// (subcmd 1 keeps its second texture in the bits over them).
+			// (subcmd 1 keeps its second texture in the bits over them), and
+			// slots under it that the release reused for other pictures.
 			// Those draw through the meshes' stand-in tile - xblastage.h.
 			if (xblaStageIsRelease() && ingdl->unkc0.subcmd != 1
-					&& (ingdl->words.w1 & 0xffff) >= NUM_TEXTURES) {
+					&& ((ingdl->words.w1 & 0xffff) >= NUM_TEXTURES
+						|| xblaStageSlotIsReused(ingdl->words.w1 & 0xffff))) {
 				outgdl = xblaStageWriteTexture(outgdl, ingdl, ingdl->words.w1 & 0xffff);
 
 				// The scale it wrote belongs to that texture alone; the next

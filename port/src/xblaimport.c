@@ -32,6 +32,7 @@
 #include "texpack.h"
 #include "x360.h"
 #include "xblaimport.h"
+#include "xblaslots.h"
 
 #define XBLAIMPORT_NAMELEN 64
 
@@ -102,8 +103,12 @@ static char packName[XBLAIMPORT_NAMELEN] = XBLAIMPORT_PACK_NAME;
  * the sky to a plain gradient (2026-09-10, "the sky is messed up for xbla").
  * The release's water (0014) and second cloud (0c90) are copies of the ROM's
  * and stay in.
+ *
+ * The rest are the slots the release reused for other pictures, xblaslots.h:
+ * a ROM room binding one wants the ROM's picture, and a release room binding
+ * one is given the release's by the level loader, pack or no pack.
  */
-static const u16 leftOut[] = { 0x0013 };
+static const u16 leftOut[] = { 0x0013, XBLA_REUSED_SLOTS };
 
 static s32 xblaImportIsLeftOut(u32 n)
 {

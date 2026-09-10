@@ -420,6 +420,34 @@ s32 xblaTexRecordSize(u32 record, s32 *outWidth, s32 *outHeight)
 	return *outWidth > 0 && *outHeight > 0;
 }
 
+/**
+ * The N64 size a record stands in for - equal to its own size for the
+ * release's own art, and the ROM tile's size for a replacement.
+ */
+s32 xblaTexRecordSrcSize(u32 record, s32 *outWidth, s32 *outHeight)
+{
+	const u8 *a;
+
+	if (!lock) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (!xblaTexOpen() || record >= numRecords) {
+		SDL_UnlockMutex(lock);
+		return 0;
+	}
+
+	a = tables + record * XBLATEX_RECORD;
+	*outWidth = (s32)xblaTexBE32(a + 12);
+	*outHeight = (s32)xblaTexBE32(a + 16);
+
+	SDL_UnlockMutex(lock);
+
+	return *outWidth > 0 && *outHeight > 0;
+}
+
 s32 xblaTexRecordIsSoft(u32 record)
 {
 	s32 width = 0;
