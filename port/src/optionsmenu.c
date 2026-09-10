@@ -4703,9 +4703,8 @@ static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct m
 /**
  * The rooms follow the same rule as the pictures - the release's geometry
  * is the models feature applied to the levels, so this counts while the
- * meshes are on - but unlike either of them it is not live: a level's file
- * is chosen as it loads and kept, since the room table from one copy cannot
- * read rooms out of the other. The label below says so when it matters.
+ * meshes are on - and it is as live as they are: the rooms loaded under the
+ * old setting are dropped and come back from the other copy (xblastage.h).
  */
 static MenuItemHandlerResult menuhandlerXblaStages(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -4715,15 +4714,6 @@ static MenuItemHandlerResult menuhandlerXblaStages(s32 operation, struct menuite
 	case MENUOP_SET:
 		xblaStageSetEnabled(!xblaStageGetEnabled());
 		break;
-	}
-
-	return 0;
-}
-
-static MenuItemHandlerResult menuhandlerXblaStagesLate(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_CHECKHIDDEN) {
-		return !xblaStagePending();
 	}
 
 	return 0;
@@ -4902,14 +4892,6 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Level Geometry",
 		0,
 		menuhandlerXblaStages,
-	},
-	{
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Levels change from the next one loaded\n",
-		0,
-		menuhandlerXblaStagesLate,
 	},
 	{
 		MENUITEMTYPE_LABEL,

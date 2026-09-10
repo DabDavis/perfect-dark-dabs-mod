@@ -20,6 +20,9 @@
 #include "game/gfxmemory.h"
 #include "game/gfxreplace.h"
 #include "game/bg.h"
+#ifndef PLATFORM_N64
+#include "xblastage.h"
+#endif
 #include "game/portalconv.h"
 #include "game/stagetable.h"
 #include "game/env.h"
@@ -2867,6 +2870,11 @@ void bgLoadRoom(s32 roomnum)
 #endif
 	uintptr_t end2;
 	s32 prev;
+	uintptr_t roombase;
+	u32 roomlen;
+#ifndef PLATFORM_N64
+	u32 xblalen;
+#endif
 
 #if VERSION < VERSION_NTSC_1_0
 	bgVerifyLightSums("bg.c", 7076);
@@ -2910,6 +2918,20 @@ void bgLoadRoom(s32 roomnum)
 	// simply never renders. Collision comes from the tiles and still works, so
 	// it reads as a hole in the level rather than as a failure. Size for both.
 	readlen = ((g_BgRooms[roomnum + 1].unk00 - g_BgRooms[roomnum].unk00) + 0xf) & ~0xf;
+	roombase = g_BgRooms[roomnum].unk00;
+	roomlen = g_BgRooms[roomnum + 1].unk00 - g_BgRooms[roomnum].unk00;
+
+#ifndef PLATFORM_N64
+	// The XBLA release's copy of this room, if the switches are on and the
+	// level has one (xblastage.h): its own length, and its own address in
+	// the release's file for the room's pointers to be relocated against.
+	xblalen = xblaStageRoomSize(roomnum);
+
+	if (xblalen) {
+		roomlen = xblalen;
+		readlen = (xblalen + 0xf) & ~0xf;
+	}
+#endif
 
 	if (alloclen < readlen + 0x20) {
 		alloclen = readlen + 0x20;
@@ -2949,44 +2971,58 @@ void bgLoadRoom(s32 roomnum)
 			sysLogPrintf(LOG_WARNING, "bg: room %d not rendered: %d compressed bytes do not fit %d",
 					roomnum, readlen, alloclen);
 			dyntexSetCurrentRoom(-1);
+#ifndef PLATFORM_N64
+			xblaStageRoomDone();
+#endif
 			return;
 		}
 
 		// Load the compressed data to the right side of the allocation
 		memaddr = allocation + (alloclen - readlen);
 
+#ifndef PLATFORM_N64
+		if (xblalen) {
+			roombase = xblaStageRoomRead(roomnum, memaddr, xblalen);
+		} else {
+			bgLoadFile(memaddr, fileoffset, readlen);
+		}
+#else
 		bgLoadFile(memaddr, fileoffset, readlen);
+#endif
 
 		if (rzipIs1173(memaddr) && readlen + 0x20 > alloclen) {
 			sysLogPrintf(LOG_WARNING, "bg: room %d not rendered: no room to inflate %d bytes in %d",
 					roomnum, readlen, alloclen);
 			dyntexSetCurrentRoom(-1);
+#ifndef PLATFORM_N64
+			xblaStageRoomDone();
+#endif
 			return;
 		}
 
 		// Inflate the data to the left side of the allocation
-		inflatedlen = bgInflate(memaddr, allocation, g_BgRooms[roomnum + 1].unk00 - g_BgRooms[roomnum].unk00);
+		inflatedlen = bgInflate(memaddr, allocation, roomlen);
 #ifndef PLATFORM_N64
-		inflatedlen = preprocessBgRoom(allocation, inflatedlen, g_BgRooms[roomnum].unk00);
+		inflatedlen = preprocessBgRoom(allocation, inflatedlen, roombase);
 #endif
 
 		g_Rooms[roomnum].gfxdata = (struct roomgfxdata *)allocation;
 
 		// Promote offsets to pointers in the gfxdata header
 		if (g_Rooms[roomnum].gfxdata->vertices) {
-			g_Rooms[roomnum].gfxdata->vertices = (Vtx *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->vertices - g_BgRooms[roomnum].unk00));
+			g_Rooms[roomnum].gfxdata->vertices = (Vtx *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->vertices - roombase));
 		}
 
 		if (g_Rooms[roomnum].gfxdata->colours) {
-			g_Rooms[roomnum].gfxdata->colours = (Col *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->colours - g_BgRooms[roomnum].unk00));
+			g_Rooms[roomnum].gfxdata->colours = (Col *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->colours - roombase));
 		}
 
 		if (g_Rooms[roomnum].gfxdata->opablocks) {
-			g_Rooms[roomnum].gfxdata->opablocks = (struct roomblock *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->opablocks - g_BgRooms[roomnum].unk00));
+			g_Rooms[roomnum].gfxdata->opablocks = (struct roomblock *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->opablocks - roombase));
 		}
 
 		if (g_Rooms[roomnum].gfxdata->xlublocks) {
-			g_Rooms[roomnum].gfxdata->xlublocks = (struct roomblock *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->xlublocks - g_BgRooms[roomnum].unk00));
+			g_Rooms[roomnum].gfxdata->xlublocks = (struct roomblock *) (allocation + ((uintptr_t) g_Rooms[roomnum].gfxdata->xlublocks - roombase));
 		}
 
 		// Promote offsets to pointers in each gfxdata block
@@ -2996,30 +3032,30 @@ void bgLoadRoom(s32 roomnum)
 			switch (block1->type) {
 			case ROOMBLOCKTYPE_LEAF:
 				if (block1->next != NULL) {
-					block1->next = (struct roomblock *) (allocation + ((uintptr_t) block1->next - g_BgRooms[roomnum].unk00));
+					block1->next = (struct roomblock *) (allocation + ((uintptr_t) block1->next - roombase));
 				}
 				if (block1->gdl != 0) {
-					block1->gdl = (Gfx *) (allocation + ((uintptr_t) block1->gdl - g_BgRooms[roomnum].unk00));
+					block1->gdl = (Gfx *) (allocation + ((uintptr_t) block1->gdl - roombase));
 				}
 				if (block1->vertices != 0) {
-					block1->vertices = (Vtx *) (allocation + ((uintptr_t) block1->vertices - g_BgRooms[roomnum].unk00));
+					block1->vertices = (Vtx *) (allocation + ((uintptr_t) block1->vertices - roombase));
 				}
 				if (block1->colours != 0) {
-					block1->colours = (Col *) (allocation + ((uintptr_t) block1->colours - g_BgRooms[roomnum].unk00));
+					block1->colours = (Col *) (allocation + ((uintptr_t) block1->colours - roombase));
 				}
 				break;
 			case ROOMBLOCKTYPE_PARENT:
 				if (block1->next != NULL) {
-					block1->next = (struct roomblock *) (allocation + ((uintptr_t) block1->next - g_BgRooms[roomnum].unk00));
+					block1->next = (struct roomblock *) (allocation + ((uintptr_t) block1->next - roombase));
 				}
 				if (block1->gdl != 0) {
-					block1->gdl = (Gfx *) (allocation + ((uintptr_t) block1->gdl - g_BgRooms[roomnum].unk00));
+					block1->gdl = (Gfx *) (allocation + ((uintptr_t) block1->gdl - roombase));
 				}
 				if (block1->vertices != 0) {
-					block1->vertices = (Vtx *) (allocation + ((uintptr_t) block1->vertices - g_BgRooms[roomnum].unk00));
+					block1->vertices = (Vtx *) (allocation + ((uintptr_t) block1->vertices - roombase));
 				}
 				if (block1->colours != 0) {
-					block1->colours = (Col *) (allocation + ((uintptr_t) block1->colours - g_BgRooms[roomnum].unk00));
+					block1->colours = (Col *) (allocation + ((uintptr_t) block1->colours - roombase));
 				}
 				if ((uintptr_t) block1->vertices < end1) {
 					end1 = (uintptr_t) block1->vertices;
@@ -3140,6 +3176,9 @@ void bgLoadRoom(s32 roomnum)
 		g_Rooms[roomnum].colours = NULL;
 
 		dyntexSetCurrentRoom(-1);
+#ifndef PLATFORM_N64
+		xblaStageRoomDone();
+#endif
 
 #if VERSION < VERSION_NTSC_1_0
 		bgVerifyLightSums("bg.c", 7474);

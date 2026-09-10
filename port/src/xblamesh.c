@@ -35,6 +35,7 @@
 #include "lib/mtx.h"
 #include "x360.h"
 #include "xblaimport.h"
+#include "xblastage.h"
 #include "romdata.h"
 #include "files.h"
 #include "xblamesh.h"
@@ -4351,6 +4352,10 @@ void xblaMeshSetEnabled(s32 enabled)
 			openedLate = 1;
 		}
 	}
+
+	// The rooms follow this switch (xblastage.h), and unlike the models they
+	// are not matched at the draw: the ones loaded so far have to go
+	xblaStageSwitched();
 }
 
 s32 xblaMeshModelsAreLate(void)
@@ -4362,7 +4367,8 @@ s32 xblaMeshModelsAreLate(void)
  * The meshes on and off from a key, the way F8 does texture packs: for looking
  * at the release's model against the game's own without leaving the level.
  * The switch is live at the draw (xblaMeshRenderNode() reads it), so the
- * models change under the player on the next frame - except on a machine
+ * models change under the player on the next frame, and the rooms with them
+ * (xblaStageSwitched() drops the loaded ones) - except on a machine
  * whose package was still in its archive, where the first press opens it and
  * the level after this one has them (xblaMeshSetEnabled()).
  *

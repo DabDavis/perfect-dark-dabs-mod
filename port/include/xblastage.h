@@ -9,85 +9,81 @@ extern "C" {
 #endif
 
 /**
- * The XBLA release's level geometry, served in place of the ROM's.
+ * Drawing the XBLA release's level geometry.
  *
- * 4J rewrote 31 of the game's `bgdata/bg_*.seg` files: the same room format
- * the N64 game reads, with two to four times the triangles - bevelled edges,
- * rounded pipes, panelled walls. Because the format is the game's own, none
- * of the renderer has to learn anything: the file is handed to the ordinary
- * bg loader through the file slot that would otherwise hold the ROM's copy
- * (romdataFileLoad()), and everything downstream reads it as it would any
- * other level.
+ * The release rewrote 31 of the game's `bgdata/bg_*.seg` files in the game's
+ * own room format with two to four times the triangles, and stored them in
+ * the package under the same file ids (xblamesh.h has the package). This
+ * serves those rooms to bg.c in place of the ROM's, behind Mod.XblaStages,
+ * which counts only while Mod.XblaMeshes is on: the geometry is the models
+ * feature applied to the rooms. CLAUDE-notes/xbla.md, "The level files", has
+ * the format and what had to be corrected in it.
  *
- * Three things about the release's files are not what the port expects, and
- * are put right on the way in - see xblaStageLoad() and the notes in
- * CLAUDE-notes/xbla.md, "The level files":
- *
- * - every `gSPVertex` has its byte length zeroed. The game's own code counts
- *   vertices from the (n-1) field and never noticed; gfx_pc counts them from
- *   the length and would load none. Filled in from the count;
- * - the per-room memory sizes in section 3 are mostly zero, so the room
- *   loader sizes its allocation from the data instead (bgLoadRoom());
- * - a few rooms in five levels bind textures that only exist in the release
- *   (records past NUM_TEXTURES). Those are drawn through the same stand-in
- *   tile the meshes use (xblatex.h), from texLoadFromGdl().
- *
- * `Mod.XblaStages` is the switch, on by default, and it counts only while
- * `Mod.XblaMeshes` is on: the stage geometry is the release's models
- * feature applied to the rooms. A level's file is chosen as the level loads
- * and kept for the life of the level, since a room table from one copy must
- * never be used to read rooms out of the other.
+ * The file slot keeps serving the ROM's copy of the level; only the rooms
+ * come from the release. bgLoadRoom() asks xblaStageRoomSize() for each room
+ * as it loads it, and a room that has a copy in the release is read through
+ * xblaStageRoomRead() from the release's file, at its own address in the
+ * release's room table - which is the one thing the two copies disagree on.
+ * Everything else the level is built from (the room table, the portals, the
+ * lights, section 3's bounding boxes) is byte for byte the same in both, so
+ * the ROM's serves either. That is what makes the switch live inside a level:
+ * a room can be loaded from either copy under the same level, and a flip of
+ * either switch drops the loaded rooms for the next frame to load again.
  */
 
-/** Mod.XblaStages. Whether the release's level files are wanted. */
+/** Mod.XblaStages: whether to draw them. On unless the player says otherwise. */
 s32 xblaStageGetEnabled(void);
 void xblaStageSetEnabled(s32 enabled);
 
 /**
- * A stage is being reset (lvReset()): decide for the coming level and let go
- * of the file the last one used. The decision is frozen from here until the
- * next reset, whatever the switches do in between.
+ * Either switch has been flipped - this one or the meshes'. Drops the
+ * rooms loaded under the old setting, if there is a level and the setting
+ * that reaches the rooms has changed. Called by both setters.
+ */
+void xblaStageSwitched(void);
+
+/**
+ * A level is being reset. Called from lvReset(): the last level's file goes,
+ * and the next level's is read when its first room asks.
  */
 void xblaStageLevelReset(void);
 
 /**
- * Whether what the switches say now differs from what the running level was
- * loaded under - the menu's cue that the change shows from the next level.
+ * How many bytes the release's copy of a room has, or 0 when the room comes
+ * from the ROM as usual - the switches are off, the level is a mod's or one
+ * the release stores the ROM's way, or there is no package ready to read.
+ * Asked by bgLoadRoom() for every room it loads, before it sizes the room's
+ * allocation. The first ask in a level is the one that reads the file.
  */
-s32 xblaStagePending(void);
+u32 xblaStageRoomSize(s32 roomnum);
 
 /**
- * Whether the file slot for `name` (a `bgdata/bg_*.seg`) should come from the
- * release rather than the ROM. Cheap: a flag and a name check.
+ * Copies the room's bytes - the number xblaStageRoomSize() gave - and
+ * returns the segment address they are relative to: the room's entry in the
+ * release's table, which is what bgLoadRoom() must relocate the room's
+ * pointers against instead of the ROM's entry.
  */
-s32 xblaStageWants(s32 fileNum, const char *name);
+uintptr_t xblaStageRoomRead(s32 roomnum, u8 *dst, u32 len);
+
+/** bgLoadRoom() has finished with the room, either way. */
+void xblaStageRoomDone(void);
 
 /**
- * The release's copy of the file, read out of the package, checked and
- * corrected, in a buffer the file slot owns (sysMemAlloc). NULL means use the
- * ROM's: no package, no such file, or a copy that could not be made safe.
- */
-u8 *xblaStageLoad(s32 fileNum, const char *name, u32 *outSize);
-
-/** The slot has been freed by romdata; forget it. */
-void xblaStageReleased(s32 fileNum);
-
-/**
- * Whether the level being loaded is drawing the release's rooms - which is
- * what texLoadFromGdl() asks before it reads a texture number wider than the
- * ROM's twelve bits.
+ * Whether the room being converted right now is the release's. What
+ * texLoadFromGdl() asks before it treats a texture number past the ROM's
+ * table as one of the release's records.
  */
 s32 xblaStageIsRelease(void);
 
 /**
- * A texture command in a release room names a record the ROM has no texture
- * for. Writes the tile state for it - the meshes' 32 texel stand-in, with the
- * texture scale set so the room's coordinates, which 4J measured in texels of
- * the full picture, land on it - and returns the list after it.
+ * Writes the tile state for one of the release's own textures - a record
+ * past NUM_TEXTURES that only the package has - in place of the texture
+ * command that named it. Returns the next free gdl.
  */
 Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record);
 
-/** --xbla-stage-verbose: log each file and what was corrected in it. */
+/** --xbla-stage-verbose: log each file taken or turned down, each room read
+ * from the release, and each Xbox-only record bound. */
 void xblaStageSetVerbose(s32 verbose);
 
 #ifdef __cplusplus

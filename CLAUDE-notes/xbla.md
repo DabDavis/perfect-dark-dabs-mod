@@ -1399,13 +1399,36 @@ pipes, the Crash Site wreck. `port/src/xblastage.c` serves them
 **It is the game's own room format.** The three sections, the primary data
 with its room table, `struct roomgfxdata` and the 20 byte roomblocks, 12 byte
 `Vtx`, 4 byte colours, the same display list opcodes including the `0xc0`
-texture command - all of it. So nothing draws it but the ordinary bg loader:
-the file is handed to the file slot the ROM's copy would fill
-(`romdataFileLoad()`, a fourth source `SRC_XBLA` beside ROM and external,
-with the ROM pointer kept aside to give back), chosen once per level at
-`lvReset()` and kept until the next, because a room table from one copy
-cannot read rooms out of the other. The two things the release does
-differently and what had to change for each:
+texture command - all of it. So nothing draws it but the ordinary bg loader.
+**Only the rooms are taken from it.** The file slot keeps serving the ROM's
+copy of the level, and `bgLoadRoom()` asks `xblaStageRoomSize()` for each
+room as it loads it; a room the release has comes out of the release's file
+through `xblaStageRoomRead()`, at the room's own address in the release's
+room table, and is relocated against that address instead of the ROM's
+entry. Everything else the level is built from stays the ROM's, which is
+safe because the two copies agree on it: compared byte for byte across the
+24 levels the release stores inflated (`~/.cache/claude-xblastage/`, the
+release's records dumped through `x360.c` against the ROM's `bg_*.seg`),
+section 1 differs only in the room table's offsets (plus the lights pointer
+on levels with no lights, `0` in the ROM and the commands pointer in the
+release, which `bgReset()` reads the same way), the portals and their
+vertices, the commands, the lights and the room positions are identical,
+section 2 is identical, and section 3's bounding boxes and light counts are
+identical - only its per-room size hints differ.
+
+That is what makes the switch **live inside a level**, as the meshes' is
+(the first version of this handed the whole file to the slot, chosen once
+per level, because a room table from one copy cannot read rooms out of the
+other - and so F6 changed the models but not the rooms). A flip of either
+switch goes through `xblaStageSwitched()`, which drops the loaded rooms
+(`bgUnloadAllRooms()`, what the game does when short of memory) and the
+next frame loads the visible ones again from the copy the switches now
+name. The release's file is read on the first room that asks in a level and
+kept until `lvReset()`; a level whose file is refused, or a mod's level
+(`romdataFileIsStock()`), reads every room from the ROM. `texLoadFromGdl()`
+asks `xblaStageIsRelease()`, which is now "the room being converted came
+from the release" rather than a per-level fact. The two things the release
+does differently and what had to change for each:
 
 - **Section 1 is stored inflated**: the header's primary-stored size equals
   its inflated size, and every room is raw. The game copes on its own
@@ -1424,7 +1447,9 @@ differently and what had to change for each:
   has 0 for whole levels; nothing downstream checked the converted room
   against the allocation. `bgLoadRoom()` now floors it at six times the data
   plus 8K for any room, which is under the ROM's own figure for its
-  compressed rooms and so changes nothing there.
+  compressed rooms and so changes nothing there. With the rooms served on
+  their own this is also what covers the ROM's figure being the ROM room's
+  size when the release's, two to four times bigger, is what is loading.
 - **Vertex and colour arrays are not padded to 8.** The port's converter
   (`convertRoomGfxData`) rounded the *source* offset up, which reads the
   arrays four bytes late and leaves the header's pointer with nothing to
@@ -1461,15 +1486,27 @@ translucent list is otherwise the same 212 vertices.
 Verified on the real GPU (offscreen, `--fixed-step --rng-seed 1`): Defection,
 Crash Site (the six Xbox-only records bind and draw), Villa, Air Force One,
 Air Base and Felicity (the stale-block arena) all boot from the release and
-run 1200-2000 frames clean with no `bg:` warnings; flipping the switch
-inside Villa from gdb leaves the level on the release's file (frozen) and
-the menu shows the "next level" note. Booting `0x33` with `--mpsims` dies
-with SIGFPE with the release on or off - pre-existing, not this.
-`--xbla-stage-verbose` logs each file taken, each turned down, and each
-Xbox-only record bound with its scale. Headless recipe: the two save dirs
+run 1200-2000 frames clean with no `bg:` warnings. Booting `0x33` with
+`--mpsims` dies with SIGFPE with the release on or off - pre-existing, not
+this. `--xbla-stage-verbose` logs each file taken or turned down, each room
+read from the release, each drop of the loaded rooms, and each Xbox-only
+record bound with its scale. Headless recipe: the two save dirs
 `/home/sdg/pd-testsave-xs1` (XblaMeshes=1, XblaStages=1, TexturePack=PD
 XBLA) and `-xs0` (XblaStages=0); the game **writes pd.ini on exit**, so a
-setting flipped from gdb is saved and the next run has it.
+setting flipped from gdb is saved and the next run has it - copy the dir.
+
+**The live switch is checked frame-exact, not by eye.** Defection's opening
+flythrough moves the camera, so two screenshots seconds apart differ by
+70% whatever the rooms are. Two seeded fixed-step runs of `0x30`, one of
+them calling `xblaMeshSetEnabled(0)` at a `break xblaMeshTick if
+g_Vars.lvframenum >= 450` (the tick is where F6 acts; never call it from a
+stop at an arbitrary instruction, it frees the rooms) and `(1)` at 750,
+with a gdb Python sum of `g_Rooms[i].gfxdata->numvertices` over the loaded
+rooms at `videoEndFrame` on frames 600 and 900: the plain run has 7228
+vertices in 5 rooms at both frames, the flipped run 7090 at 600 and 7228 at
+900. The city's exterior rooms are nearly the same in both copies, which is
+why the frame-600 screenshots differ by 0.13% of pixels (the dropship, a
+model); inside a building the difference is plain.
 
 ## How the two conversions are kept honest
 
