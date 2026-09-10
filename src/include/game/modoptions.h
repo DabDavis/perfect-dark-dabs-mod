@@ -390,7 +390,6 @@ struct modoptions {
 	s32 tiltinvert;  // the leans turned the other way about; the bob has no direction to invert
 	s32 tiltforward; // ... and a lean into the run itself, down going forward and up backing away
 	s32 gunsway;     // the gun's step motion scaled up with the bob
-	s32 randomizer;  // a mission dealt again from its own pieces
 	s32 randomseed;  // the run's seed, 0 for a fresh one every mission
 	s32 randomversion; // the generator the run is dealt by, so a written-down seed keeps dealing it
 	s32 randomendless; // Endless Mode: one objective at a time, forever, scored in rooms

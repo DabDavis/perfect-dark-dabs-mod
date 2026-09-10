@@ -212,12 +212,18 @@ static bool modRandomStageIsMission(s32 stagenum)
  * would move out from under them.
  */
 /**
- * A mission armed as a random one from the Randomizer page.
+ * A mission armed as a random one from the Randomizer page, or by
+ * --random-mission for a headless run that cannot press the page's button.
  *
- * The arming is a flag rather than a write to the setting, the way Ghost
- * Trials arms a trial: the setting is saved to pd.ini, and coming in through
- * that door for one mission should not leave every later mission dealt again.
- * The stock Solo Missions item disarms it on the way past for the same reason.
+ * The arming is a flag and not a setting, the way Ghost Trials arms a trial:
+ * a setting is saved to pd.ini, and coming in through that door for one
+ * mission should not leave every later mission dealt again. There was such a
+ * setting once - Mod.Randomizer, the checkbox that the Randomizer page
+ * replaced - and it outlived its checkbox in every pd.ini written while it
+ * was ticked, dealing every Solo Mission again with nothing left in the menu
+ * to switch it off. So nothing in pd.ini turns the roll on: the two doors
+ * on the Randomizer page do, and the stock Solo Missions item disarms it on
+ * the way past.
  */
 static bool g_ModRandomArmed;
 
@@ -240,7 +246,7 @@ bool modRandomIsOn(void)
 {
 	// A run deals every map it lands in, whatever the setting says: the roll
 	// is what makes a landing worth making twice. See modrun.c.
-	return (g_ModOptions.randomizer != 0 || g_ModRandomArmed || modRunIsOn())
+	return (g_ModRandomArmed || modRunIsOn())
 		&& !g_Vars.normmplayerisrunning
 		&& !g_Vars.mplayerisrunning
 		&& modRandomStageIsMission(g_Vars.stagenum);

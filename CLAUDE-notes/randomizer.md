@@ -189,9 +189,11 @@ and check `uptime` before believing `lvframenum`.
 
 `pd.log` is opened with `"ab"` and appended to, so a run's line is the *last*
 one; delete the file between runs or `head -1` reads the previous run's roll.
-The game rewrites `pd.ini` on exit, so a `sed` of `Mod.Randomizer` between two
-headless runs can be overwritten by the first run's shutdown — check the file
-after setting it.
+A headless mission is dealt again with `--random-mission` beside
+`--boot-stage`; there is no pd.ini key for it any more (see randomizer-run.md,
+"What moved out of Dab's Mod Options"). The game rewrites `pd.ini` on exit, so
+a `sed` of a seed between two headless runs can be overwritten by the first
+run's shutdown — check the file after setting it.
 
 To prove an objective completes without playing the mission:
 

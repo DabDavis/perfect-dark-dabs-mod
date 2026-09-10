@@ -58,7 +58,6 @@ struct modoptions g_ModOptions = {
 	false,                    // tiltinvert: the lean the head makes going with the step, not against it
 	false,                    // tiltforward: the tilt shipped as a roll and a bob, so this is a choice
 	true,                     // gunsway
-	false,                    // randomizer: a way of playing rather than a setting, so off
 	0,                        // randomseed: a fresh mission every time until one is chosen
 	MODRANDOM_VERSION_DEFAULT, // randomversion: whatever this build deals with
 	false,                    // randomendless: a way of playing rather than a setting, so off

@@ -336,11 +336,18 @@ function with nothing to do with the crash.
 
 The four rows the Randomizer had there - the checkbox, the seed, Endless Mode
 and its score - are gone from that page and live on the Randomizer page
-instead, the way Ghost Trials took recording out of the settings. The pd.ini
-keys all still work (`Mod.Randomizer` is now ini-only, and is what turns the
-roll on for missions started any other way), and the page adds
-`Mod.RunMapPool`, `Mod.RunDifficulty`, `Mod.RunSealRooms`, `Mod.RunBestScore`
-and `Mod.RunBestRooms`.
+instead, the way Ghost Trials took recording out of the settings. The seed,
+version and Endless keys still work, and the page adds `Mod.RunMapPool`,
+`Mod.RunDifficulty`, `Mod.RunSealRooms`, `Mod.RunBestScore` and
+`Mod.RunBestRooms`.
+
+`Mod.Randomizer` itself is **gone** (2026-09-10). It was kept as an ini-only
+switch when its checkbox left, and it outlived the checkbox in every pd.ini
+written while the box was ticked: every Solo Mission came up dealt again, with
+Endless on a single "reach this room" objective in place of the stage's own,
+and nothing left in the menu to switch it off. A stale line is ignored on load
+and dropped on the next save. Nothing in pd.ini turns the roll on now; the two
+doors on the page do, and `--random-mission` does for a headless run.
 
 Random Mission arms the roll for one mission rather than writing the setting,
 which is `modRandomArmMission()` - the same shape as `modGhostArmTrial()`, and

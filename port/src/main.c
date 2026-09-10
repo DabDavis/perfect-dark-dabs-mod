@@ -6,6 +6,7 @@
 
 #include "lib/main.h"
 #include "game/modoptions.h"
+#include "game/modrandom.h"
 #include "game/modrun.h"
 #include "game/modghost.h"
 #include "ghostnet.h"
@@ -229,6 +230,14 @@ int main(int argc, const char **argv)
 	// --random-run: start a Randomizer run from the first level loaded. The
 	// mode is a main menu door, and a headless run cannot press one.
 	g_ModRunAutoStart = sysArgCheck("--random-run");
+
+	// --random-mission: deal the booted mission again, the way the page's
+	// Random Mission item arms one. A flag rather than a pd.ini key for the
+	// reason --spectate is: the roll armed for one headless run should not
+	// deal every mission the savedir is used for afterwards.
+	if (sysArgCheck("--random-mission")) {
+		modRandomArmMission();
+	}
 	g_ModRunAutoHop = sysArgGetInt("--run-autohop", 0);
 	g_FixedStep = sysArgCheck("--fixed-step");
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
@@ -323,7 +332,6 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.InvertCameraTilt", &g_ModOptions.tiltinvert, 0, 1);
 	configRegisterInt("Mod.ForwardAndBackTilt", &g_ModOptions.tiltforward, 0, 1);
 	configRegisterInt("Mod.GunSwayWithTilt", &g_ModOptions.gunsway, 0, 1);
-	configRegisterInt("Mod.Randomizer", &g_ModOptions.randomizer, 0, 1);
 	configRegisterInt("Mod.RandomizerSeed", &g_ModOptions.randomseed, 0, S32_MAX);
 	configRegisterInt("Mod.RandomizerVersion", &g_ModOptions.randomversion, 1, S32_MAX);
 	configRegisterInt("Mod.RandomizerEndless", &g_ModOptions.randomendless, 0, 1);
