@@ -1324,10 +1324,27 @@ something off the screen that nothing replaced:
     are in heads with no LOD pair at all); past 6000 units the game draws its
     own 30-vertex head, and suppressing the hair there just made it bald.
 
-**The rule is still a head's alone at draw time** (`e->suppress`, set while
-matching and read in `xblaMeshRenderNode()`), and a grafted node is what says
-so — nothing else is ever grafted. That matters because the 179 toggled zeros
-this no longer touches include eleven that have to keep drawing: seven are
+**The rule is a head's alone, and that is decided by the skeleton, not by
+the graft** (2026-09-10). `e->suppress` is set while matching and read in
+`xblaMeshRenderNode()`, and until this date the draw side also asked that the
+node be grafted - "the game grafts nothing else, so a weapon's toggled piece
+reaches here with its own model and keeps its geometry". Then the tester
+scrolled the Combat Simulator's Character page: "a lot of the xbla head models
+have the n64 hair model floating over their head". **The Character page (and
+the Ghost Trials pages made from it) zooms on a head by loading the head file
+as a model of its own** - `menuRenderModel()`'s `newparams` branch, no body,
+no headspot, `curparams` is the head's file id and `model->definition` *is*
+the head - so every one of the 53 hat heads came up there with its hair
+hanging over the release's, while the same head on a chr in a match was
+clean (checked on all 75 Combat Simulator heads under gdb: every hat list
+filed `HAIR` under the head's own modeldef, grafted). Now
+`xblaMeshIsHairList()` asks `xblaMeshIsHeadModel()` first - a head's skeleton
+is the one the game never promotes to a pointer, so `modeldef->skel` is still
+the number `SKEL_HEAD`, which is how body.c reads it too - and the draw side
+suppresses a `HAIR` entry whether or not the node is grafted. The skeleton
+check is what keeps the eleven weapon zeros below safe (part 1 is a toggle in
+exactly one other model, `MODELPART_DRCAROLL_0001`); the 179 toggled zeros
+this rule does not touch include eleven that have to keep drawing: seven are
 `MODELPART_GUN_MUZZLEFLASH1` (the AK47, the MP5K, the Uzi, the Skorpion and the
 minigun in both its models) and four more are the minigun's flashes 2 and 3.
 4J marked the same part `0xFFFF` on 36 other guns, so its own marking is not
@@ -1335,6 +1352,33 @@ consistent, and a zero on a weapon has to be read as "keep" whatever a head's
 means. (The Falcon 2's two toggled zeros, mentioned here before as the muzzle
 flash risk, are parts `0x42` and `0x2f`; its flash is one of the 36 marked
 `0xFFFF`. The risk was real, on other guns.)
+
+**Robin's hair has no part number** (2026-09-10, the same sweep). With the
+53 hat heads clean, one head on the page still had a slab over it:
+`CheadrobinZ` (carousel 41). Its parts table names `0x191` and the sunglasses
+and not the toggle its hair sits under, so `modelGetPart(MODELPART_HEAD_HAT)`
+finds nothing and the hair was left as an ordinary toggled zero - "kept". A
+toggle no part names can never be switched by the game (it reaches a toggle
+only through `modelGetPart()`), so it is on for ever; for Robin,
+`xblaMeshIsHairList()` takes "the toggle no part names" as the hat, keyed on
+`FILE_CHEADROBIN` through `xblaMeshFileId`. It is Robin's alone on purpose:
+the other two heads with an unnumbered toggle keep theirs - `Cheadfem_guard2`'s
+is her sunglasses (96 vertices at eye height, and the mesh has none) and
+`Cheadbeau`'s is a 72-vertex piece at the chin. The static check that says so:
+load all 76 heads under gdb (`heads.py` in the session: `modeldefLoadToNew()`
+each at a level frame, walk the tree, read the hash entry per list) and diff
+the report across the change - the one line that moves is Robin's near hair
+list, NOENTRY to HAIR, 54 hair lists filed where there were 53.
+
+**How the Character page is driven headlessly**: Xvfb at 1280x720 with the
+scratch pd.ini set windowed at that size (`DefaultFullscreen=0`; fullscreen
+on Xvfb clips the menu) and `MemorySize=64` (the tester's save says 16, and
+the Institute will not load in it). From the title: Return (agent file), Down
+x3 Return (Combat Simulator: Solo, Ghost Trials, Randomizer, Combat), Down x3
+Return (Advanced Setup), Right (Player Setup), Down Return (Character), Down
+(the head row - the preview zooms to the head), then Right per head, `import
+-window root` each, crop `240x230+540+265` and `montage` them. `g_Menus[0].menumodel`
+is the preview; its `curparams` names the loaded file.
 
 What says the narrowing is right: the same three frames of the G5 Building
 (0x1e, seeded, frames 1400/1500/1600, a guard's head filling a quarter of the

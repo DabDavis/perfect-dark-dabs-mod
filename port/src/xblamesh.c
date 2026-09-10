@@ -722,20 +722,67 @@ static void xblaMeshLogNode(const struct modelnode *node, u32 type, s32 slot, s3
  *     every one on an alternative that starts at 0 - so a distant head that
  *     lost its hair would just be bald. Only the alternative drawn where the
  *     mesh is drawn is the one the mesh has already.
+ *
+ * And it is asked of a head only. Part 1 is a toggle in one other model,
+ * `MODELPART_DRCAROLL_0001`, and a part number means nothing outside the
+ * skeleton that numbered it - so the model's skeleton is checked first. A
+ * head's is the one skeleton the game never promotes to a pointer (there is no
+ * `g_SkelHead` in `g_Skeletons[]`), so it is still the number `SKEL_HEAD` here,
+ * which is how body.c reads it too.
  */
+static s32 xblaMeshIsHeadModel(const struct modeldef *modeldef)
+{
+	return (uintptr_t)modeldef->skel < 0x10000 && (s16)(uintptr_t)modeldef->skel == SKEL_HEAD;
+}
+
+/** Whether the model's parts table names this node at all. */
+static s32 xblaMeshNodeIsNumbered(const struct modeldef *modeldef, const struct modelnode *node)
+{
+	for (s32 i = 0; i < modeldef->numparts; i++) {
+		if (modeldef->parts[i] == node) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode *node)
 {
-	const struct modelnode *hat = modelGetPart(modeldef, MODELPART_HEAD_HAT);
+	const struct modelnode *hat;
 
-	if (!hat || (hat->type & 0xff) != MODELNODETYPE_TOGGLE) {
+	if (!xblaMeshIsHeadModel(modeldef)) {
+		return 0;
+	}
+
+	hat = modelGetPart(modeldef, MODELPART_HEAD_HAT);
+
+	if (hat && (hat->type & 0xff) != MODELNODETYPE_TOGGLE) {
+		return 0;
+	}
+
+	if (!hat && xblaMeshFileId != FILE_CHEADROBIN) {
+		// One head keeps its hair under a toggle its parts table does not
+		// number - Robin's (`CheadrobinZ`: parts 0x191 and the sunglasses,
+		// and the hair's toggle in neither). The game can reach a toggle
+		// only through its part number, so that one is on for ever, and it
+		// was the last hair slab still hanging over a release head once the
+		// numbered ones were gone. For Robin the hair is "the toggle no part
+		// names"; for every other head without a hat part there is nothing
+		// to suppress.
 		return 0;
 	}
 
 	for (s32 i = 0; node && i < XBLAMESH_PARENTSCAN; i++) {
 		const u32 type = node->type & 0xff;
 
-		if (node == hat) {
-			return 1;
+		if (type == MODELNODETYPE_TOGGLE) {
+			// The hair's toggle, or some other toggled piece.
+			if (hat) {
+				return node == hat;
+			}
+
+			return !xblaMeshNodeIsNumbered(modeldef, node);
 		}
 
 		if (type == MODELNODETYPE_DISTANCE) {
@@ -744,9 +791,8 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
 			if (!node->rodata || node->rodata->distance.near != 0.0f) {
 				return 0;
 			}
-		} else if (type == MODELNODETYPE_TOGGLE || node == modeldef->rootnode) {
-			// Some other toggled piece, or the whole way up without meeting
-			// the hair's toggle.
+		} else if (node == modeldef->rootnode) {
+			// The whole way up without meeting the hair's toggle.
 			return 0;
 		}
 
@@ -4015,20 +4061,25 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	// A toggled stock piece the release's mesh carries itself: a head's hair.
 	// Drawing nothing is the whole of it, since the mesh beside it has one
-	// already - and it is only ever a head's, because a head is the only model
-	// the evidence for this covers (xblaMeshMatchNodes above). A grafted node
-	// is what says this is one: the game grafts nothing else, so a weapon's
-	// toggled piece reaches here with its own model and keeps its geometry.
-	// Mod.XblaMeshBoth keeps it too, that switch being there to put the two on
-	// top of each other.
+	// already - and it is only ever a head's, because xblaMeshIsHairList()
+	// files nothing else (it asks for the head skeleton before the hat).
+	//
+	// Whether the head is grafted is not asked here, and it used to be: the
+	// Combat Simulator's Character page, and the Ghost Trials pages made from
+	// it, zoom on a head by loading the head file as a model of its own - no
+	// body, no headspot, `model->definition` *is* the head - and every head
+	// with a hat piece came up there with the N64 hair hanging over the
+	// release's. A chr's head is the same head grafted; both draw the mesh,
+	// so both leave the hair to it. Mod.XblaMeshBoth keeps the hair, that
+	// switch being there to put the two on top of each other.
 	if (e->suppress == XBLAMESH_SUPPRESS_HAIR) {
-		if (xblaMeshVerbose && !(grafted && !optBoth)) {
+		if (xblaMeshVerbose && optBoth) {
 			sysLogPrintf(LOG_NOTE, "xblamesh: a toggled piece the mesh has already drew "
 					"the game's own: model %p node %p grafted %d both %d",
 					model, node, grafted, optBoth);
 		}
 
-		return (grafted && !optBoth) ? 1 : 0;
+		return optBoth ? 0 : 1;
 	}
 
 	// A list of a model whose mesh has that geometry already: every list of a
