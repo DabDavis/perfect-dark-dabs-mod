@@ -2169,8 +2169,9 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	b->numgfx = (s32)(gdl - b->gdl);
 
 	if (xblaMeshVerbose) {
-		sysLogPrintf(LOG_NOTE, "xblamesh:   material %08x -> record %u%s%s",
+		sysLogPrintf(LOG_NOTE, "xblamesh:   material %08x -> record %u%s%s%s",
 				material, record, alpha ? " alpha" : "",
+				span == XBLAMESH_SPAN_FADE ? " (fades)" : "",
 				tile == xblaMeshWhiteTile ? " (no texture; white)" : "");
 	}
 
@@ -2217,6 +2218,13 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
  * depth write, in the translucent pass, whatever the node it hangs off says
  * about itself - the fan's node has no translucent list of its own for the
  * span to ride on.
+ *
+ * The same span takes a draw whose fade is in its texture rather than its
+ * vertices: a material whose picture has next to no opaque texel (the comhub's
+ * screen glow, record 4134, never reaches 108; a tinted pane at a flat 104; a
+ * green glow at 138). Those were cutouts, and a cutout of a soft picture is a
+ * solid wherever the alpha clears the threshold - a white half-disc on every
+ * screen of the comhub. xblaTexRecordIsSoft() is the test.
  */
 // (The XBLAMESH_SPAN_* values are defined at the top of the file, since the
 // vertex loader and the material setup need them first.)
@@ -2266,6 +2274,17 @@ static s32 xblaMeshDrawSpan(const u8 *file, u32 len, const struct xblameshhdr *h
 
 	if (firsttri <= numtris && drawtris <= numtris - firsttri &&
 			xblaMeshDrawFades(file, len, h, stride, firsttri, drawtris)) {
+		return XBLAMESH_SPAN_FADE;
+	}
+
+	// The fade can be in the picture instead of the vertices: a material
+	// whose texture has no opaque texel to speak of is a glow or a tinted
+	// pane, and a cutout has no edge to cut it at - it draws a solid wherever
+	// the alpha clears the threshold, which was the white half-disc on the
+	// comhub's screens. Blended, then, like the beams; the vertex alpha is
+	// 255 and drops out of the product. Answered from the package once per
+	// record and remembered, so this costs a decode the first time only.
+	if (xblaTexRecordIsSoft(material & 0x1fff)) {
 		return XBLAMESH_SPAN_FADE;
 	}
 

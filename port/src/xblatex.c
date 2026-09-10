@@ -82,6 +82,22 @@ static u32 dataBase;
 static struct xblatexentry hash[XBLATEX_HASHSIZE];
 static u8 **byRecord;  // one stand-in per record, or NULL
 static u8 *badRecord;  // a record that did not decode, so it is not tried again
+static u8 *softRecord; // XBLATEX_SOFT_* per record, see xblaTexRecordIsSoft()
+
+// What xblaTexRecordIsSoft() has found out about a record so far.
+#define XBLATEX_SOFT_UNKNOWN 0
+#define XBLATEX_SOFT_NO      1
+#define XBLATEX_SOFT_YES     2
+
+// A texel at or above this alpha is opaque, allowing for what DXT5 does to a
+// flat 255 - the same line xblamesh.c's XBLAMESH_FADE_ALPHA draws for a vertex.
+#define XBLATEX_OPAQUE_ALPHA 0xf0
+
+// A record with fewer opaque texels than this, in hundredths, is a soft one:
+// a glow, a glass, a haze. Counted over the 59 alpha records the meshes use,
+// nine are under it and every one of them is a picture with no edge to cut at
+// (the least opaque of the rest is a lamp with 15% of its texels at 255).
+#define XBLATEX_SOFT_PERCENT 1
 
 // The meshes are built on the game thread and uploaded on the render thread,
 // so both the registry and the package handle are shared. Everything below
@@ -108,9 +124,11 @@ static void xblaTexCloseUp(void)
 	free(tables);
 	free(byRecord);
 	free(badRecord);
+	free(softRecord);
 	tables = NULL;
 	byRecord = NULL;
 	badRecord = NULL;
+	softRecord = NULL;
 	numRecords = 0;
 	opened = -1;
 }
@@ -171,8 +189,9 @@ static s32 xblaTexOpen(void)
 	tables = malloc(dataBase - 4);
 	byRecord = calloc(numRecords, sizeof(u8 *));
 	badRecord = calloc(numRecords, 1);
+	softRecord = calloc(numRecords, 1);
 
-	if (!tables || !byRecord || !badRecord ||
+	if (!tables || !byRecord || !badRecord || !softRecord ||
 			!x360StfsStreamRead(&stream, 4, dataBase - 4, tables)) {
 		sysLogPrintf(LOG_ERROR, "xblatex: could not read the texture tables");
 		xblaTexCloseUp();
@@ -399,6 +418,58 @@ s32 xblaTexRecordSize(u32 record, s32 *outWidth, s32 *outHeight)
 	SDL_UnlockMutex(lock);
 
 	return *outWidth > 0 && *outHeight > 0;
+}
+
+s32 xblaTexRecordIsSoft(u32 record)
+{
+	s32 width = 0;
+	s32 height = 0;
+	u8 *rgba;
+	u32 opaque = 0;
+	u32 total;
+
+	if (!lock) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (!xblaTexOpen() || record >= numRecords || badRecord[record]) {
+		SDL_UnlockMutex(lock);
+		return 0;
+	}
+
+	if (softRecord[record] == XBLATEX_SOFT_UNKNOWN) {
+		// Decoded once here and thrown away; the render thread decodes it
+		// again when the list draws, which it would have done anyway.
+		rgba = xblaTexDecode(record, &width, &height);
+
+		if (!rgba) {
+			SDL_UnlockMutex(lock);
+			return 0;
+		}
+
+		total = (u32)width * (u32)height;
+
+		for (u32 i = 0; i < total; i++) {
+			if (rgba[i * 4 + 3] >= XBLATEX_OPAQUE_ALPHA) {
+				opaque++;
+			}
+		}
+
+		free(rgba);
+
+		softRecord[record] = (opaque * 100 < total * XBLATEX_SOFT_PERCENT)
+				? XBLATEX_SOFT_YES : XBLATEX_SOFT_NO;
+
+		sysLogPrintf(LOG_NOTE, "xblatex: record %u is %ux%u with %u of %u texels opaque%s",
+				record, width, height, opaque, total,
+				softRecord[record] == XBLATEX_SOFT_YES ? " - soft, drawn blended" : "");
+	}
+
+	SDL_UnlockMutex(lock);
+
+	return softRecord[record] == XBLATEX_SOFT_YES;
 }
 
 u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)

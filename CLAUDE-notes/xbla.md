@@ -686,6 +686,58 @@ fans' columns are at the top of the frame at both yaws. The texture-pack
 side of the same report is in texture-packs.md, "An opaque picture for a
 texture with alpha".
 
+#### The soft picture (2026-09-10)
+
+Report: a screenshot of the comhub (`Pcomhub`, file 406, slot 2163 - the
+wall terminal with the two side boxes, on Extraction's red-lit floor) with a
+white half-disc across all three of its screens. Reproduces on the GPU with
+`Mod.XblaMeshes=1` and goes away with it off. The mesh's first three draws
+are 4J's own screen glow: three quads over the game's tvscreen quads, textured
+with record 4134 - a pale cyan radial haze whose **alpha never reaches 108**
+- on a material with the alpha flag and vertex alpha 255. That is the alpha
+span, and with no translucent list on the node it went to the opaque pass as
+a cutout (`TEX_EDGE`): a soft picture cut at a threshold is a solid wherever
+its alpha clears it and nothing where it does not, so the haze came out as a
+white disc clipped by the quad. The game's screen text drew where the disc
+did not reach.
+
+The rule, then: a material whose picture has no edge in it cannot be a
+cutout. `xblaTexRecordIsSoft()` (xblatex.c) decodes the record once at build
+time, counts the texels at or above 0xf0, and calls the record soft when
+fewer than one in a hundred are; `xblaMeshDrawSpan()` sorts a soft material
+into the **fading span** beside the vertex fades - blended by texel alpha in
+the translucent pass, no depth write, its own combiner. The answer is
+remembered per record, so it costs one decode per alpha record per run, and
+no package or a record that will not decode leaves the material a cutout as
+before. The log says `xblatex: record N is WxH with K of T texels opaque -
+soft, drawn blended`, and `--xbla-mesh-verbose` marks the material `(fades)`.
+
+Counted over the 59 alpha records the meshes use (`scratchpad/softalpha.py`
+in the session: every alpha-flag draw, its vertex alpha range, and the
+record's alpha histogram): nine are soft - 4134 (the comhub glow, 2163 and
+2251), 3769 and 4201 (flat 104 tinted panes, 2039/2221 and 2198/2205), 4528
+(a green glow at 138, 2315/2316), 4587 (116, 2331), 4603/4604 (a yellow
+gradient and a red glow, 2334), 4185 (the hovercars' lights, already a
+vertex fade) and the fans' 4180/4182. The nearest of the rest is a lamp
+atlas (4157, 2174) with 15% of its texels opaque at the centres, then the
+furniture glass with an opaque frame in the same picture (3761, 3817, 4177,
+20-39% opaque), the hair (4770/4901, 34-38%) and the sunglasses lens (4870,
+67%). Those stay cutouts: the hair and the lens must, and the frame glass
+either rides the node's translucent list already or draws as it did. One in
+a hundred is the line; a fringe on a leaf or a letter never comes near it.
+
+Verified on the GPU, old binary beside new: Extraction (0x22) frame 42 in
+front of the comhub, the screens read their text with a faint glow over it;
+G5 frame 900 pixel-identical. **The comhub test**: `console.py` in the
+session, made from the door test - break at `videoEndFrame` out of the
+cutscene, walk `g_Vars.activeprops` for `type == PROPTYPE_OBJ` with
+`obj->modelnum == MODEL_COMHUB` (0xb0), teleport 200 units along row 2 of
+`obj->realrot` (normalised) with `vv_theta = atan2(nx, -nz)`, screenshot, then
+`xblaMeshSetEnabled(0)` and screenshot again. Extraction has one comhub, in
+room 62; its intro is over by frame 32. `MODEL_PD_CONSOLE` (0xb2) is the
+laptop on a stand and `MODEL_MODEMBOX` (0x17) the small ceiling box - neither
+is the wall terminal, which cost two runs.
+
 **The two switches are separate, and both are live.** The menu page
 (*Extended Options > Texture Packs > Xbox 360 (XBLA)*) has "Enable
 Models/Meshes" and "Enable Textures", and they are separate because either on

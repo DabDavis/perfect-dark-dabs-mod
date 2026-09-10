@@ -88,6 +88,19 @@ void xblaTexFreeReplacement(u8 *rgba);
  */
 s32 xblaTexRecordSize(u32 record, s32 *outWidth, s32 *outHeight);
 
+/**
+ * Whether a record's alpha is soft - fewer than one texel in a hundred opaque
+ * - so that there is no edge in it for a cutout to cut at. A screen's glow,
+ * a tinted pane, a haze: drawn as a cutout such a picture is a solid where its
+ * alpha clears the threshold and nothing where it does not, which is the white
+ * half-disc the comhub's screens showed. The mesh builder asks this once per
+ * alpha material and sorts a soft one into the fading span (blended, no depth
+ * write, translucent pass). Decodes the record the first time it is asked and
+ * remembers the answer; 0 when there is no package or the record will not
+ * decode, which leaves the material a cutout as before.
+ */
+s32 xblaTexRecordIsSoft(u32 record);
+
 /** Drops the package handle. The stand-in tiles stay, since lists hold them. */
 void xblaTexShutdown(void);
 
