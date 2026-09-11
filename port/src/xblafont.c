@@ -68,9 +68,21 @@
  * share a baseline, a cap line and an x-height in both fonts, the two being
  * the same typeface - and whose outliers are the characters the ROM drew
  * somewhere of its own (its '_' is an overbar at the cap line, its '=' sits up
- * there with it, its ';' has no tail). A glyph is placed on that line; one
- * that will not then fit inside the tile it is uploaded in - the outliers,
- * exactly - keeps its own box and is drawn as it always was.
+ * there with it, its ';' has no tail). A glyph is placed on that line.
+ *
+ * The tile is what the line has to fit inside: the quad the text renderers lay
+ * a glyph on starts a texel into the tile and runs the character's own height,
+ * so a glyph has that height to sit in and anything past it is uploaded and
+ * never drawn. Where the line asks for a fraction of a texel more than that -
+ * a round letter's overshoot - the glyph is moved and squeezed by the fraction
+ * and stays on the line with every other letter. Where it asks for much more,
+ * which is the outliers, the glyph is *shrunk* into what the tile has: the
+ * same factor in both directions, so what it loses is size and not shape, and
+ * placed at the end of the tile nearest the line. Filling the ROM's own box
+ * instead - which is what this did first - squashed the characters whose box
+ * is a different shape from the release's: the ROM's colon is a pair of dots
+ * two thirds the height of the release's, and stretching the release's into it
+ * drew the dots as flat bars, which reads as a colon with its ends cut off.
  *
  * Everything the game measures is still the ROM's. A glyph's width, its
  * advance, its baseline and the kerning table lay the text out untouched, the
@@ -116,6 +128,13 @@
 #define XBLAFONT_TILE_TEXELS 16
 #define XBLAFONT_TILE_ROWS(h) ((h) + 2)
 
+// The border the character sits inside, and so the first row and column of
+// the tile the game samples. Its quad starts a texel in and runs the
+// character's own width and height from there (text0f15568c's rectangle takes
+// s and t from 32, a texel in s10.5), which leaves the outermost rows
+// uploaded and never drawn: ink put there is ink thrown away.
+#define XBLAFONT_TILE_BORDER 1
+
 // Scale of the picture handed over, in texels of that tile. Chosen per glyph
 // so the release's ink is never shrunk (which would throw away the detail
 // this is all for), floored at 2 so that a half texel border is a pixel wide,
@@ -131,9 +150,10 @@
 // else - its '_' is an overbar, its '=' is drawn at the cap line - are not.
 #define XBLAFONT_FIT_TOL 0.34f
 
-// How far a glyph may be moved to keep it inside the tile it is uploaded in,
-// before the line is given up on for it. A third of a texel covers the
-// overshoot of a round letter, which is all that ever sticks out.
+// How far a glyph may be moved, and how much of it squeezed away, to keep it
+// inside the tile it is uploaded in before the line is given up on for it. A
+// third of a texel covers the overshoot of a round letter, which is all that
+// ever sticks out.
 #define XBLAFONT_FIT_NUDGE 0.34f
 
 // Anchors a line has to be fitted through, and how far apart two of them have
@@ -1079,26 +1099,63 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 	line = xblaFontGetLine(id);
 
 	if (line) {
+		// What the game draws of the tile: the quad starts at the border and
+		// runs the character's own height from there, so the glyph has the
+		// character's height to sit in, one texel in from the top.
+		const f32 bandtop = XBLAFONT_TILE_BORDER;
+		const f32 bandbot = ch->height + XBLAFONT_TILE_BORDER;
+		const f32 room = bandbot - bandtop;
+
 		// The line is in the coordinate the baseline is an offset into, so the
 		// baseline comes back off to land in the tile.
 		const f32 top = line->scale * (ink.y1 - cell->y1) + line->offset - ch->baseline;
 		const f32 bot = line->scale * (ink.y2 - cell->y1) + line->offset - ch->baseline;
+		const f32 want = bot - top;
 
-		// What the game draws of the tile: the quad runs from the tile's top
-		// row to height + 1, and anything past that is uploaded and never
-		// sampled.
-		const f32 over = (top < 0 ? -top : 0) + (bot > ch->height + 1 ? bot - (ch->height + 1) : 0);
+		// What the tile has no room for, and where the glyph goes once it has
+		// been given up: as near the line as the band allows, which for a
+		// character the ROM drew somewhere of its own is against the end of
+		// the band nearest the line.
+		const f32 over = want > room ? want - room : 0;
+		const f32 high = want - over;
+		f32 y = top;
 
-		if (over <= XBLAFONT_FIT_NUDGE) {
+		if (y + high > bandbot) {
+			y = bandbot - high;
+		}
+
+		if (y < bandtop) {
+			y = bandtop;
+		}
+
+		if (over <= XBLAFONT_FIT_NUDGE && y - top <= XBLAFONT_FIT_NUDGE && top - y <= XBLAFONT_FIT_NUDGE) {
 			// A round letter overshoots its line by a fraction of a texel and
-			// a tile has no room for it, so it is moved rather than cut: less
-			// than a third of a texel, and the same amount for every letter
-			// that overshoots.
-			const f32 nudge = (top < 0 ? -top : 0) - (bot > ch->height + 1 ? bot - (ch->height + 1) : 0);
-
-			dst.y1 = top + nudge;
-			dst.y2 = bot + nudge;
+			// a tile has no room for it, so it is moved and squeezed rather
+			// than cut: less than a third of a texel of either, and the same
+			// amount for every letter that overshoots.
+			dst.y1 = y;
+			dst.y2 = y + high;
 		} else {
+			// A character the line cannot place is *shrunk* rather than
+			// squashed: the tile's own height, and the width that goes with
+			// it, so that what it loses is size and not shape. The ROM's
+			// colon is the case that shows it - a pair of dots two thirds the
+			// height of the release's, drawn between the baseline and the
+			// x-height rather than on the baseline - and filling that box in
+			// both directions drew the dots as flat bars, which is what reads
+			// as a colon with its top and bottom cut off. The ROM's columns
+			// still bound it, so a narrow character cannot spread into the
+			// one beside it.
+			f32 wide = line->scale * (ink.x2 - ink.x1) * (high / want);
+
+			if (wide > body.x2 - body.x1) {
+				wide = body.x2 - body.x1;
+			}
+
+			dst.x1 = (body.x1 + body.x2 - wide) * 0.5f;
+			dst.x2 = dst.x1 + wide;
+			dst.y1 = y;
+			dst.y2 = y + high;
 			numOffLine++;
 		}
 	}

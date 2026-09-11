@@ -31,10 +31,16 @@ extern "C" {
  * scale and one offset per font, measured off the ink of both. A 16 texel
  * bitmap's own box carries a texel of the rasteriser's rounding with it, which
  * seats one letter higher than the next when a crisp glyph is stretched to
- * fill it - see "Fitting it to the line" in xblafont.c. Across the line the
- * box is still each character's own, and there the question is how far the
- * ROM's ink reaches rather than how much of it a column holds: a crossbar two
- * texels long is a letter that wide, not a faint one (xblaFontSpan).
+ * fill it - see "Fitting it to the line" in xblafont.c. A character the ROM
+ * drew somewhere of its own, which the tile is then too short for, is shrunk
+ * into the tile rather than squashed to fill it: it comes out smaller than the
+ * rest of the font, which is the ROM's box being the shape it is, rather than
+ * flattened, which reads as a glyph with its ends cut off.
+ *
+ * Across the line the box is still each character's own, and there the
+ * question is how far the ROM's ink reaches rather than how much of it a
+ * column holds: a crossbar two texels long is a letter that wide, not a faint
+ * one (xblaFontSpan).
  *
  * This is the same road a texture pack's font folder takes (texpack.h's
  * TEXPACK_GLYPH_SET): a glyph has no texture number, so the display list says

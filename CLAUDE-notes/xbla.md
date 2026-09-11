@@ -1994,11 +1994,38 @@ So since 2026-09-11 the ink is measured **to a fraction of a texel** and the
   sits on it) rather than by least squares, which would drag a whole font off
   its row to meet that overbar. 17k candidates against ~186 anchors is under a
   millisecond, once per font.
-- A glyph is placed on that line, nudged up to a third of a texel if a round
-  letter's overshoot would leave the tile, and **falls back to its own box** if
-  it still will not fit - which is exactly the characters the ROM put
-  elsewhere, plus the lg '7', whose ROM glyph genuinely stops a texel above the
-  baseline and has no tile to reach it in.
+- A glyph is placed on that line, moved and squeezed by up to a third of a
+  texel if a round letter's overshoot would leave the tile, and **shrunk into
+  the tile** if it still will not fit - the same factor in both directions,
+  placed at the end of the tile nearest the line. That is exactly the
+  characters the ROM put elsewhere, plus the lg '7', whose ROM glyph genuinely
+  stops a texel above the baseline and has no tile to reach it in.
+
+**The tile's drawn band is rows 1 to height+1, and a glyph off the line is
+shrunk, not squashed (2026-09-11).** Two halves of the same report, "the ':'
+is cut off a bit":
+
+- The character sits inside a one texel border and `text0f15568c`'s rectangle
+  takes `s` and `t` from 32 - a texel in s10.5 - for the character's own width
+  and height, so **row 0 is uploaded and never sampled** (`XBLAFONT_TILE_BORDER`).
+  Fitting to a band that started at row 0 put 77 placements partly in it, the
+  worst losing most of a texel off the top - the lg '$', the brackets, the xs
+  ':'. A glyph that overshoots is now squeezed by the overshoot rather than
+  shifted into a row that is not drawn.
+- The fallback used to fill the ROM's own ink box, which squashes every
+  character whose box is a different *shape* from the release's. The colon is
+  the case: the ROM's is a pair of dots two thirds the height of the release's,
+  drawn between the baseline and the x-height rather than on the baseline, and
+  a 35x11 pixel colon stretched into it came out as two flat bars - a colon
+  with its ends cut off - beside a period whose dot was square. Shrinking it
+  instead (`high / want` in both directions, the ROM's columns still a bound)
+  keeps the dots dots. It comes out smaller than the rest of the font, which is
+  the ROM's box being the shape it is; the alternatives - squeezing only the
+  gap between the dots, or letting the glyph keep its size and clipping - give
+  a colon with its dots jammed together or a colon with a dot cut in half.
+  Judged by dumping every glyph picture and composing a line of text from them
+  at 5-7 px a texel, then confirmed on the file-select screen ("Mission
+  Time: 00:47.60") at 1920x1080.
 
 **A row is totalled, a column is taken at its deepest texel (2026-09-11).**
 The same ratio read both ways round squeezes the letters whose outermost
