@@ -64,7 +64,7 @@ static s32 phase = PHASE_IDLE;
 static s32 index;
 static s32 total;
 static s32 haveXbla;
-static s32 numTextures, numRecords, numModels, numMeshes, numRefused;
+static s32 numTextures, numRecords, numModels, numMeshes, numRefused, numUnnamed;
 static u64 phaseStart; // for the log: how long each pass took
 static char status[128];
 static char modelDir[FS_MAXPATH + 1];   // model-dumps, expanded
@@ -708,26 +708,112 @@ static s32 assetDumpModel(s32 fileid, const char *name)
  * The release's meshes
  * ------------------------------------------------------------------------- */
 
-static s32 assetDumpMesh(s32 slot)
+/**
+ * The mesh table is in the model names' own order.
+ *
+ * Slots 2021 to 2615 are the meshes, and taking the name of each one's model
+ * in slot order gives a sorted list: the props, then the characters, then the
+ * guns, and inside a group the name uppercased with the ROM's trailing Z
+ * dropped (`Pa51wastebinZ` before `Pa51_crate1Z`, since `_` sorts after `Z`;
+ * `Pg5_chairZ` before `Pg5_chair2Z`). That holds for all 556 slots a model
+ * names, with no exception - so 4J built the table by walking their model
+ * list in order, and where a slot is is where its model's name sorts.
+ *
+ * Which is the only thing there is to say about the 39 slots **no** model
+ * names. They are not leftovers: they are meshes for names the NTSC ROM does
+ * not have (six more heads between `Cheadelvis_gogsZ` and `Cheadfem_guardZ`,
+ * eleven more pairs of hands, a dozen props), so 4J's build had models this
+ * one does not. Nothing in the game can reach them - the id that names a mesh
+ * is written on a model's nodes, and no model here carries these - so they
+ * are dumped to be looked at and cannot be replaced by a pack.
+ *
+ * Rather than `slotNNNN`, such a mesh is named for where it sorts:
+ * `Ghand_a51guardZ+1` is the first mesh after `Ghand_a51guardZ`'s, and the
+ * files land beside the ones they belong between in a directory listing.
+ */
+static char meshPrevName[OBJMESH_NAMELEN];
+static s32 meshSincePrev;
+
+/** The ROM's name for the model whose nodes name this mesh, or NULL. */
+static const char *assetDumpMeshModelName(s32 slot)
 {
 	const s32 fileid = xblaMeshSlotModelFile(slot);
-	const char *filename = fileid ? romdataFileGetName(fileid) : NULL;
+	const char *name = fileid ? romdataFileGetName(fileid) : NULL;
+
+	return name && name[0] ? name : NULL;
+}
+
+/** The next mesh along that a model does name, for the "before" half. */
+static const char *assetDumpMeshNextName(s32 slot, s32 numslots)
+{
+	for (s32 i = slot + 1; i < numslots; i++) {
+		const char *name = assetDumpMeshModelName(i);
+
+		if (name) {
+			return name;
+		}
+	}
+
+	return NULL;
+}
+
+static s32 assetDumpMesh(s32 slot, s32 numslots)
+{
+	const s32 fileid = xblaMeshSlotModelFile(slot);
+	const char *filename = assetDumpMeshModelName(slot);
+	const char *nextname = NULL;
 	char name[OBJMESH_NAMELEN];
 	char path[FS_MAXPATH + 1];
-	char comment[512];
+	char comment[768];
+	char where[320];
+	char sorts[160];
 	struct objmesh *m;
 	s32 written;
 
-	if (filename && filename[0]) {
-		snprintf(name, sizeof(name), "%s", filename);
-	} else {
-		snprintf(name, sizeof(name), "slot%04d", slot);
-	}
+	where[0] = '\0';
 
-	m = xblaMeshSlotToObj(slot, name);
+	// Most of the package is not a mesh - the model files come first, and a
+	// record can be an unused slot - so the name is settled after the read
+	// rather than before it: the counting is of meshes, not of slots.
+	m = xblaMeshSlotToObj(slot, filename ? filename : "");
 
 	if (!m) {
 		return 0;
+	}
+
+	if (filename) {
+		snprintf(name, sizeof(name), "%s", filename);
+		snprintf(meshPrevName, sizeof(meshPrevName), "%s", filename);
+		meshSincePrev = 0;
+	} else {
+		nextname = assetDumpMeshNextName(slot, numslots);
+		meshSincePrev++;
+		numUnnamed++;
+
+		if (meshPrevName[0]) {
+			snprintf(name, sizeof(name), "%s+%d", meshPrevName, meshSincePrev);
+		} else if (nextname) {
+			// Before the first mesh a model names, so count off the one after.
+			snprintf(name, sizeof(name), "%s-%d", nextname, meshSincePrev);
+		} else {
+			snprintf(name, sizeof(name), "slot%04d", slot);
+		}
+
+		if (meshPrevName[0] && nextname) {
+			snprintf(sorts, sizeof(sorts), "after %s's and before %s's", meshPrevName, nextname);
+		} else if (nextname) {
+			snprintf(sorts, sizeof(sorts), "before %s's, first in the table", nextname);
+		} else {
+			snprintf(sorts, sizeof(sorts), "after %s's, last in the table", meshPrevName);
+		}
+
+		snprintf(where, sizeof(where),
+				"\nno model of this ROM names this mesh: it is one 4J's build had and this one has not.\n"
+				"The table is in the model names' order, and this slot sorts %s.\n"
+				"Nothing draws it and a model pack cannot replace it - it is dumped to be looked at",
+				sorts);
+
+		snprintf(m->name, sizeof(m->name), "%s", name);
 	}
 
 	for (u32 i = 0; i < m->nummaterials; i++) {
@@ -741,8 +827,8 @@ static s32 assetDumpMesh(s32 slot)
 	snprintf(path, sizeof(path), "%s/" ASSETDUMP_XBLA_SUB "/%s.obj", modelDir, name);
 	snprintf(comment, sizeof(comment),
 			"XBLA mesh for %s: PackedSegFile slot %d, named by model file id 0x%04x, %u groups, %u palette entries, header scale %g\n"
-			"a group per part of the model (part0..); textures are xbla_<record> in %s/xbla",
-			name, slot, fileid, m->numgroups, m->nummatrices, m->headerscale, texRel);
+			"a group per part of the model (part0..); textures are xbla_<record> in %s/xbla%s",
+			name, slot, fileid, m->numgroups, m->nummatrices, m->headerscale, texRel, where);
 	written = objmeshWrite(m, path, comment);
 	objmeshFree(m);
 
@@ -770,6 +856,10 @@ static void assetDumpFinish(void)
 	if (numRefused) {
 		sysLogPrintf(LOG_NOTE, "assetdump: %d files with a model's name were not models and were left out", numRefused);
 	}
+
+	if (numUnnamed) {
+		sysLogPrintf(LOG_NOTE, "assetdump: %d meshes no model of this ROM names, written as <the mesh before it>+N", numUnnamed);
+	}
 }
 
 void assetDumpStart(void)
@@ -778,7 +868,9 @@ void assetDumpStart(void)
 		return;
 	}
 
-	numTextures = numRecords = numModels = numMeshes = numRefused = 0;
+	numTextures = numRecords = numModels = numMeshes = numRefused = numUnnamed = 0;
+	meshPrevName[0] = '\0';
+	meshSincePrev = 0;
 	index = 0;
 	total = 0;
 
@@ -870,7 +962,7 @@ static void assetDumpStep(void)
 		break;
 	case PHASE_MESHES:
 		if (index < total) {
-			numMeshes += assetDumpMesh(index);
+			numMeshes += assetDumpMesh(index, total);
 			index++;
 			assetDumpSetStatus("XBLA meshes: slot %d of %d (%d written)", index, total, numMeshes);
 		} else {

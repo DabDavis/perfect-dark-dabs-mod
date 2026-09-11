@@ -15,7 +15,7 @@ cache/xbla/                    the archive unpacked, once - used to be xbla/.unp
 texture-dumps/<romid>/         the whole texture table; was texturedump/
 texture-dumps/<romid>/xbla/    every Textures.raw record
 model-dumps/n64/<name>.obj     every C*, P* and G* file in the ROM
-model-dumps/xbla/<name>.obj    every mesh in the package, named for file id slot+1
+model-dumps/xbla/<name>.obj    every mesh in the package, named for the model that names it
 model-packs/<pack>/n64/        replacements for the ROM's models, same names
 model-packs/<pack>/xbla/       replacements for the release's meshes, same names
 ```
@@ -69,6 +69,38 @@ code does not say:
   A texture with `tex->unk0c_03` has its s/t halved at load
   (`texLoadFromGdl()`), so the dump halves them too; UVs are normalised by
   `texpackTexGetPaddedSize()`, the padded row the PNG was written with.
+
+## What names a mesh, and the 39 that nothing names
+
+A mesh slot is named by the model whose nodes carry its id
+(`xblaMeshSlotModelFile()`, which walks the release's copy of every C, P and
+G file once and files each id it finds against that file). 556 of the 595
+meshes are named that way. The other 39 are named for **where they sort**,
+`Ghand_a51guardZ+1` being the first mesh after `Ghand_a51guardZ`'s, because:
+
+**The mesh table is in the model names' own order.** Taking each named slot
+from 2021 to 2615 in turn gives a sorted list - the props, then the
+characters, then the guns, and inside a group the name uppercased with the
+ROM's trailing `Z` dropped (so `Pa51wastebinZ` before `Pa51_crate1Z`, `_`
+sorting after `Z`; `Pg5_chairZ` before `Pg5_chair2Z`; `CheadjonZ` before
+`CheadjonathanZ`). That holds for all 556 with no exception, so 4J built the
+table by walking their model list in order.
+
+Which says what the 39 are. They are not leftovers and not a matching
+failure: they are meshes for names this ROM does not have - six more heads
+between `Cheadelvis_gogsZ` and `Cheadfem_guardZ`, eleven more pairs of hands,
+a dozen props - so 4J's build had models the NTSC ROM has not. Fourteen of
+them are byte for byte a named mesh's geometry (`Ghand_presidentZ+2` is
+`Ghand_trentZ`'s), which is what a second model of the same body looks like.
+Nothing in the game can reach any of them, since the only thing that names a
+mesh is the id on a model's nodes, and a model pack cannot replace one
+either - `xblaMeshBuild()` asks `modelpackFindXbla(fileid)` and their fileid
+is 0. They are dumped to be looked at, and each one's OBJ says so.
+
+Two things that are **not** the reason for them, both checked: no model of a
+name outside C/P/G names one (walking all 995 model records rather than the
+named ones finds nothing more), and only one C/P/G file, `PEXPLOSIONBIT`, has
+no copy in the package at all.
 
 ## The two conventions an OBJ can be in
 

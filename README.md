@@ -201,6 +201,14 @@ row says where it is up to. F7 still writes out the textures the game draws as
 it draws them, which is the way to learn which file a particular wall or jacket
 is.
 
+Each file is named for the model it belongs to, which is also the name a model
+pack puts it back under. Thirty-nine of the release's meshes belong to models
+this game has not - 4J's build had a few more - and those are named for where
+they sit in the release's own order, `Ghand_a51guardZ+1` being the first mesh
+after `Ghand_a51guardZ`'s. Nothing in the game draws them, so a pack cannot
+put anything in their place; they are there to be looked at, and each one says
+so at the top of the OBJ.
+
 ### The XBLA release
 
 Put `Perfect Dark XBLA.7z` in **`xbla/`** beside the executable and nothing
