@@ -1779,6 +1779,46 @@ Nintendo, the N64 logo, then the Perfect Dark logo, and the whole thing is over
 by about fourteen seconds. `Mod.LoadTextures=0` still shows it, which is what
 rules the texture packs out - it is the meshes, not the pictures.
 
+## The interface art, and the logo (2026-09-11)
+
+Past the numbered textures and the font atlases, the records hold the art 4J
+drew for the console's own frontend. Nothing here stands in for anything the
+ROM draws, so it is only used where this port puts it deliberately:
+
+| records | what |
+| --- | --- |
+| 0dbf-0dd8 | Xbox button, stick and d-pad glyphs, and a few UI marks |
+| 0dd9 | the Perfect Dark logo, 420x255 |
+| 0dda-0df8 | the achievement icons |
+| 0df9-0e1d | 37 country flags |
+| 0e1e | an Xbox 360 controller, 256x256 |
+| 0e1f-0e51 | the explosion sequence and its smoke puff - see below |
+| 0e53-0e9f | 4J's skies: domes, starfields, sunsets, a planet |
+
+**The logo is drawn** (`port/src/xblaui.c`), as the banner of the *Xbox 360
+(XBLA)* page, and the row is not there at all without a package. It goes up
+through `menuimage.c` - which exists for a picture the menus draw that is not
+one of the game's own textures - with one thing added: an image can now name a
+loader instead of a PNG in the binary, and this one decodes a record.
+
+**Nothing draws the button glyphs.** The port's menus name a button nowhere -
+a bind is a string like `JOY1_A` in a dropdown - and the glyphs are the Xbox's
+own controller rather than whatever a player of this port is holding. They are
+listed here so that the next person does not have to find them again.
+
+Two things the logo cost, both of which generalise:
+
+- **Row order is a fact about the record, not about the package.** The font
+  atlases are stored top row first, the way a screen is drawn and the way
+  their `.abc` cells are measured; this record is stored bottom row first, the
+  way the game's own textures are. `menuimage.c` hands the renderer a
+  top-first picture, so the logo came up upside down in the page that exists
+  to show it off. Do not look for a rule covering both - look at the picture.
+- **`menuImageDraw()` used to take the caller's alpha alone**, which is right
+  for a community pack's cover (opaque) and painted the logo's transparent
+  field as a blue slab around it. It multiplies the picture's own alpha in
+  now, which changes nothing for an opaque one.
+
 ## The font (2026-09-11)
 
 The release set its menus in the same typeface the ROM does - Handel Gothic -

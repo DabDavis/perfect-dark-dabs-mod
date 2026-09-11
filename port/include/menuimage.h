@@ -35,6 +35,13 @@ struct menuimage {
 	// the first time something asks to draw it.
 	const u8 *png;
 	u32 pnglen;
+
+	// Or a picture that is not in the binary at all: the XBLA release's logo
+	// comes out of the player's own package (xblaui.c). Called instead of
+	// decoding a PNG, on the render thread, once; it hands over RGBA32 in the
+	// renderer's row order (top row first) and the image owns it afterwards.
+	u8 *(*load)(s32 *outWidth, s32 *outHeight);
+
 	const char *name; // for the log, and for nothing else
 
 	u8 *rgba;

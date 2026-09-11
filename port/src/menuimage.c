@@ -62,7 +62,7 @@ s32 menuImageHaveImages(void)
 }
 
 /**
- * Decode the picture.
+ * Decode the picture, or ask for one that is not a PNG in the binary.
  *
  * Not turned over, which is worth saying because the other place a PNG reaches
  * the renderer does turn one over: a texture pack's images are flipped on load
@@ -83,7 +83,9 @@ static u8 *menuImageDecode(struct menuimage *img)
 
 	img->tried = 1;
 
-	rgba = pngReadMem(img->png, img->pnglen, img->name, &width, &height);
+	rgba = img->png
+		? pngReadMem(img->png, img->pnglen, img->name, &width, &height)
+		: (img->load ? img->load(&width, &height) : NULL);
 
 	if (rgba == NULL) {
 		sysLogPrintf(LOG_ERROR, "menuimage: %s did not decode", img->name);
@@ -177,15 +179,17 @@ Gfx *menuImageDraw(Gfx *gdl, struct menuimage *img, s32 x1, s32 y1, s32 x2, s32 
 	gDPSetAlphaCompare(gdl++, G_AC_NONE);
 	gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
 
-	// Colour from the picture, alpha from the caller: the pictures are opaque
-	// and what the caller wants to say with alpha is how far a window has
-	// faded in.
+	// Colour from the picture; alpha from both. What the caller says with
+	// alpha is how far a window has faded in, and a cover is opaque so for
+	// years that was the whole of it - but the XBLA release's logo is a shape
+	// on a transparent field, and taking the caller's alpha alone painted the
+	// field as an opaque blue slab around it.
 	gDPSetEnvColorViaWord(gdl++, 0xffffff00 | (alpha & 0xff));
 	gDPSetCombineLERP(gdl++,
 			0, 0, 0, TEXEL0,
-			0, 0, 0, ENVIRONMENT,
+			TEXEL0, 0, ENVIRONMENT, 0,
 			0, 0, 0, TEXEL0,
-			0, 0, 0, ENVIRONMENT);
+			TEXEL0, 0, ENVIRONMENT, 0);
 
 	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
 

@@ -34,6 +34,8 @@
 #include "assetdump.h"
 #include "xblatex.h"
 #include "xblafont.h"
+#include "xblaui.h"
+#include "menuimage.h"
 #include "xblastage.h"
 
 static s32 g_ExtMenuPlayer = 0;
@@ -4949,6 +4951,58 @@ static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct m
 }
 
 /**
+ * The release's own logo, as the page's banner.
+ *
+ * Drawn the way the Community Packs page draws a pack's cover (see
+ * menuhandlerCommunityPoster()): a label row whose text is nothing but the
+ * space it reserves, and a custom render that puts the picture in it. The
+ * picture is a Textures.raw record rather than a PNG in the binary - xblaui.c
+ * - and the row is not there at all for a player with no package, since the
+ * whole page is inert for them anyway.
+ */
+#define XBLA_LOGOTEXT "\n\n\n\n"
+
+static MenuItemHandlerResult menuhandlerXblaLogo(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	struct menuitemrenderdata *renderdata;
+	struct menuimage *img = xblaUiGetLogo();
+	Gfx *gdl;
+	s32 textheight;
+	s32 textwidth;
+	s32 width;
+	s32 height;
+	s32 x1;
+	s32 y1;
+
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return img == NULL;
+	}
+
+	if (operation != MENUOP_RENDER) {
+		return 0;
+	}
+
+	gdl = data->type19.gdl;
+	renderdata = data->type19.renderdata2;
+
+	if (!dialog || !img) {
+		return (intptr_t)gdl;
+	}
+
+	textMeasure(&textheight, &textwidth, (char *)item->param2,
+			g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+
+	height = textheight - 2;
+	width = XBLAUI_LOGO_ASPECT(height);
+
+	x1 = dialog->x + (dialog->width - width) / 2;
+	y1 = renderdata->y + 1;
+
+	return (intptr_t)menuImageDraw(gdl, img, x1, y1, x1 + width, y1 + height, 255);
+}
+
+/**
  * "Enable Font": the release's own glyphs on the game's own text.
  *
  * Separate from "Enable Textures" because the release's text art is not one of
@@ -5169,6 +5223,14 @@ static const char *menutextXblaPath(struct menuitem *item)
 }
 
 struct menuitem g_ExtendedXblaMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LIST_CUSTOMRENDER,
+		(uintptr_t)XBLA_LOGOTEXT,
+		0,
+		menuhandlerXblaLogo,
+	},
 	{
 		MENUITEMTYPE_CHECKBOX,
 		0,
