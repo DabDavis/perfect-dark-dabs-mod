@@ -310,6 +310,11 @@ flicker and reads like a scale error. Do not reintroduce it.
   glyph or stage texture - ever ran. A glyph now leaves its slot the moment
   `texpackPollDecoded()` or a claim sees it ready.
 
+**The XBLA release's own glyphs go up this same branch** (xbla.md, "The font"):
+`xblafont.c` answers for a glyph the pack has no image for, and is asked what
+the pack *has* (`texpackHaveFontReplacementFor()`) rather than what it
+returned, since a queued decode also answers NULL.
+
 **Check it on a menu, not the HUD.** The ammo counter is a handful of digits that
 may not be replaced at the moment you look, and reading it cost a long detour
 here; the file select screen is dense with text in three fonts and is the same

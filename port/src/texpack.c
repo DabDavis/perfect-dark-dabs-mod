@@ -3599,6 +3599,33 @@ u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight)
 }
 
 /**
+ * Whether a pack has an image for one glyph.
+ *
+ * Asked by xblafont.c before it fits one of the release's glyphs into the
+ * cell, for the reason texpackHaveReplacementFor() exists: a glyph whose
+ * decode is queued answers NULL like a glyph with no file, and reading that as
+ * "no file" would paint the release's font over a pack's for the frame or two
+ * after every eviction.
+ */
+s32 texpackHaveFontReplacementFor(u32 glyph)
+{
+	s32 outline;
+	s32 font;
+	s32 index;
+
+	if (!(glyph & TEXPACK_GLYPH_SET) || !texpackHaveReplacements()) {
+		return 0;
+	}
+
+	outline = TEXPACK_GLYPH_IS_OUTLINE(glyph) ? 1 : 0;
+	font = TEXPACK_GLYPH_FONT(glyph);
+	index = TEXPACK_GLYPH_INDEX(glyph);
+
+	return font < TEXPACK_NUM_FONTS && index < TEXPACK_FONT_CHARS
+		&& fontReplacePaths[outline][font][index] != NULL;
+}
+
+/**
  * Whether a pack has a picture for one of the release's texture records, which
  * is what xblatex.c asks before it decodes the release's own.
  *

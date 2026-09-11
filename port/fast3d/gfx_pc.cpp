@@ -33,6 +33,7 @@
 
 #include "texpack.h"
 #include "xblatex.h"
+#include "xblafont.h"
 #include "menuimage.h"
 #include "gfx_texscale.h"
 
@@ -1566,11 +1567,12 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // of gfx_pc works from - and every texture coordinate derived from it - is
     // still the N64's, so a higher resolution image needs no other allowance:
     // UVs are normalised by the tile, not by what was uploaded.
-    if (texpackHaveReplacements() || xblaTexHaveNumbered()) {
+    if (texpackHaveReplacements() || xblaTexHaveNumbered() || xblaFontHaveGlyphs()) {
         int32_t rep_width;
         int32_t rep_height;
         uint8_t* rep = nullptr;
         bool xbla_rep = false;
+        bool xbla_font_rep = false;
 
         if (texpackHaveReplacements()) {
             rep = texpackLoadReplacement(orig_addr, &rep_width, &rep_height);
@@ -1591,6 +1593,19 @@ static void import_texture(int i, int tile, bool importReplacement) {
                         rdp.texture_tile[tile].width, rdp.texture_tile[tile].height,
                         siz, tex_row_bytes, &rep_width, &rep_height);
             }
+        }
+
+        // The release's own glyph for this character, behind a pack's the way
+        // its textures are behind a pack's textures. A glyph is named by the
+        // display list, so this needs nothing of the texture registry - see
+        // xblafont.h.
+        // Asked of the pack as what it has rather than what it returned, since
+        // a queued decode also answers NULL: reading that as "no file" would
+        // paint the release's glyph over the pack's for a frame or two every
+        // time the texture cache dropped one.
+        if (!rep && glyph && xblaFontHaveGlyphs() && !texpackHaveFontReplacementFor(glyph)) {
+            rep = xblaFontLoadGlyph(glyph, &rep_width, &rep_height);
+            xbla_font_rep = rep != nullptr;
         }
 
         // The XBLA release's own picture for this texture, which is the pack
@@ -1626,6 +1641,8 @@ static void import_texture(int i, int tile, bool importReplacement) {
 
             if (xbla_rep) {
                 xblaTexFreeReplacement(rep);
+            } else if (xbla_font_rep) {
+                xblaFontFreeGlyph(rep);
             } else {
                 texpackFreeReplacement(rep);
             }

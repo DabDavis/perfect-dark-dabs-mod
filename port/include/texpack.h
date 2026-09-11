@@ -242,6 +242,9 @@ u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight);
  */
 s32 texpackHaveReplacementFor(s32 texturenum);
 
+/** The same question for one glyph, for the same reason - see xblafont.h. */
+s32 texpackHaveFontReplacementFor(u32 glyph);
+
 /** Whether a decoded id reported by texpackPollDecoded() is this glyph. */
 s32 texpackDecodedIsGlyph(s32 id, u32 glyph);
 

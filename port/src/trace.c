@@ -23,6 +23,7 @@
 #include "texpack.h"
 #include "xblamesh.h"
 #include "xblatex.h"
+#include "xblafont.h"
 #include "xblastage.h"
 #include "trace.h"
 #include "../fast3d/gfx_api.h"
@@ -250,9 +251,9 @@ static void traceWrite(FILE *f)
 	fprintf(f, "stage 0x%02x lvframenum %d tickmode %d players %d window %dx%d\n",
 			mainGetStageNum(), g_Vars.lvframenum, g_Vars.tickmode, PLAYERCOUNT(),
 			videoGetWindowWidth(), videoGetWindowHeight());
-	fprintf(f, "xbla: meshes %d stages %d meshtextures %d, rooms from release %d; texture pack replacements %d\n",
+	fprintf(f, "xbla: meshes %d stages %d meshtextures %d font %d, rooms from release %d; texture pack replacements %d\n",
 			xblaMeshGetEnabled(), xblaStageGetEnabled(), xblaTexGetEnabled(),
-			xblaStageIsRelease(), texpackHaveReplacements());
+			xblaFontGetEnabled(), xblaStageIsRelease(), texpackHaveReplacements());
 
 	fprintf(f, "\n[memory]\n");
 	fprintf(f, "memp: stage pool free onboard %u expansion %u (total %u); permanent free onboard %u expansion %u\n",
@@ -270,6 +271,7 @@ static void traceWrite(FILE *f)
 			gs.texevictions, gs.cacheentries, gs.cachesize, gs.bufferfullflushes);
 	xblaMeshTrace(f);
 	xblaTexTrace(f);
+	xblaFontTrace(f);
 	xblaStageTrace(f);
 	texpackTrace(f);
 

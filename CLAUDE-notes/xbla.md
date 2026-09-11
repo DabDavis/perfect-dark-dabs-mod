@@ -1779,6 +1779,141 @@ Nintendo, the N64 logo, then the Perfect Dark logo, and the whole thing is over
 by about fourteen seconds. `Mod.LoadTextures=0` still shows it, which is what
 rules the texture packs out - it is the meshes, not the pictures.
 
+## The font (2026-09-11)
+
+The release set its menus in the same typeface the ROM does - Handel Gothic -
+but from the outline at five sizes instead of as 16 texel bitmaps, and the
+glyphs are in the package. `port/src/xblafont.c` serves them to the renderer
+the way a texture pack's font folder does, behind **Mod.XblaFont** ("Enable
+Font" on the *Xbox 360 (XBLA)* page).
+
+Three things had to be found. All three are checkable by looking at the
+picture, which is how each was settled.
+
+### The atlases are records 0db7 to 0dbe, one per font file
+
+Seven fonts ship as `DataFiles/*.abc` metrics beside seven atlases, and the
+pairing is by the size of the picture - an atlas is exactly as tall as its
+file's lowest cell needs:
+
+| `.abc` | line height | glyphs | lowest cell | record | record size |
+| --- | --- | --- | --- | --- | --- |
+| `Times New Roman_10` | 15 | 15 | 16 | 0db7 | 256x256 |
+| `Handel Gothic_12` | 19 | 184 | 40 | 0db8 | 1024x48 |
+| `Handel Gothic_14` | 22 | 184 | 69 | 0db9 | 1024x80 |
+| `Handel Gothic_22` | 33 | 184 | 136 | 0dba | 1024x150 |
+| `Handel Gothic_46` | 69 | 184 | 490 | 0dbb | 1024x512 |
+| `Handel Gothic_54` | 81 | 184 | 656 | 0dbc | 1024x670 |
+| `DFGHSMaruGothic-W4_18` | 24 | 1053 | 650 | 0dbe | 1024x670 |
+| `DFGHSMaruGothic-W4_24` | 33 | 1053 | 1156 | 0dbd | 1024x1170 |
+
+**0dbc and 0dbe are the same size and only the subject separates them**: 54's
+cell for 'A' read out of 0dbe is a kanji, and 18's cell read out of 0dbc is a
+piece of one. So the table is written down in `xblafont.c` rather than worked
+out, and the record's dimensions are checked against it as it is read - a
+package that is not the one this was written against says so in the log
+instead of drawing a wall texture as text.
+
+The picture is white throughout with the glyph in the alpha, so it is kept as
+one byte a texel. Rows are the console's own, which is the order the port
+uploads and the order a glyph's own pixel data is in, so nothing is flipped -
+the flip in `xblaconvert.py` and in the F7 dump is for the PNG's benefit.
+
+### The `.abc` format, and the two numbers in it that are not the count
+
+```
+u32 version (5)
+f32 lineheight            the cell's height, and the same for every glyph
+...
+u16 chars                 at 0x14
+...
+u16 table[]               at 0x58: a Unicode map from 0x20 up, one based
+{ u16 x1, y1, x2, y2; s16 A; u16 B; u16 C; u16 0 }[]
+```
+
+- **The count at 0x14 is 30 more than the table is long**, in all eight files
+  (8482 against 8452, 65374 against 65344, 88 against 58). So the glyph
+  records are placed from the *end* of the file, which they reach exactly, and
+  the table is whatever is left in front of them. A record is only accepted
+  while it reads as a cell (`B == x2 - x1`, the last field zero), which is
+  what stops the walk: a run of table entries cannot satisfy that. Reading the
+  count as the table's length puts the glyph array four records late, which
+  looks entirely plausible - every cell still lands on a glyph, just not that
+  glyph, and '$' comes out of the slot for ' '.
+- **`y1` and `y2` are the same for every glyph of a font.** The cell is the
+  font's line box, not the ink. `B` is the cell's width and `C` the advance.
+
+For the printable ASCII, `table[c - 0x20] - 1` and `c - 0x20` are the same
+record, which is the check that the map is a map: the cell it gives for 'A' in
+every Handel Gothic file crops to an 'A'.
+
+### The ink, not the metrics, is what is matched
+
+The ROM's cell is the character's ink with the baseline held separately in
+`fontchar`; 4J's is a line box. **So the two are fitted on ink**: the release's
+glyph is scaled into the box the ROM glyph's own *body* texels fill, which is
+read off the character's CI4 data through the font's palette -
+`var8007fb5c`'s second bank gives alpha to the body indices (8 and up) and its
+first bank to the border the font bakes around it (1 to 7), so one pass over
+the glyph gives both the body box and the cell.
+
+That is what makes this a drop-in. Every measurement the game makes is still
+the ROM's - the width, the baseline, the kerning table, `textMeasure()` - so
+nothing reflows, nothing can overlap, and a dialog that fitted before fits
+now. Mapping 4J's metrics on instead would mean deciding where the ROM's
+baseline sits inside a line box the ROM has no notion of, per font, and being
+wrong about it moves a row off its line.
+
+Two details of the fit:
+
+- **The footprint is averaged, and never narrower than one source texel.**
+  The release's ink is about the size of the box it goes into (46 pixel ink
+  into a seven texel cell drawn at five pixels a texel), so a point sample
+  keeps a stair-stepped edge next to the smoothed CI4 glyph it replaces, and a
+  bare area average is just as blocky the other way when the glyph is scaled
+  *up* a little - which is most of them, the scale being a whole number of
+  texels. One clamp covers both: wider than a texel it is an area average,
+  exactly a texel it is the linear blend of the two texels it straddles.
+- **Which size goes on which font is a table**, and only decides how much
+  detail there is to scale. The menu is 220 units tall whatever the window is,
+  so at 1080p a unit is five pixels and the small font's seven unit cell is a
+  35 pixel glyph - Handel Gothic 46's ink, near enough. `md` and `lg` take 54,
+  `xs` takes 22, and nothing reads 12 or 14: those are hinted bitmaps a few
+  pixels tall and no better than the ROM's own.
+
+### The outline pass cannot be left to the shader
+
+`textRender` draws one glyph twice in a two-cycle combiner, tile 0 through the
+palette bank that is body plus border and tile 1 through the body's own, and
+Clean Text Outlines has `gfx_opengl.cpp` shape a border out of tile 1's alpha
+instead of using the filled cell the font bakes (see text-rendering.md). It
+measures half a texel as `0.5 / texSize1` - *of what was uploaded* - so
+against a picture five times the size of the tile the border would come out a
+fifth as wide as it is meant to be. So `xblafont.c` builds the outline itself,
+by the same arithmetic as the shader (the body's alpha half a texel out in
+eight directions, pushed towards opaque, the diagonals counting for less, the
+cell the limit), and serves it as tile 0's picture - which also turns the
+shader's own version off, since that only runs for a tile 0 no pack replaced.
+
+With Clean Text Outlines **off**, nothing is handed over for tile 0 at all and
+the ROM's filled cell is drawn as before, which is the look that switch means.
+
+A pack outranks this glyph by glyph, asked as `texpackHaveFontReplacementFor()`
+rather than by whether the pack returned an image - a queued decode also
+answers NULL, and reading that as "no file" would paint the release's font over
+the pack's for a frame or two after every eviction, which is the same trap the
+numbered textures had.
+
+### What it is checked on
+
+The file select screen and the Perfect Menu, not the HUD: three fonts at once,
+the same every time, and the sideways sibling titles exercise a rotated draw.
+`--boot-stage 0x26`, `import -window root` at 14 seconds for "Choose Your
+Reality", then Return for the Perfect Menu (see the memory note on headless
+driving). Glyphs that are not the release's stay the ROM's: a character with
+no body texels (the space), a font this does not cover, and PAL's 41 accented
+characters, whose index is past the ASCII the map is keyed on.
+
 ## The level files (2026-09-10)
 
 62 `bgdata/bg_*.seg` files differ from the ROM's. 29 are the 512 byte

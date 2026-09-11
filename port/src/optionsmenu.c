@@ -33,6 +33,7 @@
 #include "modelpack.h"
 #include "assetdump.h"
 #include "xblatex.h"
+#include "xblafont.h"
 #include "xblastage.h"
 
 static s32 g_ExtMenuPlayer = 0;
@@ -4947,6 +4948,31 @@ static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct m
 	return 0;
 }
 
+/**
+ * "Enable Font": the release's own glyphs on the game's own text.
+ *
+ * Separate from "Enable Textures" because the release's text art is not one of
+ * its textures - a glyph has no texture number and never went through the
+ * pack - and because it is the one part of the release's art a player might
+ * want the ROM's version of while taking the rest: the typeface is the same,
+ * but the release set it from the outline where the ROM has a bitmap, so the
+ * letters are sharper and a little lighter. Live like the other two: the
+ * picture is fitted into the ROM's own cell as it is handed to the renderer,
+ * so nothing reflows and nothing is rebuilt.
+ */
+static MenuItemHandlerResult menuhandlerXblaFont(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return xblaFontGetEnabled();
+	case MENUOP_SET:
+		xblaFontSetEnabled(!xblaFontGetEnabled());
+		break;
+	}
+
+	return 0;
+}
+
 static char g_XblaMeshPackText[80];
 
 /**
@@ -5174,6 +5200,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Level Geometry",
 		0,
 		menuhandlerXblaStages,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enable Font",
+		0,
+		menuhandlerXblaFont,
 	},
 	{
 		MENUITEMTYPE_LABEL,
