@@ -328,6 +328,41 @@ u32 mtxGetObfuscatedRomBase(void)
 #endif
 }
 
+/**
+ * Folds into a matrix the scale mtxF2L() would have folded in, for a matrix
+ * that is not going through it.
+ *
+ * A stage can be drawn at a fraction of its own units - Villa, Crash Site and
+ * Air Base are at a half (`stagetable.c`, `scale_bg2gfx`) - and rather than
+ * scale the world the game scales every matrix on its way to the list, by the
+ * first three columns, and widens the z range by the same amount to match. A
+ * matrix a port file builds and hands over as floats (`G_MTX_FLOATS`) never
+ * goes through the conversion, so it has to fold the same scale in itself or
+ * what it draws lands at the wrong depth beside everything else: right on
+ * screen, because the scale is about the eye and divides out of x and y, and
+ * twice as far away in the z buffer, where it loses to whatever is in front of
+ * it. See xblamesh.c.
+ *
+ * The scale is live - `lv.c` puts it back to 1 for the passes drawn in the
+ * game's own units - so this is read where the matrix is built, which is the
+ * same point mtxF2L() would have read it.
+ */
+void mtxApplyGfxScale(Mtxf *mtx)
+{
+#ifndef GBI_FLOATS
+	const f32 colscale = var8005ef10[0] / 65536.0f;
+	const f32 wscale = var8005ef10[1] / 65536.0f;
+	s32 i;
+
+	for (i = 0; i < 4; i++) {
+		mtx->m[i][0] *= colscale;
+		mtx->m[i][1] *= colscale;
+		mtx->m[i][2] *= colscale;
+		mtx->m[i][3] *= wscale;
+	}
+#endif
+}
+
 void mtxF2L(Mtxf *src, Mtxf *dst)
 {
 #ifndef GBI_FLOATS

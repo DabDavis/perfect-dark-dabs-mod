@@ -1279,6 +1279,66 @@ A **first person** view is the release's hands and gun meshes drawn at their
 own bones, which works; the Bonds' 10% is the kind of thing to look for there.
 Heads are their own job — below.
 
+#### What `mtxF2L()` folds in, and the half-scale stages (2026-09-11)
+
+Report: "we are having transparency issues with every xbla texture ... you can
+see the ship layers disappearing, and joannas legs are invisible. its when the
+camera pans or turns it will repaint them sometimes." Villa, with a trace dump
+and screenshots.
+
+It is not the textures and not transparency. **A matrix handed over as floats
+skips more than the fixed-point conversion: it skips the scale the conversion
+folds in.** `mtxF2L()` multiplies a matrix's first three columns by
+`var8005ef10[0]`, which is `65536 * scale_bg2gfx`, and the last by
+`var8005ef10[1]`, which is always 65536. `scale_bg2gfx` is the stage table's
+own figure (`lv.c` calls `mtx00016748()` with it once a pass, and back to 1 for
+the passes drawn in the game's units), and three stages are not 1:
+
+| stage | scale |
+| --- | --- |
+| Villa (`0x2c`) | 0.5 |
+| Crash Site (`0x1c`) | 0.5 |
+| Air Base (`0x27`) | 0.5 |
+
+So on those three the game draws the whole world at half its own units and
+widens the z range to match (`bg.c`'s `zrange.far / scale_bg2gfx`), while the
+divided draw matrix above — the only matrix in the port that goes over as
+floats — kept the stage's units. **The picture is right and the depth is
+twice everyone else's**, because the scale is about the eye and divides out of
+x and y but not out of z: a posed mesh sits in the z buffer at twice its true
+distance and loses to anything in front of it. A body's legs lose to the floor
+it stands on, a ship's hull loses to the sea behind it and you see the cargo
+bay through it, and a guard is cut off at whatever height the ground crosses
+him. Nothing is transparent; everything is behind.
+
+`mtxApplyGfxScale()` (beside `mtxF2L()` in `mtx_c.c`, so the two are read
+together) folds the same scale into the copy, read where the copy is built
+because the scale is live. **Every other stage is 1.0, and the multiply is
+exact, so nothing else moves**: the G5 Building at frame 900 and Defection at
+frame 700 differ from the build before it only in the on-screen counter box
+(rows 62-89), which is the usual seeded-run difference.
+
+Worth not re-deriving, because each of these looked like the answer and was
+not: the skeleton pairs exactly (thigh 354.0 against 354.0, shin 366.6 against
+366.6, and every posed joint lands on the game's own); all 2593 of the body
+mesh's triangles reach `gfx_sp_tri_emit`, none culled, none degenerate, 159
+trivially clipped at the bottom of the frame; the render mode, the scissor and
+the viewport are the node's own; and the posed box matches the stock model's to
+a unit and a half at every corner, feet included. The measurement that ends it
+is the **clip coordinates of one vertex**: the same vertex comes out
+`w = 213.04` through the divided matrix and `w = 106.50` through the bone's own,
+against a true view distance of 213 — the game's own geometry is the half, and
+the mesh was the one telling the truth in a world drawn at half scale.
+
+**Test:** `--boot-stage 0x2c --fixed-step --rng-seed 1`, frames 273 (the ship
+over the sea, seen from behind) and 876 (Joanna in the hangar). Before, the ship
+is its cargo bay and two fins over open water and she has nothing below the
+hem; after, the hull is solid and she has legs and shoes. Crash Site frame 900
+(she is face down in the snow with her body buried) and Air Base frame 900 (a
+guard sunk into the ground, seen through the scanner) are the same fault. It
+needs no input at all - the whole report is the opening cutscene, which is
+what `tickmode 6` in the trace dump says.
+
 #### The heads
 
 A character's head is a model file of its own (`Chead*Z` — not `H*`, which is

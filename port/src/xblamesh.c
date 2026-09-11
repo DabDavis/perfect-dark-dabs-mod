@@ -3451,6 +3451,19 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 				fmtx->m[3][c] = root->m[3][c];
 			}
 
+			// The scale the stage is drawn at, which mtxF2L() folds into
+			// every matrix that goes through it and this copy does not go
+			// through. Villa, Crash Site and Air Base are drawn at a half
+			// (stagetable.c), and without this a posed mesh is built at the
+			// stage's own units while everything round it is at half of
+			// them: the same picture, because the scale is about the eye and
+			// divides out of x and y, and twice as far away in the z buffer,
+			// where a body's legs lose to the floor they stand on and a
+			// ship's hull loses to the sea behind it. Read here rather than
+			// once, because the game puts it back to 1 for the passes it
+			// draws in its own units.
+			mtxApplyGfxScale(fmtx);
+
 			// Not converted to the N64's s15.16, which is what the list reads
 			// a matrix as unless told otherwise: this copy is handed over
 			// with G_MTX_FLOATS and read as the floats it is. It was
