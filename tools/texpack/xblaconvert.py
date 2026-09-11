@@ -28,6 +28,13 @@ Textures.raw already pulled out of one. Written under texture-packs/ the result
 appears in the Texture Pack list in Extended Options, which is also what turns
 on Mod.LoadTextures.
 
+--mesh-textures writes the records past the numbered ones as well, into an
+xbla/ folder beside textures/. Those are the pictures the release's own models
+and rooms draw with, and the port reads that folder back keyed on the record -
+so they are there to be painted over, not to be shipped as they come (the port
+already has them, in the package). Mod.DumpTextures writes the same folder from
+inside the game, which is how to find out which record a particular surface is.
+
 Needs Pillow and numpy (pip install pillow numpy), and either the py7zr module
 or a 7z command on PATH if it is handed the archive.
 """
@@ -157,6 +164,58 @@ def load_from_archive(path):
     sys.exit('no STFS package found inside %s' % path)
 
 
+def write_mesh_textures(raw, meta, fetch, data_start, count, args, Image, failures):
+    """The records past the numbered ones, named by record rather than by texture.
+
+    These are what the release's own meshes and rooms draw with - see
+    port/include/xblatex.h. They carry no texture number, so the port cannot
+    take them out of a textures/ folder and reads them out of an xbla/ one
+    instead, keyed on the record. The range is the whole of it whatever
+    --max-texture says: that bounds the numbered textures, and a record is not
+    one. There is no reason to ship them in a pack as
+    they come, since the port reads them out of the package itself; what this
+    is for is having the picture to paint over, and knowing which record it is.
+
+    Mod.DumpTextures writes the same folder from inside the game, which is the
+    way to find out which record a particular jacket or wall panel is. This is
+    the way to get all of them at once.
+    """
+    outdir = os.path.join(args.out, 'xbla')
+    os.makedirs(outdir, exist_ok=True)
+
+    written = 0
+
+    # The reused slots are numbered under the texture table and are drawn
+    # through the same stand-in as the records above it - the release put its
+    # own picture in the slot - so they belong in this folder too, where the
+    # name means a record. Their <texnum>.png in textures/ is the ROM's
+    # texture, which is a different picture for a different room.
+    records = sorted(reused_slots()) + list(range(NUM_TEXTURES, count))
+
+    for n in records:
+        offset, width, height, _srcw, _srch, usize, csize = meta[n][:7]
+
+        if usize == 0 or csize == 0:
+            continue
+
+        try:
+            surface = x360.lzx_decompress(raw, data_start + offset, csize, usize)
+            rgba = x360.decode_texture(surface, width, height, fetch[n])
+        except Exception as ex:
+            failures.append((n, ex))
+            continue
+
+        # Turned over like a <texnum>.png, because the port turns one of these
+        # back over on load: the record is stored in the game's own row order
+        # and an image editor wants the picture the right way up.
+        img = Image.fromarray(rgba, 'RGBA').transpose(Image.FLIP_TOP_BOTTOM)
+        img.save(os.path.join(outdir, '%04x.png' % n))
+        written += 1
+
+    print("wrote %d of the release's own model and room textures to %s"
+          % (written, outdir))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
             formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -167,6 +226,10 @@ def main():
                     help='stop after this texture number (default %d)' % NUM_TEXTURES)
     ap.add_argument('--only-upscales', action='store_true',
                     help='skip textures the release redrew at the original size')
+    ap.add_argument('--mesh-textures', action='store_true',
+                    help="also write the records past the numbered ones into an xbla/ "
+                         "folder, which is the art the release's own models and rooms "
+                         "draw with - there to be painted over, not to be shipped as is")
     ap.add_argument('--quiet', action='store_true')
     args = ap.parse_args()
 
@@ -229,6 +292,9 @@ def main():
 
     if skipped:
         print('%d records skipped (empty, not an upscale, or left out)' % skipped)
+
+    if args.mesh_textures:
+        write_mesh_textures(raw, meta, fetch, data_start, count, args, Image, failures)
 
     if failures:
         print('%d records could not be decoded:' % len(failures))

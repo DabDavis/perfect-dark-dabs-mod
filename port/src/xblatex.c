@@ -19,6 +19,7 @@
 #include "video.h"
 #include "x360.h"
 #include "xblaimport.h"
+#include "texpack.h"
 #include "xblatex.h"
 
 // Inside the package. The only file this reads.
@@ -500,13 +501,51 @@ s32 xblaTexRecordIsSoft(u32 record)
 	return softRecord[record] == XBLATEX_SOFT_YES;
 }
 
+s32 xblaTexRecordOf(const void *addr)
+{
+	const struct xblatexentry *e;
+	s32 record;
+
+	if (numBound == 0 || !lock) {
+		return -1;
+	}
+
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+	record = e ? (s32)e->record : -1;
+
+	SDL_UnlockMutex(lock);
+
+	return record;
+}
+
 u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 {
 	struct xblatexentry *e;
+	s32 record;
 	u8 *rgba;
 
-	if (numBound == 0 || !lock) {
+	record = xblaTexRecordOf(addr);
+
+	if (record < 0) {
 		return NULL;
+	}
+
+	// The player's own picture for this record, if a pack ships one. Asked
+	// outside the lock: the first ask is what makes texpack read the pack off
+	// the disk, and the mesh builder on the game thread wants this lock for
+	// every material it writes.
+	//
+	// It answers NULL while the decode is queued, which is the same answer it
+	// gives the numbered textures, and means the release's own art below is
+	// drawn until the image lands rather than a frame of nothing.
+	if (texpackHaveXblaReplacement(record)) {
+		rgba = texpackLoadXblaReplacement(record, outWidth, outHeight);
+
+		if (rgba) {
+			return rgba;
+		}
 	}
 
 	SDL_LockMutex(lock);
@@ -521,6 +560,13 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 	rgba = xblaTexDecode(e->record, outWidth, outHeight);
 
 	SDL_UnlockMutex(lock);
+
+	// The one picture in the game that nothing else can write out: it is not
+	// in the ROM and has no texture number, and somebody painting over the
+	// meshes' art needs it and needs to know which record it was.
+	if (rgba && texpackDumpEnabled()) {
+		texpackDumpXblaRecord(rgba, (u32)*outWidth, (u32)*outHeight, (u32)record);
+	}
 
 	return rgba;
 }
@@ -560,6 +606,7 @@ void xblaTexShutdown(void)
 
 void xblaTexTrace(FILE *f)
 {
-	fprintf(f, "xblatex: enabled %d opened %d (0 untried, 1 open, -1 no package), %u records, %d bound, %d decodes\n",
-			optEnabled, opened, numRecords, numBound, numDecoded);
+	fprintf(f, "xblatex: enabled %d opened %d (0 untried, 1 open, -1 no package), %u records, %d bound, %d decodes, %d replaced by the pack\n",
+			optEnabled, opened, numRecords, numBound, numDecoded,
+			texpackGetNumXblaReplacements());
 }

@@ -24,6 +24,12 @@ extern "C" {
  * on its own, and the address of that tile is what says which record to decode
  * and hand over instead.
  *
+ * A pack can still replace one, just not by texture number: an `xbla` folder
+ * inside it holds an image per record, and the record found here is what is
+ * looked up in it (texpackHaveXblaReplacement()). The release's own picture is
+ * what is drawn until that image has been decoded, and is what F7 writes out
+ * for somebody to paint over.
+ *
  * The stand-in is the same size for every texture, and small - 32x32. That is
  * not the size of the picture: the renderer normalises texture coordinates by
  * the tile and samples whatever was uploaded across it, so a 512x512
@@ -81,6 +87,16 @@ void xblaTexSetEnabled(s32 enabled);
  */
 u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight);
 void xblaTexFreeReplacement(u8 *rgba);
+
+/**
+ * The record bound at addr, or -1 when that address is not one of ours.
+ *
+ * A player's own picture for a record arrives through the texture pack
+ * (texpackHaveXblaReplacement()), and the renderer's cache entry for it is
+ * keyed on this address - so when such a decode lands, this is what says which
+ * entry is holding the release's own art and has to go.
+ */
+s32 xblaTexRecordOf(const void *addr);
 
 /**
  * The picture's own width and height for a record, without decoding it -

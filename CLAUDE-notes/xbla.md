@@ -552,12 +552,14 @@ picture of it; meshes on, it is the release's panelled door - and the hazard
 bar on the frame beside it is the pack's either way.
 
 A mesh's materials name `Textures.raw` records **3741 to 5746** — past the 3503
-that carry a texture number — so nothing that goes by number can reach them and
-no texture pack can ship them: `xblaconvert.py` deliberately leaves them out.
-What the renderer does have is the address a display list binds, which is what
-`texpackLoadReplacement()` is keyed on. This plays the same trick one registry
-along. 646 distinct records are used across all 595 meshes, so what this can
-ever hold is that many stand-ins and not the 2006 the range suggests.
+that carry a texture number — so nothing that goes by number can reach them, and
+the pack `xblaconvert.py` writes deliberately leaves them out: a `<texnum>.png`
+could not name one. What the renderer does have is the address a display list
+binds, which is what `texpackLoadReplacement()` is keyed on. This plays the same
+trick one registry along. 646 distinct records are used across all 595 meshes,
+so what this can ever hold is that many stand-ins and not the 2006 the range
+suggests. A pack can still replace one, by record rather than by number - see
+"Repainting them" below.
 
 **A material's texture is a stand-in tile whose address is its name.** The list
 binds a 32x32 RGBA16 buffer that means nothing, `xblatex.c` remembers which
@@ -636,6 +638,75 @@ mode is the caller's - see "The translucent pass" below. The end of the list
 puts the texture switch and the colour table back and leaves the rest alone,
 since the cutout list drawn straight after has to find the node's state still
 there.
+
+#### Repainting them: a pack's own pictures, by record (2026-09-11)
+
+A pack folder called **`xbla`** holds one image per `Textures.raw` record,
+named in hex the way `<texnum>.png` is (`1156.png`, and `1156_car.png` too).
+That is the only naming there can be: a record is not a texture number, the two
+spaces overlap below 3503, and a filename cannot say which it means - so the
+folder says it. Anywhere in the pack will do, the scan carries the mark down
+into subfolders, and `Mod.LoadTextures` gates it like everything else.
+
+It reaches every material the release draws with, which is the models **and the
+rooms** - `xblastage.c` binds a stand-in through the same `xblaTexBind()`, so a
+level served from the release's own geometry is repainted by the same folder.
+That includes the **reused slots** (`XBLA_REUSED_SLOTS`), whose record number is
+*below* NUM_TEXTURES and equal to the texture number it shadows: inside `xbla/`
+that name means the release's picture for the slot, and `textures/<texnum>.png`
+still means the ROM's texture wherever the ROM's rooms draw it. The two never
+meet, which is the whole reason the folder has to say which space a name is in.
+
+**The picture comes back through xblatex, not through the pack hook.**
+`xblaTexLoadReplacement()` asks `texpackHaveXblaReplacement(record)` first and
+only decodes the release's own art when the answer is no. Two things follow:
+the image goes through the same `exact_uv` and stand-in tile the release's art
+does, so nothing about the UVs or the half texel changes; and `import_texture()`
+needs no second hook, its XBLA branch being the one that answers either way.
+
+**The decode is texpack's queue, kept store and byte budget** - it is the same
+kind of picture at the same sizes as a stage texture, and the two compete for
+the same memory (`Mod.TexturePackCacheMB`). Records take ids past the glyphs'
+(`TEXPACK_XBLA_ID_BASE`) and a keep slot past the texture numbers'
+(`TEXPACK_KEPT_SLOTS`), so one queue and one store serve all three. The first
+ask returns NULL as it does for any replacement and **the release's own art is
+drawn until the image lands**, rather than a frame of white.
+
+**One trap.** `gfx_texture_cache_drop_texnum()` skips an entry that is already
+`replaced`, which is what stops two addresses of one texture number taking turns
+re-queueing a decode. An XBLA entry is `replaced` the moment it has the
+release's art in it - that *is* a replacement - so the drop that follows the
+pack's decode would have skipped exactly the entry it had to remove, and the
+player's picture would never have appeared until something else evicted it. The
+`replaced` test is bypassed when the id names a record; there is one stand-in
+address per record, so the ping-pong it guards against cannot happen here.
+
+**Where the pictures come from.** `Mod.DumpTextures` (F7) writes every record
+the game draws into an `xbla/` folder under the dump directory, once per record
+per run, right way up - the folder a pack reads back, so it is dump, paint,
+drop it in. That is also the only way to find out *which* record a jacket or a
+wall panel is: stand in front of it and dump. For all of them at once,
+`xblaconvert.py --mesh-textures` writes the same folder from the package.
+
+**What a replacement does not change** is the material's classification:
+`xblaTexRecordIsSoft()` still reads the release's own picture, on the game
+thread as a list is built, and nothing on that thread may touch the pack index.
+So a record that draws as a cutout goes on drawing as a cutout however soft the
+replacement's alpha is. Painting a glow over a solid is the case that will look
+wrong, and the fix if it ever matters is to move the classification to where the
+picture arrives rather than to where the list is built.
+
+**Checked** on Chicago under Xvfb, the release's geometry and meshes both on:
+the dump of record `1156` (the police car's atlas) put back as the pack's own
+image is byte for byte the record (`x360.decode_texture()` against the PNG,
+unflipped - which is the flip convention proved in both directions), and every
+one of the twelve records that stage draws replaced by a flat magenta turns the
+car and the street magenta. `texpack: 12 pictures for the XBLA meshes' own
+textures` in the log, and `kept store holds 10 images, answered 10 repeat
+requests` at the end, is what "it is being used" looks like. Note that on-screen
+pixel diffs of that stage are noisy run to run (about 1200 pixels around the
+car's silhouette edges, stock against stock), so a diff is not the test here -
+the round trip is.
 
 #### The lighting (2026-09-10)
 

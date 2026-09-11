@@ -258,6 +258,66 @@ static u8 *texpackGlyphCopy(const struct texpackglyph *glyph, s32 *outWidth, s32
 }
 
 /**
+ * The XBLA meshes' own textures, which a pack replaces by record.
+ *
+ * A mesh's material names a record in the release's Textures.raw past the ones
+ * that carry a texture number (3741 to 5746 of them), so nothing keyed on a
+ * texture number can reach it and the numbered index above is no use. What the
+ * display list binds is a stand-in tile whose address is the name of a record -
+ * see xblatex.h - and xblatex.c asks here, by record, before it decodes the
+ * release's own picture for one.
+ *
+ * A pack keeps them in a folder named `xbla`, one image per record named in hex
+ * the way `<texnum>.png` is (0e9d.png, and 0e9d_whatever.png too), which is
+ * exactly the layout Mod.DumpTextures writes under the dump directory. The
+ * folder is what says a name means a record rather than a texture number: the
+ * two number spaces overlap below NUM_TEXTURES and a filename cannot tell them
+ * apart.
+ *
+ * Row order is our own convention, like everything else our naming covers: the
+ * image is written the right way up and turned over on load, unless the folder
+ * says it is already in N64 order. The release's own art is not turned over -
+ * it is decoded in the order the game's texture data uses - so a dump of it is
+ * flipped on the way out and flipped back on the way in.
+ */
+#define TEXPACK_XBLA_DIR "xbla"
+
+// Records a pack may name. The release has 5747 and the meshes use 2006 of
+// them; this is the bound on the id space below and on the dump, and a file
+// naming anything past it is refused rather than silently widening either.
+#define TEXPACK_XBLA_RECORDS 8192
+
+// Ids above the glyphs', so a record goes through the same decode queue.
+#define TEXPACK_XBLA_ID_BASE (TEXPACK_FONT_ID_BASE + 2 * TEXPACK_NUM_FONTS * TEXPACK_FONT_CHARS)
+
+static char **xblaReplacePaths; // TEXPACK_XBLA_RECORDS entries, made on the first one found
+static u8 *xblaReplaceFlip;
+static s32 numXblaReplacements;
+
+/**
+ * Where a job id's decoded image is kept.
+ *
+ * A texture number is its own slot and a record's is past them all, so the one
+ * store holds both under one byte budget - they are the same kind of picture at
+ * the same sizes, and a stage's and a mesh's compete for the same memory. A
+ * glyph is -1: fontDecoded keeps those, being small and wanted constantly.
+ */
+#define TEXPACK_KEPT_SLOTS (NUM_TEXTURES + TEXPACK_XBLA_RECORDS)
+
+static s32 texpackKeptIndex(s32 id)
+{
+	if (id >= 0 && id < NUM_TEXTURES) {
+		return id;
+	}
+
+	if (id >= TEXPACK_XBLA_ID_BASE && id < TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS) {
+		return NUM_TEXTURES + (id - TEXPACK_XBLA_ID_BASE);
+	}
+
+	return -1;
+}
+
+/**
  * Decoded stage textures, kept.
  *
  * A decoded image used to be handed to the renderer and forgotten, so every
@@ -289,7 +349,7 @@ struct texpackkept {
 	u32 lastUse;
 };
 
-static struct texpackkept *kept; // NUM_TEXTURES entries, allocated on first keep
+static struct texpackkept *kept; // TEXPACK_KEPT_SLOTS entries, allocated on first keep
 static u32 keptBytes;
 static u32 keptUseSerial;
 static s32 keptCount;
@@ -307,7 +367,7 @@ static void texpackKeptFree(void)
 {
 	s32 i;
 
-	for (i = 0; kept && i < NUM_TEXTURES; i++) {
+	for (i = 0; kept && i < TEXPACK_KEPT_SLOTS; i++) {
 		free(kept[i].rgba);
 	}
 
@@ -333,7 +393,7 @@ static void texpackKeptTrim(s32 spare)
 		s32 oldest = -1;
 		s32 i;
 
-		for (i = 0; i < NUM_TEXTURES; i++) {
+		for (i = 0; i < TEXPACK_KEPT_SLOTS; i++) {
 			if (kept[i].rgba && i != spare
 					&& (oldest < 0 || kept[i].lastUse < kept[oldest].lastUse)) {
 				oldest = i;
@@ -356,19 +416,23 @@ static void texpackKeptTrim(s32 spare)
  * Takes ownership of a decoded image. Returns the slot, or NULL if the store
  * could not be made - in which case the image is still the caller's.
  */
-static struct texpackkept *texpackKeptInsert(s32 texturenum, u8 *rgba, s32 width, s32 height)
+static struct texpackkept *texpackKeptInsert(s32 index, u8 *rgba, s32 width, s32 height)
 {
 	struct texpackkept *k;
 
+	if (index < 0) {
+		return NULL;
+	}
+
 	if (!kept) {
-		kept = calloc(NUM_TEXTURES, sizeof(*kept));
+		kept = calloc(TEXPACK_KEPT_SLOTS, sizeof(*kept));
 
 		if (!kept) {
 			return NULL;
 		}
 	}
 
-	k = &kept[texturenum];
+	k = &kept[index];
 
 	if (k->rgba) {
 		keptBytes -= texpackKeptBytes(k);
@@ -383,7 +447,7 @@ static struct texpackkept *texpackKeptInsert(s32 texturenum, u8 *rgba, s32 width
 	keptBytes += texpackKeptBytes(k);
 	keptCount++;
 
-	texpackKeptTrim(texturenum);
+	texpackKeptTrim(index);
 
 	return k;
 }
@@ -982,12 +1046,14 @@ static s32 texpackImageExt(const char *ext)
 }
 
 /**
- * The texture number a file is for, by our own naming: four hex digits,
+ * The number a file is named for, by our own naming: four hex digits,
  * optionally followed by an underscore and anything at all - which is what the
  * dumper writes (0a9a_i8.png), so a dump can be edited and dropped back in
- * without renaming. Returns -1 if the name is not one of ours.
+ * without renaming. Returns -1 if the name is not one of ours, or if the number
+ * is past limit - which is NUM_TEXTURES for a texture and the record count for
+ * an image in the xbla folder, the two spellings being identical.
  */
-static s32 texpackParseNativeName(const char *name)
+static s32 texpackParseHexName(const char *name, u32 limit)
 {
 	const char *rest;
 	u32 texturenum;
@@ -996,7 +1062,7 @@ static s32 texpackParseNativeName(const char *name)
 		return -1;
 	}
 
-	if (!texpackHex(name, 4, &texturenum) || texturenum >= NUM_TEXTURES) {
+	if (!texpackHex(name, 4, &texturenum) || texturenum >= limit) {
 		return -1;
 	}
 
@@ -1015,6 +1081,11 @@ static s32 texpackParseNativeName(const char *name)
 	}
 
 	return (s32)texturenum;
+}
+
+static s32 texpackParseNativeName(const char *name)
+{
+	return texpackParseHexName(name, NUM_TEXTURES);
 }
 
 static void texpackAddUnplaced(u32 crc, char *path)
@@ -1110,9 +1181,11 @@ struct texpackscan {
 	s32 bottomUp; // this folder's images are already in N64 row order
 	s32 fontId;   // the font this folder holds glyphs for, or -1
 	s32 outline;  // and whether they are the outline set
+	s32 xbla;     // this folder's names are Textures.raw records, not texture numbers
 };
 
-static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline);
+static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline,
+		s32 xbla);
 
 /**
  * The character index a glyph image is for: its name in hex, any number of
@@ -1170,6 +1243,49 @@ static void texpackIndexGlyph(const struct texpackscan *scan, const char *name)
 		fontReplaceFlip[scan->outline][scan->fontId][index] = (u8)!scan->bottomUp;
 		numFontReplacements++;
 	}
+}
+
+/**
+ * Records one image against the Textures.raw record it replaces.
+ *
+ * The index is made here rather than with the rest, because a pack that has no
+ * xbla folder should not carry 64KB of it - and most do not.
+ */
+static void texpackIndexXbla(const struct texpackscan *scan, const char *name, s32 record)
+{
+	char **slot;
+	char *path;
+
+	if (!xblaReplacePaths) {
+		xblaReplacePaths = calloc(TEXPACK_XBLA_RECORDS, sizeof(char *));
+		xblaReplaceFlip = calloc(TEXPACK_XBLA_RECORDS, 1);
+
+		if (!xblaReplacePaths || !xblaReplaceFlip) {
+			free(xblaReplacePaths);
+			free(xblaReplaceFlip);
+			xblaReplacePaths = NULL;
+			xblaReplaceFlip = NULL;
+			return;
+		}
+	}
+
+	path = texpackJoin(scan->dir, name);
+
+	if (!path) {
+		return;
+	}
+
+	slot = &xblaReplacePaths[record];
+
+	if (!*slot) {
+		numXblaReplacements++;
+	}
+
+	// A later directory outranks an earlier one, the same way the numbered
+	// index lets the chosen pack win over a mod's textures folder.
+	free(*slot);
+	*slot = path;
+	xblaReplaceFlip[record] = (u8)!scan->bottomUp;
 }
 
 /**
@@ -1999,6 +2115,18 @@ static void texpackIndexFile(const char *name, void *arg)
 		return;
 	}
 
+	// And inside the xbla folder it means a record of the release's
+	// Textures.raw, which is a wider range than the texture numbers and
+	// overlaps them: 0013.png here is the record, not texture 0x13.
+	if (scan->xbla) {
+		const s32 record = texpackParseHexName(name, TEXPACK_XBLA_RECORDS);
+
+		if (record >= 0) {
+			texpackIndexXbla(scan, name, record);
+			return;
+		}
+	}
+
 	{
 		// an emulator's texture cache file, records indexed one by one
 		const char *dot = strrchr(name, '.');
@@ -2034,6 +2162,7 @@ static void texpackIndexFile(const char *name, void *arg)
 				char sub[FS_MAXPATH + 1];
 				s32 subFont = scan->fontId;
 				s32 subOutline = scan->outline;
+				s32 subXbla = scan->xbla;
 
 				if (subFont < 0) {
 					subFont = texpackFontIdFromName(name);
@@ -2041,8 +2170,12 @@ static void texpackIndexFile(const char *name, void *arg)
 					subOutline = 1;
 				}
 
+				if (subFont < 0 && !strcasecmp(name, TEXPACK_XBLA_DIR)) {
+					subXbla = 1;
+				}
+
 				snprintf(sub, sizeof(sub), "%s/%s", dir, name);
-				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, subFont, subOutline);
+				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, subFont, subOutline, subXbla);
 			}
 
 			return;
@@ -2135,6 +2268,16 @@ static void texpackFreeIndex(void)
 		}
 	}
 
+	for (i = 0; xblaReplacePaths && i < TEXPACK_XBLA_RECORDS; i++) {
+		free(xblaReplacePaths[i]);
+	}
+
+	free(xblaReplacePaths);
+	free(xblaReplaceFlip);
+	xblaReplacePaths = NULL;
+	xblaReplaceFlip = NULL;
+	numXblaReplacements = 0;
+
 	numFontReplacements = 0;
 	texpackGlyphsFree();
 	texpackKeptFree();
@@ -2189,7 +2332,8 @@ static s32 texpackDirIsBottomUp(const char *path)
 	return fsFileSize(marker) >= 0;
 }
 
-static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline)
+static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline,
+		s32 xbla)
 {
 	struct texpackscan scan;
 
@@ -2209,13 +2353,14 @@ static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fon
 	scan.bottomUp = bottomUp;
 	scan.fontId = fontId;
 	scan.outline = outline;
+	scan.xbla = xbla;
 
 	fsScanDir(path, texpackIndexFile, &scan);
 }
 
 static void texpackScanPath(const char *path)
 {
-	texpackScanPathAt(path, 0, 0, -1, 0);
+	texpackScanPathAt(path, 0, 0, -1, 0, 0);
 }
 
 static void texpackScanDir(const char *dir)
@@ -2503,13 +2648,18 @@ static void texpackScan(void)
 	// Either kind on its own is a working pack. A Rice pack can be all model
 	// textures, and dropping the index because no texture number claimed one
 	// would throw the whole thing away.
-	if (numReplacements || numUnplaced || numFontReplacements) {
+	if (numReplacements || numUnplaced || numFontReplacements || numXblaReplacements) {
 		if (numReplacements) {
 			sysLogPrintf(LOG_NOTE, "texpack: %d replacement textures", numReplacements);
 		}
 
 		if (numFontReplacements) {
 			sysLogPrintf(LOG_NOTE, "texpack: %d font glyphs", numFontReplacements);
+		}
+
+		if (numXblaReplacements) {
+			sysLogPrintf(LOG_NOTE, "texpack: %d pictures for the XBLA meshes' own textures",
+					numXblaReplacements);
 		}
 
 		if (numUnplaced) {
@@ -2870,7 +3020,8 @@ static struct texpackglyph *texpackGlyphKeep(struct texpackjob *job)
 
 static struct texpackkept *texpackJobKeep(struct texpackjob *job)
 {
-	struct texpackkept *k = texpackKeptInsert(job->texturenum, job->rgba, job->width, job->height);
+	struct texpackkept *k = texpackKeptInsert(texpackKeptIndex(job->texturenum),
+			job->rgba, job->width, job->height);
 
 	if (!k) {
 		return NULL;
@@ -2898,7 +3049,7 @@ static struct texpackkept *texpackJobKeep(struct texpackjob *job)
  * the queue as slots free up - from texpackPollDecoded(), once a frame. Order
  * is by id rather than by request, which nothing depends on.
  */
-#define TEXPACK_NUM_JOB_IDS (TEXPACK_FONT_ID_BASE + 2 * TEXPACK_NUM_FONTS * TEXPACK_FONT_CHARS)
+#define TEXPACK_NUM_JOB_IDS (TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS)
 
 static u8 jobBacklog[(TEXPACK_NUM_JOB_IDS + 7) / 8];
 static s32 jobBacklogCount;
@@ -3018,7 +3169,16 @@ static int texpackDecodeWorker(void *arg)
 
 		// Copied under the lock, because texpackFreeIndex() may free the index
 		// itself - it stops this thread first, but only between jobs.
-		if (jobs[found].texturenum >= TEXPACK_FONT_ID_BASE) {
+		if (jobs[found].texturenum >= TEXPACK_XBLA_ID_BASE) {
+			const s32 record = jobs[found].texturenum - TEXPACK_XBLA_ID_BASE;
+
+			if (xblaReplacePaths && xblaReplacePaths[record]) {
+				path = strdup(xblaReplacePaths[record]);
+			}
+
+			kind = TEXPACK_KIND_NATIVE;
+			flip = xblaReplaceFlip ? xblaReplaceFlip[record] : 1;
+		} else if (jobs[found].texturenum >= TEXPACK_FONT_ID_BASE) {
 			s32 outline;
 			s32 font;
 			s32 index;
@@ -3131,6 +3291,9 @@ void texpackTrace(FILE *f)
 			counts[TEXPACK_JOB_FREE], counts[TEXPACK_JOB_QUEUED], counts[TEXPACK_JOB_DECODING],
 			counts[TEXPACK_JOB_READY], counts[TEXPACK_JOB_FAILED], TEXPACK_MAX_PENDING, backlog,
 			keptCount, keptBytes >> 20, keptHits, keptEvicted);
+
+	fprintf(f, "texpack xbla: %d pictures for the release's own texture records\n",
+			numXblaReplacements);
 }
 
 void texpackAsyncShutdown(void)
@@ -3193,9 +3356,11 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 	s32 i;
 
 	// Already decoded once: a copy, and no frame of the original.
-	if (texturenum < TEXPACK_FONT_ID_BASE && kept && kept[texturenum].rgba) {
+	const s32 keepIndex = texpackKeptIndex(texturenum);
+
+	if (keepIndex >= 0 && kept && kept[keepIndex].rgba) {
 		keptHits++;
-		return texpackKeptCopy(&kept[texturenum], outWidth, outHeight);
+		return texpackKeptCopy(&kept[keepIndex], outWidth, outHeight);
 	}
 
 	texpackAsyncStart();
@@ -3212,7 +3377,7 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 				*outWidth = jobs[i].width;
 				*outHeight = jobs[i].height;
 
-				if (texturenum >= TEXPACK_FONT_ID_BASE) {
+				if (texturenum >= TEXPACK_FONT_ID_BASE && texturenum < TEXPACK_XBLA_ID_BASE) {
 					// A glyph is kept, not handed over - see fontDecoded. The
 					// renderer never sees the slot's buffer, so no report to
 					// it is owed: this claim is the draw that uploads the
@@ -3229,7 +3394,12 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 					if (k) {
 						rgba = texpackKeptCopy(k, outWidth, outHeight);
 
-						if (!(keptReport[texturenum >> 3] & (1 << (texturenum & 7)))) {
+						// A record has exactly one stand-in address, so unlike
+						// a texture number there cannot be a second entry of
+						// the renderer's still showing the original for this
+						// claim to owe a report to.
+						if (texturenum < NUM_TEXTURES
+								&& !(keptReport[texturenum >> 3] & (1 << (texturenum & 7)))) {
 							keptReport[texturenum >> 3] |= (u8)(1 << (texturenum & 7));
 							keptReportCount++;
 						}
@@ -3309,7 +3479,8 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 			// whatever is drawn next; the copy the renderer gets when it asks
 			// comes from fontDecoded or the kept store. A stage texture the
 			// store will not take stays in its slot to be handed over.
-			if (jobs[i].texturenum >= TEXPACK_FONT_ID_BASE) {
+			if (jobs[i].texturenum >= TEXPACK_FONT_ID_BASE
+					&& jobs[i].texturenum < TEXPACK_XBLA_ID_BASE) {
 				texpackGlyphKeep(&jobs[i]);
 			} else {
 				texpackJobKeep(&jobs[i]);
@@ -3319,7 +3490,17 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 			// on every cache miss would log it forever. Drop it and draw the
 			// original. Done here rather than on the worker because the index
 			// belongs to this thread.
-			if (jobs[i].texturenum >= TEXPACK_FONT_ID_BASE) {
+			if (jobs[i].texturenum >= TEXPACK_XBLA_ID_BASE) {
+				const s32 record = jobs[i].texturenum - TEXPACK_XBLA_ID_BASE;
+
+				if (xblaReplacePaths && xblaReplacePaths[record]) {
+					sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it",
+							xblaReplacePaths[record]);
+					free(xblaReplacePaths[record]);
+					xblaReplacePaths[record] = NULL;
+					numXblaReplacements--;
+				}
+			} else if (jobs[i].texturenum >= TEXPACK_FONT_ID_BASE) {
 				s32 outline;
 				s32 font;
 				s32 index;
@@ -3399,13 +3580,65 @@ u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight)
 	return texpackClaimDecoded(texpackFontJobId(outline, font, index), outWidth, outHeight);
 }
 
+/**
+ * Whether a pack has a picture for one of the release's texture records, which
+ * is what xblatex.c asks before it decodes the release's own.
+ *
+ * Scans on the first ask like the numbered index does - this may be the first
+ * question anything puts to the pack, since a level made of the release's own
+ * rooms draws nothing else.
+ */
+s32 texpackHaveXblaReplacement(s32 record)
+{
+	if (!replaceScanned) {
+		texpackScan();
+	}
+
+	return xblaReplacePaths && record >= 0 && record < TEXPACK_XBLA_RECORDS
+		&& xblaReplacePaths[record] != NULL;
+}
+
+/**
+ * The picture for one record, queued and returned like any other replacement:
+ * the first ask gets NULL and the caller draws the release's own art, and the
+ * frame after the decode lands the renderer drops the entry holding it.
+ */
+u8 *texpackLoadXblaReplacement(s32 record, s32 *outWidth, s32 *outHeight)
+{
+	if (!texpackHaveXblaReplacement(record)) {
+		return NULL;
+	}
+
+	return texpackClaimDecoded(TEXPACK_XBLA_ID_BASE + record, outWidth, outHeight);
+}
+
+/**
+ * The record a decoded id reported by texpackPollDecoded() is for, or -1 when
+ * the id is a texture number's or a glyph's.
+ */
+s32 texpackXblaRecordFromId(s32 id)
+{
+	return (id >= TEXPACK_XBLA_ID_BASE && id < TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS)
+		? id - TEXPACK_XBLA_ID_BASE : -1;
+}
+
+/**
+ * How many records a pack replaces. Asked by the menu, which is the game
+ * thread, so this never starts the scan itself - the render thread owns that,
+ * and by the time a page is open the first texture has long since been drawn.
+ */
+s32 texpackGetNumXblaReplacements(void)
+{
+	return numXblaReplacements;
+}
+
 s32 texpackDecodedIsGlyph(s32 id, u32 glyph)
 {
 	s32 outline;
 	s32 font;
 	s32 index;
 
-	if (id < TEXPACK_FONT_ID_BASE || !(glyph & TEXPACK_GLYPH_SET)) {
+	if (id < TEXPACK_FONT_ID_BASE || id >= TEXPACK_XBLA_ID_BASE || !(glyph & TEXPACK_GLYPH_SET)) {
 		return 0;
 	}
 
@@ -3964,6 +4197,64 @@ void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 si
 
 	if (dumpTextureData) {
 		texpackDumpRaw(texturenum, fmt, siz, raw);
+	}
+}
+
+/**
+ * One of the release's own texture records, written out as a pack would ship it.
+ *
+ * The meshes' pictures are not in the ROM and have no texture number, so
+ * nothing above ever sees them - but they are the one thing a person editing
+ * the meshes' art needs, and the only way to know which record a jacket or a
+ * wall panel is, is to see it come off the thing being looked at. Written from
+ * the same F7 as everything else, into an xbla/ folder under the dump, which is
+ * the folder a pack wants: dump, paint over it, drop the folder into the pack.
+ *
+ * Once per record per run, and turned over on the way out for the same reason
+ * every other dump is - the picture is in the game's row order and an image
+ * editor wants it the other way up.
+ */
+void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
+{
+	static u8 xblaDumpDone[(TEXPACK_XBLA_RECORDS + 7) / 8];
+	static s32 xblaDumpDirState; // 0 = not tried, 1 = ready, -1 = gave up
+	char path[FS_MAXPATH + 1];
+
+	if (!dumpTextures || !rgba32 || width == 0 || height == 0 || record >= TEXPACK_XBLA_RECORDS) {
+		return;
+	}
+
+	if (xblaDumpDone[record >> 3] & (1 << (record & 7))) {
+		return;
+	}
+
+	if (!texpackOpenDumpDir()) {
+		return;
+	}
+
+	if (xblaDumpDirState == 0) {
+		xblaDumpDirState = -1;
+		snprintf(path, sizeof(path), "%s/" TEXPACK_XBLA_DIR, dumpDir);
+
+		if (fsFileSize(path) >= 0 || fsCreateDir(path) == 0) {
+			xblaDumpDirState = 1;
+		} else {
+			sysLogPrintf(LOG_ERROR, "texpack: could not create %s", path);
+		}
+	}
+
+	if (xblaDumpDirState < 0) {
+		return;
+	}
+
+	// Marked before the write, so one that cannot be written is not tried
+	// again on every cache miss for the rest of the run.
+	xblaDumpDone[record >> 3] |= (u8)(1 << (record & 7));
+
+	snprintf(path, sizeof(path), "%s/" TEXPACK_XBLA_DIR "/%04x.png", dumpDir, record);
+
+	if (pngWrite(path, rgba32, width, height, 4, 1)) {
+		sysLogPrintf(LOG_NOTE, "texpack: dumped XBLA record %04x %ux%u", record, width, height);
 	}
 }
 

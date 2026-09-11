@@ -16,7 +16,10 @@ Four directories are involved and only one of them puts a pack in the menu.
 
 All of it needs `Mod.LoadTextures=1`. The images are `<texnum>.png`, four
 lowercase hex digits; a mod's `textures/*.bin` is the raw-N64-data path instead
-and is unrelated. `tools/texpack/riceconvert.py` writes the first kind.
+and is unrelated. `tools/texpack/riceconvert.py` writes the first kind. Two
+folder names inside a pack mean something other than texture numbers: one named
+after a font holds glyphs, and `xbla` holds the XBLA release's own texture
+records - see those sections below.
 
 ## Replacement textures are decoded off the render thread
 
@@ -308,6 +311,66 @@ flicker and reads like a scale error. Do not reintroduce it.
 may not be replaced at the moment you look, and reading it cost a long detour
 here; the file select screen is dense with text in three fonts and is the same
 every time.
+
+## Replacing the XBLA release's own textures (2026-09-11)
+
+A pack can repaint the Xbox 360 release's models and rooms as well, from a
+folder named **`xbla`** holding one image per `Textures.raw` record - `1156.png`,
+four hex digits, `_anything` after them allowed, exactly the `<texnum>.png`
+naming one number space along. Anywhere in the pack; the mark is inherited by
+subfolders like the row-order one.
+
+**Why a folder and not a number.** A material of the release's geometry names a
+record, not a texture number. The two spaces overlap - record 0x13 and texture
+0x13 are different pictures - and a filename cannot say which it means, so the
+folder does. Nothing else in a pack changes: `textures/` still means texture
+numbers, and a pack with both repaints the game's own art and the release's.
+
+The overlap is not hypothetical: the release's rooms draw the **reused slots**
+(`XBLA_REUSED_SLOTS`, xbla.md) through a stand-in as well, and a reused slot's
+record number is the texture number it shadows. Slot 0222 is a police car's
+light bar in the ROM and a Villa cliff in the release, so `textures/0222.png`
+repaints the light bar and `xbla/0222.png` repaints the cliff.
+
+**It is xblatex that asks.** The renderer's hook is unchanged: the XBLA branch
+of `import_texture()` calls `xblaTexLoadReplacement()`, which now asks
+`texpackHaveXblaReplacement(record)` before it decodes the release's own
+picture. So a record's image goes up through the same stand-in tile and the
+same `exact_uv` as the art it replaces, and until it has decoded the release's
+own picture is what is drawn - not a frame of white.
+
+The decode is this file's queue and kept store: a record takes a job id past the
+glyphs' and a keep slot past the texture numbers', so one worker, one backlog
+and one byte budget serve numbered textures, glyphs and records alike. What that
+buys is what it buys everywhere else - no PNG on the render thread, and no
+re-decode when the renderer's cache evicts one.
+
+**The one thing that had to change in the renderer.**
+`gfx_texture_cache_drop_texnum()` leaves an entry alone if it is already
+`replaced`; an XBLA entry is `replaced` while it holds *the release's* art,
+which is the entry the pack's decode has to evict. The `replaced` test is
+skipped when the decoded id names a record. Safe because a record has exactly
+one stand-in address, so the two-entries-taking-turns case the flag exists for
+cannot arise.
+
+**Getting the pictures to paint over.** `Mod.DumpTextures` (F7) writes every
+record the game draws into `texturedump/<romid>/xbla/`, once per record per run
+and the right way up - which is the layout a pack reads back, so a dump can be
+edited and dropped in as it is. It is also the only way to learn *which* record
+a particular surface uses: stand in front of it and dump. All of them at once
+come from `tools/texpack/xblaconvert.py --mesh-textures`, which writes the same
+folder out of the package.
+
+**Row order is ours**: the image is written the right way up and turned over on
+load, unless the folder says it is already in N64 order. The release's record is
+stored in the game's own order and is *not* turned over when it is drawn - so
+the dump flips on the way out and the load flips back, and the round trip is
+byte for byte (checked against `x360.decode_texture()` on record 0x1156).
+
+**What it does not reach**: whether a material is a cutout or is drawn blended
+is decided from the release's own picture as the display list is built, on the
+game thread, which may not touch the pack index - see `xblaTexRecordIsSoft()`.
+Painting a glow over a solid therefore still draws as a cutout.
 
 ## Texture pack keys
 

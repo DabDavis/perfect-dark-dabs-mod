@@ -790,20 +790,30 @@ void gfx_texture_cache_clear() {
 static void gfx_texture_cache_drop_texnum(int32_t texturenum) {
     bool dropped = false;
 
+    // An XBLA mesh's texture is the one entry that has to be dropped while it
+    // is already `replaced`: the release's own art is a replacement too, and it
+    // is what the entry has been showing while the player's own picture for
+    // that record decoded. There is only ever one stand-in address per record,
+    // so the ping-pong the flag is there to stop cannot happen here anyway.
+    const int32_t xbla_record = texpackXblaRecordFromId(texturenum);
+
     for (TextureCacheMap::iterator it = gfx_texture_cache.map.begin();
             it != gfx_texture_cache.map.end(); ) {
         // An entry already showing the replacement has nothing to drop. One
         // texture number at two addresses is what this is for: without it the
         // entry uploaded from the first decode went out with the other one's
         // original, and the two took turns re-queueing the decode.
-        if (it->second.replaced) {
+        if (it->second.replaced && xbla_record < 0) {
             ++it;
             continue;
         }
 
         // A glyph has no texture number, so it is matched by what the display
-        // list called it instead.
-        const bool hit = it->first.glyph
+        // list called it instead, and a record of the release's own textures by
+        // the stand-in tile its list binds.
+        const bool hit = xbla_record >= 0
+                ? xblaTexRecordOf(it->first.texture_addr) == xbla_record
+                : it->first.glyph
                 ? texpackDecodedIsGlyph(texturenum, it->first.glyph) != 0
                 : texpackGetTextureNum(it->first.texture_addr) == texturenum;
 
@@ -1530,11 +1540,13 @@ static void import_texture(int i, int tile, bool importReplacement) {
     }
 
     // The XBLA meshes' own textures. They are records in the release's
-    // Textures.raw past the ones that carry a texture number, so no pack can
-    // ship them and nothing keyed on a number can find them; what a mesh's
-    // display list binds is a stand-in tile whose address is the name of a
-    // record. Ahead of the pack lookup because a stand-in is not a texture any
-    // pack has an opinion about, and behind the cache like everything else.
+    // Textures.raw past the ones that carry a texture number, so nothing keyed
+    // on a number can find them; what a mesh's display list binds is a stand-in
+    // tile whose address is the name of a record. Ahead of the pack lookup
+    // because a stand-in is not a texture the numbered index has an opinion
+    // about, and behind the cache like everything else. A pack that ships an
+    // xbla folder replaces one of these too - xblatex.c asks for it by record
+    // and hands back the release's own art until it has decoded.
     if (xblaTexHaveTextures()) {
         int32_t rep_width;
         int32_t rep_height;

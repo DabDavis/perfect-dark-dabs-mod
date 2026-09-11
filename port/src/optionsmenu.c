@@ -4700,6 +4700,33 @@ static MenuItemHandlerResult menuhandlerXblaMeshTextures(s32 operation, struct m
 	return 0;
 }
 
+static char g_XblaMeshPackText[80];
+
+/**
+ * Said only when a pack has pictures of its own for the meshes' textures.
+ *
+ * The release's own art is the whole point of the checkbox above, so a player
+ * who has repainted some of it is the one person on this page who cannot tell
+ * from the picture whether their folder was read at all - the records have no
+ * texture number, so the count on the Texture Packs page does not cover them.
+ */
+static const char *menutextXblaMeshPack(struct menuitem *item)
+{
+	snprintf(g_XblaMeshPackText, sizeof(g_XblaMeshPackText),
+			"%d of them replaced from the texture pack\n", texpackGetNumXblaReplacements());
+
+	return g_XblaMeshPackText;
+}
+
+static MenuItemHandlerResult menuhandlerXblaMeshPack(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return texpackGetNumXblaReplacements() == 0;
+	}
+
+	return 0;
+}
+
 /**
  * The rooms follow the same rule as the pictures - the release's geometry
  * is the models feature applied to the levels, so this counts while the
@@ -4884,6 +4911,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Textures",
 		0,
 		menuhandlerXblaMeshTextures,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)menutextXblaMeshPack,
+		0,
+		menuhandlerXblaMeshPack,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

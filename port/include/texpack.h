@@ -221,6 +221,37 @@ u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight);
 
 /** Whether a decoded id reported by texpackPollDecoded() is this glyph. */
 s32 texpackDecodedIsGlyph(s32 id, u32 glyph);
+
+/**
+ * The XBLA meshes' and rooms' own textures, replaced by record.
+ *
+ * A material of the release's geometry names a record in its Textures.raw
+ * rather than a texture number - see xblatex.h - so neither the numbered index
+ * nor a texel checksum can reach one. A pack ships these in a folder called
+ * `xbla`, one image per record named in hex the way <texnum>.png is, which is
+ * also the layout Mod.DumpTextures writes them out in.
+ *
+ * Asked by xblatex.c before it decodes the release's own picture for a record.
+ * Queued and returned like every other replacement: the first ask gets NULL and
+ * the release's art is drawn until the decode lands.
+ */
+s32 texpackHaveXblaReplacement(s32 record);
+u8 *texpackLoadXblaReplacement(s32 record, s32 *outWidth, s32 *outHeight);
+s32 texpackGetNumXblaReplacements(void); // never scans; 0 until something has drawn
+
+/**
+ * The record a decoded id from texpackPollDecoded() names, or -1 when the id is
+ * a texture number's or a glyph's. The renderer's entry for a record is keyed
+ * on the stand-in tile's address, so this is how it knows to drop one.
+ */
+s32 texpackXblaRecordFromId(s32 id);
+
+/**
+ * Writes one of the release's texture records out under the dump directory, in
+ * the xbla/ folder a pack reads back. Once per record per run, and only while
+ * Mod.DumpTextures is on.
+ */
+void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record);
 void texpackAsyncShutdown(void);
 
 /**
