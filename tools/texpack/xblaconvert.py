@@ -79,7 +79,8 @@ def reused_slots():
     except OSError:
         sys.exit('%s is needed for the list of reused slots' % SLOTS_HEADER)
     import re
-    m = re.search(r'#define XBLA_REUSED_SLOTS((?:\s*\\\n[^\n]*)+)', text)
+    # The define runs over as many continuation lines as the list needs
+    m = re.search(r'#define XBLA_REUSED_SLOTS((?:[^\n]*\\\n)*[^\n]*)', text)
     if not m:
         sys.exit('no XBLA_REUSED_SLOTS in %s' % SLOTS_HEADER)
     return frozenset(int(x, 16) for x in re.findall(r'0x[0-9a-fA-F]+', m.group(1)))

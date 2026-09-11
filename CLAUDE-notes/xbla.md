@@ -174,24 +174,66 @@ read. The I8 flares keep their shape in alpha over a near-white colour,
 which is what `skyRenderFlare()`'s `(TEXEL0 * ENV)` alpha wants, and
 `gfx_replacement_alpha()` leaves a picture that carries alpha alone.
 
-**Open: record N is not always 4J's version of texture N.** The sweep
-showed Villa's cliffs as Area 51's "51" wall with the release rooms and the
-pack off, and Crash Site's cliff as a striped panel. A gdb breakpoint on
+**Record N is not always 4J's version of texture N.** The sweep showed
+Villa's cliffs as Area 51's "51" wall with the release rooms and the pack
+off, and Crash Site's cliff as a striped panel. A gdb breakpoint on
 `texLoadFromGdl()`'s `texturenum = ...` line, printing `w1 & 0xffff` for a
 Villa run with the release rooms and one with the ROM's, gives 669 reads and
 40 numbers each; the release rooms bind six slots the ROM's never do
 (0222, 0224, 0227, 022f, 08a2, 08a3) and drop seven (08f9, 0904, 0905,
-0916, 0921, 0924, 092a). In the ROM the six are Chicago's police and
-dataDyne signs, a "23" sign, and Area 51's "51" wall and door panel; in the
+0916, 0921, 0924, 092a). In the ROM the six are a police car's light bar and
+door star, a "23" sign, and Area 51's "51" wall and door panel; in the
 release they are cliff and grass. So with the pack off the release rooms
-draw the ROM's signs on cliffs, and with the pack on any ROM room that
-binds those slots - Chicago and Area 51 with the meshes off, or any of the
-seven levels the loader refuses - draws cliffs on its signs. The fix is one
-table of reused slots, from that diff over all 31 rewritten levels: the
-importer leaves them out of the pack, and the release branch in
-`texLoadFromGdl()` binds them through `xblaStageWriteTexture()` like the
-records past `NUM_TEXTURES`, so a release room gets 4J's picture whatever
-pack is on. Not done yet.
+draw the ROM's signs on cliffs, and with the pack on anything that binds
+those slots draws cliffs on its signs. The fix is one table of reused slots
+(`port/include/xblaslots.h`): the importer leaves them out of the pack, and
+the release branch in `texLoadFromGdl()` binds them through
+`xblaStageWriteTexture()` like the records past `NUM_TEXTURES`, so a release
+room gets 4J's picture whatever pack is on.
+
+#### The whole list, off the files (2026-09-11)
+
+A run only visits the rooms it walks through, and only of the level it boots.
+`tools/texpack/bgtexscan.py` reads the rooms out of the bg file instead -
+header, primary, room table, roomgfxdata, every roomblock's display list -
+so it covers all 60 files, every room, in a second. It reproduces the Villa
+six exactly, which is what says the parse is right, and finds **44**
+candidates over the 30 files that have rooms.
+
+A candidate is not a finding. 4J also retextured surfaces with slots the
+level had simply not used before, and those come out of the diff looking the
+same: 0962 is sand in both copies, 0a4b a blue swirl, 0aa5 blue stripes.
+What separates them is the picture, so each candidate was decoded from
+Textures.raw and put beside the ROM's dump. Correlation does not decide it -
+544 of the 3495 records correlate under 0.2 with the ROM's texture because
+4J redrew that much art - but a subject does: a taxi's "FOR HIRE" sign
+against a wall of circuit panels is a different picture, a low-res leaf
+against a sharp leaf (08ad, the rubber plant) is the same one. Twenty-two of
+the 44 changed subject.
+
+**The room diff cannot see a slot only a model binds**, and most of these
+are exactly that: no ROM *room* binds 0222 at all. Every reused slot found
+belongs to one of five ROM props - `taxicab`, `policecar`, `hovbike`,
+`a51interceptor`, `dd_hovercopter`, the Chicago, Defection and Area 51
+vehicles - so all 79 slots those five bind were compared picture by picture
+too (`bgtexscan.py --models`). Three more came out of it: 0217, 0230, 08ac,
+which no room of either copy binds and which therefore only need keeping out
+of the pack. Twenty-five slots in all.
+
+Where the release binds them: Villa and Villa (MP) the original six plus
+0219, Crash Site 0221/0223/0226, Defection 0216/021b, Ravine 021a, Skedar
+(MP) 00a5, Ruins (MP) 00a9, Complex (MP) 089e, Air Base 089f, Grid (MP)
+08bb/08bf/08c0, Felicity (MP) 08c1, Attack Ship 08c3. Defection is the level
+the Chicago-band slots came *from*, and its release rooms drop 00a5, 00a9
+and 00a6-00ad - the other half of the same move.
+
+Deliberately not listed, because the picture says redraw rather than reuse:
+007b (Defection's billboard, a printed poster in the ROM and a lit video
+panel in the release, and **both** copies' rooms bind it), 0215 (the rope
+prop, and both copies' Air Base rooms bind it), 08ad, 08b8 (the
+hovercopter's rotor, still a rotor). A false entry costs an upscale and
+mis-scales the release room that binds the slot, so the bar is the picture
+and not the diff.
 
 ### Row order
 
