@@ -36,6 +36,7 @@
 #define MODELPACK_TEXPOOL (128 * 1024)
 
 static s32 loadModels = 0;
+static s32 preferXbla = MODELPACK_PREFER_N64;
 static char packName[MODELPACK_NAMELEN] = "";
 
 static char packNames[MODELPACK_MAXPACKS][MODELPACK_NAMELEN];
@@ -47,12 +48,14 @@ static s32 listed;
 static char **n64Paths;
 static char **xblaPaths;
 static s32 indexedFor = -2; // which pack the two tables describe; -2 = none yet
+static u32 indexedGen;      // and at which generation, so a re-list is noticed
 static u32 generation = 1;
 
 PD_CONSTRUCTOR static void modelpackConfigInit(void)
 {
 	configRegisterInt("Mod.LoadModels", &loadModels, 0, 1);
 	configRegisterString("Mod.ModelPack", packName, sizeof(packName));
+	configRegisterInt("Mod.ModelPackPrefer", &preferXbla, MODELPACK_PREFER_N64, MODELPACK_PREFER_XBLA);
 }
 
 s32 modelpackLoadEnabled(void)
@@ -68,6 +71,29 @@ void modelpackSetLoadEnabled(s32 enabled)
 		loadModels = enabled;
 		generation++;
 		sysLogPrintf(LOG_NOTE, "modelpack: packs %s", loadModels ? "on" : "off");
+	}
+}
+
+s32 modelpackGetPrefer(void)
+{
+	return preferXbla ? MODELPACK_PREFER_XBLA : MODELPACK_PREFER_N64;
+}
+
+/**
+ * The preference is read at the draw rather than where a mesh is built, so
+ * nothing has to be built again for it - but the generation is bumped all the
+ * same, since a model that has been drawing its pack file has never had its
+ * mesh built and wants it now.
+ */
+void modelpackSetPrefer(s32 prefer)
+{
+	prefer = prefer ? MODELPACK_PREFER_XBLA : MODELPACK_PREFER_N64;
+
+	if (prefer != preferXbla) {
+		preferXbla = prefer;
+		generation++;
+		sysLogPrintf(LOG_NOTE, "modelpack: a model with both draws %s",
+				preferXbla ? "the XBLA mesh" : "the pack's own model");
 	}
 }
 
@@ -123,25 +149,61 @@ static void modelpackListAdd(const char *name, void *arg)
 void modelpackRefreshPacks(void)
 {
 	const char *dir = modelpackGetPacksDirPath();
+	const s32 had = selectedPack >= 0;
 
 	numPacks = 0;
 	listed = 1;
-
-	if (!dir) {
-		return;
-	}
-
-	fsScanDir(dir, modelpackListAdd, (void *)dir);
 
 	// A pack's place in the list can move when one is added or taken away,
 	// so the selection is kept by name.
 	selectedPack = -1;
 
-	for (s32 i = 0; i < numPacks; i++) {
-		if (packName[0] && !strcmp(packNames[i], packName)) {
-			selectedPack = i;
+	if (dir) {
+		fsScanDir(dir, modelpackListAdd, (void *)dir);
+
+		for (s32 i = 0; i < numPacks; i++) {
+			if (packName[0] && !strcmp(packNames[i], packName)) {
+				selectedPack = i;
+			}
 		}
 	}
+
+	// The chosen pack was taken off the disk under us: what is drawn from it
+	// has to go, the same as if it had been switched off.
+	if (had && selectedPack < 0) {
+		generation++;
+		sysLogPrintf(LOG_NOTE, "modelpack: %s is not there any more", packName);
+	}
+}
+
+/**
+ * Whether there is anything in model-packs/ at all.
+ *
+ * What this gates is the filing of every model's list nodes as it loads, which
+ * is what makes a pack live (xblamesh.c): a player who has never put a pack
+ * there files nothing and pays nothing for the feature, and one who has pays a
+ * tree walk per model load whether or not a pack is switched on - so that
+ * switching one on is a thing that happens on the next frame.
+ *
+ * The list behind it is taken once and kept (modelpackGetNumPacks()), so this
+ * is a compare after the first model of a session asks.
+ */
+s32 modelpackHavePacks(void)
+{
+	return modelpackGetNumPacks() > 0;
+}
+
+void modelpackReload(void)
+{
+	// Both lists again: which packs are there, and what the chosen one holds.
+	// The generation is what says the rest of it - a mesh built from a file
+	// that has just been edited - is stale.
+	listed = 0;
+	indexedFor = -2;
+	generation++;
+
+	sysLogPrintf(LOG_NOTE, "modelpack: reloaded %s",
+			packName[0] ? packName : "models (no pack selected)");
 }
 
 s32 modelpackGetNumPacks(void)
@@ -264,11 +326,12 @@ static void modelpackIndex(void)
 
 	modelpackGetNumPacks();
 
-	if (indexedFor == selectedPack) {
+	if (indexedFor == selectedPack && indexedGen == generation) {
 		return;
 	}
 
 	indexedFor = selectedPack;
+	indexedGen = generation;
 
 	if (!n64Paths) {
 		n64Paths = calloc(NUM_FILE_SLOTS, sizeof(char *));
@@ -360,9 +423,14 @@ static void modelpackFlipRows(u8 *rgba, s32 width, s32 height)
 }
 
 /**
- * One of the ROM's textures as RGBA in the game's row order: the texture
- * pack's picture for it if there is one, else the ROM's own, decoded through
- * a pool of this file's own so nothing of the stage's is touched.
+ * One of the ROM's own textures as RGBA in the game's row order, decoded
+ * through a pool of this file's own so nothing of the stage's is touched.
+ *
+ * The ROM's and not the texture pack's on purpose: what is bound is the
+ * fallback, and the pack's picture for the same number is asked for at the
+ * point the renderer wants the tile (xblaTexBindTexture()), which is what
+ * makes a texture pack repaint a model pack's mesh live instead of baking in
+ * whichever pack was selected when the mesh was built.
  */
 static u8 *modelpackDecodeN64Texture(s32 texturenum, s32 *outWidth, s32 *outHeight)
 {
@@ -373,12 +441,6 @@ static u8 *modelpackDecodeN64Texture(s32 texturenum, s32 *outWidth, s32 *outHeig
 
 	if (texturenum < 0 || texturenum >= NUM_TEXTURES) {
 		return NULL;
-	}
-
-	rgba = texpackDecodeReplacementNow(texturenum, outWidth, outHeight);
-
-	if (rgba) {
-		return rgba;
 	}
 
 	buffer = malloc(MODELPACK_TEXPOOL);
@@ -417,13 +479,33 @@ const void *modelpackBindMaterial(const struct objmaterial *mat, s32 *outAlpha, 
 	*outSoft = 0;
 
 	if (mat->kind == OBJMAT_N64) {
-		snprintf(key, sizeof(key), "n64_%04x", mat->id);
 		rgba = modelpackDecodeN64Texture((s32)mat->id, &width, &height);
+
+		// A format the decoder does not know: the pack's picture for the
+		// number is better than nothing, and the tile is still bound as that
+		// number so a later pack still repaints it.
+		if (!rgba) {
+			rgba = texpackDecodeReplacementNow((s32)mat->id, &width, &height);
+		}
 
 		if (!rgba) {
 			sysLogPrintf(LOG_WARNING, "modelpack: texture %04x would not decode", mat->id);
+			return NULL;
 		}
-	} else if (mat->kind == OBJMAT_IMAGE) {
+
+		// Whether the material carries alpha is read off the ROM's picture
+		// here rather than off whatever pack is on, so that which span of the
+		// mesh a material is built into does not change under a texture pack.
+		tile = xblaTexBindTexture((s32)mat->id, rgba, width, height);
+
+		if (tile) {
+			xblaTexImageInfo(tile, outAlpha, outSoft);
+		}
+
+		return tile;
+	}
+
+	if (mat->kind == OBJMAT_IMAGE) {
 		snprintf(key, sizeof(key), "file:%s", mat->image);
 		rgba = pngRead(mat->image, &width, &height);
 

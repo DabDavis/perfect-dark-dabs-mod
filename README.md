@@ -146,7 +146,8 @@ Screenshots need nothing extra.
 A pack goes in **`texture-packs/`** beside the executable - a folder, or the
 `.zip` or `.7z` it came in - and is chosen in Extended Options under **Texture
 Packs**, where **Use Texture Packs** turns the whole thing on. F8 toggles packs
-in play, F9 re-reads the one you are using, F10 steps to the next.
+in play, F9 re-reads the one you are using (and the model pack with it), F10
+steps to the next.
 
 **Community Packs**, on that page, does the whole of that for you for the packs
 it knows about: it asks the pack's own release page which version is current,
@@ -177,10 +178,18 @@ model-packs/<pack>/xbla/<model name>.obj   replaces the XBLA release's mesh for 
 The names are the ROM's own (`Pcrate`, `CcarringtonZ`, ...), which is what the
 dump below writes, so a pack is made by dumping, editing in Blender or
 anything else that reads OBJ, and dropping the file back in. A material named
-`n64_0a9a` draws with that texture of the game's, `xbla_1156` with that record
-of the XBLA release's, and a material whose `map_Kd` file is beside the OBJ
-draws with that picture. A pack chosen from the menu takes effect at the next
-level.
+`n64_0a9a` draws with that texture of the game's and `xbla_1156` with that
+record of the XBLA release's - both of which a texture pack can then repaint,
+live, the same as it repaints anything else. A material whose `map_Kd` is a
+picture shipped inside the pack draws that picture instead (the dump's own
+`map_Kd` points out of the pack at `texture-dumps/`, which is what makes the
+OBJ open with its art in a modeller and is not a picture of the pack's).
+
+Everything about a pack is live: choosing one, turning them off, and
+**Reload Pack** (`F9`) for a file you have just edited all take effect where
+you stand, without leaving the level. Where a model has both a pack's `n64/`
+file and a mesh of the XBLA release's, **A Model With Both Draws** says which
+of the two wins - the pack's model by default.
 
 ### Dumping everything
 

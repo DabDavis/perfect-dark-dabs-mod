@@ -35,14 +35,46 @@ extern "C" {
  * being edited: it has no bone weights of its own and takes them from the
  * nearest vertex of the mesh it replaces.
  *
- * Mod.LoadModels switches the lot on and Mod.ModelPack names the pack. A
- * pack chosen from the menu takes effect at the next level; what a level
- * already built stays as it is until then.
+ * Mod.LoadModels switches the lot on and Mod.ModelPack names the pack. Both
+ * are live: every model files its list nodes as it loads (whenever there is a
+ * pack installed at all), and what draws them is decided at the draw, so a
+ * pack chosen from the menu is on screen from the next frame without leaving
+ * the level.
+ *
+ * Where a model has both an n64/ file and a mesh of the release's,
+ * Mod.ModelPackPrefer says which of the two draws.
  */
 
 /** Mod.LoadModels. */
 s32 modelpackLoadEnabled(void);
 void modelpackSetLoadEnabled(s32 enabled);
+
+/**
+ * Mod.ModelPackPrefer: which side wins for a model that has a pack's n64/
+ * file and one of the release's meshes at the same time.
+ *
+ * 0 - the pack's own model, which is what the player put there.
+ * 1 - the XBLA mesh (the release's, or the pack's xbla/ file for it), which
+ *     is what somebody running the release's art wants a pack's odd N64
+ *     replacement not to punch a hole in.
+ *
+ * Read at the draw, so it is live like the rest of it.
+ */
+#define MODELPACK_PREFER_N64  0
+#define MODELPACK_PREFER_XBLA 1
+
+s32 modelpackGetPrefer(void);
+void modelpackSetPrefer(s32 prefer);
+
+/** Whether model-packs/ holds a pack at all - see modelpackHavePacks(). */
+s32 modelpackHavePacks(void);
+
+/**
+ * Takes the folder list and the pack's files again, and says everything built
+ * from them is stale - for looking at an OBJ that has just been edited without
+ * leaving the level. The texture packs' reload key does this too.
+ */
+void modelpackReload(void);
 
 /** The pack list, re-read from model-packs/ on each refresh. */
 void modelpackRefreshPacks(void);
@@ -60,15 +92,20 @@ const char *modelpackGetPacksDirPath(void);
 const char *modelpackFindN64(s32 fileid);
 const char *modelpackFindXbla(s32 fileid);
 
-/** Goes up whenever the answers above may have changed. */
+/** Goes up whenever the answers above, or the preference, may have changed. */
 u32 modelpackGetGeneration(void);
 
 /**
  * The stand-in tile for a material that draws with a picture of its own -
- * one of the ROM's numbered textures (through the texture pack, if it has
- * it) or a file beside the OBJ - bound through xblatex.c. NULL when the
- * picture cannot be had, and the material draws shaded. Whether the picture
- * has alpha and whether it is soft come back with it.
+ * one of the ROM's numbered textures, or a file beside the OBJ - bound
+ * through xblatex.c. NULL when the picture cannot be had, and the material
+ * draws shaded. Whether the picture has alpha and whether it is soft come
+ * back with it.
+ *
+ * A numbered texture binds the ROM's own picture and the number with it, so
+ * that the texture pack's picture for it is asked for at the draw: a texture
+ * pack repaints a model pack's mesh, live, the same as it repaints anything
+ * else.
  */
 const void *modelpackBindMaterial(const struct objmaterial *mat, s32 *outAlpha, s32 *outSoft);
 

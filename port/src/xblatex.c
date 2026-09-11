@@ -61,6 +61,7 @@ struct xblatexentry {
 	s32 height;
 	u8 alpha;      // whether any of its texels is not opaque
 	u8 soft;       // whether next to none are - see xblaTexRecordIsSoft()
+	s32 texnum;    // the ROM texture the picture is of, or -1: see xblaTexBindTexture()
 	char *key;     // what it was bound as, so the same picture binds once
 };
 
@@ -294,6 +295,7 @@ const void *xblaTexBind(u32 record)
 
 	hash[slot].addr = addr;
 	hash[slot].record = record;
+	hash[slot].texnum = -1;
 	byRecord[record] = addr;
 	numBound++;
 
@@ -310,7 +312,7 @@ const void *xblaTexBind(u32 record)
  * name uploads once. The picture is kept for the life of the game the way the
  * tile is, since the renderer asks for it again whenever its cache evicts it.
  */
-const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
+static const void *xblaTexBindPicture(const char *key, u8 *rgba, s32 width, s32 height, s32 texnum)
 {
 	u8 *addr;
 	u32 slot;
@@ -365,6 +367,7 @@ const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
 
 	hash[slot].addr = addr;
 	hash[slot].record = XBLATEX_NOREC;
+	hash[slot].texnum = texnum;
 	hash[slot].image = rgba;
 	hash[slot].width = width;
 	hash[slot].height = height;
@@ -380,6 +383,35 @@ const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
 	SDL_UnlockMutex(lock);
 
 	return addr;
+}
+
+const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
+{
+	return xblaTexBindPicture(key, rgba, width, height, -1);
+}
+
+/**
+ * A picture that is one of the ROM's numbered textures, which the texture
+ * pack is allowed to repaint - see xblaTexBindTexture() in xblatex.h and the
+ * ask in xblaTexLoadReplacement().
+ *
+ * The ROM's own picture is what is kept here, never the pack's: the pack's is
+ * fetched when the renderer asks, so that changing packs changes what is
+ * drawn rather than leaving the pack that was selected when the mesh was
+ * built painted on it for ever.
+ */
+const void *xblaTexBindTexture(s32 texturenum, u8 *rgba, s32 width, s32 height)
+{
+	char key[32];
+
+	if (texturenum < 0) {
+		free(rgba);
+		return NULL;
+	}
+
+	snprintf(key, sizeof(key), "n64_%04x", (u32)texturenum);
+
+	return xblaTexBindPicture(key, rgba, width, height, texturenum);
 }
 
 s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft)
@@ -694,14 +726,44 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 	e = xblaTexFind(addr);
 
 	if (e && e->image) {
-		const size_t bytes = (size_t)e->width * (size_t)e->height * 4;
+		const s32 texnum = e->texnum;
 
-		rgba = malloc(bytes);
+		SDL_UnlockMutex(lock);
 
-		if (rgba) {
-			memcpy(rgba, e->image, bytes);
-			*outWidth = e->width;
-			*outHeight = e->height;
+		// Unless it is one of the ROM's numbered textures, in which case the
+		// texture pack's picture for that number is what belongs on it - asked
+		// here, at the point the renderer wants the tile, rather than baked in
+		// when the mesh was built. That is what lets a texture pack repaint a
+		// model pack's mesh: F8, a pack switched or a pack reloaded all drop
+		// the renderer's cache, and every tile comes back through here.
+		//
+		// Asked outside the lock, as the record's replacement below is: the
+		// first ask is what makes texpack read the pack off the disk, and the
+		// mesh builder on the game thread wants this lock for every material.
+		if (texnum >= 0) {
+			rgba = texpackDecodeReplacementNow(texnum, outWidth, outHeight);
+
+			if (rgba) {
+				return rgba;
+			}
+		}
+
+		SDL_LockMutex(lock);
+
+		e = xblaTexFind(addr);
+
+		if (e && e->image) {
+			const size_t bytes = (size_t)e->width * (size_t)e->height * 4;
+
+			rgba = malloc(bytes);
+
+			if (rgba) {
+				memcpy(rgba, e->image, bytes);
+				*outWidth = e->width;
+				*outHeight = e->height;
+			}
+		} else {
+			rgba = NULL;
 		}
 
 		SDL_UnlockMutex(lock);

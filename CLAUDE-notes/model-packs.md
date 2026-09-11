@@ -130,13 +130,24 @@ trim, the pose). Two extensions to the builder for it:
 - **A material table.** A material word with `XBLAMESH_MAT_TABLE` (bit 30)
   names an entry of the build's `struct xblameshmats` rather than a record:
   a stand-in tile from `xblaTexBindImage()`, which holds a picture of its
-  own (a pack's PNG, or one of the ROM's textures decoded through
-  `modelpackDecodeN64Texture()` - the texture pack's picture first, by
-  `texpackDecodeReplacementNow()`, else the ROM's flipped back to the game's
-  row order). Such a tile is not subject to Mod.XblaMeshTextures and cannot
-  be replaced by a texture pack (`xblaTexLoadReplacement()` hands the
-  picture over before it asks). A material with no picture is a table entry
-  with a NULL tile, which draws white times shade.
+  own (a pack's PNG), or from `xblaTexBindTexture()`, which holds one of the
+  ROM's textures *and the number it is*. A tile of the first kind cannot be
+  repainted by a texture pack; one of the second is, at every fill of the
+  renderer's cache: `xblaTexLoadReplacement()` asks
+  `texpackDecodeReplacementNow()` for the number before it hands the kept
+  picture over, so what is bound at build time is deliberately the ROM's own
+  picture and never the pack's. Neither kind is subject to
+  Mod.XblaMeshTextures, which is about the release's art. A material with no
+  picture is a table entry with a NULL tile, which draws white times shade.
+
+  **Which materials are numbers at all** is `objClassifyMaterial()`, and it is
+  the other half of this: the dump writes both a name (`n64_050a`) and a
+  `map_Kd` pointing out of the pack at `../../texture-dumps/...`, and taking
+  the `map_Kd` literally - which it did until 2026-09-11 - made *every* dumped
+  material a picture of its own, bound once and never asked about again. A
+  `map_Kd` that leaves the model's own folder is a reference to something the
+  game has, and the name is what the material draws with; one that stays
+  inside the folder is the author's own picture and still wins.
 - **`local` meshes.** A pack's file for an N64 model is registered by
   `xblaMeshRegisterPackModel()` (after the release's matching, and it takes
   the model over from it): every list node is part k of a mesh keyed on the
@@ -161,14 +172,57 @@ list nodes. A release mesh with more than 16 groups used to be built as one
 group; now it is built as its groups and, not matching the model's parts,
 still draws through `allgfx` from part 0 - the same picture.
 
-## Switching packs
+## Switching packs, live
 
-A pack change (`modelpackGetGeneration()`) is noticed at the next build: a
-mesh from the old pack, or a slot the new pack has a file for, is started
-again and **its old lists are leaked, not freed** (`xblaMeshDropStale()`) -
-the render thread may be in one. A swap is rare and a mesh is a few hundred
-KB. The menu says a pack takes effect at the next level, which is when a
-model is registered again; what a level has already built stays.
+Everything about a pack is decided at the draw and not at the model load, so
+choosing a pack, switching packs off and changing the preference are all on
+screen on the next frame.
+
+**Both halves of a node are filed as the model loads.** A
+`struct xblameshentry` carries the matcher's side (`slot`, `part`, `use`,
+`suppress`, `matched`) and the pack's (`fileid`, `packpart`, `packuse`) at
+once, written by two passes of the same load through `xblaMeshEntryFor()` -
+which starts an entry from nothing when it finds it belongs to some other
+model, and leaves the other half alone when it does not. `xblaMeshUseFor()`
+takes a `pack` flag as part of its key, or a model whose file id happens to
+equal its mesh slot would find the other one's parts.
+
+The pack's side is filed for **every** model that loads, not only the ones a
+pack can replace, because the load is the only moment a model's tree may be
+walked: a modeldef is freed and reused inside a stage, so a register of loaded
+models to go back over when the pack changes is the crash xbla.md describes.
+It is gated on `modelpackHavePacks()` - anybody with nothing in `model-packs/`
+files nothing and pays nothing, and the draw path's `g_XblaMeshNumNodes` test
+costs what it always did. With a pack installed, Chicago goes from 111 filed
+nodes to 209, of 16384.
+
+`xblaMeshRenderNode()` then asks, per node per frame: the pack's file
+(`modelpackFindN64()`, a table lookup) unless `Mod.ModelPackPrefer` is
+`MODELPACK_PREFER_XBLA` and the model has a mesh. **The model's, not the
+node's** - `packhasmesh` is filed on every one of a model's entries from
+whether the matcher, which has just run, found any of them a mesh. Keyed on
+the node instead, the preference left a matched model's *unmatched* lists (a
+far LOD alternative) still drawing the pack's geometry inside the release's
+mesh, which is neither of the two things being chosen between.
+
+The mesh side's suppressions - the hair, the covered lists - belong to the
+mesh and are skipped whenever the pack's file is what draws.
+
+What a *change* costs: a mesh from the old pack, or a slot the new pack has a
+file for, is started again at its next build (`modelpackGetGeneration()`,
+`xblaMeshDropStale()`) and **its old lists are leaked, not freed** - the
+render thread may be in one. A swap is rare and a mesh is a few hundred KB. A
+pack mesh that would *not* build is dropped rather than leaked, so the next
+pack's file for the same model is not refused for the last one's sake.
+
+`modelpackReload()` - the texture packs' reload key (F9) and the menu's Reload
+Pack row, which now do both - takes the folder list and the pack's files again
+and bumps the generation, which is how an OBJ edited in a modeller is looked
+at without leaving the level.
+
+The one thing that is still not live is a pack folder appearing in
+`model-packs/` *while a level runs* on a machine that had none at all: nothing
+was filed as those models loaded. The next level has it.
 
 ## Recipes
 
@@ -180,7 +234,31 @@ cd build && xvfb-run -a ./pd.x86_64 --dump-assets --savedir /tmp/pdsave --no-sou
 mkdir -p build/model-packs/test/n64 build/model-packs/test/xbla
 cp build/model-dumps/n64/Pcrate.obj build/model-dumps/n64/Pcrate.mtl build/model-packs/test/n64/
 # pd.ini: Mod.LoadModels=1 and Mod.ModelPack=test under [Mod]
+
+# something always on screen to look at: the player's gun, in a Combat Sim
+# match, with Mod.StartArmed=1 in pd.ini
+cp build/model-dumps/n64/Gfalcon2Z.obj build/model-dumps/n64/Gfalcon2Z.mtl build/model-packs/test/n64/
+cd build && xvfb-run -a ./pd.x86_64 --savedir /tmp/pdsave --skip-intro --no-sound \
+    --boot-stage 0x1f --mpsims 1 --fixed-step --rng-seed 1 --screenshot-frame 400 --exit-frame 420 --log
 ```
+
+The live half is driven against a running game, and every one of these shows
+up in the log (a rebuilt pack mesh says `comes from`):
+
+```sh
+gdb -p $(pgrep -x pd.x86_64) -batch \
+    -ex 'call (void)modelpackSetLoadEnabled(1)'   # packs on, mid level
+    -ex 'call (void)modelpackSetPrefer(1)'        # the XBLA mesh instead
+    -ex 'call (void)modelpackSetSelectedPack(0)'  # another pack
+    -ex 'call (void)modelpackReload()'            # re-read an edited OBJ
+    -ex 'call (void)texpackSetLoadEnabled(0)'     # repaint it, with no rebuild
+    -ex 'call (void)screenshotRequest()'
+```
+
+That a texture pack repaints a pack's mesh is tested with a pack of solid
+magenta PNGs named for the numbers in the model's own `.mtl`: the magenta
+lands on the model, and the frame diff against the same seeded frame with
+`Mod.LoadTextures=0` is the gun and nothing else.
 
 `--xbla-mesh-verbose` logs `model file N comes from <path>` and `<what>
 built` lines for pack meshes the same as for the release's.

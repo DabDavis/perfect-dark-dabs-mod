@@ -35,6 +35,7 @@
 #include "romdata.h"
 #include "dxt.h"
 #include "texpack.h"
+#include "modelpack.h"
 #include "video.h"
 #include "versioninfo.h"
 #include <SDL.h>
@@ -4047,9 +4048,11 @@ void texpackTick(void)
 	}
 
 	// Re-reads the pack where you stand, for looking at an image you have just
-	// edited without leaving the level.
+	// edited without leaving the level. The model packs go with it, an OBJ
+	// being the same kind of thing to be editing (modelpack.h).
 	if (reloadVk > 0 && inputKeyJustPressed(reloadVk)) {
 		texpackReload();
+		modelpackReload();
 	}
 
 	if (cycleVk > 0 && inputKeyJustPressed(cycleVk)) {

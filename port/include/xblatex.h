@@ -70,6 +70,17 @@ const void *xblaTexBind(u32 record);
 const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height);
 
 /**
+ * The same, for a picture that *is* one of the ROM's numbered textures - a
+ * model pack's material named `n64_0a9a`.
+ *
+ * The picture handed in is the ROM's own and is the fallback; the texture
+ * pack's picture for that number is asked for at the point the renderer wants
+ * the tile, so a pack switched on, off or changed under a model pack's mesh
+ * repaints it without anything being built again. Bound once per number.
+ */
+const void *xblaTexBindTexture(s32 texturenum, u8 *rgba, s32 width, s32 height);
+
+/**
  * What the mesh builder needs to know about a picture bound above: whether
  * any texel is not opaque (the material draws with its alpha) and whether
  * next to none are (the material fades, see xblaTexRecordIsSoft()). Zero when

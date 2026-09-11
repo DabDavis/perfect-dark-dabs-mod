@@ -119,6 +119,9 @@
 // own models is a group per list node, and a character body has thirty.
 #define XBLAMESH_MAXPARTS 64
 
+// A node that is not one of a model pack's parts.
+#define XBLAMESH_NOPART 0xffff
+
 // A material word that names an entry of the build's own table of pictures
 // rather than a record - a model pack's PNG, or one of the ROM's numbered
 // textures - in its low twelve bits. Bit 15 is the alpha flag as ever.
@@ -134,14 +137,34 @@ u32 g_XblaMeshNumSlots = 0; // taken, live or tombstoned - the table's headroom
 u32 g_XblaMeshNumTris = 0;
 u32 g_XblaMeshBytes = 0;
 
+/**
+ * What is known about one list node, which is both things at once.
+ *
+ * A node can have a mesh of the release's and a model pack's file for the
+ * model it belongs to, and which of the two draws is not decided here - it is
+ * decided at the draw (xblaMeshRenderNode()), so that the pack, the switch
+ * that turns packs on, and the preference between the two are all live. Both
+ * halves are filed as the model loads; either may be empty.
+ */
 struct xblameshentry {
 	const struct modelnode *node;      // key
 	const struct modeldef *modeldef;   // which load of which model it belongs to
+
+	// The release's mesh, from the matcher.
 	u16 slot;
 	u16 part;
 	s32 use;                           // into uses[], or -1
 	s32 suppress;                      // XBLAMESH_SUPPRESS_*: stock geometry that draws nothing
-	u8 pack;                           // a model pack's file for the game's own model: slot is the file id
+	u8 matched;                        // whether the four above say anything
+
+	// The model pack's side: this node's place in the model's list nodes, and
+	// the file id the pack's n64/ folder is looked up by. Filed for every
+	// model that loads while a pack is installed at all, whether or not the
+	// pack has a file for this one and whether or not packs are switched on.
+	u16 fileid;
+	u16 packpart;                      // or XBLAMESH_NOPART
+	s32 packuse;                       // into uses[], or -1
+	u8 packhasmesh;                    // whether any node of this model matched a mesh
 };
 
 /**
@@ -154,7 +177,8 @@ struct xblameshentry {
  */
 struct xblameshuse {
 	const struct modeldef *modeldef;
-	u16 slot;
+	u16 slot;      // a mesh slot, or a file id when pack is set
+	u8 pack;       // whose parts these are: the release's mesh, or the pack's file
 	u16 numparts;
 	struct modelnode *parts[XBLAMESH_MAXPARTS];
 	s16 partmtx[XBLAMESH_MAXPARTS];   // which of the model's matrices poses it
@@ -614,13 +638,68 @@ static struct xblameshentry *xblaMeshSlotFor(const struct modelnode *node)
 	return reusable;
 }
 
-/** The record of this model's use of this mesh, made if there is not one. */
-static s32 xblaMeshUseFor(const struct modeldef *modeldef, s32 slot)
+/**
+ * The entry for one node of one model, taken or made, ready to be written.
+ *
+ * Both halves of an entry are written by different passes of the same model
+ * load - the matcher first, then the pack's filing - so a writer that finds
+ * the entry already belongs to this model must leave the other half alone.
+ * One that finds anything else (an empty slot, or a tombstone another model
+ * left behind) starts it from nothing, since none of what is on it is about
+ * this model.
+ */
+static struct xblameshentry *xblaMeshEntryFor(struct modelnode *node, const struct modeldef *modeldef)
+{
+	struct xblameshentry *e = xblaMeshSlotFor(node);
+
+	if (!e) {
+		return NULL;
+	}
+
+	if (e->node != node || e->modeldef != modeldef) {
+		e->slot = 0;
+		e->part = 0;
+		e->use = -1;
+		e->suppress = 0;
+		e->matched = 0;
+		e->fileid = 0;
+		e->packpart = XBLAMESH_NOPART;
+		e->packuse = -1;
+		e->packhasmesh = 0;
+	}
+
+	// A slot with no model in it is empty or a tombstone, and either way this
+	// is one more live entry. One that has a model is an entry being taken
+	// over, which is one out and one in.
+	if (!e->modeldef) {
+		g_XblaMeshNumNodes++;
+	}
+
+	if (!e->node) {
+		g_XblaMeshNumSlots++;
+	}
+
+	e->node = node;
+	e->modeldef = modeldef;
+
+	return e;
+}
+
+/**
+ * The record of this model's use of this mesh, made if there is not one.
+ *
+ * A model can hold two of these at once - the release's mesh and the pack's
+ * file for the model - and the two are keyed on different numbers (a slot of
+ * the package against a file id of the game's), so the kind is part of the
+ * key: without it a model whose file id happens to equal its mesh slot would
+ * find the other one's parts.
+ */
+static s32 xblaMeshUseFor(const struct modeldef *modeldef, s32 slot, s32 pack)
 {
 	s32 free = -1;
 
 	for (s32 i = 0; i < numUses; i++) {
-		if (uses[i].modeldef == modeldef && uses[i].slot == slot) {
+		if (uses[i].modeldef == modeldef && uses[i].slot == slot && uses[i].pack == (pack ? 1 : 0)) {
 			return i;
 		}
 
@@ -648,6 +727,7 @@ static s32 xblaMeshUseFor(const struct modeldef *modeldef, s32 slot)
 	memset(&uses[free], 0, sizeof(uses[free]));
 	uses[free].modeldef = modeldef;
 	uses[free].slot = (u16)slot;
+	uses[free].pack = (u8)(pack ? 1 : 0);
 
 	for (s32 i = 0; i < XBLAMESH_MAXPARTS; i++) {
 		uses[free].partmtx[i] = -1;
@@ -682,6 +762,11 @@ static void xblaMeshForgetModel(const struct modeldef *modeldef)
 		if (hash[i].node && hash[i].modeldef == modeldef) {
 			hash[i].modeldef = NULL;
 			hash[i].slot = 0;
+			hash[i].matched = 0;
+			hash[i].fileid = 0;
+			hash[i].packpart = XBLAMESH_NOPART;
+			hash[i].packuse = -1;
+			hash[i].packhasmesh = 0;
 			g_XblaMeshNumNodes--;
 		}
 	}
@@ -913,27 +998,17 @@ static s32 xblaMeshIsCovered(struct modeldef *modeldef, const struct modelnode *
 static void xblaMeshSuppressNode(struct modeldef *modeldef, struct modelnode *node,
 		s32 slot, s32 kind)
 {
-	struct xblameshentry *e = xblaMeshSlotFor(node);
+	struct xblameshentry *e = xblaMeshEntryFor(node, modeldef);
 
 	if (!e) {
 		return;
 	}
 
-	if (!e->modeldef) {
-		g_XblaMeshNumNodes++;
-	}
-
-	if (!e->node) {
-		g_XblaMeshNumSlots++;
-	}
-
-	e->node = node;
-	e->modeldef = modeldef;
 	e->slot = (u16)(slot > 0 ? slot : 0);
 	e->part = 0;
 	e->use = -1;
 	e->suppress = kind;
-	e->pack = 0;
+	e->matched = 1;
 }
 
 /**
@@ -983,7 +1058,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 		// 0xFFFF is not an id: it means this node keeps its own geometry.
 		if (id && id != 0xffff &&
 				(ourtype == MODELNODETYPE_DL || ourtype == MODELNODETYPE_GUNDL)) {
-			struct xblameshentry *e = xblaMeshSlotFor(ournode);
+			struct xblameshentry *e;
 
 			// The low 12 bits are a PackedSegFile file id, and slot i is file
 			// id i + 1 the way the game's own files are - so the mesh is one
@@ -993,20 +1068,10 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 			// comes back as the chair beside it.
 			s32 slot = (s32)(id & 0xfff) - 1;
 
-			if (e && slot >= 0 && slot < numRecords && recUncSize[slot]) {
-				// A slot with no model in it is empty or a tombstone, and
-				// either way this is one more live entry. One that has a model
-				// is an entry being taken over, which is one out and one in.
-				if (!e->modeldef) {
-					g_XblaMeshNumNodes++;
-				}
+			e = (slot >= 0 && slot < numRecords && recUncSize[slot])
+					? xblaMeshEntryFor(ournode, modeldef) : NULL;
 
-				if (!e->node) {
-					g_XblaMeshNumSlots++;
-				}
-
-				e->node = ournode;
-				e->modeldef = modeldef;
+			if (e) {
 				e->slot = (u16)slot;
 				e->part = (u16)(id >> 12);
 
@@ -1024,9 +1089,9 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 					firstslot = slot;
 				}
 
-				e->use = xblaMeshUseFor(modeldef, slot);
+				e->use = xblaMeshUseFor(modeldef, slot, 0);
 				e->suppress = 0;
-				e->pack = 0;
+				e->matched = 1;
 				found++;
 
 				if (e->use >= 0 && e->part < XBLAMESH_MAXPARTS) {
@@ -1316,31 +1381,21 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 	}
 
 	for (s32 part = 0; part < numparts; part++) {
-		struct xblameshentry *e = xblaMeshSlotFor(ours[part]);
+		struct xblameshentry *e = xblaMeshEntryFor(ours[part], modeldef);
 
 		if (!e) {
 			return 0;
 		}
 
-		if (!e->modeldef) {
-			g_XblaMeshNumNodes++;
-		}
-
-		if (!e->node) {
-			g_XblaMeshNumSlots++;
-		}
-
-		e->node = ours[part];
-		e->modeldef = modeldef;
 		e->slot = (u16)slot;
 		e->part = (u16)part;
-		e->use = xblaMeshUseFor(modeldef, slot);
+		e->use = xblaMeshUseFor(modeldef, slot, 0);
 
 		if (slotFile && slot >= 0 && slot < numRecords) {
 			slotFile[slot] = (u16)xblaMeshFileId;
 		}
 		e->suppress = 0;
-		e->pack = 0;
+		e->matched = 1;
 
 		if (e->use >= 0) {
 			struct xblameshuse *use = &uses[e->use];
@@ -1588,8 +1643,9 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 {
 	xblaMeshMatchModel(modeldef, fileid);
 
-	// The model pack's file for it, which takes the model over from the
-	// release's mesh if both have one.
+	// And the model pack's side of the same nodes, which is filed beside the
+	// matcher's rather than over it: a node can have both, and which of the
+	// two draws is decided at the draw, live.
 	xblaMeshRegisterPackModel(modeldef, fileid);
 }
 
@@ -3576,8 +3632,10 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 
 // One per file id, made on the first ask. Freed at xblaMeshResetModels():
 // unlike the release's meshes these are node-local to a model the stage pool
-// is about to give back, and their pictures are decoded through the texture
-// pack, which can change between levels.
+// is about to give back. A pack switched under one does not wait for that -
+// the generation on the build says the file has changed and it is made again
+// (xblaMeshBuildPack()), the way a pack's replacement for one of the
+// release's meshes is.
 static struct xblameshbuilt **packBuilt;
 
 s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max)
@@ -3651,28 +3709,39 @@ void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3])
 }
 
 /**
- * Files every list node of a model against the pack's file for it, as part
- * k of a mesh keyed on the file id. Called after the release's matching, and
- * takes the model over from it: the pack's file is the whole model.
+ * Files every list node of a model as part k of the pack's file for it,
+ * whether or not the pack has one.
+ *
+ * It has to be every model, and not only the ones the pack can replace,
+ * because this is the only moment a model's tree may be walked: a modeldef is
+ * freed and its memory handed out again inside a stage, so a register of
+ * loaded models to go back over when the pack changes is a wild pointer away
+ * from a crash (xblaMeshRegisterModel() tells the same story about the
+ * release's meshes, which are matched up front for exactly this reason). With
+ * both halves filed at the load, choosing a pack, switching packs off, and
+ * changing which of the two wins are all decided at the draw and are on screen
+ * on the next frame.
+ *
+ * What it is not is free, so it is gated on there being a pack installed at
+ * all: a player with nothing in model-packs/ files nothing here, the node
+ * table stays as the matcher left it, and the draw path's first test costs
+ * what it always cost. A pack folder appearing mid-session is picked up by the
+ * next model load, so the level it appeared in keeps the models it has.
  */
 static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 {
 	struct modelnode *nodes[XBLAMESH_MAXPARTS];
-	const char *path;
+	s32 hasmesh = 0;
 	s32 n;
 	s32 useidx;
 
-	if (!modeldef || !modeldef->rootnode) {
+	if (!modeldef || !modeldef->rootnode || !fileid) {
 		return;
 	}
 
-	path = modelpackFindN64(fileid);
-
-	if (!path) {
+	if (!modelpackHavePacks()) {
 		return;
 	}
-
-	xblaMeshForgetModel(modeldef);
 
 	n = xblaMeshEnumListNodes(modeldef, nodes, XBLAMESH_MAXPARTS);
 
@@ -3686,44 +3755,53 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 		n = XBLAMESH_MAXPARTS;
 	}
 
-	useidx = xblaMeshUseFor(modeldef, fileid);
+	useidx = xblaMeshUseFor(modeldef, fileid, 1);
 
 	if (useidx < 0) {
 		return;
 	}
 
+	// Whether the matcher, which has just run, found this model a mesh -
+	// asked of the model and not of the node, because the preference between
+	// the two is about a model: half of one drawn from the pack's file and
+	// half from the release's mesh is neither of the two things being chosen
+	// between. A list the matcher left alone (a far LOD alternative) would
+	// otherwise keep taking the pack's file with the mesh drawn over it.
 	for (s32 k = 0; k < n; k++) {
-		struct xblameshentry *e = xblaMeshSlotFor(nodes[k]);
+		const struct xblameshentry *e = xblaMeshSlotFor(nodes[k]);
+
+		if (e && e->node == nodes[k] && e->modeldef == modeldef && e->matched) {
+			hasmesh = 1;
+			break;
+		}
+	}
+
+	for (s32 k = 0; k < n; k++) {
+		struct xblameshentry *e = xblaMeshEntryFor(nodes[k], modeldef);
 
 		if (!e) {
+			// Half a model filed is worse than none: dropping the use is what
+			// stops the pack's mesh from building at all (xblaMeshBuildPack()
+			// asks for it), so every node keeps its own geometry rather than
+			// some of them drawing a file the rest are not part of.
 			sysLogPrintf(LOG_WARNING, "xblamesh: the node table is full; model file %d is left alone", fileid);
-			xblaMeshForgetModel(modeldef);
+			uses[useidx].modeldef = NULL;
 			return;
 		}
 
-		if (!e->modeldef) {
-			g_XblaMeshNumNodes++;
-		}
-
-		if (!e->node) {
-			g_XblaMeshNumSlots++;
-		}
-
-		e->node = nodes[k];
-		e->modeldef = modeldef;
-		e->slot = fileid;
-		e->part = (u16)k;
-		e->use = useidx;
-		e->suppress = 0;
-		e->pack = 1;
+		e->fileid = fileid;
+		e->packpart = (u16)k;
+		e->packuse = useidx;
+		e->packhasmesh = (u8)hasmesh;
 
 		uses[useidx].parts[k] = nodes[k];
 	}
 
 	uses[useidx].numparts = (u16)n;
 
-	if (xblaMeshVerbose) {
-		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d: %d list nodes take %s", fileid, n, path);
+	if (xblaMeshVerbose && modelpackFindN64(fileid)) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d: %d list nodes can take %s",
+				fileid, n, modelpackFindN64(fileid));
 	}
 }
 
@@ -3738,7 +3816,7 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
  */
 static struct xblameshbuilt *xblaMeshBuildPack(const struct xblameshentry *e)
 {
-	const u16 fileid = e->slot;
+	const u16 fileid = e->fileid;
 	struct xblameshbuilt *m;
 	struct xblameshmats mats;
 	struct xblameshuse *use;
@@ -3761,11 +3839,17 @@ static struct xblameshbuilt *xblaMeshBuildPack(const struct xblameshentry *e)
 
 	m = packBuilt[fileid];
 
-	if (m && m->state > 0 && m->packgen != modelpackGetGeneration()) {
-		// Started again under a new pack; the old one is leaked, not freed,
-		// for the reason xblaMeshDropStale() gives.
-		packBuilt[fileid] = NULL;
-		m = NULL;
+	if (m && m->state && m->packgen != modelpackGetGeneration()) {
+		// Started again under a new pack. A built one is leaked rather than
+		// freed, for the reason xblaMeshDropStale() gives; one that would not
+		// build holds nothing, and is dropped so that the next pack's file for
+		// the same model is not refused for the last pack's file's sake.
+		if (m->state > 0) {
+			packBuilt[fileid] = NULL;
+			m = NULL;
+		} else {
+			memset(m, 0, sizeof(*m));
+		}
 	}
 
 	if (!m) {
@@ -3786,7 +3870,8 @@ static struct xblameshbuilt *xblaMeshBuildPack(const struct xblameshentry *e)
 	m->frompack = 1;
 
 	path = modelpackFindN64(fileid);
-	use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef) ? &uses[e->use] : NULL;
+	use = (e->packuse >= 0 && e->packuse < numUses && uses[e->packuse].modeldef == e->modeldef)
+			? &uses[e->packuse] : NULL;
 
 	if (!path || !use || use->numparts == 0) {
 		return NULL;
@@ -5107,6 +5192,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	struct xblameshentry *e;
 	struct xblameshbuilt *m;
 	struct xblameshuse *use;
+	s32 frompack;
+	s32 havemesh;
 	Mtxf *finemtx = NULL;
 	s32 fine = 1;
 	Mtxf *root;
@@ -5135,9 +5222,28 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		return 0;
 	}
 
-	// A model pack's file for the game's own model needs no package and no
-	// switch but its own; the release's meshes need both.
-	if (!e->pack && (!optEnabled || opened <= 0)) {
+	// Which of the two the node draws, asked every frame rather than settled
+	// at the model load - which is the whole of what makes a pack live. The
+	// pack's file for one of the game's own models needs no package and no
+	// switch but its own; the release's mesh needs both.
+	//
+	// Where a node has both, Mod.ModelPackPrefer says which: the pack's own
+	// model by default, since somebody who put an OBJ in n64/ meant it, or the
+	// mesh for somebody running the release's art who wants a pack's odd
+	// replacement not to punch an N64 model into the middle of it.
+	frompack = e->packpart != XBLAMESH_NOPART && e->fileid && modelpackFindN64(e->fileid) != NULL;
+	havemesh = e->matched && optEnabled && opened > 0;
+
+	// The preference is the model's, not the node's: a model the release has a
+	// mesh for hands the whole of itself back, including the lists the matcher
+	// left alone, since those would otherwise draw the pack's geometry inside
+	// the mesh.
+	if (frompack && e->packhasmesh && optEnabled && opened > 0
+			&& modelpackGetPrefer() == MODELPACK_PREFER_XBLA) {
+		frompack = 0;
+	}
+
+	if (!frompack && !havemesh) {
 		return 0;
 	}
 
@@ -5157,7 +5263,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		grafted = 1;
 	}
 
-	if (optOnlySlot && !e->pack && e->slot != optOnlySlot) {
+	if (optOnlySlot && !frompack && e->slot != optOnlySlot) {
 		if (xblaMeshVerbose) {
 			xblaMeshNoteDraw(model, e->slot, 0, 2);
 		}
@@ -5178,7 +5284,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// release's. A chr's head is the same head grafted; both draw the mesh,
 	// so both leave the hair to it. Mod.XblaMeshBoth keeps the hair, that
 	// switch being there to put the two on top of each other.
-	if (e->suppress == XBLAMESH_SUPPRESS_HAIR) {
+	if (!frompack && e->suppress == XBLAMESH_SUPPRESS_HAIR) {
 		if (xblaMeshVerbose && optBoth) {
 			sysLogPrintf(LOG_NOTE, "xblamesh: a toggled piece the mesh has already drew "
 					"the game's own: model %p node %p grafted %d both %d",
@@ -5196,7 +5302,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// It is the mesh being drawn that this depends on, so the mesh is built
 	// here too: one that will not build leaves the model drawing all of its
 	// own geometry rather than most of it drawing nothing at all.
-	if (e->suppress == XBLAMESH_SUPPRESS_COVERED) {
+	if (!frompack && e->suppress == XBLAMESH_SUPPRESS_COVERED) {
 		m = xblaMeshBuild(e->slot);
 
 		if (!m || optBoth) {
@@ -5225,7 +5331,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// The mesh is built before the part is looked at, so that a mesh that will
 	// not build leaves every part of the model drawing its own geometry rather
 	// than only the first one.
-	m = e->pack ? xblaMeshBuildPack(e) : xblaMeshBuild(e->slot);
+	m = frompack ? xblaMeshBuildPack(e) : xblaMeshBuild(e->slot);
 
 	if (!m) {
 		if (xblaMeshVerbose) {
@@ -5254,13 +5360,15 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// A model pack's mesh for the game's own model: group p is list node
 		// p's, in that node's own space, under that node's own matrix - and a
 		// node the file has no group for keeps its own geometry.
-		if (e->part >= m->numgroups || (m->groupabsent & (1ull << e->part))) {
+		const u16 part = e->packpart;
+
+		if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
 			return 0;
 		}
 
-		list = &m->gdl[m->groupgfx[e->part]];
-		xlupart = m->groupxlu[e->part];
-		fadepart = m->groupfade[e->part];
+		list = &m->gdl[m->groupgfx[part]];
+		xlupart = m->groupxlu[part];
+		fadepart = m->groupfade[part];
 		use = NULL;
 	} else if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
 		list = &m->gdl[m->groupgfx[e->part]];
@@ -5701,6 +5809,7 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 	struct modelnode *node;
 	s32 count = 0;
 	s32 walked = 0;
+	s32 frompack;
 
 	if (!model || !model->definition) {
 		return 0;
@@ -5724,16 +5833,23 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 			continue;
 		}
 
-		m = e->pack ? (packBuilt ? packBuilt[e->slot] : NULL)
-				: (built && e->slot < numRecords ? &built[e->slot] : NULL);
+		// The node's two sides, and which of them would draw: the pack's file
+		// when there is one, unless the preference hands it back to the mesh.
+		frompack = e->packpart != XBLAMESH_NOPART && e->fileid && modelpackFindN64(e->fileid) != NULL
+				&& !(e->packhasmesh && modelpackGetPrefer() == MODELPACK_PREFER_XBLA);
 
-		fprintf(f, "%snode %p type %02x slot %d part %d def %p%s%s%s built %d",
-				indent ? indent : "", (const void *)node, node->type & 0xff, e->slot, e->part,
+		m = frompack ? (packBuilt ? packBuilt[e->fileid] : NULL)
+				: (built && e->matched && e->slot < numRecords ? &built[e->slot] : NULL);
+
+		fprintf(f, "%snode %p type %02x slot %d part %d def %p%s%s%s%s built %d",
+				indent ? indent : "", (const void *)node, node->type & 0xff,
+				e->matched ? e->slot : 0, e->matched ? e->part : 0,
 				(const void *)e->modeldef,
 				e->modeldef ? "" : " DROPPED",
 				e->suppress == XBLAMESH_SUPPRESS_HAIR ? " HAIR-suppressed" :
 				e->suppress == XBLAMESH_SUPPRESS_COVERED ? " covered" : "",
 				e->modeldef && e->modeldef != model->definition ? " (grafted or another load)" : "",
+				frompack ? " from the model pack" : "",
 				m ? m->state : 0);
 
 		if (m && m->state > 0) {

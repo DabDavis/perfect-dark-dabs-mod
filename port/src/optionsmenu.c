@@ -3752,7 +3752,7 @@ static const struct {
 	{ "Record Video\n",     recordGetKey,     recordSetKey      },
 	{ "Dump Drawn Textures\n", texpackDumpGetKey, texpackDumpSetKey   },
 	{ "Texture Packs On/Off\n", texpackToggleGetKey, texpackToggleSetKey },
-	{ "Reload Texture Pack\n",  texpackReloadGetKey, texpackReloadSetKey },
+	{ "Reload Packs\n",         texpackReloadGetKey, texpackReloadSetKey },
 	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
 	{ "XBLA Meshes On/Off\n",   xblaMeshToggleGetKey, xblaMeshToggleSetKey },
 };
@@ -4677,6 +4677,36 @@ static MenuItemHandlerResult menuhandlerModelPackEnabled(s32 operation, struct m
 }
 
 /**
+ * Which of the two a model that has both draws: the pack's file for the
+ * game's own model, or the XBLA release's mesh for it (or the pack's own
+ * replacement for that mesh, where it ships one).
+ *
+ * Only ever visible with the release's meshes on, because with them off there
+ * is no second thing for a pack's model to lose to. Live either way: nothing
+ * is built for this, the draw reads it.
+ */
+static MenuItemHandlerResult menuhandlerModelPackPrefer(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !xblaMeshIsAvailable() || !xblaMeshGetEnabled();
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 2;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == MODELPACK_PREFER_XBLA
+				? "XBLA Mesh" : "Pack's Model");
+	case MENUOP_SET:
+		modelpackSetPrefer((s32)data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modelpackGetPrefer();
+	}
+
+	return 0;
+}
+
+/**
  * The asset dump: every texture and model, the XBLA release's included when
  * there is one, in one go. One row that starts it and stops it, and a line
  * under it saying where it is up to, which stays once it is done.
@@ -4721,6 +4751,7 @@ static MenuItemHandlerResult menuhandlerTexturePackReload(s32 operation, struct 
 {
 	if (operation == MENUOP_SET) {
 		texpackReload();
+		modelpackReload();
 	}
 
 	return 0;
@@ -5310,6 +5341,14 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		(uintptr_t)"Use Model Packs",
 		0,
 		menuhandlerModelPackEnabled,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"A Model With Both Draws",
+		0,
+		menuhandlerModelPackPrefer,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

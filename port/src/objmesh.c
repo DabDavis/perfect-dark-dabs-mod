@@ -617,12 +617,45 @@ static s32 objDecAfter(const char *name, const char *prefix)
  * person who wrote the OBJ definitely meant. Otherwise the name says which of
  * the game's pictures to draw with, and a name that says nothing draws shaded.
  */
+/**
+ * Whether a map_Kd is a picture the model comes with, rather than a pointer
+ * at one of the game's.
+ *
+ * The dump writes both for a material that draws with one of the ROM's
+ * textures: the name says which number it is, and `map_Kd` points out of the
+ * pack at the picture under texture-dumps/ so that the OBJ opens with its art
+ * in a modeller. Only the first of those is what the material *is* - a picture
+ * reached by climbing out of the folder is a copy of something the game has -
+ * and taking the second literally is what stopped a texture pack from ever
+ * repainting a model pack's mesh: every material came out a picture of its
+ * own, bound once and never asked about again.
+ *
+ * So a path that stays inside the model's own folder is the author's picture
+ * and wins; one that leaves it is a reference, and the number in the name is
+ * what the material draws with.
+ */
+static s32 objImageIsOwn(const char *image)
+{
+	if (fsPathIsAbsolute(image)) {
+		return 0;
+	}
+
+	if (!strncmp(image, "../", 3) || !strncmp(image, "..\\", 3)) {
+		return 0;
+	}
+
+	return 1;
+}
+
 static void objClassifyMaterial(struct objmaterial *mat, const char *objdir)
 {
+	char path[FS_MAXPATH + 1];
+	s32 haveimage = 0;
+	s32 own = 0;
 	s32 n;
 
 	if (mat->image[0]) {
-		char path[FS_MAXPATH + 1];
+		own = objImageIsOwn(mat->image);
 
 		if (fsPathIsAbsolute(mat->image)) {
 			snprintf(path, sizeof(path), "%s", mat->image);
@@ -630,12 +663,14 @@ static void objClassifyMaterial(struct objmaterial *mat, const char *objdir)
 			snprintf(path, sizeof(path), "%s/%s", objdir, mat->image);
 		}
 
-		if (fsFileSize(path) > 0) {
-			strncpy(mat->image, path, sizeof(mat->image) - 1);
-			mat->image[sizeof(mat->image) - 1] = '\0';
-			mat->kind = OBJMAT_IMAGE;
-			return;
-		}
+		haveimage = fsFileSize(path) > 0;
+	}
+
+	if (haveimage && own) {
+		strncpy(mat->image, path, sizeof(mat->image) - 1);
+		mat->image[sizeof(mat->image) - 1] = '\0';
+		mat->kind = OBJMAT_IMAGE;
+		return;
 	}
 
 	if ((n = objHexAfter(mat->name, "n64_")) >= 0) {
@@ -647,6 +682,13 @@ static void objClassifyMaterial(struct objmaterial *mat, const char *objdir)
 	} else if ((n = objDecAfter(mat->name, "tex")) >= 0) {
 		mat->kind = OBJMAT_XBLA;
 		mat->id = (u32)n;
+	} else if (haveimage) {
+		// Nothing in the name to go on, so the picture it points at is all
+		// there is, wherever it lives.
+		strncpy(mat->image, path, sizeof(mat->image) - 1);
+		mat->image[sizeof(mat->image) - 1] = '\0';
+		mat->kind = OBJMAT_IMAGE;
+		return;
 	} else {
 		mat->kind = OBJMAT_NONE;
 	}
