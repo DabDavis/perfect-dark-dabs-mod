@@ -70,6 +70,18 @@ cmake --build build -j8        # Linux
 cmake --build build-win -j8    # mingw, see the memory note for the prefix
 ```
 
+Neither of them is clang, and the two macOS jobs are. A name the BSD half of
+Apple's libc already uses — `index()`, `rindex()`, `bcopy()` — compiles here
+and not there, because the fork builds at `-std=c11` and glibc hides those
+behind `__STRICT_ANSI__` while Apple's `<string.h>` includes `<strings.h>`
+and declares them whatever the standard asked for. That is a green Linux and
+a green Windows and a release that never publishes. A third build catches it
+for the price of one compile:
+
+```sh
+CC=clang cmake -G"Unix Makefiles" -Bbuild-clang . && cmake --build build-clang -j8
+```
+
 ## Pushing
 
 ```sh

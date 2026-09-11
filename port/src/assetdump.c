@@ -61,7 +61,7 @@ enum {
 };
 
 static s32 phase = PHASE_IDLE;
-static s32 index;
+static s32 cursor;
 static s32 total;
 static s32 haveXbla;
 static s32 numTextures, numRecords, numModels, numMeshes, numRefused, numUnnamed;
@@ -871,7 +871,7 @@ void assetDumpStart(void)
 	numTextures = numRecords = numModels = numMeshes = numRefused = numUnnamed = 0;
 	meshPrevName[0] = '\0';
 	meshSincePrev = 0;
-	index = 0;
+	cursor = 0;
 	total = 0;
 
 	if (!assetDumpOpenDirs() || !texpackDumpOpen()) {
@@ -901,70 +901,70 @@ static void assetDumpStep(void)
 {
 	switch (phase) {
 	case PHASE_TEXTURES:
-		if (index < NUM_TEXTURES) {
-			numTextures += texpackDumpTextureNum(index);
-			index++;
-			assetDumpSetStatus("Textures: %d of %d", index, NUM_TEXTURES);
+		if (cursor < NUM_TEXTURES) {
+			numTextures += texpackDumpTextureNum(cursor);
+			cursor++;
+			assetDumpSetStatus("Textures: %d of %d", cursor, NUM_TEXTURES);
 		} else {
 			texpackDumpClose();
 			assetDumpLogPhase("textures", numTextures);
 			phase = PHASE_RECORDS;
-			index = 0;
+			cursor = 0;
 			// Opens the package, which unpacks the archive if that has not
 			// happened yet - a few seconds, once.
 			total = haveXbla ? (s32)xblaTexGetNumRecords() : 0;
 		}
 		break;
 	case PHASE_RECORDS:
-		if (index < total) {
+		if (cursor < total) {
 			s32 width = 0;
 			s32 height = 0;
-			u8 *rgba = xblaTexDecodeRecord((u32)index, &width, &height);
+			u8 *rgba = xblaTexDecodeRecord((u32)cursor, &width, &height);
 
 			if (rgba) {
-				numRecords += texpackWriteXblaRecord(rgba, (u32)width, (u32)height, (u32)index);
+				numRecords += texpackWriteXblaRecord(rgba, (u32)width, (u32)height, (u32)cursor);
 				free(rgba);
 			}
 
-			index++;
-			assetDumpSetStatus("XBLA textures: %d of %d", index, total);
+			cursor++;
+			assetDumpSetStatus("XBLA textures: %d of %d", cursor, total);
 		} else {
 			assetDumpLogPhase("XBLA textures", numRecords);
 			phase = PHASE_MODELS;
-			index = 1;
+			cursor = 1;
 			total = NUM_FILES;
 		}
 		break;
 	case PHASE_MODELS:
-		if (index < NUM_FILES) {
-			const char *name = romdataFileGetName(index);
+		if (cursor < NUM_FILES) {
+			const char *name = romdataFileGetName(cursor);
 
 			// The characters, the props and the guns are the ROM's models,
 			// named C, P and G; what else has those initials is caught by
 			// the header check in assetDumpLoadModel().
 			if (name && (name[0] == 'C' || name[0] == 'P' || name[0] == 'G')) {
-				if (assetDumpModel(index, name)) {
+				if (assetDumpModel(cursor, name)) {
 					numModels++;
 				} else {
 					numRefused++;
-					sysLogPrintf(LOG_NOTE, "assetdump: file %d (%s) is not a model, or has no geometry", index, name);
+					sysLogPrintf(LOG_NOTE, "assetdump: file %d (%s) is not a model, or has no geometry", cursor, name);
 				}
 			}
 
-			index++;
-			assetDumpSetStatus("Models: file %d of %d (%d written)", index, NUM_FILES, numModels);
+			cursor++;
+			assetDumpSetStatus("Models: file %d of %d (%d written)", cursor, NUM_FILES, numModels);
 		} else {
 			assetDumpLogPhase("models", numModels);
 			phase = PHASE_MESHES;
-			index = 0;
+			cursor = 0;
 			total = haveXbla ? xblaMeshGetNumPackageSlots() : 0;
 		}
 		break;
 	case PHASE_MESHES:
-		if (index < total) {
-			numMeshes += assetDumpMesh(index, total);
-			index++;
-			assetDumpSetStatus("XBLA meshes: slot %d of %d (%d written)", index, total, numMeshes);
+		if (cursor < total) {
+			numMeshes += assetDumpMesh(cursor, total);
+			cursor++;
+			assetDumpSetStatus("XBLA meshes: slot %d of %d (%d written)", cursor, total, numMeshes);
 		} else {
 			assetDumpLogPhase("XBLA meshes", numMeshes);
 			assetDumpFinish();
