@@ -4087,7 +4087,12 @@ struct menucolumn {
 };
 
 struct menu {
-	struct menudialog dialogs[VERSION >= VERSION_NTSC_1_0 ? 10 : 9];
+	// Every dialog open at once on every layer, siblings included. The game
+	// had 10: the solo pause menu is four siblings, Extended Options one more,
+	// and Dab's Mod Options is five pages that swipe, which is ten exactly -
+	// so there is room to spare, as menuPushDialog() drops a sibling that
+	// does not fit without a word.
+	struct menudialog dialogs[16];
 	/*0x460*/ s16 numdialogs;
 	/*0x464*/ struct menulayer layers[6];
 	/*0x4f4*/ s16 depth; // index into layers. 1-indexed?

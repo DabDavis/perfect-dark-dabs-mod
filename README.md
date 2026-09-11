@@ -53,8 +53,11 @@ A GPU with OpenGL 3.0 / ES 3.0 or better is required.
 
 ## What it adds
 
-All of the fork's settings are on one page: **Options → Extended Options → Dab's
-Mod Options**. Each one persists to `pd.ini` under a `Mod.` key.
+All of the fork's settings are under **Options → Extended Options → Dab's Mod
+Options**, on five pages that swipe left and right the way the Perfect Menu
+swipes to Options: **Player**, **Camera**, **Display**, **Missions** and
+**Recording**. A key bind sits on the page of the feature it drives. Each
+setting persists to `pd.ini` under a `Mod.` key.
 
 ### Movement
 

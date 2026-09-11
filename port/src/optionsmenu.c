@@ -3794,7 +3794,28 @@ static MenuItemHandlerResult menuhandlerModKeyBind(s32 operation, struct menuite
 	return 0;
 }
 
-struct menuitem g_ExtendedDabsModMenuItems[] = {
+/**
+ * Dab's Mod Options is five pages that swipe left and right, the way the
+ * Perfect Menu swipes to Options and the pause menu swipes to Inventory and
+ * Mission Status: each page is a sibling dialog on the same layer
+ * (menudialogdef.nextsibling), so a Left or Right that a row does not take
+ * turns the page, and the chevrons beside the dialog show there is more.
+ * The engine draws up to five siblings on a layer, which is why there are
+ * five pages and not six; a sixth would be opened and never drawn.
+ *
+ * Every page has its own Back row, and a key bind sits on the page of the
+ * feature it drives rather than on the Key Bindings page.
+ *
+ * The pages, in swipe order:
+ *   Player    - what Jo can do: jump, roll, melee, akimbo, starting armed,
+ *               and the fire/fire-mode binds.
+ *   Camera    - tilt, COD aiming, the third-person camera, spectating.
+ *   Display   - text, model LOD, texture enhancement, colours, and the
+ *               texture-pack/XBLA mesh keys.
+ *   Missions  - respawning, guards, the alarm, bodies, and Ghost Time Trials.
+ *   Recording - video capture and the screenshot/record keys.
+ */
+struct menuitem g_ExtendedDabsModPlayerMenuItems[] = {
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
@@ -3802,6 +3823,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Settings Preset",
 		0,
 		menuhandlerModPreset,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -3826,6 +3855,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Combat Roll",
 		0,
 		menuhandlerModRoll,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		2,
+		menuhandlerModBind,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -3860,108 +3897,12 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		menuhandlerModTranqEffect,
 	},
 	{
-		MENUITEMTYPE_DROPDOWN,
+		MENUITEMTYPE_SEPARATOR,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Camera Tilt",
 		0,
-		menuhandlerModCameraTilt,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Invert Camera Tilt",
 		0,
-		menuhandlerModTiltInvert,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Forward And Back Tilt",
-		0,
-		menuhandlerModTiltForward,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Gun Sway With Tilt",
-		0,
-		menuhandlerModGunSway,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"COD Style Aiming",
-		0,
-		menuhandlerModCodAiming,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Aim Lock",
-		0,
-		menuhandlerModCodAimLock,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Clean Text Outlines",
-		0,
-		menuhandlerModCleanText,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Smooth Text",
-		0,
-		menuhandlerModSmoothText,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Model LOD",
-		0,
-		menuhandlerModModelLod,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Enhance Textures",
-		0,
-		menuhandlerModEnhanceTextures,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Stretched Edges",
-		0,
-		menuhandlerModStretchedEdges,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Vivid Colours",
-		0,
-		menuhandlerModVividColours,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Black Level",
-		0,
-		menuhandlerModBlackLevel,
+		NULL,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -3978,54 +3919,6 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		(uintptr_t)"Start Armed For",
 		0,
 		menuhandlerModStartArmedFor,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Mission Respawn",
-		0,
-		menuhandlerModMissionRespawn,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Lives",
-		0,
-		menuhandlerModMissionLives,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Guards Alerted!",
-		0,
-		menuhandlerModGuardsAlerted,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Alerted Guards",
-		0,
-		menuhandlerModAlertedGuards,
-	},
-	{
-		MENUITEMTYPE_SLIDER,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
-		(uintptr_t)"Guard Spawn Speed",
-		MODALARM_SPEED_MAX - MODALARM_SPEED_MIN,
-		menuhandlerModGuardSpawnSpeed,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Guard Weapons",
-		0,
-		menuhandlerModGuardWeapons,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -4080,48 +3973,8 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		0,
 		(uintptr_t)menutextModBind,
-		7,
-		menuhandlerModBind,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		0,
-		(uintptr_t)menutextModBind,
 		8,
 		menuhandlerModBind,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Alarm Sound",
-		0,
-		menuhandlerModAlarmSound,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Bodies",
-		0,
-		menuhandlerModBodies,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Body Time",
-		0,
-		menuhandlerModBodyTime,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Bodies Drawn",
-		0,
-		menuhandlerModBodiesDrawn,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -4130,6 +3983,90 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		0,
 		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menuitem g_ExtendedDabsModCameraMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Camera Tilt",
+		0,
+		menuhandlerModCameraTilt,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Invert Camera Tilt",
+		0,
+		menuhandlerModTiltInvert,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Forward And Back Tilt",
+		0,
+		menuhandlerModTiltForward,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Gun Sway With Tilt",
+		0,
+		menuhandlerModGunSway,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"COD Style Aiming",
+		0,
+		menuhandlerModCodAiming,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Aim Lock",
+		0,
+		menuhandlerModCodAimLock,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		7,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		1,
+		menuhandlerModBind,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -4212,6 +4149,14 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		NULL,
 	},
 	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		0,
+		menuhandlerModBind,
+	},
+	{
 		MENUITEMTYPE_CHECKBOX,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
@@ -4236,44 +4181,80 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		NULL,
 	},
 	{
-		MENUITEMTYPE_DROPDOWN,
+		MENUITEMTYPE_SELECTABLE,
 		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
 		0,
-		(uintptr_t)menutextModBind,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
+	{
+		MENUITEMTYPE_CHECKBOX,
 		0,
-		menuhandlerModBind,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Clean Text Outlines",
+		0,
+		menuhandlerModCleanText,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Smooth Text",
+		0,
+		menuhandlerModSmoothText,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Model LOD",
+		0,
+		menuhandlerModModelLod,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enhance Textures",
 		0,
-		(uintptr_t)menutextModBind,
-		1,
-		menuhandlerModBind,
+		menuhandlerModEnhanceTextures,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Stretched Edges",
 		0,
-		(uintptr_t)menutextModBind,
-		2,
-		menuhandlerModBind,
+		menuhandlerModStretchedEdges,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Vivid Colours",
 		0,
-		(uintptr_t)menutextModKeyBind,
-		0,
-		menuhandlerModKeyBind,
+		menuhandlerModVividColours,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Black Level",
 		0,
-		(uintptr_t)menutextModKeyBind,
-		1,
-		menuhandlerModKeyBind,
+		menuhandlerModBlackLevel,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -4324,6 +4305,114 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		NULL,
 	},
 	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mission Respawn",
+		0,
+		menuhandlerModMissionRespawn,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Lives",
+		0,
+		menuhandlerModMissionLives,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Guards Alerted!",
+		0,
+		menuhandlerModGuardsAlerted,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Alerted Guards",
+		0,
+		menuhandlerModAlertedGuards,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Guard Spawn Speed",
+		MODALARM_SPEED_MAX - MODALARM_SPEED_MIN,
+		menuhandlerModGuardSpawnSpeed,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Guard Weapons",
+		0,
+		menuhandlerModGuardWeapons,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Alarm Sound",
+		0,
+		menuhandlerModAlarmSound,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Bodies",
+		0,
+		menuhandlerModBodies,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Body Time",
+		0,
+		menuhandlerModBodyTime,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Bodies Drawn",
+		0,
+		menuhandlerModBodiesDrawn,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
@@ -4363,6 +4452,18 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		0,
 		NULL,
 	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menuitem g_ExtendedDabsModRecordingMenuItems[] = {
 	{
 		// A text function rather than a literal, so the row can say what the
 		// download is doing while it happens.
@@ -4414,6 +4515,30 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 		NULL,
 	},
 	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		1,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		0,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
@@ -4424,13 +4549,51 @@ struct menuitem g_ExtendedDabsModMenuItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
-struct menudialogdef g_ExtendedDabsModMenuDialog = {
+// The chain is declared last-to-first so each page can name the next.
+struct menudialogdef g_ExtendedDabsModRecordingMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Dab's Mod Options",
-	g_ExtendedDabsModMenuItems,
+	(uintptr_t)"Mods: Recording",
+	g_ExtendedDabsModRecordingMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
+};
+
+struct menudialogdef g_ExtendedDabsModMissionMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Mods: Missions",
+	g_ExtendedDabsModMissionMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	&g_ExtendedDabsModRecordingMenuDialog,
+};
+
+struct menudialogdef g_ExtendedDabsModDisplayMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Mods: Display",
+	g_ExtendedDabsModDisplayMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	&g_ExtendedDabsModMissionMenuDialog,
+};
+
+struct menudialogdef g_ExtendedDabsModCameraMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Mods: Camera",
+	g_ExtendedDabsModCameraMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	&g_ExtendedDabsModDisplayMenuDialog,
+};
+
+// The head of the chain, and the one Extended Options opens.
+struct menudialogdef g_ExtendedDabsModMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Mods: Player",
+	g_ExtendedDabsModPlayerMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	&g_ExtendedDabsModCameraMenuDialog,
 };
 
 /**
