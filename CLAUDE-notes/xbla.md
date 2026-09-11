@@ -1957,24 +1957,71 @@ For the printable ASCII, `table[c - 0x20] - 1` and `c - 0x20` are the same
 record, which is the check that the map is a map: the cell it gives for 'A' in
 every Handel Gothic file crops to an 'A'.
 
-### The ink, not the metrics, is what is matched
+### The ink, not the metrics, is what is matched - and it is the *font's* ink
 
 The ROM's cell is the character's ink with the baseline held separately in
-`fontchar`; 4J's is a line box. **So the two are fitted on ink**: the release's
-glyph is scaled into the box the ROM glyph's own *body* texels fill, which is
-read off the character's CI4 data through the font's palette -
-`var8007fb5c`'s second bank gives alpha to the body indices (8 and up) and its
-first bank to the border the font bakes around it (1 to 7), so one pass over
-the glyph gives both the body box and the cell.
+`fontchar`; 4J's is a line box. **So the two are fitted on ink**, read off the
+character's CI4 data through the font's palette - `var8007fb5c`'s second bank
+gives alpha to the body indices (9 and up) and its first bank to the border the
+font bakes around it (1 to 7), so one pass over the glyph gives both the body
+box and the cell.
 
-That is what makes this a drop-in. Every measurement the game makes is still
-the ROM's - the width, the baseline, the kerning table, `textMeasure()` - so
-nothing reflows, nothing can overlap, and a dialog that fitted before fits
-now. Mapping 4J's metrics on instead would mean deciding where the ROM's
-baseline sits inside a line box the ROM has no notion of, per font, and being
-wrong about it moves a row off its line.
+Fitting each glyph into its *own* box is what shipped first, and it seats the
+text unevenly. **A 16 texel bitmap's box carries the rasteriser's rounding.**
+The md font's 'A' has a faint row of spill under its baseline and its 'H' has
+none - the cell heights in the font are 11 and 10 - so filling each box in turn
+drew the 'A' a whole texel taller than the 'H' beside it. At 1080p a texel of
+that font is five pixels, which is exactly the "some letters sit higher" that
+brought this up. The ROM's own glyphs hid it: a letter whose ink is 16 texels
+of antialiasing does not show a sixteenth of itself.
 
-Two details of the fit:
+So since 2026-09-11 the ink is measured **to a fraction of a texel** and the
+*font* is placed rather than the glyph:
+
+- `xblaFontSpan()` takes a row's own ink against the ink of the row inside it.
+  A row as full as its neighbour is ink to its far side; a tenth of one is a
+  tenth of a texel of it. Flat edges - a baseline, a cap line, an x-height -
+  come out exact; a taper (the apex of an 'A') reads short, which is why the
+  fit is taken from the cloud rather than from any one glyph.
+- `xblaFontBuildLine()` fits one `scale`/`offset` per font through the ink
+  boxes of all 94 characters at once, in the coordinate a glyph's baseline is
+  an offset into. Its inliers are every letter and digit - the two fonts are
+  the same typeface, so a cap line is a cap line in both - and its outliers are
+  the characters the ROM drew somewhere of its own: **its '_' is an overbar at
+  the cap line, its '=' sits up there with it, its ';' has no tail.** The line
+  is taken by counting agreement (every pair of anchors a cap-height apart
+  proposes one, the most-agreed wins, then it is re-taken as the mean of what
+  sits on it) rather than by least squares, which would drag a whole font off
+  its row to meet that overbar. 17k candidates against ~186 anchors is under a
+  millisecond, once per font.
+- A glyph is placed on that line, nudged up to a third of a texel if a round
+  letter's overshoot would leave the tile, and **falls back to its own box** if
+  it still will not fit - which is exactly the characters the ROM put
+  elsewhere, plus the lg '7', whose ROM glyph genuinely stops a texel above the
+  baseline and has no tile to reach it in.
+
+Measured over A-Z and 0-9, the spread of the drawn cap line and baseline goes
+from 1.00/1.00 texel to 0.30/0.17 in md and from 1.00/2.00 to 0.37/0.24 in lg;
+what is left is the release font's own overshoot on round letters, which is
+what it should be. sm, xs and numeric had uniform boxes and were already flush.
+
+**The xs font is written in capitals** - every lowercase character is the same
+bitmap as its capital, because a six texel cell has no room for two cases, and
+the width the game lays text out to is the capital's. Drawing the release's
+real lowercase there put an x-height letter in a capital's cell, so
+`xblaFontSourceIndex()` compares the two ROM bitmaps and draws the release's
+capital where they are the same texels. "GAME FILES" down the side of the file
+select is the place to look.
+
+Everything the game measures is still the ROM's - the width, the baseline, the
+kerning table, `textMeasure()` - and the ink still fills the columns the ROM's
+own ink filled, so nothing reflows, nothing can overlap, and a dialog that
+fitted before fits now. Reading 4J's metrics instead would mean deciding where
+the ROM's baseline sits inside a line box the ROM has no notion of, per font,
+and being wrong about it moves a row off its line. The fit never asks: it
+measures what both fonts actually drew.
+
+Two details of the sampling:
 
 - **The footprint is averaged, and never narrower than one source texel.**
   The release's ink is about the size of the box it goes into (46 pixel ink
@@ -1990,6 +2037,13 @@ Two details of the fit:
   35 pixel glyph - Handel Gothic 46's ink, near enough. `md` and `lg` take 54,
   `xs` takes 22, and nothing reads 12 or 14: those are hinted bitmaps a few
   pixels tall and no better than the ROM's own.
+
+To check any of this without the game: the ROM's fonts are uncompressed
+segments (`fonthandelgothicsm` at 0x7f9d30 in ntsc-final, the rest beside it in
+`romdata.c`), 169 kerning words then 94 `{u8 index, s8 baseline, u8 height, u8
+width, s32 kerningindex, u32 pixeldata}`, and the pixel data is CI4 at eight
+bytes a row. Decoding a glyph and printing it as ASCII is how the spill row
+under the 'A' was found, and `tools/texpack/x360.py` reads the atlas beside it.
 
 ### The outline pass cannot be left to the shader
 

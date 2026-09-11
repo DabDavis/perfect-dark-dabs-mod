@@ -23,10 +23,15 @@ extern "C" {
  * What arrives is a *picture of a glyph*, not a font: every measurement the
  * game makes is still the ROM's. The N64 glyph's cell, its width, its
  * baseline and the font's kerning table decide where a character goes and how
- * wide the line is, exactly as they did, and the release's ink is fitted into
- * the box the ROM's ink occupied. Nothing reflows, nothing can overlap, and a
- * menu that fitted before fits now - see "Fitting it into the cell" in
- * xblafont.c for why that is the right box rather than the metrics 4J shipped.
+ * wide the line is, exactly as they did, and the release's ink stays inside
+ * the columns the ROM's ink filled. Nothing reflows, nothing can overlap, and
+ * a menu that fitted before fits now.
+ *
+ * Down the line it is the *font* that is fitted rather than each glyph: one
+ * scale and one offset per font, measured off the ink of both. A 16 texel
+ * bitmap's own box carries a texel of the rasteriser's rounding with it, which
+ * seats one letter higher than the next when a crisp glyph is stretched to
+ * fill it - see "Fitting it to the line" in xblafont.c.
  *
  * This is the same road a texture pack's font folder takes (texpack.h's
  * TEXPACK_GLYPH_SET): a glyph has no texture number, so the display list says

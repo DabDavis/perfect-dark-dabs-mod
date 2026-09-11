@@ -43,20 +43,43 @@
  * is written down rather than worked out, and the dimensions in it are checked
  * against the record as it is read.
  *
- * ## Fitting it into the cell
+ * ## Fitting it to the line
  *
  * The release's cell and the ROM's are not the same box: 4J's is the font's
  * line box, the same height for every character, and the ROM's is the ink with
- * the baseline held separately. So the two are matched on *ink*: the release's
- * glyph is scaled into the box the ROM's glyph's own body texels occupy, taken
- * out of the character's pixel data through the font's palette. That is what
- * makes this a drop-in - every glyph lands where the game already put it,
- * whatever either font thinks its metrics are, and a menu laid out to the
- * ROM's widths still fits.
+ * the baseline held separately. The two are matched on *ink*, taken out of the
+ * character's pixel data through the font's palette - but on the ink of the
+ * *font*, not of the glyph.
  *
- * Mapping 4J's metrics onto the game's instead would mean deciding where the
- * ROM's baseline sits inside a line box the ROM has no notion of, per font,
- * and being wrong about it moves text off its row.
+ * Across a character the ROM's box is not a reliable thing to sit a letter in.
+ * Its glyphs are 16 texel bitmaps of an antialiased rendering, and whether the
+ * rasteriser spilled a faint row past an edge depended on where that edge fell
+ * against the texel grid: the md font's 'A' has such a row under its baseline
+ * and its 'H' has not, and the cell heights the font carries (11 and 10) took
+ * the spill with them. Filling each box in turn therefore drew a letter a
+ * whole texel taller than the one beside it - five pixels at 1080p - and the
+ * text came out unevenly seated, which is what this is all about. The same
+ * rounding puts the odd letter a texel off in the other fonts.
+ *
+ * So the ink is measured to a fraction of a texel (xblaFontSpan) and the
+ * *font* is placed rather than the glyph: one scale and one offset per font,
+ * fitted through the ink boxes of all 94 characters at once, which is a line
+ * through a cloud of points whose inliers are every letter and digit - they
+ * share a baseline, a cap line and an x-height in both fonts, the two being
+ * the same typeface - and whose outliers are the characters the ROM drew
+ * somewhere of its own (its '_' is an overbar at the cap line, its '=' sits up
+ * there with it, its ';' has no tail). A glyph is placed on that line; one
+ * that will not then fit inside the tile it is uploaded in - the outliers,
+ * exactly - keeps its own box and is drawn as it always was.
+ *
+ * Everything the game measures is still the ROM's. A glyph's width, its
+ * advance, its baseline and the kerning table lay the text out untouched, the
+ * ink stays inside the columns the ROM's own ink filled, and nothing reflows.
+ *
+ * Reading 4J's metrics instead would mean deciding where the ROM's baseline
+ * sits inside a line box the ROM has no notion of, per font, and being wrong
+ * about it moves text off its row. The fit never asks: it measures what both
+ * fonts actually drew and puts the one on the other.
  */
 
 #include <stdlib.h>
@@ -101,6 +124,23 @@
 #define XBLAFONT_MIN_SCALE 2
 #define XBLAFONT_MAX_SCALE 12
 
+// How near a glyph has to sit to the font's line to be counted as sitting on
+// it, in ROM texels. A third of a texel is under a twentieth of a capital in
+// any of these fonts and well inside what the ROM's own rounding does, so the
+// letters are inliers and the characters the ROM deliberately put somewhere
+// else - its '_' is an overbar, its '=' is drawn at the cap line - are not.
+#define XBLAFONT_FIT_TOL 0.34f
+
+// How far a glyph may be moved to keep it inside the tile it is uploaded in,
+// before the line is given up on for it. A third of a texel covers the
+// overshoot of a round letter, which is all that ever sticks out.
+#define XBLAFONT_FIT_NUDGE 0.34f
+
+// Anchors a line has to be fitted through, and how far apart two of them have
+// to be to define one: a cap line against a baseline, never two baselines.
+#define XBLAFONT_FIT_MIN_ANCHORS 16
+#define XBLAFONT_FIT_MIN_SPREAD 0.25f
+
 // The character table's first character, and the file's header size.
 #define XBLAFONT_ABC_FIRST 0x20
 #define XBLAFONT_ABC_HEADER 0x58
@@ -121,6 +161,29 @@ struct xblafontcell {
 	s16 a;
 	u16 b;
 	u16 c;
+};
+
+// A box of ink, measured to a fraction of a texel (of a glyph tile) or of a
+// pixel (of an atlas). x2 and y2 are the far edges, not the last texel.
+struct xblafontbox {
+	f32 x1;
+	f32 y1;
+	f32 x2;
+	f32 y2;
+};
+
+/**
+ * Where one of the release's fonts sits on the ROM font's line.
+ *
+ * `y * scale + offset` takes a row of the atlas's line box to a row of the
+ * ROM's line - the coordinate a glyph's baseline is an offset into - so one
+ * pair of numbers places every character of a font. See "Fitting it to the
+ * line" for why it is fitted rather than read off either font's metrics.
+ */
+struct xblafontline {
+	s32 tried;   // 1 fitted, -1 gave up
+	f32 scale;   // ROM texels to the atlas pixel
+	f32 offset;
 };
 
 struct xblafontface {
@@ -191,9 +254,11 @@ struct xblafontglyph {
 static s32 optEnabled = 1;
 
 static struct xblafontatlas atlases[XBLAFONT_NUM_FACES];
+static struct xblafontline lines[XBLAFONT_NUM_FONTS];
 static struct xblafontglyph glyphs[2][XBLAFONT_NUM_FONTS][XBLAFONT_NUM_CHARS];
 static s32 numBuilt;
 static s32 numMissing;
+static s32 numOffLine;
 
 PD_CONSTRUCTOR static void xblaFontInit(void)
 {
@@ -243,56 +308,135 @@ static const struct font *xblaFontRomFont(s32 id, const u8 **outStart, u32 *outL
 }
 
 /**
- * The box a character's own body texels fill, in texels of its tile, and the
- * box the font's baked border fills around it.
+ * The outer edges of a run of coverage, to a fraction of a texel.
+ *
+ * Handed the ink of each row (or column) of a glyph, in any unit. The
+ * outermost row of an antialiased glyph is often not a row of the letter at
+ * all but the spill the rasteriser left when the edge fell near the texel
+ * boundary, and taking that row at face value is what puts one letter a whole
+ * texel taller than the next. Its own ink against the ink of the row inside it
+ * says where the edge really was: a row as full as its neighbour is ink to its
+ * far side, a tenth of one is a tenth of a texel of it.
+ *
+ * The ratio only means that where the letter is about as wide from one row to
+ * the next, which is the case at a flat edge - a baseline, a cap line, an
+ * x-height - and those are the edges a line is fitted through. Where it is not
+ * - the apex of an 'A', the point of a 'V' - the reading is short, and such a
+ * glyph is an outlier of the fit rather than a thing the fit is taken from.
+ */
+static void xblaFontSpan(const f32 *ink, s32 num, f32 *outLo, f32 *outHi)
+{
+	s32 first = 0;
+	s32 last = num - 1;
+
+	while (first < num && ink[first] <= 0) {
+		first++;
+	}
+
+	while (last >= 0 && ink[last] <= 0) {
+		last--;
+	}
+
+	if (first > last) {
+		*outLo = 0;
+		*outHi = 0;
+		return;
+	}
+
+	*outLo = first;
+	*outHi = last + 1;
+
+	if (first < last && ink[first + 1] > ink[first]) {
+		*outLo = first + 1.0f - ink[first] / ink[first + 1];
+	}
+
+	if (last > first && ink[last - 1] > ink[last]) {
+		*outHi = last + ink[last] / ink[last - 1];
+	}
+}
+
+/**
+ * The character as the ROM holds it, and its tile.
  *
  * The glyph is CI4 at eight bytes a row, height + 2 rows tall, with the
- * character in the top left corner. An index is body when the palette's body
- * bank gives it alpha and part of the cell when the other bank does.
+ * character in the top left corner - and drawn at `baseline`, which is what
+ * makes the tiles of two characters comparable at all.
  */
-static s32 xblaFontRomInk(s32 id, s32 index, s32 *body, s32 *cell, s32 *outRows)
+static const struct fontchar *xblaFontRomChar(s32 id, s32 index, const u8 **outPixels, s32 *outRows)
 {
 	const struct font *font;
 	const u8 *start;
-	const u8 *data;
 	u32 len;
 	u32 ofs;
 	s32 rows;
-	s32 row;
-	s32 col;
 
 	font = xblaFontRomFont(id, &start, &len);
 
 	if (!font || index < 0 || index >= XBLAFONT_NUM_CHARS) {
-		return 0;
+		return NULL;
 	}
 
 	ofs = (u32)(uintptr_t)font->chars[index].pixeldata;
 	rows = XBLAFONT_TILE_ROWS(font->chars[index].height);
 
 	if (!ofs || rows < 1 || ofs + (u32)rows * (XBLAFONT_TILE_TEXELS / 2) > len) {
+		return NULL;
+	}
+
+	*outPixels = start + ofs;
+	*outRows = rows;
+
+	return &font->chars[index];
+}
+
+/**
+ * The box a character's own body texels fill, in texels of its tile, and the
+ * box the font's baked border fills around it.
+ *
+ * An index is body when the palette's body bank gives it alpha and part of the
+ * cell when the other bank does. The body box is measured to a fraction of a
+ * texel, since it is what a glyph is sat in; the border's is whole texels,
+ * since all it does is bound the outline pass's halo.
+ */
+static s32 xblaFontRomInk(s32 id, s32 index, struct xblafontbox *body, s32 *cell, s32 *outRows)
+{
+	const struct fontchar *ch;
+	const u8 *data;
+	f32 rowink[XBLAFONT_TILE_ROWS(255)];
+	f32 colink[XBLAFONT_TILE_TEXELS];
+	s32 rows;
+	s32 row;
+	s32 col;
+	s32 any = 0;
+
+	ch = xblaFontRomChar(id, index, &data, &rows);
+
+	if (!ch) {
 		return 0;
 	}
 
-	data = start + ofs;
+	cell[0] = XBLAFONT_TILE_TEXELS;
+	cell[1] = rows;
+	cell[2] = -1;
+	cell[3] = -1;
 
-	body[0] = cell[0] = XBLAFONT_TILE_TEXELS;
-	body[1] = cell[1] = rows;
-	body[2] = cell[2] = -1;
-	body[3] = cell[3] = -1;
+	for (col = 0; col < XBLAFONT_TILE_TEXELS; col++) {
+		colink[col] = 0;
+	}
 
 	for (row = 0; row < rows; row++) {
+		rowink[row] = 0;
+
 		for (col = 0; col < XBLAFONT_TILE_TEXELS; col++) {
 			const u8 pair = data[row * (XBLAFONT_TILE_TEXELS / 2) + col / 2];
 			const u8 ci = (col & 1) ? (pair & 0xf) : (pair >> 4);
-			const s32 isBody = (PD_BE16(var8007fb5c[XBLAFONT_TLUT_BODY + ci]) & 0xff) != 0;
-			const s32 isCell = isBody || (PD_BE16(var8007fb5c[ci]) & 0xff) != 0;
+			const s32 alpha = PD_BE16(var8007fb5c[XBLAFONT_TLUT_BODY + ci]) & 0xff;
+			const s32 isCell = alpha || (PD_BE16(var8007fb5c[ci]) & 0xff) != 0;
 
-			if (isBody) {
-				if (col < body[0]) body[0] = col;
-				if (row < body[1]) body[1] = row;
-				if (col > body[2]) body[2] = col;
-				if (row > body[3]) body[3] = row;
+			if (alpha) {
+				rowink[row] += alpha;
+				colink[col] += alpha;
+				any = 1;
 			}
 
 			if (isCell) {
@@ -304,9 +448,59 @@ static s32 xblaFontRomInk(s32 id, s32 index, s32 *body, s32 *cell, s32 *outRows)
 		}
 	}
 
+	if (!any) {
+		return 0;
+	}
+
+	xblaFontSpan(colink, XBLAFONT_TILE_TEXELS, &body->x1, &body->x2);
+	xblaFontSpan(rowink, rows, &body->y1, &body->y2);
+
 	*outRows = rows;
 
-	return body[2] >= body[0] && body[3] >= body[1];
+	return body->x2 > body->x1 && body->y2 > body->y1;
+}
+
+/**
+ * The character whose release glyph is drawn for this one.
+ *
+ * The extra small font is written in capitals: every one of its lowercase
+ * characters is the same bitmap as the capital, because a six texel cell has
+ * no room for two cases, and the width the game lays the text out to is the
+ * capital's. The release has both cases at every size, so drawing its
+ * lowercase there would put an x-height letter in a capital's cell - small,
+ * and adrift in a space measured for something else. Where the ROM draws the
+ * two cases with the same texels, so does this.
+ */
+static s32 xblaFontSourceIndex(s32 id, s32 index)
+{
+	const s32 ch = index + XBLAFONT_FIRST_CHAR;
+	const struct fontchar *lower;
+	const struct fontchar *upper;
+	const u8 *lowerpx;
+	const u8 *upperpx;
+	s32 lowerrows;
+	s32 upperrows;
+	s32 upperindex;
+
+	if (ch < 'a' || ch > 'z') {
+		return index;
+	}
+
+	upperindex = index - ('a' - 'A');
+
+	lower = xblaFontRomChar(id, index, &lowerpx, &lowerrows);
+	upper = xblaFontRomChar(id, upperindex, &upperpx, &upperrows);
+
+	if (!lower || !upper || lowerrows != upperrows || lower->width != upper->width
+			|| lower->baseline != upper->baseline) {
+		return index;
+	}
+
+	if (memcmp(lowerpx, upperpx, (u32)lowerrows * (XBLAFONT_TILE_TEXELS / 2))) {
+		return index;
+	}
+
+	return upperindex;
 }
 
 /* -------------------------------------------------------------------------
@@ -504,35 +698,243 @@ static const struct xblafontcell *xblaFontCellOf(const struct xblafontatlas *atl
 	return &atlas->cells[g - 1];
 }
 
-/** The ink inside a cell, which is what is matched to the ROM's ink. */
-static s32 xblaFontCellInk(const struct xblafontatlas *atlas, const struct xblafontcell *cell, s32 *ink)
+/**
+ * The ink inside a cell, in pixels of the atlas and to a fraction of one.
+ *
+ * Measured the same way the ROM's is (xblaFontSpan), which at 46 pixels to a
+ * capital is all but exact - a fringe here is a pixel of an edge rather than a
+ * sixth of a letter - and keeps the two sides of the fit the same measurement.
+ */
+static s32 xblaFontCellInk(const struct xblafontatlas *atlas, const struct xblafontcell *cell, struct xblafontbox *ink)
 {
+	const s32 w = cell->x2 - cell->x1;
+	const s32 h = cell->y2 - cell->y1;
+	f32 *sums;
 	s32 x;
 	s32 y;
 
-	if (cell->x2 > atlas->width || cell->y2 > atlas->height) {
+	if (cell->x2 > atlas->width || cell->y2 > atlas->height || w < 1 || h < 1) {
 		return 0;
 	}
 
-	ink[0] = cell->x2;
-	ink[1] = cell->y2;
-	ink[2] = -1;
-	ink[3] = -1;
+	// One allocation for both: a cell is up to a megapixel of atlas and the
+	// sums are a thousandth of that, but they are still too big for the render
+	// thread's stack.
+	sums = calloc((u32)(w + h), sizeof(f32));
 
-	for (y = cell->y1; y < cell->y2; y++) {
-		for (x = cell->x1; x < cell->x2; x++) {
-			if (!atlas->alpha[y * atlas->width + x]) {
-				continue;
-			}
+	if (!sums) {
+		return 0;
+	}
 
-			if (x < ink[0]) ink[0] = x;
-			if (y < ink[1]) ink[1] = y;
-			if (x > ink[2]) ink[2] = x;
-			if (y > ink[3]) ink[3] = y;
+	for (y = 0; y < h; y++) {
+		const u8 *row = &atlas->alpha[(cell->y1 + y) * atlas->width + cell->x1];
+
+		for (x = 0; x < w; x++) {
+			sums[w + y] += row[x];
+			sums[x] += row[x];
 		}
 	}
 
-	return ink[2] >= ink[0] && ink[3] >= ink[1];
+	xblaFontSpan(sums, w, &ink->x1, &ink->x2);
+	xblaFontSpan(sums + w, h, &ink->y1, &ink->y2);
+
+	free(sums);
+
+	if (ink->x2 <= ink->x1 || ink->y2 <= ink->y1) {
+		return 0;
+	}
+
+	// Back into the atlas, which is where the sampling reads from.
+	ink->x1 += cell->x1;
+	ink->x2 += cell->x1;
+	ink->y1 += cell->y1;
+	ink->y2 += cell->y1;
+
+	return 1;
+}
+
+/* -------------------------------------------------------------------------
+ * The line a font sits on
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The line through the two fonts' ink: `rom = scale * atlas + offset`.
+ *
+ * Every character contributes two anchors, the top and the bottom of its ink,
+ * the ROM's in the line coordinate its baseline is an offset into and the
+ * release's in rows of its line box. A letter's anchors agree with every other
+ * letter's - the two fonts are the same typeface, so a cap line is a cap line
+ * in both - and the characters the ROM drew elsewhere disagree with everything,
+ * which is why the line is taken by counting agreement rather than by least
+ * squares: a fit that averaged them in would drag the whole font off its row to
+ * meet an overbar.
+ *
+ * Every pair of anchors far enough apart to be a cap line against a baseline
+ * proposes a line, and the one the most anchors sit on wins; it is then
+ * re-taken as the mean of those anchors, so the answer is not two glyphs' worth
+ * of rounding. Sixteen thousand candidates against ninety-odd anchors, once per
+ * font, on the frame its first glyph is drawn.
+ */
+static s32 xblaFontBuildLine(struct xblafontline *out, s32 id)
+{
+	const struct xblafontatlas *atlas = xblaFontOpenFace(faceOfFont[id]);
+	f32 rom[2 * XBLAFONT_NUM_CHARS];
+	f32 rel[2 * XBLAFONT_NUM_CHARS];
+	f32 spread;
+	f32 lo;
+	f32 hi;
+	f32 bestscale = 0;
+	f32 bestoffset = 0;
+	s32 bestcount = 0;
+	s32 num = 0;
+	s32 index;
+	s32 i;
+	s32 j;
+	s32 k;
+
+	if (!atlas) {
+		return 0;
+	}
+
+	for (index = 0; index < XBLAFONT_NUM_CHARS; index++) {
+		const struct xblafontcell *cell;
+		const struct fontchar *ch;
+		struct xblafontbox body;
+		struct xblafontbox ink;
+		const u8 *pixels;
+		s32 cellbox[4];
+		s32 rows;
+
+		ch = xblaFontRomChar(id, index, &pixels, &rows);
+
+		if (!ch || !xblaFontRomInk(id, index, &body, cellbox, &rows)) {
+			continue;
+		}
+
+		cell = xblaFontCellOf(atlas, xblaFontSourceIndex(id, index) + XBLAFONT_FIRST_CHAR);
+
+		if (!cell || !xblaFontCellInk(atlas, cell, &ink)) {
+			continue;
+		}
+
+		rom[num] = ch->baseline + body.y1;
+		rel[num] = ink.y1 - cell->y1;
+		num++;
+		rom[num] = ch->baseline + body.y2;
+		rel[num] = ink.y2 - cell->y1;
+		num++;
+	}
+
+	if (num < XBLAFONT_FIT_MIN_ANCHORS) {
+		return 0;
+	}
+
+	lo = hi = rel[0];
+
+	for (i = 1; i < num; i++) {
+		if (rel[i] < lo) lo = rel[i];
+		if (rel[i] > hi) hi = rel[i];
+	}
+
+	spread = (hi - lo) * XBLAFONT_FIT_MIN_SPREAD;
+
+	if (spread <= 0) {
+		return 0;
+	}
+
+	for (i = 0; i < num; i++) {
+		for (j = i + 1; j < num; j++) {
+			const f32 d = rel[j] - rel[i];
+			f32 scale;
+			f32 offset;
+			s32 count = 0;
+
+			if (d < spread && -d < spread) {
+				continue;
+			}
+
+			scale = (rom[j] - rom[i]) / d;
+			offset = rom[i] - scale * rel[i];
+
+			// A font that came out mirrored or flat is not a reading of
+			// anything, whatever it agrees with.
+			if (scale <= 0) {
+				continue;
+			}
+
+			for (k = 0; k < num; k++) {
+				const f32 r = scale * rel[k] + offset - rom[k];
+
+				if (r < XBLAFONT_FIT_TOL && -r < XBLAFONT_FIT_TOL) {
+					count++;
+				}
+			}
+
+			if (count > bestcount) {
+				bestcount = count;
+				bestscale = scale;
+				bestoffset = offset;
+			}
+		}
+	}
+
+	if (bestcount < XBLAFONT_FIT_MIN_ANCHORS) {
+		return 0;
+	}
+
+	// Re-taken over everything that sits on it, twice, so that the line is the
+	// font's rather than the two anchors' that proposed it.
+	for (i = 0; i < 2; i++) {
+		f32 sx = 0;
+		f32 sy = 0;
+		f32 sxx = 0;
+		f32 sxy = 0;
+		f32 den;
+		s32 count = 0;
+
+		for (k = 0; k < num; k++) {
+			const f32 r = bestscale * rel[k] + bestoffset - rom[k];
+
+			if (r >= XBLAFONT_FIT_TOL || -r >= XBLAFONT_FIT_TOL) {
+				continue;
+			}
+
+			sx += rel[k];
+			sy += rom[k];
+			sxx += rel[k] * rel[k];
+			sxy += rel[k] * rom[k];
+			count++;
+		}
+
+		den = count * sxx - sx * sx;
+
+		if (count < XBLAFONT_FIT_MIN_ANCHORS || den <= 0) {
+			break;
+		}
+
+		bestscale = (count * sxy - sx * sy) / den;
+		bestoffset = (sy - bestscale * sx) / count;
+	}
+
+	out->scale = bestscale;
+	out->offset = bestoffset;
+
+	sysLogPrintf(LOG_NOTE, "xblafont: font %d sits on %s at %.4f x + %.3f, %d of %d anchors",
+			id, faces[faceOfFont[id]].abc, bestscale, bestoffset, bestcount, num);
+
+	return 1;
+}
+
+/** The line for one font, fitted once. NULL when it could not be. */
+static const struct xblafontline *xblaFontGetLine(s32 id)
+{
+	struct xblafontline *line = &lines[id];
+
+	if (!line->tried) {
+		line->tried = xblaFontBuildLine(line, id) ? 1 : -1;
+	}
+
+	return line->tried > 0 ? line : NULL;
 }
 
 /* -------------------------------------------------------------------------
@@ -594,20 +996,33 @@ static u8 xblaFontArea(const struct xblafontatlas *atlas, f32 x0, f32 x1, f32 y0
 }
 
 /**
- * The body picture: the release's ink scaled into the box the ROM's body
- * texels filled, on a canvas of the whole tile.
+ * The body picture: the release's ink placed on the font's line, on a canvas
+ * of the whole tile.
+ *
+ * Across the tile the ink fills the columns the ROM's own ink filled, so a
+ * character never reaches into the one beside it whatever either font's widths
+ * are. Down it the glyph sits where the font's line puts it (see "Fitting it
+ * to the line"), which is what makes one letter flush with the next; only the
+ * characters the ROM drew somewhere of its own - and they announce themselves
+ * by not fitting in the tile at all - keep their own box.
  */
 static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 {
 	const struct xblafontatlas *atlas;
+	const struct xblafontline *line;
 	const struct xblafontcell *cell;
-	s32 body[4];
+	const struct fontchar *ch;
+	const u8 *pixels;
+	struct xblafontbox body;
+	struct xblafontbox ink;
+	struct xblafontbox dst;
 	s32 cellbox[4];
-	s32 ink[4];
 	s32 rows;
 	s32 scale;
-	s32 dw;
-	s32 dh;
+	s32 px0;
+	s32 py0;
+	s32 px1;
+	s32 py1;
 	s32 x;
 	s32 y;
 
@@ -617,22 +1032,53 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 		return 0;
 	}
 
-	if (!xblaFontRomInk(id, index, body, cellbox, &rows)) {
+	ch = xblaFontRomChar(id, index, &pixels, &rows);
+
+	if (!ch || !xblaFontRomInk(id, index, &body, cellbox, &rows)) {
 		// No body texels: a space, or a character this font does not draw.
 		return 0;
 	}
 
-	cell = xblaFontCellOf(atlas, index + XBLAFONT_FIRST_CHAR);
+	cell = xblaFontCellOf(atlas, xblaFontSourceIndex(id, index) + XBLAFONT_FIRST_CHAR);
 
-	if (!cell || !xblaFontCellInk(atlas, cell, ink)) {
+	if (!cell || !xblaFontCellInk(atlas, cell, &ink)) {
 		return 0;
 	}
 
-	// One scale for both axes, so a glyph is not stretched, and never below
-	// the release's own resolution.
-	scale = (ink[2] - ink[0] + 1 + body[2] - body[0]) / (body[2] - body[0] + 1);
+	dst = body;
 
-	y = (ink[3] - ink[1] + 1 + body[3] - body[1]) / (body[3] - body[1] + 1);
+	line = xblaFontGetLine(id);
+
+	if (line) {
+		// The line is in the coordinate the baseline is an offset into, so the
+		// baseline comes back off to land in the tile.
+		const f32 top = line->scale * (ink.y1 - cell->y1) + line->offset - ch->baseline;
+		const f32 bot = line->scale * (ink.y2 - cell->y1) + line->offset - ch->baseline;
+
+		// What the game draws of the tile: the quad runs from the tile's top
+		// row to height + 1, and anything past that is uploaded and never
+		// sampled.
+		const f32 over = (top < 0 ? -top : 0) + (bot > ch->height + 1 ? bot - (ch->height + 1) : 0);
+
+		if (over <= XBLAFONT_FIT_NUDGE) {
+			// A round letter overshoots its line by a fraction of a texel and
+			// a tile has no room for it, so it is moved rather than cut: less
+			// than a third of a texel, and the same amount for every letter
+			// that overshoots.
+			const f32 nudge = (top < 0 ? -top : 0) - (bot > ch->height + 1 ? bot - (ch->height + 1) : 0);
+
+			dst.y1 = top + nudge;
+			dst.y2 = bot + nudge;
+		} else {
+			numOffLine++;
+		}
+	}
+
+	// One scale for both axes, so the sampling is as fine across as it is
+	// down, and never below the release's own resolution.
+	scale = (s32)((ink.x2 - ink.x1) / (dst.x2 - dst.x1) + 0.999f);
+
+	y = (s32)((ink.y2 - ink.y1) / (dst.y2 - dst.y1) + 0.999f);
 
 	if (y > scale) {
 		scale = y;
@@ -652,28 +1098,39 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 		return 0;
 	}
 
-	dw = (body[2] - body[0] + 1) * scale;
-	dh = (body[3] - body[1] + 1) * scale;
+	// The box in canvas pixels, which is a whole scale finer than the texel
+	// grid the ROM's own metrics are quantised to.
+	px0 = (s32)(dst.x1 * scale + 0.5f);
+	py0 = (s32)(dst.y1 * scale + 0.5f);
+	px1 = (s32)(dst.x2 * scale + 0.5f);
+	py1 = (s32)(dst.y2 * scale + 0.5f);
+
+	if (px0 < 0) px0 = 0;
+	if (py0 < 0) py0 = 0;
+	if (px1 > out->width) px1 = out->width;
+	if (py1 > out->height) py1 = out->height;
+
+	if (px1 <= px0 || py1 <= py0) {
+		return 0;
+	}
 
 	{
-		const f32 stepx = (f32)(ink[2] - ink[0] + 1) / dw;
-		const f32 stepy = (f32)(ink[3] - ink[1] + 1) / dh;
+		const f32 stepx = (ink.x2 - ink.x1) / (px1 - px0);
+		const f32 stepy = (ink.y2 - ink.y1) / (py1 - py0);
 		const f32 halfx = (stepx > 1 ? stepx : 1) * 0.5f;
 		const f32 halfy = (stepy > 1 ? stepy : 1) * 0.5f;
 
-		for (y = 0; y < dh; y++) {
-			const f32 sy = ink[1] + y * stepy;
+		for (y = py0; y < py1; y++) {
+			const f32 sy = ink.y1 + (y - py0 + 0.5f) * stepy;
 
-			for (x = 0; x < dw; x++) {
-				const f32 sx = ink[0] + x * stepx;
-				u8 *p = out->rgba + (((body[1] * scale + y) * out->width) + body[0] * scale + x) * 4;
+			for (x = px0; x < px1; x++) {
+				const f32 sx = ink.x1 + (x - px0 + 0.5f) * stepx;
+				u8 *p = out->rgba + (y * out->width + x) * 4;
 
 				p[0] = 255;
 				p[1] = 255;
 				p[2] = 255;
-				p[3] = xblaFontArea(atlas,
-						sx + stepx * 0.5f - halfx, sx + stepx * 0.5f + halfx,
-						sy + stepy * 0.5f - halfy, sy + stepy * 0.5f + halfy);
+				p[3] = xblaFontArea(atlas, sx - halfx, sx + halfx, sy - halfy, sy + halfy);
 			}
 		}
 	}
@@ -709,7 +1166,7 @@ static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
 		{ 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 },
 	};
 	const struct xblafontglyph *src = &glyphs[0][id][index];
-	s32 body[4];
+	struct xblafontbox body;
 	s32 cellbox[4];
 	s32 rows;
 	s32 scale;
@@ -722,7 +1179,7 @@ static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
 		return 0;
 	}
 
-	if (!xblaFontRomInk(id, index, body, cellbox, &rows) || rows < 1) {
+	if (!xblaFontRomInk(id, index, &body, cellbox, &rows) || rows < 1) {
 		return 0;
 	}
 
@@ -913,14 +1370,26 @@ void xblaFontShutdown(void)
 		free(atlases[i].trans);
 		memset(&atlases[i], 0, sizeof(atlases[i]));
 	}
+
+	// The lines were measured off those atlases, so they go with them.
+	memset(lines, 0, sizeof(lines));
 }
 
 void xblaFontTrace(FILE *f)
 {
 	s32 i;
 
-	fprintf(f, "xblafont: %s, %d glyphs built, %d without one\n",
-			optEnabled ? "on" : "off", numBuilt, numMissing);
+	fprintf(f, "xblafont: %s, %d glyphs built, %d without one, %d off the font's line\n",
+			optEnabled ? "on" : "off", numBuilt, numMissing, numOffLine);
+
+	for (i = 0; i < XBLAFONT_NUM_FONTS; i++) {
+		if (lines[i].tried > 0) {
+			fprintf(f, "  font %d: on %s, %.4f x + %.3f\n", i,
+					faces[faceOfFont[i]].abc, lines[i].scale, lines[i].offset);
+		} else if (lines[i].tried) {
+			fprintf(f, "  font %d: no line, every glyph in its own box\n", i);
+		}
+	}
 
 	for (i = 0; i < XBLAFONT_NUM_FACES; i++) {
 		if (atlases[i].tried) {
