@@ -2051,6 +2051,82 @@ from 1.00/1.00 texel to 0.30/0.17 in md and from 1.00/2.00 to 0.37/0.24 in lg;
 what is left is the release font's own overshoot on round letters, which is
 what it should be. sm, xs and numeric had uniform boxes and were already flush.
 
+**A glyph may fill its advance, not just the ROM's ink box (2026-09-11).**
+"the 1 is thin". Every one of the game's fonts draws the digit one as a bare
+stem with no flag - in sm, md and lg it is *the same bitmap as the `I`* - and
+lays it out in a two texel advance. Handel Gothic's own `1` carries a flag two
+thirds as wide again as its stem (15 pixels against the `I`'s 9 at size 46), so
+filling the columns the ROM's ink filled took the stem in with the flag: the sm
+stem came out **0.71 texels against the 1.19 the same font's `I` gets**, a `1`
+drawn at half the weight of every other stroke on the line. Measured as the
+width a glyph is squeezed to over the width its own shape asks for, the `1` is
+the outlier of every font - 0.47 sm, 0.53 md, 0.44 lg, 0.57 xs - against a
+median near 0.89.
+
+The ROM's ink box is the right bound for a *letter*, whose columns are the same
+columns in both fonts and whose space either side is the bearing. It is not a
+bound on a *character* the ROM drew as a different shape. What actually bounds
+one is the band the game samples: `text0f15568c`'s rectangle runs the
+character's own width from one texel in, so ink past it is uploaded and never
+drawn and cannot reach the neighbour whatever the kerning does (`bandleft`,
+`bandright`, `xblaFontFillAcross()`).
+
+How far a glyph may take that room is **one condensation per font**, the same
+idea across as the fitted line is down: `xblaFontBuildCond()` takes the middle
+of what the ROM's boxes allow against what the release's glyphs ask for at the
+font's scale, over the whole font - 0.891 sm, 0.908 md, 0.931 xs, 0.885 lg,
+0.648 numeric, whose digits are all three texels wide. A glyph is drawn no wider
+than that and never narrower than its own ROM box, so anything the ROM drew at
+the font's condensation does not move and the text keeps its colour; 17 to 40
+characters a font widen, most under 15%, and they are the punctuation and the
+narrow letters. The middle rather than the mean, for the reason the line is
+taken by agreement: the handful of characters the ROM drew narrower than its own
+font would otherwise pull the whole font in to meet them. The minimum is
+**characters, not anchors** (`XBLAFONT_COND_MIN_CHARS`, 8) - the numeric font
+has fourteen in all, and falling through the line's 16 gave it a condensation of
+1.000 and a `1` drawn heavier than the digits beside it.
+
+Stem widths in texels, before and after, measured off the pictures the game
+serves (`xblaFontLoadGlyph` through gdb, below):
+
+| font | `1` before | `1` now | its `I` |
+|---|---|---|---|
+| sm | 0.54 | **0.92** | 1.02 |
+| md | 0.94 | **1.08** | 1.76 |
+| lg | 1.27 | **1.74** | 2.60 |
+| xs | 0.32 | 0.32 | 0.32 |
+| numeric | 0.40 | **0.46** | - |
+
+**md and xs have no room and that is the ROM's two texels, not a choice**: their
+own bar already fills the character's whole advance, so a flagged `1` there is
+condensed as far as it will go and stays lighter than the `I` beside it. sm and
+lg take their whole band. The alternative - drawing the release's `I` for the
+bar the ROM drew, which gives every font a full weight `1` at the cost of the
+flag - was written and rendered first and is not what is wanted; it is a
+five-line change in `xblaFontSourceIndex()`'s caller if it ever is.
+
+Growing every glyph to its *own* shape instead of the font's condensation was
+also tried: it fattens `W Y w`, the quotes and the brackets into their side
+bearings until the capitals touch. The fit is what stops that.
+
+The way to see any of this without the menus is to ask the running game for the
+picture it hands the renderer, which also proves the switch is on the path:
+
+```
+gdb -p $(pgrep -x pd.x86_64) -batch \
+    -ex 'set $w = (int*)malloc(8)' \
+    -ex 'set $p = (unsigned char *)xblaFontLoadGlyph(0x80000010, $w, $w+1)' \
+    -ex 'printf "%d %d\n", *$w, *($w+1)' \
+    -ex 'dump binary memory /tmp/sm1.bin $p ($p + *$w * *($w+1) * 4)'
+```
+
+The glyph id is `gDPSetFontGlyphEXT`'s - `0x80000000 | outline << 24 | font <<
+16 | index`, index 0 being `!` - so `0x80000010` is the sm `1` and `0x80000028`
+its `I`. Driving the menus for the same answer is far slower here: under
+llvmpipe the file select animates for several seconds and `import -window root`
+catches half-drawn frames (F12, `Mod.ScreenshotKey`, reads back the finished
+one, and is what the file-select shots in this file are).
+
 **The xs font is written in capitals** - every lowercase character is the same
 bitmap as its capital, because a six texel cell has no room for two cases, and
 the width the game lays text out to is the capital's. Drawing the release's
@@ -2060,9 +2136,10 @@ capital where they are the same texels. "GAME FILES" down the side of the file
 select is the place to look.
 
 Everything the game measures is still the ROM's - the width, the baseline, the
-kerning table, `textMeasure()` - and the ink still fills the columns the ROM's
-own ink filled, so nothing reflows, nothing can overlap, and a dialog that
-fitted before fits now. Reading 4J's metrics instead would mean deciding where
+kerning table, `textMeasure()` - and the ink stays inside the columns the game
+draws of the character, which since the widening above is its advance rather
+than the ROM's own ink box, so nothing reflows, nothing can overlap, and a
+dialog that fitted before fits now. Reading 4J's metrics instead would mean deciding where
 the ROM's baseline sits inside a line box the ROM has no notion of, per font,
 and being wrong about it moves a row off its line. The fit never asks: it
 measures what both fonts actually drew.

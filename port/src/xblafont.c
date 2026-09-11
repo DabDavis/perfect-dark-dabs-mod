@@ -86,7 +86,9 @@
  *
  * Everything the game measures is still the ROM's. A glyph's width, its
  * advance, its baseline and the kerning table lay the text out untouched, the
- * ink stays inside the columns the ROM's own ink filled, and nothing reflows.
+ * ink stays inside the columns the game draws of the character - its advance,
+ * which the ROM's own ink box sits inside (see "Filling the line") - and
+ * nothing reflows.
  *
  * Reading 4J's metrics instead would mean deciding where the ROM's baseline
  * sits inside a line box the ROM has no notion of, per font, and being wrong
@@ -161,6 +163,12 @@
 #define XBLAFONT_FIT_MIN_ANCHORS 16
 #define XBLAFONT_FIT_MIN_SPREAD 0.25f
 
+// Characters a font's condensation is taken from. Its own, not the line's: the
+// numeric font draws fourteen characters in all, which is a middle worth
+// having and half what a line is fitted through. Fall through this and nothing
+// is widened, which is what the font did before there was a number for it.
+#define XBLAFONT_COND_MIN_CHARS 8
+
 // The character table's first character, and the file's header size.
 #define XBLAFONT_ABC_FIRST 0x20
 #define XBLAFONT_ABC_HEADER 0x58
@@ -193,17 +201,25 @@ struct xblafontbox {
 };
 
 /**
- * Where one of the release's fonts sits on the ROM font's line.
+ * Where one of the release's fonts sits on the ROM font's line, and how far
+ * across it the ROM drew the same font.
  *
  * `y * scale + offset` takes a row of the atlas's line box to a row of the
  * ROM's line - the coordinate a glyph's baseline is an offset into - so one
  * pair of numbers places every character of a font. See "Fitting it to the
  * line" for why it is fitted rather than read off either font's metrics.
+ *
+ * `cond` is the same idea across: what the ROM's own ink boxes allow against
+ * what the release's glyphs ask for at that scale, over the whole font. The
+ * ROM's fonts are hand-condensed at these sizes - about nine tenths in the
+ * three big ones, two thirds in the numeric - and a glyph is never drawn wider
+ * than the font is condensed. See "Filling the line".
  */
 struct xblafontline {
 	s32 tried;   // 1 fitted, -1 gave up
 	f32 scale;   // ROM texels to the atlas pixel
 	f32 offset;
+	f32 cond;    // the font's own condensation across, 1 being uncondensed
 };
 
 struct xblafontface {
@@ -807,6 +823,74 @@ static s32 xblaFontCellInk(const struct xblafontatlas *atlas, const struct xblaf
  * ------------------------------------------------------------------------- */
 
 /**
+ * How far across the ROM drew the same font: the middle of what its own ink
+ * boxes allow against what the release's glyphs ask for at the font's scale.
+ *
+ * The ROM's fonts are drawn condensed at these sizes - a 16 texel bitmap of a
+ * seven texel letter has no room to be anything else - and by about the same
+ * amount all the way through a font, which is what makes one number of it: nine
+ * tenths in the three big fonts, a little more in the xs one, two thirds in the
+ * numeric, whose digits are all three texels wide.
+ *
+ * The middle is taken rather than the mean, for the same reason the line is
+ * taken by agreement: a handful of characters the ROM drew narrower than its
+ * own font - its '1' is the case this is here for - would otherwise pull the
+ * whole font in to meet them.
+ */
+static f32 xblaFontBuildCond(const struct xblafontatlas *atlas, s32 id, f32 scale)
+{
+	f32 ratios[XBLAFONT_NUM_CHARS];
+	s32 num = 0;
+	s32 index;
+	s32 i;
+	s32 j;
+
+	for (index = 0; index < XBLAFONT_NUM_CHARS; index++) {
+		const struct xblafontcell *cell;
+		struct xblafontbox body;
+		struct xblafontbox ink;
+		s32 cellbox[4];
+		s32 rows;
+		f32 want;
+
+		if (!xblaFontRomInk(id, index, &body, cellbox, &rows)) {
+			continue;
+		}
+
+		cell = xblaFontCellOf(atlas, xblaFontSourceIndex(id, index) + XBLAFONT_FIRST_CHAR);
+
+		if (!cell || !xblaFontCellInk(atlas, cell, &ink)) {
+			continue;
+		}
+
+		want = scale * (ink.x2 - ink.x1);
+
+		if (want <= 0) {
+			continue;
+		}
+
+		// Insertion sorted as they are taken, since the middle is what is
+		// wanted and there are at most 94 of them.
+		for (i = num; i > 0 && ratios[i - 1] > (body.x2 - body.x1) / want; i--) {
+			ratios[i] = ratios[i - 1];
+		}
+
+		ratios[i] = (body.x2 - body.x1) / want;
+		num++;
+	}
+
+	if (num < XBLAFONT_COND_MIN_CHARS) {
+		// Nothing to go on, so nothing is widened: every glyph keeps the
+		// columns the ROM's own ink filled.
+		return 1;
+	}
+
+	j = num / 2;
+
+	return num & 1 ? ratios[j] : (ratios[j - 1] + ratios[j]) * 0.5f;
+}
+
+/**
  * The line through the two fonts' ink: `rom = scale * atlas + offset`.
  *
  * Every character contributes two anchors, the top and the bottom of its ink,
@@ -967,9 +1051,10 @@ static s32 xblaFontBuildLine(struct xblafontline *out, s32 id)
 
 	out->scale = bestscale;
 	out->offset = bestoffset;
+	out->cond = xblaFontBuildCond(atlas, id, bestscale);
 
-	sysLogPrintf(LOG_NOTE, "xblafont: font %d sits on %s at %.4f x + %.3f, %d of %d anchors",
-			id, faces[faceOfFont[id]].abc, bestscale, bestoffset, bestcount, num);
+	sysLogPrintf(LOG_NOTE, "xblafont: font %d sits on %s at %.4f x + %.3f, %d of %d anchors, condensed to %.3f",
+			id, faces[faceOfFont[id]].abc, bestscale, bestoffset, bestcount, num, out->cond);
 
 	return 1;
 }
@@ -1045,6 +1130,66 @@ static u8 xblaFontArea(const struct xblafontatlas *atlas, f32 x0, f32 x1, f32 y0
 }
 
 /**
+ * A glyph's columns: the width asked for, centred on the ROM's own ink and
+ * held inside the band the game samples.
+ *
+ * ## Filling the line
+ *
+ * The ROM's ink box was the whole of this to begin with, and for a letter it
+ * still is: the two fonts are the same typeface, so the columns the ROM's 'A'
+ * filled are the columns an 'A' fills, and the space either side of it inside
+ * the advance is the letter's own bearing.
+ *
+ * What it is not is a bound on the *character*, and the digit one is where the
+ * two come apart. Every one of the game's fonts draws it as a bare stem with no
+ * flag - in three of the five it is the same bitmap as the 'I' - and Handel
+ * Gothic's own '1' carries a flag two thirds as wide again as its stem. Filling
+ * the ROM's columns with that takes the stem in with the flag: the sm stem came
+ * out 0.71 texels against the 1.19 the same font's 'I' gets, which is a '1'
+ * drawn at half the weight of every other stroke on the line, and reads as a
+ * thin one.
+ *
+ * What actually bounds a glyph is the band the game samples - the quad runs the
+ * character's own width from one texel in, so ink outside it is uploaded and
+ * never drawn, and it cannot reach the character beside it whatever the kerning
+ * does. So a glyph may have the room its advance has.
+ *
+ * How much of it: never wider than the font is condensed (line->cond), which is
+ * the same idea across as the fitted line is down - one number for the font,
+ * taken from what the ROM's boxes allow over the whole of it. A glyph the ROM
+ * drew at the font's own condensation does not move at all, so the letters keep
+ * their bearings and the text has the colour it had; the characters the ROM
+ * drew narrower than its own font take the room their advance has and no more.
+ *
+ * Where the advance has no room - the md and xs '1', whose bar already fills
+ * it - the glyph stays as condensed as the ROM's two texels make it. That is
+ * the box the game measures its text with, and it is not ours to widen.
+ */
+static void xblaFontFillAcross(struct xblafontbox *dst, const struct xblafontbox *body,
+		f32 wide, f32 bandleft, f32 bandright)
+{
+	const f32 mid = (body->x1 + body->x2) * 0.5f;
+
+	if (wide > bandright - bandleft) {
+		wide = bandright - bandleft;
+	}
+
+	// Grown about the middle of the ROM's own ink, and slid back inside the
+	// band where that has taken it out of one end.
+	dst->x1 = mid - wide * 0.5f;
+
+	if (dst->x1 < bandleft) {
+		dst->x1 = bandleft;
+	}
+
+	if (dst->x1 + wide > bandright) {
+		dst->x1 = bandright - wide;
+	}
+
+	dst->x2 = dst->x1 + wide;
+}
+
+/**
  * The body picture: the release's ink placed on the font's line, on a canvas
  * of the whole tile.
  *
@@ -1100,10 +1245,14 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 
 	if (line) {
 		// What the game draws of the tile: the quad starts at the border and
-		// runs the character's own height from there, so the glyph has the
-		// character's height to sit in, one texel in from the top.
+		// runs the character's own width and height from there, so the glyph
+		// has those to sit in, one texel in from the top left, and anything
+		// past them is uploaded and never sampled.
 		const f32 bandtop = XBLAFONT_TILE_BORDER;
 		const f32 bandbot = ch->height + XBLAFONT_TILE_BORDER;
+		const f32 bandleft = XBLAFONT_TILE_BORDER;
+		const f32 bandright = ch->width + XBLAFONT_TILE_BORDER < XBLAFONT_TILE_TEXELS
+				? ch->width + XBLAFONT_TILE_BORDER : XBLAFONT_TILE_TEXELS;
 		const f32 room = bandbot - bandtop;
 
 		// The line is in the coordinate the baseline is an offset into, so the
@@ -1135,6 +1284,18 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 			// amount for every letter that overshoots.
 			dst.y1 = y;
 			dst.y2 = y + high;
+
+			// Across, the ROM's ink box is where the glyph goes unless the
+			// character the ROM drew is a narrower one than the release's -
+			// see "Filling the line" - and then it takes what the band has.
+			// Never narrower than the box: a letter keeps its own columns.
+			{
+				const f32 asks = line->scale * line->cond * (ink.x2 - ink.x1);
+
+				xblaFontFillAcross(&dst, &body,
+						asks > body.x2 - body.x1 ? asks : body.x2 - body.x1,
+						bandleft, bandright);
+			}
 		} else {
 			// A character the line cannot place is *shrunk* rather than
 			// squashed: the tile's own height, and the width that goes with
@@ -1143,17 +1304,13 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 			// height of the release's, drawn between the baseline and the
 			// x-height rather than on the baseline - and filling that box in
 			// both directions drew the dots as flat bars, which is what reads
-			// as a colon with its top and bottom cut off. The ROM's columns
-			// still bound it, so a narrow character cannot spread into the
-			// one beside it.
-			f32 wide = line->scale * (ink.x2 - ink.x1) * (high / want);
+			// as a colon with its top and bottom cut off. It is placed across
+			// the same way as any other glyph, at the width its own shape now
+			// asks for, so the band still stops it reaching the character
+			// beside it.
+			xblaFontFillAcross(&dst, &body,
+					line->scale * (ink.x2 - ink.x1) * (high / want), bandleft, bandright);
 
-			if (wide > body.x2 - body.x1) {
-				wide = body.x2 - body.x1;
-			}
-
-			dst.x1 = (body.x1 + body.x2 - wide) * 0.5f;
-			dst.x2 = dst.x1 + wide;
 			dst.y1 = y;
 			dst.y2 = y + high;
 			numOffLine++;

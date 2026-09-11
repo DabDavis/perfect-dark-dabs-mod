@@ -37,10 +37,14 @@ extern "C" {
  * rest of the font, which is the ROM's box being the shape it is, rather than
  * flattened, which reads as a glyph with its ends cut off.
  *
- * Across the line the box is still each character's own, and there the
- * question is how far the ROM's ink reaches rather than how much of it a
- * column holds: a crossbar two texels long is a letter that wide, not a faint
- * one (xblaFontSpan).
+ * Across the line the question is how far the ROM's ink reaches rather than how
+ * much of it a column holds: a crossbar two texels long is a letter that wide,
+ * not a faint one (xblaFontSpan). A glyph is drawn in the columns the ROM's own
+ * ink filled, widened towards the width its own shape asks for where the ROM
+ * drew a narrower character than the release does - its digit one is a bar with
+ * no flag - and bounded by the columns the game actually samples, which is the
+ * character's advance. How far it may be widened is one condensation per font,
+ * fitted the way the line is: see "Filling the line" in xblafont.c.
  *
  * This is the same road a texture pack's font folder takes (texpack.h's
  * TEXPACK_GLYPH_SET): a glyph has no texture number, so the display list says
