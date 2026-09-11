@@ -70,6 +70,39 @@ spread over the level. A start is only taken if the portal walk from it reaches
 three quarters of what the mission's own start reaches; otherwise it is a lift
 interior or a sealed vault.
 
+## A pad is not automatically somewhere a player can stand
+
+The spawn hands a position to `playerStartNewLife()`, which asks
+`cdFindGroundInfoAtCyl()` for the floor under it and stands the player on what
+comes back. That search takes the highest floor **strictly below** the y it is
+given, and it has exactly one answer for finding nothing: `-4294967296`. So a
+pad with no floor beneath it does not fail — it succeeds, with the player four
+billion units under the level, falling. That is the whole of "sometimes it
+spawns you out of bounds and you die", and it is not rare: 2% to 8% of a
+stage's waypoints have nothing under them, 31 of one stage's 371.
+
+`modRandomPadSpawnPos()` asks the question first, from ten units *above* the
+pad so the floor the pad is standing on is inside the search rather than level
+with its edge, and hands back a position on **the floor it found** rather than
+the pad's own y. `modRandomPadCanSpawn()` is the verdict on top of that: not a
+`GEOFLAG_DIE` tile (`bondwalk.c` kills whoever stands on one, at the first walk
+tick), not a floor so far below that the pad is over a drop, and room for
+someone to stand (`cdTestVolume()`, the test `bodyAllocateChr()` puts every one
+of the stage's own guards through).
+
+Two calls because they are asked at different moments. A chooser asks the
+verdict before it deals a pad; the spawn asks only for the position once a pad
+is committed to, since a start already dealt is better placed on its floor than
+on the pad's own y.
+
+**The collision system works at roll time.** The roll runs inside
+`setupCreateProps()`, and `lvReset()` calls `bgReset()` and `bgBuildTables()`
+for the new stage long before it reads the setup file — `g_Rooms`,
+`g_RoomPortals`, `g_BgPortals` and the tiles are all this stage's, which is
+also how `modRandomBuildPortalKeys()` walks them. `bodyAllocateChr()` does its
+own `cdTestVolume()` from the same walk. What is *not* there yet is the props,
+so the volume test sees the bg alone.
+
 ## A tagged object is not freed when it is picked up
 
 `objTestForPickup()` frees a picked-up object **unless** it carries
@@ -117,6 +150,10 @@ the deepest rooms the walk found to the deep half of them, because Endless Mode
 asks for a room over and over and four of them is not enough to ask about. It
 shows on a stage whose first objective is a room one — Escape (0x19) is one, and
 its objectives fold is `8048d5b7` at v1 and `ff0044df` at v2.
+
+Version 3 asks whether a pad is somewhere a player can be stood up alive before
+a start or a landing is dealt on it — the next section — which moves the start
+on any stage that has a pad that is not.
 
 ### Checking a change did not move old seeds
 

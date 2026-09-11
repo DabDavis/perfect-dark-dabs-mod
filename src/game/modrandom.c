@@ -17,6 +17,7 @@
 #include "game/setuputils.h"
 #include "bss.h"
 #include "lang.h"
+#include "lib/collision.h"
 #include "lib/memp.h"
 #include "lib/rng.h"
 #include "lib/str.h"
@@ -107,6 +108,11 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * from the deepest rooms the walk found to the deep half of them - Endless
  * Mode asks for a room over and over and four of them is not enough to ask
  * about. v1 runs keep the narrow rule.
+ *
+ * Version 3 asks whether a pad is somewhere a player can be stood up alive
+ * before a start or a landing is put on it - modRandomPadSpawnPos() - which
+ * moves the start on any stage whose pads include one that is not. v1 and v2
+ * runs keep taking the pad on trust, out of bounds and all.
  */
 #define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
 
@@ -138,6 +144,18 @@ struct modrandomintrocmd {
 #define MODRANDOM_OBJBLOCK      64 // bytes an objective's commands get, 16 aligned
 #define MODRANDOM_MAXTRIES      16 // key placements tried before giving up on the roll
 #define MODRANDOM_TEXTLEN       64
+
+// What a pad has to be for a player to be put down on it. The lift is how far
+// above the pad the ground is asked for, since the search takes the highest
+// floor strictly *below* the position it is given and a pad standing exactly
+// on its own floor would otherwise miss it; the drop is how far under the pad
+// that floor may be before the pad is over a catwalk rather than on a floor;
+// and -100000 is what the collision system answers when there is no floor at
+// all, which is the game's own threshold for the same question
+// (chrAdjustPosForSpawn()).
+#define MODRANDOM_SPAWNLIFT      10.0f
+#define MODRANDOM_SPAWNDROP      400.0f
+#define MODRANDOM_NOGROUND       (-100000.0f)
 
 static u32 g_ModRandomSeed;    // the run's, as the player sees it
 static s32 g_ModRandomVersion; // the generator this run is dealt by
@@ -425,6 +443,139 @@ static s32 modRandomPadRoom(s32 padnum)
 	padUnpack(padnum, PADFIELD_ROOM, &pad);
 
 	return pad.room;
+}
+
+/**
+ * Where a player put down on this pad would actually stand, or nothing when
+ * the answer is "nowhere they would survive".
+ *
+ * A spawn hands a position to playerStartNewLife(), which asks
+ * cdFindGroundInfoAtCyl() for the floor under it and stands the player on what
+ * comes back. That search takes the highest floor **strictly below** the y it
+ * is given, and it has one answer for finding nothing: -4294967296. A pad with
+ * no floor beneath it therefore does not fail, it succeeds with the player
+ * four billion units under the level, falling, and that is the whole of
+ * "sometimes it spawns you out of bounds and you die". It is not rare - 2% to
+ * 8% of a stage's waypoints are like it, 31 of one stage's 371 - and every one
+ * of them is a landing the run was willing to deal.
+ *
+ * The other way a spawn kills is a GEOFLAG_DIE tile, which bondwalk.c kills
+ * whoever stands on at the first walk tick.
+ *
+ * So the question is asked here instead, from MODRANDOM_SPAWNLIFT above the
+ * pad so that the floor the pad is standing on is inside the search rather
+ * than exactly level with its edge, and what is handed back is a position on
+ * **the floor that was found**, not the pad's own. The game's query then
+ * repeats this one and comes to the same floor.
+ *
+ * This runs at the roll, inside setupCreateProps(), which is late enough:
+ * lvReset() loads the bg and builds its tables before it reads the setup file
+ * at all, and bodyAllocateChr() does its own cdTestVolume() from the same
+ * walk.
+ *
+ * The position and the verdict are two calls because they are asked at
+ * different moments and want different answers - see modRandomPadCanSpawn().
+ */
+static bool modRandomPadGround(s32 padnum, struct pad *pad, f32 *ground, u16 *floorflags)
+{
+	struct coord query;
+	RoomNum rooms[2];
+	RoomNum floorroom = -1;
+
+	*floorflags = 0;
+
+	if (padnum < 0 || g_PadsFile == NULL || padnum >= g_PadsFile->numpads) {
+		return false;
+	}
+
+	padUnpack(padnum, PADFIELD_POS | PADFIELD_ROOM, pad);
+
+	if (pad->room <= 0 || pad->room >= g_Vars.roomcount) {
+		return false;
+	}
+
+	rooms[0] = pad->room;
+	rooms[1] = -1;
+
+	query = pad->pos;
+	query.y += MODRANDOM_SPAWNLIFT;
+
+	*ground = cdFindGroundInfoAtCyl(&query, 30, rooms, NULL, NULL, floorflags, &floorroom, NULL, NULL);
+
+	// Nothing under the pad at all, which is the whole of the fault: there is
+	// no position to hand back that is not four billion units under the level.
+	return floorroom >= 0 && *ground >= MODRANDOM_NOGROUND;
+}
+
+bool modRandomPadSpawnPos(s32 padnum, struct coord *pos, RoomNum *room)
+{
+	struct pad pad;
+	u16 floorflags;
+	f32 ground;
+
+	if (!modRandomPadGround(padnum, &pad, &ground, &floorflags)) {
+		return false;
+	}
+
+	if (pos) {
+		pos->x = pad.pos.x;
+		pos->y = ground + MODRANDOM_SPAWNLIFT;
+		pos->z = pad.pos.z;
+	}
+
+	if (room) {
+		*room = pad.room;
+	}
+
+	return true;
+}
+
+/**
+ * And whether it is a pad worth putting them on at all.
+ *
+ * The verdict rather than the position: a floor under the pad, not one that
+ * kills whoever stands on it, not so far below that the pad is over a drop
+ * rather than on a floor, and room for someone to stand. This is what a
+ * chooser asks before it deals a pad; modRandomPadSpawnPos() above is what
+ * the spawn itself asks once one has been dealt, and answers for a pad this
+ * would refuse, since a start already committed to is better placed on its
+ * floor than on the pad's own y.
+ *
+ * Asked at the roll, where the level's own props do not exist yet: the volume
+ * test therefore sees the bg alone, which is the same bg the ground came from.
+ */
+bool modRandomPadCanSpawn(s32 padnum)
+{
+	struct pad pad;
+	RoomNum rooms[2];
+	u16 floorflags;
+	f32 ground;
+
+	if (!modRandomPadGround(padnum, &pad, &ground, &floorflags)) {
+		return false;
+	}
+
+	// A tile that kills whoever stands on it, on the first walk tick.
+	if (floorflags & GEOFLAG_DIE) {
+		return false;
+	}
+
+	// A pad over a drop rather than on a floor: the player would be put down
+	// at the bottom of it, which is not where the pad is.
+	if (pad.pos.y - ground > MODRANDOM_SPAWNDROP) {
+		return false;
+	}
+
+	rooms[0] = pad.room;
+	rooms[1] = -1;
+
+	// And room to stand, the test bodyAllocateChr() puts every one of the
+	// stage's own guards through.
+	if (cdTestVolume(&pad.pos, 20, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION) {
+		return false;
+	}
+
+	return true;
 }
 
 /**
@@ -1048,6 +1199,14 @@ static s32 modRandomRollSpawn(struct modrandomlists *lists, u8 *reached)
 		s32 reach;
 
 		if (room <= 0 || room >= g_Vars.roomcount) {
+			continue;
+		}
+
+		// And somewhere a player can be stood up alive. A guard's pad is a
+		// place for a guard, which is not always a place for anybody: a ledge
+		// with no floor under it starts the mission four billion units below
+		// the level. See modRandomPadSpawnPos().
+		if (g_ModRandomVersion >= 3 && !modRandomPadCanSpawn(padnum)) {
 			continue;
 		}
 
@@ -1759,11 +1918,18 @@ bool modRandomTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle)
 
 	padUnpack(g_ModRandomSpawnPad, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_LOOK, &pad);
 
-	pos->x = pad.pos.x;
-	pos->y = pad.pos.y;
-	pos->z = pad.pos.z;
+	// The floor's own y, not the pad's: the game's ground query takes the
+	// highest floor strictly below the position it is handed, and a pad level
+	// with its own floor misses it. Every version gets this - it does not
+	// change which pad the seed dealt, only where on it the player stands.
+	if (!modRandomPadSpawnPos(g_ModRandomSpawnPad, pos, &rooms[0])) {
+		pos->x = pad.pos.x;
+		pos->y = pad.pos.y;
+		pos->z = pad.pos.z;
 
-	rooms[0] = pad.room;
+		rooms[0] = pad.room;
+	}
+
 	rooms[1] = -1;
 
 	*angle = atan2f(pad.look.x, pad.look.z);

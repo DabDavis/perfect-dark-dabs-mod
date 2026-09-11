@@ -672,18 +672,73 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
 }
 
 /**
+ * A waypoint inside the rooms a Randomizer run has the player sealed into, far
+ * enough from them to not be on top of them, or NULL.
+ *
+ * The whole list is walked and one of the waypoints that qualify is taken at
+ * random, rather than a dozen random draws being tried the way the spawn does
+ * it: the zone is three or four rooms of a level's hundred and twelve draws
+ * out of three hundred waypoints will usually not land in it once. Taking the
+ * first match from a random start would do that much, but a zone with one
+ * qualifying waypoint in it then deals every guard of the room onto that one
+ * pad - twelve men filing out of the same corner, which is what the first
+ * version of this did. See modrun.c on why a run's guards have to be dealt
+ * into the room rather than walked to it.
+ */
+static struct waypoint *modAlarmFindZoneWaypoint(void)
+{
+	struct waypoint *chosen = NULL;
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; i < g_ModAlarmNumWaypoints; i++) {
+		struct waypoint *waypoint = &g_StageSetup.waypoints[i];
+		struct pad pad;
+		f32 dist;
+
+		padUnpack(waypoint->padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+		if (!modRunGuardRoomOk(pad.room)) {
+			continue;
+		}
+
+		if (modAlarmNearestPlayer(&pad.pos, &dist) < 0) {
+			return NULL; // nobody alive to come for
+		}
+
+		if (dist < modRunGuardMinDist()) {
+			continue;
+		}
+
+		count++;
+
+		if (rngRandom() % count == 0) {
+			chosen = waypoint;
+		}
+	}
+
+	return chosen;
+}
+
+/**
  * Try to bring one guard in: a few random waypoints, the first that is the
  * right distance from everyone and passes the spawn test.
+ *
+ * While a run has the player sealed into a room the waypoints of that room
+ * come first, since a guard placed anywhere else may have no way in at all.
+ * The moment the zone has nowhere left to put one, this is the rule it always
+ * was.
  */
 static bool modAlarmSpawnOne(s32 bodynum)
 {
+	bool zonefirst = modRunGuardsWantZone();
 	s32 attempt;
 	s32 toonear = 0;
 	s32 toofar = 0;
 	s32 refused = 0;
 
 	for (attempt = 0; attempt < MODALARM_TRIES; attempt++) {
-		struct waypoint *waypoint = &g_StageSetup.waypoints[rngRandom() % g_ModAlarmNumWaypoints];
+		struct waypoint *waypoint;
 		struct pad pad;
 		RoomNum rooms[2];
 		f32 dist;
@@ -692,6 +747,21 @@ static bool modAlarmSpawnOne(s32 bodynum)
 		struct chrdata *chr;
 		s32 gun;
 		s32 i;
+
+		if (zonefirst) {
+			waypoint = modAlarmFindZoneWaypoint();
+
+			if (waypoint == NULL) {
+				// The sealed rooms have no waypoint far enough from the
+				// player to put one on. That will not change while they stand
+				// there, so stop asking and spend the attempts left the way
+				// this always did.
+				zonefirst = false;
+				continue;
+			}
+		} else {
+			waypoint = &g_StageSetup.waypoints[rngRandom() % g_ModAlarmNumWaypoints];
+		}
 
 		padUnpack(waypoint->padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
 
@@ -708,12 +778,14 @@ static bool modAlarmSpawnOne(s32 bodynum)
 			return false; // nobody alive to come for
 		}
 
-		if (dist < MODALARM_MINDIST) {
+		if (dist < (zonefirst ? modRunGuardMinDist() : (f32)MODALARM_MINDIST)) {
 			toonear++;
 			continue;
 		}
 
-		if (dist > MODALARM_MAXDIST) {
+		// Inside the seal there is no such thing as too far: the zone is the
+		// whole of where the fight can happen.
+		if (!zonefirst && dist > MODALARM_MAXDIST) {
 			toofar++;
 			continue;
 		}
@@ -742,10 +814,11 @@ static bool modAlarmSpawnOne(s32 bodynum)
 
 #ifndef PLATFORM_N64
 		if (g_ChrSpawnTrace) {
-			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d left %d at pad %d, %.0fcm from player %d, %d free chr slots",
+			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d left %d at pad %d in room %d%s, %.0fcm from player %d, %d free chr slots",
 					bodynum, chr->headnum, gun,
 					chr->weapons_held[HAND_LEFT] && chr->weapons_held[HAND_LEFT]->weapon ? chr->weapons_held[HAND_LEFT]->weapon->weaponnum : -1,
-					waypoint->padnum, dist, playernum, chrsGetNumFree());
+					waypoint->padnum, pad.room, zonefirst ? " (sealed zone)" : "",
+					dist, playernum, chrsGetNumFree());
 		}
 #endif
 

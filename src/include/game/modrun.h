@@ -55,6 +55,13 @@ s32 modRunChooseBody(void);
 s32 modRunGetGuardCount(void);
 s32 modRunGetGuardSpeed(void);
 
+// Where a run's guards may appear. A sealed room is a fight the player cannot
+// walk away from, so a guard placed where it cannot walk in is a fight that
+// never happens: modalarm.c deals into the zone first while one is sealed.
+bool modRunGuardsWantZone(void);
+bool modRunGuardRoomOk(s32 room);
+f32 modRunGuardMinDist(void);
+
 s32 modRunGetScore(void);
 s32 modRunGetRooms(void);
 s32 modRunGetBestScore(void);

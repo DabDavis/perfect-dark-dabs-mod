@@ -135,11 +135,16 @@ neighbour room the player hops out of the instant they enter it.
 
 Three things about the zone are not obvious:
 
-- **It is built at the landing, not at the roll.** The roll runs inside
-  `setupCreateProps()`, where `g_Rooms`, `g_RoomPortals` and `g_BgPortals` still
-  belong to the level being torn down. It is built where `g_ModRunLandRoom` is
-  taken from `player->prop->rooms[0]`, which is also the only point that knows
-  where the player actually stands.
+- **It is built at the landing, not at the roll**, because the landing is the
+  only point that knows where the player actually stands: `g_ModRunLandRoom` is
+  taken from `player->prop->rooms[0]`, and a stage with no waypoint in a room
+  with a door starts them its own way. Not for want of a bg — this note used to
+  say `g_Rooms`, `g_RoomPortals` and `g_BgPortals` still belonged to the level
+  being torn down at roll time, and that is **wrong**: `lvReset()` calls
+  `bgReset()` and `bgBuildTables()` for the new stage at line 352 and does not
+  read the setup file until line 400, so every one of them is this stage's
+  before the roll runs. The roll's own `modRandomBuildPortalKeys()` walks them,
+  and the landing check below asks the collision system from the same place.
 - **The zone has to have a door out of it**, or a run ends without a death:
   the seal opens when the objective is done and there is nothing left to hop
   through. On a map small enough that the landing room's neighbours are the
@@ -286,6 +291,113 @@ construction somewhere man-shaped can stand and walk away from, and a random
 point in a random room is inside a wall about as often as not. The room also
 has to have at least one portal, or the landing is a sealed box and the run
 cannot go on without a death.
+
+## A landing has to have a floor under it
+
+A waypoint is somewhere a chr can stand and walk away from, and that is not the
+same as somewhere a player can be put down. Between 2% and 8% of a stage's
+waypoints have no bg floor beneath them at all — 31 of one stage's 371 — and a
+landing on one does not fail: `playerStartNewLife()`'s ground search answers
+`-4294967296`, and the player starts four billion units under the level. That
+is "sometimes it spawns you out of bounds and you die".
+
+`modRunChooseLanding()` asks `modRandomPadCanSpawn()` before the draw, so a bad
+pad is never in the pool rather than being drawn and worked around; the rule is
+behind `MODRANDOM_VERSION >= 3` because it changes which pad a seed deals. The
+full question — no floor, a `GEOFLAG_DIE` tile, a floor too far below, no room
+to stand — is randomizer.md, "A pad is not automatically somewhere a player can
+stand". `modRunTakeSpawn()` then hands back the **floor's** y rather than the
+pad's, which every version gets: it does not change which pad the seed dealt.
+
+The log names what a stage lost to it:
+
+```
+run: stage 0x44 - 31 of 371 waypoints in a room with a door are not standable
+run: landed on stage 0x1e in room 80 at frame 33, health 1.00, standing at 3088,409,-9
+```
+
+## A sealed room the guards cannot walk into
+
+The other half of what the mode was reported for: "doors can lock you in a room
+and enemies cannot reach you". The seal is a wall the player cannot walk out
+of, and `modAlarmSpawnOne()` puts its guards at a waypoint between eight and
+forty-five metres from the nearest player and lets them walk in — which is
+right for a mission and wrong for a sealed room. Eight metres is often the
+whole zone, so every waypoint inside it is refused as **too near** and every
+guard starts outside; it then has to get in through whatever the map put
+between the two, and on a room behind a locked door or at the end of a lift
+there is nothing it can use. "Eliminate 5 hostiles" in an empty room, for as
+long as the player is willing to stand there.
+
+Three things now stop that, and all three are needed:
+
+- **The guards are dealt into the zone.** While a room is sealed
+  (`modRunGuardsWantZone()`), the alarm takes its waypoint from the zone's own
+  rooms, no nearer than `MODRUN_GUARDNEAR` (400) and with no maximum, and falls
+  back to its own rule the moment the zone has nowhere to put one. A spawn in
+  view is still refused — that is `chrAdjustPosForSpawn()`'s own test and the
+  reason a guard never pops in front of the player.
+- **The zone's waypoints are found by walking, not by sampling.**
+  `MODALARM_TRIES` is twelve random draws, and five rooms of a level's hundred
+  will not come up in twelve draws out of three hundred waypoints.
+  `modAlarmFindZoneWaypoint()` walks the list from a random start instead.
+- **A starved kill objective is re-dealt in forty seconds, not a hundred and
+  fifty.** `MODRUN_STARVE_SECS`: if nothing hostile has been inside the zone at
+  all for that long, nothing is coming, and the room is dealt the clock the
+  stuck rule would have dealt eventually. A kill counts as well as a body
+  standing there, or a player quick enough to drop each guard in the doorway
+  would starve their own objective. Same stream as the stuck clock, so a
+  re-deal never moves what the seed deals anybody else. The full
+  `MODRUN_STUCK_SECS` stays as the backstop for the other two objective kinds.
+
+### Testing it
+
+The zone spawn is named in the alarm's own trace, so `--chr-trace` on a landed
+run answers it directly - the room has to be one the `sealing N room(s)` line
+lists:
+
+```
+run: sealing 3 room(s) on stage 0x1c - 39 37 40
+alarm: guard body 110 head 67 weapon 11 left -1 at pad 357 in room 40 (sealed zone), 2997cm from player 0, ...
+```
+
+Spread over several pads, not all on one. The first version of this took the
+first qualifying waypoint from a random start, and a zone with one qualifying
+waypoint then filed all twelve guards out of the same corner;
+`modAlarmFindZoneWaypoint()` walks the whole list and takes one of the
+qualifying waypoints at random instead.
+
+The starve clock cannot be waited for while guards are arriving - they feed it
+every tick - so it is driven: empty the zone out from under it and put its
+clock in the past.
+
+```sh
+gdb -p PID -batch -ex 'thread 1' \
+  -ex "set variable 'modrun.c'::g_ModRunNumZone = 1" \
+  -ex "set variable 'modrun.c'::g_ModRunZone[0] = 0" \
+  -ex "set variable 'modrun.c'::g_ModRunObjFed = 'modrun.c'::g_ModRunObjFed - 100000"
+```
+
+Room 0 is the zone nothing can be standing in, which is the point of using it.
+The next tick says so:
+
+```
+run: nothing has reached room 39 on stage 0x1c for 40 seconds; dealing a clock - "Hold this room for 40 seconds"
+```
+
+## The way out has to be openable
+
+A door with key flags on it is not a doorway when the seal lifts: it wants a
+card the roll had no reason to leave in this room, and a zone whose every exit
+wants one is a room the player is shut into for good with nothing left to do in
+it. `modRunOpenExits()` takes the keys off the doors standing in a portal that
+leaves the zone, at the moment the objective completes — a locked door deeper
+in the map is the map's own business and is left alone.
+
+The setup stream's `doorobj` **is** the live door: `setupCreateProps()` fills
+in its `portalnum` and its `prop` in place, which is why the stream can be
+walked for doors at any point in the level. `portalnum` is only meaningful when
+`OBJFLAG_DOOR_HASPORTAL` is set.
 
 ## Guards come from the alarm, not from the setup
 

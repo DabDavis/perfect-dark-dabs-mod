@@ -144,6 +144,14 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 // finish is not reading the same objective for ten minutes.
 #define MODRUN_STUCK_SECS 150
 
+// And how long a *kill* objective may stand with nothing in the sealed rooms
+// to kill. The seal is a wall the player cannot walk out of, so a room the
+// guards cannot walk into is a fight that never starts, and no amount of
+// waiting changes it: if nothing hostile has been inside the zone for this
+// long, nothing is coming and the room is dealt a clock instead. Two and a
+// half minutes of standing in an empty room is the soft lock, not the cure.
+#define MODRUN_STARVE_SECS 40
+
 // How often the sealed room says so. It is said while the player walks into
 // it, which is every frame they hold the stick forward.
 #define MODRUN_SEALMSG_SECS 5
@@ -156,6 +164,11 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 // rooms its doors open onto. A room with more doors than this keeps the rest
 // of them shut, which is a smaller area rather than a broken one.
 #define MODRUN_MAXZONE 32
+
+// How near a guard may be dealt into a sealed room. The alarm's own eight
+// metres is most of a zone, so it is relaxed here; four is still not on top of
+// the player, and a spawn in view is refused whatever this says.
+#define MODRUN_GUARDNEAR 400.0f
 
 // Objective sizes. One block, the way modrandom.c lays its objectives out, so
 // that re-dealing one at a landing cannot move another.
@@ -243,6 +256,8 @@ static bool g_ModRunHasObjective;
 
 // The seal: what keeps the player in the room until the objective is done.
 static s32 g_ModRunObjDealt;    // the tick this room's objective was dealt at
+static s32 g_ModRunObjFed;      // and the last tick it had something to work with
+static s32 g_ModRunObjKills;    // the kills counted the last time it was asked
 static s32 g_ModRunSealMsg;     // the tick the seal last said anything
 static bool g_ModRunSealLogged; // whether this room's seal has been logged once
 
@@ -688,12 +703,22 @@ static s32 modRunPadRoom(s32 padnum)
  * no door to leave by and the hop is a dead end; and it may not be the room
  * the last hop landed in on this map, so that a run that deals the same map
  * twice is not the same room twice.
+ *
+ * **A waypoint a chr can walk through is not always somewhere a player can be
+ * put down.** Between 2% and 8% of a stage's have no floor under them at all -
+ * 31 of one stage's 371 - and a landing on one of those does not fail, it
+ * lands the player four billion units below the level. That is the whole of
+ * "sometimes it spawns you out of bounds and you die", and the question is
+ * modRandomPadSpawnPos()'s: it is asked here, before the draw, so that a bad
+ * pad is not in the pool rather than being drawn and then worked around.
  */
 static void modRunChooseLanding(void)
 {
 	const s32 numwaypoints = modRunCountWaypoints();
+	const bool checkpads = modRandomGetVersion() >= 3;
 	s32 chosen = -1;
 	s32 count = 0;
+	s32 unusable = 0;
 	s32 i;
 
 	g_ModRunLandPad = -1;
@@ -714,12 +739,24 @@ static void modRunChooseLanding(void)
 			continue;
 		}
 
+		if (checkpads && !modRandomPadCanSpawn(padnum)) {
+			unusable++;
+			continue;
+		}
+
 		count++;
 
 		if (modRunBelow(count) == 0) {
 			chosen = padnum;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	if (unusable) {
+		sysLogPrintf(0, "run: stage 0x%02x - %d of %d waypoints in a room with a door are not standable",
+				g_ModRunStage, unusable, count + unusable);
+	}
+#endif
 
 	if (chosen < 0) {
 		// No waypoint in a room with a door. Let the stage start the player
@@ -959,11 +996,18 @@ bool modRunTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle)
 
 	padUnpack(g_ModRunLandPad, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_LOOK, &pad);
 
-	pos->x = pad.pos.x;
-	pos->y = pad.pos.y;
-	pos->z = pad.pos.z;
+	// The floor's own y rather than the pad's: playerStartNewLife() takes the
+	// highest floor strictly below the position it is handed, and a pad level
+	// with its own floor misses it. Every version gets this - it is not which
+	// pad the seed dealt, only where on it the player stands.
+	if (!modRandomPadSpawnPos(g_ModRunLandPad, pos, &rooms[0])) {
+		pos->x = pad.pos.x;
+		pos->y = pad.pos.y;
+		pos->z = pad.pos.z;
 
-	rooms[0] = pad.room;
+		rooms[0] = pad.room;
+	}
+
 	rooms[1] = -1;
 
 	*angle = atan2f(pad.look.x, pad.look.z);
@@ -1168,6 +1212,8 @@ static void modRunSnapshotKit(void)
 	g_ModRunHasCarry = true;
 }
 
+static void modRunOpenExits(void);
+
 /**
  * Has this room's objective been met? Asked every tick while the run is
  * playing; sets the flag the objective reads once, and scores it.
@@ -1207,6 +1253,10 @@ static void modRunTickObjective(void)
 	// it is what completes the objective as far as the rest of the game is
 	// concerned.
 	g_StageFlags |= MODRUN_STAGEFLAG;
+
+	// And the way out has to be one: a room whose every door wants a key is
+	// shut as firmly as the seal was.
+	modRunOpenExits();
 
 #ifndef PLATFORM_N64
 	sysLogPrintf(0, "run: objective %d done on stage 0x%02x at frame %d - score %d",
@@ -1348,6 +1398,115 @@ static s32 modRunZoneExitPortal(const RoomNum *torooms)
 }
 
 /**
+ * Whether a portal is a way out of the zone: one end inside it, one end not.
+ *
+ * The same question modRunZoneExitPortal() asks, put the other way round so
+ * that a door can be handed its own portal number and answered about.
+ */
+static bool modRunPortalLeavesZone(s32 portalnum)
+{
+	const struct bgportal *portal;
+
+	if (portalnum < 0 || g_BgPortals == NULL || g_ModRunNumZone <= 0) {
+		return false;
+	}
+
+	portal = &g_BgPortals[portalnum];
+
+	return modRunZoneHas(portal->roomnum1) != modRunZoneHas(portal->roomnum2);
+}
+
+/**
+ * Whether there is anything in the sealed rooms for a kill objective to be
+ * answered with.
+ *
+ * Not a count and not the alarm's list: the stage's own guards are as good a
+ * hostile as the ones the run sends, and what the objective needs is that at
+ * least one of them is *here*. A chr on the player's own team is not one, and
+ * neither is a scientist.
+ */
+static bool modRunEnemyInZone(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	const s32 numchrs = chrsGetNumSlots();
+	s32 playerteam = TEAM_ALLY;
+	s32 i;
+
+	if (player && player->prop && player->prop->chr) {
+		playerteam = player->prop->chr->team;
+	}
+
+	for (i = 0; i < numchrs; i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+
+		if (chr->chrnum < 0 || chr->prop == NULL || chr->model == NULL) {
+			continue;
+		}
+
+		if (chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE) {
+			continue;
+		}
+
+		if (chr->team == playerteam || (chr->team & TEAM_NONCOMBAT)) {
+			continue;
+		}
+
+		if (modRunRoomsInZone(chr->prop->rooms)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Take the keys off the doors the player has to leave by.
+ *
+ * The seal lifting says the room is done with, and on most maps that is the
+ * whole of it: the doorway is a doorway again. A door with key flags on it is
+ * not - it wants a card the roll had no reason to leave in this room, and a
+ * zone whose every way out wants one is a room the player is shut into for
+ * good with nothing left to do in it. So the keys come off when the seal does,
+ * and only from the doors standing in a portal that leaves the zone: a locked
+ * door deeper in the map is the map's own business.
+ *
+ * The setup stream's doorobj *is* the live door - setupCreateProps() fills in
+ * its portalnum and its prop in place - which is why this can be walked at any
+ * point in the level.
+ */
+static void modRunOpenExits(void)
+{
+	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+	s32 opened = 0;
+
+	if (obj == NULL || g_ModRunNumZone <= 0) {
+		return;
+	}
+
+	while (obj->type != OBJTYPE_END) {
+		if (obj->type == OBJTYPE_DOOR) {
+			struct doorobj *door = (struct doorobj *)obj;
+
+			if (door->keyflags
+					&& (door->base.flags & OBJFLAG_DOOR_HASPORTAL)
+					&& modRunPortalLeavesZone(door->portalnum)) {
+				door->keyflags = 0;
+				opened++;
+			}
+		}
+
+		obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+	}
+
+#ifndef PLATFORM_N64
+	if (opened) {
+		sysLogPrintf(0, "run: unlocked %d door(s) out of room %d on stage 0x%02x",
+				opened, g_ModRunLandRoom, g_ModRunStage);
+	}
+#endif
+}
+
+/**
  * What the seal shuts the player into: the landing room and the rooms touching
  * it.
  *
@@ -1363,9 +1522,12 @@ static s32 modRunZoneExitPortal(const RoomNum *torooms)
  * one door deep on purpose - two is most of a small map, and the helping of
  * level either side of a hop is the whole point of paying for the load.
  *
- * Built at the landing rather than at the roll, because the roll runs while
- * the setup file is being read and the bg's rooms and portals still belong to
- * the level being torn down.
+ * Built at the landing rather than at the roll, because the landing is the
+ * only point that knows where the player actually stands: a stage with no
+ * waypoint in a room with a door starts them its own way, and a pad's room is
+ * not always the room they end up in. Not for want of a bg - lvReset() loads
+ * this stage's rooms and portals before it reads its setup file at all, which
+ * is how the roll's own walk over g_Rooms works.
  *
  * **The zone has to have a door out of it**, or a run ends without a death:
  * with the objective done the seal opens, and if every door of every room in
@@ -1449,6 +1611,41 @@ bool modRunIsSealed(void)
 		&& g_ModRunHasObjective
 		&& !g_ModRunObjective.done
 		&& g_ModRunLandRoom >= 0;
+}
+
+/**
+ * Whether a guard the alarm is about to place has to be placed where it can
+ * reach the player, and whether a given room is such a place.
+ *
+ * The alarm puts its guards at a waypoint between eight and forty-five metres
+ * from the nearest player and lets them walk in, which is right for a mission:
+ * the player is somewhere in a level with doors they can open. A sealed room
+ * is neither. Eight metres is often the whole of the zone, so every waypoint
+ * inside it is refused as too near and every guard starts outside - and then
+ * has to get in through whatever the map put between the two, which on a room
+ * behind a locked door or at the end of a lift is nothing it can use. The
+ * player then stands in an empty room with "Eliminate 5 hostiles" on the HUD,
+ * which is exactly the soft lock this mode was reported for.
+ *
+ * So while a room is sealed the guards are dealt into it: the zone's own
+ * rooms, no nearer than MODRUN_GUARDNEAR, and still only where the player
+ * cannot see them appear (chrAdjustPosForSpawn() answers that, and it is the
+ * reason a guard never pops into view). The alarm falls back to its own rule
+ * when the zone has nowhere to put one.
+ */
+bool modRunGuardsWantZone(void)
+{
+	return modRunIsSealed() && g_ModRunNumZone > 0;
+}
+
+bool modRunGuardRoomOk(s32 room)
+{
+	return modRunZoneHas(room);
+}
+
+f32 modRunGuardMinDist(void)
+{
+	return MODRUN_GUARDNEAR;
 }
 
 /**
@@ -1599,7 +1796,31 @@ bool modRunSealMove(RoomNum *fromrooms, struct coord *frompos, RoomNum *torooms,
  */
 static void modRunTickStuck(void)
 {
-	if (g_Vars.lvframe60 - g_ModRunObjDealt < TICKS(MODRUN_STUCK_SECS * 60)) {
+	bool starved = false;
+
+	// A kill objective is the one that can be made impossible by where the
+	// room is rather than by what the player does: the seal holds them in and
+	// a door the guards cannot path through holds the guards out. That does
+	// not need the full stuck clock to be sure of - nothing hostile having
+	// been in the sealed rooms at all for MODRUN_STARVE_SECS is the answer.
+	if (g_ModRunObjective.kind == MODRUN_OBJ_KILL) {
+		// Something standing in the rooms feeds it, and so does a kill: a
+		// player quick enough to drop each guard as it comes through the door
+		// leaves the zone empty between them, and that is the objective
+		// working rather than the objective starving.
+		const s32 kills = g_Vars.currentplayerstats
+			? g_Vars.currentplayerstats->killcount - g_ModRunObjective.progress
+			: 0;
+
+		if (kills > g_ModRunObjKills || modRunEnemyInZone()) {
+			g_ModRunObjKills = kills;
+			g_ModRunObjFed = g_Vars.lvframe60;
+		}
+
+		starved = g_Vars.lvframe60 - g_ModRunObjFed >= TICKS(MODRUN_STARVE_SECS * 60);
+	}
+
+	if (!starved && g_Vars.lvframe60 - g_ModRunObjDealt < TICKS(MODRUN_STUCK_SECS * 60)) {
 		return;
 	}
 
@@ -1608,11 +1829,18 @@ static void modRunTickStuck(void)
 
 	g_ModRunObjective.progress = g_Vars.lvframe60;
 	g_ModRunObjDealt = g_Vars.lvframe60;
+	g_ModRunObjFed = g_Vars.lvframe60;
+	g_ModRunObjKills = 0;
 	g_ModRunSealMsg = 0;
 
 #ifndef PLATFORM_N64
-	sysLogPrintf(0, "run: room %d on stage 0x%02x stood sealed for %d seconds; dealing a clock - \"%s\"",
-			g_ModRunLandRoom, g_ModRunStage, MODRUN_STUCK_SECS, g_ModRunObjText);
+	if (starved) {
+		sysLogPrintf(0, "run: nothing has reached room %d on stage 0x%02x for %d seconds; dealing a clock - \"%s\"",
+				g_ModRunLandRoom, g_ModRunStage, MODRUN_STARVE_SECS, g_ModRunObjText);
+	} else {
+		sysLogPrintf(0, "run: room %d on stage 0x%02x stood sealed for %d seconds; dealing a clock - \"%s\"",
+				g_ModRunLandRoom, g_ModRunStage, MODRUN_STUCK_SECS, g_ModRunObjText);
+	}
 #endif
 
 	{
@@ -1842,8 +2070,8 @@ void modRunTick(void)
 		g_ModRunLandRoom = player->prop->rooms[0];
 
 		// What the seal shuts, which is that room and the rooms touching it.
-		// Here rather than at the roll: the bg the portals belong to is only
-		// this stage's once the stage is loaded.
+		// Here rather than at the roll because this is the first point that
+		// knows where the player actually stands - see modRunBuildZone().
 		modRunBuildZone();
 
 		g_ModRunObjective.progress = g_ModRunObjective.kind == MODRUN_OBJ_KILL
@@ -1851,16 +2079,20 @@ void modRunTick(void)
 			: g_Vars.lvframe60;
 
 		// The seal's own clocks, which start where the player does rather than
-		// at the roll: the roll ran before the level was loaded.
+		// at the roll: the roll ran before there was a player standing in the
+		// room to start them.
 		g_ModRunObjDealt = g_Vars.lvframe60;
+		g_ModRunObjFed = g_Vars.lvframe60;
+		g_ModRunObjKills = 0;
 		g_ModRunSealMsg = 0;
 		g_ModRunSealLogged = false;
 
 		g_ModRunState = MODRUN_PLAYING;
 
 #ifndef PLATFORM_N64
-		sysLogPrintf(0, "run: landed on stage 0x%02x in room %d at frame %d, health %.2f",
-				g_ModRunStage, g_ModRunLandRoom, g_Vars.lvframenum, player->bondhealth);
+		sysLogPrintf(0, "run: landed on stage 0x%02x in room %d at frame %d, health %.2f, standing at %.0f,%.0f,%.0f",
+				g_ModRunStage, g_ModRunLandRoom, g_Vars.lvframenum, player->bondhealth,
+				player->prop->pos.x, player->prop->pos.y, player->prop->pos.z);
 #endif
 
 		{
