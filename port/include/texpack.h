@@ -98,14 +98,30 @@ s32 texpackGetNumUnplaced(void);
 s32 texpackGetNumTexelMatched(void);
 
 /**
- * Writes the raw texel bytes and tile geometry of every texture in the ROM,
- * then exits. Does nothing unless --dump-textures was passed.
+ * Writes the raw texel bytes, a PNG and the tile geometry of every texture in
+ * the ROM to texture-dumps/<romid>/, the layout a pack reads back. Returns
+ * how many were written.
  *
- * The per-texture dump above only sees what the game actually draws, which for
+ * The per-texture dump (F7) only sees what the game actually draws, which for
  * a converter means playing through every room of every level. This walks the
- * texture table instead, so one run covers all of them.
+ * texture table instead, so one run covers all of them. The asset dump
+ * (assetdump.c) does the same a few textures a frame through the three calls
+ * below it, so the menu stays alive while it runs.
  */
-void texpackDumpAll(void);
+s32 texpackDumpAll(void);
+s32 texpackDumpOpen(void);
+s32 texpackDumpTextureNum(s32 n);
+void texpackDumpClose(void);
+
+/**
+ * The dump directory, expanded, creating it if it has to; NULL when nowhere
+ * can be written. Where the asset dump's model files point their textures.
+ */
+const char *texpackGetDumpDir(void);
+s32 texpackOpenDumpDir(void);
+
+/** The picture size texpackTexToRgba() would make of a texture. */
+s32 texpackTexGetPaddedSize(struct tex *tex, s32 *outWidth, s32 *outHeight);
 
 /**
  * Texture packs, as the Extended Options menu sees them.
@@ -240,6 +256,14 @@ u8 *texpackLoadXblaReplacement(s32 record, s32 *outWidth, s32 *outHeight);
 s32 texpackGetNumXblaReplacements(void); // never scans; 0 until something has drawn
 
 /**
+ * The pack's picture for a texture number, decoded on the calling thread and
+ * returned in the game's row order; NULL when packs are off or there is none.
+ * For a mesh built outside the texture pool, which has no data address for
+ * the queue to key on. Freed by the caller.
+ */
+u8 *texpackDecodeReplacementNow(s32 texturenum, s32 *outWidth, s32 *outHeight);
+
+/**
  * The record a decoded id from texpackPollDecoded() names, or -1 when the id is
  * a texture number's or a glyph's. The renderer's entry for a record is keyed
  * on the stand-in tile's address, so this is how it knows to drop one.
@@ -252,6 +276,9 @@ s32 texpackXblaRecordFromId(s32 id);
  * Mod.DumpTextures is on.
  */
 void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record);
+
+/** The same file whether or not the F7 dump is on; 1 when it was written. */
+s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record);
 void texpackAsyncShutdown(void);
 
 /**

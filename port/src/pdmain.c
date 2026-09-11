@@ -76,6 +76,7 @@
 #include "system.h"
 #include "record.h"
 #include "texpack.h"
+#include "assetdump.h"
 #include "xblaimport.h"
 #include "modloader.h"
 
@@ -255,8 +256,8 @@ void mainInit(void)
 	challengesInit();
 	utilsInit();
 	texInit();
-	texpackDumpAll(); // --dump-textures only; exits when it does anything
 	xblaImportInit(); // makes xbla/ and finds what the player put in it
+	assetDumpFromCommandLine(); // --dump-assets only; exits when it does anything
 	xblaImportFromCommandLine(); // --xbla-import only; likewise
 	recordFetchFromCommandLine(); // --fetch-ffmpeg only; likewise
 	langInit();

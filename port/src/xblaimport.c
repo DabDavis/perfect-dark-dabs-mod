@@ -50,12 +50,18 @@
 // unpacked one by hand has that folder sitting in xbla/.
 #define XBLAIMPORT_SCAN_DEPTH 2
 
-// Where an archive dropped in xbla/ comes apart, and the file written once it
-// has come apart completely - an extraction that was interrupted is done again
-// rather than half used. Both start with a dot, so fsScanDir() skips them and
-// the unpacked copy is never offered as the player's own file.
-#define XBLAIMPORT_UNPACK_DIR ".unpacked"
+// Where an archive dropped in xbla/ comes apart: cache/xbla/ beside the
+// executable (or in the save directory), so that xbla/ itself holds nothing
+// but what the player put there. The file is written once the archive has
+// come apart completely - an extraction that was interrupted is done again
+// rather than half used.
+#define XBLAIMPORT_CACHE_DIR "cache"
+#define XBLAIMPORT_CACHE_SUB "xbla"
 #define XBLAIMPORT_DONE_FILE ".extracted"
+
+// Where an archive came apart before the cache existed: a dot directory
+// inside xbla/. Read and never written, like the older place below it.
+#define XBLAIMPORT_UNPACK_DIR ".unpacked"
 
 // Where an archive was unpacked before xbla/ existed, under the texture packs.
 // Read and never written: an install that already has the 250MB package there
@@ -427,6 +433,43 @@ static s32 xblaFindLegacyUnpacked(char *dst, u32 dstLen)
 	return xblaFindPackageIn(sub, dst, dstLen);
 }
 
+/**
+ * cache/xbla/, made if it has to be. dst gets the expanded path.
+ */
+static s32 xblaCacheDir(char *dst, u32 dstLen)
+{
+	char rel[FS_MAXPATH + 1];
+	char sub[FS_MAXPATH + 1];
+
+	if (fsChooseOutputDir(XBLAIMPORT_CACHE_DIR, rel, sizeof(rel)) != 0) {
+		dst[0] = '\0';
+		return 0;
+	}
+
+	snprintf(sub, sizeof(sub), "%s/" XBLAIMPORT_CACHE_SUB, rel);
+
+	if (fsFileSize(sub) < 0) {
+		fsCreateDir(sub);
+	}
+
+	snprintf(dst, dstLen, "%s", fsFullPath(sub));
+
+	return 1;
+}
+
+/**
+ * A finished extraction in dir: its marker is there and a package is inside.
+ */
+static s32 xblaFindExtractedIn(const char *dir, char *dst, u32 dstLen)
+{
+	char marker[FS_MAXPATH + 1];
+
+	snprintf(marker, sizeof(marker), "%s/" XBLAIMPORT_DONE_FILE, dir);
+
+	return fsFileSize(marker) >= 0 &&
+			xblaScanDir(dir, 0, XBLAIMPORT_SCAN_DEPTH, dst, dstLen);
+}
+
 static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 {
 	char drop[FS_MAXPATH + 1];
@@ -448,20 +491,30 @@ static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 		return unpackedPath;
 	}
 
-	if (!xblaDropDir(drop, sizeof(drop))) {
+	if (!xblaCacheDir(dir, sizeof(dir))) {
 		unpackFailed = 1;
 		return NULL;
 	}
 
-	// The archive comes apart in a dot directory inside xbla/, beside the file
-	// it came from, and the marker goes in there with it.
-	snprintf(dir, sizeof(dir), "%s/" XBLAIMPORT_UNPACK_DIR, drop);
+	// The archive comes apart in cache/xbla/, and the marker goes in there
+	// with it. xbla/ itself is the player's: only what they dropped in it.
 	snprintf(marker, sizeof(marker), "%s/" XBLAIMPORT_DONE_FILE, dir);
 
-	// A previous run's work, here or where it used to go.
-	if (fsFileSize(marker) >= 0 &&
-			xblaScanDir(dir, 0, XBLAIMPORT_SCAN_DEPTH, unpackedPath, sizeof(unpackedPath))) {
+	// A previous run's work, here or in either of the places it used to go.
+	if (xblaFindExtractedIn(dir, unpackedPath, sizeof(unpackedPath))) {
 		return unpackedPath;
+	}
+
+	if (xblaDropDir(drop, sizeof(drop))) {
+		char old[FS_MAXPATH + 1];
+
+		snprintf(old, sizeof(old), "%s/" XBLAIMPORT_UNPACK_DIR, drop);
+
+		if (xblaFindExtractedIn(old, unpackedPath, sizeof(unpackedPath))) {
+			sysLogPrintf(LOG_NOTE, "xbla: using the copy unpacked in %s; it can go, "
+					"the next unpack lands in %s", old, dir);
+			return unpackedPath;
+		}
 	}
 
 	if (xblaFindLegacyUnpacked(unpackedPath, sizeof(unpackedPath))) {
@@ -477,9 +530,7 @@ static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 		return NULL;
 	}
 
-	sysLogPrintf(LOG_NOTE, "xbla: unpacking %s, this happens once", packagePath);
-
-	fsCreateDir(dir);
+	sysLogPrintf(LOG_NOTE, "xbla: unpacking %s into %s, this happens once", packagePath, dir);
 
 	if (archiveExtract(packagePath, dir) <= 0) {
 		sysLogPrintf(LOG_ERROR, "xbla: could not unpack %s", packagePath);

@@ -30,6 +30,8 @@
 #include "texpack.h"
 #include "xblaimport.h"
 #include "xblamesh.h"
+#include "modelpack.h"
+#include "assetdump.h"
 #include "xblatex.h"
 #include "xblastage.h"
 
@@ -3748,7 +3750,7 @@ static const struct {
 } modKeyBinds[] = {
 	{ "Screenshot\n",       screenshotGetKey, screenshotSetKey  },
 	{ "Record Video\n",     recordGetKey,     recordSetKey      },
-	{ "Dump Textures\n",    texpackDumpGetKey,   texpackDumpSetKey   },
+	{ "Dump Drawn Textures\n", texpackDumpGetKey, texpackDumpSetKey   },
 	{ "Texture Packs On/Off\n", texpackToggleGetKey, texpackToggleSetKey },
 	{ "Reload Texture Pack\n",  texpackReloadGetKey, texpackReloadSetKey },
 	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
@@ -4636,14 +4638,80 @@ static MenuItemHandlerResult menuhandlerTexturePackEnabled(s32 operation, struct
 	return 0;
 }
 
-static MenuItemHandlerResult menuhandlerTexturePackDump(s32 operation, struct menuitem *item, union handlerdata *data)
+/**
+ * Model packs, the same shape as the texture packs above them: the list is
+ * re-read whenever the dropdown opens, so a folder dropped into model-packs/
+ * while the game is running turns up without a restart.
+ */
+static MenuItemHandlerResult menuhandlerModelPack(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		modelpackRefreshPacks();
+		data->dropdown.value = modelpackGetNumPacks() + 1; // plus "None"
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == 0
+				? "None" : modelpackGetPackName(data->dropdown.value - 1));
+	case MENUOP_SET:
+		modelpackSetSelectedPack((s32)data->dropdown.value - 1);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modelpackGetSelectedPack() + 1;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerModelPackEnabled(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
 	case MENUOP_GET:
-		return texpackGetDumpEnabled();
+		return modelpackLoadEnabled();
 	case MENUOP_SET:
-		texpackSetDumpEnabled(data->checkbox.value);
+		modelpackSetLoadEnabled(data->checkbox.value);
 		break;
+	}
+
+	return 0;
+}
+
+/**
+ * The asset dump: every texture and model, the XBLA release's included when
+ * there is one, in one go. One row that starts it and stops it, and a line
+ * under it saying where it is up to, which stays once it is done.
+ */
+static MenuItemHandlerResult menuhandlerAssetDump(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		if (assetDumpIsRunning()) {
+			assetDumpCancel();
+		} else {
+			assetDumpStart();
+		}
+	}
+
+	return 0;
+}
+
+static const char *menutextAssetDump(struct menuitem *item)
+{
+	return assetDumpIsRunning() ? "Stop Dumping\n" : "Dump All Assets To Disk\n";
+}
+
+static const char *menutextAssetDumpStatus(struct menuitem *item)
+{
+	static char text[160];
+
+	snprintf(text, sizeof(text), "%s\n", assetDumpGetStatus());
+
+	return text;
+}
+
+static MenuItemHandlerResult menuhandlerAssetDumpStatus(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return assetDumpGetStatus()[0] == '\0';
 	}
 
 	return 0;
@@ -5228,12 +5296,44 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 		NULL,
 	},
 	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Model Pack",
+		0,
+		menuhandlerModelPack,
+	},
+	{
 		MENUITEMTYPE_CHECKBOX,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Dump Textures To Disk",
+		(uintptr_t)"Use Model Packs",
 		0,
-		menuhandlerTexturePackDump,
+		menuhandlerModelPackEnabled,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		0,
+		(uintptr_t)menutextAssetDump,
+		0,
+		menuhandlerAssetDump,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)menutextAssetDumpStatus,
+		0,
+		menuhandlerAssetDumpStatus,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -5265,7 +5365,7 @@ struct menuitem g_ExtendedTexturePackMenuItems[] = {
 
 struct menudialogdef g_ExtendedTexturePackMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Texture Packs",
+	(uintptr_t)"Texture & Model Packs",
 	g_ExtendedTexturePackMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -5744,7 +5844,7 @@ struct menuitem g_ExtendedMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Texture Packs\n",
+		(uintptr_t)"Texture & Model Packs\n",
 		0,
 		(void *)&g_ExtendedTexturePackMenuDialog,
 	},

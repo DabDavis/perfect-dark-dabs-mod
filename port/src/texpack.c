@@ -39,7 +39,7 @@
 #include "versioninfo.h"
 #include <SDL.h>
 
-#define TEXPACK_DUMP_DIR_NAME "texturedump"
+#define TEXPACK_DUMP_DIR_NAME "texture-dumps"
 
 // Matches the "textures" directory modTextureLoad() already reads its %04x.bin
 // replacements from, so one pack directory holds both kinds.
@@ -3613,6 +3613,33 @@ u8 *texpackLoadXblaReplacement(s32 record, s32 *outWidth, s32 *outHeight)
 }
 
 /**
+ * The pack's picture for a texture number, decoded here and now on the
+ * caller's thread, in the game's row order. NULL when packs are off or the
+ * pack has none. For a model pack's mesh that names one of the ROM's
+ * textures: the renderer's queue is keyed on the texture's data address,
+ * which a mesh built outside the texture pool does not have.
+ */
+u8 *texpackDecodeReplacementNow(s32 texturenum, s32 *outWidth, s32 *outHeight)
+{
+	if (!loadTextures || texturenum < 0 || texturenum >= NUM_TEXTURES) {
+		return NULL;
+	}
+
+	if (!replaceScanned) {
+		texpackScan();
+	}
+
+	if (!replacePaths || !replacePaths[texturenum]) {
+		return NULL;
+	}
+
+	return texpackDecodeReplacement(replacePaths[texturenum],
+			replaceAlphaPaths ? replaceAlphaPaths[texturenum] : NULL,
+			replaceKinds ? replaceKinds[texturenum] : TEXPACK_KIND_NATIVE,
+			replaceFlip ? replaceFlip[texturenum] : 1, outWidth, outHeight);
+}
+
+/**
  * The record a decoded id reported by texpackPollDecoded() is for, or -1 when
  * the id is a texture number's or a glyph's.
  */
@@ -4052,7 +4079,7 @@ static const char *texpackFormatName(u32 fmt, u32 siz)
  * Picks and creates the dump directory on the first texture written, so a run
  * with dumping off never touches the disk.
  */
-static s32 texpackOpenDumpDir(void)
+s32 texpackOpenDumpDir(void)
 {
 	char rel[FS_MAXPATH + 1];
 	u32 len;
@@ -4217,10 +4244,8 @@ void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 si
 void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 {
 	static u8 xblaDumpDone[(TEXPACK_XBLA_RECORDS + 7) / 8];
-	static s32 xblaDumpDirState; // 0 = not tried, 1 = ready, -1 = gave up
-	char path[FS_MAXPATH + 1];
 
-	if (!dumpTextures || !rgba32 || width == 0 || height == 0 || record >= TEXPACK_XBLA_RECORDS) {
+	if (!dumpTextures || record >= TEXPACK_XBLA_RECORDS) {
 		return;
 	}
 
@@ -4228,8 +4253,30 @@ void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 		return;
 	}
 
+	// Marked before the write, so one that cannot be written is not tried
+	// again on every cache miss for the rest of the run.
+	xblaDumpDone[record >> 3] |= (u8)(1 << (record & 7));
+
+	if (texpackWriteXblaRecord(rgba32, width, height, record)) {
+		sysLogPrintf(LOG_NOTE, "texpack: dumped XBLA record %04x %ux%u", record, width, height);
+	}
+}
+
+/**
+ * The same file, written whether or not the F7 dump is on: what the asset
+ * dump calls for every record in the package.
+ */
+s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
+{
+	static s32 xblaDumpDirState; // 0 = not tried, 1 = ready, -1 = gave up
+	char path[FS_MAXPATH + 1];
+
+	if (!rgba32 || width == 0 || height == 0) {
+		return 0;
+	}
+
 	if (!texpackOpenDumpDir()) {
-		return;
+		return 0;
 	}
 
 	if (xblaDumpDirState == 0) {
@@ -4244,18 +4291,17 @@ void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 	}
 
 	if (xblaDumpDirState < 0) {
-		return;
+		return 0;
 	}
-
-	// Marked before the write, so one that cannot be written is not tried
-	// again on every cache miss for the rest of the run.
-	xblaDumpDone[record >> 3] |= (u8)(1 << (record & 7));
 
 	snprintf(path, sizeof(path), "%s/" TEXPACK_XBLA_DIR "/%04x.png", dumpDir, record);
 
-	if (pngWrite(path, rgba32, width, height, 4, 1)) {
-		sysLogPrintf(LOG_NOTE, "texpack: dumped XBLA record %04x %ux%u", record, width, height);
-	}
+	return pngWrite(path, rgba32, width, height, 4, 1) != 0;
+}
+
+const char *texpackGetDumpDir(void)
+{
+	return texpackOpenDumpDir() ? dumpDir : NULL;
 }
 
 /**
@@ -4395,129 +4441,196 @@ u8 *texpackTexToRgba(struct tex *tex, s32 *outWidth, s32 *outHeight)
 	return rgba;
 }
 
-void texpackDumpAll(void)
+// The incremental whole-table dump: a pool, a manifest and where it is up
+// to, so that the asset dump can write a few textures a frame from the menu.
+static u8 *dumpAllBuffer;
+static FILE *dumpAllManifest;
+static s32 dumpAllCount;
+
+s32 texpackDumpOpen(void)
 {
 	char path[FS_MAXPATH + 1];
-	struct texpool pool;
-	FILE *manifest;
-	u8 *buffer;
-	s32 count = 0;
-	s32 n;
 
-	if (!sysArgCheck("--dump-textures")) {
-		return;
+	if (dumpAllBuffer) {
+		return 1;
 	}
 
 	if (!texpackOpenDumpDir()) {
-		return;
+		return 0;
 	}
 
-	buffer = malloc(TEXPACK_DUMPALL_POOL);
+	dumpAllBuffer = malloc(TEXPACK_DUMPALL_POOL);
 
-	if (!buffer) {
+	if (!dumpAllBuffer) {
 		sysLogPrintf(LOG_ERROR, "texpack: could not alloc a pool to dump into");
-		return;
+		return 0;
 	}
 
 	snprintf(path, sizeof(path), "%s/manifest.csv", dumpDir);
-	manifest = fopen(path, "wb");
+	dumpAllManifest = fopen(path, "wb");
 
-	if (!manifest) {
+	if (!dumpAllManifest) {
 		sysLogPrintf(LOG_ERROR, "texpack: could not open %s", path);
-		free(buffer);
-		return;
+		free(dumpAllBuffer);
+		dumpAllBuffer = NULL;
+		return 0;
 	}
 
-	fprintf(manifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx,numlods,hasloddata,lutmode,numcolours\n");
+	fprintf(dumpAllManifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx,numlods,hasloddata,lutmode,numcolours\n");
+	dumpAllCount = 0;
 
-	for (n = 0; n < NUM_TEXTURES; n++) {
-		struct tex *tex;
-		s32 size;
-		FILE *f;
+	return 1;
+}
 
-		texInitPool(&pool, buffer, TEXPACK_DUMPALL_POOL);
-		texLoadFromTextureNum(n, &pool);
+/**
+ * One texture of the table: its raw texels, a PNG of them and its palette,
+ * and a manifest row. 1 when it was written, 0 for a number with nothing
+ * behind it. texpackDumpOpen() first.
+ */
+s32 texpackDumpTextureNum(s32 n)
+{
+	char path[FS_MAXPATH + 1];
+	struct texpool pool;
+	struct tex *tex;
+	s32 size;
+	s32 wide;
+	FILE *f;
 
-		tex = texFindInPool(n, &pool);
+	if (!dumpAllBuffer || n < 0 || n >= NUM_TEXTURES) {
+		return 0;
+	}
 
-		if (!tex || !tex->data) {
-			// Texture numbers with no data behind them are normal: the table
-			// has gaps where a texture was cut.
-			continue;
+	texInitPool(&pool, dumpAllBuffer, TEXPACK_DUMPALL_POOL);
+	texLoadFromTextureNum(n, &pool);
+
+	tex = texFindInPool(n, &pool);
+
+	if (!tex || !tex->data) {
+		// Texture numbers with no data behind them are normal: the table
+		// has gaps where a texture was cut.
+		texpackForgetRange(dumpAllBuffer, dumpAllBuffer + TEXPACK_DUMPALL_POOL);
+		return 0;
+	}
+
+	// texGetLineSizeInBytes() and texGetSizeInBytes() are both named for
+	// bytes and both return 64-bit words - the RDP's "line" - so the
+	// manifest converts once here rather than leaving every reader to
+	// discover it. A 32-bit texel is split across the two halves of TMEM,
+	// so both are half of what the texture really occupies.
+	wide = tex->depth == G_IM_SIZ_32b ? 2 : 1;
+	size = texGetSizeInBytes(tex, 0) * 8 * wide;
+
+	if (size <= 0) {
+		texpackForgetRange(dumpAllBuffer, dumpAllBuffer + TEXPACK_DUMPALL_POOL);
+		return 0;
+	}
+
+	fprintf(dumpAllManifest, "%04x,%u,%u,%d,%d,%d,%d,0,%u,%u,%u,%u\n", n, tex->gbiformat, tex->depth,
+			texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
+			texGetLineSizeInBytes(tex, 0) * 8 * wide, size, tex->numlods, tex->hasloddata,
+			tex->lutmodeindex, tex->unk0a + 1);
+
+	snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, n);
+	f = fopen(path, "wb");
+
+	if (f) {
+		fwrite(tex->data, 1, size, f);
+		fclose(f);
+	}
+
+	{
+		s32 pngWidth;
+		s32 pngHeight;
+		u8 *rgba = texpackTexToRgba(tex, &pngWidth, &pngHeight);
+
+		if (rgba) {
+			snprintf(path, sizeof(path), "%s/%04x_%s.png", dumpDir, n,
+					texpackFormatName(tex->gbiformat, tex->depth));
+			pngWrite(path, rgba, pngWidth, pngHeight, 4, 0);
+			free(rgba);
 		}
+	}
 
-		// texGetLineSizeInBytes() and texGetSizeInBytes() are both named for
-		// bytes and both return 64-bit words - the RDP's "line" - so the
-		// manifest converts once here rather than leaving every reader to
-		// discover it. A 32-bit texel is split across the two halves of TMEM,
-		// so both are half of what the texture really occupies.
-		const s32 wide = tex->depth == G_IM_SIZ_32b ? 2 : 1;
+	// A paletted texture keeps its palette in the same allocation, right
+	// after the pixels of every LOD - which is what texGetDepthAndSize()
+	// measures, in 16-bit units.
+	if (tex->lutmodeindex) {
+		s32 depth;
+		s32 len;
 
-		size = texGetSizeInBytes(tex, 0) * 8 * wide;
+		texGetDepthAndSize(tex, &depth, &len);
 
-		if (size <= 0) {
-			continue;
-		}
-
-		fprintf(manifest, "%04x,%u,%u,%d,%d,%d,%d,0,%u,%u,%u,%u\n", n, tex->gbiformat, tex->depth,
-				texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
-				texGetLineSizeInBytes(tex, 0) * 8 * wide, size, tex->numlods, tex->hasloddata,
-				tex->lutmodeindex, tex->unk0a + 1);
-
-		snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, n);
+		snprintf(path, sizeof(path), "%s/%04x.pal", dumpDir, n);
 		f = fopen(path, "wb");
 
 		if (f) {
-			fwrite(tex->data, 1, size, f);
+			fwrite(tex->data + len * 2, 2, tex->unk0a + 1, f);
 			fclose(f);
 		}
-
-		{
-			s32 pngWidth;
-			s32 pngHeight;
-			u8 *rgba = texpackTexToRgba(tex, &pngWidth, &pngHeight);
-
-			if (rgba) {
-				snprintf(path, sizeof(path), "%s/%04x_%s.png", dumpDir, n,
-						texpackFormatName(tex->gbiformat, tex->depth));
-				pngWrite(path, rgba, pngWidth, pngHeight, 4, 0);
-				free(rgba);
-			}
-		}
-
-		// A paletted texture keeps its palette in the same allocation, right
-		// after the pixels of every LOD - which is what texGetDepthAndSize()
-		// measures, in 16-bit units.
-		if (tex->lutmodeindex) {
-			s32 depth;
-			s32 len;
-
-			texGetDepthAndSize(tex, &depth, &len);
-
-			snprintf(path, sizeof(path), "%s/%04x.pal", dumpDir, n);
-			f = fopen(path, "wb");
-
-			if (f) {
-				fwrite(tex->data + len * 2, 2, tex->unk0a + 1, f);
-				fclose(f);
-			}
-		}
-
-		count++;
 	}
 
-	fclose(manifest);
+	// As in texpackBuildRiceIndex(): the ids point into a pool that is
+	// re-initialised for the next texture, so they must not outlive it.
+	texpackForgetRange(dumpAllBuffer, dumpAllBuffer + TEXPACK_DUMPALL_POOL);
 
-	// As in texpackBuildRiceIndex(): the ids point into a pool that is going
-	// away. This exits immediately afterwards, but the pairing is the point.
-	texpackForgetRange(buffer, buffer + TEXPACK_DUMPALL_POOL);
+	dumpAllCount++;
 
-	free(buffer);
+	return 1;
+}
+
+void texpackDumpClose(void)
+{
+	if (!dumpAllBuffer) {
+		return;
+	}
+
+	fclose(dumpAllManifest);
+	dumpAllManifest = NULL;
+	free(dumpAllBuffer);
+	dumpAllBuffer = NULL;
 
 	sysLogPrintf(LOG_NOTE, "texpack: wrote raw data for %d of %d textures to %s",
-			count, NUM_TEXTURES, dumpDir);
+			dumpAllCount, NUM_TEXTURES, dumpDir);
+}
 
-	exit(0);
+s32 texpackDumpAll(void)
+{
+	s32 n;
+
+	if (!texpackDumpOpen()) {
+		return 0;
+	}
+
+	for (n = 0; n < NUM_TEXTURES; n++) {
+		texpackDumpTextureNum(n);
+	}
+
+	texpackDumpClose();
+
+	return dumpAllCount;
+}
+
+/**
+ * The size of the picture texpackTexToRgba() makes of a texture: the padded
+ * row rather than the tile, which is what a texture coordinate is measured
+ * against. Zero for a texture with no data.
+ */
+s32 texpackTexGetPaddedSize(struct tex *tex, s32 *outWidth, s32 *outHeight)
+{
+	const s32 siz = tex->depth;
+	const s32 wide = siz == G_IM_SIZ_32b ? 2 : 1;
+	const s32 stride = texGetLineSizeInBytes(tex, 0) * 8 * wide;
+	const s32 size = texGetSizeInBytes(tex, 0) * 8 * wide;
+	const s32 line = stride / wide;
+
+	if (stride <= 0 || size <= 0 || !tex->data) {
+		return 0;
+	}
+
+	*outWidth = siz == G_IM_SIZ_4b ? line * 2 : siz == G_IM_SIZ_8b ? line : line / 2;
+	*outHeight = size / stride;
+
+	return *outWidth > 0 && *outHeight > 0;
 }
 
 PD_CONSTRUCTOR static void texpackConfigInit(void)

@@ -56,10 +56,41 @@ extern "C" {
 const void *xblaTexBind(u32 record);
 
 /**
- * Whether anything has been bound and the art is wanted, which is the
- * renderer's early out. Every texture upload in the game goes past this.
+ * A stand-in for a picture that is not one of the release's records: a model
+ * pack's own PNG, or one of the ROM's numbered textures decoded for a mesh
+ * that names it. The picture is RGBA32 in the game's row order (first
+ * uploaded row first) and is taken over - freed here, never by the caller -
+ * and kept for the life of the game beside the tile. key is what the picture
+ * is bound as: the same key binds the same tile, and the picture handed in
+ * for it the second time is freed unused.
+ *
+ * Not subject to Mod.XblaMeshTextures - that switch is about the release's
+ * art - and not replaceable by a texture pack, which has nothing to key on.
+ */
+const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height);
+
+/**
+ * What the mesh builder needs to know about a picture bound above: whether
+ * any texel is not opaque (the material draws with its alpha) and whether
+ * next to none are (the material fades, see xblaTexRecordIsSoft()). Zero when
+ * addr is not such a stand-in.
+ */
+s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft);
+
+/**
+ * Whether anything has been bound, which is the renderer's early out. Every
+ * texture upload in the game goes past this.
  */
 s32 xblaTexHaveTextures(void);
+
+/**
+ * For the asset dump: how many records the package has (opening it, and
+ * unpacking the archive if it has to; zero with no package), and one of them
+ * decoded to RGBA32 in the game's row order, freed by the caller. Not gated
+ * on the switch and never dumped from - the dumper does its own writing.
+ */
+u32 xblaTexGetNumRecords(void);
+u8 *xblaTexDecodeRecord(u32 record, s32 *outWidth, s32 *outHeight);
 
 /**
  * Mod.XblaMeshTextures, the menu's "Enable Textures".

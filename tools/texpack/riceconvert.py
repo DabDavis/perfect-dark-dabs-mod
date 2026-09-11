@@ -28,7 +28,7 @@ Usage:
     ./pd.x86_64 --dump-textures
 
     tools/texpack/riceconvert.py \\
-        --dump ~/.local/share/perfectdark/texturedump/ntsc-final \\
+        --dump ~/.local/share/perfectdark/texture-dumps/ntsc-final \\
         --pack "/path/to/Perfect Dark Forever 0.4.7z" \\
         --out  ~/.local/share/perfectdark/mypack
 
@@ -349,7 +349,7 @@ def combine_rgb_alpha(rgb_bytes, alpha_bytes, out_path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
             formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--dump', required=True, help='texturedump/<romid> from --dump-textures')
+    ap.add_argument('--dump', required=True, help='texture-dumps/<romid> from --dump-assets')
     ap.add_argument('--pack', required=True,
             help='the Rice pack: a directory, a .zip or a .7z')
     ap.add_argument('--out', required=True, help='where to write the converted pack')

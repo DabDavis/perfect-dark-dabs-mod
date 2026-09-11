@@ -48,9 +48,20 @@
 #define XBLATEX_TILE_TEXELS (XBLATEX_TILE * XBLATEX_TILE)
 #define XBLATEX_TILE_BYTES  (XBLATEX_TILE_TEXELS * 2)
 
+// A stand-in that holds a picture of its own rather than naming a record: a
+// model pack's PNG, or one of the ROM's numbered textures decoded for a mesh
+// that draws with it. See xblaTexBindImage().
+#define XBLATEX_NOREC 0xffffffffu
+
 struct xblatexentry {
 	u8 *addr;      // the stand-in the display list binds; the key
-	u32 record;
+	u32 record;    // or XBLATEX_NOREC for a picture of its own
+	u8 *image;     // that picture, RGBA32 in the game's row order, kept for good
+	s32 width;
+	s32 height;
+	u8 alpha;      // whether any of its texels is not opaque
+	u8 soft;       // whether next to none are - see xblaTexRecordIsSoft()
+	char *key;     // what it was bound as, so the same picture binds once
 };
 
 static s32 opened; // 0 untried, 1 open, -1 no package
@@ -117,6 +128,8 @@ static u32 xblaTexBE32(const u8 *p)
 {
 	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
 }
+
+static u8 *xblaTexDecode(u32 record, s32 *outWidth, s32 *outHeight);
 
 static void xblaTexCloseUp(void)
 {
@@ -289,9 +302,153 @@ const void *xblaTexBind(u32 record)
 	return addr;
 }
 
+/**
+ * A stand-in for a picture of its own - see xblatex.h.
+ *
+ * Bound once per key: the second ask for the same key gets the first tile
+ * back and the picture handed in is freed, so a material that several meshes
+ * name uploads once. The picture is kept for the life of the game the way the
+ * tile is, since the renderer asks for it again whenever its cache evicts it.
+ */
+const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
+{
+	u8 *addr;
+	u32 slot;
+	u32 opaque = 0;
+	u32 total;
+
+	if (!lock || !key || !rgba || width <= 0 || height <= 0) {
+		free(rgba);
+		return NULL;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (numBound >= XBLATEX_HASHSIZE / 2) {
+		SDL_UnlockMutex(lock);
+		free(rgba);
+		return NULL;
+	}
+
+	for (u32 i = 0; i < XBLATEX_HASHSIZE; i++) {
+		if (hash[i].addr && hash[i].key && !strcmp(hash[i].key, key)) {
+			addr = hash[i].addr;
+			SDL_UnlockMutex(lock);
+			free(rgba);
+			return addr;
+		}
+	}
+
+	addr = malloc(XBLATEX_TILE_BYTES);
+
+	if (!addr) {
+		SDL_UnlockMutex(lock);
+		free(rgba);
+		return NULL;
+	}
+
+	memset(addr, 0xff, XBLATEX_TILE_BYTES);
+
+	slot = xblaTexHashOf(addr);
+
+	while (hash[slot].addr) {
+		slot = (slot + 1) & (XBLATEX_HASHSIZE - 1);
+	}
+
+	total = (u32)width * (u32)height;
+
+	for (u32 i = 0; i < total; i++) {
+		if (rgba[i * 4 + 3] >= XBLATEX_OPAQUE_ALPHA) {
+			opaque++;
+		}
+	}
+
+	hash[slot].addr = addr;
+	hash[slot].record = XBLATEX_NOREC;
+	hash[slot].image = rgba;
+	hash[slot].width = width;
+	hash[slot].height = height;
+	hash[slot].alpha = opaque < total;
+	hash[slot].soft = opaque * 100 < total * XBLATEX_SOFT_PERCENT;
+	hash[slot].key = malloc(strlen(key) + 1);
+
+	if (hash[slot].key) {
+		strcpy(hash[slot].key, key);
+	}
+	numBound++;
+
+	SDL_UnlockMutex(lock);
+
+	return addr;
+}
+
+s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft)
+{
+	const struct xblatexentry *e;
+	s32 found = 0;
+
+	if (!lock || numBound == 0) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+
+	if (e && e->image) {
+		*outAlpha = e->alpha;
+		*outSoft = e->soft;
+		found = 1;
+	}
+
+	SDL_UnlockMutex(lock);
+
+	return found;
+}
+
 s32 xblaTexHaveTextures(void)
 {
-	return numBound > 0 && optEnabled;
+	// A picture of its own is not the release's art and is not what the
+	// switch is about; the switch is asked again for a record's stand-in in
+	// xblaTexLoadReplacement().
+	return numBound > 0;
+}
+
+u32 xblaTexGetNumRecords(void)
+{
+	u32 n;
+
+	if (!lock) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+	n = xblaTexOpen() ? numRecords : 0;
+	SDL_UnlockMutex(lock);
+
+	return n;
+}
+
+u8 *xblaTexDecodeRecord(u32 record, s32 *outWidth, s32 *outHeight)
+{
+	u8 *rgba;
+
+	if (!lock) {
+		return NULL;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (!xblaTexOpen() || record >= numRecords || badRecord[record]) {
+		SDL_UnlockMutex(lock);
+		return NULL;
+	}
+
+	rgba = xblaTexDecode(record, outWidth, outHeight);
+
+	SDL_UnlockMutex(lock);
+
+	return rgba;
 }
 
 s32 xblaTexGetEnabled(void)
@@ -526,9 +683,37 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 	s32 record;
 	u8 *rgba;
 
-	record = xblaTexRecordOf(addr);
+	if (numBound == 0 || !lock) {
+		return NULL;
+	}
 
-	if (record < 0) {
+	// A picture of its own is handed over as it is, whatever the switch says:
+	// it is a model pack's, not the release's.
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+
+	if (e && e->image) {
+		const size_t bytes = (size_t)e->width * (size_t)e->height * 4;
+
+		rgba = malloc(bytes);
+
+		if (rgba) {
+			memcpy(rgba, e->image, bytes);
+			*outWidth = e->width;
+			*outHeight = e->height;
+		}
+
+		SDL_UnlockMutex(lock);
+
+		return rgba;
+	}
+
+	record = e ? (s32)e->record : -1;
+
+	SDL_UnlockMutex(lock);
+
+	if (record < 0 || !optEnabled) {
 		return NULL;
 	}
 

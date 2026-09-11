@@ -40,6 +40,8 @@
 #include "files.h"
 #include "xblamesh.h"
 #include "xblatex.h"
+#include "objmesh.h"
+#include "modelpack.h"
 
 #ifndef PLATFORM_N64
 
@@ -112,8 +114,16 @@
 // either the bind pose or a posed copy of it.
 #define XBLAMESH_VTXSEG (SPSEGMENT_MODEL_VTX << 24)
 
-// Parts a model can have, which is what the id's nibble can count.
-#define XBLAMESH_MAXPARTS 16
+// Parts a model can have. The id's nibble counts sixteen, which is what the
+// release's meshes are built to; a model pack's file for one of the game's
+// own models is a group per list node, and a character body has thirty.
+#define XBLAMESH_MAXPARTS 64
+
+// A material word that names an entry of the build's own table of pictures
+// rather than a record - a model pack's PNG, or one of the ROM's numbered
+// textures - in its low twelve bits. Bit 15 is the alpha flag as ever.
+#define XBLAMESH_MAT_TABLE 0x40000000
+#define XBLAMESH_MAXMATS 256
 
 // Palette entries a mesh can have. The largest in the release has 46.
 #define XBLAMESH_MAXMTX 64
@@ -131,6 +141,7 @@ struct xblameshentry {
 	u16 part;
 	s32 use;                           // into uses[], or -1
 	s32 suppress;                      // XBLAMESH_SUPPRESS_*: stock geometry that draws nothing
+	u8 pack;                           // a model pack's file for the game's own model: slot is the file id
 };
 
 /**
@@ -203,6 +214,23 @@ struct xblameshbuilt {
 	u8 *bones;         // three per emitted vertex, and the count in the fourth
 	f32 bindlo[3];     // the box the bind positions stand in, which bounds the posed ones
 	f32 bindhi[3];
+
+	// A model pack's mesh for one of the game's own models: a group per list
+	// node in that node's own space, drawn under the node's own matrix -
+	// see xblaMeshBuildPack(). groupabsent marks nodes the file has no group
+	// for, which keep their own geometry.
+	s32 local;
+	u64 groupabsent;
+	s32 frompack;      // the mesh came out of a model pack's file (either kind)
+	u32 packgen;       // modelpackGetGeneration() when it was built
+};
+
+// The pictures a build's materials draw with, when they are not records.
+struct xblameshmats {
+	const void *tile[XBLAMESH_MAXMATS];
+	u8 alpha[XBLAMESH_MAXMATS];
+	u8 soft[XBLAMESH_MAXMATS];
+	s32 num;
 };
 
 static s32 optEnabled;
@@ -242,6 +270,18 @@ static u32 *recCompSize;
 static s32 numRecords;
 
 static struct xblameshbuilt *built;      // one per slot, allocated with the table
+
+// Which of the game's model files names each mesh slot, as the matching
+// finds out - the file id, or 0. A mesh is not the release's copy of the model
+// (that sits at file id - 1); it is a file of 4J's own past the game's ids,
+// and the only thing that ties it to a model is the id on the model's nodes.
+// A model pack names its xbla/ files for the model, so this is what a mesh
+// slot is looked up by.
+static u16 *slotFile;
+
+// The same for every mesh at once, walked out of every model's release copy
+// on the first ask: what the asset dump names the meshes by.
+static u16 *slotFileAll;
 static struct xblameshentry hash[XBLAMESH_HASHSIZE];
 static struct xblameshuse *uses;
 static s32 numUses, capUses;
@@ -263,6 +303,9 @@ static f32 xblaMeshBEF32(const u8 *p)
 	return bits.f;
 }
 
+static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid);
+static void xblaMeshFreePackMeshes(void);
+
 /* -------------------------------------------------------------------------
  * The package
  * ------------------------------------------------------------------------- */
@@ -275,6 +318,10 @@ static void xblaMeshCloseUp(void)
 	free(recUncSize);
 	free(recCompSize);
 	free(built);
+	free(slotFile);
+	free(slotFileAll);
+	slotFile = NULL;
+	slotFileAll = NULL;
 	recOffset = NULL;
 	recUncSize = NULL;
 	recCompSize = NULL;
@@ -350,6 +397,7 @@ static s32 xblaMeshOpen(s32 mayUnpack)
 	recUncSize = malloc(sizeof(u32) * numRecords);
 	recCompSize = malloc(sizeof(u32) * numRecords);
 	built = calloc(numRecords, sizeof(struct xblameshbuilt));
+	slotFile = calloc(numRecords, sizeof(u16));
 
 	if (!table || !recOffset || !recUncSize || !recCompSize || !built) {
 		free(table);
@@ -885,6 +933,7 @@ static void xblaMeshSuppressNode(struct modeldef *modeldef, struct modelnode *no
 	e->part = 0;
 	e->use = -1;
 	e->suppress = kind;
+	e->pack = 0;
 }
 
 /**
@@ -961,6 +1010,10 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				e->slot = (u16)slot;
 				e->part = (u16)(id >> 12);
 
+				if (slotFile) {
+					slotFile[slot] = (u16)xblaMeshFileId;
+				}
+
 				// Which mesh the model's covered lists wait on, and whether
 				// there is one at all: only a mesh named on a list the game
 				// draws beside them can stand in for them. `CheadgreyZ` names
@@ -973,6 +1026,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 
 				e->use = xblaMeshUseFor(modeldef, slot);
 				e->suppress = 0;
+				e->pack = 0;
 				found++;
 
 				if (e->use >= 0 && e->part < XBLAMESH_MAXPARTS) {
@@ -1281,7 +1335,12 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 		e->slot = (u16)slot;
 		e->part = (u16)part;
 		e->use = xblaMeshUseFor(modeldef, slot);
+
+		if (slotFile && slot >= 0 && slot < numRecords) {
+			slotFile[slot] = (u16)xblaMeshFileId;
+		}
 		e->suppress = 0;
+		e->pack = 0;
 
 		if (e->use >= 0) {
 			struct xblameshuse *use = &uses[e->use];
@@ -1528,6 +1587,10 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 {
 	xblaMeshMatchModel(modeldef, fileid);
+
+	// The model pack's file for it, which takes the model over from the
+	// release's mesh if both have one.
+	xblaMeshRegisterPackModel(modeldef, fileid);
 }
 
 // Both sides of the pose arena: kilobytes held and chunks taken.
@@ -1570,6 +1633,10 @@ void xblaMeshResetModels(void)
 	for (s32 i = 0; i < numRecords && built; i++) {
 		built[i].posedmodel = NULL;
 	}
+
+	// A model pack's meshes for the game's own models go with the stage: they
+	// are node-local to models in the pool being handed back.
+	xblaMeshFreePackMeshes();
 
 	// What the meshes built so far are holding. They are kept for the life of
 	// the process on purpose - a mesh is the same in every level that uses it,
@@ -1797,6 +1864,10 @@ struct xblameshbuilder {
 		s32 count;
 	} *batches;
 	s32 numbatches, capbatches;
+
+	// The pictures XBLAMESH_MAT_TABLE materials name, for the build only:
+	// the list keeps the tile addresses and nothing else.
+	const struct xblameshmats *mats;
 };
 
 // What the colour table is put back to when a mesh has finished drawing.
@@ -2169,8 +2240,10 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	// holds is white, so a material with the pictures turned off draws the
 	// same flat solid a list built without a texture would. That is what lets
 	// Mod.XblaMeshTextures be a live toggle rather than a rebuild - see
-	// xblaTexSetEnabled().
-	const void *tile = xblaTexBind(record);
+	// xblaTexSetEnabled(). A picture of the build's own is bound already.
+	const void *tile = (material & XBLAMESH_MAT_TABLE)
+			? ((b->mats && (s32)(material & 0xfff) < b->mats->num) ? b->mats->tile[material & 0xfff] : NULL)
+			: xblaTexBind(record);
 	Gfx *gdl;
 
 	if (!xblaMeshRoomForGfx(b, 13)) {
@@ -2215,8 +2288,9 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	b->numgfx = (s32)(gdl - b->gdl);
 
 	if (xblaMeshVerbose) {
-		sysLogPrintf(LOG_NOTE, "xblamesh:   material %08x -> record %u%s%s%s",
-				material, record, alpha ? " alpha" : "",
+		sysLogPrintf(LOG_NOTE, "xblamesh:   material %08x -> %s %u%s%s%s",
+				material, (material & XBLAMESH_MAT_TABLE) ? "picture" : "record",
+				(material & XBLAMESH_MAT_TABLE) ? (material & 0xfff) : record, alpha ? " alpha" : "",
 				span == XBLAMESH_SPAN_FADE ? " (fades)" : "",
 				tile == xblaMeshWhiteTile ? " (no texture; white)" : "");
 	}
@@ -2305,8 +2379,8 @@ static s32 xblaMeshDrawFades(const u8 *file, u32 len, const struct xblameshhdr *
 	return 0;
 }
 
-static s32 xblaMeshDrawSpan(const u8 *file, u32 len, const struct xblameshhdr *h,
-		u32 stride, u32 d)
+static s32 xblaMeshDrawSpan(const struct xblameshbuilder *b, const u8 *file, u32 len,
+		const struct xblameshhdr *h, u32 stride, u32 d)
 {
 	const u8 *draw = file + h->drawoffset + d * XBLAMESH_ENTRY;
 	const u32 firsttri = xblaMeshBE32(draw);
@@ -2329,8 +2403,13 @@ static s32 xblaMeshDrawSpan(const u8 *file, u32 len, const struct xblameshhdr *h
 	// the alpha clears the threshold, which was the white half-disc on the
 	// comhub's screens. Blended, then, like the beams; the vertex alpha is
 	// 255 and drops out of the product. Answered from the package once per
-	// record and remembered, so this costs a decode the first time only.
-	if (xblaTexRecordIsSoft(material & 0x1fff)) {
+	// record and remembered, so this costs a decode the first time only. A
+	// picture of the build's own was looked at when it was bound.
+	if (material & XBLAMESH_MAT_TABLE) {
+		if (b->mats && (s32)(material & 0xfff) < b->mats->num && b->mats->soft[material & 0xfff]) {
+			return XBLAMESH_SPAN_FADE;
+		}
+	} else if (xblaTexRecordIsSoft(material & 0x1fff)) {
 		return XBLAMESH_SPAN_FADE;
 	}
 
@@ -2467,7 +2546,7 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 			return 0;
 		}
 
-		if (xblaMeshDrawSpan(file, len, h, stride, d) != wantspan) {
+		if (xblaMeshDrawSpan(b, file, len, h, stride, d) != wantspan) {
 			continue;
 		}
 
@@ -2632,7 +2711,7 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 		// release's 556 meshes have an alpha material anywhere in them, so for
 		// most groups this is the end of it and groupxlu stays -1.
 		for (u32 d = firstdraw; d < firstdraw + numdraws; d++) {
-			const s32 span = xblaMeshDrawSpan(file, len, h, stride, d);
+			const s32 span = xblaMeshDrawSpan(b, file, len, h, stride, d);
 
 			if (span == XBLAMESH_SPAN_ALPHA) {
 				anyalpha = 1;
@@ -2822,35 +2901,475 @@ static s32 xblaMeshReadBind(struct xblameshbuilt *m, const u8 *file,
 	return 1;
 }
 
-static struct xblameshbuilt *xblaMeshBuild(s32 slot)
+/**
+ * One of the release's meshes, or a synthesised one, read into the shape
+ * objmesh.h describes: what the asset dump writes out, and what a model
+ * pack's replacement for a skinned mesh takes its bone weights from.
+ *
+ * Positions come out in the game's units; a UV's v is turned over into the
+ * OBJ's bottom-up sense, which is the t direction the vertex loader wants
+ * (xblaMeshAddVertex()); the palette is copied as it stands.
+ */
+static struct objmesh *xblaMeshFileToObj(const u8 *file, u32 len, const char *name)
 {
-	struct xblameshbuilt *m = &built[slot];
-	struct xblameshbuilder b;
 	struct xblameshhdr h;
-	u8 *file;
-	u32 len;
+	struct objmesh *m;
 	u32 stride;
+	u32 numtris;
+	u32 intable;
+	f32 scale;
 
-	if (m->state) {
-		return m->state > 0 ? m : NULL;
-	}
-
-	m->state = -1;
-
-	file = xblaMeshReadSlot(slot, &len);
-
-	if (!file) {
+	if (!xblaMeshReadHeader(&h, file, len, &stride)) {
 		return NULL;
 	}
+
+	m = objmeshAlloc(name);
+
+	if (!m) {
+		return NULL;
+	}
+
+	scale = xblaMeshScale(&h);
+	m->headerscale = h.unknown;
+	m->skinned = stride == XBLAMESH_STRIDE_SKIN && h.nummatrices > 0;
+	m->nummatrices = h.nummatrices;
+
+	if (h.nummatrices) {
+		m->matrices = malloc((size_t)h.nummatrices * 12 * sizeof(f32));
+
+		if (!m->matrices) {
+			objmeshFree(m);
+			return NULL;
+		}
+
+		for (u32 i = 0; i < h.nummatrices * 12; i++) {
+			m->matrices[i] = xblaMeshBEF32(file + XBLAMESH_HEADER + i * 4);
+		}
+	}
+
+	for (u32 i = 0; i < h.numvertices; i++) {
+		const u8 *v = file + h.vertexoffset + i * stride;
+		struct objvertex ov;
+		u32 colour;
+
+		memset(&ov, 0, sizeof(ov));
+		ov.pos[0] = xblaMeshBEF32(v) * scale;
+		ov.pos[1] = xblaMeshBEF32(v + 4) * scale;
+		ov.pos[2] = xblaMeshBEF32(v + 8) * scale;
+		ov.uv[0] = xblaMeshBEF32(v + 12);
+		ov.uv[1] = 1.0f - xblaMeshBEF32(v + 16);
+		ov.nrm[0] = xblaMeshBEF32(v + 20);
+		ov.nrm[1] = xblaMeshBEF32(v + 24);
+		ov.nrm[2] = xblaMeshBEF32(v + 28);
+		colour = xblaMeshBE32(v + 32);
+		ov.rgba[0] = (u8)(colour >> 16);
+		ov.rgba[1] = (u8)(colour >> 8);
+		ov.rgba[2] = (u8)colour;
+		ov.rgba[3] = (u8)(colour >> 24);
+		ov.weight[0] = 1.0f;
+
+		if (stride == XBLAMESH_STRIDE_SKIN) {
+			const u32 packed = xblaMeshBE32(v + 44);
+
+			ov.weight[0] = xblaMeshBEF32(v + 36);
+			ov.weight[1] = xblaMeshBEF32(v + 40);
+			ov.weight[2] = 1.0f - ov.weight[0] - ov.weight[1];
+
+			if (ov.weight[2] < 0.0f) {
+				ov.weight[2] = 0.0f;
+			}
+
+			ov.bone[0] = (u8)(packed >> 24);
+			ov.bone[1] = (u8)(packed >> 16);
+			ov.bone[2] = (u8)(packed >> 8);
+			ov.bone[3] = (u8)packed;
+		}
+
+		if (objmeshAddVertex(m, &ov) < 0) {
+			objmeshFree(m);
+			return NULL;
+		}
+	}
+
+	numtris = (len - h.indexoffset) / 6;
+
+	for (u32 t = 0; t < numtris; t++) {
+		const u8 *idx = file + h.indexoffset + t * 6;
+		u32 a = xblaMeshBE16(idx);
+		u32 b = xblaMeshBE16(idx + 2);
+		u32 c = xblaMeshBE16(idx + 4);
+
+		// A draw counts triangles by position, so a bad one is kept as a
+		// degenerate rather than dropped and shifting the ones after it.
+		if (a >= h.numvertices || b >= h.numvertices || c >= h.numvertices) {
+			a = b = c = 0;
+		}
+
+		if (objmeshAddTriangle(m, a, b, c) < 0) {
+			objmeshFree(m);
+			return NULL;
+		}
+	}
+
+	for (u32 d = 0; d < h.numdraws; d++) {
+		const u8 *draw = file + h.drawoffset + d * XBLAMESH_ENTRY;
+		const u32 firsttri = xblaMeshBE32(draw);
+		const u32 drawtris = xblaMeshBE32(draw + 4);
+		const u32 material = xblaMeshBE32(draw + 8);
+		char matname[OBJMESH_NAMELEN];
+		s32 mat;
+
+		snprintf(matname, sizeof(matname), "xbla_%04x", material & 0x1fff);
+		mat = objmeshAddMaterial(m, matname, OBJMAT_XBLA, material & 0x1fff, (material >> 15) & 1, NULL);
+
+		if (firsttri > numtris || drawtris > numtris - firsttri || objmeshAddDraw(m, firsttri, drawtris, mat) < 0) {
+			objmeshFree(m);
+			return NULL;
+		}
+	}
+
+	intable = (h.drawoffset - h.groupoffset) / XBLAMESH_ENTRY;
+
+	if (intable >= 1 && intable <= XBLAMESH_MAXPARTS) {
+		for (u32 g = 0; g < intable; g++) {
+			const u8 *group = file + h.groupoffset + g * XBLAMESH_ENTRY;
+			const u32 firstdraw = xblaMeshBE32(group);
+			const u32 numdraws = xblaMeshBE32(group + 4);
+			char gname[OBJMESH_NAMELEN];
+			s32 gi;
+
+			snprintf(gname, sizeof(gname), "part%u", g);
+			gi = objmeshAddGroup(m, gname, firstdraw, numdraws);
+
+			if (gi < 0 || firstdraw > h.numdraws || numdraws > h.numdraws - firstdraw) {
+				objmeshFree(m);
+				return NULL;
+			}
+
+			m->groups[gi].matrixindex = xblaMeshBE32(group + 8);
+		}
+	} else if (objmeshAddGroup(m, "part0", 0, h.numdraws) < 0) {
+		objmeshFree(m);
+		return NULL;
+	}
+
+	return m;
+}
+
+static void xblaMeshPutBE32(u8 *p, u32 v)
+{
+	p[0] = (u8)(v >> 24);
+	p[1] = (u8)(v >> 16);
+	p[2] = (u8)(v >> 8);
+	p[3] = (u8)v;
+}
+
+static void xblaMeshPutBEF32(u8 *p, f32 f)
+{
+	union { u32 u; f32 f; } bits;
+	bits.f = f;
+	xblaMeshPutBE32(p, bits.u);
+}
+
+/**
+ * The material word for one of an OBJ's materials: a record as the release
+ * writes it, or an entry in the build's own picture table.
+ */
+static u32 xblaMeshMaterialWord(const struct objmaterial *mat, struct xblameshmats *mats)
+{
+	const void *tile = NULL;
+	s32 alpha = 0;
+	s32 soft = 0;
+
+	if (mat && mat->kind == OBJMAT_XBLA && mat->id <= 0x1fff) {
+		return mat->id | (mat->alpha ? 0x8000u : 0u);
+	}
+
+	if (mat && (mat->kind == OBJMAT_N64 || mat->kind == OBJMAT_IMAGE)) {
+		tile = modelpackBindMaterial(mat, &alpha, &soft);
+	}
+
+	// The same picture once: a mesh names its skin on the head and the hands.
+	for (s32 i = 0; i < mats->num; i++) {
+		if (mats->tile[i] == tile) {
+			return XBLAMESH_MAT_TABLE | (u32)i | (mats->alpha[i] ? 0x8000u : 0u);
+		}
+	}
+
+	if (mats->num >= XBLAMESH_MAXMATS) {
+		return XBLAMESH_MAT_TABLE | 0xfff;
+	}
+
+	mats->tile[mats->num] = tile;
+	mats->alpha[mats->num] = (u8)(tile ? alpha : 0);
+	mats->soft[mats->num] = (u8)(tile ? soft : 0);
+	mats->num++;
+
+	return XBLAMESH_MAT_TABLE | (u32)(mats->num - 1) | (tile && alpha ? 0x8000u : 0u);
+}
+
+/**
+ * An OBJ written back out in 4J's own layout, so that it goes through the
+ * same builder as one of theirs. See xblamesh.py for the layout; every offset
+ * the header measures is laid out here in the file's own order.
+ *
+ * skin, when given, is the mesh being replaced: a skinned one lends its
+ * palette and its scale, and every vertex of the OBJ takes the weights of the
+ * nearest vertex of it - OBJ carries no skinning, and a character re-exported
+ * from a modeller has lost its bones. parts, when non-zero, lays the groups
+ * out by their number (a "node3" group is group 3) with an empty group where
+ * the file has none, and says which of those in *outAbsent - what a model
+ * pack's file for one of the game's own models wants. The triangles are
+ * written in draw order, group by group, so a draw is one contiguous run.
+ */
+static u8 *xblaMeshFromObj(const struct objmesh *m, const struct objmesh *skin,
+		struct xblameshmats *mats, s32 parts, u64 *outAbsent, u32 *outLen)
+{
+	const s32 skinned = skin && skin->skinned && skin->numvertices > 0 && skin->nummatrices > 0;
+	const u32 stride = skinned ? XBLAMESH_STRIDE_SKIN : XBLAMESH_STRIDE_RIGID;
+	const u32 nummatrices = skinned ? skin->nummatrices : 0;
+	const f32 headerscale = skinned ? skin->headerscale : 100.0f;
+	const f32 scale = (headerscale > 0.0f && headerscale <= 100000.0f) ? headerscale / 100.0f : 1.0f;
+	s32 numgroups;
+	s32 groupof[XBLAMESH_MAXPARTS]; // which OBJ group is laid out at each slot, or -1
+	u32 *matwords;
+	u32 numdraws = 0;
+	u32 numtris = 0;
+	u32 groupoffset, drawoffset, vertexoffset, indexoffset;
+	u32 len;
+	u8 *file;
+	u8 *p;
+	u32 drawat = 0;
+	u32 triat = 0;
+
+	if (m->numvertices == 0 || m->numtris == 0 || m->numvertices > XBLAMESH_MAXVERTS) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < XBLAMESH_MAXPARTS; i++) {
+		groupof[i] = -1;
+	}
+
+	if (parts > 0) {
+		s32 numbered = 1;
+
+		numgroups = parts > XBLAMESH_MAXPARTS ? XBLAMESH_MAXPARTS : parts;
+
+		for (u32 g = 0; g < m->numgroups; g++) {
+			if (m->groups[g].number < 0) {
+				numbered = 0;
+			}
+		}
+
+		for (u32 g = 0; g < m->numgroups; g++) {
+			const s32 at = numbered ? m->groups[g].number : (s32)g;
+
+			if (at >= 0 && at < numgroups && groupof[at] < 0) {
+				groupof[at] = (s32)g;
+			}
+		}
+
+		if (outAbsent) {
+			*outAbsent = 0;
+
+			for (s32 i = 0; i < numgroups; i++) {
+				if (groupof[i] < 0) {
+					*outAbsent |= 1ull << i;
+				}
+			}
+		}
+	} else if (m->numgroups >= 1 && m->numgroups <= XBLAMESH_MAXPARTS) {
+		numgroups = (s32)m->numgroups;
+
+		for (s32 g = 0; g < numgroups; g++) {
+			groupof[g] = g;
+		}
+	} else {
+		// Everything as one group: the layout below takes every draw.
+		numgroups = 1;
+		groupof[0] = -2;
+	}
+
+	for (s32 g = 0; g < numgroups; g++) {
+		if (groupof[g] == -2) {
+			numdraws = m->numdraws;
+			numtris = m->numtris;
+		} else if (groupof[g] >= 0) {
+			const struct objgroup *group = &m->groups[groupof[g]];
+
+			for (u32 d = group->firstdraw; d < group->firstdraw + group->numdraws && d < m->numdraws; d++) {
+				numdraws++;
+				numtris += m->draws[d].numtris;
+			}
+		}
+	}
+
+	if (numdraws == 0 || numtris == 0 || numdraws > XBLAMESH_MAXDRAWS) {
+		return NULL;
+	}
+
+	matwords = malloc((m->nummaterials + 1) * sizeof(u32));
+
+	if (!matwords) {
+		return NULL;
+	}
+
+	for (u32 i = 0; i < m->nummaterials; i++) {
+		matwords[i] = xblaMeshMaterialWord(&m->materials[i], mats);
+	}
+
+	matwords[m->nummaterials] = xblaMeshMaterialWord(NULL, mats); // for a draw with none
+
+	groupoffset = XBLAMESH_HEADER + XBLAMESH_MATRIX * nummatrices;
+	drawoffset = groupoffset + XBLAMESH_ENTRY * (u32)numgroups;
+	vertexoffset = drawoffset + XBLAMESH_ENTRY * numdraws;
+	indexoffset = vertexoffset + stride * m->numvertices;
+	len = indexoffset + 6 * numtris;
+
+	file = calloc(len, 1);
+
+	if (!file) {
+		free(matwords);
+		return NULL;
+	}
+
+	xblaMeshPutBE32(file, m->numvertices);
+	xblaMeshPutBE32(file + 4, vertexoffset);
+	xblaMeshPutBE32(file + 8, indexoffset);
+	xblaMeshPutBE32(file + 12, numdraws);
+	xblaMeshPutBE32(file + 16, drawoffset);
+	xblaMeshPutBE32(file + 20, nummatrices);
+	xblaMeshPutBEF32(file + 24, headerscale);
+	xblaMeshPutBE32(file + 28, groupoffset);
+
+	for (u32 i = 0; i < nummatrices * 12; i++) {
+		xblaMeshPutBEF32(file + XBLAMESH_HEADER + i * 4, skin->matrices[i]);
+	}
+
+	// Groups, draws and the index buffer, in the one order.
+	for (s32 g = 0; g < numgroups; g++) {
+		u8 *group = file + groupoffset + (u32)g * XBLAMESH_ENTRY;
+		const u32 firstdraw = drawat;
+		u32 dfrom = 0;
+		u32 dto = 0;
+
+		if (groupof[g] == -2) {
+			dto = m->numdraws;
+		} else if (groupof[g] >= 0) {
+			dfrom = m->groups[groupof[g]].firstdraw;
+			dto = dfrom + m->groups[groupof[g]].numdraws;
+
+			if (dto > m->numdraws) {
+				dto = m->numdraws;
+			}
+		}
+
+		for (u32 d = dfrom; d < dto; d++) {
+			const struct objdraw *draw = &m->draws[d];
+			u8 *out = file + drawoffset + drawat * XBLAMESH_ENTRY;
+			const u32 mat = (draw->material >= 0 && (u32)draw->material < m->nummaterials)
+					? (u32)draw->material : m->nummaterials;
+
+			xblaMeshPutBE32(out, triat);
+			xblaMeshPutBE32(out + 4, draw->numtris);
+			xblaMeshPutBE32(out + 8, matwords[mat]);
+
+			for (u32 t = draw->firsttri; t < draw->firsttri + draw->numtris && t < m->numtris; t++) {
+				u8 *idx = file + indexoffset + triat * 6;
+
+				for (s32 i = 0; i < 3; i++) {
+					const u32 v = m->indices[t * 3 + i] < m->numvertices ? m->indices[t * 3 + i] : 0;
+
+					idx[i * 2] = (u8)(v >> 8);
+					idx[i * 2 + 1] = (u8)v;
+				}
+
+				triat++;
+			}
+
+			drawat++;
+		}
+
+		xblaMeshPutBE32(group, firstdraw);
+		xblaMeshPutBE32(group + 4, drawat - firstdraw);
+		xblaMeshPutBE32(group + 8, 0);
+	}
+
+	free(matwords);
+
+	for (u32 i = 0; i < m->numvertices; i++) {
+		const struct objvertex *v = &m->vertices[i];
+		u8 *out = file + vertexoffset + i * stride;
+
+		xblaMeshPutBEF32(out, v->pos[0] / scale);
+		xblaMeshPutBEF32(out + 4, v->pos[1] / scale);
+		xblaMeshPutBEF32(out + 8, v->pos[2] / scale);
+		xblaMeshPutBEF32(out + 12, v->uv[0]);
+		xblaMeshPutBEF32(out + 16, 1.0f - v->uv[1]);
+		xblaMeshPutBEF32(out + 20, v->nrm[0]);
+		xblaMeshPutBEF32(out + 24, v->nrm[1]);
+		xblaMeshPutBEF32(out + 28, v->nrm[2]);
+		xblaMeshPutBE32(out + 32, ((u32)v->rgba[3] << 24) | ((u32)v->rgba[0] << 16) |
+				((u32)v->rgba[1] << 8) | v->rgba[2]);
+
+		if (skinned) {
+			// The nearest vertex of the mesh this replaces lends its bones.
+			// Brute force: a body is five thousand vertices a side, which is
+			// a few tens of milliseconds once per mesh.
+			const struct objvertex *best = &skin->vertices[0];
+			f32 bestd = 1e30f;
+
+			for (u32 j = 0; j < skin->numvertices; j++) {
+				const struct objvertex *sv = &skin->vertices[j];
+				const f32 dx = sv->pos[0] - v->pos[0];
+				const f32 dy = sv->pos[1] - v->pos[1];
+				const f32 dz = sv->pos[2] - v->pos[2];
+				const f32 d = dx * dx + dy * dy + dz * dz;
+
+				if (d < bestd) {
+					bestd = d;
+					best = sv;
+
+					if (d == 0.0f) {
+						break;
+					}
+				}
+			}
+
+			xblaMeshPutBEF32(out + 36, best->weight[0]);
+			xblaMeshPutBEF32(out + 40, best->weight[1]);
+			out[44] = best->bone[0];
+			out[45] = best->bone[1];
+			out[46] = best->bone[2];
+			out[47] = best->bone[3];
+		}
+	}
+
+	*outLen = len;
+
+	return file;
+}
+
+/**
+ * The build proper: a file in 4J's layout, ours or theirs, into lists. Takes
+ * the file and frees it. what names the mesh in the log.
+ */
+static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
+		const struct xblameshmats *mats, const char *what)
+{
+	struct xblameshbuilder b;
+	struct xblameshhdr h;
+	u32 stride;
 
 	if (!xblaMeshReadHeader(&h, file, len, &stride)) {
 		free(file);
-		return NULL;
+		return 0;
 	}
 
 	memset(&b, 0, sizeof(b));
 	b.skinned = stride == XBLAMESH_STRIDE_SKIN && h.nummatrices > 0;
 	b.scale = xblaMeshScale(&h);
+	b.mats = mats;
 	m->scale = b.scale;
 
 	if (!xblaMeshBuildLists(&b, file, len, &h, stride) || b.numtris == 0) {
@@ -2861,8 +3380,8 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 		free(b.gradscore);
 		free(b.batches);
 		free(file);
-		sysLogPrintf(LOG_ERROR, "xblamesh: slot %d did not build", slot);
-		return NULL;
+		sysLogPrintf(LOG_ERROR, "xblamesh: %s did not build", what);
+		return 0;
 	}
 
 	free(b.batches);
@@ -2877,7 +3396,7 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 		free(b.weights);
 		free(b.bones);
 		free(file);
-		return NULL;
+		return 0;
 	}
 
 	free(file);
@@ -2962,12 +3481,569 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE, "xblamesh: slot %d mesh [%d %d %d]..[%d %d %d]",
-				slot, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+		sysLogPrintf(LOG_NOTE, "xblamesh: %s mesh [%d %d %d]..[%d %d %d]",
+				what, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
 	}
 
-	sysLogPrintf(LOG_NOTE, "xblamesh: slot %d built, %d tris, %d verts, %d cmds",
-			slot, b.numtris, b.numvtx, b.numgfx);
+	sysLogPrintf(LOG_NOTE, "xblamesh: %s built, %d tris, %d verts, %d cmds%s",
+			what, b.numtris, b.numvtx, b.numgfx, m->frompack ? " (from the model pack)" : "");
+
+	return 1;
+}
+
+/**
+ * A built mesh whose file has changed under it - the model pack was switched
+ * - is started again. Its old lists are not freed: the render thread may be
+ * in the middle of one, and a pack swap is rare enough that leaking a mesh's
+ * worth per swap is the safer bargain.
+ */
+static void xblaMeshDropStale(struct xblameshbuilt *m, s32 fileid)
+{
+	if (m->state > 0 && m->packgen != modelpackGetGeneration() &&
+			(m->frompack || (fileid > 0 && modelpackFindXbla(fileid)))) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: the model pack changed; a mesh is built again (the old one is kept, not freed)");
+		memset(m, 0, sizeof(*m));
+	}
+}
+
+static struct xblameshbuilt *xblaMeshBuild(s32 slot)
+{
+	struct xblameshbuilt *m = &built[slot];
+	struct xblameshmats mats;
+	char what[32];
+	const char *path;
+	u8 *file;
+	u32 len;
+
+	const s32 fileid = slotFile ? slotFile[slot] : 0;
+
+	xblaMeshDropStale(m, fileid);
+
+	if (m->state) {
+		return m->state > 0 ? m : NULL;
+	}
+
+	m->state = -1;
+	m->packgen = modelpackGetGeneration();
+
+	file = xblaMeshReadSlot(slot, &len);
+
+	if (!file) {
+		return NULL;
+	}
+
+	memset(&mats, 0, sizeof(mats));
+
+	// The model pack's file for this mesh, if it has one: read, and written
+	// back out in the release's own layout with the release's own skinning
+	// laid over it. The file is named for the model whose nodes name the
+	// mesh, which is what the matching wrote down.
+	path = fileid ? modelpackFindXbla(fileid) : NULL;
+
+	if (path) {
+		struct objmesh *obj = objmeshRead(path);
+
+		if (obj) {
+			struct objmesh *orig = xblaMeshFileToObj(file, len, NULL);
+			u32 synthlen = 0;
+			u8 *synth = xblaMeshFromObj(obj, orig, &mats, 0, NULL, &synthlen);
+
+			if (synth) {
+				free(file);
+				file = synth;
+				len = synthlen;
+				m->frompack = 1;
+				sysLogPrintf(LOG_NOTE, "xblamesh: slot %d comes from %s: %u vertices, %u triangles%s",
+						slot, path, obj->numvertices, obj->numtris,
+						orig && orig->skinned ? ", skinned by nearest vertex" : "");
+			} else {
+				sysLogPrintf(LOG_ERROR, "xblamesh: %s could not stand in for slot %d", path, slot);
+			}
+
+			objmeshFree(orig);
+			objmeshFree(obj);
+		}
+	}
+
+	snprintf(what, sizeof(what), "slot %d", slot);
+
+	return xblaMeshBuildFile(m, file, len, &mats, what) ? m : NULL;
+}
+
+/* -------------------------------------------------------------------------
+ * A model pack's file for one of the game's own models
+ * ------------------------------------------------------------------------- */
+
+// One per file id, made on the first ask. Freed at xblaMeshResetModels():
+// unlike the release's meshes these are node-local to a model the stage pool
+// is about to give back, and their pictures are decoded through the texture
+// pack, which can change between levels.
+static struct xblameshbuilt **packBuilt;
+
+s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max)
+{
+	struct modelnode *node = modeldef ? modeldef->rootnode : NULL;
+	s32 n = 0;
+	s32 walked = 0;
+
+	// The same depth-first order the game's own iteration uses, and the
+	// matcher above: down to the child, along next, back up to the parent's
+	// next. Every DL or GUNDL node counts, in that order.
+	while (node) {
+		const u32 type = node->type & 0xff;
+
+		if (++walked > 4096) {
+			break;
+		}
+
+		if (type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL) {
+			if (out && n < max) {
+				out[n] = node;
+			}
+
+			n++;
+		}
+
+		if (node->child) {
+			node = node->child;
+			continue;
+		}
+
+		while (node) {
+			if (node->next) {
+				node = node->next;
+				break;
+			}
+
+			node = node->parent;
+		}
+	}
+
+	return n;
+}
+
+void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3])
+{
+	out[0] = out[1] = out[2] = 0.0f;
+
+	// The bone a list node hangs under is placed by the position nodes above
+	// it, each relative to its parent - modelNodeGetModelRelativePosition()
+	// sums them the same way for a model instance. The chrinfo root's
+	// position lives in rwdata and is the instance's own, so it is not part
+	// of the model's rest.
+	while (node) {
+		const u32 type = node->type & 0xff;
+
+		if (type == MODELNODETYPE_POSITION) {
+			const struct modelrodata_position *pos = &node->rodata->position;
+			out[0] += pos->pos.x;
+			out[1] += pos->pos.y;
+			out[2] += pos->pos.z;
+		} else if (type == MODELNODETYPE_POSITIONHELD) {
+			const struct modelrodata_positionheld *pos = &node->rodata->positionheld;
+			out[0] += pos->pos.x;
+			out[1] += pos->pos.y;
+			out[2] += pos->pos.z;
+		}
+
+		node = node->parent;
+	}
+}
+
+/**
+ * Files every list node of a model against the pack's file for it, as part
+ * k of a mesh keyed on the file id. Called after the release's matching, and
+ * takes the model over from it: the pack's file is the whole model.
+ */
+static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
+{
+	struct modelnode *nodes[XBLAMESH_MAXPARTS];
+	const char *path;
+	s32 n;
+	s32 useidx;
+
+	if (!modeldef || !modeldef->rootnode) {
+		return;
+	}
+
+	path = modelpackFindN64(fileid);
+
+	if (!path) {
+		return;
+	}
+
+	xblaMeshForgetModel(modeldef);
+
+	n = xblaMeshEnumListNodes(modeldef, nodes, XBLAMESH_MAXPARTS);
+
+	if (n <= 0) {
+		return;
+	}
+
+	if (n > XBLAMESH_MAXPARTS) {
+		sysLogPrintf(LOG_WARNING, "xblamesh: model file %d has %d list nodes and the pack can replace %d",
+				fileid, n, XBLAMESH_MAXPARTS);
+		n = XBLAMESH_MAXPARTS;
+	}
+
+	useidx = xblaMeshUseFor(modeldef, fileid);
+
+	if (useidx < 0) {
+		return;
+	}
+
+	for (s32 k = 0; k < n; k++) {
+		struct xblameshentry *e = xblaMeshSlotFor(nodes[k]);
+
+		if (!e) {
+			sysLogPrintf(LOG_WARNING, "xblamesh: the node table is full; model file %d is left alone", fileid);
+			xblaMeshForgetModel(modeldef);
+			return;
+		}
+
+		if (!e->modeldef) {
+			g_XblaMeshNumNodes++;
+		}
+
+		if (!e->node) {
+			g_XblaMeshNumSlots++;
+		}
+
+		e->node = nodes[k];
+		e->modeldef = modeldef;
+		e->slot = fileid;
+		e->part = (u16)k;
+		e->use = useidx;
+		e->suppress = 0;
+		e->pack = 1;
+
+		uses[useidx].parts[k] = nodes[k];
+	}
+
+	uses[useidx].numparts = (u16)n;
+
+	if (xblaMeshVerbose) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d: %d list nodes take %s", fileid, n, path);
+	}
+}
+
+/**
+ * Builds the pack's mesh for one of the game's own models: a group per list
+ * node, each in the node's own space.
+ *
+ * The file's vertices are in the model's space, where the dump put them, so
+ * each group is moved back by the rest offset of the node it belongs to - the
+ * same sum the dump added. A vertex two groups share is given to each, since
+ * the two move by different amounts.
+ */
+static struct xblameshbuilt *xblaMeshBuildPack(const struct xblameshentry *e)
+{
+	const u16 fileid = e->slot;
+	struct xblameshbuilt *m;
+	struct xblameshmats mats;
+	struct xblameshuse *use;
+	struct objmesh *obj;
+	const char *path;
+	char what[48];
+	u8 *synth;
+	u32 len = 0;
+	s32 *owner;
+	u32 ownercap;
+	s32 numbered = 1;
+
+	if (!packBuilt) {
+		packBuilt = calloc(NUM_FILE_SLOTS, sizeof(*packBuilt));
+
+		if (!packBuilt) {
+			return NULL;
+		}
+	}
+
+	m = packBuilt[fileid];
+
+	if (m && m->state > 0 && m->packgen != modelpackGetGeneration()) {
+		// Started again under a new pack; the old one is leaked, not freed,
+		// for the reason xblaMeshDropStale() gives.
+		packBuilt[fileid] = NULL;
+		m = NULL;
+	}
+
+	if (!m) {
+		m = packBuilt[fileid] = calloc(1, sizeof(*m));
+
+		if (!m) {
+			return NULL;
+		}
+	}
+
+	if (m->state) {
+		return m->state > 0 ? m : NULL;
+	}
+
+	m->state = -1;
+	m->packgen = modelpackGetGeneration();
+	m->local = 1;
+	m->frompack = 1;
+
+	path = modelpackFindN64(fileid);
+	use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef) ? &uses[e->use] : NULL;
+
+	if (!path || !use || use->numparts == 0) {
+		return NULL;
+	}
+
+	obj = objmeshRead(path);
+
+	if (!obj) {
+		return NULL;
+	}
+
+	for (u32 g = 0; g < obj->numgroups; g++) {
+		if (obj->groups[g].number < 0) {
+			numbered = 0;
+		}
+	}
+
+	ownercap = obj->numvertices + 64;
+	owner = malloc(ownercap * sizeof(s32));
+
+	if (!owner) {
+		objmeshFree(obj);
+		return NULL;
+	}
+
+	for (u32 i = 0; i < ownercap; i++) {
+		owner[i] = -1;
+	}
+
+	for (u32 g = 0; g < obj->numgroups; g++) {
+		const struct objgroup *group = &obj->groups[g];
+		const s32 k = numbered ? group->number : (s32)g;
+
+		for (u32 d = group->firstdraw; d < group->firstdraw + group->numdraws && d < obj->numdraws; d++) {
+			const struct objdraw *draw = &obj->draws[d];
+
+			for (u32 t = draw->firsttri; t < draw->firsttri + draw->numtris && t < obj->numtris; t++) {
+				for (s32 i = 0; i < 3; i++) {
+					u32 *idx = &obj->indices[t * 3 + i];
+
+					if (*idx >= obj->numvertices) {
+						continue;
+					}
+
+					if (owner[*idx] < 0) {
+						owner[*idx] = k;
+					} else if (owner[*idx] != k) {
+						// Shared with another group: a copy of its own. The
+						// vertex array may move, so nothing across the loop
+						// holds a pointer into it.
+						const struct objvertex copy = obj->vertices[*idx];
+						const s32 added = objmeshAddVertex(obj, &copy);
+
+						if (added < 0) {
+							continue;
+						}
+
+						if ((u32)added >= ownercap) {
+							const u32 grown = ownercap * 2 > (u32)added + 1 ? ownercap * 2 : (u32)added + 1;
+							s32 *grownowner = realloc(owner, grown * sizeof(s32));
+
+							if (!grownowner) {
+								continue;
+							}
+
+							for (u32 j = ownercap; j < grown; j++) {
+								grownowner[j] = -1;
+							}
+
+							owner = grownowner;
+							ownercap = grown;
+						}
+
+						owner[added] = k;
+						*idx = (u32)added;
+					}
+				}
+			}
+		}
+	}
+
+	for (u32 i = 0; i < obj->numvertices; i++) {
+		const s32 k = owner[i];
+		f32 off[3];
+
+		if (k < 0 || k >= use->numparts || !use->parts[k]) {
+			continue;
+		}
+
+		xblaMeshNodeRestOffset(use->parts[k], off);
+		obj->vertices[i].pos[0] -= off[0];
+		obj->vertices[i].pos[1] -= off[1];
+		obj->vertices[i].pos[2] -= off[2];
+	}
+
+	free(owner);
+
+	memset(&mats, 0, sizeof(mats));
+	synth = xblaMeshFromObj(obj, NULL, &mats, use->numparts, &m->groupabsent, &len);
+
+	sysLogPrintf(LOG_NOTE, "xblamesh: model file %d comes from %s: %u vertices, %u triangles in %u groups for %d list nodes",
+			fileid, path, obj->numvertices, obj->numtris, obj->numgroups, use->numparts);
+
+	objmeshFree(obj);
+
+	if (!synth) {
+		return NULL;
+	}
+
+	snprintf(what, sizeof(what), "model file %d's pack mesh", fileid);
+
+	return xblaMeshBuildFile(m, synth, len, &mats, what) ? m : NULL;
+}
+
+static void xblaMeshFreePackMeshes(void)
+{
+	s32 n = 0;
+
+	if (!packBuilt) {
+		return;
+	}
+
+	for (s32 i = 0; i < NUM_FILE_SLOTS; i++) {
+		struct xblameshbuilt *m = packBuilt[i];
+
+		if (!m) {
+			continue;
+		}
+
+		if (m->state > 0) {
+			n++;
+		}
+
+		free(m->gdl);
+		free(m->vertices);
+		free(m->colours);
+		free(m->grad);
+		free(m->invbind);
+		free(m->bindpos);
+		free(m->weights);
+		free(m->bones);
+		free(m);
+		packBuilt[i] = NULL;
+	}
+
+	if (n) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: %d model pack meshes freed with the stage", n);
+	}
+}
+
+s32 xblaMeshGetNumPackageSlots(void)
+{
+	return xblaMeshOpen(1) ? numRecords : 0;
+}
+
+/**
+ * Every mesh id in the release's copy of one model file, filed against the
+ * model. The walk is the "their" half of xblaMeshMatchNodes().
+ */
+static void xblaMeshFileMeshSlots(const u8 *file, u32 len, u16 fileid)
+{
+	u32 off = xblaMeshBE32(file) & 0xffffff;
+	s32 walked = 0;
+
+	while (off && off + 24 <= len && ++walked < 4096) {
+		const u32 type = xblaMeshBE16(file + off) & 0xff;
+		const u16 id = xblaMeshBE16(file + off + 2);
+		u32 child;
+
+		if (id && id != 0xffff && (type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL)) {
+			const s32 slot = (s32)(id & 0xfff) - 1;
+
+			if (slot >= 0 && slot < numRecords && !slotFileAll[slot]) {
+				slotFileAll[slot] = fileid;
+			}
+		}
+
+		child = xblaMeshFileChild(file, len, off, type);
+
+		if (child) {
+			off = child;
+			continue;
+		}
+
+		while (off) {
+			const u32 next = xblaMeshBE32(file + off + 12) & 0xffffff;
+
+			if (off + 24 > len) {
+				return;
+			}
+
+			if (next) {
+				off = next;
+				break;
+			}
+
+			off = xblaMeshBE32(file + off + 8) & 0xffffff;
+		}
+	}
+}
+
+s32 xblaMeshSlotModelFile(s32 slot)
+{
+	if (!xblaMeshOpen(1) || slot < 0 || slot >= numRecords) {
+		return 0;
+	}
+
+	if (!slotFileAll) {
+		slotFileAll = calloc(numRecords, sizeof(u16));
+
+		if (!slotFileAll) {
+			return 0;
+		}
+
+		for (s32 fileid = 1; fileid < NUM_FILES; fileid++) {
+			const char *name = romdataFileGetName(fileid);
+			u8 *file;
+			u32 len;
+
+			if (!name || !(name[0] == 'C' || name[0] == 'P' || name[0] == 'G')) {
+				continue;
+			}
+
+			// Slot i is the game's file id i + 1: the release's copy of it.
+			file = xblaMeshReadSlot(fileid - 1, &len);
+
+			if (file) {
+				if (len >= 4) {
+					xblaMeshFileMeshSlots(file, len, (u16)fileid);
+				}
+
+				free(file);
+			}
+		}
+	}
+
+	return slotFileAll[slot];
+}
+
+struct objmesh *xblaMeshSlotToObj(s32 slot, const char *name)
+{
+	struct objmesh *m;
+	u8 *file;
+	u32 len;
+
+	if (!xblaMeshOpen(1)) {
+		return NULL;
+	}
+
+	file = xblaMeshReadSlot(slot, &len);
+
+	if (!file) {
+		return NULL;
+	}
+
+	m = xblaMeshFileToObj(file, len, name);
+	free(file);
 
 	return m;
 }
@@ -4045,7 +5121,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	const s32 opa = (renderdata->flags & MODELRENDERFLAG_OPA) != 0;
 	const s32 xlu = (renderdata->flags & MODELRENDERFLAG_XLU) != 0;
 
-	if (!optEnabled || opened <= 0 || !node || !g_XblaMeshNumNodes) {
+	if (!node || !g_XblaMeshNumNodes) {
 		return 0;
 	}
 
@@ -4056,6 +5132,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	e = xblaMeshSlotFor(node);
 
 	if (!e || e->node != node || !e->modeldef) {
+		return 0;
+	}
+
+	// A model pack's file for the game's own model needs no package and no
+	// switch but its own; the release's meshes need both.
+	if (!e->pack && (!optEnabled || opened <= 0)) {
 		return 0;
 	}
 
@@ -4075,7 +5157,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		grafted = 1;
 	}
 
-	if (optOnlySlot && e->slot != optOnlySlot) {
+	if (optOnlySlot && !e->pack && e->slot != optOnlySlot) {
 		if (xblaMeshVerbose) {
 			xblaMeshNoteDraw(model, e->slot, 0, 2);
 		}
@@ -4143,7 +5225,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// The mesh is built before the part is looked at, so that a mesh that will
 	// not build leaves every part of the model drawing its own geometry rather
 	// than only the first one.
-	m = xblaMeshBuild(e->slot);
+	m = e->pack ? xblaMeshBuildPack(e) : xblaMeshBuild(e->slot);
 
 	if (!m) {
 		if (xblaMeshVerbose) {
@@ -4168,7 +5250,19 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef)
 			? &uses[e->use] : NULL;
 
-	if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
+	if (m->local) {
+		// A model pack's mesh for the game's own model: group p is list node
+		// p's, in that node's own space, under that node's own matrix - and a
+		// node the file has no group for keeps its own geometry.
+		if (e->part >= m->numgroups || (m->groupabsent & (1ull << e->part))) {
+			return 0;
+		}
+
+		list = &m->gdl[m->groupgfx[e->part]];
+		xlupart = m->groupxlu[e->part];
+		fadepart = m->groupfade[e->part];
+		use = NULL;
+	} else if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
 		list = &m->gdl[m->groupgfx[e->part]];
 		xlupart = m->groupxlu[e->part];
 		fadepart = m->groupfade[e->part];
@@ -4630,7 +5724,8 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 			continue;
 		}
 
-		m = built && e->slot < numRecords ? &built[e->slot] : NULL;
+		m = e->pack ? (packBuilt ? packBuilt[e->slot] : NULL)
+				: (built && e->slot < numRecords ? &built[e->slot] : NULL);
 
 		fprintf(f, "%snode %p type %02x slot %d part %d def %p%s%s%s built %d",
 				indent ? indent : "", (const void *)node, node->type & 0xff, e->slot, e->part,

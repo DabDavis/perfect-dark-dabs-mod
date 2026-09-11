@@ -163,6 +163,50 @@ page with a link to where it came from:
 | - | - |
 | PD Plus HD Textures | Parabolee of Retro Foundry |
 
+### Model packs
+
+A model pack replaces the game's geometry the way a texture pack replaces its
+pictures. It goes in **`model-packs/`** beside the executable, a folder per
+pack, and is chosen on the same page, where **Use Model Packs** turns it on:
+
+```
+model-packs/<pack>/n64/<model name>.obj    replaces one of the game's own models
+model-packs/<pack>/xbla/<model name>.obj   replaces the XBLA release's mesh for it
+```
+
+The names are the ROM's own (`Pcrate`, `CcarringtonZ`, ...), which is what the
+dump below writes, so a pack is made by dumping, editing in Blender or
+anything else that reads OBJ, and dropping the file back in. A material named
+`n64_0a9a` draws with that texture of the game's, `xbla_1156` with that record
+of the XBLA release's, and a material whose `map_Kd` file is beside the OBJ
+draws with that picture. A pack chosen from the menu takes effect at the next
+level.
+
+### Dumping everything
+
+**Dump All Assets To Disk**, on the Texture & Model Packs page (or
+`--dump-assets` from the command line), writes every texture and every model
+the game has, somewhere you can edit them:
+
+```
+texture-dumps/<romid>/         every texture in the ROM, the layout a texture pack reads back
+texture-dumps/<romid>/xbla/    every texture of the XBLA release, the layout a pack's xbla/ folder is
+model-dumps/n64/               every model in the ROM as OBJ, a group per part, textures in the MTL
+model-dumps/xbla/              every mesh of the XBLA release the same way
+```
+
+The two XBLA folders are written when a copy of the release is in `xbla/`. It
+takes a few minutes and the game stays usable while it runs; the line under the
+row says where it is up to. F7 still writes out the textures the game draws as
+it draws them, which is the way to learn which file a particular wall or jacket
+is.
+
+### The XBLA release
+
+Put `Perfect Dark XBLA.7z` in **`xbla/`** beside the executable and nothing
+else: the archive is unpacked once into `cache/xbla/`, and the Xbox 360 (XBLA)
+page converts its textures into a pack and draws its models and rooms.
+
 ## Mods
 
 The port can mount mod directories, and this fork extends that to stages,

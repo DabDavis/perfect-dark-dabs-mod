@@ -5,6 +5,8 @@
 #include <PR/ultratypes.h>
 #include "types.h"
 
+struct objmesh;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -136,6 +138,34 @@ void xblaMeshSetVerbose(s32 verbose);
  * release's bg files through.
  */
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen);
+
+/**
+ * For the asset dump: how many slots the package's PackedSegFile has, opening
+ * the package (and unpacking the archive) if it has to - zero with none - and
+ * one slot read as a mesh in the shape objmesh.h describes, or NULL when the
+ * slot holds something else. Slot i is the game's file id i + 1, which is
+ * what name it.
+ */
+s32 xblaMeshGetNumPackageSlots(void);
+struct objmesh *xblaMeshSlotToObj(s32 slot, const char *name);
+
+/**
+ * The game's model file whose nodes name a mesh slot, or 0 - what a mesh is
+ * named for, since the slot itself is one of 4J's own files past the game's
+ * ids and says nothing. Walks every model's release copy the first time.
+ */
+s32 xblaMeshSlotModelFile(s32 slot);
+
+/**
+ * The list nodes of a model in the order the model pack numbers them - the
+ * game's own depth-first walk - and where a node's geometry sits in the
+ * model at rest, which is the sum of the position nodes above it. The asset
+ * dump writes a model's parts in the first order with the second added on,
+ * and the pack loader takes it off again (xblamesh.c, xblaMeshBuildPack()).
+ * Returns the count, filling up to max of them.
+ */
+s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max);
+void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3]);
 
 /**
  * For the F3 trace dump: the loader's state and last frame's counts, and

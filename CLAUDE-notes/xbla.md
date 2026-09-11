@@ -1907,9 +1907,11 @@ is not necessarily named anything in particular either.
 
 Nothing reads a `.7z` a file at a time — it is one LZMA stream, so one file out
 of it costs the whole archive — so `xblaImportGetStfsPath()` extracts it into
-`xbla/.unpacked/` and writes `.extracted` beside it when that finished. Both
-names start with a dot, so `fsScanDir()` skips them and the unpacked copy is
-never mistaken for the player's own file.
+`cache/xbla/` (beside the executable, or in the save directory, by
+`fsChooseOutputDir()`) and writes `.extracted` beside it when that finished.
+It used to come apart in `xbla/.unpacked/`, a dot directory beside the archive;
+since 2026-09-11 `xbla/` holds only what the player put there, and a copy left
+in the old place is still read (and the log says it can go) but never written.
 
 It is worth knowing how cheap that is, because it is what makes doing it on
 demand reasonable rather than a background job with a progress bar: the release's

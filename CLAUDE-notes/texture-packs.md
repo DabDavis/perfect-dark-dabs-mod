@@ -354,7 +354,7 @@ one stand-in address, so the two-entries-taking-turns case the flag exists for
 cannot arise.
 
 **Getting the pictures to paint over.** `Mod.DumpTextures` (F7) writes every
-record the game draws into `texturedump/<romid>/xbla/`, once per record per run
+record the game draws into `texture-dumps/<romid>/xbla/`, once per record per run
 and the right way up - which is the layout a pack reads back, so a dump can be
 edited and dropped in as it is. It is also the only way to learn *which* record
 a particular surface uses: stand in front of it and dump. All of them at once
