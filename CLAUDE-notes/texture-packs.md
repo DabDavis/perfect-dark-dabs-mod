@@ -243,8 +243,11 @@ since that is what the format means and it follows a repaint where the
 original's would not; anything else the original's alpha, bilinear onto the
 picture. A picture with any alpha of its own, or a texture the game keeps at
 255 throughout, is untouched, so an opaque wall stays one. A Rice pack
-missing the `_a` half of a split image gets the same repair. Not applied to
-the menu images or the XBLA meshes' own records, which have no N64 original.
+missing the `_a` half of a split image gets the same repair, and so does the
+release's art served straight out of the package by "Enable Textures"
+(`xblaTexLoadNumbered()`, xbla.md) - it is on this branch for exactly that
+reason. Not applied to the menu images or the XBLA meshes' own records, which
+have no N64 original.
 
 ## Replacing font glyphs
 

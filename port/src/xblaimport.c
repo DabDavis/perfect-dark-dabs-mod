@@ -89,7 +89,6 @@ static const char *const xblaKnownNames[] = {
 };
 
 static s32 state;
-static s32 optUpscalesOnly;
 static char statusText[128];
 static char packName[XBLAIMPORT_NAMELEN] = XBLAIMPORT_PACK_NAME;
 
@@ -116,10 +115,10 @@ static char packName[XBLAIMPORT_NAMELEN] = XBLAIMPORT_PACK_NAME;
  */
 static const u16 leftOut[] = { 0x0013, XBLA_REUSED_SLOTS };
 
-static s32 xblaImportIsLeftOut(u32 n)
+s32 xblaImportTextureIsLeftOut(s32 texturenum)
 {
 	for (u32 i = 0; i < sizeof(leftOut) / sizeof(leftOut[0]); i++) {
-		if (leftOut[i] == n) {
+		if (leftOut[i] == texturenum) {
 			return 1;
 		}
 	}
@@ -737,8 +736,6 @@ static s32 xblaConvert(const char *pkgPath)
 		const u32 offset = xblaBE32(a);
 		const u32 width = xblaBE32(a + 4);
 		const u32 height = xblaBE32(a + 8);
-		const u32 srcWidth = xblaBE32(a + 12);
-		const u32 srcHeight = xblaBE32(a + 16);
 		const u32 usize = xblaBE32(a + 20);
 		const u32 csize = xblaBE32(a + 24);
 		struct x360fetch fetch;
@@ -753,14 +750,7 @@ static s32 xblaConvert(const char *pkgPath)
 			continue;
 		}
 
-		// The release redrew a good part of the environment art at its
-		// original size rather than enlarging it. Those are a matter of
-		// taste, so they can be left out.
-		if (optUpscalesOnly && width == srcWidth && height == srcHeight) {
-			continue;
-		}
-
-		if (xblaImportIsLeftOut(n)) {
+		if (xblaImportTextureIsLeftOut((s32)n)) {
 			continue;
 		}
 
@@ -932,8 +922,8 @@ s32 xblaImportStart(void)
 	snprintf(packDir, sizeof(packDir), "%s/%s/" "textures", fsFullPath(rel), packName);
 	fsCreateDir(packDir);
 
-	// The upscales-only switch leaves a file from a fuller conversion alone
-	// on purpose, so this cannot ride on the loop skipping the texture.
+	// The loop below passes over a left-out texture rather than writing it,
+	// so a file an older conversion put there has to be removed outright.
 	xblaImportDropLeftOut(packDir);
 
 	SDL_AtomicSet(&workerDone, 0);
@@ -1032,8 +1022,6 @@ void xblaImportTick(void)
 s32 xblaImportGetState(void) { return state; }
 const char *xblaImportGetStatus(void) { return statusText; }
 const char *xblaImportGetPackName(void) { return packName; }
-s32 xblaImportGetUpscalesOnly(void) { return optUpscalesOnly; }
-void xblaImportSetUpscalesOnly(s32 enabled) { optUpscalesOnly = enabled ? 1 : 0; }
 
 s32 xblaImportGetPercent(void)
 {

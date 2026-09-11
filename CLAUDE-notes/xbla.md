@@ -119,8 +119,11 @@ index is wrong.** Only about half of them match, and the temptation is to go
 hunting for a shift or a drift. There is none: 4J *redrew* a large part of the
 environment art rather than enlarging it, so a wall in the pack is often a
 different picture from the wall in the ROM. 1470 of the 3503 are true upscales
-and the rest are repaints, which is what `--only-upscales` and the page's
-"Enlarged Textures Only" exist to separate. What confirmed the mapping was the
+and the rest are repaints, which is what `riceconvert.py`'s sibling
+`xblaconvert.py --only-upscales` exists to separate. The page had a checkbox
+for it once and does not since 2026-09-11: the release's art is all of it or
+none of it in the game, and a conversion that wrote half of it made the two
+disagree. What confirmed the mapping was the
 unambiguous cases — the starburst, the tunnel, the flames, the blinds, the
 Joanna portrait, the bar chart — all landing on their own texture number, plus
 the record count being `NUM_TEXTURES` on the nose.
@@ -152,8 +155,8 @@ Because the conversion runs only when the player asks for it, a pack already
 on disk keeps the file until something removes it: `xblaImportInit()` looks
 in both places a pack can be (`$E` and `$S`, without creating either) and
 deletes a left-out texture it finds, and `xblaImportStart()` does the same in
-the directory it is about to write, since Enlarged Textures Only leaves files
-it does not rewrite alone. The Python converter deletes it from `--out`.
+the directory it is about to write, since the conversion passes over a
+left-out texture rather than writing something else over it. The Python converter deletes it from `--out`.
 
 Checked frame-exact on the card: `--boot-stage 0x1c --fixed-step --rng-seed
 1`, frame 3200 (the player's first view, clouds along the horizon); frame 200
@@ -920,10 +923,52 @@ laptop on a stand and `MODEL_MODEMBOX` (0x17) the small ceiling box - neither
 is the wall terminal, which cost two runs.
 
 **The two switches are separate, and both are live.** The menu page
-(*Extended Options > Texture Packs > Xbox 360 (XBLA)*) has "Enable
+(*Extended Options > Texture & Model Packs > Xbox 360 (XBLA)*) has "Enable
 Models/Meshes" and "Enable Textures", and they are separate because either on
 its own is worth having - an untextured mesh says whether a shape is right
 without an art problem on top of it.
+
+### "Enable Textures" is the whole of the release's art (2026-09-11)
+
+The switch used to mean the meshes' own records alone, and the rest of the
+release's textures only reached the game as a converted pack - the player had
+to press the button, wait a minute, spend 600MB, and select the pack. It means
+both halves now: with it on, a texture that carries a number is served the
+release's record for that number straight out of the package
+(`xblaTexLoadNumbered()`), which is byte for byte the picture the conversion
+would have written to `<texnum>.png`. Record N is texture N, so there is
+nothing to match and nothing to decide.
+
+Four things make it the same picture as the pack rather than nearly the same:
+
+- It hangs off the **same branch of `gfx_pc.cpp`** as a pack's image, so it is
+  padded to the tile (`gfx_pad_replacement()`) and goes through
+  `gfx_replacement_alpha()` exactly as a `<texnum>.png` would. A branch of its
+  own beside that one is how the two would drift apart.
+- It skips **the same textures the pack skips** - `xblaImportTextureIsLeftOut()`
+  is now public and is the one list both read (0013 and the 25 reused slots).
+- A pack the player selected **outranks it**, asked as
+  `texpackHaveReplacementFor()` rather than by whether the pack returned an
+  image: a queued decode also answers NULL, and reading that as "no file" would
+  paint the release's art over a pack for the frame or two before its PNG
+  lands, every time the texture cache refilled.
+- The pack is still what a **model pack's** `n64_xxxx` material asks for first
+  (`xblaTexLoadReplacement()`), with this behind it, so a mesh is painted like
+  the room around it.
+
+Checked on the card, Chicago (`--boot-stage 0x1d --fixed-step --rng-seed 1
+--screenshot-frame 600`): the switch on with no pack is **pixel-identical** to
+the converted `PD XBLA` pack selected with the switch off, and both differ from
+stock over 29.8% of the frame. With `pdplus` selected (1057 files) and the
+switch on, 98.2% of the frame is still pdplus's art and 99.1% of the frame is
+pixel-equal to one source or the other - the switch fills the gaps and takes
+nothing.
+
+The cost is one LZX chunk per texture per fill of the renderer's cache, which
+is what the meshes' records have always cost. The package is opened on the
+switch's own setter when there is one to open, so the 250MB unpack of a `.7z`
+lands on the player who just asked for it rather than on the render thread at
+the first texture of the next room.
 
 They are live for different reasons, and the textures' one is the reusable
 idea. `Mod.XblaMeshTextures` used to be read in `xblaMeshSetMaterial()`, at the point

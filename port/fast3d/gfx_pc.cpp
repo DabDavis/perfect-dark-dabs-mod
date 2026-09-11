@@ -1566,26 +1566,47 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // of gfx_pc works from - and every texture coordinate derived from it - is
     // still the N64's, so a higher resolution image needs no other allowance:
     // UVs are normalised by the tile, not by what was uploaded.
-    if (texpackHaveReplacements()) {
+    if (texpackHaveReplacements() || xblaTexHaveNumbered()) {
         int32_t rep_width;
         int32_t rep_height;
-        uint8_t* rep = texpackLoadReplacement(orig_addr, &rep_width, &rep_height);
+        uint8_t* rep = nullptr;
+        bool xbla_rep = false;
 
-        // A font glyph has no texture number - it is uploaded straight out of
-        // the font - so it is named by the display list instead, and a pack
-        // keeps those under a folder per font.
-        if (!rep && glyph) {
-            rep = texpackLoadFontReplacement(glyph, &rep_width, &rep_height);
+        if (texpackHaveReplacements()) {
+            rep = texpackLoadReplacement(orig_addr, &rep_width, &rep_height);
+
+            // A font glyph has no texture number - it is uploaded straight out
+            // of the font - so it is named by the display list instead, and a
+            // pack keeps those under a folder per font.
+            if (!rep && glyph) {
+                rep = texpackLoadFontReplacement(glyph, &rep_width, &rep_height);
+            }
+
+            // A model's textures live inside the model file and never get a
+            // texture number, so nothing above can find them. What is being
+            // drawn is right here though, and a pack built for an emulator
+            // named its files after a checksum of exactly these bytes.
+            if (!rep && !loaded_texture.glyph && texpackHaveUnplacedFiles()) {
+                rep = texpackLoadReplacementForTexels(orig_addr, loaded_texture.size_bytes,
+                        rdp.texture_tile[tile].width, rdp.texture_tile[tile].height,
+                        siz, tex_row_bytes, &rep_width, &rep_height);
+            }
         }
 
-        // A model's textures live inside the model file and never get a texture
-        // number, so nothing above can find them. What is being drawn is right
-        // here though, and a pack built for an emulator named its files after a
-        // checksum of exactly these bytes.
-        if (!rep && !loaded_texture.glyph && texpackHaveUnplacedFiles()) {
-            rep = texpackLoadReplacementForTexels(orig_addr, loaded_texture.size_bytes,
-                    rdp.texture_tile[tile].width, rdp.texture_tile[tile].height,
-                    siz, tex_row_bytes, &rep_width, &rep_height);
+        // The XBLA release's own picture for this texture, which is the pack
+        // the conversion would have written, decoded out of the package
+        // instead. Behind the pack and only for a number the pack has no file
+        // for: a player who has painted over one texture keeps their picture
+        // and the release's art fills in the rest. Asked for what the pack has
+        // rather than what it returns, since a queued decode also answers
+        // NULL. A glyph has no number and is never one of these.
+        if (!rep && !loaded_texture.glyph && xblaTexHaveNumbered()) {
+            const int32_t texturenum = texpackGetTextureNum(orig_addr);
+
+            if (texturenum >= 0 && !texpackHaveReplacementFor(texturenum)) {
+                rep = xblaTexLoadNumbered(texturenum, &rep_width, &rep_height);
+                xbla_rep = rep != nullptr;
+            }
         }
 
         if (rep) {
@@ -1602,7 +1623,13 @@ static void import_texture(int i, int tile, bool importReplacement) {
 
             import_enhance_scale = 1; // a pack's image is already what its author wanted
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
-            texpackFreeReplacement(rep);
+
+            if (xbla_rep) {
+                xblaTexFreeReplacement(rep);
+            } else {
+                texpackFreeReplacement(rep);
+            }
+
             rendering_state.textures[i]->second.replaced = true;
             return;
         }

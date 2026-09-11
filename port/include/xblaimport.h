@@ -112,9 +112,14 @@ const char *xblaImportGetPackName(void);
 /** --xbla-import: convert a pack and exit, for scripted setup. */
 void xblaImportFromCommandLine(void);
 
-/** Whether to leave out textures the release redrew at the original size. */
-s32 xblaImportGetUpscalesOnly(void);
-void xblaImportSetUpscalesOnly(s32 enabled);
+/**
+ * Whether the pack leaves texture n out - the sky's clouds and the slots the
+ * release reused for other pictures, whose release copy is not a version of
+ * the ROM's picture and draws wrong in the ROM's rooms. The list is in
+ * xblaimport.c; xblatex.c asks it too, so that the release's art applied
+ * live skips exactly what the pack skips.
+ */
+s32 xblaImportTextureIsLeftOut(s32 texturenum);
 
 #ifdef __cplusplus
 }

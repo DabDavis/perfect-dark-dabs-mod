@@ -235,6 +235,13 @@ s32 texpackPollDecoded(s32 *out, s32 max);
 
 u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight);
 
+/**
+ * Whether the pack has a file for one texture number. Nothing is queued and
+ * nothing is decoded - for a caller deciding whether to draw something else
+ * instead, which cannot read the NULL a queued decode returns as "no file".
+ */
+s32 texpackHaveReplacementFor(s32 texturenum);
+
 /** Whether a decoded id reported by texpackPollDecoded() is this glyph. */
 s32 texpackDecodedIsGlyph(s32 id, u32 glyph);
 
@@ -252,6 +259,7 @@ s32 texpackDecodedIsGlyph(s32 id, u32 glyph);
  * the release's art is drawn until the decode lands.
  */
 s32 texpackHaveXblaReplacement(s32 record);
+
 u8 *texpackLoadXblaReplacement(s32 record, s32 *outWidth, s32 *outHeight);
 s32 texpackGetNumXblaReplacements(void); // never scans; 0 until something has drawn
 

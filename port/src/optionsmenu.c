@@ -4898,28 +4898,6 @@ static const char *menutextTexturePackReload(struct menuitem *item)
 }
 
 /**
- * Converting the Xbox 360 XBLA release's textures into a pack.
- *
- * A decode with nothing to choose and nothing to wait for a subprocess over:
- * the console release kept the game's texture numbering, so its artwork drops
- * straight into the pack the loader already reads. The only setting is whether
- * to keep the textures the release redrew at the original size as well as the
- * ones it enlarged.
- */
-static MenuItemHandlerResult menuhandlerXblaUpscalesOnly(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GET:
-		return xblaImportGetUpscalesOnly();
-	case MENUOP_SET:
-		xblaImportSetUpscalesOnly(!xblaImportGetUpscalesOnly());
-		break;
-	}
-
-	return 0;
-}
-
-/**
  * The two halves of the release, switched on separately.
  *
  * They are separate because either one on its own is a thing somebody wants:
@@ -4929,6 +4907,13 @@ static MenuItemHandlerResult menuhandlerXblaUpscalesOnly(s32 operation, struct m
  * - the meshes' own materials name records past the ones that carry a texture
  * number, so a pack cannot reach them and never has to be turned off to see
  * them.
+ *
+ * "Enable Textures" is the release's art everywhere, not only on its meshes:
+ * a texture that carries a number is served the release's record for that
+ * number as the renderer asks for it, which is the same picture the button
+ * below would have written into a pack and saves converting one at all
+ * (xblaTexLoadNumbered()). A pack the player selected still wins, texture by
+ * texture, so this fills in what the pack has no file for.
  *
  * Both are live in a level: models are matched against the release's copy as
  * they load whether or not the switch is on, and a texture is decided as the
@@ -5080,7 +5065,7 @@ static const char *menutextXblaStart(struct menuitem *item)
 			state == XBLAIMPORT_CONVERTING) {
 		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "Cancel\n");
 	} else {
-		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "Convert Texture Pack\n");
+		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "Make Into Texture Pack\n");
 	}
 
 	return g_XblaStartText;
@@ -5205,14 +5190,6 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		0,
 		0,
 		NULL,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Enlarged Textures Only",
-		0,
-		menuhandlerXblaUpscalesOnly,
 	},
 	{
 		MENUITEMTYPE_LABEL,

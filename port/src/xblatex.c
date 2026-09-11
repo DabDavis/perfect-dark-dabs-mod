@@ -13,6 +13,7 @@
 #include <string.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include "constants.h"
 #include "platform.h"
 #include "config.h"
 #include "system.h"
@@ -70,7 +71,8 @@ static s32 numBound;
 static s32 numDecoded;
 
 /**
- * Mod.XblaMeshTextures: the release's own art on the release's own meshes.
+ * Mod.XblaMeshTextures: the release's own art, on the release's own meshes and
+ * on the game's own numbered textures (xblaTexLoadNumbered()).
  *
  * On, because an untextured mesh is a flat pale solid and is not what anyone
  * turns the meshes on to see; off is how a shape that is wrong is told apart
@@ -498,6 +500,18 @@ void xblaTexSetEnabled(s32 enabled)
 
 	optEnabled = enabled;
 
+	// Somebody has just asked for the release's art, so this is where the
+	// unpack of their archive belongs - the same trade the meshes' switch
+	// makes. Without it the first numbered texture of the next room pays for
+	// it on the render thread. Only when there is a package: a failed open is
+	// remembered for good, and a player who drops one in later must not find
+	// that switching this on and off has closed the door on it.
+	if (optEnabled && lock && xblaImportIsAvailable()) {
+		SDL_LockMutex(lock);
+		xblaTexOpen();
+		SDL_UnlockMutex(lock);
+	}
+
 	// What a texture holds is decided as it is uploaded, and an upload is kept
 	// against the address it came from - so without this the meshes keep the
 	// art they already have until something else evicts it.
@@ -746,6 +760,16 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 			if (rgba) {
 				return rgba;
 			}
+
+			// Failing that, the release's own picture for that number, which
+			// is what the renderer draws on the ROM's copy of this texture
+			// while the switch is on - so a model pack's mesh is painted the
+			// same way the room around it is.
+			rgba = xblaTexLoadNumbered(texnum, outWidth, outHeight);
+
+			if (rgba) {
+				return rgba;
+			}
 		}
 
 		SDL_LockMutex(lock);
@@ -818,6 +842,46 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 	return rgba;
 }
 
+/**
+ * The release's picture for one of the game's own textures. See xblatex.h.
+ *
+ * Everything a pack's <texnum>.png would have gone through is skipped: this is
+ * the decode the conversion writes out, handed over where the renderer would
+ * have uploaded the ROM's texels. It is the same decode the meshes' records
+ * take, so a texture costs one LZX chunk per fill of the renderer's cache.
+ */
+s32 xblaTexHaveNumbered(void)
+{
+	// opened is 0 untried and -1 no package: once a package has failed to
+	// open there is nothing to ask for, and asking again per texture would
+	// re-scan for one. Availability is a flag read after the startup scan.
+	return optEnabled && opened >= 0 && xblaImportIsAvailable();
+}
+
+u8 *xblaTexLoadNumbered(s32 texturenum, s32 *outWidth, s32 *outHeight)
+{
+	u8 *rgba;
+
+	if (!lock || !optEnabled || texturenum < 0 || texturenum >= NUM_TEXTURES ||
+			texturenum >= XBLAIMPORT_NUM_REPLACED ||
+			xblaImportTextureIsLeftOut(texturenum)) {
+		return NULL;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (!xblaTexOpen() || (u32)texturenum >= numRecords || badRecord[texturenum]) {
+		SDL_UnlockMutex(lock);
+		return NULL;
+	}
+
+	rgba = xblaTexDecode((u32)texturenum, outWidth, outHeight);
+
+	SDL_UnlockMutex(lock);
+
+	return rgba;
+}
+
 void xblaTexFreeReplacement(u8 *rgba)
 {
 	free(rgba);
@@ -833,7 +897,7 @@ void xblaTexShutdown(void)
 	// on the render thread, so the two numbers being far apart means the
 	// texture cache is evicting these and paying for them again - which is the
 	// thing to look at if a mesh-heavy room stutters.
-	if (numBound) {
+	if (numBound || numDecoded) {
 		sysLogPrintf(LOG_NOTE, "xblatex: %d records bound, %d decodes",
 				numBound, numDecoded);
 	}

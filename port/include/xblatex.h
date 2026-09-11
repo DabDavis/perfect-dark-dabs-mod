@@ -111,9 +111,37 @@ u8 *xblaTexDecodeRecord(u32 record, s32 *outWidth, s32 *outHeight);
  * white texels times shade - the flat solid an untextured mesh always was -
  * with nothing rebuilt. The setter drops the texture cache, which is what
  * makes the change show up on textures already uploaded.
+ *
+ * It covers the numbered textures below as well, so the switch is the whole of
+ * the release's art rather than only the part a mesh draws with.
  */
 s32 xblaTexGetEnabled(void);
 void xblaTexSetEnabled(s32 enabled);
+
+/**
+ * The release's art on the game's *own* textures, which is the texture pack
+ * the conversion writes, served straight out of the package instead.
+ *
+ * Record N is texture N for the first NUM_TEXTURES records (see xbla.md), so
+ * there is nothing to match and nothing to convert: what the pack's
+ * <texnum>.png holds is this decode, written to disk and read back. With the
+ * switch on, the renderer asks here for any texture that carries a number and
+ * gets the release's picture for it, so the whole game is retextured without
+ * a pack being built, selected, or taking up 600MB of disk.
+ *
+ * The same textures the pack leaves out are left out here
+ * (xblaImportTextureIsLeftOut()): the ROM's own picture is the one that draws
+ * right for those. A pack the player has selected outranks this, so painting
+ * over one texture does not mean giving up the rest - the renderer asks the
+ * pack first and only comes here for what it has no file for.
+ *
+ * Have() is the renderer's early out and costs a flag read. Load() returns a
+ * buffer the caller frees with xblaTexFreeReplacement(), in the game's row
+ * order like everything else here, or NULL when this texture has no record,
+ * is left out, or does not decode.
+ */
+s32 xblaTexHaveNumbered(void);
+u8 *xblaTexLoadNumbered(s32 texturenum, s32 *outWidth, s32 *outHeight);
 
 /**
  * The picture for whatever record was bound at addr, decoded to RGBA32, or

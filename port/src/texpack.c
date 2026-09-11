@@ -3552,6 +3552,23 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 	return texpackClaimDecoded(texturenum, outWidth, outHeight);
 }
 
+/**
+ * Whether the pack has a file for one texture number, without queueing a
+ * decode for it. What the release's own art asks before it stands in for a
+ * texture (xblaTexHaveNumbered()): the player's pack outranks it, and the
+ * queue answers NULL while a decode is outstanding, which is indistinguishable
+ * from having nothing.
+ */
+s32 texpackHaveReplacementFor(s32 texturenum)
+{
+	if (!replaceScanned) {
+		texpackScan();
+	}
+
+	return replacePaths && texturenum >= 0 && texturenum < NUM_TEXTURES
+		&& replacePaths[texturenum] != NULL;
+}
+
 u8 *texpackLoadFontReplacement(u32 glyph, s32 *outWidth, s32 *outHeight)
 {
 	s32 outline;
