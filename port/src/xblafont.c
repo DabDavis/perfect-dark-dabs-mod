@@ -310,7 +310,7 @@ static const struct font *xblaFontRomFont(s32 id, const u8 **outStart, u32 *outL
 /**
  * The outer edges of a run of coverage, to a fraction of a texel.
  *
- * Handed the ink of each row (or column) of a glyph, in any unit. The
+ * Handed a reading of each row (or column) of a glyph, in any unit. The
  * outermost row of an antialiased glyph is often not a row of the letter at
  * all but the spill the rasteriser left when the edge fell near the texel
  * boundary, and taking that row at face value is what puts one letter a whole
@@ -318,11 +318,24 @@ static const struct font *xblaFontRomFont(s32 id, const u8 **outStart, u32 *outL
  * says where the edge really was: a row as full as its neighbour is ink to its
  * far side, a tenth of one is a tenth of a texel of it.
  *
- * The ratio only means that where the letter is about as wide from one row to
- * the next, which is the case at a flat edge - a baseline, a cap line, an
- * x-height - and those are the edges a line is fitted through. Where it is not
- * - the apex of an 'A', the point of a 'V' - the reading is short, and such a
- * glyph is an outlier of the fit rather than a thing the fit is taken from.
+ * The ratio only means that where the two lines hold the same amount of
+ * letter, which is why what is handed in is not the same reading both ways
+ * round (xblaFontRomInk):
+ *
+ * - **Down** a glyph it is the row's *total*. The rows of a letter that a
+ *   line is fitted through are flat edges - a baseline, a cap line, an
+ *   x-height - and there the total is the coverage. Where the letter tapers
+ *   instead - the apex of an 'A', the point of a 'V' - the reading is short,
+ *   and such a glyph is an outlier of the fit rather than a thing the fit is
+ *   taken from.
+ * - **Across** it, it is the column's *deepest texel*. A first column is
+ *   often a stroke a row or two tall against a column of full height beside
+ *   it - the arm of a 't' crossbar, the flag of a '1', the foot of a 'W' -
+ *   and its total reads as a fringe, which pulls the edge in over a texel and
+ *   squeezes the letter that is drawn there. Spill is still discounted: a
+ *   column the rasteriser only grazed is faint at its deepest texel too. And
+ *   there is no fit to be an outlier of across a glyph - the box measured is
+ *   the box the release's glyph is drawn in, one character at a time.
  */
 static void xblaFontSpan(const f32 *ink, s32 num, f32 *outLo, f32 *outHi)
 {
@@ -397,13 +410,20 @@ static const struct fontchar *xblaFontRomChar(s32 id, s32 index, const u8 **outP
  * cell when the other bank does. The body box is measured to a fraction of a
  * texel, since it is what a glyph is sat in; the border's is whole texels,
  * since all it does is bound the outline pass's halo.
+ *
+ * A row is read as its total ink and a column as its deepest texel, which is
+ * the difference between measuring a flat edge and measuring how far a stroke
+ * reaches - see xblaFontSpan. The sm 't' is the case that shows it: its
+ * crossbar is one faint row, so as totals the letter measures 1.6 texels wide
+ * against the 2.7 its ink covers, and the release's 't' was drawn at half the
+ * width of its own.
  */
 static s32 xblaFontRomInk(s32 id, s32 index, struct xblafontbox *body, s32 *cell, s32 *outRows)
 {
 	const struct fontchar *ch;
 	const u8 *data;
-	f32 rowink[XBLAFONT_TILE_ROWS(255)];
-	f32 colink[XBLAFONT_TILE_TEXELS];
+	f32 rowink[XBLAFONT_TILE_ROWS(255)];  // each row's total
+	f32 colink[XBLAFONT_TILE_TEXELS];     // each column's deepest texel
 	s32 rows;
 	s32 row;
 	s32 col;
@@ -435,7 +455,11 @@ static s32 xblaFontRomInk(s32 id, s32 index, struct xblafontbox *body, s32 *cell
 
 			if (alpha) {
 				rowink[row] += alpha;
-				colink[col] += alpha;
+
+				if (alpha > colink[col]) {
+					colink[col] = alpha;
+				}
+
 				any = 1;
 			}
 
@@ -701,15 +725,17 @@ static const struct xblafontcell *xblaFontCellOf(const struct xblafontatlas *atl
 /**
  * The ink inside a cell, in pixels of the atlas and to a fraction of one.
  *
- * Measured the same way the ROM's is (xblaFontSpan), which at 46 pixels to a
- * capital is all but exact - a fringe here is a pixel of an edge rather than a
- * sixth of a letter - and keeps the two sides of the fit the same measurement.
+ * Measured the same way the ROM's is - rows totalled, columns taken at their
+ * deepest texel, and the edges read by xblaFontSpan - which keeps the two
+ * sides of the fit the same measurement. At 46 pixels to a capital it is all
+ * but exact either way: a fringe here is a pixel of an edge rather than a
+ * sixth of a letter.
  */
 static s32 xblaFontCellInk(const struct xblafontatlas *atlas, const struct xblafontcell *cell, struct xblafontbox *ink)
 {
 	const s32 w = cell->x2 - cell->x1;
 	const s32 h = cell->y2 - cell->y1;
-	f32 *sums;
+	f32 *spans;
 	s32 x;
 	s32 y;
 
@@ -717,12 +743,12 @@ static s32 xblaFontCellInk(const struct xblafontatlas *atlas, const struct xblaf
 		return 0;
 	}
 
-	// One allocation for both: a cell is up to a megapixel of atlas and the
-	// sums are a thousandth of that, but they are still too big for the render
+	// One allocation for both: a cell is up to a megapixel of atlas and a line
+	// of it is a thousandth of that, but they are still too big for the render
 	// thread's stack.
-	sums = calloc((u32)(w + h), sizeof(f32));
+	spans = calloc((u32)(w + h), sizeof(f32));
 
-	if (!sums) {
+	if (!spans) {
 		return 0;
 	}
 
@@ -730,15 +756,18 @@ static s32 xblaFontCellInk(const struct xblafontatlas *atlas, const struct xblaf
 		const u8 *row = &atlas->alpha[(cell->y1 + y) * atlas->width + cell->x1];
 
 		for (x = 0; x < w; x++) {
-			sums[w + y] += row[x];
-			sums[x] += row[x];
+			spans[w + y] += row[x];
+
+			if (row[x] > spans[x]) {
+				spans[x] = row[x];
+			}
 		}
 	}
 
-	xblaFontSpan(sums, w, &ink->x1, &ink->x2);
-	xblaFontSpan(sums + w, h, &ink->y1, &ink->y2);
+	xblaFontSpan(spans, w, &ink->x1, &ink->x2);
+	xblaFontSpan(spans + w, h, &ink->y1, &ink->y2);
 
-	free(sums);
+	free(spans);
 
 	if (ink->x2 <= ink->x1 || ink->y2 <= ink->y1) {
 		return 0;

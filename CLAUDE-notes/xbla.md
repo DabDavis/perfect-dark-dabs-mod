@@ -2000,6 +2000,25 @@ So since 2026-09-11 the ink is measured **to a fraction of a texel** and the
   elsewhere, plus the lg '7', whose ROM glyph genuinely stops a texel above the
   baseline and has no tile to reach it in.
 
+**A row is totalled, a column is taken at its deepest texel (2026-09-11).**
+The same ratio read both ways round squeezes the letters whose outermost
+column is a short stroke rather than a tall one. The sm `t` is the case that
+shows it: its crossbar is one faint row, so the columns it reaches into total
+a fraction of the stem's column beside them, the ratio reads them as the
+rasteriser's spill, and the box came out **1.6 texels wide against the 2.7 the
+ink covers** - the release's `t` was then drawn at half the width of its own
+and read as an `l` with a nick in it, which is what "the lower case t looks
+funny" was. Down a glyph the total is right (the rows a line is fitted through
+are flat edges, and a taper *should* read short so that glyph falls out of the
+fit); across it, what is wanted is how far the ink reaches, so `xblaFontRomInk`
+and `xblaFontCellInk` hand `xblaFontSpan()` each column's **deepest** texel
+instead. Genuine spill is still discounted - a column the rasteriser only
+grazed is faint at its deepest texel too - and the vertical fit is untouched,
+byte for byte: the log's four `sits on` lines are the same before and after.
+It also unsqueezes `W V X A` (about a texel each in sm), the flag of the `1`
+and the crossbar of the numeric `7` (2.0 to 3.0 texels). "Battle" on the file
+select is the place to look: three identical bars before, `ttl` after.
+
 Measured over A-Z and 0-9, the spread of the drawn cap line and baseline goes
 from 1.00/1.00 texel to 0.30/0.17 in md and from 1.00/2.00 to 0.37/0.24 in lg;
 what is left is the release font's own overshoot on round letters, which is
