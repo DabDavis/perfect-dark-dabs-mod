@@ -35,6 +35,7 @@
 #include "xblatex.h"
 #include "xblafont.h"
 #include "xblaui.h"
+#include "xblaexpl.h"
 #include "menuimage.h"
 #include "xblastage.h"
 
@@ -5027,6 +5028,28 @@ static MenuItemHandlerResult menuhandlerXblaFont(s32 operation, struct menuitem 
 	return 0;
 }
 
+/**
+ * "Enable Explosions": the release's own 48 frame fireball.
+ *
+ * Its own switch rather than part of "Enable Textures", because it is not a
+ * texture: 4J left the ROM's explosion records alone and drew their own
+ * animation somewhere the ROM has no number for, so this is a picture put
+ * where the game did not ask for one. Everything about how an explosion is
+ * drawn is still the game's - see xblaexpl.h.
+ */
+static MenuItemHandlerResult menuhandlerXblaExplosions(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return xblaExplGetEnabled();
+	case MENUOP_SET:
+		xblaExplSetEnabled(!xblaExplGetEnabled());
+		break;
+	}
+
+	return 0;
+}
+
 static char g_XblaMeshPackText[80];
 
 /**
@@ -5270,6 +5293,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Font",
 		0,
 		menuhandlerXblaFont,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enable Explosions",
+		0,
+		menuhandlerXblaExplosions,
 	},
 	{
 		MENUITEMTYPE_LABEL,

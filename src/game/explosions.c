@@ -10,6 +10,9 @@
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/explosions.h"
+#ifndef PLATFORM_N64
+#include "xblaexpl.h"
+#endif
 #include "game/smoke.h"
 #include "game/bg.h"
 #include "game/room.h"
@@ -1390,7 +1393,26 @@ Gfx *explosionRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		gSPColor(gdl++, osVirtualToPhysical(colours), 1);
 
 		for (i = 14; i >= 0; i--) {
-			gDPSetTextureImage(gdl++, G_IM_FMT_IA, G_IM_SIZ_16b, 1, g_ExplosionTexturePairs[i].texturenum1);
+			// The XBLA release's own frame in place of this one's shape, when
+			// the player has the package and the switch is on. Nothing else
+			// changes: the tiles, the two-cycle combiner, the colour ramp on
+			// tile 1 and the billboard below are all the game's, so the
+			// release's fireball is drawn at the game's own size, colour and
+			// opacity. Frame 0 is left alone because the ROM's is blank - the
+			// game uses it as a part's first, invisible step. See xblaexpl.h.
+			uintptr_t shape = g_ExplosionTexturePairs[i].texturenum1;
+
+#ifndef PLATFORM_N64
+			if (i > 0 && xblaExplHaveFrames()) {
+				const void *xblaframe = xblaExplBindFrame(i);
+
+				if (xblaframe) {
+					shape = (uintptr_t)xblaframe;
+				}
+			}
+#endif
+
+			gDPSetTextureImage(gdl++, G_IM_FMT_IA, G_IM_SIZ_16b, 1, shape);
 			gDPLoadSync(gdl++);
 			gDPLoadBlock(gdl++, G_TX_LOADTILE, 0, 0, 1567, 0);
 

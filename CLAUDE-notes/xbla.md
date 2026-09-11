@@ -1819,6 +1819,76 @@ Two things the logo cost, both of which generalise:
   field as a blue slab around it. It multiplies the picture's own alpha in
   now, which changes nothing for an opaque one.
 
+## The explosion (2026-09-11)
+
+**4J did not upscale the ROM's explosion.** Records 001e to 0039 are still the
+56x56 puff and the 14x14 colour ramp the N64 draws - their renderer never
+asked for them - so "Enable Textures" leaves an explosion exactly as it was.
+What their renderer used is a 48 frame animation of its own at **0e1f to
+0e4e**: 256x256, its own colour and its own alpha, a fireball that blooms,
+rises, throws sparks and fades out (the alpha's peak falls from 246 to 51 over
+the run, so the fade is in the art). 0e4f and 0e50 are empty and **0e51 is the
+smoke puff** that follows, which the game draws from its own smoke system and
+which is left alone.
+
+`port/src/xblaexpl.c` puts those in the ROM's place under
+**Mod.XblaExplosions** ("Enable Explosions"), and the whole of it is one
+picture: `g_ExplosionTexturePairs[i].texturenum1`, the frame's *shape*, becomes
+a stand-in naming one of the release's records.
+
+**The ROM's colour ramp stays on tile 1**, which is the part worth keeping.
+`g_TcGdl2` sets up a two-cycle combiner whose colour is `TEXEL0 * TEXEL1 *
+shade` (`G_CC_INTERFERENCE` then `G_CC_MODULATEIA2`), and that ramp is a 16x14
+picture whose **alpha averages two fifths** (measured over 001f to 0039 with
+`--dump-texture`) - it is what makes an explosion a part of the scene rather
+than a flash over it. A first version replaced tile 1 with a flat white on the
+grounds that the release's frame carries its own colour, and the result was
+half again as strong as the game's own explosion. Left alone, the release's
+fireball is drawn at the game's size, tint and opacity.
+
+The tiles, the billboard, the sizes, the frames a part ages through, the
+bounding-box squeeze and every coordinate are still the game's, which is the
+same bargain a texture pack makes and is why this needed no combiner and no
+geometry of its own.
+
+- **Frame 0 is left alone: the ROM's is blank** (001e is zero in every alpha -
+  the game uses it as a part's first, invisible step), so the fourteen drawn
+  frames are what is replaced, frame *i* being `0e1f + round((i-1) * 47/13)`.
+  Replacing frame 0 too puts a lit fireball where the game starts a part at
+  nothing. The other 34 release frames are never bound; a finer animation
+  would mean the game holding more than fifteen frames, which is a different
+  change.
+- **They go through `xblaTexBindImage()`**, not the numbered path, because they
+  are not a version of any texture number - the address of a stand-in tile is
+  what names the picture, exactly as a mesh's material does, and that path is
+  deliberately not behind Mod.XblaMeshTextures (nor is it given
+  `gfx_replacement_alpha()`'s repair, which is right: 4J's alpha is real).
+- **Fourteen decodes in total**, not fourteen per explosion: the registry takes
+  the picture over and keeps it. The first explosion of a session pays for
+  them, on the game thread where the draw is.
+- Neither the draw nor a bind ever unpacks a player's archive
+  (`xblaImportGetReadyStfsPath()`); the switch's setter does, like the meshes'.
+
+### Judge this frame-exactly or not at all
+
+Two runs of Chicago with an explosion made from gdb a second apart in wall
+time are **not comparable**, and reading them as though they were cost an hour:
+the stock explosion looked *invisible* beside the release's, and a full-screen
+haze appeared that looked like a fault in the swap. Both were the two runs
+being at different points in the level - the haze was the scene's own lighting
+and the guards walking, and the "invisible" explosion was one drawn while the
+camera faced elsewhere. What settles it is the documented recipe (see the
+memory note on headless driving): `--fixed-step --rng-seed 1` under
+`gdb -batch -x`, a breakpoint on `videoEndFrame` conditioned on
+`g_Vars.lvframenum >= N`, the explosion made at that frame, then a top-level
+loop of `call (void)screenshotRequest()` and `continue`. Both runs then have
+the same camera to a float and the same frame numbers, and the comparison is
+a picture of the release's fireball beside the ROM's puff at the same instant.
+
+The diagnostic that answered "is that haze my picture?" in one run: bind a
+flat magenta for every frame. The fireball came up magenta and the haze did
+not, which ruled the swap out without another theory.
+
 ## The font (2026-09-11)
 
 The release set its menus in the same typeface the ROM does - Handel Gothic -
