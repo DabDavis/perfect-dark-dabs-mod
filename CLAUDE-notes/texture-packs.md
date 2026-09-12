@@ -510,8 +510,12 @@ Painting a glow over a solid therefore still draws as a cutout.
 `Mod.TexturePackCycleKey` (F10, next pack, round through "none"). All four are in
 `texpackTick()` and bindable in Extended Options. F9 and F10 exist because
 comparing packs otherwise meant quitting, swapping folders and relaunching.
-`Mod.XblaMeshKey` (F6, the XBLA meshes on/off, `xblaMeshTick()` in xblamesh.c)
-is the same idea for the release's models, bound on the same page.
+`Mod.XblaMeshKey` (F6, `xblaSwitchTick()` in xblaswitch.c) is the same idea for
+the XBLA release, bound on the same page - and it is the whole of it, not the
+models alone: one press moves the meshes, their textures, the rooms, the font
+and the explosion together (xbla.md, "The whole release from one key"). The
+pd.ini key keeps the name it had when it was the meshes' own, because renaming
+it would put everyone who has bound their own key back on F6.
 
 Both are safe with the decode worker running - the reload path stops it first -
 and both are worth re-testing on Windows, threads being what they are.

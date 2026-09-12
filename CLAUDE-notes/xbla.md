@@ -2428,7 +2428,7 @@ setting flipped from gdb is saved and the next run has it - copy the dir.
 **The live switch is checked frame-exact, not by eye.** Defection's opening
 flythrough moves the camera, so two screenshots seconds apart differ by
 70% whatever the rooms are. Two seeded fixed-step runs of `0x30`, one of
-them calling `xblaMeshSetEnabled(0)` at a `break xblaMeshTick if
+them calling `xblaMeshSetEnabled(0)` at a `break xblaSwitchTick if
 g_Vars.lvframenum >= 450` (the tick is where F6 acts; never call it from a
 stop at an arbitrary instruction, it frees the rooms) and `(1)` at 750,
 with a gdb Python sum of `g_Rooms[i].gfxdata->numvertices` over the loaded
@@ -2437,6 +2437,39 @@ vertices in 5 rooms at both frames, the flipped run 7090 at 600 and 7228 at
 900. The city's exterior rooms are nearly the same in both copies, which is
 why the frame-600 screenshots differ by 0.13% of pixels (the dropship, a
 model); inside a building the difference is plain.
+
+## The whole release from one key (2026-09-12)
+
+F6 was the meshes' own switch and is the release's now: `port/src/xblaswitch.c`
+calls the five setters - meshes, textures, rooms, font, explosion - one after
+another, and everything the port can draw of the release moves together.
+
+**Two states, and no memory of a mixed one.** With every part on a press takes
+every part off; any other arrangement is taken to the whole release. That is
+deliberate: the page is where a mixed setting is made and lives (the meshes
+without their art is the one worth having, xblamesh.h), and a key that has to
+be looked at to know what it will do is no use for the one thing a key is for,
+which is flipping between two pictures without leaving the level. Starting
+from the shipped defaults - the meshes off, the other four on - the first
+press is therefore the whole release and the second is stock Perfect Dark.
+
+Nothing new is live about it: each part was already a live toggle for its own
+checkbox, and this only sets them in one place. The rooms go **before** the
+models, because both setters drop the rooms loaded under the old setting
+(`xblaStageSwitched()`) and the rooms count only while the meshes are on
+(xblastage.h) - so setting them this way round leaves the models with the last
+word and the drop that matters as the last one.
+
+The pd.ini key is still `Mod.XblaMeshKey` and the menu row is now "XBLA Assets
+On/Off". Renaming the config key would silently put every player who has bound
+their own key back on F6, which is worth more than the name being tidy.
+
+Checked headlessly on Chicago (`--boot-stage 0x1d`, Xvfb, `xdotool` held
+100ms), pressing F6 twice: the log says `xblaswitch: release assets off` then
+`on`, the shots either side are the release's art and geometry, then the ROM's,
+then the release's again, and the pd.ini written on exit has all five flags
+moved together. That last part is the cheap check - the game writes pd.ini on
+exit, so a headless press can be read back as five numbers.
 
 ## How the two conversions are kept honest
 

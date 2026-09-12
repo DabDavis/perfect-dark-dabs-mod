@@ -30,6 +30,7 @@
 #include "texpack.h"
 #include "xblaimport.h"
 #include "xblamesh.h"
+#include "xblaswitch.h"
 #include "modelpack.h"
 #include "assetdump.h"
 #include "xblatex.h"
@@ -3760,7 +3761,7 @@ static const struct {
 	{ "Texture Packs On/Off\n", texpackToggleGetKey, texpackToggleSetKey },
 	{ "Reload Packs\n",         texpackReloadGetKey, texpackReloadSetKey },
 	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
-	{ "XBLA Meshes On/Off\n",   xblaMeshToggleGetKey, xblaMeshToggleSetKey },
+	{ "XBLA Assets On/Off\n",   xblaSwitchGetKey,     xblaSwitchSetKey     },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)

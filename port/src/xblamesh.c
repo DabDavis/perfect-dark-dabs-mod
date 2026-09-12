@@ -5846,70 +5846,12 @@ s32 xblaMeshModelsAreLate(void)
 	return openedLate;
 }
 
-/**
- * The meshes on and off from a key, the way F8 does texture packs: for looking
- * at the release's model against the game's own without leaving the level.
- * The switch is live at the draw (xblaMeshRenderNode() reads it), so the
- * models change under the player on the next frame, and the rooms with them
- * (xblaStageSwitched() drops the loaded ones) - except on a machine
- * whose package was still in its archive, where the first press opens it and
- * the level after this one has them (xblaMeshSetEnabled()).
- *
- * Resolved to a scancode on first use, as texpack.c does: inputInit() fills
- * the table the name is looked up in, so it cannot be done when the config is
- * read.
- */
-#define XBLAMESH_KEYNAME_LEN 32
-static char toggleKeyName[XBLAMESH_KEYNAME_LEN] = "F6";
-static s32 toggleKeyVk = -1;
-
-s32 xblaMeshToggleGetKey(void)
-{
-	if (toggleKeyVk < 0) {
-		if (!toggleKeyName[0] || !strcmp(toggleKeyName, "NONE")) {
-			toggleKeyVk = 0;
-		} else {
-			toggleKeyVk = inputGetKeyByName(toggleKeyName);
-
-			if (toggleKeyVk < 0) {
-				toggleKeyVk = 0;
-			}
-		}
-	}
-
-	return toggleKeyVk;
-}
-
-void xblaMeshToggleSetKey(s32 vk)
-{
-	if (vk <= 0 || vk >= VK_TOTAL_COUNT) {
-		toggleKeyName[0] = '\0';
-		toggleKeyVk = 0;
-		return;
-	}
-
-	strncpy(toggleKeyName, inputGetKeyName(vk), sizeof(toggleKeyName) - 1);
-	toggleKeyName[sizeof(toggleKeyName) - 1] = '\0';
-	toggleKeyVk = vk;
-}
-
-void xblaMeshTick(void)
-{
-	const s32 vk = xblaMeshToggleGetKey();
-
-	// inputKeyJustPressed() consumes the edge, so ask once a frame and only
-	// when the key is actually bound.
-	if (vk > 0 && inputKeyJustPressed(vk)) {
-		xblaMeshSetEnabled(!optEnabled);
-		sysLogPrintf(LOG_NOTE, "xblamesh: meshes %s%s", optEnabled ? "on" : "off",
-				optEnabled && !xblaMeshIsAvailable() ? " (no package found)" : "");
-	}
-}
-
 PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
 {
 	configRegisterInt("Mod.XblaMeshes", &optEnabled, 0, 1);
-	configRegisterString("Mod.XblaMeshKey", toggleKeyName, sizeof(toggleKeyName));
+
+	// Mod.XblaMeshKey is registered by xblaswitch.c: the key it names switches
+	// the whole of the release now, this checkbox among it.
 
 	// Debugging one mesh at a time: everything else keeps its own geometry, so
 	// what is on screen is the game's except for the one thing being looked at
@@ -6042,9 +5984,6 @@ void xblaMeshFrameReset(void) { }
 s32 xblaMeshIsAvailable(void) { return 0; }
 s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
-s32 xblaMeshToggleGetKey(void) { return 0; }
-void xblaMeshToggleSetKey(s32 vk) { }
-void xblaMeshTick(void) { }
 void xblaMeshResetModels(void) { }
 s32 xblaMeshModelsAreLate(void) { return 0; }
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen) { return NULL; }

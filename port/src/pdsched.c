@@ -29,7 +29,7 @@
 #include "screenshot.h"
 #include "trace.h"
 #include "texpack.h"
-#include "xblamesh.h"
+#include "xblaswitch.h"
 #include "assetdump.h"
 #include "community.h"
 #include "xblaimport.h"
@@ -303,7 +303,7 @@ void schedEndFrame(OSSched *sc)
 	screenshotTick();
 	traceTick();
 	texpackTick();
-	xblaMeshTick();
+	xblaSwitchTick();
 	assetDumpTick();
 	communityTick();
 	xblaImportTick();

@@ -63,13 +63,9 @@ s32 xblaMeshGetEnabled(void);
 void xblaMeshSetEnabled(s32 enabled);
 
 /**
- * Mod.XblaMeshKey (F6): the switch above from a key, polled by xblaMeshTick()
- * each frame beside texpackTick(). Bound from Dab's Mod Options with the
- * texture pack keys.
+ * The key that used to switch this alone is xblaswitch.h's now, and switches
+ * every part of the release together - the meshes among them.
  */
-s32 xblaMeshToggleGetKey(void);
-void xblaMeshToggleSetKey(s32 vk);
-void xblaMeshTick(void);
 
 /**
  * Drops everything keyed on a model - the node registry, the palette uses, the
