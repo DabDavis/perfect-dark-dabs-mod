@@ -94,7 +94,8 @@
 struct texpackslot {
 	const void *data;
 	s32 texturenum;
-	s8 modart; // TEXPACK_ART_*: what supplied these texels
+	s16 moddir; // which mounted mod did, for TEXPACK_ART_MODSTAGE; -1 otherwise
+	s8 modart;  // TEXPACK_ART_*: what supplied these texels
 };
 
 static struct texpackslot *slots;
@@ -146,6 +147,8 @@ static char **replacePaths;   // one per texture number, NULL where there is non
 static char **replaceAlphaPaths; // the _a half of a Rice pack's split images
 static u8 *replaceKinds;      // what kind of file replacePaths[i] is
 static u8 *replaceFlip;       // whether it has to be turned over on load
+static s32 replaceScanned;    // the scan runs once, on the first texture drawn
+static s32 numReplacements;
 
 /**
  * Font glyph replacements, which are indexed by what they are rather than by a
@@ -297,6 +300,74 @@ static u8 *xblaReplaceFlip;
 static s32 numXblaReplacements;
 
 /**
+ * The pack of the mod whose stage is running, indexed on its own.
+ *
+ * A mod mounted for its maps alone (the Stage Loader) numbers its textures
+ * itself, so its files cannot go in the index above beside the game's - see
+ * texpackTextureArt(). It gets these instead, built from its own textures/ the
+ * first time one of its stages asks for a replacement and thrown away when the
+ * running stage belongs to a different mod.
+ *
+ * One at a time, rather than one kept per mod: a mod's emulator cache is tens
+ * of megabytes held in memory (GoldenEye X's is 20MB), only one stage runs, and
+ * the scan that rebuilds it is a directory walk against a stage load.
+ *
+ * Both numberings are live inside one stage - modSetTextureFromStage(0) gives a
+ * stock prop the ROM's texture N while the room draws the mod's - so a mod's
+ * texture cannot share a decode queue slot or a kept slot with the stock one.
+ * Its job ids sit past every other kind, and its decoded images past the
+ * records in the kept store.
+ */
+#define TEXPACK_MOD_ID_BASE (TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS)
+
+static char **modReplacePaths;      // NUM_TEXTURES entries, or NULL for no pack
+static char **modReplaceAlphaPaths;
+static u8 *modReplaceKinds;
+static u8 *modReplaceFlip;
+static s32 numModReplacements;
+static struct texpackunplaced *modUnplaced; // its texel-matched files
+static s32 numModUnplaced;
+static s32 modIndexDir = -1;   // the mounted directory it was built from
+static s32 modIndexHtcFile;    // where its cache files start, so they can be cut back
+static s32 modIndexHtcEntry;
+
+// Which numbered index a scan is filling, and which one a job id belongs to.
+static s32 scanningMod;
+
+/**
+ * One numbered index, so the scan and the decode can name either without
+ * knowing which they have.
+ */
+struct texpacknumbered {
+	char **paths;
+	char **alphaPaths;
+	u8 *kinds;
+	u8 *flip;
+	s32 *count;
+};
+
+static struct texpacknumbered texpackNumbered(s32 mod)
+{
+	struct texpacknumbered n;
+
+	if (mod) {
+		n.paths = modReplacePaths;
+		n.alphaPaths = modReplaceAlphaPaths;
+		n.kinds = modReplaceKinds;
+		n.flip = modReplaceFlip;
+		n.count = &numModReplacements;
+	} else {
+		n.paths = replacePaths;
+		n.alphaPaths = replaceAlphaPaths;
+		n.kinds = replaceKinds;
+		n.flip = replaceFlip;
+		n.count = &numReplacements;
+	}
+
+	return n;
+}
+
+/**
  * Where a job id's decoded image is kept.
  *
  * A texture number is its own slot and a record's is past them all, so the one
@@ -304,7 +375,7 @@ static s32 numXblaReplacements;
  * the same sizes, and a stage's and a mesh's compete for the same memory. A
  * glyph is -1: fontDecoded keeps those, being small and wanted constantly.
  */
-#define TEXPACK_KEPT_SLOTS (NUM_TEXTURES + TEXPACK_XBLA_RECORDS)
+#define TEXPACK_KEPT_SLOTS (NUM_TEXTURES + TEXPACK_XBLA_RECORDS + NUM_TEXTURES)
 
 static s32 texpackKeptIndex(s32 id)
 {
@@ -314,6 +385,10 @@ static s32 texpackKeptIndex(s32 id)
 
 	if (id >= TEXPACK_XBLA_ID_BASE && id < TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS) {
 		return NUM_TEXTURES + (id - TEXPACK_XBLA_ID_BASE);
+	}
+
+	if (id >= TEXPACK_MOD_ID_BASE && id < TEXPACK_MOD_ID_BASE + NUM_TEXTURES) {
+		return NUM_TEXTURES + TEXPACK_XBLA_RECORDS + (id - TEXPACK_MOD_ID_BASE);
 	}
 
 	return -1;
@@ -414,6 +489,19 @@ static void texpackKeptTrim(s32 spare)
 	}
 }
 
+/** Drops one slot's image, for an index whose pictures no longer mean anything. */
+static void texpackKeptDrop(s32 index)
+{
+	if (!kept || index < 0 || index >= TEXPACK_KEPT_SLOTS || !kept[index].rgba) {
+		return;
+	}
+
+	keptBytes -= texpackKeptBytes(&kept[index]);
+	free(kept[index].rgba);
+	kept[index].rgba = NULL;
+	keptCount--;
+}
+
 /**
  * Takes ownership of a decoded image. Returns the slot, or NULL if the store
  * could not be made - in which case the image is still the caller's.
@@ -480,9 +568,6 @@ static u8 *texpackKeptCopy(struct texpackkept *k, s32 *outWidth, s32 *outHeight)
 struct texpackjob;
 static struct texpackkept *texpackJobKeep(struct texpackjob *job);
 
-static s32 replaceScanned;    // the scan runs once, on the first texture drawn
-static s32 numReplacements;
-
 static s32 dumpTextures = 0;
 static s32 dumpTextureData = 0;
 static FILE *dumpManifest;
@@ -538,7 +623,7 @@ static s32 texpackResize(u32 wantSlots)
 	for (i = 0; i < oldSlots; i++) {
 		if (old[i].data && old[i].data != TEXPACK_TOMBSTONE) {
 			// Cannot recurse into another resize: n was chosen to hold these.
-			texpackRegisterTexture(old[i].data, old[i].texturenum, old[i].modart);
+			texpackRegisterTexture(old[i].data, old[i].texturenum, old[i].modart, old[i].moddir);
 		}
 	}
 
@@ -547,7 +632,7 @@ static s32 texpackResize(u32 wantSlots)
 	return 1;
 }
 
-void texpackRegisterTexture(const void *data, s32 texturenum, s32 art)
+void texpackRegisterTexture(const void *data, s32 texturenum, s32 art, s32 moddir)
 {
 	u32 firstTombstone = (u32)-1;
 	u32 base;
@@ -576,6 +661,7 @@ void texpackRegisterTexture(const void *data, s32 texturenum, s32 art)
 
 			if (art != TEXPACK_ART_KEEP) {
 				slots[slot].modart = (s8)art;
+				slots[slot].moddir = (s16)moddir;
 			}
 
 			return;
@@ -593,6 +679,7 @@ void texpackRegisterTexture(const void *data, s32 texturenum, s32 art)
 			// say about them, and there is nothing left here to keep.
 			if (art == TEXPACK_ART_KEEP) {
 				art = TEXPACK_ART_ROM;
+				moddir = -1;
 			}
 
 			if (firstTombstone != (u32)-1) {
@@ -600,10 +687,12 @@ void texpackRegisterTexture(const void *data, s32 texturenum, s32 art)
 				slots[firstTombstone].data = data;
 				slots[firstTombstone].texturenum = texturenum;
 				slots[firstTombstone].modart = (s8)art;
+				slots[firstTombstone].moddir = (s16)moddir;
 			} else {
 				slots[slot].data = data;
 				slots[slot].texturenum = texturenum;
 				slots[slot].modart = (s8)art;
+				slots[slot].moddir = (s16)moddir;
 				numOccupied++;
 			}
 
@@ -642,13 +731,14 @@ s32 texpackGetTextureNum(const void *data)
 	return -1;
 }
 
-s32 texpackTextureArt(const void *data)
+/** The registry entry for data, or NULL. */
+static const struct texpackslot *texpackFindSlot(const void *data)
 {
 	u32 base;
 	u32 i;
 
 	if (!slots || !data || data == TEXPACK_TOMBSTONE) {
-		return TEXPACK_ART_ROM;
+		return NULL;
 	}
 
 	base = texpackHash(data);
@@ -657,7 +747,7 @@ s32 texpackTextureArt(const void *data)
 		const u32 slot = (base + i) & (numSlots - 1);
 
 		if (slots[slot].data == data) {
-			return slots[slot].modart;
+			return &slots[slot];
 		}
 
 		if (slots[slot].data == NULL) {
@@ -665,7 +755,14 @@ s32 texpackTextureArt(const void *data)
 		}
 	}
 
-	return TEXPACK_ART_ROM;
+	return NULL;
+}
+
+s32 texpackTextureArt(const void *data)
+{
+	const struct texpackslot *slot = texpackFindSlot(data);
+
+	return slot ? slot->modart : TEXPACK_ART_ROM;
 }
 
 void texpackForgetTexture(const void *data)
@@ -1131,6 +1228,10 @@ static s32 texpackParseNativeName(const char *name)
 
 static void texpackAddUnplaced(u32 crc, char *path)
 {
+	// A mod's own pack keeps its texel-matched files with the rest of its
+	// index, so they go when it does - they name records inside its cache file.
+	struct texpackunplaced **table = scanningMod ? &modUnplaced : &unplaced;
+	s32 *count = scanningMod ? &numModUnplaced : &numUnplaced;
 	u32 slot;
 	u32 i;
 
@@ -1138,26 +1239,28 @@ static void texpackAddUnplaced(u32 crc, char *path)
 		return;
 	}
 
-	if (!unplaced) {
-		unplaced = calloc(TEXPACK_UNPLACED_SLOTS, sizeof(struct texpackunplaced));
+	if (!*table) {
+		*table = calloc(TEXPACK_UNPLACED_SLOTS, sizeof(struct texpackunplaced));
 
-		if (!unplaced) {
+		if (!*table) {
 			free(path);
 			return;
 		}
 	}
 
+	struct texpackunplaced *into = *table;
+
 	slot = crc & (TEXPACK_UNPLACED_SLOTS - 1);
 
 	for (i = 0; i < TEXPACK_UNPLACED_SLOTS; i++, slot = (slot + 1) & (TEXPACK_UNPLACED_SLOTS - 1)) {
-		if (!unplaced[slot].path) {
-			unplaced[slot].crc = crc;
-			unplaced[slot].path = path;
-			numUnplaced++;
+		if (!into[slot].path) {
+			into[slot].crc = crc;
+			into[slot].path = path;
+			(*count)++;
 			return;
 		}
 
-		if (unplaced[slot].crc == crc) {
+		if (into[slot].crc == crc) {
 			// The same texture under another kind of file. The first found is
 			// the better one, because kinds are looked at in that order.
 			free(path);
@@ -1168,28 +1271,43 @@ static void texpackAddUnplaced(u32 crc, char *path)
 	free(path);
 }
 
-static const char *texpackFindUnplaced(u32 crc)
+static const char *texpackFindUnplacedIn(const struct texpackunplaced *table, u32 crc)
 {
 	u32 slot;
 	u32 i;
 
-	if (!unplaced) {
+	if (!table) {
 		return NULL;
 	}
 
 	slot = crc & (TEXPACK_UNPLACED_SLOTS - 1);
 
 	for (i = 0; i < TEXPACK_UNPLACED_SLOTS; i++, slot = (slot + 1) & (TEXPACK_UNPLACED_SLOTS - 1)) {
-		if (!unplaced[slot].path) {
+		if (!table[slot].path) {
 			return NULL;
 		}
 
-		if (unplaced[slot].crc == crc) {
-			return unplaced[slot].path;
+		if (table[slot].crc == crc) {
+			return table[slot].path;
 		}
 	}
 
 	return NULL;
+}
+
+/**
+ * A file for these texels, from whichever table has one.
+ *
+ * The stock table first, then the running stage's mod's. No test of what is
+ * being drawn is needed either way round: a texel checksum names the picture
+ * itself, so a hit is the same picture whoever shipped it - which is what makes
+ * this the one lookup a mod's numbering cannot get wrong.
+ */
+static const char *texpackFindUnplaced(u32 crc)
+{
+	const char *path = texpackFindUnplacedIn(unplaced, crc);
+
+	return path ? path : texpackFindUnplacedIn(modUnplaced, crc);
 }
 
 static char *texpackJoin(const char *dir, const char *name)
@@ -1269,7 +1387,8 @@ static void texpackIndexGlyph(const struct texpackscan *scan, const char *name)
 	const s32 index = texpackParseGlyphName(name);
 	char **slot;
 
-	if (index < 0) {
+	// The font is the game's, not the map's - see texpackModUse().
+	if (index < 0 || scanningMod) {
 		return;
 	}
 
@@ -1296,6 +1415,11 @@ static void texpackIndexXbla(const struct texpackscan *scan, const char *name, s
 {
 	char **slot;
 	char *path;
+
+	// The release's records are the game's too - see texpackModUse().
+	if (scanningMod) {
+		return;
+	}
 
 	if (!xblaReplacePaths) {
 		xblaReplacePaths = calloc(TEXPACK_XBLA_RECORDS, sizeof(char *));
@@ -1848,8 +1972,12 @@ static void texpackIndexHtc(const char *dir, const char *name)
 
 			if (r->palcrc) {
 				// a CI texture through a palette: for this game's fonts,
-				// the outline pass
-				nglyphs = texpackGlyphMatches(r->crc, r->palcrc, fonts, indexes, heights, 16);
+				// the outline pass. A mod mounted for its maps does not get
+				// to redraw the game's font, so its cache's glyphs are left
+				// where they are and only its own art is taken.
+				nglyphs = scanningMod
+					? 0
+					: texpackGlyphMatches(r->crc, r->palcrc, fonts, indexes, heights, 16);
 
 				if (nglyphs) {
 					texpackHtcCropGlyph(entry, heights[0]);
@@ -1873,18 +2001,22 @@ static void texpackIndexHtc(const char *dir, const char *name)
 			texturenum = texpackRiceLookup(r->crc);
 
 			if (texturenum >= 0) {
-				if (!replacePaths[texturenum]) {
-					numReplacements++;
+				const struct texpacknumbered n = texpackNumbered(scanningMod);
+
+				if (n.paths) {
+					if (!n.paths[texturenum]) {
+						(*n.count)++;
+					}
+					free(n.paths[texturenum]);
+					n.paths[texturenum] = texpackHtcPath(entry);
+					n.kinds[texturenum] = TEXPACK_KIND_ALL;
+					n.flip[texturenum] = 0;
+					textures++;
 				}
-				free(replacePaths[texturenum]);
-				replacePaths[texturenum] = texpackHtcPath(entry);
-				replaceKinds[texturenum] = TEXPACK_KIND_ALL;
-				replaceFlip[texturenum] = 0;
-				textures++;
 				continue;
 			}
 
-			nglyphs = texpackGlyphMatches(r->crc, 0, fonts, indexes, heights, 16);
+			nglyphs = scanningMod ? 0 : texpackGlyphMatches(r->crc, 0, fonts, indexes, heights, 16);
 
 			if (nglyphs) {
 				// the plain pass; and the outline pass too where the pack
@@ -2242,37 +2374,47 @@ static void texpackIndexFile(const char *name, void *arg)
 		return;
 	}
 
-	if (isAlpha) {
-		// The alpha half of a split image. Kept aside; it is only used if the
-		// colour half is what ends up chosen.
-		free(replaceAlphaPaths[texturenum]);
-		replaceAlphaPaths[texturenum] = path;
-		return;
-	}
+	{
+		const struct texpacknumbered n = texpackNumbered(scanningMod);
 
-	// A whole image beats a colour-only one, and a later directory outranks an
-	// earlier one - the scan walks from the base directory up through the mod
-	// directories in reverse priority order, so whatever is found last is what
-	// the file search would have picked.
-	if (replacePaths[texturenum]) {
-		if (kind > replaceKinds[texturenum]) {
+		if (!n.paths) {
 			free(path);
 			return;
 		}
 
-		free(replacePaths[texturenum]);
-	} else {
-		numReplacements++;
-	}
+		if (isAlpha) {
+			// The alpha half of a split image. Kept aside; it is only used if
+			// the colour half is what ends up chosen.
+			free(n.alphaPaths[texturenum]);
+			n.alphaPaths[texturenum] = path;
+			return;
+		}
 
-	replacePaths[texturenum] = path;
-	replaceKinds[texturenum] = (u8)kind;
-	// Rice images are already in the game's row order, and so is anything in a
-	// folder that says so; our own naming is written the right way up.
-	replaceFlip[texturenum] = (u8)(kind == TEXPACK_KIND_NATIVE && !scan->bottomUp);
+		// A whole image beats a colour-only one, and a later directory outranks
+		// an earlier one - the scan walks from the base directory up through
+		// the mod directories in reverse priority order, so whatever is found
+		// last is what the file search would have picked.
+		if (n.paths[texturenum]) {
+			if (kind > n.kinds[texturenum]) {
+				free(path);
+				return;
+			}
+
+			free(n.paths[texturenum]);
+		} else {
+			(*n.count)++;
+		}
+
+		n.paths[texturenum] = path;
+		n.kinds[texturenum] = (u8)kind;
+		// Rice images are already in the game's row order, and so is anything
+		// in a folder that says so; our own naming is written the right way up.
+		n.flip[texturenum] = (u8)(kind == TEXPACK_KIND_NATIVE && !scan->bottomUp);
+	}
 }
 
 static void texpackAsyncReset(void);
+static void texpackModDrop(void);
 
 static void texpackFreeIndex(void)
 {
@@ -2322,6 +2464,7 @@ static void texpackFreeIndex(void)
 	numFontReplacements = 0;
 	texpackGlyphsFree();
 	texpackKeptFree();
+	texpackModDrop();
 	texpackHtcFree();
 
 	free(replacePaths);
@@ -2724,7 +2867,149 @@ s32 texpackHaveReplacements(void)
 		texpackScan();
 	}
 
-	return replacePaths != NULL;
+	// A mod mounted for its maps can have a pack of its own when there is no
+	// stock one at all, and that is the only way it would be asked for - see
+	// texpackModUse(). The cost of saying yes is one registry probe per
+	// texture the renderer uploads.
+	return replacePaths != NULL
+		|| (loadTextures && fsGetNumModDirs() > fsGetNumOverlayModDirs());
+}
+
+/**
+ * Throws away the index built for a maps-only mod.
+ *
+ * The worker reads the paths, so it is stopped first, exactly as
+ * texpackFreeIndex() does. Its cache files and its entries are cut back to
+ * where they started rather than picked out: the mod's scan is the last thing
+ * that appended to either, so the tail is all of it, and the next mod's scan
+ * appends where this one's was.
+ */
+static void texpackModDrop(void)
+{
+	s32 i;
+
+	if (modIndexDir < 0) {
+		return;
+	}
+
+	texpackAsyncReset();
+
+	for (i = 0; modReplacePaths && i < NUM_TEXTURES; i++) {
+		free(modReplacePaths[i]);
+	}
+
+	for (i = 0; modReplaceAlphaPaths && i < NUM_TEXTURES; i++) {
+		free(modReplaceAlphaPaths[i]);
+	}
+
+	for (i = 0; modUnplaced && i < TEXPACK_UNPLACED_SLOTS; i++) {
+		free(modUnplaced[i].path);
+	}
+
+	free(modReplacePaths);
+	free(modReplaceAlphaPaths);
+	free(modReplaceKinds);
+	free(modReplaceFlip);
+	free(modUnplaced);
+
+	modReplacePaths = NULL;
+	modReplaceAlphaPaths = NULL;
+	modReplaceKinds = NULL;
+	modReplaceFlip = NULL;
+	modUnplaced = NULL;
+	numModReplacements = 0;
+	numModUnplaced = 0;
+
+	for (i = modIndexHtcFile; i < numHtcFiles; i++) {
+		free(htcFiles[i].data);
+		htcFiles[i].data = NULL;
+	}
+
+	numHtcFiles = modIndexHtcFile;
+	numHtcEntries = modIndexHtcEntry;
+
+	// Its decoded images go with it; the stock half of the store is left
+	// alone, since those numbers still mean what they meant.
+	for (i = 0; kept && i < NUM_TEXTURES; i++) {
+		texpackKeptDrop(NUM_TEXTURES + TEXPACK_XBLA_RECORDS + i);
+	}
+
+	modIndexDir = -1;
+}
+
+/**
+ * Makes the index for mounted directory dir the one in hand, building it if it
+ * is not already.
+ *
+ * Called off the registry entry of a texture about to be drawn, so it runs on
+ * the render thread the way the first texpackScan() does, and costs a
+ * directory walk once per mod rather than once per stage.
+ */
+static void texpackModUse(s32 dir)
+{
+	const char *path;
+
+	if (dir == modIndexDir) {
+		return;
+	}
+
+	texpackModDrop();
+
+	path = dir >= 0 ? fsGetModDirAt(dir) : NULL;
+
+	if (!path) {
+		return;
+	}
+
+	// Set before anything is allocated, so a failure below drops exactly what
+	// this call made and nothing the last one did.
+	modIndexDir = dir;
+	modIndexHtcFile = numHtcFiles;
+	modIndexHtcEntry = numHtcEntries;
+
+	modReplacePaths = calloc(NUM_TEXTURES, sizeof(char *));
+	modReplaceAlphaPaths = calloc(NUM_TEXTURES, sizeof(char *));
+	modReplaceKinds = calloc(NUM_TEXTURES, sizeof(u8));
+	modReplaceFlip = calloc(NUM_TEXTURES, sizeof(u8));
+
+	if (!modReplacePaths || !modReplaceAlphaPaths || !modReplaceKinds || !modReplaceFlip) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not alloc the index for %s", path);
+		texpackModDrop();
+		return;
+	}
+
+	scanningMod = 1;
+	texpackScanDir(path);
+	scanningMod = 0;
+
+	if (numModReplacements || numModUnplaced) {
+		sysLogPrintf(LOG_NOTE, "texpack: %s brings %d texture(s) and %d matched when drawn for its own maps",
+				path, numModReplacements, numModUnplaced);
+	}
+}
+
+/**
+ * The index a texture's replacement should come from, or NULL for none.
+ *
+ * A mod's map draws its own art at stock numbers, so it is served its own mod's
+ * pack and nothing else; everything else is served the stock index. Which it is
+ * comes off the registry entry the texture was loaded with, not off the running
+ * stage, because both are live inside one stage - a stock prop keeps the ROM's
+ * texture N while the room around it draws the mod's.
+ */
+static const char **texpackIndexForArt(const struct texpackslot *slot, s32 *outid, s32 texturenum)
+{
+	if (slot && slot->modart == TEXPACK_ART_MODSTAGE) {
+		texpackModUse(slot->moddir);
+
+		*outid = TEXPACK_MOD_ID_BASE + texturenum;
+
+		return (const char **)modReplacePaths;
+	}
+
+	*outid = texturenum;
+
+	return (const char **)replacePaths;
 }
 
 /**
@@ -2871,7 +3156,10 @@ s32 texpackGetNumTexelMatched(void)
 
 s32 texpackHaveUnplacedFiles(void)
 {
-	return texpackHaveReplacements() && numUnplaced > 0;
+	// The running stage's mod's own files count: a texel checksum names the
+	// picture itself, so those are matched the same way and cannot collide -
+	// see texpackFindUnplaced().
+	return texpackHaveReplacements() && (numUnplaced > 0 || numModUnplaced > 0);
 }
 
 u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 height,
@@ -3090,7 +3378,7 @@ static struct texpackkept *texpackJobKeep(struct texpackjob *job)
  * the queue as slots free up - from texpackPollDecoded(), once a frame. Order
  * is by id rather than by request, which nothing depends on.
  */
-#define TEXPACK_NUM_JOB_IDS (TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS)
+#define TEXPACK_NUM_JOB_IDS (TEXPACK_MOD_ID_BASE + NUM_TEXTURES)
 
 static u8 jobBacklog[(TEXPACK_NUM_JOB_IDS + 7) / 8];
 static s32 jobBacklogCount;
@@ -3210,7 +3498,23 @@ static int texpackDecodeWorker(void *arg)
 
 		// Copied under the lock, because texpackFreeIndex() may free the index
 		// itself - it stops this thread first, but only between jobs.
-		if (jobs[found].texturenum >= TEXPACK_XBLA_ID_BASE) {
+		// Highest base first: every test below is "at or above", so a mod's id
+		// would otherwise be read as a record of the release's.
+		if (jobs[found].texturenum >= TEXPACK_MOD_ID_BASE) {
+			const s32 num = jobs[found].texturenum - TEXPACK_MOD_ID_BASE;
+			const struct texpacknumbered n = texpackNumbered(1);
+
+			if (n.paths && n.paths[num]) {
+				path = strdup(n.paths[num]);
+			}
+
+			if (n.alphaPaths && n.alphaPaths[num]) {
+				alphaPath = strdup(n.alphaPaths[num]);
+			}
+
+			kind = n.kinds ? n.kinds[num] : TEXPACK_KIND_NATIVE;
+			flip = n.flip ? n.flip[num] : 1;
+		} else if (jobs[found].texturenum >= TEXPACK_XBLA_ID_BASE) {
 			const s32 record = jobs[found].texturenum - TEXPACK_XBLA_ID_BASE;
 
 			if (xblaReplacePaths && xblaReplacePaths[record]) {
@@ -3233,16 +3537,19 @@ static int texpackDecodeWorker(void *arg)
 			kind = TEXPACK_KIND_NATIVE;
 			flip = fontReplaceFlip[outline][font][index];
 		} else {
-			if (replacePaths && replacePaths[jobs[found].texturenum]) {
-				path = strdup(replacePaths[jobs[found].texturenum]);
+			const s32 num = jobs[found].texturenum;
+			const struct texpacknumbered n = texpackNumbered(0);
+
+			if (n.paths && n.paths[num]) {
+				path = strdup(n.paths[num]);
 			}
 
-			if (replaceAlphaPaths && replaceAlphaPaths[jobs[found].texturenum]) {
-				alphaPath = strdup(replaceAlphaPaths[jobs[found].texturenum]);
+			if (n.alphaPaths && n.alphaPaths[num]) {
+				alphaPath = strdup(n.alphaPaths[num]);
 			}
 
-			kind = replaceKinds ? replaceKinds[jobs[found].texturenum] : TEXPACK_KIND_NATIVE;
-			flip = replaceFlip ? replaceFlip[jobs[found].texturenum] : 1;
+			kind = n.kinds ? n.kinds[num] : TEXPACK_KIND_NATIVE;
+			flip = n.flip ? n.flip[num] : 1;
 		}
 		jobs[found].state = TEXPACK_JOB_DECODING;
 
@@ -3335,6 +3642,10 @@ void texpackTrace(FILE *f)
 
 	fprintf(f, "texpack xbla: %d pictures for the release's own texture records\n",
 			numXblaReplacements);
+
+	fprintf(f, "texpack mod: %s, %d texture(s) and %d matched when drawn for its own maps\n",
+			modIndexDir >= 0 ? fsGetModDirAt(modIndexDir) : "no mod's own pack in hand",
+			numModReplacements, numModUnplaced);
 }
 
 void texpackAsyncShutdown(void)
@@ -3439,9 +3750,13 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 						// a texture number there cannot be a second entry of
 						// the renderer's still showing the original for this
 						// claim to owe a report to.
-						if (texturenum < NUM_TEXTURES
-								&& !(keptReport[texturenum >> 3] & (1 << (texturenum & 7)))) {
-							keptReport[texturenum >> 3] |= (u8)(1 << (texturenum & 7));
+						const s32 num = texturenum >= TEXPACK_MOD_ID_BASE
+							? texturenum - TEXPACK_MOD_ID_BASE
+							: texturenum;
+
+						if (num < NUM_TEXTURES
+								&& !(keptReport[num >> 3] & (1 << (num & 7)))) {
+							keptReport[num >> 3] |= (u8)(1 << (num & 7));
 							keptReportCount++;
 						}
 					} else {
@@ -3514,7 +3829,11 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 	for (i = 0; i < TEXPACK_MAX_PENDING && count < max; i++) {
 		if (jobs[i].state == TEXPACK_JOB_READY && !jobs[i].reported) {
 			jobs[i].reported = 1;
-			out[count++] = jobs[i].texturenum;
+			// The renderer drops its cached original by texture number, and a
+			// mod's id is that number in another space.
+			out[count++] = jobs[i].texturenum >= TEXPACK_MOD_ID_BASE
+				? jobs[i].texturenum - TEXPACK_MOD_ID_BASE
+				: jobs[i].texturenum;
 
 			// The image leaves the queue here, so the slot is free again for
 			// whatever is drawn next; the copy the renderer gets when it asks
@@ -3531,7 +3850,18 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 			// on every cache miss would log it forever. Drop it and draw the
 			// original. Done here rather than on the worker because the index
 			// belongs to this thread.
-			if (jobs[i].texturenum >= TEXPACK_XBLA_ID_BASE) {
+			if (jobs[i].texturenum >= TEXPACK_MOD_ID_BASE) {
+				const s32 num = jobs[i].texturenum - TEXPACK_MOD_ID_BASE;
+				const struct texpacknumbered n = texpackNumbered(1);
+
+				if (n.paths && n.paths[num]) {
+					sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it",
+							n.paths[num]);
+					free(n.paths[num]);
+					n.paths[num] = NULL;
+					(*n.count)--;
+				}
+			} else if (jobs[i].texturenum >= TEXPACK_XBLA_ID_BASE) {
 				const s32 record = jobs[i].texturenum - TEXPACK_XBLA_ID_BASE;
 
 				if (xblaReplacePaths && xblaReplacePaths[record]) {
@@ -3555,12 +3885,17 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 					fontReplacePaths[outline][font][index] = NULL;
 					numFontReplacements--;
 				}
-			} else if (replacePaths && replacePaths[jobs[i].texturenum]) {
-				sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it",
-						replacePaths[jobs[i].texturenum]);
-				free(replacePaths[jobs[i].texturenum]);
-				replacePaths[jobs[i].texturenum] = NULL;
-				numReplacements--;
+			} else {
+				const s32 num = jobs[i].texturenum;
+				const struct texpacknumbered n = texpackNumbered(0);
+
+				if (n.paths && n.paths[num]) {
+					sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it",
+							n.paths[num]);
+					free(n.paths[num]);
+					n.paths[num] = NULL;
+					(*n.count)--;
+				}
 			}
 
 			jobs[i].state = TEXPACK_JOB_FREE;
@@ -3577,24 +3912,31 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 
 u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 {
+	const struct texpackslot *slot;
+	const char **paths;
 	s32 texturenum;
+	s32 id;
 
 	if (!texpackHaveReplacements()) {
 		return NULL;
 	}
 
-	texturenum = texpackGetTextureNum(data);
+	slot = texpackFindSlot(data);
+	texturenum = slot ? slot->texturenum : -1;
 
-	if (texturenum < 0 || texturenum >= NUM_TEXTURES || !replacePaths[texturenum]) {
+	if (texturenum < 0 || texturenum >= NUM_TEXTURES) {
 		return NULL;
 	}
 
-	// The number names a picture of that mod's, not one of ours.
-	if (texpackTextureArt(data) == TEXPACK_ART_MODSTAGE) {
+	// Which index the number belongs to. A mod's map is served its own mod's
+	// pack and never ours - see texpackTextureArt().
+	paths = texpackIndexForArt(slot, &id, texturenum);
+
+	if (!paths || !paths[texturenum]) {
 		return NULL;
 	}
 
-	return texpackClaimDecoded(texturenum, outWidth, outHeight);
+	return texpackClaimDecoded(id, outWidth, outHeight);
 }
 
 /**

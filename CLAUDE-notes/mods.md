@@ -1614,8 +1614,10 @@ room it cannot render instead of leaving a hole. A 512-byte placeholder bg
 running stage's own mod first (`modloaderGetStageModDir()`), with
 `modSetTextureFromStage(0)` around a model's display lists so a stock prop
 does not wear the map's art. Such a texture is also registered as the mod's
-(`TEXPACK_ART_MODSTAGE`), so no texture pack and no XBLA record repaints it -
-texture-packs.md, "A texture number belongs to whatever supplied the texels".
+(`TEXPACK_ART_MODSTAGE`) along with which mod it came from, so no texture pack
+and no XBLA record repaints it, and the mod's *own* pack is read for it out of
+an index built from its `textures/` - texture-packs.md, "A texture number
+belongs to whatever supplied the texels".
 
 **The textures come from the importer**, version 30: a mod that rebuilt its
 texture table used to ship the two segments whole and nothing else, so its

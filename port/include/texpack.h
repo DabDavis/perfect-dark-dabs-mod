@@ -30,7 +30,7 @@ struct tex;
  *
  * MODSTAGE is one the running stage's own mod handed over, which the Stage
  * Loader makes routine: the number means what that mod says it means and
- * nothing else.
+ * nothing else, so it is matched against that mod's own pack alone.
  *
  * KEEP re-registers an address whose texels have not been read again, so
  * whatever was recorded about them stands.
@@ -54,7 +54,13 @@ struct tex;
  * an entry outliving its pool would name the wrong texture, not merely a
  * missing one.
  */
-void texpackRegisterTexture(const void *data, s32 texturenum, s32 art);
+/**
+ * Records that the texels at data are texture texturenum, where art says what
+ * supplied them and moddir which mounted mod did, for TEXPACK_ART_MODSTAGE
+ * (-1 otherwise). The mod is remembered because its pack is the only one that
+ * may repaint it - see texpackTextureArt().
+ */
+void texpackRegisterTexture(const void *data, s32 texturenum, s32 art, s32 moddir);
 void texpackForgetTexture(const void *data);
 void texpackForgetRange(const void *start, const void *end);
 void texpackForgetAll(void);
@@ -74,7 +80,8 @@ s32 texpackGetTextureNum(const void *data);
  * chosen by number for the ROM is then the wrong subject *and* the wrong shape,
  * and the shape is what shows: the replacement is stretched over the tile the
  * mod's texture set, so the walls of GoldenEye X's Complex came back wearing
- * Perfect Dark's floor tiles. So MODSTAGE takes no replacement at all.
+ * Perfect Dark's floor tiles. So MODSTAGE takes nothing from the stock index -
+ * only what that mod's own pack has for the number, if it ships one.
  *
  * MOD keeps the pack - a mod's numbering is the game's while it is loaded, its
  * own textures/ is in the pack index, and a pack shipped with it is meant to
@@ -86,6 +93,21 @@ s32 texpackGetTextureNum(const void *data);
  * file name.
  */
 s32 texpackTextureArt(const void *data);
+
+/**
+ * A mod mounted for its maps alone keeps its pack to its maps.
+ *
+ * texpackScan() indexes the overlay's textures/ and the selected pack, both of
+ * which are the game's own numbering, and it cannot index a maps-only mount
+ * beside them: a mod's number means the mod's picture, so its files would
+ * repaint the whole game. So that mod gets an index of its own, built from its
+ * textures/ the first time one of its stages draws and held while its stages
+ * are the ones running - one at a time, since a mod's emulator cache is tens of
+ * megabytes and only one stage runs.
+ *
+ * Nothing here is called from outside; the switch happens where a replacement
+ * is asked for, off the registry entry the texture was loaded with.
+ */
 
 /**
  * Looks for a replacement image for whatever texture lives at data, decodes it,

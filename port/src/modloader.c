@@ -105,6 +105,15 @@ const char *modloaderGetStageModDir(s32 stagenum)
 	return fsGetModDirAt(g_ModStageDirs[stagenum] - 1);
 }
 
+s32 modloaderGetStageModDirIndex(s32 stagenum)
+{
+	if (stagenum < 0 || stagenum >= (s32)ARRAYCOUNT(g_ModStageDirs) || !g_ModStageDirs[stagenum]) {
+		return -1;
+	}
+
+	return g_ModStageDirs[stagenum] - 1;
+}
+
 /**
  * The memory allocation string a runtime-registered stage should use, or NULL
  * for a stock stage.

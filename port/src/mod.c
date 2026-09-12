@@ -2197,19 +2197,21 @@ s32 modSetTextureFromStage(s32 on)
  * Reads texture num out of the mods, into dst.
  *
  * A texture that came from the running stage's own mod is that mod's art under
- * a number that means something else to the ROM, so it is reported back: see
- * texpackTextureArt(), which is what keeps a texture pack and the XBLA
- * release's own pictures off it.
+ * a number that means something else to the ROM, so the mod it came from is
+ * reported back in outstagemod: see texpackTextureArt(), which keeps a texture
+ * pack and the XBLA release's own pictures off it and serves it out of an index
+ * built from that mod's own textures/ instead.
  */
-s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstageart)
+s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstagemod)
 {
 	char path[FS_MAXPATH + 1];
+	const s32 stageNum = mainGetStageNum();
 	const char *stageDir = g_ModTextureStageOff
 		? NULL
-		: modloaderGetStageModDir(mainGetStageNum());
+		: modloaderGetStageModDir(stageNum);
 
-	if (outstageart) {
-		*outstageart = 0;
+	if (outstagemod) {
+		*outstagemod = -1;
 	}
 
 	if (stageDir) {
@@ -2221,13 +2223,13 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstageart)
 
 		const s32 ret = fsFileLoadTo(path, dst, dstSize);
 		if (ret > 0) {
-			if (outstageart) {
-				*outstageart = 1;
+			if (outstagemod) {
+				*outstagemod = modloaderGetStageModDirIndex(stageNum);
 			}
 
-			if (loggedDir != stageDir || loggedStage != mainGetStageNum()) {
+			if (loggedDir != stageDir || loggedStage != stageNum) {
 				loggedDir = stageDir;
-				loggedStage = mainGetStageNum();
+				loggedStage = stageNum;
 				sysLogPrintf(LOG_NOTE, "mod: stage 0x%02x draws with textures from %s", loggedStage, stageDir);
 			}
 			return ret;

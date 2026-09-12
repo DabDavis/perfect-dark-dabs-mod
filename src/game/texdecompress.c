@@ -2248,7 +2248,7 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 		// reads any, so a texture already in the pool keeps what was recorded
 		// about the ones it has.
 		s32 modart = TEXPACK_ART_KEEP;
-		s32 fromstage = 0;
+		s32 stagemod = -1;
 #endif
 
 		tex = texFindInPool(g_TexNumToLoad, pool);
@@ -2276,9 +2276,9 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			// textures and 650 of them are numbered at or above NUM_TEXTURES,
 			// so testing the table first rejected every one of those before the
 			// mod was ever asked, and its maps drew them as stock art.
-			if (modTextureLoad(g_TexNumToLoad, alignedcompbuffer, 4096, &fromstage) > 0) {
+			if (modTextureLoad(g_TexNumToLoad, alignedcompbuffer, 4096, &stagemod) > 0) {
 				compptr = alignedcompbuffer;
-				modart = fromstage ? TEXPACK_ART_MODSTAGE : TEXPACK_ART_MOD;
+				modart = stagemod >= 0 ? TEXPACK_ART_MODSTAGE : TEXPACK_ART_MOD;
 			} else
 #endif
 			{
@@ -2408,7 +2408,7 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 		// Past this point the texture is only ever a pointer: the GBI carries
 		// tex->data and nothing else, so the renderer cannot tell one texture
 		// from another. Record the pairing while both halves are still in hand.
-		texpackRegisterTexture(tex->data, tex->texturenum, modart);
+		texpackRegisterTexture(tex->data, tex->texturenum, modart, stagemod);
 #endif
 
 		*updateword = osVirtualToPhysical(tex->data);

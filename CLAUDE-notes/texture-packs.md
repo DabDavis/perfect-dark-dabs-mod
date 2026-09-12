@@ -360,10 +360,63 @@ ROM's texture N while the room around it draws the mod's texture N.
 This is the same rule `xblastage.c` applies to a mod's *level* under a stock
 file name (`romdataFileIsStock()`), and `xblamesh.c` to a mod's *model*.
 
-**A maps-only mod's own HD pack is still not read**, which is unchanged and
-deliberate: `texpackScan()` indexes the overlay's `textures/` only, or a mod
-mounted for its maps would repaint the whole game. Serving one by stage would
-mean a pack index per mod.
+### The mod gets an index of its own (2026-09-12)
+
+The other half of the same fact: a maps-only mod's *own* pack could not be read
+either. `texpackScan()` indexes the base directory, the overlay's `textures/`
+and the selected pack - all of them the game's numbering - and a maps-only mount
+cannot join them, or a mod mounted for its maps would repaint the whole game.
+So that mod gets a second numbered index, `modReplacePaths` and friends, built
+from its own `textures/` the first time one of its stages asks for a
+replacement (`texpackModUse()`), and thrown away when the running stage belongs
+to a different mod (`texpackModDrop()`).
+
+**One at a time**, not one cached per mod: a mod's emulator cache is held in
+memory whole (GoldenEye X's is 20MB), only one stage runs, and what a rebuild
+costs is a directory walk against a stage load. Keyed on the *mounted directory*
+rather than the stage, so hopping between two maps of one mod rebuilds nothing.
+
+**Which index a texture takes is read off the registry, not off the running
+stage**, because both numberings are live inside one stage:
+`modSetTextureFromStage(0)` gives a stock prop the ROM's texture N while the
+room around it draws the mod's. So `texLoad()` records the mod a texture came
+from beside its number (`modTextureLoad()`'s `outstagemod`,
+`modloaderGetStageModDirIndex()`), and the draw asks the entry.
+
+For the same reason a mod's textures cannot share the **decode queue** or the
+**kept store** with the stock ones - both would be asked for number N in the
+same frame - so the mod index has an id space of its own past the glyphs and
+the release's records (`TEXPACK_MOD_ID_BASE`), and its own half of the kept
+store. Two things fall out of that and both bit once:
+
+- Every id test in the queue is "at or above", so the **highest base has to be
+  tested first**. Left in the old order, a mod's id was read as a record of the
+  release's, every decode failed silently, and the pack looked like it was not
+  being read at all.
+- What the poll hands the renderer is a **texture number**, not a job id
+  (`gfx_texture_cache_drop_texnum`), so a mod id is reported as `id -
+  TEXPACK_MOD_ID_BASE`. It drops the stock entry for that number too, which
+  costs one re-upload and is right anyway.
+
+**What the mod's pack is allowed to be.** Its numbered files and the records of
+its emulator cache that match a texture by checksum, and nothing else: the
+**font** is the game's, not the map's, and so are the **XBLA release's records**,
+so `texpackIndexGlyph()`, `texpackIndexXbla()` and both glyph passes of
+`texpackIndexHtc()` skip a mod scan. This is most of what GoldenEye X's cache
+actually is - 708 records, of which 3 are textures, 722 are glyph images and 35
+are matched when drawn - so the line is worth drawing carefully.
+
+**Texel-matched files are the exception that needs no rule.** A checksum names
+the picture itself, so a hit is the same picture whoever shipped it and the two
+tables are searched one after the other (`texpackFindUnplaced()`). The mod's
+table is still its own, because its entries are `htc://<entry>` paths into that
+mod's cache file and would dangle when it goes.
+
+**`texpackHaveReplacements()` had to stop meaning "a stock pack exists"**, or a
+mod's own pack would never be asked for by a player who has no pack of their
+own - which is the common case. It now also answers yes when texture loading is
+on and anything is mounted for its maps; the cost is one registry probe per
+texture the renderer uploads.
 
 **Testing.** Two boots of one GE-X arena, `Mod.XblaMeshTextures` 1 then 0, are
 the whole test - before the fix the pictures differ, after it they are the same
@@ -379,6 +432,16 @@ with `Mod.MapMods=GE-X_6a_01-19-25` in the scratch ini (0x52 is its Complex;
 `grep modloader` the log for the ids, they move when the mod list does). Then
 the same on a stock level - Chicago at 0x1d, frame 900 - which must still come
 back with the release's "PARKING" sign and neon, and does, byte for byte.
+
+For the mod's own index, a pack file is worth making rather than looking for:
+dump what the map draws (`Mod.DumpTextures=1`), pick a number that is one of the
+**mod's** (`build/mods/<mod>/textures/<num>.bin` exists - a number the map draws
+that has no `.bin` is the ROM's and must *not* be replaced), drop a garish
+`<num>.png` into that same `textures/`, and boot the map: the log says `<mod>
+brings N texture(s) ...` and the picture is on the wall at the size the file
+was, not stretched. Then boot another mod's map and a stock level with the file
+still there - neither may show it, and neither does, because the stock scan
+never saw it. `texpack mod:` in the F3 trace says which mod's index is in hand.
 
 ## Replacing the XBLA release's own textures (2026-09-11)
 
