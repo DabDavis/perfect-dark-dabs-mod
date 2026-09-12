@@ -202,8 +202,31 @@ Gfx *menuitemListRenderHeader(Gfx *gdl, s16 x1, s16 y1, s16 width, s16 arg4, s16
 	return gdl;
 }
 
+/**
+ * A list's overlay is a rectangle over the whole list that paints nothing.
+ *
+ * It is drawn in transparent black, and what makes it transparent is the
+ * combiner and the primitive colour menu.c sets once before the overlay pass -
+ * `textSetPrimColour(gdl, 0x00000000)`. The rectangle carries no colour of its
+ * own; it inherits whatever the pass left set.
+ *
+ * That holds for exactly as long as nothing between the two changes either,
+ * which is what an **open dropdown above a list in the same dialog** does. The
+ * pass walks a column's rows in order, so the dropdown's overlay - the list of
+ * options, drawn by menuitemListRender() through textRenderProjected(), which
+ * sets its own combiner and its own primitive colour per glyph - runs first,
+ * and the rectangle below it is then filled with the colour of the last option
+ * drawn. On Ghost Trials' Leaderboards page, whose Mission dropdown sits above
+ * the list of times, that is a solid pane over the times in the colour of a
+ * menu row, bright or dim as the focused option pulses.
+ *
+ * So the state this relies on is set here rather than inherited. Nothing else
+ * in the pass wants it any other way: the rectangle is meant to be invisible
+ * every time it is drawn.
+ */
 Gfx *menuitemListOverlay(Gfx *gdl, s16 x, s16 y, s16 x2, s16 y2)
 {
+	gdl = textSetPrimColour(gdl, 0x00000000);
 	gDPFillRectangleScaled(gdl++, x, y, x + x2, y + y2);
 	return gdl;
 }

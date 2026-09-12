@@ -56,3 +56,37 @@ has a band for either position of the switch - thin when it is on, a bold
 black border when it is off - because the ROM's cell drawn around another
 font's letter is a block with somebody else's letter punched out of it. See
 xbla.md, "The outline pass cannot be left to the shader".
+
+## The menu's overlay pass sets the primitive colour once, for every item
+
+`menuRenderDialog()` draws each dialog twice over its rows: the items, and
+then an **overlay** pass for the few item types that have to draw over the
+rows below them (a dropdown's open list, the player-stats panel). That second
+pass sets the render state it wants **once, before the loop**:
+`textSetPrimColour(gdl, 0x00000000)`, which is `G_CC_PRIMITIVE` with a
+transparent primitive colour.
+
+`menuitemListOverlay()` relies on that and nothing else. It draws a rectangle
+over the whole of its list and carries no colour of its own, so it paints
+nothing - as long as nothing earlier in the same pass has changed the
+combiner or the primitive colour. An **open dropdown standing above a list in
+the same dialog** does exactly that: the pass walks a column's rows in order,
+the dropdown's overlay goes through `menuitemListRender()` and
+`textRenderProjected()`, which sets its own combiner and a primitive colour
+per glyph, and the list's rectangle below it is then filled with the colour of
+the last option drawn. On Ghost Trials' Leaderboards page - Mission dropdown,
+Difficulty dropdown, then the list of times - that is a solid pane of menu
+teal over the times, brightening and dimming as the focused option pulses,
+and it is the *list* that paints it, not the dropdown.
+
+No stock dialog puts a dropdown above a list, which is why the ROM never shows
+it. `menuitemListOverlay()` sets the state it needs itself now.
+
+Worth knowing for anything else drawn in that pass: **the state a menu draw
+inherits is whatever the previous item left**, and the pass makes no promise
+beyond its first line. It also means a wrongly-coloured rectangle is not
+necessarily drawn by the thing it appears on top of. What found this was
+logging every `gfx_dp_fill_rectangle`, `gfx_dp_texture_rectangle` and
+`gfx_sp_tri_emit` in `gfx_pc.cpp` whose screen box covered one pixel in the
+middle of the blob, and diffing the list with the dropdown open against the
+list with it closed; reading the menu code found four wrong answers first.
