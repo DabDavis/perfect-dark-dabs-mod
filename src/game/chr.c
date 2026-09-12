@@ -2950,23 +2950,34 @@ s32 chrTick(struct prop *prop)
 
 					index = chr->headnum - HEAD_SHAUN;
 
-					hatpos.x = var8007dae4[index][hattype].x * 21.3f;
-					hatpos.y = var8007dae4[index][hattype].y * 21.3f;
-					hatpos.z = var8007dae4[index][hattype].z * 21.3f;
+#ifndef PLATFORM_N64
+					// A hat type the table has no row for. hatGetType() is a
+					// stub that answers -1 for every hat, so this read was
+					// [0][-1] - the 24 bytes in front of the table - every
+					// time Shaun wore one, and the hat was then placed by
+					// whatever globals happen to sit there (ASan, 2026-09-12).
+					// Left where the model puts it instead.
+					if (hattype >= 0 && hattype < ARRAYCOUNT(var8007dae4[index]))
+#endif
+					{
+						hatpos.x = var8007dae4[index][hattype].x * 21.3f;
+						hatpos.y = var8007dae4[index][hattype].y * 21.3f;
+						hatpos.z = var8007dae4[index][hattype].z * 21.3f;
 
-					spe4 = var8007dae4[index][hattype].unk0c;
-					spe0 = var8007dae4[index][hattype].unk10;
-					spdc = var8007dae4[index][hattype].unk14;
+						spe4 = var8007dae4[index][hattype].unk0c;
+						spe0 = var8007dae4[index][hattype].unk10;
+						spdc = var8007dae4[index][hattype].unk14;
 
-					mtx4LoadTranslation(&hatpos, &sp9c);
-					mtx00015e24(spe4, &sp9c);
-					mtx00015e80(spe0, &sp9c);
-					mtx00015edc(spdc, &sp9c);
-					mtx00015be4(hatmodel->matrices, &sp9c, &sp5c);
-					mtx4Copy(&sp5c, hatmodel->matrices);
+						mtx4LoadTranslation(&hatpos, &sp9c);
+						mtx00015e24(spe4, &sp9c);
+						mtx00015e80(spe0, &sp9c);
+						mtx00015edc(spdc, &sp9c);
+						mtx00015be4(hatmodel->matrices, &sp9c, &sp5c);
+						mtx4Copy(&sp5c, hatmodel->matrices);
 
-					if (hattype == HATTYPE_2) {
-						hatvisible = false;
+						if (hattype == HATTYPE_2) {
+							hatvisible = false;
+						}
 					}
 				}
 			}
