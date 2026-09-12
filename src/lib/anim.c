@@ -56,7 +56,18 @@ void animsInit(void)
 	u32 tablelen = ALIGN64(REF_SEG _animationsTableRomEnd - REF_SEG _animationsTableRomStart);
 
 	ptr = mempAlloc(tablelen, MEMPOOL_PERMANENT);
+
+#ifdef PLATFORM_N64
 	dmaExec(ptr, (romptr_t) REF_SEG _animationsTableRomStart, tablelen);
+#else
+	// The buffer is rounded up to 64, the table itself is not, and the copy
+	// takes the table's own length. Reading the rounded length is up to 63
+	// bytes past the end of the animations segment: the rest of the ROM image
+	// when the segment is the ROM's, and somebody else's memory when a mod
+	// replaced it with a segs/animations of its own (ASan, GE-X, 2026-09-12).
+	dmaExec(ptr, (romptr_t) REF_SEG _animationsTableRomStart,
+			REF_SEG _animationsTableRomEnd - REF_SEG _animationsTableRomStart);
+#endif
 
 	g_NumAnimations = g_NumRomAnimations = ptr[0];
 	g_Anims = g_RomAnims = (struct animtableentry *)&ptr[1];

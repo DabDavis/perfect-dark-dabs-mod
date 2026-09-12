@@ -418,7 +418,19 @@ struct mpconfigfull *challengeLoadConfig(s32 confignum, u8 *buffer, s32 len)
 #ifdef PLATFORM_N64
 	mpconfig = dmaExecWithAutoAlign(buffer, (BTYPE)&_mpconfigsSegmentRomStart[confignum], sizeof(struct mpconfig));
 #else
-	mpconfig = dmaExecWithAutoAlign(buffer, (BTYPE)REF_SEG _mpconfigsSegmentRomStart + confignum * sizeof(struct mpconfig), sizeof(struct mpconfig));
+	// Not from the segment. A record in the ROM is 104 bytes and this build's
+	// struct mpconfig is 116 - the setup grew a longer name and storedbotbits
+	// - so indexing the segment by the native size reads the wrong bytes for
+	// every config but the first, and for the last of the 44 it reads past
+	// the segment altogether: into the rest of the ROM image when the segment
+	// is the ROM's, and off the end of the allocation when a mod replaced it
+	// with its own (ASan found this one under GE-X, 2026-09-12).
+	//
+	// Nothing is lost by not reading it: g_MpConfigs[confignum] is the same
+	// 44 configs in this build's own layout and overwrites every byte of the
+	// record below. A length of zero asks dmaExecWithAutoAlign for the
+	// address in the buffer it would have loaded to, and copies nothing.
+	mpconfig = dmaExecWithAutoAlign(buffer, (BTYPE)REF_SEG _mpconfigsSegmentRomStart, 0);
 #endif
 
 	// Load mpstrings

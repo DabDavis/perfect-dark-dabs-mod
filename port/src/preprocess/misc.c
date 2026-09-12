@@ -42,45 +42,23 @@ u8 *preprocessAnimations(u8* data, u32 size, u32* outSize)
 	return NULL;
 }
 
+/**
+ * The ROM's mpconfigs segment, left as it is.
+ *
+ * This used to walk the segment as an array of struct mpconfig and byte-swap
+ * each record's fields. It cannot: a record in the ROM is 104 bytes and this
+ * build's struct is 116 (a longer setup name, and storedbotbits), so every
+ * record after the first was swapped at offsets that are not its fields -
+ * writing into the ROM image, or into a mod's own segs/mpconfigs where one
+ * replaced it - and the last five records of the 44 were not reached at all.
+ *
+ * Nothing reads the segment. The game's 44 configs are g_MpConfigs in
+ * src/game/mpconfigs.c, in this build's own layout, and challengeLoadConfig()
+ * takes each one from there. Converting the segment properly would mean a
+ * struct for the ROM's layout, for data with no reader.
+ */
 u8 *preprocessMpConfigs(u8* data, u32 size, u32* outSize)
 {
-	const u32 count = size / sizeof(struct mpconfig);
-	struct mpconfig *cfg = (struct mpconfig *)data;
-	for (u32 i = 0; i < count; ++i, ++cfg) {
-		PD_SWAP_VAL(cfg->setup.options);
-		PD_SWAP_VAL(cfg->setup.teamscorelimit);
-		PD_SWAP_VAL(cfg->setup.chrslots);
-		// TODO: are these required or are they always 0?
-		PD_SWAP_VAL(cfg->setup.fileguid.deviceserial);
-		PD_SWAP_VAL(cfg->setup.fileguid.fileid);
-		// convert MPWEAPON_ to take classic weapons and JPN weapons into account
-		for (s32 j = 0; j < ARRAYCOUNT(cfg->setup.weapons); ++j) {
-#if VERSION == VERSION_JPN_FINAL /* TODO: replace with runtime check */
-			if (cfg->setup.weapons[j] >= 0x24) {
-				// weapons after and including the shield need to be shifted (for classic weapons)
-				cfg->setup.weapons[j] += (MPWEAPON_SHIELD - MPWEAPON_PP9I);
-			}
-			if (cfg->setup.weapons[j] >= 0x22) {
-				// weapons after and including the cloaking device need to be shifted (for IR Scanner and Night Vision)
-				cfg->setup.weapons[j] += (MPWEAPON_CLOAKINGDEVICE - MPWEAPON_NIGHTVISION);
-			}
-			if (cfg->setup.weapons[j] >= 0x19) {
-				// weapons after the combat knife also need to be shifted up in JPN
-				cfg->setup.weapons[j]++;
-			}
-#else
-			if (cfg->setup.weapons[j] >= 0x25) {
-				// weapons after and including the shield need to be shifted (for classic weapons)
-				cfg->setup.weapons[j] += (MPWEAPON_SHIELD - MPWEAPON_PP9I);
-			}
-			if (cfg->setup.weapons[j] >= 0x23) {
-				// weapons after and including the cloaking device need to be shifted (for IR Scanner and Night Vision)
-				cfg->setup.weapons[j] += (MPWEAPON_CLOAKINGDEVICE - MPWEAPON_NIGHTVISION);
-			}
-#endif
-		}
-	}
-
 	return NULL;
 }
 
