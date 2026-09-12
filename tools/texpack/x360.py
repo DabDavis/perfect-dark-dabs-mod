@@ -456,6 +456,33 @@ def _tile_offsets(ew, eh, log2bpp):
              (((((y & 8) >> 2) + (x >> 3)) & 3) << 6) + (off & 0x3F)) >> log2bpp)
 
 
+def _log2_ceil(v):
+    n = 0
+    while (1 << n) < v:
+        n += 1
+    return n
+
+
+def packed_mip_offset(width, height):
+    """Where level 0 starts when a surface shares its tile with its mips.
+
+    A tile is 32 elements square, and a picture small enough to leave half of
+    one free is stored with its whole mip chain packed in beside it - the
+    console's "packed mip tail". Level 0 is then 16 elements in, down the tile
+    when the picture is wider than it is tall and across it otherwise. Read
+    from the origin instead, such a texture comes back as its own mip levels
+    with the picture missing. Kept the same as x360DecodeTexture() in
+    port/src/x360.c, so a converted pack and the in-game decode are one
+    picture.
+    """
+    logw, logh = _log2_ceil(width), _log2_ceil(height)
+
+    if logw > 4 and logh > 4:
+        return 0, 0
+
+    return (0, 16) if logw > logh else (16, 0)
+
+
 def _linear(src, ew, eh, bpe, tiled):
     """An (eh, ew, bpe) grid, untiled if it needs to be and zero padded."""
     if tiled:
@@ -544,17 +571,27 @@ def decode_texture(data, width, height, fetch):
     src = endian_swap(data, fetch.endian)
     bpe = BYTES_PER_ELEMENT[fmt]
 
+    ox, oy = packed_mip_offset(width, height) if fetch.tiled else (0, 0)
+
     if fmt == FMT_8888:
         ew = max(fetch.pitch, width)
         eh = (-(-height // 32) * 32) if fetch.tiled else height
+        if fetch.tiled:
+            # A tiled surface is a whole number of tiles across whatever its
+            # pitch says, which is the span the offset above reaches into.
+            ew = -(-ew // 32) * 32
         grid = _linear(src, ew, eh, bpe, fetch.tiled)
         # The surface is BGRA on the console.
-        return np.ascontiguousarray(grid[:height, :width][:, :, [2, 1, 0, 3]])
+        return np.ascontiguousarray(
+            grid[oy:oy + height, ox:ox + width][:, :, [2, 1, 0, 3]])
 
     kind = {FMT_DXT1: 1, FMT_DXT23: 3, FMT_DXT45: 5}[fmt]
     ew = max(fetch.pitch, width) // 4
     bh = -(-height // 4)
     eh = (-(-bh // 32) * 32) if fetch.tiled else bh
+    if fetch.tiled:
+        ew = -(-ew // 32) * 32
     grid = _linear(src, ew, eh, bpe, fetch.tiled)
-    return _decode_dxt(np.ascontiguousarray(grid[:bh, :-(-width // 4)]),
+    bw = -(-width // 4)
+    return _decode_dxt(np.ascontiguousarray(grid[oy:oy + bh, ox:ox + bw]),
                        width, height, kind)

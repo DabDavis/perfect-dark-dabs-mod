@@ -949,6 +949,41 @@ static u32 x360Log2(u32 v)
 	return n;
 }
 
+/**
+ * Where a surface's own level starts when it shares a tile with its mips.
+ *
+ * A tile is 32 elements square, and a picture small enough to leave half of
+ * one free is stored with its whole mip chain packed in beside it - the
+ * console's "packed mip tail". Level 0 does not sit at the tile's origin
+ * there: it is 16 elements in, down the tile when the picture is wider than
+ * it is tall and across it otherwise, with each smaller level halving that
+ * offset in front of it. A picture with both sides past 16 has a tile to
+ * itself and starts where it always did.
+ *
+ * Read from the origin regardless, such a texture comes back as the mip
+ * levels stacked in front of it with the picture itself missing - which is
+ * what emptied the explosion's colour ramp and every other record under 16
+ * on a side (see xbla.md).
+ */
+static void x360PackedMipOffset(u32 width, u32 height, u32 *outX, u32 *outY)
+{
+	const u32 logw = x360Log2(width);
+	const u32 logh = x360Log2(height);
+
+	*outX = 0;
+	*outY = 0;
+
+	if (logw > 4 && logh > 4) {
+		return;
+	}
+
+	if (logw > logh) {
+		*outY = 16;
+	} else {
+		*outX = 16;
+	}
+}
+
 s32 x360DecodeTexture(u8 *data, u32 dataLen, const struct x360fetch *fetch, u8 *rgba)
 {
 	const u32 w = fetch->width;
@@ -958,9 +993,15 @@ s32 x360DecodeTexture(u8 *data, u32 dataLen, const struct x360fetch *fetch, u8 *
 	const u32 stride = w * 4;
 	u32 ew;
 	u32 eh;
+	u32 ox = 0;
+	u32 oy = 0;
 
 	if (!x360FetchSupported(fetch)) {
 		return 0;
+	}
+
+	if (fetch->tiled) {
+		x360PackedMipOffset(w, h, &ox, &oy);
 	}
 
 	x360EndianSwap(data, dataLen, fetch->endian);
@@ -969,6 +1010,13 @@ s32 x360DecodeTexture(u8 *data, u32 dataLen, const struct x360fetch *fetch, u8 *
 		ew = fetch->pitch > w ? fetch->pitch : w;
 		eh = fetch->tiled ? ((h + 31) & ~31u) : h;
 
+		// A tiled surface is a whole number of tiles across whatever its
+		// pitch says, which is the span the offset above reaches into and so
+		// the span the length check below has to cover.
+		if (fetch->tiled) {
+			ew = (ew + 31) & ~31u;
+		}
+
 		if ((u64)ew * eh * bpe > dataLen) {
 			return 0;
 		}
@@ -976,7 +1024,7 @@ s32 x360DecodeTexture(u8 *data, u32 dataLen, const struct x360fetch *fetch, u8 *
 		for (u32 y = 0; y < h; y++) {
 			for (u32 x = 0; x < w; x++) {
 				const u32 e = fetch->tiled
-						? x360TiledOffset(x, y, ew, log2bpp)
+						? x360TiledOffset(x + ox, y + oy, ew, log2bpp)
 						: y * ew + x;
 				const u8 *src = data + (size_t)e * bpe;
 				u8 *dst = rgba + (size_t)y * stride + x * 4;
@@ -999,6 +1047,10 @@ s32 x360DecodeTexture(u8 *data, u32 dataLen, const struct x360fetch *fetch, u8 *
 	ew = (fetch->pitch > w ? fetch->pitch : w) / 4;
 	eh = fetch->tiled ? ((bh + 31) & ~31u) : bh;
 
+	if (fetch->tiled) {
+		ew = (ew + 31) & ~31u;
+	}
+
 	if ((u64)ew * eh * bpe > dataLen) {
 		return 0;
 	}
@@ -1006,7 +1058,7 @@ s32 x360DecodeTexture(u8 *data, u32 dataLen, const struct x360fetch *fetch, u8 *
 	for (u32 by = 0; by < bh; by++) {
 		for (u32 bx = 0; bx < bw; bx++) {
 			const u32 e = fetch->tiled
-					? x360TiledOffset(bx, by, ew, log2bpp)
+					? x360TiledOffset(bx + ox, by + oy, ew, log2bpp)
 					: by * ew + bx;
 
 			dxtBlock(data + (size_t)e * bpe, kind,

@@ -98,7 +98,62 @@ Format bits worth writing down:
   them at the texture's own width shears the picture — a 340x512 DXT1 stored at
   pitch 384 is the worked example.
 - Mip levels follow the base level in the same buffer. Nothing needs them; the
-  base is the prefix and the rest is left off the end.
+  base is the prefix and the rest is left off the end — **except when the whole
+  chain shares one tile**, which is the next section and is where the base is
+  not the prefix.
+
+### The packed mip tail: a small picture is not at the tile's origin (2026-09-12)
+
+A tiled surface is stored in 32x32 element tiles, and a picture with a side of
+16 or less leaves half of one free. The console fills that half with the
+picture's own mip chain rather than starting a new tile for it — the *packed
+mip tail* — and level 0 is **not** at the tile's origin when it is in there. It
+sits 16 elements in: **down** the tile when the picture is wider than it is
+tall, **across** it otherwise, with each smaller level halving the offset in
+front of it (16, then 8, then 4). A picture with both sides past 16 has a tile
+to itself and starts where it always did.
+
+Read from the origin regardless — which is what `x360DecodeTexture()` did until
+2026-09-12 — such a record comes back as its own mip levels stacked in front of
+it with the picture itself missing: two or three faint fragments where the
+subject should be. **400 of the package's records are that shape**, 188 of them
+numbered textures.
+
+The rule is `min(log2ceil(w), log2ceil(h)) <= 4`, and it is on the *texel*
+dimensions while the offset is in elements — blocks for a block format. In this
+package every one of the 400 is `8_8_8_8`, so the block half of it is the
+standard rule written down rather than something measured here.
+
+This is what emptied the explosion (below): the game's colour ramp is 14x14, so
+every one of its fifteen records was being served the tail instead of the
+picture, and the ramp is a *multiplier* — `TEXEL0 * TEXEL1 * shade` — so a near
+empty one takes the whole explosion off the screen, the ROM's puff as much as
+the release's fireball. With **Enable Textures** on there was no explosion in
+the game at all between 2026-09-11, when that switch became the whole of the
+release's art, and this.
+
+**How it was pinned down**, since none of it is inferable from the record:
+
+- The switch, not the feature. Turning off each of the five in turn from gdb at
+  a frame-exact explosion (`xblaTexSetEnabled(0)`, `xblaStageSetEnabled(0)`,
+  ...) put the fireball back for exactly one of them, and it was not the
+  explosion's own.
+- The tile, not the switch. `leftOut[]` in xblaimport.c is `static const` and
+  gdb writes it happily: poking the fifteen *ramp* numbers into it drew the
+  explosion, poking the fifteen *shape* numbers into it did not.
+- The offset, not the content. Decoding the whole 32x32 tile instead of the
+  14x14 window shows the picture at x=16 and a clean half-size copy of it at
+  x=8 — and the copy is a 2x2 box filter of it to an RMS of 0.4, which is a mip
+  level and not a coincidence. Every shape in the package agrees: the records
+  wider than tall have theirs down the tile at y=16 instead.
+- Against the ROM. The port's own decode of texture 0x29 went from RMS 132 to
+  RMS 22 against the game's texels for the same number, and its average alpha
+  from 32 to 102 (the ROM's is 94 over a 1 bit alpha).
+
+Both decoders carry it: `x360PackedMipOffset()` in `port/src/x360.c` and
+`packed_mip_offset()` in `tools/texpack/x360.py`. **A pack converted before
+this has 400 wrong files in it** and wants converting again; the port's own
+decode needs nothing, since it reads the package every time.
 
 ### Record index is the texture number, for the first NUM_TEXTURES only
 
@@ -1828,6 +1883,13 @@ Two things the logo cost, both of which generalise:
   now, which changes nothing for an opaque one.
 
 ## The explosion (2026-09-11)
+
+**Invisible with Enable Textures on until 2026-09-12.** The ROM's colour ramp
+on tile 1 is 14x14, which put every one of its records in the packed mip tail
+(above), and a ramp decoded as its own mip levels multiplies the explosion away
+to nothing - the ROM's puff as much as the release's fireball. Nothing below
+was wrong; the picture behind it was. If an explosion goes missing again, check
+that switch first: `xblaTexSetEnabled(0)` from gdb answers it in one run.
 
 **4J did not upscale the ROM's explosion.** Records 001e to 0039 are still the
 56x56 puff and the 14x14 colour ramp the N64 draws - their renderer never
