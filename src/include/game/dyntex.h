@@ -8,6 +8,9 @@ void dyntexTickRoom(s32 roomnum, Vtx *vertices);
 void dyntexAddVertex(Vtx *vertex);
 void dyntexSetCurrentType(s16 type);
 void dyntexSetCurrentRoom(RoomNum roomnum);
+#ifndef PLATFORM_N64
+void dyntexSetCurrentVtxBase(const void *vtxstart);
+#endif
 void dyntexReset(void);
 bool dyntexHasRoom(void);
 

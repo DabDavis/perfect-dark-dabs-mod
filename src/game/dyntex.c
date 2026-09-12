@@ -53,7 +53,13 @@ struct dyntextype {
 };
 
 struct dyntexvtx {
+#ifdef PLATFORM_N64
 	u16 offset;
+#else
+	// Wider, and from the room's vertex array rather than from one block's -
+	// see dyntexSetCurrentVtxBase below
+	u32 offset;
+#endif
 	s16 s;
 	s16 t;
 };
@@ -72,6 +78,39 @@ bool g_DyntexTypePopulated = false;
 s32 g_DyntexRoomsCount = 0;
 s32 g_DyntexTypesCount = 0;
 s32 g_DyntexVerticesCount = 0;
+
+#ifndef PLATFORM_N64
+/**
+ * Where the leaf block now being converted keeps its vertices, as an offset
+ * from the start of the room's own vertex array.
+ *
+ * A vertex arrives here as the offset its G_VTX command carried, which is
+ * measured from the vertex array of the block the command sits in. Every leaf
+ * block of one of the ROM's rooms points at the *start* of the room's array,
+ * so an offset means the same thing whichever block it came from - which is
+ * what lets bgRenderRoomPass() tick the whole room off whichever block it
+ * draws first and hand it that block's pointer.
+ *
+ * The XBLA release's rewritten rooms give each block its own slice of the
+ * array instead. Chicago's canal is two blocks - the water in one, the ditch
+ * walls and the pavement in the other - and the water's offsets were being
+ * applied to the block that drew first, so the concrete scrolled and the
+ * water stood still. Offsets are stored from the room's array here and the
+ * room's array is what bg.c ticks with, so they mean the same thing whoever
+ * ticks the room.
+ */
+static u32 g_DyntexCurVtxOffset = 0;
+
+void dyntexSetCurrentVtxBase(const void *vtxstart)
+{
+	g_DyntexCurVtxOffset = 0;
+
+	if (g_DyntexCurRoom >= 0 && vtxstart != NULL && g_Rooms[g_DyntexCurRoom].gfxdata != NULL) {
+		g_DyntexCurVtxOffset = (u32)((uintptr_t)vtxstart
+				- (uintptr_t)g_Rooms[g_DyntexCurRoom].gfxdata->vertices);
+	}
+}
+#endif
 
 void dyntexUpdateLinear(Vtx *vertices, struct dyntextype *type)
 {
@@ -311,7 +350,11 @@ void dyntexAddVertex(Vtx *vertex)
 		g_DyntexTypePopulated = true;
 	}
 
+#ifdef PLATFORM_N64
 	g_DyntexVertices[g_DyntexVerticesCount].offset = (u16)vertex;
+#else
+	g_DyntexVertices[g_DyntexVerticesCount].offset = (u32)(uintptr_t)vertex + g_DyntexCurVtxOffset;
+#endif
 	g_DyntexVerticesCount++;
 
 	g_DyntexTypes[g_DyntexTypesCount - 1].numvertices++;
@@ -386,6 +429,9 @@ void dyntexReset(void)
 	g_DyntexRoomsCount = 0;
 	g_DyntexTypesCount = 0;
 	g_DyntexVerticesCount = 0;
+#ifndef PLATFORM_N64
+	g_DyntexCurVtxOffset = 0;
+#endif
 
 	g_DyntexVerticesMax = 1200;
 	g_DyntexTypesMax = 50;

@@ -2293,6 +2293,33 @@ does differently and what had to change for each:
   the renderer scales by the gSPTexture before it divides by the tile, so a
   picture width lands on the 32 texel tile the replacement is sampled over.
   Section 2 (the preload list) names none of them, checked.
+- **Each leaf block has its own slice of the room's vertex array**, where
+  every leaf of one of the ROM's rooms points at the *start* of it. That is
+  what `dyntex` - the animated textures, water among them - had been leaning
+  on without saying so: a vertex reaches `dyntexAddVertex()` as the offset
+  its `gSPVertex` carried, which is measured from the vertex array of the
+  block the command sits in, and `bgRenderRoomPass()` ticks the whole room
+  off whichever block it draws first (the once-per-frame guard in
+  `dyntexTickRoom()` is per room) and hands it *that* block's pointer. One
+  base for every block makes those the same number. Chicago's canal is two
+  blocks - the water (`0dae`) in one, the ditch walls and the pavement
+  (`01c0`, `0174`, `0197`) in the other - so the water's offsets were
+  applied to the block that drew first and **the concrete scrolled while
+  the water stood still**. Offsets are stored from the *room's* array now
+  (`dyntexSetCurrentVtxBase()`, called by `texLoadFromGdl()` with the
+  `vtxstart` it is already given) and the room's array is what `bg.c` ticks
+  with; on the ROM's rooms the added offset is always zero, so nothing there
+  changes. 19 rooms over six levels were affected, all six of Chicago's
+  canal rooms among them - `bg_pete` 36-39, 78, 79, `bg_ref` 29, `bg_eld`
+  39, `bg_ear` 79, `bg_lee` 103 and nine of Villa's (`bg_pam`); no room of
+  any ROM level has a dyntex texture in a block that is not the first, which
+  is why the assumption held for twenty-five years. Measured rather than
+  eyeballed: force-load the room from gdb (`call bgLoadRoom(79)`), call
+  `dyntexTickRoom()` at two `lvframenum`s the way the render pass would, and
+  read the `t` of the two blocks' vertices - before the fix Chicago room
+  79's concrete went 1536 to 3925 with the water unmoved, after it the water
+  goes -1827 to 562 with the concrete unmoved, which is the ROM's own
+  numbers for the same room.
 
 Not a defect: Defection's skybox floor in the ROM carries a painted street
 strip (texture 133, four vertices) with lamp glows; the release's skybox

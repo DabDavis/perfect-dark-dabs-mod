@@ -3359,7 +3359,13 @@ Gfx *bgRenderRoomPass(Gfx *gdl, s32 roomnum, struct roomblock *block, bool arg3)
 	switch (block->type) {
 	case ROOMBLOCKTYPE_LEAF:
 		if (g_Rooms[roomnum].flags & ROOMFLAG_HASDYNTEX) {
+#ifdef PLATFORM_N64
 			dyntexTickRoom(roomnum, block->vertices);
+#else
+			// From the room's vertex array and not this block's: the release's
+			// rooms give each block its own slice of it - dyntex.c
+			dyntexTickRoom(roomnum, g_Rooms[roomnum].gfxdata->vertices);
+#endif
 		}
 
 		gSPSegment(gdl++, SPSEGMENT_BG_VTX, OS_PHYSICAL_TO_K0(block->vertices));

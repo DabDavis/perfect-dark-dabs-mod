@@ -880,6 +880,12 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 
 	texResetTiles();
 
+#ifndef PLATFORM_N64
+	// Which of the room's vertex arrays the offsets below are measured from.
+	// The release's rooms give each block its own - dyntex.c
+	dyntexSetCurrentVtxBase(vtxstart);
+#endif
+
 	spe0 = dyntexHasRoom();
 
 	if (spe0) {
