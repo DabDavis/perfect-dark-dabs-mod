@@ -221,3 +221,50 @@ returns 480 in a `SDL_VIDEODRIVER=offscreen` run with `DefaultHeight=1080`
 in the ini, so a headless measurement is a 480-line measurement of whatever
 the desktop it stands in for would draw. A screenshot taken through gdb
 comes out at the ini's size.
+
+## The posed skin's third bone, and the batch cap that does not duplicate
+
+A skinned XBLA mesh stores three bone influences per vertex, and
+`xblaMeshPose()` applied all three, clamping each palette index as it went,
+because the file's fourth byte is not a count of them (it runs 1 to 6
+against three bones and says the same thing for every vertex of a draw).
+Most vertices are not three: a vertex with fewer repeats a bone in the
+bytes it does not need, and a third weight written as the remainder of the
+other two is often zero outright. Folded down once at build time
+(`xblaMeshCompactSkin()`, which clamps the index, adds a repeat's weights
+together, drops the zero terms and counts what is left into that fourth
+byte), **44% of the release's skinned vertices come down to one bone and
+34% to two** - 41% fewer matrix transforms per posed frame.
+
+Measured on the 80-sim match at stage 0x32 over 2400 fixed-step frames,
+three runs each: **83.3 → 72.8 M instructions/frame on the game's thread,
+-12.6%**, spread under 0.2% between runs. Same geometry to the digit (257
+draws, 46253 tris, 134427 verts, 15523 clipped, 123 culled) and the
+screenshots are byte-identical at a fixed level frame on five replays -
+Skedar at 8 and 32 sims, MP Villa and Warehouse at 24, and the Villa solo
+mission.
+
+Only weights that are *exactly* zero are dropped. The remainder lands a
+hair off zero rather than on it about 15% of the time, and dropping those
+as well takes another tenth of the transforms; it is not worth it, because
+a term that small still moves the rounded vertex by one step of the write
+wherever it falls either side of a half, and that costs the byte-exact
+comparison above. Merging a repeat is safe on the same measure: the two
+weights are added before the transform instead of after it, which is the
+same sum in a different order, against a write that rounds to a sixteenth
+of a unit.
+
+**Do not repeat the estimate that the 25-vertex batch cap duplicates a
+character's vertices about 2.3x.** It does not. `XBLAMESH_BATCH` is 25 and
+a vertex is only shared within the batch being built, so a vertex on a seam
+between batches is emitted twice - but the release's meshes are ordered so
+that this almost never happens: measured across the three skinned meshes of
+an MP Villa match, **11210 emitted vertices against 11114 distinct file
+vertices, 1.01x**, each mesh exactly 1.01x. Posing the unique set and
+scattering was written and works (byte-exact), and was thrown away: it
+saves 0.9% of the transforms and costs 35% more skinning memory, because
+the index back from each emitted vertex is four bytes against the 28 the
+sharing saves. The 2.3x figure came from reading "CcarringtonZ is 4792
+vertices" (the file count of the one *named* node's mesh) against "a single
+character here is eleven thousand vertices" (a whole character, every node)
+as if they were the same mesh counted two ways.

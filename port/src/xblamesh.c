@@ -234,8 +234,8 @@ struct xblameshbuilt {
 	s32 trimlogged;
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
-	f32 *weights;      // three per emitted vertex; only the first two are ever set
-	u8 *bones;         // three per emitted vertex, and the count in the fourth
+	f32 *weights;      // three per emitted vertex, zero past the bone count
+	u8 *bones;         // three per emitted vertex, and how many of them count in the fourth
 	f32 bindlo[3];     // the box the bind positions stand in, which bounds the posed ones
 	f32 bindhi[3];
 
@@ -2135,7 +2135,10 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 		// its 2s carry three real influences as often as its 3s do - 4.4% of
 		// them have bone0 and bone1 the same where 95% repeat bone1 in bone2,
 		// which is how a vertex with fewer than three bones is written. So all
-		// three are always applied and the repeats collapse themselves.
+		// three are read, and the repeats and the zero weights are folded
+		// together once by xblaMeshCompactSkin() - which writes the real count
+		// over the fourth byte - rather than being added up again for nothing
+		// every frame the vertex is posed.
 		f32 *pos = &b->bindpos[b->numvtx * 3];
 		f32 *wt = &b->weights[b->numvtx * 3];
 		u8 *bn = &b->bones[b->numvtx * 4];
@@ -3407,6 +3410,93 @@ static u8 *xblaMeshFromObj(const struct objmesh *m, const struct objmesh *skin,
 }
 
 /**
+ * Trims each vertex's skinning down to the bones that actually move it.
+ *
+ * Three influences are stored per vertex and most vertices are not three. A
+ * vertex with fewer repeats a bone in the bytes it does not need, which is how
+ * 95% of them write a second bone they do not have, and the third weight is
+ * what is left of one and is zero outright on many. Applying all three anyway
+ * is three matrix transforms for an answer that one or two of them already
+ * gave: 44% of the release's skinned vertices come down to a single bone and
+ * 34% to two, so this takes 41% of the transforms out of every posed frame.
+ *
+ * Done once, here, rather than per vertex per frame: the palette index is
+ * clamped to the palette (which the pose did per vertex per frame), repeated
+ * bones have their weights added together, zero-weight terms are dropped, and
+ * what is left is counted into the fourth byte - which the file used for
+ * something that was never a count.
+ *
+ * **Only weights that are exactly zero.** A third weight written as the
+ * remainder of the other two lands a hair off zero rather than on it about
+ * 15% of the time, and dropping those as well would take another tenth of the
+ * transforms; it is not done, because a term that small still moves the
+ * rounded vertex by one step of the write wherever it falls either side of a
+ * half, and the pose is worth more as something that can be shown to be
+ * unchanged than as something a tenth faster. Merging a repeat is safe on the
+ * same measure: it adds the two weights before the transform instead of after
+ * it, which is the same sum in a different order, and the difference is a
+ * float's last place against a write that rounds to a sixteenth of a unit.
+ */
+static void xblaMeshCompactSkin(struct xblameshbuilt *m)
+{
+	// Runs for every skinned mesh, palette or no palette: the pose reads the
+	// count this leaves and the bones this clamps, so a mesh that has bones has
+	// been through here.
+	if (!m->bindpos || !m->weights || !m->bones) {
+		return;
+	}
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		f32 *wt = &m->weights[i * 3];
+		u8 *bn = &m->bones[i * 4];
+		s32 num = 0;
+
+		for (s32 j = 0; j < 3; j++) {
+			const u8 which = bn[j] < m->nummatrices ? bn[j] : 0;
+			const f32 w = wt[j];
+			s32 at = -1;
+
+			if (w == 0.0f) {
+				continue;
+			}
+
+			for (s32 k = 0; k < num; k++) {
+				if (bn[k] == which) {
+					at = k;
+					break;
+				}
+			}
+
+			// num is never past j, so the entry written here is either one that
+			// has already been read or the one being read now.
+			if (at >= 0) {
+				wt[at] += w;
+			} else {
+				bn[num] = which;
+				wt[num] = w;
+				num++;
+			}
+		}
+
+		if (num == 0) {
+			// Every weight was zero, so the vertex sits at the origin of the
+			// space the list is drawn in whichever bone is named. One entry, so
+			// that the pose never reads a bone byte this did not write.
+			bn[0] = 0;
+			wt[0] = 0.0f;
+			num = 1;
+		}
+
+		for (s32 j = num; j < 3; j++) {
+			wt[j] = 0.0f;
+			bn[j] = bn[0];
+		}
+
+		bn[3] = (u8)num;
+	}
+}
+
+/**
  * The build proper: a file in 4J's layout, ours or theirs, into lists. Takes
  * the file and frees it. what names the mesh in the log.
  */
@@ -3470,7 +3560,6 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	m->allxlu = b.allxlu;
 	m->allfade = b.allfade;
 	m->numgroups = b.numgroups;
-	m->state = 1;
 
 	// The box the bind positions stand in. A posed vertex is a blend of the
 	// same point put through one palette matrix or another, so every one of
@@ -3494,7 +3583,16 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 				}
 			}
 		}
+
+		// The palette's size is known now that the bind matrices are read, so
+		// the bones can be folded down to the ones that do something.
+		xblaMeshCompactSkin(m);
 	}
+
+	// Last, so that a mesh the renderer is allowed to draw is one whose bones
+	// have been through xblaMeshCompactSkin(): the pose reads the count and the
+	// clamped palette indices that leaves, and the file's own bytes are neither.
+	m->state = 1;
 
 	for (s32 g = 0; g < XBLAMESH_MAXPARTS; g++) {
 		m->groupgfx[g] = b.groupgfx[g];
@@ -4654,23 +4752,32 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		const f32 *pos = &m->bindpos[i * 3];
 		const f32 *weight = &m->weights[i * 3];
 		const u8 *bone = &m->bones[i * 4];
+		const s32 num = bone[3] < 3 ? bone[3] : 3;
 		struct coord in;
-		f32 x = 0.0f;
-		f32 y = 0.0f;
-		f32 z = 0.0f;
+		struct coord moved;
+		f32 x;
+		f32 y;
+		f32 z;
 
 		in.x = pos[0];
 		in.y = pos[1];
 		in.z = pos[2];
 
-		// All three, always: the fourth byte is not the number of them. A
-		// vertex with fewer repeats a bone in the bytes it does not need and
-		// leaves the weight at zero, so the extra terms add nothing.
-		for (s32 j = 0; j < 3; j++) {
-			struct coord moved;
-			const s32 which = bone[j] < m->nummatrices ? bone[j] : 0;
+		// Only the bones that move this vertex: one of them for 44% of the
+		// release's skinned vertices and two for another 34%, where the file
+		// stores three for all of them and pads out what it does not use with a
+		// repeated bone at no weight. xblaMeshCompactSkin() folded those away
+		// at build time and left the number of real ones in the fourth byte,
+		// clamped to the palette - which is a compare this used to do per
+		// vertex per bone per frame.
+		mtx4TransformVec(&pal[bone[0]], &in, &moved);
 
-			mtx4TransformVec(&pal[which], &in, &moved);
+		x = moved.x * weight[0];
+		y = moved.y * weight[0];
+		z = moved.z * weight[0];
+
+		for (s32 j = 1; j < num; j++) {
+			mtx4TransformVec(&pal[bone[j]], &in, &moved);
 
 			x += moved.x * weight[j];
 			y += moved.y * weight[j];
