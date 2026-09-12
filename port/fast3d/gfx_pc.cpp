@@ -961,7 +961,8 @@ static uint32_t last_upload_height;
 
 // Enhance Textures / Smooth Text, for the import_texture_* underneath
 // import_texture(): the factor to scale the game's texels by on the way up,
-// and how the edges wrap. A pack's replacement never comes through here.
+// and how the edges wrap. A pack's replacement never comes through here, and
+// the XBLA release's picture only where it is still the ROM's size.
 static int import_enhance_scale;
 static enum TexScaleEdge import_enhance_edge_s;
 static enum TexScaleEdge import_enhance_edge_t;
@@ -998,6 +999,32 @@ static enum TexScaleEdge gfx_texscale_edge(uint8_t cm) {
         return TEXSCALE_EDGE_CLAMP;
     }
     return (cm & G_TX_MIRROR) ? TEXSCALE_EDGE_MIRROR : TEXSCALE_EDGE_WRAP;
+}
+
+// Enhance Textures / Smooth Text for a tile's texels about to go up.
+//
+// A clamped tile smaller than what is uploaded for it - a padded row, or the
+// mip levels stacked under a mipmapped texture - is resampled on its own with
+// its edge repeated across the rest, so that the padding (near-white, as the
+// decompressor leaves it) is not blended into the last texels the shader's
+// clamp still samples. Measured the way the batch state measures the clamp
+// (tex_width2 / tex_height2), so the crop and the shader agree on where the
+// picture ends.
+static void gfx_set_import_enhance(int tile, const LoadedTexture& loaded_texture, uint32_t tex_row_bytes, uint8_t siz) {
+    const uint32_t padded_w = (tex_row_bytes * 2) >> siz;
+    const bool padded = padded_w != rdp.texture_tile[tile].width;
+    const uint8_t cms = rdp.texture_tile[tile].cms;
+    const uint8_t cmt = rdp.texture_tile[tile].cmt;
+    const uint32_t tile_w2 = rdp.texture_tile[tile].lrs >= rdp.texture_tile[tile].uls
+        ? (rdp.texture_tile[tile].lrs - rdp.texture_tile[tile].uls + 4) / 4 : 0;
+    const uint32_t tile_h2 = rdp.texture_tile[tile].lrt >= rdp.texture_tile[tile].ult
+        ? (rdp.texture_tile[tile].lrt - rdp.texture_tile[tile].ult + 4) / 4 : 0;
+    import_enhance_scale = loaded_texture.glyph ? gfx_text_smooth_scale : gfx_texture_enhance_scale;
+    import_enhance_edge_s = padded ? TEXSCALE_EDGE_CLAMP : gfx_texscale_edge(cms);
+    import_enhance_edge_t = gfx_texscale_edge(cmt);
+    import_enhance_glyph = loaded_texture.glyph != 0;
+    import_enhance_tile_w = (cms & G_TX_CLAMP) && !(cms & G_TX_MIRROR) ? tile_w2 : 0;
+    import_enhance_tile_h = (cmt & G_TX_CLAMP) && !(cmt & G_TX_MIRROR) ? tile_h2 : 0;
 }
 
 static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture, bool gen_mipmaps) {
@@ -1634,15 +1661,25 @@ static void import_texture(int i, int tile, bool importReplacement) {
             // A glyph's image is the whole 16-wide block already - see the
             // font note in texture-packs.md - so only stage textures are
             // re-padded.
+            import_enhance_scale = 1; // a pack's image is already what its author wanted
+
             if (!loaded_texture.glyph) {
                 const uint32_t pad_w = (tex_row_bytes * 2) >> siz;
                 const uint32_t pad_h = tex_row_bytes ? loaded_texture.size_bytes / tex_row_bytes : 0;
                 rep = gfx_pad_replacement(rep, &rep_width, &rep_height,
                         rdp.texture_tile[tile].width, rdp.texture_tile[tile].height, pad_w, pad_h);
                 gfx_replacement_alpha(rep, rep_width, rep_height, tile, loaded_texture, fmt, siz);
+
+                // Except the release's picture where 4J never upscaled it -
+                // 2033 of the numbered records are still the ROM's size (the
+                // file select's "New Agent..." portrait, 063c, beside its 320x192
+                // neighbours) - which is the game's own texels in all but name
+                // and is enhanced as they would have been.
+                if (xbla_rep && (uint32_t)rep_width <= pad_w && (uint32_t)rep_height <= pad_h) {
+                    gfx_set_import_enhance(tile, loaded_texture, tex_row_bytes, siz);
+                }
             }
 
-            import_enhance_scale = 1; // a pack's image is already what its author wanted
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
 
             if (xbla_rep) {
@@ -1663,30 +1700,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // The game's own texels: scaled up as they are uploaded, if asked. A row
     // padded past the tile is clamped rather than wrapped, since what lies
     // over its far edge is padding and not the other side of the picture.
-    //
-    // And a clamped tile smaller than what is uploaded for it - a padded row,
-    // or the mip levels stacked under a mipmapped texture - is resampled on
-    // its own with its edge repeated across the rest, so that the padding
-    // (near-white, as the decompressor leaves it) is not blended into the
-    // last texels the shader's clamp still samples. Measured the way the
-    // batch state measures the clamp (tex_width2 / tex_height2), so the crop
-    // and the shader agree on where the picture ends.
-    {
-        const uint32_t padded_w = (tex_row_bytes * 2) >> siz;
-        const bool padded = padded_w != rdp.texture_tile[tile].width;
-        const uint8_t cms = rdp.texture_tile[tile].cms;
-        const uint8_t cmt = rdp.texture_tile[tile].cmt;
-        const uint32_t tile_w2 = rdp.texture_tile[tile].lrs >= rdp.texture_tile[tile].uls
-            ? (rdp.texture_tile[tile].lrs - rdp.texture_tile[tile].uls + 4) / 4 : 0;
-        const uint32_t tile_h2 = rdp.texture_tile[tile].lrt >= rdp.texture_tile[tile].ult
-            ? (rdp.texture_tile[tile].lrt - rdp.texture_tile[tile].ult + 4) / 4 : 0;
-        import_enhance_scale = loaded_texture.glyph ? gfx_text_smooth_scale : gfx_texture_enhance_scale;
-        import_enhance_edge_s = padded ? TEXSCALE_EDGE_CLAMP : gfx_texscale_edge(cms);
-        import_enhance_edge_t = gfx_texscale_edge(cmt);
-        import_enhance_glyph = loaded_texture.glyph != 0;
-        import_enhance_tile_w = (cms & G_TX_CLAMP) && !(cms & G_TX_MIRROR) ? tile_w2 : 0;
-        import_enhance_tile_h = (cmt & G_TX_CLAMP) && !(cmt & G_TX_MIRROR) ? tile_h2 : 0;
-    }
+    gfx_set_import_enhance(tile, loaded_texture, tex_row_bytes, siz);
 
     if (fmt == G_IM_FMT_RGBA) {
         if (siz == G_IM_SIZ_16b) {

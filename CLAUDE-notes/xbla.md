@@ -1027,6 +1027,22 @@ switch on, 98.2% of the frame is still pdplus's art and 99.1% of the frame is
 pixel-equal to one source or the other - the switch fills the gaps and takes
 nothing.
 
+**Most of the release is still the ROM's size, and Enhance Textures has to
+reach it (2026-09-12).** 2033 of the 3503 numbered records are the ROM's own
+dimensions - 4J upscaled the rest - and the branch this hangs off uploads a
+pack's image un-enhanced, since a pack's author chose its size. So with the
+switch on, every one of those 2033 lost Enhance Textures and drew blockier than
+with the switch off. Reported as "the create agent thumbnail is low res and
+fuzzy": the file select's portrait (063c, "New Agent..." and "New Recruit") is
+56x36 in the release while its 21 stage neighbours are 320x192 renders, so it
+was the one picture on that screen where the difference showed. A release
+picture no bigger than the padded tile is enhanced now, with the same edges and
+clamp as the game's own texels (`gfx_set_import_enhance()`); a real upscale and
+a player's pack go up as they are. Which means the pixel-identical check above
+holds with Enhance Textures off: on, the switch now beats the converted pack on
+those 2033. There is no hi-res New Agent picture anywhere in the release to
+use instead - every record with a 56x36 source was listed.
+
 The cost is one LZX chunk per texture per fill of the renderer's cache, which
 is what the meshes' records have always cost. The package is opened on the
 switch's own setter when there is one to open, so the 250MB unpack of a `.7z`
