@@ -80,7 +80,24 @@ static void crashStackTrace(char *msg, PEXCEPTION_POINTERS exinfo)
 	if (SymGetLineFromAddr64(process, (uintptr_t)exinfo->ExceptionRecord->ExceptionAddress, &disp, &line)) {
 		CRASH_MSG(": %s:%lu+%lu", line.FileName, line.LineNumber, disp);
 	}
-	CRASH_MSG("\nMODULE: [%p]\n", crashGetModuleBase(exinfo->ExceptionRecord->ExceptionAddress));
+	CRASH_MSG("\n");
+
+	// Which pointer went wrong, and whether it was read or written. Without
+	// this an access violation says only where the code was: a null pointer
+	// and a pointer a mile past the end of an array look identical in the
+	// report, and they are not the same bug.
+	const EXCEPTION_RECORD *rec = exinfo->ExceptionRecord;
+
+	if ((rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION || rec->ExceptionCode == EXCEPTION_IN_PAGE_ERROR)
+			&& rec->NumberParameters >= 2) {
+		const ULONG_PTR op = rec->ExceptionInformation[0];
+
+		CRASH_MSG("FAULT: %s of %p\n",
+				op == 0 ? "read" : op == 1 ? "write" : op == 8 ? "execute" : "access",
+				(void *)rec->ExceptionInformation[1]);
+	}
+
+	CRASH_MSG("MODULE: [%p]\n", crashGetModuleBase(exinfo->ExceptionRecord->ExceptionAddress));
 	CRASH_MSG("MAIN MODULE: [%p]\n", crashGetModuleBase(crashInit));
 	CRASH_MSG("\nBACKTRACE:\n");
 
