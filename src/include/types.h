@@ -637,6 +637,19 @@ struct model {
 	/*0x18*/ struct model *attachedtomodel;
 	/*0x1c*/ struct modelnode *attachedtonode;
 	/*0x20*/ struct anim *anim;
+#ifndef PLATFORM_N64
+	/**
+	 * This model's own headspot node, found when the model was initialised.
+	 *
+	 * A head modeldef is shared between chrs, and both modelAttachHead() and
+	 * the renderer re-parent its nodes to the headspot of whichever body took
+	 * it last. Walking up from a head node therefore finds a headspot that
+	 * may belong to another body's definition, whose rwdata index means
+	 * nothing in this model's rwdata. modelGetNodeRwData() resolves a head
+	 * against this node instead.
+	 */
+	struct modelnode *headspotnode;
+#endif
 };
 
 struct modelrwdata_chrinfo { // type 0x01

@@ -47,6 +47,34 @@ for everyone, and the player's own copy in `player.c`, which is what runs the
 moment third person is switched on. Fixing the first alone moved the crash and
 did not remove it.
 
+**Stock solo does it too, and it crashed a player in Area 51 (2026-09-12).**
+`bodyChooseHead()` deals every male body a head off one rotating pool
+(`g_ActiveMaleHeads`), so a mission with more guards than heads puts one head
+on several body definitions as a matter of course. The renderer papers over it
+per draw — `MODELNODETYPE_HEADSPOT` in `modelasm_c.c` re-parents the head's
+roots to the headspot of the model it is *drawing* — which means the tree is
+left pointing at whoever drew last, and `chrTick()` then resolves a head node
+through that body's headspot instead of its own. It reads this model's rwdata
+at a foreign index, takes what is there as the head's rwdata base, and writes
+the hair toggle through it (`MODELPART_HEAD_HAT` is the hair). Two crash
+reports from v3.2.2 and v3.3.3, one dialog each, both `0xc0000005` on the same
+`mov %ebx,(%rax)` — `hatrwdata->toggle.visible = hatvisible` in `chr.c`.
+
+Since 2026-09-12 the base does not come from the walk. `struct model` carries
+`headspotnode`, the model's own headspot, found by `modelInit()` as it walks
+the definition; `modelGetNodeRwData()` and `modelasmGetNodeRwData()` substitute
+it for whatever headspot the walk arrives at. Only the base was ever
+body-specific — a head's own node indexes start at 0 and `modelAttachHead()`
+recomputes them identically on every attach — so nothing else had to move.
+
+The audit is three gdb calls per chr and is how a stage is checked: for every
+chr with a head, compare `modelGetNodeRwData(model, hatnode)` against
+`headspot.rwdatas + hat's rwdataindex` read out of the chr's own headspot. On
+v3.3.3: Infiltration (0x2f) had one guard of 26 resolving to an **unmapped**
+address, Rescue (0x35) twelve of 42 landing in another chr's rwdata block, and
+Escape (0x19) none. With the fix all three are zero, and a seeded fixed-step
+frame is pixel-identical either way.
+
 ASan only reports if the game's own `SIGSEGV` handler is out of the way: run
 with `--no-crash-handler`, or every report is a bare backtrace in a dialog.
 

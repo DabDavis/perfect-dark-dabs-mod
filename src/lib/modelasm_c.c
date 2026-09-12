@@ -1222,7 +1222,16 @@ static union modelrwdata *modelasmGetNodeRwData(struct model *model, struct mode
 			node = node->parent;
 
 			if ((node->type & 0xff) == MODELNODETYPE_HEADSPOT) {
-				union modelrwdata *tmp = modelasmGetNodeRwData(model, node, false);
+				union modelrwdata *tmp;
+
+#ifndef PLATFORM_N64
+				// Not necessarily this model's headspot - see struct model.
+				if (model->headspotnode != NULL) {
+					node = model->headspotnode;
+				}
+#endif
+
+				tmp = modelasmGetNodeRwData(model, node, false);
 				rwdatas = tmp->headspot.rwdatas;
 				break;
 			}
@@ -1250,7 +1259,16 @@ void *modelGetNodeRwData(struct model *model, struct modelnode *node)
 			node = node->parent;
 
 			if ((node->type & 0xff) == MODELNODETYPE_HEADSPOT) {
-				struct modelrwdata_headspot *tmp = modelGetNodeRwData(model, node);
+				struct modelrwdata_headspot *tmp;
+
+#ifndef PLATFORM_N64
+				// Not necessarily this model's headspot - see struct model.
+				if (model->headspotnode != NULL) {
+					node = model->headspotnode;
+				}
+#endif
+
+				tmp = modelGetNodeRwData(model, node);
 				rwdatas = tmp->rwdatas;
 				break;
 			}

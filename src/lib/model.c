@@ -445,6 +445,16 @@ void *modelGetNodeRwData(struct model *model, struct modelnode *node)
 		node = node->parent;
 
 		if ((node->type & 0xff) == MODELNODETYPE_HEADSPOT) {
+#ifndef PLATFORM_N64
+			// The headspot the walk arrived at belongs to whichever body
+			// attached or drew this head last, which is not necessarily this
+			// one. Take the base out of this model's own headspot instead -
+			// see struct model.
+			if (model->headspotnode != NULL) {
+				node = model->headspotnode;
+			}
+#endif
+
 			struct modelrwdata_headspot *tmp = modelGetNodeRwData(model, node);
 			rwdatas = tmp->rwdatas;
 			break;
@@ -4249,6 +4259,9 @@ void modelInit(struct model *model, struct modeldef *modeldef, u32 *rwdatas, boo
 	model->scale = 1;
 	model->attachedtomodel = NULL;
 	model->attachedtonode = NULL;
+#ifndef PLATFORM_N64
+	model->headspotnode = NULL;
+#endif
 
 	node = modeldef->rootnode;
 
@@ -4257,6 +4270,15 @@ void modelInit(struct model *model, struct modeldef *modeldef, u32 *rwdatas, boo
 
 		if (type == MODELNODETYPE_HEADSPOT) {
 			model->unk00 |= 1;
+
+#ifndef PLATFORM_N64
+			// The body's own headspot is reached before the walk descends into
+			// whatever head is grafted under it, and a head has none of its
+			// own, so the first one found is this model's.
+			if (model->headspotnode == NULL) {
+				model->headspotnode = node;
+			}
+#endif
 		}
 
 		if (node->child) {
