@@ -191,7 +191,15 @@ s32 modDataBgStage(s32 def);
 // run: what it allocates is never given back.
 s32 modDataImport(const struct moddataspec *spec);
 
-s32 modTextureLoad(u16 num, void *dst, u32 dstSize);
+/**
+ * Reads texture num out of the mods, if one of them has it.
+ *
+ * outstageart, when given, comes back true if the texture came from the
+ * running stage's own mod rather than from the overlay or the base directory.
+ * A number means something else to that mod, so nothing keyed on the stock
+ * numbering may repaint the texels - texpackTextureArt().
+ */
+s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstageart);
 s32 modSetTextureFromStage(s32 on);
 
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim);

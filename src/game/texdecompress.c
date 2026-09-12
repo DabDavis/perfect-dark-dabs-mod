@@ -2243,6 +2243,14 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 	if ((*updateword & 0xffff0000) == 0 || (*updateword & 0xffff0000) == 0xabcd0000) {
 		g_TexNumToLoad = *updateword & 0xffff;
 
+#ifndef PLATFORM_N64
+		// What supplied the texels, for the texture pack registry. Only a load
+		// reads any, so a texture already in the pool keeps what was recorded
+		// about the ones it has.
+		s32 modart = TEXPACK_ART_KEEP;
+		s32 fromstage = 0;
+#endif
+
 		tex = texFindInPool(g_TexNumToLoad, pool);
 
 		if (tex == NULL) {
@@ -2268,11 +2276,16 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			// textures and 650 of them are numbered at or above NUM_TEXTURES,
 			// so testing the table first rejected every one of those before the
 			// mod was ever asked, and its maps drew them as stock art.
-			if (modTextureLoad(g_TexNumToLoad, alignedcompbuffer, 4096) > 0) {
+			if (modTextureLoad(g_TexNumToLoad, alignedcompbuffer, 4096, &fromstage) > 0) {
 				compptr = alignedcompbuffer;
+				modart = fromstage ? TEXPACK_ART_MODSTAGE : TEXPACK_ART_MOD;
 			} else
 #endif
 			{
+#ifndef PLATFORM_N64
+				modart = TEXPACK_ART_ROM;
+#endif
+
 				if (g_TexNumToLoad >= NUM_TEXTURES) {
 					return;
 				}
@@ -2395,7 +2408,7 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 		// Past this point the texture is only ever a pointer: the GBI carries
 		// tex->data and nothing else, so the renderer cannot tell one texture
 		// from another. Record the pairing while both halves are still in hand.
-		texpackRegisterTexture(tex->data, tex->texturenum);
+		texpackRegisterTexture(tex->data, tex->texturenum, modart);
 #endif
 
 		*updateword = osVirtualToPhysical(tex->data);

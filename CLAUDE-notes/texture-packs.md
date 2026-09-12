@@ -320,6 +320,66 @@ may not be replaced at the moment you look, and reading it cost a long detour
 here; the file select screen is dense with text in three fonts and is the same
 every time.
 
+## A texture number belongs to whatever supplied the texels (2026-09-12)
+
+A replacement is chosen by texture number, and a texture number only names a
+picture *within the copy of the game that numbered it*. The Stage Loader breaks
+that assumption routinely: it mounts a mod for its maps alone, and `texLoad()`
+asks the mods before the ROM table, so a mod's map draws hundreds of textures
+out of that mod's `textures/` at stock numbers. GoldenEye X ships 2104 of them
+and **every one** is below `NUM_TEXTURES`, so every one had a pack file and an
+XBLA record waiting for it.
+
+The result is not just the wrong subject, it is the wrong *shape*, and the shape
+is what a player sees. A pack replaces pixels and nothing else - the tile
+geometry stays the N64's (`gfx_pad_replacement()`) - so a picture cut for the
+ROM's tile is stretched across whatever tile the mod's texture set. Complex came
+up wearing Perfect Dark's tan wall panels, its diamond-plate catwalk and a tiled
+floor, none of them fitting the surface they were on.
+
+So `texpackRegisterTexture()` records **what supplied the texels** alongside the
+number, and `texpackTextureArt()` answers it:
+
+- `TEXPACK_ART_ROM` - the ROM's table. Everything applies.
+- `TEXPACK_ART_MOD` - a mod's `textures/%04x.bin`, or the base directory's,
+  under the overlay. The numbering is still the game's, that mod's `textures/`
+  is in the pack index and a pack shipped with it is meant to repaint the whole
+  game, so **a pack still applies**; the XBLA release's own record for the
+  number does not, because texels someone put there deliberately outrank a
+  picture nobody chose - the same precedence a pack file already had over it.
+- `TEXPACK_ART_MODSTAGE` - the running stage's own mod
+  (`modloaderGetStageModDir()`, which is only ever a maps-only mount). The
+  number means what that mod says and nothing else, so **nothing replaces it**.
+
+Read where the picture is handed over, so it needs no rebuild: declined in
+`texpackLoadReplacement()` and beside `xblaTexLoadNumbered()` in `gfx_pc.cpp`.
+The registry is keyed on the texels' address, not the number, because the two
+can be live at once - `modSetTextureFromStage(0)` gives a stock prop's model the
+ROM's texture N while the room around it draws the mod's texture N.
+
+This is the same rule `xblastage.c` applies to a mod's *level* under a stock
+file name (`romdataFileIsStock()`), and `xblamesh.c` to a mod's *model*.
+
+**A maps-only mod's own HD pack is still not read**, which is unchanged and
+deliberate: `texpackScan()` indexes the overlay's `textures/` only, or a mod
+mounted for its maps would repaint the whole game. Serving one by stage would
+mean a pack index per mod.
+
+**Testing.** Two boots of one GE-X arena, `Mod.XblaMeshTextures` 1 then 0, are
+the whole test - before the fix the pictures differ, after it they are the same
+file:
+
+```sh
+cd build && timeout -k 5 240 xvfb-run -a ./pd.x86_64 --savedir /tmp/pdsave \
+    --skip-intro --no-sound --boot-stage 0x52 --mpsims 1 --rng-seed 1 \
+    --fixed-step --screenshot-frame 400 --exit-frame 410 --log
+```
+
+with `Mod.MapMods=GE-X_6a_01-19-25` in the scratch ini (0x52 is its Complex;
+`grep modloader` the log for the ids, they move when the mod list does). Then
+the same on a stock level - Chicago at 0x1d, frame 900 - which must still come
+back with the release's "PARKING" sign and neon, and does, byte for byte.
+
 ## Replacing the XBLA release's own textures (2026-09-11)
 
 A pack can repaint the Xbox 360 release's models and rooms as well, from a

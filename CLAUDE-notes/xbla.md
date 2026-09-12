@@ -955,6 +955,14 @@ Four things make it the same picture as the pack rather than nearly the same:
 - The pack is still what a **model pack's** `n64_xxxx` material asks for first
   (`xblaTexLoadReplacement()`), with this behind it, so a mesh is painted like
   the room around it.
+- Record N is texture N **only where texture N is the ROM's**. A mod's texture
+  under a stock number is not, and since 2026-09-12 it is served nothing:
+  `texpackTextureArt()` says what supplied the texels, and a maps-only mod's
+  map (the Stage Loader, GoldenEye X: 2104 textures, all below `NUM_TEXTURES`)
+  had every wall repainted with a picture of Perfect Dark's, stretched over
+  tiles it was not cut for. Same rule as a mod's level (`romdataFileIsStock()`)
+  and a mod's model. See texture-packs.md, "A texture number belongs to
+  whatever supplied the texels".
 
 Checked on the card, Chicago (`--boot-stage 0x1d --fixed-step --rng-seed 1
 --screenshot-frame 600`): the switch on with no pack is **pixel-identical** to

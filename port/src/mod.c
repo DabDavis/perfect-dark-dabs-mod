@@ -2193,12 +2193,24 @@ s32 modSetTextureFromStage(s32 on)
 	return prev;
 }
 
-s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
+/**
+ * Reads texture num out of the mods, into dst.
+ *
+ * A texture that came from the running stage's own mod is that mod's art under
+ * a number that means something else to the ROM, so it is reported back: see
+ * texpackTextureArt(), which is what keeps a texture pack and the XBLA
+ * release's own pictures off it.
+ */
+s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstageart)
 {
 	char path[FS_MAXPATH + 1];
 	const char *stageDir = g_ModTextureStageOff
 		? NULL
 		: modloaderGetStageModDir(mainGetStageNum());
+
+	if (outstageart) {
+		*outstageart = 0;
+	}
 
 	if (stageDir) {
 		// one line a stage, not one a texture: GE-X's maps load hundreds
@@ -2209,6 +2221,10 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 
 		const s32 ret = fsFileLoadTo(path, dst, dstSize);
 		if (ret > 0) {
+			if (outstageart) {
+				*outstageart = 1;
+			}
+
 			if (loggedDir != stageDir || loggedStage != mainGetStageNum()) {
 				loggedDir = stageDir;
 				loggedStage = mainGetStageNum();

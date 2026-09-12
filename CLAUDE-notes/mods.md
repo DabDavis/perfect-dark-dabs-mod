@@ -1613,7 +1613,9 @@ room it cannot render instead of leaving a hole. A 512-byte placeholder bg
 `NUM_TEXTURES`, and `modTextureLoad()` reads `textures/%04x.bin` from the
 running stage's own mod first (`modloaderGetStageModDir()`), with
 `modSetTextureFromStage(0)` around a model's display lists so a stock prop
-does not wear the map's art.
+does not wear the map's art. Such a texture is also registered as the mod's
+(`TEXPACK_ART_MODSTAGE`), so no texture pack and no XBLA record repaints it -
+texture-packs.md, "A texture number belongs to whatever supplied the texels".
 
 **The textures come from the importer**, version 30: a mod that rebuilt its
 texture table used to ship the two segments whole and nothing else, so its

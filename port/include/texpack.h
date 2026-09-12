@@ -22,6 +22,25 @@ struct tex;
 #define TEXPACK_PACKS_DIR "texture-packs"
 
 /**
+ * What supplied the texels being registered - see texpackTextureArt().
+ *
+ * MOD is a texture a mod or the base directory's own textures/ handed over
+ * (modTextureLoad()), which is a deliberate override of the ROM's at a number
+ * that still means what it always did.
+ *
+ * MODSTAGE is one the running stage's own mod handed over, which the Stage
+ * Loader makes routine: the number means what that mod says it means and
+ * nothing else.
+ *
+ * KEEP re-registers an address whose texels have not been read again, so
+ * whatever was recorded about them stands.
+ */
+#define TEXPACK_ART_ROM      0
+#define TEXPACK_ART_MOD      1
+#define TEXPACK_ART_MODSTAGE 2
+#define TEXPACK_ART_KEEP     (-1)
+
+/**
  * Texture identity registry.
  *
  * The renderer only ever sees a texture as the pointer gDPSetTextureImage was
@@ -35,7 +54,7 @@ struct tex;
  * an entry outliving its pool would name the wrong texture, not merely a
  * missing one.
  */
-void texpackRegisterTexture(const void *data, s32 texturenum);
+void texpackRegisterTexture(const void *data, s32 texturenum, s32 art);
 void texpackForgetTexture(const void *data);
 void texpackForgetRange(const void *start, const void *end);
 void texpackForgetAll(void);
@@ -44,6 +63,29 @@ void texpackForgetAll(void);
  * The texture number data belongs to, or -1 when nothing registered it.
  */
 s32 texpackGetTextureNum(const void *data);
+
+/**
+ * Where the texels at data came from: one of TEXPACK_ART_ROM/MOD/MODSTAGE.
+ *
+ * A texture number is only the name of a picture within whatever supplied it.
+ * The Stage Loader mounts a mod for its maps alone, and those maps load
+ * hundreds of textures out of that mod at stock numbers - GoldenEye X ships
+ * 2104 of them, every one under a number Perfect Dark also uses. A picture
+ * chosen by number for the ROM is then the wrong subject *and* the wrong shape,
+ * and the shape is what shows: the replacement is stretched over the tile the
+ * mod's texture set, so the walls of GoldenEye X's Complex came back wearing
+ * Perfect Dark's floor tiles. So MODSTAGE takes no replacement at all.
+ *
+ * MOD keeps the pack - a mod's numbering is the game's while it is loaded, its
+ * own textures/ is in the pack index, and a pack shipped with it is meant to
+ * repaint the whole game - but not the XBLA release's own record for the
+ * number (xblaTexLoadNumbered(), asked in gfx_pc.cpp): texels someone put there
+ * on purpose outrank a picture nobody chose, the same way a pack's file does.
+ *
+ * This is the rule xblastage.c already applies to a mod's level under a stock
+ * file name.
+ */
+s32 texpackTextureArt(const void *data);
 
 /**
  * Looks for a replacement image for whatever texture lives at data, decodes it,

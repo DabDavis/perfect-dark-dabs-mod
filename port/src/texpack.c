@@ -94,6 +94,7 @@
 struct texpackslot {
 	const void *data;
 	s32 texturenum;
+	s8 modart; // TEXPACK_ART_*: what supplied these texels
 };
 
 static struct texpackslot *slots;
@@ -537,7 +538,7 @@ static s32 texpackResize(u32 wantSlots)
 	for (i = 0; i < oldSlots; i++) {
 		if (old[i].data && old[i].data != TEXPACK_TOMBSTONE) {
 			// Cannot recurse into another resize: n was chosen to hold these.
-			texpackRegisterTexture(old[i].data, old[i].texturenum);
+			texpackRegisterTexture(old[i].data, old[i].texturenum, old[i].modart);
 		}
 	}
 
@@ -546,7 +547,7 @@ static s32 texpackResize(u32 wantSlots)
 	return 1;
 }
 
-void texpackRegisterTexture(const void *data, s32 texturenum)
+void texpackRegisterTexture(const void *data, s32 texturenum, s32 art)
 {
 	u32 firstTombstone = (u32)-1;
 	u32 base;
@@ -572,6 +573,11 @@ void texpackRegisterTexture(const void *data, s32 texturenum)
 
 		if (slots[slot].data == data) {
 			slots[slot].texturenum = texturenum;
+
+			if (art != TEXPACK_ART_KEEP) {
+				slots[slot].modart = (s8)art;
+			}
+
 			return;
 		}
 
@@ -583,13 +589,21 @@ void texpackRegisterTexture(const void *data, s32 texturenum)
 		}
 
 		if (slots[slot].data == NULL) {
+			// A texture whose texels were not read again brings nothing to
+			// say about them, and there is nothing left here to keep.
+			if (art == TEXPACK_ART_KEEP) {
+				art = TEXPACK_ART_ROM;
+			}
+
 			if (firstTombstone != (u32)-1) {
 				// Already counted in numOccupied when it was live.
 				slots[firstTombstone].data = data;
 				slots[firstTombstone].texturenum = texturenum;
+				slots[firstTombstone].modart = (s8)art;
 			} else {
 				slots[slot].data = data;
 				slots[slot].texturenum = texturenum;
+				slots[slot].modart = (s8)art;
 				numOccupied++;
 			}
 
@@ -626,6 +640,32 @@ s32 texpackGetTextureNum(const void *data)
 	}
 
 	return -1;
+}
+
+s32 texpackTextureArt(const void *data)
+{
+	u32 base;
+	u32 i;
+
+	if (!slots || !data || data == TEXPACK_TOMBSTONE) {
+		return TEXPACK_ART_ROM;
+	}
+
+	base = texpackHash(data);
+
+	for (i = 0; i < numSlots; i++) {
+		const u32 slot = (base + i) & (numSlots - 1);
+
+		if (slots[slot].data == data) {
+			return slots[slot].modart;
+		}
+
+		if (slots[slot].data == NULL) {
+			break;
+		}
+	}
+
+	return TEXPACK_ART_ROM;
 }
 
 void texpackForgetTexture(const void *data)
@@ -3546,6 +3586,11 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 	texturenum = texpackGetTextureNum(data);
 
 	if (texturenum < 0 || texturenum >= NUM_TEXTURES || !replacePaths[texturenum]) {
+		return NULL;
+	}
+
+	// The number names a picture of that mod's, not one of ours.
+	if (texpackTextureArt(data) == TEXPACK_ART_MODSTAGE) {
 		return NULL;
 	}
 

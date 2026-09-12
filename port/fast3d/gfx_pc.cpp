@@ -1615,7 +1615,13 @@ static void import_texture(int i, int tile, bool importReplacement) {
         // and the release's art fills in the rest. Asked for what the pack has
         // rather than what it returns, since a queued decode also answers
         // NULL. A glyph has no number and is never one of these.
-        if (!rep && !loaded_texture.glyph && xblaTexHaveNumbered()) {
+        //
+        // And never for texels that are not the ROM's: a mod's map brings its
+        // own art at stock numbers, and the release has a picture for every
+        // number, so the number is the only thing the two share
+        // (texpackTextureArt()).
+        if (!rep && !loaded_texture.glyph && xblaTexHaveNumbered()
+                && texpackTextureArt(orig_addr) == TEXPACK_ART_ROM) {
             const int32_t texturenum = texpackGetTextureNum(orig_addr);
 
             if (texturenum >= 0 && !texpackHaveReplacementFor(texturenum)) {
