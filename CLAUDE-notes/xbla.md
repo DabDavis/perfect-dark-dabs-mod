@@ -2176,14 +2176,51 @@ Clean Text Outlines has `gfx_opengl.cpp` shape a border out of tile 1's alpha
 instead of using the filled cell the font bakes (see text-rendering.md). It
 measures half a texel as `0.5 / texSize1` - *of what was uploaded* - so
 against a picture five times the size of the tile the border would come out a
-fifth as wide as it is meant to be. So `xblafont.c` builds the outline itself,
-by the same arithmetic as the shader (the body's alpha half a texel out in
-eight directions, pushed towards opaque, the diagonals counting for less, the
-cell the limit), and serves it as tile 0's picture - which also turns the
-shader's own version off, since that only runs for a tile 0 no pack replaced.
+fifth as wide as it is meant to be. So `xblafont.c` builds the outline itself
+and serves it as tile 0's picture - which also turns the shader's own version
+off, since that only runs for a tile 0 no pack replaced.
 
 With Clean Text Outlines **off**, nothing is handed over for tile 0 at all and
 the ROM's filled cell is drawn as before, which is the look that switch means.
+
+#### The shader's arithmetic is not the shader's look (2026-09-12)
+
+Building it *by the shader's arithmetic* - the body's alpha half a texel out in
+eight directions, pushed towards opaque by `* 5 / 2`, the diagonals counting
+for less - is what this did first, and it came back as **"the black outline
+around the XBLA font is too thick"**.
+
+The arithmetic is the same and the picture is not, because the shader reads its
+body **bilinearly**. Half a texel out of a bilinear field is nothing like half
+a texel of ink: the body's own blur bleeds over the inner half of the band, and
+the outer half is the tail of the ramp and fades. What reaches the screen is a
+soft edge. The release's glyph is *crisp* - that is the whole point of serving
+it - so the same reach, dilated by a plain maximum, is half a texel of solid
+black with a hard rim: two pixels of ink around a three pixel stem at 720p, and
+the counters of 'e' and 'a' filled in. The `* 5 / 2` made it worse again. It is
+there so that one antialiased texel of a 16 texel ROM glyph counts as coverage,
+and it has nothing to answer to in a picture whose edges are a pixel wide, but
+it grows the *source* shape before the dilation - by more where the edge is
+shallow, so the md 'o' came out at 0.83 texels against the 'B' at 0.43.
+
+The band is shaped instead of dilated: the body's alpha gathered over a disc of
+`XBLAFONT_OUTLINE_REACH`, each tap weighted by how far out it is - opaque to
+`XBLAFONT_OUTLINE_CORE`, falling away to nothing at the reach - which is a
+distance falloff, since for a pixel *d* out of the body the tap that wins is
+the one at *d*. Both are floored in pixels of the picture and not texels (a
+tenth of a texel is half a pixel of the xs font's five, and rounded away there
+it left the smallest text with no edge at all), the tap at the centre keeps the
+halo under the body's own antialiased edge so no seam opens between the two,
+and the cell is still the limit. Measured as the band's ink in picture pixels,
+across the five fonts: 2.0-6.0 before, 0.9-1.9 after.
+
+Judge it on the card (`SDL_VIDEODRIVER=offscreen`) and not under Xvfb, and
+judge it on the *glyph* first: `xblaFontLoadGlyph()` called from gdb hands back
+the picture the font serves, body and outline separately, with no menu driving
+at all (the recipe is in the headless-driving note). A screenshot of the file
+select cannot be differenced between two builds - the Institute behind it
+animates, so nearly every pixel differs and any "count the dark pixels" measure
+over a crop is counting the backdrop.
 
 A pack outranks this glyph by glyph, asked as `texpackHaveFontReplacementFor()`
 rather than by whether the pack returned an image - a queued decode also

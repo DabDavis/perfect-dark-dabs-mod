@@ -99,6 +99,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
 #include "constants.h"
@@ -144,6 +145,24 @@
 // megabyte.
 #define XBLAFONT_MIN_SCALE 2
 #define XBLAFONT_MAX_SCALE 12
+
+// The halo the outline pass draws around the body, in texels of the tile: how
+// far it reaches, and how much of that reach is opaque before it falls away.
+// See xblaFontBuildOutline for why they are not the shader's half a texel of
+// solid ink. Both are floored in pixels of the picture rather than texels -
+// the core at one, the fall at another past it - because a tenth of a texel is
+// half a pixel in the xs font's five, and rounded away to nothing there it left
+// the smallest text with no edge at all where it needs one most.
+#define XBLAFONT_OUTLINE_REACH 0.4f
+#define XBLAFONT_OUTLINE_CORE  0.1f
+
+// Offsets the halo is gathered from: a disc of the reach, at the biggest
+// picture a glyph can ask for. The bound covers both floors as well as the
+// reach itself, so retuning either constant cannot quietly overrun the table.
+#define XBLAFONT_OUTLINE_MAX_R \
+	((s32)((XBLAFONT_OUTLINE_REACH + XBLAFONT_OUTLINE_CORE) * XBLAFONT_MAX_SCALE) + 2)
+#define XBLAFONT_OUTLINE_MAX_TAPS \
+	((XBLAFONT_OUTLINE_MAX_R * 2 + 1) * (XBLAFONT_OUTLINE_MAX_R * 2 + 1))
 
 // How near a glyph has to sit to the font's line to be counted as sitting on
 // it, in ROM texels. A third of a texel is under a twentieth of a capital in
@@ -1390,27 +1409,55 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
  * of the cell - an 'e' is a solid block with the strokes cut out of it - which
  * reads as a bold outline at 320x240 and as a slab behind every letter when it
  * is magnified, so gfx_opengl.cpp shapes a border out of the body instead when
- * Clean Text Outlines is on. That is what this does to the release's glyph,
- * and by the same arithmetic: the body's alpha half a texel out in eight
- * directions, pushed towards opaque, the diagonals counting for less so the
- * corners round off, and the cell still the limit.
+ * Clean Text Outlines is on. That is what this does to the release's glyph.
  *
  * It cannot be left to the shader, which measures its half texel in texels of
  * whatever was uploaded: against a picture eight times the size of the tile
  * the border would come out an eighth as wide as it is meant to be.
+ *
+ * **The shader's arithmetic is not the shader's look** (2026-09-12), which is
+ * what this did first and what came back as "the black outline is too thick".
+ * The shader reaches half a texel out of a body it reads *bilinearly*, so the
+ * band it draws is nothing like half a texel of ink: the body's own blur
+ * bleeds over the inner half of it, and the outer half is the far end of a
+ * bilinear ramp and fades. What reaches the screen is a soft edge. The
+ * release's glyph is crisp - that is the whole point of it - so the same
+ * reach, dilated by a plain maximum, is half a texel of *solid* black with a
+ * hard rim: at 720p a two pixel ring around a three pixel stem, and the
+ * counters of 'e' and 'a' filled in. Measured on the md font it was worse
+ * still, because the eightfold `* 5 / 2` push towards opaque - which is there
+ * to make one antialiased texel of a 16 texel ROM glyph count as coverage,
+ * and has nothing to answer to in a picture whose edges are already a pixel
+ * wide - grew the source shape before the dilation and put the 'o' out at
+ * 0.83 texels against the 'B' at 0.43.
+ *
+ * So the band is shaped rather than dilated: the body's alpha gathered over a
+ * disc of XBLAFONT_OUTLINE_REACH, each tap weighted by how far out it is -
+ * opaque to XBLAFONT_OUTLINE_CORE and falling away to nothing at the reach -
+ * which is a distance falloff, since for a pixel d out of the body the tap
+ * that wins is the one at d. That reads at about the weight of the ROM font's
+ * own outline beside it, keeps the crisp body it is drawn around, rounds the
+ * corners the way the shader's weighted diagonals did, and has no rim to
+ * alias when the picture is minified onto the tile's quad. The cell is still
+ * the limit, and the tap at the centre keeps the halo under the body's own
+ * antialiased edge so no seam opens between the two.
  *
  * With Clean Text Outlines off nothing is handed over at all, so tile 0 stays
  * the ROM's filled cell - which is the look that switch means.
  */
 static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
 {
-	static const s32 offs[8][2] = {
-		{ 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
-		{ 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 },
-	};
 	const struct xblafontglyph *src = &glyphs[0][id][index];
 	struct xblafontbox body;
+	struct {
+		s32 dx;
+		s32 dy;
+		f32 weight;
+	} taps[XBLAFONT_OUTLINE_MAX_TAPS];
+	s32 numtaps = 0;
 	s32 cellbox[4];
+	f32 reach;
+	f32 core;
 	s32 rows;
 	s32 scale;
 	s32 r;
@@ -1432,10 +1479,46 @@ static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
 		return 0;
 	}
 
-	r = scale / 2;
+	core = XBLAFONT_OUTLINE_CORE * scale;
 
-	if (r < 1) {
-		r = 1;
+	if (core < 1.0f) {
+		core = 1.0f;
+	}
+
+	reach = XBLAFONT_OUTLINE_REACH * scale;
+
+	if (reach < core + 1.0f) {
+		reach = core + 1.0f;
+	}
+
+	r = (s32)reach;
+
+	// The disc, and each tap's share of the band. Once per glyph, so the loop
+	// over the cell is a table walk.
+	for (y = -r; y <= r; y++) {
+		for (x = -r; x <= r; x++) {
+			const f32 d = sqrtf((f32)(x * x + y * y));
+			f32 weight;
+
+			if (d >= reach) {
+				continue;
+			}
+
+			weight = d <= core ? 1.0f : (reach - d) / (reach - core);
+
+			// Kept in descending weight, so the loop over the cell can stop
+			// at the first tap that cannot beat what it already has. A disc
+			// is scores of taps against the eight this used to be, and every
+			// pixel inside a stroke is answered by the first of them.
+			for (i = numtaps; i > 0 && taps[i - 1].weight < weight; i--) {
+				taps[i] = taps[i - 1];
+			}
+
+			taps[i].dx = x;
+			taps[i].dy = y;
+			taps[i].weight = weight;
+			numtaps++;
+		}
 	}
 
 	out->width = src->width;
@@ -1451,42 +1534,38 @@ static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
 	// character beside it.
 	for (y = cellbox[1] * scale; y < (cellbox[3] + 1) * scale && y < out->height; y++) {
 		for (x = cellbox[0] * scale; x < (cellbox[2] + 1) * scale && x < out->width; x++) {
-			s32 o = src->rgba[(y * out->width + x) * 4 + 3] * 5 / 2;
+			f32 o = 0;
 			u8 *p;
 
-			if (o > 255) {
-				o = 255;
-			}
+			for (i = 0; i < numtaps; i++) {
+				const s32 sx = x + taps[i].dx;
+				const s32 sy = y + taps[i].dy;
+				f32 a;
 
-			for (i = 0; i < 8; i++) {
-				const s32 sx = x + offs[i][0] * r;
-				const s32 sy = y + offs[i][1] * r;
-				s32 a;
+				if (taps[i].weight * 255.0f <= o) {
+					break;
+				}
 
 				if (sx < 0 || sy < 0 || sx >= out->width || sy >= out->height) {
 					continue;
 				}
 
-				a = src->rgba[(sy * out->width + sx) * 4 + 3] * 5 / 2;
-
-				if (a > 255) {
-					a = 255;
-				}
-
-				if (i >= 4) {
-					a = a * 4 / 5;
-				}
+				a = src->rgba[(sy * out->width + sx) * 4 + 3] * taps[i].weight;
 
 				if (a > o) {
 					o = a;
 				}
 			}
 
+			if (o > 255.0f) {
+				o = 255.0f;
+			}
+
 			p = out->rgba + (y * out->width + x) * 4;
 			p[0] = 255;
 			p[1] = 255;
 			p[2] = 255;
-			p[3] = (u8)o;
+			p[3] = (u8)(o + 0.5f);
 		}
 	}
 
