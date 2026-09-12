@@ -54,6 +54,28 @@ MAGIC = b"PDGHOST\0"
 # point: an account is a player's best times, not a place to keep files.
 USER_QUOTA = 64 * 1024 * 1024
 
+# Crash reports, which are the one thing here that is not about ghosts.
+#
+# The game writes a report when it dies - the error and its stack, the build,
+# the player's [Mod] settings and the tail of its log - and its dialog and its
+# Crash Reports page are the only things that send one. Nothing reads them back
+# out over HTTP: they are files in a directory for somebody to read over ssh,
+# and there is deliberately no endpoint that lists or serves them.
+#
+# No account, and none asked for. A crash report belongs to whoever had the
+# crash rather than to an account, and the page that sends one is reachable by
+# a player who has never signed in - so what bounds this is the address limiter
+# and the size of what it will take.
+CRASH_DIR = os.path.join(ROOT, "crashes")
+CRASH_MAX_TEXT = 32 * 1024
+CRASH_MAX_NOTE = 200
+CRASH_MAX_FIELD = 64
+CRASH_WINDOW = 3600
+CRASH_MAX = 12
+# Twelve an hour each from however many addresses, so the cap on the directory
+# is what stops it filling the disk: at CRASH_MAX_TEXT a report, this is 160MB.
+CRASH_MAX_FILES = 5000
+
 # The stages a trial can be set on: the solo missions, as g_SoloStages in the
 # client's mainmenu.c lists them. modGhostStageIsEligible() in modghost.c is
 # looser - anything below STAGE_TITLE that is not the Institute - but the rest
@@ -238,6 +260,7 @@ _upload_counts = {}
 _download_counts = {}
 _reset_failures = {}   # account -> failed resets, the day's budget
 _reset_ips = {}        # address -> reset attempts, whatever they were for
+_crash_counts = {}     # address -> crash reports sent
 
 
 def db():
@@ -694,6 +717,31 @@ def parse_ghost_header(data):
         "player": player, "owner": owner, "flags": flags,
         "mpbody": mpbody, "mphead": mphead,
     }
+
+
+def crash_field(value, limit):
+    """One field of a crash report, as text a file can hold.
+
+    Bounded, and with the control characters taken out: a report is read in a
+    terminal, and a stack trace that carries an escape sequence is a stack
+    trace that can rewrite the screen of whoever cats it. Newlines and tabs
+    stay, because the report is lines. None for anything that is not a string.
+    """
+    if not isinstance(value, str):
+        return None
+
+    value = value[:limit]
+
+    return "".join(c for c in value
+                   if c in "\n\t" or (0x20 <= ord(c) < 0x7f) or ord(c) > 0x9f)
+
+
+def crash_dir_count():
+    """How many reports are on disk, or -1 if the directory cannot be read."""
+    try:
+        return len(os.listdir(CRASH_DIR))
+    except OSError:
+        return -1
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1411,6 +1459,73 @@ class Handler(BaseHTTPRequestHandler):
 
             return self.send_json(200, {"ok": True, "stored": True, "rank": rank,
                                         "time60": info["time60"]})
+
+        if path == "/crash":
+            req = self.read_json()
+            if req is None:
+                return self.send_json(400, {"ok": False, "error": "bad body"})
+
+            report = crash_field(req.get("report", ""), CRASH_MAX_TEXT)
+            note = crash_field(req.get("note", ""), CRASH_MAX_NOTE)
+            version = crash_field(req.get("version", ""), CRASH_MAX_FIELD)
+            platform = crash_field(req.get("platform", ""), CRASH_MAX_FIELD)
+            channel = crash_field(req.get("channel", ""), CRASH_MAX_FIELD)
+
+            if None in (report, note, version, platform, channel):
+                return self.send_json(400, {"ok": False, "error": "bad body"})
+
+            # A report is a stack trace and a log tail. Something shorter than
+            # a single line of one is a probe rather than a crash.
+            if len(report.strip()) < 32:
+                return self.send_json(400, {"ok": False, "error": "empty report"})
+
+            if not rate_ok(_crash_counts, self.client_ip(), CRASH_WINDOW, CRASH_MAX):
+                return self.send_json(429, {"ok": False,
+                    "error": "too many reports from here, try again later"})
+
+            os.makedirs(CRASH_DIR, exist_ok=True)
+
+            count = crash_dir_count()
+            if count < 0:
+                return self.send_json(500, {"ok": False, "error": "no crash directory"})
+            if count >= CRASH_MAX_FILES:
+                return self.send_json(507, {"ok": False, "error": "no room for more reports"})
+
+            # The name carries the time so a directory listing is in order, and
+            # eight random characters so two arriving in the same second cannot
+            # be the same file.
+            name = "%s-%s.txt" % (time.strftime("%Y%m%d-%H%M%S"), os.urandom(4).hex())
+
+            # What the server knows and the report does not: when it arrived and
+            # who from. The client's own header follows underneath.
+            head = (
+                "received: %s\n"
+                "from: %s\n"
+                "version: %s\n"
+                "platform: %s\n"
+                "channel: %s\n"
+                "note: %s\n\n"
+                % (time.strftime("%Y-%m-%d %H:%M:%S"), self.client_ip(),
+                   version or "-", platform or "-", channel or "-", note or "-"))
+
+            try:
+                # Exclusive: a name that already exists is a collision rather
+                # than a report to overwrite.
+                fd = os.open(os.path.join(CRASH_DIR, name),
+                             os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    f.write(head)
+                    f.write(report)
+                    if not report.endswith("\n"):
+                        f.write("\n")
+            except OSError as ex:
+                self.log_message("crash report not written: %s", ex)
+                return self.send_json(500, {"ok": False, "error": "could not store the report"})
+
+            self.log_message("crash report %s (%s, %s, %d bytes)",
+                             name, version or "-", platform or "-", len(report))
+
+            return self.send_json(200, {"ok": True, "id": name})
 
         return self.send_json(404, {"ok": False, "error": "no such endpoint"})
 

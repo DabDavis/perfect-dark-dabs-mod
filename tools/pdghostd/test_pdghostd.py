@@ -37,6 +37,9 @@ DAEMON = os.path.join(WORK, "testd.py")
 LOG = os.path.join(WORK, "testd.log")
 BOARD_KEEP = 3
 USER_QUOTA = 4 * 1024 * 1024
+# Low enough that the full-directory answer can be reached with a handful of
+# reports rather than five thousand.
+CRASH_MAX_FILES = 6
 
 passed = 0
 failed = 0
@@ -73,6 +76,7 @@ def build_daemon():
     sub("USER_QUOTA = 64 * 1024 * 1024", "USER_QUOTA = %d" % USER_QUOTA)
     sub("USER_SLOW_DELAY = 3.0", "USER_SLOW_DELAY = %r" % USER_SLOW_DELAY)
     sub("RESET_DELAY = 2.0", "RESET_DELAY = %r" % RESET_DELAY)
+    sub("CRASH_MAX_FILES = 5000", "CRASH_MAX_FILES = %d" % CRASH_MAX_FILES)
     open(DAEMON, "w").write(src)
 
 
@@ -801,6 +805,103 @@ def test_three_questions():
     check(st == 400, "and pairs two and three without one")
 
 
+
+CRASH_DIR = os.path.join(ROOT, "crashes")
+
+
+def crash_files():
+    try:
+        return sorted(os.listdir(CRASH_DIR))
+    except OSError:
+        return []
+
+
+def send_crash(report, note="", version="abc1234", platform="x86_64-windows",
+               channel="dev", ip=None):
+    return post_json("/crash", {"report": report, "note": note, "version": version,
+                                "platform": platform, "channel": channel}, ip=ip)
+
+
+def test_crash_reports():
+    print("crash reports")
+
+    report = ("Dab's Mod crash report\nversion: dabs-mod abc1234\n\n"
+              "--- crash ---\nEXCEPTION: 0xc0000005\nFAULT: read of 0x00000000000000a8\n")
+
+    st, body, _ = send_crash(report, note="runway, sniping", ip="10.7.0.1")
+    check(st == 200 and body.get("ok") and body.get("id", "").endswith(".txt"),
+          "a report is taken -> 200")
+
+    files = crash_files()
+    check(len(files) == 1 and files[0] == body.get("id"), "and written under the id it answered")
+
+    stored = open(os.path.join(CRASH_DIR, files[0])).read()
+    check("from: 10.7.0.1" in stored and "version: abc1234" in stored
+          and "note: runway, sniping" in stored,
+          "the server's own header names the address, the build and the note")
+    check("EXCEPTION: 0xc0000005" in stored, "and the report itself is underneath it")
+
+    # A report is text somebody will cat. An escape sequence in one is a report
+    # that can repaint their terminal.
+    st, body, _ = send_crash(report + "\x1b[2J\x07 and a \x00 byte", ip="10.7.0.2")
+    stored = open(os.path.join(CRASH_DIR, body["id"])).read()
+    check(st == 200 and "\x1b" not in stored and "\x00" not in stored and "\x07" not in stored,
+          "control characters are taken out")
+    check("and a  byte" in stored, "and the text around them is kept")
+
+    st, body, _ = send_crash("too short", ip="10.7.0.3")
+    check(st == 400 and body.get("error") == "empty report", "something too short to be a crash -> 400")
+
+    st, _, _ = post_json("/crash", {"report": 12345}, ip="10.7.0.3")
+    check(st == 400, "a report that is not a string -> 400")
+
+    st, _, _ = req("POST", "/crash", body=b"not json",
+                   headers={"Content-Type": "application/json"}, ip="10.7.0.3")
+    check(st == 400, "a body that is not JSON -> 400")
+
+    st, body, _ = send_crash("x" * 200000, note="n" * 500, ip="10.7.0.4")
+    stored = open(os.path.join(CRASH_DIR, body["id"])).read()
+    check(st == 200 and "x" * (32 * 1024) in stored and "x" * (32 * 1024 + 1) not in stored,
+          "an enormous report is cut to the cap")
+    check("note: " + "n" * 200 + "\n" in stored, "and an enormous note to its own")
+
+    st, _, _ = req("GET", "/crash", ip="10.7.0.5")
+    check(st == 404, "there is no way to read one back out")
+
+    # Twelve an hour from one address, and the directory cap behind that. The
+    # copy under test holds six files, so the cap is what answers first here.
+    seen = set()
+    for i in range(8):
+        st, _, _ = send_crash(report, ip="10.7.0.9")
+        seen.add(st)
+    check(507 in seen, "a full crash directory refuses rather than filling the disk")
+    check(len(crash_files()) == CRASH_MAX_FILES, "and stops at the cap")
+
+    for f in crash_files():
+        os.remove(os.path.join(CRASH_DIR, f))
+
+    # Twelve an hour from one address. The directory is emptied as they go,
+    # because the cap the test copy runs with is six files and it is the
+    # address limiter being measured here rather than the disk.
+    taken = 0
+    for i in range(12):
+        st, _, _ = send_crash(report, ip="10.7.1.1")
+        taken += st == 200
+        for f in crash_files():
+            os.remove(os.path.join(CRASH_DIR, f))
+    check(taken == 12, "twelve reports in an hour from one address are taken")
+
+    st, body, _ = send_crash(report, ip="10.7.1.1")
+    check(st == 429 and "too many" in body.get("error", ""),
+          "the thirteenth from one address in an hour -> 429")
+
+    st, _, _ = send_crash(report, ip="10.7.1.2")
+    check(st == 200, "and another address is unaffected")
+
+    for f in crash_files():
+        os.remove(os.path.join(CRASH_DIR, f))
+
+
 def main():
     build_daemon()
     seed_old_schema()
@@ -818,6 +919,7 @@ def main():
         test_upload_not_auth_limited()
         test_recovery()
         test_three_questions()
+        test_crash_reports()
     finally:
         stop_server()
     print("\n%d passed, %d failed" % (passed, failed))

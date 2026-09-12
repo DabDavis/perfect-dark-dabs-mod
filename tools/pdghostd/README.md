@@ -70,8 +70,10 @@ Runs a patched copy on port 8392 (`PDGHOSTD_TEST_PORT` to change it) against
 a temporary directory and takes it through registration, uploads built the
 way the game builds them, two dozen forged headers, the hot-account slowdown,
 the quota, eviction, the three security questions (and accounts with one,
-and one from a database that predates `rec_count`) and the two limiters behind
-resetting a PIN, and the malformed requests that used to drop the connection. Standard library only; nothing outside the temporary directory is
+and one from a database that predates `rec_count`), the two limiters behind
+resetting a PIN, the crash reports (what is stored, what is cut, what is
+stripped, the address limiter and the full directory) and the malformed
+requests that used to drop the connection. Standard library only; nothing outside the temporary directory is
 touched, and the live database is never involved.
 
 ## Running it
@@ -139,6 +141,41 @@ its owner from their own recovery. A wrong answer, a wrong category, an account
 with no question and a name that is not an account are one sentence:
 `wrong question or answer`.
 
+## Crash reports
+
+The one thing here that is not about ghosts, and the only reason it lives in
+this daemon is that the client already has an HTTP client pointed at it.
+
+The game writes a report when it dies - the error and its stack, which build it
+is, the mod that was mounted, the player's `[Mod]` settings and the last few
+hundred lines of its log - and offers to send it: from the crash dialog's *Send
+report to Dab* button, and from *Crash Reports* on the Perfect Menu next time
+the game starts, which is also where a note can be typed. Nothing is sent
+unless somebody presses one of those. `port/src/crashreport.c` is that end.
+
+`POST /crash` takes `{report, note, version, platform, channel}` and writes one
+file per report into `~/pdghosts/crashes`, named for the time it arrived. The
+file gets a header of what the server knows - when, from which address, and the
+three fields - and the client's report underneath it. No account is involved:
+a crash belongs to whoever had it rather than to an account, and the page that
+sends one is reachable by a player who has never signed in.
+
+There is **no endpoint that lists or serves a report back**, deliberately.
+They are files for reading over ssh:
+
+```sh
+ls -t ~/pdghosts/crashes | head
+head -40 ~/pdghosts/crashes/20260912-213535-8ac7d9af.txt
+```
+
+What bounds it: 32 KiB of report and 200 characters of note (anything longer is
+cut), twelve reports an hour from one address, and `CRASH_MAX_FILES` (5000) in
+the directory - past which reports are refused with a 507 rather than filling
+the disk. Reports are never deleted by the server; sweeping them is by hand,
+which is one `rm` and no database to keep in step. Control characters are
+stripped as a report is stored, because a stack trace that carries an escape
+sequence would otherwise repaint the terminal of whoever cats it.
+
 Behind nginx:
 
 ```nginx
@@ -153,7 +190,8 @@ location /pdghosts/ {
 ```
 
 `client_max_body_size` has to clear `MAX_BODY` (2 MiB; the longest run the
-recorder can hold is under 1.5 MiB), or a long run is rejected by the proxy
+recorder can hold is under 1.5 MiB, and a crash report is under 200 KiB once
+its newlines are escaped), or a long run is rejected by the proxy
 before the server sees it. Data lands in `~/pdghosts`: `ghosts.db` and a
 `blobs/` directory.
 
