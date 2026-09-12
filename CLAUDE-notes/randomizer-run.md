@@ -284,6 +284,71 @@ tick asks for it, and it clears `dostartnewlife` on its way past. That flag
 going back down is the only honest signal that the landing happened — the
 spawn override answers nothing at all on a hop that found no pad.
 
+## A mod map's stage entry had no setup of its own, and that froze the game
+
+A Stage Loader map is registered by cloning the Skedar arena's stage table row
+and pointing it at the mod's files - `modloaderAddStage()`. It pointed
+`mpsetupfileid` at the mod's setup and left `setupfileid` as **Skedar's**,
+which is invisible in the Combat Simulator, where `setupLoadFiles()` reads the
+mp one. A run's landing is a solo load and reads the other.
+
+So the stage came up as Skedar's props and Skedar's intro over the mod's bg,
+tiles and pads. Skedar's intro starts the player on its own spawn pad, pad 99,
+and the mod map's pads file had 98 pads. Nothing bounds a pad number:
+`padUnpack()` indexes `g_PadOffsets` with it, reads a u16 from past the end of
+the table as an offset, and unpacks whatever is at that offset as a pad. The
+room is a signed ten bit field, so out of arbitrary bits it came back as -256.
+
+`cdCollectGeoForCyl()` then asked `if (roomnum < g_TileNumRooms)` - the only
+bound it has, and it has no other end - indexed `g_TileRooms[-256]`, and handed
+`cdCollectGeoForCylFromList()` a start and an end pointer into memory that is
+not a geo list. **That walk steps over each geo by the length its own type
+gives it, and a type it does not know has no length**: the pointer stopped
+moving and the game sat in that loop at 100% of a core, on the loading screen,
+until it was killed. Not a crash and not a slow load - a freeze with a
+backtrace that is the same every time you look:
+
+```
+cdCollectGeoForCylFromList (... roomnum=-256) at collision.c:1201
+cdCollectGeoForCyl, cdFindGroundInfoAtCyl, cdFindGroundAtCyl
+chrAdjustPosForSpawn, playerChooseSpawnLocation, playerReset, lvReset
+```
+
+Four things were wrong and all four are fixed, because any one of them alone
+leaves the next one waiting for the next mod:
+
+- the stage entry now takes the mod's setup for `setupfileid` too, so the map
+  is loaded with its own props, its own intro and pads that match;
+- `padUnpack()` and the pad writers answer a pad the file does not have with a
+  pad in room -1 at the origin, and log it once per pads file (`coverUnpack()`
+  already guarded a cover number this way);
+- every `roomnum < g_TileNumRooms` in collision.c is `roomnum >= 0 &&` as
+  well, in all seven places;
+- every geo walk breaks out on a type it does not know, in all nine.
+
+A mod map's setup is its **arena** setup, and loading one solo is not free:
+its weapon props include the MP location markers, weapon numbers 240-255 that
+`setupPlaceWeapon()` translates into real weapons only while a match is
+running. Outside one they fell through to `g_Weapons[244]`, which is past the
+end of a 94 entry table - `setupPlaceWeapon()` now drops a weapon number this
+game has no weapon for instead. There is no `mpGetMpWeaponByLocation()` to ask
+outside a match, and a marker is a slot for the match to fill rather than a
+gun.
+
+Two gdb calls on a running game are the whole test:
+
+```sh
+gdb -p PID -batch \
+  -ex 'set $b = (struct pad *)malloc(256)' \
+  -ex 'call (void)padUnpack(99999, 0xffffffff, $b)' \
+  -ex 'p $b->room' \
+  -ex 'set $r = (short *)malloc(16)' -ex 'set $r[0] = -256' -ex 'set $r[1] = -1' \
+  -ex 'p (float)cdFindGroundAtCyl(&$b->pos, 30, $r, 0, 0)'
+```
+
+Room -1 and a ground of -4294967296, both answered at once. Before the fix the
+second call is the freeze, in the process you attached to.
+
 ## A landing is a waypoint, and its room needs a portal
 
 Waypoints for the same reason modalarm.c uses them: a waypoint is by

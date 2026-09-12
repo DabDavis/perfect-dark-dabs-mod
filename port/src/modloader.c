@@ -274,6 +274,15 @@ static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *mod
 	dst->bgfileid = bg;
 	dst->padsfileid = pads;
 	dst->mpsetupfileid = setup;
+
+	// And the solo setup, which is the same file: a mod map ships one setup
+	// and it is the arena's. Left as the template's, a stage loaded outside
+	// the Combat Simulator - which is what a Randomizer run's landing is, and
+	// what --boot-stage is - reads Skedar's setup over this map's pads and
+	// bg. That is not just the wrong props: Skedar's intro starts the player
+	// on its own spawn pad, pad 99, and a mod map with fewer pads than that
+	// unpacks a room number out of whatever follows its pad table.
+	dst->setupfileid = setup;
 	if (tiles > 0) {
 		dst->tilefileid = tiles;
 	}

@@ -1,6 +1,9 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/pad.h"
+#ifndef PLATFORM_N64
+#include <string.h>
+#endif
 #include "bss.h"
 #include "data.h"
 #include "types.h"
@@ -15,6 +18,43 @@ struct covercandidate *g_CoverCandidates;
 u16 g_NumSpecialCovers;
 u16 *g_SpecialCoverNums;
 
+#ifndef PLATFORM_N64
+/**
+ * Whether the pads file this stage loaded actually has this pad.
+ *
+ * Nothing here bounds a pad number: g_PadOffsets is indexed with it and the
+ * u16 that comes back is used as an offset into the pad data. A pad past the
+ * end of the table therefore reads an offset out of whatever follows it and
+ * unpacks the middle of some other pad - or of nothing at all - as a pad. The
+ * room decoded from that is a signed ten bit field of arbitrary bits, so it
+ * comes out as something like -256, and the collision system indexes
+ * g_TileRooms with a room number directly.
+ *
+ * A stage only asks for a pad it does not have when its setup file and its
+ * pads file are not from the same map, which is not something the stock table
+ * can do. coverUnpack() already asks the same question of a cover number.
+ */
+static bool padIsInFile(s32 padnum)
+{
+	static const void *warnedfile;
+	extern void sysLogPrintf(s32 level, const char *fmt, ...);
+
+	if (padnum >= 0 && g_PadsFile != NULL && padnum < g_PadsFile->numpads) {
+		return true;
+	}
+
+	// Once per pads file: a chr with a bad pad asks again every tick.
+	if (warnedfile != (const void *)g_StageSetup.padfiledata) {
+		warnedfile = (const void *)g_StageSetup.padfiledata;
+
+		sysLogPrintf(1, "pad: pad %d asked for and the pads file has %d; this stage's setup and pads are not from the same map",
+				padnum, g_PadsFile ? g_PadsFile->numpads : 0);
+	}
+
+	return false;
+}
+#endif
+
 void padUnpack(s32 padnum, u32 fields, struct pad *pad)
 {
 	s32 offset;
@@ -23,6 +63,17 @@ void padUnpack(s32 padnum, u32 fields, struct pad *pad)
 	u8 *ptr;
 
 	if (pad);
+
+#ifndef PLATFORM_N64
+	if (!padIsInFile(padnum)) {
+		// Nowhere, in no room. A room of -1 terminates any rooms array this is
+		// copied into, which is what every caller already does with the end of
+		// one, so the pad is simply somewhere nothing can reach.
+		memset(pad, 0, sizeof(*pad));
+		pad->room = -1;
+		return;
+	}
+#endif
 
 	offset = g_PadOffsets[padnum];
 	ptr = (u8 *) &g_StageSetup.padfiledata[offset];
@@ -147,6 +198,12 @@ void padUnpack(s32 padnum, u32 fields, struct pad *pad)
 
 bool padHasBboxData(s32 padnum)
 {
+#ifndef PLATFORM_N64
+	if (!padIsInFile(padnum)) {
+		return false;
+	}
+#endif
+
 	u32 offset = g_PadOffsets[padnum];
 	u32 *header = (u32 *)&g_StageSetup.padfiledata[offset];
 
@@ -193,6 +250,14 @@ void padRotateForDoor(s32 padnum)
 	f32 scale;
 	s32 offset;
 
+#ifndef PLATFORM_N64
+	// The rest of this writes through the offset, so a pad the file does not
+	// have would rewrite whatever the bad offset landed on.
+	if (!padIsInFile(padnum)) {
+		return;
+	}
+#endif
+
 	offset = g_PadOffsets[padnum];
 	ptr = (u32 *) &g_StageSetup.padfiledata[offset];
 	header = ptr;
@@ -232,6 +297,12 @@ void padRotateForDoor(s32 padnum)
 
 void padCopyBboxFromPad(s32 padnum, struct pad *src)
 {
+#ifndef PLATFORM_N64
+	if (!padIsInFile(padnum)) {
+		return;
+	}
+#endif
+
 	u32 offset = g_PadOffsets[padnum];
 	f32 *fbuffer = (f32 *)&g_StageSetup.padfiledata[offset];
 	u32 *header = (u32 *)fbuffer;
@@ -264,6 +335,12 @@ void padCopyBboxFromPad(s32 padnum, struct pad *src)
 
 void padSetFlag(s32 padnum, u32 flag)
 {
+#ifndef PLATFORM_N64
+	if (!padIsInFile(padnum)) {
+		return;
+	}
+#endif
+
 	u32 offset = g_PadOffsets[padnum];
 	u32 *header = (u32 *)&g_StageSetup.padfiledata[offset];
 
@@ -272,6 +349,12 @@ void padSetFlag(s32 padnum, u32 flag)
 
 void padUnsetFlag(s32 padnum, u32 flag)
 {
+#ifndef PLATFORM_N64
+	if (!padIsInFile(padnum)) {
+		return;
+	}
+#endif
+
 	u32 offset = g_PadOffsets[padnum];
 	u32 *header = (u32 *)&g_StageSetup.padfiledata[offset];
 

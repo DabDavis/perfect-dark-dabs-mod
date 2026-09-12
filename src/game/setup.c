@@ -639,6 +639,24 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
  */
 void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 {
+#ifndef PLATFORM_N64
+	// A weapon number this game has no weapon for stops here. g_Weapons is
+	// indexed with one in two dozen places and not one of them bounds it, so
+	// a number past the table has to be dealt with before an object carrying
+	// it exists.
+	//
+	// What gets this far is an arena setup's MP location markers, which are
+	// translated into real weapons below - but only while a match is running.
+	// A mod map has one setup file and it is its arena's, so a Randomizer
+	// run's landing reads those markers outside a match. Dropped rather than
+	// translated: outside a match there is no mpGetMpWeaponByLocation() to
+	// ask, and a marker is a slot for the match to fill rather than a gun.
+	if (!g_Vars.normmplayerisrunning && !g_Vars.lvmpbotlevel
+			&& weapon->weaponnum > WEAPON_SUICIDEPILL) {
+		weapon->weaponnum = WEAPON_NONE;
+	}
+#endif
+
 	if (weapon->base.flags & OBJFLAG_ASSIGNEDTOCHR) {
 		u32 stack[2];
 		struct chrdata *chr = chrFindByLiteralId(weapon->base.pad);

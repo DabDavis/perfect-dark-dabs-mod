@@ -818,6 +818,12 @@ void cdGetPropsOnPlatform(struct prop *platform, s16 *propnums, s32 maxlen)
 			if (prop != platform) {
 				geo = (struct geo *) start;
 
+				// A geo list is walked by stepping over each geo by the length
+				// its own type gives it, so a type none of these branches knows
+				// has no length and the walk cannot go on - without the break
+				// it reads the same geo forever. No list the game built holds
+				// one; a walk handed a pointer that is not a geo list at all
+				// does, which is what a room number out of range produces.
 				while (geo < (struct geo *) end) {
 					if (geo->type == GEOTYPE_TILE_I) {
 						struct geotilei *tile = (struct geotilei *) geo;
@@ -842,6 +848,8 @@ void cdGetPropsOnPlatform(struct prop *platform, s16 *propnums, s32 maxlen)
 						geo = (struct geo *)((uintptr_t)geo + sizeof(struct geoblock));
 					} else if (geo->type == GEOTYPE_CYL) {
 						geo = (struct geo *)((uintptr_t)geo + sizeof(struct geocyl));
+					} else {
+						break;
 					}
 				}
 
@@ -888,6 +896,8 @@ void cdSetPropYBounds(struct prop *prop, f32 ymax, f32 ymin)
 				cyl->ymax = ymax;
 				cyl->ymin = ymin;
 				geo = (struct geo *)((uintptr_t)geo + sizeof(struct geocyl));
+			} else {
+				break;
 			}
 		}
 	}
@@ -956,6 +966,8 @@ bool cd00026a04(struct coord *pos, u8 *start, u8 *end, u16 geoflags, s32 room, s
 			geo = (struct geo *)((uintptr_t)geo + sizeof(struct geoblock));
 		} else if (geo->type == GEOTYPE_CYL) {
 			geo = (struct geo *)((uintptr_t)geo + sizeof(struct geocyl));
+		} else {
+			break;
 		}
 	}
 
@@ -985,7 +997,13 @@ void cdFindClosestVertical(struct coord *pos, RoomNum *rooms, u16 geoflags, stru
 	roomnum = rooms[0];
 
 	while (roomnum != -1) {
-		if (roomnum < g_TileNumRooms) {
+		// Below zero is not a room. g_TileRooms is indexed with this straight
+		// off, so a negative one reads a start and an end pointer from
+		// whatever lies before the table and hands the walk below a stretch of
+		// memory that is not a geo list. A rooms array is not always the
+		// game's own: padUnpack() answers -256 for a pad past the end of the
+		// pads file, and that goes into one.
+		if (roomnum >= 0 && roomnum < g_TileNumRooms) {
 			start = g_TileFileData.u8 + g_TileRooms[roomnum];
 			end = g_TileFileData.u8 + g_TileRooms[roomnum + 1];
 
@@ -1258,6 +1276,8 @@ void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *en
 			}
 
 			geo = (struct geo *)((uintptr_t)geo + 0x18);
+		} else {
+			break;
 		}
 	}
 }
@@ -1278,7 +1298,7 @@ void cdCollectGeoForCyl(struct coord *pos, f32 radius, RoomNum *rooms, u32 types
 		roomnum = rooms[0];
 
 		while (roomnum != -1) {
-			if (roomnum < g_TileNumRooms) {
+			if (roomnum >= 0 && roomnum < g_TileNumRooms) {
 				start = g_TileFileData.u8 + g_TileRooms[roomnum];
 				end = g_TileFileData.u8 + g_TileRooms[roomnum + 1];
 
@@ -1608,6 +1628,8 @@ void cdCollectGeoForCylMoveFromList(u8 *start, u8 *end, struct coord *pos, f32 r
 			}
 
 			geo = (struct geo *)((uintptr_t)geo + sizeof(struct geocyl));
+		} else {
+			break;
 		}
 	}
 }
@@ -1628,7 +1650,7 @@ void cdCollectGeoForCylMove(struct coord *pos, f32 width, RoomNum *rooms, u32 ty
 		roomnum = rooms[0];
 
 		while (roomnum != -1) {
-			if (roomnum < g_TileNumRooms) {
+			if (roomnum >= 0 && roomnum < g_TileNumRooms) {
 				start = g_TileFileData.u8 + g_TileRooms[roomnum];
 				end = g_TileFileData.u8 + g_TileRooms[roomnum + 1];
 
@@ -3006,6 +3028,8 @@ bool cdTestAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			}
 
 			geo = (struct geo *)((uintptr_t)geo + sizeof(struct geocyl));
+		} else {
+			break;
 		}
 	}
 
@@ -3368,6 +3392,8 @@ bool cdExamAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			}
 
 			geo = (struct geo *)((uintptr_t)geo + sizeof(struct geocyl));
+		} else {
+			break;
 		}
 	}
 
@@ -3393,7 +3419,7 @@ bool cdTestAToB(struct coord *pos, struct coord *coord2, RoomNum *rooms, u32 typ
 		roomnum = rooms[0];
 
 		while (roomnum != -1) {
-			if (roomnum < g_TileNumRooms) {
+			if (roomnum >= 0 && roomnum < g_TileNumRooms) {
 				start = g_TileFileData.u8 + g_TileRooms[roomnum];
 				end = g_TileFileData.u8 + g_TileRooms[roomnum + 1];
 
@@ -3453,7 +3479,7 @@ s32 cdExamAToB(struct coord *arg0, struct coord *arg1, RoomNum *rooms, s32 types
 		roomnum = rooms[0];
 
 		while (roomnum != -1) {
-			if (roomnum < g_TileNumRooms) {
+			if (roomnum >= 0 && roomnum < g_TileNumRooms) {
 				u32 *ptr = &g_TileRooms[roomnum];
 				start = g_TileFileData.u8 + ptr[0];
 				end = g_TileFileData.u8 + ptr[1];
@@ -3836,6 +3862,8 @@ s32 cdTestBlockOverlapsGeolist(u8 *start, u8 *end, struct geoblock *block, u16 g
 			}
 
 			geo = (struct geo *)((uintptr_t)geo + 0x18);
+		} else {
+			break;
 		}
 	}
 
@@ -3868,7 +3896,7 @@ s32 cdTestBlockOverlapsAnyProp(struct geoblock *geo, RoomNum *rooms, u32 types)
 		roomnum = rooms[0];
 
 		while (roomnum != -1) {
-			if (roomnum < g_TileNumRooms) {
+			if (roomnum >= 0 && roomnum < g_TileNumRooms) {
 				start = g_TileFileData.u8 + g_TileRooms[roomnum];
 				end = g_TileFileData.u8 + g_TileRooms[roomnum + 1];
 
@@ -4100,6 +4128,8 @@ bool cd0002ed30(u8 *start, u8 *end, struct geoblock *block, s32 numvertices, str
 			}
 
 			geo = (struct geo *)((uintptr_t)geo + sizeof(struct geocyl));
+		} else {
+			break;
 		}
 	}
 
@@ -4138,7 +4168,7 @@ bool cd0002f02c(struct geoblock *block, RoomNum *rooms, s32 types)
 		s32 roomnum = *roomsptr;
 
 		while (roomnum != -1) {
-			if (roomnum < g_TileNumRooms) {
+			if (roomnum >= 0 && roomnum < g_TileNumRooms) {
 				start = g_TileFileData.u8 + g_TileRooms[roomnum];
 				end = g_TileFileData.u8 + g_TileRooms[roomnum + 1];
 
