@@ -840,7 +840,7 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
  * the server having read a well formed request, not turned into a request that
  * says something else.
  */
-static void ghostnetJsonEscape(const char *src, char *dst, u32 dstsize)
+void ghostnetJsonEscape(const char *src, char *dst, u32 dstsize)
 {
 	u32 i = 0;
 

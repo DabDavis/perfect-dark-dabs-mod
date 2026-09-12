@@ -19,6 +19,10 @@ Gfx *ghostmenuRenderOverlay(Gfx *gdl);
 // port/src/randommenu.c.
 extern struct menudialogdef g_RandomizerMenuDialog;
 extern struct menudialogdef g_UpdateMenuDialog;
+// The crash reporter's page, and the Perfect Menu row that says whether it has
+// anything waiting. port/src/crashreportmenu.c.
+extern struct menudialogdef g_CrashReportMenuDialog;
+char *menutextCrashReportRow(struct menuitem *item);
 Gfx *updatemenuRenderProgress(Gfx *gdl);
 // Community Packs, under Texture Packs. Its download bar is drawn the same
 // way and for the same reason - port/src/communitymenu.c.

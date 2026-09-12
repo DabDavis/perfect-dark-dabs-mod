@@ -10,6 +10,7 @@
 #include "game/modrun.h"
 #include "game/modghost.h"
 #include "ghostnet.h"
+#include "crashreport.h"
 #include "update.h"
 #include "community.h"
 #include "game/modspectate.h"
@@ -185,6 +186,8 @@ int main(int argc, const char **argv)
 	recordInit();
 	ghostnetInit();
 	updateInit();
+	// A report from a run that did not come back, so the menu can offer it.
+	crashReportScan();
 	audioInit();
 	romdataInit();
 	modloaderInit();

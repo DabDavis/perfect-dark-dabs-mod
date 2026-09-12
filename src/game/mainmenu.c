@@ -5003,6 +5003,14 @@ struct menuitem g_MainMenuMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT,
+		(uintptr_t)&menutextCrashReportRow,
+		0x0000000b,
+		(void *)&g_CrashReportMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
 		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Exit Game",
 		0x00000007,

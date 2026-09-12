@@ -139,6 +139,17 @@ bool ghostnetJsonField(const char *json, const char *end, const char *key,
 		char *out, u32 outsize);
 
 /**
+ * Escape a string into a JSON string body, into a bounded buffer.
+ *
+ * The bodies here are built by hand rather than by a serialiser, which is
+ * right for a handful of fields and wrong the moment one of them can contain a
+ * quote or a newline - a crash report is nothing but newlines. Worst case is
+ * six characters out for one in, and what will not fit is dropped rather than
+ * cut mid escape.
+ */
+void ghostnetJsonEscape(const char *src, char *dst, u32 dstsize);
+
+/**
  * How many ghost accounts this machine remembers, the active one included.
  *
  * Four because a shared machine is a couch with a few people on it rather than

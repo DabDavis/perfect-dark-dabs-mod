@@ -13,6 +13,7 @@
 #include <PR/ultratypes.h>
 #include "platform.h"
 #include "system.h"
+#include "crashreport.h"
 
 #ifdef PLATFORM_WIN32
 
@@ -218,17 +219,106 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 
 	FILE *fout = (level == LOG_NOTE) ? stdout : stderr;
 	fprintf(fout, "%s%s\n", prefix[level], logmsg);
+
+	// And into the ring a crash report is built from, which is the only copy
+	// of these lines a player who never passed --log has.
+	crashReportLogLine(logmsg);
+}
+
+/**
+ * The last thing a player sees, and the one moment they will report a crash.
+ *
+ * The report is on disk before the box goes up, so pressing Close loses
+ * nothing: the menu offers it again next time the game starts, with somewhere
+ * to type what they were doing. Sending from here is the same report with no
+ * note, because a message box cannot take text and the player who is about to
+ * shut the game is the player most likely to say yes now and never again.
+ *
+ * Sending happens inside the crash: the process is already broken and this
+ * asks it to do one more thing. That is a real risk and it is taken knowingly
+ * - the file is written first, so the worst case is a second crash with the
+ * report still there for next time.
+ */
+static void sysFatalDialog(const char *shown, const char *full)
+{
+	const char *path = crashReportSave(full);
+	char text[2560];
+	char err[256];
+	SDL_MessageBoxButtonData buttons[2];
+	SDL_MessageBoxData box;
+	s32 hit = 0;
+
+	if (path == NULL || !crashReportCanSend()) {
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", shown, NULL);
+		return;
+	}
+
+	// What is in it, said before it is offered rather than after. A player
+	// deciding whether to send their log should be told it is their log.
+	snprintf(text, sizeof(text),
+			"%s\n\nA report of this was saved.\n"
+			"Sending it to Dab includes the message above, which build this is, "
+			"your [Mod] settings and the last few hundred lines of the log.\n"
+			"You can also send it from Send Crash Report on the Perfect Menu next time, "
+			"with a note about what you were doing.",
+			shown);
+
+	memset(buttons, 0, sizeof(buttons));
+	buttons[0].flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT;
+	buttons[0].buttonid = 1;
+	buttons[0].text = "Send report to Dab";
+	buttons[1].flags = SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT;
+	buttons[1].buttonid = 0;
+	buttons[1].text = "Close";
+
+	memset(&box, 0, sizeof(box));
+	box.flags = SDL_MESSAGEBOX_ERROR;
+	box.title = "Fatal error";
+	box.message = text;
+	box.numbuttons = 2;
+	box.buttons = buttons;
+
+	if (SDL_ShowMessageBox(&box, &hit) < 0) {
+		// No message box at all - a headless run, or a display that has gone
+		// with the crash. The report is still on disk.
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", shown, NULL);
+		return;
+	}
+
+	if (hit != 1) {
+		return;
+	}
+
+	err[0] = '\0';
+
+	if (crashReportSend(path, "", err, sizeof(err))) {
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Report sent",
+				"Thank you. The report is on its way to Dab.", NULL);
+	} else {
+		char msg[512];
+
+		snprintf(msg, sizeof(msg),
+				"The report could not be sent: %s\n\n"
+				"It is still saved, and Send Crash Report on the Perfect Menu will try again.",
+				err);
+
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Not sent", msg, NULL);
+	}
 }
 
 void sysFatalError(const char *fmt, ...)
 {
 	static s32 alreadyCrashed = 0;
 
+	// The whole message, which a stack trace runs to thousands of characters
+	// of, and the shorter copy the box shows. Static because this runs once
+	// and the stack it would otherwise sit on may be the thing that overflowed.
+	static char errmsg[8192];
+	static char shown[2048];
+
 	if (alreadyCrashed) {
 		abort();
 	}
-
-	char errmsg[2048] = { 0 };
 
 	alreadyCrashed = 1;
 
@@ -237,12 +327,14 @@ void sysFatalError(const char *fmt, ...)
 	vsnprintf(errmsg, sizeof(errmsg), fmt, ap);
 	va_end(ap);
 
-	sysLogPrintf(LOG_ERROR, "FATAL: %s", errmsg);
+	snprintf(shown, sizeof(shown), "%s", errmsg);
+
+	sysLogPrintf(LOG_ERROR, "FATAL: %s", shown);
 
 	fflush(stdout);
 	fflush(stderr);
 
-	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", errmsg, NULL);
+	sysFatalDialog(shown, errmsg);
 
 	exit(1);
 }

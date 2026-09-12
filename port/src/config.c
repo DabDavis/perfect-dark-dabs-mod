@@ -222,6 +222,65 @@ static void configSaveEntry(struct configentry *cfg, FILE *f)
 	}
 }
 
+/**
+ * One section's settings as "key=value" lines, for a crash report.
+ *
+ * The live values rather than what is in pd.ini: a report is about the game
+ * that crashed, and a setting changed from the menu since the file was last
+ * written is exactly the sort of thing worth knowing. The format is the file's
+ * so that a reader can paste it back.
+ *
+ * Returns how many characters were written, not counting the terminator.
+ */
+u32 configDumpSection(const char *section, char *dst, u32 dstsize)
+{
+	char sec[CONFIG_MAX_SECNAME + 1] = { 0 };
+	u32 at = 0;
+
+	if (dstsize == 0) {
+		return 0;
+	}
+
+	dst[0] = '\0';
+
+	for (s32 i = 0; i < numSettings && at + 1 < dstsize; ++i) {
+		struct configentry *cfg = &settings[i];
+		const char *name = cfg->key + cfg->seclen + 1;
+
+		configGetSection(sec, cfg);
+
+		if (strncasecmp(sec, section, CONFIG_MAX_SECNAME) != 0) {
+			continue;
+		}
+
+		switch (cfg->type) {
+		case CFG_S32:
+			at += snprintf(dst + at, dstsize - at, "%s=%d\n", name, *(s32 *)cfg->ptr);
+			break;
+		case CFG_F32:
+			at += snprintf(dst + at, dstsize - at, "%s=%f\n", name, *(f32 *)cfg->ptr);
+			break;
+		case CFG_U32:
+			at += snprintf(dst + at, dstsize - at, "%s=%u\n", name, *(u32 *)cfg->ptr);
+			break;
+		case CFG_STR:
+			at += snprintf(dst + at, dstsize - at, "%s=%s\n", name, (char *)cfg->ptr);
+			break;
+		default:
+			break;
+		}
+
+		if (at >= dstsize) {
+			// snprintf answers what it would have written. Past the end there
+			// is nothing more to say about this section.
+			at = dstsize - 1;
+			break;
+		}
+	}
+
+	return at;
+}
+
 s32 configSave(const char *fname)
 {
 	FILE *f = fsFileOpenWrite(fname);
