@@ -868,6 +868,15 @@ void mainLoop(void)
 		mempResetPool(MEMPOOL_STAGE);
 		filesStop(4);
 
+#ifndef PLATFORM_N64
+		// g_Rooms lived in the pool that just went, and the stage about to
+		// load may build no rooms at all - a menu stage builds none. The
+		// pointer is left where it is, because the game reads it in plenty of
+		// places that never ran outside a level, but the length is now zero
+		// and says so to anything that asks before bgBuildTables() runs.
+		g_NumRoomsAllocated = 0;
+#endif
+
 		if (argFindByPrefix(1, "-ma")) {
 			g_MainMemaHeapSize = strtol(argFindByPrefix(1, "-ma"), NULL, 0) * 1024;
 		}

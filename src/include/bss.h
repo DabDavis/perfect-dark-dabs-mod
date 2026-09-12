@@ -217,6 +217,9 @@ extern s32 g_MaxShards;
 extern struct shard *g_Shards;
 extern Gfx *var800a4634;
 extern struct room *g_Rooms;
+#ifndef PLATFORM_N64
+extern s32 g_NumRoomsAllocated;
+#endif
 extern u8 *g_MpRoomVisibility;
 extern struct bgroom *g_BgRooms;
 extern struct bgportal *g_BgPortals;

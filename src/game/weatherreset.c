@@ -3,6 +3,7 @@
 #include "game/weather.h"
 #include "bss.h"
 #include "lib/memp.h"
+#include "system.h"
 #include "data.h"
 #include "types.h"
 
@@ -15,15 +16,33 @@ u32 var800623fc = 0x00000000;
 
 static void weatherResetRooms(void)
 {
+	// The rooms this stage actually has. g_Vars.roomcount says how many the
+	// level file declared and g_NumRoomsAllocated how many g_Rooms was built
+	// for: the same fact twice, and a stage that reaches here with the two
+	// disagreeing - a Windows player's crash of 2026-09-12, an access
+	// violation in the walk below - is walking off the end of the array or
+	// through a null pointer. Neither is this pass's to fix, so it says so
+	// and marks what is there.
+	const s32 roomcount = g_Vars.roomcount < g_NumRoomsAllocated ? g_Vars.roomcount : g_NumRoomsAllocated;
+
+	if (g_Rooms == NULL || roomcount != g_Vars.roomcount) {
+		sysLogPrintf(LOG_WARNING, "weather: stage 0x%02x has %d rooms but g_Rooms holds %d (%p); leaving the rest alone",
+				g_Vars.stagenum, g_Vars.roomcount, g_NumRoomsAllocated, g_Rooms);
+	}
+
+	if (g_Rooms == NULL) {
+		return;
+	}
+
 	if (g_CurWeatherConfig->flags & WEATHERFLAG_INCLUDE) {
 		// weather is present only in skiprooms, so mark every room as weatherproof
-		for (s32 i = 0; i < g_Vars.roomcount; ++i) {
+		for (s32 i = 0; i < roomcount; ++i) {
 			g_Rooms[i].extra_flags |= ROOMFLAG_EX_WEATHERPROOF;
 		}
 		// then unmark skiprooms
 		for (s32 i = 0; i < WEATHERCFG_MAX_SKIPROOMS && g_CurWeatherConfig->skiprooms[i]; ++i) {
 			const RoomNum room = g_CurWeatherConfig->skiprooms[i];
-			if (room >= 0 && room < g_Vars.roomcount) {
+			if (room >= 0 && room < roomcount) {
 				g_Rooms[room].extra_flags &= ~ROOMFLAG_EX_WEATHERPROOF;
 			}
 		}
@@ -31,7 +50,7 @@ static void weatherResetRooms(void)
 		// weather is present in all rooms except skiprooms
 		for (s32 i = 0; i < WEATHERCFG_MAX_SKIPROOMS && g_CurWeatherConfig->skiprooms[i]; ++i) {
 			const RoomNum room = g_CurWeatherConfig->skiprooms[i];
-			if (room >= 0 && room < g_Vars.roomcount) {
+			if (room >= 0 && room < roomcount) {
 				g_Rooms[room].extra_flags |= ROOMFLAG_EX_WEATHERPROOF;
 			}
 		}
@@ -86,7 +105,6 @@ void weatherReset(void)
 			weatherResetRooms();
 		}
 		{
-			extern void sysLogPrintf(s32 level, const char *fmt, ...);
 			s32 n;
 			for (n = 0; n < WEATHERCFG_MAX_SKIPROOMS && g_CurWeatherConfig->skiprooms[n]; ++n);
 			sysLogPrintf(0, "weather: stage 0x%02x has weather %s %d rooms, wind %g%s%s (the type is the script's to set)",

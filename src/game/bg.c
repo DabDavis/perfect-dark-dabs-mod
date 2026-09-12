@@ -126,6 +126,17 @@ u8 *g_BgPrimaryData;
 u32 var800a4920;
 u32 g_BgSection3;
 struct room *g_Rooms;
+
+#ifndef PLATFORM_N64
+/**
+ * How many rooms g_Rooms was actually allocated for. The array's own length,
+ * travelling with the array: everything else walks it by g_Vars.roomcount,
+ * which is a second copy of the same fact and the one a bad level file or a
+ * stray write gets at.
+ */
+s32 g_NumRoomsAllocated;
+#endif
+
 u8 *g_MpRoomVisibility;
 RoomNum g_BgForceOnscreenRooms[350];
 s32 g_BgNumForceOnscreenRooms;
@@ -1739,6 +1750,10 @@ void bgBuildTables(s32 stagenum)
 
 	g_Rooms = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(struct room)), MEMPOOL_STAGE);
 	g_BgDrawSlotsByRoom = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(struct drawslotpointer)), MEMPOOL_STAGE);
+
+#ifndef PLATFORM_N64
+	g_NumRoomsAllocated = g_Rooms ? g_Vars.roomcount : 0;
+#endif
 
 	for (i = 0; i < g_Vars.roomcount; i++) {
 		g_BgDrawSlotsByRoom[i].updatedframe = 0xffff;
