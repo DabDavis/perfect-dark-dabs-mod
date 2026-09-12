@@ -122,7 +122,7 @@ given to it by hand: push the tag, then `gh release create vX.Y.Z --title
 "Dab's Mod vX.Y.Z" --notes-file notes.md` straight away. The job's `gh release
 view ... ||` guard sees the release already there and only uploads the assets.
 (Creating it first, before the tag exists, would be a second push event.) No
-assets to upload. Existing tags: `v3.3.3`, `v3.2.2`, `v3.2.1`, `v3.2.0`, `v3.1.3`, `v3.1.2`, `v3.1.1`, `v3.1.0`, `v3.0.0`, `v2.0.4`, `v2.0.3`, `v2.0.2`, `v2.0.1`, `v2.0.0`.
+assets to upload. Existing tags: `v3.4.0`, `v3.3.3`, `v3.2.2`, `v3.2.1`, `v3.2.0`, `v3.1.3`, `v3.1.2`, `v3.1.1`, `v3.1.0`, `v3.0.0`, `v2.0.4`, `v2.0.3`, `v2.0.2`, `v2.0.1`, `v2.0.0`.
 
 **A push that changes only `CLAUDE.md`, `CLAUDE-notes/` or `DabDavisGitHub.md` does not build.**
 Four builds and a fresh executable offered to every dev-channel player is too
