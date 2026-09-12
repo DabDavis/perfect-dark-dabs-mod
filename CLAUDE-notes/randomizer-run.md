@@ -474,6 +474,66 @@ landing, drawn from a list that includes `BODY_SKEDAR` and `BODY_MINISKEDAR`.
 One body per landing rather than per guard keeps the head loads to one, which
 is what `modbodies.c` learned the expensive way.
 
+## A room won is a room to rest in
+
+The mode used to end a room the moment its objective landed and nothing else:
+the doors opened, the score went up, and the guards kept coming through the
+door the player was walking towards. A run is **one long life** across every
+map it deals, and the only thing that ever gave health back was whatever the
+map's own intro happened to hand out at the landing - so a room survived on a
+tenth of a bar was a run over in the next one however well it was played, and
+there was no moment in a run at which the player was not being shot at.
+
+So finishing a room now finishes the fight in it, all in `modRunTickObjective()`
+where the score goes up:
+
+- **full health and shield.** `bondhealth` to 1 and `playerSetShieldFrac(1)`,
+  with `oldhealth`/`apparenthealth` and their armour pair zeroed so the HUD
+  sweeps back up rather than cutting to full - the same thing
+  `modRunRestoreHealth()` does when it hands the carried kit back. The carry
+  snapshot is taken at the portal, so the next room is landed in on full as
+  well.
+- **the hostiles in the zone die.** `modRunSweepZone(true)`, which is the walk
+  `modRunEnemyInZone()` was, now shared: the same filter (not the player's
+  team, not a non-combatant, not already dying) over the same sealed rooms.
+  The zone rather than the map, for the reason the seal is the zone - the
+  rooms the player was shut into are the fight, and a guard three rooms away
+  the run never showed them is the map's own business.
+- **and no more arrive.** `modRunGetGuardCount()` answers 0 once
+  `g_ModRunObjective.done` is set. Nothing else has to be told: `modAlarmTick()`
+  stops at `alive >= maxalive`, and nothing is not under zero. `modRunRoll()`
+  clears `done` for the next room, so the guards come back with it.
+
+The pause is the player's to end - they leave when they walk out - which is
+the point. It is also why the guards are *killed* rather than taken away: a
+room whose enemies blink out reads as the mode breaking, and the corpses are
+the evidence of what the room was.
+
+**`chrDamage()` will not take a NULL vector or a NULL gset.** It reads
+`vector->x` and `gset->weaponnum` on the way to its alive branch and only
+tests `vector` for NULL a few hundred lines further down, in a part a kill
+never reaches. Both no-shooter damage sites the game already has - the poison
+tick in `chr.c` and the AI list's damage command - pass a zeroed `struct
+coord` and `{WEAPON_COMBATKNIFE, 0, 0, FUNC_POISON}`, so this passes the same.
+FUNC_POISON is not the knife's own special case either; that one wants
+FUNC_PRIMARY and a shot in the back. Passing NULL for both is a SIGSEGV in
+`chrDamage()` one frame after the objective completes, which is how this was
+found.
+
+The amount is 10000 and any number past the chr's `maxdamage` would do -
+`chrDamage()` clamps it. No attacker prop, so the kills are nobody's: the
+objective is already done and the tick has stopped counting, but a kill
+objective that scored these would be scoring the reward for finishing itself.
+
+### Half as many guards
+
+`MODRUN_GUARDS` and `MODRUN_SPEED` are 6 and 6, halved from 12 and 12, which
+was too much of a room to fight rather than a room to be in. **Both halves
+matter.** The cap alone would not have done it: with twelve still arriving
+every ten seconds against a cap of six, every kill is answered inside a second
+and the room feels exactly as it did however few are standing at any moment.
+`alarm: N guards up` in a `--chr-trace` log is the number to read it off.
+
 ## A body is more than a model, and the alarm only built the model
 
 `BODY_CHICROB` is in the run's list, and a robot is the one body whose chr

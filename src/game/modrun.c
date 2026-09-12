@@ -182,17 +182,23 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 #define MODRUN_SURVIVE_MIN  20
 #define MODRUN_SURVIVE_MAX  45
 
-// The guards a run brings with it, whatever the stage had. A run's rooms are
-// entered cold and left in a minute, so the stage's own sleeping guards are
-// mostly somewhere else: the ones that matter are the ones sent after the
-// player, and these are the numbers the run sends them with.
 // Maps in a row that may be skipped for being unlandable before the run is
 // given up on. Three is enough to get past one bad map in a pool and short
 // enough that a pool of nothing but bad maps is not an endless load.
 #define MODRUN_MAXSKIPS 3
 
-#define MODRUN_GUARDS 12 // up at once
-#define MODRUN_SPEED  12 // per ten seconds
+// The guards a run brings with it, whatever the stage had. A run's rooms are
+// entered cold and left in a minute, so the stage's own sleeping guards are
+// mostly somewhere else: the ones that matter are the ones sent after the
+// player, and these are the numbers the run sends them with.
+//
+// Halved from twelve and twelve, which was too much of a room to fight rather
+// than a room to be in. Both halves matter and the cap alone would not have
+// done it: with twelve still arriving every ten seconds against a cap of six,
+// every kill is answered inside a second and the room feels the same however
+// few are standing at once.
+#define MODRUN_GUARDS 6 // up at once
+#define MODRUN_SPEED  6 // per ten seconds
 
 // The bodies a run's guards wear. The stage's own guards keep theirs; these
 // are what the alarm brings, and they are drawn from the whole game so that a
@@ -411,6 +417,15 @@ s32 modRunChooseBody(void)
  */
 s32 modRunGetGuardCount(void)
 {
+	// None once the room is won. What is left of a room after its objective
+	// is the walk to the way out, and reinforcements arriving through it are
+	// not a rest - the point of the pause is that the player chooses when the
+	// next room starts. The alarm needs nothing else told to it: its tick
+	// stops at `alive >= maxalive`, which nothing can be under.
+	if (g_ModRunHasObjective && g_ModRunObjective.done) {
+		return 0;
+	}
+
 	return MODRUN_GUARDS;
 }
 
@@ -1213,6 +1228,7 @@ static void modRunSnapshotKit(void)
 }
 
 static void modRunOpenExits(void);
+static s32 modRunSweepZone(bool kill);
 
 /**
  * Has this room's objective been met? Asked every tick while the run is
@@ -1220,6 +1236,7 @@ static void modRunOpenExits(void);
  */
 static void modRunTickObjective(void)
 {
+	struct player *player = g_Vars.currentplayer;
 	bool done = false;
 
 	if (!g_ModRunHasObjective || g_ModRunObjective.done) {
@@ -1258,15 +1275,38 @@ static void modRunTickObjective(void)
 	// shut as firmly as the seal was.
 	modRunOpenExits();
 
+	// The room is won, so it stops being a fight: full health and shield, the
+	// hostiles in it dead, and no more of them until the next landing (see
+	// modRunGetGuardCount()). A run is one long life across every map it
+	// deals, and the only thing it ever gave back was what the map's own
+	// intro happened to hand out at the landing - so a room survived on a
+	// tenth of a bar was a run over in the next one, whatever the player did.
+	// The rest between rooms is where the health goes, and it is the player's
+	// to take: nothing hurries them through the door once the guards are
+	// down.
+	modRunSweepZone(true);
+
+	if (player) {
+		player->bondhealth = 1;
+		playerSetShieldFrac(1);
+
+		// Zeroed so the HUD sweeps back up to full rather than cutting to it,
+		// the same way modRunRestoreHealth() hands the carried kit back.
+		player->oldhealth = 0;
+		player->apparenthealth = 0;
+		player->oldarmour = 0;
+		player->apparentarmour = 0;
+	}
+
 #ifndef PLATFORM_N64
-	sysLogPrintf(0, "run: objective %d done on stage 0x%02x at frame %d - score %d",
+	sysLogPrintf(0, "run: objective %d done on stage 0x%02x at frame %d - score %d, health and shield back",
 			g_ModRunObjective.kind, g_ModRunStage, g_Vars.lvframenum, g_ModRunScore);
 #endif
 
 	{
 		static char text[96];
 
-		sprintf(text, "Objective complete - %d in %d rooms\nThe way out is open\n",
+		sprintf(text, "Objective complete - %d in %d rooms\nThe way out is open - take a breath\n",
 				g_ModRunScore, g_ModRunHop);
 		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 	}
@@ -1417,19 +1457,26 @@ static bool modRunPortalLeavesZone(s32 portalnum)
 }
 
 /**
- * Whether there is anything in the sealed rooms for a kill objective to be
- * answered with.
+ * The hostiles standing in the sealed rooms: whether there is one, and killing
+ * them where the caller asks for that.
  *
- * Not a count and not the alarm's list: the stage's own guards are as good a
- * hostile as the ones the run sends, and what the objective needs is that at
- * least one of them is *here*. A chr on the player's own team is not one, and
- * neither is a scientist.
+ * Not the alarm's list: the stage's own guards are as good a hostile as the
+ * ones the run sends, so both are what a kill objective may be answered with
+ * and both are what the room is cleared of when it is won. A chr on the
+ * player's own team is not one, and neither is a scientist.
+ *
+ * The zone rather than the map, for the same reason the seal is the zone: the
+ * rooms the player has been shut into are the fight, and a guard three rooms
+ * away that the run never showed them is the map's own business.
  */
-static bool modRunEnemyInZone(void)
+static s32 modRunSweepZone(bool kill)
 {
 	struct player *player = g_Vars.currentplayer;
 	const s32 numchrs = chrsGetNumSlots();
+	struct coord novector = {0, 0, 0};
+	struct gset nogset = { WEAPON_COMBATKNIFE, 0, 0, FUNC_POISON };
 	s32 playerteam = TEAM_ALLY;
+	s32 found = 0;
 	s32 i;
 
 	if (player && player->prop && player->prop->chr) {
@@ -1451,12 +1498,50 @@ static bool modRunEnemyInZone(void)
 			continue;
 		}
 
-		if (modRunRoomsInZone(chr->prop->rooms)) {
-			return true;
+		if (!modRunRoomsInZone(chr->prop->rooms)) {
+			continue;
 		}
+
+		found++;
+
+		if (!kill) {
+			// The asker only wanted to know whether there is one.
+			break;
+		}
+
+		// Killed rather than taken away: a guard that vanishes as the
+		// objective lands reads as the room breaking, and the corpses are
+		// what the room was. chrDamage() clamps the amount to what is left
+		// of the chr's maxdamage, so any number past it is a death.
+		//
+		// The vector and the gset are the ones every damage with no shooter
+		// behind it uses - the poison tick in chr.c and the AI list's own
+		// damage command both pass exactly these. Neither may be NULL:
+		// chrDamage() reads `vector` and `gset->weaponnum` on the way to the
+		// alive branch and only tests `vector` for NULL much further down. A
+		// knife with FUNC_POISON is not the knife special case either, which
+		// wants FUNC_PRIMARY and a shot in the back.
+		//
+		// No attacker prop, so this is nobody's kill. The objective is
+		// already done and the tick above has stopped counting, but a kill
+		// objective that scored these would be scoring the reward for
+		// finishing it.
+		chrDamageByMisc(chr, 10000, &novector, &nogset, NULL);
 	}
 
-	return false;
+#ifndef PLATFORM_N64
+	if (kill && found) {
+		sysLogPrintf(0, "run: cleared %d hostile(s) out of the zone on stage 0x%02x",
+				found, g_ModRunStage);
+	}
+#endif
+
+	return found;
+}
+
+static bool modRunEnemyInZone(void)
+{
+	return modRunSweepZone(false) > 0;
 }
 
 /**
