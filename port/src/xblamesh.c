@@ -329,6 +329,7 @@ static f32 xblaMeshBEF32(const u8 *p)
 
 static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid);
 static void xblaMeshFreePackMeshes(void);
+static void xblaMeshDropKeptSlot(void);
 
 /* -------------------------------------------------------------------------
  * The package
@@ -352,6 +353,7 @@ static void xblaMeshCloseUp(void)
 	built = NULL;
 	numRecords = 0;
 	opened = -1;
+	xblaMeshDropKeptSlot();
 }
 
 /**
@@ -453,6 +455,49 @@ static s32 xblaMeshOpen(s32 mayUnpack)
 }
 
 /**
+ * The slot the last read inflated, kept so that the next read of the same one
+ * is a copy rather than an inflate.
+ *
+ * One slot, not a cache of them, because the repeats come in a run: the game
+ * loads a model and matches it against the release's copy, and a chr that
+ * shares a body with another loads the same file again straight away. Eighty
+ * simulants sharing one body read file 412 **eighty-one times in a row** at a
+ * level load, each time seeking the package and inflating the same 20KB of
+ * LZX to read a few hundred bytes of node types out of it - 30 of the 35 ms a
+ * whole match spends in here, all inside 46 ms of the load. A second slot
+ * asked for in between costs only the re-read it always did.
+ *
+ * Not a saving worth a budget and an eviction rule: one slot is 20KB for a
+ * model and the bound is XBLAMESH_MAXFILE either way.
+ */
+static s32 keptSlot = -1;
+static u8 *keptSlotBytes;
+static u32 keptSlotLen;
+
+static void xblaMeshDropKeptSlot(void)
+{
+	free(keptSlotBytes);
+	keptSlotBytes = NULL;
+	keptSlotLen = 0;
+	keptSlot = -1;
+}
+
+static void xblaMeshKeepSlot(s32 slot, const u8 *bytes, u32 len)
+{
+	u8 *copy = malloc(len);
+
+	if (!copy) {
+		return;
+	}
+
+	memcpy(copy, bytes, len);
+	free(keptSlotBytes);
+	keptSlotBytes = copy;
+	keptSlotLen = len;
+	keptSlot = slot;
+}
+
+/**
  * One slot, inflated. The caller frees it.
  *
  * A zero compressed size means the file is stored as it is; everything else is
@@ -482,12 +527,20 @@ static u8 *xblaMeshReadSlot(s32 slot, u32 *outLen)
 		return NULL;
 	}
 
+	// The same slot as last time, which at a level load is most of them.
+	if (slot == keptSlot && keptSlotBytes && keptSlotLen == usize) {
+		memcpy(out, keptSlotBytes, usize);
+		*outLen = usize;
+		return out;
+	}
+
 	if (csize == 0) {
 		if (!x360StfsStreamRead(&packed, recOffset[slot], usize, out)) {
 			free(out);
 			return NULL;
 		}
 
+		xblaMeshKeepSlot(slot, out, usize);
 		*outLen = usize;
 		return out;
 	}
@@ -513,6 +566,7 @@ static u8 *xblaMeshReadSlot(s32 slot, u32 *outLen)
 
 	free(packedBytes);
 
+	xblaMeshKeepSlot(slot, out, usize);
 	*outLen = usize;
 	return out;
 }

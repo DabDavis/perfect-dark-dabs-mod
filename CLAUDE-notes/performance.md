@@ -268,3 +268,59 @@ sharing saves. The 2.3x figure came from reading "CcarringtonZ is 4792
 vertices" (the file count of the one *named* node's mesh) against "a single
 character here is eleven thousand vertices" (a whole character, every node)
 as if they were the same mesh counted two ways.
+
+## The XBLA texture decode on the render path is a hitch, not a cost
+
+Measured 2026-09-12 on the seeded 80-sim match at stage 0x32 over 2400
+fixed-step frames, XBLA meshes/stages/textures on. **45 decodes in the whole
+run** - 0.019 a frame - and the renderer's texture cache sat at **76 of 1024
+entries with zero evictions**. The cliff described above this section could
+not be provoked: `--gfxtexcache 64` still gave zero evictions, and a 500-body
+run (`Bodies=500 BodiesDrawn=500`, 6000 frames) reached 94 of 1024. So there
+is no per-frame decode cost to remove, and **the claim that a body-heavy room
+puts this cache under pressure does not hold** for the XBLA path.
+
+What a decode costs, timed around its three stages: **read 1.9 ms, LZX 189 ms,
+untile 56.7 ms across all 45** - the STFS seek is 0.8% of it and LZX is 76%,
+so there is nothing to win by touching the file handling. Median decode 4 ms,
+worst **31.8 ms** for a 1024x1024 record, of which 25 ms is the inflate.
+
+The distribution is what matters: **34 of the 45 land in the first second**
+(level load), and **10 land mid-play**, spread over 30 s, 62.5 ms in total,
+one of them the 30 ms one. That is a two-frame stall on the render thread the
+first time a new character or effect is seen - a hitch worth roughly 0.15% of
+wall time, not a throughput item.
+
+**A kept store for these is a bad trade.** 43 distinct records decode in a
+match and only two of them decode twice, so keeping every decoded record
+costs **34 MB to save 4.6 ms a match**. If the stall is ever worth fixing,
+the way is to prefetch on bind through the texpack worker (the mesh builder
+knows every record it binds) with the current synchronous decode left as the
+fallback, so the worst case stays what it is today and no model ever draws as
+its white stand-in. Note that the worker cannot simply take xblatex.c's lock
+to do it: the mesh builder on the game thread wants that lock for every
+material, so a 30 ms inflate under it just moves the stall to the other
+thread. It needs a second STFS stream handle.
+
+## A model's release slot was inflated once per chr that shared the model
+
+Every model load is matched against the release's copy of the same file
+(`xblaMeshMatchModel`), and the match reads nothing out of that copy but a
+node type and an id per node. It inflated the whole file to get them, and it
+did so once per *load*, not once per file: eighty simulants sharing one body
+made the game load file 412 and read slot 411 **eighty-one times in a row**.
+
+Measured on the seeded 80-sim match at stage 0x32 over 2400 frames: 98 slot
+reads through the matcher, 35.4 ms in total, of which **file 412 is 81 reads
+and 30.7 ms, all inside a 46 ms window at the level load**. Mid-play the
+whole match spends 3.0 ms in here across 9 reads, worst 0.87 ms - so this is
+a level-load cost and nothing else, and the earlier guess that models reload
+"all through a stage on weapon switches and spawns" is not what the reads
+look like.
+
+The repeats come in a run, so **one** kept slot collapses them: 80 of the 98
+reads become a memcpy, 30 of the 35 ms go, and a second slot asked for in
+between costs only the re-read it always did. Counted with the memo in:
+80 hits, 32 inflates. No cache, no budget, no eviction rule - the repeats are
+consecutive and a cache of one is the whole of the win. Frame-exact against
+HEAD on four seeded replays.
