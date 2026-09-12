@@ -2592,8 +2592,10 @@ static MenuItemHandlerResult menuhandlerModCodAimLock(s32 operation, struct menu
 }
 
 /**
- * Clean Text Outlines: the border of outlined text as a halo rather than
- * the font's filled cell. The renderer keeps its own copy of the setting.
+ * Thin Text Outlines: the border of outlined text as a thin halo rather than
+ * the bold one the ROM's font bakes as a filled cell. The renderer keeps its
+ * own copy of the setting. Named "Clean Text Outlines" until 2026-09-12, and
+ * its pd.ini key still is, so that nobody's setting is lost to the rename.
  */
 static MenuItemHandlerResult menuhandlerModCleanText(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -4202,7 +4204,7 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		MENUITEMTYPE_CHECKBOX,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Clean Text Outlines",
+		(uintptr_t)"Thin Text Outlines",
 		0,
 		menuhandlerModCleanText,
 	},

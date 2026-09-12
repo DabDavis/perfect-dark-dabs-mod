@@ -2180,8 +2180,50 @@ fifth as wide as it is meant to be. So `xblafont.c` builds the outline itself
 and serves it as tile 0's picture - which also turns the shader's own version
 off, since that only runs for a tile 0 no pack replaced.
 
-With Clean Text Outlines **off**, nothing is handed over for tile 0 at all and
-the ROM's filled cell is drawn as before, which is the look that switch means.
+#### The switch picks a band, it does not turn this off (2026-09-12)
+
+It used to: with Clean Text Outlines off nothing was handed over for tile 0 and
+the ROM's filled cell was drawn as before, "which is the look that switch
+means". It is not. That cell reads as a border only because the ROM's *own*
+body fills the rest of it; drawn around the release's glyph - which is a
+different shape, on the font's own fitted line - it is a black block with
+somebody else's letter punched out of it. The report was **"the black outline
+persists"**, and then **"for the default we want the black outline, but it is
+too heavy and blocky"**. Blocky is exactly what it was: on the file select
+every letter sat in its own dark rectangle, and the HUD's ammo counter was a
+green digit in a black box.
+
+So both positions of the switch serve a shaped band and the switch picks
+which: the thin `XBLAFONT_OUTLINE_` one when it is on, and the bold
+`XBLAFONT_BORDER_` one - opaque for 0.3 of a texel, gone by 0.7 - when it is
+off, which is the weight the filled cell stands for at the size the ROM drew
+it. 0.5/1.0 was tried first and closes the counters of 'a', 'e' and the
+numeric '8' at 640x480; judge a candidate on those three at 640x480 as well as
+at 720p, by gathering the band in numpy over the *dumped body picture* rather
+than by rebuilding (`xblaFontLoadGlyph` from gdb, below - five candidates in
+one pass, no build).
+
+Both bands are built and kept, and the switch chooses between two pictures at
+the glyph: rebuilding one would free a picture on the game thread that the
+render thread may be copying out. They go through the texture cache under the
+glyph's own key, which does not change with the switch, so
+`videoSetCleanTextOutlines()` drops the cache when the value changes - without
+that the flip does not show until each glyph happens to be evicted.
+
+Band ink outside the body, in pixels of the picture (the ink divided by the
+body's perimeter, which is not the measure the 2026-09-12 table above used -
+compare the two columns with each other, not with that one):
+
+    font     thin        bold
+    sm      1.3-1.6     2.7-3.6
+    md      1.1-1.9     2.2-4.2
+    xs      1.0-1.5     1.3-3.3
+    lg      1.0-1.3     1.4-2.6
+    numeric 2.2-2.5     4.8-5.9
+
+The menu row is **Thin Text Outlines** since 2026-09-12. Its pd.ini key is
+still `Mod.CleanTextOutlines` and so is everything named after it in the code,
+so that a config written by an older build keeps the setting.
 
 #### The shader's arithmetic is not the shader's look (2026-09-12)
 

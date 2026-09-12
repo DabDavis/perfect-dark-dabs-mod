@@ -39,11 +39,20 @@ conversion, the two-cycle shader, the blend mode and the texture cache; the
 glyph dump (`import_texture_ci4`, indices and alphas per row) settled it in
 one look. Dump the texels before suspecting the renderer.
 
-The port draws the border itself when Clean Text Outlines is on (Dab's Mod
-menu, `Mod.CleanTextOutlines`, default on): `SHADER_OPT_TEXT_OUTLINE` in
+The port draws the border itself when Thin Text Outlines is on (Dab's Mod
+menu, default on - the row was called Clean Text Outlines until 2026-09-12
+and its key is still `Mod.CleanTextOutlines`, so that nobody's setting is
+lost to the rename): `SHADER_OPT_TEXT_OUTLINE` in
 `gfx_opengl.cpp` takes the body alpha of tile 1 half a texel out in eight
 directions and uses that, capped by the cell, as tile 0's alpha. It is set in
 `gfx_derive_batch_state()` when tile 0 is an outline glyph
 (`TEXPACK_GLYPH_IS_OUTLINE`) that no texture pack replaced - a pack's
 `outlines/` image is what its author wanted. The per-combiner program table
 has a second half for it (`prg[32]`, bit 4 of `tm`).
+
+Off is the ROM's filled cell, which is what that switch is for. It is not
+what the **XBLA release's** font does: it serves tile 0's picture itself and
+has a band for either position of the switch - thin when it is on, a bold
+black border when it is off - because the ROM's cell drawn around another
+font's letter is a block with somebody else's letter punched out of it. See
+xbla.md, "The outline pass cannot be left to the shader".

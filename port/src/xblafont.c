@@ -149,18 +149,23 @@
 // The halo the outline pass draws around the body, in texels of the tile: how
 // far it reaches, and how much of that reach is opaque before it falls away.
 // See xblaFontBuildOutline for why they are not the shader's half a texel of
-// solid ink. Both are floored in pixels of the picture rather than texels -
+// solid ink, and why there are two of them - the thin band Thin Text Outlines
+// asks for, and the bold black border the ROM's filled cell stands for when it
+// is off. All four are floored in pixels of the picture rather than texels -
 // the core at one, the fall at another past it - because a tenth of a texel is
 // half a pixel in the xs font's five, and rounded away to nothing there it left
 // the smallest text with no edge at all where it needs one most.
 #define XBLAFONT_OUTLINE_REACH 0.4f
 #define XBLAFONT_OUTLINE_CORE  0.1f
+#define XBLAFONT_BORDER_REACH  0.7f
+#define XBLAFONT_BORDER_CORE   0.3f
 
 // Offsets the halo is gathered from: a disc of the reach, at the biggest
-// picture a glyph can ask for. The bound covers both floors as well as the
-// reach itself, so retuning either constant cannot quietly overrun the table.
+// picture a glyph can ask for. The bound is the wider of the two bands and
+// covers its floors as well as its reach, so retuning any of the four cannot
+// quietly overrun the table.
 #define XBLAFONT_OUTLINE_MAX_R \
-	((s32)((XBLAFONT_OUTLINE_REACH + XBLAFONT_OUTLINE_CORE) * XBLAFONT_MAX_SCALE) + 2)
+	((s32)((XBLAFONT_BORDER_REACH + XBLAFONT_BORDER_CORE) * XBLAFONT_MAX_SCALE) + 2)
 #define XBLAFONT_OUTLINE_MAX_TAPS \
 	((XBLAFONT_OUTLINE_MAX_R * 2 + 1) * (XBLAFONT_OUTLINE_MAX_R * 2 + 1))
 
@@ -310,7 +315,16 @@ static s32 optEnabled = 1;
 
 static struct xblafontatlas atlases[XBLAFONT_NUM_FACES];
 static struct xblafontline lines[XBLAFONT_NUM_FONTS];
-static struct xblafontglyph glyphs[2][XBLAFONT_NUM_FONTS][XBLAFONT_NUM_CHARS];
+// Pictures kept per character: the body, and the two bands drawn around it.
+// Both bands are kept rather than rebuilt, so that flipping Thin Text Outlines
+// hands the renderer the other picture instead of freeing one the render thread
+// may be copying out.
+#define XBLAFONT_BANK_BODY    0
+#define XBLAFONT_BANK_OUTLINE 1
+#define XBLAFONT_BANK_BORDER  2
+#define XBLAFONT_NUM_BANKS    3
+
+static struct xblafontglyph glyphs[XBLAFONT_NUM_BANKS][XBLAFONT_NUM_FONTS][XBLAFONT_NUM_CHARS];
 static s32 numBuilt;
 static s32 numMissing;
 static s32 numOffLine;
@@ -1409,7 +1423,7 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
  * of the cell - an 'e' is a solid block with the strokes cut out of it - which
  * reads as a bold outline at 320x240 and as a slab behind every letter when it
  * is magnified, so gfx_opengl.cpp shapes a border out of the body instead when
- * Clean Text Outlines is on. That is what this does to the release's glyph.
+ * Thin Text Outlines is on. That is what this does to the release's glyph.
  *
  * It cannot be left to the shader, which measures its half texel in texels of
  * whatever was uploaded: against a picture eight times the size of the tile
@@ -1442,12 +1456,38 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
  * the limit, and the tap at the centre keeps the halo under the body's own
  * antialiased edge so no seam opens between the two.
  *
- * With Clean Text Outlines off nothing is handed over at all, so tile 0 stays
- * the ROM's filled cell - which is the look that switch means.
+ * **The switch picks a band, it does not turn this off** (2026-09-12), which
+ * is what came back as "the black outline persists" with Thin Text Outlines
+ * off, and then as "for the default we want the black outline, but it is too
+ * heavy and blocky". The band used to be built only when the switch was on,
+ * and with it off tile 0 stayed the ROM's filled cell - drawn around the
+ * release's glyph, which is not the shape it was cut for. That cell reads as a
+ * border only because the ROM's own body fills the rest of it; behind a letter
+ * of another font it is a black block with somebody else's letter punched out
+ * of it, and it does not even line up, since the release's glyph sits on the
+ * font's own fitted line. Blocky is exactly what it is.
+ *
+ * So both positions of the switch get a shaped band, and what the switch
+ * decides is which: the thin XBLAFONT_OUTLINE_ one when it is on, and when it
+ * is off the bold XBLAFONT_BORDER_ one, opaque for three tenths of a texel and
+ * gone by seven tenths - which is the weight the filled cell stands for at
+ * the size the ROM drew it, and the reason that cell is there at all. A bold
+ * band is the same shape gathered over a wider disc, so the default reads as
+ * the black outline it is meant to be and stays a band: the numbers are the
+ * widest that leave the counters of 'a', 'e' and the numeric '8' open at
+ * 640x480 as well as at 720p, which is where the next pair up (0.5 and 1.0)
+ * closed them.
+ *
+ * Both are built and kept, and the switch chooses between two pictures at the
+ * glyph rather than rebuilding one: a rebuild would free a picture on the game
+ * thread that the render thread may be copying out. What the switch still
+ * means for the ROM's own glyphs - the space, a font this does not cover,
+ * PAL's accented characters - is untouched: they stay the ROM's and are shaped
+ * by the shader, or not, exactly as before.
  */
-static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
+static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index, s32 bank)
 {
-	const struct xblafontglyph *src = &glyphs[0][id][index];
+	const struct xblafontglyph *src = &glyphs[XBLAFONT_BANK_BODY][id][index];
 	struct xblafontbox body;
 	struct {
 		s32 dx;
@@ -1465,7 +1505,7 @@ static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
 	s32 y;
 	s32 i;
 
-	if (!g_ModOptions.cleantext || !src->rgba) {
+	if (!src->rgba) {
 		return 0;
 	}
 
@@ -1479,13 +1519,13 @@ static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index)
 		return 0;
 	}
 
-	core = XBLAFONT_OUTLINE_CORE * scale;
+	core = (bank == XBLAFONT_BANK_BORDER ? XBLAFONT_BORDER_CORE : XBLAFONT_OUTLINE_CORE) * scale;
 
 	if (core < 1.0f) {
 		core = 1.0f;
 	}
 
-	reach = XBLAFONT_OUTLINE_REACH * scale;
+	reach = (bank == XBLAFONT_BANK_BORDER ? XBLAFONT_BORDER_REACH : XBLAFONT_OUTLINE_REACH) * scale;
 
 	if (reach < core + 1.0f) {
 		reach = core + 1.0f;
@@ -1615,7 +1655,7 @@ s32 xblaFontHaveGlyphs(void)
 u8 *xblaFontLoadGlyph(u32 glyph, s32 *outWidth, s32 *outHeight)
 {
 	struct xblafontglyph *out;
-	s32 outline;
+	s32 bank;
 	s32 id;
 	s32 index;
 	u8 *copy;
@@ -1624,7 +1664,14 @@ u8 *xblaFontLoadGlyph(u32 glyph, s32 *outWidth, s32 *outHeight)
 		return NULL;
 	}
 
-	outline = TEXPACK_GLYPH_IS_OUTLINE(glyph) ? 1 : 0;
+	// Which band tile 0 is drawn from is the switch's to say - see
+	// xblaFontBuildOutline - and it is read here rather than kept, so it cannot
+	// come adrift of the menu. videoSetCleanTextOutlines() drops the glyphs the
+	// renderer is holding when it changes, so the other band is asked for at
+	// once rather than at the next eviction.
+	bank = TEXPACK_GLYPH_IS_OUTLINE(glyph)
+		? (g_ModOptions.cleantext ? XBLAFONT_BANK_OUTLINE : XBLAFONT_BANK_BORDER)
+		: XBLAFONT_BANK_BODY;
 	id = TEXPACK_GLYPH_FONT(glyph);
 	index = TEXPACK_GLYPH_INDEX(glyph);
 
@@ -1632,18 +1679,19 @@ u8 *xblaFontLoadGlyph(u32 glyph, s32 *outWidth, s32 *outHeight)
 		return NULL;
 	}
 
-	out = &glyphs[outline][id][index];
+	out = &glyphs[bank][id][index];
 
 	if (!out->tried) {
-		// The outline is made out of the body, so the body is built first
-		// whichever of the two is asked for. That is also what keeps the pair
-		// in step: one picture, one scale, one shape.
-		if (outline && !glyphs[0][id][index].tried) {
-			glyphs[0][id][index].tried =
-				xblaFontBuildBody(&glyphs[0][id][index], id, index) ? 1 : -1;
+		// A band is made out of the body, so the body is built first whichever
+		// of them is asked for. That is also what keeps them in step: one
+		// picture, one scale, one shape.
+		if (bank != XBLAFONT_BANK_BODY && !glyphs[XBLAFONT_BANK_BODY][id][index].tried) {
+			glyphs[XBLAFONT_BANK_BODY][id][index].tried =
+				xblaFontBuildBody(&glyphs[XBLAFONT_BANK_BODY][id][index], id, index) ? 1 : -1;
 		}
 
-		out->tried = (outline ? xblaFontBuildOutline(out, id, index)
+		out->tried = (bank != XBLAFONT_BANK_BODY
+				? xblaFontBuildOutline(out, id, index, bank)
 				: xblaFontBuildBody(out, id, index)) ? 1 : -1;
 
 		if (out->tried > 0) {

@@ -8,6 +8,7 @@
 #include "config.h"
 #include "system.h"
 #include "texpack.h"
+#include "xblafont.h"
 #include "video.h"
 
 #include "../fast3d/gfx_api.h"
@@ -620,9 +621,26 @@ s32 videoGetClampedEdgeMode(void)
 	return texClampedEdge;
 }
 
+/**
+ * Thin Text Outlines (Mod.CleanTextOutlines, named that before 2026-09-12):
+ * which border an outlined glyph gets.
+ *
+ * The ROM's own glyphs are shaped by the shader or not, which is a shader
+ * program and nothing cached. The XBLA release's font serves tile 0 itself and
+ * has a picture for either position (xblafont.c), and those go through the
+ * texture cache under the glyph's own key - so the glyphs already uploaded are
+ * the other band, and without this the switch would not show until each of
+ * them happened to be evicted.
+ */
 void videoSetCleanTextOutlines(s32 on)
 {
+	const bool changed = gfx_clean_text_outlines != !!on;
+
 	gfx_clean_text_outlines = !!on;
+
+	if (changed && xblaFontHaveGlyphs()) {
+		videoResetTextureCache();
+	}
 }
 
 /**

@@ -19,7 +19,7 @@
  * remembered, and a key (F, the Spectator) that flew them out of their body.
  * So a fresh install plays like the original, and the Settings Preset at the
  * top of Dab's Mod Options (optionsmenu.c, g_ModPresets) turns the additions
- * on as a set. Smooth Text, Clean Text Outlines and Model LOD stay on: the
+ * on as a set. Smooth Text, Thin Text Outlines and Model LOD stay on: the
  * first two are fixes rather than looks, and the third is stock's own
  * behaviour. A pd.ini written by an older build keeps its values; only a
  * config with no line for a setting sees these.
@@ -627,12 +627,17 @@ bool modIsAlarmSoundEnabled(void)
 }
 
 /**
- * Clean Text Outlines: the border of outlined text drawn by the renderer as
+ * Thin Text Outlines: the border of outlined text drawn by the renderer as
  * a halo around the letter rather than the filled cell the font bakes in.
  * At the N64's resolution the cell reads as a bold outline; at a monitor's
  * it is a black square behind every glyph. The renderer holds its own copy
  * of this (gfx_clean_text_outlines); videoSetCleanTextOutlines() keeps them
  * together.
+ *
+ * The row was called "Clean Text Outlines" until 2026-09-12, and the pd.ini
+ * key and everything named after it still are, so that a config written by
+ * an older build keeps the setting. Off is not "no border": the XBLA
+ * release's font draws a bold one of its own shape either way (xblafont.c).
  */
 bool modIsCleanTextOn(void)
 {

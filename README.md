@@ -96,7 +96,7 @@ Built in, no pack needed. Each is on the same options page.
 
 | Setting | What it does |
 | - | - |
-| Clean Text Outlines | Outlined text gets a thin halo drawn by the renderer instead of the black cell the font bakes in, which at monitor resolutions is a slab behind every letter |
+| Thin Text Outlines | Outlined text gets a thin halo drawn by the renderer instead of the black cell the font bakes in, which at monitor resolutions is a slab behind every letter. Off is the bold border the cell stands for, drawn the same way |
 | Smooth Text | The font's glyphs are scaled up four times over with their edges sharpened, so letters have a clean edge instead of a staircase of blurred squares. On by default |
 | Model LOD | The game's own swap to low-detail bodies at a distance. Off keeps the full model at any range |
 | Enhance Textures | The game's own textures scaled up two, four or eight times over as they load, resampled through a curve rather than the GPU's straight blend. Nothing is invented, but a 32-texel wall stops being a grid of soft blobs. Textures that are themselves a dot pattern, like a halftone portrait or a screen of tiny text, are left alone. 2x by default; 4x costs four times the video memory and 8x sixteen |
