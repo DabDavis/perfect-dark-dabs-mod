@@ -2747,6 +2747,56 @@ free to be a normal.
   into the renderer. On the seeded 80-simulant match: off 30.0M, on 36.3M
   with the cutoff, 42.2M without (instructions/frame).
 
+### The N64 sheen (2026-09-13)
+
+A second look for the same materials: **Mod.XblaReflectStyle**, "Reflection
+Style" under Enable Reflections, Xbox 360 (0, default) or N64 Sheen (1), live.
+The idea was the user's, after a frame-exact comparison of the K7 Avenger
+drawn both ways.
+
+**How the stock gun draws its shine.** The K7's lists (`Gk7avengerZ`, inflated)
+are baked vertex colour except for three spans that set `G_LIGHTING |
+G_TEXTURE_GEN` with `G_TEXTURE` at `0x0800` and texture `0x3eb` (a fourth reads
+`0xb54`, within 17 levels of it). The K7 has no `WEAPONFLAG_00008000` ("special
+environment mapping"), so `bgunRender()` sets no gun light, and what is live is
+`lightsSetDefault()` from `bgRender()`: ambient 0x96, white along (0x4d, 0x4d,
+0x2e), LookAt from the camera. gfx_pc's texgen takes (N·lookat + 1) / 4 per
+vertex, Gouraud across big triangles, which is the hard banding.
+
+**What the style draws** (`xblaMeshBuildSheen()`): a copy of `envgdl` - the same
+batches, the same skipped ones - with `G_SETTIMG` pointing at `0x3eb` bound by
+number (`xblaTexBindTexture()`, so a texture pack repaints it; the decoder is
+`modelpackDecodeN64Texture()`, public now), every `G_TEXTURE` at `0x0800` (the
+stand-in tile is 32x32, `0x3eb`'s own size, so the scale means what it did), and
+the lists' own head clear of `G_LIGHTING | G_TEXTURE_GEN` taken out. The pass
+writes `lightsSetDefault()` after the node's `G_MTX` (LookAt marks the
+coefficients changed, so they are worked out under the mesh's own matrix),
+`TEXEL0 × SHADE` with shade alpha, `G_LIGHTING | G_TEXTURE_GEN` and
+`G_ADDITIVE_EXT`. The vertices are `xblaMeshEnvironmentVertices()`'s - the
+normal in the colour is what an RSP light reads anyway - with the sheen's share
+in alpha (`envsheen` keys the cache). Never on a forced draw: the title's cubes
+stay the release's.
+
+**Added, not blended - the finding that set the strength.** The first version
+dimmed 4J's colours by the share and added the sheen back, as the cube pass
+does. Every such variant drew darker than both games, from the release's own
+amounts up to the whole (seed 2 gun box mean 66.9-71.6 against N64 77.4 and
+Xbox 360 73.1). It was not the alpha: a white × shade-alpha combiner
+saturated, the same as white × 1. `0x3eb` × the lit shade is mostly navy (4, 9,
+28 on the body), and the N64's pale streaks are highlights on its paint. So
+the sheen is added over the undimmed colours at `XBLAMESH_SHEEN_SHARE()`, 2.5x
+the release's amount, capped: the K7's metal is 4J's 40% and becomes the
+whole; its 15% becomes 37.5%. Result: seed 2 mean 88.0, seed 6 39.2, and seed
+1 (gun shade alpha 229) 14.2, since the room's light still scales it. At the
+full share the body washes pale blue, and dimmed to black it shows dotted seams
+where the depth-equal pass misses AA edge pixels.
+
+**Checked on the card** (`--rng-seed --fixed-step`, the K7 given at frame 60):
+Xbox 360 style differs from the build before only in the fps digits; the N64
+path is identical. Not measured: instructions/frame. The pass count is the
+cube's, with gfx_pc's per-vertex lighting in place of the envmap transform.
+Not in the preset table.
+
 ## The interface art, and the logo (2026-09-11)
 
 Past the numbered textures and the font atlases, the records hold the art 4J

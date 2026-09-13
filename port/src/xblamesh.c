@@ -45,6 +45,7 @@
 #include "objmesh.h"
 #include "modelpack.h"
 #include "game/bg.h"
+#include "game/dlights.h"
 #include "lib/lib_2f490.h"
 
 #ifndef PLATFORM_N64
@@ -307,11 +308,13 @@ struct xblameshbuilt {
 	u8 *venv;          // two per emitted vertex: its atlas cell and reflection amount, the same
 	s32 numgfx;        // commands in gdl
 	Gfx *envgdl;       // gdl, binding the reflection atlas: see xblaMeshBuildEnvironment()
+	Gfx *sheengdl;     // envgdl, lit and sphere-mapped the N64 way: see xblaMeshBuildSheen()
 	s32 numenvcells;
 	u32 *envidx;       // the vertices that reflect, which is all the per-frame work visits
 	s32 numenvidx;
 	f32 envradius;     // how far the mesh reaches from its origin, for the distance cutoff
 	Col *dimcol;       // colours, dimmed by each vertex's full amount: the common case, made once
+	s32 envsheen;      // whether envvtx/envcol were made at the N64 sheen's share
 
 	// The posed normals made with posedvtx, for a mesh that reflects; NULL when
 	// that pose had no room for them.
@@ -3929,6 +3932,10 @@ static s32 envAtlasCount;
 static s32 optReflect = 1;
 static s32 envforce = XBLAMESH_ENV_SETTING;
 
+// Mod.XblaReflectStyle: the release's cube maps, or the N64 guns' sheen drawn
+// on the same materials. See xblaMeshBuildSheen().
+static s32 optReflectStyle = XBLAMESH_REFLECT_XBLA;
+
 // Mod.XblaReflectDistance: in metres, where the reflection is gone while the
 // Reflection Cutoff is on (Dab's Mod Options). See xblaMeshEnvironmentReach().
 static s32 optReflectDistance = 15;
@@ -3986,6 +3993,91 @@ static void xblaMeshCubeSample(const u8 *faces, s32 size, f32 x, f32 y, f32 z, f
 		const f32 bottom = face[(y1 * size + x0) * 4 + c] * (1.0f - wx) + face[(y1 * size + x1) * 4 + c] * wx;
 
 		out[c] = top * (1.0f - wy) + bottom * wy;
+	}
+}
+
+/**
+ * The N64 sheen's copy of the reflection list (Mod.XblaReflectStyle). It is
+ * what the stock guns draw on their metal: the K7 Avenger's lists switch on
+ * G_LIGHTING | G_TEXTURE_GEN round three spans, with G_TEXTURE at 0x0800 and
+ * ROM texture 0x3eb, so the RSP sphere-maps the streaks off each vertex's
+ * normal against the camera's LookAt and lights them with lightsSetDefault()'s
+ * white light (a fourth span reads 0xb54, within 17 levels of 0x3eb).
+ *
+ * The copy is envgdl - the same batches, the same skipped ones - with the
+ * atlas swapped for 0x3eb, the texture scale for the K7's, and the lists' own
+ * clear of the two modes taken out, so the pass's set survives each list's
+ * head. The stand-in tile is 32x32, which is 0x3eb's own size, so the scale
+ * means what it meant on the N64. Bound by number, so a texture pack repaints
+ * the streaks.
+ */
+#define XBLAMESH_SHEEN_TEXTURE 0x3eb
+#define XBLAMESH_SHEEN_SCALE   0x0800
+
+// The sheen's share of a material, from the release's amount (0-255). The
+// N64's streaks are highlights on its gun's own navy, so the sheen is added
+// over the lists' colours as they are, never blended towards the way the
+// release's cube is: 0x3eb is mostly navy itself, and taking the share out of
+// 4J's colours drew every reflecting material darker than either game, at
+// every share from the release's own to the whole (measured on the K7,
+// 2026-09-13). The K7 Avenger's metal is the release's 40% (the rest of the gun
+// 15%), and 40% is taken as the whole: two and a half times, capped, which
+// gives its rail the N64's white streak. A matte 10% material stays at a
+// quarter.
+#define XBLAMESH_SHEEN_SHARE(amount) ((amount) * 5 / 2 > 255 ? 255 : (amount) * 5 / 2)
+
+static const void *sheenTile;
+static s32 sheenTried;
+
+static void xblaMeshBuildSheen(struct xblameshbuilt *m)
+{
+	if (!m->envgdl) {
+		return;
+	}
+
+	if (!sheenTried) {
+		s32 w = 0;
+		s32 h = 0;
+		u8 *rgba = modelpackDecodeN64Texture(XBLAMESH_SHEEN_TEXTURE, &w, &h);
+
+		sheenTried = 1;
+
+		if (rgba) {
+			sheenTile = xblaTexBindTexture(XBLAMESH_SHEEN_TEXTURE, rgba, w, h);
+		}
+
+		if (!sheenTile) {
+			sysLogPrintf(LOG_WARNING, "xblamesh: the N64 sheen's texture %04x would not bind",
+					XBLAMESH_SHEEN_TEXTURE);
+		}
+	}
+
+	if (!sheenTile) {
+		return;
+	}
+
+	m->sheengdl = malloc((size_t)m->numgfx * sizeof(Gfx));
+
+	if (!m->sheengdl) {
+		return;
+	}
+
+	memcpy(m->sheengdl, m->envgdl, (size_t)m->numgfx * sizeof(Gfx));
+
+	for (s32 i = 0; i < m->numgfx; i++) {
+		Gfx *g = &m->sheengdl[i];
+		const u8 op = (u8)(g->words.w0 >> 24);
+
+		if (op == G_SETTIMG) {
+			g->words.w1 = (uintptr_t)sheenTile;
+		} else if (op == (u8)G_TEXTURE) {
+			g->words.w1 = (uintptr_t)(XBLAMESH_SHEEN_SCALE << 16 | XBLAMESH_SHEEN_SCALE);
+		} else if (op == (u8)G_CLEARGEOMETRYMODE) {
+			g->words.w1 &= ~(uintptr_t)(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+		} else if (op == G_DL && g->words.w1 >= (uintptr_t)m->envgdl &&
+				g->words.w1 < (uintptr_t)(m->envgdl + m->numgfx)) {
+			g->words.w1 = (uintptr_t)m->sheengdl + (g->words.w1 - (uintptr_t)m->envgdl);
+		}
 	}
 }
 
@@ -4237,6 +4329,8 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 		sysLogPrintf(LOG_NOTE, "xblamesh: %s reflects %d environment map%s, in %d of its %d batches",
 				what, numcells, numcells == 1 ? "" : "s", kept, batches);
 	}
+
+	xblaMeshBuildSheen(m);
 }
 
 static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
@@ -6655,6 +6749,16 @@ void xblaMeshSetReflections(s32 enabled)
 	optReflect = enabled ? 1 : 0;
 }
 
+s32 xblaMeshGetReflectStyle(void)
+{
+	return optReflectStyle;
+}
+
+void xblaMeshSetReflectStyle(s32 style)
+{
+	optReflectStyle = style == XBLAMESH_REFLECT_N64 ? XBLAMESH_REFLECT_N64 : XBLAMESH_REFLECT_XBLA;
+}
+
 /**
  * How much of the reflection the room leaves on this draw, 0 to 255 - and 0
  * for a draw that takes none at all.
@@ -6779,14 +6883,15 @@ static s32 xblaMeshEnvironmentReach(const struct xblameshbuilt *m, const Mtxf *r
  * of a skinned model draws the whole mesh's vertices.
  */
 static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct model *model,
-		const Vtx *posed, const f32 *normals, s32 light, Vtx **outVtx, Col **outCol)
+		const Vtx *posed, const f32 *normals, s32 light, s32 sheen, Vtx **outVtx, Col **outCol)
 {
 	const s32 unitnormals = normals == m->normals;
 	Vtx *vtx;
 	Col *col;
 
 	if (m->envvtx && m->envmodel == model && m->envframe == frameCount &&
-			m->envposed == posed && m->envnormals == normals && m->envlight == light) {
+			m->envposed == posed && m->envnormals == normals && m->envlight == light &&
+			m->envsheen == sheen) {
 		*outVtx = m->envvtx;
 		*outCol = m->envcol;
 		return 1;
@@ -6805,7 +6910,7 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 	for (s32 k = 0; k < m->numenvidx; k++) {
 		const u32 i = m->envidx[k];
 		const f32 *n = &normals[i * 3];
-		const u8 amount = m->venv[i * 2 + 1];
+		const u32 amount = sheen ? XBLAMESH_SHEEN_SHARE(m->venv[i * 2 + 1]) : m->venv[i * 2 + 1];
 		f32 nx = n[0], ny = n[1], nz = n[2];
 
 		if (!unitnormals) {
@@ -6833,6 +6938,7 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 	m->envposed = posed;
 	m->envnormals = normals;
 	m->envlight = light;
+	m->envsheen = sheen;
 	m->envvtx = vtx;
 	m->envcol = col;
 
@@ -7208,6 +7314,13 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 
+	// The N64 sheen (Mod.XblaReflectStyle) in place of the release's cube: the
+	// same pass from the copy that lights and sphere-maps 0x3eb the way the stock
+	// guns do (xblaMeshBuildSheen()), at the sheen's larger share. Never on a
+	// caller's forced draw - the title's 4J cubes are the release's intro.
+	const s32 sheen = envforce == XBLAMESH_ENV_SETTING && optReflectStyle == XBLAMESH_REFLECT_N64 &&
+			m->sheengdl != NULL;
+
 	// Whether this draw takes the release's reflections, decided before the
 	// colours are bound since a reflecting material's colours are scaled for
 	// it. Only in the opaque pass: the pass goes over the opaque list. The
@@ -7232,7 +7345,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// Made here rather than at the pass, so that a frame arena with no room
 		// for them leaves the colours unscaled as well.
 		if (envlight > 0 && !xblaMeshEnvironmentVertices(m, model, posed, normals,
-					envlight, &envvtx, &envcol)) {
+					envlight, sheen, &envvtx, &envcol)) {
 			envlight = 0;
 		}
 	}
@@ -7261,7 +7374,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		//
 		// Scaled by the material's amount and not by the room's light, which
 		// darkens the lists' colours and the reflection alike.
-		if (envlight > 0) {
+		// The N64 sheen is added over the colours as they are: see
+		// XBLAMESH_SHEEN_SHARE().
+		if (envlight > 0 && !sheen) {
 			Col *kept = NULL;
 
 			// Scaled by the amount the distance leaves (envreach), so the sheen
@@ -7337,7 +7452,41 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// (G_ADDITIVE_EXT) onto the nearest surface only. The amount is the
 		// vertex alpha, times the fade while the title fades the model.
 		if (envlight > 0) {
-			{
+			// The N64 sheen: the lit shade times the streak, added at the
+			// vertex's alpha (the sheen's share times the room's light) over
+			// the colours the lists drew undimmed.
+			if (sheen) {
+				const s32 fading = envfading;
+
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(envvtx));
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(envcol));
+				gDPPipeSync(renderdata->gdl++);
+				gDPSetCycleType(renderdata->gdl++, G_CYC_2CYCLE);
+				gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_INTER, G_RM_AA_ZB_XLU_INTER2);
+
+				// The light the stock gun's spans are drawn under: bgRender() sets
+				// it for the frame and bgunRender() leaves it for a gun without
+				// WEAPONFLAG_00008000, as the K7 is. Written here so a room's own
+				// lights left over from something else cannot stand in for it.
+				renderdata->gdl = lightsSetDefault(renderdata->gdl);
+
+				if (fading) {
+					gDPSetCombineLERP(renderdata->gdl++, TEXEL0, 0, SHADE, 0, SHADE, 0, ENVIRONMENT, 0,
+							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
+				} else {
+					gDPSetCombineLERP(renderdata->gdl++, TEXEL0, 0, SHADE, 0, 0, 0, 0, SHADE,
+							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
+				}
+
+				gSPSetGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT);
+				gSPDisplayList(renderdata->gdl++, m->sheengdl + (list - m->gdl));
+				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT);
+				gSPClearGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
+				frameDraws++;
+			} else {
 				const s32 fading = envfading;
 
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(envvtx));
@@ -8105,6 +8254,7 @@ PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
 	configRegisterInt("Mod.XblaMeshBoth", &optBoth, 0, 1);
 	configRegisterInt("Mod.XblaMeshPose", &optPose, 0, 1);
 	configRegisterInt("Mod.XblaReflections", &optReflect, 0, 1);
+	configRegisterInt("Mod.XblaReflectStyle", &optReflectStyle, XBLAMESH_REFLECT_XBLA, XBLAMESH_REFLECT_N64);
 	configRegisterInt("Mod.XblaReflectDistance", &optReflectDistance, 1, 1000);
 
 	// Mod.XblaMeshTextures is registered by xblatex.c, which is where the flag

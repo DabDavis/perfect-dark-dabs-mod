@@ -178,6 +178,20 @@ void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle);
 s32 xblaMeshGetReflections(void);
 void xblaMeshSetReflections(s32 enabled);
 
+/**
+ * Mod.XblaReflectStyle, "Reflection Style": what a reflecting material shows.
+ * XBLA is the release's cube maps, per pixel. N64 is the sheen the stock guns
+ * draw - the K7 Avenger's spans under G_LIGHTING | G_TEXTURE_GEN - on the same
+ * materials by the same amount: ROM texture 0x3eb sphere-mapped per vertex off
+ * the camera's LookAt, lit by lightsSetDefault()'s white light. The title's 4J
+ * cubes always take the release's. Live.
+ */
+#define XBLAMESH_REFLECT_XBLA 0
+#define XBLAMESH_REFLECT_N64  1
+
+s32 xblaMeshGetReflectStyle(void);
+void xblaMeshSetReflectStyle(s32 style);
+
 #define XBLAMESH_ENV_OFF     -1
 #define XBLAMESH_ENV_SETTING 0
 #define XBLAMESH_ENV_ON      1

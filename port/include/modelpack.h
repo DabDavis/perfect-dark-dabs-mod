@@ -109,6 +109,12 @@ u32 modelpackGetGeneration(void);
  */
 const void *modelpackBindMaterial(const struct objmaterial *mat, s32 *outAlpha, s32 *outSoft);
 
+/**
+ * One of the ROM's numbered textures as RGBA in the game's upload row order,
+ * malloc'd, or NULL. The XBLA meshes' N64 sheen binds 0x3eb with it.
+ */
+u8 *modelpackDecodeN64Texture(s32 texturenum, s32 *outWidth, s32 *outHeight);
+
 #ifdef __cplusplus
 }
 #endif

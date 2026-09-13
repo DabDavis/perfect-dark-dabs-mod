@@ -432,7 +432,7 @@ static void modelpackFlipRows(u8 *rgba, s32 width, s32 height)
  * makes a texture pack repaint a model pack's mesh live instead of baking in
  * whichever pack was selected when the mesh was built.
  */
-static u8 *modelpackDecodeN64Texture(s32 texturenum, s32 *outWidth, s32 *outHeight)
+u8 *modelpackDecodeN64Texture(s32 texturenum, s32 *outWidth, s32 *outHeight)
 {
 	struct texpool pool;
 	struct tex *tex;

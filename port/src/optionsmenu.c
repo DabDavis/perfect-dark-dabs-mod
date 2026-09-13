@@ -5105,6 +5105,33 @@ static MenuItemHandlerResult menuhandlerXblaReflections(s32 operation, struct me
 	return 0;
 }
 
+/**
+ * What the reflections look like: the release's own cube maps, or the stock
+ * guns' N64 sheen on the same materials. Hidden while reflections are off,
+ * since there is nothing for it to change. Live: both copies of the lists are
+ * built with the mesh, and the draw reads this.
+ */
+static MenuItemHandlerResult menuhandlerXblaReflectStyle(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !xblaMeshGetReflections();
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 2;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == XBLAMESH_REFLECT_N64
+				? "N64 Sheen" : "Xbox 360");
+	case MENUOP_SET:
+		xblaMeshSetReflectStyle((s32)data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = xblaMeshGetReflectStyle();
+	}
+
+	return 0;
+}
+
 static char g_XblaMeshPackText[80];
 
 /**
@@ -5364,6 +5391,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Reflections",
 		0,
 		menuhandlerXblaReflections,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Reflection Style",
+		0,
+		menuhandlerXblaReflectStyle,
 	},
 	{
 		MENUITEMTYPE_LABEL,
