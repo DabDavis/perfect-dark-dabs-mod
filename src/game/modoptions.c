@@ -504,7 +504,7 @@ bool modIsModelLodOn(void)
 }
 
 /**
- * XBLA Reflection Cutoff: the release's reflections fade out on models past
+ * Reflection Cutoff (the XBLA page): the release's reflections fade out on models past
  * Mod.XblaReflectDistance (xblaMeshEnvironmentReach()), where they are a few
  * pixels for a per-vertex cost every frame.
  */

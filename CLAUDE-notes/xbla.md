@@ -2558,7 +2558,9 @@ inside the fps counter).
 
 **The cutoff and the faster loop (2026-09-13).**
 
-- **XBLA Reflection Cutoff** (Dab's Mod Options, Display page;
+- **Reflection Cutoff** (the Xbox 360 (XBLA) page under Reflection Style,
+  hidden while reflections are off; it was "XBLA Reflection Cutoff" on Dab's
+  Mod Options' Display page until later on 2026-09-13;
   `g_ModOptions.xblareflectcutoff`, pd.ini `Mod.XblaReflectCutoff`, on in
   every preset and by default). With it on, `xblaMeshEnvironmentReach()` gives
   the reflection all its share within three quarters of

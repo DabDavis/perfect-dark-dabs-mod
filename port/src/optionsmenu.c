@@ -2633,24 +2633,6 @@ static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuit
 }
 
 /**
- * XBLA Reflection Cutoff: the release's reflections fade out past
- * Mod.XblaReflectDistance (15 metres unless pd.ini says otherwise), which is
- * most of their cost in a crowded match - see xblaMeshEnvironmentReach().
- */
-static MenuItemHandlerResult menuhandlerModXblaReflectCutoff(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GET:
-		return modIsXblaReflectCutoffOn();
-	case MENUOP_SET:
-		g_ModOptions.xblareflectcutoff = data->checkbox.value;
-		break;
-	}
-
-	return 0;
-}
-
-/**
  * Smooth Text: the font's glyphs scaled up with their edges sharpened. The
  * renderer keeps its own copy of this and of Enhance Textures, and drops its
  * texture cache when either changes, so the switch shows at once.
@@ -4257,14 +4239,6 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		menuhandlerModModelLod,
 	},
 	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"XBLA Reflection Cutoff",
-		0,
-		menuhandlerModXblaReflectCutoff,
-	},
-	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
@@ -5158,6 +5132,29 @@ static MenuItemHandlerResult menuhandlerXblaReflectStyle(s32 operation, struct m
 	return 0;
 }
 
+/**
+ * Reflection Cutoff: the release's reflections fade out past
+ * Mod.XblaReflectDistance (15 metres unless pd.ini says otherwise), which is
+ * most of their cost in a crowded match - see xblaMeshEnvironmentReach().
+ * Still g_ModOptions.xblareflectcutoff and covered by the Settings Preset;
+ * only the row moved here from Dab's Display page. Hidden while reflections
+ * are off, like Reflection Style.
+ */
+static MenuItemHandlerResult menuhandlerXblaReflectCutoff(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !xblaMeshGetReflections();
+	case MENUOP_GET:
+		return modIsXblaReflectCutoffOn();
+	case MENUOP_SET:
+		g_ModOptions.xblareflectcutoff = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
 static char g_XblaMeshPackText[80];
 
 /**
@@ -5425,6 +5422,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Reflection Style",
 		0,
 		menuhandlerXblaReflectStyle,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Reflection Cutoff",
+		0,
+		menuhandlerXblaReflectCutoff,
 	},
 	{
 		MENUITEMTYPE_LABEL,

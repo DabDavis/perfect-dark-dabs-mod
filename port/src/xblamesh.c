@@ -3937,7 +3937,7 @@ static s32 envforce = XBLAMESH_ENV_SETTING;
 static s32 optReflectStyle = XBLAMESH_REFLECT_XBLA;
 
 // Mod.XblaReflectDistance: in metres, where the reflection is gone while the
-// Reflection Cutoff is on (Dab's Mod Options). See xblaMeshEnvironmentReach().
+// Reflection Cutoff is on (the Xbox 360 (XBLA) page). See xblaMeshEnvironmentReach().
 static s32 optReflectDistance = 15;
 
 #define XBLAMESH_ENV_WANTED() (envforce > 0 || (envforce == 0 && optReflect))
