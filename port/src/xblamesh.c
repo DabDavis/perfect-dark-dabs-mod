@@ -6694,13 +6694,21 @@ s32 xblaMeshModelHasMesh(struct model *model)
 
 /**
  * The bbox a hit counts against: the one on the hit bone's own matrix, or
- * failing that the one whose matrix stands nearest the hit.
+ * failing that the one whose box stands nearest the hit.
+ *
+ * Nearest is measured to the box and not to its matrix: a matrix's origin is
+ * the joint the part turns about, at one end of it, so a hit high on a thigh
+ * stood nearer the pelvis's pivot than the thigh's. The box is in its matrix's
+ * own space the way modelTestBboxNodeForHit() reads it - a local coordinate is
+ * (at - m[3]) . m[i] / |m[i]|^2 - and a distance outside it is scaled back by
+ * |m[i]|. A hit inside two boxes goes to the one whose centre is nearer.
  */
 static struct modelnode *xblaMeshHitBbox(struct model *model, s32 mtxindex, const struct coord *at)
 {
 	struct modelnode *node = model->definition->rootnode;
 	struct modelnode *nearest = NULL;
-	f32 bestd = 3.4e38f;
+	f32 bestout = 3.4e38f;
+	f32 bestcentre = 3.4e38f;
 
 	for (s32 walked = 0; node && walked < 4096; walked++) {
 		if ((node->type & 0xff) == MODELNODETYPE_BBOX) {
@@ -6711,13 +6719,35 @@ static struct modelnode *xblaMeshHitBbox(struct model *model, s32 mtxindex, cons
 			}
 
 			if (index >= 0 && index < model->definition->nummatrices) {
-				const f32 dx = model->matrices[index].m[3][0] - at->x;
-				const f32 dy = model->matrices[index].m[3][1] - at->y;
-				const f32 dz = model->matrices[index].m[3][2] - at->z;
-				const f32 d = dx * dx + dy * dy + dz * dz;
+				const Mtxf *mtx = &model->matrices[index];
+				const struct modelrodata_bbox *box = &node->rodata->bbox;
+				const f32 lo[3] = { box->xmin, box->ymin, box->zmin };
+				const f32 hi[3] = { box->xmax, box->ymax, box->zmax };
+				const f32 rel[3] = { at->x - mtx->m[3][0], at->y - mtx->m[3][1], at->z - mtx->m[3][2] };
+				f32 out = 0.0f;
+				f32 centre = 0.0f;
 
-				if (d < bestd) {
-					bestd = d;
+				for (s32 a = 0; a < 3; a++) {
+					const f32 sq = mtx->m[a][0] * mtx->m[a][0] + mtx->m[a][1] * mtx->m[a][1]
+						+ mtx->m[a][2] * mtx->m[a][2];
+					f32 local;
+					f32 past;
+					f32 off;
+
+					if (sq <= 0.0f) {
+						continue;
+					}
+
+					local = (rel[0] * mtx->m[a][0] + rel[1] * mtx->m[a][1] + rel[2] * mtx->m[a][2]) / sq;
+					past = local < lo[a] ? lo[a] - local : local > hi[a] ? local - hi[a] : 0.0f;
+					off = local - (lo[a] + hi[a]) * 0.5f;
+					out += past * past * sq;
+					centre += off * off * sq;
+				}
+
+				if (out < bestout || (out == bestout && centre < bestcentre)) {
+					bestout = out;
+					bestcentre = centre;
 					nearest = node;
 				}
 			}
@@ -6751,7 +6781,8 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 	struct coord besthit;
 	struct coord bestnormal;
 	Gfx *besttri = NULL;
-	s32 bestvtx = -1;
+	s32 bestidx[3] = { -1, -1, -1 };
+	f32 bestbary[3] = { 1.0f, 0.0f, 0.0f };
 	s32 mtxindex = -1;
 
 	if (!numHitLists || !model || !model->matrices || !model->definition) {
@@ -6983,13 +7014,40 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 						const f32 sq = dx * dx + dy * dy + dz * dz;
 
 						if (sq < *sqdist) {
+							// Where on the triangle it landed, taken now: the
+							// posed positions are overwritten by the next mesh.
+							const struct coord e0 = { p[1]->x - p[0]->x, p[1]->y - p[0]->y, p[1]->z - p[0]->z };
+							const struct coord e1 = { p[2]->x - p[0]->x, p[2]->y - p[0]->y, p[2]->z - p[0]->z };
+							const struct coord e2 = { hitpos.x - p[0]->x, hitpos.y - p[0]->y, hitpos.z - p[0]->z };
+							const f32 d00 = e0.x * e0.x + e0.y * e0.y + e0.z * e0.z;
+							const f32 d01 = e0.x * e1.x + e0.y * e1.y + e0.z * e1.z;
+							const f32 d11 = e1.x * e1.x + e1.y * e1.y + e1.z * e1.z;
+							const f32 d20 = e2.x * e0.x + e2.y * e0.y + e2.z * e0.z;
+							const f32 d21 = e2.x * e1.x + e2.y * e1.y + e2.z * e1.z;
+							const f32 denom = d00 * d11 - d01 * d01;
+
 							*sqdist = sq;
 							besthit = hitpos;
 							bestnormal = normal;
 							bestm = m;
 							bestnode = node;
-							bestvtx = idx[0];
 							besttri = gdl;
+
+							for (s32 v = 0; v < 3; v++) {
+								bestidx[v] = idx[v];
+							}
+
+							if (denom > 0.0f) {
+								const f32 b1 = (d11 * d20 - d01 * d21) / denom;
+								const f32 b2 = (d00 * d21 - d01 * d20) / denom;
+
+								bestbary[1] = b1 > 0.0f ? b1 : 0.0f;
+								bestbary[2] = b2 > 0.0f ? b2 : 0.0f;
+								bestbary[0] = 1.0f - b1 - b2 > 0.0f ? 1.0f - b1 - b2 : 0.0f;
+							} else {
+								bestbary[0] = 1.0f;
+								bestbary[1] = bestbary[2] = 0.0f;
+							}
 						}
 					}
 				}
@@ -7003,20 +7061,43 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 		return 0;
 	}
 
-	// The part: the bone that moves the hit triangle's first vertex most.
+	// The part: the bone that moves the hit point most - each corner's weights,
+	// blended by where on the triangle the hit is, so a triangle across a joint
+	// counts as the side it was hit on rather than as its first vertex.
 	if (bestm->bindpos && bestm->bones && bestm->weights && optPose) {
-		const u8 *bone = &bestm->bones[bestvtx * 4];
-		const f32 *weight = &bestm->weights[bestvtx * 3];
-		const s32 num = bone[3] < 3 ? bone[3] : 3;
-		s32 best = 0;
+		u8 bonelist[9];
+		f32 bonesum[9];
+		s32 numbones = 0;
+		f32 bestsum = 0.0f;
 
-		for (s32 j = 1; j < num; j++) {
-			if (weight[j] > weight[best]) {
-				best = j;
+		for (s32 v = 0; v < 3; v++) {
+			const u8 *bone = &bestm->bones[bestidx[v] * 4];
+			const f32 *weight = &bestm->weights[bestidx[v] * 3];
+			const s32 num = bone[3] < 3 ? bone[3] : 3;
+
+			for (s32 j = 0; j < num; j++) {
+				s32 k = 0;
+
+				while (k < numbones && bonelist[k] != bone[j]) {
+					k++;
+				}
+
+				if (k == numbones) {
+					bonelist[numbones] = bone[j];
+					bonesum[numbones] = 0.0f;
+					numbones++;
+				}
+
+				bonesum[k] += weight[j] * bestbary[v];
 			}
 		}
 
-		mtxindex = bone[best] < model->definition->nummatrices ? bone[best] : -1;
+		for (s32 k = 0; k < numbones; k++) {
+			if (bonesum[k] > bestsum) {
+				bestsum = bonesum[k];
+				mtxindex = bonelist[k] < model->definition->nummatrices ? bonelist[k] : -1;
+			}
+		}
 	}
 
 	bbox = xblaMeshHitBbox(model, mtxindex, &besthit);

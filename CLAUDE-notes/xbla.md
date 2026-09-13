@@ -1086,10 +1086,20 @@ still drawn is the hit, and its bbox is made the only `g_Vars.hitnodes` entry
 so `chrBruise()` lays the bruise in that part.
 
 **The part comes from the bone.** A body is one mesh on one node, so the walk
-order says nothing: the hit triangle's first vertex's heaviest bone is a model
-matrix, and the part is the bbox whose `modelFindNodeMtxIndex()` is that
-matrix, or the bbox whose matrix stands nearest the hit when the bone has none.
-A head shot does four times a body shot, so this is the part that matters.
+order says nothing: the bone that moves the hit point most is a model matrix,
+and the part is the bbox whose `modelFindNodeMtxIndex()` is that matrix. A
+head shot does four times a body shot, so this is the part that matters.
+
+Two refinements (2026-09-13). The bone is found from **the hit point**, not
+the triangle's first vertex: the three corners' weights are blended by the
+hit's barycentric position, so a triangle across a joint counts as the side
+it was hit on. And a bone with no bbox (a G5 guard has 19 matrices, 15 to 18
+carry none) takes the bbox **nearest the hit as a box**, not the one whose
+matrix origin is nearest: an origin is the joint a part turns about, at one
+end of it, so a hit high on a thigh stood nearer the pelvis pivot. The box is
+measured in its matrix's space the way `modelTestBboxNodeForHit()` reads it
+(local = `(p - m[3]) . m[i] / |m[i]|^2`), and a hit inside two boxes goes to
+the nearer centre.
 
 `chrTestHit()` and `func0f06c28c()` only reach `func0f06bea0()` after an N64
 bbox is hit; a model with a drawn mesh (`xblaMeshModelHasMesh()`, cached per
@@ -1125,6 +1135,24 @@ feet, the held gun - and 204 of the 1040 cells differ, all at edges where the
 shapes do: the release's head starts a row lower, more of the upper arm counts
 as bicep, and the knee sits lower (44 left-thigh cells against 12). Hits
 622/1040 through the mesh, 633/1040 through the N64 body.
+
+The two refinements above, checked as an A/B of two binaries in one session
+(the commit's and the change's, run side by side, each with its own
+`--savedir`), on a 78x120 grid at the same guard: hit or miss identical in all
+9360 cells, the part changed in 163, and where both the mesh and the N64 body
+are hit the part agrees with the N64's in 1324 of 1618 cells against 1297
+(the N64 sides with the change in 88 of the 163, with the old rule in 61).
+Most of it is the pelvis/thigh line. The N64 body is a reference, not the
+truth - where the shapes differ, either answer can be right.
+
+**Three traps in re-running the grid.** The nearest chr by `prop->z` can have
+**garbage matrices** at the stop - NaNs and 1e38s, a chr not posed this tick -
+and the grid then shoots at nothing meaningful without an error; pick a chr
+with `PROPFLAG_ONTHISSCREENTHISTICK`, not `CHRCFLAG_HIDDEN`, and
+`matrices[0].m[3][3] == 1`. Write the ray with `%.9g`, since a `%f` of a
+huge value is a literal gdb refuses ("Invalid cast"). And a grid from an
+earlier session is **not a baseline**: a later build put the frame-1700 guard
+at z 626 instead of 132, so build the commit (`git stash`) and run both.
 
 #### Bruises (2026-09-12)
 
