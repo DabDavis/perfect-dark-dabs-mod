@@ -2643,11 +2643,59 @@ the simulant standing there is a different model in each.
 
 **Not done:** the pass is per vertex and the cubes' mips are unused, as on the
 title, and a sphere map's rim can smear across a triangle whose vertices
-reflect to opposite sides of it (grazing angles, silhouettes). **View space is
-the assumption** that the title's fit could not separate from object space.
-In a first-person gun it decides whether the sheen moves as the player turns:
-under view space it does not. A Xenia capture of a gun while turning would
-settle it.
+reflect to opposite sides of it (grazing angles, silhouettes).
+
+**View space is confirmed** for the held gun (2026-09-13), from the release's
+own draw log in Xenia. The method is written up below: the title's fit could
+not separate view space from object space, and a turning gun can.
+
+### The release's reflections are in view space: the turning-gun check
+
+**The capture.** The self-built Xenia with `PD_DRAWLOG` set was driven to
+dataDyne Defection and turned on the spot with the Falcon 2 in hand, three
+settled headings about 60 degrees apart. The log was 11 GB by then, so the
+three windows were cut out to `.xbla-work/gunturn/windows.npy`
+(`cubes.py`, `yaw2.py` beside it). The rig (`.xbla-work/gunturn/`):
+- `pad.py`: a virtual Xbox 360 pad through `/dev/uinput`, fed from a FIFO.
+  sdg has an ACL on `/dev/uinput`.
+- Xenia runs `--hid=sdl` with the DualSense hidden
+  (`SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6`).
+- xdotool clicks Xenia's own sign-in dialogs, holding each click 0.3 s.
+
+**The gun's draw** is 303 and 756 indices with vertex shader `880e37e0`,
+pixel shader `880dd800`, its texture at fetch 0 and a real cube map at fetch
+2. A fetch is a cube when `dword_5` bits 9-10 are 3 (`xenos.h`,
+`DataDimension::kCube`). Filtering on a 256x256 DXT1 texture instead catches
+particles and quads. The release draws nothing under one camera matrix: c2-c5
+are the projection alone, and each object's palette (c6 on, 3x4 blocks at a
+tenth scale) already carries the view.
+
+**What turns with the camera, and what does not:**
+- c2-c5 are identical at all three headings.
+- Every palette slot the gun uses (0-9, 11-18) keeps its rotation to 0.0043 of
+  0.1, about 2.5 degrees of sway, and its translation's length to a unit.
+- Slot 10 (c36-c38) is the only block that turns, and it is left over from
+  other draws: a hand bone 41 units off at the first heading, a world object
+  839 units off at the other two. Skinning the gun with it would throw
+  vertices 8 metres, and the gun draws whole.
+- The pixel constants ps c6-c13 (eight world-sized points) move by under a
+  unit between headings. They do not rotate.
+
+No input to the gun's draw rotates with the camera, so its cube lookup cannot
+depend on heading: the environment is fixed to the eye, as the port draws it.
+The props share the shader pair and the constant layout, with no world
+rotation for them to use either.
+
+**Traps:**
+- The same-heading stills of the gun differ in most pixels from idle sway, so
+  judging the sheen by eye or by crop difference proves nothing. The
+  constants are what settle it.
+- Grouping draws by index count and shaders alone mixes meshes.
+- ps c0.w went from 1 to 0 between the first heading and the others. It is a
+  flag, not a rotation.
+- Xenia's `ConstantRegisterMap.float_bitmap` would say which constants a
+  shader reads, but a skinning shader addresses its palette dynamically and
+  marks all of them.
 
 ## The interface art, and the logo (2026-09-11)
 
