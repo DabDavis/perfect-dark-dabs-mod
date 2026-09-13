@@ -1998,7 +1998,8 @@ static MenuItemHandlerResult menuhandlerOpenBindsMenu(s32 operation, struct menu
 /**
  * Settings Preset: the fork's additions turned on or off as a set.
  *
- * Vanilla is stock Perfect Dark with the fixes on; Dab's Settings is what the
+ * Vanilla is stock Perfect Dark with the fixes on, but with the ROM's own text
+ * (Smooth Text and Thin Text Outlines off since 2026-09-13); Dab's Settings is what the
  * fork shipped as its defaults until 2026-09-09; Ghost Trials is Vanilla with
  * the time trial racing. Custom is any other mix, and is what the dropdown
  * reads once a single setting is changed away from a preset - the preset is
@@ -2044,9 +2045,9 @@ struct modpreset {
 static const struct modpreset g_ModPresets[] = {
 	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits
 	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0     },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  true,  true,   MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true  },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true  },
 	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true  },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  true,  true,   MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true  },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true  },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)

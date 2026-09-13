@@ -40,7 +40,7 @@ glyph dump (`import_texture_ci4`, indices and alphas per row) settled it in
 one look. Dump the texels before suspecting the renderer.
 
 The port draws the border itself when Thin Text Outlines is on (Dab's Mod
-menu, default on - the row was called Clean Text Outlines until 2026-09-12
+menu, default off since 2026-09-13 - the row was called Clean Text Outlines until 2026-09-12
 and its key is still `Mod.CleanTextOutlines`, so that nobody's setting is
 lost to the rename): `SHADER_OPT_TEXT_OUTLINE` in
 `gfx_opengl.cpp` takes the body alpha of tile 1 half a texel out in eight

@@ -19,10 +19,12 @@
  * remembered, and a key (F, the Spectator) that flew them out of their body.
  * So a fresh install plays like the original, and the Settings Preset at the
  * top of Dab's Mod Options (optionsmenu.c, g_ModPresets) turns the additions
- * on as a set. Smooth Text, Thin Text Outlines and Model LOD stay on: the
- * first two are fixes rather than looks, and the third is stock's own
- * behaviour. A pd.ini written by an older build keeps its values; only a
- * config with no line for a setting sees these.
+ * on as a set. Model LOD stays on, being stock's own behaviour. Smooth Text
+ * and Thin Text Outlines were on too, as fixes rather than looks, until
+ * 2026-09-13: they change how every line of text is drawn, so they are off
+ * with the rest and the text is the ROM's. A pd.ini written by an older
+ * build keeps its values; only a config with no line for a setting sees
+ * these.
  */
 struct modoptions g_ModOptions = {
 	0,                        // jumpheight: off, so a fresh install plays like the game people remember
@@ -53,7 +55,7 @@ struct modoptions g_ModOptions = {
 	false,                    // codaiming
 	true,                     // codaimlock: what COD Style Aiming means until it is turned off
 	true,                     // alarmsound
-	true,                     // cleantext
+	false,                    // cleantext: the ROM's bold outline cell, like the rest of the text
 	MODTILT_OFF,              // cameratilt: the tilt is the first thing a returning player notices
 	false,                    // tiltinvert: the lean the head makes going with the step, not against it
 	false,                    // tiltforward: the tilt shipped as a roll and a bob, so this is a choice
@@ -68,7 +70,7 @@ struct modoptions g_ModOptions = {
 	0,                        // runbestscore: nothing survived yet
 	0,                        // runbestrooms
 	true,                     // modellod: stock's distance models
-	true,                     // smoothtext: a fix, so on
+	false,                    // smoothtext: the ROM's glyphs, like the rest of the text
 	MODENHANCE_OFF,           // enhancetextures
 	MODVIVID_OFF,             // vividcolours
 	MODBLACK_OFF,             // blacklevel
