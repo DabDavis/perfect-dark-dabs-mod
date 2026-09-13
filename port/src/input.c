@@ -773,9 +773,13 @@ static void inputEnsureBind(s32 ctrl, u32 ck, u32 vk)
  * D-pad up: the menus read them as right and left, and a match reads them
  * as the fire mode buttons - see bondmove.c and menu.c.
  *
+ * D-pad down goes to the N64 D-pad down key, which a menu reads as down only
+ * while the option is on (menu.c), since stock menus take down from C-down
+ * and the keyboard's Q and middle mouse sit on N64 D-pad down as well.
+ *
  * D-pad up goes to the N64 D-pad up key rather than to the radial menu's own
- * key, which is N64 D-pad down: the menus read the N64 D-pad as up and down,
- * so a D-pad up that sent D-pad down could not climb a menu. Stock gameplay
+ * key, which is N64 D-pad down: the menus read N64 D-pad up as up, so a
+ * D-pad up that sent D-pad down could not climb a menu. Stock gameplay
  * does nothing with N64 D-pad up, so the radial menu simply listens for it
  * as well while the option is on - see bondmove.c and activemenutick.c. The
  * first build of this bound it the other way; on takes it off that key too,

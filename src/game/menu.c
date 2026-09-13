@@ -53,6 +53,7 @@
 #ifndef PLATFORM_N64
 #include "video.h"
 #include "input.h"
+#include "game/modoptions.h"
 #include "platform.h"
 #include "system.h"
 #include "game/modrules.h"
@@ -5026,6 +5027,21 @@ void menuProcessInput(void)
 			}
 #endif
 
+#ifndef PLATFORM_N64
+			// Akimbo Triggers moves the controller's D-pad down off C-down
+			// too, so that in a match it opens the left hand's menu; here it
+			// is still down. Only while the option is on, since the keyboard's
+			// own D-pad down keys (Q, middle mouse) never moved a menu
+			u32 downbuttons = D_CBUTTONS | (modIsAkimboTriggersOn() ? D_JPAD : 0);
+
+			if (buttons & downbuttons) {
+				yhelddir = 1;
+			}
+
+			if (buttonsnow & downbuttons) {
+				ytapdir = 1;
+			}
+#else
 			if (buttons & D_CBUTTONS) {
 				yhelddir = 1;
 			}
@@ -5033,6 +5049,7 @@ void menuProcessInput(void)
 			if (buttonsnow & D_CBUTTONS) {
 				ytapdir = 1;
 			}
+#endif
 
 #ifndef PLATFORM_N64
 			// Akimbo Triggers moves the controller's D-pad left and right off
