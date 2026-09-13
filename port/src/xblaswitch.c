@@ -30,7 +30,8 @@ s32 xblaSwitchGetEnabled(void)
 		&& xblaTexGetEnabled()
 		&& xblaStageGetEnabled()
 		&& xblaFontGetEnabled()
-		&& xblaExplGetEnabled();
+		&& xblaExplGetEnabled()
+		&& xblaMeshGetReflections();
 }
 
 void xblaSwitchSetEnabled(s32 enabled)
@@ -47,6 +48,7 @@ void xblaSwitchSetEnabled(s32 enabled)
 	xblaTexSetEnabled(enabled);
 	xblaFontSetEnabled(enabled);
 	xblaExplSetEnabled(enabled);
+	xblaMeshSetReflections(enabled);
 }
 
 /**

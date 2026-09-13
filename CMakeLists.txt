@@ -363,6 +363,15 @@ set_source_files_properties(${SRC_FAST3D} PROPERTIES
   COMPILE_OPTIONS "-O2;-finline-functions"
 )
 
+# The XBLA mesh loader is the same kind of loop: every skinned mesh posed, and
+# the release's reflections worked out per vertex, per model, every frame. At
+# -Og its small helpers (xblaMeshRound, the matrix transforms) stay calls. No
+# -march or fast maths, so the floats - and the shot test that reads the posed
+# triangles - come out the same.
+set_source_files_properties("${CMAKE_SOURCE_DIR}/port/src/xblamesh.c" PROPERTIES
+  COMPILE_OPTIONS "-O2;-finline-functions"
+)
+
 # Enhance Textures' resampler is a few float loops over every texel a texture
 # uploads, run on the render thread as the texture is first drawn. Its clamps
 # are min/max on floats, which the vectoriser will not touch while NaN and

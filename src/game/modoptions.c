@@ -77,6 +77,7 @@ struct modoptions g_ModOptions = {
 	false,                    // missionrespawn: like Start Armed, a choice, not a default
 	MODLIVES_UNLIMITED,       // missionlives
 	true,                     // tranqeffect: stock's, and the dart is meant to be felt
+	true,                     // xblareflectcutoff: only does anything with the release's reflections on, where it is most of their cost
 };
 
 /**
@@ -500,6 +501,16 @@ f32 modGetGunSwayScale(void)
 bool modIsModelLodOn(void)
 {
 	return g_ModOptions.modellod != 0;
+}
+
+/**
+ * XBLA Reflection Cutoff: the release's reflections fade out on models past
+ * Mod.XblaReflectDistance (xblaMeshEnvironmentReach()), where they are a few
+ * pixels for a per-vertex cost every frame.
+ */
+bool modIsXblaReflectCutoffOn(void)
+{
+	return g_ModOptions.xblareflectcutoff != 0;
 }
 
 /**

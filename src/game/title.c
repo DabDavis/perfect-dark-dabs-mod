@@ -1288,6 +1288,7 @@ static Gfx *titleRenderPdLogo4JCube(Gfx *gdl, struct model *model, const struct 
 
 	if (alpha < 255) {
 		xblaMeshSetOpaqueMode(TITLE_RM_DEPTH_ONLY(2), TITLE_RM_DEPTH_ONLY(1));
+		xblaMeshSetEnvironment(XBLAMESH_ENV_OFF);
 		gdl = titleRenderPdLogoModel(gdl, model, true, 1.0f, 240, 1.0f, &mtx, vertices, colours);
 		xblaMeshSetOpaqueMode(G_RM_AA_ZB_XLU_INTER2, G_RM_AA_ZB_XLU_INTER);
 	}
@@ -1295,10 +1296,11 @@ static Gfx *titleRenderPdLogo4JCube(Gfx *gdl, struct model *model, const struct 
 	// The cubes' sheen is 4J's reflections of their environment maps
 	// (CLAUDE-notes/xbla.md, "The release's reflections"): the emblem's as the
 	// tray tips back, and the marble cube's bright bevels. Only round the pass
-	// that colours the cube.
-	xblaMeshSetEnvironment(&mtx);
+	// that colours the cube, and whatever Mod.XblaReflections says, since this
+	// is the release's intro.
+	xblaMeshSetEnvironment(XBLAMESH_ENV_ON);
 	gdl = titleRenderPdLogoModel(gdl, model, true, 1.0f, 240, 1.0f, &mtx, vertices, colours);
-	xblaMeshSetEnvironment(NULL);
+	xblaMeshSetEnvironment(XBLAMESH_ENV_SETTING);
 
 	xblaMeshSetOpaqueMode(0, 0);
 	g_TitleXblaModelAlpha = 255;

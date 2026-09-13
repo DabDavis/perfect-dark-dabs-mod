@@ -169,14 +169,26 @@ void xblaMeshSetBypass(s32 on);
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle);
 
 /**
- * While set, 4J's red and marble cubes (the only meshes built with their
- * normals) draw the release's reflections: each material whose byte 16 is not
- * zero is blended that percentage of the way towards environment map byte 24,
- * looked up by the eye's ray reflected in the surface. modelview takes the mesh to view space (the
- * eye at the origin). Set it round the modelRender() call that colours the
- * mesh - never round a depth-only pass - and clear it after with NULL.
+ * Mod.XblaReflections, "Enable Reflections": the release's reflections on its
+ * meshes. Each material whose byte 16 is not zero is blended that percentage
+ * of the way towards environment map byte 24, looked up by the eye's ray
+ * reflected in the surface, in view space. On by default, like the release's
+ * other parts under the meshes' own switch, and live.
  */
-void xblaMeshSetEnvironment(const Mtxf *modelview);
+s32 xblaMeshGetReflections(void);
+void xblaMeshSetReflections(s32 enabled);
+
+#define XBLAMESH_ENV_OFF     -1
+#define XBLAMESH_ENV_SETTING 0
+#define XBLAMESH_ENV_ON      1
+
+/**
+ * A caller's word over Mod.XblaReflections for the draws it makes until it
+ * puts XBLAMESH_ENV_SETTING back: the title's 4J cubes are the release's
+ * intro and reflect whatever the setting says (ON round the pass that colours
+ * them), and never in a depth-only pass (OFF round that one).
+ */
+void xblaMeshSetEnvironment(s32 force);
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode);

@@ -2459,6 +2459,196 @@ channel, and check any region mask with a label image. Scripts:
 wrote this (a numpy rasteriser over tools/texpack/xblamesh.py). Rebuild from
 this description if they are gone.
 
+### The reflections on every mesh (2026-09-13)
+
+The title's two cubes were the only meshes drawn with the release's
+reflections. Every mesh has them now, behind **Mod.XblaReflections** ("Enable
+Reflections" on the XBLA page, on by default like Enable Explosions, and part
+of F6's whole-release switch).
+
+**Scope, from the package** (`tools/texpack/xblamesh.py`, every mesh's draws):
+231 meshes have a material with byte 16 non-zero, 131 of them skinned. Cube 0
+(the grey studio) is 438 of the 478 reflecting draws; cubes 1-4 are the rest.
+The percentages run 1 to 100, mostly 10-50. The reflecting slots include the
+first-person guns (the `G` models sort between the chrs and the props), the
+third-person guns a guard holds, doors, cars and consoles.
+
+**What changed from the title-only version:**
+
+- **Every build reads its normals** (`b.keepnormals = 1`); a mesh with no
+  reflecting material frees them again in `xblaMeshBuildEnvironment()`.
+  `xblaMeshBuildKeepNormals` is gone.
+- **An atlas is made once per set of cubes** (`envAtlasKey`/`envAtlasTile`):
+  before, a second mesh reflecting the grey studio decoded the cube and built
+  the sphere map again, only for `xblaTexBindImage()` to free it.
+- **The space is the node's own float matrix** (`root`), not a matrix the
+  caller hands in. A posed copy is `posedfine` steps to a unit, so its
+  positions are divided back before `root` takes them to the view. The lookup
+  is in view space, so the sphere map made for an eye looking down -z is right
+  for any camera: in its own space the eye always looks down -z. **Nothing
+  about the atlas is tied to the title.**
+- **A skinned mesh's normals are posed** in `xblaMeshPose()` by the same blend
+  of the palette's rotations as its positions (`posednrm`, frame arena). Bind
+  normals under a posed body point wherever the bind pose had the limb.
+- **The room's light reaches the reflection.** The lists' colours are blended
+  towards the node's fog colour by its alpha in the first cycle, so the
+  reflection's share is `amount x (255 - fog alpha)`, baked into the pass's
+  vertex alpha (`xblaMeshEnvironmentLight()`). Which colour is the fog colour
+  follows `modelApplyRenderModeType3/4()` by `unk30`: the environment
+  colour's for 4, the fog colour's for 5 and 7, none for the other values or
+  for node modes 1 and 2. Modes 8 and 9 (cloak, shimmer) take no reflection.
+- **No depth buffer, no reflection.** The pass is `ZB_XLU_INTER`: without
+  depth it would add to the back faces too. This leaves out the boot
+  sequence's Rare and Microsoft logos, which draw without depth although the
+  release reflects cubes 2 and 3 on them.
+- **One copy per model per frame.** A skinned model's fifteen parts all draw
+  the whole mesh under the first part's matrix, so the reflection vertices
+  and the scaled colours are kept for (model, frame, source), as the pose is.
+  Both are made **before** the colours are bound: a frame arena with no room
+  for the vertices leaves the colours unscaled instead of drawing the material
+  darker with nothing added back.
+- **The title** calls `xblaMeshSetEnvironment(XBLAMESH_ENV_OFF)` round the
+  depth-only pass and `XBLAMESH_ENV_ON` round the colour pass, then
+  `XBLAMESH_ENV_SETTING`. It is the release's intro, so its cubes reflect
+  whatever the setting says.
+- **The copy draws only the batches that reflect.** A batch is one material
+  and opens with its `G_COL` then `G_VTX` (`xblaMeshWriteBatches()`), so a
+  batch whose vertices all have amount 0 has its head and its `G_TRI1`/`G_TRI4`
+  turned into `G_NOOP` in the copy. The offset is `(w1 & 0xfffffe) /
+  sizeof(Col)`: `SEGADDR` sets the low bit on PC. The two guns in the Combat
+  Simulator keep 82 of 131 and 87 of 273 batches (the build's log line says
+  so per mesh). The per-frame work skips the same vertices: no reflection
+  vertex is written, and no normal posed, where the amount is 0.
+- **Posed normals only while reflections are wanted** (`XBLAMESH_ENV_WANTED()`).
+  Tested on the copy alone, the pose blended normals with the setting off,
+  which inflated the first "off" measurement.
+
+**The first version cost 40% of the main thread** on the seeded 80-simulant
+Combat Simulator match (`$SCRATCH/perfrefl.sh`, perfframes.sh without the mod
+dir): 56.0M instructions/frame on against 40.0M off, 160 draws against 118.
+A profile put `xblaMeshPose` at 21% flat (normals for every vertex),
+`xblaMeshEnvironmentVertices` at 10% and `xblaMeshRound` at 4% (every vertex,
+reflecting or not), and `gfx_sp_tri_emit` at 9% (whole lists drawn twice).
+The two bullets above are the answer to that profile.
+
+**After them**, same match (instructions/frame, main thread): HEAD 30.5M;
+reflections off 31.8M; reflections on 46.9M, with 139 draws against 118. The off
+path went from +9.5M to +1.3M. Culling took only about 1M off the on path,
+so **reflections still cost about 15M a frame with 80 simulants**. What is
+left is per vertex, per model, per frame: every simulant's gun is its own
+model, with its own posed normals and reflection vertices (a few sqrt and a
+division each). It scales with the number of reflecting models on screen, so
+a normal match of a few simulants pays a small fraction of this. Both levers are taken in "The cutoff and the faster
+loop" below. Culling left the
+picture pixel-identical: the title at 201/311/540 against HEAD, and Combat
+Simulator frames 300 and 600 against the build before it (300 differs only
+inside the fps counter).
+
+**Checked on the card** (offscreen, `--fixed-step --rng-seed 1`, gdb stopping
+`videoEndFrame` on a condition, `$SCRATCH/shoot.py`):
+
+- **Title:** at `g_PdLogo4JSpinTimer` 201, 311 and 540 the new build is
+  pixel-identical to HEAD's. The spin table is 563 ticks (`XBLA4J_TABLE_TICKS`),
+  so a condition of 700 never fires and the run sits out its timeout. The
+  "tick 700" in the section above is on the recording's clock.
+- **Chicago** (0x1d), level frames 600 and 900, on against off: frames 600-900
+  are still the opening cutscene. 600 is identical. 900 differs in 526 pixels:
+  the fps digits, and a faint grey sheen on a dark model behind the far car.
+  Slots 2290 and 2337 built reflections there.
+
+**The cutoff and the faster loop (2026-09-13).**
+
+- **XBLA Reflection Cutoff** (Dab's Mod Options, Display page;
+  `g_ModOptions.xblareflectcutoff`, pd.ini `Mod.XblaReflectCutoff`, on in
+  every preset and by default). With it on, `xblaMeshEnvironmentReach()` gives
+  the reflection all its share within three quarters of
+  `Mod.XblaReflectDistance` (metres, default 15, pd.ini only) and none past
+  it, fading straight between. The distance runs from the eye to the mesh's
+  nearest side: the root's view-space translation less `envradius` (the
+  furthest vertex from the mesh origin, built once) times the matrix's scale.
+  100 units are a metre (an Area 51 crate is 100 across). A zoomed view counts
+  as nearer by its field of view against 60 degrees; a wider one never counts
+  as further. The title (`XBLAMESH_ENV_ON`) is never cut.
+- **The fade has to reach the base colours too.** They are dimmed by the
+  reflection's share before the pass adds it back. Fading only the pass left
+  them dim until the cutoff and then bright past it, a 15-50% pop at exactly
+  the cutoff distance. The scaled copy is dimmed by `amount x reach` and kept
+  per reach (`keptreach`). The room's light stays out of that: it darkens base
+  and reflection alike.
+- **Posed normals only for a draw that will reflect:** the opaque pass,
+  within the cutoff (`xblaMeshPose(..., normals)`).
+- **`xblamesh.c` at `-O2 -finline-functions`** (CMakeLists, beside
+  port/fast3d). At `-Og` with the global `-fno-inline-functions`,
+  `xblaMeshRound` and the matrix helpers stayed calls (4% flat on their own).
+  There is no `-march` and no fast maths, so the floats, and the shot test
+  that reads posed triangles, are unchanged.
+- **`envidx`**: the reflecting vertices, listed at build. The posed normals,
+  the reflection vertices and the dimmed colours visit only those.
+- **One square root per call, not per vertex, for a rigid mesh's normals**,
+  whose file normals are unit length: they come out as long as the matrix's
+  x axis. Only when all three axes are that length (to 0.1%). The title
+  squashes the marble cube in height while it morphs, and the shortcut there
+  streaked the bevels' reflection by up to 55 levels at tick 311. A posed
+  normal is a blend and is always measured. With the check, the title is
+  pixel-identical to HEAD again at spin 201, 311 and 540 (without it, 201
+  was up to 3 levels off too).
+- **One eye ray for a distant model.** A profile of the no-cutoff run put
+  `xblaMeshEnvironmentVertices` at 11% (inlined into `xblaMeshRenderNode`,
+  whose flat time it becomes at `-O2`). A model more than
+  `XBLAMESH_ENV_FAREYE` (20) times its own reach away (`envradius` times the
+  matrix's largest axis) is seen along one ray to within three degrees. Every
+  vertex takes the ray to its origin, and none is carried into the view: no
+  position transform, no square root, no three divisions. The title's cubes
+  (`envforce > 0`) never take it, and a gun in the player's hands is always
+  nearer than that, so both keep the exact per-vertex ray.
+- **`dimcol`**: the mesh's colours dimmed by each vertex's full amount, made
+  once at build. A draw with no bruise within the cutoff's full share, which
+  is most draws, binds it directly. Only a bruised or fading model makes the
+  per-frame copy (3% in `memmove` before). With both, the title is still
+  pixel-identical to HEAD at 201/311/540. Combat Simulator frame 300 is
+  identical to the build before them, and frame 600 differs only inside the
+  fps counter.
+
+**Measured** on the same seeded 80-simulant match (instructions/frame, main
+thread):
+
+| | Instructions | Draws |
+| --- | --- | --- |
+| HEAD | 30.5M | 118 |
+| Reflections off | 30.0M | 118 |
+| On, cutoff on (15 m) | 37.8M | 129 |
+| On, cutoff off | 43.4M | 139 |
+| On, before this round | 46.9M | 139 |
+| Then one eye ray far off + `dimcol`: off | 30.8M | 118 |
+| ... on, cutoff on | 37.2M | 129 |
+| ... on, cutoff off | 42.6M | 139 |
+
+Reflections off is the same code in the last two rows' run and the one above
+them, and measured 30.0M against 30.8M. Read each run's on and off against
+each other, not across runs. Within its own run, the last round took the
+cutoff-on cost from +7.8M to +6.4M and the cutoff-off cost from +13.4M to
++11.8M. Its seeded replay matches the build before it in all 80 `gfx:`
+samples. What is left is mostly the renderer drawing the reflecting batches a
+second time (`gfx_sp_tri_emit`, `gfx_run_dl`), which per-vertex maths cannot
+reach.
+
+The cutoff halves what the reflections add (+15.1M to +7.9M over off). The
+loop work alone took +15.1M to +13.5M, and `-O2` made off cheaper than HEAD
+(the pose itself is faster). The seeded replay is unchanged by `-O2`: all 80
+`gfx:` samples (draws, tris, verts) match the build before it, on and off.
+The Combat Simulator shot at frame 300 is identical to it. Frame 600 differs
+only on a simulant past the fade's start, which is lighter as its reflection
+goes. Chr frames of an on run and an off run are not comparable: at frame 600
+the simulant standing there is a different model in each.
+
+**Not done:** the pass is per vertex and the cubes' mips are unused, as on the
+title, and a sphere map's rim can smear across a triangle whose vertices
+reflect to opposite sides of it (grazing angles, silhouettes). **View space is
+the assumption** that the title's fit could not separate from object space.
+In a first-person gun it decides whether the sheen moves as the player turns:
+under view space it does not. A Xenia capture of a gun while turning would
+settle it.
+
 ## The interface art, and the logo (2026-09-11)
 
 Past the numbered textures and the font atlases, the records hold the art 4J

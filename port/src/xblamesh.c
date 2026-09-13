@@ -33,6 +33,8 @@
 #include "lib/main.h"
 #include "lib/model.h"
 #include "lib/mtx.h"
+#include "lib/vi.h"
+#include "game/modoptions.h"
 #include "x360.h"
 #include "xblaimport.h"
 #include "xblastage.h"
@@ -301,11 +303,38 @@ struct xblameshbuilt {
 	s32 trimlogged;
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
-	f32 *normals;      // three per emitted vertex, only for a mesh the title reflects on
+	f32 *normals;      // three per emitted vertex, only for a mesh that reflects
 	u8 *venv;          // two per emitted vertex: its atlas cell and reflection amount, the same
 	s32 numgfx;        // commands in gdl
 	Gfx *envgdl;       // gdl, binding the reflection atlas: see xblaMeshBuildEnvironment()
 	s32 numenvcells;
+	u32 *envidx;       // the vertices that reflect, which is all the per-frame work visits
+	s32 numenvidx;
+	f32 envradius;     // how far the mesh reaches from its origin, for the distance cutoff
+	Col *dimcol;       // colours, dimmed by each vertex's full amount: the common case, made once
+
+	// The posed normals made with posedvtx, for a mesh that reflects; NULL when
+	// that pose had no room for them.
+	f32 *posednrm;
+
+	// The reflection pass's vertices made this frame, and what they were made
+	// from - a skinned model's fifteen parts all draw under the first part's
+	// matrix, so one copy serves every one of them. See xblaMeshEnvironmentVertices().
+	const struct model *envmodel;
+	u32 envframe;
+	const Mtxf *envmtx;
+	const Vtx *envposed;
+	s32 envlight;
+	Vtx *envvtx;
+	Col *envcol;
+
+	// And the colours the lists draw from under it, scaled by what the
+	// reflection leaves of them.
+	const struct model *keptmodel;
+	u32 keptframe;
+	const Col *keptsrc;
+	s32 keptreach;
+	Col *keptcol;
 	f32 *weights;      // three per emitted vertex, zero past the bone count
 	u8 *bones;         // three per emitted vertex, and how many of them count in the fourth
 	f32 bindlo[3];     // the box the bind positions stand in, which bounds the posed ones
@@ -1844,6 +1873,8 @@ void xblaMeshResetModels(void)
 	for (s32 i = 0; i < numRecords && built; i++) {
 		built[i].posedmodel = NULL;
 		built[i].bruisemodel = NULL;
+		built[i].envmodel = NULL;
+		built[i].keptmodel = NULL;
 	}
 
 	// A model pack's meshes for the game's own models go with the stage: they
@@ -3869,15 +3900,10 @@ static void xblaMeshCompactSkin(struct xblameshbuilt *m)
 static s32 xblaMeshBuildCullBack = 0;
 
 /**
- * Set round a build whose vertex normals should be kept: 4J's red cube (file
- * 222) and marble cube (file 224), which the title draws with the release's
- * reflections. Nothing else pays for them.
- */
-static s32 xblaMeshBuildKeepNormals = 0;
-
-/**
- * The release's reflections, for a mesh built with its normals (the title's
- * cubes). A material whose byte 16 is not zero is blended that percentage of
+ * The release's reflections. Every build reads its normals, and a mesh with
+ * no reflecting material lets them go again: 231 of the release's meshes have
+ * one (131 of them skinned - the guns a guard holds, most of all), and the rest
+ * do not pay for them past their own build. A material whose byte 16 is not zero is blended that percentage of
  * the way towards environment cube map byte 24 - records 0e93 on - looked up by
  * the eye's ray reflected in the surface, in view space (CLAUDE-notes/xbla.md,
  * "The release's reflections"). The renderer has no cube maps, so each cube
@@ -3891,6 +3917,23 @@ static s32 xblaMeshBuildKeepNormals = 0;
 #define XBLAMESH_ENV_FIRSTRECORD 0x0e93
 #define XBLAMESH_ENV_CELL        256
 #define XBLAMESH_ENV_MAXCELLS    4
+#define XBLAMESH_ENV_MAXATLASES  32
+
+// The atlases made so far, by the key they were bound under.
+static char envAtlasKey[XBLAMESH_ENV_MAXATLASES][64];
+static const void *envAtlasTile[XBLAMESH_ENV_MAXATLASES];
+static s32 envAtlasCount;
+
+// Mod.XblaReflections, and the title's word over it round its own draws: see
+// xblaMeshSetEnvironment().
+static s32 optReflect = 1;
+static s32 envforce = XBLAMESH_ENV_SETTING;
+
+// Mod.XblaReflectDistance: in metres, where the reflection is gone while the
+// Reflection Cutoff is on (Dab's Mod Options). See xblaMeshEnvironmentReach().
+static s32 optReflectDistance = 15;
+
+#define XBLAMESH_ENV_WANTED() (envforce > 0 || (envforce == 0 && optReflect))
 
 /**
  * Direct3D's cube lookup: the major axis picks the face, the other two its
@@ -3979,17 +4022,42 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 
 	if (numcells == 0) {
 		free(m->venv);
+		free(m->normals);
 		m->venv = NULL;
+		m->normals = NULL;
 		return;
 	}
 
 	w = numcells * XBLAMESH_ENV_CELL;
 	h = XBLAMESH_ENV_CELL;
-	atlas = calloc((size_t)w * h, 4);
+	keylen = snprintf(key, sizeof(key), "xblaenv");
+
+	for (s32 k = 0; k < numcells && keylen < (s32)sizeof(key) - 4; k++) {
+		keylen += snprintf(key + keylen, sizeof(key) - keylen, ":%x", cubes[k]);
+	}
+
 	m->envgdl = malloc((size_t)m->numgfx * sizeof(Gfx));
 
-	if (!atlas || !m->envgdl) {
-		free(atlas);
+	if (!m->envgdl) {
+		return;
+	}
+
+	// Most of the 231 meshes reflect the same grey studio alone, so an atlas is
+	// made once per set of cubes: the tile for a key already bound is kept here,
+	// rather than decoding the cubes again only for xblaTexBindImage() to free
+	// the result.
+	tile = NULL;
+
+	for (s32 i = 0; i < envAtlasCount; i++) {
+		if (!strcmp(envAtlasKey[i], key)) {
+			tile = envAtlasTile[i];
+			break;
+		}
+	}
+
+	atlas = tile ? NULL : calloc((size_t)w * h, 4);
+
+	if (!tile && !atlas) {
 		free(m->envgdl);
 		m->envgdl = NULL;
 		return;
@@ -4000,7 +4068,7 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 	// b^2)) for a = 2su - 1 and b = 2sv - 1, so the ray it reflects is
 	// (2nz a, 2nz b, 2nz^2 - 1). Texels past the rim take the rim's colour, for
 	// the filter to fall on. A row is sv, a column su.
-	for (s32 k = 0; k < numcells; k++) {
+	for (s32 k = 0; k < numcells && atlas; k++) {
 		s32 size = 0;
 		u8 *faces = xblaTexDecodeCube(XBLAMESH_ENV_FIRSTRECORD + cubes[k], &size);
 
@@ -4038,13 +4106,14 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 		free(faces);
 	}
 
-	keylen = snprintf(key, sizeof(key), "xblaenv");
+	if (atlas) {
+		tile = xblaTexBindImage(key, atlas, w, h);
 
-	for (s32 k = 0; k < numcells && keylen < (s32)sizeof(key) - 4; k++) {
-		keylen += snprintf(key + keylen, sizeof(key) - keylen, ":%x", cubes[k]);
+		if (tile && envAtlasCount < XBLAMESH_ENV_MAXATLASES) {
+			snprintf(envAtlasKey[envAtlasCount], sizeof(envAtlasKey[0]), "%s", key);
+			envAtlasTile[envAtlasCount++] = tile;
+		}
 	}
-
-	tile = xblaTexBindImage(key, atlas, w, h);
 
 	if (!tile) {
 		free(m->envgdl);
@@ -4081,7 +4150,93 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 
 	m->numenvcells = numcells;
 
-	sysLogPrintf(LOG_NOTE, "xblamesh: %s reflects %d environment map%s", what, numcells, numcells == 1 ? "" : "s");
+	// The vertices that reflect, so that the per-frame work visits only them,
+	// and how far the mesh reaches from its origin, so that the distance
+	// cutoff measures to its nearest side rather than to its middle.
+	m->envidx = malloc((size_t)m->numvertices * sizeof(u32));
+
+	if (!m->envidx) {
+		free(m->envgdl);
+		m->envgdl = NULL;
+		return;
+	}
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const Vtx *v = &m->vertices[i];
+		const f32 r = sqrtf((f32)v->x * v->x + (f32)v->y * v->y + (f32)v->z * v->z);
+
+		if (r > m->envradius) {
+			m->envradius = r;
+		}
+
+		if (m->venv[i * 2 + 1]) {
+			m->envidx[m->numenvidx++] = (u32)i;
+		}
+	}
+
+	// The colours a reflecting draw lists from, for a model with no bruise
+	// within the cutoff's full share - which is most of them, most frames -
+	// made once here rather than copied and scaled per model per frame. NULL
+	// leaves every draw to the per-frame copy.
+	m->dimcol = malloc((size_t)m->numvertices * sizeof(Col));
+
+	if (m->dimcol) {
+		memcpy(m->dimcol, m->colours, (size_t)m->numvertices * sizeof(Col));
+
+		for (s32 k = 0; k < m->numenvidx; k++) {
+			const u32 i = m->envidx[k];
+			const u32 left = 255 - m->venv[i * 2 + 1];
+
+			m->dimcol[i].r = (u8)((m->colours[i].r * left + 127) / 255);
+			m->dimcol[i].g = (u8)((m->colours[i].g * left + 127) / 255);
+			m->dimcol[i].b = (u8)((m->colours[i].b * left + 127) / 255);
+		}
+	}
+
+	// A batch whose vertices all reflect nothing adds nothing, so the copy does
+	// not draw it: its head (G_COL, G_VTX) and its triangles become no-ops. The
+	// pass is a second trip through the renderer for everything left in the
+	// copy, and most of a mesh is such batches - a gun's wooden stock beside
+	// its metal, the glass beside a console's frame. A batch opens with its
+	// G_COL (xblaMeshWriteBatches()), named through the colour segment with
+	// SEGADDR's marker bit in the offset.
+	{
+		s32 skipping = 0;
+		s32 kept = 0;
+		s32 batches = 0;
+
+		for (s32 i = 0; i < m->numgfx; i++) {
+			Gfx *g = &m->envgdl[i];
+			const u8 op = (u8)(g->words.w0 >> 24);
+
+			if (op == G_COL) {
+				const u32 first = (u32)(((u32)g->words.w1 & 0xfffffe) / sizeof(Col));
+				const u32 count = (u32)((g->words.w0 & 0xffffff) / 4);
+				s32 any = 0;
+
+				for (u32 j = first; j < first + count && j < (u32)m->numvertices; j++) {
+					if (m->venv[j * 2 + 1]) {
+						any = 1;
+						break;
+					}
+				}
+
+				skipping = !any;
+				batches++;
+				kept += any;
+			} else if (op == G_DL || op == (u8)G_ENDDL) {
+				skipping = 0;
+			}
+
+			if (skipping && (op == G_COL || op == G_VTX || op == (u8)G_TRI1 || op == (u8)G_TRI4)) {
+				g->words.w0 = (uintptr_t)G_NOOP << 24;
+				g->words.w1 = 0;
+			}
+		}
+
+		sysLogPrintf(LOG_NOTE, "xblamesh: %s reflects %d environment map%s, in %d of its %d batches",
+				what, numcells, numcells == 1 ? "" : "s", kept, batches);
+	}
 }
 
 static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
@@ -4101,7 +4256,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	b.scale = xblaMeshScale(&h);
 	b.mats = mats;
 	b.cullback = xblaMeshBuildCullBack;
-	b.keepnormals = xblaMeshBuildKeepNormals;
+	b.keepnormals = 1;
 	m->scale = b.scale;
 
 	if (!xblaMeshBuildLists(&b, file, len, &h, stride) || b.numtris == 0) {
@@ -4322,10 +4477,8 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 		s32 ok;
 
 		xblaMeshBuildCullBack = fileid == FILE_PNLOGO2;
-		xblaMeshBuildKeepNormals = fileid == FILE_PNLOGO2 || fileid == FILE_PNLOGO;
 		ok = xblaMeshBuildFile(m, file, len, &mats, what);
 		xblaMeshBuildCullBack = 0;
-		xblaMeshBuildKeepNormals = 0;
 
 		return ok ? m : NULL;
 	}
@@ -5176,12 +5329,13 @@ static s32 xblaMeshPoseFineness(const struct xblameshbuilt *m, const Mtxf *pal)
  * NULL when there is no room this frame, and the caller draws the bind pose.
  */
 static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *root,
-		Mtxf **outmtx, s32 *outfine)
+		Mtxf **outmtx, s32 *outfine, s32 normals)
 {
 	Mtxf pal[XBLAMESH_MAXMTX];
 	Mtxf invroot;
 	Vtx *out;
 	Mtxf *fmtx = NULL;
+	f32 *nrm;
 	s32 posable;
 	s32 fine;
 
@@ -5356,6 +5510,13 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 	*outmtx = fmtx;
 	*outfine = fine;
 
+	// A mesh that reflects has its normals posed with it, by the same blend of
+	// the same palette's rotations, and in the same first part's space. Not
+	// rescaled: the reflection normalises them.
+	nrm = normals && m->envgdl
+			? xblaMeshFrameAlloc((u32)m->numvertices * 3 * sizeof(f32)) : NULL;
+	m->posednrm = nrm;
+
 	for (s32 i = 0; i < m->numvertices; i++) {
 		const f32 *pos = &m->bindpos[i * 3];
 		const f32 *weight = &m->weights[i * 3];
@@ -5396,6 +5557,31 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		out[i].x = xblaMeshRound(x * fine);
 		out[i].y = xblaMeshRound(y * fine);
 		out[i].z = xblaMeshRound(z * fine);
+	}
+
+	// The normals, only where the reflection will read them (m->envidx).
+	if (nrm) {
+		for (s32 k = 0; k < m->numenvidx; k++) {
+			const u32 i = m->envidx[k];
+			const f32 *n = &m->normals[i * 3];
+			const f32 *weight = &m->weights[i * 3];
+			const u8 *bone = &m->bones[i * 4];
+			const s32 num = bone[3] < 3 ? bone[3] : 3;
+			f32 ox = 0.0f, oy = 0.0f, oz = 0.0f;
+
+			for (s32 j = 0; j < num; j++) {
+				const Mtxf *p = &pal[bone[j]];
+				const f32 w = weight[j];
+
+				ox += (p->m[0][0] * n[0] + p->m[1][0] * n[1] + p->m[2][0] * n[2]) * w;
+				oy += (p->m[0][1] * n[0] + p->m[1][1] * n[1] + p->m[2][1] * n[2]) * w;
+				oz += (p->m[0][2] * n[0] + p->m[1][2] * n[1] + p->m[2][2] * n[2]) * w;
+			}
+
+			nrm[i * 3] = ox;
+			nrm[i * 3 + 1] = oy;
+			nrm[i * 3 + 2] = oz;
+		}
 	}
 
 	if (xblaMeshVerbose && m->posedlog == 1) {
@@ -6454,17 +6640,117 @@ void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle)
 	opaqueonecycle = onecycle;
 }
 
-// While on, the release's reflections: see xblaMeshSetEnvironment().
-static s32 envon = 0;
-static Mtxf envmv;
-
-void xblaMeshSetEnvironment(const Mtxf *modelview)
+void xblaMeshSetEnvironment(s32 force)
 {
-	envon = modelview != NULL;
+	envforce = force;
+}
 
-	if (envon) {
-		envmv = *modelview;
+s32 xblaMeshGetReflections(void)
+{
+	return optReflect;
+}
+
+void xblaMeshSetReflections(s32 enabled)
+{
+	optReflect = enabled ? 1 : 0;
+}
+
+/**
+ * How much of the reflection the room leaves on this draw, 0 to 255 - and 0
+ * for a draw that takes none at all.
+ *
+ * The reflection pass adds to what the lists drew, and what they drew was
+ * blended towards the node's fog colour by its alpha in the first cycle (see
+ * xblaMeshApplyNodeMode()): a guard in a dark room is most of the way to the
+ * room's dark colour. Blending the whole of texture plus reflection that way
+ * is the list's own result plus the reflection times one minus that alpha, so
+ * that is the reflection's share. Which colour is the fog colour, and whether
+ * there is one, is what modelApplyRenderModeType3() and 4 decide by unk30:
+ * the environment colour's for 4, the fog colour's for 5 and 7, none for the
+ * rest and for nodes of modes 1 and 2. Modes 8 and 9 are the game's cloak and
+ * its shimmer, translucent draws a reflection has no place on.
+ *
+ * A draw without a depth buffer takes none: the pass adds only to the surface
+ * nearest the eye, and without one it would light the back faces too.
+ */
+static s32 xblaMeshEnvironmentLight(const struct modelrenderdata *renderdata,
+		const struct modelnode *node, s32 *fading)
+{
+	const s32 mode = xblaMeshNodeMode(node);
+
+	*fading = 0;
+
+	if (!renderdata->zbufferenabled) {
+		return 0;
 	}
+
+	if (mode == 1 || mode == 2) {
+		return 255;
+	}
+
+	switch (renderdata->unk30) {
+	case 4:
+		return 255 - (renderdata->envcolour & 0xff);
+	case 5:
+		*fading = (renderdata->envcolour & 0xff) < 255;
+		return 255 - (renderdata->fogcolour & 0xff);
+	case 7:
+		return 255 - (renderdata->fogcolour & 0xff);
+	case 8:
+	case 9:
+		return 0;
+	default:
+		return 255;
+	}
+}
+
+/**
+ * How much of the reflection is left at the model's distance, 0 to 255, while
+ * the Reflection Cutoff is on - all of it within three quarters of
+ * Mod.XblaReflectDistance, none past it, and a straight fade between, so a
+ * sheen goes rather than pops. A reflection is per vertex, per model, per
+ * frame, and on a gun thirty metres off it is a few pixels: an 80-simulant
+ * match spent a third of its main thread on them.
+ *
+ * Measured from the eye to the mesh's nearest side: the root's translation in
+ * view space less the mesh's reach through the matrix's scale (a skinned
+ * model's rows carry its scale, a tenth). A hundred units is a metre. A zoomed
+ * view brings things nearer by its field of view against the unzoomed 60
+ * degrees; a wider view than that is not taken as further away. The title's
+ * own draws (XBLAMESH_ENV_ON) are never cut.
+ */
+#define XBLAMESH_ENV_UNITS_PER_METRE 100.0f
+#define XBLAMESH_ENV_FAREYE          20.0f
+
+static s32 xblaMeshEnvironmentReach(const struct xblameshbuilt *m, const Mtxf *root)
+{
+	f32 scale, dist, zoom, far, near;
+
+	if (envforce > 0 || !modIsXblaReflectCutoffOn() || optReflectDistance <= 0) {
+		return 255;
+	}
+
+	scale = sqrtf(root->m[0][0] * root->m[0][0] + root->m[0][1] * root->m[0][1] +
+			root->m[0][2] * root->m[0][2]);
+	dist = sqrtf(root->m[3][0] * root->m[3][0] + root->m[3][1] * root->m[3][1] +
+			root->m[3][2] * root->m[3][2]) - m->envradius * scale;
+
+	zoom = viGetFovY() / 60.0f;
+	zoom = zoom > 1.0f ? 1.0f : zoom < 0.05f ? 0.05f : zoom;
+	dist *= zoom;
+
+	far = optReflectDistance * XBLAMESH_ENV_UNITS_PER_METRE;
+	near = far * 0.75f;
+
+	if (dist <= near) {
+		return 255;
+	}
+
+	if (dist >= far) {
+		return 0;
+	}
+
+	return (s32)(255.0f * (far - dist) / (far - near));
 }
 
 /**
@@ -6472,43 +6758,105 @@ void xblaMeshSetEnvironment(const Mtxf *modelview)
  * texture coordinates into its cell of the atlas (xblaMeshBuildEnvironment())
  * where the eye's ray reflected in its normal lands in the cell's sphere map,
  * all in view space with the eye at the origin, and a white colour whose alpha
- * is the material's amount. posed is what the vertices are drawn from; their
- * positions are copied from it, and the reflection is worked out from the bind
- * pose, which is the same thing for the rigid meshes that have one.
+ * is the material's amount times the room's light.
+ *
+ * posed is what the vertices are drawn from, `fine` steps of it to a unit, and
+ * normals the normals in the same space; mtx is the model's own float matrix
+ * for that space, which takes it to the view. The view is the lookup's space,
+ * so a sphere map made for an eye looking down -z serves any camera: the eye
+ * always looks down -z in its own space.
+ *
+ * Kept for the model, the frame and what it was made from, since every part
+ * of a skinned model draws the whole mesh's vertices under the first part's
+ * matrix.
  */
-static s32 xblaMeshEnvironmentVertices(const struct xblameshbuilt *m, const Vtx *posed, Vtx **outVtx, Col **outCol)
+static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct model *model,
+		const Vtx *posed, s32 fine, const f32 *normals, const Mtxf *mtx, s32 light,
+		Vtx **outVtx, Col **outCol)
 {
-	const Mtxf *mv = &envmv;
+	const Mtxf *mv = mtx;
 	const f32 lo = 0.5f / XBLAMESH_ENV_CELL;
-	Vtx *vtx = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Vtx));
-	Col *col = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+	const f32 unit = 1.0f / (fine > 0 ? fine : 1);
+	// The file's own normals are unit length, so under a matrix that scales
+	// every axis alike they come out as long as its x axis, and one square root
+	// here stands in for one per vertex. Not under one that does not: the
+	// title squashes the marble cube in height while it morphs, and the axis
+	// length there drew its bevels' reflection streaked (tick 311). A posed
+	// normal is a blend of several and is measured for itself too.
+	const f32 sx = sqrtf(mv->m[0][0] * mv->m[0][0] + mv->m[0][1] * mv->m[0][1] + mv->m[0][2] * mv->m[0][2]);
+	const f32 sy = sqrtf(mv->m[1][0] * mv->m[1][0] + mv->m[1][1] * mv->m[1][1] + mv->m[1][2] * mv->m[1][2]);
+	const f32 sz = sqrtf(mv->m[2][0] * mv->m[2][0] + mv->m[2][1] * mv->m[2][1] + mv->m[2][2] * mv->m[2][2]);
+	const f32 nscale = sx;
+	const s32 unitnormals = normals == m->normals &&
+			fabsf(sy - sx) <= sx * 0.001f && fabsf(sz - sx) <= sx * 0.001f;
+	// A model more than XBLAMESH_ENV_FAREYE times its own reach away is seen
+	// along one ray to within three degrees, so every vertex takes the ray to
+	// its origin and none is carried into the view for it. Not the title's
+	// cubes, which fill the screen from 4000 units and are matched to HEAD, and
+	// not a gun in the player's hands, which is always nearer than that.
+	const f32 smax = sx > sy ? (sx > sz ? sx : sz) : (sy > sz ? sy : sz);
+	const f32 cdist = sqrtf(mv->m[3][0] * mv->m[3][0] + mv->m[3][1] * mv->m[3][1] +
+			mv->m[3][2] * mv->m[3][2]);
+	const s32 fareye = envforce <= 0 && cdist > 1e-3f &&
+			m->envradius * smax * XBLAMESH_ENV_FAREYE < cdist;
+	const f32 fex = fareye ? mv->m[3][0] / cdist : 0.0f;
+	const f32 fey = fareye ? mv->m[3][1] / cdist : 0.0f;
+	const f32 fez = fareye ? mv->m[3][2] / cdist : 0.0f;
+	Vtx *vtx;
+	Col *col;
+
+	if (m->envvtx && m->envmodel == model && m->envframe == frameCount &&
+			m->envmtx == mtx && m->envposed == posed && m->envlight == light) {
+		*outVtx = m->envvtx;
+		*outCol = m->envcol;
+		return 1;
+	}
+
+	vtx = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Vtx));
+	col = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
 
 	if (!vtx || !col) {
 		return 0;
 	}
 
-	for (s32 i = 0; i < m->numvertices; i++) {
-		const Vtx *v = &m->vertices[i];
-		const f32 *n = &m->normals[i * 3];
+	// Only the vertices that reflect (m->envidx). The rest are in batches the
+	// copy does not draw (xblaMeshBuildEnvironment(): a batch is one material),
+	// so their entries are never read and are not written.
+	for (s32 k = 0; k < m->numenvidx; k++) {
+		const u32 i = m->envidx[k];
+		const Vtx *v = &posed[i];
+		const f32 *n = &normals[i * 3];
 		const u8 amount = m->venv[i * 2 + 1];
 		f32 su = 0.5f, sv = 0.5f;
 
 		vtx[i] = posed[i];
 		col[i].r = col[i].g = col[i].b = 0xff;
-		col[i].a = amount;
+		col[i].a = (u8)((amount * light + 127) / 255);
 
-		if (amount) {
-			const f32 qx = mv->m[0][0] * v->x + mv->m[1][0] * v->y + mv->m[2][0] * v->z + mv->m[3][0];
-			const f32 qy = mv->m[0][1] * v->x + mv->m[1][1] * v->y + mv->m[2][1] * v->z + mv->m[3][1];
-			const f32 qz = mv->m[0][2] * v->x + mv->m[1][2] * v->y + mv->m[2][2] * v->z + mv->m[3][2];
+		if (col[i].a) {
 			f32 nx = mv->m[0][0] * n[0] + mv->m[1][0] * n[1] + mv->m[2][0] * n[2];
 			f32 ny = mv->m[0][1] * n[0] + mv->m[1][1] * n[1] + mv->m[2][1] * n[2];
 			f32 nz = mv->m[0][2] * n[0] + mv->m[1][2] * n[1] + mv->m[2][2] * n[2];
-			const f32 nlen = sqrtf(nx * nx + ny * ny + nz * nz);
-			const f32 qlen = sqrtf(qx * qx + qy * qy + qz * qz);
+			const f32 nlen = unitnormals ? nscale : sqrtf(nx * nx + ny * ny + nz * nz);
+			f32 ex = fex, ey = fey, ez = fez;
+			f32 qlen = 1.0f;
+
+			if (!fareye) {
+				const f32 px = v->x * unit, py = v->y * unit, pz = v->z * unit;
+				const f32 qx = mv->m[0][0] * px + mv->m[1][0] * py + mv->m[2][0] * pz + mv->m[3][0];
+				const f32 qy = mv->m[0][1] * px + mv->m[1][1] * py + mv->m[2][1] * pz + mv->m[3][1];
+				const f32 qz = mv->m[0][2] * px + mv->m[1][2] * py + mv->m[2][2] * pz + mv->m[3][2];
+
+				qlen = sqrtf(qx * qx + qy * qy + qz * qz);
+
+				if (qlen > 1e-6f) {
+					ex = qx / qlen;
+					ey = qy / qlen;
+					ez = qz / qlen;
+				}
+			}
 
 			if (nlen > 1e-6f && qlen > 1e-6f) {
-				const f32 ex = qx / qlen, ey = qy / qlen, ez = qz / qlen;
 				f32 en, rx, ry, rz, mm;
 
 				nx /= nlen;
@@ -6532,6 +6880,14 @@ static s32 xblaMeshEnvironmentVertices(const struct xblameshbuilt *m, const Vtx 
 		vtx[i].s = xblaMeshRound((m->venv[i * 2] + su) / m->numenvcells * XBLATEX_TILE_SCALE);
 		vtx[i].t = xblaMeshRound(sv * XBLATEX_TILE_SCALE);
 	}
+
+	m->envmodel = model;
+	m->envframe = frameCount;
+	m->envmtx = mtx;
+	m->envposed = posed;
+	m->envlight = light;
+	m->envvtx = vtx;
+	m->envcol = col;
 
 	*outVtx = vtx;
 	*outCol = col;
@@ -6558,6 +6914,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	s32 grafted = 0;
 	s32 xlupart = -1;
 	s32 fadepart = -1;
+	Vtx *envvtx = NULL;
+	Col *envcol = NULL;
+	s32 envlight = 0;
+	s32 envreach = 0;
+	s32 envfading = 0;
 	const s32 opa = (renderdata->flags & MODELRENDERFLAG_OPA) != 0;
 	const s32 xlu = (renderdata->flags & MODELRENDERFLAG_XLU) != 0;
 
@@ -6795,7 +7156,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				pose = m->posedvtx;
 				finemtx = m->posedmtx;
 			} else {
-				pose = xblaMeshPose(m, model, root, &finemtx, &fine);
+				// Normals only for a draw that will reflect: the opaque pass,
+				// within the cutoff.
+				pose = xblaMeshPose(m, model, root, &finemtx, &fine,
+						opa && m->envgdl && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED() &&
+						xblaMeshEnvironmentReach(m, root) > 0);
 
 				if (pose) {
 					framePoses++;
@@ -6896,6 +7261,35 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 
+	// Whether this draw takes the release's reflections, decided before the
+	// colours are bound since a reflecting material's colours are scaled for
+	// it. Only in the opaque pass: the pass goes over the opaque list. The
+	// space is the model's own float matrix for the vertices drawn - the first
+	// part's for a pose, whose copy is `fine` steps to a unit - and the normals
+	// are the pose's where there is one, since a skinned mesh's bind normals
+	// point wherever the bind pose had the limb.
+	if (opa && m->envgdl && root && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED()) {
+		const s32 isposed = posed == m->posedvtx && m->posedmodel == model &&
+				m->posedframe == frameCount;
+
+		const f32 *normals = isposed ? m->posednrm : m->normals;
+
+		// The distance fade is kept apart from the room's light: it takes the
+		// reflection away from the material altogether, so the colours below
+		// are given back what it took, where the room only darkens both.
+		if (normals) {
+			envreach = xblaMeshEnvironmentReach(m, root);
+			envlight = xblaMeshEnvironmentLight(renderdata, node, &envfading) * envreach / 255;
+		}
+
+		// Made here rather than at the pass, so that a frame arena with no room
+		// for them leaves the colours unscaled as well.
+		if (envlight > 0 && !xblaMeshEnvironmentVertices(m, model, posed,
+					isposed ? m->posedfine : 1, normals, root, envlight, &envvtx, &envcol)) {
+			envlight = 0;
+		}
+	}
+
 	// The colours, bruised where the game has bruised the model's own lists.
 	Col *boundcol = m->colours;
 
@@ -6917,20 +7311,47 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// 0.42 of the cube - byte 16's 40% both ways - and the red tray keeps
 		// 0.85 of its red, which is the 139 the port drew against the 115 of
 		// the release's recording.
-		if (envon && m->envgdl && xblaTexGetEnabled()) {
-			Col *kept = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+		//
+		// Scaled by the material's amount and not by the room's light, which
+		// darkens the lists' colours and the reflection alike.
+		if (envlight > 0) {
+			Col *kept = NULL;
+
+			// Scaled by the amount the distance leaves (envreach), so the sheen
+			// fades into the plain colours past the cutoff instead of the
+			// colours jumping back up at it.
+			if (boundcol == m->colours && envreach == 255 && m->dimcol) {
+				kept = m->dimcol;
+			} else if (m->keptcol && m->keptmodel == model && m->keptframe == frameCount &&
+					m->keptsrc == boundcol && m->keptreach == envreach) {
+				kept = m->keptcol;
+			} else {
+				kept = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+
+				if (kept) {
+					memcpy(kept, boundcol, (size_t)m->numvertices * sizeof(Col));
+
+					for (s32 k = 0; k < m->numenvidx; k++) {
+						const u32 i = m->envidx[k];
+						const u32 left = 255 - (m->venv[i * 2 + 1] * envreach + 127) / 255;
+
+						kept[i].r = (u8)((boundcol[i].r * left + 127) / 255);
+						kept[i].g = (u8)((boundcol[i].g * left + 127) / 255);
+						kept[i].b = (u8)((boundcol[i].b * left + 127) / 255);
+					}
+
+					m->keptmodel = model;
+					m->keptframe = frameCount;
+					m->keptsrc = boundcol;
+					m->keptreach = envreach;
+					m->keptcol = kept;
+				}
+			}
 
 			if (kept) {
-				for (s32 i = 0; i < m->numvertices; i++) {
-					const u32 left = 255 - m->venv[i * 2 + 1];
-
-					kept[i] = boundcol[i];
-					kept[i].r = (u8)((boundcol[i].r * left + 127) / 255);
-					kept[i].g = (u8)((boundcol[i].g * left + 127) / 255);
-					kept[i].b = (u8)((boundcol[i].b * left + 127) / 255);
-				}
-
 				boundcol = kept;
+			} else {
+				envlight = 0;
 			}
 		}
 
@@ -6968,12 +7389,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// reflection lands in it and how much of it the material takes, added
 		// (G_ADDITIVE_EXT) onto the nearest surface only. The amount is the
 		// vertex alpha, times the fade while the title fades the model.
-		if (envon && m->envgdl && xblaTexGetEnabled()) {
-			Vtx *envvtx;
-			Col *envcol;
-
-			if (xblaMeshEnvironmentVertices(m, posed, &envvtx, &envcol)) {
-				const s32 fading = renderdata->unk30 == 5 && (renderdata->envcolour & 0xff) < 255;
+		if (envlight > 0) {
+			{
+				const s32 fading = envfading;
 
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(envvtx));
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(envcol));
@@ -7739,6 +8157,8 @@ PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
 	configRegisterInt("Mod.XblaMeshOnly", &optOnlySlot, 0, 0xffff);
 	configRegisterInt("Mod.XblaMeshBoth", &optBoth, 0, 1);
 	configRegisterInt("Mod.XblaMeshPose", &optPose, 0, 1);
+	configRegisterInt("Mod.XblaReflections", &optReflect, 0, 1);
+	configRegisterInt("Mod.XblaReflectDistance", &optReflectDistance, 1, 1000);
 
 	// Mod.XblaMeshTextures is registered by xblatex.c, which is where the flag
 	// lives now: read at the point a picture is handed to the renderer rather
@@ -7861,7 +8281,9 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent) {
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
 void xblaMeshSetBypass(s32 on) { }
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle) { }
-void xblaMeshSetEnvironment(const Mtxf *modelview) { }
+void xblaMeshSetEnvironment(s32 force) { }
+s32 xblaMeshGetReflections(void) { return 0; }
+void xblaMeshSetReflections(s32 enabled) { }
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node) { return 0; }
 void xblaMeshFrameReset(void) { }
