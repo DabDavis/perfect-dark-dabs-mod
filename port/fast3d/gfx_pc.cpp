@@ -135,6 +135,11 @@ struct LoadedVertex {
     // the camera is wrong along most of it - the N64 clips first and
     // evaluates the line at the new vertices, so this goes one better
     int16_t fog_mul, fog_offset;
+    // G_ENVMAP_EXT only: the vertex's normal (its colour, read as the signed
+    // normal an RSP light would read) and its position, both put through the
+    // modelview, so in view space with the eye at the origin. Written only
+    // while the mode is on; see gfx_sp_load_vertex().
+    float env[6];
 };
 
 static struct {
@@ -306,7 +311,7 @@ static struct BatchState {
     float tex_clamp[2][2]; // (size2 - 0.5) / size, emitted when tm asks for it
     uint32_t tex_size[2][2]; // [texture][0 = width, 1 = height], kept for GFX_VERIFY_BATCH_STATE
 
-    bool use_alpha, use_fog, use_grayscale, use_modulate, use_additive;
+    bool use_alpha, use_fog, use_grayscale, use_modulate, use_additive, use_envmap;
 } batch;
 
 /**
@@ -1973,6 +1978,23 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
         d->u = U;
         d->v = V;
 
+        // The per-pixel reflection's inputs (G_ENVMAP_EXT): what the fragment
+        // shader reflects the view ray in, and where the ray starts. Through
+        // the modelview alone - the projection and the aspect adjustment come
+        // after the eye space the lookup is in. A normal is not renormalised
+        // here, nor corrected for a matrix that scales one axis more than
+        // another: the fragment shader normalises what it is handed, and the
+        // CPU version this replaced did the same.
+        if (rsp.extra_geometry_mode & G_ENVMAP_EXT) {
+            const float (*mv)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];
+            const float nx = vcn->x, ny = vcn->y, nz = vcn->z;
+
+            for (int c = 0; c < 3; c++) {
+                d->env[c] = nx * mv[0][c] + ny * mv[1][c] + nz * mv[2][c];
+                d->env[3 + c] = px * mv[0][c] + py * mv[1][c] + pz * mv[2][c] + mv[3][c];
+            }
+        }
+
         // trivial clip rejection
         d->clip_rej = 0;
         if (x < -w) {
@@ -2063,6 +2085,7 @@ static void gfx_derive_batch_state(void) {
     const bool invisible = (rdp.other_mode_l & (3 << 24)) == (G_BL_0 << 24) && (rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20);
     const bool use_grayscale = rdp.grayscale;
     const bool use_blur = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) == G_TF_BLUR_EXT;
+    const bool use_envmap = (rsp.extra_geometry_mode & G_ENVMAP_EXT) != 0;
 
     if (texture_edge) {
         use_alpha = true;
@@ -2094,6 +2117,9 @@ static void gfx_derive_batch_state(void) {
     }
     if (use_blur) {
         cc_options |= (uint64_t)SHADER_OPT_BLUR;
+    }
+    if (use_envmap) {
+        cc_options |= (uint64_t)SHADER_OPT_ENVMAP;
     }
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
@@ -2208,6 +2234,7 @@ static void gfx_derive_batch_state(void) {
     batch.use_grayscale = use_grayscale;
     batch.use_modulate = use_alpha && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
     batch.use_additive = use_alpha && !batch.use_modulate && (rsp.extra_geometry_mode & G_ADDITIVE_EXT) != 0;
+    batch.use_envmap = use_envmap;
 
     gfx_rapi->shader_get_info(prg, &batch.num_inputs, batch.used_textures);
     batch.clip_parameters = gfx_rapi->get_clip_parameters();
@@ -2503,6 +2530,7 @@ enum EmitSlotKind {
     EMIT_SLOT_LOD_RGB,     // the LOD fraction from the depth, three floats
     EMIT_SLOT_SHADE_A,     // the vertex alpha
     EMIT_SLOT_LOD_A,       // the LOD fraction, one float
+    EMIT_SLOT_ENV,         // G_ENVMAP_EXT: the view-space normal and position, six floats
 };
 
 struct EmitSlot {
@@ -2515,7 +2543,7 @@ static struct {
     struct RGBA fog, gray; // the colours the template was built with
     uint8_t stride;        // floats per vertex
     uint8_t nslots;
-    struct EmitSlot slots[2 + 1 + 8 * 2];
+    struct EmitSlot slots[2 + 1 + 1 + 8 * 2];
     float tmpl[EMIT_MAX_FLOATS];
 } emit_plan;
 
@@ -2556,6 +2584,13 @@ static void gfx_build_emit_plan(void) {
         tmpl[off + 2] = byte_unit.f[rdp.grayscale_color.b];
         tmpl[off + 3] = byte_unit.f[rdp.grayscale_color.a]; // lerp interpolation factor (not alpha)
         off += 4;
+    }
+
+    // after the grayscale colour and before the combiner inputs, the order the
+    // shader declares its attributes in (gfx_opengl.cpp)
+    if (batch.use_envmap) {
+        emit_plan.slots[n++] = { EMIT_SLOT_ENV, (uint8_t)off };
+        off += 6;
     }
 
     for (int j = 0; j < batch.num_inputs && j < 8; j++) {
@@ -2751,6 +2786,9 @@ static inline __attribute__((always_inline)) void gfx_emit_vertex(const struct L
                 break;
             case EMIT_SLOT_LOD_A:
                 o[0] = gfx_lod_fraction(w);
+                break;
+            case EMIT_SLOT_ENV:
+                memcpy(o, v->env, sizeof(v->env));
                 break;
         }
     }

@@ -210,6 +210,7 @@
 #define G_NO_CLIPPING_EXT        0x00000100
 #define G_MODULATE_EXT           0x00000200 // this should really go into OTHERMODE_H, but for some reason I can't get it to work
 #define G_ADDITIVE_EXT           0x00000400 // with a blending render mode: source times its alpha added to what is there
+#define G_ENVMAP_EXT             0x00000800 // texel 0 is a sphere-map atlas looked up per pixel: see gfx_pc.cpp
 
 /* Extra texture filtering mode */
 

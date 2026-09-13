@@ -2641,9 +2641,9 @@ only on a simulant past the fade's start, which is lighter as its reflection
 goes. Chr frames of an on run and an off run are not comparable: at frame 600
 the simulant standing there is a different model in each.
 
-**Not done:** the pass is per vertex and the cubes' mips are unused, as on the
-title, and a sphere map's rim can smear across a triangle whose vertices
-reflect to opposite sides of it (grazing angles, silhouettes).
+**Not done:** the cubes' mips are unused. The pass was per vertex until "Per
+pixel" below, and a sphere map's rim smeared across a triangle whose vertices
+reflected to opposite sides of it (grazing angles, silhouettes).
 
 **View space is confirmed** for the held gun (2026-09-13), from the release's
 own draw log in Xenia. The method is written up below: the title's fit could
@@ -2696,6 +2696,56 @@ rotation for them to use either.
 - Xenia's `ConstantRegisterMap.float_bitmap` would say which constants a
   shader reads, but a skinning shader addresses its palette dynamically and
   marks all of them.
+
+### Per pixel (2026-09-13)
+
+The reflection is now looked up per pixel by the renderer, not per vertex by
+the loader. One sphere-map coordinate per vertex, interpolated, is not a
+sphere map sampled per pixel: the mapping is non-linear, and a triangle whose
+vertices reflect to opposite sides of the rim interpolated across the whole
+map.
+
+**The renderer** (`G_ENVMAP_EXT` in gbiex.h, `SHADER_OPT_ENVMAP` in gfx_cc):
+- **The normal rides in the vertex colour.** While the mode is on,
+  `gfx_sp_load_vertex()` reads the vertex's colour as the signed normal an
+  RSP light would read (`NormalColor`), and puts it and the position through
+  the top of the modelview stack. The projection and the aspect adjustment
+  come after eye space.
+- **Six more floats a vertex** go out in `LoadedVertex.env`, an
+  `EMIT_SLOT_ENV` slot after the grayscale colour, the same order the GL
+  backend declares `aEnvNormal`/`aEnvPos` in. There is no CPU clipper, so
+  nothing else has to interpolate them.
+- **The fragment shader**, for texel 0:
+  - It normalises both, reflects the view ray in the normal, and maps the ray
+    to the cell's sphere map (r.xy / (2 |r + z|) + 1/2), held half a texel
+    inside.
+  - It samples at level 0 with `textureLod`. Where the ray turns away from the
+    eye the coordinate wraps round the rim, and a mip chosen from that jump
+    would draw a seam.
+- **The cell is in the texture coordinates**, the same for a whole batch: s is
+  (cell + 1/2) / cells and t is 1 / cells. The shader rounds both back to
+  whole cells, so the pipeline's rounding (`texture_scaling_factor`) and its
+  half-texel offset cannot move a lookup into the next cell.
+
+**The loader** (`xblaMeshEnvironmentVertices()`) now writes only each
+reflecting vertex's quantised normal (x127, a posed one normalised first),
+its amount times the room light in alpha, and the cell code. The per-vertex
+view transform, eye ray, square roots and the far-eye shortcut are gone,
+since the renderer does the transform. The pass sets `G_ADDITIVE_EXT |
+G_ENVMAP_EXT`. The combiner reads TEXEL0 and shade alpha only, so shade RGB is
+free to be a normal.
+
+**Checked on the card:**
+- **Title:** against the per-vertex build, 7.7-8.4% of the pixels differ, by
+  up to 31-48 levels, with the mean change under a level. The marble cube's
+  facets and bevels carry finer detail and nothing else moves.
+- **Combat Simulator:** the held guns keep their sheen with smoother
+  gradients (11% of the frame, the guns, mean change under a level).
+- **No faults:** no seams at the rim, no speckle, no neighbouring cell's
+  colours.
+- **Cost:** about what the per-vertex version cost, since the transform moved
+  into the renderer. On the seeded 80-simulant match: off 30.0M, on 36.3M
+  with the cutoff, 42.2M without (instructions/frame).
 
 ## The interface art, and the logo (2026-09-11)
 

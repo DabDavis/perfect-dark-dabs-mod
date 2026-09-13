@@ -43,6 +43,9 @@ enum {
 // The outline pass of the game's own fonts: draw the border as a one-texel
 // halo around the body rather than the filled cell the font bakes in.
 #define SHADER_OPT_TEXT_OUTLINE (1 << 13)
+// G_ENVMAP_EXT: texel 0 is looked up per fragment, in a sphere-map atlas, by
+// the view ray reflected in an interpolated view-space normal.
+#define SHADER_OPT_ENVMAP (1 << 14)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -65,6 +68,7 @@ struct CCFeatures {
     bool opt_grayscale;
     bool opt_blur;
     bool opt_text_outline;
+    bool opt_envmap;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;

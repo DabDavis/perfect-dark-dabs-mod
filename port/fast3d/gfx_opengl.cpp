@@ -298,6 +298,16 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         num_floats += 4;
     }
 
+    // G_ENVMAP_EXT: the view-space normal and position (gfx_sp_load_vertex()),
+    // interpolated for the fragment shader to reflect the view ray per pixel
+    if (cc_features.opt_envmap) {
+        append_line(vs_buf, &vs_len, "INPUT vec3 aEnvNormal;");
+        append_line(vs_buf, &vs_len, "INPUT vec3 aEnvPos;");
+        append_line(vs_buf, &vs_len, "OUTPUT vec3 vEnvNormal;");
+        append_line(vs_buf, &vs_len, "OUTPUT vec3 vEnvPos;");
+        num_floats += 6;
+    }
+
     for (int i = 0; i < cc_features.num_inputs; i++) {
         vs_len += sprintf(vs_buf + vs_len, "INPUT vec%d aInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
         vs_len += sprintf(vs_buf + vs_len, "OUTPUT vec%d vInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
@@ -323,6 +333,10 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
     if (cc_features.opt_grayscale) {
         append_line(vs_buf, &vs_len, "    vGrayscaleColor = aGrayscaleColor;");
+    }
+    if (cc_features.opt_envmap) {
+        append_line(vs_buf, &vs_len, "    vEnvNormal = aEnvNormal;");
+        append_line(vs_buf, &vs_len, "    vEnvPos = aEnvPos;");
     }
     for (int i = 0; i < cc_features.num_inputs; i++) {
         vs_len += sprintf(vs_buf + vs_len, "    vInput%d = aInput%d;\n", i + 1, i + 1);
@@ -377,6 +391,10 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
     if (cc_features.opt_grayscale) {
         append_line(fs_buf, &fs_len, "INPUT vec4 vGrayscaleColor;");
+    }
+    if (cc_features.opt_envmap) {
+        append_line(fs_buf, &fs_len, "INPUT vec3 vEnvNormal;");
+        append_line(fs_buf, &fs_len, "INPUT vec3 vEnvPos;");
     }
     for (int i = 0; i < cc_features.num_inputs; i++) {
         fs_len += sprintf(fs_buf + fs_len, "INPUT vec%d vInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
@@ -486,6 +504,34 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     append_line(fs_buf, &fs_len, "void main() {");
 
     for (int i = 0; i < 2; i++) {
+        // G_ENVMAP_EXT: texel 0 is the XBLA meshes' reflection atlas, looked up
+        // per pixel. The view ray (the eye is at the origin) reflected in the
+        // interpolated normal lands on a mirror sphere seen from down +z at
+        // r.xy / (2 * |r + (0, 0, 1)|) + 1/2 of its cell - the mapping
+        // xblaMeshBuildEnvironment() built each cell with - held half a texel
+        // inside the cell. The cell comes from the texture coordinates, which
+        // are the same for every vertex of a batch: s is the cell's middle over
+        // the cell count and t one over the cell count, both rounded back to
+        // whole cells here. Sampled at level 0: where the ray turns away from
+        // the eye the coordinate wraps round the sphere's rim, and a mip level
+        // chosen from that jump would draw a blurred seam.
+        if (i == 0 && cc_features.opt_envmap && cc_features.used_textures[0]) {
+            append_line(fs_buf, &fs_len, "    vec2 texSize0 = vec2(textureSize(uTex0, 0));");
+            append_line(fs_buf, &fs_len, "    vec3 envN = normalize(vEnvNormal);");
+            append_line(fs_buf, &fs_len, "    vec3 envE = normalize(vEnvPos);");
+            append_line(fs_buf, &fs_len, "    vec3 envR = envE - 2.0 * dot(envE, envN) * envN;");
+            append_line(fs_buf, &fs_len, "    float envM = 2.0 * sqrt(envR.x * envR.x + envR.y * envR.y + (envR.z + 1.0) * (envR.z + 1.0));");
+            append_line(fs_buf, &fs_len, "    vec2 envS = envM > 0.000001 ? envR.xy / envM + 0.5 : vec2(0.5);");
+            append_line(fs_buf, &fs_len, "    envS = clamp(envS, vec2(0.5 / 256.0), vec2(1.0 - 0.5 / 256.0));");
+            append_line(fs_buf, &fs_len, "    float envCells = max(1.0, floor(1.0 / max(vTexCoord0.t, 0.01) + 0.5));");
+            append_line(fs_buf, &fs_len, "    float envCell = clamp(floor(vTexCoord0.s * envCells), 0.0, envCells - 1.0);");
+            append_line(fs_buf, &fs_len, "    vec2 vTexCoordAdj0 = vec2((envCell + envS.x) / envCells, envS.y);");
+            append_line(fs_buf, &fs_len, gl_glsl_version >= 130
+                                             ? "    vec4 texVal0 = textureLod(uTex0, vTexCoordAdj0, 0.0);"
+                                             : "    vec4 texVal0 = SAMPLE_TEX(uTex0, vTexCoordAdj0);");
+            continue;
+        }
+
         if (cc_features.used_textures[i]) {
             bool s = cc_features.clamp[i][0], t = cc_features.clamp[i][1];
 
@@ -691,6 +737,15 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     if (cc_features.opt_grayscale) {
         prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aGrayscaleColor");
         prg->attrib_sizes[cnt] = 4;
+        ++cnt;
+    }
+
+    if (cc_features.opt_envmap) {
+        prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aEnvNormal");
+        prg->attrib_sizes[cnt] = 3;
+        ++cnt;
+        prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aEnvPos");
+        prg->attrib_sizes[cnt] = 3;
         ++cnt;
     }
 
