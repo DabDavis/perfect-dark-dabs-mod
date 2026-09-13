@@ -1056,6 +1056,8 @@ struct menudialogdef g_GhostOptionsMenuDialog = {
  */
 static char g_GhostAccountMsg[128];
 
+extern struct menuitem g_GhostShareMenuItems[];
+
 static char *menutextGhostAccountStatus(struct menuitem *item)
 {
 	s32 state = ghostnetGetState();
@@ -1065,6 +1067,11 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 				"Network support is not built into this copy.\n");
 	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
+	} else if (item == &g_GhostShareMenuItems[0] && modGhostIsModded()) {
+		// Upload is greyed while a mod is loaded (MODGHOSTHF_MODDED), and a
+		// greyed button needs its reason beside it.
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
+				"Uploading is off while a mod is loaded.\n");
 	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING) {
 		// Signed in, and the server has said this account cannot be reset.
 		// Only a reply to a correct PIN knows that, so this line is the only
@@ -2103,7 +2110,8 @@ static MenuItemHandlerResult menuhandlerGhostUpload(s32 operation, struct menuit
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
 		return !ghostnetIsAvailable() || !ghostnetHasAccount()
-			|| ghostnetGetState() == GHOSTNET_BUSY;
+			|| ghostnetGetState() == GHOSTNET_BUSY
+			|| modGhostIsModded();
 	case MENUOP_SET:
 		ghostnetUploadMine();
 		break;

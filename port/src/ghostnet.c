@@ -1130,7 +1130,9 @@ static void ghostnetQueueUploads(void)
 			continue;
 		}
 
-		if (!ghostnetOwns(entry)) {
+		// See MODGHOSTHF_MODDED: the board has no column for the mod, so a
+		// modded run would be filed under the stock mission of that number.
+		if (!ghostnetOwns(entry) || (entry->flags & MODGHOSTHF_MODDED)) {
 			g_JobUploadSkipped++;
 			continue;
 		}
@@ -1692,7 +1694,7 @@ void ghostnetUploadMine(void)
 	// the main thread, because the catalogue it fills belongs to the menu.
 	// It is one header read per ghost - the same work opening My Ghosts does,
 	// and the same one frame it costs there.
-	if (ghostnetGetState() == GHOSTNET_BUSY) {
+	if (ghostnetGetState() == GHOSTNET_BUSY || modGhostIsModded()) {
 		return;
 	}
 

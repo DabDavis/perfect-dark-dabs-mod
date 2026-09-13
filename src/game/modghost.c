@@ -27,6 +27,7 @@
 #include "system.h"
 #include "versioninfo.h"
 #include "ghostnet.h"
+#include "modloader.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2405,6 +2406,15 @@ Gfx *modGhostRenderNames(Gfx *gdl)
 	return gdl;
 }
 
+/**
+ * Whether a run set now would be a mod's run (MODGHOSTHF_MODDED): a mod is
+ * loaded, or the stage is one the Stage Loader took from a mod's maps.
+ */
+bool modGhostIsModded(void)
+{
+	return fsGetModDir() != NULL || modloaderGetStageModDir(g_Vars.stagenum) != NULL;
+}
+
 void modGhostSaveRun(void)
 {
 	struct modghostheader hdr;
@@ -2459,6 +2469,10 @@ void modGhostSaveRun(void)
 	// "unknown" rather than as "no rules" - they were made when the fork's
 	// moves were available and there is no way to ask now which were on.
 	hdr.flags = MODGHOSTHF_TRIALRULES;
+
+	if (modGhostIsModded()) {
+		hdr.flags |= MODGHOSTHF_MODDED;
+	}
 
 	// Who the run was set as, so the ghost of it looks like the person who set
 	// it wherever it ends up. Clamped to a byte because that is what the field

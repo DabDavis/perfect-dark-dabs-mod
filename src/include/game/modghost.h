@@ -69,6 +69,18 @@
 #define MODGHOSTHF_TRIALRULES 0x01
 
 /**
+ * The run was set with a mod loaded, or on a stage a mod supplied.
+ *
+ * A mod keeps the stock stage numbers and replaces what is behind them - GE-X's
+ * Runway is Extraction's slot - and the board files a run by stage number, so
+ * a GE-X time would sit on the Perfect Dark board under the wrong mission.
+ * Until the boards can be split by mod, such a run races locally and is never
+ * uploaded. The bit is written into the file rather than decided at upload
+ * time because the mod can be unloaded between the two.
+ */
+#define MODGHOSTHF_MODDED     0x02
+
+/**
  * The character a trial is run and replayed as.
  *
  * Combat Simulator lets a player pick who they are and solo does not, which is
@@ -284,6 +296,7 @@ void modGhostReset(void);
 void modGhostRecordSample(void);
 void modGhostTick(void);
 void modGhostSaveRun(void);
+bool modGhostIsModded(void);
 
 bool modGhostIsRacing(void);
 bool modGhostHasSplit(void);
