@@ -21,6 +21,7 @@
 #include "game/chraction.h"
 #include "game/modunlocks.h"
 #include "game/modrules.h"
+#include "game/menu.h"
 #include "modloader.h"
 #include "lib/main.h"
 #include "data.h"
@@ -859,6 +860,22 @@ s32 modWeaponSetKey(s32 weaponnum, const char *key, s32 value)
 		return 1;
 	}
 
+	if (!strcmp(key, "sight")) {
+		if (value < -1 || value > SIGHT_NONE || weaponnum >= MODRULES_NUMWEAPONS) {
+			return -1;
+		}
+		g_ModWeaponSight[weaponnum] = value;
+		return 1;
+	}
+
+	if (!strcmp(key, "chrmodel")) {
+		if (value < -1 || value > 0xffff || weaponnum >= MODRULES_NUMWEAPONS) {
+			return -1;
+		}
+		g_ModWeaponChrModel[weaponnum] = value;
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -988,6 +1005,60 @@ s32 modCheatsSetKey(const char *key, s32 value)
 	return 0;
 }
 
+s32 modSightSetKey(const char *key, s32 value)
+{
+	if (!strcmp(key, "melee")) {
+		if (value < 0 || value > 1) {
+			return -1;
+		}
+		g_ModSightMeleeNone = value;
+		return 1;
+	}
+	if (!strcmp(key, "cheat")) {
+		if (value < 0 || value > SIGHT_NONE) {
+			return -1;
+		}
+		g_ModSightCheat = value;
+		return 1;
+	}
+	if (!strcmp(key, "splitmin")) {
+		if (value < 1 || value > 255) {
+			return -1;
+		}
+		g_ModSightSplitMin = value;
+		return 1;
+	}
+	if (!strcmp(key, "zoomrange")) {
+		if (value < 0 || value > 255) {
+			return -1;
+		}
+		g_ModZoomRangeWeapon = value;
+		return 1;
+	}
+	return 0;
+}
+
+s32 modAiCommandSetKey(const char *key, s32 value)
+{
+	static const char *const names[MODAICMD_NUM] = {
+		[MODAICMD_IFLANGFILTERON]  = "iflangfilteron",
+		[MODAICMD_IFLANGFILTEROFF] = "iflangfilteroff",
+		[MODAICMD_IFALTTITLEON]    = "ifalttitleon",
+		[MODAICMD_IFALTTITLEOFF]   = "ifalttitleoff",
+	};
+
+	for (s32 i = 0; i < MODAICMD_NUM; i++) {
+		if (!strcmp(key, names[i])) {
+			if (value <= 0 || value >= 0x10000) {
+				return -1;
+			}
+			g_ModAiCommands[i] = value;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 s32 modKohSetColour(const char *key, const f32 *rgb)
 {
 	f32 *dst;
@@ -1021,6 +1092,49 @@ static const struct { const char *name; s32 index; } modColourNames[] = {
 	{ "joinblend",   MODCOLOUR_JOINBLEND },
 	{ "interlace0",  MODCOLOUR_INTERLACE0 },
 	{ "interlace1",  MODCOLOUR_INTERLACE1 },
+	{ "ammofn",         MODCOLOUR_AMMOFN },
+	{ "ammofnfade",     MODCOLOUR_AMMOFNFADE },
+	{ "ammofnshift",    MODCOLOUR_AMMOFNSHIFT },
+	{ "ammogunname",    MODCOLOUR_AMMOGUNNAME },
+	{ "ammofunc",       MODCOLOUR_AMMOFUNC },
+	{ "ammofuncalt",    MODCOLOUR_AMMOFUNCALT },
+	{ "ammoclipbg",     MODCOLOUR_AMMOCLIPBG },
+	{ "ammoclipfg",     MODCOLOUR_AMMOCLIPFG },
+	{ "ammocliptext",   MODCOLOUR_AMMOCLIPTEXT },
+	{ "ammoresbg",      MODCOLOUR_AMMORESBG },
+	{ "ammoresfg",      MODCOLOUR_AMMORESFG },
+	{ "ammorestext",    MODCOLOUR_AMMORESTEXT },
+	{ "ampulse",        MODCOLOUR_AMPULSE },
+	{ "ampulseshift",   MODCOLOUR_AMPULSESHIFT },
+	{ "amhealth",       MODCOLOUR_AMHEALTH },
+	{ "amshield",       MODCOLOUR_AMSHIELD },
+	{ "missiontimer",   MODCOLOUR_MISSIONTIMER },
+	{ "htbhud",         MODCOLOUR_HTBHUD },
+	{ "pachud",         MODCOLOUR_PACHUD },
+	{ "htmhud0",        MODCOLOUR_HTMHUD0 },
+	{ "htmhud1",        MODCOLOUR_HTMHUD1 },
+	{ "radar",          MODCOLOUR_RADAR },
+	{ "scenradar",      MODCOLOUR_SCENRADAR },
+	{ "highlightg",     MODCOLOUR_HIGHLIGHTG },
+	{ "scenhighlightg", MODCOLOUR_SCENHIGHLIGHTG },
+	{ "scenhighlightb", MODCOLOUR_SCENHIGHLIGHTB },
+	{ "kbgrid",         MODCOLOUR_KBGRID },
+	{ "sliderline",     MODCOLOUR_SLIDERLINE },
+	{ "listhdr0",       MODCOLOUR_LISTHDR0 },
+	{ "listhdr1",       MODCOLOUR_LISTHDR1 },
+	{ "listhdr2",       MODCOLOUR_LISTHDR2 },
+	{ "listhdr3",       MODCOLOUR_LISTHDR3 },
+	{ "listhdr4",       MODCOLOUR_LISTHDR4 },
+	{ "listhdr5",       MODCOLOUR_LISTHDR5 },
+	{ "listhdr6",       MODCOLOUR_LISTHDR6 },
+	{ "dropdown0",      MODCOLOUR_DROPDOWN0 },
+	{ "dropdown1",      MODCOLOUR_DROPDOWN1 },
+	{ "dropdown2",      MODCOLOUR_DROPDOWN2 },
+	{ "sliderfill",     MODCOLOUR_SLIDERFILL },
+	{ "sliderleft",     MODCOLOUR_SLIDERLEFT },
+	{ "kbfield",        MODCOLOUR_KBFIELD },
+	{ "kbcursor",       MODCOLOUR_KBCURSOR },
+	{ "radarbg",        MODCOLOUR_RADARBG },
 };
 
 s32 modColourLookup(const char *name)
@@ -1041,11 +1155,51 @@ const char *modColourName(s32 index)
 s32 modColourSet(const char *name, u32 rgba)
 {
 	const s32 index = modColourLookup(name);
-	if (index < 0) {
-		return 0;
+	u32 a, b;
+	char tail;
+
+	if (index >= 0) {
+		g_ModColours[index] = rgba;
+		return 1;
 	}
-	g_ModColours[index] = rgba;
-	return 1;
+
+	// the tables the menu and the teams draw from, by position: menuP_F is
+	// field F of palette P (struct menucolourpalette, fifteen words), teambarN
+	// word N of a team's title bar (top, middle, bottom a team), teamN and
+	// teamfillN the radar's team colours and their RGBA5551 fills
+	if (sscanf(name, "menu%u_%u%c", &a, &b, &tail) == 2 && a < 6 && b < 15) {
+		((u32 *)&g_MenuColours[a])[b] = rgba;
+		return 1;
+	}
+	if (sscanf(name, "teambar%u%c", &a, &tail) == 1 && a < 24) {
+		g_TeamTitlebarColours[a / 3][a % 3] = rgba;
+		return 1;
+	}
+	if (sscanf(name, "teamfill%u%c", &a, &tail) == 1 && a < 8) {
+		var80087ce4[a] = rgba;
+		return 1;
+	}
+	if (sscanf(name, "team%u%c", &a, &tail) == 1 && a < 8) {
+		g_TeamColours[a] = rgba;
+		return 1;
+	}
+	return 0;
+}
+
+s32 modDialogTypeSetKey(const char *key, s32 value)
+{
+	static const char *const names[8] = { NULL, "default", "danger", "success", "type4", "white", NULL, NULL };
+
+	for (s32 i = 1; i < 6; i++) {
+		if (!strcmp(key, names[i])) {
+			if (value < 0 || value > 7) {
+				return -1;
+			}
+			g_ModDialogTypeMap[i] = value;
+			return 1;
+		}
+	}
+	return 0;
 }
 
 s32 modTvScreenSetSameAs(s32 num, s32 src)
@@ -1527,6 +1681,7 @@ static const struct { const char *key; u16 addrofs; u16 countofs; } dataSegTable
 	DSTABLE("botheads", botheads, numbotheads),
 	DSTABLE("mpbeauheads", mpbeauheads, nummpbeauheads),
 	DSTABLE("mpmaleheads", mpmaleheads, nummpmaleheads),
+	DSTABLE("botprofiles", botprofiles, numbotprofiles),
 	DSTABLE("mpfemaleheads", mpfemaleheads, nummpfemaleheads),
 	DSTABLE("maleguardheads", maleguardheads, nummaleguardheads),
 	DSTABLE("maleguardteamheads", maleguardteamheads, nummaleguardteamheads),
@@ -1557,6 +1712,8 @@ static const struct { const char *key; u16 arrofs; u16 countofs; u16 max; u16 wi
 	DSPAIRS("playerconst", playerconsts, numplayerconsts, 2),
 	DSPAIRS("buddyconst", buddyconsts, numbuddyconsts, 3),
 	DSPAIRS("texconst", texconsts, numtexconsts, 2),
+	DSPAIRS("headconst", headconsts, numheadconsts, 2),
+	DSPAIRS("mpbodyconst", mpbodyconsts, nummpbodyconsts, 2),
 	DSPAIRS("roomnum", roomnums, numroomnums, 2),
 	DSPAIRS("roomstage", roomstages, numroomstages, 2),
 	DSPAIRS("bgstage", bgstages, numbgstages, 2),
@@ -1787,6 +1944,18 @@ static char *modConfigParseRules(char *p, char *token, const char *block)
 			s32 v = 0;
 			PARSE_INT("cheats", "value", v, -1, 63, NULL);
 			r = modCheatsSetKey(key, v);
+		} else if (!strcmp(block, "menudialogtypes")) {
+			s32 v = 0;
+			PARSE_INT("menudialogtypes", "type", v, 0, 7, NULL);
+			r = modDialogTypeSetKey(key, v);
+		} else if (!strcmp(block, "sights")) {
+			s32 v = 0;
+			PARSE_INT("sights", "value", v, 0, 255, NULL);
+			r = modSightSetKey(key, v);
+		} else if (!strcmp(block, "aicommands")) {
+			u32 v = 0;
+			PARSE_ADDR("aicommands", "command", v, NULL);
+			r = modAiCommandSetKey(key, (s32)v);
 		} else {
 			u32 v = 0;
 			PARSE_ADDR("colours", "colour", v, NULL);
@@ -2095,8 +2264,10 @@ s32 modConfigParse(char *data, u32 dataLen, const char *what)
 				success = false;
 				break;
 			}
-		} else if (!strcmp(token, "movement") || !strcmp(token, "cheats") || !strcmp(token, "colours")) {
-			// movement { fastspeed N fastcheat N }, cheats { slowmotion N }, colours { NAME 0x... }
+		} else if (!strcmp(token, "movement") || !strcmp(token, "cheats") || !strcmp(token, "colours")
+				|| !strcmp(token, "aicommands") || !strcmp(token, "sights") || !strcmp(token, "menudialogtypes")) {
+			// movement { fastspeed N fastcheat N }, cheats { slowmotion N }, colours { NAME 0x... },
+			// aicommands { iflangfilteroff 0xe6 ... }, sights { melee N cheat N splitmin N zoomrange N }
 			char block[UTIL_MAX_TOKEN + 1];
 			char *prev = p;
 			strcpy(block, token);
@@ -3119,6 +3290,11 @@ static u32 botHeadsSnapshot[ARRAYCOUNT(g_BotHeads)];
 static struct mphead mpBeauHeadsSnapshot[ARRAYCOUNT(g_MpBeauHeads)];
 static u32 mpMaleHeadsSnapshot[ARRAYCOUNT(g_MpMaleHeads)];
 static u32 mpFemaleHeadsSnapshot[ARRAYCOUNT(g_MpFemaleHeads)];
+static struct botprofile botProfilesSnapshot[ARRAYCOUNT(g_BotProfiles)];
+static struct menucolourpalette menuColoursSnapshot[6];
+static u32 teamTitlebarSnapshot[8][3];
+static u32 teamColoursSnapshot[8];
+static u32 teamFillSnapshot[8];
 static struct mplistcounts mpListCountsSnapshot;
 static s32 numMpArenasSnapshot;
 static bool mpArenasImportedSnapshot;
@@ -3151,6 +3327,11 @@ static void modTablesSnapshot(void)
 	memcpy(mpBeauHeadsSnapshot, g_MpBeauHeads, sizeof(mpBeauHeadsSnapshot));
 	memcpy(mpMaleHeadsSnapshot, g_MpMaleHeads, sizeof(mpMaleHeadsSnapshot));
 	memcpy(mpFemaleHeadsSnapshot, g_MpFemaleHeads, sizeof(mpFemaleHeadsSnapshot));
+	memcpy(botProfilesSnapshot, g_BotProfiles, sizeof(botProfilesSnapshot));
+	memcpy(menuColoursSnapshot, g_MenuColours, sizeof(menuColoursSnapshot));
+	memcpy(teamTitlebarSnapshot, g_TeamTitlebarColours, sizeof(teamTitlebarSnapshot));
+	memcpy(teamColoursSnapshot, g_TeamColours, sizeof(teamColoursSnapshot));
+	memcpy(teamFillSnapshot, var80087ce4, sizeof(teamFillSnapshot));
 	mpListCountsSnapshot = g_MpListCounts;
 	numMpArenasSnapshot = g_MpNumArenas;
 	mpArenasImportedSnapshot = g_MpArenasImported;
@@ -3189,6 +3370,7 @@ static bool modTablesRestore(void)
 	memcpy(g_Weapons, weaponsSnapshot, sizeof(weaponsSnapshot));
 	memcpy(g_ModelStates, modelStatesSnapshot, sizeof(modelStatesSnapshot));
 	memcpy(g_MpWeapons, mpWeaponsSnapshot, sizeof(mpWeaponsSnapshot));
+	modDataMpWeaponSlotsReset();
 	memcpy(g_MpWeaponSets, mpWeaponSetsSnapshot, sizeof(mpWeaponSetsSnapshot));
 	memcpy(g_MpArenas, mpArenasSnapshot, sizeof(mpArenasSnapshot));
 	memcpy(g_MpTracks, mpTracksSnapshot, sizeof(mpTracksSnapshot));
@@ -3200,6 +3382,11 @@ static bool modTablesRestore(void)
 	memcpy(g_MpBeauHeads, mpBeauHeadsSnapshot, sizeof(mpBeauHeadsSnapshot));
 	memcpy(g_MpMaleHeads, mpMaleHeadsSnapshot, sizeof(mpMaleHeadsSnapshot));
 	memcpy(g_MpFemaleHeads, mpFemaleHeadsSnapshot, sizeof(mpFemaleHeadsSnapshot));
+	memcpy(g_BotProfiles, botProfilesSnapshot, sizeof(botProfilesSnapshot));
+	memcpy(g_MenuColours, menuColoursSnapshot, sizeof(menuColoursSnapshot));
+	memcpy(g_TeamTitlebarColours, teamTitlebarSnapshot, sizeof(teamTitlebarSnapshot));
+	memcpy(g_TeamColours, teamColoursSnapshot, sizeof(teamColoursSnapshot));
+	memcpy(var80087ce4, teamFillSnapshot, sizeof(teamFillSnapshot));
 	g_MpListCounts = mpListCountsSnapshot;
 	g_MpNumArenas = numMpArenasSnapshot;
 	g_MpArenasImported = mpArenasImportedSnapshot;

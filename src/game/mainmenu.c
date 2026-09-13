@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "constants.h"
 #include "game/modunlocks.h"
+#include "game/modrules.h"
 #include "game/bondgun.h"
 #include "game/bossfile.h"
 #include "game/challenge.h"
@@ -430,7 +431,10 @@ MenuItemHandlerResult menuhandlerAlternativeTitle(s32 operation, struct menuitem
 {
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		if (g_Vars.stagenum != STAGE_CITRAINING || ((u8)g_AltTitleUnlocked == false && !(g_ModUnlocks & MODUNLOCK_COMPLETION))) {
+		// a mod whose missions branch on this option (GE-X's "Disable Female
+		// NPCs") offers it from the start
+		if (g_Vars.stagenum != STAGE_CITRAINING || ((u8)g_AltTitleUnlocked == false && !(g_ModUnlocks & MODUNLOCK_COMPLETION)
+					&& !g_ModAiCommands[MODAICMD_IFALTTITLEON] && !g_ModAiCommands[MODAICMD_IFALTTITLEOFF])) {
 			return true;
 		}
 		break;

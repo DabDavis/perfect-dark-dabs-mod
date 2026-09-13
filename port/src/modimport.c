@@ -2243,6 +2243,7 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	{ "g_BotHeads",       0x80087658, 0xd4 },
 	{ "g_MpBodies",       0x800877bc, 0x1e8 },
 	{ "g_MpMaleHeads",    0x800879a4, 0xb0 },
+	{ "g_BotProfiles",    0x8008772c, 0x90 },
 	{ "g_MpFemaleHeads",  0x80087a54, 0x1c },
 	// the solo guards' random heads (body.c), -1 terminated
 	{ "g_MaleGuardHeads",  0x80062b68, 0xac },
@@ -2257,6 +2258,7 @@ static const struct { const char *name; u32 addr; u32 size; } dataSyms[] = {
 	// file each text bank is in, for reading an arena's name
 	{ "g_LangFiles",      0x80084124, 0x8c },
 	{ "g_CommandLengths", 0x80068c14, 0x3e4 },
+	{ "g_CommandPointers", 0x80068490, 0x784 },
 	{ "g_SoloStages",     0x80071e6c, 0xfc },
 	{ "g_StageTracks",    0x80084500, 0xd0 },
 	{ "g_MpTracks",       0x80087a70, 0xfc },
@@ -2322,6 +2324,21 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "bgun_create_fired_projectile", 0x7f09fa84, 0x7f0a0394 },
 	{ "obj_attachment_test_hit",    0x7f0859a0, 0x7f085e00 },
 	{ "bgun_get_unequipped_reload_index", 0x7f097d0c, 0x7f097d64 },
+	{ "playermgr_get_model_of_weapon", 0x7f128af4, 0x7f128cf0 },
+	{ "playermgr_create_weapon",    0x7f128d20, 0x7f128dbc },
+	{ "chr_grunt",                  0x7f0338e0, 0x7f033fa0 },
+	{ "chr_render",                 0x7f025288, 0x7f025ea4 },
+	{ "ai_say_quip",                0x7f05a258, 0x7f05abdc },
+	{ "chrai_go_to_label",          0x7f04d60c, 0x7f04d6b4 },
+	{ "gset_get_sight",             0x7f0b1f58, 0x7f0b201c },
+	{ "sight_draw",                 0x7f0dca48, 0x7f0dcdb0 },
+	{ "sight_draw_zoom",            0x7f0da2dc, 0x7f0dc170 },
+	{ "mp_player_set_defaults",     0x7f18800c, 0x7f1881d4 },
+	{ "mp_get_mpheadnum_by_mpbodynum", 0x7f18bc9c, 0x7f18bd90 },
+	{ "menugfx_draw_dropdown_background", 0x7f0e1668, 0x7f0e194c },
+	{ "menugfx_draw_list_group_header", 0x7f0e194c, 0x7f0e1ce8 },
+	{ "menugfx_render_slider",      0x7f0e1fac, 0x7f0e2348 },
+	{ "menuitem_keyboard_render",   0x7f0e85ac, 0x7f0e91d0 },
 	{ "beam_create_for_hand",       0x7f0ac138, 0x7f0ac4b8 },
 	{ "fr_is_ammo_wasted",          0x7f19f524, 0x7f19f994 },
 	// the tail: the run speed, the slow-motion cheat, the poison, King of the Hill
@@ -2382,6 +2399,56 @@ static const u8 *tableEntry(const struct tablectx *t, u32 addr, u32 n, u32 elem)
 		return NULL;
 	}
 	return t->seg + ofs;
+}
+
+// where the game keeps the two options a mod's own AI command can test
+#define AICMD_LANGFILTER 0x8009a4a3u   // g_Vars.langfilteron
+#define AICMD_ALTTITLE   0x800a232cu   // g_AltTitleEnabled
+
+/**
+ * The aicommands { } key for a mod's AI command handler at h that goes to
+ * its label on one of the game's options, or NULL for any other handler.
+ * GE-X's shape: a jal to a leaf `lui at,HI; jr ra; lbu v0,LO(at)`, then
+ * bnez v0 (to the label when the byte is clear) or beqz v0 (when set) past a
+ * jal chrai_go_to_label, all before the handler's jr ra.
+ */
+static const char *aiFlagCommandKey(const struct tablectx *t, u32 h, u32 gotova)
+{
+	u32 flag = 0, polarity = 2, callsgoto = 0;
+
+	if (h < GAME_VRAM) {
+		return NULL;
+	}
+	for (u32 i = 0, ofs = h - GAME_VRAM; i < 48 && ofs + 12 <= t->modcodelen; ++i, ofs += 4) {
+		const u32 x = be32(t->modcode, ofs);
+		if (x == 0x03e00008u) {
+			break;
+		}
+		if ((x >> 26) == 3) {
+			const u32 target = (h & 0xf0000000u) | ((x & 0x3ffffff) << 2);
+			const u32 tofs = target - GAME_VRAM;
+			if (target == gotova) {
+				callsgoto = 1;
+			} else if (!flag && target >= GAME_VRAM && tofs + 12 <= t->modcodelen
+					&& (be32(t->modcode, tofs) & 0xffff0000u) == 0x3c010000u
+					&& be32(t->modcode, tofs + 4) == 0x03e00008u
+					&& (be32(t->modcode, tofs + 8) & 0xffff0000u) == 0x90220000u) {
+				const u32 br = be32(t->modcode, ofs + 8);
+				flag = ((be32(t->modcode, tofs) & 0xffff) << 16) + (u32)(s32)(s16)(be32(t->modcode, tofs + 8) & 0xffff);
+				polarity = (br & 0xffff0000u) == 0x14400000u ? 0 : (br & 0xffff0000u) == 0x10400000u ? 1 : 2;
+			}
+		}
+	}
+	if (!callsgoto || polarity > 1) {
+		return NULL;
+	}
+	if (flag == AICMD_LANGFILTER) {
+		return polarity ? "iflangfilteron" : "iflangfilteroff";
+	}
+	if (flag == AICMD_ALTTITLE) {
+		return polarity ? "ifalttitleon" : "ifalttitleoff";
+	}
+	return NULL;
 }
 
 static u32 countMpWeapons(const struct tablectx *t, u32 addr, u32 limit)
@@ -2509,6 +2576,25 @@ static u32 countMpBodies(const struct tablectx *t, u32 addr, u32 limit)
 		headnum = (s16)be16(e, 4);
 		if (!(bodynum >= 0 && bodynum < 151) || !((headnum >= -1 && headnum < 151) || headnum == 1000)
 				|| e[6] > 0x7f || (be16(e, 2) >> 9) > 0x44) {
+			break;
+		}
+		++n;
+	}
+	return n;
+}
+
+// g_BotProfiles: u8 type, u8 difficulty, s16 name, s16 mpbody, u8 feature, pad
+static u32 countBotProfiles(const struct tablectx *t, u32 addr, u32 limit)
+{
+	u32 n = 0;
+	while (n < limit) {
+		const u8 *e = tableEntry(t, addr, n, 8);
+		s32 body;
+		if (!e) {
+			break;
+		}
+		body = (s16)be16(e, 4);
+		if (e[0] > 0x20 || e[1] > 7 || (be16(e, 2) >> 9) > 0x44 || !(body >= 0 && body < 151) || e[6] > 0x7f) {
 			break;
 		}
 		++n;
@@ -2984,6 +3070,7 @@ struct emuargs {
 	u32 stageindex;
 	const struct emuseed *seed;   // words planted in the scratch memory before the run
 	u32 nseed;
+	u32 callszero;   // a call not made answers 0 rather than a fresh fake pointer
 };
 
 /**
@@ -3039,7 +3126,7 @@ static s32 emuRunArgs(struct emu *e, u32 entry, const struct emuargs *a, u32 max
 			if (!emuDelaySlot(e, pc)) {
 				return 0;
 			}
-			e->r[2] = EMU_FAKEPTR + e->calls * 0x10000;
+			e->r[2] = a->callszero ? 0 : EMU_FAKEPTR + e->calls * 0x10000;
 			e->calls++;
 			pc += 8;
 			break;
@@ -4012,6 +4099,7 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	{ "detonatorhand", "bgun0f0a5550", 34, 0, 0 },
 	{ "detonatorhand", "bgun_draw_hud", 34, 0, 0 },
 	{ "detonatorhand", "bgun_tick_inc_autoswitch", 34, 0, 0 },
+	{ "detonatorhand", "playermgr_create_weapon", 34, 0, 0 },
 	// the hand state machine: the knife's reload quirk at four places, the
 	// mines' function surviving an autoswitch, the grenade's no-casing reload
 	{ "knifereload",  "bgun_tick_inc_reload", 26, 0, 0 },
@@ -4137,6 +4225,12 @@ static int cmpU8(const void *a, const void *b)
 
 #define RELOAD_BEGIN "# importer: reload begin"
 #define RELOAD_END   "# importer: reload end"
+#define CHRMODEL_BEGIN "# importer: chrmodels begin"
+#define CHRMODEL_END   "# importer: chrmodels end"
+#define SIGHT_BEGIN "# importer: sights begin"
+#define SIGHT_END   "# importer: sights end"
+#define AICMD_BEGIN "# importer: aicommands begin"
+#define AICMD_END   "# importer: aicommands end"
 
 /**
  * (table address, count) for the switch whose `jr rY` is at ofs: `lui at,HI`
@@ -4559,7 +4653,133 @@ static s32 kohFromCode(const u8 *code, u32 codelen, s32 init, f32 *rgb)
 
 // the colour constants a mod repaints, by stock address of the lui (or li)
 // that loads each: the names are the port's g_ModColours[] entries
-static const struct { const char *name; u32 addr; } colourSites[] = {
+/**
+ * What a menu drawing function stores in the colour buffer its first call
+ * allocates: the function run with a stand-in display list and a box, and
+ * words 0..n-1 of that call's pointer read back (written[i] 0 for a word the
+ * run never stored). menugfx builds its list headers, dropdowns and slider
+ * from parts this way, and GE-X changed the parts rather than a table.
+ */
+static s32 emuColourReadback(const u8 *code, u32 codelen, u32 fnofs, u32 n, u32 *out, u8 *written)
+{
+	struct emu *e = malloc(sizeof(*e));
+	struct emuargs a;
+	u32 v0, calls;
+	s32 ok;
+
+	memset(&a, 0, sizeof(a));
+	a.a0 = 0x80700000u;
+	a.a1 = 10;
+	a.a2 = 20;
+	a.a3 = 110;
+	e->code = code;
+	e->codelen = codelen;
+	ok = emuRunArgs(e, fnofs + GAME_VRAM, &a, 4000, &v0, &calls);
+	for (u32 i = 0; i < n; ++i) {
+		written[i] = ok && emuStored(e, EMU_FAKEPTR + i * 4, &out[i]);
+	}
+	free(e);
+	return ok;
+}
+
+/**
+ * The value the instruction at site writes, by walking the function from its
+ * start in a straight line and ignoring where it branches: lui, ori, andi,
+ * addiu, sll, srl, or, and and addu on values known so far, anything else
+ * that writes a register forgetting it, and a call forgetting v0, v1 and ra.
+ * GE-X builds three menu colours this way out of registers it kept.
+ */
+static s32 followRegisterAt(const u8 *code, u32 codelen, u32 start, u32 site, u32 *out)
+{
+	u32 reg[32], known = 1;
+
+	reg[0] = 0;
+	for (u32 pc = start; pc <= site && pc + 4 <= codelen; pc += 4) {
+		const u32 x = be32(code, pc);
+		const u32 op = x >> 26, rs = (x >> 21) & 31, rt = (x >> 16) & 31, rd = (x >> 11) & 31, sa = (x >> 6) & 31, fn = x & 63;
+		const u32 imm = x & 0xffff;
+		s32 dst = -1, have = 0;
+		u32 val = 0;
+#define KNOWN(r) ((known >> (r)) & 1)
+		if (op == 0x0f) {
+			dst = rt, have = 1, val = imm << 16;
+		} else if (op == 0x0d || op == 0x0c || op == 0x08 || op == 0x09) {
+			dst = rt, have = KNOWN(rs);
+			val = op == 0x0d ? reg[rs] | imm : op == 0x0c ? reg[rs] & imm : reg[rs] + (u32)(s32)(s16)imm;
+		} else if (op == 0 && (fn == 0x00 || fn == 0x02)) {
+			dst = rd, have = KNOWN(rt), val = fn == 0 ? reg[rt] << sa : reg[rt] >> sa;
+		} else if (op == 0 && (fn == 0x25 || fn == 0x21 || fn == 0x24)) {
+			dst = rd, have = KNOWN(rs) && KNOWN(rt);
+			val = fn == 0x25 ? reg[rs] | reg[rt] : fn == 0x21 ? reg[rs] + reg[rt] : reg[rs] & reg[rt];
+		} else if (op == 3) {
+			known &= ~((1u << 2) | (1u << 3) | (1u << 31));
+			continue;
+		} else if (op == 0x23 || op == 0x21 || op == 0x25 || op == 0x24 || op == 0x20 || op == 0x31) {
+			dst = rt;
+		} else if (op == 0 && fn != 0x08 && fn != 0x09) {
+			dst = rd;
+		}
+#undef KNOWN
+		if (dst > 0) {
+			if (have) {
+				reg[dst] = val;
+				known |= 1u << dst;
+			} else {
+				known &= ~(1u << dst);
+			}
+		}
+		if (pc == site) {
+			if (dst > 0 && have) {
+				*out = val;
+				return 1;
+			}
+			return 0;
+		}
+	}
+	return 0;
+}
+
+// Every menudialogdef in the stock data segment, from tools/pd.ntsc-final.datasym
+// (the symbols ending in MenuDialog); the importer compares their type bytes
+static const u32 menuDialogAddrs[] = {
+	0x80071548, 0x800715b0, 0x80071618, 0x800716a8, 0x8007176c, 0x80071810,
+	0x80071878, 0x8007191c, 0x80071988, 0x80071a28, 0x80071a90, 0x80071b48,
+	0x80071c00, 0x80071ca4, 0x80071d34, 0x80071dc4, 0x80071e54, 0x80072008,
+	0x80072020, 0x80072038, 0x80072078, 0x800720cc, 0x80072120, 0x80072174,
+	0x80072218, 0x800722bc, 0x800723ec, 0x80072404, 0x8007250c, 0x80072614,
+	0x8007271c, 0x80072824, 0x800728f0, 0x800729bc, 0x80072a88, 0x80072af0,
+	0x80072d10, 0x80072d28, 0x80072d40, 0x80072d58, 0x80072d70, 0x80073514,
+	0x8007352c, 0x80073598, 0x80073600, 0x80073690, 0x800736a8, 0x800736c0,
+	0x80073968, 0x800739a8, 0x80073a5c, 0x80073a74, 0x80073c30, 0x80073d24,
+	0x80073e40, 0x80073f5c, 0x80074078, 0x80074194, 0x80074274, 0x80074368,
+	0x800743f0, 0x8007446c, 0x800744fc, 0x80074564, 0x800745cc, 0x80074634,
+	0x800746a0, 0x80074758, 0x80074858, 0x800748e8, 0x80074964, 0x800749cc,
+	0x80074a34, 0x80074aa0, 0x80074b58, 0x80074c38, 0x80074d40, 0x80074d80,
+	0x80074dd4, 0x80074ee0, 0x80074f34, 0x80074fec, 0x800750a4, 0x80075120,
+	0x8007519c, 0x800751dc, 0x80075294, 0x800752fc, 0x80075364, 0x800753f4,
+	0x80075538, 0x800755a0, 0x80075630, 0x800756e8, 0x80075700, 0x80075718,
+	0x80075730, 0x80075784, 0x80075b24, 0x80075b3c, 0x80075b54, 0x80075b6c,
+	0x80075b84, 0x80075b9c, 0x80084694, 0x80084774, 0x800847c8, 0x800847e0,
+	0x800847f8, 0x80084838, 0x80084850, 0x80084890, 0x800848a8, 0x800848e8,
+	0x80084900, 0x800849f8, 0x80084a10, 0x80084a28, 0x80084a40, 0x80084a58,
+	0x80084aac, 0x80084b14, 0x80084b80, 0x80084c88, 0x80084cdc, 0x80084d80,
+	0x80084e88, 0x80084f68, 0x8008500c, 0x80085164, 0x800851a4, 0x80085430,
+	0x800854a0, 0x800854e0, 0x80085534, 0x80085588, 0x800855dc, 0x8008561c,
+	0x800856c0, 0x80085778, 0x800857b8, 0x8008581c, 0x80085834, 0x80085888,
+	0x8008592c, 0x80085a5c, 0x80085b3c, 0x80085cd0, 0x80085d20, 0x80085dd8,
+	0x80085e18, 0x80085f0c, 0x80085f88, 0x80086018, 0x80086030, 0x800860ac,
+	0x800860ec, 0x800861e8, 0x80086200, 0x800862cc, 0x800862e4, 0x800862fc,
+	0x80086364, 0x8008646c, 0x80086484, 0x80086500, 0x80086680, 0x80086724,
+	0x800867a0, 0x800868b8, 0x800869d4, 0x80086b48, 0x80086ce0, 0x80086dfc,
+	0x80086f80, 0x800871a4, 0x800871e4, 0x80088d38, 0x80088d78, 0x80088e6c,
+	0x80088f60, 0x8008907c, 0x80089198, 0x800891e8, 0x80089250, 0x80089338,
+	0x800893a0, 0x800893e0, 0x8008947c, 0x8008950c, 0x8008959c, 0x800895dc,
+	0x8008966c, 0x800896fc, 0x8008978c, 0x80089900, 0x80089918, 0x80089930,
+	0x80089970,
+};
+
+// shift: the site is an `sll` whose amount is the setting, not a colour
+static const struct { const char *name; u32 addr; u32 shift; } colourSites[] = {
 	{ "kohhud",      0x7f1828a8 },   // koh_render_hud: the hill timer's text
 	{ "timer",       0x7f090b38 },   // countdown_timer_render: the countdown's digits
 	{ "scannerin0",  0x7f148658 },   // bview_draw_horizon_scanner: the lens's even lines
@@ -4570,6 +4790,34 @@ static const struct { const char *name; u32 addr; } colourSites[] = {
 	{ "joinblend",   0x7f0fc674 },   // and the colour it blends from
 	{ "interlace0",  0x7f1428a4 },   // bview_draw_slayer_rocket_interlace: the two line colours
 	{ "interlace1",  0x7f1428b4 },
+	{ "ammofn",         0x7f0aaaa0 },      // bgun_draw_hud: the function name
+	{ "ammofnfade",     0x7f0aac68 },      // and as it fades,
+	{ "ammofnshift",    0x7f0aac70, 1 },   // the fader shifted up by this much
+	{ "ammogunname",    0x7f0aad98 },      // the gun's name
+	{ "ammofunc",       0x7f0aafd0 },      // the function's name
+	{ "ammofuncalt",    0x7f0ab090 },      // and while switching to the other
+	{ "ammoclipbg",     0x7f0ab500 },      // the clip gauge's back, fill and digits
+	{ "ammoclipfg",     0x7f0ab4f4 },
+	{ "ammocliptext",   0x7f0ab540 },
+	{ "ammoresbg",      0x7f0ab82c },      // the reserve gauge's back, fill and digits
+	{ "ammoresfg",      0x7f0ab830 },
+	{ "ammorestext",    0x7f0ab874 },
+	{ "ampulse",        0x7f10146c },      // am_render: the selected slot's pulse
+	{ "ampulseshift",   0x7f101480, 1 },
+	{ "amhealth",       0x7f101f74 },      // the health bar
+	{ "amshield",       0x7f1020ec },      // the shield bar
+	{ "missiontimer",   0x7f0dd200 },      // hudmsg_render_mission_timer
+	{ "htbhud",         0x7f180900 },      // htb_render_hud: the timer
+	{ "pachud",         0x7f184bb8 },      // pac_render_hud: the timer
+	{ "htmhud0",        0x7f183ab0 },      // htm_render_hud: the progress bar's back
+	{ "htmhud1",        0x7f183b1c },      // and front
+	{ "radar",          0x7f18fc94 },      // radar_render: the dots
+	{ "scenradar",      0x7f180ac8 },      // htb_radar_extra: an objective's dot
+	{ "highlightg",     0x7f180c68 },      // htb_highlight_prop: the green channel
+	{ "scenhighlightg", 0x7f185f14 },      // scenario_highlight_prop: a pickup's green
+	{ "scenhighlightb", 0x7f185f18 },      // and blue
+	{ "kbgrid",         0x7f0e8980 },      // menuitem_keyboard_render: the grid lines
+	{ "sliderline",     0x7f0e2308 },      // menugfx_render_slider: the line past the marker
 };
 
 /**
@@ -5000,8 +5248,11 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			{ "mpbodies",      "g_MpBodies",      "mp_get_num_bodies", 8, 151, 0 },
 			{ "mpbeauheads",   "g_MpBeauHeads",   NULL,                4, 151, 0 },
 			{ "botheads",      "g_BotHeads",      NULL,                4, 75,  0 },
-			{ "mpmaleheads",   "g_MpMaleHeads",   NULL,                4, 151, 0 },
+			// the male list's length is the compare in the head chooser (GE-X: 41)
+			{ "mpmaleheads",   "g_MpMaleHeads",   "mp_get_mpheadnum_by_mpbodynum", 4, 151, 0 },
 			{ "mpfemaleheads", "g_MpFemaleHeads", NULL,                4, 151, 0 },
+			// each simulant type and difficulty's name and body
+			{ "botprofiles",   "g_BotProfiles",   NULL,                8, 151, 0 },
 			// the heads a solo stage hands its guards at random. GE-X keeps
 			// 25 of its own here; the stock list names heads whose texture
 			// slots GE-X reused, which is what a guard with a scrambled
@@ -5024,7 +5275,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 					n = c;
 				}
 			}
-			if (lists[i].elem == 8) {
+			if (!strcmp(lists[i].key, "botprofiles")) {
+				ok = countBotProfiles(&t, addr, n);
+			} else if (lists[i].elem == 8) {
 				ok = countMpBodies(&t, addr, n);
 			} else if (!strcmp(lists[i].key, "mpheads") || !strcmp(lists[i].key, "mpbeauheads")) {
 				ok = countMpHeads(&t, addr, n);
@@ -5209,6 +5462,14 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		{ "bg_render_scene",             "bgstage",     "backdrop and star field stage ids changed in the mod's scene code", 0 },
 		{ "room_populate_mtx",           "roomstage",   "pinned rooms' stages changed in the mod's room code", 1 },
 		{ "bg_render_scene",             "roomstage",   "pinned rooms' stages changed in the mod's scene code", 1 },
+		// the heads tested by number for the grunt (Maian and Joanna), the
+		// Maian eyes and the quips: GE-X makes the four Maian tests head 5 and
+		// the four Joanna tests head 4, and gives the others to its own people
+		{ "chr_grunt",                   "headconst",   "head numbers changed in the mod's grunt code", 0 },
+		{ "chr_render",                  "headconst",   "head numbers changed in the mod's eye code", 0 },
+		{ "ai_say_quip",                 "headconst",   "head numbers changed in the mod's quip code", 0 },
+		// the bodies players 2 to 4 start a Combat Simulator setup as
+		{ "mp_player_set_defaults",      "mpbodyconst", "Combat Simulator default bodies changed in the mod's code", 0 },
 	};
 	const u32 modstages = t.followed ? locateTable(&t, "g_Stages", tnote, sizeof(tnote)) : 0;
 	u32 seen[64], n = 0;
@@ -5892,6 +6153,195 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The model a chr holds for each weapon: by running
+	// playermgr_get_model_of_weapon for every weapon number on both binaries -
+	// a switch the compiler made a jump table in rodata, plus a compare chain
+	// and a default, pure. GE-X rewrites 30 of the table's 50 entries and not
+	// one instruction, so modcodediff files it as data. Only a weapon whose
+	// model differs from stock is written; the port's switch has the rest.
+	char *chrmodelcfg = NULL;
+	u32 chrmodellen = 0, chrmodelcap = 0;
+	if (t.followed) {
+		u32 fn, fnend;
+		if (codeSym("playermgr_get_model_of_weapon", &fn, &fnend)) {
+			struct emu *e = malloc(sizeof(*e));
+			s32 model[2][256];
+			s32 ok = 1;
+			for (u32 pass = 0; pass < 2 && ok; ++pass) {
+				e->code = pass ? t.modcode : t.stockcode;
+				e->codelen = pass ? t.modcodelen : t.stockcodelen;
+				for (u32 w = 0; w < hcount && w < 256; ++w) {
+					u32 v0, calls;
+					if (!emuRun(e, fn + GAME_VRAM, w, 0, 200, &v0, &calls) || calls) {
+						ok = 0;
+						break;
+					}
+					model[pass][w] = (s32)v0;
+				}
+			}
+			free(e);
+			if (!ok) {
+				rep("  the chr's weapon models in playermgr_get_model_of_weapon do not run; left as the port has them");
+			} else {
+				char prose[1024] = "";
+				u32 proselen = 0;
+				const u32 weaponsaddr = locateTable(&t, "g_Weapons", tnote, sizeof(tnote));
+				for (u32 w = 0; w < hcount && w < 256; ++w) {
+					// a weapon block for a number the mod defines no weapon at is refused
+					const u8 *we = weaponsaddr ? tableEntry(&t, weaponsaddr, w, 4) : NULL;
+					if (model[0][w] != model[1][w] && we && be32(we, 0)) {
+						appendf(&chrmodelcfg, &chrmodellen, &chrmodelcap, "weapon %u { chrmodel %d }\n", w, model[1][w]);
+						proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%s%u %d (stock %d)",
+								proselen ? ", " : "", w, model[1][w], model[0][w]);
+						if (proselen >= sizeof(prose)) {
+							proselen = sizeof(prose) - 1;
+						}
+					}
+				}
+				if (chrmodelcfg) {
+					rep("  a chr holds other models for weapons: %s", prose);
+				}
+			}
+		}
+	}
+
+	// The sight each weapon draws: by running gset_get_sight for every weapon
+	// number on both binaries with the current player's right hand holding it
+	// and every call answering 0 (no function, no cheat) - a jump table in
+	// rodata that GE-X points nearly all at the classic sight, the default
+	// past its end made classic too. Run again with the calls answering
+	// pointers - to a function of type 0, then to a melee one - to read what
+	// the Classic Sight cheat gives and whether a melee function hides the
+	// sight (it returned after one call). The player count at which a split
+	// screen forces the default sight is sight_draw's slti, and the weapon that
+	// shows the zoom range with no zoom sight_draw_zoom's li.
+	char *sightcfg = NULL;
+	u32 sightlen = 0, sightcap = 0;
+	if (t.followed) {
+		const u32 curplayer = 0x8009a244u;   // g_Vars.currentplayer
+		const u32 player = 0x80600000u;      // where the runs below put the player
+		u32 fn, fnend;
+		if (codeSym("gset_get_sight", &fn, &fnend)) {
+			struct emu *e = malloc(sizeof(*e));
+			s32 sight[2][256], cheat[2], melee[2];
+			s32 ok = 1;
+			for (u32 pass = 0; pass < 2 && ok; ++pass) {
+				struct emuargs a;
+				struct emuseed seed[2];
+				u32 v0, calls;
+				e->code = pass ? t.modcode : t.stockcode;
+				e->codelen = pass ? t.modcodelen : t.stockcodelen;
+				memset(&a, 0, sizeof(a));
+				ok = emuRunArgs(e, fn + GAME_VRAM, &a, 200, &v0, &calls) && v0 <= 7;
+				cheat[pass] = (s32)v0;
+				seed[0].addr = EMU_FAKEPTR;
+				seed[0].value = 3;   // INVENTORYFUNCTYPE_MELEE
+				a.seed = seed;
+				a.nseed = 1;
+				ok = ok && emuRunArgs(e, fn + GAME_VRAM, &a, 200, &v0, &calls);
+				melee[pass] = calls == 1;
+				a.callszero = 1;
+				a.nseed = 2;
+				seed[0].addr = curplayer;
+				seed[0].value = player;
+				seed[1].addr = player + 0x638;   // hands[HAND_RIGHT].gset.weaponnum, the top byte
+				for (u32 w = 0; ok && w < hcount && w < 256; ++w) {
+					seed[1].value = w << 24;
+					ok = emuRunArgs(e, fn + GAME_VRAM, &a, 200, &v0, &calls) && v0 <= 7;
+					sight[pass][w] = (s32)v0;
+				}
+			}
+			free(e);
+			if (!ok) {
+				rep("  the sights in gset_get_sight do not run; left as the port has them");
+			} else {
+				const u32 weaponsaddr = locateTable(&t, "g_Weapons", tnote, sizeof(tnote));
+				char prose[1024] = "";
+				u32 proselen = 0;
+				if (melee[0] != melee[1]) {
+					appendf(&sightcfg, &sightlen, &sightcap, "sights { melee %d }\n", melee[1]);
+					rep("  a melee function hides the sight: %d (stock %d)", melee[1], melee[0]);
+				}
+				if (cheat[0] != cheat[1]) {
+					appendf(&sightcfg, &sightlen, &sightcap, "sights { cheat %d }\n", cheat[1]);
+					rep("  the Classic Sight cheat gives sight %d (stock %d)", cheat[1], cheat[0]);
+				}
+				// the report groups the weapons by the sight they now draw, since
+				// GE-X changes eighty of them and a line holds 1024 bytes
+				for (u32 w = 0; w < hcount && w < 256; ++w) {
+					const u8 *we = weaponsaddr ? tableEntry(&t, weaponsaddr, w, 4) : NULL;
+					if (sight[0][w] != sight[1][w] && we && be32(we, 0)) {
+						appendf(&sightcfg, &sightlen, &sightcap, "weapon %u { sight %d }\n", w, sight[1][w]);
+					} else {
+						sight[1][w] = -1;
+					}
+				}
+				for (s32 s = 0; s <= 7; ++s) {
+					char list[768] = "";
+					u32 listlen = 0;
+					for (u32 w = 0; w < hcount && w < 256 && listlen < sizeof(list) - 4; ++w) {
+						if (sight[1][w] == s) {
+							listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s%u", listlen ? " " : "", w);
+						}
+					}
+					if (listlen && proselen < sizeof(prose)) {
+						proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%ssight %d on %s",
+								proselen ? "; " : "", s, list);
+					}
+				}
+				if (proselen) {
+					rep("  weapons draw other sights: %s", prose);
+				}
+			}
+		}
+		if (codeSym("sight_draw", &fn, &fnend)) {
+			for (u32 ofs = fn; ofs + 4 <= fnend && ofs + 4 <= t.stockcodelen && ofs + 4 <= t.modcodelen; ofs += 4) {
+				const u32 x = be32(t.stockcode, ofs);
+				const u32 y = be32(t.modcode, ofs);
+				if ((x >> 26) == 0x0a && (y >> 16) == (x >> 16) && (x & 0xffff) == 2 && (y & 0xffff) != (x & 0xffff)) {
+					const s32 split = (s16)(y & 0xffff);
+					appendf(&sightcfg, &sightlen, &sightcap, "sights { splitmin %d }\n", split);
+					rep("  a split screen forces the default sight from %d players (stock 2)", split);
+					break;
+				}
+			}
+		}
+		{
+			const u32 zoom = codeCount(&t, "sight_draw_zoom", 21);   // WEAPON_SNIPERRIFLE
+			if (zoom && zoom != 21) {
+				appendf(&sightcfg, &sightlen, &sightcap, "sights { zoomrange %u }\n", zoom);
+				rep("  the zoom range shows with no zoom for weapon %u (stock 21)", zoom);
+			}
+		}
+	}
+
+	// The mod's own AI commands that go to their label on one of the game's
+	// options: GE-X fills the empty slots 0xe6 and 0xe7 with handlers in a
+	// code cave that test the Language Filter (its "Additional Dialogue") and
+	// the Alternative Title Screen (its "Disable Female NPCs"). Every slot of
+	// the mod's command table is matched by the handler's shape.
+	char *aicmdcfg = NULL;
+	u32 aicmdlen = 0, aicmdcap = 0;
+	if (t.followed) {
+		u32 gotofn, gotoend;
+		const u32 ptrs = locateTable(&t, "g_CommandPointers", tnote, sizeof(tnote));
+		const u32 nptrs = stockCount("g_CommandPointers", 4);
+		if (ptrs && codeSym("chrai_go_to_label", &gotofn, &gotoend)) {
+			for (u32 type = 0; type < nptrs; ++type) {
+				const u8 *e = tableEntry(&t, ptrs, type, 4);
+				const char *key;
+				if (!e) {
+					break;
+				}
+				key = aiFlagCommandKey(&t, be32(e, 0), gotofn + GAME_VRAM);
+				if (key) {
+					appendf(&aicmdcfg, &aicmdlen, &aicmdcap, "aicommands { %s 0x%x }\n", key, type);
+					rep("  AI command %#x is the mod's own: %s", type, key);
+				}
+			}
+		}
+	}
+
 	// The unlocks: the tests the mod's code forces to true, family by family
 	char *unlocks = NULL;
 	u32 unlockslen = 0, unlockscap = 0;
@@ -5985,9 +6435,128 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		for (u32 i = 0; i < sizeof(colourSites) / sizeof(colourSites[0]); ++i) {
 			u32 a, b;
 			const u32 ofs = colourSites[i].addr - GAME_VRAM;
-			if (followColourAt(t.stockcode, t.stockcodelen, ofs, &a) && followColourAt(t.modcode, t.modcodelen, ofs, &b) && a != b) {
+			s32 read;
+			if (colourSites[i].shift) {
+				// sll rd,rt,sa: the amount, and only when both words are one
+				const u32 x = ofs + 4 <= t.stockcodelen ? be32(t.stockcode, ofs) : 1;
+				const u32 y = ofs + 4 <= t.modcodelen ? be32(t.modcode, ofs) : 1;
+				read = (x & 0xfc00003f) == 0 && (y & 0xfc00003f) == 0 && x != 0 && y != 0;
+				a = (x >> 6) & 31;
+				b = (y >> 6) & 31;
+			} else {
+				read = followColourAt(t.stockcode, t.stockcodelen, ofs, &a) && followColourAt(t.modcode, t.modcodelen, ofs, &b);
+			}
+			if (read && a != b) {
 				appendf(&colourscfg, &colourslen, &colourscap, "  %s 0x%08x\n", colourSites[i].name, b);
 				rep("  the %s colour is %08x (stock: %08x)", colourSites[i].name, b, a);
+			}
+		}
+		// the menu's colours built from parts, read back from a run of each
+		// function; GE-X turns the blue parts green and never writes the list
+		// header's sixth, which then takes the fifth's colour
+		{
+			static const struct { const char *fn; u32 n; u32 first; const char *fmt; } parts[] = {
+				{ "menugfx_draw_list_group_header",   7, 0, "listhdr%u" },
+				{ "menugfx_draw_dropdown_background", 3, 0, "dropdown%u" },
+				{ "menugfx_render_slider",            3, 2, "sliderfill" },
+			};
+			for (u32 p = 0; p < sizeof(parts) / sizeof(parts[0]); ++p) {
+				u32 fn, fnend, a[8], b[8];
+				u8 wa[8], wb[8];
+				if (!codeSym(parts[p].fn, &fn, &fnend)
+						|| !emuColourReadback(t.stockcode, t.stockcodelen, fn, parts[p].n, a, wa)
+						|| !emuColourReadback(t.modcode, t.modcodelen, fn, parts[p].n, b, wb)) {
+					continue;
+				}
+				for (u32 i = parts[p].first; i < parts[p].n; ++i) {
+					char name[24];
+					if (!wb[i] && i > 0 && wb[i - 1]) {
+						b[i] = b[i - 1];
+						wb[i] = 1;
+					}
+					if (!wa[i] || !wb[i] || a[i] == b[i]) {
+						continue;
+					}
+					snprintf(name, sizeof(name), parts[p].fmt, i);
+					appendf(&colourscfg, &colourslen, &colourscap, "  %s 0x%08x\n", name, b[i]);
+					rep("  the %s colour is %08x (stock: %08x)", name, b[i], a[i]);
+				}
+			}
+		}
+		// three more the mod builds in registers it kept
+		{
+			static const struct { const char *fn; u32 site; const char *name; } regs[] = {
+				{ "menugfx_render_slider",    0x7f0e22d0, "sliderleft" },
+				{ "menuitem_keyboard_render", 0x7f0e8638, "kbfield" },
+				{ "menuitem_keyboard_render", 0x7f0e88e0, "kbcursor" },
+			};
+			for (u32 r = 0; r < sizeof(regs) / sizeof(regs[0]); ++r) {
+				u32 fn, fnend, a, b;
+				if (codeSym(regs[r].fn, &fn, &fnend)
+						&& followRegisterAt(t.stockcode, t.stockcodelen, fn, regs[r].site - GAME_VRAM, &a)
+						&& followRegisterAt(t.modcode, t.modcodelen, fn, regs[r].site - GAME_VRAM, &b) && a != b) {
+					appendf(&colourscfg, &colourslen, &colourscap, "  %s 0x%08x\n", regs[r].name, b);
+					rep("  the %s colour is %08x (stock: %08x)", regs[r].name, b, a);
+				}
+			}
+		}
+		// the radar's background: func0f0b278c's three colour arguments,
+		// loaded from the stack in stock and made constants by the mod
+		{
+			const u32 at = 0x7f0b27d0 - GAME_VRAM;
+			u32 rgb = 0, n = 0;
+			for (u32 k = 0; k < 3 && at + 4 * k + 4 <= t.stockcodelen && at + 4 * k + 4 <= t.modcodelen; ++k) {
+				const u32 x = be32(t.stockcode, at + 4 * k);
+				const u32 y = be32(t.modcode, at + 4 * k);
+				if ((x >> 26) == 0x23 && ((y >> 26) == 0x08 || (y >> 26) == 0x09) && ((y >> 21) & 31) == 0) {
+					rgb |= (y & 0xff) << (24 - 8 * k);
+					n++;
+				}
+			}
+			if (n == 3 && rgb != 0x00ff0000u) {
+				appendf(&colourscfg, &colourslen, &colourscap, "  radarbg 0x%08x\n", rgb);
+				rep("  the radarbg colour is %08x (stock: %08x)", rgb, 0x00ff0000u);
+			}
+		}
+		// the tables: the menu palettes and the team title bars in rodata, the
+		// radar's team colours and fills in the data segment
+		{
+			static const struct { u32 addr; u32 n; u32 per; const char *fmt; s32 data; } words[] = {
+				{ 0x7f1b1fb0, 90, 15, "menu%u_%u", 0 },
+				{ 0x7f1b25f8, 24, 0,  "teambar%u", 0 },
+				{ 0x80087cc4, 8,  0,  "team%u",    1 },
+				{ 0x80087ce4, 8,  0,  "teamfill%u", 1 },
+			};
+			for (u32 w = 0; w < sizeof(words) / sizeof(words[0]); ++w) {
+				for (u32 i = 0; i < words[w].n; ++i) {
+					u32 a, b;
+					char name[24];
+					if (words[w].data) {
+						const u32 ofs = words[w].addr - t.base + i * 4;
+						if (words[w].addr < t.base || ofs + 4 > t.seglen || ofs + 4 > stockfiles->dataseglen) {
+							break;
+						}
+						a = be32(stockfiles->dataseg, ofs);
+						b = be32(t.seg, ofs);
+					} else {
+						const u32 ofs = words[w].addr - GAME_VRAM + i * 4;
+						if (ofs + 4 > t.stockcodelen || ofs + 4 > t.modcodelen) {
+							break;
+						}
+						a = be32(t.stockcode, ofs);
+						b = be32(t.modcode, ofs);
+					}
+					if (a == b) {
+						continue;
+					}
+					if (words[w].per) {
+						snprintf(name, sizeof(name), words[w].fmt, i / words[w].per, i % words[w].per);
+					} else {
+						snprintf(name, sizeof(name), words[w].fmt, i);
+					}
+					appendf(&colourscfg, &colourslen, &colourscap, "  %s 0x%08x\n", name, b);
+					rep("  the %s colour is %08x (stock: %08x)", name, b, a);
+				}
 			}
 		}
 		if (colourscfg) {
@@ -5996,6 +6565,35 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			colourslen = colourscap = 0;
 			appendf(&colourscfg, &colourslen, &colourscap, "colours {\n%s}\n", inner);
 			free(inner);
+		}
+		// The type each menu dialog is drawn as: the type byte of every
+		// menudialogdef, stock against the mod. A type is mapped to another
+		// when nine in ten of its dialogs agree; GE-X turns 144 of 152 ordinary
+		// dialogs into success dialogs and all 13 success dialogs ordinary.
+		{
+			static const char *const typenames[8] = { "0", "default", "danger", "success", "type4", "white", "6", "7" };
+			u32 cnt[8][8];
+			memset(cnt, 0, sizeof(cnt));
+			for (u32 d = 0; d < sizeof(menuDialogAddrs) / sizeof(menuDialogAddrs[0]); ++d) {
+				const u32 ofs = menuDialogAddrs[d] - t.base;
+				if (menuDialogAddrs[d] >= t.base && ofs < t.seglen && ofs < stockfiles->dataseglen
+						&& stockfiles->dataseg[ofs] < 8 && t.seg[ofs] < 8) {
+					cnt[stockfiles->dataseg[ofs]][t.seg[ofs]]++;
+				}
+			}
+			for (u32 s = 1; s < 6; ++s) {
+				u32 total = 0, best = 0;
+				for (u32 m = 0; m < 8; ++m) {
+					total += cnt[s][m];
+					if (cnt[s][m] > cnt[s][best]) {
+						best = m;
+					}
+				}
+				if (total && best != s && cnt[s][best] * 10 >= total * 9) {
+					appendf(&colourscfg, &colourslen, &colourscap, "menudialogtypes { %s %u }\n", typenames[s], best);
+					rep("  menu dialogs of type %s are drawn as %s (%u of %u)", typenames[s], typenames[best], cnt[s][best], total);
+				}
+			}
 		}
 	}
 
@@ -6104,11 +6702,12 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				}
 			}
 			{
-				static const char *const tailmarks[4][2] = {
+				static const char *const tailmarks[7][2] = {
+					{ CHRMODEL_BEGIN, CHRMODEL_END }, { SIGHT_BEGIN, SIGHT_END }, { AICMD_BEGIN, AICMD_END },
 					{ MOVEMENT_BEGIN, MOVEMENT_END }, { KOH_BEGIN, KOH_END }, { COLOURS_BEGIN, COLOURS_END },
 					{ MAPS_BEGIN, MAPS_END }
 				};
-				for (u32 i = 0; i < 4; ++i) {
+				for (u32 i = 0; i < 7; ++i) {
 					at = strstr(text, tailmarks[i][0]);
 					if (at) {
 						char *end = strstr(at, tailmarks[i][1]);
@@ -6123,9 +6722,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + mapslen + 512 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + chrmodellen + 256 + sightlen + 256 + aicmdlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + mapslen + 512 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -6146,6 +6745,15 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				reloadcfg ? "# Which weapons reload while unequipped, and with which animation: read by running\n"
 				            "# the mod's code for every weapon number. Written by the game's mod importer.\n" RELOAD_BEGIN "\n" : "",
 				reloadcfg ? reloadcfg : "", reloadcfg ? RELOAD_END "\n\n" : "",
+				chrmodelcfg ? "# The model a chr holds for each weapon the mod renumbered: read by running the\n"
+				              "# mod's code for every weapon number. Written by the game's mod importer.\n" CHRMODEL_BEGIN "\n" : "",
+				chrmodelcfg ? chrmodelcfg : "", chrmodelcfg ? CHRMODEL_END "\n\n" : "",
+				sightcfg ? "# The sight each weapon draws and the rules around it: read by running the mod's\n"
+				           "# code. Written by the game's mod importer.\n" SIGHT_BEGIN "\n" : "",
+				sightcfg ? sightcfg : "", sightcfg ? SIGHT_END "\n\n" : "",
+				aicmdcfg ? "# The mod's own AI commands that go to their label on one of the game's options:\n"
+				           "# read from the mod's handlers. Written by the game's mod importer.\n" AICMD_BEGIN "\n" : "",
+				aicmdcfg ? aicmdcfg : "", aicmdcfg ? AICMD_END "\n\n" : "",
 				unlocks ? "# What the mod's code unlocks outright, read from it. Written by the game's mod importer.\n" UNLOCKS_BEGIN "\nunlocks {\n" : "",
 				unlocks ? unlocks : "", unlocks ? "}\n" UNLOCKS_END "\n\n" : "",
 				movementcfg ? "# The run speed the mod's code gives fast movement, the cheat that gives it in a\n"
@@ -6173,6 +6781,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(damagecfg);
 		free(ammocfg);
 		free(reloadcfg);
+		free(chrmodelcfg);
+		free(aicmdcfg);
+		free(sightcfg);
 		free(unlocks);
 		free(movementcfg);
 		free(kohcfg);

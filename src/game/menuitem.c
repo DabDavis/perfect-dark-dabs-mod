@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/camdraw.h"
 #include "game/modalarm.h"
 #include "game/modrandom.h"
@@ -1161,7 +1162,7 @@ Gfx *menuitemKeyboardRender(Gfx *gdl, struct menurendercontext *context)
 			g_MenuWave1Colours[context->dialog->type].item_unfocused);
 
 	// Draw input field background
-	gdl = textSetPrimColour(gdl, 0x0000ff7f);
+	gdl = textSetPrimColour(gdl, g_ModColours[MODCOLOUR_KBFIELD]);
 
 	if (context->item->param3 == 0) {
 		// Half width
@@ -1197,7 +1198,7 @@ Gfx *menuitemKeyboardRender(Gfx *gdl, struct menurendercontext *context)
 				context->dialog->colourweight);
 	}
 
-	cursorcolour = colourBlend(colourBlend(0x0000ffff, 0x000000ff, 127), cursorcolour, alpha);
+	cursorcolour = colourBlend(colourBlend(g_ModColours[MODCOLOUR_KBCURSOR], 0x000000ff, 127), cursorcolour, alpha);
 
 	gdl = textSetPrimColour(gdl, cursorcolour);
 
@@ -1208,7 +1209,7 @@ Gfx *menuitemKeyboardRender(Gfx *gdl, struct menurendercontext *context)
 	// Render horizontal grid lines
 	for (row = 0; row < MENU_KEYBOARD_ROWS + 1; row++) {
 		gdl = menugfxDrawFilledRect(gdl, context->x + 4, context->y + row * 11 + 13,
-				context->x + 124, context->y + row * 11 + 14, 0x00ffff7f, 0x00ffff7f);
+				context->x + 124, context->y + row * 11 + 14, g_ModColours[MODCOLOUR_KBGRID], g_ModColours[MODCOLOUR_KBGRID]);
 	}
 
 	// Render vertical grid lines
@@ -1220,14 +1221,14 @@ Gfx *menuitemKeyboardRender(Gfx *gdl, struct menurendercontext *context)
 		}
 
 		gdl = menugfxDrawFilledRect(gdl, context->x + col * 12 + 4, context->y + 13,
-				context->x + col * 12 + 5, context->y + rowspan * 11 + 14, 0x00ffff7f, 0x00ffff7f);
+				context->x + col * 12 + 5, context->y + rowspan * 11 + 14, g_ModColours[MODCOLOUR_KBGRID], g_ModColours[MODCOLOUR_KBGRID]);
 	}
 
 #if MENU_KEYBOARD_ROWS > 5
 	gdl = menugfxDrawFilledRect(gdl, context->x + 4, context->y + 5 * 11 + 13,
-			context->x + 5, context->y + 6 * 11 + 14, 0x00ffff7f, 0x00ffff7f);
+			context->x + 5, context->y + 6 * 11 + 14, g_ModColours[MODCOLOUR_KBGRID], g_ModColours[MODCOLOUR_KBGRID]);
 	gdl = menugfxDrawFilledRect(gdl, context->x + 10 * 12 + 4, context->y + 5 * 11 + 13,
-			context->x + 10 * 12 + 5, context->y + 6 * 11 + 14, 0x00ffff7f, 0x00ffff7f);
+			context->x + 10 * 12 + 5, context->y + 6 * 11 + 14, g_ModColours[MODCOLOUR_KBGRID], g_ModColours[MODCOLOUR_KBGRID]);
 #endif
 
 	gdl = text0f153628(gdl);

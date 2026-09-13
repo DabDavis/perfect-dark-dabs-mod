@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/camdraw.h"
 #include "game/title.h"
 #include "game/pdmode.h"
@@ -613,13 +614,13 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_DARK_COMBAT;
 		break;
 	case 1:
-		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_CASSANDRA;
+		g_PlayerConfigsArray[playernum].base.mpbodynum = MOD_MPBODY(MPBODY_CASSANDRA);
 		break;
 	case 2:
-		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_CARRINGTON;
+		g_PlayerConfigsArray[playernum].base.mpbodynum = MOD_MPBODY(MPBODY_CARRINGTON);
 		break;
 	case 3:
-		g_PlayerConfigsArray[playernum].base.mpbodynum = MPBODY_CILABTECH;
+		g_PlayerConfigsArray[playernum].base.mpbodynum = MOD_MPBODY(MPBODY_CILABTECH);
 		break;
 	}
 
@@ -2946,7 +2947,9 @@ s32 mpGetMpheadnumByMpbodynum(s32 mpbodynum)
 	s32 index = 0;
 	s32 i;
 
-	if (mpbodynum >= HEAD_VD) {
+	// the ROM's test is the body count plus one (stock 62, HEAD_VD by
+	// coincidence; GE-X 69), so a mod's longer list keeps its own heads
+	if (mpbodynum >= g_MpListCounts.bodies + 1) {
 		mpbodynum = 0;
 	}
 

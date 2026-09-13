@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/game_006900.h"
 #include "game/bondgun.h"
 #include "game/tex.h"
@@ -494,11 +495,11 @@ Gfx *menugfxDrawDropdownBackground(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2)
 	vertices[5].colour = 8;
 
 	colour1 = text0f1543ac((x1 + x2) / 2, (y2 + y1) / 2, 0xffffffff) & 0xff;
-	colour2 = (text0f1543ac((x1 + x2) / 2, (y2 + y1) / 2, 0xffffff7f) & 0xff) | 0x00006f00;
+	colour2 = (text0f1543ac((x1 + x2) / 2, (y2 + y1) / 2, 0xffffff7f) & 0xff) | (g_ModColours[MODCOLOUR_DROPDOWN1] & 0xffffff00);
 
-	colours[0].word = PD_BE32(colour1 | 0x00006f00);
+	colours[0].word = PD_BE32(colour1 | (g_ModColours[MODCOLOUR_DROPDOWN0] & 0xffffff00));
 	colours[1].word = PD_BE32(colour2);
-	colours[2].word = PD_BE32(colour1 | 0x00003f00);
+	colours[2].word = PD_BE32(colour1 | (g_ModColours[MODCOLOUR_DROPDOWN2] & 0xffffff00));
 
 	gSPColor(gdl++, osVirtualToPhysical(colours), 3);
 	gSPVertex(gdl++, osVirtualToPhysical(vertices), 6, 0);
@@ -576,17 +577,19 @@ Gfx *menugfxDrawListGroupHeader(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, s32 x3
 	alpha2 = text0f1543ac((x1 + x2) / 2, (y1 + y2) / 2, 0xffffff7f) & 0xff;
 #endif
 
-	colours[0].word = PD_BE32(0x00006f00 | alpha1);
-	colours[1].word = PD_BE32(0x00006f00 | alpha2);
+#define LISTHDR(i) (g_ModColours[MODCOLOUR_LISTHDR0 + (i)] & 0xffffff00)
+	colours[0].word = PD_BE32(LISTHDR(0) | alpha1);
+	colours[1].word = PD_BE32(LISTHDR(1) | alpha2);
 #if VERSION >= VERSION_NTSC_1_0
-	colours[2].word = PD_BE32(0x00003f00 | alpha2);
+	colours[2].word = PD_BE32(LISTHDR(2) | alpha2);
 #else
-	colours[2].word = PD_BE32(0x00003f00 | alpha1);
+	colours[2].word = PD_BE32(LISTHDR(2) | alpha1);
 #endif
-	colours[3].word = PD_BE32(0xffffff00);
-	colours[4].word = PD_BE32((0x00006f00 | alpha2) & 0xffffff00);
-	colours[5].word = PD_BE32((0x00003f00 | alpha1) & 0xffffff00);
-	colours[6].word = PD_BE32(0x6f6f6f00 | alpha1);
+	colours[3].word = PD_BE32(g_ModColours[MODCOLOUR_LISTHDR3]);
+	colours[4].word = PD_BE32(LISTHDR(4));
+	colours[5].word = PD_BE32(LISTHDR(5));
+	colours[6].word = PD_BE32(LISTHDR(6) | alpha1);
+#undef LISTHDR
 
 	gSPColor(gdl++, osVirtualToPhysical(colours), 7);
 	gSPVertex(gdl++, osVirtualToPhysical(vertices), 9, 0);
@@ -907,7 +910,7 @@ Gfx *menugfxRenderSlider(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, s32 markerx, 
 
 	colours[0].word = PD_BE32((colour & 0xffffff00) | 0x4f);
 	colours[1].word = PD_BE32(0xffffffff);
-	colours[2].word = PD_BE32(0x0000ff4f);
+	colours[2].word = PD_BE32(g_ModColours[MODCOLOUR_SLIDERFILL]);
 
 	gSPColor(gdl++, osVirtualToPhysical(colours), 3);
 	gSPVertex(gdl++, osVirtualToPhysical(vertices), 6, 0);
@@ -923,10 +926,10 @@ Gfx *menugfxRenderSlider(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, s32 markerx, 
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
 
 	// Line to the left of the marker: blue -> white gradient
-	gdl = menugfxDrawLine(gdl, x1, y2, markerx, y2 + 1, 0x0000ffff, 0xffffffff);
+	gdl = menugfxDrawLine(gdl, x1, y2, markerx, y2 + 1, g_ModColours[MODCOLOUR_SLIDERLEFT], 0xffffffff);
 
 	// Line to the right of the marker: solid blue
-	gdl = menugfxDrawLine(gdl, markerx, y2, x2, y2 + 1, 0x0000ffff, 0x0000ffff);
+	gdl = menugfxDrawLine(gdl, markerx, y2, x2, y2 + 1, g_ModColours[MODCOLOUR_SLIDERLINE], g_ModColours[MODCOLOUR_SLIDERLINE]);
 
 	return gdl;
 }

@@ -4,6 +4,7 @@
 #include "game/bondmove.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
+#include "game/modrules.h"
 #include "game/chrai.h"
 #include "game/chraicommands.h"
 #include "game/debug.h"
@@ -6955,9 +6956,9 @@ bool aiSayQuip(void)
 	probability = cmd[4];
 
 	// Make it impossible for Elvis and Jon to use anything but special phrases
-	if ((g_Vars.chrdata->headnum == HEAD_ELVIS
-				|| g_Vars.chrdata->headnum == HEAD_THEKING
-				|| g_Vars.chrdata->headnum == HEAD_ELVIS_GOGS
+	if ((g_Vars.chrdata->headnum == MOD_HEADNUM(HEAD_ELVIS)
+				|| g_Vars.chrdata->headnum == MOD_HEADNUM(HEAD_THEKING)
+				|| g_Vars.chrdata->headnum == MOD_HEADNUM(HEAD_ELVIS_GOGS)
 				|| g_Vars.chrdata->headnum == HEAD_JONATHAN) &&
 			bank != (s16 *) g_SpecialQuipBank) {
 		probability = 0;

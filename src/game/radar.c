@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/atan2f.h"
@@ -80,7 +81,8 @@ Gfx *radarRenderBackground(Gfx *gdl, struct textureconfig *tconfig, s32 arg2, s3
 
 	texSelect(&gdl, tconfig, 2, 0, 0, 1, NULL);
 	func0f0b278c(&gdl, spb0, spa8, tconfig->width, tconfig->height,
-			0, 0, 0, 0, 0xff, 0, 40, tconfig->level > 0, 0);
+			0, 0, 0, (g_ModColours[MODCOLOUR_RADARBG] >> 24) & 0xff, (g_ModColours[MODCOLOUR_RADARBG] >> 16) & 0xff,
+			(g_ModColours[MODCOLOUR_RADARBG] >> 8) & 0xff, 40, tconfig->level > 0, 0);
 
 	gDPPipeSync(gdl++);
 	gDPSetColorDither(gdl++, G_CD_BAYER);
@@ -354,7 +356,7 @@ Gfx *radarRender(Gfx *gdl)
 					s32 index = g_PlayerConfigsArray[g_Vars.playerstats[i].mpindex].base.team;
 					colour = g_TeamColours[index];
 				} else {
-					colour = 0x00ff0000;
+					colour = g_ModColours[MODCOLOUR_RADAR];
 				}
 
 				gdl = radarDrawDot(gdl, g_Vars.players[i]->prop, &pos, colour, 0, 0);
@@ -379,7 +381,7 @@ Gfx *radarRender(Gfx *gdl)
 				pos.y = prop->pos.y - g_Vars.currentplayer->prop->pos.y;
 				pos.z = prop->pos.z - g_Vars.currentplayer->prop->pos.z;
 
-				gdl = radarDrawDot(gdl, prop, &pos, 0x00ff0000, 0, 0);
+				gdl = radarDrawDot(gdl, prop, &pos, g_ModColours[MODCOLOUR_RADAR], 0, 0);
 			}
 		}
 	}
@@ -401,7 +403,7 @@ Gfx *radarRender(Gfx *gdl)
 				if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_TEAMSENABLED)) {
 					colour = g_TeamColours[radarGetTeamIndex(g_MpBotChrPtrs[i]->team)];
 				} else {
-					colour = 0x00ff0000;
+					colour = g_ModColours[MODCOLOUR_RADAR];
 				}
 
 				gdl = radarDrawDot(gdl, g_MpBotChrPtrs[i]->prop, &pos, colour, 0, 0);
@@ -426,7 +428,7 @@ Gfx *radarRender(Gfx *gdl)
 			s32 index = g_PlayerConfigsArray[g_Vars.playerstats[playernum].mpindex].base.team;
 			colour = g_TeamColours[index];
 		} else {
-			colour = 0x00ff0000;
+			colour = g_ModColours[MODCOLOUR_RADAR];
 		}
 
 		gdl = radarDrawDot(gdl, g_Vars.currentplayer->prop, &pos, colour, 0, 0);

@@ -653,7 +653,7 @@ Gfx *kohRadarExtra(Gfx *gdl)
 		dist.z = g_ScenarioData.koh.hillpos.z - g_Vars.currentplayer->prop->pos.z;
 
 		if (g_ScenarioData.koh.occupiedteam == -1) {
-			colour = 0x00ff0000;
+			colour = g_ModColours[MODCOLOUR_SCENRADAR];
 		} else {
 			colour = g_TeamColours[g_ScenarioData.koh.occupiedteam];
 		}

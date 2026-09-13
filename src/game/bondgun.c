@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
 #include "game/modoptions.h"
@@ -13472,7 +13473,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		bottom += 8;
 	}
 
-	fncolour = 0xff000040;
+	fncolour = g_ModColours[MODCOLOUR_AMMOFN];
 	funcnum = hand->gset.weaponfunc;
 	fnfaderinc = PALUP(g_Vars.lvupdate240 * 2);
 
@@ -13515,7 +13516,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 	}
 
 	if (ctrl->fnfader > 128) {
-		fncolour = ((ctrl->fnfader * 2) - 256) << 16 | 0xff000040;
+		fncolour = ((ctrl->fnfader * 2) - 256) << (g_ModColours[MODCOLOUR_AMMOFNSHIFT] & 31) | g_ModColours[MODCOLOUR_AMMOFNFADE];
 	}
 
 	gdl = textSetPrimColour(gdl, fncolour);
@@ -13548,7 +13549,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 #endif
 
 		if (ctrl->guntypetimer < 255) {
-			colour = 0x55ffffff;
+			colour = g_ModColours[MODCOLOUR_AMMOGUNNAME];
 
 			if (ctrl->guntypetimer);
 
@@ -13597,7 +13598,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		if (func) {
 			langGet(func->name);
 
-			colour = 0xff5555ff;
+			colour = g_ModColours[MODCOLOUR_AMMOFUNC];
 
 			if ((ctrl->curfnstr != func->name && ctrl->fnfader > 128) || ctrl->curfnstr == 0) {
 				ctrl->fnstrtimer = 0;
@@ -13614,20 +13615,21 @@ Gfx *bgunDrawHud(Gfx *gdl)
 				}
 
 #if VERSION >= VERSION_NTSC_1_0
+				// stock ORs green into the function colour; a mod's is its own
 				if (funcnum == FUNC_SECONDARY && func->name == ctrl->curfnstr) {
-					colour |= 0x00ff0000;
+					colour = g_ModColours[MODCOLOUR_AMMOFUNCALT];
 				}
 
 				if (funcnum == FUNC_PRIMARY && func->name != ctrl->curfnstr) {
-					colour |= 0x00ff0000;
+					colour = g_ModColours[MODCOLOUR_AMMOFUNCALT];
 				}
 #else
 				if (hand->gset.weaponfunc == FUNC_SECONDARY && func->name == ctrl->curfnstr) {
-					colour |= 0x00ff0000;
+					colour = g_ModColours[MODCOLOUR_AMMOFUNCALT];
 				}
 
 				if (hand->gset.weaponfunc == FUNC_PRIMARY && func->name != ctrl->curfnstr) {
-					colour |= 0x00ff0000;
+					colour = g_ModColours[MODCOLOUR_AMMOFUNCALT];
 				}
 #endif
 
@@ -13734,9 +13736,9 @@ Gfx *bgunDrawHud(Gfx *gdl)
 			gdl = bgunDrawHudGauge(gdl,
 					xpos, bottom - reserveheight - clipheight - 3, xpos + barwidth, bottom - reserveheight - 3,
 					&lefthand->abmag, lefthand->loadedammo[leftammoindex], lefthand->clipsizes[leftammoindex],
-					0x00300080, 0x00ff0040, false);
+					g_ModColours[MODCOLOUR_AMMOCLIPBG], g_ModColours[MODCOLOUR_AMMOCLIPFG], false);
 			gdl = bgunDrawHudInteger(gdl, lefthand->loadedammo[leftammoindex], xpos + barwidth + 2, true,
-					bottom - reserveheight - 8, 0, 0x00ff00a0);
+					bottom - reserveheight - 8, 0, g_ModColours[MODCOLOUR_AMMOCLIPTEXT]);
 		}
 
 		// Its own reserve, when its rounds are not the right hand's
@@ -13752,14 +13754,14 @@ Gfx *bgunDrawHud(Gfx *gdl)
 
 			gdl = bgunDrawHudGauge(gdl, xpos, bottom - reserveheight, xpos + barwidth,
 					bottom, &ctrl->abmagleft, lefttotal, g_AmmoTypes[lefttype].capacity,
-					0x00403080, 0x00ffc040, true);
-			gdl = bgunDrawHudInteger(gdl, lefttotal, xpos + barwidth + 2, true, bottom - reserveheight + 1, 0, 0x00ffc0a0);
+					g_ModColours[MODCOLOUR_AMMORESBG], g_ModColours[MODCOLOUR_AMMORESFG], true);
+			gdl = bgunDrawHudInteger(gdl, lefttotal, xpos + barwidth + 2, true, bottom - reserveheight + 1, 0, g_ModColours[MODCOLOUR_AMMORESTEXT]);
 		}
 
 		// Its name, fading with the right's
 		if (optionsGetShowGunFunction(g_Vars.currentplayerstats->mpindex) && ctrl->guntypetimer < 255) {
 			str = bgunGetName(lefthand->gset.weaponnum);
-			colour = 0x55ffffff;
+			colour = g_ModColours[MODCOLOUR_AMMOGUNNAME];
 
 			textMeasure(&textheight, &textwidth, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 			textwidth += 2;
@@ -13808,9 +13810,9 @@ Gfx *bgunDrawHud(Gfx *gdl)
 			gdl = bgunDrawHudGauge(gdl,
 					xpos, bottom - reserveheight - clipheight - 3, xpos + barwidth, bottom - reserveheight - 3,
 					&lefthand->abmag, lefthand->loadedammo[ammoindex], lefthand->clipsizes[ammoindex],
-					0x00300080, 0x00ff0040, false);
+					g_ModColours[MODCOLOUR_AMMOCLIPBG], g_ModColours[MODCOLOUR_AMMOCLIPFG], false);
 			gdl = bgunDrawHudInteger(gdl, lefthand->loadedammo[ammoindex], xpos + barwidth + 2, true,
-					bottom - reserveheight - 8, 0, 0x00ff00a0);
+					bottom - reserveheight - 8, 0, g_ModColours[MODCOLOUR_AMMOCLIPTEXT]);
 		}
 	}
 
@@ -13852,9 +13854,9 @@ Gfx *bgunDrawHud(Gfx *gdl)
 				&& (weapon->ammos[ammoindex]->flags & AMMOFLAG_EQUIPPEDISRESERVE) == 0) {
 			gdl = bgunDrawHudGauge(gdl, xpos, bottom - reserveheight - clipheight - 3, xpos + barwidth,
 					bottom - reserveheight - 3, &hand->abmag, hand->loadedammo[ammoindex], hand->clipsizes[ammoindex],
-					0x00300080, 0x00ff0040, false);
+					g_ModColours[MODCOLOUR_AMMOCLIPBG], g_ModColours[MODCOLOUR_AMMOCLIPFG], false);
 			gdl = bgunDrawHudInteger(gdl, hand->loadedammo[ammoindex], xpos - 2, false,
-					bottom - reserveheight - 8, 0, 0x00ff00a0);
+					bottom - reserveheight - 8, 0, g_ModColours[MODCOLOUR_AMMOCLIPTEXT]);
 		}
 
 		// Reserve
@@ -13878,8 +13880,8 @@ Gfx *bgunDrawHud(Gfx *gdl)
 
 			gdl = bgunDrawHudGauge(gdl, xpos, bottom - reserveheight, xpos + barwidth,
 					bottom, &ctrl->abmag, ammototal, g_AmmoTypes[ammotype].capacity,
-					0x00403080, 0x00ffc040, true);
-			gdl = bgunDrawHudInteger(gdl, ammototal, xpos - 2, false, bottom - reserveheight + 1, 0, 0x00ffc0a0);
+					g_ModColours[MODCOLOUR_AMMORESBG], g_ModColours[MODCOLOUR_AMMORESFG], true);
+			gdl = bgunDrawHudInteger(gdl, ammototal, xpos - 2, false, bottom - reserveheight + 1, 0, g_ModColours[MODCOLOUR_AMMORESTEXT]);
 		}
 
 		// Combat boost timer
@@ -13897,7 +13899,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 				sprintf(text, "%02d:%02d\n", secs60 / TICKS(60), (secs60 - (secs60 / TICKS(60)) * TICKS(60)) * 100 / TICKS(60));
 			}
 
-			gdl = bgunDrawHudString(gdl, text, xpos + barwidth - 2, false, bottom - reserveheight + 1, 0, 0x00ffc0a0);
+			gdl = bgunDrawHudString(gdl, text, xpos + barwidth - 2, false, bottom - reserveheight + 1, 0, g_ModColours[MODCOLOUR_AMMORESTEXT]);
 		}
 	}
 

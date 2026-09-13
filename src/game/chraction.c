@@ -12,6 +12,7 @@
 #include "game/camera.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/modrules.h"
 #include "game/chrai.h"
 #include "game/debug.h"
 #include "game/dlights.h"
@@ -4308,10 +4309,10 @@ void chrChoke(struct chrdata *chr, s32 choketype)
 				nextindexdrcaroll = 0;
 			}
 		}
-	} else if (chr->headnum == HEAD_THEKING
-			|| chr->headnum == HEAD_ELVIS
-			|| chr->headnum == HEAD_MAIAN_S
-			|| chr->headnum == HEAD_ELVIS_GOGS) {
+	} else if (chr->headnum == MOD_HEADNUM(HEAD_THEKING)
+			|| chr->headnum == MOD_HEADNUM(HEAD_ELVIS)
+			|| chr->headnum == MOD_HEADNUM(HEAD_MAIAN_S)
+			|| chr->headnum == MOD_HEADNUM(HEAD_ELVIS_GOGS)) {
 		s16 sounds[] = {
 			SFX_ARGH_MAIAN_05DF,
 			SFX_ARGH_MAIAN_05E0,
@@ -4417,10 +4418,10 @@ void chrChoke(struct chrdata *chr, s32 choketype)
 		if (nextindexmale >= ARRAYCOUNT(sounds)) {
 			nextindexmale = 0;
 		}
-	} else if (chr->headnum == HEAD_DARK_COMBAT
-			|| chr->headnum == HEAD_DARK_FROCK
-			|| chr->headnum == HEAD_DARKAQUA
-			|| chr->headnum == HEAD_DARK_SNOW) {
+	} else if (chr->headnum == MOD_HEADNUM(HEAD_DARK_COMBAT)
+			|| chr->headnum == MOD_HEADNUM(HEAD_DARK_FROCK)
+			|| chr->headnum == MOD_HEADNUM(HEAD_DARKAQUA)
+			|| chr->headnum == MOD_HEADNUM(HEAD_DARK_SNOW)) {
 		s16 sounds[] = {
 			SFX_ARGH_JO_02AA,
 			SFX_ARGH_JO_02AB,

@@ -3832,10 +3832,10 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		}
 
 		// Set Maian eyes open or closed
-		if (chr->headnum == HEAD_THEKING
-				|| chr->headnum == HEAD_ELVIS
-				|| chr->headnum == HEAD_MAIAN_S
-				|| chr->headnum == HEAD_ELVIS_GOGS) {
+		if (chr->headnum == MOD_HEADNUM(HEAD_THEKING)
+				|| chr->headnum == MOD_HEADNUM(HEAD_ELVIS)
+				|| chr->headnum == MOD_HEADNUM(HEAD_MAIAN_S)
+				|| chr->headnum == MOD_HEADNUM(HEAD_ELVIS_GOGS)) {
 			if (model->definition->skel == &g_SkelChr) {
 				struct modelnode *headspotnode = modelGetPart(model->definition, MODELPART_CHR_HEADSPOT);
 

@@ -2,11 +2,14 @@
 #include "constants.h"
 #include "game/chraction.h"
 #include "game/chrai.h"
+#include "game/modrules.h"
 #ifndef PLATFORM_N64
 #include <string.h>
 extern u16 g_CommandLengths[];
 extern u16 chraiModCommandLength[];
 s32 chraiSetModCommandLength(s32 type, u16 len);
+static s32 chraiModFlagCommandIndex(s32 type);
+static void chraiModFlagCommand(s32 which);
 void chraiClearModCommandLengths(void);
 void chraiWarnModCommand(s32 type);
 #endif
@@ -792,6 +795,10 @@ void chraiExecute(void *entity, s32 proptype)
 					break;
 				}
 #ifndef PLATFORM_N64
+			} else if (chraiModFlagCommandIndex(type) >= 0) {
+				// a mod's own command whose handler the importer could read:
+				// it tests one of the game's options (g_ModAiCommands)
+				chraiModFlagCommand(chraiModFlagCommandIndex(type));
 			} else if (type >= 0 && type < ARRAYCOUNT(g_CommandLengths) && chraiModCommandLength[type]) {
 				// A command the mod's own code added in a slot this game left
 				// empty (GE-X fills 0xe6 and 0xe7). Its length came from the
@@ -822,6 +829,46 @@ void chraiExecute(void *entity, s32 proptype)
  * without a mod. See the dispatch in chraiExecute().
  */
 u16 chraiModCommandLength[ARRAYCOUNT(g_CommandLengths)];
+
+/**
+ * Which of g_ModAiCommands the command type is, or -1. Only a type this game
+ * has no handler for gets here, and 0 is never one of those, so an unset
+ * entry cannot match.
+ */
+static s32 chraiModFlagCommandIndex(s32 type)
+{
+	for (s32 i = 0; i < MODAICMD_NUM; i++) {
+		if (g_ModAiCommands[i] != 0 && g_ModAiCommands[i] == type) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * A mod's "if <option> goto label" command: the type, then the label, three
+ * bytes. The options are the game's own and are saved where the game saves
+ * them - GE-X only relabelled the two menu rows.
+ */
+static void chraiModFlagCommand(s32 which)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	bool pass;
+
+	switch (which) {
+	case MODAICMD_IFLANGFILTERON:  pass = g_Vars.langfilteron != 0; break;
+	case MODAICMD_IFLANGFILTEROFF: pass = g_Vars.langfilteron == 0; break;
+	case MODAICMD_IFALTTITLEON:    pass = g_AltTitleEnabled != 0; break;
+	default:                       pass = g_AltTitleEnabled == 0; break;
+	}
+
+	if (pass) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+	} else {
+		g_Vars.aioffset += 3;
+	}
+}
 
 s32 chraiSetModCommandLength(s32 type, u16 len)
 {

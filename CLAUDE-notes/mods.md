@@ -1726,3 +1726,85 @@ BZ, Streets, Train, Cradle, Aztec, Citadel, Labyrinth, Icicle Pyramid and
 Cliff Base. Verified by screenshot: Cradle is the girder walkway under a night
 sky, Egyptian the sandstone room, and Air Base (stock geometry, the mod's own
 pads and setup) draws the Skedar ship.
+
+## A GE-X tester's seven reports, and what each was (2026-09-13, importer 32)
+
+Every one was code GE-X changed that the port still did from stock numbers.
+Both importers read each of these; `IMPORT.txt` lines are identical.
+
+- **"Third person shows other guns than first person."** First person takes
+  the gun file from the weapon definitions (imported); everything else - the
+  third person hand, the gun dropped on death, a simulant's gun, a ghost's -
+  asks `playermgrGetModelOfWeapon()`, a switch the compiler made a **jump
+  table in rodata**. GE-X points 30 of its 50 entries elsewhere and changes no
+  instruction, so `modcodediff` files it as *data* under pak.c
+  (`var7f1b4d24`). Read by running the function per weapon number:
+  `weapon N { chrmodel M }` (`g_ModWeaponChrModel`). The remote mine's "no
+  left hand model" test is the `detonatorhand` flag now.
+- **"Some guards have Elvis' pain sounds."** `chr_grunt`, `chr_render` (the
+  eyes) and `ai_say_quip` test the four Maian heads by number; GE-X tests head
+  5 alone and gives 15, 41 and 58 to humans (and tests Joanna's four as head
+  4). `headconst` lines, `MOD_HEADNUM()`.
+- **"No Enable Female Guards; Additional Dialogue does nothing."** GE-X
+  relabels two stock rows - Language Filter is "Additional Dialogue", the
+  Alternative Title Screen is "Disable Female NPCs" (shown only in the
+  Institute's pause menu, Video) - and fills the empty AI command slots 0xe6
+  and 0xe7 with "if that byte goto label" handlers in a code cave. The port
+  stepped over them (condition false). Matched by the handler's shape in every
+  slot of the mod's `g_CommandPointers`: `aicommands { iflangfilteroff 0xe6 }`,
+  `{ ifalttitleon 0xe7 }`; `chraiModFlagCommand()` runs them, and the row is
+  unhidden for a mod that uses it.
+- **"Classic sight is not on."** `gset_get_sight`'s weapon jump table points
+  nearly everything at `SIGHT_CLASSIC`. It calls `cheat_is_active`, which the
+  toy answers with a fake non-zero pointer, so the emulator grew `callszero`;
+  the table is run per weapon with the player seeded at `g_Vars.currentplayer`,
+  the cheat's sight and the melee rule by two more runs (one call made = the
+  melee early return). `weapon N { sight S }` and `sights { melee cheat
+  splitmin zoomrange }`.
+- **"HUD colour not fully applied (ammo, health, menus)."** 28 more
+  `colours {}` sites (ammo counter, inventory health/shield bars and pulse,
+  mission timer, scenario HUDs, radar, highlights) - two are **shift amounts**
+  (a fade built as `x << 8 | colour`), a site row with `shift`. **The green
+  menus are not the palette**: GE-X changes the *type byte* of 157 menu
+  dialogs (ordinary to success, success to ordinary), read as a vote over
+  every `*MenuDialog` symbol: `menudialogtypes { default 3 success 1 }`
+  (`g_ModDialogTypeMap`). The list headers, dropdowns and slider fill are
+  built from parts - read back from what a run of each menugfx function stores
+  in its first call's buffer; three keyboard/slider colours are registers GE-X
+  kept, read by a straight-line register walker; the radar background is
+  `func0f0b278c`'s arguments made constants. The palettes, team title bars and
+  team colours are writable tables set by name in the same block (`menuP_F`,
+  `teambarN`, `teamN`, `teamfillN`), restored by `modTablesRestore()`.
+- **"Multiplayer IDs are not set correctly, this is not Ourumov."** The body
+  and head lists were right; what used them by stock index was not:
+  `g_BotProfiles` (`botprofiles`), players 2-4's default bodies
+  (`mpbodyconst`, `MOD_MPBODY()`), the head lookup's clamp (the body count + 1,
+  not `HEAD_VD`), the male head list's length (41, from
+  `mp_get_mpheadnum_by_mpbodynum`), and the VR challenges, which now decode a
+  mod's own 104-byte `segs/mpconfigs` records with the ROM's MP weapon slots
+  mapped to the port's (`modDataMpWeaponSlot()`).
+- **"You can upload ghosts on mods."** A run set with a mod loaded, or on a
+  Stage Loader stage, carries `MODGHOSTHF_MODDED` and is never uploaded; Upload
+  is greyed with a reason while a mod is loaded. The board files runs by stage
+  number, and a mod reuses the numbers.
+
+Traps from the day:
+- `write_data_segment()` rebinds `stockpairs` in the pickup rules section, so
+  `locate()` fails anywhere after it; look a table up before (the command
+  pointers are looked up beside `g_CommandLengths` for that reason).
+- `rep()` formats into 1024 bytes and Python does not: a report line listing
+  eighty weapons diverged. Group long lists (the sight line groups by sight).
+- A `weapon N { }` block for a number the mod defines no weapon at is refused,
+  and takes the block with it; per-weapon rows check the mod's `g_Weapons`.
+- **Every boot re-imports every stale mod**, with or without `--moddir`: after
+  a version bump, two headless runs at once race on the same directories. Mark
+  one mod stale (`sed -i '1s/importer: 32/importer: 31/'`) to redo just it.
+- jonaeru's hand port of GE-X **5e**'s multiplayer
+  (`github.com/jonaeru/perfect_dark`, branch `port-mods/gex-multi`) is a good
+  cross-check for colours and characters, but it is 5e and edits C by hand
+  (its menus swap palettes; 6a's ROM swaps dialog types).
+
+Left: the disguise menu's preview models (`mainmenu_prepare_weapon_menumodel`,
+two `lui` pairs), GE-X's 14 weapon sets against the port's 12, the target box
+colour (it is the player's crosshair colour setting), `menu_render`'s fixed
+dialog projection, and `htm_radar_extra`'s floats.

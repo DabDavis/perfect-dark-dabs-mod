@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
 #include "game/game_006900.h"
@@ -113,7 +114,7 @@ struct menudialogdef g_PakRepairFailedMenuDialog;
 struct menudialogdef g_PakRepairSuccessMenuDialog;
 
 #if VERSION >= VERSION_JPN_FINAL
-const struct menucolourpalette g_MenuColours[] = {
+struct menucolourpalette g_MenuColours[6] = {
 	{ 0x20202000, 0x20202000, 0x20202000, 0x4f4f4f00, 0x00000000, 0x00000000, 0x4f4f4f00, 0x4f4f4f00, 0x4f4f4f00, 0x4f4f4f00, 0x00000000, 0x00000000, 0x4f4f4f00, 0x00000000, 0x00000000 },
 	{ 0x0060bf7f, 0x0000507f, 0x00f0ff7f, 0xffffffff, 0x00002f9f, 0x00006f7f, 0x00ffffff, 0x007f7fff, 0xffffffff, 0x8fffffff, 0x000044ff, 0x000030ff, 0x7f7fffff, 0xffffffff, 0x6644ff7f },
 	{ 0xbf00007f, 0x5000007f, 0xff00007f, 0xffff00ff, 0x2f00009f, 0x6f00007f, 0xff9070ff, 0x7f0000ff, 0xffff00ff, 0xffa090ff, 0x440000ff, 0x003000ff, 0xffff00ff, 0xffffffff, 0xff44447f },
@@ -122,7 +123,7 @@ const struct menucolourpalette g_MenuColours[] = {
 	{ 0xaaaaaaff, 0xaaaaaa7f, 0xaaaaaaff, 0xffffffff, 0xffffff9f, 0xffffffff, 0xffffffff, 0xffffffff, 0xff8888ff, 0xffffffff, 0x00000000, 0xffffff5f, 0xffffffff, 0xffffff7f, 0xffffffff },
 };
 #else
-const struct menucolourpalette g_MenuColours[] = {
+struct menucolourpalette g_MenuColours[6] = {
 	{ 0x20202000, 0x20202000, 0x20202000, 0x4f4f4f00, 0x00000000, 0x00000000, 0x4f4f4f00, 0x4f4f4f00, 0x4f4f4f00, 0x4f4f4f00, 0x00000000, 0x00000000, 0x4f4f4f00, 0x00000000, 0x00000000 },
 	{ 0x0060bf7f, 0x0000507f, 0x00f0ff7f, 0xffffffff, 0x00002f7f, 0x00006f7f, 0x00ffffff, 0x007f7fff, 0xffffffff, 0x8fffffff, 0x000044ff, 0x000030ff, 0x7f7fffff, 0xffffffff, 0x6644ff7f },
 	{ 0xbf00007f, 0x5000007f, 0xff00007f, 0xffff00ff, 0x2f00007f, 0x6f00007f, 0xff7050ff, 0x7f0000ff, 0xffff00ff, 0xff9070ff, 0x440000ff, 0x003000ff, 0xffff00ff, 0xffffffff, 0xff44447f },
@@ -1528,7 +1529,7 @@ void menuOpenDialog(struct menudialogdef *dialogdef, struct menudialog *dialog, 
 	func0f0f1d6c(dialogdef, dialog, menu);
 	dialogInitItems(dialog);
 
-	dialog->type = dialogdef->type;
+	dialog->type = g_ModDialogTypeMap[dialogdef->type & 7];
 	dialog->transitionfrac = -1;
 	dialog->redrawtimer = 0;
 	dialog->unk4c = RANDOMFRAC() * M_TAU;
@@ -2594,19 +2595,22 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 	return gdl;
 }
 
+// at file scope and writable so a mod can repaint it (modColourSet's teambarN)
+u32 g_TeamTitlebarColours[8][3] = {
+	// top, middle, bottom
+	{ 0xbf000000, 0x50000000, 0xff000000 },
+	{ 0xbfbf0000, 0x50500000, 0xffff0000 },
+	{ 0x0000bf00, 0x00005000, 0x0000ff00 },
+	{ 0xbf00bf00, 0x50005000, 0xff00ff00 },
+	{ 0x00bfbf00, 0x00505000, 0x00ffff00 },
+	{ 0xff885500, 0x7f482000, 0xff885500 },
+	{ 0xff888800, 0x7f484800, 0xff888800 },
+	{ 0x88445500, 0x48242000, 0x88445500 },
+};
+
 void menuGetTeamTitlebarColours(u32 *top, u32 *middle, u32 *bottom)
 {
-	const u32 colours[][3] = {
-		// top, middle, bottom
-		{ 0xbf000000, 0x50000000, 0xff000000 },
-		{ 0xbfbf0000, 0x50500000, 0xffff0000 },
-		{ 0x0000bf00, 0x00005000, 0x0000ff00 },
-		{ 0xbf00bf00, 0x50005000, 0xff00ff00 },
-		{ 0x00bfbf00, 0x00505000, 0x00ffff00 },
-		{ 0xff885500, 0x7f482000, 0xff885500 },
-		{ 0xff888800, 0x7f484800, 0xff888800 },
-		{ 0x88445500, 0x48242000, 0x88445500 },
-	};
+	u32 (*colours)[3] = g_TeamTitlebarColours;
 
 	*top = colours[g_PlayerConfigsArray[g_MpPlayerNum].base.team][0] | (*top & 0xff);
 	*middle = colours[g_PlayerConfigsArray[g_MpPlayerNum].base.team][1] | (*middle & 0xff);
@@ -4263,7 +4267,7 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 	if (dialog->transitionfrac < 0.0f) {
 		// Transition not yet started
 		if (dialog == g_Menus[g_MpPlayerNum].curdialog) {
-			transitiontotype = definition->type;
+			transitiontotype = g_ModDialogTypeMap[definition->type & 7];
 
 			if (mpIsPlayerLockedOut(g_MpPlayerNum) && (dialog->definition->flags & MENUDIALOGFLAG_MPLOCKABLE)) {
 				transitiontotype = MENUDIALOGTYPE_DANGER;

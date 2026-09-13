@@ -37,6 +37,9 @@ s32 modAmmoTypeWeaponSet(s32 ammotype, s32 weaponnum);
 s32 modTvScreenSetSameAs(s32 num, s32 src);
 s32 modMovementSetKey(const char *key, f32 value);   // fastspeed, fastcheat (-1 none)
 s32 modCheatsSetKey(const char *key, s32 value);     // slowmotion: the cheat, -1 none
+s32 modAiCommandSetKey(const char *key, s32 value);  // iflangfilteron/off, ifalttitleon/off: the command type
+s32 modSightSetKey(const char *key, s32 value);      // melee, cheat, splitmin, zoomrange
+s32 modDialogTypeSetKey(const char *key, s32 value); // default, danger, success, type4, white: the type drawn
 s32 modKohSetColour(const char *key, const f32 *rgb); // hillcolour, freecolour
 s32 modColourLookup(const char *name);               // g_ModColours[] index, -1 unknown
 const char *modColourName(s32 index);                // the names in order, NULL past the end
@@ -102,6 +105,8 @@ struct moddataspec {
 	s32 nummpmaleheads;
 	u32 mpfemaleheads;   // g_MpFemaleHeads[]
 	s32 nummpfemaleheads;
+	u32 botprofiles;     // g_BotProfiles[], each simulant type's name and body
+	s32 numbotprofiles;
 	// the solo guards' random heads: g_MaleGuardHeads[] and the team and
 	// female lists beside it, -1 terminated in the ROM
 	u32 maleguardheads;
@@ -123,6 +128,14 @@ struct moddataspec {
 	// the mod changed: stock -> mod
 	s32 numtexconsts;
 	u16 texconsts[16][2];
+	// the head numbers the grunts, the Maian eyes and the quips test that
+	// the mod changed: stock -> mod
+	s32 numheadconsts;
+	u16 headconsts[16][2];
+	// the Combat Simulator bodies players 2 to 4 start as, constants in
+	// mpPlayerSetDefaults() the mod changed: stock -> mod
+	s32 nummpbodyconsts;
+	u16 mpbodyconsts[8][2];
 	// the co-operative buddies' bodies, heads, gun models and guns, constants
 	// in playerTick() the mod changed: kind (BUDDYCONST_*), stock, mod
 	s32 numbuddyconsts;
@@ -178,6 +191,10 @@ s32 modDataPlayerHead(s32 def);
 
 // An animated texture number as the mod's texture code has it, or def.
 s32 modDataTexNum(s32 def);
+// A Combat Simulator weapon slot as a ROM mpconfigs record numbers it, as the
+// port's g_MpWeapons has it (the mod's imported list, or the stock layout)
+s32 modDataMpWeaponSlot(s32 romslot);
+void modDataMpWeaponSlotsReset(void);
 
 // The rooms roomPopulateMtx() pins: a room number as the mod's code has it,
 // and the stage id a stock stage index's site compares against.

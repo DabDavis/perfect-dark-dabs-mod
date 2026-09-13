@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/chraction.h"
 #include "game/dlights.h"
 #include "game/game_006900.h"
@@ -732,8 +733,8 @@ bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 			case OBJTYPE_MULTIAMMOCRATE:
 			case OBJTYPE_SHIELD:
 				colour[0] = 0;
-				colour[1] = 0xcd;
-				colour[2] = 0xff;
+				colour[1] = g_ModColours[MODCOLOUR_SCENHIGHLIGHTG] & 0xff;
+				colour[2] = g_ModColours[MODCOLOUR_SCENHIGHLIGHTB] & 0xff;
 				colour[3] = menuGetSinOscFrac(20) * 255;
 				return true;
 			}
@@ -779,8 +780,8 @@ bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 
 		if (useblue) {
 			colour[0] = 0;
-			colour[1] = 0xcd;
-			colour[2] = 0xff;
+			colour[1] = g_ModColours[MODCOLOUR_SCENHIGHLIGHTG] & 0xff;
+			colour[2] = g_ModColours[MODCOLOUR_SCENHIGHLIGHTB] & 0xff;
 			colour[3] = menuGetSinOscFrac(20) * 205;
 			return true;
 		}

@@ -796,6 +796,11 @@ u32 romdataSegGetSize(const char *segName)
 	return romdataGetSeg(segName)->size;
 }
 
+s32 romdataSegIsStock(const char *segName)
+{
+	return romdataGetSeg(segName)->source != SRC_EXTERNAL;
+}
+
 u32 romdataFileGetEstimatedSize(const u32 size, const u32 loadtype)
 {
 #ifdef PLATFORM_64BIT

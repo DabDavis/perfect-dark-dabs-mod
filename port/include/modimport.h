@@ -47,9 +47,10 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // tail - the run speed, the slow-motion cheat, the poison, King of the Hill's
 // colours and the repainted constants, game/modrules.h; 30: a rebuilt texture
 // table's textures go out one by one too, for the Stage Loader; 31: the maps
-// block, the arenas a mod has by its own name and files).
-#define MODIMPORT_VERSION 31
-#define MODIMPORT_VERSION_LINE "importer: 31 (the game's own)"
+// block, the arenas a mod has by its own name and files; 32: the model a chr
+// holds for each weapon, the sights, and the Maian head tests).
+#define MODIMPORT_VERSION 32
+#define MODIMPORT_VERSION_LINE "importer: 32 (the game's own)"
 
 #ifdef __cplusplus
 }

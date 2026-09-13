@@ -998,6 +998,42 @@ static bool looksLikeMpWeaponSets(u32 addr, s32 count)
  * before the shield is put behind a feature nothing unlocks, so the port's
  * extras do not show up naming the mod's guns.
  */
+/**
+ * A slot of the mod's own weapon list - what its mpconfigs records name - as
+ * the slot importMpWeapons() put that entry in. Without an imported list the
+ * port's list is its own, and a ROM slot is found by the stock layout: the
+ * port inserts night vision and the IR scanner before the cloaking device and
+ * the classic guns before the shield (checked against g_MpConfigs by the
+ * --moddata-trace dump in challenge.c).
+ */
+static s16 modMpWeaponSlots[256];
+static bool modMpWeaponSlotsSet;
+
+void modDataMpWeaponSlotsReset(void)
+{
+	modMpWeaponSlotsSet = false;
+}
+
+s32 modDataMpWeaponSlot(s32 romslot)
+{
+	if (romslot < 0 || romslot >= (s32)ARRAYCOUNT(modMpWeaponSlots)) {
+		return MPWEAPON_DISABLED;
+	}
+
+	if (modMpWeaponSlotsSet) {
+		return modMpWeaponSlots[romslot];
+	}
+
+	switch (romslot) {
+	case 0x23: return MPWEAPON_CLOAKINGDEVICE;
+	case 0x24: return MPWEAPON_COMBATBOOST;
+	case 0x25: return MPWEAPON_SHIELD;
+	case 0x26: return MPWEAPON_DISABLED;
+	}
+
+	return romslot < 0x23 ? romslot : MPWEAPON_DISABLED;
+}
+
 static s32 importMpWeapons(const struct moddataspec *spec)
 {
 	s32 count = spec->nummpweapons;
@@ -1009,12 +1045,31 @@ static s32 importMpWeapons(const struct moddataspec *spec)
 		return 0;
 	}
 
-	for (s32 i = 0; i < count && out < MPWEAPON_SHIELD; ++i) {
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(modMpWeaponSlots); ++i) {
+		modMpWeaponSlots[i] = MPWEAPON_DISABLED;
+	}
+
+	modMpWeaponSlotsSet = true;
+
+	for (s32 i = 0; i < count; ++i) {
 		u32 at = spec->mpweapons + i * N64_MPWEAPON_SIZE;
 		u8 weaponnum = rd8(at);
 
 		if (weaponnum == WEAPON_MPSHIELD || weaponnum == WEAPON_DISABLED) {
+			if (i < (s32)ARRAYCOUNT(modMpWeaponSlots)) {
+				modMpWeaponSlots[i] = weaponnum == WEAPON_MPSHIELD ? MPWEAPON_SHIELD : MPWEAPON_DISABLED;
+			}
 			continue;
+		}
+
+		if (out >= MPWEAPON_SHIELD) {
+			// no room before the port's shield: the entry is dropped, and a
+			// config naming it gets an empty slot
+			continue;
+		}
+
+		if (i < (s32)ARRAYCOUNT(modMpWeaponSlots)) {
+			modMpWeaponSlots[i] = out;
 		}
 
 		struct mpweapon *w = &g_MpWeapons[out];
@@ -1051,6 +1106,22 @@ static s32 importMpWeapons(const struct moddataspec *spec)
 					w->extrascale);
 		}
 		++out;
+	}
+
+	// The shield and "disabled" entries can sit just past the count the
+	// importer wrote - GE-X lists 36 weapons, then its shield at 36 and the
+	// disabled entry at 37 - and the mod's challenge configs name both
+	for (s32 i = count; i < count + 2 && i < (s32)ARRAYCOUNT(modMpWeaponSlots); ++i) {
+		u32 at = spec->mpweapons + i * N64_MPWEAPON_SIZE;
+		u8 weaponnum = inseg(at, 1) ? rd8(at) : 0;
+
+		if (weaponnum == WEAPON_MPSHIELD) {
+			modMpWeaponSlots[i] = MPWEAPON_SHIELD;
+		} else if (weaponnum == WEAPON_DISABLED) {
+			modMpWeaponSlots[i] = MPWEAPON_DISABLED;
+		} else {
+			break;
+		}
 	}
 
 	for (s32 i = out; i < MPWEAPON_SHIELD; ++i) {
@@ -1724,6 +1795,36 @@ s32 modDataTexNum(s32 def)
 	return def;
 }
 
+static s32 modNumHeadConsts;
+static u16 modHeadConsts[16][2];
+
+// A head number the game tests literally, as the mod's code has it
+// (MOD_HEADNUM in game/modrules.h); the stock number when no mod changed it
+s32 modDataHeadNum(s32 def)
+{
+	for (s32 i = 0; i < modNumHeadConsts; ++i) {
+		if (modHeadConsts[i][0] == (u16)def) {
+			return modHeadConsts[i][1];
+		}
+	}
+	return def;
+}
+
+static s32 modNumMpBodyConsts;
+static u16 modMpBodyConsts[8][2];
+
+// A Combat Simulator body mpPlayerSetDefaults() starts a player as, as the
+// mod's code has it (MOD_MPBODY in game/modrules.h)
+s32 modDataMpBodyConst(s32 def)
+{
+	for (s32 i = 0; i < modNumMpBodyConsts; ++i) {
+		if (modMpBodyConsts[i][0] == (u16)def) {
+			return modMpBodyConsts[i][1];
+		}
+	}
+	return def;
+}
+
 static s32 modNumRoomNums;
 static u16 modRoomNums[16][2];
 static s32 modNumRoomStages;
@@ -1970,6 +2071,47 @@ static s32 importMpBodies(const struct moddataspec *spec)
 }
 
 /**
+ * g_BotProfiles: each simulant type and difficulty's name and Combat Simulator
+ * body, 8 bytes an entry in the ROM as in the port. GE-X renumbered the body
+ * list, so the stock profiles dressed its MeatSim as a St. Petersburg guard.
+ * Read after the body list, since the bodies are indexes into it.
+ */
+static s32 importBotProfiles(const struct moddataspec *spec)
+{
+	s32 count = spec->numbotprofiles;
+
+	if (count > (s32)ARRAYCOUNT(g_BotProfiles)) {
+		count = ARRAYCOUNT(g_BotProfiles);
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 at = spec->botprofiles + i * 8;
+		if (rd8(at) > 0x20 || rd8(at + 1) > 7 || (rd16(at + 2) >> 9) >= 69
+				|| (s16)rd16(at + 4) < 0 || (s16)rd16(at + 4) >= g_MpListCounts.bodies || rd8(at + 6) > 0x7f) {
+			sysLogPrintf(LOG_WARNING, "moddata: what is at %08x is not the simulant profile list (entry %d); the port keeps its own",
+					spec->botprofiles, i);
+			return 0;
+		}
+	}
+
+	for (s32 i = 0; i < count; ++i) {
+		u32 at = spec->botprofiles + i * 8;
+		g_BotProfiles[i].type = rd8(at);
+		g_BotProfiles[i].difficulty = rd8(at + 1);
+		g_BotProfiles[i].name = (s16)rd16(at + 2);
+		g_BotProfiles[i].body = (s16)rd16(at + 4);
+		g_BotProfiles[i].requirefeature = rd8(at + 6);
+
+		if (modDataTrace) {
+			sysLogPrintf(LOG_NOTE, "moddata: botprofile %2d: type %d difficulty %d name 0x%04x body %d",
+					i, g_BotProfiles[i].type, g_BotProfiles[i].difficulty, (u16)g_BotProfiles[i].name, g_BotProfiles[i].body);
+		}
+	}
+
+	return count;
+}
+
+/**
  * A plain list of indexes: g_BotHeads (into g_MpHeads), g_MpMaleHeads and
  * g_MpFemaleHeads (into g_HeadsAndBodies).
  */
@@ -2100,6 +2242,7 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	modDataTrace = sysArgCheck("--moddata-trace");
+	modDataMpWeaponSlotsReset();
 
 	memset(&seg, 0, sizeof(seg));
 	seg.data = data;
@@ -2217,6 +2360,16 @@ s32 modDataImport(const struct moddataspec *spec)
 		sysLogPrintf(LOG_NOTE, "moddata: %d of the animated texture numbers are the mod's", modNumTexConsts);
 	}
 
+	modNumHeadConsts = spec->numheadconsts;
+	memcpy(modHeadConsts, spec->headconsts, sizeof(modHeadConsts));
+
+	if (modNumHeadConsts) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d of the head numbers the game tests are the mod's", modNumHeadConsts);
+	}
+
+	modNumMpBodyConsts = spec->nummpbodyconsts;
+	memcpy(modMpBodyConsts, spec->mpbodyconsts, sizeof(modMpBodyConsts));
+
 	modNumRoomNums = spec->numroomnums;
 	memcpy(modRoomNums, spec->roomnums, sizeof(modRoomNums));
 	modNumRoomStages = spec->numroomstages;
@@ -2242,6 +2395,11 @@ s32 modDataImport(const struct moddataspec *spec)
 	if (spec->mpbodies && spec->nummpbodies > 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: %d Combat Simulator bodies from %08x",
 				importMpBodies(spec), spec->mpbodies);
+	}
+
+	if (spec->botprofiles && spec->numbotprofiles > 0) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d simulant profiles from %08x",
+				importBotProfiles(spec), spec->botprofiles);
 	}
 
 	if (spec->mpbeauheads && spec->nummpbeauheads > 0) {

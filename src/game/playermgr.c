@@ -6,6 +6,8 @@
 #include "game/playermgr.h"
 #include "game/modspectate.h"
 #include "game/modghost.h"
+#include "game/modrules.h"
+#include "game/game_0b0fd0.h"
 #include "game/propobj.h"
 #include "bss.h"
 #include "lib/memp.h"
@@ -742,6 +744,12 @@ s32 playermgrGetModelOfWeapon(s32 weapon)
 {
 	s32 model;
 
+	// A mod that renumbers its weapons rewrites this switch's jump table
+	// (GE-X moves 30 of its 50 entries), which the importer reads by running it
+	if (weapon >= 0 && weapon < MODRULES_NUMWEAPONS && g_ModWeaponChrModel[weapon] != MODRULES_STOCKMODEL) {
+		return g_ModWeaponChrModel[weapon];
+	}
+
 	switch (weapon) {
 	case WEAPON_NONE:
 	case WEAPON_UNARMED:          model = -1; break;
@@ -813,7 +821,7 @@ void playermgrCreateWeapon(s32 hand)
 		s32 weaponnum = bgunGetWeaponNum(hand);
 		s32 modelnum = playermgrGetModelOfWeapon(weaponnum);
 
-		if (hand == HAND_LEFT && weaponnum == WEAPON_REMOTEMINE) {
+		if (hand == HAND_LEFT && weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)) {
 			modelnum = -1;
 		}
 

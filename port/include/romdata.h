@@ -40,6 +40,8 @@ const u8 *romdataGetDataSeg(u32 *outSize);
 u8 *romdataSegGetData(const char *segName);
 u8 *romdataSegGetDataEnd(const char *segName);
 u32 romdataSegGetSize(const char *segName);
+// False when the segment came from a file (a mod's segs/) rather than the ROM
+s32 romdataSegIsStock(const char *segName);
 u32 romdataFileGetEstimatedSize(const u32 size, const u32 loadtype);
 
 s32 romdataCheckGbcRom(void);

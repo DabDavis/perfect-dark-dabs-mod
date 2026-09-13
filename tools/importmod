@@ -1737,7 +1737,8 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               # updates; the magnums' 8 by address, since the function
               # compares a hand state with 8 too, and the rocket launcher's 24
               # closes the magnums' chain. The laser sight is a range test.
-              ('detonatorhand', (('bgun0f0a5550', 34), ('bgun_draw_hud', 34), ('bgun_tick_inc_autoswitch', 34))),
+              ('detonatorhand', (('bgun0f0a5550', 34), ('bgun_draw_hud', 34), ('bgun_tick_inc_autoswitch', 34),
+                                 ('playermgr_create_weapon', 34))),
               # the hand state machine: the knife's reload quirk at four
               # places, the mines' function surviving an autoswitch, and the
               # grenade's no-casing reload (the port's noeject)
@@ -1990,6 +1991,131 @@ def reload_from_code(stockcode, modcode, codesyms, nweapons):
     return out
 
 
+CHRMODEL_BEGIN = '# importer: chrmodels begin'
+CHRMODEL_END = '# importer: chrmodels end'
+SIGHT_BEGIN = '# importer: sights begin'
+SIGHT_END = '# importer: sights end'
+SIGHT_CURPLAYER = 0x8009a244   # g_Vars.currentplayer
+SIGHT_PLAYER = 0x80600000      # where the runs below put the player
+
+
+def sights_from_code(stockcode, modcode, codesyms, nweapons):
+    """The sight each weapon draws, by running gset_get_sight for every
+    weapon number on both binaries with the current player's right hand
+    holding it and every call answering 0 (no function, no cheat): a jump
+    table in rodata that GE-X points nearly all at the classic sight, the
+    default past its end made classic too. Run again with the calls answering
+    pointers - to a function of type 0, then to a melee one - to read what the
+    Classic Sight cheat gives and whether a melee function hides the sight
+    (it returned after one call). {'stock': {...}, 'mod': {...}} with 'cheat',
+    'melee' and 'sights' {w: sight}, or None where a run does not finish."""
+    if 'gset_get_sight' not in codesyms:
+        return None
+    entry = codesyms['gset_get_sight'][0]
+    out = {}
+    for name, code in (('stock', stockcode), ('mod', modcode)):
+        res = emulate(code, entry, maxsteps=200)
+        if res is None or res[0] > 7:
+            return None
+        cheat = res[0]
+        res = emulate(code, entry, maxsteps=200, mem={FAKEPTR: 3})
+        if res is None:
+            return None
+        melee = 1 if res[1] == 1 else 0
+        sights = {}
+        for w in range(min(nweapons, 256)):
+            res = emulate(code, entry, maxsteps=200, callszero=True,
+                          mem={SIGHT_CURPLAYER: SIGHT_PLAYER, SIGHT_PLAYER + 0x638: w << 24})
+            if res is None or res[0] > 7:
+                return None
+            sights[w] = res[0]
+        out[name] = {'cheat': cheat, 'melee': melee, 'sights': sights}
+    return out
+
+
+def slti_change(stockcode, modcode, start, end, stockvalue):
+    """The immediate the mod's code compares with where the stock code has
+    `slti rt,rs,stockvalue`, or None where it did not change it."""
+    for ofs in range(start, min(end, len(stockcode) - 3, len(modcode) - 3), 4):
+        x = int.from_bytes(stockcode[ofs:ofs + 4], 'big')
+        y = int.from_bytes(modcode[ofs:ofs + 4], 'big')
+        if x >> 26 == 0x0a and y >> 16 == x >> 16 and x & 0xffff == stockvalue and y & 0xffff != x & 0xffff:
+            v = y & 0xffff
+            return v - 0x10000 if v & 0x8000 else v
+    return None
+
+
+AICMD_BEGIN = '# importer: aicommands begin'
+AICMD_END = '# importer: aicommands end'
+
+# where the game keeps the two options a mod's own AI command can test
+AICMD_LANGFILTER = 0x8009a4a3   # g_Vars.langfilteron
+AICMD_ALTTITLE = 0x800a232c     # g_AltTitleEnabled
+
+
+def ai_flag_command_key(code, h, gotova):
+    """The aicommands { } key for a mod's AI command handler at h that goes
+    to its label on one of the game's options, or None for any other
+    handler. GE-X's shape: a jal to a leaf `lui at,HI; jr ra; lbu v0,LO(at)`,
+    then bnez v0 (to the label when the byte is clear) or beqz v0 (when set)
+    past a jal chrai_go_to_label, all before the handler's jr ra."""
+    def word(va):
+        ofs = va - GAME_VRAM
+        if ofs < 0 or ofs + 4 > len(code):
+            return None
+        return int.from_bytes(code[ofs:ofs + 4], 'big')
+
+    flag = None
+    polarity = None
+    callsgoto = False
+    for i in range(48):
+        pc = h + 4 * i
+        x = word(pc)
+        if x is None or word(pc + 8) is None or x == 0x03e00008:
+            break
+        if x >> 26 != 3:
+            continue
+        target = (h & 0xf0000000) | ((x & 0x3ffffff) << 2)
+        if target == gotova:
+            callsgoto = True
+        elif flag is None:
+            a, b, c = word(target), word(target + 4), word(target + 8)
+            if (None not in (a, b, c) and a & 0xffff0000 == 0x3c010000 and b == 0x03e00008
+                    and c & 0xffff0000 == 0x90220000):
+                lo = c & 0xffff
+                flag = (((a & 0xffff) << 16) + (lo - 0x10000 if lo & 0x8000 else lo)) & 0xffffffff
+                br = word(pc + 8) & 0xffff0000
+                polarity = 0 if br == 0x14400000 else 1 if br == 0x10400000 else None
+    if not callsgoto or polarity is None:
+        return None
+    if flag == AICMD_LANGFILTER:
+        return 'iflangfilteron' if polarity else 'iflangfilteroff'
+    if flag == AICMD_ALTTITLE:
+        return 'ifalttitleon' if polarity else 'ifalttitleoff'
+    return None
+
+
+def chrmodels_from_code(stockcode, modcode, codesyms, nweapons):
+    """The model a chr holds for each weapon, by running
+    playermgr_get_model_of_weapon for every weapon number on both binaries:
+    a switch the compiler made a jump table in rodata plus a compare chain and
+    a default, pure. GE-X rewrites 30 of the table's 50 entries and not one
+    instruction, so modcodediff files it as data. {'stock': {w: model},
+    'mod': {w: model}} with -1 for none, or None where a run does not
+    finish."""
+    if 'playermgr_get_model_of_weapon' not in codesyms:
+        return None
+    entry = codesyms['playermgr_get_model_of_weapon'][0]
+    out = {'stock': {}, 'mod': {}}
+    for name, code in (('stock', stockcode), ('mod', modcode)):
+        for w in range(0, nweapons):
+            res = emulate(code, entry, a0=w, maxsteps=200)
+            if res is None or res[1]:
+                return None
+            out[name][w] = -1 if res[0] == 0xffffffff else res[0]
+    return out
+
+
 AMMO_BEGIN = '# importer: ammo begin'
 AMMO_END = '# importer: ammo end'
 
@@ -2121,7 +2247,7 @@ STAGEINDEX_G5BUILDING = 10
 STAGEINDEX_AIRBASE = 19
 
 
-def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, ra=None, mem=None):
+def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, ra=None, mem=None, callszero=False):
     """Runs a function of the game binary on a toy machine and returns
     (v0, calls, mem) at its `jr ra`, or None where it meets something the toy
     does not do. Integer ops, branches, single-precision float moves and
@@ -2422,7 +2548,8 @@ def emulate(code, entry, a0=0, stageindex=0, maxsteps=4000, args=(), f12=None, r
         elif kind == 'call':
             if not delayslot(pc):
                 return None
-            r[2] = FAKEPTR + state['calls'] * 0x10000
+            # `callszero`: a call not made answers 0 rather than a fake pointer
+            r[2] = 0 if callszero else FAKEPTR + state['calls'] * 0x10000
             state['calls'] += 1
             pc += 8
         elif kind == 'ret':
@@ -2772,7 +2899,35 @@ COLOUR_SITES = (('kohhud', 0x7f1828a8),       # koh_render_hud: the hill timer's
                 ('jointext', 0x7f0fc5d0),     # menu_render: "press start" for a player joining
                 ('joinblend', 0x7f0fc674),    # and the colour it blends from
                 ('interlace0', 0x7f1428a4),   # bview_draw_slayer_rocket_interlace: the two line colours
-                ('interlace1', 0x7f1428b4))
+                ('interlace1', 0x7f1428b4),
+                ('ammofn', 0x7f0aaaa0),           # bgun_draw_hud: the function name
+                ('ammofnfade', 0x7f0aac68),       # and as it fades,
+                ('ammofnshift', 0x7f0aac70, 1),   # the fader shifted up by this much
+                ('ammogunname', 0x7f0aad98),      # the gun's name
+                ('ammofunc', 0x7f0aafd0),         # the function's name
+                ('ammofuncalt', 0x7f0ab090),      # and while switching to the other
+                ('ammoclipbg', 0x7f0ab500),       # the clip gauge's back, fill and digits
+                ('ammoclipfg', 0x7f0ab4f4),
+                ('ammocliptext', 0x7f0ab540),
+                ('ammoresbg', 0x7f0ab82c),        # the reserve gauge's back, fill and digits
+                ('ammoresfg', 0x7f0ab830),
+                ('ammorestext', 0x7f0ab874),
+                ('ampulse', 0x7f10146c),          # am_render: the selected slot's pulse
+                ('ampulseshift', 0x7f101480, 1),
+                ('amhealth', 0x7f101f74),         # the health bar
+                ('amshield', 0x7f1020ec),         # the shield bar
+                ('missiontimer', 0x7f0dd200),     # hudmsg_render_mission_timer
+                ('htbhud', 0x7f180900),           # htb_render_hud: the timer
+                ('pachud', 0x7f184bb8),           # pac_render_hud: the timer
+                ('htmhud0', 0x7f183ab0),          # htm_render_hud: the progress bar's back
+                ('htmhud1', 0x7f183b1c),          # and front
+                ('radar', 0x7f18fc94),            # radar_render: the dots
+                ('scenradar', 0x7f180ac8),        # htb_radar_extra: an objective's dot
+                ('highlightg', 0x7f180c68),       # htb_highlight_prop: the green channel
+                ('scenhighlightg', 0x7f185f14),   # scenario_highlight_prop: a pickup's green
+                ('scenhighlightb', 0x7f185f18),   # and blue
+                ('kbgrid', 0x7f0e8980),           # menuitem_keyboard_render: the grid lines
+                ('sliderline', 0x7f0e2308))       # menugfx_render_slider: the line past the marker
 
 
 def jump_target(w):
@@ -2973,10 +3128,156 @@ def colours_from_code(stockcode, modcode):
     """The colour constants the mod repaints: [(name, stock, mod)] for the sites
     where both read and differ, in COLOUR_SITES order."""
     out = []
-    for name, addr in COLOUR_SITES:
-        a, b = follow_colour_at(stockcode, addr), follow_colour_at(modcode, addr)
+    for site in COLOUR_SITES:
+        name, addr = site[0], site[1]
+        if len(site) > 2:
+            # a shift site: the `sll rd,rt,sa` amount, and only when both words are one
+            x, y = be32(stockcode, addr - GAME_VRAM), be32(modcode, addr - GAME_VRAM)
+            ok = x & 0xfc00003f == 0 and y & 0xfc00003f == 0 and x and y
+            a, b = ((x >> 6) & 31, (y >> 6) & 31) if ok else (None, None)
+        else:
+            a, b = follow_colour_at(stockcode, addr), follow_colour_at(modcode, addr)
         if a is not None and b is not None and a != b:
             out.append((name, a, b))
+    return out
+
+
+def follow_register_at(code, start, site):
+    """The value the instruction at site writes, by walking the function from
+    its start in a straight line and ignoring where it branches: lui, ori,
+    andi, addiu, sll, srl, or, and and addu on values known so far, anything
+    else that writes a register forgetting it, and a call forgetting v0, v1
+    and ra. GE-X builds three menu colours this way out of registers it
+    kept. None when the site's value is not known."""
+    M = 0xffffffff
+    reg = {0: 0}
+    for pc in range(start, site + 4, 4):
+        if pc - GAME_VRAM + 4 > len(code):
+            return None
+        x = be32(code, pc - GAME_VRAM)
+        op, rs, rt, rd, sa, fn, imm = x >> 26, (x >> 21) & 31, (x >> 16) & 31, (x >> 11) & 31, (x >> 6) & 31, x & 63, x & 0xffff
+        dst, val = None, None
+        if op == 0x0f:
+            dst, val = rt, imm << 16
+        elif op in (0x0d, 0x0c, 0x08, 0x09):
+            dst = rt
+            if rs in reg:
+                simm = imm - 0x10000 if imm & 0x8000 else imm
+                val = reg[rs] | imm if op == 0x0d else reg[rs] & imm if op == 0x0c else (reg[rs] + simm) & M
+        elif op == 0 and fn in (0x00, 0x02):
+            dst = rd
+            if rt in reg:
+                val = (reg[rt] << sa) & M if fn == 0 else reg[rt] >> sa
+        elif op == 0 and fn in (0x25, 0x21, 0x24):
+            dst = rd
+            if rs in reg and rt in reg:
+                val = reg[rs] | reg[rt] if fn == 0x25 else (reg[rs] + reg[rt]) & M if fn == 0x21 else reg[rs] & reg[rt]
+        elif op == 3:
+            for r in (2, 3, 31):
+                reg.pop(r, None)
+            continue
+        elif op in (0x23, 0x21, 0x25, 0x24, 0x20, 0x31):
+            dst = rt
+        elif op == 0 and fn not in (0x08, 0x09):
+            dst = rd
+        if dst:
+            if val is None:
+                reg.pop(dst, None)
+            else:
+                reg[dst] = val
+        if pc == site:
+            return val if dst else None
+    return None
+
+
+def menu_colours_from_code(stockcode, modcode, stockseg, seg, base, codesyms):
+    """The menu's colours the port draws with a named one that are not a single
+    constant, in the order the game's importer reads them: [(name, stock, mod)].
+    What menugfx stores in the colour buffer its first call allocates, read
+    back from a run of each function (GE-X turns the blue parts green and never
+    writes the list header's sixth, which then takes the fifth's colour); three
+    built in registers the mod kept; the radar's background, func0f0b278c's
+    colour arguments made constants; and the tables - the menu palettes and
+    team title bars in rodata, the radar's team colours and fills in the data
+    segment."""
+    out = []
+    for fn, n, first, fmt in (('menugfx_draw_list_group_header', 7, 0, 'listhdr%d'),
+                              ('menugfx_draw_dropdown_background', 3, 0, 'dropdown%d'),
+                              ('menugfx_render_slider', 3, 2, 'sliderfill')):
+        if fn not in codesyms:
+            continue
+        runs = [emulate(code, codesyms[fn][0], a0=0x80700000, args=(10, 20, 110)) for code in (stockcode, modcode)]
+        if None in runs:
+            continue
+        a = [runs[0][2].get(FAKEPTR + i * 4) for i in range(n)]
+        b = [runs[1][2].get(FAKEPTR + i * 4) for i in range(n)]
+        for i in range(first, n):
+            if b[i] is None and i > 0 and b[i - 1] is not None:
+                b[i] = b[i - 1]
+            if a[i] is None or b[i] is None or a[i] == b[i]:
+                continue
+            out.append((fmt % i if '%' in fmt else fmt, a[i], b[i]))
+    for fn, site, name in (('menugfx_render_slider', 0x7f0e22d0, 'sliderleft'),
+                           ('menuitem_keyboard_render', 0x7f0e8638, 'kbfield'),
+                           ('menuitem_keyboard_render', 0x7f0e88e0, 'kbcursor')):
+        if fn in codesyms:
+            a = follow_register_at(stockcode, codesyms[fn][0], site)
+            b = follow_register_at(modcode, codesyms[fn][0], site)
+            if a is not None and b is not None and a != b:
+                out.append((name, a, b))
+    rgb, n = 0, 0
+    for k in range(3):
+        x = be32(stockcode, 0x7f0b27d0 - GAME_VRAM + 4 * k)
+        y = be32(modcode, 0x7f0b27d0 - GAME_VRAM + 4 * k)
+        if x >> 26 == 0x23 and y >> 26 in (0x08, 0x09) and (y >> 21) & 31 == 0:
+            rgb |= (y & 0xff) << (24 - 8 * k)
+            n += 1
+    if n == 3 and rgb != 0x00ff0000:
+        out.append(('radarbg', 0x00ff0000, rgb))
+    for addr, count, per, fmt, data in ((0x7f1b1fb0, 90, 15, 'menu%d_%d', False),
+                                        (0x7f1b25f8, 24, 0, 'teambar%d', False),
+                                        (0x80087cc4, 8, 0, 'team%d', True),
+                                        (0x80087ce4, 8, 0, 'teamfill%d', True)):
+        for i in range(count):
+            if data:
+                ofs = addr - base + i * 4
+                if addr < base or ofs + 4 > len(seg) or ofs + 4 > len(stockseg):
+                    break
+                a, b = be32(stockseg, ofs), be32(seg, ofs)
+            else:
+                ofs = addr - GAME_VRAM + i * 4
+                if ofs + 4 > len(stockcode) or ofs + 4 > len(modcode):
+                    break
+                a, b = be32(stockcode, ofs), be32(modcode, ofs)
+            if a != b:
+                out.append((fmt % ((i // per, i % per) if per else i), a, b))
+    return out
+
+
+DIALOG_TYPE_NAMES = ('0', 'default', 'danger', 'success', 'type4', 'white', '6', '7')
+
+
+def dialog_types_from_segment(stockseg, seg, base, syms):
+    """The type each menu dialog is drawn as: the type byte of every
+    menudialogdef (the data symbols ending in MenuDialog), stock against the
+    mod. [(stock, mod, agreeing, total)] for a type nine in ten of whose
+    dialogs agree on another; GE-X turns 144 of 152 ordinary dialogs into
+    success dialogs and all 13 success dialogs ordinary."""
+    cnt = [[0] * 8 for _ in range(8)]
+    for name, addr in syms.items():
+        ofs = addr - base
+        if name.endswith('MenuDialog') and addr >= base and ofs < len(seg) and ofs < len(stockseg) \
+                and stockseg[ofs] < 8 and seg[ofs] < 8:
+            cnt[stockseg[ofs]][seg[ofs]] += 1
+    out = []
+    for s in range(1, 6):
+        total = sum(cnt[s])
+        best = 0
+        for m in range(8):
+            if cnt[s][m] > cnt[s][best]:
+                best = m
+        if total and best != s and cnt[s][best] * 10 >= total * 9:
+            out.append((s, best, cnt[s][best], total))
     return out
 
 
@@ -3087,6 +3388,21 @@ def count_mpbodies(seg, base, addr, limit):
         headnum = int.from_bytes(seg[ofs + 4:ofs + 6], 'big', signed=True)
         # head 1000 is "the body has its own"
         if not 0 <= bodynum < 151 or not (-1 <= headnum < 151 or headnum == 1000) or seg[ofs + 6] > 0x7f or (be16(seg, ofs + 2) >> 9) > 0x44:
+            break
+        n += 1
+    return n
+
+
+def count_botprofiles(seg, base, addr, limit):
+    """Entries of g_BotProfiles that read as one: u8 type, u8 difficulty, s16
+    name, s16 mpbody, u8 feature, pad."""
+    n = 0
+    while n < limit:
+        ofs = addr - base + n * 8
+        if ofs + 8 > len(seg):
+            break
+        body = int.from_bytes(seg[ofs + 4:ofs + 6], 'big', signed=True)
+        if seg[ofs] > 0x20 or seg[ofs + 1] > 7 or (be16(seg, ofs + 2) >> 9) > 0x44 or not 0 <= body < 151 or seg[ofs + 6] > 0x7f:
             break
         n += 1
     return n
@@ -3480,8 +3796,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                                       ('mpbodies', 'g_MpBodies', 'mp_get_num_bodies', 8, 151, False),
                                       ('mpbeauheads', 'g_MpBeauHeads', None, 4, 151, False),
                                       ('botheads', 'g_BotHeads', None, 4, 75, False),
-                                      ('mpmaleheads', 'g_MpMaleHeads', None, 4, 151, False),
+                                      ('mpmaleheads', 'g_MpMaleHeads', 'mp_get_mpheadnum_by_mpbodynum', 4, 151, False),
                                       ('mpfemaleheads', 'g_MpFemaleHeads', None, 4, 151, False),
+                                      ('botprofiles', 'g_BotProfiles', None, 8, 151, False),
                                       ('maleguardheads', 'g_MaleGuardHeads', None, 4, 151, True),
                                       ('maleguardteamheads', 'g_MaleGuardTeamHeads', None, 4, 151, True),
                                       ('femaleguardheads', 'g_FemaleGuardHeads', None, 4, 151, True),
@@ -3493,7 +3810,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
         if fn and fn in codesyms:
             start, end = codesyms[fn]
             n = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, n) or n
-        if elem == 8:
+        if key == 'botprofiles':
+            ok = count_botprofiles(seg, base, addr, n)
+        elif elem == 8:
             ok = count_mpbodies(seg, base, addr, n)
         elif key in ('mpheads', 'mpbeauheads'):
             ok = count_mpheads(seg, base, addr, n)
@@ -3622,6 +3941,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
 
     # the AI command length table: a mod's own commands sit in slots this
     # game has no handler for, and their lengths let the port step over them
+    # and the handler table, for the commands read further down (looked up
+    # here, while stockpairs is still the pairs locate() follows)
+    cmdptrs, _ = locate('g_CommandPointers')
     cl, note = locate('g_CommandLengths')
     if cl:
         n = stockcount('g_CommandLengths', 2)
@@ -3671,6 +3993,36 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                 lines.append('  texconst 0x%x %d' % (k, v))
             notes.append('%d animated texture numbers changed in the mod\'s texture code: %s'
                          % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
+
+    # The heads tested by number for the grunt (Maian and Joanna), the Maian
+    # eyes and the quips: GE-X makes the four Maian tests head 5 and the four
+    # Joanna tests head 4 and gives the others to its own people, so its
+    # guards grunted like Elvis. One list across the three functions.
+    if followed:
+        seen = {}
+        for fn, what in (('chr_grunt', 'grunt'), ('chr_render', 'eye'), ('ai_say_quip', 'quip')):
+            if fn not in codesyms:
+                continue
+            start, end = codesyms[fn]
+            # in the code's order, as the game's importer lists them
+            new = [(k, v) for k, v in follow_immediates(stockcode, modcode, start - 0x7f000000, end - 0x7f000000).items()
+                   if k not in seen]
+            for k, v in new:
+                seen[k] = v
+                lines.append('  headconst 0x%x %d' % (k, v))
+            if new:
+                notes.append('%d head numbers changed in the mod\'s %s code: %s'
+                             % (len(new), what, ', '.join('%#x->%d' % (k, v) for k, v in new)))
+
+    # The bodies players 2 to 4 start a Combat Simulator setup as
+    if followed and 'mp_player_set_defaults' in codesyms:
+        start, end = codesyms['mp_player_set_defaults']
+        pairs = list(follow_immediates(stockcode, modcode, start - 0x7f000000, end - 0x7f000000).items())
+        for k, v in pairs:
+            lines.append('  mpbodyconst 0x%x %d' % (k, v))
+        if pairs:
+            notes.append('%d Combat Simulator default bodies changed in the mod\'s code: %s'
+                         % (len(pairs), ', '.join('%#x->%d' % (k, v) for k, v in pairs)))
 
     # And roomPopulateMtx(), which pins a room to the camera (the moon, the
     # Attack Ship's backdrop) by stage and room number: the stages are `lh`
@@ -3989,6 +4341,89 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                              % (', '.join('weapon %d with animation %d' % (w, i) for w, i in sorted(rl['mod'].items())) or 'no weapon',
                                 ', '.join('%d/%d' % (w, i) for w, i in sorted(rl['stock'].items()))))
 
+    def weapon_defined(w):
+        ofs = weapons - base + w * 4 if weapons else -1
+        return 0 <= ofs <= len(seg) - 4 and int.from_bytes(seg[ofs:ofs + 4], 'big') != 0
+
+    # The model a chr holds for each weapon, by running the code; only what differs from stock
+    chrmodelregion = ''
+    if followed and codesyms:
+        cm = chrmodels_from_code(stockcode, modcode, codesyms, stockcount('g_Weapons', 4))
+        if cm is None:
+            notes.append('the chr\'s weapon models in playermgr_get_model_of_weapon do not run; left as the port has them')
+        else:
+            # a weapon block for a number the mod defines no weapon at is refused
+            changed = [(w, cm['mod'][w], cm['stock'][w]) for w in sorted(cm['mod'])
+                       if cm['mod'][w] != cm['stock'][w] and weapon_defined(w)]
+            if changed:
+                lines_ = ['weapon %d { chrmodel %d }' % (w, m) for w, m, s in changed]
+                chrmodelregion = ('# The model a chr holds for each weapon the mod renumbered: read by running the\n'
+                                  '# mod\'s code for every weapon number. Written by tools/importmod.\n'
+                                  + CHRMODEL_BEGIN + '\n' + '\n'.join(lines_) + '\n' + CHRMODEL_END + '\n')
+                notes.append('a chr holds other models for weapons: '
+                             + ', '.join('%d %d (stock %d)' % c for c in changed))
+
+    # The sight each weapon draws and the rules around it, by running the code;
+    # the split screen's player count and the zoom range's weapon are constants
+    sightregion = ''
+    if followed and codesyms:
+        lines_ = []
+        sg = sights_from_code(stockcode, modcode, codesyms, stockcount('g_Weapons', 4))
+        if sg is None:
+            notes.append('the sights in gset_get_sight do not run; left as the port has them')
+        else:
+            if sg['mod']['melee'] != sg['stock']['melee']:
+                lines_.append('sights { melee %d }' % sg['mod']['melee'])
+                notes.append('a melee function hides the sight: %d (stock %d)' % (sg['mod']['melee'], sg['stock']['melee']))
+            if sg['mod']['cheat'] != sg['stock']['cheat']:
+                lines_.append('sights { cheat %d }' % sg['mod']['cheat'])
+                notes.append('the Classic Sight cheat gives sight %d (stock %d)' % (sg['mod']['cheat'], sg['stock']['cheat']))
+            changed = [(w, sg['mod']['sights'][w], sg['stock']['sights'][w]) for w in sorted(sg['mod']['sights'])
+                       if sg['mod']['sights'][w] != sg['stock']['sights'][w] and weapon_defined(w)]
+            lines_ += ['weapon %d { sight %d }' % (w, s) for w, s, _ in changed]
+            # grouped by the sight they now draw, since GE-X changes eighty of them
+            if changed:
+                notes.append('weapons draw other sights: ' + '; '.join(
+                    'sight %d on %s' % (s, ' '.join(str(w) for w, ms, _ in changed if ms == s))
+                    for s in range(8) if any(ms == s for _, ms, _ in changed)))
+        if 'sight_draw' in codesyms:
+            start, end = codesyms['sight_draw']
+            split = slti_change(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, 2)
+            if split is not None:
+                lines_.append('sights { splitmin %d }' % split)
+                notes.append('a split screen forces the default sight from %d players (stock 2)' % split)
+        if 'sight_draw_zoom' in codesyms:
+            start, end = codesyms['sight_draw_zoom']
+            zoom = follow_immediate(stockcode, modcode, start - 0x7f000000, end - 0x7f000000, 21)
+            if zoom and zoom != 21:
+                lines_.append('sights { zoomrange %d }' % zoom)
+                notes.append('the zoom range shows with no zoom for weapon %d (stock 21)' % zoom)
+        if lines_:
+            sightregion = ('# The sight each weapon draws and the rules around it: read by running the mod\'s\n'
+                           '# code. Written by tools/importmod.\n'
+                           + SIGHT_BEGIN + '\n' + '\n'.join(lines_) + '\n' + SIGHT_END + '\n')
+
+    # The mod's own AI commands that go to their label on one of the game's
+    # options: GE-X fills the empty slots 0xe6 and 0xe7 with handlers in a
+    # code cave that test the Language Filter (its "Additional Dialogue") and
+    # the Alternative Title Screen (its "Disable Female NPCs"). Every slot of
+    # the mod's command table is matched by the handler's shape.
+    aicmdregion = ''
+    if followed and 'chrai_go_to_label' in codesyms:
+        lines_ = []
+        for cmdtype in range(stockcount('g_CommandPointers', 4) if cmdptrs else 0):
+            ofs = cmdptrs - base + cmdtype * 4
+            if ofs < 0 or ofs + 4 > len(seg):
+                break
+            key = ai_flag_command_key(modcode, int.from_bytes(seg[ofs:ofs + 4], 'big'), codesyms['chrai_go_to_label'][0])
+            if key:
+                lines_.append('aicommands { %s 0x%x }' % (key, cmdtype))
+                notes.append('AI command %#x is the mod\'s own: %s' % (cmdtype, key))
+        if lines_:
+            aicmdregion = ('# The mod\'s own AI commands that go to their label on one of the game\'s options:\n'
+                           '# read from the mod\'s handlers. Written by tools/importmod.\n'
+                           + AICMD_BEGIN + '\n' + '\n'.join(lines_) + '\n' + AICMD_END + '\n')
+
     # The unlocks: the tests the mod's code forces to true, family by family
     unlocksregion = ''
     if followed:
@@ -4049,13 +4484,17 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
     # The colours the mod repaints, at the sites the port draws with a named constant
     coloursregion = ''
     if followed and codesyms:
-        cs = colours_from_code(stockcode, modcode)
-        if cs:
-            for name, a, b in cs:
-                notes.append('the %s colour is %08x (stock: %08x)' % (name, b, a))
+        cs = colours_from_code(stockcode, modcode) + menu_colours_from_code(stockcode, modcode, stockseg, seg, base, codesyms)
+        for name, a, b in cs:
+            notes.append('the %s colour is %08x (stock: %08x)' % (name, b, a))
+        body = ('colours {\n' + ''.join('  %s 0x%08x\n' % (name, b) for name, a, b in cs) + '}\n') if cs else ''
+        for s, m, agree, total in dialog_types_from_segment(stockseg, seg, base, syms):
+            body += 'menudialogtypes { %s %d }\n' % (DIALOG_TYPE_NAMES[s], m)
+            notes.append('menu dialogs of type %s are drawn as %s (%d of %d)' % (DIALOG_TYPE_NAMES[s], DIALOG_TYPE_NAMES[m], agree, total))
+        if body:
             coloursregion = ('# The colours the mod\'s code draws with where the port draws with a named one,\n'
                              '# read from it. Written by tools/importmod.\n'
-                             + COLOURS_BEGIN + '\ncolours {\n' + ''.join('  %s 0x%08x\n' % (name, b) for name, a, b in cs) + '}\n' + COLOURS_END + '\n')
+                             + COLOURS_BEGIN + '\n' + body + COLOURS_END + '\n')
 
     # the maps the mod offers as arenas, for the Stage Loader
     mapsregion = ''
@@ -4110,8 +4549,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(RELOAD_BEGIN) + r'\n.*?' + re.escape(RELOAD_END) + r'\n*',
                           '', existing, flags=re.S)
-        for begin, end in ((MOVEMENT_BEGIN, MOVEMENT_END), (KOH_BEGIN, KOH_END), (COLOURS_BEGIN, COLOURS_END),
-                           (MAPS_BEGIN, MAPS_END)):
+        for begin, end in ((CHRMODEL_BEGIN, CHRMODEL_END), (SIGHT_BEGIN, SIGHT_END), (AICMD_BEGIN, AICMD_END),
+                           (MOVEMENT_BEGIN, MOVEMENT_END), (KOH_BEGIN, KOH_END),
+                           (COLOURS_BEGIN, COLOURS_END), (MAPS_BEGIN, MAPS_END)):
             existing = re.sub(r'(#[^\n]*\n)*' + re.escape(begin) + r'\n.*?' + re.escape(end) + r'\n*',
                               '', existing, flags=re.S)
     written += write_file(outdir, 'modconfig.txt',
@@ -4122,6 +4562,9 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                            + (damageregion + '\n' if damageregion else '')
                            + (ammoregion + '\n' if ammoregion else '')
                            + (reloadregion + '\n' if reloadregion else '')
+                           + (chrmodelregion + '\n' if chrmodelregion else '')
+                           + (sightregion + '\n' if sightregion else '')
+                           + (aicmdregion + '\n' if aicmdregion else '')
                            + (unlocksregion + '\n' if unlocksregion else '')
                            + (movementregion + '\n' if movementregion else '')
                            + (kohregion + '\n' if kohregion else '')

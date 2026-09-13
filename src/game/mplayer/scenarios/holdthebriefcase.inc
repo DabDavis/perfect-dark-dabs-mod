@@ -434,10 +434,10 @@ Gfx *htbRenderHud(Gfx *gdl)
 
 #if VERSION >= VERSION_NTSC_1_0
 		gdl = text0f153990(gdl, x, y, textwidth, textheight);
-		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, 0x00ff00a0, 0xa0, viGetWidth(), viGetHeight(), 0, 0);
+		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, g_ModColours[MODCOLOUR_HTBHUD], 0xa0, viGetWidth(), viGetHeight(), 0, 0);
 #else
 		gdl = text0f153858(gdl, &x, &y, &textwidth, &textheight);
-		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, 0x00ff00a0, 0x88, viGetWidth(), viGetHeight(), 0, 0);
+		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, g_ModColours[MODCOLOUR_HTBHUD], 0x88, viGetWidth(), viGetHeight(), 0, 0);
 #endif
 
 		gdl = text0f153780(gdl);
@@ -489,7 +489,7 @@ Gfx *htbRadarExtra(Gfx *gdl)
 		dist.x = g_ScenarioData.htb.pos.x - g_Vars.currentplayer->prop->pos.x;
 		dist.y = g_ScenarioData.htb.pos.y - g_Vars.currentplayer->prop->pos.y;
 		dist.z = g_ScenarioData.htb.pos.z - g_Vars.currentplayer->prop->pos.z;
-		gdl = radarDrawDot(gdl, g_ScenarioData.htb.token, &dist, 0x00ff0000, 0, 1);
+		gdl = radarDrawDot(gdl, g_ScenarioData.htb.token, &dist, g_ModColours[MODCOLOUR_SCENRADAR], 0, 1);
 	}
 
 	return gdl;
@@ -510,7 +510,7 @@ bool htbRadarChr(Gfx **gdl, struct prop *prop)
 				u32 colour = g_TeamColours[radarGetTeamIndex(prop->chr->team)];
 				*gdl = radarDrawDot(*gdl, g_ScenarioData.htb.token, &dist, colour, 0, 1);
 			} else {
-				*gdl = radarDrawDot(*gdl, g_ScenarioData.htb.token, &dist, 0x00ff0000, 0, 1);
+				*gdl = radarDrawDot(*gdl, g_ScenarioData.htb.token, &dist, g_ModColours[MODCOLOUR_SCENRADAR], 0, 1);
 			}
 
 			return true;
@@ -524,7 +524,7 @@ bool htbHighlightProp(struct prop *prop, s32 *colour)
 {
 	if ((g_MpSetup.options & MPOPTION_HTB_HIGHLIGHTBRIEFCASE) && prop == g_ScenarioData.htb.token) {
 		colour[0] = 0;
-		colour[1] = 0xff;
+		colour[1] = g_ModColours[MODCOLOUR_HIGHLIGHTG] & 0xff;
 		colour[2] = 0;
 		colour[3] = 0x40;
 

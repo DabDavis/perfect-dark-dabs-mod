@@ -181,7 +181,7 @@ bool pacHighlightProp(struct prop *prop, s32 *colour)
 			&& data->victimindex != -1
 			&& prop->chr == g_MpAllChrPtrs[data->victims[data->victimindex]]) {
 		colour[0] = 0;
-		colour[1] = 0xff;
+		colour[1] = g_ModColours[MODCOLOUR_HIGHLIGHTG] & 0xff;
 		colour[2] = 0;
 		colour[3] = 0x40;
 		return true;
@@ -329,10 +329,10 @@ Gfx *pacRenderHud(Gfx *gdl)
 
 #if VERSION >= VERSION_NTSC_1_0
 		gdl = text0f153990(gdl, x, y, textwidth, textheight);
-		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, 0x00ff00a0, 0xa0, viGetWidth(), viGetHeight(), 0, 0);
+		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, g_ModColours[MODCOLOUR_PACHUD], 0xa0, viGetWidth(), viGetHeight(), 0, 0);
 #else
 		gdl = text0f153858(gdl, &x, &y, &textwidth, &textheight);
-		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, 0x00ff00a0, 0x88, viGetWidth(), viGetHeight(), 0, 0);
+		gdl = textRender(gdl, &x, &y, text, g_CharsNumeric, g_FontNumeric, g_ModColours[MODCOLOUR_PACHUD], 0x88, viGetWidth(), viGetHeight(), 0, 0);
 #endif
 		gdl = text0f153780(gdl);
 
@@ -401,7 +401,7 @@ bool pacRadarChr(Gfx **gdl, struct prop *prop)
 				u32 colour = g_TeamColours[radarGetTeamIndex(prop->chr->team)];
 				*gdl = radarDrawDot(*gdl, vprop, &dist, colour, 0, 1);
 			} else {
-				*gdl = radarDrawDot(*gdl, vprop, &dist, 0x00ff0000, 0, 1);
+				*gdl = radarDrawDot(*gdl, vprop, &dist, g_ModColours[MODCOLOUR_SCENRADAR], 0, 1);
 			}
 
 			return true;

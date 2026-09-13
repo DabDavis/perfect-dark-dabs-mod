@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/cheats.h"
 #include "game/modoptions.h"
 #include "game/inv.h"
@@ -701,15 +702,22 @@ u32 currentPlayerGetSight(void)
 			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
 			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc);
 
-	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+	s32 weaponnum = g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum;
+
+	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_MELEE && g_ModSightMeleeNone) {
 		return SIGHT_NONE;
 	}
 
 	if (cheatIsActive(CHEAT_CLASSICSIGHT)) {
-		return SIGHT_CLASSIC;
+		return g_ModSightCheat;
 	}
 
-	switch (g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum) {
+	// a mod's own sight for the weapon (game/modrules.h)
+	if (weaponnum >= 0 && weaponnum < MODRULES_NUMWEAPONS && g_ModWeaponSight[weaponnum] >= 0) {
+		return g_ModWeaponSight[weaponnum];
+	}
+
+	switch (weaponnum) {
 	case WEAPON_HORIZONSCANNER:
 		return SIGHT_NONE;
 	case WEAPON_NONE:

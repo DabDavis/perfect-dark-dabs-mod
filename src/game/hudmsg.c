@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "constants.h"
 #include "game/propsnd.h"
 #include "game/game_0b0fd0.h"
@@ -199,7 +200,7 @@ Gfx *hudmsgRenderMissionTimer(Gfx *gdl, u32 alpha)
 
 	textcolour = textcolour * 160 / 255;
 	if (g_Is4Mb);
-	textcolour |= 0x00ff0000;
+	textcolour |= g_ModColours[MODCOLOUR_MISSIONTIMER];
 
 	formatTime(buffer, playerGetMissionTime(), TIMEPRECISION_HUNDREDTHS);
 

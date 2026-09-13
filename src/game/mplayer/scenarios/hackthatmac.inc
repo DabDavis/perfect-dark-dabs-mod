@@ -595,12 +595,12 @@ Gfx *htmRenderHud(Gfx *gdl)
 		s1 = barleft + (s32) (a1 * (dltime / TICKS(4800.0f)));
 
 		gdl = text0f153628(gdl);
-		gdl = textSetPrimColour(gdl, 0x60000060);
+		gdl = textSetPrimColour(gdl, g_ModColours[MODCOLOUR_HTMHUD0]);
 
 		gDPFillRectangle(gdl++, barleft, viewtop + 8, barright, viewtop + 16);
 
 		gdl = text0f153838(gdl);
-		gdl = textSetPrimColour(gdl, 0xc00000d0);
+		gdl = textSetPrimColour(gdl, g_ModColours[MODCOLOUR_HTMHUD1]);
 
 		v1 = barleft + 1;
 		a0 = barleft;
@@ -677,7 +677,7 @@ Gfx *htmRadarExtra(Gfx *gdl)
 			dist.y = data->uplink->pos.y - g_Vars.currentplayer->prop->pos.y;
 			dist.z = data->uplink->pos.z - g_Vars.currentplayer->prop->pos.z;
 
-			gdl = radarDrawDot(gdl, data->uplink, &dist, 0x00ff0000, 0x00000000, true);
+			gdl = radarDrawDot(gdl, data->uplink, &dist, g_ModColours[MODCOLOUR_SCENRADAR], 0x00000000, true);
 		}
 
 		// Show the terminal
@@ -750,7 +750,7 @@ bool htmRadarChr(Gfx **gdl, struct prop *prop)
 				u32 colour = g_TeamColours[radarGetTeamIndex(prop->chr->team)];
 				*gdl = radarDrawDot(*gdl, g_ScenarioData.htm.uplink, &dist, colour, 0, 1);
 			} else {
-				*gdl = radarDrawDot(*gdl, g_ScenarioData.htm.uplink, &dist, 0x00ff0000, 0, 1);
+				*gdl = radarDrawDot(*gdl, g_ScenarioData.htm.uplink, &dist, g_ModColours[MODCOLOUR_SCENRADAR], 0, 1);
 			}
 
 			return true;
@@ -780,7 +780,7 @@ bool htmHighlightProp(struct prop *prop, s32 *colour)
 
 		if (highlight) {
 			colour[0] = 0;
-			colour[1] = 0xff;
+			colour[1] = g_ModColours[MODCOLOUR_HIGHLIGHTG] & 0xff;
 			colour[2] = 0;
 			colour[3] = 0x40;
 

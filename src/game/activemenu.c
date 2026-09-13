@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/chraction.h"
 #include "game/game_006900.h"
 #include "game/bondgun.h"
@@ -1494,7 +1495,7 @@ Gfx *amRender(Gfx *gdl)
 #endif
 
 			colour = (sinf(g_AmMenus[g_AmIndex].selpulse) + 1) * 127;
-			colour = 0xff0000ff | colour << 8 | colour << 16;
+			colour = g_ModColours[MODCOLOUR_AMPULSE] | colour << 8 | colour << (g_ModColours[MODCOLOUR_AMPULSESHIFT] & 31);
 
 			if (g_Vars.currentplayer->activemenumode == AMMODE_EDIT) {
 				colour = 0x4f4f4f7f;
@@ -1664,7 +1665,7 @@ Gfx *amRender(Gfx *gdl)
 			// Part 2 black
 			RECT(gdl++, PART2LEFT(), y, part1left + barwidth, y + barheight);
 		} else {
-			gDPSetPrimColorViaWord(gdl++, 0, 0, 0x00c00060);
+			gDPSetPrimColorViaWord(gdl++, 0, 0, g_ModColours[MODCOLOUR_AMHEALTH]);
 
 			// Part 1 green
 			RECT(gdl++, part1left, y, part1left + part1width, y + barheight);
@@ -1684,7 +1685,7 @@ Gfx *amRender(Gfx *gdl)
 		y = y + barheight + 2;
 		barheight = barheight * 0.75f;
 
-		gDPSetPrimColorViaWord(gdl++, 0, 0, 0x00c00060);
+		gDPSetPrimColorViaWord(gdl++, 0, 0, g_ModColours[MODCOLOUR_AMSHIELD]);
 
 		a2 = part1left + (s32) (barwidth * shieldfrac);
 

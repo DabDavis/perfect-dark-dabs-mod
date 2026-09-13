@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modrules.h"
 #include "game/chraction.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
@@ -1304,7 +1305,7 @@ Gfx *sightDrawZoom(Gfx *gdl, bool sighton, f32 crossx, f32 crossy)
 	zoominfovy = g_Vars.currentplayer->zoominfovy;
 
 	if (maxfovy == 0.0f || maxfovy == 60.0f) {
-		if (weaponnum != WEAPON_SNIPERRIFLE) {
+		if (weaponnum != g_ModZoomRangeWeapon) {
 			showzoomrange = false;
 		}
 	} else {
@@ -1630,7 +1631,7 @@ Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 	}
 #endif
 
-	if (PLAYERCOUNT() >= 2 && g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0) {
+	if (PLAYERCOUNT() >= g_ModSightSplitMin && g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0) {
 		sight = SIGHT_DEFAULT;
 	}
 

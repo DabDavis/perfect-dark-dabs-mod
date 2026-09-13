@@ -20,6 +20,15 @@
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include <string.h>
+#include "romdata.h"
+#include "system.h"
+#include "mod.h"
+// how many records the trace walks: the ROM's 44, and a mod's longer segment
+// is not read past the configs the game has
+#define NUM_MPCONFIGS_TRACE 44
+#endif
 
 u8 g_MpFeaturesForceUnlocked[40];
 u8 g_MpFeaturesUnlocked[80];
@@ -375,6 +384,160 @@ bool challengeIsCompletedByChrWithNumPlayersBySlot(s32 mpchrnum, s32 slot, s32 n
 #define BTYPE uintptr_t
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * A challenge's record in the ROM's mpconfigs segment, which is not this
+ * build's struct mpconfig: the name is 12 bytes where the port's is 18, there
+ * is no storedbotbits, and everything is big-endian - 104 bytes against 116.
+ *
+ *   0x00 name[12]  0x0c options      0x10 scenario   0x11 stagenum
+ *   0x12 timelimit 0x13 scorelimit   0x14 teamscorelimit (u16)
+ *   0x16 chrslots (u16)  0x18 weapons[6]  0x1e paused  0x1f pad
+ *   0x20 fileguid.fileid (s32)  0x24 fileguid.deviceserial (u16)  0x26 pad
+ *   0x28 8 simulants of 8 bytes: type, mpheadnum, mpbodynum, team, 4 difficulties
+ *
+ * Read field by field, never as a struct and never swapped in place: the
+ * segment may be a mod's own allocation (see b41191528).
+ */
+#define MPCONFIG_ROMSIZE 104
+#define MPCONFIG_ROMSIMS 0x28
+
+static u16 challengeBe16(const u8 *p)
+{
+	return (u16)(p[0] << 8 | p[1]);
+}
+
+static u32 challengeBe32(const u8 *p)
+{
+	return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3];
+}
+
+/**
+ * Overwrites the fields a ROM record has with that record. The fields it
+ * lacks (storedbotbits, the tail of the name) stay as the caller had them.
+ */
+static void challengeDecodeRomConfig(const u8 *rec, struct mpconfig *config)
+{
+	struct mpsetup *setup = &config->setup;
+	s32 i;
+
+	memset(setup->name, 0, sizeof(setup->name));
+	memcpy(setup->name, rec, 12);
+	setup->name[11] = '\0';
+	setup->options = challengeBe32(rec + 0x0c);
+	setup->scenario = rec[0x10];
+	setup->stagenum = rec[0x11];
+	setup->timelimit = rec[0x12];
+	setup->scorelimit = rec[0x13];
+	setup->teamscorelimit = challengeBe16(rec + 0x14);
+	setup->chrslots = challengeBe16(rec + 0x16);
+	// a slot of the list the record was written against, which is not laid
+	// out like the port's (moddata.c)
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		setup->weapons[i] = modDataMpWeaponSlot(rec[0x18 + i]);
+	}
+
+	setup->paused = rec[0x1e];
+	setup->fileguid.fileid = (s32)challengeBe32(rec + 0x20);
+	setup->fileguid.deviceserial = challengeBe16(rec + 0x24);
+
+	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
+		const u8 *sim = rec + MPCONFIG_ROMSIMS + i * 8;
+
+		config->simulants[i].type = sim[0];
+		config->simulants[i].mpheadnum = sim[1];
+		config->simulants[i].mpbodynum = sim[2];
+		config->simulants[i].team = sim[3];
+		memcpy(config->simulants[i].difficulties, sim + 4, MAX_PLAYERS);
+	}
+}
+
+/**
+ * --moddata-trace, once per run: every record in the segment as decoded. When
+ * the segment is the ROM's, each is also compared with g_MpConfigs, which is
+ * the same 44 configs in the port's layout - a mismatch there means the
+ * layout above is wrong, not the data.
+ */
+static void challengeTraceRomConfigs(void)
+{
+	extern struct mpconfig g_MpConfigs[];
+	static bool done = false;
+	const u8 *seg = romdataSegGetData("mpconfigs");
+	const u32 count = romdataSegGetSize("mpconfigs") / MPCONFIG_ROMSIZE;
+	const s32 stock = romdataSegIsStock("mpconfigs");
+	s32 mismatches = 0;
+	u32 c;
+
+	if (done || !seg || !sysArgCheck("--moddata-trace")) {
+		return;
+	}
+
+	done = true;
+
+	for (c = 0; c < count && c < NUM_MPCONFIGS_TRACE; c++) {
+		struct mpconfig config = g_MpConfigs[c];
+		char sims[160];
+		u32 len = 0;
+		s32 i;
+
+		challengeDecodeRomConfig(seg + c * MPCONFIG_ROMSIZE, &config);
+
+		for (i = 0; i < MAX_BOTS_CONFIG; i++) {
+			len += snprintf(sims + len, sizeof(sims) - len, " %d/%d/%d",
+					config.simulants[i].type, config.simulants[i].mpheadnum, config.simulants[i].mpbodynum);
+			if (len >= sizeof(sims)) {
+				len = sizeof(sims) - 1;
+			}
+		}
+
+		sysLogPrintf(LOG_NOTE, "challenge: %s config %2u \"%s\" stage 0x%02x scenario %d slots 0x%04x weapons %d %d %d %d %d %d sims (type/head/body)%s",
+				stock ? "rom" : "mod", c, config.setup.name, config.setup.stagenum, config.setup.scenario,
+				config.setup.chrslots, config.setup.weapons[0], config.setup.weapons[1], config.setup.weapons[2],
+				config.setup.weapons[3], config.setup.weapons[4], config.setup.weapons[5], sims);
+
+		if (stock) {
+			const struct mpsetup *a = &config.setup, *b = &g_MpConfigs[c].setup;
+
+			char diff[256] = "";
+			u32 dlen = 0;
+
+#define CHALLENGE_DIFF(cond, fmt, ...) do { if (cond) { dlen += snprintf(diff + dlen, dlen < sizeof(diff) ? sizeof(diff) - dlen : 0, " " fmt, __VA_ARGS__); } } while (0)
+			CHALLENGE_DIFF(strcmp(a->name, b->name), "name '%s'/'%s'", a->name, b->name);
+			CHALLENGE_DIFF(a->options != b->options, "options %x/%x", a->options, b->options);
+			CHALLENGE_DIFF(a->scenario != b->scenario, "scenario %d/%d", a->scenario, b->scenario);
+			CHALLENGE_DIFF(a->stagenum != b->stagenum, "stage %x/%x", a->stagenum, b->stagenum);
+			CHALLENGE_DIFF(a->timelimit != b->timelimit || a->scorelimit != b->scorelimit || a->teamscorelimit != b->teamscorelimit,
+					"limits %d,%d,%d/%d,%d,%d", a->timelimit, a->scorelimit, a->teamscorelimit, b->timelimit, b->scorelimit, b->teamscorelimit);
+			CHALLENGE_DIFF(a->chrslots != b->chrslots, "slots %x/%x", a->chrslots, b->chrslots);
+			CHALLENGE_DIFF(memcmp(a->weapons, b->weapons, sizeof(a->weapons)), "weapons %d %d %d %d %d %d/%d %d %d %d %d %d",
+					a->weapons[0], a->weapons[1], a->weapons[2], a->weapons[3], a->weapons[4], a->weapons[5],
+					b->weapons[0], b->weapons[1], b->weapons[2], b->weapons[3], b->weapons[4], b->weapons[5]);
+			CHALLENGE_DIFF(a->paused != b->paused, "paused %d/%d", a->paused, b->paused);
+			CHALLENGE_DIFF(a->fileguid.fileid != b->fileguid.fileid || a->fileguid.deviceserial != b->fileguid.deviceserial,
+					"guid %x,%x/%x,%x", a->fileguid.fileid, a->fileguid.deviceserial, b->fileguid.fileid, b->fileguid.deviceserial);
+
+			for (i = 0; i < MAX_BOTS_CONFIG; i++) {
+				const struct mpconfigsim *sa = &config.simulants[i], *sb = &g_MpConfigs[c].simulants[i];
+
+				CHALLENGE_DIFF(memcmp(sa, sb, sizeof(*sa)), "sim%d %d/%d/%d/%d/%d%d%d%d vs %d/%d/%d/%d/%d%d%d%d", i,
+						sa->type, sa->mpheadnum, sa->mpbodynum, sa->team, sa->difficulties[0], sa->difficulties[1], sa->difficulties[2], sa->difficulties[3],
+						sb->type, sb->mpheadnum, sb->mpbodynum, sb->team, sb->difficulties[0], sb->difficulties[1], sb->difficulties[2], sb->difficulties[3]);
+			}
+#undef CHALLENGE_DIFF
+
+			if (dlen) {
+				sysLogPrintf(LOG_WARNING, "challenge: rom config %u differs from g_MpConfigs[%u] (rom/port):%s", c, c, diff);
+				mismatches++;
+			}
+		}
+	}
+
+	if (stock) {
+		sysLogPrintf(LOG_NOTE, "challenge: %d of %u rom configs differ from g_MpConfigs", mismatches, count);
+	}
+}
+#endif
+
 struct mpconfigfull *challengeLoadConfig(s32 confignum, u8 *buffer, s32 len)
 {
 	struct mpconfigfull *mpconfig;
@@ -438,6 +601,19 @@ struct mpconfigfull *challengeLoadConfig(s32 confignum, u8 *buffer, s32 len)
 	loadedstrings = dmaExecWithAutoAlign(buffer2, bank + confignum * sizeof(struct mpstrings), sizeof(struct mpstrings));
 
 	mpconfig->config = g_MpConfigs[confignum];
+
+#ifndef PLATFORM_N64
+	// A mod that ships its own mpconfigs (GE-X rebuilds all 44: arenas,
+	// weapons and 243 simulants) has its records decoded over the native
+	// config; the ROM's own segment is g_MpConfigs already and is left alone.
+	challengeTraceRomConfigs();
+
+	if (!romdataSegIsStock("mpconfigs") && confignum >= 0
+			&& (u32)(confignum + 1) * MPCONFIG_ROMSIZE <= romdataSegGetSize("mpconfigs")) {
+		challengeDecodeRomConfig(romdataSegGetData("mpconfigs") + confignum * MPCONFIG_ROMSIZE, &mpconfig->config);
+	}
+#endif
+
 	mpconfig->strings = *loadedstrings;
 
 	return mpconfig;

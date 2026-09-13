@@ -4,7 +4,9 @@
 #include "data.h"
 #include "types.h"
 
-extern const struct menucolourpalette g_MenuColours[];
+// writable so a mod can repaint them (modColourSet); mod.c keeps the stock copy
+extern struct menucolourpalette g_MenuColours[6];
+extern u32 g_TeamTitlebarColours[8][3];
 extern const struct menucolourpalette g_MenuWave1Colours[];
 extern const struct menucolourpalette g_MenuWave2Colours[];
 
