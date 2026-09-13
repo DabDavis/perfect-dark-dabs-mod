@@ -82,6 +82,7 @@
 #ifndef PLATFORM_N64
 #include "system.h"
 #include "game/modrules.h"
+#include "xblamesh.h"
 #endif
 
 void rng2SetSeed(u32 seed);
@@ -2884,10 +2885,22 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 
 	g_Vars.hitboundscount = 0;
 
+#ifndef PLATFORM_N64
+	xblaMeshHitBegin();
+#endif
+
 	while (node) {
 		u32 type = node->type & 0xff;
 		s4 = NULL;
 		s6 = NULL;
+
+#ifndef PLATFORM_N64
+		// A list the XBLA release's mesh stands in for is not what is drawn:
+		// the mesh's triangles are tested after the walk instead.
+		if ((type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL) && xblaMeshHitSkipsNode(model, node)) {
+			type = 0;
+		}
+#endif
 
 		switch (type) {
 		case MODELNODETYPE_BBOX:
@@ -2987,6 +3000,26 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// The XBLA release's triangles for the lists the walk skipped, against
+	// whatever stock list was hit nearer. The part a mesh hit counts as is the
+	// bbox on the hit bone, and it is the only bound a bruise is laid in.
+	{
+		struct modelnode *meshbbox = NULL;
+		struct modelnode *meshnode = NULL;
+		s32 meshpart = 0;
+
+		if (xblaMeshHitTest(model, arg3, &sp74, arg4, &sp98, arg5, &meshbbox, &meshpart, &meshnode)) {
+			ok = true;
+			sp88 = meshnode;
+			*arg7 = meshbbox;
+			*hitpart = meshpart;
+			g_Vars.hitboundscount = 1;
+			g_Vars.hitnodes[0] = meshbbox;
+		}
+	}
+#endif
+
 	if (ok) {
 		*arg6 = sqrtf(sp98);
 		*arg10 = sp88;
@@ -3067,6 +3100,14 @@ bool func0f06c28c(struct chrdata *chr, struct coord *arg1, struct coord *arg2, s
 				}
 			} else {
 				hitpart = modelTestForHit(model, arg5, arg6, &spcc);
+
+#ifndef PLATFORM_N64
+				// As chrTestHit(): what is drawn is the XBLA release's mesh,
+				// which is not the shape of the N64's boxes.
+				if (hitpart <= 0 && xblaMeshModelHasMesh(model)) {
+					hitpart = 1;
+				}
+#endif
 
 				if (hitpart > 0
 						&& func0f06bea0(model, model->definition->rootnode, model->definition->rootnode, arg5, arg6, &sp7c.pos, &spec, &spcc, &hitpart, &sp78, &sp74)

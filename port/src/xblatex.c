@@ -98,6 +98,8 @@ static struct xblatexentry hash[XBLATEX_HASHSIZE];
 static u8 **byRecord;  // one stand-in per record, or NULL
 static u8 *badRecord;  // a record that did not decode, so it is not tried again
 static u8 *softRecord; // XBLATEX_SOFT_* per record, see xblaTexRecordIsSoft()
+static u8 **alphaMap;  // per record, see xblaTexRecordAlphaMap()
+static u8 *alphaTried; // and whether it has been looked for
 
 // What xblaTexRecordIsSoft() has found out about a record so far.
 #define XBLATEX_SOFT_UNKNOWN 0
@@ -142,10 +144,19 @@ static void xblaTexCloseUp(void)
 	free(byRecord);
 	free(badRecord);
 	free(softRecord);
+
+	for (u32 i = 0; alphaMap && i < numRecords; i++) {
+		free(alphaMap[i]);
+	}
+
+	free(alphaMap);
+	free(alphaTried);
 	tables = NULL;
 	byRecord = NULL;
 	badRecord = NULL;
 	softRecord = NULL;
+	alphaMap = NULL;
+	alphaTried = NULL;
 	numRecords = 0;
 	opened = -1;
 }
@@ -207,8 +218,10 @@ static s32 xblaTexOpen(void)
 	byRecord = calloc(numRecords, sizeof(u8 *));
 	badRecord = calloc(numRecords, 1);
 	softRecord = calloc(numRecords, 1);
+	alphaMap = calloc(numRecords, sizeof(u8 *));
+	alphaTried = calloc(numRecords, 1);
 
-	if (!tables || !byRecord || !badRecord || !softRecord ||
+	if (!tables || !byRecord || !badRecord || !softRecord || !alphaMap || !alphaTried ||
 			!x360StfsStreamRead(&stream, 4, dataBase - 4, tables)) {
 		sysLogPrintf(LOG_ERROR, "xblatex: could not read the texture tables");
 		xblaTexCloseUp();
@@ -702,6 +715,87 @@ s32 xblaTexRecordIsSoft(u32 record)
 	SDL_UnlockMutex(lock);
 
 	return softRecord[record] == XBLATEX_SOFT_YES;
+}
+
+/**
+ * Where a record's alpha is, for a mesh to sort its triangles by.
+ *
+ * xblaTexRecordIsSoft() asks it of the whole picture, and a picture is an
+ * atlas: the Villa's tables draw their glass top from a dark pane at a flat
+ * 140 in the corner of record 4148 and their shadow from a soft black blob in
+ * the corner of record 4117, and both records are otherwise wood and leather
+ * at 255. Nine texels in ten opaque says cutout, and a cutout of a pane at 140
+ * is a solid pane - the glass drew opaque and the shadow as a black square.
+ * So the question has to be asked where a triangle samples, and this is what
+ * it is asked of: the record's alpha, point sampled down to a fixed size so a
+ * cutout's hard edge stays hard rather than being averaged into a pane.
+ *
+ * Only a record with a tenth of a percent of its texels between clear and
+ * opaque gets one; for the rest there is nothing a triangle could find.
+ */
+const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize)
+{
+	s32 width = 0;
+	s32 height = 0;
+	const u8 *map;
+
+	*outSize = XBLATEX_ALPHAMAP;
+
+	if (!lock) {
+		return NULL;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (!xblaTexOpen() || record >= numRecords || badRecord[record]) {
+		SDL_UnlockMutex(lock);
+		return NULL;
+	}
+
+	if (!alphaTried[record]) {
+		u8 *rgba = xblaTexDecode(record, &width, &height);
+
+		alphaTried[record] = 1;
+
+		if (rgba) {
+			const u32 total = (u32)width * (u32)height;
+			u32 mid = 0;
+
+			for (u32 i = 0; i < total; i++) {
+				const u8 a = rgba[i * 4 + 3];
+
+				if (a >= 0x10 && a < XBLATEX_OPAQUE_ALPHA) {
+					mid++;
+				}
+			}
+
+			if (mid * 1000 >= total) {
+				u8 *m = malloc(XBLATEX_ALPHAMAP * XBLATEX_ALPHAMAP);
+
+				if (m) {
+					for (s32 y = 0; y < XBLATEX_ALPHAMAP; y++) {
+						const s32 sy = (y * height + height / 2) / XBLATEX_ALPHAMAP;
+
+						for (s32 x = 0; x < XBLATEX_ALPHAMAP; x++) {
+							const s32 sx = (x * width + width / 2) / XBLATEX_ALPHAMAP;
+
+							m[y * XBLATEX_ALPHAMAP + x] = rgba[((u32)sy * (u32)width + (u32)sx) * 4 + 3];
+						}
+					}
+
+					alphaMap[record] = m;
+				}
+			}
+
+			free(rgba);
+		}
+	}
+
+	map = alphaMap[record];
+
+	SDL_UnlockMutex(lock);
+
+	return map;
 }
 
 s32 xblaTexRecordOf(const void *addr)

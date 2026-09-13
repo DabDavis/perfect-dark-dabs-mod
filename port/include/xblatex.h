@@ -192,6 +192,14 @@ s32 xblaTexRecordSrcSize(u32 record, s32 *outWidth, s32 *outHeight);
  */
 s32 xblaTexRecordIsSoft(u32 record);
 
+/**
+ * A record's alpha at XBLATEX_ALPHAMAP texels a side, in the game's row order,
+ * for a record that has texels that are neither clear nor opaque; NULL for one
+ * that has none worth looking at. Made once and kept. *outSize gets the side.
+ */
+#define XBLATEX_ALPHAMAP 256
+const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize);
+
 /** Drops the package handle. The stand-in tiles stay, since lists hold them. */
 void xblaTexShutdown(void);
 

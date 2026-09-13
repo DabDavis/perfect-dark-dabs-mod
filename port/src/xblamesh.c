@@ -42,6 +42,8 @@
 #include "xblatex.h"
 #include "objmesh.h"
 #include "modelpack.h"
+#include "game/bg.h"
+#include "lib/lib_2f490.h"
 
 #ifndef PLATFORM_N64
 
@@ -114,6 +116,22 @@
 // either the bind pose or a posed copy of it.
 #define XBLAMESH_VTXSEG (SPSEGMENT_MODEL_VTX << 24)
 
+// And its colours, for the same reason: a chr that has been shot draws the
+// same list from a copy of the colours with the game's bruises carried over -
+// see xblaMeshBruiseColours(). Segment 5 is the one the game's own node draw
+// binds to a model's colour table, and it is rebound before every node.
+#define XBLAMESH_COLSEG (SPSEGMENT_MODEL_COL1 << 24)
+
+// A texel between these is part of a pane, not of a cutout's edge - see
+// xblaMeshTriIsPane().
+#define XBLAMESH_PANE_LO 0x10
+#define XBLAMESH_PANE_HI 0xe0
+
+// A body's lists a bruise map reads, and the stock vertices one of the
+// release's takes its bruise from - see xblaMeshBruiseMap().
+#define XBLAMESH_BRUISENODES 64
+#define XBLAMESH_BRUISEREFS 3
+
 // Parts a model can have. The id's nibble counts sixteen, which is what the
 // release's meshes are built to; a model pack's file for one of the game's
 // own models is a group per list node, and a character body has thirty.
@@ -182,7 +200,50 @@ struct xblameshuse {
 	u16 numparts;
 	struct modelnode *parts[XBLAMESH_MAXPARTS];
 	s16 partmtx[XBLAMESH_MAXPARTS];   // which of the model's matrices poses it
+	struct xblameshbruise *bruise;    // made the first time the model is shot, or NULL
 };
+
+/**
+ * Which stock vertices each of the mesh's takes its bruise from.
+ *
+ * The game bruises a chr by writing a low alpha into the colour of the stock
+ * vertex nearest the shot (chrBruise()), and chrDisfigure() darkens them the
+ * same way, in a copy of the node's colour table. The model's combiner reads
+ * that alpha as (texel - env) * shade alpha + env, so the vertex goes to the
+ * body's blood tint and the Gouraud spreads it over the triangles round it.
+ * The release's vertices are none of those, so the mesh drew clean however
+ * often its chr was shot.
+ *
+ * What is mirrored is the tables rather than the shot: a map, made once per
+ * model and mesh, from each of the release's vertices to the three stock
+ * vertices nearest it in the rest pose, and at the draw the stock tables'
+ * colour against their untouched originals, blended by that map. That keeps
+ * whatever the game does to the tables - a bruise, a burn, the vertex store
+ * handing a copy back - on the mesh with nothing to keep in step.
+ */
+struct xblameshbruiseref {
+	u16 node;     // into nodes[], or XBLAMESH_NOPART for a vertex that takes none
+	u16 colour;   // into that node's colour table
+	f32 weight;
+};
+
+struct xblameshbruise {
+	const Gfx *gdl;                   // the build the map was made for
+	s32 numvertices;
+	s32 numnodes;
+	struct modelnode *nodes[XBLAMESH_BRUISENODES];
+	s32 state;                        // 0 not made, 1 made, -1 could not be
+	struct xblameshbruiseref *refs;   // XBLAMESH_BRUISEREFS per emitted vertex
+};
+
+static void xblaMeshBruiseFree(struct xblameshuse *use)
+{
+	if (use->bruise) {
+		free(use->bruise->refs);
+		free(use->bruise);
+		use->bruise = NULL;
+	}
+}
 
 struct xblameshbuilt {
 	Gfx *gdl;
@@ -221,6 +282,12 @@ struct xblameshbuilt {
 	Vtx *posedvtx;
 	Mtxf *posedmtx;    // the matrix that copy is drawn under, when it is not the bone's own
 	s32 posedfine;     // and how many steps of that copy make one of the game's units
+
+	// The bruised colours made this frame, and who for; NULL for a model with
+	// no bruise on it, which draws the mesh's own. See xblaMeshBruiseColours().
+	const struct model *bruisemodel;
+	u32 bruiseframe;
+	Col *bruisecol;
 
 	// The trimmed copy already made this frame, for a door the game is
 	// drawing from trimmed vertices - see xblaMeshNodeTrim(). Keyed the way
@@ -802,6 +869,7 @@ static void xblaMeshForgetModel(const struct modeldef *modeldef)
 	for (s32 i = 0; i < numUses; i++) {
 		if (uses[i].modeldef == modeldef) {
 			uses[i].modeldef = NULL;
+			xblaMeshBruiseFree(&uses[i]);
 		}
 	}
 
@@ -1732,6 +1800,10 @@ void xblaMeshResetModels(void)
 	const u32 nodes = g_XblaMeshNumNodes;
 	const u32 slots = g_XblaMeshNumSlots;
 
+	for (s32 i = 0; i < numUses; i++) {
+		xblaMeshBruiseFree(&uses[i]);
+	}
+
 	numUses = 0;
 	openedLate = 0;
 	xblaMeshDrawLog = 0;
@@ -1742,6 +1814,7 @@ void xblaMeshResetModels(void)
 
 	for (s32 i = 0; i < numRecords && built; i++) {
 		built[i].posedmodel = NULL;
+		built[i].bruisemodel = NULL;
 	}
 
 	// A model pack's meshes for the game's own models go with the stage: they
@@ -2272,9 +2345,10 @@ static void xblaMeshWriteBatches(struct xblameshbuilder *b)
 		Gfx *g = &b->gdl[batch->gfx];
 
 		// G_COL carries a byte length, which is what the renderer divides by
-		// four to get the count.
+		// four to get the count. The table is named through a segment like the
+		// vertices, so a bruised copy of it can stand in (XBLAMESH_COLSEG).
 		g->words.w0 = ((u32)G_COL << 24) | (u32)(batch->count * 4);
-		g->words.w1 = (uintptr_t)&b->colours[batch->vtx];
+		g->words.w1 = (uintptr_t)SEGADDR(XBLAMESH_COLSEG | (uintptr_t)(batch->vtx * sizeof(Col)));
 
 		// The vertices are named by a segment rather than by address, so the
 		// same list can be pointed at a posed copy of them - see the drawing
@@ -2530,6 +2604,96 @@ static s32 xblaMeshDrawSpan(const struct xblameshbuilder *b, const u8 *file, u32
 }
 
 /**
+ * The alpha map a cutout draw's triangles are sorted against, or NULL where
+ * they all stay cutouts.
+ *
+ * A record is an atlas, so "this picture has alpha" says nothing about the
+ * part of it a triangle draws with: the Villa's tables take their glass top
+ * from a pane at a flat 140 in one corner of a wood picture and their shadow
+ * from a soft blob in the corner of a leather one, and drawn as cutouts those
+ * came out an opaque dark pane and a black square. xblaMeshTriIsPane() looks
+ * under each triangle instead.
+ *
+ * Rigid meshes only. The skinned ones are characters and guns, and on those
+ * the same test finds the hair (4770, 4901) and the sunglasses' lenses (4870)
+ * on seventy-odd heads, which are cutouts and have to stay cutouts - a blended
+ * strand of hair has no depth to sort by and draws through the face behind it.
+ */
+static const u8 *xblaMeshPaneMap(u32 stride, u32 material, s32 drawspan, s32 *size)
+{
+	if (drawspan != XBLAMESH_SPAN_ALPHA || stride != XBLAMESH_STRIDE_RIGID ||
+			(material & XBLAMESH_MAT_TABLE)) {
+		return NULL;
+	}
+
+	return xblaTexRecordAlphaMap(material & 0x1fff, size);
+}
+
+/**
+ * Whether a triangle of a cutout draw samples a pane - alpha that is neither
+ * clear nor opaque - rather than a hard edge. Seven points of the triangle,
+ * the middle one of them decides, so a fringe of antialiasing along a
+ * cutout's edge is outvoted by the texels either side of it. The coordinates
+ * are the ones the builder writes, t turned over (xblaMeshAddVertex()), and
+ * the map is in the same row order as the picture that is uploaded.
+ */
+static s32 xblaMeshTriIsPane(const u8 *file, const struct xblameshhdr *h, u32 stride,
+		u32 tri, const u8 *map, s32 size)
+{
+	static const f32 bary[7][3] = {
+		{ 1.0f / 3, 1.0f / 3, 1.0f / 3 },
+		{ 0.6f, 0.2f, 0.2f }, { 0.2f, 0.6f, 0.2f }, { 0.2f, 0.2f, 0.6f },
+		{ 0.8f, 0.1f, 0.1f }, { 0.1f, 0.8f, 0.1f }, { 0.1f, 0.1f, 0.8f },
+	};
+	const u8 *idx = file + h->indexoffset + tri * 6;
+	f32 uv[3][2];
+	u8 samples[7];
+
+	for (s32 i = 0; i < 3; i++) {
+		const u32 v = xblaMeshBE16(idx + i * 2);
+		const u8 *p;
+
+		if (v >= h->numvertices) {
+			return 0;
+		}
+
+		p = file + h->vertexoffset + v * stride;
+		uv[i][0] = xblaMeshBEF32(p + 12);
+		uv[i][1] = 1.0f - xblaMeshBEF32(p + 16);
+	}
+
+	for (s32 s = 0; s < 7; s++) {
+		f32 u = bary[s][0] * uv[0][0] + bary[s][1] * uv[1][0] + bary[s][2] * uv[2][0];
+		f32 t = bary[s][0] * uv[0][1] + bary[s][1] * uv[1][1] + bary[s][2] * uv[2][1];
+		s32 x;
+		s32 y;
+		s32 j;
+
+		u -= floorf(u);
+		t -= floorf(t);
+		x = (s32)(u * size);
+		y = (s32)(t * size);
+		x = x < 0 ? 0 : x >= size ? size - 1 : x;
+		y = y < 0 ? 0 : y >= size ? size - 1 : y;
+
+		// Kept in order as they come, seven at most.
+		for (j = s; j > 0 && samples[j - 1] > map[y * size + x]; j--) {
+			samples[j] = samples[j - 1];
+		}
+
+		samples[j] = map[y * size + x];
+	}
+
+	// A pane by its middle sample, or a triangle with no opaque texel under it
+	// at all and some pane: the thin triangles round the rim of a shadow blob
+	// sample mostly clear, and as cutouts their few half-alpha texels drew a
+	// black sliver along the shadow's edge. A cutout's own edge has opaque
+	// texels beside its fringe and stays a cutout.
+	return (samples[3] >= XBLAMESH_PANE_LO && samples[3] <= XBLAMESH_PANE_HI) ||
+		(samples[6] >= XBLAMESH_PANE_LO && samples[6] <= XBLAMESH_PANE_HI);
+}
+
+/**
  * What one triangle says about how its texture runs along x and along y, kept
  * at each of its three emitted vertices.
  *
@@ -2655,27 +2819,20 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 		const u32 drawtris = xblaMeshBE32(draw + 4);
 		const u32 material = xblaMeshBE32(draw + 8);
 
+		const s32 drawspan = xblaMeshDrawSpan(b, file, len, h, stride, d);
+		s32 mapsize = 0;
+		const u8 *panes;
+
 		if (firsttri > numtris || drawtris > numtris - firsttri) {
 			return 0;
 		}
 
-		if (xblaMeshDrawSpan(b, file, len, h, stride, d) != wantspan) {
+		// A cutout draw can hand some of its triangles to the fading span:
+		// the ones that sample a pane (xblaMeshTriIsPane()).
+		panes = xblaMeshPaneMap(stride, material, drawspan, &mapsize);
+
+		if (drawspan != wantspan && !(panes && wantspan == XBLAMESH_SPAN_FADE)) {
 			continue;
-		}
-
-		// A draw is one material's worth of triangles, and consecutive draws
-		// share one more often than not - a character's head and hands are the
-		// same skin. The batch has to close first: a vertex load and the
-		// triangles that index it belong to the state they were written under.
-		if (!emitted || material != lastmaterial) {
-			if (!xblaMeshCloseBatch(b) ||
-					!xblaMeshSetMaterial(b, material, wantspan) ||
-					!xblaMeshOpenBatch(b)) {
-				return 0;
-			}
-
-			lastmaterial = material;
-			emitted = 1;
 		}
 
 		for (u32 t = 0; t < drawtris; t++) {
@@ -2691,6 +2848,29 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 			if (mesh[0] >= h->numvertices || mesh[1] >= h->numvertices ||
 					mesh[2] >= h->numvertices) {
 				continue;
+			}
+
+			if (panes && (xblaMeshTriIsPane(file, h, stride, firsttri + t, panes, mapsize)
+						? XBLAMESH_SPAN_FADE : XBLAMESH_SPAN_ALPHA) != wantspan) {
+				continue;
+			}
+
+			// A draw is one material's worth of triangles, and consecutive
+			// draws share one more often than not - a character's head and
+			// hands are the same skin. The batch has to close first: a vertex
+			// load and the triangles that index it belong to the state they
+			// were written under. Written at the first triangle that is taken
+			// rather than at the draw, since a draw split between two spans
+			// may give this one none.
+			if (!emitted || material != lastmaterial) {
+				if (!xblaMeshCloseBatch(b) ||
+						!xblaMeshSetMaterial(b, material, wantspan) ||
+						!xblaMeshOpenBatch(b)) {
+					return 0;
+				}
+
+				lastmaterial = material;
+				emitted = 1;
 			}
 
 			for (s32 i = 0; i < 3; i++) {
@@ -2825,8 +3005,37 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 		// most groups this is the end of it and groupxlu stays -1.
 		for (u32 d = firstdraw; d < firstdraw + numdraws; d++) {
 			const s32 span = xblaMeshDrawSpan(b, file, len, h, stride, d);
+			const u8 *draw = file + h->drawoffset + d * XBLAMESH_ENTRY;
+			const u32 firsttri = xblaMeshBE32(draw);
+			const u32 drawtris = xblaMeshBE32(draw + 4);
+			const u32 numtris = (len - h->indexoffset) / 6;
+			s32 mapsize = 0;
+			const u8 *panes = xblaMeshPaneMap(stride, xblaMeshBE32(draw + 8), span, &mapsize);
 
-			if (span == XBLAMESH_SPAN_ALPHA) {
+			if (panes && firsttri <= numtris && drawtris <= numtris - firsttri) {
+				// Split by triangle, and said once per mesh in the log.
+				s32 numpanes = 0;
+
+				for (u32 t = 0; t < drawtris; t++) {
+					if (xblaMeshTriIsPane(file, h, stride, firsttri + t, panes, mapsize)) {
+						numpanes++;
+					}
+				}
+
+				if (numpanes) {
+					anyfade = 1;
+				}
+
+				if ((u32)numpanes < drawtris) {
+					anyalpha = 1;
+				}
+
+				if (numpanes && xblaMeshVerbose) {
+					sysLogPrintf(LOG_NOTE, "xblamesh:   draw %u: %d of %u cutout triangles sample "
+							"a pane of record %u - blended", d, numpanes, drawtris,
+							xblaMeshBE32(draw + 8) & 0x1fff);
+				}
+			} else if (span == XBLAMESH_SPAN_ALPHA) {
 				anyalpha = 1;
 			} else if (span == XBLAMESH_SPAN_FADE) {
 				anyfade = 1;
@@ -5214,6 +5423,541 @@ static s32 xblaMeshNodeIsGrafted(const struct model *model, const struct modelno
 	return 0;
 }
 
+/* -------------------------------------------------------------------------
+ * Bruises: the game's, carried over to the release's mesh
+ * ------------------------------------------------------------------------- */
+
+/** The colour table a stock list node starts with - what a bruise copies away from. */
+static const Col *xblaMeshStockColours(const struct modelnode *node)
+{
+	const struct modelrodata_dl *ro = &node->rodata->dl;
+
+	return (const Col *)ALIGN8((uintptr_t)ro->vertices + ro->numvertices * sizeof(Vtx));
+}
+
+/**
+ * The next node of one model's own tree, depth first, never crossing a
+ * headspot: a body's walk does not go down into the head grafted on it, and a
+ * head's walk does not climb out into the body it is grafted on - its top
+ * nodes' parent is that body's headspot, which the renderer sets.
+ */
+static struct modelnode *xblaMeshOwnNext(struct modelnode *node)
+{
+	if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+		return node->child;
+	}
+
+	while (node) {
+		if (node->next) {
+			return node->next;
+		}
+
+		if (!node->parent || (node->parent->type & 0xff) == MODELNODETYPE_HEADSPOT) {
+			return NULL;
+		}
+
+		node = node->parent;
+	}
+
+	return NULL;
+}
+
+/** modelFindNodeByMtxIndex(), asked of one modeldef rather than of a model's root. */
+static struct modelnode *xblaMeshFindMtxNode(const struct modeldef *modeldef, s32 index)
+{
+	struct modelnode *node = modeldef->rootnode;
+
+	for (s32 walked = 0; node && walked < 4096; walked++, node = xblaMeshOwnNext(node)) {
+		const union modelrodata *ro = node->rodata;
+
+		if (!ro) {
+			continue;
+		}
+
+		switch (node->type & 0xff) {
+		case MODELNODETYPE_CHRINFO:
+			if (ro->chrinfo.mtxindex == index) {
+				return node;
+			}
+			break;
+		case MODELNODETYPE_POSITION:
+			if (ro->position.mtxindexes[0] == index || ro->position.mtxindexes[1] == index
+					|| ro->position.mtxindexes[2] == index) {
+				return node;
+			}
+			break;
+		case MODELNODETYPE_POSITIONHELD:
+			if (ro->positionheld.mtxindex == index) {
+				return node;
+			}
+			break;
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * The stock lists whose colours the mesh takes: the ones it covers, which are
+ * the ones drawn where it is. A far LOD alternative and the hair the mesh has
+ * painted on are not among them.
+ */
+static void xblaMeshBruiseNodes(struct xblameshbruise *br, const struct xblameshuse *use)
+{
+	struct modelnode *node = use->modeldef->rootnode;
+
+	br->numnodes = 0;
+
+	for (s32 walked = 0; node && walked < 4096; walked++, node = xblaMeshOwnNext(node)) {
+		const struct xblameshentry *e;
+
+		if ((node->type & 0xff) != MODELNODETYPE_DL || !node->rodata ||
+				!node->rodata->dl.vertices || !node->rodata->dl.numcolours) {
+			continue;
+		}
+
+		e = xblaMeshSlotFor(node);
+
+		if (!e || e->node != node || e->modeldef != use->modeldef || e->slot != use->slot ||
+				e->suppress == XBLAMESH_SUPPRESS_HAIR ||
+				!(e->matched || e->suppress == XBLAMESH_SUPPRESS_COVERED)) {
+			continue;
+		}
+
+		if (br->numnodes < XBLAMESH_BRUISENODES) {
+			br->nodes[br->numnodes++] = node;
+		}
+	}
+}
+
+struct xblameshstockvtx {
+	f32 pos[3];
+	s32 mtx;
+	u16 node;
+	u16 colour;
+};
+
+/**
+ * Makes the map: each of the release's vertices to the stock vertices nearest
+ * it, in the rest pose both are authored in.
+ *
+ * The stock side is read the way chrBruise() reads it - a node's lists, a
+ * G_MTX naming the bone its vertices hang off, a G_COL the offset their colour
+ * bytes count from - with the bone's rest position added, so the vertices are
+ * in the model's space as the release's bind positions are. Only the release's
+ * **solid** vertices take a bruise: the cutout span's alpha is its edge, and a
+ * bruise's low shade alpha would push a strand of hair's clear texels opaque.
+ *
+ * Nearest by position alone would let a hand take the bruise of the hip it
+ * hangs beside, so a body's vertex looks only among the stock vertices on its
+ * own bone first - palette entry i is matrix i of the model, the same index a
+ * G_MTX names. A grafted head's palette is the body's while its lists name
+ * the head's matrices, so a head matches by position.
+ *
+ * Three references each, weighted by inverse squared distance: close to what
+ * the game's Gouraud does across the stock triangle a release vertex sits in,
+ * without having to find the triangle.
+ */
+static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbuilt *m,
+		struct model *model, const struct modeldef *modeldef, s32 samebone, s32 slot)
+{
+	struct xblameshstockvtx *sv = NULL;
+	struct xblameshstockvtx *sorted = NULL;
+	struct xblameshbruiseref *refs = NULL;
+	s32 *start = NULL;
+	u8 *solid = NULL;
+	s32 numsv = 0;
+	s32 capsv = 0;
+	s32 mapped = 0;
+	const s32 nummtx = modeldef->nummatrices > 0 ? modeldef->nummatrices : 1;
+
+	for (s32 ni = 0; ni < br->numnodes; ni++) {
+		struct modelnode *node = br->nodes[ni];
+		const struct modelrodata_dl *ro = &node->rodata->dl;
+		union modelrwdata *rw = modelGetNodeRwData(model, node);
+		Gfx *lists[2] = { NULL, NULL };
+
+		if (!rw || !rw->dl.gdl) {
+			continue;
+		}
+
+		lists[0] = rw->dl.gdl == ro->opagdl
+			? (Gfx *)((uintptr_t)ro->colours + ((uintptr_t)UNSEGADDR(ro->opagdl) & 0xffffff))
+			: rw->dl.gdl;
+
+		if (ro->xlugdl) {
+			lists[1] = (Gfx *)((uintptr_t)ro->colours + ((uintptr_t)UNSEGADDR(ro->xlugdl) & 0xffffff));
+		}
+
+		for (s32 li = 0; li < 2; li++) {
+			Gfx *gdl = lists[li];
+			// Which bone the vertices hang off, or -1 where that is not known
+			// - they still count, by position alone. Until a G_MTX says
+			// otherwise they sit where the list node does.
+			s32 mtx = -1;
+			f32 rest[3];
+			u32 spac = 0;
+
+			xblaMeshNodeRestOffset(node, rest);
+
+			for (s32 c = 0; gdl && c < 0x10000; c++, gdl++) {
+				const s32 op = (s8)gdl->bytes[GFX_W0_BYTE(0)];
+
+				if (op == G_ENDDL) {
+					break;
+				}
+
+				if (op == G_MTX) {
+					// Asked of this modeldef first, then of the whole model the
+					// way chrBruise() asks it: a grafted head's lists name
+					// matrices no position node of the head's own file carries.
+					const s32 index = (s32)((UNSEGADDR(gdl->words.w1) & 0xffffff) / sizeof(Mtxf));
+					struct modelnode *posnode = xblaMeshFindMtxNode(modeldef, index);
+
+					if (!posnode) {
+						posnode = modelFindNodeByMtxIndex(model, index);
+					}
+
+					if (posnode) {
+						mtx = index;
+						xblaMeshNodeRestOffset(posnode, rest);
+					} else {
+						mtx = -1;
+						xblaMeshNodeRestOffset(node, rest);
+					}
+				} else if (op == G_COL) {
+					spac = (u32)(UNSEGADDR(gdl->words.w1) & 0xffffff);
+				} else if (op == G_VTX) {
+					const u8 *ptr = (u8 *)&gdl->words.w0;
+					const u32 word = (u32)(UNSEGADDR(gdl->words.w1) & 0xffffff);
+					const s32 numverts = (u32)ptr[GFX_W0_BYTE(1)] / 16 + 1;
+
+					for (s32 i = 0; i < numverts; i++) {
+						const u32 vi = word / sizeof(Vtx) + (u32)i;
+						const Vtx *v;
+						u32 ci;
+
+						if (vi >= (u32)ro->numvertices) {
+							break;
+						}
+
+						v = &ro->vertices[vi];
+						ci = spac / sizeof(Col) + ((u32)v->colour >> 2);
+
+						if (ci >= ro->numcolours) {
+							continue;
+						}
+
+						if (numsv >= capsv) {
+							const s32 cap = capsv ? capsv * 2 : 1024;
+							struct xblameshstockvtx *grown = realloc(sv, (size_t)cap * sizeof(*sv));
+
+							if (!grown) {
+								free(sv);
+								return 0;
+							}
+
+							sv = grown;
+							capsv = cap;
+						}
+
+						sv[numsv].pos[0] = v->x + rest[0];
+						sv[numsv].pos[1] = v->y + rest[1];
+						sv[numsv].pos[2] = v->z + rest[2];
+						sv[numsv].mtx = mtx;
+						sv[numsv].node = (u16)ni;
+						sv[numsv].colour = (u16)ci;
+						numsv++;
+					}
+				}
+			}
+		}
+	}
+
+	solid = calloc((size_t)m->numvertices, 1);
+	refs = malloc((size_t)m->numvertices * XBLAMESH_BRUISEREFS * sizeof(*refs));
+	start = calloc((size_t)nummtx + 1, sizeof(*start));
+	sorted = numsv ? malloc((size_t)numsv * sizeof(*sorted)) : NULL;
+
+	if (!numsv || !solid || !refs || !start || !sorted) {
+		free(sv);
+		free(sorted);
+		free(start);
+		free(solid);
+		free(refs);
+		return 0;
+	}
+
+	// Which emitted vertices the solid lists load: the G_COLs of each group's
+	// opaque list name them, in this build's own segment.
+	for (s32 g = 0; g < m->numgroups; g++) {
+		const Gfx *gdl = &m->gdl[m->groupgfx[g]];
+
+		for (s32 c = 0; c < 0x100000; c++, gdl++) {
+			const u8 cmd = (u8)(gdl->words.w0 >> 24);
+			const uintptr_t w1 = gdl->words.w1;
+
+			if (cmd == (u8)G_ENDDL) {
+				break;
+			}
+
+			if (cmd == (u8)G_COL && (w1 & 1) && w1 < 0x10000000 &&
+					((w1 >> 24) & 0xff) == SPSEGMENT_MODEL_COL1) {
+				const u32 first = (u32)((UNSEGADDR(w1) & 0xffffff) / sizeof(Col));
+				const u32 count = (u32)((gdl->words.w0 & 0xffff) / 4);
+
+				for (u32 i = first; i < first + count && i < (u32)m->numvertices; i++) {
+					solid[i] = 1;
+				}
+			}
+		}
+	}
+
+	// The stock vertices by bone, so a vertex searches its own bone's run.
+	for (s32 i = 0; i < numsv; i++) {
+		if (sv[i].mtx >= 0 && sv[i].mtx < nummtx) {
+			start[sv[i].mtx + 1]++;
+		}
+	}
+
+	for (s32 i = 0; i < nummtx; i++) {
+		start[i + 1] += start[i];
+	}
+
+	{
+		s32 *at = malloc((size_t)nummtx * sizeof(*at));
+
+		if (!at) {
+			free(sv);
+			free(sorted);
+			free(start);
+			free(solid);
+			free(refs);
+			return 0;
+		}
+
+		memcpy(at, start, (size_t)nummtx * sizeof(*at));
+
+		for (s32 i = 0; i < numsv; i++) {
+			if (sv[i].mtx >= 0 && sv[i].mtx < nummtx) {
+				sorted[at[sv[i].mtx]++] = sv[i];
+			}
+		}
+
+		free(at);
+	}
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		struct xblameshbruiseref *r = &refs[i * XBLAMESH_BRUISEREFS];
+		const f32 *p = &m->bindpos[i * 3];
+		const struct xblameshstockvtx *pool = sv;
+		s32 from = 0;
+		s32 to = numsv;
+		f32 bestd[XBLAMESH_BRUISEREFS];
+		s32 besti[XBLAMESH_BRUISEREFS];
+		f32 wsum = 0.0f;
+
+		for (s32 k = 0; k < XBLAMESH_BRUISEREFS; k++) {
+			r[k].node = XBLAMESH_NOPART;
+			bestd[k] = 1e30f;
+			besti[k] = -1;
+		}
+
+		if (!solid[i]) {
+			continue;
+		}
+
+		if (samebone && m->bones && m->weights) {
+			const u8 *bn = &m->bones[i * 4];
+			const f32 *wt = &m->weights[i * 3];
+			s32 pal = bn[0];
+
+			for (s32 j = 1; j < bn[3] && j < 3; j++) {
+				if (wt[j] > wt[0] && wt[j] >= wt[1] && wt[j] >= wt[2]) {
+					pal = bn[j];
+				}
+			}
+
+			if (pal < nummtx && start[pal + 1] > start[pal]) {
+				pool = sorted;
+				from = start[pal];
+				to = start[pal + 1];
+			}
+		}
+
+		for (s32 j = from; j < to; j++) {
+			const f32 dx = pool[j].pos[0] - p[0];
+			const f32 dy = pool[j].pos[1] - p[1];
+			const f32 dz = pool[j].pos[2] - p[2];
+			f32 d = dx * dx + dy * dy + dz * dz;
+			s32 at = j;
+
+			for (s32 k = 0; k < XBLAMESH_BRUISEREFS; k++) {
+				if (d < bestd[k]) {
+					const f32 td = bestd[k];
+					const s32 ti = besti[k];
+
+					bestd[k] = d;
+					besti[k] = at;
+					d = td;
+					at = ti;
+
+					if (at < 0) {
+						break;
+					}
+				}
+			}
+		}
+
+		for (s32 k = 0; k < XBLAMESH_BRUISEREFS; k++) {
+			if (besti[k] >= 0) {
+				wsum += 1.0f / (bestd[k] + 1.0f);
+			}
+		}
+
+		for (s32 k = 0; k < XBLAMESH_BRUISEREFS && wsum > 0.0f; k++) {
+			if (besti[k] >= 0) {
+				r[k].node = pool[besti[k]].node;
+				r[k].colour = pool[besti[k]].colour;
+				r[k].weight = (1.0f / (bestd[k] + 1.0f)) / wsum;
+			}
+		}
+
+		if (wsum > 0.0f) {
+			mapped++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "xblamesh: slot %d takes the game's bruises: %d of %d vertices "
+			"from %d stock vertices in %d lists, matched %s", slot, mapped, m->numvertices,
+			numsv, br->numnodes, samebone ? "on each bone" : "by position");
+
+	free(sv);
+	free(sorted);
+	free(start);
+	free(solid);
+	br->refs = refs;
+
+	return 1;
+}
+
+/**
+ * The colours a skinned mesh draws with for one model this frame: its own when
+ * nothing has touched the model's stock tables (NULL, the usual case, a
+ * pointer compare a list), or a frame-arena copy with the game's bruises laid
+ * on. See struct xblameshbruise.
+ */
+static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
+		struct xblameshuse *use, s32 samebone, s32 slot)
+{
+	const Col *cur[XBLAMESH_BRUISENODES];
+	const Col *stock[XBLAMESH_BRUISENODES];
+	struct xblameshbruise *br;
+	s32 any = 0;
+	Col *out;
+
+	if (!model || !model->rwdatas || !m->bindpos || !m->colours) {
+		return NULL;
+	}
+
+	if (m->bruisemodel == model && m->bruiseframe == frameCount) {
+		return m->bruisecol;
+	}
+
+	br = use->bruise;
+
+	if (br && (br->gdl != m->gdl || br->numvertices != m->numvertices)) {
+		xblaMeshBruiseFree(use);
+		br = NULL;
+	}
+
+	if (!br) {
+		br = calloc(1, sizeof(*br));
+
+		if (!br) {
+			return NULL;
+		}
+
+		br->gdl = m->gdl;
+		br->numvertices = m->numvertices;
+		xblaMeshBruiseNodes(br, use);
+		use->bruise = br;
+	}
+
+	m->bruisemodel = model;
+	m->bruiseframe = frameCount;
+	m->bruisecol = NULL;
+
+	for (s32 ni = 0; ni < br->numnodes; ni++) {
+		const union modelrwdata *rw = modelGetNodeRwData(model, br->nodes[ni]);
+
+		stock[ni] = xblaMeshStockColours(br->nodes[ni]);
+		cur[ni] = rw && rw->dl.colours ? rw->dl.colours : stock[ni];
+
+		if (cur[ni] != stock[ni]) {
+			any = 1;
+		}
+	}
+
+	if (!any) {
+		return NULL;
+	}
+
+	if (br->state == 0) {
+		br->state = xblaMeshBruiseMap(br, m, model, use->modeldef, samebone, slot) ? 1 : -1;
+	}
+
+	if (br->state < 0) {
+		return NULL;
+	}
+
+	out = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+
+	if (!out) {
+		return NULL;
+	}
+
+	memcpy(out, m->colours, (size_t)m->numvertices * sizeof(Col));
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const struct xblameshbruiseref *r = &br->refs[i * XBLAMESH_BRUISEREFS];
+		f32 f[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		s32 changed = 0;
+
+		for (s32 k = 0; k < XBLAMESH_BRUISEREFS && r[k].node != XBLAMESH_NOPART; k++) {
+			const Col *c = &cur[r[k].node][r[k].colour];
+			const Col *o = &stock[r[k].node][r[k].colour];
+			const u8 now[4] = { c->r, c->g, c->b, c->a };
+			const u8 was[4] = { o->r, o->g, o->b, o->a };
+
+			for (s32 ch = 0; ch < 4; ch++) {
+				// What the game did to the entry, as a fraction of what it was:
+				// a bruise writes 20-70 over a 255, a burn darkens the colour.
+				f32 frac = 1.0f;
+
+				if (now[ch] != was[ch]) {
+					changed = 1;
+					frac = was[ch] ? (f32)now[ch] / was[ch] : 1.0f;
+					frac = frac > 1.0f ? 1.0f : frac;
+				}
+
+				f[ch] += r[k].weight * frac;
+			}
+		}
+
+		if (changed) {
+			out[i].r = (u8)(out[i].r * f[0] + 0.5f);
+			out[i].g = (u8)(out[i].g * f[1] + 0.5f);
+			out[i].b = (u8)(out[i].b * f[2] + 0.5f);
+			out[i].a = (u8)(out[i].a * f[3] + 0.5f);
+		}
+	}
+
+	m->bruisecol = out;
+
+	return out;
+}
+
 /**
  * Whether the game would draw a translucent list of its own for this node, in
  * the translucent pass.
@@ -5476,9 +6220,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 		// The translucent pass, on one of the fifteen nodes here that draw a
 		// pane of their own: the same rule the replaced nodes follow. A mesh
-		// with an alpha material somewhere has the pane, and one with none
+		// with translucent geometry somewhere has the pane - a cutout span or
+		// a fading one, since a pane found under a cutout's triangles is moved
+		// to the fading span (xblaMeshTriIsPane()) - and one with none
 		// anywhere has nothing to put where the game's would have been.
-		if (!opa && xblaMeshNodeDrawsXlu(node) && m->allxlu < 0) {
+		if (!opa && xblaMeshNodeDrawsXlu(node) && m->allxlu < 0 && m->allfade < 0) {
 			if (xblaMeshVerbose) {
 				xblaMeshNoteDraw(model, e->slot, 0, 5);
 			}
@@ -5702,6 +6448,18 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 
+	// The colours, bruised where the game has bruised the model's own lists.
+	{
+		Col *colours = NULL;
+
+		if (use && !m->local) {
+			colours = xblaMeshBruiseColours(m, model, use, !grafted, e->slot);
+		}
+
+		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1,
+				osVirtualToPhysical(colours ? colours : m->colours));
+	}
+
 	if (opa) {
 		// The lighting: the state the game would have written round its own
 		// list for this node. The list itself writes no combiner and no
@@ -5757,6 +6515,15 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		gSPDisplayList(renderdata->gdl++, fadelist);
 	}
 
+	// Put segment 5 back to what the game's own draw of this node leaves in it:
+	// the model's base, which a later node's list is named against. Left on
+	// the mesh's colours, the next list resolved through it is read out of
+	// those colours - a Villa table's did that and the renderer stopped on
+	// "Unknown GBI opcode".
+	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(
+			(node->type & 0xff) == MODELNODETYPE_GUNDL
+				? (void *)node->rodata->gundl.baseaddr : (void *)node->rodata->dl.colours));
+
 	// Put the bone's own matrix back, because the divided one is this list's
 	// business and nobody else's. A display list node does not load a matrix -
 	// a chr is drawn under one matrix for the whole model, with the pose baked
@@ -5781,6 +6548,498 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// seen on top of each other. The only way to tell a mesh that is in the
 	// wrong place from one that is the wrong size.
 	return optBoth ? 0 : 1;
+}
+
+/* -------------------------------------------------------------------------
+ * Shots: the release's triangles, where the game would test its own
+ * ------------------------------------------------------------------------- */
+
+/**
+ * A shot at a chr is tested against the triangles the game draws: a bbox per
+ * part in screen space first (modelTestForHit()), then func0f06bea0() walks
+ * the model and hands each list under a hit box to bgTestHitOnChr(). With the
+ * release's mesh drawn in the stock lists' place that meant a guard was shot
+ * at the N64's body - the release's hair, shoulders or coat could be hit
+ * only where the N64's happened to be.
+ *
+ * So the walk asks xblaMeshHitSkipsNode() about each list it passes: a list
+ * that draws nothing (covered, or the hair the mesh paints on) is not tested,
+ * and a list that draws a group of the mesh is noted. After the walk
+ * xblaMeshHitTest() poses the noted meshes the way xblaMeshPose() does, from
+ * the same matrices bgTestHitOnChr() reads - so the triangles land in the
+ * shot's own space with nothing to convert - and tests them with the game's
+ * own triangle routine. The nearer of that and any stock list still drawn
+ * (a far LOD alternative, a piece the release left alone) is the hit.
+ *
+ * A body is one mesh on one node, so the part a hit counts as cannot come
+ * from where the list sits in the tree the way the game's does: it comes from
+ * the bone the hit triangle hangs off, as the bbox node on that bone's matrix,
+ * and from the bbox nearest the hit where a bone has none. The damage a head
+ * shot does depends on it.
+ *
+ * Not reached when the game tests boxes only - two or more human players
+ * (shotCalculateHits()'s `cheap`), or a chr's shield.
+ */
+#define XBLAMESH_HITLISTS 32
+
+struct xblameshhitlist {
+	struct modelnode *node;
+	struct xblameshentry *e;
+};
+
+static struct xblameshhitlist hitLists[XBLAMESH_HITLISTS];
+static s32 numHitLists;
+static f32 *hitPosed;
+static s32 hitPosedCap;
+
+void xblaMeshHitBegin(void)
+{
+	numHitLists = 0;
+}
+
+s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
+{
+	struct xblameshentry *e;
+	s32 frompack;
+	const u32 type = node ? node->type & 0xff : 0;
+
+	if (!model || !g_XblaMeshNumNodes || !optEnabled || opened <= 0 || !built ||
+			(type != MODELNODETYPE_DL && type != MODELNODETYPE_GUNDL)) {
+		return 0;
+	}
+
+	e = xblaMeshSlotFor(node);
+
+	// The same decision xblaMeshRenderNode() makes, so that what is tested is
+	// what is drawn.
+	if (!e || e->node != node || !e->modeldef || !e->matched) {
+		return 0;
+	}
+
+	frompack = e->packpart != XBLAMESH_NOPART && e->fileid && modelpackFindN64(e->fileid) != NULL;
+
+	if (frompack && e->packhasmesh && modelpackGetPrefer() == MODELPACK_PREFER_XBLA) {
+		frompack = 0;
+	}
+
+	if (frompack) {
+		return 0;
+	}
+
+	if (model->definition && model->definition != e->modeldef && !xblaMeshNodeIsGrafted(model, node)) {
+		return 0;
+	}
+
+	if (optOnlySlot && e->slot != optOnlySlot) {
+		return 0;
+	}
+
+	if (e->suppress == XBLAMESH_SUPPRESS_HAIR) {
+		return optBoth ? 0 : 1;
+	}
+
+	if (!xblaMeshBuild(e->slot)) {
+		return 0;
+	}
+
+	if (e->suppress == XBLAMESH_SUPPRESS_COVERED) {
+		return optBoth ? 0 : 1;
+	}
+
+	if (numHitLists < XBLAMESH_HITLISTS) {
+		hitLists[numHitLists].node = node;
+		hitLists[numHitLists].e = e;
+		numHitLists++;
+	}
+
+	return optBoth ? 0 : 1;
+}
+
+s32 xblaMeshModelHasMesh(struct model *model)
+{
+	static const struct model *cachemodel;
+	static u32 cacheframe;
+	static s32 cacheresult;
+	struct modelnode *nodes[128];
+	s32 n;
+
+	if (!model || !model->definition || !g_XblaMeshNumNodes || !optEnabled || opened <= 0 || !built) {
+		return 0;
+	}
+
+	if (model == cachemodel && frameCount == cacheframe) {
+		return cacheresult;
+	}
+
+	cachemodel = model;
+	cacheframe = frameCount;
+	cacheresult = 0;
+
+	n = xblaMeshEnumListNodes(model->definition, nodes, ARRAYCOUNT(nodes));
+
+	for (s32 i = 0; i < n && i < (s32)ARRAYCOUNT(nodes); i++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(nodes[i]);
+
+		if (e && e->node == nodes[i] && e->modeldef && e->matched && !e->suppress &&
+				(!e->fileid || e->packpart == XBLAMESH_NOPART || !modelpackFindN64(e->fileid) ||
+				 modelpackGetPrefer() == MODELPACK_PREFER_XBLA) &&
+				built[e->slot].state > 0) {
+			cacheresult = 1;
+			break;
+		}
+	}
+
+	return cacheresult;
+}
+
+/**
+ * The bbox a hit counts against: the one on the hit bone's own matrix, or
+ * failing that the one whose matrix stands nearest the hit.
+ */
+static struct modelnode *xblaMeshHitBbox(struct model *model, s32 mtxindex, const struct coord *at)
+{
+	struct modelnode *node = model->definition->rootnode;
+	struct modelnode *nearest = NULL;
+	f32 bestd = 3.4e38f;
+
+	for (s32 walked = 0; node && walked < 4096; walked++) {
+		if ((node->type & 0xff) == MODELNODETYPE_BBOX) {
+			const s32 index = modelFindNodeMtxIndex(node, 0);
+
+			if (index >= 0 && index == mtxindex) {
+				return node;
+			}
+
+			if (index >= 0 && index < model->definition->nummatrices) {
+				const f32 dx = model->matrices[index].m[3][0] - at->x;
+				const f32 dy = model->matrices[index].m[3][1] - at->y;
+				const f32 dz = model->matrices[index].m[3][2] - at->z;
+				const f32 d = dx * dx + dy * dy + dz * dz;
+
+				if (d < bestd) {
+					bestd = d;
+					nearest = node;
+				}
+			}
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node) {
+				if (node->next) {
+					node = node->next;
+					break;
+				}
+
+				node = node->parent;
+			}
+		}
+	}
+
+	return nearest;
+}
+
+s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
+		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
+		struct modelnode **dlnode)
+{
+	const f32 origsqdist = *sqdist;
+	struct xblameshbuilt *bestm = NULL;
+	struct modelnode *bestnode = NULL;
+	struct modelnode *bbox;
+	struct coord besthit;
+	struct coord bestnormal;
+	Gfx *besttri = NULL;
+	s32 bestvtx = -1;
+	s32 mtxindex = -1;
+
+	if (!numHitLists || !model || !model->matrices || !model->definition) {
+		numHitLists = 0;
+		return 0;
+	}
+
+	for (s32 r = 0; r < numHitLists; r++) {
+		struct xblameshentry *e = hitLists[r].e;
+		struct modelnode *node = hitLists[r].node;
+		struct xblameshbuilt *m = xblaMeshBuild(e->slot);
+		struct xblameshuse *use;
+		s32 groups[XBLAMESH_MAXPARTS];
+		s32 numgroups = 0;
+		Mtxf pal[XBLAMESH_MAXMTX];
+		Mtxf *root = NULL;
+		s32 skinned = 0;
+		struct coord lo;
+		struct coord hi;
+
+		if (!m || m->local || m->numvertices <= 0) {
+			continue;
+		}
+
+		use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef)
+				? &uses[e->use] : NULL;
+
+		// The groups this node draws, by xblaMeshRenderNode()'s rule.
+		if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
+			groups[numgroups++] = e->part;
+		} else if (e->part == 0) {
+			for (s32 g = 0; g < m->numgroups; g++) {
+				groups[numgroups++] = g;
+			}
+		} else {
+			continue;
+		}
+
+		if (use) {
+			root = xblaMeshPartMtx(model, use, 0);
+			skinned = optPose && m->nummatrices && m->bindpos && root &&
+				m->nummatrices <= XBLAMESH_MAXMTX;
+		}
+
+		if (!root) {
+			root = modelFindNodeMtx(model, node, 0);
+		}
+
+		if (!root) {
+			continue;
+		}
+
+		if (skinned) {
+			const s32 posable = m->nummatrices < model->definition->nummatrices
+				? m->nummatrices : model->definition->nummatrices;
+
+			for (s32 i = 0; i < m->nummatrices; i++) {
+				if (i < posable) {
+					mtx4MultMtx4(&model->matrices[i], &m->invbind[i], &pal[i]);
+				} else if (posable > 0) {
+					mtx4Copy(&pal[0], &pal[i]);
+				} else {
+					mtx4LoadIdentity(&pal[i]);
+				}
+			}
+		}
+
+		if (m->numvertices > hitPosedCap) {
+			f32 *grown = realloc(hitPosed, (size_t)m->numvertices * 3 * sizeof(f32));
+
+			if (!grown) {
+				continue;
+			}
+
+			hitPosed = grown;
+			hitPosedCap = m->numvertices;
+		}
+
+		// Posed into the shot's space: the game's own matrix on each bone,
+		// out of the bind pose - no root to take back out, since nothing here
+		// has to fit in an s16.
+		for (s32 i = 0; i < m->numvertices; i++) {
+			f32 *out = &hitPosed[i * 3];
+			struct coord in;
+			struct coord moved;
+
+			if (skinned) {
+				const f32 *weight = &m->weights[i * 3];
+				const u8 *bone = &m->bones[i * 4];
+				const s32 num = bone[3] < 3 ? bone[3] : 3;
+
+				in.x = m->bindpos[i * 3];
+				in.y = m->bindpos[i * 3 + 1];
+				in.z = m->bindpos[i * 3 + 2];
+
+				out[0] = out[1] = out[2] = 0.0f;
+
+				for (s32 j = 0; j < num; j++) {
+					mtx4TransformVec(&pal[bone[j]], &in, &moved);
+					out[0] += moved.x * weight[j];
+					out[1] += moved.y * weight[j];
+					out[2] += moved.z * weight[j];
+				}
+			} else {
+				in.x = m->vertices[i].x;
+				in.y = m->vertices[i].y;
+				in.z = m->vertices[i].z;
+				mtx4TransformVec(root, &in, &moved);
+				out[0] = moved.x;
+				out[1] = moved.y;
+				out[2] = moved.z;
+			}
+
+			if (i == 0) {
+				lo.x = hi.x = out[0];
+				lo.y = hi.y = out[1];
+				lo.z = hi.z = out[2];
+			} else {
+				lo.x = out[0] < lo.x ? out[0] : lo.x;
+				lo.y = out[1] < lo.y ? out[1] : lo.y;
+				lo.z = out[2] < lo.z ? out[2] : lo.z;
+				hi.x = out[0] > hi.x ? out[0] : hi.x;
+				hi.y = out[1] > hi.y ? out[1] : hi.y;
+				hi.z = out[2] > hi.z ? out[2] : hi.z;
+			}
+		}
+
+		// The first few only: the game traces the crosshair through every chr on
+		// screen every tick, so this would otherwise be most of the log.
+		static s32 hitlogs;
+		const s32 logthis = xblaMeshVerbose && hitlogs < 8;
+
+		if (logthis) {
+			hitlogs++;
+			sysLogPrintf(LOG_NOTE, "xblamesh: hit test slot %d part %d: %d verts %s, %d groups, box [%.0f %.0f %.0f]..[%.0f %.0f %.0f], "
+					"ray from [%.1f %.1f %.1f] along [%.3f %.3f %.3f]", e->slot, e->part, m->numvertices,
+					skinned ? "posed" : "under the root", numgroups, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z,
+					pos->x, pos->y, pos->z, dir->x, dir->y, dir->z);
+		}
+
+		if ((pos->x < lo.x && far->x < lo.x) || (pos->x > hi.x && far->x > hi.x)
+				|| (pos->y < lo.y && far->y < lo.y) || (pos->y > hi.y && far->y > hi.y)
+				|| (pos->z < lo.z && far->z < lo.z) || (pos->z > hi.z && far->z > hi.z)
+				|| !bgTestLineIntersectsBbox(pos, dir, &lo, &hi)) {
+			if (logthis) {
+				sysLogPrintf(LOG_NOTE, "xblamesh: hit test slot %d: the ray misses the posed box", e->slot);
+			}
+
+			continue;
+		}
+
+		for (s32 k = 0; k < numgroups; k++) {
+			// The solid span and the cutouts (hair, a grille); not the fading
+			// span, which is light and glow a shot goes through.
+			const s32 lists[2] = { m->groupgfx[groups[k]], m->groupxlu[groups[k]] };
+
+			for (s32 l = 0; l < 2; l++) {
+				Gfx *gdl;
+				s32 base = 0;
+
+				if (lists[l] < 0) {
+					continue;
+				}
+
+				gdl = &m->gdl[lists[l]];
+
+				for (s32 c = 0; c < 0x100000; c++, gdl++) {
+					// Read through the words, the way the renderer reads these
+					// lists: they are written by the gbi macros into 64-bit
+					// words, and `Gtri`'s `tri` sits four bytes in, in the
+					// upper half of w0, where a list of ours holds nothing -
+					// read that way every triangle is vertex 0 three times.
+					const u8 op = (u8)(gdl->words.w0 >> 24);
+					const uintptr_t w1 = gdl->words.w1;
+					s32 idx[3];
+					struct coord *p[3];
+					struct coord tlo;
+					struct coord thi;
+					struct coord hitpos;
+					struct coord normal;
+
+					if (op == (u8)G_ENDDL) {
+						break;
+					}
+
+					if (op == (u8)G_VTX) {
+						base = (s32)((UNSEGADDR(w1) & 0xffffff) / sizeof(Vtx))
+							- (s32)((gdl->words.w0 >> 16) & 0xf);
+						continue;
+					}
+
+					if (op != (u8)G_TRI1) {
+						continue;
+					}
+
+					idx[0] = base + (s32)((w1 >> 16) & 0xff) / 10;
+					idx[1] = base + (s32)((w1 >> 8) & 0xff) / 10;
+					idx[2] = base + (s32)(w1 & 0xff) / 10;
+
+					if (idx[0] < 0 || idx[1] < 0 || idx[2] < 0 || idx[0] >= m->numvertices
+							|| idx[1] >= m->numvertices || idx[2] >= m->numvertices) {
+						continue;
+					}
+
+					for (s32 v = 0; v < 3; v++) {
+						p[v] = (struct coord *)&hitPosed[idx[v] * 3];
+					}
+
+					tlo = thi = *p[0];
+
+					for (s32 v = 1; v < 3; v++) {
+						for (s32 a = 0; a < 3; a++) {
+							tlo.f[a] = p[v]->f[a] < tlo.f[a] ? p[v]->f[a] : tlo.f[a];
+							thi.f[a] = p[v]->f[a] > thi.f[a] ? p[v]->f[a] : thi.f[a];
+						}
+					}
+
+					if ((pos->x < tlo.x && far->x < tlo.x) || (pos->x > thi.x && far->x > thi.x)
+							|| (pos->z < tlo.z && far->z < tlo.z) || (pos->z > thi.z && far->z > thi.z)
+							|| (pos->y < tlo.y && far->y < tlo.y) || (pos->y > thi.y && far->y > thi.y)) {
+						continue;
+					}
+
+					if (bgTestLineIntersectsBbox(pos, dir, &tlo, &thi)
+							&& func0002f560(p[0], p[1], p[2], NULL, pos, far, dir, &hitpos, &normal)) {
+						const f32 dx = hitpos.x - pos->x;
+						const f32 dy = hitpos.y - pos->y;
+						const f32 dz = hitpos.z - pos->z;
+						const f32 sq = dx * dx + dy * dy + dz * dz;
+
+						if (sq < *sqdist) {
+							*sqdist = sq;
+							besthit = hitpos;
+							bestnormal = normal;
+							bestm = m;
+							bestnode = node;
+							bestvtx = idx[0];
+							besttri = gdl;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	numHitLists = 0;
+
+	if (!bestm) {
+		return 0;
+	}
+
+	// The part: the bone that moves the hit triangle's first vertex most.
+	if (bestm->bindpos && bestm->bones && bestm->weights && optPose) {
+		const u8 *bone = &bestm->bones[bestvtx * 4];
+		const f32 *weight = &bestm->weights[bestvtx * 3];
+		const s32 num = bone[3] < 3 ? bone[3] : 3;
+		s32 best = 0;
+
+		for (s32 j = 1; j < num; j++) {
+			if (weight[j] > weight[best]) {
+				best = j;
+			}
+		}
+
+		mtxindex = bone[best] < model->definition->nummatrices ? bone[best] : -1;
+	}
+
+	bbox = xblaMeshHitBbox(model, mtxindex, &besthit);
+
+	if (!bbox) {
+		*sqdist = origsqdist;
+		return 0;
+	}
+
+	hitthing->pos = besthit;
+	hitthing->unk0c = bestnormal;
+	hitthing->unk18 = NULL;
+	hitthing->unk1c = NULL;
+	hitthing->unk20 = NULL;
+	hitthing->tricmd = besttri;
+	hitthing->texturenum = -1;
+	hitthing->unk28 = 1;
+
+	*bboxnode = bbox;
+	*hitpart = bbox->rodata->bbox.hitpart;
+	*dlnode = bestnode;
+
+	return 1;
 }
 
 /* -------------------------------------------------------------------------
@@ -5985,6 +7244,12 @@ s32 xblaMeshIsAvailable(void) { return 0; }
 s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }
+void xblaMeshHitBegin(void) { }
+s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
+s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
+s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
+		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
+		struct modelnode **dlnode) { return 0; }
 s32 xblaMeshModelsAreLate(void) { return 0; }
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen) { return NULL; }
 

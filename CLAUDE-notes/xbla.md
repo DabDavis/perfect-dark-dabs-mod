@@ -977,6 +977,189 @@ room 62; its intro is over by frame 32. `MODEL_PD_CONSOLE` (0xb2) is the
 laptop on a stand and `MODEL_MODEMBOX` (0x17) the small ceiling box - neither
 is the wall terminal, which cost two runs.
 
+#### The pane in an atlas (2026-09-12)
+
+Report: "XBLA models have broken transparency on some objects such as tables
+(pitch dark shadow, no glass transparency)". The Villa's tables
+(`Pcv_table` slot 2173, `Pcv_coffee_table` 2169) and its chairs and sofas.
+Their nodes are `mcount` 4 with **no** translucent list of their own, so every
+alpha draw went to the opaque pass as a cutout, and the soft-picture rule did
+not rescue them because it asks the question of the whole record: record 4148
+is a wood atlas whose top left corner is the glass, a dark pane at a flat 140,
+and record 4117 is a leather atlas whose bottom right corner is the shadow, a
+black square under a soft blob of alpha. Both records are nine tenths opaque.
+A cutout of a pane at 140 is a solid pane; of the blob, a black square - under
+every table, chair and sofa in the house.
+
+So the question is asked under each triangle. `xblaTexRecordAlphaMap()`
+(xblatex.c) keeps a 256x256 point-sampled alpha map of a record with at least a
+tenth of a percent of its texels between 0x10 and 0xf0 (point sampled, so a
+cutout's hard edge is not averaged into a pane), and `xblaMeshTriIsPane()`
+samples seven barycentric points of a cutout draw's triangle at the UVs the
+builder writes: a pane when the middle sample is between 0x10 and 0xe0, or when
+no sample is opaque and one is a pane (the thin triangles round a shadow's rim
+sample mostly clear, and as cutouts drew a black sliver along it). A pane
+triangle goes to the **fading span** (blended, translucent pass); the rest of
+the draw stays a cutout. The material is now written at a draw's first
+triangle *taken*, since a draw can be split between two spans.
+
+**Rigid meshes only.** Run over the whole release (`tritrans.py` in the
+session), the same test finds the hair (4770, 4901) and the sunglasses' lenses
+(4870) on seventy-odd heads, which must stay cutouts. The skinned meshes are
+characters and guns, so the stride is the switch. `--xbla-mesh-verbose` says
+`draw N: K of M cutout triangles sample a pane of record R - blended`; the Villa
+tables give 22 of 26 (the shadow) and 8 of 8 (the glass top).
+
+Checked on the GPU with a real before: `BEFORE=1` in `table2.py` writes `xor
+eax,eax; ret` over `xblaTexRecordAlphaMap` before the level loads, which is the
+old loader exactly. Villa, `--spectate`, intro skipped at 600, the spectator
+teleported over each table: before, an opaque purple top and a black rectangle
+under the table and each chair; after, the legs seen through the glass and a
+soft shadow. **The camera drifts** a few units a frame after a teleport, so a
+pair must be shot one or two frames apart, not six.
+
+The N64 models draw their own shadows as hard black shapes in this port too
+(meshes off) - that is not this loader.
+
+A covered node that draws a pane of its own hands the translucent pass back to
+the game only when the mesh has **no** translucent geometry at all - no cutout
+span *and* no fading span (`m->allxlu < 0 && m->allfade < 0`). Asking the
+cutout span alone was right until panes could be moved out of it: a mesh whose
+every alpha triangle became a pane read as "has no pane" and the game drew its
+stock glass over the release's.
+
+#### Segment 5 is the model's, and must be handed back
+
+The mesh's `G_COL` names its table through segment 5 now (`XBLAMESH_COLSEG`),
+so a bruised copy can stand in, and `xblaMeshRenderNode()` puts back what the
+game's own draw of the node leaves there (`rodata->dl.colours`, a gun list's
+`baseaddr`) - every renderer of a model node sets it before drawing, so this is
+hygiene rather than a fix.
+
+**It was blamed for a crash it did not cause - and so were two other things.**
+A Villa drive (`table2.py`: `--spectate`, intro skipped, the spectator
+teleported over a table) stopped the renderer with `FATAL: Unknown GBI opcode
+... w0 f2002002 w1 0103e03e` at the first table shot. It went away after the
+restore, came back after the pane rule changed, and **reproduces on HEAD with
+none of this work in it** - same frame, same room list, same bytes. The list is
+a **room's** (`G_VTX` through segment 0x0e, `G_TRI4`, inline texture setup),
+124 good commands and then words whose upper halves were never written this
+frame. Three explanations were each "confirmed" by one run and then disproved:
+the segment 5 leak (every model renderer sets it), `bgLoadRoom()`'s texture
+rewrite overtaking the lists it copies to the end of the allocation (a copy to
+a buffer of its own did not change a byte of the crash, and was reverted), and
+the drive's `xblaMeshSetEnabled()` freeing rooms through `xblaStageSwitched()`
+(the setter returns early when the value does not change, and the crash comes
+before the first switch). **Not found.** What is known: it is room data read
+after it stopped being valid, whether it shows depends on the heap, the log is
+full of `memory pool ... is full` at the level load, and the drive teleports
+the camera into rooms that load all at once. **It belongs to the release's
+rooms**: the same drive with `Mod.XblaStages=0` (the ROM's rooms, the release's
+meshes) runs all eight shots clean. Judge a mesh change on the Villa with the
+stages off until this is found.
+
+How it was found, worth keeping: break on `*sysFatalError` (before its
+prologue, so `rdx` is the command), walk the master list from `gfx_run`'s
+`commands` for the last `G_DL` (6 in this port's F3DEX gbi, `G_ENDDL` 0xb8 -
+not F3DEX2's 0xde/0xdf) whose target is below the fault, and dump that list
+from its start: `G_VTX` through segment 0x0e and `G_TRI4` is a room, not a
+model. Then build HEAD with `git stash` and run the same drive before blaming
+the change.
+
+#### Shots hit the release's triangles (2026-09-12)
+
+Asked for after "the xbla meshes use the n64 hitboxes". Where the game looks:
+`shotCalculateHits()` -> `chrTestHit()` -> `modelTestForHit()` (a bbox per part,
+in the camera space the shot is traced in) -> `func0f06bea0()` (propobj.c), which
+walks the model and hands every list under a hit box to `bgTestHitOnChr()` - so
+the silhouette a shot could hit was the N64's, whatever was drawn. The part a
+hit counts as is the last bbox the walk passed.
+
+`func0f06bea0()` now calls `xblaMeshHitBegin()`, asks `xblaMeshHitSkipsNode()`
+about each list (the draw's own decision: a covered list or the painted-on hair
+is not tested, a list that draws a group of the mesh is noted), and after the
+walk `xblaMeshHitTest()` poses the noted meshes from `model->matrices` - the
+same floats `bgTestHitOnChr()` reads, `matrices[i] * invbind[i]` with no root
+to take out - and tests their solid and cutout lists (not the fading span)
+with the game's own `func0002f560()`. The nearer of that and any stock list
+still drawn is the hit, and its bbox is made the only `g_Vars.hitnodes` entry
+so `chrBruise()` lays the bruise in that part.
+
+**The part comes from the bone.** A body is one mesh on one node, so the walk
+order says nothing: the hit triangle's first vertex's heaviest bone is a model
+matrix, and the part is the bbox whose `modelFindNodeMtxIndex()` is that
+matrix, or the bbox whose matrix stands nearest the hit when the bone has none.
+A head shot does four times a body shot, so this is the part that matters.
+
+`chrTestHit()` and `func0f06c28c()` only reach `func0f06bea0()` after an N64
+bbox is hit; a model with a drawn mesh (`xblaMeshModelHasMesh()`, cached per
+frame) is let through without one, since the release's hair and shoulders are
+outside the N64's boxes.
+
+**Not changed**: with two or more human players `shotCalculateHits()` is
+`cheap` and a chr is only ever tested as boxes (`func0f084594()`), and so is a
+shielded chr. The matrices are floats from `chrTick()`'s
+`modelSetMatricesWithAnim()` until `chrRender()`'s `mtxF2LBulk()`; a gdb test
+has to stop inside the tick - `break handsTickAttack`, where the player's
+shots are fired - not at `videoEndFrame`.
+
+**Two traps that cost a run each.** A mesh list's triangle is read through
+`words.w1`, never `gdl->tri.tri.v`: this port's `Gtri` is laid out for 32-bit
+words, so its `tri` is the upper half of `w0`, which a list written with the
+gbi macros leaves at zero - every triangle came out as vertex 0 three times and
+nothing was ever hit. And **do not call `func0f06bea0()` from gdb**: it takes
+eleven arguments, gdb passed the stack-borne ones wrong (`arg10` arrived as
+`0xffffffffffffffe0`), and the first hit faulted writing through it at
+`func0f06bea0+1080` - which reads as a crash in the game. Drive
+`chrTestHit(prop, &shotdata, 0, 0)` instead, with a `calloc`'d `struct
+shotdata` (gunpos2d at the camera, gundir2d the ray, `distance` 4294836224,
+`penetration` 1) and read `hits[]`: four register arguments and the path a
+real shot takes, the gate included.
+
+Checked that way on the G5 Building (0x1e solo, `--fixed-step --rng-seed 1`,
+stopped at `handsTickAttack` at frame 1700, the nearest guard): a 26x40 grid
+of rays across the guard, through the release's mesh and then with
+`xblaMeshSetEnabled(0)` through the N64's. The part maps agree where the models
+agree - head over head, torso, biceps, forearms, hands, pelvis, thighs, shins,
+feet, the held gun - and 204 of the 1040 cells differ, all at edges where the
+shapes do: the release's head starts a row lower, more of the upper arm counts
+as bicep, and the knee sits lower (44 left-thigh cells against 12). Hits
+622/1040 through the mesh, 633/1040 through the N64 body.
+
+#### Bruises (2026-09-12)
+
+Report: "XBLA models don't have vertex painting yet for blood decals". The game
+bruises a chr in `chrBruise()`: the stock vertex nearest the shot, and every
+vertex at the same coordinates, gets an alpha of 20-70 in a copy of its node's
+colour table (`VTXSTORETYPE_CHRCOL`), and the chr's combiner (`G_CC_CUSTOM_17`,
+`(texel - env) * shade alpha + env`) takes it to the env tint. `chrDisfigure()`
+darkens the same copies. The mesh's own vertex colours were none of those.
+
+What is mirrored is the tables, not the shot (`struct xblameshbruise`,
+`xblaMeshBruiseColours()`): made the first frame any of the model's covered
+lists has a copied table, a map from each of the release's **solid** vertices
+to its three nearest stock vertices in the rest pose (stock vertex + the rest
+offset of the node its `G_MTX` names; the release's bind positions), searched
+on the same bone first for a body (palette entry i is matrix i) and by position
+for a grafted head; and each frame, a frame-arena copy of the mesh's colours
+with every channel scaled by the weighted ratio of the stock entries' current
+value to their original. Cutout vertices take none: a low shade alpha pushes a
+cutout's clear texels towards opaque. A model with nothing copied costs one
+pointer compare per covered list and draws the mesh's own table. The log says
+`slot N takes the game's bruises: V of W vertices from S stock vertices in L
+lists, matched on each bone`.
+
+A grafted head's `G_MTX` names a matrix no position node of the head's own file
+carries; the map asks `modelFindNodeByMtxIndex()` of the whole model the way
+`chrBruise()` does, and falls back to the list node's own place.
+
+Checked on the G5 Building (`bruise.py`: 288 `chrBruise()` calls over the
+nearest guard's sixteen bbox nodes at frame 1700): 109 stock entries bruised,
+449 of the body mesh's 6436 vertices drawn bruised. **A drive that calls
+`xblaMeshSetEnabled(0)` saves `XblaMeshes=0` into the scratch pd.ini at exit**,
+and the next run boots with the meshes off and looks exactly like a mirror that
+does nothing - reset it before each run.
+
 **The two switches are separate, and both are live.** The menu page
 (*Extended Options > Texture & Model Packs > Xbox 360 (XBLA)*) has "Enable
 Models/Meshes" and "Enable Textures", and they are separate because either on

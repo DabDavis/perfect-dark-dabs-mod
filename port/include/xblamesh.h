@@ -123,6 +123,24 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
  */
 void xblaMeshFrameReset(void);
 
+/**
+ * Shots tested against the release's triangles rather than the N64's, for
+ * func0f06bea0() (propobj.c): Begin() at the top of its walk, SkipsNode() for
+ * each list it passes (nonzero: the stock list is not drawn, so is not tested),
+ * Test() after the walk - nonzero when a mesh triangle is nearer than *sqdist,
+ * which it lowers, with the hit, the bbox it counts against, that bbox's part
+ * and the list node. ModelHasMesh() is the callers' gate: a model whose mesh
+ * is drawn is worth tracing even when no N64 bbox was hit, since the release's
+ * geometry is not the N64's shape.
+ */
+struct hitthing;
+void xblaMeshHitBegin(void);
+s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node);
+s32 xblaMeshModelHasMesh(struct model *model);
+s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
+		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
+		struct modelnode **dlnode);
+
 /** --xbla-mesh-verbose: log each replaced node's box against its mesh's. */
 void xblaMeshSetVerbose(s32 verbose);
 

@@ -55,6 +55,7 @@
 #include "game/modrules.h"
 #ifndef PLATFORM_N64
 #include "trace.h"
+#include "xblamesh.h"
 #endif
 #endif
 
@@ -4887,6 +4888,14 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 					}
 				} else {
 					hitpart = modelTestForHit(model, &shotdata->gunpos2d, &shotdata->gundir2d, &node);
+
+#ifndef PLATFORM_N64
+					// The XBLA release's mesh is not the N64's shape, so a shot
+					// that misses every N64 box can still hit what is drawn.
+					if (hitpart <= 0 && xblaMeshModelHasMesh(model)) {
+						hitpart = 1;
+					}
+#endif
 
 					if (hitpart > 0) {
 						if (func0f06bea0(model, model->definition->rootnode, model->definition->rootnode, &shotdata->gunpos2d,
