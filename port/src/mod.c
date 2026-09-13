@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE 1 // realpath
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2648,6 +2649,28 @@ static void modListScanEntry(const char *name, void *arg)
 }
 
 /**
+ * The port's own folders beside the executable whose names start with "mod"
+ * like a loose mod's: mods/ is the container scanned in its own right, and the
+ * asset dump (assetdump.c) and the model packs (modelpack.c) hold thousands of
+ * files and never a mod. Walked as if they might, they were most of what
+ * opening the Mod dropdown cost.
+ */
+static bool modListIsPortDir(const char *name)
+{
+	return !strcasecmp(name, MOD_MODS_DIR) || !strcasecmp(name, "model-dumps") || !strcasecmp(name, "model-packs");
+}
+
+/**
+ * A mod's own contents, which never hold a patch or another mod; anything
+ * looking into a mod for its patch can leave these out.
+ */
+static bool modListIsModContent(const char *name)
+{
+	return !strcasecmp(name, "files") || !strcasecmp(name, "segs") || !strcasecmp(name, "textures")
+		|| !strcasecmp(name, "files.incompatible") || !strcasecmp(name, "segs.unlocated");
+}
+
+/**
  * Loose directories next to the executable, filtered by name. Mods have shipped
  * as `mod_something` beside the game since before there was a list to put them
  * in, and asking everyone to move theirs into mods/ to see it here would be a
@@ -2655,7 +2678,7 @@ static void modListScanEntry(const char *name, void *arg)
  */
 static void modListScanLooseEntry(const char *name, void *arg)
 {
-	if (!strncasecmp(name, "mod", 3)) {
+	if (!strncasecmp(name, "mod", 3) && !modListIsPortDir(name)) {
 		modListAdd((const char *)arg, name);
 	}
 }
@@ -3105,7 +3128,7 @@ static void modListPrepareDir(const char *container, const char *dir, s32 depth,
 
 		results[i] = -1;
 
-		if (filter && (strncasecmp(name, "mod", 3) || !strcasecmp(name, MOD_MODS_DIR))) {
+		if (filter && (strncasecmp(name, "mod", 3) || modListIsPortDir(name))) {
 			// beside the executable only mod* names are touched, and mods/
 			// itself is the container scanned in its own right - looking
 			// into it from here imported every patch a second time
@@ -3116,7 +3139,7 @@ static void modListPrepareDir(const char *container, const char *dir, s32 depth,
 
 		if (rompatchIsPatchName(name)) {
 			results[i] = modListImportPatch(container, loose, path, name, NULL);
-		} else if (depth < MOD_UNPACK_DEPTH && modPathIsDir(path)
+		} else if (depth < MOD_UNPACK_DEPTH && !modListIsModContent(name) && modPathIsDir(path)
 				&& (!modListLooksLikeMod(path) || modImportIsStale(path))) {
 			// a finished mod is left alone - unless an earlier importer made
 			// it, when its patch is still inside and wants doing again
@@ -3157,6 +3180,54 @@ static void modListPrepareDir(const char *container, const char *dir, s32 depth,
 	free(list.names);
 }
 
+// The directory dir names, spelled one way whichever way it was reached
+static bool modListCanonicalDir(const char *dir, char *out, u32 outlen)
+{
+#ifdef PLATFORM_WIN32
+	return _fullpath(out, fsFullPath(dir), outlen) != NULL;
+#else
+	char *full = realpath(fsFullPath(dir), NULL);
+
+	if (!full) {
+		return false;
+	}
+
+	snprintf(out, outlen, "%s", full);
+	free(full);
+
+	return true;
+#endif
+}
+
+/**
+ * Whether dirs[index] is a directory an earlier entry already names. The
+ * working directory is usually the executable's, so "." is "$E" read a second
+ * time, and a refresh is read on every opening of the Mod dropdown.
+ */
+static bool modListRootIsRepeat(const char *const dirs[], s32 index)
+{
+	char full[FS_MAXPATH + 1];
+
+	if (!modListCanonicalDir(dirs[index], full, sizeof(full))) {
+		return false;
+	}
+
+	for (s32 i = 0; i < index; ++i) {
+		char other[FS_MAXPATH + 1];
+
+		if (modListCanonicalDir(dirs[i], other, sizeof(other))
+#ifdef PLATFORM_WIN32
+				&& !strcasecmp(full, other)) {
+#else
+				&& !strcmp(full, other)) {
+#endif
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void modListRefresh(void)
 {
 	static const char *const containers[] = { "$E/" MOD_MODS_DIR, "$H/" MOD_MODS_DIR, "./" MOD_MODS_DIR };
@@ -3167,11 +3238,19 @@ void modListRefresh(void)
 	for (s32 i = 0; i < ARRAYCOUNT(containers); ++i) {
 		struct modlistscan scan = { containers[i], 0 };
 
+		if (modListRootIsRepeat(containers, i)) {
+			continue;
+		}
+
 		modListPrepareDir(containers[i], containers[i], 0, false);
 		fsScanDir(containers[i], modListScanEntry, &scan);
 	}
 
 	for (s32 i = 0; i < ARRAYCOUNT(loose); ++i) {
+		if (modListRootIsRepeat(loose, i)) {
+			continue;
+		}
+
 		modListPrepareDir(loose[i], loose[i], 0, true);
 		fsScanDir(loose[i], modListScanLooseEntry, (void *)loose[i]);
 	}

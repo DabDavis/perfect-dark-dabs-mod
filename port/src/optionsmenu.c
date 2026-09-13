@@ -4651,11 +4651,35 @@ struct menudialogdef g_ExtendedDabsModMenuDialog = {
  * so a pack dropped into texture-packs/ while the game is running turns up
  * without a restart - which is most of the point of the reload key.
  */
+/**
+ * Re-reads a dropdown's list from disk when the dropdown opens, and not again
+ * while it stays open.
+ *
+ * The menu asks an open dropdown for its option count four times a frame (the
+ * list's tick twice, the overlay, and the list it draws) and never asks a shut
+ * one, so an ask after a gap is the dropdown opening again. Re-reading on every
+ * ask cost the mod list 125 ms a time with 88 mods installed - half a second a
+ * frame for as long as it was open. The time is taken after the read, so a read
+ * that imports a mod and takes seconds is not mistaken for a gap.
+ */
+#define MENU_LIST_REOPEN_US 250000
+
+static void menuListRefreshOnOpen(u64 *lastAsked, void (*refresh)(void))
+{
+	if (sysGetMicroseconds() - *lastAsked > MENU_LIST_REOPEN_US) {
+		refresh();
+	}
+
+	*lastAsked = sysGetMicroseconds();
+}
+
 static MenuItemHandlerResult menuhandlerTexturePack(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	static u64 lastAsked;
+
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		texpackRefreshPacks();
+		menuListRefreshOnOpen(&lastAsked, texpackRefreshPacks);
 		data->dropdown.value = texpackGetNumPacks() + 1; // plus "None"
 		break;
 	case MENUOP_GETOPTIONTEXT:
@@ -4691,9 +4715,11 @@ static MenuItemHandlerResult menuhandlerTexturePackEnabled(s32 operation, struct
  */
 static MenuItemHandlerResult menuhandlerModelPack(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	static u64 lastAsked;
+
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		modelpackRefreshPacks();
+		menuListRefreshOnOpen(&lastAsked, modelpackRefreshPacks);
 		data->dropdown.value = modelpackGetNumPacks() + 1; // plus "None"
 		break;
 	case MENUOP_GETOPTIONTEXT:
@@ -5630,11 +5656,13 @@ struct menudialogdef g_ExtendedTexturePackMenuDialog = {
  */
 static MenuItemHandlerResult menuhandlerModDir(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	static u64 lastAsked;
+
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
 		return modListIsFromArgs();
 	case MENUOP_GETOPTIONCOUNT:
-		modListRefresh();
+		menuListRefreshOnOpen(&lastAsked, modListRefresh);
 		data->dropdown.value = modListGetCount() + 1; // plus "None"
 		break;
 	case MENUOP_GETOPTIONTEXT:
@@ -5842,11 +5870,13 @@ static MenuItemHandlerResult menuhandlerMapsAll(s32 operation, struct menuitem *
 
 static MenuItemHandlerResult menuhandlerMapsMod(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	static u64 lastAsked;
+
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
 		return modListIsFromArgs();
 	case MENUOP_GETOPTIONCOUNT:
-		modListRefresh();
+		menuListRefreshOnOpen(&lastAsked, modListRefresh);
 		data->dropdown.value = modListGetCount();
 		break;
 	case MENUOP_GETOPTIONTEXT:
