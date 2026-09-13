@@ -197,6 +197,11 @@ void bgunReset(void)
 
 	g_Vars.currentplayer->gunctrl.switchtoweaponnum = -1;
 	g_Vars.currentplayer->gunctrl.fnfader = 0;
+#ifndef PLATFORM_N64
+	g_Vars.currentplayer->gunctrl.fnfaderleft = 0;
+	g_Vars.currentplayer->gunctrl.curfnstrleft = 0;
+	g_Vars.currentplayer->gunctrl.fnstrtimerleft = 0;
+#endif
 
 	g_Vars.currentplayer->gunctrl.invertgunfunc = false;
 

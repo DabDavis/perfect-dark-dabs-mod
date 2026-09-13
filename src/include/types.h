@@ -2424,6 +2424,9 @@ struct gunctrl {
 	u8 curleftgunstr; // the left gun named on the HUD, for the fade
 	struct modeldef *leftcartmodeldef; // the left hand's casing, when it differs
 	struct abmag abmagleft; // the left hand's own reserve gauge
+	u8 fnfaderleft; // the left hand's fnfader, fnstrtimer and curfnstr
+	u8 fnstrtimerleft;
+	u16 curfnstrleft;
 	/*0x1594*/ struct modeldef *handmodeldef;
 	/*0x1598*/ struct modeldef *cartmodeldef;
 	/*0x159c*/ u16 handfilenum;
@@ -4493,6 +4496,7 @@ struct activemenu {
 #ifndef PLATFORM_N64
 	/*    */ f32 mousex;
 	/*    */ f32 mousey;
+	/*    */ s8 hand; // HAND_LEFT when Akimbo Triggers' D-pad down opened it, for the left hand's gun
 #endif
 };
 

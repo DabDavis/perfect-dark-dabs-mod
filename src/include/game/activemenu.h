@@ -19,6 +19,7 @@ s16 amCalculateSlotWidth(void);
 void amChangeScreen(s32 step);
 void amAssignWeaponSlots(void);
 void amOpen(void);
+void amOpenForHand(s32 handnum);
 void amClose(void);
 bool amIsCramped(void);
 void amCalculateSlotPosition(s16 column, s16 row, s16 *x, s16 *y);

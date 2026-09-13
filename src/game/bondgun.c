@@ -5928,6 +5928,11 @@ void bgunTickSwitch2(void)
 
 			ctrl->curfnstr = 0;
 			ctrl->fnstrtimer = 0;
+#ifndef PLATFORM_N64
+			ctrl->fnfaderleft = 0;
+			ctrl->curfnstrleft = 0;
+			ctrl->fnstrtimerleft = 0;
+#endif
 			ctrl->throwing = false;
 		}
 	} else {
@@ -13720,17 +13725,160 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		xposleft -= 14;
 	}
 
-	// Left hand of a mixed pair - its own mag, reserve and name
-	if (mixed && leftammoindex >= 0
-			&& leftweapon->ammos[leftammoindex] != NULL
-			&& !weaponHasFlag2(lefthand->gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
-		s32 lefttype = lefthand->ammotypes[leftammoindex];
+	// Left hand of a mixed pair - its own mag, reserve, fire mode and name
+	if (mixed && !weaponHasFlag2(lefthand->gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
+		s32 leftfuncnum = lefthand->gset.weaponfunc;
+		s32 lefttmpfuncnum;
+		struct handweaponinfo leftinfo;
+		struct weaponfunc *leftfunc;
+		u32 leftfncolour = g_ModColours[MODCOLOUR_AMMOFN];
 
 		xpos = xposleft;
 
 		if (playercount < 2 || (playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_HORIZONTAL)) {
 			gSPExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT, g_HudAlignModeL);
 		}
+
+		// Its function square, the right's mirrored onto the inside of the
+		// left gauge, from its own saved choice the way the right's is found
+		bgunGetWeaponInfo(&leftinfo, HAND_LEFT);
+		lefttmpfuncnum = bgunIsUsingSecondaryFunctionForHand(HAND_LEFT);
+
+		if (bgun0f098ca0(lefttmpfuncnum, &leftinfo, lefthand) >= 0) {
+			leftfuncnum = lefttmpfuncnum;
+		}
+
+		if (leftfuncnum == FUNC_SECONDARY && ctrl->fnfaderleft < 255) {
+			if (ctrl->fnfaderleft < 128) {
+				ctrl->fnfaderleft = 128;
+			}
+
+			if (ctrl->fnfaderleft + fnfaderinc > 255) {
+				ctrl->fnfaderleft = 255;
+			} else {
+				ctrl->fnfaderleft += fnfaderinc;
+			}
+		}
+
+		if (leftfuncnum == FUNC_PRIMARY && ctrl->fnfaderleft > 0) {
+			if (ctrl->fnfaderleft - fnfaderinc < 0) {
+				ctrl->fnfaderleft = 0;
+			} else {
+				ctrl->fnfaderleft -= fnfaderinc;
+			}
+		}
+
+		if (ctrl->fnfaderleft > 128) {
+			leftfncolour = ((ctrl->fnfaderleft * 2) - 256) << (g_ModColours[MODCOLOUR_AMMOFNSHIFT] & 31) | g_ModColours[MODCOLOUR_AMMOFNFADE];
+		}
+
+		gdl = textSetPrimColour(gdl, leftfncolour);
+		gDPFillRectangleScaled(gdl++, xpos + barwidth + 2, bottom - 11, xpos + barwidth + 13, bottom);
+		gdl = text0f153838(gdl);
+
+		// Its gun's name, fading with the right's
+		if (optionsGetShowGunFunction(g_Vars.currentplayerstats->mpindex) && ctrl->guntypetimer < 255) {
+			str = bgunGetName(lefthand->gset.weaponnum);
+			colour = g_ModColours[MODCOLOUR_AMMOGUNNAME];
+
+			textMeasure(&textheight, &textwidth, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
+			textwidth += 2;
+
+			if (textwidth > ctrl->guntypetimer * 3) {
+				textwidth = ctrl->guntypetimer * 3;
+			}
+
+			if (playercount >= 2) {
+				x = xpos + barwidth + 13;
+			} else {
+				x = xpos + barwidth + 4;
+			}
+
+#if VERSION == VERSION_JPN_FINAL
+			y = bottom - textheight - 10;
+#else
+			y = bottom - textheight - 15;
+#endif
+
+			if (ctrl->guntypetimer > 192) {
+				alpha = 255 - (ctrl->guntypetimer - 192) * 255 / 63U;
+				colour = (colour & 0xffffff00) | alpha;
+			}
+
+			// The backing stops short of the function square, as the right's does
+			gdl = textSetPrimColour(gdl, 0);
+			gDPFillRectangleScaled(gdl++, xpos + barwidth + 11, y - 1, x + textwidth, bottom);
+			gdl = text0f153838(gdl);
+			textSetWaveBlend(g_20SecIntervalFrac * 50.0f, 0, 50);
+			textSetWaveColours(0xffffffff, 0xffffffff);
+			gdl = textRenderProjected(gdl, &x, &y, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, colour, textwidth, 1000, 0, 0);
+			textResetBlends();
+		}
+
+		// Its function's name, shown as the right's is when the mode changes
+		leftfunc = weaponGetFunctionById(lefthand->gset.weaponnum, leftfuncnum);
+
+		if (optionsGetShowGunFunction(g_Vars.currentplayerstats->mpindex) && leftfunc) {
+			colour = g_ModColours[MODCOLOUR_AMMOFUNC];
+
+			if ((ctrl->curfnstrleft != leftfunc->name && ctrl->fnfaderleft > 128) || ctrl->curfnstrleft == 0) {
+				ctrl->fnstrtimerleft = 0;
+				ctrl->curfnstrleft = leftfunc->name;
+			}
+
+			if (ctrl->fnstrtimerleft < 255) {
+				if (ctrl->fnstrtimerleft + g_Vars.lvupdate60 > 255) {
+					ctrl->fnstrtimerleft = 255;
+				} else {
+					ctrl->fnstrtimerleft += (u16) g_Vars.lvupdate60;
+				}
+
+				if (leftfuncnum == FUNC_SECONDARY && leftfunc->name == ctrl->curfnstrleft) {
+					colour = g_ModColours[MODCOLOUR_AMMOFUNCALT];
+				}
+
+				if (leftfuncnum == FUNC_PRIMARY && leftfunc->name != ctrl->curfnstrleft) {
+					colour = g_ModColours[MODCOLOUR_AMMOFUNCALT];
+				}
+
+				str = langGet(ctrl->curfnstrleft);
+
+				textMeasure(&textheight, &textwidth, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
+				textwidth += 2;
+
+				if (textwidth > ctrl->fnstrtimerleft * 3) {
+					textwidth = ctrl->fnstrtimerleft * 3;
+				}
+
+				x = xpos + barwidth + 13;
+#if VERSION == VERSION_JPN_FINAL
+				y = bottom - textheight + 3;
+#else
+				y = bottom - textheight - 1;
+#endif
+
+				if (ctrl->fnstrtimerleft > 192) {
+					alpha = 255 - (ctrl->fnstrtimerleft - 192) * 255 / 63U;
+					colour = (colour & 0xffffff00) | alpha;
+				}
+
+				gdl = textSetPrimColour(gdl, 0);
+				gDPFillRectangleScaled(gdl++, x - 1, y - 1, x + textwidth, bottom + 3);
+				gdl = text0f153838(gdl);
+				textSetWaveBlend(g_20SecIntervalFrac * 50.0f, 0, 50);
+				textSetWaveColours(0xffffffff, 0xffffffff);
+				gdl = textRenderProjected(gdl, &x, &y, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, colour, textwidth, 1000, 0, 0);
+				textResetBlends();
+			}
+		}
+	}
+
+	if (mixed && leftammoindex >= 0
+			&& leftweapon->ammos[leftammoindex] != NULL
+			&& !weaponHasFlag2(lefthand->gset.weaponnum, WEAPONFLAG2_DETONATORHAND)) {
+		s32 lefttype = lefthand->ammotypes[leftammoindex];
+
+		xpos = xposleft;
 
 		if (lefthand->clipsizes[leftammoindex] > 0 && (leftweapon->ammos[leftammoindex]->flags & AMMOFLAG_EQUIPPEDISRESERVE) == 0) {
 			gdl = bgunDrawHudGauge(gdl,
@@ -13756,35 +13904,6 @@ Gfx *bgunDrawHud(Gfx *gdl)
 					bottom, &ctrl->abmagleft, lefttotal, g_AmmoTypes[lefttype].capacity,
 					g_ModColours[MODCOLOUR_AMMORESBG], g_ModColours[MODCOLOUR_AMMORESFG], true);
 			gdl = bgunDrawHudInteger(gdl, lefttotal, xpos + barwidth + 2, true, bottom - reserveheight + 1, 0, g_ModColours[MODCOLOUR_AMMORESTEXT]);
-		}
-
-		// Its name, fading with the right's
-		if (optionsGetShowGunFunction(g_Vars.currentplayerstats->mpindex) && ctrl->guntypetimer < 255) {
-			str = bgunGetName(lefthand->gset.weaponnum);
-			colour = g_ModColours[MODCOLOUR_AMMOGUNNAME];
-
-			textMeasure(&textheight, &textwidth, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
-			textwidth += 2;
-
-			if (textwidth > ctrl->guntypetimer * 3) {
-				textwidth = ctrl->guntypetimer * 3;
-			}
-
-			x = xpos + barwidth + 4;
-			y = bottom - textheight - 15;
-
-			if (ctrl->guntypetimer > 192) {
-				alpha = 255 - (ctrl->guntypetimer - 192) * 255 / 63U;
-				colour = (colour & 0xffffff00) | alpha;
-			}
-
-			gdl = textSetPrimColour(gdl, 0);
-			gDPFillRectangleScaled(gdl++, x - 1, y - 1, x + textwidth, bottom);
-			gdl = text0f153838(gdl);
-			textSetWaveBlend(g_20SecIntervalFrac * 50.0f, 0, 50);
-			textSetWaveColours(0xffffffff, 0xffffffff);
-			gdl = textRenderProjected(gdl, &x, &y, str, g_CharsHandelGothicXs, g_FontHandelGothicXs, colour, textwidth, 1000, 0, 0);
-			textResetBlends();
 		}
 	} else
 #endif

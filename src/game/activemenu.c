@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/modrules.h"
+#include "game/modoptions.h"
 #include "game/chraction.h"
 #include "game/game_006900.h"
 #include "game/bondgun.h"
@@ -289,6 +290,11 @@ s32 amGetFirstBuddyIndex(void)
 	return -1;
 }
 
+#ifndef PLATFORM_N64
+static bool amIsHandMenu(void);
+static void amApplyLeftWeapon(s32 weaponnum);
+#endif
+
 void amApply(s32 slot)
 {
 	s32 numinvitems;
@@ -297,6 +303,35 @@ void amApply(s32 slot)
 	s32 state;
 	s32 weaponnum;
 	s32 i;
+
+#ifndef PLATFORM_N64
+	// The left hand's own radial menu: its gun and its fire mode
+	if (amIsHandMenu() && g_AmMenus[g_AmIndex].hand == HAND_LEFT) {
+		if (g_AmMenus[g_AmIndex].screenindex == 0) {
+			if (slot > 4) {
+				slot--;
+			}
+
+			invindex = g_AmMenus[g_AmIndex].invindexes[slot];
+
+			if (invindex < invGetCount()) {
+				weaponnum = invGetWeaponNumByIndex(invindex);
+
+				if (weaponnum && currentPlayerGetDeviceState(weaponnum) == DEVICESTATE_UNEQUIPPED) {
+					amApplyLeftWeapon(weaponnum);
+				}
+			}
+		} else {
+			bool secondary = bgunIsUsingSecondaryFunctionForHand(HAND_LEFT);
+
+			if ((secondary && slot == 1) || (!secondary && slot == 7)) {
+				bgunToggleFunctionForHand(HAND_LEFT);
+			}
+		}
+
+		return;
+	}
+#endif
 
 	switch (g_AmMenus[g_AmIndex].screenindex) {
 	case 0: // Weapon
@@ -338,6 +373,22 @@ void amApply(s32 slot)
 
 				if (pass) {
 					invSetCurrentIndex(invindex);
+
+#ifndef PLATFORM_N64
+					// The right hand's own radial menu: the left keeps its gun
+					if (amIsHandMenu()
+							&& weaponnum != WEAPON_REMOTEMINE
+							&& g_Vars.currentplayer->hands[HAND_LEFT].inuse
+							&& bgunGetWeaponNum(HAND_LEFT) > WEAPON_NONE
+							&& !weaponHasFlag2(bgunGetWeaponNum(HAND_LEFT), WEAPONFLAG2_DETONATORHAND)
+							&& bgunGetWeaponNum(HAND_RIGHT) != weaponnum) {
+						s32 leftweaponnum = bgunGetWeaponNum(HAND_LEFT);
+
+						bgunEquipWeapon2(HAND_RIGHT, weaponnum);
+						bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
+						break;
+					}
+#endif
 
 					if (invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum)) {
 						if (bgunGetWeaponNum(HAND_RIGHT) != weaponnum) {
@@ -422,6 +473,16 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 			slot--;
 		}
 
+#ifndef PLATFORM_N64
+		// The left hand's radial menu marks the left hand's gun
+		if (amIsHandMenu() && g_AmMenus[g_AmIndex].hand == HAND_LEFT) {
+			if (g_AmMenus[g_AmIndex].invindexes[slot] < invGetCount()
+					&& g_Vars.currentplayer->hands[HAND_LEFT].inuse
+					&& invGetWeaponNumByIndex(g_AmMenus[g_AmIndex].invindexes[slot]) == bgunGetWeaponNum(HAND_LEFT)) {
+				*flags |= AMSLOTFLAG_CURRENT;
+			}
+		} else
+#endif
 		if (invGetCurrentIndex() == g_AmMenus[g_AmIndex].invindexes[slot]) {
 			*flags |= AMSLOTFLAG_CURRENT;
 		}
@@ -458,11 +519,25 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 		if (slot == 4) {
 			strcpy(label, langGet(L_MISC_171)); // "Function"
 		} else if (slot == 1 || slot == 7) {
-			prifunc = weaponGetFunction(&g_Vars.currentplayer->hands[HAND_RIGHT].gset, FUNC_PRIMARY);
-			secfunc = weaponGetFunction(&g_Vars.currentplayer->hands[HAND_RIGHT].gset, FUNC_SECONDARY);
+			s32 handnum = HAND_RIGHT;
+			bool secondary;
+
+#ifndef PLATFORM_N64
+			// The left hand's radial menu lists the left hand's gun's functions
+			if (amIsHandMenu() && g_AmMenus[g_AmIndex].hand == HAND_LEFT) {
+				handnum = HAND_LEFT;
+			}
+
+			secondary = handnum == HAND_LEFT ? bgunIsUsingSecondaryFunctionForHand(HAND_LEFT) : FUNCISSEC();
+#else
+			secondary = FUNCISSEC();
+#endif
+
+			prifunc = weaponGetFunction(&g_Vars.currentplayer->hands[handnum].gset, FUNC_PRIMARY);
+			secfunc = weaponGetFunction(&g_Vars.currentplayer->hands[handnum].gset, FUNC_SECONDARY);
 
 			if (slot == 1) {
-				if (!secfunc || !FUNCISSEC()) {
+				if (!secfunc || !secondary) {
 					*flags |= AMSLOTFLAG_CURRENT;
 				}
 
@@ -470,7 +545,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 					strcpy(label, langGet(prifunc->name));
 				}
 			} else {
-				if (!prifunc || FUNCISSEC()) {
+				if (!prifunc || secondary) {
 					*flags |= AMSLOTFLAG_CURRENT;
 				}
 
@@ -746,8 +821,74 @@ void amOpen(void)
 		g_AmMenus[g_AmIndex].origscreennum = 0;
 		g_AmMenus[g_AmIndex].prevallbots = 0;
 		g_AmMenus[g_AmIndex].allbots = false;
+#ifndef PLATFORM_N64
+		g_AmMenus[g_AmIndex].hand = HAND_RIGHT;
+#endif
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Akimbo Triggers: the radial menu for one hand's gun, D-pad up the right's
+ * and D-pad down the left's. Its Weapon and Function screens are labelled
+ * with the hand and act on that hand only.
+ */
+void amOpenForHand(s32 handnum)
+{
+	amOpen();
+
+	if (g_Vars.currentplayer->activemenumode != AMMODE_CLOSED) {
+		g_AmMenus[g_AmIndex].hand = handnum;
+	}
+}
+
+static bool amIsHandMenu(void)
+{
+	return modIsAkimboTriggersOn() && g_AmMenus[g_AmIndex].screenindex <= 1;
+}
+
+/**
+ * The left hand's pick from the Weapon screen. The weapon switch pairs the
+ * left hand only as the right's gun changes, so a pick for the left alone
+ * switches to the right's own gun again with the left's wanted gun beside
+ * it. Nothing is lowered for a pick the switch would refuse: a second copy
+ * of the right's gun that the inventory does not hold, or a different gun
+ * that cannot make a mixed pair.
+ */
+static void amApplyLeftWeapon(s32 weaponnum)
+{
+	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+	s32 rightweaponnum = ctrl->switchtoweaponnum >= 0 ? ctrl->switchtoweaponnum : ctrl->weaponnum;
+	bool ok;
+
+	if (g_Vars.currentplayer->hands[HAND_LEFT].inuse && bgunGetWeaponNum(HAND_LEFT) == weaponnum) {
+		return;
+	}
+
+	if (weaponnum == rightweaponnum) {
+		ok = invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum);
+	} else {
+		ok = modIsAkimboForPlayers()
+			&& ctrl->gunmemmixed
+			&& modCanAkimbo(weaponnum)
+			&& modCanAkimbo(rightweaponnum)
+			&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)
+			&& !weaponHasFlag2(rightweaponnum, WEAPONFLAG2_DETONATORHAND)
+			&& invHasSingleWeaponIncAllGuns(weaponnum);
+	}
+
+	if (!ok) {
+		return;
+	}
+
+	bgunEquipWeapon2(HAND_LEFT, weaponnum);
+
+	if (ctrl->switchtoweaponnum < 0) {
+		ctrl->switchtoweaponnum = rightweaponnum;
+		ctrl->wantammo = false;
+	}
+}
+#endif
 
 void amClose(void)
 {
@@ -1452,6 +1593,22 @@ Gfx *amRender(Gfx *gdl)
 				}
 			}
 		}
+
+#ifndef PLATFORM_N64
+		// Akimbo Triggers: which hand's gun this radial menu is for
+		if (amIsHandMenu()) {
+			s16 titlex;
+			s16 titley;
+
+			amCalculateSlotPosition(1, 0, &titlex, &titley);
+			titley -= PLAYERCOUNT() >= 2 ? 13 : 18;
+
+			colour = g_Vars.currentplayer->activemenumode == AMMODE_EDIT ? 0x4f4f4f7f : 0xffffffff;
+
+			gdl = amRenderText(gdl, g_AmMenus[g_AmIndex].hand == HAND_LEFT ? "Left Hand" : "Right Hand",
+					colour, titlex, titley);
+		}
+#endif
 
 		// Render AI bot name and weapon
 		{

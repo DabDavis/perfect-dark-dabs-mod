@@ -763,10 +763,10 @@ static void inputEnsureBind(s32 ctrl, u32 ck, u32 vk)
 /**
  * Akimbo Triggers, on every controller: the left trigger becomes the left
  * hand's own fire button, aim mode moves from the left trigger to the left
- * bumper, the radial menu moves from the bumper to D-pad up, and D-pad left
- * and right become the fire mode buttons for the left and right hand - the
- * D-pad's duplicates of stick movement give way to all three. Off puts each
- * of them back.
+ * bumper, the radial menu moves from the bumper to D-pad up for the right
+ * hand's gun and D-pad down for the left's, and D-pad left and right become
+ * the fire mode buttons for the left and right hand - the D-pad's duplicates
+ * of stick movement give way to all four. Off puts each of them back.
  *
  * D-pad right goes to the N64 D-pad right key rather than to the bumper's
  * key, and left to a key of its own, for the reason D-pad up went to N64
@@ -794,6 +794,7 @@ void inputApplyAkimboTriggers(s32 on)
 		const u32 lt = base + (VK_JOY1_LTRIG - VK_JOY1_BEGIN);
 		const u32 lb = base + SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
 		const u32 dup = base + SDL_CONTROLLER_BUTTON_DPAD_UP;
+		const u32 ddown = base + SDL_CONTROLLER_BUTTON_DPAD_DOWN;
 		const u32 dleft = base + SDL_CONTROLLER_BUTTON_DPAD_LEFT;
 		const u32 dright = base + SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
 
@@ -804,6 +805,9 @@ void inputApplyAkimboTriggers(s32 on)
 			inputRemoveBind(ctrl, CK_DPAD_D, dup);
 			inputRemoveBind(ctrl, CK_C_U, dup);
 			inputEnsureBind(ctrl, CK_DPAD_U, dup);
+			// D-pad down, which duplicated walking back, opens it for the left hand
+			inputRemoveBind(ctrl, CK_C_D, ddown);
+			inputEnsureBind(ctrl, CK_DPAD_D, ddown);
 			inputEnsureBind(ctrl, CK_0040, lt);
 			// D-pad left and right, which duplicated the stick's strafe,
 			// become the fire mode buttons: left hand and right hand
@@ -818,6 +822,8 @@ void inputApplyAkimboTriggers(s32 on)
 			inputEnsureBind(ctrl, CK_RTRIG, lt);
 			inputRemoveBind(ctrl, CK_DPAD_D, dup);
 			inputRemoveBind(ctrl, CK_DPAD_U, dup);
+			inputRemoveBind(ctrl, CK_DPAD_D, ddown);
+			inputEnsureBind(ctrl, CK_C_D, ddown);
 			inputEnsureBind(ctrl, CK_DPAD_D, lb);
 			inputEnsureBind(ctrl, CK_C_U, dup);
 			inputRemoveBind(ctrl, CK_0080, dleft);

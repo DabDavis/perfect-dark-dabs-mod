@@ -1685,7 +1685,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								} else {
 									if (g_Vars.currentplayer->amdowntime >= 0) {
 										if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & radialbuttons)) {
+#ifndef PLATFORM_N64
+											// Akimbo Triggers: D-pad up picks the right hand's
+											// gun and D-pad down the left's
+											amOpenForHand(modIsAkimboTriggersOn()
+													&& !joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & U_JPAD)
+													? HAND_LEFT : HAND_RIGHT);
+#else
 											amOpen();
+#endif
 											g_Vars.currentplayer->amdowntime = -1;
 										} else {
 											g_Vars.currentplayer->amdowntime++;
