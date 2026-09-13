@@ -2752,7 +2752,12 @@ free to be a normal.
 ### The N64 sheen (2026-09-13)
 
 A second look for the same materials: **Mod.XblaReflectStyle**, "Reflection
-Style" under Enable Reflections, Xbox 360 (0, default) or N64 Sheen (1), live.
+Style" under Enable Reflections, Xbox 360 (0) or K7 Sheen (1), live. The row
+read "N64 Sheen" until the user renamed it on 2026-09-13; the code still says
+`XBLAMESH_REFLECT_N64`. K7 Sheen is the default since later on 2026-09-13, after the user played with both
+and found it much the better look; a pd.ini that already holds the key keeps
+its value, and the game writes the key on exit, so anyone who ran the build
+before keeps Xbox 360 until they pick the sheen.
 The idea was the user's, after a frame-exact comparison of the K7 Avenger
 drawn both ways.
 

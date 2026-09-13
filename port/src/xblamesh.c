@@ -3933,8 +3933,9 @@ static s32 optReflect = 1;
 static s32 envforce = XBLAMESH_ENV_SETTING;
 
 // Mod.XblaReflectStyle: the release's cube maps, or the N64 guns' sheen drawn
-// on the same materials. See xblaMeshBuildSheen().
-static s32 optReflectStyle = XBLAMESH_REFLECT_XBLA;
+// on the same materials. See xblaMeshBuildSheen(). The sheen is the default
+// since 2026-09-13: the user judged it much the better look of the two.
+static s32 optReflectStyle = XBLAMESH_REFLECT_N64;
 
 // Mod.XblaReflectDistance: in metres, where the reflection is gone while the
 // Reflection Cutoff is on (the Xbox 360 (XBLA) page). See xblaMeshEnvironmentReach().

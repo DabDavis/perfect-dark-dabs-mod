@@ -5121,7 +5121,7 @@ static MenuItemHandlerResult menuhandlerXblaReflectStyle(s32 operation, struct m
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)(data->dropdown.value == XBLAMESH_REFLECT_N64
-				? "N64 Sheen" : "Xbox 360");
+				? "K7 Sheen" : "Xbox 360");
 	case MENUOP_SET:
 		xblaMeshSetReflectStyle((s32)data->dropdown.value);
 		break;
