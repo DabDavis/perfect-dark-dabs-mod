@@ -498,6 +498,84 @@ u8 *xblaTexDecodeRecord(u32 record, s32 *outWidth, s32 *outHeight)
 	return rgba;
 }
 
+u8 *xblaTexDecodeCube(u32 record, s32 *outSize)
+{
+	const u8 *a;
+	const u8 *b;
+	u32 offset, width, height, usize, csize, blockw, bpe, facebytes;
+	struct x360fetch fetch;
+	u32 dwords[6];
+	u8 *compressed = NULL;
+	u8 *surface = NULL;
+	u8 *rgba = NULL;
+	s32 ok = 0;
+
+	if (!lock) {
+		return NULL;
+	}
+
+	SDL_LockMutex(lock);
+
+	if (!xblaTexOpen() || record >= numRecords || badRecord[record]) {
+		SDL_UnlockMutex(lock);
+		return NULL;
+	}
+
+	a = tables + record * XBLATEX_RECORD;
+	b = tables + (numRecords + record) * XBLATEX_RECORD;
+	offset = xblaTexBE32(a);
+	width = xblaTexBE32(a + 4);
+	height = xblaTexBE32(a + 8);
+	usize = xblaTexBE32(a + 20);
+	csize = xblaTexBE32(a + 24);
+
+	for (u32 k = 0; k < 6; k++) {
+		dwords[k] = xblaTexBE32(b + (XBLATEX_FETCH_DWORD + k) * 4);
+	}
+
+	x360FetchRead(&fetch, dwords);
+
+	// One face's base level: whole blocks of the stored row width, which for
+	// a square power of two is the face itself.
+	blockw = fetch.format == X360_FMT_8888 ? 1 : 4;
+	bpe = fetch.format == X360_FMT_8888 ? 4 : fetch.format == X360_FMT_DXT1 ? 8 : 16;
+	facebytes = ((fetch.pitch + blockw - 1) / blockw) * ((height + blockw - 1) / blockw) * bpe;
+
+	if (width && width == height && width <= XBLATEX_MAXDIM && fetch.width == width &&
+			x360FetchSupported(&fetch) && usize >= 6 * facebytes && csize &&
+			offset <= stream.size && csize <= stream.size - offset) {
+		compressed = malloc(csize);
+		surface = malloc(usize);
+		rgba = malloc((size_t)width * height * 4 * 6);
+
+		if (compressed && surface && rgba &&
+				x360StfsStreamRead(&stream, dataBase + offset, csize, compressed) &&
+				x360LzxDecompress(compressed, csize, surface, usize) == usize) {
+			ok = 1;
+
+			for (u32 k = 0; k < 6 && ok; k++) {
+				ok = x360DecodeTexture(surface + k * facebytes, facebytes, &fetch,
+						rgba + (size_t)k * width * height * 4);
+			}
+		}
+	}
+
+	SDL_UnlockMutex(lock);
+
+	free(compressed);
+	free(surface);
+
+	if (!ok) {
+		sysLogPrintf(LOG_WARNING, "xblatex: record %u is not a cube map this reads", record);
+		free(rgba);
+		return NULL;
+	}
+
+	*outSize = (s32)width;
+
+	return rgba;
+}
+
 s32 xblaTexGetEnabled(void)
 {
 	return optEnabled;

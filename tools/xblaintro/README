@@ -1,0 +1,28 @@
+The XBLA release's boot animation, read out of its draw calls.
+
+default.xex is encrypted, so 4J's code is not read; what it draws is. A small
+hook in Xenia (xenia-drawlog.patch, against xenia-canary d9bf601e1) writes one
+record per draw - frame, index count, shader constants, blend state - and a
+host timestamp per swap. The boot logos are picked out by index count (the
+release's own mesh draws: red 4J cube 1185, Perfect Dark cube 600/168/192,
+Rare 19620, Microsoft 14868), and each draw's world-view-projection (vertex
+constants c2-c5, row major) is decomposed against the N64 title camera, which
+4J kept (vertical fov 46, 4:3, distance 4000).
+
+    PD_DRAWLOG=draws.bin PD_DRAWLOG_FRAMES=2700 xenia_canary --license_mask=1 <package>
+    curves4j.py draws.bin curves.csv          per frame: pose, stretch, fades, ticks
+    gen4jtable.py curves.csv ../../port/include/xbla4jintro.h
+
+drawlog.py reads the log (summary / meshes / slots / dump / textures);
+analyze4j.py decomposes the matrices of every boot mesh. See
+CLAUDE-notes/xbla.md, "The release's boot sequence, recorded".
+
+The hook's second record version (magic 'PDD2', 2268 bytes) adds the 32
+texture fetch constants (registers 0x4800-0x48BF) and, per shader, the fetch
+constant each of its texture bindings reads. `drawlog.py LOG textures` prints
+what each boot mesh binds: its material's texture at fetch 0 and, for a
+material whose byte 16 is not zero, a 256x256 DXT1 cube map at fetch 2 - which
+is how the release's reflections were found (CLAUDE-notes/xbla.md, "The
+release's reflections"). The capture that has it is .xbla-work/drawlog2/;
+.xbla-work/capture-drawlog2.sh takes the output directory as a third argument
+so a new capture does not overwrite drawlog/, which xbla4jintro.h came from.

@@ -50,6 +50,9 @@ Gfx *text0f1566cc(Gfx *gdl, u32 arg1, u32 arg2);
 Gfx *text0f156a24(Gfx *gdl, s32 x, s32 y, struct fontchar *char1, s32 arg4, s32 arg5, s32 arg6, s32 arg7);
 Gfx *textRender(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *font1, struct font *font2, u32 arg6, u32 colour, s32 width, s32 height, u32 arg10, s32 arg11);
 void textMeasure(s32 *textheight, s32 *textwidth, char *text, struct fontchar *font1, struct font *font2, s32 lineheight);
+#ifndef PLATFORM_N64
+Gfx *textRenderScaled(Gfx *gdl, s32 x, s32 y, char *text, struct fontchar *chars, struct font *font, u32 colour, s32 scale);
+#endif
 void textWrap(s32 width, char *in, char *out, struct fontchar *font1, struct font *font2);
 
 Gfx *func0f1574d0jf(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *font1, struct font *font2, s32 colour, u32 colour2, s32 width, s32 height, s32 arg9, u32 arg10);

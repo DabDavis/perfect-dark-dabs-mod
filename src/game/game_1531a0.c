@@ -2183,6 +2183,76 @@ Gfx *textRenderProjected(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *
 	return gdl;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * One line of text at a whole-number multiple of its font's size, both ways.
+ * var8007fad0 alone widens the glyphs and leaves them their height, and the
+ * Japanese build's var80080108jf, which did the height, is not in the others.
+ * No wrapping, clipping or blend effects: one line in one colour, at x, y for
+ * its top left. The title's 4J Studios card draws its name with it. Call it
+ * between text0f153628() and text0f153780(), like textRenderProjected().
+ */
+Gfx *textRenderScaled(Gfx *gdl, s32 x, s32 y, char *text, struct fontchar *chars, struct font *font, u32 colour, s32 scale)
+{
+	u8 prevchar = 'H';
+
+	if (scale < 1) {
+		scale = 1;
+	}
+
+	gDPPipeSync(gdl++);
+	gDPSetTextureLUT(gdl++, G_TT_IA16);
+	gDPSetTextureImage(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, osVirtualToPhysical(var8007fb3c));
+	gDPLoadSync(gdl++);
+	gDPLoadTLUTCmd(gdl++, 6, 15);
+	gDPSetTile(gdl++, G_IM_FMT_CI, G_IM_SIZ_4b, 1, 0x0000, G_TX_RENDERTILE, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD);
+	gDPSetTileSize(gdl++, G_TX_RENDERTILE, 0, 0, 0x007c, 0x007c);
+	gDPSetPrimColorViaWord(gdl++, 0, 0, colour);
+	gDPPipeSync(gdl++);
+
+	for (; *text != '\0'; text++) {
+		struct fontchar *curchar;
+		struct fontchar *prev;
+		u8 c = *text;
+
+		if (c == ' ') {
+			x += 5 * scale;
+			prevchar = 'H';
+			continue;
+		}
+
+		if (c < 0x21 || c >= 0x80) {
+			continue;
+		}
+
+		curchar = &chars[c - 0x21];
+		prev = &chars[prevchar - 0x21];
+
+		// The same kerning and glyph upload textRenderChar() does, with the
+		// rectangle and its texel steps scaled on both axes.
+		x -= (font->kerning[prev->kerningindex * 13 + curchar->kerningindex] + var8007fac4 - 1) * scale;
+
+		gdl = textSetFontGlyph(gdl, font, curchar, 1);
+		gDPSetTextureImage(gdl++, G_IM_FMT_CI, G_IM_SIZ_16b, 1, curchar->pixeldata);
+		gDPLoadSync(gdl++);
+		gDPLoadBlock(gdl++, G_TX_LOADTILE, 0, 0, ((curchar->height * 8 + 17) >> 1) - 1, 2048);
+		gDPPipeSync(gdl++);
+
+		gSPTextureRectangle(gdl++,
+				(x - scale) * 4,
+				(y - 1 + curchar->baseline * scale) * 4,
+				(x - scale + (curchar->width + 2) * scale) * 4,
+				(y - 1 + (curchar->baseline + curchar->height + 2) * scale) * 4,
+				G_TX_RENDERTILE, 0, 0, 1024 / scale, 1024 / scale);
+
+		x += curchar->width * scale;
+		prevchar = c;
+	}
+
+	return gdl;
+}
+#endif
+
 Gfx *text0f1566cc(Gfx *gdl, u32 arg1, u32 arg2)
 {
 	u32 colour = text0f1543ac(arg1, arg2, g_Blend.colour04);

@@ -1,0 +1,125 @@
+diff --git a/src/xenia/gpu/pm4_command_processor_implement.h b/src/xenia/gpu/pm4_command_processor_implement.h
+index e2560f9c1..badc29224 100644
+--- a/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -389,6 +389,100 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_CountOverflow(uint32_t count) {
+   return false;
+ }
+ XE_NOINLINE
++// PD port research hook (not upstream). With PD_DRAWLOG naming a file, every
++// draw writes one record there: the frame number (counted at each XE_SWAP),
++// the raw VGT_DRAW_INITIATOR (index count in its top 16 bits), the active
++// vertex and pixel shader objects, vertex float constants c0-c63, pixel float
++// constants c0-c15, registers 0x2100-0x211F (blend colour, viewport) and
++// 0x2200-0x220B (depth, blend and colour control, cull mode). Logging stops
++// after PD_DRAWLOG_FRAMES frames (6000 when unset).
++static FILE*& PdDrawLogFile() {
++  static FILE* file = nullptr;
++  return file;
++}
++static uint32_t& PdDrawLogFrame() {
++  static uint32_t frame = 0;
++  return frame;
++}
++static FILE* PdDrawLogOpen() {
++  static int state = 0;  // 0 not asked yet, 1 logging, -1 off
++  if (state == 0) {
++    const char* path = std::getenv("PD_DRAWLOG");
++    PdDrawLogFile() = path ? std::fopen(path, "wb") : nullptr;
++    state = PdDrawLogFile() ? 1 : -1;
++  }
++  return state > 0 ? PdDrawLogFile() : nullptr;
++}
++static uint32_t PdDrawLogMaxFrames() {
++  static uint32_t max_frames = 0;
++  if (!max_frames) {
++    const char* env = std::getenv("PD_DRAWLOG_FRAMES");
++    max_frames = env ? uint32_t(std::strtoul(env, nullptr, 10)) : 6000;
++  }
++  return max_frames;
++}
++// A host timestamp at each swap, to PD_DRAWLOG with ".swaps" added: u32 frame
++// and u64 microseconds of steady_clock. The game's clock follows vblanks,
++// which Xenia raises at 60 Hz of real time, so this is what turns frames into
++// the game's ticks when the emulator draws slower than 60.
++static void PdDrawLogSwap() {
++  PdDrawLogFrame()++;
++  if (FILE* file = PdDrawLogOpen()) {
++    std::fflush(file);
++    static FILE* swaps = nullptr;
++    if (!swaps) {
++      std::string path = std::string(std::getenv("PD_DRAWLOG")) + ".swaps";
++      swaps = std::fopen(path.c_str(), "wb");
++    }
++    if (swaps && PdDrawLogFrame() <= PdDrawLogMaxFrames()) {
++      const uint32_t frame = PdDrawLogFrame();
++      const uint64_t micros = uint64_t(
++          std::chrono::duration_cast<std::chrono::microseconds>(
++              std::chrono::steady_clock::now().time_since_epoch())
++              .count());
++      std::fwrite(&frame, 4, 1, swaps);
++      std::fwrite(&micros, 8, 1, swaps);
++      std::fflush(swaps);
++    }
++  }
++}
++// The second version of the record ('PDD2') adds the 32 texture fetch
++// constants (0x4800-0x48BF) and, for each shader, the fetch constant each of
++// its texture bindings reads (8 bytes, 0xFF for none or not yet analysed).
++static void PdDrawLogBindings(Shader* shader, uint8_t* out) {
++  std::memset(out, 0xFF, 8);
++  if (!shader || !shader->is_ucode_analyzed()) {
++    return;
++  }
++  size_t i = 0;
++  for (const auto& binding : shader->texture_bindings()) {
++    if (i < 8) {
++      out[i++] = uint8_t(binding.fetch_constant);
++    }
++  }
++}
++static void PdDrawLogDraw(const uint32_t* values, uint32_t initiator,
++                          Shader* vertex_shader, Shader* pixel_shader) {
++  FILE* file = PdDrawLogOpen();
++  if (!file || PdDrawLogFrame() >= PdDrawLogMaxFrames()) {
++    return;
++  }
++  const uint32_t head[3] = {0x32444450u, PdDrawLogFrame(), initiator};
++  const uint64_t shaders[2] = {uint64_t(uintptr_t(vertex_shader)),
++                               uint64_t(uintptr_t(pixel_shader))};
++  uint8_t bindings[16];
++  PdDrawLogBindings(vertex_shader, bindings);
++  PdDrawLogBindings(pixel_shader, bindings + 8);
++  std::fwrite(head, 4, 3, file);
++  std::fwrite(shaders, 8, 2, file);
++  std::fwrite(values + 0x4000, 4, 256, file);
++  std::fwrite(values + 0x4400, 4, 64, file);
++  std::fwrite(values + 0x2100, 4, 32, file);
++  std::fwrite(values + 0x2200, 4, 12, file);
++  std::fwrite(values + 0x4800, 4, 192, file);
++  std::fwrite(bindings, 1, 16, file);
++}
++
+ bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet) XE_RESTRICT {
+   // Type-3 packet.
+   uint32_t opcode = (packet >> 8) & 0x7F;
+@@ -566,6 +660,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet) XE_RESTRICT {
+     }
+ 
+     trace_writer_.WritePacketEnd();
++    if (opcode == PM4_XE_SWAP) {
++      PdDrawLogSwap();
++    }
+ #if XE_ENABLE_TRACE_WRITER_INSTRUMENTATION == 1
+ 
+     if (opcode == PM4_XE_SWAP) {
+@@ -1135,6 +1232,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3Draw(
+   // we don't support yet.
+   reader_.AdvanceRead(count_remaining * sizeof(uint32_t));
+ 
++  PdDrawLogDraw(register_file_->values, vgt_draw_initiator.value,
++                active_vertex_shader_, active_pixel_shader_);
++
+   if (draw_succeeded) {
+     auto viz_query = register_file_->Get<reg::PA_SC_VIZ_QUERY>();
+     if (!(viz_query.viz_query_ena && viz_query.kill_pix_post_hi_z)) {

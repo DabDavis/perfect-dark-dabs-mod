@@ -147,6 +147,36 @@ s32 xblaMeshModelHasMesh(struct model *model);
  * for the boot sequence), since it walks the whole node table.
  */
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef);
+
+/**
+ * While on, xblaMeshRenderNode() leaves every node to the game, so a model the
+ * release has a mesh for draws exactly as the N64 draws it: the mesh is not
+ * drawn and nothing it covers is suppressed. For a caller that wants both
+ * pictures of one model on different frames - the title shares the Nintendo
+ * logo's slot between the release's Microsoft Game Studios mesh and the N64's
+ * own Nintendo logo. Set it round the modelRender() call and clear it after.
+ */
+void xblaMeshSetBypass(s32 on);
+
+/**
+ * While cycle2 is non-zero, every mesh list drawn in the opaque pass takes this
+ * render mode instead of the one its node wrote - the second cycle, with the
+ * node's first cycle kept (onecycle for a one-cycle node). For the title's 4J
+ * cubes, which fade the way the release does: a depth-only pass and then a
+ * blended pass that only colours the nearest surface. Set it round the
+ * modelRender() call and clear it after with zeroes.
+ */
+void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle);
+
+/**
+ * While set, 4J's red and marble cubes (the only meshes built with their
+ * normals) draw the release's reflections: each material whose byte 16 is not
+ * zero is blended that percentage of the way towards environment map byte 24,
+ * looked up by the eye's ray reflected in the surface. modelview takes the mesh to view space (the
+ * eye at the origin). Set it round the modelRender() call that colours the
+ * mesh - never round a depth-only pass - and clear it after with NULL.
+ */
+void xblaMeshSetEnvironment(const Mtxf *modelview);
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode);

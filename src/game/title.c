@@ -35,6 +35,9 @@
 #include "video.h"
 #include "update.h"
 #include "xblamesh.h"
+#include "game/zbuf.h"
+#include "romdata.h"
+#include "xbla4jintro.h"
 #endif
 
 #ifdef PLATFORM_N64
@@ -327,6 +330,51 @@ struct legalelement g_LegalElements[] = {
 #endif
 };
 
+#if !defined(PLATFORM_N64) && VERSION != VERSION_JPN_FINAL
+/**
+ * The Xbox 360 release's legal screen, read off the release running in Xenia.
+ * It is the N64's layout with the Expansion Pak, Rareware trademark and Miles
+ * Sound System lines gone, a Conversion By row for 4J, the ESRB's online
+ * notice, Dolby Digital for Dolby Surround and Microsoft's copyright. The rows
+ * the port fills in with the branch, the ROM and the build keep their text ids
+ * (see titleRenderLegal()), so this screen still says which build is running;
+ * the release's own values are what they fall back to. The fonts have no
+ * copyright sign, so it is written out.
+ */
+struct legalelement g_LegalElementsXbla[] = {
+	{ 49,  163, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_077, "Xbox 360 Product Identification" },
+	{ 49,  184, 1, 1, LEGALELEMENTTYPE_LINE,        0,             NULL },
+	{ 69,  191, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_078, NULL }, // "Product ID:"
+	{ 69,  211, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_079, NULL }, // "Product Code:"
+	{ 69,  231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_080, NULL }, // "Variant:"
+	{ 69,  251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_081, NULL }, // "Developer:"
+	{ 69,  271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_081, "Conversion By:" },
+	{ 249, 191, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_082, "Perfect Dark" },
+	{ 249, 211, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_083, "13.21.34.55" },
+	{ 249, 231, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_084, "10.02.16.0052" },
+	{ 249, 251, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085, NULL }, // "Rare Ltd. (twycross)"
+	{ 249, 271, 1, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_085, "4J Studios Ltd." },
+	{ 69,  294, 1, 1, LEGALELEMENTTYPE_LINE,        0,             NULL },
+	{ 69,  303, 0, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_077, "ESRB Notice: Online Interactions Not Rated By The ESRB" },
+	{ 69,  344, 0, 1, LEGALELEMENTTYPE_DOLBYLOGO,   0,             NULL },
+	{ 158, 344, 0, 1, LEGALELEMENTTYPE_BLUETEXTMD,  L_OPTIONS_088, "Presented in Dolby Digital. Dolby and the double-D\nsymbol are trademarks of Dolby Laboratories." },
+	{ 69,  405, 0, 1, LEGALELEMENTTYPE_BLUETEXTLG,  L_OPTIONS_077, "(c) 2010 Microsoft Corporation. All rights reserved." },
+	{ 69,  426, 1, 1, LEGALELEMENTTYPE_LINE,        0,             NULL },
+	{ 69,  433, 0, 1, LEGALELEMENTTYPE_BLUETEXTSM,  L_OPTIONS_093, NULL }, // "rare designs on the future <<<"
+};
+
+/**
+ * Whether the legal screen is the release's: with the release's switch on,
+ * and only while the strings it replaces are the ROM's. A mod that ships its
+ * own options language file (GoldenEye X does) owns the screen.
+ */
+static bool titleUseXblaLegal(void)
+{
+	return xblaMeshGetEnabled() && xblaMeshIsAvailable()
+			&& romdataFileIsStock(langGetFileId(L_OPTIONS_077 >> 9));
+}
+#endif
+
 Gfx *titleRenderLegal(Gfx *gdl)
 {
 #if VERSION >= VERSION_PAL_BETA
@@ -353,6 +401,13 @@ Gfx *titleRenderLegal(Gfx *gdl)
 
 		elem = g_LegalElements;
 		end = &g_LegalElements[ARRAYCOUNT(g_LegalElements)];
+
+#if !defined(PLATFORM_N64) && VERSION != VERSION_JPN_FINAL
+		if (titleUseXblaLegal()) {
+			elem = g_LegalElementsXbla;
+			end = &g_LegalElementsXbla[ARRAYCOUNT(g_LegalElementsXbla)];
+		}
+#endif
 
 		for (; elem < end; elem++) {
 			u32 colour = 0x7f7fffff;
@@ -566,6 +621,39 @@ bool g_TitleXblaLogo = false;
 
 // Whether the Perfect Dark cube is the release's mesh (4J's spinning logo).
 bool g_TitleXblaCube = false;
+
+// Whether the Nintendo logo's slot is shared: the release's Microsoft Game
+// Studios mesh for its first half and the N64's own Nintendo logo for its
+// second, each played through at double speed so the slot keeps its length and
+// both companies are credited. Asked once as the slot starts, like the others.
+// A mod's logo file has no mesh (the loader leaves a mod's files alone), so a
+// mod's own logo keeps the whole slot.
+bool g_TitleXblaNintendoSplit = false;
+
+// Whether the N64's first cube is the release's mesh: 4J's red logo cube. The
+// release shows it as the 4J Studios card before its Perfect Dark cube - face
+// on with the name under it, then spinning, tipping back and crossfading into
+// the Perfect Dark cube. Asked once as the logo starts, like the others.
+bool g_TitleXbla4J = false;
+
+// Ticks of the 4J Studios card so far. The card comes before the N64's
+// timeline, which waits for it, and g_TitleTimer with it.
+s32 g_PdLogo4JCardTimer = 0;
+
+// Ticks since the card: the red cube's spin, tilt and fade, and the Perfect
+// Dark cube's fade in.
+s32 g_PdLogo4JSpinTimer = 0;
+
+// The alpha titleRenderPdLogoModel() draws its model with: 255 is the game's
+// own opaque draw, and only the two cubes' crossfade sets anything else.
+s32 g_TitleXblaModelAlpha = 255;
+bool g_TitleXblaModelZbuf = false;
+
+// PERFECT DARK to the cut is half a second shorter on the release's timeline
+// than on the N64's. The rest of the stage - the 4J Studios card's length, the
+// cubes' pose, stretch and fades and the name's fade - is 4J's own animation,
+// read out of the release's draw calls and generated into xbla4jintro.h.
+#define XBLA4J_EXIT_TICKS      30
 #endif
 
 void titleInitPdLogo(void)
@@ -612,10 +700,17 @@ void titleInitPdLogo(void)
 		modelSetRootPosition(g_TitleModel, &coord);
 
 #ifndef PLATFORM_N64
-		// The Nintendo colours go with the release on even where its cube is
-		// not drawn (a mod's logo file, or a mesh that will not build).
-		g_TitleXblaLogo = xblaMeshGetEnabled() && xblaMeshIsAvailable();
-		g_TitleXblaCube = xblaMeshModeldefDrawsMesh(g_ModelStates[MODEL_NLOGO].modeldef);
+		// A mod that ships any of this sequence's files owns the sequence, and
+		// it plays as the mod made it: the release's switch only changes the
+		// intro the ROM's own files draw. Otherwise the Nintendo colours go
+		// with the release on even where its cube is not drawn (a mesh that
+		// will not build).
+		g_TitleXblaLogo = xblaMeshGetEnabled() && xblaMeshIsAvailable()
+				&& romdataFileIsStock(g_ModelStates[MODEL_NLOGO].fileid)
+				&& romdataFileIsStock(g_ModelStates[MODEL_NLOGO2].fileid)
+				&& romdataFileIsStock(g_ModelStates[MODEL_PDTWO].fileid)
+				&& romdataFileIsStock(g_ModelStates[MODEL_PDTHREE].fileid);
+		g_TitleXblaCube = g_TitleXblaLogo && xblaMeshModeldefDrawsMesh(g_ModelStates[MODEL_NLOGO].modeldef);
 #endif
 	}
 
@@ -630,6 +725,10 @@ void titleInitPdLogo(void)
 		g_TitleModelNLogo2 = modelmgrInstantiateModelWithAnim(g_ModelStates[MODEL_NLOGO2].modeldef);
 		modelSetScale(g_TitleModelNLogo2, 1);
 		modelSetRootPosition(g_TitleModelNLogo2, &coord);
+
+#ifndef PLATFORM_N64
+		g_TitleXbla4J = g_TitleXblaLogo && xblaMeshModeldefDrawsMesh(g_ModelStates[MODEL_NLOGO2].modeldef);
+#endif
 	}
 
 	{
@@ -715,6 +814,11 @@ void titleInitPdLogo(void)
 		g_PdLogoIsFirstTick = true;
 		g_PdLogoTriggerExit = false;
 
+#ifndef PLATFORM_N64
+		g_PdLogo4JCardTimer = 0;
+		g_PdLogo4JSpinTimer = 0;
+#endif
+
 		if (g_TitleButtonPressed) {
 			titleSkipToPdTitle();
 		}
@@ -744,7 +848,17 @@ void titleTickPdLogo(void)
 	viSetZRange(100, 10000);
 	viSetUseZBuf(false);
 
-	g_TitleTimer += g_Vars.lvupdate60;
+#ifndef PLATFORM_N64
+	// The 4J Studios card comes first, and the N64's timeline - which this
+	// timer is the clock for, down to when a button may skip it - waits for it.
+	if (g_TitleXbla4J && g_PdLogo4JCardTimer < XBLA4J_CARD_TICKS) {
+		g_PdLogo4JCardTimer += g_Vars.lvupdate60;
+	} else
+#endif
+	{
+		g_TitleTimer += g_Vars.lvupdate60;
+	}
+
 	g_PdLogoVtxColIndex = 1 - g_PdLogoVtxColIndex;
 
 #if VERSION == VERSION_JPN_FINAL
@@ -954,6 +1068,21 @@ Gfx *titleRenderPdLogoModel(Gfx *gdl, struct model *model, bool arg2, f32 arg3, 
 	renderdata.zbufferenabled = false;
 	renderdata.gdl = gdl;
 
+#ifndef PLATFORM_N64
+	// 4J's cubes are drawn with a depth buffer (see titleRenderPdLogo4JCube()),
+	// and every render mode the node writes is its z-buffered variant then.
+	renderdata.zbufferenabled = g_TitleXblaModelZbuf;
+
+	// The release's crossfade from its 4J cube to its Perfect Dark cube, through
+	// the game's own fade: render mode 5 blends by the environment colour's
+	// alpha, and the mesh's lists take their render mode from the node like the
+	// game's lists do.
+	if (g_TitleXblaModelAlpha < 255) {
+		renderdata.unk30 = 5;
+		renderdata.envcolour = g_TitleXblaModelAlpha < 0 ? 0 : g_TitleXblaModelAlpha;
+	}
+#endif
+
 	modelRender(&renderdata, model);
 
 	gdl = renderdata.gdl;
@@ -1035,8 +1164,216 @@ void titleSkipToPdTitle(void)
 	g_TitleTimer = TICKS(549);
 	g_PdLogoIsFirstTick = false;
 
+#ifndef PLATFORM_N64
+	g_PdLogo4JCardTimer = XBLA4J_CARD_TICKS;
+	g_PdLogo4JSpinTimer = XBLA4J_TABLE_TICKS;
+#endif
+
 	musicStartTemporaryPrimary(MUSIC_TITLE2);
 }
+
+#ifndef PLATFORM_N64
+static f32 titleXbla4JRamp(s32 t, f32 start, f32 end)
+{
+	if (t <= start) {
+		return 0.0f;
+	}
+
+	if (t >= end) {
+		return 1.0f;
+	}
+
+	return (t - start) / (end - start);
+}
+
+/**
+ * Ticks since the Perfect Dark logo stage started, the 4J Studios card
+ * included: the clock xbla4jintro.h is written against.
+ */
+static s32 titleXbla4JStageTick(void)
+{
+	return g_PdLogo4JCardTimer + g_PdLogo4JSpinTimer;
+}
+
+struct xbla4jpose {
+	f32 spin;
+	f32 pitch;
+	f32 scale;
+};
+
+/**
+ * 4J's pose of both cubes at stage tick t: the spin and the pitch from the
+ * release's per-tick tables, the scale growing at its constant rate to its cap.
+ */
+static void titleXbla4JPose(s32 t, struct xbla4jpose *pose)
+{
+	const s32 i = t < 0 ? 0 : t >= XBLA4J_TABLE_TICKS ? XBLA4J_TABLE_TICKS - 1 : t;
+
+	pose->spin = g_Xbla4JSpinDeg[i] * (M_PI / 180.0f);
+	pose->pitch = g_Xbla4JPitchDeg[i] * (M_PI / 180.0f);
+	pose->scale = XBLA4J_SCALE_START + XBLA4J_SCALE_PER_TICK * (t < 0 ? 0 : t);
+
+	if (pose->scale > XBLA4J_SCALE_END) {
+		pose->scale = XBLA4J_SCALE_END;
+	}
+}
+
+/**
+ * The release's depth-only pass: the depth test and write of an opaque surface,
+ * and a blend of none of the incoming colour over all of what is there (the
+ * renderer draws this "invisible" at alpha zero, with its depth).
+ */
+#define TITLE_RM_DEPTH_ONLY(clk)                           \
+	AA_EN | Z_CMP | Z_UPD | IM_RD | CVG_DST_WRAP | CLR_ON_CVG | \
+	FORCE_BL | ZMODE_OPA |                                   \
+	GBL_c##clk(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA)
+
+/**
+ * One of 4J's cubes in 4J's pose: turned by the spin about its own up axis and
+ * then by the pitch about the screen's horizontal - the order the N64 turns its
+ * cube in, and the order the release's matrices decompose in - stretched along
+ * its up axis by yscale, and scaled in the title camera. A pitch of a quarter
+ * turn puts the red cube's emblem face towards the camera.
+ */
+static Gfx *titleRenderPdLogo4JCube(Gfx *gdl, struct model *model, const struct xbla4jpose *pose, f32 yscale, s32 alpha)
+{
+	static const s32 sides[] = {
+		MODELPART_LOGO_FRONTSIDE, MODELPART_LOGO_RIGHTSIDE, MODELPART_LOGO_BACKSIDE, MODELPART_LOGO_LEFTSIDE,
+	};
+	Vtx *vertices;
+	Col *colours;
+	Mtxf cam;
+	Mtxf yrot;
+	Mtxf xrot;
+	Mtxf stretch;
+	Mtxf mtx;
+	s32 numvertices = 0;
+	s32 numcolours = 0;
+	s32 i;
+
+	mtx00016ae4(&cam, 0.0f, 0.0f, 4000.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	mtx4LoadIdentity(&stretch);
+	stretch.m[1][1] = yscale;
+	mtx4LoadYRotation(pose->spin, &yrot);
+	mtx4LoadXRotation(pose->pitch, &xrot);
+	mtx4MultMtx4InPlace(&xrot, &yrot);
+	mtx4MultMtx4InPlace(&yrot, &stretch);
+	mtx4MultMtx4(&cam, &stretch, &mtx);
+	mtx00015f04(pose->scale, &mtx);
+
+	// titleRenderPdLogoModel() writes each side's morphed vertices whether or
+	// not the game's lists draw, and the mesh covers every one of them.
+	for (i = 0; i < ARRAYCOUNT(sides); i++) {
+		struct modelnode *node = modelGetPart(model->definition, sides[i]);
+
+		if (node) {
+			numvertices += node->rodata->dl.numvertices + 1;
+			numcolours += node->rodata->dl.numcolours + 1;
+		}
+	}
+
+	vertices = gfxAllocateVertices(numvertices);
+	colours = gfxAllocateColours(numcolours);
+
+	// Each cube is drawn into a depth buffer of its own, which the title
+	// otherwise has no use for: the red tray's rim hides the emblem's far
+	// walls, where without it they painted over the emblem as the cube tipped
+	// back. A fading cube is drawn the release's way, twice - into depth only,
+	// and then blended where it is the nearest surface (LEQUAL, ZMODE_INTER) -
+	// so its inside never shows through the fade.
+	gdl = zbufClear(gdl);
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+	g_TitleXblaModelZbuf = true;
+	g_TitleXblaModelAlpha = alpha;
+
+	if (alpha < 255) {
+		xblaMeshSetOpaqueMode(TITLE_RM_DEPTH_ONLY(2), TITLE_RM_DEPTH_ONLY(1));
+		gdl = titleRenderPdLogoModel(gdl, model, true, 1.0f, 240, 1.0f, &mtx, vertices, colours);
+		xblaMeshSetOpaqueMode(G_RM_AA_ZB_XLU_INTER2, G_RM_AA_ZB_XLU_INTER);
+	}
+
+	// The cubes' sheen is 4J's reflections of their environment maps
+	// (CLAUDE-notes/xbla.md, "The release's reflections"): the emblem's as the
+	// tray tips back, and the marble cube's bright bevels. Only round the pass
+	// that colours the cube.
+	xblaMeshSetEnvironment(&mtx);
+	gdl = titleRenderPdLogoModel(gdl, model, true, 1.0f, 240, 1.0f, &mtx, vertices, colours);
+	xblaMeshSetEnvironment(NULL);
+
+	xblaMeshSetOpaqueMode(0, 0);
+	g_TitleXblaModelAlpha = 255;
+	g_TitleXblaModelZbuf = false;
+
+	// The cubes' lists cull the faces turned away (see xblaMeshBuild()), and
+	// nothing drawn after them on the title may keep that or the depth test.
+	gSPClearGeometryMode(gdl++, G_ZBUFFER | G_CULL_BOTH);
+
+	return gdl;
+}
+
+/**
+ * "4J STUDIOS" under the card's cube, white, at twice the large font's size -
+ * the release's is in 4J's own lettering, and the large Handel Gothic (the
+ * release's own glyphs, with the release's font on) is the nearest the game
+ * has.
+ */
+static Gfx *titleRenderPdLogo4JName(Gfx *gdl, f32 frac)
+{
+	char *text = "4J STUDIOS";
+	s32 textheight;
+	s32 textwidth;
+	s32 alpha = frac * 255.0f;
+
+	if (alpha <= 0) {
+		return gdl;
+	}
+
+	if (alpha > 255) {
+		alpha = 255;
+	}
+
+	textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicLg, g_FontHandelGothicLg, 0);
+
+	gdl = text0f153628(gdl);
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
+
+	// Twice the measured size, centred across the screen and under the cube.
+	gdl = textRenderScaled(gdl, viGetWidth() / 2 - textwidth, viGetHeight() * 70 / 100 - textheight,
+			text, g_CharsHandelGothicLg, g_FontHandelGothicLg, 0xffffff00 | alpha, 2);
+
+	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
+	gdl = text0f153780(gdl);
+
+	return gdl;
+}
+
+/**
+ * The 4J Studios card, before the N64's timeline starts: the red cube face on
+ * in the middle of the screen, growing slowly, and the name under it holding
+ * and then fading as the card ends.
+ */
+static Gfx *titleRenderPdLogo4JCard(Gfx *gdl)
+{
+	const s32 t = titleXbla4JStageTick();
+	struct xbla4jpose pose;
+	LookAt *lookat;
+	Mtx lookatmtx;
+
+	gdl = viSetFillColour(gdl, 0x00, 0x00, 0x00);
+	gdl = viFillBuffer(gdl);
+
+	lookat = gfxAllocateLookAt(2);
+	guLookAtReflect(&lookatmtx, lookat, 0.0f, 0.0f, 4000.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	gSPLookAt(gdl++, lookat);
+
+	titleXbla4JPose(t, &pose);
+
+	gdl = titleRenderPdLogo4JCube(gdl, g_TitleModelNLogo2, &pose, 1.0f, 255);
+	gdl = titleRenderPdLogo4JName(gdl, 1.0f - titleXbla4JRamp(t, XBLA4J_TEXT_FADE_START, XBLA4J_TEXT_FADE_END));
+
+	return gdl;
+}
+#endif
 
 Gfx *titleRenderPdLogo(Gfx *gdl)
 {
@@ -1098,6 +1435,16 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 	Mtx spf0;
 
 	sp13c = g_TitleTimer / TICKS(4500.0f) - 0.1f;
+
+#ifndef PLATFORM_N64
+	if (g_TitleXbla4J && g_PdLogo4JCardTimer < XBLA4J_CARD_TICKS) {
+		return titleRenderPdLogo4JCard(gdl);
+	}
+
+	if (g_TitleXbla4J && g_PdLogo4JSpinTimer < XBLA4J_TABLE_TICKS) {
+		g_PdLogo4JSpinTimer += g_Vars.lvupdate60;
+	}
+#endif
 
 	if (g_PdLogoIsFirstTick) {
 		g_PdLogoYRotCur = yrotmax;
@@ -1246,7 +1593,13 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 	if (g_PdLogoDarkenEnabled) {
 		// Fading out the side and back faces of the logo. This is done by adjusting the ambient lighting.
 		// The front face is excluded from this further below.
+#ifndef PLATFORM_N64
+		// The release's cube is not darkened, and its title comes 1.7 s sooner
+		// than the N64's timeline puts it; this wait is most of the difference.
+		g_PdLogoAmbientLightFrac -= (g_TitleXblaCube ? 4.0f : 1.0f) * amblightinc * g_Vars.lvupdate60freal;
+#else
 		g_PdLogoAmbientLightFrac -= amblightinc * g_Vars.lvupdate60freal;
+#endif
 
 		if (g_PdLogoAmbientLightFrac <= 0.0f) {
 			g_PdLogoAmbientLightFrac = 0.0f;
@@ -1358,7 +1711,12 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 	if (g_PdLogoExitTimer != 0) {
 		g_PdLogoExitTimer += g_Vars.lvupdate60;
 
-		if (g_PdLogoExitTimer > TICKS(60)) {
+#ifndef PLATFORM_N64
+		if (g_PdLogoExitTimer > (g_TitleXblaCube ? TICKS(XBLA4J_EXIT_TICKS) : TICKS(60)))
+#else
+		if (g_PdLogoExitTimer > TICKS(60))
+#endif
+		{
 			g_PdLogoExitTimer = 0;
 			g_PdLogoTriggerExit = true;
 		}
@@ -1383,7 +1741,14 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 
 	gdl = viFillBuffer(gdl);
 
-	if (g_PdLogoBlackTimer != 0) {
+	// The N64's three black frames before the spin; the release goes from its
+	// card straight into the spin, so its cube stays on screen through them.
+#ifndef PLATFORM_N64
+	if (g_PdLogoBlackTimer != 0 && !g_TitleXbla4J)
+#else
+	if (g_PdLogoBlackTimer != 0)
+#endif
+	{
 		return gdl;
 	}
 
@@ -1449,10 +1814,11 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 	mtx00016ae4(&sp2b0, 0.0f, 0.0f, 4000.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 
 #ifndef PLATFORM_N64
-	// With the release on, the cube spins as the dark Perfect Dark logo from the
-	// first frame: the N64's first cube and the morph out of it are Nintendo's
-	// four colours, which the release never showed. The timeline is left alone,
-	// so it spins, stops and fades exactly as long.
+	// With the release on, the N64's first cube and the morph out of it
+	// (Nintendo's four colours, which the release never showed) do not draw:
+	// the Perfect Dark cube is finished from the first frame. Where 4J's red
+	// cube can draw, it spins in front and the Perfect Dark cube fades in as it
+	// fades out (g_TitleXbla4J).
 	xblalogo = g_TitleXblaLogo;
 #endif
 
@@ -1541,7 +1907,39 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 			}
 		}
 
-		gdl = titleRenderPdLogoModel(gdl, model, var80062804, xblalogo ? 1.0f : g_PdLogoFrac, 240, 1.0f, &sp270, gfxAllocateVertices(numvertices), gfxAllocateColours(numcolours));
+#ifndef PLATFORM_N64
+		if (g_TitleXbla4J) {
+			// Both cubes are 4J's, in one pose: the red one fading out, the
+			// Perfect Dark one stretched from half height to its own height as
+			// it fades in (4J's stand-in for the N64's morph).
+			const s32 t = titleXbla4JStageTick();
+			const f32 morph = titleXbla4JRamp(t, XBLA4J_MORPH_START, XBLA4J_MORPH_END);
+			const s32 redalpha = 255.0f * (1.0f - titleXbla4JRamp(t, XBLA4J_RED_OUT_START, XBLA4J_RED_OUT_END));
+			struct xbla4jpose pose;
+
+			titleXbla4JPose(t, &pose);
+
+			if (redalpha > 0) {
+				gdl = titleRenderPdLogo4JCube(gdl, g_TitleModelNLogo2, &pose, 1.0f, redalpha);
+			}
+
+			if (morph > 0.0f) {
+				gdl = titleRenderPdLogo4JCube(gdl, g_TitleModel, &pose, 0.5f + 0.5f * morph, 255.0f * morph);
+			}
+		} else
+#endif
+		{
+#ifndef PLATFORM_N64
+			// A mod that owns this sequence draws its own cubes, and the
+			// release's meshes stay off the files it left alone: file 222's is
+			// 4J's logo, which belongs in nobody's intro but the release's.
+			xblaMeshSetBypass(!g_TitleXblaLogo);
+#endif
+			gdl = titleRenderPdLogoModel(gdl, model, var80062804, xblalogo ? 1.0f : g_PdLogoFrac, 240, 1.0f, &sp270, gfxAllocateVertices(numvertices), gfxAllocateColours(numcolours));
+#ifndef PLATFORM_N64
+			xblaMeshSetBypass(false);
+#endif
+		}
 	}
 
 	gSPSetLights1(gdl++, g_TitleLightPdLogoMain);
@@ -1883,6 +2281,11 @@ void titleInitNintendoLogo(void)
 		g_TitleModel = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_NINTENDOLOGO].modeldef);
 		modelSetScale(g_TitleModel, 1);
 		modelSetRootPosition(g_TitleModel, &coord);
+
+#ifndef PLATFORM_N64
+		g_TitleXblaNintendoSplit = xblaMeshModeldefDrawsMesh(g_ModelStates[MODEL_NINTENDOLOGO].modeldef);
+#endif
+
 		var800624f4 = 1;
 		joy00014810(false);
 	}
@@ -1947,6 +2350,23 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 	f32 fracdone = g_TitleTimer / (VERSION == VERSION_PAL_FINAL ? 183.0f : TICKS(240.0f));
 	struct coord lightdir = {0, 0, 0};
 	s32 v0;
+#ifndef PLATFORM_N64
+	bool nintendo = false;
+
+	// With the release on, the slot plays two logos: Microsoft Game Studios
+	// (the release's mesh on this model) and then Nintendo (the same model with
+	// the mesh bypassed). Each gets the whole of the N64's animation - the fade
+	// in, the tilt up, the sway and the fade out - in half the time, so the two
+	// meet in black and the slot ends when the N64's does.
+	if (g_TitleXblaNintendoSplit) {
+		fracdone *= 2.0f;
+
+		if (fracdone >= 1.0f) {
+			fracdone -= 1.0f;
+			nintendo = true;
+		}
+	}
+#endif
 
 	gdl = titleClear(gdl);
 
@@ -2014,7 +2434,15 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 		renderdata.zbufferenabled = false;
 		renderdata.gdl = gdl;
 
+#ifndef PLATFORM_N64
+		xblaMeshSetBypass(nintendo);
+#endif
+
 		modelRender(&renderdata, g_TitleModel);
+
+#ifndef PLATFORM_N64
+		xblaMeshSetBypass(false);
+#endif
 
 		gdl = renderdata.gdl;
 

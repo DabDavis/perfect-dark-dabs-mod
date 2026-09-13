@@ -104,6 +104,15 @@ u32 xblaTexGetNumRecords(void);
 u8 *xblaTexDecodeRecord(u32 record, s32 *outWidth, s32 *outHeight);
 
 /**
+ * A cube map record's six base faces, square, as RGBA32 one after another in
+ * Direct3D's face order (+X -X +Y -Y +Z -Z) and in the record's own row order,
+ * freed by the caller. The release's environment maps are records 0e93 on:
+ * 256 a side, DXT1, the six faces first and their packed mips after. NULL for
+ * a record that is not one.
+ */
+u8 *xblaTexDecodeCube(u32 record, s32 *outSize);
+
+/**
  * Mod.XblaMeshTextures, the menu's "Enable Textures".
  *
  * A live toggle: a material always binds its stand-in and this decides whether

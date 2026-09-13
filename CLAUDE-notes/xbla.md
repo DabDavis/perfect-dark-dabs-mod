@@ -2060,11 +2060,12 @@ the user asked for the release's intro with the release's switch:
 | 1376 `PrarelogoZ` | gold R on a blue plaque | the orange Rare logo (R, TM, RARE) |
 | 221 `PnintendologoZ` | Nintendo wordmark | Microsoft Game Studios |
 | 224 `PnlogoZ` | the cube the N64 logo morphs into | 4J's marble Perfect Dark cube |
-| 222 `Pnlogo2Z` | the N64's first, coloured cube | a flat red box - still refused |
+| 222 `Pnlogo2Z` | the N64's first, coloured cube | 4J's logo: a red cube with the 4J emblem cut into its top and bottom |
 
-There is no 4J Studios logo anywhere in the package (every record and every
-mesh no model names was looked at), and no Xbox 360 logo: the cube is the "4J
-spinning logo". Five things it took, each of which looked like something else:
+There is no Xbox 360 logo in the package. The 4J Studios logo is file 222's
+mesh, which this section first called "a flat red box": from the side the N64's
+spin looks at, that is all it is (see "The release's boot sequence, recorded"
+below). Five things it took, each of which looked like something else:
 
 - **The Rare mesh is ten times the plaque** (7115 by 10146 against 773 by
   1041). At the game's scale it is an orange R too big to see, which is the
@@ -2106,6 +2107,357 @@ script that stops `titleTick` at `g_TitleMode`/`g_TitleTimer` pairs (Rare 4,
 Nintendo 3, PD logo 2) and calls `screenshotRequest()`. Run it with
 `--fixed-step`: the spin advances by `lvupdate60freal`, so without it every
 gdb stop is a long frame and two runs disagree about where the logo is.
+
+### The release's boot sequence, recorded (2026-09-13)
+
+Two references, neither of them memory of the N64 intro: a recording of the
+release in Xenia Canary for the order and the look, and a log of the release's
+own draw calls for 4J's exact animation. Xenia presents nothing on Xvfb (RADV
+wants DRI3) unless `MESA_VK_WSI_DEBUG=sw` is set, it ignores SIGTERM, and
+`--license_mask=1` unlocks the package. The release reaches its logos about
+4 s after launch and replays the intro after its attract mode.
+
+| stage | the release |
+| --- | --- |
+| XBOX LIVE arcade splash | ~1 s (Microsoft's platform art - not ported) |
+| legal screen | "Xbox 360 Product Identification", the N64's length |
+| Rare | the orange logo, the N64's animation and length (248 ticks logged) |
+| Microsoft Game Studios | the whole Nintendo slot (246 ticks) |
+| the Perfect Dark logo stage | 4J's own animation, below |
+
+4J's stage, in ticks since it started (60 a second), read out of the draw log;
+`port/include/xbla4jintro.h` is generated from it:
+
+| ticks | |
+| --- | --- |
+| 0 - 114 | **the 4J Studios card**: the red cube face on (pitch exactly 90), still; "4J STUDIOS" fades out 55.7 - 112.0 |
+| 0 - 560 | both cubes' scale grows linearly from 0.3 to exactly 0.5 (0.000357 a tick) |
+| 114.7 - 560.5 | the spin, from rest to exactly 720 degrees (a per-tick table: no simple curve) |
+| 227 - 449 | the pitch, easing from 90 to exactly 0 (per-tick table) |
+| 308 - 448 | the Perfect Dark cube stretches from half its height to its own and fades in, linearly together |
+| 336 - 420 | the red cube fades out, linearly |
+| 544 | PERFECT DARK first drawn |
+| ~735 | cut to black; the stage's draws go on behind it to 785 |
+
+**4J does not morph the geometry.** Both cubes are drawn in one pose; the
+Perfect Dark cube is squashed to half its height (the red cube's shape) and
+stretched back as it fades in, which stands in for the N64's morph from cube to
+logo. And **4J kept the N64's title camera**: vertical fov 46, 4:3 (stretched to
+16:9 on screen), looking at the origin from 4000, so 4J's scale is the port's.
+
+**How it was read** (`tools/xblaintro/`, with a README). Xenia's GPU trace is
+compiled out of release builds, so Xenia was built from source with a small
+hook (`xenia-drawlog.patch`): one record per draw - frame, index count, the
+first 64 vertex and 16 pixel constants, blend state - and a host timestamp per
+swap. The boot meshes are picked out by index count (the release's own draw
+tables: red cube 1185, Perfect Dark cube 600/168/192, Rare 19620, Microsoft
+14868). Each draw's world-view-projection is vertex constants c2-c5, row major
+(`clip = [x y z 1] . M`), and dividing out the N64 camera leaves an exact
+rotation times a uniform scale (orthogonality error 0). The colour pass's alpha
+is pixel constant c1; the name's glyph quads carry theirs in c0.
+
+**What the port draws with the switch on** (title.c):
+
+- The legal screen is `g_LegalElementsXbla`: the release's lines, with the
+  port's own branch, ROM and build in the three rows the port fills in, and
+  `(c)` for the copyright sign the fonts do not have.
+- Microsoft Game Studios and the N64 Nintendo logo share the Nintendo slot,
+  half each, each with the whole N64 animation at double speed
+  (`g_TitleXblaNintendoSplit`). **The user asked for this** so every company is
+  credited; the release shows Microsoft alone. The Nintendo half is the same
+  model with `xblaMeshSetBypass()` on.
+- The 4J stage is `g_TitleXbla4J`: both cubes posed from `xbla4jintro.h` on
+  stage ticks (`g_PdLogo4JCardTimer + g_PdLogo4JSpinTimer`), the Perfect Dark
+  cube stretched along its own up axis. The card holds the N64's timeline, and
+  `g_TitleTimer` with it, for `XBLA4J_CARD_TICKS`; the fades are the game's own
+  (`renderdata.unk30 = 5`, the alpha in `envcolour`, which the mesh's lists take
+  from the node).
+- The N64's timeline still presents PERFECT DARK and exits. On the release's
+  timeline the side-darkening wait runs four times as fast and the exit after
+  the title takes 30 ticks instead of 60, which puts the title on tick 544 in
+  both.
+
+**A mod owns its intro.** Any of the Perfect Dark logo's files shipped by a mod
+(GoldenEye X ships them all) turns the release's version of that stage off, and
+the release's meshes stay off the cube files it left alone; a mod's options
+language file keeps its own legal screen. File 222 stopped being refused for
+this, and at once 4J's red box drew in place of GoldenEye X's first cube -
+which is what the bypass round the cube draw is for.
+
+Traps, each of which cost a run:
+
+- **Swaps are not ticks.** The game's clock follows vblanks, which Xenia raises
+  at 60 Hz of real time, and it drew at about 42 fps: the Rare logo is 180
+  frames and 248 ticks. The hook's swap timestamps are the clock.
+- **Shader objects are host pointers**: a shader id from one run means nothing
+  in the next. The name's glyphs are found as the vertex shader with the most
+  six-index draws in the frame (nine: one per letter).
+- Each frame is rendered three times with the same constants, and each cube
+  twice a pass - depth only (colour mask 0), then colour with SRC_ALPHA blend
+  and no depth write. That pre-pass is how 4J fades a closed box without its
+  inside showing, and the port does the same (below).
+- **The title draws with no depth buffer**, and every mesh draws both faces:
+  the red cube tipped back as an open cup. Culling alone (its lists are built
+  with `xblaMeshBuildCullBack`, and the title clears the culling after) is not
+  enough for the tray: its rim is concave, so as it tipped back the far walls
+  of the recess still painted over the emblem. Since 2026-09-13
+  `titleRenderPdLogo4JCube()` clears a depth buffer for each cube and draws it
+  with `G_ZBUFFER` (`g_TitleXblaModelZbuf` makes the node write its z-buffered
+  render modes), and a cube that is fading is drawn twice, the release's way:
+  a depth-only pass (`TITLE_RM_DEPTH_ONLY`, which gfx_pc draws "invisible", at
+  alpha zero, while still writing depth), then the blended pass in
+  `G_RM_AA_ZB_XLU_INTER2`. The blended pass must be ZMODE_INTER, because the GL
+  backend compares ZMODE_OPA and ZMODE_XLU with GL_LESS and would reject a
+  surface at its own pre-pass depth. The mesh takes both modes through
+  `xblaMeshSetOpaqueMode()`. **The release winds its triangles the other way
+  round from the game:** it is `G_CULL_FRONT` that drops the faces turned away.
+- **The marble cube is the right size.** A reading of "18% too small" came
+  from a blue colour mask that missed the cube's dim tips (and the release
+  frames are 1280x695, cropped from 720 at the bottom). Its lit extent at stage
+  tick 711 is 0.725 of the frame height in the port, 0.735 in the release and
+  0.737 when the mesh is projected with 4J's pose. The draw log gives both
+  cubes the same scale at every frame.
+- **`text0f1552d4()` is the credits' 3D text**: its glyphs are vertices for the
+  credits' projection, and on the title it draws nothing. `var80080108jf` (the
+  height scale) is Japanese only, and `var8007fad0` alone only widens a glyph.
+  `textRenderScaled()` (game_1531a0.c) draws a line at a whole multiple of the
+  font's size.
+- **Building Xenia for it**: `git submodule update --depth 1` left 26
+  submodules on branch tips rather than the recorded commits (check each out
+  at `git ls-tree HEAD <path>`); `xb build`'s configure step fails before it
+  writes `build/version.h` (write it by hand and build with `cmake --build`);
+  the link wants `lld`; the shaders want the LunarG SDK (the system's
+  SPIRV-Tools 2025.1 is too old).
+
+Not matched: the release's lighting on both cubes (4J's shaders; see the
+lighting task), 4J's own lettering for the name (the port uses the large Handel
+Gothic at twice its size), and the splash. Whether 4J clears depth between the
+two cubes is not in the draw log; the port gives each cube its own, so the
+crossfade is two whole pictures laid over each other.
+
+**The recording's stills are not on the stage clock; the port is (2026-09-13).**
+The comparison sheets paired port ticks with stills from the Xenia screen
+recording (`boot.mkv`, 30 fps), anchored by eye at 18.0 s = stage tick 33 and
+counted at 60 ticks a second. That made the port's tray look like it tilted
+late at tick 311, and it does not. Fitting the red cube's silhouette along
+4J's own pose curve (the red mesh projected with curves.csv's scale, pitch and
+spin; IoU 0.95-0.99) gives:
+
+- **The port lands on its nominal tick** to within a tick at 141, 201, 261,
+  311 and 351.
+- **The recording shows a tick about 5 earlier than its label** (94 frames:
+  mean -4.9, sd 2.3, no drift). A 30 fps recording of a game Xenia presented at
+  an uneven ~42 fps jitters by that much, and at tick 311 the pitch moves half
+  a degree a tick. The still labelled 22.63 s is tick 303; tick 311 is the
+  frame at 22.767 s.
+
+So judge the stage against a still picked by its **fitted** tick, never by the
+recording's time. The fit is only well-posed while the red cube is moving and
+opaque (stage ticks ~120-335): on the card it holds still, and from 336 it
+fades out. Do not move the port's timing to match a still. The tables come from
+4J's exact draw matrices, and the silhouette fit agrees with them.
+
+**The red cube's tray: its red matches, but the release adds a highlight
+(2026-09-13).** Asked to match "the emblem lighting inside the tray". What the
+release gives this mesh (slot 2281, texture record 4384 = dump 1120, material
+word 0x010f1120: byte 16 is 15 and byte 24 is 1):
+
+- **No light at all in its shader constants.** Vertex c0 is a fixed
+  (1, 0, 0, -0.99) and c2-c5 the world-view-projection. Pixel c0 is only the
+  "4J STUDIOS" name's fade (alpha 1 to 0 over ticks 54-110), c1 the cube's fade
+  alpha, and c2 and c3 fixed.
+- **Its shading is baked into the vertex colours.** The texture is a flat
+  64x64 (139, 13, 13). The vertex colours are ten greys from 116 to 255, and
+  every up-facing vertex (rim top, tray floor and emblem top alike, all
+  between heights 1151 and 1218: the tray is shallow) is 255.
+
+A z-buffered numpy raster of the mesh in 4J's pose, interpolating colour and
+normal, was checked against the port's own shots first: red = 139.2 x vertex
+colour explains 96% of the port's pixels. Against the release frames at fitted
+ticks 201, 261 and 311, each region's red divided by the same frame's rim top
+(so the recording's levels cancel) comes out as:
+
+| region | release | port |
+| --- | --- | --- |
+| emblem top | 1.01 | 1.00 |
+| tray floor | 0.99 | 1.00 |
+| inner walls | 0.94 | 0.94 |
+| outer walls | 0.63 | 0.67 |
+
+That table is **red only**, and its "emblem top" and "tray floor" rows are
+both halves of the emblem: the mask split up-facing pixels by height, and the
+emblem's top is one plane sloping from 1211 to 1158. A label image showed it.
+So the red channel matches, and the table says nothing about emblem against
+tray.
+
+**The highlight is in green and blue.** Per region at tick 311, over the rim
+top: the release's emblem top is red 1.02, green 1.13, blue 1.13 (the port's
+1.00, 1.03, 1.03), and the whitish excess (G+B)/2 - (13/139)R is +5.4 on the
+emblem against +0.7 in the port. At 261, with the emblem face-on, it is 0.0;
+at 201 it is slightly negative. The recording is yuv444p, so this is not
+chroma smear.
+
+- A mesh-fixed light explains none of it, and a view-fixed diffuse light fails
+  tick by tick.
+- A Fresnel term (1 - n.v)^k is ruled out: it predicts +12.6 on the ring and
+  +22 on the outer walls, where the release has about 0.
+- **A reflected-ray (Phong) highlight fits.** max(0, r.L)^16, with r the eye
+  ray reflected per pixel and L ~ (-0.09, 0.68, 0.73) in view space (above and
+  behind the camera), explains 59% of the emblem's excess across all three
+  ticks. It gets each tick's mean right (-2.9 / -0.7 / +5.4 against -3.7 /
+  0.0 / +5.4) and predicts the other surfaces roughly.
+
+**Superseded the same day by "The release's reflections" (below).** Kept for
+how the fit went and what misled it.
+
+**Drawn since 2026-09-13.** The texture is flat red, so the highlight cannot
+go in through the vertex colours (red times anything stays red); it is added
+after the texture:
+
+- The builder keeps each vertex's normal for files 222 and 224 only
+  (`xblaMeshBuildKeepNormals`, set beside `xblaMeshBuildCullBack`). A vertex
+  of a material whose byte 16 is zero keeps a zero normal, which takes no
+  weight (`highlit`, set in `xblaMeshSetMaterial()`).
+- `titleRenderPdLogo4JCube()` calls `xblaMeshSetHighlight()` with the cube's
+  own model-view matrix round each cube's draw, and clears it after.
+- Each frame, `xblaMeshHighlightColours()` binds a copy of the vertex colours
+  whose alpha is strength x max(0, r.L)^power, per vertex in view space.
+- The opaque list's combiner becomes TEXEL0 x SHADE, then
+  ENVIRONMENT x SHADE_ALPHA + COMBINED, with the highlight's colour written
+  as the environment's RGB just before the list. The alpha is the texel's, or
+  the environment's while the title fades the cube (the env write keeps the
+  fade alpha the node set), and is passed straight through the second cycle.
+  The environment is used rather than the primitive colour, which the title
+  uses for other things; the node's own fade combiner only reads env alpha.
+- gfx_pc keeps a vertex's alpha whether or not G_FOG is on, and computes fog
+  from z, so the weight is safe in shade alpha.
+
+**The constants are fitted to what the recording can measure once its levels
+cancel**: how much more whitish excess the emblem top gets than the rim top at
+ticks 201 / 261 / 311, and how much the rim gains between them. In port levels
+the release has -1.0 / +0.4 / +2.1 and +3.0 / +4.8. A search over light
+direction and power, with the strength solved by least squares, chose L =
+(-0.024, 0.686, 0.727), power 8, strength 0.077. The port with it measures
+0.0 / +0.6 / +1.5 and +2.4 / +4.6; before it, 0.0 / 0.0 / +0.5 and 0.0 / +0.2.
+
+Three things that looked right and were not:
+
+- The first fit (power 16, strength 0.15) had an offset absorbing the
+  recording's colour shift. Drawn, it doubled the rim's gain and gave the
+  emblem no margin over the rim.
+- A per-pixel, per-channel fit over every surface liked a sharp lobe (power
+  100, L (-0.04, 0.87, 0.49)). Against the offset-free targets it scores
+  1.9 rms against the broad lobe's 0.6: it lights nothing until the tray has
+  tipped, then too much.
+- Per-vertex evaluation is not what limits the match: on the tray's big flat
+  triangles per-vertex and per-pixel give the same region means to within
+  half a level, for either lobe.
+
+**The release's reflections (2026-09-13).** What the tray's "highlight" and
+the marble cube's bright bevels really are. Asked to "match the marble bevels
+to the release", after a pale blue Phong highlight had been fitted to the tray
+and put on both cubes. The bevels stayed a dark gradient against the
+release's light metallic grey (port 10 against release 60, port levels), and
+no highlight fit closed it.
+
+**Found in the draw log, not fitted.** The Xenia hook's second record version
+(PDD2, tools/xblaintro) logs the texture fetch constants and each shader's
+bindings. The pixel shader the red cube and the marble cube's first two draws
+share samples two textures: the material's own at fetch 0 (mips 0-6, linear
+mip filter) and a **cube map at fetch 2** (256x256 DXT1, six faces). Material
+byte 24 picks the cube: the bevels are 0, the red cube and the marble's faces
+1, the Rare logo 2, Microsoft Game Studios 3. Those four sit at consecutive
+addresses in that order, 0x60000 apart, so index i is record 0e93 + i: 0e93 a
+grey studio, 0e94 blue, 0e95 orange, 0e96 white, then 0e97, 0e98 and 0e9c.
+Byte 16 is the percentage. The marble's third draw (record 1118, the black
+strips) has byte 16 zero and shaders of its own.
+
+**The model:** colour = texture x vertex colour x (1 - k) + cube(r) x k, with
+k = byte 16 / 100 and r the eye's ray reflected in the normal, in view space.
+The lookup is Direct3D's cube convention (+X (-z,-y), -X (z,-y), +Y (x,z),
+-Y (x,-z), +Z (x,-y), -Z (-x,-y)), with the faces in the record's row order.
+Checked per pixel against the release at the still pose (tick 700):
+
+- **Bevels** (cube 0e93, 50%): R² 0.39 with the texture alone, 0.93 with the
+  cube.
+- **Faces** (0e94, 40%): R² 0.88 alone, 0.98 with the cube.
+- **A free fit on the faces** gives texture x 0.63/0.65/0.75 and cube x
+  0.38/0.40/0.42: a blend, not an addition. Added, the faces drew 10-15
+  levels too bright.
+- **The tray** (0e94, 15%) matches in structure: its emblem is darker than
+  its rim at 201 and brighter at 311, which the Phong lobe could not do.
+- **The "darker recording" was mostly this blend.** Red at 0.85 of its
+  texture is 118 against the 139 the port drew. The recording still crushes
+  its dark end by about 5 port levels: the black strips, with no reflection,
+  model 16-20 and record 6.
+
+**Drawn since 2026-09-13:**
+
+- **Build** (`xblaMeshBuildEnvironment()`, files 222 and 224 only, the builds
+  that keep normals). Each vertex keeps its material's cube index and amount.
+  Each cube the mesh reflects becomes a 256x256 sphere map for a viewer
+  looking down -z, one cell in one atlas (`xblaTexDecodeCube()`,
+  `xblaTexBindImage()`). The mesh's lists are copied with every `G_SETTIMG`
+  pointed at the atlas and every `G_DL` into the lists relocated.
+- **Each frame** (`xblaMeshEnvironmentVertices()`): each vertex gets
+  sphere-map UVs for its reflected ray and the amount in its alpha. The main
+  list's colours are scaled by 1 - k, and the copy is drawn over it with
+  `G_RM_AA_ZB_XLU_INTER` (LEQUAL, no depth write) and `G_ADDITIVE_EXT`.
+- **The renderer's additive blend is new** (`gbiex.h`, gfx_pc, gfx_opengl:
+  SRC_ALPHA, ONE). Before it the renderer had only alpha and modulate.
+- **The title** sets `xblaMeshSetEnvironment()` round the colour pass only,
+  never the depth-only pre-pass. The Phong highlight is gone.
+
+**Result** (port levels, release through the recording's levels):
+
+| | Release | Port before | Port now |
+| --- | --- | --- | --- |
+| Bevels, tick 700 | 59.7 / 62.5 / 67.5 | 10.3 / 10.9 / 10.4 | 57.8 / 60.2 / 64.3 |
+| Faces, tick 700 | 18.5 / 24.8 / 47.1 | 18.5 / 25.3 / 40.7 | 22.1 / 28.0 / 48.0 |
+| Tray emblem/rim G, 201/261/311 | 0.92 / 0.99 / 1.13 | 1.00 / 1.04 / 1.07 | 0.95 / 1.05 / 1.13 |
+
+**Not matched:** the sphere-map UVs are interpolated per vertex where the
+release reflects per pixel; the cube's mips are not used; and the atlas is
+built for the title's fixed camera looking down -z.
+
+**Traps, each of which misled once:**
+
+- **The cube records are DXT1** (format 18), with six 0x8000 base faces and
+  then 0x30000 of packed mips. Split as six 0x10000 faces, the last three
+  decode as mosaics of mips. The texture dump skips these records.
+- **Numpy namespaces collide.** Executing the red cube's raster setup after
+  the marble's rebinds the mesh globals, so "the marble" was the red cube
+  with every triangle labelled draw 0 (negative amounts, an empty draw 1). Set
+  each mesh up in its own namespace.
+- **There is no Fresnel or angle term** (amount by cosine bins wanders with no
+  trend) and **no gloss mask** (alpha is 255 on 1116, 1117, 1118 and 1120).
+- **Rotating stills cannot tell view space from object space** (R² under
+  0.4 either way, from the recording's jitter). View space is the standard
+  lookup and makes the face pattern slide as the cube turns, as it does in
+  the recording.
+- **Earlier conclusions that were wrong:** "not sphere maps" was right about
+  the textures 1116 and 1117 but missed the second sampler, and "base shading,
+  not the highlight" was the reflection itself.
+
+**Beyond the title:** 438 of the release's mesh draws have byte 16 non-zero
+with byte 24 zero, and 40 more with byte 24 1-4. This is how the release
+lights its shiny materials, and it is the route for the top lighting task.
+
+**Capture trap:** `screenshots/pd-<stamp>.png` is named to the second, and
+under `--fixed-step` shots 25 frames apart overwrite each other (seven of
+eight were lost). Move each file away before the next can be taken. Doing it
+with two `continue`s a frame put shots a tick off, alternately early and
+late, and one tick at 311 moved the rim gain by 30%. One `continue`, then
+collect. Check the shot's `spin` against the reference run (89 / 149 / 199
+at 201 / 261 / 311) before comparing numbers.
+
+Absolute levels in the recording are still not comparable: its rim top is
+111-115 against the port's 139, and the legal screen's unlit text is darker
+too (median 81 against 127). Compare by ratios within one picture, every
+channel, and check any region mask with a label image. Scripts:
+`$SCRATCH/raster.py`, `regions.py` and `levels311.py` in the session that
+wrote this (a numpy rasteriser over tools/texpack/xblamesh.py). Rebuild from
+this description if they are gone.
 
 ## The interface art, and the logo (2026-09-11)
 

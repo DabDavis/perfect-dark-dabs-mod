@@ -301,6 +301,11 @@ struct xblameshbuilt {
 	s32 trimlogged;
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
+	f32 *normals;      // three per emitted vertex, only for a mesh the title reflects on
+	u8 *venv;          // two per emitted vertex: its atlas cell and reflection amount, the same
+	s32 numgfx;        // commands in gdl
+	Gfx *envgdl;       // gdl, binding the reflection atlas: see xblaMeshBuildEnvironment()
+	s32 numenvcells;
 	f32 *weights;      // three per emitted vertex, zero past the bone count
 	u8 *bones;         // three per emitted vertex, and how many of them count in the fourth
 	f32 bindlo[3];     // the box the bind positions stand in, which bounds the posed ones
@@ -1065,7 +1070,8 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
  */
 static s32 xblaMeshIsReleaseBootLogo(s32 fileid)
 {
-	return fileid == FILE_PRARELOGO || fileid == FILE_PNINTENDOLOGO || fileid == FILE_PNLOGO;
+	return fileid == FILE_PRARELOGO || fileid == FILE_PNINTENDOLOGO || fileid == FILE_PNLOGO
+			|| fileid == FILE_PNLOGO2;
 }
 
 /**
@@ -1634,14 +1640,18 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
  * the request). title.c scales the Rare logo, and shows the cube's mesh, which
  * is written on the morph's target sides under a toggle the N64 never shows.
  *
- * What is still refused is what 4J never drew. File 222 is the N64's first
- * cube, and its mesh is a flat red box standing inside the game's coloured Ns;
- * the other two have no mesh at all.
+ * File 222, the N64's first cube, is the fourth, and it was refused until
+ * 2026-09-13 as "a flat red box": it is 4J's own logo, a red cube with the 4J
+ * emblem cut into its top and bottom faces, which only shows as a box from the
+ * side the N64's spin looks at. The release running in Xenia shows it face on
+ * as the 4J Studios card, spinning, tipping back and crossfading into the
+ * Perfect Dark cube; title.c draws that.
+ *
+ * What is still refused is what 4J never drew: the other two have no mesh.
  */
 static s32 xblaMeshIsBootLogo(u16 fileid)
 {
 	switch (fileid) {
-	case FILE_PNLOGO2:
 	case FILE_PNLOGO3:
 	case FILE_PJPNLOGO:
 		return 1;
@@ -2013,6 +2023,22 @@ struct xblameshbuilder {
 	s32 skinned;
 	f32 scale;
 
+	// A unit normal per emitted vertex, kept only for a mesh the title draws
+	// with the release's reflections - see xblaMeshBuildEnvironment() - and
+	// with it, two bytes a vertex: the environment map its material reflects
+	// (byte 24) and how much of it, out of 255 (byte 16 is a percentage).
+	// envindex and envamount are what the current material says, set by
+	// xblaMeshSetMaterial().
+	s32 keepnormals;
+	s32 envindex;
+	s32 envamount;
+	f32 *normals;
+	u8 *venv;
+
+	// Whether the lists cull back faces rather than drawing both: see
+	// xblaMeshBuildCullBack.
+	s32 cullback;
+
 	// The texture gradient along x and along y at every emitted vertex, and
 	// how good the triangle it came from was for the purpose - see
 	// xblaMeshNoteTriangle(). Unskinned meshes only: a door is never skinned,
@@ -2176,6 +2202,24 @@ static s32 xblaMeshRoomForVtx(struct xblameshbuilder *b, s32 want)
 		b->bones = bn;
 	}
 
+	if (b->keepnormals) {
+		f32 *nrm = realloc(b->normals, (size_t)b->capvtx * 3 * sizeof(f32));
+		u8 *env;
+
+		if (!nrm) {
+			return 0;
+		}
+
+		b->normals = nrm;
+		env = realloc(b->venv, (size_t)b->capvtx * 2);
+
+		if (!env) {
+			return 0;
+		}
+
+		b->venv = env;
+	}
+
 	return 1;
 }
 
@@ -2306,6 +2350,18 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 		bn[1] = (u8)(packed >> 16);
 		bn[2] = (u8)(packed >> 8);
 		bn[3] = (u8)(packed & 0xff);
+	}
+
+	if (b->keepnormals) {
+		f32 *nrm = &b->normals[b->numvtx * 3];
+
+		nrm[0] = xblaMeshBEF32(v + 20);
+		nrm[1] = xblaMeshBEF32(v + 24);
+		nrm[2] = xblaMeshBEF32(v + 28);
+
+		// A batch holds one material's vertices, so this is the material's.
+		b->venv[b->numvtx * 2] = (u8)b->envindex;
+		b->venv[b->numvtx * 2 + 1] = (u8)b->envamount;
 	}
 
 	b->slotof[b->numslots] = (s32)index;
@@ -2454,6 +2510,23 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 
 	if (!xblaMeshRoomForGfx(b, 13)) {
 		return 0;
+	}
+
+	// What the material reflects, for a mesh that keeps its normals. In the
+	// release's draw log a draw whose byte 16 is not zero samples a second
+	// texture, a cube map: byte 24 says which (the four the boot logos bind sit
+	// in that order in memory) and byte 16 how much, a percentage the fit to
+	// the release's frames confirms (0.57 for 50 and 0.41 for 40 through the
+	// recording's own darkening). A model pack's material is a picture of its
+	// own and reflects nothing.
+	if (material & XBLAMESH_MAT_TABLE) {
+		b->envindex = 0;
+		b->envamount = 0;
+	} else {
+		const u32 percent = (material >> 16) & 0xff;
+
+		b->envindex = (material >> 24) & 0xff;
+		b->envamount = percent >= 100 ? 255 : (s32)(percent * 255 / 100);
 	}
 
 	gdl = &b->gdl[b->numgfx];
@@ -2826,10 +2899,14 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 		return 0;
 	}
 
-	gSPClearGeometryMode(&b->gdl[b->numgfx], G_LIGHTING | G_CULL_BOTH |
+	// A culled mesh drops G_CULL_FRONT's faces: the release winds its
+	// triangles the other way round from the game's, so the faces the game
+	// calls front are the ones facing away (tried the other way, 4J's cube lost
+	// the emblem on its face and showed the inside of its walls).
+	gSPClearGeometryMode(&b->gdl[b->numgfx], G_LIGHTING | (b->cullback ? G_CULL_BACK : G_CULL_BOTH) |
 			G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
 	b->numgfx++;
-	gSPSetGeometryMode(&b->gdl[b->numgfx], G_SHADE | G_SHADING_SMOOTH);
+	gSPSetGeometryMode(&b->gdl[b->numgfx], G_SHADE | G_SHADING_SMOOTH | (b->cullback ? G_CULL_FRONT : 0));
 	b->numgfx++;
 
 	for (u32 d = firstdraw; d < firstdraw + numdraws; d++) {
@@ -3782,6 +3859,231 @@ static void xblaMeshCompactSkin(struct xblameshbuilt *m)
  * The build proper: a file in 4J's layout, ours or theirs, into lists. Takes
  * the file and frees it. what names the mesh in the log.
  */
+/**
+ * Set round a build whose lists should cull the faces turned away. Every mesh draws both
+ * faces, which is right for a model the game draws with a depth buffer; the
+ * title draws its cubes with none, and 4J's red cube (file 222) is a closed
+ * box whose far walls then paint their insides over the near ones - the "open
+ * cup" it tipped back as. The title clears the culling after drawing it.
+ */
+static s32 xblaMeshBuildCullBack = 0;
+
+/**
+ * Set round a build whose vertex normals should be kept: 4J's red cube (file
+ * 222) and marble cube (file 224), which the title draws with the release's
+ * reflections. Nothing else pays for them.
+ */
+static s32 xblaMeshBuildKeepNormals = 0;
+
+/**
+ * The release's reflections, for a mesh built with its normals (the title's
+ * cubes). A material whose byte 16 is not zero is blended that percentage of
+ * the way towards environment cube map byte 24 - records 0e93 on - looked up by
+ * the eye's ray reflected in the surface, in view space (CLAUDE-notes/xbla.md,
+ * "The release's reflections"). The renderer has no cube maps, so each cube
+ * the mesh reflects becomes a sphere map for a viewer looking down -z, the
+ * cells side by side in one picture, and a copy of the mesh's lists binds that
+ * picture wherever the lists bind a material's. The coordinates into it are
+ * worked out per vertex each frame - see xblaMeshEnvironmentVertices() - and
+ * the copy is added over the mesh, whose own colours have been scaled down by
+ * the same amount for the pass before it.
+ */
+#define XBLAMESH_ENV_FIRSTRECORD 0x0e93
+#define XBLAMESH_ENV_CELL        256
+#define XBLAMESH_ENV_MAXCELLS    4
+
+/**
+ * Direct3D's cube lookup: the major axis picks the face, the other two its
+ * coordinates, bilinear across the face's texels in the record's row order
+ * (the order the fit to the release's frames chose).
+ */
+static void xblaMeshCubeSample(const u8 *faces, s32 size, f32 x, f32 y, f32 z, f32 *out)
+{
+	const f32 ax = fabsf(x), ay = fabsf(y), az = fabsf(z);
+	const u8 *face;
+	f32 sc, tc, ma, fx, fy, wx, wy;
+	s32 f, x0, y0, x1, y1;
+
+	if (ax >= ay && ax >= az) {
+		f = x > 0.0f ? 0 : 1;
+		sc = x > 0.0f ? -z : z;
+		tc = -y;
+		ma = ax;
+	} else if (ay >= az) {
+		f = y > 0.0f ? 2 : 3;
+		sc = x;
+		tc = y > 0.0f ? z : -z;
+		ma = ay;
+	} else {
+		f = z > 0.0f ? 4 : 5;
+		sc = z > 0.0f ? x : -x;
+		tc = -y;
+		ma = az;
+	}
+
+	if (ma < 1e-6f) {
+		out[0] = out[1] = out[2] = 0.0f;
+		return;
+	}
+
+	face = faces + (size_t)f * size * size * 4;
+	fx = (sc / ma + 1.0f) * 0.5f * (size - 1);
+	fy = (tc / ma + 1.0f) * 0.5f * (size - 1);
+	fx = fx < 0.0f ? 0.0f : fx > size - 1 ? size - 1 : fx;
+	fy = fy < 0.0f ? 0.0f : fy > size - 1 ? size - 1 : fy;
+	x0 = (s32)fx;
+	y0 = (s32)fy;
+	x1 = x0 + 1 < size ? x0 + 1 : x0;
+	y1 = y0 + 1 < size ? y0 + 1 : y0;
+	wx = fx - x0;
+	wy = fy - y0;
+
+	for (s32 c = 0; c < 3; c++) {
+		const f32 top = face[(y0 * size + x0) * 4 + c] * (1.0f - wx) + face[(y0 * size + x1) * 4 + c] * wx;
+		const f32 bottom = face[(y1 * size + x0) * 4 + c] * (1.0f - wx) + face[(y1 * size + x1) * 4 + c] * wx;
+
+		out[c] = top * (1.0f - wy) + bottom * wy;
+	}
+}
+
+static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
+{
+	s32 cellof[256];
+	s32 cubes[XBLAMESH_ENV_MAXCELLS];
+	s32 numcells = 0;
+	s32 w, h;
+	u8 *atlas;
+	const void *tile;
+	char key[64];
+	s32 keylen;
+
+	for (s32 i = 0; i < 256; i++) {
+		cellof[i] = -1;
+	}
+
+	// The cubes the mesh reflects, a cell each in the order they turn up.
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const u8 index = m->venv[i * 2];
+
+		if (m->venv[i * 2 + 1] == 0 || cellof[index] >= 0) {
+			continue;
+		}
+
+		if (numcells == XBLAMESH_ENV_MAXCELLS) {
+			continue;
+		}
+
+		cubes[numcells] = index;
+		cellof[index] = numcells++;
+	}
+
+	if (numcells == 0) {
+		free(m->venv);
+		m->venv = NULL;
+		return;
+	}
+
+	w = numcells * XBLAMESH_ENV_CELL;
+	h = XBLAMESH_ENV_CELL;
+	atlas = calloc((size_t)w * h, 4);
+	m->envgdl = malloc((size_t)m->numgfx * sizeof(Gfx));
+
+	if (!atlas || !m->envgdl) {
+		free(atlas);
+		free(m->envgdl);
+		m->envgdl = NULL;
+		return;
+	}
+
+	// Each cell a sphere map: the texel at (su, sv) is what a mirror sphere
+	// seen from far down +z shows there, its normal being (a, b, sqrt(1 - a^2 -
+	// b^2)) for a = 2su - 1 and b = 2sv - 1, so the ray it reflects is
+	// (2nz a, 2nz b, 2nz^2 - 1). Texels past the rim take the rim's colour, for
+	// the filter to fall on. A row is sv, a column su.
+	for (s32 k = 0; k < numcells; k++) {
+		s32 size = 0;
+		u8 *faces = xblaTexDecodeCube(XBLAMESH_ENV_FIRSTRECORD + cubes[k], &size);
+
+		for (s32 y = 0; y < h; y++) {
+			for (s32 x = 0; x < XBLAMESH_ENV_CELL; x++) {
+				u8 *px = &atlas[((size_t)y * w + k * XBLAMESH_ENV_CELL + x) * 4];
+				f32 a = ((x + 0.5f) / XBLAMESH_ENV_CELL) * 2.0f - 1.0f;
+				f32 bb = ((y + 0.5f) / h) * 2.0f - 1.0f;
+				f32 d = a * a + bb * bb;
+				f32 nz, rgb[3];
+
+				if (d > 0.999f) {
+					const f32 s = sqrtf(0.999f / d);
+
+					a *= s;
+					bb *= s;
+					d = 0.999f;
+				}
+
+				nz = sqrtf(1.0f - d);
+
+				if (faces) {
+					xblaMeshCubeSample(faces, size, 2.0f * nz * a, 2.0f * nz * bb, 2.0f * nz * nz - 1.0f, rgb);
+				} else {
+					rgb[0] = rgb[1] = rgb[2] = 0.0f;
+				}
+
+				px[0] = (u8)(rgb[0] + 0.5f);
+				px[1] = (u8)(rgb[1] + 0.5f);
+				px[2] = (u8)(rgb[2] + 0.5f);
+				px[3] = 0xff;
+			}
+		}
+
+		free(faces);
+	}
+
+	keylen = snprintf(key, sizeof(key), "xblaenv");
+
+	for (s32 k = 0; k < numcells && keylen < (s32)sizeof(key) - 4; k++) {
+		keylen += snprintf(key + keylen, sizeof(key) - keylen, ":%x", cubes[k]);
+	}
+
+	tile = xblaTexBindImage(key, atlas, w, h);
+
+	if (!tile) {
+		free(m->envgdl);
+		m->envgdl = NULL;
+		return;
+	}
+
+	// The copy: every texture the lists bind becomes the atlas, and a list that
+	// calls another of the mesh's calls the copy's.
+	memcpy(m->envgdl, m->gdl, (size_t)m->numgfx * sizeof(Gfx));
+
+	for (s32 i = 0; i < m->numgfx; i++) {
+		Gfx *g = &m->envgdl[i];
+		const u8 op = (u8)(g->words.w0 >> 24);
+
+		if (op == G_SETTIMG) {
+			g->words.w1 = (uintptr_t)tile;
+		} else if (op == G_DL && g->words.w1 >= (uintptr_t)m->gdl &&
+				g->words.w1 < (uintptr_t)(m->gdl + m->numgfx)) {
+			g->words.w1 = (uintptr_t)m->envgdl + (g->words.w1 - (uintptr_t)m->gdl);
+		}
+	}
+
+	// From here a vertex's first byte is its cell.
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const s32 cell = cellof[m->venv[i * 2]];
+
+		m->venv[i * 2] = (u8)(cell < 0 ? 0 : cell);
+
+		if (cell < 0) {
+			m->venv[i * 2 + 1] = 0;
+		}
+	}
+
+	m->numenvcells = numcells;
+
+	sysLogPrintf(LOG_NOTE, "xblamesh: %s reflects %d environment map%s", what, numcells, numcells == 1 ? "" : "s");
+}
+
 static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		const struct xblameshmats *mats, const char *what)
 {
@@ -3798,6 +4100,8 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	b.skinned = stride == XBLAMESH_STRIDE_SKIN && h.nummatrices > 0;
 	b.scale = xblaMeshScale(&h);
 	b.mats = mats;
+	b.cullback = xblaMeshBuildCullBack;
+	b.keepnormals = xblaMeshBuildKeepNormals;
 	m->scale = b.scale;
 
 	if (!xblaMeshBuildLists(&b, file, len, &h, stride) || b.numtris == 0) {
@@ -3807,6 +4111,8 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.grad);
 		free(b.gradscore);
 		free(b.batches);
+		free(b.normals);
+		free(b.venv);
 		free(file);
 		sysLogPrintf(LOG_ERROR, "xblamesh: %s did not build", what);
 		return 0;
@@ -3823,6 +4129,8 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.bindpos);
 		free(b.weights);
 		free(b.bones);
+		free(b.normals);
+		free(b.venv);
 		free(file);
 		return 0;
 	}
@@ -3838,10 +4146,17 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	m->bindpos = b.bindpos;
 	m->weights = b.weights;
 	m->bones = b.bones;
+	m->normals = b.normals;
+	m->venv = b.venv;
+	m->numgfx = b.numgfx;
 	m->allgfx = b.allgfx;
 	m->allxlu = b.allxlu;
 	m->allfade = b.allfade;
 	m->numgroups = b.numgroups;
+
+	if (m->normals && m->venv) {
+		xblaMeshBuildEnvironment(m, what);
+	}
 
 	// The box the bind positions stand in. A posed vertex is a blend of the
 	// same point put through one palette matrix or another, so every one of
@@ -4003,7 +4318,17 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 
 	snprintf(what, sizeof(what), "slot %d", slot);
 
-	return xblaMeshBuildFile(m, file, len, &mats, what) ? m : NULL;
+	{
+		s32 ok;
+
+		xblaMeshBuildCullBack = fileid == FILE_PNLOGO2;
+		xblaMeshBuildKeepNormals = fileid == FILE_PNLOGO2 || fileid == FILE_PNLOGO;
+		ok = xblaMeshBuildFile(m, file, len, &mats, what);
+		xblaMeshBuildCullBack = 0;
+		xblaMeshBuildKeepNormals = 0;
+
+		return ok ? m : NULL;
+	}
 }
 
 /* -------------------------------------------------------------------------
@@ -4391,6 +4716,7 @@ static void xblaMeshFreePackMeshes(void)
 		free(m->grad);
 		free(m->invbind);
 		free(m->bindpos);
+		free(m->normals);
 		free(m->weights);
 		free(m->bones);
 		free(m);
@@ -6110,6 +6436,109 @@ static void xblaMeshSetSpanMode(struct modelrenderdata *renderdata,
 	gSPSetOtherMode(renderdata->gdl++, G_SETOTHERMODE_L, G_MDSFT_RENDERMODE, 29, word);
 }
 
+// While set, every node draws the game's own geometry: see xblaMeshSetBypass().
+static s32 bypass = 0;
+
+void xblaMeshSetBypass(s32 on)
+{
+	bypass = on != 0;
+}
+
+// While non-zero, the opaque pass's render mode: see xblaMeshSetOpaqueMode().
+static u32 opaquecycle2 = 0;
+static u32 opaqueonecycle = 0;
+
+void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle)
+{
+	opaquecycle2 = cycle2;
+	opaqueonecycle = onecycle;
+}
+
+// While on, the release's reflections: see xblaMeshSetEnvironment().
+static s32 envon = 0;
+static Mtxf envmv;
+
+void xblaMeshSetEnvironment(const Mtxf *modelview)
+{
+	envon = modelview != NULL;
+
+	if (envon) {
+		envmv = *modelview;
+	}
+}
+
+/**
+ * This frame's copy of the mesh's vertices for the reflection pass: each one's
+ * texture coordinates into its cell of the atlas (xblaMeshBuildEnvironment())
+ * where the eye's ray reflected in its normal lands in the cell's sphere map,
+ * all in view space with the eye at the origin, and a white colour whose alpha
+ * is the material's amount. posed is what the vertices are drawn from; their
+ * positions are copied from it, and the reflection is worked out from the bind
+ * pose, which is the same thing for the rigid meshes that have one.
+ */
+static s32 xblaMeshEnvironmentVertices(const struct xblameshbuilt *m, const Vtx *posed, Vtx **outVtx, Col **outCol)
+{
+	const Mtxf *mv = &envmv;
+	const f32 lo = 0.5f / XBLAMESH_ENV_CELL;
+	Vtx *vtx = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Vtx));
+	Col *col = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+
+	if (!vtx || !col) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const Vtx *v = &m->vertices[i];
+		const f32 *n = &m->normals[i * 3];
+		const u8 amount = m->venv[i * 2 + 1];
+		f32 su = 0.5f, sv = 0.5f;
+
+		vtx[i] = posed[i];
+		col[i].r = col[i].g = col[i].b = 0xff;
+		col[i].a = amount;
+
+		if (amount) {
+			const f32 qx = mv->m[0][0] * v->x + mv->m[1][0] * v->y + mv->m[2][0] * v->z + mv->m[3][0];
+			const f32 qy = mv->m[0][1] * v->x + mv->m[1][1] * v->y + mv->m[2][1] * v->z + mv->m[3][1];
+			const f32 qz = mv->m[0][2] * v->x + mv->m[1][2] * v->y + mv->m[2][2] * v->z + mv->m[3][2];
+			f32 nx = mv->m[0][0] * n[0] + mv->m[1][0] * n[1] + mv->m[2][0] * n[2];
+			f32 ny = mv->m[0][1] * n[0] + mv->m[1][1] * n[1] + mv->m[2][1] * n[2];
+			f32 nz = mv->m[0][2] * n[0] + mv->m[1][2] * n[1] + mv->m[2][2] * n[2];
+			const f32 nlen = sqrtf(nx * nx + ny * ny + nz * nz);
+			const f32 qlen = sqrtf(qx * qx + qy * qy + qz * qz);
+
+			if (nlen > 1e-6f && qlen > 1e-6f) {
+				const f32 ex = qx / qlen, ey = qy / qlen, ez = qz / qlen;
+				f32 en, rx, ry, rz, mm;
+
+				nx /= nlen;
+				ny /= nlen;
+				nz /= nlen;
+				en = ex * nx + ey * ny + ez * nz;
+				rx = ex - 2.0f * en * nx;
+				ry = ey - 2.0f * en * ny;
+				rz = ez - 2.0f * en * nz;
+				mm = 2.0f * sqrtf(rx * rx + ry * ry + (rz + 1.0f) * (rz + 1.0f));
+
+				if (mm > 1e-6f) {
+					su = rx / mm + 0.5f;
+					sv = ry / mm + 0.5f;
+				}
+			}
+		}
+
+		su = su < lo ? lo : su > 1.0f - lo ? 1.0f - lo : su;
+		sv = sv < lo ? lo : sv > 1.0f - lo ? 1.0f - lo : sv;
+		vtx[i].s = xblaMeshRound((m->venv[i * 2] + su) / m->numenvcells * XBLATEX_TILE_SCALE);
+		vtx[i].t = xblaMeshRound(sv * XBLATEX_TILE_SCALE);
+	}
+
+	*outVtx = vtx;
+	*outCol = col;
+
+	return 1;
+}
+
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node)
 {
@@ -6132,7 +6561,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	const s32 opa = (renderdata->flags & MODELRENDERFLAG_OPA) != 0;
 	const s32 xlu = (renderdata->flags & MODELRENDERFLAG_XLU) != 0;
 
-	if (!node || !g_XblaMeshNumNodes) {
+	if (!node || !g_XblaMeshNumNodes || bypass) {
 		return 0;
 	}
 
@@ -6468,6 +6897,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 
 	// The colours, bruised where the game has bruised the model's own lists.
+	Col *boundcol = m->colours;
+
 	{
 		Col *colours = NULL;
 
@@ -6475,8 +6906,35 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			colours = xblaMeshBruiseColours(m, model, use, !grafted, e->slot);
 		}
 
-		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1,
-				osVirtualToPhysical(colours ? colours : m->colours));
+		if (colours) {
+			boundcol = colours;
+		}
+
+		// A reflecting material is blended towards its reflection, not added
+		// to: what the lists light is what is left of it, and the reflection
+		// pass below adds the rest. Fitted per pixel on the marble cube's faces,
+		// the release keeps 0.63/0.65/0.75 of their texture and adds 0.38/0.40/
+		// 0.42 of the cube - byte 16's 40% both ways - and the red tray keeps
+		// 0.85 of its red, which is the 139 the port drew against the 115 of
+		// the release's recording.
+		if (envon && m->envgdl && xblaTexGetEnabled()) {
+			Col *kept = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+
+			if (kept) {
+				for (s32 i = 0; i < m->numvertices; i++) {
+					const u32 left = 255 - m->venv[i * 2 + 1];
+
+					kept[i] = boundcol[i];
+					kept[i].r = (u8)((boundcol[i].r * left + 127) / 255);
+					kept[i].g = (u8)((boundcol[i].g * left + 127) / 255);
+					kept[i].b = (u8)((boundcol[i].b * left + 127) / 255);
+				}
+
+				boundcol = kept;
+			}
+		}
+
+		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
 	}
 
 	if (opa) {
@@ -6484,6 +6942,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// list for this node. The list itself writes no combiner and no
 		// render mode - see xblaMeshSetMaterial() and xblaMeshApplyNodeMode().
 		xblaMeshApplyNodeMode(renderdata, node, 1);
+
+		if (opaquecycle2) {
+			xblaMeshSetSpanMode(renderdata, node, opaquecycle2, opaqueonecycle);
+		}
+
 		gSPDisplayList(renderdata->gdl++, list);
 		frameDraws++;
 
@@ -6497,6 +6960,42 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
 			gSPDisplayList(renderdata->gdl++, &m->gdl[xlupart]);
+		}
+
+		// The release's reflections, over what was just drawn from colours
+		// already scaled by what the reflection leaves (above): the copy of the
+		// list that binds the atlas, from vertices carrying where each one's
+		// reflection lands in it and how much of it the material takes, added
+		// (G_ADDITIVE_EXT) onto the nearest surface only. The amount is the
+		// vertex alpha, times the fade while the title fades the model.
+		if (envon && m->envgdl && xblaTexGetEnabled()) {
+			Vtx *envvtx;
+			Col *envcol;
+
+			if (xblaMeshEnvironmentVertices(m, posed, &envvtx, &envcol)) {
+				const s32 fading = renderdata->unk30 == 5 && (renderdata->envcolour & 0xff) < 255;
+
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(envvtx));
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(envcol));
+				gDPPipeSync(renderdata->gdl++);
+				gDPSetCycleType(renderdata->gdl++, G_CYC_2CYCLE);
+				gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_INTER, G_RM_AA_ZB_XLU_INTER2);
+
+				if (fading) {
+					gDPSetCombineLERP(renderdata->gdl++, 0, 0, 0, TEXEL0, SHADE, 0, ENVIRONMENT, 0,
+							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
+				} else {
+					gDPSetCombineLERP(renderdata->gdl++, 0, 0, 0, TEXEL0, 0, 0, 0, SHADE,
+							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
+				}
+
+				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT);
+				gSPDisplayList(renderdata->gdl++, m->envgdl + (list - m->gdl));
+				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT);
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
+				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
+				frameDraws++;
+			}
 		}
 	}
 
@@ -7360,6 +7859,9 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 void xblaMeshTrace(FILE *f) { }
 s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent) { return 0; }
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
+void xblaMeshSetBypass(s32 on) { }
+void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle) { }
+void xblaMeshSetEnvironment(const Mtxf *modelview) { }
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node) { return 0; }
 void xblaMeshFrameReset(void) { }
