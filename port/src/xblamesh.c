@@ -1058,6 +1058,17 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
 }
 
 /**
+ * A boot logo the release draws (see xblaMeshIsBootLogo()), whose mesh is the
+ * whole picture: every other list of the model is covered by it, the toggled
+ * ones as well, since both logos are a different picture and nothing of the
+ * N64's belongs beside them.
+ */
+static s32 xblaMeshIsReleaseBootLogo(s32 fileid)
+{
+	return fileid == FILE_PRARELOGO || fileid == FILE_PNINTENDOLOGO || fileid == FILE_PNLOGO;
+}
+
+/**
  * Whether the model's own mesh has this node's geometry already.
  *
  * **A mesh is the whole model, and the release names it on one node.** The id
@@ -1207,7 +1218,15 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				// its only mesh on a toggled alternative, and suppressing the
 				// head beside it would leave the Grey with no head whenever
 				// that toggle is off.
-				if (firstslot < 0 && xblaMeshIsCovered(modeldef, ournode)) {
+				//
+				// The boot logos are the exception: both the Rare logo's mesh and
+				// the cube's are named under a toggle, and the title shows that
+				// toggle whenever the mesh is to draw (the cube's never is,
+				// otherwise). Without this their covered lists were counted and
+				// never filed - the N64's gold R drew over 4J's Rare logo, and
+				// the cube's normals drew as colours around 4J's cube.
+				if (firstslot < 0 && (xblaMeshIsCovered(modeldef, ournode) ||
+						xblaMeshIsReleaseBootLogo(xblaMeshFileId))) {
 					firstslot = slot;
 				}
 
@@ -1260,7 +1279,8 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 			if (xblaMeshIsHairList(modeldef, ournode)) {
 				xblaMeshSuppressNode(modeldef, ournode, 0, XBLAMESH_SUPPRESS_HAIR);
 				suppressed++;
-			} else if (xblaMeshIsCovered(modeldef, ournode) && numcovered < XBLAMESH_COVERED) {
+			} else if ((xblaMeshIsCovered(modeldef, ournode) || xblaMeshIsReleaseBootLogo(xblaMeshFileId))
+					&& numcovered < XBLAMESH_COVERED) {
 				// Held until the walk is over: a model whose tree stops
 				// matching part way through leaves through one of the returns
 				// above, and nothing of it may be left filed.
@@ -1601,27 +1621,26 @@ static s32 xblaMeshMatchBySize(struct modeldef *modeldef, const u8 *file, u32 le
 }
 
 /**
- * The models the boot sequence draws, which the release remade as its own
- * boot sequence.
+ * The models of the boot sequence the release's meshes may not draw.
  *
- * 4J's package holds a mesh for each of them, and every one of those meshes is
- * the Xbox 360 release's logo rather than the N64's: file 221's mesh is
- * "Microsoft Game Studios" where the game's own is the Nintendo wordmark, and
- * file 1376's is the flat orange Rare plaque on a full screen orange field
- * where the game's is the gold one on black. Matched, they replace the N64
- * intro with the 360's, which reads as the logos being discoloured - the Rare
- * screen turns orange to its edges and the Nintendo screen turns into
- * Microsoft's.
+ * 4J's package holds a mesh for the boot sequence's models, and three of them
+ * are the Xbox 360 release's own intro rather than better models of the N64's:
+ * file 1376's mesh is the orange Rare logo where the game's is the gold R on a
+ * blue plaque, file 221's is "Microsoft Game Studios" where the game's is the
+ * Nintendo wordmark, and file 224's is 4J's spinning Perfect Dark cube. Those
+ * draw whenever the meshes do, which is the release's intro on the release's
+ * switch (all were refused until 2026-09-13, when "the Rare logo, Microsoft
+ * logo and Nintendo 64 logo are all discoloured" was the complaint rather than
+ * the request). title.c scales the Rare logo, and shows the cube's mesh, which
+ * is written on the morph's target sides under a toggle the N64 never shows.
  *
- * They are the one place where the release's mesh is a *different logo*, not a
- * better model of the same thing, so the boot sequence keeps the game's own.
+ * What is still refused is what 4J never drew. File 222 is the N64's first
+ * cube, and its mesh is a flat red box standing inside the game's coloured Ns;
+ * the other two have no mesh at all.
  */
 static s32 xblaMeshIsBootLogo(u16 fileid)
 {
 	switch (fileid) {
-	case FILE_PRARELOGO:
-	case FILE_PNINTENDOLOGO:
-	case FILE_PNLOGO:
 	case FILE_PNLOGO2:
 	case FILE_PNLOGO3:
 	case FILE_PJPNLOGO:
@@ -6692,6 +6711,29 @@ s32 xblaMeshModelHasMesh(struct model *model)
 	return cacheresult;
 }
 
+s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef)
+{
+	if (!modeldef || !g_XblaMeshNumNodes || !optEnabled || opened <= 0 || !built) {
+		return 0;
+	}
+
+	// The table rather than the tree: a toggle's child is only linked while it
+	// is visible, and both the Rare logo's mesh node and the cube's are under
+	// a toggle the title switches off.
+	for (s32 i = 0; i < XBLAMESH_HASHSIZE; i++) {
+		const struct xblameshentry *e = &hash[i];
+
+		if (e->node && e->modeldef == modeldef && e->matched && !e->suppress &&
+				(!e->fileid || e->packpart == XBLAMESH_NOPART || !modelpackFindN64(e->fileid) ||
+				 modelpackGetPrefer() == MODELPACK_PREFER_XBLA) &&
+				xblaMeshBuild(e->slot)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 /**
  * The bbox a hit counts against: the one on the hit bone's own matrix, or
  * failing that the one whose box stands nearest the hit.
@@ -7328,6 +7370,7 @@ void xblaMeshResetModels(void) { }
 void xblaMeshHitBegin(void) { }
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
+s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef) { return 0; }
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode) { return 0; }

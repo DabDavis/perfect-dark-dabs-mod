@@ -137,6 +137,16 @@ struct hitthing;
 void xblaMeshHitBegin(void);
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node);
 s32 xblaMeshModelHasMesh(struct model *model);
+
+/**
+ * Whether the release's mesh draws a model of this definition, building it if
+ * nothing has yet. For a caller deciding how to draw before it draws: HasMesh()
+ * answers only for a mesh already built, and only for nodes linked into the
+ * tree, which leaves out everything under a toggle that is switched off. The
+ * title asks it once as the Rare logo and the cube start (the XBLA switch is held still
+ * for the boot sequence), since it walks the whole node table.
+ */
+s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef);
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode);

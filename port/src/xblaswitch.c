@@ -20,6 +20,7 @@
 #include "xblafont.h"
 #include "xblaexpl.h"
 #include "xblaswitch.h"
+#include "game/title.h"
 
 #ifndef PLATFORM_N64
 
@@ -94,6 +95,15 @@ void xblaSwitchTick(void)
 	// inputKeyJustPressed() consumes the edge, so ask once a frame and only
 	// when the key is actually bound.
 	if (vk > 0 && inputKeyJustPressed(vk)) {
+		// Not while the boot logos play: with the release on they are 4J's
+		// meshes, decided as each logo starts, and a model switched out from
+		// under an intro that has already chosen how to draw it is not worth
+		// the risk for a sequence that is over in fifteen seconds.
+		if (titleIsBootSequence()) {
+			sysLogPrintf(LOG_NOTE, "xblaswitch: ignored during the boot logos");
+			return;
+		}
+
 		const s32 enabled = !xblaSwitchGetEnabled();
 
 		xblaSwitchSetEnabled(enabled);

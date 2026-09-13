@@ -34,6 +34,7 @@
 #ifndef PLATFORM_N64
 #include "video.h"
 #include "update.h"
+#include "xblamesh.h"
 #endif
 
 #ifdef PLATFORM_N64
@@ -555,6 +556,18 @@ bool g_LegalEnabled = true;
 bool g_PdLogoIsFirstTick = true;
 bool g_PdLogoTriggerExit = false;
 
+#ifndef PLATFORM_N64
+// Whether the XBLA release draws the boot logo on screen: the Rare logo's mesh,
+// or for the Perfect Dark logo the release's switch (which drops the N64's
+// coloured cube whether or not 4J's cube can draw). Asked once as each logo
+// starts; the switch is held still for the boot sequence (titleIsBootSequence()),
+// so the answer cannot go stale.
+bool g_TitleXblaLogo = false;
+
+// Whether the Perfect Dark cube is the release's mesh (4J's spinning logo).
+bool g_TitleXblaCube = false;
+#endif
+
 void titleInitPdLogo(void)
 {
 	u8 *nextaddr = var8009cca0;
@@ -597,6 +610,13 @@ void titleInitPdLogo(void)
 		g_TitleModel = modelmgrInstantiateModelWithAnim(g_ModelStates[MODEL_NLOGO].modeldef);
 		modelSetScale(g_TitleModel, 1);
 		modelSetRootPosition(g_TitleModel, &coord);
+
+#ifndef PLATFORM_N64
+		// The Nintendo colours go with the release on even where its cube is
+		// not drawn (a mod's logo file, or a mesh that will not build).
+		g_TitleXblaLogo = xblaMeshGetEnabled() && xblaMeshIsAvailable();
+		g_TitleXblaCube = xblaMeshModeldefDrawsMesh(g_ModelStates[MODEL_NLOGO].modeldef);
+#endif
 	}
 
 	{
@@ -797,6 +817,16 @@ Gfx *titleRenderPdLogoModel(Gfx *gdl, struct model *model, bool arg2, f32 arg3, 
 
 	tmp = modelGetNodeRwData(model, modelGetPart(model->definition, MODELPART_LOGO_0001));
 	tmp->toggle.visible = !arg2;
+
+#ifndef PLATFORM_N64
+	// 4J's cube is written on the morph's target sides, under the toggle this
+	// never shows (the game morphs the other sides' vertices towards them
+	// instead, which a mesh cannot follow). Shown, the mesh draws there, and
+	// the stock sides under both toggles are covered by it.
+	if (g_TitleXblaCube && model == g_TitleModel) {
+		tmp->toggle.visible = true;
+	}
+#endif
 
 	s6 = arg3 * 65536.0f;
 
@@ -1061,6 +1091,7 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 #endif
 
 	f32 sp13c;
+	bool xblalogo = false;
 
 	Gfx *tmpgdl;
 	LookAt *lookat;
@@ -1417,7 +1448,15 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 
 	mtx00016ae4(&sp2b0, 0.0f, 0.0f, 4000.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 
-	model = g_PdLogoUseCombinedModel == true ? g_TitleModel : g_TitleModelNLogo2;
+#ifndef PLATFORM_N64
+	// With the release on, the cube spins as the dark Perfect Dark logo from the
+	// first frame: the N64's first cube and the morph out of it are Nintendo's
+	// four colours, which the release never showed. The timeline is left alone,
+	// so it spins, stops and fades exactly as long.
+	xblalogo = g_TitleXblaLogo;
+#endif
+
+	model = (g_PdLogoUseCombinedModel == true || xblalogo) ? g_TitleModel : g_TitleModelNLogo2;
 
 	mtx4LoadYRotation(g_PdLogoYRotCur, &sp1e8);
 	mtx4LoadXRotation(g_PdLogoXRotCur, &sp1a8);
@@ -1502,7 +1541,7 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 			}
 		}
 
-		gdl = titleRenderPdLogoModel(gdl, model, var80062804, g_PdLogoFrac, 240, 1.0f, &sp270, gfxAllocateVertices(numvertices), gfxAllocateColours(numcolours));
+		gdl = titleRenderPdLogoModel(gdl, model, var80062804, xblalogo ? 1.0f : g_PdLogoFrac, 240, 1.0f, &sp270, gfxAllocateVertices(numvertices), gfxAllocateColours(numcolours));
 	}
 
 	gSPSetLights1(gdl++, g_TitleLightPdLogoMain);
@@ -2004,6 +2043,10 @@ void titleInitRareLogo(void)
 		modelSetScale(g_TitleModel, 1);
 		modelSetRootPosition(g_TitleModel, &coord);
 
+#ifndef PLATFORM_N64
+		g_TitleXblaLogo = xblaMeshModeldefDrawsMesh(g_ModelStates[MODEL_RARELOGO].modeldef);
+#endif
+
 		var800624f4 = 1;
 
 		musicQueueStopAllEvent();
@@ -2151,6 +2194,17 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 		spb4.z = 0;
 
 		mtx4LoadRotation(&spb4, &spc0);
+
+#ifndef PLATFORM_N64
+		// The release's Rare logo is authored ten times the size of the N64
+		// plaque it is named on (7115 by 10146 against 773 by 1041), which at
+		// the game's scale is an orange R too big to see as anything but an
+		// orange screen.
+		if (g_TitleXblaLogo) {
+			mtx00015f88(0.1f, &spc0);
+		}
+#endif
+
 		mtx00015f88(1 + fracdone * 0.25f, &spc0);
 
 		mtx00016ae4(&sp118,
@@ -2652,6 +2706,31 @@ bool titleIsChangingMode(void)
 {
 	return g_TitleNextMode >= 0;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * The stage is checked as well as the mode: nothing sets g_TitleMode back when
+ * the title hands over to a stage, so a mode can outlive the title.
+ */
+bool titleIsBootSequence(void)
+{
+	if (g_Vars.stagenum != STAGE_TITLE) {
+		return false;
+	}
+
+	switch (g_TitleMode) {
+	case TITLEMODE_LEGAL:
+	case TITLEMODE_CHECKCONTROLLERS:
+	case TITLEMODE_RARELOGO:
+	case TITLEMODE_NINTENDOLOGO:
+	case TITLEMODE_PDLOGO:
+	case TITLEMODE_SKIP:
+		return true;
+	}
+
+	return false;
+}
+#endif
 
 bool titleIsKeepingMode(void)
 {
