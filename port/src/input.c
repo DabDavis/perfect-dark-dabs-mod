@@ -816,7 +816,39 @@ void inputApplyAkimboTriggers(s32 on)
 			inputRemoveBind(ctrl, CK_C_R, dright);
 			inputRemoveBind(ctrl, CK_LTRIG, dright); // where the first build put it
 			inputEnsureBind(ctrl, CK_DPAD_R, dright);
+
+			// The keyboard, which is player 1's, has no D-pad up key by
+			// default: G opens the right hand's menu as Q opens the left's.
+			// It is left alone when the player has given D-pad up a key of
+			// their own, or has bound G to something else - this runs at
+			// every startup, so a rebind must not be undone by it
+			if (ctrl == 0) {
+				const u32 kbkey = VK_KEYBOARD_BEGIN + SDL_SCANCODE_G;
+				s32 taken = 0;
+				s32 b;
+				u32 ck;
+
+				for (b = 0; b < INPUT_MAX_BINDS; ++b) {
+					if (binds[ctrl][CK_DPAD_U][b] && binds[ctrl][CK_DPAD_U][b] < VK_JOY_BEGIN) {
+						taken = 1;
+					}
+				}
+
+				for (ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
+					if (inputHasBind(ctrl, ck, kbkey)) {
+						taken = 1;
+					}
+				}
+
+				if (!taken) {
+					inputKeyBind(ctrl, CK_DPAD_U, -1, kbkey);
+				}
+			}
 		} else {
+			if (ctrl == 0) {
+				inputRemoveBind(ctrl, CK_DPAD_U, VK_KEYBOARD_BEGIN + SDL_SCANCODE_G);
+			}
+
 			inputRemoveBind(ctrl, CK_0040, lt);
 			inputRemoveBind(ctrl, CK_RTRIG, lb);
 			inputEnsureBind(ctrl, CK_RTRIG, lt);

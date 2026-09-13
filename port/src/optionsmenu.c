@@ -3322,6 +3322,7 @@ static const struct menubind modMenuBinds[] = {
 	{ CK_DPAD_R, "Fire Mode Right [DR]\n", "N64 D-Pad Right\n" },
 	{ CK_RTRIG,  "Aim Mode [RT]\n",       "N64 R Trigger\n" },
 	{ CK_DPAD_U, "Right Hand Menu [DU]\n", "N64 D-Pad Up\n" },
+	{ CK_DPAD_D, "Left Hand Menu [DD]\n", "N64 D-Pad Down\n" },
 };
 
 static const char *menutextModBind(struct menuitem *item)
@@ -3975,6 +3976,14 @@ struct menuitem g_ExtendedDabsModPlayerMenuItems[] = {
 		0,
 		(uintptr_t)menutextModBind,
 		6,
+		menuhandlerModBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModBind,
+		9,
 		menuhandlerModBind,
 	},
 	{

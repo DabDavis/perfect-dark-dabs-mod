@@ -159,7 +159,8 @@
  * Akimbo Triggers: on a controller, the left trigger fires the left hand and
  * the right trigger the right hand, instead of one trigger alternating them.
  * Aim mode moves to the left bumper to make room, and the radial menu the
- * bumper held moves to D-pad up. The binds are rewritten when it is turned
+ * bumper held moves to D-pad up (G on the keyboard) for the right hand's gun
+ * and D-pad down (Q) for the left's. The binds are rewritten when it is turned
  * on or off - see inputApplyAkimboTriggers() - and the left hand's trigger
  * is a key of its own, "Fire Left", that a keyboard can bind too.
  */
