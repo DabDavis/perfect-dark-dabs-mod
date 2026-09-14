@@ -198,6 +198,7 @@
 #define G_CLEAR_DEPTH_EXT            0x44
 #define G_SETSUBPIXELOFFSET_EXT      0x45
 #define G_SETFONTGLYPH_EXT           0x46
+#define G_SETTEXGENSHIFT_EXT         0x47
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -212,6 +213,7 @@
 #define G_ADDITIVE_EXT           0x00000400 // with a blending render mode: source times its alpha added to what is there
 #define G_ENVMAP_EXT             0x00000800 // texel 0 is a sphere-map atlas looked up per pixel: see gfx_pc.cpp
 #define G_MULADD_EXT             0x00001000 // with a blending render mode: source times what is there, added to it (Level Sheen)
+#define G_TEXGEN_EYE_EXT         0x00002000 // with G_TEXTURE_GEN: the lookup follows the eye ray and adds G_SETTEXGENSHIFT_EXT's shift (the K7 sheen)
 
 /* Extra texture filtering mode */
 
@@ -326,6 +328,18 @@
                                                                                        \
     _g->words.w0 = _SHIFTL(G_SETSUBPIXELOFFSET_EXT, 24, 8) | _SHIFTL((s16)(x), 0, 16); \
     _g->words.w1 = _SHIFTL((s16)(y), 0, 16);                                           \
+}
+
+/*
+ * Added to the texgen's s and t under G_TEXGEN_EYE_EXT, in 1/16384ths of the
+ * span a normal's whole range covers (16384 is a whole span).
+ */
+#define gDPSetTexgenShiftEXT(pkt, s, t)                                                \
+{                                                                                      \
+    Gfx *_g = (Gfx*)(pkt);                                                             \
+                                                                                       \
+    _g->words.w0 = _SHIFTL(G_SETTEXGENSHIFT_EXT, 24, 8) | _SHIFTL((s16)(s), 0, 16);    \
+    _g->words.w1 = _SHIFTL((s16)(t), 0, 16);                                           \
 }
 
 #define gSPSetExtraGeometryModeEXT(pkt, word) gSPExtraGeometryModeEXT((pkt), 0, word)

@@ -183,6 +183,10 @@ static struct RSP {
 
     uint32_t extra_geometry_mode;
 
+    // G_SETTEXGENSHIFT_EXT: added to the texgen's s and t under G_TEXGEN_EYE_EXT,
+    // in the texgen's own units (a normal's whole range is one)
+    float texgen_shift[2];
+
     uint32_t aspect_mode;
     float aspect_ofs;
     float aspect_scale;
@@ -1881,6 +1885,62 @@ static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height)
 }
 
 /**
+ * G_TEXGEN_EYE_EXT: the normal the texgen looks up in place of `n` (model
+ * space, 127 long). The texgen reads a normal as if the eye looked straight
+ * down the middle of the screen, so a surface looks the same wherever the eye
+ * stands and a flat wall takes one tint. This hands it the half-way vector
+ * between the straight-on ray and the reflection of the ray the vertex is
+ * really seen along: the same normal in the middle of the screen, and one that
+ * turns as the vertex moves across the view. Worked in eye space (the
+ * modelview alone, eye at the origin looking down -z) and handed back in the
+ * model's, where the LookAt coefficients are.
+ */
+static inline void gfx_texgen_eye_normal(float px, float py, float pz, float n[3]) {
+    const float (*mv)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];
+    float ne[3], pe[3], h[3];
+
+    for (int c = 0; c < 3; c++) {
+        ne[c] = n[0] * mv[0][c] + n[1] * mv[1][c] + n[2] * mv[2][c];
+        pe[c] = px * mv[0][c] + py * mv[1][c] + pz * mv[2][c] + mv[3][c];
+    }
+
+    const float nl = sqrtf(ne[0] * ne[0] + ne[1] * ne[1] + ne[2] * ne[2]);
+    const float pl = sqrtf(pe[0] * pe[0] + pe[1] * pe[1] + pe[2] * pe[2]);
+
+    if (nl < 1e-6f || pl < 1e-6f) {
+        return;
+    }
+
+    const float d = (ne[0] * pe[0] + ne[1] * pe[1] + ne[2] * pe[2]) / (nl * pl);
+
+    // the reflection e - 2(n.e)n, plus the straight-on ray reversed
+    for (int c = 0; c < 3; c++) {
+        h[c] = pe[c] / pl - 2.0f * d * ne[c] / nl;
+    }
+
+    h[2] += 1.0f;
+
+    // back through the modelview's transpose, which undoes its rotation and
+    // leaves only its scale, which the length below takes off
+    float m[3];
+
+    for (int k = 0; k < 3; k++) {
+        m[k] = h[0] * mv[k][0] + h[1] * mv[k][1] + h[2] * mv[k][2];
+    }
+
+    const float ml = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+
+    // a surface seen from behind reflects straight back down the middle
+    if (ml < 1e-6f) {
+        return;
+    }
+
+    for (int k = 0; k < 3; k++) {
+        n[k] = m[k] * 127.0f / ml;
+    }
+}
+
+/**
  * Transform, light and clip-test one vertex into `d`, from a model-space
  * position, its normal or colour entry, and texture coordinates already
  * scaled by the current G_TEXTURE factor. gfx_sp_vertex feeds it a G_VTX
@@ -1936,19 +1996,28 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
             d->color.b = b > 255 ? 255 : b;
 
             if (rsp.geometry_mode & G_TEXTURE_GEN) {
+                const bool eye = (rsp.extra_geometry_mode & G_TEXGEN_EYE_EXT) != 0;
+                float n[3] = { (float)vcn->x, (float)vcn->y, (float)vcn->z };
                 float dotx = 0, doty = 0;
+
+                if (eye) {
+                    gfx_texgen_eye_normal(px, py, pz, n);
+                }
+
                 if (rsp.lookat_enabled) {
-                    dotx += vcn->x * rsp.current_lookat_coeffs[0][0];
-                    dotx += vcn->y * rsp.current_lookat_coeffs[0][1];
-                    dotx += vcn->z * rsp.current_lookat_coeffs[0][2];
-                    doty += vcn->x * rsp.current_lookat_coeffs[1][0];
-                    doty += vcn->y * rsp.current_lookat_coeffs[1][1];
-                    doty += vcn->z * rsp.current_lookat_coeffs[1][2];
+                    dotx += n[0] * rsp.current_lookat_coeffs[0][0];
+                    dotx += n[1] * rsp.current_lookat_coeffs[0][1];
+                    dotx += n[2] * rsp.current_lookat_coeffs[0][2];
+                    doty += n[0] * rsp.current_lookat_coeffs[1][0];
+                    doty += n[1] * rsp.current_lookat_coeffs[1][1];
+                    doty += n[2] * rsp.current_lookat_coeffs[1][2];
                     dotx /= 127.0f;
                     doty /= 127.0f;
                 } else {
+                    const float dir[3] = { n[0] / 127.f, n[1] / 127.f, n[2] / 127.f };
                     float tvcn[3];
-                    calculate_normal_dir(vcn, tvcn);
+                    gfx_transposed_matrix_mul(tvcn, dir, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+                    gfx_normalize_vector(tvcn);
                     dotx = tvcn[0];
                     doty = tvcn[1];
                 }
@@ -1967,6 +2036,11 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
                 } else {
                     dotx = (dotx + 1.0f) / 4.0f;
                     doty = (doty + 1.0f) / 4.0f;
+                }
+
+                if (eye) {
+                    dotx += rsp.texgen_shift[0] / 2.0f;
+                    doty += rsp.texgen_shift[1] / 2.0f;
                 }
 
                 U = (float)(int32_t)(dotx * rsp.texture_scaling_factor.s);
@@ -3716,6 +3790,10 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             // G_SETPRIMCOLOR, G_CCMUX_PRIMITIVE, G_ACMUX_PRIMITIVE, is used by Goddard
             // G_CCMUX_TEXEL1, LOD_FRACTION is used in Bowser room 1
+            case G_SETTEXGENSHIFT_EXT:
+                rsp.texgen_shift[0] = (int16_t)C0(0, 16) / 16384.0f;
+                rsp.texgen_shift[1] = (int16_t)C1(0, 16) / 16384.0f;
+                break;
             case G_SETSUBPIXELOFFSET_EXT: {
                 gfx_dp_set_subpixel_offset(C0(0, 16), C1(0, 16));
                 break;

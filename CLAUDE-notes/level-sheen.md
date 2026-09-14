@@ -59,6 +59,36 @@ triangles:
 - **Per Pixel style:** `G_ENVMAP_EXT`, with the tile as a one-cell atlas
   (s = half a tile, t = a whole one).
 
+### K7 follows movement, not only turning (G_TEXGEN_EYE_EXT, 2026-09-14)
+
+The N64 texgen reads only the normal against the LookAt, so it cannot see
+where the eye stands: turning moved the sheen, walking did nothing. Every K7
+sheen pass sets the port-only `G_TEXGEN_EYE_EXT` beside `G_TEXTURE_GEN`: the
+rooms and props here, and the XBLA meshes' K7 Sheen in `xblamesh.c`. Stock
+texgen (the N64 guns) is untouched. The flag does two things in
+`gfx_sp_load_vertex()`:
+
+- **Eye ray:** `gfx_texgen_eye_normal()` hands the texgen the half-way vector
+  between the straight-on ray and the reflection of the ray the vertex is
+  seen along. It is worked in modelview space and brought back to model
+  space. In the middle of the screen it is the old normal exactly; elsewhere
+  it turns as the vertex crosses the view, so a wall is no longer one tint.
+- **Shift:** a gun held in front of the eye walks with it, so the eye ray
+  cannot move its sheen. `roomSheenTexgenShift()` sends
+  `G_SETTEXGENSHIFT_EXT` (opcode 0x47, s and t in 1/16384ths of a span) from a
+  per-player accumulator. Movement across the view scrolls s, and movement
+  along it (minus rise) scrolls t, at one span per 400 units
+  (`ROOMSHEEN_SHIFT_PERIOD`). It is a delta, never the absolute position, or
+  turning far from the origin would spin it. A move over 200 units in one
+  frame (a teleport, a respawn, a cutscene cut) scrolls nothing.
+
+Checked on Chicago under `--spectate` at Strong, K7. The intro was skipped
+at 600, and the camera walked 142 units in ten frames with the heading held
+(scratchpad `move.py`). The sheen's gain changed on 66% of the lit pixels
+whose geometry stayed put (mean change 0.10), and no pixel was darker than
+with the sheen off. The XBLA mesh path shares the flag and the helper but
+was not captured with a gun in hand.
+
 ### The blend has to multiply, not add (G_MULADD_EXT)
 
 The first version added the sheen as the meshes do (`G_ADDITIVE_EXT`). On
@@ -121,9 +151,10 @@ does not, since props draw with fog stopped.
 - **Look at Strong** (screenshots in the session scratchpad):
   - Carrington Institute frame 290: mean 83 to 88 (K7), 83 to 92 (per pixel).
   - Chicago frame 900: mean 40 to 42.5 (K7), 40 to 43.7 (per pixel).
-- **K7 is flat on flat geometry:** a wall has one normal, so one tint. It
-  changes with the camera's heading only. Per pixel is what reads as a sheen
-  on rooms: a highlight band down a wall, a gradient across a floor.
+- **K7 was flat on flat geometry until 2026-09-14:** a wall has one normal,
+  so one tint, and it changed with the camera's heading only. The user saw it
+  move on the right stick and never the left. Fixed as below ("K7 follows
+  movement"). Per pixel still reads as the smoother sheen on rooms.
 - **Cost, rooms only** (80-simulant seeded match, 1200 frames, main thread):
   off 36.7M, K7 Normal 37.2M, per pixel Normal 38.0M instructions a frame; +6
   draws a frame.

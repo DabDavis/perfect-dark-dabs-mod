@@ -25,9 +25,10 @@ struct modelrenderdata;
  *
  * Mod.LevelSheen is the strength (0 off, 1 subtle, 2 normal, 3 strong).
  * Mod.LevelSheenStyle picks how the streaks are looked up: 0 is the K7's own
- * texgen, per vertex off the camera's LookAt, which gives a flat wall one
- * colour; 1 is per pixel (G_ENVMAP_EXT), which slides across a wall as the
- * eye moves. Both are live.
+ * texgen, per vertex off the camera's LookAt, bent by the eye ray and scrolled
+ * by the player's movement (G_TEXGEN_EYE_EXT, roomSheenTexgenShift()) so that
+ * walking moves it as well as turning; 1 is per pixel (G_ENVMAP_EXT), which
+ * slides across a wall as the eye moves. Both are live.
  */
 
 #define ROOMSHEEN_STYLE_K7    0
@@ -63,6 +64,14 @@ void roomSheenSetProp(struct prop *prop);
  * which the sheen cannot follow, so it is left alone.
  */
 void roomSheenRenderNode(struct modelrenderdata *renderdata, const void *node, Gfx *list, Vtx *base, s32 cutout);
+
+/**
+ * Before a K7 sheen draw (G_LIGHTING | G_TEXTURE_GEN with G_TEXGEN_EYE_EXT):
+ * the shift the current player's own movement has scrolled the streaks by.
+ * The eye ray alone moves the sheen across a wall as the player walks past it,
+ * but nothing on a gun held in front of the eye, which walks with it.
+ */
+Gfx *roomSheenTexgenShift(Gfx *gdl);
 
 /** Drops every model part's copy; lvReset() calls it with the models. */
 void roomSheenResetNodes(void);

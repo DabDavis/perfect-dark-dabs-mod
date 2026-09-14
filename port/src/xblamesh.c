@@ -44,6 +44,7 @@
 #include "xblatex.h"
 #include "objmesh.h"
 #include "modelpack.h"
+#include "roomsheen.h"
 #include "game/bg.h"
 #include "game/dlights.h"
 #include "lib/lib_2f490.h"
@@ -7484,10 +7485,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
 				}
 
+				renderdata->gdl = roomSheenTexgenShift(renderdata->gdl);
 				gSPSetGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
-				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT);
+				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT);
 				gSPDisplayList(renderdata->gdl++, m->sheengdl + (list - m->gdl));
-				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT);
+				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT);
 				gSPClearGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));

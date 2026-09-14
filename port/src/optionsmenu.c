@@ -5187,8 +5187,9 @@ static MenuItemHandlerResult menuhandlerLevelSheen(s32 operation, struct menuite
 }
 
 /**
- * Level Sheen Style: K7 is the stock gun's own texgen, per vertex, which gives
- * a flat surface one tint; Per Pixel slides the streak across it. Hidden
+ * Level Sheen Style: K7 is the stock gun's own texgen, per vertex, bent by the
+ * eye ray and scrolled as the player moves; Per Pixel slides the streak across
+ * each surface. Hidden
  * while Level Sheen is off. Live: both draw from the same copy.
  */
 static MenuItemHandlerResult menuhandlerLevelSheenStyle(s32 operation, struct menuitem *item, union handlerdata *data)
