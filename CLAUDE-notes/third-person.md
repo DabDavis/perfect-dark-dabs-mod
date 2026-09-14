@@ -260,6 +260,26 @@ Two things that waste a run:
 Melee, projectiles and the beams still want a real match: they need a target
 walking into you, which nothing here can arrange.
 
+## Footsteps played in bursts (2026-09-14)
+
+"Footsteps in third person are broken, they sound very rapid." The player's
+footsteps are `bmoveTick()`'s: one per 150 units walked, non-positional. In
+first person nothing else plays one. In third person the body is animated
+with the run cycles `g_FootstepAnims` lists, and `chraTick()` calls
+`footstepCheckDefault()` on the player's chr as on any other. Its test is
+"the animation frame crossed a footfall since `oldframe`", and `bondhead.c`
+overwrites the player chr's `oldframe` every tick with the **head bob
+model's** frame, so the test passed about twelve frames running.
+
+Measured on Chicago (`--boot-stage 0x1d --rng-seed 1 --fixed-step`, on the
+GPU): a 300-frame walk with `speedforwards` held at `bwalkTick()`'s entry
+(scratchpad `footcount.py`, counting `footstepChooseSound()` calls with
+`chr->footstep` set, grouped by caller) played 7 player footsteps in first
+person, all `bmoveTick`, and 7 plus 68 in third person, the 68 in runs of 12
+on consecutive frames. `footstepCheckDefault()` now leaves out
+`PROPTYPE_PLAYER` chrs, which is the first person rhythm: third person plays
+the same 7 on the same frames.
+
 ## Light glares draw over the gun, and over the body in third person (2026-09-09)
 
 A glare (the corona sprite round a light, `bgRenderArtifacts()`) is a

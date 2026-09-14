@@ -155,6 +155,17 @@ s32 footstepChooseSound(struct chrdata *chr, s32 footstepindex)
  */
 void footstepCheckDefault(struct chrdata *chr)
 {
+#ifndef PLATFORM_N64
+	// The player's footsteps are bmoveTick()'s, one per distance walked. In
+	// third person the body is animated with the run cycles this matches, and
+	// bondhead.c writes the head bob's frame into oldframe every tick, so the
+	// "crossed the footfall frame" test passed a dozen frames running and
+	// played the steps in bursts on top of bmoveTick()'s own.
+	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+		return;
+	}
+#endif
+
 	if (debugIsFootstepsEnabled() && PLAYERCOUNT() == 1 && chr) {
 		chr->footstep = 0;
 		chr->magicanim = -1;
