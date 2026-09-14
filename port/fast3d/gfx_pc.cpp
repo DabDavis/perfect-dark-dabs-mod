@@ -271,6 +271,11 @@ static struct RDP {
 
     int16_t subpixel_ofs_x;
     int16_t subpixel_ofs_y;
+
+    // G_SETRECTDEPTH_EXT: rectangles drawn at this normalised depth and tested
+    // against the scene without writing, instead of in front of everything
+    bool rect_depth_on;
+    float rect_depth;
 } rdp;
 
 static struct RenderingState {
@@ -3440,24 +3445,28 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     struct LoadedVertex* lr = &rsp.loaded_vertices[MAX_VERTICES + 2];
     struct LoadedVertex* ur = &rsp.loaded_vertices[MAX_VERTICES + 3];
 
+    // In front of everything, unless G_SETRECTDEPTH_EXT gave the rectangle a
+    // depth of its own to be tested at (a light's glare under Glare Clipping)
+    const float rect_z = rdp.rect_depth_on ? rdp.rect_depth : -1.0f;
+
     ul->x = ulxf;
     ul->y = ulyf;
-    ul->z = -1.0f;
+    ul->z = rect_z;
     ul->w = 1.0f;
 
     ll->x = ulxf;
     ll->y = lryf;
-    ll->z = -1.0f;
+    ll->z = rect_z;
     ll->w = 1.0f;
 
     lr->x = lrxf;
     lr->y = lryf;
-    lr->z = -1.0f;
+    lr->z = rect_z;
     lr->w = 1.0f;
 
     ur->x = lrxf;
     ur->y = ulyf;
-    ur->z = -1.0f;
+    ur->z = rect_z;
     ur->w = 1.0f;
 
     // The coordinates for texture rectangle shall bypass the viewport setting
@@ -3467,14 +3476,25 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
 
     gfx_adjust_viewport_or_scissor(&default_viewport);
 
+    const uint32_t other_mode_l_saved = rdp.other_mode_l;
+
     rdp.viewport = default_viewport;
     rdp.viewport_or_scissor_changed = true;
     rsp.geometry_mode = 0;
+
+    if (rdp.rect_depth_on) {
+        // Compared against what the scene wrote, never written itself, so a
+        // nearer wall hides the part of the rectangle behind it
+        rsp.geometry_mode = G_ZBUFFER;
+        rdp.other_mode_l = (rdp.other_mode_l & ~(Z_UPD | ZMODE_DEC)) | Z_CMP | ZMODE_OPA;
+    }
+
     gfx_mark_state_dirty();
 
     gfx_sp_tri1(MAX_VERTICES + 0, MAX_VERTICES + 1, MAX_VERTICES + 3, true);
     gfx_sp_tri1(MAX_VERTICES + 1, MAX_VERTICES + 2, MAX_VERTICES + 3, true);
 
+    rdp.other_mode_l = other_mode_l_saved;
     rsp.geometry_mode = geometry_mode_saved;
     rdp.viewport = viewport_saved;
     rdp.viewport_or_scissor_changed = true;
@@ -3822,6 +3842,10 @@ static void gfx_run_dl(Gfx* cmd) {
                 rsp.texgen_turn[1] = sinf(rsp.texgen_shift[0] * 6.2831853f);
                 rsp.texgen_turn[2] = cosf(rsp.texgen_shift[1] * 6.2831853f);
                 rsp.texgen_turn[3] = sinf(rsp.texgen_shift[1] * 6.2831853f);
+                break;
+            case G_SETRECTDEPTH_EXT:
+                rdp.rect_depth_on = C0(0, 1) != 0;
+                rdp.rect_depth = (int32_t)(uint32_t)cmd->words.w1 / 1073741824.0f;
                 break;
             case G_SETSUBPIXELOFFSET_EXT: {
                 gfx_dp_set_subpixel_offset(C0(0, 16), C1(0, 16));

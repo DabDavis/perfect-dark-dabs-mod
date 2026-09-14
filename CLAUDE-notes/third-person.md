@@ -299,3 +299,61 @@ gun is not drawn, so `shotTestLos()` includes the player's own prop when
 glares are `shotTestLos()`'s only caller, so nothing else changes hands.
 Neither half is verified in a picture yet: the headless stages boot into a
 cutscene and a glare wants a light behind the gun, so a person confirms it.
+
+## Glare Clipping: halos stop at nearer walls and models (2026-09-14)
+
+The user reported halos "shining through walls, and models", in first person
+as well as third. `shotTestLos()` is not wrong in general, but it is not
+enough:
+
+- **A halo is a flat rectangle.** Once any sample point of a light passes, the
+  whole sprite draws, over whatever stands in front of the rest of it (the
+  first F3 shot, Defection's lift shaft: the light just past a wall's edge,
+  its halo over the wall).
+- **The check misses geometry.** At that Defection spot four lights passed
+  4 of 4 sample points while the depth buffer at their pixels read a surface
+  about 90 units away and the lights were 800-1000 away. Probably the lift car,
+  a prop whose hit boxes can hold the camera; not chased further.
+- **The check is a frame or two old.** Artifacts are computed into the write
+  list and drawn from the front list, and the draw recomputes the screen
+  position. The Chicago F3 shot (a halo in the middle of a wall) was not there
+  at all when the exact camera was restored headlessly: light 15 in room 38 is
+  seen through the alley gap to the right a frame earlier, so a turn draws it
+  over the wall for a frame or two.
+
+**Glare Clipping** (`Mod.GlareClip`, `g_ModOptions.glareclip`, Video page
+under Glare Brightness; off by default, on in Dab's Settings, off in Vanilla
+and Ghost Trials) depth-tests the halo at draw time, which answers all three:
+
+- `artifactsCalculateGlaresForRoom()` projects each sample point pulled 80% of
+  the way from the camera (`GLARE_CLIP_PULL`) through the same `spf8` the
+  point itself goes through, into the port-only `artifact.clipz` (normalised
+  depth). Pulled, or the wall or ceiling a light is mounted on, receding round
+  it, would cut into its own halo; the rooftop's ground lights still lose the
+  part of the halo lying across the floor.
+- `artifactsRenderGlaresForRoom()` takes the nearest `clipz` of the light's
+  sub-artifacts and sends `gDPSetRectDepthEXT(on, z)` (`G_SETRECTDEPTH_EXT`,
+  0x48, z as a fraction of 2^30) before the halo rectangles and off after.
+- `gfx_draw_rectangle()` then puts the rectangle at that z instead of -1 and
+  turns on `G_ZBUFFER` with `Z_CMP`, no `Z_UPD`, `ZMODE_OPA` (`GL_LESS`) for it.
+  Glares are drawn before `bgunRender()` clears the depth buffer, so the world
+  and props are in it.
+
+Checked on the RX 580 offscreen:
+
+- **The depths are right.** A gdb stop in `gfx_draw_rectangle()` reading the
+  depth buffer with `glad_glReadPixels` at each glare's pixel (scratchpad
+  `depthprobe2.py`): a light in view sits at the surface's depth, and every
+  light the Defection lift-shaft view lost was behind a surface in the buffer.
+  An earlier reading that took `glReadPixels`' bottom rows for the top of the
+  view looked like a 4x depth mismatch and sent a detour through `mtxF2L()`'s
+  stage scale; Defection's scale is 1 and there is no mismatch.
+- **Visible glares stay.** Defection's rooftop in third person, eight
+  headings: identical glare counts and visible counts off and on, at most 5.5%
+  of pixels changed (the halo tails across the floor), no pixel brighter.
+
+Restoring an F3 camera headlessly: under `--spectate` a written `prop->pos`
+is walked from the prop's rooms by `func0f065e74()` and lands at the same
+wrong spot every run (both F3 cameras here); without `--spectate`, holding
+`prop->pos`, `prop->rooms` and the angles every frame puts the eye exactly
+where the trace says (scratchpad `glarespot.py`).

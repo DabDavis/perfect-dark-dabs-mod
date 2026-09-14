@@ -3636,6 +3636,7 @@ struct artifact {
 	u16 *zbufptr;
 #ifndef PLATFORM_N64
 	u16 visiblelos;
+	f32 clipz; // normalised depth a little in front of the light, for Glare Clipping
 #endif
 	union {
 		u16 *depthptr;

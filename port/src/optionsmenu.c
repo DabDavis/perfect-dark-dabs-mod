@@ -1061,6 +1061,25 @@ static MenuItemHandlerResult menuhandlerGlareBrightness(s32 operation, struct me
 	return 0;
 }
 
+/**
+ * Glare Clipping: a light's glare is a flat picture drawn over the frame, so
+ * once any of the light shows, the whole halo spills over the wall or model
+ * in front of it. On, the halo is depth tested a little in front of the light
+ * and stops at nearer geometry. g_ModOptions and the Settings Preset. Live.
+ */
+static MenuItemHandlerResult menuhandlerGlareClip(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return modIsGlareClipOn();
+	case MENUOP_SET:
+		g_ModOptions.glareclip = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerOverexposureScale(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -1243,6 +1262,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Glare Brightness",
 		10,
 		menuhandlerGlareBrightness,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Glare Clipping",
+		0,
+		menuhandlerGlareClip,
 	},
 	{
 		MENUITEMTYPE_SLIDER,
@@ -2040,16 +2067,17 @@ struct modpreset {
 	s32 ghostmode;
 	s32 ghostsplits;
 	s32 xblareflectcutoff;
+	s32 glareclip;
 };
 
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0 },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut  glareclip
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0,       0 },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true,    false },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true,    true },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true,    false },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2076,6 +2104,7 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModGhostMode = preset->ghostmode;
 	g_ModGhostSplits = preset->ghostsplits;
 	g_ModOptions.xblareflectcutoff = preset->xblareflectcutoff;
+	g_ModOptions.glareclip = preset->glareclip;
 
 	// The ways of playing, off in every preset.
 	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
@@ -2114,6 +2143,7 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModGhostMode == preset->ghostmode
 		&& g_ModGhostSplits == preset->ghostsplits
 		&& g_ModOptions.xblareflectcutoff == preset->xblareflectcutoff
+		&& g_ModOptions.glareclip == preset->glareclip
 		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
 		&& g_ModOptions.guardsalerted == MODALARM_OFF
 		&& g_ModOptions.akimbo == MODAKIMBO_OFF

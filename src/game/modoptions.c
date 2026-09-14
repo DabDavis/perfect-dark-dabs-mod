@@ -78,6 +78,7 @@ struct modoptions g_ModOptions = {
 	MODLIVES_UNLIMITED,       // missionlives
 	true,                     // tranqeffect: stock's, and the dart is meant to be felt
 	true,                     // xblareflectcutoff: only does anything with the release's reflections on, where it is most of their cost
+	false,                    // glareclip: stock draws the whole glare over whatever is in front of the light
 };
 
 /**
@@ -511,6 +512,15 @@ bool modIsModelLodOn(void)
 bool modIsXblaReflectCutoffOn(void)
 {
 	return g_ModOptions.xblareflectcutoff != 0;
+}
+
+/**
+ * Glare Clipping (Video page): a light's glare stops at nearer walls and
+ * models instead of spilling over them (artifact.c, G_SETRECTDEPTH_EXT).
+ */
+bool modIsGlareClipOn(void)
+{
+	return g_ModOptions.glareclip != 0;
 }
 
 /**

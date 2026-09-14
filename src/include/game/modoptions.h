@@ -409,6 +409,7 @@ struct modoptions {
 	s32 missionlives; // how many in all, MODLIVES_UNLIMITED or a multiple of MODLIVES_STEP
 	s32 tranqeffect; // the drugged screen a dizzying hit gives the player
 	s32 xblareflectcutoff; // the XBLA release's reflections fade out past Mod.XblaReflectDistance
+	s32 glareclip;   // a light's glare is hidden where a nearer wall or model covers it
 };
 
 extern struct modoptions g_ModOptions;
@@ -448,6 +449,7 @@ bool modIsForwardTiltOn(void);
 f32 modGetGunSwayScale(void);
 bool modIsModelLodOn(void);
 bool modIsXblaReflectCutoffOn(void);
+bool modIsGlareClipOn(void);
 s32 modGetSmoothTextScale(void);
 s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);

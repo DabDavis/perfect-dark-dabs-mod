@@ -21,6 +21,7 @@
 #include "lib/lib_17ce0.h"
 #include "game/player.h"
 #include "game/prop.h"
+#include "game/modoptions.h"
 #include "video.h"
 #endif
 
@@ -182,6 +183,10 @@ s32 artifactsFloatToInt(f32 arg0)
 }
 
 #ifndef PLATFORM_N64
+
+// Glare Clipping tests a glare's halo at this fraction of the way from the
+// camera to the light, so only geometry clearly in front of the light cuts it
+#define GLARE_CLIP_PULL 0.8f
 
 bool artifactTestLos(struct coord *spec, struct coord *roompos, s32 xi, s32 yi)
 {
@@ -443,6 +448,28 @@ void artifactsCalculateGlaresForRoom(s32 roomnum)
 								if (index < MAX_ARTIFACTS) {
 #ifndef PLATFORM_N64
 									artifact->visiblelos = artifactTestLos(&spec, &g_BgRooms[roomnum].pos, xi, yi);
+
+									// Glare Clipping's depth: the point pulled part of the way to
+									// the camera and put through the matrix the point itself went
+									// through, so it lands in the depth the room was drawn at.
+									// Pulled, or the wall or ceiling the light is mounted on, which
+									// recedes around it, would cut into its own halo.
+									{
+										struct coord pulled;
+										f32 clip[4];
+
+										for (l = 0; l < 3; l++) {
+											f32 cam = campos->f[l] - g_BgRooms[roomnum].pos.f[l];
+											pulled.f[l] = cam + (spec.f[l] - cam) * GLARE_CLIP_PULL;
+										}
+
+										for (l = 0; l < 4; l++) {
+											clip[l] = pulled.f[0] * spf8.m[0][l] + pulled.f[1] * spf8.m[1][l] + pulled.f[2] * spf8.m[2][l] + spf8.m[3][l];
+										}
+
+										// Behind the near plane: in front of everything, never clipped
+										artifact->clipz = clip[3] > 0.0f ? clip[2] / clip[3] : -1.0f;
+									}
 #endif
 									/**
 									 * the original game performs artifact depth comparison
@@ -575,6 +602,10 @@ Gfx *artifactsRenderGlaresForRoom(Gfx *gdl, s32 roomnum)
 				lightindex = ((uintptr_t)light - (uintptr_t)g_BgLightsFileData) / sizeof(struct light);
 				s3 = &var800a41a0[lightindex * 3];
 				numgood = 0;
+#ifndef PLATFORM_N64
+				// the nearest of the sub-artifacts' Glare Clipping depths
+				f32 glarez = 1.0f;
+#endif
 				min = 0xffff;
 				max = 0;
 
@@ -625,6 +656,10 @@ Gfx *artifactsRenderGlaresForRoom(Gfx *gdl, s32 roomnum)
 					}
 #else
 					numgood += artifacts[k].visiblelos;
+
+					if (artifacts[k].clipz < glarez) {
+						glarez = artifacts[k].clipz;
+					}
 #endif
 
 					artifacts[k].type = ARTIFACTTYPE_FREE;
@@ -738,6 +773,14 @@ Gfx *artifactsRenderGlaresForRoom(Gfx *gdl, s32 roomnum)
 						spd4[0] = f24;
 						spd4[1] = f26;
 
+#ifndef PLATFORM_N64
+						// Glare Clipping: the halo is a flat rectangle, so without a
+						// depth it spills over whatever stands in front of the light
+						if (modIsGlareClipOn()) {
+							gDPSetRectDepthEXT(gdl++, true, glarez);
+						}
+#endif
+
 						func0f0b2740(&gdl, spdc, spd4, 64, 64, false, false, false, 1);
 
 						if (extra) {
@@ -754,6 +797,12 @@ Gfx *artifactsRenderGlaresForRoom(Gfx *gdl, s32 roomnum)
 
 							func0f0b2740(&gdl, spdc, spd4, 64, 64, false, false, false, 1);
 						}
+
+#ifndef PLATFORM_N64
+						if (modIsGlareClipOn()) {
+							gDPSetRectDepthEXT(gdl++, false, 0.0f);
+						}
+#endif
 					}
 				}
 

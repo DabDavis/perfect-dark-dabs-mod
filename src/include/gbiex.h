@@ -199,6 +199,7 @@
 #define G_SETSUBPIXELOFFSET_EXT      0x45
 #define G_SETFONTGLYPH_EXT           0x46
 #define G_SETTEXGENSHIFT_EXT         0x47
+#define G_SETRECTDEPTH_EXT           0x48
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -340,6 +341,19 @@
                                                                                        \
     _g->words.w0 = _SHIFTL(G_SETTEXGENSHIFT_EXT, 24, 8) | _SHIFTL((s16)(s), 0, 16);    \
     _g->words.w1 = _SHIFTL((s16)(t), 0, 16);                                           \
+}
+
+/*
+ * Rectangles after this are drawn at normalised depth z (-1 near, 1 far) and
+ * depth tested against the scene without writing (on), or in front of
+ * everything as stock (off). z goes in w1 as a signed fraction of 2^30.
+ */
+#define gDPSetRectDepthEXT(pkt, on, z)                                                 \
+{                                                                                      \
+    Gfx *_g = (Gfx*)(pkt);                                                             \
+                                                                                       \
+    _g->words.w0 = _SHIFTL(G_SETRECTDEPTH_EXT, 24, 8) | _SHIFTL((on) ? 1 : 0, 0, 1);   \
+    _g->words.w1 = (u32)(s32)((z) * 1073741824.0f);                                    \
 }
 
 #define gSPSetExtraGeometryModeEXT(pkt, word) gSPExtraGeometryModeEXT((pkt), 0, word)
