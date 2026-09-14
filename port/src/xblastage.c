@@ -32,6 +32,7 @@
 #include "romdata.h"
 #include "lib/main.h"
 #include "game/bg.h"
+#include "game/dyntex.h"
 #include "game/tex.h"
 #include "xblamesh.h"
 #include "xblatex.h"
@@ -165,6 +166,9 @@ void xblaStageSwitched(void)
 	// game does when it is short of memory, and the visible ones come back on
 	// the next frame - from the copy the switches now name.
 	bgUnloadAllRooms();
+	// dyntex keeps a room's vertex offsets for the level and would apply the
+	// other copy's to the rooms about to load.
+	dyntexForgetRooms();
 	roomsWant = want;
 
 	if (xblaStageVerbose) {

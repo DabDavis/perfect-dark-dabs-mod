@@ -1058,6 +1058,30 @@ rooms**: the same drive with `Mod.XblaStages=0` (the ROM's rooms, the release's
 meshes) runs all eight shots clean. Judge a mesh change on the Villa with the
 stages off until this is found.
 
+**One way to get it is found (2026-09-14): dyntex across the switch.** Three
+v3.6.0 crash reports died with this signature (two with these exact bytes) the
+frame after `xblaswitch: release assets off` on the Villa, and it reproduces at
+once: `--boot-stage 0x2c --fixed-step --rng-seed 1`, the intro skipped at frame
+600, `call xblaStageSetEnabled(0)` at a `videoEndFrame` stop at 1000, fatal at
+1001. The bad word sat in room 59's freshly reloaded ROM list with its lower
+half a good render mode and its upper half `0xff6707a7`. A `watch -l` on that
+upper half, set once the room had reloaded, stopped in `dyntexUpdateOcean()`.
+dyntex adds a room's animated vertices **once per level** and keeps the
+offsets across an unload, which is right while a room always reloads from the
+same data. The switch reloads it from the other copy with another layout, so
+the release copy's offsets wrote wave texture coordinates into the ROM copy's
+display lists. `xblaStageSwitched()` now calls `dyntexForgetRooms()` after it
+unloads the rooms; F6 off, on and off again runs clean. ASan hides it, because
+its quarantine gives the reloaded room fresh zeroed memory, so the mangled
+upper halves read as zero.
+
+This does **not** explain the drive above, which crashed before any switch.
+But the bytes are the same and so is the shape (upper halves written by
+something other than the list's builder), so dyntex on the release's rooms
+is the first thing to look at if it comes back: the release gives each leaf
+block its own vertex slice (xblastage.h, the fifth trap), and a room whose
+vertex base the tick and the add disagree on would do exactly this.
+
 How it was found, worth keeping: break on `*sysFatalError` (before its
 prologue, so `rdx` is the command), walk the master list from `gfx_run`'s
 `commands` for the last `G_DL` (6 in this port's F3DEX gbi, `G_ENDDL` 0xb8 -

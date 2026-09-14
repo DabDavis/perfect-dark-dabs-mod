@@ -417,6 +417,35 @@ void dyntexSetCurrentRoom(RoomNum roomnum)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Forget every room's vertices without giving back the arrays.
+ *
+ * A room is only added once per level, on the assumption that a reloaded room
+ * is the same room. The XBLA stage switch breaks that: the release's copy and
+ * the ROM's have different layouts, so the offsets kept from one wrote the
+ * ocean's texture coordinates into the other's display lists (an "Unknown GBI
+ * opcode" on Villa the frame after F6). The switch unloads every room, and
+ * they are added again as they load.
+ */
+void dyntexForgetRooms(void)
+{
+	s32 i;
+
+	for (i = 0; i < g_DyntexRoomsCount; i++) {
+		g_Rooms[g_DyntexRooms[i].roomnum].flags &= ~ROOMFLAG_HASDYNTEX;
+	}
+
+	g_DyntexCurRoom = -1;
+	g_DyntexCurType = -1;
+	g_DyntexRoomPopulated = false;
+	g_DyntexTypePopulated = false;
+	g_DyntexRoomsCount = 0;
+	g_DyntexTypesCount = 0;
+	g_DyntexVerticesCount = 0;
+}
+#endif
+
 void dyntexReset(void)
 {
 	u32 size3;

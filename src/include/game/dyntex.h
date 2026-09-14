@@ -10,6 +10,7 @@ void dyntexSetCurrentType(s16 type);
 void dyntexSetCurrentRoom(RoomNum roomnum);
 #ifndef PLATFORM_N64
 void dyntexSetCurrentVtxBase(const void *vtxstart);
+void dyntexForgetRooms(void);
 #endif
 void dyntexReset(void);
 bool dyntexHasRoom(void);
