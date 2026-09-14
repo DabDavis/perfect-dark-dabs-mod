@@ -2576,6 +2576,9 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 		Mtxf spc0;
 		struct coord spb4;
 		struct modelrwdata_toggle *rwdata;
+#ifndef PLATFORM_N64
+		const s32 xblashine = g_TitleXblaLogo && xblaMeshGetLogoMaterial();
+#endif
 
 		lightdir.z = sinf(func0f019d0c(fracdone));
 		lightdir.x = cosf(func0f019d0c(fracdone));
@@ -2655,6 +2658,18 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 
 		modelUpdateRelations(g_TitleModel);
 
+#ifndef PLATFORM_N64
+		// The release's R glints (Mod.XblaLogoMaterial): an added pass that must
+		// land on the nearest surface only, so it is drawn into a depth buffer
+		// of its own, as 4J's cubes are.
+		if (xblashine) {
+			gdl = zbufClear(gdl);
+			gSPSetGeometryMode(gdl++, G_ZBUFFER);
+			xblaMeshSetEnvironment(XBLAMESH_ENV_LOGO);
+			xblaMeshSetLogoFade(fracdone < 0.2f ? 255.0f * fracdone / 0.2f : 255);
+		}
+#endif
+
 		rwdata = modelGetNodeRwData(g_TitleModel, modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000B));
 
 		if (rwdata) {
@@ -2676,7 +2691,11 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 		gSPSetLights1(gdl++, g_TitleLightNintendoRare);
 
 		renderdata.flags = 3;
+#ifdef PLATFORM_N64
 		renderdata.zbufferenabled = 0;
+#else
+		renderdata.zbufferenabled = xblashine;
+#endif
 		renderdata.gdl = gdl;
 
 		modelRender(&renderdata, g_TitleModel);
@@ -2704,12 +2723,24 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 		gSPSetLights1(gdl++, g_TitleLightNintendoRare);
 
 		renderdata.flags = 3;
+#ifdef PLATFORM_N64
 		renderdata.zbufferenabled = 0;
+#else
+		renderdata.zbufferenabled = xblashine;
+#endif
 		renderdata.gdl = gdl;
 
 		modelRender(&renderdata, g_TitleModel);
 
 		gdl = renderdata.gdl;
+
+#ifndef PLATFORM_N64
+		if (xblashine) {
+			xblaMeshSetEnvironment(XBLAMESH_ENV_SETTING);
+			xblaMeshSetLogoFade(255);
+			gSPClearGeometryMode(gdl++, G_ZBUFFER | G_CULL_BOTH);
+		}
+#endif
 
 		for (i = 0, j = 0; i < g_TitleModel->definition->nummatrices; i++, j += sizeof(Mtxf)) {
 			Mtxf sp58;

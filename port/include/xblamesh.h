@@ -222,10 +222,17 @@ void xblaMeshSetEnvironment(s32 force);
  * the release's cube maps (0), or its faces in the Carrington Institute
  * statue's blue (ROM texture 0x0042) and its bevels in Defection's grey metal
  * (0x006d), both live under texgen the way the levels draw them (1, the
- * default). Live.
+ * default). With it on the bevels are brightened and glint, and so does
+ * the boot sequence's orange Rare logo. Live.
  */
 s32 xblaMeshGetLogoMaterial(void);
 void xblaMeshSetLogoMaterial(s32 on);
+
+/**
+ * The title's own fade over the logo passes, 0 to 255, for a logo it fades in
+ * by its light rather than by alpha (the Rare logo). Put 255 back after.
+ */
+void xblaMeshSetLogoFade(s32 alpha);
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode);

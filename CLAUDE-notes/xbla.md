@@ -2945,6 +2945,40 @@ faces are the statue's blue, the bevels grey metal, and the pattern moves
 between ticks as the cube spins. The PERFECT DARK letters and the tray are
 unchanged.
 
+**Brighter bevels, and the Rare logo (later the same day).** The user asked
+for "the metal bevels brighter and shinier" and "the rare logo shiny", then
+said the guns' Level Metal look "would make the rare logo look good". The HD
+006d is dark, so lit it read gunmetal. Now:
+
+- **The table** (`xblaMeshLogoMats`) says per material whether the level's
+  picture replaces the record (`texnum`, -1 keeps the release's), whether it
+  is `metal`, and what is added over it (`XBLAMESH_LOGO_ADD_GLINT` or
+  `_METAL`). The copies are a base, one per replaced material, a glint copy
+  and a metal copy (`xblaMeshLogoCopy()`).
+- **Bevels (1116):** unlit texel x (1 + `xblaLogoMetalGain` 0x80), plus the
+  glint: 006d's own picture, brightness against its top half percent raised
+  to the 4th power (`xblaMeshLogoGlint()`, bound as an image), added at
+  `xblaLogoGlintShare` 0xc0 x shade. Result is bright chrome with moving
+  highlights.
+- **Rare R (1160, flat orange):** the guns' Level Metal, 006d added over the
+  paint at `xblaLogoAddMetalShare` 0xff. It is unlit: the Rare stage's light
+  swings off the R as it settles facing the camera, and a lit pass went out
+  completely at tick 235. `xblaMeshSetLogoFade()` ramps it in with the
+  stage's light (fracdone / 0.2).
+- **Rare needs a depth buffer:** `titleRenderRareLogo()` drew with none, and
+  the pass adds only where it matches depth. With the setting on, both its
+  `modelRender()` calls use a cleared depth buffer and `XBLAMESH_ENV_LOGO`.
+- **Normals:** `xblaMeshBuildEnvironment()` frees the normals of a mesh that
+  reflects nothing of the release's. The Rare mesh is one, so a mesh with a
+  logo material now keeps them (`xblaMeshHasLogoMaterial()`).
+- **Tunables** are plain statics, so gdb can set them at the first
+  `titleTick` stop, before the glint picture is made.
+
+Checked on the card, same capture plus the Rare stage at mode-4 ticks
+60/120/180/235: the Rare R draws "0 batches in the levels' blue and metal,
+426 with a glint or the metal added". It is polished gold throughout, near
+pale yellow once it settles.
+
 ## The interface art, and the logo (2026-09-11)
 
 Past the numbered textures and the font atlases, the records hold the art 4J
