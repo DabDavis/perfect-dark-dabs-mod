@@ -1188,6 +1188,62 @@ nearest guard's sixteen bbox nodes at frame 1700): 109 stock entries bruised,
 and the next run boots with the meshes off and looks exactly like a mirror that
 does nothing - reset it before each run.
 
+#### Shells and destroyed props (2026-09-14)
+
+Report: "Rotation point of ejected shells on XBLA Falcon 2 is broken, sometimes
+shells eject as two. Destroyed objects ... cameras mostly just disappear."
+
+**A rigid mesh can carry its first part's rest offset.** A position node's
+matrix stands at the node's own `rodata->pos` (`modelUpdatePositionNodeMtx()`),
+and the node's lists are authored relative to it. `GcartridgeZ` is one position
+node at z 31.95 over one **gun** list (`MODELNODETYPE_GUNDL`, 0x04 - not a
+`DL`, 0x18) whose vertices span z -13..13; the release's shell spans z 19..45,
+the model's space. Drawn under the part matrix it was 31.95 out, and
+`casingRender()` spins that matrix about the node, so the release's shell
+orbited a point three units off its middle - which reads as two shells. The game
+makes exactly one per shot (counted in `g_Casings`). `xblaMeshRestShift()` asks
+the geometry once per model and mesh - the mesh's box centre against the stock
+lists' box with and without the offset - and takes the offset off a float copy of
+the matrix only where the model's space fits better; the hit test takes the same
+shift. Across a Combat Simulator match and Investigation's 107 mesh props it
+fired on the shell alone, so nothing that drew right moved. The first version
+read only `DL` nodes, found no stock vertices on the shell and answered "leave
+it" - a `GUNDL` has its `vertices` and `numvertices` at the same offsets.
+
+**A destroyed prop is `objDeform()`'s, and the door trim test read it as a
+door.** `objDeform()` gives each list a copy of its vertices, jittered up to ten
+units in all three axes and clamped to the bbox, clears every colour entry's
+alpha but the first and points some vertices at that one, and squashes the
+object's matrix along its upright axis. The trim test (`xblaMeshNodeTrim()`)
+only asked whether the rw minimum x rose or the maximum y fell, which a jitter
+nearly always does, and pressed the whole mesh onto that plane - "just
+disappears". A trim now has to move vertices along its one axis onto the line and
+nothing else. The deformation itself is mirrored through the bruise map, which
+takes rigid meshes now (every vertex mapped by position, the solid ones
+remembered for colour; each ref keeps its stock vertex and the list's colour
+base): `xblaMeshDeformVertices()` moves each release vertex by its refs'
+weighted `rw - ro`, and `xblaMeshBruiseColours()` reads the entry the rw vertex
+names *now*. The matrix squash needed nothing. Checked on Investigation (0x33)
+on the GPU: two lounge armchairs made destroyable from gdb (clear
+`OBJFLAG_INVINCIBLE`, `objDamage(obj, 5000, ...)`) draw scorched and squashed
+with the release's meshes, as the N64 pair does, and log `slot 2211 takes the
+game's bruises: 438 of 438 vertices ... matched by position` and no trim line.
+Security cameras were not found live on Defection, Investigation, Infiltration or
+the G5 Building. A byte scan of every setup file for `06 00 af` (type, model)
+hit Defection, Pelagic II, the Institute's training setup and Mr. Blonde's
+Revenge, but only Defection was booted, and there no `OBJTYPE_CCTV` prop
+existed in a `--spectate` boot and the camera model never loaded - the hits may
+be coincidence. The camera itself is still to be seen.
+
+Driving it: a frame-exact shell burst is a top-level gdb Python loop on a
+`casingsRender` breakpoint with `casingCreateForHand(0, vv_ground,
+&hands[0].posmtx)` at the first stop and `screenshotRequest()` per `continue`;
+`bgunSetTriggerOn()` from gdb does not fire, since the input tick overwrites it.
+A Combat Simulator simulant kills the player through `invincible = 1` and every
+frame comes out "Press START": use `--mpsims 0`. Look direction is
+`(-sin theta, 0, cos theta)`, so `vv_theta = 0` faces +z after a `prop->pos`
+teleport under `--spectate`.
+
 **The two switches are separate, and both are live.** The menu page
 (*Extended Options > Texture & Model Packs > Xbox 360 (XBLA)*) has "Enable
 Models/Meshes" and "Enable Textures", and they are separate because either on

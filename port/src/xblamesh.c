@@ -206,6 +206,8 @@ struct xblameshuse {
 	struct modelnode *parts[XBLAMESH_MAXPARTS];
 	s16 partmtx[XBLAMESH_MAXPARTS];   // which of the model's matrices poses it
 	struct xblameshbruise *bruise;    // made the first time the model is shot, or NULL
+	s8 restfit;                       // 0 not asked, 1 drawn as it is, 2 restshift taken off
+	f32 restshift[3];                 // the first part's rest offset, where the mesh includes it
 };
 
 /**
@@ -229,6 +231,8 @@ struct xblameshuse {
 struct xblameshbruiseref {
 	u16 node;     // into nodes[], or XBLAMESH_NOPART for a vertex that takes none
 	u16 colour;   // into that node's colour table
+	u16 vtx;      // the stock vertex, into that node's vertices
+	u16 base;     // the table entry its colour byte counts from (the list's G_COL)
 	f32 weight;
 };
 
@@ -239,11 +243,13 @@ struct xblameshbruise {
 	struct modelnode *nodes[XBLAMESH_BRUISENODES];
 	s32 state;                        // 0 not made, 1 made, -1 could not be
 	struct xblameshbruiseref *refs;   // XBLAMESH_BRUISEREFS per emitted vertex
+	u8 *solid;                        // per emitted vertex: whether it takes colour
 };
 
 static void xblaMeshBruiseFree(struct xblameshuse *use)
 {
 	if (use->bruise) {
+		free(use->bruise->solid);
 		free(use->bruise->refs);
 		free(use->bruise);
 		use->bruise = NULL;
@@ -293,6 +299,9 @@ struct xblameshbuilt {
 	const struct model *bruisemodel;
 	u32 bruiseframe;
 	Col *bruisecol;
+	const struct model *deformmodel;   // objDeform()'s vertices, mirrored for one model a frame
+	u32 deformframe;
+	Vtx *deformvtx;
 
 	// The trimmed copy already made this frame, for a door the game is
 	// drawing from trimmed vertices - see xblaMeshNodeTrim(). Keyed the way
@@ -5857,16 +5866,30 @@ static s32 xblaMeshNodeTrim(struct model *model, struct modelnode *node, s32 *ax
 	if (rwminx > rominx) {
 		*axis = 0;
 		*ref = rwminx;
-		return 1;
-	}
-
-	if (rwmaxy < romaxy) {
+	} else if (rwmaxy < romaxy) {
 		*axis = 1;
 		*ref = rwmaxy;
-		return 1;
+	} else {
+		return 0;
 	}
 
-	return 0;
+	// A trim moves vertices along its one axis and onto the line, and nothing
+	// else. objDeform() also hands a node a copy of its vertices, jittered in
+	// all three axes, and read as a trim that pressed a destroyed object into a
+	// sliver at its own edge: a shot camera that "just disappears".
+	for (s32 i = 0; i < n; i++) {
+		if (*axis == 0) {
+			if (rw[i].y != ro[i].y || rw[i].z != ro[i].z || (rw[i].x != ro[i].x && rw[i].x != *ref)) {
+				return 0;
+			}
+		} else {
+			if (rw[i].x != ro[i].x || rw[i].z != ro[i].z || (rw[i].y != ro[i].y && rw[i].y != *ref)) {
+				return 0;
+			}
+		}
+	}
+
+	return 1;
 }
 
 /**
@@ -6187,7 +6210,11 @@ struct xblameshstockvtx {
 	s32 mtx;
 	u16 node;
 	u16 colour;
+	u16 vtx;
+	u16 base;
 };
+
+static const f32 *xblaMeshRestShift(const struct xblameshbuilt *m, struct xblameshuse *use, s32 slot);
 
 /**
  * Makes the map: each of the release's vertices to the stock vertices nearest
@@ -6211,7 +6238,8 @@ struct xblameshstockvtx {
  * without having to find the triangle.
  */
 static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbuilt *m,
-		struct model *model, const struct modeldef *modeldef, s32 samebone, s32 slot)
+		struct model *model, const struct modeldef *modeldef, s32 samebone, s32 slot,
+		const f32 *rigidshift)
 {
 	struct xblameshstockvtx *sv = NULL;
 	struct xblameshstockvtx *sorted = NULL;
@@ -6319,6 +6347,8 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 						sv[numsv].mtx = mtx;
 						sv[numsv].node = (u16)ni;
 						sv[numsv].colour = (u16)ci;
+						sv[numsv].vtx = (u16)vi;
+						sv[numsv].base = (u16)(spac / sizeof(Col));
 						numsv++;
 					}
 				}
@@ -6401,7 +6431,8 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 
 	for (s32 i = 0; i < m->numvertices; i++) {
 		struct xblameshbruiseref *r = &refs[i * XBLAMESH_BRUISEREFS];
-		const f32 *p = &m->bindpos[i * 3];
+		f32 rigidpos[3];
+		const f32 *p = m->bindpos ? &m->bindpos[i * 3] : rigidpos;
 		const struct xblameshstockvtx *pool = sv;
 		s32 from = 0;
 		s32 to = numsv;
@@ -6415,8 +6446,17 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 			besti[k] = -1;
 		}
 
-		if (!solid[i]) {
+		// A skinned mesh maps only what takes a bruise. A rigid one maps every
+		// vertex, since objDeform() moves the whole object, and remembers which
+		// are solid for the colours.
+		if (!solid[i] && m->bindpos) {
 			continue;
+		}
+
+		if (!m->bindpos) {
+			rigidpos[0] = m->vertices[i].x + (rigidshift ? rigidshift[0] : 0.0f);
+			rigidpos[1] = m->vertices[i].y + (rigidshift ? rigidshift[1] : 0.0f);
+			rigidpos[2] = m->vertices[i].z + (rigidshift ? rigidshift[2] : 0.0f);
 		}
 
 		if (samebone && m->bones && m->weights) {
@@ -6471,6 +6511,8 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 			if (besti[k] >= 0) {
 				r[k].node = pool[besti[k]].node;
 				r[k].colour = pool[besti[k]].colour;
+				r[k].vtx = pool[besti[k]].vtx;
+				r[k].base = pool[besti[k]].base;
 				r[k].weight = (1.0f / (bestd[k] + 1.0f)) / wsum;
 			}
 		}
@@ -6487,36 +6529,16 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 	free(sv);
 	free(sorted);
 	free(start);
-	free(solid);
+	br->solid = solid;
 	br->refs = refs;
 
 	return 1;
 }
 
-/**
- * The colours a skinned mesh draws with for one model this frame: its own when
- * nothing has touched the model's stock tables (NULL, the usual case, a
- * pointer compare a list), or a frame-arena copy with the game's bruises laid
- * on. See struct xblameshbruise.
- */
-static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
-		struct xblameshuse *use, s32 samebone, s32 slot)
+/** The model's map of stock vertices, made (or remade for a rebuilt mesh) but not yet filled. */
+static struct xblameshbruise *xblaMeshBruiseReady(const struct xblameshbuilt *m, struct xblameshuse *use)
 {
-	const Col *cur[XBLAMESH_BRUISENODES];
-	const Col *stock[XBLAMESH_BRUISENODES];
-	struct xblameshbruise *br;
-	s32 any = 0;
-	Col *out;
-
-	if (!model || !model->rwdatas || !m->bindpos || !m->colours) {
-		return NULL;
-	}
-
-	if (m->bruisemodel == model && m->bruiseframe == frameCount) {
-		return m->bruisecol;
-	}
-
-	br = use->bruise;
+	struct xblameshbruise *br = use->bruise;
 
 	if (br && (br->gdl != m->gdl || br->numvertices != m->numvertices)) {
 		xblaMeshBruiseFree(use);
@@ -6536,6 +6558,154 @@ static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
 		use->bruise = br;
 	}
 
+	return br;
+}
+
+/**
+ * What takes a rigid mesh's vertices into the model's space, where the stock
+ * side of the map is: nothing for a mesh authored there, its first part's rest
+ * offset for one authored in that part's space. See xblaMeshRestShift().
+ */
+static const f32 *xblaMeshMapShift(const struct xblameshbuilt *m, struct xblameshuse *use, s32 slot)
+{
+	if (m->bindpos) {
+		return NULL;
+	}
+
+	return xblaMeshRestShift(m, use, slot) ? NULL : use->restshift;
+}
+
+/**
+ * The vertices a rigid mesh draws with for one model this frame: its own
+ * (NULL) until the game deforms the model, then a frame-arena copy that
+ * follows.
+ *
+ * A destroyed object is objDeform()'s: every list of the model gets a copy of
+ * its vertices, each pushed up to ten units in every axis and held inside the
+ * list's bounding box, with some of them pointed at a colour entry whose alpha
+ * survives while every other entry's is cleared - the scorched, crumpled prop
+ * the game draws from then on, deformed again at each destroyed level. The
+ * matrix squash along the object's upright axis reaches the mesh by itself;
+ * the rest did not, so the release's prop stayed pristine (or, before the trim
+ * test was made exact, was pressed into a sliver as if it were a door).
+ *
+ * Each vertex takes the displacement of the stock vertices nearest it in the
+ * rest pose, weighted as its colours are (xblaMeshBruiseMap()), and the colours
+ * follow through xblaMeshBruiseColours() from the same map.
+ */
+static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
+		struct xblameshuse *use, s32 slot)
+{
+	const Vtx *nowv[XBLAMESH_BRUISENODES];
+	const Vtx *wasv[XBLAMESH_BRUISENODES];
+	struct xblameshbruise *map;
+	s32 moved = 0;
+	Vtx *out;
+
+	if (!model || !model->rwdatas || m->bindpos || !m->vertices) {
+		return NULL;
+	}
+
+	if (m->deformmodel == model && m->deformframe == frameCount) {
+		return m->deformvtx;
+	}
+
+	map = xblaMeshBruiseReady(m, use);
+
+	if (!map) {
+		return NULL;
+	}
+
+	m->deformmodel = model;
+	m->deformframe = frameCount;
+	m->deformvtx = NULL;
+
+	for (s32 ni = 0; ni < map->numnodes; ni++) {
+		const union modelrwdata *rw = modelGetNodeRwData(model, map->nodes[ni]);
+
+		wasv[ni] = map->nodes[ni]->rodata->dl.vertices;
+		nowv[ni] = rw && rw->dl.vertices ? rw->dl.vertices : wasv[ni];
+
+		if (nowv[ni] != wasv[ni]) {
+			moved = 1;
+		}
+	}
+
+	if (!moved) {
+		return NULL;
+	}
+
+	if (map->state == 0) {
+		map->state = xblaMeshBruiseMap(map, m, model, use->modeldef, 0, slot,
+				xblaMeshMapShift(m, use, slot)) ? 1 : -1;
+	}
+
+	if (map->state < 0) {
+		return NULL;
+	}
+
+	out = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Vtx));
+
+	if (!out) {
+		return NULL;
+	}
+
+	memcpy(out, m->vertices, (size_t)m->numvertices * sizeof(Vtx));
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const struct xblameshbruiseref *r = &map->refs[i * XBLAMESH_BRUISEREFS];
+		f32 d[3] = { 0.0f, 0.0f, 0.0f };
+
+		for (s32 k = 0; k < XBLAMESH_BRUISEREFS && r[k].node != XBLAMESH_NOPART; k++) {
+			const Vtx *now = &nowv[r[k].node][r[k].vtx];
+			const Vtx *was = &wasv[r[k].node][r[k].vtx];
+
+			d[0] += r[k].weight * (now->x - was->x);
+			d[1] += r[k].weight * (now->y - was->y);
+			d[2] += r[k].weight * (now->z - was->z);
+		}
+
+		out[i].x = xblaMeshRound(out[i].x + d[0]);
+		out[i].y = xblaMeshRound(out[i].y + d[1]);
+		out[i].z = xblaMeshRound(out[i].z + d[2]);
+	}
+
+	m->deformvtx = out;
+
+	return out;
+}
+
+/**
+ * The colours a skinned mesh draws with for one model this frame: its own when
+ * nothing has touched the model's stock tables (NULL, the usual case, a
+ * pointer compare a list), or a frame-arena copy with the game's bruises laid
+ * on. See struct xblameshbruise.
+ */
+static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
+		struct xblameshuse *use, s32 samebone, s32 slot)
+{
+	const Col *cur[XBLAMESH_BRUISENODES];
+	const Col *stock[XBLAMESH_BRUISENODES];
+	const Vtx *curv[XBLAMESH_BRUISENODES];
+	const Vtx *stockv[XBLAMESH_BRUISENODES];
+	struct xblameshbruise *br;
+	s32 any = 0;
+	Col *out;
+
+	if (!model || !model->rwdatas || !m->colours) {
+		return NULL;
+	}
+
+	if (m->bruisemodel == model && m->bruiseframe == frameCount) {
+		return m->bruisecol;
+	}
+
+	br = xblaMeshBruiseReady(m, use);
+
+	if (!br) {
+		return NULL;
+	}
+
 	m->bruisemodel = model;
 	m->bruiseframe = frameCount;
 	m->bruisecol = NULL;
@@ -6545,6 +6715,8 @@ static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
 
 		stock[ni] = xblaMeshStockColours(br->nodes[ni]);
 		cur[ni] = rw && rw->dl.colours ? rw->dl.colours : stock[ni];
+		stockv[ni] = br->nodes[ni]->rodata->dl.vertices;
+		curv[ni] = rw && rw->dl.vertices ? rw->dl.vertices : stockv[ni];
 
 		if (cur[ni] != stock[ni]) {
 			any = 1;
@@ -6556,7 +6728,8 @@ static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
 	}
 
 	if (br->state == 0) {
-		br->state = xblaMeshBruiseMap(br, m, model, use->modeldef, samebone, slot) ? 1 : -1;
+		br->state = xblaMeshBruiseMap(br, m, model, use->modeldef, samebone, slot,
+				xblaMeshMapShift(m, use, slot)) ? 1 : -1;
 	}
 
 	if (br->state < 0) {
@@ -6576,8 +6749,24 @@ static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
 		f32 f[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		s32 changed = 0;
 
+		if (br->solid && !br->solid[i]) {
+			continue;
+		}
+
 		for (s32 k = 0; k < XBLAMESH_BRUISEREFS && r[k].node != XBLAMESH_NOPART; k++) {
-			const Col *c = &cur[r[k].node][r[k].colour];
+			// objDeform() points a vertex at another entry as well as clearing
+			// the entries' alpha, so the entry is the one the vertex names now.
+			u32 ci = r[k].colour;
+
+			if (curv[r[k].node] != stockv[r[k].node]) {
+				const u32 now = r[k].base + ((u32)curv[r[k].node][r[k].vtx].colour >> 2);
+
+				if (now < (u32)br->nodes[r[k].node]->rodata->dl.numcolours) {
+					ci = now;
+				}
+			}
+
+			const Col *c = &cur[r[k].node][ci];
 			const Col *o = &stock[r[k].node][r[k].colour];
 			const u8 now[4] = { c->r, c->g, c->b, c->a };
 			const u8 was[4] = { o->r, o->g, o->b, o->a };
@@ -6975,6 +7164,128 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 	return 1;
 }
 
+/**
+ * The first part's rest offset, where a rigid mesh has to have it taken off.
+ *
+ * A position node's matrix stands at the node's own rest offset
+ * (modelUpdatePositionNodeMtx() builds it from rodata->pos), and the node's
+ * lists are authored relative to that. The release's rigid meshes are authored
+ * in the model's space instead, rest offset included, so a mesh drawn under
+ * the first part's matrix is one rest offset out wherever that offset is not
+ * zero. Nearly every model's first part sits at the origin, which is why it did
+ * not show; the shell a gun ejects does not - GcartridgeZ's only node is at z
+ * 31.95, its N64 list is centred on it, the release's shell spans z 19..45 -
+ * and casingRender() spins the matrix about the node, so the release's shell
+ * orbited a point three units off its own middle, turning over itself.
+ *
+ * Asked of the geometry rather than assumed: the mesh's box against the stock
+ * lists' box in the model's space and in the first part's, once per model and
+ * mesh. The shift is taken off only where the model's space fits better, so a
+ * mesh authored the other way is drawn exactly as it was.
+ */
+static const f32 *xblaMeshRestShift(const struct xblameshbuilt *m, struct xblameshuse *use, s32 slot)
+{
+	if (use->restfit == 0) {
+		struct modelnode *posnode = NULL;
+		f32 mlo[3] = { 1e30f, 1e30f, 1e30f };
+		f32 mhi[3] = { -1e30f, -1e30f, -1e30f };
+		f32 slo[3] = { 1e30f, 1e30f, 1e30f };
+		f32 shi[3] = { -1e30f, -1e30f, -1e30f };
+		f32 dmodel = 0.0f;
+		f32 dnode = 0.0f;
+		s32 numstock = 0;
+
+		use->restfit = 1;
+		use->restshift[0] = use->restshift[1] = use->restshift[2] = 0.0f;
+
+		if (use->numparts > 0 && use->partmtx[0] >= 0) {
+			posnode = xblaMeshFindMtxNode(use->modeldef, use->partmtx[0]);
+		}
+
+		if (!posnode || m->numvertices <= 0) {
+			return NULL;
+		}
+
+		xblaMeshNodeRestOffset(posnode, use->restshift);
+
+		if (use->restshift[0] * use->restshift[0] + use->restshift[1] * use->restshift[1]
+				+ use->restshift[2] * use->restshift[2] < 0.25f) {
+			return NULL;
+		}
+
+		for (s32 i = 0; i < m->numvertices; i++) {
+			const f32 v[3] = { m->vertices[i].x, m->vertices[i].y, m->vertices[i].z };
+
+			for (s32 j = 0; j < 3; j++) {
+				if (v[j] < mlo[j]) mlo[j] = v[j];
+				if (v[j] > mhi[j]) mhi[j] = v[j];
+			}
+		}
+
+		for (s32 k = 0; k < use->numparts && k < XBLAMESH_MAXPARTS; k++) {
+			const struct modelnode *node = use->parts[k];
+			const Vtx *vertices;
+			s32 numvertices;
+			f32 rest[3];
+
+			if (!node || !node->rodata) {
+				continue;
+			}
+
+			// A gun's list as well as a prop's: the shell is one.
+			if ((node->type & 0xff) == MODELNODETYPE_DL) {
+				vertices = node->rodata->dl.vertices;
+				numvertices = node->rodata->dl.numvertices;
+			} else if ((node->type & 0xff) == MODELNODETYPE_GUNDL) {
+				vertices = node->rodata->gundl.vertices;
+				numvertices = node->rodata->gundl.numvertices;
+			} else {
+				continue;
+			}
+
+			if (!vertices) {
+				continue;
+			}
+
+			xblaMeshNodeRestOffset(node, rest);
+
+			for (s32 i = 0; i < numvertices; i++) {
+				const f32 v[3] = { vertices[i].x + rest[0], vertices[i].y + rest[1],
+						vertices[i].z + rest[2] };
+
+				for (s32 j = 0; j < 3; j++) {
+					if (v[j] < slo[j]) slo[j] = v[j];
+					if (v[j] > shi[j]) shi[j] = v[j];
+				}
+
+				numstock++;
+			}
+		}
+
+		if (numstock == 0) {
+			return NULL;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			const f32 cm = (mlo[j] + mhi[j]) * 0.5f;
+			const f32 cs = (slo[j] + shi[j]) * 0.5f;
+
+			dmodel += (cm - cs) * (cm - cs);
+			dnode += (cm - cs + use->restshift[j]) * (cm - cs + use->restshift[j]);
+		}
+
+		if (dmodel < dnode) {
+			use->restfit = 2;
+
+			sysLogPrintf(LOG_NOTE, "xblamesh: slot %d is authored in the model's space; its first "
+					"part's rest offset (%.2f %.2f %.2f) is taken off its matrix", slot,
+					use->restshift[0], use->restshift[1], use->restshift[2]);
+		}
+	}
+
+	return use->restfit == 2 ? use->restshift : NULL;
+}
+
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node)
 {
@@ -7304,6 +7615,16 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		}
 	}
 
+	// A destroyed object: the game's deformation, mirrored. After the trim, which
+	// is exact and never a deformed object's.
+	if (posed == m->vertices && use && !m->local && !m->bindpos) {
+		Vtx *deformed = xblaMeshDeformVertices(m, model, use, e->slot);
+
+		if (deformed) {
+			posed = deformed;
+		}
+	}
+
 	if (!root) {
 		root = modelFindNodeMtx(model, node, 0);
 	}
@@ -7328,6 +7649,30 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	if (!drawmtx) {
 		drawmtx = root;
+	}
+
+	// A rigid mesh authored in the model's space, under a part matrix that
+	// already stands at the part's rest offset: the offset comes off a float
+	// copy, the way the pose's divided matrix is handed over, stage scale and
+	// all. See xblaMeshRestShift().
+	if (drawmtx == root && root && use && !m->local && !m->bindpos) {
+		const f32 *shift = xblaMeshRestShift(m, use, e->slot);
+
+		if (shift) {
+			Mtxf *fmtx = xblaMeshFrameAlloc(sizeof(Mtxf));
+
+			if (fmtx) {
+				*fmtx = *root;
+
+				for (s32 c = 0; c < 4; c++) {
+					fmtx->m[3][c] = root->m[3][c] - shift[0] * root->m[0][c]
+						- shift[1] * root->m[1][c] - shift[2] * root->m[2][c];
+				}
+
+				mtxApplyGfxScale(fmtx);
+				drawmtx = fmtx;
+			}
+		}
 	}
 
 	// The divided copy is floats and says so; the bone's own matrix is one of
@@ -7918,6 +8263,16 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 			continue;
 		}
 
+		// Where the draw puts a rigid mesh, the shot looks for it: the first
+		// part's rest offset off a mesh authored with it (xblaMeshRestShift()),
+		// and a destroyed object's deformation on.
+		const f32 *shift = !skinned && use && !m->bindpos ? xblaMeshRestShift(m, use, e->slot) : NULL;
+		const Vtx *rigid = !skinned && use && !m->bindpos ? xblaMeshDeformVertices(m, model, use, e->slot) : NULL;
+
+		if (!rigid) {
+			rigid = m->vertices;
+		}
+
 		if (skinned) {
 			const s32 posable = m->nummatrices < model->definition->nummatrices
 				? m->nummatrices : model->definition->nummatrices;
@@ -7970,9 +8325,9 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 					out[2] += moved.z * weight[j];
 				}
 			} else {
-				in.x = m->vertices[i].x;
-				in.y = m->vertices[i].y;
-				in.z = m->vertices[i].z;
+				in.x = rigid[i].x - (shift ? shift[0] : 0.0f);
+				in.y = rigid[i].y - (shift ? shift[1] : 0.0f);
+				in.z = rigid[i].z - (shift ? shift[2] : 0.0f);
 				mtx4TransformVec(root, &in, &moved);
 				out[0] = moved.x;
 				out[1] = moved.y;
