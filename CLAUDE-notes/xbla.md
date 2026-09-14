@@ -1521,6 +1521,18 @@ Two things stop it, and both are wanted:
   loose file beside the game. A mod that leaves a file alone still gets the
   release's mesh for it, which is most of them: 44 of GE-X's models are left
   alone on Runway and the rest of the level is unchanged.
+- **Nor when the model draws a picture the mod supplies (2026-09-14).** A mod
+  can keep the game's file and repaint it through its `textures/` (or a Stage
+  Loader map through its own), and the release's mesh brings the release's own
+  pictures, so the prop came out as 4J's and never the mod's - "the doors are
+  rendered from the XBLA release in mods that don't use those textures".
+  `xblaMeshMatchModel()` asks `modTextureExists()` for every texture config
+  under `NUM_TEXTURES` and leaves the model alone on the first one the mod has.
+  By number, because `modeldefLoad()` matches before `modeldef0f1a7560()` loads
+  the configs, so the texture registry has nothing to say yet. On GE-X 5a's
+  Defection it keeps 14 stock dataDyne props off the release (the lift, the
+  fans, the hover cars and taxi, the sofa, the jumpship; 4 still pair); stock
+  Defection pairs all 67 as before and the check never fires with no mod.
 - **The pairing by size has to account for every list it did not take.** Each
   unpaired list must be a far LOD alternative — a distance node whose near
   threshold is not zero, which the game draws *instead of* the near list rather

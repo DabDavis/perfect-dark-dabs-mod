@@ -218,6 +218,8 @@ s32 modDataImport(const struct moddataspec *spec);
  * own pack is looked for under that directory - texpackTextureArt().
  */
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstagemod);
+// Whether modTextureLoad() would find num, without reading it.
+s32 modTextureExists(u16 num);
 s32 modSetTextureFromStage(s32 on);
 
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim);

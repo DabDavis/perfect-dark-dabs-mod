@@ -2426,6 +2426,40 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstagemod)
 	return ret;
 }
 
+/**
+ * Whether modTextureLoad() would find texture num: the running stage's own mod
+ * first, then the mounted mod. Asked where the texels themselves are not in
+ * hand yet - a model's texture configs are still numbers when the XBLA mesh
+ * loader decides whether to pair it (xblaMeshMatchModel()).
+ */
+s32 modTextureExists(u16 num)
+{
+	char path[FS_MAXPATH + 1];
+	const char *stageDir = g_ModTextureStageOff
+		? NULL
+		: modloaderGetStageModDir(mainGetStageNum());
+
+	if (stageDir) {
+		snprintf(path, sizeof(path), "%s/" MOD_TEXTURES_DIR "/%04x.bin", stageDir, num);
+
+		if (fsFileSize(path) > 0) {
+			return 1;
+		}
+	}
+
+	if (modTexturesDirExists < 0) {
+		modTexturesDirExists = (fsFileSize(MOD_TEXTURES_DIR) >= 0);
+	}
+
+	if (!modTexturesDirExists) {
+		return 0;
+	}
+
+	snprintf(path, sizeof(path), MOD_TEXTURES_DIR "/%04x.bin", num);
+
+	return fsFileSize(path) > 0;
+}
+
 void *modSequenceLoad(u16 num, u32 *outSize)
 {
 	if (modSequencesDirExists < 0) {

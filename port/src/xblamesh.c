@@ -39,6 +39,7 @@
 #include "xblaimport.h"
 #include "xblastage.h"
 #include "romdata.h"
+#include "mod.h"
 #include "files.h"
 #include "xblamesh.h"
 #include "xblatex.h"
@@ -1753,6 +1754,25 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 		}
 
 		return;
+	}
+
+	// And a stock file drawn with a mod's pictures is the mod's look, not the
+	// release's. A mod can keep the game's door or crate and repaint it through
+	// its textures/ (or a Stage Loader map through its own), and the release's
+	// mesh brings the release's own pictures with it - the door the mod never
+	// had. The configs are still texture numbers here: modeldefLoad() matches
+	// before modeldef0f1a7560() loads them, so the mod is asked by number.
+	for (s32 i = 0; modeldef->texconfigs && i < modeldef->numtexconfigs; i++) {
+		const uintptr_t num = (uintptr_t)modeldef->texconfigs[i].texturenum;
+
+		if (num < NUM_TEXTURES && modTextureExists((u16)num)) {
+			if (xblaMeshVerbose) {
+				sysLogPrintf(LOG_NOTE, "xblamesh: model file %d draws the mod's "
+						"texture %04x, not the release's - left alone", fileid, (u32)num);
+			}
+
+			return;
+		}
 	}
 
 	if (xblaMeshIsBootLogo(fileid)) {
