@@ -187,6 +187,10 @@ static struct RSP {
     // in the texgen's own units (a normal's whole range is one)
     float texgen_shift[2];
 
+    // the shift as a turn (G_TEXGEN_TURN_EXT): cos and sin of the yaw, then of
+    // the pitch
+    float texgen_turn[4] = { 1.0f, 0.0f, 1.0f, 0.0f };
+
     uint32_t aspect_mode;
     float aspect_ofs;
     float aspect_scale;
@@ -2003,7 +2007,31 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
                     gfx_texgen_eye_normal(px, py, pz, n);
                 }
 
-                if (rsp.lookat_enabled) {
+                if (rsp.lookat_enabled && eye && (rsp.extra_geometry_mode & G_TEXGEN_TURN_EXT)) {
+                    // G_TEXGEN_TURN_EXT: the LookAt yawed about its own y and
+                    // then pitched about the turned x, by the shift, so walking
+                    // sweeps the sphere map the way turning the camera does. A
+                    // turn stays on the map and wraps with no seam, where an
+                    // added shift would run off the round picture.
+                    const float* lx = rsp.current_lookat_coeffs[0];
+                    const float* ly = rsp.current_lookat_coeffs[1];
+                    const float lz[3] = { lx[1] * ly[2] - lx[2] * ly[1], lx[2] * ly[0] - lx[0] * ly[2],
+                                          lx[0] * ly[1] - lx[1] * ly[0] };
+                    const float ca = rsp.texgen_turn[0], sa = rsp.texgen_turn[1];
+                    const float cb = rsp.texgen_turn[2], sb = rsp.texgen_turn[3];
+
+                    for (int c = 0; c < 3; c++) {
+                        const float rx = lx[c] * ca + lz[c] * sa;
+                        const float rz = lz[c] * ca - lx[c] * sa;
+                        const float ry = ly[c] * cb + rz * sb;
+
+                        dotx += n[c] * rx;
+                        doty += n[c] * ry;
+                    }
+
+                    dotx /= 127.0f;
+                    doty /= 127.0f;
+                } else if (rsp.lookat_enabled) {
                     dotx += n[0] * rsp.current_lookat_coeffs[0][0];
                     dotx += n[1] * rsp.current_lookat_coeffs[0][1];
                     dotx += n[2] * rsp.current_lookat_coeffs[0][2];
@@ -2037,7 +2065,7 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
                     doty = (doty + 1.0f) / 4.0f;
                 }
 
-                if (eye) {
+                if (eye && !(rsp.extra_geometry_mode & G_TEXGEN_TURN_EXT)) {
                     dotx += rsp.texgen_shift[0] / 2.0f;
                     doty += rsp.texgen_shift[1] / 2.0f;
                 }
@@ -3789,6 +3817,11 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_SETTEXGENSHIFT_EXT:
                 rsp.texgen_shift[0] = (int16_t)C0(0, 16) / 16384.0f;
                 rsp.texgen_shift[1] = (int16_t)C1(0, 16) / 16384.0f;
+                // the same shift read as a fraction of a turn, for G_TEXGEN_TURN_EXT
+                rsp.texgen_turn[0] = cosf(rsp.texgen_shift[0] * 6.2831853f);
+                rsp.texgen_turn[1] = sinf(rsp.texgen_shift[0] * 6.2831853f);
+                rsp.texgen_turn[2] = cosf(rsp.texgen_shift[1] * 6.2831853f);
+                rsp.texgen_turn[3] = sinf(rsp.texgen_shift[1] * 6.2831853f);
                 break;
             case G_SETSUBPIXELOFFSET_EXT: {
                 gfx_dp_set_subpixel_offset(C0(0, 16), C1(0, 16));

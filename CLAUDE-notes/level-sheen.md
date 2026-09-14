@@ -155,6 +155,42 @@ Traps met doing it:
   holds hundreds of older shots. Take a stamp file before the run and move
   only `find -newer` the stamp.
 
+### Walking turns the levels' reflections (G_TEXGEN_TURN_EXT, 2026-09-14)
+
+The user, with the XBLA switch on, found the levels' metal "not acting the
+same as the camera view, but snaps to a frame". Two things were wrong with
+the check above:
+
+- **It ran with the release off.** Its save had no `XblaMeshes` line, and the
+  meshes (so the release's rooms) default off. The release's rooms keep the
+  ROM's texgen marks exactly: a static scan of all 31 rewritten `bg_*.seg`
+  counts the same texgen triangles on the same textures (Defection 1537 in
+  both; only Aztec drops, 231 to 37, and Air Force One renumbers 029d to
+  01e9), and the release's 0042/006d are still sphere maps. So the flag
+  reaches the release's rooms too, and nothing about XBLA needed its own code.
+- **The eye ray alone is too faint to see.** A seeded 24-frame walk (4 units a
+  frame, heading held) of Follow against Original on the release's Defection
+  changed the flag's contribution by about 6 levels a frame on 1.2% of the
+  pixels, and the contact sheets were indistinguishable. A reflection of an
+  environment at infinity in a flat surface *is* pinned to the screen while
+  strafing, so the eye ray was physically right and still looked like the
+  N64's stuck lookup.
+
+The fix makes walking do what turning does. `roomSheenStockBegin()` sends the
+movement accumulator (the same one the guns scroll by) as a fraction of a
+turn, and `G_TEXGEN_TURN_EXT` (0x1000, free since `G_MULADD_EXT` went) makes
+`gfx_sp_load_vertex()` yaw the LookAt about its own y by the across-the-view
+distance and then pitch it about the turned x by the along-the-view distance,
+half a turn per 400 units, before the texgen dots. A turn stays on the round
+map and wraps with no seam; adding a scroll as the gun does would run off the
+picture into its black corners, since 0042 does not tile as 0x3eb does. The
+accumulator now wraps at 800 units and the guns read it at two spans a turn,
+which is the old 400-unit span to the value. Same walk after: 10-13 levels a
+frame, steady, no spike, and the walkway's bars visibly change down the walk.
+
+The "snaps" were not reproduced as such; the user's pd.ini on the test box
+had Level Reflections at Original, which is the pinned look.
+
 ### The blend has to multiply, not add (G_MULADD_EXT)
 
 The first version added the sheen as the meshes do (`G_ADDITIVE_EXT`). On

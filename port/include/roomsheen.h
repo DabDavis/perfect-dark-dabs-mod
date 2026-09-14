@@ -29,9 +29,12 @@ Gfx *roomSheenTexgenShift(Gfx *gdl);
  * Level Reflections (Mod.LevelReflectFollow): the reflective surfaces the
  * levels mark themselves - their room lists turn on G_LIGHTING |
  * G_TEXTURE_GEN over an environment map, Defection's metal and most windows -
- * look up through the eye ray so walking moves them as well as turning.
- * Begin and End go round a room pass; the flag reaches only the spans the
- * lists put under texgen, and the shift is zeroed since a room stands still.
+ * look up through the eye ray, and walking turns their LookAt the way turning
+ * the camera does (G_TEXGEN_TURN_EXT: across the view yaws it, along it
+ * pitches it, half a turn per 400 units). The eye ray alone moved them too
+ * little to see: they stayed pinned to the screen while the wall slid past.
+ * Begin and End go round a room pass; the flags reach only the spans the
+ * lists put under texgen.
  */
 s32 roomSheenGetStockFollow(void);
 void roomSheenSetStockFollow(s32 on);

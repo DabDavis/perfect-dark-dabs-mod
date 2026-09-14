@@ -212,6 +212,7 @@
 #define G_MODULATE_EXT           0x00000200 // this should really go into OTHERMODE_H, but for some reason I can't get it to work
 #define G_ADDITIVE_EXT           0x00000400 // with a blending render mode: source times its alpha added to what is there
 #define G_ENVMAP_EXT             0x00000800 // texel 0 is a sphere-map atlas looked up per pixel: see gfx_pc.cpp
+#define G_TEXGEN_TURN_EXT        0x00001000 // with G_TEXGEN_EYE_EXT: G_SETTEXGENSHIFT_EXT's shift turns the LookAt (a fraction of a turn) instead of being added (the levels' reflections)
 #define G_TEXGEN_EYE_EXT         0x00002000 // with G_TEXTURE_GEN: the lookup follows the eye ray and adds G_SETTEXGENSHIFT_EXT's shift (the K7 sheen)
 
 /* Extra texture filtering mode */

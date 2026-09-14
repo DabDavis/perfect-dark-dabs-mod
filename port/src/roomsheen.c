@@ -30,38 +30,25 @@ void roomSheenSetStockFollow(s32 on)
 	optStockFollow = on ? 1 : 0;
 }
 
-Gfx *roomSheenStockBegin(Gfx *gdl)
-{
-	if (optStockFollow) {
-		// A room stands still in the world, so the eye ray alone moves its
-		// reflections as the player walks; the scroll a gun needs is zeroed
-		gDPSetTexgenShiftEXT(gdl++, 0, 0);
-		gSPSetExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT);
-	}
-
-	return gdl;
-}
-
-Gfx *roomSheenStockEnd(Gfx *gdl)
-{
-	if (optStockFollow) {
-		gSPClearExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT);
-	}
-
-	return gdl;
-}
-
 // How far the player moves, in world units, for the streaks to scroll one
 // whole span of the texgen (two tiles of 0x3eb at the K7's scale)
 #define ROOMSHEEN_SHIFT_PERIOD 400.0f
+
+// How far the player moves for a level's reflections to turn once round. Half
+// a turn sweeps the sphere map from one edge to the other, which is the span a
+// gun's streaks scroll over ROOMSHEEN_SHIFT_PERIOD, and it is a whole number
+// of those spans, so both can be read off one wrapped distance with no seam.
+#define ROOMSHEEN_TURN_PERIOD (2.0f * ROOMSHEEN_SHIFT_PERIOD)
 
 // A move longer than this in one frame is a teleport, a respawn or a cut, and
 // scrolls nothing
 #define ROOMSHEEN_SHIFT_JUMP 200.0f
 
+// Distance walked across the view and along it (minus rise), in turns of
+// ROOMSHEEN_TURN_PERIOD, wrapped to [0, 1)
 static struct {
 	struct coord pos;
-	f32 s, t;
+	f32 across, along;
 	s32 frame;
 	s32 seen;
 } roomSheenShifts[MAX_PLAYERS];
@@ -71,13 +58,13 @@ static f32 roomSheenWrap(f32 v)
 	return v - floorf(v);
 }
 
-Gfx *roomSheenTexgenShift(Gfx *gdl)
+static s32 roomSheenAccumulate(void)
 {
 	const s32 playernum = g_Vars.currentplayernum;
 	struct player *player = g_Vars.currentplayer;
 
 	if (!player || playernum < 0 || playernum >= MAX_PLAYERS) {
-		return gdl;
+		return -1;
 	}
 
 	if (roomSheenShifts[playernum].frame != g_Vars.lvframenum) {
@@ -89,7 +76,6 @@ Gfx *roomSheenTexgenShift(Gfx *gdl)
 		const f32 dz = pos->z - roomSheenShifts[playernum].pos.z;
 
 		if (roomSheenShifts[playernum].seen && dx * dx + dy * dy + dz * dz < ROOMSHEEN_SHIFT_JUMP * ROOMSHEEN_SHIFT_JUMP) {
-			// Across the view scrolls s, and along it or up and down scrolls t
 			const f32 rx = look->y * up->z - look->z * up->y;
 			const f32 ry = look->z * up->x - look->x * up->z;
 			const f32 rz = look->x * up->y - look->y * up->x;
@@ -97,8 +83,8 @@ Gfx *roomSheenTexgenShift(Gfx *gdl)
 			const f32 along = dx * look->x + dy * look->y + dz * look->z;
 			const f32 rise = dx * up->x + dy * up->y + dz * up->z;
 
-			roomSheenShifts[playernum].s = roomSheenWrap(roomSheenShifts[playernum].s + across / ROOMSHEEN_SHIFT_PERIOD);
-			roomSheenShifts[playernum].t = roomSheenWrap(roomSheenShifts[playernum].t + (along - rise) / ROOMSHEEN_SHIFT_PERIOD);
+			roomSheenShifts[playernum].across = roomSheenWrap(roomSheenShifts[playernum].across + across / ROOMSHEEN_TURN_PERIOD);
+			roomSheenShifts[playernum].along = roomSheenWrap(roomSheenShifts[playernum].along + (along - rise) / ROOMSHEEN_TURN_PERIOD);
 		}
 
 		roomSheenShifts[playernum].pos = *pos;
@@ -106,7 +92,52 @@ Gfx *roomSheenTexgenShift(Gfx *gdl)
 		roomSheenShifts[playernum].seen = true;
 	}
 
-	gDPSetTexgenShiftEXT(gdl++, roomSheenShifts[playernum].s * 16384.0f, roomSheenShifts[playernum].t * 16384.0f);
+	return playernum;
+}
+
+Gfx *roomSheenStockBegin(Gfx *gdl)
+{
+	if (optStockFollow) {
+		// A room's reflections turn as the player walks, the way they turn as
+		// the camera does (G_TEXGEN_TURN_EXT), across the view yawing them and
+		// along it pitching them. The eye ray still bends each vertex's lookup.
+		const s32 playernum = roomSheenAccumulate();
+
+		if (playernum >= 0) {
+			gDPSetTexgenShiftEXT(gdl++, roomSheenShifts[playernum].across * 16384.0f, roomSheenShifts[playernum].along * 16384.0f);
+		} else {
+			gDPSetTexgenShiftEXT(gdl++, 0, 0);
+		}
+
+		gSPSetExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
+	}
+
+	return gdl;
+}
+
+Gfx *roomSheenStockEnd(Gfx *gdl)
+{
+	if (optStockFollow) {
+		gSPClearExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
+	}
+
+	return gdl;
+}
+
+Gfx *roomSheenTexgenShift(Gfx *gdl)
+{
+	const s32 playernum = roomSheenAccumulate();
+
+	if (playernum < 0) {
+		return gdl;
+	}
+
+	// Across the view scrolls s, and along it or up and down scrolls t, one
+	// span per ROOMSHEEN_SHIFT_PERIOD
+	const f32 spans = ROOMSHEEN_TURN_PERIOD / ROOMSHEEN_SHIFT_PERIOD;
+
+	gDPSetTexgenShiftEXT(gdl++, roomSheenWrap(roomSheenShifts[playernum].across * spans) * 16384.0f,
+			roomSheenWrap(roomSheenShifts[playernum].along * spans) * 16384.0f);
 
 	return gdl;
 }
