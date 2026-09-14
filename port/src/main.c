@@ -166,6 +166,17 @@ int main(int argc, const char **argv)
 	fsInit();
 	configInit();
 
+	// A pd.ini keeps the MemorySize it was written with, and 16 was the default
+	// here before v1.0 and still is upstream. That heap cannot hold the XBLA
+	// stages, a texture pack's levels or a mod's maps: the stage pool runs dry
+	// and whichever caller did not check for NULL crashes, which is what
+	// several v3.5.0 crash reports were. 4 is the N64's 4MB mode (g_Is4Mb) and
+	// is left alone as a deliberate choice.
+	if (g_OsMemSizeMb > 4 && g_OsMemSizeMb < 64) {
+		sysLogPrintf(LOG_WARNING, "Game.MemorySize=%d is too small for this build; raised to 64", g_OsMemSizeMb);
+		g_OsMemSizeMb = 64;
+	}
+
 	// After the config, because that is where the chosen mod is written, and
 	// before romdataInit(), which is what goes looking for the files it holds.
 	modListApplySelection();

@@ -238,6 +238,24 @@ void *mempAlloc(u32 len, u8 pool)
 		return allocation;
 	}
 
+#ifndef PLATFORM_N64
+	// Both banks are out, and most callers do not check for NULL, so what
+	// follows is usually a crash somewhere unrelated. Said once, plainly, so
+	// the crash report's log names the cause rather than only the pools. Pools
+	// 7 and 8 are asked and refused at every boot (the N64's own check above
+	// skips them too), and would spend the one line before it mattered.
+	if (len && pool != MEMPOOL_7 && pool != MEMPOOL_8) {
+		extern s32 g_OsMemSizeMb;
+		static s32 logged = 0;
+
+		if (!logged) {
+			logged = 1;
+			sysLogPrintf(LOG_ERROR, "memp: pool %d is out of memory for %u bytes (Game.MemorySize=%d); a crash may follow",
+					pool, len, g_OsMemSizeMb);
+		}
+	}
+#endif
+
 #if VERSION < VERSION_NTSC_1_0
 #ifdef DEBUG
 	if (pool != MEMPOOL_8 && pool != MEMPOOL_7 && len) {

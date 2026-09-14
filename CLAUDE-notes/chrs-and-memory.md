@@ -26,7 +26,21 @@ answers for one bank, is not "how much room is left"; `mempGetStageFreeTotal()` 
 A pool-full warning naming one pool is the onboard bank spilling over, not the end.
 
 `mempAlloc()` returns NULL when both are out, and most callers do not check.
-`modelmgrInstantiateModel()` now does.
+`modelmgrInstantiateModel()` now does. It logs one `memp: pool N is out of memory`
+error the first time that happens for a pool other than 7 and 8 (those two are
+asked and refused at every boot, and would spend the line), so a crash report's
+log names the cause.
+
+**A pd.ini keeps the MemorySize it was written with, and 16 was the default** here
+before v1.0 and still is upstream. At 16 the onboard stage pool is 75 KB free on
+a GE-X level with the XBLA switches on and 700 bytes on Chicago with PD Plus HD,
+against 49 MB at 64 on the same stages; the eight v3.5.0 crash reports with
+pool-full warnings were that (their request sizes - 563264, 307200, 76800 - are
+the ones a 16 MB run prints). `main()` now raises anything from 5 to 63 to 64
+straight after `configInit()`, before the heap is allocated; 4 is left alone,
+because that is the N64's 4MB mode (`g_Is4Mb` is set from the heap size).
+Measure a pool by printing `mempGetPoolFree(4,0)` and `(4,1)` from a gdb
+breakpoint on `lvTick` at a given `g_Vars.lvframenum`, not by counting warnings.
 
 ## One head modeldef cannot sit on two bodies
 
