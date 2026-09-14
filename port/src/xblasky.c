@@ -111,6 +111,7 @@ static Vtx xblaSkyVertices[XBLASKY_FACES * 4];
 static Col xblaSkyWhite[4];
 static Col xblaSkyCloudColours[XBLASKY_CLOUD_VERTS * XBLASKY_CLOUD_VERTS];
 static s32 xblaSkyVerticesBuilt;
+static s32 xblaSkyDrawn;
 
 PD_CONSTRUCTOR static void xblaSkyInit(void)
 {
@@ -315,6 +316,8 @@ Gfx *xblaSkyRender(Gfx *gdl)
 	f32 scale;
 	s32 cube;
 
+	xblaSkyDrawn = 0;
+
 	// The record stand-ins are the release's art only while Enable Textures
 	// is on; off, every face would be the tile's own white.
 	if (!optEnabled || !xblaTexGetEnabled() || !xblaImportGetReadyStfsPath()) {
@@ -389,7 +392,18 @@ Gfx *xblaSkyRender(Gfx *gdl)
 
 	gdl = xblaSkyRenderClouds(gdl, xblaSkyTiles[cube][XBLASKY_FACES]);
 
+	// The frame turned the depth test on once before the sky (zbuf.c) and
+	// nothing after it turns it on again: leaving it off drew every room, prop
+	// and gun in list order, the far ones through the near.
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
 	gDPPipeSync(gdl++);
 
+	xblaSkyDrawn = 1;
+
 	return gdl;
+}
+
+s32 xblaSkyIsDrawn(void)
+{
+	return xblaSkyDrawn;
 }

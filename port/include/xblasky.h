@@ -36,6 +36,12 @@ void xblaSkySetEnabled(s32 enabled);
  */
 Gfx *xblaSkyRender(Gfx *gdl);
 
+/**
+ * Whether the last xblaSkyRender() drew a cube. The cube carries its own stars,
+ * so the game's star field (starsRender(), on the night levels) stays off.
+ */
+s32 xblaSkyIsDrawn(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -3243,7 +3243,21 @@ faces clamped, record stand-ins through `xblaTexBind()` (so a sky costs an
 upload and no memory kept, and follows Enable Textures), then the clouds a
 row at a time (18 vertices, under the renderer's 25) with `gSPColor` giving
 each row its alpha. Suns, flares and everything after `skyRender()` are
-untouched. X-ray keeps the game's sky. Looking straight down in Defection's
+untouched.
+
+**The sky must hand `G_ZBUFFER` back** (fixed 2026-09-14, the day it shipped).
+The frame turns the depth test on once, in `zbufSaveArtifactDepths()`, before
+`skyRender()`, and nothing drawn after the sky turns it on again - the renderer
+tests depth only while that geometry flag is set (`gfx_emit_prepare()`). The
+first build cleared it for the cube and left it off, so every room, prop and
+gun went out in list order: a tester's F3 on Defection had "most textures
+transparent", the far towers over the near and the gun see-through. The stock
+sky never touches the flag; the depth-less draw is the render mode's job. The
+checks that shipped it looked at the cube and not at what stood in front of it.
+Night levels' **star field** (`starsRender()` in bg.c: Defection, Extraction,
+Infiltration, Escape, Attack Ship) is the N64's square coloured points and
+drew over the cube's own painted stars, so it is skipped while
+`xblaSkyIsDrawn()`. X-ray keeps the game's sky. Looking straight down in Defection's
 intro is black, which is the release's own -Y face.
 
 **Which level has which cube is the open question**: it is in the xex, which

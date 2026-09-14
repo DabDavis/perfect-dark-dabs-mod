@@ -54,6 +54,9 @@
 #include "platform.h"
 #ifndef PLATFORM_N64
 #include "mod.h"
+#ifndef PLATFORM_N64
+#include "xblasky.h"
+#endif
 #endif
 #endif
 
@@ -1235,7 +1238,13 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 			gdl = playerLoadMatrix(gdl);
 			gdl = envStopFog(gdl);
+
+#ifndef PLATFORM_N64
+			// The XBLA release's cube is painted with its own stars.
+			if (!xblaSkyIsDrawn())
+#endif
 			gdl = starsRender(gdl);
+
 			gdl = text0f153780(gdl);
 			gdl = vi0000ab78(gdl);
 		}
