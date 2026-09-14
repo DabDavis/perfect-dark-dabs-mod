@@ -6,6 +6,7 @@
 #include "lib/vars.h"
 #include "constants.h"
 #include "game/modoptions.h"
+#include "game/modrun.h"
 #include "game/camdraw.h"
 #include "game/cheats.h"
 #include "game/debug.h"
@@ -691,6 +692,15 @@ void mainTick(void)
 void mainEndStage(void)
 {
 	sndStopNosedive();
+
+	// The endscreen is the end of a Randomizer run too (Abort Mission is the
+	// way here; a death and the map's own ending never are, see playerTick()
+	// and aiEndLevel()), so whatever the player picks from it - Retry, Next
+	// Mission - is an ordinary mission and not another of the run's rooms.
+	if (modRunIsOn() && !g_Vars.normmplayerisrunning) {
+		sysLogPrintf(0, "run: the stage ended under the run; ending the run");
+		modRunStop();
+	}
 
 	if (!g_MainIsEndscreen) {
 		pak0f11c6d0();

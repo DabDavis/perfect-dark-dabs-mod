@@ -569,6 +569,32 @@ The crash handler's backtrace is module offsets, so `addr2line -f -e pd.x86_64
 every offset, and the nearest symbol in a binary that is one build out is a
 function with nothing to do with the crash.
 
+## A room's objective is the map's whole objective list
+
+`modRunInsertObjectives()` replaces the list with the run's one objective, so
+the moment the room is won `objectiveIsAllComplete()` is true - and the map's
+own script asks exactly that (`if_all_objectives_complete`, cmd 00f7) and ends
+the mission on it. The endscreen then offered Next Mission, which loaded the
+next stock mission with the run still on; the load is where the run deals its
+room, and `modRunTick()` only noticed the stage was not the one it asked for on
+the first tick after - so the player was left in a regular solo mission with a
+random objective in place of its own.
+
+Four pieces, each closing a different door:
+
+- `aiIfAllObjectivesComplete()` answers no during a run, so the script never
+  takes its mission-complete branch on the run's objective.
+- `aiEndLevel()` does nothing during a run: a run ends at a death or leaves by
+  a door, never at the end of the map it passes through (the Duel ends its
+  level when the last opponent falls) - the rule `playerTick()` already kept
+  for a death.
+- `mainEndStage()` (port/src/pdmain.c - `src/lib/main.c` is not built) ends the
+  run, so an endscreen that does arrive (Abort Mission) leads to ordinary
+  missions whatever is picked from it.
+- `modRunCheckLoad()`, from `setupCreateProps()` before either roll, stops a run
+  whose loading stage is not `g_ModRunStage`, so a stage it never asked for
+  loads as itself.
+
 ## What moved out of Dab's Mod Options
 
 The four rows the Randomizer had there - the checkbox, the seed, Endless Mode

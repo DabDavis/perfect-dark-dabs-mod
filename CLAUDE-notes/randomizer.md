@@ -70,6 +70,25 @@ spread over the level. A start is only taken if the portal walk from it reaches
 three quarters of what the mission's own start reaches; otherwise it is a lift
 interior or a sealed vault.
 
+## A forced walk cannot arrive from a dealt start
+
+The Duel takes control away and walks the player to pad 0x275
+(`force_walk`, AI command 0177, `playerAutoWalk()`), and gives control back
+only when `if_force_walk_finished` sees the player within the walk's distance
+of the pad. The walk is a straight line from wherever the player stands and
+has no other way to end. Its first walk begins the frame the intro camera
+stops, which is the same frame `modRandomTick()` moves the start, and a run's
+landing puts the player somewhere else too - so the line ran into a wall and
+the player ran on the spot for ever ("stuck running forward and cannot
+escape"). Extraction's bodyguard room forces two walks the same way.
+
+`modRandomTickForcedWalk()` ends a walk that has stopped getting closer for
+three seconds, while the Randomizer or a run is on, the way arriving ends it,
+and the script carries on. It is keyed on the behaviour and not on
+`STAGE_DUEL`, because a mod's `g_SoloStages` can put its own mission at that
+number. Reproduced with `--boot-stage 0x4f --random-mission`: the log says
+`randomizer: forced walk to pad 629 stalled 2146 units short; ending it`.
+
 ## A pad is not automatically somewhere a player can stand
 
 The spawn hands a position to `playerStartNewLife()`, which asks

@@ -36,6 +36,7 @@ bool modRunIsOver(void);
 void modRunStart(void);
 void modRunStop(void);
 
+void modRunCheckLoad(s32 stagenum);
 void modRunRoll(void);
 void modRunTick(void);
 

@@ -1638,6 +1638,9 @@ void setupCreateProps(s32 stagenum)
 		// setup file's copy being loaded and anything being built from it.
 		// After the pads, whose rooms the roll's portal walk reads; before the
 		// walk below, which is what turns the rewritten stream into a level.
+		// A run that did not ask for this stage is over first, so the stage
+		// is not dealt as one of its rooms.
+		modRunCheckLoad(stagenum);
 		modRandomRoll(stagenum);
 
 		// And the run's own two decisions on top of it: where this hop lands,

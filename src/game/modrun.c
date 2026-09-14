@@ -926,6 +926,28 @@ static void modRunDealObjective(void)
 }
 
 /**
+ * A stage is loading: is it the one the run asked for?
+ *
+ * The run finds out that the game left it from modRunTick(), on the new
+ * stage's first tick - which is after the stage has loaded, and the load is
+ * where the run deals its room. So a stage the run never asked for - the
+ * endscreen's Next Mission, a script that changes stage - arrived with the run
+ * still on, was dealt as a landing, and only then stopped the run: a stock
+ * mission with the run's objective in place of its own. Asked here instead,
+ * from setupCreateProps() before either roll, the stage loads as itself.
+ */
+void modRunCheckLoad(s32 stagenum)
+{
+	if (modRunIsOn() && stagenum != g_ModRunStage) {
+#ifndef PLATFORM_N64
+		sysLogPrintf(0, "run: stage 0x%02x loaded but the run asked for 0x%02x; ending the run",
+				stagenum, g_ModRunStage);
+#endif
+		modRunStop();
+	}
+}
+
+/**
  * Deal this hop's room: where the player lands, who holds it and what they
  * want. From modRandomRoll(), in the same gap the Randomizer's own roll
  * happens in - after the pads and the waypoints are readable and before

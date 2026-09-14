@@ -13,11 +13,13 @@
 #include "mod.h"
 #include "game/objectives.h"
 #include "game/pad.h"
+#include "game/player.h"
 #include "game/setup.h"
 #include "game/setuputils.h"
 #include "bss.h"
 #include "lang.h"
 #include "lib/collision.h"
+#include "lib/main.h"
 #include "lib/memp.h"
 #include "lib/rng.h"
 #include "lib/str.h"
@@ -1790,9 +1792,72 @@ void modRandomRoll(s32 stagenum)
  */
 static void modRandomTickEndless(void);
 
+/**
+ * A walk the level's own script forces on the player, which a dealt start can
+ * leave with nowhere to arrive.
+ *
+ * The Duel takes control away, walks the player to pad 0x275 and gives it back
+ * only when the walk is within a metre of it (if_force_walk_finished). The
+ * walk is a straight line from wherever the player stands, and it ends at that
+ * distance and nowhere else - so once a dealt start or a run's landing has put
+ * the player somewhere else, the line runs into a wall, or a sealed doorway,
+ * and the player runs on the spot for ever with no control to walk away with.
+ * Extraction's bodyguard room forces two walks the same way.
+ *
+ * So a walk that has stopped getting closer is ended the way arriving ends it,
+ * and the script carries on as though it had arrived. A walk that is getting
+ * closer is left alone, and so is one that only turns the player, which always
+ * finishes.
+ */
+#define MODRANDOM_WALKSTALL_SECS 3
+
+static void modRandomTickForcedWalk(void)
+{
+	static f32 bestdist = -1;
+	static s32 bestframe;
+	struct player *player = g_Vars.currentplayer;
+	struct pad pad;
+	f32 xdist;
+	f32 zdist;
+	f32 dist;
+
+	if (g_Vars.tickmode != TICKMODE_AUTOWALK || player != g_Vars.bond
+			|| player->autocontrol_walkspeed == 0 || !modRandomIsOn()) {
+		bestdist = -1;
+		return;
+	}
+
+	// Measured to the point playerTick() walks to, Extraction's offset included.
+	padUnpack(player->autocontrol_aimpad, PADFIELD_POS, &pad);
+
+	if (mainGetStageNum() == g_Stages[STAGEINDEX_EXTRACTION].id && player->autocontrol_aimpad == 0x19) {
+		pad.pos.x -= 100;
+	}
+
+	xdist = pad.pos.x - player->bond2.unk10.x;
+	zdist = pad.pos.z - player->bond2.unk10.z;
+	dist = sqrtf(xdist * xdist + zdist * zdist);
+
+	if (bestdist < 0 || dist < bestdist - 1) {
+		bestdist = dist;
+		bestframe = g_Vars.lvframe60;
+		return;
+	}
+
+	if (g_Vars.lvframe60 - bestframe >= TICKS(MODRANDOM_WALKSTALL_SECS * 60)) {
+#ifndef PLATFORM_N64
+		sysLogPrintf(1, "randomizer: forced walk to pad %d stalled %d units short; ending it",
+				player->autocontrol_aimpad, (s32)dist);
+#endif
+		playerSetTickMode(TICKMODE_NORMAL);
+		bestdist = -1;
+	}
+}
+
 void modRandomTick(void)
 {
 	modRandomTickEndless();
+	modRandomTickForcedWalk();
 
 	if (g_ModRandomSpawnState != 1 || !modRandomIsOn()) {
 		return;

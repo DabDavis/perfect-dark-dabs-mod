@@ -41,6 +41,7 @@
 #include "game/mpstats.h"
 #include "bss.h"
 #include "game/modoptions.h"
+#include "game/modrun.h"
 #include "lib/main.h"
 #include "lib/model.h"
 #include "lib/snd.h"
@@ -4818,7 +4819,14 @@ bool aiNoOp00db(void)
  */
 bool aiEndLevel(void)
 {
-	if (debugAllowEndLevel()) {
+	// A Randomizer run ends at a death or leaves by a door, never at the end
+	// of the map it is passing through (the Duel ends when its last opponent
+	// falls). The same rule playerTick() keeps for a death in a run.
+	if (debugAllowEndLevel()
+#ifndef PLATFORM_N64
+			&& !modRunIsOn()
+#endif
+			) {
 		if (g_IsTitleDemo) {
 			mainChangeToStage(STAGE_TITLE);
 		} else if (g_Vars.autocutplaying) {
@@ -5602,7 +5610,13 @@ bool aiIfAllObjectivesComplete(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (objectiveIsAllComplete()) {
+	// A Randomizer run's room has one objective, the run's, and the stage's
+	// script reading it as the mission's own finished the mission on it.
+	if (objectiveIsAllComplete()
+#ifndef PLATFORM_N64
+			&& !modRunIsOn()
+#endif
+			) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset = g_Vars.aioffset + 3;
