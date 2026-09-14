@@ -2962,6 +2962,47 @@ covers every reflecting release mesh, like the other two styles.
 reads grey where K7's reads navy. A 120 unit move after frame 500 changes 29.7%
 of the gun's shiny pixels at 510, against 5.2% for the sway alone.
 
+### The classic guns: the sheen weighted by the paint (2026-09-14)
+
+Report: "the xbla goldeneye classic guns, like ccmp, pp7i, kf7, etc colors are
+off, the pp7i for example should be black". The PP9i drew as chrome under Level
+Metal and as its own black with reflections off. The art was never wrong: the
+atlas (record 1660) is a black Walther, and the texels under the main draw
+average 68.
+
+**It is 4J's material data meeting an added sheen.** A Perfect Dark gun marks
+only its bare metal (the Falcon 2's dark draws are 0%, its metal 60%; the K7's
+dark body 15%). 4J gave each classic gun **one reflecting material over the
+whole gun**: PP9i 30% (50% on a small part), CC13 50%, KF7 10/30%, KL01313 25%,
+ZZT 30%, DMC 20%, AR53 20%, RC-P45 40/20%. The Xbox 360 style blends the cube in
+at that amount, and black stays nearly black. The K7 and Level Metal styles
+*add* 2.5x the amount over the undimmed paint (`XBLAMESH_SHEEN_SHARE()`), which
+is 75% of Defection's grey metal over black: chrome.
+
+**The fix is `xblaMeshInkFile()`.** A mesh whose file is a classic gun's
+`hi_model`/`lo_model`, or the file of `playermgrGetModelOfWeapon()`'s model
+(WEAPON_PP9I to WEAPON_RCP45, so the third-person meshes too), keeps a byte a
+vertex (`vink`). The byte is the mean luminance of the 7x7 texels about the
+vertex's UV in its material's picture, decoded once per record while the lists
+are built. The t row is the decode's own order, as uploaded. The sheen's
+share is multiplied by it, in `xblaMeshEnvironmentVertices()` only. The Xbox
+360 style, `dimcol` and every other mesh are untouched. The ink is taken
+whether or not the material reflects, since a third-person mesh with nothing of
+its own borrows an amount for every vertex after the build. The log names each
+mesh: `xblamesh: slot N is a classic gun, its sheen weighted by its paint`.
+
+**Checked on the card** (`--boot-stage 0x32 --mpsims 1 --rng-seed 2
+--fixed-step`, `--mp-weapons 39,...` with `StartArmed=1`, frame 300, gdb
+`'xblamesh.c'::optReflect = 0` for the off shot). The PP9i's box mean
+(370-470 x 300-420) was 87.2 before, 76.8 after, and 71.2 with reflections off.
+At seed 5 it was 31.2 / 25.3 / 22.2. All eight guns were looked at on and off:
+the paint reads as the art, and the sheen is a highlight. Seed 1 spawns in a
+room too dark to judge a black gun.
+
+What this does not change: the CC13 is pale steel in 4J's own picture (160c),
+and the RC-P45's long gold panel is its magazine (14d6 is a gold picture
+labelled "P90 - 50 ROUND MAGAZINE"). Both look the same with reflections off as on.
+
 ### Logo Material: the title's marble logo in the levels' blue and metal (2026-09-14)
 
 The user pressed F3 in front of the Carrington Institute's blue crystal statue

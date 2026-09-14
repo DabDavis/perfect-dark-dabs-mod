@@ -322,6 +322,7 @@ struct xblameshbuilt {
 	Mtxf *invbind;     // one per palette entry
 	f32 *bindpos;      // three per emitted vertex
 	f32 *normals;      // three per emitted vertex, only for a mesh that reflects
+	u8 *vink;          // one per emitted vertex, how light its paint is, for a classic gun only: see xblaMeshInkFile()
 	u8 *venv;          // two per emitted vertex: its atlas cell and reflection amount, the same
 	s32 numgfx;        // commands in gdl
 	Gfx *envgdl;       // gdl, binding the reflection atlas: see xblaMeshBuildEnvironment()
@@ -2112,6 +2113,14 @@ struct xblameshbuilder {
 	f32 *normals;
 	u8 *venv;
 
+	// For a classic gun, how light the paint under each vertex is (vink), read
+	// off the current material's picture - see xblaMeshInkFile().
+	s32 ink;
+	s32 inkrecord;
+	u8 *inkrgba;
+	s32 inkw, inkh;
+	u8 *vink;
+
 	// Whether the lists cull back faces rather than drawing both: see
 	// xblaMeshBuildCullBack.
 	s32 cullback;
@@ -2295,6 +2304,16 @@ static s32 xblaMeshRoomForVtx(struct xblameshbuilder *b, s32 want)
 		}
 
 		b->venv = env;
+
+		if (b->ink) {
+			u8 *ink = realloc(b->vink, (size_t)b->capvtx);
+
+			if (!ink) {
+				return 0;
+			}
+
+			b->vink = ink;
+		}
 	}
 
 	return 1;
@@ -2309,6 +2328,40 @@ static s32 xblaMeshFindSlot(const struct xblameshbuilder *b, u32 index)
 	}
 
 	return -1;
+}
+
+/**
+ * How light a classic gun's paint is round a vertex, 0 to 255: the mean
+ * luminance of the 7x7 texels about its UV, since a vertex lands on one texel
+ * of an atlas drawn with grain and scratches. s and t are the vertex's, and t
+ * counts rows in the decode's own order - see xblaMeshAddVertex().
+ */
+static u8 xblaMeshInkAt(const struct xblameshbuilder *b, s16 s, s16 t)
+{
+	f32 u = s / XBLATEX_TILE_SCALE;
+	f32 v = t / XBLATEX_TILE_SCALE;
+	const s32 w = b->inkw;
+	const s32 h = b->inkh;
+	s32 cx, cy;
+	u32 sum = 0;
+
+	u -= floorf(u);
+	v -= floorf(v);
+	cx = (s32)(u * w);
+	cy = (s32)(v * h);
+
+	for (s32 dy = -3; dy <= 3; dy++) {
+		const s32 y = ((cy + dy) % h + h) % h;
+
+		for (s32 dx = -3; dx <= 3; dx++) {
+			const s32 x = ((cx + dx) % w + w) % w;
+			const u8 *p = &b->inkrgba[(y * w + x) * 4];
+
+			sum += (p[0] * 77u + p[1] * 150u + p[2] * 29u) >> 8;
+		}
+	}
+
+	return (u8)(sum / 49);
 }
 
 /**
@@ -2439,6 +2492,10 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 		// A batch holds one material's vertices, so this is the material's.
 		b->venv[b->numvtx * 2] = (u8)b->envindex;
 		b->venv[b->numvtx * 2 + 1] = (u8)b->envamount;
+
+		if (b->ink) {
+			b->vink[b->numvtx] = b->inkrgba ? xblaMeshInkAt(b, vtx->s, vtx->t) : 255;
+		}
 	}
 
 	b->slotof[b->numslots] = (s32)index;
@@ -2604,6 +2661,15 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 
 		b->envindex = (material >> 24) & 0xff;
 		b->envamount = percent >= 100 ? 255 : (s32)(percent * 255 / 100);
+
+		// A classic gun's paint, for its vertices' ink. Whether or not the
+		// material reflects, since a third-person mesh with none borrows an
+		// amount for every vertex afterwards (xblaMeshBorrowEnvironment()).
+		if (b->ink && (s32)record != b->inkrecord) {
+			free(b->inkrgba);
+			b->inkrecord = (s32)record;
+			b->inkrgba = xblaTexDecodeRecord(record, &b->inkw, &b->inkh);
+		}
 	}
 
 	gdl = &b->gdl[b->numgfx];
@@ -4574,6 +4640,8 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 	if (numcells == 0) {
 		free(m->venv);
 		m->venv = NULL;
+		free(m->vink);
+		m->vink = NULL;
 
 		// A title logo that reflects nothing of the release's still needs its
 		// normals for the glint (xblaMeshBuildLogo()).
@@ -4824,6 +4892,39 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
  */
 static s32 xblaMeshBuildBorrowFile = 0;
 
+/**
+ * Whether fileid is one of the classic guns' models, first or third person,
+ * whose sheen (K7 or Level Metal) is weighted by the paint under each vertex.
+ *
+ * 4J gave each of these one reflecting material over the whole gun - the
+ * PP9i's black body and grips at 30%, the CC13 at 50% - where a Perfect Dark
+ * gun reflects only its bare metal (the Falcon 2's dark parts are 0%). The
+ * sheen is added over the paint at 2.5x that amount, so the black PP9i drew
+ * as chrome. A cube blended at the release's own amount keeps black black,
+ * so the Xbox 360 style is left alone.
+ */
+static s32 xblaMeshInkFile(s32 fileid)
+{
+	if (!fileid) {
+		return 0;
+	}
+
+	for (s32 weaponnum = WEAPON_PP9I; weaponnum <= WEAPON_RCP45; weaponnum++) {
+		const s32 modelnum = playermgrGetModelOfWeapon(weaponnum);
+		const struct weapon *weapon = weaponFindById(weaponnum);
+
+		if (weapon && (weapon->hi_model == fileid || weapon->lo_model == fileid)) {
+			return 1;
+		}
+
+		if (modelnum >= 0 && modelnum < NUM_MODELS && g_ModelStates[modelnum].fileid == fileid) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static void xblaMeshFileMeshSlots(const u8 *file, u32 len, u16 fileid, u16 *table);
 
 /** The lowest reflection percentage any draw of the mesh in slot has, 0 for none. */
@@ -4958,6 +5059,8 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	b.mats = mats;
 	b.cullback = xblaMeshBuildCullBack;
 	b.keepnormals = 1;
+	b.ink = xblaMeshInkFile(xblaMeshBuildBorrowFile);
+	b.inkrecord = -1;
 	m->scale = b.scale;
 
 	if (!xblaMeshBuildLists(&b, file, len, &h, stride) || b.numtris == 0) {
@@ -4969,6 +5072,8 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.batches);
 		free(b.normals);
 		free(b.venv);
+		free(b.vink);
+		free(b.inkrgba);
 		free(file);
 		sysLogPrintf(LOG_ERROR, "xblamesh: %s did not build", what);
 		return 0;
@@ -4976,6 +5081,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 
 	free(b.batches);
 	free(b.gradscore);
+	free(b.inkrgba);
 
 	if (b.skinned && !xblaMeshReadBind(m, file, &h, b.scale)) {
 		free(b.gdl);
@@ -4987,6 +5093,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.bones);
 		free(b.normals);
 		free(b.venv);
+		free(b.vink);
 		free(file);
 		return 0;
 	}
@@ -5004,6 +5111,11 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	m->bones = b.bones;
 	m->normals = b.normals;
 	m->venv = b.venv;
+	m->vink = b.vink;
+
+	if (m->vink) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: %s is a classic gun, its sheen weighted by its paint", what);
+	}
 	m->numgfx = b.numgfx;
 	m->allgfx = b.allgfx;
 	m->allxlu = b.allxlu;
@@ -5577,6 +5689,7 @@ static void xblaMeshFreePackMeshes(void)
 		free(m->invbind);
 		free(m->bindpos);
 		free(m->normals);
+		free(m->vink);
 		free(m->weights);
 		free(m->bones);
 		free(m);
@@ -7718,7 +7831,8 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 	for (s32 k = 0; k < m->numenvidx; k++) {
 		const u32 i = m->envidx[k];
 		const f32 *n = &normals[i * 3];
-		const u32 amount = sheen ? XBLAMESH_SHEEN_SHARE(m->venv[i * 2 + 1]) : m->venv[i * 2 + 1];
+		const u32 share = XBLAMESH_SHEEN_SHARE(m->venv[i * 2 + 1]);
+		const u32 amount = !sheen ? m->venv[i * 2 + 1] : m->vink ? share * m->vink[i] / 255 : share;
 		f32 nx = n[0], ny = n[1], nz = n[2];
 
 		if (!unitnormals) {
