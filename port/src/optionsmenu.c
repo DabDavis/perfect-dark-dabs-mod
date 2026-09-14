@@ -37,6 +37,7 @@
 #include "xblafont.h"
 #include "xblaui.h"
 #include "xblaexpl.h"
+#include "xblasky.h"
 #include "menuimage.h"
 #include "xblastage.h"
 #include "roomsheen.h"
@@ -5123,6 +5124,24 @@ static MenuItemHandlerResult menuhandlerXblaExplosions(s32 operation, struct men
 	return 0;
 }
 
+/**
+ * "Enable Skies": 4J's cube skies in place of the game's sky plane, on the
+ * levels xblasky.c's table gives one (recorded from the release or chosen by
+ * the picture - see xblasky.h).
+ */
+static MenuItemHandlerResult menuhandlerXblaSkies(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return xblaSkyGetEnabled();
+	case MENUOP_SET:
+		xblaSkySetEnabled(!xblaSkyGetEnabled());
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerXblaReflections(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -5489,6 +5508,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Explosions",
 		0,
 		menuhandlerXblaExplosions,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enable Skies",
+		0,
+		menuhandlerXblaSkies,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

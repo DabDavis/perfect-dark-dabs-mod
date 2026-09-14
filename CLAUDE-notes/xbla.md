@@ -3193,6 +3193,107 @@ The diagnostic that answered "is that haze my picture?" in one run: bind a
 flat magenta for every frame. The fireball came up magenta and the haze did
 not, which ruled the swap out without another theory.
 
+## The skies (2026-09-14)
+
+`port/src/xblasky.c`, **Mod.XblaSkies** ("Enable Skies", on by default like
+the explosions, and part of F6). The N64 draws its sky in `skyRender()` as a
+colour, a tiled cloud plane and a water plane; 4J replaced all of that with a
+**cube skybox and a cloud layer**, and none of it is a mesh - it is eight sets
+of records and a few numbers, all of them read off the release's own draws.
+
+**The records.** 0e56-0e92 are eight sets of seven: a 512x512 cloud picture,
+then six faces in **Direct3D's cube order (+X -X +Y -Y +Z -Z), rows stored
+bottom first**. The first faces are 0e57, 0e5e, 0e65, 0e6c, 0e73, 0e7a, 0e81,
+0e8d (a grey storm, a red sunset, space with a planet, brown dusk, a fiery
+evening, Defection's night skyline, a planet's rim from orbit, a blue day
+above the clouds). The -Y face is often a 128x128 flat colour. 0e87-0e8b are
+five loose pictures, not a cube, and 0e53-0e55 are three more noise layers;
+nothing draws either yet. The layout was found by **joining the faces up**: a
+numpy seam test over all twelve edges scores 0.9-4.9 with the rows turned
+over and 6-60 for any other orientation or any other run of six.
+
+**What the release draws** (Xenia, Defection, `.xbla-work/skycap/`): the six
+faces first, depth test and write off, opaque; then the cloud picture as 64
+quads, alpha blended, still with no depth. **4J transforms the sky on the
+CPU**: every sky vertex carries its clip position (x y z w), UVs in 1/16384ths
+(a face runs 0 to 16352, a hair short of one) and an ARGB colour, and the
+shader passes it through. So the hook's buffer dump (tools/xblaintro README)
+is the geometry, and fitting a 4x4 from the faces' corners (whose directions
+the UVs give) to their clip positions is exact to 0.9 in 588, which inverts
+the cloud quads back into a shape:
+
+- **The cloud layer is flat**: 8 by 8 quads of 0.116 (in half-cubes) at 0.119
+  above the eye, no curve with distance. The picture repeats 0.748 times a
+  quad, u along one horizontal axis and v along the other. Vertex alpha is 0
+  on the rim, 60 on the next ring in and 120 inside; colour white.
+- **It drifts** 0.0245 and 0.0122 of a repeat a second, the same at 7.8 s and
+  16.3 s of real time. **Xenia's swaps are not the game's ticks** - it drew 35
+  a second there - so rates come from `draws.bin.swaps`, never frame counts.
+- **The cube is mirrored against the game's world**: at Defection's spawn the
+  fitted view looks down -z of the lookup with -x to screen right, and the
+  game's camera (`camGetWorldToScreenMtxf()` from gdb at level frame 5400)
+  looks down world +x with +z to its right, so world = (-z, y, -x) of the
+  lookup. Without it the port drew the skyline backwards; with it the spawn
+  view matches the release's first gameplay frame building for building.
+
+**Drawn** at the top of `skyRender()` in place of the game's sky: the current
+camera's rotation and none of its position under a `G_MTX_FLOATS` modelview
+(so the stage scale stays out of it), the cube sized to half the far plane,
+faces clamped, record stand-ins through `xblaTexBind()` (so a sky costs an
+upload and no memory kept, and follows Enable Textures), then the clouds a
+row at a time (18 vertices, under the renderer's 25) with `gSPColor` giving
+each row its alpha. Suns, flares and everything after `skyRender()` are
+untouched. X-ray keeps the game's sky. Looking straight down in Defection's
+intro is black, which is the release's own -Y face.
+
+**Which level has which cube is the open question**: it is in the xex, which
+is encrypted. Only what a capture shows is listed as recorded in
+`xblaSkyStages[]`; see the table's comments for what is recorded and what was
+chosen by the picture.
+
+**Recording more of it needs no draw log - a still is enough**, since each
+cube is plain to see (a labelled sheet of every cube's faces, rows turned the
+right way up, is what the stills are matched against). A fresh profile has
+only Defection among the missions, but **the release's Combat Simulator
+offers every arena from the start**, so the arenas are the evidence:
+
+- Skedar (0x32) is **0e81**: straight up is its +Y face, blue with stars, and
+  its sides carry three suns - the N64 table gives Skedar three. So 0e81 is
+  the Skedar planet, not a view from orbit, and it is the best guess for
+  Skedar Ruins and War too.
+- Ravine (0x17) is **0e6c**, the dim brown overcast, which matches the N64
+  table's brown cloud colour and so backs Chicago's guess.
+- Ruins (0x41) is **0e6c** too, seen through a gap in its roof, and Villa's
+  arena (0x45) is **0e8d**, the blue day - which records the Villa mission,
+  the same map, as well.
+- Temple's arena (0x25) is **0e8d**, on thin evidence: the only sky in any
+  still is a small flat-blue patch up a shaft, which is the day cube's +Y
+  face (0e8f, a plain blue) and much lighter than the N64 table's navy.
+- Grid, Area 52, Base, Fortress and Pipes showed only ceilings in every still
+  (spawn, straight up, and four walks), and the Carrington Institute menu
+  drew no sky cube at all, so all of them keep the game's sky.
+
+**The missions are chosen by the picture** (2026-09-14, at the user's
+request once the arenas were in), each row commented as such in
+`xblaSkyStages[]`: Crash Site the sunset (red sky, the only sun on a
+horizon), Attack Ship space, Skedar Ruins and War the Skedar cube, Chicago
+and G5 the brown dusk (Ravine's cloud colour), Extraction and Mr. Blonde's
+Revenge the city, Air Base and the three Area 51 missions the fiery evening,
+Air Force One and Pelagic II the grey storm. Deep Sea, Investigation and the
+Institute's levels have no row. A capture of any of them overrides its row -
+nothing here was seen in the release.
+
+The drive, scripted in `.xbla-work/gunturn/arena2.sh` / `arena3.sh`: Combat
+Simulator, Game Settings, Advanced Setup, Arena, then Ready. Two traps: **the
+arena list wraps** (17 entries), so "press up until the top" lands somewhere
+else - move by a count from the arena already selected; and a match is left
+by the pause menu's Exit Game, Yes, then Back on Game Over, which comes back
+to the Combat Simulator menu with the cursor on Ready. Some arenas spawn the
+player under a roof (Ruins did), so `arena3.sh` walks and looks up four times
+before giving up. Keep anything heavy off the machine while a drive runs: the
+presses are timed by the clock, and a slower Xenia takes them on the wrong
+screen.
+
 ## The font (2026-09-11)
 
 The release set its menus in the same typeface the ROM does - Handel Gothic -

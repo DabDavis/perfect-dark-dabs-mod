@@ -19,6 +19,7 @@
 #include "xblastage.h"
 #include "xblafont.h"
 #include "xblaexpl.h"
+#include "xblasky.h"
 #include "xblaswitch.h"
 #include "game/title.h"
 
@@ -31,6 +32,7 @@ s32 xblaSwitchGetEnabled(void)
 		&& xblaStageGetEnabled()
 		&& xblaFontGetEnabled()
 		&& xblaExplGetEnabled()
+		&& xblaSkyGetEnabled()
 		&& xblaMeshGetReflections();
 }
 
@@ -48,6 +50,7 @@ void xblaSwitchSetEnabled(s32 enabled)
 	xblaTexSetEnabled(enabled);
 	xblaFontSetEnabled(enabled);
 	xblaExplSetEnabled(enabled);
+	xblaSkySetEnabled(enabled);
 	xblaMeshSetReflections(enabled);
 }
 

@@ -19,6 +19,7 @@
 #include "game/gfxmemory.h"
 #include "game/artifact.h"
 #include "game/player.h"
+#include "xblasky.h"
 #endif
 
 #define SKYABS(val) (val >= 0.0f ? (val) : -(val))
@@ -300,6 +301,17 @@ Gfx *skyRender(Gfx *gdl)
 
 	sp430 = false;
 	env = envGetCurrent();
+
+#ifndef PLATFORM_N64
+	{
+		// The XBLA release's cube, where it has one for this level.
+		Gfx *xblagdl = xblaSkyRender(gdl);
+
+		if (xblagdl) {
+			return xblagdl;
+		}
+	}
+#endif
 
 	if (!env->clouds_enabled || g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		if (PLAYERCOUNT() == 1) {

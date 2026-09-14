@@ -26,3 +26,15 @@ is how the release's reflections were found (CLAUDE-notes/xbla.md, "The
 release's reflections"). The capture that has it is .xbla-work/drawlog2/;
 .xbla-work/capture-drawlog2.sh takes the output directory as a third argument
 so a new capture does not overwrite drawlog/, which xbla4jintro.h came from.
+
+The hook also writes the buffers of every draw with depth testing off to
+PD_DRAWLOG with ".vb" added: the index bytes and, per vertex binding, the raw
+vertex words, keyed by the draw's index in the main log. That is the sky and
+the HUD, and it is how 4J's skies were read (CLAUDE-notes/xbla.md, "The
+skies"): the release transforms the sky on the CPU, so each vertex carries its
+clip position, and the six faces fit a view-projection that turns the cloud
+layer back into a shape. `skyvb.py DIR index` walks the file once,
+`skyvb.py DIR frames` lists the frames with a sky, `skyvb.py DIR dump FRAME
+OUT.pkl` writes one frame's sky draws. A capture from boot to a minute of
+Defection is 20 GB of draws and 10 GB of buffers (the menus' text is drawn
+with depth off too), so capture into /home and delete it after.
