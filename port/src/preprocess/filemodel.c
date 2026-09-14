@@ -851,6 +851,49 @@ static u32 resolvePointer(u32 src_offset)
 	return marker ? (0x05000000 | marker->dst_offset) : 0;
 }
 
+// The converted file's length, for the space the last item has (convertModel()).
+static u32 convertedLen;
+static const char *modelFileName; // defined with preprocessModelSetName() below
+
+/**
+ * How many of count vertices at the converted offset fit before the next
+ * item in the file starts.
+ *
+ * The count is the file's word for it, and a mod's model can say one more than
+ * its array holds: GoldenEye X 5a's Pdoor4b_G5Z has 184 where 183 fit before
+ * the node's own rodata. The N64 never swaps a vertex, so the stray one was
+ * harmless there. Swapped in place here, its last eight bytes landed on the
+ * list pointer just resolved beside it, which became 0x0500000A; the address
+ * rewrite then walked and wrote from there past the end of the file, and the
+ * renderer drew from it later: "Unknown GBI opcode", a v3.5.0 crash report.
+ * Only the conversion is clamped - the count the game reads stays the file's.
+ */
+static int clampVertexCount(uintptr_t ptr, int count, const char *what)
+{
+	const u32 offset = ptr & 0x00ffffff;
+	u32 end = convertedLen;
+
+	if (!ptr || count <= 0) {
+		return count;
+	}
+
+	for (int i = 0; i < numContentMarkers; i++) {
+		if (contentMarkers[i].dst_offset > offset && contentMarkers[i].dst_offset < end) {
+			end = contentMarkers[i].dst_offset;
+		}
+	}
+
+	const int fit = end > offset ? (int)((end - offset) / 12) : 0; // sizeof(struct vtx), gbi.c
+
+	if (count > fit) {
+		sysLogPrintf(LOG_WARNING, "model file %s: %s says %d vertices where %d fit; converting %d",
+				modelFileName, what, count, fit, fit);
+		return fit;
+	}
+
+	return count;
+}
+
 static u8 *relinkPointers(u8 *dst, u8 *src)
 {
 	uintptr_t textures_end = 0;
@@ -918,7 +961,8 @@ static u8 *relinkPointers(u8 *dst, u8 *src)
 				dst_gundl->ptr_xlugdl = (resolvePointer(PD_BE32(src_gundl->ptr_xlugdl)));
 				dst_gundl->ptr_vertices = (resolvePointer(PD_BE32(src_gundl->ptr_vertices)));
 				
-				gbiConvertVtx(dst, dst_gundl->ptr_vertices & 0x00ffffff, dst_gundl->numvertices);
+				gbiConvertVtx(dst, dst_gundl->ptr_vertices & 0x00ffffff,
+						clampVertexCount(dst_gundl->ptr_vertices, dst_gundl->numvertices, "a gun list"));
 
 				gbiSetVtx(PD_BE32(src_gundl->ptr_vertices), dst_gundl->ptr_vertices);
 				gbiSetSegment(0x04, dst_gundl->ptr_vertices);
@@ -971,7 +1015,8 @@ static u8 *relinkPointers(u8 *dst, u8 *src)
 				dst_stargunfire->ptr_vertices = (resolvePointer(PD_BE32(src_stargunfire->ptr_vertices)));
 				dst_stargunfire->ptr_gdl = (resolvePointer(PD_BE32(src_stargunfire->ptr_gdl)));
 
-				gbiConvertVtx(dst, dst_stargunfire->ptr_vertices & 0x00ffffff, dst_stargunfire->unk00*4);
+				gbiConvertVtx(dst, dst_stargunfire->ptr_vertices & 0x00ffffff,
+						clampVertexCount(dst_stargunfire->ptr_vertices, dst_stargunfire->unk00 * 4, "a muzzle flash"));
 
 				gbiSetVtx(PD_BE32(src_stargunfire->ptr_vertices), dst_stargunfire->ptr_vertices);
 				gbiSetSegment(0x04, dst_stargunfire->ptr_vertices);
@@ -990,7 +1035,8 @@ static u8 *relinkPointers(u8 *dst, u8 *src)
 				dst_dl->ptr_colours = (resolvePointer(PD_BE32(src_dl->ptr_colours)));
 				dst_dl->ptr_vertices = (resolvePointer(PD_BE32(src_dl->ptr_vertices)));
 				
-				gbiConvertVtx(dst, dst_dl->ptr_vertices & 0x00ffffff, dst_dl->numvertices);
+				gbiConvertVtx(dst, dst_dl->ptr_vertices & 0x00ffffff,
+						clampVertexCount(dst_dl->ptr_vertices, dst_dl->numvertices, "a display list node"));
 
 				gbiSetVtx(PD_BE32(src_dl->ptr_vertices), dst_dl->ptr_vertices);
 				gbiSetSegment(0x04, dst_dl->ptr_vertices);
@@ -1253,6 +1299,7 @@ static int convertModel(u8* dst, u8* src, u32 srclen)
 	sortMarkers();
 
 	dstpos = convertContent(dst, src, srclen);
+	convertedLen = dstpos;
 	u8* tex_end = relinkPointers(dst, src);
 	preprocessModelTextures(dst, tex_end);
 

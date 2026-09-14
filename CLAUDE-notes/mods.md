@@ -489,6 +489,18 @@ all of it.
   texture lives in another segment). `modelCheck()` in
   `port/src/preprocess/filemodel.c` is the same walk in C and fatals with the
   file name and the reason where `convertContent()` used to segfault.
+- **A vertex count one past its array is clamped, not refused (2026-09-14).**
+  GE-X 5a's door `Pdoor4b_G5Z` says 184 vertices where 183 fit before the
+  node's own rodata. Every pointer is in range, so neither validator catches
+  it, and on the N64 nothing swaps a vertex. `gbiConvertVtx()` swaps in place:
+  the stray vertex's last eight bytes were the list pointer resolved beside it,
+  which became `0x0500000A`, `gbiGdlRewriteAddrs()` walked and wrote from
+  there past the end of the file (ASan: heap-buffer-overflow in
+  `setupCreateDoor()` on Defection), and the renderer drew from +0xA - a
+  v3.5.0 "Unknown GBI opcode" report, 27600 frames in. `clampVertexCount()`
+  limits the conversion to the gap before the next item and logs `says N
+  vertices where M fit`; the count the game reads is left as the file has it.
+  Stock Defection and Chicago log none.
 - **Two guards in `body.c`.** A body whose model has no headspot gets no head
   attached (Mario Characters' Yoshi: head built in, "has own head" bit clear,
   and the player path passes a head modeldef regardless). A body model
