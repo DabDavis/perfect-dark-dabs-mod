@@ -1016,7 +1016,14 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 									break;
 								}
 
+#ifndef PLATFORM_N64
+								// the same bound the surface type above is read with; the
+								// release's rooms reach here with a number past the table
+								texnum = sp694.texturenum >= 0 && sp694.texturenum < NUM_TEXTURES
+									? g_Textures[sp694.texturenum].surfacetype : SURFACETYPE_DEFAULT;
+#else
 								texnum = g_Textures[sp694.texturenum].surfacetype;
+#endif
 
 								if (texnum == SURFACETYPE_SHALLOWWATER || texnum == SURFACETYPE_DEEPWATER) {
 									sparktype = SPARKTYPE_SHALLOWWATER;

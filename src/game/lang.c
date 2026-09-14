@@ -237,6 +237,16 @@ struct jpncharpixels *langGetJpnCharPixels(s32 codepoint)
 	static u32 tmul = 8;
 #endif
 
+#ifndef PLATFORM_N64
+	// The cache is only allocated for Japanese (langInit()), but any text with
+	// a byte of 0x80 or more is drawn through here - a mod's map names do it.
+	// Such a character is drawn blank rather than read out of a NULL cache.
+	if (g_JpnCacheCacheItems == NULL || g_JpnCharCachePixels == NULL) {
+		static struct jpncharpixels blank[16];
+		return blank;
+	}
+#endif
+
 	if (codepoint & 0x2000) {
 		multibyte = true;
 	}

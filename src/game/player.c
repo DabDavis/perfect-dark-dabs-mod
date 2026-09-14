@@ -234,6 +234,52 @@ s16 g_DeathAnimations[] = {
 
 s32 g_NumDeathAnimations = 0;
 
+#ifndef PLATFORM_N64
+/**
+ * Where to spawn when the setup offers no spawn pads.
+ *
+ * Where the chr already is if it is somewhere, which is where a respawn after
+ * a death leaves it; otherwise the first pad with a floor under it.
+ */
+static f32 playerChooseSpawnFallback(struct coord *dstpos, RoomNum *dstrooms, struct prop *prop)
+{
+	static s32 logged = 0;
+	RoomNum room;
+	s32 i;
+
+	if (!logged) {
+		logged = 1;
+		sysLogPrintf(LOG_WARNING, "spawn: the setup has no spawn pads; spawning in place or on the first pad with a floor");
+	}
+
+	if (prop == NULL && g_Vars.currentplayer) {
+		prop = g_Vars.currentplayer->prop;
+	}
+
+	if (prop && prop->rooms[0] >= 0) {
+		*dstpos = prop->pos;
+		roomsCopy(prop->rooms, dstrooms);
+		return 0;
+	}
+
+	for (i = 0; g_PadsFile && i < g_PadsFile->numpads; i++) {
+		if (modRandomPadSpawnPos(i, dstpos, &room)) {
+			dstrooms[0] = room;
+			dstrooms[1] = -1;
+			return 0;
+		}
+	}
+
+	dstpos->x = 0;
+	dstpos->y = 0;
+	dstpos->z = 0;
+	dstrooms[0] = 0;
+	dstrooms[1] = -1;
+
+	return 0;
+}
+#endif
+
 /**
  * Choose which location to spawn into from the given pads. Write the position
  * and rooms to the dstpos and dstrooms pointers and return the angle that the
@@ -286,6 +332,13 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 	// list past that is cut to what they hold rather than walked off the end
 	if (numpads > MAX_SPAWNPOINTS) {
 		numpads = MAX_SPAWNPOINTS;
+	}
+
+	// An intro with no spawn pads at all - a mod's arena, or a respawn on a
+	// stage whose first life was placed by something else - reached the
+	// shortlist's rngRandom() % numpads and divided by zero.
+	if (numpads <= 0) {
+		return playerChooseSpawnFallback(dstpos, dstrooms, prop);
 	}
 #endif
 

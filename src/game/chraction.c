@@ -8342,6 +8342,14 @@ bool chrTryPunch(struct chrdata *chr, u8 reverse)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// Only humans and Skedar have punches. The Randomizer's run deals bodies
+	// from the whole game, and a robot's punch read a NULL table.
+	if (anims == NULL) {
+		return false;
+	}
+#endif
+
 	if (chrHasFlag(chr, CHRFLAG1_ADJUSTPUNCHSPEED, BANK_1)) {
 		if (chrHasFlag(chr, CHRFLAG0_CHUCKNORRIS, BANK_0)) {
 			// Fast punch
