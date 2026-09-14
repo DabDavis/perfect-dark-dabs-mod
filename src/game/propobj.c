@@ -13907,7 +13907,15 @@ Gfx *objRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	}
 
 	renderdata.fogcolour = colour[0] << 24 | colour[1] << 16 | colour[2] << 8 | colour[3];
+#ifndef PLATFORM_N64
+	// A prop's own reflective spans (Defection's lift and windows) turn with
+	// the player's walk as the rooms' do
+	renderdata.gdl = roomSheenStockBegin(renderdata.gdl);
+#endif
 	objRenderProp(prop, &renderdata, xlupass);
+#ifndef PLATFORM_N64
+	renderdata.gdl = roomSheenStockEnd(renderdata.gdl);
+#endif
 
 	gdl = renderdata.gdl;
 

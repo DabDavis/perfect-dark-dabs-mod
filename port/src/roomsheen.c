@@ -95,21 +95,42 @@ static s32 roomSheenAccumulate(void)
 	return playernum;
 }
 
+// Between roomSheenStockBegin() and End() while the lists are built, so a
+// K7 sheen drawn inside (an XBLA mesh on a prop) can put the state back
+static s32 roomSheenStockOpen = false;
+
+static Gfx *roomSheenStockEmit(Gfx *gdl)
+{
+	// A level's reflections turn as the player walks, the way they turn as
+	// the camera does (G_TEXGEN_TURN_EXT), across the view yawing them and
+	// along it pitching them. The eye ray still bends each vertex's lookup.
+	const s32 playernum = roomSheenAccumulate();
+
+	if (playernum >= 0) {
+		gDPSetTexgenShiftEXT(gdl++, roomSheenShifts[playernum].across * 16384.0f, roomSheenShifts[playernum].along * 16384.0f);
+	} else {
+		gDPSetTexgenShiftEXT(gdl++, 0, 0);
+	}
+
+	gSPSetExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
+
+	return gdl;
+}
+
 Gfx *roomSheenStockBegin(Gfx *gdl)
 {
 	if (optStockFollow) {
-		// A room's reflections turn as the player walks, the way they turn as
-		// the camera does (G_TEXGEN_TURN_EXT), across the view yawing them and
-		// along it pitching them. The eye ray still bends each vertex's lookup.
-		const s32 playernum = roomSheenAccumulate();
+		roomSheenStockOpen = true;
+		gdl = roomSheenStockEmit(gdl);
+	}
 
-		if (playernum >= 0) {
-			gDPSetTexgenShiftEXT(gdl++, roomSheenShifts[playernum].across * 16384.0f, roomSheenShifts[playernum].along * 16384.0f);
-		} else {
-			gDPSetTexgenShiftEXT(gdl++, 0, 0);
-		}
+	return gdl;
+}
 
-		gSPSetExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
+Gfx *roomSheenStockResume(Gfx *gdl)
+{
+	if (roomSheenStockOpen) {
+		gdl = roomSheenStockEmit(gdl);
 	}
 
 	return gdl;
@@ -117,7 +138,8 @@ Gfx *roomSheenStockBegin(Gfx *gdl)
 
 Gfx *roomSheenStockEnd(Gfx *gdl)
 {
-	if (optStockFollow) {
+	if (roomSheenStockOpen) {
+		roomSheenStockOpen = false;
 		gSPClearExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
 	}
 

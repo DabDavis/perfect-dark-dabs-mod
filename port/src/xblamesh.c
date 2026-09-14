@@ -7850,12 +7850,17 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
 				}
 
+				// A prop drawn under Level Reflections has the turn flag on;
+				// the sheen scrolls rather than turns, and the prop's own
+				// stock spans get the turn back after it
 				renderdata->gdl = roomSheenTexgenShift(renderdata->gdl);
 				gSPSetGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_TEXGEN_TURN_EXT);
 				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT);
 				gSPDisplayList(renderdata->gdl++, m->sheengdl + (list - m->gdl));
 				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT);
 				gSPClearGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+				renderdata->gdl = roomSheenStockResume(renderdata->gdl);
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
 				frameDraws++;

@@ -191,6 +191,38 @@ frame, steady, no spike, and the walkway's bars visibly change down the walk.
 The "snaps" were not reproduced as such; the user's pd.ini on the test box
 had Level Reflections at Original, which is the pinned look.
 
+### Props carry texgen of their own (2026-09-14)
+
+The user then found Defection's windows and the lift's metal still pinned.
+Those are **props**, not room geometry: the glass panes (`OBJTYPE_GLASS` and
+`OBJTYPE_TINTEDGLASS`, model 0x3f) and the lift (`OBJTYPE_LIFT`, model 0x37)
+draw through `objRender()`, never through the room passes. A static scan of
+every `P*Z` model file (scratchpad `modeltexgen.py`: inflate, then walk the
+words for `0xb7` carrying `G_TEXTURE_GEN`) finds about 90 prop models that
+turn texgen on in their own lists: `Pdd_liftrZ`, `Pdd_liftdoorZ`,
+`Pdd_windowZ`, `Pdd_window_foyerZ`, `PwindowZ`, `Pci_liftdoorZ`, the
+hovercars, the logos and more. None of Defection's lift and window models
+has a release mesh, so they stay stock with XBLA on.
+
+`objRender()` now wraps `objRenderProp()` in `roomSheenStockBegin()`/`End()`
+(children included, both passes). Chrs, held guns and the first-person gun do
+not go through it and are untouched. An XBLA mesh drawn inside the wrap draws
+its K7 sheen as before: that pass clears `G_TEXGEN_TURN_EXT` so its scroll is
+not read as a turn, and `roomSheenStockResume()` writes the turn and both
+flags back after it for the prop's remaining stock spans.
+
+Checked on the release's Defection (XBLA meshes, stages, reflections at K7;
+`--boot-stage 0x30 --spectate --rng-seed 1 --fixed-step`, on the GPU; the
+scratchpad's `propwalk.py` walks `g_Vars.activeprops`, parks the eye 350 units
+in front of the first lift and pane of each glass type, and shoots before and
+after a 120-unit strafe). Follow against Original differs on 13-20% of pixels,
+every one of them on the lift's cage and rail and on the panes. Under
+Original a pane shows the same part of the map before and after the walk;
+under Follow it turns to another part.
+
+Not covered: the shards of a broken window (`shards.c` turns texgen on for
+them itself).
+
 ### The blend has to multiply, not add (G_MULADD_EXT)
 
 The first version added the sheen as the meshes do (`G_ADDITIVE_EXT`). On

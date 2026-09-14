@@ -5158,8 +5158,8 @@ static MenuItemHandlerResult menuhandlerXblaReflectCutoff(s32 operation, struct 
 
 /**
  * Level Reflections: the surfaces a level itself draws as reflective (its
- * room lists put them under texgen - Defection's metal, the windows) follow
- * the player's movement as well as their turning. Live.
+ * room and prop lists put them under texgen - Defection's metal, its lift and
+ * windows) follow the player's movement as well as their turning. Live.
  */
 static MenuItemHandlerResult menuhandlerLevelReflectFollow(s32 operation, struct menuitem *item, union handlerdata *data)
 {
