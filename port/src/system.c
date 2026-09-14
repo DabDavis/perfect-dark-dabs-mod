@@ -306,7 +306,9 @@ static void sysFatalDialog(const char *shown, const char *full)
 	}
 }
 
-void sysFatalError(const char *fmt, ...)
+static void sysFatalV(s32 report, const char *fmt, va_list ap) __attribute__((noreturn));
+
+static void sysFatalV(s32 report, const char *fmt, va_list ap)
 {
 	static s32 alreadyCrashed = 0;
 
@@ -322,10 +324,7 @@ void sysFatalError(const char *fmt, ...)
 
 	alreadyCrashed = 1;
 
-	va_list ap;
-	va_start(ap, fmt);
 	vsnprintf(errmsg, sizeof(errmsg), fmt, ap);
-	va_end(ap);
 
 	snprintf(shown, sizeof(shown), "%s", errmsg);
 
@@ -334,9 +333,32 @@ void sysFatalError(const char *fmt, ...)
 	fflush(stdout);
 	fflush(stderr);
 
-	sysFatalDialog(shown, errmsg);
+	if (report) {
+		sysFatalDialog(shown, errmsg);
+	} else {
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", shown, NULL);
+	}
 
 	exit(1);
+}
+
+void sysFatalError(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	sysFatalV(1, fmt, ap);
+}
+
+/**
+ * A setup error is the player's to fix and the message says how, so it is
+ * not offered as a crash report: 19 of the first 45 reports were a missing or
+ * wrong ROM, or a machine without OpenGL 2.1, and each one said nothing more.
+ */
+void sysFatalSetupError(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	sysFatalV(0, fmt, ap);
 }
 
 static s32 restartRequested;

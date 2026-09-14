@@ -211,7 +211,7 @@ static inline void romdataWrongRomError(const char *fmt, ...)
 	vsnprintf(reason, sizeof(reason), fmt, args);
 	va_end(args);
 
-	sysFatalError("Wrong ROM file.\n%s\nEnsure that you have the correct " ROMDATA_ROM_DESC " ROM in z64 format.", reason);
+	sysFatalSetupError("Wrong ROM file.\n%s\nEnsure that you have the correct " ROMDATA_ROM_DESC " ROM in z64 format.", reason);
 }
 
 static inline void romdataLoadRom(void)
@@ -221,7 +221,7 @@ static inline void romdataLoadRom(void)
 	g_RomFile = fsFileLoad(romName, &g_RomFileSize);
 
 	if (!g_RomFile) {
-		sysFatalError("Could not open ROM file %s.\nEnsure that it is in the %s directory.", romName, fsFullPath(""));
+		sysFatalSetupError("Could not open ROM file %s.\nEnsure that it is in the %s directory.", romName, fsFullPath(""));
 	}
 
 	// zips are not guaranteed to start with PK, but might as well at least try
@@ -310,7 +310,7 @@ static inline void romdataInitSegment(struct romfile *seg)
 			seg->source = SRC_ROM;
 			sysLogPrintf(LOG_NOTE, "loading segment %s from ROM (offset %08x pointer %p)", seg->name, (uintptr_t)seg->data, newData);
 		} else {
-			sysFatalError("No ROM or external file for segment:\n%s", seg->name);
+			sysFatalSetupError("No ROM or external file for segment:\n%s", seg->name);
 		}
 	} else {
 		// loaded external data
@@ -369,7 +369,7 @@ static inline void romdataInitFiles(void)
 	if (!g_RomFile) {
 		// no ROM; try to load the file name list from disk
 		if (!romdataLoadExternalFileList()) {
-			sysFatalError("No ROM file or external filename table found.");
+			sysFatalSetupError("No ROM file or external filename table found.");
 		}
 		return;
 	}

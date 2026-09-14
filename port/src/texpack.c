@@ -2676,8 +2676,20 @@ void texpackRefreshPacks(void)
 			len += (u32)n;
 		}
 
-		sysLogPrintf(LOG_NOTE, "texpack: %d pack%s%s%s", numPacks,
-				numPacks == 1 ? "" : "s", numPacks ? ": " : "", numPacks ? names : "");
+		// Only when the answer changes: a menu that re-lists on every opening
+		// filled a v3.5.0 crash report's whole log with "texpack: 0 packs".
+		static char lastnames[sizeof(names)];
+		static s32 lastcount = -1;
+
+		names[len < sizeof(names) ? len : sizeof(names) - 1] = '\0';
+
+		if (numPacks != lastcount || strcmp(names, lastnames) != 0) {
+			lastcount = numPacks;
+			snprintf(lastnames, sizeof(lastnames), "%s", names);
+
+			sysLogPrintf(LOG_NOTE, "texpack: %d pack%s%s%s", numPacks,
+					numPacks == 1 ? "" : "s", numPacks ? ": " : "", numPacks ? names : "");
+		}
 	}
 }
 

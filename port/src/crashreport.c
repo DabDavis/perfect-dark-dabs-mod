@@ -15,6 +15,16 @@
 #include "crashreport.h"
 #include "versioninfo.h"
 
+// lib/memp.h and constants.h bring ultra64.h, whose libc declarations fight
+// the real ones, so the pool numbers are named here (constants.h has them)
+u32 mempGetPoolFree(u8 poolnum, u32 bank);
+u32 mempGetStageFreeTotal(void);
+
+#define CRASHREPORT_MEMBANK_ONBOARD   0 // MEMBANK_ONBOARD
+#define CRASHREPORT_MEMBANK_EXPANSION 1 // MEMBANK_EXPANSION
+#define CRASHREPORT_MEMPOOL_STAGE     4 // MEMPOOL_STAGE
+#define CRASHREPORT_MEMPOOL_PERMANENT 6 // MEMPOOL_PERMANENT
+
 /**
  * The last lines the game logged, whether or not there is a log file.
  *
@@ -131,6 +141,20 @@ const char *crashReportSave(const char *text)
 
 	configDumpSection("Mod", settings, sizeof(settings));
 	fprintf(f, "\n--- pd.ini [Mod] ---\n%s", settings);
+
+	// Game.MemorySize is here, and the pools with it: four of the first
+	// reports crashed after "memory pool is full" with nothing to say whether
+	// the player had turned the memory down or the level had outgrown it.
+	configDumpSection("Game", settings, sizeof(settings));
+	fprintf(f, "\n--- pd.ini [Game] ---\n%s", settings);
+
+	fprintf(f, "\n--- memory ---\n"
+			"stage pool free onboard %d expansion %d (total %u); permanent free onboard %d expansion %d\n",
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_STAGE, CRASHREPORT_MEMBANK_ONBOARD),
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_STAGE, CRASHREPORT_MEMBANK_EXPANSION),
+			mempGetStageFreeTotal(),
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_PERMANENT, CRASHREPORT_MEMBANK_ONBOARD),
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_PERMANENT, CRASHREPORT_MEMBANK_EXPANSION));
 
 	fprintf(f, "\n--- log (last %d lines) ---\n", CRASHREPORT_LOGLINES);
 	crashReportWriteRing(f);

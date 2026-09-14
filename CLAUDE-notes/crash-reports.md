@@ -66,6 +66,39 @@ knowingly: the file is written first, so the worst case is a second crash with
 the report still on disk for the menu to offer next time. Do not add anything
 to that path that is not needed to send bytes.
 
+## What is and is not a report
+
+`sysFatalSetupError()` is `sysFatalError()` without the report: the box shows
+the message and nothing is written. It is for what the player fixes from the
+message itself - no ROM, the wrong ROM, no OpenGL 2.1, no SDL window - and 19
+of the first 45 reports were exactly that, each saying nothing more than the
+box had. A fault, and any fatal error the player could not have caused, stays
+`sysFatalError()`.
+
+A report also carries `[Game]` (Game.MemorySize is there) and the pools' free
+space, because four of the first reports crashed after "memory pool is full"
+with no way to tell a lowered MemorySize from a level that outgrew 64 MB. The
+log ring is only 200 lines, so anything that logs on every call empties it:
+`texpack: 0 packs` did, once per dropdown opening, and now logs on a change.
+
+## Reading them
+
+```sh
+scp 'sdg@10.8.0.1:~/pdghosts/crashes/*' <scratch>/crashes/
+gh release download v3.5.0 -p pd.x86_64-windows.exe -p pd.x86_64-linux -D <scratch>/bins
+```
+
+The `version:` line names the commit; `git tag --contains` names the release.
+Windows lines are `[base]+offset`, so `0x140000000 + offset` through
+`x86_64-w64-mingw32-addr2line -f -C -i -e`; Linux lines are `(+offset)` and go
+to plain `addr2line` as they are (the release's Linux binary keeps its DWARF
+too). Group by the first frame's offset before reading any one of them - the
+first triage (2026-09-14) was two offsets for 14 of 26 real crashes:
+`shotCalculateHits` reading `g_Textures` unbounded for the spark colour, and
+the spawn chooser dividing by a zero pad count. Read the log ring bottom up for
+the stage (`xblastage:`, `setup:`, `run:` lines) and the `[Mod]` block for the
+switches every report of a cluster shares.
+
 ## The other end
 
 `tools/pdghostd/pdghostd.py`, `POST /crash`, documented in its README under

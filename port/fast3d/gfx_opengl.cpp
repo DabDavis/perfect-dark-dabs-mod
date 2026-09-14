@@ -1092,7 +1092,7 @@ static void gfx_opengl_init_extensions(void) {
 
 static void gfx_opengl_init(void) {
     if (!gladLoadGLLoader(gl_load_proc) || glGetString == NULL || glEnable == NULL) {
-        sysFatalError("Could not load OpenGL.\nReported SDL error: %s", SDL_GetError());
+        sysFatalSetupError("Could not load OpenGL.\nReported SDL error: %s", SDL_GetError());
     }
 
     // check if we're using ES or core, which have more limited feature sets
@@ -1111,7 +1111,7 @@ static void gfx_opengl_init(void) {
 
     if (GLVersion.major < 2 || (GLVersion.major == 2 && GLVersion.minor < 1)) {
         const char *ver = (const char *)glGetString(GL_VERSION);
-        sysFatalError("Could not load OpenGL 2.1.\nReported version: %d.%d (%s)",
+        sysFatalSetupError("Could not load OpenGL 2.1.\nReported version: %d.%d (%s)",
             GLVersion.major, GLVersion.minor, ver ? ver : "unknown");
     }
 

@@ -27,6 +27,9 @@ const char *sysGetVersionString(void);
 u64 sysGetMicroseconds(void);
 
 void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
+// The same, for what is wrong with the player's setup rather than the game - a
+// missing ROM, no OpenGL. Shows the message and writes no crash report.
+void sysFatalSetupError(const char *fmt, ...) __attribute__((noreturn));
 
 s32 sysLogIsOpen(void);
 void sysLogPrintf(s32 level, const char *fmt, ...);

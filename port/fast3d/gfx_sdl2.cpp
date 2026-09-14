@@ -94,7 +94,7 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 #endif
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        sysFatalError("Could not init SDL:\n%s", SDL_GetError());
+        sysFatalSetupError("Could not init SDL:\n%s", SDL_GetError());
     }
 
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
@@ -197,7 +197,7 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     }
 
     if (!wnd || !ctx) {
-        sysFatalError("Could not open SDL window with an OpenGL context of any supported version:\n%s", SDL_GetError());
+        sysFatalSetupError("Could not open SDL window with an OpenGL context of any supported version:\n%s", SDL_GetError());
     } else {
         sysLogPrintf(LOG_NOTE, "SDL: created GL%d.%d%s context", vmaj, vmin, vprofstr);
     }
