@@ -2906,6 +2906,45 @@ covers every reflecting release mesh, like the other two styles.
 reads grey where K7's reads navy. A 120 unit move after frame 500 changes 29.7%
 of the gun's shiny pixels at 510, against 5.2% for the sway alone.
 
+### Logo Material: the title's marble logo in the levels' blue and metal (2026-09-14)
+
+The user pressed F3 in front of the Carrington Institute's blue crystal statue
+and asked for the spinning Perfect Dark logo in "the same blue material as
+this statue", with "the metal the gray metal so it looks shiny and HD".
+**Mod.XblaLogoMaterial**, "Logo Material" on the XBLA page: Xbox 360 (0, the
+release's cube maps as before) or Statue & Metal (1, the default at the
+user's request). Live.
+
+- **The statue is room geometry, not a prop:** `bg_dish` (stage 0x26 is
+  `STAGE_CITRAINING`) room 5 draws 28 translucent-layer texgen triangles on
+  `0x0042`, the blue sphere map, at `G_TEXTURE 0xb00`, lit. Found with a
+  per-room variant of `texgenscan.py` (level-sheen.md), keyed on the trace's
+  `rooms 5*`. The trace's object list only shows props with a release mesh.
+- **The logo's materials are baked sphere maps.** 4J's marble cube
+  (`PnlogoZ`'s mesh) has three: record 1117 is a blue marble sphere (the
+  faces), 1116 a grey one (the bevels), 1118 flat dark grey (left alone).
+- **What draws** (`xblaMeshBuildLogo()`, `XBLAMESH_ENV_LOGO`): two copies of the
+  lists on the first draw that asks. `logobase` no-ops the two materials'
+  batches, `logogdl` keeps only them, with 1117 bound to `0x0042` (s 0x0755, t
+  0x0800 on the 32x32 stand-in: the share of the 48x44 picture the room's
+  0xb00 samples) and 1116 to `0x006d` (0x0800). Both by number, so Enable
+  Textures serves the release's 256x256 pictures. The pass is `G_LIGHTING |
+  G_TEXTURE_GEN | G_TEXGEN_EYE_EXT` from colours holding the bind normals,
+  opaque, or `XLU_INTER` by the environment alpha while the cube fades in over
+  its depth-only pass. The red tray has neither material and keeps the
+  release's reflections.
+- **Trap: the title has no LookAt.** `lightsSetDefault()` reads
+  `camGetLookAt()`, which dereferences `g_Vars.currentplayer`. The pass writes
+  its own light and an eye-space LookAt (right +x, up +y), which is the space
+  gfx_pc's `calculate_normal_dir()` reads it in.
+
+**Checked on the card** (offscreen, `--fixed-step --rng-seed 1`, the boot
+capture at mode-2 ticks 455/540/600/700, one run per setting): the log says
+"the title logo draws 26 of its 35 batches in the levels' blue and metal". The
+faces are the statue's blue, the bevels grey metal, and the pattern moves
+between ticks as the cube spins. The PERFECT DARK letters and the tray are
+unchanged.
+
 ## The interface art, and the logo (2026-09-11)
 
 Past the numbered textures and the font atlases, the records hold the art 4J

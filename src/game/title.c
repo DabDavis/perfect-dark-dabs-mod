@@ -1297,8 +1297,10 @@ static Gfx *titleRenderPdLogo4JCube(Gfx *gdl, struct model *model, const struct 
 	// (CLAUDE-notes/xbla.md, "The release's reflections"): the emblem's as the
 	// tray tips back, and the marble cube's bright bevels. Only round the pass
 	// that colours the cube, and whatever Mod.XblaReflections says, since this
-	// is the release's intro.
-	xblaMeshSetEnvironment(XBLAMESH_ENV_ON);
+	// is the release's intro. The marble cube's faces and bevels can be the
+	// levels' blue and metal instead (Mod.XblaLogoMaterial), and the red tray,
+	// which has neither material, keeps the release's.
+	xblaMeshSetEnvironment(xblaMeshGetLogoMaterial() ? XBLAMESH_ENV_LOGO : XBLAMESH_ENV_ON);
 	gdl = titleRenderPdLogoModel(gdl, model, true, 1.0f, 240, 1.0f, &mtx, vertices, colours);
 	xblaMeshSetEnvironment(XBLAMESH_ENV_SETTING);
 

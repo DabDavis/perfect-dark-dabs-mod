@@ -321,6 +321,10 @@ struct xblameshbuilt {
 	Gfx *envgdl;       // gdl, binding the reflection atlas: see xblaMeshBuildEnvironment()
 	Gfx *sheengdl;     // envgdl, lit and sphere-mapped the N64 way: see xblaMeshBuildSheen()
 	Gfx *metalgdl;     // sheengdl on the levels' metal: the same, see xblaMeshBuildSheen()
+	Gfx *logobase;     // gdl without the marble logo's materials: see xblaMeshBuildLogo()
+	Gfx *logogdl;      // gdl with only them, bound to the levels' blue and metal
+	Col *logocol;      // the bind normals as colours, for logogdl's lighting
+	s32 logotried;
 	s32 numenvcells;
 	u32 *envidx;       // the vertices that reflect, which is all the per-frame work visits
 	s32 numenvidx;
@@ -3969,6 +3973,11 @@ static s32 envforce = XBLAMESH_ENV_SETTING;
 // judged it much the better look than the cube maps.
 static s32 optReflectStyle = XBLAMESH_REFLECT_N64;
 
+// Mod.XblaLogoMaterial: the title's marble logo in the statue's blue and the
+// grey metal (2026-09-14, at the user's request, and the default), or in the
+// release's cube maps. See xblaMeshBuildLogo().
+static s32 optLogoMaterial = 1;
+
 // Mod.XblaReflectDistance: in metres, where the reflection is gone while the
 // Reflection Cutoff is on (the Xbox 360 (XBLA) page). See xblaMeshEnvironmentReach().
 static s32 optReflectDistance = 15;
@@ -4098,26 +4107,34 @@ const void *xblaMeshSheenTile(void)
 static const void *metalTile;
 static s32 metalTried;
 
-static const void *xblaMeshMetalTile(void)
+/**
+ * A ROM texture's stand-in, bound on first ask by number, so a texture pack
+ * repaints it and Enable Textures serves the release's own picture of it.
+ */
+static const void *xblaMeshNumberedTile(s32 texnum, const void **tile, s32 *tried, const char *what)
 {
-	if (!metalTried) {
+	if (!*tried) {
 		s32 w = 0;
 		s32 h = 0;
-		u8 *rgba = modelpackDecodeN64Texture(XBLAMESH_METAL_TEXTURE, &w, &h);
+		u8 *rgba = modelpackDecodeN64Texture(texnum, &w, &h);
 
-		metalTried = 1;
+		*tried = 1;
 
 		if (rgba) {
-			metalTile = xblaTexBindTexture(XBLAMESH_METAL_TEXTURE, rgba, w, h);
+			*tile = xblaTexBindTexture(texnum, rgba, w, h);
 		}
 
-		if (!metalTile) {
-			sysLogPrintf(LOG_WARNING, "xblamesh: the level metal's texture %04x would not bind",
-					XBLAMESH_METAL_TEXTURE);
+		if (!*tile) {
+			sysLogPrintf(LOG_WARNING, "xblamesh: %s texture %04x would not bind", what, texnum);
 		}
 	}
 
-	return metalTile;
+	return *tile;
+}
+
+static const void *xblaMeshMetalTile(void)
+{
+	return xblaMeshNumberedTile(XBLAMESH_METAL_TEXTURE, &metalTile, &metalTried, "the level metal's");
 }
 
 /**
@@ -4166,6 +4183,178 @@ static void xblaMeshBuildSheen(struct xblameshbuilt *m)
 	if (xblaMeshMetalTile()) {
 		m->metalgdl = xblaMeshCopySheen(m, metalTile, XBLAMESH_METAL_SCALE);
 	}
+}
+
+/**
+ * The title's marble logo in the levels' own reflective materials
+ * (Mod.XblaLogoMaterial, XBLAMESH_ENV_LOGO). 4J baked the N64 logo's two
+ * sphere maps into fixed texture coordinates: record 1117 is a blue marble
+ * sphere on the faces, 1116 a grey one on the bevels. They are drawn live
+ * instead, the way the Carrington Institute's blue statue (ROM texture 0x0042,
+ * G_TEXTURE 0xb00 on its 48x44 picture, lit, in room 5) and Defection's metal
+ * (0x006d, 0x1000 on its 64x64) are: G_LIGHTING | G_TEXTURE_GEN, with the eye
+ * ray bending the lookup so a flat face is not one tint. Scales are for the
+ * 32x32 stand-in: the same share of each picture the rooms sample.
+ */
+struct xblameshlogomat {
+	s32 record;
+	s32 texnum;
+	u16 scales;
+	u16 scalet;
+};
+
+static const struct xblameshlogomat xblaMeshLogoMats[] = {
+	{ 0x1117, 0x0042, 0x0755, 0x0800 }, // the faces: the statue's blue
+	{ 0x1116, 0x006d, 0x0800, 0x0800 }, // the bevels: the grey metal
+};
+
+static const void *logoTile[ARRAYCOUNT(xblaMeshLogoMats)];
+static s32 logoTried[ARRAYCOUNT(xblaMeshLogoMats)];
+
+static s32 xblaMeshLogoMaterialOf(const void *addr)
+{
+	const s32 record = xblaTexRecordOf(addr);
+
+	for (s32 k = 0; k < (s32)ARRAYCOUNT(xblaMeshLogoMats); k++) {
+		if (record >= 0 && xblaMeshLogoMats[k].record == record) {
+			return k;
+		}
+	}
+
+	return -1;
+}
+
+/** A normal per vertex as an RSP light reads one, for the logo pass's lighting. */
+static void xblaMeshLogoColours(const struct xblameshbuilt *m, const f32 *normals, Col *col)
+{
+	for (s32 i = 0; i < m->numvertices; i++) {
+		f32 nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
+		const f32 len = sqrtf(nx * nx + ny * ny + nz * nz);
+
+		if (len > 1e-6f) {
+			nx /= len;
+			ny /= len;
+			nz /= len;
+		}
+
+		col[i].r = (u8)(s8)xblaMeshRound(nx * 127.0f);
+		col[i].g = (u8)(s8)xblaMeshRound(ny * 127.0f);
+		col[i].b = (u8)(s8)xblaMeshRound(nz * 127.0f);
+		col[i].a = 0xff;
+	}
+}
+
+/**
+ * Two copies of the lists, made on the first draw that asks: logobase draws
+ * everything but the logo's materials, logogdl only them, bound to the levels'
+ * pictures at their scales with the lists' own clear of the texgen modes taken
+ * out. A batch is one material, and its head (G_COL, G_VTX) and triangles
+ * become no-ops in the copy that does not draw it. A material writes its
+ * G_TEXTURE a few commands before its G_SETTIMG, so the scale looks ahead.
+ * A mesh with none of the logo's materials keeps neither copy.
+ */
+static void xblaMeshBuildLogo(struct xblameshbuilt *m)
+{
+	const void *tiles[ARRAYCOUNT(xblaMeshLogoMats)];
+	Gfx *base;
+	Gfx *live;
+	s32 mat = -1;
+	s32 numlive = 0;
+	s32 numbase = 0;
+
+	m->logotried = 1;
+
+	if (!m->normals) {
+		return;
+	}
+
+	for (s32 k = 0; k < (s32)ARRAYCOUNT(xblaMeshLogoMats); k++) {
+		tiles[k] = xblaMeshNumberedTile(xblaMeshLogoMats[k].texnum, &logoTile[k], &logoTried[k],
+				"the title logo's");
+
+		if (!tiles[k]) {
+			return;
+		}
+	}
+
+	base = malloc((size_t)m->numgfx * sizeof(Gfx));
+	live = malloc((size_t)m->numgfx * sizeof(Gfx));
+	m->logocol = malloc((size_t)m->numvertices * sizeof(Col));
+
+	if (!base || !live || !m->logocol) {
+		free(base);
+		free(live);
+		free(m->logocol);
+		m->logocol = NULL;
+		return;
+	}
+
+	memcpy(base, m->gdl, (size_t)m->numgfx * sizeof(Gfx));
+	memcpy(live, m->gdl, (size_t)m->numgfx * sizeof(Gfx));
+
+	for (s32 i = 0; i < m->numgfx; i++) {
+		const Gfx *g = &m->gdl[i];
+		const u8 op = (u8)(g->words.w0 >> 24);
+
+		if (op == G_SETTIMG) {
+			mat = xblaMeshLogoMaterialOf((const void *)g->words.w1);
+
+			if (mat >= 0) {
+				live[i].words.w1 = (uintptr_t)tiles[mat];
+			}
+		} else if (op == (u8)G_TEXTURE) {
+			for (s32 j = i + 1; j < m->numgfx && j < i + 16; j++) {
+				if ((u8)(m->gdl[j].words.w0 >> 24) == G_SETTIMG) {
+					const s32 ahead = xblaMeshLogoMaterialOf((const void *)m->gdl[j].words.w1);
+
+					if (ahead >= 0) {
+						live[i].words.w1 = (uintptr_t)((u32)xblaMeshLogoMats[ahead].scales << 16 |
+								xblaMeshLogoMats[ahead].scalet);
+					}
+
+					break;
+				}
+			}
+		} else if (op == (u8)G_CLEARGEOMETRYMODE) {
+			live[i].words.w1 &= ~(uintptr_t)(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+		} else if (op == G_DL && g->words.w1 >= (uintptr_t)m->gdl &&
+				g->words.w1 < (uintptr_t)(m->gdl + m->numgfx)) {
+			base[i].words.w1 = (uintptr_t)base + (g->words.w1 - (uintptr_t)m->gdl);
+			live[i].words.w1 = (uintptr_t)live + (g->words.w1 - (uintptr_t)m->gdl);
+		} else if (op == (u8)G_ENDDL) {
+			mat = -1;
+		}
+
+		if (op == G_COL || op == G_VTX || op == (u8)G_TRI1 || op == (u8)G_TRI4) {
+			Gfx *off = mat >= 0 ? &base[i] : &live[i];
+
+			off->words.w0 = (uintptr_t)G_NOOP << 24;
+			off->words.w1 = 0;
+
+			if (op == G_COL) {
+				if (mat >= 0) {
+					numlive++;
+				} else {
+					numbase++;
+				}
+			}
+		}
+	}
+
+	if (numlive == 0) {
+		free(base);
+		free(live);
+		free(m->logocol);
+		m->logocol = NULL;
+		return;
+	}
+
+	xblaMeshLogoColours(m, m->normals, m->logocol);
+	m->logobase = base;
+	m->logogdl = live;
+
+	sysLogPrintf(LOG_NOTE, "xblamesh: the title logo draws %d of its %d batches in the levels' blue and metal",
+			numlive, numlive + numbase);
 }
 
 static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
@@ -7026,6 +7215,16 @@ void xblaMeshSetReflectStyle(s32 style)
 	optReflectStyle = style == XBLAMESH_REFLECT_N64 || style == XBLAMESH_REFLECT_METAL ? style : XBLAMESH_REFLECT_XBLA;
 }
 
+s32 xblaMeshGetLogoMaterial(void)
+{
+	return optLogoMaterial;
+}
+
+void xblaMeshSetLogoMaterial(s32 on)
+{
+	optLogoMaterial = on ? 1 : 0;
+}
+
 /**
  * How much of the reflection the room leaves on this draw, 0 to 255 - and 0
  * for a draw that takes none at all.
@@ -7746,6 +7945,16 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			((optReflectStyle == XBLAMESH_REFLECT_N64 && m->sheengdl != NULL) ||
 			(metal && m->metalgdl != NULL));
 
+	// The title's marble logo in the levels' blue and metal, in place of the
+	// release's cube maps: see xblaMeshBuildLogo(). A mesh with none of the
+	// logo's materials - the red 4J tray - reflects as XBLAMESH_ENV_ON would.
+	if (envforce == XBLAMESH_ENV_LOGO && opa && !m->logotried) {
+		xblaMeshBuildLogo(m);
+	}
+
+	const s32 logo = envforce == XBLAMESH_ENV_LOGO && opa && m->logogdl != NULL &&
+			renderdata->zbufferenabled && xblaTexGetEnabled();
+
 	// Whether this draw takes the release's reflections, decided before the
 	// colours are bound since a reflecting material's colours are scaled for
 	// it. Only in the opaque pass: the pass goes over the opaque list. The
@@ -7753,7 +7962,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// matrix the list is drawn under (G_ENVMAP_EXT); the normals are the
 	// pose's where there is one, since a skinned mesh's bind normals point
 	// wherever the bind pose had the limb.
-	if (opa && m->envgdl && root && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED()) {
+	if (opa && m->envgdl && root && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED() && !logo) {
 		const s32 isposed = posed == m->posedvtx && m->posedmodel == model &&
 				m->posedframe == frameCount;
 
@@ -7855,7 +8064,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			xblaMeshSetSpanMode(renderdata, node, opaquecycle2, opaqueonecycle);
 		}
 
-		gSPDisplayList(renderdata->gdl++, list);
+		gSPDisplayList(renderdata->gdl++, logo ? m->logobase + (list - m->gdl) : list);
 		frameDraws++;
 
 		// An alpha span that is not going to the translucent pass is a cutout
@@ -7951,6 +8160,59 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
 				frameDraws++;
 			}
+		}
+
+		// The logo's own materials, lit and sphere-mapped where logobase left
+		// them out. The title has no player, so no camera LookAt: the logo's
+		// light and LookAt are in eye space, where the renderer reads them.
+		if (logo) {
+			static Lights1 lights = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0x4d, 0x4d, 0x2e);
+			static LookAt lookat;
+			const s32 isposed = posed == m->posedvtx && m->posedmodel == model &&
+					m->posedframe == frameCount;
+			const s32 fading = renderdata->unk30 == 5 && (renderdata->envcolour & 0xff) < 255;
+			Col *logocol = m->logocol;
+
+			if (isposed && m->posednrm) {
+				Col *col = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+
+				if (col) {
+					xblaMeshLogoColours(m, m->posednrm, col);
+					logocol = col;
+				}
+			}
+
+			lookat.l[0].l.dir[0] = 0x7f;
+			lookat.l[1].l.dir[1] = 0x7f;
+
+			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(logocol));
+			gDPPipeSync(renderdata->gdl++);
+			gDPSetCycleType(renderdata->gdl++, G_CYC_2CYCLE);
+
+			// Where the cube fades, the release's way: blended onto its own
+			// depth-only pass by the fade.
+			if (fading) {
+				gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_INTER, G_RM_AA_ZB_XLU_INTER2);
+				gDPSetCombineLERP(renderdata->gdl++, TEXEL0, 0, SHADE, 0, 0, 0, 0, ENVIRONMENT,
+						0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
+			} else {
+				gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+				gDPSetCombineLERP(renderdata->gdl++, TEXEL0, 0, SHADE, 0, 0, 0, 0, 1,
+						0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
+			}
+
+			gSPSetLights1(renderdata->gdl++, lights);
+			gSPLookAtX(renderdata->gdl++, &lookat.l[0]);
+			gSPLookAtY(renderdata->gdl++, &lookat.l[1]);
+			gDPSetTexgenShiftEXT(renderdata->gdl++, 0, 0);
+			gSPSetGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_TEXGEN_TURN_EXT);
+			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_TEXGEN_EYE_EXT);
+			gSPDisplayList(renderdata->gdl++, m->logogdl + (list - m->gdl));
+			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_TEXGEN_EYE_EXT);
+			gSPClearGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
+			frameDraws++;
 		}
 	}
 
@@ -8707,6 +8969,7 @@ PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
 	configRegisterInt("Mod.XblaReflections", &optReflect, 0, 1);
 	configRegisterInt("Mod.XblaReflectStyle", &optReflectStyle, XBLAMESH_REFLECT_XBLA, XBLAMESH_REFLECT_METAL);
 	configRegisterInt("Mod.XblaReflectDistance", &optReflectDistance, 1, 1000);
+	configRegisterInt("Mod.XblaLogoMaterial", &optLogoMaterial, 0, 1);
 
 	// Mod.XblaMeshTextures is registered by xblatex.c, which is where the flag
 	// lives now: read at the point a picture is handed to the renderer rather
@@ -8830,6 +9093,8 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
 void xblaMeshSetBypass(s32 on) { }
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle) { }
 void xblaMeshSetEnvironment(s32 force) { }
+s32 xblaMeshGetLogoMaterial(void) { return 0; }
+void xblaMeshSetLogoMaterial(s32 on) { }
 s32 xblaMeshGetReflections(void) { return 0; }
 void xblaMeshSetReflections(s32 enabled) { }
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,

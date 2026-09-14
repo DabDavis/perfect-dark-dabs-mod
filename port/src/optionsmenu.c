@@ -5215,6 +5215,29 @@ static MenuItemHandlerResult menuhandlerLevelReflectFollow(s32 operation, struct
 	return 0;
 }
 
+/**
+ * Logo Material: the title's spinning marble logo in the release's own cube
+ * maps, or its faces in the Carrington Institute statue's blue and its bevels
+ * in Defection's grey metal, live under texgen (xblaMeshBuildLogo()). Live.
+ */
+static MenuItemHandlerResult menuhandlerXblaLogoMaterial(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 2;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == 1 ? "Statue & Metal" : "Xbox 360");
+	case MENUOP_SET:
+		xblaMeshSetLogoMaterial((s32)data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = xblaMeshGetLogoMaterial();
+	}
+
+	return 0;
+}
+
 static char g_XblaMeshPackText[80];
 
 /**
@@ -5498,6 +5521,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Level Reflections",
 		0,
 		menuhandlerLevelReflectFollow,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Logo Material",
+		0,
+		menuhandlerXblaLogoMaterial,
 	},
 	{
 		MENUITEMTYPE_LABEL,

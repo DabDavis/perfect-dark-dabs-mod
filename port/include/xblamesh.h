@@ -205,14 +205,27 @@ const void *xblaMeshSheenTile(void);
 #define XBLAMESH_ENV_OFF     -1
 #define XBLAMESH_ENV_SETTING 0
 #define XBLAMESH_ENV_ON      1
+#define XBLAMESH_ENV_LOGO    2
 
 /**
  * A caller's word over Mod.XblaReflections for the draws it makes until it
  * puts XBLAMESH_ENV_SETTING back: the title's 4J cubes are the release's
  * intro and reflect whatever the setting says (ON round the pass that colours
- * them), and never in a depth-only pass (OFF round that one).
+ * them), and never in a depth-only pass (OFF round that one). LOGO is ON,
+ * except that a mesh carrying the marble logo's two materials draws them lit
+ * and sphere-mapped in the levels' blue and metal instead (Mod.XblaLogoMaterial).
  */
 void xblaMeshSetEnvironment(s32 force);
+
+/**
+ * Mod.XblaLogoMaterial, "Logo Material": the title's spinning marble logo in
+ * the release's cube maps (0), or its faces in the Carrington Institute
+ * statue's blue (ROM texture 0x0042) and its bevels in Defection's grey metal
+ * (0x006d), both live under texgen the way the levels draw them (1, the
+ * default). Live.
+ */
+s32 xblaMeshGetLogoMaterial(void);
+void xblaMeshSetLogoMaterial(s32 on);
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode);
