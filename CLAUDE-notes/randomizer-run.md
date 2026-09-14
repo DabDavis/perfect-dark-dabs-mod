@@ -595,6 +595,23 @@ Four pieces, each closing a different door:
   whose loading stage is not `g_ModRunStage`, so a stage it never asked for
   loads as itself.
 
+## An arena's solo setup has no AI lists
+
+A hop onto an MP arena loads its **solo** setup file, which no stock path ever
+loads: `UsetuprefZ` (MP Complex, 0x1f) is a 96 byte stub with an empty props
+list, a short intro, no AI lists and no paths. `setupLoadFiles()` sorts the
+stage's AI lists by reading `ailists[i + 1]` before checking `ailists[i]`, so a
+list that is only its terminator reads one entry past it. On N64 that was the
+paths terminator's NULL and the loop stopped; converted to the 64-bit layout
+it is past the end of the 128 byte file, in whatever the stage pool handed out
+next, and the loop swapped garbage over the paths. The fault comes a few lines
+later, walking a path's pads (`setup.c`, v3.6.0 crash reports 20260914-141118
+and -142810). The sort now stops at the terminator.
+
+Seed 3708519407 on map pool 2 with no mod maps reproduces it on the first hop
+(`--random-run --run-autohop 900`, seed set from gdb since it is past
+`S32_MAX`), and `--boot-stage 0x1f` reaches the same load in seconds.
+
 ## What moved out of Dab's Mod Options
 
 The four rows the Randomizer had there - the checkbox, the seed, Endless Mode

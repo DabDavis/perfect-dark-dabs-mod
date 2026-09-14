@@ -1422,7 +1422,16 @@ void setupLoadFiles(s32 stagenum)
 		do {
 			modified = false;
 
+#ifdef PLATFORM_N64
 			for (i = 0; g_StageSetup.ailists[i + 1].list != NULL; i++) {
+#else
+			// A setup with no AI lists at all (an arena's solo setup, loaded by
+			// a Randomizer run: UsetuprefZ) has only the terminator, and the
+			// entry after it is past the end of the file. On N64 that was the
+			// paths terminator's NULL; on PC it is whatever was allocated next,
+			// and the swaps below scrambled the paths with it.
+			for (i = 0; g_StageSetup.ailists[i].list != NULL && g_StageSetup.ailists[i + 1].list != NULL; i++) {
+#endif
 				if (g_StageSetup.ailists[i + 1].id < g_StageSetup.ailists[i].id) {
 					// Swap them
 					tmp = g_StageSetup.ailists[i];

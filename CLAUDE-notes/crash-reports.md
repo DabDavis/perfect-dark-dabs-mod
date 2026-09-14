@@ -99,6 +99,45 @@ the spawn chooser dividing by a zero pad count. Read the log ring bottom up for
 the stage (`xblastage:`, `setup:`, `run:` lines) and the `[Mod]` block for the
 switches every report of a cluster shares.
 
+The `[Mod]` block is the **live** values at the crash, so a report taken the
+frame after F6 reads every release switch as off. The log ring's
+`xblaswitch: release assets off` line is what says they were on until then.
+
+A player's Randomizer run replays from its `run: begin seed` line, but only
+with their map pool: a scratch ini that mounts every mod (`MapMods=*`, as
+`build/pd.ini` does) deals a different first stage from the same seed. A seed
+above `S32_MAX` does not fit `Mod.RandomizerSeed`, so set it from gdb at
+`modrun.c`'s `g_ModRunSeed = ...` line
+(`set g_ModOptions.randomseed = (int)SEED`).
+
+## The second pass (2026-09-14, reports after 20260914-023241)
+
+13 reports: three were "Could not open ROM" from v3.5.0, which predates
+`sysFatalSetupError()`; the two real v3.5.0 crashes were the first pass's spark
+colour and Japanese glyph cache, already fixed in v3.6.0. The two new clusters
+both reproduced headlessly on the v3.6.0 commit's own build, and were fixed:
+
+- **F6 off on the Villa** (3 reports, Linux and Windows): "Unknown GBI opcode"
+  the frame after `xblaswitch: release assets off`. The switch unloads every
+  room to reload it from the other copy, and dyntex adds a room's animated
+  vertices once per level, so the release copy's offsets were applied to the
+  ROM copy's room: `dyntexUpdateOcean()` wrote wave texture coordinates into
+  the upper halves of display list words. `dyntexForgetRooms()`, called by
+  `xblaStageSwitched()`. Heap reuse decides whether it shows, so an ASan build
+  (whose quarantine hands the reload fresh zeroed memory) runs clean: judge it
+  on the normal build. Caught with a `watch -l` on the bad word's upper half
+  after the room reloaded (xbla.md, "Segment 5 is the model's").
+- **Randomizer hop into MP Complex** (2 v3.6.0 reports plus one dev run):
+  a fault in `setupLoadFiles()` walking the paths. An arena's solo setup
+  (`UsetuprefZ`) has no AI lists, and the stage list sort read the entry
+  after the terminator, which on PC is past the end of the 128-byte file; its
+  swaps scrambled the paths. The sort now stops at the terminator
+  (randomizer-run.md, "An arena's solo setup has no AI lists").
+
+Left open: a d53c5cd (dev) Linux crash with the chr vertex store full, whose
+offsets need a build of that commit to read, and a driver fault inside
+`wglChoosePixelFormat` at window creation (7f05950, Windows).
+
 ## The other end
 
 `tools/pdghostd/pdghostd.py`, `POST /crash`, documented in its README under
