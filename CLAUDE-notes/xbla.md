@@ -3530,6 +3530,38 @@ vertices in 5 rooms at both frames, the flipped run 7090 at 600 and 7228 at
 why the frame-600 screenshots differ by 0.13% of pixels (the dropship, a
 model); inside a building the difference is plain.
 
+### Two texture words the release gets wrong (2026-09-14)
+
+Both were a tester's F3 shots, and both were found by diffing a room's spans
+(texture, render mode, combiner per triangle run) between the ROM's copy and
+the release's, rather than in the renderer. Do that first for any report that
+only shows with the release's rooms on.
+
+- **The detail texture is gone.** A subcmd 1 texture word keeps its second
+  (detail) texture in bits 12-23; the release widened the number to 16 bits
+  over them, so every two-texture surface it kept names detail texture **0**.
+  That is 314 triangles in `bg_ame` (Defection's blue carpet) and 455 in
+  `bg_mp15`, nowhere else, and no ROM room names 0 - all of them name 0x074.
+  Texture 0's window grid was blended into the carpet as its detail ("small
+  window shadows"). `texLoadFromGdl()` puts 0x074 back. Tried first and
+  rejected: the base texture as its own detail, and the surface drawn through
+  `texHandleType0()` - both draw horizontal streaks in the band where the LOD
+  blend hands over.
+- **Carrington's lift side panels were repointed.** 24 triangles of room 1
+  bind 027b (the ROM's chrome strip) in the ROM and 0671 (a Dam texture,
+  brushed steel, which Dam binds in both copies) in the release; they read as
+  see-through. Every record involved is opaque, and the room texgen spans,
+  vertex colours, `Pci_liftZ`'s mesh and `Pci_liftdoorZ` (038c) were ruled out
+  on the way. At the user's request they draw Defection's metal, 0042
+  (`g_TexCiLiftSideTexture`; 027b, the ROM's look, was shot beside it).
+
+Headless Carrington under `--boot-stage 0x26`: the level stops at frame 302
+behind a dialog, so break on `'video.c'::frames` (which keeps counting) and
+`call (void)menuPopDialog()`, then teleport the `--spectate` prop. And never
+run `xblaconvert.py` into the scratchpad for one picture - a whole pack filled
+`/tmp`; decode single records with `read_records()` and
+`x360.decode_texture()`.
+
 ## The whole release from one key (2026-09-12)
 
 F6 was the meshes' own switch and is the release's now: `port/src/xblaswitch.c`

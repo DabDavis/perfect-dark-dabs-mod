@@ -212,6 +212,12 @@ const char var7f1b7c28[] = "";
 const char var7f1b7c2c[] = "";
 
 bool g_TexPipeSynced = false;
+
+#ifndef PLATFORM_N64
+// What the Carrington Institute lift's side panels draw with in the release's
+// rooms - see texLoadFromGdl(). 0042 is Defection's metal.
+s32 g_TexCiLiftSideTexture = 0x0042;
+#endif
 u32 var800844d4 = 0x00000000;
 u32 var800844d8 = 0x00000000;
 u32 var800844dc = 0x00000000;
@@ -911,6 +917,17 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 			flag = ingdl->words.w0 & 0x200;
 
 #ifndef PLATFORM_N64
+			// The release points the Carrington Institute lift's side panels
+			// at 0671, one of the Dam's textures, where the ROM has its own
+			// chrome strip 027b; they read as see-through. They take
+			// Defection's metal instead.
+			if (xblaStageIsRelease() && g_Vars.stagenum == STAGE_CITRAINING
+					&& ingdl->unkc0.subcmd != 1 && (ingdl->words.w1 & 0xffff) == 0x0671) {
+				texturenum = g_TexCiLiftSideTexture;
+			}
+#endif
+
+#ifndef PLATFORM_N64
 			// The XBLA release's rooms name records past the ROM's texture
 			// table, in a number wider than the twelve bits read above
 			// (subcmd 1 keeps its second texture in the bits over them), and
@@ -960,6 +977,19 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 					break;
 				case 1:
 					texturenum2 = (ingdl->words.w1 >> 12) & 0xfff;
+#ifndef PLATFORM_N64
+					// The release widened a room's texture number to sixteen
+					// bits over the detail texture's, so every two-texture
+					// surface it kept names texture 0 there, and texture 0's
+					// window grid was drawn into Defection's carpet as its
+					// detail. No ROM room names 0, and every one of those
+					// surfaces (Defection's and its arena's carpet) names 0x074
+					// in the ROM. A stand-in other than a detail picture streaks
+					// where the blend hands over, so the ROM's is put back.
+					if (xblaStageIsRelease() && texturenum2 == 0) {
+						texturenum2 = 0x074;
+					}
+#endif
 					texLoadFromTextureNum(texturenum2, pool);
 					tex2 = texFindInPool(texturenum2, pool);
 
