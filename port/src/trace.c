@@ -319,11 +319,21 @@ static void traceWrite(FILE *f)
 
 	fprintf(f, "\n[chrs] every character in the level; draw bits say what chrRender() did with it this frame\n");
 
-	for (i = 0; i < g_Vars.maxprops; i++) {
-		struct prop *prop = &g_Vars.props[i];
+	// The live props only, active then paused (the active list's tail leads on
+	// into the paused one). A slot in g_Vars.props that has been freed keeps
+	// its type and a pointer to a chr that is gone - a corpse the vertex
+	// store's reaper faded out - and F3 on Chicago crashed reading one.
+	{
+		struct prop *prop = g_Vars.activeprops;
+		s32 guard = 0;
 
-		if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) && prop->chr) {
-			traceChr(f, pl, prop, prop->chr);
+		while (prop && guard++ < g_Vars.maxprops) {
+			if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) && prop->chr
+					&& prop->chr->prop == prop) {
+				traceChr(f, pl, prop, prop->chr);
+			}
+
+			prop = prop->next;
 		}
 	}
 
