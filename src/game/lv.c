@@ -324,9 +324,6 @@ void lvReset(s32 stagenum)
 	// and every one of those belonged to the pool texReset() has just rebuilt
 	xblaMeshResetModels();
 
-	// Level Sheen's copies of model parts, keyed by the same addresses
-	roomSheenResetNodes();
-
 	// And the release's level file, if the last stage drew one: the next
 	// decides for itself, under whatever the switches say now
 	xblaStageLevelReset();

@@ -932,7 +932,7 @@ static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
     glScissor(x, y, width, height);
 }
 
-static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additive, bool muladd) {
+static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additive) {
     if (use_alpha) {
         glEnable(GL_BLEND);
     } else {
@@ -940,10 +940,6 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additiv
     }
     if (modulate) {
         glBlendFunc(GL_DST_COLOR, GL_ZERO);
-    } else if (muladd) {
-        // G_MULADD_EXT: dst + src * dst, a highlight in proportion to what is
-        // already there - dark stays dark. The amount is in src's colour.
-        glBlendFunc(GL_DST_COLOR, GL_ONE);
     } else if (additive) {
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     } else {

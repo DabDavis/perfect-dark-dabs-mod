@@ -1,5 +1,25 @@
 # Level Sheen: the K7's sheen on rooms and props (2026-09-14)
 
+**Removed the same day.** The user tried it, found it "too shimmery, not
+realistic", said the premise (a sheen on every surface) was wrong, and asked
+for it to be removed. Gone: `Mod.LevelSheen`, `Mod.LevelSheenStyle`, both menu
+rows, the Settings Preset column, the room and prop-part copies and their
+call sites in `bg.c`, `model.c`, `xblamesh.c`, `propobj.c`, `lv.c` and
+`struct room`. What stays in `port/src/roomsheen.c`:
+
+- `roomSheenTexgenShift()`, the movement scroll the XBLA meshes' K7 Sheen uses
+  (the user: "the weapon sheen is a keep k7 sheen way").
+- Level Reflections (`Mod.LevelReflectFollow`, below), which moves the
+  reflective surfaces the levels mark themselves.
+- In the renderer, `SHADER_OPT_FOG_FADE`, which still fades `G_ADDITIVE_EXT`
+  under fog. `G_MULADD_EXT` (the `GL_DST_COLOR, GL_ONE` blend and the fourth
+  `set_use_alpha` argument) was removed at the user's request, also the same
+  day; bit 0x1000 of the extra geometry mode is free again.
+
+After the removal, a Defection drive with Level Reflections on and off still
+differs only on the walkway's metal trim and the FPS counter. The rest of
+this note is the record of what was built and measured before it went.
+
 The stock K7 Avenger's sheen, which the user preferred to the release's cube
 maps on the XBLA meshes (xbla.md, "The N64 sheen"), drawn on the level itself:
 every solid room surface and every prop standing in the level. It works on
@@ -88,6 +108,52 @@ at 600, and the camera walked 142 units in ten frames with the heading held
 whose geometry stayed put (mean change 0.10), and no pixel was darker than
 with the sheen off. The XBLA mesh path shares the flag and the helper but
 was not captured with a gun in hand.
+
+### The levels mark their own reflective surfaces (Level Reflections, 2026-09-14)
+
+The user tried the all-surface sheen and found it "too shimmery, not
+realistic", and pointed at what the stock game already shines: Defection's
+metal and its windows. `bgRenderRoomOpaque()` sets a room's lights and LookAt
+before its lists for this reason. A room's own lists turn on
+`G_LIGHTING | G_TEXTURE_GEN` over those triangles, the vertex colours are
+normals there, and the bound texture is a round environment map (0042 is a
+blue sphere, 006d a grey one). Counted statically from the ROM (scratchpad
+`texgenscan.py`, which pulls `bg_*.seg` with `tools/extract`'s class and walks
+rooms as `bgtexscan.py` does):
+
+| bg file | texgen tris | opaque / translucent (approx.) | textures |
+|---|---|---|---|
+| `bg_ame` (Defection) | 1537 of 19780, 102 rooms | 1002 / 535 | 0042, 006d, 0043, 0059 |
+| `bg_sho` (Skedar Ruins) | 432 | 0 / 432 | 0296, 02dd |
+| `bg_dish` (CI, Defense, Duel) | 376 | 20 / 356 | 0042, 027e |
+| `bg_rit` (Air Force One) | 321 | 0 / 321 | 029d, 0228 |
+| `bg_ear` (Investigation) | 314 | 262 / 52 | 0043, 0059 |
+| `bg_pete` (Chicago) | 242 | 0 / 242 | 0189, 01c9 |
+| `bg_azt`, `bg_dam`, `bg_depo`, `bg_oat`, `bg_eld`, `bg_lee` | 231 down to 4 | mostly translucent | |
+
+`Mod.LevelReflectFollow` ("Level Reflections" on the XBLA page, Original /
+Follow Movement, off by default, not in the preset table) wraps both room
+passes in `roomSheenStockBegin()`/`End()`, which set `G_TEXGEN_EYE_EXT`. The
+flag only acts where a list has `G_TEXTURE_GEN` on, so nothing else moves.
+The texgen shift is written as zero first. A room stands still in the world,
+so the eye ray alone moves its reflection as the player walks; the scroll is
+for a gun that walks with the eye, and a leftover gun shift would slide every
+window.
+
+Checked on Defection (`--boot-stage 0x30`, spectate, seed 1, fixed step, two
+shots 120 units apart with the heading held, Level Sheen off): Follow
+Movement against Original differs on 2.0% and 1.4% of pixels, every one of
+them on the walkway's metal trim, and the mean brightness is identical. The
+all-surface copy (Mod.LevelSheen) is untouched and still separate.
+
+Traps met doing it:
+
+- **`--boot-stage` takes the stage id.** Defection is 0x30; 0x1c is its row
+  in `g_Stages`, and booting 0x1c drew a canyon with no texgen surface, where
+  the setting changed only the FPS counter.
+- **Never `mv screenshots/pd-*.png` out of `build/screenshots`.** The folder
+  holds hundreds of older shots. Take a stamp file before the run and move
+  only `find -newer` the stamp.
 
 ### The blend has to multiply, not add (G_MULADD_EXT)
 

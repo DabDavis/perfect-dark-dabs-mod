@@ -38,9 +38,6 @@
 #include "game/rng2.h"
 #include "game/vtxstore.h"
 #include "game/explosions.h"
-#ifndef PLATFORM_N64
-#include "roomsheen.h"
-#endif
 #include "game/smoke.h"
 #include "game/sparks.h"
 #include "game/game_1531a0.h"
@@ -13548,15 +13545,7 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		}
 
 		renderdata->gdl = gdl;
-#ifndef PLATFORM_N64
-		// Level Sheen reaches a model part only while a prop of the level's
-		// own is the one drawing (roomsheen.h)
-		roomSheenSetProp(prop);
-#endif
 		modelRender(renderdata, model);
-#ifndef PLATFORM_N64
-		roomSheenSetProp(NULL);
-#endif
 		gdl = renderdata->gdl;
 
 		if (obj->type == OBJTYPE_DOOR) {

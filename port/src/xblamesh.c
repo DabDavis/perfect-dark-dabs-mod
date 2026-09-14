@@ -7519,11 +7519,6 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				frameDraws++;
 			}
 		}
-
-		// Level Sheen on a prop's part (roomsheen.h): after the solid list and
-		// everything drawn over it above, so its state is the last written
-		// before the next node writes its own
-		roomSheenRenderNode(renderdata, node, list, posed, 0);
 	}
 
 	if (xlu && xlulist) {

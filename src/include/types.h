@@ -3814,7 +3814,6 @@ struct room {
 
 #ifndef PLATFORM_N64
 	/*0x8c*/ u16 extra_flags;
-	struct roomsheen *sheen; // Level Sheen's copy of the room (roomsheen.c)
 #endif
 };
 

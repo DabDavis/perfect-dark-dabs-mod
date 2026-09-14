@@ -2040,17 +2040,16 @@ struct modpreset {
 	s32 ghostmode;
 	s32 ghostsplits;
 	s32 xblareflectcutoff;
-	s32 levelsheen;
 };
 
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut  sheen
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0,     0 },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true,  0 },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true,  3 },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true,  0 },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0 },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2077,7 +2076,6 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModGhostMode = preset->ghostmode;
 	g_ModGhostSplits = preset->ghostsplits;
 	g_ModOptions.xblareflectcutoff = preset->xblareflectcutoff;
-	roomSheenSetLevel(preset->levelsheen);
 
 	// The ways of playing, off in every preset.
 	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
@@ -2116,7 +2114,6 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModGhostMode == preset->ghostmode
 		&& g_ModGhostSplits == preset->ghostsplits
 		&& g_ModOptions.xblareflectcutoff == preset->xblareflectcutoff
-		&& roomSheenGetLevel() == preset->levelsheen
 		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
 		&& g_ModOptions.guardsalerted == MODALARM_OFF
 		&& g_ModOptions.akimbo == MODAKIMBO_OFF
@@ -5160,53 +5157,23 @@ static MenuItemHandlerResult menuhandlerXblaReflectCutoff(s32 operation, struct 
 }
 
 /**
- * Level Sheen: the K7 sheen on the level's rooms and props, at a strength. Not
- * tied to the release's switches - it works on the ROM's rooms and models and
- * the release's alike - and live: a room or prop part builds its copy the
- * first time it is drawn with it on. Level Sheen Style, the row below, picks
- * per vertex or per pixel.
+ * Level Reflections: the surfaces a level itself draws as reflective (its
+ * room lists put them under texgen - Defection's metal, the windows) follow
+ * the player's movement as well as their turning. Live.
  */
-static MenuItemHandlerResult menuhandlerLevelSheen(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	static const char *const names[] = { "Off", "Subtle", "Normal", "Strong" };
-
-	switch (operation) {
-	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(names);
-		break;
-	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)names[data->dropdown.value < ARRAYCOUNT(names) ? data->dropdown.value : 0];
-	case MENUOP_SET:
-		roomSheenSetLevel((s32)data->dropdown.value);
-		break;
-	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = roomSheenGetLevel();
-	}
-
-	return 0;
-}
-
-/**
- * Level Sheen Style: K7 is the stock gun's own texgen, per vertex, bent by the
- * eye ray and scrolled as the player moves; Per Pixel slides the streak across
- * each surface. Hidden
- * while Level Sheen is off. Live: both draw from the same copy.
- */
-static MenuItemHandlerResult menuhandlerLevelSheenStyle(s32 operation, struct menuitem *item, union handlerdata *data)
+static MenuItemHandlerResult menuhandlerLevelReflectFollow(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
-	case MENUOP_CHECKHIDDEN:
-		return roomSheenGetLevel() == 0;
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = 2;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)(data->dropdown.value == ROOMSHEEN_STYLE_PIXEL ? "Per Pixel" : "K7");
+		return (intptr_t)(data->dropdown.value == 1 ? "Follow Movement" : "Original");
 	case MENUOP_SET:
-		roomSheenSetStyle((s32)data->dropdown.value);
+		roomSheenSetStockFollow((s32)data->dropdown.value);
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = roomSheenGetStyle();
+		data->dropdown.value = roomSheenGetStockFollow();
 	}
 
 	return 0;
@@ -5492,17 +5459,9 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Level Sheen",
+		(uintptr_t)"Level Reflections",
 		0,
-		menuhandlerLevelSheen,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Level Sheen Style",
-		0,
-		menuhandlerLevelSheenStyle,
+		menuhandlerLevelReflectFollow,
 	},
 	{
 		MENUITEMTYPE_LABEL,

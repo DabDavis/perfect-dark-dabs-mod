@@ -1225,9 +1225,6 @@ Gfx *bgRenderScene(Gfx *gdl)
 		if (debugIsBgRenderingEnabled() && getVar80084040()) {
 			if (g_StageIndex != STAGEINDEX_TEST_OLD) {
 				gdl = bgRenderRoomOpaque(gdl, thing->roomnum);
-#ifndef PLATFORM_N64
-				gdl = roomSheenRender(gdl, thing->roomnum);
-#endif
 			}
 		}
 
@@ -1781,7 +1778,6 @@ void bgBuildTables(s32 stagenum)
 		g_Rooms[i].unk4e_04 = 0;
 #ifndef PLATFORM_N64
 		g_Rooms[i].extra_flags = 0;
-		g_Rooms[i].sheen = NULL;
 #endif
 	}
 
@@ -3243,10 +3239,6 @@ void bgUnloadRoom(s32 roomnum)
 		g_Rooms[roomnum].vtxbatches = NULL;
 	}
 
-#ifndef PLATFORM_N64
-	roomSheenFree(roomnum);
-#endif
-
 	if (g_Rooms[roomnum].gfxdatalen > 0) {
 #ifdef PLATFORM_N64
 		size = g_Rooms[roomnum].gfxdatalen;
@@ -3470,7 +3462,13 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 	gdl = roomApplyMtx(gdl, roomnum);
 
 	gdl = lightsSetForRoom(gdl, roomnum);
+#ifndef PLATFORM_N64
+	gdl = roomSheenStockBegin(gdl);
+#endif
 	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
+#ifndef PLATFORM_N64
+	gdl = roomSheenStockEnd(gdl);
+#endif
 	gdl = lightsSetDefault(gdl);
 
 	g_Rooms[roomnum].loaded240 = 1;
@@ -3500,7 +3498,13 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 		if (g_Rooms[roomnum].gfxdata);
 
 		gdl = roomApplyMtx(gdl, roomnum);
+#ifndef PLATFORM_N64
+		gdl = roomSheenStockBegin(gdl);
+#endif
 		gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->xlublocks, true);
+#ifndef PLATFORM_N64
+		gdl = roomSheenStockEnd(gdl);
+#endif
 
 		g_Rooms[roomnum].loaded240 = 1;
 	} else {

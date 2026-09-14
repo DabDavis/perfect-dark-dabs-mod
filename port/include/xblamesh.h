@@ -194,7 +194,7 @@ void xblaMeshSetReflectStyle(s32 style);
 
 /**
  * The stand-in tile for ROM texture 0x3eb, the K7 Avenger's sheen, bound on
- * first ask (NULL if it would not). Shared with the rooms' Level Sheen.
+ * first ask (NULL if it would not).
  */
 const void *xblaMeshSheenTile(void);
 

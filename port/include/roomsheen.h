@@ -8,73 +8,35 @@
 extern "C" {
 #endif
 
-struct prop;
-struct modelrenderdata;
-
 /**
- * Level Sheen: the stock K7 Avenger's sheen on the level's own rooms and on
- * the props standing in it.
+ * Reflections that follow the player's movement as well as their turning.
  *
- * Neither carries normals the sheen can use (the rooms and the ROM's models
- * have baked vertex colours), so each room's solid, non-decal, non-cutout
- * triangles - and each prop model part's opaque ones - are copied once, the
- * first time they are drawn with the sheen on, with normals worked out from
- * the triangles and smoothed across neighbours that meet at a shallow angle.
- * The copy is drawn over what was just drawn, multiplied into it
- * (G_MULADD_EXT) so a dark surface stays dark.
- *
- * Mod.LevelSheen is the strength (0 off, 1 subtle, 2 normal, 3 strong).
- * Mod.LevelSheenStyle picks how the streaks are looked up: 0 is the K7's own
- * texgen, per vertex off the camera's LookAt, bent by the eye ray and scrolled
- * by the player's movement (G_TEXGEN_EYE_EXT, roomSheenTexgenShift()) so that
- * walking moves it as well as turning; 1 is per pixel (G_ENVMAP_EXT), which
- * slides across a wall as the eye moves. Both are live.
+ * The N64 texgen reads only the normal against the camera's LookAt, so it
+ * sees where the eye looks and never where it stands. G_TEXGEN_EYE_EXT bends
+ * the lookup by the eye ray (gfx_pc.cpp), which is enough for anything that
+ * stands still in the world; a gun held in front of the eye walks with it and
+ * also needs the scroll roomSheenTexgenShift() writes.
  */
 
-#define ROOMSHEEN_STYLE_K7    0
-#define ROOMSHEEN_STYLE_PIXEL 1
-
-s32 roomSheenGetLevel(void);
-void roomSheenSetLevel(s32 level);
-s32 roomSheenGetStyle(void);
-void roomSheenSetStyle(s32 style);
-
 /**
- * The sheen over one room, after bgRenderRoomOpaque() has drawn it: the
- * room's matrix is still loaded. Builds the room's copy on first use.
- */
-Gfx *roomSheenRender(Gfx *gdl, s32 roomnum);
-
-/** Drops a room's copy; bgUnloadRoom() calls it. */
-void roomSheenFree(s32 roomnum);
-
-/**
- * The prop objRenderProp() is drawing, around its modelRender() call, or
- * NULL. A model part takes the sheen only while this names a prop of the
- * level's own (an object, door or pickup with no parent), which is what
- * keeps characters, held guns and menu models out.
- */
-void roomSheenSetProp(struct prop *prop);
-
-/**
- * The sheen over one model part, straight after its opaque list: list is
- * that list and base the vertex array segment 4 names for it, which this
- * binds again before it returns. The part's matrix is the one its own list
- * loaded. cutout says the list is drawn with its texture's alpha cut out,
- * which the sheen cannot follow, so it is left alone.
- */
-void roomSheenRenderNode(struct modelrenderdata *renderdata, const void *node, Gfx *list, Vtx *base, s32 cutout);
-
-/**
- * Before a K7 sheen draw (G_LIGHTING | G_TEXTURE_GEN with G_TEXGEN_EYE_EXT):
- * the shift the current player's own movement has scrolled the streaks by.
- * The eye ray alone moves the sheen across a wall as the player walks past it,
- * but nothing on a gun held in front of the eye, which walks with it.
+ * Before a K7 sheen draw on a held or posed mesh (G_LIGHTING | G_TEXTURE_GEN
+ * with G_TEXGEN_EYE_EXT): the shift the current player's own movement has
+ * scrolled the streaks by.
  */
 Gfx *roomSheenTexgenShift(Gfx *gdl);
 
-/** Drops every model part's copy; lvReset() calls it with the models. */
-void roomSheenResetNodes(void);
+/**
+ * Level Reflections (Mod.LevelReflectFollow): the reflective surfaces the
+ * levels mark themselves - their room lists turn on G_LIGHTING |
+ * G_TEXTURE_GEN over an environment map, Defection's metal and most windows -
+ * look up through the eye ray so walking moves them as well as turning.
+ * Begin and End go round a room pass; the flag reaches only the spans the
+ * lists put under texgen, and the shift is zeroed since a room stands still.
+ */
+s32 roomSheenGetStockFollow(void);
+void roomSheenSetStockFollow(s32 on);
+Gfx *roomSheenStockBegin(Gfx *gdl);
+Gfx *roomSheenStockEnd(Gfx *gdl);
 
 #ifdef __cplusplus
 }
