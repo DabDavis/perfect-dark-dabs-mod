@@ -34,8 +34,18 @@
 // this file's arithmetic to do - a label's height is what textMeasure() says
 // about its text plus the menu's own padding - so the picture is measured from
 // the same string at the moment it is drawn. Ten lines is what the page can
-// spare without scrolling.
+// spare without scrolling, and only while the rest of the page is as short as
+// it can be - see menutextCommunityPoster().
 #define COMMUNITY_POSTERTEXT "\n\n\n\n\n\n\n\n\n\n"
+#define COMMUNITY_POSTERLINES 10
+
+// The small-font lines the rest of the page was measured with at ten: the
+// pack's name, author and three lines of blurb, one line of status and the
+// source over two.
+#define COMMUNITY_POSTERBUDGET "\n\n\n\n\n\n\n\n"
+
+// A dropdown row's height, from menuCalculateItemSize().
+#define COMMUNITY_DROPDOWNHEIGHT 12
 
 // Two thirds, which is the shape of the art a pack is announced with.
 #define COMMUNITY_POSTERW(h) ((h) * 2 / 3)
@@ -173,6 +183,56 @@ static const char *menutextCommunityStatus(struct menuitem *item)
 	return text;
 }
 
+static s32 communitymenuMeasureSmall(const char *text)
+{
+	s32 textheight = 0;
+	s32 textwidth = 0;
+
+	textMeasure(&textheight, &textwidth, (char *)text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
+
+	return textheight;
+}
+
+/**
+ * The poster's blank lines: ten, less whatever the rest of the page has grown.
+ *
+ * The page is exactly as tall as a dialog may be with ten, so one more line
+ * anywhere - the two line status an installed pack shows, the dropdown once
+ * there is a second pack - makes it scroll to keep the button in view, and the
+ * scroll takes the top of the first line off under the title bar. The ROM's
+ * glyphs hide two units of that in their empty top rows; the release's font
+ * fills its band to the top and shows it. So the picture gives the room back:
+ * a line of its own for every part of a line the other rows took.
+ */
+static const char *menutextCommunityPoster(struct menuitem *item)
+{
+	s32 lineheight = 0;
+	s32 textwidth = 0;
+	s32 extra;
+	s32 lines = COMMUNITY_POSTERLINES;
+
+	textMeasure(&lineheight, &textwidth, "\n", g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+
+	extra = communitymenuMeasureSmall(menutextCommunityPack(item))
+		+ communitymenuMeasureSmall(menutextCommunityStatus(item))
+		+ communitymenuMeasureSmall(menutextCommunitySource(item))
+		- communitymenuMeasureSmall(COMMUNITY_POSTERBUDGET);
+
+	if (communityGetNumPacks() >= 2) {
+		extra += COMMUNITY_DROPDOWNHEIGHT;
+	}
+
+	if (extra > 0 && lineheight > 0) {
+		lines -= (extra + lineheight - 1) / lineheight;
+	}
+
+	if (lines < 1) {
+		lines = 1;
+	}
+
+	return COMMUNITY_POSTERTEXT + COMMUNITY_POSTERLINES - lines;
+}
+
 /**
  * The cover art, drawn into the blank rows this item reserves.
  *
@@ -206,7 +266,7 @@ static MenuItemHandlerResult menuhandlerCommunityPoster(s32 operation, struct me
 	// The row's own height, from the row's own text. Guessed at first, and the
 	// guess was two lines out - the picture drew over the button underneath
 	// it, which is a layout that looks like a rendering fault.
-	textMeasure(&textheight, &textwidth, (char *)item->param2,
+	textMeasure(&textheight, &textwidth, menuResolveParam2Text(item),
 			g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 
 	height = textheight - 2;
@@ -352,8 +412,8 @@ struct menuitem g_CommunityMenuItems[] = {
 		// the note over menuhandlerCommunityPoster().
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LIST_CUSTOMRENDER,
-		(uintptr_t)COMMUNITY_POSTERTEXT,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_LIST_CUSTOMRENDER,
+		(uintptr_t)&menutextCommunityPoster,
 		0,
 		menuhandlerCommunityPoster,
 	},
