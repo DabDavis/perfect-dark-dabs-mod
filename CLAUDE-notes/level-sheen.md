@@ -132,7 +132,9 @@ rooms as `bgtexscan.py` does):
 | `bg_azt`, `bg_dam`, `bg_depo`, `bg_oat`, `bg_eld`, `bg_lee` | 231 down to 4 | mostly translucent | |
 
 `Mod.LevelReflectFollow` ("Level Reflections" on the XBLA page, Original /
-Follow Movement, off by default, not in the preset table) wraps both room
+Follow Movement, on by default since 2026-09-14 at the user's request so testers
+have it - an older pd.ini is moved over once by `Mod.SettingsRevision`, see
+main.c - not in the preset table) wraps both room
 passes in `roomSheenStockBegin()`/`End()`, which set `G_TEXGEN_EYE_EXT`. The
 flag only acts where a list has `G_TEXTURE_GEN` on, so nothing else moves.
 The texgen shift is written as zero first. A room stands still in the world,

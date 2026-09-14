@@ -2906,6 +2906,9 @@ both 1.
 The user asked how the K7 sheen differs from the levels' metal and windows
 (level-sheen.md, "The levels mark their own reflective surfaces") and wanted
 the guns to have a mode like those. **Mod.XblaReflectStyle 2**, "Level Metal".
+The default since later on 2026-09-14, at the user's request so testers have
+it; a pd.ini written before that is moved to it once (`Mod.SettingsRevision`
+in main.c), and left alone after.
 It is the K7 pass with three things changed, and nothing else:
 
 - **Picture:** `0x006d`, Defection's grey environment map (the user's pick over

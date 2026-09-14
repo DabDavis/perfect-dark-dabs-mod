@@ -3977,9 +3977,10 @@ static s32 envforce = XBLAMESH_ENV_SETTING;
 
 // Mod.XblaReflectStyle: the release's cube maps, the N64 guns' sheen drawn
 // on the same materials, or that sheen as the levels' metal (2026-09-14). See
-// xblaMeshBuildSheen(). The sheen is the default since 2026-09-13: the user
-// judged it much the better look than the cube maps.
-static s32 optReflectStyle = XBLAMESH_REFLECT_N64;
+// xblaMeshBuildSheen(). The sheen was the default from 2026-09-13 (the user
+// judged it much the better look than the cube maps), and Level Metal is since
+// 2026-09-14, at the user's request, so testers have it.
+static s32 optReflectStyle = XBLAMESH_REFLECT_METAL;
 
 // Mod.XblaLogoMaterial: the title's marble logo in the statue's blue and the
 // grey metal (2026-09-14, at the user's request, and the default), or in the

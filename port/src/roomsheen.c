@@ -13,7 +13,8 @@
 #include "system.h"
 #include "roomsheen.h"
 
-static s32 optStockFollow = 0;
+// On by default since 2026-09-14, at the user's request, so testers have it.
+static s32 optStockFollow = 1;
 
 PD_CONSTRUCTOR static void roomSheenConfigInit(void)
 {

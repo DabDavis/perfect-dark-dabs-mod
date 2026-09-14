@@ -31,6 +31,7 @@
 #include "screenshot.h"
 #include "trace.h"
 #include "xblamesh.h"
+#include "roomsheen.h"
 #include "xblastage.h"
 #include "xblatex.h"
 #include "config.h"
@@ -154,6 +155,33 @@ static void cleanup(void)
 	}
 }
 
+/**
+ * Mod.SettingsRevision: which of the default changes below a pd.ini has been
+ * through. A default only reaches a fresh pd.ini - the game writes every key on
+ * exit, so a tester who ran an older build has the old value on disk - and
+ * these were changed for exactly those testers. Each revision is applied once
+ * and the number is written back, so a setting the player changes afterwards
+ * is theirs. A fresh pd.ini goes through it too, which only sets the defaults
+ * it already has.
+ *
+ * 1 (2026-09-14, at the user's request): Level Reflections follow movement,
+ * Reflection Style is Level Metal, the title logo is Statue & Metal.
+ */
+#define SETTINGS_REVISION 1
+
+static s32 g_SettingsRevision = 0;
+
+static void mainApplySettingsRevision(void)
+{
+	if (g_SettingsRevision < 1) {
+		roomSheenSetStockFollow(1);
+		xblaMeshSetReflectStyle(XBLAMESH_REFLECT_METAL);
+		xblaMeshSetLogoMaterial(1);
+	}
+
+	g_SettingsRevision = SETTINGS_REVISION;
+}
+
 int main(int argc, const char **argv)
 {
 	sysInitArgs(argc, argv);
@@ -176,6 +204,8 @@ int main(int argc, const char **argv)
 		sysLogPrintf(LOG_WARNING, "Game.MemorySize=%d is too small for this build; raised to 64", g_OsMemSizeMb);
 		g_OsMemSizeMb = 64;
 	}
+
+	mainApplySettingsRevision();
 
 	// After the config, because that is where the chosen mod is written, and
 	// before romdataInit(), which is what goes looking for the files it holds.
@@ -327,6 +357,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterFloat("Mod.ThirdPersonSideways", &g_ModOptions.camside, -150.f, 150.f);
 	configRegisterFloat("Mod.ThirdPersonForward", &g_ModOptions.camfwd, -150.f, 150.f);
 	configRegisterFloat("Mod.ThirdPersonHeight", &g_ModOptions.camheight, -150.f, 150.f);
+	configRegisterInt("Mod.SettingsRevision", &g_SettingsRevision, 0, 1000);
 	configRegisterInt("Mod.ThirdPersonTether", &g_ModOptions.camtether, MODTETHER_OFF, MODTETHER_MAX);
 	configRegisterInt("Mod.ThirdPersonTurnSpeed", &g_ModOptions.camturnspeed, MODTURN_MIN, MODTURN_MAX);
 	configRegisterInt("Mod.Bodies", &g_ModOptions.bodies, MODBODIES_OFF, MODBODIES_MAX);
