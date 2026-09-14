@@ -99,7 +99,7 @@ static s32 roomSheenAccumulate(void)
 // K7 sheen drawn inside (an XBLA mesh on a prop) can put the state back
 static s32 roomSheenStockOpen = false;
 
-static Gfx *roomSheenStockEmit(Gfx *gdl)
+Gfx *roomSheenTexgenTurn(Gfx *gdl)
 {
 	// A level's reflections turn as the player walks, the way they turn as
 	// the camera does (G_TEXGEN_TURN_EXT), across the view yawing them and
@@ -112,6 +112,12 @@ static Gfx *roomSheenStockEmit(Gfx *gdl)
 		gDPSetTexgenShiftEXT(gdl++, 0, 0);
 	}
 
+	return gdl;
+}
+
+static Gfx *roomSheenStockEmit(Gfx *gdl)
+{
+	gdl = roomSheenTexgenTurn(gdl);
 	gSPSetExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
 
 	return gdl;

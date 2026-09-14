@@ -26,6 +26,14 @@ extern "C" {
 Gfx *roomSheenTexgenShift(Gfx *gdl);
 
 /**
+ * Before a draw under G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT: the current
+ * player's movement as the turn a level's reflections take (see Level
+ * Reflections below). Used by the rooms and props, and by the XBLA meshes'
+ * Level Metal style, whose round environment map a scroll would run off.
+ */
+Gfx *roomSheenTexgenTurn(Gfx *gdl);
+
+/**
  * Level Reflections (Mod.LevelReflectFollow): the reflective surfaces the
  * levels mark themselves - their room lists turn on G_LIGHTING |
  * G_TEXTURE_GEN over an environment map, Defection's metal and most windows -

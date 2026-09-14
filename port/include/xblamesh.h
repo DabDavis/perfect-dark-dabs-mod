@@ -183,11 +183,15 @@ void xblaMeshSetReflections(s32 enabled);
  * XBLA is the release's cube maps, per pixel. N64 is the sheen the stock guns
  * draw - the K7 Avenger's spans under G_LIGHTING | G_TEXTURE_GEN - on the same
  * materials by the same amount: ROM texture 0x3eb sphere-mapped per vertex off
- * the camera's LookAt, lit by lightsSetDefault()'s white light. The title's 4J
+ * the camera's LookAt, lit by lightsSetDefault()'s white light. METAL is the
+ * same pass drawn the way the levels draw their metal and windows: Defection's
+ * grey environment map 0x006d at the rooms' scale, and walking turns the
+ * lookup (G_TEXGEN_TURN_EXT) where the K7's streaks scroll. The title's 4J
  * cubes always take the release's. Live.
  */
-#define XBLAMESH_REFLECT_XBLA 0
-#define XBLAMESH_REFLECT_N64  1
+#define XBLAMESH_REFLECT_XBLA  0
+#define XBLAMESH_REFLECT_N64   1
+#define XBLAMESH_REFLECT_METAL 2
 
 s32 xblaMeshGetReflectStyle(void);
 void xblaMeshSetReflectStyle(s32 style);

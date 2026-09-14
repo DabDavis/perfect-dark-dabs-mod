@@ -5137,10 +5137,10 @@ static MenuItemHandlerResult menuhandlerXblaReflections(s32 operation, struct me
 }
 
 /**
- * What the reflections look like: the release's own cube maps, or the stock
- * guns' N64 sheen on the same materials. Hidden while reflections are off,
- * since there is nothing for it to change. Live: both copies of the lists are
- * built with the mesh, and the draw reads this.
+ * What the reflections look like: the release's own cube maps, the stock
+ * guns' N64 sheen on the same materials, or the levels' metal. Hidden while
+ * reflections are off, since there is nothing for it to change. Live: every
+ * copy of the lists is built with the mesh, and the draw reads this.
  */
 static MenuItemHandlerResult menuhandlerXblaReflectStyle(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -5148,11 +5148,17 @@ static MenuItemHandlerResult menuhandlerXblaReflectStyle(s32 operation, struct m
 	case MENUOP_CHECKHIDDEN:
 		return !xblaMeshGetReflections();
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = 2;
+		data->dropdown.value = 3;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)(data->dropdown.value == XBLAMESH_REFLECT_N64
-				? "K7 Sheen" : "Xbox 360");
+		switch (data->dropdown.value) {
+		case XBLAMESH_REFLECT_N64:
+			return (intptr_t)"K7 Sheen";
+		case XBLAMESH_REFLECT_METAL:
+			return (intptr_t)"Level Metal";
+		default:
+			return (intptr_t)"Xbox 360";
+		}
 	case MENUOP_SET:
 		xblaMeshSetReflectStyle((s32)data->dropdown.value);
 		break;

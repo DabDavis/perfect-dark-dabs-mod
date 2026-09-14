@@ -320,6 +320,7 @@ struct xblameshbuilt {
 	s32 numgfx;        // commands in gdl
 	Gfx *envgdl;       // gdl, binding the reflection atlas: see xblaMeshBuildEnvironment()
 	Gfx *sheengdl;     // envgdl, lit and sphere-mapped the N64 way: see xblaMeshBuildSheen()
+	Gfx *metalgdl;     // sheengdl on the levels' metal: the same, see xblaMeshBuildSheen()
 	s32 numenvcells;
 	u32 *envidx;       // the vertices that reflect, which is all the per-frame work visits
 	s32 numenvidx;
@@ -3962,9 +3963,10 @@ static s32 envAtlasCount;
 static s32 optReflect = 1;
 static s32 envforce = XBLAMESH_ENV_SETTING;
 
-// Mod.XblaReflectStyle: the release's cube maps, or the N64 guns' sheen drawn
-// on the same materials. See xblaMeshBuildSheen(). The sheen is the default
-// since 2026-09-13: the user judged it much the better look of the two.
+// Mod.XblaReflectStyle: the release's cube maps, the N64 guns' sheen drawn
+// on the same materials, or that sheen as the levels' metal (2026-09-14). See
+// xblaMeshBuildSheen(). The sheen is the default since 2026-09-13: the user
+// judged it much the better look than the cube maps.
 static s32 optReflectStyle = XBLAMESH_REFLECT_N64;
 
 // Mod.XblaReflectDistance: in metres, where the reflection is gone while the
@@ -4082,38 +4084,87 @@ const void *xblaMeshSheenTile(void)
 	return sheenTile;
 }
 
+/**
+ * The Level Metal style (Mod.XblaReflectStyle): the sheen's pass drawn the way
+ * the levels draw their own metal and windows, whose room lists turn texgen on
+ * over a round environment map. Defection's walkway metal is 0x006d, the grey
+ * one. Its rooms draw it at G_TEXTURE 0x1000 on its 64x64 picture (all 74
+ * texgen triangles of bg_ame, lit, not linear), one whole sphere across the
+ * tile; on the 32x32 stand-in that is 0x0800.
+ */
+#define XBLAMESH_METAL_TEXTURE 0x006d
+#define XBLAMESH_METAL_SCALE   0x0800
+
+static const void *metalTile;
+static s32 metalTried;
+
+static const void *xblaMeshMetalTile(void)
+{
+	if (!metalTried) {
+		s32 w = 0;
+		s32 h = 0;
+		u8 *rgba = modelpackDecodeN64Texture(XBLAMESH_METAL_TEXTURE, &w, &h);
+
+		metalTried = 1;
+
+		if (rgba) {
+			metalTile = xblaTexBindTexture(XBLAMESH_METAL_TEXTURE, rgba, w, h);
+		}
+
+		if (!metalTile) {
+			sysLogPrintf(LOG_WARNING, "xblamesh: the level metal's texture %04x would not bind",
+					XBLAMESH_METAL_TEXTURE);
+		}
+	}
+
+	return metalTile;
+}
+
+/**
+ * A copy of envgdl binding tile at scale, with the lists' own clear of the
+ * texgen modes taken out so the pass's set survives each list's head.
+ */
+static Gfx *xblaMeshCopySheen(struct xblameshbuilt *m, const void *tile, u32 scale)
+{
+	Gfx *copy = malloc((size_t)m->numgfx * sizeof(Gfx));
+
+	if (!copy) {
+		return NULL;
+	}
+
+	memcpy(copy, m->envgdl, (size_t)m->numgfx * sizeof(Gfx));
+
+	for (s32 i = 0; i < m->numgfx; i++) {
+		Gfx *g = &copy[i];
+		const u8 op = (u8)(g->words.w0 >> 24);
+
+		if (op == G_SETTIMG) {
+			g->words.w1 = (uintptr_t)tile;
+		} else if (op == (u8)G_TEXTURE) {
+			g->words.w1 = (uintptr_t)(scale << 16 | scale);
+		} else if (op == (u8)G_CLEARGEOMETRYMODE) {
+			g->words.w1 &= ~(uintptr_t)(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+		} else if (op == G_DL && g->words.w1 >= (uintptr_t)m->envgdl &&
+				g->words.w1 < (uintptr_t)(m->envgdl + m->numgfx)) {
+			g->words.w1 = (uintptr_t)copy + (g->words.w1 - (uintptr_t)m->envgdl);
+		}
+	}
+
+	return copy;
+}
+
 static void xblaMeshBuildSheen(struct xblameshbuilt *m)
 {
 	if (!m->envgdl) {
 		return;
 	}
 
-	if (!xblaMeshSheenTile()) {
-		return;
+	if (xblaMeshSheenTile()) {
+		m->sheengdl = xblaMeshCopySheen(m, sheenTile, XBLAMESH_SHEEN_SCALE);
 	}
 
-	m->sheengdl = malloc((size_t)m->numgfx * sizeof(Gfx));
-
-	if (!m->sheengdl) {
-		return;
-	}
-
-	memcpy(m->sheengdl, m->envgdl, (size_t)m->numgfx * sizeof(Gfx));
-
-	for (s32 i = 0; i < m->numgfx; i++) {
-		Gfx *g = &m->sheengdl[i];
-		const u8 op = (u8)(g->words.w0 >> 24);
-
-		if (op == G_SETTIMG) {
-			g->words.w1 = (uintptr_t)sheenTile;
-		} else if (op == (u8)G_TEXTURE) {
-			g->words.w1 = (uintptr_t)(XBLAMESH_SHEEN_SCALE << 16 | XBLAMESH_SHEEN_SCALE);
-		} else if (op == (u8)G_CLEARGEOMETRYMODE) {
-			g->words.w1 &= ~(uintptr_t)(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
-		} else if (op == G_DL && g->words.w1 >= (uintptr_t)m->envgdl &&
-				g->words.w1 < (uintptr_t)(m->envgdl + m->numgfx)) {
-			g->words.w1 = (uintptr_t)m->sheengdl + (g->words.w1 - (uintptr_t)m->envgdl);
-		}
+	if (xblaMeshMetalTile()) {
+		m->metalgdl = xblaMeshCopySheen(m, metalTile, XBLAMESH_METAL_SCALE);
 	}
 }
 
@@ -6972,7 +7023,7 @@ s32 xblaMeshGetReflectStyle(void)
 
 void xblaMeshSetReflectStyle(s32 style)
 {
-	optReflectStyle = style == XBLAMESH_REFLECT_N64 ? XBLAMESH_REFLECT_N64 : XBLAMESH_REFLECT_XBLA;
+	optReflectStyle = style == XBLAMESH_REFLECT_N64 || style == XBLAMESH_REFLECT_METAL ? style : XBLAMESH_REFLECT_XBLA;
 }
 
 /**
@@ -7690,8 +7741,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// same pass from the copy that lights and sphere-maps 0x3eb the way the stock
 	// guns do (xblaMeshBuildSheen()), at the sheen's larger share. Never on a
 	// caller's forced draw - the title's 4J cubes are the release's intro.
-	const s32 sheen = envforce == XBLAMESH_ENV_SETTING && optReflectStyle == XBLAMESH_REFLECT_N64 &&
-			m->sheengdl != NULL;
+	const s32 metal = optReflectStyle == XBLAMESH_REFLECT_METAL;
+	const s32 sheen = envforce == XBLAMESH_ENV_SETTING &&
+			((optReflectStyle == XBLAMESH_REFLECT_N64 && m->sheengdl != NULL) ||
+			(metal && m->metalgdl != NULL));
 
 	// Whether this draw takes the release's reflections, decided before the
 	// colours are bound since a reflecting material's colours are scaled for
@@ -7850,15 +7903,25 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
 				}
 
-				// A prop drawn under Level Reflections has the turn flag on;
-				// the sheen scrolls rather than turns, and the prop's own
-				// stock spans get the turn back after it
-				renderdata->gdl = roomSheenTexgenShift(renderdata->gdl);
-				gSPSetGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
-				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_TEXGEN_TURN_EXT);
-				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT);
-				gSPDisplayList(renderdata->gdl++, m->sheengdl + (list - m->gdl));
-				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT);
+				// The K7's streaks tile, so walking scrolls them. The levels'
+				// metal is a round map a scroll would run off, so under Level
+				// Metal walking turns the lookup as it does on the rooms. A
+				// prop drawn under Level Reflections has the turn flag on, and
+				// its own stock spans get the turn back after this
+				if (metal) {
+					renderdata->gdl = roomSheenTexgenTurn(renderdata->gdl);
+					gSPSetGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+					gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
+					gSPDisplayList(renderdata->gdl++, m->metalgdl + (list - m->gdl));
+				} else {
+					renderdata->gdl = roomSheenTexgenShift(renderdata->gdl);
+					gSPSetGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
+					gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_TEXGEN_TURN_EXT);
+					gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT);
+					gSPDisplayList(renderdata->gdl++, m->sheengdl + (list - m->gdl));
+				}
+
+				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_TEXGEN_EYE_EXT | G_TEXGEN_TURN_EXT);
 				gSPClearGeometryMode(renderdata->gdl++, G_LIGHTING | G_TEXTURE_GEN);
 				renderdata->gdl = roomSheenStockResume(renderdata->gdl);
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
@@ -8642,7 +8705,7 @@ PD_CONSTRUCTOR static void xblaMeshConfigInit(void)
 	configRegisterInt("Mod.XblaMeshBoth", &optBoth, 0, 1);
 	configRegisterInt("Mod.XblaMeshPose", &optPose, 0, 1);
 	configRegisterInt("Mod.XblaReflections", &optReflect, 0, 1);
-	configRegisterInt("Mod.XblaReflectStyle", &optReflectStyle, XBLAMESH_REFLECT_XBLA, XBLAMESH_REFLECT_N64);
+	configRegisterInt("Mod.XblaReflectStyle", &optReflectStyle, XBLAMESH_REFLECT_XBLA, XBLAMESH_REFLECT_METAL);
 	configRegisterInt("Mod.XblaReflectDistance", &optReflectDistance, 1, 1000);
 
 	// Mod.XblaMeshTextures is registered by xblatex.c, which is where the flag

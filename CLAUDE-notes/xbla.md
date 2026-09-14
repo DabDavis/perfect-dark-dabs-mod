@@ -2872,6 +2872,40 @@ path is identical. Not measured: instructions/frame. The pass count is the
 cube's, with gfx_pc's per-vertex lighting in place of the envmap transform.
 Not in the preset table.
 
+### Level Metal, the third Reflection Style (2026-09-14)
+
+The user asked how the K7 sheen differs from the levels' metal and windows
+(level-sheen.md, "The levels mark their own reflective surfaces") and wanted
+the guns to have a mode like those. **Mod.XblaReflectStyle 2**, "Level Metal".
+It is the K7 pass with three things changed, and nothing else:
+
+- **Picture:** `0x006d`, Defection's grey environment map (the user's pick over
+  the blue 0042 and the lift chrome 038c), bound by number so a pack repaints
+  it. `xblaMeshBuildSheen()` now makes two copies of `envgdl` through
+  `xblaMeshCopySheen()`: `sheengdl` and `metalgdl`.
+- **Scale:** read off the ROM, not guessed. A static walk of `bg_ame`'s rooms
+  (the room walk of `tools/texpack/bgtexscan.py`, with `tools/extract`'s class
+  exec'd *without* its tail, which extracts the whole ROM into the tree) finds
+  all 74 texgen triangles on 006d at `G_TEXTURE 0x1000`, lit, not linear, on a
+  64x64 picture: one sphere across the tile. The stand-in is 32x32, so
+  `0x0800`. The other spans for reference: 0042/0043 at 0xb00, 0059 at 0xd80,
+  009b/027e at 0x1000.
+- **Walking turns it** (`roomSheenTexgenTurn()`, `G_TEXGEN_EYE_EXT |
+  G_TEXGEN_TURN_EXT`), as on the rooms, where the K7's tiling streaks scroll. A
+  scroll would run off the round map.
+
+Kept from K7, on purpose: added over the undimmed paint at
+`XBLAMESH_SHEEN_SHARE()` (the user chose "on top of paint"), and
+`lightsSetDefault()`, which is `lightsSetForRoom()` at brightness 255 exactly
+(ambient 150 = 0.588 x 255), the room's light already being in the alpha. It
+covers every reflecting release mesh, like the other two styles.
+
+**Checked on the card** (`--boot-stage 0x32 --mpsims 1 --rng-seed 1
+--fixed-step`, the K7 given at frame 60, scratchpad `gunshot.py`): against K7,
+0.33% of frame 500 changes, all on the gun, mean elsewhere identical; the rail
+reads grey where K7's reads navy. A 120 unit move after frame 500 changes 29.7%
+of the gun's shiny pixels at 510, against 5.2% for the sway alone.
+
 ## The interface art, and the logo (2026-09-11)
 
 Past the numbered textures and the font atlases, the records hold the art 4J
