@@ -92,6 +92,24 @@ frame is pixel-identical either way.
 ASan only reports if the game's own `SIGSEGV` handler is out of the way: run
 with `--no-crash-handler`, or every report is a bare backtrace in a dialog.
 
+**A headless chr walked into another chr's head (2026-09-14).** The headspot
+case links `node->child` to the model's own head, but did nothing when the
+model had none - and the child is on the body's *modeldef*, which every chr
+wearing the body shares. `body0f02ce8c()` sends a chr headless when a mod's head
+number names a body model (Mario Characters' heads 64 and 65 are `CmariodaisyZ`
+and `Cpelagicfem1Z`; body 75 is `CboshiplayerZ`, which has a headspot), so once
+a headed chr on body 75 had been walked, the headless one went on into its head
+and resolved each node through its own empty headspot: `rwdatas` NULL, the
+lookup `NULL + index`, and `modelRender()` read a toggle's `visible` at address
+0 - a v3.5.0 crash report. Every walker re-links the child before descending,
+through `modelApplyHeadRelations()` or one of three inline copies (two render
+walks in model.c, the matrix walk in modelasm_c.c), and all four now clear it
+for a model with no head. The matrix walk mattered as much as the render: it
+indexed the other head's matrices into a model that never allocated them.
+Checked from gdb on the Mario mod: build a headed and a headless body-75 model,
+re-apply the headed one, then the headless one, and count head nodes still
+reachable (7 before, 0 after).
+
 ## ROM-resident structures — never grow these
 
 `preprocessMpConfigs()` (`port/src/preprocess/misc.c`) casts raw ROM bytes to

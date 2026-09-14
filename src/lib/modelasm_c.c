@@ -693,6 +693,13 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 					iternode = iternode->next;
 				}
 			}
+#ifndef PLATFORM_N64
+			else {
+				// see modelApplyHeadRelations() in model.c: without this a
+				// headless chr's matrix walk also went into another chr's head
+				node->child = NULL;
+			}
+#endif
 			break;
 		case MODELNODETYPE_POSITIONHELD:
 			t0mtx = node->parent ? modelasmFindNodeMtx(model, node->parent) : renderdata->unk00;

@@ -1339,6 +1339,17 @@ void modelApplyHeadRelations(struct model *model, struct modelnode *bodynode)
 			headnode = headnode->next;
 		}
 	}
+#ifndef PLATFORM_N64
+	else {
+		// The child is on the body's modeldef, which every chr wearing the
+		// body shares. A chr that went headless (body.c: a mod's head number
+		// that is a body model) kept the child the last headed chr linked,
+		// walked into that chr's head, and resolved its nodes through its own
+		// empty headspot - a NULL rwdata, read in modelRender(). Stock never
+		// has a headless chr on a body with a headspot.
+		bodynode->child = NULL;
+	}
+#endif
 }
 
 void modelApplyReorderRelationsByArg(struct modelnode *basenode, bool reverse)
@@ -3603,6 +3614,12 @@ void modelRender(struct modelrenderdata *renderdata, struct model *model)
 					loopnode = loopnode->next;
 				}
 			}
+#ifndef PLATFORM_N64
+			else {
+				// see modelApplyHeadRelations()
+				node->child = NULL;
+			}
+#endif
 			break;
 		case MODELNODETYPE_REORDER:
 			modelApplyReorderRelations(model, node);
@@ -3905,6 +3922,12 @@ s32 modelTestForHit(struct model *model, struct coord *arg1, struct coord *arg2,
 					loopnode = loopnode->next;
 				}
 			}
+#ifndef PLATFORM_N64
+			else {
+				// see modelApplyHeadRelations()
+				node->child = NULL;
+			}
+#endif
 			break;
 		case MODELNODETYPE_CHRINFO:
 		case MODELNODETYPE_DL:
