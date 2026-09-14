@@ -8,7 +8,9 @@ the ROM's rooms and models and on the release's alike.
 It is behind `Mod.LevelSheen` (0 off, 1 Subtle, 2 Normal, 3 Strong; "Level
 Sheen" on the Xbox 360 (XBLA) page, off by default) and `Mod.LevelSheenStyle`
 ("Level Sheen Style", K7 or Per Pixel, hidden while the sheen is off). Both
-are live, and neither is in the Settings Preset table. Code:
+are live. K7 is the style a new player starts in, at the user's pick on
+2026-09-14. The Settings Preset covers the strength only: Dab's Settings
+turns it on at Strong, and Vanilla and Ghost Trials keep it off. Code:
 `port/src/roomsheen.c`, `port/include/roomsheen.h`.
 
 ## Why it is built from triangles
@@ -125,17 +127,54 @@ does not, since props draw with fog stopped.
 - **Cost, rooms only** (80-simulant seeded match, 1200 frames, main thread):
   off 36.7M, K7 Normal 37.2M, per pixel Normal 38.0M instructions a frame; +6
   draws a frame.
-- **With props, not yet measured reliably.** A run alongside builds and
-  screenshot jobs read off 40.9M, K7 39.3M and per pixel 38.4M. Off came out
-  higher than on, so load changed what the main thread did (probably texture
-  decodes finishing at other times). Measure again on an idle machine.
-  - What that run did show: all three 80-simulant matches ran 1200 frames
-    with no fatal errors.
-  - Props add about 5 draws a frame (140 against 135 with rooms only).
-- **Not yet checked on screen:** the prop pass. Its screenshot job was
-  stopped for the commit, before it finished.
+- **Cost with props** (2026-09-14, idle machine, load 0.1; same match, two
+  runs of each, interleaved off/K7/per pixel):
+  - Off: 36.33M and 36.36M instructions a frame, 129 draws.
+  - K7 Normal: 38.69M and 38.15M, about +2.1M (+6%), 140 draws.
+  - Per pixel Normal: 37.55M and 38.22M, about +1.5M (+4%), 140 draws.
+  - Run to run, K7 and per pixel vary by about 0.6M, off by 0.03M.
+  - Against rooms only (+0.5M K7, +1.3M per pixel), props are most of K7's
+    cost: K7 lights and texgens every prop vertex on the CPU, while per pixel
+    does its work on the GPU, which this count does not see.
+  - All six matches reached frame 1200 with no fatal errors.
+  - An earlier run, taken while builds and screenshot jobs were running, read
+    off 40.9M, higher than on. Load changes what the main thread does, so
+    measure only on an idle machine.
+- **The prop pass on screen** (2026-09-14, Strong, the frames of the
+  rooms-only shots above): props change 0.4% to 7.8% of the pixels over the
+  rooms-only picture (Carrington 150 and 290, Chicago 600 and 900), with no
+  pixel darker than the sheen off. The police car on Chicago's street at
+  frame 900 keeps its texture and takes a soft streak in either style.
+  Carrington's 290 means are now 88.5 (K7) and 93.1 (per pixel); Chicago's
+  900 are 43.0 and 45.2.
 
 ## Traps met on the way
+
+- **One Per Pixel run drew every prop as stripes, and it has not come back.**
+  - *What:* Chicago (`--boot-stage 0x1d`, seed 1, fixed step, Strong, Per
+    Pixel), frames 600 and 900 of the same run. The car, the shutter and the
+    flying cars were bands of blue, cyan and green with no red: white
+    (163,162,164) came out (0,243,221). 26% of frame 900 was darker than the
+    sheen off, which `dst + src x dst` cannot do. The sheen tile's colours
+    wrapped over each prop's own UVs, so it looks like the props sampling the
+    wrong texture, not a bad blend.
+  - *Tally:* 1 of 9 Per Pixel runs of those frames. The other 8 were clean
+    and pixel-identical to each other, 5 of them with no gdb at all
+    (`--screenshot-frame 900 --exit-frame 910`). No K7 run broke.
+  - *Ruled out:*
+    - The batch state: gdb at gfx_pc.cpp:2244 showed `muladd=1`, alpha on,
+      no modulate, for every sheen batch.
+    - A state leak into the next part: both styles' batch sequences are
+      identical after each sheen batch.
+    - The vertex layout: the emit plan and the shader put the envmap floats
+      in the same place.
+  - *Suspect:* timing. A breakpoint inside `roomSheenEmit()` that changed
+    nothing made it vanish. The texture pack's decodes land off the thread
+    and `gfx_texpack_poll()` drops cache entries when they do. The cache also
+    leaves `rendering_state.textures` pointing at an entry it evicts.
+  - *Next time:* the broken run's log was overwritten by the re-run. Keep
+    each run's log under its own name, and pass `--gfxstats 60` so evictions
+    are counted.
 
 - **The Carrington Institute stops at level frame 302 under
   `--boot-stage 0x26`.** A dialog opens and waits for input: `lvupdate240` is

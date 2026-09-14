@@ -2040,16 +2040,17 @@ struct modpreset {
 	s32 ghostmode;
 	s32 ghostsplits;
 	s32 xblareflectcutoff;
+	s32 levelsheen;
 };
 
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0    },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut  sheen
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0,     0 },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true,  0 },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true,  3 },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true,  0 },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2076,6 +2077,7 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModGhostMode = preset->ghostmode;
 	g_ModGhostSplits = preset->ghostsplits;
 	g_ModOptions.xblareflectcutoff = preset->xblareflectcutoff;
+	roomSheenSetLevel(preset->levelsheen);
 
 	// The ways of playing, off in every preset.
 	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
@@ -2114,6 +2116,7 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModGhostMode == preset->ghostmode
 		&& g_ModGhostSplits == preset->ghostsplits
 		&& g_ModOptions.xblareflectcutoff == preset->xblareflectcutoff
+		&& roomSheenGetLevel() == preset->levelsheen
 		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
 		&& g_ModOptions.guardsalerted == MODALARM_OFF
 		&& g_ModOptions.akimbo == MODAKIMBO_OFF
@@ -5157,10 +5160,11 @@ static MenuItemHandlerResult menuhandlerXblaReflectCutoff(s32 operation, struct 
 }
 
 /**
- * Level Sheen: the K7 sheen on the level's rooms, at a strength. Not tied to
- * the release's switches - it works on the ROM's rooms and the release's
- * alike - and live: a room builds its copy the first time it is drawn with it
- * on. Mod.LevelSheenStyle (pd.ini) picks per vertex or per pixel.
+ * Level Sheen: the K7 sheen on the level's rooms and props, at a strength. Not
+ * tied to the release's switches - it works on the ROM's rooms and models and
+ * the release's alike - and live: a room or prop part builds its copy the
+ * first time it is drawn with it on. Level Sheen Style, the row below, picks
+ * per vertex or per pixel.
  */
 static MenuItemHandlerResult menuhandlerLevelSheen(s32 operation, struct menuitem *item, union handlerdata *data)
 {
