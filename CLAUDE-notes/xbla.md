@@ -3586,18 +3586,23 @@ only shows with the release's rooms on.
   brushed steel, which Dam binds in both copies) in the release; they read as
   see-through. Every record involved is opaque, and the room texgen spans,
   vertex colours, `Pci_liftZ`'s mesh and `Pci_liftdoorZ` (038c) were ruled out
-  on the way. They draw the lift door's chrome beside them, 038c
-  (`g_TexCiLiftSideTexture`), and reflect as it does. Defection's metal
-  (0042) went in first at the user's request and was judged "onyx and no
-  reflection": a sphere map laid flat over a panel's own UVs is a dark smear,
-  and so is flat 038c. Reflection needs normals, which a room's vertex colours
-  are not, so the span is converted with `G_LIGHTING | G_TEXTURE_GEN` and the
-  port-only `G_TEXGEN_FACE_EXT`: `gfx_sp_tri_emit()` lights and texgens each
-  triangle from its own face normal (from the corners' model positions, kept in
-  `env[3..5]` while the flag is on, turned to face the eye) through
-  `gfx_light_vertex()`, the lighting and texgen block `gfx_sp_load_vertex()`
-  shares. Level Reflections' eye and turn flags reach it as they reach the
-  door. The span closes at the next texture command or the list's end.
+  on the way. They draw the ROM's own chrome strip again, 027b
+  (`g_TexCiLiftSideTexture`), flat, as the N64 drew them - the user's pick on
+  2026-09-14 after three tries that day:
+  - Defection's metal (0042) flat was "onyx and no reflection": a sphere map
+    laid over a panel's own UVs is a dark smear.
+  - The lift door's chrome 038c, reflected off each triangle's face normal
+    (`G_TEXGEN_FACE_EXT`, per-triangle lighting and texgen in
+    `gfx_sp_tri_emit()`), was "too obvious and ugly": a flat panel's normal
+    barely changes, so a few of 038c's 32x32 streak texels were stretched over
+    the whole pillar.
+  - Rendered at the tester's F3 camera with the span's texture, scale and
+    texgen set from gdb: 006d at the rooms' sphere scale 0x1000 drew dark and
+    see-through, 038c at the door's 0x800 one flat navy, and 027b flat a clean
+    chrome gradient.
+
+  The span code went with the choice; `G_TEXGEN_FACE_EXT` is still in the
+  renderer and nothing sets it.
 
 Headless Carrington under `--boot-stage 0x26`: the level stops at frame 302
 behind a dialog, so break on `'video.c'::frames` (which keeps counting) and
