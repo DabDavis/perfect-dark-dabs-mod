@@ -200,6 +200,7 @@
 #define G_SETFONTGLYPH_EXT           0x46
 #define G_SETTEXGENSHIFT_EXT         0x47
 #define G_SETRECTDEPTH_EXT           0x48
+#define G_SETDEPTHBIAS_EXT           0x49
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -214,6 +215,7 @@
 #define G_ADDITIVE_EXT           0x00000400 // with a blending render mode: source times its alpha added to what is there
 #define G_ENVMAP_EXT             0x00000800 // texel 0 is a sphere-map atlas looked up per pixel: see gfx_pc.cpp
 #define G_TEXGEN_TURN_EXT        0x00001000 // with G_TEXGEN_EYE_EXT: G_SETTEXGENSHIFT_EXT's shift turns the LookAt (a fraction of a turn) instead of being added (the levels' reflections)
+#define G_TEXGEN_FACE_EXT        0x00004000 // with G_LIGHTING: each triangle is lit and texgenned from its own face normal, turned to the eye, not from its vertices' colours (a flat room panel with no normals of its own)
 #define G_TEXGEN_EYE_EXT         0x00002000 // with G_TEXTURE_GEN: the lookup follows the eye ray and adds G_SETTEXGENSHIFT_EXT's shift (the K7 sheen)
 
 /* Extra texture filtering mode */
@@ -354,6 +356,18 @@
                                                                                        \
     _g->words.w0 = _SHIFTL(G_SETRECTDEPTH_EXT, 24, 8) | _SHIFTL((on) ? 1 : 0, 0, 1);   \
     _g->words.w1 = (u32)(s32)((z) * 1073741824.0f);                                    \
+}
+
+/*
+ * Push what follows away from the eye by this many of the depth buffer's
+ * smallest steps (0 for none), on top of whatever its z mode offsets by.
+ */
+#define gDPSetDepthBiasEXT(pkt, units)                                                 \
+{                                                                                      \
+    Gfx *_g = (Gfx*)(pkt);                                                             \
+                                                                                       \
+    _g->words.w0 = _SHIFTL(G_SETDEPTHBIAS_EXT, 24, 8);                                 \
+    _g->words.w1 = (u32)(s32)(units);                                                  \
 }
 
 #define gSPSetExtraGeometryModeEXT(pkt, word) gSPExtraGeometryModeEXT((pkt), 0, word)

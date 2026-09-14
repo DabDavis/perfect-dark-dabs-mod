@@ -215,8 +215,8 @@ bool g_TexPipeSynced = false;
 
 #ifndef PLATFORM_N64
 // What the Carrington Institute lift's side panels draw with in the release's
-// rooms - see texLoadFromGdl(). 0042 is Defection's metal.
-s32 g_TexCiLiftSideTexture = 0x0042;
+// rooms - see texLoadFromGdl(). 038c is the lift door's chrome.
+s32 g_TexCiLiftSideTexture = 0x038c;
 #endif
 u32 var800844d4 = 0x00000000;
 u32 var800844d8 = 0x00000000;
@@ -904,7 +904,23 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 		pool = &g_TexSharedPool;
 	}
 
+#ifndef PLATFORM_N64
+	// A span drawn as chrome from its triangles' own normals - see the
+	// Carrington lift below. Open from its texture command to the next one
+	// or the end of the list.
+	bool facespan = false;
+	bool facestart = false;
+#endif
+
 	while (numcmdsremaining > 0) {
+#ifndef PLATFORM_N64
+		if (facespan && (ingdl->texture.cmd == G_NOOP || ingdl->texture.cmd == (u8) G_ENDDL)) {
+			gSPClearGeometryMode(outgdl++, G_LIGHTING | G_TEXTURE_GEN);
+			gSPClearExtraGeometryModeEXT(outgdl++, G_TEXGEN_FACE_EXT);
+			facespan = false;
+		}
+#endif
+
 		switch (ingdl->texture.cmd) {
 		case G_NOOP: // 0xc0, repurposed
 			spe4 = true;
@@ -919,11 +935,14 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 #ifndef PLATFORM_N64
 			// The release points the Carrington Institute lift's side panels
 			// at 0671, one of the Dam's textures, where the ROM has its own
-			// chrome strip 027b; they read as see-through. They take
-			// Defection's metal instead.
+			// chrome strip 027b; they read as see-through. They take the lift
+			// door's chrome beside them instead, and reflect as it does: the
+			// panels have no normals (a room's vertex colours are colours),
+			// so each flat triangle is lit and texgenned from its own.
 			if (xblaStageIsRelease() && g_Vars.stagenum == STAGE_CITRAINING
 					&& ingdl->unkc0.subcmd != 1 && (ingdl->words.w1 & 0xffff) == 0x0671) {
 				texturenum = g_TexCiLiftSideTexture;
+				facestart = true;
 			}
 #endif
 
@@ -1084,6 +1103,15 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 					}
 				}
 			}
+
+#ifndef PLATFORM_N64
+			if (facestart) {
+				gSPSetGeometryMode(outgdl++, G_LIGHTING | G_TEXTURE_GEN);
+				gSPSetExtraGeometryModeEXT(outgdl++, G_TEXGEN_FACE_EXT);
+				facestart = false;
+				facespan = true;
+			}
+#endif
 
 			ingdl++;
 			break;

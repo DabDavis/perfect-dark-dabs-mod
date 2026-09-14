@@ -875,7 +875,19 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, gfx_cm_to_opengl(cmt));
 }
 
-static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
+// depth_bias: G_SETDEPTHBIAS_EXT's push away from the eye, in the smallest
+// steps the depth buffer resolves, added to whatever the z mode offsets by
+static void gfx_opengl_set_depth_offset(float factor, float units) {
+    if (factor == 0 && units == 0) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(0, 0);
+    } else {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(factor, units);
+    }
+}
+
+static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode, int16_t depth_bias) {
     if (depth_test) {
         glEnable(GL_DEPTH_TEST);
         glDepthMask(depth_update ? GL_TRUE : GL_FALSE);
@@ -885,8 +897,7 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
             switch (zmode) {
                 case ZMODE_INTER:
                     glDepthFunc(GL_LEQUAL);
-                    glDisable(GL_POLYGON_OFFSET_FILL);
-                    glPolygonOffset(0, 0);
+                    gfx_opengl_set_depth_offset(0, depth_bias);
                     break;
 
                 case ZMODE_OPA:
@@ -896,14 +907,12 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
                     } else {
                         glDepthFunc(GL_LESS);
                     }
-                    glDisable(GL_POLYGON_OFFSET_FILL);
-                    glPolygonOffset(0, 0);
+                    gfx_opengl_set_depth_offset(0, depth_bias);
                     break;
 
                 case ZMODE_DEC:
                     glDepthFunc(GL_LEQUAL);
-                    glEnable(GL_POLYGON_OFFSET_FILL);
-                    glPolygonOffset(-2, -2);
+                    gfx_opengl_set_depth_offset(-2, -2 + depth_bias);
                     break;
             }
         } else {

@@ -3552,8 +3552,18 @@ only shows with the release's rooms on.
   brushed steel, which Dam binds in both copies) in the release; they read as
   see-through. Every record involved is opaque, and the room texgen spans,
   vertex colours, `Pci_liftZ`'s mesh and `Pci_liftdoorZ` (038c) were ruled out
-  on the way. At the user's request they draw Defection's metal, 0042
-  (`g_TexCiLiftSideTexture`; 027b, the ROM's look, was shot beside it).
+  on the way. They draw the lift door's chrome beside them, 038c
+  (`g_TexCiLiftSideTexture`), and reflect as it does. Defection's metal
+  (0042) went in first at the user's request and was judged "onyx and no
+  reflection": a sphere map laid flat over a panel's own UVs is a dark smear,
+  and so is flat 038c. Reflection needs normals, which a room's vertex colours
+  are not, so the span is converted with `G_LIGHTING | G_TEXTURE_GEN` and the
+  port-only `G_TEXGEN_FACE_EXT`: `gfx_sp_tri_emit()` lights and texgens each
+  triangle from its own face normal (from the corners' model positions, kept in
+  `env[3..5]` while the flag is on, turned to face the eye) through
+  `gfx_light_vertex()`, the lighting and texgen block `gfx_sp_load_vertex()`
+  shares. Level Reflections' eye and turn flags reach it as they reach the
+  door. The span closes at the next texture command or the list's end.
 
 Headless Carrington under `--boot-stage 0x26`: the level stops at frame 302
 behind a dialog, so break on `'video.c'::frames` (which keeps counting) and
@@ -3561,6 +3571,38 @@ behind a dialog, so break on `'video.c'::frames` (which keeps counting) and
 run `xblaconvert.py` into the scratchpad for one picture - a whole pack filled
 `/tmp`; decode single records with `read_records()` and
 `x360.decode_texture()`.
+
+### The spectator z-fights where two rooms' surfaces coincide (2026-09-14)
+
+The spectator draws every room over the whole screen on purpose
+(`bgTickPortalsSpectate()`; the user wants to see everything). A camera in
+the level never draws two rooms over the same pixels, since each room is
+scissored to what its portal leaves on screen, so surfaces two rooms share
+never fight in play. The ROM has many such pairs (Chicago's rooms 72 and 76
+share 112 coplanar triangles), and the release's Defection has the worst:
+the ROM splits the outside city into an upper band of rooms (5-12) and a
+lower one (13-20) that meet at y -4200, and 4J stretched both until they
+share 3300 units of the same buildings (6 & 16, 8 & 18, 12 & 17 ... up to
+130 coplanar triangle pairs). Neither copy can be dropped: each has
+triangles the other does not.
+
+The fix nudges each room back in depth while spectating
+(`bgSpectateDepthBiasBegin()`, a new `G_SETDEPTHBIAS_EXT` - polygon offset
+units, part of the renderer's depth-mode key so it flushes a batch like any
+other depth change). Each room gets a colour once per stage, in room order,
+so that no two rooms whose boxes touch or overlap share one; the nudge is
+colour times `g_BgSpectateDepthStep` (4). Where two rooms' surfaces coincide
+the lower colour always wins; elsewhere four depth steps change nothing. Every
+stock and release level colours in at most nine (Felicity), and every
+coplanar pair of any size lands on different colours except two in Air Force
+One whose boxes do not touch.
+
+Found statically: vertex-position matches found nothing because the copies
+share planes, not vertices, so the scan that works buckets triangles by plane
+and tests overlap. A box-overlap threshold does not separate 4J's copies from
+the ROM's seams. Checked at the tester's pose on the GPU: step 0 against 4 and
+16 at the same camera changes 4% of the frame, all of it on the fighting
+bands; 4 and 16 change the same pixels.
 
 ## The whole release from one key (2026-09-12)
 

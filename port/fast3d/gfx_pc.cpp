@@ -276,10 +276,14 @@ static struct RDP {
     // against the scene without writing, instead of in front of everything
     bool rect_depth_on;
     float rect_depth;
+
+    // G_SETDEPTHBIAS_EXT: triangles pushed away from the eye by this many of
+    // the depth buffer's smallest steps
+    int16_t depth_bias;
 } rdp;
 
 static struct RenderingState {
-    uint8_t depth_mode;
+    uint32_t depth_mode;
     bool alpha_blend;
     bool modulate;
     bool additive;
@@ -1949,6 +1953,124 @@ static inline void gfx_texgen_eye_normal(float px, float py, float pz, float n[3
 }
 
 /**
+ * G_LIGHTING at one corner: its colour from the lights and, under
+ * G_TEXTURE_GEN, its texture coordinates from the normal (nx, ny, nz, 127
+ * long, in model space) against the LookAt. gfx_sp_load_vertex() hands it the
+ * vertex's colour entry read as a normal; gfx_sp_tri_emit() hands it the
+ * triangle's own under G_TEXGEN_FACE_EXT. Alpha is left to the caller.
+ */
+static inline __attribute__((always_inline)) void gfx_light_vertex(struct LoadedVertex* d, float px, float py, float pz,
+                                                                   float nx, float ny, float nz, float* U, float* V) {
+    if (rsp.lights_changed) {
+        for (int i = 0; i < rsp.current_num_lights - 1; i++) {
+            calculate_normal_dir(&rsp.current_lights[i], rsp.current_lights_coeffs[i]);
+        }
+        if (rsp.lookat_enabled) {
+            calculate_normal_dir(&rsp.lookat[0], rsp.current_lookat_coeffs[0]);
+            calculate_normal_dir(&rsp.lookat[1], rsp.current_lookat_coeffs[1]);
+        }
+        rsp.lights_changed = false;
+    }
+
+    int r = rsp.current_lights[rsp.current_num_lights - 1].col[0];
+    int g = rsp.current_lights[rsp.current_num_lights - 1].col[1];
+    int b = rsp.current_lights[rsp.current_num_lights - 1].col[2];
+
+    for (int i = 0; i < rsp.current_num_lights - 1; i++) {
+        float intensity = 0;
+        intensity += nx * rsp.current_lights_coeffs[i][0];
+        intensity += ny * rsp.current_lights_coeffs[i][1];
+        intensity += nz * rsp.current_lights_coeffs[i][2];
+        intensity /= 127.0f;
+        if (intensity > 0.0f) {
+            r += intensity * rsp.current_lights[i].col[0];
+            g += intensity * rsp.current_lights[i].col[1];
+            b += intensity * rsp.current_lights[i].col[2];
+        }
+    }
+
+    d->color.r = r > 255 ? 255 : r;
+    d->color.g = g > 255 ? 255 : g;
+    d->color.b = b > 255 ? 255 : b;
+
+    if (rsp.geometry_mode & G_TEXTURE_GEN) {
+        const bool eye = (rsp.extra_geometry_mode & G_TEXGEN_EYE_EXT) != 0;
+        float n[3] = { nx, ny, nz };
+        float dotx = 0, doty = 0;
+
+        if (eye) {
+            gfx_texgen_eye_normal(px, py, pz, n);
+        }
+
+        if (rsp.lookat_enabled && eye && (rsp.extra_geometry_mode & G_TEXGEN_TURN_EXT)) {
+            // G_TEXGEN_TURN_EXT: the LookAt yawed about its own y and
+            // then pitched about the turned x, by the shift, so walking
+            // sweeps the sphere map the way turning the camera does. A
+            // turn stays on the map and wraps with no seam, where an
+            // added shift would run off the round picture.
+            const float* lx = rsp.current_lookat_coeffs[0];
+            const float* ly = rsp.current_lookat_coeffs[1];
+            const float lz[3] = { lx[1] * ly[2] - lx[2] * ly[1], lx[2] * ly[0] - lx[0] * ly[2],
+                                  lx[0] * ly[1] - lx[1] * ly[0] };
+            const float ca = rsp.texgen_turn[0], sa = rsp.texgen_turn[1];
+            const float cb = rsp.texgen_turn[2], sb = rsp.texgen_turn[3];
+
+            for (int c = 0; c < 3; c++) {
+                const float rx = lx[c] * ca + lz[c] * sa;
+                const float rz = lz[c] * ca - lx[c] * sa;
+                const float ry = ly[c] * cb + rz * sb;
+
+                dotx += n[c] * rx;
+                doty += n[c] * ry;
+            }
+
+            dotx /= 127.0f;
+            doty /= 127.0f;
+        } else if (rsp.lookat_enabled) {
+            dotx += n[0] * rsp.current_lookat_coeffs[0][0];
+            dotx += n[1] * rsp.current_lookat_coeffs[0][1];
+            dotx += n[2] * rsp.current_lookat_coeffs[0][2];
+            doty += n[0] * rsp.current_lookat_coeffs[1][0];
+            doty += n[1] * rsp.current_lookat_coeffs[1][1];
+            doty += n[2] * rsp.current_lookat_coeffs[1][2];
+            dotx /= 127.0f;
+            doty /= 127.0f;
+        } else {
+            const float dir[3] = { n[0] / 127.f, n[1] / 127.f, n[2] / 127.f };
+            float tvcn[3];
+            gfx_transposed_matrix_mul(tvcn, dir, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+            gfx_normalize_vector(tvcn);
+            dotx = tvcn[0];
+            doty = tvcn[1];
+        }
+
+        dotx = clampf(dotx, -1.0f, 1.0f);
+        doty = clampf(doty, -1.0f, 1.0f);
+
+        if (rsp.geometry_mode & G_TEXTURE_GEN_LINEAR) {
+            // Not sure exactly what formula we should use to get accurate values
+            /*dotx = (2.906921f * dotx * dotx + 1.36114f) * dotx;
+            doty = (2.906921f * doty * doty + 1.36114f) * doty;
+            dotx = (dotx + 1.0f) / 4.0f;
+            doty = (doty + 1.0f) / 4.0f;*/
+            dotx = acosf(-dotx) /* M_PI */ / 4.0f;
+            doty = acosf(-doty) /* M_PI */ / 4.0f;
+        } else {
+            dotx = (dotx + 1.0f) / 4.0f;
+            doty = (doty + 1.0f) / 4.0f;
+        }
+
+        if (eye && !(rsp.extra_geometry_mode & G_TEXGEN_TURN_EXT)) {
+            dotx += rsp.texgen_shift[0] / 2.0f;
+            doty += rsp.texgen_shift[1] / 2.0f;
+        }
+
+        *U = (float)(int32_t)(dotx * rsp.texture_scaling_factor.s);
+        *V = (float)(int32_t)(doty * rsp.texture_scaling_factor.t);
+    }
+}
+
+/**
  * Transform, light and clip-test one vertex into `d`, from a model-space
  * position, its normal or colour entry, and texture coordinates already
  * scaled by the current G_TEXTURE factor. gfx_sp_vertex feeds it a G_VTX
@@ -1971,119 +2093,21 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
         if (rsp.geometry_mode & G_LIGHTING) {
-            if (rsp.lights_changed) {
-                for (int i = 0; i < rsp.current_num_lights - 1; i++) {
-                    calculate_normal_dir(&rsp.current_lights[i], rsp.current_lights_coeffs[i]);
-                }
-                if (rsp.lookat_enabled) {
-                    calculate_normal_dir(&rsp.lookat[0], rsp.current_lookat_coeffs[0]);
-                    calculate_normal_dir(&rsp.lookat[1], rsp.current_lookat_coeffs[1]);
-                }
-                rsp.lights_changed = false;
-            }
-
-            int r = rsp.current_lights[rsp.current_num_lights - 1].col[0];
-            int g = rsp.current_lights[rsp.current_num_lights - 1].col[1];
-            int b = rsp.current_lights[rsp.current_num_lights - 1].col[2];
-
-            for (int i = 0; i < rsp.current_num_lights - 1; i++) {
-                float intensity = 0;
-                intensity += vcn->x * rsp.current_lights_coeffs[i][0];
-                intensity += vcn->y * rsp.current_lights_coeffs[i][1];
-                intensity += vcn->z * rsp.current_lights_coeffs[i][2];
-                intensity /= 127.0f;
-                if (intensity > 0.0f) {
-                    r += intensity * rsp.current_lights[i].col[0];
-                    g += intensity * rsp.current_lights[i].col[1];
-                    b += intensity * rsp.current_lights[i].col[2];
-                }
-            }
-
-            d->color.r = r > 255 ? 255 : r;
-            d->color.g = g > 255 ? 255 : g;
-            d->color.b = b > 255 ? 255 : b;
-
-            if (rsp.geometry_mode & G_TEXTURE_GEN) {
-                const bool eye = (rsp.extra_geometry_mode & G_TEXGEN_EYE_EXT) != 0;
-                float n[3] = { (float)vcn->x, (float)vcn->y, (float)vcn->z };
-                float dotx = 0, doty = 0;
-
-                if (eye) {
-                    gfx_texgen_eye_normal(px, py, pz, n);
-                }
-
-                if (rsp.lookat_enabled && eye && (rsp.extra_geometry_mode & G_TEXGEN_TURN_EXT)) {
-                    // G_TEXGEN_TURN_EXT: the LookAt yawed about its own y and
-                    // then pitched about the turned x, by the shift, so walking
-                    // sweeps the sphere map the way turning the camera does. A
-                    // turn stays on the map and wraps with no seam, where an
-                    // added shift would run off the round picture.
-                    const float* lx = rsp.current_lookat_coeffs[0];
-                    const float* ly = rsp.current_lookat_coeffs[1];
-                    const float lz[3] = { lx[1] * ly[2] - lx[2] * ly[1], lx[2] * ly[0] - lx[0] * ly[2],
-                                          lx[0] * ly[1] - lx[1] * ly[0] };
-                    const float ca = rsp.texgen_turn[0], sa = rsp.texgen_turn[1];
-                    const float cb = rsp.texgen_turn[2], sb = rsp.texgen_turn[3];
-
-                    for (int c = 0; c < 3; c++) {
-                        const float rx = lx[c] * ca + lz[c] * sa;
-                        const float rz = lz[c] * ca - lx[c] * sa;
-                        const float ry = ly[c] * cb + rz * sb;
-
-                        dotx += n[c] * rx;
-                        doty += n[c] * ry;
-                    }
-
-                    dotx /= 127.0f;
-                    doty /= 127.0f;
-                } else if (rsp.lookat_enabled) {
-                    dotx += n[0] * rsp.current_lookat_coeffs[0][0];
-                    dotx += n[1] * rsp.current_lookat_coeffs[0][1];
-                    dotx += n[2] * rsp.current_lookat_coeffs[0][2];
-                    doty += n[0] * rsp.current_lookat_coeffs[1][0];
-                    doty += n[1] * rsp.current_lookat_coeffs[1][1];
-                    doty += n[2] * rsp.current_lookat_coeffs[1][2];
-                    dotx /= 127.0f;
-                    doty /= 127.0f;
-                } else {
-                    const float dir[3] = { n[0] / 127.f, n[1] / 127.f, n[2] / 127.f };
-                    float tvcn[3];
-                    gfx_transposed_matrix_mul(tvcn, dir, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
-                    gfx_normalize_vector(tvcn);
-                    dotx = tvcn[0];
-                    doty = tvcn[1];
-                }
-
-                dotx = clampf(dotx, -1.0f, 1.0f);
-                doty = clampf(doty, -1.0f, 1.0f);
-
-                if (rsp.geometry_mode & G_TEXTURE_GEN_LINEAR) {
-                    // Not sure exactly what formula we should use to get accurate values
-                    /*dotx = (2.906921f * dotx * dotx + 1.36114f) * dotx;
-                    doty = (2.906921f * doty * doty + 1.36114f) * doty;
-                    dotx = (dotx + 1.0f) / 4.0f;
-                    doty = (doty + 1.0f) / 4.0f;*/
-                    dotx = acosf(-dotx) /* M_PI */ / 4.0f;
-                    doty = acosf(-doty) /* M_PI */ / 4.0f;
-                } else {
-                    dotx = (dotx + 1.0f) / 4.0f;
-                    doty = (doty + 1.0f) / 4.0f;
-                }
-
-                if (eye && !(rsp.extra_geometry_mode & G_TEXGEN_TURN_EXT)) {
-                    dotx += rsp.texgen_shift[0] / 2.0f;
-                    doty += rsp.texgen_shift[1] / 2.0f;
-                }
-
-                U = (float)(int32_t)(dotx * rsp.texture_scaling_factor.s);
-                V = (float)(int32_t)(doty * rsp.texture_scaling_factor.t);
-            }
+            gfx_light_vertex(d, px, py, pz, vcn->x, vcn->y, vcn->z, &U, &V);
         } else {
             memcpy(&d->color, vcn, sizeof(d->color));
         }
 
         d->u = U;
         d->v = V;
+
+        // G_TEXGEN_FACE_EXT: where the corner is in the model, for
+        // gfx_sp_tri_emit() to build the triangle's normal from
+        if (rsp.extra_geometry_mode & G_TEXGEN_FACE_EXT) {
+            d->env[3] = px;
+            d->env[4] = py;
+            d->env[5] = pz;
+        }
 
         // The per-pixel reflection's inputs (G_ENVMAP_EXT): what the fragment
         // shader reflects the view ray in, and where the ray starts. Through
@@ -2763,11 +2787,12 @@ static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
     bool depth_compare = (rdp.other_mode_l & Z_CMP) == Z_CMP;
     bool depth_source_prim = (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM /* && gDP.primDepth.z == 1.0f */;
     uint16_t zmode = rdp.other_mode_l & ZMODE_DEC;
-    uint8_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6);
+    uint32_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6) |
+                          ((uint32_t)(uint16_t)rdp.depth_bias << 8);
 
     if (depth_mode != rendering_state.depth_mode) {
         gfx_flush_for(GFX_FLUSH_DEPTH);
-        gfx_rapi->set_depth_mode(depth_test, depth_update, depth_compare, depth_source_prim, zmode);
+        gfx_rapi->set_depth_mode(depth_test, depth_update, depth_compare, depth_source_prim, zmode, rdp.depth_bias);
         rendering_state.depth_mode = depth_mode;
     }
 
@@ -2952,6 +2977,46 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
 
     if (gfx_tri_is_culled(v1, v2, v3)) {
         g_GfxTrisCulled++;
+        return;
+    }
+
+    // G_TEXGEN_FACE_EXT: a flat surface with no normals of its own (a room's
+    // vertex colours are colours) is lit and texgenned from the triangle's
+    // normal, built from its corners' model positions and turned towards the
+    // eye so either winding reflects. Copies, since corners are shared.
+    if ((rsp.extra_geometry_mode & G_TEXGEN_FACE_EXT) && (rsp.geometry_mode & G_LIGHTING)) {
+        struct LoadedVertex f[3] = { *v1, *v2, *v3 };
+        const float e1[3] = { f[1].env[3] - f[0].env[3], f[1].env[4] - f[0].env[4], f[1].env[5] - f[0].env[5] };
+        const float e2[3] = { f[2].env[3] - f[0].env[3], f[2].env[4] - f[0].env[4], f[2].env[5] - f[0].env[5] };
+        const float n[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+        const float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+        if (len > 1e-6f) {
+            const float (*mv)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];
+            float facing = 0;
+
+            for (int c = 0; c < 3; c++) {
+                const float ne = n[0] * mv[0][c] + n[1] * mv[1][c] + n[2] * mv[2][c];
+                const float pe = f[0].env[3] * mv[0][c] + f[0].env[4] * mv[1][c] + f[0].env[5] * mv[2][c] + mv[3][c];
+                facing += ne * pe;
+            }
+
+            const float s = (facing > 0 ? -127.0f : 127.0f) / len;
+
+            for (int i = 0; i < 3; i++) {
+                float U = f[i].u, V = f[i].v;
+                gfx_light_vertex(&f[i], f[i].env[3], f[i].env[4], f[i].env[5], n[0] * s, n[1] * s, n[2] * s, &U, &V);
+                f[i].u = U;
+                f[i].v = V;
+            }
+        }
+
+        gfx_emit_prepare();
+
+        gfx_emit_vertex(&f[0], is_rect);
+        gfx_emit_vertex(&f[1], is_rect);
+        gfx_emit_vertex(&f[2], is_rect);
+        gfx_emit_tri_done();
         return;
     }
 
@@ -3846,6 +3911,9 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_SETRECTDEPTH_EXT:
                 rdp.rect_depth_on = C0(0, 1) != 0;
                 rdp.rect_depth = (int32_t)(uint32_t)cmd->words.w1 / 1073741824.0f;
+                break;
+            case G_SETDEPTHBIAS_EXT:
+                rdp.depth_bias = (int16_t)(int32_t)cmd->words.w1;
                 break;
             case G_SETSUBPIXELOFFSET_EXT: {
                 gfx_dp_set_subpixel_offset(C0(0, 16), C1(0, 16));

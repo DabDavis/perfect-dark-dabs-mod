@@ -129,6 +129,91 @@ struct room *g_Rooms;
 
 #ifndef PLATFORM_N64
 /**
+ * Depth nudges for the spectator, who draws every room over the whole screen
+ * (bgTickPortalsSpectate).
+ *
+ * Two rooms can hold surfaces in the same plane: a wall at a seam, or - in the
+ * release's Defection - the outside city, which the ROM splits into an upper
+ * band of rooms (5-12) and a lower one (13-20) and 4J stretched until the
+ * bands share 3300 units of the same buildings. A camera in the level never
+ * draws both over the same pixels, since each room is scissored to what its
+ * portal leaves on screen, but a spectator does, and the copies z-fight.
+ *
+ * So each room gets a colour, handed out once per stage in room order so that
+ * no two rooms whose boxes touch or overlap share one, and a spectator draws
+ * each room's lists pushed back by its colour times g_BgSpectateDepthStep:
+ * where two rooms' surfaces coincide the lower colour always wins, and
+ * everywhere else a few depth steps change nothing. Every stock and release
+ * level colours in at most nine.
+ */
+static u8 *g_BgSpectateColours;
+s32 g_BgSpectateDepthStep = 4;
+
+#define BGSPECTATE_TOUCH 2.0f
+
+static void bgColourRoomsForSpectate(void)
+{
+	s32 r;
+	s32 q;
+
+	g_BgSpectateColours = mempAlloc(ALIGN8(g_Vars.roomcount), MEMPOOL_STAGE);
+
+	if (g_BgSpectateColours == NULL) {
+		return;
+	}
+
+	for (r = 0; r < g_Vars.roomcount; r++) {
+		u32 used = 0;
+		s32 colour = 0;
+
+		for (q = 1; q < r; q++) {
+			s32 i;
+
+			for (i = 0; i < 3; i++) {
+				f32 lo = g_Rooms[r].bbmin[i] > g_Rooms[q].bbmin[i] ? g_Rooms[r].bbmin[i] : g_Rooms[q].bbmin[i];
+				f32 hi = g_Rooms[r].bbmax[i] < g_Rooms[q].bbmax[i] ? g_Rooms[r].bbmax[i] : g_Rooms[q].bbmax[i];
+
+				if (hi - lo < -BGSPECTATE_TOUCH) {
+					break;
+				}
+			}
+
+			if (i == 3 && g_BgSpectateColours[q] < 32) {
+				used |= 1u << g_BgSpectateColours[q];
+			}
+		}
+
+		while (colour < 31 && (used & (1u << colour))) {
+			colour++;
+		}
+
+		g_BgSpectateColours[r] = r == 0 ? 0 : colour;
+	}
+}
+
+static Gfx *bgSpectateDepthBiasBegin(Gfx *gdl, s32 roomnum)
+{
+	if (modSpectateIsOn() && g_BgSpectateColours && roomnum > 0 && roomnum < g_Vars.roomcount
+			&& g_BgSpectateColours[roomnum] != 0) {
+		gDPSetDepthBiasEXT(gdl++, g_BgSpectateColours[roomnum] * g_BgSpectateDepthStep);
+	}
+
+	return gdl;
+}
+
+static Gfx *bgSpectateDepthBiasEnd(Gfx *gdl, s32 roomnum)
+{
+	if (modSpectateIsOn() && g_BgSpectateColours && roomnum > 0 && roomnum < g_Vars.roomcount
+			&& g_BgSpectateColours[roomnum] != 0) {
+		gDPSetDepthBiasEXT(gdl++, 0);
+	}
+
+	return gdl;
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
  * How many rooms g_Rooms was actually allocated for. The array's own length,
  * travelling with the array: everything else walks it by g_Vars.roomcount,
  * which is a second copy of the same fact and the one a bad level file or a
@@ -2055,6 +2140,10 @@ void bgBuildTables(s32 stagenum)
 					+ (g_Rooms[r].bbmin[2] - g_Rooms[r].bbmax[2]) * (g_Rooms[r].bbmin[2] - g_Rooms[r].bbmax[2])) / 2.0f;
 		}
 
+#ifndef PLATFORM_N64
+		bgColourRoomsForSpectate();
+#endif
+
 		// The next part of section 3 is a list of roomgfxdata sizes.
 		// There is one per room and the value needs to be multiplied by 0x10.
 		datalenptr = (u16 *) bboxptr;
@@ -3464,9 +3553,11 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 	gdl = lightsSetForRoom(gdl, roomnum);
 #ifndef PLATFORM_N64
 	gdl = roomSheenStockBegin(gdl);
+	gdl = bgSpectateDepthBiasBegin(gdl, roomnum);
 #endif
 	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
 #ifndef PLATFORM_N64
+	gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
 	gdl = roomSheenStockEnd(gdl);
 #endif
 	gdl = lightsSetDefault(gdl);
@@ -3500,9 +3591,11 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 		gdl = roomApplyMtx(gdl, roomnum);
 #ifndef PLATFORM_N64
 		gdl = roomSheenStockBegin(gdl);
+		gdl = bgSpectateDepthBiasBegin(gdl, roomnum);
 #endif
 		gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->xlublocks, true);
 #ifndef PLATFORM_N64
+		gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
 		gdl = roomSheenStockEnd(gdl);
 #endif
 
