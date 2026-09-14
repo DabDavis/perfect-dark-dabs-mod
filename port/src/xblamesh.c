@@ -48,7 +48,10 @@
 #include "roomsheen.h"
 #include "game/bg.h"
 #include "game/dlights.h"
+#include "game/game_0b0fd0.h"
+#include "game/playermgr.h"
 #include "lib/lib_2f490.h"
+#include "data.h"
 
 #ifndef PLATFORM_N64
 
@@ -4794,6 +4797,148 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 	xblaMeshBuildSheen(m);
 }
 
+/**
+ * A gun in a character's hands that reflects nothing of its own takes its
+ * reflection from the same gun in the player's.
+ *
+ * 4J marked the reflecting materials of the first-person guns (G*Z) and left
+ * many of the third-person ones (Pchr*Z, the model a character holds and the
+ * one lying on the floor) with none at all: PchrdevastatorZ, Pchrcmp150Z,
+ * PchrcycloneZ, PchrshotgunZ, Pchrrcp120Z, PchravengerZ and at least eight
+ * more have no byte 16 in any draw, while their first-person models do. So a
+ * gun that shone in the player's hands went matte the moment the camera went
+ * behind them (a tester's F3 traces, 2026-09-14). The two models' atlases are
+ * different pictures, so there is no material to pair one with the other by,
+ * and the whole mesh takes the first-person gun's lowest amount and its cube -
+ * the matte metal of it, which keeps a grip that cannot be told apart from the
+ * barrel from out-shining it. A third-person model with reflections of its
+ * own keeps them.
+ *
+ * The pairing is the game's own: the weapon whose third-person model
+ * (playermgrGetModelOfWeapon()) is this file, and that weapon's hi_model. The
+ * first-person file names its meshes the way every model does
+ * (xblaMeshFileMeshSlots()), and the amount is read off those meshes' draws.
+ * Set by xblaMeshBuild() round the build, never for a model pack's file, whose
+ * materials are pictures of its own and reflect nothing on purpose.
+ */
+static s32 xblaMeshBuildBorrowFile = 0;
+
+static void xblaMeshFileMeshSlots(const u8 *file, u32 len, u16 fileid, u16 *table);
+
+/** The lowest reflection percentage any draw of the mesh in slot has, 0 for none. */
+static s32 xblaMeshLowestEnvironment(s32 slot, u32 *outmaterial)
+{
+	struct xblameshhdr h;
+	u32 stride;
+	u32 len;
+	u8 *file = xblaMeshReadSlot(slot, &len);
+	s32 lowest = 0;
+
+	if (!file) {
+		return 0;
+	}
+
+	if (xblaMeshReadHeader(&h, file, len, &stride)) {
+		for (u32 d = 0; d < h.numdraws; d++) {
+			const u32 material = xblaMeshBE32(file + h.drawoffset + d * XBLAMESH_ENTRY + 8);
+			const s32 percent = (material >> 16) & 0xff;
+
+			if (!(material & XBLAMESH_MAT_TABLE) && percent && (!lowest || percent < lowest)) {
+				lowest = percent;
+				*outmaterial = material;
+			}
+		}
+	}
+
+	free(file);
+
+	return lowest;
+}
+
+static void xblaMeshBorrowEnvironment(struct xblameshbuilt *m, s32 fileid, const char *what)
+{
+	u32 material = 0;
+	s32 percent = 0;
+	s32 gunfile = 0;
+	s32 amount;
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		if (m->venv[i * 2 + 1]) {
+			return;
+		}
+	}
+
+	// The weapons only - the guns, the knife, the grenades and mines, and the
+	// classic guns. Past them the items borrow a hand model: the briefcase's
+	// hi_model is Gfalcon2lodZ, which lit the whole case at the Falcon's 60%.
+	for (s32 weaponnum = WEAPON_FALCON2; weaponnum <= WEAPON_PSYCHOSISGUN && !gunfile; weaponnum++) {
+		const s32 modelnum = playermgrGetModelOfWeapon(weaponnum);
+		struct weapon *weapon;
+
+		if (weaponnum == WEAPON_COMBATBOOST) {
+			continue;
+		}
+
+		if (modelnum < 0 || modelnum >= NUM_MODELS || g_ModelStates[modelnum].fileid != fileid) {
+			continue;
+		}
+
+		weapon = weaponFindById(weaponnum);
+
+		if (weapon && weapon->hi_model && weapon->hi_model != fileid) {
+			gunfile = weapon->hi_model;
+		}
+	}
+
+	if (!gunfile) {
+		return;
+	}
+
+	{
+		u32 len = 0;
+		// Slot i is the game's file id i + 1: the release's copy of it.
+		u8 *file = xblaMeshReadSlot(gunfile - 1, &len);
+		u16 *table = file && len >= 4 ? calloc(numRecords, sizeof(u16)) : NULL;
+
+		if (table) {
+			xblaMeshFileMeshSlots(file, len, (u16)gunfile, table);
+
+			for (s32 slot = 0; slot < numRecords; slot++) {
+				u32 mat = 0;
+				s32 p;
+
+				if (table[slot] != gunfile) {
+					continue;
+				}
+
+				p = xblaMeshLowestEnvironment(slot, &mat);
+
+				if (p && (!percent || p < percent)) {
+					percent = p;
+					material = mat;
+				}
+			}
+		}
+
+		free(table);
+		free(file);
+	}
+
+	if (!percent) {
+		return;
+	}
+
+	amount = percent >= 100 ? 255 : percent * 255 / 100;
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		m->venv[i * 2] = (u8)((material >> 24) & 0xff);
+		m->venv[i * 2 + 1] = (u8)amount;
+	}
+
+	sysLogPrintf(LOG_NOTE, "xblamesh: %s reflects nothing of its own; it takes %d%% from "
+			"its first-person model, file %d", what, percent, gunfile);
+}
+
 static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		const struct xblameshmats *mats, const char *what)
 {
@@ -4863,6 +5008,10 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	m->allxlu = b.allxlu;
 	m->allfade = b.allfade;
 	m->numgroups = b.numgroups;
+
+	if (m->normals && m->venv && xblaMeshBuildBorrowFile) {
+		xblaMeshBorrowEnvironment(m, xblaMeshBuildBorrowFile, what);
+	}
 
 	if (m->normals && m->venv) {
 		xblaMeshBuildEnvironment(m, what);
@@ -5032,8 +5181,10 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 		s32 ok;
 
 		xblaMeshBuildCullBack = fileid == FILE_PNLOGO2;
+		xblaMeshBuildBorrowFile = m->frompack ? 0 : fileid;
 		ok = xblaMeshBuildFile(m, file, len, &mats, what);
 		xblaMeshBuildCullBack = 0;
+		xblaMeshBuildBorrowFile = 0;
 
 		return ok ? m : NULL;
 	}
@@ -5445,7 +5596,7 @@ s32 xblaMeshGetNumPackageSlots(void)
  * Every mesh id in the release's copy of one model file, filed against the
  * model. The walk is the "their" half of xblaMeshMatchNodes().
  */
-static void xblaMeshFileMeshSlots(const u8 *file, u32 len, u16 fileid)
+static void xblaMeshFileMeshSlots(const u8 *file, u32 len, u16 fileid, u16 *table)
 {
 	u32 off = xblaMeshBE32(file) & 0xffffff;
 	s32 walked = 0;
@@ -5458,8 +5609,8 @@ static void xblaMeshFileMeshSlots(const u8 *file, u32 len, u16 fileid)
 		if (id && id != 0xffff && (type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL)) {
 			const s32 slot = (s32)(id & 0xfff) - 1;
 
-			if (slot >= 0 && slot < numRecords && !slotFileAll[slot]) {
-				slotFileAll[slot] = fileid;
+			if (slot >= 0 && slot < numRecords && !table[slot]) {
+				table[slot] = fileid;
 			}
 		}
 
@@ -5514,7 +5665,7 @@ s32 xblaMeshSlotModelFile(s32 slot)
 
 			if (file) {
 				if (len >= 4) {
-					xblaMeshFileMeshSlots(file, len, (u16)fileid);
+					xblaMeshFileMeshSlots(file, len, (u16)fileid, slotFileAll);
 				}
 
 				free(file);

@@ -2872,6 +2872,35 @@ path is identical. Not measured: instructions/frame. The pass count is the
 cube's, with gfx_pc's per-vertex lighting in place of the envmap transform.
 Not in the preset table.
 
+**Third-person guns borrow the first-person gun's amount (2026-09-14).** A
+tester's F3 traces: guns shone in first person and on the menu but not in a
+character's hands. The pass was never the problem - for the AR34's
+`Pchrar34Z` (slot 2089) every draw gate passes in third person, and a replay of
+the texgen over its normals spreads the streaks over the whole tile at 1.4 m
+and 6 m as at arm's length (gfx_pc normalises the LookAt under the chr's tenth
+scale, and the eye-ray bend normalises too). It is 4J's data: force-building
+every gun slot (`call xblaMeshBuild(slot)` from gdb after `xblaMeshOpen(1)`,
+slots from line 2 of `model-dumps/xbla/<name>.obj`) shows many `Pchr*Z` meshes
+with no byte 16 in any draw while their `G*Z` mesh has one - cmp150, crossbow,
+cyclone, devastator, druggun, dyrocket, fnp90, m16, maianpistol, maiansmg,
+rcp120, shotgun, uzi, and `PchravengerZ` against `Gk7avengerZ`. So
+`xblaMeshBorrowEnvironment()` gives such a mesh, over every vertex, the lowest
+nonzero amount (and its cube) of the weapon's `hi_model` meshes, paired through
+`playermgrGetModelOfWeapon()` and `g_ModelStates[].fileid` rather than by name;
+the two atlases are different pictures, so no per-material pairing exists, and
+the lowest amount keeps the grip from out-shining the barrel. A `Pchr*Z` with
+reflections of its own keeps them, and a model pack's file borrows nothing.
+Only weapons are walked (Falcon 2 to Psychosis Gun, less Combat Boost): the
+items past them name a stand-in `hi_model`, and the briefcase paired that way
+with `Gfalcon2lodZ` and shone whole at 60%.
+Both Reflection Styles see it, since it is the material data they share.
+
+Two traps from that hunt: `--savedir` reads `$S/pd.ini`, so a scratch save dir
+with no ini runs on defaults (`XblaMeshes=0`, nothing matches); and setting
+`players[0]->thirdperson` from gdb on an offscreen MP arena never produced a
+third-person screenshot, even with `haschrbody` and `playerIsThirdPerson()`
+both 1.
+
 ### Level Metal, the third Reflection Style (2026-09-14)
 
 The user asked how the K7 sheen differs from the levels' metal and windows
