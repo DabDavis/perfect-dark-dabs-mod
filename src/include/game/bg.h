@@ -54,6 +54,10 @@ u32 bgInflate(u8 *src, u8 *dst, u32 len);
 Gfx *bgGetNextGdlInBlock(struct roomblock *block, Gfx *start, Gfx *end);
 Gfx *bgGetNextGdlInLayer(s32 roomnum, Gfx *start, u32 types);
 Vtx *bgFindVerticesForGdl(s32 roomnum, Gfx *gdl);
+
+#ifndef PLATFORM_N64
+#include "roomsheen.h"
+#endif
 void bgLoadRoom(s32 roomnum);
 void bgUnloadRoom(s32 room);
 void bgUnloadAllRooms(void);

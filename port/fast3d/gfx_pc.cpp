@@ -270,6 +270,7 @@ static struct RenderingState {
     bool alpha_blend;
     bool modulate;
     bool additive;
+    bool muladd;
     struct XYWidthHeight viewport, scissor;
     struct ShaderProgram* shader_program;
     TextureCacheNode* textures[SHADER_MAX_TEXTURES];
@@ -311,7 +312,7 @@ static struct BatchState {
     float tex_clamp[2][2]; // (size2 - 0.5) / size, emitted when tm asks for it
     uint32_t tex_size[2][2]; // [texture][0 = width, 1 = height], kept for GFX_VERIFY_BATCH_STATE
 
-    bool use_alpha, use_fog, use_grayscale, use_modulate, use_additive, use_envmap;
+    bool use_alpha, use_fog, use_grayscale, use_modulate, use_additive, use_muladd, use_envmap;
 } batch;
 
 /**
@@ -2121,6 +2122,9 @@ static void gfx_derive_batch_state(void) {
     if (use_envmap) {
         cc_options |= (uint64_t)SHADER_OPT_ENVMAP;
     }
+    if (use_fog && (rsp.extra_geometry_mode & (G_ADDITIVE_EXT | G_MULADD_EXT))) {
+        cc_options |= (uint64_t)SHADER_OPT_FOG_FADE;
+    }
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
     if (!use_alpha) {
@@ -2234,6 +2238,7 @@ static void gfx_derive_batch_state(void) {
     batch.use_grayscale = use_grayscale;
     batch.use_modulate = use_alpha && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
     batch.use_additive = use_alpha && !batch.use_modulate && (rsp.extra_geometry_mode & G_ADDITIVE_EXT) != 0;
+    batch.use_muladd = use_alpha && !batch.use_modulate && (rsp.extra_geometry_mode & G_MULADD_EXT) != 0;
     batch.use_envmap = use_envmap;
 
     gfx_rapi->shader_get_info(prg, &batch.num_inputs, batch.used_textures);
@@ -2699,12 +2704,13 @@ static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
         rendering_state.shader_program = batch.prg;
     }
     if (batch.use_alpha != rendering_state.alpha_blend || batch.use_modulate != rendering_state.modulate ||
-        batch.use_additive != rendering_state.additive) {
+        batch.use_additive != rendering_state.additive || batch.use_muladd != rendering_state.muladd) {
         gfx_flush_for(GFX_FLUSH_BLEND);
-        gfx_rapi->set_use_alpha(batch.use_alpha, batch.use_modulate, batch.use_additive);
+        gfx_rapi->set_use_alpha(batch.use_alpha, batch.use_modulate, batch.use_additive, batch.use_muladd);
         rendering_state.alpha_blend = batch.use_alpha;
         rendering_state.modulate = batch.use_modulate;
         rendering_state.additive = batch.use_additive;
+        rendering_state.muladd = batch.use_muladd;
     }
 
     // The shader inputs. Most of them are a constant for the whole

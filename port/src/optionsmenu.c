@@ -39,6 +39,7 @@
 #include "xblaexpl.h"
 #include "menuimage.h"
 #include "xblastage.h"
+#include "roomsheen.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -5155,6 +5156,57 @@ static MenuItemHandlerResult menuhandlerXblaReflectCutoff(s32 operation, struct 
 	return 0;
 }
 
+/**
+ * Level Sheen: the K7 sheen on the level's rooms, at a strength. Not tied to
+ * the release's switches - it works on the ROM's rooms and the release's
+ * alike - and live: a room builds its copy the first time it is drawn with it
+ * on. Mod.LevelSheenStyle (pd.ini) picks per vertex or per pixel.
+ */
+static MenuItemHandlerResult menuhandlerLevelSheen(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *const names[] = { "Off", "Subtle", "Normal", "Strong" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(names);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)names[data->dropdown.value < ARRAYCOUNT(names) ? data->dropdown.value : 0];
+	case MENUOP_SET:
+		roomSheenSetLevel((s32)data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = roomSheenGetLevel();
+	}
+
+	return 0;
+}
+
+/**
+ * Level Sheen Style: K7 is the stock gun's own texgen, per vertex, which gives
+ * a flat surface one tint; Per Pixel slides the streak across it. Hidden
+ * while Level Sheen is off. Live: both draw from the same copy.
+ */
+static MenuItemHandlerResult menuhandlerLevelSheenStyle(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return roomSheenGetLevel() == 0;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 2;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == ROOMSHEEN_STYLE_PIXEL ? "Per Pixel" : "K7");
+	case MENUOP_SET:
+		roomSheenSetStyle((s32)data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = roomSheenGetStyle();
+	}
+
+	return 0;
+}
+
 static char g_XblaMeshPackText[80];
 
 /**
@@ -5430,6 +5482,22 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Reflection Cutoff",
 		0,
 		menuhandlerXblaReflectCutoff,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Level Sheen",
+		0,
+		menuhandlerLevelSheen,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Level Sheen Style",
+		0,
+		menuhandlerLevelSheenStyle,
 	},
 	{
 		MENUITEMTYPE_LABEL,

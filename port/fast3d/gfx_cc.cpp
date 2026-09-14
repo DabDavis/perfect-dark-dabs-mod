@@ -20,6 +20,7 @@ void gfx_cc_get_features(uint64_t shader_id0, uint32_t shader_id1, struct CCFeat
     cc_features->opt_blur = (shader_id1 & SHADER_OPT_BLUR) != 0;
     cc_features->opt_text_outline = (shader_id1 & SHADER_OPT_TEXT_OUTLINE) != 0;
     cc_features->opt_envmap = (shader_id1 & SHADER_OPT_ENVMAP) != 0;
+    cc_features->opt_fog_fade = (shader_id1 & SHADER_OPT_FOG_FADE) != 0;
 
     cc_features->clamp[0][0] = (shader_id1 & SHADER_OPT_TEXEL0_CLAMP_S);
     cc_features->clamp[0][1] = (shader_id1 & SHADER_OPT_TEXEL0_CLAMP_T);

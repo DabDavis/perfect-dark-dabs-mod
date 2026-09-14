@@ -46,6 +46,10 @@ enum {
 // G_ENVMAP_EXT: texel 0 is looked up per fragment, in a sphere-map atlas, by
 // the view ray reflected in an interpolated view-space normal.
 #define SHADER_OPT_ENVMAP (1 << 14)
+// An additive draw under fog (G_ADDITIVE_EXT): what it adds fades out with the
+// fog rather than being mixed towards the fog colour, which would add the fog
+// colour on top of the surface it lands on.
+#define SHADER_OPT_FOG_FADE (1 << 15)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -69,6 +73,7 @@ struct CCFeatures {
     bool opt_blur;
     bool opt_text_outline;
     bool opt_envmap;
+    bool opt_fog_fade;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;

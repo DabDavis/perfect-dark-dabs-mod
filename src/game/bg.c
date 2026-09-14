@@ -1225,6 +1225,9 @@ Gfx *bgRenderScene(Gfx *gdl)
 		if (debugIsBgRenderingEnabled() && getVar80084040()) {
 			if (g_StageIndex != STAGEINDEX_TEST_OLD) {
 				gdl = bgRenderRoomOpaque(gdl, thing->roomnum);
+#ifndef PLATFORM_N64
+				gdl = roomSheenRender(gdl, thing->roomnum);
+#endif
 			}
 		}
 
@@ -1778,6 +1781,7 @@ void bgBuildTables(s32 stagenum)
 		g_Rooms[i].unk4e_04 = 0;
 #ifndef PLATFORM_N64
 		g_Rooms[i].extra_flags = 0;
+		g_Rooms[i].sheen = NULL;
 #endif
 	}
 
@@ -3238,6 +3242,10 @@ void bgUnloadRoom(s32 roomnum)
 #endif
 		g_Rooms[roomnum].vtxbatches = NULL;
 	}
+
+#ifndef PLATFORM_N64
+	roomSheenFree(roomnum);
+#endif
 
 	if (g_Rooms[roomnum].gfxdatalen > 0) {
 #ifdef PLATFORM_N64

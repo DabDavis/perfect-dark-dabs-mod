@@ -4030,12 +4030,8 @@ static void xblaMeshCubeSample(const u8 *faces, s32 size, f32 x, f32 y, f32 z, f
 static const void *sheenTile;
 static s32 sheenTried;
 
-static void xblaMeshBuildSheen(struct xblameshbuilt *m)
+const void *xblaMeshSheenTile(void)
 {
-	if (!m->envgdl) {
-		return;
-	}
-
 	if (!sheenTried) {
 		s32 w = 0;
 		s32 h = 0;
@@ -4053,7 +4049,16 @@ static void xblaMeshBuildSheen(struct xblameshbuilt *m)
 		}
 	}
 
-	if (!sheenTile) {
+	return sheenTile;
+}
+
+static void xblaMeshBuildSheen(struct xblameshbuilt *m)
+{
+	if (!m->envgdl) {
+		return;
+	}
+
+	if (!xblaMeshSheenTile()) {
 		return;
 	}
 
@@ -7512,6 +7517,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				frameDraws++;
 			}
 		}
+
+		// Level Sheen on a prop's part (roomsheen.h): after the solid list and
+		// everything drawn over it above, so its state is the last written
+		// before the next node writes its own
+		roomSheenRenderNode(renderdata, node, list, posed, 0);
 	}
 
 	if (xlu && xlulist) {

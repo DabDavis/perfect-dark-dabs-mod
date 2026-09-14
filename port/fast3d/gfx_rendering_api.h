@@ -33,7 +33,7 @@ struct GfxRenderingAPI {
     void (*set_depth_range)(float znear, float zfar);
     void (*set_viewport)(int x, int y, int width, int height);
     void (*set_scissor)(int x, int y, int width, int height);
-    void (*set_use_alpha)(bool use_alpha, bool modulate, bool additive);
+    void (*set_use_alpha)(bool use_alpha, bool modulate, bool additive, bool muladd);
     void (*draw_triangles)(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris);
     void (*init)(void);
     void (*on_resize)(void);

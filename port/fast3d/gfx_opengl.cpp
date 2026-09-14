@@ -618,7 +618,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     if (cc_features.opt_fog) {
         append_line(fs_buf, &fs_len, "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;");
         append_line(fs_buf, &fs_len, "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;");
-        if (cc_features.opt_alpha) {
+        if (cc_features.opt_fog_fade) {
+            append_line(fs_buf, &fs_len, "    texel = vec4(texel.rgb * (1.0 - fogFactor), texel.a);");
+        } else if (cc_features.opt_alpha) {
             append_line(fs_buf, &fs_len, "    texel = vec4(mix(texel.rgb, vFog.rgb, fogFactor), texel.a);");
         } else {
             append_line(fs_buf, &fs_len, "    texel = mix(texel, vFog.rgb, fogFactor);");
@@ -930,7 +932,7 @@ static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
     glScissor(x, y, width, height);
 }
 
-static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additive) {
+static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additive, bool muladd) {
     if (use_alpha) {
         glEnable(GL_BLEND);
     } else {
@@ -938,6 +940,10 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additiv
     }
     if (modulate) {
         glBlendFunc(GL_DST_COLOR, GL_ZERO);
+    } else if (muladd) {
+        // G_MULADD_EXT: dst + src * dst, a highlight in proportion to what is
+        // already there - dark stays dark. The amount is in src's colour.
+        glBlendFunc(GL_DST_COLOR, GL_ONE);
     } else if (additive) {
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     } else {

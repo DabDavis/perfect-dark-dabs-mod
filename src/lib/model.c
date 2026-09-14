@@ -20,6 +20,7 @@
 #ifndef PLATFORM_N64
 #include "game/modoptions.h"
 #include "xblamesh.h"
+#include "roomsheen.h"
 #endif
 
 /**
@@ -3311,6 +3312,21 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 
 				gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
 			}
+
+#ifndef PLATFORM_N64
+			// Level Sheen on a prop's part (roomsheen.h). The list is named by
+			// segment 5, the rodata's colours, unless an instance swapped its
+			// own in by address
+			{
+				Gfx *list = rwdata->dl.gdl;
+
+				if ((uintptr_t)list & 1) {
+					list = (Gfx *)((uintptr_t)rodata->dl.colours + (UNSEGADDR(list) & 0xffffff));
+				}
+
+				roomSheenRenderNode(renderdata, node, list, rwdata->dl.vertices, 0);
+			}
+#endif
 		}
 	}
 
