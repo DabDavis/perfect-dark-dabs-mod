@@ -12,6 +12,9 @@
 #include "lib/mtx.h"
 #include "lib/rng.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "roomsheen.h"
+#endif
 
 s32 g_MaxShards;
 struct shard *g_Shards;
@@ -344,6 +347,11 @@ Gfx *shardsRenderGlass(Gfx *gdl)
 
 		if (g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
 			gSPSetGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
+#ifndef PLATFORM_N64
+			// A broken window's shards turn with the player's walk as the
+			// pane did (Level Reflections)
+			gdl = roomSheenStockBegin(gdl);
+#endif
 		}
 
 		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -437,6 +445,9 @@ Gfx *shardsRenderGlass(Gfx *gdl)
 		}
 
 		gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
+#ifndef PLATFORM_N64
+		gdl = roomSheenStockEnd(gdl);
+#endif
 		gSPMatrix(gdl++, camGetPerspectiveMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 		gSPMatrix(gdl++, camGetMtxL173c(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 	}

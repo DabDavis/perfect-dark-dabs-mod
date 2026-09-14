@@ -220,8 +220,15 @@ every one of them on the lift's cage and rail and on the panes. Under
 Original a pane shows the same part of the map before and after the walk;
 under Follow it turns to another part.
 
-Not covered: the shards of a broken window (`shards.c` turns texgen on for
-them itself).
+**A broken window's shards** are drawn by `shardsRenderGlass()` in
+`shards.c`, which turns texgen on for them itself (the wood pass does not), so
+that pass is wrapped too: Begin after its set (not under X-ray, which draws
+them untextured), End after its clear. Checked with `shardwalk.py`, which
+parks the eye 250 units from a tinted pane, calls `glassDestroy()` on it from
+gdb and shoots three frames later and again after a 120-unit strafe: Follow
+against Original now differs on the flying shards as well as on the
+remaining panes. Seed and fixed step put the shards in the same place in
+both runs.
 
 ### The blend has to multiply, not add (G_MULADD_EXT)
 
