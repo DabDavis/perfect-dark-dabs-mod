@@ -363,17 +363,34 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   space and the mesh has **no palette**; `xblaMeshBuildBean()` marks the built
   mesh `m->local`, so it draws like a model pack's, group k under node k's own
   matrix. Untoggled host lists Bean's gun does not reach draw nothing.
+- **A list's matrix is the one its own display list loads**, not the position
+  node above it (`gebeanListLoadedMatrix()`, the first `G_MTX`; `modelRender()`
+  loads no matrix per node). The PP9i's gun list hangs under the root (matrix
+  0) but loads 33 and 34 (gun and slide), which stand (68.6, -6.9, 61.2) from
+  the root at rest: fitted and drawn from the root, the PP7 sat that far right,
+  low and near the camera - its slide top was the "long barrel below the hand",
+  and the hand looked mis-posed only because no gun covered the fingers. The
+  host box now places each vertex by the rest of the matrix loaded before it,
+  and xblamesh.c draws a Bean first-person group under the loaded matrix. The
+  DD44 and Phantom (also 33) sat slightly better for it; the rest unchanged.
+  Live lists are segment 5 offsets into `gundl.baseaddr` **with bit 0 set**
+  once textures are rewritten - strip it before masking, or every command reads
+  a byte out of step (it did, in gdb, and showed no `G_MTX` at all).
+- **Silenced guns are measured on their plain twin** (`fpFitSource`): Bean's
+  `ppksilenced`/`mp5ksilenced` are `ppk`/`mp5k` in the same place plus one more
+  512x512 picture, the silencer, in front of the muzzle; the hosts have none, so
+  fitting the whole length shrank them (PP7 silenced 0.108 against 0.191).
 - **Checked** by a 25-gun survey (`--boot-stage 0x32 --mpsims 0`, every copy
   given and equipped 90 frames apart, a screenshot 80 frames after; simulants
   kill the player mid-survey otherwise), against the same run with the host's
-  model: right for DD44, Klobb, KF7 Soviet, ZMG, D5K and silenced, Phantom,
-  AR33, RC-P90, Shotgun, Automatic Shotgun, Cougar, Grenade Launcher.
-- **Not yet** (`fpReady` 0, the host's model): the **PP7 and PP7 silenced**
-  draw a long barrel below the hand - its placement matched the host's list in
-  the model's space, and matrix rests, a 180-degree turn about y and the
-  skinned-versus-local draw each changed nothing on screen, so the cause is not
-  found; the muzzle part's rest (`MODELPART_GUN_MUZZLEPOS`) does not tell which
-  way a gun points (it turned the shotgun wrongly). The **sniper rifle** is
+  model: right for PP7 and silenced, DD44, Klobb, KF7 Soviet, ZMG, D5K and
+  silenced, Phantom, AR33, RC-P90, Shotgun, Automatic Shotgun, Cougar, Grenade
+  Launcher. A change to the build that "changes nothing on screen" is a sign the
+  thing on screen is not where the build thinks - shift every vertex by a fixed
+  amount (a temporary env var) before theorising; that found the PP7.
+- **Not yet** (`fpReady` 0, the host's model): the muzzle part's rest
+  (`MODELPART_GUN_MUZZLEPOS`) does not tell which way a gun points (it turned
+  the shotgun wrongly). The **sniper rifle** is
   turned, the **Golden Gun** draws white, the **rocket launcher** is shrunk to
   0.079 by its host's length, and the Moonraker, knives, grenade and mines were
   not seen (no ammo given in the survey).
@@ -387,10 +404,12 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   character; it could move to the model load beside the unpack.
 - Everything else the plan named: character select from the GE ROM's models,
   props, levels.
-- The guns (sections above): the first-person guns not in `fpReady` yet (PP7s,
-  sniper rifle, Golden Gun, rocket launcher; Moonraker, knives, grenade and
+- The guns (sections above): the first-person guns not in `fpReady` yet (sniper
+  rifle, Golden Gun, rocket launcher; Moonraker, knives, grenade and
   mines unchecked); Bean's moving parts on their own matrices where the host
   has one (every surveyed gun's bones landed on the body's); GoldenEye's stats (decomp
   `obseg/gun/*/gunWeaponStat.inc.c`) instead of the host's; floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their
-  random-weapon filters saved.
+  random-weapon filters saved. The slide: with lists' loaded matrices known,
+  Bean's slide bone could go on the host's slide matrix (34 on the PP9i) - but a
+  group draws under one matrix, so that needs per-vertex matrix switches.

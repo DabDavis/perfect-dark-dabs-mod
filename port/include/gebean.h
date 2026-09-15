@@ -94,6 +94,13 @@ s32 gebeanPrepare(void);
  */
 s32 gebeanListNodeMatrix(const struct modelnode *node);
 
+/**
+ * The matrix a list node's own display list loads first (its first G_MTX), or
+ * -1 when it loads none. A list is drawn under that one, whatever position
+ * node it hangs under: the PP9i's gun list is under the root and loads 33.
+ */
+s32 gebeanListLoadedMatrix(const struct modelnode *node);
+
 #define GEBEAN_MAXMATS 256
 
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */

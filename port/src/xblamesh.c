@@ -9303,6 +9303,18 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		}
 	}
 
+	// A GoldenEye first-person gun is built in the space of the matrix its
+	// list loads itself, which need not be the position node's above it
+	// (gebeanListLoadedMatrix(): the PP9i's gun list is under the root and
+	// loads matrix 33)
+	if (!root && frombean && m->local && model && model->matrices && model->definition) {
+		const s32 index = gebeanListLoadedMatrix(node);
+
+		if (index >= 0 && index < model->definition->nummatrices) {
+			root = &model->matrices[index];
+		}
+	}
+
 	if (!root) {
 		root = modelFindNodeMtx(model, node, 0);
 	}

@@ -308,11 +308,13 @@ static s32 fpSlot[ARRAYCOUNT(fpRows)];
  * Which first-person guns are drawn from Bean: those checked on screen against
  * their host's (2026-09-15, a 25-gun survey). The rest keep the host's model -
  * GoldenEye's name, pickup and third-person gun still their own - until each is
- * made right: the PP7s draw below the hand, the sniper rifle is turned, the
- * Golden Gun is untextured, the rocket launcher is shrunk by its host's
- * length, and the Moonraker, knives, grenade and mines were not seen.
+ * made right: the sniper rifle is turned, the Golden Gun is untextured, the
+ * rocket launcher is shrunk by its host's length, and the Moonraker, knives,
+ * grenade and mines were not seen.
  */
 static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 1,
@@ -326,6 +328,18 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
+};
+
+/**
+ * The plain gun a silenced one is measured on. Its host has no silencer, and
+ * Bean's silenced file is the plain gun in the same place with the silencer as
+ * one more picture in front of the muzzle, so fitting the whole length to the
+ * host's shrank the gun by the silencer (the PP7's to 0.108 of Bean's size
+ * against the plain PP7's 0.191).
+ */
+static const char *const fpFitSource[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = "gun/ppk",
+	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = "gun/mp5k",
 };
 
 // Each copy's first-person file as geguns.c made it - its host's - before
@@ -981,6 +995,108 @@ s32 gebeanListNodeMatrix(const struct modelnode *node)
 	}
 
 	return 0;
+}
+
+/**
+ * A list address as a loaded model holds it: still a segment 5 address into
+ * the file (with the low bit set once its textures are rewritten), or a
+ * pointer already.
+ */
+static Gfx *beanResolveGdl(const u8 *base, Gfx *gdl)
+{
+	const uintptr_t addr = (uintptr_t)gdl;
+
+	if (addr <= 0xffffffff && ((addr & 1) || ((UNSEGADDR(addr) >> 24) & 0xff) == 0x05)) {
+		return base ? (Gfx *)(base + (UNSEGADDR(addr) & 0xffffff)) : NULL;
+	}
+
+	return gdl;
+}
+
+/**
+ * Walks a list for the matrices it loads itself: the first into *first, and
+ * the one each of its vertices is loaded under into vtxmtx (-1 before any).
+ */
+static void beanWalkListMatrices(const u8 *base, const Vtx *vertices, s32 numvertices, Gfx *gdl, s32 depth,
+		s16 *cur, s16 *first, s16 *vtxmtx)
+{
+	s32 steps = 0;
+
+	while (gdl && depth <= 8 && steps++ < 0x10000) {
+		const u32 w0 = (u32)gdl->words.w0;
+		const uintptr_t w1 = gdl->words.w1;
+
+		switch ((u8)(w0 >> 24)) {
+		case G_MTX:
+			*cur = (s16)((UNSEGADDR(w1) & 0xffffff) / sizeof(Mtxf));
+
+			if (*first < 0) {
+				*first = *cur;
+			}
+			break;
+		case G_VTX:
+			if (vtxmtx && vertices) {
+				const u32 off = (u32)(UNSEGADDR(w1) & 0xffffff);
+				const s32 n = (s32)((w0 & 0xffff) / sizeof(Vtx));
+				const intptr_t vi0 = ((UNSEGADDR(w1) >> 24) & 0xf) == SPSEGMENT_MODEL_VTX
+					? (intptr_t)(off / sizeof(Vtx))
+					: base ? ((intptr_t)(base + off) - (intptr_t)vertices) / (intptr_t)sizeof(Vtx) : -1;
+
+				for (s32 i = 0; vi0 >= 0 && i < n; i++) {
+					if (vi0 + i < numvertices) {
+						vtxmtx[vi0 + i] = *cur;
+					}
+				}
+			}
+			break;
+		case G_DL: {
+			Gfx *target = beanResolveGdl(base, (Gfx *)w1);
+
+			if (((w0 >> 16) & 1) == 0) {
+				beanWalkListMatrices(base, vertices, numvertices, target, depth + 1, cur, first, vtxmtx);
+			} else {
+				gdl = target;
+				continue;
+			}
+			break;
+		}
+		case (u8)G_ENDDL:
+			return;
+		}
+
+		gdl++;
+	}
+}
+
+/** Walks a list node's opaque list; see beanWalkListMatrices(). */
+static s16 beanListMatrices(const struct modelnode *node, s16 *vtxmtx, s32 numvertices)
+{
+	const u32 type = node ? node->type & 0xff : 0;
+	s16 cur = -1;
+	s16 first = -1;
+
+	for (s32 i = 0; vtxmtx && i < numvertices; i++) {
+		vtxmtx[i] = -1;
+	}
+
+	if (type == MODELNODETYPE_GUNDL) {
+		const u8 *base = node->rodata->gundl.baseaddr;
+
+		beanWalkListMatrices(base, node->rodata->gundl.vertices, numvertices,
+				beanResolveGdl(base, node->rodata->gundl.opagdl), 0, &cur, &first, vtxmtx);
+	} else if (type == MODELNODETYPE_DL) {
+		const u8 *base = (const u8 *)node->rodata->dl.colours;
+
+		beanWalkListMatrices(base, node->rodata->dl.vertices, numvertices,
+				beanResolveGdl(base, node->rodata->dl.opagdl), 0, &cur, &first, vtxmtx);
+	}
+
+	return first;
+}
+
+s32 gebeanListLoadedMatrix(const struct modelnode *node)
+{
+	return beanListMatrices(node, NULL, 0);
 }
 
 /* -------------------------------------------------------------------------
@@ -3151,6 +3267,54 @@ static s32 beanTextureSize(const struct beanmodel *bm, s32 t, s32 *w, s32 *h)
 }
 
 /**
+ * A first-person gun's pictures to leave out, into hand (the count is
+ * returned), and the extent of what is left. Out with the hand go Bean's
+ * muzzle flashes, the 32x32 sprites on the muzzle bones, which it switches on
+ * itself - here they would draw always (the host's toggled flash still
+ * fires), and they would stretch the gun's length the fit is measured by.
+ */
+static s32 beanGunExtent(struct beanmodel *bm, u8 *hand, f32 lo[3], f32 hi[3])
+{
+	s32 numhand = 0;
+
+	for (s32 t = 0; t < bm->numtex && t < GEBEAN_MAXMATS; t++) {
+		s32 w = 0;
+		s32 h = 0;
+
+		hand[t] = beanTextureSize(bm, t, &w, &h) && ((w == 512 && h == 511) || (w <= 64 && h <= 64));
+		numhand += hand[t];
+	}
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+		u16 *tris;
+		s32 numtris;
+
+		if ((d->tex < GEBEAN_MAXMATS && d->tex < (u32)bm->numtex && hand[d->tex]) || !beanReadVb(bm, d->vb, &vb)) {
+			continue;
+		}
+
+		numtris = beanTriangles(bm, d, &tris);
+
+		for (s32 t = 0; t < numtris * 3; t++) {
+			struct beanvtx v;
+
+			if (beanVertex(bm, &vb, tris[t], &v)) {
+				for (s32 a = 0; a < 3; a++) {
+					if (v.pos[a] < lo[a]) lo[a] = v.pos[a];
+					if (v.pos[a] > hi[a]) hi[a] = v.pos[a];
+				}
+			}
+		}
+
+		free(tris);
+	}
+
+	return numhand;
+}
+
+/**
  * A first-person gun (fpRows): Bean's gun, which is GoldenEye's N64 gun at
  * Bean's scale with the same joints, on the host's first-person model.
  *
@@ -3227,14 +3391,22 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	}
 
 	// The host's visible lists: their extent in the model's space, and the
-	// biggest of them, which is the body
+	// biggest of them, which is the body. A list is drawn under the matrices
+	// its own display list loads, not the position node's above it, so that
+	// is the matrix each list's group goes under and each vertex is placed by
+	// the rest of the one loaded before it. The PP9i's gun list hangs under
+	// the root and loads matrices 33 and 34, 69 units across and 61 along
+	// from the root's: fitted from the root, the PP7 drew that far to the
+	// side of the gun it stands in for, below the hand.
 	for (s32 k = 0; k < numnodes; k++) {
 		const u32 type = nodes[k]->type & 0xff;
+		const s32 loaded = gebeanListLoadedMatrix(nodes[k]);
 		const Vtx *v = NULL;
 		s32 n = 0;
 		f32 rest[3];
+		s16 *vtxmtx;
 
-		nodemtx[k] = gebeanListNodeMatrix(nodes[k]);
+		nodemtx[k] = loaded >= 0 ? loaded : gebeanListNodeMatrix(nodes[k]);
 
 		if (nodemtx[k] < 0 || nodemtx[k] >= nummatrices) {
 			nodemtx[k] = 0;
@@ -3264,20 +3436,34 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 		xblaMeshNodeRestOffset(nodes[k], rest);
 
-		// The rest a list's vertices are drawn from is the list's own - the
-		// sum of the positions above it - which is what its matrix carries.
-		// The first position node naming the matrix need not be that one.
-		rig.hasrest[nodemtx[k]] = 1;
-		memcpy(rig.rest[nodemtx[k]], rest, sizeof(rest));
+		// A list that loads no matrix is drawn from its own rest - the sum of
+		// the positions above it - which is what its matrix carries; the first
+		// position node naming that matrix need not be that one. A matrix the
+		// list loads has its own position node's rest.
+		if (loaded < 0 || !rig.hasrest[nodemtx[k]]) {
+			rig.hasrest[nodemtx[k]] = 1;
+			memcpy(rig.rest[nodemtx[k]], rest, sizeof(rest));
+		}
+
+		vtxmtx = malloc((size_t)n * sizeof(*vtxmtx));
+
+		if (vtxmtx) {
+			beanListMatrices(nodes[k], vtxmtx, n);
+		}
 
 		for (s32 j = 0; j < n; j++) {
+			const s32 mtx = vtxmtx && vtxmtx[j] >= 0 && vtxmtx[j] < nummatrices && rig.hasrest[vtxmtx[j]]
+				? vtxmtx[j] : nodemtx[k];
+
 			for (s32 a = 0; a < 3; a++) {
-				const f32 p = v[j].v[a] + rest[a];
+				const f32 p = v[j].v[a] + rig.rest[mtx][a];
 
 				if (p < hostlo[a]) hostlo[a] = p;
 				if (p > hosthi[a]) hosthi[a] = p;
 			}
 		}
+
+		free(vtxmtx);
 
 		if (n > bodyverts) {
 			bodyverts = n;
@@ -3295,43 +3481,28 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		return NULL;
 	}
 
-	// Left out with the hand: Bean's muzzle flashes, the 32x32 sprites on the
-	// muzzle bones, which it switches on itself - here they would draw always
-	// (the host's toggled flash still fires), and they would stretch the gun's
-	// length the fit is measured by
-	for (s32 t = 0; t < bm.numtex && t < GEBEAN_MAXMATS; t++) {
-		s32 w = 0;
-		s32 h = 0;
+	numhand = beanGunExtent(&bm, hand, beanlo, beanhi);
 
-		hand[t] = beanTextureSize(&bm, t, &w, &h) && ((w == 512 && h == 511) || (w <= 64 && h <= 64));
-		numhand += hand[t];
-	}
+	// A silenced gun is measured on its plain twin, which shares its place
+	if (fpFitSource[fp]) {
+		struct beanmodel twin;
+		char twinsource[64];
+		u8 twinhand[GEBEAN_MAXMATS];
+		f32 twinlo[3] = { 1e30f, 1e30f, 1e30f };
+		f32 twinhi[3] = { -1e30f, -1e30f, -1e30f };
 
-	// Bean's gun's extent, less the hand
-	for (s32 di = 0; di < bm.numdraws; di++) {
-		const struct beandraw *d = &bm.draws[di];
-		struct beanvb vb;
-		u16 *tris;
-		s32 numtris;
+		snprintf(twinsource, sizeof(twinsource), "new/%s", fpFitSource[fp]);
 
-		if ((d->tex < GEBEAN_MAXMATS && d->tex < (u32)bm.numtex && hand[d->tex]) || !beanReadVb(&bm, d->vb, &vb)) {
-			continue;
-		}
+		if (beanLoad(&twin, twinsource)) {
+			beanGunExtent(&twin, twinhand, twinlo, twinhi);
 
-		numtris = beanTriangles(&bm, d, &tris);
-
-		for (s32 t = 0; t < numtris * 3; t++) {
-			struct beanvtx v;
-
-			if (beanVertex(&bm, &vb, tris[t], &v)) {
-				for (s32 a = 0; a < 3; a++) {
-					if (v.pos[a] < beanlo[a]) beanlo[a] = v.pos[a];
-					if (v.pos[a] > beanhi[a]) beanhi[a] = v.pos[a];
-				}
+			if (twinhi[2] - twinlo[2] > 1.0f) {
+				memcpy(beanlo, twinlo, sizeof(twinlo));
+				memcpy(beanhi, twinhi, sizeof(twinhi));
 			}
-		}
 
-		free(tris);
+			beanFree(&twin);
+		}
 	}
 
 	if (beanhi[2] - beanlo[2] <= 1.0f || hosthi[2] - hostlo[2] <= 1.0f) {
@@ -3528,9 +3699,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	file = beanWriteMesh(&out, numnodes, 0, NULL, matwords, nummatwords, outAbsent, outLen);
 
 	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, %d hand and flash pictures left out, "
-			"scale %.4f, body list %d on matrix %d of %d %s",
-			r->file, source, out.numverts, out.numtris, numhand, scale, bodynode, nodemtx[bodynode],
-			nummatrices, file ? "" : " - did not write");
+			"scale %.4f%s%s, body list %d on matrix %d of %d %s",
+			r->file, source, out.numverts, out.numtris, numhand, scale,
+			fpFitSource[fp] ? " measured on " : "", fpFitSource[fp] ? fpFitSource[fp] : "",
+			bodynode, nodemtx[bodynode], nummatrices, file ? "" : " - did not write");
 
 	beanOutFree(&out);
 	beanFree(&bm);
