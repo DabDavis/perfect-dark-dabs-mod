@@ -257,3 +257,42 @@ about five seconds. A HUD message of the default type lasts 80 ticks, so a
 screenshot two seconds later misses it; `hudmsgCreateWithDuration()` is the
 longer one. Reading `g_HudMessages[0].state` from an attached gdb showed 0
 while the message was on screen - trust the screenshot, not that field.
+
+## Weapons past the stock table (2026-09-15)
+
+GoldenEye's guns are weapon numbers 0x5e-0x76 (`WEAPON_GE_FIRST`,
+`NUM_WEAPONS` 0x77; ge-bean.md has the rest). Each is a copy of a Perfect Dark
+host, and **every test of a weapon by number asks `weaponHost()`** (data.h,
+static inline, identity for a stock number): a copy fires, sounds, animates and
+aims as its host. What keeps the real number is what is the weapon's own - its
+`g_Weapons` definition, name, model state, inventory item and pickup.
+
+- **Switches and `==`/`!=` against a `WEAPON_` constant** were wrapped by a
+  script (318 sites, everything in src/game but training*.c and invitems.c):
+  a host is always a gun, so an item or placeholder test is unchanged by it.
+  A new test of that kind wraps its number too. The script is
+  `tools/weaponhost_codemod.py [--apply] FILES`: a switch whose own case labels
+  name WEAPON_ constants, and either side of ==/!= opposite one, skipping
+  NONE/UNARMED/MPLOCATION and comments, strings and `#` lines. Run without
+  `--apply` it lists what it would wrap, which is 0 on a converted tree - a
+  quick way to find a new test someone added by number.
+- **Range tests were not scripted**: several guard an array indexed by the real
+  number, and wrapping the test would let a copy overflow the array. Decided
+  one by one: `gunfuncs` bits (the secondary-function choice) index by the
+  host (`VALIDWEAPON()`, `FUNCISSEC()`, bondgun.c's three, the active menu's);
+  "is a gun" (`<= WEAPON_PSYCHOSISGUN`, `<= WEAPON_RCP45` drop-on-death, pickup
+  sound, text-override pickup, cycle back) asks the host; bounds that meant
+  "a real weapon" (`> WEAPON_SUICIDEPILL` in setup.c, bondgun.c's equip and
+  definition, botact.c, the deployable and drop-all loops) are `NUM_WEAPONS`;
+  the All Guns cheat (`inv.c`, `<= WEAPON_PSYCHOSISGUN`) leaves the copies out;
+  port/src/mod.c and moddata.c keep `WEAPON_SUICIDEPILL` (a mod edits stock).
+- **Tables**: `g_AibotWeaponPreferences[]` is read at `weaponHost(n)`;
+  `INV_CYCLEABLE()` lets next/previous weapon stop at a copy; the weapon wheel
+  (`activemenu.c`) lists them; `playermgrGetModelOfWeapon()` gives each its own
+  model state; `weaponsfound` (48 bits) and the firing range never see them.
+- **Still keyed on the number with no answer for a copy**: anything that
+  indexes by weapon number and was not listed above. `s8 gunctrl.weaponnum`
+  caps the numbers below 0x80.
+
+Checked by a seeded fixed-step Combat Simulator match on the build before and
+after: pixel-identical frames and identical simulant weapons and positions.

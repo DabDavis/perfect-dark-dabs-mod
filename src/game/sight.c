@@ -163,7 +163,7 @@ bool sightCanTargetProp(struct prop *prop, s32 max)
 		return true;
 	}
 
-	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_ROCKETLAUNCHER) {
+	if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_ROCKETLAUNCHER) {
 		return true;
 	}
 
@@ -850,7 +850,7 @@ Gfx *sightDrawDefault(Gfx *gdl, bool sighton, f32 crossx, f32 crossy)
 					weapon = trackedprop->prop->weapon;
 
 					if (weapon && weapon->base.type == OBJTYPE_WEAPON) {
-						switch (weapon->weaponnum) {
+						switch (weaponHost(weapon->weaponnum)) {
 						case WEAPON_GRENADE:
 							// "PROXY" and "TIMED"
 							textid = (weapon->gunfunc == FUNC_SECONDARY) ? L_GUN_212 : L_GUN_213;

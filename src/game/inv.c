@@ -107,13 +107,13 @@ void invInsertItem(struct invitem *item)
 				if (override->weapon >= WEAPON_UNARMED && override->weapon <= WEAPON_NECKLACE) {
 					setflag = false;
 				}
-				if (override->weapon == WEAPON_MPSHIELD) {
+				if (weaponHost(override->weapon) == WEAPON_MPSHIELD) {
 					setflag = false;
 				}
-				if (override->weapon == WEAPON_SUICIDEPILL) {
+				if (weaponHost(override->weapon) == WEAPON_SUICIDEPILL) {
 					setflag = false;
 				}
-				if (override->weapon == WEAPON_BRIEFCASE2) {
+				if (weaponHost(override->weapon) == WEAPON_BRIEFCASE2) {
 					setflag = false;
 				}
 			}
@@ -324,18 +324,18 @@ bool invCanHaveAllGunsWeapon(s32 weaponnum)
 	}
 
 #if (VERSION == VERSION_JPN_FINAL) && defined(PLATFORM_N64)
-	if (weaponnum == WEAPON_COMBATKNIFE) {
+	if (weaponHost(weaponnum) == WEAPON_COMBATKNIFE) {
 		canhave = false;
 	}
 #endif
 
-	if (weaponnum == WEAPON_SLAYER) {
+	if (weaponHost(weaponnum) == WEAPON_SLAYER) {
 		canhave = false;
 	}
 
 	// @bug: The stage conditions need an OR. This condition can never pass.
 	if ((mainGetStageNum() == STAGE_ATTACKSHIP && mainGetStageNum() == STAGE_SKEDARRUINS)
-			&& weaponnum == WEAPON_SLAYER) {
+			&& weaponHost(weaponnum) == WEAPON_SLAYER) {
 		canhave = true;
 	}
 
@@ -535,7 +535,7 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 			}
 #endif
 
-			if (cheatIsActive(CHEAT_PERFECTDARKNESS) && weaponnum == WEAPON_NIGHTVISION) {
+			if (cheatIsActive(CHEAT_PERFECTDARKNESS) && weaponHost(weaponnum) == WEAPON_NIGHTVISION) {
 				return 1;
 			}
 
@@ -629,7 +629,7 @@ void invChooseCycleForwardWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 
 		while (item) {
 			if (item->type == INVITEMTYPE_WEAP) {
-				if (item->type_weap.weapon1 < NUM_CYCLEABLE_WEAPONS && item->type_weap.weapon1 > weapon1) {
+				if (INV_CYCLEABLE(item->type_weap.weapon1) && item->type_weap.weapon1 > weapon1) {
 					if (!arg2 || bgun0f0a1a10(item->type_weap.weapon1)) {
 						weapon1 = item->type_weap.weapon1;
 						weapon2 = WEAPON_NONE;
@@ -699,7 +699,7 @@ void invChooseCycleBackWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 
 		while (true) {
 			if (item->type == INVITEMTYPE_WEAP) {
-				if (item->type_weap.weapon1 < NUM_CYCLEABLE_WEAPONS
+				if (INV_CYCLEABLE(item->type_weap.weapon1)
 						&& (item->type_weap.weapon1 < weapon1 || (weapon1 == item->type_weap.weapon1 && weapon2 > 0))) {
 					if (!arg2 || bgun0f0a1a10(item->type_weap.weapon1)) {
 						weapon1 = item->type_weap.weapon1;

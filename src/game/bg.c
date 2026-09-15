@@ -5632,7 +5632,7 @@ void bgTickPortalsXray(void)
 	xmax = player->screenxmaxf;
 	ymax = player->screenymaxf;
 
-	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_FARSIGHT && player->gunsightoff == 0) {
+	if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_FARSIGHT && player->gunsightoff == 0) {
 		player->eraserdepth = -500.0f / camGetLodScaleZ();
 	} else {
 		player->eraserdepth = -500.0f;

@@ -578,12 +578,12 @@ void weaponPlayWhooshSound(s32 weaponnum, struct prop *prop)
 	s32 soundnum = -1;
 	f32 speed = 1;
 
-	if (weaponnum == WEAPON_TRANQUILIZER) {
+	if (weaponHost(weaponnum) == WEAPON_TRANQUILIZER) {
 		soundnum = SFX_RELOAD_04FB;
 		speed = 2.78f;
 	} else if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 		// empty
-	} else if (weaponnum == WEAPON_COMBATKNIFE) {
+	} else if (weaponHost(weaponnum) == WEAPON_COMBATKNIFE) {
 		soundnum = rngRandom() % 2 == 1 ? SFX_8060 : SFX_8061;
 		speed = 1.05f - RANDOMFRAC() * 0.2f;
 	} else {
@@ -638,7 +638,7 @@ void func0f060bac(s32 weaponnum, struct prop *prop)
 		}
 
 		speed = 1.0f - RANDOMFRAC() * 0.1f;
-	} else if (weaponnum == WEAPON_TRANQUILIZER) {
+	} else if (weaponHost(weaponnum) == WEAPON_TRANQUILIZER) {
 		soundnum = SFX_RELOAD_04FB;
 		speed = 2.78f;
 	} else {
@@ -648,7 +648,7 @@ void func0f060bac(s32 weaponnum, struct prop *prop)
 #else
 		soundnum = SFX_HIT_METAL_8079;
 
-		if (weaponnum != WEAPON_COMBATKNIFE && (rngRandom() % 2) == 1) {
+		if (weaponHost(weaponnum) != WEAPON_COMBATKNIFE && (rngRandom() % 2) == 1) {
 			soundnum = SFX_HATHIT_807C;
 		}
 
@@ -998,7 +998,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 							if (chrIsUsingPaintball(g_Vars.currentplayer->prop->chr)) {
 								sparktype = SPARKTYPE_PAINT;
 							} else {
-								switch (shotdata.gset.weaponnum) {
+								switch (weaponHost(shotdata.gset.weaponnum)) {
 								case WEAPON_FARSIGHT:
 									sparktype = SPARKTYPE_BGHIT_ORANGE;
 									break;
@@ -1443,7 +1443,7 @@ void handInflictMeleeDamage(s32 handnum, struct gset *gset, bool arg2)
 			struct defaultobj *obj = prop->obj;
 			bool isglass = false;
 
-			if (obj && gset->weaponnum != WEAPON_TRANQUILIZER) {
+			if (obj && weaponHost(gset->weaponnum) != WEAPON_TRANQUILIZER) {
 				isglass =
 #ifdef AVOID_UB
 					(prop->type == PROPTYPE_OBJ) &&
@@ -2819,7 +2819,7 @@ void farsightChooseTarget(void)
 	s32 weaponnum = bgunGetWeaponNum(HAND_RIGHT);
 	s32 i;
 
-	if (weaponnum == WEAPON_FARSIGHT) {
+	if (weaponHost(weaponnum) == WEAPON_FARSIGHT) {
 		s32 numchrs = chrsGetNumSlots();
 
 		for (i = numchrs - 1; i >= 0; i--) {
@@ -2887,7 +2887,7 @@ void autoaimTick(void)
 		farsightChooseTarget();
 	}
 
-	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_CMP150
+	if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_CMP150
 			&& g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY) {
 		iscmpsec = true;
 	}

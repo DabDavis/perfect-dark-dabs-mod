@@ -750,7 +750,14 @@ s32 playermgrGetModelOfWeapon(s32 weapon)
 		return g_ModWeaponChrModel[weapon];
 	}
 
-	switch (weapon) {
+#ifndef PLATFORM_N64
+	// A GoldenEye gun has a model state of its own (geguns.c)
+	if (weapon >= WEAPON_GE_FIRST && weapon < NUM_WEAPONS) {
+		return MODEL_GE_FIRST + (weapon - WEAPON_GE_FIRST);
+	}
+#endif
+
+	switch (weaponHost(weapon)) {
 	case WEAPON_NONE:
 	case WEAPON_UNARMED:          model = -1; break;
 	case WEAPON_FALCON2:          model = MODEL_CHRFALCON2; break;

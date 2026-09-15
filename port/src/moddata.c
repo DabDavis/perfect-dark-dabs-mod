@@ -1009,6 +1009,11 @@ static bool looksLikeMpWeaponSets(u32 addr, s32 count)
 static s16 modMpWeaponSlots[256];
 static bool modMpWeaponSlotsSet;
 
+s32 modDataMpWeaponsImported(void)
+{
+	return modMpWeaponSlotsSet;
+}
+
 void modDataMpWeaponSlotsReset(void)
 {
 	modMpWeaponSlotsSet = false;

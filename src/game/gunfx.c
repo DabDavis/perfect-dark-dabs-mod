@@ -124,7 +124,7 @@ void beamCreateForHand(s32 handnum)
 		beam = &hand->beam;
 		beamCreate(beam, weaponnum, &hand->muzzlepos, &hand->hitpos);
 
-		if (beam->weaponnum == WEAPON_MAULER) {
+		if (weaponHost(beam->weaponnum) == WEAPON_MAULER) {
 			beam->weaponnum = -3 - (s32)player->hands[handnum].matmot1;
 		}
 
@@ -156,7 +156,7 @@ void beamCreateForHand(s32 handnum)
 				if (!(radians > 0.08725257f) || weaponnum == -2) {
 					beamCreate(&g_Fireslots[chr->fireslots[handnum]].beam, weaponnum, &player->chrmuzzlelastpos[handnum], &hand->hitpos);
 
-					if (g_Fireslots[chr->fireslots[handnum]].beam.weaponnum == WEAPON_MAULER) {
+					if (weaponHost(g_Fireslots[chr->fireslots[handnum]].beam.weaponnum) == WEAPON_MAULER) {
 						g_Fireslots[chr->fireslots[handnum]].beam.weaponnum = -3 - (s32)player->hands[handnum].matmot1;
 					}
 				}
@@ -330,7 +330,7 @@ Gfx *beamRender(Gfx *gdl, struct beam *beam, bool arg2, u8 arg3)
 		f32 spa8;
 		f32 spa4;
 
-		switch (beam->weaponnum) {
+		switch (weaponHost(beam->weaponnum)) {
 		case WEAPON_CYCLONE:
 			texconfig = &g_TexBeamConfigs[1];
 			break;

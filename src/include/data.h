@@ -241,6 +241,28 @@ extern u16 var8006ae90[];
 extern u16 var8006af0c[];
 extern u16 var8006af8c[];
 extern struct weapon *g_Weapons[];
+
+#ifndef PLATFORM_N64
+extern const u8 g_GeWeaponHosts[NUM_GE_WEAPONS];
+extern struct weapon g_GeWeaponDefs[NUM_GE_WEAPONS];
+
+/**
+ * The weapon a weapon number behaves as: itself, or for one of GoldenEye's
+ * guns the Perfect Dark weapon it is a copy of. The game decides a great deal
+ * by comparing the number (a switch on it for the equip sound, the muzzle
+ * flash, the guard's aim), so every such test asks this rather than the
+ * number, and a copy fires, sounds and animates as its host. What is the
+ * weapon's own - its definition, name, pickup and place in the inventory -
+ * keeps the number.
+ */
+static inline s32 weaponHost(s32 weaponnum)
+{
+	return weaponnum >= WEAPON_GE_FIRST && weaponnum < NUM_WEAPONS
+		? g_GeWeaponHosts[weaponnum - WEAPON_GE_FIRST] : weaponnum;
+}
+#else
+#define weaponHost(weaponnum) (weaponnum)
+#endif
 extern u32 *g_TvCmdlists[TVCMDLIST_36 + 1];
 extern s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1];
 extern s16 g_ModPickupQty[2][AMMOTYPE_ECM_MINE + 1];

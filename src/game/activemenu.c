@@ -377,7 +377,7 @@ void amApply(s32 slot)
 #ifndef PLATFORM_N64
 					// The right hand's own radial menu: the left keeps its gun
 					if (amIsHandMenu()
-							&& weaponnum != WEAPON_REMOTEMINE
+							&& weaponHost(weaponnum) != WEAPON_REMOTEMINE
 							&& g_Vars.currentplayer->hands[HAND_LEFT].inuse
 							&& bgunGetWeaponNum(HAND_LEFT) > WEAPON_NONE
 							&& !weaponHasFlag2(bgunGetWeaponNum(HAND_LEFT), WEAPONFLAG2_DETONATORHAND)
@@ -405,7 +405,7 @@ void amApply(s32 slot)
 
 						// don't unequip detonator
 						// if we already have it equipped
-						if (weaponnum == WEAPON_REMOTEMINE) {
+						if (weaponHost(weaponnum) == WEAPON_REMOTEMINE) {
 							bgunEquipWeapon2(HAND_LEFT, weaponnum);
 						} else if (bgunGetWeaponNum(HAND_LEFT) != WEAPON_NONE) {
 							bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
@@ -416,9 +416,7 @@ void amApply(s32 slot)
 		}
 		break;
 	case 1: // Function
-		if (g_Vars.currentplayer->gunctrl.weaponnum >= WEAPON_UNARMED
-				&& g_Vars.currentplayer->gunctrl.weaponnum <= WEAPON_COMBATBOOST
-				&& g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(g_Vars.currentplayer->gunctrl.weaponnum - 1) >> 3] & (1 << ((g_Vars.currentplayer->gunctrl.weaponnum - 1) & 7))) {
+		if (VALIDWEAPON() && FUNCISSEC()) {
 			if (slot == 1) {
 				g_AmMenus[g_AmIndex].togglefunc = true;
 			}
@@ -490,7 +488,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 		if (g_AmMenus[g_AmIndex].invindexes[slot] >= invGetCount()) {
 			strcpy(label, "");
 		} else {
-			if (invGetWeaponNumByIndex(g_AmMenus[g_AmIndex].invindexes[slot]) == WEAPON_CLOAKINGDEVICE) {
+			if (weaponHost(invGetWeaponNumByIndex(g_AmMenus[g_AmIndex].invindexes[slot])) == WEAPON_CLOAKINGDEVICE) {
 				// Special case: "Cloak %d"
 				qty = bgunGetReservedAmmoCount(AMMOTYPE_CLOAK);
 				secs = qty / TICKS(60);
@@ -605,7 +603,7 @@ void amReset(void)
 			for (j = 0; j < MIN(ARRAYCOUNT(g_AmMapping), ARRAYCOUNT(g_MpSetup.weapons)); j++) {
 				s32 weaponnum = g_MpWeapons[g_MpSetup.weapons[j]].weaponnum;
 
-				switch (weaponnum) {
+				switch (weaponHost(weaponnum)) {
 				case WEAPON_NONE:
 				case WEAPON_MPSHIELD:
 				case WEAPON_DISABLED:
@@ -736,10 +734,10 @@ void amAssignWeaponSlots(void)
 	for (i = 0; i < numitems; i++) {
 		weaponnum = invGetWeaponNumByIndex(i);
 
-		if ((weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_DISGUISE41)
-				|| weaponnum == WEAPON_SUICIDEPILL
-				|| weaponnum == WEAPON_BACKUPDISK
-				|| weaponnum == WEAPON_SUITCASE) {
+		if ((weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_DISGUISE41 || weaponHost(weaponnum) != weaponnum)
+				|| weaponHost(weaponnum) == WEAPON_SUICIDEPILL
+				|| weaponHost(weaponnum) == WEAPON_BACKUPDISK
+				|| weaponHost(weaponnum) == WEAPON_SUITCASE) {
 			for (j = 0; j < ARRAYCOUNT(g_AmMenus[g_AmIndex].favourites); j++) {
 				if (g_AmMenus[g_AmIndex].favourites[j] == weaponnum) {
 					if (g_AmMenus[g_AmIndex].invindexes[j] == 0xff) {
@@ -767,9 +765,9 @@ void amAssignWeaponSlots(void)
 		if (!isfavourited) {
 			weaponnum = invGetWeaponNumByIndex(i);
 
-			if ((weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_DISGUISE41)
-					|| weaponnum == WEAPON_SUICIDEPILL
-					|| weaponnum == WEAPON_SUITCASE) {
+			if ((weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_DISGUISE41 || weaponHost(weaponnum) != weaponnum)
+					|| weaponHost(weaponnum) == WEAPON_SUICIDEPILL
+					|| weaponHost(weaponnum) == WEAPON_SUITCASE) {
 				s32 useindex = -1;
 				s32 j;
 
@@ -1143,7 +1141,7 @@ Gfx *amRenderAibotInfo(Gfx *gdl, s32 buddynum)
 			weaponnum = 0;
 		}
 
-		if (weaponnum < WEAPON_FALCON2 || weaponnum > WEAPON_HORIZONSCANNER) {
+		if (weaponHost(weaponnum) < WEAPON_FALCON2 || weaponHost(weaponnum) > WEAPON_HORIZONSCANNER) {
 			weaponname = langGet(L_MISC_173); // "No Weapon"
 		} else {
 			weaponname = bgunGetShortName(weaponnum);

@@ -1240,7 +1240,7 @@ static void modRunSnapshotKit(void)
 		// lands in, and the pill is a counter-operative's business.
 		if (weaponnum > WEAPON_NONE
 				&& weaponnum != WEAPON_UNARMED
-				&& weaponnum != WEAPON_SUICIDEPILL
+				&& weaponHost(weaponnum) != WEAPON_SUICIDEPILL
 				&& weaponnum < 256) {
 			g_ModRunCarry.weapons[g_ModRunCarry.numweapons++] = (u8)weaponnum;
 		}

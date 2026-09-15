@@ -2171,7 +2171,7 @@ void chrUpdateCloak(struct chrdata *chr)
 				chr->aibot->cloakdeviceenabled = false;
 			}
 		} else if (chr->aibot->rcp120cloakenabled) {
-			if (chr->aibot->weaponnum == WEAPON_RCP120
+			if (weaponHost(chr->aibot->weaponnum) == WEAPON_RCP120
 					&& !chrIsDead(chr)
 					&& botactGetAmmoQuantityByWeapon(chr->aibot, WEAPON_RCP120, 0, 1) > 0) {
 				if (chr->hidden & CHRHFLAG_CLOAKED) {
@@ -2241,7 +2241,7 @@ void chrUpdateCloak(struct chrdata *chr)
 
 		// If cloak is enabled via cloaking device or via RCP120
 		if ((g_Vars.currentplayer->devicesactive & DEVICE_CLOAKDEVICE)
-				|| (g_Vars.currentplayer->gunctrl.weaponnum == WEAPON_RCP120
+				|| (weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) == WEAPON_RCP120
 					&& (g_Vars.currentplayer->devicesactive & DEVICE_CLOAKRCP120))) {
 			if ((chr->hidden & CHRHFLAG_CLOAKED) == 0 && chr->cloakpause < 1) {
 				chrCloak(chr, true);
@@ -5015,13 +5015,13 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 				s32 index;
 
 				// Shooting an explosive in a chr's hand causes it to explode
-				if (weapon->weaponnum == WEAPON_GRENADE
-						|| weapon->weaponnum == WEAPON_GRENADEROUND
-						|| weapon->weaponnum == WEAPON_ROCKET
-						|| weapon->weaponnum == WEAPON_HOMINGROCKET
-						|| weapon->weaponnum == WEAPON_TIMEDMINE
-						|| weapon->weaponnum == WEAPON_REMOTEMINE
-						|| weapon->weaponnum == WEAPON_PROXIMITYMINE) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_GRENADE
+						|| weaponHost(weapon->weaponnum) == WEAPON_GRENADEROUND
+						|| weaponHost(weapon->weaponnum) == WEAPON_ROCKET
+						|| weaponHost(weapon->weaponnum) == WEAPON_HOMINGROCKET
+						|| weaponHost(weapon->weaponnum) == WEAPON_TIMEDMINE
+						|| weaponHost(weapon->weaponnum) == WEAPON_REMOTEMINE
+						|| weaponHost(weapon->weaponnum) == WEAPON_PROXIMITYMINE) {
 					objSetDropped(hit->prop, DROPTYPE_DEFAULT);
 					chr->hidden |= CHRHFLAG_DROPPINGITEM;
 					objDamage(&weapon->base, gsetGetDamage(&shotdata->gset), &sp98, shotdata->gset.weaponnum, g_Vars.currentplayernum);
@@ -5106,7 +5106,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 						&& race != RACE_ROBOT
 						&& race != RACE_EYESPY
 						&& !ismelee
-						&& shotdata->gset.weaponnum != WEAPON_TRANQUILIZER) {
+						&& weaponHost(shotdata->gset.weaponnum) != WEAPON_TRANQUILIZER) {
 					u8 darker;
 
 					if (chr->bodynum == BODY_MRBLONDE || race == RACE_SKEDAR) {
@@ -5130,7 +5130,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 						&& race != RACE_ROBOT
 						&& race != RACE_EYESPY
 						&& !ismelee
-						&& shotdata->gset.weaponnum != WEAPON_TRANQUILIZER) {
+						&& weaponHost(shotdata->gset.weaponnum) != WEAPON_TRANQUILIZER) {
 					u8 darker;
 
 					if (chr->bodynum == BODY_MRBLONDE || race == RACE_SKEDAR) {

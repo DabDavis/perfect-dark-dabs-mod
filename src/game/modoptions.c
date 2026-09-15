@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "data.h"
 #include "game/game_0b0fd0.h"
 #include "game/modoptions.h"
 #include "game/modrandom.h"
@@ -611,7 +612,7 @@ f32 modGetBlackLevelLift(void)
  */
 bool modIsWeaponAGun(s32 weaponnum)
 {
-	switch (weaponnum) {
+	switch (weaponHost(weaponnum)) {
 	case WEAPON_NONE:
 	case WEAPON_UNARMED:
 	case WEAPON_DISABLED:

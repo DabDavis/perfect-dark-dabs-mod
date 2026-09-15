@@ -211,7 +211,7 @@ void playerReset(void)
 						hasdefaultweapon = true;
 					}
 
-					if (cmd->param1 == WEAPON_EYESPY) {
+					if (weaponHost(cmd->param1) == WEAPON_EYESPY) {
 						haseyespy = true;
 					}
 				}

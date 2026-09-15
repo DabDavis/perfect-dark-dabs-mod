@@ -49,7 +49,7 @@
 static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c1buttonsthisframe, u32 buttons1, u32 buttons2) {
 	if ((((c1buttons & (buttons1)) && (c1buttonsthisframe & (buttons2)))
 			|| ((c1buttons & (buttons2)) && (c1buttonsthisframe & (buttons1))))
-			&& bgunGetWeaponNum(HAND_RIGHT) == WEAPON_REMOTEMINE) {
+			&& weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_REMOTEMINE) {
 		data->detonating = true;
 		data->weaponbackoffset = 0;
 		data->weaponforwardoffset = 0;
@@ -972,7 +972,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						}
 					}
 
-					if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
+					if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_HORIZONSCANNER) {
 						g_Vars.currentplayer->insightaimmode = true;
 					}
 
@@ -1200,7 +1200,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							&& joyGetStickY(contpad2) < -30;
 					}
 
-					if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_FARSIGHT) {
+					if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_FARSIGHT) {
 						if (g_Vars.currentplayer->insightaimmode) {
 							movedata.unk14 = 0;
 						}
@@ -1220,7 +1220,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								|| ((c1buttons & B_BUTTON) && (c1buttonsthisframe & A_BUTTON))
 								|| ((c2buttons & A_BUTTON) && (c2buttonsthisframe & B_BUTTON))
 								|| ((c2buttons & B_BUTTON) && (c2buttonsthisframe & A_BUTTON)))
-							&& weaponnum == WEAPON_REMOTEMINE) {
+							&& weaponHost(weaponnum) == WEAPON_REMOTEMINE) {
 						movedata.detonating = true;
 						movedata.weaponbackoffset = 0;
 						movedata.weaponforwardoffset = 0;
@@ -1325,7 +1325,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						}
 					}
 
-					if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
+					if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_HORIZONSCANNER) {
 						g_Vars.currentplayer->insightaimmode = true;
 					}
 
@@ -1417,7 +1417,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 								// the sights.
 								movedata.cannaturalpitch = true;
 								movedata.cannaturalturn = true;
-							} else if (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_LOCKED || bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
+							} else if (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_LOCKED || weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_HORIZONSCANNER) {
 								movedata.cannaturalpitch = movedata.cannaturalpitch || (movedata.freelookdy != 0.0f);
 								movedata.cannaturalturn = movedata.cannaturalturn  || (movedata.freelookdx != 0.0f);
 							}
@@ -1515,7 +1515,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 #ifndef PLATFORM_N64
 					// Handle turning and looking (x/y) via mouselook when aiming
 					bool allowcross = allowmcross;
-					if (g_Vars.currentplayer->insightaimmode && allowcross && bgunGetWeaponNum(HAND_RIGHT) != WEAPON_HORIZONSCANNER) {
+					if (g_Vars.currentplayer->insightaimmode && allowcross && weaponHost(bgunGetWeaponNum(HAND_RIGHT)) != WEAPON_HORIZONSCANNER) {
 						float edge_boundary = PLAYER_EXTCFG().crosshairedgeboundary;
 						if (g_Vars.currentplayer->swivelpos[0] > edge_boundary) {
 							movedata.aimturnrightspeed += (g_Vars.currentplayer->swivelpos[0] - edge_boundary) / (1.0f - edge_boundary);
@@ -1795,7 +1795,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						zoomin = c1buttons & sumask;
 
 						// @bug? Should this be HAND_RIGHT?
-						if (bgunGetWeaponNum(HAND_LEFT) == WEAPON_FARSIGHT) {
+						if (weaponHost(bgunGetWeaponNum(HAND_LEFT)) == WEAPON_FARSIGHT) {
 							increment = 0.5f;
 						}
 
@@ -1910,7 +1910,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							&& joyGetButtons(contpad1, c1allowedbuttons & sdmask);
 					}
 
-					if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_FARSIGHT) {
+					if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_FARSIGHT) {
 						movedata.farsighttempautoseek = g_Vars.currentplayer->insightaimmode && (c1buttons & (srmask | slmask));
 						if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer->insightaimmode) {
 								movedata.unk14 = 1;
@@ -1939,7 +1939,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if (controlmode != CONTROLMODE_PC) {
 						if ((((c1buttons & invbuttons) && (c1buttonsthisframe & B_BUTTON))
 								|| ((c1buttons & B_BUTTON) && (c1buttonsthisframe & invbuttons)))
-								&& weaponnum == WEAPON_REMOTEMINE) {
+								&& weaponHost(weaponnum) == WEAPON_REMOTEMINE) {
 							movedata.detonating = true;
 							movedata.weaponbackoffset = 0;
 							movedata.weaponforwardoffset = 0;
@@ -2050,7 +2050,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		zoomfov = PLAYER_DEFAULT_FOV;
 
 		// FarSight in secondary function
-		if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_FARSIGHT
+		if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_FARSIGHT
 				&& g_Vars.currentplayer->insightaimmode
 				&& (movedata.farsighttempautoseek || g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY)
 				&& g_Vars.currentplayer->autoeraserdist > 0) {
@@ -2087,7 +2087,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			zoomfov = currentPlayerGetGunZoomFov();
 		}
 
-		if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_AR34
+		if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_AR34
 				&& g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY) {
 			zoomfov = currentPlayerGetGunZoomFov();
 		}
@@ -2346,11 +2346,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				 && g_Vars.currentplayer->autoyaimprop
 				 && weaponHasAimFlag(weaponnum, INVAIMFLAG_AUTOAIM)
 				)
-				|| (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_CMP150 && g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY)) {
+				|| (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_CMP150 && g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY)) {
 			// Auto aim - move crosshair towards target
 			s32 followlockon = false;
 
-			if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_CMP150
+			if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_CMP150
 					&& g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY) {
 				followlockon = true;
 			}

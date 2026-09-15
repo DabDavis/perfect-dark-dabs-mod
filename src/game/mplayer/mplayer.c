@@ -271,6 +271,34 @@ struct mpweapon g_MpWeapons[NUM_MPWEAPONS] = {
 #endif
 	/*0x2f*/ { WEAPON_MPSHIELD,         0,                    0,   0,                   0,  1, MPFEATURE_WEAPON_SHIELD,          MODEL_CHRSHIELD,        256 },
 	/*0x30*/ { WEAPON_DISABLED }, // 0x25 on N64
+#ifndef PLATFORM_N64
+	// GoldenEye's guns with their hosts' ammo, hidden until geguns.c shows them
+	/*0x31*/ { WEAPON_GE_PP7,             AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 0,  256 },
+	/*0x32*/ { WEAPON_GE_PP7SILENCED,     AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 1,  256 },
+	/*0x33*/ { WEAPON_GE_DD44,            AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 2,  256 },
+	/*0x34*/ { WEAPON_GE_KLOBB,           AMMOTYPE_SMG,         100, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 3,  256 },
+	/*0x35*/ { WEAPON_GE_KF7SOVIET,       AMMOTYPE_RIFLE,       100, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 4,  256 },
+	/*0x36*/ { WEAPON_GE_ZMG,             AMMOTYPE_SMG,         100, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 5,  256 },
+	/*0x37*/ { WEAPON_GE_D5K,             AMMOTYPE_SMG,         100, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 6,  256 },
+	/*0x38*/ { WEAPON_GE_D5KSILENCED,     AMMOTYPE_SMG,         100, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 7,  256 },
+	/*0x39*/ { WEAPON_GE_PHANTOM,         AMMOTYPE_SMG,         100, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 8,  256 },
+	/*0x3a*/ { WEAPON_GE_AR33,            AMMOTYPE_RIFLE,       150, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 9,  256 },
+	/*0x3b*/ { WEAPON_GE_RCP90,           AMMOTYPE_SMG,         150, 0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 10, 256 },
+	/*0x3c*/ { WEAPON_GE_SHOTGUN,         AMMOTYPE_SHOTGUN,     16,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 11, 256 },
+	/*0x3d*/ { WEAPON_GE_AUTOSHOTGUN,     AMMOTYPE_SHOTGUN,     16,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 12, 256 },
+	/*0x3e*/ { WEAPON_GE_SNIPERRIFLE,     AMMOTYPE_RIFLE,       50,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 13, 256 },
+	/*0x3f*/ { WEAPON_GE_COUGARMAGNUM,    AMMOTYPE_MAGNUM,      50,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 14, 256 },
+	/*0x40*/ { WEAPON_GE_GOLDENGUN,       AMMOTYPE_MAGNUM,      50,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 15, 256 },
+	/*0x41*/ { WEAPON_GE_MOONRAKER,       0,                    0,   0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 16, 512 },
+	/*0x42*/ { WEAPON_GE_GRENADELAUNCHER, AMMOTYPE_DEVASTATOR,  16,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 17, 256 },
+	/*0x43*/ { WEAPON_GE_ROCKETLAUNCHER,  AMMOTYPE_ROCKET,      3,   0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 18, 256 },
+	/*0x44*/ { WEAPON_GE_HUNTINGKNIFE,    AMMOTYPE_KNIFE,       5,   0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 19, 256 },
+	/*0x45*/ { WEAPON_GE_THROWINGKNIFE,   AMMOTYPE_KNIFE,       5,   0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + 20, 256 },
+	/*0x46*/ { WEAPON_GE_GRENADE,         AMMOTYPE_GRENADE,     5,   0, 0, 0, MPFEATURE_NEVER, MODEL_GE_FIRST + 21, 256 },
+	/*0x47*/ { WEAPON_GE_TIMEDMINE,       AMMOTYPE_TIMED_MINE,  5,   0, 0, 0, MPFEATURE_NEVER, MODEL_GE_FIRST + 22, 384 },
+	/*0x48*/ { WEAPON_GE_PROXIMITYMINE,   AMMOTYPE_PROXY_MINE,  5,   0, 0, 0, MPFEATURE_NEVER, MODEL_GE_FIRST + 23, 384 },
+	/*0x49*/ { WEAPON_GE_REMOTEMINE,      AMMOTYPE_REMOTE_MINE, 5,   0, 0, 0, MPFEATURE_NEVER, MODEL_GE_FIRST + 24, 384 },
+#endif
 };
 
 #ifndef PLATFORM_N64
@@ -1135,8 +1163,8 @@ s32 func0f188bcc(void)
 bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
 {
 	if (mpweapon->weaponnum == WEAPON_NONE
-			|| mpweapon->weaponnum == WEAPON_MPSHIELD
-			|| mpweapon->weaponnum == WEAPON_DISABLED) {
+			|| weaponHost(mpweapon->weaponnum) == WEAPON_MPSHIELD
+			|| weaponHost(mpweapon->weaponnum) == WEAPON_DISABLED) {
 		return false;
 	}
 
@@ -1265,11 +1293,11 @@ char *mpGetWeaponLabel(s32 weaponnum)
 					return langGet(L_MPWEAPONS_058); // "Nothing"
 				}
 
-				if (g_MpWeapons[i].weaponnum == WEAPON_MPSHIELD) {
+				if (weaponHost(g_MpWeapons[i].weaponnum) == WEAPON_MPSHIELD) {
 					return langGet(L_MPWEAPONS_059); // "Shield"
 				}
 
-				if (g_MpWeapons[i].weaponnum == WEAPON_DISABLED) {
+				if (weaponHost(g_MpWeapons[i].weaponnum) == WEAPON_DISABLED) {
 					return langGet(L_MPWEAPONS_060); // "Disabled"
 				}
 
@@ -1328,7 +1356,7 @@ struct mpweapon *mpGetMpWeaponByLocation(s32 locationindex)
 	while (v0 > 0) {
 		mpweaponnum = g_MpSetup.weapons[slot];
 
-		if (g_MpWeapons[mpweaponnum].weaponnum != WEAPON_DISABLED) {
+		if (weaponHost(g_MpWeapons[mpweaponnum].weaponnum) != WEAPON_DISABLED) {
 			v0--;
 		}
 
@@ -1365,7 +1393,7 @@ s32 mpCountWeaponSetThing(s32 weaponsetindex)
 		if ((challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[0])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[1])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[2])
-				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[3])) || g_MpWeaponSets[i].unk0c != WEAPON_DISABLED) {
+				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[3])) || weaponHost(g_MpWeaponSets[i].unk0c) != WEAPON_DISABLED) {
 			count++;
 		}
 	}
@@ -1383,7 +1411,7 @@ s32 func0f188f9c(s32 arg0)
 					&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[1])
 					&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[2])
 					&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[3]))
-				|| g_MpWeaponSets[i].unk0c != WEAPON_DISABLED) {
+				|| weaponHost(g_MpWeaponSets[i].unk0c) != WEAPON_DISABLED) {
 			if (arg0 == 0) {
 				break;
 			}
@@ -1437,7 +1465,7 @@ void func0f18913c(void)
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[2])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[3])) {
 			ptr = &g_MpWeaponSets[i].slots[0];
-		} else if (g_MpWeaponSets[i].unk0c != WEAPON_DISABLED) {
+		} else if (weaponHost(g_MpWeaponSets[i].unk0c) != WEAPON_DISABLED) {
 			ptr = &g_MpWeaponSets[i].unk0c;
 		} else {
 			ptr = NULL;
@@ -1449,7 +1477,7 @@ void func0f18913c(void)
 			for (j = 0; j < ARRAYCOUNT(g_MpWeaponSets[j].slots); j++) {
 				s32 weaponnum = ptr[j];
 
-				if (weaponnum == WEAPON_MPSHIELD) {
+				if (weaponHost(weaponnum) == WEAPON_MPSHIELD) {
 					if (!challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)) {
 						weaponnum = 0;
 					}
@@ -1513,7 +1541,7 @@ void mpApplyWeaponSet(void)
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[2])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[3])) {
 			ptr = &g_MpWeaponSets[g_MpWeaponSetNum].slots[0];
-		} else if (g_MpWeaponSets[g_MpWeaponSetNum].unk0c != WEAPON_DISABLED) {
+		} else if (weaponHost(g_MpWeaponSets[g_MpWeaponSetNum].unk0c) != WEAPON_DISABLED) {
 			ptr = &g_MpWeaponSets[g_MpWeaponSetNum].unk0c;
 		} else {
 			ptr = NULL;
@@ -1526,7 +1554,7 @@ void mpApplyWeaponSet(void)
 				s32 mpweaponnum = MPWEAPON_NONE;
 				s32 weaponnum = ptr[i];
 
-				if (weaponnum == WEAPON_MPSHIELD && !challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)) {
+				if (weaponHost(weaponnum) == WEAPON_MPSHIELD && !challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)) {
 					weaponnum = 0;
 				}
 
@@ -4290,7 +4318,7 @@ void mp0f18dec4(s32 slot)
 static u64 packWeaponSetRandomFilters()
 {
 	u64 packed = 0;
-	for (int i = 0; i < NUM_MPWEAPONS; ++i) {
+	for (int i = 0; i < NUM_MPWEAPONS && i < 64; ++i) {
 		packed |= g_MpWeaponSetRandomFilters[i] != 0 ? (1LL << i) : 0;
 	}
 
@@ -4299,7 +4327,7 @@ static u64 packWeaponSetRandomFilters()
 
 static void unpackWeaponSetRandomFilters(u64 packed)
 {
-	for (int i = 0; i < NUM_MPWEAPONS; ++i) {
+	for (int i = 0; i < NUM_MPWEAPONS && i < 64; ++i) {
 		g_MpWeaponSetRandomFilters[i] = (packed & (1LL << i)) != 0;
 	}
 }

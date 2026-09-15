@@ -11,6 +11,7 @@
 #include "types.h"
 #include "platform.h"
 #ifndef PLATFORM_N64
+#include <string.h>
 #include "video.h"
 #endif
 
@@ -431,12 +432,51 @@ void langClearBank(s32 bank)
  * The language file data consists of a variable-length array of offsets into
  * the file. Not to be confused with pointers.
  */
+#ifndef PLATFORM_N64
+static const char *g_LangPortTexts[0x200];
+static s32 g_LangNumPortTexts;
+
+/**
+ * A text id for a string no language file has, such as a GoldenEye gun's
+ * name, so it goes wherever the game passes a text id around. The string must
+ * outlive the game and end in a newline, as the files' do. 0 when full.
+ */
+u16 langAddPortText(const char *text)
+{
+	for (s32 i = 0; i < g_LangNumPortTexts; i++) {
+		if (strcmp(g_LangPortTexts[i], text) == 0) {
+			return (LANGBANK_PORT << 9) | i;
+		}
+	}
+
+	if (g_LangNumPortTexts >= ARRAYCOUNT(g_LangPortTexts)) {
+		return 0;
+	}
+
+	g_LangPortTexts[g_LangNumPortTexts] = text;
+
+	return (LANGBANK_PORT << 9) | g_LangNumPortTexts++;
+}
+#endif
+
 char *langGet(s32 textid)
 {
 	s32 bankindex = textid >> 9;
 	s32 textindex = textid & 0x1ff;
-	uintptr_t *bank = (uintptr_t*)g_LangBanks[bankindex];
+	uintptr_t *bank;
 	uintptr_t addr;
+
+#ifndef PLATFORM_N64
+	if (bankindex == LANGBANK_PORT) {
+		return (char *)(textindex < g_LangNumPortTexts ? g_LangPortTexts[textindex] : "");
+	}
+
+	if (bankindex < 0 || bankindex >= ARRAYCOUNT(g_LangBanks)) {
+		return NULL;
+	}
+#endif
+
+	bank = (uintptr_t*)g_LangBanks[bankindex];
 
 	if (bank && bank[textindex]) {
 		addr = (uintptr_t)bank + bank[textindex];

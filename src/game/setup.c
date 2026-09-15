@@ -652,7 +652,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 	// translated: outside a match there is no mpGetMpWeaponByLocation() to
 	// ask, and a marker is a slot for the match to fill rather than a gun.
 	if (!g_Vars.normmplayerisrunning && !g_Vars.lvmpbotlevel
-			&& weapon->weaponnum > WEAPON_SUICIDEPILL) {
+			&& weapon->weaponnum >= NUM_WEAPONS) {
 		weapon->weaponnum = WEAPON_NONE;
 	}
 #endif
@@ -672,7 +672,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 #else
 				if (g_Vars.stagenum == STAGE_INVESTIGATION
 						&& lvGetDifficulty() == DIFF_PA
-						&& weapon->weaponnum == WEAPON_K7AVENGER) {
+						&& weaponHost(weapon->weaponnum) == WEAPON_K7AVENGER) {
 					modelmgrLoadProjectileModeldefs(weapon->weaponnum);
 					func0f08b25c(weapon, chr);
 				} else if (g_Vars.stagenum == STAGE_ATTACKSHIP) {
@@ -686,7 +686,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 #endif
 			} else {
 				if (cheatIsActive(CHEAT_ENEMYROCKETS)) {
-					switch (weapon->weaponnum) {
+					switch (weaponHost(weapon->weaponnum)) {
 					case WEAPON_FALCON2:
 					case WEAPON_FALCON2_SILENCER:
 					case WEAPON_FALCON2_SCOPE:
@@ -748,7 +748,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 
 			g_SetupCurMpLocation = -1;
 
-			switch (weapon->weaponnum) {
+			switch (weaponHost(weapon->weaponnum)) {
 			case WEAPON_MPLOCATION00:
 			case WEAPON_MPLOCATION01:
 			case WEAPON_MPLOCATION02:
@@ -773,7 +773,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 				weapon->base.extrascale = mpweapon->extrascale;
 				createweapon = mpweapon->hasweapon;
 
-				if (mpweapon->weaponnum == WEAPON_MPSHIELD) {
+				if (weaponHost(mpweapon->weaponnum) == WEAPON_MPSHIELD) {
 					struct shieldobj *shield = (struct shieldobj *)weapon;
 					shield->base.modelnum = MODEL_CHRSHIELD;
 					shield->base.type = OBJTYPE_SHIELD;

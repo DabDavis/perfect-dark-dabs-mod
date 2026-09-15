@@ -3975,7 +3975,7 @@ MenuDialogHandlerResult inventoryMenuDialog(s32 operation, struct menudialogdef 
 				var80072d88 = g_InventoryWeapon;
 			}
 
-			if (g_InventoryWeapon == WEAPON_DISGUISE40 || g_InventoryWeapon == WEAPON_DISGUISE41) {
+			if (weaponHost(g_InventoryWeapon) == WEAPON_DISGUISE40 || weaponHost(g_InventoryWeapon) == WEAPON_DISGUISE41) {
 				g_Menus[g_MpPlayerNum].menumodel.newanimnum = ANIM_006A;
 				g_Menus[g_MpPlayerNum].menumodel.rottimer60 = TICKS(60);
 				g_Menus[g_MpPlayerNum].menumodel.zoomtimer60 = TICKS(120);
@@ -4037,7 +4037,7 @@ char *invMenuTextWeaponDescription(struct menuitem *item)
 	struct weapon *weapon = weaponFindById(g_InventoryWeapon);
 
 	if (weapon) {
-		if (g_InventoryWeapon == WEAPON_EYESPY && g_Vars.currentplayer->eyespy) {
+		if (weaponHost(g_InventoryWeapon) == WEAPON_EYESPY && g_Vars.currentplayer->eyespy) {
 			if (g_Vars.currentplayer->eyespy->mode == EYESPYMODE_DRUGSPY) {
 				return langGet(L_GUN_237); // Drugspy description
 			}
@@ -4047,7 +4047,7 @@ char *invMenuTextWeaponDescription(struct menuitem *item)
 			}
 		}
 
-		if (g_InventoryWeapon == WEAPON_NECKLACE
+		if (weaponHost(g_InventoryWeapon) == WEAPON_NECKLACE
 				&& g_Vars.stagenum == (VERSION >= VERSION_NTSC_1_0 ? STAGE_ATTACKSHIP : STAGE_SKEDARRUINS)
 				&& lvGetDifficulty() >= DIFF_PA) {
 #if VERSION >= VERSION_NTSC_1_0
@@ -4332,7 +4332,7 @@ MenuItemHandlerResult menuhandlerInventoryList(s32 operation, struct menuitem *i
 					bgunEquipWeapon2(HAND_RIGHT, weaponnum);
 					// don't unequip detonator
 					// if we already have it equipped
-					if (weaponnum == WEAPON_REMOTEMINE) {
+					if (weaponHost(weaponnum) == WEAPON_REMOTEMINE) {
 						bgunEquipWeapon2(HAND_LEFT, weaponnum);
 					} else {
 						bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);

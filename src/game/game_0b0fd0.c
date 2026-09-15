@@ -213,7 +213,7 @@ f32 currentPlayerGetGunZoomFov(void)
 	s32 index = -1;
 	struct weapon *weapon;
 
-	switch (bgunGetWeaponNum2(0)) {
+	switch (weaponHost(bgunGetWeaponNum2(0))) {
 	case WEAPON_SNIPERRIFLE:
 		index = 0;
 		break;
@@ -243,7 +243,7 @@ void currentPlayerZoomOut(f32 fovpersec)
 {
 	s32 index = -1;
 
-	switch (bgunGetWeaponNum2(0)) {
+	switch (weaponHost(bgunGetWeaponNum2(0))) {
 	case WEAPON_SNIPERRIFLE:
 		index = 0;
 		break;
@@ -258,7 +258,7 @@ void currentPlayerZoomOut(f32 fovpersec)
 	if (index >= 0) {
 		f32 amount = fovpersec * 0.25f * LVUPDATE60FREAL();
 
-		if (bgunGetWeaponNum2(0) == WEAPON_FARSIGHT) {
+		if (weaponHost(bgunGetWeaponNum2(0)) == WEAPON_FARSIGHT) {
 			amount *= 0.5f;
 		}
 
@@ -274,7 +274,7 @@ void currentPlayerZoomIn(f32 fovpersec)
 {
 	s32 index = -1;
 
-	switch (bgunGetWeaponNum2(0)) {
+	switch (weaponHost(bgunGetWeaponNum2(0))) {
 	case WEAPON_SNIPERRIFLE:
 		index = 0;
 		break;
@@ -289,7 +289,7 @@ void currentPlayerZoomIn(f32 fovpersec)
 	if (index >= 0) {
 		f32 amount = fovpersec * 0.25f * LVUPDATE60FREAL();
 
-		if (bgunGetWeaponNum2(0) == WEAPON_FARSIGHT) {
+		if (weaponHost(bgunGetWeaponNum2(0)) == WEAPON_FARSIGHT) {
 			amount *= 0.5f;
 		}
 
@@ -379,7 +379,7 @@ bool weaponIsProximityMine(s32 itemid, s32 funcnum)
  */
 s32 weaponFindDeployable(void)
 {
-	for (s32 i = WEAPON_UNARMED; i <= WEAPON_SUICIDEPILL; ++i) {
+	for (s32 i = WEAPON_UNARMED; i < NUM_WEAPONS; ++i) {
 		if (weaponHasFlag3(i, WEAPONFLAG3_DEPLOYS)) {
 			return i;
 		}
@@ -527,11 +527,11 @@ void gsetPopulateFromCurrentPlayer(s32 handnum, struct gset *gset)
 	gset->unk063a = g_Vars.currentplayer->hands[handnum].gset.unk063a;
 	gset->unk0639 = g_Vars.currentplayer->hands[handnum].gset.unk0639;
 
-	if (gset->weaponnum == WEAPON_MAULER) {
+	if (weaponHost(gset->weaponnum) == WEAPON_MAULER) {
 		gset->unk063a = g_Vars.currentplayer->hands[handnum].matmot1 * 10.0f;
 	}
 
-	if (gset->weaponnum == WEAPON_LASER) {
+	if (weaponHost(gset->weaponnum) == WEAPON_LASER) {
 		gset->unk063a = g_Vars.currentplayer->hands[handnum].burstbullets & 0xff;
 	}
 }
@@ -600,7 +600,7 @@ f32 gsetGetDamage(struct gset *gset)
 			struct weaponfunc_melee *meleefunc = (struct weaponfunc_melee *)func;
 			damage = meleefunc->damage;
 
-			if (gset->weaponnum == WEAPON_REAPER) {
+			if (weaponHost(gset->weaponnum) == WEAPON_REAPER) {
 				damage *= LVUPDATE60FREAL();
 			}
 		}
@@ -611,7 +611,7 @@ f32 gsetGetDamage(struct gset *gset)
 		}
 	}
 
-	if (gset->weaponnum == WEAPON_MAULER) {
+	if (weaponHost(gset->weaponnum) == WEAPON_MAULER) {
 		damage = (gset->unk063a / 3.0f + 1.0f) * damage;
 	}
 
@@ -717,7 +717,7 @@ u32 currentPlayerGetSight(void)
 		return g_ModWeaponSight[weaponnum];
 	}
 
-	switch (weaponnum) {
+	switch (weaponHost(weaponnum)) {
 	case WEAPON_HORIZONSCANNER:
 		return SIGHT_NONE;
 	case WEAPON_NONE:

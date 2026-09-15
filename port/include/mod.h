@@ -194,6 +194,8 @@ s32 modDataTexNum(s32 def);
 // A Combat Simulator weapon slot as a ROM mpconfigs record numbers it, as the
 // port's g_MpWeapons has it (the mod's imported list, or the stock layout)
 s32 modDataMpWeaponSlot(s32 romslot);
+// Whether a mod's Combat Simulator weapon list replaced the game's
+s32 modDataMpWeaponsImported(void);
 void modDataMpWeaponSlotsReset(void);
 
 // The rooms roomPopulateMtx() pins: a room number as the mod's code has it,

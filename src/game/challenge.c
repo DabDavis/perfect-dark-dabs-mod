@@ -224,7 +224,8 @@ void challengeDetermineUnlockedFeatures(void)
 	for (j = 0; j < func0f188bcc(); j++) {
 		struct mpweapon *weapon = &g_MpWeapons[j];
 
-		if (weapon->unlockfeature > 0 && func0f19cbcc(weapon->weaponnum)) {
+		if (weapon->unlockfeature > 0 && weapon->unlockfeature < ARRAYCOUNT(g_MpFeaturesUnlocked)
+				&& func0f19cbcc(weapon->weaponnum)) {
 			g_MpFeaturesUnlocked[weapon->unlockfeature] |= 1;
 		}
 	}
@@ -677,7 +678,7 @@ s32 challengeForceUnlockSetupFeatures(struct mpsetup *setup, u8 *array, s32 len)
 	for (i = 0; i < ARRAYCOUNT(setup->weapons); i++) {
 		s32 featurenum = g_MpWeapons[setup->weapons[i]].unlockfeature;
 
-		if (featurenum) {
+		if (featurenum && featurenum < ARRAYCOUNT(g_MpFeaturesUnlocked)) {
 			index = challengeForceUnlockFeature(featurenum, array, index, len);
 		}
 	}
@@ -1077,6 +1078,13 @@ bool challengeIsFeatureUnlocked(s32 featurenum)
 	if (featurenum == 0) {
 		return true;
 	}
+
+#ifndef PLATFORM_N64
+	// MPFEATURE_NEVER, and anything else past the table
+	if (featurenum < 0 || featurenum >= ARRAYCOUNT(g_MpFeaturesUnlocked)) {
+		return false;
+	}
+#endif
 
 	if ((g_ModUnlocks & MODUNLOCK_MPOPTIONS) && (featurenum == MPFEATURE_SLOWMOTION || featurenum == MPFEATURE_ONEHITKILLS)) {
 		return true;

@@ -35,6 +35,8 @@
 #include "xblatex.h"
 #include "xblamesh.h"
 #include "gebean.h"
+#include "geguns.h"
+#include "mod.h"
 #include "data.h"
 
 #ifndef PLATFORM_N64
@@ -42,20 +44,23 @@
 #define GEBEAN_XBLA_DIR "xbla"
 #define GEBEAN_CACHE_DIR "cache"
 // Written once an archive's characters are out. The first one (".extracted")
-// was written when only new/ was taken, so a cache holding that is unpacked
-// again for the originals.
-#define GEBEAN_DONE_FILE ".extracted2"
+// was written when only new/ was taken, and the second (".extracted2") before
+// the guns' pickups were, so a cache holding either is unpacked again.
+#define GEBEAN_DONE_FILE ".extracted3"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
 // the characters and heads, where Rare put them - the HD ones in new/, and in
-// original/ the N64-look ones Bean switched to, under the same names. The rest
-// of the archive is levels, guns and music.
+// original/ the N64-look ones Bean switched to, under the same names - and the
+// guns' pickups, which Bean keeps among the props as chr<gun>. The rest of the
+// archive is levels, first-person guns and music.
 #define GEBEAN_TREE "files/new/char"
 #define GEBEAN_WANT_CHARS "files/new/char/"
 #define GEBEAN_WANT_HEADS "files/new/head/"
 #define GEBEAN_WANT_ORIGINAL_CHARS "files/original/char/"
 #define GEBEAN_WANT_ORIGINAL_HEADS "files/original/head/"
+#define GEBEAN_WANT_PICKUPS "files/new/prop/chr"
+#define GEBEAN_WANT_ORIGINAL_PICKUPS "files/original/prop/chr"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -224,7 +229,37 @@ static s32 poolSlot[ARRAYCOUNT(poolRows)];
 _Static_assert(GEBEAN_POOL_BASE + ARRAYCOUNT(poolRows) <= NUM_HEADSANDBODIES,
 		"the GoldenEye pool must fit g_HeadsAndBodies");
 
-/** A row of either table: GoldenEye X's first, the pool's after them. */
+/**
+ * GoldenEye's guns (geguns.c): each one's pickup model state is an alias of
+ * its host's pickup, and the release's pickup - a rigid mesh, laid onto
+ * GoldenEye's N64 pickup whose frame is Perfect Dark's by a fit made offline
+ * (gegunstable.h) - is drawn on it.
+ */
+struct gebeangunrow {
+	struct gebeanrow row;
+	s32 weaponnum;
+	u8 perm[3];
+	s8 sign[3];
+	f32 scale;
+	f32 beancentre[3];
+	f32 n64centre[3];
+};
+
+// A rigid pickup on the model's own matrices (gebeanBuildRigid())
+#define GEBEAN_RIGID 4
+
+#define GUNROW(weapon, file, source, p0, p1, p2, s0, s1, s2, scale, bx, by, bz, nx, ny, nz) \
+	{ { file, 0, 0, GEBEAN_RIGID, source }, weapon, { p0, p1, p2 }, { s0, s1, s2 }, scale, { bx, by, bz }, { nx, ny, nz } }
+
+static const struct gebeangunrow gunRows[] = {
+#include "gegunstable.h"
+};
+
+_Static_assert(ARRAYCOUNT(gunRows) == NUM_GE_WEAPONS, "a pickup row per GoldenEye gun");
+
+static s32 gunSlot[ARRAYCOUNT(gunRows)];
+
+/** A row of any table: GoldenEye X's first, then the pool's, then the guns'. */
 static const struct gebeanrow *gebeanRowAt(s32 row)
 {
 	if (row >= 0 && row < ARRAYCOUNT(rows)) {
@@ -235,10 +270,18 @@ static const struct gebeanrow *gebeanRowAt(s32 row)
 		return &poolRows[row - ARRAYCOUNT(rows)].row;
 	}
 
+	if (row >= ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows)
+			&& row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows)) {
+		return &gunRows[row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows)].row;
+	}
+
 	return NULL;
 }
 
-/** The pool row a file number is the alias for, or -1. */
+/**
+ * The row number of a pool or gun file - an alias this registered - or -1.
+ * The alias keeps the table's own string, so a pointer compare names it.
+ */
 static s32 gebeanPoolRowForFile(u16 fileid)
 {
 	const char *name = fileid ? romdataFileGetName(fileid) : NULL;
@@ -247,10 +290,15 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 		return -1;
 	}
 
-	// The alias keeps the table's own string, so a pointer compare names it
 	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
 		if (poolSlot[i] == fileid && name == poolRows[i].row.file) {
-			return i;
+			return ARRAYCOUNT(rows) + i;
+		}
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
+		if (gunSlot[i] == fileid && name == gunRows[i].row.file) {
+			return ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + i;
 		}
 	}
 
@@ -268,12 +316,67 @@ const char *gebeanPoolBodyName(s32 bodynum)
 	return poolRows[i].name;
 }
 
+/**
+ * GoldenEye's guns (geguns.c): their Combat Simulator rows are shown, and
+ * each one's model state is an alias of its host's pickup that the release's
+ * pickup is drawn on, when the switch is on, a copy is in xbla/ and the weapon
+ * list is the game's own; otherwise the rows are hidden and the model states
+ * are the host's pickup again.
+ */
+static void gebeanGunsRefresh(void)
+{
+	const s32 show = enabled && !modDataMpWeaponsImported() && gebeanIsAvailable();
+	s32 shown = 0;
+
+	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
+		const s32 hostmodel = gegunsHostModel(i);
+		struct modelstate *state = &g_ModelStates[MODEL_GE_FIRST + i];
+		s32 fileid = 0;
+		u16 scale = 0x199;
+
+		if (hostmodel >= 0 && hostmodel < MODEL_GE_FIRST) {
+			fileid = g_ModelStates[hostmodel].fileid;
+			scale = g_ModelStates[hostmodel].scale;
+		}
+
+		gunSlot[i] = 0;
+
+		if (show && fileid) {
+			const s32 slot = romdataRegisterAliasFile(gunRows[i].row.file, fileid);
+
+			if (slot) {
+				gunSlot[i] = slot;
+				fileid = slot;
+				shown++;
+			}
+		}
+
+		// A stage that loaded the other file keeps its own model; the next
+		// load takes the new one
+		if (state->fileid != fileid) {
+			state->modeldef = NULL;
+		}
+
+		state->fileid = (u16)fileid;
+		state->scale = scale;
+
+		g_MpWeapons[MPWEAPON_GE_FIRST + i].unlockfeature = show ? 0 : MPFEATURE_NEVER;
+	}
+
+	if (show) {
+		sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye guns in the Combat Simulator's weapons, %d with the release's pickup",
+				ARRAYCOUNT(gunRows), shown);
+	}
+}
+
 void gebeanPoolRefresh(void)
 {
 	s32 numbodies = g_MpListCounts.bodies;
 	s32 numheads = g_MpListCounts.heads;
 	s32 addedbodies = 0;
 	s32 addedheads = 0;
+
+	gebeanGunsRefresh();
 
 	// Off with whatever this put on last time: the tail of each list whose
 	// rows are the pool's
@@ -541,7 +644,8 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 	lower[i] = '\0';
 
 	return strstr(lower, GEBEAN_WANT_CHARS) != NULL || strstr(lower, GEBEAN_WANT_HEADS) != NULL
-		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL;
+		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL
+		|| strstr(lower, GEBEAN_WANT_PICKUPS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_PICKUPS) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -682,7 +786,8 @@ const char *gebeanRowName(s32 row)
 
 s32 gebeanRowIsPool(s32 row)
 {
-	return row >= ARRAYCOUNT(rows) && row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows);
+	// The guns' pickups too: they stand on Perfect Dark models, as the pool does
+	return row >= ARRAYCOUNT(rows) && row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows);
 }
 
 s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef)
@@ -702,7 +807,7 @@ s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef)
 	row = gebeanPoolRowForFile(fileid);
 
 	if (row >= 0) {
-		return ARRAYCOUNT(rows) + row;
+		return row;
 	}
 
 	if (romdataFileIsStock(fileid)) {
@@ -1080,6 +1185,7 @@ struct beanvtx {
 	f32 uv[2];
 	s8 slot[4];   // palette slot, or -1
 	u8 weight[4];
+	u32 argb;     // a rigid prop's colour; white where the buffer has none
 };
 
 static s32 beanReadVb(const struct beanmodel *bm, u32 desc, struct beanvb *vb)
@@ -1159,6 +1265,7 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 	}
 
 	v->weight[0] = 255;
+	v->argb = 0xffffffff;
 
 	switch (vb->stride) {
 	case 28:
@@ -1184,9 +1291,11 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 	case 20:
 		k = 12;
 		hasuv = 0;
+		v->argb = gebeanBE32(p + 16);
 		break;
 	case 24:
 		k = 12;
+		v->argb = gebeanBE32(p + 20);
 		break;
 	default:
 		return 0;
@@ -2378,12 +2487,18 @@ struct beanout {
 	f32 *uv;     // 2
 	f32 *weight; // 3
 	u8 *bone;    // 3
+	u32 *argb;   // 1
 	s32 numtris, captris;
 	struct beantri *tris;
 };
 
+/**
+ * argb is the vertex colour the mesh is drawn with: white for a character,
+ * whose textures carry the colour, and a rigid prop's own, which tints the
+ * N64-look originals' intensity textures (a pickup would be white otherwise).
+ */
 static s32 beanAddVertex(struct beanout *o, const f32 *pos, const f32 *nrm, const f32 *uv,
-		const u8 *bone, const f32 *weight)
+		const u8 *bone, const f32 *weight, u32 argb)
 {
 	if (o->numverts >= GEBEAN_MAXVERTS) {
 		return -1;
@@ -2396,14 +2511,16 @@ static s32 beanAddVertex(struct beanout *o, const f32 *pos, const f32 *nrm, cons
 		f32 *u = n ? realloc(o->uv, cap * 2 * sizeof(f32)) : NULL;
 		f32 *w = u ? realloc(o->weight, cap * 3 * sizeof(f32)) : NULL;
 		u8 *b = w ? realloc(o->bone, cap * 3) : NULL;
+		u32 *c = b ? realloc(o->argb, cap * sizeof(u32)) : NULL;
 
 		if (p) o->pos = p;
 		if (n) o->nrm = n;
 		if (u) o->uv = u;
 		if (w) o->weight = w;
 		if (b) o->bone = b;
+		if (c) o->argb = c;
 
-		if (!b) {
+		if (!c) {
 			return -1;
 		}
 
@@ -2415,6 +2532,7 @@ static s32 beanAddVertex(struct beanout *o, const f32 *pos, const f32 *nrm, cons
 	memcpy(o->uv + o->numverts * 2, uv, 2 * sizeof(f32));
 	memcpy(o->weight + o->numverts * 3, weight, 3 * sizeof(f32));
 	memcpy(o->bone + o->numverts * 3, bone, 3);
+	o->argb[o->numverts] = argb;
 
 	return o->numverts++;
 }
@@ -2454,6 +2572,7 @@ static void beanOutFree(struct beanout *o)
 	free(o->uv);
 	free(o->weight);
 	free(o->bone);
+	free(o->argb);
 	free(o->tris);
 }
 
@@ -2588,7 +2707,7 @@ static u8 *beanWriteMesh(struct beanout *o, s32 numgroups, s32 nummatrices, cons
 
 		gebeanPutBEF32(v + 12, o->uv[i * 2]);
 		gebeanPutBEF32(v + 16, o->uv[i * 2 + 1]);
-		gebeanPutBE32(v + 32, 0xffffffff);
+		gebeanPutBE32(v + 32, o->argb[i]);
 		gebeanPutBEF32(v + 36, w[0]);
 		gebeanPutBEF32(v + 40, w[1]);
 		gebeanPutBE32(v + 44, ((u32)bone[0] << 24) | ((u32)bone[1] << 16) | ((u32)bone[2] << 8) | 3);
@@ -2731,9 +2850,195 @@ static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back)
 	free(count);
 }
 
+/**
+ * A gun's pickup (gunRows): rigid, every vertex on the matrix of the model's
+ * first list node, laid onto GoldenEye's N64 pickup by the row's fit - Bean's
+ * axis perm[k] times sign[k] becomes axis k, centred, scaled and moved to the
+ * N64 pickup's centre, which is in the list node's own space. The fit's axes
+ * are a mirror when the permutation and the signs are, so the triangles are
+ * wound the other way then. The model's other list nodes draw nothing.
+ */
+static u8 *gebeanBuildRigid(s32 gun, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
+		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
+{
+	const struct gebeangunrow *g = &gunRows[gun];
+	char source[64];
+	struct beanmodel bm;
+	struct beanout out;
+	u32 matwords[GEBEAN_MAXMATS];
+	s32 nummatwords;
+	s32 nummatrices = modeldef->nummatrices;
+	s32 mtx = gebeanListNodeMatrix(nodes[0]);
+	s32 mirror;
+	u8 *file;
+
+	// An odd permutation of three axes swaps two; each negative sign mirrors once
+	mirror = (g->perm[0] == 0) + (g->perm[1] == 1) + (g->perm[2] == 2) == 1;
+
+	for (s32 k = 0; k < 3; k++) {
+		mirror ^= g->sign[k] < 0;
+	}
+
+	if (nummatrices <= 0 || nummatrices > GEBEAN_MAXMTX) {
+		return NULL;
+	}
+
+	if (mtx < 0 || mtx >= nummatrices) {
+		mtx = 0;
+	}
+
+	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", g->row.source);
+
+	if (!gebeanLocate(1) || !beanLoad(&bm, source)) {
+		return NULL;
+	}
+
+	memset(&out, 0, sizeof(out));
+
+	for (s32 di = 0; di < bm.numdraws; di++) {
+		const struct beandraw *d = &bm.draws[di];
+		struct beanvb vb;
+		u16 *tris;
+		s32 numtris;
+		s32 *mapped;
+
+		if (!beanReadVb(&bm, d->vb, &vb)) {
+			continue;
+		}
+
+		numtris = beanTriangles(&bm, d, &tris);
+
+		if (numtris <= 0) {
+			free(tris);
+			continue;
+		}
+
+		mapped = malloc(vb.count * sizeof(s32));
+
+		if (!mapped) {
+			free(tris);
+			continue;
+		}
+
+		for (u32 i = 0; i < vb.count; i++) {
+			mapped[i] = -1;
+		}
+
+		for (s32 t = 0; t < numtris; t++) {
+			u16 idx[3];
+			s32 ok = 1;
+
+			for (s32 i = 0; i < 3 && ok; i++) {
+				const u16 vi = tris[t * 3 + i];
+				struct beanvtx v;
+				f32 pos[3];
+				f32 nrm[3];
+				const u8 bone[3] = { (u8)mtx, (u8)mtx, (u8)mtx };
+				const f32 weight[3] = { 1.0f, 0.0f, 0.0f };
+
+				if (mapped[vi] >= 0) {
+					idx[i] = (u16)mapped[vi];
+					continue;
+				}
+
+				if (!beanVertex(&bm, &vb, vi, &v)) {
+					ok = 0;
+					break;
+				}
+
+				for (s32 k = 0; k < 3; k++) {
+					const f32 p = g->sign[k] * v.pos[g->perm[k]];
+
+					pos[k] = (p - g->beancentre[k]) * g->scale + g->n64centre[k];
+					nrm[k] = g->sign[k] * v.nrm[g->perm[k]];
+				}
+
+				mapped[vi] = beanAddVertex(&out, pos, nrm, v.uv, bone, weight, v.argb);
+
+				if (mapped[vi] < 0) {
+					ok = 0;
+					break;
+				}
+
+				idx[i] = (u16)mapped[vi];
+			}
+
+			if (!ok) {
+				continue;
+			}
+
+			if (!beanAddTri(&out, 0, (s32)d->tex, idx[0], mirror ? idx[2] : idx[1], mirror ? idx[1] : idx[2])) {
+				break;
+			}
+		}
+
+		free(mapped);
+		free(tris);
+	}
+
+	if (out.numverts > 0) {
+		for (s32 k = 1; k < numnodes; k++) {
+			beanAddTri(&out, k, 0, 0, 0, 0);
+		}
+	}
+
+	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
+	memset(mats, 0, sizeof(*mats));
+	mats->num = nummatwords;
+
+	for (s32 i = 0; i < nummatwords; i++) {
+		matwords[i] = XBLAMESH_MAT_TABLE | (u32)i;
+	}
+
+	for (s32 i = 0; i < bm.numtex && i < nummatwords; i++) {
+		s32 used = 0;
+
+		for (s32 t = 0; t < out.numtris; t++) {
+			if (out.tris[t].tex == i) {
+				used = 1;
+				break;
+			}
+		}
+
+		if (used && beanBindTexture(&bm, source, i, &mats->tile[i], &mats->alpha[i], &mats->soft[i])
+				&& mats->alpha[i]) {
+			matwords[i] |= 0x8000;
+		}
+	}
+
+	for (s32 t = 0; t < out.numtris; t++) {
+		if (out.tris[t].tex >= bm.numtex) {
+			out.tris[t].tex = (u16)(nummatwords - 1);
+		}
+	}
+
+	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, rigid on matrix %d of %d%s%s",
+			g->row.file, source, out.numverts, out.numtris, mtx, nummatrices,
+			mirror ? ", mirrored" : "", file ? "" : " - did not write");
+
+	beanOutFree(&out);
+	beanFree(&bm);
+
+	return file;
+}
+
 u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
+	{
+		const s32 gun = row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows);
+
+		if (gun >= 0 && gun < ARRAYCOUNT(gunRows)) {
+			*outLen = 0;
+			*outAbsent = 0;
+
+			return modeldef && numnodes > 0 && numnodes <= 64
+				? gebeanBuildRigid(gun, original, modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
+		}
+	}
+
 	const struct gebeanrow *r;
 	char source[64];
 	struct beanmodel bm;
@@ -3076,7 +3381,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 				}
 
-				mapped[vi] = beanAddVertex(&out, pos, nrm, uv, bone, weight);
+				mapped[vi] = beanAddVertex(&out, pos, nrm, uv, bone, weight, 0xffffffff);
 
 				if (mapped[vi] < 0) {
 					ok = 0;

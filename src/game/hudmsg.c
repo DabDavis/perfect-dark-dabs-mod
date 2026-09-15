@@ -316,7 +316,7 @@ Gfx *hudmsgRenderZoomRange(Gfx *gdl, u32 alpha)
 	zoominfovy = g_Vars.currentplayer->zoominfovy;
 
 	if (zoomfov == 0.0f || zoomfov == 60.0f) {
-		if (weaponnum == WEAPON_SNIPERRIFLE) {
+		if (weaponHost(weaponnum) == WEAPON_SNIPERRIFLE) {
 			curzoom = 1.0f;
 		} else {
 			return gdl;

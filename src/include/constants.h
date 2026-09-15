@@ -161,8 +161,18 @@
 #define PLAYERCOUNT()       1
 #endif
 
-#define VALIDWEAPON()       (g_Vars.currentplayer->gunctrl.weaponnum >= WEAPON_UNARMED && g_Vars.currentplayer->gunctrl.weaponnum <= WEAPON_COMBATBOOST)
-#define FUNCISSEC()         (VALIDWEAPON() && (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(g_Vars.currentplayer->gunctrl.weaponnum - 1) >> 3] & (1 << ((g_Vars.currentplayer->gunctrl.weaponnum - 1) & 7))))
+// A GoldenEye gun keeps its host's choice of function (weaponHost()): the
+// saved bits run to WEAPON_COMBATBOOST
+#define VALIDWEAPON()       (weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) >= WEAPON_UNARMED && weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) <= WEAPON_COMBATBOOST)
+#define FUNCISSEC()         (VALIDWEAPON() && (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) - 1) >> 3] & (1 << ((weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) - 1) & 7))))
+
+#ifndef PLATFORM_N64
+// Whether next/previous weapon stops at an inventory item: the guns below
+// NUM_CYCLEABLE_WEAPONS, and GoldenEye's past the stock table
+#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < NUM_WEAPONS))
+#else
+#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS)
+#endif
 
 #define USINGDEVICE(device) (!g_Vars.currentplayer->isdead \
 		&& !g_InCutscene \
@@ -2400,7 +2410,14 @@
 #define MODEL_BUDDYBRIDGE           0x01b8
 #define MODEL_JPNLOGO               0x01b9
 #define MODEL_JPNPD                 0x01ba
+#ifndef PLATFORM_N64
+// Past the stock table: a model state for each of GoldenEye's guns, filled by
+// geguns.c. NUM_WEAPONS is further down; the count is written out and checked there.
+#define MODEL_GE_FIRST              (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
+#define NUM_MODELS                  (MODEL_GE_FIRST + 25)
+#else
 #define NUM_MODELS                  (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
+#endif
 
 #define MODELNODETYPE_CHRINFO      0x01
 #define MODELNODETYPE_POSITION     0x02
@@ -3279,7 +3296,15 @@
 #define MPWEAPON_RCP45            0x2e
 #define MPWEAPON_SHIELD           0x2f
 #define MPWEAPON_DISABLED         0x30
-#define NUM_MPWEAPONS             0x31
+// GoldenEye's guns, one row each after Disabled so no saved index moves;
+// shown only while geguns.c says so (MPFEATURE_NEVER otherwise)
+#define MPWEAPON_GE_FIRST         0x31
+#define NUM_MPWEAPONS             (MPWEAPON_GE_FIRST + 25)
+#endif
+
+#ifndef PLATFORM_N64
+// An unlock feature nothing unlocks, past g_MpFeaturesUnlocked (7 bits)
+#define MPFEATURE_NEVER           0x7f
 #endif
 
 #define MUSICEVENTTYPE_PLAY        1
@@ -4743,8 +4768,46 @@ enum weaponnum {
 	/*0x5a*/ WEAPON_WATCHLASER,
 	/*0x5b*/ WEAPON_MPSHIELD,
 	/*0x5c*/ WEAPON_DISABLED,
-	/*0x5d*/ WEAPON_SUICIDEPILL
+	/*0x5d*/ WEAPON_SUICIDEPILL,
+#ifndef PLATFORM_N64
+	// GoldenEye's guns. Each is a copy of the Perfect Dark weapon beside it
+	// (g_GeWeaponHosts), which every test of a weapon by number asks about
+	// instead (weaponHost()), and wears GoldenEye's name and, where the
+	// GoldenEye XBLA release is in xbla/, its pickup (port/src/geguns.c).
+	// Numbers stay below 0x80: gunctrl.weaponnum and its siblings are s8.
+	/*0x5e*/ WEAPON_GE_PP7,              // PP9i
+	/*0x5f*/ WEAPON_GE_PP7SILENCED,      // PP9i
+	/*0x60*/ WEAPON_GE_DD44,             // CC13
+	/*0x61*/ WEAPON_GE_KLOBB,            // KL01313
+	/*0x62*/ WEAPON_GE_KF7SOVIET,        // KF7 Special
+	/*0x63*/ WEAPON_GE_ZMG,              // ZZT
+	/*0x64*/ WEAPON_GE_D5K,              // DMC
+	/*0x65*/ WEAPON_GE_D5KSILENCED,      // DMC
+	/*0x66*/ WEAPON_GE_PHANTOM,          // CMP150
+	/*0x67*/ WEAPON_GE_AR33,             // AR53
+	/*0x68*/ WEAPON_GE_RCP90,            // RC-P45
+	/*0x69*/ WEAPON_GE_SHOTGUN,          // Shotgun
+	/*0x6a*/ WEAPON_GE_AUTOSHOTGUN,      // Shotgun
+	/*0x6b*/ WEAPON_GE_SNIPERRIFLE,      // Sniper Rifle
+	/*0x6c*/ WEAPON_GE_COUGARMAGNUM,     // DY357 Magnum
+	/*0x6d*/ WEAPON_GE_GOLDENGUN,        // DY357-LX
+	/*0x6e*/ WEAPON_GE_MOONRAKER,        // Laser
+	/*0x6f*/ WEAPON_GE_GRENADELAUNCHER,  // Devastator
+	/*0x70*/ WEAPON_GE_ROCKETLAUNCHER,   // Rocket Launcher
+	/*0x71*/ WEAPON_GE_HUNTINGKNIFE,     // Combat Knife
+	/*0x72*/ WEAPON_GE_THROWINGKNIFE,    // Combat Knife
+	/*0x73*/ WEAPON_GE_GRENADE,          // Grenade
+	/*0x74*/ WEAPON_GE_TIMEDMINE,        // Timed Mine
+	/*0x75*/ WEAPON_GE_PROXIMITYMINE,    // Proximity Mine
+	/*0x76*/ WEAPON_GE_REMOTEMINE,       // Remote Mine
+#endif
+	NUM_WEAPONS
 };
+
+#ifndef PLATFORM_N64
+#define WEAPON_GE_FIRST WEAPON_GE_PP7
+#define NUM_GE_WEAPONS  (NUM_WEAPONS - WEAPON_GE_FIRST)
+#endif
 
 #define WEAPON_MPLOCATION00 240
 #define WEAPON_MPLOCATION01 241

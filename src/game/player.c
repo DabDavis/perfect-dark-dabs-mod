@@ -989,7 +989,7 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 			// Right hand only
 			struct weaponobj *weapon = hostchr->weapons_held[0]->weapon;
 
-			if (weapon->weaponnum == WEAPON_SUPERDRAGON) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_SUPERDRAGON) {
 				invGiveSingleWeapon(WEAPON_DRAGON);
 				bgunEquipWeapon2(HAND_RIGHT, WEAPON_DRAGON);
 			} else {
@@ -1000,7 +1000,7 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 			// Left hand only
 			struct weaponobj *weapon = hostchr->weapons_held[1]->weapon;
 
-			if (weapon->weaponnum == WEAPON_SUPERDRAGON) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_SUPERDRAGON) {
 				invGiveSingleWeapon(WEAPON_DRAGON);
 				bgunEquipWeapon2(HAND_RIGHT, WEAPON_DRAGON);
 			} else {
@@ -6478,7 +6478,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 	if (g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY) {
 		gdl = bgunDrawSight(gdl);
 
-		if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_HORIZONSCANNER) {
+		if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_HORIZONSCANNER) {
 			gdl = bviewDrawHorizonScanner(gdl);
 		}
 

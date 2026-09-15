@@ -594,9 +594,9 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 			s32 result;
 			s32 qty;
 
-			if (weapon->weaponnum == WEAPON_BRIEFCASE2) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_BRIEFCASE2) {
 				result = scenarioPickUpBriefcase(chr, prop);
-			} else if (weapon->weaponnum == WEAPON_DATAUPLINK) {
+			} else if (weaponHost(weapon->weaponnum) == WEAPON_DATAUPLINK) {
 				result = scenarioPickUpUplink(chr, prop);
 			} else {
 				propPlayPickupSound(prop, weapon->weaponnum);
@@ -740,7 +740,7 @@ bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 		weapon = weaponFindById(weaponobj->weaponnum);
 		singleonly = weapon && (weapon->flags & WEAPONFLAG_DUALWIELD) == 0;
 
-		if (weaponobj->weaponnum != WEAPON_BRIEFCASE2) {
+		if (weaponHost(weaponobj->weaponnum) != WEAPON_BRIEFCASE2) {
 			// If aibot is dual wielding, or single wielding and weapon doesn't support dual,
 			// ignore the pickup if at max ammo already
 			if (itemtype == INVITEMTYPE_DUAL || (itemtype == INVITEMTYPE_WEAP && singleonly)) {
@@ -750,7 +750,7 @@ bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 			}
 
 			// Ignore rockets that are in flight
-			if ((weaponobj->weaponnum == WEAPON_ROCKET || weaponobj->weaponnum == WEAPON_HOMINGROCKET)
+			if ((weaponHost(weaponobj->weaponnum) == WEAPON_ROCKET || weaponHost(weaponobj->weaponnum) == WEAPON_HOMINGROCKET)
 					&& (obj->hidden & OBJHFLAG_PROJECTILE)) {
 				return false;
 			}
@@ -862,9 +862,9 @@ s32 botIsObjCollectable(struct defaultobj *obj)
 		if (weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_BOTIGNORES)
 				// the Skedar rocket shares its definition with the rocket,
 				// which is not on this list, so it cannot carry the flag
-				|| weapon->weaponnum == WEAPON_SKROCKET
+				|| weaponHost(weapon->weaponnum) == WEAPON_SKROCKET
 				// and the Dragon only counts in its mine mode
-				|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
+				|| (weaponHost(weapon->weaponnum) == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
 			return false;
 		}
 
@@ -1522,7 +1522,7 @@ void botApplyScenarioCommand(struct chrdata *chr, u32 command)
 
 void botDisarm(struct chrdata *chr, struct prop *attackerprop)
 {
-	if (chr->aibot->weaponnum >= WEAPON_FALCON2 && chr->aibot->weaponnum != WEAPON_BRIEFCASE2) {
+	if (chr->aibot->weaponnum >= WEAPON_FALCON2 && weaponHost(chr->aibot->weaponnum) != WEAPON_BRIEFCASE2) {
 		struct prop *prop = NULL;
 		struct defaultobj *obj;
 
@@ -2135,9 +2135,9 @@ s32 botFindTeammateToFollow(struct chrdata *chr, f32 range)
 
 void botScheduleReload(struct chrdata *chr, s32 handnum)
 {
-	chr->aibot->timeuntilreload60[handnum] = g_AibotWeaponPreferences[chr->aibot->weaponnum].reloaddelay * (PAL ? 50 : 60);
+	chr->aibot->timeuntilreload60[handnum] = g_AibotWeaponPreferences[weaponHost(chr->aibot->weaponnum)].reloaddelay * (PAL ? 50 : 60);
 
-	if (g_AibotWeaponPreferences[chr->aibot->weaponnum].allowpartialreloaddelay) {
+	if (g_AibotWeaponPreferences[weaponHost(chr->aibot->weaponnum)].allowpartialreloaddelay) {
 		s32 capacity = botactGetClipCapacityByFunction(chr->aibot->weaponnum, chr->aibot->gunfunc);
 
 		chr->aibot->timeuntilreload60[handnum] *= capacity - chr->aibot->loadedammo[handnum];
@@ -2145,8 +2145,8 @@ void botScheduleReload(struct chrdata *chr, s32 handnum)
 	}
 }
 
-#define HASENOUGHPRI(aibot, weaponnum, goal) (g_AibotWeaponPreferences[weaponnum].haspriammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_PRIMARY, true) >= (goal))
-#define HASENOUGHSEC(aibot, weaponnum, goal) (g_AibotWeaponPreferences[weaponnum].hassecammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_SECONDARY, true) >= (goal))
+#define HASENOUGHPRI(aibot, weaponnum, goal) (g_AibotWeaponPreferences[weaponHost(weaponnum)].haspriammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_PRIMARY, true) >= (goal))
+#define HASENOUGHSEC(aibot, weaponnum, goal) (g_AibotWeaponPreferences[weaponHost(weaponnum)].hassecammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_SECONDARY, true) >= (goal))
 
 /**
  * Find a prop for the bot to pick up.
@@ -2301,7 +2301,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 						}
 					} else if (obj->type == OBJTYPE_SHIELD) {
 						for (i = 0; i < ARRAYCOUNT(weaponnums); i++) {
-							if (weaponnums[i] == WEAPON_MPSHIELD) {
+							if (weaponHost(weaponnums[i]) == WEAPON_MPSHIELD) {
 								sqdist2 = chrGetSquaredDistanceToCoord(chr, &prop->pos);
 
 								if (rngRandom() % 16 == 0) {
@@ -2332,7 +2332,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	for (i = 0; i < ARRAYCOUNT(weaponnums); i++) {
 		if (1);
 		if ((botinvAllowsWeapon(chr, weaponnums[i], FUNC_PRIMARY) || botinvAllowsWeapon(chr, weaponnums[i], FUNC_SECONDARY))
-				&& (g_AibotWeaponPreferences[weaponnums[i]].haspriammogoal || g_AibotWeaponPreferences[weaponnums[i]].hassecammogoal)
+				&& (g_AibotWeaponPreferences[weaponHost(weaponnums[i])].haspriammogoal || g_AibotWeaponPreferences[weaponHost(weaponnums[i])].hassecammogoal)
 				&& scores1[i] > bestscore1) {
 			bestscore1 = scores1[i];
 		}
@@ -2344,7 +2344,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	// Note that max health and shield is 8 each, and that the bot must be under
 	// BOTH the limits for a shield to be fetched.
 	for (i = 0; i < ARRAYCOUNT(weaponnums) && !done; i++) {
-		if (weaponnums[i] == WEAPON_MPSHIELD
+		if (weaponHost(weaponnums[i]) == WEAPON_MPSHIELD
 				&& (g_MpSetup.scenario != MPSCENARIO_HOLDTHEBRIEFCASE || !chr->aibot->hasbriefcase)) {
 			f32 triggerathealth = 8.1f;
 			f32 desiredshield = 0;
@@ -2441,10 +2441,10 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	// scoring weapons will not be considered, nor will any new weapons be
 	// picked up.
 	for (i = 0; i < ARRAYCOUNT(weaponnums) && !done; i++) {
-		if (weaponnums[i] != WEAPON_MPSHIELD
+		if (weaponHost(weaponnums[i]) != WEAPON_MPSHIELD
 				&& invitems[i] != NULL
-				&& (g_AibotWeaponPreferences[weaponnums[i]].haspriammogoal
-					|| g_AibotWeaponPreferences[weaponnums[i]].hassecammogoal)
+				&& (g_AibotWeaponPreferences[weaponHost(weaponnums[i])].haspriammogoal
+					|| g_AibotWeaponPreferences[weaponHost(weaponnums[i])].hassecammogoal)
 				&& scores2[i] >= bestscore1) {
 			s32 desiredpriammo;
 			s32 desiredsecammo;
@@ -2468,13 +2468,13 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				// If the bot's team is only barely controlling the hill,
 				// don't leave it unless the bot is out of ammo, and even then
 				// just get one ammo pickup
-				desiredpriammo = g_AibotWeaponPreferences[weaponnums[i]].criticalammopri;
+				desiredpriammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammopri;
 
 				if (desiredpriammo > 1) {
 					desiredpriammo = 1;
 				}
 
-				desiredsecammo = g_AibotWeaponPreferences[weaponnums[i]].criticalammosec;
+				desiredsecammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammosec;
 
 				if (desiredsecammo > 1) {
 					desiredsecammo = 1;
@@ -2491,9 +2491,9 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				desiredsecammo = bgunGetCapacityByAmmotype(botactGetAmmoTypeByFunction(weaponnums[i], FUNC_SECONDARY));
 
 				// If bot has max ammo for both weapon's functions
-				if ((g_AibotWeaponPreferences[weaponnums[i]].haspriammogoal == false
+				if ((g_AibotWeaponPreferences[weaponHost(weaponnums[i])].haspriammogoal == false
 							|| botactGetAmmoQuantityByWeapon(aibot, weaponnums[i], FUNC_PRIMARY, false) >= desiredpriammo)
-						&& (g_AibotWeaponPreferences[weaponnums[i]].hassecammogoal == false
+						&& (g_AibotWeaponPreferences[weaponHost(weaponnums[i])].hassecammogoal == false
 							|| botactGetAmmoQuantityByWeapon(aibot, weaponnums[i], FUNC_SECONDARY, false) >= desiredsecammo)) {
 					// Consider next weapon
 					continue;
@@ -2502,8 +2502,8 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				include_equipped = false;
 			} else if (criteria == PICKUPCRITERIA_DEFAULT) {
 				// Default - use the target ammo amount
-				desiredpriammo = g_AibotWeaponPreferences[weaponnums[i]].targetammopri;
-				desiredsecammo = g_AibotWeaponPreferences[weaponnums[i]].targetammosec;
+				desiredpriammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].targetammopri;
+				desiredsecammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].targetammosec;
 
 				if (HASENOUGHPRI(aibot, weaponnums[i], desiredpriammo) || HASENOUGHSEC(aibot, weaponnums[i], desiredsecammo)) {
 					done = true;
@@ -2511,8 +2511,8 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				}
 			} else if (criteria == PICKUPCRITERIA_CRITICAL) {
 				// Critical - use the critical ammo amount
-				desiredpriammo = g_AibotWeaponPreferences[weaponnums[i]].criticalammopri;
-				desiredsecammo = g_AibotWeaponPreferences[weaponnums[i]].criticalammosec;
+				desiredpriammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammopri;
+				desiredsecammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammosec;
 
 				if (HASENOUGHPRI(aibot, weaponnums[i], desiredpriammo) || HASENOUGHSEC(aibot, weaponnums[i], desiredsecammo)) {
 					done = true;
@@ -2545,7 +2545,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	// Consider picking up weapons that the bot doesn't have.
 	// Fetch the highest scoring weapon if there are any pickups for it.
 	for (i = 0; i < ARRAYCOUNT(weaponnums) && !done; i++) {
-		if (weaponnums[i] != WEAPON_MPSHIELD) {
+		if (weaponHost(weaponnums[i]) != WEAPON_MPSHIELD) {
 			if (g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE && botShouldReturnCtcToken(chr)) {
 				done = true;
 				break;
@@ -2570,7 +2570,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	if (criteria == PICKUPCRITERIA_ANY) {
 		// Consider ammo even for weapons that the bot doesn't have
 		for (i = 0; i < ARRAYCOUNT(weaponnums) && !done; i++) {
-			if (weaponnums[i] != WEAPON_MPSHIELD) {
+			if (weaponHost(weaponnums[i]) != WEAPON_MPSHIELD) {
 				for (j = 0; j < 2; j++) {
 					if (botinvAllowsWeapon(chr, weaponnums[i], j)) {
 						s32 ammotype = botactGetAmmoTypeByFunction(weaponnums[i], j);
@@ -3727,7 +3727,7 @@ void botTickUnpaused(struct chrdata *chr)
 						// down from a previous punch, and negative when
 						// starting the punch.
 						if (aibot->punchtimer60[i] >= 0 && aibot->timeuntilreload60[i] <= 0) {
-							if (aibot->weaponnum == WEAPON_TRANQUILIZER
+							if (weaponHost(aibot->weaponnum) == WEAPON_TRANQUILIZER
 									&& aibot->loadedammo[i] < bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY)) {
 								aibot->punchtimer60[i] = 0;
 								botScheduleReload(chr, i);
@@ -3744,7 +3744,7 @@ void botTickUnpaused(struct chrdata *chr)
 										&& aibot->targetinsight
 										&& aibot->shootdelaytimer60 >= g_BotDifficulties[aibot->config->difficulty].shootdelay) {
 									if (!botIsDizzy(chr)) {
-										if (aibot->weaponnum == WEAPON_TRANQUILIZER) {
+										if (weaponHost(aibot->weaponnum) == WEAPON_TRANQUILIZER) {
 											if (!chrIsTargetInFov(chr, 30, 0) || chrGetDistanceToTarget(chr) > range) {
 												aibot->punchtimer60[i] = 0;
 											}
@@ -3768,7 +3768,7 @@ void botTickUnpaused(struct chrdata *chr)
 
 									if (i == HAND_RIGHT) {
 										// Set the punch cooldown timer
-										switch (aibot->weaponnum) {
+										switch (weaponHost(aibot->weaponnum)) {
 										case WEAPON_UNARMED:
 										case WEAPON_MAGSEC4:
 										case WEAPON_MAULER:
@@ -3832,7 +3832,7 @@ void botTickUnpaused(struct chrdata *chr)
 								}
 							}
 						}
-					} else if (aibot->weaponnum == WEAPON_SLAYER && aibot->gunfunc != FUNC_PRIMARY && chr->target != -1) {
+					} else if (weaponHost(aibot->weaponnum) == WEAPON_SLAYER && aibot->gunfunc != FUNC_PRIMARY && chr->target != -1) {
 						// Bots fire Slayer rockets regardless of where they are
 						// on the map provided they have ammo
 						if (aibot->loadedammo[0] > 0) {
@@ -3849,8 +3849,8 @@ void botTickUnpaused(struct chrdata *chr)
 
 							if (chr->aibot->throwtimer60 <= 0) {
 								if (botactGetAmmoQuantityByWeapon(aibot, aibot->weaponnum, aibot->gunfunc, false) > 0
-										|| aibot->weaponnum == WEAPON_LAPTOPGUN
-										|| aibot->weaponnum == WEAPON_DRAGON) {
+										|| weaponHost(aibot->weaponnum) == WEAPON_LAPTOPGUN
+										|| weaponHost(aibot->weaponnum) == WEAPON_DRAGON) {
 									bool throw = false;
 
 									if (chr->target != -1
@@ -3887,7 +3887,7 @@ void botTickUnpaused(struct chrdata *chr)
 							// Increment the mauler charge and deplete ammo as
 							// the charge amount crosses each whole number.
 							// Yes, this is actually implemented for bots.
-							if (aibot->weaponnum == WEAPON_MAULER
+							if (weaponHost(aibot->weaponnum) == WEAPON_MAULER
 									&& aibot->gunfunc == FUNC_SECONDARY
 									&& aibot->loadedammo[i] >= 2) {
 								s32 newchargei;
@@ -3923,7 +3923,7 @@ void botTickUnpaused(struct chrdata *chr)
 									&& !chrIsDead(chrGetTargetProp(chr)->chr)) {
 								firing = true;
 
-								if (aibot->weaponnum == WEAPON_CYCLONE && aibot->gunfunc == FUNC_SECONDARY) {
+								if (weaponHost(aibot->weaponnum) == WEAPON_CYCLONE && aibot->gunfunc == FUNC_SECONDARY) {
 									aibot->cyclonedischarging[i] = true;
 								} else if (weaponHasFlag2(aibot->weaponnum, WEAPONFLAG2_MINIGUN)) {
 									aibot->reaperspeed[i] += g_Vars.lvupdate60;

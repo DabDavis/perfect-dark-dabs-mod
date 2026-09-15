@@ -806,7 +806,7 @@ void lvFindThreatsForProp(struct prop *prop, bool inchild, struct coord *playerp
 		weapon = (struct weaponobj *)prop->obj;
 
 		if (weapon && prop->obj->type == OBJTYPE_WEAPON) {
-			switch (weapon->weaponnum) {
+			switch (weaponHost(weapon->weaponnum)) {
 			case WEAPON_GRENADE:
 			case WEAPON_NBOMB:
 			case WEAPON_TIMEDMINE:

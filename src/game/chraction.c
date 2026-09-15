@@ -2458,21 +2458,21 @@ void chrAttackWalk(struct chrdata *chr, bool run)
 				everytick[i] = true;
 			}
 
-			if (weapon->weaponnum == WEAPON_ROCKETLAUNCHER
-					|| weapon->weaponnum == WEAPON_ROCKETLAUNCHER_34
-					|| weapon->weaponnum == WEAPON_SLAYER
-					|| weapon->weaponnum == WEAPON_DEVASTATOR
+			if (weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER
+					|| weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER_34
+					|| weaponHost(weapon->weaponnum) == WEAPON_SLAYER
+					|| weaponHost(weapon->weaponnum) == WEAPON_DEVASTATOR
 					|| (
 						!g_Vars.normmplayerisrunning
-						&& weapon->weaponnum == WEAPON_DY357MAGNUM
+						&& weaponHost(weapon->weaponnum) == WEAPON_DY357MAGNUM
 						&& chr->headnum != HEAD_JONATHAN
 						&& chr->headnum != HEAD_CHRIST)
 					|| (
 						!g_Vars.normmplayerisrunning
-						&& weapon->weaponnum == WEAPON_DY357LX)
+						&& weaponHost(weapon->weaponnum) == WEAPON_DY357LX)
 					|| (
 						!g_Vars.normmplayerisrunning
-						&& weapon->weaponnum == WEAPON_SHOTGUN)) {
+						&& weaponHost(weapon->weaponnum) == WEAPON_SHOTGUN)) {
 				singleshot[i] = true;
 			}
 		}
@@ -2615,7 +2615,7 @@ void chrAttackRoll(struct chrdata *chr, bool toleft)
 			if (weaponGetNumTicksPerShot(weapon->weaponnum, weapon->gunfunc) < 1) {
 				everytick[i] = true;
 
-				if (weapon->weaponnum == WEAPON_LASER) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_LASER) {
 					dorecoil = false;
 				}
 			} else {
@@ -2623,21 +2623,21 @@ void chrAttackRoll(struct chrdata *chr, bool toleft)
 				dooneburst = true;
 			}
 
-			if (weapon->weaponnum == WEAPON_ROCKETLAUNCHER
-					|| weapon->weaponnum == WEAPON_ROCKETLAUNCHER_34
-					|| weapon->weaponnum == WEAPON_SLAYER
-					|| weapon->weaponnum == WEAPON_DEVASTATOR
+			if (weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER
+					|| weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER_34
+					|| weaponHost(weapon->weaponnum) == WEAPON_SLAYER
+					|| weaponHost(weapon->weaponnum) == WEAPON_DEVASTATOR
 					|| (
 						!g_Vars.normmplayerisrunning
-						&& weapon->weaponnum == WEAPON_DY357MAGNUM
+						&& weaponHost(weapon->weaponnum) == WEAPON_DY357MAGNUM
 						&& chr->headnum != HEAD_JONATHAN
 						&& chr->headnum != HEAD_CHRIST)
 					|| (
 						!g_Vars.normmplayerisrunning
-						&& weapon->weaponnum == WEAPON_DY357LX)
+						&& weaponHost(weapon->weaponnum) == WEAPON_DY357LX)
 					|| (
 						!g_Vars.normmplayerisrunning
-						&& weapon->weaponnum == WEAPON_SHOTGUN)) {
+						&& weaponHost(weapon->weaponnum) == WEAPON_SHOTGUN)) {
 				singleshot[i] = true;
 			}
 		}
@@ -2872,7 +2872,7 @@ void chrAttack(struct chrdata *chr, struct attackanimgroup **animgroups, bool fl
 					// Note: the only weapon that can enter this branch is the laser
 					everytick[i] = true;
 
-					if (weapon->weaponnum == WEAPON_LASER) {
+					if (weaponHost(weapon->weaponnum) == WEAPON_LASER) {
 						dorecoil = false;
 					}
 				} else {
@@ -2883,21 +2883,21 @@ void chrAttack(struct chrdata *chr, struct attackanimgroup **animgroups, bool fl
 				// There's an easter egg here: Any guard with Chris T's head
 				// (Foster from the firing range) can fire multiple shots with
 				// the magnum.
-				if (weapon->weaponnum == WEAPON_ROCKETLAUNCHER
-						|| weapon->weaponnum == WEAPON_ROCKETLAUNCHER_34
-						|| weapon->weaponnum == WEAPON_SLAYER
-						|| weapon->weaponnum == WEAPON_DEVASTATOR
+				if (weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER
+						|| weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER_34
+						|| weaponHost(weapon->weaponnum) == WEAPON_SLAYER
+						|| weaponHost(weapon->weaponnum) == WEAPON_DEVASTATOR
 						|| (
 							!g_Vars.normmplayerisrunning
-							&& weapon->weaponnum == WEAPON_DY357MAGNUM
+							&& weaponHost(weapon->weaponnum) == WEAPON_DY357MAGNUM
 							&& chr->headnum != HEAD_JONATHAN
 							&& chr->headnum != HEAD_CHRIST)
 						|| (
 							!g_Vars.normmplayerisrunning
-							&& weapon->weaponnum == WEAPON_DY357LX)
+							&& weaponHost(weapon->weaponnum) == WEAPON_DY357LX)
 						|| (
 							!g_Vars.normmplayerisrunning
-							&& weapon->weaponnum == WEAPON_SHOTGUN)) {
+							&& weaponHost(weapon->weaponnum) == WEAPON_SHOTGUN)) {
 					singleshot[i] = true;
 				}
 			}
@@ -4179,15 +4179,15 @@ s32 gsetGetBlurAmount(struct gset *gset)
 		amount = TICKS(250);
 	}
 
-	if (gset->weaponnum == WEAPON_TRANQUILIZER) {
+	if (weaponHost(gset->weaponnum) == WEAPON_TRANQUILIZER) {
 		amount = TICKS(2000);
 	}
 
-	if (gset->weaponnum == WEAPON_BOLT) {
+	if (weaponHost(gset->weaponnum) == WEAPON_BOLT) {
 		amount = TICKS(5000);
 	}
 
-	if (gset->weaponnum == WEAPON_NBOMB) {
+	if (weaponHost(gset->weaponnum) == WEAPON_NBOMB) {
 		amount = TICKS(100);
 	}
 
@@ -4757,7 +4757,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	}
 
 	if (gset) {
-		if (gset->weaponnum == WEAPON_COMBATKNIFE) {
+		if (weaponHost(gset->weaponnum) == WEAPON_COMBATKNIFE) {
 			if (gset->weaponfunc == FUNC_2) {
 				canchoke = false;
 			}
@@ -4765,7 +4765,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			if (gset->weaponfunc == FUNC_POISON) {
 				choketype = CHOKETYPE_COUGH;
 			}
-		} else if (gset->weaponnum == WEAPON_TRANQUILIZER) {
+		} else if (weaponHost(gset->weaponnum) == WEAPON_TRANQUILIZER) {
 			if (gset->weaponfunc == FUNC_SECONDARY) {
 				choketype = CHOKETYPE_GURGLE;
 			}
@@ -5167,7 +5167,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		angle = chrGetAngleToPos(chr, &sp9c);
 
 		// Knife in the back to an unalerted chr is lethal
-		if (gset->weaponnum == WEAPON_COMBATKNIFE
+		if (weaponHost(gset->weaponnum) == WEAPON_COMBATKNIFE
 				&& gset->weaponfunc == FUNC_PRIMARY
 				&& angle > 2.0940616130829f
 				&& angle < 4.1881237030029f
@@ -5223,7 +5223,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					chrFlinchHead(chr, angle);
 					damage *= headshotdamagescale;
 
-					if (gset->weaponnum == WEAPON_COMBATKNIFE && gset->weaponfunc != FUNC_POISON) {
+					if (weaponHost(gset->weaponnum) == WEAPON_COMBATKNIFE && gset->weaponfunc != FUNC_POISON) {
 						damage += damage;
 					}
 				}
@@ -5435,7 +5435,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				sp80 = 2;
 			}
 
-			if (gset->weaponnum == WEAPON_TRANQUILIZER || gset->weaponnum == WEAPON_PSYCHOSISGUN) {
+			if (weaponHost(gset->weaponnum) == WEAPON_TRANQUILIZER || weaponHost(gset->weaponnum) == WEAPON_PSYCHOSISGUN) {
 				forceapplydamage = true;
 			}
 
@@ -6942,9 +6942,9 @@ bool chrHasLosToEntity(struct chrdata *chr, struct coord *chrpos, RoomNum *chrro
 		if (weaponprop) {
 			struct weaponobj *weapon = weaponprop->weapon;
 
-			if (weapon->weaponnum == WEAPON_ROCKETLAUNCHER
-					|| weapon->weaponnum == WEAPON_SLAYER
-					|| weapon->weaponnum == WEAPON_ROCKETLAUNCHER_34) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER
+					|| weaponHost(weapon->weaponnum) == WEAPON_SLAYER
+					|| weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER_34) {
 				types = CDTYPE_DOORSWITHOUTFLAG | CDTYPE_OBJSIMMUNETOEXPLOSIONS | CDTYPE_ALL;
 			} else {
 				types = CDTYPE_DOORSWITHOUTFLAG | CDTYPE_OBJSIMMUNETOGUNFIRE | CDTYPE_ALL;
@@ -8176,7 +8176,7 @@ bool chrConsiderGrenadeThrow(struct chrdata *chr, u32 attackflags, u32 entityid)
 			if (rightprop) {
 				weapon = rightprop->weapon;
 
-				if (weapon->weaponnum == WEAPON_GRENADE || weapon->weaponnum == WEAPON_NBOMB) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_GRENADE || weaponHost(weapon->weaponnum) == WEAPON_NBOMB) {
 					chrThrowGrenade(chr, 0, false);
 					chr->act_throwgrenade.flags = attackflags;
 					chr->act_throwgrenade.entityid = entityid;
@@ -8187,7 +8187,7 @@ bool chrConsiderGrenadeThrow(struct chrdata *chr, u32 attackflags, u32 entityid)
 			if (!done && leftprop) {
 				weapon = leftprop->weapon;
 
-				if (weapon->weaponnum == WEAPON_GRENADE || weapon->weaponnum == WEAPON_NBOMB) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_GRENADE || weaponHost(weapon->weaponnum) == WEAPON_NBOMB) {
 					chrThrowGrenade(chr, 1, false);
 					chr->act_throwgrenade.flags = attackflags;
 					chr->act_throwgrenade.entityid = entityid;
@@ -10305,7 +10305,7 @@ void chrCalculateHit(struct chrdata *chr, bool *angleokptr, bool *hit, struct gs
 	*hit = false;
 
 	// Determine the distance at which accuracy starts to taper off
-	switch (gset->weaponnum) {
+	switch (weaponHost(gset->weaponnum)) {
 	case WEAPON_FALCON2:
 	case WEAPON_FALCON2_SILENCER:
 	case WEAPON_MAULER:
@@ -10395,7 +10395,7 @@ void chrCalculateHit(struct chrdata *chr, bool *angleokptr, bool *hit, struct gs
 		}
 
 		// Shotgun doubles the value due to more bullets
-		if (gset->weaponnum == WEAPON_SHOTGUN) {
+		if (weaponHost(gset->weaponnum) == WEAPON_SHOTGUN) {
 			accuracy += accuracy;
 		}
 
@@ -10938,12 +10938,12 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 
 				// Handle projectile launchers specially - when the weapon
 				// behind the number is one; see chrGetProjectileFunc()
-				if ((gset.weaponnum == WEAPON_ROCKETLAUNCHER
-						|| gset.weaponnum == WEAPON_SLAYER
-						|| (gset.weaponnum == WEAPON_SUPERDRAGON && gset.weaponfunc == FUNC_SECONDARY)
-						|| gset.weaponnum == WEAPON_DEVASTATOR
-						|| gset.weaponnum == WEAPON_CROSSBOW
-						|| gset.weaponnum == WEAPON_ROCKETLAUNCHER_34)
+				if ((weaponHost(gset.weaponnum) == WEAPON_ROCKETLAUNCHER
+						|| weaponHost(gset.weaponnum) == WEAPON_SLAYER
+						|| (weaponHost(gset.weaponnum) == WEAPON_SUPERDRAGON && gset.weaponfunc == FUNC_SECONDARY)
+						|| weaponHost(gset.weaponnum) == WEAPON_DEVASTATOR
+						|| weaponHost(gset.weaponnum) == WEAPON_CROSSBOW
+						|| weaponHost(gset.weaponnum) == WEAPON_ROCKETLAUNCHER_34)
 						&& chrGetProjectileFunc(&gset) != NULL) {
 					makebeam = false;
 
@@ -10960,9 +10960,9 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 						struct weaponfunc_shootprojectile *func = chrGetProjectileFunc(&gset);
 
 						// Handle creating the projectile
-						if (gset.weaponnum == WEAPON_ROCKETLAUNCHER
-								|| gset.weaponnum == WEAPON_ROCKETLAUNCHER_34
-								|| gset.weaponnum == WEAPON_SLAYER) {
+						if (weaponHost(gset.weaponnum) == WEAPON_ROCKETLAUNCHER
+								|| weaponHost(gset.weaponnum) == WEAPON_ROCKETLAUNCHER_34
+								|| weaponHost(gset.weaponnum) == WEAPON_SLAYER) {
 							s32 rocketweaponnum = WEAPON_ROCKET;
 
 							if (func->base.base.flags & FUNCFLAG_HOMINGROCKET) {
@@ -10970,19 +10970,19 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 							}
 
 							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, rocketweaponnum, chr);
-						} else if (gset.weaponnum == WEAPON_CROSSBOW) {
+						} else if (weaponHost(gset.weaponnum) == WEAPON_CROSSBOW) {
 							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_BOLT, chr);
 
 							if (projectileobj) {
 								projectileobj->gunfunc = gset.weaponfunc;
 							}
-						} else if (gset.weaponnum == WEAPON_DEVASTATOR) {
+						} else if (weaponHost(gset.weaponnum) == WEAPON_DEVASTATOR) {
 							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_GRENADEROUND, chr);
 
 							if (projectileobj) {
 								projectileobj->gunfunc = gset.weaponfunc;
 							}
-						} else if (gset.weaponnum == WEAPON_SUPERDRAGON) {
+						} else if (weaponHost(gset.weaponnum) == WEAPON_SUPERDRAGON) {
 							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_GRENADEROUND, chr);
 
 							if (projectileobj) {
@@ -11007,9 +11007,9 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								struct coord aimpos;
 
 								if (gset.weaponfunc == FUNC_PRIMARY &&
-										(gset.weaponnum == WEAPON_ROCKETLAUNCHER
-										 || gset.weaponnum == WEAPON_ROCKETLAUNCHER_34
-										 || gset.weaponnum == WEAPON_SLAYER)) {
+										(weaponHost(gset.weaponnum) == WEAPON_ROCKETLAUNCHER
+										 || weaponHost(gset.weaponnum) == WEAPON_ROCKETLAUNCHER_34
+										 || weaponHost(gset.weaponnum) == WEAPON_SLAYER)) {
 									if (targetprop->type == PROPTYPE_CHR || targetprop->type == PROPTYPE_PLAYER) {
 										// Rockets - aim at target's feet
 										aimpos.x = targetprop->pos.x;
@@ -11023,8 +11023,8 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 										guNormalize(&vector.x, &vector.y, &vector.z);
 										hasaimpos = true;
 									}
-								} else if ((gset.weaponnum == WEAPON_DEVASTATOR && gset.weaponfunc == FUNC_PRIMARY)
-										|| gset.weaponnum == WEAPON_SUPERDRAGON) {
+								} else if ((weaponHost(gset.weaponnum) == WEAPON_DEVASTATOR && gset.weaponfunc == FUNC_PRIMARY)
+										|| weaponHost(gset.weaponnum) == WEAPON_SUPERDRAGON) {
 									if (targetprop->type == PROPTYPE_CHR || targetprop->type == PROPTYPE_PLAYER) {
 										// Grenades - aim at target's feet
 										aimpos.x = targetprop->pos.x;
@@ -11034,8 +11034,8 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 										chrCalculateTrajectory(&gunpos, spcc, &aimpos, &vector);
 										hasaimpos = true;
 									}
-								} else if ((gset.weaponnum == WEAPON_DEVASTATOR && gset.weaponfunc == FUNC_SECONDARY)
-										|| gset.weaponnum == WEAPON_CROSSBOW) {
+								} else if ((weaponHost(gset.weaponnum) == WEAPON_DEVASTATOR && gset.weaponfunc == FUNC_SECONDARY)
+										|| weaponHost(gset.weaponnum) == WEAPON_CROSSBOW) {
 									// Wall hugger grenade or crossbow - aim at target directly
 									aimpos.x = targetprop->pos.x;
 									aimpos.y = targetprop->pos.y;
@@ -11118,7 +11118,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 					}
 
 					normalshoot = false;
-				} else if (gset.weaponnum == WEAPON_MAULER && isaibot && gset.weaponfunc == FUNC_SECONDARY) {
+				} else if (weaponHost(gset.weaponnum) == WEAPON_MAULER && isaibot && gset.weaponfunc == FUNC_SECONDARY) {
 					gset.unk063a = (s32) (chr->aibot->maulercharge[handnum] * 10.0f);
 					chr->aibot->maulercharge[handnum] = 0;
 				}
@@ -11308,7 +11308,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 						}
 
 						// Create explosion if using Phoenix
-						if (gset.weaponnum == WEAPON_PHOENIX && gset.weaponfunc == FUNC_SECONDARY) {
+						if (weaponHost(gset.weaponnum) == WEAPON_PHOENIX && gset.weaponfunc == FUNC_SECONDARY) {
 							s32 playernum = chr->aibot ? mpPlayerGetIndex(chr) : g_Vars.currentplayernum;
 
 							if (!queriedhitrooms) {
@@ -11327,7 +11327,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 		}
 
 		if (makebeam) {
-			switch (gset.weaponnum) {
+			switch (weaponHost(gset.weaponnum)) {
 			case WEAPON_FALCON2:
 			case WEAPON_FALCON2_SILENCER:
 			case WEAPON_FALCON2_SCOPE:
@@ -12159,7 +12159,7 @@ void propPrintDangerous(void)
 
 		if (prop) {
 			if (prop->weapon
-					&& prop->weapon->weaponnum == WEAPON_GRENADE
+					&& weaponHost(prop->weapon->weaponnum) == WEAPON_GRENADE
 					&& prop->type == PROPTYPE_WEAPON) {
 				osSyncPrintf("    Grenade %x", prop);
 			} else if (prop->type == PROPTYPE_EXPLOSION) {
@@ -12261,7 +12261,7 @@ bool chrDetectDangerousObject(struct chrdata *chr, u8 flags)
 
 		if (prop) {
 			if ((flags & 1) && prop->weapon &&
-					prop->weapon->weaponnum == WEAPON_GRENADE &&
+					weaponHost(prop->weapon->weaponnum) == WEAPON_GRENADE &&
 					prop->weapon->timer240 < TICKS(480)) {
 				pass = true;
 			}

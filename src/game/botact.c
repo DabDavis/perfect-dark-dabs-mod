@@ -21,7 +21,7 @@
 
 s32 botactGetAmmoTypeByFunction(s32 weaponnum, s32 funcnum)
 {
-	if (weaponnum >= WEAPON_FALCON2 && weaponnum <= WEAPON_SUICIDEPILL) {
+	if (weaponnum >= WEAPON_FALCON2 && weaponnum < NUM_WEAPONS) {
 		struct inventory_ammo *ammo = weaponGetAmmoByFunction(weaponnum, funcnum);
 
 		if (ammo) {
@@ -34,7 +34,7 @@ s32 botactGetAmmoTypeByFunction(s32 weaponnum, s32 funcnum)
 
 s32 botactGetClipCapacityByFunction(s32 weaponnum, u32 funcnum)
 {
-	if (weaponnum >= WEAPON_FALCON2 && weaponnum <= WEAPON_SUICIDEPILL) {
+	if (weaponnum >= WEAPON_FALCON2 && weaponnum < NUM_WEAPONS) {
 		struct inventory_ammo *ammo = weaponGetAmmoByFunction(weaponnum, funcnum);
 
 		if (ammo) {
@@ -63,7 +63,7 @@ void botactReload(struct chrdata *chr, s32 handnum, bool withsound)
 				aibot->loadedammo[handnum] += actualamount;
 
 				if (withsound) {
-					if (aibot->weaponnum == WEAPON_FARSIGHT) {
+					if (weaponHost(aibot->weaponnum) == WEAPON_FARSIGHT) {
 						psCreate(NULL, chr->prop, SFX_RELOAD_FARSIGHT, -1,
 								-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 					} else {
@@ -222,7 +222,7 @@ bool botactShootFarsight(struct chrdata *chr, s32 arg1, struct coord *vector, st
 
 	aibot = chr->aibot;
 
-	if (aibot->weaponnum == WEAPON_FARSIGHT) {
+	if (weaponHost(aibot->weaponnum) == WEAPON_FARSIGHT) {
 		rand = rngRandom() % 100;
 
 		// 3 in 10 chance of this passing
@@ -355,7 +355,7 @@ void botactThrow(struct chrdata *chr)
 		sp56.x = target->pos.x;
 		sp56.z = target->pos.z;
 
-		if (chr->aibot->weaponnum == WEAPON_GRENADE || chr->aibot->weaponnum == WEAPON_NBOMB) {
+		if (weaponHost(chr->aibot->weaponnum) == WEAPON_GRENADE || weaponHost(chr->aibot->weaponnum) == WEAPON_NBOMB) {
 			sp56.y = target->chr->manground;
 		} else {
 			sp56.y = target->pos.y;
@@ -383,7 +383,7 @@ void botactThrow(struct chrdata *chr)
 
 	mtx4LoadIdentity(&sp164);
 
-	if (chr->aibot->weaponnum == WEAPON_COMBATKNIFE) {
+	if (weaponHost(chr->aibot->weaponnum) == WEAPON_COMBATKNIFE) {
 		mtx4LoadZRotation(M_BADPI * 1.5f, &sp164);
 		mtx4LoadXRotation(M_BADPI, &sp84);
 		mtx4MultMtx4InPlace(&sp84, &sp164);
@@ -402,7 +402,7 @@ void botactThrow(struct chrdata *chr)
 	chrPlayThrowAnimation(chr, HAND_RIGHT);
 #endif
 
-	if (gset.weaponnum == WEAPON_REMOTEMINE) {
+	if (weaponHost(gset.weaponnum) == WEAPON_REMOTEMINE) {
 		chr->aibot->flags |= BOTFLAG_THREWREMOTEMINE;
 	}
 }

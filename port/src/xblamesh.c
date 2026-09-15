@@ -5621,7 +5621,7 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 
 	if (beanrow >= 0) {
 		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is %s, which the GoldenEye "
-				"XBLA release has a character for%s", fileid, gebeanRowName(beanrow),
+				"XBLA release has a model for%s", fileid, gebeanRowName(beanrow),
 				gebeanGetEnabled() ? "" : " (Mod.XblaGoldenEye is off)");
 
 		// Unpacked at the level load that first wants it rather than at a draw.
@@ -5977,7 +5977,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 
 	free(bmats);
 
-	snprintf(what, sizeof(what), "model file %d's GoldenEye character%s", e->fileid,
+	snprintf(what, sizeof(what), "model file %d's GoldenEye model%s", e->fileid,
 			original ? " (N64 look)" : "");
 
 	return xblaMeshBuildFile(m, file, len, &mats, what) ? m : NULL;

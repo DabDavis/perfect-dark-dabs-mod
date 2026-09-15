@@ -2126,7 +2126,7 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 	if (g_Vars.normmplayerisrunning && prop && obj && obj->type == OBJTYPE_WEAPON) {
 		struct weaponobj *weapon = (struct weaponobj *) obj;
 
-		if (weapon->weaponnum == WEAPON_BRIEFCASE2) {
+		if (weaponHost(weapon->weaponnum) == WEAPON_BRIEFCASE2) {
 			if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
 				g_ScenarioData.htb.token = prop;
 			}
@@ -2134,7 +2134,7 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 			prop->forcetick = true;
 			obj->flags |= OBJFLAG_INVINCIBLE | OBJFLAG_FORCENOBOUNCE;
 			obj->flags2 |= OBJFLAG2_IMMUNETOGUNFIRE | OBJFLAG2_IMMUNETOEXPLOSIONS;
-		} else if (weapon->weaponnum == WEAPON_DATAUPLINK) {
+		} else if (weaponHost(weapon->weaponnum) == WEAPON_DATAUPLINK) {
 			if (g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL) {
 				g_ScenarioData.htm.uplink = prop;
 			}
@@ -2429,7 +2429,7 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			smokeClearForProp(obj->prop);
 		}
 
-		if (weapon->weaponnum == WEAPON_BOLT) {
+		if (weaponHost(weapon->weaponnum) == WEAPON_BOLT) {
 			s32 beammnum = boltbeamFindByProp(obj->prop);
 
 			if (beammnum != -1) {
@@ -2438,7 +2438,7 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 		}
 
 		if (g_Vars.normmplayerisrunning
-				&& weapon->weaponnum == WEAPON_SKROCKET
+				&& weaponHost(weapon->weaponnum) == WEAPON_SKROCKET
 				&& obj->projectile
 				&& obj->projectile->ownerprop) {
 			s32 i;
@@ -4167,9 +4167,9 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 
 		objectiveCheckThrowInRoom(weapon->weaponnum, prop->rooms);
 
-		if (weapon->weaponnum == WEAPON_BOLT) {
+		if (weaponHost(weapon->weaponnum) == WEAPON_BOLT) {
 			boltLand(weapon, arg1);
-		} else if (weapon->weaponnum == WEAPON_COMBATKNIFE) {
+		} else if (weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE) {
 			knifeLand(obj, arg1, arg2);
 		} else {
 			objLand2(obj, arg1, arg2);
@@ -4310,10 +4310,10 @@ void weaponTick(struct prop *prop)
 	// number of its own that no mod renumbers; the grenade is whatever
 	// carries the fuse.
 	if (((weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_FUSETIMER) && weapon->gunfunc == FUNC_PRIMARY)
-				|| weapon->weaponnum == WEAPON_GRENADEROUND)
+				|| weaponHost(weapon->weaponnum) == WEAPON_GRENADEROUND)
 			&& weapon->timer240 >= 0) {
 		// Handle Devastator wall hugger timer
-		if (weapon->weaponnum == WEAPON_GRENADEROUND
+		if (weaponHost(weapon->weaponnum) == WEAPON_GRENADEROUND
 				&& weapon->gunfunc == FUNC_SECONDARY
 				&& weapon->timer240 > 0) {
 			if (weapon->timer240 >= 2) {
@@ -4401,7 +4401,7 @@ void weaponTick(struct prop *prop)
 #endif
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY) {
+	} else if (weaponHost(weapon->weaponnum) == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY) {
 		// Handle nbombs being thrown normally
 		if (weapon->timer240 >= 0) {
 			weapon->timer240 -= g_Vars.lvupdate240;
@@ -4443,9 +4443,9 @@ void weaponTick(struct prop *prop)
 #endif
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_ROCKET
-			|| weapon->weaponnum == WEAPON_HOMINGROCKET
-			|| weapon->weaponnum == WEAPON_SKROCKET) {
+	} else if (weaponHost(weapon->weaponnum) == WEAPON_ROCKET
+			|| weaponHost(weapon->weaponnum) == WEAPON_HOMINGROCKET
+			|| weaponHost(weapon->weaponnum) == WEAPON_SKROCKET) {
 		// Handle rockets
 		if (weapon->timer240 == 0) {
 			propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
@@ -4562,7 +4562,7 @@ void weaponTick(struct prop *prop)
 
 		if (weapon->timer240 == 0) {
 			// Proxy was triggered or shot
-			if (weapon->weaponnum == WEAPON_NBOMB) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_NBOMB) {
 				u32 stack;
 				struct prop *ownerprop = NULL;
 				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
@@ -4606,7 +4606,7 @@ void weaponTick(struct prop *prop)
 					exptype = EXPLOSIONTYPE_ROCKET;
 				}
 
-				if (weapon->weaponnum == WEAPON_DRAGON) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_DRAGON) {
 					exptype = EXPLOSIONTYPE_DRAGONBOMBSPY;
 				}
 
@@ -4616,7 +4616,7 @@ void weaponTick(struct prop *prop)
 				}
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_BOLT) {
+	} else if (weaponHost(weapon->weaponnum) == WEAPON_BOLT) {
 		// Handle crossbow bolts
 		// Note that the timer240 value doesn't act like a timer at all
 		if (weapon->timer240 >= 2) {
@@ -6259,7 +6259,7 @@ s32 projectileLaunch(struct defaultobj *obj, struct projectile *projectile, stru
 		struct weaponobj *weapon = (struct weaponobj *)obj;
 		RoomNum rooms[8];
 
-		if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET) {
+		if (weaponHost(weapon->weaponnum) == WEAPON_ROCKET || weaponHost(weapon->weaponnum) == WEAPON_HOMINGROCKET) {
 			weapon->timer240 = 0;
 
 			func0f065e74(&prop->pos, prop->rooms, arg2, rooms);
@@ -6306,7 +6306,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 	s32 i;
 
 	if (g_Vars.lvupdate240 > 0) {
-		if (obj->type == OBJTYPE_WEAPON && ((struct weaponobj *)obj)->weaponnum == WEAPON_SKROCKET) {
+		if (obj->type == OBJTYPE_WEAPON && weaponHost(((struct weaponobj *)obj)->weaponnum) == WEAPON_SKROCKET) {
 			result = rocketTickFbw((struct weaponobj *) obj);
 		} else if (projectile->flags & PROJECTILEFLAG_00001000) {
 			result = (projectile->flags & PROJECTILEFLAG_00002000) != 0;
@@ -6774,7 +6774,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 				homingrocket = false;
 
-				if (obj->type == OBJTYPE_WEAPON && ((struct weaponobj *)obj)->weaponnum == WEAPON_HOMINGROCKET) {
+				if (obj->type == OBJTYPE_WEAPON && weaponHost(((struct weaponobj *)obj)->weaponnum) == WEAPON_HOMINGROCKET) {
 					homingrocket = true;
 				}
 
@@ -6957,7 +6957,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 								// not a function flag: the wall hugger function is
 								// the Devastator's own, which sticks in its own right
-								if (weapon2->weaponnum == WEAPON_GRENADEROUND && weapon2->gunfunc == FUNC_SECONDARY) {
+								if (weaponHost(weapon2->weaponnum) == WEAPON_GRENADEROUND && weapon2->gunfunc == FUNC_SECONDARY) {
 									if (weapon2->timer240 == 1) {
 										stick = false;
 										weapon2->timer240 = 0;
@@ -7073,7 +7073,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										frCalculateHit(hitobj, &sp5e8, 0.0f);
 									}
 								}
-							} else if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET) {
+							} else if (weaponHost(weapon->weaponnum) == WEAPON_ROCKET || weaponHost(weapon->weaponnum) == WEAPON_HOMINGROCKET) {
 								s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
 
 								if (g_EmbedProp->type == PROPTYPE_CHR || (g_EmbedProp->type == PROPTYPE_PLAYER && g_EmbedProp->chr)) {
@@ -7336,7 +7336,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							if (obj->type == OBJTYPE_WEAPON) {
 								struct weaponobj *weapon = (struct weaponobj *) obj;
 
-								if (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
+								if (weaponHost(weapon->weaponnum) == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
 									smokeCreateAtProp(prop, SMOKETYPE_PINBALL);
 								}
 							}
@@ -7388,9 +7388,9 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 					if (obj->type == OBJTYPE_WEAPON) {
 						struct weaponobj *weapon = (struct weaponobj *) obj;
 
-						if (weapon->weaponnum == WEAPON_COMBATKNIFE && weapon->gunfunc == FUNC_SECONDARY) {
+						if (weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE && weapon->gunfunc == FUNC_SECONDARY) {
 							knifePlayWooshSound(obj);
-						} else if (weapon->weaponnum == WEAPON_ROCKET) {
+						} else if (weaponHost(weapon->weaponnum) == WEAPON_ROCKET) {
 							if (cdresult == CDRESULT_COLLISION) {
 								weapon->timer240 = 0;
 							} else {
@@ -7423,14 +7423,14 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									smokeCreateSimple(&smokepos, prop->rooms, SMOKETYPE_ROCKETTAIL);
 								}
 							}
-						} else if (weapon->weaponnum == WEAPON_HOMINGROCKET) {
+						} else if (weaponHost(weapon->weaponnum) == WEAPON_HOMINGROCKET) {
 							if (cdresult == CDRESULT_COLLISION) {
 								weapon->timer240 = 0;
 							} else {
 								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_HOMINGTAIL);
 							}
-						} else if (weapon->weaponnum == WEAPON_GRENADEROUND
-								|| (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY)) {
+						} else if (weaponHost(weapon->weaponnum) == WEAPON_GRENADEROUND
+								|| (weaponHost(weapon->weaponnum) == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY)) {
 							if (sp350
 									|| (projectile->flags & PROJECTILEFLAG_FALLING)
 									|| (projectile->speed.x < 0.1f && projectile->speed.x > -0.1f
@@ -7439,19 +7439,19 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									|| (prop->pos.x - sp5c8.x < 0.1f && prop->pos.x - sp5c8.x > -0.1f
 										&& prop->pos.y - sp5c8.y < 0.1f && prop->pos.y - sp5c8.y > -0.1f
 										&& prop->pos.z - sp5c8.z < 0.1f && prop->pos.z - sp5c8.z > -0.1f)) {
-								if (weapon->weaponnum != WEAPON_NBOMB || weapon->timer240 >= 0) {
+								if (weaponHost(weapon->weaponnum) != WEAPON_NBOMB || weapon->timer240 >= 0) {
 									weapon->timer240 = 0;
 								}
-							} else if (weapon->weaponnum != WEAPON_NBOMB) {
+							} else if (weaponHost(weapon->weaponnum) != WEAPON_NBOMB) {
 								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_GRENADETAIL);
 							}
 						}
 
 						if (cdresult == CDRESULT_COLLISION) {
 							if (projectile->unk0a4 < g_Vars.lvframenum - 2) {
-								if (weapon->weaponnum == WEAPON_COMBATKNIFE || weapon->weaponnum == WEAPON_COMBATKNIFE) {
+								if (weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE || weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE) {
 									psCreate(0, prop, SFX_808B, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
-								} else if (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
+								} else if (weaponHost(weapon->weaponnum) == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
 									u16 sp100[] = {SFX_0027, SFX_0028, SFX_0029, SFX_002A};
 
 									psCreate(0, prop, sp100[rngRandom() % 4], -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
@@ -9383,7 +9383,7 @@ void autogunTickShoot(struct prop *autogunprop)
 							distance = 500.0f;
 						}
 
-						if (beam->weaponnum == WEAPON_LASER) {
+						if (weaponHost(beam->weaponnum) == WEAPON_LASER) {
 							// Unreachable - weaponnum was assigned above
 							beam->speed = 0.25f * distance;
 							beam->mindist = 0.6f * distance;
@@ -14723,7 +14723,7 @@ bool objDrop(struct prop *prop, bool lazy)
 		if (obj->type == OBJTYPE_WEAPON) {
 			struct weaponobj *weapon = (struct weaponobj *)obj;
 
-			if (weapon->weaponnum == WEAPON_GRENADE && weapon->timer240 >= 0) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_GRENADE && weapon->timer240 >= 0) {
 				propSetDangerous(prop);
 			}
 		}
@@ -14839,7 +14839,9 @@ void objCheckDestroyed(struct defaultobj *obj, struct coord *pos, s32 playernum)
 	if (obj->damage > obj->maxdamage || objGetDestroyedLevel(obj)) {
 		struct prop *prop = obj->prop;
 		struct prop *rootprop = prop;
-		s16 exptype = g_PropExplosionTypes[8 + obj->modelnum];
+		// The table stops at the stock models; GoldenEye's guns are past it
+		s16 exptype = 8 + obj->modelnum < propExplosionTypesCount()
+			? g_PropExplosionTypes[8 + obj->modelnum] : EXPLOSIONTYPE_NONE;
 		RoomNum rooms[8];
 
 		// If in Deep Sea outro
@@ -15467,12 +15469,12 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 			if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_EXPLODESWHENSHOT)
 					// the rocket shares its definition with the Skedar rocket,
 					// which is not on this list, so it cannot carry the flag
-					|| weapon->weaponnum == WEAPON_ROCKET
+					|| weaponHost(weapon->weaponnum) == WEAPON_ROCKET
 					// and the Dragon only counts in its mine mode
-					|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
+					|| (weaponHost(weapon->weaponnum) == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
 				// Homing rockets are immune to remote mines? Or maybe they just
 				// don't explode because the mine is exploding anyway
-				if (weapon->weaponnum != WEAPON_HOMINGROCKET || weaponnum != WEAPON_REMOTEMINE) {
+				if (weaponHost(weapon->weaponnum) != WEAPON_HOMINGROCKET || weaponHost(weaponnum) != WEAPON_REMOTEMINE) {
 					weapon->timer240 = 0;
 				}
 			}
@@ -15835,7 +15837,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 	if (obj->modelnum == MODEL_TARGET) {
 		if (hit->hitthing.texturenum == TEXTURE_0B9E) {
 			frCalculateHit(obj, &sp110, shotdata->gset.unk063a);
-		} else if ((shotdata->gset.weaponnum != WEAPON_CALLISTO || shotdata->gset.weaponfunc != FUNC_SECONDARY)
+		} else if ((weaponHost(shotdata->gset.weaponnum) != WEAPON_CALLISTO || shotdata->gset.weaponfunc != FUNC_SECONDARY)
 #if VERSION >= VERSION_NTSC_1_0
 				&& !weaponHasFlag3(shotdata->gset.weaponnum, WEAPONFLAG3_XRAYSHOT)
 #endif
@@ -16913,7 +16915,7 @@ s32 propPlayPickupSound(struct prop *prop, s32 weapon)
 
 	if (definition && definition->pickupsound) {
 		sound = definition->pickupsound;
-	} else if (weapon == WEAPON_ROCKET) {
+	} else if (weaponHost(weapon) == WEAPON_ROCKET) {
 		// see weaponPlayPickupSound: shared with the Skedar rocket
 		sound = SFX_PICKUP_AMMO;
 	} else {
@@ -16932,15 +16934,15 @@ void weaponPlayPickupSound(s32 weaponnum)
 
 	if (definition && definition->pickupsound) {
 		sound = definition->pickupsound;
-	} else if (weaponnum == WEAPON_ROCKET) {
+	} else if (weaponHost(weaponnum) == WEAPON_ROCKET) {
 		// the rocket and the Skedar rocket share one definition, so this one
 		// cannot move onto it: they take different sounds
 		sound = SFX_PICKUP_AMMO;
-	} else if (weaponnum == WEAPON_BOLT) {
+	} else if (weaponHost(weaponnum) == WEAPON_BOLT) {
 		sound = SFX_PICKUP_GUN;
-	} else if (weaponnum == WEAPON_EYESPY) {
+	} else if (weaponHost(weaponnum) == WEAPON_EYESPY) {
 		sound = SFX_PICKUP_KEYCARD;
-	} else if (weaponnum > WEAPON_PSYCHOSISGUN) {
+	} else if (weaponHost(weaponnum) > WEAPON_PSYCHOSISGUN) {
 		sound = SFX_PICKUP_KEYCARD;
 	} else {
 		sound = SFX_PICKUP_GUN;
@@ -17164,7 +17166,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 	s32 full = playercount <= 2
 		&& !(playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()));
 
-	if (weaponnum == WEAPON_EYESPY) {
+	if (weaponHost(weaponnum) == WEAPON_EYESPY) {
 		if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
 			weaponnum = 998;
 		} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR
@@ -17188,7 +17190,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 			if (full) {
 				strcat(buffer, langGet(L_PROPOBJ_000)); // "Picked up"
 
-				if (weaponnum == WEAPON_EYESPY && g_Vars.currentplayer->eyespy) {
+				if (weaponHost(weaponnum) == WEAPON_EYESPY && g_Vars.currentplayer->eyespy) {
 					textid = L_PROPOBJ_050; // "your"
 				} else if (weaponHasFlag(weaponnum, WEAPONFLAG_DETERMINER_F_SOME)) {
 					textid = L_PROPOBJ_002; // "some"
@@ -17202,7 +17204,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 
 				strcat(buffer, langGet(textid));
 			} else {
-				if (weaponnum == WEAPON_EYESPY && g_Vars.currentplayer->eyespy) {
+				if (weaponHost(weaponnum) == WEAPON_EYESPY && g_Vars.currentplayer->eyespy) {
 					textid = L_PROPOBJ_051; // "Your"
 				} else if (weaponHasFlag(weaponnum, WEAPONFLAG_DETERMINER_S_SOME)) {
 					textid = L_PROPOBJ_003; // "Some"
@@ -17348,7 +17350,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			s32 sp64;
 
 			if (g_Vars.normmplayerisrunning) {
-				if (weapon->weaponnum == WEAPON_BRIEFCASE2) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_BRIEFCASE2) {
 					sp64 = scenarioPickUpBriefcase(g_Vars.currentplayer->prop->chr, prop);
 
 					if (sp64) {
@@ -17358,7 +17360,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 					return sp64;
 				}
 
-				if (weapon->weaponnum == WEAPON_DATAUPLINK) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_DATAUPLINK) {
 					sp64 = scenarioPickUpUplink(g_Vars.currentplayer->prop->chr, prop);
 
 					if (sp64) {
@@ -17374,7 +17376,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			}
 
 			if (obj->hidden & OBJHFLAG_HASTEXTOVERRIDE) {
-				if (weapon->weaponnum <= WEAPON_PSYCHOSISGUN) {
+				if (weaponHost(weapon->weaponnum) <= WEAPON_PSYCHOSISGUN) {
 					count = invGiveWeaponsByProp(prop);
 					given = true;
 				}
@@ -17393,7 +17395,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 
 				result = TICKOP_GIVETOPLAYER;
 			} else {
-				if (weapon->weaponnum == WEAPON_BOLT) {
+				if (weaponHost(weapon->weaponnum) == WEAPON_BOLT) {
 					count = 1;
 					given = true;
 					ammoHandlePickup(AMMOTYPE_CROSSBOW, 1, !g_Vars.in_cutscene, true);
@@ -17452,7 +17454,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 				}
 			}
 
-			if (weapon->weaponnum == WEAPON_SUPERDRAGON) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_SUPERDRAGON) {
 				s32 pickupqty = weaponGetPickupAmmoQty(weapon);
 
 				if (bgunGetReservedAmmoCount(AMMOTYPE_DEVASTATOR) < bgunGetCapacityByAmmotype(AMMOTYPE_DEVASTATOR)) {
@@ -17466,7 +17468,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 				}
 			}
 
-			if (weapon->weaponnum == WEAPON_EYESPY && g_Vars.currentplayer->eyespy == NULL) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_EYESPY && g_Vars.currentplayer->eyespy == NULL) {
 				playerInitEyespy();
 			}
 		}
@@ -17600,8 +17602,8 @@ s32 objTestForPickup(struct prop *prop)
 		// placed devices are both off limits while their timer runs
 		if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_NOPICKUPWHILEARMED)
 				// shares its definition with the rocket, which is not on this list
-				|| weapon->weaponnum == WEAPON_SKROCKET
-				|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
+				|| weaponHost(weapon->weaponnum) == WEAPON_SKROCKET
+				|| (weaponHost(weapon->weaponnum) == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
 			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
 				return TICKOP_NONE;
 			}
@@ -17610,7 +17612,7 @@ s32 objTestForPickup(struct prop *prop)
 		if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_NOPICKUPINFLIGHT)
 				// and here it is the rocket that is on the list and the Skedar
 				// one that is not
-				|| weapon->weaponnum == WEAPON_ROCKET) {
+				|| weaponHost(weapon->weaponnum) == WEAPON_ROCKET) {
 			if (obj->hidden & OBJHFLAG_PROJECTILE) {
 				return TICKOP_NONE;
 			}
@@ -17623,7 +17625,7 @@ s32 objTestForPickup(struct prop *prop)
 				maybe = bgunGetAmmoQtyForWeapon(weapon->weaponnum, FUNC_PRIMARY) >= bgunGetAmmoCapacityForWeapon(weapon->weaponnum, FUNC_PRIMARY);
 			}
 
-			if (weapon->weaponnum == WEAPON_SUPERDRAGON) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_SUPERDRAGON) {
 				if (bgunGetAmmoQtyForWeapon(weapon->weaponnum, FUNC_SECONDARY) < bgunGetAmmoCapacityForWeapon(weapon->weaponnum, FUNC_SECONDARY)) {
 					maybe = false;
 				}
@@ -18335,7 +18337,7 @@ void coordTriggerProxies(struct coord *pos, bool arg1)
 			f32 zdiff;
 			f32 range = 250 * 250;
 
-			if (weapon->weaponnum == WEAPON_DRAGON) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_DRAGON) {
 				range += range;
 			}
 
@@ -18344,7 +18346,7 @@ void coordTriggerProxies(struct coord *pos, bool arg1)
 			zdiff = pos->z - weapon->base.prop->pos.z;
 
 			if (xdiff * xdiff + ydiff * ydiff + zdiff * zdiff < range) {
-				if (weapon->weaponnum != WEAPON_GRENADE || arg1 == true) {
+				if (weaponHost(weapon->weaponnum) != WEAPON_GRENADE || arg1 == true) {
 					weapon->timer240 = 0;
 				}
 			}
@@ -18750,7 +18752,7 @@ struct weaponobj *weaponCreateProjectileFromGset(s32 modelnum, struct gset *gset
 		weapon->gunfunc = gset->weaponfunc;
 
 		// This switch is useless because everything uses the same case
-		switch (gset->weaponnum) {
+		switch (weaponHost(gset->weaponnum)) {
 		case WEAPON_SUPERDRAGON:
 		case WEAPON_DEVASTATOR:
 		case WEAPON_ROCKETLAUNCHER:
@@ -21235,12 +21237,12 @@ void currentPlayerDropAllItems(void)
 	weaponDeleteFromChr(chr, HAND_RIGHT);
 	weaponDeleteFromChr(chr, HAND_LEFT);
 
-	for (i = WEAPON_UNARMED; i <= WEAPON_SUICIDEPILL; i++) {
+	for (i = WEAPON_UNARMED; i < NUM_WEAPONS; i++) {
 		if (playermgrGetModelOfWeapon(i) >= 0 && invHasSingleWeaponExcAllGuns(i)) {
 			if (!weaponHasFlag(i, WEAPONFLAG_UNDROPPABLE)
 					|| (g_Vars.normmplayerisrunning
 						&& g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL
-						&& i == WEAPON_DATAUPLINK)) {
+						&& weaponHost(i) == WEAPON_DATAUPLINK)) {
 #if VERSION >= VERSION_NTSC_1_0
 				if (g_Vars.coopplayernum >= 0) {
 					bool canremove = true;
@@ -21317,7 +21319,7 @@ void weaponCreateForPlayerDrop(s32 weaponnum)
 		objSetDropped(prop, DROPTYPE_DEFAULT);
 		objDrop(prop, true);
 
-		if (weaponnum == WEAPON_BRIEFCASE2) {
+		if (weaponHost(weaponnum) == WEAPON_BRIEFCASE2) {
 			scenarioHandleDroppedToken(chr, prop);
 		}
 	}
@@ -21346,7 +21348,7 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 		frompos.y = pos->y;
 		frompos.z = pos->z;
 
-		if (weaponnum == WEAPON_TRANQUILIZER) {
+		if (weaponHost(weaponnum) == WEAPON_TRANQUILIZER) {
 			forcebeam = true;
 			beam.age = -1;
 			drug = true;
@@ -21354,7 +21356,7 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 		}
 
 		if (arg1 && arg1->unk08 < g_Vars.lvframe60) {
-			switch (weaponnum) {
+			switch (weaponHost(weaponnum)) {
 			case WEAPON_CHOPPERGUN:
 				psStopSound(fromprop, PSTYPE_CHOPPERGUN, 0xffff);
 				psCreate(0, fromprop, SFX_810E, -1, -1, 0, 0, PSTYPE_CHOPPERGUN, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
@@ -21388,7 +21390,7 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 			sqdist = 0x20000000;
 		}
 
-		if (weaponnum == WEAPON_ROCKETLAUNCHER) {
+		if (weaponHost(weaponnum) == WEAPON_ROCKETLAUNCHER) {
 			struct weaponobj *rocket;
 			Mtxf sp13c;
 			struct coord sp130;
@@ -21511,7 +21513,7 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 						s32 hitpart = HITPART_GENERAL;
 						struct chrdata *chr = obstacle->chr;
 
-						if (weaponnum != WEAPON_CHOPPERGUN) {
+						if (weaponHost(weaponnum) != WEAPON_CHOPPERGUN) {
 							bgunPlayPropHitSound(&gset, obstacle, -1);
 						}
 
@@ -21529,7 +21531,7 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 					} else if (obstacle->type == PROPTYPE_OBJ || obstacle->type == PROPTYPE_WEAPON || obstacle->type == PROPTYPE_DOOR) {
 						struct defaultobj *obj = obstacle->obj;
 
-						if (weaponnum != WEAPON_CHOPPERGUN) {
+						if (weaponHost(weaponnum) != WEAPON_CHOPPERGUN) {
 							bgunPlayPropHitSound(&gset, obstacle, -1);
 						}
 
@@ -21540,7 +21542,7 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 						if (obj->type == OBJTYPE_WEAPON) {
 							struct weaponobj *weapon = (struct weaponobj *)obj;
 
-							if (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY) {
+							if (weaponHost(weapon->weaponnum) == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY) {
 								weapon->timer240 = 0;
 							}
 						}
@@ -21548,7 +21550,7 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 				} else {
 					func0f065e74(pos, fromprop->rooms, &endpos, sp1c8);
 
-					if (weaponnum != WEAPON_CHOPPERGUN) {
+					if (weaponHost(weaponnum) != WEAPON_CHOPPERGUN) {
 						bgunPlayBgHitSound(&gset, &endpos, -1, sp1c8);
 					}
 

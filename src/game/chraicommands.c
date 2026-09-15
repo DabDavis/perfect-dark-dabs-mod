@@ -4140,7 +4140,7 @@ bool aiTryEquipWeapon(void)
 		if (cheatIsActive(CHEAT_MARQUIS) && g_Vars.stagenum != STAGE_MBR) {
 			if (g_Vars.stagenum == STAGE_INVESTIGATION
 					&& lvGetDifficulty() == DIFF_PA
-					&& cmd[4] == WEAPON_K7AVENGER) {
+					&& weaponHost(cmd[4]) == WEAPON_K7AVENGER) {
 				prop = chrGiveWeapon(g_Vars.chrdata, model, cmd[4], flags);
 			}
 		}
@@ -4168,7 +4168,7 @@ bool aiTryEquipWeapon(void)
 		}
 #endif
 		else if (cheatIsActive(CHEAT_ENEMYROCKETS)) {
-			switch (cmd[4]) {
+			switch (weaponHost(cmd[4])) {
 			case WEAPON_FALCON2:
 			case WEAPON_FALCON2_SILENCER:
 			case WEAPON_FALCON2_SCOPE:
@@ -5058,7 +5058,7 @@ bool aiEnableObj(void)
 		if (g_Vars.currentplayer->eyespy == NULL && obj->type == OBJTYPE_WEAPON) {
 			struct weaponobj *weapon = (struct weaponobj *) obj;
 
-			if (weapon->weaponnum == WEAPON_EYESPY) {
+			if (weaponHost(weapon->weaponnum) == WEAPON_EYESPY) {
 				playerInitEyespy();
 			}
 		}
@@ -6168,7 +6168,7 @@ bool aiIfSafety2LessThan(void)
 		score -= 2;
 	}
 
-	switch (bgunGetWeaponNum(HAND_RIGHT)) {
+	switch (weaponHost(bgunGetWeaponNum(HAND_RIGHT))) {
 	case WEAPON_FALCON2:
 	case WEAPON_FALCON2_SILENCER:
 	case WEAPON_FALCON2_SCOPE:
@@ -6328,7 +6328,7 @@ bool aiIfPlayerUsingCmpOrAr34(void)
 	u32 hand = HAND_RIGHT;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	switch (bgunGetWeaponNum(hand)) {
+	switch (weaponHost(bgunGetWeaponNum(hand))) {
 		case WEAPON_CMP150:
 		case WEAPON_AR34:
 			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -9447,7 +9447,7 @@ bool aiChrSetCutsceneWeapon(void)
 					struct weaponobj *weapon = chr->weapons_held[0]->weapon;
 					bool valid = true;
 
-					switch (weapon->weaponnum) {
+					switch (weaponHost(weapon->weaponnum)) {
 					case WEAPON_FALCON2:
 					case WEAPON_FALCON2_SILENCER:
 					case WEAPON_FALCON2_SCOPE:

@@ -78,6 +78,8 @@
 #define LANGBANK_MP18      0x42
 #define LANGBANK_MP19      0x43
 #define LANGBANK_MP20      0x44
+// Not a file: strings the port adds at run time (langAddPortText())
+#define LANGBANK_PORT      0x7f
 
 /**
  * Include each lang header, which defines their enums.

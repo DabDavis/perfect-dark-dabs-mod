@@ -820,7 +820,7 @@ void explosionInflictDamage(struct prop *expprop)
 					if (candamage && prop->type == PROPTYPE_WEAPON) {
 						struct weaponobj *weapon = prop->weapon;
 
-						if (weapon && weapon->weaponnum == WEAPON_SKROCKET) {
+						if (weapon && weaponHost(weapon->weaponnum) == WEAPON_SKROCKET) {
 							weapon->timer240 = 0;
 						}
 					}
