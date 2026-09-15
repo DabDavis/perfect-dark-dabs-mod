@@ -1,3 +1,5 @@
+#include <stdlib.h>
+#include <string.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
@@ -65,6 +67,149 @@ static const char *const names[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = "Remote Mine\n",
 };
 
+/**
+ * GoldenEye's own numbers for each of its guns (gegunstats.h, generated from
+ * the decomp's obseg/gun/<source>/gunWeaponStat.inc.c).
+ *
+ * They are written as they stand. Perfect Dark's conversions of GoldenEye's
+ * guns carry the same numbers in the same units - the DD44 is the tt33's 1
+ * damage, 6 spread, 8 rounds and 16 frames of recovery, the Klobb the
+ * skorpion's 0.6 and 15, the RC-P90 the fnp90's 1.8 and 80 - so GoldenEye's
+ * Destruction is a damage, its Inaccuracy a spread, its MagSize a clip and
+ * its SingleRate a recovery time, with nothing to scale between them.
+ *
+ * What is not taken: the recoil, zoom, sway and loudness, which are how a gun
+ * handles rather than what it does, and a thrown weapon's damage, since every
+ * one of Perfect Dark's carries 0 there and the explosion does the work.
+ */
+struct gegunstat {
+	s16 magsize;
+	u8 autorate;
+	u8 singlerate;
+	u8 penetration;
+	f32 damage;
+	f32 spread;
+	f32 impactforce;
+};
+
+#define GUNSTAT(weapon, source, mag, autorate, singlerate, pen, dmg, spread, impact) \
+	[weapon - WEAPON_GE_FIRST] = { mag, autorate, singlerate, pen, dmg, spread, impact }
+
+static const struct gegunstat stats[NUM_GE_WEAPONS] = {
+#include "gegunstats.h"
+};
+
+#undef GUNSTAT
+
+/**
+ * GoldenEye's automatic rate as the rounds per minute Perfect Dark counts in.
+ *
+ * Its conversions are the calibration, and between them they use two rates:
+ * the Klobb, the KF7 Soviet and the D5K are GoldenEye's rate 3 and fire at
+ * 450, the AR33 and the RC-P90 are rate 2 and fire at 550 and 600. No gun of
+ * the twenty-five carries any other rate, and 0xff is not automatic at all.
+ */
+static f32 gegunsRpm(u8 rate)
+{
+	switch (rate) {
+	case 2: return 600.0f;
+	case 3: return 450.0f;
+	}
+
+	return 0.0f;
+}
+
+/** How much of a weapon function is its own, by type (moddata.c's cvFunc()). */
+static u32 gegunsFuncSize(s32 type)
+{
+	switch (type) {
+	case INVENTORYFUNCTYPE_SHOOT_SINGLE:     return sizeof(struct weaponfunc_shootsingle);
+	case INVENTORYFUNCTYPE_SHOOT_AUTOMATIC:  return sizeof(struct weaponfunc_shootauto);
+	case INVENTORYFUNCTYPE_SHOOT_PROJECTILE: return sizeof(struct weaponfunc_shootprojectile);
+	case INVENTORYFUNCTYPE_THROW:            return sizeof(struct weaponfunc_throw);
+	case INVENTORYFUNCTYPE_MELEE:            return sizeof(struct weaponfunc_melee);
+	case INVENTORYFUNCTYPE_SPECIAL:          return sizeof(struct weaponfunc_special);
+	case INVENTORYFUNCTYPE_DEVICE:           return sizeof(struct weaponfunc_device);
+	}
+
+	return sizeof(struct weaponfunc);
+}
+
+/**
+ * GoldenEye's numbers onto one copy, on copies of its host's own structures.
+ *
+ * A weapon's damage, spread, penetration and rate live in the functions it
+ * carries and its magazine in its ammo, both of them shared with the host
+ * until here: writing through them would arm Perfect Dark's own gun with
+ * GoldenEye's numbers, which is the whole thing weaponHost() exists to avoid.
+ */
+static void gegunsApplyStats(s32 i)
+{
+	const struct gegunstat *stat = &stats[i];
+	struct weapon *def = &g_GeWeaponDefs[i];
+	s32 shoots = 0;
+
+	for (s32 f = 0; f < 2; f++) {
+		const struct weaponfunc *host = def->functions[f];
+		struct weaponfunc *copy;
+		u32 size;
+
+		if (!host) {
+			continue;
+		}
+
+		size = gegunsFuncSize(host->type);
+		copy = malloc(size);
+
+		if (!copy) {
+			continue;
+		}
+
+		memcpy(copy, host, size);
+		def->functions[f] = copy;
+
+		if ((copy->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+			struct weaponfunc_shoot *shoot = (struct weaponfunc_shoot *)copy;
+
+			shoots = 1;
+			shoot->damage = stat->damage;
+			shoot->spread = stat->spread;
+			shoot->penetration = stat->penetration;
+			shoot->impactforce = stat->impactforce;
+
+			// 0xff is GoldenEye's "no rate", not a time
+			if (stat->singlerate != 0xff) {
+				shoot->recoverytime60 = (s8)stat->singlerate;
+			}
+
+			if (copy->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+				const f32 rpm = gegunsRpm(stat->autorate);
+
+				if (rpm > 0.0f) {
+					((struct weaponfunc_shootauto *)copy)->initialrpm = rpm;
+					((struct weaponfunc_shootauto *)copy)->maxrpm = rpm;
+				}
+			}
+		} else if ((copy->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+			// GoldenEye's knife is a 3 against Perfect Dark's 2
+			((struct weaponfunc_melee *)copy)->damage = stat->damage;
+		}
+	}
+
+	// The magazine, for a gun that has one. A knife's or a mine's MagSize is
+	// how many are carried rather than a clip, and the Moonraker has none at
+	// all; the second ammo slot is a second kind of ammunition, not this one.
+	if (shoots && stat->magsize > 0 && def->ammos[0]) {
+		struct inventory_ammo *copy = malloc(sizeof(*copy));
+
+		if (copy) {
+			*copy = *def->ammos[0];
+			copy->clipsize = stat->magsize;
+			def->ammos[0] = copy;
+		}
+	}
+}
+
 /** The stock model state a GoldenEye gun's host is picked up as. */
 s32 gegunsHostModel(s32 index)
 {
@@ -81,6 +226,8 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 		g_GeWeaponDefs[i] = *host;
 		g_GeWeaponDefs[i].name = name;
 		g_GeWeaponDefs[i].shortname = name;
+
+		gegunsApplyStats(i);
 
 		// Until gebean.c has the release's pickup to point it at, the host's
 		if (hostmodel >= 0 && hostmodel < MODEL_GE_FIRST) {

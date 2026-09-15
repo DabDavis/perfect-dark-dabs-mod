@@ -294,8 +294,9 @@ own:
 - **Definition and name**: `port/src/geguns.c` copies the host's `struct weapon`
   at start-up (a constructor, before a mod import replaces the stock pointers)
   and names it through `langAddPortText()` - text ids in bank `LANGBANK_PORT`
-  (0x7f), which `langGet()` answers from a table. First person, animations,
-  ammo, sounds and stats are the host's for now.
+  (0x7f), which `langGet()` answers from a table. Animations and sounds are
+  the host's; the first-person model is its own for all but the Moonraker
+  (fpReady) and the stats are GoldenEye's (below).
 - **Pickup**: model state `MODEL_GE_FIRST + i` (0x1b9, `NUM_MODELS` +25;
   `g_PropExplosionTypes` is bounded where it is read by model number).
   `gebeanGunsRefresh()` (top of `gebeanPoolRefresh()`) points it at an alias
@@ -440,6 +441,47 @@ model's matrices, so the hand goes and the gun is put on the host's model:
 - **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock
   geometry under it.
 
+## GoldenEye's stats on GoldenEye's guns (2026-09-15)
+
+Each copy fired with its Perfect Dark host's damage, rate and magazine until
+now. GoldenEye keeps its own in one `WeaponStats` row per gun
+(`obseg/gun/<source>/gunWeaponStat.inc.c`, fields named by its `gun.h`), and
+`.xbla-work/ge-bean/gen_gunstats.py` writes the ones that map into
+`port/src/gegunstats.h`; `gegunsApplyStats()` lays them on at start-up.
+
+**Nothing is scaled**, because Perfect Dark's own conversions of GoldenEye's
+guns carry GoldenEye's numbers in GoldenEye's units - the DD44 is the tt33's
+1 damage, 6 spread, 8 rounds and 16 frames of recovery, the Klobb the
+skorpion's 0.6 and 15, the RC-P90 the fnp90's 1.8 and 80, the PP9i the wppk's
+1 and 1. So Destruction is a `damage`, Inaccuracy a `spread`, MagSize a
+`clipsize`, SingleRate a `recoverytime60`, ObjectsShootThrough a
+`penetration` and ForceOfImpact an `impactforce`.
+
+- **Automatic rate** is the one conversion: Perfect Dark counts rounds per
+  minute where GoldenEye counts a rate. Its own conversions give both values
+  in use - rate 3 is 450rpm (Klobb, KF7, D5K), rate 2 is 550-600 (AR33,
+  RC-P90) - and no gun of the twenty-five uses any other; 0xff is not
+  automatic and leaves the host's.
+- **On copies of the host's structures.** Damage, spread, penetration and rate
+  live in the functions a weapon carries and the magazine in its ammo, both
+  shared with the host until here, so each copy gets its own
+  (`gegunsFuncSize()`, moddata.c's `cvFunc()` sized by type). Writing through
+  the shared ones would arm Perfect Dark's own gun with GoldenEye's numbers.
+- **Not taken**: recoil, zoom, sway and loudness - how a gun handles rather
+  than what it does - and a **thrown weapon's damage**, since every one of
+  Perfect Dark's carries 0 there and the explosion does the work. A knife's
+  and a mine's MagSize is how many are carried rather than a clip, so the
+  magazine is only written for a weapon that shoots.
+- What it changes, against the host: the silenced PP7 and D5K lose accuracy
+  (spread 3 and 9 against 1 and 7), the Phantom gains damage, spread, a 50
+  round magazine and slows to 450rpm from 900, the AR33 and RC-P90 shoot
+  through 2 and 3 objects, the Cougar through 10, the shotguns hold 5 and
+  recover in 10 frames, the Golden Gun is 100 damage with one round, the
+  Moonraker 2, both launchers lose their spread, and the knives cut for 3
+  against 2.
+- Checked with a gdb dump of every copy's function and ammo beside its host's
+  at frame 300 (scratch `stats.gdb`): every host column still stock.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.
@@ -449,8 +491,7 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   props, levels.
 - The guns (sections above): the Moonraker, the one first-person gun not in
   `fpReady`; Bean's moving parts on their own matrices where the host
-  has one (every surveyed gun's bones landed on the body's); GoldenEye's stats (decomp
-  `obseg/gun/*/gunWeaponStat.inc.c`) instead of the host's; floor pickups seen
+  has one (every surveyed gun's bones landed on the body's); floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their
   random-weapon filters saved. The slide: with lists' loaded matrices known,
   Bean's slide bone could go on the host's slide matrix (34 on the PP9i) - but a
