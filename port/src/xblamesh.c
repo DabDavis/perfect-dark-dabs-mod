@@ -1136,6 +1136,22 @@ static s32 xblaMeshIsReleaseBootLogo(s32 fileid)
 }
 
 /**
+ * A model whose toggled pieces 4J remodelled into the mesh while leaving their
+ * ids at zero, so the toggled-piece rule below would keep the game's copy
+ * drawing inside the release's.
+ *
+ * `PdropshipZ`: the second of its seventeen lists is the ship's interior (the
+ * ceiling grille 0aed and the hazard band 0aeb) under a toggle beside the named
+ * list. The release's mesh has an interior of its own, its ceiling within two
+ * units of the stock one's, and in Villa's intro the two z-fought - the hazard
+ * strip above the door trading places with the grille from frame to frame.
+ */
+static s32 xblaMeshTogglesAreInMesh(s32 fileid)
+{
+	return fileid == FILE_PDROPSHIP;
+}
+
+/**
  * Whether the model's own mesh has this node's geometry already.
  *
  * **A mesh is the whole model, and the release names it on one node.** The id
@@ -1346,7 +1362,8 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 			if (xblaMeshIsHairList(modeldef, ournode)) {
 				xblaMeshSuppressNode(modeldef, ournode, 0, XBLAMESH_SUPPRESS_HAIR);
 				suppressed++;
-			} else if ((xblaMeshIsCovered(modeldef, ournode) || xblaMeshIsReleaseBootLogo(xblaMeshFileId))
+			} else if ((xblaMeshIsCovered(modeldef, ournode) || xblaMeshIsReleaseBootLogo(xblaMeshFileId)
+						|| xblaMeshTogglesAreInMesh(xblaMeshFileId))
 					&& numcovered < XBLAMESH_COVERED) {
 				// Held until the walk is over: a model whose tree stops
 				// matching part way through leaves through one of the returns
