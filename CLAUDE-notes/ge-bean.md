@@ -334,6 +334,52 @@ identical simulant weapons and positions, which is the check that the 318
 `weaponHost()` wraps change nothing for stock numbers. gdb cannot call
 `weaponHost()` (static inline): read `g_GeWeaponHosts` directly.
 
+## GoldenEye's guns in first person (2026-09-15)
+
+Bean's `files/new/gun/<name>` is GoldenEye's N64 first-person gun at Bean's
+scale (x4.7) with the same joints - the PPK's pose bone 4 is the decomp's slide
+group 0x4e0, bone 2 group 0x2a0, bone 3 the muzzle group - and with Bond's hand
+and forearm built in. Perfect Dark draws its hand model (`Ghand_*`) with the gun
+model's matrices, so the hand goes and the gun is put on the host's model:
+
+- **Rows**: `fpRows` (after the pickup rows, `gun/<name>`). `gebeanGunsRefresh()`
+  points a copy's `hi_model` at an alias `Gge*Z` of its host's first-person file
+  (the host's file is remembered before the first change) - only for the guns
+  in `fpReady`, the ones checked on screen. The archive filter takes
+  `files/new/gun/` (`.extracted4`). HD look only: Bean's N64-look guns have the
+  hand in untextured geometry, and with the meshes off the host's own model
+  draws, which for the classic guns is GoldenEye's N64 gun already.
+- **What is left out**: the hand is the one 512x511 picture in a gun that has
+  one (pistols, knives); **Bean's muzzle flashes** are 32x32 sprites on the
+  muzzle bones that Bean switches itself - here they drew always, and they
+  stretched the gun's length by ~190 units, which shrank and shifted the PP7's
+  fit. Every picture of 64 or less is dropped.
+- **The fit** (`gebeanBuildFirstPerson()`): the host's untoggled list vertices
+  (a toggled list, the flash, keeps its own geometry) give the extent in the
+  model's space (vertex + `xblaMeshNodeRestOffset()`); Bean's gun is scaled to
+  the same z length (the barrel in both games) and centred. Each Bean bone goes
+  on the host matrix with a visible list whose rest is nearest its joint (within
+  30 units), else the body's. Vertices are written in their list's own matrix
+  space and the mesh has **no palette**; `xblaMeshBuildBean()` marks the built
+  mesh `m->local`, so it draws like a model pack's, group k under node k's own
+  matrix. Untoggled host lists Bean's gun does not reach draw nothing.
+- **Checked** by a 25-gun survey (`--boot-stage 0x32 --mpsims 0`, every copy
+  given and equipped 90 frames apart, a screenshot 80 frames after; simulants
+  kill the player mid-survey otherwise), against the same run with the host's
+  model: right for DD44, Klobb, KF7 Soviet, ZMG, D5K and silenced, Phantom,
+  AR33, RC-P90, Shotgun, Automatic Shotgun, Cougar, Grenade Launcher.
+- **Not yet** (`fpReady` 0, the host's model): the **PP7 and PP7 silenced**
+  draw a long barrel below the hand - its placement matched the host's list in
+  the model's space, and matrix rests, a 180-degree turn about y and the
+  skinned-versus-local draw each changed nothing on screen, so the cause is not
+  found; the muzzle part's rest (`MODELPART_GUN_MUZZLEPOS`) does not tell which
+  way a gun points (it turned the shotgun wrongly). The **sniper rifle** is
+  turned, the **Golden Gun** draws white, the **rocket launcher** is shrunk to
+  0.079 by its host's length, and the Moonraker, knives, grenade and mines were
+  not seen (no ammo given in the survey).
+- **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock
+  geometry under it.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.
@@ -341,8 +387,10 @@ identical simulant weapons and positions, which is the check that the 318
   character; it could move to the model load beside the unpack.
 - Everything else the plan named: character select from the GE ROM's models,
   props, levels.
-- The guns (section above): Bean's first-person guns (`files/new/gun/`, hand
-  and forearm built in) in place of the host's; GoldenEye's stats (decomp
+- The guns (sections above): the first-person guns not in `fpReady` yet (PP7s,
+  sniper rifle, Golden Gun, rocket launcher; Moonraker, knives, grenade and
+  mines unchecked); Bean's moving parts on their own matrices where the host
+  has one (every surveyed gun's bones landed on the body's); GoldenEye's stats (decomp
   `obseg/gun/*/gunWeaponStat.inc.c`) instead of the host's; floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their
   random-weapon filters saved.

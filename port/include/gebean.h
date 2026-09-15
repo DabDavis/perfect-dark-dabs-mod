@@ -57,6 +57,14 @@ const char *gebeanRowName(s32 row);
 s32 gebeanRowIsPool(s32 row);
 
 /**
+ * Whether the row is a GoldenEye gun's first-person model. Its mesh is built
+ * in each list node's own space, one group a node with no palette, so it is
+ * drawn the way a model pack's is - under the node's own matrix - rather than
+ * posed like a character.
+ */
+s32 gebeanRowIsFirstPerson(s32 row);
+
+/**
  * GoldenEye's characters and heads in the Combat Simulator's own lists, for
  * Perfect Dark rather than for GoldenEye X: each one a row of g_HeadsAndBodies
  * past the stock table, whose file is an alias of a Perfect Dark body or head

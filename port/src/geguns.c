@@ -16,9 +16,10 @@
  *
  * Each is a copy of the Perfect Dark weapon GoldenEye's gun became in it - the
  * PP7 of the PP9i, the KF7 Soviet of the KF7 Special, the Cougar Magnum of the
- * DY357 - so it takes its host's first-person model, animations, ammo,
- * functions and sounds, and every test of a weapon by number asks about the
- * host (weaponHost()). What is its own: the number, so it is held, dropped and
+ * DY357 - so it takes its host's animations, ammo, functions and sounds, and
+ * every test of a weapon by number asks about the host (weaponHost()). Its
+ * first-person model is the host's, or, for the guns gebean.c has checked
+ * (fpReady), an alias of it with the release's gun drawn on it. What is its own: the number, so it is held, dropped and
  * picked up beside its host rather than as it; GoldenEye's name; a model state
  * (MODEL_GE_FIRST), which gebean.c points at an alias of the host's pickup
  * that the GoldenEye XBLA release's pickup is drawn on; and a Combat

@@ -44,9 +44,10 @@
 #define GEBEAN_XBLA_DIR "xbla"
 #define GEBEAN_CACHE_DIR "cache"
 // Written once an archive's characters are out. The first one (".extracted")
-// was written when only new/ was taken, and the second (".extracted2") before
-// the guns' pickups were, so a cache holding either is unpacked again.
-#define GEBEAN_DONE_FILE ".extracted3"
+// was written when only new/ was taken, the second (".extracted2") before the
+// guns' pickups were and the third (".extracted3") before their first-person
+// models were, so a cache holding any of them is unpacked again.
+#define GEBEAN_DONE_FILE ".extracted4"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -61,6 +62,7 @@
 #define GEBEAN_WANT_ORIGINAL_HEADS "files/original/head/"
 #define GEBEAN_WANT_PICKUPS "files/new/prop/chr"
 #define GEBEAN_WANT_ORIGINAL_PICKUPS "files/original/prop/chr"
+#define GEBEAN_WANT_GUNS "files/new/gun/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -259,6 +261,77 @@ _Static_assert(ARRAYCOUNT(gunRows) == NUM_GE_WEAPONS, "a pickup row per GoldenEy
 
 static s32 gunSlot[ARRAYCOUNT(gunRows)];
 
+/**
+ * GoldenEye's first-person guns: each copy's hi_model is an alias of its
+ * host's first-person model (gebeanGunsRefresh()), on which Bean's gun - less
+ * its hand, since Perfect Dark's own hand model is drawn with the gun - is
+ * skinned to the host's matrices (gebeanBuildFirstPerson()). Only in the
+ * release's look: Bean's N64-look guns have the hand in their geometry, and
+ * with the meshes off the host's own model draws, which for the classic guns
+ * is GoldenEye's N64 gun already.
+ */
+#define GEBEAN_FIRSTPERSON 5
+
+#define FPROW(file, source) { file, 0, 0, GEBEAN_FIRSTPERSON, source }
+
+static const struct gebeanrow fpRows[NUM_GE_WEAPONS] = {
+	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = FPROW("GgePP7Z",             "gun/ppk"),
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = FPROW("GgePP7silZ",          "gun/ppksilenced"),
+	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = FPROW("GgeDD44Z",            "gun/tt33"),
+	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = FPROW("GgeKlobbZ",           "gun/skorpion"),
+	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = FPROW("GgeKF7Z",             "gun/ak47"),
+	[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = FPROW("GgeZMGZ",             "gun/uzi"),
+	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = FPROW("GgeD5KZ",             "gun/mp5k"),
+	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = FPROW("GgeD5KsilZ",          "gun/mp5ksilenced"),
+	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = FPROW("GgePhantomZ",         "gun/spectre"),
+	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = FPROW("GgeAR33Z",            "gun/m16"),
+	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = FPROW("GgeRCP90Z",           "gun/fnp90"),
+	[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = FPROW("GgeShotgunZ",         "gun/shotgun"),
+	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = FPROW("GgeAutoShotgunZ",     "gun/automaticshotgun"),
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = FPROW("GgeSniperZ",          "gun/sniperrifle"),
+	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = FPROW("GgeCougarZ",          "gun/ruger"),
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = FPROW("GgeGoldenGunZ",       "gun/goldengun"),
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = FPROW("GgeMoonrakerZ",       "gun/laser"),
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = FPROW("GgeGrenadeLauncherZ", "gun/grenadelauncher"),
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = FPROW("GgeRocketLauncherZ",  "gun/rocketlauncher"),
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = FPROW("GgeKnifeZ",           "gun/knife"),
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = FPROW("GgeThrowingKnifeZ",   "gun/throwingknife"),
+	[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = FPROW("GgeGrenadeZ",         "gun/grenade"),
+	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = FPROW("GgeTimedMineZ",       "gun/timedmine"),
+	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = FPROW("GgeProximityMineZ",   "gun/proximitymine"),
+	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = FPROW("GgeRemoteMineZ",      "gun/remotemine"),
+};
+
+static s32 fpSlot[ARRAYCOUNT(fpRows)];
+
+/**
+ * Which first-person guns are drawn from Bean: those checked on screen against
+ * their host's (2026-09-15, a 25-gun survey). The rest keep the host's model -
+ * GoldenEye's name, pickup and third-person gun still their own - until each is
+ * made right: the PP7s draw below the hand, the sniper rifle is turned, the
+ * Golden Gun is untextured, the rocket launcher is shrunk by its host's
+ * length, and the Moonraker, knives, grenade and mines were not seen.
+ */
+static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
+};
+
+// Each copy's first-person file as geguns.c made it - its host's - before
+// this ever pointed it at an alias
+static u16 fpHostFile[ARRAYCOUNT(fpRows)];
+
 /** A row of any table: GoldenEye X's first, then the pool's, then the guns'. */
 static const struct gebeanrow *gebeanRowAt(s32 row)
 {
@@ -273,6 +346,11 @@ static const struct gebeanrow *gebeanRowAt(s32 row)
 	if (row >= ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows)
 			&& row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows)) {
 		return &gunRows[row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows)].row;
+	}
+
+	if (row >= ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows)
+			&& row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + ARRAYCOUNT(fpRows)) {
+		return &fpRows[row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows) - ARRAYCOUNT(gunRows)];
 	}
 
 	return NULL;
@@ -299,6 +377,12 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
 		if (gunSlot[i] == fileid && name == gunRows[i].row.file) {
 			return ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + i;
+		}
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(fpRows); i++) {
+		if (fpSlot[i] == fileid && name == fpRows[i].file) {
+			return ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + i;
 		}
 	}
 
@@ -361,6 +445,24 @@ static void gebeanGunsRefresh(void)
 		state->scale = scale;
 
 		g_MpWeapons[MPWEAPON_GE_FIRST + i].unlockfeature = show ? 0 : MPFEATURE_NEVER;
+
+		// And the first-person model: an alias of the host's, which Bean's gun
+		// is drawn on, or the host's own again
+		if (!fpHostFile[i]) {
+			fpHostFile[i] = g_GeWeaponDefs[i].hi_model;
+		}
+
+		fpSlot[i] = 0;
+		g_GeWeaponDefs[i].hi_model = fpHostFile[i];
+
+		if (show && fpReady[i] && fpHostFile[i]) {
+			const s32 slot = romdataRegisterAliasFile(fpRows[i].file, fpHostFile[i]);
+
+			if (slot) {
+				fpSlot[i] = slot;
+				g_GeWeaponDefs[i].hi_model = (u16)slot;
+			}
+		}
 	}
 
 	if (show) {
@@ -645,7 +747,8 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 
 	return strstr(lower, GEBEAN_WANT_CHARS) != NULL || strstr(lower, GEBEAN_WANT_HEADS) != NULL
 		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL
-		|| strstr(lower, GEBEAN_WANT_PICKUPS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_PICKUPS) != NULL;
+		|| strstr(lower, GEBEAN_WANT_PICKUPS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_PICKUPS) != NULL
+		|| strstr(lower, GEBEAN_WANT_GUNS) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -782,6 +885,13 @@ const char *gebeanRowName(s32 row)
 	const struct gebeanrow *r = gebeanRowAt(row);
 
 	return r ? r->file : "?";
+}
+
+s32 gebeanRowIsFirstPerson(s32 row)
+{
+	const s32 base = ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows);
+
+	return row >= base && row < base + ARRAYCOUNT(fpRows);
 }
 
 s32 gebeanRowIsPool(s32 row)
@@ -3024,9 +3134,425 @@ static u8 *gebeanBuildRigid(s32 gun, s32 original, struct modeldef *modeldef, st
 	return file;
 }
 
+/** A texture's width and height from its header, without decoding it. */
+static s32 beanTextureSize(const struct beanmodel *bm, s32 t, s32 *w, s32 *h)
+{
+	u32 blen = 0;
+	const u8 *b = t >= 0 && t < bm->numtex ? caffBlob(&bm->caff, bm->texfile[t], &blen) : NULL;
+
+	if (!b || blen < 0x40) {
+		return 0;
+	}
+
+	*w = gebeanBE16(b + 0x24);
+	*h = gebeanBE16(b + 0x26);
+
+	return 1;
+}
+
+/**
+ * A first-person gun (fpRows): Bean's gun, which is GoldenEye's N64 gun at
+ * Bean's scale with the same joints, on the host's first-person model.
+ *
+ * The hand goes: it is the one 512x511 picture in every gun that has one
+ * (the pistols and knives), and Perfect Dark draws its own hand model with
+ * the gun's matrices. What is left is laid onto the host's visible lists -
+ * scaled to the same length along the barrel (z, as in both games) and
+ * centred on them - and each of Bean's bones goes on the host matrix whose
+ * rest is nearest its joint (a slide on the slide), or on the body's. Every
+ * vertex is then in the model's space with its matrix's rest taken off by
+ * the palette, as a character's is. A toggled list (a muzzle flash) keeps its
+ * own geometry; any other list Bean's gun does not reach draws nothing.
+ */
+static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modeldef, struct modelnode **nodes,
+		s32 numnodes, struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
+{
+	const struct gebeanrow *r = &fpRows[fp];
+	const s32 nummatrices = modeldef->nummatrices;
+	char source[64];
+	struct beanmodel bm;
+	struct beanout out;
+	struct beanrig rig;
+	u32 matwords[GEBEAN_MAXMATS];
+	s32 nummatwords;
+	s32 nodemtx[64];
+	u8 nodevisible[64];
+	u8 nodeused[64];
+	s32 mtxnode[GEBEAN_MAXMTX];
+	s32 bodynode = -1;
+	s32 bodyverts = 0;
+	u8 hand[GEBEAN_MAXMATS];
+	f32 hostlo[3] = { 1e30f, 1e30f, 1e30f };
+	f32 hosthi[3] = { -1e30f, -1e30f, -1e30f };
+	f32 beanlo[3] = { 1e30f, 1e30f, 1e30f };
+	f32 beanhi[3] = { -1e30f, -1e30f, -1e30f };
+	f32 hostc[3];
+	f32 beanc[3];
+	f32 scale;
+	s32 bonemtx[BEAN_MAXBONES];
+	s32 numhand = 0;
+	u8 *file;
+
+	// Bean's N64-look guns have the hand in their geometry; the host draws there
+	if (original || nummatrices <= 0 || nummatrices > GEBEAN_MAXMTX) {
+		return NULL;
+	}
+
+	memset(&rig, 0, sizeof(rig));
+	memset(nodeused, 0, sizeof(nodeused));
+
+	for (s32 m = 0; m < GEBEAN_MAXMTX; m++) {
+		mtxnode[m] = -1;
+	}
+
+	// Every matrix's rest, from the position nodes that own them
+	{
+		s32 walked = 0;
+
+		for (struct modelnode *node = modeldef->rootnode; node && walked < 4096; node = gebeanNextNode(node), walked++) {
+			const u32 type = node->type & 0xff;
+			s32 mtx = -1;
+
+			if (type == MODELNODETYPE_POSITION) {
+				mtx = node->rodata->position.mtxindex0;
+			} else if (type == MODELNODETYPE_POSITIONHELD) {
+				mtx = node->rodata->positionheld.mtxindex;
+			}
+
+			if (mtx >= 0 && mtx < GEBEAN_MAXMTX && !rig.hasrest[mtx]) {
+				rig.hasrest[mtx] = 1;
+				xblaMeshNodeRestOffset(node, rig.rest[mtx]);
+			}
+		}
+	}
+
+	// The host's visible lists: their extent in the model's space, and the
+	// biggest of them, which is the body
+	for (s32 k = 0; k < numnodes; k++) {
+		const u32 type = nodes[k]->type & 0xff;
+		const Vtx *v = NULL;
+		s32 n = 0;
+		f32 rest[3];
+
+		nodemtx[k] = gebeanListNodeMatrix(nodes[k]);
+
+		if (nodemtx[k] < 0 || nodemtx[k] >= nummatrices) {
+			nodemtx[k] = 0;
+		}
+
+		nodevisible[k] = !beanNodeIsToggled(nodes[k]);
+
+		if (!nodevisible[k]) {
+			continue;
+		}
+
+		if (type == MODELNODETYPE_DL) {
+			v = nodes[k]->rodata->dl.vertices;
+			n = nodes[k]->rodata->dl.numvertices;
+		} else if (type == MODELNODETYPE_GUNDL) {
+			v = nodes[k]->rodata->gundl.vertices;
+			n = nodes[k]->rodata->gundl.numvertices;
+		}
+
+		if (!v || n <= 0) {
+			continue;
+		}
+
+		if (mtxnode[nodemtx[k]] < 0) {
+			mtxnode[nodemtx[k]] = k;
+		}
+
+		xblaMeshNodeRestOffset(nodes[k], rest);
+
+		// The rest a list's vertices are drawn from is the list's own - the
+		// sum of the positions above it - which is what its matrix carries.
+		// The first position node naming the matrix need not be that one.
+		rig.hasrest[nodemtx[k]] = 1;
+		memcpy(rig.rest[nodemtx[k]], rest, sizeof(rest));
+
+		for (s32 j = 0; j < n; j++) {
+			for (s32 a = 0; a < 3; a++) {
+				const f32 p = v[j].v[a] + rest[a];
+
+				if (p < hostlo[a]) hostlo[a] = p;
+				if (p > hosthi[a]) hosthi[a] = p;
+			}
+		}
+
+		if (n > bodyverts) {
+			bodyverts = n;
+			bodynode = k;
+		}
+	}
+
+	if (bodynode < 0) {
+		return NULL;
+	}
+
+	snprintf(source, sizeof(source), "new/%s", r->source);
+
+	if (!gebeanLocate(1) || !beanLoad(&bm, source)) {
+		return NULL;
+	}
+
+	// Left out with the hand: Bean's muzzle flashes, the 32x32 sprites on the
+	// muzzle bones, which it switches on itself - here they would draw always
+	// (the host's toggled flash still fires), and they would stretch the gun's
+	// length the fit is measured by
+	for (s32 t = 0; t < bm.numtex && t < GEBEAN_MAXMATS; t++) {
+		s32 w = 0;
+		s32 h = 0;
+
+		hand[t] = beanTextureSize(&bm, t, &w, &h) && ((w == 512 && h == 511) || (w <= 64 && h <= 64));
+		numhand += hand[t];
+	}
+
+	// Bean's gun's extent, less the hand
+	for (s32 di = 0; di < bm.numdraws; di++) {
+		const struct beandraw *d = &bm.draws[di];
+		struct beanvb vb;
+		u16 *tris;
+		s32 numtris;
+
+		if ((d->tex < GEBEAN_MAXMATS && d->tex < (u32)bm.numtex && hand[d->tex]) || !beanReadVb(&bm, d->vb, &vb)) {
+			continue;
+		}
+
+		numtris = beanTriangles(&bm, d, &tris);
+
+		for (s32 t = 0; t < numtris * 3; t++) {
+			struct beanvtx v;
+
+			if (beanVertex(&bm, &vb, tris[t], &v)) {
+				for (s32 a = 0; a < 3; a++) {
+					if (v.pos[a] < beanlo[a]) beanlo[a] = v.pos[a];
+					if (v.pos[a] > beanhi[a]) beanhi[a] = v.pos[a];
+				}
+			}
+		}
+
+		free(tris);
+	}
+
+	if (beanhi[2] - beanlo[2] <= 1.0f || hosthi[2] - hostlo[2] <= 1.0f) {
+		beanFree(&bm);
+		return NULL;
+	}
+
+	scale = (hosthi[2] - hostlo[2]) / (beanhi[2] - beanlo[2]);
+
+	for (s32 a = 0; a < 3; a++) {
+		hostc[a] = (hostlo[a] + hosthi[a]) * 0.5f;
+		beanc[a] = (beanlo[a] + beanhi[a]) * 0.5f;
+	}
+
+	// Each bone onto the nearest host matrix with a visible list, within 30
+	// units of its joint, or onto the body's
+	for (s32 b = 0; b < BEAN_MAXBONES; b++) {
+		f32 best = 30.0f * 30.0f;
+
+		bonemtx[b] = nodemtx[bodynode];
+
+		if (b == 0 || b >= bm.numbones) {
+			continue;
+		}
+
+		for (s32 m = 0; m < nummatrices; m++) {
+			f32 d2 = 0.0f;
+
+			if (mtxnode[m] < 0 || !rig.hasrest[m]) {
+				continue;
+			}
+
+			for (s32 a = 0; a < 3; a++) {
+				const f32 joint = (bm.bind[b][a] - beanc[a]) * scale + hostc[a];
+				d2 += (joint - rig.rest[m][a]) * (joint - rig.rest[m][a]);
+			}
+
+			if (d2 < best) {
+				best = d2;
+				bonemtx[b] = m;
+			}
+		}
+
+	}
+
+	memset(&out, 0, sizeof(out));
+
+	for (s32 di = 0; di < bm.numdraws; di++) {
+		const struct beandraw *d = &bm.draws[di];
+		struct beanvb vb;
+		u16 *tris;
+		s32 numtris;
+		s32 *mapped;
+		s32 *mappedmtx;
+
+		if ((d->tex < GEBEAN_MAXMATS && d->tex < (u32)bm.numtex && hand[d->tex]) || !beanReadVb(&bm, d->vb, &vb)) {
+			continue;
+		}
+
+		numtris = beanTriangles(&bm, d, &tris);
+
+		if (numtris <= 0) {
+			free(tris);
+			continue;
+		}
+
+		mapped = malloc(vb.count * sizeof(s32));
+		mappedmtx = malloc(vb.count * sizeof(s32));
+
+		if (!mapped || !mappedmtx) {
+			free(mapped);
+			free(mappedmtx);
+			free(tris);
+			continue;
+		}
+
+		for (u32 i = 0; i < vb.count; i++) {
+			mapped[i] = -1;
+		}
+
+		for (s32 t = 0; t < numtris; t++) {
+			u16 idx[3];
+			s32 group;
+			s32 ok = 1;
+
+			for (s32 i = 0; i < 3 && ok; i++) {
+				const u16 vi = tris[t * 3 + i];
+				struct beanvtx v;
+				f32 pos[3];
+				s32 bone = 0;
+				s32 mtx;
+				u8 bones[3];
+				const f32 weight[3] = { 1.0f, 0.0f, 0.0f };
+
+				if (mapped[vi] >= 0) {
+					idx[i] = (u16)mapped[vi];
+					continue;
+				}
+
+				if (!beanVertex(&bm, &vb, vi, &v)) {
+					ok = 0;
+					break;
+				}
+
+				if (v.slot[0] >= 0 && v.slot[0] < d->numpal) {
+					bone = d->pal[(s32)v.slot[0]];
+					bone = bm.numremap && bone < bm.numremap ? bm.remap[bone] : bone;
+				}
+
+				mtx = bone >= 0 && bone < BEAN_MAXBONES ? bonemtx[bone] : nodemtx[bodynode];
+				bones[0] = bones[1] = bones[2] = (u8)mtx;
+
+				// In the space of the list's matrix, the way the host's own
+				// vertices are: the model's space less the matrix's rest
+				for (s32 a = 0; a < 3; a++) {
+					pos[a] = (v.pos[a] - beanc[a]) * scale + hostc[a]
+						- (rig.hasrest[mtx] ? rig.rest[mtx][a] : 0.0f);
+				}
+
+				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight, v.argb);
+				mappedmtx[vi] = mtx;
+
+				if (mapped[vi] < 0) {
+					ok = 0;
+					break;
+				}
+
+				idx[i] = (u16)mapped[vi];
+			}
+
+			if (!ok) {
+				continue;
+			}
+
+			group = mtxnode[mappedmtx[tris[t * 3]]];
+
+			if (group < 0) {
+				group = bodynode;
+			}
+
+			nodeused[group] = 1;
+
+			if (!beanAddTri(&out, group, (s32)d->tex, idx[0], idx[1], idx[2])) {
+				break;
+			}
+		}
+
+		free(mapped);
+		free(mappedmtx);
+		free(tris);
+	}
+
+	if (out.numverts > 0) {
+		for (s32 k = 0; k < numnodes; k++) {
+			if (nodevisible[k] && !nodeused[k]) {
+				beanAddTri(&out, k, 0, 0, 0, 0);
+			}
+		}
+	}
+
+	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
+	memset(mats, 0, sizeof(*mats));
+	mats->num = nummatwords;
+
+	for (s32 i = 0; i < nummatwords; i++) {
+		matwords[i] = XBLAMESH_MAT_TABLE | (u32)i;
+	}
+
+	for (s32 i = 0; i < bm.numtex && i < nummatwords; i++) {
+		s32 used = 0;
+
+		for (s32 t = 0; t < out.numtris; t++) {
+			if (out.tris[t].tex == i) {
+				used = 1;
+				break;
+			}
+		}
+
+		if (used && beanBindTexture(&bm, source, i, &mats->tile[i], &mats->alpha[i], &mats->soft[i])
+				&& mats->alpha[i]) {
+			matwords[i] |= 0x8000;
+		}
+	}
+
+	for (s32 t = 0; t < out.numtris; t++) {
+		if (out.tris[t].tex >= bm.numtex) {
+			out.tris[t].tex = (u16)(nummatwords - 1);
+		}
+	}
+
+	// Each group's vertices are in its own list's space, so the mesh has no
+	// palette: xblamesh.c draws it like a model pack's, under each node's own
+	// matrix (gebeanRowIsFirstPerson())
+	file = beanWriteMesh(&out, numnodes, 0, NULL, matwords, nummatwords, outAbsent, outLen);
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, %d hand and flash pictures left out, "
+			"scale %.4f, body list %d on matrix %d of %d %s",
+			r->file, source, out.numverts, out.numtris, numhand, scale, bodynode, nodemtx[bodynode],
+			nummatrices, file ? "" : " - did not write");
+
+	beanOutFree(&out);
+	beanFree(&bm);
+
+	return file;
+}
+
 u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
+	{
+		const s32 fp = row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows) - ARRAYCOUNT(gunRows);
+
+		if (fp >= 0 && fp < ARRAYCOUNT(fpRows)) {
+			*outLen = 0;
+			*outAbsent = 0;
+
+			return modeldef && numnodes > 0 && numnodes <= 64
+				? gebeanBuildFirstPerson(fp, original, modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
+		}
+	}
+
 	{
 		const s32 gun = row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows);
 

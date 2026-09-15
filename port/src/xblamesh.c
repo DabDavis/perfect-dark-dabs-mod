@@ -5943,7 +5943,14 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	}
 
 	m->state = -1;
-	m->frombean = 1;
+
+	// A gun's first-person model is built in each list node's own space with
+	// no palette, and drawn the way a model pack's is; a character is posed
+	if (gebeanRowIsFirstPerson(e->beanrow)) {
+		m->local = 1;
+	} else {
+		m->frombean = 1;
+	}
 
 	use = (e->packuse >= 0 && e->packuse < numUses && uses[e->packuse].modeldef == e->modeldef)
 			? &uses[e->packuse] : NULL;
