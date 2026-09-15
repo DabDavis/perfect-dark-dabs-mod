@@ -49,7 +49,7 @@ static inline u32 objSizeN64(struct n64_defaultobj *obj)
 	case OBJTYPE_GLASS:              return sizeof(struct n64_glassobj) / sizeof(u32);
 	case OBJTYPE_TINTEDGLASS:        return sizeof(struct n64_tintedglassobj) / sizeof(u32);
 	case OBJTYPE_SAFE:               return sizeof(struct n64_safeobj) / sizeof(u32);
-	case OBJTYPE_GASBOTTLE:          return sizeof(struct gasbottleobj) / sizeof(u32);
+	case OBJTYPE_GASBOTTLE:          return sizeof(struct n64_defaultobj) / sizeof(u32);
 	case OBJTYPE_KEY:                return sizeof(struct n64_keyobj) / sizeof(u32);
 	case OBJTYPE_ALARM:              return sizeof(struct n64_alarmobj) / sizeof(u32);
 	case OBJTYPE_CCTV:               return sizeof(struct n64_cctvobj) / sizeof(u32);

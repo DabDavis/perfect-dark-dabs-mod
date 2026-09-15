@@ -138,6 +138,38 @@ Left open: a d53c5cd (dev) Linux crash with the chr vertex store full, whose
 offsets need a build of that commit to read, and a driver fault inside
 `wglChoosePixelFormat` at window creation (7f05950, Windows).
 
+## The third pass (2026-09-15, reports after 20260914-172038)
+
+18 reports, 13 of them v3.6.0 (2595317):
+
+- **Randomizer hop, `setupLoadFiles()` paths** (8, Windows, `+15b697`, read of
+  `ffffffffffffffff` right after `run: portal out`): the second pass's AI list
+  sort, already fixed by 8c39a8f41 and not yet in a release.
+- **F6 off, "Unknown GBI opcode"** (3): two on the Villa are the second pass's
+  dyntex fault (c472e7963, unreleased). The third is on Air Force One
+  (`bg_rit`), after a string of texture pack toggles; F6 off at frame 1000
+  under `f6bt.py` ran clean to 2200 on both v3.6.0 and HEAD, so it is open.
+- **GE-X 6a Egyptian, `objFree()` writing `0fff0078`** (3, two players, at
+  the stage's end in `objsStop()`): fixed. `objSizeN64()` in
+  `port/src/preprocess/filesetup.c` sized a gas bottle by the PC
+  `gasbottleobj` (28 words) while the file's is a plain default object (23),
+  so every command after one was read five words out. On `UsetupdestZ` the
+  command after the one gas bottle decoded as a weapon whose `dualweapon` was
+  the misread floor colour, `0x0fff` then `0x0000`: `0x0fff0000`, and
+  `0x78` is `dualweapon`'s offset on PC. The converter's own gas bottle case
+  had been fixed in a0ab55b37; the size table was not. GE-X's Facility
+  (`UsetupearZ`) has 22 gas bottles and was misread the same way; no other
+  mod setup has one. Reproduced and verified with `~/pd-crashbins/gexstop.py`
+  (`--moddir mods/GE-X_6a_01-19-25 --boot-stage 0x1a`, then
+  `mainChangeToStage(0x5a)` at frame 300 and `finish` out of `objsStop`).
+  To find a bad command offline, walk the inflated setup (raw deflate after
+  the 5 byte `11 73` header, props at header +16) with the N64 sizes, then
+  again with the port's.
+- **v3.5.0** (4): two are the first pass's spark colour. Open: a NULL text
+  in `hudmsgCreateFromArgs()` from `frExecuteHelpScript()`, and
+  `bgTestHitOnObj()` reading `0x140003a` from `propFindAimingAt()`. Both were on
+  the Carrington Institute after many F6 toggles, from different players.
+
 ## The other end
 
 `tools/pdghostd/pdghostd.py`, `POST /crash`, documented in its README under
