@@ -6931,6 +6931,7 @@ static void xblaMeshBruiseNodes(struct xblameshbruise *br, const struct xblamesh
 
 struct xblameshstockvtx {
 	f32 pos[3];
+	s32 index;
 	s32 mtx;
 	u16 node;
 	u16 colour;
@@ -7068,6 +7069,7 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 						sv[numsv].pos[0] = v->x + rest[0];
 						sv[numsv].pos[1] = v->y + rest[1];
 						sv[numsv].pos[2] = v->z + rest[2];
+						sv[numsv].index = numsv;
 						sv[numsv].mtx = mtx;
 						sv[numsv].node = (u16)ni;
 						sv[numsv].colour = (u16)ci;
@@ -7153,9 +7155,125 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 		free(at);
 	}
 
+	// Nearest only means something with both sets in one pose, and a skinned
+	// mesh's bind pose is not the stock rest pose: the release's bodies stand
+	// on the floor with their arms down where the game's rest has its feet
+	// below the origin and its arms out, and a grafted head is authored at neck
+	// height where the stock head sits at its own origin. Matched as they were,
+	// 60 of a Villa guard's 1371 stock body vertices and 8 of its head's 405
+	// were anybody's nearest, 724 and 888 units off, so the vertex a bruise
+	// darkened was nearly never one the mesh read.
+	//
+	// So a body's vertex is skinned into the rest pose - out of the bind pose
+	// through each of its bones' inverse bind, and out to that bone's rest
+	// offset - and a head, whose palette is not the head file's matrices, is
+	// moved by the translation that sits its solid vertices on the stock
+	// head's: centre on centre, then a few steps of each vertex towards its
+	// nearest, leaving out the ones far past the average so that hair or a hat
+	// only one of the two has does not hold it off.
+	f32 *restmtx = NULL;
+	u8 *restok = NULL;
+	f32 headshift[3] = { 0.0f, 0.0f, 0.0f };
+	s32 shifthead = 0;
+	u8 *referenced = calloc((size_t)numsv, 1);
+	f64 nearsum = 0.0;
+	s32 nearcount = 0;
+
+	if (samebone && m->bindpos && m->invbind && m->bones && m->weights) {
+		restmtx = calloc((size_t)nummtx * 3, sizeof(f32));
+		restok = calloc((size_t)nummtx, 1);
+
+		for (s32 b = 0; restmtx && restok && b < nummtx; b++) {
+			struct modelnode *posnode = xblaMeshFindMtxNode(modeldef, b);
+
+			if (posnode) {
+				xblaMeshNodeRestOffset(posnode, &restmtx[b * 3]);
+				restok[b] = 1;
+			}
+		}
+	} else if (!samebone && m->bindpos) {
+		f64 stockcentre[3] = { 0.0, 0.0, 0.0 };
+		f64 meshcentre[3] = { 0.0, 0.0, 0.0 };
+		f32 cutoff = 1e30f;
+		s32 numsolid = 0;
+
+		for (s32 j = 0; j < numsv; j++) {
+			for (s32 a = 0; a < 3; a++) {
+				stockcentre[a] += sv[j].pos[a];
+			}
+		}
+
+		for (s32 i = 0; i < m->numvertices; i++) {
+			if (solid[i]) {
+				for (s32 a = 0; a < 3; a++) {
+					meshcentre[a] += m->bindpos[i * 3 + a];
+				}
+
+				numsolid++;
+			}
+		}
+
+		if (numsolid) {
+			for (s32 a = 0; a < 3; a++) {
+				headshift[a] = (f32)(stockcentre[a] / numsv - meshcentre[a] / numsolid);
+			}
+
+			shifthead = 1;
+		}
+
+		for (s32 step = 0; shifthead && step < 4; step++) {
+			f64 move[3] = { 0.0, 0.0, 0.0 };
+			f64 dist = 0.0;
+			s32 moved = 0;
+			s32 counted = 0;
+
+			for (s32 i = 0; i < m->numvertices; i++) {
+				const f32 q[3] = { m->bindpos[i * 3] + headshift[0], m->bindpos[i * 3 + 1] + headshift[1],
+					m->bindpos[i * 3 + 2] + headshift[2] };
+				f32 best = 1e30f;
+				s32 bestj = 0;
+
+				if (!solid[i]) {
+					continue;
+				}
+
+				for (s32 j = 0; j < numsv; j++) {
+					const f32 dx = sv[j].pos[0] - q[0];
+					const f32 dy = sv[j].pos[1] - q[1];
+					const f32 dz = sv[j].pos[2] - q[2];
+					const f32 d = dx * dx + dy * dy + dz * dz;
+
+					if (d < best) {
+						best = d;
+						bestj = j;
+					}
+				}
+
+				best = sqrtf(best);
+				dist += best;
+				counted++;
+
+				if (best <= cutoff) {
+					for (s32 a = 0; a < 3; a++) {
+						move[a] += sv[bestj].pos[a] - q[a];
+					}
+
+					moved++;
+				}
+			}
+
+			for (s32 a = 0; a < 3 && moved; a++) {
+				headshift[a] += (f32)(move[a] / moved);
+			}
+
+			cutoff = counted ? (f32)(dist / counted) * 2.0f : cutoff;
+		}
+	}
+
 	for (s32 i = 0; i < m->numvertices; i++) {
 		struct xblameshbruiseref *r = &refs[i * XBLAMESH_BRUISEREFS];
 		f32 rigidpos[3];
+		f32 restpos[3];
 		const f32 *p = m->bindpos ? &m->bindpos[i * 3] : rigidpos;
 		const struct xblameshstockvtx *pool = sv;
 		s32 from = 0;
@@ -7181,6 +7299,42 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 			rigidpos[0] = m->vertices[i].x + (rigidshift ? rigidshift[0] : 0.0f);
 			rigidpos[1] = m->vertices[i].y + (rigidshift ? rigidshift[1] : 0.0f);
 			rigidpos[2] = m->vertices[i].z + (rigidshift ? rigidshift[2] : 0.0f);
+		}
+
+		if (restmtx && restok) {
+			const u8 *bn = &m->bones[i * 4];
+			const f32 *wt = &m->weights[i * 3];
+			const s32 num = bn[3] < 3 ? bn[3] : 3;
+			f32 acc[3] = { 0.0f, 0.0f, 0.0f };
+			f32 wb = 0.0f;
+
+			for (s32 j = 0; j < num; j++) {
+				const s32 b = bn[j];
+				struct coord in = { p[0], p[1], p[2] };
+				struct coord out;
+
+				if (b >= m->nummatrices || b >= nummtx || !restok[b] || wt[j] <= 0.0f) {
+					continue;
+				}
+
+				mtx4TransformVec(&m->invbind[b], &in, &out);
+				acc[0] += wt[j] * (out.x + restmtx[b * 3]);
+				acc[1] += wt[j] * (out.y + restmtx[b * 3 + 1]);
+				acc[2] += wt[j] * (out.z + restmtx[b * 3 + 2]);
+				wb += wt[j];
+			}
+
+			if (wb > 0.0f) {
+				restpos[0] = acc[0] / wb;
+				restpos[1] = acc[1] / wb;
+				restpos[2] = acc[2] / wb;
+				p = restpos;
+			}
+		} else if (shifthead) {
+			restpos[0] = p[0] + headshift[0];
+			restpos[1] = p[1] + headshift[1];
+			restpos[2] = p[2] + headshift[2];
+			p = restpos;
 		}
 
 		if (samebone && m->bones && m->weights) {
@@ -7228,7 +7382,16 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 		for (s32 k = 0; k < XBLAMESH_BRUISEREFS; k++) {
 			if (besti[k] >= 0) {
 				wsum += 1.0f / (bestd[k] + 1.0f);
+
+				if (referenced) {
+					referenced[pool[besti[k]].index] = 1;
+				}
 			}
+		}
+
+		if (besti[0] >= 0) {
+			nearsum += sqrtf(bestd[0]);
+			nearcount++;
 		}
 
 		for (s32 k = 0; k < XBLAMESH_BRUISEREFS && wsum > 0.0f; k++) {
@@ -7246,10 +7409,26 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "xblamesh: slot %d takes the game's bruises: %d of %d vertices "
-			"from %d stock vertices in %d lists, matched %s", slot, mapped, m->numvertices,
-			numsv, br->numnodes, samebone ? "on each bone" : "by position");
+	{
+		s32 numreferenced = 0;
 
+		for (s32 j = 0; j < numsv && referenced; j++) {
+			numreferenced += referenced[j];
+		}
+
+		// How much of the stock model a bruise can land on and still be seen,
+		// and how far the pairs are apart: the numbers that say a map is wrong.
+		sysLogPrintf(LOG_NOTE, "xblamesh: slot %d takes the game's bruises: %d of %d vertices "
+				"from %d stock vertices in %d lists, matched %s; %d of the stock vertices are read, "
+				"the nearest %.0f units away on average", slot, mapped, m->numvertices, numsv, br->numnodes,
+				restmtx ? "on each bone in the rest pose" : shifthead ? "by position, moved onto the stock head"
+				: samebone ? "on each bone" : "by position",
+				numreferenced, nearcount ? nearsum / nearcount : 0.0);
+	}
+
+	free(restmtx);
+	free(restok);
+	free(referenced);
 	free(sv);
 	free(sorted);
 	free(start);

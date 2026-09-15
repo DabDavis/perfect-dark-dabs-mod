@@ -1212,6 +1212,43 @@ nearest guard's sixteen bbox nodes at frame 1700): 109 stock entries bruised,
 and the next run boots with the meshes off and looks exactly like a mirror that
 does nothing - reset it before each run.
 
+**The map has to be made in one pose (2026-09-15).** Report: "you can shoot
+them just fine, but doesn't show the blood spots". The map above was built but
+matched two different poses: the stock vertices in the game's rest (feet below
+the origin, arms out - an N64 body's rest is ~2000 wide) and the release's
+**bind** pose (standing on the floor, arms down, ~550 wide), and a grafted
+head's bind positions at neck height (y 1400-1700) against a stock head at its
+own origin. On a Villa guard (body 110, head 24) only 60 of the body's 1371
+stock vertices and 8 of the head's 405 were anybody's nearest, 724 and 888
+units away, so a bruise nearly always darkened a stock vertex no release vertex
+read: the game changed 6 head entries and the mesh 0 vertices. The 2026-09-12
+check counted drawn bruised vertices after bruising every bbox, which that
+cannot tell apart from a map that reads the wrong few.
+
+Now a body's vertex is skinned into the rest pose before matching - each bone's
+`invbind` then that matrix's `xblaMeshNodeRestOffset()` - and a grafted head
+(whose three-entry palette is not the head file's matrices; through entry 1's
+inverse bind it came to 51 units, the dominant bone's to 419) is moved by a
+translation: centre on centre (16 units), then four nearest-point steps that
+leave out pairs past twice the mean, so hair or a hat only one model has does
+not hold it off. Same guard: 622 body vertices read at 51 units, 254 head
+vertices at 16; thirteen shots bruised 296 body and 104 head vertices of the
+mesh; and the picture shows the wounds on the chest, forearm and hip where the
+N64 body has them, where HEAD drew none. The `takes the game's bruises` log line
+carries the read count and mean distance - a map that is wrong shows there as
+a few dozen vertices hundreds of units off.
+
+Driving it: `shotCalculateHits(0, 1, pos2d, dir2d, pos3d, dir3d, 0, 4294836224, 0)`
+from a top-level gdb loop at a `handsTickAttack` stop is a real shot (chrHit,
+chrBruise, splats), with the 3d pair from `mtx4TransformVec/RotateVec(camGetProjectionMtxF(), ...)`
+and the 2d ray at a joint (`model->matrices[k].m[3]` is camera space). Set the
+chr's `maxdamage` first. Villa driveway, `--spectate`, intro skipped at 600,
+camera to (-7450 -600 500) theta 180 at 950, shoot at 1000: guard slot 10 at
+311 units. The G5 Building's frame-1700 nearest chr is **cloaked** and draws
+translucent - skip `CHRHFLAG_CLOAKED` chrs or nothing shows either way. A dark
+suit hides a bruise (the tint is 64,10,10): diff the frame against the same
+frame from HEAD rather than counting red pixels, which counts the sand.
+
 #### Shells and destroyed props (2026-09-14)
 
 Report: "Rotation point of ejected shells on XBLA Falcon 2 is broken, sometimes
