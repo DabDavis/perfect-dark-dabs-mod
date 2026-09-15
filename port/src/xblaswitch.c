@@ -21,6 +21,7 @@
 #include "xblaexpl.h"
 #include "xblasky.h"
 #include "xblaswitch.h"
+#include "xblatables.h"
 #include "game/title.h"
 
 #ifndef PLATFORM_N64
@@ -96,6 +97,11 @@ void xblaSwitchSetKey(s32 vk)
 void xblaSwitchTick(void)
 {
 	const s32 vk = xblaSwitchGetKey();
+
+	// Every frame, not on the key: the tables follow the switch however it was
+	// moved (a checkbox, the settings preset), and a mod load copies its own
+	// snapshot of them back over whatever they held.
+	xblaTablesTick();
 
 	// inputKeyJustPressed() consumes the edge, so ask once a frame and only
 	// when the key is actually bound.

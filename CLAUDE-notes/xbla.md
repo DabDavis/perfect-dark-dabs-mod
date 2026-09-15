@@ -1298,6 +1298,51 @@ translucent - skip `CHRHFLAG_CLOAKED` chrs or nothing shows either way. A dark
 suit hides a bruise (the tint is 64,10,10): diff the frame against the same
 frame from HEAD rather than counting red pixels, which counts the sand.
 
+#### The release's own tables (2026-09-15)
+
+The executable is readable after all: Xenia holds `default.xex` decrypted at
+guest `0x82000000`, and `.xbla-work/gunturn/dumpimage.sh` reads it out twice,
+once 0.6 s after launch and once 5 s later. `tools/xblaxex/tablediff.py` diffs
+every N64 data table against the early read. Diff the early one: the late one
+shows the game's startup writes (animation counts, move distances) as if 4J had
+changed them. The report stays in `.xbla-work/`, never the repository.
+
+With the whole release on (`xblaSwitchGetEnabled()`), `port/src/xblatables.c`
+puts 4J's values into five tables, and puts the N64's back when it goes off:
+
+- **`g_ExplosionTypes`:** every duration is about a quarter and every flare
+  speed 0.3x, the timing the 48-frame explosion is drawn to.
+- **`g_SmokeTypes` 6-8 and `g_SparkTypes[0]`:** retuned.
+- **`g_FogEnvironments[0]` (Crash Site):** reaches 20000, not 10000.
+- **`g_HeadsAndBodies` types:** Joanna's heads and bodies are 6, Carrington's
+  7, Trent's 8; Penny and the Winner swap.
+
+The values are generated into `port/include/xblatablesdata.h` by
+`tools/xblaxex/gentables.py`; never edit it by hand. Four things are not
+obvious:
+
+- **It runs every frame, not when the switch moves.** `mod.c` copies its
+  startup snapshot of `g_HeadsAndBodies` back on every mod load, which would
+  silently undo a one-off flip. A field moves only from the value the other
+  mode expects, so a mod's own value is left alone.
+- **`headorbody.type` is 4 bits on the port** (3 on the N64 build). 4J widened
+  it for Trent's 8, and the release packs type in bits 12-9 and height in 8-1.
+  Guessing a compiler's bitfield layout read every height halved; compare raw
+  rows against `stage1.elf` instead.
+- **Fog is re-applied live**, but only the draw range and the fog's own range,
+  as `envApplyFogEnvironment()` sets them, and only when the stage being played
+  uses a changed row of the stock table. A mod's own fog tables are never
+  touched.
+- **4J's code for types 6-8 is unread.** `bodyCalculateHeadOffset()` has no
+  case for them, so a mixed multiplayer head/body pairing takes the default
+  path (Carrington's head on a plain male body now moves 35 units). That
+  offset moves the stock head's vertices, not the posed release mesh.
+
+Checked on Crash Site (`--boot-stage 0x1c --fixed-step`): gdb read the fields,
+`zfar` and `g_Env` fog at frame 300 (N64), 320 (after
+`xblaSwitchSetEnabled(1)`) and 340 (off again), and got exactly the N64 values,
+the release's, then the N64's. The log says `72 of 72 fields, 23 of 23`.
+
 #### Shells and destroyed props (2026-09-14)
 
 Report: "Rotation point of ejected shells on XBLA Falcon 2 is broken, sometimes

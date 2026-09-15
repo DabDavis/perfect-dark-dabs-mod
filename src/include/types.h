@@ -3215,7 +3215,12 @@ struct headorbody {
 	/*0x00*/ u16 ismale : 1;
 	/*0x00*/ u16 unk00_01 : 1;
 	/*0x00*/ u16 canvaryheight : 1;
+#ifdef PLATFORM_N64
 	/*0x00*/ u16 type : 3;
+#else
+	// Four bits: the XBLA release's types go up to 8 (Trent), see xblatables.h
+	/*0x00*/ u16 type : 4;
+#endif
 	/*0x00*/ u16 height : 8;
 	/*0x02*/ u16 filenum;
 	/*0x04*/ f32 scale;
