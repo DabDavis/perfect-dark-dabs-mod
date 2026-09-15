@@ -172,6 +172,24 @@ list nodes. A release mesh with more than 16 groups used to be built as one
 group; now it is built as its groups and, not matching the model's parts,
 still draws through `allgfx` from part 0 - the same picture.
 
+### A head's pack file is in the head's own space (2026-09-15)
+
+A head is its own model file grafted onto the body at `HEADSPOT`, and the
+renderer makes the body's headspot the parent of the head's top nodes. A
+pack's mesh is built at the first draw, after that has happened, so
+`xblaMeshNodeRestOffset()` - which climbs every parent - summed the *body's*
+neck position into the head's rest offset and took it off every vertex:
+the head drew ~524 units down inside the torso and the body stood there
+headless. Nobody had put a head in a pack before, which is how it stayed
+hidden. `xblaMeshBuildPack()` now uses `xblaMeshNodeOwnRestOffset()`, which
+stops at a headspot; a head file has no position nodes of its own, so its
+offset is zero on any body (the same head sits at y 523.8 on GE-X's
+`CsecretaryZ` and 579.5 on `CcassandraZ`). The other callers of
+`xblaMeshNodeRestOffset()` (bruises, the release's rest shift) were left
+alone. Found with a GE-X Natalya built from the GoldenEye XBLA (Project
+Bean) release: a test OBJ with the neck offset added back put the head on
+her shoulders, and the fixed build did the same with the untouched file.
+
 ## Switching packs, live
 
 Everything about a pack is decided at the draw and not at the model load, so

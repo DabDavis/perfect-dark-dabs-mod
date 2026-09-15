@@ -5607,6 +5607,41 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 }
 
 /**
+ * A list node's rest offset within its own model file, which is the space a
+ * pack's OBJ is written in.
+ *
+ * xblaMeshNodeRestOffset() climbs every parent, and a head's top nodes are
+ * given the body's headspot as their parent when the head is grafted - which
+ * has happened by the time a pack's mesh is built, since that waits for the
+ * first draw. Climbing on took the body's neck position off every vertex of a
+ * head pack, so a head drew five hundred units down inside the torso and the
+ * body stood there headless. The head file has no position nodes of its own,
+ * so its offset is zero, whichever body it sits on.
+ */
+static void xblaMeshNodeOwnRestOffset(const struct modelnode *node, f32 out[3])
+{
+	out[0] = out[1] = out[2] = 0.0f;
+
+	while (node && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+		const u32 type = node->type & 0xff;
+
+		if (type == MODELNODETYPE_POSITION) {
+			const struct modelrodata_position *pos = &node->rodata->position;
+			out[0] += pos->pos.x;
+			out[1] += pos->pos.y;
+			out[2] += pos->pos.z;
+		} else if (type == MODELNODETYPE_POSITIONHELD) {
+			const struct modelrodata_positionheld *pos = &node->rodata->positionheld;
+			out[0] += pos->pos.x;
+			out[1] += pos->pos.y;
+			out[2] += pos->pos.z;
+		}
+
+		node = node->parent;
+	}
+}
+
+/**
  * Builds the pack's mesh for one of the game's own models: a group per list
  * node, each in the node's own space.
  *
@@ -5762,7 +5797,7 @@ static struct xblameshbuilt *xblaMeshBuildPack(const struct xblameshentry *e)
 			continue;
 		}
 
-		xblaMeshNodeRestOffset(use->parts[k], off);
+		xblaMeshNodeOwnRestOffset(use->parts[k], off);
 		obj->vertices[i].pos[0] -= off[0];
 		obj->vertices[i].pos[1] -= off[1];
 		obj->vertices[i].pos[2] -= off[2];
