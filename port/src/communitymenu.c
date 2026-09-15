@@ -17,10 +17,18 @@
 /**
  * Community Packs, under Extended Options -> Texture Packs.
  *
- * The page is one pack at a time: what it is, who made it, what it looks like,
- * and one row that says what pressing it does now - ask, download, or nothing
- * because it is already installed. The work is all in community.c and all on a
- * worker thread; this polls, the way the update page polls updateGetState().
+ * A page per pack, swiped left and right the way Dab's Mod Options is: each is
+ * a sibling dialog on the same layer (menudialogdef.nextsibling), so a Left or
+ * Right that no row takes turns the page and the chevrons beside the dialog
+ * name the packs either side. Each page is what the pack is, who made it, what
+ * it looks like, and one row that says what pressing it does now - ask,
+ * download, or nothing because it is already installed. The work is all in
+ * community.c and all on a worker thread; this polls, the way the update page
+ * polls updateGetState().
+ *
+ * Every page is drawn while a swipe is under way, so nothing here may read
+ * "the pack being looked at": an item carries its pack in its `param`, and the
+ * pages are otherwise the same list of rows.
  *
  * The cover art is the reason this is a file rather than another page in
  * optionsmenu.c. A menu item cannot draw a picture - everything the menus put
@@ -44,22 +52,23 @@
 // source over two.
 #define COMMUNITY_POSTERBUDGET "\n\n\n\n\n\n\n\n"
 
-// A dropdown row's height, from menuCalculateItemSize().
-#define COMMUNITY_DROPDOWNHEIGHT 12
-
 // Two thirds, which is the shape of the art a pack is announced with.
 #define COMMUNITY_POSTERW(h) ((h) * 2 / 3)
 
-static char g_CommunityText[256];
+// One page per pack in community.c's catalogue, in its order.
+#define COMMUNITY_NUMPAGES 3
+
+#define communitymenuPack(item) ((s32)(item)->param)
 
 static const char *menutextCommunityPack(struct menuitem *item)
 {
-	const s32 index = communityGetSelected();
+	static char text[256];
+	const s32 index = communitymenuPack(item);
 
-	snprintf(g_CommunityText, sizeof(g_CommunityText), "%s\nby %s\n%s",
+	snprintf(text, sizeof(text), "%s\nby %s\n%s",
 			communityGetName(index), communityGetAuthor(index), communityGetBlurb(index));
 
-	return g_CommunityText;
+	return text;
 }
 
 /**
@@ -70,7 +79,7 @@ static const char *menutextCommunitySource(struct menuitem *item)
 {
 	static char text[192];
 
-	const char *url = communityGetSource(communityGetSelected());
+	const char *url = communityGetSource(communitymenuPack(item));
 	const char *slash = strrchr(url, '/');
 
 	// Over two lines at the last slash: a repository path is longer than the
@@ -89,15 +98,17 @@ static const char *menutextCommunitySource(struct menuitem *item)
  */
 static const char *menutextCommunityAction(struct menuitem *item)
 {
-	const u32 size = communityGetSize();
+	static char text[64];
+	const s32 index = communitymenuPack(item);
 	u32 done;
 	u32 total;
+	u32 size;
 
 	if (!communityIsAvailable()) {
 		return "Not available in this build\n";
 	}
 
-	switch (communityGetState()) {
+	switch (communityGetState(index)) {
 	case COMMUNITY_ASKING:
 		return "Cancel\n";
 	case COMMUNITY_DOWNLOAD:
@@ -107,42 +118,47 @@ static const char *menutextCommunityAction(struct menuitem *item)
 		// gives: what a player wants when it is slow is how much is left, and
 		// the total is worth seeing before deciding to wait for it.
 		if (total > 0) {
-			snprintf(g_CommunityText, sizeof(g_CommunityText), "Cancel (%u.%u of %u.%u MB)\n",
+			snprintf(text, sizeof(text), "Cancel (%u.%u of %u.%u MB)\n",
 					done / 1048576, (done % 1048576) * 10 / 1048576,
 					total / 1048576, (total % 1048576) * 10 / 1048576);
 
-			return g_CommunityText;
+			return text;
 		}
 
 		return "Cancel\n";
 	case COMMUNITY_UNPACKING:
 		return "Unpacking...\n";
 	case COMMUNITY_FOUND:
-		snprintf(g_CommunityText, sizeof(g_CommunityText), "Download and Install (%u MB)\n",
-				(size + 524288) / 1048576);
+		size = communityGetSize(index);
+		snprintf(text, sizeof(text), "Download and Install (%u MB)\n", (size + 524288) / 1048576);
 
-		return g_CommunityText;
+		return text;
 	case COMMUNITY_DONE:
 		return "Installed\n";
+	case COMMUNITY_ELSEWHERE:
+		return "Another Pack Is Installing\n";
 	default:
 		break;
 	}
 
-	return communityIsInstalled(communityGetSelected())
+	return communityIsInstalled(index)
 		? "Check for a Newer Version\n"
 		: "Find Latest Release\n";
 }
 
 static MenuItemHandlerResult menuhandlerCommunityAction(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	const s32 state = communityGetState();
+	const s32 index = communitymenuPack(item);
+	const s32 state = communityGetState(index);
 
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
 		// Unpacking is the one thing here that cannot be stopped part way -
 		// archiveExtract() writes a few thousand files and has nowhere to be
-		// asked to give up - and an install that is done is not a button.
-		return !communityIsAvailable() || state == COMMUNITY_UNPACKING || state == COMMUNITY_DONE;
+		// asked to give up - and an install that is done is not a button. Nor
+		// is another pack's download, which is stopped from its own page.
+		return !communityIsAvailable() || state == COMMUNITY_UNPACKING || state == COMMUNITY_DONE
+			|| state == COMMUNITY_ELSEWHERE;
 	case MENUOP_SET:
 		switch (state) {
 		case COMMUNITY_ASKING:
@@ -150,7 +166,7 @@ static MenuItemHandlerResult menuhandlerCommunityAction(s32 operation, struct me
 			communityCancel();
 			break;
 		case COMMUNITY_FOUND:
-			communityInstall();
+			communityInstall(index);
 			break;
 		default:
 			communityCheck();
@@ -170,11 +186,12 @@ static MenuItemHandlerResult menuhandlerCommunityAction(s32 operation, struct me
 static const char *menutextCommunityStatus(struct menuitem *item)
 {
 	static char text[224];
-	const char *status = communityGetStatus();
+	const s32 index = communitymenuPack(item);
+	const char *status = communityGetStatus(index);
 
 	if (status[0]) {
 		snprintf(text, sizeof(text), "%s\n", status);
-	} else if (communityIsInstalled(communityGetSelected())) {
+	} else if (communityIsInstalled(index)) {
 		snprintf(text, sizeof(text), "Installed. Look for a newer one, or use it from the\npage behind this one.\n");
 	} else {
 		snprintf(text, sizeof(text), "Packs install into texture-packs and are switched on\nfor you.\n");
@@ -197,12 +214,12 @@ static s32 communitymenuMeasureSmall(const char *text)
  * The poster's blank lines: ten, less whatever the rest of the page has grown.
  *
  * The page is exactly as tall as a dialog may be with ten, so one more line
- * anywhere - the two line status an installed pack shows, the dropdown once
- * there is a second pack - makes it scroll to keep the button in view, and the
- * scroll takes the top of the first line off under the title bar. The ROM's
- * glyphs hide two units of that in their empty top rows; the release's font
- * fills its band to the top and shows it. So the picture gives the room back:
- * a line of its own for every part of a line the other rows took.
+ * anywhere - the two line status an installed pack shows - makes it scroll to
+ * keep the button in view, and the scroll takes the top of the first line off
+ * under the title bar. The ROM's glyphs hide two units of that in their empty
+ * top rows; the release's font fills its band to the top and shows it. So the
+ * picture gives the room back: a line of its own for every part of a line the
+ * other rows took.
  */
 static const char *menutextCommunityPoster(struct menuitem *item)
 {
@@ -218,10 +235,6 @@ static const char *menutextCommunityPoster(struct menuitem *item)
 		+ communitymenuMeasureSmall(menutextCommunitySource(item))
 		- communitymenuMeasureSmall(COMMUNITY_POSTERBUDGET);
 
-	if (communityGetNumPacks() >= 2) {
-		extra += COMMUNITY_DROPDOWNHEIGHT;
-	}
-
 	if (extra > 0 && lineheight > 0) {
 		lines -= (extra + lineheight - 1) / lineheight;
 	}
@@ -233,16 +246,21 @@ static const char *menutextCommunityPoster(struct menuitem *item)
 	return COMMUNITY_POSTERTEXT + COMMUNITY_POSTERLINES - lines;
 }
 
+extern struct menudialogdef *g_CommunityPageDialogs[COMMUNITY_NUMPAGES];
+
 /**
  * The cover art, drawn into the blank rows this item reserves.
  *
- * The rectangle is the item's own y and the dialog's own middle: a label is
+ * The rectangle is the item's own y and its own dialog's middle: a label is
  * given the width of the column rather than of the window, so centring on
- * renderdata->width would put the picture off to one side of the page.
+ * renderdata->width would put the picture off to one side of the page. And
+ * the dialog is this item's page and not the current one, because the page
+ * being swiped away is drawn too.
  */
 static MenuItemHandlerResult menuhandlerCommunityPoster(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	const s32 index = communitymenuPack(item);
+	struct menudialog *dialog;
 	struct menuitemrenderdata *renderdata;
 	Gfx *gdl;
 	s32 textheight;
@@ -258,6 +276,7 @@ static MenuItemHandlerResult menuhandlerCommunityPoster(s32 operation, struct me
 
 	gdl = data->type19.gdl;
 	renderdata = data->type19.renderdata2;
+	dialog = index < COMMUNITY_NUMPAGES ? menuIsDialogOpen(g_CommunityPageDialogs[index]) : NULL;
 
 	if (dialog == NULL) {
 		return (intptr_t)gdl;
@@ -280,34 +299,9 @@ static MenuItemHandlerResult menuhandlerCommunityPoster(s32 operation, struct me
 	gdl = menugfxDrawFilledRect(gdl, x1 - 1, y1 - 1, x1 + width + 1, y1 + height + 1,
 			renderdata->colour, renderdata->colour);
 
-	gdl = menuImageDraw(gdl, communityGetThumb(communityGetSelected()),
-			x1, y1, x1 + width, y1 + height, 255);
+	gdl = menuImageDraw(gdl, communityGetThumb(index), x1, y1, x1 + width, y1 + height, 255);
 
 	return (intptr_t)gdl;
-}
-
-/**
- * Which pack. Hidden while there is only one of them, because a dropdown with
- * one option in it reads as a control that is broken.
- */
-static MenuItemHandlerResult menuhandlerCommunityPick(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_CHECKHIDDEN:
-		return communityGetNumPacks() < 2;
-	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = communityGetNumPacks();
-		break;
-	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)communityGetName(data->dropdown.value);
-	case MENUOP_SET:
-		communitySetSelected((s32)data->dropdown.value);
-		break;
-	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = communityGetSelected();
-	}
-
-	return 0;
 }
 
 /**
@@ -318,11 +312,8 @@ static MenuItemHandlerResult menuhandlerCommunityPick(s32 operation, struct menu
 static MenuDialogHandlerResult menudialogCommunity(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	if (operation == MENUOP_OPEN && communityIsAvailable()) {
-		// Every opening, not only the first: the answer is a release that
-		// somebody else moves, and an install that has finished would
-		// otherwise leave the page saying "Installed" with no way to ask
-		// whether there is a newer one. A check while one is running is
-		// refused by community.c rather than guarded here.
+		// Every page is opened together and each is told so; the first asks,
+		// for all of them, and community.c refuses the others while it does.
 		communityCheck();
 	}
 
@@ -334,7 +325,8 @@ static MenuDialogHandlerResult menudialogCommunity(s32 operation, struct menudia
  *
  * Drawn after the dialogs from menuRenderDialogs(), for the reason the update
  * page's bar is: a menu item cannot draw and this is not one. See
- * updatemenuRenderProgress(), which this is the twin of.
+ * updatemenuRenderProgress(), which this is the twin of. Only on the page of
+ * the pack being downloaded.
  */
 #define COMMUNITY_BARINSET  8
 #define COMMUNITY_BARHEIGHT 5
@@ -352,12 +344,19 @@ Gfx *communitymenuRenderProgress(Gfx *gdl)
 	s32 y1;
 	s32 y2;
 	s32 fill;
+	s32 active;
 
-	if (dialog == NULL || dialog->definition != &g_CommunityMenuDialog) {
+	if (dialog == NULL) {
 		return gdl;
 	}
 
-	if (communityGetState() != COMMUNITY_DOWNLOAD) {
+	active = communityGetActivePack();
+
+	if (active < 0 || active >= COMMUNITY_NUMPAGES || dialog->definition != g_CommunityPageDialogs[active]) {
+		return gdl;
+	}
+
+	if (communityGetState(active) != COMMUNITY_DOWNLOAD) {
 		return gdl;
 	}
 
@@ -398,92 +397,117 @@ Gfx *communitymenuRenderProgress(Gfx *gdl)
 	return gdl;
 }
 
-struct menuitem g_CommunityMenuItems[] = {
-	{
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)&menutextCommunityPack,
-		0,
-		NULL,
-	},
-	{
-		// The poster. Its text is the space it takes and nothing else - see
-		// the note over menuhandlerCommunityPoster().
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_LIST_CUSTOMRENDER,
-		(uintptr_t)&menutextCommunityPoster,
-		0,
-		menuhandlerCommunityPoster,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Pack",
-		0,
-		menuhandlerCommunityPick,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		0,
-		(uintptr_t)&menutextCommunityAction,
-		0,
-		menuhandlerCommunityAction,
-	},
-	{
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)&menutextCommunityStatus,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)&menutextCommunitySource,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_SEPARATOR,
-		0,
-		0,
-		0,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
-		L_OPTIONS_213, // "Back"
-		0,
-		NULL,
-	},
-	{
-		// The row the progress bar is drawn in, and an empty line the rest of
-		// the time - the only way to reserve space for something that is not
-		// a menu item. See the same row on the update page.
-		MENUITEMTYPE_LABEL,
-		0,
-		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)" \n",
-		0,
-		NULL,
-	},
-	{ MENUITEMTYPE_END },
-};
+/**
+ * A page's rows, the same on every page but for the pack each one is about.
+ */
+#define COMMUNITY_PAGEITEMS(pack) { \
+	{ \
+		MENUITEMTYPE_LABEL, \
+		pack, \
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, \
+		(uintptr_t)&menutextCommunityPack, \
+		0, \
+		NULL, \
+	}, \
+	{ \
+		/* The poster. Its text is the space it takes and nothing else - */ \
+		/* see the note over menuhandlerCommunityPoster(). */ \
+		MENUITEMTYPE_LABEL, \
+		pack, \
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_LIST_CUSTOMRENDER, \
+		(uintptr_t)&menutextCommunityPoster, \
+		0, \
+		menuhandlerCommunityPoster, \
+	}, \
+	{ \
+		MENUITEMTYPE_SELECTABLE, \
+		pack, \
+		0, \
+		(uintptr_t)&menutextCommunityAction, \
+		0, \
+		menuhandlerCommunityAction, \
+	}, \
+	{ \
+		MENUITEMTYPE_LABEL, \
+		pack, \
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, \
+		(uintptr_t)&menutextCommunityStatus, \
+		0, \
+		NULL, \
+	}, \
+	{ \
+		MENUITEMTYPE_LABEL, \
+		pack, \
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, \
+		(uintptr_t)&menutextCommunitySource, \
+		0, \
+		NULL, \
+	}, \
+	{ \
+		MENUITEMTYPE_SEPARATOR, \
+		0, \
+		0, \
+		0, \
+		0, \
+		NULL, \
+	}, \
+	{ \
+		MENUITEMTYPE_SELECTABLE, \
+		0, \
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, \
+		L_OPTIONS_213, /* "Back" */ \
+		0, \
+		NULL, \
+	}, \
+	{ \
+		/* The row the progress bar is drawn in, and an empty line the */ \
+		/* rest of the time - the only way to reserve space for something */ \
+		/* that is not a menu item. See the same row on the update page. */ \
+		MENUITEMTYPE_LABEL, \
+		0, \
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT, \
+		(uintptr_t)" \n", \
+		0, \
+		NULL, \
+	}, \
+	{ MENUITEMTYPE_END }, \
+}
 
-struct menudialogdef g_CommunityMenuDialog = {
+static struct menuitem g_CommunityUltimateMenuItems[] = COMMUNITY_PAGEITEMS(0);
+static struct menuitem g_CommunityXblaMenuItems[] = COMMUNITY_PAGEITEMS(1);
+static struct menuitem g_CommunityForeverMenuItems[] = COMMUNITY_PAGEITEMS(2);
+
+// The chain is declared last-to-first so each page can name the next.
+static struct menudialogdef g_CommunityForeverMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Community Packs",
-	g_CommunityMenuItems,
+	(uintptr_t)"Community: Forever Plus",
+	g_CommunityForeverMenuItems,
 	menudialogCommunity,
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
+};
+
+static struct menudialogdef g_CommunityXblaMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Community: XBLA Plus",
+	g_CommunityXblaMenuItems,
+	menudialogCommunity,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	&g_CommunityForeverMenuDialog,
+};
+
+// The head of the chain, and the one Texture Packs opens: the recommended pack.
+struct menudialogdef g_CommunityMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Community: Ultimate Plus",
+	g_CommunityUltimateMenuItems,
+	menudialogCommunity,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	&g_CommunityXblaMenuDialog,
+};
+
+struct menudialogdef *g_CommunityPageDialogs[COMMUNITY_NUMPAGES] = {
+	&g_CommunityMenuDialog,
+	&g_CommunityXblaMenuDialog,
+	&g_CommunityForeverMenuDialog,
 };

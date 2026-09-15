@@ -599,7 +599,33 @@ substring (`match`, and `avoid` for the ones that look like it - the PD Plus
 release carries a Quest build and a spare set of textures beside the pack);
 largest wins among equals, and if nothing matches at all the largest archive is
 taken and the log says so, so a rename is a wrong guess rather than a dead
-page.
+page - **unless the release holds more than one of the catalogue's packs**,
+where that guess would install another pack's file under this one's name, so
+there it is refused.
+
+**Since v0.10 (2026-09-14) the Plus HD release is three packs**, one zip each,
+in the same repository (`retro-foundry/Perfect-Dark-Plus-HD-Textures`):
+*PD Ultimate Plus HD* (the author's recommended one, for the XBLA models),
+*XBLA Plus HD* (for the XBLA models, the release's look) and *PD Forever Plus
+HD* (Howard Phillips' N64-faithful pack, for play without the XBLA models).
+The v0.09 `PD.PLUS.HD.TEXTURE.PACK` file is gone from the latest release, so
+the old single entry would have fallen back to the largest zip. The catalogue
+is the three of them now, and one ask answers all three: `communityResolve()`
+fetches each distinct repository once (GitHub's unauthenticated limit is 60 an
+hour) and picks every pack's file out of the same reply. The worker fills
+`pending[]` and `communityTick()` copies it over `releases[]` on the game
+thread, which is the only thread the menu reads it from.
+
+**The page is a page per pack, swiped like Dab's Mod Options** (sibling
+dialogs on one layer through `nextsibling`; the chevrons name the neighbours).
+Every sibling is drawn during a swipe and every one is sent `MENUOP_OPEN`, so
+nothing may read "the selected pack": each row carries its pack in the menu
+item's `param`, the state is asked per pack (`communityGetState(index)`), a
+download is one pack's and the other pages say `COMMUNITY_ELSEWHERE`, the
+poster centres on *its own* page (`menuIsDialogOpen()` on its definition, not
+`curdialog`) and the progress bar is drawn only on the downloading pack's page.
+The three `OPEN`s cost one request, because `communityCheck()` is refused while
+an ask is running. The engine draws five siblings at most.
 
 **It is unpacked at install time rather than left as an archive**, which is the
 other way a pack can be installed (`texpackResolveSelected()` unpacks one into
@@ -615,6 +641,19 @@ Plus pack's top folder was called `ext_tex`, which the loader recognises by
 itself; v0.09 renamed it to `PD Plus HD`, and **the pack downloaded by hand
 from that release loads upside down**. Nothing else on disk says which way up a
 pack is, the catalogue knows, and this is where it gets written down.
+
+**And v0.10 turned the other way round.** All three v0.10 packs store their
+numbered textures, their fonts and their `xbla/` records **the right way up**,
+our own dump order: against the installed v0.09 (which carries the marker and
+drew right) the same numbers correlate 0.99 *flipped*, and `xbla/1535.jpg`
+matches our own F7 dump unflipped (0.94 against 0.70). So all three entries
+have `bottomUp = 0`, and a marker would have turned every texture upside down.
+Note also that the marker is inherited by subfolders, `xbla/` included, so a
+pack whose numbered textures were in N64 order but whose `xbla/` came from our
+dumps could not be marked at all without changing texpack.c. Check a new
+release before trusting its predecessor's order: the zips' central directories
+can be read with HTTP range requests, and a handful of images compared by
+correlation against the last known-good pack, without downloading 400MB.
 
 **The cover art is a picture, and the menus cannot draw one.** Everything the
 menus put on screen is a texture number and a texture number is a record in the
@@ -643,8 +682,9 @@ Two things that were got wrong writing it:
   item holds is exact and cannot drift.
 
 The picture is a PNG compiled in (`port/src/communityart.c`, written by
-`tools/mkmenuimage`, 256 colours at 256x384 - a third of the bytes of
-truecolour and no difference on screen), decoded once on the render thread and
+`tools/mkmenuimage`, one run per cover concatenated, 256 colours at 256x384 - a
+third of the bytes of truecolour and no difference on screen), decoded once on
+the render thread and
 kept: the renderer's cache is dropped every time a pack is switched, so a
 decode that was handed over would happen again each time.
 

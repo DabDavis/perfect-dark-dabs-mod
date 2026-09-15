@@ -47,8 +47,9 @@
 #define COMMUNITY_DOWNLOADTIMEOUT 3600
 
 // A bound on what a release may claim before anything is downloaded. The
-// biggest pack in circulation is under 200MB; this is room for one four times
-// that and a refusal for anything that could only be a mistake.
+// biggest pack in circulation is about 420MB (v0.10 of the XBLA Plus pack);
+// this is room for one twice that and a refusal for anything that could only
+// be a mistake.
 #define COMMUNITY_MAXBYTES (800u * 1024u * 1024u)
 
 // The download, under a name the pack lister skips - it starts with a dot -
@@ -59,6 +60,8 @@
 #define COMMUNITY_JOB_CHECK 1
 #define COMMUNITY_JOB_GET   2
 
+#define COMMUNITY_PLUSHD_REPO "retro-foundry/Perfect-Dark-Plus-HD-Textures"
+
 /**
  * One pack in the catalogue.
  *
@@ -68,12 +71,11 @@
  * after it ships and a player on last month's build should still get this
  * month's pack.
  *
- * `match` is how the one file for this port is picked out of a release that
- * has several - the PD Plus release carries a Quest build and a spare set of
- * textures beside the pack itself - and `avoid` is how the ones that look like
- * it are ruled out. Both are substrings of the asset's name, matched without
- * case. If neither finds anything the largest archive in the release is taken,
- * so a rename is a wrong guess rather than a dead page.
+ * `match` is how the one file for this pack is picked out of a release that
+ * has several - since v0.10 the Plus HD release is three packs side by side,
+ * and v0.09 carried a Quest build beside its one - and `avoid` is how the ones
+ * that look like it are ruled out. Both are substrings of the asset's name,
+ * matched without case.
  */
 struct communitypack {
 	const char *name;
@@ -84,37 +86,91 @@ struct communitypack {
 	const char *avoid;
 	// What the installed folder is called, with the version after it. The
 	// player sees this in the texture pack dropdown, so it is a name rather
-	// than a file name: "PD Plus HD v0.09d", not
-	// "PD.PLUS.HD.TEXTURE.PACK.v0.09d".
+	// than a file name: "PD Ultimate Plus HD v0.10", not
+	// "PD.Ultimate.Plus.HD.v0.10".
 	const char *folder;
 	// The pack's images are in N64 row order, as everything built for an
-	// emulator or the VR fork is. A folder called ext_tex says so by itself
-	// and this pack's no longer is - see the row order note in
-	// CLAUDE-notes/texture-packs.md - so the marker file goes in as it is
-	// installed. Getting it wrong is a pack that is entirely upside down.
+	// emulator or the VR fork is, and the marker file goes in as it is
+	// installed - see the row order note in CLAUDE-notes/texture-packs.md.
+	// Getting it wrong is a pack that is entirely upside down, both ways: the
+	// Plus HD packs were in N64 order up to v0.09 and are stored the right way
+	// up from v0.10, xbla folder and fonts included.
 	s32 bottomUp;
 	const u8 *thumbPng;
 	const u32 *thumbLen;
 	struct menuimage thumb;
 };
 
-extern const u8 g_MenuImagePdPlusHd[];
-extern const u32 g_MenuImagePdPlusHdLen;
+/**
+ * What the last ask found for one pack. Filled by the worker into `pending`
+ * and copied over `releases` by communityTick() on the game thread, which is
+ * the only thread the menu reads it from - so nothing here needs the lock.
+ */
+struct communityrelease {
+	s32 found;
+	u32 size;
+	char version[32];
+	char assetName[192];
+	char assetUrl[512];
+	char assetSha[65];
+	char installName[96];
+	char err[96]; // why this pack has nothing to offer, when the ask as a whole worked
+};
 
+extern const u8 g_MenuImageUltimatePlusHd[];
+extern const u32 g_MenuImageUltimatePlusHdLen;
+extern const u8 g_MenuImageXblaPlusHd[];
+extern const u32 g_MenuImageXblaPlusHdLen;
+extern const u8 g_MenuImageForeverPlusHd[];
+extern const u32 g_MenuImageForeverPlusHdLen;
+
+// In the order the menu's pages swipe, the recommended one first, because the
+// first is the page Community Packs opens on. communitymenu.c has a page for
+// each and names them in the same order.
 static struct communitypack packs[] = {
 	{
-		"PD Plus HD Textures",
+		"PD Ultimate Plus HD",
 		"Parabolee of Retro Foundry",
-		"The XBLA release's textures upscaled, several hundred\n"
-		"drawn by hand, and the gaps filled from Howardphilips'\n"
-		"and Enndee's packs. Fonts by Trov.\n",
-		"retro-foundry/Perfect-Dark-Plus-HD-Textures",
-		"TEXTURE.PACK",
+		"The recommended pack, for the XBLA models: the\n"
+		"release's textures upscaled and redrawn closer to\n"
+		"the original art, hundreds by hand. Fonts by Trov.\n",
+		COMMUNITY_PLUSHD_REPO,
+		"ULTIMATE",
 		"QUEST",
-		"PD Plus HD",
-		1,
-		g_MenuImagePdPlusHd,
-		&g_MenuImagePdPlusHdLen,
+		"PD Ultimate Plus HD",
+		0,
+		g_MenuImageUltimatePlusHd,
+		&g_MenuImageUltimatePlusHdLen,
+		{ 0 },
+	},
+	{
+		"XBLA Plus HD",
+		"Parabolee of Retro Foundry",
+		"For the XBLA models: the release's own textures,\n"
+		"upscaled and enhanced and kept faithful to the Xbox\n"
+		"360 look. Fonts by Trov.\n",
+		COMMUNITY_PLUSHD_REPO,
+		"XBLA.PLUS",
+		"QUEST",
+		"XBLA Plus HD",
+		0,
+		g_MenuImageXblaPlusHd,
+		&g_MenuImageXblaPlusHdLen,
+		{ 0 },
+	},
+	{
+		"PD Forever Plus HD",
+		"Howard Phillips",
+		"Faithful to the N64 art, for play without the XBLA\n"
+		"models. Converted and completed by Rafccq, Enigmata,\n"
+		"Atari-Dude and Parabolee. Fonts by Trov.\n",
+		COMMUNITY_PLUSHD_REPO,
+		"FOREVER",
+		"QUEST",
+		"PD Forever Plus HD",
+		0,
+		g_MenuImageForeverPlusHd,
+		&g_MenuImageForeverPlusHdLen,
 		{ 0 },
 	},
 };
@@ -130,21 +186,18 @@ static SDL_atomic_t workerDone;
 static SDL_atomic_t workerStage;
 static s32 job;
 static s32 state = COMMUNITY_IDLE;
-static s32 selected;
+
+// Which pack a download, an install or its failure belongs to; -1 while the
+// job is an ask, which is every pack's.
+static s32 jobPack = -1;
+
 static char status[192];
+// Which page the status line is for: -1 is every page (an ask, and its
+// failure), otherwise the pack jobPack named when the job started.
+static s32 statusPack = -1;
 
-// What the ask found. Written on the worker under the lock, read by the menu.
-static char version[32];
-static char assetName[192];
-static char assetUrl[512];
-static char assetSha[65];
-static char installName[96];
-static u32 assetSize;
-
-// Which entry the answer above belongs to. Selecting another pack in the menu
-// is a different question, and an answer to the previous one shown against it
-// would offer to install one pack under another's name.
-static s32 resolvedFor = -1;
+static struct communityrelease releases[COMMUNITY_NUMPACKS];
+static struct communityrelease pending[COMMUNITY_NUMPACKS];
 
 // Where packs are installed to, asked for on the game thread before the worker
 // starts: it is a lazily filled static in texpack.c and two threads arriving
@@ -157,12 +210,6 @@ static char packsDir[FS_MAXPATH + 1];
 static struct ghostnetbuf download = { NULL, 0, NULL, 0 };
 
 static volatile bool cancelFlag;
-
-// Raised by the worker when the files are in place, lowered by communityTick()
-// once the pack loader has been told about them. The handover is a flag rather
-// than a call because everything the loader does - rescanning the folder,
-// dropping the renderer's texture cache - belongs to the game thread.
-static SDL_atomic_t pendingSelect;
 
 PD_CONSTRUCTOR static void communityInit(void)
 {
@@ -196,15 +243,15 @@ bool communityIsAvailable(void)
 }
 
 s32 communityGetNumPacks(void) { return COMMUNITY_NUMPACKS; }
-s32 communityGetSelected(void) { return selected; }
+
+static s32 communityClampIndex(s32 index)
+{
+	return index < 0 || index >= COMMUNITY_NUMPACKS ? 0 : index;
+}
 
 static struct communitypack *communityPack(s32 index)
 {
-	if (index < 0 || index >= COMMUNITY_NUMPACKS) {
-		index = 0;
-	}
-
-	return &packs[index];
+	return &packs[communityClampIndex(index)];
 }
 
 const char *communityGetName(s32 index) { return communityPack(index)->name; }
@@ -221,35 +268,84 @@ const char *communityGetSource(s32 index)
 	return text;
 }
 
-s32 communityGetState(void) { return state; }
-const char *communityGetStatus(void) { return status; }
-const char *communityGetVersion(void) { return version; }
-u32 communityGetSize(void) { return assetSize; }
-
-void communityGetProgress(u32 *done, u32 *total)
-{
-	*done = (u32)download.len;
-	*total = assetSize;
-}
-
 static s32 communityBusy(void)
 {
 	return state == COMMUNITY_ASKING || state == COMMUNITY_DOWNLOAD || state == COMMUNITY_UNPACKING;
 }
 
-void communitySetSelected(s32 index)
+s32 communityGetState(s32 index)
 {
-	if (index < 0 || index >= COMMUNITY_NUMPACKS || index == selected || communityBusy()) {
-		return;
+	index = communityClampIndex(index);
+
+	if (state == COMMUNITY_ASKING) {
+		return COMMUNITY_ASKING;
 	}
 
-	selected = index;
-
-	// Whatever was found belongs to the pack it was asked about.
-	if (state != COMMUNITY_DONE || resolvedFor != index) {
-		state = COMMUNITY_IDLE;
-		status[0] = '\0';
+	// One download at a time, and it is only the page of the pack it is for
+	// that shows its progress: every page is drawn during a swipe.
+	if (state == COMMUNITY_DOWNLOAD || state == COMMUNITY_UNPACKING) {
+		return jobPack == index ? state : COMMUNITY_ELSEWHERE;
 	}
+
+	if (state == COMMUNITY_DONE && jobPack == index) {
+		return COMMUNITY_DONE;
+	}
+
+	if (state == COMMUNITY_ERROR && (statusPack < 0 || statusPack == index)) {
+		return COMMUNITY_ERROR;
+	}
+
+	if (releases[index].found) {
+		return COMMUNITY_FOUND;
+	}
+
+	if (releases[index].err[0]) {
+		return COMMUNITY_ERROR;
+	}
+
+	return COMMUNITY_IDLE;
+}
+
+const char *communityGetStatus(s32 index)
+{
+	static char text[192];
+	const s32 packstate = communityGetState(index);
+
+	index = communityClampIndex(index);
+
+	if (packstate == COMMUNITY_ELSEWHERE) {
+		snprintf(text, sizeof(text), "Installing %s - one pack at a time", communityGetName(jobPack));
+		return text;
+	}
+
+	if (status[0] && (statusPack < 0 || statusPack == index)) {
+		return status;
+	}
+
+	if (packstate == COMMUNITY_FOUND) {
+		snprintf(text, sizeof(text), "%s is the latest release", releases[index].version);
+		return text;
+	}
+
+	if (packstate == COMMUNITY_ERROR && releases[index].err[0]) {
+		return releases[index].err;
+	}
+
+	return "";
+}
+
+const char *communityGetVersion(s32 index) { return releases[communityClampIndex(index)].version; }
+u32 communityGetSize(s32 index) { return releases[communityClampIndex(index)].size; }
+
+s32 communityGetActivePack(void)
+{
+	return state == COMMUNITY_DOWNLOAD || state == COMMUNITY_UNPACKING ? jobPack : -1;
+}
+
+void communityGetProgress(u32 *done, u32 *total)
+{
+	*done = (u32)download.len;
+	*total = jobPack >= 0 ? releases[jobPack].size : 0;
 }
 
 /**
@@ -351,7 +447,7 @@ static s32 communityContains(const char *haystack, const char *needle)
  * The version, out of the file's own name.
  *
  * A release tag is whatever its author felt like typing - this one's is
- * "Beta_Release_V0.09" - where the file inside it is named after the pack and
+ * "Beta_Release_V0.10" - where the file inside it is named after the pack and
  * ends in the version, which is the part a player recognises. So the name is
  * preferred and the tag is the fallback.
  */
@@ -417,50 +513,39 @@ static void communitySanitise(char *s)
 	}
 }
 
-/**
- * Ask the release page which release is current, and which file in it is ours.
- */
-static bool communityResolve(const struct communitypack *pack, char *err, u32 errsize)
+static s32 communityRepoPackCount(const char *repo)
 {
-	struct ghostnetbuf buf = { NULL, 0, NULL, 0 };
-	struct ghostnetreq req;
-	char url[320];
-	char tag[64] = { 0 };
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; i < COMMUNITY_NUMPACKS; i++) {
+		count += !strcmp(packs[i].repo, repo);
+	}
+
+	return count;
+}
+
+/**
+ * Which file in a release is this pack's.
+ *
+ * If nothing is named for it and the pack is the only one the catalogue takes
+ * from this release, the largest archive is taken, so a rename is a wrong guess
+ * rather than a dead page. Where a release holds several of the catalogue's
+ * packs that guess would be another pack's file installed under this one's
+ * name, so there it is refused instead.
+ */
+static bool communityPickAsset(const struct communitypack *pack, const char *json, const char *tag,
+		struct communityrelease *out, char *err, u32 errsize)
+{
 	char bestName[192] = { 0 };
 	char bestUrl[512] = { 0 };
 	char bestSha[80] = { 0 };
 	u32 bestSize = 0;
 	s32 bestMatched = 0;
-	const char *at;
-	s32 status_ = 0;
-
-	snprintf(url, sizeof(url), COMMUNITY_API, pack->repo);
-
-	memset(&req, 0, sizeof(req));
-	req.url = url;
-	req.redirect = true;
-	req.cancel = &cancelFlag;
-
-	if (!ghostnetSend(&req, &buf, &status_, err, errsize)) {
-		free(buf.data);
-		return false;
-	}
-
-	if (status_ != 200 || buf.data == NULL || buf.len == 0) {
-		snprintf(err, errsize, status_ == 404
-				? "that pack has no releases yet"
-				: "the release page answered %d", status_);
-		free(buf.data);
-		return false;
-	}
-
-	ghostnetJsonField(buf.data, NULL, "tag_name", tag, sizeof(tag));
-
-	at = strstr(buf.data, "\"assets\"");
+	const char *at = strstr(json, "\"assets\"");
 
 	if (at == NULL) {
 		snprintf(err, errsize, "the release has no files");
-		free(buf.data);
 		return false;
 	}
 
@@ -520,14 +605,19 @@ static bool communityResolve(const struct communitypack *pack, char *err, u32 er
 		}
 	}
 
-	free(buf.data);
-
 	if (bestName[0] == '\0') {
 		snprintf(err, errsize, "no file in the latest release is one this can install");
 		return false;
 	}
 
 	if (!bestMatched) {
+		if (communityRepoPackCount(pack->repo) > 1) {
+			sysLogPrintf(LOG_WARNING, "community: nothing in %s matches \"%s\"", pack->repo,
+					pack->match ? pack->match : "");
+			snprintf(err, errsize, "the latest release does not have this pack in it");
+			return false;
+		}
+
 		// Worth saying: the catalogue's guess at which file is ours no longer
 		// finds anything, so what is about to be offered is the biggest
 		// archive in the release rather than a file anybody named.
@@ -535,20 +625,96 @@ static bool communityResolve(const struct communitypack *pack, char *err, u32 er
 				pack->repo, pack->match ? pack->match : "", bestName);
 	}
 
-	SDL_LockMutex(lock);
-	snprintf(assetName, sizeof(assetName), "%s", bestName);
-	snprintf(assetUrl, sizeof(assetUrl), "%s", bestUrl);
-	snprintf(assetSha, sizeof(assetSha), "%s", bestSha);
-	assetSize = bestSize;
-	communityVersionFromName(bestName, tag, version, sizeof(version));
-	snprintf(installName, sizeof(installName), "%s %s", pack->folder, version);
-	communitySanitise(installName);
-	SDL_UnlockMutex(lock);
+	out->found = 1;
+	out->size = bestSize;
+	snprintf(out->assetName, sizeof(out->assetName), "%s", bestName);
+	snprintf(out->assetUrl, sizeof(out->assetUrl), "%s", bestUrl);
+	snprintf(out->assetSha, sizeof(out->assetSha), "%s", bestSha);
+	communityVersionFromName(bestName, tag, out->version, sizeof(out->version));
+	snprintf(out->installName, sizeof(out->installName), "%s %s", pack->folder, out->version);
+	communitySanitise(out->installName);
 
-	sysLogPrintf(LOG_NOTE, "community: %s %s is %s, %u bytes%s", pack->name, version,
+	sysLogPrintf(LOG_NOTE, "community: %s %s is %s, %u bytes%s", pack->name, out->version,
 			bestName, bestSize, bestSha[0] ? "" : " (no hash published)");
 
 	return true;
+}
+
+/**
+ * Ask every release page in the catalogue which release is current, and which
+ * file in it is each pack's - once per page rather than once per pack, since
+ * one release can hold several packs and GitHub counts every question.
+ */
+static bool communityResolve(char *err, u32 errsize)
+{
+	s32 asked[COMMUNITY_NUMPACKS] = { 0 };
+	s32 numfound = 0;
+	s32 i;
+	s32 j;
+
+	err[0] = '\0';
+	memset(pending, 0, sizeof(pending));
+
+	for (i = 0; i < COMMUNITY_NUMPACKS; i++) {
+		struct ghostnetbuf buf = { NULL, 0, NULL, 0 };
+		struct ghostnetreq req;
+		char url[320];
+		char tag[64] = { 0 };
+		char msg[96] = { 0 };
+		s32 status_ = 0;
+		bool ok;
+
+		if (asked[i]) {
+			continue;
+		}
+
+		snprintf(url, sizeof(url), COMMUNITY_API, packs[i].repo);
+
+		memset(&req, 0, sizeof(req));
+		req.url = url;
+		req.redirect = true;
+		req.cancel = &cancelFlag;
+
+		ok = ghostnetSend(&req, &buf, &status_, msg, sizeof(msg));
+
+		if (ok && (status_ != 200 || buf.data == NULL || buf.len == 0)) {
+			snprintf(msg, sizeof(msg), status_ == 404
+					? "that pack has no releases yet"
+					: "the release page answered %d", status_);
+			ok = false;
+		}
+
+		if (ok) {
+			ghostnetJsonField(buf.data, NULL, "tag_name", tag, sizeof(tag));
+		}
+
+		for (j = i; j < COMMUNITY_NUMPACKS; j++) {
+			if (strcmp(packs[j].repo, packs[i].repo) != 0) {
+				continue;
+			}
+
+			asked[j] = 1;
+
+			if (!ok) {
+				snprintf(pending[j].err, sizeof(pending[j].err), "%s", msg);
+			} else if (communityPickAsset(&packs[j], buf.data, tag, &pending[j],
+						pending[j].err, sizeof(pending[j].err))) {
+				numfound++;
+			}
+
+			if (!pending[j].found && err[0] == '\0') {
+				snprintf(err, errsize, "%s", pending[j].err);
+			}
+		}
+
+		free(buf.data);
+
+		if (cancelFlag) {
+			return false;
+		}
+	}
+
+	return numfound > 0;
 }
 
 /**
@@ -559,7 +725,8 @@ static bool communityResolve(const struct communitypack *pack, char *err, u32 er
  * happens to a file under a name nothing else reads, and the pack folder only
  * gains a pack once there is one to gain.
  */
-static bool communityFetch(const struct communitypack *pack, char *msg, u32 msgsize)
+static bool communityFetch(const struct communitypack *pack, const struct communityrelease *rel,
+		char *msg, u32 msgsize)
 {
 	struct ghostnetreq req;
 	char tmp[FS_MAXPATH + 1];
@@ -575,9 +742,9 @@ static bool communityFetch(const struct communitypack *pack, char *msg, u32 msgs
 		return false;
 	}
 
-	ext = strrchr(assetName, '.');
+	ext = strrchr(rel->assetName, '.');
 	snprintf(tmp, sizeof(tmp), "%s/%s%s", packsDir, COMMUNITY_TMPNAME, ext ? ext : ".zip");
-	snprintf(dest, sizeof(dest), "%s/%s", packsDir, installName);
+	snprintf(dest, sizeof(dest), "%s/%s", packsDir, rel->installName);
 
 	f = fopen(tmp, "wb");
 
@@ -587,7 +754,7 @@ static bool communityFetch(const struct communitypack *pack, char *msg, u32 msgs
 	}
 
 	memset(&req, 0, sizeof(req));
-	req.url = assetUrl;
+	req.url = rel->assetUrl;
 	req.redirect = true;
 	req.timeout = COMMUNITY_DOWNLOADTIMEOUT;
 	req.cancel = &cancelFlag;
@@ -597,7 +764,7 @@ static bool communityFetch(const struct communitypack *pack, char *msg, u32 msgs
 	download.sink = f;
 	// The release said how big it is, so anything past that is not the file
 	// and is refused as it arrives rather than written to disk first.
-	download.maxlen = assetSize;
+	download.maxlen = rel->size;
 
 	if (!ghostnetSend(&req, &download, &status_, msg, msgsize)) {
 		fclose(f);
@@ -620,21 +787,21 @@ static bool communityFetch(const struct communitypack *pack, char *msg, u32 msgs
 		return false;
 	}
 
-	if (download.len != assetSize) {
+	if (download.len != rel->size) {
 		snprintf(msg, msgsize, "the download stopped early (%u of %u MB)",
-				(u32)(download.len / 1048576), assetSize / 1048576);
+				(u32)(download.len / 1048576), rel->size / 1048576);
 		remove(tmp);
 		return false;
 	}
 
-	if (assetSha[0]) {
+	if (rel->assetSha[0]) {
 		if (!sha256File(tmp, sha)) {
 			snprintf(msg, msgsize, "could not read back what was downloaded");
 			remove(tmp);
 			return false;
 		}
 
-		if (strcasecmp(sha, assetSha) != 0) {
+		if (strcasecmp(sha, rel->assetSha) != 0) {
 			snprintf(msg, msgsize, "the download is not the file the release describes");
 			remove(tmp);
 			return false;
@@ -642,7 +809,7 @@ static bool communityFetch(const struct communitypack *pack, char *msg, u32 msgs
 	}
 
 	SDL_AtomicSet(&workerStage, COMMUNITY_UNPACKING);
-	communitySetStatus("Unpacking %s - this takes a minute", assetName);
+	communitySetStatus("Unpacking %s - this takes a minute", rel->assetName);
 
 	count = archiveExtract(tmp, dest);
 
@@ -680,16 +847,15 @@ static bool communityFetch(const struct communitypack *pack, char *msg, u32 msgs
 
 static int communityWorker(void *arg)
 {
-	const struct communitypack *pack = communityPack(selected);
 	char msg[192];
 	bool ok;
 
 	msg[0] = '\0';
 
 	if (job == COMMUNITY_JOB_CHECK) {
-		ok = communityResolve(pack, msg, sizeof(msg));
+		ok = communityResolve(msg, sizeof(msg));
 	} else {
-		ok = communityFetch(pack, msg, sizeof(msg));
+		ok = communityFetch(communityPack(jobPack), &releases[jobPack], msg, sizeof(msg));
 	}
 
 	if (!ok) {
@@ -704,7 +870,7 @@ static int communityWorker(void *arg)
 	return 0;
 }
 
-static void communityStart(s32 which)
+static void communityStart(s32 which, s32 pack)
 {
 	if (communityBusy() || worker != NULL || !communityIsAvailable()) {
 		return;
@@ -718,6 +884,8 @@ static void communityStart(s32 which)
 	}
 
 	job = which;
+	jobPack = pack;
+	statusPack = pack;
 	cancelFlag = false;
 	SDL_AtomicSet(&workerStage, which == COMMUNITY_JOB_CHECK ? COMMUNITY_ASKING : COMMUNITY_DOWNLOAD);
 	download.len = 0;
@@ -738,27 +906,19 @@ static void communityStart(s32 which)
 
 void communityCheck(void)
 {
-	if (communityBusy()) {
-		return;
-	}
-
-	// Whatever was found before is a different question's answer, and an
-	// install that finished is over: the page asks again every time it opens,
-	// so this is also how "Installed" goes back to being a version number
-	// when a newer release turns up.
-	resolvedFor = -1;
-	version[0] = '\0';
-	assetSize = 0;
-	communityStart(COMMUNITY_JOB_CHECK);
+	// Every opening of the page, not only the first: the answer is a release
+	// that somebody else moves, so this is also how "Installed" goes back to
+	// being a version number when a newer release turns up.
+	communityStart(COMMUNITY_JOB_CHECK, -1);
 }
 
-void communityInstall(void)
+void communityInstall(s32 index)
 {
-	if (state != COMMUNITY_FOUND || resolvedFor != selected) {
+	if (index < 0 || index >= COMMUNITY_NUMPACKS || !releases[index].found) {
 		return;
 	}
 
-	communityStart(COMMUNITY_JOB_GET);
+	communityStart(COMMUNITY_JOB_GET, index);
 }
 
 void communityCancel(void)
@@ -792,6 +952,17 @@ void communityTick(void)
 	SDL_WaitThread(worker, NULL);
 	worker = NULL;
 
+	if (job == COMMUNITY_JOB_CHECK) {
+		// An ask that failed leaves nothing on offer: what was found before is
+		// an answer to a question that has since been asked again.
+		if (SDL_AtomicGet(&workerDone) < 0) {
+			memset(releases, 0, sizeof(releases));
+		} else {
+			memcpy(releases, pending, sizeof(releases));
+			status[0] = '\0';
+		}
+	}
+
 	if (SDL_AtomicGet(&workerDone) < 0) {
 		state = cancelFlag ? COMMUNITY_IDLE : COMMUNITY_ERROR;
 
@@ -803,9 +974,7 @@ void communityTick(void)
 	}
 
 	if (job == COMMUNITY_JOB_CHECK) {
-		resolvedFor = selected;
-		state = COMMUNITY_FOUND;
-		communitySetStatus("%s is the latest release", version);
+		state = COMMUNITY_IDLE;
 		return;
 	}
 
@@ -813,9 +982,9 @@ void communityTick(void)
 	// loader is this thread's.
 	state = COMMUNITY_DONE;
 
-	if (!texpackSelectPackByName(installName)) {
+	if (!texpackSelectPackByName(releases[jobPack].installName)) {
 		communitySetStatus("Installed, but it is not in the pack list - see the log");
-		sysLogPrintf(LOG_ERROR, "community: %s installed but did not list", installName);
+		sysLogPrintf(LOG_ERROR, "community: %s installed but did not list", releases[jobPack].installName);
 		return;
 	}
 
@@ -823,7 +992,7 @@ void communityTick(void)
 		texpackSetLoadEnabled(1);
 	}
 
-	communitySetStatus("Installed - %s is selected", installName);
+	communitySetStatus("Installed - %s is selected", releases[jobPack].installName);
 }
 
 void communityShutdown(void)

@@ -32,6 +32,11 @@ extern "C" {
  *
  * The work is on one worker thread, the way update.c does it, and the menu
  * polls. See port/src/community.c.
+ *
+ * Every question below is asked about one pack, because the menu is a page per
+ * pack and the pages are drawn side by side: one ask answers every pack in the
+ * catalogue at once, while a download is one pack's and the others' pages have
+ * to say so rather than show its progress as their own.
  */
 
 #define COMMUNITY_IDLE      0
@@ -41,14 +46,13 @@ extern "C" {
 #define COMMUNITY_UNPACKING 4
 #define COMMUNITY_DONE      5
 #define COMMUNITY_ERROR     6
+#define COMMUNITY_ELSEWHERE 7 // another pack is downloading or unpacking
 
 /** Whether this build has an HTTP client at all. */
 bool communityIsAvailable(void);
 
 /** The catalogue. Fixed at build time; every one of these is a real person's work. */
 s32 communityGetNumPacks(void);
-s32 communityGetSelected(void);
-void communitySetSelected(s32 index);
 
 const char *communityGetName(s32 index);
 const char *communityGetAuthor(s32 index);
@@ -65,19 +69,23 @@ struct menuimage *communityGetThumb(s32 index);
  */
 s32 communityIsInstalled(s32 index);
 
-s32 communityGetState(void);
-const char *communityGetStatus(void);
+/** What is happening, as this pack's page should show it. */
+s32 communityGetState(s32 index);
+const char *communityGetStatus(s32 index);
 
-/** What the last ask found: the version, and how big the download is. */
-const char *communityGetVersion(void);
-u32 communityGetSize(void);
+/** What the last ask found for this pack: the version, and how big the download is. */
+const char *communityGetVersion(s32 index);
+u32 communityGetSize(s32 index);
+
+/** The one download there can be: which pack, -1 for none, and how far along. */
+s32 communityGetActivePack(void);
 void communityGetProgress(u32 *done, u32 *total);
 
-/** Ask the release page what is current. */
+/** Ask the release pages what is current, for every pack at once. */
 void communityCheck(void);
 
 /** Download, check, unpack and select it. Nothing without a check first. */
-void communityInstall(void);
+void communityInstall(s32 index);
 
 void communityCancel(void);
 

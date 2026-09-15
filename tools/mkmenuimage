@@ -14,8 +14,11 @@
 #
 # Usage:
 #
-#     tools/mkmenuimage paramania.webp g_MenuImagePdPlusHd 256 384 \
+#     tools/mkmenuimage ../Ultimate_Plus_HD_Cover.webp g_MenuImageUltimatePlusHd 256 384 \
 #         > port/src/communityart.c
+#
+# One run per cover; port/src/communityart.c is the three Plus HD covers'
+# output concatenated, with the repeated #include taken out.
 
 import sys
 from PIL import Image
