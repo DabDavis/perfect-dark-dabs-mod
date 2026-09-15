@@ -2229,7 +2229,7 @@ wants DRI3) unless `MESA_VK_WSI_DEBUG=sw` is set, it ignores SIGTERM, and
 | 308 - 448 | the Perfect Dark cube stretches from half its height to its own and fades in, linearly together |
 | 336 - 420 | the red cube fades out, linearly |
 | 544 | PERFECT DARK first drawn |
-| ~735 | cut to black; the stage's draws go on behind it to 785 |
+| ~780 | cut to black (the cube draws in curves.csv run to 777, and the recording holds the whole logo to 30.4 s; this row said ~735 until 2026-09-14) |
 
 **4J does not morph the geometry.** Both cubes are drawn in one pose; the
 Perfect Dark cube is squashed to half its height (the red cube's shape) and
@@ -2265,9 +2265,30 @@ is pixel constant c1; the name's glyph quads carry theirs in c0.
   (`renderdata.unk30 = 5`, the alpha in `envcolour`, which the mesh's lists take
   from the node).
 - The N64's timeline still presents PERFECT DARK and exits. On the release's
-  timeline the side-darkening wait runs four times as fast and the exit after
-  the title takes 30 ticks instead of 60, which puts the title on tick 544 in
-  both.
+  timeline the side-darkening wait runs four times as fast, which puts the
+  title on tick 544 in both, and the wait after the last presentation step is
+  146 ticks instead of 60, which puts the cut on about 780.
+- **PERFECT DARK was presented twice until 2026-09-14** ("pops up twice at the
+  end"). `titleRenderPdLogo()` starts the darkening twice, 100 ticks after the
+  morph and again when the spin comes to rest. On the N64 the second start
+  lands inside the first; the release's four-times darkening had already
+  finished, so the second armed the pre-title timer again and the title
+  started over from step 1 (t431, then t502). The timer is now armed only
+  before the first presentation. The old exit wait of 30 ticks had been tuned
+  against that accidental second presentation, which is how the cut came out
+  near 735 and looked right.
+- **Microsoft Game Studios draws into a depth buffer with the release's
+  reflection** (2026-09-14, "the microsoft logo is off"). The release binds a
+  512x256 brushed texture and a cube map to it, the 4J cubes' shader. Drawn
+  the N64's way, with no depth buffer, the letters' extruded walls painted over
+  their faces and no reflection was drawn at all, so the logo came out hollow
+  and navy. **Its fade is the dark room's blend.** The mesh's colours are
+  baked and its node is mode 0, so the N64's light never faded it: it popped
+  in and out at full brightness (true before this change as well), and the
+  added reflection would not have faded with the light either. The half is
+  drawn with `unk30 = 4` and the environment colour's alpha at 255 minus the
+  light's level, which blends the lists towards black and, through
+  `xblaMeshEnvironmentLight()`, scales the reflection by the same amount.
 
 **A mod owns its intro.** Any of the Perfect Dark logo's files shipped by a mod
 (GoldenEye X ships them all) turns the release's version of that stage off, and

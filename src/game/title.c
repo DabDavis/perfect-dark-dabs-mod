@@ -649,11 +649,14 @@ s32 g_PdLogo4JSpinTimer = 0;
 s32 g_TitleXblaModelAlpha = 255;
 bool g_TitleXblaModelZbuf = false;
 
-// PERFECT DARK to the cut is half a second shorter on the release's timeline
-// than on the N64's. The rest of the stage - the 4J Studios card's length, the
+// The wait from PERFECT DARK's last presentation step to the cut. The release
+// holds the title longer than the N64 does: it comes up on stage tick 544 and
+// the cut is on about 780 (the draw log's cube draws run to 777, and the
+// recording holds the whole logo to 30.4 s). The presentation takes about 90
+// ticks of that. The rest of the stage - the 4J Studios card's length, the
 // cubes' pose, stretch and fades and the name's fade - is 4J's own animation,
 // read out of the release's draw calls and generated into xbla4jintro.h.
-#define XBLA4J_EXIT_TICKS      30
+#define XBLA4J_EXIT_TICKS      146
 #endif
 
 void titleInitPdLogo(void)
@@ -1608,6 +1611,15 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 		if (g_PdLogoAmbientLightFrac <= 0.0f) {
 			g_PdLogoAmbientLightFrac = 0.0f;
 			g_PdLogoDarkenEnabled = false;
+#ifndef PLATFORM_N64
+			// The darkening is started twice, once 100 ticks after the morph
+			// and again when the spin comes to rest. On the N64 the second
+			// start lands while the first is still darkening, but the release's
+			// cube darkens four times as fast, so the first had already brought
+			// PERFECT DARK up and the second presented it all over again from
+			// its first step. It is presented once.
+			if (g_PdLogoTitleStep < 0)
+#endif
 			g_PdLogoPreTitleTimer = 1;
 		}
 	}
@@ -2356,6 +2368,7 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 	s32 v0;
 #ifndef PLATFORM_N64
 	bool nintendo = false;
+	bool xblamgs;
 
 	// With the release on, the slot plays two logos: Microsoft Game Studios
 	// (the release's mesh on this model) and then Nintendo (the same model with
@@ -2370,6 +2383,8 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 			nintendo = true;
 		}
 	}
+
+	xblamgs = g_TitleXblaNintendoSplit && !nintendo;
 #endif
 
 	gdl = titleClear(gdl);
@@ -2439,6 +2454,28 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 		renderdata.gdl = gdl;
 
 #ifndef PLATFORM_N64
+		// Microsoft Game Studios is extruded lettering, drawn by the release
+		// into a depth buffer with its cube-map reflection (a 512x256 brushed
+		// texture at fetch 0, a cube at fetch 2 - the 4J cubes' shader). Without
+		// one the letters' walls painted over their faces and the mesh took no
+		// reflection at all, which drew it hollow and navy where the release's
+		// is solid silver.
+		if (xblamgs) {
+			gdl = zbufClear(gdl);
+			gSPSetGeometryMode(gdl++, G_ZBUFFER);
+			renderdata.gdl = gdl;
+			renderdata.zbufferenabled = true;
+			xblaMeshSetEnvironment(XBLAMESH_ENV_ON);
+
+			// The mesh's colours are baked and take no light, and its reflection
+			// is added, so the N64's light faded neither and the logo popped in
+			// and out. It is faded the way a dark room darkens a model: blended
+			// towards black by the environment colour's alpha, which the
+			// reflection is scaled by too.
+			renderdata.unk30 = 4;
+			renderdata.envcolour = 255 - v0;
+		}
+
 		xblaMeshSetBypass(nintendo);
 #endif
 
@@ -2446,6 +2483,11 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 
 #ifndef PLATFORM_N64
 		xblaMeshSetBypass(false);
+
+		if (xblamgs) {
+			xblaMeshSetEnvironment(XBLAMESH_ENV_SETTING);
+			gSPClearGeometryMode(renderdata.gdl++, G_ZBUFFER | G_CULL_BOTH);
+		}
 #endif
 
 		gdl = renderdata.gdl;
