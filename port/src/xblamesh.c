@@ -40,6 +40,7 @@
 #include "xblastage.h"
 #include "romdata.h"
 #include "mod.h"
+#include "gebean.h"
 #include "files.h"
 #include "xblamesh.h"
 #include "xblatex.h"
@@ -149,10 +150,7 @@
 // A node that is not one of a model pack's parts.
 #define XBLAMESH_NOPART 0xffff
 
-// A material word that names an entry of the build's own table of pictures
-// rather than a record - a model pack's PNG, or one of the ROM's numbered
-// textures - in its low twelve bits. Bit 15 is the alpha flag as ever.
-#define XBLAMESH_MAT_TABLE 0x40000000
+// XBLAMESH_MAT_TABLE is in xblamesh.h, which gebean.c writes it from.
 #define XBLAMESH_MAXMATS 256
 
 // Palette entries a mesh can have. The largest in the release has 46.
@@ -192,6 +190,11 @@ struct xblameshentry {
 	u16 packpart;                      // or XBLAMESH_NOPART
 	s32 packuse;                       // into uses[], or -1
 	u8 packhasmesh;                    // whether any node of this model matched a mesh
+
+	// The GoldenEye XBLA release's character for a GoldenEye X model
+	// (gebean.h): the table row, or -1. Filed with the pack's side, whose
+	// packpart and packuse it draws by.
+	s16 beanrow;
 };
 
 /**
@@ -384,6 +387,7 @@ struct xblameshbuilt {
 	s32 local;
 	u64 groupabsent;
 	s32 frompack;      // the mesh came out of a model pack's file (either kind)
+	s32 frombean;      // a GoldenEye XBLA character, skinned, a group per list node: xblaMeshBuildBean()
 	u32 packgen;       // modelpackGetGeneration() when it was built
 };
 
@@ -468,6 +472,7 @@ static f32 xblaMeshBEF32(const u8 *p)
 static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid);
 static void xblaMeshFreePackMeshes(void);
 static void xblaMeshDropKeptSlot(void);
+static void xblaMeshResetBeanMeshes(void);
 
 /* -------------------------------------------------------------------------
  * The package
@@ -858,6 +863,7 @@ static struct xblameshentry *xblaMeshEntryFor(struct modelnode *node, const stru
 		e->packpart = XBLAMESH_NOPART;
 		e->packuse = -1;
 		e->packhasmesh = 0;
+		e->beanrow = -1;
 	}
 
 	// A slot with no model in it is empty or a tombstone, and either way this
@@ -2045,6 +2051,7 @@ void xblaMeshResetModels(void)
 	// A model pack's meshes for the game's own models go with the stage: they
 	// are node-local to models in the pool being handed back.
 	xblaMeshFreePackMeshes();
+	xblaMeshResetBeanMeshes();
 
 	// What the meshes built so far are holding. They are kept for the life of
 	// the process on purpose - a mesh is the same in every level that uses it,
@@ -5535,12 +5542,18 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 	s32 hasmesh = 0;
 	s32 n;
 	s32 useidx;
+	s32 beanrow;
 
 	if (!modeldef || !modeldef->rootnode || !fileid) {
 		return;
 	}
 
-	if (!modelpackHavePacks()) {
+	// A GoldenEye X model the GoldenEye XBLA release has a character for is
+	// filed whether or not Mod.XblaGoldenEye is on, for the reason above:
+	// switching it on is then live. A name compare for every other model.
+	beanrow = gebeanFindRow(fileid, modeldef);
+
+	if (!modelpackHavePacks() && beanrow < 0) {
 		return;
 	}
 
@@ -5594,11 +5607,28 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 		e->packpart = (u16)k;
 		e->packuse = useidx;
 		e->packhasmesh = (u8)hasmesh;
+		e->beanrow = (s16)beanrow;
 
 		uses[useidx].parts[k] = nodes[k];
+
+		// The character is posed, and posing wants the matrix each list is
+		// drawn under; a pack's file is drawn under the node's own and never
+		// asks.
+		uses[useidx].partmtx[k] = beanrow >= 0 ? (s16)gebeanListNodeMatrix(nodes[k]) : -1;
 	}
 
 	uses[useidx].numparts = (u16)n;
+
+	if (beanrow >= 0) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is GoldenEye X's %s, which the GoldenEye "
+				"XBLA release has a character for%s", fileid, gebeanRowName(beanrow),
+				gebeanGetEnabled() ? "" : " (Mod.XblaGoldenEye is off)");
+
+		// Unpacked at the level load that first wants it rather than at a draw.
+		if (gebeanGetEnabled()) {
+			gebeanPrepare();
+		}
+	}
 
 	if (xblaMeshVerbose && modelpackFindN64(fileid)) {
 		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d: %d list nodes can take %s",
@@ -5857,6 +5887,121 @@ static void xblaMeshFreePackMeshes(void)
 
 	if (n) {
 		sysLogPrintf(LOG_NOTE, "xblamesh: %d model pack meshes freed with the stage", n);
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * A GoldenEye XBLA character for one of GoldenEye X's models
+ * ------------------------------------------------------------------------- */
+
+// One per file id. Kept across stages, unlike a pack's: the mesh is in the
+// model's own space and depends only on the file, which gebeanFindRow() has
+// checked is the one the table names every time it loads. One that would not
+// build is tried again at the next stage, in case the copy was missing then.
+static struct xblameshbuilt **beanBuilt;
+
+/**
+ * Builds the character for a GoldenEye X model: a mesh in 4J's layout from
+ * gebeanBuild(), skinned to the model's own matrices, a group per list node.
+ * It draws like one of the release's skinned meshes (posed under the first
+ * part's matrix), except that it chooses its group the way a pack's file does
+ * - by the node's place among the model's lists - and a node with no group
+ * keeps its own geometry.
+ */
+static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e)
+{
+	struct xblameshbuilt *m;
+	struct xblameshuse *use;
+	struct xblameshmats mats;
+	struct gebeanmats *bmats;
+	char what[64];
+	u8 *file;
+	u32 len = 0;
+
+	if (!beanBuilt) {
+		beanBuilt = calloc(NUM_FILE_SLOTS, sizeof(*beanBuilt));
+
+		if (!beanBuilt) {
+			return NULL;
+		}
+	}
+
+	m = beanBuilt[e->fileid];
+
+	if (m && m->state) {
+		return m->state > 0 ? m : NULL;
+	}
+
+	if (!m) {
+		m = beanBuilt[e->fileid] = calloc(1, sizeof(*m));
+
+		if (!m) {
+			return NULL;
+		}
+	}
+
+	m->state = -1;
+	m->frombean = 1;
+
+	use = (e->packuse >= 0 && e->packuse < numUses && uses[e->packuse].modeldef == e->modeldef)
+			? &uses[e->packuse] : NULL;
+
+	if (!use || use->numparts == 0) {
+		return NULL;
+	}
+
+	bmats = calloc(1, sizeof(*bmats));
+
+	if (!bmats) {
+		return NULL;
+	}
+
+	file = gebeanBuild(e->beanrow, (struct modeldef *)e->modeldef, use->parts, use->numparts,
+			bmats, &m->groupabsent, &len);
+
+	if (!file) {
+		free(bmats);
+		return NULL;
+	}
+
+	memset(&mats, 0, sizeof(mats));
+	mats.num = bmats->num < XBLAMESH_MAXMATS ? bmats->num : XBLAMESH_MAXMATS;
+
+	for (s32 i = 0; i < mats.num; i++) {
+		mats.tile[i] = bmats->tile[i];
+		mats.alpha[i] = bmats->alpha[i];
+		mats.soft[i] = bmats->soft[i];
+	}
+
+	free(bmats);
+
+	snprintf(what, sizeof(what), "model file %d's GoldenEye character", e->fileid);
+
+	return xblaMeshBuildFile(m, file, len, &mats, what) ? m : NULL;
+}
+
+static void xblaMeshResetBeanMeshes(void)
+{
+	if (!beanBuilt) {
+		return;
+	}
+
+	for (s32 i = 0; i < NUM_FILE_SLOTS; i++) {
+		struct xblameshbuilt *m = beanBuilt[i];
+
+		if (!m) {
+			continue;
+		}
+
+		if (m->state < 0) {
+			memset(m, 0, sizeof(*m));
+			continue;
+		}
+
+		m->posedmodel = NULL;
+		m->bruisemodel = NULL;
+		m->envmodel = NULL;
+		m->keptmodel = NULL;
 	}
 }
 
@@ -8784,6 +8929,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	struct xblameshuse *use;
 	s32 frompack;
 	s32 havemesh;
+	s32 frombean;
 	Mtxf *finemtx = NULL;
 	s32 fine = 1;
 	Mtxf *root;
@@ -8838,7 +8984,13 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		frompack = 0;
 	}
 
-	if (!frompack && !havemesh) {
+	// A GoldenEye X model drawn as the GoldenEye XBLA release's character. A
+	// mod's file, so the release never has a mesh for it; a pack's file for
+	// it still wins, since somebody put that there.
+	frombean = !frompack && !havemesh && e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
+			&& gebeanGetEnabled();
+
+	if (!frompack && !havemesh && !frombean) {
 		return 0;
 	}
 
@@ -8858,7 +9010,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		grafted = 1;
 	}
 
-	if (optOnlySlot && !frompack && e->slot != optOnlySlot) {
+	if (optOnlySlot && !frompack && !frombean && e->slot != optOnlySlot) {
 		if (xblaMeshVerbose) {
 			xblaMeshNoteDraw(model, e->slot, 0, 2);
 		}
@@ -8933,7 +9085,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// The mesh is built before the part is looked at, so that a mesh that will
 	// not build leaves every part of the model drawing its own geometry rather
 	// than only the first one.
-	m = frompack ? xblaMeshBuildPack(e) : xblaMeshBuild(e->slot);
+	m = frompack ? xblaMeshBuildPack(e) : frombean ? xblaMeshBuildBean(e) : xblaMeshBuild(e->slot);
 
 	if (!m) {
 		if (xblaMeshVerbose) {
@@ -8958,7 +9110,22 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef)
 			? &uses[e->use] : NULL;
 
-	if (m->local) {
+	if (m->frombean) {
+		// A GoldenEye character: group p is list node p's, the way a pack's
+		// file lays them out, but posed from the model's matrices like one of
+		// the release's skinned meshes - so the use stays, for the pose.
+		const u16 part = e->packpart;
+
+		if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
+			return 0;
+		}
+
+		list = &m->gdl[m->groupgfx[part]];
+		xlupart = m->groupxlu[part];
+		fadepart = m->groupfade[part];
+		use = (e->packuse >= 0 && e->packuse < numUses && uses[e->packuse].modeldef == e->modeldef)
+				? &uses[e->packuse] : NULL;
+	} else if (m->local) {
 		// A model pack's mesh for the game's own model: group p is list node
 		// p's, in that node's own space, under that node's own matrix - and a
 		// node the file has no group for keeps its own geometry.
@@ -9206,7 +9373,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	Col *boundcol = m->colours;
 	const u8 *wound = NULL;
 
-	if (use && !m->local) {
+	// Not yet on a GoldenEye character: the bruise map is keyed on the
+	// release's slot.
+	if (use && !m->local && !m->frombean) {
 		Col *bruised = xblaMeshBruiseColours(m, model, use, !grafted, e->slot);
 
 		if (bruised) {
@@ -10397,6 +10566,13 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 
 		m = frompack ? (packBuilt ? packBuilt[e->fileid] : NULL)
 				: (built && e->matched && e->slot < numRecords ? &built[e->slot] : NULL);
+
+		if (!frompack && !e->matched && e->beanrow >= 0) {
+			m = beanBuilt ? beanBuilt[e->fileid] : NULL;
+			fprintf(f, "%sGoldenEye XBLA character for %s (Mod.XblaGoldenEye %s, list %d): ",
+					indent ? indent : "", gebeanRowName(e->beanrow),
+					gebeanGetEnabled() ? "on" : "off", e->packpart);
+		}
 
 		fprintf(f, "%snode %p type %02x slot %d part %d def %p%s%s%s%s built %d",
 				indent ? indent : "", (const void *)node, node->type & 0xff,

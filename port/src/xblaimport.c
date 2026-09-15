@@ -242,8 +242,13 @@ static void xblaScanForPackage(const char *name, void *arg)
 	// A package is taken on what it starts with, an archive on its extension:
 	// a package is named after a content id hash and an archive is not
 	// necessarily named anything in particular either.
+	//
+	// Not the GoldenEye XBLA release, which goes in the same folder
+	// (gebean.h): an archive is looked into for its characters before it is
+	// taken for this one.
 	if (xblaLooksLikePackage(path) ||
-			(scan->archives && archiveIsSupported(path) && fsFileSize(path) >= 0)) {
+			(scan->archives && archiveIsSupported(path) && fsFileSize(path) >= 0 &&
+			 !archiveFindEntry(path, "files/new/char/"))) {
 		strncpy(scan->found, path, sizeof(scan->found) - 1);
 		return;
 	}

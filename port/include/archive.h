@@ -26,6 +26,34 @@ s32 archiveIsSupported(const char *path);
  */
 s32 archiveExtract(const char *path, const char *destDir);
 
+/**
+ * Whether any entry of a .7z or .zip has needle in its name, compared without
+ * case and with either path separator. 1 if one does, 0 if none does or the
+ * archive cannot be read (a .rar is never looked into).
+ *
+ * Only the archive's directory is read, never the data, so this is what tells
+ * two archives in the same folder apart - the Perfect Dark release and the
+ * GoldenEye one - without unpacking either.
+ */
+s32 archiveFindEntry(const char *path, const char *needle);
+
+/** Answers whether an entry, by its name inside the archive, is wanted. */
+typedef s32 (*archivefilter)(const char *name, void *arg);
+
+/**
+ * archiveExtract() for the entries filter wants and no others. Returns the
+ * number of files written, or -1.
+ *
+ * A .7z block made by one LZMA or LZMA2 coder - which is how 7-Zip writes a
+ * solid archive - is decoded as a stream straight into the files, so what is
+ * held at once is the decoder's dictionary and not the block: the GoldenEye
+ * release is one solid block of 740MB, and SzArEx_Extract() would allocate all
+ * of it to write out the 60MB of characters that are asked for. A block of
+ * any other kind goes through SzArEx_Extract() as archiveExtract() does. A .zip
+ * or .rar is extracted whole.
+ */
+s32 archiveExtractMatching(const char *path, const char *destDir, archivefilter filter, void *arg);
+
 #ifdef __cplusplus
 }
 #endif

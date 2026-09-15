@@ -38,6 +38,7 @@
 #include "xblaui.h"
 #include "xblaexpl.h"
 #include "xblasky.h"
+#include "gebean.h"
 #include "menuimage.h"
 #include "xblastage.h"
 #include "roomsheen.h"
@@ -5125,6 +5126,24 @@ static MenuItemHandlerResult menuhandlerXblaExplosions(s32 operation, struct men
 }
 
 /**
+ * "Enable GoldenEye Characters": GoldenEye 007 XBLA's characters and heads on
+ * GoldenEye X's, when that release is in xbla/ as well (gebean.h). Live: the
+ * models are paired as they load whether or not this is on.
+ */
+static MenuItemHandlerResult menuhandlerXblaGoldenEye(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return gebeanGetEnabled();
+	case MENUOP_SET:
+		gebeanSetEnabled(!gebeanGetEnabled());
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * "Enable Skies": 4J's cube skies in place of the game's sky plane, on the
  * levels xblasky.c's table gives one (recorded from the release or chosen by
  * the picture - see xblasky.h).
@@ -5516,6 +5535,14 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Skies",
 		0,
 		menuhandlerXblaSkies,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enable GoldenEye Characters",
+		0,
+		menuhandlerXblaGoldenEye,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

@@ -282,6 +282,12 @@ s32 xblaMeshSlotModelFile(s32 slot);
  * and the pack loader takes it off again (xblamesh.c, xblaMeshBuildPack()).
  * Returns the count, filling up to max of them.
  */
+// A material word that names an entry of the build's own table of pictures
+// rather than a record - a model pack's PNG, one of the ROM's numbered
+// textures, or a GoldenEye XBLA character's picture (gebean.c) - in its low
+// twelve bits. Bit 15 is the alpha flag as ever.
+#define XBLAMESH_MAT_TABLE 0x40000000
+
 s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max);
 void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3]);
 
