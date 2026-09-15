@@ -247,12 +247,14 @@ struct xblameshbruise {
 	s32 state;                        // 0 not made, 1 made, -1 could not be
 	struct xblameshbruiseref *refs;   // XBLAMESH_BRUISEREFS per emitted vertex
 	u8 *solid;                        // per emitted vertex: whether it takes colour
+	f32 *mappos;                      // a skinned mesh's: each vertex where the map matched it
 };
 
 static void xblaMeshBruiseFree(struct xblameshuse *use)
 {
 	if (use->bruise) {
 		free(use->bruise->solid);
+		free(use->bruise->mappos);
 		free(use->bruise->refs);
 		free(use->bruise);
 		use->bruise = NULL;
@@ -305,6 +307,7 @@ struct xblameshbuilt {
 	const struct model *bruisemodel;
 	u32 bruiseframe;
 	Col *bruisecol;
+	const u8 *bruisewound;   // how wounded each vertex is, with bruisecol; see "Wounds"
 	const struct model *deformmodel;   // objDeform()'s vertices, mirrored for one model a frame
 	u32 deformframe;
 	Vtx *deformvtx;
@@ -340,6 +343,7 @@ struct xblameshbuilt {
 	f32 envradius;     // how far the mesh reaches from its origin, for the distance cutoff
 	Col *dimcol;       // colours, dimmed by each vertex's full amount: the common case, made once
 	s32 envsheen;      // whether envvtx/envcol were made at the N64 sheen's share
+	const u8 *envwound;      // the wounds envcol was scaled down by, or NULL
 
 	// The posed normals made with posedvtx, for a mesh that reflects; NULL when
 	// that pose had no room for them.
@@ -7176,6 +7180,7 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 	f32 headshift[3] = { 0.0f, 0.0f, 0.0f };
 	s32 shifthead = 0;
 	u8 *referenced = calloc((size_t)numsv, 1);
+	f32 *mappos = m->bindpos ? calloc((size_t)m->numvertices * 3, sizeof(f32)) : NULL;
 	f64 nearsum = 0.0;
 	s32 nearcount = 0;
 
@@ -7337,6 +7342,13 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 			p = restpos;
 		}
 
+		// Where a wound is measured from: see xblaMeshWoundStrength().
+		if (mappos) {
+			mappos[i * 3] = p[0];
+			mappos[i * 3 + 1] = p[1];
+			mappos[i * 3 + 2] = p[2];
+		}
+
 		if (samebone && m->bones && m->weights) {
 			const u8 *bn = &m->bones[i * 4];
 			const f32 *wt = &m->weights[i * 3];
@@ -7433,6 +7445,7 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 	free(sorted);
 	free(start);
 	br->solid = solid;
+	br->mappos = mappos;
 	br->refs = refs;
 
 	return 1;
@@ -7579,6 +7592,213 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
 }
 
 /**
+ * Wounds: a bullet's bruise drawn where it landed, on the release's vertices.
+ *
+ * The mirror puts a bruise where the game puts it, on the stock vertex nearest
+ * the shot - often 50 to 100 units from the hit on a body of a few hundred
+ * vertices - and spreads it over the release's vertices that read that one,
+ * each blended with two that are clean, so it came out a third as strong and
+ * beside the hole ("too dull ... not very accurate"). So chrBruise() also
+ * notes the hit (xblaMeshNoteBruise()) in the model's rest space, the space
+ * the map already holds every release vertex in (mappos), and the release's
+ * vertices within XBLAMESH_WOUND_RADIUS of it take the bruise's alpha, falling
+ * off to nothing at the edge. The mirror still carries every other change the
+ * game makes to the tables - a burn's darkening - but not their alpha on a
+ * skinned mesh, which is the bullets'.
+ *
+ * The chr combiner multiplies the blood tint by the vertex colour
+ * (G_CC_CUSTOM_18), and the release bakes dark vertex colours where the N64's
+ * are near white, so a wound on a dark shirt came out the colour of the shirt.
+ * A wounded vertex is lifted towards white by how wounded it is, and the
+ * reflection passes are scaled down by the same: blood does not shine, and the
+ * sheen added over a wound washed it back to the cloth.
+ *
+ * The wounds are kept per model and forgotten when the model's stock tables
+ * are clean again - a chr freed and its model handed to another, or the
+ * vertex store taking a corpse's copies back - so they last exactly as long as
+ * the game's own bruises do.
+ */
+#define XBLAMESH_WOUND_RADIUS 100.0f
+#define XBLAMESH_WOUND_TINT_PEAK 160
+#define XBLAMESH_WOUNDMODELS  128
+#define XBLAMESH_WOUNDRING    16
+
+struct xblameshwound {
+	f32 pos[3];
+	u8 alpha;   // the bruise's shade alpha, 20 to 70
+	u8 head;    // on a grafted head, whose mesh is matched apart from the body's
+};
+
+struct xblameshwounds {
+	const struct model *model;
+	u32 frame;                                   // last noted or drawn, so the oldest can go
+	u32 serial;                                  // wounds noted, ever; ring[serial % ring] is next
+	struct xblameshwound ring[XBLAMESH_WOUNDRING];
+	const struct xblameshbuilt *mesh[2];         // the body's mesh, the grafted head's
+	s32 numvertices[2];
+	u32 applied[2];                              // the serial each strength is made up to
+	u8 *strength[2];                             // per vertex, 0 clean to 255 fully wounded
+};
+
+static struct xblameshwounds woundTable[XBLAMESH_WOUNDMODELS];
+static s32 woundsInUse;
+
+static struct xblameshwounds *xblaMeshWoundsFor(const struct model *model, s32 create)
+{
+	struct xblameshwounds *pick = NULL;
+
+	if (!woundsInUse && !create) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < XBLAMESH_WOUNDMODELS; i++) {
+		if (woundTable[i].model == model) {
+			return &woundTable[i];
+		}
+	}
+
+	if (!create) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < XBLAMESH_WOUNDMODELS; i++) {
+		if (!woundTable[i].model) {
+			pick = &woundTable[i];
+			break;
+		}
+
+		if (!pick || woundTable[i].frame < pick->frame) {
+			pick = &woundTable[i];
+		}
+	}
+
+	if (pick->model) {
+		free(pick->strength[0]);
+		free(pick->strength[1]);
+		woundsInUse--;
+	}
+
+	memset(pick, 0, sizeof(*pick));
+	pick->model = model;
+	woundsInUse++;
+
+	return pick;
+}
+
+/** The model's stock tables for this mesh are clean: whatever was wounded is gone. */
+static void xblaMeshWoundsForget(const struct model *model, s32 kind)
+{
+	struct xblameshwounds *w = xblaMeshWoundsFor(model, 0);
+
+	if (w && w->strength[kind]) {
+		free(w->strength[kind]);
+		w->strength[kind] = NULL;
+		w->mesh[kind] = NULL;
+		w->applied[kind] = w->serial;
+	}
+}
+
+void xblaMeshNoteBruise(struct model *model, struct modelnode *bboxnode, const struct coord *pos, s32 alpha)
+{
+	struct xblameshwounds *w;
+	struct xblameshwound *wd;
+	struct modelnode *mtxnode;
+	f32 rest[3];
+
+	if (!model || !bboxnode || !pos || !xblaMeshModelHasMesh(model)) {
+		return;
+	}
+
+	mtxnode = modelNodeFindMtxNode(bboxnode);
+	w = mtxnode ? xblaMeshWoundsFor(model, 1) : NULL;
+
+	if (!w) {
+		return;
+	}
+
+	// pos is in the part's own frame (chrHit() takes it out of the bbox's
+	// matrix), and the map's rest space is that frame moved out to the part's
+	// rest offset - the same sum the map took for its stock vertices.
+	xblaMeshNodeRestOffset(mtxnode, rest);
+
+	wd = &w->ring[w->serial % XBLAMESH_WOUNDRING];
+	wd->pos[0] = pos->x + rest[0];
+	wd->pos[1] = pos->y + rest[1];
+	wd->pos[2] = pos->z + rest[2];
+	wd->alpha = (u8)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
+	wd->head = xblaMeshNodeIsGrafted(model, bboxnode) ? 1 : 0;
+
+	w->serial++;
+	w->frame = frameCount;
+}
+
+/**
+ * How wounded each of the mesh's vertices is on this model, with any wounds
+ * noted since the last draw laid on: 255 minus the bruise's alpha at the
+ * wound, falling off with the square of the distance to nothing at the
+ * radius, and a second wound over the first deepening it. NULL for none.
+ */
+static const u8 *xblaMeshWoundStrength(const struct xblameshbuilt *m, const struct model *model,
+		const struct xblameshbruise *br, s32 kind)
+{
+	struct xblameshwounds *w = xblaMeshWoundsFor(model, 0);
+	const f32 r2 = XBLAMESH_WOUND_RADIUS * XBLAMESH_WOUND_RADIUS;
+	u32 from;
+
+	if (!w || !br->mappos) {
+		return NULL;
+	}
+
+	w->frame = frameCount;
+
+	if (w->mesh[kind] != m || w->numvertices[kind] != m->numvertices || !w->strength[kind]) {
+		free(w->strength[kind]);
+		w->strength[kind] = calloc((size_t)m->numvertices, 1);
+		w->mesh[kind] = w->strength[kind] ? m : NULL;
+		w->numvertices[kind] = m->numvertices;
+		w->applied[kind] = 0;
+
+		if (!w->strength[kind]) {
+			return NULL;
+		}
+	}
+
+	from = w->applied[kind];
+
+	if (w->serial - from > XBLAMESH_WOUNDRING) {
+		from = w->serial - XBLAMESH_WOUNDRING;
+	}
+
+	for (u32 s = from; s < w->serial; s++) {
+		const struct xblameshwound *wd = &w->ring[s % XBLAMESH_WOUNDRING];
+		const f32 depth = 255.0f - wd->alpha;
+
+		if (wd->head != kind) {
+			continue;
+		}
+
+		for (s32 i = 0; i < m->numvertices; i++) {
+			const f32 *p = &br->mappos[i * 3];
+			const f32 dx = p[0] - wd->pos[0];
+			const f32 dy = p[1] - wd->pos[1];
+			const f32 dz = p[2] - wd->pos[2];
+			const f32 d2 = dx * dx + dy * dy + dz * dz;
+
+			if (d2 < r2 && (!br->solid || br->solid[i])) {
+				const u32 add = (u32)(depth * (1.0f - d2 / r2) + 0.5f);
+				const u32 cur = w->strength[kind][i];
+
+				w->strength[kind][i] = (u8)(255 - (255 - cur) * (255 - add) / 255);
+			}
+		}
+	}
+
+	w->applied[kind] = w->serial;
+
+	return w->strength[kind];
+}
+
+/**
  * The colours a skinned mesh draws with for one model this frame: its own when
  * nothing has touched the model's stock tables (NULL, the usual case, a
  * pointer compare a list), or a frame-arena copy with the game's bruises laid
@@ -7612,6 +7832,7 @@ static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
 	m->bruisemodel = model;
 	m->bruiseframe = frameCount;
 	m->bruisecol = NULL;
+	m->bruisewound = NULL;
 
 	for (s32 ni = 0; ni < br->numnodes; ni++) {
 		const union modelrwdata *rw = modelGetNodeRwData(model, br->nodes[ni]);
@@ -7627,6 +7848,10 @@ static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
 	}
 
 	if (!any) {
+		if (m->bindpos) {
+			xblaMeshWoundsForget(model, samebone ? 0 : 1);
+		}
+
 		return NULL;
 	}
 
@@ -7695,6 +7920,31 @@ static Col *xblaMeshBruiseColours(struct xblameshbuilt *m, struct model *model,
 			out[i].b = (u8)(out[i].b * f[2] + 0.5f);
 			out[i].a = (u8)(out[i].a * f[3] + 0.5f);
 		}
+	}
+
+	// A skinned mesh's alpha is the wounds', from where the shots landed, not
+	// the mirror's; and the colour under a wound is lifted so the tint shows.
+	if (m->bindpos && br->mappos) {
+		const u8 *strength = xblaMeshWoundStrength(m, model, br, samebone ? 0 : 1);
+
+		for (s32 i = 0; i < m->numvertices; i++) {
+			if (br->solid && !br->solid[i]) {
+				continue;
+			}
+
+			out[i].a = m->colours[i].a;
+
+			if (strength && strength[i]) {
+				const u32 k = strength[i];
+
+				out[i].a = (u8)((out[i].a * (255 - k) + 127) / 255);
+				out[i].r = (u8)(out[i].r + ((255 - out[i].r) * k + 127) / 255);
+				out[i].g = (u8)(out[i].g + ((255 - out[i].g) * k + 127) / 255);
+				out[i].b = (u8)(out[i].b + ((255 - out[i].b) * k + 127) / 255);
+			}
+		}
+
+		m->bruisewound = strength;
 	}
 
 	m->bruisecol = out;
@@ -8017,7 +8267,7 @@ static s32 xblaMeshEnvironmentReach(const struct xblameshbuilt *m, const Mtxf *r
  * of a skinned model draws the whole mesh's vertices.
  */
 static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct model *model,
-		const Vtx *posed, const f32 *normals, s32 light, s32 sheen, Vtx **outVtx, Col **outCol)
+		const Vtx *posed, const f32 *normals, s32 light, s32 sheen, const u8 *wound, Vtx **outVtx, Col **outCol)
 {
 	const s32 unitnormals = normals == m->normals;
 	Vtx *vtx;
@@ -8025,7 +8275,7 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 
 	if (m->envvtx && m->envmodel == model && m->envframe == frameCount &&
 			m->envposed == posed && m->envnormals == normals && m->envlight == light &&
-			m->envsheen == sheen) {
+			m->envsheen == sheen && m->envwound == wound) {
 		*outVtx = m->envvtx;
 		*outCol = m->envcol;
 		return 1;
@@ -8065,7 +8315,8 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 		col[i].r = (u8)(s8)xblaMeshRound(nx * 127.0f);
 		col[i].g = (u8)(s8)xblaMeshRound(ny * 127.0f);
 		col[i].b = (u8)(s8)xblaMeshRound(nz * 127.0f);
-		col[i].a = (u8)((amount * light + 127) / 255);
+		// Less where the vertex is wounded: see "Wounds".
+		col[i].a = (u8)((amount * light * (wound ? 255u - wound[i] : 255u) / 255 + 127) / 255);
 	}
 
 	m->envmodel = model;
@@ -8074,6 +8325,7 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 	m->envnormals = normals;
 	m->envlight = light;
 	m->envsheen = sheen;
+	m->envwound = wound;
 	m->envvtx = vtx;
 	m->envcol = col;
 
@@ -8624,6 +8876,21 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	const s32 logo = envforce == XBLAMESH_ENV_LOGO && opa && m->logobase != NULL &&
 			renderdata->zbufferenabled && xblaTexGetEnabled();
 
+	// The colours, bruised where the game has bruised the model's own lists,
+	// and how wounded each vertex is, which the reflections below are scaled
+	// down by - so these come first.
+	Col *boundcol = m->colours;
+	const u8 *wound = NULL;
+
+	if (use && !m->local) {
+		Col *bruised = xblaMeshBruiseColours(m, model, use, !grafted, e->slot);
+
+		if (bruised) {
+			boundcol = bruised;
+			wound = m->bruisewound;
+		}
+	}
+
 	// Whether this draw takes the release's reflections, decided before the
 	// colours are bound since a reflecting material's colours are scaled for
 	// it. Only in the opaque pass: the pass goes over the opaque list. The
@@ -8648,25 +8915,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// Made here rather than at the pass, so that a frame arena with no room
 		// for them leaves the colours unscaled as well.
 		if (envlight > 0 && !xblaMeshEnvironmentVertices(m, model, posed, normals,
-					envlight, sheen, &envvtx, &envcol)) {
+					envlight, sheen, wound, &envvtx, &envcol)) {
 			envlight = 0;
 		}
 	}
 
-	// The colours, bruised where the game has bruised the model's own lists.
-	Col *boundcol = m->colours;
-
 	{
-		Col *colours = NULL;
-
-		if (use && !m->local) {
-			colours = xblaMeshBruiseColours(m, model, use, !grafted, e->slot);
-		}
-
-		if (colours) {
-			boundcol = colours;
-		}
-
 		// A reflecting material is blended towards its reflection, not added
 		// to: what the lists light is what is left of it, and the reflection
 		// pass below adds the rest. Fitted per pixel on the marble cube's faces,
@@ -8698,7 +8952,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 					for (s32 k = 0; k < m->numenvidx; k++) {
 						const u32 i = m->envidx[k];
-						const u32 left = 255 - (m->venv[i * 2 + 1] * envreach + 127) / 255;
+						const u32 share = wound ? m->venv[i * 2 + 1] * (255u - wound[i]) / 255 : m->venv[i * 2 + 1];
+						const u32 left = 255 - (share * envreach + 127) / 255;
 
 						kept[i].r = (u8)((boundcol[i].r * left + 127) / 255);
 						kept[i].g = (u8)((boundcol[i].g * left + 127) / 255);
@@ -8733,6 +8988,26 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			xblaMeshSetSpanMode(renderdata, node, opaquecycle2, opaqueonecycle);
 		}
 
+		// A wounded chr's blood tint, brighter: the environment colour is what
+		// G_CC_CUSTOM_17 takes a vertex to as its shade alpha drops, and the
+		// game's (64 10 10) is so dark that on the release's dark cloth a wound
+		// read as more of the cloth. It shows nowhere else - at full alpha the
+		// texel is untouched - so the hue is kept and only the level raised.
+		// Put back after the lists, for the reflection pass and the next node.
+		const s32 tinted = wound && renderdata->unk30 == 7;
+
+		if (tinted) {
+			const u32 er = (renderdata->envcolour >> 24) & 0xff;
+			const u32 eg = (renderdata->envcolour >> 16) & 0xff;
+			const u32 eb = (renderdata->envcolour >> 8) & 0xff;
+			const u32 peak = er > eg ? (er > eb ? er : eb) : (eg > eb ? eg : eb);
+
+			if (peak > 0 && peak < XBLAMESH_WOUND_TINT_PEAK) {
+				gDPSetEnvColor(renderdata->gdl++, er * XBLAMESH_WOUND_TINT_PEAK / peak,
+						eg * XBLAMESH_WOUND_TINT_PEAK / peak, eb * XBLAMESH_WOUND_TINT_PEAK / peak, 0xff);
+			}
+		}
+
 		gSPDisplayList(renderdata->gdl++, logo ? m->logobase + (list - m->gdl) : list);
 		frameDraws++;
 
@@ -8746,6 +9021,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
 			gSPDisplayList(renderdata->gdl++, &m->gdl[xlupart]);
+		}
+
+		if (tinted) {
+			gDPSetEnvColorViaWord(renderdata->gdl++, renderdata->envcolour | 0xff);
 		}
 
 		// The release's reflections, over what was just drawn from colours

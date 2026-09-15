@@ -4307,6 +4307,12 @@ void chrBruise(struct model *model, s32 hitpart, struct modelnode *node, struct 
 	struct modelrwdata_dl *rwdata;
 	s32 spac = 0;
 
+#ifndef PLATFORM_N64
+	// The release's mesh takes the bruise where the shot landed, not at the
+	// stock vertex found below: see xblaMeshNoteBruise().
+	xblaMeshNoteBruise(model, node, arg3, alpha);
+#endif
+
 	modelNodeGetModelRelativePosition(model, modelNodeFindMtxNode(node), &relpos);
 
 	spc8.f[0] = arg3->f[0] - relpos.f[0];

@@ -1238,6 +1238,43 @@ N64 body has them, where HEAD drew none. The `takes the game's bruises` log line
 carries the read count and mean distance - a map that is wrong shows there as
 a few dozen vertices hundreds of units off.
 
+**Wounds: the bruise where the shot landed (2026-09-15, same day).** The
+tester on the pose fix: "the bruising effect is too dull, it looks better on
+the legs, its actually red, but on upper body waist it looks same as shirt.
+also it is not very accurate". Three causes, each measured:
+
+- *Accuracy.* The game bruises the stock vertex nearest the shot, 50-100 units
+  from the hole on a body of a few hundred vertices, and the mirror put the
+  bruise there. `chrBruise()` now also calls `xblaMeshNoteBruise()` with the
+  hit in the part's own frame; the part's `xblaMeshNodeRestOffset()` moves it
+  into the rest space the map holds every release vertex in (`mappos`, kept
+  by the map for a skinned mesh), and the vertices within
+  `XBLAMESH_WOUND_RADIUS` (100) take the bruise's alpha, falling off with the
+  squared distance. Logged on the Villa guard: all thirteen hits land 10-36
+  units from a release vertex, with 5-70 vertices inside. 40 units was
+  measured first and drew specks - an N64 bruise spreads over whole
+  triangles. The wounds live per model (`woundTable`, a ring of 16) and are
+  forgotten when that mesh's stock tables are clean again, so they last as
+  long as the game's bruises; the mirror keeps carrying colour changes (a
+  burn) but not alpha on a skinned mesh.
+- *Strength.* Each release vertex blended three stock vertices, usually one
+  bruised, so a third of the bruise. The wound's alpha reaches 13-15 at the
+  centre (logged, 1126 body vertices over a quarter strength).
+- *Dull on dark cloth.* Not the reflections - the same frame with
+  `XblaReflections=0` looked identical - and not the vertex colours, which the
+  log showed already near white (229). A chr draws `G_CC_CUSTOM_17`, which
+  takes a low shade alpha to the environment colour, and the game's blood tint
+  `var80062a48` is 64 10 10: at alpha 13 the pixel *is* that maroon, and on the
+  release's dark jackets it reads as the jacket. The N64 body has the same
+  maroon on a lighter texture. Since the environment colour shows only where
+  alpha drops, the mesh's opaque lists draw a wounded chr (`unk30` 7) with the
+  hue raised to a peak channel of `XBLAMESH_WOUND_TINT_PEAK` (160), put back
+  after the lists. The reflection passes are also scaled down by the wound
+  (blood does not shine), though that alone changed nothing visible here.
+
+A red-pixel count over the guard's box measures the sand and the skin, not
+the wound; judge the picture (and the vertex log) instead.
+
 Driving it: `shotCalculateHits(0, 1, pos2d, dir2d, pos3d, dir3d, 0, 4294836224, 0)`
 from a top-level gdb loop at a `handsTickAttack` stop is a real shot (chrHit,
 chrBruise, splats), with the 3d pair from `mtx4TransformVec/RotateVec(camGetProjectionMtxF(), ...)`

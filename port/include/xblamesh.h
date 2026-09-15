@@ -139,6 +139,14 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node);
 s32 xblaMeshModelHasMesh(struct model *model);
 
 /**
+ * chrBruise() (chr.c) is bruising the model at pos, in bboxnode's own space,
+ * with the bruise's alpha: the release's mesh takes the bruise where the shot
+ * landed rather than at the stock vertex nearest it. See "Wounds" in
+ * xblamesh.c.
+ */
+void xblaMeshNoteBruise(struct model *model, struct modelnode *bboxnode, const struct coord *pos, s32 alpha);
+
+/**
  * Whether the release's mesh draws a model of this definition, building it if
  * nothing has yet. For a caller deciding how to draw before it draws: HasMesh()
  * answers only for a mesh already built, and only for nodes linked into the
