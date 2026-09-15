@@ -3175,6 +3175,29 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 			modelSetAnimation(chr->model, ANIM_0164, false, 0, 0.5f, 16);
 		}
 
+#ifndef PLATFORM_N64
+		// A robot returns before the kill is recorded below, so a robot shot
+		// down never reached the player's kill count - only one blown up did,
+		// through chrDamage()'s explosion branch, which records its own and
+		// now leaves a robot's to here. The Randomizer run's "Eliminate
+		// hostiles" reads that count, and deals Chicago's robot as a body.
+		// Dr Caroll's death is the script's and stays uncounted.
+		if (race == RACE_ROBOT) {
+			if (g_Vars.mplayerisrunning) {
+				mpstatsRecordDeath(aplayernum, mpPlayerGetIndex(chr));
+			} else if (aplayernum >= 0) {
+				s32 prevplayernum = g_Vars.currentplayernum;
+				setCurrentPlayerNum(aplayernum);
+				mpstatsRecordPlayerKill();
+				setCurrentPlayerNum(prevplayernum);
+			}
+
+			if (chr->chrflags & CHRCFLAG_KILLCOUNTABLE) {
+				mpstatsIncrementTotalKillCount();
+			}
+		}
+#endif
+
 		return;
 	}
 
@@ -5509,17 +5532,23 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 							chrChoke(chr, choketype);
 						}
 
-						if (g_Vars.mplayerisrunning) {
-							mpstatsRecordDeath(aplayernum, mpPlayerGetIndex(chr));
-						} else if (aprop && aprop->type == PROPTYPE_PLAYER) {
-							s32 prevplayernum = g_Vars.currentplayernum;
-							setCurrentPlayerNum(playermgrGetPlayerNumByProp(aprop));
-							mpstatsRecordPlayerKill();
-							setCurrentPlayerNum(prevplayernum);
-						}
+#ifndef PLATFORM_N64
+						// chrBeginDeath() above has recorded a robot's kill
+						if (race != RACE_ROBOT)
+#endif
+						{
+							if (g_Vars.mplayerisrunning) {
+								mpstatsRecordDeath(aplayernum, mpPlayerGetIndex(chr));
+							} else if (aprop && aprop->type == PROPTYPE_PLAYER) {
+								s32 prevplayernum = g_Vars.currentplayernum;
+								setCurrentPlayerNum(playermgrGetPlayerNumByProp(aprop));
+								mpstatsRecordPlayerKill();
+								setCurrentPlayerNum(prevplayernum);
+							}
 
-						if (chr->chrflags & CHRCFLAG_KILLCOUNTABLE) {
-							mpstatsIncrementTotalKillCount();
+							if (chr->chrflags & CHRCFLAG_KILLCOUNTABLE) {
+								mpstatsIncrementTotalKillCount();
+							}
 						}
 
 						if (chr->aibot == NULL) {

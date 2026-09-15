@@ -554,6 +554,21 @@ body chosen out of the whole game reaches spawn paths that were written when
 the choice was the stage's, so anything `bodyAllocateChr()` does for a body
 number has to happen in `modAlarmSpawn()` too.
 
+**A robot was not a kill** (2026-09-15, tester report: "the robots in
+randomizer like chicago bot is not registering as a kill for the eliminate
+hostiles objectives"). The kill objective reads
+`g_Vars.currentplayerstats->killcount`, and `chrBeginDeath()` handles
+`RACE_ROBOT` and Dr Caroll first and returns *before* its stats block, so in
+stock a robot shot down never counted - only a robot blown up did, through
+`chrDamage()`'s explosion branch, which records its own. The robot branch now
+records the kill and the explosion branch skips a robot's so it is not counted
+twice; Dr Caroll stays uncounted. The eyespy returns earlier still and is left
+alone. Checked on Chicago (0x1d, its one robot is chr slot 22 at frame 1200)
+by a gdb drive that kills it for the player: shot 0 -> 0 before, 0 -> 1 after,
+blast 0 -> 1. `chrDamageByExplosion()` from gdb does *not* kill it
+(`damageshield` is true); call `chrDamage()` with the shield off and
+`explosion` true.
+
 **A seed reproduces it exactly.** `Mod.RandomizerSeed` in the savedir's pd.ini,
 with `Mod.RunMapPool` and `Mod.RunDifficulty` set to what the crash log printed,
 deals the same first stage, the same landing pad and the same body:
