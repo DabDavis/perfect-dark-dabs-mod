@@ -1279,7 +1279,8 @@ also it is not very accurate". Three causes, each measured:
   release's dark jackets it reads as the jacket. The N64 body has the same
   maroon on a lighter texture. Since the environment colour shows only where
   alpha drops, the mesh's opaque lists draw a wounded chr (`unk30` 7) with the
-  hue raised to a peak channel of `XBLAMESH_WOUND_TINT_PEAK` (160), put back
+  hue raised to a peak channel of `XBLAMESH_WOUND_TINT_PEAK` (160, taken
+  40% darker to 96 the same day: "the blood is too bright"), put back
   after the lists. The reflection passes are also scaled down by the wound
   (blood does not shine), though that alone changed nothing visible here.
 

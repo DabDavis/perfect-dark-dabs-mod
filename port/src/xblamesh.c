@@ -7730,7 +7730,7 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
  * the game's own bruises do.
  */
 #define XBLAMESH_WOUND_RADIUS 100.0f
-#define XBLAMESH_WOUND_TINT_PEAK 160
+#define XBLAMESH_WOUND_TINT_PEAK 96   // 160 read too bright; 40% darker (2026-09-15)
 #define XBLAMESH_WOUNDMODELS  128
 #define XBLAMESH_WOUNDRING    16
 
