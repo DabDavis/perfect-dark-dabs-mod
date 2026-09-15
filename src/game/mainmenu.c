@@ -4937,6 +4937,16 @@ struct menuitem g_MainMenuMenuItems[] = {
 		0x00000001,
 		NULL,
 	},
+#ifndef PLATFORM_N64
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Customize Character",
+		0x0000000c,
+		(void *)&g_CiCharacterMenuDialog,
+	},
+#endif
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,

@@ -12,6 +12,8 @@ extern struct menudialogdef g_SelectMissionMenuDialog;
 extern struct menudialogdef g_GhostTrialsMenuDialog;
 // Offline or Online, asked in front of it on every entry from the main menu.
 extern struct menudialogdef g_GhostModeMenuDialog;
+// Who the Carrington Institute is walked as, from the Perfect Menu (ghostmenu.c).
+extern struct menudialogdef g_CiCharacterMenuDialog;
 // The Ghost Trials nameplate and rules, drawn beside the dialogs rather than
 // inside one. See the comments on the definitions in port/src/ghostmenu.c.
 Gfx *ghostmenuRenderOverlay(Gfx *gdl);

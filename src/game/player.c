@@ -1489,6 +1489,13 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	if (modGhostGetTrialCharacter(bodynum, headnum)) {
 		return;
 	}
+
+	// And the Carrington Institute is walked as whoever the Perfect Menu's
+	// Customize Character says, which is how GoldenEye's characters get a
+	// building to walk around in.
+	if (modGhostGetInstituteCharacter(bodynum, headnum)) {
+		return;
+	}
 #endif
 
 	if (g_Vars.normmplayerisrunning) {
@@ -1666,7 +1673,14 @@ void playerTickChrBody(void)
 	// The mark is taken whether or not there is a body to take down, because a
 	// body built after it was set is already the right model and the mark has
 	// nothing left to say.
-	if (modSpectateTakeBodyStale() && g_Vars.currentplayer->haschrbody) {
+	bool bodystale = modSpectateTakeBodyStale();
+
+#ifndef PLATFORM_N64
+	// Or a character picked from the Perfect Menu in the Institute
+	bodystale = modGhostTakeInstituteBodyStale() || bodystale;
+#endif
+
+	if (bodystale && g_Vars.currentplayer->haschrbody) {
 		playerRemoveChrBody();
 
 		if (g_Vars.currentplayer->haschrbody) {
@@ -1892,6 +1906,9 @@ void playerTickChrBody(void)
 					// from then on. See the note in body0f02ce8c() for the
 					// whole mechanism; this is the second door to it.
 					|| modGhostTrialRulesApply()
+					// The Institute character too: the head it picks can be one
+					// the Institute's own people wear (Carrington's)
+					|| modGhostInstituteCharacterApplies()
 #endif
 					) && IS8MB()) {
 				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);

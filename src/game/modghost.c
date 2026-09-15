@@ -277,6 +277,48 @@ bool modGhostGetTrialCharacter(s32 *bodynum, s32 *headnum)
 	return modGhostResolveCharacter(g_ModGhostBody, g_ModGhostHead, bodynum, headnum);
 }
 
+s32 g_ModCiBody = MODGHOST_BODY_DEFAULT;
+s32 g_ModCiHead = MODGHOST_BODY_DEFAULT;
+
+static bool g_ModCiBodyStale = false;
+
+/**
+ * Whether the Institute character is who the player is right now: the solo
+ * player walking the Carrington Institute. Not a mission, where Joanna is who
+ * you are, and not a trial, which has a character of its own.
+ */
+bool modGhostInstituteCharacterApplies(void)
+{
+	return g_Vars.stagenum == STAGE_CITRAINING
+		&& !g_Vars.normmplayerisrunning
+		&& g_Vars.coopplayernum < 0
+		&& g_Vars.antiplayernum < 0
+		&& g_ModCiBody > MODGHOST_BODY_DEFAULT;
+}
+
+bool modGhostGetInstituteCharacter(s32 *bodynum, s32 *headnum)
+{
+	if (!modGhostInstituteCharacterApplies()) {
+		return false;
+	}
+
+	return modGhostResolveCharacter(g_ModCiBody, g_ModCiHead, bodynum, headnum);
+}
+
+void modGhostMarkInstituteBodyStale(void)
+{
+	g_ModCiBodyStale = true;
+}
+
+bool modGhostTakeInstituteBodyStale(void)
+{
+	bool stale = g_ModCiBodyStale && g_Vars.stagenum == STAGE_CITRAINING;
+
+	g_ModCiBodyStale = false;
+
+	return stale;
+}
+
 // How solid the ghost is drawn, out of 255. Low enough to read as not really
 // there, high enough to follow across a lit room.
 s32 g_ModGhostAlpha = 110;

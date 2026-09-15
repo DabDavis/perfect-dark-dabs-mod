@@ -291,6 +291,110 @@ struct menudialogdef g_GhostCharacterMenuDialog = {
 	NULL,
 };
 
+/**
+ * The Perfect Menu's Customize Character: the same page for who the player
+ * walks the Carrington Institute as (g_ModCiBody, modghost.h). Every change
+ * marks the player's body stale, so it is rebuilt as the new character on the
+ * first tick after the menu closes.
+ */
+static char *menutextCiCharacterName(struct menuitem *item)
+{
+	if (g_ModCiBody <= MODGHOST_BODY_DEFAULT) {
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "Joanna\n");
+	} else {
+		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s", mpGetBodyName(g_ModCiBody - 1));
+	}
+
+	return g_GhostRowText;
+}
+
+static MenuItemHandlerResult menuhandlerCiCharacterBody(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 body = g_ModCiBody > MODGHOST_BODY_DEFAULT ? g_ModCiBody - 1 : 0;
+	s32 head = g_ModCiHead > MODGHOST_BODY_DEFAULT ? g_ModCiHead - 1 : modGhostBodyDefaultHead(body);
+
+	switch (operation) {
+	case MENUOP_SET:
+		g_ModCiBody = data->carousel.value + 1;
+
+		if (g_ModCiHead <= MODGHOST_BODY_DEFAULT) {
+			g_ModCiHead = modGhostBodyDefaultHead(data->carousel.value) + 1;
+		}
+
+		modGhostMarkInstituteBodyStale();
+		break;
+	case MENUOP_CHECKPREFOCUSED:
+		mpCharacterBodyMenuHandler(operation, item, data, body, head, true);
+		return true;
+	}
+
+	return mpCharacterBodyMenuHandler(operation, item, data, body, head, true);
+}
+
+static MenuItemHandlerResult menuhandlerCiCharacterHead(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 head = g_ModCiHead > MODGHOST_BODY_DEFAULT ? g_ModCiHead - 1 : 0;
+
+	if (operation == MENUOP_SET) {
+		g_ModCiHead = data->carousel.value + 1;
+		modGhostMarkInstituteBodyStale();
+	}
+
+	return mpCharacterHeadMenuHandler(operation, item, data, head, true);
+}
+
+static MenuDialogHandlerResult menudialogCiCharacter(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	// Keeps the model turning off the carousels, as the trial page does
+	if (operation == MENUOP_TICK
+			&& g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef
+			&& g_Menus[g_MpPlayerNum].curdialog->focuseditem != &dialogdef->items[1]
+			&& g_Menus[g_MpPlayerNum].curdialog->focuseditem != &dialogdef->items[2]) {
+		union handlerdata scratch;
+		menuhandlerCiCharacterBody(MENUOP_11, &dialogdef->items[2], &scratch);
+	}
+
+	return 0;
+}
+
+struct menuitem g_CiCharacterMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_DARKERBG,
+		(uintptr_t)&menutextCiCharacterName,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_CAROUSEL,
+		0,
+		0,
+		0,
+		0x00000022,
+		menuhandlerCiCharacterHead,
+	},
+	{
+		MENUITEMTYPE_CAROUSEL,
+		0,
+		0,
+		0,
+		0x0000001b,
+		menuhandlerCiCharacterBody,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_CiCharacterMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Customize Character",
+	g_CiCharacterMenuItems,
+	menudialogCiCharacter,
+	MENUDIALOGFLAG_0002 | MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 static const s32 g_GhostAlphaValues[] = { 60, 110, 170, 230 };
 
 static MenuItemHandlerResult menuhandlerGhostAlpha(s32 operation, struct menuitem *item, union handlerdata *data)

@@ -422,8 +422,14 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// the value stored is the index plus one; anything past it is clamped
 	// where it is used, since mpGetBodyId() reads off the end of its array for
 	// the value just above the last valid one.
-	configRegisterInt("Mod.GhostCharacter", &g_ModGhostBody, 0, 61);
+	// The table is as long as the list can be (MAX_MPBODIES), since GoldenEye's
+	// characters take it past the stock 61 (gebean.c).
+	configRegisterInt("Mod.GhostCharacter", &g_ModGhostBody, 0, MAX_MPBODIES);
 	configRegisterInt("Mod.GhostCharacterHead", &g_ModGhostHead, 0, 255);
+
+	// Who the Carrington Institute is walked as, stored the same way.
+	configRegisterInt("Mod.InstituteCharacter", &g_ModCiBody, 0, MAX_MPBODIES);
+	configRegisterInt("Mod.InstituteCharacterHead", &g_ModCiHead, 0, 255);
 
 	// The leaderboard account. The PIN is stored as typed, which is what a PIN
 	// with no password behind it amounts to - it is a claim on a name on a

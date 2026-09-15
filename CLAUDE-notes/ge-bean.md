@@ -207,6 +207,28 @@ order (camguard = Jungle Commando, greyguard = St. Petersburg Guard, ...).
   techwoman and rusguard built and drew in the survey, the other two have not
   been looked at.
 
+## Walking the Carrington Institute as one (2026-09-15)
+
+The Perfect Menu's **Customize Character** (between Carrington Institute and
+Solo Missions) opens `g_CiCharacterMenuDialog` (ghostmenu.c), the trial
+page's carousels over `g_ModCiBody`/`g_ModCiHead` (`Mod.InstituteCharacter`,
+`Mod.InstituteCharacterHead`; body index plus one, 0 = Joanna). It is kept apart
+from the trial character, which ghostnet.c swaps with the signed-in account.
+`playerChooseBodyAndHead()` takes it for the solo player on `STAGE_CITRAINING`
+(`modGhostGetInstituteCharacter()`), with a private head copy as a trial gets.
+Every change raises `modGhostMarkInstituteBodyStale()`, which
+`playerTickChrBody()` takes beside the spectator's mark, so the body is rebuilt
+live without a reload. `MODGHOST_MAXBODIES` and `Mod.GhostCharacter`'s clamp
+went from 64/61 to `MAX_MPBODIES`. Past the old table the default head was
+asked afresh every frame, and the preview of a GoldenEye body never loaded.
+
+Checked headless (`--boot-stage 0x26`, scratch `ci.gdb`): the row and the page
+draw, with Natalya turning in the preview; the player's chr is body 152 with
+head -1 in third person; setting Jaws and raising the mark rebuilt it as 159
+(file 3064 loaded) mid-level. Forcing `g_FileState` and `menuStop()` from gdb
+brings "Choose Your Reality" straight back. Seeing the walk needs the
+Xvfb/xdotool agent-file route (memory `headless-game-driving`).
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

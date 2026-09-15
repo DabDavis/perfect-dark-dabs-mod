@@ -279,12 +279,30 @@ extern s32 g_ModGhostSplits;
 extern s32 g_ModGhostMaxRacers;
 
 // How many Combat Simulator bodies modGhostBodyDefaultHead() remembers a head
-// for. Sixty one is the range the trial character setting is clamped to in
-// pd.ini, and the function falls back to asking rather than reading off the
-// end if the table ever grows past this.
-#define MODGHOST_MAXBODIES 64
+// for: the whole list, since GoldenEye's characters take it past the stock 61
+// (gebean.c). Past the table the function asks afresh every time, which a menu
+// model that reloads on every new face never finishes drawing.
+#define MODGHOST_MAXBODIES MAX_MPBODIES
 
 s32 modGhostBodyDefaultHead(s32 mpbody);
+
+/**
+ * Who the player walks the Carrington Institute as, stored the way the trial
+ * character is (Combat Simulator body and head index plus one, zero for
+ * Joanna), and chosen from the Perfect Menu's Customize Character. Kept apart
+ * from the trial character, which belongs to the signed-in ghost account.
+ */
+extern s32 g_ModCiBody;
+extern s32 g_ModCiHead;
+
+// The Institute character, for the solo player in the Institute only.
+bool modGhostInstituteCharacterApplies(void);
+bool modGhostGetInstituteCharacter(s32 *bodynum, s32 *headnum);
+
+// Asks playerTickChrBody() to take the player's body down and build it again,
+// so a character picked from the Perfect Menu is worn when the menu closes.
+void modGhostMarkInstituteBodyStale(void);
+bool modGhostTakeInstituteBodyStale(void);
 
 bool modGhostIsChr(struct chrdata *chr);
 s32 modGhostGetAlpha(void);

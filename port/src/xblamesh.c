@@ -5620,7 +5620,7 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 	uses[useidx].numparts = (u16)n;
 
 	if (beanrow >= 0) {
-		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is GoldenEye X's %s, which the GoldenEye "
+		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is %s, which the GoldenEye "
 				"XBLA release has a character for%s", fileid, gebeanRowName(beanrow),
 				gebeanGetEnabled() ? "" : " (Mod.XblaGoldenEye is off)");
 
