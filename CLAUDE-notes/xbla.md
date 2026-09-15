@@ -1274,6 +1274,47 @@ Models/Meshes" and "Enable Textures", and they are separate because either on
 its own is worth having - an untextured mesh says whether a shape is right
 without an art problem on top of it.
 
+#### A skinned prop whose lists load no matrix (2026-09-15)
+
+Report (F3, build 3336e80): "the fence with xbla textures is missing in
+Chicago". It is `PwirefenceZ` (model 0x17f, file 1375), the chain-link gate in
+the alley near the start, and it is **an object, not room geometry** - the
+trace's `[objects on screen with a release mesh]` names it as slot 2344. Room
+span diffs and the fence textures' alpha were a detour; a pd.ini split
+(XblaStages=0, then XblaMeshTextures=0) leaves it missing both times, so it is
+the meshes switch alone.
+
+The release's mesh for it is **skinned** - stride 48, three palette entries
+for the model's three position nodes (the root at z 35069, one per panel under
+it) - and authored in the model's space. A part's matrix is read off the `G_MTX`
+its own list loads (`xblaMeshNodeMtx()`), and a prop's panel lists load none:
+the position node above supplies it. So `partmtx[0]` stayed -1,
+`xblaMeshPartMtx()` answered NULL, the pose never ran, and the bind pose was
+drawn under the node's matrix - with every z already rounded to 32767 by
+`xblaMeshRound()`, the whole gate flattened into the wall. The trace's "posed
+for another model at mesh frame 0 ... fine 0" is what a never-posed mesh looks
+like.
+
+`xblaMeshSkinRoot()` gives such a mesh the game's own answer for the node,
+`modelFindNodeMtx()`, **only when its bind box leaves the s16**; the render and
+the hit test both ask it. A mesh whose bind pose fits keeps drawing it exactly
+as before. A scan of every release mesh record finds two that leave the s16,
+both skinned: this one and `PcetroofgunZ` (slot 2087, six matrices, Deep Sea
+0x38), which never came on screen in a headless boot and is unverified. The
+fence's palette ratio line reads 0.039/0.041 against the game's rig, yet the
+posed box ([-2971 -1203 -31]..[27 1120 40], both panels) and the picture match
+the N64 gate - that diagnostic does not fit a prop rig.
+
+A bias for rigid meshes past the s16 was written first and taken out: neither
+mesh that needs it is rigid. Check `m->bindpos` before designing for one. And
+gdb breakpoints and conditions inside `xblamesh.c` (built at -O2) hung or never
+fired twice here; one temporary `sysLogPrintf` at the draw found the -1 in a
+single run. The recipe is the usual `--spectate` teleport, with the tester's
+camera from the trace: pos (745 197 3503), theta 275.4, verta -5.8, the intro
+skipped at frame 300. The old `pd-testsave-xs1` has no reflection keys, so
+reflections come on by default there and speckle the gate's frame - copy the
+tester's keys into `[Mod]` before judging it.
+
 ### "Enable Textures" is the whole of the release's art (2026-09-11)
 
 The switch used to mean the meshes' own records alone, and the rest of the

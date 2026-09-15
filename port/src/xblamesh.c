@@ -6055,6 +6055,40 @@ static Mtxf *xblaMeshPartMtx(struct model *model, struct xblameshuse *use, s32 p
 }
 
 /**
+ * The matrix a skinned mesh is posed under, where its first part names none.
+ *
+ * A part's matrix is read off the G_MTX its own list loads (xblaMeshNodeMtx()),
+ * and a prop's lists load none: the position node above them does. With no
+ * matrix the mesh was never posed and drew its bind pose, which is in the
+ * model's space - fine for a mesh that stands at the model's origin, but two of
+ * the release's are authored further out than an s16 reaches, and the bind
+ * pose's rounding pinned them there. PwirefenceZ, Chicago's chain-link gate, is
+ * one: its root position node stands at z 35069, so every vertex of its bind
+ * pose was rounded to 32767 and the whole gate drew flattened inside the alley
+ * wall - "the fence with XBLA textures is missing in Chicago". PcetroofgunZ, out
+ * to 74306, is the other.
+ *
+ * Only those take the game's own answer for the node, the nearest position
+ * node's matrix; posed out of it, they come out near its origin like any other
+ * pose. A mesh whose bind pose fits keeps drawing it exactly as before.
+ */
+static Mtxf *xblaMeshSkinRoot(const struct xblameshbuilt *m, struct model *model,
+		struct modelnode *node, Mtxf *root)
+{
+	if (root || !m->bindpos || !model || !model->matrices) {
+		return root;
+	}
+
+	for (s32 j = 0; j < 3; j++) {
+		if (m->bindlo[j] < -32768.0f || m->bindhi[j] > 32767.0f) {
+			return modelFindNodeMtx(model, node, 0);
+		}
+	}
+
+	return NULL;
+}
+
+/**
  * How many steps of a posed copy make one of the game's units.
  *
  * A Perfect Dark vertex holds an s16, and the game's own models are drawn in
@@ -8243,7 +8277,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	root = NULL;
 
 	if (use) {
-		root = xblaMeshPartMtx(model, use, 0);
+		root = xblaMeshSkinRoot(m, model, node, xblaMeshPartMtx(model, use, 0));
 
 		if (optPose && m->nummatrices && root) {
 			Vtx *pose;
@@ -9101,7 +9135,7 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 		}
 
 		if (use) {
-			root = xblaMeshPartMtx(model, use, 0);
+			root = xblaMeshSkinRoot(m, model, node, xblaMeshPartMtx(model, use, 0));
 			skinned = optPose && m->nummatrices && m->bindpos && root &&
 				m->nummatrices <= XBLAMESH_MAXMTX;
 		}
