@@ -100,6 +100,7 @@ static u8 *badRecord;  // a record that did not decode, so it is not tried again
 static u8 *softRecord; // XBLATEX_SOFT_* per record, see xblaTexRecordIsSoft()
 static u8 **alphaMap;  // per record, see xblaTexRecordAlphaMap()
 static u8 *alphaTried; // and whether it has been looked for
+static u8 *flatPane;   // per record, see xblaTexRecordIsFlatPane()
 
 // What xblaTexRecordIsSoft() has found out about a record so far.
 #define XBLATEX_SOFT_UNKNOWN 0
@@ -115,6 +116,10 @@ static u8 *alphaTried; // and whether it has been looked for
 // nine are under it and every one of them is a picture with no edge to cut at
 // (the least opaque of the rest is a lamp with 15% of its texels at 255).
 #define XBLATEX_SOFT_PERCENT 1
+
+// How narrow a record's partial alpha has to be to be a pane: see
+// xblaTexRecordIsFlatPane().
+#define XBLATEX_FLATPANE_BAND 48
 
 // The meshes are built on the game thread and uploaded on the render thread,
 // so both the registry and the package handle are shared. Everything below
@@ -151,12 +156,14 @@ static void xblaTexCloseUp(void)
 
 	free(alphaMap);
 	free(alphaTried);
+	free(flatPane);
 	tables = NULL;
 	byRecord = NULL;
 	badRecord = NULL;
 	softRecord = NULL;
 	alphaMap = NULL;
 	alphaTried = NULL;
+	flatPane = NULL;
 	numRecords = 0;
 	opened = -1;
 }
@@ -220,8 +227,9 @@ static s32 xblaTexOpen(void)
 	softRecord = calloc(numRecords, 1);
 	alphaMap = calloc(numRecords, sizeof(u8 *));
 	alphaTried = calloc(numRecords, 1);
+	flatPane = calloc(numRecords, 1);
 
-	if (!tables || !byRecord || !badRecord || !softRecord || !alphaMap || !alphaTried ||
+	if (!tables || !byRecord || !badRecord || !softRecord || !alphaMap || !alphaTried || !flatPane ||
 			!x360StfsStreamRead(&stream, 4, dataBase - 4, tables)) {
 		sysLogPrintf(LOG_ERROR, "xblatex: could not read the texture tables");
 		xblaTexCloseUp();
@@ -838,13 +846,29 @@ const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize)
 		if (rgba) {
 			const u32 total = (u32)width * (u32)height;
 			u32 mid = 0;
+			u32 clear = 0;
+			u8 midlo = 0xff;
+			u8 midhi = 0;
 
 			for (u32 i = 0; i < total; i++) {
 				const u8 a = rgba[i * 4 + 3];
 
 				if (a >= 0x10 && a < XBLATEX_OPAQUE_ALPHA) {
 					mid++;
+					midlo = a < midlo ? a : midlo;
+					midhi = a > midhi ? a : midhi;
+				} else if (a < 0x10) {
+					clear++;
 				}
+			}
+
+			// A flat pane: no texel clear, and every one between clear and
+			// opaque within a narrow band - glass, not a fringe.
+			flatPane[record] = clear == 0 && mid * 100 >= total && midhi - midlo <= XBLATEX_FLATPANE_BAND;
+
+			if (flatPane[record]) {
+				sysLogPrintf(LOG_NOTE, "xblatex: record %u is a flat pane, alpha %u to %u over %u of %u texels",
+						record, midlo, midhi, mid, total);
 			}
 
 			if (mid * 1000 >= total) {
@@ -874,6 +898,24 @@ const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize)
 	SDL_UnlockMutex(lock);
 
 	return map;
+}
+
+/**
+ * Whether a record's partial alpha is a flat pane of glass rather than the
+ * fringe of a cutout: no texel is clear, at least one in a hundred is between
+ * clear and opaque, and all of those sit within XBLATEX_FLATPANE_BAND of each
+ * other. Hair runs smoothly from clear to opaque, and the sunglasses' lenses
+ * spread over 80 levels; the DD shock trooper's visor is a quarter of record
+ * 0x132c at 119 to 136 beside a helmet and a face at 255. Across the release,
+ * the only record a character's or a gun's mesh uses that passes is that one.
+ */
+s32 xblaTexRecordIsFlatPane(u32 record)
+{
+	s32 size;
+
+	xblaTexRecordAlphaMap(record, &size);
+
+	return flatPane && record < numRecords && flatPane[record];
 }
 
 s32 xblaTexRecordOf(const void *addr)

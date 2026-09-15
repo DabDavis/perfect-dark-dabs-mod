@@ -2853,15 +2853,21 @@ static s32 xblaMeshDrawSpan(const struct xblameshbuilder *b, const u8 *file, u32
  * came out an opaque dark pane and a black square. xblaMeshTriIsPane() looks
  * under each triangle instead.
  *
- * Rigid meshes only. The skinned ones are characters and guns, and on those
- * the same test finds the hair (4770, 4901) and the sunglasses' lenses (4870)
- * on seventy-odd heads, which are cutouts and have to stay cutouts - a blended
- * strand of hair has no depth to sort by and draws through the face behind it.
+ * Rigid meshes, and on a skinned one only a record that is a flat pane
+ * (xblaTexRecordIsFlatPane()). The skinned ones are characters and guns, and
+ * on those the same test finds the hair (4770, 4901) and the sunglasses'
+ * lenses (4870) on seventy-odd heads, which are cutouts and have to stay
+ * cutouts - a blended strand of hair has no depth to sort by and draws through
+ * the face behind it. A flat pane has no strands: the DD shock trooper's visor
+ * (0x132c) drew as a solid slab of glass until it was let through.
  */
 static const u8 *xblaMeshPaneMap(u32 stride, u32 material, s32 drawspan, s32 *size)
 {
-	if (drawspan != XBLAMESH_SPAN_ALPHA || stride != XBLAMESH_STRIDE_RIGID ||
-			(material & XBLAMESH_MAT_TABLE)) {
+	if (drawspan != XBLAMESH_SPAN_ALPHA || (material & XBLAMESH_MAT_TABLE)) {
+		return NULL;
+	}
+
+	if (stride != XBLAMESH_STRIDE_RIGID && !xblaTexRecordIsFlatPane(material & 0x1fff)) {
 		return NULL;
 	}
 

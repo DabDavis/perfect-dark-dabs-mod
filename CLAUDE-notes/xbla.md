@@ -1006,7 +1006,18 @@ triangle *taken*, since a draw can be split between two spans.
 **Rigid meshes only.** Run over the whole release (`tritrans.py` in the
 session), the same test finds the hair (4770, 4901) and the sunglasses' lenses
 (4870) on seventy-odd heads, which must stay cutouts. The skinned meshes are
-characters and guns, so the stride is the switch. `--xbla-mesh-verbose` says
+characters and guns, so the stride is the switch - except for a record that
+is a **flat pane** (2026-09-15, `xblaTexRecordIsFlatPane()`): no texel clear,
+at least 1% partial, and all the partial alpha within 48 levels. The DD shock
+trooper's head (`CheadddshockZ`, record 4908 / 0x132c) is one material whose
+atlas is a helmet and a face at 255 beside a visor quarter at 119-136; every
+triangle was a cutout, so the visor drew solid, and the tester wanted it see
+through. Hair runs smoothly from 0 to 255 and the sunglasses spread over 80
+levels, so neither passes; a scan of every dumped release texture found no
+other record a character's or gun's mesh uses that does. With it, 48 of the
+head's 1213 triangles go to the fading span and the face shows behind the
+glass (the N64's visor is opaque). Note the head still has no *solid*
+vertex, so the bruise map gives it no wounds. `--xbla-mesh-verbose` says
 `draw N: K of M cutout triangles sample a pane of record R - blended`; the Villa
 tables give 22 of 26 (the shadow) and 8 of 8 (the glass top).
 

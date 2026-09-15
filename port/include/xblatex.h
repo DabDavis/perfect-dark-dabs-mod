@@ -209,6 +209,9 @@ s32 xblaTexRecordIsSoft(u32 record);
 #define XBLATEX_ALPHAMAP 256
 const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize);
 
+/** Whether a record's partial alpha is a flat pane of glass, not a cutout's fringe. */
+s32 xblaTexRecordIsFlatPane(u32 record);
+
 /** Drops the package handle. The stand-in tiles stay, since lists hold them. */
 void xblaTexShutdown(void);
 
