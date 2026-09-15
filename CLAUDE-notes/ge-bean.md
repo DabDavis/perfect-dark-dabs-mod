@@ -404,6 +404,18 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   lit by their normals from above and in front of the eye (ambient 0.5, diffuse
   0.45, a d^8 highlight): a flat tint read as matte paint. A reflection pass
   through the release's machinery would be truer, and is not done.
+- **A host whose lists are all toggled** takes them anyway: the second pass of
+  the host-list scan drops the toggle test when the first found no geometry at
+  all. The knives, the grenade and the remote mine are one list apiece under a
+  toggle (the game switches the held piece against the thrown one), so the rule
+  that leaves a muzzle flash alone left them with nothing to fit and they
+  silently kept the host's model - the log said "no visible host list".
+- **A knife's blade runs along y**, not the barrel axis every gun is fitted by,
+  so the length fit drew slivers (0.102, 0.092). Both knives are drawn at their
+  own size (1/4.7) from the handle below the guard, as the rocket launcher is.
+  The grenade and the three mines fit as they are: Bean's mines are ~400 units
+  across and land near their hosts' size, and the grenade's model is authored
+  five times a mine, which its own fit (0.043) takes back down.
 - **Silenced guns are measured on their plain twin** (`fpFitSource`): Bean's
   `ppksilenced`/`mp5ksilenced` are `ppk`/`mp5k` in the same place plus one more
   512x512 picture, the silencer, in front of the muzzle; the hosts have none, so
@@ -413,16 +425,18 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   kill the player mid-survey otherwise), against the same run with the host's
   model: right for PP7 and silenced, DD44, Klobb, KF7 Soviet, ZMG, D5K and
   silenced, Phantom, AR33, RC-P90, Shotgun, Automatic Shotgun, Cougar, Grenade
-  Launcher, sniper rifle, Golden Gun and rocket launcher. A change to the build that "changes nothing on screen" is a sign the
+  Launcher, sniper rifle, Golden Gun, rocket launcher, both knives, the grenade
+  and the three mines. The last seven need ammo before they can be equipped at
+  all (`bgunSetAmmoQuantity()` over every ammo type in the drive); without it
+  the player stays unarmed and the survey shows an empty hand. A change to the build that "changes nothing on screen" is a sign the
   thing on screen is not where the build thinks - shift every vertex by a fixed
   amount (a temporary env var) before theorising; that found the PP7.
 - **Not yet** (`fpReady` 0, the host's model): the muzzle part's rest
   (`MODELPART_GUN_MUZZLEPOS`) does not tell which way a gun points (it turned
   the shotgun wrongly). The sniper rifle's "turned" was the root-matrix fit and
   went with it, the Golden Gun's white is its second-sampler gold and the rocket
-  launcher's size its host's length (all above). What is left is the **Moonraker,
-  the knives, the grenade and the mines**, which no survey has seen: they were
-  given no ammo, so the player held nothing.
+  launcher's size its host's length (all above). What is left is the **Moonraker**, whose
+  placement is not solved (above).
 - **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock
   geometry under it.
 
@@ -433,8 +447,8 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   character; it could move to the model load beside the unpack.
 - Everything else the plan named: character select from the GE ROM's models,
   props, levels.
-- The guns (sections above): the first-person guns not in `fpReady` yet (the
-  Moonraker, knives, grenade and mines, none of them ever seen); Bean's moving parts on their own matrices where the host
+- The guns (sections above): the Moonraker, the one first-person gun not in
+  `fpReady`; Bean's moving parts on their own matrices where the host
   has one (every surveyed gun's bones landed on the body's); GoldenEye's stats (decomp
   `obseg/gun/*/gunWeaponStat.inc.c`) instead of the host's; floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their

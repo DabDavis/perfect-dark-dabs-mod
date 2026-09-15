@@ -330,6 +330,12 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = 1,
 };
 
 /**
@@ -374,6 +380,22 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// (the Klobb, KF7 and ZMG all fit at 0.213), so it is drawn at its own
 	// size from the grip under the tube.
 	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 1, { -102.0f, -808.0f, -588.0f }, 1.0f / 4.7f },
+
+	// The Moonraker is not in fpReady: centred on its host it fell off the
+	// bottom left corner, at its own size (twice the host's length) its body
+	// loomed over the top of the screen - more than a whole PP7 stands above
+	// the palm - and on this anchor it stands upright beside the hand rather
+	// than in it. Its two candidate grips, the clusters under the body at
+	// z -1622 and z -1300, are alike in the silhouette and neither was told
+	// apart from a stock or a battery; the host's own laser draws further
+	// right and lower than any of them. Left here for whoever takes it up.
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { 1, { 0.0f, -487.0f, -1471.0f }, 0.0f },
+
+	// A knife's blade runs along y, not the barrel axis every gun is fitted
+	// by, so fitting its z drew a sliver (0.102 and 0.092). Both are drawn at
+	// their own size, gripped by the handle below the guard.
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 1, { 0.0f, -662.0f, -270.0f }, 1.0f / 4.7f },
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 1, { 0.0f, -558.0f, -322.0f }, 1.0f / 4.7f },
 };
 
 /**
@@ -3471,6 +3493,12 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	// the root and loads matrices 33 and 34, 69 units across and 61 along
 	// from the root's: fitted from the root, the PP7 drew that far to the
 	// side of the gun it stands in for, below the hand.
+	// A second pass takes the toggled lists too, for a host that has nothing
+	// else: the knives, the grenade and the remote mine are one list apiece
+	// under a toggle (the game switches the held one against the thrown one),
+	// and skipping those - the rule that leaves a muzzle flash alone - left
+	// them with no geometry to fit at all.
+	for (s32 pass = 0; pass < 2 && bodynode < 0; pass++)
 	for (s32 k = 0; k < numnodes; k++) {
 		const u32 type = nodes[k]->type & 0xff;
 		const s32 loaded = gebeanListLoadedMatrix(nodes[k]);
@@ -3485,7 +3513,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			nodemtx[k] = 0;
 		}
 
-		nodevisible[k] = !beanNodeIsToggled(nodes[k]);
+		nodevisible[k] = pass || !beanNodeIsToggled(nodes[k]);
 
 		if (!nodevisible[k]) {
 			continue;
