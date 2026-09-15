@@ -2366,6 +2366,17 @@ s32 modSetTextureFromStage(s32 on)
 }
 
 /**
+ * Whether a texture loaded now would be the running stage's own mod's: the
+ * stage is a maps-only mount's and no model is loading. The texture pool keys on
+ * this beside the number (texFindInPool()), because the room's texture N and a
+ * stock model's texture N are both live in one stage.
+ */
+s32 modTextureFromStage(void)
+{
+	return !g_ModTextureStageOff && modloaderGetStageModDir(mainGetStageNum()) != NULL;
+}
+
+/**
  * Reads texture num out of the mods, into dst.
  *
  * A texture that came from the running stage's own mod is that mod's art under

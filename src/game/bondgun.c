@@ -23,6 +23,7 @@
 #include "game/modeldef.h"
 #ifndef PLATFORM_N64
 #include "xblamesh.h"
+#include "mod.h"
 #endif
 #include "game/modelmgr.h"
 #include "game/tex.h"
@@ -3990,7 +3991,14 @@ void bgunTickGunLoad(void)
 
 			if (modeldef->texconfigs[i].texturenum < NUM_TEXTURES) {
 				osSyncPrintf("BriGun:  Uncompress %d of %d\n", i, modeldef->numtexconfigs);
+#ifndef PLATFORM_N64
+				// the gun's texture ids are its file's, not the map's
+				const s32 prevtexstage = modSetTextureFromStage(0);
+#endif
 				texLoad(&modeldef->texconfigs[i].texturenum, &player->gunctrl.texpool, true);
+#ifndef PLATFORM_N64
+				modSetTextureFromStage(prevtexstage);
+#endif
 				modeldef->texconfigs[i].unk0b = 1;
 			}
 

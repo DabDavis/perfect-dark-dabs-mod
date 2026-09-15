@@ -1890,10 +1890,12 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 
 	// And a stock file drawn with a mod's pictures is the mod's look, not the
 	// release's. A mod can keep the game's door or crate and repaint it through
-	// its textures/ (or a Stage Loader map through its own), and the release's
-	// mesh brings the release's own pictures with it - the door the mod never
-	// had. The configs are still texture numbers here: modeldefLoad() matches
-	// before modeldef0f1a7560() loads them, so the mod is asked by number.
+	// its textures/, and the release's mesh brings the release's own pictures
+	// with it - the door the mod never had. The configs are still texture
+	// numbers here: modeldefLoad() matches before modeldef0f1a7560() loads them,
+	// so the mod is asked by number. A Stage Loader map's textures are not
+	// asked (xblaMeshRegisterModel()): they are its rooms', and a stock model
+	// on the map loads the ROM's.
 	for (s32 i = 0; modeldef->texconfigs && i < modeldef->numtexconfigs; i++) {
 		const uintptr_t num = (uintptr_t)modeldef->texconfigs[i].texturenum;
 
@@ -1977,7 +1979,14 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
  */
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 {
+	// Asked the way the model's textures will be loaded (modeldef0f1a7560()):
+	// a Stage Loader map's own textures are its rooms', never a stock model's,
+	// so they are no reason to keep the release's mesh off one
+	const s32 prevtexstage = modSetTextureFromStage(0);
+
 	xblaMeshMatchModel(modeldef, fileid);
+
+	modSetTextureFromStage(prevtexstage);
 
 	// And the model pack's side of the same nodes, which is filed beside the
 	// matcher's rather than over it: a node can have both, and which of the

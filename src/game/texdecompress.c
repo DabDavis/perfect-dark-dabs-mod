@@ -183,7 +183,7 @@ s32 texInflateZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpoo
 		writetocache = true;
 
 		for (i = 0; i < g_TexCacheCount; i++) {
-			if (g_TexCacheItems[i].texturenum == pool->rightpos->texturenum) {
+			if (g_TexCacheItems[i].texturenum == TEX_CACHE_KEY(pool->rightpos)) {
 				writetocache = false;
 			}
 		}
@@ -252,7 +252,7 @@ s32 texInflateZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpoo
 	}
 
 	if (writetocache) {
-		g_TexCacheItems[g_TexCacheCount].texturenum = pool->rightpos->texturenum;
+		g_TexCacheItems[g_TexCacheCount].texturenum = TEX_CACHE_KEY(pool->rightpos);
 
 		g_TexCacheCount++;
 
@@ -715,7 +715,7 @@ s32 texInflateNonZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct tex
 		writetocache = true;
 
 		for (i = 0; i < g_TexCacheCount; i++) {
-			if (g_TexCacheItems[i].texturenum == pool->rightpos->texturenum) {
+			if (g_TexCacheItems[i].texturenum == TEX_CACHE_KEY(pool->rightpos)) {
 				writetocache = false;
 			}
 		}
@@ -829,7 +829,7 @@ s32 texInflateNonZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct tex
 	}
 
 	if (writetocache) {
-		g_TexCacheItems[g_TexCacheCount].texturenum = pool->rightpos->texturenum;
+		g_TexCacheItems[g_TexCacheCount].texturenum = TEX_CACHE_KEY(pool->rightpos);
 
 		g_TexCacheCount++;
 
@@ -2108,6 +2108,15 @@ struct tex *texFindInPool(s32 texturenum, struct texpool *pool)
 	struct tex *cur;
 	s32 i;
 
+#ifdef PLATFORM_N64
+#define TEX_IS(tex) ((tex)->texturenum == texturenum)
+#else
+	// A Stage Loader map's room and a stock model on it can both hold texture
+	// N, the mod's and the ROM's, and the model must not be handed the room's
+	const u32 fromstage = modTextureFromStage();
+#define TEX_IS(tex) ((tex)->texturenum == texturenum && (tex)->fromstage == fromstage)
+#endif
+
 	if (pool == NULL) {
 		pool = &g_TexSharedPool;
 	}
@@ -2116,7 +2125,7 @@ struct tex *texFindInPool(s32 texturenum, struct texpool *pool)
 		cur = pool->head;
 
 		while (cur) {
-			if (cur->texturenum == texturenum) {
+			if (TEX_IS(cur)) {
 				return cur;
 			}
 
@@ -2134,7 +2143,7 @@ struct tex *texFindInPool(s32 texturenum, struct texpool *pool)
 	cur = pool->rightpos;
 
 	while (cur < end) {
-		if (cur->texturenum == texturenum) {
+		if (TEX_IS(cur)) {
 			return cur;
 		}
 
@@ -2142,6 +2151,7 @@ struct tex *texFindInPool(s32 texturenum, struct texpool *pool)
 	}
 
 	return NULL;
+#undef TEX_IS
 }
 
 s32 texGetPoolFreeBytes(struct texpool *pool)
@@ -2359,6 +2369,9 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			tex->texturenum = g_TexNumToLoad;
 			tex->data = pool->leftpos;
 			tex->unk0c_03 = false;
+#ifndef PLATFORM_N64
+			tex->fromstage = modTextureFromStage();
+#endif
 
 			// Extract the texture data to the allocation (pool->leftpos)
 			if (iszlib) {

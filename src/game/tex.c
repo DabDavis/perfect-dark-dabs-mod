@@ -316,7 +316,7 @@ s32 texGetWidthAtLod(struct tex *tex, s32 lod)
 
 	if (tex->hasloddata) {
 		for (i = 0; i < g_TexCacheCount; i++) {
-			if (tex->texturenum == g_TexCacheItems[i].texturenum) {
+			if (TEX_CACHE_KEY(tex) == g_TexCacheItems[i].texturenum) {
 				return g_TexCacheItems[i].widths[lod - 1];
 			}
 		}
@@ -342,7 +342,7 @@ s32 texGetHeightAtLod(struct tex *tex, s32 lod)
 
 	if (tex->hasloddata) {
 		for (i = 0; i < g_TexCacheCount; i++) {
-			if (tex->texturenum == g_TexCacheItems[i].texturenum) {
+			if (TEX_CACHE_KEY(tex) == g_TexCacheItems[i].texturenum) {
 				return g_TexCacheItems[i].heights[lod - 1];
 			}
 		}

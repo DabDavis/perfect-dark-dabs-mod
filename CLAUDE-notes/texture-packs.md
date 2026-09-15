@@ -360,6 +360,32 @@ ROM's texture N while the room around it draws the mod's texture N.
 This is the same rule `xblastage.c` applies to a mod's *level* under a stock
 file name (`romdataFileIsStock()`), and `xblamesh.c` to a mod's *model*.
 
+### A stock model on the map took the map's textures anyway (2026-09-15)
+
+A tester in a Randomizer run met Pelagic guards on GoldenEye X's Icicle Pyramid
+with a smeared face and a jacket in GoldenEye art, a first person gun painted
+orange, and a black door on the All in One mod's `lam`. The window above only
+wrapped a model's **display lists**. Four other ways in were still open:
+
+- `texLoadFromConfigs()` in `modeldef0f1a7560()` loads a model's texture
+  configs - a head's face, a guard's uniform - before the lists, with the map's
+  textures on;
+- the first person gun loads its configs a few a tick in `bondgun.c`;
+- `xblaMeshMatchModel()` asked `modTextureExists()`, which looks in the stage's
+  mod first, so on a GE-X map (2104 numbers) nearly every stock model was
+  refused its release mesh and drawn N64 with the mod's pictures;
+- and `texFindInPool()` matched on the number alone, while the rooms and the
+  stock models share `g_TexSharedPool`: whichever loaded N first served both.
+
+Now the window is the whole of `modeldef0f1a7560()`, `xblaMeshRegisterModel()`
+and the gun's texture loop, and a pool entry carries `fromstage` (PC only, a
+spare bit beside `unk0c_03`) - what `modTextureFromStage()` said when it was
+loaded - which `texFindInPool()` matches beside the number and
+`TEX_CACHE_KEY()` folds into `g_TexCacheItems`, so the two copies of N keep
+their own lod sizes too. On a stock stage the bit is always 0 and nothing
+changes. a0ce35387's matcher check still applies to the overlay mod, which
+really does repaint stock props.
+
 ### The mod gets an index of its own (2026-09-12)
 
 The other half of the same fact: a maps-only mod's *own* pack could not be read

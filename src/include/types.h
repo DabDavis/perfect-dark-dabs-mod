@@ -6221,6 +6221,12 @@ struct tex {
 	/*0x0c*/ u32 lutmodeindex : 2;
 	/*0x0c*/ u32 hasloddata : 1;
 	/*0x0c*/ u32 unk0c_03 : 1;
+#ifndef PLATFORM_N64
+	// Loaded while the running stage's own mod answered for the number
+	// (modTextureFromStage()): inside a Stage Loader map a stock model's
+	// texture N and the room's texture N are two textures in one pool.
+	/*0x0c*/ u32 fromstage : 1;
+#endif
 #ifdef PLATFORM_N64
 	/*0x0c*/ u32 next : 24;
 #else

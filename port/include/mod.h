@@ -221,6 +221,8 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstagemod);
 // Whether modTextureLoad() would find num, without reading it.
 s32 modTextureExists(u16 num);
 s32 modSetTextureFromStage(s32 on);
+// Whether a texture loaded now would come from the running stage's own mod.
+s32 modTextureFromStage(void);
 
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim);
 void *modAnimationLoadData(u16 num);
