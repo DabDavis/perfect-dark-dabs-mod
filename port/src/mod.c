@@ -32,6 +32,7 @@
 #include "game/mplayer/mplayer.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
+#include "gebean.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -3611,6 +3612,9 @@ s32 modListSwap(s32 index)
 	if (fsGetModDir()) {
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
+
+	// The files were emptied, aliases with them, and the lists are the new mod's
+	gebeanPoolRefresh();
 
 	videoResetTextureCache();
 

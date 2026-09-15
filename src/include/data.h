@@ -400,7 +400,14 @@ extern struct skeleton g_SkelSkedar;
 extern struct skeleton g_SkelDrCaroll;
 extern struct skeleton g_Skel22;
 extern struct skeleton g_SkelRobot;
+#ifdef PLATFORM_N64
 extern struct headorbody g_HeadsAndBodies[152];
+#else
+// The stock 152 rows (the last a terminator), then the GoldenEye characters and
+// heads the Combat Simulator's lists can take (gebean.c)
+#define NUM_HEADSANDBODIES 256
+extern struct headorbody g_HeadsAndBodies[NUM_HEADSANDBODIES];
+#endif
 extern struct hatposition var8007dae4[1][6];
 extern f32 g_SkyCloudOffset;
 extern f32 g_SkyWindSpeed;

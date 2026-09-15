@@ -49,6 +49,21 @@ s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef);
 const char *gebeanRowName(s32 row);
 
 /**
+ * GoldenEye's characters and heads in the Combat Simulator's own lists, for
+ * Perfect Dark rather than for GoldenEye X: each one a row of g_HeadsAndBodies
+ * past the stock table, whose file is an alias of a Perfect Dark body or head
+ * (romdataRegisterAliasFile()) that the Bean mesh is skinned onto. Appended
+ * when the switch is on, a copy is in xbla/ and the lists are the game's own -
+ * a mod's lists (GoldenEye X's have GoldenEye's characters already) keep them
+ * out - and taken off again otherwise. Called at boot, after a mod swap and
+ * when the switch changes.
+ */
+void gebeanPoolRefresh(void);
+
+/** The Combat Simulator name of a pool body's g_HeadsAndBodies row, or NULL. */
+const char *gebeanPoolBodyName(s32 bodynum);
+
+/**
  * Makes sure the copy is on disk, unpacking it if it has to - which is a level
  * load's business, not a frame's, so a model load that finds a row calls this.
  * 1 when the files are there.

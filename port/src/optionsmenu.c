@@ -5127,8 +5127,9 @@ static MenuItemHandlerResult menuhandlerXblaExplosions(s32 operation, struct men
 
 /**
  * "Enable GoldenEye Characters": GoldenEye 007 XBLA's characters and heads on
- * GoldenEye X's, when that release is in xbla/ as well (gebean.h). Live: the
- * models are paired as they load whether or not this is on.
+ * GoldenEye X's, and in the Combat Simulator's own lists, when that release is
+ * in xbla/ as well (gebean.h). Live: the models are paired as they load
+ * whether or not this is on, and the lists are redone here.
  */
 static MenuItemHandlerResult menuhandlerXblaGoldenEye(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -5137,6 +5138,7 @@ static MenuItemHandlerResult menuhandlerXblaGoldenEye(s32 operation, struct menu
 		return gebeanGetEnabled();
 	case MENUOP_SET:
 		gebeanSetEnabled(!gebeanGetEnabled());
+		gebeanPoolRefresh();
 		break;
 	}
 

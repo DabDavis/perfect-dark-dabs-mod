@@ -35,6 +35,7 @@
 #include "xblatex.h"
 #include "xblamesh.h"
 #include "gebean.h"
+#include "data.h"
 
 #ifndef PLATFORM_N64
 
@@ -53,6 +54,9 @@
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
 #define GEBEAN_HEAD           2
+// A character GoldenEye drew with its own head, built whole onto a Perfect
+// Dark body that takes no head (the Combat Simulator pool)
+#define GEBEAN_WHOLE          3
 
 /**
  * Bean's units in GoldenEye's. A body measures its own (the two skeletons'
@@ -98,6 +102,254 @@ s32 gebeanGetEnabled(void)
 void gebeanSetEnabled(s32 on)
 {
 	enabled = on ? 1 : 0;
+}
+
+/* -------------------------------------------------------------------------
+ * The Combat Simulator pool
+ * ------------------------------------------------------------------------- */
+
+/**
+ * GoldenEye's multiplayer characters, by the names and heads its own select
+ * screen gives them (the decomp's mp_chr_setup[], with each body's model from
+ * the order of its body table), and its heads. A body row's file is an alias
+ * of a Perfect Dark body - Joanna for a woman, a dataDyne guard for a man -
+ * whose rest skeleton is GoldenEye's star too, so the Bean mesh fits it the
+ * way it fits GoldenEye X's; a head's is an alias of a Perfect Dark head.
+ * Bean's blueman, bluewoman and greyman are broken in the release and left
+ * out, as are its Bond heads (static N64-style models).
+ */
+struct gebeanpoolrow {
+	struct gebeanrow row;
+	const char *name;  // a body's Combat Simulator name
+	u8 female;
+	f32 scale;         // GoldenEye's own, on top of the host's
+	const char *head;  // a body's head for simulants: a pool head's source, or NULL for any
+};
+
+#define POOLBODY(file, source, kind, name, female, scale, head) \
+	{ { file, 0, 0, kind, source }, name "\n", female, scale, head }
+#define POOLHEAD(file, source, female) \
+	{ { file, 0, 0, GEBEAN_HEAD, source }, NULL, female, 1.0f, NULL }
+
+static const struct gebeanpoolrow poolRows[] = {
+	POOLBODY("CgeNatalyaZ",      "char/natalya",      GEBEAN_WHOLE, "Natalya",                 1, 0.9661f, NULL),
+	POOLBODY("CgeTrevelyanZ",    "char/trevelyan",    GEBEAN_WHOLE, "Trevelyan",               0, 1.0f,    NULL),
+	POOLBODY("CgeXeniaZ",        "char/xenia",        GEBEAN_WHOLE, "Xenia",                   1, 1.0f,    NULL),
+	POOLBODY("CgeOurumovZ",      "char/orumov",       GEBEAN_WHOLE, "Ourumov",                 0, 1.0778f, NULL),
+	POOLBODY("CgeBorisZ",        "char/boris",        GEBEAN_WHOLE, "Boris",                   0, 0.9702f, NULL),
+	POOLBODY("CgeValentinZ",     "char/valentin",     GEBEAN_WHOLE, "Valentin",                0, 0.9324f, NULL),
+	POOLBODY("CgeMaydayZ",       "char/mayday",       GEBEAN_WHOLE, "Mayday",                  1, 1.0f,    NULL),
+	POOLBODY("CgeJawsZ",         "char/jaws",         GEBEAN_WHOLE, "Jaws",                    0, 1.199f,  NULL),
+	POOLBODY("CgeOddjobZ",       "char/oddjob",       GEBEAN_WHOLE, "Oddjob",                  0, 0.7878f, NULL),
+	POOLBODY("CgeBaronSamediZ",  "char/baronsamedi",  GEBEAN_WHOLE, "Baron Samedi",            0, 1.0f,    NULL),
+	POOLBODY("CgeSnowguardZ",    "char/snowguard",    GEBEAN_WHOLE, "Siberian Special Forces", 0, 1.0f,    NULL),
+	POOLBODY("CgePilotZ",        "char/pilot",        GEBEAN_WHOLE, "Helicopter Pilot",        0, 1.0f,    NULL),
+	POOLBODY("CgeDjbondZ",       "char/djbond",       GEBEAN_BODY,  "Bond (Tuxedo)",           0, 1.0f,    NULL),
+	POOLBODY("CgeBoilerbondZ",   "char/boilerbond",   GEBEAN_BODY,  "Bond (Boiler Suit)",      0, 1.0f,    NULL),
+	POOLBODY("CgeSuitbondZ",     "char/suitbond",     GEBEAN_BODY,  "Bond (Suit)",             0, 1.0f,    NULL),
+	POOLBODY("CgeTimberbondZ",   "char/timberbond",   GEBEAN_BODY,  "Bond (Jungle)",           0, 1.0f,    NULL),
+	POOLBODY("CgeSnowbondZ",     "char/snowbond",     GEBEAN_BODY,  "Bond (Parka)",            0, 1.0f,    NULL),
+	POOLBODY("CgeBoilertrevZ",   "char/boilertrev",   GEBEAN_BODY,  "Trevelyan (006)",         0, 1.0f,    NULL),
+	POOLBODY("CgeOliveguardZ",   "char/oliveguard",   GEBEAN_BODY,  "Russian Soldier",         0, 1.0f,    "head/headmark"),
+	POOLBODY("CgeRusguardZ",     "char/rusguard",     GEBEAN_BODY,  "Russian Infantry",        0, 1.0f,    "head/headkarl"),
+	POOLBODY("CgeTechmanZ",      "char/techman",      GEBEAN_BODY,  "Scientist",               0, 1.0f,    "head/headdave"),
+	POOLBODY("CgeTechwomanZ",    "char/techwoman",    GEBEAN_BODY,  "Scientist",               1, 1.0f,    "head/headsally"),
+	POOLBODY("CgeCommguardZ",    "char/commguard",    GEBEAN_BODY,  "Russian Commandant",      0, 1.0f,    "head/headmartin"),
+	POOLBODY("CgeArmourguardZ",  "char/armourguard",  GEBEAN_BODY,  "Janus Marine",            0, 1.0f,    "head/headstevee"),
+	POOLBODY("CgeNavyguardZ",    "char/navyguard",    GEBEAN_BODY,  "Naval Officer",           0, 1.0f,    "head/headduncan"),
+	POOLBODY("CgeGreyguardZ",    "char/greyguard",    GEBEAN_BODY,  "St. Petersburg Guard",    0, 1.0f,    "head/headken"),
+	POOLBODY("CgeJeanwomanZ",    "char/jeanwoman",    GEBEAN_BODY,  "Civilian",                1, 1.0f,    "head/headmarion"),
+	POOLBODY("CgeCardimanZ",     "char/cardiman",     GEBEAN_BODY,  "Civilian",                0, 1.0f,    NULL),
+	POOLBODY("CgeCheckmanZ",     "char/checkman",     GEBEAN_BODY,  "Civilian",                0, 1.0f,    "head/headgrant"),
+	POOLBODY("CgeRedmanZ",       "char/redman",       GEBEAN_BODY,  "Civilian",                0, 1.0f,    "head/headdwayne"),
+	POOLBODY("CgeGreatguardZ",   "char/greatguard",   GEBEAN_BODY,  "Siberian Guard",          0, 1.0f,    "head/headlee"),
+	POOLBODY("CgeBluecamguardZ", "char/bluecamguard", GEBEAN_BODY,  "Arctic Commando",         0, 1.0f,    "head/headchris"),
+	POOLBODY("CgeGreatguard2Z",  "char/greatguard2",  GEBEAN_BODY,  "Siberian Guard",          0, 1.0f,    "head/headscott"),
+	POOLBODY("CgeCamguardZ",     "char/camguard",     GEBEAN_BODY,  "Jungle Commando",         0, 1.0f,    "head/headjoel"),
+	POOLBODY("CgeTrevguardZ",    "char/trevguard",    GEBEAN_BODY,  "Janus Special Forces",    0, 1.0f,    "head/headb"),
+	POOLBODY("CgeMoonguardZ",    "char/moonguard",    GEBEAN_BODY,  "Moonraker Elite",         0, 1.0f,    "head/headneil"),
+	POOLBODY("CgeMoonfemaleZ",   "char/moonfemale",   GEBEAN_BODY,  "Moonraker Elite",         1, 1.0f,    "head/headvivien"),
+	POOLBODY("CgeFattechwomanZ", "char/fattechwoman", GEBEAN_BODY,  "Rosika",                  1, 0.8853f, "head/headmarion"),
+	POOLHEAD("CgeheadKarlZ",     "head/headkarl",     0),
+	POOLHEAD("CgeheadAlanZ",     "head/headalan",     0),
+	POOLHEAD("CgeheadPeteZ",     "head/headpete",     0),
+	POOLHEAD("CgeheadMartinZ",   "head/headmartin",   0),
+	POOLHEAD("CgeheadMarkZ",     "head/headmark",     0),
+	POOLHEAD("CgeheadDuncanZ",   "head/headduncan",   0),
+	POOLHEAD("CgeheadShaunZ",    "head/headshaun",    0),
+	POOLHEAD("CgeheadDwayneZ",   "head/headdwayne",   0),
+	POOLHEAD("CgeheadBZ",        "head/headb",        0),
+	POOLHEAD("CgeheadDaveZ",     "head/headdave",     0),
+	POOLHEAD("CgeheadGrantZ",    "head/headgrant",    0),
+	POOLHEAD("CgeheadDesZ",      "head/headdes",      0),
+	POOLHEAD("CgeheadChrisZ",    "head/headchris",    0),
+	POOLHEAD("CgeheadLeeZ",      "head/headlee",      0),
+	POOLHEAD("CgeheadNeilZ",     "head/headneil",     0),
+	POOLHEAD("CgeheadJimZ",      "head/headjim",      0),
+	POOLHEAD("CgeheadRobinZ",    "head/headrobin",    0),
+	POOLHEAD("CgeheadStevehZ",   "head/headsteveh",   0),
+	POOLHEAD("CgeheadSteveeZ",   "head/headstevee",   0),
+	POOLHEAD("CgeheadJoelZ",     "head/headjoel",     0),
+	POOLHEAD("CgeheadScottZ",    "head/headscott",    0),
+	POOLHEAD("CgeheadJoeZ",      "head/headjoe",      0),
+	POOLHEAD("CgeheadKenZ",      "head/headken",      0),
+	POOLHEAD("CgeheadMishkinZ",  "head/headmishkin",  0),
+	POOLHEAD("CgeheadSallyZ",    "head/headsally",    1),
+	POOLHEAD("CgeheadMarionZ",   "head/headmarion",   1),
+	POOLHEAD("CgeheadMandyZ",    "head/headmandy",    1),
+	POOLHEAD("CgeheadVivienZ",   "head/headvivien",   1),
+};
+
+// Where the pool's rows start in g_HeadsAndBodies: straight after the stock
+// table's terminator, so nothing a mod's table can import (moddata.c takes 151)
+#define GEBEAN_POOL_BASE 152
+
+// The stock list lengths (mplayer.c's g_MpListCounts): a list of any other
+// length is a mod's
+#define GEBEAN_STOCK_MPHEADS  (VERSION == VERSION_JPN_FINAL ? 74 : 75)
+#define GEBEAN_STOCK_MPBODIES 61
+
+// The MP save holds an index in 7 bits, and the body index one past the list
+// is the ROM's Dr Caroll
+#define GEBEAN_MAX_MPINDEX 126
+
+static s32 poolSlot[ARRAYCOUNT(poolRows)];
+
+_Static_assert(GEBEAN_POOL_BASE + ARRAYCOUNT(poolRows) <= NUM_HEADSANDBODIES,
+		"the GoldenEye pool must fit g_HeadsAndBodies");
+
+/** A row of either table: GoldenEye X's first, the pool's after them. */
+static const struct gebeanrow *gebeanRowAt(s32 row)
+{
+	if (row >= 0 && row < ARRAYCOUNT(rows)) {
+		return &rows[row];
+	}
+
+	if (row >= ARRAYCOUNT(rows) && row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows)) {
+		return &poolRows[row - ARRAYCOUNT(rows)].row;
+	}
+
+	return NULL;
+}
+
+/** The pool row a file number is the alias for, or -1. */
+static s32 gebeanPoolRowForFile(u16 fileid)
+{
+	const char *name = fileid ? romdataFileGetName(fileid) : NULL;
+
+	if (!name) {
+		return -1;
+	}
+
+	// The alias keeps the table's own string, so a pointer compare names it
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		if (poolSlot[i] == fileid && name == poolRows[i].row.file) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+const char *gebeanPoolBodyName(s32 bodynum)
+{
+	const s32 i = bodynum - GEBEAN_POOL_BASE;
+
+	if (i < 0 || i >= ARRAYCOUNT(poolRows) || !poolRows[i].name || !poolSlot[i]) {
+		return NULL;
+	}
+
+	return poolRows[i].name;
+}
+
+void gebeanPoolRefresh(void)
+{
+	s32 numbodies = g_MpListCounts.bodies;
+	s32 numheads = g_MpListCounts.heads;
+	s32 addedbodies = 0;
+	s32 addedheads = 0;
+
+	// Off with whatever this put on last time: the tail of each list whose
+	// rows are the pool's
+	while (numbodies > 0 && g_MpBodies[numbodies - 1].bodynum >= GEBEAN_POOL_BASE) {
+		numbodies--;
+	}
+
+	while (numheads > 0 && g_MpHeads[numheads - 1].headnum >= GEBEAN_POOL_BASE) {
+		numheads--;
+	}
+
+	g_MpListCounts.bodies = numbodies;
+	g_MpListCounts.heads = numheads;
+
+	if (!enabled || numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS
+			|| !gebeanIsAvailable()) {
+		return;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		const struct gebeanpoolrow *p = &poolRows[i];
+		const s32 ishead = p->row.kind == GEBEAN_HEAD;
+		const s32 hostnum = ishead ? (p->female ? HEAD_ANKA : HEAD_JAMIE)
+				: (p->female ? BODY_DARK_COMBAT : BODY_DD_GUARD);
+		const struct headorbody *host = &g_HeadsAndBodies[hostnum];
+		struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_POOL_BASE + i];
+		s32 slot = romdataRegisterAliasFile(p->row.file, host->filenum);
+		struct modeldef *keep;
+		u32 height;
+
+		poolSlot[i] = slot;
+
+		if (!slot) {
+			continue;
+		}
+
+		// A row a stage has already loaded keeps its model: a chr may be
+		// wearing it, and this can run from the pause menu
+		keep = hb->filenum == slot ? hb->modeldef : NULL;
+
+		*hb = *host;
+		hb->filenum = slot;
+		hb->modeldef = keep;
+		hb->scale = host->scale * p->scale;
+		height = (u32)(host->height * p->scale + 0.5f);
+		hb->height = height > 255 ? 255 : height;
+
+		if (p->row.kind == GEBEAN_WHOLE) {
+			// its head is in the mesh, so the body takes none
+			hb->unk00_01 = 1;
+		}
+
+		if (ishead) {
+			if (numheads + addedheads < ARRAYCOUNT(g_MpHeads) && numheads + addedheads <= GEBEAN_MAX_MPINDEX) {
+				g_MpHeads[numheads + addedheads].headnum = GEBEAN_POOL_BASE + i;
+				g_MpHeads[numheads + addedheads].requirefeature = 0;
+				addedheads++;
+			}
+		} else if (numbodies + addedbodies < ARRAYCOUNT(g_MpBodies) && numbodies + addedbodies < GEBEAN_MAX_MPINDEX) {
+			struct mpbody *body = &g_MpBodies[numbodies + addedbodies];
+
+			body->bodynum = GEBEAN_POOL_BASE + i;
+			body->name = 0;
+			body->headnum = 1000; // any head of the body's sex
+			body->requirefeature = 0;
+
+			for (s32 j = 0; p->head && j < ARRAYCOUNT(poolRows); j++) {
+				if (poolRows[j].row.kind == GEBEAN_HEAD && strcmp(poolRows[j].row.source, p->head) == 0) {
+					body->headnum = GEBEAN_POOL_BASE + j;
+					break;
+				}
+			}
+
+			addedbodies++;
+		}
+	}
+
+	g_MpListCounts.bodies = numbodies + addedbodies;
+	g_MpListCounts.heads = numheads + addedheads;
+
+	sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye characters and %d heads in the Combat Simulator's lists",
+			addedbodies, addedheads);
 }
 
 static u32 gebeanBE32(const u8 *p)
@@ -402,7 +654,9 @@ static struct modelnode *gebeanNextNode(struct modelnode *node)
 
 const char *gebeanRowName(s32 row)
 {
-	return row >= 0 && row < ARRAYCOUNT(rows) ? rows[row].file : "?";
+	const struct gebeanrow *r = gebeanRowAt(row);
+
+	return r ? r->file : "?";
 }
 
 s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef)
@@ -413,7 +667,19 @@ s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef)
 	s32 verts = 0;
 	s32 walked = 0;
 
-	if (!modeldef || !modeldef->rootnode || romdataFileIsStock(fileid)) {
+	if (!modeldef || !modeldef->rootnode) {
+		return -1;
+	}
+
+	// The pool's own files are aliases, and their shape is a Perfect Dark
+	// model's, which the rig reads rather than the table counting it
+	row = gebeanPoolRowForFile(fileid);
+
+	if (row >= 0) {
+		return ARRAYCOUNT(rows) + row;
+	}
+
+	if (romdataFileIsStock(fileid)) {
 		return -1;
 	}
 
@@ -2057,11 +2323,12 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 	*outLen = 0;
 	*outAbsent = 0;
 
-	if (row < 0 || row >= ARRAYCOUNT(rows) || !modeldef || numnodes <= 0 || numnodes > 64) {
+	r = gebeanRowAt(row);
+
+	if (!r || !modeldef || numnodes <= 0 || numnodes > 64) {
 		return NULL;
 	}
 
-	r = &rows[row];
 	ishead = r->kind == GEBEAN_HEAD;
 	fromchar = strncmp(r->source, "char/", 5) == 0;
 
@@ -2217,8 +2484,8 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 			}
 
 			// The neck belongs to the head file: a body leaves it out, and a
-			// head takes only it.
-			if ((dominant == SK_NECK) != (ishead != 0)) {
+			// head takes only it. A whole character keeps both.
+			if (r->kind != GEBEAN_WHOLE && (dominant == SK_NECK) != (ishead != 0)) {
 				dropped++;
 				continue;
 			}
@@ -2391,12 +2658,13 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 
 	// Nodes that must draw nothing rather than keep their N64 geometry: a
 	// head's toggled pieces, which Bean's head has already, and the neck of a
-	// body whose head file takes Bean's neck. A generic body's neck is left
-	// absent - the N64 stub stays under whatever head GoldenEye X grafts on.
+	// body whose head file takes Bean's neck, or that carries its own. A generic
+	// body's neck is left absent - the N64 stub stays under whatever head
+	// GoldenEye X grafts on.
 	if (out.numverts > 0) {
 		for (s32 k = 0; k < numnodes; k++) {
 			const s32 blank = ishead ? beanNodeIsToggled(nodes[k])
-					: r->kind == GEBEAN_BODY_WITH_HEAD && nodeskel[k] == SK_NECK;
+					: (r->kind == GEBEAN_BODY_WITH_HEAD || r->kind == GEBEAN_WHOLE) && nodeskel[k] == SK_NECK;
 
 			if (blank) {
 				beanAddTri(&out, k, 0, 0, 0, 0);

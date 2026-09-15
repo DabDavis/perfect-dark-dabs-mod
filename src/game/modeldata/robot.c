@@ -61,7 +61,11 @@ struct skeleton g_SkelRobot = {
 	SKEL_ROBOT, ARRAYCOUNT(g_SkelRobotJoints), g_SkelRobotJoints,
 };
 
+#ifdef PLATFORM_N64
 struct headorbody g_HeadsAndBodies[] = {
+#else
+struct headorbody g_HeadsAndBodies[NUM_HEADSANDBODIES] = {
+#endif
 	//           ismale
 	//           |                                  height
 	//           |                                  |

@@ -38,6 +38,7 @@
 #include "mod.h"
 #include "system.h"
 #include "utils.h"
+#include "gebean.h"
 
 u32 g_OsMemSize = 0;
 // Upstream's 16 is the N64's 8MB with room to spare. This fork spends memory the
@@ -240,6 +241,9 @@ int main(int argc, const char **argv)
 	if (fsGetModDir()) {
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
+
+	// After the mod's lists are in, since a mod's lists keep GoldenEye's out
+	gebeanPoolRefresh();
 
 	atexit(cleanup);
 

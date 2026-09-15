@@ -102,6 +102,9 @@ struct romfile {
 	// Mod dir the cached data actually came from, so a slot resolved for one
 	// stage is not reused unchanged by a stage belonging to a different mod.
 	const char *loadeddir;
+	// Nonzero: the file number whose contents this slot serves under a name of
+	// its own (romdataRegisterAliasFile()).
+	s32 alias;
 };
 
 /* patches for individual files; applied on file load, before preprocFuncs, but */
@@ -557,6 +560,10 @@ s32 romdataFileGetSize(s32 fileNum)
 		return -1;
 	}
 
+	if (fileSlots[fileNum].alias) {
+		return romdataFileGetSize(fileSlots[fileNum].alias);
+	}
+
 	// ensure any external files are loaded and we use their size
 	if (romdataFileLoad(fileNum, NULL)) {
 		return fileSlots[fileNum].size;
@@ -599,6 +606,46 @@ s32 romdataRegisterModFile(const char *name, s32 modDirIndex)
 	return 0;
 }
 
+/**
+ * Claim a slot that serves another file's contents under a name of its own:
+ * a second file number for the same model, so that everything keyed on the
+ * number - a head or body row's own modeldef, the XBLA mesh loader's filing -
+ * can tell the two apart. The GoldenEye characters in the Combat Simulator's
+ * lists stand on Perfect Dark's bodies this way (gebean.c).
+ *
+ * Taken from the top of the table down, where mod files never reach, so the
+ * same names registered in the same order get the same numbers after
+ * romdataResetFiles() empties every slot. A name already registered keeps its
+ * slot. The name is kept by pointer and must outlive the slot. Returns the
+ * file number, or 0.
+ */
+s32 romdataRegisterAliasFile(const char *name, s32 hostFileNum)
+{
+	if (!name || hostFileNum < 1 || hostFileNum >= ROMDATA_MAX_FILES || fileSlots[hostFileNum].alias) {
+		return 0;
+	}
+
+	for (s32 i = ROMDATA_MAX_FILES - 1; i > 0; --i) {
+		if (fileSlots[i].alias && fileSlots[i].name && strcmp(fileSlots[i].name, name) == 0) {
+			fileSlots[i].alias = hostFileNum;
+			return i;
+		}
+	}
+
+	for (s32 i = ROMDATA_MAX_FILES - 1; i > 0; --i) {
+		if (!fileSlots[i].name) {
+			fileSlots[i].name = name;
+			fileSlots[i].alias = hostFileNum;
+			fileSlots[i].source = SRC_UNLOADED;
+			return i;
+		}
+	}
+
+	sysLogPrintf(LOG_ERROR, "romdataRegisterAliasFile: no free file slots for %s", name);
+
+	return 0;
+}
+
 u8 *romdataFileGetData(s32 fileNum)
 {
 	return romdataFileLoad(fileNum, NULL);
@@ -609,6 +656,10 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES) {
 		sysLogPrintf(LOG_ERROR, "romdataFileLoad: invalid file num %d", fileNum);
 		return NULL;
+	}
+
+	if (fileSlots[fileNum].alias) {
+		return romdataFileLoad(fileSlots[fileNum].alias, outSize);
 	}
 
 	u8 *out = NULL;
@@ -723,6 +774,11 @@ void romdataFileFree(s32 fileNum)
 		return;
 	}
 
+	// the data is the host's, which is its own slot's to free
+	if (fileSlots[fileNum].alias) {
+		return;
+	}
+
 	if (fileSlots[fileNum].source == SRC_EXTERNAL) {
 		sysMemFree(fileSlots[fileNum].data);
 		fileSlots[fileNum].data = NULL;
@@ -739,10 +795,13 @@ void romdataFileFree(s32 fileNum)
  * pairs a model against the release's copy of the same file id. A file id
  * means whatever the mod put under that name, and the release's mesh is a
  * mesh for the *stock* model of that id.
+ *
+ * False for an alias too: its number is not the one the release's copy is
+ * filed under, whatever it serves.
  */
 s32 romdataFileIsStock(s32 fileNum)
 {
-	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES) {
+	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES || fileSlots[fileNum].alias) {
 		return 0;
 	}
 

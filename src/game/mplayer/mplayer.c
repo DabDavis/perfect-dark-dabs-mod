@@ -33,6 +33,7 @@
 #include "fs.h"
 #include "system.h"
 #include "mpsetups.h"
+#include "gebean.h"
 
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
@@ -2927,6 +2928,17 @@ char *mpGetBodyName(u8 mpbodynum)
 	if (mpbodynum > g_MpListCounts.bodies) {
 		mpbodynum = 0;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's characters have names but no text id (gebean.c)
+	{
+		const char *name = gebeanPoolBodyName(g_MpBodies[mpbodynum].bodynum);
+
+		if (name) {
+			return (char *)name;
+		}
+	}
+#endif
 
 	return langGet(g_MpBodies[mpbodynum].name);
 }

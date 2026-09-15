@@ -174,6 +174,39 @@ Natalya. The log's `gebean: <file> <- <source>` lines say what built, and at
 what scale. A shot every four frames misses when the camera lands in a wall;
 the hover cart in front of the spectator is the player's own.
 
+## In Perfect Dark's own Combat Simulator lists (2026-09-15)
+
+`gebeanPoolRefresh()` appends 38 GoldenEye characters and 28 heads to
+`g_MpBodies`/`g_MpHeads` (61 -> 99, 75 -> 103; both inside the MP save's 7 bits)
+when the switch is on, a copy is in `xbla/` and the lists are stock length. A
+mod's lists (GE-X) keep them out. It runs at boot, after `modListSwap()` and on
+the checkbox. Names and default heads are GoldenEye's `mp_chr_setup[]`; a body's
+model is read off the decomp's body enum zipped with `chrobjdata.h`'s header
+order (camguard = Jungle Commando, greyguard = St. Petersburg Guard, ...).
+
+- **No GoldenEye N64 model is needed.** Perfect Dark's bodies stand in the same
+  star rest (Cdd_guardZ's arms reach x +-1000), so the rig reader fits Bean onto
+  them: Joanna for women (15 lists), the dataDyne guard for men (30), heads on
+  CheadjamieZ/CheadankaZ. The body scale fits to ~0.193 against GE-X's 0.213;
+  heads keep 0.213 and may read slightly large - not judged up close yet.
+- **Each character is its own file number**: `romdataRegisterAliasFile()` gives
+  a slot, taken from the top of the table down, that serves the host's
+  contents. A row keeps its own modeldef, the Bean cache (keyed on file id)
+  stays apart, and an alias is not stock, so the release matcher leaves it
+  alone. `romdataResetFiles()` empties aliases, hence the refresh after a swap.
+- Rows are `g_HeadsAndBodies[152..]`, now 256 long on PC; `bodiesReset()` clears
+  all 256 (the stock loop stopped at the terminator and would have left stale
+  modeldefs). **`chrdata.headnum` is s16 on PC**: it was s8 and a head row past
+  127 went negative.
+- `GEBEAN_WHOLE`: a character GoldenEye drew with its own head (Natalya, Jaws,
+  the pilot...) is built whole on a body row with `unk00_01` set, so it takes no
+  head and needs no head row.
+- Names come from `gebeanPoolBodyName()` in `mpGetBodyName()`; there are no
+  text ids.
+- rusguard, techwoman, jeanwoman and fattechwoman were never in GE-X's batch;
+  techwoman and rusguard built and drew in the survey, the other two have not
+  been looked at.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.
