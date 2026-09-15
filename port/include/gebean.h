@@ -49,6 +49,14 @@ s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef);
 const char *gebeanRowName(s32 row);
 
 /**
+ * Whether the row is one of the Combat Simulator pool's (gebeanPoolRefresh())
+ * rather than GoldenEye X's. A pool row stands on a Perfect Dark model, so
+ * with the release's meshes off (F6) it takes Bean's N64-look original; a
+ * GoldenEye X model is GoldenEye's N64 one already and draws itself.
+ */
+s32 gebeanRowIsPool(s32 row);
+
+/**
  * GoldenEye's characters and heads in the Combat Simulator's own lists, for
  * Perfect Dark rather than for GoldenEye X: each one a row of g_HeadsAndBodies
  * past the stock table, whose file is an alias of a Perfect Dark body or head
@@ -93,9 +101,10 @@ struct gebeanmats {
  * bit of *outAbsent is set for a node that keeps its own geometry. The palette
  * is the model's matrices, holding each joint's inverse rest. NULL when the
  * copy is missing or the model is not the shape the row expects. The file is
- * malloc'd and the caller's.
+ * malloc'd and the caller's. original takes the character from Bean's
+ * files/original/ (the N64 look) instead of files/new/ (HD).
  */
-u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
+u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen);
 
 #ifdef __cplusplus

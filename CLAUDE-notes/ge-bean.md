@@ -8,10 +8,9 @@ solid LZMA2 block of 740MB) is Rare's 2007 Xbox 360 devkit build, CAFF
 07.08.06.0036 - **nothing from the Perfect Dark release's STFS, Textures.raw or
 PackedSegFile code applies to it.** The player drops it in `xbla/` beside the
 Perfect Dark one, as the archive or the folder it unpacks to (the one with
-`default.xex` and `files/`). An archive's `files/new/char/` and
-`files/new/head/` - 122 files, 60MB - are streamed into
-`cache/xbla/goldeneye/` once, about 15 seconds, at the first level load that
-wants a character.
+`default.xex` and `files/`). An archive's `char/` and `head/` folders of
+`files/new/` and `files/original/` - 244 files, 84MB - are streamed into
+`cache/xbla/goldeneye/` once, at the first level load that wants a character.
 
 The research that got here (formats, the offline batch, the texture
 comparison) is in the session memory `ge-xbla-bean-assets` and the scripts in
@@ -228,6 +227,56 @@ head -1 in third person; setting Jaws and raising the mark rebuilt it as 159
 (file 3064 loaded) mid-level. Forcing `g_FileState` and `menuStop()` from gdb
 brings "Choose Your Reality" straight back. Seeing the walk needs the
 Xvfb/xdotool agent-file route (memory `headless-game-driving`).
+
+## The N64 look on F6 (2026-09-15)
+
+Bean shipped its characters twice: HD in `files/new/` and the N64-look ones
+Bean itself switched to in `files/original/`, same names, same CAFF
+rendergraph, same 16-bone `SKEL_*` skeleton. So F6 moves a GoldenEye character
+with the rest of the release: the draw (`xblaMeshRenderNode()`) builds
+`gebeanBuild(row, original = !Mod.XblaMeshes)`, cached per look
+(`beanBuilt[look][fileid]`), textures keyed `gebean:<look>/<source>:<n>`.
+
+- **A pool row** (Perfect Dark's Combat Simulator, `gebeanRowIsPool()`) takes
+  `original/` with the meshes off.
+- **A GoldenEye X row** takes nothing with the meshes off: GoldenEye X's own
+  model is GoldenEye's N64 geometry byte for byte, and draws itself.
+- The archive filter takes `files/original/char/` and `head/` too, and the
+  done marker is `.extracted2`, so a cache unpacked before (new/ only) is
+  unpacked once more.
+
+What the originals needed, all found by rendering every file offline
+(`bean2obj.py` with a patched walker) before touching the C:
+
+- **The UV scale is a per-file power of two from 2048 to 16384** (tuxedo Bond
+  2048, uniformed guards 4096, most heads 8192, Natalya 16384), not the HD
+  files' 16384/32768, and some N64 textures wrap well past one repeat, which
+  the old "largest UV in the file" rule read as 32768. Nothing in the material
+  records says which (every 0x2d is `00010000 ... 0`). `beanMeasureUvScale()`
+  now takes each texture's largest UV over its own triangles (skipping 1x1
+  untextured spans), and the smallest power of two within a quarter of the
+  median. It gives the old answer on all 67 HD files the port uses.
+- **0x30 is a second draw record** `{prim, count, IB object, flag}`, only in
+  the originals (41 files). Flag 0 is the character; heads' flag 1 and 2 draws
+  are extras (sunglasses arms). Taken when the flag is 0.
+- **0x17 `{kind, end}` guards a section.** Kind 0 is in both sets and drawn,
+  as always. Kind 2 is only in the originals, round 22 heads' sunglasses, which
+  GoldenEye's multiplayer heads do not wear: skipped.
+- **Original head files weight the face to BACK as often as NECK** (Head B,
+  Joel, Sally...), and Dave's has no palette at all (stride 24). For an
+  original head file BACK and unskinned triangles count as the neck; its only
+  other bones are Head B's stray pair of shoes a body's height below, which
+  stay dropped. Original bodies weight their own heads to NECK, like HD.
+- **Karl, Martin, Duncan and Dwayne's original heads** name their bones
+  `SKEL_*_P_` and carry a pose of zeros while the vertices stand where every
+  head's do; the neck and back are taken from the same head's `new/` file.
+
+Checked headless on 0x32 with the pool (bodies 61-68, 73-80, 81-88, scratch
+`look.gdb`/`face_up.gdb`: eight bodies, a pass, `xblaSwitchSetEnabled(1)` at
+frame 432, the same pass again): every row built in both looks, originals at
+~1000 vertices against ~2500, heads seated with no glasses. Offline renders of
+the originals are the quickest check of a walker change - the in-game camera
+at `pos.y + 0` frames the waist, `+ 70` the face.
 
 ## Still to do
 

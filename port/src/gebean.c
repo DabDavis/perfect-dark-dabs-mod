@@ -41,15 +41,21 @@
 
 #define GEBEAN_XBLA_DIR "xbla"
 #define GEBEAN_CACHE_DIR "cache"
-#define GEBEAN_DONE_FILE ".extracted"
+// Written once an archive's characters are out. The first one (".extracted")
+// was written when only new/ was taken, so a cache holding that is unpacked
+// again for the originals.
+#define GEBEAN_DONE_FILE ".extracted2"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
-// the characters and heads, where Rare put them. The rest of the archive is
-// levels, guns, music and the N64-look originals.
+// the characters and heads, where Rare put them - the HD ones in new/, and in
+// original/ the N64-look ones Bean switched to, under the same names. The rest
+// of the archive is levels, guns and music.
 #define GEBEAN_TREE "files/new/char"
 #define GEBEAN_WANT_CHARS "files/new/char/"
 #define GEBEAN_WANT_HEADS "files/new/head/"
+#define GEBEAN_WANT_ORIGINAL_CHARS "files/original/char/"
+#define GEBEAN_WANT_ORIGINAL_HEADS "files/original/head/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -134,11 +140,11 @@ struct gebeanpoolrow {
 static const struct gebeanpoolrow poolRows[] = {
 	POOLBODY("CgeNatalyaZ",      "char/natalya",      GEBEAN_WHOLE, "Natalya",                 1, 0.9661f, NULL),
 	POOLBODY("CgeTrevelyanZ",    "char/trevelyan",    GEBEAN_WHOLE, "Trevelyan",               0, 1.0f,    NULL),
-	POOLBODY("CgeXeniaZ",        "char/xenia",        GEBEAN_WHOLE, "Xenia",                   1, 1.0f,    NULL),
+	POOLBODY("CgeXeniaZ",        "char/xenia",        GEBEAN_WHOLE, "Xenia",                   2, 1.0f,    NULL),
 	POOLBODY("CgeOurumovZ",      "char/orumov",       GEBEAN_WHOLE, "Ourumov",                 0, 1.0778f, NULL),
 	POOLBODY("CgeBorisZ",        "char/boris",        GEBEAN_WHOLE, "Boris",                   0, 0.9702f, NULL),
 	POOLBODY("CgeValentinZ",     "char/valentin",     GEBEAN_WHOLE, "Valentin",                0, 0.9324f, NULL),
-	POOLBODY("CgeMaydayZ",       "char/mayday",       GEBEAN_WHOLE, "Mayday",                  1, 1.0f,    NULL),
+	POOLBODY("CgeMaydayZ",       "char/mayday",       GEBEAN_WHOLE, "Mayday",                  2, 1.0f,    NULL),
 	POOLBODY("CgeJawsZ",         "char/jaws",         GEBEAN_WHOLE, "Jaws",                    0, 1.199f,  NULL),
 	POOLBODY("CgeOddjobZ",       "char/oddjob",       GEBEAN_WHOLE, "Oddjob",                  0, 0.7878f, NULL),
 	POOLBODY("CgeBaronSamediZ",  "char/baronsamedi",  GEBEAN_WHOLE, "Baron Samedi",            0, 1.0f,    NULL),
@@ -290,8 +296,17 @@ void gebeanPoolRefresh(void)
 	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
 		const struct gebeanpoolrow *p = &poolRows[i];
 		const s32 ishead = p->row.kind == GEBEAN_HEAD;
+		// Bodies stand on the dataDyne guard, and the slight women (female 2)
+		// on the Institute's female technician. Joanna's shoulders sit 70% of
+		// the way up her back to her neck against 51% on GoldenEye's women, so
+		// no fit of the torso met both: the Moonraker Elite's shoulders sloped
+		// and narrowed and her collar rose over the head's neck. The guard fits
+		// most of GoldenEye's women within a few percent, but widened Xenia's
+		// torso by 12% and Mayday's by 13%; the technician takes them to 92%
+		// and 93%. Her shoulders are as high as Joanna's, which sloped the
+		// broader women.
 		const s32 hostnum = ishead ? (p->female ? HEAD_ANKA : HEAD_JAMIE)
-				: (p->female ? BODY_DARK_COMBAT : BODY_DD_GUARD);
+				: (p->female == 2 ? BODY_CIFEMTECH : BODY_DD_GUARD);
 		const struct headorbody *host = &g_HeadsAndBodies[hostnum];
 		struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_POOL_BASE + i];
 		s32 slot = romdataRegisterAliasFile(p->row.file, host->filenum);
@@ -313,6 +328,11 @@ void gebeanPoolRefresh(void)
 		hb->modeldef = keep;
 		hb->scale = host->scale * p->scale;
 		height = (u32)(host->height * p->scale + 0.5f);
+
+		if (!ishead) {
+			// the guard is a man; the sex picks voices and the default head
+			hb->ismale = !p->female;
+		}
 		hb->height = height > 255 ? 255 : height;
 
 		if (p->row.kind == GEBEAN_WHOLE) {
@@ -394,7 +414,7 @@ static s32 gebeanFits(u64 ofs, u64 len, u64 size)
  * Finding the copy
  * ------------------------------------------------------------------------- */
 
-static char rootPath[FS_MAXPATH + 1];    // .../files/new, once it is on disk
+static char rootPath[FS_MAXPATH + 1];    // .../files, once it is on disk
 static char archivePath[FS_MAXPATH + 1]; // what the player dropped, when it is an archive
 static s32 scanned;
 static s32 unpackFailed;
@@ -520,12 +540,13 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 
 	lower[i] = '\0';
 
-	return strstr(lower, GEBEAN_WANT_CHARS) != NULL || strstr(lower, GEBEAN_WANT_HEADS) != NULL;
+	return strstr(lower, GEBEAN_WANT_CHARS) != NULL || strstr(lower, GEBEAN_WANT_HEADS) != NULL
+		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
 {
-	snprintf(rootPath, sizeof(rootPath), "%s/files/new", tree);
+	snprintf(rootPath, sizeof(rootPath), "%s/files", tree);
 	sysLogPrintf(LOG_NOTE, "gebean: GoldenEye XBLA characters in %s", rootPath);
 }
 
@@ -657,6 +678,11 @@ const char *gebeanRowName(s32 row)
 	const struct gebeanrow *r = gebeanRowAt(row);
 
 	return r ? r->file : "?";
+}
+
+s32 gebeanRowIsPool(s32 row)
+{
+	return row >= ARRAYCOUNT(rows) && row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows);
 }
 
 s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef)
@@ -1176,32 +1202,54 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 	return 1;
 }
 
+static s32 beanTriangles(const struct beanmodel *bm, const struct beandraw *d, u16 **out);
+
 /**
- * What one texture repeat is in this file's s16 UVs. Rare exported both
- * 1/16384 and 1/32768 and nothing in the file says which; over every
- * character and head the largest UV is either at most 16404 (the uniformed
- * guards, the pilot, Xenia, Boris, six heads) or at least 32031. Divided by
- * the wrong one, a model samples the top-left quarter of its atlas - the black
- * guards and Boris's patchwork of the first batch.
+ * What one texture repeat is in this file's s16 UVs, which nothing in the file
+ * says - the material records are the same whatever the range. The HD files
+ * use 1/16384 or 1/32768; the N64-look originals whatever power of two their
+ * export took, per file: 2048 on the tuxedo Bond, 4096 on most uniformed
+ * guards, 8192 on most heads, 16384 on Natalya. Divided by the wrong one, a
+ * model samples a corner of every picture (the black guards and Boris's
+ * patchwork of the first batch).
+ *
+ * A texture's UVs cover about one repeat, and a few wrap well past it (the N64
+ * tiled some), so the answer is the smallest power of two within a quarter of
+ * the median texture's largest UV, over the triangles each texture is drawn
+ * on. On every HD file that is what the old rule said (the largest UV in the
+ * file, split at 17000); on the originals that rule read the wrapping textures
+ * and said 32768. A picture of four texels or fewer is an untextured span's,
+ * and its UVs mean nothing.
  */
 static f32 beanMeasureUvScale(struct beanmodel *bm)
 {
-	u32 biggest = 0;
+	u32 biggest[GEBEAN_MAXMATS];
+	u8 drawn[GEBEAN_MAXMATS];
+	u32 sorted[GEBEAN_MAXMATS];
+	s32 n = 0;
+	u32 scale;
 
-	for (s32 d = 0; d < bm->numdraws; d++) {
+	memset(biggest, 0, sizeof(biggest));
+	memset(drawn, 0, sizeof(drawn));
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		const struct beandraw *d = &bm->draws[di];
 		struct beanvb vb;
 		u32 uvo;
-		s32 seen = 0;
+		u16 *tris = NULL;
+		s32 numtris;
 
-		for (s32 e = 0; e < d; e++) {
-			if (bm->draws[e].vb == bm->draws[d].vb) {
-				seen = 1;
-				break;
-			}
+		if (d->tex >= GEBEAN_MAXMATS || !beanReadVb(bm, d->vb, &vb)) {
+			continue;
 		}
 
-		if (seen || !beanReadVb(bm, bm->draws[d].vb, &vb)) {
-			continue;
+		if (d->tex < (u32)bm->numtex) {
+			u32 blen;
+			const u8 *b = caffBlob(&bm->caff, bm->texfile[d->tex], &blen);
+
+			if (b && blen >= 0x28 && (u32)gebeanBE16(b + 0x24) * gebeanBE16(b + 0x26) <= 4) {
+				continue;
+			}
 		}
 
 		switch (vb.stride) {
@@ -1216,31 +1264,66 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
 			continue;
 		}
 
-		for (u32 i = 0; i < vb.count; i++) {
-			const u8 *p = bm->gpu + vb.off + i * vb.stride + uvo;
-			const s32 u = (s16)gebeanBE16(p);
-			const s32 w = (s16)gebeanBE16(p + 2);
-			const u32 au = (u32)(u < 0 ? -u : u);
-			const u32 aw = (u32)(w < 0 ? -w : w);
+		numtris = beanTriangles(bm, d, &tris);
 
-			if (au > biggest) {
-				biggest = au;
+		for (s32 i = 0; i < numtris * 3; i++) {
+			const u8 *p;
+			s32 u, w;
+
+			if (tris[i] >= vb.count) {
+				continue;
 			}
 
-			if (aw > biggest) {
-				biggest = aw;
+			p = bm->gpu + vb.off + tris[i] * vb.stride + uvo;
+			u = (s16)gebeanBE16(p);
+			w = (s16)gebeanBE16(p + 2);
+			u = u < 0 ? -u : u;
+			w = w < 0 ? -w : w;
+
+			if ((u32)u > biggest[d->tex]) {
+				biggest[d->tex] = u;
 			}
+
+			if ((u32)w > biggest[d->tex]) {
+				biggest[d->tex] = w;
+			}
+		}
+
+		if (numtris > 0) {
+			drawn[d->tex] = 1;
+		}
+
+		free(tris);
+	}
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		if (drawn[t]) {
+			s32 at = n++;
+
+			while (at > 0 && sorted[at - 1] > biggest[t]) {
+				sorted[at] = sorted[at - 1];
+				at--;
+			}
+
+			sorted[at] = biggest[t];
 		}
 	}
 
-	return biggest > 0 && biggest <= 17000 ? 16384.0f : 32768.0f;
+	if (n == 0) {
+		return 32768.0f;
+	}
+
+	for (scale = 1024; scale < 32768 && scale * 1.25f < sorted[(n - 1) / 2]; scale *= 2) {
+	}
+
+	return (f32)scale;
 }
 
 /**
  * The command stream, first alternative at every switch. Each record is a
  * tagged u32 (size << 16 | type << 8): 0x12 palette remap, 0x13 bone palette,
- * 0x16 switch, 0x19 jump, 0x1d end, 0x2d material, 0x2e vertex buffer, 0x01
- * draw.
+ * 0x16 switch, 0x17 conditional section, 0x19 jump, 0x1d end, 0x2d material,
+ * 0x2e vertex buffer, 0x01 draw, and 0x30 the N64-look originals' draw.
  */
 static void beanWalkStream(struct beanmodel *bm)
 {
@@ -1292,6 +1375,15 @@ static void beanWalkStream(struct beanmodel *bm)
 			break;
 		}
 
+		// A section behind a condition: 0x17 {kind, where it ends}. Kind 2 is
+		// only in the originals, round a head's sunglasses, which GoldenEye's
+		// multiplayer heads do not wear. Kind 0 is in both, and its sections
+		// are drawn - the HD characters always had them.
+		if (type == 0x17 && size >= 12 && gebeanBE32(st + pc + 4) == 2) {
+			pc = gebeanBE32(st + pc + 8);
+			continue;
+		}
+
 		if (type == 0x12 && size >= 12) {
 			u32 count = gebeanBE16(st + pc + 8);
 
@@ -1325,7 +1417,12 @@ static void beanWalkStream(struct beanmodel *bm)
 
 			memcpy(pal, st + pc + 12, count);
 			numpal = (u8)count;
-		} else if (type == 0x01 && size >= 16 && bm->numdraws < BEAN_MAXDRAWS) {
+		} else if ((type == 0x01 || (type == 0x30 && size >= 20 && gebeanBE32(st + pc + 16) == 0))
+				&& size >= 16 && bm->numdraws < BEAN_MAXDRAWS) {
+			// 0x30 is the originals' other draw: the same three words and a
+			// fourth. The heads' draws marked 1 or 2 are extras over a whole
+			// face - the sunglasses' arms, a stray piece a body's height below
+			// Head B - and only a zero is part of the character.
 			struct beandraw *d = &bm->draws[bm->numdraws++];
 
 			d->vb = vb;
@@ -1848,9 +1945,17 @@ struct beanrig {
 	f32 rot[SK_COUNT][3][3];
 	f32 scale;
 
+	// Each bone's linear map from Bean's bind (at the rig's scale) onto the
+	// model's rest, about the bone's own joint: beanFitRig().
+	f32 lin[SK_COUNT][3][3];
+
 	// Every joint of the model by matrix, for the palette's inverse binds.
 	s32 hasrest[GEBEAN_MAXMTX];
 	f32 rest[GEBEAN_MAXMTX][3];
+
+	// The palette entry for each matrix a Bean bone moves: three rows of four.
+	s32 haspal[GEBEAN_MAXMTX];
+	f32 pal[GEBEAN_MAXMTX][12];
 };
 
 struct beanlimbjoint {
@@ -1984,6 +2089,236 @@ static s32 beanRigFromModel(struct modeldef *modeldef, struct beanrig *rig,
 	return 1;
 }
 
+static void mat3Mul(const f32 a[3][3], const f32 b[3][3], f32 out[3][3])
+{
+	for (s32 i = 0; i < 3; i++) {
+		for (s32 j = 0; j < 3; j++) {
+			out[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+		}
+	}
+}
+
+static f32 mat3Det(const f32 m[3][3])
+{
+	return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+		- m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+		+ m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+}
+
+static s32 mat3Inverse(const f32 m[3][3], f32 out[3][3])
+{
+	const f32 det = mat3Det(m);
+
+	if (fabsf(det) < 1e-12f) {
+		return 0;
+	}
+
+	out[0][0] = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) / det;
+	out[0][1] = (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / det;
+	out[0][2] = (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / det;
+	out[1][0] = (m[1][2] * m[2][0] - m[1][0] * m[2][2]) / det;
+	out[1][1] = (m[0][0] * m[2][2] - m[0][2] * m[2][0]) / det;
+	out[1][2] = (m[0][2] * m[1][0] - m[0][0] * m[1][2]) / det;
+	out[2][0] = (m[1][0] * m[2][1] - m[1][1] * m[2][0]) / det;
+	out[2][1] = (m[0][1] * m[2][0] - m[0][0] * m[2][1]) / det;
+	out[2][2] = (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / det;
+
+	return 1;
+}
+
+static void vecCross(const f32 *a, const f32 *b, f32 *out)
+{
+	out[0] = a[1] * b[2] - a[2] * b[1];
+	out[1] = a[2] * b[0] - a[0] * b[2];
+	out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+/**
+ * A bone with three children - the base (back and both hips) and the back
+ * (neck and both shoulders) - as the linear map that takes Bean's three
+ * segments nearest onto the model's, least squares. The three lie in the
+ * figure's front plane, so the depth is added as a fourth pair: across the two
+ * sides, kept at the rig's scale. Where Bean's hips or shoulders sit wider or
+ * higher than the model's, one turn cannot put both on their joints, and a
+ * crotch or armpit blended between the base and a hip, or the back and a
+ * shoulder, is pulled apart by the difference. False when the fit is
+ * degenerate or would mirror the figure.
+ */
+static s32 beanFitBranch(struct beanrig *rig, const f32 bind[SK_COUNT][3], s32 a, const s8 children[3])
+{
+	f32 db[4][3], dj[4][3], cj[3];
+	f32 sjb[3][3], sbb[3][3], inv[3][3], lin[3][3];
+	f32 lb, lj;
+
+	for (s32 c = 0; c < 3; c++) {
+		for (s32 k = 0; k < 3; k++) {
+			db[c][k] = (bind[(s32)children[c]][k] - bind[a][k]) * rig->scale;
+			dj[c][k] = rig->joint[(s32)children[c]][k] - rig->joint[a][k];
+		}
+	}
+
+	vecCross(db[1], db[2], db[3]);
+	vecCross(dj[1], dj[2], cj);
+	lb = vecLen(db[3]);
+	lj = vecLen(cj);
+
+	if (lb < 1e-6f || lj < 1e-6f) {
+		return 0;
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		dj[3][k] = cj[k] * lb / lj;
+	}
+
+	memset(sjb, 0, sizeof(sjb));
+	memset(sbb, 0, sizeof(sbb));
+
+	for (s32 p = 0; p < 4; p++) {
+		for (s32 i = 0; i < 3; i++) {
+			for (s32 j = 0; j < 3; j++) {
+				sjb[i][j] += dj[p][i] * db[p][j];
+				sbb[i][j] += db[p][i] * db[p][j];
+			}
+		}
+	}
+
+	if (!mat3Inverse(sbb, inv)) {
+		return 0;
+	}
+
+	mat3Mul(sjb, inv, lin);
+
+	if (mat3Det(lin) <= 0.0f) {
+		return 0;
+	}
+
+	memcpy(rig->lin[a], lin, sizeof(lin));
+
+	return 1;
+}
+
+/**
+ * Each bone's map onto the rig, and from those the palette. A bone on a limb
+ * is turned so its segment lies along the model's and stretched along it to
+ * the model's length, so the parent's reading of the child's joint is the
+ * joint - with one scale for the whole figure the two disagreed by however
+ * much Bean's limb proportions differ from the model's, which on Perfect
+ * Dark's own bodies was enough to stretch an arm and pinch an elbow. The base
+ * and back are fitted to their three children. The ends of the chains turn
+ * with their parent and are not stretched.
+ */
+static void beanFitPalette(struct beanrig *rig, const f32 bind[SK_COUNT][3])
+{
+	static const s8 basechildren[3] = { SK_BACK, SK_LF_HIP, SK_RT_HIP };
+	static const s8 backchildren[3] = { SK_NECK, SK_LF_SHOULDER, SK_RT_SHOULDER };
+
+	for (s32 a = 0; a < SK_COUNT; a++) {
+		const s32 b = skelChild[a];
+
+		memcpy(rig->lin[a], rig->rot[a], sizeof(rig->lin[a]));
+
+		if ((a == SK_BASE && beanFitBranch(rig, bind, a, basechildren))
+				|| (a == SK_BACK && beanFitBranch(rig, bind, a, backchildren))) {
+			continue;
+		}
+
+		if (b >= 0) {
+			f32 db[3], dj[3], u[3], stretch[3][3];
+			f32 lb, lj, k;
+
+			for (s32 i = 0; i < 3; i++) {
+				db[i] = bind[b][i] - bind[a][i];
+				dj[i] = rig->joint[b][i] - rig->joint[a][i];
+			}
+
+			lb = vecLen(db) * rig->scale;
+			lj = vecLen(dj);
+
+			if (lb < 1e-6f) {
+				continue;
+			}
+
+			k = lj / lb;
+
+			for (s32 i = 0; i < 3; i++) {
+				u[i] = db[i] * rig->scale / lb;
+			}
+
+			for (s32 i = 0; i < 3; i++) {
+				for (s32 j = 0; j < 3; j++) {
+					stretch[i][j] = (i == j ? 1.0f : 0.0f) + (k - 1.0f) * u[i] * u[j];
+				}
+			}
+
+			mat3Mul((const f32 (*)[3])rig->rot[a], (const f32 (*)[3])stretch, rig->lin[a]);
+		}
+	}
+
+	// An end takes its parent's turn, not its parent's fit
+	for (s32 a = 0; a < SK_COUNT; a++) {
+		if (skelInherit[a] >= 0 && a != SK_POSITION) {
+			memcpy(rig->lin[a], rig->rot[a], sizeof(rig->lin[a]));
+		}
+	}
+
+	// The position bone shares the base's matrix and takes the base's fit
+	memcpy(rig->lin[SK_POSITION], rig->lin[SK_BASE], sizeof(rig->lin[SK_POSITION]));
+
+	memset(rig->haspal, 0, sizeof(rig->haspal));
+
+	// Palette entry m, for the first bone that moves matrix m: out of Bean's
+	// bind about the bone's joint, through its fit, onto the joint, less the
+	// rest the game's matrix for it already carries.
+	for (s32 a = 0; a < SK_COUNT; a++) {
+		const s32 m = rig->mtx[a];
+		f32 sb[3], turned[3], target[3];
+
+		if (!rig->have[a] || m < 0 || m >= GEBEAN_MAXMTX || rig->haspal[m]) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			sb[k] = bind[a][k] * rig->scale;
+		}
+
+		rotApply((const f32 (*)[3])rig->lin[a], sb, turned);
+
+		memcpy(target, rig->joint[a], sizeof(target));
+
+		if (a == SK_NECK) {
+			// The neck goes where the back's fit carries Bean's, not onto the
+			// model's joint: the fit is a compromise between the neck and the
+			// shoulders, and the model's shoulders sit higher up its back, so
+			// the collar came out above the joint and swallowed the neck (15
+			// units on Xenia on the guard, 36 on the technician). The game
+			// turns the head about the joint, a few units off.
+			f32 d[3], fitted[3];
+
+			for (s32 k = 0; k < 3; k++) {
+				d[k] = (bind[SK_NECK][k] - bind[SK_BACK][k]) * rig->scale;
+			}
+
+			rotApply((const f32 (*)[3])rig->lin[SK_BACK], d, fitted);
+
+			for (s32 k = 0; k < 3; k++) {
+				target[k] = rig->joint[SK_BACK][k] + fitted[k];
+			}
+		}
+
+		for (s32 r = 0; r < 3; r++) {
+			const f32 rest = rig->hasrest[m] ? rig->rest[m][r] : rig->joint[a][r];
+
+			for (s32 c = 0; c < 3; c++) {
+				rig->pal[m][r * 4 + c] = rig->lin[a][r][c];
+			}
+
+			rig->pal[m][r * 4 + 3] = target[r] - rest - turned[r];
+		}
+
+		rig->haspal[m] = 1;
+	}
+}
+
 /** The scale and each bone's turn onto the rig, from Bean's bind. */
 static s32 beanFitRig(struct beanrig *rig, const f32 bind[SK_COUNT][3], const s32 *havebind)
 {
@@ -2023,6 +2358,8 @@ static s32 beanFitRig(struct beanrig *rig, const f32 bind[SK_COUNT][3], const s3
 	}
 
 	rig->scale = den > 0.0f ? num / den : GEBEAN_HEAD_SCALE;
+
+	beanFitPalette(rig, bind);
 
 	return 1;
 }
@@ -2189,9 +2526,19 @@ static u8 *beanWriteMesh(struct beanout *o, s32 numgroups, s32 nummatrices, cons
 	gebeanPutBEF32(file + 24, 100.0f);
 	gebeanPutBE32(file + 28, groupoffset);
 
-	// Three rows of four: identity turns, each joint's rest taken back off.
+	// Three rows of four: a body's fitted inverse binds (beanFitPalette()),
+	// and for any other matrix an identity turn with its joint's rest taken
+	// back off.
 	for (s32 i = 0; i < nummatrices; i++) {
 		u8 *mtx = file + 32 + 48 * i;
+
+		if (rig && i < GEBEAN_MAXMTX && rig->haspal[i]) {
+			for (s32 k = 0; k < 12; k++) {
+				gebeanPutBEF32(mtx + k * 4, rig->pal[i][k]);
+			}
+
+			continue;
+		}
 
 		for (s32 r = 0; r < 3; r++) {
 			gebeanPutBEF32(mtx + (r * 4 + r) * 4, 1.0f);
@@ -2297,10 +2644,98 @@ static s32 beanNodeSkel(const struct modelnode *node, struct modelnode **joints,
 	return -1;
 }
 
-u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
+/**
+ * A vertex whose share between the neck and the back is far from its
+ * neighbours' takes theirs. Natalya's mouth has one two thirds on her back
+ * among neighbours on it by a thirtieth: Bean's own bind hid it, but the
+ * game turns the head against the torso, and that vertex went with the torso
+ * and drew a spike through her upper lip.
+ */
+static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back)
+{
+	f32 *share;
+	f32 *sum;
+	s32 *count;
+
+	if (neck < 0 || back < 0 || neck == back || o->numverts <= 0) {
+		return;
+	}
+
+	share = malloc(o->numverts * sizeof(f32));
+	sum = calloc(o->numverts, sizeof(f32));
+	count = calloc(o->numverts, sizeof(s32));
+
+	if (share && sum && count) {
+		for (s32 v = 0; v < o->numverts; v++) {
+			f32 n = 0.0f, b = 0.0f, other = 0.0f;
+
+			for (s32 k = 0; k < 3; k++) {
+				const f32 w = o->weight[v * 3 + k];
+
+				if (w <= 0.0f) {
+					continue;
+				}
+
+				if (o->bone[v * 3 + k] == neck) {
+					n += w;
+				} else if (o->bone[v * 3 + k] == back) {
+					b += w;
+				} else {
+					other += w;
+				}
+			}
+
+			share[v] = n > 0.0f && other <= 0.0f ? b / (n + b) : -1.0f;
+		}
+
+		for (s32 t = 0; t < o->numtris; t++) {
+			const u16 *tv = o->tris[t].v;
+
+			for (s32 i = 0; i < 3; i++) {
+				const s32 a = tv[i];
+				const s32 c = tv[(i + 1) % 3];
+
+				if (a == c || share[a] < 0.0f || share[c] < 0.0f) {
+					continue;
+				}
+
+				sum[a] += share[c];
+				count[a]++;
+				sum[c] += share[a];
+				count[c]++;
+			}
+		}
+
+		for (s32 v = 0; v < o->numverts; v++) {
+			f32 mean;
+
+			if (share[v] < 0.0f || count[v] < 4) {
+				continue;
+			}
+
+			mean = sum[v] / count[v];
+
+			if (fabsf(share[v] - mean) <= 0.3f) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				o->bone[v * 3 + k] = (u8)(k == 1 ? back : neck);
+				o->weight[v * 3 + k] = k == 0 ? 1.0f - mean : k == 1 ? mean : 0.0f;
+			}
+		}
+	}
+
+	free(share);
+	free(sum);
+	free(count);
+}
+
+u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
 	const struct gebeanrow *r;
+	char source[64];
 	struct beanmodel bm;
 	struct beanrig rig;
 	struct beanout out;
@@ -2332,23 +2767,53 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 	ishead = r->kind == GEBEAN_HEAD;
 	fromchar = strncmp(r->source, "char/", 5) == 0;
 
-	if (!gebeanLocate(1) || !beanLoad(&bm, r->source)) {
+	// Also what the pictures are keyed on, so the two looks never share one
+	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
+
+	if (!gebeanLocate(1) || !beanLoad(&bm, source)) {
 		return NULL;
 	}
 
 	if (!bm.numbones || !bm.numdraws) {
-		sysLogPrintf(LOG_WARNING, "gebean: %s has no skeleton or no draws", r->source);
+		sysLogPrintf(LOG_WARNING, "gebean: %s has no skeleton or no draws", source);
 		beanFree(&bm);
 		return NULL;
 	}
 
 	memset(havebind, 0, sizeof(havebind));
+	memset(bind, 0, sizeof(bind));
 
 	for (s32 b = 0; b < bm.numbones; b++) {
 		if (bm.skel[b] >= 0) {
 			memcpy(bind[(s32)bm.skel[b]], bm.bind[b], sizeof(bind[0]));
 			havebind[(s32)bm.skel[b]] = 1;
 		}
+	}
+
+	// Four of the originals' heads (Karl, Martin, Duncan, Dwayne) carry a pose
+	// of zeros while their vertices stand where every other head's do, which
+	// would hang the face a neck's height over the body. The same head's HD
+	// file has the joints it is cut at.
+	// (Their bones are named SKEL_NECK_P_ and so on, which name no joint here.)
+	if (ishead && original && (!havebind[SK_NECK]
+				|| (bind[SK_NECK][0] == 0.0f && bind[SK_NECK][1] == 0.0f && bind[SK_NECK][2] == 0.0f))) {
+		struct beanmodel *hd = malloc(sizeof(*hd));
+		char hdsource[64];
+
+		snprintf(hdsource, sizeof(hdsource), "new/%s", r->source);
+
+		if (hd && beanLoad(hd, hdsource)) {
+			for (s32 b = 0; b < hd->numbones; b++) {
+				if (hd->skel[b] == SK_NECK || hd->skel[b] == SK_BACK) {
+					memcpy(bind[(s32)hd->skel[b]], hd->bind[b], sizeof(bind[0]));
+					havebind[(s32)hd->skel[b]] = 1;
+				}
+			}
+
+			beanFree(hd);
+		}
+
+		free(hd);
 	}
 
 	memset(&out, 0, sizeof(out));
@@ -2363,7 +2828,7 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 		static const f32 up[3] = { 0.0f, 1.0f, 0.0f };
 
 		if (!havebind[SK_NECK] || (fromchar && !havebind[SK_BACK])) {
-			sysLogPrintf(LOG_WARNING, "gebean: %s has no neck", r->source);
+			sysLogPrintf(LOG_WARNING, "gebean: %s has no neck", source);
 			beanFree(&bm);
 			return NULL;
 		}
@@ -2479,12 +2944,26 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 				}
 			}
 
+			// A head drawn with no bone palette (Dave's original is all
+			// stride 24) is the head's all the same: rigid on the neck
+			if (dominant < 0 && ishead) {
+				dominant = SK_NECK;
+			}
+
 			if (dominant < 0) {
 				continue;
 			}
 
 			// The neck belongs to the head file: a body leaves it out, and a
-			// head takes only it. A whole character keeps both.
+			// head takes only it. A whole character keeps both. An original's
+			// head file weights its face to the back as often as to the neck
+			// (Head B, Joel, Sally), and its only other bones are a stray pair
+			// of shoes (Head B's, a body's height below), so there it is
+			// anything but the limbs.
+			if (ishead && original && !fromchar && dominant == SK_BACK) {
+				dominant = SK_NECK;
+			}
+
 			if (r->kind != GEBEAN_WHOLE && (dominant == SK_NECK) != (ishead != 0)) {
 				dropped++;
 				continue;
@@ -2521,39 +3000,33 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 
 					rotApply(headrot, v3[i].nrm, nrm);
 				} else {
-					// Each bone's own reading of the vertex on the N64 rig,
-					// blended; the bones become the model's matrices, merged
-					// where two Bean bones share one, the three heaviest kept.
+					// Bean's own bind, at the rig's scale. Each bone's palette
+					// entry (beanFitPalette()) takes a vertex from there onto the
+					// model's rest, so the figure is skinned once, from the pose
+					// Bean's weights were painted for; re-posing it onto the star
+					// first and skinning it back again folded every armpit and
+					// crotch through two blends of turns up to a right angle
+					// apart. The bones become the model's matrices, merged where
+					// two Bean bones share one, the three heaviest kept.
 					s32 mtx[4];
 					f32 mw[4];
 					s32 nm = 0;
 					f32 sum = 0.0f;
-					s32 heaviest = -1;
+
+					for (s32 k = 0; k < 3; k++) {
+						pos[k] = v3[i].pos[k] * rig.scale;
+						nrm[k] = v3[i].nrm[k];
+					}
 
 					for (s32 s = 0; s < 4; s++) {
 						const s32 b = sk[i][s];
-						f32 rel[3], turned[3];
 						s32 at = -1;
 
 						if (b < 0) {
 							continue;
 						}
 
-						for (s32 k = 0; k < 3; k++) {
-							rel[k] = v3[i].pos[k] - bind[b][k];
-						}
-
-						rotApply((const f32 (*)[3])rig.rot[b], rel, turned);
-
-						for (s32 k = 0; k < 3; k++) {
-							pos[k] += wt[i][s] * (rig.joint[b][k] + rig.scale * turned[k]);
-						}
-
 						sum += wt[i][s];
-
-						if (heaviest < 0 || wt[i][s] > wt[i][heaviest]) {
-							heaviest = s;
-						}
 
 						for (s32 m = 0; m < nm; m++) {
 							if (mtx[m] == rig.mtx[b]) {
@@ -2570,16 +3043,10 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 						}
 					}
 
-					if (sum <= 0.0f || heaviest < 0) {
+					if (sum <= 0.0f) {
 						ok = 0;
 						break;
 					}
-
-					for (s32 k = 0; k < 3; k++) {
-						pos[k] /= sum;
-					}
-
-					rotApply((const f32 (*)[3])rig.rot[sk[i][heaviest]], v3[i].nrm, nrm);
 
 					for (s32 m = 0; m < nm; m++) {
 						for (s32 n = m + 1; n < nm; n++) {
@@ -2606,6 +3073,7 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 						bone[m] = (u8)(m < nm ? mtx[m] : mtx[0]);
 						weight[m] = m < nm ? mw[m] / sum : 0.0f;
 					}
+
 				}
 
 				mapped[vi] = beanAddVertex(&out, pos, nrm, uv, bone, weight);
@@ -2672,6 +3140,10 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 		}
 	}
 
+	if (!ishead) {
+		beanSmoothNeckWeights(&out, rig.mtx[SK_NECK], rig.mtx[SK_BACK]);
+	}
+
 	// The pictures: only those a draw names, bound once per character.
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
@@ -2691,7 +3163,7 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 			}
 		}
 
-		if (used && beanBindTexture(&bm, r->source, i, &mats->tile[i], &mats->alpha[i], &mats->soft[i])
+		if (used && beanBindTexture(&bm, source, i, &mats->tile[i], &mats->alpha[i], &mats->soft[i])
 				&& mats->alpha[i]) {
 			matwords[i] |= 0x8000;
 		}
@@ -2707,7 +3179,7 @@ u8 *gebeanBuild(s32 row, struct modeldef *modeldef, struct modelnode **nodes, s3
 	file = beanWriteMesh(&out, numnodes, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
 
 	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles over %d lists, %s %.4f%s",
-			r->file, r->source, out.numverts, out.numtris, numnodes,
+			r->file, source, out.numverts, out.numtris, numnodes,
 			ishead ? "rigid on the neck, scale" : "skinned to the model's matrices, scale",
 			ishead ? headscale : rig.scale, file ? "" : " - did not write");
 

@@ -5894,11 +5894,12 @@ static void xblaMeshFreePackMeshes(void)
  * A GoldenEye XBLA character for one of GoldenEye X's models
  * ------------------------------------------------------------------------- */
 
-// One per file id. Kept across stages, unlike a pack's: the mesh is in the
-// model's own space and depends only on the file, which gebeanFindRow() has
-// checked is the one the table names every time it loads. One that would not
-// build is tried again at the next stage, in case the copy was missing then.
-static struct xblameshbuilt **beanBuilt;
+// One per look (0 Bean's HD character, 1 its N64-look original) and file id.
+// Kept across stages, unlike a pack's: the mesh is in the model's own space
+// and depends only on the file, which gebeanFindRow() has checked is the one
+// the table names every time it loads. One that would not build is tried
+// again at the next stage, in case the copy was missing then.
+static struct xblameshbuilt **beanBuilt[2];
 
 /**
  * Builds the character for a GoldenEye X model: a mesh in 4J's layout from
@@ -5908,32 +5909,33 @@ static struct xblameshbuilt **beanBuilt;
  * - by the node's place among the model's lists - and a node with no group
  * keeps its own geometry.
  */
-static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e)
+static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s32 original)
 {
+	const s32 look = original ? 1 : 0;
 	struct xblameshbuilt *m;
 	struct xblameshuse *use;
 	struct xblameshmats mats;
 	struct gebeanmats *bmats;
-	char what[64];
+	char what[80];
 	u8 *file;
 	u32 len = 0;
 
-	if (!beanBuilt) {
-		beanBuilt = calloc(NUM_FILE_SLOTS, sizeof(*beanBuilt));
+	if (!beanBuilt[look]) {
+		beanBuilt[look] = calloc(NUM_FILE_SLOTS, sizeof(*beanBuilt[look]));
 
-		if (!beanBuilt) {
+		if (!beanBuilt[look]) {
 			return NULL;
 		}
 	}
 
-	m = beanBuilt[e->fileid];
+	m = beanBuilt[look][e->fileid];
 
 	if (m && m->state) {
 		return m->state > 0 ? m : NULL;
 	}
 
 	if (!m) {
-		m = beanBuilt[e->fileid] = calloc(1, sizeof(*m));
+		m = beanBuilt[look][e->fileid] = calloc(1, sizeof(*m));
 
 		if (!m) {
 			return NULL;
@@ -5956,7 +5958,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e)
 		return NULL;
 	}
 
-	file = gebeanBuild(e->beanrow, (struct modeldef *)e->modeldef, use->parts, use->numparts,
+	file = gebeanBuild(e->beanrow, original, (struct modeldef *)e->modeldef, use->parts, use->numparts,
 			bmats, &m->groupabsent, &len);
 
 	if (!file) {
@@ -5975,33 +5977,36 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e)
 
 	free(bmats);
 
-	snprintf(what, sizeof(what), "model file %d's GoldenEye character", e->fileid);
+	snprintf(what, sizeof(what), "model file %d's GoldenEye character%s", e->fileid,
+			original ? " (N64 look)" : "");
 
 	return xblaMeshBuildFile(m, file, len, &mats, what) ? m : NULL;
 }
 
 static void xblaMeshResetBeanMeshes(void)
 {
-	if (!beanBuilt) {
-		return;
-	}
-
-	for (s32 i = 0; i < NUM_FILE_SLOTS; i++) {
-		struct xblameshbuilt *m = beanBuilt[i];
-
-		if (!m) {
+	for (s32 look = 0; look < ARRAYCOUNT(beanBuilt); look++) {
+		if (!beanBuilt[look]) {
 			continue;
 		}
 
-		if (m->state < 0) {
-			memset(m, 0, sizeof(*m));
-			continue;
-		}
+		for (s32 i = 0; i < NUM_FILE_SLOTS; i++) {
+			struct xblameshbuilt *m = beanBuilt[look][i];
 
-		m->posedmodel = NULL;
-		m->bruisemodel = NULL;
-		m->envmodel = NULL;
-		m->keptmodel = NULL;
+			if (!m) {
+				continue;
+			}
+
+			if (m->state < 0) {
+				memset(m, 0, sizeof(*m));
+				continue;
+			}
+
+			m->posedmodel = NULL;
+			m->bruisemodel = NULL;
+			m->envmodel = NULL;
+			m->keptmodel = NULL;
+		}
 	}
 }
 
@@ -8984,11 +8989,15 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		frompack = 0;
 	}
 
-	// A GoldenEye X model drawn as the GoldenEye XBLA release's character. A
-	// mod's file, so the release never has a mesh for it; a pack's file for
-	// it still wins, since somebody put that there.
+	// A GoldenEye character: a GoldenEye X model, or one of the Combat
+	// Simulator pool's on a Perfect Dark body. Never a stock file, so the
+	// release never has a mesh for it; a pack's file for it still wins, since
+	// somebody put that there. Its look follows the release's meshes, so F6
+	// moves it with everything else: Bean's HD character with them on, and
+	// with them off the N64-look original Bean shipped beside it - except on
+	// GoldenEye X, whose own model is GoldenEye's N64 one and draws itself.
 	frombean = !frompack && !havemesh && e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
-			&& gebeanGetEnabled();
+			&& gebeanGetEnabled() && (optEnabled || gebeanRowIsPool(e->beanrow));
 
 	if (!frompack && !havemesh && !frombean) {
 		return 0;
@@ -9085,7 +9094,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// The mesh is built before the part is looked at, so that a mesh that will
 	// not build leaves every part of the model drawing its own geometry rather
 	// than only the first one.
-	m = frompack ? xblaMeshBuildPack(e) : frombean ? xblaMeshBuildBean(e) : xblaMeshBuild(e->slot);
+	m = frompack ? xblaMeshBuildPack(e) : frombean ? xblaMeshBuildBean(e, !optEnabled) : xblaMeshBuild(e->slot);
 
 	if (!m) {
 		if (xblaMeshVerbose) {
@@ -10568,10 +10577,12 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 				: (built && e->matched && e->slot < numRecords ? &built[e->slot] : NULL);
 
 		if (!frompack && !e->matched && e->beanrow >= 0) {
-			m = beanBuilt ? beanBuilt[e->fileid] : NULL;
-			fprintf(f, "%sGoldenEye XBLA character for %s (Mod.XblaGoldenEye %s, list %d): ",
+			const s32 look = !optEnabled;
+
+			m = beanBuilt[look] ? beanBuilt[look][e->fileid] : NULL;
+			fprintf(f, "%sGoldenEye XBLA character for %s (Mod.XblaGoldenEye %s, %s look, list %d): ",
 					indent ? indent : "", gebeanRowName(e->beanrow),
-					gebeanGetEnabled() ? "on" : "off", e->packpart);
+					gebeanGetEnabled() ? "on" : "off", look ? "N64" : "HD", e->packpart);
 		}
 
 		fprintf(f, "%snode %p type %02x slot %d part %d def %p%s%s%s%s built %d",
