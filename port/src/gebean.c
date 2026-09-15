@@ -308,9 +308,8 @@ static s32 fpSlot[ARRAYCOUNT(fpRows)];
  * Which first-person guns are drawn from Bean: those checked on screen against
  * their host's (2026-09-15, a 25-gun survey). The rest keep the host's model -
  * GoldenEye's name, pickup and third-person gun still their own - until each is
- * made right: the Golden Gun is untextured, the rocket launcher is shrunk by
- * its host's length, and the Moonraker, knives, grenade and mines were not
- * seen.
+ * made right: the rocket launcher is shrunk by its host's length, and the
+ * Moonraker, knives, grenade and mines were not seen.
  */
 static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
@@ -328,6 +327,7 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
 };
 
@@ -364,6 +364,16 @@ static const f32 fpGripFromPalm[3] = { 65.8f, -74.9f, 34.5f };
 
 static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = { 1, { 0.0f, -273.0f, -590.0f } },
+};
+
+/**
+ * A colour a gun's vertices are drawn with (ARGB, 0 for their own). Bean's
+ * Golden Gun is two near-white pictures, a scratch map and a shine map
+ * (texture_gold_file521/522), which its shader lays under a 256x256 gold
+ * reflection map on a second sampler; one sampler here drew it white.
+ */
+static const u32 fpTint[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 0xfff0c86e,
 };
 
 // Each copy's first-person file as geguns.c made it - its host's - before
@@ -3291,6 +3301,35 @@ static s32 beanTextureSize(const struct beanmodel *bm, s32 t, s32 *w, s32 *h)
 }
 
 /**
+ * A tinted gun's vertex colour, lit by its normal from above and in front of
+ * the eye. The shine Bean's shader gets from its reflection map has no pass
+ * here, and a flat tint drew the Golden Gun as matte paint; a first-person
+ * gun hardly turns against the view, so light baked into the colour holds.
+ * Bean's axes are the host's: y up, the barrel along z, the eye towards -z.
+ */
+static u32 beanShadeTint(u32 argb, const f32 *nrm)
+{
+	const f32 light[3] = { 0.0f, 0.75f, -0.66f };
+	const f32 len = sqrtf(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
+	f32 d = len > 0.0f ? (nrm[0] * light[0] + nrm[1] * light[1] + nrm[2] * light[2]) / len : 0.0f;
+	f32 shade;
+	f32 d2;
+	u32 out = argb & 0xff000000;
+
+	d = d < 0.0f ? 0.0f : d;
+	d2 = d * d;
+	shade = 0.5f + 0.45f * d + 0.4f * d2 * d2 * d2 * d2;
+
+	for (s32 shift = 16; shift >= 0; shift -= 8) {
+		f32 c = ((argb >> shift) & 0xff) * shade;
+
+		out |= (u32)(c > 255.0f ? 255.0f : c) << shift;
+	}
+
+	return out;
+}
+
+/**
  * A first-person gun's pictures to leave out, into hand (the count is
  * returned), and the extent of what is left. Out with the hand go Bean's
  * muzzle flashes, the 32x32 sprites on the muzzle bones, which it switches on
@@ -3654,7 +3693,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 						- (rig.hasrest[mtx] ? rig.rest[mtx][a] : 0.0f);
 				}
 
-				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight, v.argb);
+				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight,
+						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm) : v.argb);
 				mappedmtx[vi] = mtx;
 
 				if (mapped[vi] < 0) {

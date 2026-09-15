@@ -389,6 +389,14 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   model at 4.7x around the same origin (SKEL_TOP bind = 4.7 x the root group).
   GoldenEye's weapon stats view positions do not map onto PD's by the matrix
   scale (checked on the PPK pair), so they are not used.
+- **The Golden Gun is tinted** (`fpTint`, `beanShadeTint()`): its two gun
+  pictures (`texture_gold_file521/522` in the pool) are near-white scratch and
+  shine maps, and the gold is a 256x256 reflection map (`texture_file523`) on
+  the shader's second sampler, which no draw here has - so it drew white. The
+  N64-look original's pictures are gold. Its vertices take gold (0xfff0c86e)
+  lit by their normals from above and in front of the eye (ambient 0.5, diffuse
+  0.45, a d^8 highlight): a flat tint read as matte paint. A reflection pass
+  through the release's machinery would be truer, and is not done.
 - **Silenced guns are measured on their plain twin** (`fpFitSource`): Bean's
   `ppksilenced`/`mp5ksilenced` are `ppk`/`mp5k` in the same place plus one more
   512x512 picture, the silencer, in front of the muzzle; the hosts have none, so
@@ -404,7 +412,7 @@ model's matrices, so the hand goes and the gun is put on the host's model:
 - **Not yet** (`fpReady` 0, the host's model): the muzzle part's rest
   (`MODELPART_GUN_MUZZLEPOS`) does not tell which way a gun points (it turned
   the shotgun wrongly). The sniper rifle's "turned" was the root-matrix fit and
-  went with it. The **Golden Gun** draws white, the **rocket launcher** is shrunk to
+  went with it. The Golden Gun's white is its second-sampler gold (above). The the **rocket launcher** is shrunk to
   0.079 by its host's length, and the Moonraker, knives, grenade and mines were
   not seen (no ammo given in the survey).
 - **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock
