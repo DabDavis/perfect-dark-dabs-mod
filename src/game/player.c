@@ -1490,10 +1490,11 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		return;
 	}
 
-	// And the Carrington Institute is walked as whoever the Perfect Menu's
-	// Customize Character says, which is how GoldenEye's characters get a
-	// building to walk around in.
-	if (modGhostGetInstituteCharacter(bodynum, headnum)) {
+	// And outside a trial, whoever would be Joanna - in the Institute or a
+	// mission - is whoever the Perfect Menu's Customize Character says, which
+	// is how GoldenEye's characters get a campaign to play. Ahead of the
+	// outfits and Elvis, as the trial character is.
+	if (modGhostGetMenuCharacter(bodynum, headnum)) {
 		return;
 	}
 #endif
@@ -1676,8 +1677,8 @@ void playerTickChrBody(void)
 	bool bodystale = modSpectateTakeBodyStale();
 
 #ifndef PLATFORM_N64
-	// Or a character picked from the Perfect Menu in the Institute
-	bodystale = modGhostTakeInstituteBodyStale() || bodystale;
+	// Or a character picked from the Perfect Menu's Customize Character
+	bodystale = modGhostTakeMenuCharacterStale() || bodystale;
 #endif
 
 	if (bodystale && g_Vars.currentplayer->haschrbody) {
@@ -1906,13 +1907,22 @@ void playerTickChrBody(void)
 					// from then on. See the note in body0f02ce8c() for the
 					// whole mechanism; this is the second door to it.
 					|| modGhostTrialRulesApply()
-					// The Institute character too: the head it picks can be one
-					// the Institute's own people wear (Carrington's)
-					|| modGhostInstituteCharacterApplies()
+					// The Customize Character pick too: the head it picks can be
+					// one the level's own people wear (Carrington's, a guard's)
+					|| modGhostMenuCharacterApplies()
 #endif
 					) && IS8MB()) {
-				g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
-				headmodeldef = g_HeadsAndBodies[headnum].modeldef;
+				headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+
+#ifndef PLATFORM_N64
+				// Only multiplayer and a trial give everyone a copy of their own.
+				// Anywhere else the level's chrs share the table's modeldef, so
+				// the player's copy - offset for the player's body - stays out of
+				// it, or a guard spawned later with the same head wears it.
+				if (g_Vars.normmplayerisrunning || modGhostTrialRulesApply())
+#endif
+				g_HeadsAndBodies[headnum].modeldef = headmodeldef;
+
 				g_FileInfo[g_HeadsAndBodies[headnum].filenum].loadedsize = 0;
 				bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 			} else {

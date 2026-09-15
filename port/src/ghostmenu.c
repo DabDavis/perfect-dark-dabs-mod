@@ -292,8 +292,8 @@ struct menudialogdef g_GhostCharacterMenuDialog = {
 };
 
 /**
- * The Perfect Menu's Customize Character: the same page for who the player
- * walks the Carrington Institute as (g_ModCiBody, modghost.h). Every change
+ * The Perfect Menu's Customize Character: the same page for who the player is
+ * in the Institute and the solo missions (g_ModCiBody, modghost.h). Every change
  * marks the player's body stale, so it is rebuilt as the new character on the
  * first tick after the menu closes.
  */
@@ -321,7 +321,7 @@ static MenuItemHandlerResult menuhandlerCiCharacterBody(s32 operation, struct me
 			g_ModCiHead = modGhostBodyDefaultHead(data->carousel.value) + 1;
 		}
 
-		modGhostMarkInstituteBodyStale();
+		modGhostMarkMenuCharacterStale();
 		break;
 	case MENUOP_CHECKPREFOCUSED:
 		mpCharacterBodyMenuHandler(operation, item, data, body, head, true);
@@ -337,7 +337,7 @@ static MenuItemHandlerResult menuhandlerCiCharacterHead(s32 operation, struct me
 
 	if (operation == MENUOP_SET) {
 		g_ModCiHead = data->carousel.value + 1;
-		modGhostMarkInstituteBodyStale();
+		modGhostMarkMenuCharacterStale();
 	}
 
 	return mpCharacterHeadMenuHandler(operation, item, data, head, true);

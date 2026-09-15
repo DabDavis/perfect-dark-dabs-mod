@@ -287,22 +287,24 @@ extern s32 g_ModGhostMaxRacers;
 s32 modGhostBodyDefaultHead(s32 mpbody);
 
 /**
- * Who the player walks the Carrington Institute as, stored the way the trial
- * character is (Combat Simulator body and head index plus one, zero for
+ * Who the player is outside the Combat Simulator - the Carrington Institute,
+ * solo missions, Joanna's side of co-op and counter-op - stored the way the
+ * trial character is (Combat Simulator body and head index plus one, zero for
  * Joanna), and chosen from the Perfect Menu's Customize Character. Kept apart
  * from the trial character, which belongs to the signed-in ghost account.
+ * The names and pd.ini keys still say Institute, where it started.
  */
 extern s32 g_ModCiBody;
 extern s32 g_ModCiHead;
 
-// The Institute character, for the solo player in the Institute only.
-bool modGhostInstituteCharacterApplies(void);
-bool modGhostGetInstituteCharacter(s32 *bodynum, s32 *headnum);
+// The Customize Character pick, for whichever player would otherwise be Joanna.
+bool modGhostMenuCharacterApplies(void);
+bool modGhostGetMenuCharacter(s32 *bodynum, s32 *headnum);
 
 // Asks playerTickChrBody() to take the player's body down and build it again,
 // so a character picked from the Perfect Menu is worn when the menu closes.
-void modGhostMarkInstituteBodyStale(void);
-bool modGhostTakeInstituteBodyStale(void);
+void modGhostMarkMenuCharacterStale(void);
+bool modGhostTakeMenuCharacterStale(void);
 
 bool modGhostIsChr(struct chrdata *chr);
 s32 modGhostGetAlpha(void);

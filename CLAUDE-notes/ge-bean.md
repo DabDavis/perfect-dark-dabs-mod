@@ -213,9 +213,14 @@ Solo Missions) opens `g_CiCharacterMenuDialog` (ghostmenu.c), the trial
 page's carousels over `g_ModCiBody`/`g_ModCiHead` (`Mod.InstituteCharacter`,
 `Mod.InstituteCharacterHead`; body index plus one, 0 = Joanna). It is kept apart
 from the trial character, which ghostnet.c swaps with the signed-in account.
-`playerChooseBodyAndHead()` takes it for the solo player on `STAGE_CITRAINING`
-(`modGhostGetInstituteCharacter()`), with a private head copy as a trial gets.
-Every change raises `modGhostMarkInstituteBodyStale()`, which
+`playerChooseBodyAndHead()` takes it (`modGhostGetMenuCharacter()`) for whoever
+would be Joanna outside the Combat Simulator - the Institute, solo missions, and
+since 2026-09-15 Joanna's side of co-op and counter-op (not Velvet, not the
+counter-operative; a trial's own character still comes first). It goes ahead of
+the disguise outfits and the Elvis cheat, as the trial character does. The head
+is a private copy that is **not** stored back into `g_HeadsAndBodies[].modeldef`
+outside multiplayer and a trial, since a mission's guards share that one.
+Every change raises `modGhostMarkMenuCharacterStale()`, which
 `playerTickChrBody()` takes beside the spectator's mark, so the body is rebuilt
 live without a reload. `MODGHOST_MAXBODIES` and `Mod.GhostCharacter`'s clamp
 went from 64/61 to `MAX_MPBODIES`. Past the old table the default head was

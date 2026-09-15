@@ -283,36 +283,46 @@ s32 g_ModCiHead = MODGHOST_BODY_DEFAULT;
 static bool g_ModCiBodyStale = false;
 
 /**
- * Whether the Institute character is who the player is right now: the solo
- * player walking the Carrington Institute. Not a mission, where Joanna is who
- * you are, and not a trial, which has a character of its own.
+ * Whether the Customize Character pick is who the current player is: anyone
+ * who would otherwise be Joanna - in the Institute, a solo mission, or Joanna's
+ * side of co-op and counter-op. Not Velvet, not the counter-operative, who
+ * wear what the game gives them, and not the Combat Simulator, which has its
+ * own picker. A trial asks its own character first (playerChooseBodyAndHead()).
  */
-bool modGhostInstituteCharacterApplies(void)
+bool modGhostMenuCharacterApplies(void)
 {
-	return g_Vars.stagenum == STAGE_CITRAINING
-		&& !g_Vars.normmplayerisrunning
-		&& g_Vars.coopplayernum < 0
-		&& g_Vars.antiplayernum < 0
-		&& g_ModCiBody > MODGHOST_BODY_DEFAULT;
+	if (g_Vars.normmplayerisrunning || g_ModCiBody <= MODGHOST_BODY_DEFAULT) {
+		return false;
+	}
+
+	if (g_Vars.coopplayernum >= 0 && g_Vars.currentplayer == g_Vars.coop) {
+		return false;
+	}
+
+	if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.anti) {
+		return false;
+	}
+
+	return true;
 }
 
-bool modGhostGetInstituteCharacter(s32 *bodynum, s32 *headnum)
+bool modGhostGetMenuCharacter(s32 *bodynum, s32 *headnum)
 {
-	if (!modGhostInstituteCharacterApplies()) {
+	if (!modGhostMenuCharacterApplies()) {
 		return false;
 	}
 
 	return modGhostResolveCharacter(g_ModCiBody, g_ModCiHead, bodynum, headnum);
 }
 
-void modGhostMarkInstituteBodyStale(void)
+void modGhostMarkMenuCharacterStale(void)
 {
 	g_ModCiBodyStale = true;
 }
 
-bool modGhostTakeInstituteBodyStale(void)
+bool modGhostTakeMenuCharacterStale(void)
 {
-	bool stale = g_ModCiBodyStale && g_Vars.stagenum == STAGE_CITRAINING;
+	bool stale = g_ModCiBodyStale && !g_Vars.normmplayerisrunning;
 
 	g_ModCiBodyStale = false;
 
