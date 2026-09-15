@@ -389,6 +389,13 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   model at 4.7x around the same origin (SKEL_TOP bind = 4.7 x the root group).
   GoldenEye's weapon stats view positions do not map onto PD's by the matrix
   scale (checked on the PPK pair), so they are not used.
+- **The rocket launcher keeps its own size** (`fpGrip` with a scale): its host
+  is half its length and its box is longer than the gun - the muzzle bone binds
+  at z 1489 and geometry runs to 4066, with clumps beyond each end - so the
+  length fit drew it at 0.079, a toy. GoldenEye's units are Perfect Dark's (the
+  Klobb, KF7 and ZMG all fit at 0.213 = 1/4.7, Bean's scale), so it is drawn at
+  1/4.7 from the grip under the tube ((-102, -808, -588) in Bean's units, the
+  vertices below y -400 between z -1000 and -300).
 - **The Golden Gun is tinted** (`fpTint`, `beanShadeTint()`): its two gun
   pictures (`texture_gold_file521/522` in the pool) are near-white scratch and
   shine maps, and the gold is a 256x256 reflection map (`texture_file523`) on
@@ -406,15 +413,16 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   kill the player mid-survey otherwise), against the same run with the host's
   model: right for PP7 and silenced, DD44, Klobb, KF7 Soviet, ZMG, D5K and
   silenced, Phantom, AR33, RC-P90, Shotgun, Automatic Shotgun, Cougar, Grenade
-  Launcher. A change to the build that "changes nothing on screen" is a sign the
+  Launcher, sniper rifle, Golden Gun and rocket launcher. A change to the build that "changes nothing on screen" is a sign the
   thing on screen is not where the build thinks - shift every vertex by a fixed
   amount (a temporary env var) before theorising; that found the PP7.
 - **Not yet** (`fpReady` 0, the host's model): the muzzle part's rest
   (`MODELPART_GUN_MUZZLEPOS`) does not tell which way a gun points (it turned
   the shotgun wrongly). The sniper rifle's "turned" was the root-matrix fit and
-  went with it. The Golden Gun's white is its second-sampler gold (above). The the **rocket launcher** is shrunk to
-  0.079 by its host's length, and the Moonraker, knives, grenade and mines were
-  not seen (no ammo given in the survey).
+  went with it, the Golden Gun's white is its second-sampler gold and the rocket
+  launcher's size its host's length (all above). What is left is the **Moonraker,
+  the knives, the grenade and the mines**, which no survey has seen: they were
+  given no ammo, so the player held nothing.
 - **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock
   geometry under it.
 
@@ -425,9 +433,8 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   character; it could move to the model load beside the unpack.
 - Everything else the plan named: character select from the GE ROM's models,
   props, levels.
-- The guns (sections above): the first-person guns not in `fpReady` yet (sniper
-  rifle, Golden Gun, rocket launcher; Moonraker, knives, grenade and
-  mines unchecked); Bean's moving parts on their own matrices where the host
+- The guns (sections above): the first-person guns not in `fpReady` yet (the
+  Moonraker, knives, grenade and mines, none of them ever seen); Bean's moving parts on their own matrices where the host
   has one (every surveyed gun's bones landed on the body's); GoldenEye's stats (decomp
   `obseg/gun/*/gunWeaponStat.inc.c`) instead of the host's; floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their

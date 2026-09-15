@@ -308,8 +308,8 @@ static s32 fpSlot[ARRAYCOUNT(fpRows)];
  * Which first-person guns are drawn from Bean: those checked on screen against
  * their host's (2026-09-15, a 25-gun survey). The rest keep the host's model -
  * GoldenEye's name, pickup and third-person gun still their own - until each is
- * made right: the rocket launcher is shrunk by its host's length, and the
- * Moonraker, knives, grenade and mines were not seen.
+ * made right: the Moonraker, knives, grenade and mines were not seen (the
+ * survey gave them no ammo).
  */
 static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
@@ -329,6 +329,7 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 1,
 };
 
 /**
@@ -356,6 +357,7 @@ static const char *const fpFitSource[ARRAYCOUNT(fpRows)] = {
 struct fpgrip {
 	s32 set;
 	f32 pos[3];
+	f32 scale;  // 0 to keep the fit along the barrel
 };
 
 #define FP_PALM_MTX 2
@@ -363,7 +365,15 @@ struct fpgrip {
 static const f32 fpGripFromPalm[3] = { 65.8f, -74.9f, 34.5f };
 
 static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
-	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = { 1, { 0.0f, -273.0f, -590.0f } },
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = { 1, { 0.0f, -273.0f, -590.0f }, 0.0f },
+
+	// GoldenEye's launcher is a long tube on a host half its length, and its
+	// box is longer still - the muzzle bone binds at z 1489 and geometry runs
+	// to 4066 - so fitting it drew a toy (scale 0.079). Bean's guns are
+	// GoldenEye's models at 4.7x and GoldenEye's units are Perfect Dark's
+	// (the Klobb, KF7 and ZMG all fit at 0.213), so it is drawn at its own
+	// size from the grip under the tube.
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 1, { -102.0f, -808.0f, -588.0f }, 1.0f / 4.7f },
 };
 
 /**
@@ -3582,6 +3592,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	// A gun placed by its grip: that point of Bean's gun onto the hand's
 	if (fpGrip[fp].set && FP_PALM_MTX < nummatrices && rig.hasrest[FP_PALM_MTX]) {
+		if (fpGrip[fp].scale > 0.0f) {
+			scale = fpGrip[fp].scale;
+		}
+
 		for (s32 a = 0; a < 3; a++) {
 			beanc[a] = fpGrip[fp].pos[a];
 			hostc[a] = rig.rest[FP_PALM_MTX][a] + fpGripFromPalm[a];
