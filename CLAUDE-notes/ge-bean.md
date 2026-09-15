@@ -376,6 +376,19 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   Live lists are segment 5 offsets into `gundl.baseaddr` **with bit 0 set**
   once textures are rewritten - strip it before masking, or every command reads
   a byte out of step (it did, in gdb, and showed no `G_MTX` at all).
+- **A gun not the host's shape is placed by its grip** (`fpGrip`): every PD
+  first-person model carries the hand skeleton and hangs the gun off the palm
+  (matrix 2, rest (0, -20.4, -74.1) in both the PP9i and the sniper rifle; the
+  gun's matrix 33 is the palm's child), so the hand closes on the same spot of
+  every gun. That spot, (65.8, -74.9, 34.5) from the palm, was measured on the
+  PP7 (its grip, the gun picture's vertices below y -300, mapped through its
+  fit). The sniper rifle's grip, (0, -273, -590) in Bean units, goes there.
+  Centred on its bullpup host instead, the long bolt-action sat across the
+  right of the screen with the hand in front of it. GoldenEye's own sniper has
+  no hand skeleton (two groups) and showed no hand; Bean's is GoldenEye's N64
+  model at 4.7x around the same origin (SKEL_TOP bind = 4.7 x the root group).
+  GoldenEye's weapon stats view positions do not map onto PD's by the matrix
+  scale (checked on the PPK pair), so they are not used.
 - **Silenced guns are measured on their plain twin** (`fpFitSource`): Bean's
   `ppksilenced`/`mp5ksilenced` are `ppk`/`mp5k` in the same place plus one more
   512x512 picture, the silencer, in front of the muzzle; the hosts have none, so
@@ -390,8 +403,8 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   amount (a temporary env var) before theorising; that found the PP7.
 - **Not yet** (`fpReady` 0, the host's model): the muzzle part's rest
   (`MODELPART_GUN_MUZZLEPOS`) does not tell which way a gun points (it turned
-  the shotgun wrongly). The **sniper rifle** is
-  turned, the **Golden Gun** draws white, the **rocket launcher** is shrunk to
+  the shotgun wrongly). The sniper rifle's "turned" was the root-matrix fit and
+  went with it. The **Golden Gun** draws white, the **rocket launcher** is shrunk to
   0.079 by its host's length, and the Moonraker, knives, grenade and mines were
   not seen (no ammo given in the survey).
 - **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock

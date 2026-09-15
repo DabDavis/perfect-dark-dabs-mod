@@ -308,9 +308,9 @@ static s32 fpSlot[ARRAYCOUNT(fpRows)];
  * Which first-person guns are drawn from Bean: those checked on screen against
  * their host's (2026-09-15, a 25-gun survey). The rest keep the host's model -
  * GoldenEye's name, pickup and third-person gun still their own - until each is
- * made right: the sniper rifle is turned, the Golden Gun is untextured, the
- * rocket launcher is shrunk by its host's length, and the Moonraker, knives,
- * grenade and mines were not seen.
+ * made right: the Golden Gun is untextured, the rocket launcher is shrunk by
+ * its host's length, and the Moonraker, knives, grenade and mines were not
+ * seen.
  */
 static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
@@ -326,6 +326,7 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
 };
@@ -340,6 +341,29 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 static const char *const fpFitSource[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = "gun/ppk",
 	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = "gun/mp5k",
+};
+
+/**
+ * Where the hand closes on a gun that is not the host's shape, in Bean's
+ * units: the gun is placed by it rather than centred on the host's lists.
+ * Every host carries the hand's skeleton and hangs the gun off the palm
+ * (matrix 2), so the same point of the hand grips every gun; the offset from
+ * the palm to it was measured on the PP7, which the centring lays right (the
+ * middle of its grip lands there). The sniper rifle is a bolt-action with its
+ * grip far back on a bullpup host, whose centre put it across the screen to
+ * the right with the hand in front of it.
+ */
+struct fpgrip {
+	s32 set;
+	f32 pos[3];
+};
+
+#define FP_PALM_MTX 2
+
+static const f32 fpGripFromPalm[3] = { 65.8f, -74.9f, 34.5f };
+
+static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = { 1, { 0.0f, -273.0f, -590.0f } },
 };
 
 // Each copy's first-person file as geguns.c made it - its host's - before
@@ -3515,6 +3539,14 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	for (s32 a = 0; a < 3; a++) {
 		hostc[a] = (hostlo[a] + hosthi[a]) * 0.5f;
 		beanc[a] = (beanlo[a] + beanhi[a]) * 0.5f;
+	}
+
+	// A gun placed by its grip: that point of Bean's gun onto the hand's
+	if (fpGrip[fp].set && FP_PALM_MTX < nummatrices && rig.hasrest[FP_PALM_MTX]) {
+		for (s32 a = 0; a < 3; a++) {
+			beanc[a] = fpGrip[fp].pos[a];
+			hostc[a] = rig.rest[FP_PALM_MTX][a] + fpGripFromPalm[a];
+		}
 	}
 
 	// Each bone onto the nearest host matrix with a visible list, within 30
