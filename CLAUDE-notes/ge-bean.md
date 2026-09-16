@@ -347,9 +347,8 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   points a copy's `hi_model` at an alias `Gge*Z` of its host's first-person file
   (the host's file is remembered before the first change) - only for the guns
   in `fpReady`, the ones checked on screen. The archive filter takes
-  `files/new/gun/` (`.extracted4`). HD look only: Bean's N64-look guns have the
-  hand in untextured geometry, and with the meshes off the host's own model
-  draws, which for the classic guns is GoldenEye's N64 gun already.
+  `files/new/gun/` and, since 2026-09-16, `files/original/gun/` (`.extracted5`).
+  Both looks, one row: the section below is what the N64 one needed.
 - **What is left out**: the hand is the one 512x511 picture in a gun that has
   one (pistols, knives); **Bean's muzzle flashes** are 32x32 sprites on the
   muzzle bones that Bean switches itself - here they drew always, and they
@@ -440,6 +439,95 @@ model's matrices, so the hand goes and the gun is put on the host's model:
   placement is not solved (above).
 - **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock
   geometry under it.
+
+## The guns follow F6 too (2026-09-16)
+
+A GoldenEye gun stands on a Perfect Dark weapon, so with the release's meshes
+off there was no GoldenEye model underneath to fall back to - the PP7 became
+the PP9i again. It now draws Bean's `files/original/gun/<name>`, GoldenEye's own
+N64 gun, the way a Combat Simulator pool character draws its N64-look original:
+the same rows, the same fit, one more look. `gebeanRowIsFirstPerson()` joins
+`gebeanRowIsPool()` in the `frombean` test in xblamesh.c, and
+`xblaMeshSetEnabled()` calls `gebeanMeshesSwitched()` so the hands follow the
+key.
+
+The N64 files needed four things the HD ones never showed. All four were found
+by walking and rendering every gun offline before any of it was written, and
+each one is checked against **every** character, head, pickup and gun of both
+looks rather than against the file that showed it.
+
+- **The draw record's fourth word is a piece number, not a flag.** `0x30` holds
+  a draw and a piece: 0 is the model, and the rest are what Rare kept apart to
+  move on their own. The heads' pieces 1 and 2 are sunglasses and are left out,
+  which is where the old "flag 0 only" rule came from; a gun file's are its
+  hand, its forearm and its working parts - the shotgun's pump, the uzi's bolt
+  - which are the model as much as the barrel is. `bm->keepparts` (set for a
+  gun file, clear for a character or a pickup) decides. Reading them as flags
+  drew the PP7 with no hand and its muzzle flash always lit.
+- **A material's inputs are counted by the record's size.** The count in the
+  header says one, and the N64 files' materials carry four: two values that are
+  not textures at all (they run past the file's last one on most guns), the
+  same picture in every material of the file, and the material's own at the
+  last slot. That shape - four inputs at slots 0 to 3, the first two from
+  sampler 0, the third from sampler 1 and the last from 2 or more - is
+  GoldenEye's own and nothing else in the release is shaped that way. Over the
+  3023 materials of both looks it moves the guns, their pickups and one
+  N64-look head (`headbike`, which drew untextured), and leaves every other
+  answer where it was. The size rule (biggest, last of equals) still decides
+  the rest: reading the last slot everywhere repainted Boris and the pilot in a
+  54x54 detail map.
+- **The bone names include the `BEAN_END` markers.** They are pose bones like
+  any other and stand among the `SKEL_` names in a gun file, so a list of the
+  `SKEL_` ones alone slid every name past the first of them - which put
+  SKEL_FLASH on the slide. No character or head file puts a marker before its
+  last `SKEL_` name, so the list is unchanged for all 160 of them.
+- **The muzzle flash is found by its bones.** GoldenEye hangs its painted flash
+  off SKEL_MUZZLE, SKEL_FLASH and SKEL_EXTRAFLASH, and a draw bound to nothing
+  else is the flash: 4 draws on most guns, 8 on the KF7, 11 on the ZMG, none on
+  the knives, the grenade, the mines, the sniper rifle or the launcher, which
+  have no such geometry. The barrel cap that closes the sniper rifle - the one
+  flat quad at the end of a gun that is *not* a flash - is on SKEL_TOP with the
+  rest. The HD look keeps its own rule (a picture of 64 or less), which is no
+  use in a file whose every picture is an N64 texture.
+
+And the rest of it:
+
+- **The hand is drawn and Perfect Dark's come off**, for the seven files that
+  carry GoldenEye's glove - the six pictures `beanGloveTextures` names, on the
+  pistols and the knives (`fpN64Glove`). GoldenEye drew the gun and the hand
+  holding it as one model. The other eighteen keep whatever the HD look does
+  with their host's hands: GoldenEye shows no hands on the rifles and the
+  launchers, but something has to hold a grenade and a mine.
+- **The fit is measured on the gun alone**, glove pictures left out, the way
+  the HD look leaves out its one 512x511 hand picture. Measured that way the
+  two looks' boxes agree within a few percent on all twenty-five (the PP7's
+  140/647/910 against 144/692/895), so a gun is in the same place in both and
+  everything fitted for the release's guns - the grips, the tints, the turns -
+  carries over untouched. The scales come out 0.188 against 0.191 on the PP7,
+  0.213 against 0.211 on the AR33.
+- **A draw collapsed to a point is left out.** The N64 files carry pieces
+  GoldenEye moves into place as it fires; the KF7's is 760 triangles in a
+  two-unit box 1574 units to the side. They draw nothing where they sit and
+  stretched the box the gun is scaled by (the KF7's x from 187 to 1663).
+- **The muzzle offset is per look** (`fpMuzzle[2]`), since the two guns are
+  different shapes and end in different places, and a mesh is built once per
+  look and then kept: whichever was built last was otherwise the one every shot
+  came out of.
+- **The throwing knife needs the hunting knife's turn in the N64 look**
+  (`fpAxisN64`). Rare authored the release's throwing knife 180 degrees from
+  its hunting knife, which is why `fpGrip` turns the two opposite ways; the
+  N64-look pair are both authored the way the hunting knife is, so the
+  release's turn hung the knife point-down from a hand above the blade. It is
+  the only gun where the looks differ this way.
+- **Checked** on 0x32 with all twenty-five equipped in turn in both looks
+  (`--boot-stage 0x32 --mpsims 0 --fixed-step`, gdb equipping each and
+  screenshotting 80 frames later - 45 was not enough for the raise animation
+  and photographed an empty screen). Every gun builds and draws, the two looks
+  stand in the same place, F6 swaps them mid-level and back with the hands
+  following, and the Windows build passes. What was **not** seen on screen:
+  a gun's pickup in the N64 look, which the same material fix repaints - it
+  was drawing untextured before and nothing was made worse, but a floor pickup
+  is still on the "still to do" list below.
 
 ## GoldenEye's stats on GoldenEye's guns (2026-09-15)
 

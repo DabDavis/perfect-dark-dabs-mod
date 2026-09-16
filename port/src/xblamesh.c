@@ -9003,8 +9003,14 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// moves it with everything else: Bean's HD character with them on, and
 	// with them off the N64-look original Bean shipped beside it - except on
 	// GoldenEye X, whose own model is GoldenEye's N64 one and draws itself.
+	//
+	// A GoldenEye gun in the hand is drawn in both looks for the same reason
+	// its pickup is (gebeanRowIsPool()): it stands on a Perfect Dark weapon,
+	// so with the meshes off there is no GoldenEye model underneath to fall
+	// back to - only the PP9i the PP7 is held beside.
 	frombean = !frompack && !havemesh && e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
-			&& gebeanGetEnabled() && (optEnabled || gebeanRowIsPool(e->beanrow));
+			&& gebeanGetEnabled() && (optEnabled || gebeanRowIsPool(e->beanrow)
+				|| gebeanRowIsFirstPerson(e->beanrow));
 
 	if (!frompack && !havemesh && !frombean) {
 		return 0;
@@ -10486,6 +10492,9 @@ void xblaMeshSetEnabled(s32 enabled)
 	// The rooms follow this switch (xblastage.h), and unlike the models they
 	// are not matched at the draw: the ones loaded so far have to go
 	xblaStageSwitched();
+
+	// And GoldenEye's guns, whose hands are on or off with the look
+	gebeanMeshesSwitched();
 }
 
 s32 xblaMeshModelsAreLate(void)

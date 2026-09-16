@@ -92,6 +92,15 @@ s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
  */
 void gebeanPoolRefresh(void);
 
+/**
+ * The release's meshes moved (F6). GoldenEye's guns follow that switch as its
+ * characters do - the release's gun with the meshes on, GoldenEye's own N64
+ * one with them off - and what has to move with it rather than at the draw is
+ * whether Perfect Dark's hands are drawn, since the N64 gun carries
+ * GoldenEye's own.
+ */
+void gebeanMeshesSwitched(void);
+
 /** The Combat Simulator name of a pool body's g_HeadsAndBodies row, or NULL. */
 const char *gebeanPoolBodyName(s32 bodynum);
 

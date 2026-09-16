@@ -46,16 +46,17 @@
 #define GEBEAN_CACHE_DIR "cache"
 // Written once an archive's characters are out. The first one (".extracted")
 // was written when only new/ was taken, the second (".extracted2") before the
-// guns' pickups were and the third (".extracted3") before their first-person
-// models were, so a cache holding any of them is unpacked again.
-#define GEBEAN_DONE_FILE ".extracted4"
+// guns' pickups were, the third (".extracted3") before their first-person
+// models were and the fourth (".extracted4") before the N64-look guns were, so
+// a cache holding any of them is unpacked again.
+#define GEBEAN_DONE_FILE ".extracted5"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
 // the characters and heads, where Rare put them - the HD ones in new/, and in
-// original/ the N64-look ones Bean switched to, under the same names - and the
-// guns' pickups, which Bean keeps among the props as chr<gun>. The rest of the
-// archive is levels, first-person guns and music.
+// original/ the N64-look ones Bean switched to, under the same names - the
+// guns' pickups, which Bean keeps among the props as chr<gun>, and the guns
+// themselves, both looks. The rest of the archive is levels and music.
 #define GEBEAN_TREE "files/new/char"
 #define GEBEAN_WANT_CHARS "files/new/char/"
 #define GEBEAN_WANT_HEADS "files/new/head/"
@@ -64,6 +65,7 @@
 #define GEBEAN_WANT_PICKUPS "files/new/prop/chr"
 #define GEBEAN_WANT_ORIGINAL_PICKUPS "files/original/prop/chr"
 #define GEBEAN_WANT_GUNS "files/new/gun/"
+#define GEBEAN_WANT_ORIGINAL_GUNS "files/original/gun/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -264,12 +266,14 @@ static s32 gunSlot[ARRAYCOUNT(gunRows)];
 
 /**
  * GoldenEye's first-person guns: each copy's hi_model is an alias of its
- * host's first-person model (gebeanGunsRefresh()), on which Bean's gun - less
- * its hand, since Perfect Dark's own hand model is drawn with the gun - is
- * skinned to the host's matrices (gebeanBuildFirstPerson()). Only in the
- * release's look: Bean's N64-look guns have the hand in their geometry, and
- * with the meshes off the host's own model draws, which for the classic guns
- * is GoldenEye's N64 gun already.
+ * host's first-person model (gebeanGunsRefresh()), on which Bean's gun is
+ * skinned to the host's matrices (gebeanBuildFirstPerson()).
+ *
+ * In both looks. The release's gun is drawn less its hand, since Perfect
+ * Dark's own hand model is drawn with the gun; GoldenEye's N64 one is drawn
+ * with the hand it has - the gun and the glove holding it are one model there
+ * - and Perfect Dark's hands come off for it. Either way the gun is fitted to
+ * the host on the gun alone, so the two looks stand in the same place.
  */
 #define GEBEAN_FIRSTPERSON 5
 
@@ -318,6 +322,26 @@ static const u8 fpNoHands[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 1,
+};
+
+/**
+ * The guns GoldenEye drew a hand on, which is the seven N64-look files that
+ * carry its glove (beanGloveTextures): the pistols and the knives. Their
+ * N64-look model holds itself, so Perfect Dark's hands come off for it.
+ *
+ * The rest are drawn with no hand at all in GoldenEye - the rifles, the
+ * launchers - but keep whatever the HD look does with their host's hands,
+ * since something has to hold a grenade and a mine, and a hand posed on
+ * Perfect Dark's own gun is the nearest thing there is.
+ */
+static const u8 fpN64Glove[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 1,
 };
 
 /**
@@ -442,6 +466,21 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 };
 
 /**
+ * A turn the N64-look file needs and the release's does not.
+ *
+ * Rare authored the release's throwing knife pointing the other way from its
+ * hunting knife - the two files are the same size and 180 degrees apart, which
+ * is why the mirrored turn above fits it - and the N64-look pair are both
+ * authored the way the hunting knife is. With the release's turn the N64
+ * throwing knife hung point down from a hand above the blade; with the hunting
+ * knife's it is held the way GoldenEye holds it. Nothing else differs between
+ * the looks this way.
+ */
+static const s8 fpAxisN64[ARRAYCOUNT(fpRows)][3] = {
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 2, -1, 3 },
+};
+
+/**
  * A colour a gun's vertices are drawn with (ARGB, 0 for their own). Bean's
  * Golden Gun is two near-white pictures, a scratch map and a shine map
  * (texture_gold_file521/522), which its shader lays under a 256x256 gold
@@ -469,9 +508,13 @@ static u16 fpHostFile[ARRAYCOUNT(fpRows)];
  * happen - with the release's meshes off, the host's own model draws and its
  * own node is right again.
  */
-static f32 fpMuzzle[ARRAYCOUNT(fpRows)][3];
-static s16 fpMuzzlePart[ARRAYCOUNT(fpRows)];
-static u8 fpMuzzleSet[ARRAYCOUNT(fpRows)];
+// One per look (0 the release's gun, 1 its N64-look original), since the two
+// are different shapes and end in different places, and a mesh is built once
+// per look and then kept: whichever was built last would otherwise be the one
+// every shot came out of.
+static f32 fpMuzzle[2][ARRAYCOUNT(fpRows)][3];
+static s16 fpMuzzlePart[2][ARRAYCOUNT(fpRows)];
+static u8 fpMuzzleSet[2][ARRAYCOUNT(fpRows)];
 
 /** A row of any table: GoldenEye X's first, then the pool's, then the guns'. */
 static const struct gebeanrow *gebeanRowAt(s32 row)
@@ -542,6 +585,19 @@ const char *gebeanPoolBodyName(s32 bodynum)
 }
 
 /**
+ * Which look the guns are in: 0 the release's, 1 GoldenEye's N64 one. Like the
+ * characters', it follows the release's meshes, so F6 moves the guns with
+ * everything else - and unlike a character's, whose N64 look is its own
+ * GoldenEye X model when there is one, a gun's is always Bean's
+ * files/original/, since the weapon is Perfect Dark's own and its host's model
+ * is a Perfect Dark gun.
+ */
+static s32 gebeanGunsAreN64(void)
+{
+	return !xblaMeshGetEnabled();
+}
+
+/**
  * GoldenEye's guns (geguns.c): their Combat Simulator rows are shown, and
  * each one's model state is an alias of its host's pickup that the release's
  * pickup is drawn on, when the switch is on, a copy is in xbla/ and the weapon
@@ -605,10 +661,12 @@ static void gebeanGunsRefresh(void)
 			}
 		}
 
-		// And the host's hands, on or off with the model they hold
+		// And the host's hands, on or off with the model they hold. A gun
+		// GoldenEye drew a hand on takes them off in the N64 look, since the
+		// hand is in the model there (fpN64Glove).
 		g_GeWeaponDefs[i].flags &= ~WEAPONFLAG_HASHANDS;
 
-		if (!fpSlot[i] || !fpNoHands[i]) {
+		if (!fpSlot[i] || !(fpNoHands[i] || (gebeanGunsAreN64() && fpN64Glove[i]))) {
 			g_GeWeaponDefs[i].flags |= g_Weapons[g_GeWeaponHosts[i]]->flags & WEAPONFLAG_HASHANDS;
 		}
 	}
@@ -617,6 +675,16 @@ static void gebeanGunsRefresh(void)
 		sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye guns in the Combat Simulator's weapons, %d with the release's pickup",
 				ARRAYCOUNT(gunRows), shown);
 	}
+}
+
+/**
+ * The release's meshes were switched (F6), and the guns' hands follow the look
+ * they are drawn in. The meshes themselves need nothing: each one is built
+ * once per look and kept, and what draws is decided at the draw.
+ */
+void gebeanMeshesSwitched(void)
+{
+	gebeanGunsRefresh();
 }
 
 void gebeanPoolRefresh(void)
@@ -896,7 +964,7 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 	return strstr(lower, GEBEAN_WANT_CHARS) != NULL || strstr(lower, GEBEAN_WANT_HEADS) != NULL
 		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL
 		|| strstr(lower, GEBEAN_WANT_PICKUPS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_PICKUPS) != NULL
-		|| strstr(lower, GEBEAN_WANT_GUNS) != NULL;
+		|| strstr(lower, GEBEAN_WANT_GUNS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_GUNS) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -1516,6 +1584,13 @@ struct beanmodel {
 	s32 numbones;
 	s8 skel[BEAN_MAXBONES];      // SK_* per pose bone, or -1
 	f32 bind[BEAN_MAXBONES][3];  // absolute
+	// A bone at or below SKEL_MUZZLE, SKEL_FLASH or SKEL_EXTRAFLASH: what
+	// GoldenEye hangs its painted muzzle flash off (beanDrawIsFlash())
+	u8 muzzlebone[BEAN_MAXBONES];
+	// Whether the pieces numbered past 0 are taken. A gun file keeps its
+	// hand and its working parts there and wants them; a head keeps
+	// sunglasses there and does not.
+	s32 keepparts;
 
 	s32 numremap;
 	u16 remap[BEAN_MAXPAL];      // palette number -> pose bone
@@ -1815,31 +1890,67 @@ static u32 beanTexArea(const struct beanmodel *bm, u32 t)
 }
 
 /**
- * Which of a material's textures is the gun's own picture. A material lists
- * one (index, sampler) pair per texture after its count, and a second is an
- * environment map the release's shader lays over the first - but the two are
- * not in a fixed order: the Golden Gun's gold sphere map comes first and its
- * pictures second, the knife's picture first and its sphere map second. The
- * picture is the bigger of them every time (512x512 against 256x256 or less),
- * so the largest is taken, and the last of equals. Reading the second always
- * painted both knives in a cloudy sphere map.
+ * Which of a material's textures is the model's own picture.
+ *
+ * A material lists one entry per input after its header, eight bytes each: a
+ * value, then the slot it fills and the sampler it fills it from. The record's
+ * size says how many there are; the count in the header does not, and reading
+ * it that way saw one entry of the four an N64-look gun's material carries.
+ *
+ * Most hold one or two, and where there are two the second is an environment
+ * map the release's shader lays over the picture - but the two are not in a
+ * fixed order: the Golden Gun's gold sphere map comes first and its pictures
+ * second, the knife's picture first and its sphere map second. The picture is
+ * the bigger of them every time (512x512 against 256x256 or less), so the
+ * largest is taken, and the last of equals.
+ *
+ * GoldenEye's own models - the N64-look guns, their pickups, one N64-look head
+ * - hold four, in one shape: slots 0 to 3, the first two filled from sampler
+ * 0, the third from sampler 1 and the last from 2 or more. Size cannot choose
+ * between pictures that are all 64x32 or smaller, and the first three are the
+ * same in every material of the file (two of them are not even textures, and
+ * run past the file's last one on most guns); the fourth is the material's
+ * own. That shape is the picture's, and nothing else in the release is shaped
+ * that way: across the 3023 materials of every character, head, pickup and gun
+ * of both looks it moves the guns, their pickups and that head, and leaves
+ * every other answer exactly as it was.
  */
 static u32 beanMaterialTexture(const struct beanmodel *bm, const u8 *st, u32 pc, u32 size, u32 len)
 {
-	const u32 count = size >= 12 ? gebeanBE32(st + pc + 8) >> 16 : 0;
+	static const u16 gesamplers[4] = { 0, 0, 1, 2 };
+	const u32 count = size >= 20 ? (size - 12) / 8 : 0;
+	u32 value[4] = { 0, 0, 0, 0 };
 	u32 best = 0;
 	u32 bestarea = 0;
+	u32 read = 0;
 	s32 found = 0;
+	s32 geshape = count == 4;
 
-	for (u32 k = 0; k < count && gebeanFits(pc + 12 + 8 * k, 4, len) && 12 + 8 * k + 4 <= size; k++) {
+	for (u32 k = 0; k < count && gebeanFits(pc + 12 + 8 * k, 8, len) && 12 + 8 * k + 8 <= size; k++) {
 		const u32 t = gebeanBE32(st + pc + 12 + 8 * k);
+		const u32 where = gebeanBE32(st + pc + 16 + 8 * k);
 		const u32 area = beanTexArea(bm, t);
+
+		read = k + 1;
+
+		if (k < ARRAYCOUNT(value)) {
+			value[k] = t;
+
+			if ((where >> 16) != k || (k < 3 ? (where & 0xffff) != gesamplers[k]
+					: (where & 0xffff) < gesamplers[k])) {
+				geshape = 0;
+			}
+		}
 
 		if (!found || area >= bestarea) {
 			found = 1;
 			best = t;
 			bestarea = area;
 		}
+	}
+
+	if (geshape && read == 4 && value[3] < (u32)bm->numtex) {
+		return value[3];
 	}
 
 	return found ? best : 0;
@@ -1939,21 +2050,27 @@ static void beanWalkStream(struct beanmodel *bm)
 
 			memcpy(pal, st + pc + 12, count);
 			numpal = (u8)count;
-		} else if ((type == 0x01 || (type == 0x30 && size >= 20 && gebeanBE32(st + pc + 16) == 0))
-				&& size >= 16 && bm->numdraws < BEAN_MAXDRAWS) {
+		} else if ((type == 0x01 || type == 0x30) && size >= 16 && bm->numdraws < BEAN_MAXDRAWS) {
 			// 0x30 is the originals' other draw: the same three words and a
-			// fourth. The heads' draws marked 1 or 2 are extras over a whole
-			// face - the sunglasses' arms, a stray piece a body's height below
-			// Head B - and only a zero is part of the character.
-			struct beandraw *d = &bm->draws[bm->numdraws++];
+			// fourth, which numbers the piece the draw belongs to. Piece 0 is
+			// the model itself. The heads' pieces 1 and 2 are extras over a
+			// whole face - the sunglasses' arms, a stray piece a body's height
+			// below Head B - and are left out; a gun file's are its hand, its
+			// forearm and its working parts, which are the model as much as
+			// the barrel is, so a gun keeps them (bm->keepparts).
+			const s32 part = type == 0x30 && size >= 20 ? (s32)gebeanBE32(st + pc + 16) : -1;
 
-			d->vb = vb;
-			d->tex = tex;
-			d->prim = gebeanBE32(st + pc + 4);
-			d->count = gebeanBE32(st + pc + 8);
-			d->ib = gebeanBE32(st + pc + 12);
-			d->numpal = numpal;
-			memcpy(d->pal, pal, numpal);
+			if (part <= 0 || bm->keepparts) {
+				struct beandraw *d = &bm->draws[bm->numdraws++];
+
+				d->vb = vb;
+				d->tex = tex;
+				d->prim = gebeanBE32(st + pc + 4);
+				d->count = gebeanBE32(st + pc + 8);
+				d->ib = gebeanBE32(st + pc + 12);
+				d->numpal = numpal;
+				memcpy(d->pal, pal, numpal);
+			}
 		}
 
 		pc += size;
@@ -1969,6 +2086,7 @@ static void beanWalkStream(struct beanmodel *bm)
 static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 {
 	const u8 *d = bm->data;
+	s16 parent[BEAN_MAXBONES];
 	u32 at;
 	u32 count;
 	u32 entries;
@@ -1992,8 +2110,11 @@ static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 
 	for (u32 i = 0; i < count && gebeanFits(entries + 52ull * i, 52, bm->datalen); i++) {
 		const u8 *e = d + entries + 52 * i;
+		const u16 up = gebeanBE16(e + 40);
 
 		bm->skel[i] = -1;
+		bm->muzzlebone[i] = 0;
+		parent[i] = up == 0xffff || up >= count ? -1 : (s16)up;
 
 		for (s32 k = 0; k < 3; k++) {
 			bm->bind[i][k] = gebeanBEF32(e + 12 + k * 4);
@@ -2006,10 +2127,66 @@ static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 					break;
 				}
 			}
+
+			// The flash's own bones. GoldenEye moves its painted flash with
+			// the muzzle and switches it on for the frames a shot is in the
+			// barrel; nothing else in a gun file hangs there, so what is
+			// bound to one of them is the flash and nothing else is
+			// (beanDrawIsFlash()). The barrel's own end cap - the flat quad
+			// that closes the sniper rifle - is on SKEL_TOP with the gun.
+			bm->muzzlebone[i] = strncmp(names[i], "SKEL_MUZZLE", 11) == 0
+				|| strstr(names[i], "FLASH") != NULL;
 		}
 
 		bm->numbones = (s32)i + 1;
 	}
+
+	// And whatever hangs below one of them: the flash quads sit on a bone of
+	// their own under the muzzle's in most of the guns.
+	for (s32 i = 0; i < bm->numbones; i++) {
+		for (s32 up = parent[i], steps = 0; up >= 0 && up < bm->numbones && steps < BEAN_MAXBONES;
+				up = parent[up], steps++) {
+			if (bm->muzzlebone[up]) {
+				bm->muzzlebone[i] = 1;
+				break;
+			}
+		}
+	}
+}
+
+/**
+ * Whether a draw is GoldenEye's own muzzle flash: every bone its palette names
+ * is the muzzle's or one below it. A gun's own geometry is on SKEL_TOP.
+ *
+ * The flash is dropped in both looks - it is painted on, always lit, and the
+ * player asked for it off the guns in the hand - but only the N64 look needs
+ * this test. The HD files' flash pictures are small enough to fall to the rule
+ * that drops the hand's picture, which is no use in a file whose every picture
+ * is an N64 texture.
+ */
+static s32 beanDrawIsFlash(const struct beanmodel *bm, const struct beandraw *d)
+{
+	s32 named = 0;
+
+	for (s32 k = 0; k < d->numpal; k++) {
+		s32 bone = d->pal[k];
+
+		if (bm->numremap && bone < bm->numremap) {
+			bone = bm->remap[bone];
+		}
+
+		if (bone < 0 || bone >= bm->numbones) {
+			continue;
+		}
+
+		if (!bm->muzzlebone[bone]) {
+			return 0;
+		}
+
+		named++;
+	}
+
+	return named > 0;
 }
 
 /**
@@ -2117,7 +2294,12 @@ static void beanFree(struct beanmodel *bm)
 	memset(bm, 0, sizeof(*bm));
 }
 
-static s32 beanLoad(struct beanmodel *bm, const char *source)
+/**
+ * keepparts: whether the pieces a 0x30 draw numbers past 0 are part of the
+ * model (a gun's hand and working parts) or an extra to leave out (a head's
+ * sunglasses). See beanWalkStream().
+ */
+static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 {
 	const char *names[BEAN_MAXBONES];
 	s32 numnames = 0;
@@ -2130,6 +2312,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source)
 	u32 poollen = 0;
 
 	memset(bm, 0, sizeof(*bm));
+	bm->keepparts = keepparts;
 	snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
 
 	fp = fopen(path, "rb");
@@ -2183,14 +2366,20 @@ static s32 beanLoad(struct beanmodel *bm, const char *source)
 		return 0;
 	}
 
-	// The pool names the bones in pose order among its other strings.
+	// The pool names the bones in pose order among its other strings. The
+	// BEAN_END markers are named bones of their own - a gun file's flash
+	// hangs off one - and stand among the SKEL_ names, so a list of the
+	// SKEL_ ones alone slid every name past the first of them. No character
+	// or head file puts one before its last SKEL_ name, so this is the same
+	// list as before for all of those.
 	pool = ipool >= 0 ? caffBlob(c, ipool, &poollen) : NULL;
 
 	for (u32 at = 0; pool && at < poollen && numnames < BEAN_MAXBONES; ) {
 		const u8 *nul = memchr(pool + at, '\0', poollen - at);
 		const u32 end = nul ? (u32)(nul - pool) : poollen;
 
-		if (nul && end - at > 5 && memcmp(pool + at, "SKEL_", 5) == 0) {
+		if (nul && end - at > 5 && (memcmp(pool + at, "SKEL_", 5) == 0
+				|| memcmp(pool + at, "BEAN_", 5) == 0)) {
 			names[numnames++] = (const char *)pool + at;
 		}
 
@@ -3400,7 +3589,7 @@ static u8 *gebeanBuildRigid(s32 gun, s32 original, struct modeldef *modeldef, st
 
 	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", g->row.source);
 
-	if (!gebeanLocate(1) || !beanLoad(&bm, source)) {
+	if (!gebeanLocate(1) || !beanLoad(&bm, source, 0)) {
 		return NULL;
 	}
 
@@ -3635,25 +3824,89 @@ static void fpCloudFree(struct fpcloud *c)
 	c->num = c->cap = 0;
 }
 
-static s32 beanGunExtent(struct beanmodel *bm, u8 *hand, f32 lo[3], f32 hi[3], struct fpcloud *cloud)
+/**
+ * GoldenEye's own glove, the six pictures a gun that shows a hand shares with
+ * every other one: the N64 look draws the hand - it is the model's own
+ * geometry, and Perfect Dark's hands come off for it - but measures the
+ * placement on the gun alone, the way the HD look measures on the gun with its
+ * one 512x511 hand picture left out. Measured that way the two looks' boxes
+ * agree within a few percent on all twenty-five.
+ */
+static const char *const beanGloveTextures[] = {
+	"_0x0317AE05", "_0x04EEA985", "_0x046EA985", "_0x01EEA985", "_0x04DEA985", "_0x0317BE05",
+};
+
+/** A texture's name in the file, which is GoldenEye's own number for it. */
+static const char *beanTextureName(const struct beanmodel *bm, s32 t)
 {
-	s32 numhand = 0;
+	const struct caff *c = &bm->caff;
+	const s32 file = t >= 0 && t < bm->numtex ? bm->texfile[t] : -1;
+
+	return file >= 0 && file < (s32)c->numfiles ? caffAssetName(c, c->files[file].asset) : "";
+}
+
+static s32 beanTextureIsGlove(const struct beanmodel *bm, s32 t)
+{
+	const char *name = beanTextureName(bm, t);
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(beanGloveTextures); i++) {
+		if (strncmp(name, beanGloveTextures[i], strlen(beanGloveTextures[i])) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Which of a gun's draws are drawn and which of those the placement is
+ * measured on, with the box and the points of the second set.
+ *
+ * `drawn` and `fitted` are a byte a draw. What neither takes is GoldenEye's
+ * painted muzzle flash - dropped in both looks, since it is always lit and the
+ * player asked for it off the guns in the hand - and, in the HD files, the
+ * hand: those carry it as one 512x511 picture, and Perfect Dark draws its own
+ * hand model with the gun. What is drawn but not fitted is the N64 look's hand
+ * and forearm.
+ *
+ * Also left out of both: a draw collapsed to a point. The N64 files carry
+ * pieces GoldenEye moves into place as it fires - the AK's is 760 triangles in
+ * a two-unit box 1574 units to the side - which draw nothing where they sit
+ * and would stretch the box the gun is scaled by.
+ */
+static s32 beanGunExtent(struct beanmodel *bm, s32 original, u8 *drawn, u8 *fitted,
+		f32 lo[3], f32 hi[3], struct fpcloud *cloud)
+{
+	u8 hand[GEBEAN_MAXMATS];
+	s32 numleftout = 0;
 
 	for (s32 t = 0; t < bm->numtex && t < GEBEAN_MAXMATS; t++) {
 		s32 w = 0;
 		s32 h = 0;
 
-		hand[t] = beanTextureSize(bm, t, &w, &h) && ((w == 512 && h == 511) || (w <= 64 && h <= 64));
-		numhand += hand[t];
+		hand[t] = original ? beanTextureIsGlove(bm, t)
+			: (beanTextureSize(bm, t, &w, &h) && ((w == 512 && h == 511) || (w <= 64 && h <= 64)));
 	}
 
 	for (s32 di = 0; di < bm->numdraws; di++) {
 		const struct beandraw *d = &bm->draws[di];
+		const s32 isglove = d->tex < GEBEAN_MAXMATS && d->tex < (u32)bm->numtex && hand[d->tex];
 		struct beanvb vb;
+		f32 dlo[3] = { 1e30f, 1e30f, 1e30f };
+		f32 dhi[3] = { -1e30f, -1e30f, -1e30f };
 		u16 *tris;
 		s32 numtris;
+		s32 collapsed;
 
-		if ((d->tex < GEBEAN_MAXMATS && d->tex < (u32)bm->numtex && hand[d->tex]) || !beanReadVb(bm, d->vb, &vb)) {
+		drawn[di] = 0;
+		fitted[di] = 0;
+
+		if (original ? beanDrawIsFlash(bm, d) : isglove) {
+			numleftout++;
+			continue;
+		}
+
+		if (!beanReadVb(bm, d->vb, &vb)) {
 			continue;
 		}
 
@@ -3664,18 +3917,43 @@ static s32 beanGunExtent(struct beanmodel *bm, u8 *hand, f32 lo[3], f32 hi[3], s
 
 			if (beanVertex(bm, &vb, tris[t], &v)) {
 				for (s32 a = 0; a < 3; a++) {
-					if (v.pos[a] < lo[a]) lo[a] = v.pos[a];
-					if (v.pos[a] > hi[a]) hi[a] = v.pos[a];
+					if (v.pos[a] < dlo[a]) dlo[a] = v.pos[a];
+					if (v.pos[a] > dhi[a]) dhi[a] = v.pos[a];
 				}
+			}
+		}
 
-				fpCloudAdd(cloud, v.pos);
+		collapsed = dlo[0] > dhi[0]
+			|| (dhi[0] - dlo[0] < 16.0f && dhi[1] - dlo[1] < 16.0f && dhi[2] - dlo[2] < 16.0f);
+
+		if (collapsed) {
+			free(tris);
+			numleftout++;
+			continue;
+		}
+
+		drawn[di] = 1;
+		fitted[di] = !isglove;
+
+		if (fitted[di]) {
+			for (s32 a = 0; a < 3; a++) {
+				if (dlo[a] < lo[a]) lo[a] = dlo[a];
+				if (dhi[a] > hi[a]) hi[a] = dhi[a];
+			}
+
+			for (s32 t = 0; t < numtris * 3; t++) {
+				struct beanvtx v;
+
+				if (beanVertex(bm, &vb, tris[t], &v)) {
+					fpCloudAdd(cloud, v.pos);
+				}
 			}
 		}
 
 		free(tris);
 	}
 
-	return numhand;
+	return numleftout;
 }
 
 /** Bean's point p in the host model's space, under a fit. */
@@ -3918,6 +4196,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 {
 	const struct gebeanrow *r = &fpRows[fp];
 	const s32 nummatrices = modeldef->nummatrices;
+	const s32 look = original ? 1 : 0;
 	char source[64];
 	struct beanmodel bm;
 	struct beanout out;
@@ -3930,7 +4209,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	s32 mtxnode[GEBEAN_MAXMTX];
 	s32 bodynode = -1;
 	s32 bodyverts = 0;
-	u8 hand[GEBEAN_MAXMATS];
+	u8 *drawn = NULL;   // a byte a draw: taken into the mesh
+	u8 *fitted = NULL;  // and of those, measured on (the gun, never its hand)
 	f32 hostlo[3] = { 1e30f, 1e30f, 1e30f };
 	f32 hosthi[3] = { -1e30f, -1e30f, -1e30f };
 	f32 beanlo[3] = { 1e30f, 1e30f, 1e30f };
@@ -3942,13 +4222,12 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	struct fpcloud fitcloud;   // the points the placement is measured on
 	struct fpcloud hostcloud;  // the host's visible lists, in the model's space
 	s32 bonemtx[BEAN_MAXBONES];
-	s32 numhand = 0;
+	s32 numleftout = 0;
 	const s8 *fpaxis = NULL;
 	s32 usegrip;
 	u8 *file;
 
-	// Bean's N64-look guns have the hand in their geometry; the host draws there
-	if (original || nummatrices <= 0 || nummatrices > GEBEAN_MAXMTX) {
+	if (nummatrices <= 0 || nummatrices > GEBEAN_MAXMTX) {
 		return NULL;
 	}
 
@@ -3957,7 +4236,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	memset(&owncloud, 0, sizeof(owncloud));
 	memset(&fitcloud, 0, sizeof(fitcloud));
 	memset(&hostcloud, 0, sizeof(hostcloud));
-	fpMuzzleSet[fp] = 0;
+	fpMuzzleSet[look][fp] = 0;
 
 	for (s32 m = 0; m < GEBEAN_MAXMTX; m++) {
 		mtxnode[m] = -1;
@@ -4082,27 +4361,36 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		return NULL;
 	}
 
-	snprintf(source, sizeof(source), "new/%s", r->source);
+	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
 
-	if (!gebeanLocate(1) || !beanLoad(&bm, source)) {
+	if (!gebeanLocate(1) || !beanLoad(&bm, source, 1)) {
 		fpCloudFree(&hostcloud);
 		return NULL;
 	}
 
-	numhand = beanGunExtent(&bm, hand, beanlo, beanhi, &owncloud);
+	drawn = calloc(2, BEAN_MAXDRAWS);
+	fitted = drawn ? drawn + BEAN_MAXDRAWS : NULL;
+
+	if (!drawn) {
+		fpCloudFree(&hostcloud);
+		beanFree(&bm);
+		return NULL;
+	}
+
+	numleftout = beanGunExtent(&bm, original, drawn, fitted, beanlo, beanhi, &owncloud);
 
 	// A silenced gun is measured on its plain twin, which shares its place
 	if (fpFitSource[fp]) {
 		struct beanmodel twin;
 		char twinsource[64];
-		u8 twinhand[GEBEAN_MAXMATS];
+		u8 *twinuse = calloc(2, BEAN_MAXDRAWS);
 		f32 twinlo[3] = { 1e30f, 1e30f, 1e30f };
 		f32 twinhi[3] = { -1e30f, -1e30f, -1e30f };
 
-		snprintf(twinsource, sizeof(twinsource), "new/%s", fpFitSource[fp]);
+		snprintf(twinsource, sizeof(twinsource), "%s/%s", original ? "original" : "new", fpFitSource[fp]);
 
-		if (beanLoad(&twin, twinsource)) {
-			beanGunExtent(&twin, twinhand, twinlo, twinhi, &fitcloud);
+		if (twinuse && beanLoad(&twin, twinsource, 1)) {
+			beanGunExtent(&twin, original, twinuse, twinuse + BEAN_MAXDRAWS, twinlo, twinhi, &fitcloud);
 
 			if (twinhi[2] - twinlo[2] > 1.0f) {
 				memcpy(beanlo, twinlo, sizeof(twinlo));
@@ -4113,6 +4401,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 			beanFree(&twin);
 		}
+
+		free(twinuse);
 	}
 
 	if (beanhi[2] - beanlo[2] <= 1.0f || hosthi[2] - hostlo[2] <= 1.0f) {
@@ -4120,12 +4410,17 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		fpCloudFree(&fitcloud);
 		fpCloudFree(&hostcloud);
 		beanFree(&bm);
+		free(drawn);
 		return NULL;
 	}
 
 	scale = (hosthi[2] - hostlo[2]) / (beanhi[2] - beanlo[2]);
 
 	fpaxis = fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2] ? fpGrip[fp].axis : NULL;
+
+	if (original && (fpAxisN64[fp][0] || fpAxisN64[fp][1] || fpAxisN64[fp][2])) {
+		fpaxis = fpAxisN64[fp];
+	}
 
 	// A gun turned onto another axis is measured along it. The fit above
 	// compares the host's z with Bean's, which is the barrel in both for a
@@ -4218,7 +4513,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			}
 		}
 
-		fpMuzzlePart[fp] = (s16)part;
+		fpMuzzlePart[look][fp] = (s16)part;
 
 		if (part >= 0) {
 			// Forward along the barrel is +z, in both games and in every
@@ -4240,10 +4535,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 			if (fpMuzzlePoint(&owncloud, fpaxis, beanc, scale, hostc, forward, point)) {
 				for (s32 a = 0; a < 3; a++) {
-					fpMuzzle[fp][a] = point[a] - rig.rest[muzzlemtx][a];
+					fpMuzzle[look][fp][a] = point[a] - rig.rest[muzzlemtx][a];
 				}
 
-				fpMuzzleSet[fp] = 1;
+				fpMuzzleSet[look][fp] = 1;
 			}
 		}
 	}
@@ -4300,7 +4595,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		s32 *mapped;
 		s32 *mappedmtx;
 
-		if ((d->tex < GEBEAN_MAXMATS && d->tex < (u32)bm.numtex && hand[d->tex]) || !beanReadVb(&bm, d->vb, &vb)) {
+		if (!drawn[di] || !beanReadVb(&bm, d->vb, &vb)) {
 			continue;
 		}
 
@@ -4466,9 +4761,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	// matrix (gebeanRowIsFirstPerson())
 	file = beanWriteMesh(&out, numnodes, 0, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, %d hand and flash pictures left out, "
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, %d draws left out, "
 			"scale %.4f%s%s, body list %d on matrix %d of %d %s",
-			r->file, source, out.numverts, out.numtris, numhand, scale,
+			r->file, source, out.numverts, out.numtris, numleftout, scale,
 			fpFitSource[fp] ? " measured on " : "", fpFitSource[fp] ? fpFitSource[fp] : "",
 			bodynode, nodemtx[bodynode], nummatrices, file ? "" : " - did not write");
 
@@ -4501,9 +4796,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 					b, bonemtx[b], mtxnode[bonemtx[b]]);
 		}
 
-		if (fpMuzzleSet[fp]) {
+		if (fpMuzzleSet[look][fp]) {
 			sysLogPrintf(LOG_NOTE, "gebean:   muzzle offset (%.1f %.1f %.1f) from the host's node",
-					fpMuzzle[fp][0], fpMuzzle[fp][1], fpMuzzle[fp][2]);
+					fpMuzzle[look][fp][0], fpMuzzle[look][fp][1], fpMuzzle[look][fp][2]);
 		} else {
 			sysLogPrintf(LOG_NOTE, "gebean:   no muzzle of its own; the host's node stands");
 		}
@@ -4514,6 +4809,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	fpCloudFree(&hostcloud);
 	beanOutFree(&out);
 	beanFree(&bm);
+	free(drawn);
 
 	return file;
 }
@@ -4526,13 +4822,14 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out)
 {
 	const s32 i = weaponnum - WEAPON_GE_FIRST;
+	const s32 look = gebeanGunsAreN64();
 
-	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || !fpSlot[i] || !fpMuzzleSet[i]) {
+	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || !fpSlot[i] || !fpMuzzleSet[look][i]) {
 		return 0;
 	}
 
-	*outpart = fpMuzzlePart[i];
-	memcpy(out, fpMuzzle[i], 3 * sizeof(f32));
+	*outpart = fpMuzzlePart[look][i];
+	memcpy(out, fpMuzzle[look][i], 3 * sizeof(f32));
 
 	return 1;
 }
@@ -4600,7 +4897,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	// Also what the pictures are keyed on, so the two looks never share one
 	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
 
-	if (!gebeanLocate(1) || !beanLoad(&bm, source)) {
+	if (!gebeanLocate(1) || !beanLoad(&bm, source, 0)) {
 		return NULL;
 	}
 
@@ -4632,7 +4929,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 		snprintf(hdsource, sizeof(hdsource), "new/%s", r->source);
 
-		if (hd && beanLoad(hd, hdsource)) {
+		if (hd && beanLoad(hd, hdsource, 0)) {
 			for (s32 b = 0; b < hd->numbones; b++) {
 				if (hd->skel[b] == SK_NECK || hd->skel[b] == SK_BACK) {
 					memcpy(bind[(s32)hd->skel[b]], hd->bind[b], sizeof(bind[0]));
