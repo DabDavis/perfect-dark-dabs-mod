@@ -3738,6 +3738,7 @@ s32 modListSwap(s32 index)
 	// The files were emptied, pinned ones with them: the borrowed guns are read
 	// again (their animations and sounds are appended once and kept)
 	modBorrowCommit();
+	modBorrowArenas();
 
 	// The files were emptied, aliases with them, and the lists are the new mod's
 	gebeanPoolRefresh();

@@ -312,6 +312,12 @@ void envSetTables(struct fogenvironment *fog, struct nofogenvironment *nofog)
 	g_FogEnvs = fog ? fog : g_FogEnvironments;
 	g_NoFogEnvs = nofog ? nofog : g_NoFogEnvironments;
 }
+
+void envGetTables(struct fogenvironment **fog, struct nofogenvironment **nofog)
+{
+	*fog = g_FogEnvs;
+	*nofog = g_NoFogEnvs;
+}
 #else
 #define g_FogEnvs g_FogEnvironments
 #define g_NoFogEnvs g_NoFogEnvironments

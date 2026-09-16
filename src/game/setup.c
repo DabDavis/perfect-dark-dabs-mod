@@ -42,6 +42,9 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "modborrow.h"
+#endif
 
 s32 g_SetupCurMpLocation;
 
@@ -1364,6 +1367,11 @@ void setupLoadFiles(s32 stagenum)
 	g_LastPadEffectIndex = -1;
 
 	g_DoorScale = 1;
+
+#ifndef PLATFORM_N64
+	// a borrowed mod's arena names its props by the mod's model numbers
+	modBorrowStageModels(stagenum);
+#endif
 
 	for (i = 0; i < NUM_MODELS; i++) {
 		g_ModelStates[i].modeldef = NULL;

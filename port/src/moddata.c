@@ -1306,6 +1306,71 @@ static struct sun *importSuns(u32 addr, s32 num)
  * and handed to envChooseAndApply() in place of the port's. Each ends at a
  * zeroed entry, as the walk there expects.
  */
+static void cvFogEnv(u32 at, struct fogenvironment *e)
+{
+	e->stage = (s16)rd16(at + 0x00);
+	e->near = (s16)rd16(at + 0x02);
+	e->far = (s16)rd16(at + 0x04);
+	e->opaperc = (s16)rd16(at + 0x06);
+	e->xluperc = (s16)rd16(at + 0x08);
+	e->refdist = (s16)rd16(at + 0x0a);
+	e->fogmin = (s16)rd16(at + 0x0c);
+	e->fogmax = (s16)rd16(at + 0x0e);
+	e->sky_r = rd8(at + 0x10);
+	e->sky_g = rd8(at + 0x11);
+	e->sky_b = rd8(at + 0x12);
+	e->numsuns = rd8(at + 0x13);
+	e->suns = importSuns(rd32(at + 0x14), e->numsuns);
+	if (!e->suns) {
+		e->numsuns = 0;
+	}
+	e->clouds_enabled = rd8(at + 0x18);
+	e->clouds_scale = (s16)rd16(at + 0x1a);
+	e->clouds_type = rd8(at + 0x1c);
+	e->clouds_r = rd8(at + 0x1d);
+	e->clouds_g = rd8(at + 0x1e);
+	e->clouds_b = rd8(at + 0x1f);
+	e->water_enabled = rd8(at + 0x20);
+	e->water_scale = (s16)rd16(at + 0x22);
+	e->water_type = rd8(at + 0x24);
+	e->water_r = rd8(at + 0x25);
+	e->water_g = rd8(at + 0x26);
+	e->water_b = rd8(at + 0x27);
+	e->clouds_height = rd8(at + 0x28);
+}
+
+static void cvNoFogEnv(u32 at, struct nofogenvironment *e)
+{
+	e->stage = (s32)rd32(at + 0x00);
+	e->near = (s16)rd16(at + 0x04);
+	e->far = (s16)rd16(at + 0x06);
+	e->opaperc = (s16)rd16(at + 0x08);
+	e->xluperc = (s16)rd16(at + 0x0a);
+	e->refdist = (s16)rd16(at + 0x0c);
+	e->sky_r = rd8(at + 0x0e);
+	e->sky_g = rd8(at + 0x0f);
+	e->sky_b = rd8(at + 0x10);
+	e->numsuns = rd8(at + 0x11);
+	e->suns = importSuns(rd32(at + 0x14), e->numsuns);
+	if (!e->suns) {
+		e->numsuns = 0;
+	}
+	e->clouds_enabled = rd8(at + 0x18);
+	e->clouds_r = rd8(at + 0x19);
+	e->clouds_g = rd8(at + 0x1a);
+	e->clouds_b = rd8(at + 0x1b);
+	e->clouds_scale = rdf32(at + 0x1c);
+	e->clouds_type = (s16)rd16(at + 0x20);
+	e->water_enabled = rd8(at + 0x22);
+	e->water_r = rd8(at + 0x23);
+	e->water_g = rd8(at + 0x24);
+	e->water_b = rd8(at + 0x25);
+	e->water_scale = rdf32(at + 0x28);
+	e->water_type = (s16)rd16(at + 0x2c);
+	e->clouds_height = rdf32(at + 0x30);
+	e->transparency = rd8(at + 0x34);
+}
+
 static s32 importEnvs(const struct moddataspec *spec)
 {
 	struct fogenvironment *fog = NULL;
@@ -1317,35 +1382,7 @@ static s32 importEnvs(const struct moddataspec *spec)
 		for (s32 i = 0; fog && i < spec->numfogenvs; ++i) {
 			const u32 at = spec->fogenvs + i * 44;
 			struct fogenvironment *e = &fog[i];
-			e->stage = (s16)rd16(at + 0x00);
-			e->near = (s16)rd16(at + 0x02);
-			e->far = (s16)rd16(at + 0x04);
-			e->opaperc = (s16)rd16(at + 0x06);
-			e->xluperc = (s16)rd16(at + 0x08);
-			e->refdist = (s16)rd16(at + 0x0a);
-			e->fogmin = (s16)rd16(at + 0x0c);
-			e->fogmax = (s16)rd16(at + 0x0e);
-			e->sky_r = rd8(at + 0x10);
-			e->sky_g = rd8(at + 0x11);
-			e->sky_b = rd8(at + 0x12);
-			e->numsuns = rd8(at + 0x13);
-			e->suns = importSuns(rd32(at + 0x14), e->numsuns);
-			if (!e->suns) {
-				e->numsuns = 0;
-			}
-			e->clouds_enabled = rd8(at + 0x18);
-			e->clouds_scale = (s16)rd16(at + 0x1a);
-			e->clouds_type = rd8(at + 0x1c);
-			e->clouds_r = rd8(at + 0x1d);
-			e->clouds_g = rd8(at + 0x1e);
-			e->clouds_b = rd8(at + 0x1f);
-			e->water_enabled = rd8(at + 0x20);
-			e->water_scale = (s16)rd16(at + 0x22);
-			e->water_type = rd8(at + 0x24);
-			e->water_r = rd8(at + 0x25);
-			e->water_g = rd8(at + 0x26);
-			e->water_b = rd8(at + 0x27);
-			e->clouds_height = rd8(at + 0x28);
+			cvFogEnv(at, e);
 			++nf;
 			if (modDataTrace) {
 				sysLogPrintf(LOG_NOTE, "moddata: fog env %d: stage %d sky %02x%02x%02x fog %d-%d clouds %d suns %d",
@@ -1359,34 +1396,7 @@ static s32 importEnvs(const struct moddataspec *spec)
 		for (s32 i = 0; nofog && i < spec->numnofogenvs; ++i) {
 			const u32 at = spec->nofogenvs + i * 56;
 			struct nofogenvironment *e = &nofog[i];
-			e->stage = (s32)rd32(at + 0x00);
-			e->near = (s16)rd16(at + 0x04);
-			e->far = (s16)rd16(at + 0x06);
-			e->opaperc = (s16)rd16(at + 0x08);
-			e->xluperc = (s16)rd16(at + 0x0a);
-			e->refdist = (s16)rd16(at + 0x0c);
-			e->sky_r = rd8(at + 0x0e);
-			e->sky_g = rd8(at + 0x0f);
-			e->sky_b = rd8(at + 0x10);
-			e->numsuns = rd8(at + 0x11);
-			e->suns = importSuns(rd32(at + 0x14), e->numsuns);
-			if (!e->suns) {
-				e->numsuns = 0;
-			}
-			e->clouds_enabled = rd8(at + 0x18);
-			e->clouds_r = rd8(at + 0x19);
-			e->clouds_g = rd8(at + 0x1a);
-			e->clouds_b = rd8(at + 0x1b);
-			e->clouds_scale = rdf32(at + 0x1c);
-			e->clouds_type = (s16)rd16(at + 0x20);
-			e->water_enabled = rd8(at + 0x22);
-			e->water_r = rd8(at + 0x23);
-			e->water_g = rd8(at + 0x24);
-			e->water_b = rd8(at + 0x25);
-			e->water_scale = rdf32(at + 0x28);
-			e->water_type = (s16)rd16(at + 0x2c);
-			e->clouds_height = rdf32(at + 0x30);
-			e->transparency = rd8(at + 0x34);
+			cvNoFogEnv(at, e);
 			++nn;
 			if (modDataTrace) {
 				sysLogPrintf(LOG_NOTE, "moddata: no-fog env %d: stage %d sky %02x%02x%02x clouds %d suns %d",
@@ -2671,4 +2681,44 @@ u16 modDataBorrowFileId(struct moddataborrow *b, u32 modid)
 	borrowLeave(b);
 
 	return id;
+}
+
+/**
+ * The borrowed mod's sky, fog and clouds for one of its stages, as the port's
+ * entries under another stage id: into fog or nofog, whichever table holds it.
+ * Returns 1 for a fog entry, 2 for a no-fog one, 0 for none.
+ */
+s32 modDataBorrowEnv(struct moddataborrow *b, const struct moddataspec *spec, s32 modstage, s32 stagenum,
+		struct fogenvironment *fog, struct nofogenvironment *nofog)
+{
+	s32 found = 0;
+
+	memset(fog, 0, sizeof(*fog));
+	memset(nofog, 0, sizeof(*nofog));
+
+	borrowEnter(b);
+
+	for (s32 i = 0; !found && spec->fogenvs && i < spec->numfogenvs; ++i) {
+		if ((s16)rd16(spec->fogenvs + i * 44) == modstage) {
+			cvFogEnv(spec->fogenvs + i * 44, fog);
+			fog->stage = stagenum;
+			found = 1;
+		}
+	}
+
+	// the last match, as envChooseAndApply() takes it
+	for (s32 i = 0; !found && spec->nofogenvs && i < spec->numnofogenvs; ++i) {
+		if ((s32)rd32(spec->nofogenvs + i * 56) == modstage) {
+			cvNoFogEnv(spec->nofogenvs + i * 56, nofog);
+			nofog->stage = stagenum;
+		}
+	}
+
+	if (!found && nofog->stage == stagenum) {
+		found = 2;
+	}
+
+	borrowLeave(b);
+
+	return found;
 }

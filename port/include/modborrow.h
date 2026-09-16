@@ -40,6 +40,11 @@ const char *modBorrowBodyName(s32 bodynum);
 // The borrowed mod's music for a match on one of its own arenas, or -1.
 s32 modBorrowStageTrack(s32 stagenum);
 
+// The borrowed mod's arenas take its stage rows, skies and props (after modloaderInit()).
+void modBorrowArenas(void);
+// Before a stage's setup loads: the mod's model states for its arena, the game's otherwise.
+void modBorrowStageModels(s32 stagenum);
+
 // The installed mod GoldenEye's guns come from, or NULL.
 const char *modBorrowGoldenEyeName(void);
 

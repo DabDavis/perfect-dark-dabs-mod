@@ -1168,6 +1168,49 @@ more multiple tunes). Checked with `--boot-stage` on the registered stage ids:
 Facility 0x57 and Facility BZ plays Facility (sequence 121), Aztec plays Aztec,
 Temple a random GoldenEye X track.
 
+## GoldenEye X's arenas, borrowed complete (2026-09-16)
+
+"now borrow GE-X's stages the same way", scoped by the user to "Arenas
+complete" (not its solo missions). The Stage Loader already registered its 22
+maps, but each on a row cloned from Skedar's, under Perfect Dark's sky and
+with **Perfect Dark's props**: a setup names props by model number, and GE-X's
+numbers mean its own model states (Temple drew Perfect Dark's blue door panels
+and "AMMO" crates).
+
+- **Which stage is which** (`modBorrowArenas()`, after the loaded mod's
+  config at boot and after `modBorrowCommit()` on a swap): every Stage Loader
+  stage on the borrow's mount is matched to a row of GE-X's `g_Stages` by its
+  mpsetup file's name (Facility 0x57 is GE-X's 0x3d, Temple 0x51 its 0x32,
+  Aztec 0x0b its 0x29).
+- **The row**: GE-X's lighting and tuning fields (`light_*`, `unk06`-`unk34`,
+  `eraserpropdist`) over the clone; the file ids stay the Stage Loader's.
+- **Sky, fog, clouds**: its entry for the stage (`modDataBorrowEnv()`, the
+  importer's reader split into `cvFogEnv()`/`cvNoFogEnv()`) under the new id,
+  appended after whatever tables are current (`envGetTables()`); 10 of the 22
+  have one.
+- **Props** (`modBorrowStageModels()`, called by `setupLoadFiles()` before its
+  modeldef reset): for one of those stages GE-X's model states go in for its
+  table's 441 (278 differ), files pinned so their textures are GE-X's; for any
+  other stage the saved ones come back. **Kept out**: every weapon's pickup
+  (`playermgrGetModelOfWeapon()`), projectile and Combat Simulator weapon model,
+  so a Perfect Dark gun on GE-X's map is still that gun. The swap is forgotten
+  when a live mod swap has restored the tables itself.
+- **`borrowIsLoaded()` compared paths**, and `--moddir mods/...` named GE-X by
+  a relative path, so GE-X loaded was borrowed from as well; the folder name is
+  compared now.
+
+Checked: Temple, Facility and Aztec from the same fixed spectator spot and
+angle in stock (GE-X installed, `MapMods`) and with GE-X loaded - same props,
+lighting and sky (`build/gexcmp/samespot.sh`); `modBorrowStageModels()` for a
+stock stage puts model 0x160 back (1340/4096) and GE-X's arena takes 2289/409
+again, weapon state 0xf5 untouched; stock match pixel-identical. **Traps**:
+GE-X loaded crashes `--boot-stage` on its arenas with `--mpsims 0`
+(`playerReset()`), so reference runs use one simulant; `mainChangeToStage()`
+from a gdb `playerTick` break in a match with simulants crashes in
+`botSetTarget()` on the **old** build too - it is the harness. Not done: the
+match's weapons are still the chosen Combat Simulator weapon set, not GE-X's
+sets.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

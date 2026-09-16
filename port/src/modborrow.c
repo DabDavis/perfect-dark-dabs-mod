@@ -48,6 +48,9 @@
 #include "mod.h"
 #include "modborrow.h"
 #include "modloader.h"
+#include "game/stagetable.h"
+#include "game/env.h"
+#include "game/playermgr.h"
 #include "preprocess.h"
 #include "lib/anim.h"
 #include "lib/snd.h"
@@ -241,11 +244,30 @@ static void borrowFind(void)
 }
 
 /** Whether dir is the mod loaded over the game, whose numbers are live already. */
+static const char *borrowBaseName(const char *path)
+{
+	size_t len = strlen(path);
+	const char *p;
+
+	while (len > 1 && (path[len - 1] == '/' || path[len - 1] == '\\')) {
+		len--;
+	}
+
+	for (p = path + len; p > path && p[-1] != '/' && p[-1] != '\\'; p--) {
+	}
+
+	return p;
+}
+
 static s32 borrowIsLoaded(void)
 {
 	const char *loaded = fsGetModDir();
 
-	return loaded && !strcmp(loaded, src.dir);
+	// --moddir can name the loaded mod by another path than the list's, so the
+	// folder's own name is what is compared: the list holds a name once
+	return loaded && strncmp(borrowBaseName(loaded), src.name, strlen(src.name)) == 0
+		&& (borrowBaseName(loaded)[strlen(src.name)] == '\0' || borrowBaseName(loaded)[strlen(src.name)] == '/'
+			|| borrowBaseName(loaded)[strlen(src.name)] == '\\');
 }
 
 void modBorrowMount(void)
@@ -810,6 +832,267 @@ s32 modBorrowStageTrack(s32 stagenum)
 	sysLogPrintf(LOG_NOTE, "modborrow: %s plays %s", map, music.names[pick]);
 
 	return g_MpTracks[pick].musicnum;
+}
+
+/* ---- the arenas --------------------------------------------------------- */
+
+#define N64_STAGE_SIZE 0x38
+#define BORROW_MAXARENAS 64
+
+static struct {
+	s32 num;
+	s16 stage[BORROW_MAXARENAS];     // the Stage Loader's id
+	s16 modstage[BORROW_MAXARENAS];  // the mod's own
+	struct fogenvironment *basefog;  // the tables before the arenas were added
+	struct nofogenvironment *basenofog;
+	struct fogenvironment *fog;      // and with them
+	struct nofogenvironment *nofog;
+	s32 swapped;                     // g_ModelStates hold the mod's for a stage
+	struct modelstate saved[NUM_MODELS];
+	u8 keep[NUM_MODELS];             // a weapon's model state, never swapped
+} arenas;
+
+static s32 borrowArenaIndex(s32 stagenum)
+{
+	for (s32 i = 0; i < arenas.num; i++) {
+		if (arenas.stage[i] == stagenum) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * The borrowed mod's arenas as they play in the mod. The Stage Loader has
+ * already given each map a stage of its own (modloader.c) cloned from Skedar's
+ * row, with Perfect Dark's sky and Perfect Dark's props; this finds each one's
+ * stage in the mod by its setup file and takes, for it, the mod's stage row
+ * (lighting and the rest, the files staying the Stage Loader's) and the mod's
+ * sky, fog and clouds. Its props are the mod's model states, swapped in while
+ * the stage loads (modBorrowStageModels()). After the Stage Loader registers,
+ * at boot and after a live swap.
+ */
+void modBorrowArenas(void)
+{
+	struct moddataborrow *b;
+	s32 numfog = 0;
+	s32 numnofog = 0;
+	struct fogenvironment *curfog;
+	struct nofogenvironment *curnofog;
+	struct fogenvironment extrafog[BORROW_MAXARENAS];
+	struct nofogenvironment extranofog[BORROW_MAXARENAS];
+	s32 nextrafog = 0;
+	s32 nextranofog = 0;
+
+	// the tables a swap has rebuilt are what the arenas go on top of
+	envGetTables(&curfog, &curnofog);
+
+	if (curfog != arenas.fog || curnofog != arenas.nofog || !arenas.fog) {
+		arenas.basefog = curfog;
+		arenas.basenofog = curnofog;
+	}
+
+	envSetTables(arenas.basefog, arenas.basenofog);
+	arenas.num = 0;
+	arenas.swapped = 0; // a swap put g_ModelStates back itself
+
+	if (src.found <= 0 || src.moddir < 0 || !src.spec.stages) {
+		return;
+	}
+
+	b = modDataBorrowOpen(&src.spec, src.dir, src.moddir, NULL, NULL, NULL);
+
+	if (!b) {
+		return;
+	}
+
+	for (s32 stagenum = 1; stagenum <= STAGE_MAX_ID && arenas.num < BORROW_MAXARENAS; stagenum++) {
+		const s32 index = stageGetIndex(stagenum);
+		const char *setup;
+
+		if (index < 0 || modloaderGetStageModDirIndex(stagenum) != src.moddir) {
+			continue;
+		}
+
+		setup = romdataFileGetName(g_Stages[index].mpsetupfileid);
+
+		for (s32 i = 0; setup && i < src.spec.numstages; i++) {
+			u8 row[N64_STAGE_SIZE];
+			const char *name;
+
+			if (!modDataBorrowRead(b, src.spec.stages + i * N64_STAGE_SIZE, row, sizeof(row))) {
+				break;
+			}
+
+			name = modDataBorrowFileName(b, borrowBE16(row + 0x10));
+
+			if (!name || strcmp(name, setup)) {
+				continue;
+			}
+
+			{
+				struct stagetableentry *e = &g_Stages[index];
+				const s16 modstage = (s16)borrowBE16(row);
+				u32 v;
+
+				e->light_type = row[2];
+				e->light_alpha = row[3];
+				e->light_width = row[4];
+				e->light_height = row[5];
+				e->unk06 = borrowBE16(row + 6);
+				v = borrowBE32(row + 0x14); memcpy(&e->unk14, &v, 4);
+				v = borrowBE32(row + 0x18); memcpy(&e->unk18, &v, 4);
+				v = borrowBE32(row + 0x1c); memcpy(&e->unk1c, &v, 4);
+				e->unk20 = borrowBE16(row + 0x20);
+				e->unk22 = row[0x22];
+				e->unk23 = (s8)row[0x23];
+				e->unk24 = borrowBE32(row + 0x24);
+				e->unk28 = borrowBE32(row + 0x28);
+				e->unk2c = (s16)borrowBE16(row + 0x2c);
+				e->eraserpropdist = (s16)borrowBE16(row + 0x2e);
+				e->unk30 = (s16)borrowBE16(row + 0x30);
+				v = borrowBE32(row + 0x34); memcpy(&e->unk34, &v, 4);
+
+				arenas.stage[arenas.num] = stagenum;
+				arenas.modstage[arenas.num] = modstage;
+				arenas.num++;
+
+				switch (modDataBorrowEnv(b, &src.spec, modstage, stagenum, &extrafog[nextrafog], &extranofog[nextranofog])) {
+				case 1: nextrafog++; break;
+				case 2: nextranofog++; break;
+				}
+			}
+
+			break;
+		}
+	}
+
+	modDataBorrowClose(b);
+
+	// The tables are 0-stage terminated, and the chooser takes a no-fog entry's
+	// last match, so the arenas' go after the base's
+	if (nextrafog || nextranofog) {
+		while (arenas.basefog[numfog].stage) {
+			numfog++;
+		}
+
+		while (arenas.basenofog[numnofog].stage) {
+			numnofog++;
+		}
+
+		arenas.fog = sysMemZeroAlloc(sizeof(*arenas.fog) * (numfog + nextrafog + 1));
+		arenas.nofog = sysMemZeroAlloc(sizeof(*arenas.nofog) * (numnofog + nextranofog + 1));
+
+		if (arenas.fog && arenas.nofog) {
+			memcpy(arenas.fog, arenas.basefog, sizeof(*arenas.fog) * numfog);
+			memcpy(arenas.fog + numfog, extrafog, sizeof(*arenas.fog) * nextrafog);
+			memcpy(arenas.nofog, arenas.basenofog, sizeof(*arenas.nofog) * numnofog);
+			memcpy(arenas.nofog + numnofog, extranofog, sizeof(*arenas.nofog) * nextranofog);
+			envSetTables(arenas.fog, arenas.nofog);
+		}
+	}
+
+	if (arenas.num) {
+		sysLogPrintf(LOG_NOTE, "modborrow: %d of `%s`'s arenas take its own stage rows, %d skies and its props",
+				arenas.num, src.name, nextrafog + nextranofog);
+	}
+}
+
+/**
+ * Before a stage loads its setup: the borrowed mod's model states in for one
+ * of its arenas - a setup names its props by the mod's model numbers - and
+ * the game's back for any other stage. The weapons' own states are left alone
+ * (a Perfect Dark gun lying on the mod's map is still that gun), as is
+ * anything past the mod's table.
+ */
+void modBorrowStageModels(s32 stagenum)
+{
+	const s32 which = borrowArenaIndex(stagenum);
+	struct moddataborrow *b;
+	s32 count;
+	s32 swapped = 0;
+
+	if (arenas.swapped) {
+		for (s32 i = 0; i < NUM_MODELS; i++) {
+			if (!arenas.keep[i]) {
+				g_ModelStates[i] = arenas.saved[i];
+			}
+		}
+
+		arenas.swapped = 0;
+	}
+
+	if (which < 0 || src.moddir < 0 || !src.spec.modelstates) {
+		return;
+	}
+
+	b = modDataBorrowOpen(&src.spec, src.dir, src.moddir, NULL, NULL, NULL);
+
+	if (!b) {
+		return;
+	}
+
+	memset(arenas.keep, 0, sizeof(arenas.keep));
+
+	for (s32 w = 0; w < NUM_WEAPONS; w++) {
+		const struct weapon *def = g_Weapons[w];
+		const s32 model = playermgrGetModelOfWeapon(w);
+
+		if (model >= 0 && model < NUM_MODELS) {
+			arenas.keep[model] = 1;
+		}
+
+		for (s32 f = 0; def && f < 2; f++) {
+			const struct weaponfunc *func = def->functions[f];
+			s32 proj = -1;
+
+			if (!func) {
+				continue;
+			}
+
+			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT && func->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
+				proj = ((struct weaponfunc_shootprojectile *)func)->projectilemodelnum;
+			} else if ((func->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
+				proj = ((struct weaponfunc_throw *)func)->projectilemodelnum;
+			}
+
+			if (proj >= 0 && proj < NUM_MODELS) {
+				arenas.keep[proj] = 1;
+			}
+		}
+	}
+
+	for (s32 i = 0; i < NUM_MPWEAPONS; i++) {
+		if (g_MpWeapons[i].model >= 0 && g_MpWeapons[i].model < NUM_MODELS) {
+			arenas.keep[g_MpWeapons[i].model] = 1;
+		}
+	}
+
+	memcpy(arenas.saved, g_ModelStates, sizeof(arenas.saved));
+	count = src.spec.nummodelstates < NUM_MODELS ? src.spec.nummodelstates : NUM_MODELS;
+
+	for (s32 i = 0; i < count; i++) {
+		u16 fileid;
+		u16 scale;
+
+		if (arenas.keep[i] || !modDataBorrowModelState(b, &src.spec, i, &fileid, &scale)) {
+			continue;
+		}
+
+		if (g_ModelStates[i].fileid != fileid || g_ModelStates[i].scale != scale) {
+			g_ModelStates[i].fileid = fileid;
+			g_ModelStates[i].scale = scale;
+			g_ModelStates[i].modeldef = NULL;
+			swapped++;
+		}
+	}
+
+	modDataBorrowClose(b);
+	arenas.swapped = 1;
+
+	sysLogPrintf(LOG_NOTE, "modborrow: stage 0x%02x is `%s`'s stage 0x%02x: %d of its model states in",
+			stagenum, src.name, arenas.modstage[which], swapped);
 }
 
 /* ---- the guns ----------------------------------------------------------- */

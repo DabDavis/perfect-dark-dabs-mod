@@ -25,6 +25,7 @@
 #include "input.h"
 #include "fs.h"
 #include "modloader.h"
+#include "modborrow.h"
 #include "romdata.h"
 #include "record.h"
 #include "texpack.h"
@@ -241,6 +242,9 @@ int main(int argc, const char **argv)
 	if (fsGetModDir()) {
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
+
+	// after the mod's own tables, which the arenas go on top of
+	modBorrowArenas();
 
 	// After the mod's lists are in, since a mod's lists keep GoldenEye's out
 	gebeanPoolRefresh();
