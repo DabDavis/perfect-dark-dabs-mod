@@ -7,7 +7,7 @@
  * and mod.c copies its snapshot of g_HeadsAndBodies back over the table on a
  * mod load. A field is only moved from the value the other mode expects, so
  * whatever a mod set is left alone, and a snapshot copied back is simply put
- * right again the next frame. It is ninety-odd compares.
+ * right again the next frame. It is thirty-odd compares.
  */
 
 #include <stdint.h>
@@ -25,7 +25,6 @@
 
 #ifndef PLATFORM_N64
 
-extern struct explosiontype g_ExplosionTypes[];
 extern struct smoketype g_SmokeTypes[];
 extern struct fogenvironment g_FogEnvironments[];
 extern struct fogenvironment *g_EnvOrigFogEnvironment;

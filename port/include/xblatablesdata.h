@@ -9,56 +9,6 @@
 #define _IN_XBLATABLESDATA_H
 
 static const struct xblatabfield xblaTabFields[] = {
-	// g_ExplosionTypes: release 0x825cbc70, 82.9% of words agree
-	XBLATAB(g_ExplosionTypes[0].flarespeed, 0x3f800000, 0x3e99999a), // 1 -> 0.3
-	XBLATAB(g_ExplosionTypes[1].duration, 0x001e, 0x0007), // 30 -> 7
-	XBLATAB(g_ExplosionTypes[1].flarespeed, 0x3f800000, 0x3e99999a), // 1 -> 0.3
-	XBLATAB(g_ExplosionTypes[2].duration, 0x0028, 0x000a), // 40 -> 10
-	XBLATAB(g_ExplosionTypes[2].flarespeed, 0x40400000, 0x3f666666), // 3 -> 0.9
-	XBLATAB(g_ExplosionTypes[3].duration, 0x002d, 0x000b), // 45 -> 11
-	XBLATAB(g_ExplosionTypes[3].flarespeed, 0x40800000, 0x3f99999a), // 4 -> 1.2
-	XBLATAB(g_ExplosionTypes[4].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[4].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[5].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[5].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[6].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[6].flarespeed, 0x40400000, 0x3f666666), // 3 -> 0.9
-	XBLATAB(g_ExplosionTypes[7].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[7].flarespeed, 0x40800000, 0x3f99999a), // 4 -> 1.2
-	XBLATAB(g_ExplosionTypes[8].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[8].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[9].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[9].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[10].duration, 0x0050, 0x0014), // 80 -> 20
-	XBLATAB(g_ExplosionTypes[10].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[11].duration, 0x005a, 0x0016), // 90 -> 22
-	XBLATAB(g_ExplosionTypes[11].flarespeed, 0x40800000, 0x3f99999a), // 4 -> 1.2
-	XBLATAB(g_ExplosionTypes[12].duration, 0x005a, 0x0016), // 90 -> 22
-	XBLATAB(g_ExplosionTypes[12].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[13].duration, 0x005a, 0x0016), // 90 -> 22
-	XBLATAB(g_ExplosionTypes[13].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[14].duration, 0x0096, 0x0025), // 150 -> 37
-	XBLATAB(g_ExplosionTypes[14].flarespeed, 0x40800000, 0x3f99999a), // 4 -> 1.2
-	XBLATAB(g_ExplosionTypes[15].flarespeed, 0x3f800000, 0x3e99999a), // 1 -> 0.3
-	XBLATAB(g_ExplosionTypes[16].flarespeed, 0x3f800000, 0x3e99999a), // 1 -> 0.3
-	XBLATAB(g_ExplosionTypes[17].duration, 0x01f4, 0x007d), // 500 -> 125
-	XBLATAB(g_ExplosionTypes[17].flarespeed, 0x40000000, 0x3f19999a), // 2 -> 0.6
-	XBLATAB(g_ExplosionTypes[18].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[18].flarespeed, 0x40000000, 0x3f19999a), // 2 -> 0.6
-	XBLATAB(g_ExplosionTypes[19].duration, 0x00b4, 0x002d), // 180 -> 45
-	XBLATAB(g_ExplosionTypes[19].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[20].duration, 0x003c, 0x000f), // 60 -> 15
-	XBLATAB(g_ExplosionTypes[20].flarespeed, 0x40000000, 0x3f19999a), // 2 -> 0.6
-	XBLATAB(g_ExplosionTypes[21].duration, 0x002d, 0x000b), // 45 -> 11
-	XBLATAB(g_ExplosionTypes[21].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[22].duration, 0x0028, 0x000a), // 40 -> 10
-	XBLATAB(g_ExplosionTypes[22].flarespeed, 0x40400000, 0x3f666666), // 3 -> 0.9
-	XBLATAB(g_ExplosionTypes[23].duration, 0x005a, 0x0016), // 90 -> 22
-	XBLATAB(g_ExplosionTypes[23].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[24].duration, 0x005a, 0x0016), // 90 -> 22
-	XBLATAB(g_ExplosionTypes[24].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
-	XBLATAB(g_ExplosionTypes[25].duration, 0x00b4, 0x002d), // 180 -> 45
-	XBLATAB(g_ExplosionTypes[25].flarespeed, 0x40a00000, 0x3fc00000), // 5 -> 1.5
 	// g_SmokeTypes: release 0x825cd3e8, 95.0% of words agree
 	XBLATAB(g_SmokeTypes[6].spreadspeed, 0x0046, 0x0028), // 70 -> 40
 	XBLATAB(g_SmokeTypes[6].fgrotatespeed, 0x3e99999a, 0x3e6147ae), // 0.3 -> 0.22
@@ -70,17 +20,6 @@ static const struct xblatabfield xblaTabFields[] = {
 	XBLATAB(g_SmokeTypes[7].unk1c, 0x3e99999a, 0x3ecccccd), // 0.3 -> 0.4
 	XBLATAB(g_SmokeTypes[8].fgrotatespeed, 0x40000000, 0x3fc00000), // 2 -> 1.5
 	XBLATAB(g_SmokeTypes[8].numclouds, 0x001e, 0x000a), // 30 -> 10
-	// g_SparkTypes: release 0x825cce58, 97.0% of words agree
-	XBLATAB(g_SparkTypes[0].unk00, 0x0064, 0x0046), // 100 -> 70
-	XBLATAB(g_SparkTypes[0].unk04, 0x0064, 0x0028), // 100 -> 40
-	XBLATAB(g_SparkTypes[0].unk06, 0x0001, 0x0005), // 1 -> 5
-	XBLATAB(g_SparkTypes[0].weight, 0x40000000, 0x3fcccccd), // 2 -> 1.6
-	XBLATAB(g_SparkTypes[0].maxage, 0x003c, 0x0050), // 60 -> 80
-	XBLATAB(g_SparkTypes[0].unk12, 0x003c, 0x0028), // 60 -> 40
-	XBLATAB(g_SparkTypes[0].numsparks, 0x000f, 0x0014), // 15 -> 20
-	XBLATAB(g_SparkTypes[0].unk1c, 0xffff80ff, 0x988c6ec8), // 4294934783 -> 2559340232
-	XBLATAB(g_SparkTypes[0].unk20, 0xffffffff, 0x988c6ec8), // 4294967295 -> 2559340232
-	XBLATAB(g_SparkTypes[0].decel, 0x3ca3d70a, 0x3cc49ba6), // 0.02 -> 0.024
 	// g_FogEnvironments: release 0x825c1288, 98.5% of words agree
 	XBLATAB(g_FogEnvironments[0].far, 0x2710, 0x4e20), // 10000 -> 20000
 	XBLATAB(g_FogEnvironments[0].fogmin, 0x03e2, 0x03e1), // 994 -> 993

@@ -1319,14 +1319,23 @@ shows the game's startup writes (animation counts, move distances) as if 4J had
 changed them. The report stays in `.xbla-work/`, never the repository.
 
 With the whole release on (`xblaSwitchGetEnabled()`), `port/src/xblatables.c`
-puts 4J's values into five tables, and puts the N64's back when it goes off:
+puts 4J's values into three tables, and puts the N64's back when it goes off:
 
-- **`g_ExplosionTypes`:** every duration is about a quarter and every flare
-  speed 0.3x, the timing the 48-frame explosion is drawn to.
-- **`g_SmokeTypes` 6-8 and `g_SparkTypes[0]`:** retuned.
+- **`g_SmokeTypes` 6-8:** retuned (large, bullet impact, rocket tail).
 - **`g_FogEnvironments[0]` (Crash Site):** reaches 20000, not 10000.
 - **`g_HeadsAndBodies` types:** Joanna's heads and bodies are 6, Carrington's
   7, Trent's 8; Penny and the Winner swap.
+
+**`g_ExplosionTypes` and `g_SparkTypes[0]` are deliberately left on the N64's
+values** (2026-09-16). 4J ran every explosion about a quarter as long with its
+flare 0.3x and retuned the first spark type; that shipped on 2026-09-15, and
+players preferred the N64's durations, so both tables came back out at the
+user's request. Their addresses are still in `gentables.py`, commented out, so
+the diff can be looked at again without placing the tables afresh - **do not put
+them back without being asked.** The release's 48-frame explosion is unaffected
+either way: `xblaexpl.c` maps it onto the game's fifteen frames end to end,
+whatever the type's duration says, so the release's picture plays over the
+game's own timing.
 
 The values are generated into `port/include/xblatablesdata.h` by
 `tools/xblaxex/gentables.py`; never edit it by hand. Four things are not
@@ -1352,7 +1361,16 @@ obvious:
 Checked on Crash Site (`--boot-stage 0x1c --fixed-step`): gdb read the fields,
 `zfar` and `g_Env` fog at frame 300 (N64), 320 (after
 `xblaSwitchSetEnabled(1)`) and 340 (off again), and got exactly the N64 values,
-the release's, then the N64's. The log says `72 of 72 fields, 23 of 23`.
+the release's, then the N64's. The log said `72 of 72 fields, 23 of 23` when
+explosions and sparks were in; it is `13 of 13 fields, 23 of 23` now.
+
+One more trap in `gentables.py`: the head/body loop is bounded by the **ROM's**
+row count (the N64 `g_HeadsAndBodies` declaration in `src/include/data.h`), not
+by the port's array. The port's grew to 256 for GoldenEye's pool (`gebean.c`),
+and walking that far reads whatever follows the table in the release's image -
+which is what "heights disagree, the bit layout is not the one this was written
+for" at row `0xa0` means. `tablediff.py`'s own table size is an estimate (144
+rows for a 152-row table) and must not be used for the bound either.
 
 #### Shells and destroyed props (2026-09-14)
 

@@ -9,13 +9,18 @@ the addresses tablediff.py placed the tables, field by field through the same
 N64 layout tablediff.py rebuilds from the port's debug info, and compared
 against the N64 build's bytes. Only these tables are taken, by request:
 
-  g_ExplosionTypes, g_SmokeTypes, g_SparkTypes  every changed field
+  g_SmokeTypes                                   every changed field
   g_FogEnvironments                              row 0 (Crash Site): the port's
                                                  struct does not fit the N64
                                                  size past it, so later rows'
                                                  offsets are not trusted
   g_HeadsAndBodies                               the type bits (N64 12-10,
                                                  release 12-9), rows the port has
+
+g_ExplosionTypes and g_SparkTypes are deliberately not taken: 4J's timings run
+about a quarter as long and players preferred the N64's, so the release keeps
+the game's own durations. Their release addresses stay below, commented out, so
+the diff can be looked at again without placing the tables afresh.
 
 Never edit the header by hand; run this again.
 
@@ -35,9 +40,9 @@ import tablediff as td  # noqa: E402
 
 TABLES = [
     # name, release address, rows allowed (None = all)
-    ('g_ExplosionTypes', 0x825cbc70, None),
+    # ('g_ExplosionTypes', 0x825cbc70, None),  # left on the N64's durations
     ('g_SmokeTypes', 0x825cd3e8, None),
-    ('g_SparkTypes', 0x825cce58, None),
+    # ('g_SparkTypes', 0x825cce58, None),      # left on the N64's durations
     ('g_FogEnvironments', 0x825c1288, {0}),
 ]
 HEADS = ('g_HeadsAndBodies', 0x825f53b0)
@@ -61,6 +66,15 @@ def elf_bytes_at(elf, addr, size):
             if va <= addr and addr + size <= va + sz:
                 return data[off + addr - va:off + addr - va + size]
     raise SystemExit('0x%08x not in a PROGBITS section of %s' % (addr, elf))
+
+
+def rom_headsandbodies_rows():
+    """How many rows the ROM's g_HeadsAndBodies has, from the N64 declaration."""
+    src = open(os.path.join(td.ROOT, 'src/include/data.h')).read()
+    m = re.search(r'extern struct headorbody g_HeadsAndBodies\[(\d+)\];', src)
+    if not m:
+        raise SystemExit('src/include/data.h: no N64 g_HeadsAndBodies declaration')
+    return int(m.group(1))
 
 
 def main():
@@ -123,6 +137,11 @@ def main():
     count = lay['count'] if lay else 0
     if lay is None or lay['elemsize'] != 20:
         raise SystemExit('%s: expected 20-byte N64 rows' % name)
+    # Only as far as the ROM's own rows: the port's array is longer (the
+    # GoldenEye pool lives past the stock rows), and reading past the ROM's
+    # last row gives whatever follows the table in the image. data.h's N64
+    # declaration is the count, tablediff's table size only an estimate.
+    count = min(count, rom_headsandbodies_rows())
     n64 = elf_bytes_at(args.elf, tables[name]['addr'], count * 20)
     start -= td.IMAGE_BASE
     out.append('static const struct xblatabtype xblaTabTypes[] = {')
