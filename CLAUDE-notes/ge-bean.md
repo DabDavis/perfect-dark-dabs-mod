@@ -1281,6 +1281,34 @@ X's borrowed characters.
   range. Offline: `walk.py` (every record with its section and piece),
   `matdump.py`.
 
+## Bond's HD head (2026-09-16)
+
+"lets add the missing hd bean heads, mostly the bond". Bean's `new/head/headbrosnan`,
+`headconnery`, `headdalton` and `headmoore` are static N64-level full figures (the
+Connery/Dalton/Moore files carry the same 32x64 pictures as `original/`), which is why no
+Bond head was ever built. **The HD Brosnan is on the Bond bodies' necks**: every
+`new/char/*bond` carries the same 815-triangle head with a 256x256 face (the
+parka's 1083 with its hood), and `original/` ones a 227-triangle N64 head.
+
+- **GoldenEye X**: of its borrowed heads without a row, six are Bond, and all
+  six share Brosnan's 627-vertex near mesh. `CheadcarringtonZ` (GoldenEye's
+  headbrosnan, the tuxedo) and `Ca51faceplateZ` (headbrosnansuit) now take the
+  head off `char/djbond` and `char/suitbond` (`BOND_HEADS` in
+  `gen_beantable.py`, regenerated: two rows added, nothing else moved).
+  `Cheadneil2Z`, `CheadtrentZ`, `CheadpennyZ` and `CheadjonZ` are that mesh
+  painted as the Classic Bonds (Connery, Moore, Dalton by their faces), which
+  Bean has no HD face for, so they stay N64. Also still N64 and with no
+  GoldenEye source: tintin, griffey, dark_combat, jonathan, elvis, ddshock,
+  dark_frock, new6.
+- **The release's pool**: five heads appended after Vivien (so a saved setup's
+  heads keep their places), one per Bond outfit, and each Bond body takes its
+  own instead of any male head. The carousel names them after the body.
+- Checked on 0x32: GE-X Bonds (Tuxedo, Formal, Stealth, Jungle) in the HD look
+  against the previous binary - the flat N64 face becomes the HD head, seated at
+  the collar; the pool's five Bonds in both looks. The GE-X file name list came
+  from `build/gexcmp/heads/listheads.py` (every g_MpHeads/g_MpBodies row with its
+  file).
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

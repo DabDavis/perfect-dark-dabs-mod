@@ -132,7 +132,8 @@ void gebeanSetEnabled(s32 on)
  * whose rest skeleton is GoldenEye's star too, so the Bean mesh fits it the
  * way it fits GoldenEye X's; a head's is an alias of a Perfect Dark head.
  * Bean's blueman, bluewoman and greyman are broken in the release and left
- * out, as are its Bond heads (static N64-style models).
+ * out; its Bond head files are static N64-style models, so the Bond heads are
+ * taken off the Bond bodies' necks instead.
  */
 struct gebeanpoolrow {
 	struct gebeanrow row;
@@ -160,11 +161,11 @@ static const struct gebeanpoolrow poolRows[] = {
 	POOLBODY("CgeBaronSamediZ",  "char/baronsamedi",  GEBEAN_WHOLE, "Baron Samedi",            0, 1.0f,    NULL),
 	POOLBODY("CgeSnowguardZ",    "char/snowguard",    GEBEAN_WHOLE, "Siberian Special Forces", 0, 1.0f,    NULL),
 	POOLBODY("CgePilotZ",        "char/pilot",        GEBEAN_WHOLE, "Helicopter Pilot",        0, 1.0f,    NULL),
-	POOLBODY("CgeDjbondZ",       "char/djbond",       GEBEAN_BODY,  "Bond (Tuxedo)",           0, 1.0f,    NULL),
-	POOLBODY("CgeBoilerbondZ",   "char/boilerbond",   GEBEAN_BODY,  "Bond (Boiler Suit)",      0, 1.0f,    NULL),
-	POOLBODY("CgeSuitbondZ",     "char/suitbond",     GEBEAN_BODY,  "Bond (Suit)",             0, 1.0f,    NULL),
-	POOLBODY("CgeTimberbondZ",   "char/timberbond",   GEBEAN_BODY,  "Bond (Jungle)",           0, 1.0f,    NULL),
-	POOLBODY("CgeSnowbondZ",     "char/snowbond",     GEBEAN_BODY,  "Bond (Parka)",            0, 1.0f,    NULL),
+	POOLBODY("CgeDjbondZ",       "char/djbond",       GEBEAN_BODY,  "Bond (Tuxedo)",           0, 1.0f,    "char/djbond"),
+	POOLBODY("CgeBoilerbondZ",   "char/boilerbond",   GEBEAN_BODY,  "Bond (Boiler Suit)",      0, 1.0f,    "char/boilerbond"),
+	POOLBODY("CgeSuitbondZ",     "char/suitbond",     GEBEAN_BODY,  "Bond (Suit)",             0, 1.0f,    "char/suitbond"),
+	POOLBODY("CgeTimberbondZ",   "char/timberbond",   GEBEAN_BODY,  "Bond (Jungle)",           0, 1.0f,    "char/timberbond"),
+	POOLBODY("CgeSnowbondZ",     "char/snowbond",     GEBEAN_BODY,  "Bond (Parka)",            0, 1.0f,    "char/snowbond"),
 	POOLBODY("CgeBoilertrevZ",   "char/boilertrev",   GEBEAN_BODY,  "Trevelyan (006)",         0, 1.0f,    NULL),
 	POOLBODY("CgeOliveguardZ",   "char/oliveguard",   GEBEAN_BODY,  "Russian Soldier",         0, 1.0f,    "head/headmark"),
 	POOLBODY("CgeRusguardZ",     "char/rusguard",     GEBEAN_BODY,  "Russian Infantry",        0, 1.0f,    "head/headkarl"),
@@ -214,6 +215,14 @@ static const struct gebeanpoolrow poolRows[] = {
 	POOLHEAD("CgeheadMarionZ",   "head/headmarion",   1),
 	POOLHEAD("CgeheadMandyZ",    "head/headmandy",    1),
 	POOLHEAD("CgeheadVivienZ",   "head/headvivien",   1),
+	// Bond, one per outfit. Bean's own Bond heads are static N64-style figures;
+	// its HD Brosnan is the head each Bond body carries on its neck. Last, so
+	// the heads before keep their places in a saved setup.
+	POOLHEAD("CgeheadBondTuxZ",    "char/djbond",     0),
+	POOLHEAD("CgeheadBondBoilerZ", "char/boilerbond", 0),
+	POOLHEAD("CgeheadBondSuitZ",   "char/suitbond",   0),
+	POOLHEAD("CgeheadBondJungleZ", "char/timberbond", 0),
+	POOLHEAD("CgeheadBondParkaZ",  "char/snowbond",   0),
 };
 
 // Where the pool's rows start in g_HeadsAndBodies: straight after the stock
