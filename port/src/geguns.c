@@ -295,6 +295,155 @@ static void gegunsUnpump(s32 i)
 	}
 }
 
+/**
+ * GoldenEye's guns as another installed mod made them (modborrow.c): GoldenEye
+ * X's definition whole - its model, hands, positions, functions, fire and
+ * reload scripts with their animations and sounds already moved to numbers of
+ * the port's own - under GoldenEye's name here, and with the port's own fields
+ * (flags2, flags3, the unequipped reload index, the pickup sound) the host's,
+ * since the code keyed on them asks about the host (weaponHost()).
+ *
+ * The ammunition's type stays the host's: a type is a row of the game's ammo
+ * table, the one the crates, the HUD and the Combat Simulator's lists count,
+ * and GoldenEye X's rows are its own table's. Its magazine and its reload are
+ * GoldenEye X's.
+ */
+static struct weapon stockDefs[NUM_GE_WEAPONS];
+static struct weapon stockFalcon2;
+static struct weapon stockKnife;
+static struct weapon stockCmp150;
+static struct weapon stockAr34;
+static u8 borrowed[NUM_GE_WEAPONS];
+static u16 borrowedPickupFile[NUM_GE_WEAPONS];
+static u16 borrowedPickupScale[NUM_GE_WEAPONS];
+static u32 borrowedHands[NUM_GE_WEAPONS];
+static u16 borrowedModel[NUM_GE_WEAPONS];
+
+/**
+ * The port's name for function which, of this type, on gun index: its host's
+ * function of the same type, else the Falcon 2's (a pistol whip) or the combat
+ * knife's (a throw), else the host's first.
+ */
+static const struct weaponfunc *gegunsNameFor(s32 index, s32 which, s32 type)
+{
+	// GoldenEye's automatics are automatic, whatever their host fires: the
+	// KF7 Special's and the AR53's "Burst Fire" named them wrong. A second
+	// automatic function is the AR33's scope.
+	if (type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+		return which == 0 ? stockCmp150.functions[0] : stockAr34.functions[1];
+	}
+
+	const struct weapon *const candidates[] = {
+		&stockDefs[index],
+		&stockFalcon2,
+		&stockKnife,
+	};
+
+	for (s32 c = 0; c < ARRAYCOUNT(candidates); c++) {
+		for (s32 f = 0; f < 2; f++) {
+			const struct weaponfunc *func = candidates[c]->functions[f];
+
+			if (func && func->type == type) {
+				return func;
+			}
+		}
+	}
+
+	return stockDefs[index].functions[0];
+}
+
+void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 pickupscale)
+{
+	struct weapon *out = &g_GeWeaponDefs[index];
+	const struct weapon *stock = &stockDefs[index];
+
+	if (!def) {
+		if (borrowed[index]) {
+			*out = *stock;
+		}
+
+		borrowed[index] = 0;
+		borrowedPickupFile[index] = 0;
+		return;
+	}
+
+	*out = *def;
+	out->shortname = stock->shortname;
+	out->name = stock->name;
+
+	// Text ids are the mod's language files', which say something else here
+	// (its KF7's function read "Burst Fire"): the port's own names stay
+	out->manufacturer = stock->manufacturer;
+	out->description = stock->description;
+
+	for (s32 f = 0; f < 2; f++) {
+		const struct weaponfunc *src = def->functions[f];
+		const struct weaponfunc *ours = src ? gegunsNameFor(index, f, src->type) : NULL;
+
+		if (src) {
+			const u32 size = gegunsFuncSize(src->type);
+			struct weaponfunc *copy = malloc(size);
+
+			if (copy) {
+				memcpy(copy, src, size);
+				copy->name = ours ? ours->name : copy->name;
+				out->functions[f] = copy;
+			}
+		}
+	}
+	out->flags2 = stock->flags2;
+	out->flags3 = stock->flags3;
+	out->unequippedreloadindex = stock->unequippedreloadindex;
+	out->pickupsound = stock->pickupsound;
+
+	for (s32 a = 0; a < 2; a++) {
+		if (def->ammos[a] && stock->ammos[a]) {
+			struct inventory_ammo *copy = malloc(sizeof(*copy));
+
+			if (copy) {
+				*copy = *def->ammos[a];
+				copy->type = stock->ammos[a]->type;
+				out->ammos[a] = copy;
+			}
+		}
+	}
+
+	borrowed[index] = 1;
+	borrowedHands[index] = def->flags & WEAPONFLAG_HASHANDS;
+	borrowedModel[index] = def->hi_model;
+	borrowedPickupFile[index] = pickupfile;
+	borrowedPickupScale[index] = pickupscale;
+}
+
+s32 gegunsIsBorrowed(s32 index)
+{
+	return borrowed[index];
+}
+
+s32 gegunsBorrowedPickup(s32 index, u16 *fileid, u16 *scale)
+{
+	if (!borrowed[index] || !borrowedPickupFile[index]) {
+		return 0;
+	}
+
+	*fileid = borrowedPickupFile[index];
+	*scale = borrowedPickupScale[index];
+
+	return 1;
+}
+
+/** The first-person model file the gun's own definition names: the borrowed one's, or the host's. */
+u16 gegunsModelFile(s32 index)
+{
+	return borrowed[index] ? borrowedModel[index] : stockDefs[index].hi_model;
+}
+
+/** Whether the gun's own definition has hands: the borrowed one's, or the host's. */
+u32 gegunsHandsFlag(s32 index)
+{
+	return borrowed[index] ? borrowedHands[index] : g_Weapons[g_GeWeaponHosts[index]]->flags & WEAPONFLAG_HASHANDS;
+}
+
 /** The stock model state a GoldenEye gun's host is picked up as. */
 s32 gegunsHostModel(s32 index)
 {
@@ -303,6 +452,11 @@ s32 gegunsHostModel(s32 index)
 
 PD_CONSTRUCTOR static void gegunsInit(void)
 {
+	stockFalcon2 = *g_Weapons[WEAPON_FALCON2];
+	stockKnife = *g_Weapons[WEAPON_COMBATKNIFE];
+	stockCmp150 = *g_Weapons[WEAPON_CMP150];
+	stockAr34 = *g_Weapons[WEAPON_AR34];
+
 	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
 		const struct weapon *host = g_Weapons[g_GeWeaponHosts[i]];
 		const s32 hostmodel = gegunsHostModel(i);
@@ -317,6 +471,9 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 		if (WEAPON_GE_FIRST + i == WEAPON_GE_AUTOSHOTGUN) {
 			gegunsUnpump(i);
 		}
+
+		// what a borrow is undone to
+		stockDefs[i] = g_GeWeaponDefs[i];
 
 		// Until gebean.c has the release's pickup to point it at, the host's
 		if (hostmodel >= 0 && hostmodel < MODEL_GE_FIRST) {

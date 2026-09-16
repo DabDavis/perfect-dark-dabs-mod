@@ -25,6 +25,7 @@
 #include "xblamesh.h"
 #include "gebean.h"
 #include "mod.h"
+#include "romdata.h"
 #endif
 #include "game/modelmgr.h"
 #include "game/tex.h"
@@ -3995,9 +3996,11 @@ void bgunTickGunLoad(void)
 #ifndef PLATFORM_N64
 				// the gun's texture ids are its file's, not the map's
 				const s32 prevtexstage = modSetTextureFromStage(0);
+				const s32 prevtexsrc = modSetTextureSourceMod(romdataFileGetModDir(player->gunctrl.loadfilenum));
 #endif
 				texLoad(&modeldef->texconfigs[i].texturenum, &player->gunctrl.texpool, true);
 #ifndef PLATFORM_N64
+				modSetTextureSourceMod(prevtexsrc);
 				modSetTextureFromStage(prevtexstage);
 #endif
 				modeldef->texconfigs[i].unk0b = 1;

@@ -211,6 +211,27 @@ s32 modDataBgStage(s32 def);
 s32 modDataImport(const struct moddataspec *spec);
 
 /**
+ * Another installed mod's definitions, read out of its data segment without
+ * touching the loaded mod's (modborrow.c). Files the mod ships are pinned to
+ * its mount moddir; animation and sound numbers go through the remaps, which
+ * return the number the port plays the mod's one as.
+ */
+struct moddataborrow;
+struct weapon;
+struct moddataborrow *modDataBorrowOpen(const struct moddataspec *spec, const char *dir, s32 moddir,
+		s32 (*remapanim)(void *ctx, s32 num), s32 (*remapsound)(void *ctx, s32 num), void *ctx);
+struct weapon *modDataBorrowWeapon(struct moddataborrow *b, const struct moddataspec *spec, s32 slot);
+s32 modDataBorrowModelState(struct moddataborrow *b, const struct moddataspec *spec, s32 index, u16 *fileid, u16 *scale);
+const char *modDataBorrowFileName(struct moddataborrow *b, s32 modid);
+u32 modDataBorrowRd32(struct moddataborrow *b, u32 addr);
+s32 modDataBorrowRead(struct moddataborrow *b, u32 addr, u8 *dst, u32 len);
+// Frees the reader, not what it converted. Only for a reader nothing was converted by.
+void modDataBorrowClose(struct moddataborrow *b);
+
+// An installed mod's datasegment block, read from dir and not applied.
+s32 modConfigReadDataSegment(const char *dir, struct moddataspec *spec);
+
+/**
  * Reads texture num out of the mods, if one of them has it.
  *
  * outstagemod, when given, comes back as the mounted directory index of the
@@ -223,8 +244,13 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstagemod);
 // Whether modTextureLoad() would find num, without reading it.
 s32 modTextureExists(u16 num);
 s32 modSetTextureFromStage(s32 on);
-// Whether a texture loaded now would come from the running stage's own mod.
-s32 modTextureFromStage(void);
+// Load textures from mounted mod dir index (-1 for none) whatever the stage:
+// a model file pinned to a borrowed mod names that mod's textures. Returns the
+// previous index.
+s32 modSetTextureSourceMod(s32 dir);
+// Which mounted mod a texture loaded now would be asked for, plus one; 0 when
+// it would come from the overlay or the ROM.
+s32 modTextureSource(void);
 
 s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim);
 void *modAnimationLoadData(u16 num);
@@ -237,6 +263,7 @@ void *modSequenceLoad(u16 num, u32 *outSize);
 void modListRefresh(void);
 s32 modListGetCount(void);
 const char *modListGetName(s32 index);
+const char *modListGetPath(s32 index);
 s32 modListGetSelected(void);
 void modListSetSelected(s32 index);
 const char *modListGetSelectedName(void);

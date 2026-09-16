@@ -8,8 +8,9 @@
 #define TEX_CACHE_KEY(tex) ((tex)->texturenum)
 #else
 // g_TexCacheItems holds a texture's lod sizes by number, and inside a Stage
-// Loader map the room's texture N and a stock model's are two textures
-#define TEX_CACHE_KEY(tex) ((tex)->texturenum | ((tex)->fromstage << 12))
+// Loader map the room's texture N and a stock model's are two textures, as
+// are a borrowed mod's model's texture N and a stock one's
+#define TEX_CACHE_KEY(tex) ((tex)->texturenum | ((s32)(tex)->srcmod << 16))
 #endif
 
 void func0f16e810(u32 arg0);

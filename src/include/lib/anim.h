@@ -7,6 +7,10 @@
 void animsInit(void);
 void animsInitTables(void);
 void animsReset(void);
+#ifndef PLATFORM_N64
+s32 animAppendExternal(const struct animtableentry *entry, u8 *data);
+s32 animIsSame(s32 num, const struct animtableentry *entry, const u8 *data);
+#endif
 s32 animGetNumFrames(s16 anim_id);
 bool animHasFrames(s16 animnum);
 s32 animGetNumAnimations(void);

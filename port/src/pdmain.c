@@ -80,6 +80,8 @@
 #include "assetdump.h"
 #include "xblaimport.h"
 #include "modloader.h"
+#include "modborrow.h"
+#include "gebean.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -289,6 +291,11 @@ void mainProc(void)
 	mainInit();
 	rdpInit();
 	sndInit();
+
+	// A borrowed mod's guns bring animations and sounds, which go in after the
+	// game's own tables exist; then the guns' lists and models are refreshed
+	modBorrowCommit();
+	gebeanPoolRefresh();
 
 	while (true) {
 		mainLoop();

@@ -11,6 +11,18 @@ void sndSetSfxVolume(u16 volume);
 void snd0000ea80(u16 volume);
 void sndResetCurMp3(void);
 void sndLoadSfxCtl(void);
+#ifndef PLATFORM_N64
+#define SND_MAX_SOUNDS      2048  // a sound number's id is 11 bits
+#define SND_NUM_ROM_RUSS    0x1bd
+#define SND_RUSS_CAPACITY   0x400
+#define SND_NUM_ROM_CONFIGS 64
+#define SND_CONFIG_CAPACITY 256
+s32 sndAppendSound(uintptr_t ctloffset);
+uintptr_t sndGetCtlStart(void);
+uintptr_t sndGetTblStart(void);
+s32 sndAppendRussMapping(s16 soundnum, u16 audioconfig_index);
+s32 sndAppendAudioConfig(const struct audioconfig *config);
+#endif
 void sndIncrementAges(void);
 ALEnvelope *sndLoadEnvelope(uintptr_t offset, u16 index);
 ALKeyMap *sndLoadKeymap(uintptr_t offset, u16 index);

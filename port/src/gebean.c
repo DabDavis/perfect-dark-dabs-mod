@@ -385,6 +385,38 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 };
 
 /**
+ * The guns whose release mesh sits right on GoldenEye X's model when the gun is
+ * borrowed (modborrow.c). The fits here were measured on Perfect Dark's hosts,
+ * and GoldenEye X's models are GoldenEye's N64 guns with their own node layout
+ * and origins; surveyed over all 25 in the HD look on 2026-09-16, six came out
+ * wrong: the ZMG and the silenced D5K off to one side and oversized, the
+ * sniper rifle a sliver, the Moonraker only its sight, the rocket launcher a
+ * slab and the remote mine out of the hand. Those draw GoldenEye X's own model
+ * in both looks until they are fitted to it.
+ */
+static const u8 fpFitsBorrowed[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = 1,
+};
+
+/**
  * The plain gun a silenced one is measured on. Its host has no silencer, and
  * Bean's silenced file is the plain gun in the same place with the silencer as
  * one more picture in front of the muzzle, so fitting the whole length to the
@@ -484,9 +516,6 @@ static const u32 fpTint[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 0xfff0c86e,
 };
 
-// Each copy's first-person file as geguns.c made it - its host's - before
-// this ever pointed it at an alias
-static u16 fpHostFile[ARRAYCOUNT(fpRows)];
 
 /**
  * Where the gun that was drawn ends, as an offset from the host's muzzle node
@@ -600,23 +629,37 @@ static s32 gebeanGunsAreN64(void)
  */
 static void gebeanGunsRefresh(void)
 {
-	const s32 show = enabled && !modDataMpWeaponsImported() && gebeanIsAvailable();
+	const s32 bean = gebeanIsAvailable();
+	s32 anyborrowed = 0;
+	s32 show;
 	s32 shown = 0;
+
+	// GoldenEye X's own guns (modborrow.c) are GoldenEye's guns too, with or
+	// without the release to draw on them
+	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
+		anyborrowed |= gegunsIsBorrowed(i);
+	}
+
+	show = enabled && !modDataMpWeaponsImported() && (bean || anyborrowed);
 
 	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
 		const s32 hostmodel = gegunsHostModel(i);
 		struct modelstate *state = &g_ModelStates[MODEL_GE_FIRST + i];
 		s32 fileid = 0;
 		u16 scale = 0x199;
+		u16 bfile, bscale;
 
-		if (hostmodel >= 0 && hostmodel < MODEL_GE_FIRST) {
+		if (gegunsBorrowedPickup(i, &bfile, &bscale)) {
+			fileid = bfile;
+			scale = bscale;
+		} else if (hostmodel >= 0 && hostmodel < MODEL_GE_FIRST) {
 			fileid = g_ModelStates[hostmodel].fileid;
 			scale = g_ModelStates[hostmodel].scale;
 		}
 
 		gunSlot[i] = 0;
 
-		if (show && fileid) {
+		if (show && bean && fileid) {
 			const s32 slot = romdataRegisterAliasFile(gunRows[i].row.file, fileid);
 
 			if (slot) {
@@ -637,17 +680,14 @@ static void gebeanGunsRefresh(void)
 
 		g_MpWeapons[MPWEAPON_GE_FIRST + i].unlockfeature = show ? 0 : MPFEATURE_NEVER;
 
-		// And the first-person model: an alias of the host's, which Bean's gun
-		// is drawn on, or the host's own again
-		if (!fpHostFile[i]) {
-			fpHostFile[i] = g_GeWeaponDefs[i].hi_model;
-		}
-
+		// And the first-person model: an alias of the gun's own model - the
+		// host's, or GoldenEye X's when borrowed - which Bean's gun is drawn on,
+		// or that model again
 		fpSlot[i] = 0;
-		g_GeWeaponDefs[i].hi_model = fpHostFile[i];
+		g_GeWeaponDefs[i].hi_model = gegunsModelFile(i);
 
-		if (show && fpReady[i] && fpHostFile[i]) {
-			const s32 slot = romdataRegisterAliasFile(fpRows[i].file, fpHostFile[i]);
+		if (show && bean && fpReady[i] && (!gegunsIsBorrowed(i) || fpFitsBorrowed[i]) && g_GeWeaponDefs[i].hi_model) {
+			const s32 slot = romdataRegisterAliasFile(fpRows[i].file, g_GeWeaponDefs[i].hi_model);
 
 			if (slot) {
 				fpSlot[i] = slot;
@@ -658,10 +698,14 @@ static void gebeanGunsRefresh(void)
 		// And the host's hands, on or off with the model they hold. A gun
 		// GoldenEye drew a hand on takes them off in the N64 look, since the
 		// hand is in the model there (fpN64Glove).
+		// A borrowed gun in the N64 look is GoldenEye X's model with no mesh
+		// on it, so its hands are its own.
 		g_GeWeaponDefs[i].flags &= ~WEAPONFLAG_HASHANDS;
 
-		if (!fpSlot[i] || !(fpNoHands[i] || (gebeanGunsAreN64() && fpN64Glove[i]))) {
-			g_GeWeaponDefs[i].flags |= g_Weapons[g_GeWeaponHosts[i]]->flags & WEAPONFLAG_HASHANDS;
+		if (gegunsIsBorrowed(i) && (gebeanGunsAreN64() || !fpSlot[i])) {
+			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
+		} else if (!fpSlot[i] || !(fpNoHands[i] || (gebeanGunsAreN64() && fpN64Glove[i]))) {
+			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
 		}
 	}
 
@@ -4861,6 +4905,11 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			*outLen = 0;
 			*outAbsent = 0;
 
+			// GoldenEye X's own model is GoldenEye's N64 gun already
+			if (original && gegunsIsBorrowed(fp)) {
+				return NULL;
+			}
+
 			return modeldef && numnodes > 0 && numnodes <= 64
 				? gebeanBuildFirstPerson(fp, original, modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
 		}
@@ -4872,6 +4921,10 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		if (gun >= 0 && gun < ARRAYCOUNT(gunRows)) {
 			*outLen = 0;
 			*outAbsent = 0;
+
+			if (original && gegunsIsBorrowed(gun)) {
+				return NULL;
+			}
 
 			return modeldef && numnodes > 0 && numnodes <= 64
 				? gebeanBuildRigid(gun, original, modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;

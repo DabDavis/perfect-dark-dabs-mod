@@ -6228,10 +6228,11 @@ struct tex {
 	/*0x0c*/ u32 hasloddata : 1;
 	/*0x0c*/ u32 unk0c_03 : 1;
 #ifndef PLATFORM_N64
-	// Loaded while the running stage's own mod answered for the number
-	// (modTextureFromStage()): inside a Stage Loader map a stock model's
-	// texture N and the room's texture N are two textures in one pool.
-	/*0x0c*/ u32 fromstage : 1;
+	// Which mounted mod answered for the number, plus one; 0 for the ROM and
+	// the overlay (modTextureSource()). Inside a Stage Loader map a stock
+	// model's texture N and the room's texture N are two textures in one pool,
+	// and so are a borrowed mod's gun's texture N and a stock one's.
+	/*0x0c*/ u32 srcmod : 8;
 #endif
 #ifdef PLATFORM_N64
 	/*0x0c*/ u32 next : 24;
@@ -6241,7 +6242,11 @@ struct tex {
 };
 
 struct texcacheitem {
+#ifdef PLATFORM_N64
 	s16 texturenum;
+#else
+	s32 texturenum; // TEX_CACHE_KEY(): the number and the mod it came from
+#endif
 	u8 widths[7];
 	u8 heights[7];
 };

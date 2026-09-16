@@ -33,6 +33,7 @@
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
 #include "gebean.h"
+#include "modborrow.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -1852,10 +1853,9 @@ s32 modDataSpecApply(const struct moddataspec *spec)
  * this block. It goes before any weapon block, since those edit what this
  * puts in place.
  */
-static char *modConfigParseDataSegment(char *p, char *token)
+static char *modConfigParseDataSegmentSpec(char *p, char *token, struct moddataspec *specp)
 {
-	struct moddataspec spec;
-
+#define spec (*specp)
 	modDataSpecInit(&spec);
 
 	p = strParseToken(p, token, NULL);
@@ -1912,12 +1912,63 @@ static char *modConfigParseDataSegment(char *p, char *token)
 		p = strParseToken(p, token, NULL);
 	}
 
+	return p;
+#undef spec
+}
+
+static char *modConfigParseDataSegment(char *p, char *token)
+{
+	struct moddataspec spec;
+
+	p = modConfigParseDataSegmentSpec(p, token, &spec);
+
+	if (!p) {
+		return NULL;
+	}
+
 	if (modDataSpecApply(&spec) < 0) {
 		sysLogPrintf(LOG_ERROR, "modconfig: datasegment: needs a file and a base address");
 		return NULL;
 	}
 
 	return p;
+}
+
+/**
+ * The datasegment block of an installed mod that is not the one loaded, read
+ * out of its own modconfig and not applied: a mod whose weapons are borrowed
+ * (modborrow.c) is mounted for its files alone. False without the block.
+ */
+s32 modConfigReadDataSegment(const char *dir, struct moddataspec *spec)
+{
+	char path[FS_MAXPATH + 1];
+	char token[UTIL_MAX_TOKEN + 1];
+	u32 len = 0;
+	char *data;
+	char *p;
+	s32 ok = 0;
+
+	snprintf(path, sizeof(path), "%s/" MOD_CONFIG_FNAME, dir);
+
+	if (fsFileSize(path) <= 0 || !(data = fsFileLoad(path, &len))) {
+		return 0;
+	}
+
+	p = strParseToken(data, token, NULL);
+
+	while (p && token[0]) {
+		if (!strcmp(token, "datasegment")) {
+			p = modConfigParseDataSegmentSpec(p, token, spec);
+			ok = p && spec->file[0] && spec->base;
+			break;
+		}
+
+		p = strParseToken(p, token, NULL);
+	}
+
+	sysMemFree(data);
+
+	return ok;
 }
 
 /**
@@ -2367,14 +2418,43 @@ s32 modSetTextureFromStage(s32 on)
 }
 
 /**
- * Whether a texture loaded now would be the running stage's own mod's: the
- * stage is a maps-only mount's and no model is loading. The texture pool keys on
- * this beside the number (texFindInPool()), because the room's texture N and a
- * stock model's texture N are both live in one stage.
+ * A mod a model was borrowed from, while that model's textures load: its file
+ * slot is pinned to the mod (romdataFileGetModDir()), and its numbers are that
+ * mod's whatever stage is running and whatever mod is loaded. -1 for none.
  */
-s32 modTextureFromStage(void)
+static s32 g_ModTextureSourceDir = -1;
+
+s32 modSetTextureSourceMod(s32 dir)
 {
-	return !g_ModTextureStageOff && modloaderGetStageModDir(mainGetStageNum()) != NULL;
+	const s32 prev = g_ModTextureSourceDir;
+
+	g_ModTextureSourceDir = dir;
+
+	return prev;
+}
+
+/**
+ * Which mounted mod a texture loaded now would be asked for, plus one, or 0
+ * for the overlay and the ROM: a borrowed model's own mod, else the running
+ * stage's when it is a maps-only mount's and no model is loading. The texture
+ * pool keys on this beside the number (texFindInPool()), because the room's
+ * texture N, a stock model's and a borrowed one's are all live in one stage.
+ */
+s32 modTextureSource(void)
+{
+	if (g_ModTextureSourceDir >= 0) {
+		return g_ModTextureSourceDir + 1;
+	}
+
+	if (!g_ModTextureStageOff) {
+		const s32 dir = modloaderGetStageModDirIndex(mainGetStageNum());
+
+		if (dir >= 0) {
+			return dir + 1;
+		}
+	}
+
+	return 0;
 }
 
 /**
@@ -2396,6 +2476,26 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize, s32 *outstagemod)
 
 	if (outstagemod) {
 		*outstagemod = -1;
+	}
+
+	if (g_ModTextureSourceDir >= 0) {
+		// A borrowed model's number is its mod's, or else stock's: never the
+		// stage's and never the overlay's, which mean something else by it
+		const char *dir = fsGetModDirAt(g_ModTextureSourceDir);
+
+		if (!dir) {
+			return -1;
+		}
+
+		snprintf(path, sizeof(path), "%s/" MOD_TEXTURES_DIR "/%04x.bin", dir, num);
+
+		const s32 ret = fsFileLoadTo(path, dst, dstSize);
+
+		if (ret > 0 && outstagemod) {
+			*outstagemod = g_ModTextureSourceDir;
+		}
+
+		return ret;
 	}
 
 	if (stageDir) {
@@ -2450,6 +2550,18 @@ s32 modTextureExists(u16 num)
 	const char *stageDir = g_ModTextureStageOff
 		? NULL
 		: modloaderGetStageModDir(mainGetStageNum());
+
+	if (g_ModTextureSourceDir >= 0) {
+		const char *dir = fsGetModDirAt(g_ModTextureSourceDir);
+
+		if (!dir) {
+			return 0;
+		}
+
+		snprintf(path, sizeof(path), "%s/" MOD_TEXTURES_DIR "/%04x.bin", dir, num);
+
+		return fsFileSize(path) > 0;
+	}
 
 	if (stageDir) {
 		snprintf(path, sizeof(path), "%s/" MOD_TEXTURES_DIR "/%04x.bin", stageDir, num);
@@ -3307,6 +3419,15 @@ s32 modListGetCount(void)
 	return numModsListed;
 }
 
+const char *modListGetPath(s32 index)
+{
+	if (index < 0 || index >= numModsListed) {
+		return "";
+	}
+
+	return modList[index].path;
+}
+
 const char *modListGetName(s32 index)
 {
 	if (index < 0 || index >= numModsListed) {
@@ -3598,6 +3719,7 @@ s32 modListSwap(s32 index)
 
 	fsReplaceModDir(path);
 	modMapsMount();
+	modBorrowMount();
 
 	romdataResetFiles();
 	filesInit();          // the game's own record of how big each file was
@@ -3612,6 +3734,10 @@ s32 modListSwap(s32 index)
 	if (fsGetModDir()) {
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
+
+	// The files were emptied, pinned ones with them: the borrowed guns are read
+	// again (their animations and sounds are appended once and kept)
+	modBorrowCommit();
 
 	// The files were emptied, aliases with them, and the lists are the new mod's
 	gebeanPoolRefresh();
@@ -3662,6 +3788,7 @@ void modListApplySelection(void)
 		if (selectedModName[0]) {
 			sysLogPrintf(LOG_NOTE, "mod: `%s` is selected but mod dirs came from the command line", selectedModName);
 		}
+		modBorrowMount();
 		return;
 	}
 
@@ -3677,6 +3804,7 @@ void modListApplySelection(void)
 
 	// after the overlay, so it stays first in the search order
 	modMapsMount();
+	modBorrowMount();
 }
 
 /* ---- the Stage Loader: every installed mod's maps, beside the mod loaded --- */

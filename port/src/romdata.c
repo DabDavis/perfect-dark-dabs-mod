@@ -606,6 +606,21 @@ s32 romdataRegisterModFile(const char *name, s32 modDirIndex)
 	return 0;
 }
 
+s32 romdataFileGetModDir(s32 fileNum)
+{
+	for (s32 depth = 0; depth < 8 && fileNum >= 1 && fileNum < ROMDATA_MAX_FILES; depth++) {
+		if (!fileSlots[fileNum].alias) {
+			const s32 dir = fileSlots[fileNum].moddir - 1;
+
+			return dir >= fsGetNumOverlayModDirs() ? dir : -1;
+		}
+
+		fileNum = fileSlots[fileNum].alias;
+	}
+
+	return -1;
+}
+
 /**
  * Claim a slot that serves another file's contents under a name of its own:
  * a second file number for the same model, so that everything keyed on the

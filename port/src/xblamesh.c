@@ -1989,9 +1989,11 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 	// a Stage Loader map's own textures are its rooms', never a stock model's,
 	// so they are no reason to keep the release's mesh off one
 	const s32 prevtexstage = modSetTextureFromStage(0);
+	const s32 prevtexsrc = modSetTextureSourceMod(romdataFileGetModDir(fileid));
 
 	xblaMeshMatchModel(modeldef, fileid);
 
+	modSetTextureSourceMod(prevtexsrc);
 	modSetTextureFromStage(prevtexstage);
 
 	// And the model pack's side of the same nodes, which is filed beside the

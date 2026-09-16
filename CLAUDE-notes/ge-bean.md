@@ -942,6 +942,98 @@ becomes and the gun an intro command hands out - and had the same guard added.
 Its ammo-crate roll reads only `priammotype` and is left alone, so seeds keep
 their crates.
 
+## GoldenEye X's guns, borrowed whole (2026-09-16)
+
+"We NEED to look at the weapons color, position, sound, etc. that ge-x has
+implemented and use that to correct ours", then "take GE-X's guns whole", "like
+we take the stages from mods, we can take the weapons, music, etc.", "characters
+also", "we can widen pools if needed". `port/src/modborrow.c` does the guns;
+the pieces are general and are what weapons, music and characters from any
+installed mod would be built on.
+
+**How GoldenEye X was compared.** Its own guns render with
+`build/gexcmp/gexrun/rungex.sh` (`--moddir`, boot **0x32** - 0x1f dies in
+`playerReset()` with no simulants), ours with `runours.sh`; `dump.gdb` prints
+position, muzzle, sway, sound, recoil and rate per slot. GE-X's slot for each
+gun is `geSlots[]` in modborrow.c (2 knife, 3 PP7 ... 29 remote mine).
+
+**What GoldenEye X changed that a table of numbers cannot carry:**
+
+- **The whole sound bank.** `segs/sfxctl` and `sfxtbl` are the stock sizes and
+  nearly every byte differs: its sound numbers are GoldenEye's samples. A shot
+  sound is usually a *config* (high bit), resolved through its own
+  `g_AudioRussMappings` at the stock address 0x8005dde4.
+- **86 of the 1207 animations, in place** (154-159, 358-415, 1001-1075: the gun
+  animations). Its fire, pump and reload scripts play those numbers.
+- Positions (every gun lower and further out), rates (600/900 against our
+  450/600), pistol recovery 18, one function a gun, its own models and textures.
+
+**How a borrow works.**
+
+- **Finding the mod**: every installed mod with a `datasegment` block is
+  scored by how many of `geSlots[]` hold the model GE-X put there (25 of 25 for
+  6a); `Mod.BorrowGoldenEyeGuns` is `auto`, `none` or a mod's name. It is
+  mounted with `fsAddMapsDir()` after the overlay (`modBorrowMount()`, at boot
+  and in `modListSwap()`), and `modloaderInit()` skips that mount so its maps do
+  not turn up as arenas nobody asked for. The mod that *is* loaded is never
+  borrowed from - its numbers are live, and its lists hide the guns anyway.
+- **Reading it**: `modDataBorrowOpen()` in moddata.c swaps its own segment,
+  names and memo in for the reader's statics while it converts, so the loaded
+  mod's import is untouched. A file the mod ships is pinned to its mount
+  (`romdataRegisterModFile(name, moddir)`); one it does not is the stock file.
+  `GUNCMD_PLAYANIMATION`'s `unk02`, `GUNCMD_PLAYSOUND`'s `unk04`, a shot's
+  `shootsound` and a projectile's and special's `soundnum` go through remaps.
+- **Textures by mod** (`modSetTextureSourceMod()`): a model in a file pinned to
+  a maps-only mount loads its textures from that mod whatever stage runs
+  (modeldef.c, bondgun.c's gun texture load, xblamesh.c's match). `tex.fromstage`
+  became `tex.srcmod` (mount + 1) and the lod cache key and
+  `texcacheitem.texturenum` are 32 bits: the Stage Loader's "the stage's mod" is
+  the same thing with the stage's mount.
+- **Animations** (`animAppendExternal()`, `animIsSame()`): the table has 1024
+  spare rows; an animation byte-identical to ours keeps our number, a changed
+  one is appended and served as an external one. 40 appended for the 25 guns.
+- **Sounds** (`sndAppendSound()`, `sndAppendRussMapping()`,
+  `sndAppendAudioConfig()`): the offset table and cache index hold all 2048 ids
+  an 11-bit number can name; the mod's ctl goes through `preprocessALBankFile()`
+  and each ALSound, wavetable, book and loop it reaches is **rebased once** so
+  the stock loaders - which add the stock ctl's and tbl's starts to every
+  offset - land in the mod's buffers. A config takes the mod's row with it; the
+  mod's audio config row is appended only where it differs. 33 appended.
+  Under `--no-sound` there is no bank and the guns are silent.
+- **The copy** (`gegunsBorrow()`): GE-X's definition whole, with our names
+  (function names by type: the CMP150's "Rapid Fire" for an automatic, the
+  AR34's "Use Scope" for the AR33's second; its text ids name other strings
+  here), the port-only fields and the ammo *type* from our host (a type is a
+  row of the game's ammo table). Pickups are the model its Combat Simulator list
+  gives the slot. Committed after `sndInit()` in port/src/pdmain.c's
+  `mainProc()` - **not** src/lib/main.c's, which the port does not run.
+
+**The looks.** N64: GE-X's model with no mesh on it, first person and third
+(`gebeanBuild()` returns NULL for a borrowed original). HD: Bean's gun on GE-X's
+model where the fit holds (`fpFitsBorrowed[]`); ZMG, silenced D5K, sniper rifle,
+Moonraker, rocket launcher and remote mine came out wrong on GE-X's models and
+draw GE-X's model in both looks until they are fitted. The pickups fit well in
+HD (GE-X's pickups are the decomp's, which gunfit was measured on).
+
+**A bug this found in anim.c.** An external animation (a mod's `animations/`
+descriptor, and now a borrowed one) handed the bit reader its header and frames
+straight out of one buffer. `modelasmReadFrameData()` measures what is left of a
+frame as `t3ptr8 - t6ptr8` - the header's end minus the frame pointer - which is
+only positive because the frame slots are allocated below the header slots;
+with the frame just past its header it is zero or negative, no case matches and
+the loop never ends (the first borrowed PP7 hung the game in `playerRenderHud`).
+Both are copied into the slot buffers now, and an appended animation larger than
+the ROM's largest is refused.
+
+**Checked**: all 25 in first person against GE-X's own (models, positions,
+colours, hand poses match; the hands are the player's outfit), the numbers
+match GE-X's table, six guns fired and reloaded under gdb (`ours/fire.py`)
+playing borrowed shot configs and reload samples, the HD survey, third person in
+both looks, a live `modListSwap()` re-reading the guns, and **a seeded stock
+match pixel-identical to 6537dbde2 at frames 600 and 1500** with no mods
+installed (`build/regress/run.sh`). Not heard by a person yet. The Moonraker is
+missing the small part beside its barrel that GE-X shows.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

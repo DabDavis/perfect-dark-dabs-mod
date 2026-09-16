@@ -17,6 +17,17 @@ extern "C" {
 /** The stock model state the host of GoldenEye gun index (0 is WEAPON_GE_FIRST) is picked up as. */
 s32 gegunsHostModel(s32 index);
 
+struct weapon;
+
+// GoldenEye X's definition of gun index, borrowed (modborrow.c), or NULL to put
+// the copy of the host back; pickupfile 0 keeps the host's pickup.
+void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 pickupscale);
+s32 gegunsIsBorrowed(s32 index);
+s32 gegunsBorrowedPickup(s32 index, u16 *fileid, u16 *scale);
+// WEAPONFLAG_HASHANDS as the gun's own definition has it
+u32 gegunsHandsFlag(s32 index);
+u16 gegunsModelFile(s32 index);
+
 #ifdef __cplusplus
 }
 #endif

@@ -95,6 +95,23 @@ static s32 numMemo;
 static s32 maxMemo;
 static s32 numObjects;
 
+// While a borrowed mod's segment is being read (modDataBorrow*()): the
+// reader's state is swapped for the borrow's, and file ids, animations and
+// sounds are that mod's rather than the loaded one's
+struct moddataborrow {
+	struct modseg seg;
+	struct modmemo *memo;
+	s32 numMemo;
+	s32 maxMemo;
+	s32 moddir;
+	char dir[FS_MAXPATH + 1];
+	s32 (*remapanim)(void *ctx, s32 num);
+	s32 (*remapsound)(void *ctx, s32 num);
+	void *ctx;
+};
+
+static struct moddataborrow *borrowing;
+
 /* ---- reading the segment ---------------------------------------------- */
 
 static inline bool inseg(u32 addr, u32 n)
@@ -202,6 +219,29 @@ static u16 modFileId(u32 modid)
 		return 0;
 	}
 
+	if (seg.fileids[modid] == -2 && borrowing) {
+		// A file the borrowed mod ships is its own, pinned to its mount; one it
+		// does not ship is the stock file it kept
+		char path[FS_MAXPATH + 1];
+		s32 id;
+
+		snprintf(path, sizeof(path), "%s/files/%s", borrowing->dir, seg.names[modid]);
+
+		if (fsFileSize(path) > 0) {
+			id = romdataRegisterModFile(seg.names[modid], borrowing->moddir);
+		} else {
+			id = romdataFileGetNumForName(seg.names[modid]);
+		}
+
+		if (id <= 0) {
+			sysLogPrintf(LOG_WARNING, "moddata: borrowed file %d `%s` has no slot", modid, seg.names[modid]);
+			++seg.badfiles;
+			id = 0;
+		}
+
+		seg.fileids[modid] = id;
+	}
+
 	if (seg.fileids[modid] == -2) {
 		s32 id = romdataFileGetNumForName(seg.names[modid]);
 		if (id < 0) {
@@ -258,6 +298,12 @@ static struct guncmd *cvGuncmds(u32 addr)
 			out[i].unk04 = (intptr_t)cvGuncmds(v);
 		} else {
 			out[i].unk04 = (intptr_t)v;
+		}
+
+		if (borrowing && out[i].type == GUNCMD_PLAYANIMATION && borrowing->remapanim) {
+			out[i].unk02 = (u16)borrowing->remapanim(borrowing->ctx, out[i].unk02);
+		} else if (borrowing && out[i].type == GUNCMD_PLAYSOUND && borrowing->remapsound) {
+			out[i].unk04 = borrowing->remapsound(borrowing->ctx, (s32)v);
 		}
 	}
 
@@ -344,6 +390,9 @@ static void cvFuncShoot(struct weaponfunc_shoot *f, u32 addr)
 	f->impactforce = rdf32(addr + 0x34);
 	f->duration60 = rd8(addr + 0x38);
 	f->shootsound = rd16(addr + 0x3a);
+	if (borrowing && borrowing->remapsound && f->shootsound) {
+		f->shootsound = (u16)borrowing->remapsound(borrowing->ctx, f->shootsound);
+	}
 	f->penetration = rd8(addr + 0x3c);
 }
 
@@ -419,6 +468,9 @@ static struct weaponfunc *cvFunc(u32 addr)
 		f->timer60 = (s32)rd32(addr + 0x58);
 		f->reflectangle = rdf32(addr + 0x5c);
 		f->soundnum = (s16)rd16(addr + 0x60);
+		if (borrowing && borrowing->remapsound && f->soundnum) {
+			f->soundnum = (s16)borrowing->remapsound(borrowing->ctx, (u16)f->soundnum);
+		}
 		break;
 	}
 	case INVENTORYFUNCTYPE_THROW: {
@@ -452,6 +504,9 @@ static struct weaponfunc *cvFunc(u32 addr)
 		f->specialfunc = (s32)rd32(addr + 0x14);
 		f->recoverytime60 = (s32)rd32(addr + 0x18);
 		f->soundnum = rd16(addr + 0x1c);
+		if (borrowing && borrowing->remapsound && f->soundnum) {
+			f->soundnum = (u16)borrowing->remapsound(borrowing->ctx, f->soundnum);
+		}
 		break;
 	}
 	case INVENTORYFUNCTYPE_DEVICE: {
@@ -2453,4 +2508,156 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	return true;
+}
+
+/* ---- borrowing another installed mod's definitions ---------------------- */
+
+static struct modseg savedSeg;
+static struct modmemo *savedMemo;
+static s32 savedNumMemo;
+static s32 savedMaxMemo;
+
+// The reader's state is one set of statics; a borrow swaps its own in for as
+// long as it reads, so the loaded mod's import is left as it was
+static void borrowEnter(struct moddataborrow *b)
+{
+	savedSeg = seg;
+	savedMemo = memo;
+	savedNumMemo = numMemo;
+	savedMaxMemo = maxMemo;
+
+	seg = b->seg;
+	memo = b->memo;
+	numMemo = b->numMemo;
+	maxMemo = b->maxMemo;
+	borrowing = b;
+}
+
+static void borrowLeave(struct moddataborrow *b)
+{
+	b->seg = seg;
+	b->memo = memo;
+	b->numMemo = numMemo;
+	b->maxMemo = maxMemo;
+
+	seg = savedSeg;
+	memo = savedMemo;
+	numMemo = savedNumMemo;
+	maxMemo = savedMaxMemo;
+	borrowing = NULL;
+}
+
+struct moddataborrow *modDataBorrowOpen(const struct moddataspec *spec, const char *dir, s32 moddir,
+		s32 (*remapanim)(void *ctx, s32 num), s32 (*remapsound)(void *ctx, s32 num), void *ctx)
+{
+	char path[FS_MAXPATH + 1];
+	struct moddataborrow *b;
+	u32 len = 0;
+	u8 *data;
+
+	if (!spec->file[0] || !spec->base) {
+		return NULL;
+	}
+
+	snprintf(path, sizeof(path), "%s/%s", dir, spec->file);
+	data = fsFileLoad(path, &len);
+
+	if (!data || !len) {
+		sysLogPrintf(LOG_ERROR, "moddata: could not load %s to borrow from", path);
+		return NULL;
+	}
+
+	b = sysMemZeroAlloc(sizeof(*b));
+
+	if (!b) {
+		sysMemFree(data);
+		return NULL;
+	}
+
+	snprintf(b->dir, sizeof(b->dir), "%s", dir);
+	b->moddir = moddir;
+	b->remapanim = remapanim;
+	b->remapsound = remapsound;
+	b->ctx = ctx;
+	b->seg.data = data;
+	b->seg.len = len;
+	b->seg.base = spec->base;
+
+	if (spec->names[0]) {
+		borrowEnter(b);
+		snprintf(path, sizeof(path), "%s/%s", dir, spec->names);
+		loadNames(path);
+		borrowLeave(b);
+	}
+
+	return b;
+}
+
+struct weapon *modDataBorrowWeapon(struct moddataborrow *b, const struct moddataspec *spec, s32 slot)
+{
+	struct weapon *w = NULL;
+
+	if (!b || slot < 0 || slot >= spec->numweapons) {
+		return NULL;
+	}
+
+	borrowEnter(b);
+	w = cvWeapon(rd32(spec->weapons + slot * 4));
+	borrowLeave(b);
+
+	return w;
+}
+
+s32 modDataBorrowModelState(struct moddataborrow *b, const struct moddataspec *spec, s32 index, u16 *fileid, u16 *scale)
+{
+	if (!b || index < 0 || index >= spec->nummodelstates) {
+		return 0;
+	}
+
+	borrowEnter(b);
+	*fileid = modFileId(rd16(spec->modelstates + index * N64_MODELSTATE_SIZE + 4));
+	*scale = rd16(spec->modelstates + index * N64_MODELSTATE_SIZE + 6);
+	borrowLeave(b);
+
+	return *fileid != 0;
+}
+
+const char *modDataBorrowFileName(struct moddataborrow *b, s32 modid)
+{
+	return b && b->seg.names && modid > 0 && modid < b->seg.numnames ? b->seg.names[modid] : NULL;
+}
+
+u32 modDataBorrowRd32(struct moddataborrow *b, u32 addr)
+{
+	u32 v;
+
+	borrowEnter(b);
+	v = rd32(addr);
+	borrowLeave(b);
+
+	return v;
+}
+
+s32 modDataBorrowRead(struct moddataborrow *b, u32 addr, u8 *dst, u32 len)
+{
+	if (!b || addr < b->seg.base || addr - b->seg.base + len > b->seg.len) {
+		return 0;
+	}
+
+	memcpy(dst, b->seg.data + (addr - b->seg.base), len);
+
+	return 1;
+}
+
+void modDataBorrowClose(struct moddataborrow *b)
+{
+	if (!b) {
+		return;
+	}
+
+	sysMemFree(b->seg.data);
+	sysMemFree(b->seg.names);
+	sysMemFree(b->seg.fileids);
+	sysMemFree(b->memo);
+	sysMemFree(b);
 }

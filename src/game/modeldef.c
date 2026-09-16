@@ -27,6 +27,7 @@
 #include "data.h"
 #ifndef PLATFORM_N64
 #include "mod.h"
+#include "romdata.h"
 #endif
 #include "types.h"
 
@@ -138,6 +139,8 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 	// configs are a head's face and a guard's jacket: loaded with the map's
 	// textures on, a stock guard on a GoldenEye X map wore GoldenEye art.
 	const s32 prevtexstage = modSetTextureFromStage(0);
+	// and a model borrowed from a mounted mod names that mod's textures
+	const s32 prevtexsrc = modSetTextureSourceMod(romdataFileGetModDir(filenum));
 #endif
 
 	modelIterateDisplayLists(modeldef, &node, (Gfx **)&gdl);
@@ -181,6 +184,7 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 	}
 
 #ifndef PLATFORM_N64
+	modSetTextureSourceMod(prevtexsrc);
 	modSetTextureFromStage(prevtexstage);
 #endif
 }

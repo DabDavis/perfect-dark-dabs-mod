@@ -653,6 +653,10 @@ struct audiorussmapping g_AudioRussMappings[] = {
 	/*0x01ba*/ { 0xf434, AUDIOCONFIG_02 }, // Lab guy: "What the hell do you think you're doing? This is supposed..."
 	/*0x01bb*/ { 0xf44f, AUDIOCONFIG_02 }, // President: "Damn it man. I say no and I mean no..."
 	/*0x01bc*/ { 0x0000, AUDIOCONFIG_00 },
+#ifndef PLATFORM_N64
+	// rows for sounds borrowed from a mounted mod (sndAppendRussMapping())
+	[SND_RUSS_CAPACITY - 1] = { 0x0000, AUDIOCONFIG_00 },
+#endif
 };
 
 struct audioconfig g_AudioConfigs[] = {
@@ -723,6 +727,10 @@ struct audioconfig g_AudioConfigs[] = {
 	{ /*61*/  300,  900, 1100, -1, 100, -1,   0, 0 },
 	{ /*62*/ 1000, 2500, 3000, -1, 100, -1,   0, AUDIOCONFIGFLAG_08 },
 	{ /*63*/  400, 1000, 1200, -1, 100, -1,   0, 0 },
+#endif
+#ifndef PLATFORM_N64
+	// rows for a borrowed mod's own configs (sndAppendAudioConfig())
+	[SND_CONFIG_CAPACITY - 1] = { 0 },
 #endif
 };
 
@@ -988,7 +996,13 @@ void sndLoadSfxCtl(void)
 	// some memory but this is initialisation code so it's not much of an issue.
 	size = g_NumSounds * sizeof(uintptr_t) + 20;
 	size = ALIGN16(size);
+#ifdef PLATFORM_N64
 	g_ALSoundRomOffsets = alHeapAlloc(&g_SndHeap, 1, size);
+#else
+	// room for every id an 11 bit sound number can name, for the sounds a
+	// borrowed mod brings (sndAppendSound())
+	g_ALSoundRomOffsets = alHeapAlloc(&g_SndHeap, 1, ALIGN16(SND_MAX_SOUNDS * sizeof(uintptr_t) + 20));
+#endif
 	dmaExec(g_ALSoundRomOffsets, romaddr, size);
 
 	*(uintptr_t *)&g_ALSoundRomOffsets += 0x10;
@@ -999,7 +1013,11 @@ void sndLoadSfxCtl(void)
 	}
 
 	// Allocate and initialise cache
+#ifdef PLATFORM_N64
 	g_SndCache.indexes = alHeapAlloc(&g_SndHeap, sizeof(u16), g_NumSounds);
+#else
+	g_SndCache.indexes = alHeapAlloc(&g_SndHeap, sizeof(u16), SND_MAX_SOUNDS);
+#endif
 
 	for (i = 0; i < (u32)g_NumSounds; i++) {
 		g_SndCache.indexes[i] = -1;
@@ -1015,6 +1033,70 @@ void sndLoadSfxCtl(void)
 		g_SndCache.refcounts[i] = 0;
 	}
 }
+
+#ifndef PLATFORM_N64
+static s32 g_NumRussMappings = SND_NUM_ROM_RUSS;
+static s32 g_NumAudioConfigs = SND_NUM_ROM_CONFIGS;
+
+/**
+ * Adds a sound whose ALSound sits at ctloffset from the sfx ctl segment's
+ * start, the way the ROM's own are addressed, and returns its id, or 0 when
+ * the ids are used up or the bank is not loaded. Everything the ALSound points
+ * at must be addressed the same way: sndLoadSound() and its loaders add the
+ * ctl and tbl segments' starts to what they read. A borrowed mod's bank lives
+ * elsewhere, so its offsets are rebased onto those starts (modborrow.c).
+ */
+s32 sndAppendSound(uintptr_t ctloffset)
+{
+	s32 id;
+
+	if (!g_ALSoundRomOffsets || g_NumSounds >= SND_MAX_SOUNDS) {
+		return 0;
+	}
+
+	id = g_NumSounds;
+	g_ALSoundRomOffsets[id - 1] = ctloffset + (romptr_t) REF_SEG _sfxctlSegmentRomStart;
+	g_SndCache.indexes[id] = 0xffff;
+	g_NumSounds++;
+
+	return id;
+}
+
+uintptr_t sndGetCtlStart(void)
+{
+	return (uintptr_t)(romptr_t) REF_SEG _sfxctlSegmentRomStart;
+}
+
+uintptr_t sndGetTblStart(void)
+{
+	return (uintptr_t)(romptr_t) REF_SEG _sfxtblSegmentRomStart;
+}
+
+/** A config number (the high bit of a sound number) for soundnum under config index; -1 when full. */
+s32 sndAppendRussMapping(s16 soundnum, u16 audioconfig_index)
+{
+	if (g_NumRussMappings >= SND_RUSS_CAPACITY) {
+		return -1;
+	}
+
+	g_AudioRussMappings[g_NumRussMappings].soundnum = soundnum;
+	g_AudioRussMappings[g_NumRussMappings].audioconfig_index = audioconfig_index;
+
+	return g_NumRussMappings++;
+}
+
+/** An audio config row of a borrowed mod's own; its index, or -1 when full. */
+s32 sndAppendAudioConfig(const struct audioconfig *config)
+{
+	if (g_NumAudioConfigs >= SND_CONFIG_CAPACITY) {
+		return -1;
+	}
+
+	g_AudioConfigs[g_NumAudioConfigs] = *config;
+
+	return g_NumAudioConfigs++;
+}
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 void sndIncrementAges(void)

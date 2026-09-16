@@ -23,6 +23,10 @@ void romdataFileFree(s32 fileNum);
 s32 romdataFileIsStock(s32 fileNum);
 const char *romdataFileGetName(s32 fileNum);
 s32 romdataRegisterModFile(const char *name, s32 modDirIndex);
+// The maps-only mount a file slot is pinned to (romdataRegisterModFile()),
+// through an alias, or -1 for a slot served by the ROM or the overlay. A model
+// in such a file is a borrowed mod's and names that mod's textures.
+s32 romdataFileGetModDir(s32 fileNum);
 // A slot of its own serving another file's contents; not stock. See romdata.c.
 s32 romdataRegisterAliasFile(const char *name, s32 hostFileNum);
 

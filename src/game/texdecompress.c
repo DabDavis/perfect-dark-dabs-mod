@@ -2113,8 +2113,8 @@ struct tex *texFindInPool(s32 texturenum, struct texpool *pool)
 #else
 	// A Stage Loader map's room and a stock model on it can both hold texture
 	// N, the mod's and the ROM's, and the model must not be handed the room's
-	const u32 fromstage = modTextureFromStage();
-#define TEX_IS(tex) ((tex)->texturenum == texturenum && (tex)->fromstage == fromstage)
+	const u32 srcmod = modTextureSource();
+#define TEX_IS(tex) ((tex)->texturenum == texturenum && (tex)->srcmod == srcmod)
 #endif
 
 	if (pool == NULL) {
@@ -2370,7 +2370,7 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			tex->data = pool->leftpos;
 			tex->unk0c_03 = false;
 #ifndef PLATFORM_N64
-			tex->fromstage = modTextureFromStage();
+			tex->srcmod = modTextureSource();
 #endif
 
 			// Extract the texture data to the allocation (pool->leftpos)

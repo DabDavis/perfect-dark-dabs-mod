@@ -22,6 +22,7 @@
 #include "utils.h"
 #include "mod.h"
 #include "modloader.h"
+#include "modborrow.h"
 
 extern struct stageallocation g_StageAllocations8Mb[];
 
@@ -580,6 +581,10 @@ void modloaderInit(void)
 		char path[FS_MAXPATH + 1];
 		struct modloaderScan scan = { i, 0, 0, NULL };
 		const char *base = strrchr(dir, '/');
+
+		if (modBorrowIsGunsOnlyMount(i)) {
+			continue;
+		}
 
 		base = base ? base + 1 : dir;
 		if (!strncmp(base, "mod_", 4)) {

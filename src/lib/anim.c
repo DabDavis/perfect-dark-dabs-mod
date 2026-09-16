@@ -13,6 +13,7 @@
 #include "data.h"
 #include "types.h"
 #ifndef PLATFORM_N64
+#include <string.h>
 #include "mod.h"
 #endif
 
@@ -44,10 +45,18 @@ u8 *g_AnimHostSegment = NULL;
 
 #ifndef PLATFORM_N64
 u8 **g_AnimReplacements;
+
+// Rows past the ROM's table for animations taken from a mounted mod
+// (animAppendExternal()): a borrowed gun's reload is the mod's animation,
+// and the mod's number for it means something else to the ROM
+#define ANIM_EXTRA_CAPACITY 1024
+
+static s32 g_AnimCapacity;
 #endif
 
 extern u8 EXT_SEG _animationsTableRomStart;
 extern u8 EXT_SEG _animationsTableRomEnd;
+extern u8 EXT_SEG _animationsSegmentRomStart;
 
 void animsInit(void)
 {
@@ -72,6 +81,17 @@ void animsInit(void)
 	g_NumAnimations = g_NumRomAnimations = ptr[0];
 	g_Anims = g_RomAnims = (struct animtableentry *)&ptr[1];
 
+#ifndef PLATFORM_N64
+	g_AnimCapacity = g_NumAnimations + ANIM_EXTRA_CAPACITY;
+
+	{
+		struct animtableentry *grown = mempAlloc(ALIGN64(g_AnimCapacity * sizeof(*grown)), MEMPOOL_PERMANENT);
+
+		memcpy(grown, g_RomAnims, g_NumAnimations * sizeof(*grown));
+		g_Anims = g_RomAnims = grown;
+	}
+#endif
+
 	g_AnimMaxHeaderLength = 1;
 	g_AnimMaxBytesPerFrame = 1;
 
@@ -88,8 +108,13 @@ void animsInit(void)
 	g_AnimMaxHeaderLength = ALIGN16(g_AnimMaxHeaderLength + 34);
 	g_AnimMaxBytesPerFrame = ALIGN16(g_AnimMaxBytesPerFrame + 34);
 
+#ifdef PLATFORM_N64
 	g_AnimToHeaderSlot    = mempAlloc(ALIGN64(g_NumAnimations), MEMPOOL_PERMANENT);
 	var8005f014           = mempAlloc(ALIGN64(g_NumAnimations * sizeof(*var8005f014)), MEMPOOL_PERMANENT);
+#else
+	g_AnimToHeaderSlot    = mempAlloc(ALIGN64(g_AnimCapacity), MEMPOOL_PERMANENT);
+	var8005f014           = mempAlloc(ALIGN64(g_AnimCapacity * sizeof(*var8005f014)), MEMPOOL_PERMANENT);
+#endif
 	g_AnimFrameByteSlots  = mempAlloc(ALIGN64(ANIM_FRAME_CACHE_SIZE * g_AnimMaxBytesPerFrame), MEMPOOL_PERMANENT);
 	g_AnimFrameBytes      = mempAlloc(ALIGN64(ANIM_FRAME_CACHE_SIZE * sizeof(*g_AnimFrameBytes)), MEMPOOL_PERMANENT);
 	g_AnimFrameAnimNums   = mempAlloc(ALIGN64(ANIM_FRAME_CACHE_SIZE * sizeof(*g_AnimFrameAnimNums)), MEMPOOL_PERMANENT);
@@ -100,8 +125,8 @@ void animsInit(void)
 	g_AnimHeaderAnimNums  = mempAlloc(ALIGN64(ANIM_HEADER_CACHE_SIZE * sizeof(*g_AnimHeaderAnimNums)), MEMPOOL_PERMANENT);
 	g_AnimHeaderBirths    = mempAlloc(ALIGN64(ANIM_HEADER_CACHE_SIZE * sizeof(*g_AnimHeaderBirths)), MEMPOOL_PERMANENT);
 #ifndef PLATFORM_N64
-	g_AnimReplacements    = mempAlloc(ALIGN64(g_NumAnimations * sizeof(u8 *)), MEMPOOL_PERMANENT);
-	bzero(g_AnimReplacements, g_NumAnimations * sizeof(u8 *));
+	g_AnimReplacements    = mempAlloc(ALIGN64(g_AnimCapacity * sizeof(u8 *)), MEMPOOL_PERMANENT);
+	bzero(g_AnimReplacements, g_AnimCapacity * sizeof(u8 *));
 #endif
 
 	animsInitTables();
@@ -109,6 +134,78 @@ void animsInit(void)
 	g_AnimHostSegment = NULL;
 	g_AnimHostEnabled = false;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Adds an animation after the ROM's, whose header and frames are data (the
+ * bytes from the entry's data offset on, as the segment holds them), and
+ * returns its number, or -1 when the rows are used up. data is kept.
+ *
+ * It is served the way a mod's external replacement is (data 0xffffffff), and
+ * counts as one of the ROM's so animsReset() keeps it.
+ */
+s32 animAppendExternal(const struct animtableentry *entry, u8 *data)
+{
+	s32 num;
+
+	if (!g_Anims || g_NumRomAnimations >= g_AnimCapacity || !data) {
+		return -1;
+	}
+
+	// it is read into the ROM's slot buffers, which were sized by the ROM's
+	// largest header and frame
+	if (entry->headerlen > g_AnimMaxHeaderLength || entry->bytesperframe > g_AnimMaxBytesPerFrame) {
+		return -1;
+	}
+
+	num = g_NumRomAnimations;
+
+	g_RomAnims[num] = *entry;
+	g_RomAnims[num].data = 0xffffffff;
+	g_AnimReplacements[num] = data;
+	g_AnimToHeaderSlot[num] = 0xff;
+	var8005f014[num] = 0;
+
+	g_NumRomAnimations++;
+
+	if (g_Anims == g_RomAnims) {
+		g_NumAnimations = g_NumRomAnimations;
+	}
+
+	return num;
+}
+
+/**
+ * Whether animation num as the game has it is entry with the bytes at data
+ * (header then frames, as a segment holds them): a borrowed mod's animation
+ * that is the same as ours plays under our number, with nothing appended.
+ */
+s32 animIsSame(s32 num, const struct animtableentry *entry, const u8 *data)
+{
+	const struct animtableentry *ours;
+	u32 len;
+
+	if (!g_Anims || num < 0 || num >= g_NumRomAnimations) {
+		return 0;
+	}
+
+	ours = &g_RomAnims[num];
+
+	if (ours->numframes != entry->numframes || ours->bytesperframe != entry->bytesperframe
+			|| ours->headerlen != entry->headerlen || ours->framelen != entry->framelen
+			|| ours->flags != entry->flags) {
+		return 0;
+	}
+
+	len = entry->headerlen + (u32)entry->numframes * entry->bytesperframe;
+
+	if (ours->data == 0xffffffff) {
+		return g_AnimReplacements[num] && memcmp(g_AnimReplacements[num], data, len) == 0;
+	}
+
+	return memcmp((u8 *)((romptr_t) REF_SEG _animationsSegmentRomStart + ours->data), data, len) == 0;
+}
+#endif
 
 void animsInitTables(void)
 {
@@ -334,7 +431,14 @@ u8 animLoadFrame(s16 animnum, s32 framenum)
 					g_AnimReplacements[animnum] = modAnimationLoadData(animnum);
 				}
 				offset = g_Anims[animnum].bytesperframe * loadframenum + g_Anims[animnum].headerlen;
-				g_AnimFrameBytes[slot] = g_AnimReplacements[animnum] + offset;
+				// Into the frame slot, as the ROM's are: the bit reader measures a
+				// frame by how far the header's end is above it
+				// (modelasmReadFrameData(): t3ptr8 - t6ptr8), which holds for the
+				// slot buffers - allocated below the header slots - and not for a
+				// frame lying just past its own header in one buffer, where the
+				// distance is zero or less and the reader never finishes
+				g_AnimFrameBytes[slot] = &g_AnimFrameByteSlots[slot * g_AnimMaxBytesPerFrame];
+				bcopy(g_AnimReplacements[animnum] + offset, g_AnimFrameBytes[slot], g_Anims[animnum].bytesperframe);
 			} else
 #endif
 			g_AnimFrameBytes[slot] = animDma(&g_AnimFrameByteSlots[slot * g_AnimMaxBytesPerFrame], offset, g_Anims[animnum].bytesperframe);
@@ -393,7 +497,9 @@ void animLoadHeader(s16 animnum)
 			if (!g_AnimReplacements[animnum]) {
 				g_AnimReplacements[animnum] = modAnimationLoadData(animnum);
 			}
-			g_AnimHeaderBytes[slot] = g_AnimReplacements[animnum];
+			// into the header slot, for the same reason as a frame
+			g_AnimHeaderBytes[slot] = &g_AnimHeaderByteSlots[slot * g_AnimMaxHeaderLength];
+			bcopy(g_AnimReplacements[animnum], g_AnimHeaderBytes[slot], tmp);
 		} else
 #endif
 		g_AnimHeaderBytes[slot] = animDma(&g_AnimHeaderByteSlots[slot * g_AnimMaxHeaderLength], g_Anims[animnum].data, tmp);
