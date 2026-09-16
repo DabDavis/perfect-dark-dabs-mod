@@ -541,6 +541,36 @@ the placement was settled from GoldenEye's own layout instead of by eye.
   false-positives on bright walls), and picking the weapon up is the whole
   problem, not the rig.
 
+## The knives, and which texture a material means (2026-09-16)
+
+Both knives were drawn in a cloudy grey and lay across the bottom right
+corner with the blade running off it.
+
+- **A material's picture is its biggest texture.** A Bean material lists one
+  (index, sampler) pair per texture after its count; a second is the
+  environment map the release's shader lays over the first, and the two are
+  **not in a fixed order** - the Golden Gun's gold sphere map comes first and
+  its pictures second, the knife's picture first and its sphere map second.
+  Reading the second every time (the old rule) painted both knives in the
+  sphere map, and Boris's 372-vertex material in a 54x54 grey scratch map
+  instead of his face. Taking the largest, and the last of equals
+  (`beanMaterialTexture()`), is right for every multi-texture material in the
+  guns, the first 25 characters and the first 25 heads.
+- **The host's matrix turns what it is given.** Perfect Dark's own combat
+  knife is modelled along x and held up by its matrix; Bean's knives run up
+  the y axis, so drawn in Bean's axes they came out lying across the corner.
+  `fpgrip.axis` names which of Bean's axes feeds each of the host's, signed
+  and 1 based - `{2, -1, 3}` for both knives, a quarter turn about z, and a
+  true rotation rather than the mirror `{2, 1, 3}` looks like. Whatever else
+  needs turning, this is where it goes.
+- **GoldenEye's throwing knife is held by the blade**, handle up, ready to
+  throw - that is its model, not a placement fault. The hunting knife is held
+  by the handle, blade up. Both files share SKEL_TOP (0, -307.8, -404.7) and
+  both carry GoldenEye's hand, so one anchor and one turn serve both.
+- **`--xbla-mesh-verbose` prints what was drawn**, its box in the list's
+  space, and each bone's matrix, which is how "the mesh is 440 units tall but
+  the screen shows a stub" was traced to the axes rather than to the scale.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.
@@ -548,8 +578,7 @@ the placement was settled from GoldenEye's own layout instead of by eye.
   character; it could move to the model load beside the unpack.
 - Everything else the plan named: character select from the GE ROM's models,
   props, levels.
-- The guns (sections above): the throwing knife, which is held so low that the
-  HUD covers it (it has never been looked at with ammo in hand); Bean's moving parts on their own matrices where the host
+- The guns (sections above): Bean's moving parts on their own matrices where the host
   has one (every surveyed gun's bones landed on the body's); floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their
   random-weapon filters saved. The slide: with lists' loaded matrices known,

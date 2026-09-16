@@ -380,6 +380,13 @@ struct fpgrip {
 	s32 set;
 	f32 pos[3];
 	f32 scale;  // 0 to keep the fit along the barrel
+	// Which of Bean's axes feeds each of the host's, signed and 1 based, for
+	// a gun whose model is not laid out the way its host's is; all zero for
+	// Bean's axes as they are. The host's matrix turns whatever it is given,
+	// so a gun authored along another axis is turned with it: Bean's knives
+	// run up the y axis where Perfect Dark's runs along x, which drew them
+	// across the bottom right corner.
+	s8 axis[3];
 };
 
 #define FP_PALM_MTX 2
@@ -416,11 +423,19 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// as the launcher: the host laser is half its length.
 	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { 1, { -1.0f, -447.6f, -1241.6f }, 1.0f / 4.7f },
 
-	// A knife's blade runs along y, not the barrel axis every gun is fitted
-	// by, so fitting its z drew a sliver (0.102 and 0.092). Both are drawn at
-	// their own size, gripped by the handle below the guard.
-	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 1, { 0.0f, -662.0f, -270.0f }, 1.0f / 4.7f },
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 1, { 0.0f, -558.0f, -322.0f }, 1.0f / 4.7f },
+	// A knife's blade runs up the y axis, not along the barrel every gun is
+	// fitted by, so fitting its z drew a sliver (0.102 and 0.092). Both are
+	// drawn at their own size and placed the way the Moonraker is, on
+	// SKEL_TOP: they share one (0, -307.8, -404.7) and they carry GoldenEye's
+	// hand in their geometry, landing where the pistols' does, so the same
+	// SKEL_TOP + (-1.4, -247.6, 158.4) holds. And they are turned a quarter
+	// about z (Bean's y feeds the host's x), because the host's own knife is
+	// modelled along x and it is the host's matrix that holds a knife up:
+	// unturned they lay across the bottom right corner with the blade running
+	// off it. GoldenEye's throwing knife is held by the blade, handle up, so
+	// the same turn is right for both.
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 1, { -1.4f, -555.4f, -246.3f }, 1.0f / 4.7f, { 2, -1, 3 } },
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 1, { -1.4f, -555.4f, -246.3f }, 1.0f / 4.7f, { 2, -1, 3 } },
 };
 
 /**
@@ -1753,6 +1768,63 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
 }
 
 /**
+ * A point of Bean's gun in the host's axes: out[a] is the Bean axis named by
+ * axis[a], 1 based and signed, or the same axis when there is none.
+ */
+static void beanAxisMap(const s8 *axis, const f32 *in, f32 *out)
+{
+	for (s32 a = 0; a < 3; a++) {
+		if (axis && axis[a]) {
+			const s32 which = (axis[a] < 0 ? -axis[a] : axis[a]) - 1;
+
+			out[a] = axis[a] < 0 ? -in[which] : in[which];
+		} else {
+			out[a] = in[a];
+		}
+	}
+}
+
+/** The texels in a texture, from its header, without decoding it. */
+static u32 beanTexArea(const struct beanmodel *bm, u32 t)
+{
+	u32 blen = 0;
+	const u8 *b = t < (u32)bm->numtex ? caffBlob((struct caff *)&bm->caff, bm->texfile[t], &blen) : NULL;
+
+	return b && blen >= 0x40 ? (u32)gebeanBE16(b + 0x24) * gebeanBE16(b + 0x26) : 0;
+}
+
+/**
+ * Which of a material's textures is the gun's own picture. A material lists
+ * one (index, sampler) pair per texture after its count, and a second is an
+ * environment map the release's shader lays over the first - but the two are
+ * not in a fixed order: the Golden Gun's gold sphere map comes first and its
+ * pictures second, the knife's picture first and its sphere map second. The
+ * picture is the bigger of them every time (512x512 against 256x256 or less),
+ * so the largest is taken, and the last of equals. Reading the second always
+ * painted both knives in a cloudy sphere map.
+ */
+static u32 beanMaterialTexture(const struct beanmodel *bm, const u8 *st, u32 pc, u32 size, u32 len)
+{
+	const u32 count = size >= 12 ? gebeanBE32(st + pc + 8) >> 16 : 0;
+	u32 best = 0;
+	u32 bestarea = 0;
+	s32 found = 0;
+
+	for (u32 k = 0; k < count && gebeanFits(pc + 12 + 8 * k, 4, len) && 12 + 8 * k + 4 <= size; k++) {
+		const u32 t = gebeanBE32(st + pc + 12 + 8 * k);
+		const u32 area = beanTexArea(bm, t);
+
+		if (!found || area >= bestarea) {
+			found = 1;
+			best = t;
+			bestarea = area;
+		}
+	}
+
+	return found ? best : 0;
+}
+
+/**
  * The command stream, first alternative at every switch. Each record is a
  * tagged u32 (size << 16 | type << 8): 0x12 palette remap, 0x13 bone palette,
  * 0x16 switch, 0x17 conditional section, 0x19 jump, 0x1d end, 0x2d material,
@@ -1831,12 +1903,8 @@ static void beanWalkStream(struct beanmodel *bm)
 			}
 		} else if (type == 0x2e && size >= 12) {
 			vb = gebeanBE32(st + pc + 8);
-		} else if (type == 0x2d) {
-			if (size == 20) {
-				tex = gebeanBE32(st + pc + 12);
-			} else if (size >= 24) {
-				tex = gebeanBE32(st + pc + 20);
-			}
+		} else if (type == 0x2d && size >= 20) {
+			tex = beanMaterialTexture(bm, st, pc, size, len);
 		} else if (type == 0x13 && size >= 12) {
 			u32 count = gebeanBE16(st + pc + 8);
 
@@ -3482,6 +3550,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	f32 scale;
 	s32 bonemtx[BEAN_MAXBONES];
 	s32 numhand = 0;
+	const s8 *fpaxis = NULL;
 	u8 *file;
 
 	// Bean's N64-look guns have the hand in their geometry; the host draws there
@@ -3650,6 +3719,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		beanc[a] = (beanlo[a] + beanhi[a]) * 0.5f;
 	}
 
+	fpaxis = fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2] ? fpGrip[fp].axis : NULL;
+
 	// A gun placed by its grip: that point of Bean's gun onto the hand's
 	if (fpGrip[fp].set && FP_PALM_MTX < nummatrices && rig.hasrest[FP_PALM_MTX]) {
 		if (fpGrip[fp].scale > 0.0f) {
@@ -3680,9 +3751,20 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				continue;
 			}
 
-			for (s32 a = 0; a < 3; a++) {
-				const f32 joint = (bm.bind[b][a] - beanc[a]) * scale + hostc[a];
-				d2 += (joint - rig.rest[m][a]) * (joint - rig.rest[m][a]);
+			{
+				f32 rel[3], turned[3];
+
+				for (s32 a = 0; a < 3; a++) {
+					rel[a] = bm.bind[b][a] - beanc[a];
+				}
+
+				beanAxisMap(fpaxis, rel, turned);
+
+				for (s32 a = 0; a < 3; a++) {
+					const f32 joint = turned[a] * scale + hostc[a];
+
+					d2 += (joint - rig.rest[m][a]) * (joint - rig.rest[m][a]);
+				}
 			}
 
 			if (d2 < best) {
@@ -3762,9 +3844,21 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 				// In the space of the list's matrix, the way the host's own
 				// vertices are: the model's space less the matrix's rest
-				for (s32 a = 0; a < 3; a++) {
-					pos[a] = (v.pos[a] - beanc[a]) * scale + hostc[a]
-						- (rig.hasrest[mtx] ? rig.rest[mtx][a] : 0.0f);
+				{
+					f32 rel[3], turned[3], nrm[3];
+
+					for (s32 a = 0; a < 3; a++) {
+						rel[a] = v.pos[a] - beanc[a];
+					}
+
+					beanAxisMap(fpaxis, rel, turned);
+					beanAxisMap(fpaxis, v.nrm, nrm);
+					memcpy(v.nrm, nrm, sizeof(nrm));
+
+					for (s32 a = 0; a < 3; a++) {
+						pos[a] = turned[a] * scale + hostc[a]
+							- (rig.hasrest[mtx] ? rig.rest[mtx][a] : 0.0f);
+					}
 				}
 
 				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight,
@@ -3866,12 +3960,31 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	// Where a gun was put, which is what a placement is judged from: the point
 	// of Bean's gun that was laid on the host, and where on the host that is
 	if (xblaMeshIsVerbose()) {
+		f32 outlo[3] = { 1e30f, 1e30f, 1e30f };
+		f32 outhi[3] = { -1e30f, -1e30f, -1e30f };
+
+		for (s32 i = 0; i < out.numverts; i++) {
+			for (s32 a = 0; a < 3; a++) {
+				const f32 p = out.pos[i * 3 + a];
+
+				if (p < outlo[a]) outlo[a] = p;
+				if (p > outhi[a]) outhi[a] = p;
+			}
+		}
+
 		sysLogPrintf(LOG_NOTE, "gebean: %s place: bean (%.1f %.1f %.1f) -> host (%.1f %.1f %.1f), palm rest (%.1f %.1f %.1f), "
-				"host box (%.1f %.1f %.1f)..(%.1f %.1f %.1f), bean box (%.1f %.1f %.1f)..(%.1f %.1f %.1f)",
+				"host box (%.1f %.1f %.1f)..(%.1f %.1f %.1f), bean box (%.1f %.1f %.1f)..(%.1f %.1f %.1f), "
+				"drawn (%.1f %.1f %.1f)..(%.1f %.1f %.1f)",
 				r->file, beanc[0], beanc[1], beanc[2], hostc[0], hostc[1], hostc[2],
 				rig.rest[FP_PALM_MTX][0], rig.rest[FP_PALM_MTX][1], rig.rest[FP_PALM_MTX][2],
 				hostlo[0], hostlo[1], hostlo[2], hosthi[0], hosthi[1], hosthi[2],
-				beanlo[0], beanlo[1], beanlo[2], beanhi[0], beanhi[1], beanhi[2]);
+				beanlo[0], beanlo[1], beanlo[2], beanhi[0], beanhi[1], beanhi[2],
+				outlo[0], outlo[1], outlo[2], outhi[0], outhi[1], outhi[2]);
+
+		for (s32 b = 0; b < bm.numbones && b < 8; b++) {
+			sysLogPrintf(LOG_NOTE, "gebean:   bone %d -> matrix %d, list %d",
+					b, bonemtx[b], mtxnode[bonemtx[b]]);
+		}
 	}
 
 	beanOutFree(&out);
