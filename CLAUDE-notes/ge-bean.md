@@ -513,12 +513,15 @@ And the rest of it:
   different shapes and end in different places, and a mesh is built once per
   look and then kept: whichever was built last was otherwise the one every shot
   came out of.
-- **The throwing knife needs the hunting knife's turn in the N64 look**
-  (`fpAxisN64`). Rare authored the release's throwing knife 180 degrees from
-  its hunting knife, which is why `fpGrip` turns the two opposite ways; the
-  N64-look pair are both authored the way the hunting knife is, so the
-  release's turn hung the knife point-down from a hand above the blade. It is
-  the only gun where the looks differ this way.
+- **The throwing knife's own hand is left out** (`fpN64Glove` no longer lists
+  it, which drives `beanGunExtent`'s `handoff`), and Perfect Dark's hands hold
+  it as they do in the release's look. GoldenEye's hand grips that knife by
+  the *blade* with the handle up, ready to throw, and it is one mesh with the
+  knife, so the turn that holds the knife by the handle carried a fist up the
+  blade with it. Nothing else about the file differs between the looks: the
+  same `fpGrip` turn serves both, and a per-look axis map (`fpAxisN64`, one
+  row, 2026-09-16) was a wrong reading of that fist and is gone - see "The
+  knives" below.
 - **Checked** on 0x32 with all twenty-five equipped in turn in both looks
   (`--boot-stage 0x32 --mpsims 0 --fixed-step`, gdb equipping each and
   screenshotting 80 frames later - 45 was not enough for the raise animation
@@ -655,6 +658,16 @@ corner with the blade running off it.
   throw - that is its model, not a placement fault. The hunting knife is held
   by the handle, blade up. Both files share SKEL_TOP (0, -307.8, -404.7) and
   both carry GoldenEye's hand, so one anchor and one turn serve both.
+- **The throwing knife is 180 degrees from the hunting knife in both sets of
+  files**, so `fpGrip` turns the two opposite ways (`{-2, 1, 3}` against
+  `{2, -1, 3}`) and the same pair of turns serves the N64 look. Getting this
+  wrong once cost a day: on 2026-09-16 the N64 throwing knife was given the
+  hunting knife's turn, on the reading that the N64 pair were authored alike,
+  and a tester's F3 came back with it held by the blade. What actually differs
+  is the hand - GoldenEye's grips that knife by the blade and is one mesh with
+  it, so the correct turn appeared wrong (a fist up the blade) and the wrong
+  turn appeared to be GoldenEye's own pose. **Judge a knife by where the
+  handle is, not by where the hand is.**
 - **`--xbla-mesh-verbose` prints what was drawn**, its box in the list's
   space, and each bone's matrix, which is how "the mesh is 440 units tall but
   the screen shows a stub" was traced to the axes rather than to the scale.
