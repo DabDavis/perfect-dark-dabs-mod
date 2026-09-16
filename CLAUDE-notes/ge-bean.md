@@ -440,7 +440,24 @@ model's matrices, so the hand goes and the gun is put on the host's model:
 - **To compare a mesh with its host**, `Mod.XblaMeshBoth=1` draws the stock
   geometry under it.
 
-## The guns follow F6 too (2026-09-16)
+## The guns follow F6 too (2026-09-16) - REMOVED the same day
+
+**Superseded.** Once GoldenEye X's guns could be borrowed whole (below), the
+user: "now that we have the mod weapon loader/borrower, we don't need our
+implementation of the n64 weapons that was giving us issues." Drawing Bean's
+`files/original/gun/` and `prop/chr*` on Perfect Dark's hosts is gone - the
+glove table, the flash-by-bones test, the N64 vertex colours on first-person
+guns, the per-look muzzle offsets, and the archive no longer streams those
+files. A gun's N64 look is GoldenEye X's own model when borrowed; with no
+GoldenEye X there is no N64 gun, and in that look the guns' Combat Simulator
+rows are hidden (the user's choice: "Require GE-X for N64 guns") while one
+already in hand draws its host. The borrowed HD fit measures the release's gun
+itself rather than the N64 original (the same placements to within sway; the
+RC-P90 came out closer to GoldenEye X's). What this section found about the
+format - the 0x30 piece record, the four-input material, the packed mip tail -
+still serves the characters' N64 look and the release's own records. The
+history as it was:
+
 
 A GoldenEye gun stands on a Perfect Dark weapon, so with the release's meshes
 off there was no GoldenEye model underneath to fall back to - the PP7 became
