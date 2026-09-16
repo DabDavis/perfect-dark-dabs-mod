@@ -427,7 +427,8 @@ extern struct headorbody g_HeadsAndBodies[152];
 #else
 // The stock 152 rows (the last a terminator), then the GoldenEye characters and
 // heads the Combat Simulator's lists can take (gebean.c)
-#define NUM_HEADSANDBODIES 256
+// A borrowed mod's characters go after the game's (modborrow.c)
+#define NUM_HEADSANDBODIES 512
 extern struct headorbody g_HeadsAndBodies[NUM_HEADSANDBODIES];
 #endif
 extern struct hatposition var8007dae4[1][6];

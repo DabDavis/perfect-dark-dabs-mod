@@ -50,6 +50,7 @@
 #include "lib/anim.h"
 #include "lib/snd.h"
 #include "geguns.h"
+#include <zlib.h>
 
 #define BORROW_NAME_LEN 128
 
@@ -660,6 +661,339 @@ void modBorrowCommit(void)
 
 	sysLogPrintf(LOG_NOTE, "modborrow: %d of GoldenEye's guns from `%s`, with %d animations and %d sounds of its own",
 			borrowed, src.name, src.animsappended, src.soundsappended);
+}
+
+/* ---- the characters ----------------------------------------------------- */
+
+// The data segment's g_LangFiles (pd.ntsc-final.datasym), a u16 file id a bank
+#define N64_LANGFILES       0x80084124
+#define N64_MPBODY_SIZE     8
+#define N64_MPHEAD_SIZE     4
+#define N64_HEADORBODY_SIZE 0x14
+#define BORROW_MAXROWS      256
+#define BORROW_NAMELEN      32
+
+static s32 charBase = -1;
+static s32 charRows;
+static char charNames[BORROW_MAXROWS][BORROW_NAMELEN];
+
+const char *modBorrowBodyName(s32 bodynum)
+{
+	const s32 i = bodynum - charBase;
+
+	return charBase >= 0 && i >= 0 && i < charRows && charNames[i][0] ? charNames[i] : NULL;
+}
+
+/** Whether the mod ships this file of its own, rather than keeping the stock one. */
+static s32 borrowShips(const char *name)
+{
+	char path[FS_MAXPATH + 1];
+
+	snprintf(path, sizeof(path), "%s/files/%s", src.dir, name);
+
+	return fsFileSize(path) > 0;
+}
+
+/**
+ * A text id's string out of the mod's own language file (bank in the top bits,
+ * index in the low nine; the file is a table of u32 offsets into itself), or
+ * out of the stock file of that name when the mod kept it. The same reading
+ * the importer does for arena names (modimport.c, langString()).
+ */
+static s32 borrowLangString(struct moddataborrow *b, u16 textid, char *out, u32 outlen)
+{
+	const u32 bank = textid >> 9;
+	const u32 index = textid & 0x1ff;
+	char path[FS_MAXPATH + 1];
+	u8 raw[2];
+	const char *name;
+	u8 *file = NULL;
+	u8 *data = NULL;
+	u32 len = 0;
+	s32 ok = 0;
+
+	out[0] = '\0';
+
+	if (!textid || bank > 68 || !modDataBorrowRead(b, N64_LANGFILES + bank * 2, raw, 2)) {
+		return 0;
+	}
+
+	name = modDataBorrowFileName(b, borrowBE16(raw));
+
+	if (!name) {
+		return 0;
+	}
+
+	snprintf(path, sizeof(path), "%s/files/%s", src.dir, name);
+
+	if (fsFileSize(path) > 0) {
+		file = fsFileLoad(path, &len);
+	} else {
+		const s32 stock = romdataFileGetNumForName(name);
+		const u8 *rom = stock > 0 ? romdataFileGetData(stock) : NULL;
+
+		len = stock > 0 ? (u32)romdataFileGetSize(stock) : 0;
+
+		if (rom && len) {
+			file = sysMemAlloc(len);
+
+			if (file) {
+				memcpy(file, rom, len);
+			}
+		}
+	}
+
+	if (!file || len < 5) {
+		sysMemFree(file);
+		return 0;
+	}
+
+	// 0x1173, a 24-bit length, raw deflate
+	if (file[0] == 0x11 && file[1] == 0x73) {
+		const u32 declared = ((u32)file[2] << 16) | ((u32)file[3] << 8) | file[4];
+		z_stream zs;
+
+		memset(&zs, 0, sizeof(zs));
+		data = declared ? sysMemAlloc(declared) : NULL;
+
+		if (data && inflateInit2(&zs, -MAX_WBITS) == Z_OK) {
+			zs.next_in = file + 5;
+			zs.avail_in = len - 5;
+			zs.next_out = data;
+			zs.avail_out = declared;
+			inflate(&zs, Z_FINISH);
+			len = declared - zs.avail_out;
+			inflateEnd(&zs);
+		} else {
+			sysMemFree(data);
+			data = NULL;
+		}
+
+		sysMemFree(file);
+	} else {
+		data = file;
+	}
+
+	if (data && (index + 1) * 4 <= len && index * 4 < borrowBE32(data)) {
+		const u32 at = borrowBE32(data + index * 4);
+		u32 n = 0;
+
+		for (u32 i = at; at && i < len && data[i] && n + 1 < outlen; i++) {
+			if (data[i] >= ' ' && data[i] <= '~') {
+				out[n++] = (char)data[i];
+			}
+		}
+
+		while (n && out[n - 1] == ' ') {
+			n--;
+		}
+
+		out[n] = '\0';
+		ok = n > 0;
+	}
+
+	sysMemFree(data);
+
+	return ok;
+}
+
+/** One of the mod's g_HeadsAndBodies rows as the port's, its files pinned. */
+static s32 borrowHeadOrBody(struct moddataborrow *b, s32 index, struct headorbody *out)
+{
+	u8 raw[N64_HEADORBODY_SIZE];
+	u32 v;
+	f32 scale;
+	f32 animscale;
+	u16 bits;
+	const char *name;
+
+	if (index < 0 || index >= src.spec.numheadsandbodies
+			|| !modDataBorrowRead(b, src.spec.headsandbodies + index * N64_HEADORBODY_SIZE, raw, sizeof(raw))) {
+		return 0;
+	}
+
+	bits = borrowBE16(raw);
+	v = borrowBE32(raw + 4);
+	memcpy(&scale, &v, 4);
+	v = borrowBE32(raw + 8);
+	memcpy(&animscale, &v, 4);
+	name = modDataBorrowFileName(b, borrowBE16(raw + 2));
+
+	// only what the mod made itself: a stock file is a character the game has
+	if (!name || !borrowShips(name) || !(scale > 0.01f && scale < 100.0f) || !(animscale > 0.01f && animscale < 100.0f)) {
+		return 0;
+	}
+
+	memset(out, 0, sizeof(*out));
+	out->ismale = bits >> 15;
+	out->unk00_01 = (bits >> 14) & 1;
+	out->canvaryheight = (bits >> 13) & 1;
+	out->type = (bits >> 10) & 7;
+	out->height = (bits >> 2) & 0xff;
+	out->filenum = modDataBorrowFileId(b, borrowBE16(raw + 2));
+	out->scale = scale;
+	out->animscale = animscale;
+	out->handfilenum = borrowBE16(raw + 16) ? modDataBorrowFileId(b, borrowBE16(raw + 16)) : 0;
+
+	return out->filenum != 0;
+}
+
+/**
+ * GoldenEye X's Combat Simulator characters, beside the game's: each body its
+ * list names that is a model of its own (the list repeats some, and names a
+ * few of the game's own), once, under its own name, and the heads those
+ * bodies wear, then the rest of its heads while the list has room. A row a
+ * stage has loaded keeps its model, since a chr may be wearing it.
+ */
+s32 modBorrowCharacters(s32 base, s32 maxrows, s32 maxindex)
+{
+	struct moddataborrow *b;
+	s16 bodyrow[512];
+	s16 headrow[512];
+	s32 rows = 0;
+	s32 numbodies = g_MpListCounts.bodies;
+	s32 numheads = g_MpListCounts.heads;
+	s32 addedbodies = 0;
+	s32 addedheads = 0;
+
+	charBase = -1;
+	charRows = 0;
+
+	if (src.found <= 0 || src.moddir < 0 || !src.spec.mpbodies || !src.spec.mpheads || !src.spec.headsandbodies) {
+		return 0;
+	}
+
+	b = modDataBorrowOpen(&src.spec, src.dir, src.moddir, NULL, NULL, NULL);
+
+	if (!b) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(bodyrow); i++) {
+		bodyrow[i] = headrow[i] = -1;
+	}
+
+	if (maxrows > BORROW_MAXROWS) {
+		maxrows = BORROW_MAXROWS;
+	}
+
+	charBase = base;
+
+	// A row for a mod index, made once
+	#define TAKE(index, map) ({ \
+		s32 taken_ = -1; \
+		if ((index) >= 0 && (index) < (s32)ARRAYCOUNT(map)) { \
+			if ((map)[(index)] >= 0) { \
+				taken_ = (map)[(index)]; \
+			} else if (rows < maxrows) { \
+				struct headorbody hb_; \
+				if (borrowHeadOrBody(b, (index), &hb_)) { \
+					struct headorbody *e_ = &g_HeadsAndBodies[base + rows]; \
+					struct modeldef *keep_ = e_->filenum == hb_.filenum ? e_->modeldef : NULL; \
+					*e_ = hb_; \
+					e_->modeldef = keep_; \
+					charNames[rows][0] = '\0'; \
+					(map)[(index)] = (s16)(base + rows); \
+					taken_ = base + rows; \
+					rows++; \
+				} \
+			} \
+		} \
+		taken_; })
+
+	// The bodies, and the heads they wear
+	for (s32 i = 0; i < src.spec.nummpbodies && numbodies + addedbodies <= maxindex; i++) {
+		u8 raw[N64_MPBODY_SIZE];
+		s16 modbody;
+		s16 modhead;
+		s32 body;
+		s32 head;
+
+		if (!modDataBorrowRead(b, src.spec.mpbodies + i * N64_MPBODY_SIZE, raw, sizeof(raw))) {
+			break;
+		}
+
+		modbody = (s16)borrowBE16(raw);
+		modhead = (s16)borrowBE16(raw + 4);
+
+		if (modbody >= 0 && modbody < (s32)ARRAYCOUNT(bodyrow) && bodyrow[modbody] >= 0) {
+			continue; // listed twice
+		}
+
+		body = TAKE(modbody, bodyrow);
+
+		if (body < 0) {
+			continue;
+		}
+
+		head = modhead == 1000 || modhead < 0 ? modhead : TAKE(modhead, headrow);
+
+		if (!borrowLangString(b, borrowBE16(raw + 2), charNames[body - base], BORROW_NAMELEN)) {
+			snprintf(charNames[body - base], BORROW_NAMELEN, "%s", romdataFileGetName(g_HeadsAndBodies[body].filenum));
+		}
+
+		g_MpBodies[numbodies + addedbodies].bodynum = body;
+		g_MpBodies[numbodies + addedbodies].name = 0;
+		g_MpBodies[numbodies + addedbodies].headnum = head >= 0 || head == 1000 ? head : -1;
+		g_MpBodies[numbodies + addedbodies].requirefeature = 0;
+		addedbodies++;
+	}
+
+	// The heads its list offers, those first that a body wears
+	for (s32 pass = 0; pass < 2; pass++) {
+		for (s32 i = 0; i < src.spec.nummpheads && numheads + addedheads <= maxindex; i++) {
+			u8 raw[N64_MPHEAD_SIZE];
+			s16 modhead;
+			s32 head;
+			s32 listed = 0;
+
+			if (!modDataBorrowRead(b, src.spec.mpheads + i * N64_MPHEAD_SIZE, raw, sizeof(raw))) {
+				break;
+			}
+
+			modhead = (s16)borrowBE16(raw);
+
+			if (modhead < 0 || modhead >= (s32)ARRAYCOUNT(headrow) || (pass == 0 && headrow[modhead] < 0)) {
+				continue;
+			}
+
+			head = TAKE(modhead, headrow);
+
+			if (head < 0) {
+				continue;
+			}
+
+			for (s32 k = numheads; k < numheads + addedheads; k++) {
+				if (g_MpHeads[k].headnum == head) {
+					listed = 1;
+					break;
+				}
+			}
+
+			if (!listed) {
+				g_MpHeads[numheads + addedheads].headnum = head;
+				g_MpHeads[numheads + addedheads].requirefeature = 0;
+				addedheads++;
+			}
+		}
+	}
+
+	#undef TAKE
+
+	modDataBorrowClose(b);
+
+	g_MpListCounts.bodies = numbodies + addedbodies;
+	g_MpListCounts.heads = numheads + addedheads;
+	charRows = rows;
+
+	if (rows) {
+		sysLogPrintf(LOG_NOTE, "modborrow: %d characters and %d heads from `%s` in the Combat Simulator's lists (%d rows)",
+				addedbodies, addedheads, src.name, rows);
+	} else {
+		charBase = -1;
+	}
+
+	return rows;
 }
 
 PD_CONSTRUCTOR static void modBorrowConfigInit(void)

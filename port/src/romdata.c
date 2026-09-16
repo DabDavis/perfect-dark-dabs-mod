@@ -585,6 +585,15 @@ s32 romdataRegisterModFile(const char *name, s32 modDirIndex)
 		return 0;
 	}
 
+	// The same file of the same mount keeps its slot: a borrowed mod's lists
+	// are read again on every refresh, and each read would otherwise take one
+	for (s32 i = 1; i < ROMDATA_MAX_FILES; ++i) {
+		if (fileSlots[i].name && fileSlots[i].moddir == modDirIndex + 1 && !fileSlots[i].alias
+				&& strcmp(fileSlots[i].name, name) == 0) {
+			return i;
+		}
+	}
+
 	if (numModFileNames >= ROMDATA_MAX_MODFILES) {
 		sysLogPrintf(LOG_ERROR, "romdataRegisterModFile: name pool full for %s", name);
 		return 0;

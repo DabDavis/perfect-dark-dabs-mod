@@ -2661,3 +2661,14 @@ void modDataBorrowClose(struct moddataborrow *b)
 	sysMemFree(b->memo);
 	sysMemFree(b);
 }
+
+u16 modDataBorrowFileId(struct moddataborrow *b, u32 modid)
+{
+	u16 id;
+
+	borrowEnter(b);
+	id = modFileId(modid);
+	borrowLeave(b);
+
+	return id;
+}

@@ -27,6 +27,16 @@ void modBorrowCommit(void);
 // leaves its maps out, since nobody asked for them.
 s32 modBorrowIsGunsOnlyMount(s32 moddir);
 
+/**
+ * GoldenEye X's own characters, appended to g_HeadsAndBodies from base and to
+ * the Combat Simulator's lists from their current counts, up to maxindex (the
+ * saves hold a list index in 7 bits). Returns how many rows it used; 0 when
+ * nothing is borrowed, which leaves the lists as they were.
+ */
+s32 modBorrowCharacters(s32 base, s32 maxrows, s32 maxindex);
+// A borrowed body's name, from the mod's own language file, or NULL.
+const char *modBorrowBodyName(s32 bodynum);
+
 // The installed mod GoldenEye's guns come from, or NULL.
 const char *modBorrowGoldenEyeName(void);
 

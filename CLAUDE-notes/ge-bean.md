@@ -1079,6 +1079,47 @@ on the combat knife's shared function; `gegunsNameThrow()` gives both knives a
 function of their own named "Throw Knife" (port text), borrowed or not, and the
 grenade and mines, whose functions are throws too, keep their names.
 
+## GoldenEye X's characters, borrowed the same way (2026-09-16)
+
+"now borrow GE-X's characters the same way". `modBorrowCharacters()`
+(modborrow.c), called by `gebeanPoolRefresh()` in place of the release's pool
+when GoldenEye X is installed and not loaded (and `Mod.XblaGoldenEye` is on,
+as for everything here):
+
+- **What is taken**: each body its `g_MpBodies` names whose model GoldenEye X
+  ships (54 of its 68 entries - the list repeats Bond and the dark outfits and
+  names a few of the game's own), once, and the heads those bodies wear, then
+  the rest of its `g_MpHeads` while the list has room (52). Its
+  `g_HeadsAndBodies` rows (0x14 bytes: flags word, file, scale, animscale,
+  hand file at +16) go in from row 152 with their files and hand files pinned
+  to the mount; 106 rows, so `NUM_HEADSANDBODIES` is **512** now (it was 256,
+  and the pool alone used 66 of the 104 spare). The lists stop at index 126,
+  the 7-bit save's.
+- **Names** out of GoldenEye X's own language file: `g_LangFiles` at
+  0x80084124 is a u16 mod file id a bank, the file is 0x1173 + raw deflate,
+  then u32 offsets (the importer's `langString()`), served through
+  `gebeanPoolBodyName()` -> `modBorrowBodyName()` since there is no text id.
+- **The looks come for free.** The N64 look is GoldenEye X's model drawing
+  itself, textures by mod through the pinned file. The HD look is
+  `gebeanFindRow()` matching the pinned file by **name and list/vertex counts**
+  against `gebeantable.h`, exactly as with GoldenEye X loaded - a pinned slot
+  is not stock, so it is not left alone.
+- **`romdataRegisterModFile()` reuses a slot** for the same name and mount: the
+  lists are read again on every refresh (boot, the checkbox, a swap), and the
+  guns' commit re-reads too; each read took a new slot before.
+- Without GoldenEye X the release's pool is built as before.
+
+Checked: 54 characters and 52 heads with GoldenEye X's names ("Bond
+(Tuxedo)", "Natalya (Russia)", "Xenia", "May Day"...), eight simulants in
+borrowed bodies in both looks (`build/gexcmp/ours/charlook.sh`: bodies set at
+`lvReset`, the spectator put in front of each), the pool still 38/28 with no
+GoldenEye X, and a stock match pixel-identical. **Harness trap**: setting the
+player's own `mpbodynum` and removing the chr body does not re-dress the player
+in a Combat Simulator match - it stays Joanna; use simulants. Not checked: the
+Institute's Customize Character on a borrowed body, and GoldenEye X's changed
+character animations (154-159, 358-415), which are the game's by number for
+every chr and are not borrowed.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

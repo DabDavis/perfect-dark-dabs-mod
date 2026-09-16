@@ -36,6 +36,7 @@
 #include "xblamesh.h"
 #include "gebean.h"
 #include "geguns.h"
+#include "modborrow.h"
 #include "mod.h"
 #include "data.h"
 #include "lib/model.h"
@@ -536,6 +537,11 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 const char *gebeanPoolBodyName(s32 bodynum)
 {
 	const s32 i = bodynum - GEBEAN_POOL_BASE;
+	const char *borrowed = modBorrowBodyName(bodynum);
+
+	if (borrowed) {
+		return borrowed;
+	}
 
 	if (i < 0 || i >= ARRAYCOUNT(poolRows) || !poolRows[i].name || !poolSlot[i]) {
 		return NULL;
@@ -692,8 +698,21 @@ void gebeanPoolRefresh(void)
 	g_MpListCounts.bodies = numbodies;
 	g_MpListCounts.heads = numheads;
 
-	if (!enabled || numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS
-			|| !gebeanIsAvailable()) {
+	if (!enabled || numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS) {
+		return;
+	}
+
+	// GoldenEye X's own characters when it is installed (modborrow.c): its
+	// models draw themselves in the N64 look, and the release's meshes find
+	// them by name in the HD look the way they do with GoldenEye X loaded. The
+	// pool below is the release's characters on Perfect Dark's bodies, for
+	// when there is no GoldenEye X to borrow from.
+	if (modBorrowCharacters(GEBEAN_POOL_BASE, NUM_HEADSANDBODIES - 1 - GEBEAN_POOL_BASE, GEBEAN_MAX_MPINDEX) > 0) {
+		memset(poolSlot, 0, sizeof(poolSlot));
+		return;
+	}
+
+	if (!gebeanIsAvailable()) {
 		return;
 	}
 

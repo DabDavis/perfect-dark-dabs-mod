@@ -225,6 +225,8 @@ s32 modDataBorrowModelState(struct moddataborrow *b, const struct moddataspec *s
 const char *modDataBorrowFileName(struct moddataborrow *b, s32 modid);
 u32 modDataBorrowRd32(struct moddataborrow *b, u32 addr);
 s32 modDataBorrowRead(struct moddataborrow *b, u32 addr, u8 *dst, u32 len);
+// The port's file for the mod's file id, pinned to the mod when it ships it.
+u16 modDataBorrowFileId(struct moddataborrow *b, u32 modid);
 // Frees the reader, not what it converted. Only for a reader nothing was converted by.
 void modDataBorrowClose(struct moddataborrow *b);
 
