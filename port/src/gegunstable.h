@@ -3,8 +3,10 @@
 // (files/new|original/prop/<source>), and how Bean's pickup is laid onto
 // GoldenEye's N64 one, whose frame is Perfect Dark's: axis k of the result is
 // sign[k] * Bean axis perm[k], centred on beancentre, scaled, and moved to
-// n64centre. One rotation for all of them; the scale is the two extents along
-// GoldenEye's longest axis and the translation a trimmed ICP (gunfit2.py).
+// n64centre. One rotation for all of them bar the throwing knife, which
+// GoldenEye models 180 degrees from its hunting knife and which gunfit2.py
+// turns a half turn about y; the scale is the two extents along GoldenEye's
+// longest axis and the translation a trimmed ICP (gunfit2.py).
 // weapon, file, source, perm[3], sign[3], scale, beancentre[3], n64centre[3]
 	GUNROW(WEAPON_GE_PP7, "PchrgePP7Z", "prop/chrwppk", 1, 0, 2, 1, -1, 1, 0.23791f, 0.00f, 0.00f, 0.00f, 296.92f, -288.47f, -50.33f),
 	GUNROW(WEAPON_GE_PP7SILENCED, "PchrgePP7silZ", "prop/chrwppksil", 1, 0, 2, 1, -1, 1, 0.21189f, 0.00f, 0.00f, 0.00f, 279.70f, -257.90f, -49.78f),
@@ -26,7 +28,7 @@
 	GUNROW(WEAPON_GE_GRENADELAUNCHER, "PchrgeGrenadeLauncherZ", "prop/chrgrenadelaunch", 1, 0, 2, 1, -1, 1, 0.22439f, 0.00f, 0.00f, 0.00f, 492.70f, -251.62f, -114.08f),
 	GUNROW(WEAPON_GE_ROCKETLAUNCHER, "PchrgeRocketLauncherZ", "prop/chrrocketlaunch", 1, 0, 2, 1, -1, 1, 0.14094f, 0.00f, 0.00f, 0.00f, 293.80f, -168.30f, -68.90f),
 	GUNROW(WEAPON_GE_HUNTINGKNIFE, "PchrgeKnifeZ", "prop/chrknife", 1, 0, 2, 1, -1, 1, 0.18173f, 0.00f, 0.00f, 0.00f, 178.04f, -208.67f, -78.41f),
-	GUNROW(WEAPON_GE_THROWINGKNIFE, "PchrgeThrowingKnifeZ", "prop/chrthrowknife", 1, 0, 2, 1, -1, 1, 0.18394f, 0.00f, 0.00f, 0.00f, 218.79f, -211.91f, -112.32f),
+	GUNROW(WEAPON_GE_THROWINGKNIFE, "PchrgeThrowingKnifeZ", "prop/chrthrowknife", 1, 0, 2, -1, -1, -1, 0.18394f, 0.00f, 0.00f, 0.00f, -209.79f, -211.91f, 77.32f),
 	GUNROW(WEAPON_GE_GRENADE, "PchrgeGrenadeZ", "prop/chrgrenade", 1, 0, 2, 1, -1, 1, 0.26535f, 0.00f, 0.00f, 0.00f, 249.18f, -295.77f, -17.55f),
 	GUNROW(WEAPON_GE_TIMEDMINE, "PchrgeTimedMineZ", "prop/chrtimedmine", 1, 0, 2, 1, -1, 1, 0.21323f, 0.00f, 0.00f, 0.00f, 282.90f, -243.96f, 0.49f),
 	GUNROW(WEAPON_GE_PROXIMITYMINE, "PchrgeProximityMineZ", "prop/chrproximitymine", 1, 0, 2, 1, -1, 1, 0.21335f, 0.00f, 0.00f, 0.00f, 283.09f, -243.88f, 0.53f),
