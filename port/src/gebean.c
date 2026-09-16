@@ -434,6 +434,15 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// unturned they lay across the bottom right corner with the blade running
 	// off it. GoldenEye's throwing knife is held by the blade, handle up, so
 	// the same turn is right for both.
+	// Perfect Dark has no Spectre. The Phantom's host is the CMP150, picked
+	// for its kind rather than its shape, and it is a much shorter gun: the
+	// length fit drew GoldenEye's at 0.126 against every same-gun host's
+	// 0.19-0.21, which is 40% small, and the hands - posed on the CMP150 -
+	// closed on nothing ("phantom is wrong hand position"). So it is placed
+	// the way the Moonraker is, on its own SKEL_TOP (0, -188.5, -1637.8) plus
+	// the same offset to GoldenEye's hand point, at GoldenEye's own size.
+	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = { 1, { -1.4f, -436.1f, -1479.4f }, 1.0f / 4.7f },
+
 	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 1, { -1.4f, -555.4f, -246.3f }, 1.0f / 4.7f, { 2, -1, 3 } },
 	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 1, { -1.4f, -555.4f, -246.3f }, 1.0f / 4.7f, { 2, -1, 3 } },
 };
@@ -451,6 +460,24 @@ static const u32 fpTint[ARRAYCOUNT(fpRows)] = {
 // Each copy's first-person file as geguns.c made it - its host's - before
 // this ever pointed it at an alias
 static u16 fpHostFile[ARRAYCOUNT(fpRows)];
+
+/**
+ * Where the gun that was drawn ends, as an offset from the host's muzzle node
+ * in the model's own space, for the guns a mesh was built for.
+ *
+ * Perfect Dark fires everything from `MODELPART_GUN_MUZZLEPOS` of the model in
+ * the hand - the bullet stream, the beam, the smoke, a rocket - and that node
+ * belongs to the host. A gun of another shape drawn on it has its barrel
+ * ending somewhere else, so the Moonraker's beam left the air beside it and
+ * several streams started off the barrel. Filled in by
+ * gebeanBuildFirstPerson(), read by bondgun.c through
+ * gebeanFirstPersonMuzzleOffset(), and cleared whenever a build does not
+ * happen - with the release's meshes off, the host's own model draws and its
+ * own node is right again.
+ */
+static f32 fpMuzzle[ARRAYCOUNT(fpRows)][3];
+static s16 fpMuzzlePart[ARRAYCOUNT(fpRows)];
+static u8 fpMuzzleSet[ARRAYCOUNT(fpRows)];
 
 /** A row of any table: GoldenEye X's first, then the pool's, then the guns'. */
 static const struct gebeanrow *gebeanRowAt(s32 row)
@@ -3468,7 +3495,46 @@ static u32 beanShadeTint(u32 argb, const f32 *nrm)
  * itself - here they would draw always (the host's toggled flash still
  * fires), and they would stretch the gun's length the fit is measured by.
  */
-static s32 beanGunExtent(struct beanmodel *bm, u8 *hand, f32 lo[3], f32 hi[3])
+/**
+ * The points of a gun, kept so a placement can be settled against the host's
+ * own vertices rather than against the middle of its box.
+ */
+struct fpcloud {
+	f32 *pos;
+	s32 num;
+	s32 cap;
+};
+
+static void fpCloudAdd(struct fpcloud *c, const f32 *p)
+{
+	if (!c) {
+		return;
+	}
+
+	if (c->num >= c->cap) {
+		const s32 cap = c->cap ? c->cap * 2 : 256;
+		f32 *grown = realloc(c->pos, (size_t)cap * 3 * sizeof(f32));
+
+		if (!grown) {
+			return;
+		}
+
+		c->pos = grown;
+		c->cap = cap;
+	}
+
+	memcpy(&c->pos[c->num * 3], p, 3 * sizeof(f32));
+	c->num++;
+}
+
+static void fpCloudFree(struct fpcloud *c)
+{
+	free(c->pos);
+	c->pos = NULL;
+	c->num = c->cap = 0;
+}
+
+static s32 beanGunExtent(struct beanmodel *bm, u8 *hand, f32 lo[3], f32 hi[3], struct fpcloud *cloud)
 {
 	s32 numhand = 0;
 
@@ -3500,6 +3566,8 @@ static s32 beanGunExtent(struct beanmodel *bm, u8 *hand, f32 lo[3], f32 hi[3])
 					if (v.pos[a] < lo[a]) lo[a] = v.pos[a];
 					if (v.pos[a] > hi[a]) hi[a] = v.pos[a];
 				}
+
+				fpCloudAdd(cloud, v.pos);
 			}
 		}
 
@@ -3507,6 +3575,227 @@ static s32 beanGunExtent(struct beanmodel *bm, u8 *hand, f32 lo[3], f32 hi[3])
 	}
 
 	return numhand;
+}
+
+/** Bean's point p in the host model's space, under a fit. */
+static void fpPlace(const f32 *p, const s8 *axis, const f32 *beanc, f32 scale, const f32 *hostc, f32 *out)
+{
+	f32 rel[3];
+	f32 turned[3];
+
+	for (s32 a = 0; a < 3; a++) {
+		rel[a] = p[a] - beanc[a];
+	}
+
+	beanAxisMap(axis, rel, turned);
+
+	for (s32 a = 0; a < 3; a++) {
+		out[a] = turned[a] * scale + hostc[a];
+	}
+}
+
+static int fpCompareF32(const void *a, const void *b)
+{
+	const f32 x = *(const f32 *)a;
+	const f32 y = *(const f32 *)b;
+
+	return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/**
+ * Settle a gun's place on the host's own vertices rather than on the middle of
+ * its box.
+ *
+ * Perfect Dark's conversions of GoldenEye's guns *are* GoldenEye's guns - the
+ * PP9i is the PP7, the RC-P45 the RC-P90, the DMC the D5K - so where the host
+ * model's metal is, the release's gun's metal belongs, and there is an answer
+ * rather than a centring. Centring is only the shape's middle, and for the PP7
+ * that left the grip a few units out of the hand it is drawn closing on: "pp7s
+ * are slightly off on hand position, finger clipping through".
+ *
+ * So the box fit is the start and this walks it in: each of the host's
+ * vertices takes the nearest of Bean's, and the translation moves by the mean
+ * of the closest `FP_ICP_KEEP` of those offsets. Trimmed, because the two
+ * models are the same gun and not the same mesh - a host part the release
+ * modelled differently, or left off, would otherwise drag the gun towards it -
+ * and one-way from the host, because Bean's cloud is the dense one and every
+ * one of the host's vertices is a place the gun really is.
+ *
+ * The scale is left alone: it is the host's own barrel length and the fault
+ * being fixed is a placement.
+ */
+#define FP_ICP_ROUNDS 8
+#define FP_ICP_KEEP   0.7f
+#define FP_ICP_POINTS 800
+
+static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc)
+{
+	const f32 zero[3] = { 0.0f, 0.0f, 0.0f };
+	f32 *base;
+	f32 *dist;
+	f32 *delta;
+	f32 *sorted;
+	s32 stride;
+	s32 num = 0;
+	s32 keep;
+
+	if (bean->num < 8 || host->num < 8) {
+		return;
+	}
+
+	// Only the translation moves between rounds, so each of Bean's points is
+	// placed once with none of it and the rounds are arithmetic. A gun can
+	// carry a few thousand and every one of them would otherwise be measured
+	// against every one of the host's, eight times over, at a model load.
+	stride = bean->num / FP_ICP_POINTS + 1;
+	base = malloc((size_t)(bean->num / stride + 1) * 3 * sizeof(f32));
+	dist = malloc((size_t)host->num * sizeof(f32));
+	delta = malloc((size_t)host->num * 3 * sizeof(f32));
+	sorted = malloc((size_t)host->num * sizeof(f32));
+
+	if (!base || !dist || !delta || !sorted) {
+		free(base);
+		free(dist);
+		free(delta);
+		free(sorted);
+		return;
+	}
+
+	for (s32 b = 0; b < bean->num; b += stride) {
+		fpPlace(&bean->pos[b * 3], axis, beanc, scale, zero, &base[num * 3]);
+		num++;
+	}
+
+	keep = (s32)(host->num * FP_ICP_KEEP);
+
+	if (keep < 8) {
+		keep = 8;
+	}
+
+	for (s32 round = 0; round < FP_ICP_ROUNDS; round++) {
+		f32 cut;
+		f32 move[3] = { 0.0f, 0.0f, 0.0f };
+		s32 taken = 0;
+
+		for (s32 h = 0; h < host->num; h++) {
+			const f32 *q = &host->pos[h * 3];
+			f32 best = 1e30f;
+
+			for (s32 b = 0; b < num; b++) {
+				f32 d[3];
+				f32 d2;
+
+				for (s32 a = 0; a < 3; a++) {
+					d[a] = q[a] - (base[b * 3 + a] + hostc[a]);
+				}
+
+				d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+
+				if (d2 < best) {
+					best = d2;
+					memcpy(&delta[h * 3], d, sizeof(d));
+				}
+			}
+
+			dist[h] = best;
+		}
+
+		memcpy(sorted, dist, (size_t)host->num * sizeof(f32));
+		qsort(sorted, host->num, sizeof(f32), fpCompareF32);
+		cut = sorted[keep - 1];
+
+		for (s32 h = 0; h < host->num; h++) {
+			if (dist[h] <= cut) {
+				for (s32 a = 0; a < 3; a++) {
+					move[a] += delta[h * 3 + a];
+				}
+
+				taken++;
+			}
+		}
+
+		if (!taken) {
+			break;
+		}
+
+		for (s32 a = 0; a < 3; a++) {
+			hostc[a] += move[a] / taken;
+		}
+	}
+
+	free(base);
+	free(dist);
+	free(delta);
+	free(sorted);
+}
+
+/**
+ * The point of a gun its shot comes out of: the middle of whatever is at the
+ * far end of the barrel.
+ *
+ * The barrel is z in both games, and which way along it is forward is read off
+ * the host's own muzzle node rather than assumed - it is the end of the host's
+ * box that node sits at. Everything within FP_MUZZLE_BAND of the gun's far end
+ * is averaged, which on a barrel is its bore and on a knife its point.
+ */
+#define FP_MUZZLE_BAND 0.03f
+
+static s32 fpMuzzlePoint(const struct fpcloud *bean, const s8 *axis, const f32 *beanc, f32 scale,
+		const f32 *hostc, f32 forward, f32 *out)
+{
+	f32 far = -1e30f;
+	f32 sum[3] = { 0.0f, 0.0f, 0.0f };
+	f32 lo = 1e30f;
+	f32 hi = -1e30f;
+	f32 cut;
+	s32 taken = 0;
+
+	if (bean->num < 8) {
+		return 0;
+	}
+
+	for (s32 b = 0; b < bean->num; b++) {
+		f32 placed[3];
+		f32 along;
+
+		fpPlace(&bean->pos[b * 3], axis, beanc, scale, hostc, placed);
+		along = placed[2] * forward;
+
+		if (along > far) far = along;
+		if (along < lo) lo = along;
+		if (along > hi) hi = along;
+	}
+
+	if (hi - lo <= 1.0f) {
+		return 0;
+	}
+
+	cut = far - (hi - lo) * FP_MUZZLE_BAND;
+
+	for (s32 b = 0; b < bean->num; b++) {
+		f32 placed[3];
+
+		fpPlace(&bean->pos[b * 3], axis, beanc, scale, hostc, placed);
+
+		if (placed[2] * forward >= cut) {
+			for (s32 a = 0; a < 3; a++) {
+				sum[a] += placed[a];
+			}
+
+			taken++;
+		}
+	}
+
+	if (!taken) {
+		return 0;
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		out[a] = sum[a] / taken;
+	}
+
+	return 1;
 }
 
 /**
@@ -3548,6 +3837,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	f32 hostc[3];
 	f32 beanc[3];
 	f32 scale;
+	struct fpcloud owncloud;   // the gun's own points, which are the ones drawn
+	struct fpcloud fitcloud;   // the points the placement is measured on
+	struct fpcloud hostcloud;  // the host's visible lists, in the model's space
 	s32 bonemtx[BEAN_MAXBONES];
 	s32 numhand = 0;
 	const s8 *fpaxis = NULL;
@@ -3560,6 +3852,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	memset(&rig, 0, sizeof(rig));
 	memset(nodeused, 0, sizeof(nodeused));
+	memset(&owncloud, 0, sizeof(owncloud));
+	memset(&fitcloud, 0, sizeof(fitcloud));
+	memset(&hostcloud, 0, sizeof(hostcloud));
+	fpMuzzleSet[fp] = 0;
 
 	for (s32 m = 0; m < GEBEAN_MAXMTX; m++) {
 		mtxnode[m] = -1;
@@ -3657,11 +3953,17 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			const s32 mtx = vtxmtx && vtxmtx[j] >= 0 && vtxmtx[j] < nummatrices && rig.hasrest[vtxmtx[j]]
 				? vtxmtx[j] : nodemtx[k];
 
-			for (s32 a = 0; a < 3; a++) {
-				const f32 p = v[j].v[a] + rig.rest[mtx][a];
+			f32 p[3];
 
-				if (p < hostlo[a]) hostlo[a] = p;
-				if (p > hosthi[a]) hosthi[a] = p;
+			for (s32 a = 0; a < 3; a++) {
+				p[a] = v[j].v[a] + rig.rest[mtx][a];
+
+				if (p[a] < hostlo[a]) hostlo[a] = p[a];
+				if (p[a] > hosthi[a]) hosthi[a] = p[a];
+			}
+
+			if (!pass) {
+				fpCloudAdd(&hostcloud, p);
 			}
 		}
 
@@ -3674,16 +3976,18 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	}
 
 	if (bodynode < 0) {
+		fpCloudFree(&hostcloud);
 		return NULL;
 	}
 
 	snprintf(source, sizeof(source), "new/%s", r->source);
 
 	if (!gebeanLocate(1) || !beanLoad(&bm, source)) {
+		fpCloudFree(&hostcloud);
 		return NULL;
 	}
 
-	numhand = beanGunExtent(&bm, hand, beanlo, beanhi);
+	numhand = beanGunExtent(&bm, hand, beanlo, beanhi, &owncloud);
 
 	// A silenced gun is measured on its plain twin, which shares its place
 	if (fpFitSource[fp]) {
@@ -3696,11 +4000,13 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		snprintf(twinsource, sizeof(twinsource), "new/%s", fpFitSource[fp]);
 
 		if (beanLoad(&twin, twinsource)) {
-			beanGunExtent(&twin, twinhand, twinlo, twinhi);
+			beanGunExtent(&twin, twinhand, twinlo, twinhi, &fitcloud);
 
 			if (twinhi[2] - twinlo[2] > 1.0f) {
 				memcpy(beanlo, twinlo, sizeof(twinlo));
 				memcpy(beanhi, twinhi, sizeof(twinhi));
+			} else {
+				fpCloudFree(&fitcloud);
 			}
 
 			beanFree(&twin);
@@ -3708,6 +4014,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	}
 
 	if (beanhi[2] - beanlo[2] <= 1.0f || hosthi[2] - hostlo[2] <= 1.0f) {
+		fpCloudFree(&owncloud);
+		fpCloudFree(&fitcloud);
+		fpCloudFree(&hostcloud);
 		beanFree(&bm);
 		return NULL;
 	}
@@ -3730,6 +4039,77 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		for (s32 a = 0; a < 3; a++) {
 			beanc[a] = fpGrip[fp].pos[a];
 			hostc[a] = rig.rest[FP_PALM_MTX][a] + fpGripFromPalm[a];
+		}
+	}
+
+	// The host is the same gun, so walk the placement onto its own vertices.
+	// Not for a gun placed by its grip: those are the ones whose host is a
+	// different shape or half their length, which is why they are placed that
+	// way, and the nearest vertex has nothing to say about them.
+	if (!fpGrip[fp].set) {
+		fpRefinePlacement(fitcloud.num ? &fitcloud : &owncloud, &hostcloud,
+				fpaxis, beanc, scale, hostc);
+	}
+
+	// Where the gun that is drawn ends, so the shot comes out of it rather
+	// than out of the host's own muzzle node (bondgun.c). Forward along the
+	// barrel is whichever end of the host's box its muzzle node sits at.
+	{
+		// The node the offset is measured from. Perfect Dark's own conversions
+		// of GoldenEye's submachine guns and rifles - the KL01313, the KF7
+		// Special, the DMC, the AR53, the RC-P45 - carry no
+		// MODELPART_GUN_MUZZLEPOS at all, and without one bondgun.c starts the
+		// stream at the gun's origin, a barrel's length behind the muzzle.
+		// They do carry a muzzle flash, which is at the muzzle by definition,
+		// so that is the fallback.
+		static const s32 parts[] = {
+			MODELPART_GUN_MUZZLEPOS,
+			MODELPART_GUN_MUZZLEFLASH1,
+			MODELPART_GUN_MUZZLEFLASH2,
+			MODELPART_GUN_MUZZLEFLASH3,
+		};
+		struct modelnode *muzzle = NULL;
+		s32 muzzlemtx = -1;
+		s32 part = -1;
+
+		for (s32 k = 0; k < (s32)ARRAYCOUNT(parts) && muzzlemtx < 0; k++) {
+			muzzle = modelGetPart(modeldef, parts[k]);
+			muzzlemtx = muzzle ? modelFindNodeMtxIndex(muzzle, 0) : -1;
+
+			if (muzzlemtx >= 0 && muzzlemtx < GEBEAN_MAXMTX && rig.hasrest[muzzlemtx]) {
+				part = parts[k];
+			} else {
+				muzzlemtx = -1;
+			}
+		}
+
+		fpMuzzlePart[fp] = (s16)part;
+
+		if (part >= 0) {
+			// Forward along the barrel is +z, in both games and in every
+			// first-person model here: the host's own muzzle node sits at the
+			// top of its box in z in the PP7's, the Phantom's, the sniper
+			// rifle's, the Cougar's and the Laser's, to the tenth of a unit.
+			// Which end the node is at is *not* the test - the rocket
+			// launcher's sits at 206 in a box running -59 to 500, and reading
+			// that as "the node is at the back" took the muzzle to be the
+			// shoulder end and put its rocket 744 units behind the tube.
+			const f32 forward = 1.0f;
+			f32 point[3];
+
+			if (xblaMeshIsVerbose()) {
+				sysLogPrintf(LOG_NOTE, "gebean: %s muzzle: part 0x%02x rest (%.1f %.1f %.1f), host box z %.1f..%.1f",
+						r->file, part, rig.rest[muzzlemtx][0], rig.rest[muzzlemtx][1], rig.rest[muzzlemtx][2],
+						hostlo[2], hosthi[2]);
+			}
+
+			if (fpMuzzlePoint(&owncloud, fpaxis, beanc, scale, hostc, forward, point)) {
+				for (s32 a = 0; a < 3; a++) {
+					fpMuzzle[fp][a] = point[a] - rig.rest[muzzlemtx][a];
+				}
+
+				fpMuzzleSet[fp] = 1;
+			}
 		}
 	}
 
@@ -3985,12 +4365,41 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			sysLogPrintf(LOG_NOTE, "gebean:   bone %d -> matrix %d, list %d",
 					b, bonemtx[b], mtxnode[bonemtx[b]]);
 		}
+
+		if (fpMuzzleSet[fp]) {
+			sysLogPrintf(LOG_NOTE, "gebean:   muzzle offset (%.1f %.1f %.1f) from the host's node",
+					fpMuzzle[fp][0], fpMuzzle[fp][1], fpMuzzle[fp][2]);
+		} else {
+			sysLogPrintf(LOG_NOTE, "gebean:   no muzzle of its own; the host's node stands");
+		}
 	}
 
+	fpCloudFree(&owncloud);
+	fpCloudFree(&fitcloud);
+	fpCloudFree(&hostcloud);
 	beanOutFree(&out);
 	beanFree(&bm);
 
 	return file;
+}
+
+/**
+ * Where the gun drawn for this weapon ends, as an offset from its host's
+ * muzzle node in the model's own space; 0 if the host's own model is the one
+ * in the hand and its own node is right.
+ */
+s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || !fpSlot[i] || !fpMuzzleSet[i]) {
+		return 0;
+	}
+
+	*outpart = fpMuzzlePart[i];
+	memcpy(out, fpMuzzle[i], 3 * sizeof(f32));
+
+	return 1;
 }
 
 u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,

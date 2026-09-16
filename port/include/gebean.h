@@ -65,6 +65,22 @@ s32 gebeanRowIsPool(s32 row);
 s32 gebeanRowIsFirstPerson(s32 row);
 
 /**
+ * Where the first-person gun drawn for this weapon ends, as an offset from its
+ * host's MODELPART_GUN_MUZZLEPOS node in the model's own space, or 0 if the
+ * host's own model is the one in the hand.
+ *
+ * Perfect Dark fires everything from that node - the bullet stream, a beam,
+ * the smoke, a projectile - and it belongs to the host. A release gun of
+ * another shape drawn on it ends somewhere else.
+ *
+ * `outpart` is the model part the offset is measured from, which is the
+ * muzzle node where the host has one and its muzzle flash where it does not -
+ * Perfect Dark's conversions of GoldenEye's submachine guns and rifles carry
+ * no muzzle node at all.
+ */
+s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
+
+/**
  * GoldenEye's characters and heads in the Combat Simulator's own lists, for
  * Perfect Dark rather than for GoldenEye X: each one a row of g_HeadsAndBodies
  * past the stock table, whose file is an alias of a Perfect Dark body or head

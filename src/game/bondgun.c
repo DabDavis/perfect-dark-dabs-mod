@@ -23,6 +23,7 @@
 #include "game/modeldef.h"
 #ifndef PLATFORM_N64
 #include "xblamesh.h"
+#include "gebean.h"
 #include "mod.h"
 #endif
 #include "game/modelmgr.h"
@@ -8466,7 +8467,28 @@ void bgun0f0a5550(s32 handnum)
 				bgunUpdateShotgun(hand, mtxallocation, sp1e4[0], modeldef);
 			}
 
+#ifndef PLATFORM_N64
+			// Where a GoldenEye gun drawn on this host really ends (gebean.c)
+			s32 gepart = -1;
+			s32 geborrowednode = false;
+			f32 gemuzzle[3];
+#endif
+
 			node = modelGetPart(modeldef, MODELPART_GUN_MUZZLEPOS);
+
+#ifndef PLATFORM_N64
+			// A GoldenEye gun whose host carries no muzzle node - the classic
+			// guns Perfect Dark converted, the KL01313, the KF7 Special, the
+			// DMC, the AR53 and the RC-P45, have none - was falling through to
+			// the gun's origin, a barrel's length behind the muzzle. gebean.c
+			// names one the host does have, its muzzle flash. The flash itself
+			// is left alone: that machinery has never run for these guns and
+			// this is not the change to start it with.
+			if (!node && gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle) && gepart >= 0) {
+				node = modelGetPart(modeldef, gepart);
+				geborrowednode = node != NULL;
+			}
+#endif
 
 			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				if (hand->flashon || hand->firing) {
@@ -8477,21 +8499,49 @@ void bgun0f0a5550(s32 handnum)
 			}
 
 			if (node) {
+				f32 geoffset[3] = { 0.0f, 0.0f, 0.0f };
+
 				sp6c = modelFindNodeMtxIndex(node, 0);
 
 				mtx = (Mtxf *)mtxallocation;
 				mtx += sp6c;
 
-				hand->muzzlepos.f[0] = mtx->m[3][0];
-				hand->muzzlepos.f[1] = mtx->m[3][1];
-				hand->muzzlepos.f[2] = mtx->m[3][2];
+#ifndef PLATFORM_N64
+				// A GoldenEye gun is drawn on this host's model but is not its
+				// shape, so the host's muzzle node is not where its barrel
+				// ends: the Moonraker's beam left the air beside it and
+				// several bullet streams started off the gun. gebean.c knows
+				// where the gun it drew ends, in this node's own space.
+				if (gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle)) {
+					for (s32 a = 0; a < 3; a++) {
+						geoffset[a] = mtx->m[0][a] * gemuzzle[0]
+							+ mtx->m[1][a] * gemuzzle[1]
+							+ mtx->m[2][a] * gemuzzle[2];
+					}
+				}
+#endif
+
+				hand->muzzlepos.f[0] = mtx->m[3][0] + geoffset[0];
+				hand->muzzlepos.f[1] = mtx->m[3][1] + geoffset[1];
+				hand->muzzlepos.f[2] = mtx->m[3][2] + geoffset[2];
 
 				mtx4Copy(mtx, &hand->muzzlemat);
+
+				hand->muzzlemat.m[3][0] += geoffset[0];
+				hand->muzzlemat.m[3][1] += geoffset[1];
+				hand->muzzlemat.m[3][2] += geoffset[2];
+
 				mtx4TransformVecInPlace(camGetProjectionMtxF(), &hand->muzzlepos);
 
-				hand->muzzlez = -((Mtxf *)((uintptr_t)mtxallocation + sp6c * sizeof(Mtxf)))->m[3][2];
+				hand->muzzlez = -(((Mtxf *)((uintptr_t)mtxallocation + sp6c * sizeof(Mtxf)))->m[3][2]
+						+ geoffset[2]);
 
-				if (hand->flashon && sp1e0 > 0 && !weaponHasFlag3(weaponnum, WEAPONFLAG3_SHOTGUNMODEL) && g_Vars.lvupdate240 != 0) {
+				if (hand->flashon && sp1e0 > 0 && !weaponHasFlag3(weaponnum, WEAPONFLAG3_SHOTGUNMODEL)
+						&& g_Vars.lvupdate240 != 0
+#ifndef PLATFORM_N64
+						&& !geborrowednode
+#endif
+						) {
 					bgun0f0a4e44(hand, weapondef, modeldef, funcdef, sp1e0, mtxallocation, weaponnum, sp1e4, sp6c, &sp234, &sp1f4);
 				}
 			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDMUZZLE)) {

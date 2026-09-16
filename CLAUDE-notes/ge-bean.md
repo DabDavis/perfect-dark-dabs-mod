@@ -571,6 +571,152 @@ corner with the blade running off it.
   space, and each bone's matrix, which is how "the mesh is 440 units tall but
   the screen shows a stub" was traced to the axes rather than to the scale.
 
+## The tester's list, 2026-09-16
+
+Seven faults from a session with the guns in hand (F3 traces 20:23-20:34 on
+10.8.0.3, build 0e6f56a62). What each one was:
+
+### Third person: backwards guns, and two enormous ones
+
+`.xbla-work/ge-bean/gunfit.json` is the offline fit that lays Bean's pickup on
+GoldenEye's N64 one, and it searched **all 48 signed axis permutations with a
+free scale**. Half of the 48 are mirrors, and a mirrored gun scores almost as
+well as the true rotation because the silhouette is the same, so eleven of the
+26 came out mirrored - the Phantom and the rocket launcher with their barrels
+the wrong way round, every asymmetric detail on the wrong side. Worse, a free
+rotation can pick a free axis to scale along: the AR33 and the RC-P90 are the
+two whose N64 pickups are much fatter than their guns, their fits laid Bean's
+*length* along GoldenEye's *width*, and the scales that came out - 0.70 and
+1.55 against everything else's 0.21 - drew guns three and seven times their
+size standing beside the player.
+
+`gunfit2.py` replaces it and searches **no rotation at all**. GoldenEye
+modelled every pickup the same way up and 23 of the 26 free searches agree on
+which way that is (`CANONICAL`, perm (1,0,2) sign (1,-1,1): Bean's y is the
+barrel, GoldenEye's x is, z is up in both); the three that disagree are nearly
+symmetric about the axis in question and disagree by under 1% of the score.
+The scale is the two models' extents along GoldenEye's longest axis, which is
+what the old fit's scale worked out to on every gun it got right and is the one
+measurement stray geometry cannot move much. Only the translation is searched,
+by trimmed ICP. Checked in third person on the Phantom, RC-P90, AR33, rocket
+launcher, PP7 and sniper rifle.
+
+**A determinant is the test.** An odd permutation swaps two axes and each
+negative sign mirrors once; `gebeanBuildRigid()` already counted them to rewind
+its triangles, which fixes the *winding* and not the mirror. Nothing on screen
+says "this gun is inside out" except its details being on the wrong side, which
+is why it took a tester to find.
+
+### The reload was Perfect Dark's own gap
+
+"The ge guns dont get reload animations, they do the classic lower gun reload."
+It is not the GoldenEye guns: **Perfect Dark's eight classic conversions carry
+no reload animation at all** (`invammo_pp9i`'s `reload_animation` is NULL, and
+so is the CC13's, the KL01313's, the KF7 Special's, the ZZT's, the DMC's, the
+AR53's and the RC-P45's), and bondgun.c reloads a weapon without one by
+lowering the gun off the bottom of the screen and raising it again. Every
+GoldenEye gun hosted on one inherited that.
+
+There is nothing to give them that is theirs: the ROM holds 94 gun animations
+and not one is for a classic gun's model, and GoldenEye's own live in its ROM's
+animation data rather than in anything the release ships. What there is, is
+that **every first-person gun model carries the same hand skeleton**, so an
+animation authored for another gun of the same kind moves these hands the way
+it moves that gun's. `reloadFrom` in geguns.c borrows by kind - the pistols the
+Falcon 2's (the one script that picks its own dual-wield variant), the
+submachine guns the CMP150's, the rifles the AR34's, the RC-P90 the RC-P120's.
+The gun's own parts stay where they are, since a PP7 modelled in one piece
+cannot drop a magazine; the hand comes up to the gun and back.
+
+### The automatic shotgun's pump
+
+Its host is the Shotgun, whose single shot plays a pump sound two frames into
+the recovery - right for a pump action, wrong for a semi-automatic.
+`gegunsSilentPump()` copies its fire animations with every `GUNCMD_PLAYSOUND`
+dropped. The plain Shotgun is a pump action in both games and keeps it.
+
+### Where a gun's shot comes out
+
+Perfect Dark fires everything from `MODELPART_GUN_MUZZLEPOS` of the model in
+the hand - the bullet stream, a beam, the smoke, a rocket - and that node
+belongs to the **host**. A release gun of another shape drawn on it ends
+somewhere else, which is the Moonraker's beam leaving the air beside it, the
+streams that were "a bit off on some guns", and the rocket launcher appearing
+to fire the spare rocket slung under the tube rather than the one in it.
+
+`gebeanBuildFirstPerson()` now records where the gun it drew ends
+(`fpMuzzlePoint()`: everything within 3% of the far end along the barrel,
+averaged, which on a barrel is its bore and on a knife its point) as an offset
+from a node of the host's, and bondgun.c adds it through that node's matrix to
+`muzzlepos`, `muzzlemat` and `muzzlez`. What it comes to, as a check that it is
+measuring the right thing: the PP7 (-0.4, -1.2, 2.6) and the DD44 (0.4, 1.5,
+-0.6), whose hosts are those guns, against the silenced PP7's +134.8 - the
+length of its silencer - the sniper rifle's +240, the rocket launcher's +731
+and the Moonraker's (-167.3, -1.4, 284.1).
+
+Two things that were not obvious:
+
+- **Forward along the barrel is +z, full stop.** The first cut asked which end
+  of the host's box its muzzle node sat at, which is true of the PP7's, the
+  Phantom's, the sniper rifle's, the Cougar's and the Laser's to the tenth of a
+  unit - and false of the rocket launcher's, which sits at 206 in a box running
+  -59 to 500. Read as "the node is at the back" that put its muzzle at the
+  shoulder end and its rocket 744 units behind the tube.
+- **Five hosts have no muzzle node at all**: the classic KL01313, KF7 Special,
+  DMC, AR53 and RC-P45, and the knives, the grenade and the mines. Without one
+  bondgun.c falls through to the gun's origin, a barrel's length behind the
+  muzzle. They do carry a **muzzle flash** part, which is at the muzzle by
+  definition, so gebean.c names that instead and measures from it (the offsets
+  come out +227 to +807, because the flash node's own rest is near the model's
+  origin and its geometry is what is out at the muzzle). bondgun.c takes the
+  borrowed node but does **not** start the flash machinery that has never run
+  for those guns.
+
+### The PP7's hand, and settling a placement on the host's own vertices
+
+"pp7s are slightly off on hand position, finger clipping through (pp7i has it
+correct)" - the PP9i, which is the gun the PP7 is drawn on.
+
+Perfect Dark's conversions of GoldenEye's guns *are* GoldenEye's guns, so where
+the host model's metal is, the release's gun's metal belongs: there is an
+answer rather than a centring, and the box fit only ever found the shape's
+middle. `fpRefinePlacement()` starts from the box fit and walks it in - each of
+the host's vertices takes the nearest of Bean's, and the translation moves by
+the trimmed mean of those offsets, eight rounds. One-way from the host because
+Bean's cloud is the dense one; trimmed because the two are the same gun and not
+the same mesh. The scale is left alone, being the host's own barrel length.
+
+It moves the box-fitted guns by a **few units** - the PP7 (+2.3, -4.5, +3.8),
+the RC-P90 (+0.7, +9.0, -4.9), the rest under five - which is the size of the
+fault reported. Guns placed by their grip are left out: those are the ones
+whose host is a different shape or half their length, which is why they are
+placed that way, and a nearest vertex has nothing to say about them.
+
+**Which hosts really are the same model** was settled by matching the GE
+decomp's `obseg/gun/*/Model.c` vertices against Perfect Dark's own dumped
+models (`build/model-dumps/n64/G*Z.obj`, from Dump All Assets) under a
+translation: the Klobb (105 of 220 vertices), the KF7 (56/135), the ZMG
+(90/132), the D5K (149/166), the AR33 (43/122) and the RC-P90 (88/161) are
+GoldenEye's own models in Perfect Dark, byte for byte. The PP7, DD44, shotgun,
+sniper rifle and Cougar are **not** - Perfect Dark rebuilt those - which is why
+the PP7 fits at 0.191 where the rifles fit at 0.213, one over Bean's 4.7.
+
+### The Phantom has no host
+
+Perfect Dark has no Spectre: the Phantom's host is the CMP150, picked for its
+kind, and it is a much shorter gun. The length fit drew GoldenEye's at **0.126**
+against every same-gun host's 0.19-0.21 - 40% small - and the hands, posed on
+the CMP150, closed on nothing. So it joins the Moonraker and the launcher and
+is placed on its own `SKEL_TOP` (0, -188.5, -1637.8) plus the same offset to
+GoldenEye's hand point, at GoldenEye's own size (1/4.7).
+
+**A blanket 1/4.7 is wrong**, which is why this is per gun: the fitted scales
+are 0.213 for the guns whose host is the same gun, but Bean's grenade is
+authored five times a mine (its own fit, 0.043, takes it back down) and its
+mines land 40% over. The fit is the measurement; GoldenEye's own size is what
+it should agree with, and where it cannot - because the host is not the gun -
+the size is taken instead of the fit.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.
@@ -581,6 +727,9 @@ corner with the blade running off it.
 - The guns (sections above): Bean's moving parts on their own matrices where the host
   has one (every surveyed gun's bones landed on the body's); floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their
-  random-weapon filters saved. The slide: with lists' loaded matrices known,
+  random-weapon filters saved. And the reload animations are borrowed from
+  another gun of the same kind rather than GoldenEye's own, which are in its
+  ROM's animation data - importing those is the next thing that would make the
+  guns read as GoldenEye's rather than as Perfect Dark's holding them. The slide: with lists' loaded matrices known,
   Bean's slide bone could go on the host's slide matrix (34 on the PP9i) - but a
   group draws under one matrix, so that needs per-vertex matrix switches.
