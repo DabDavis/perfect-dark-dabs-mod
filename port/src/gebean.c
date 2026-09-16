@@ -38,6 +38,7 @@
 #include "geguns.h"
 #include "mod.h"
 #include "data.h"
+#include "lib/model.h"
 
 #ifndef PLATFORM_N64
 
@@ -305,11 +306,25 @@ static const struct gebeanrow fpRows[NUM_GE_WEAPONS] = {
 static s32 fpSlot[ARRAYCOUNT(fpRows)];
 
 /**
+ * Guns GoldenEye draws with no hands, which Perfect Dark's are taken off for
+ * (WEAPONFLAG_HASHANDS) while Bean's gun is the one drawn. Only the pistols
+ * carry a hand in Bean's geometry at all - the 512x511 picture - and the
+ * hands Perfect Dark draws instead are posed on its own gun, so on a shape
+ * they were never meant to hold they stand off it: the user picked these
+ * three out on screen (2026-09-16). The rest keep their hands, which were
+ * judged right in the 25-gun survey.
+ */
+static const u8 fpNoHands[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 1,
+};
+
+/**
  * Which first-person guns are drawn from Bean: those checked on screen against
- * their host's (2026-09-15, a 25-gun survey). The rest keep the host's model -
- * GoldenEye's name, pickup and third-person gun still their own - until each is
- * made right: the Moonraker, knives, grenade and mines were not seen (the
- * survey gave them no ammo).
+ * their host's (2026-09-15, a 25-gun survey; the Moonraker joined them on
+ * 2026-09-16 and it is now all of them). A gun taken back out keeps the host's
+ * model, with GoldenEye's name, pickup and third-person gun still its own.
  */
 static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
@@ -328,6 +343,7 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
@@ -381,15 +397,24 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// size from the grip under the tube.
 	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 1, { -102.0f, -808.0f, -588.0f }, 1.0f / 4.7f },
 
-	// The Moonraker is not in fpReady: centred on its host it fell off the
-	// bottom left corner, at its own size (twice the host's length) its body
-	// loomed over the top of the screen - more than a whole PP7 stands above
-	// the palm - and on this anchor it stands upright beside the hand rather
-	// than in it. Its two candidate grips, the clusters under the body at
-	// z -1622 and z -1300, are alike in the silhouette and neither was told
-	// apart from a stock or a battery; the host's own laser draws further
-	// right and lower than any of them. Left here for whoever takes it up.
-	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { 1, { 0.0f, -487.0f, -1471.0f }, 0.0f },
+	// The Moonraker has no hand of its own to be gripped by - GoldenEye draws
+	// the laser with none, where the PP7, DD44 and Golden Gun each carry the
+	// same hand mesh - and its shape gives no grip away either, so it is
+	// placed the way GoldenEye lines its guns up instead: on SKEL_TOP, the
+	// first bone of every gun file, which is the model's root. That hand sits
+	// at the same offset from SKEL_TOP in all three pistols - within ten units
+	// in y and eight in z, in the N64 files and the HD ones alike - so a gun's
+	// place in the view is its SKEL_TOP's, whatever its own origin.
+	//
+	// Which point of a gun that makes the hand's is read off the PP7, whose
+	// centring is right: its fitted centre lands at the middle of its host's
+	// lists and fpGripFromPalm's point is 49 lower and 50 further back, which
+	// at the PP7's 0.191 is Bean (-1.4, -519.7, -186) - the butt of the
+	// pistol, and SKEL_TOP + (-1.4, -247.6, 158.4). On the Moonraker's
+	// SKEL_TOP (0.4, -200, -1400) that is the point below, which is the front
+	// of the handle under its body. Drawn at its own size for the same reason
+	// as the launcher: the host laser is half its length.
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { 1, { -1.0f, -447.6f, -1241.6f }, 1.0f / 4.7f },
 
 	// A knife's blade runs along y, not the barrel axis every gun is fitted
 	// by, so fitting its z drew a sliver (0.102 and 0.092). Both are drawn at
@@ -542,6 +567,13 @@ static void gebeanGunsRefresh(void)
 				fpSlot[i] = slot;
 				g_GeWeaponDefs[i].hi_model = (u16)slot;
 			}
+		}
+
+		// And the host's hands, on or off with the model they hold
+		g_GeWeaponDefs[i].flags &= ~WEAPONFLAG_HASHANDS;
+
+		if (!fpSlot[i] || !fpNoHands[i]) {
+			g_GeWeaponDefs[i].flags |= g_Weapons[g_GeWeaponHosts[i]]->flags & WEAPONFLAG_HASHANDS;
 		}
 	}
 
@@ -3769,11 +3801,24 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		free(tris);
 	}
 
+	// Cover every list of the host's that Bean's gun did not take, so the
+	// host's own gun cannot draw beside it: the Laser's red element (its
+	// LASERLIQUID part, a toggle) drew through the Moonraker's left arm. The
+	// muzzle flashes are the exception and are left to flash, since Bean's
+	// own flash pictures are dropped with the hand.
 	if (out.numverts > 0) {
+		struct modelnode *flash[3];
+
+		flash[0] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH1);
+		flash[1] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH2);
+		flash[2] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH3);
+
 		for (s32 k = 0; k < numnodes; k++) {
-			if (nodevisible[k] && !nodeused[k]) {
-				beanAddTri(&out, k, 0, 0, 0, 0);
+			if (nodeused[k] || nodes[k] == flash[0] || nodes[k] == flash[1] || nodes[k] == flash[2]) {
+				continue;
 			}
+
+			beanAddTri(&out, k, 0, 0, 0, 0);
 		}
 	}
 
@@ -3817,6 +3862,17 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			r->file, source, out.numverts, out.numtris, numhand, scale,
 			fpFitSource[fp] ? " measured on " : "", fpFitSource[fp] ? fpFitSource[fp] : "",
 			bodynode, nodemtx[bodynode], nummatrices, file ? "" : " - did not write");
+
+	// Where a gun was put, which is what a placement is judged from: the point
+	// of Bean's gun that was laid on the host, and where on the host that is
+	if (xblaMeshIsVerbose()) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s place: bean (%.1f %.1f %.1f) -> host (%.1f %.1f %.1f), palm rest (%.1f %.1f %.1f), "
+				"host box (%.1f %.1f %.1f)..(%.1f %.1f %.1f), bean box (%.1f %.1f %.1f)..(%.1f %.1f %.1f)",
+				r->file, beanc[0], beanc[1], beanc[2], hostc[0], hostc[1], hostc[2],
+				rig.rest[FP_PALM_MTX][0], rig.rest[FP_PALM_MTX][1], rig.rest[FP_PALM_MTX][2],
+				hostlo[0], hostlo[1], hostlo[2], hosthi[0], hosthi[1], hosthi[2],
+				beanlo[0], beanlo[1], beanlo[2], beanhi[0], beanhi[1], beanhi[2]);
+	}
 
 	beanOutFree(&out);
 	beanFree(&bm);

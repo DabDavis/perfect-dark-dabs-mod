@@ -247,6 +247,7 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 
 /** --xbla-mesh-verbose: log each replaced node's box against its mesh's. */
 void xblaMeshSetVerbose(s32 verbose);
+s32 xblaMeshIsVerbose(void);
 
 /**
  * The release's copy of one of the game's files - file id, not slot - read

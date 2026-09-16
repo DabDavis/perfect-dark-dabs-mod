@@ -482,6 +482,65 @@ skorpion's 0.6 and 15, the RC-P90 the fnp90's 1.8 and 80, the PP9i the wppk's
 - Checked with a gdb dump of every copy's function and ammo beside its host's
   at frame 300 (scratch `stats.gdb`): every host column still stock.
 
+## The Moonraker, and the hands (2026-09-16)
+
+The last gun off `fpReady`. Centred on its host it fell off the bottom left
+corner and on a grip picked out of its silhouette it stood beside the hand, so
+the placement was settled from GoldenEye's own layout instead of by eye.
+
+- **GoldenEye lines its guns up on SKEL_TOP**, the first bone of every gun
+  file. The models' own origins do not agree - Bean's DD44 sits 857 units
+  behind its PP7 - but the *same hand mesh* (the 512x511 picture) sits at the
+  same offset from SKEL_TOP in the PP7, the DD44 and the Golden Gun, within
+  ten units in y and eight in z, in `files/original/` and `files/new/` alike.
+  So a gun's place in the view is its SKEL_TOP's, whatever its own origin, and
+  a gun with no hand can be placed by putting the hand's point on the hand.
+- **Which point that is** comes off the PP7, the one gun whose placement was
+  measured (`fpGripFromPalm`). Its fitted centre lands at the middle of the
+  host's lists at (68.1, -46.1, 10.6); `fpGripFromPalm`'s point is 49 lower
+  and 50 further back, which at the PP7's 0.191 is Bean (-1.4, -519.7, -186) -
+  the butt of the pistol, and SKEL_TOP + (-1.4, -247.6, 158.4). On the
+  Moonraker's SKEL_TOP (0.4, -200, -1400) that is (-1, -447.6, -1241.6), which
+  falls on the front of the handle under its body. Drawn at its own size
+  (1/4.7) like the launcher, since the host Laser is half its length.
+- **The laser has no hand of its own**, and neither do the rifles: only the
+  three pistols carry the hand picture. GoldenEye draws the Moonraker, the
+  launcher and the sniper rifle with no hands at all, and Perfect Dark's -
+  posed for its own gun - stood off all three, so `fpNoHands` takes
+  `WEAPONFLAG_HASHANDS` off those copies while Bean's gun is the one drawn
+  (`gebeanGunsRefresh()`, put back when it is not). The user picked the three
+  out on screen; the rest hold theirs.
+- **Every host list the gun does not take is covered now**, toggled or not,
+  except the three muzzle flashes (`MODELPART_GUN_MUZZLEFLASH1..3`, which are
+  what makes a GoldenEye gun flash, Bean's own flash pictures being dropped
+  with the hand). The Laser's red element is a toggle - its `LASERLIQUID`
+  part - and drew through the Moonraker's left arm until then.
+- **`--xbla-mesh-verbose` prints where a gun went**: the point of Bean's gun
+  laid on the host, where on the host that is, the palm's rest, and both
+  boxes. That line is what showed `fpGripFromPalm` is 50 units from the PP7's
+  fitted centre, which is the whole of the correction above.
+- **The release's own numbers were checked in the xex.** Bean's `default.xex`
+  carries GoldenEye's `WeaponStats` table unchanged at 0x413698, 112 bytes a
+  row in the N64's order (the PP7's 1.0, 11.0, -20.8, -33.5 and the laser's
+  1.0, 11.0, -19.5, -28.0 both match the ROM), so 4J kept GoldenEye's
+  on-screen gun positions as well as its stats. The laser's differ from the
+  PP7's by 1.3 up and 5.5 forward, which is inside the spread of the three
+  pistols this anchor was checked against, so nothing is applied for them.
+  Perfect Dark's own `struct weapon` has the same `posx`/`posy`/`posz` fields
+  if a gun ever needs nudging that way.
+- **Xenia did not settle it.** GoldenEye XBLA boots from
+  `.xbla-work/ge-bean/Bean/default.xex` with no sign-in
+  (`.xbla-work/ge-bean/xenia/`, a copy of the gunturn rig on :97), two virtual
+  pads join a local match, and the menus take the left stick in 0.12s pulses -
+  the d-pad is ignored, and a 0.2s hold moves three rows. But **only two of
+  the eight weapon pads in the Lasers set are Moonrakers** (GoldenEye's
+  `mp_weapon_set_lasers`: two TT33, two Klobb, two KF7), and two players
+  roaming Complex and Stack for half an hour crossed ammo crates and never a
+  gun. If it is tried again: `roam.py` walks a player and reads the weapon
+  name off the HUD by template (`watch.py` - a brightness threshold
+  false-positives on bright walls), and picking the weapon up is the whole
+  problem, not the rig.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.
@@ -489,8 +548,8 @@ skorpion's 0.6 and 15, the RC-P90 the fnp90's 1.8 and 80, the PP9i the wppk's
   character; it could move to the model load beside the unpack.
 - Everything else the plan named: character select from the GE ROM's models,
   props, levels.
-- The guns (sections above): the Moonraker, the one first-person gun not in
-  `fpReady`; Bean's moving parts on their own matrices where the host
+- The guns (sections above): the throwing knife, which is held so low that the
+  HUD covers it (it has never been looked at with ammo in hand); Bean's moving parts on their own matrices where the host
   has one (every surveyed gun's bones landed on the body's); floor pickups seen
   on screen; the Combat Simulator menu listing the guns before Shield; their
   random-weapon filters saved. The slide: with lists' loaded matrices known,

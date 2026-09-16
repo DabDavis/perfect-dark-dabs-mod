@@ -10520,6 +10520,11 @@ void xblaMeshSetVerbose(s32 verbose)
 	xblaMeshVerbose = verbose;
 }
 
+s32 xblaMeshIsVerbose(void)
+{
+	return xblaMeshVerbose;
+}
+
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen)
 {
 	if (fileid == 0 || !xblaMeshOpen(0)) {
