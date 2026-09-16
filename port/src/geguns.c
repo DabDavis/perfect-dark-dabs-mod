@@ -211,65 +211,25 @@ static void gegunsApplyStats(s32 i)
 }
 
 /**
- * A Perfect Dark weapon whose reload animation a GoldenEye gun borrows, or
- * WEAPON_NONE.
+ * GoldenEye's guns reload the way their hosts do, and nothing is borrowed.
  *
  * Perfect Dark's own conversions of GoldenEye's eight classic guns - the PP9i,
  * the CC13, the KL01313, the KF7 Special, the ZZT, the DMC, the AR53 and the
- * RC-P45 - carry **no reload animation at all**, and a weapon without one is
- * reloaded by lowering the gun off the bottom of the screen and raising it
- * again (bondgun.c, HANDSTATEMINOR_RELOAD_LOWER). GoldenEye reloads all eight
- * on screen, so every GoldenEye gun hosted on one of them inherited a reload
- * the original does not have: "the ge guns dont get reload animations, they do
- * the classic lower gun reload".
+ * RC-P45 - carry **no reload animation at all**, and bondgun.c reloads a
+ * weapon without one by lowering the gun off the bottom of the screen and
+ * raising it again (HANDSTATEMINOR_RELOAD_LOWER). Every GoldenEye gun hosted
+ * on one of them inherits that, and that is what it is meant to do: "only
+ * classic lower gun reload".
  *
- * There is no animation to give them that is theirs. The ROM has 94 gun
- * animations and not one is for a classic gun's model, and GoldenEye's own are
- * in its ROM's animation data rather than in anything the release ships. What
- * there is, is that **every first-person gun model carries the same hand
- * skeleton** (the note in gebean.c: the hand hangs off matrix 2 in all of
- * them), so an animation authored for another gun of the same kind moves these
- * hands the way it moves that gun's. The gun's own parts are left where they
- * are - a PP7 whose magazine is one piece with it cannot drop one - but the
- * hand comes up to the gun and back, which is the shape of the motion.
- *
- * Borrowed by kind: the pistols take the Falcon 2's (which is the one script
- * that picks its own dual-wield variant, and the three of them are dual
- * wieldable), the submachine guns the CMP150's, the rifles the AR34's and the
- * RC-P90 the RC-P120's.
+ * An earlier build lent each of them an animation authored for another gun of
+ * the same kind, on the grounds that every first-person gun model carries the
+ * same hand skeleton. What that looks like on screen is somebody else's reload
+ * played on this gun - "the pp7 is doing falcon 2 reload, etc" - a hand
+ * reaching for a magazine the PP7 has not got and dropping one it never held.
+ * A gun that lowers off the screen is honest about having no animation of its
+ * own; a gun performing another gun's is not. So nothing is lent, and a copy's
+ * ammunition is its host's apart from the magazine size the stats write.
  */
-static const u8 reloadFrom[NUM_GE_WEAPONS] = {
-	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = WEAPON_FALCON2,
-	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = WEAPON_FALCON2,
-	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = WEAPON_FALCON2,
-	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = WEAPON_CMP150,
-	[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = WEAPON_CMP150,
-	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = WEAPON_CMP150,
-	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = WEAPON_CMP150,
-	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = WEAPON_AR34,
-	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = WEAPON_AR34,
-	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = WEAPON_RCP120,
-};
-
-/** The weapon's own copy of its host's primary ammunition. */
-static struct inventory_ammo *gegunsOwnAmmo(struct weapon *def)
-{
-	struct inventory_ammo *copy;
-
-	if (!def->ammos[0] || def->ammos[0] != g_Weapons[g_GeWeaponHosts[def - g_GeWeaponDefs]]->ammos[0]) {
-		// already this weapon's own
-		return def->ammos[0];
-	}
-
-	copy = malloc(sizeof(*copy));
-
-	if (copy) {
-		*copy = *def->ammos[0];
-		def->ammos[0] = copy;
-	}
-
-	return def->ammos[0];
-}
 
 /**
  * The automatic shotgun does not work its pump between shots.
@@ -310,26 +270,6 @@ static struct guncmd *gegunsSilentPump(const struct guncmd *src)
 	copy[out].unk04 = 0;
 
 	return copy;
-}
-
-/** The borrowed reload animation onto one copy, if its host has none. */
-static void gegunsApplyReload(s32 i)
-{
-	struct weapon *def = &g_GeWeaponDefs[i];
-	const s32 from = reloadFrom[i];
-	struct inventory_ammo *ammo;
-
-	if (from == WEAPON_NONE || !def->ammos[0] || def->ammos[0]->reload_animation
-			|| !g_Weapons[from] || !g_Weapons[from]->ammos[0]
-			|| !g_Weapons[from]->ammos[0]->reload_animation) {
-		return;
-	}
-
-	ammo = gegunsOwnAmmo(def);
-
-	if (ammo) {
-		ammo->reload_animation = g_Weapons[from]->ammos[0]->reload_animation;
-	}
 }
 
 /** The automatic shotgun's fire animations, with the pump sound taken out. */
@@ -373,7 +313,6 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 		g_GeWeaponDefs[i].shortname = name;
 
 		gegunsApplyStats(i);
-		gegunsApplyReload(i);
 
 		if (WEAPON_GE_FIRST + i == WEAPON_GE_AUTOSHOTGUN) {
 			gegunsUnpump(i);
