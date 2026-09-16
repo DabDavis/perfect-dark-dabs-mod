@@ -1157,9 +1157,11 @@ static void borrowWeaponSets(struct moddataborrow *b)
 		set->unk10 = set->slots[4];
 		set->unk11 = set->slots[5];
 
-		if (!borrowLangString(b, borrowBE16(raw), setNames[at], sizeof(setNames[at]))) {
-			snprintf(setNames[at], sizeof(setNames[at]), "GoldenEye X %d", i + 1);
+		if (!borrowLangString(b, borrowBE16(raw), setNames[at], sizeof(setNames[at]) - 1)) {
+			snprintf(setNames[at], sizeof(setNames[at]) - 1, "GoldenEye X %d", i + 1);
 		}
+
+		strcat(setNames[at], "\n"); // as the game's own set names end
 
 		set->name = langAddPortText(setNames[at]);
 		g_MpNumWeaponSets++;
@@ -1508,9 +1510,13 @@ s32 modBorrowCharacters(s32 base, s32 maxrows, s32 maxindex)
 
 		head = modhead == 1000 || modhead < 0 ? modhead : TAKE(modhead, headrow);
 
-		if (!borrowLangString(b, borrowBE16(raw + 2), charNames[body - base], BORROW_NAMELEN)) {
-			snprintf(charNames[body - base], BORROW_NAMELEN, "%s", romdataFileGetName(g_HeadsAndBodies[body].filenum));
+		if (!borrowLangString(b, borrowBE16(raw + 2), charNames[body - base], BORROW_NAMELEN - 1)) {
+			snprintf(charNames[body - base], BORROW_NAMELEN - 1, "%s", romdataFileGetName(g_HeadsAndBodies[body].filenum));
 		}
+
+		// ended as the language file's are: a menu label without its newline
+		// is a line of no height, and Customize Character drew no name
+		strcat(charNames[body - base], "\n");
 
 		g_MpBodies[numbodies + addedbodies].bodynum = body;
 		g_MpBodies[numbodies + addedbodies].name = 0;
