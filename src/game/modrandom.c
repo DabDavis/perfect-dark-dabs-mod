@@ -742,7 +742,13 @@ static void modRandomRollWeapons(struct modrandomlists *lists)
 		for (tries = 0; tries < 16; tries++) {
 			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
 
-			if (mpweapon->weaponnum == WEAPON_NONE || mpweapon->model < 0) {
+			// MPFEATURE_NEVER is a row switched off rather than a locked one:
+			// GoldenEye's 25 guns sit in the table whether or not they are
+			// switched on, and a mod that brings its own weapon list switches
+			// them off. Rolling one scattered GoldenEye's guns through a mod's
+			// own mission.
+			if (mpweapon->weaponnum == WEAPON_NONE || mpweapon->model < 0
+					|| mpweapon->unlockfeature == MPFEATURE_NEVER) {
 				continue;
 			}
 
@@ -1258,7 +1264,8 @@ static void modRandomRollIntroWeapons(void)
 			modRandomOpen(&rng, MODRANDOM_STREAM_INTROGUN, index++);
 			mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
 
-			if (mpweapon->weaponnum != WEAPON_NONE) {
+			// A switched-off row is not a gun this game has (see above)
+			if (mpweapon->weaponnum != WEAPON_NONE && mpweapon->unlockfeature != MPFEATURE_NEVER) {
 				cmd->param1 = mpweapon->weaponnum;
 
 				// The second hand is a weapon number too, and -1 for a mission

@@ -883,6 +883,41 @@ on both sides, is **unchanged**, which is the control. Not seen on screen: a
 gun lying on the floor, which is the same model and the same materials as the
 one in the hand and so is the same fix, and stays on the list below.
 
+## Start Armed rolled GoldenEye's guns into other people's missions (2026-09-16)
+
+"a change we made to the phantom for ge messed up ge-x phantom", and "with
+goldeneye characters on, the new weapons mess up the ge-x weapons". Neither the
+Phantom's fit nor the characters: the 25 GoldenEye rows added to `g_MpWeapons`
+in 687c54741 are in the table always, and **Start Armed = Random rolls the whole
+table**. `mpCanRollSpawnWeapon()` asks `mpCanSpawnWithWeapon()` only in a match -
+outside one the unlock test is deliberately skipped, because a mission has every
+gun and does not read the challenge table. `MPFEATURE_NEVER` is not a challenge
+lock, though: it is how `gebeanGunsRefresh()` switches the rows off when the
+guns are not shown, which is what a mod with its own weapon list
+(`modDataMpWeaponsImported()`, true for GE-X) does. So a GoldenEye X mission
+spawned the player holding GoldenEye's guns, and the extra rollable rows moved
+every other roll along with them.
+
+Reproduced on GE-X's Runway with the tester's settings (`StartArmed=2`,
+`Akimbo=1`), a breakpoint on `bgunEquipWeapon2()`, same seed and fixed step:
+
+| build | hands |
+| --- | --- |
+| 7a22eada3 (before the guns) | 3, 2, 18 |
+| 86ebbb0d8 | 3, **116** (GE timed mine), **98** (GE KF7 Soviet) |
+| with the fix | 3, 2, 18 |
+
+and `--moddata-trace` named the difference before gdb did: the files loaded
+externally were `Gleegun1Z`/`GknifeZ` on the old build and `Gak47Z`/`GtimedmineZ`
+on the new one. The roll skips a `MPFEATURE_NEVER` row in both modes now. With
+the guns switched on and a copy in `xbla/`, a stock mission still rolls them
+(95, 102, 116 on Chicago, seeds 1-3), which is the control.
+
+`modrandom.c` rolled the same table the same way, twice - the weapon a pickup
+becomes and the gun an intro command hands out - and had the same guard added.
+Its ammo-crate roll reads only `priammotype` and is left alone, so seeds keep
+their crates.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

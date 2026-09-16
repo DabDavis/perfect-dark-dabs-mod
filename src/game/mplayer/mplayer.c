@@ -1176,10 +1176,22 @@ bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
  * unlocked one; a mission has every gun, so there the unlock test is not
  * asked - it is the Combat Simulator's, and a mission's setup does not read
  * the challenge table.
+ *
+ * MPFEATURE_NEVER is not a challenge lock, though, and the mission exemption
+ * does not reach it: it is how a row is switched off altogether. GoldenEye's
+ * 25 guns sit in the table whether or not they are switched on (geguns.c
+ * marks them, and a mod that brings its own weapon list switches them off),
+ * and without this the roll handed them out in a mission that has none of
+ * them - a GoldenEye X mission spawned the player holding the KF7 Soviet.
+ * A row that is off is not one of "every gun".
  */
 static bool mpCanRollSpawnWeapon(const struct mpweapon *mpweapon)
 {
 	if (!modIsWeaponAGun(mpweapon->weaponnum)) {
+		return false;
+	}
+
+	if (mpweapon->unlockfeature == MPFEATURE_NEVER) {
 		return false;
 	}
 
