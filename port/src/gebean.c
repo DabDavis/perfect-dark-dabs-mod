@@ -423,28 +423,22 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// as the launcher: the host laser is half its length.
 	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { 1, { -1.0f, -447.6f, -1241.6f }, 1.0f / 4.7f },
 
-	// A knife's blade runs up the y axis, not along the barrel every gun is
-	// fitted by, so fitting its z drew a sliver (0.102 and 0.092). Both are
-	// drawn at their own size and placed the way the Moonraker is, on
-	// SKEL_TOP: they share one (0, -307.8, -404.7) and they carry GoldenEye's
-	// hand in their geometry, landing where the pistols' does, so the same
-	// SKEL_TOP + (-1.4, -247.6, 158.4) holds. And they are turned a quarter
-	// about z (Bean's y feeds the host's x), because the host's own knife is
-	// modelled along x and it is the host's matrix that holds a knife up:
-	// unturned they lay across the bottom right corner with the blade running
-	// off it. GoldenEye's throwing knife is held by the blade, handle up, so
-	// the same turn is right for both.
-	// Perfect Dark has no Spectre. The Phantom's host is the CMP150, picked
-	// for its kind rather than its shape, and it is a much shorter gun: the
-	// length fit drew GoldenEye's at 0.126 against every same-gun host's
-	// 0.19-0.21, which is 40% small, and the hands - posed on the CMP150 -
-	// closed on nothing ("phantom is wrong hand position"). So it is placed
-	// the way the Moonraker is, on its own SKEL_TOP (0, -188.5, -1637.8) plus
-	// the same offset to GoldenEye's hand point, at GoldenEye's own size.
-	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = { 1, { -1.4f, -436.1f, -1479.4f }, 1.0f / 4.7f },
+	// GoldenEye's knives are turned a quarter about z (Bean's y feeds the
+	// host's x), because the host's own knife is modelled along x and it is
+	// the host's matrix that holds a knife up: unturned they lay across the
+	// bottom right corner with the blade running off it. Fitted onto the host
+	// like every other gun otherwise - Perfect Dark's combat knife is the same
+	// knife GoldenEye's is, near enough to be the reference the user asked for
+	// it to be - which is what puts the hand on the grip.
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { 2, -1, 3 } },
 
-	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 1, { -1.4f, -555.4f, -246.3f }, 1.0f / 4.7f, { 2, -1, 3 } },
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 1, { -1.4f, -555.4f, -246.3f }, 1.0f / 4.7f, { 2, -1, 3 } },
+	// And the throwing knife the other way up. GoldenEye models it held by
+	// the blade with the handle up, ready to throw, which is its own model
+	// and not a placement fault - but it reads as a knife upside down in the
+	// hand, so it is turned the other quarter (Bean's y backwards into the
+	// host's x, Bean's x forwards into the host's y, which is a rotation and
+	// not a mirror) and held by the handle like the hunting knife.
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { -2, 1, 3 } },
 };
 
 /**
@@ -3950,6 +3944,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	s32 bonemtx[BEAN_MAXBONES];
 	s32 numhand = 0;
 	const s8 *fpaxis = NULL;
+	s32 usegrip;
 	u8 *file;
 
 	// Bean's N64-look guns have the hand in their geometry; the host draws there
@@ -4130,15 +4125,48 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	scale = (hosthi[2] - hostlo[2]) / (beanhi[2] - beanlo[2]);
 
+	fpaxis = fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2] ? fpGrip[fp].axis : NULL;
+
+	// A gun turned onto another axis is measured along it. The fit above
+	// compares the host's z with Bean's, which is the barrel in both for a
+	// gun that stands the way its host does; a knife's blade runs up Bean's y
+	// where Perfect Dark's runs along x, so z compared the host's blade
+	// *depth* with Bean's blade *width* and drew a sliver (0.102 and 0.092
+	// against the 0.235 the blade itself asks for). Measured on the host's
+	// longest axis against whichever of Bean's feeds it, a turned gun is
+	// fitted the way every other one is.
+	if (fpaxis) {
+		s32 ha = 0;
+
+		for (s32 a = 1; a < 3; a++) {
+			if (hosthi[a] - hostlo[a] > hosthi[ha] - hostlo[ha]) {
+				ha = a;
+			}
+		}
+
+		{
+			const s32 ba = (fpaxis[ha] < 0 ? -fpaxis[ha] : fpaxis[ha]) - 1;
+
+			if (ba >= 0 && ba < 3 && beanhi[ba] - beanlo[ba] > 1.0f) {
+				scale = (hosthi[ha] - hostlo[ha]) / (beanhi[ba] - beanlo[ba]);
+			}
+		}
+	}
+
 	for (s32 a = 0; a < 3; a++) {
 		hostc[a] = (hostlo[a] + hosthi[a]) * 0.5f;
 		beanc[a] = (beanlo[a] + beanhi[a]) * 0.5f;
 	}
 
-	fpaxis = fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2] ? fpGrip[fp].axis : NULL;
+	usegrip = fpGrip[fp].set;
+
+	sysLogPrintf(LOG_NOTE, "fpfit: row %d host %.0f/%.0f/%.0f bean %.0f/%.0f/%.0f scale %.4f grip %d axis %d,%d,%d",
+			fp, hosthi[0] - hostlo[0], hosthi[1] - hostlo[1], hosthi[2] - hostlo[2],
+			beanhi[0] - beanlo[0], beanhi[1] - beanlo[1], beanhi[2] - beanlo[2], scale, usegrip,
+			fpaxis ? fpaxis[0] : 0, fpaxis ? fpaxis[1] : 0, fpaxis ? fpaxis[2] : 0);
 
 	// A gun placed by its grip: that point of Bean's gun onto the hand's
-	if (fpGrip[fp].set && FP_PALM_MTX < nummatrices && rig.hasrest[FP_PALM_MTX]) {
+	if (usegrip && FP_PALM_MTX < nummatrices && rig.hasrest[FP_PALM_MTX]) {
 		if (fpGrip[fp].scale > 0.0f) {
 			scale = fpGrip[fp].scale;
 		}
@@ -4153,7 +4181,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	// Not for a gun placed by its grip: those are the ones whose host is a
 	// different shape or half their length, which is why they are placed that
 	// way, and the nearest vertex has nothing to say about them.
-	if (!fpGrip[fp].set) {
+	if (!usegrip) {
 		fpRefinePlacement(fitcloud.num ? &fitcloud : &owncloud, &hostcloud,
 				fpaxis, beanc, scale, hostc);
 	}
