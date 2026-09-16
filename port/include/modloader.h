@@ -11,5 +11,7 @@ const char *modloaderGetStageModDir(s32 stagenum);
 // again at the draw - see texpackTextureArt().
 s32 modloaderGetStageModDirIndex(s32 stagenum);
 const char *modloaderGetStageAllocation(s32 stagenum);
+// A Stage Loader map's own name, as its mod calls it, or NULL for a stock stage.
+const char *modloaderGetStageMapName(s32 stagenum);
 
 #endif

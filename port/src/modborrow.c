@@ -40,15 +40,18 @@
 #include "constants.h"
 #include "types.h"
 #include "data.h"
+#include "bss.h"
 #include "system.h"
 #include "config.h"
 #include "fs.h"
 #include "romdata.h"
 #include "mod.h"
 #include "modborrow.h"
+#include "modloader.h"
 #include "preprocess.h"
 #include "lib/anim.h"
 #include "lib/snd.h"
+#include "lib/rng.h"
 #include "geguns.h"
 #include "game/mplayer/mplayer.h"
 #include "game/lang.h"
@@ -738,6 +741,75 @@ static void borrowMusic(struct moddataborrow *b)
 	if (added) {
 		sysLogPrintf(LOG_NOTE, "modborrow: %d music tracks from `%s` in the Combat Simulator's list", added, src.name);
 	}
+}
+
+/**
+ * The music a match on one of the borrowed mod's own arenas plays, when the
+ * player left the choice to the game (Random, not multiple tunes): the mod's
+ * track named for the map - GoldenEye X names its tunes for GoldenEye's
+ * levels, and its arenas are those levels - or one of its tracks at random for
+ * a map GoldenEye had no level for (Temple, Complex...). A match on Random
+ * plays one tune throughout (music switching is only on with multiple tunes),
+ * but it asks for it more than once as it starts, so an ask inside the pick's
+ * own length gets the same pick. -1 for a stage that is not the mod's, or for a
+ * player's own choice, which stageGetPrimaryTrack() answers from the list.
+ */
+s32 modBorrowStageTrack(s32 stagenum)
+{
+	static s32 laststage = -1;
+	static s32 lasttrack = -1;
+	static s32 lastpicked = 0;
+	const char *map;
+	const s32 first = music.base;
+	const s32 end = mpGetNumTracks();
+	s32 pick = -1;
+	size_t bestlen = 0;
+
+	if (first < 0 || end <= first || src.moddir < 0 || modloaderGetStageModDirIndex(stagenum) != src.moddir
+			|| mpGetUsingMultipleTunes() || mpGetCurrentTrackSlotNum() >= 0
+			|| !(map = modloaderGetStageMapName(stagenum))) {
+		return -1;
+	}
+
+	// Asked again while the pick has not run its length - a match's start asks
+	// more than once - it is the same pick. g_MusicAge60 cannot say this: the
+	// switch zeroes it before it asks.
+	if (stagenum == laststage && lasttrack >= 0 && lasttrack < end && g_Vars.lvframe60 >= lastpicked
+			&& g_Vars.lvframe60 - lastpicked < g_MpTracks[lasttrack].duration * TICKS(60)) {
+		g_MusicLife60 = g_MpTracks[lasttrack].duration * TICKS(60);
+		return g_MpTracks[lasttrack].musicnum;
+	}
+
+	if (stagenum != laststage || g_Vars.lvframe60 < lastpicked) {
+		// the longest track name the map's starts with: "Facility BZ" plays
+		// Facility, and never "Facility X", the level's alarm version
+		for (s32 i = first; i < end; i++) {
+			const size_t len = strlen(music.names[i]);
+
+			if (len > bestlen && strncasecmp(map, music.names[i], len) == 0
+					&& (map[len] == '\0' || map[len] == ' ')) {
+				pick = i;
+				bestlen = len;
+			}
+		}
+	}
+
+	if (pick < 0) {
+		s32 tries = 0;
+
+		do {
+			pick = first + (s32)(rngRandom() % (u32)(end - first));
+		} while (pick == lasttrack && end - first > 1 && ++tries < 8);
+	}
+
+	laststage = stagenum;
+	lasttrack = pick;
+	lastpicked = g_Vars.lvframe60;
+	g_MusicLife60 = g_MpTracks[pick].duration * TICKS(60);
+
+	sysLogPrintf(LOG_NOTE, "modborrow: %s plays %s", map, music.names[pick]);
+
+	return g_MpTracks[pick].musicnum;
 }
 
 /* ---- the guns ----------------------------------------------------------- */

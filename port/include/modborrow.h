@@ -37,6 +37,9 @@ s32 modBorrowCharacters(s32 base, s32 maxrows, s32 maxindex);
 // A borrowed body's name, from the mod's own language file, or NULL.
 const char *modBorrowBodyName(s32 bodynum);
 
+// The borrowed mod's music for a match on one of its own arenas, or -1.
+s32 modBorrowStageTrack(s32 stagenum);
+
 // The installed mod GoldenEye's guns come from, or NULL.
 const char *modBorrowGoldenEyeName(void);
 

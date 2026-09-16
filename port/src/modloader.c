@@ -88,6 +88,8 @@ static s32 g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
  * holding the mod dir index plus one.
  */
 static u8 g_ModStageDirs[STAGE_MAX_ID + 1];
+// And the map's own name, as its mod's list gives it (the arena row adds the mod)
+static char g_ModStageMapNames[STAGE_MAX_ID + 1][32];
 
 /**
  * The mod directory a runtime-registered stage belongs to, or NULL for a stock
@@ -305,6 +307,7 @@ static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *mod
 
 	++g_ModStageNextSlot;
 	g_ModStageDirs[stageId] = modIndex + 1;
+	snprintf(g_ModStageMapNames[stageId], sizeof(g_ModStageMapNames[stageId]), "%s", mapName);
 
 	sysLogPrintf(LOG_NOTE, "modloader: %s -> stage 0x%02x", label, stageId);
 
@@ -564,6 +567,7 @@ void modloaderInit(void)
 {
 	g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
 	memset(g_ModStageDirs, 0, sizeof(g_ModStageDirs));
+	memset(g_ModStageMapNames, 0, sizeof(g_ModStageMapNames));
 	g_ModStagesRegistered = g_ModStagesFound = g_ModStageMods = 0;
 
 	if (fsGetNumModDirs() <= 0) {
@@ -620,4 +624,13 @@ void modloaderInit(void)
 			g_ModStageMods++;
 		}
 	}
+}
+
+const char *modloaderGetStageMapName(s32 stagenum)
+{
+	if (stagenum < 0 || stagenum >= (s32)ARRAYCOUNT(g_ModStageDirs) || !g_ModStageDirs[stagenum]) {
+		return NULL;
+	}
+
+	return g_ModStageMapNames[stagenum];
 }

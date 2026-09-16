@@ -1150,8 +1150,23 @@ a borrowed one correlates 0.77 with the previous build's 45 and 0.33 with the
 borrowed tune, so the bank goes back; and a stock match pixel-identical,
 starting sequence 13 as before. `build/gexcmp/audio.sh` is the recording
 harness (dummy audio, `RecordCodec=software`, `recordToggle()` from gdb).
-Not done: GoldenEye X's own arenas loaded by the Stage Loader still take the
-game's list rather than their own tunes.
+**Its arenas play its music** ("make GE-X arenas play their own music"):
+`stageGetPrimaryTrack()`'s match branch asks `modBorrowStageTrack()` first. A
+Stage Loader stage of the borrowed mod (`modloaderGetStageModDirIndex()` equal
+to the borrow's mount - the maps mount and the guns mount are one) whose map
+name starts with one of its track names plays that track, longest match first
+(Facility BZ plays "Facility", never "Facility X"); a map GoldenEye had no level
+for (Temple) plays one of its tracks at random. Only when the choice is the
+game's - Random, not multiple tunes; a player's own pick stands.
+`modloaderGetStageMapName()` is new: the Stage Loader keeps each map's own name
+by stage id. **Trap**: the game asks for a match's tune more than once as it
+starts, so an answer must be stable - a pick is returned again while inside its
+own length (level time since the pick), since the switch path zeroes
+`g_MusicAge60` before it asks and that counter cannot tell. On Random a match
+never switches tunes at all (`g_MpEnableMusicSwitching` is only set with two or
+more multiple tunes). Checked with `--boot-stage` on the registered stage ids:
+Facility 0x57 and Facility BZ plays Facility (sequence 121), Aztec plays Aztec,
+Temple a random GoldenEye X track.
 
 ## Still to do
 

@@ -9,6 +9,9 @@
 #include "lib/memp.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "modborrow.h"
+#endif
 
 static struct stagemusic g_StageTracksDefault[] = {
 	// stage,              main theme,           background sfx,          X theme
@@ -56,6 +59,14 @@ s32 stageGetPrimaryTrack(s32 stagenum)
 	s32 i;
 
 	if (g_Vars.normmplayerisrunning) {
+#ifndef PLATFORM_N64
+		// a borrowed mod's own arena plays that mod's music (modborrow.c)
+		const s32 borrowed = modBorrowStageTrack(stagenum);
+
+		if (borrowed >= 0) {
+			return borrowed;
+		}
+#endif
 		return mpChooseTrack();
 	}
 
