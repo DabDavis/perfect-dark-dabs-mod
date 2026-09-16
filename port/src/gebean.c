@@ -2011,6 +2011,12 @@ static u32 beanTexArea(const struct beanmodel *bm, u32 t)
 	return b && blen >= 0x40 ? (u32)gebeanBE16(b + 0x24) * gebeanBE16(b + 0x26) : 0;
 }
 
+static s32 beanTexIsScratchMap(const struct beanmodel *bm, u32 t)
+{
+	return t < (u32)bm->numtex
+		&& strcmp(caffAssetName(&bm->caff, bm->caff.files[bm->texfile[t]].asset), "_0x059B9F65.tga.bin") == 0;
+}
+
 /**
  * Which of a material's textures is the model's own picture.
  *
@@ -2062,6 +2068,20 @@ static u32 beanMaterialTexture(const struct beanmodel *bm, const u8 *st, u32 pc,
 					: (where & 0xffff) < gesamplers[k])) {
 				geshape = 0;
 			}
+		}
+
+		// The release's shared 54x54 scratch map is laid over glass - Boris's
+		// lenses, the pilot's and the bike helmet's visors - whose own picture
+		// is a 32x32 tinted pane with alpha, smaller than it. Taken by size the
+		// glass drew as an opaque grey block; it is the picture only alone.
+		if (found && beanTexIsScratchMap(bm, t)) {
+			continue;
+		}
+
+		if (found && beanTexIsScratchMap(bm, best)) {
+			best = t;
+			bestarea = area;
+			continue;
 		}
 
 		if (!found || area >= bestarea) {

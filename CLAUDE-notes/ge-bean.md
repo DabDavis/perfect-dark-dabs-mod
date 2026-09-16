@@ -1263,11 +1263,17 @@ X's borrowed characters.
   of 1024; 8 gets 428 wrong), sunglasses 8 (21; 24 riddles the lens with holes,
   which the first try did). GoldenEye X draws both on the translucent list with
   0/255 alpha, so a cut-out is the whole effect.
-- **Not found in the data**: anything translucent on the helicopter pilot's
-  visor. GoldenEye's pilot has no secondary (translucent) list, GoldenEye X's
-  `Cheadfem_guardZ` has no `xlugdl` and every texture of it is opaque, and
-  Bean's pilot has no `.rgba` picture. Bean's HD pilot does carry a 32x32 DXT3
-  visor at partial alpha.
+- **The glass that was actually wrong was the HD look's** (the tester's F3 of
+  Boris on Customize Character: grey blocky lenses). Glass is a material of two
+  inputs, the release's shared 54x54 scratch map `_0x059B9F65` and a 32x32 DXT3
+  tinted pane, and the "biggest picture" rule took the scratch map, drawn
+  opaque. Over every HD file the scratch map won 11 materials, every one
+  against a 32x32 DXT3 pane: Boris (and Graham, his head), the pilot's visor,
+  the bike helmet, Dave, Grant, Mark, Neil, plus the jungle and a plane nothing
+  here loads. `beanMaterialTexture()` now takes the scratch map only when it
+  is alone; the pane is soft alpha, so it draws blended. The N64 look's pilot
+  has no translucency anywhere in GoldenEye's, GoldenEye X's or Bean's N64
+  data.
 - Checked headless on 0x32 (`build/gexcmp/heads/`: `face2.sh` puts the camera
   in front of the simulant whose body number matches, `oldpool/` runs the
   previous binary on the same save): open crown closed on the Russian
