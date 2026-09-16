@@ -3277,6 +3277,102 @@ static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back)
  * are a mirror when the permutation and the signs are, so the triangles are
  * wound the other way then. The model's other list nodes draw nothing.
  */
+/**
+ * Which of a pickup's draws are GoldenEye's own muzzle flash.
+ *
+ * GoldenEye's `prop/chr<gun>` models carry the flash as geometry - a fan of
+ * quads standing in the plane of the muzzle, which the game turns on for the
+ * frames a shot lasts and leaves invisible the rest of the time. Nothing here
+ * turns anything on: gebeanBuildRigid() lays every draw of the model into one
+ * list and the list is drawn whenever the gun is, so the flash burned on the
+ * screen for as long as the gun was held. That is the tester's "the rcp90 has
+ * the muzzle flash static, same with the AR": the RC-P90 and the AR33 are two
+ * of the four guns whose model has one.
+ *
+ * They are dropped rather than wired up. Perfect Dark draws its own flash on a
+ * chr's gun already - the `MODELPART_CHRGUN_GUNFIRE` sprite, which
+ * weaponSetGunfireVisible() shows for exactly the frames the chr is firing -
+ * so the gun in the body's hands flashes correctly once GoldenEye's own
+ * painted-on one is out of the way.
+ *
+ * **The test is the plane.** A flash is a quad list whose vertices share one
+ * value of Bean's y, the barrel axis, and that y is at the muzzle end of the
+ * gun. Across the twenty-five pickups in both looks - fifty models, 520 draws
+ * - exactly four match, one draw each: the RC-P90, the AR33, the D5K and the
+ * Moonraker, in the HD files and the N64-look ones alike, and no gun matches
+ * twice. Nothing else in any of them is a quad list lying flat across the
+ * barrel. The other guns' small quads stand flat along *x*, down the gun's
+ * middle, and are the trigger and the sling; those are kept.
+ */
+static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
+{
+	f32 lo = 1e18f;
+	f32 hi = -1e18f;
+	f32 dlo[64];
+	f32 dhi[64];
+	const s32 num = bm->numdraws < 64 ? bm->numdraws : 64;
+
+	*out = 0;
+
+	for (s32 di = 0; di < num; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+		u16 *tris;
+		s32 numtris;
+
+		dlo[di] = 1e18f;
+		dhi[di] = -1e18f;
+
+		if (!beanReadVb(bm, d->vb, &vb)) {
+			continue;
+		}
+
+		numtris = beanTriangles(bm, d, &tris);
+
+		for (s32 t = 0; t < numtris * 3; t++) {
+			struct beanvtx v;
+
+			if (!beanVertex(bm, &vb, tris[t], &v)) {
+				continue;
+			}
+
+			if (v.pos[1] < dlo[di]) {
+				dlo[di] = v.pos[1];
+			}
+
+			if (v.pos[1] > dhi[di]) {
+				dhi[di] = v.pos[1];
+			}
+		}
+
+		free(tris);
+
+		if (dlo[di] <= dhi[di]) {
+			if (dlo[di] < lo) {
+				lo = dlo[di];
+			}
+
+			if (dhi[di] > hi) {
+				hi = dhi[di];
+			}
+		}
+	}
+
+	if (hi <= lo) {
+		return;
+	}
+
+	for (s32 di = 0; di < num; di++) {
+		const f32 end = (hi - lo) * 0.15f;
+
+		// A quad list, flat across the barrel, at one end of it
+		if (bm->draws[di].prim == 13 && dlo[di] <= dhi[di] && dhi[di] - dlo[di] < 1.0f
+				&& (dlo[di] <= lo + end || dhi[di] >= hi - end)) {
+			*out |= 1ull << di;
+		}
+	}
+}
+
 static u8 *gebeanBuildRigid(s32 gun, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -3289,6 +3385,8 @@ static u8 *gebeanBuildRigid(s32 gun, s32 original, struct modeldef *modeldef, st
 	s32 nummatrices = modeldef->nummatrices;
 	s32 mtx = gebeanListNodeMatrix(nodes[0]);
 	s32 mirror;
+	u64 flash = 0;
+	s32 numflash = 0;
 	u8 *file;
 
 	// An odd permutation of three axes swaps two; each negative sign mirrors once
@@ -3314,12 +3412,20 @@ static u8 *gebeanBuildRigid(s32 gun, s32 original, struct modeldef *modeldef, st
 
 	memset(&out, 0, sizeof(out));
 
+	beanGunFlashDraws(&bm, &flash);
+
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
 		struct beanvb vb;
 		u16 *tris;
 		s32 numtris;
 		s32 *mapped;
+
+		// GoldenEye's own muzzle flash, which nothing here turns off again
+		if (di < 64 && (flash & (1ull << di))) {
+			numflash++;
+			continue;
+		}
 
 		if (!beanReadVb(&bm, d->vb, &vb)) {
 			continue;
@@ -3433,8 +3539,9 @@ static u8 *gebeanBuildRigid(s32 gun, s32 original, struct modeldef *modeldef, st
 
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, rigid on matrix %d of %d%s%s",
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, rigid on matrix %d of %d%s%s%s",
 			g->row.file, source, out.numverts, out.numtris, mtx, nummatrices,
+			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write");
 
 	beanOutFree(&out);
