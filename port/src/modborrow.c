@@ -1266,6 +1266,16 @@ const char *modBorrowBodyName(s32 bodynum)
 	return charBase >= 0 && i >= 0 && i < charRows && charNames[i][0] ? charNames[i] : NULL;
 }
 
+s32 modBorrowIsGoldenEyeHead(s32 headnum)
+{
+	if (charBase >= 0 && headnum >= charBase && headnum < charBase + charRows) {
+		return 1;
+	}
+
+	return src.found > 0 && headnum >= 0 && headnum < NUM_HEADSANDBODIES && borrowIsLoaded()
+		&& !romdataFileIsStock(g_HeadsAndBodies[headnum].filenum);
+}
+
 /** Whether the mod ships this file of its own, rather than keeping the stock one. */
 static s32 borrowShips(const char *name)
 {

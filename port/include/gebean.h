@@ -105,6 +105,12 @@ void gebeanMeshesSwitched(void);
 const char *gebeanPoolBodyName(s32 bodynum);
 
 /**
+ * GoldenEye's name for a g_HeadsAndBodies head row that is one of its faces -
+ * the release's pool, or GoldenEye X's own, borrowed or loaded - or NULL.
+ */
+const char *gebeanHeadName(s32 headnum);
+
+/**
  * Makes sure the copy is on disk, unpacking it if it has to - which is a level
  * load's business, not a frame's, so a model load that finds a row calls this.
  * 1 when the files are there.

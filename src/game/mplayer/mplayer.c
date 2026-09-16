@@ -34,6 +34,8 @@
 #include "system.h"
 #include "mpsetups.h"
 #include "gebean.h"
+#include "romdata.h"
+#include "modborrow.h"
 
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
@@ -3002,6 +3004,179 @@ char *mpGetBodyName(u8 mpbodynum)
 
 	return langGet(g_MpBodies[mpbodynum].name);
 }
+
+#ifndef PLATFORM_N64
+/**
+ * A head's name, which the game never had: the heads carry no text id, and
+ * most of them are the faces of the Rare staff they were modelled on, so they
+ * are named for those. GoldenEye's faces are named by gebean.c, a head only a
+ * mod has by its file.
+ */
+char *mpGetHeadName(u8 mpheadnum)
+{
+	static const char *names[] = {
+		[HEAD_DARK_COMBAT]  = "Joanna (Combat)\n",
+		[HEAD_ELVIS]        = "Elvis\n",
+		[HEAD_ROSS]         = "Ross\n",
+		[HEAD_CARRINGTON]   = "Carrington\n",
+		[HEAD_MRBLONDE]     = "Mr. Blonde\n",
+		[HEAD_TRENT]        = "Trent\n",
+		[HEAD_DDSHOCK]      = "dataDyne Shock Trooper\n",
+		[HEAD_GRAHAM]       = "Graham\n",
+		[HEAD_DARK_FROCK]   = "Joanna (Frock)\n",
+		[HEAD_SECRETARY]    = "Secretary\n",
+		[HEAD_CASSANDRA]    = "Cassandra\n",
+		[HEAD_THEKING]      = "The King\n",
+		[HEAD_FEM_GUARD]    = "Female Guard\n",
+		[HEAD_JON]          = "Jon\n",
+		[HEAD_MARK2]        = "Mark\n",
+		[HEAD_CHRIST]       = "Chris T\n",
+		[HEAD_RUSS]         = "Russ\n",
+		[HEAD_GREY]         = "Grey\n",
+		[HEAD_DARLING]      = "Darling\n",
+		[HEAD_ROBERT]       = "Robert\n",
+		[HEAD_BEAU1]        = "Beau\n",
+		[HEAD_FEM_GUARD2]   = "Female Guard 2\n",
+		[HEAD_BRIAN]        = "Brian\n",
+		[HEAD_JAMIE]        = "Jamie\n",
+		[HEAD_DUNCAN2]      = "Duncan\n",
+		[HEAD_BIOTECH]      = "Biotech\n",
+		[HEAD_NEIL2]        = "Neil\n",
+		[HEAD_EDMCG]        = "Ed McG\n",
+		[HEAD_ANKA]         = "Anka\n",
+		[HEAD_LESLIE_S]     = "Leslie S\n",
+		[HEAD_MATT_C]       = "Matt C\n",
+		[HEAD_PEER_S]       = "Peer S\n",
+		[HEAD_EILEEN_T]     = "Eileen T\n",
+		[HEAD_ANDY_R]       = "Andy R\n",
+		[HEAD_BEN_R]        = "Ben R\n",
+		[HEAD_STEVE_K]      = "Steve K\n",
+		[HEAD_JONATHAN]     = "Jonathan\n",
+		[HEAD_MAIAN_S]      = "Maian Soldier\n",
+		[HEAD_SHAUN]        = "Shaun\n",
+		[HEAD_BEAU2]        = "Beau\n",
+		[HEAD_EILEEN_H]     = "Eileen H\n",
+		[HEAD_SCOTT_H]      = "Scott H\n",
+		[HEAD_SANCHEZ]      = "Sanchez\n",
+		[HEAD_DARKAQUA]     = "Joanna (Wetsuit)\n",
+		[HEAD_DDSNIPER]     = "dataDyne Sniper\n",
+		[HEAD_BEAU3]        = "Beau\n",
+		[HEAD_BEAU4]        = "Beau\n",
+		[HEAD_BEAU5]        = "Beau\n",
+		[HEAD_BEAU6]        = "Beau\n",
+		[HEAD_GRIFFEY]      = "Griffey\n",
+		[HEAD_MOTO]         = "Moto\n",
+		[HEAD_KEITH]        = "Keith\n",
+		[HEAD_WINNER]       = "Winner\n",
+		[HEAD_A51FACEPLATE] = "Area 51 Faceplate\n",
+		[HEAD_ELVIS_GOGS]   = "Elvis (Goggles)\n",
+		[HEAD_STEVEM]       = "Steve M\n",
+		[HEAD_DARK_SNOW]    = "Joanna (Snow)\n",
+		[HEAD_PRESIDENT]    = "President\n",
+		[HEAD_VD]           = "Velvet Dark\n",
+		[HEAD_KEN]          = "Ken\n",
+		[HEAD_JOEL]         = "Joel\n",
+		[HEAD_TIM]          = "Tim\n",
+		[HEAD_GRANT]        = "Grant\n",
+		[HEAD_PENNY]        = "Penny\n",
+		[HEAD_ROBIN]        = "Robin\n",
+		[HEAD_ALEX]         = "Alex\n",
+		[HEAD_JULIANNE]     = "Julianne\n",
+		[HEAD_LAURA]        = "Laura\n",
+		[HEAD_DAVEC]        = "Dave C\n",
+		[HEAD_COOK]         = "Cook\n",
+		[HEAD_PRYCE]        = "Pryce\n",
+		[HEAD_SILKE]        = "Silke\n",
+		[HEAD_SMITH]        = "Smith\n",
+		[HEAD_GARETH]       = "Gareth\n",
+		[HEAD_MURCHIE]      = "Murchie\n",
+		[HEAD_WONG]         = "Wong\n",
+		[HEAD_CARTER]       = "Carter\n",
+		[HEAD_TINTIN]       = "Tintin\n",
+		[HEAD_MUNTON]       = "Munton\n",
+		[HEAD_STAMPER]      = "Stamper\n",
+		[HEAD_JONES]        = "Jones\n",
+		[HEAD_PHELPS]       = "Phelps\n",
+	};
+	static char made[48];
+	const char *name;
+	const char *file;
+	s32 headnum;
+	s32 n = 0;
+
+	if (mpheadnum >= mpGetNumHeads2()) {
+		snprintf(made, sizeof(made), "Perfect Head %d\n", mpheadnum - mpGetNumHeads2() + 1);
+		return made;
+	}
+
+	headnum = mpGetHeadId(mpheadnum);
+	name = gebeanHeadName(headnum);
+
+	if (name) {
+		return (char *)name;
+	}
+
+	if (headnum >= 0 && headnum < ARRAYCOUNT(names) && names[headnum]
+			&& romdataFileIsStock(g_HeadsAndBodies[headnum].filenum)) {
+		return (char *)names[headnum];
+	}
+
+	// a mod's head: named for a character who wears it, as the mod names them
+	for (s32 i = 0; i < g_MpListCounts.bodies; i++) {
+		if (g_MpBodies[i].headnum == headnum) {
+			return mpGetBodyName(i);
+		}
+	}
+
+	if (modBorrowIsGoldenEyeHead(headnum)) {
+		// its files carry Perfect Dark's names, which are not its faces
+		snprintf(made, sizeof(made), "Head %d\n", mpheadnum + 1);
+		return made;
+	}
+
+	// or by its file's name, CheadjonZ as Jon
+	file = headnum >= 0 && headnum < NUM_HEADSANDBODIES ? romdataFileGetName(g_HeadsAndBodies[headnum].filenum) : NULL;
+
+	if (!file) {
+		return "\n";
+	}
+
+	if (file[0] == 'C') {
+		file++;
+	}
+
+	if (!strncmp(file, "head", 4) && file[4]) {
+		file += 4;
+	}
+
+	for (; *file && n < (s32)sizeof(made) - 2; file++) {
+		if (file[1] == '\0' && *file == 'Z') {
+			break;
+		}
+
+		made[n] = *file == '_' ? ' ' : (n == 0 || made[n - 1] == ' ') && *file >= 'a' && *file <= 'z' ? *file - 'a' + 'A' : *file;
+		n++;
+	}
+
+	made[n++] = '\n';
+	made[n] = '\0';
+
+	return made;
+}
+
+/**
+ * The name row over a character page's carousels: the body's, or the head's
+ * while the head carousel - the row after it - has the focus.
+ */
+char *mpGetCharacterRowName(struct menuitem *label, char *bodyname, u8 mpheadnum)
+{
+	if (g_Menus[g_MpPlayerNum].curdialog && g_Menus[g_MpPlayerNum].curdialog->focuseditem == label + 1) {
+		return mpGetHeadName(mpheadnum);
+	}
+
+	return bodyname;
+}
+#endif
 
 u8 mpGetBodyRequiredFeature(u8 mpbodynum)
 {

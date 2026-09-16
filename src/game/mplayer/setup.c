@@ -2376,7 +2376,12 @@ MenuItemHandlerResult menuhandlerMpCharacterHead(s32 operation, struct menuitem 
 
 char *mpMenuTextBodyName(struct menuitem *item)
 {
+#ifndef PLATFORM_N64
+	return mpGetCharacterRowName(item, mpGetBodyName(g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum),
+			g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum);
+#else
 	return mpGetBodyName(g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum);
+#endif
 }
 
 void func0f17b8f0(void)

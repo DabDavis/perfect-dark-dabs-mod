@@ -551,6 +551,114 @@ const char *gebeanPoolBodyName(s32 bodynum)
 }
 
 /**
+ * GoldenEye's name for a face a source path names: its multiplayer heads carry
+ * the names of the Rare staff they were modelled on (the decomp's
+ * HEAD_Male_Karl ... HEAD_Female_Vivien), and a character's head is that
+ * character, named as the pool names its body.
+ */
+static const char *gebeanSourceName(const char *source)
+{
+	static const struct {
+		const char *source;
+		const char *name;
+	} faces[] = {
+		{ "head/headkarl",    "Karl\n" },
+		{ "head/headalan",    "Alan\n" },
+		{ "head/headpete",    "Pete\n" },
+		{ "head/headmartin",  "Martin\n" },
+		{ "head/headmark",    "Mark\n" },
+		{ "head/headduncan",  "Duncan\n" },
+		{ "head/headshaun",   "Shaun\n" },
+		{ "head/headdwayne",  "Dwayne\n" },
+		{ "head/headb",       "B\n" },
+		{ "head/headdave",    "Dave\n" },
+		{ "head/headgrant",   "Grant\n" },
+		{ "head/headdes",     "Des\n" },
+		{ "head/headchris",   "Chris\n" },
+		{ "head/headlee",     "Lee\n" },
+		{ "head/headneil",    "Neil\n" },
+		{ "head/headjim",     "Jim\n" },
+		{ "head/headrobin",   "Robin\n" },
+		{ "head/headsteveh",  "Steve H\n" },
+		{ "head/headstevee",  "Steve Ellis\n" },
+		{ "head/headjoel",    "Joel\n" },
+		{ "head/headscott",   "Scott\n" },
+		{ "head/headjoe",     "Joe\n" },
+		{ "head/headken",     "Ken\n" },
+		{ "head/headmishkin", "Mishkin\n" },
+		{ "head/headsally",   "Sally\n" },
+		{ "head/headmarion",  "Marion\n" },
+		{ "head/headmandy",   "Mandy\n" },
+		{ "head/headvivien",  "Vivien\n" },
+		{ "char/mayday",      "May Day\n" },
+	};
+	static char made[32];
+	const char *base;
+	s32 n = 0;
+
+	for (s32 i = 0; i < ARRAYCOUNT(faces); i++) {
+		if (!strcmp(faces[i].source, source)) {
+			return faces[i].name;
+		}
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		if (poolRows[i].name && !strcmp(poolRows[i].row.source, source)) {
+			return poolRows[i].name;
+		}
+	}
+
+	base = strrchr(source, '/');
+	base = base ? base + 1 : source;
+
+	if (!strncmp(base, "head", 4) && base[4]) {
+		base += 4;
+	}
+
+	for (; *base && n < (s32)sizeof(made) - 2; base++, n++) {
+		made[n] = n == 0 && *base >= 'a' && *base <= 'z' ? *base - 'a' + 'A' : *base;
+	}
+
+	made[n++] = '\n';
+	made[n] = '\0';
+
+	return made;
+}
+
+const char *gebeanHeadName(s32 headnum)
+{
+	const s32 i = headnum - GEBEAN_POOL_BASE;
+	s32 filenum;
+	const char *file;
+
+	if (headnum < 0 || headnum >= NUM_HEADSANDBODIES) {
+		return NULL;
+	}
+
+	filenum = g_HeadsAndBodies[headnum].filenum;
+
+	// the release's pool, with no GoldenEye X to borrow from
+	if (i >= 0 && i < ARRAYCOUNT(poolRows) && poolSlot[i] && poolSlot[i] == filenum
+			&& poolRows[i].row.kind == GEBEAN_HEAD) {
+		return gebeanSourceName(poolRows[i].row.source);
+	}
+
+	// GoldenEye X's own, borrowed or loaded: the table pairs its files with
+	// GoldenEye's by name, and a name is Perfect Dark's slot, not the face
+	if (!modBorrowIsGoldenEyeHead(headnum) || !(file = romdataFileGetName(filenum))) {
+		return NULL;
+	}
+
+	for (s32 j = 0; j < ARRAYCOUNT(rows); j++) {
+		if (rows[j].kind == GEBEAN_HEAD && !strcmp(rows[j].file, file)) {
+			return gebeanSourceName(rows[j].source);
+		}
+	}
+
+	return NULL;
+}
+
+/**
  * Which look the guns are in: 0 the release's, 1 GoldenEye's N64 one. Like the
  * characters', it follows the release's meshes, so F6 moves the guns with
  * everything else. A gun's N64 look is GoldenEye X's own model, borrowed

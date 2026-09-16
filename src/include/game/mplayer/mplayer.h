@@ -64,6 +64,10 @@ u32 mpGetNumBodies(void);
 s32 mpGetBodyId(u8 bodynum);
 s32 mpGetMpbodynumByBodynum(u16 bodynum);
 char *mpGetBodyName(u8 mpbodynum);
+#ifndef PLATFORM_N64
+char *mpGetHeadName(u8 mpheadnum);
+char *mpGetCharacterRowName(struct menuitem *label, char *bodyname, u8 mpheadnum);
+#endif
 u8 mpGetBodyRequiredFeature(u8 bodynum);
 s32 mpGetMpheadnumByMpbodynum(s32 bodynum);
 s32 mpChooseRandomLockPlayer(void);

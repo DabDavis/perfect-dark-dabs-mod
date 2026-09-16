@@ -191,12 +191,10 @@ static MenuItemHandlerResult menuhandlerGhostPick(s32 operation, struct menuitem
  */
 static char *menutextGhostCharacterName(struct menuitem *item)
 {
-	if (g_ModGhostBody <= MODGHOST_BODY_DEFAULT) {
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "Joanna\n");
-	} else {
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s\n",
-				mpGetBodyName(g_ModGhostBody - 1));
-	}
+	const s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : 0;
+
+	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s", mpGetCharacterRowName(item,
+			g_ModGhostBody <= MODGHOST_BODY_DEFAULT ? "Joanna\n" : mpGetBodyName(g_ModGhostBody - 1), head));
 
 	return g_GhostRowText;
 }
@@ -299,11 +297,10 @@ struct menudialogdef g_GhostCharacterMenuDialog = {
  */
 static char *menutextCiCharacterName(struct menuitem *item)
 {
-	if (g_ModCiBody <= MODGHOST_BODY_DEFAULT) {
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "Joanna\n");
-	} else {
-		snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s", mpGetBodyName(g_ModCiBody - 1));
-	}
+	const s32 head = g_ModCiHead > MODGHOST_BODY_DEFAULT ? g_ModCiHead - 1 : 0;
+
+	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s", mpGetCharacterRowName(item,
+			g_ModCiBody <= MODGHOST_BODY_DEFAULT ? "Joanna\n" : mpGetBodyName(g_ModCiBody - 1), head));
 
 	return g_GhostRowText;
 }

@@ -36,6 +36,8 @@ s32 modBorrowIsGunsOnlyMount(s32 moddir);
 s32 modBorrowCharacters(s32 base, s32 maxrows, s32 maxindex);
 // A borrowed body's name, from the mod's own language file, or NULL.
 const char *modBorrowBodyName(s32 bodynum);
+// Whether a head row is GoldenEye X's: one borrowed, or GoldenEye X's own file with it loaded.
+s32 modBorrowIsGoldenEyeHead(s32 headnum);
 
 // The borrowed mod's music for a match on one of its own arenas, or -1.
 s32 modBorrowStageTrack(s32 stagenum);
