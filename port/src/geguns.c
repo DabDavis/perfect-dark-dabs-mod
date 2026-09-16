@@ -444,6 +444,44 @@ u32 gegunsHandsFlag(s32 index)
 	return borrowed[index] ? borrowedHands[index] : g_Weapons[g_GeWeaponHosts[index]]->flags & WEAPONFLAG_HASHANDS;
 }
 
+/**
+ * GoldenEye's knives throw a knife, not a poison one. The throw is the combat
+ * knife's function, shared with Perfect Dark's own knife, so each copy gets a
+ * function of its own under a name of the port's; a borrowed knife's throw
+ * takes the name from here (gegunsNameFor()).
+ */
+static void gegunsNameThrow(s32 i)
+{
+	static u16 throwname;
+	struct weapon *def = &g_GeWeaponDefs[i];
+
+	// the grenade and the mines are thrown too, and keep their own names
+	if (WEAPON_GE_FIRST + i != WEAPON_GE_HUNTINGKNIFE && WEAPON_GE_FIRST + i != WEAPON_GE_THROWINGKNIFE) {
+		return;
+	}
+
+	for (s32 f = 0; f < 2; f++) {
+		const struct weaponfunc *func = def->functions[f];
+		struct weaponfunc *copy;
+
+		if (!func || func->type != INVENTORYFUNCTYPE_THROW) {
+			continue;
+		}
+
+		if (!throwname) {
+			throwname = langAddPortText("Throw Knife\n");
+		}
+
+		copy = malloc(gegunsFuncSize(func->type));
+
+		if (copy) {
+			memcpy(copy, func, gegunsFuncSize(func->type));
+			copy->name = throwname;
+			def->functions[f] = copy;
+		}
+	}
+}
+
 /** The stock model state a GoldenEye gun's host is picked up as. */
 s32 gegunsHostModel(s32 index)
 {
@@ -471,6 +509,8 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 		if (WEAPON_GE_FIRST + i == WEAPON_GE_AUTOSHOTGUN) {
 			gegunsUnpump(i);
 		}
+
+		gegunsNameThrow(i);
 
 		// what a borrow is undone to
 		stockDefs[i] = g_GeWeaponDefs[i];

@@ -1052,8 +1052,15 @@ match GE-X's table, six guns fired and reloaded under gdb (`ours/fire.py`)
 playing borrowed shot configs and reload samples, the HD survey, third person in
 both looks, a live `modListSwap()` re-reading the guns, and **a seeded stock
 match pixel-identical to 6537dbde2 at frames 600 and 1500** with no mods
-installed (`build/regress/run.sh`). Not heard by a person yet. The Moonraker is
-missing the small part beside its barrel that GE-X shows.
+installed (`build/regress/run.sh`). Not heard by a person yet. (The Moonraker was once
+reported here as missing a part beside its barrel: at full size its sight grid
+is there and matches GE-X's; its dark bars vanish against the stock arena's
+dark wall and show against GE-X's light one, and a scaled-down sheet lost them.)
+
+GoldenEye's knives' throw read "Throw Poison Knife", the combat knife's text
+on the combat knife's shared function; `gegunsNameThrow()` gives both knives a
+function of their own named "Throw Knife" (port text), borrowed or not, and the
+grenade and mines, whose functions are throws too, keep their names.
 
 ## Still to do
 
