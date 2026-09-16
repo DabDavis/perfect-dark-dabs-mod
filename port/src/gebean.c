@@ -325,9 +325,16 @@ static const u8 fpNoHands[ARRAYCOUNT(fpRows)] = {
 };
 
 /**
- * The guns GoldenEye drew a hand on, which is the seven N64-look files that
- * carry its glove (beanGloveTextures): the pistols and the knives. Their
- * N64-look model holds itself, so Perfect Dark's hands come off for it.
+ * The guns whose own N64-look hand is drawn, of the seven files that carry
+ * GoldenEye's glove (beanGloveTextures): the pistols and the hunting knife.
+ * Their N64-look model holds itself, so Perfect Dark's hands come off for it.
+ *
+ * The throwing knife carries a hand too and is *not* one of them, because
+ * GoldenEye models that hand gripping the blade with the handle up, ready to
+ * throw. Its grip cannot be moved - it is one mesh with the knife - so a knife
+ * turned to be held by the handle carries a fist up the blade with it. Its
+ * hand is left out of the mesh (beanGunExtent's `handoff`) and Perfect Dark's
+ * own hands hold it, as they do in the release's look.
  *
  * The rest are drawn with no hand at all in GoldenEye - the rifles, the
  * launchers - but keep whatever the HD look does with their host's hands,
@@ -341,7 +348,6 @@ static const u8 fpN64Glove[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 1,
 };
 
 /**
@@ -456,28 +462,16 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// it to be - which is what puts the hand on the grip.
 	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { 2, -1, 3 } },
 
-	// And the throwing knife the other way up. GoldenEye models it held by
-	// the blade with the handle up, ready to throw, which is its own model
-	// and not a placement fault - but it reads as a knife upside down in the
-	// hand, so it is turned the other quarter (Bean's y backwards into the
-	// host's x, Bean's x forwards into the host's y, which is a rotation and
-	// not a mirror) and held by the handle like the hunting knife.
+	// And the throwing knife the other way up, in both looks. Rare authored
+	// it pointing the other way from the hunting knife - the two files are
+	// the same size and 180 degrees apart, in the release's models and the
+	// N64 ones alike - so the hunting knife's turn holds it by the blade with
+	// the handle up. That is how GoldenEye itself draws it, ready to throw,
+	// but it is not how this game holds a knife, so it is turned the other
+	// quarter (Bean's y backwards into the host's x, Bean's x forwards into
+	// the host's y, which is a rotation and not a mirror) and held by the
+	// handle like the hunting knife and like Perfect Dark's own.
 	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { -2, 1, 3 } },
-};
-
-/**
- * A turn the N64-look file needs and the release's does not.
- *
- * Rare authored the release's throwing knife pointing the other way from its
- * hunting knife - the two files are the same size and 180 degrees apart, which
- * is why the mirrored turn above fits it - and the N64-look pair are both
- * authored the way the hunting knife is. With the release's turn the N64
- * throwing knife hung point down from a hand above the blade; with the hunting
- * knife's it is held the way GoldenEye holds it. Nothing else differs between
- * the looks this way.
- */
-static const s8 fpAxisN64[ARRAYCOUNT(fpRows)][3] = {
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 2, -1, 3 },
 };
 
 /**
@@ -3871,14 +3865,16 @@ static s32 beanTextureIsGlove(const struct beanmodel *bm, s32 t)
  * player asked for it off the guns in the hand - and, in the HD files, the
  * hand: those carry it as one 512x511 picture, and Perfect Dark draws its own
  * hand model with the gun. What is drawn but not fitted is the N64 look's hand
- * and forearm.
+ * and forearm - unless `handoff`, which drops an N64 file's hand the way the
+ * HD files' is dropped, for a gun whose own grip is not one to hold it by
+ * (fpN64Glove).
  *
  * Also left out of both: a draw collapsed to a point. The N64 files carry
  * pieces GoldenEye moves into place as it fires - the AK's is 760 triangles in
  * a two-unit box 1574 units to the side - which draw nothing where they sit
  * and would stretch the box the gun is scaled by.
  */
-static s32 beanGunExtent(struct beanmodel *bm, s32 original, u8 *drawn, u8 *fitted,
+static s32 beanGunExtent(struct beanmodel *bm, s32 original, s32 handoff, u8 *drawn, u8 *fitted,
 		f32 lo[3], f32 hi[3], struct fpcloud *cloud)
 {
 	u8 hand[GEBEAN_MAXMATS];
@@ -3905,7 +3901,7 @@ static s32 beanGunExtent(struct beanmodel *bm, s32 original, u8 *drawn, u8 *fitt
 		drawn[di] = 0;
 		fitted[di] = 0;
 
-		if (original ? beanDrawIsFlash(bm, d) : isglove) {
+		if (original ? (beanDrawIsFlash(bm, d) || (handoff && isglove)) : isglove) {
 			numleftout++;
 			continue;
 		}
@@ -4381,7 +4377,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		return NULL;
 	}
 
-	numleftout = beanGunExtent(&bm, original, drawn, fitted, beanlo, beanhi, &owncloud);
+	numleftout = beanGunExtent(&bm, original, original && !fpN64Glove[fp], drawn, fitted, beanlo, beanhi, &owncloud);
 
 	// A silenced gun is measured on its plain twin, which shares its place
 	if (fpFitSource[fp]) {
@@ -4394,7 +4390,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		snprintf(twinsource, sizeof(twinsource), "%s/%s", original ? "original" : "new", fpFitSource[fp]);
 
 		if (twinuse && beanLoad(&twin, twinsource, 1)) {
-			beanGunExtent(&twin, original, twinuse, twinuse + BEAN_MAXDRAWS, twinlo, twinhi, &fitcloud);
+			beanGunExtent(&twin, original, original && !fpN64Glove[fp], twinuse, twinuse + BEAN_MAXDRAWS, twinlo, twinhi, &fitcloud);
 
 			if (twinhi[2] - twinlo[2] > 1.0f) {
 				memcpy(beanlo, twinlo, sizeof(twinlo));
@@ -4421,10 +4417,6 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	scale = (hosthi[2] - hostlo[2]) / (beanhi[2] - beanlo[2]);
 
 	fpaxis = fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2] ? fpGrip[fp].axis : NULL;
-
-	if (original && (fpAxisN64[fp][0] || fpAxisN64[fp][1] || fpAxisN64[fp][2])) {
-		fpaxis = fpAxisN64[fp];
-	}
 
 	// A gun turned onto another axis is measured along it. The fit above
 	// compares the host's z with Bean's, which is the barrel in both for a
