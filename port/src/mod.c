@@ -3525,6 +3525,7 @@ static struct weapon *weaponsSnapshot[WEAPON_SUICIDEPILL + 1];
 static struct modelstate modelStatesSnapshot[NUM_MODELS];
 static struct mpweapon mpWeaponsSnapshot[NUM_MPWEAPONS];
 static struct mpweaponset mpWeaponSetsSnapshot[ARRAYCOUNT(g_MpWeaponSets)];
+static s32 numMpWeaponSetsSnapshot;
 static struct mparena mpArenasSnapshot[ARRAYCOUNT(g_MpArenas)];
 extern struct mptrack g_MpTracks[];
 static struct mptrack mpTracksSnapshot[MP_MAX_TRACKS];
@@ -3563,6 +3564,7 @@ static void modTablesSnapshot(void)
 	memcpy(modelStatesSnapshot, g_ModelStates, sizeof(modelStatesSnapshot));
 	memcpy(mpWeaponsSnapshot, g_MpWeapons, sizeof(mpWeaponsSnapshot));
 	memcpy(mpWeaponSetsSnapshot, g_MpWeaponSets, sizeof(mpWeaponSetsSnapshot));
+	numMpWeaponSetsSnapshot = g_MpNumWeaponSets;
 	memcpy(mpArenasSnapshot, g_MpArenas, sizeof(mpArenasSnapshot));
 	memcpy(mpTracksSnapshot, g_MpTracks, sizeof(mpTracksSnapshot));
 	numMpTracksSnapshot = mpGetNumTracks();
@@ -3618,6 +3620,7 @@ static bool modTablesRestore(void)
 	memcpy(g_MpWeapons, mpWeaponsSnapshot, sizeof(mpWeaponsSnapshot));
 	modDataMpWeaponSlotsReset();
 	memcpy(g_MpWeaponSets, mpWeaponSetsSnapshot, sizeof(mpWeaponSetsSnapshot));
+	g_MpNumWeaponSets = numMpWeaponSetsSnapshot;
 	memcpy(g_MpArenas, mpArenasSnapshot, sizeof(mpArenasSnapshot));
 	memcpy(g_MpTracks, mpTracksSnapshot, sizeof(mpTracksSnapshot));
 	mpSetNumTracks(numMpTracksSnapshot);

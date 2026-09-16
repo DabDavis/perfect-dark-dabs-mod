@@ -1238,6 +1238,12 @@ static s32 importMpWeaponSets(const struct moddataspec *spec)
 		s->unk11 = rd8(at + 0x11);
 	}
 
+	// GE-X has 14: the list used to hold 12 and drop the rest; a shorter
+	// list leaves the game's tail as it always did
+	if (count > g_MpNumWeaponSets) {
+		g_MpNumWeaponSets = count;
+	}
+
 	return count;
 }
 

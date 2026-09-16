@@ -1095,6 +1095,82 @@ void modBorrowStageModels(s32 stagenum)
 			stagenum, src.name, arenas.modstage[which], swapped);
 }
 
+/* ---- the weapon sets ---------------------------------------------------- */
+
+#define N64_MPWEAPONSET_SIZE 0x12
+
+static char setNames[MP_MAX_WEAPONSETS][32];
+
+/** A weapon number of the mod's as ours: its GoldenEye guns, the shield and nothing; 0 for the rest. */
+static u8 borrowSetWeapon(u8 modweapon)
+{
+	if (modweapon == WEAPON_MPSHIELD || modweapon == WEAPON_DISABLED || modweapon == WEAPON_NONE) {
+		return modweapon;
+	}
+
+	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
+		if (geSlots[i].slot == modweapon && gegunsIsBorrowed(i)) {
+			return WEAPON_GE_FIRST + i;
+		}
+	}
+
+	return WEAPON_NONE;
+}
+
+/**
+ * GoldenEye X's weapon sets after the list's own, on the GoldenEye guns
+ * borrowed from it: its slots are its own weapon numbers, and each becomes
+ * the copy standing for that gun (the knife its hunting knife). A number it
+ * has no copy for - its silver and gold PP7s, the watch laser - is an empty
+ * slot. Named out of its language file, and unlocked.
+ */
+static void borrowWeaponSets(struct moddataborrow *b)
+{
+	s32 added = 0;
+
+	if (!src.spec.mpweaponsets || src.spec.nummpweaponsets <= 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < src.spec.nummpweaponsets && g_MpNumWeaponSets < MP_MAX_WEAPONSETS; i++) {
+		u8 raw[N64_MPWEAPONSET_SIZE];
+		const s32 at = g_MpNumWeaponSets;
+		struct mpweaponset *set = &g_MpWeaponSets[at];
+		s32 guns = 0;
+
+		if (!modDataBorrowRead(b, src.spec.mpweaponsets + i * N64_MPWEAPONSET_SIZE, raw, sizeof(raw))) {
+			break;
+		}
+
+		memset(set, 0, sizeof(*set));
+
+		for (s32 j = 0; j < NUM_MPWEAPONSLOTS; j++) {
+			set->slots[j] = borrowSetWeapon(raw[2 + j]);
+			guns += set->slots[j] >= WEAPON_GE_FIRST;
+		}
+
+		// its alternative slots are the same guns, and nothing locks it
+		set->unk0c = set->slots[0];
+		set->unk0d = set->slots[1];
+		set->unk0e = set->slots[2];
+		set->unk0f = set->slots[3];
+		set->unk10 = set->slots[4];
+		set->unk11 = set->slots[5];
+
+		if (!borrowLangString(b, borrowBE16(raw), setNames[at], sizeof(setNames[at]))) {
+			snprintf(setNames[at], sizeof(setNames[at]), "GoldenEye X %d", i + 1);
+		}
+
+		set->name = langAddPortText(setNames[at]);
+		g_MpNumWeaponSets++;
+		added++;
+	}
+
+	if (added) {
+		sysLogPrintf(LOG_NOTE, "modborrow: %d weapon sets from `%s` in the Combat Simulator's list", added, src.name);
+	}
+}
+
 /* ---- the guns ----------------------------------------------------------- */
 
 void modBorrowCommit(void)
@@ -1158,6 +1234,7 @@ void modBorrowCommit(void)
 	}
 
 	borrowMusic(b);
+	borrowWeaponSets(b);
 
 	// What was converted is kept: the definitions point into it
 	src.reader = NULL;

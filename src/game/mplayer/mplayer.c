@@ -197,7 +197,9 @@ bool mpIsChrSlotOn(s32 slot)
 }
 
 // Forward declaractions
+#ifdef PLATFORM_N64
 struct mpweaponset g_MpWeaponSets[12];
+#endif
 s32 g_MpWeaponSetNum;
 
 #ifndef PLATFORM_N64
@@ -1391,14 +1393,20 @@ struct mpweapon *mpGetMpWeaponByLocation(s32 locationindex)
 	return &g_MpWeapons[mpweaponnum];
 }
 
+#ifdef PLATFORM_N64
+#define MP_NUM_WEAPONSETS ARRAYCOUNT(g_MpWeaponSets)
+#else
+#define MP_NUM_WEAPONSETS g_MpNumWeaponSets
+#endif
+
 s32 mpCountWeaponSetThing(s32 weaponsetindex)
 {
 	s32 i;
 	s32 count = 0;
 
-	if (weaponsetindex >= ARRAYCOUNT(g_MpWeaponSets)) {
-		count = weaponsetindex - ARRAYCOUNT(g_MpWeaponSets);
-		weaponsetindex = ARRAYCOUNT(g_MpWeaponSets);
+	if (weaponsetindex >= MP_NUM_WEAPONSETS) {
+		count = weaponsetindex - MP_NUM_WEAPONSETS;
+		weaponsetindex = MP_NUM_WEAPONSETS;
 	}
 
 	for (i = 0; i < weaponsetindex; i++) {
@@ -1417,7 +1425,7 @@ s32 func0f188f9c(s32 arg0)
 {
 	s32 i;
 
-	for (i = 0; i < ARRAYCOUNT(g_MpWeaponSets); i++) {
+	for (i = 0; i < MP_NUM_WEAPONSETS; i++) {
 		// @bug? Shouldn't the disabled check be == WEAPON_DISABLED?
 		if ((challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[0])
 					&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[1])
@@ -1437,27 +1445,27 @@ s32 func0f188f9c(s32 arg0)
 
 s32 func0f189058(bool full)
 {
-	return mpCountWeaponSetThing(full ? ARRAYCOUNT(g_MpWeaponSets) + 3 : ARRAYCOUNT(g_MpWeaponSets));
+	return mpCountWeaponSetThing(full ? MP_NUM_WEAPONSETS + 3 : MP_NUM_WEAPONSETS);
 }
 
 s32 func0f189088(void)
 {
-	return mpCountWeaponSetThing(ARRAYCOUNT(g_MpWeaponSets) + 2);
+	return mpCountWeaponSetThing(MP_NUM_WEAPONSETS + 2);
 }
 
 char *mpGetWeaponSetName(s32 index)
 {
 	index = func0f188f9c(index);
 
-	if (index < 0 || index >= ARRAYCOUNT(g_MpWeaponSets) + 2) {
+	if (index < 0 || index >= MP_NUM_WEAPONSETS + 2) {
 		return langGet(L_MPWEAPONS_041); // "Custom"
 	}
 
-	if (index == ARRAYCOUNT(g_MpWeaponSets) + 1) {
+	if (index == MP_NUM_WEAPONSETS + 1) {
 		return langGet(L_MPWEAPONS_042); // "Random"
 	}
 
-	if (index == ARRAYCOUNT(g_MpWeaponSets)) {
+	if (index == MP_NUM_WEAPONSETS) {
 		return langGet(L_MPWEAPONS_043); // "Random Five"
 	}
 
@@ -1471,7 +1479,7 @@ void func0f18913c(void)
 	u8 *ptr;
 	s32 j;
 
-	for (i = 0; !done && i < ARRAYCOUNT(g_MpWeaponSets); i++) {
+	for (i = 0; !done && i < MP_NUM_WEAPONSETS; i++) {
 		if (challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[0])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[1])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[i].requirefeatures[2])
@@ -1547,7 +1555,7 @@ void mpApplyWeaponSet(void)
 	u8 randomweapons[NUM_MPWEAPONS];
 #endif
 
-	if (g_MpWeaponSetNum >= 0 && g_MpWeaponSetNum < ARRAYCOUNT(g_MpWeaponSets)) {
+	if (g_MpWeaponSetNum >= 0 && g_MpWeaponSetNum < MP_NUM_WEAPONSETS) {
 		if (challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[0])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[1])
 				&& challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[2])
@@ -1571,7 +1579,12 @@ void mpApplyWeaponSet(void)
 				}
 
 				for (j = 0; !done; j++) {
+#ifndef PLATFORM_N64
+					// a borrowed set names the GoldenEye guns, whose rows follow Disabled
+					if (j >= NUM_MPWEAPONS) {
+#else
 					if (j > MPWEAPON_DISABLED) {
+#endif
 						done = true;
 					} else if (weaponnum == g_MpWeapons[j].weaponnum) {
 						mpweaponnum = j;
@@ -1621,7 +1634,7 @@ void mpSetWeaponSet(s32 weaponsetnum)
 
 void func0f1895e8(void)
 {
-	if (g_MpWeaponSetNum < ARRAYCOUNT(g_MpWeaponSets)) {
+	if (g_MpWeaponSetNum < MP_NUM_WEAPONSETS) {
 		mpApplyWeaponSet();
 	}
 }
@@ -1910,7 +1923,14 @@ s32 mpFindMinFloat(s32 numplayers, f32 val0, f32 val1, f32 val2, f32 val3)
 	return bestplayer;
 }
 
+#ifndef PLATFORM_N64
+// The sets the list holds: the game's 12, a loaded mod's, and a borrowed mod's after
+s32 g_MpNumWeaponSets = 12;
+
+struct mpweaponset g_MpWeaponSets[MP_MAX_WEAPONSETS] = {
+#else
 struct mpweaponset g_MpWeaponSets[12] = {
+#endif
 	{ /*0x00*/ L_MPWEAPONS_055, { WEAPON_FALCON2,          WEAPON_MAGSEC4,     WEAPON_PHOENIX,     WEAPON_MAULER,         WEAPON_MPSHIELD, WEAPON_DISABLED }, { MPFEATURE_WEAPON_PHOENIX,         MPFEATURE_WEAPON_MAULER,     0,                              0                       }, WEAPON_FALCON2,     WEAPON_MAGSEC4,     WEAPON_FALCON2,   WEAPON_DY357MAGNUM,    WEAPON_MPSHIELD, WEAPON_DISABLED }, // Pistols
 	{ /*0x01*/ L_MPWEAPONS_054, { WEAPON_FALCON2,          WEAPON_CMP150,      WEAPON_LAPTOPGUN,   WEAPON_AR34,           WEAPON_MPSHIELD, WEAPON_DISABLED }, { MPFEATURE_WEAPON_LAPTOPGUN,       0,                           0,                              0                       }, WEAPON_FALCON2,     WEAPON_CMP150,      WEAPON_DRAGON,    WEAPON_AR34,           WEAPON_MPSHIELD, WEAPON_DISABLED }, // Automatics
 	{ /*0x02*/ L_MPWEAPONS_053, { WEAPON_MAGSEC4,          WEAPON_DY357MAGNUM, WEAPON_SHOTGUN,     WEAPON_RCP120,         WEAPON_MPSHIELD, WEAPON_DISABLED }, { MPFEATURE_WEAPON_SHOTGUN,         MPFEATURE_WEAPON_RCP120,     0,                              0                       }, WEAPON_MAGSEC4,     WEAPON_DY357MAGNUM, WEAPON_DRAGON,    WEAPON_AR34,           WEAPON_MPSHIELD, WEAPON_DISABLED }, // Power

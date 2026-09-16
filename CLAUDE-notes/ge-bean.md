@@ -1207,9 +1207,35 @@ again, weapon state 0xf5 untouched; stock match pixel-identical. **Traps**:
 GE-X loaded crashes `--boot-stage` on its arenas with `--mpsims 0`
 (`playerReset()`), so reference runs use one simulant; `mainChangeToStage()`
 from a gdb `playerTick` break in a match with simulants crashes in
-`botSetTarget()` on the **old** build too - it is the harness. Not done: the
-match's weapons are still the chosen Combat Simulator weapon set, not GE-X's
-sets.
+`botSetTarget()` on the **old** build too - it is the harness. The match's weapons are the chosen Combat Simulator weapon set, and GE-X's
+sets are in that list since the next section.
+
+## GoldenEye X's weapon sets, borrowed the same way (2026-09-16)
+
+"borrow GE-X's weapon sets the same way". `borrowWeaponSets()` (in
+`modBorrowCommit()`) appends its 14 `g_MpWeaponSets` entries (0x12 bytes: name,
+six slots, four features, six alternative slots) after the list's own, named
+out of its language file and unlocked.
+
+- **A set's slots are weapon numbers**, GE-X's own: 2-29 its guns (the
+  `geSlots[]` table the guns are borrowed by - the knife is the hunting knife),
+  91 `WEAPON_MPSHIELD`, 92 `WEAPON_DISABLED`, 0 nothing. A number with no
+  borrowed copy (its silver and gold PP7, the watch laser) is an empty slot.
+- **`mpApplyWeaponSet()` looked for a slot's weapon only up to
+  `MPWEAPON_DISABLED`**, and the GoldenEye guns' rows come after it; on PC it
+  searches all of `NUM_MPWEAPONS`.
+- **The list grows**: `g_MpWeaponSets[MP_MAX_WEAPONSETS]` (32) with
+  `g_MpNumWeaponSets` in place of `ARRAYCOUNT` in the set functions, and
+  `WEAPONSET_RANDOMFIVE/RANDOM/CUSTOM` follow the count - safe because the set
+  number is never saved (`func0f18913c()` works it out from the slots). A loaded
+  mod's import raises the count too, so **GE-X loaded now has all 14 of its
+  sets** where the list dropped the last two; the swap snapshot keeps the count.
+
+Checked: 14 sets listed after the game's (Pistols, Automatics, Power Weapons,
+Sniper Rifle, Laser, Golden Gun, Grenades, the three mines, Grenade Launcher,
+Rocket Launcher, Knives, Slappers Only!); applying "Remote Mines" gives ZMG,
+AR33, Remote Mine x2, Shield, PP7, GE-X's own; "Slappers Only!" all empty; GE-X
+loaded lists 14; stock match pixel-identical.
 
 ## Still to do
 

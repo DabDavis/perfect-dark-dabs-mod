@@ -4924,9 +4924,18 @@ enum weaponnum {
 #define WEAPONFLAG2_PELLETS          0x40000000 // A pull of the trigger is six shots at once, the shotgun's
 #define WEAPONFLAG2_BOTLIMITLESS     0x80000000 // A simulant's clip of it never runs dry, the laser's
 
+#ifdef PLATFORM_N64
 #define WEAPONSET_RANDOMFIVE 0x0c
 #define WEAPONSET_RANDOM     0x0d
 #define WEAPONSET_CUSTOM     0x0e
+#else
+// After however many sets the list holds: a borrowed mod's are appended
+// (modborrow.c), and the number is worked out from the slots, never saved
+#define MP_MAX_WEAPONSETS    32
+#define WEAPONSET_RANDOMFIVE (g_MpNumWeaponSets)
+#define WEAPONSET_RANDOM     (g_MpNumWeaponSets + 1)
+#define WEAPONSET_CUSTOM     (g_MpNumWeaponSets + 2)
+#endif
 
 #define WEATHERTYPE_RAIN 0
 #define WEATHERTYPE_SNOW 1

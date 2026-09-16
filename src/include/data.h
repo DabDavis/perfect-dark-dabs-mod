@@ -531,7 +531,12 @@ extern struct menudialogdef g_MpQuickTeamScenarioMenuDialog;
 extern s32 var80087260;
 extern bool g_MpEnableMusicSwitching;
 extern struct mpweapon g_MpWeapons[NUM_MPWEAPONS];
+#ifdef PLATFORM_N64
 extern struct mpweaponset g_MpWeaponSets[12];
+#else
+extern struct mpweaponset g_MpWeaponSets[MP_MAX_WEAPONSETS];
+extern s32 g_MpNumWeaponSets;
+#endif
 extern struct mphead g_MpHeads[MAX_MPHEADS];
 extern struct botprofile g_BotProfiles[18];
 extern struct mpbody g_MpBodies[MAX_MPBODIES];
