@@ -2175,14 +2175,15 @@ static void beanWalkStream(struct beanmodel *bm)
 		} else if ((type == 0x01 || type == 0x30) && size >= 16 && bm->numdraws < BEAN_MAXDRAWS) {
 			// 0x30 is the originals' other draw: the same three words and a
 			// fourth, which numbers the piece the draw belongs to. Piece 0 is
-			// the model itself. The heads' pieces 1 and 2 are extras over a
-			// whole face - the sunglasses' arms, a stray piece a body's height
-			// below Head B - and are left out; a gun file's are its hand, its
-			// forearm and its working parts, which are the model as much as
-			// the barrel is, so a gun keeps them (bm->keepparts).
+			// the model itself. A head's piece 1 is the crown of its head -
+			// GoldenEye keeps it apart to swap for a hat - and without it 22
+			// heads are open on top. Piece 2 is the sunglasses' arms and is
+			// left out with the lenses (0x17 kind 2). A gun file's pieces are
+			// its hand, its forearm and its working parts, which are the model
+			// as much as the barrel is, so a gun keeps them all (bm->keepparts).
 			const s32 part = type == 0x30 && size >= 20 ? (s32)gebeanBE32(st + pc + 16) : -1;
 
-			if (part <= 0 || bm->keepparts) {
+			if (part <= 1 || bm->keepparts) {
 				struct beandraw *d = &bm->draws[bm->numdraws++];
 
 				d->vb = vb;
@@ -2581,6 +2582,34 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	}
 
 	free(copy);
+
+	// Bean's N64 pictures went to DXT1 without their alpha. A picture whose
+	// source was a cut-out keeps the name it was made from (".rgba", against
+	// ".rgb" for the rest) and its cut texels dark, so the cut-out comes back
+	// as the texels no brighter than a threshold. There are four such
+	// pictures and no one threshold: Boris's lens was cut from a navy disc
+	// (24 matches GoldenEye X's own copy to 19 texels in 1024, 8 misses 428),
+	// the guards' sunglasses only from the black round a dark lens (8 matches
+	// to 21, 24 punches the lens full of holes).
+	if (fetch.format == X360_FMT_DXT1) {
+		const char *name = caffAssetName(c, c->files[bm->texfile[t]].asset);
+		const size_t namelen = strlen(name);
+		const u8 cut = strcmp(name, "_0x02600155.rgba.bin") == 0 ? 24 : 8;
+		s32 opaque = 1;
+
+		for (u32 i = 0; i < w * h && opaque; i++) {
+			opaque = rgba[i * 4 + 3] == 0xff;
+		}
+
+		if (opaque && namelen >= 9 && strcmp(name + namelen - 9, ".rgba.bin") == 0) {
+			for (u32 i = 0; i < w * h; i++) {
+				u8 *px = rgba + i * 4;
+				const u8 hi = px[0] > px[1] ? (px[0] > px[2] ? px[0] : px[2]) : (px[1] > px[2] ? px[1] : px[2]);
+
+				px[3] = hi <= cut ? 0 : 0xff;
+			}
+		}
+	}
 
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
 	// first uploaded row first (modelpackBindMaterial() does the same).

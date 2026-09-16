@@ -262,8 +262,10 @@ What the originals needed, all found by rendering every file offline
   untextured spans), and the smallest power of two within a quarter of the
   median. It gives the old answer on all 67 HD files the port uses.
 - **0x30 is a second draw record** `{prim, count, IB object, flag}`, only in
-  the originals (41 files). Flag 0 is the character; heads' flag 1 and 2 draws
-  are extras (sunglasses arms). Taken when the flag is 0.
+  the originals (41 files). The fourth word is a piece number (see "The guns
+  follow F6 too"): 0 the character, a head's 1 the crown of its head, 2 the
+  sunglasses' arms. Pieces 0 and 1 are taken (1 only since 2026-09-16, see
+  "Open-topped heads" below).
 - **0x17 `{kind, end}` guards a section.** Kind 0 is in both sets and drawn,
   as always. Kind 2 is only in the originals, round 22 heads' sunglasses, which
   GoldenEye's multiplayer heads do not wear: skipped.
@@ -475,8 +477,8 @@ looks rather than against the file that showed it.
 
 - **The draw record's fourth word is a piece number, not a flag.** `0x30` holds
   a draw and a piece: 0 is the model, and the rest are what Rare kept apart to
-  move on their own. The heads' pieces 1 and 2 are sunglasses and are left out,
-  which is where the old "flag 0 only" rule came from; a gun file's are its
+  move on their own. A head's piece 2 is the sunglasses' arms and is left out
+  (piece 1 was too, wrongly - it is the crown; "Open-topped heads" below); a gun file's are its
   hand, its forearm and its working parts - the shotgun's pump, the uzi's bolt
   - which are the model as much as the barrel is. `bm->keepparts` (set for a
   gun file, clear for a character or a pickup) decides. Reading them as flags
@@ -1236,6 +1238,42 @@ Sniper Rifle, Laser, Golden Gun, Grenades, the three mines, Grenade Launcher,
 Rocket Launcher, Knives, Slappers Only!); applying "Remote Mines" gives ZMG,
 AR33, Remote Mine x2, Shield, PP7, GE-X's own; "Slappers Only!" all empty; GE-X
 loaded lists 14; stock match pixel-identical.
+
+## Open-topped heads, and the cut-outs Bean flattened (2026-09-16)
+
+"tops of heads missing and you can see inside for ours" (not all - "only
+some"), and Boris's glasses. The N64 look of the release's pool, beside GoldenEye
+X's borrowed characters.
+
+- **A head's `0x30` piece 1 is the crown of the head**, not an extra: in all
+  22 original head files that have one, its draws sit above everything piece
+  0 draws (y 3030-3460 against a top of ~3300), and rendered apart piece 0 is
+  flat-topped and piece 0+1 a whole dome. GoldenEye keeps it apart to swap for
+  a hat. Piece 2 (4 triangles at eye height) is the sunglasses' arms and 0x17
+  kind 2 the lenses; both still left out. Heads without pieces (balaclava,
+  Mandy, Mishkin...) were never open, which is the "only some". The whole
+  characters (`char/`) have no 0x30 records at all.
+- **Bean's N64 pictures lost their alpha.** Every one is DXT1 with no
+  punch-through (both decoders handle it); GoldenEye's cut-outs came out as
+  dark texels. The picture keeps its source name, and exactly four are
+  `.rgba.bin` (870 are `.rgb.bin`): Boris's lens and three sunglasses.
+  `beanDecodeTexture()` rebuilds the cut-out as "brightest channel <= a
+  threshold", measured against GoldenEye X's own copies (`0283` Boris's lens,
+  `0104` the sunglasses, texture dumps of a GE-X run): Boris 24 (19 wrong texels
+  of 1024; 8 gets 428 wrong), sunglasses 8 (21; 24 riddles the lens with holes,
+  which the first try did). GoldenEye X draws both on the translucent list with
+  0/255 alpha, so a cut-out is the whole effect.
+- **Not found in the data**: anything translucent on the helicopter pilot's
+  visor. GoldenEye's pilot has no secondary (translucent) list, GoldenEye X's
+  `Cheadfem_guardZ` has no `xlugdl` and every texture of it is opaque, and
+  Bean's pilot has no `.rgba` picture. Bean's HD pilot does carry a 32x32 DXT3
+  visor at partial alpha.
+- Checked headless on 0x32 (`build/gexcmp/heads/`: `face2.sh` puts the camera
+  in front of the simulant whose body number matches, `oldpool/` runs the
+  previous binary on the same save): open crown closed on the Russian
+  Soldier, sunglasses solid and lens-shaped, Boris's glasses unchanged at that
+  range. Offline: `walk.py` (every record with its section and piece),
+  `matdump.py`.
 
 ## Still to do
 
