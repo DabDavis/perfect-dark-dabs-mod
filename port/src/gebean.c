@@ -1667,6 +1667,16 @@ static void beanUnpackNormal(u32 w, f32 *out)
 }
 
 /**
+ * A vertex colour as the ARGB the mesh is written with. Bean stores the bytes
+ * alpha, blue, green, red: read as ARGB, the N64 sniper rifle's wooden stock
+ * (0xff003c78) came out blue and the shotgun's red shells (0xff00004a) navy.
+ */
+static u32 beanColour(u32 abgr)
+{
+	return (abgr & 0xff00ff00) | ((abgr >> 16) & 0xff) | ((abgr & 0xff) << 16);
+}
+
+/**
  * One vertex. Every layout starts with a float position; a skinned one then
  * has four u16 palette slots written three times over (0xf000 for none), and
  * the stride 36 one four weight bytes in reverse; then a 10:10:10 normal, an
@@ -1716,15 +1726,21 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 		}
 
 		hasuv = !(vb->stride == 28 && vb->col28);
+
+		// The colour is the vertex's last four bytes, after the UV - or in
+		// its place on a stride 28 buffer that has none
+		if (vb->stride != 28 || vb->col28) {
+			v->argb = beanColour(gebeanBE32(p + vb->stride - 4));
+		}
 		break;
 	case 20:
 		k = 12;
 		hasuv = 0;
-		v->argb = gebeanBE32(p + 16);
+		v->argb = beanColour(gebeanBE32(p + 16));
 		break;
 	case 24:
 		k = 12;
-		v->argb = gebeanBE32(p + 20);
+		v->argb = beanColour(gebeanBE32(p + 20));
 		break;
 	default:
 		return 0;
@@ -4667,8 +4683,13 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 					}
 				}
 
+				// GoldenEye's N64 guns are painted by their vertex colours over
+				// intensity pictures (the sniper rifle's black scope, the
+				// Klobb's grey), and drew white without them. The release's
+				// colours are shading its own pictures already carry, and would
+				// draw its guns near black.
 				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight,
-						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm) : v.argb);
+						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm) : original ? v.argb : 0xffffffff);
 				mappedmtx[vi] = mtx;
 
 				if (mapped[vi] < 0) {

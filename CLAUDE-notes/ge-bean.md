@@ -883,6 +883,30 @@ on both sides, is **unchanged**, which is the control. Not seen on screen: a
 gun lying on the floor, which is the same model and the same materials as the
 one in the hand and so is the same fix, and stays on the list below.
 
+## The N64 guns drew white in the hand (2026-09-16)
+
+Set beside GoldenEye X's own guns (the tester's F3s, then both games rendered
+the same way, one gun a shot), the N64-look first-person guns were white where
+GoldenEye X's are painted: the sniper rifle's scope, the Klobb, the Moonraker,
+the rocket launcher. Two faults in `beanVertex()`:
+
+- **A skinned vertex has a colour too.** Strides 28 (when it has no UV), 32
+  and 36 carry it in their **last four bytes**, after the UV; only the rigid
+  strides 20 and 24 were read, so every first-person gun - all stride 32 - drew
+  white. GoldenEye's N64 guns are intensity pictures (`.int`) tinted by those
+  colours, so white is not a small error: the scope is `0xff323232`.
+- **Bean's colours are ABGR**, not ARGB. The sniper rifle's stock is
+  `0xff003c78` and its pickup's `0xff0050a1` - brown wood read that way, blue
+  read the other - and the shotgun pickup's shells `0xff00004a` are red.
+  `beanColour()` turns them round; the pickups had red and blue swapped since
+  they were first tinted.
+
+First person takes the colour **in the N64 look only**. The HD files' colours
+are dark shading (the PP7 is `0xff303030` over half its vertices) that its full
+colour pictures already carry, and multiplied in they would draw the guns near
+black. Characters still write white. Checked over all 25 guns against GE-X
+6a's (`build/gexcmp`): the colours now match GE-X's, the HD look unchanged.
+
 ## Start Armed rolled GoldenEye's guns into other people's missions (2026-09-16)
 
 "a change we made to the phantom for ge messed up ge-x phantom", and "with
