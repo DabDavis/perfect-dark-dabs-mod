@@ -3296,8 +3296,14 @@ struct mpbody {
 };
 
 struct mptrack {
+#ifdef PLATFORM_N64
 	u16 musicnum : 7;
 	u16 duration : 9;
+#else
+	// a borrowed mod's sequences are numbered after the game's 119 (seqAppend())
+	u16 musicnum;
+	u16 duration;
+#endif
 	s16 name;
 	s16 unlockstage;
 };
@@ -5460,6 +5466,11 @@ struct seqinstance {
 	/*0x0fc*/ u8 *data;
 	/*0x100*/ u16 volume;
 	/*0x104*/ s32 tracknum;
+#ifndef PLATFORM_N64
+	// The instrument bank the player was last given: a borrowed mod's
+	// sequences play with that mod's (seqAppend())
+	ALBank *bank;
+#endif
 };
 
 struct lasersight {

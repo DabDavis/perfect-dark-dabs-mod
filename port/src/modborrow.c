@@ -50,6 +50,8 @@
 #include "lib/anim.h"
 #include "lib/snd.h"
 #include "geguns.h"
+#include "game/mplayer/mplayer.h"
+#include "game/lang.h"
 #include <zlib.h>
 
 #define BORROW_NAME_LEN 128
@@ -594,6 +596,150 @@ static s32 borrowRemapSound(void *ctx, s32 num)
 	return out.id ? (u16)out.packed : 0;
 }
 
+/* ---- the music ---------------------------------------------------------- */
+
+static s32 borrowLangString(struct moddataborrow *b, u16 textid, char *out, u32 outlen);
+
+#define N64_MPTRACK_SIZE 6
+
+extern struct mptrack g_MpTracks[];
+
+static struct {
+	s32 loaded;
+	ALBank *bank;
+	u8 *tbl;
+	u8 *sequences;
+	u32 seqlen;
+	s32 seqmap[256];                     // mod sequence -> ours + 1
+	char names[MP_MAX_TRACKS][32];
+	s32 base;                            // where its tracks start in g_MpTracks
+} music = { .base = -1 };
+
+static s32 borrowLoadMusic(void)
+{
+	char path[FS_MAXPATH + 1];
+	u32 len = 0;
+	u8 *raw;
+	u32 ctllen = 0;
+	u8 *ctl;
+
+	if (music.loaded) {
+		return music.loaded > 0;
+	}
+
+	music.loaded = -1;
+
+	snprintf(path, sizeof(path), "%s/segs/seqctl", src.dir);
+
+	if (fsFileSize(path) <= 0 || !(raw = fsFileLoad(path, &len))) {
+		return 0;
+	}
+
+	// The bank as sndInit() makes the game's: converted to the host layout,
+	// then its offsets made pointers into itself and into the sample table
+	ctl = preprocessALBankFile(raw, len, &ctllen);
+	sysMemFree(raw);
+
+	snprintf(path, sizeof(path), "%s/segs/seqtbl", src.dir);
+	music.tbl = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
+
+	snprintf(path, sizeof(path), "%s/segs/sequences", src.dir);
+	music.sequences = fsFileSize(path) > 0 ? fsFileLoad(path, &music.seqlen) : NULL;
+
+	if (!ctl || !music.tbl || !music.sequences || music.seqlen < 6) {
+		return 0;
+	}
+
+	alBnkfNew((ALBankFile *)ctl, music.tbl);
+	music.bank = ((ALBankFile *)ctl)->bankArray[0];
+	music.loaded = music.bank ? 1 : -1;
+
+	return music.loaded > 0;
+}
+
+/** Our number for the mod's sequence n, appended once; -1 when it cannot be. */
+static s32 borrowSequence(s32 n)
+{
+	const u8 *seq = music.sequences;
+	const u32 count = borrowBE16(seq);
+	const u8 *e;
+	u32 addr;
+	s32 ours;
+
+	if (n < 0 || n >= (s32)ARRAYCOUNT(music.seqmap) || (u32)n >= count || 4 + (u32)n * 8 + 8 > music.seqlen) {
+		return -1;
+	}
+
+	if (music.seqmap[n]) {
+		return music.seqmap[n] - 1;
+	}
+
+	// {u16 count, then u32 offset, u16 inflated, u16 zipped} a sequence (preprocessSequences())
+	e = seq + 4 + n * 8;
+	addr = borrowBE32(e);
+
+	if (addr >= music.seqlen || borrowBE16(e + 6) > music.seqlen - addr) {
+		return -1;
+	}
+
+	ours = seqAppend(seq + addr, borrowBE16(e + 4), borrowBE16(e + 6), music.bank);
+	music.seqmap[n] = ours + 1;
+
+	return ours;
+}
+
+/**
+ * GoldenEye X's Combat Simulator tracks, after the list's own: its GoldenEye
+ * sequences on its GoldenEye instruments, under its own names and unlocked,
+ * the way its list has them. After sndInit(), and again when a live swap has
+ * put the lists back.
+ */
+static void borrowMusic(struct moddataborrow *b)
+{
+	s32 added = 0;
+
+	music.base = -1;
+
+	if (!src.spec.mptracks || src.spec.nummptracks <= 0 || !borrowLoadMusic()) {
+		return;
+	}
+
+	music.base = mpGetNumTracks();
+
+	for (s32 i = 0; i < src.spec.nummptracks && mpGetNumTracks() < MP_MAX_TRACKS; i++) {
+		u8 raw[N64_MPTRACK_SIZE];
+		const s32 at = mpGetNumTracks();
+		s32 ours;
+		u16 w;
+
+		if (!modDataBorrowRead(b, src.spec.mptracks + i * N64_MPTRACK_SIZE, raw, sizeof(raw))) {
+			break;
+		}
+
+		w = borrowBE16(raw);
+		ours = borrowSequence(w >> 9);
+
+		if (ours < 0) {
+			continue;
+		}
+
+		if (!borrowLangString(b, borrowBE16(raw + 2), music.names[at], sizeof(music.names[at]))) {
+			snprintf(music.names[at], sizeof(music.names[at]), "GoldenEye X %d", i + 1);
+		}
+
+		g_MpTracks[at].musicnum = (u16)ours;
+		g_MpTracks[at].duration = w & 0x1ff;
+		g_MpTracks[at].name = (s16)langAddPortText(music.names[at]);
+		g_MpTracks[at].unlockstage = -1;
+		mpSetNumTracks(at + 1);
+		added++;
+	}
+
+	if (added) {
+		sysLogPrintf(LOG_NOTE, "modborrow: %d music tracks from `%s` in the Combat Simulator's list", added, src.name);
+	}
+}
+
 /* ---- the guns ----------------------------------------------------------- */
 
 void modBorrowCommit(void)
@@ -655,6 +801,8 @@ void modBorrowCommit(void)
 		gegunsBorrow(i, w, pickupfile, pickupscale);
 		borrowed++;
 	}
+
+	borrowMusic(b);
 
 	// What was converted is kept: the definitions point into it
 	src.reader = NULL;

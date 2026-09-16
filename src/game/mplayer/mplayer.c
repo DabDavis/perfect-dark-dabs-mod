@@ -3258,7 +3258,12 @@ char *mpGetTrackName(s32 slotindex)
 {
 	s32 tracknum = mpGetTrackNumAtSlotIndex(slotindex);
 
+#ifndef PLATFORM_N64
+	// a borrowed track's name is port text, whose bank sets the top bit
+	return langGet((u16)g_MpTracks[tracknum].name);
+#else
 	return langGet(g_MpTracks[tracknum].name);
+#endif
 }
 
 void mpSetUsingMultipleTunes(bool enable)
@@ -3271,11 +3276,29 @@ bool mpGetUsingMultipleTunes(void)
 	return g_BossFile.usingmultipletunes;
 }
 
+#ifndef PLATFORM_N64
+// The multiple-tunes bits of tracks past the boss file's 48, on until changed
+static u8 g_MpExtraMultiTracks[(MP_MAX_TRACKS - 48 + 7) / 8] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+
+static u8 *mpMultiTrackByte(s32 tracknum)
+{
+	return tracknum < 48 ? &g_BossFile.multipletracknums[tracknum >> 3] : &g_MpExtraMultiTracks[(tracknum - 48) >> 3];
+}
+#endif
+
 bool mpIsMultiTrackSlotEnabled(s32 slot)
 {
 	s32 tracknum = mpGetTrackNumAtSlotIndex(slot);
 	u8 index = tracknum >> 3;
 	u8 value = 1 << (tracknum & 7);
+
+#ifndef PLATFORM_N64
+	if ((*mpMultiTrackByte(tracknum) & value) == 0) {
+		return false;
+	}
+
+	return true;
+#endif
 
 	if ((g_BossFile.multipletracknums[index] & value) == 0) {
 		return false;
@@ -3289,6 +3312,16 @@ void mpSetMultiTrackSlotEnabled(s32 slot, bool enable)
 	s32 tracknum = mpGetTrackNumAtSlotIndex(slot);
 	u8 value = 1 << (tracknum & 7);
 	u8 index = tracknum >> 3;
+
+#ifndef PLATFORM_N64
+	if (enable) {
+		*mpMultiTrackByte(tracknum) |= value;
+	} else {
+		*mpMultiTrackByte(tracknum) &= ~value;
+	}
+
+	return;
+#endif
 
 	if (enable) {
 		g_BossFile.multipletracknums[index] |= value;
@@ -3313,6 +3346,12 @@ void mpEnableAllMultiTracks(void)
 	for (i = 0; i != ARRAYCOUNT(g_BossFile.multipletracknums); i++) {
 		g_BossFile.multipletracknums[i] = 0xff;
 	}
+
+#ifndef PLATFORM_N64
+	for (i = 0; i != ARRAYCOUNT(g_MpExtraMultiTracks); i++) {
+		g_MpExtraMultiTracks[i] = 0xff;
+	}
+#endif
 }
 
 void mpDisableAllMultiTracks(void)
@@ -3322,6 +3361,12 @@ void mpDisableAllMultiTracks(void)
 	for (i = 0; i != ARRAYCOUNT(g_BossFile.multipletracknums); i++) {
 		g_BossFile.multipletracknums[i] = 0;
 	}
+
+#ifndef PLATFORM_N64
+	for (i = 0; i != ARRAYCOUNT(g_MpExtraMultiTracks); i++) {
+		g_MpExtraMultiTracks[i] = 0;
+	}
+#endif
 }
 
 void mpRandomiseMultiTracks(void)
@@ -3331,6 +3376,12 @@ void mpRandomiseMultiTracks(void)
 	for (i = 0; i != ARRAYCOUNT(g_BossFile.multipletracknums); i++) {
 		g_BossFile.multipletracknums[i] = rngRandom();
 	}
+
+#ifndef PLATFORM_N64
+	for (i = 0; i != ARRAYCOUNT(g_MpExtraMultiTracks); i++) {
+		g_MpExtraMultiTracks[i] = rngRandom();
+	}
+#endif
 }
 
 void mpSetTrackToRandom(void)

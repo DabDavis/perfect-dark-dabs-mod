@@ -1505,7 +1505,44 @@ void seqInit(struct seqinstance *seq)
 	n_alCSPNew(seq->seqp, &config);
 
 	n_alCSPSetBank(seq->seqp, var80095204);
+#ifndef PLATFORM_N64
+	seq->bank = var80095204;
+#endif
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Sequences after the game's own, each with the instrument bank it is written
+ * for: GoldenEye X replaced both the sequences and the bank, so its music only
+ * sounds like itself on its own instruments (modborrow.c).
+ */
+struct seqextra {
+	const u8 *zip;
+	u16 binlen;
+	u16 ziplen;
+	ALBank *bank;
+};
+
+#define SEQ_MAX_EXTRA 256
+
+static struct seqextra g_SeqExtra[SEQ_MAX_EXTRA];
+static s32 g_NumSeqExtra;
+
+/** A sequence number for zip (rzip, ziplen bytes, binlen inflated) on bank; -1 when full or unloaded. */
+s32 seqAppend(const u8 *zip, u16 binlen, u16 ziplen, ALBank *bank)
+{
+	if (!g_SeqTable || g_NumSeqExtra >= SEQ_MAX_EXTRA || !zip || !bank) {
+		return -1;
+	}
+
+	g_SeqExtra[g_NumSeqExtra].zip = zip;
+	g_SeqExtra[g_NumSeqExtra].binlen = binlen;
+	g_SeqExtra[g_NumSeqExtra].ziplen = ziplen;
+	g_SeqExtra[g_NumSeqExtra].bank = bank;
+
+	return g_SeqTable->count + g_NumSeqExtra++;
+}
+#endif
 
 void sndAddRef(ALSound *sound)
 {
@@ -1733,6 +1770,19 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 		return false;
 	}
 
+#ifndef PLATFORM_N64
+	const struct seqextra *extra = NULL;
+
+	if (g_SeqTable && seq->tracknum >= g_SeqTable->count) {
+		if (seq->tracknum - g_SeqTable->count >= g_NumSeqExtra) {
+			return false;
+		}
+
+		extra = &g_SeqExtra[seq->tracknum - g_SeqTable->count];
+	}
+
+	if (!extra)
+#endif
 	if (g_SeqRomAddrs[seq->tracknum] < 0x10000) {
 		return false;
 	}
@@ -1740,8 +1790,18 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 #ifndef PLATFORM_N64
 	// try to load external replacement, which can be either compressed or not
 	u32 extlen = 0;
-	u8 *extseq = modSequenceLoad(seq->tracknum, &extlen);
-	if (extseq) {
+	u8 *extseq = extra ? NULL : modSequenceLoad(seq->tracknum, &extlen);
+	if (extra) {
+		binlen = ALIGN16(extra->binlen) + 0x40;
+		if (binlen >= g_SeqBufferSize) {
+			return false;
+		}
+		ziplen = ALIGN16(extra->ziplen);
+		binstart = seq->data;
+		zipstart = binstart + binlen - ziplen;
+		memcpy(zipstart, extra->zip, extra->ziplen);
+		ziplen = rzipInflate(zipstart, binstart, scratch);
+	} else if (extseq) {
 		if (extlen > 2 && rzipIs1173(extseq)) {
 			// sequence is compressed; uncompress
 			binlen = ((u32)extseq[2] << 16) | ((u32)extseq[3] << 8) | (u32)extseq[4];
@@ -1810,6 +1870,19 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 	// where the same sequence player is used for two sequences if the audio
 	// thread hasn't run between the two calls and updated its state.
 	seq->seqp->state = AL_STARTING;
+#endif
+
+#ifndef PLATFORM_N64
+	// the instruments the sequence was written for, only when they change, so
+	// the game's own music goes on exactly as it did
+	{
+		ALBank *bank = extra ? extra->bank : var80095204;
+
+		if (bank != seq->bank) {
+			n_alCSPSetBank(seq->seqp, bank);
+			seq->bank = bank;
+		}
+	}
 #endif
 
 	n_alCSeqNew(&seq->seq, seq->data);

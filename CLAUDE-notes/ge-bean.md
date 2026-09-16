@@ -1120,6 +1120,39 @@ Institute's Customize Character on a borrowed body, and GoldenEye X's changed
 character animations (154-159, 358-415), which are the game's by number for
 every chr and are not borrowed.
 
+## GoldenEye X's music, borrowed the same way (2026-09-16)
+
+"now borrow GE-X's music the same way". GoldenEye X replaced all 119 sequences
+*and* the instrument bank they play on (`segs/seqctl`, `seqtbl`), so a
+borrowed tune only sounds like itself on its own instruments.
+
+- **Sequences after the game's** (`seqAppend()`, snd.c): an extra entry keeps
+  a pointer to the rzip'd sequence in the mod's loaded `segs/sequences` and the
+  `ALBank` it plays on; its number is 119 and up. `seqPlay()` inflates it like a
+  ROM one, and posts `n_alCSPSetBank()` **only when the bank changes**
+  (`seqinstance.bank`), so the game's own music takes exactly the events it
+  always did. The mod's bank is `preprocessALBankFile()` + `alBnkfNew()` onto
+  its `seqtbl`, as `sndInit()` builds the game's.
+- **The list**: its 44 `g_MpTracks` entries (6 bytes: u16 sequence<<9|duration,
+  name, unlock stage) are appended after the list's own, unlocked, named out of
+  its language file as port text. `struct mptrack` on PC holds a 16-bit
+  sequence (7 bits capped it at 127) and `MP_MAX_TRACKS` is 96; the boss file's
+  multiple-tunes bits keep the first 48 and the rest live in
+  `g_MpExtraMultiTracks`, on until changed and not saved. `mpGetTrackName()`
+  reads the name id unsigned - a port text id's bank sets bit 15 of the s16.
+- Part of `modBorrowCommit()` (after `sndInit()`, again after a live swap).
+
+Checked: 44 tracks named as GoldenEye X names them (Dam, Dam X, Facility ...
+Elevator 2, End Credits); borrowed sequence 119 recorded with the game's
+recorder against GoldenEye X loaded playing its sequence 58 - the same
+spectrogram, flatness 0.0077 against 0.0064; stock sequence 45 played *after*
+a borrowed one correlates 0.77 with the previous build's 45 and 0.33 with the
+borrowed tune, so the bank goes back; and a stock match pixel-identical,
+starting sequence 13 as before. `build/gexcmp/audio.sh` is the recording
+harness (dummy audio, `RecordCodec=software`, `recordToggle()` from gdb).
+Not done: GoldenEye X's own arenas loaded by the Stage Loader still take the
+game's list rather than their own tunes.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

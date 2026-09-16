@@ -79,7 +79,13 @@ s32 mpGetNumUnlockedTracks(void);
 // The track list holds MP_NUM_TRACKS_STATIC of the game's own and room for a
 // mod's longer one; the save's multipletracknums has a bit for each of 48
 #define MP_NUM_TRACKS_STATIC 42
+#ifdef PLATFORM_N64
 #define MP_MAX_TRACKS 48
+#else
+// A borrowed mod's tracks go after the game's (modborrow.c). The boss file's
+// multiple-tunes bits hold the first 48; the rest are remembered for the run.
+#define MP_MAX_TRACKS 96
+#endif
 s32 mpGetNumTracks(void);
 void mpSetNumTracks(s32 count);
 s32 mpGetTrackMusicNum(s32 slotindex);

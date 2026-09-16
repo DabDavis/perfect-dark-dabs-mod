@@ -22,6 +22,7 @@ uintptr_t sndGetCtlStart(void);
 uintptr_t sndGetTblStart(void);
 s32 sndAppendRussMapping(s16 soundnum, u16 audioconfig_index);
 s32 sndAppendAudioConfig(const struct audioconfig *config);
+s32 seqAppend(const u8 *zip, u16 binlen, u16 ziplen, ALBank *bank);
 #endif
 void sndIncrementAges(void);
 ALEnvelope *sndLoadEnvelope(uintptr_t offset, u16 index);
