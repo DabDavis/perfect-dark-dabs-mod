@@ -1010,10 +1010,31 @@ gun is `geSlots[]` in modborrow.c (2 knife, 3 PP7 ... 29 remote mine).
 
 **The looks.** N64: GE-X's model with no mesh on it, first person and third
 (`gebeanBuild()` returns NULL for a borrowed original). HD: Bean's gun on GE-X's
-model where the fit holds (`fpFitsBorrowed[]`); ZMG, silenced D5K, sniper rifle,
-Moonraker, rocket launcher and remote mine came out wrong on GE-X's models and
-draw GE-X's model in both looks until they are fitted. The pickups fit well in
-HD (GE-X's pickups are the decomp's, which gunfit was measured on).
+model, all 25. The pickups fit well in HD (GE-X's pickups are the decomp's,
+which gunfit was measured on).
+
+**The HD fit on a borrowed gun is not the host fit.** Every rule tuned on
+Perfect Dark's hosts - the length fit, `fpGrip`'s anchors and scales - put six
+guns wrong on GE-X's models (ZMG and silenced D5K to one side, the sniper rifle
+a sliver, the Moonraker only its sight, the rocket launcher a slab, the remote
+mine out of the hand). GE-X's model *is* GoldenEye's N64 gun, the one Bean's
+`files/original/` holds at 4.7x in the frame the HD gun shares, so a borrowed
+gun is fitted as the same gun: scale 1/4.7, measured on the N64 original's
+points, started from the **median** of both clouds (a box's middle is dragged
+by the ZMG's magazine and the mine's detonator further than the refine walks
+back) and walked onto GE-X's vertices by `fpRefinePlacement()`. Three
+exceptions, each seen on screen: the knives keep their quarter turn (GE-X's
+knife runs along x like Perfect Dark's); a scale all three axes of the boxes
+agree on far from 4.7 is the model's own (Bean's grenade is authored at 27x);
+and a host of **toggled lists only** never had its points gathered at all, so
+nothing refined - the remote mine's two lists are the mine and its detonator,
+so the list whose extent matches the gun is the one fitted on *and* the one
+the gun is drawn under (the detonator has more vertices, was taken as the body,
+and drew the mine edge-on). Surveyed over all 25 against GE-X's renders, fired
+and reloaded in HD (the meshes ride GE-X's moving parts: slide, pump, the sniper
+rifle's reload lift). A regression shot saved from an earlier run is not a
+baseline: the same old binary differed from its own saved frames by 112,100
+pixels, and a fresh run of it matched the new build exactly.
 
 **A bug this found in anim.c.** An external animation (a mod's `animations/`
 descriptor, and now a borrowed one) handed the bit reader its header and frames

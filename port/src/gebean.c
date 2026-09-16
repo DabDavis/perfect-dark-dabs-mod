@@ -385,38 +385,6 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 };
 
 /**
- * The guns whose release mesh sits right on GoldenEye X's model when the gun is
- * borrowed (modborrow.c). The fits here were measured on Perfect Dark's hosts,
- * and GoldenEye X's models are GoldenEye's N64 guns with their own node layout
- * and origins; surveyed over all 25 in the HD look on 2026-09-16, six came out
- * wrong: the ZMG and the silenced D5K off to one side and oversized, the
- * sniper rifle a sliver, the Moonraker only its sight, the rocket launcher a
- * slab and the remote mine out of the hand. Those draw GoldenEye X's own model
- * in both looks until they are fitted to it.
- */
-static const u8 fpFitsBorrowed[ARRAYCOUNT(fpRows)] = {
-	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = 1,
-};
-
-/**
  * The plain gun a silenced one is measured on. Its host has no silencer, and
  * Bean's silenced file is the plain gun in the same place with the silencer as
  * one more picture in front of the muzzle, so fitting the whole length to the
@@ -686,7 +654,7 @@ static void gebeanGunsRefresh(void)
 		fpSlot[i] = 0;
 		g_GeWeaponDefs[i].hi_model = gegunsModelFile(i);
 
-		if (show && bean && fpReady[i] && (!gegunsIsBorrowed(i) || fpFitsBorrowed[i]) && g_GeWeaponDefs[i].hi_model) {
+		if (show && bean && fpReady[i] && g_GeWeaponDefs[i].hi_model) {
 			const s32 slot = romdataRegisterAliasFile(fpRows[i].file, g_GeWeaponDefs[i].hi_model);
 
 			if (slot) {
@@ -698,11 +666,12 @@ static void gebeanGunsRefresh(void)
 		// And the host's hands, on or off with the model they hold. A gun
 		// GoldenEye drew a hand on takes them off in the N64 look, since the
 		// hand is in the model there (fpN64Glove).
-		// A borrowed gun in the N64 look is GoldenEye X's model with no mesh
-		// on it, so its hands are its own.
+		// A borrowed gun is GoldenEye X's model, bare in the N64 look and under
+		// the release's gun where GoldenEye X's own hands grip it in the other,
+		// so its hands are its own in both.
 		g_GeWeaponDefs[i].flags &= ~WEAPONFLAG_HASHANDS;
 
-		if (gegunsIsBorrowed(i) && (gebeanGunsAreN64() || !fpSlot[i])) {
+		if (gegunsIsBorrowed(i)) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
 		} else if (!fpSlot[i] || !(fpNoHands[i] || (gebeanGunsAreN64() && fpN64Glove[i]))) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
@@ -4067,6 +4036,27 @@ static int fpCompareF32(const void *a, const void *b)
 #define FP_ICP_KEEP   0.7f
 #define FP_ICP_POINTS 800
 
+/** The median of a cloud's points along one axis, or fallback for an empty cloud. */
+static f32 fpCloudMedian(const struct fpcloud *cloud, s32 axis, f32 fallback)
+{
+	f32 *vals;
+	f32 median;
+
+	if (cloud->num <= 0 || !(vals = malloc((size_t)cloud->num * sizeof(f32)))) {
+		return fallback;
+	}
+
+	for (s32 i = 0; i < cloud->num; i++) {
+		vals[i] = cloud->pos[i * 3 + axis];
+	}
+
+	qsort(vals, cloud->num, sizeof(f32), fpCompareF32);
+	median = vals[cloud->num / 2];
+	free(vals);
+
+	return median;
+}
+
 static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *host,
 		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc)
 {
@@ -4281,6 +4271,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	struct fpcloud owncloud;   // the gun's own points, which are the ones drawn
 	struct fpcloud fitcloud;   // the points the placement is measured on
 	struct fpcloud hostcloud;  // the host's visible lists, in the model's space
+	struct fpcloud togglecloud; // a host of toggled lists only: all of them, list by list
+	s32 togglestart[64];
+	s32 togglecount[64];
 	s32 bonemtx[BEAN_MAXBONES];
 	s32 numleftout = 0;
 	const s8 *fpaxis = NULL;
@@ -4296,6 +4289,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	memset(&owncloud, 0, sizeof(owncloud));
 	memset(&fitcloud, 0, sizeof(fitcloud));
 	memset(&hostcloud, 0, sizeof(hostcloud));
+	memset(&togglecloud, 0, sizeof(togglecloud));
+	memset(togglecount, 0, sizeof(togglecount));
 	fpMuzzleSet[look][fp] = 0;
 
 	for (s32 m = 0; m < GEBEAN_MAXMTX; m++) {
@@ -4390,6 +4385,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			beanListMatrices(nodes[k], vtxmtx, n);
 		}
 
+		if (pass && k < 64) {
+			togglestart[k] = togglecloud.num;
+		}
+
 		for (s32 j = 0; j < n; j++) {
 			const s32 mtx = vtxmtx && vtxmtx[j] >= 0 && vtxmtx[j] < nummatrices && rig.hasrest[vtxmtx[j]]
 				? vtxmtx[j] : nodemtx[k];
@@ -4405,6 +4404,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 			if (!pass) {
 				fpCloudAdd(&hostcloud, p);
+			} else if (k < 64) {
+				fpCloudAdd(&togglecloud, p);
+				togglecount[k]++;
 			}
 		}
 
@@ -4418,6 +4420,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	if (bodynode < 0) {
 		fpCloudFree(&hostcloud);
+		fpCloudFree(&togglecloud);
 		return NULL;
 	}
 
@@ -4425,6 +4428,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	if (!gebeanLocate(1) || !beanLoad(&bm, source, 1)) {
 		fpCloudFree(&hostcloud);
+		fpCloudFree(&togglecloud);
 		return NULL;
 	}
 
@@ -4433,6 +4437,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	if (!drawn) {
 		fpCloudFree(&hostcloud);
+		fpCloudFree(&togglecloud);
 		beanFree(&bm);
 		return NULL;
 	}
@@ -4469,6 +4474,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		fpCloudFree(&owncloud);
 		fpCloudFree(&fitcloud);
 		fpCloudFree(&hostcloud);
+		fpCloudFree(&togglecloud);
 		beanFree(&bm);
 		free(drawn);
 		return NULL;
@@ -4510,6 +4516,142 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	}
 
 	usegrip = fpGrip[fp].set;
+
+	// A borrowed gun's host is GoldenEye X's model of it, which is GoldenEye's
+	// own N64 gun - the one Bean's files/original/ holds at 4.7 times the size,
+	// in the frame the release's gun shares. So none of the above is wanted:
+	// not the length fit, the grip anchors or the knives' turns, which were all
+	// measured against Perfect Dark's guns. The scale is Bean's own, and the
+	// place is the N64 original's walked onto GoldenEye X's vertices, which are
+	// the same shape. Fitted the host way instead, six of them missed: the ZMG
+	// and the silenced D5K off to one side, the sniper rifle a sliver, the
+	// Moonraker only its sight, the rocket launcher a slab and the remote mine
+	// out of the hand.
+	if (gegunsIsBorrowed(fp)) {
+		struct beanmodel orig;
+		char origsource[64];
+		u8 *origuse = calloc(2, BEAN_MAXDRAWS);
+		f32 olo[3] = { 1e30f, 1e30f, 1e30f };
+		f32 ohi[3] = { -1e30f, -1e30f, -1e30f };
+		struct fpcloud origcloud;
+
+		memset(&origcloud, 0, sizeof(origcloud));
+		snprintf(origsource, sizeof(origsource), "original/%s", r->source);
+
+		if (origuse && beanLoad(&orig, origsource, 1)) {
+			beanGunExtent(&orig, 1, 1, origuse, origuse + BEAN_MAXDRAWS, olo, ohi, &origcloud);
+
+			if (origcloud.num >= 8 && ohi[2] > olo[2]) {
+				fpCloudFree(&fitcloud);
+				fitcloud = origcloud;
+				memset(&origcloud, 0, sizeof(origcloud));
+
+				usegrip = 0;
+				scale = 1.0f / 4.7f;
+
+				// The knives keep their quarter turn: GoldenEye X's knife is
+				// modelled along x as Perfect Dark's is, Bean's up y.
+				// Everything else stands the way GoldenEye X's model does.
+				if (!(fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2])) {
+					fpaxis = NULL;
+				}
+
+				// Bean's grenade is authored at 27 times GoldenEye's size, not
+				// 4.7: a scale every axis of the two boxes agrees on, far from
+				// Bean's own, is the model's. One axis disagreeing is extra
+				// geometry in the host's box (the remote mine's), not scale.
+				{
+					f32 ratio[3];
+					s32 agree = 1;
+
+					for (s32 a = 0; a < 3; a++) {
+						const s32 ba = fpaxis ? (fpaxis[a] < 0 ? -fpaxis[a] : fpaxis[a]) - 1 : a;
+
+						ratio[a] = hosthi[a] - hostlo[a] > 1.0f ? (ohi[ba] - olo[ba]) / (hosthi[a] - hostlo[a]) : 0.0f;
+					}
+
+					for (s32 a = 1; a < 3; a++) {
+						if (ratio[a] < ratio[0] * 0.8f || ratio[a] > ratio[0] * 1.25f) {
+							agree = 0;
+						}
+					}
+
+					if (agree && ratio[0] > 0.0f && (ratio[0] > 4.7f * 2.0f || ratio[0] < 4.7f * 0.5f)) {
+						scale = 3.0f / (ratio[0] + ratio[1] + ratio[2]);
+					}
+				}
+
+				// A host that is all toggled lists - the knives, the grenade, the
+				// mines - had none of its points gathered, and the remote mine's
+				// two are the mine and its detonator side by side, whose box
+				// put the mine out of the hand. The list the gun is measured on
+				// is the one whose extent matches the gun's at this scale.
+				if (hostcloud.num == 0 && togglecloud.num > 0) {
+					s32 best = -1;
+					f32 bestscore = 1e30f;
+
+					for (s32 k = 0; k < numnodes && k < 64; k++) {
+						f32 lo[3] = { 1e30f, 1e30f, 1e30f };
+						f32 hi[3] = { -1e30f, -1e30f, -1e30f };
+						f32 score = 0.0f;
+
+						if (togglecount[k] < 8) {
+							continue;
+						}
+
+						for (s32 j = 0; j < togglecount[k]; j++) {
+							const f32 *q = &togglecloud.pos[(togglestart[k] + j) * 3];
+
+							for (s32 a = 0; a < 3; a++) {
+								if (q[a] < lo[a]) lo[a] = q[a];
+								if (q[a] > hi[a]) hi[a] = q[a];
+							}
+						}
+
+						for (s32 a = 0; a < 3; a++) {
+							const s32 ba = fpaxis ? (fpaxis[a] < 0 ? -fpaxis[a] : fpaxis[a]) - 1 : a;
+							const f32 want = (ohi[ba] - olo[ba]) * scale;
+							const f32 have = hi[a] - lo[a];
+
+							score += (want - have) * (want - have);
+						}
+
+						if (score < bestscore) {
+							bestscore = score;
+							best = k;
+						}
+					}
+
+					if (best >= 0) {
+						// and the gun goes under that list's matrix, not the
+						// biggest list's: the detonator has more vertices than
+						// the mine, and drew the mine edge-on as it held it
+						bodynode = best;
+
+						for (s32 j = 0; j < togglecount[best]; j++) {
+							fpCloudAdd(&hostcloud, &togglecloud.pos[(togglestart[best] + j) * 3]);
+						}
+					}
+				}
+
+				// Started from the middle of each side's points rather than of
+				// its box, which extra geometry to one side pulls away: the ZMG's
+				// long magazine and the remote mine's detonator both moved the
+				// box's middle further than the refine walks back
+				for (s32 a = 0; a < 3; a++) {
+					const s32 ba = fpaxis ? (fpaxis[a] < 0 ? -fpaxis[a] : fpaxis[a]) - 1 : a;
+
+					hostc[a] = fpCloudMedian(&hostcloud, a, (hostlo[a] + hosthi[a]) * 0.5f);
+					beanc[ba] = fpCloudMedian(&fitcloud, ba, (olo[ba] + ohi[ba]) * 0.5f);
+				}
+			}
+
+			fpCloudFree(&origcloud);
+			beanFree(&orig);
+		}
+
+		free(origuse);
+	}
 
 	sysLogPrintf(LOG_NOTE, "fpfit: row %d host %.0f/%.0f/%.0f bean %.0f/%.0f/%.0f scale %.4f grip %d axis %d,%d,%d",
 			fp, hosthi[0] - hostlo[0], hosthi[1] - hostlo[1], hosthi[2] - hostlo[2],
@@ -4868,6 +5010,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	fpCloudFree(&owncloud);
 	fpCloudFree(&fitcloud);
 	fpCloudFree(&hostcloud);
+	fpCloudFree(&togglecloud);
 	beanOutFree(&out);
 	beanFree(&bm);
 	free(drawn);
