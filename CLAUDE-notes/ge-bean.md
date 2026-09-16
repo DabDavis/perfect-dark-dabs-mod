@@ -660,7 +660,11 @@ corner with the blade running off it.
   both carry GoldenEye's hand, so one anchor and one turn serve both.
 - **The throwing knife is 180 degrees from the hunting knife in both sets of
   files**, so `fpGrip` turns the two opposite ways (`{-2, 1, 3}` against
-  `{2, -1, 3}`) and the same pair of turns serves the N64 look. Getting this
+  `{2, -1, 3}`) and the same pair of turns serves the N64 look. It is
+  **GoldenEye's own doing**, not Bean's: slice the decomp's own `chrknife` and
+  `chrthrowknife` pickups along z, the long axis of both, and the cross section
+  closes to a point at high z on the hunting knife and at low z on the throwing
+  one. Which is why the **pickup** needed the same turn (see below). Getting this
   wrong once cost a day: on 2026-09-16 the N64 throwing knife was given the
   hunting knife's turn, on the reading that the N64 pair were authored alike,
   and a tester's F3 came back with it held by the blade. What actually differs
@@ -668,6 +672,17 @@ corner with the blade running off it.
   it, so the correct turn appeared wrong (a fist up the blade) and the wrong
   turn appeared to be GoldenEye's own pose. **Judge a knife by where the
   handle is, not by where the hand is.**
+- **The pickup is a second fit and needed the same turn** (2026-09-16). The
+  knife in a character's hand and the one on the floor are `PchrgeThrowingKnifeZ`,
+  laid on GoldenEye's N64 pickup by `gegunstable.h`, not the first-person mesh -
+  so fixing the view model left the hand wrong in both looks. gunfit2.py's one
+  canonical rotation is right for all twenty-five and the trimmed ICP cannot
+  see the flip (a knife reversed end for end still lands its points on the
+  other knife's surface: 5.26 against the hunting knife's 5.29), so the half
+  turn is written in: `HALF_TURN` in gunfit2.py turns that pickup about y and
+  turns the translation with it about GoldenEye's box centre, or the knife
+  swings to the far side of the origin and out of the hand. **Two fits per gun,
+  and a turn found for one is not carried by the other.**
 - **`--xbla-mesh-verbose` prints what was drawn**, its box in the list's
   space, and each bone's matrix, which is how "the mesh is 440 units tall but
   the screen shows a stub" was traced to the axes rather than to the scale.
