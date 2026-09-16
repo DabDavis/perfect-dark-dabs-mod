@@ -128,6 +128,7 @@ struct x360fetch {
 	u8 format;
 	u8 endian;    // 1 is 8-in-16, 2 is 8-in-32
 	u8 tiled;
+	u8 packed;    // level 0 shares its tile with the mip chain behind it
 };
 
 /** Reads the six dwords of a fetch constant, which are already big-endian. */

@@ -869,6 +869,10 @@ void x360FetchRead(struct x360fetch *fetch, const u32 *dwords)
 	fetch->endian = (u8)((d1 >> 6) & 3);
 	fetch->width = (d2 & 0x1fff) + 1;
 	fetch->height = ((d2 >> 13) & 0x1fff) + 1;
+	// The console says so itself: dword 5's packed mips bit, which over every
+	// record of the release's Textures.raw is set exactly when dword 4's
+	// highest mip level is not 0.
+	fetch->packed = (u8)((dwords[5] >> 11) & 1);
 }
 
 s32 x360FetchSupported(const struct x360fetch *fetch)
@@ -955,7 +959,7 @@ static u32 x360Log2(u32 v)
  * A tile is 32 elements square, and a picture small enough to leave half of
  * one free is stored with its whole mip chain packed in beside it - the
  * console's "packed mip tail". Level 0 does not sit at the tile's origin
- * there: it is 16 elements in, down the tile when the picture is wider than
+ * there: it is 16 texels in, down the tile when the picture is wider than
  * it is tall and across it otherwise, with each smaller level halving that
  * offset in front of it. A picture with both sides past 16 has a tile to
  * itself and starts where it always did.
@@ -964,8 +968,18 @@ static u32 x360Log2(u32 v)
  * levels stacked in front of it with the picture itself missing - which is
  * what emptied the explosion's colour ramp and every other record under 16
  * on a side (see xbla.md).
+ *
+ * Two things the release's own textures never showed, both from GoldenEye's
+ * N64 pictures (ge-bean.md):
+ *
+ * - **The step is 16 texels, and a block format's element is a 4x4 block.**
+ *   Stepping 16 of those lands four tiles past the picture, in the empty part
+ *   of the tile, which is every N64 texture black. blockw divides it back.
+ * - **A surface with no mips is not packed** and starts at the origin, so the
+ *   offset is the caller's to ask for: 16x1 pictures with one level stand at
+ *   0 where 16x16 pictures with five stand at 16.
  */
-static void x360PackedMipOffset(u32 width, u32 height, u32 *outX, u32 *outY)
+static void x360PackedMipOffset(u32 width, u32 height, u32 blockw, u32 *outX, u32 *outY)
 {
 	const u32 logw = x360Log2(width);
 	const u32 logh = x360Log2(height);
@@ -978,9 +992,9 @@ static void x360PackedMipOffset(u32 width, u32 height, u32 *outX, u32 *outY)
 	}
 
 	if (logw > logh) {
-		*outY = 16;
+		*outY = 16 / blockw;
 	} else {
-		*outX = 16;
+		*outX = 16 / blockw;
 	}
 }
 
@@ -1000,8 +1014,8 @@ s32 x360DecodeTexture(u8 *data, u32 dataLen, const struct x360fetch *fetch, u8 *
 		return 0;
 	}
 
-	if (fetch->tiled) {
-		x360PackedMipOffset(w, h, &ox, &oy);
+	if (fetch->tiled && fetch->packed) {
+		x360PackedMipOffset(w, h, fetch->format == X360_FMT_8888 ? 1 : 4, &ox, &oy);
 	}
 
 	x360EndianSwap(data, dataLen, fetch->endian);

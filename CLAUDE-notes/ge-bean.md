@@ -805,6 +805,56 @@ mines land 40% over. The fit is the measurement; GoldenEye's own size is what
 it should agree with, and where it cannot - because the host is not the gun -
 the size is taken instead of the fit.
 
+## Every N64 gun black in third person (2026-09-16)
+
+"We are working on the N64 versions of the GE weapons. They are missing third
+person textures, just look black." The gun in a chr's hand and the one on the
+floor are the same model, `Pchrge*Z`, built by `gebeanBuildRigid()` out of
+Bean's `files/original/prop/chr<gun>` - and **every picture in those files
+decoded to solid black**. So did the small ones in `files/original/gun/`.
+
+Two things about the packed mip tail (xbla.md, "The packed mip tail"), neither
+of which the release's own textures could ever have shown:
+
+- **The step is 16 texels, not 16 elements.** An `8_8_8_8` element is a texel
+  and the two are the same, which is every one of the 400 records the rule was
+  found on. A DXT element is a 4x4 block, so 16 of *those* is four tiles past
+  the picture, in the empty part of the tile the tail leaves free. That half of
+  the rule was written down here on 2026-09-12 as the standard one rather than
+  a measured one, and it was the wrong half to guess.
+- **A surface with one level is not packed**, whatever its size: there is
+  nothing to pack beside it and it starts at the tile's origin. GoldenEye's
+  files are full of 16x1 and 1x16 strips with one level standing at 0 beside
+  16x16 pictures with five standing at 16. The console says which in the fetch
+  constant (dword 5's packed mips bit, `fetch.packed`); a Bean texture record
+  says it in the level count at byte 0x30.
+
+**Measured, not reasoned.** Over the 481 small tiled DXT surfaces of both looks
+(`packed` and not), three candidate regions were decoded for each - the origin,
+the old 16-element offset, and 16 texels - and scored by how much of the picture
+is not black: the old offset is the best of the three in **0** of the 481, and
+the rule above is the best in all 481. In `files/original/prop` alone 188 of
+1686 pictures were affected, in 91 of the 317 files; in `files/original/gun`, 47
+of 518.
+
+**Why it only showed now.** Until 384665712 the N64 materials read the wrong
+input slot, so a pickup drew *untextured* - white, tinted by the vertex colour -
+which is what "the N64 look draws tinted" was in the notes above. The material
+fix made the picture apply, and the picture was black.
+
+It fixes 26 of **Perfect Dark's own** XBLA records too - single-level `1xN` and
+`Nx1` strips that were being offset into nothing. (The `1x16` ones come back
+black still: their texels are at columns 8 and 24 of the untiled grid rather
+than column 0, which is a third thing and not chased - they were black before.)
+
+Checked on 0x32 with the guns in hand in third person, the same drive on a
+build of 384665712 and on this one: the GoldenEye shotgun is a black
+silhouette before and shows its receiver, its side-saddle shells and its barrel
+after; the KF7 the same; the rocket launcher, whose pictures are all 32 or more
+on both sides, is **unchanged**, which is the control. Not seen on screen: a
+gun lying on the floor, which is the same model and the same materials as the
+one in the hand and so is the same fix, and stays on the list below.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

@@ -431,6 +431,10 @@ class FetchConstant:
         self.endian = (d1 >> 6) & 3
         self.width = (d2 & 0x1FFF) + 1
         self.height = ((d2 >> 13) & 0x1FFF) + 1
+        # Dword 5's packed mips bit: whether level 0 shares its tile with the
+        # mip chain. Over every record of Textures.raw it is set exactly when
+        # dword 4's highest mip level is not 0.
+        self.packed = bool((dwords[5] >> 11) & 1)
 
 
 def endian_swap(data, mode):
@@ -463,24 +467,28 @@ def _log2_ceil(v):
     return n
 
 
-def packed_mip_offset(width, height):
+def packed_mip_offset(width, height, blockw=1):
     """Where level 0 starts when a surface shares its tile with its mips.
 
     A tile is 32 elements square, and a picture small enough to leave half of
     one free is stored with its whole mip chain packed in beside it - the
-    console's "packed mip tail". Level 0 is then 16 elements in, down the tile
+    console's "packed mip tail". Level 0 is then 16 texels in, down the tile
     when the picture is wider than it is tall and across it otherwise. Read
     from the origin instead, such a texture comes back as its own mip levels
     with the picture missing. Kept the same as x360DecodeTexture() in
     port/src/x360.c, so a converted pack and the in-game decode are one
     picture.
+
+    The step is 16 *texels*, so a block format walks 16 / 4 of its elements;
+    and the caller asks for it only where the surface has mips to pack, a
+    single level standing at the origin whatever its size.
     """
     logw, logh = _log2_ceil(width), _log2_ceil(height)
 
     if logw > 4 and logh > 4:
         return 0, 0
 
-    return (0, 16) if logw > logh else (16, 0)
+    return (0, 16 // blockw) if logw > logh else (16 // blockw, 0)
 
 
 def _linear(src, ew, eh, bpe, tiled):
@@ -571,7 +579,12 @@ def decode_texture(data, width, height, fetch):
     src = endian_swap(data, fetch.endian)
     bpe = BYTES_PER_ELEMENT[fmt]
 
-    ox, oy = packed_mip_offset(width, height) if fetch.tiled else (0, 0)
+    # getattr, because a research script may hand in a fetch of its own (or one
+    # unpickled from before the field existed); those all came from packages
+    # whose records are packed.
+    packed = fetch.tiled and getattr(fetch, 'packed', True)
+    ox, oy = packed_mip_offset(width, height,
+                               1 if fmt == FMT_8888 else 4) if packed else (0, 0)
 
     if fmt == FMT_8888:
         ew = max(fetch.pitch, width)

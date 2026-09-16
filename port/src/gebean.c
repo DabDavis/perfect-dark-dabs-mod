@@ -2475,6 +2475,10 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	fetch.format = b[0x1b] & 0x3f;
 	fetch.tiled = 1;
 	fetch.endian = b[0x1a] ? (fetch.format == X360_FMT_8888 ? 2 : 1) : 0;
+	// Byte 0x30 is the level count, and a picture with one level is not
+	// packed: it stands at the tile's origin. Every GoldenEye N64 texture is
+	// small enough for the difference to decide whether it decodes at all.
+	fetch.packed = b[0x30] > 1;
 
 	if (!x360FetchSupported(&fetch)) {
 		sysLogPrintf(LOG_WARNING, "gebean: texture format %02x is not one this decodes", b[0x1b]);

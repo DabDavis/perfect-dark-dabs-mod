@@ -119,10 +119,21 @@ it with the picture itself missing: two or three faint fragments where the
 subject should be. **400 of the package's records are that shape**, 188 of them
 numbered textures.
 
-The rule is `min(log2ceil(w), log2ceil(h)) <= 4`, and it is on the *texel*
-dimensions while the offset is in elements — blocks for a block format. In this
-package every one of the 400 is `8_8_8_8`, so the block half of it is the
-standard rule written down rather than something measured here.
+The rule is `min(log2ceil(w), log2ceil(h)) <= 4` on the *texel* dimensions, and
+**the step is 16 texels**, not 16 elements. For `8_8_8_8` an element is a texel
+and the two are the same, which is every one of these 400 records; for a block
+format an element is a 4x4 block, so the step is 4 of them. That was guessed the
+other way here on 2026-09-12 and written down as fact, and it was wrong: it was
+measured on 2026-09-16 against GoldenEye's N64 pictures, which are the small
+tiled DXT surfaces this package has none of (ge-bean.md, "Every N64 gun black").
+
+**And a surface with only one level is not packed at all** — there is nothing to
+pack beside it, and it starts at the tile's origin whatever its size. The fetch
+constant says so itself in dword 5's packed mips bit, which `x360FetchRead()`
+now reads into `fetch.packed`; over all 5747 records it is set exactly when
+dword 4's highest mip level is not 0. 26 of the 400 are single-level 1xN and Nx1
+strips that were being offset and served nothing — reading them from the origin
+is what the same change fixed here.
 
 This is what emptied the explosion (below): the game's colour ramp is 14x14, so
 every one of its fifteen records was being served the tail instead of the
