@@ -1696,4 +1696,17 @@ unless one is already chosen. The sets are GE-X's as it made them (its Golden
 Gun set carries a Klobb, a KF7, a silenced PP7, the Golden Gun, a shield and a
 DD44). Without GE-X the dropdown is Perfect Dark's as before.
 
-Next: GoldenEye's scenarios.
+**Scenarios** (`port/src/gexplus.c`). In GE-X Plus the scenario list is
+GoldenEye's: Normal, You Only Live Twice, The Living Daylights and License to
+Kill, under one "GoldenEye" group, and the setup screens name the chosen one. A
+GoldenEye scenario is not a scenario number (the setup's scenario is saved, in
+Perfect Dark's numbers): `gexPlusSetScenario()` sets Perfect Dark's - Combat, or
+Hold the Briefcase for The Living Daylights - and one-hit kills for License to
+Kill. You Only Live Twice is a rule: `gexPlusLivesSpent()` stops a chr with two
+deaths (`numdeaths` of its `g_MpAllChrConfigPtrs` entry) respawning - player.c's
+canrestart and chraction.c's botSpawn - and `gexPlusMatchOver()` adds a reason to
+end the match in lv.c when one chr has a life left. Tested by setting deaths from
+gdb: the match ended the next frame. A real match on Caves with four simulants
+ran its ten minutes with no death at all, so the rule has not yet been seen from
+a kill. The Man with the Golden Gun is not in: one gun that does not respawn while
+held has nothing in Perfect Dark to stand on.

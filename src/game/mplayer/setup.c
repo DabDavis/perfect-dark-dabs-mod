@@ -27,6 +27,7 @@
 #include "fs.h"
 #include "modloader.h"
 #include "modborrow.h"
+#include "gexplus.h"
 #endif
 #include "gbiex.h"
 #include "types.h"
@@ -7068,6 +7069,9 @@ void mpSetGexPlusMode(bool on)
 			g_MpWeaponSetNum = first;
 			mpApplyWeaponSet();
 		}
+
+		// the setup's scenario and options as GoldenEye's scenario has them
+		gexPlusSetScenario(gexPlusGetScenario());
 
 		g_CombatSimulatorMenuDialog.title = (uintptr_t)"GE-X Plus";
 		g_CombatSimulatorMenuDialog.flags |= MENUDIALOGFLAG_LITERAL_TEXT;

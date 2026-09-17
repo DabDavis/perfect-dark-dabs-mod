@@ -104,6 +104,9 @@
 #include "lib/vi.h"
 #include "types.h"
 #ifndef PLATFORM_N64
+#include "gexplus.h"
+#endif
+#ifndef PLATFORM_N64
 #include "mod.h"
 #include "video.h"
 #include "record.h"
@@ -2491,6 +2494,13 @@ void lvTick(void)
 					}
 				}
 			}
+
+#ifndef PLATFORM_N64
+			// You Only Live Twice (GE-X Plus): one chr with a life left
+			if (gexPlusMatchOver()) {
+				g_NumReasonsToEndMpMatch++;
+			}
+#endif
 
 			if (g_NumReasonsToEndMpMatch > 0) {
 				// Normally the match end waits for every death animation to

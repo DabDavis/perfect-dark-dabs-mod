@@ -37,6 +37,10 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "modloader.h"
+#include "gexplus.h"
+#endif
 
 /**
  * There are six multiplayer scenarios:
@@ -292,12 +296,26 @@ MenuDialogHandlerResult mpOptionsMenuDialog(s32 operation, struct menudialogdef 
 
 char *mpMenuTextScenarioShortName(struct menuitem *item)
 {
+#ifndef PLATFORM_N64
+	if (g_GexPlusMode) {
+		sprintf(g_StringPointer, "%s\n", gexPlusScenarioName(gexPlusGetScenario()));
+		return g_StringPointer;
+	}
+#endif
+
 	sprintf(g_StringPointer, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].shortname));
 	return g_StringPointer;
 }
 
 char *mpMenuTextScenarioName(struct menuitem *item)
 {
+#ifndef PLATFORM_N64
+	if (g_GexPlusMode) {
+		sprintf(g_StringPointer, "%s\n", gexPlusScenarioName(gexPlusGetScenario()));
+		return g_StringPointer;
+	}
+#endif
+
 	sprintf(g_StringPointer, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
 	return g_StringPointer;
 }
@@ -317,6 +335,34 @@ MenuItemHandlerResult scenarioScenarioMenuHandler(s32 operation, struct menuitem
 	s32 i;
 	s32 count = 0;
 	bool teamgame = true;
+
+#ifndef PLATFORM_N64
+	// GE-X Plus: GoldenEye's scenarios, one group (gexplus.c)
+	if (g_GexPlusMode) {
+		switch (operation) {
+		case MENUOP_GETOPTIONCOUNT:
+			data->list.value = GEXPLUS_NUMSCENARIOS;
+			return 0;
+		case MENUOP_GETOPTIONTEXT:
+			return (uintptr_t)gexPlusScenarioName(data->list.value);
+		case MENUOP_SET:
+			gexPlusSetScenario(data->list.value);
+			scenarioInit();
+			return 0;
+		case MENUOP_GETSELECTEDINDEX:
+			data->list.value = gexPlusGetScenario();
+			return 0;
+		case MENUOP_GETOPTGROUPCOUNT:
+			data->list.value = 1;
+			return 0;
+		case MENUOP_GETOPTGROUPTEXT:
+			return (uintptr_t)"GoldenEye";
+		case MENUOP_GETGROUPSTARTINDEX:
+			data->list.groupstartindex = 0;
+			return 0;
+		}
+	}
+#endif
 
 	if (item->param) {
 		if (g_Vars.mpquickteam == MPQUICKTEAM_PLAYERSONLY || g_Vars.mpquickteam == MPQUICKTEAM_PLAYERSANDSIMS) {

@@ -102,6 +102,9 @@
 #include "data.h"
 #include "types.h"
 #ifndef PLATFORM_N64
+#include "gexplus.h"
+#endif
+#ifndef PLATFORM_N64
 #include "video.h"
 #include "input.h"
 #include "platform.h"
@@ -6465,6 +6468,13 @@ Gfx *playerRenderHud(Gfx *gdl)
 								&& g_NumReasonsToEndMpMatch == 0) {
 							canrestart = true;
 						}
+
+#ifndef PLATFORM_N64
+						// You Only Live Twice (GE-X Plus): twice dead is out
+						if (gexPlusLivesSpent(g_Vars.currentplayer->prop->chr)) {
+							canrestart = false;
+						}
+#endif
 
 						if (canrestart) {
 							g_Vars.currentplayer->dostartnewlife = true;

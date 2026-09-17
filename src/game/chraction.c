@@ -63,6 +63,9 @@
 #include "game/modghost.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gexplus.h"
+#endif
 
 s32 g_RecentQuipsPlayed[5];
 u32 var8009cd84;
@@ -9016,6 +9019,13 @@ void chrTickDead(struct chrdata *chr)
 			chr->fadealpha = 0;
 
 			if (aibot) {
+#ifndef PLATFORM_N64
+				// You Only Live Twice (GE-X Plus): a simulant twice dead stays down
+				if (gexPlusLivesSpent(chr)) {
+					return;
+				}
+#endif
+
 				botSpawn(chr, true);
 			} else {
 				chr->hidden |= CHRHFLAG_DELETING;
