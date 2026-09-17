@@ -664,16 +664,22 @@ s32 modloaderMissionStage(s32 mission)
 	return g_ModMissionStages[mission];
 }
 
-/** Whether a stage is one of the remake's converted GoldenEye missions. */
-s32 modloaderStageIsMission(s32 stagenum)
+/** The mission a stage is, in GoldenEye's own mission order, or -1. */
+s32 modloaderStageMission(s32 stagenum)
 {
 	for (s32 i = 0; i < MODLOADER_MAX_MISSIONS; i++) {
 		if (g_ModMissionStages[i] && g_ModMissionStages[i] == stagenum) {
-			return 1;
+			return i;
 		}
 	}
 
-	return 0;
+	return -1;
+}
+
+/** Whether a stage is one of the remake's converted GoldenEye missions. */
+s32 modloaderStageIsMission(s32 stagenum)
+{
+	return modloaderStageMission(stagenum) >= 0;
 }
 
 /** How many of GoldenEye's twenty missions are registered. */

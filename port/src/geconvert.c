@@ -102,6 +102,13 @@ static const struct { const char *brief, *lang; } g_MenuText[] = {
 	{ "UbriefaztZ", "LaztE" },        { "UbriefcrypZ", "LcrypE" },
 };
 
+const char *geconvertMissionLangFile(int mission)
+{
+	const int n = (int)(sizeof(g_MenuText) / sizeof(g_MenuText[0]));
+
+	return mission >= 0 && mission < n ? g_MenuText[mission].lang : NULL;
+}
+
 #define MAX_TEXTURE_SIZE 4096
 #define WALL_BELOW 50.0
 #define WALL_ABOVE 400.0
@@ -2113,6 +2120,40 @@ static void roomsInit(struct roomfinder *rf, const tiles *stan, double ls, const
 	}
 }
 
+/**
+ * The floor a pad stands on (geobjects.py's Rooms.floor()): the highest tile
+ * whose x/z holds the pad and whose own height does not pass it. 0 when the
+ * pad is over a hole, or under the floor, with *found cleared.
+ */
+static double roomsFloor(const struct roomfinder *rf, const double *pos, int *found)
+{
+	const double x = pos[0], y = pos[1], z = pos[2];
+	double best = 0;
+
+	*found = 0;
+
+	for (size_t i = 0; i < rf->tiles.n; ++i) {
+		const struct roomtile *t = &rf->tiles.v[i];
+		double fy;
+
+		if (!(t->x0 <= x && x <= t->x1 && t->z0 <= z && z <= t->z1)) {
+			continue;
+		}
+		if (!pointInTile(x, z, t->p, t->n)) {
+			continue;
+		}
+
+		fy = tileMeanY(t->p, t->n);
+
+		if (fy <= y && (!*found || fy > best)) {
+			best = fy;
+			*found = 1;
+		}
+	}
+
+	return best;
+}
+
 static int roomsFind(const struct roomfinder *rf, const double *pos)
 {
 	const double x = pos[0], y = pos[1], z = pos[2];
@@ -2214,9 +2255,26 @@ static buf writePads(const struct setup *setup, double ls, const double *offset,
 	for (size_t i = 0; i < setup->pads.n; ++i) {
 		const struct pad *p = &setup->pads.v[i];
 		struct padrec r = {0};
+		double fy;
+		int onfloor;
+
 		for (int c = 0; c < 3; ++c) {
 			r.world[c] = p->pos[c] * inv - offset[c];
 		}
+
+		// GoldenEye stands a pad on the floor and is happy with that; Perfect
+		// Dark's ground search takes the highest floor *strictly* below the
+		// position it is handed and answers -2^32 for none, so a pad exactly
+		// level with its floor has no ground under it at all. The player
+		// spawned on one of those in Egyptian, Control and Caverns and fell
+		// out of the world. One unit - a centimetre - is the whole of the
+		// lift, and only 63 of the 5616 pads take it.
+		fy = roomsFloor(rf, r.world, &onfloor);
+
+		if (onfloor && fy >= r.world[1]) {
+			r.world[1] = fy + 1;
+		}
+
 		bufU32(&r.rec, 0);
 		for (int c = 0; c < 3; ++c) bufF32(&r.rec, r.world[c]);
 		for (int c = 0; c < 3; ++c) bufF32(&r.rec, p->up[c]);
@@ -2769,10 +2827,38 @@ static void weaponRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 }
 
 /**
+ * A GoldenEye text id as a Perfect Dark one (gesolo.py's text_id).
+ *
+ * GoldenEye's is `bank * 0x400 + slot` and the bank is always the mission's
+ * own - the file the converter copies to menu/ and the port loads into
+ * LANGBANK_GEMISSION - so only the slot carries. Perfect Dark gives a slot
+ * nine bits; no mission's bank holds more than 108 strings, and a slot that
+ * would not fit becomes no text rather than another bank's string.
+ */
+#define SOLO_LANGBANK_GEMISSION 0x45
+
+static uint32_t soloTextId(uint32_t geid)
+{
+	const uint32_t slot = geid & 0x3ff;
+
+	if (!geid || slot >= 0x200) {
+		return 0;
+	}
+
+	return (SOLO_LANGBANK_GEMISSION << 9) | slot;
+}
+
+/**
  * GoldenEye's objective heading as Perfect Dark's: it gives an objective the
  * lowest difficulty it appears at and Perfect Dark keeps a bit per difficulty,
  * so the bits from that one up are set. GoldenEye's 007 is Perfect Dark's PD
  * Mode over the hardest difficulty, so it takes 00 Agent's bit.
+ *
+ * GoldenEye's own 0x100 there is not a difficulty. objectiveIsAllComplete()
+ * tests `objdiff <= curdiff`, so an objective marked with it is never required
+ * and never listed in the mission - its briefing file gives it a difficulty of
+ * its own, and the briefing screen does show it. Perfect Dark's test is the
+ * same shape over difficulty bits, so it gets none.
  */
 static void objectiveRecord(uint8_t *out, const uint8_t *raw)
 {
@@ -2782,11 +2868,13 @@ static void objectiveRecord(uint8_t *out, const uint8_t *raw)
 	memcpy(out, raw, 3);
 	out[3] = 0x17;
 	set32(out, 4, be32(raw, 4));
-	set32(out, 8, be32(raw, 8));
+	set32(out, 8, soloTextId(be32(raw, 8)));
 
-	for (int d = 0; d < 3; ++d) {
-		if (d >= (mindiff < 2 ? mindiff : 2)) {
-			bits |= 1u << d;
+	if (mindiff < 3) {
+		for (int d = 0; d < 3; ++d) {
+			if (d >= (mindiff < 2 ? mindiff : 2)) {
+				bits |= 1u << d;
+			}
 		}
 	}
 
@@ -2971,7 +3059,8 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, s
 			st->aidropped++;
 		} else {
 			// GoldenEye's own arguments, in order and each at its own width;
-			// a pad moves the way a record's does
+			// a pad moves the way a record's does, and a text id becomes one
+			// of the mission's own bank
 			o = at + 1;
 			for (int i = 0; i < cmd->numge && i < GEAI_MAX_ARGS; ++i) {
 				uint32_t v = 0;
@@ -2979,7 +3068,13 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, s
 					v = (v << 8) | f->v[o + k];
 				}
 				o += cmd->gewidth[i];
-				vals[i] = (cmd->gepad & (1u << i)) ? padNum(v, numpads, 0) : v;
+				if (cmd->gepad & (1u << i)) {
+					v = padNum(v, numpads, 0);
+				} else if (cmd->getext & (1u << i)) {
+					v = soloTextId(v);
+				}
+
+				vals[i] = v;
 			}
 
 			bufU16(out, (uint32_t)cmd->pd);

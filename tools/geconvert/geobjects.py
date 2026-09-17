@@ -169,6 +169,29 @@ class Rooms:
             pts = (np.array([struct.unpack_from('>3h', v, 16 * k) for k in range(len(v) // 16)], float) + room['pos']) / ls - offset
             self.boxes.append((r, pts.min(0), pts.max(0)))
 
+    def floor(self, pos):
+        """The floor a pad stands on: the highest tile whose x/z holds the pad
+        and whose own height does not pass it. None where the pad is over a
+        hole, or under the floor.
+        """
+        x, y, z = pos
+        best = None
+        for room, p, x0, x1, z0, z1 in self.tiles:
+            if not (x0 <= x <= x1 and z0 <= z <= z1):
+                continue
+            inside = False
+            n = len(p)
+            for k in range(n):
+                ax, az, bx, bz = p[k][0], p[k][2], p[(k + 1) % n][0], p[(k + 1) % n][2]
+                if (az > z) != (bz > z) and x < (bx - ax) * (z - az) / (bz - az) + ax:
+                    inside = not inside
+            if not inside:
+                continue
+            fy = p[:, 1].mean()
+            if fy <= y and (best is None or fy > best):
+                best = fy
+        return best
+
     def room(self, pos):
         x, y, z = pos
         best = None

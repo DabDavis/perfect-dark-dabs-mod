@@ -44,4 +44,9 @@ void gexPlusThemeSimulants(void);
 // installed.
 void gexPlusMissionSetup(u32 *props);
 
+// A converted GoldenEye mission's own text bank - its objectives and its radio
+// messages - loaded out of the mod's menu/ into LANGBANK_GEMISSION. Cleared
+// when the stage is not one of the missions.
+void gexPlusMissionLangLoad(s32 stagenum);
+
 #endif

@@ -10,7 +10,7 @@ extern "C" {
 
 // Raise when a change alters what a conversion writes: arenas converted by an
 // older one are converted again at the next start (gexplusrom.c)
-#define GECONVERT_VERSION_STR "4"
+#define GECONVERT_VERSION_STR "5"
 
 #define GECONVERT_ROM_SIZE 0xc00000
 
@@ -36,6 +36,14 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 int geconvertProgress(void);
 int geconvertTotal(void);
+
+/**
+ * The file name of mission n's own text bank, under the converted mod's
+ * menu/ - the bank every text id in that mission indexes, and the one the
+ * conversion wrote its objectives' and its radio messages' ids against
+ * (LANGBANK_GEMISSION). NULL when n is not one of GoldenEye's twenty.
+ */
+const char *geconvertMissionLangFile(int mission);
 
 // where its per-level report lines go (stderr until set)
 void geconvertSetLog(void (*fn)(const char *msg));

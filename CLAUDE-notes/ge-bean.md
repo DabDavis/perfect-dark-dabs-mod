@@ -2244,18 +2244,84 @@ the log. Dam screenshotted on the RX 580 at frame 400: its wall, the cliffs,
 the truck and the parked cars, the hazard barriers and GoldenEye's own
 briefcase on the ground, all from the ROM.
 
-**The two that do not**: Egyptian stops at frame 470 and Control at 274, both
-with the level paused behind a dialog - the game reached something that asked to
-save and the harness's scratch save has no pak, so `g_PakNotOriginalMenuDialog`
-is what is up. Neither crashes and neither logs a warning. **Why the mission
-gets there with nobody playing is not established**; the objective criteria are
-the obvious suspect, and their text is not converted yet either.
+**The two that did not were the player falling out of the world**, not the
+mission ending: Egyptian and Control stopped with the level paused behind
+`g_PakNotOriginalMenuDialog`, which is the save the *endscreen* asks for, and
+the endscreen was reached from `playerTick()`'s death branch with the player at
+full health. `bwalkUpdateVertical()` had killed them on `vv_manground <=
+-30000`. The objectives were never the cause - a guess the first session wrote
+down as one, and two breakpoints (`filemgrSaveOrLoad`, then the two sites that
+set `isdead`) settled it in a couple of minutes.
 
-**Not done**: the missions' own text. GoldenEye's objective and radio text is
-its own bank and slot (`bank * 0x400 + slot`) and the port has no lang bank for
-one in a mission, so the objectives read as nothing on the watch and the 224
-`TextPrintTop` radio messages are dropped rather than converted. The briefing
-screens already read the ROM's text and are unaffected. Also left out:
-GoldenEye's own animations (its 91 `PlayAnimation` commands, so the set pieces
-do not play), its screen fades and cinema cameras, and its chr flag commands,
-whose one byte is not Perfect Dark's banked 32-bit flags.
+**A pad exactly level with its floor has no ground under it.** Perfect Dark's
+ground search takes the highest floor **strictly below** the position it is
+handed (`cdFindGroundInfoAtCyl()`) and answers -2^32 for none - the same trap
+the Randomizer met (randomizer.md). GoldenEye stands a pad *on* the floor and
+its own engine is happy with that, so `playerStartNewLife()` put the player at
+the pad's y with no ground, and they fell. Three of the twenty missions' spawn
+pads are like that - Egyptian, Control and Caverns, all at dy exactly 0, while
+every other mission's is 13 to 1222 units up - and Caverns only survived
+because the cylinder found a neighbour.
+
+`write_pads()` (and `writePads()`) now lifts a pad one unit when the floor
+under it is level with it: the floor is the highest tile whose x/z holds the
+pad and whose own height does not pass it (`Rooms.floor()`, `roomsFloor()`).
+It is 63 of the 5616 pads over all 26 levels, a centimetre each, and it is the
+arenas' pads as well as the missions'. **All twenty missions run 600 frames
+now**, with every guard spawned and no warning.
+
+**The missions' own text is the level's own bank, served as a bank.** A
+GoldenEye text id is `bank * 0x400 + slot` and the bank is always the mission's
+own - the `LdamE`-and-so-on file the converter already copies into `menu/` for
+the briefing screens - so only the slot carries, and the conversion writes
+`LANGBANK_GEMISSION << 9 | slot` in its place. That is a bank rather than
+`langAddPortText()` because a text id has to be written into the setup at
+conversion time: an objective's `text` field, and the id in every converted
+`TextPrintTop`. No mission's bank holds more than 108 strings, well inside the
+nine bits Perfect Dark gives a slot.
+
+`LANGBANK_GEMISSION` is 0x45, one past the last of `g_LangFiles`, and
+`g_LangBanks` is one longer on PC alone (`NUM_LANGBANKS`; the N64's array is
+the files' own count, so nothing moves in its bss).
+`langGetLangBankIndexFromStagenum()` answers it for a mission stage, which also
+makes `lvStop()` clear it; `langReload()` skips it, since asking `langLoad()`
+for it would index `g_LangFiles` off its end. `gexPlusMissionLangLoad()` loads
+the file from the mod's `menu/` at both of the places a stage's bank is loaded
+(`setupLoadFiles()` and `setupLoadBriefing()`), into a buffer of its own rather
+than the briefing's scratch one. **It has to go through
+`preprocessLangFile()`**: the offsets in the file are the ROM's 32-bit
+big-endian ones and `langGet()` reads a bank's table at the width of a pointer,
+so without that every id answers a wild address - which is what it did, and the
+only symptom was garbage pointers out of `langGet()` with the bank plainly
+loaded.
+
+`TextPrintTop` (0xc3) and `TextPrintBottom` (0xc2) become `aiShowHudmsg`
+(0x00cb) with `CHR_BOND`, which is Perfect Dark's own **0xf8** - the generated
+table's `GEAI_CHR_BOND` was 0xf2, which is really `CHR_P1P2`; for a solo
+mission the two resolve to the same player, and the rows that carry 0xf2
+inlined are left alone. Both GoldenEye's top and bottom text go to
+`HUDMSGTYPE_DEFAULT`, which is where Perfect Dark puts a mission message;
+264 of them over the twenty missions, and Jungle's "Natalya: Let's go to work."
+is screenshotted on the RX 580. The table gained a `getext` mask beside `gepad`
+- a bit per GoldenEye argument the conversion rewrites rather than copies - and
+the script keys the same thing off the argument's name (`TEXT_SLOT`).
+
+**GoldenEye's 0x100 in an objective's difficulty is not a difficulty.**
+`objectiveIsAllComplete()` tests `objdiff <= curdiff` there, so an objective
+marked with it - the four "minimize scientist casualties" ones - is never
+required and never listed *in* the mission, though its briefing file gives it a
+real difficulty and the briefing screen does show it. It was becoming 00
+Agent's bit, which would have blocked those missions at 00 Agent; it gets no
+difficulty bits now, which is Perfect Dark's own way of saying the same thing.
+
+**The objectives box holds them.** GoldenEye's lines are longer than any of
+Perfect Dark's own and `menuitemObjectivesRenderOne()` only wraps the narrow
+layout, so the wide one looked like it clipped them - "gain entry to laboratory
+ar". It does not: a menu dialog **animates its width**, and a screenshot 30
+frames after the dialog is pushed catches it mid-grow. Two hundred frames in it
+is settled at 240 and every objective reads in full. Widening the box was
+written and thrown away; screenshot a dialog only once it has stopped moving.
+
+**Not done**: GoldenEye's own animations (its 91 `PlayAnimation` commands, so
+the set pieces do not play), its screen fades and cinema cameras, and its chr
+flag commands, whose one byte is not Perfect Dark's banked 32-bit flags.

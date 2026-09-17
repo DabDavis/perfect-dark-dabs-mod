@@ -1300,7 +1300,17 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 
 		briefing->langbank = langGetLangBankIndexFromStagenum(stagenum);
 
-		langLoadToAddr(briefing->langbank, langbuffer, langbufferlen);
+#ifndef PLATFORM_N64
+		// A converted GoldenEye mission's text bank is not a file the game
+		// has: the port loads it, into a buffer of its own rather than this
+		// scratch one, and the objectives below are ids in it.
+		if (briefing->langbank == LANGBANK_GEMISSION) {
+			gexPlusMissionLangLoad(stagenum);
+		} else
+#endif
+		{
+			langLoadToAddr(briefing->langbank, langbuffer, langbufferlen);
+		}
 
 		start = (struct defaultobj *)((uintptr_t)setup + (uintptr_t)setup->props);
 
@@ -1393,7 +1403,15 @@ void setupLoadFiles(s32 stagenum)
 
 		g_GeCreditsData = (u8 *)fileLoadToNew(filenum, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
 		setup = (struct stagesetup *)g_GeCreditsData;
-		langLoad(langGetLangBankIndexFromStagenum(stagenum));
+
+#ifndef PLATFORM_N64
+		if (langGetLangBankIndexFromStagenum(stagenum) == LANGBANK_GEMISSION) {
+			gexPlusMissionLangLoad(stagenum);
+		} else
+#endif
+		{
+			langLoad(langGetLangBankIndexFromStagenum(stagenum));
+		}
 
 		g_StageSetup.intro = (s32 *)((uintptr_t)setup + (uintptr_t)setup->intro);
 		g_StageSetup.props = (u32 *)((uintptr_t)setup + (uintptr_t)setup->props);

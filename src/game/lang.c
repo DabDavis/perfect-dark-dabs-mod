@@ -13,6 +13,7 @@
 #ifndef PLATFORM_N64
 #include <string.h>
 #include "video.h"
+#include "modloader.h"
 #endif
 
 /**
@@ -60,12 +61,12 @@ bool g_Jpn = VERSION == VERSION_JPN_FINAL ? true : false;
 u8 *g_LangBuffer = NULL;
 u8 *g_LangBufferPos = NULL;
 s32 g_LangBufferSize = 0;
-uintptr_t *g_LangBanks[69];
+uintptr_t *g_LangBanks[NUM_LANGBANKS];
 struct jpncharpixels *g_JpnCharCachePixels;
 struct jpncacheitem *g_JpnCacheCacheItems;
 s32 g_LanguageId = LANGUAGE_NTSC_EN;
 #else
-uintptr_t *g_LangBanks[69];
+uintptr_t *g_LangBanks[NUM_LANGBANKS];
 struct jpncharpixels *g_JpnCharCachePixels;
 struct jpncacheitem *g_JpnCacheCacheItems;
 bool g_Jpn = false;
@@ -210,6 +211,16 @@ u32 langGetLangBankIndexFromStagenum(s32 stagenum)
 	case STAGE_MBR:           bank = LANGBANK_WAX; break;
 	case STAGE_TEST_SILO:     bank = LANGBANK_SILO; break;
 	default:
+#ifndef PLATFORM_N64
+		// A converted GoldenEye mission brings its own text - its objectives
+		// and its radio messages - and that is a bank of its own, loaded out
+		// of the mod's menu/ rather than from a file the game has.
+		if (modloaderStageIsMission(stagenum)) {
+			bank = LANGBANK_GEMISSION;
+			break;
+		}
+#endif
+
 		// The original spins here forever. Every stage number the N64 game
 		// could reach appears above, so the case was unreachable - but a stage
 		// registered at runtime by the mod loader is not, and freezing on an
@@ -495,6 +506,14 @@ void langReload(void)
 	g_LangBufferPos = (u8 *) align32((uintptr_t) g_LangBuffer);
 
 	for (i = 0; i < ARRAYCOUNT(g_LangBanks); i++) {
+#ifndef PLATFORM_N64
+		// The GoldenEye mission's bank is not one of g_LangFiles' - the port
+		// loaded it, and a language switch does not change GoldenEye's text.
+		if (i == LANGBANK_GEMISSION) {
+			continue;
+		}
+#endif
+
 		if (g_LangBanks[i] != NULL) {
 			langLoad(i);
 		}

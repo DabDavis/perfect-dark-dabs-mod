@@ -32,6 +32,8 @@ s32 modloaderStageIsRemake(s32 stagenum);
 s32 modloaderMissionStage(s32 mission);
 s32 modloaderNumMissions(void);
 s32 modloaderStageIsMission(s32 stagenum);
+// and the other way round: the mission a stage is, or -1
+s32 modloaderStageMission(s32 stagenum);
 
 // A Stage Loader map's setup with a borrowed mod's objects, and the solo setup
 // of the mod's stage they come from; 0 for none.

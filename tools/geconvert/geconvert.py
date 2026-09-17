@@ -574,6 +574,17 @@ def write_pads(setup, ls, offset, rooms, gexpads=None, gext=None, boundpads=None
     else:
         for p in pads:
             world = np.array(p['pos']) * inv - offset
+            # GoldenEye stands a pad on the floor and is happy with that;
+            # Perfect Dark's ground search takes the highest floor *strictly*
+            # below the position it is handed and answers -2^32 for none, so a
+            # pad exactly level with its floor has no ground under it at all.
+            # The player spawned on one of those in Egyptian, Control and
+            # Caverns and fell out of the world. One unit - a centimetre - is
+            # the whole of the lift, and only 63 of the 5616 pads take it.
+            fy = rooms.floor(world)
+            if fy is not None and fy >= world[1]:
+                world = world.copy()
+                world[1] = fy + 1
             rec = struct.pack('>I', 0) + struct.pack('>3f', *world) + struct.pack('>3f', *p['up']) + struct.pack('>3f', *p['look'])
             records.append((0, world, rec))
         records += boundpads or []

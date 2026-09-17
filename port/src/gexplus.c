@@ -30,6 +30,12 @@
 #include <stdio.h>
 #include "modborrow.h"
 #include "gebean.h"
+#include "geconvert.h"
+#include "preprocess.h"
+#include "romdata.h"
+#include "fs.h"
+#include "system.h"
+#include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/game_0b0fd0.h"
 #include "game/setuputils.h"
@@ -406,6 +412,87 @@ static s32 gexPlusBodyForGe(s32 gebody)
 	}
 
 	return row->stock;
+}
+
+/* -------------------------------------------------------------------------
+ * A converted mission's own text
+ * ------------------------------------------------------------------------- */
+
+/**
+ * GoldenEye's objective and radio text is the level's own text bank, which the
+ * converter copies into the mod's menu/ beside the briefing files (geconvert.c's
+ * g_MenuText). That file is already a Perfect Dark language file byte for byte -
+ * an offset table, then the strings, each ending in a newline - because the two
+ * games share the format, so it is served as a language bank of its own rather
+ * than converted into anything.
+ *
+ * A bank is what it has to be. A GoldenEye text id is `bank * 0x400 + slot`,
+ * always the mission's own bank, so only the slot carries; the conversion
+ * writes `LANGBANK_GEMISSION << 9 | slot` in its place, in an objective's
+ * record and in the AI lists' radio messages, and langGet() then answers those
+ * ids with nothing standing in the way. No mission's bank holds more than 108
+ * strings, well inside the 9 bits Perfect Dark gives a slot.
+ *
+ * The buffer is the port's own and outlives the stage: langClearBank() at the
+ * end of a level only drops the pointer, and setupLoadBriefing() would
+ * otherwise leave the bank pointing into a scratch buffer.
+ */
+static u8 *g_GeMissionLang;
+
+void gexPlusMissionLangLoad(s32 stagenum)
+{
+	const s32 mission = modloaderStageMission(stagenum);
+	const char *name = mission >= 0 ? geconvertMissionLangFile(mission) : NULL;
+	const char *dir = modloaderGetStageModDir(stagenum);
+	char path[FS_MAXPATH + 1];
+	u32 len = 0;
+	u8 *data;
+
+	langClearBank(LANGBANK_GEMISSION);
+
+	if (!name || !dir) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/%s", dir, name);
+
+	data = fsFileLoad(path, &len);
+
+	if (!data || len < 4) {
+		sysLogPrintf(LOG_WARNING, "gexplus: mission %d has no text bank at %s", mission, path);
+
+		if (data) {
+			sysMemFree(data);
+		}
+
+		return;
+	}
+
+	// The offsets in the file are the ROM's 32-bit big-endian ones and langGet()
+	// reads a bank's table at the width of a pointer, so it goes through the
+	// same conversion a language file of the game's does. That widens the
+	// table, so the buffer is sized as the loader would size it.
+	{
+		const u32 want = romdataFileGetEstimatedSize(len, LOADTYPE_LANG);
+		u8 *bank = sysMemZeroAlloc(want);
+		u32 banklen = 0;
+
+		if (!bank) {
+			sysMemFree(data);
+			return;
+		}
+
+		memcpy(bank, data, len);
+		sysMemFree(data);
+		preprocessLangFile(bank, len, &banklen);
+
+		if (g_GeMissionLang) {
+			sysMemFree(g_GeMissionLang);
+		}
+
+		g_GeMissionLang = bank;
+		g_LangBanks[LANGBANK_GEMISSION] = (uintptr_t *)bank;
+	}
 }
 
 /**

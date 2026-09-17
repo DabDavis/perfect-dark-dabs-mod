@@ -78,8 +78,23 @@
 #define LANGBANK_MP18      0x42
 #define LANGBANK_MP19      0x43
 #define LANGBANK_MP20      0x44
+/**
+ * Not a file the game has either: a converted GoldenEye mission's own text
+ * bank, which the port loads out of the mod's menu/ when the mission's setup
+ * does (port/src/gexplus.c, gexPlusMissionLangLoad()). It is a bank rather
+ * than port text so that the conversion can write a text id the game resolves
+ * on its own - an objective's, and a radio message's in an AI list.
+ */
+#define LANGBANK_GEMISSION 0x45
 // Not a file: strings the port adds at run time (langAddPortText())
 #define LANGBANK_PORT      0x7f
+
+// g_LangBanks holds one pointer per bank. The N64's is the files' own count.
+#ifdef PLATFORM_N64
+#define NUM_LANGBANKS      (LANGBANK_MP20 + 1)
+#else
+#define NUM_LANGBANKS      (LANGBANK_GEMISSION + 1)
+#endif
 
 /**
  * Include each lang header, which defines their enums.

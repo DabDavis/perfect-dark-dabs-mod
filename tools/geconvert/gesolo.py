@@ -216,6 +216,25 @@ def weapon_record(raw, numpads):
     return out
 
 
+# The language bank the missions' own text is served as (src/include/lang.h).
+LANGBANK_GEMISSION = 0x45
+
+
+def text_id(geid):
+    """A GoldenEye text id as a Perfect Dark one.
+
+    GoldenEye's is `bank * 0x400 + slot` and the bank is always the mission's
+    own - the file the converter copies to menu/ and the port loads into
+    LANGBANK_GEMISSION - so only the slot carries. Perfect Dark gives a slot
+    nine bits; no mission's bank holds more than 108 strings, and a slot that
+    would not fit becomes no text rather than another bank's string.
+    """
+    slot = geid & 0x3ff
+    if not geid or slot >= 0x200:
+        return 0
+    return (LANGBANK_GEMISSION << 9) | slot
+
+
 def objective_record(raw):
     """GoldenEye's objective heading as Perfect Dark's.
 
@@ -228,11 +247,17 @@ def objective_record(raw):
     out[0:3] = raw[0:3]
     out[3] = 0x17
     index, text, mindiff = struct.unpack_from('>3i', raw, 4)
-    struct.pack_into('>ii', out, 4, index, text)
+    struct.pack_into('>ii', out, 4, index, text_id(text))
     bits = 0
-    for d in range(3):
-        if d >= min(mindiff, 2):
-            bits |= 1 << d
+    # GoldenEye's own 0x100 is not a difficulty: objectiveIsAllComplete() tests
+    # `objdiff <= curdiff`, so such an objective is never required and never
+    # listed in the mission (its briefing file gives it a difficulty of its own
+    # and the briefing screen does show it). Perfect Dark's test is the same
+    # shape over difficulty bits, so it gets none.
+    if mindiff < 3:
+        for d in range(3):
+            if d >= min(mindiff, 2):
+                bits |= 1 << d
     out[0x0f] = bits
     return out
 
@@ -386,6 +411,8 @@ def convert_ailist(d, at, stats, numpads):
                 v = int.from_bytes(d[o:o + w], 'big')
                 if 'PAD' in a and w >= 2:
                     v = pad_num(v, numpads)
+                elif a == 'TEXT_SLOT':
+                    v = text_id(v)
                 vals.append(v)
                 o += w
             out += struct.pack('>H', pd)
