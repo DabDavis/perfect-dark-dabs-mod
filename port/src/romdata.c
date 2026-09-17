@@ -118,7 +118,9 @@ static const struct romfilepatch filePatches[] = {
 // Names for slots registered at runtime. fileSlots only holds a pointer, and
 // the ROM's own names live in the loaded file list, so mod names need storage
 // of their own.
-#define ROMDATA_MAX_MODFILES (4 * MAX_MODSTAGES)
+// four files a map, and the models a mod brings for its maps (a `models`
+// block: the GoldenEye remake's are up to NUM_REMAKE_MODELS)
+#define ROMDATA_MAX_MODFILES (4 * MAX_MODSTAGES + 1024)
 #define ROMDATA_MODFILE_NAMELEN 96
 static char modFileNames[ROMDATA_MAX_MODFILES][ROMDATA_MODFILE_NAMELEN];
 static s32 numModFileNames;

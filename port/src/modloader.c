@@ -8,6 +8,7 @@
  */
 
 #include <ultra64.h>
+#include <stdlib.h>
 #include <string.h>
 #include "constants.h"
 #include "bss.h"
@@ -93,6 +94,18 @@ static char g_ModStageMapNames[STAGE_MAX_ID + 1][32];
 // And its sky and fog where the maps block gives them, else the default the
 // chooser falls back to for a stage no table names
 static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
+// The models a mod's `models` block brings for its maps: slot i of the
+// remake's model states (MODEL_REMAKE_FIRST + i), the file and its scale
+struct modmodel {
+	s16 modindex;
+	s16 slot;
+	u16 scale;
+	char name[48];
+};
+
+static struct modmodel *g_ModModels;
+static s32 g_NumModModels;
+
 // And a second setup with the objects of the borrowed mod's own stage whose
 // solo setup is named, for when that mod is installed (modborrow.c)
 static s32 g_ModStageProps[STAGE_MAX_ID + 1];
@@ -508,6 +521,110 @@ static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char
  * weapons); only this block is read, straight out of its directory. Returns
  * false when there is no block, and the caller falls back to the scan.
  */
+/**
+ * A mod's `models` block: `models { SLOT "FILE" SCALE ... }`, the models its
+ * maps' setups name as MODEL_REMAKE_FIRST + SLOT, SCALE being the model state's
+ * (4096 is 1.0). modloaderApplyStageModels() puts them in the model states
+ * when one of the mod's maps loads. The block is the GoldenEye remake's: its
+ * props are GoldenEye's own models, converted, which no other mod has.
+ */
+static void modloaderReadModels(s32 modIndex, const char *dir, char *data)
+{
+	char token[UTIL_MAX_TOKEN + 1];
+	char *p = strParseToken(data, token, NULL);
+	s32 count = 0;
+
+	while (p && token[0]) {
+		if (strcmp(token, "models") != 0) {
+			p = strParseToken(p, token, NULL);
+			continue;
+		}
+
+		p = strParseToken(p, token, NULL);
+
+		if (token[0] != '{' || token[1]) {
+			continue;
+		}
+
+		p = strParseToken(p, token, NULL);
+
+		while (p && token[0] && strcmp(token, "}") != 0) {
+			char name[UTIL_MAX_TOKEN + 1];
+			const s32 slot = atoi(token);
+			u16 scale;
+
+			p = strParseToken(p, token, NULL);
+			snprintf(name, sizeof(name), "%s", strUnquote(token));
+			p = strParseToken(p, token, NULL);
+			scale = (u16)atoi(token);
+			p = strParseToken(p, token, NULL);
+
+			if (slot < 0 || slot >= NUM_REMAKE_MODELS || !name[0] || !modloaderModHasFile(modIndex, "%s", name)) {
+				sysLogPrintf(LOG_WARNING, "modloader: %s: model %d `%s` is not in the mod; left out", dir, slot, name);
+				continue;
+			}
+
+			struct modmodel *grown = realloc(g_ModModels, sizeof(*g_ModModels) * (g_NumModModels + 1));
+
+			if (!grown) {
+				break;
+			}
+
+			g_ModModels = grown;
+			g_ModModels[g_NumModModels].modindex = modIndex;
+			g_ModModels[g_NumModModels].slot = slot;
+			g_ModModels[g_NumModModels].scale = scale;
+			snprintf(g_ModModels[g_NumModModels].name, sizeof(g_ModModels[g_NumModModels].name), "%s", name);
+			g_NumModModels++;
+			count++;
+		}
+
+		break;
+	}
+
+	if (count) {
+		sysLogPrintf(LOG_NOTE, "modloader: %s brings %d models for its maps", dir, count);
+	}
+}
+
+/**
+ * Before a stage loads its setup: the remake's model states emptied, and
+ * filled with the models of the stage's mod if it brings any. A model's file
+ * is registered the first time a map of its mod loads, so a mod whose maps
+ * are never played takes no file slots.
+ */
+void modloaderApplyStageModels(s32 stagenum)
+{
+	const s32 modindex = modloaderGetStageModDirIndex(stagenum);
+	s32 filled = 0;
+
+	for (s32 i = 0; i < NUM_REMAKE_MODELS; i++) {
+		g_ModelStates[MODEL_REMAKE_FIRST + i].fileid = 0;
+		g_ModelStates[MODEL_REMAKE_FIRST + i].scale = 0;
+		g_ModelStates[MODEL_REMAKE_FIRST + i].modeldef = NULL;
+	}
+
+	for (s32 i = 0; modindex >= 0 && i < g_NumModModels; i++) {
+		const struct modmodel *m = &g_ModModels[i];
+
+		if (m->modindex != modindex) {
+			continue;
+		}
+
+		const s32 fileid = modloaderRegister(modindex, "%s", m->name);
+
+		if (fileid > 0) {
+			g_ModelStates[MODEL_REMAKE_FIRST + m->slot].fileid = fileid;
+			g_ModelStates[MODEL_REMAKE_FIRST + m->slot].scale = m->scale;
+			filled++;
+		}
+	}
+
+	if (filled) {
+		sysLogPrintf(LOG_NOTE, "modloader: stage 0x%02x: %d of its mod's models", stagenum, filled);
+	}
+}
+
 static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modloaderScan *scan)
 {
 	char path[FS_MAXPATH + 1];
@@ -610,6 +727,8 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 		}
 	}
 
+	modloaderReadModels(modIndex, dir, data);
+
 	sysMemFree(data);
 
 	return found;
@@ -679,6 +798,9 @@ void modloaderInit(void)
 	memset(g_ModStageMapNames, 0, sizeof(g_ModStageMapNames));
 	memset(g_ModStageFog, 0, sizeof(g_ModStageFog));
 	memset(g_ModStageProps, 0, sizeof(g_ModStageProps));
+	free(g_ModModels);
+	g_ModModels = NULL;
+	g_NumModModels = 0;
 	memset(g_ModStagePropsFrom, 0, sizeof(g_ModStagePropsFrom));
 	g_ModStagesRegistered = g_ModStagesFound = g_ModStageMods = 0;
 

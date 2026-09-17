@@ -2414,7 +2414,12 @@
 // Past the stock table: a model state for each of GoldenEye's guns, filled by
 // geguns.c. NUM_WEAPONS is further down; the count is written out and checked there.
 #define MODEL_GE_FIRST              (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
-#define NUM_MODELS                  (MODEL_GE_FIRST + 25)
+// And from a fixed number whatever the version, so a setup file can name
+// them: the GoldenEye remake's prop models, GoldenEye's model number plus
+// this, filled for a stage by its mod's `models` block (modloader.c)
+#define MODEL_REMAKE_FIRST          0x200
+#define NUM_REMAKE_MODELS           340
+#define NUM_MODELS                  (MODEL_REMAKE_FIRST + NUM_REMAKE_MODELS)
 #else
 #define NUM_MODELS                  (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
 #endif

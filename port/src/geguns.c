@@ -33,8 +33,8 @@
  * leaves these alone, and a mod's lists keep the rows hidden anyway.
  */
 
-_Static_assert(NUM_MODELS - MODEL_GE_FIRST == NUM_GE_WEAPONS,
-		"a model state per GoldenEye gun");
+_Static_assert(MODEL_GE_FIRST + NUM_GE_WEAPONS <= MODEL_REMAKE_FIRST,
+		"a model state per GoldenEye gun, before the remake's models");
 _Static_assert(NUM_MPWEAPONS - MPWEAPON_GE_FIRST == NUM_GE_WEAPONS,
 		"a Combat Simulator row per GoldenEye gun");
 _Static_assert(NUM_WEAPONS <= 0x80, "gunctrl.weaponnum is an s8");

@@ -44,6 +44,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "modborrow.h"
+#include "modloader.h"
 #endif
 
 s32 g_SetupCurMpLocation;
@@ -1371,6 +1372,8 @@ void setupLoadFiles(s32 stagenum)
 #ifndef PLATFORM_N64
 	// a borrowed mod's arena names its props by the mod's model numbers
 	modBorrowStageModels(stagenum);
+	// and a Stage Loader map's own models (the GoldenEye remake's props)
+	modloaderApplyStageModels(stagenum);
 #endif
 
 	for (i = 0; i < NUM_MODELS; i++) {

@@ -15,6 +15,10 @@ const char *modloaderGetStageAllocation(s32 stagenum);
 const char *modloaderGetStageMapName(s32 stagenum);
 struct fogenvironment;
 
+// Before a stage's setup loads: the remake's model states, from the stage's
+// mod's `models` block (empty for any other stage).
+void modloaderApplyStageModels(s32 stagenum);
+
 // A Stage Loader map's setup with a borrowed mod's objects, and the solo setup
 // of the mod's stage they come from; 0 for none.
 s32 modloaderGetStageProps(s32 stagenum, const char **from);

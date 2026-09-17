@@ -1563,3 +1563,60 @@ the preprocessor counts lights by the distance between the two pointers. The
 room header's lightsindex/numlights and section 3's per-room counts go with
 it. Only Dam has any (5 hanging and strip lamps); Jungle names PANEL_LAMP but
 draws nothing with it.
+
+## The GoldenEye remake's own props (2026-09-17)
+
+The direction: a GoldenEye remake in Perfect Dark, built from the player's
+GoldenEye ROM (and Bean for HD), with GE-X left alone - borrowing from GE-X
+only what would take too much work (music, and characters and guns for now).
+Arenas first. This is Phase 1's first step: the arenas' doors and props from
+GoldenEye's own files, which replaced the `props`/`propsfrom` GE-X borrow in
+the GoldenEye Arenas mod (the port keeps that mechanism).
+
+**Models.** `.xbla-work/ge-arena/gemodelconv.py` converts all 340 of
+GoldenEye's prop models. PD's model format is GoldenEye's: the node types
+keep their numbers, the texture rows are the same 12 bytes and the lists
+already use G_TRI4 and image ids. What it changes: the header (GoldenEye's is
+in code; its file starts with the switch table, which become the parts);
+16-byte vertices with their colour -> 12-byte PD vertices, a copy per G_VTX
+with a G_COL of its colours; a group's last word (a child pointer) -> a draw
+distance; a vehicle's header node -> a position node (PD's chrinfo reads an
+animation a prop has none of, and crashed in modelasm00018680). Traps, each
+a crash or a wrong picture:
+- **a model file is stored rzip-compressed**; a raw one loads as all zeros
+  and the first bbox lookup dereferences NULL
+- **the lists go at the end of the file, in walk order**: the loader takes a
+  list's size as the distance to the next one (modeldef0f1a7560()) and texture-
+  processes everything from the first list to the end; GoldenEye's loader has
+  the same rule, so GoldenEye's own list order is the order to write
+- **a dl record's `mcount` is GoldenEye's render mode type** (+0x12 of a display
+  list record, +0x18 of a collision one): 0 applies no render mode, which drew
+  the plane in the fog colour, and only types 3 and 4 draw the second list
+- a muzzle flash (stargunfire) gets a count of 0: a standing prop never fires
+
+**Model table.** `MODEL_REMAKE_FIRST` 0x200 (fixed whatever the version, so a
+setup file can name them) + GoldenEye's model number, 340 slots
+(`NUM_REMAKE_MODELS`). A mod's `models { SLOT "FILE" SCALE }` block names them;
+`modloaderApplyStageModels()` empties the block and fills it from the stage's
+mod before every setup load, registering a model's file the first time one of
+its mod's maps loads. `NUM_FILE_SLOTS` 3072 -> 4096 and the mod file name pool
++1024 for them.
+
+**Objects.** `geobjects.py`: GoldenEye's own records on its own pads and bound
+pads (a door's pad field is a bound pad index), converted the way GE-X converts
+them (see "Runway and Caves"); vehicles, the aircraft and the tank as standing
+props; ammo crates left out (the arena places its own). Dam 156, Runway 23 (the
+plane and GoldenEye's tank, which GE-X does not have), Train 153 (all 53 doors),
+Streets 119, Jungle 376, Caves its 2 body armours.
+
+**Textures.** A Stage Loader map draws its stage's textures from its mod by
+number, and the global texture config tables (src/textureconfig.c: sky and
+water, glares, explosions...) load by number too - the props' GoldenEye images
+replaced the cloud layer. `texremap.py` moves any GoldenEye image whose number
+one of those tables uses to a free number from 2698 (GoldenEye's last + 1),
+in room lists, the bg texture list, model rows and model lists.
+
+Open for Phase 1: every other GoldenEye level (the multiplayer setups -
+Temple, Complex, Library/Basement/Stack as three, Facility, Bunker, Archives,
+Caverns, Egyptian, Aztec, Cradle, Statue - and the solo levels); the HD look of
+the props (Bean's are still keyed to GE-X's file names: Phase 2).
