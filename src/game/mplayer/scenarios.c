@@ -585,6 +585,8 @@ void scenarioTick(void)
 		if (g_MpScenarios[g_MpSetup.scenario].tickfunc) {
 			g_MpScenarios[g_MpSetup.scenario].tickfunc();
 		}
+
+		gexPlusTick();
 	}
 }
 

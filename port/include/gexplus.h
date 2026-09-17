@@ -15,7 +15,8 @@ struct chrdata;
 #define GEXPLUS_YOLT          1 // You Only Live Twice
 #define GEXPLUS_FLAGTAG       2 // The Living Daylights
 #define GEXPLUS_LICENCETOKILL 3
-#define GEXPLUS_NUMSCENARIOS  4
+#define GEXPLUS_GOLDENGUN     4 // The Man with the Golden Gun
+#define GEXPLUS_NUMSCENARIOS  5
 
 s32 gexPlusGetScenario(void);
 void gexPlusSetScenario(s32 scenario);
@@ -25,5 +26,8 @@ const char *gexPlusScenarioName(s32 scenario);
 s32 gexPlusLivesSpent(struct chrdata *chr);
 // and whether the match is over, only one chr having a life left
 s32 gexPlusMatchOver(void);
+
+// The Man with the Golden Gun: keeps its one Golden Gun in the arena, each frame
+void gexPlusTick(void);
 
 #endif
