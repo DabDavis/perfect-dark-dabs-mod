@@ -2421,6 +2421,60 @@ static void frontSetSwitch(s32 part, s32 visible)
 }
 
 /**
+ * interface_menu07_missionsel(): the slides light by their own vertices - white
+ * for the mission under the cursor, grey for one that can be played and
+ * near-black for one that cannot.
+ *
+ * The grid is the part bondconstants.h does not name (21), a display list node
+ * rather than a switch, four vertices a mission in mission order. The converter
+ * gives every vertex a colour of its own in the same order (gemodelconv.py:
+ * GoldenEye keeps a vertex's colour in the vertex, Perfect Dark in a table the
+ * list loads with G_COL). The folder is loaded for the folder alone and freed
+ * when it closes, so nothing else is drawing from those colours.
+ *
+ * The colours are **rwdata's**: `rodata->dl.colours` is what the load left
+ * there, the model file's own base, which is the segment a list's G_COL
+ * offsets are counted from (SPSEGMENT_MODEL_COL1) and not an array at all.
+ * The array is where the vertices end, which is what modelAllocateRwData()
+ * puts in rwdata. Writing 80 colours over the rodata pointer writes over the
+ * head of the file - the node table - and the next frame dies in
+ * modelUpdateRelations().
+ */
+static void frontColourSlides(void)
+{
+	struct modelnode *node = modelGetPart(g_Front.modeldef, SW_SLIDEGRID);
+	union modelrwdata *rwdata;
+	Col *colours;
+	s32 count;
+
+	if (!node || (node->type & 0xff) != MODELNODETYPE_DL) {
+		return;
+	}
+
+	rwdata = modelGetNodeRwData(g_Front.model, node);
+	count = node->rodata->dl.numcolours;
+
+	if (!rwdata || !(colours = rwdata->dl.colours) || count > 4 * NUM_MISSIONS) {
+		return;
+	}
+
+	for (s32 i = 0; i < count; i++) {
+		const s32 mission = i / 4;
+
+		if (frontHighestDifficulty(mission) < 0) {
+			colours[i].r = colours[i].g = colours[i].b = 0x0f;
+			colours[i].a = 0xff;
+		} else if (mission == g_Front.highlight) {
+			colours[i].r = colours[i].g = colours[i].b = 0xff;
+			colours[i].a = 0xf5;
+		} else {
+			colours[i].r = colours[i].g = colours[i].b = 0x6e;
+			colours[i].a = 0xff;
+		}
+	}
+}
+
+/**
  * frontSetupMenuBackground(): the folder at a quarter size, 4000 in front of a
  * camera 190 above its middle and 3300 nearer, with GoldenEye's 60 degree view
  * and no depth buffer - the folder draws in its own order.
@@ -2470,6 +2524,7 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 		// the slides the missions are named on, and their grid
 		frontSetSwitch(SW_SLIDES, true);
 		frontSetSwitch(SW_PICS, true);
+		frontColourSlides();
 		break;
 	case SCREEN_DIFFICULTY:
 		frontSetSwitch(SW_PAPER, true);

@@ -2081,8 +2081,22 @@ folder** (switch 24, which is `22 + 2`), and its M Briefing page wrapped at
 everything is in GE-X Plus's own files but `mpImportArenas()`, which does
 nothing until a mod's data segment carries an arena table.
 
-**Not done**: the slide grid's own highlight. GoldenEye recolours the four
-vertices of each slide (white for the mission under the cursor, grey for the
-rest, near-black for a locked one); the converted model carries a colour table
-instead of per-vertex colours, so only the name's colour moves for now.
+**The slide grid's own highlight** (2026-09-17). GoldenEye lights the slides by
+their vertices - white (alpha 0xf5) for the mission under the cursor, grey 0x6e
+for one that can be played, near-black 0x0f for one that cannot - and part
+**21** is that grid: a display list node, not a switch, of 80 vertices, four a
+mission in mission order. `gemodelconv.py` gives every vertex a colour of its
+own in the same order (GoldenEye keeps a vertex's colour in the vertex, Perfect
+Dark in a table the list loads with `G_COL`), so colour `i` belongs to mission
+`i / 4` and `frontColourSlides()` writes all 80 each frame the page is drawn.
+
+**The colours to write are rwdata's.** `rodata->dl.colours` is not an array:
+the load leaves the model file's own base there, which is the segment a list's
+`G_COL` offsets are counted from (`SPSEGMENT_MODEL_COL1`). The array is where
+the vertices end, which is what `modelAllocateRwData()` puts in
+`rwdata->dl.colours`. Writing 80 colours through the rodata pointer writes over
+the head of the file - the node table - and the next frame dies in
+`modelUpdateRelations()` reading `node->type`. Offline, converting model 278
+with `gemodelconv.convert(278)` and walking its parts is what said part 21 is
+type 0x18 with `numvertices` and `numcolours` both 80.
 
