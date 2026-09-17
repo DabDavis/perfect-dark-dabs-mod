@@ -26,6 +26,8 @@
 #include "xblafont.h"
 #include "xblastage.h"
 #include "trace.h"
+#include "pngwrite.h"
+#include "crashreport.h"
 #include "../fast3d/gfx_api.h"
 
 #define TRACE_DIR_NAME "traces"
@@ -361,6 +363,82 @@ static void traceWrite(FILE *f)
 	}
 }
 
+// The widest picture a report carries. A 4K frame is tens of megabytes as a
+// PNG with no filtering; at this width it is around one, and still shows
+// which pixel is wrong.
+#define TRACE_REPORT_SHOT_WIDTH 1280
+
+/**
+ * The frame, box filtered down by a whole factor to fit the report's width,
+ * as a PNG beside the dump. The full size picture is screenshots/' own.
+ */
+static bool traceWriteReportShot(const char *path)
+{
+	const s32 width = videoGetWindowWidth();
+	const s32 height = videoGetWindowHeight();
+	s32 factor, outw, outh, x, y;
+	u8 *rgb, *small, *png;
+	u32 pngsize = 0;
+	FILE *f;
+	bool ok;
+
+	if (width <= 0 || height <= 0) {
+		return false;
+	}
+
+	factor = (width + TRACE_REPORT_SHOT_WIDTH - 1) / TRACE_REPORT_SHOT_WIDTH;
+	outw = width / factor;
+	outh = height / factor;
+	rgb = malloc((size_t)width * height * 3);
+	small = malloc((size_t)outw * outh * 3);
+
+	if (!rgb || !small || !videoReadScreenPixels(rgb, width, height)) {
+		free(rgb);
+		free(small);
+		return false;
+	}
+
+	for (y = 0; y < outh; y++) {
+		for (x = 0; x < outw; x++) {
+			u32 sum[3] = {0, 0, 0};
+			s32 dx, dy, c;
+
+			for (dy = 0; dy < factor; dy++) {
+				const u8 *row = rgb + ((size_t)(y * factor + dy) * width + x * factor) * 3;
+
+				for (dx = 0; dx < factor; dx++) {
+					sum[0] += row[dx * 3];
+					sum[1] += row[dx * 3 + 1];
+					sum[2] += row[dx * 3 + 2];
+				}
+			}
+
+			for (c = 0; c < 3; c++) {
+				small[((size_t)y * outw + x) * 3 + c] = sum[c] / (factor * factor);
+			}
+		}
+	}
+
+	free(rgb);
+	png = pngEncode(small, outw, outh, 3, true, &pngsize);
+	free(small);
+
+	if (!png) {
+		return false;
+	}
+
+	f = fopen(path, "wb");
+	ok = f && fwrite(png, 1, pngsize, f) == pngsize;
+
+	if (f && fclose(f) != 0) {
+		ok = false;
+	}
+
+	free(png);
+
+	return ok;
+}
+
 /**
  * Runs with the frame drawn and not yet presented, alongside the screenshot's
  * own callback, so the two describe the same frame.
@@ -388,8 +466,24 @@ static void tracePreSwap(void)
 	}
 
 	traceWrite(f);
+	// What a crash report carries around its stack goes around the dump too:
+	// the settings and the log say how the player got to this frame.
+	crashReportWriteContext(f);
 	fclose(f);
 	sysLogPrintf(LOG_NOTE, "trace: %s", filename);
+
+	if (traceReportEnabled()) {
+		char shot[FS_MAXPATH + 1];
+		const u32 len = strlen(filename);
+
+		snprintf(shot, sizeof(shot), "%s", filename);
+
+		if (len > 4 && len < sizeof(shot)) {
+			strcpy(shot + len - 4, ".png");
+		}
+
+		traceReportOffer(filename, traceWriteReportShot(shot) ? shot : NULL);
+	}
 }
 
 void traceInit(void)

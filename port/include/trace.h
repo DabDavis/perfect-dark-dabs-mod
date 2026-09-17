@@ -12,6 +12,11 @@
  * the rooms on screen, and every character with what chrRender() did with it
  * this frame. It is for reports like "the guards turn invisible when I turn":
  * press the key while it is happening and send both files.
+ *
+ * With Mod.TraceReport on (the default) the key also offers to send them:
+ * a Report a Problem dialog opens over the game with a note to type, and Send
+ * puts the dump, the note and a copy of the picture scaled to at most 1280
+ * wide (traces/pd-<stamp>.png) on the server's /report. port/src/tracereport.c.
  */
 struct chrdata;
 
@@ -34,5 +39,14 @@ void traceRequest(void);
 s32 traceGetKey(void);
 // Called from chrRender() to record what happened to a chr this frame.
 void traceChrNote(struct chrdata *chr, u8 bit);
+
+// Report a Problem (port/src/tracereport.c).
+#define TRACEREPORT_MAXNOTE 300
+// Whether F3 offers to send what it wrote.
+s32 traceReportEnabled(void);
+// A dump and its picture were written; offer them at the next safe moment.
+void traceReportOffer(const char *tracepath, const char *shotpath);
+// From lvTick(), before menuTick(): opens the dialog.
+void traceReportTick(void);
 
 #endif

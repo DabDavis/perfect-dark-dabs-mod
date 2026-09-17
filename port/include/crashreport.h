@@ -2,6 +2,7 @@
 #define _IN_CRASHREPORT_H
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
 
@@ -55,6 +56,14 @@
  * could already be holding.
  */
 const char *crashReportSave(const char *text);
+
+/**
+ * What surrounds the error in a report: the [Mod] and [Game] sections of
+ * pd.ini as they stand, the memory pools and the log ring. Shared with the F3
+ * problem report (port/src/tracereport.c), which wants the same context around
+ * a state dump rather than a stack.
+ */
+void crashReportWriteContext(FILE *f);
 
 /**
  * Keep one line of the log for the next report.

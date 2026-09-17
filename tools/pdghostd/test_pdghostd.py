@@ -40,6 +40,7 @@ USER_QUOTA = 4 * 1024 * 1024
 # Low enough that the full-directory answer can be reached with a handful of
 # reports rather than five thousand.
 CRASH_MAX_FILES = 6
+REPORT_MAX_FILES = 4
 
 passed = 0
 failed = 0
@@ -77,6 +78,7 @@ def build_daemon():
     sub("USER_SLOW_DELAY = 3.0", "USER_SLOW_DELAY = %r" % USER_SLOW_DELAY)
     sub("RESET_DELAY = 2.0", "RESET_DELAY = %r" % RESET_DELAY)
     sub("CRASH_MAX_FILES = 5000", "CRASH_MAX_FILES = %d" % CRASH_MAX_FILES)
+    sub("REPORT_MAX_FILES = 2000", "REPORT_MAX_FILES = %d" % REPORT_MAX_FILES)
     open(DAEMON, "w").write(src)
 
 
@@ -902,6 +904,116 @@ def test_crash_reports():
         os.remove(os.path.join(CRASH_DIR, f))
 
 
+REPORT_DIR = os.path.join(ROOT, "reports")
+
+
+def report_files():
+    try:
+        return sorted(os.listdir(REPORT_DIR))
+    except OSError:
+        return []
+
+
+def clear_reports():
+    for f in report_files():
+        os.remove(os.path.join(REPORT_DIR, f))
+
+
+def tiny_png():
+    import zlib
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff))
+
+    raw = b"\x00\xff\x00\x00" * 2
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 2, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def send_report(report, note="", screenshot=None, ip=None, raw=None):
+    import base64
+    body = {"report": report, "note": note, "version": "abc1234",
+            "platform": "x86_64-linux", "channel": "dev"}
+    if screenshot is not None:
+        body["screenshot"] = base64.b64encode(screenshot).decode()
+    if raw is not None:
+        body.update(raw)
+    return post_json("/report", body, ip=ip)
+
+
+def test_problem_reports():
+    print("problem reports")
+
+    report = ("Dab's Mod problem report\nversion: dabs-mod abc1234\n\n"
+              "--- trace ---\npd trace 2026-09-17 12:00:00\nstage 0x09 lvframenum 3000\n")
+    png = tiny_png()
+
+    st, body, _ = send_report(report, note="guard's gun is floating\nnext to him", screenshot=png,
+                              ip="10.6.0.1")
+    check(st == 200 and body.get("ok") and body.get("id"), "a report with a picture is taken -> 200")
+    base = body.get("id", "")
+    check(report_files() == [base + ".png", base + ".txt"], "and written as a .txt and a .png")
+    check(open(os.path.join(REPORT_DIR, base + ".png"), "rb").read() == png,
+          "the picture is the bytes that were sent")
+    stored = open(os.path.join(REPORT_DIR, base + ".txt")).read()
+    check("from: 10.6.0.1" in stored and "screenshot: %s.png" % base in stored
+          and "note: guard's gun is floating next to him\n" in stored,
+          "the header names the address, the picture and the note on one line")
+    check("stage 0x09 lvframenum 3000" in stored, "and the dump is underneath")
+    clear_reports()
+
+    st, body, _ = send_report(report, ip="10.6.0.2")
+    check(st == 200 and report_files() == [body["id"] + ".txt"], "a report without a picture is a .txt alone")
+    check("screenshot: -" in open(os.path.join(REPORT_DIR, body["id"] + ".txt")).read(),
+          "and says so")
+    clear_reports()
+
+    st, body, _ = send_report(report, screenshot=b"GIF89a not a png", ip="10.6.0.3")
+    check(st == 400 and body.get("error") == "bad screenshot" and not report_files(),
+          "a picture that is not a PNG -> 400, nothing written")
+
+    st, body, _ = send_report(report, raw={"screenshot": "!!!not base64!!!"}, ip="10.6.0.3")
+    check(st == 400 and body.get("error") == "bad screenshot", "a picture that is not base64 -> 400")
+
+    st, body, _ = send_report("short", ip="10.6.0.3")
+    check(st == 400 and body.get("error") == "empty report", "an empty report -> 400")
+
+    st, body, _ = send_report(report + "\x1b[2J", note="n" * 5000, ip="10.6.0.4")
+    stored = open(os.path.join(REPORT_DIR, body["id"] + ".txt")).read()
+    check(st == 200 and "\x1b" not in stored and "note: " + "n" * 1000 + "\n" in stored,
+          "control characters out, the note cut to its cap")
+    clear_reports()
+
+    # Bigger than the ghost limit, which is the point of the route's own limit.
+    big = "x" * (3 * 1024 * 1024)
+    st, body, _ = send_report(report + big, screenshot=png, ip="10.6.0.5")
+    stored = open(os.path.join(REPORT_DIR, body["id"] + ".txt")).read() if st == 200 else ""
+    check(st == 200 and len(stored) < 520 * 1024, "a body past 2MB is taken, and its text cut to the cap")
+    clear_reports()
+
+    st, _, _ = req("GET", "/report", ip="10.6.0.5")
+    check(st == 404, "there is no way to read one back out")
+
+    seen = set()
+    for i in range(6):
+        st, _, _ = send_report(report, screenshot=png, ip="10.6.0.9")
+        seen.add(st)
+    check(507 in seen and len([f for f in report_files() if f.endswith(".txt")]) == REPORT_MAX_FILES,
+          "a full report directory refuses at its cap, counting reports rather than files")
+    clear_reports()
+
+    taken = 0
+    for i in range(30):
+        st, _, _ = send_report(report, ip="10.6.1.1")
+        taken += st == 200
+        clear_reports()
+    check(taken == 30, "thirty reports in an hour from one address are taken")
+    st, body, _ = send_report(report, ip="10.6.1.1")
+    check(st == 429, "the thirty-first -> 429")
+    clear_reports()
+
+
 def main():
     build_daemon()
     seed_old_schema()
@@ -920,6 +1032,7 @@ def main():
         test_recovery()
         test_three_questions()
         test_crash_reports()
+        test_problem_reports()
     finally:
         stop_server()
     print("\n%d passed, %d failed" % (passed, failed))

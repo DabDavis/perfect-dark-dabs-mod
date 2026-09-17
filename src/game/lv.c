@@ -1,5 +1,6 @@
 #ifndef PLATFORM_N64
 #include "headfit.h"
+#include "trace.h"
 #endif
 #include <ultra64.h>
 #include "constants.h"
@@ -2579,6 +2580,11 @@ void lvTick(void)
 		modelmgrPrintCounts();
 		boltbeamsTick();
 		amTick();
+#ifndef PLATFORM_N64
+		// F3's Report a Problem dialog, pushed here rather than from the key's
+		// own tick because a menu is game state.
+		traceReportTick();
+#endif
 		menuTick();
 		scenarioTick();
 

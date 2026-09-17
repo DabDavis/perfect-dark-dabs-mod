@@ -17,13 +17,16 @@
 #include "system.h"
 #include "pngwrite.h"
 
-static void pngWriteU32(FILE *f, u32 val)
+static u8 *pngPutU32(u8 *out, u32 val)
 {
-	const u8 buf[4] = { val >> 24, val >> 16, val >> 8, val };
-	fwrite(buf, 1, sizeof(buf), f);
+	out[0] = val >> 24;
+	out[1] = val >> 16;
+	out[2] = val >> 8;
+	out[3] = val;
+	return out + 4;
 }
 
-static void pngWriteChunk(FILE *f, const char *type, const u8 *data, u32 len)
+static u8 *pngPutChunk(u8 *out, const char *type, const u8 *data, u32 len)
 {
 	u32 crc = crc32(0, (const u8 *)type, 4);
 
@@ -31,14 +34,16 @@ static void pngWriteChunk(FILE *f, const char *type, const u8 *data, u32 len)
 		crc = crc32(crc, data, len);
 	}
 
-	pngWriteU32(f, len);
-	fwrite(type, 1, 4, f);
+	out = pngPutU32(out, len);
+	memcpy(out, type, 4);
+	out += 4;
 
 	if (len) {
-		fwrite(data, 1, len, f);
+		memcpy(out, data, len);
+		out += len;
 	}
 
-	pngWriteU32(f, crc);
+	return pngPutU32(out, crc);
 }
 
 /**
@@ -48,7 +53,7 @@ static void pngWriteChunk(FILE *f, const char *type, const u8 *data, u32 len)
  * deflate, and choosing filters per row would cost more than it saves at these
  * sizes.
  */
-s32 pngWrite(const char *path, const u8 *pixels, s32 width, s32 height, s32 channels, s32 bottomRowFirst)
+u8 *pngEncode(const u8 *pixels, s32 width, s32 height, s32 channels, s32 bottomRowFirst, u32 *outSize)
 {
 	const uLong rowSize = (uLong)width * channels;
 	const uLong stride = 1 + rowSize;
@@ -56,14 +61,15 @@ s32 pngWrite(const char *path, const u8 *pixels, s32 width, s32 height, s32 chan
 	uLong zSize;
 	u8 *raw;
 	u8 *z;
-	FILE *f;
+	u8 *png;
+	u8 *out;
 	u8 ihdr[13];
 	s32 y;
 
 	if (width <= 0 || height <= 0 || (channels != 3 && channels != 4)) {
-		sysLogPrintf(LOG_ERROR, "png: refusing to write %s at %dx%d with %d channels",
-				path, width, height, channels);
-		return 0;
+		sysLogPrintf(LOG_ERROR, "png: refusing to encode %dx%d with %d channels",
+				width, height, channels);
+		return NULL;
 	}
 
 	zSize = compressBound(rawSize);
@@ -73,9 +79,9 @@ s32 pngWrite(const char *path, const u8 *pixels, s32 width, s32 height, s32 chan
 	if (!raw || !z) {
 		free(raw);
 		free(z);
-		sysLogPrintf(LOG_ERROR, "png: could not alloc %lu bytes for %s",
-				(unsigned long)(rawSize + zSize), path);
-		return 0;
+		sysLogPrintf(LOG_ERROR, "png: could not alloc %lu bytes",
+				(unsigned long)(rawSize + zSize));
+		return NULL;
 	}
 
 	for (y = 0; y < height; y++) {
@@ -88,21 +94,20 @@ s32 pngWrite(const char *path, const u8 *pixels, s32 width, s32 height, s32 chan
 	if (compress2(z, &zSize, raw, rawSize, Z_DEFAULT_COMPRESSION) != Z_OK) {
 		free(raw);
 		free(z);
-		sysLogPrintf(LOG_ERROR, "png: could not compress %s", path);
-		return 0;
+		sysLogPrintf(LOG_ERROR, "png: could not compress");
+		return NULL;
 	}
 
 	free(raw);
 
-	f = fopen(path, "wb");
+	// Signature, then IHDR, IDAT and IEND at 12 bytes of framing each.
+	png = malloc(8 + 12 + sizeof(ihdr) + 12 + zSize + 12);
 
-	if (!f) {
+	if (!png) {
 		free(z);
-		sysLogPrintf(LOG_ERROR, "png: could not open %s for writing", path);
-		return 0;
+		sysLogPrintf(LOG_ERROR, "png: could not alloc %lu bytes", (unsigned long)zSize + 57);
+		return NULL;
 	}
-
-	fwrite("\x89PNG\r\n\x1a\n", 1, 8, f);
 
 	ihdr[0] = width >> 24;
 	ihdr[1] = width >> 16;
@@ -118,19 +123,47 @@ s32 pngWrite(const char *path, const u8 *pixels, s32 width, s32 height, s32 chan
 	ihdr[11] = 0;                      // adaptive filtering
 	ihdr[12] = 0;                      // no interlace
 
-	pngWriteChunk(f, "IHDR", ihdr, sizeof(ihdr));
-	pngWriteChunk(f, "IDAT", z, zSize);
-	pngWriteChunk(f, "IEND", NULL, 0);
+	out = png;
+	memcpy(out, "\x89PNG\r\n\x1a\n", 8);
+	out += 8;
+	out = pngPutChunk(out, "IHDR", ihdr, sizeof(ihdr));
+	out = pngPutChunk(out, "IDAT", z, zSize);
+	out = pngPutChunk(out, "IEND", NULL, 0);
 
 	free(z);
 
-	if (ferror(f)) {
-		fclose(f);
-		sysLogPrintf(LOG_ERROR, "png: could not write %s", path);
+	*outSize = out - png;
+
+	return png;
+}
+
+s32 pngWrite(const char *path, const u8 *pixels, s32 width, s32 height, s32 channels, s32 bottomRowFirst)
+{
+	u32 size = 0;
+	u8 *png = pngEncode(pixels, width, height, channels, bottomRowFirst, &size);
+	FILE *f;
+	s32 ok;
+
+	if (!png) {
+		sysLogPrintf(LOG_ERROR, "png: could not encode %s", path);
 		return 0;
 	}
 
-	fclose(f);
+	f = fopen(path, "wb");
+
+	if (!f) {
+		free(png);
+		sysLogPrintf(LOG_ERROR, "png: could not open %s for writing", path);
+		return 0;
+	}
+
+	ok = fwrite(png, 1, size, f) == size;
+	free(png);
+
+	if (fclose(f) != 0 || !ok) {
+		sysLogPrintf(LOG_ERROR, "png: could not write %s", path);
+		return 0;
+	}
 
 	return 1;
 }

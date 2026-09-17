@@ -165,3 +165,36 @@ frame counts and texture cache (`gfx_trace_stats()`), the mesh loader's arena
 and last-frame draws and refused poses (`xblaMeshTrace()`), the record store,
 the level loader and the pack's decode queue and kept store. From gdb,
 `call (void)traceRequest()` at any stop does the same.
+
+### Report a Problem: F3 sends it (2026-09-17)
+
+With `Mod.TraceReport=1` (the default, and only in a build with the HTTP
+client) the key also offers to send what it wrote. `port/src/tracereport.c`.
+
+- **What goes.** The dump, now followed by the same context a crash report
+  carries (`crashReportWriteContext()`: `[Mod]`, `[Game]`, the pools, the
+  200-line log ring), a note, and `traces/pd-<stamp>.png` - the frame box
+  filtered by a whole factor to at most 1280 wide (the full-size shot still
+  goes to `screenshots/`). The trace's **file name** only, never its path,
+  which names the player's account. JSON to `<Mod.GhostServer>/report`, the
+  picture base64 in it.
+- **Where it opens.** `traceReportTick()` from `lvTick()` just before
+  `menuTick()`, never from the key's own tick in pdsched: over an open menu it
+  is `menuPushDialog()`; in play it is pushed like the pak warnings
+  (`MENUROOT_MAINMENU` + `lvSetPaused` for one player, `MENUROOT_MPPAUSE`
+  otherwise) and it waits out cutscenes, a pause on its way in and the title.
+  The picture is taken first, so the dialog is never in it.
+- **Typing.** Not the game's keyboard item (17 characters, alphanumerics). The
+  dialog sets `g_MenuKeyboardPlayer` and SDL text input itself and reads
+  `inputGetLastTextChar()`/`inputGetLastKey()` in its `MENUOP_TICK`; the menu's
+  own ESC handling then ends typing for free, and text input blanks the pads so
+  typed letters do not move the cursor. 300 characters, folded by hand.
+- **The trap.** Stopping typing when ENTER starts the send gave the pads back
+  while ENTER was still down; the menu took it as its own press and the dialog
+  closed before it said whether the send worked. Typing stays on through the
+  send; a sent dialog closes itself two seconds later, a failed one stays with
+  the reason and ENTER retries.
+- **Headless check.** Xvfb (typing needs real key events), a copy of pdghostd
+  with PORT/ROOT patched, `GhostServer=http://127.0.0.1:<port>` in the scratch
+  ini, Chicago `--boot-stage 0x1d`, F3 at ~60 s, `xdotool type`, Return; the
+  copy's `root/reports/` holds the `.txt` and `.png`.

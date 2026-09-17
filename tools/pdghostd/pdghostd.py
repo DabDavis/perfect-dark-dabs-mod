@@ -15,6 +15,8 @@ geometry, which is a different project. What is enforced here is the shape of
 the data, so that a malformed or enormous upload cannot cost disk or CPU.
 """
 
+import base64
+import binascii
 import contextlib
 import gzip
 import hashlib
@@ -75,6 +77,29 @@ CRASH_MAX = 12
 # Twelve an hour each from however many addresses, so the cap on the directory
 # is what stops it filling the disk: at CRASH_MAX_TEXT a report, this is 160MB.
 CRASH_MAX_FILES = 5000
+
+# Problem reports: what a player sends from the F3 key when something on screen
+# is wrong without the game having died. Same rules as a crash - no account, no
+# endpoint that reads one back, nothing sent unless the player pressed Send -
+# with more in each: the whole F3 state dump rather than a stack, a note that
+# is a sentence rather than a line, and a picture of the frame.
+#
+# Each report is two files under one name, <stamp>-<hex>.txt and .png. The
+# screenshot arrives base64 inside the JSON, already scaled down by the client
+# to no more than 1280 wide, so REPORT_MAX_BODY clears the worst of that plus
+# the text with room to spare, and nginx's client_max_body_size must clear it.
+REPORT_DIR = os.path.join(ROOT, "reports")
+REPORT_MAX_BODY = 8 * 1024 * 1024
+REPORT_MAX_TEXT = 512 * 1024
+REPORT_MAX_NOTE = 1000
+REPORT_MAX_SHOT = 5 * 1024 * 1024
+REPORT_WINDOW = 3600
+REPORT_MAX = 30
+# At the text cap plus the picture cap a report, this is a few GB at worst and
+# a small fraction of that in practice (a report is ~100KB of text and a
+# ~1MB picture).
+REPORT_MAX_FILES = 2000
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 # The stages a trial can be set on: the solo missions, as g_SoloStages in the
 # client's mainmenu.c lists them. modGhostStageIsEligible() in modghost.c is
@@ -261,6 +286,7 @@ _download_counts = {}
 _reset_failures = {}   # account -> failed resets, the day's budget
 _reset_ips = {}        # address -> reset attempts, whatever they were for
 _crash_counts = {}     # address -> crash reports sent
+_report_counts = {}    # address -> problem reports sent
 
 
 def db():
@@ -744,6 +770,33 @@ def crash_dir_count():
         return -1
 
 
+def report_dir_count():
+    """How many problem reports are on disk (their .txt halves), or -1."""
+    try:
+        return sum(1 for n in os.listdir(REPORT_DIR) if n.endswith(".txt"))
+    except OSError:
+        return -1
+
+
+def report_shot(value):
+    """The screenshot of a problem report as PNG bytes, b"" for none, None if bad.
+
+    Only a PNG is kept: the file is opened by whoever reads the report, and a
+    picture that is not the picture it claims to be has no business on disk.
+    """
+    if value is None or value == "":
+        return b""
+    if not isinstance(value, str) or len(value) > (REPORT_MAX_SHOT * 4) // 3 + 8:
+        return None
+    try:
+        data = base64.b64decode(value, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+    if len(data) > REPORT_MAX_SHOT or not data.startswith(PNG_MAGIC):
+        return None
+    return data
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "pdghostd/1.0"
     protocol_version = "HTTP/1.1"
@@ -836,18 +889,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def read_body(self):
+    def read_body(self, limit=MAX_BODY):
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return None
-        if length <= 0 or length > MAX_BODY:
+        if length <= 0 or length > limit:
             return None
         body = self.rfile.read(length)
         self.body_done = True
         return body
 
-    def read_json(self):
+    def read_json(self, limit=MAX_BODY):
         """The body as a JSON object, or None if it is not one.
 
         Not an object covers a lot: a body that is not JSON, one that is JSON
@@ -855,7 +908,7 @@ class Handler(BaseHTTPRequestHandler):
         gives up on it. Each of those was a different exception, and only the
         first was being caught.
         """
-        body = self.read_body()
+        body = self.read_body(limit)
         if body is None:
             return None
         try:
@@ -1526,6 +1579,87 @@ class Handler(BaseHTTPRequestHandler):
                              name, version or "-", platform or "-", len(report))
 
             return self.send_json(200, {"ok": True, "id": name})
+
+        if path == "/report":
+            req = self.read_json(REPORT_MAX_BODY)
+            if req is None:
+                return self.send_json(400, {"ok": False, "error": "bad body"})
+
+            report = crash_field(req.get("report", ""), REPORT_MAX_TEXT)
+            note = crash_field(req.get("note", ""), REPORT_MAX_NOTE)
+            version = crash_field(req.get("version", ""), CRASH_MAX_FIELD)
+            platform = crash_field(req.get("platform", ""), CRASH_MAX_FIELD)
+            channel = crash_field(req.get("channel", ""), CRASH_MAX_FIELD)
+            shot = report_shot(req.get("screenshot"))
+
+            if None in (report, note, version, platform, channel):
+                return self.send_json(400, {"ok": False, "error": "bad body"})
+            if shot is None:
+                return self.send_json(400, {"ok": False, "error": "bad screenshot"})
+
+            # The dump alone is kilobytes; anything much shorter is not one.
+            if len(report.strip()) < 32:
+                return self.send_json(400, {"ok": False, "error": "empty report"})
+
+            if not rate_ok(_report_counts, self.client_ip(), REPORT_WINDOW, REPORT_MAX):
+                return self.send_json(429, {"ok": False,
+                    "error": "too many reports from here, try again later"})
+
+            os.makedirs(REPORT_DIR, exist_ok=True)
+
+            count = report_dir_count()
+            if count < 0:
+                return self.send_json(500, {"ok": False, "error": "no report directory"})
+            if count >= REPORT_MAX_FILES:
+                return self.send_json(507, {"ok": False, "error": "no room for more reports"})
+
+            base = "%s-%s" % (time.strftime("%Y%m%d-%H%M%S"), os.urandom(4).hex())
+
+            # The note goes in the header and again as its own block: the
+            # header line is what `head` shows across a listing, and a note of
+            # a thousand characters is unreadable folded onto one line.
+            head = (
+                "received: %s\n"
+                "from: %s\n"
+                "version: %s\n"
+                "platform: %s\n"
+                "channel: %s\n"
+                "screenshot: %s\n"
+                "note: %s\n\n"
+                % (time.strftime("%Y-%m-%d %H:%M:%S"), self.client_ip(),
+                   version or "-", platform or "-", channel or "-",
+                   (base + ".png") if shot else "-", note.replace("\n", " ") or "-"))
+
+            written = []
+            try:
+                if shot:
+                    fd = os.open(os.path.join(REPORT_DIR, base + ".png"),
+                                 os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    written.append(base + ".png")
+                    with os.fdopen(fd, "wb") as f:
+                        f.write(shot)
+                # The text last, so that a .txt on disk always has its picture.
+                fd = os.open(os.path.join(REPORT_DIR, base + ".txt"),
+                             os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                written.append(base + ".txt")
+                with os.fdopen(fd, "w") as f:
+                    f.write(head)
+                    f.write(report)
+                    if not report.endswith("\n"):
+                        f.write("\n")
+            except OSError as ex:
+                self.log_message("problem report not written: %s", ex)
+                for name in written:
+                    try:
+                        os.unlink(os.path.join(REPORT_DIR, name))
+                    except OSError:
+                        pass
+                return self.send_json(500, {"ok": False, "error": "could not store the report"})
+
+            self.log_message("problem report %s (%s, %s, %d bytes, picture %d bytes)",
+                             base, version or "-", platform or "-", len(report), len(shot))
+
+            return self.send_json(200, {"ok": True, "id": base})
 
         return self.send_json(404, {"ok": False, "error": "no such endpoint"})
 

@@ -102,11 +102,35 @@ static const char *crashReportModName(void)
 	return slash ? slash + 1 : dir;
 }
 
+void crashReportWriteContext(FILE *f)
+{
+	char settings[4096];
+
+	configDumpSection("Mod", settings, sizeof(settings));
+	fprintf(f, "\n--- pd.ini [Mod] ---\n%s", settings);
+
+	// Game.MemorySize is here, and the pools with it: four of the first
+	// reports crashed after "memory pool is full" with nothing to say whether
+	// the player had turned the memory down or the level had outgrown it.
+	configDumpSection("Game", settings, sizeof(settings));
+	fprintf(f, "\n--- pd.ini [Game] ---\n%s", settings);
+
+	fprintf(f, "\n--- memory ---\n"
+			"stage pool free onboard %d expansion %d (total %u); permanent free onboard %d expansion %d\n",
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_STAGE, CRASHREPORT_MEMBANK_ONBOARD),
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_STAGE, CRASHREPORT_MEMBANK_EXPANSION),
+			mempGetStageFreeTotal(),
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_PERMANENT, CRASHREPORT_MEMBANK_ONBOARD),
+			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_PERMANENT, CRASHREPORT_MEMBANK_EXPANSION));
+
+	fprintf(f, "\n--- log (last %d lines) ---\n", CRASHREPORT_LOGLINES);
+	crashReportWriteRing(f);
+}
+
 const char *crashReportSave(const char *text)
 {
 	char path[FS_MAXPATH];
 	char stamp[32];
-	char settings[4096];
 	const time_t now = time(NULL);
 	struct tm *tm = localtime(&now);
 	FILE *f;
@@ -139,25 +163,7 @@ const char *crashReportSave(const char *text)
 
 	fprintf(f, "\n--- crash ---\n%s\n", text ? text : "(none)");
 
-	configDumpSection("Mod", settings, sizeof(settings));
-	fprintf(f, "\n--- pd.ini [Mod] ---\n%s", settings);
-
-	// Game.MemorySize is here, and the pools with it: four of the first
-	// reports crashed after "memory pool is full" with nothing to say whether
-	// the player had turned the memory down or the level had outgrown it.
-	configDumpSection("Game", settings, sizeof(settings));
-	fprintf(f, "\n--- pd.ini [Game] ---\n%s", settings);
-
-	fprintf(f, "\n--- memory ---\n"
-			"stage pool free onboard %d expansion %d (total %u); permanent free onboard %d expansion %d\n",
-			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_STAGE, CRASHREPORT_MEMBANK_ONBOARD),
-			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_STAGE, CRASHREPORT_MEMBANK_EXPANSION),
-			mempGetStageFreeTotal(),
-			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_PERMANENT, CRASHREPORT_MEMBANK_ONBOARD),
-			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_PERMANENT, CRASHREPORT_MEMBANK_EXPANSION));
-
-	fprintf(f, "\n--- log (last %d lines) ---\n", CRASHREPORT_LOGLINES);
-	crashReportWriteRing(f);
+	crashReportWriteContext(f);
 
 	fsFileFree(f);
 

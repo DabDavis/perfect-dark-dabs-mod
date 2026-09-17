@@ -199,6 +199,30 @@ The client's default server is in `port/src/ghostnet.c` and is overridable per
 machine with `Mod.GhostServer` in `pd.ini`, which is also how you point a build
 at a local copy for testing.
 
+## Problem reports
+
+`POST /report` is the F3 key's *Report a Problem* dialog
+(`port/src/tracereport.c`): the same rules as a crash report - no account,
+nothing reads one back, nothing sent unless the player pressed Send - with a
+bigger payload: `{report, note, version, platform, channel, screenshot}`, where
+`report` is the whole F3 state dump plus settings and log, and `screenshot` a
+base64 PNG the client has already scaled to at most 1280 wide.
+
+Each report is two files in `~/pdghosts/reports`, `<stamp>-<hex>.txt` (header
+of what the server knows, note on one line, then the report) and `.png`
+(written first, so a `.txt` always has its picture; only a real PNG is kept).
+
+```sh
+ls -t ~/pdghosts/reports | head
+scp 'sdg@10.8.0.1:~/pdghosts/reports/20260917-103319-ee727897.*' .
+```
+
+Bounds: 8 MiB body on this route (`REPORT_MAX_BODY`; the ghost routes keep
+2 MiB), 512 KiB of text, 1000 characters of note, 5 MiB of picture, thirty an
+hour from one address, `REPORT_MAX_FILES` (2000) reports. **nginx's
+`client_max_body_size` must be at least 8m** for this route, or a report with a
+picture is refused by the proxy with a 413 the server never sees.
+
 ## Changing it
 
 Schema changes run from `init_db()` on startup, against a live database that is

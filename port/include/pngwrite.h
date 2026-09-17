@@ -20,6 +20,12 @@ extern "C" {
  */
 s32 pngWrite(const char *path, const u8 *pixels, s32 width, s32 height, s32 channels, s32 bottomRowFirst);
 
+/**
+ * The same PNG in memory. Returns a malloc()ed buffer the caller free()s, with
+ * its length in outSize, or NULL.
+ */
+u8 *pngEncode(const u8 *pixels, s32 width, s32 height, s32 channels, s32 bottomRowFirst, u32 *outSize);
+
 #ifdef __cplusplus
 }
 #endif
