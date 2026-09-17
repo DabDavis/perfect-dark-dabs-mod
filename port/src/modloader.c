@@ -93,6 +93,10 @@ static char g_ModStageMapNames[STAGE_MAX_ID + 1][32];
 // And its sky and fog where the maps block gives them, else the default the
 // chooser falls back to for a stage no table names
 static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
+// And a second setup with the objects of the borrowed mod's own stage whose
+// solo setup is named, for when that mod is installed (modborrow.c)
+static s32 g_ModStageProps[STAGE_MAX_ID + 1];
+static char g_ModStagePropsFrom[STAGE_MAX_ID + 1][32];
 
 /**
  * The mod directory a runtime-registered stage belongs to, or NULL for a stock
@@ -435,6 +439,24 @@ static void modloaderSetStageFog(s32 stagenum, const char *name, const char *tex
 	env->clouds_height = height;
 }
 
+/**
+ * A map's `props` and `propsfrom`: a setup of its own that carries another
+ * mod's objects, and the solo setup of that mod's stage they are from. The
+ * objects' model numbers are that mod's, so the setup is only used when
+ * modborrow.c finds the stage in the mod it borrows from and swaps its model
+ * states in. 0 when the map has none.
+ */
+s32 modloaderGetStageProps(s32 stagenum, const char **from)
+{
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID || !g_ModStageDirs[stagenum] || !g_ModStageProps[stagenum]) {
+		return 0;
+	}
+
+	*from = g_ModStagePropsFrom[stagenum];
+
+	return g_ModStageProps[stagenum];
+}
+
 struct fogenvironment *modloaderGetStageFog(s32 stagenum)
 {
 	if (stagenum <= 0 || stagenum > STAGE_MAX_ID || !g_ModStageDirs[stagenum] || g_ModStageFog[stagenum].stage != stagenum) {
@@ -529,6 +551,8 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 			char name[UTIL_MAX_TOKEN + 1] = { 0 };
 			char files[4][UTIL_MAX_TOKEN + 1] = { { 0 } };
 			char fog[UTIL_MAX_TOKEN + 1] = { 0 };
+			char props[UTIL_MAX_TOKEN + 1] = { 0 };
+			char propsfrom[UTIL_MAX_TOKEN + 1] = { 0 };
 
 			if (strcmp(token, "map") != 0) {
 				sysLogPrintf(LOG_WARNING, "modloader: %s: unexpected %s in the maps block", dir, token);
@@ -550,11 +574,17 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 					}
 				}
 				const bool isfog = !strcmp(token, "fog");
+				const bool isprops = !strcmp(token, "props");
+				const bool ispropsfrom = !strcmp(token, "propsfrom");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
 					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
 				} else if (isfog) {
 					snprintf(fog, sizeof(fog), "%s", strUnquote(token));
+				} else if (isprops) {
+					snprintf(props, sizeof(props), "%s", strUnquote(token));
+				} else if (ispropsfrom) {
+					snprintf(propsfrom, sizeof(propsfrom), "%s", strUnquote(token));
 				}
 				p = strParseToken(p, token, NULL);
 			}
@@ -565,8 +595,15 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 				++scan->found;
 				if (modloaderAddConfigMap(modIndex, scan->label, name, files[0], files[1], files[2], files[3])) {
 					++scan->registered;
+					const s32 stageId = g_Stages[g_ModStageNextSlot - 1].id;
+
 					if (fog[0]) {
-						modloaderSetStageFog(g_Stages[g_ModStageNextSlot - 1].id, name, fog);
+						modloaderSetStageFog(stageId, name, fog);
+					}
+
+					if (props[0] && propsfrom[0] && modloaderModHasFile(modIndex, "%s", props)) {
+						g_ModStageProps[stageId] = modloaderRegister(modIndex, "%s", props);
+						snprintf(g_ModStagePropsFrom[stageId], sizeof(g_ModStagePropsFrom[stageId]), "%s", propsfrom);
 					}
 				}
 			}
@@ -641,6 +678,8 @@ void modloaderInit(void)
 	memset(g_ModStageDirs, 0, sizeof(g_ModStageDirs));
 	memset(g_ModStageMapNames, 0, sizeof(g_ModStageMapNames));
 	memset(g_ModStageFog, 0, sizeof(g_ModStageFog));
+	memset(g_ModStageProps, 0, sizeof(g_ModStageProps));
+	memset(g_ModStagePropsFrom, 0, sizeof(g_ModStagePropsFrom));
 	g_ModStagesRegistered = g_ModStagesFound = g_ModStageMods = 0;
 
 	if (fsGetNumModDirs() <= 0) {

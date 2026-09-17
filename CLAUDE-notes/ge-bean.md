@@ -1511,3 +1511,34 @@ And one in the converter: GoldenEye's Streets ships rooms 20-54 as one shared
 empty display list over floor that runs on to z 33822, so a spawn on a pad
 over that floor saw only sky. `floored_pads()` wants the tile's room to have
 vertices.
+
+**Their doors, props and lights (2026-09-17).** GE-X converted GoldenEye's
+setups to Perfect Dark's format itself and kept GoldenEye's pads **by index**,
+moved by a whole-unit translation (Dam 0/12840/10015, Train 6658/0/0, Streets
+0/0/-5000, Jungle none), with GoldenEye's bound pads after them - and a door's
+pad field is a bound pad index with no 10000 added. So the converter
+(`.xbla-work/ge-arena/gexobjects.py`) writes GE-X's pad records into the arena
+and a second setup, `Ump_setupgxNAMEPZ`, carrying GE-X's objects that stand
+where one of GoldenEye's does (Dam 153 of 154, Train 144 of 153, Streets 114,
+Jungle 373): doors, props, alarms, monitors, glass, safes; vehicles and ammo
+crates as plain props; door siblings renumbered. GE-X's stage table, model
+states and file names are read out of the import's `segs/data`
+(`gexdata.py`; a stage row is 0x38 bytes, a model state is {pointer, fileid,
+scale}). The maps block names it `props "..." propsfrom "<GE-X solo setup>"`;
+`modBorrowArenas()` finds that stage in GE-X by its **solo** setup, swaps the
+setup in and takes GE-X's stage row and model states for the arena - without
+GE-X installed the plain setup stays, since the model numbers are GE-X's. An
+object is only created on a pad with a room, and the old pads were all room
+-1: every pad now gets the room of the floor tile under it (else the room
+whose box holds it). Runway (GE-X's is a remake, 53 of 176 pads) and Caves
+(GE-X's arena has only weapons) have none. Jungle's rock walls and trees *are*
+GoldenEye's props.
+
+Lights: GoldenEye's are the triangles drawn with one of ten light textures
+(`check_if_imageID_is_light()`); touching ones make a fixture, and each
+becomes a Perfect Dark light - the rectangle round it in its plane, glare down
+unless on a wall. The light table has to sit **straight before the bgcmds**:
+the preprocessor counts lights by the distance between the two pointers. The
+room header's lightsindex/numlights and section 3's per-room counts go with
+it. Only Dam has any (5 hanging and strip lamps); Jungle names PANEL_LAMP but
+draws nothing with it.

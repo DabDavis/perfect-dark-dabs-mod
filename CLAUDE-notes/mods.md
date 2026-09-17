@@ -1752,6 +1752,14 @@ field. One trap: the cloud and water "scale" is the plane's **world height**
 (`sky.c` subtracts the camera's y), so a level the converter re-centres must
 move it too - Dam, shifted 13219 up, drew a black sky until it did.
 
+**A map's borrowed objects: `props` and `propsfrom` (2026-09-17).** A map line
+may name a second setup of its own and the solo setup of the borrowed mod's
+stage its objects come from (`modloaderGetStageProps()`); `modBorrowArenas()`
+uses it only when that stage is found in the mod it borrows from, and then
+treats the map as one of that mod's arenas (stage row, model states). The
+GoldenEye Arenas use it for GE-X's doors and props - ge-bean.md, "Their doors,
+props and lights".
+
 ## A GE-X tester's seven reports, and what each was (2026-09-13, importer 32)
 
 Every one was code GE-X changed that the port still did from stock numbers.

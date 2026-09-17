@@ -910,12 +910,25 @@ void modBorrowArenas(void)
 	for (s32 stagenum = 1; stagenum <= STAGE_MAX_ID && arenas.num < BORROW_MAXARENAS; stagenum++) {
 		const s32 index = stageGetIndex(stagenum);
 		const char *setup;
+		const char *propsfrom = NULL;
+		const s32 props = modloaderGetStageProps(stagenum, &propsfrom);
+		// The mod's own maps are found by their multiplayer setup; another
+		// mod's map that carries the mod's objects names the solo setup of
+		// the stage they are from (the GoldenEye Arenas' levels)
+		s32 at = 0x10;
 
-		if (index < 0 || modloaderGetStageModDirIndex(stagenum) != src.moddir) {
+		if (index < 0) {
 			continue;
 		}
 
-		setup = romdataFileGetName(g_Stages[index].mpsetupfileid);
+		if (modloaderGetStageModDirIndex(stagenum) == src.moddir) {
+			setup = romdataFileGetName(g_Stages[index].mpsetupfileid);
+		} else if (props > 0) {
+			setup = propsfrom;
+			at = 0x0e;
+		} else {
+			continue;
+		}
 
 		for (s32 i = 0; setup && i < src.spec.numstages; i++) {
 			u8 row[N64_STAGE_SIZE];
@@ -925,7 +938,7 @@ void modBorrowArenas(void)
 				break;
 			}
 
-			name = modDataBorrowFileName(b, borrowBE16(row + 0x10));
+			name = modDataBorrowFileName(b, borrowBE16(row + at));
 
 			if (!name || strcmp(name, setup)) {
 				continue;
@@ -935,6 +948,13 @@ void modBorrowArenas(void)
 				struct stagetableentry *e = &g_Stages[index];
 				const s16 modstage = (s16)borrowBE16(row);
 				u32 v;
+
+				if (at == 0x0e) {
+					e->setupfileid = props;
+					e->mpsetupfileid = props;
+					sysLogPrintf(LOG_NOTE, "modborrow: stage 0x%02x takes `%s`'s objects from %s (its stage 0x%02x)",
+							stagenum, src.name, propsfrom, modstage);
+				}
 
 				e->light_type = row[2];
 				e->light_alpha = row[3];

@@ -15,6 +15,10 @@ const char *modloaderGetStageAllocation(s32 stagenum);
 const char *modloaderGetStageMapName(s32 stagenum);
 struct fogenvironment;
 
+// A Stage Loader map's setup with a borrowed mod's objects, and the solo setup
+// of the mod's stage they come from; 0 for none.
+s32 modloaderGetStageProps(s32 stagenum, const char **from);
+
 // A Stage Loader map's fog table row from its mod's maps block, or NULL.
 struct fogenvironment *modloaderGetStageFog(s32 stagenum);
 
