@@ -56,6 +56,7 @@
 #include "mod.h"
 #ifndef PLATFORM_N64
 #include "xblasky.h"
+#include "modloader.h"
 #endif
 #endif
 #endif
@@ -212,6 +213,33 @@ static Gfx *bgSpectateDepthBiasEnd(Gfx *gdl, s32 roomnum)
 	}
 
 	return gdl;
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye drew a level's distant terrain (Dam's hillsides, rooms 6, 9, 10)
+ * without the z buffer, trusting its portal walk to draw those rooms before
+ * the near ones. The remake's arenas draw every room in HD, in no such order,
+ * and on Dam the hillsides 11000 units off painted over the tunnel mouth in
+ * the fog colour (a tester's F3). Their render modes get the depth test here,
+ * after the fog swaps; an opaque one writes depth too.
+ */
+static void bgDepthTestRemakeRoom(struct roomblock *block)
+{
+	for (; block; block = block->next) {
+		if (block->type == ROOMBLOCKTYPE_PARENT) {
+			bgDepthTestRemakeRoom(block->child);
+		} else if (block->type == ROOMBLOCKTYPE_LEAF) {
+			for (Gfx *gdl = block->gdl; gdl && (s8)gdl->bytes[GFX_W0_BYTE(0)] != G_ENDDL; gdl++) {
+				if ((u32)gdl->words.w0 == 0xb900031d && !(gdl->words.w1 & Z_CMP)) {
+					gdl->words.w1 |= Z_CMP | ((gdl->words.w1 & FORCE_BL) ? 0 : Z_UPD);
+				}
+			}
+		} else {
+			break;
+		}
+	}
 }
 #endif
 
@@ -3279,6 +3307,13 @@ void bgLoadRoom(s32 roomnum)
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->opablocks, 6);
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->xlublocks, 7);
 		}
+
+#ifndef PLATFORM_N64
+		if (modloaderStageIsRemake(g_Vars.stagenum)) {
+			bgDepthTestRemakeRoom(g_Rooms[roomnum].gfxdata->opablocks);
+			bgDepthTestRemakeRoom(g_Rooms[roomnum].gfxdata->xlublocks);
+		}
+#endif
 
 		// Create vertex batches - these are used for hit detection
 		bgFindRoomVtxBatches(roomnum);
