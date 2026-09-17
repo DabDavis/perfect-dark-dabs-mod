@@ -146,11 +146,19 @@ void traceReportTick(void)
 			&& !g_Vars.in_cutscene
 			&& g_Menus[0].openinhibit == 0
 			&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
-		if (PLAYERCOUNT() == 1) {
+		// Opened the way Start opens this mode's own pause menu (bondmove.c).
+		// A match is g_Vars.mplayerisrunning whatever PLAYERCOUNT() says: the
+		// solo root pushed into a one-player Combat Simulator match closed to
+		// a black screen that Start could not get out of, because the match
+		// never unpauses a MENUROOT_MAINMENU pause.
+		if (!g_Vars.mplayerisrunning) {
+			g_Menus[0].playernum = 0;
 			menuPushRootDialog(&g_TraceReportMenuDialog, MENUROOT_MAINMENU);
 			lvSetPaused(true);
 			g_Vars.currentplayer->pausemode = PAUSEMODE_PAUSED;
 		} else {
+			g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
+			g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
 			menuPushRootDialog(&g_TraceReportMenuDialog, MENUROOT_MPPAUSE);
 		}
 

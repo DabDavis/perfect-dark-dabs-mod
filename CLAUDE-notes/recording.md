@@ -180,9 +180,14 @@ client) the key also offers to send what it wrote. `port/src/tracereport.c`.
   picture base64 in it.
 - **Where it opens.** `traceReportTick()` from `lvTick()` just before
   `menuTick()`, never from the key's own tick in pdsched: over an open menu it
-  is `menuPushDialog()`; in play it is pushed like the pak warnings
-  (`MENUROOT_MAINMENU` + `lvSetPaused` for one player, `MENUROOT_MPPAUSE`
-  otherwise) and it waits out cutscenes, a pause on its way in and the title.
+  is `menuPushDialog()`; in play it is pushed the way Start opens that mode's
+  own pause (bondmove.c): `MENUROOT_MAINMENU` + `lvSetPaused` in a mission,
+  `MENUROOT_MPPAUSE` under the player's `mpindex` whenever
+  `g_Vars.mplayerisrunning` - **not** by `PLAYERCOUNT()`, as the pak warnings
+  do: a one-player Combat Simulator match given the solo root closed to a
+  black screen Start could not leave (the tester's first report, a GE-X Plus
+  match, 2026-09-17). A match is not paused while the dialog is up. It waits
+  out cutscenes, a pause on its way in and the title.
   The picture is taken first, so the dialog is never in it.
 - **Typing.** Not the game's keyboard item (17 characters, alphanumerics). The
   dialog sets `g_MenuKeyboardPlayer` and SDL text input itself and reads
