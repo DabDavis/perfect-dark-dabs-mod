@@ -29,6 +29,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexfront.h"
+#include "modloader.h"
 #endif
 
 u8 g_FileState = 0;
@@ -259,6 +260,22 @@ void menuTick(void)
 				}
 
 				g_MpPlayerNum = 0;
+
+#ifndef PLATFORM_N64
+				// A GE-X Plus match was started from GoldenEye's folder
+				// screens and goes back to them, with the Perfect Menu under
+				// the folder the way it was when the folder was opened - not
+				// to Perfect Dark's Combat Simulator dialog, retitled.
+				if (g_GexPlusMode && !IS4MB() && !g_Vars.usingadvsetup
+						&& (g_MpSetup.chrslots & 0xf)
+						&& gexFrontOpenAfterMatch()) {
+					for (i = 0; i < MAX_PLAYERS; i++) {
+						g_Vars.waitingtojoin[i] = false;
+					}
+
+					menuPushRootDialog(&g_CiMenuViaPcMenuDialog, MENUROOT_MAINMENU);
+				}
+#endif
 
 				if (g_MpSetup.chrslots & 0xf) {
 					sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);

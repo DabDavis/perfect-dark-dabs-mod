@@ -1906,6 +1906,30 @@ while the folder is open, and closing calls `musicStartMenu()`. Recorded:
 sequence 119 starts on open, flatness 0.006 (music), the Perfect Menu's 89 back
 after closing.
 
+**After a match** (2026-09-17, a tester's F3 reports): the return path in
+`menuTick()` ("returning from a multiplayer match") pushed Perfect Dark's
+Combat Simulator dialog, retitled GE-X Plus. In GE-X Plus mode (not advanced
+setup) it now puts the Perfect Menu root back and `gexFrontOpenAfterMatch()`
+opens the folder on Multiplayer Options with the same setup - backing out twice
+reaches the Perfect Menu as after opening it. And **a setup with no player
+slot** (`chrslots & 0xf == 0`, a fresh or sims-only setup) showed "Players: 1"
+but started a match with nobody in it: the human's stats named mpindex 4, past
+`g_Menus[]`, so Start pushed the pause menu into no player's memory, paused the
+match (`mpIsPaused()` sees a dialog) and drew nothing - "pressed start, no
+menu, can't move". `frontEnterSetup()` and `frontStartMatch()` now give slot 0
+to player 1. **Simulants wear GoldenEye's characters**
+(`gexPlusThemeSimulants()`, from `mpStartMatch()` after the quick team): each
+sim takes a body `modBorrowBodyName()` names (GoldenEye X's roster, the
+Characters page's list) that nobody in the match wears while one is left, head
+by `mpGetMpheadnumByMpbodynum()`; nothing changes without GE-X borrowed. Drive:
+`build/gexrom` with GE-X symlinked into its mods (remove it after) and
+`XblaGoldenEye=1`, Return at the title with a copied eeprom, the folder and the
+match from gdb (`gexFrontOpen`, `'gexfront.c'::frontEnterSetup`, screen 1,
+`frontStartMatch`), then End Game with real keys - `mainEndStage()` called from
+gdb left the endscreen with no menu. Find a pause page by
+`g_Menus[0].curdialog->definition` and an item by `focuseditem->handler`
+rather than by screenshots.
+
 **Tested** in `build/gexrom` (GE-X symlinked into its mods for the Characters
 page): each screen screenshotted on the RX 580; the mode select lines up with
 a frame of the GoldenEye port's own (`sdg@10.8.0.3:~/claude-007/menucheck/mp3p/frames`,

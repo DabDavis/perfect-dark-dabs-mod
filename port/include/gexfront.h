@@ -18,6 +18,9 @@
 // are not there, and the caller shows Perfect Dark's GE-X Plus dialog instead.
 s32 gexFrontOpen(void);
 s32 gexFrontIsActive(void);
+// Opens the folder at Multiplayer Options after a GE-X Plus match. False when
+// it cannot be drawn, and the caller keeps Perfect Dark's Combat Simulator.
+s32 gexFrontOpenAfterMatch(void);
 void gexFrontTick(void);
 Gfx *gexFrontRender(Gfx *gdl);
 

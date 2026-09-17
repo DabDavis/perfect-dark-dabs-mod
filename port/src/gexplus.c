@@ -26,6 +26,8 @@
 #include "data.h"
 #include "modloader.h"
 #include "gexplus.h"
+#include "modborrow.h"
+#include "game/mplayer/mplayer.h"
 #include "game/botinv.h"
 #include "game/chraction.h"
 #include "game/inv.h"
@@ -224,5 +226,65 @@ void gexPlusTick(void)
 
 	if (!held && !onfloor && !going) {
 		gexPlusPlaceGoldenGun();
+	}
+}
+
+/**
+ * GE-X Plus's simulants wear GoldenEye's characters (Oddjob, Trevelyan, Jaws
+ * ...) - the ones GoldenEye X lends the Combat Simulator, which are also the
+ * folder's Characters page - rather than a simulant profile's Perfect Dark
+ * body. Each sim takes a character nobody else in the match is wearing while
+ * one is left, then any. Nothing changes when none are borrowed.
+ *
+ * From mpStartMatch(), after the quick team has made its simulants.
+ */
+void gexPlusThemeSimulants(void)
+{
+	static s32 bodies[256];
+	s32 numbodies = 0;
+	s32 i;
+
+	if (!g_GexPlusMode) {
+		return;
+	}
+
+	for (i = 0; i < g_MpListCounts.bodies && numbodies < ARRAYCOUNT(bodies); i++) {
+		if (modBorrowBodyName(g_MpBodies[i].bodynum)) {
+			bodies[numbodies++] = i;
+		}
+	}
+
+	if (numbodies == 0) {
+		return;
+	}
+
+	for (i = 0; i < MAX_BOTS; i++) {
+		const s32 offset = rngRandom() % numbodies;
+		s32 mpbodynum = bodies[offset];
+		s32 n;
+
+		if (!mpIsSimSlotOn(i)) {
+			continue;
+		}
+
+		for (n = 0; n < numbodies; n++) {
+			const s32 candidate = bodies[(offset + n) % numbodies];
+			s32 taken = false;
+			s32 j;
+
+			for (j = 0; j < MAX_MPCHRS && !taken; j++) {
+				if (j != MAX_PLAYERS + i && mpIsChrSlotOn(j) && MPCHR(j)->mpbodynum == candidate) {
+					taken = true;
+				}
+			}
+
+			if (!taken) {
+				mpbodynum = candidate;
+				break;
+			}
+		}
+
+		g_BotConfigsArray[i].base.mpbodynum = mpbodynum;
+		g_BotConfigsArray[i].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
 	}
 }

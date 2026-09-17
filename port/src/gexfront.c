@@ -1010,6 +1010,15 @@ static void frontEnterSetup(void)
 	g_Vars.antiplayernum = -1;
 	challengeDetermineUnlockedFeatures();
 
+	// A setup with no player's slot in it (a fresh one, or one only ever used
+	// for simulants) reads as one player on the Players row but starts a match
+	// with nobody in it: the human's stats then name mpindex 4, past
+	// g_Menus[], so Start pushed its pause menu into memory that is no
+	// player's, paused the match and showed nothing (a tester's report).
+	if ((g_MpSetup.chrslots & 0xf) == 0) {
+		frontSetPlayers(1);
+	}
+
 	if (frontNumPlayers() > frontNumControllers()) {
 		frontSetPlayers(frontNumControllers());
 	}
@@ -1030,6 +1039,10 @@ static void frontEnterSetup(void)
 
 static void frontStartMatch(void)
 {
+	if ((g_MpSetup.chrslots & 0xf) == 0) {
+		frontSetPlayers(1);
+	}
+
 	g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 	g_Vars.mpquickteam = g_Vars.mpquickteamnumsims > 0 ? MPQUICKTEAM_PLAYERSANDSIMS : MPQUICKTEAM_PLAYERSONLY;
 	mpConfigureQuickTeamPlayers();
@@ -1495,6 +1508,28 @@ s32 gexFrontOpen(void)
 	g_Front.inputdelay = 2;
 	g_Front.highlight = -1;
 	frontSetCursorForMode(1);
+
+	return 1;
+}
+
+/**
+ * Back from a match GE-X Plus started: straight to Multiplayer Options with the
+ * setup the match was played with, as GoldenEye returns there. The caller has
+ * put the Perfect Menu underneath, so leaving the folder lands where opening it
+ * did.
+ */
+s32 gexFrontOpenAfterMatch(void)
+{
+	if (!gexFrontOpen()) {
+		return 0;
+	}
+
+	frontEnterSetup();
+	g_Front.screen = SCREEN_MPOPTIONS;
+	g_Front.cursorx = 126.0f;
+	g_Front.cursory = ROW_TOP + ROW_PLAYERS * ROW_PITCH + ROW_PITCH / 2;
+	// the press that ended the match is not a press in the folder
+	g_Front.inputdelay = 10;
 
 	return 1;
 }

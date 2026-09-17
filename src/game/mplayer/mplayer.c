@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "gexplus.h"
+#endif
 #include "game/modrules.h"
 #include "game/camdraw.h"
 #include "game/title.h"
@@ -387,6 +390,9 @@ void mpStartMatch(void)
 #endif
 
 	mpConfigureQuickTeamSimulants();
+#ifndef PLATFORM_N64
+	gexPlusThemeSimulants();
+#endif
 
 	if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)) {
 		g_MpSetup.options &= ~MPOPTION_ONEHITKILLS;

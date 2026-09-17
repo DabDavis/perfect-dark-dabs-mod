@@ -30,4 +30,7 @@ s32 gexPlusMatchOver(void);
 // The Man with the Golden Gun: keeps its one Golden Gun in the arena, each frame
 void gexPlusTick(void);
 
+// Simulants wear GoldenEye X's borrowed GoldenEye characters, at match start
+void gexPlusThemeSimulants(void);
+
 #endif
