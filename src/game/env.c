@@ -10,6 +10,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "system.h"
+#include "modloader.h"
 #endif
 
 bool g_FogEnabled;
@@ -347,6 +348,18 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 			}
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// A Stage Loader map whose mod gave it a sky of its own
+	env1 = modloaderGetStageFog(stagenum);
+	if (env1) {
+		g_EnvOrigFogEnvironment = env1;
+		g_EnvTransitionFrom = env1;
+		g_EnvTransitionTo = env1;
+		envApplyFogEnvironment(g_EnvOrigFogEnvironment);
+		return;
+	}
+#endif
 
 	// Try to find an env1
 	for (env1 = &g_FogEnvs[0]; env1->stage != 0; env1++) {

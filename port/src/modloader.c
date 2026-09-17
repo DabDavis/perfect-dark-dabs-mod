@@ -90,6 +90,9 @@ static s32 g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
 static u8 g_ModStageDirs[STAGE_MAX_ID + 1];
 // And the map's own name, as its mod's list gives it (the arena row adds the mod)
 static char g_ModStageMapNames[STAGE_MAX_ID + 1][32];
+// And its sky and fog where the maps block gives them, else the default the
+// chooser falls back to for a stage no table names
+static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
 
 /**
  * The mod directory a runtime-registered stage belongs to, or NULL for a stock
@@ -379,6 +382,68 @@ static bool modloaderMapIsOwn(s32 modIndex, const char *bg, const char *tiles, c
 	return false;
 }
 
+/**
+ * A map's `fog` value: its row of the fog table, as envChooseAndApply() takes
+ * one, written out as a string since the table is the engine's and not the
+ * mod's.
+ *
+ *     "near far opaperc xluperc refdist fogmin fogmax SKYRGB
+ *      clouds scale type CLOUDRGB water scale type WATERRGB cloudsheight"
+ *
+ * Colours are six hex digits. A map with none keeps the chooser's default.
+ */
+static void modloaderSetStageFog(s32 stagenum, const char *name, const char *text)
+{
+	s32 v[7], clouds[3], water[3], height;
+	u32 sky, cloudrgb, waterrgb;
+
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID
+			|| sscanf(text, "%d %d %d %d %d %d %d %x %d %d %d %x %d %d %d %x %d",
+				&v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &sky,
+				&clouds[0], &clouds[1], &clouds[2], &cloudrgb,
+				&water[0], &water[1], &water[2], &waterrgb, &height) != 17) {
+		sysLogPrintf(LOG_WARNING, "modloader: %s: fog \"%s\" is not a fog row; the map keeps the default sky", name, text);
+		return;
+	}
+
+	struct fogenvironment *env = &g_ModStageFog[stagenum];
+
+	memset(env, 0, sizeof(*env));
+	env->stage = stagenum;
+	env->near = v[0];
+	env->far = v[1];
+	env->opaperc = v[2];
+	env->xluperc = v[3];
+	env->refdist = v[4];
+	env->fogmin = v[5];
+	env->fogmax = v[6];
+	env->sky_r = sky >> 16;
+	env->sky_g = sky >> 8;
+	env->sky_b = sky;
+	env->clouds_enabled = clouds[0];
+	env->clouds_scale = clouds[1];
+	env->clouds_type = clouds[2];
+	env->clouds_r = cloudrgb >> 16;
+	env->clouds_g = cloudrgb >> 8;
+	env->clouds_b = cloudrgb;
+	env->water_enabled = water[0];
+	env->water_scale = water[1];
+	env->water_type = water[2];
+	env->water_r = waterrgb >> 16;
+	env->water_g = waterrgb >> 8;
+	env->water_b = waterrgb;
+	env->clouds_height = height;
+}
+
+struct fogenvironment *modloaderGetStageFog(s32 stagenum)
+{
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID || !g_ModStageDirs[stagenum] || g_ModStageFog[stagenum].stage != stagenum) {
+		return NULL;
+	}
+
+	return &g_ModStageFog[stagenum];
+}
+
 static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char *name,
 		const char *bg, const char *tiles, const char *pads, const char *mpsetup)
 {
@@ -463,6 +528,7 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 		while (p && token[0] && strcmp(token, "}") != 0) {
 			char name[UTIL_MAX_TOKEN + 1] = { 0 };
 			char files[4][UTIL_MAX_TOKEN + 1] = { { 0 } };
+			char fog[UTIL_MAX_TOKEN + 1] = { 0 };
 
 			if (strcmp(token, "map") != 0) {
 				sysLogPrintf(LOG_WARNING, "modloader: %s: unexpected %s in the maps block", dir, token);
@@ -483,9 +549,12 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 						break;
 					}
 				}
+				const bool isfog = !strcmp(token, "fog");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
 					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
+				} else if (isfog) {
+					snprintf(fog, sizeof(fog), "%s", strUnquote(token));
 				}
 				p = strParseToken(p, token, NULL);
 			}
@@ -496,6 +565,9 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 				++scan->found;
 				if (modloaderAddConfigMap(modIndex, scan->label, name, files[0], files[1], files[2], files[3])) {
 					++scan->registered;
+					if (fog[0]) {
+						modloaderSetStageFog(g_Stages[g_ModStageNextSlot - 1].id, name, fog);
+					}
 				}
 			}
 		}
@@ -568,6 +640,7 @@ void modloaderInit(void)
 	g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
 	memset(g_ModStageDirs, 0, sizeof(g_ModStageDirs));
 	memset(g_ModStageMapNames, 0, sizeof(g_ModStageMapNames));
+	memset(g_ModStageFog, 0, sizeof(g_ModStageFog));
 	g_ModStagesRegistered = g_ModStagesFound = g_ModStageMods = 0;
 
 	if (fsGetNumModDirs() <= 0) {

@@ -1739,6 +1739,19 @@ Cliff Base. Verified by screenshot: Cradle is the girder walkway under a night
 sky, Egyptian the sandstone room, and Air Base (stock geometry, the mod's own
 pads and setup) draws the Skedar ship.
 
+**A map's sky: the `fog` key (2026-09-17).** A maps-only mount has no data
+segment, so no fog table, and its stage fell through to the chooser's default
+row (the 0x001040 clear colour, no clouds). A `map` line may now end in
+`fog "near far opaperc xluperc refdist fogmin fogmax SKYRGB clouds scale type
+CLOUDRGB water scale type WATERRGB cloudsheight"` - a `struct fogenvironment`
+row, colours as six hex digits - which `modloaderSetStageFog()` keeps by stage
+and `envChooseAndApply()` takes before either table. The GoldenEye Arenas
+converter (`.xbla-work/ge-arena/geconvert.py`) writes each level's row of
+GoldenEye's US fog table (`bgfog.c`), which is Perfect Dark's row field for
+field. One trap: the cloud and water "scale" is the plane's **world height**
+(`sky.c` subtracts the camera's y), so a level the converter re-centres must
+move it too - Dam, shifted 13219 up, drew a black sky until it did.
+
 ## A GE-X tester's seven reports, and what each was (2026-09-13, importer 32)
 
 Every one was code GE-X changed that the port still did from stock numbers.
