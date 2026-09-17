@@ -1609,6 +1609,27 @@ props; ammo crates left out (the arena places its own). Dam 156, Runway 23 (the
 plane and GoldenEye's tank, which GE-X does not have), Train 153 (all 53 doors),
 Streets 119, Jungle 376, Caves its 2 body armours.
 
+**The motorbike (2026-09-17).** GoldenEye has a motorbike model
+(`PROP_MOTORBIKE`, 287) that no level places, and GE-X adds two to its Runway as
+hoverbikes. The remake does the same with its own model:
+- `geconvert.py` `BIKES` gives how many bikes a level gets (Runway 2).
+- `bike_pads()` sets them on floored pads 3 to 16 metres from the level's tank,
+  on the tank's floor and spread from each other. Runway's are pads 43 and 51.
+- `geobjects.hoverbike()` writes the record GE-X writes (56 words, flags
+  0x05120101/0x00304300/0x02000000, hov type 1) with model
+  `MODEL_REMAKE_FIRST + 287` at extrascale 256.
+
+Perfect Dark's bike code (bondbike.c) needs only the model's scale and bounding
+box, and nothing stops it in multiplayer. Tested on Runway from gdb:
+- both bikes load with their model and hover beside the tank, at a motorbike's
+  size;
+- the player mounts one (`hoverbike` set, `bmoveSetMode(MOVEMODE_BIKE)`);
+- with `speedforwards` held at 1 it rode 1,666 units in 120 frames in both looks.
+
+In the HD look (`Pgx287Z` -> `prop/motorbike`), the mudguard top and handlebars
+draw flat black from the seat, where the N64 look has green and chrome. That is
+not yet looked into.
+
 **Textures.** A Stage Loader map draws its stage's textures from its mod by
 number, and the global texture config tables (src/textureconfig.c: sky and
 water, glares, explosions...) load by number too - the props' GoldenEye images
