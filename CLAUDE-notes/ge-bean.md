@@ -1635,3 +1635,33 @@ with water, is not carried).
 
 Open: the HD look of the new levels and of every prop (Phase 2: pair Bean's
 levels with these files, re-key Bean's props from GE-X's file names).
+
+## The remake in HD (Phase 2, 2026-09-17)
+
+**Levels.** Bean's HD levels pair with 21 of the 26 arenas (Library, Basement
+and Stack share bg_ame and so one row, Surface and Surface 2 share bg_sevx;
+Egyptian has no Bean level, Statue Park's is a remodel). Scales from
+`.xbla-work/ge-arena/beancover.py` against GoldenEye's own vertices, 85 to 100%
+of each level's vertices covered; GoldenEye's multiplayer Temple is Bean's
+`multitemple` (its `temple` covers 1%). `gen_stagetable.py` writes them as
+trusted rows, so every one draws every room in HD. All 26 ran to frame 600 in
+HD with two simulants, no crash.
+
+**Props.** `propRows` in gebean.c (generated `geproptable.h`, 143 rows): each
+remake prop file `Pgx<model>Z` with Bean's HD prop drawn on it through
+`gebeanBuildRigid()`, the pickups' rigid build (now taking a row, and skipping
+the gun muzzle-flash pass for props). HD look only - with the meshes off the
+converted model is GoldenEye's own. A row is found by name for a mod file
+(`gebeanPoolRowForFile()`); not a pool row, which would draw in both looks.
+
+The fit (`propfit.py`) lays Bean's N64-look prop (`files/original/prop`) on
+GoldenEye's model-space vertices (each list's vertices plus the origins of the
+groups over it). Every one of the 145 comes out with the axes as they are and a
+round scale (7.0 most props, 3.5 doors, 3.05 vehicles); the score is taken both
+ways (Bean's points on GoldenEye's and GoldenEye's covered by Bean's), since
+one way a scale near 0 piles Bean onto a single point and scores perfectly.
+The rigid build puts every vertex on the first list node's matrix, so the
+generated centre is the fit's less the origins over that list (the tank's root
+group is 386 units up). desk1 and chrplastique match nothing and are left out;
+Bean has no card_box6_lg, disc_reader or the five st_pete_room props. A prop's
+HD mesh is built the first time it is drawn, so a short run logs few.

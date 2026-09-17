@@ -280,6 +280,20 @@ _Static_assert(ARRAYCOUNT(gunRows) == NUM_GE_WEAPONS, "a pickup row per GoldenEy
 static s32 gunSlot[ARRAYCOUNT(gunRows)];
 
 /**
+ * The GoldenEye remake's props (its `models` block, MODEL_REMAKE_FIRST): each
+ * of GoldenEye's own prop models, converted, with Bean's HD prop drawn on it
+ * the way a pickup is (gebeanBuildRigid()), fitted offline on Bean's N64-look
+ * copy (.xbla-work/ge-arena/propfit.py). In the HD look only: with the meshes
+ * off the converted model is GoldenEye's own and draws itself.
+ */
+#define PROPROW(file, source, p0, p1, p2, s0, s1, s2, scale, bx, by, bz, nx, ny, nz) \
+	{ { file, 0, 0, GEBEAN_RIGID, source }, -1, { p0, p1, p2 }, { s0, s1, s2 }, scale, { bx, by, bz }, { nx, ny, nz } }
+
+static const struct gebeangunrow propRows[] = {
+#include "geproptable.h"
+};
+
+/**
  * GoldenEye's first-person guns: each copy's hi_model is an alias of its
  * host's first-person model (gebeanGunsRefresh()), on which Bean's gun is
  * skinned to the host's matrices (gebeanBuildFirstPerson()).
@@ -492,7 +506,9 @@ static f32 fpMuzzle[ARRAYCOUNT(fpRows)][3];
 static s16 fpMuzzlePart[ARRAYCOUNT(fpRows)];
 static u8 fpMuzzleSet[ARRAYCOUNT(fpRows)];
 
-/** A row of any table: GoldenEye X's first, then the pool's, then the guns'. */
+#define GEBEAN_PROPROW_BASE (ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + ARRAYCOUNT(fpRows))
+
+/** A row of any table: GoldenEye X's first, then the pool's, then the guns', then the remake's props. */
 static const struct gebeanrow *gebeanRowAt(s32 row)
 {
 	if (row >= 0 && row < ARRAYCOUNT(rows)) {
@@ -511,6 +527,10 @@ static const struct gebeanrow *gebeanRowAt(s32 row)
 	if (row >= ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows)
 			&& row < ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + ARRAYCOUNT(fpRows)) {
 		return &fpRows[row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows) - ARRAYCOUNT(gunRows)];
+	}
+
+	if (row >= GEBEAN_PROPROW_BASE && row < GEBEAN_PROPROW_BASE + ARRAYCOUNT(propRows)) {
+		return &propRows[row - GEBEAN_PROPROW_BASE].row;
 	}
 
 	return NULL;
@@ -543,6 +563,15 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 	for (s32 i = 0; i < ARRAYCOUNT(fpRows); i++) {
 		if (fpSlot[i] == fileid && name == fpRows[i].file) {
 			return ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + i;
+		}
+	}
+
+	// the remake's props are its mod's own files, found by their name
+	if (name[0] == 'P' && name[1] == 'g' && name[2] == 'x' && romdataFileGetModDir(fileid) >= 0) {
+		for (s32 i = 0; i < ARRAYCOUNT(propRows); i++) {
+			if (strcmp(name, propRows[i].row.file) == 0) {
+				return GEBEAN_PROPROW_BASE + i;
+			}
 		}
 	}
 
@@ -3791,10 +3820,9 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	}
 }
 
-static u8 *gebeanBuildRigid(s32 gun, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
+static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
-	const struct gebeangunrow *g = &gunRows[gun];
 	char source[64];
 	struct beanmodel bm;
 	struct beanout out;
@@ -3830,7 +3858,11 @@ static u8 *gebeanBuildRigid(s32 gun, struct modeldef *modeldef, struct modelnode
 
 	memset(&out, 0, sizeof(out));
 
-	beanGunFlashDraws(&bm, &flash);
+	// a gun's painted muzzle flash; a prop has none, and a flat end of one is
+	// its own geometry
+	if (g->weaponnum >= 0) {
+		beanGunFlashDraws(&bm, &flash);
+	}
 
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
@@ -5230,8 +5262,16 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			}
 
 			return modeldef && numnodes > 0 && numnodes <= 64
-				? gebeanBuildRigid(gun, modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
+				? gebeanBuildRigid(&gunRows[gun], modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
 		}
+	}
+
+	if (row >= GEBEAN_PROPROW_BASE && row < GEBEAN_PROPROW_BASE + ARRAYCOUNT(propRows)) {
+		*outLen = 0;
+		*outAbsent = 0;
+
+		return !original && modeldef && numnodes > 0 && numnodes <= 64
+			? gebeanBuildRigid(&propRows[row - GEBEAN_PROPROW_BASE], modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
 	}
 
 	const u16 fileid = mats->fileid;
