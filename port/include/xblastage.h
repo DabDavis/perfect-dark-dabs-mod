@@ -77,6 +77,12 @@ void xblaStageRoomDone(void);
 s32 xblaStageIsRelease(void);
 
 /**
+ * Whether the rooms loaded are an HD level that is drawn by distance rather
+ * than through its portals (gebeanStageDrawsEveryRoom()).
+ */
+s32 xblaStageDrawsEveryRoom(void);
+
+/**
  * Writes the tile state for one of the release's own textures - a record
  * past NUM_TEXTURES that only the package has - in place of the texture
  * command that named it. Returns the next free gdl.

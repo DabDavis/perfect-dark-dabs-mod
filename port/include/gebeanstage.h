@@ -32,6 +32,13 @@ extern "C" {
 u32 gebeanStageRoomSize(s32 roomnum);
 uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len);
 
+/**
+ * A level converted from GoldenEye's own data is served whole: its portals
+ * are the N64 level's and do not see what the HD mesh opens up, so its rooms
+ * are drawn by distance instead (xblaStageDrawsEveryRoom()).
+ */
+s32 gebeanStageDrawsEveryRoom(void);
+
 /** A new level: the last one's rooms and mesh go. */
 void gebeanStageLevelReset(void);
 

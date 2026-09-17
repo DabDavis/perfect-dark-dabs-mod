@@ -2365,7 +2365,7 @@ void bgTick(void)
 	 * reads and its 4KB-at-a-time inflate; on PC rooms come from the heap, and
 	 * bgGarbageCollectRooms() is compiled out entirely for that reason.
 	 */
-	if (modSpectateIsOn()) {
+	if (modSpectateIsOn() || xblaStageDrawsEveryRoom()) {
 		var8007fc10 = 200;
 	}
 #endif
@@ -6142,6 +6142,9 @@ static void bgTickPortalsSpectate(struct screenbox *box)
 {
 	struct coord *campos = &g_Vars.currentplayer->cam_pos;
 	s32 room;
+	// A room's box is its N64 geometry's, and the HD mesh dealt to it can
+	// stand outside it - the canopy over Jungle's clearings
+	const bool everyroom = xblaStageDrawsEveryRoom();
 
 	bgSetRoomOnscreen(g_CamRoom, 0, box);
 
@@ -6159,7 +6162,7 @@ static void bgTickPortalsSpectate(struct screenbox *box)
 			continue;
 		}
 
-		if (!bgRoomIntersectsScreenBox(room, box)) {
+		if (!everyroom && !bgRoomIntersectsScreenBox(room, box)) {
 			continue;
 		}
 
@@ -6229,7 +6232,7 @@ void bgTickPortals(void)
 
 		if (!g_BgRoomTestsDisabled) {
 #ifndef PLATFORM_N64
-			if (modSpectateIsOn()) {
+			if (modSpectateIsOn() || xblaStageDrawsEveryRoom()) {
 				bgTickPortalsSpectate(&box);
 			} else
 #endif

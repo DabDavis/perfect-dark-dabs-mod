@@ -878,6 +878,16 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 
 			if (alpha != curalpha) {
 				emit(&l->gdl, 0xfc26a004, alpha ? 0x1f1093ff : 0x1ffc93fc);
+
+				// A cut-out picture in the opaque leaf is drawn as a texture
+				// edge (CVG_X_ALPHA), which the renderer discards under a fifth
+				// alpha. Without it the clear texels of Jungle's leaves wrote
+				// depth, and a room drawn after them showed the sky colour in
+				// the shape of the leaf
+				if (!xlu) {
+					emit(&l->gdl, 0xb900031d, alpha ? 0x0c183078 : 0x0c182078);
+				}
+
 				curalpha = alpha;
 			}
 
@@ -1428,6 +1438,18 @@ uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len)
 	return g_BgRooms[roomnum].unk00;
 }
 
+/**
+ * Whether the rooms are to be drawn without the portals: a converted arena's
+ * portals are GoldenEye's, cut for an N64 level that walled its views in
+ * with opaque foliage and rock, and Bean's HD mesh opens those views up. On
+ * Jungle the portals reached two rooms from the start, and the rest of the
+ * HD mesh in view showed the sky colour in the shape of what was missing.
+ */
+s32 gebeanStageDrawsEveryRoom(void)
+{
+	return built && row && row->trusted && numServed > 0;
+}
+
 s32 gebeanStageOwnsRecord(u32 record)
 {
 	return built && record >= GEBEANSTAGE_TEXBASE && record <= GEBEANSTAGE_TEXNONE;
@@ -1455,6 +1477,7 @@ void gebeanStageTrace(FILE *f)
 u32 gebeanStageRoomSize(s32 roomnum) { return 0; }
 uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void gebeanStageLevelReset(void) { }
+s32 gebeanStageDrawsEveryRoom(void) { return 0; }
 s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }
 void gebeanStageTrace(FILE *f) { }

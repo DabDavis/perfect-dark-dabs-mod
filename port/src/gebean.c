@@ -5969,6 +5969,19 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 
 				ok = beanVertex(bm, &vb, tris[t * 3 + k], &bv);
 
+				// A level's stride 32 vertex is not a skinned one: position,
+				// normal, UV, a second UV, a blend word, then the lit colour
+				// (opaque, as a stride 24 vertex's is) - no palette slots.
+				// Read as a character's, its UV came out of the colour bytes
+				// (0xffff) and Runway's road drew as streaks
+				if (ok && vb.stride == 32) {
+					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
+
+					bv.uv[0] = (s16)gebeanBE16(p + 16) / bm->uvscale;
+					bv.uv[1] = (s16)gebeanBE16(p + 18) / bm->uvscale;
+					bv.argb = beanColour(gebeanBE32(p + 28));
+				}
+
 				for (s32 j = 0; j < 3 && ok; j++) {
 					ok = bv.pos[j] == bv.pos[j] && bv.pos[j] > -1e6f && bv.pos[j] < 1e6f;
 				}

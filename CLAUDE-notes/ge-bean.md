@@ -1477,3 +1477,37 @@ trees/bushes (stride 36, instancing) not drawn; Bean's skydomes
 (`files/new/skydome/`) not used; the build runs at the first room of a level,
 a hitch up to 0.8 s; the archive unpack now includes `files/new/background/`
 (237MB), marker `.extracted6`, so a tester's cache unpacks again.
+
+**GoldenEye's own levels as arenas, in HD (2026-09-17).** The six levels GE-X
+has no file for are converted from GoldenEye's data (`.xbla-work/ge-arena/`,
+the GoldenEye Arenas maps-only mod) and paired as `trusted` rows with an
+offset. Three faults of the HD look, each a trap for any Bean level:
+
+- **A level's stride 32 vertex is not a skinned one.** It is position, normal
+  (+12), UV (+16), a second UV (+20), a blend word (+24) and the lit colour
+  (+28, always opaque) - no palette slots. `beanVertex()` reads stride 32 the
+  way a first-person gun's is laid out, so a level's UV came out of the colour
+  bytes (0xffff) and Runway's road drew as streaks; `gebeanLevelTriangles()`
+  reads it the level's way. Every Bean level has some (Dam 21574 indices,
+  Aztec 8361, Runway 4483); Aztec and Cradle at their seeded frame were
+  pixel-identical either way.
+- **A converted arena's portals do not see the HD mesh.** GoldenEye walled
+  its Jungle in with opaque foliage and rock and cut its portals to match;
+  Bean's remodel opens those views, so from the start the portal walk reached
+  two rooms and the rest of the HD mesh in view showed the sky colour in the
+  shape of what was missing. Dealing triangles by the floor tile under them
+  instead changed nothing. `gebeanStageDrawsEveryRoom()` (a trusted row with
+  rooms served) makes `bgTickPortals()` take the spectator's path - every
+  room, by distance, with no box test, since a room's box is its N64
+  geometry's - and the room load budget with it. The N64 look keeps its
+  portals. Jungle's walkable floor matches: Bean's ground is within 20 units
+  of the tile on 99.7% of its tiles.
+- **A cut-out picture in the opaque leaf is a texture edge** (`0x0c183078`,
+  CVG_X_ALPHA, which the renderer discards under a fifth alpha). Without it the
+  clear texels of the leaves wrote depth and a room drawn after them showed
+  the sky colour in leaf shapes - invisible until every room was drawn.
+
+And one in the converter: GoldenEye's Streets ships rooms 20-54 as one shared
+empty display list over floor that runs on to z 33822, so a spawn on a pad
+over that floor saw only sky. `floored_pads()` wants the tile's room to have
+vertices.

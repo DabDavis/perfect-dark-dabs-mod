@@ -182,6 +182,11 @@ void xblaStageSwitched(void)
 	}
 }
 
+s32 xblaStageDrawsEveryRoom(void)
+{
+	return roomsWant && gebeanStageDrawsEveryRoom();
+}
+
 s32 xblaStageIsRelease(void)
 {
 	return curRoomRelease;
@@ -700,6 +705,7 @@ void xblaStageLevelReset(void) { }
 u32 xblaStageRoomSize(s32 roomnum) { return 0; }
 uintptr_t xblaStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void xblaStageRoomDone(void) { }
+s32 xblaStageDrawsEveryRoom(void) { return 0; }
 s32 xblaStageIsRelease(void) { return 0; }
 s32 xblaStageSlotIsReused(u32 texturenum) { return 0; }
 void xblaStageSetVerbose(s32 verbose) { }
