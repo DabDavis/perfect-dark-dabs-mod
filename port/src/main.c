@@ -215,6 +215,9 @@ int main(int argc, const char **argv)
 	// notice while it works, and they must exist before the mods are mounted.
 	videoInit();
 	gexPlusRomConvert();
+	// and GoldenEye XBLA's characters, levels and props out of the player's
+	// archive, the first time, with a notice of its own
+	gebeanUnpackAtStartup();
 
 	// After the config, because that is where the chosen mod is written, and
 	// before romdataInit(), which is what goes looking for the files it holds.

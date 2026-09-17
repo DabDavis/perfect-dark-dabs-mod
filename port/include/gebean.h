@@ -116,6 +116,8 @@ const char *gebeanHeadName(s32 headnum);
  * 1 when the files are there.
  */
 s32 gebeanPrepare(void);
+// The first unpack at startup, with a notice on the window while it works.
+void gebeanUnpackAtStartup(void);
 
 /**
  * Which of the model's matrices a list node is drawn under: the nearest

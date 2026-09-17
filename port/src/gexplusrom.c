@@ -189,9 +189,8 @@ static Gfx *noticeText(Gfx *gdl, const char *text, s32 y)
 	return gdl;
 }
 
-static void noticeDraw(s32 done, s32 total)
+void gexPlusRomNotice(const char *title, const char *line, s32 done, s32 total)
 {
-	char line[64];
 	Gfx *gdl = g_NoticeGfx;
 	const s32 barw = 160;
 	const s32 fill = total > 0 ? barw * done / total : 0;
@@ -205,10 +204,9 @@ static void noticeDraw(s32 done, s32 total)
 	gdl = noticeRect(gdl, 0, 0, 319, 239);
 
 	gDPSetFillColor(gdl++, rgba5551(255, 255, 255));
-	gdl = noticeText(gdl, "CONVERTING GOLDENEYE 007 FOR GE-X PLUS", 100);
+	gdl = noticeText(gdl, title, 100);
 
 	gDPSetFillColor(gdl++, rgba5551(160, 160, 160));
-	snprintf(line, sizeof(line), "ONCE ONLY - %d/%d", done, total);
 	gdl = noticeText(gdl, line, 114);
 
 	gDPSetFillColor(gdl++, rgba5551(90, 90, 90));
@@ -221,6 +219,14 @@ static void noticeDraw(s32 done, s32 total)
 	videoStartFrame();
 	videoSubmitCommands(g_NoticeGfx);
 	videoEndFrame();
+}
+
+static void noticeDraw(s32 done, s32 total)
+{
+	char line[64];
+
+	snprintf(line, sizeof(line), "ONCE ONLY - %d/%d", done, total);
+	gexPlusRomNotice("CONVERTING GOLDENEYE 007 FOR GE-X PLUS", line, done, total);
 }
 
 /* ------------------------------------------------------------------------ */

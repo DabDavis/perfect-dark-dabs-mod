@@ -1687,6 +1687,18 @@ never against `build/xbla/goldeneye`: a scratch folder with only the archive in
 `xbla/`, `'gebean.c'::gebeanLocate(1)` from gdb (16 s), then every table source
 tested for `new/<source>/default.bin`.
 
+**The first unpack is at startup, with a notice** (2026-09-17, user: "so
+players dont think they froze"): `gebeanUnpackAtStartup()` from main.c right
+after `gexPlusRomConvert()`, only with `Mod.XblaGoldenEye` on, an archive found
+and no current marker - on a thread, while the window shows
+`gexPlusRomNotice()` (the ROM conversion's pixel-font screen, now shared)
+with "UNPACKING GOLDENEYE 007 XBLA" and the files written of those wanted
+(`archiveGetProgress()`). The level-load unpack stays for a player who switches
+the characters on later. The streamer now **stops after a block's last wanted
+file** instead of decoding the rest of the 740 MB block: same 653 files byte for
+byte, startup to title in 11 s instead of about 16, and the bar no longer sat
+full while nothing was written.
+
 **Levels.** Bean's HD levels pair with 21 of the 26 arenas (Library, Basement
 and Stack share bg_ame and so one row, Surface and Surface 2 share bg_sevx;
 Egyptian has no Bean level, Statue Park's is a remodel). Scales from

@@ -21,6 +21,14 @@ void gexPlusRomConvert(void);
 
 s32 gexPlusRomGetState(void);
 
+/**
+ * The startup notice the conversion draws - black, a title, a line under it and
+ * a bar of done out of total - as one frame, for other work done once before
+ * the game's own fonts are loaded (gebeanUnpackAtStartup()). Upper case,
+ * digits and - . / only.
+ */
+void gexPlusRomNotice(const char *title, const char *line, s32 done, s32 total);
+
 #ifdef __cplusplus
 }
 #endif

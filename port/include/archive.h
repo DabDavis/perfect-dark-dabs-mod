@@ -54,6 +54,13 @@ typedef s32 (*archivefilter)(const char *name, void *arg);
  */
 s32 archiveExtractMatching(const char *path, const char *destDir, archivefilter filter, void *arg);
 
+/**
+ * The files archiveExtractMatching() has written so far of those it will write,
+ * for a notice drawn while it runs on another thread. A .7z only; both are 0
+ * before the listing is read.
+ */
+void archiveGetProgress(s32 *done, s32 *total);
+
 #ifdef __cplusplus
 }
 #endif

@@ -716,6 +716,19 @@ static UInt32 archive7zNextInFolder(const CSzArEx *db, UInt32 i, UInt32 fi)
  * The file entry i goes to: opened under destDir when it is wanted and its
  * name is one to write, NULL when its bytes are to be decoded past.
  */
+// How far archiveExtractMatching() has got, for a notice drawn on another thread
+// while it works: the wanted files counted before the first block is decoded,
+// and the ones opened for writing since. Plain ints read without a lock - a
+// count one file behind on a progress bar is not worth one.
+static volatile s32 g_ArchiveProgressDone;
+static volatile s32 g_ArchiveProgressTotal;
+
+void archiveGetProgress(s32 *done, s32 *total)
+{
+	*done = g_ArchiveProgressDone;
+	*total = g_ArchiveProgressTotal;
+}
+
 static FILE *archive7zOpenEntry(const CSzArEx *db, UInt32 i, const char *path, const char *destDir,
 		archivefilter filter, void *arg)
 {
@@ -738,6 +751,8 @@ static FILE *archive7zOpenEntry(const CSzArEx *db, UInt32 i, const char *path, c
 
 	if (!fp) {
 		sysLogPrintf(LOG_ERROR, "archive: could not write %s", out);
+	} else {
+		g_ArchiveProgressDone++;
 	}
 
 	return fp;
@@ -765,6 +780,7 @@ static s32 archive7zStreamFolder(struct archive7z *a, UInt32 fi, const char *pat
 	Byte *chunk;
 	s32 written = 0;
 	s32 failed = 0;
+	s32 wantedLeft = 0;
 
 	if (folder->NumCoders != 1 || folder->NumPackStreams != 1 || folder->NumBindPairs != 0) {
 		return -2;
@@ -813,6 +829,19 @@ static s32 archive7zStreamFolder(struct archive7z *a, UInt32 fi, const char *pat
 		LzmaDec_Init(&lzma);
 	}
 
+	// How many of the block's files are wanted, so decoding can stop after the
+	// last of them rather than run on through the rest of the block: the
+	// GoldenEye release is one block of 740MB, and what comes after its last
+	// wanted file was most of the wait with nothing left to write.
+	for (UInt32 i = archive7zNextInFolder(db, db->FolderStartFileIndex[fi], fi);
+			i < db->db.NumFiles; i = archive7zNextInFolder(db, i + 1, fi)) {
+		char name[ARCHIVE_MAXNAME];
+
+		if (!db->db.Files[i].IsDir && archive7zName(db, i, name) && filter(name, arg)) {
+			wantedLeft++;
+		}
+	}
+
 	// The block's files in order, each taking the next Size bytes of it.
 	cur = archive7zNextInFolder(db, db->FolderStartFileIndex[fi], fi);
 	curLeft = cur < db->db.NumFiles ? db->db.Files[cur].Size : 0;
@@ -828,6 +857,7 @@ static s32 archive7zStreamFolder(struct archive7z *a, UInt32 fi, const char *pat
 				fclose(fp);
 				fp = NULL;
 				written++;
+				wantedLeft--;
 			}
 
 			cur = archive7zNextInFolder(db, cur + 1, fi);
@@ -838,7 +868,7 @@ static s32 archive7zStreamFolder(struct archive7z *a, UInt32 fi, const char *pat
 			}
 		}
 
-		if (unpackLeft == 0 || cur >= db->db.NumFiles) {
+		if (unpackLeft == 0 || cur >= db->db.NumFiles || (wantedLeft <= 0 && !fp)) {
 			break;
 		}
 
@@ -898,6 +928,7 @@ static s32 archive7zStreamFolder(struct archive7z *a, UInt32 fi, const char *pat
 						fclose(fp);
 						fp = NULL;
 						written++;
+						wantedLeft--;
 					}
 
 					cur = archive7zNextInFolder(db, cur + 1, fi);
@@ -934,9 +965,20 @@ static s32 archiveExtract7zMatching(const char *path, const char *destDir, archi
 	size_t outBufferSize = 0;
 	s32 written = 0;
 
+	g_ArchiveProgressDone = 0;
+	g_ArchiveProgressTotal = 0;
+
 	if (!archive7zOpen(&a, path)) {
 		sysLogPrintf(LOG_ERROR, "archive: could not read %s as a 7z", path);
 		return -1;
+	}
+
+	for (UInt32 i = 0; i < a.db.db.NumFiles; i++) {
+		char name[ARCHIVE_MAXNAME];
+
+		if (!a.db.db.Files[i].IsDir && archive7zName(&a.db, i, name) && filter(name, arg)) {
+			g_ArchiveProgressTotal++;
+		}
 	}
 
 	for (UInt32 fi = 0; fi < a.db.db.NumFolders; fi++) {
@@ -984,6 +1026,7 @@ static s32 archiveExtract7zMatching(const char *path, const char *destDir, archi
 			}
 
 			written += archiveWriteFile(destDir, name, outBuffer + offset, (u32)outSize);
+			g_ArchiveProgressDone++;
 		}
 	}
 

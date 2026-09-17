@@ -31,6 +31,9 @@
 #include "fs.h"
 #include "romdata.h"
 #include "archive.h"
+#include "video.h"
+#include "gexplusrom.h"
+#include <SDL.h>
 #include "x360.h"
 #include "xblatex.h"
 #include "xblamesh.h"
@@ -1240,6 +1243,60 @@ s32 gebeanIsAvailable(void)
 s32 gebeanPrepare(void)
 {
 	return gebeanLocate(1);
+}
+
+static SDL_atomic_t unpackDone;
+
+static int gebeanUnpackWorker(void *arg)
+{
+	gebeanLocate(1);
+	SDL_AtomicSet(&unpackDone, 1);
+	return 0;
+}
+
+/**
+ * The first unpack, done at startup with a notice on the window rather than at
+ * the level load that first wants a character. 360MB streamed out of a 740MB
+ * solid block is tens of seconds on a slow disk, and done inside a level load
+ * it is a black screen that looks like the game has hung. Only when the
+ * GoldenEye characters are switched on, an archive is there and it has not
+ * been unpacked (or was unpacked by a build that wanted less of it).
+ */
+void gebeanUnpackAtStartup(void)
+{
+	SDL_Thread *thread;
+
+	if (!enabled || gebeanLocate(0) || !archivePath[0] || unpackFailed) {
+		return;
+	}
+
+	SDL_AtomicSet(&unpackDone, 0);
+	thread = SDL_CreateThread(gebeanUnpackWorker, "gebeanunpack", NULL);
+
+	if (!thread) {
+		gebeanLocate(1);
+		return;
+	}
+
+	videoUpdateNativeResolution(320, 240);
+
+	while (!SDL_AtomicGet(&unpackDone)) {
+		char line[64];
+		s32 done, total;
+
+		archiveGetProgress(&done, &total);
+
+		if (total > 0) {
+			snprintf(line, sizeof(line), "ONCE ONLY - %d/%d FILES", done, total);
+		} else {
+			snprintf(line, sizeof(line), "ONCE ONLY - READING THE ARCHIVE");
+		}
+
+		gexPlusRomNotice("UNPACKING GOLDENEYE 007 XBLA", line, done, total);
+		SDL_Delay(16);
+	}
+
+	SDL_WaitThread(thread, NULL);
 }
 
 /* -------------------------------------------------------------------------
