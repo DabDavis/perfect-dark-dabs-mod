@@ -51,6 +51,12 @@
 #define ASSIGN_CELL  64.0f
 #define ASSIGN_RINGS 2
 
+// A triangle lying this close to the plane of a triangle of another picture
+// (GE-X units), and over it, is a decal on it: Rare drew the Aztec's BAY-4
+// lettering, floor arrows and hazard stripes flat on the floor
+#define DECAL_DIST 1.0f
+#define DECAL_COS  0.999f
+
 #define MAXPALETTE 64
 #define BATCHVERTS 16
 
@@ -81,6 +87,7 @@ struct stri {
 	u32 argb[3];
 	s16 tex;
 	u16 room;
+	u8 decal;
 };
 
 // The level being served, built when its first room is asked for
@@ -115,7 +122,8 @@ struct tgrid {
 	s32 *enttri;
 	s32 nument, capent;
 	f32 *tri;
-	u16 *room;
+	// The room a GE-X triangle is in, or the index of a Bean one
+	s32 *room;
 	s32 numtri, captri;
 };
 
@@ -144,7 +152,7 @@ static void tgridFree(struct tgrid *g)
 	memset(g, 0, sizeof(*g));
 }
 
-static void tgridAdd(struct tgrid *g, const f32 v[3][3], u16 room)
+static void tgridAdd(struct tgrid *g, const f32 v[3][3], s32 room)
 {
 	s32 lo[3], hi[3];
 	s32 cells = 1;
@@ -152,7 +160,7 @@ static void tgridAdd(struct tgrid *g, const f32 v[3][3], u16 room)
 	if (g->numtri >= g->captri) {
 		s32 cap = g->captri ? g->captri * 2 : 16384;
 		f32 *t = realloc(g->tri, sizeof(f32) * 9 * cap);
-		u16 *r = realloc(g->room, sizeof(u16) * cap);
+		s32 *r = realloc(g->room, sizeof(s32) * cap);
 
 		if (t) g->tri = t;
 		if (r) g->room = r;
@@ -820,10 +828,15 @@ static const struct stri *sortTris;
 
 static int compareTex(const void *a, const void *b)
 {
-	const s32 ta = sortTris[*(const s32 *)a].tex;
-	const s32 tb = sortTris[*(const s32 *)b].tex;
+	const struct stri *ta = &sortTris[*(const s32 *)a];
+	const struct stri *tb = &sortTris[*(const s32 *)b];
 
-	return ta != tb ? ta - tb : *(const s32 *)a - *(const s32 *)b;
+	// Decals after what they lie on
+	if (ta->decal != tb->decal) {
+		return ta->decal - tb->decal;
+	}
+
+	return ta->tex != tb->tex ? ta->tex - tb->tex : *(const s32 *)a - *(const s32 *)b;
 }
 
 /**
@@ -836,6 +849,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 {
 	struct batch b;
 	s32 curtex = -2;
+	s32 curdecal = -1;
 	s32 curalpha = -1;
 
 	if (num == 0) {
@@ -871,24 +885,31 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		// Compared whole in batchFind(), padding and all
 		memset(rv, 0, sizeof(rv));
 
-		if (t->tex != curtex) {
+		if (t->tex != curtex || t->decal != curdecal) {
 			const s32 alpha = xlu || texHasAlpha(t->tex);
 
 			batchFlush(l, &b);
 
-			if (alpha != curalpha) {
-				emit(&l->gdl, 0xfc26a004, alpha ? 0x1f1093ff : 0x1ffc93fc);
+			if (alpha != curalpha || t->decal != curdecal) {
+				if (alpha != curalpha) {
+					emit(&l->gdl, 0xfc26a004, alpha ? 0x1f1093ff : 0x1ffc93fc);
+				}
 
 				// A cut-out picture in the opaque leaf is drawn as a texture
 				// edge (CVG_X_ALPHA), which the renderer discards under a fifth
 				// alpha. Without it the clear texels of Jungle's leaves wrote
 				// depth, and a room drawn after them showed the sky colour in
-				// the shape of the leaf
+				// the shape of the leaf. A decal takes GE-X's decal modes
+				// (ZMODE_DEC), which fog swaps know too; the translucent
+				// leaf's mode is a decal one already
 				if (!xlu) {
-					emit(&l->gdl, 0xb900031d, alpha ? 0x0c183078 : 0x0c182078);
+					emit(&l->gdl, 0xb900031d, t->decal
+							? (alpha ? G_RM_AA_ZB_XLU_DECAL | G_RM_AA_ZB_XLU_DECAL2 : G_RM_AA_ZB_OPA_DECAL | G_RM_AA_ZB_OPA_DECAL2)
+							: (alpha ? 0x0c183078 : 0x0c182078));
 				}
 
 				curalpha = alpha;
+				curdecal = t->decal;
 			}
 
 			emit(&l->gdl, alpha ? 0xbb002801 : 0xbb003001, 0xffffffff);
@@ -1157,6 +1178,104 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 
 	t->tex = (s16)tex;
 	t->room = 0;
+	t->decal = 0;
+}
+
+static f32 triNormal(const struct stri *t, f32 *n)
+{
+	f32 e1[3], e2[3], len;
+
+	for (s32 k = 0; k < 3; k++) {
+		e1[k] = t->pos[1][k] - t->pos[0][k];
+		e2[k] = t->pos[2][k] - t->pos[0][k];
+	}
+
+	n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	len = sqrtf(dot3(n, n));
+
+	if (len > 0) {
+		n[0] /= len;
+		n[1] /= len;
+		n[2] /= len;
+	}
+
+	return len * 0.5f;
+}
+
+/**
+ * Marks the triangles that lie flat on another picture's triangle. Bean's
+ * decals share the plane of the surface under them exactly, and drawn with
+ * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
+ * level): the decal is drawn in a decal render mode instead, pulled towards
+ * the camera. Of a pair, the one with a cut-out picture over the one without
+ * is the decal, else the smaller, else the one Bean draws later.
+ */
+static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
+{
+	s32 count = 0;
+
+	for (s32 i = 0; i < num; i++) {
+		struct stri *t = &tris[i];
+		f32 ni[3], mid[3];
+		f32 ai;
+
+		ai = triNormal(t, ni);
+
+		if (ai <= 0) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
+		}
+
+		for (s32 e = g->head[gridKey((s32)floorf(mid[0] / g->cell), (s32)floorf(mid[1] / g->cell), (s32)floorf(mid[2] / g->cell))];
+				e >= 0 && !t->decal; e = g->entnext[e]) {
+			const s32 o = g->room[g->enttri[e]];
+			const struct stri *u = &tris[o];
+			const s32 alphai = texHasAlpha(t->tex), alphau = texHasAlpha(u->tex);
+			f32 nu[3], au, cosang, d;
+			s32 flat = 1;
+
+			if (o == i || u->tex == t->tex) {
+				continue;
+			}
+
+			au = triNormal(u, nu);
+			cosang = dot3(ni, nu);
+
+			if (au <= 0 || (cosang < DECAL_COS && cosang > -DECAL_COS)) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3 && flat; k++) {
+				f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
+
+				flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
+			}
+
+			if (!flat) {
+				continue;
+			}
+
+			d = pointTriDist(mid, u->pos[0], u->pos[1], u->pos[2]);
+
+			if (d > DECAL_DIST * DECAL_DIST) {
+				continue;
+			}
+
+			if (alphai != alphau ? alphai > alphau
+					: ai < au * 0.999f ? 1
+					: ai <= au * 1.001f && i > o) {
+				t->decal = 1;
+				count++;
+			}
+		}
+	}
+
+	return count;
 }
 
 static void forget(void)
@@ -1192,7 +1311,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0;
+	s32 kept = 0, dropped = 0, decals = 0;
 	u32 bytes = 0;
 
 	row = NULL;
@@ -1264,8 +1383,10 @@ static s32 build(void)
 		}
 
 		for (s32 t = 0; t < c.num; t++) {
-			tgridAdd(&beantris, (const f32 (*)[3])c.tris[t].pos, 0);
+			tgridAdd(&beantris, (const f32 (*)[3])c.tris[t].pos, t);
 		}
+
+		decals = markDecals(c.tris, c.num, &beantris);
 
 		mark[2] = sysGetMicroseconds();
 
@@ -1393,8 +1514,8 @@ static s32 build(void)
 	free(listlen);
 	free(c.tris);
 
-	sysLogPrintf(LOG_NOTE, "gebeanstage: %s at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept), %d triangles, %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, coverage %.0f, writing %.0f)",
-			row->bean, row->scale, numServed, n - 1, kept, c.num, bytes, dropped,
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept), %d triangles (%d decals), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, coverage %.0f, writing %.0f)",
+			row->bean, row->scale, numServed, n - 1, kept, c.num, decals, bytes, dropped,
 			(sysGetMicroseconds() - start) / 1000.0,
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0, mark[4] ? (mark[4] - mark[3]) / 1000.0 : 0.0,
