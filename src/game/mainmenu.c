@@ -39,6 +39,7 @@
 #ifndef PLATFORM_N64
 #include "modloader.h"
 #include "gexplusrom.h"
+#include "gexfront.h"
 #include "game/mplayer/setup.h"
 #endif
 #include "types.h"
@@ -4997,6 +4998,20 @@ struct menudialogdef g_GexPlusMenuDialog = {
 	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
 	NULL,
 };
+
+/**
+ * The Perfect Menu's GE-X Plus row: GoldenEye's own folder screens
+ * (port/src/gexfront.c), or this dialog when there is nothing converted to draw
+ * them with - it says why.
+ */
+static MenuItemHandlerResult menuhandlerMainMenuGexPlus(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET && (gexPlusFirstArena() < 0 || !gexFrontOpen())) {
+		menuPushDialog(&g_GexPlusMenuDialog);
+	}
+
+	return 0;
+}
 #endif
 
 MenuItemHandlerResult menuhandlerMainMenuCooperative(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -5115,10 +5130,10 @@ struct menuitem g_MainMenuMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"GE-X Plus",
 		0x0000000d,
-		(void *)&g_GexPlusMenuDialog,
+		menuhandlerMainMenuGexPlus,
 	},
 #endif
 	{

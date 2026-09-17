@@ -1,6 +1,9 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/modrules.h"
+#ifndef PLATFORM_N64
+#include "gexfront.h"
+#endif
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
 #include "game/game_006900.h"
@@ -5592,6 +5595,13 @@ Gfx *menuRender(Gfx *gdl)
 	g_ScaleX = g_ViRes == VIRES_HI ? 2 : 1;
 #endif
 
+#ifndef PLATFORM_N64
+	// GE-X Plus's GoldenEye folder screens are drawn instead of the menus
+	if (gexFrontIsActive()) {
+		return gexFrontRender(gdl);
+	}
+#endif
+
 	gdl = func0f0d479c(gdl);
 
 	gSPDisplayList(gdl++, var800613a0);
@@ -5943,6 +5953,13 @@ const char var7f1b27a4[] = "Tune Selector - mode %d\n";
 u32 menuChooseMusic(void)
 {
 	s32 missionsuccess = MUSIC_MISSION_SUCCESS;
+
+#ifndef PLATFORM_N64
+	// GE-X Plus's GoldenEye folder screens play GoldenEye's folders theme
+	if (gexFrontMusic() >= 0) {
+		return gexFrontMusic();
+	}
+#endif
 
 	if (g_StageIndex == STAGEINDEX_DEFENSE) {
 		missionsuccess = MUSIC_MISSION_UNKNOWN;

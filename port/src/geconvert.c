@@ -6,8 +6,8 @@
  * The output is a maps-only mod directory the Stage Loader registers
  * (CLAUDE-notes/mods.md "The Stage Loader"): per level files/bgdata/bg_gxNAME.seg,
  * _tilesZ, _padsZ and files/Ump_setupgxNAMEZ, the remake's prop models as
- * files/PgxNNNZ, GoldenEye's textures in textures/, and a modconfig.txt with
- * the `maps` and `models` blocks.
+ * files/PgxNNNZ, GoldenEye's textures in textures/, GE-X Plus's menu fonts
+ * and strings in menu/, and a modconfig.txt with the `maps` and `models` blocks.
  *
  * This is tools/geconvert/geconvert.py step for step, and that script's
  * comments are the long form of everything here. The two write the same bytes:
@@ -58,6 +58,21 @@
 #define FOG_ROW 92
 #define PROPS_AT 0x19498
 #define NUM_PROPS 340
+
+// GE-X Plus's menus (gexfront.c): the menu folder (PROP_WALLETBOND), the
+// crosshair cursor (IMAGE_CROSSHAIR1), and the two fonts and the music, raw in the ROM
+#define MENU_FOLDER_MODEL 278
+#define MENU_CURSOR_IMAGE 2236
+
+static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
+	{ "fontbankgothic.bin", 0x2e63f0, 0x24b0 },
+	{ "fontzurichbold.bin", 0x2e88a0, 0x3540 },
+	// its music: the instrument bank, and the sequence table ({u16 count, pad,
+	// then u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences
+	{ "instrumentsctl", 0x3b4450, 0x43a0 },
+	{ "instrumentstbl", 0x3b87f0, 0x60fa0 },
+	{ "sequences", 0x419790, 0x1eed0 },
+};
 
 #define MAX_TEXTURE_SIZE 4096
 #define WALL_BELOW 50.0
@@ -3246,6 +3261,37 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		g_NumAllocs = keep;
 
 		++g_Progress;
+	}
+
+	// GE-X Plus's menus are GoldenEye's own folder screens: the folder is a prop
+	// model, the cursor a global image, and the fonts, the music and the title
+	// screen's strings are copied as GoldenEye stores them
+	{
+		const size_t keep = g_NumAllocs;
+		buf title;
+
+		setAdd(allmodels, MENU_FOLDER_MODEL);
+		setAdd(alltex, MENU_CURSOR_IMAGE);
+		snprintf(sub, sizeof(sub), "%s/menu", outdir);
+		makeDirs(sub);
+
+		for (size_t i = 0; i < sizeof(g_MenuRaw) / sizeof(g_MenuRaw[0]); ++i) {
+			char rel[64];
+
+			if (g_MenuRaw[i].at + g_MenuRaw[i].size > g_RomLen) {
+				fail("%s runs off the ROM", g_MenuRaw[i].name);
+			}
+			snprintf(rel, sizeof(rel), "menu/%s", g_MenuRaw[i].name);
+			writeFile(outdir, rel, g_Rom + g_MenuRaw[i].at, g_MenuRaw[i].size);
+		}
+
+		title = romFile("LtitleE");
+		writeFile(outdir, "menu/LtitleE", title.v, title.n);
+
+		for (size_t i = keep; i < g_NumAllocs; ++i) {
+			free(g_Allocs[i]);
+		}
+		g_NumAllocs = keep;
 	}
 
 	// the remake's prop models: GoldenEye's own, converted

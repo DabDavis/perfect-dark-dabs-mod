@@ -27,6 +27,9 @@
 #include "lib/snd.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gexfront.h"
+#endif
 
 u8 g_FileState = 0;
 u8 var80062944 = 0;
@@ -67,6 +70,14 @@ void menuTick(void)
 	g_ScaleX = 1;
 #else
 	g_ScaleX = g_ViRes == VIRES_HI ? 2 : 1;
+#endif
+
+#ifndef PLATFORM_N64
+	// GE-X Plus's GoldenEye folder screens own the menus while open
+	if (gexFrontIsActive()) {
+		gexFrontTick();
+		return;
+	}
 #endif
 
 	menuTickTimers();

@@ -55,6 +55,16 @@ LEVELIDS = {'dam': 'DAM', 'run': 'RUNWAY', 'stat': 'STATUE', 'tra': 'TRAIN',
             'crad': 'CRADLE', 'sevx': 'SURFACE', 'sevxb': 'SURFACE2', 'silo': 'SILO',
             'dest': 'FRIGATE', 'depo': 'DEPOT', 'arec': 'CONTROL', 'sev': 'BUNKER1', 'azt': 'AZTEC'}
 
+# GoldenEye's menu folder (PROP_WALLETBOND), its crosshair cursor (IMAGE_CROSSHAIR1),
+# and its two fonts and its music, raw in the ROM: {name, ROM address, size}
+MENU_FOLDER_MODEL = 278
+MENU_CURSOR_IMAGE = 2236
+MENU_RAW = (('fontbankgothic.bin', 0x2e63f0, 0x24b0), ('fontzurichbold.bin', 0x2e88a0, 0x3540),
+              # and its music: the instrument bank, and the sequence table ({u16 count, pad, then
+              # u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences after it
+              ('instrumentsctl', 0x3b4450, 0x43a0), ('instrumentstbl', 0x3b87f0, 0x60fa0),
+              ('sequences', 0x419790, 0x1eed0))
+
 NAMES = {'dam': 'Dam', 'run': 'Runway', 'stat': 'Statue Park', 'tra': 'Train',
          'pete': 'Streets', 'jun': 'Jungle', 'oat': 'Caves',
          'dish': 'Temple', 'ref': 'Complex', 'lib': 'Library', 'base': 'Basement', 'stack': 'Stack',
@@ -787,6 +797,18 @@ def main():
         print('%-5s lights %d' % (key, numlights))
         print('%-5s rooms %3d portals %3d textures %3d tiles %4d (+%d walls) pads %3d waypoints %3d spawns %2d weapons %2d ammo %2d  bg %d bytes' % (
             key, bg.numrooms, len(bg.portals), len(tex), len(stan), walls, len(setup['pads']), len(setup['waypoints']), nsp, nw, na, len(bgdata)))
+    # GE-X Plus's menus are GoldenEye's own folder screens (port/src/gexfront.c):
+    # the folder is a prop model, the crosshair cursor a global image, and the
+    # fonts and the title screen's strings are copied as GoldenEye stores them
+    allmodels.add(MENU_FOLDER_MODEL)
+    alltex.add(MENU_CURSOR_IMAGE)
+    os.makedirs(os.path.join(outdir, 'menu'), exist_ok=True)
+    rom = gefiles.rom()
+    for name, at, size in MENU_RAW:
+        with open(os.path.join(outdir, 'menu', name), 'wb') as f:
+            f.write(rom.rom[at:at + size])
+    with open(os.path.join(outdir, 'menu', 'LtitleE'), 'wb') as f:
+        f.write(gefiles.rom_file('LtitleE'))
     # the remake's prop models: GoldenEye's own, converted (gemodelconv.py)
     modellines = []
     for num in sorted(allmodels):
