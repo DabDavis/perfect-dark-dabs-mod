@@ -24,7 +24,12 @@
  *   remake has no teams yet);
  * - the Health and Control Style pages, a panel a player, each player choosing
  *   on their own controller and the page closing when all have;
- * - Characters stays grey until its page is built.
+ * - the Characters page (constructor_menu0F_mpcharsel): a panel a player with
+ *   a strip of GoldenEye's four-tile portraits scrolling under the player's
+ *   choice. The characters are the remake's - GoldenEye X's, borrowed into
+ *   the Combat Simulator's list (modborrow.c), or Perfect Dark's own without
+ *   it - and a portrait is GoldenEye's for the character of that name, or its
+ *   silhouette.
  *
  * The music is GoldenEye's too: its folders theme (sequence 23, M_FOLDERS) on
  * its own instrument bank, both copied out of the ROM into menu/ and appended
@@ -137,6 +142,7 @@ extern s32 g_MpWeaponSetNum;
 #define TITLE_CHARACTERS   82
 #define TITLE_HEALTH       83
 #define TITLE_AIM          84
+#define TITLE_SELECTCHARACTER 85
 #define TITLE_SELECTHANDICAP 86
 #define TITLE_SCENARIOHEAD 87
 #define TITLE_HEALTH_FIRST 61
@@ -150,7 +156,11 @@ extern s32 g_MpWeaponSetNum;
 // a highlight: black at 50
 #define COLOUR_HIGHLIGHT 0x00000032
 
-enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE };
+enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE, SCREEN_CHARACTERS };
+
+// the Characters page: the Combat Simulator bodies it lists, and a portrait's spacing on the strip
+#define MAX_CHARACTERS 128
+#define PORTRAIT_SPACING 0x54
 
 // the Level page: twelve to a page, and the most the remake converts
 #define LEVELS_PER_PAGE 12
@@ -242,6 +252,13 @@ static struct {
 	s32 handicap[MAX_PLAYERS];  // MP_handicap_table index a player
 	s32 chosen[MAX_PLAYERS];    // a player has chosen on a per-player page
 	s32 stickarmed[MAX_PLAYERS];
+
+	s32 characters[MAX_CHARACTERS]; // mpbodynums the Characters page lists
+	s32 numcharacters;
+	s32 charcur[MAX_PLAYERS];     // the character a player is on
+	s32 charprev[MAX_PLAYERS];    // the one the strip is centred on while it scrolls
+	s32 charscroll[MAX_PLAYERS];  // how far past it
+	s32 charsize[MAX_PLAYERS];    // how far a chosen portrait has grown, to 11
 
 	struct {
 		s32 num;
@@ -577,6 +594,92 @@ static void frontBuildLevels(void)
 	}
 }
 
+/* ---- the characters ----------------------------------------------------- */
+
+/**
+ * GoldenEye's portraits (s_mpcharselimages), four 65x65 tiles each - upper left,
+ * upper right, lower left, lower right - by the name GoldenEye gives the
+ * character, letters only and lower case, so GoldenEye X's "Natalya (Russia)"
+ * and "May Day" find theirs. The Bonds by actor first. Mishkin's tiles are in
+ * the ROM out of order.
+ */
+static const struct { const char *key; s32 tiles[4]; } g_FrontPortraits[] = {
+	{ "connery", { 2606, 2607, 2608, 2609 } },
+	{ "moore", { 2610, 2611, 2612, 2613 } },
+	{ "dalton", { 2614, 2615, 2616, 2617 } },
+	{ "bond", { 2602, 2603, 2604, 2605 } },
+	{ "brosnan", { 2602, 2603, 2604, 2605 } },
+	{ "boris", { 2632, 2633, 2634, 2635 } },
+	{ "ourumov", { 2636, 2637, 2638, 2639 } },
+	{ "trevelyan", { 2640, 2641, 2642, 2643 } },
+	{ "valentin", { 2644, 2645, 2646, 2647 } },
+	{ "xenia", { 2648, 2649, 2650, 2651 } },
+	{ "natalya", { 2652, 2653, 2654, 2655 } },
+	{ "baronsamedi", { 2656, 2657, 2658, 2659 } },
+	{ "jaws", { 2660, 2661, 2662, 2663 } },
+	{ "mayday", { 2664, 2665, 2666, 2667 } },
+	{ "oddjob", { 2668, 2669, 2670, 2671 } },
+	{ "mishkin", { 2694, 2693, 2691, 2692 } },
+};
+
+static const s32 g_FrontRandomPortrait[4] = { 2682, 2683, 2684, 2685 };
+
+static const char *frontCharacterName(s32 mpbodynum)
+{
+	const char *name = modBorrowBodyName(g_MpBodies[mpbodynum].bodynum);
+
+	return name ? name : mpGetBodyName(mpbodynum);
+}
+
+static const s32 *frontPortrait(s32 mpbodynum)
+{
+	const char *name = frontCharacterName(mpbodynum);
+	char key[64];
+	s32 n = 0;
+
+	// the name's letters before any bracket, lower case
+	for (; name && *name && *name != '(' && n < (s32)sizeof(key) - 1; name++) {
+		if (*name >= 'A' && *name <= 'Z') {
+			key[n++] = *name + 32;
+		} else if (*name >= 'a' && *name <= 'z') {
+			key[n++] = *name;
+		}
+	}
+
+	key[n] = '\0';
+
+	for (s32 i = 0; i < ARRAYCOUNT(g_FrontPortraits); i++) {
+		if (strstr(key, g_FrontPortraits[i].key)) {
+			return g_FrontPortraits[i].tiles;
+		}
+	}
+
+	return g_FrontRandomPortrait;
+}
+
+/**
+ * The Characters page's list: GoldenEye X's characters where they are
+ * borrowed, else every Combat Simulator body.
+ */
+static void frontBuildCharacters(void)
+{
+	g_Front.numcharacters = 0;
+
+	for (s32 i = 0; i < g_MpListCounts.bodies && g_Front.numcharacters < MAX_CHARACTERS; i++) {
+		if (modBorrowBodyName(g_MpBodies[i].bodynum)) {
+			g_Front.characters[g_Front.numcharacters++] = i;
+		}
+	}
+
+	if (g_Front.numcharacters == 0) {
+		for (s32 i = 0; i < g_MpListCounts.bodies && g_Front.numcharacters < MAX_CHARACTERS; i++) {
+			if (challengeIsFeatureUnlocked(g_MpBodies[i].requirefeature)) {
+				g_Front.characters[g_Front.numcharacters++] = i;
+			}
+		}
+	}
+}
+
 /* ---- the setup ---------------------------------------------------------- */
 
 // GoldenEye's scenarios in its own order, as the remake's
@@ -807,8 +910,7 @@ static s32 frontRowOn(s32 row)
 		// reset_mp_options_for_scenario(): License to Kill kills in one hit anyway
 		return gexPlusGetScenario() != GEXPLUS_LICENCETOKILL;
 	case ROW_CHARACTERS:
-		// GoldenEye's page for this is not built yet
-		return 0;
+		return g_Front.numcharacters > 0 || (frontBuildCharacters(), g_Front.numcharacters > 0);
 	}
 
 	return 1;
@@ -841,6 +943,28 @@ static void frontSelectRow(s32 row)
 		}
 
 		g_Front.screen = SCREEN_LEVEL;
+		break;
+	case ROW_CHARACTERS:
+		frontBuildCharacters();
+
+		// init_menu0f_mpcharsel(): each player on their own character
+		for (s32 i = 0; i < MAX_PLAYERS; i++) {
+			g_Front.charcur[i] = 0;
+
+			for (s32 k = 0; k < g_Front.numcharacters; k++) {
+				if (g_Front.characters[k] == g_PlayerConfigsArray[i].base.mpbodynum) {
+					g_Front.charcur[i] = k;
+				}
+			}
+
+			g_Front.charprev[i] = g_Front.charcur[i];
+			g_Front.charscroll[i] = 0;
+			g_Front.charsize[i] = 0;
+			g_Front.chosen[i] = 0;
+			g_Front.stickarmed[i] = 0;
+		}
+
+		g_Front.screen = SCREEN_CHARACTERS;
 		break;
 	case ROW_HEALTH:
 	case ROW_CONTROLSTYLE:
@@ -1132,6 +1256,104 @@ static void frontTickPlayerPanels(void)
 	}
 }
 
+/** Whether another player has already chosen this character (get_players_who_have_selected_mp_char()). */
+static s32 frontCharacterTaken(s32 player, s32 k)
+{
+	for (s32 i = 0; i < frontNumPlayers(); i++) {
+		if (i != player && g_Front.chosen[i] && g_Front.charcur[i] == k) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * interface_menu0F_mpcharsel(): each player steps along the strip on their own
+ * controller and chooses with A, which another player's choice refuses; a
+ * chosen portrait grows for eleven frames and B puts it back. The strip
+ * scrolls twelve a frame to the player's character. The page closes when every
+ * player has chosen and their portrait is grown.
+ */
+static void frontTickCharacters(void)
+{
+	const s32 numplayers = frontNumPlayers();
+	s32 ready = 0;
+
+	for (s32 i = 0; i < numplayers; i++) {
+		const s32 stickx = joyGetStickX(i);
+		const s32 left = joyGetButtonsPressedThisFrame(i, L_JPAD | L_CBUTTONS) || (stickx < -30 && g_Front.stickarmed[i]);
+		const s32 right = joyGetButtonsPressedThisFrame(i, R_JPAD | R_CBUTTONS) || (stickx > 30 && g_Front.stickarmed[i]);
+		const s32 pick = joyGetButtonsPressedThisFrame(i, A_BUTTON | Z_TRIG | START_BUTTON | (i == 0 ? BUTTON_UI_ACCEPT : 0))
+			|| (i == 0 && inputKeyJustPressed(VK_MOUSE_LEFT));
+		const s32 unpick = joyGetButtonsPressedThisFrame(i, B_BUTTON | (i == 0 ? BUTTON_UI_CANCEL : 0))
+			|| (i == 0 && inputKeyJustPressed(VK_ESCAPE));
+
+		if (g_Front.chosen[i]) {
+			if (g_Front.charsize[i] < 11 && g_Front.charprev[i] == g_Front.charcur[i]) {
+				g_Front.charsize[i]++;
+			}
+
+			if (unpick) {
+				g_Front.chosen[i] = 0;
+				menuPlaySound(MENUSOUND_TOGGLEOFF);
+			}
+		}
+
+		if (!g_Front.chosen[i] && g_Front.charsize[i] > 0) {
+			g_Front.charsize[i]--;
+		} else if (!g_Front.chosen[i] && g_Front.charscroll[i] == 0) {
+			if (left && g_Front.charcur[i] > 0) {
+				g_Front.charcur[i]--;
+				menuPlaySound(MENUSOUND_SUBFOCUS);
+			} else if (right && g_Front.charcur[i] < g_Front.numcharacters - 1) {
+				g_Front.charcur[i]++;
+				menuPlaySound(MENUSOUND_SUBFOCUS);
+			} else if (pick && !frontCharacterTaken(i, g_Front.charcur[i])) {
+				const s32 mpbodynum = g_Front.characters[g_Front.charcur[i]];
+
+				g_PlayerConfigsArray[i].base.mpbodynum = mpbodynum;
+				g_PlayerConfigsArray[i].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
+				g_Front.chosen[i] = 1;
+				g_Front.charsize[i] = 1;
+				menuPlaySound(MENUSOUND_SELECT);
+			}
+		}
+
+		g_Front.stickarmed[i] = stickx >= -10 && stickx <= 10;
+
+		// the strip to the player's character, twelve a frame
+		{
+			const s32 at = g_Front.charprev[i] * PORTRAIT_SPACING + g_Front.charscroll[i];
+			const s32 want = g_Front.charcur[i] * PORTRAIT_SPACING;
+
+			if (want < at) {
+				g_Front.charscroll[i] -= 12;
+
+				if (g_Front.charscroll[i] < 0) {
+					g_Front.charscroll[i] += PORTRAIT_SPACING;
+					g_Front.charprev[i]--;
+				}
+			} else if (want > at) {
+				g_Front.charscroll[i] += 12;
+
+				if (g_Front.charscroll[i] >= PORTRAIT_SPACING) {
+					g_Front.charscroll[i] -= PORTRAIT_SPACING;
+					g_Front.charprev[i]++;
+				}
+			}
+		}
+
+		if (g_Front.chosen[i] && g_Front.charsize[i] == 11) {
+			ready++;
+		}
+	}
+
+	if (ready == numplayers) {
+		g_Front.screen = SCREEN_MPOPTIONS;
+	}
+}
+
 static void frontSetCursorForMode(s32 mode)
 {
 	// setCursorPOSforMode()
@@ -1175,6 +1397,9 @@ void gexFrontTick(void)
 	case SCREEN_HEALTH:
 	case SCREEN_CONTROLSTYLE:
 		frontTickPlayerPanels();
+		return;
+	case SCREEN_CHARACTERS:
+		frontTickCharacters();
 		return;
 	}
 
@@ -1509,10 +1734,11 @@ static struct textureconfig *frontTexture(s32 num, s32 width, s32 height, s32 fo
 /**
  * display_image_at_position() and draw_textured_rectangle(): a texture over a
  * rectangle (its middle and half size), twidth and theight texels across it,
- * tinted by the colour; opaque, as GoldenEye draws its stage pictures.
+ * tinted by the colour; opaque, as GoldenEye draws its stage pictures. A
+ * negative theight runs the rows bottom to top.
  */
 static Gfx *frontImage(Gfx *gdl, s32 num, s32 width, s32 height, s32 format, s32 wrap,
-		f32 cx, f32 cy, f32 hw, f32 hh, s32 twidth, s32 theight, u32 colour)
+		f32 cx, f32 cy, f32 hw, f32 hh, s32 twidth, s32 theight, u32 colour, s32 translucent)
 {
 	const f32 sx = frontScaleX();
 	const f32 sy = frontScaleY();
@@ -1528,13 +1754,22 @@ static Gfx *frontImage(Gfx *gdl, s32 num, s32 width, s32 height, s32 format, s32
 	modSetTextureSourceMod(prevsrc);
 
 	gDPSetTexturePersp(gdl++, G_TP_NONE);
-	gDPSetTextureFilter(gdl++, G_TF_POINT);
 	gDPSetEnvColor(gdl++, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
-	gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
+
+	if (translucent) {
+		// a portrait: shaded by the colour, as see-through as its alpha and no more
+		gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+		gDPSetTextureFilter(gdl++, G_TF_BILERP);
+		gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT);
+	} else {
+		gDPSetTextureFilter(gdl++, G_TF_POINT);
+		gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
+	}
+
 	gSPTextureRectangle(gdl++,
 			(s32)((cx - hw) * sx * 4), (s32)((cy - hh) * sy * 4),
 			(s32)((cx + hw) * sx * 4), (s32)((cy + hh) * sy * 4),
-			G_TX_RENDERTILE, 0, 0,
+			G_TX_RENDERTILE, 0, theight < 0 ? ((-theight) << 5) - 1 : 0,
 			(s32)(twidth / (2.0f * hw) * 1024.0f / sx), (s32)(theight / (2.0f * hh) * 1024.0f / sy));
 
 	return gdl;
@@ -1778,8 +2013,8 @@ static Gfx *frontDrawLevel(Gfx *gdl)
 
 	// the strips' holes, above and below each
 	for (s32 i = 0; i < 3; i++) {
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff);
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff);
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
 	}
 
 	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < g_Front.numlevels; n++) {
@@ -1789,7 +2024,7 @@ static Gfx *frontDrawLevel(Gfx *gdl)
 		const u32 colour = n == g_Front.highlight ? 0xffffffff : 0x6e6e6eff;
 
 		gdl = frontImage(gdl, frontStageImage(g_Front.levels[first + n]), STAGE_IMAGE_W, STAGE_IMAGE_H, G_IM_FMT_I, false,
-				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, STAGE_IMAGE_H, colour);
+				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, STAGE_IMAGE_H, colour, false);
 	}
 
 	gdl = frontTextSetup(gdl);
@@ -1855,6 +2090,24 @@ static Gfx *frontDrawScenario(Gfx *gdl)
 	return gdl;
 }
 
+/** A player's panel on the per-player pages: GoldenEye's two across or four in a square, and one across the middle. */
+static void frontPanel(s32 player, s32 numplayers, s32 *left, s32 *top, s32 *width)
+{
+	if (numplayers == 1) {
+		*left = 0x26;
+		*width = 0x15e;
+		*top = 0x1e + 0x46;
+	} else if (numplayers == 2) {
+		*left = 0x26;
+		*width = 0x15e;
+		*top = (player > 0 ? 0x8c : 0) + 0x1e;
+	} else {
+		*width = 0xaf;
+		*top = (player >= 2 ? 0x8c : 0) + 0x1e;
+		*left = ((player & 1) ? 0xaf : 0) + 0x26;
+	}
+}
+
 /**
  * constructor_menu10_mphandicap() and constructor_menu11_mpcontrol(): a panel a
  * player - two across the page one above the other, or four in a square - with
@@ -1885,19 +2138,7 @@ static Gfx *frontDrawPlayerPanels(Gfx *gdl)
 		s32 w;
 		s32 h;
 
-		if (numplayers == 1) {
-			left = 0x26;
-			width = 0x15e;
-			top = 0x1e + 0x46;
-		} else if (numplayers == 2) {
-			left = 0x26;
-			width = 0x15e;
-			top = (i > 0 ? 0x8c : 0) + 0x1e;
-		} else {
-			width = 0xaf;
-			top = (i >= 2 ? 0x8c : 0) + 0x1e;
-			left = ((i & 1) ? 0xaf : 0) + 0x26;
-		}
+		frontPanel(i, numplayers, &left, &top, &width);
 
 		const s32 midx = (width >> 1) + left;
 		const s32 midy = top + 0x46;
@@ -1926,6 +2167,102 @@ static Gfx *frontDrawPlayerPanels(Gfx *gdl)
 
 		frontMeasure(&g_Front.zurich, value, 0, &w, &h);
 		gdl = frontPrint(gdl, midx - (w >> 1), midy - (h >> 1) + 0xf, value, COLOUR_ON);
+	}
+
+	return gdl;
+}
+
+/**
+ * frontRenderCharacterPortrait(): a portrait's four tiles about its middle,
+ * 70 wide and 84 high and growing with size; faded out towards the panel's
+ * sides (frontCalculateCharacterImageAlpha()), and greyed while another
+ * player has it. GoldenEye's vertices run a tile's t up the screen.
+ */
+static Gfx *frontPortraitDraw(Gfx *gdl, s32 player, s32 k, s32 cx, s32 cy, s32 left, s32 right, s32 size)
+{
+	const s32 *tiles = frontPortrait(g_Front.characters[k]);
+	const s32 hw = size + 0x23;
+	const s32 hh = size + 0x2a;
+	const s32 grey = size == 0 && frontCharacterTaken(player, k);
+	const u32 shade = grey ? 0x6e : 0xff;
+	s32 alpha = 0xff;
+
+	if (cx - hw < left || cx + hw > right) {
+		return gdl;
+	}
+
+	if (size == 0) {
+		const s32 edge = cx - left < right - cx ? cx - left : right - cx;
+
+		if (edge < hw + 0x28) {
+			alpha = 0xff * (edge - hw) / 0x28;
+		}
+	}
+
+	for (s32 t = 0; t < 4; t++) {
+		const f32 qx = cx + (t & 1 ? hw / 2.0f : -hw / 2.0f);
+		const f32 qy = cy + size + (t & 2 ? hh / 2.0f : -hh / 2.0f);
+
+		gdl = frontImage(gdl, tiles[t], 0x41, 0x41, G_IM_FMT_I, false, qx, qy, hw / 2.0f, hh / 2.0f, 0x41, -0x41,
+				(shade << 24) | (shade << 16) | (shade << 8) | alpha, true);
+	}
+
+	return gdl;
+}
+
+/** constructor_menu0F_mpcharsel(): the prompt, the character's name, and the strip. */
+static Gfx *frontDrawCharacters(Gfx *gdl)
+{
+	const s32 numplayers = frontNumPlayers();
+
+	if (numplayers >= 2) {
+		gdl = frontFillRect(gdl, 0x26, 0xa9, 0x184, 0xab, 0x00000090);
+	}
+
+	if (numplayers >= 3) {
+		gdl = frontFillRect(gdl, 0xd4, 0x1e, 0xd6, 0x136, 0x00000080);
+	}
+
+	for (s32 i = 0; i < numplayers; i++) {
+		s32 left;
+		s32 top;
+		s32 width;
+		s32 w;
+		s32 h;
+		char name[64];
+
+		frontPanel(i, numplayers, &left, &top, &width);
+
+		const s32 midx = (width >> 1) + left;
+		const s32 stripleft = left + 0xd;
+		const s32 stripright = left + width - 0xe;
+		const s32 base = midx - g_Front.charscroll[i];
+
+		gdl = frontPortraitDraw(gdl, i, g_Front.charprev[i], base, top + 0x46, stripleft, stripright, g_Front.charsize[i]);
+
+		if (!g_Front.chosen[i] && g_Front.charsize[i] == 0) {
+			for (s32 d = -3; d <= 3; d++) {
+				const s32 k = g_Front.charprev[i] + d;
+
+				if (d != 0 && k >= 0 && k < g_Front.numcharacters) {
+					gdl = frontPortraitDraw(gdl, i, k, base + d * PORTRAIT_SPACING, top + 0x46, stripleft, stripright, 0);
+				}
+			}
+		}
+
+		gdl = frontTextSetup(gdl);
+
+		if (!g_Front.chosen[i] && g_Front.charsize[i] == 0) {
+			const char *prompt = frontString(TITLE_SELECTCHARACTER);
+
+			frontMeasure(&g_Front.zurich, prompt, 0, &w, &h);
+			gdl = frontPrint(gdl, midx - (w >> 1), top + 5, prompt, COLOUR_ON);
+		}
+
+		snprintf(name, sizeof(name), "%s", g_Front.numcharacters ? frontCharacterName(g_Front.characters[g_Front.charcur[i]]) : "");
+		name[strcspn(name, "\n")] = '\0';
+		frontMeasure(&g_Front.zurich, name, 0, &w, &h);
+		gdl = frontPrint(gdl, midx - (w >> 1), top + 0x46 + 0x32, name, COLOUR_ON);
 	}
 
 	return gdl;
@@ -1966,13 +2303,16 @@ Gfx *gexFrontRender(Gfx *gdl)
 	case SCREEN_SCENARIO:
 		gdl = frontDrawScenario(gdl);
 		break;
+	case SCREEN_CHARACTERS:
+		gdl = frontDrawCharacters(gdl);
+		break;
 	default:
 		gdl = frontDrawPlayerPanels(gdl);
 		break;
 	}
 
 	// the per-player pages have no tabs and no cursor, as GoldenEye's have none
-	if (g_Front.screen != SCREEN_HEALTH && g_Front.screen != SCREEN_CONTROLSTYLE) {
+	if (g_Front.screen != SCREEN_HEALTH && g_Front.screen != SCREEN_CONTROLSTYLE && g_Front.screen != SCREEN_CHARACTERS) {
 		gdl = frontTab(gdl, TITLE_PREVIOUS, PREVTAB_TEXT_TOP, PREVTAB_TEXT_BOTTOM, g_Front.tabprev);
 		gdl = frontDrawCursor(gdl);
 	}

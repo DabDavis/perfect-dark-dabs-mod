@@ -59,8 +59,12 @@ LEVELIDS = {'dam': 'DAM', 'run': 'RUNWAY', 'stat': 'STATUE', 'tra': 'TRAIN',
 # music, raw in the ROM: {name, ROM address, size}
 MENU_FOLDER_MODEL = 278
 # the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
-# and a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
-MENU_IMAGES = [2236, 2631] + list(range(2578, 2598)) + list(range(2686, 2690)) + [2695]
+# a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
+# and the character portraits' tiles (IMAGE_BROSNAN_UL..DALTON_LR, BORIS_UL..ODDJOB_LR,
+# RANDOM_UL..LR, MISHKIN)
+MENU_IMAGES = ([2236, 2631] + list(range(2578, 2598)) + list(range(2686, 2690)) + [2695]
+               + list(range(2602, 2618)) + list(range(2632, 2672)) + list(range(2682, 2686))
+               + list(range(2691, 2695)))
 MENU_RAW = (('fontbankgothic.bin', 0x2e63f0, 0x24b0), ('fontzurichbold.bin', 0x2e88a0, 0x3540),
               # and its music: the instrument bank, and the sequence table ({u16 count, pad, then
               # u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences after it

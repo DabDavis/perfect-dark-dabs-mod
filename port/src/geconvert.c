@@ -64,9 +64,12 @@
 #define MENU_FOLDER_MODEL 278
 
 // the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
-// and a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
+// a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
+// and the character portraits' tiles (IMAGE_BROSNAN_UL..DALTON_LR,
+// BORIS_UL..ODDJOB_LR, RANDOM_UL..LR, MISHKIN)
 static const struct { uint32_t first, count; } g_MenuImages[] = {
 	{ 2236, 1 }, { 2631, 1 }, { 2578, 20 }, { 2686, 4 }, { 2695, 1 },
+	{ 2602, 16 }, { 2632, 40 }, { 2682, 4 }, { 2691, 4 },
 };
 
 static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
