@@ -1,3 +1,6 @@
+#ifndef PLATFORM_N64
+#include "headfit.h"
+#endif
 #include <ultra64.h>
 #include "constants.h"
 #include "bss.h"
@@ -253,6 +256,11 @@ void lvUpdateMiscSfx(void)
 
 void lvReset(s32 stagenum)
 {
+#ifndef PLATFORM_N64
+	// Head measurements and offsets are the last stage's files and copies
+	headfitReset();
+#endif
+
 	lvFadeReset();
 
 	var80084014 = false;

@@ -180,3 +180,56 @@ later 33 were left; after it, 0 of 106 marked and 128 kept 12 seconds
 later, the log carrying one `vtxstore: out of type 2` line. Attach with
 `pgrep -x`, not `-f`: `-f` answers with the `timeout` wrapper's pid and gdb
 then says `No symbol "g_NumChrSlots" in current context`.
+
+## Heads fitted to bodies by measurement (2026-09-17)
+
+`port/src/headfit.c`, called from `bodyCalculateHeadOffset()`. The user: "a lot
+of heads are too tall for some bodies and they float", "if we can cause the
+heads to auto fit to any body that would be helpful, n64 also"; chose **only a
+head on a body it was not made for** and **height only**.
+
+- **The ROM's fit is a type table.** A head's vertices move up or down by an
+  amount looked up from the head's and the body's `type`, and a pair of one type
+  moves by nothing. Nothing is measured, so GoldenEye X's, the pool's or a mod's
+  rows float or sink by whatever their type byte says.
+- **The release's meshes never took even that.** They are posed from the
+  model's matrices and their own vertices, not the shifted N64 ones. Now every
+  head copy's offset goes into a small registry (`headfitNoteApplied()`, keyed
+  by modeldef and checked against its root node, since a freed modeldef's
+  address comes back as another file), and `xblaMeshPose()` lifts a grafted
+  head's palette along each matrix's own up by it.
+- **What is measured.** The head's neck base: the 2nd percentile of its
+  vertices' y, in its own space (a head has one). The body's neck top: the
+  highest vertex of the lists under the headspot's joint, above the headspot.
+  **A list's vertices are in the space of the matrix loaded when they were
+  (G_MTX), not the node's**: a body's neck list holds its lower ring in the
+  back's space, and read in the node's space the neck top came out 400 units
+  up. `gebeanListVertexMatrices()` gives each vertex's matrix; its joint's rest
+  is its position node's offset summed up the tree.
+- **The rule.** Over 115 GoldenEye X-borrowed bodies with their own heads, the
+  head's base sits 40-77 units under the body's neck top (Elvis, Mr Blonde and a
+  hooded body are the outliers). So a head goes where the body's own head's base
+  is (`g_MpBodies[].headnum`; its own head is then exactly 0), and a body naming
+  none takes its neck top less 55. Clamped to 200.
+- **Left alone**: the body's own head, the ROM's stock pairs of one type, and
+  the release's pool (`gebeanIsPoolRow()`: its meshes stand on a host's models,
+  whose geometry says nothing about the mesh).
+- **A head nothing has loaded** is measured from a scratch copy: the file
+  inflated into a buffer (`g_LoadType = LOADTYPE_MODEL` first, or the PC
+  widening is skipped and the promote crashes; size as fileLoadToNew allows it,
+  +0x8000) and only its pointers promoted - a real load binds textures and
+  registers with the XBLA matcher, which a freed buffer must never be.
+  `g_FileInfo[]` is put back. Cached per file, cleared at `lvReset()`.
+- **HD necks under a foreign head.** A GoldenEye X body whose own head file
+  carries its neck (`GEBEAN_BODY_WITH_HEAD`) blanks its neck lists; under any
+  other head the collar stood open. `gebeanmats.neckblank` marks those groups,
+  and they give way to the model's own N64 neck when the grafted head was fitted
+  (`headfitWasMeasured()`). A pale ring can still show where the HD collar and
+  the N64 stub differ (Jaws with Joanna's head).
+- Survey and checks: `headfitSurvey()` from gdb at `lvReset` logs every body's
+  neck and own head's base. Harness `build/gexcmp/heads/face2.sh` takes
+  `body:head` pairs; the camera finds the chr by body number (simulant order
+  is not config order), and `PITCH` holds the head up through the shoulder
+  aims. Checked: eight mixed pairs in both looks against the previous binary,
+  own pairs unchanged (stock pairs pixel-identical), stock heads on stock
+  bodies with no GoldenEye X.

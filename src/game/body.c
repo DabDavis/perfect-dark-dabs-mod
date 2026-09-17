@@ -3,6 +3,9 @@
 #include "game/cheats.h"
 #ifndef PLATFORM_N64
 #include "romdata.h"
+#ifndef PLATFORM_N64
+#include "headfit.h"
+#endif
 #include "system.h"
 #include "game/modghost.h"
 #endif
@@ -786,7 +789,22 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	// What the release's meshes take the offset from; nothing, unless moved below
+	headfitNoteApplied(headmodeldef, 0, 0);
+#endif
+
 	if ((s16)(*(s32 *)&headmodeldef->skel) == SKEL_HEAD) {
+#ifndef PLATFORM_N64
+		// A head on a body it was not made for is seated by measuring the two
+		// rather than by the table of the game's own types (port/src/headfit.c)
+		if (headfitWanted(headnum, bodynum)) {
+			offset = headfitOffset(headmodeldef, headnum, bodynum, g_HeadsAndBodies[bodynum].modeldef);
+			headfitNoteApplied(headmodeldef, 0, 1);
+			goto apply;
+		}
+#endif
+
 #if VERSION >= VERSION_JPN_FINAL
 		if (g_HeadsAndBodies[headnum].type == g_HeadsAndBodies[bodynum].type && offset == 0) {
 			return;
@@ -877,6 +895,9 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 			offset -= 5;
 		}
 
+#ifndef PLATFORM_N64
+apply:
+#endif
 		// Apply the offset
 		if (offset != 0) {
 			node = NULL;
@@ -901,6 +922,10 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 				bbox->ymin += offset;
 				bbox->ymax += offset;
 			}
+
+#ifndef PLATFORM_N64
+			headfitNoteApplied(headmodeldef, offset, -1);
+#endif
 		}
 	}
 }

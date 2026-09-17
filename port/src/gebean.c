@@ -634,6 +634,15 @@ static const char *gebeanSourceName(const char *source)
 	return made;
 }
 
+/** Whether a head or body row is the release's own pool, whose meshes stand on a host's model. */
+s32 gebeanIsPoolRow(s32 num)
+{
+	const s32 i = num - GEBEAN_POOL_BASE;
+
+	return i >= 0 && i < ARRAYCOUNT(poolRows) && num < NUM_HEADSANDBODIES
+		&& poolSlot[i] && poolSlot[i] == g_HeadsAndBodies[num].filenum;
+}
+
 const char *gebeanHeadName(s32 headnum)
 {
 	const s32 i = headnum - GEBEAN_POOL_BASE;
@@ -1388,8 +1397,12 @@ static void beanWalkListMatrices(const u8 *base, const Vtx *vertices, s32 numver
 	}
 }
 
-/** Walks a list node's opaque list; see beanWalkListMatrices(). */
-static s16 beanListMatrices(const struct modelnode *node, s16 *vtxmtx, s32 numvertices)
+/**
+ * Walks a list node's opaque list; see beanWalkListMatrices(). The file's
+ * start is what a list address is resolved against: a loaded model keeps it
+ * in the node, a file only promoted (headfit.c) is handed it.
+ */
+static s16 beanListMatricesFrom(const struct modelnode *node, const u8 *filebase, s16 *vtxmtx, s32 numvertices)
 {
 	const u32 type = node ? node->type & 0xff : 0;
 	s16 cur = -1;
@@ -1400,12 +1413,12 @@ static s16 beanListMatrices(const struct modelnode *node, s16 *vtxmtx, s32 numve
 	}
 
 	if (type == MODELNODETYPE_GUNDL) {
-		const u8 *base = node->rodata->gundl.baseaddr;
+		const u8 *base = filebase ? filebase : node->rodata->gundl.baseaddr;
 
 		beanWalkListMatrices(base, node->rodata->gundl.vertices, numvertices,
 				beanResolveGdl(base, node->rodata->gundl.opagdl), 0, &cur, &first, vtxmtx);
 	} else if (type == MODELNODETYPE_DL) {
-		const u8 *base = (const u8 *)node->rodata->dl.colours;
+		const u8 *base = filebase ? filebase : (const u8 *)node->rodata->dl.colours;
 
 		beanWalkListMatrices(base, node->rodata->dl.vertices, numvertices,
 				beanResolveGdl(base, node->rodata->dl.opagdl), 0, &cur, &first, vtxmtx);
@@ -1414,9 +1427,19 @@ static s16 beanListMatrices(const struct modelnode *node, s16 *vtxmtx, s32 numve
 	return first;
 }
 
+static s16 beanListMatrices(const struct modelnode *node, s16 *vtxmtx, s32 numvertices)
+{
+	return beanListMatricesFrom(node, NULL, vtxmtx, numvertices);
+}
+
 s32 gebeanListLoadedMatrix(const struct modelnode *node)
 {
 	return beanListMatrices(node, NULL, 0);
+}
+
+s32 gebeanListVertexMatrices(const struct modelnode *node, const u8 *filebase, s16 *vtxmtx, s32 numvertices)
+{
+	return beanListMatricesFrom(node, filebase, vtxmtx, numvertices);
 }
 
 /* -------------------------------------------------------------------------
@@ -3496,6 +3519,12 @@ static s32 beanNodeSkel(const struct modelnode *node, struct modelnode **joints,
  * game turns the head against the torso, and that vertex went with the torso
  * and drew a spike through her upper lip.
  */
+/** Positions compared exactly: a vertex a head and a body share is the same float in both. */
+static int beanSeamCompare(const void *a, const void *b)
+{
+	return memcmp(a, b, 3 * sizeof(f32));
+}
+
 static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back)
 {
 	f32 *share;
@@ -5252,6 +5281,26 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		}
 	}
 
+	// The seam between a body and a head built apart from it. The head is rigid
+	// on the neck; the body's collar blends the back and the neck. A vertex the
+	// two share stood in the same place only while the neck was straight, and
+	// a head tipped back opened a hole under the chin ("neck tearing": May Day,
+	// Boris). So a first pass gathers where the neck's triangles - the head's -
+	// stand, and the body pins any vertex of its own at one of those places
+	// wholly to the neck, re-pinned after the neck's weights are smoothed.
+	const s32 pinseam = !ishead && r->kind != GEBEAN_WHOLE;
+	f32 *seam = NULL;
+	s32 numseam = 0;
+	s32 capseam = 0;
+	s32 *pins = NULL;
+	s32 numpins = 0;
+	s32 cappins = 0;
+
+	for (s32 pass = pinseam ? 0 : 1; pass < 2; pass++) {
+	if (pass == 1 && numseam > 1) {
+		qsort(seam, numseam, 3 * sizeof(f32), beanSeamCompare);
+	}
+
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
 		struct beanvb vb;
@@ -5349,6 +5398,27 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			// anything but the limbs.
 			if (ishead && original && !fromchar && dominant == SK_BACK) {
 				dominant = SK_NECK;
+			}
+
+			if (pass == 0) {
+				for (s32 i = 0; dominant == SK_NECK && i < 3; i++) {
+					if (numseam >= capseam) {
+						const s32 cap = capseam ? capseam * 2 : 1024;
+						f32 *grown = realloc(seam, cap * 3 * sizeof(f32));
+
+						if (!grown) {
+							break;
+						}
+
+						seam = grown;
+						capseam = cap;
+					}
+
+					memcpy(&seam[numseam * 3], v3[i].pos, 3 * sizeof(f32));
+					numseam++;
+				}
+
+				continue;
 			}
 
 			if (r->kind != GEBEAN_WHOLE && (dominant == SK_NECK) != (ishead != 0)) {
@@ -5463,11 +5533,37 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 				}
 
+				const s32 pin = !ishead && numseam > 0
+						&& bsearch(v3[i].pos, seam, numseam, 3 * sizeof(f32), beanSeamCompare) != NULL;
+
+				if (pin) {
+					for (s32 k = 0; k < 3; k++) {
+						bone[k] = (u8)rig.mtx[SK_NECK];
+						weight[k] = k == 0 ? 1.0f : 0.0f;
+					}
+				}
+
 				mapped[vi] = beanAddVertex(&out, pos, nrm, uv, bone, weight, 0xffffffff);
 
 				if (mapped[vi] < 0) {
 					ok = 0;
 					break;
+				}
+
+				if (pin) {
+					if (numpins >= cappins) {
+						const s32 cap = cappins ? cappins * 2 : 256;
+						s32 *grown = realloc(pins, cap * sizeof(s32));
+
+						if (grown) {
+							pins = grown;
+							cappins = cap;
+						}
+					}
+
+					if (numpins < cappins) {
+						pins[numpins++] = mapped[vi];
+					}
 				}
 
 				idx[i] = (u16)mapped[vi];
@@ -5510,12 +5606,15 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		free(mapped);
 		free(tris);
 	}
+	}
 
 	// Nodes that must draw nothing rather than keep their N64 geometry: a
 	// head's toggled pieces, which Bean's head has already, and the neck of a
 	// body whose head file takes Bean's neck, or that carries its own. A generic
 	// body's neck is left absent - the N64 stub stays under whatever head
 	// GoldenEye X grafts on.
+	u64 neckblank = 0;
+
 	if (out.numverts > 0) {
 		for (s32 k = 0; k < numnodes; k++) {
 			const s32 blank = ishead ? beanNodeIsToggled(nodes[k])
@@ -5523,18 +5622,33 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 			if (blank) {
 				beanAddTri(&out, k, 0, 0, 0, 0);
+
+				if (!ishead && k < 64) {
+					neckblank |= 1ull << k;
+				}
 			}
 		}
 	}
 
 	if (!ishead) {
 		beanSmoothNeckWeights(&out, rig.mtx[SK_NECK], rig.mtx[SK_BACK]);
+
+		for (s32 p = 0; p < numpins; p++) {
+			for (s32 k = 0; k < 3; k++) {
+				out.bone[pins[p] * 3 + k] = (u8)rig.mtx[SK_NECK];
+				out.weight[pins[p] * 3 + k] = k == 0 ? 1.0f : 0.0f;
+			}
+		}
 	}
+
+	free(seam);
+	free(pins);
 
 	// The pictures: only those a draw names, bound once per character.
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
 	mats->num = nummatwords;
+	mats->neckblank = neckblank;
 
 	for (s32 i = 0; i < nummatwords; i++) {
 		matwords[i] = XBLAMESH_MAT_TABLE | (u32)i;

@@ -43,6 +43,7 @@
 #include "gebean.h"
 #include "files.h"
 #include "xblamesh.h"
+#include "headfit.h"
 #include "xblatex.h"
 #include "objmesh.h"
 #include "modelpack.h"
@@ -388,6 +389,7 @@ struct xblameshbuilt {
 	u64 groupabsent;
 	s32 frompack;      // the mesh came out of a model pack's file (either kind)
 	s32 frombean;      // a GoldenEye XBLA character, skinned, a group per list node: xblaMeshBuildBean()
+	u64 beanneck;      // its groups blanked for a neck its own head carries (gebeanmats.neckblank)
 	u32 packgen;       // modelpackGetGeneration() when it was built
 };
 
@@ -5984,6 +5986,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 		mats.soft[i] = bmats->soft[i];
 	}
 
+	m->beanneck = bmats->neckblank;
 	free(bmats);
 
 	snprintf(what, sizeof(what), "model file %d's GoldenEye model%s", e->fileid,
@@ -6501,7 +6504,7 @@ static s32 xblaMeshPoseFineness(const struct xblameshbuilt *m, const Mtxf *pal)
  * NULL when there is no room this frame, and the caller draws the bind pose.
  */
 static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *root,
-		Mtxf **outmtx, s32 *outfine, s32 normals)
+		Mtxf **outmtx, s32 *outfine, s32 normals, f32 headlift)
 {
 	Mtxf pal[XBLAMESH_MAXMTX];
 	Mtxf invroot;
@@ -6567,7 +6570,22 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		// Out of the bind pose, into the game's, and then out of the matrix
 		// this list is drawn under - which is what keeps the result small
 		// enough to be the s16 a Perfect Dark vertex holds.
-		mtx4MultMtx4(&model->matrices[i], &m->invbind[i], &step);
+		if (headlift != 0.0f) {
+			// A head seated higher or lower on this body than on its own
+			// (bodyCalculateHeadOffset(), headfit.c) moved its N64 vertices
+			// along its own up; the mesh moves the same way, in the matrix's
+			// frame before it is turned.
+			Mtxf lifted = model->matrices[i];
+
+			for (s32 j = 0; j < 3; j++) {
+				lifted.m[3][j] += model->matrices[i].m[1][j] * headlift;
+			}
+
+			mtx4MultMtx4(&lifted, &m->invbind[i], &step);
+		} else {
+			mtx4MultMtx4(&model->matrices[i], &m->invbind[i], &step);
+		}
+
 		mtx4MultMtx4(&invroot, &step, &pal[i]);
 	}
 
@@ -7120,6 +7138,15 @@ static void xblaMeshReportOverlaps(void)
  * plus the body's, both small; the bound is what stops a parent chain that is
  * being rewritten from going round for ever.
  */
+/** Whether the head on a body model was fitted to it rather than made for it (headfit.c). */
+static s32 xblaMeshHeadIsFitted(struct model *model)
+{
+	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
+	union modelrwdata *rw = spot ? modelGetNodeRwData(model, spot) : NULL;
+
+	return rw && rw->headspot.headmodeldef && headfitWasMeasured(rw->headspot.headmodeldef);
+}
+
 static s32 xblaMeshNodeIsGrafted(const struct model *model, const struct modelnode *node)
 {
 	const struct modelnode *root = model->definition->rootnode;
@@ -9144,6 +9171,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			return 0;
 		}
 
+		// A neck left to the body's own head, under some other head: the
+		// model's own neck, or the collar stands open round it
+		if (part < 64 && (m->beanneck & (1ull << part)) && xblaMeshHeadIsFitted(model)) {
+			return 0;
+		}
+
 		list = &m->gdl[m->groupgfx[part]];
 		xlupart = m->groupxlu[part];
 		fadepart = m->groupfade[part];
@@ -9237,7 +9270,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				// within the cutoff.
 				pose = xblaMeshPose(m, model, root, &finemtx, &fine,
 						opa && m->envgdl && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED() &&
-						xblaMeshEnvironmentReach(m, root) > 0);
+						xblaMeshEnvironmentReach(m, root) > 0,
+						e->modeldef != model->definition ? (f32)headfitAppliedOffset(e->modeldef) : 0.0f);
 
 				if (pose) {
 					framePoses++;

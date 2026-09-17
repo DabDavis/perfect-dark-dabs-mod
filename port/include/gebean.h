@@ -131,6 +131,10 @@ s32 gebeanListNodeMatrix(const struct modelnode *node);
  * node it hangs under: the PP9i's gun list is under the root and loads 33.
  */
 s32 gebeanListLoadedMatrix(const struct modelnode *node);
+// The matrix each of a list node's vertices is loaded under, -1 before any;
+// filebase is the model file's start, or NULL for a loaded model
+s32 gebeanListVertexMatrices(const struct modelnode *node, const u8 *filebase, s16 *vtxmtx, s32 numvertices);
+s32 gebeanIsPoolRow(s32 headorbodynum);
 
 #define GEBEAN_MAXMATS 256
 
@@ -140,6 +144,9 @@ struct gebeanmats {
 	const void *tile[GEBEAN_MAXMATS];
 	u8 alpha[GEBEAN_MAXMATS];
 	u8 soft[GEBEAN_MAXMATS];
+	// Groups blanked because the head file carries this body's neck: with any
+	// other head on the body, the model's own neck draws there instead
+	u64 neckblank;
 };
 
 /**

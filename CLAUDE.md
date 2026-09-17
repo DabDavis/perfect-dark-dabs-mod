@@ -14,6 +14,7 @@ notes are read when their area comes up.
 
 - **The Windows build, wine, the pd.ini format** — [windows-build.md](CLAUDE-notes/windows-build.md): mingw prefix, WinHTTP, and why `Mod.LoadTextures=1` on its own line does nothing
 - **chrs, bodies, heads, simulants, memory pools, mpconfig** — [chrs-and-memory.md](CLAUDE-notes/chrs-and-memory.md): a chr's prop is read before its tick; the ~50KB head copy that empties the stage pool; one head modeldef cannot sit on two bodies; ROM-resident structures never grow; why kept bodies still vanished (the chr vertex store's reaper, sized for an N64, fades every off-screen corpse when the blood copies run out)
+- **A head on a body it was not made for** — chrs-and-memory.md, "Heads fitted to bodies by measurement": `port/src/headfit.c` replaces the ROM's type table for mixed pairs (own heads and stock one-type pairs untouched); a list's vertices are in the space of the G_MTX loaded before them, not the node's; the release's meshes now take a head's offset through `xblaMeshPose()`
 - **Saves, eeprom, where pd.ini lives, the migration** — [save-format.md](CLAUDE-notes/save-format.md)
 - **Menu text, `textMeasure()`, reaching the widescreen pillars** — [text-rendering.md](CLAUDE-notes/text-rendering.md)
 - **Adding stages** — [stage-numbers.md](CLAUDE-notes/stage-numbers.md): `STAGE_IS_LEVEL()` admits 0x5e-0xff as well as the 27 free below the title; four ids are taken outside the table; the MP save format holds 7 bits

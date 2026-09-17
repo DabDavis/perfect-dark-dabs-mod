@@ -1309,6 +1309,18 @@ parka's 1083 with its hood), and `original/` ones a 227-triangle N64 head.
   from `build/gexcmp/heads/listheads.py` (every g_MpHeads/g_MpBodies row with its
   file).
 
+## The neck tore when a head tipped back (2026-09-16)
+
+F3s of GoldenEye X's May Day and Boris in the HD look: a black hole under the
+chin when looking up. The head file is rigid on the neck; the body's collar
+blends back and neck. The vertices they share stood together only with the
+neck straight. `gebeanBuild()` now takes a first pass over a body (not a whole
+character) collecting where the neck's triangles - the head's - stand, and pins
+any body vertex at one of those exact positions wholly to the neck matrix,
+again after `beanSmoothNeckWeights()`, which would blend them back. Checked
+with the head held up (`face2.sh PITCH=0.9/1.3`) on May Day, Boris, Xenia and
+Jaws: the hole is gone. Heads fitted to other bodies: chrs-and-memory.md.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.
