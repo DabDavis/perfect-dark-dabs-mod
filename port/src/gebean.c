@@ -50,27 +50,31 @@
 // was written when only new/ was taken, the second (".extracted2") before the
 // guns' pickups were, the third (".extracted3") before their first-person
 // models were, the fourth (".extracted4") before the N64-look guns were and the
-// fifth (".extracted5") before the levels were, so a cache holding any of them
-// is unpacked again.
-#define GEBEAN_DONE_FILE ".extracted6"
+// fifth (".extracted5") before the levels were and the sixth (".extracted6")
+// before the remake's HD props were, so a cache holding any of them is unpacked
+// again.
+#define GEBEAN_DONE_FILE ".extracted7"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
 // the characters and heads, where Rare put them - the HD ones in new/, and in
 // original/ the N64-look ones Bean switched to, under the same names - the
-// guns' pickups, which Bean keeps among the props as chr<gun>, and the guns
+// props, HD only: the guns' pickups, which Bean keeps there as chr<gun>, and
+// since 2026-09-17 the rest, which the GE-X Plus remake draws on its own props
+// (propRows) - "chr" alone left every one of those missing on a player's
+// machine, where only a folder of the whole release had them - and the guns
 // themselves, the HD ones only: GoldenEye's N64 guns are GoldenEye X's own,
-// borrowed (modborrow.c) - and the HD levels' drawn meshes, without the
-// collision meshes beside them (<level>_hits), which the game has its own of.
+// borrowed (modborrow.c) - and the HD levels' drawn meshes. Neither a prop's
+// nor a level's collision mesh (<name>_hits) is taken: the game has its own.
 #define GEBEAN_TREE "files/new/char"
 #define GEBEAN_WANT_CHARS "files/new/char/"
 #define GEBEAN_WANT_HEADS "files/new/head/"
 #define GEBEAN_WANT_ORIGINAL_CHARS "files/original/char/"
 #define GEBEAN_WANT_ORIGINAL_HEADS "files/original/head/"
-#define GEBEAN_WANT_PICKUPS "files/new/prop/chr"
+#define GEBEAN_WANT_PROPS "files/new/prop/"
 #define GEBEAN_WANT_GUNS "files/new/gun/"
 #define GEBEAN_WANT_LEVELS "files/new/background/"
-#define GEBEAN_SKIP_LEVEL_HITS "_hits/"
+#define GEBEAN_SKIP_HITS "_hits/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -1126,8 +1130,9 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 
 	return strstr(lower, GEBEAN_WANT_CHARS) != NULL || strstr(lower, GEBEAN_WANT_HEADS) != NULL
 		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL
-		|| strstr(lower, GEBEAN_WANT_PICKUPS) != NULL || strstr(lower, GEBEAN_WANT_GUNS) != NULL
-		|| (strstr(lower, GEBEAN_WANT_LEVELS) != NULL && strstr(lower, GEBEAN_SKIP_LEVEL_HITS) == NULL);
+		|| (strstr(lower, GEBEAN_WANT_PROPS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL)
+		|| strstr(lower, GEBEAN_WANT_GUNS) != NULL
+		|| (strstr(lower, GEBEAN_WANT_LEVELS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL);
 }
 
 static void gebeanSetRoot(const char *tree)

@@ -1671,6 +1671,22 @@ levels with these files, re-key Bean's props from GE-X's file names).
 
 ## The remake in HD (Phase 2, 2026-09-17)
 
+**What the player's machine converts, and what was done here (checked
+2026-09-17).** Everything Bean is read and converted in the game, in C, from
+the player's own archive - characters, heads, guns, pickups, levels and props,
+streamed into `cache/xbla/goldeneye/` once (`gebeanWantEntry()`). Python only
+made the fitting tables compiled into the binary (`gebeanstagetable.h`,
+`geproptable.h`, `gebeantable.h`), which are our numbers, not Bean's data. But
+the unpack took `files/new/prop/chr*` only, for the pickups, so all 143 HD
+props named in `geproptable.h` were "missing" on a tester's machine (their F3
+log: damchaindoor, oildrum7, window, woodsmcrate4) while this box, reading a
+whole unpacked folder, had them. It now takes `files/new/prop/` without
+`_hits` (317 files, 89 MB packed; the fresh cache is 360 MB with everything) and
+the marker is `.extracted7`. Check the filter against a cache the game made,
+never against `build/xbla/goldeneye`: a scratch folder with only the archive in
+`xbla/`, `'gebean.c'::gebeanLocate(1)` from gdb (16 s), then every table source
+tested for `new/<source>/default.bin`.
+
 **Levels.** Bean's HD levels pair with 21 of the 26 arenas (Library, Basement
 and Stack share bg_ame and so one row, Surface and Surface 2 share bg_sevx;
 Egyptian has no Bean level, Statue Park's is a remodel). Scales from
