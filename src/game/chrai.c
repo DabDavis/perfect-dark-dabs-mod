@@ -8,6 +8,7 @@
 extern u16 g_CommandLengths[];
 extern u16 chraiModCommandLength[];
 s32 chraiSetModCommandLength(s32 type, u16 len);
+void chraiWarnRunawayList(s32 type);
 static s32 chraiModFlagCommandIndex(s32 type);
 static void chraiModFlagCommand(s32 which);
 void chraiClearModCommandLengths(void);
@@ -786,9 +787,26 @@ void chraiExecute(void *entity, s32 proptype)
 		}
 
 		// Iterate and execute the ailist
+#ifndef PLATFORM_N64
+		// A list runs until one of its commands yields, and nothing here
+		// bounds that. A converted GoldenEye mission can carry a loop with no
+		// yield left in it - a command the map dropped was the way out - and
+		// the game then stops dead inside one tick with no crash to report.
+		// Perfect Dark's own longest list is a few hundred commands, so a list
+		// that runs past this is looping and is stopped for the tick.
+		s32 steps = 0;
+#endif
+
 		while (g_Vars.ailist) {
 			u8 *cmd = g_Vars.aioffset + g_Vars.ailist;
 			s32 type = (cmd[0] << 8) + cmd[1];
+
+#ifndef PLATFORM_N64
+			if (++steps > 20000) {
+				chraiWarnRunawayList(type);
+				break;
+			}
+#endif
 
 			if (type >= 0 && type < ARRAYCOUNT(g_CommandPointers) && g_CommandPointers[type]) {
 				if (g_CommandPointers[type]()) {
@@ -823,6 +841,21 @@ void chraiExecute(void *entity, s32 proptype)
 }
 
 #ifndef PLATFORM_N64
+/**
+ * A list that ran 20000 commands in one tick without yielding: said once, with
+ * the command it was on when it was stopped.
+ */
+void chraiWarnRunawayList(s32 type)
+{
+	static s32 said = 0;
+	extern void sysLogPrintf(s32 level, const char *fmt, ...);
+
+	if (!said) {
+		said = 1;
+		sysLogPrintf(1, "chrai: an AI list ran 20000 commands in one tick without yielding (at command %#x); stopped for the tick", type);
+	}
+}
+
 /**
  * The lengths a mod's data segment gives AI commands this game has no
  * handler for, so its lists can be stepped over them. Zero everywhere

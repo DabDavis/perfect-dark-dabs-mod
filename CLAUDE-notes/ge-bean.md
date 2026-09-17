@@ -2100,3 +2100,162 @@ the head of the file - the node table - and the next frame dies in
 with `gemodelconv.convert(278)` and walking its parts is what said part 21 is
 type 0x18 with `numvertices` and `numcolours` both 80.
 
+
+## GoldenEye's own solo missions, from the ROM (2026-09-17)
+
+"we just implemented solo missions while ge-x is booted into, we have that as a
+guide to implement the rom solo missions in the ge-x plus", and: "we are slowly
+seperating from the ge-x mod, to use assets all from xbla/n64 rom, but ge-x is
+an oracle". So the folder's twenty missions are GoldenEye's own now, converted
+from the player's ROM beside the arenas, and GE-X is only what the conversion
+was *learnt* from. `tools/geconvert/gesolo.py` and the same code in
+`port/src/geconvert.c`; `GECONVERT_VERSION_STR` is 4.
+
+**GoldenEye's setup file is Perfect Dark's ancestor** and the two have barely
+moved apart, which is what makes this possible at all:
+
+- the same ten-slot header - waypoints, waygroups, intro, props, paths,
+  ailists, pads, bound pads, and two name tables Perfect Dark dropped;
+- **the same propdef type numbers all the way up**: door 1, guard 9, autogun
+  0x0d, hat 0x11, shield 0x15, tag 0x16, the objectives 0x17-0x22, briefing
+  0x23, rename 0x25, truck 0x27, glass 0x2a, safe 0x2b, tank 0x2d, tinted glass
+  0x2f. Every one of the 43 types the twenty missions use is Perfect Dark's own
+  number;
+- the same intro commands at the same widths (only the end differs: GoldenEye
+  stops at 9, Perfect Dark at 12), and the same patrol path record.
+
+What differs is the size of a record (GoldenEye's ObjectRecord is 0x80 bytes
+against Perfect Dark's 0x5c), a handful of moved fields, and the AI bytecode.
+
+**A record keeps its place in the list.** Every GoldenEye record becomes exactly
+one Perfect Dark record, so the indices the file refers to itself by - a door's
+sibling, a tag's `cmdoffset`, an objective's criteria - are the same on both
+sides without a fixup table. A type with no Perfect Dark equivalent becomes
+`OBJTYPE_22`, one word that does nothing.
+
+**The AI: 253 commands against 482.** Perfect Dark's AI is GoldenEye's with
+commands inserted, so the two sets are the same list in the same order with
+gaps - but the gaps grow, and GoldenEye's opcode is one byte against Perfect
+Dark's two. The map (`.xbla-work/ge-arena/genaitable.py` ->
+`tools/geconvert/geaitable.py` and `port/include/geaitable.h`) is found from two
+signals and then read by hand:
+
+- **the two command tables aligned in order** (Needleman-Wunsch over names and
+  argument widths), which is systematic and covers commands no level uses;
+- **GE-X as the oracle**: its own converted ai lists beside GoldenEye's, list by
+  list for the twenty missions. 225 lists pair by id; the alignment of each pair
+  votes on what a real conversion did.
+
+69 rows are confirmed by both, 73 are hand-written, 44 have no Perfect Dark
+command and are dropped. Over the missions' 18000 commands that is 94% carried.
+Traps:
+
+- **the aligner's tail is junk**. Perfect Dark added ~230 commands after
+  GoldenEye's 0xd8, so from there it has more commands than GoldenEye ones to
+  spend and pairs them with whatever is left: it gave `IFObjectiveAllCompleted`
+  Perfect Dark's `aiHovercopterFireRocket`, and Egyptian and Cradle died in
+  `chopperFireRocket()` the first time the level logic asked whether the mission
+  was done. The offset it walks at is +10 up to 0xd8 and +22, +33, +63, +118
+  after it; every row past there is hand-written or dropped. **A wrong row
+  crashes and a dropped one does not, so anything not certain is dropped.**
+- **PRINT (0xad) has no fixed length**: it is a debug comment whose text follows
+  the opcode and runs to a NUL (chrai.c's `chraiitemsize()`). A walk that does
+  not measure it lands mid-command; 225 of the missions' lists were being
+  truncated at their first one.
+- Perfect Dark made "Bond" an explicit chr on a dozen commands, and the chr to
+  write is **CHR_P1P2 (0xf2)**, not the legacy CHR_BOND - which is what GE-X
+  writes too.
+- a pad argument moves the way a record's does (below).
+
+**Pads.** GoldenEye's own pads keep their index and its bound pads are written
+after them, so a bound pad - one at 10000 and up, and a door's pad field, which
+is always one - is `numpads + its index`. This applies to a record's pad, a
+chr's pad preset **and a pad argument inside an AI command**. `0xffff` is not a
+pad at all: a collectable a guard carries has nowhere to stand, and 36 of Dam's
+came out as pad 55902 and made the loader read past the pad table.
+
+**A mission's pads are not the arena's**, even where the two share a background,
+so each mission gets its own `bg_gs<key>_padsZ` beside the arena's, and its
+setup is `Usetupgs<key>Z`.
+
+**The guard record.** GoldenEye's is seven words and Perfect Dark's chr eleven,
+and they name most of the same things. Its setup flags are Perfect Dark's spawn
+flags for the three it uses - sunglasses 0x01, sunglasses half the time 0x02,
+invincible 0x08; its 0x04 is "this is a clone", which Perfect Dark has no spawn
+flag for. **The two fields the GoldenEye decomp calls `health` and
+`ReactionTime` are the hearing scale and the vision range** - chraction.c reads
+them straight into `hearingscale` (over a thousand) and `visionrange` - which
+are Perfect Dark's own two fields. There is no health field.
+
+**GoldenEye's characters.** A chr record carries GoldenEye's own character
+number, left as it is, because what there is to wear is not known until the
+mission loads: `gexPlusMissionSetup()` walks the props once, after the setup is
+mapped and **before the modeldef preload**, and maps each one to the release's
+character out of `gebean.c`'s pool, else GoldenEye X's if it is being borrowed
+from, else Perfect Dark's nearest body. The order is `c_item_entries[]`, which
+is **not** the order chrobjdata.h declares the headers in - Bond in a tuxedo is
+5, not 40 - and three missions settle it: Jungle's forty camguards and its
+Xenia, Cradle's five trevguards and its Trevelyan, Facility's fifteen
+scientists.
+
+**Hats are left out.** GoldenEye's hat is its own model, and a converted one is
+a rigid prop - one matrix, a position node at its root - which Perfect Dark
+cannot pose on a head: the frame a guard wearing one was ticked,
+`modelasm00018680()` took the parent's matrix of a node that has none and the
+mission died. GoldenEye's own heads carry their hats anyway.
+
+**A weapon's model is left alone.** Pointing the record at the GoldenEye
+weapon's own model was tried and is wrong: `MODEL_GE_FIRST + n` aliases the
+*first-person* gun, which has no bounding box, and every mission died placing
+its first weapon in `objGetLocalYMin()`. A chr takes its held gun's model from
+the weapon definition, not from the record.
+
+**The port.** A `missions` block in the converted modconfig (`mission N "Name"
+bg ... tiles ... pads ... setup ...`) registers each one as a stage of its own
+with the mission's setup as its **solo** setup, and **not** as an arena - a
+mission has no spawn pads for a match and would otherwise list in the Combat
+Simulator beside the remake's arenas. `modloaderMissionStage(n)` is what the
+folder starts (`frontMissionStage()`); with the conversion's missions there the
+folder no longer needs GoldenEye X loaded, and falls back to GE-X's own missions
+where the conversion has not run. All four difficulties are open, since a
+mission of the remake's is not in the save's solo stage table to unlock against.
+
+**Hats again, from the AI.** `TRYGiveMeHat` (0xc0) hands a chr a hat by
+GoldenEye's own hat number, which Perfect Dark reads as one of its model
+numbers: Cradle's Trevelyan was given Perfect Dark's model 220 and died the
+same way the hat records do. It is dropped with them. **A held object whose
+model cannot be posed kills the chr's tick**, so anything a mission hands a chr
+has to be something Perfect Dark can pose - that is the shape of both faults.
+
+**A runaway list hangs the game with nothing to report.** `chraiExecute()` runs
+a list until one of its commands yields and nothing bounds that, so a converted
+loop with no yield left in it - the command that was the way out having been
+dropped - stops the game dead inside one tick. chrai.c now stops a list that
+runs 20000 commands in a tick and says so once. Nothing has tripped it yet; it
+is there because the conversion can make one.
+
+**Checked** in `build/gexrom` with a GoldenEye ROM in data/ and nothing else
+installed - no XBLA release, no GoldenEye X: the C converter's output is byte
+for byte the Python's over all 26 levels and all 20 missions (`diff -r`); 46
+stages register (26 arenas, 20 missions); **18 of the 20 boot from
+`--boot-stage` and run 600 frames** with every one of their guards spawned -
+Dam 36, Facility 63 of 65, Caverns 77 of 79, Silo 76 of 77 - and no warning in
+the log. Dam screenshotted on the RX 580 at frame 400: its wall, the cliffs,
+the truck and the parked cars, the hazard barriers and GoldenEye's own
+briefcase on the ground, all from the ROM.
+
+**The two that do not**: Egyptian stops at frame 470 and Control at 274, both
+with the level paused behind a dialog - the game reached something that asked to
+save and the harness's scratch save has no pak, so `g_PakNotOriginalMenuDialog`
+is what is up. Neither crashes and neither logs a warning. **Why the mission
+gets there with nobody playing is not established**; the objective criteria are
+the obvious suspect, and their text is not converted yet either.
+
+**Not done**: the missions' own text. GoldenEye's objective and radio text is
+its own bank and slot (`bank * 0x400 + slot`) and the port has no lang bank for
+one in a mission, so the objectives read as nothing on the watch and the 224
+`TextPrintTop` radio messages are dropped rather than converted. The briefing
+screens already read the ROM's text and are unaffected. Also left out:
+GoldenEye's own animations (its 91 `PlayAnimation` commands, so the set pieces
+do not play), its screen fades and cinema cameras, and its chr flag commands,
+whose one byte is not Perfect Dark's banked 32-bit flags.

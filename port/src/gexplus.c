@@ -26,8 +26,13 @@
 #include "data.h"
 #include "modloader.h"
 #include "gexplus.h"
+#include <string.h>
+#include <stdio.h>
 #include "modborrow.h"
+#include "gebean.h"
 #include "game/mplayer/mplayer.h"
+#include "game/game_0b0fd0.h"
+#include "game/setuputils.h"
 #include "game/botinv.h"
 #include "game/chraction.h"
 #include "game/inv.h"
@@ -288,3 +293,156 @@ void gexPlusThemeSimulants(void)
 		g_BotConfigsArray[i].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
 	}
 }
+
+/* -------------------------------------------------------------------------
+ * GoldenEye's own characters in the remake's missions
+ * ------------------------------------------------------------------------- */
+
+/**
+ * GoldenEye's characters, in the order its own table holds them
+ * (c_item_entries[], the decomp's assets/obseg/chr/chrModelFileRecords.inc.c),
+ * which is the number a converted mission's chr record carries. Heads follow
+ * the bodies from GEMISSION_FIRST_HEAD.
+ *
+ * The order is not the one chrobjdata.h declares the headers in - Bond in a
+ * tuxedo is 5, not 40 - and three missions settle it: Jungle's forty camguards
+ * and its Xenia, Cradle's five trevguards and its Trevelyan, and Facility's
+ * fifteen scientists.
+ *
+ * `stock` is what Perfect Dark's own bodies make of the character when there is
+ * nothing of GoldenEye's installed to wear.
+ */
+struct gemissionbody {
+	const char *name;    // GoldenEye's own, which is Bean's asset name too
+	const char *mpname;  // and the name its own select screen gives it, or NULL
+	u8 stock;            // Perfect Dark's nearest body
+};
+
+#define GEMISSION_FIRST_HEAD 42
+
+static const struct gemissionbody g_GeMissionBodies[] = {
+	/* 00 */ { "camguard", "Jungle Commando", BODY_DD_GUARD },
+	/* 01 */ { "greyguard", "St. Petersburg Guard", BODY_DD_GUARD },
+	/* 02 */ { "oliveguard", "Russian Soldier", BODY_DD_GUARD },
+	/* 03 */ { "rusguard", "Russian Infantry", BODY_DD_GUARD },
+	/* 04 */ { "trevguard", "Janus Special Forces", BODY_DD_GUARD },
+	/* 05 */ { "djbond", "Bond (Tuxedo)", BODY_DD_GUARD },
+	/* 06 */ { "boris", "Boris", BODY_DD_GUARD },
+	/* 07 */ { "orumov", "Ourumov", BODY_DD_GUARD },
+	/* 08 */ { "trevelyan", "Trevelyan", BODY_DD_GUARD },
+	/* 09 */ { "boilertrev", "Trevelyan (006)", BODY_DD_GUARD },
+	/* 0a */ { "valentin", "Valentin", BODY_DD_GUARD },
+	/* 0b */ { "xenia", "Xenia", BODY_CIFEMTECH },
+	/* 0c */ { "baronsamedi", "Baron Samedi", BODY_DD_GUARD },
+	/* 0d */ { "jaws", "Jaws", BODY_DD_GUARD },
+	/* 0e */ { "mayday", "Mayday", BODY_CIFEMTECH },
+	/* 0f */ { "oddjob", "Oddjob", BODY_DD_GUARD },
+	/* 10 */ { "natalya", "Natalya", BODY_CIFEMTECH },
+	/* 11 */ { "armourguard", "Janus Marine", BODY_DD_GUARD },
+	/* 12 */ { "commguard", "Russian Commandant", BODY_DD_GUARD },
+	/* 13 */ { "greatguard", "Siberian Guard", BODY_DD_GUARD },
+	/* 14 */ { "navyguard", "Naval Officer", BODY_DD_GUARD },
+	/* 15 */ { "snowguard", "Siberian Special Forces", BODY_DD_GUARD },
+	/* 16 */ { "boilerbond", "Bond (Boiler Suit)", BODY_DD_GUARD },
+	/* 17 */ { "suitbond", "Bond (Suit)", BODY_DD_GUARD },
+	/* 18 */ { "timberbond", "Bond (Jungle)", BODY_DD_GUARD },
+	/* 19 */ { "snowbond", "Bond (Parka)", BODY_DD_GUARD },
+	/* 1a */ { "bluewoman", NULL, BODY_CIFEMTECH },
+	/* 1b */ { "fattechwoman", NULL, BODY_CIFEMTECH },
+	/* 1c */ { "techwoman", "Scientist", BODY_CIFEMTECH },
+	/* 1d */ { "jeanwoman", "Civilian", BODY_CIFEMTECH },
+	/* 1e */ { "greyman", NULL, BODY_DD_GUARD },
+	/* 1f */ { "blueman", NULL, BODY_DD_GUARD },
+	/* 20 */ { "redman", "Civilian", BODY_DD_GUARD },
+	/* 21 */ { "cardiman", "Civilian", BODY_DD_GUARD },
+	/* 22 */ { "checkman", "Civilian", BODY_DD_GUARD },
+	/* 23 */ { "techman", "Scientist", BODY_DD_GUARD },
+	/* 24 */ { "pilot", "Helicopter Pilot", BODY_DD_GUARD },
+	/* 25 */ { "greatguard2", "Siberian Guard", BODY_DD_GUARD },
+	/* 26 */ { "bluecamguard", "Arctic Commando", BODY_DD_GUARD },
+	/* 27 */ { "moonguard", "Moonraker Elite", BODY_DD_GUARD },
+	/* 28 */ { "moonfemale", "Moonraker Elite", BODY_CIFEMTECH },
+	/* 29 */ { "suit_lf_hand", NULL, BODY_DD_GUARD },
+};
+
+/**
+ * The body a GoldenEye character number becomes, by what the player has:
+ * GoldenEye's own character out of the XBLA release (gebean.c's pool), else
+ * GoldenEye X's if it is being borrowed from, else Perfect Dark's nearest.
+ */
+static s32 gexPlusBodyForGe(s32 gebody)
+{
+	char source[64];
+
+	if (gebody < 0 || gebody >= (s32)ARRAYCOUNT(g_GeMissionBodies)) {
+		return BODY_DD_GUARD;
+	}
+
+	const struct gemissionbody *row = &g_GeMissionBodies[gebody];
+
+	snprintf(source, sizeof(source), "char/%s", row->name);
+
+	const s32 bean = gebeanPoolNumBySource(source);
+
+	if (bean >= 0) {
+		return bean;
+	}
+
+	// GoldenEye X's own, which fill the same rows when it is installed. Its
+	// names are the Combat Simulator's, not GoldenEye's file names, so a
+	// character is found by the pool's name for it.
+	if (row->mpname) {
+		const s32 len = (s32)strlen(row->mpname);
+
+		for (s32 i = 0; i < NUM_HEADSANDBODIES; i++) {
+			const char *name = modBorrowBodyName(i);
+
+			// a borrowed name carries its trailing newline
+			if (name && !strncmp(name, row->mpname, len)
+					&& (name[len] == '\0' || name[len] == '\n')) {
+				return i;
+			}
+		}
+	}
+
+	return row->stock;
+}
+
+/**
+ * A converted mission's props, once, before anything has read them.
+ *
+ * Two things in a mission's records are GoldenEye's own and cannot be mapped by
+ * the conversion, because what the player has installed is not known until the
+ * mission loads:
+ *
+ * - **a chr's body** is GoldenEye's own character number, which becomes the
+ *   release's character, GoldenEye X's or Perfect Dark's nearest. Its head is
+ *   left to Perfect Dark, since a Bean or GoldenEye X body carries its own.
+ * A weapon's model is left alone: it is the pickup GoldenEye draws, converted
+ * with the rest of the props, and a chr takes its held gun's model from the
+ * weapon's own definition rather than the record. Pointing the record at the
+ * GoldenEye weapon's model instead was tried and is wrong - that model aliases
+ * the *first-person* gun, which has no bounding box, and every mission died
+ * placing its first weapon in objGetLocalYMin().
+ */
+void gexPlusMissionSetup(u32 *props)
+{
+	struct defaultobj *obj = (struct defaultobj *)props;
+
+	if (!obj) {
+		return;
+	}
+
+	while (obj->type != OBJTYPE_END) {
+		if (obj->type == OBJTYPE_CHR) {
+			struct packedchr *chr = (struct packedchr *)obj;
+
+			chr->bodynum = gexPlusBodyForGe(chr->bodynum);
+			chr->headnum = -1;
+		}
+
+		obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+	}
+}
+
+

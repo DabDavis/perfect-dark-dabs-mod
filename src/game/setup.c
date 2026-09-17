@@ -42,6 +42,8 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "gexplus.h"
+#include "modloader.h"
 #ifndef PLATFORM_N64
 #include "modborrow.h"
 #include "modloader.h"
@@ -1405,6 +1407,16 @@ void setupLoadFiles(s32 stagenum)
 		g_StageSetup.waypoints = NULL;
 		g_StageSetup.waygroups = NULL;
 		g_StageSetup.cover = NULL;
+
+		// A converted GoldenEye mission's props before anything reads them: its
+		// chrs wear GoldenEye's own character numbers and its weapons carry the
+		// pickup prop GoldenEye draws, and both have to become what the player
+		// actually has installed. It has to happen here rather than as each
+		// object is made, because the modeldef preload below walks the same
+		// props and would load the model the record named.
+		if (modloaderStageIsMission(stagenum)) {
+			gexPlusMissionSetup(g_StageSetup.props);
+		}
 
 		// Convert ailist pointers from file-local to proper pointers
 		if (g_StageSetup.ailists) {

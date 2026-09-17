@@ -41,6 +41,7 @@
 #include <direct.h>
 #endif
 #include "geconvert.h"
+#include "geaitable.h"
 
 #define SEG_BG 0x0f000000u
 #define SEG_MODEL 0x05000000u
@@ -2602,6 +2603,474 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 }
 
 /* ------------------------------------------------------------------------ */
+/* solo missions (gesolo.py) */
+
+/**
+ * GoldenEye's twenty solo missions in the folder's order (gexfront.c): the
+ * level they stand on and the setup file that is the mission. Surface and
+ * Bunker are two missions each on one level.
+ */
+static const struct { const char *key, *setup, *name; } g_Missions[] = {
+	{ "dam",   "UsetupdamZ",       "Dam" },
+	{ "ark",   "UsetuparkZ",       "Facility" },
+	{ "run",   "UsetuprunZ",       "Runway" },
+	{ "sevx",  "UsetupsevxZ",      "Surface" },
+	{ "sev",   "UsetupsevbunkerZ", "Bunker" },
+	{ "silo",  "UsetupsiloZ",      "Silo" },
+	{ "dest",  "UsetupdestZ",      "Frigate" },
+	{ "sevxb", "UsetupsevxbZ",     "Surface 2" },
+	{ "sevb",  "UsetupsevbZ",      "Bunker 2" },
+	{ "stat",  "UsetupstatueZ",    "Statue Park" },
+	{ "arch",  "UsetuparchZ",      "Archives" },
+	{ "pete",  "UsetuppeteZ",      "Streets" },
+	{ "depo",  "UsetupdepoZ",      "Depot" },
+	{ "tra",   "UsetuptraZ",       "Train" },
+	{ "jun",   "UsetupjunZ",       "Jungle" },
+	{ "arec",  "UsetupcontrolZ",   "Control" },
+	{ "cave",  "UsetupcaveZ",      "Caverns" },
+	{ "crad",  "UsetupcradZ",      "Cradle" },
+	{ "azt",   "UsetupaztZ",       "Aztec" },
+	{ "cryp",  "UsetupcrypZ",      "Egyptian" },
+};
+
+#define NUM_MISSIONS (sizeof(g_Missions) / sizeof(g_Missions[0]))
+
+// Perfect Dark's own record sizes in words, as port/src/preprocess/filesetup.c
+// sizes them (objSizeN64(), the n64_* structs). 0 is a type it has no record for.
+static const uint8_t g_PdSizes[0x35] = {
+	[0x01] = 55, [0x02] = 2, [0x03] = 23, [0x04] = 24, [0x05] = 23, [0x06] = 49, [0x07] = 24,
+	[0x08] = 26, [0x09] = 11, [0x0a] = 53, [0x0b] = 140, [0x0c] = 23, [0x0d] = 43, [0x0e] = 2,
+	[0x0f] = 23, [0x11] = 23, [0x12] = 2, [0x13] = 5, [0x14] = 42, [0x15] = 26, [0x16] = 4,
+	[0x17] = 4, [0x18] = 1, [0x19] = 2, [0x1a] = 2, [0x1b] = 2, [0x1c] = 2, [0x1d] = 2,
+	[0x1e] = 4, [0x1f] = 1, [0x20] = 4, [0x21] = 5, [0x22] = 1, [0x23] = 4, [0x24] = 23,
+	[0x25] = 10, [0x26] = 4, [0x27] = 34, [0x28] = 35, [0x2a] = 24, [0x2b] = 23, [0x2c] = 5,
+	[0x2d] = 32, [0x2e] = 7, [0x2f] = 26, [0x30] = 37, [0x31] = 5, [0x32] = 4, [0x33] = 56,
+	[0x34] = 1,
+};
+
+// GoldenEye types with no Perfect Dark record of the same shape: they keep
+// their place in the list as a one-word OBJTYPE_22
+// Hats (0x11) are left out with them: GoldenEye's hat is its own model, and a
+// converted one is a rigid prop - one matrix, a position node at its root -
+// which Perfect Dark cannot pose on a head. See gesolo.py.
+#define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12 || (t) == 0x13 || (t) == 0x14)
+
+#define SOLO_NO_PAD 0xffff
+#define SOLO_WEAPON_GE_FIRST 0x5e
+#define SOLO_NUM_GE_WEAPONS (0x76 - 0x5e + 1)
+
+/**
+ * A GoldenEye pad id in the converted level: its own pads keep their index and
+ * its bound pads are written after them, so a bound pad - one at 10000 and up,
+ * and a door's pad field, which is always one - is numpads plus its index.
+ * 0xffff is not a pad at all (a collectable a guard carries has nowhere to
+ * stand), and must stay that way or the loader reads past the pad table.
+ */
+static uint32_t padNum(uint32_t p, size_t numpads, int bound)
+{
+	if (p == SOLO_NO_PAD) {
+		return SOLO_NO_PAD;
+	}
+	if (bound) {
+		return p + (uint32_t)numpads;
+	}
+	return p >= 10000 ? p + (uint32_t)numpads - 10000 : p;
+}
+
+/** GoldenEye's ObjectRecord as Perfect Dark's defaultobj. */
+static void baseRecord(uint8_t *out, const uint8_t *raw, uint32_t pdtype, uint32_t padnum)
+{
+	memcpy(out, raw, 3);
+	out[3] = (uint8_t)pdtype;
+	set16(out, 4, (uint32_t)(MODEL_REMAKE_FIRST + bes16(raw, 4)));
+	set16(out, 6, padnum);
+	set32(out, 8, be32(raw, 8));
+	set32(out, 12, be32(raw, 12));
+	set16(out, 0x4c, 0);
+	set16(out, 0x4e, 1000);
+	set32(out, 0x58, 0x0fff0000);
+}
+
+/** The fields a door moved between the two formats (geobjects.py's rules). */
+static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const records *recs, size_t index)
+{
+	static const struct { uint32_t ge, pd, mul; } fields[] = {
+		{ 0x84, 0x5c, 1 }, { 0x88, 0x60, 1 }, { 0x8c, 0x64, 1000 }, { 0x90, 0x68, 1000 },
+		{ 0x94, 0x6c, 1 }, { 0x98, 0x70, 1 }, { 0x9c, 0x74, 1 }, { 0xa0, 0x78, 1 },
+	};
+	const int32_t rel = bes32(raw, 0x80);
+	const int64_t sib = (int64_t)index + rel;
+
+	baseRecord(out, raw, 0x01, padNum(be16(raw, 6), numpads, 1));
+	set32(out, 8, doorFlags(be32(raw, 8)));
+
+	for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) {
+		set32(out, fields[i].pd, (uint32_t)(bes32(raw, fields[i].ge) * (int32_t)fields[i].mul));
+	}
+
+	set32(out, 0xbc, (uint32_t)(rel && sib >= 0 && (size_t)sib < recs->n && recs->v[sib].type == 1 ? rel : 0));
+	out[0xc6] = raw[0xa7];
+	out[0xcc] = 0xff;
+}
+
+/**
+ * GoldenEye's GuardRecord as Perfect Dark's packedchr.
+ *
+ * The two name most of the same things. GoldenEye's own setup flags are Perfect
+ * Dark's spawn flags for the three it uses - sunglasses (0x01), sunglasses half
+ * the time (0x02) and invincible (0x08); its 0x04 is "this is a clone", which
+ * Perfect Dark has no spawn flag for. The two fields the decomp calls health and
+ * reaction time are its hearing scale and vision range (chraction.c reads them
+ * into hearingscale and visionrange), which are Perfect Dark's own two.
+ *
+ * The body and head are GoldenEye's own character numbers, left as they are:
+ * what there is to wear is not known until the mission loads, so the port maps
+ * them then (gexplus.c's gexPlusMissionChr()).
+ */
+static void guardRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
+{
+	const int16_t chrnum = bes16(raw, 4);
+	const uint32_t padid = be16(raw, 6);
+	const uint32_t body = be16(raw, 8);
+	const uint32_t ailist = be16(raw, 10);
+	const uint32_t preset = be16(raw, 12);
+	const uint32_t chrpreset = be16(raw, 14);
+	const uint32_t hearscale = be16(raw, 16);
+	const uint32_t viewdist = be16(raw, 18);
+	const uint32_t flags = be16(raw, 20);
+	const int16_t head = bes16(raw, 22);
+
+	memcpy(out, raw, 3);
+	out[3] = 0x09;
+	set32(out, 0x04, flags & 0x000b);
+	set16(out, 0x08, (uint32_t)chrnum);
+	set16(out, 0x0a, padNum(padid, numpads, 0));
+	out[0x0c] = (uint8_t)body;
+	out[0x0d] = head >= 0 ? (uint8_t)head : 0xff;
+	set16(out, 0x0e, ailist);
+	set16(out, 0x10, padNum(preset, numpads, 0));
+	set16(out, 0x12, chrpreset);
+	set16(out, 0x14, hearscale);
+	set16(out, 0x16, viewdist);
+	set16(out, 0x22, 0xffff);   // no chair
+}
+
+/** A GoldenEye collectable as a Perfect Dark weapon prop, on the port's own
+ * GoldenEye weapons (geguns.c, WEAPON_GE_FIRST + GoldenEye's item). */
+static void weaponRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
+{
+	const uint32_t item = raw[0x80];
+
+	baseRecord(out, raw, 0x08, padNum(be16(raw, 6), numpads, 0));
+	out[0x5c] = item < SOLO_NUM_GE_WEAPONS ? (uint8_t)(SOLO_WEAPON_GE_FIRST + item) : 0;
+	out[0x5d] = 0xff;
+	out[0x5e] = 0xff;
+	set16(out, 0x62, be16(raw, 0x82));
+}
+
+/**
+ * GoldenEye's objective heading as Perfect Dark's: it gives an objective the
+ * lowest difficulty it appears at and Perfect Dark keeps a bit per difficulty,
+ * so the bits from that one up are set. GoldenEye's 007 is Perfect Dark's PD
+ * Mode over the hardest difficulty, so it takes 00 Agent's bit.
+ */
+static void objectiveRecord(uint8_t *out, const uint8_t *raw)
+{
+	const int32_t mindiff = bes32(raw, 12);
+	uint32_t bits = 0;
+
+	memcpy(out, raw, 3);
+	out[3] = 0x17;
+	set32(out, 4, be32(raw, 4));
+	set32(out, 8, be32(raw, 8));
+
+	for (int d = 0; d < 3; ++d) {
+		if (d >= (mindiff < 2 ? mindiff : 2)) {
+			bits |= 1u << d;
+		}
+	}
+
+	out[0x0f] = (uint8_t)bits;
+}
+
+struct solostats {
+	int props, dropped, aikept, aidropped;
+};
+
+static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct solostats *st)
+{
+	// the tails of the ObjectRecord types Perfect Dark keeps in the same order:
+	// GoldenEye's 0x80 onwards against Perfect Dark's 0x5c
+	static const struct { uint8_t type, ge, pd, width; } tails[] = {
+		{ 0x04, 0x80, 0x5c, 4 },                            // key: the key flags
+		{ 0x07, 0x80, 0x5c, 4 },                            // ammo crate: the ammo type
+		{ 0x15, 0x80, 0x5c, 4 }, { 0x15, 0x84, 0x60, 4 },   // armour: initial and current
+		// glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and
+		// nothing more, and Perfect Dark finds a pane's portal at the load
+	};
+	records recs = setupRecords(f);
+	buf out = {0};
+
+	for (size_t i = 0; i < recs.n; ++i) {
+		const uint32_t t = recs.v[i].type;
+		const uint8_t *raw = recs.v[i].b;
+		const uint32_t words = t < sizeof(g_PdSizes) ? g_PdSizes[t] : 0;
+		uint8_t *rec;
+
+		if (SOLO_AS_NOTHING(t) || !words) {
+			bufU32(&out, 0x22);
+			st->dropped++;
+			continue;
+		}
+
+		if (g_GeSizes[t] >= 32) {
+			// every ObjectRecord names a model, doors and collectables included
+			setAdd(models, (uint32_t)bes16(raw, 4));
+		}
+
+		bufZeros(&out, 4 * words);
+		rec = out.v + out.n - 4 * words;
+
+		if (t == 1) {
+			doorRecord(rec, raw, numpads, &recs, i);
+		} else if (t == 9) {
+			guardRecord(rec, raw, numpads);
+		} else if (t == 8) {
+			weaponRecord(rec, raw, numpads);
+		} else if (t == 0x17) {
+			objectiveRecord(rec, raw);
+		} else if (g_GeSizes[t] >= 32) {
+			baseRecord(rec, raw, t, padNum(be16(raw, 6), numpads, 0));
+			for (size_t k = 0; k < sizeof(tails) / sizeof(tails[0]); ++k) {
+				if (tails[k].type == t && tails[k].ge + tails[k].width <= recs.v[i].len) {
+					memcpy(rec + tails[k].pd, raw + tails[k].ge, tails[k].width);
+				}
+			}
+		} else {
+			// a short record: the same fields in the same order on both sides
+			const size_t keep = 4 * (size_t)words < recs.v[i].len ? 4 * (size_t)words : recs.v[i].len;
+			memcpy(rec, raw, keep);
+			rec[3] = (uint8_t)t;
+		}
+
+		st->props++;
+	}
+
+	bufU32(&out, 0x34);
+	return out;
+}
+
+/**
+ * GoldenEye's intro commands are Perfect Dark's own: the same types in the same
+ * order at the same widths, and only the end differs - GoldenEye stops at 9 and
+ * Perfect Dark at 12. Type 6 is ten words, which is what Perfect Dark's is
+ * (modrandom.c sizes INTROCMD_6 at 40 bytes).
+ */
+static buf writeSoloIntro(const buf *f)
+{
+	static const uint8_t words[9] = { 3, 4, 4, 8, 2, 2, 10, 3, 2 };
+	const uint32_t at = be32(f->v, 8);
+	buf out = {0};
+	size_t o = at;
+
+	while (at && o + 4 <= f->n) {
+		const uint32_t t = be32(f->v, o) & 0xff;
+
+		if (t == 9 || t >= sizeof(words)) {
+			break;
+		}
+		if (o + 4 * (size_t)words[t] > f->n) {
+			break;
+		}
+		bufPut(&out, f->v + o, 4 * (size_t)words[t]);
+		o += 4 * (size_t)words[t];
+	}
+
+	bufU32(&out, 12);
+	return out;
+}
+
+/** GoldenEye's patrol paths, which are Perfect Dark's own record. */
+static void writeSoloPaths(const buf *f, size_t at, buf *head, buf *body)
+{
+	const uint32_t start = be32(f->v, 16);
+	size_t n = 0, pos;
+
+	if (!start) {
+		bufU32(head, 0);
+		bufU32(head, 0);
+		return;
+	}
+
+	for (size_t o = start; o + 8 <= f->n && be32(f->v, o); o += 8) {
+		++n;
+	}
+
+	pos = at + 8 * (n + 1);
+
+	for (size_t i = 0; i < n; ++i) {
+		const size_t o = start + 8 * i;
+		const s32s pads = readS32List(f, be32(f->v, o));
+
+		bufU32(head, (uint32_t)pos);
+		bufU8(head, f->v[o + 4]);
+		bufU8(head, f->v[o + 5]);
+		bufU16(head, be16(f->v, o + 6));
+
+		for (size_t k = 0; k < pads.n; ++k) {
+			bufU32(body, (uint32_t)pads.v[k]);
+		}
+		bufU32(body, 0xffffffff);
+		pos += 4 * (pads.n + 1);
+	}
+
+	bufU32(head, 0);
+	bufU32(head, 0);
+}
+
+/**
+ * The length of the GoldenEye AI command at `at`. Every command has its own
+ * fixed length but one: PRINT is a debug comment whose text follows the opcode
+ * and runs to a NUL (chrai.c's chraiitemsize()). A walk that does not measure
+ * it lands in the middle of the next command.
+ */
+static size_t aiLength(const buf *f, size_t at)
+{
+	const uint32_t op = f->v[at];
+	size_t end;
+
+	if (op >= GEAI_NUM_COMMANDS) {
+		return 0;
+	}
+	if (g_GeAiCommands[op].len) {
+		return g_GeAiCommands[op].len;
+	}
+	for (end = at + 1; end < f->n && f->v[end]; ++end) {
+		;
+	}
+	return end - at + 1;
+}
+
+/** One GoldenEye AI list as Perfect Dark bytecode (geaitable.h). */
+static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, struct solostats *st)
+{
+	while (at < f->n) {
+		const uint32_t op = f->v[at];
+		const size_t len = aiLength(f, at);
+		const struct geaicmd *cmd;
+		uint32_t vals[GEAI_MAX_ARGS];
+		size_t o;
+
+		if (!len || at + len > f->n) {
+			break;
+		}
+
+		cmd = &g_GeAiCommands[op];
+
+		if (cmd->pd < 0) {
+			st->aidropped++;
+		} else {
+			// GoldenEye's own arguments, in order and each at its own width;
+			// a pad moves the way a record's does
+			o = at + 1;
+			for (int i = 0; i < cmd->numge && i < GEAI_MAX_ARGS; ++i) {
+				uint32_t v = 0;
+				for (int k = 0; k < cmd->gewidth[i]; ++k) {
+					v = (v << 8) | f->v[o + k];
+				}
+				o += cmd->gewidth[i];
+				vals[i] = (cmd->gepad & (1u << i)) ? padNum(v, numpads, 0) : v;
+			}
+
+			bufU16(out, (uint32_t)cmd->pd);
+
+			for (int i = 0; i < cmd->numargs; ++i) {
+				const struct geaiarg *a = &cmd->args[i];
+				const uint32_t v = a->from < 0 ? a->value : vals[a->from];
+
+				for (int k = a->width - 1; k >= 0; --k) {
+					bufU8(out, (v >> (8 * k)) & 0xff);
+				}
+			}
+
+			st->aikept++;
+		}
+
+		at += len;
+
+		if (op == 4) {   // EndList
+			return;
+		}
+	}
+
+	bufU16(out, 4);
+}
+
+static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head, buf *code, struct solostats *st)
+{
+	const uint32_t start = be32(f->v, 20);
+	size_t n = 0, pos;
+
+	if (!start) {
+		bufU32(head, 0);
+		bufU32(head, 0);
+		return;
+	}
+
+	for (size_t o = start; o + 8 <= f->n && (be32(f->v, o) || be32(f->v, o + 4)); o += 8) {
+		++n;
+	}
+
+	pos = at + 8 * (n + 1);
+
+	for (size_t i = 0; i < n; ++i) {
+		const size_t o = start + 8 * i;
+		const size_t before = code->n;
+
+		writeSoloAilist(f, be32(f->v, o), numpads, code, st);
+		bufU32(head, (uint32_t)pos);
+		bufU32(head, be32(f->v, o + 4));
+		pos += code->n - before;
+	}
+
+	bufU32(head, 0);
+	bufU32(head, 0);
+}
+
+/** A GoldenEye solo setup as a Perfect Dark one (gesolo.py's convert()). */
+static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct solostats *st)
+{
+	buf intro = writeSoloIntro(f);
+	buf props = writeSoloProps(f, numpads, models, st);
+	buf paths = {0}, pathpads = {0}, ailists = {0}, aicode = {0}, out = {0};
+	const size_t introat = 0x20;
+	const size_t propsat = introat + intro.n;
+	const size_t pathsat = propsat + props.n;
+	size_t aiat;
+
+	writeSoloPaths(f, pathsat, &paths, &pathpads);
+	aiat = pathsat + paths.n + pathpads.n;
+	writeSoloAilists(f, aiat, numpads, &ailists, &aicode, st);
+
+	bufU32(&out, 0);
+	bufU32(&out, 0);
+	bufU32(&out, 0);
+	bufU32(&out, (uint32_t)introat);
+	bufU32(&out, (uint32_t)propsat);
+	bufU32(&out, (uint32_t)pathsat);
+	bufU32(&out, (uint32_t)aiat);
+	bufU32(&out, 0);
+	bufPut(&out, intro.v, intro.n);
+	bufPut(&out, props.v, props.n);
+	bufPut(&out, paths.v, paths.n);
+	bufPut(&out, pathpads.v, pathpads.n);
+	bufPut(&out, ailists.v, ailists.n);
+	bufPut(&out, aicode.v, aicode.n);
+	bufPad(&out, 16);
+	return rzip1173(out.v, out.n);
+}
+
+/* ------------------------------------------------------------------------ */
 /* prop models (gemodelconv.py) */
 
 struct node {
@@ -3169,7 +3638,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 {
 	static uint8_t alltex[SETBITS / 8];
 	static uint8_t allmodels[SETBITS / 8];
-	struct textbuf maps = {0}, modellines = {0}, config = {0};
+	struct textbuf maps = {0}, missions = {0}, modellines = {0}, config = {0};
 	volatile int ok = 0;
 	char sub[1024];
 
@@ -3276,6 +3745,43 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		note("geconvert: %s: %d rooms, %d portals, %d tiles (+%d walls), %d pads, %d lights",
 			lv->name, bg.numrooms, (int)bg.portals.n, (int)stan.n, walls, (int)setup.pads.n, numlights);
+
+		// and the solo mission on this level, where there is one: its own pads
+		// (a mission's pad list is not the arena's) and its own setup, over the
+		// same rooms and tiles
+		for (size_t mi = 0; mi < NUM_MISSIONS; ++mi) {
+			buf mfile, mpads, mprops;
+			struct setup msetup;
+			padrecs mbound;
+			struct solostats st = {0};
+
+			if (strcmp(g_Missions[mi].key, lv->key) != 0) {
+				continue;
+			}
+
+			mfile = romFile(g_Missions[mi].setup);
+			setupRead(&mfile, &msetup);
+			mbound = boundPads(&mfile, lv->levelscale, offset);
+			mpads = writePads(&msetup, lv->levelscale, offset, &rf, &mbound);
+			mprops = writeSoloSetup(&mfile, msetup.pads.n, allmodels, &st);
+
+			snprintf(rel, sizeof(rel), "files/bgdata/bg_gs%s_padsZ", lv->key);
+			writeFile(outdir, rel, mpads.v, mpads.n);
+			snprintf(rel, sizeof(rel), "files/Usetupgs%sZ", lv->key);
+			writeFile(outdir, rel, mprops.v, mprops.n);
+
+			textf(&missions, "%s  mission %d \"%s\" bg \"bgdata/bg_gx%s.seg\" tiles \"bgdata/bg_gx%s_tilesZ\""
+					" pads \"bgdata/bg_gs%s_padsZ\" setup \"Usetupgs%sZ\"",
+				missions.n ? "\n" : "", (int)mi, g_Missions[mi].name, lv->key, lv->key, lv->key, lv->key);
+			if (romFogRow(lv->levelid, fog)) {
+				textf(&missions, " fog \"");
+				fogValue(&missions, fog, offset);
+				textf(&missions, "\"");
+			}
+
+			note("geconvert: %s: mission %d, %d props (+%d left out), %d ai commands (+%d)",
+				g_Missions[mi].name, (int)mi, st.props, st.dropped, st.aikept, st.aidropped);
+		}
 
 		for (size_t i = 0; i < sizeof(leveltex); ++i) {
 			alltex[i] |= leveltex[i];
@@ -3396,6 +3902,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		maps.s ? maps.s : "");
 	textf(&config, "# GoldenEye's prop models: slot (GoldenEye model number), file, scale (4096 = 1.0)\nmodels {\n%s\n}\n",
 		modellines.s ? modellines.s : "");
+	textf(&config, "# GoldenEye's solo missions, in its own mission order (port/src/gexfront.c)\nmissions {\n%s\n}\n",
+		missions.s ? missions.s : "");
 	writeFile(outdir, "modconfig.txt", (const uint8_t *)config.s, config.n);
 	++g_Progress;
 	ok = 1;

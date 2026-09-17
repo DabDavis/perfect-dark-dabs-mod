@@ -91,6 +91,14 @@ static s32 g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
 static u8 g_ModStageDirs[STAGE_MAX_ID + 1];
 // And the map's own name, as its mod's list gives it (the arena row adds the mod)
 static char g_ModStageMapNames[STAGE_MAX_ID + 1][32];
+/**
+ * The GoldenEye remake's solo missions: the stage each one of GoldenEye's
+ * twenty missions registered as, in GoldenEye's own mission order, from the
+ * converted mod's `missions` block. A mission is a stage like any other but is
+ * not an arena, so it never reaches the Combat Simulator's list; GE-X Plus's
+ * folder is what starts it (gexfront.c).
+ */
+static s32 g_ModMissionStages[MODLOADER_MAX_MISSIONS];
 // And its sky and fog where the maps block gives them, else the default the
 // chooser falls back to for a stage no table names
 static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
@@ -274,7 +282,7 @@ static s32 modloaderRegister(s32 modIndex, const char *fmt, const char *name)
  * other tuning are sane, then pointed at this mod's files.
  */
 static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *modLabel,
-		s32 bg, s32 tiles, s32 pads, s32 setup)
+		s32 bg, s32 tiles, s32 pads, s32 setup, s32 mission)
 {
 	if (g_ModStageNextSlot >= (s32)ARRAYCOUNT(g_Stages)) {
 		return false;
@@ -324,7 +332,18 @@ static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *mod
 		snprintf(label, sizeof(label), "%.30s", mapName);
 	}
 
-	if (!mpRegisterArena(dst->id, label)) {
+	// A mission is not an arena. It gets a stage of its own and nothing else:
+	// registering it as one would put GoldenEye's twenty missions in the
+	// Combat Simulator's list beside the remake's arenas, and a mission's
+	// setup has no spawn pads for a match.
+	if (mission >= 0) {
+		if (mission >= MODLOADER_MAX_MISSIONS) {
+			dst->id = 0;
+			return false;
+		}
+		g_ModMissionStages[mission] = stageId;
+		snprintf(label, sizeof(label), "%.30s", mapName);
+	} else if (!mpRegisterArena(dst->id, label)) {
 		dst->id = 0; // hand the slot back
 		return false;
 	}
@@ -350,7 +369,7 @@ static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLa
 		tiles = modloaderRegister(modIndex, "bgdata/bg_%s_tilesZ", mapName);
 	}
 
-	return modloaderAddStage(modIndex, mapName, modLabel, bg, tiles, pads, setup);
+	return modloaderAddStage(modIndex, mapName, modLabel, bg, tiles, pads, setup, -1);
 }
 
 /**
@@ -506,7 +525,7 @@ static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char
 		return false;
 	}
 
-	return modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid);
+	return modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid, -1);
 }
 
 /**
@@ -532,6 +551,145 @@ static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char
  * when one of the mod's maps loads. The block is the GoldenEye remake's: its
  * props are GoldenEye's own models, converted, which no other mod has.
  */
+/**
+ * A mod's `missions` block: GoldenEye's own solo missions, as the ROM converter
+ * writes them (tools/geconvert/gesolo.py).
+ *
+ *   missions {
+ *     mission 0 "Dam" bg "..." tiles "..." pads "..." setup "..." fog "..."
+ *   }
+ *
+ * A mission is registered as a stage of its own with the mission's setup as
+ * its *solo* setup - not the arena's - and its own pads, because a mission's
+ * pad list is not the arena's even where the two share a background. It is not
+ * registered as an arena; GE-X Plus's folder is what starts it.
+ */
+static void modloaderReadMissions(s32 modIndex, const char *dir, const char *modLabel, char *data)
+{
+	char token[UTIL_MAX_TOKEN + 1];
+	char *p = strParseToken(data, token, NULL);
+	s32 count = 0;
+
+	while (p && token[0]) {
+		if (strcmp(token, "missions") != 0) {
+			p = strParseToken(p, token, NULL);
+			continue;
+		}
+
+		p = strParseToken(p, token, NULL);
+
+		if (token[0] != '{' || token[1]) {
+			continue;
+		}
+
+		p = strParseToken(p, token, NULL);
+
+		while (p && token[0] && strcmp(token, "}") != 0) {
+			char name[UTIL_MAX_TOKEN + 1] = { 0 };
+			char files[4][UTIL_MAX_TOKEN + 1] = { { 0 } };
+			char fog[UTIL_MAX_TOKEN + 1] = { 0 };
+			s32 mission;
+
+			if (strcmp(token, "mission") != 0) {
+				sysLogPrintf(LOG_WARNING, "modloader: %s: unexpected %s in the missions block", dir, token);
+				break;
+			}
+
+			p = strParseToken(p, token, NULL);
+			mission = atoi(token);
+			p = strParseToken(p, token, NULL);
+			snprintf(name, sizeof(name), "%s", strUnquote(token));
+
+			p = strParseToken(p, token, NULL);
+			while (p && token[0] && strcmp(token, "mission") != 0 && strcmp(token, "}") != 0) {
+				static const char *const keys[4] = { "bg", "tiles", "pads", "setup" };
+				s32 which = -1;
+				for (s32 i = 0; i < 4; ++i) {
+					if (!strcmp(token, keys[i])) {
+						which = i;
+						break;
+					}
+				}
+				const bool isfog = !strcmp(token, "fog");
+				p = strParseToken(p, token, NULL);
+				if (which >= 0) {
+					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
+				} else if (isfog) {
+					snprintf(fog, sizeof(fog), "%s", strUnquote(token));
+				}
+				p = strParseToken(p, token, NULL);
+			}
+
+			if (mission < 0 || mission >= MODLOADER_MAX_MISSIONS || !name[0] || !files[0][0] || !files[2][0] || !files[3][0]) {
+				sysLogPrintf(LOG_WARNING, "modloader: %s: a mission line with no number, name or files", dir);
+				continue;
+			}
+
+			const s32 bgid = modloaderFileSlot(modIndex, files[0]);
+			const s32 padsid = modloaderFileSlot(modIndex, files[2]);
+			const s32 setupid = modloaderFileSlot(modIndex, files[3]);
+			const s32 tilesid = files[1][0] ? modloaderFileSlot(modIndex, files[1]) : 0;
+
+			if (!bgid || !padsid || !setupid) {
+				sysLogPrintf(LOG_WARNING, "modloader: %s: mission %d has no file for one of its parts", dir, mission);
+				continue;
+			}
+
+			if (modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid, mission)) {
+				const s32 stageId = g_Stages[g_ModStageNextSlot - 1].id;
+
+				if (fog[0]) {
+					modloaderSetStageFog(stageId, name, fog);
+				}
+
+				++count;
+			}
+		}
+
+		break;
+	}
+
+	if (count) {
+		sysLogPrintf(LOG_NOTE, "modloader: %s: %d solo missions", dir, count);
+	}
+}
+
+/** The stage GoldenEye's mission `mission` is registered as, or 0. */
+s32 modloaderMissionStage(s32 mission)
+{
+	if (mission < 0 || mission >= MODLOADER_MAX_MISSIONS) {
+		return 0;
+	}
+
+	return g_ModMissionStages[mission];
+}
+
+/** Whether a stage is one of the remake's converted GoldenEye missions. */
+s32 modloaderStageIsMission(s32 stagenum)
+{
+	for (s32 i = 0; i < MODLOADER_MAX_MISSIONS; i++) {
+		if (g_ModMissionStages[i] && g_ModMissionStages[i] == stagenum) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/** How many of GoldenEye's twenty missions are registered. */
+s32 modloaderNumMissions(void)
+{
+	s32 n = 0;
+
+	for (s32 i = 0; i < MODLOADER_MAX_MISSIONS; i++) {
+		if (g_ModMissionStages[i]) {
+			n++;
+		}
+	}
+
+	return n;
+}
+
 static void modloaderReadModels(s32 modIndex, const char *dir, char *data)
 {
 	char token[UTIL_MAX_TOKEN + 1];
@@ -746,6 +904,7 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 	}
 
 	modloaderReadModels(modIndex, dir, data);
+	modloaderReadMissions(modIndex, dir, scan->label, data);
 
 	sysMemFree(data);
 
@@ -814,6 +973,7 @@ void modloaderInit(void)
 	g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
 	memset(g_ModStageDirs, 0, sizeof(g_ModStageDirs));
 	memset(g_ModStageMapNames, 0, sizeof(g_ModStageMapNames));
+	memset(g_ModMissionStages, 0, sizeof(g_ModMissionStages));
 	memset(g_ModStageFog, 0, sizeof(g_ModStageFog));
 	memset(g_ModStageProps, 0, sizeof(g_ModStageProps));
 	free(g_ModModels);

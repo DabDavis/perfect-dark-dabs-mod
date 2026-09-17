@@ -525,14 +525,39 @@ static const char *frontMissionName(s32 mission, char *buf, size_t len)
 }
 
 /**
- * The remake's missions are GoldenEye X's own, in GoldenEye's order: the port
- * plays them when GoldenEye X is the mod the game is loaded with, its mission
- * list imported over the port's (moddata.c's importSoloStages()). Without it
- * the mode select's SELECT MISSION stays grey, as it was before there were any.
+ * The remake's own missions: GoldenEye's twenty, converted from the player's
+ * ROM into the arenas' mod and registered as stages of their own
+ * (tools/geconvert/gesolo.py, modloader.c's missions block). They need nothing
+ * else installed.
+ *
+ * Where the conversion has not run - an old converted directory, or none - the
+ * folder falls back to GoldenEye X's own missions, which the port plays when
+ * GoldenEye X is the mod the game is *loaded* with and its mission list has
+ * been imported over the port's (moddata.c's importSoloStages()). With neither
+ * the mode select's SELECT MISSION stays grey.
  */
+static s32 frontMissionsAreOwn(void)
+{
+	return modloaderNumMissions() >= NUM_MISSIONS;
+}
+
 static s32 frontMissionsAvailable(void)
 {
-	return modBorrowIsGoldenEyeLoaded() && NUM_MISSIONS <= NUM_SOLOSTAGES;
+	return frontMissionsAreOwn() || (modBorrowIsGoldenEyeLoaded() && NUM_MISSIONS <= NUM_SOLOSTAGES);
+}
+
+/** The stage a mission runs, the remake's own where there is one. */
+static s32 frontMissionStage(s32 mission)
+{
+	if (mission < 0 || mission >= NUM_MISSIONS) {
+		return 0;
+	}
+
+	if (frontMissionsAreOwn()) {
+		return modloaderMissionStage(mission);
+	}
+
+	return g_SoloStages[mission].stagenum;
 }
 
 /** Whether GoldenEye's 007 mode is open, by the rule Perfect Dark opens its own PD Mode by. */
@@ -551,6 +576,13 @@ static s32 frontHighestDifficulty(s32 mission)
 {
 	if (!frontMissionsAvailable() || mission < 0 || mission >= NUM_MISSIONS) {
 		return -1;
+	}
+
+	// The remake's own missions are stages of their own and have no place in
+	// the save's solo stage table, so there is nothing to unlock them
+	// against: they are all open, as GoldenEye X's are with its modconfig.
+	if (frontMissionsAreOwn()) {
+		return front007Unlocked() ? DIFFICULTY_007 : DIFF_PA;
 	}
 
 	for (s32 d = DIFF_PA; d >= 0; d--) {
@@ -1363,7 +1395,7 @@ static void frontStartMission(void)
 	union handlerdata data;
 
 	g_MissionConfig.stageindex = g_Front.mission;
-	g_MissionConfig.stagenum = g_SoloStages[g_Front.mission].stagenum;
+	g_MissionConfig.stagenum = frontMissionStage(g_Front.mission);
 	g_MissionConfig.iscoop = false;
 	g_MissionConfig.isanti = false;
 	g_MissionConfig.pdmode = g_Front.difficulty == DIFFICULTY_007;

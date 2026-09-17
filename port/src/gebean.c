@@ -677,6 +677,27 @@ static const char *gebeanSourceName(const char *source)
 }
 
 /** Whether a head or body row is the release's own pool, whose meshes stand on a host's model. */
+/**
+ * The pool's body or head for one of GoldenEye's own characters, named by its
+ * Bean source ("char/oliveguard", "head/headkarl"), or -1 when the pool is not
+ * the one filled from Bean. What the remake's missions map GoldenEye's own
+ * character numbers through (gexplus.c).
+ */
+s32 gebeanPoolNumBySource(const char *source)
+{
+	if (!poolSlot[0]) {
+		return -1;   // no Bean pool: GE-X's characters, or Perfect Dark's own
+	}
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(poolRows); i++) {
+		if (poolSlot[i] && !strcmp(poolRows[i].row.source, source)) {
+			return GEBEAN_POOL_BASE + i;
+		}
+	}
+
+	return -1;
+}
+
 s32 gebeanIsPoolRow(s32 num)
 {
 	const s32 i = num - GEBEAN_POOL_BASE;

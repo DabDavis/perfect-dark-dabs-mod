@@ -3,6 +3,9 @@
 
 #include <PR/ultratypes.h>
 
+// GoldenEye's twenty solo missions, as its own mission folder orders them
+#define MODLOADER_MAX_MISSIONS 20
+
 void modloaderInit(void);
 void modloaderGetStats(s32 *registered, s32 *found, s32 *mods);
 const char *modloaderGetStageModDir(s32 stagenum);
@@ -23,6 +26,12 @@ void modloaderApplyStageModels(s32 stagenum);
 // is the remake's arenas only.
 extern s32 g_GexPlusMode;
 s32 modloaderStageIsRemake(s32 stagenum);
+
+// The GoldenEye remake's solo missions, from a mod's `missions` block: the
+// stage mission n registered as (0 for none), and how many there are.
+s32 modloaderMissionStage(s32 mission);
+s32 modloaderNumMissions(void);
+s32 modloaderStageIsMission(s32 stagenum);
 
 // A Stage Loader map's setup with a borrowed mod's objects, and the solo setup
 // of the mod's stage they come from; 0 for none.

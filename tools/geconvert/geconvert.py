@@ -42,6 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gefiles
 import geobjects
+import gesolo
 import texremap
 import gemodelconv
 
@@ -84,6 +85,20 @@ MENU_TEXT = (('UbriefdamZ', 'LdamE'), ('UbriefarkZ', 'LarkE'),
              ('UbriefjunZ', 'LjunE'), ('UbriefcontrolZ', 'LarecE'),
              ('UbriefcaveZ', 'LcaveE'), ('UbriefcradZ', 'LcradE'),
              ('UbriefaztZ', 'LaztE'), ('UbriefcrypZ', 'LcrypE'))
+
+# GoldenEye's twenty solo missions in the folder's order: the level they are on
+# and the setup file that is the mission. Surface and Bunker are two missions
+# each on one level, and mission n is what gexfront.c's folder starts.
+MISSIONS = (('dam', 'UsetupdamZ', 'Dam'), ('ark', 'UsetuparkZ', 'Facility'),
+            ('run', 'UsetuprunZ', 'Runway'), ('sevx', 'UsetupsevxZ', 'Surface'),
+            ('sev', 'UsetupsevbunkerZ', 'Bunker'), ('silo', 'UsetupsiloZ', 'Silo'),
+            ('dest', 'UsetupdestZ', 'Frigate'), ('sevxb', 'UsetupsevxbZ', 'Surface 2'),
+            ('sevb', 'UsetupsevbZ', 'Bunker 2'), ('stat', 'UsetupstatueZ', 'Statue Park'),
+            ('arch', 'UsetuparchZ', 'Archives'), ('pete', 'UsetuppeteZ', 'Streets'),
+            ('depo', 'UsetupdepoZ', 'Depot'), ('tra', 'UsetuptraZ', 'Train'),
+            ('jun', 'UsetupjunZ', 'Jungle'), ('arec', 'UsetupcontrolZ', 'Control'),
+            ('cave', 'UsetupcaveZ', 'Caverns'), ('crad', 'UsetupcradZ', 'Cradle'),
+            ('azt', 'UsetupaztZ', 'Aztec'), ('cryp', 'UsetupcrypZ', 'Egyptian'))
 
 NAMES = {'dam': 'Dam', 'run': 'Runway', 'stat': 'Statue Park', 'tra': 'Train',
          'pete': 'Streets', 'jun': 'Jungle', 'oat': 'Caves',
@@ -505,7 +520,7 @@ def read_setup(data):
     spawns = []
     if h[2]:
         o = h[2]
-        lengths = {0: 3, 1: 4, 2: 4, 3: 8, 4: 2, 5: 2, 6: 13, 7: 3, 8: 2}
+        lengths = {0: 3, 1: 4, 2: 4, 3: 8, 4: 2, 5: 2, 6: 10, 7: 3, 8: 2}
         while o + 4 <= len(data):
             t = struct.unpack_from('>i', data, o)[0] & 0xff
             if t == 9:
@@ -766,6 +781,7 @@ def main():
     os.makedirs(os.path.join(outdir, 'files/bgdata'), exist_ok=True)
     os.makedirs(os.path.join(outdir, 'textures'), exist_ok=True)
     maps = []
+    missions = []
     fogs = fog_rows()
     alltex = set()
     allmodels = set()
@@ -802,12 +818,36 @@ def main():
             objs.extend(got)
             allmodels.update(used)
             return got
+        files = {}
         mpsetup, nsp, nw, na = write_mpsetup(setup, mp, stan, bg, objects_for)
         print('%-5s %d objects, %d bound pads' % (key, len(objs), len(boundpads)))
+        # and the solo mission on this level, where there is one: its own pads
+        # (the mission's pad list is not the arena's) and its own setup, over
+        # the same rooms and tiles
+        for mkey, msetup, mname in MISSIONS:
+            if mkey != key:
+                continue
+            md = gefiles.rom_file(msetup)
+            msetupdata = read_setup(md)
+            mboundpads = geobjects.bound_pads(md, ls, offset)
+            mpads = write_pads(msetupdata, ls, offset, rooms, None, None, mboundpads)
+            mprops, mmodels, mstats = gesolo.convert(md, len(msetupdata['pads']), gesolo.STOCK_BODIES)
+            allmodels.update(mmodels)
+            files['bgdata/bg_gs%s_padsZ' % mkey] = mpads
+            files['Usetupgs%sZ' % mkey] = rzip1173(pad(mprops, 16))
+            missions.append('  mission %d "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ"'
+                            ' pads "bgdata/bg_gs%s_padsZ" setup "Usetupgs%sZ"%s' % (
+                                [m[0] for m in MISSIONS].index(mkey), mname, short, short, mkey, mkey,
+                                (' fog "%s"' % fog_value(fogs[LEVELIDS[key]], offset)
+                                 if LEVELIDS[key] in fogs else '')))
+            print('%-5s mission %-12s props %4d (+%d) pads %3d ai %5d (+%d) unknown %d' % (
+                key, mname, sum(mstats['kept'].values()), sum(mstats['dropped'].values()),
+                len(msetupdata['pads']), mstats['ai_kept'], sum(mstats['ai_dropped'].values()),
+                mstats['ai_unknown']))
         record[key] = dict(bg=os.path.join(outdir, 'files/bgdata/bg_%s.seg' % short), levelscale=ls,
                            offset=[float(x) for x in offset])
-        files = {'bgdata/bg_%s.seg' % short: bgdata, 'bgdata/bg_%s_tilesZ' % short: tiles,
-                 'bgdata/bg_%s_padsZ' % short: padsdata, 'Ump_setup%sZ' % short: mpsetup}
+        files.update({'bgdata/bg_%s.seg' % short: bgdata, 'bgdata/bg_%s_tilesZ' % short: tiles,
+                      'bgdata/bg_%s_padsZ' % short: padsdata, 'Ump_setup%sZ' % short: mpsetup})
         for rel, data in files.items():
             with open(os.path.join(outdir, 'files', rel), 'wb') as f:
                 f.write(data)
@@ -856,6 +896,8 @@ def main():
     with open(os.path.join(outdir, 'modconfig.txt'), 'w') as f:
         f.write('# GoldenEye levels converted from the GoldenEye ROM (port/src/geconvert.c, tools/geconvert)\nmaps {\n%s\n}\n' % '\n'.join(maps))
         f.write('# GoldenEye\'s prop models: slot (GoldenEye model number), file, scale (4096 = 1.0)\nmodels {\n%s\n}\n' % '\n'.join(modellines))
+        # GoldenEye's own twenty solo missions, in the folder's order
+        f.write('# GoldenEye\'s solo missions, in its own mission order (port/src/gexfront.c)\nmissions {\n%s\n}\n' % '\n'.join(missions))
     print('textures written %d, missing %s' % (len(alltex) - len(missing), missing))
     # For gen_stagetable.py: world = GoldenEye bg units / levelscale - offset
     import json

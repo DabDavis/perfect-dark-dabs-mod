@@ -33,4 +33,15 @@ void gexPlusTick(void);
 // Simulants wear GoldenEye X's borrowed GoldenEye characters, at match start
 void gexPlusThemeSimulants(void);
 
+
+// A converted GoldenEye mission's chr, before Perfect Dark makes it: its body
+// is GoldenEye's own character number, which becomes whatever the player has
+// installed to wear - the XBLA release's characters, GoldenEye X's, or Perfect
+// Dark's own.
+// A converted GoldenEye mission's props, once and before anything reads them:
+// a chr's body is GoldenEye's own character number and a weapon's model is the
+// pickup prop it was converted with, and both become what the player has
+// installed.
+void gexPlusMissionSetup(u32 *props);
+
 #endif
