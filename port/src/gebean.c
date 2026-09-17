@@ -1671,7 +1671,7 @@ enum {
 };
 
 // How far under the model's N64 neck top the body's own neck filler stops (neckfill)
-#define BEAN_NECKFILL_TUCK 8.0f
+#define BEAN_NECKFILL_TUCK 0.0f
 
 static const char *const skelNames[SK_COUNT] = {
 	"SKEL_BASE", "SKEL_BACK", "SKEL_NECK", "SKEL_POSITION",
@@ -5490,6 +5490,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 			for (s32 i = 0; i < 3 && ok; i++) {
 				const u16 vi = tris[t * 3 + i];
+				s32 clamped = 0;
 				f32 pos[3] = { 0.0f, 0.0f, 0.0f };
 				f32 nrm[3];
 				f32 uv[2];
@@ -5537,7 +5538,13 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 						nrm[k] = v3[i].nrm[k];
 					}
 
-					if (filler && haveneckn64) {
+					clamped = 0;
+
+					// Only the front half: under the jaw is where a taller neck
+					// shows. Behind, the head's hair covers it, and bringing the
+					// nape down folded its triangles into a flap that stood out
+					// over the collar when the head looked down ("hump back")
+					if (filler && haveneckn64 && pos[2] - bind[SK_NECK][2] * rig.scale > 0.0f) {
 						// A little under the N64 top, so the edge tucks under a jaw
 						// resting on it rather than showing along it
 						const f32 top = headfitNeckTopToward(&neckn64,
@@ -5545,6 +5552,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 								- BEAN_NECKFILL_TUCK;
 
 						if (pos[1] - bind[SK_NECK][1] * rig.scale > top) {
+							clamped = 1;
 							// Brought down and drawn in to the N64 neck's width there,
 							// or a neck wider than the head's flares round its jaw
 							const f32 dx = pos[0] - bind[SK_NECK][0] * rig.scale;
@@ -5619,8 +5627,12 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 				}
 
-				const s32 pin = !ishead && numseam > 0
-						&& bsearch(v3[i].pos, seam, numseam, 3 * sizeof(f32), beanSeamCompare) != NULL;
+				// And a filler vertex brought down to the N64 neck's top stands
+				// where the head's underside does: it turns with the head, or the
+				// throat opens under the chin at a steep angle
+				const s32 pin = !ishead && ((numseam > 0
+						&& bsearch(v3[i].pos, seam, numseam, 3 * sizeof(f32), beanSeamCompare) != NULL)
+						|| clamped);
 
 				if (pin) {
 					for (s32 k = 0; k < 3; k++) {

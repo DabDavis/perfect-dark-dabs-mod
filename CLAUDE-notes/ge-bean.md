@@ -1337,13 +1337,18 @@ place of its own when the grafted head was fitted (`xblaMeshHeadIsFitted()`).
   body's own jaw up over the foreign face and 0 put Xenia's face under
   Carrington's (her joint is at her jaw). All of the neck's triangles, even
   clamped, put jaw patches on three of five heads.
-- **How high**: no higher than the model's own N64 neck **in the same
-  direction** less 8 (`BEAN_NECKFILL_TUCK`), and no wider than it there: a vertex
-  above is brought down and in (`headfitNeckTopToward()`/`RadiusToward()`, 16
+- **How high**: in the **front half** only, no higher than the model's own N64
+  neck in the same direction, and no wider than it there: a vertex above is
+  brought down and in, and **pinned rigid to the neck** with the seam (`headfitNeckTopToward()`/`RadiusToward()`, 16
   sectors round the headspot). The N64 neck's top slants (Bond: -42 at the
   throat, +12 at the nape), and a fitted head is seated against it. One height
   for the whole ring left a band of Bond's neck across a short-necked head's
   chin (Jamie). Dropping the triangles instead of clamping opened the throat.
+  Tester F3s of d2d13e132 (Boris's head on the formal Bond, Institute): the
+  nape clamped down folded into a dark flap over the collar looking down ("hump
+  back"), so the back is left unclamped; and clamped throat vertices blending
+  neck and back lagged the rigid head, opening a dark line under the chin at
+  steep angles, so they are pinned. The 8-unit tuck went to 0 with the pin.
 - **Two traps found on the way**: the N64 neck must be measured from the
   **file** (`headfitMeasureBodyFile()`): a loaded model's list addresses are
   rewritten, the G_MTX walk misreads them and the neck's top came out 130 units
