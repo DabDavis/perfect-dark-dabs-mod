@@ -1616,7 +1616,22 @@ replaced the cloud layer. `texremap.py` moves any GoldenEye image whose number
 one of those tables uses to a free number from 2698 (GoldenEye's last + 1),
 in room lists, the bg texture list, model rows and model lists.
 
-Open for Phase 1: every other GoldenEye level (the multiplayer setups -
-Temple, Complex, Library/Basement/Stack as three, Facility, Bunker, Archives,
-Caverns, Egyptian, Aztec, Cradle, Statue - and the solo levels); the HD look of
-the props (Bean's are still keyed to GE-X's file names: Phase 2).
+**Every GoldenEye level (2026-09-17).** 26 arenas: Dam, Runway, Statue Park,
+Train, Streets, Jungle, Caves, and from GoldenEye's multiplayer setups Temple
+(dish), Complex (ref), Library, Basement and Stack (three setups on bg_ame:
+Ump_setupameZ, Ump_setupimpZ, Ump_setupashZ - `setup_text_pointers` in the
+decomp's chraidata.c is indexed by level id, and a multiplayer setup is the
+same name with "mp_" after the U), Facility (ark), Bunker (sevb), Archives
+(arch), Caverns (cave), Egyptian (cryp), Cradle (crad); and from solo setups
+Surface, Surface 2 (the night one, UsetupsevxbZ on the same bg), Silo, Frigate,
+Depot, Control (bg_arec), Bunker 1 (bg_sev) and Aztec. The objects come from
+the setup the pads do - the multiplayer one where there is one. The whole mod
+converts in 20 seconds: 155 models, 1331 textures. All 26 ran to frame 600
+with two simulants, no crash. A spectator shot of Bunker 1 is solid blue -
+the spectator's camera starts outside that level; played, it is the control
+room. Silo, Frigate, Bunker 1 and the Library/Basement/Stack levels have no
+row in GoldenEye's fog table and keep the default sky (Frigate's fogless row,
+with water, is not carried).
+
+Open: the HD look of the new levels and of every prop (Phase 2: pair Bean's
+levels with these files, re-key Bean's props from GE-X's file names).
