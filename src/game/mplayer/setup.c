@@ -26,6 +26,7 @@
 #ifndef PLATFORM_N64
 #include "fs.h"
 #include "modloader.h"
+#include "modborrow.h"
 #endif
 #include "gbiex.h"
 #include "types.h"
@@ -526,8 +527,39 @@ char *mpMenuTextWeaponNameForSlot(struct menuitem *item)
 	return mpGetWeaponLabel(mpGetWeaponSlot(item->param));
 }
 
+#ifndef PLATFORM_N64
+extern s32 g_MpWeaponSetNum;
+#endif
+
 MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+#ifndef PLATFORM_N64
+	// GE-X Plus: GoldenEye's own weapon sets (borrowed from GoldenEye X) and
+	// nothing else - Perfect Dark's sets are Perfect Dark's guns
+	{
+		s32 first = 0;
+		const s32 num = g_GexPlusMode ? modBorrowWeaponSets(&first) : 0;
+
+		if (num > 0) {
+			switch (operation) {
+			case MENUOP_GETOPTIONCOUNT:
+				data->dropdown.value = num;
+				return 0;
+			case MENUOP_GETOPTIONTEXT:
+				return (uintptr_t)langGet(g_MpWeaponSets[first + data->dropdown.value].name);
+			case MENUOP_SET:
+				g_MpWeaponSetNum = first + data->dropdown.value;
+				mpApplyWeaponSet();
+				return 0;
+			case MENUOP_GETSELECTEDINDEX:
+				data->dropdown.value = g_MpWeaponSetNum >= first && g_MpWeaponSetNum < first + num
+					? g_MpWeaponSetNum - first : 0;
+				return 0;
+			}
+		}
+	}
+#endif
+
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = func0f189058(item->param);
@@ -7028,6 +7060,15 @@ void mpSetGexPlusMode(bool on)
 	g_GexPlusMode = on;
 
 	if (on) {
+		s32 first = 0;
+		const s32 num = modBorrowWeaponSets(&first);
+
+		// onto GoldenEye's weapon sets, unless one of them is already chosen
+		if (num > 0 && (g_MpWeaponSetNum < first || g_MpWeaponSetNum >= first + num)) {
+			g_MpWeaponSetNum = first;
+			mpApplyWeaponSet();
+		}
+
 		g_CombatSimulatorMenuDialog.title = (uintptr_t)"GE-X Plus";
 		g_CombatSimulatorMenuDialog.flags |= MENUDIALOGFLAG_LITERAL_TEXT;
 		g_CombatSimulatorMenuItems[0].flags |= MENUITEMFLAG_ALWAYSDISABLED;

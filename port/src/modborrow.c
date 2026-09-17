@@ -1144,9 +1144,16 @@ static u8 borrowSetWeapon(u8 modweapon)
  * has no copy for - its silver and gold PP7s, the watch laser - is an empty
  * slot. Named out of its language file, and unlocked.
  */
+// Where the borrowed sets sit in the list, for GE-X Plus's own (modBorrowWeaponSets())
+static s32 borrowedSetsFirst;
+static s32 borrowedSetsNum;
+
 static void borrowWeaponSets(struct moddataborrow *b)
 {
 	s32 added = 0;
+
+	borrowedSetsFirst = g_MpNumWeaponSets;
+	borrowedSetsNum = 0;
 
 	if (!src.spec.mpweaponsets || src.spec.nummpweaponsets <= 0) {
 		return;
@@ -1188,9 +1195,28 @@ static void borrowWeaponSets(struct moddataborrow *b)
 		added++;
 	}
 
+	borrowedSetsNum = added;
+
 	if (added) {
 		sysLogPrintf(LOG_NOTE, "modborrow: %d weapon sets from `%s` in the Combat Simulator's list", added, src.name);
 	}
+}
+
+/**
+ * The GoldenEye weapon sets borrowed from GoldenEye X: how many, and the list
+ * index of the first. GE-X Plus lists these alone (mplayer/setup.c). 0 when
+ * none are in the list - GoldenEye X is not installed, or a swap has put the
+ * list back since.
+ */
+s32 modBorrowWeaponSets(s32 *first)
+{
+	if (borrowedSetsNum <= 0 || borrowedSetsFirst + borrowedSetsNum > g_MpNumWeaponSets) {
+		return 0;
+	}
+
+	*first = borrowedSetsFirst;
+
+	return borrowedSetsNum;
 }
 
 /* ---- the guns ----------------------------------------------------------- */

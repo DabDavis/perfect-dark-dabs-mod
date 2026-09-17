@@ -1689,5 +1689,11 @@ Tested from gdb (`func0f0f820c(&g_GexPlusMenuDialog, 2)`, then
 `menuhandlerGexPlusCombatSimulator(6, ...)`, and `mpArenaMenuHandler` for
 options 1 and 3): the menus draw, 26 arenas list in the mode.
 
-Next: GoldenEye's weapon sets as the default in the mode (borrowed from GE-X,
-which the user allows), and GoldenEye's scenarios.
+**Weapon sets.** In the mode the weapon set dropdown lists only GoldenEye's own
+sets - GE-X's 14, borrowed after Perfect Dark's 12 (`modBorrowWeaponSets()`
+gives where they start) - and entering the mode moves onto the first of them
+unless one is already chosen. The sets are GE-X's as it made them (its Golden
+Gun set carries a Klobb, a KF7, a silenced PP7, the Golden Gun, a shield and a
+DD44). Without GE-X the dropdown is Perfect Dark's as before.
+
+Next: GoldenEye's scenarios.
