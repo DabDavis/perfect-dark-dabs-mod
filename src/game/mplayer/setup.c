@@ -311,6 +311,27 @@ s16 mpChooseRandomStage(void)
 	s32 numchallengescomplete = 0;
 	s32 index;
 
+#ifndef PLATFORM_N64
+	// GE-X Plus: one of the GoldenEye remake's arenas, as its own list offers
+	if (g_GexPlusMode) {
+		s32 count = 0;
+
+		for (i = 0; i < mpGetNumStages(); i++) {
+			if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+				count++;
+			}
+		}
+
+		index = count > 0 ? rngRandom() % count : 0;
+
+		for (i = 0; i < mpGetNumStages(); i++) {
+			if (modloaderStageIsRemake(g_MpArenas[i].stagenum) && index-- == 0) {
+				return g_MpArenas[i].stagenum;
+			}
+		}
+	}
+#endif
+
 	for (i = 0; i < 16; i++) {
 		if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
 			numchallengescomplete++;

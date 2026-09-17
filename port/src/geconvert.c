@@ -59,10 +59,15 @@
 #define PROPS_AT 0x19498
 #define NUM_PROPS 340
 
-// GE-X Plus's menus (gexfront.c): the menu folder (PROP_WALLETBOND), the
-// crosshair cursor (IMAGE_CROSSHAIR1), and the two fonts and the music, raw in the ROM
+// GE-X Plus's menus (gexfront.c): the menu folder (PROP_WALLETBOND), its
+// pictures, and the two fonts and the music, raw in the ROM
 #define MENU_FOLDER_MODEL 278
-#define MENU_CURSOR_IMAGE 2236
+
+// the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
+// and a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
+static const struct { uint32_t first, count; } g_MenuImages[] = {
+	{ 2236, 1 }, { 2631, 1 }, { 2578, 20 }, { 2686, 4 }, { 2695, 1 },
+};
 
 static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
 	{ "fontbankgothic.bin", 0x2e63f0, 0x24b0 },
@@ -3264,14 +3269,18 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	}
 
 	// GE-X Plus's menus are GoldenEye's own folder screens: the folder is a prop
-	// model, the cursor a global image, and the fonts, the music and the title
-	// screen's strings are copied as GoldenEye stores them
+	// model, the cursor and the stage pictures global images, and the fonts, the
+	// music and the title screen's strings are copied as GoldenEye stores them
 	{
 		const size_t keep = g_NumAllocs;
 		buf title;
 
 		setAdd(allmodels, MENU_FOLDER_MODEL);
-		setAdd(alltex, MENU_CURSOR_IMAGE);
+		for (size_t i = 0; i < sizeof(g_MenuImages) / sizeof(g_MenuImages[0]); ++i) {
+			for (uint32_t n = 0; n < g_MenuImages[i].count; ++n) {
+				setAdd(alltex, g_MenuImages[i].first + n);
+			}
+		}
 		snprintf(sub, sizeof(sub), "%s/menu", outdir);
 		makeDirs(sub);
 

@@ -9,15 +9,22 @@
  * copied into menu/. GoldenEye's screens are laid out on a 440x330 frame, and
  * so are these: every position here is GoldenEye's, scaled to the screen.
  *
- * GoldenEye has two screens on the way to a match, and so does this:
+ * GoldenEye's screens on the way to a match, and so these:
  * - the mode select: 1. SELECT MISSION (off: the remake has no missions yet) and
  *   2. MULTIPLAYER, with the PREVIOUS tab back to the Perfect Menu;
  * - MULTIPLAYER OPTIONS, GoldenEye's rows with two of the remake's own after
  *   Players - Simulants and their difficulty - since GoldenEye has none, and the
- *   START tab to the match.
- * Only the rows GoldenEye changes in place are live; its Level, Scenario,
- * Characters, Health and Control Style pages are cycled in place or not yet
- * offered (grey), until those pages are built.
+ *   START tab to the match. Players, Game Length, Weapons and Aim change in
+ *   place, as GoldenEye's do, and so do the two added rows;
+ * - the Level page (constructor_menu12_mpstage): GoldenEye's film strip of
+ *   stage pictures, twelve to a page - GoldenEye's own multiplayer twelve on
+ *   the first, in its order - and GoldenEye's NEXT tab to turn to the rest,
+ *   since the remake has 26 arenas where GoldenEye had eleven;
+ * - the Scenario page, GoldenEye's eight with its three team games grey (the
+ *   remake has no teams yet);
+ * - the Health and Control Style pages, a panel a player, each player choosing
+ *   on their own controller and the page closing when all have;
+ * - Characters stays grey until its page is built.
  *
  * The music is GoldenEye's too: its folders theme (sequence 23, M_FOLDERS) on
  * its own instrument bank, both copied out of the ROM into menu/ and appended
@@ -62,6 +69,7 @@
 #include "game/music.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/setup.h"
+#include "game/options.h"
 #include "game/tex.h"
 #include "lib/joy.h"
 #include "lib/model.h"
@@ -82,12 +90,20 @@ extern s32 g_MpWeaponSetNum;
 #define SW_OHMSS        3
 #define SW_CONFIDENTIAL 4
 #define SW_CONFIDENTIAL2 5
+#define SW_CLASSIFIED   6
 #define SW_PHOTOBOND    7
 #define SW_BROSNAN      8
-#define SW_BROSNANCOVER 16
+#define SW_BROSNANCOVER 15
+#define SW_BLANK        42
 
 // GoldenEye's crosshair image (IMAGE_CROSSHAIR1), 32x32 RGBA32
 #define CURSOR_IMAGE 2236
+// the film strip's holes (IMAGE_DOT), 16x16 I8
+#define DOT_IMAGE 2631
+// a stage picture: 68x44 I8
+#define STAGE_IMAGE_W 0x44
+#define STAGE_IMAGE_H 0x2c
+#define STAGE_IMAGE_RANDOM 2695
 
 // front.h's tabs
 #define TABS_LEFT_EDGE 390.0f
@@ -95,12 +111,16 @@ extern s32 g_MpWeaponSetNum;
 #define STARTTAB_TEXT_TOP 51
 #define STARTTAB_TEXT_BOTTOM 117
 #define STARTTAB_TAB_BOTTOM 130.5f
+#define NEXTTAB_TAB_TOP 130.5f
+#define NEXTTAB_TEXT_TOP 144
+#define NEXTTAB_TEXT_BOTTOM 210
 #define PREVTAB_TAB_TOP 223.0f
 #define PREVTAB_TEXT_TOP 236
 #define PREVTAB_TEXT_BOTTOM 302
 
 // LtitleE's strings GoldenEye's two screens use
 #define TITLE_START        4
+#define TITLE_NEXT         5
 #define TITLE_PREVIOUS     6
 #define TITLE_SELECTMISSION 29
 #define TITLE_MULTIPLAYER  30
@@ -117,6 +137,11 @@ extern s32 g_MpWeaponSetNum;
 #define TITLE_CHARACTERS   82
 #define TITLE_HEALTH       83
 #define TITLE_AIM          84
+#define TITLE_SELECTHANDICAP 86
+#define TITLE_SCENARIOHEAD 87
+#define TITLE_HEALTH_FIRST 61
+#define TITLE_CONTROL_FIRST 277
+#define TITLE_SELECTCONTROLSTYLE 285
 #define TITLE_CONTROLSTYLE 286
 
 // the text colours: black, and black greyed for a row that is off
@@ -125,7 +150,22 @@ extern s32 g_MpWeaponSetNum;
 // a highlight: black at 50
 #define COLOUR_HIGHLIGHT 0x00000032
 
-enum { SCREEN_MODE, SCREEN_MPOPTIONS };
+enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE };
+
+// the Level page: twelve to a page, and the most the remake converts
+#define LEVELS_PER_PAGE 12
+#define MAX_LEVELS 64
+
+// the Scenario page's rows: GoldenEye's five, then its three team games
+#define NUM_SCENARIO_ROWS 8
+#define NUM_SOLO_SCENARIOS 5
+
+// MP_handicap_table, and Perfect Dark's own Ext style after GoldenEye's eight
+#define NUM_HANDICAPS 11
+#define NUM_CONTROLSTYLES 9
+
+// textures drawn this visit, by number: each a config texSelect() makes a pointer of
+#define MAX_FRONT_TEXTURES 32
 
 /**
  * GoldenEye's multiplayer rows. GoldenEye's are 20 apart from 0x79; with the
@@ -184,12 +224,30 @@ static struct {
 
 	f32 cursorx;
 	f32 cursory;
+	s32 mousex;
+	s32 mousey;
+	s32 mouseseen;
 	s32 highlight;      // the row (or mode) under the cursor, -1 for none
 	s32 tabprev;
 	s32 tabstart;
 
 	s32 gamelength;     // GoldenEye's multi_game_lengths index
 	s32 aim;            // GoldenEye's mp_sight_adjust_table index
+
+	s32 levels[MAX_LEVELS]; // the Level page's stages, STAGE_MP_RANDOM first
+	s32 numlevels;
+	s32 levelpage;
+	s32 tabnext;
+
+	s32 handicap[MAX_PLAYERS];  // MP_handicap_table index a player
+	s32 chosen[MAX_PLAYERS];    // a player has chosen on a per-player page
+	s32 stickarmed[MAX_PLAYERS];
+
+	struct {
+		s32 num;
+		struct textureconfig config;
+	} textures[MAX_FRONT_TEXTURES];
+	s32 numtextures;
 } g_Front;
 
 /* ---- files -------------------------------------------------------------- */
@@ -444,6 +502,81 @@ s32 gexFrontMusic(void)
 	return g_Front.active && g_Front.loaded ? frontMusic() : -1;
 }
 
+/* ---- the stages --------------------------------------------------------- */
+
+/**
+ * The remake's arenas by the name the converter gives each map (geconvert's
+ * NAMES), with the stage picture GoldenEye has for its level, in the order the
+ * Level page lists them: GoldenEye's multiplayer page in its own order first
+ * (Library, Basement and Stack share a picture, as they do there), then the
+ * rest in its mission order. An arena not named here goes last, with the
+ * picture GoldenEye gives Random.
+ */
+static const struct { const char *name; s32 image; } g_FrontStages[] = {
+	{ "Temple", 2686 }, { "Complex", 2688 }, { "Caves", 2689 },
+	{ "Library", 2687 }, { "Basement", 2687 }, { "Stack", 2687 },
+	{ "Facility", 2580 }, { "Bunker", 2592 }, { "Archives", 2578 },
+	{ "Caverns", 2582 }, { "Egyptian", 2584 },
+	{ "Dam", 2585 }, { "Runway", 2590 }, { "Surface", 2593 }, { "Bunker 1", 2591 },
+	{ "Silo", 2595 }, { "Frigate", 2587 }, { "Surface 2", 2594 }, { "Statue Park", 2596 },
+	{ "Streets", 2589 }, { "Depot", 2586 }, { "Train", 2597 }, { "Jungle", 2588 },
+	{ "Control", 2579 }, { "Cradle", 2583 }, { "Aztec", 2581 },
+};
+
+static const char *frontStageName(s32 stagenum)
+{
+	for (s32 i = 0; i < mpGetNumStages(); i++) {
+		if (g_MpArenas[i].stagenum == stagenum) {
+			const char *name = modloaderGetStageMapName(stagenum);
+
+			return name ? name : mpGetArenaName(i);
+		}
+	}
+
+	return "";
+}
+
+static s32 frontStageImage(s32 stagenum)
+{
+	const char *name = stagenum == STAGE_MP_RANDOM ? NULL : modloaderGetStageMapName(stagenum);
+
+	for (s32 i = 0; name && i < ARRAYCOUNT(g_FrontStages); i++) {
+		if (strcmp(g_FrontStages[i].name, name) == 0) {
+			return g_FrontStages[i].image;
+		}
+	}
+
+	return STAGE_IMAGE_RANDOM;
+}
+
+/** The Level page's list: Random, then the remake's arenas in g_FrontStages' order. */
+static void frontBuildLevels(void)
+{
+	const s32 num = mpGetNumStages();
+	s32 used[MP_NUM_ARENAS_STATIC + MAX_MODSTAGES] = {0};
+
+	g_Front.numlevels = 0;
+	g_Front.levels[g_Front.numlevels++] = STAGE_MP_RANDOM;
+
+	for (s32 k = 0; k <= ARRAYCOUNT(g_FrontStages); k++) {
+		for (s32 i = 0; i < num && g_Front.numlevels < MAX_LEVELS; i++) {
+			const char *name = modloaderGetStageMapName(g_MpArenas[i].stagenum);
+
+			if (used[i] || !modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+				continue;
+			}
+
+			// the named ones in the table's order, and on the last pass whatever is left
+			if (k < ARRAYCOUNT(g_FrontStages) && (!name || strcmp(name, g_FrontStages[k].name) != 0)) {
+				continue;
+			}
+
+			used[i] = 1;
+			g_Front.levels[g_Front.numlevels++] = g_MpArenas[i].stagenum;
+		}
+	}
+}
+
 /* ---- the setup ---------------------------------------------------------- */
 
 // GoldenEye's scenarios in its own order, as the remake's
@@ -581,39 +714,52 @@ static s32 frontNextSimDifficulty(s32 difficulty)
 	return difficulty;
 }
 
-/** The arena after the chosen one among the remake's, wrapping. */
-static void frontNextArena(void)
+/**
+ * MP_handicap_table's health as Perfect Dark's handicap: GoldenEye multiplies
+ * the damage a player takes by its modifier, and Perfect Dark divides it by
+ * mpHandicapToDamageScale(handicap), so the scale is the modifier's inverse.
+ */
+static const f32 g_FrontHandicapModifiers[NUM_HANDICAPS] = {
+	10.0f, 2.8560996f, 2.1969998f, 1.6899998f, 1.3f, 1.0f, 0.76923078f, 0.59171599f, 0.45516616f, 0.35012782f, 0.1f,
+};
+
+static u8 frontHandicapValue(s32 index)
 {
-	const s32 num = mpGetNumStages();
-	s32 cur = -1;
+	s32 best = 127;
+	f32 bestdiff = 1e9f;
+	const f32 scale = 1.0f / g_FrontHandicapModifiers[index];
 
-	for (s32 i = 0; i < num; i++) {
-		if (g_MpArenas[i].stagenum == g_MpSetup.stagenum) {
-			cur = i;
+	for (s32 v = 0; v < 256; v++) {
+		f32 diff = mpHandicapToDamageScale(v) - scale;
+
+		diff = diff < 0 ? -diff : diff;
+
+		if (diff < bestdiff) {
+			bestdiff = diff;
+			best = v;
 		}
 	}
 
-	for (s32 n = 1; n <= num; n++) {
-		const s32 i = (cur + n + num) % num;
-
-		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
-			g_MpSetup.stagenum = g_MpArenas[i].stagenum;
-			return;
-		}
-	}
+	return best;
 }
 
-static const char *frontArenaName(void)
+static s32 frontHandicapIndex(u8 value)
 {
-	for (s32 i = 0; i < mpGetNumStages(); i++) {
-		if (g_MpArenas[i].stagenum == g_MpSetup.stagenum) {
-			const char *name = modloaderGetStageMapName(g_MpArenas[i].stagenum);
+	s32 best = 5;
+	f32 bestdiff = 1e9f;
 
-			return name ? name : mpGetArenaName(i);
+	for (s32 i = 0; i < NUM_HANDICAPS; i++) {
+		f32 diff = mpHandicapToDamageScale(value) * g_FrontHandicapModifiers[i] - 1.0f;
+
+		diff = diff < 0 ? -diff : diff;
+
+		if (diff < bestdiff) {
+			bestdiff = diff;
+			best = i;
 		}
 	}
 
-	return "";
+	return best;
 }
 
 static void frontNextWeaponSet(void)
@@ -657,10 +803,11 @@ static s32 frontRowOn(s32 row)
 		return gexPlusGetScenario() != GEXPLUS_YOLT;
 	case ROW_WEAPONS:
 		return gexPlusGetScenario() != GEXPLUS_GOLDENGUN;
-	case ROW_CHARACTERS:
 	case ROW_HEALTH:
-	case ROW_CONTROLSTYLE:
-		// GoldenEye's pages for these are not built yet
+		// reset_mp_options_for_scenario(): License to Kill kills in one hit anyway
+		return gexPlusGetScenario() != GEXPLUS_LICENCETOKILL;
+	case ROW_CHARACTERS:
+		// GoldenEye's page for this is not built yet
 		return 0;
 	}
 
@@ -680,21 +827,30 @@ static void frontSelectRow(s32 row)
 		g_Vars.mpsimdifficulty = frontNextSimDifficulty(g_Vars.mpsimdifficulty);
 		break;
 	case ROW_SCENARIO:
-		{
-			s32 cur = 0;
-
-			for (s32 i = 0; i < ARRAYCOUNT(g_FrontScenarios); i++) {
-				if (g_FrontScenarios[i] == gexPlusGetScenario()) {
-					cur = i;
-				}
-			}
-
-			gexPlusSetScenario(g_FrontScenarios[(cur + 1) % ARRAYCOUNT(g_FrontScenarios)]);
-			frontApplyScenarioRules();
-		}
+		g_Front.screen = SCREEN_SCENARIO;
 		break;
 	case ROW_LEVEL:
-		frontNextArena();
+		frontBuildLevels();
+		g_Front.levelpage = 0;
+
+		// the page the chosen arena is on
+		for (s32 i = 0; i < g_Front.numlevels; i++) {
+			if (g_Front.levels[i] == g_MpSetup.stagenum) {
+				g_Front.levelpage = i / LEVELS_PER_PAGE;
+			}
+		}
+
+		g_Front.screen = SCREEN_LEVEL;
+		break;
+	case ROW_HEALTH:
+	case ROW_CONTROLSTYLE:
+		for (s32 i = 0; i < MAX_PLAYERS; i++) {
+			g_Front.chosen[i] = 0;
+			g_Front.stickarmed[i] = 0;
+			g_Front.handicap[i] = frontHandicapIndex(g_PlayerConfigsArray[i].handicap);
+		}
+
+		g_Front.screen = row == ROW_HEALTH ? SCREEN_HEALTH : SCREEN_CONTROLSTYLE;
 		break;
 	case ROW_GAMELENGTH:
 		// select_game_length(): The Living Daylights has the times only
@@ -799,12 +955,22 @@ static void frontMoveCursor(void)
 		g_Front.cursory += (sticky * 0.075f - 0.5f) * frames;
 	}
 
-	// the mouse, where it is, in the 4:3 frame the folder is drawn in
-	if (inputMouseIsEnabled() && !inputMouseIsLocked() && inputMouseGetPosition(&mx, &my)) {
-		const f32 cx = ((f32)mx - SCREEN_WIDTH_LO / 2) * (videoGetAspect() / SCREEN_ASPECT) + SCREEN_WIDTH_LO / 2;
+	// the mouse, where it is, in the 4:3 frame the folder is drawn in - once it
+	// has moved from where it was when last looked at, or a pointer resting on
+	// the window would pin the cursor wherever it rests
+	if (inputMouseIsEnabled() && !inputMouseIsLocked()) {
+		inputMouseGetPosition(&mx, &my);
 
-		g_Front.cursorx = cx * GEFRONT_W / SCREEN_WIDTH_LO;
-		g_Front.cursory = (f32)my * GEFRONT_H / SCREEN_HEIGHT_LO;
+		if (g_Front.mouseseen && (mx != g_Front.mousex || my != g_Front.mousey)) {
+			const f32 cx = ((f32)mx - SCREEN_WIDTH_LO / 2) * (videoGetAspect() / SCREEN_ASPECT) + SCREEN_WIDTH_LO / 2;
+
+			g_Front.cursorx = cx * GEFRONT_W / SCREEN_WIDTH_LO;
+			g_Front.cursory = (f32)my * GEFRONT_H / SCREEN_HEIGHT_LO;
+		}
+
+		g_Front.mousex = mx;
+		g_Front.mousey = my;
+		g_Front.mouseseen = 1;
 	}
 
 	if (g_Front.cursorx > GEFRONT_W - 20) g_Front.cursorx = GEFRONT_W - 20;
@@ -821,6 +987,149 @@ static s32 frontOnPrevTab(void)
 static s32 frontOnStartTab(void)
 {
 	return TABS_LEFT_EDGE < g_Front.cursorx && g_Front.cursory <= STARTTAB_TAB_BOTTOM;
+}
+
+static s32 frontOnNextTab(void)
+{
+	return TABS_LEFT_EDGE < g_Front.cursorx && NEXTTAB_TAB_TOP < g_Front.cursory && g_Front.cursory <= PREVTAB_TAB_TOP;
+}
+
+/** interface_menu12_mpstage(): the picture under the cursor, the NEXT tab to turn the page. */
+static void frontTickLevel(s32 pick, s32 back)
+{
+	const s32 first = g_Front.levelpage * LEVELS_PER_PAGE;
+	const s32 onpage = g_Front.numlevels - first < LEVELS_PER_PAGE ? g_Front.numlevels - first : LEVELS_PER_PAGE;
+
+	if (!g_Front.tabprev && !g_Front.tabnext) {
+		const s32 y = (s32)g_Front.cursory;
+		const s32 x = (s32)g_Front.cursorx;
+		const s32 row = y >= 240 ? 2 : y >= 170 ? 1 : 0;
+		const s32 col = x >= 292 ? 3 : x >= 207 ? 2 : x >= 122 ? 1 : 0;
+
+		g_Front.highlight = row * 4 + col;
+
+		if (g_Front.highlight >= onpage) {
+			g_Front.highlight = onpage - 1;
+		}
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		g_Front.screen = SCREEN_MPOPTIONS;
+		return;
+	}
+
+	if (pick && g_Front.tabnext) {
+		menuPlaySound(MENUSOUND_SWIPE);
+		g_Front.levelpage = (g_Front.levelpage + 1) % ((g_Front.numlevels + LEVELS_PER_PAGE - 1) / LEVELS_PER_PAGE);
+		return;
+	}
+
+	if (pick && g_Front.highlight >= 0) {
+		menuPlaySound(MENUSOUND_SELECT);
+		g_MpSetup.stagenum = g_Front.levels[first + g_Front.highlight];
+		g_Front.screen = SCREEN_MPOPTIONS;
+	}
+}
+
+static s32 frontScenarioRowOn(s32 row)
+{
+	return row < NUM_SOLO_SCENARIOS;
+}
+
+/** interface_menu13_mpscenario(): the lowest row the cursor is at or below whose game can be played. */
+static void frontTickScenario(s32 pick, s32 back)
+{
+	if (!g_Front.tabprev) {
+		g_Front.highlight = 0;
+
+		for (s32 i = NUM_SCENARIO_ROWS - 1; i > 0; i--) {
+			if ((s32)g_Front.cursory >= 0x83 + i * 0x16 && frontScenarioRowOn(i)) {
+				g_Front.highlight = i;
+				break;
+			}
+		}
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		g_Front.screen = SCREEN_MPOPTIONS;
+		return;
+	}
+
+	if (pick && g_Front.highlight >= 0) {
+		menuPlaySound(MENUSOUND_SELECT);
+		gexPlusSetScenario(g_FrontScenarios[g_Front.highlight]);
+		frontApplyScenarioRules();
+		g_Front.screen = SCREEN_MPOPTIONS;
+	}
+}
+
+static void frontSetControlStyle(s32 player, s32 style)
+{
+	optionsSetControlMode(player, style);
+	g_PlayerExtCfg[player & 3].extcontrols = style == CONTROLMODE_PC;
+	g_Vars.modifiedfiles |= MODFILE_GAME;
+}
+
+/**
+ * interface_menu10_mphandicap() and interface_menu11_mpcontrols(): each player
+ * steps their own value left and right on their own controller (the pad, the C
+ * buttons, or a flick of the stick that has been back in the middle since),
+ * A or Z chooses and B takes it back; the page closes when every player has
+ * chosen. The keyboard's accept and cancel, and a click, are player 1's.
+ */
+static void frontTickPlayerPanels(void)
+{
+	const s32 numplayers = frontNumPlayers();
+	s32 ready = 0;
+
+	for (s32 i = 0; i < numplayers; i++) {
+		const s32 stickx = joyGetStickX(i);
+		const s32 left = joyGetButtonsPressedThisFrame(i, L_JPAD | L_CBUTTONS) || (stickx < -30 && g_Front.stickarmed[i]);
+		const s32 right = joyGetButtonsPressedThisFrame(i, R_JPAD | R_CBUTTONS) || (stickx > 30 && g_Front.stickarmed[i]);
+		const s32 pick = joyGetButtonsPressedThisFrame(i, A_BUTTON | Z_TRIG | START_BUTTON | (i == 0 ? BUTTON_UI_ACCEPT : 0))
+			|| (i == 0 && inputKeyJustPressed(VK_MOUSE_LEFT));
+		const s32 unpick = joyGetButtonsPressedThisFrame(i, B_BUTTON | (i == 0 ? BUTTON_UI_CANCEL : 0))
+			|| (i == 0 && inputKeyJustPressed(VK_ESCAPE));
+
+		if (g_Front.chosen[i]) {
+			if (unpick) {
+				g_Front.chosen[i] = 0;
+				menuPlaySound(MENUSOUND_TOGGLEOFF);
+			}
+		} else if (left || right) {
+			if (g_Front.screen == SCREEN_HEALTH) {
+				const s32 next = g_Front.handicap[i] + (right ? 1 : -1);
+
+				if (next >= 0 && next < NUM_HANDICAPS) {
+					g_Front.handicap[i] = next;
+					g_PlayerConfigsArray[i].handicap = frontHandicapValue(next);
+					menuPlaySound(MENUSOUND_SUBFOCUS);
+				}
+			} else {
+				const s32 next = optionsGetControlMode(i) + (right ? 1 : -1);
+
+				if (next >= 0 && next < NUM_CONTROLSTYLES) {
+					frontSetControlStyle(i, next);
+					menuPlaySound(MENUSOUND_SUBFOCUS);
+				}
+			}
+		} else if (pick) {
+			g_Front.chosen[i] = 1;
+			menuPlaySound(MENUSOUND_SELECT);
+		}
+
+		g_Front.stickarmed[i] = stickx >= -10 && stickx <= 10;
+
+		if (g_Front.chosen[i]) {
+			ready++;
+		}
+	}
+
+	if (ready == numplayers) {
+		g_Front.screen = SCREEN_MPOPTIONS;
+	}
 }
 
 static void frontSetCursorForMode(s32 mode)
@@ -853,7 +1162,21 @@ void gexFrontTick(void)
 
 	g_Front.tabprev = frontOnPrevTab();
 	g_Front.tabstart = g_Front.screen == SCREEN_MPOPTIONS && !g_Front.tabprev && frontOnStartTab();
+	g_Front.tabnext = g_Front.screen == SCREEN_LEVEL && g_Front.numlevels > LEVELS_PER_PAGE && frontOnNextTab();
 	g_Front.highlight = -1;
+
+	switch (g_Front.screen) {
+	case SCREEN_LEVEL:
+		frontTickLevel(pick, back);
+		return;
+	case SCREEN_SCENARIO:
+		frontTickScenario(pick, back);
+		return;
+	case SCREEN_HEALTH:
+	case SCREEN_CONTROLSTYLE:
+		frontTickPlayerPanels();
+		return;
+	}
 
 	if (g_Front.screen == SCREEN_MODE) {
 		// interface_menu06_modesel(): below 243 is SELECT MISSION, which has no missions to open
@@ -933,8 +1256,12 @@ s32 gexFrontOpen(void)
 	g_Front.cursor.t = G_TX_WRAP;
 	g_Front.cursor.unk0b = 0;
 
+	// texSelect() turns a config's number into a pointer that lasts the stage
+	g_Front.numtextures = 0;
+
 	g_Front.active = 1;
 	g_Front.screen = SCREEN_MODE;
+	g_Front.mouseseen = 0;
 
 	if (frontMusic() >= 0) {
 		musicStartTrackAsMenu(frontMusic());
@@ -1147,6 +1474,72 @@ static Gfx *frontDrawCursor(Gfx *gdl)
 	return gdl;
 }
 
+/**
+ * A texture of the conversion's by number, as a config texSelect() loads the
+ * first time this visit draws it and keeps the loaded pointer in.
+ */
+static struct textureconfig *frontTexture(s32 num, s32 width, s32 height, s32 format, s32 depth, s32 wrap)
+{
+	struct textureconfig *tex;
+
+	for (s32 i = 0; i < g_Front.numtextures; i++) {
+		if (g_Front.textures[i].num == num) {
+			return &g_Front.textures[i].config;
+		}
+	}
+
+	if (g_Front.numtextures >= MAX_FRONT_TEXTURES) {
+		return NULL;
+	}
+
+	g_Front.textures[g_Front.numtextures].num = num;
+	tex = &g_Front.textures[g_Front.numtextures++].config;
+	memset(tex, 0, sizeof(*tex));
+	tex->texturenum = num;
+	tex->width = width;
+	tex->height = height;
+	tex->format = format;
+	tex->depth = depth;
+	tex->s = wrap ? G_TX_WRAP : G_TX_CLAMP;
+	tex->t = wrap ? G_TX_WRAP : G_TX_CLAMP;
+
+	return tex;
+}
+
+/**
+ * display_image_at_position() and draw_textured_rectangle(): a texture over a
+ * rectangle (its middle and half size), twidth and theight texels across it,
+ * tinted by the colour; opaque, as GoldenEye draws its stage pictures.
+ */
+static Gfx *frontImage(Gfx *gdl, s32 num, s32 width, s32 height, s32 format, s32 wrap,
+		f32 cx, f32 cy, f32 hw, f32 hh, s32 twidth, s32 theight, u32 colour)
+{
+	const f32 sx = frontScaleX();
+	const f32 sy = frontScaleY();
+	struct textureconfig *tex = frontTexture(num, width, height, format, G_IM_SIZ_8b, wrap);
+	s32 prevsrc;
+
+	if (!tex) {
+		return gdl;
+	}
+
+	prevsrc = modSetTextureSourceMod(g_Front.moddir);
+	texSelect(&gdl, tex, 1, 0, 2, 1, NULL);
+	modSetTextureSourceMod(prevsrc);
+
+	gDPSetTexturePersp(gdl++, G_TP_NONE);
+	gDPSetTextureFilter(gdl++, G_TF_POINT);
+	gDPSetEnvColor(gdl++, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
+	gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
+	gSPTextureRectangle(gdl++,
+			(s32)((cx - hw) * sx * 4), (s32)((cy - hh) * sy * 4),
+			(s32)((cx + hw) * sx * 4), (s32)((cy + hh) * sy * 4),
+			G_TX_RENDERTILE, 0, 0,
+			(s32)(twidth / (2.0f * hw) * 1024.0f / sx), (s32)(theight / (2.0f * hh) * 1024.0f / sy));
+
+	return gdl;
+}
+
 static void frontSetSwitch(s32 part, s32 visible)
 {
 	struct modelnode *node = modelGetPart(g_Front.modeldef, part);
@@ -1180,17 +1573,35 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 		frontSetSwitch(i, false);
 	}
 
+	// each screen's interface_menu*() switches
 	frontSetSwitch(SW_TABS, true);
-	frontSetSwitch(SW_PAPER, true);
-	frontSetSwitch(SW_OHMSS, true);
 
-	if (g_Front.screen == SCREEN_MODE) {
+	switch (g_Front.screen) {
+	case SCREEN_MODE:
+		frontSetSwitch(SW_PAPER, true);
+		frontSetSwitch(SW_OHMSS, true);
 		frontSetSwitch(SW_PHOTOBOND, true);
 		frontSetSwitch(SW_EYESONLY, true);
 		frontSetSwitch(SW_BROSNAN, true);
 		frontSetSwitch(SW_BROSNANCOVER, true);
-	} else {
+		break;
+	case SCREEN_MPOPTIONS:
+		frontSetSwitch(SW_PAPER, true);
+		frontSetSwitch(SW_OHMSS, true);
 		frontSetSwitch(SW_CONFIDENTIAL2, true);
+		break;
+	case SCREEN_SCENARIO:
+		frontSetSwitch(SW_PAPER, true);
+		frontSetSwitch(SW_OHMSS, true);
+		frontSetSwitch(SW_CLASSIFIED, true);
+		break;
+	case SCREEN_LEVEL:
+		frontSetSwitch(SW_BLANK, true);
+		frontSetSwitch(SW_OHMSS, true);
+		break;
+	default:
+		frontSetSwitch(SW_BLANK, true);
+		break;
 	}
 
 	vp.vp.vscale[0] = viGetWidth() * 2;
@@ -1307,7 +1718,7 @@ static const char *frontRowValue(s32 row, char *buf, size_t len)
 	case ROW_SCENARIO:
 		return frontString(frontScenarioString(gexPlusGetScenario()));
 	case ROW_LEVEL:
-		return frontArenaName();
+		return g_MpSetup.stagenum == STAGE_MP_RANDOM ? frontString(154) : frontStageName(g_MpSetup.stagenum);
 	case ROW_GAMELENGTH:
 		return frontString(TITLE_LEN_UNLIMITED + g_Front.gamelength);
 	case ROW_WEAPONS:
@@ -1356,6 +1767,170 @@ static Gfx *frontDrawMpOptions(Gfx *gdl)
 	return gdl;
 }
 
+/** constructor_menu12_mpstage(): three strips of film, four pictures on each, captions over them. */
+static Gfx *frontDrawLevel(Gfx *gdl)
+{
+	const s32 first = g_Front.levelpage * LEVELS_PER_PAGE;
+
+	for (s32 i = 0; i < 3; i++) {
+		gdl = frontFillRect(gdl, 0x25, 0x6c + i * 0x46, 0x185, 0xa0 + i * 0x46, 0x101010ff);
+	}
+
+	// the strips' holes, above and below each
+	for (s32 i = 0; i < 3; i++) {
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff);
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff);
+	}
+
+	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < g_Front.numlevels; n++) {
+		const s32 row = n / 4;
+		const s32 col = n % 4;
+		// the highlighted picture as GoldenEye brightens it, the rest dimmed
+		const u32 colour = n == g_Front.highlight ? 0xffffffff : 0x6e6e6eff;
+
+		gdl = frontImage(gdl, frontStageImage(g_Front.levels[first + n]), STAGE_IMAGE_W, STAGE_IMAGE_H, G_IM_FMT_I, false,
+				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, STAGE_IMAGE_H, colour);
+	}
+
+	gdl = frontTextSetup(gdl);
+
+	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < g_Front.numlevels; n++) {
+		const s32 stagenum = g_Front.levels[first + n];
+		const char *name = stagenum == STAGE_MP_RANDOM ? frontString(155) : frontStageName(stagenum);
+		const u32 colour = n == g_Front.highlight ? 0xffffff00 : 0x96969600;
+		char caption[32];
+		s32 w;
+		s32 h;
+		s32 x;
+		s32 y;
+		s32 i;
+
+		// GoldenEye's captions are its names in capitals
+		for (i = 0; name[i] && i < (s32)sizeof(caption) - 1; i++) {
+			caption[i] = name[i] >= 'a' && name[i] <= 'z' ? name[i] - 32 : name[i];
+		}
+
+		caption[i] = '\0';
+
+		frontMeasure(&g_Front.gothic, caption, 0, &w, &h);
+
+		x = 0x56 + 0x55 * (n % 4) - 0x1f;
+		y = 0x97 + 0x46 * (n / 4) - h;
+		gdl = frontText(gdl, &g_Front.gothic, &x, &y, caption, colour | 0xff, 0, false);
+
+		x = 0x56 + 0x55 * (n % 4) - 0x1f;
+		y = 0x97 + 0x46 * (n / 4) - h;
+		gdl = frontText(gdl, &g_Front.gothic, &x, &y, caption, colour | 0x64, 0, false);
+	}
+
+	if (g_Front.numlevels > LEVELS_PER_PAGE) {
+		gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+		gdl = frontTextSetup(gdl);
+	}
+
+	return gdl;
+}
+
+/** constructor_menu13_mpscenario(): SCENARIO: and GoldenEye's eight, the team games grey. */
+static Gfx *frontDrawScenario(Gfx *gdl)
+{
+	gdl = frontPrint(gdl, 0x37, 0x66, frontString(TITLE_SCENARIOHEAD), COLOUR_ON);
+
+	for (s32 i = 0; i < NUM_SCENARIO_ROWS; i++) {
+		const char *text = frontString(TITLE_SCEN_NORMAL + i);
+		const s32 y = 0x83 + i * 0x16;
+		s32 w;
+		s32 h;
+
+		frontMeasure(&g_Front.zurich, text, 0, &w, &h);
+
+		if (i == g_Front.highlight) {
+			gdl = frontFillRect(gdl, 0x37, y - 1, w + 0x3c, y + 0xe, COLOUR_HIGHLIGHT);
+			gdl = frontTextSetup(gdl);
+		}
+
+		gdl = frontPrint(gdl, 0x39, y, text, frontScenarioRowOn(i) ? COLOUR_ON : COLOUR_OFF);
+	}
+
+	return gdl;
+}
+
+/**
+ * constructor_menu10_mphandicap() and constructor_menu11_mpcontrol(): a panel a
+ * player - two across the page one above the other, or four in a square - with
+ * the prompt until the player has chosen and their value under it. One player,
+ * which GoldenEye never had, gets one panel across the middle.
+ */
+static Gfx *frontDrawPlayerPanels(Gfx *gdl)
+{
+	const s32 numplayers = frontNumPlayers();
+
+	if (numplayers >= 2) {
+		gdl = frontFillRect(gdl, 0x26, 0xa9, 0x184, 0xab, 0x00000090);
+	}
+
+	if (numplayers >= 3) {
+		gdl = frontFillRect(gdl, 0xd4, 0x1e, 0xd6, 0x136, 0x00000080);
+	}
+
+	gdl = frontTextSetup(gdl);
+
+	for (s32 i = 0; i < numplayers; i++) {
+		s32 left;
+		s32 top;
+		s32 width;
+		const char *prompt;
+		const char *value;
+		char valuebuf[64];
+		s32 w;
+		s32 h;
+
+		if (numplayers == 1) {
+			left = 0x26;
+			width = 0x15e;
+			top = 0x1e + 0x46;
+		} else if (numplayers == 2) {
+			left = 0x26;
+			width = 0x15e;
+			top = (i > 0 ? 0x8c : 0) + 0x1e;
+		} else {
+			width = 0xaf;
+			top = (i >= 2 ? 0x8c : 0) + 0x1e;
+			left = ((i & 1) ? 0xaf : 0) + 0x26;
+		}
+
+		const s32 midx = (width >> 1) + left;
+		const s32 midy = top + 0x46;
+
+		if (g_Front.screen == SCREEN_HEALTH) {
+			prompt = frontString(TITLE_SELECTHANDICAP);
+			value = frontString(TITLE_HEALTH_FIRST + g_Front.handicap[i]);
+		} else {
+			const s32 style = optionsGetControlMode(i);
+
+			prompt = frontString(TITLE_SELECTCONTROLSTYLE);
+
+			if (style >= 0 && style < 8) {
+				value = frontString(TITLE_CONTROL_FIRST + style);
+			} else {
+				// Perfect Dark's own, the keyboard and mouse
+				snprintf(valuebuf, sizeof(valuebuf), "Ext\n");
+				value = valuebuf;
+			}
+		}
+
+		if (!g_Front.chosen[i]) {
+			frontMeasure(&g_Front.zurich, prompt, 0, &w, &h);
+			gdl = frontPrint(gdl, midx - (w >> 1), midy - (h >> 1) - 0xf, prompt, COLOUR_ON);
+		}
+
+		frontMeasure(&g_Front.zurich, value, 0, &w, &h);
+		gdl = frontPrint(gdl, midx - (w >> 1), midy - (h >> 1) + 0xf, value, COLOUR_ON);
+	}
+
+	return gdl;
+}
+
 Gfx *gexFrontRender(Gfx *gdl)
 {
 	if (!g_Front.active) {
@@ -1376,16 +1951,31 @@ Gfx *gexFrontRender(Gfx *gdl)
 	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 	gdl = frontTextSetup(gdl);
 
-	if (g_Front.screen == SCREEN_MODE) {
+	switch (g_Front.screen) {
+	case SCREEN_MODE:
 		gdl = frontDrawMode(gdl);
-	} else {
+		break;
+	case SCREEN_MPOPTIONS:
 		gdl = frontDrawMpOptions(gdl);
 		gdl = frontTab(gdl, TITLE_START, STARTTAB_TEXT_TOP, STARTTAB_TEXT_BOTTOM, g_Front.tabstart);
 		gdl = frontTextSetup(gdl);
+		break;
+	case SCREEN_LEVEL:
+		gdl = frontDrawLevel(gdl);
+		break;
+	case SCREEN_SCENARIO:
+		gdl = frontDrawScenario(gdl);
+		break;
+	default:
+		gdl = frontDrawPlayerPanels(gdl);
+		break;
 	}
 
-	gdl = frontTab(gdl, TITLE_PREVIOUS, PREVTAB_TEXT_TOP, PREVTAB_TEXT_BOTTOM, g_Front.tabprev);
-	gdl = frontDrawCursor(gdl);
+	// the per-player pages have no tabs and no cursor, as GoldenEye's have none
+	if (g_Front.screen != SCREEN_HEALTH && g_Front.screen != SCREEN_CONTROLSTYLE) {
+		gdl = frontTab(gdl, TITLE_PREVIOUS, PREVTAB_TEXT_TOP, PREVTAB_TEXT_BOTTOM, g_Front.tabprev);
+		gdl = frontDrawCursor(gdl);
+	}
 
 	gDPPipeSync(gdl++);
 	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);

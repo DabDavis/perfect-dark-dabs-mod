@@ -55,10 +55,12 @@ LEVELIDS = {'dam': 'DAM', 'run': 'RUNWAY', 'stat': 'STATUE', 'tra': 'TRAIN',
             'crad': 'CRADLE', 'sevx': 'SURFACE', 'sevxb': 'SURFACE2', 'silo': 'SILO',
             'dest': 'FRIGATE', 'depo': 'DEPOT', 'arec': 'CONTROL', 'sev': 'BUNKER1', 'azt': 'AZTEC'}
 
-# GoldenEye's menu folder (PROP_WALLETBOND), its crosshair cursor (IMAGE_CROSSHAIR1),
-# and its two fonts and its music, raw in the ROM: {name, ROM address, size}
+# GoldenEye's menu folder (PROP_WALLETBOND), its pictures, and its two fonts and its
+# music, raw in the ROM: {name, ROM address, size}
 MENU_FOLDER_MODEL = 278
-MENU_CURSOR_IMAGE = 2236
+# the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
+# and a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
+MENU_IMAGES = [2236, 2631] + list(range(2578, 2598)) + list(range(2686, 2690)) + [2695]
 MENU_RAW = (('fontbankgothic.bin', 0x2e63f0, 0x24b0), ('fontzurichbold.bin', 0x2e88a0, 0x3540),
               # and its music: the instrument bank, and the sequence table ({u16 count, pad, then
               # u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences after it
@@ -798,10 +800,11 @@ def main():
         print('%-5s rooms %3d portals %3d textures %3d tiles %4d (+%d walls) pads %3d waypoints %3d spawns %2d weapons %2d ammo %2d  bg %d bytes' % (
             key, bg.numrooms, len(bg.portals), len(tex), len(stan), walls, len(setup['pads']), len(setup['waypoints']), nsp, nw, na, len(bgdata)))
     # GE-X Plus's menus are GoldenEye's own folder screens (port/src/gexfront.c):
-    # the folder is a prop model, the crosshair cursor a global image, and the
-    # fonts and the title screen's strings are copied as GoldenEye stores them
+    # the folder is a prop model, the cursor and the stage pictures global images,
+    # and the fonts, the music and the title screen's strings are copied as
+    # GoldenEye stores them
     allmodels.add(MENU_FOLDER_MODEL)
-    alltex.add(MENU_CURSOR_IMAGE)
+    alltex.update(MENU_IMAGES)
     os.makedirs(os.path.join(outdir, 'menu'), exist_ok=True)
     rom = gefiles.rom()
     for name, at, size in MENU_RAW:
