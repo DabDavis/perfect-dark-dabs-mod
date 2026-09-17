@@ -106,6 +106,10 @@ struct modmodel {
 static struct modmodel *g_ModModels;
 static s32 g_NumModModels;
 
+// GE-X Plus: the Combat Simulator showing the GoldenEye remake's arenas only -
+// the maps of a mod that brings models of its own (mainmenu.c, mplayer/setup.c)
+s32 g_GexPlusMode;
+
 // And a second setup with the objects of the borrowed mod's own stage whose
 // solo setup is named, for when that mod is installed (modborrow.c)
 static s32 g_ModStageProps[STAGE_MAX_ID + 1];
@@ -593,6 +597,20 @@ static void modloaderReadModels(s32 modIndex, const char *dir, char *data)
  * is registered the first time a map of its mod loads, so a mod whose maps
  * are never played takes no file slots.
  */
+/** Whether a stage is one of the GoldenEye remake's arenas: a map of a mod with a `models` block. */
+s32 modloaderStageIsRemake(s32 stagenum)
+{
+	const s32 modindex = modloaderGetStageModDirIndex(stagenum);
+
+	for (s32 i = 0; modindex >= 0 && i < g_NumModModels; i++) {
+		if (g_ModModels[i].modindex == modindex) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 void modloaderApplyStageModels(s32 stagenum)
 {
 	const s32 modindex = modloaderGetStageModDirIndex(stagenum);

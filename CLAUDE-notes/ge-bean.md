@@ -1665,3 +1665,29 @@ generated centre is the fit's less the origins over that list (the tank's root
 group is 386 units up). desk1 and chrplastique match nothing and are left out;
 Bean has no card_box6_lg, disc_reader or the five st_pete_room props. A prop's
 HD mesh is built the first time it is drawn, so a short run logs few.
+
+## GE-X Plus, the remake's menu (Phase 3, 2026-09-17)
+
+The user named the remake's front door **GE-X Plus**: a Perfect Menu row beside
+Ghost Trials and the Randomizer opening `g_GexPlusMenuDialog` (mainmenu.c) -
+Solo Missions, Combat Simulator, Co-Operative, Counter-Operative, as Perfect
+Dark's own menu has them. Only its Combat Simulator does anything yet; the
+other three are disabled until the remake has missions.
+
+Its Combat Simulator is Perfect Dark's setup screens in a mode
+(`mpSetGexPlusMode()` in mplayer/setup.c, `g_GexPlusMode` in modloader.c): the
+arena list holds only the remake's arenas (`mpArenaListed()`: a map of a mod
+with a `models` block, `modloaderStageIsRemake()`), in one "GoldenEye" group,
+named by the map alone rather than "Map (mod)"; the dialog is titled GE-X Plus
+and its Challenges row is disabled (they are Perfect Dark's, on Perfect Dark's
+arenas). The arena is moved onto a remake arena if it was not on one. Perfect
+Dark's own Combat Simulator row turns the mode off and puts the title back. The
+converter's map names lost their " (GE)" - the mod's name follows them in the
+Stage Loader's list anyway.
+
+Tested from gdb (`func0f0f820c(&g_GexPlusMenuDialog, 2)`, then
+`menuhandlerGexPlusCombatSimulator(6, ...)`, and `mpArenaMenuHandler` for
+options 1 and 3): the menus draw, 26 arenas list in the mode.
+
+Next: GoldenEye's weapon sets as the default in the mode (borrowed from GE-X,
+which the user allows), and GoldenEye's scenarios.

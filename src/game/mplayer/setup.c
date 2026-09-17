@@ -25,6 +25,7 @@
 #include "data.h"
 #ifndef PLATFORM_N64
 #include "fs.h"
+#include "modloader.h"
 #endif
 #include "gbiex.h"
 #include "types.h"
@@ -329,6 +330,21 @@ s16 mpChooseRandomStage(void)
 	return STAGE_MP_SKEDAR;
 }
 
+/**
+ * Whether an arena is in the list: unlocked, and in GE-X Plus one of the
+ * GoldenEye remake's.
+ */
+static bool mpArenaListed(s32 i)
+{
+#ifndef PLATFORM_N64
+	if (g_GexPlusMode && !modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+		return false;
+	}
+#endif
+
+	return challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature);
+}
+
 MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct optiongroup groups[] = {
@@ -344,7 +360,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
 		for (i = 0; i < mpGetNumStages(); i++) {
-			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
+			if (mpArenaListed(i)) {
 				count++;
 			}
 		}
@@ -353,8 +369,15 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		for (i = 0; i < mpGetNumStages(); i++) {
-			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
+			if (mpArenaListed(i)) {
 				if (count == data->list.value) {
+#ifndef PLATFORM_N64
+					// GE-X Plus's own list needs no mod after the name
+					if (g_GexPlusMode && modloaderGetStageMapName(g_MpArenas[i].stagenum)) {
+						return (uintptr_t)modloaderGetStageMapName(g_MpArenas[i].stagenum);
+					}
+#endif
+
 					return (uintptr_t)mpGetArenaName(i);
 				}
 
@@ -364,7 +387,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		break;
 	case MENUOP_SET:
 		for (i = 0; i < mpGetNumStages(); i++) {
-			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
+			if (mpArenaListed(i)) {
 				if (count == data->list.value) {
 					break;
 				}
@@ -381,12 +404,20 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 				data->list.value = count;
 			}
 
-			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
+			if (mpArenaListed(i)) {
 				count++;
 			}
 		}
 		break;
 	case MENUOP_GETOPTGROUPCOUNT:
+#ifndef PLATFORM_N64
+		// GE-X Plus's list is one group, GoldenEye's
+		if (g_GexPlusMode) {
+			data->list.value = 1;
+			break;
+		}
+#endif
+
 		data->list.value = 3;
 
 		if (!challengeIsFeatureUnlocked(MPFEATURE_STAGE_COMPLEX)
@@ -396,6 +427,12 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		}
 		break;
 	case MENUOP_GETOPTGROUPTEXT:
+#ifndef PLATFORM_N64
+		if (g_GexPlusMode) {
+			return (uintptr_t)"GoldenEye";
+		}
+#endif
+
 		count = data->list.value;
 
 		if (!challengeIsFeatureUnlocked(MPFEATURE_STAGE_COMPLEX)
@@ -406,6 +443,13 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		}
 		return (uintptr_t)langGet(groups[count].name);
 	case MENUOP_GETGROUPSTARTINDEX:
+#ifndef PLATFORM_N64
+		if (g_GexPlusMode) {
+			data->list.groupstartindex = 0;
+			break;
+		}
+#endif
+
 		groupindex = data->list.value;
 
 		if (!challengeIsFeatureUnlocked(MPFEATURE_STAGE_COMPLEX)
@@ -416,7 +460,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		}
 
 		for (i = 0; i < groups[groupindex].offset; i++) {
-			if (challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature)) {
+			if (mpArenaListed(i)) {
 				count++;
 			}
 		}
@@ -6972,6 +7016,28 @@ struct menudialogdef g_CombatSimulatorMenuDialog = {
 	MENUDIALOGFLAG_STARTSELECTS,
 	NULL,
 };
+
+#ifndef PLATFORM_N64
+/**
+ * The Combat Simulator as GE-X Plus's or as Perfect Dark's: the arena list
+ * (mpArenaListed()), the dialog's title, and the challenges, which are Perfect
+ * Dark's own on Perfect Dark's arenas.
+ */
+void mpSetGexPlusMode(bool on)
+{
+	g_GexPlusMode = on;
+
+	if (on) {
+		g_CombatSimulatorMenuDialog.title = (uintptr_t)"GE-X Plus";
+		g_CombatSimulatorMenuDialog.flags |= MENUDIALOGFLAG_LITERAL_TEXT;
+		g_CombatSimulatorMenuItems[0].flags |= MENUITEMFLAG_ALWAYSDISABLED;
+	} else {
+		g_CombatSimulatorMenuDialog.title = L_MISC_445;
+		g_CombatSimulatorMenuDialog.flags &= ~MENUDIALOGFLAG_LITERAL_TEXT;
+		g_CombatSimulatorMenuItems[0].flags &= ~MENUITEMFLAG_ALWAYSDISABLED;
+	}
+}
+#endif
 
 void func0f17fcb0(s32 silent)
 {

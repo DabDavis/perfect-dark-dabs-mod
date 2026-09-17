@@ -36,6 +36,10 @@
 #include "lib/snd.h"
 #include "lib/str.h"
 #include "data.h"
+#ifndef PLATFORM_N64
+#include "modloader.h"
+#include "game/mplayer/setup.h"
+#endif
 #include "types.h"
 
 u8 g_InventoryWeapon;
@@ -4847,6 +4851,9 @@ MenuItemHandlerResult menuhandlerMainMenuSoloMissions(s32 operation, struct menu
 MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
+#ifndef PLATFORM_N64
+		mpSetGexPlusMode(false);
+#endif
 		g_Vars.bondplayernum = 0;
 		g_Vars.coopplayernum = -1;
 		g_Vars.antiplayernum = -1;
@@ -4858,6 +4865,109 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 
 	return 0;
 }
+
+#ifndef PLATFORM_N64
+/** Whether any of the GoldenEye remake's arenas is installed: the first one's index, or -1. */
+static s32 gexPlusFirstArena(void)
+{
+	for (s32 i = 0; i < mpGetNumStages(); i++) {
+		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * GE-X Plus, the GoldenEye remake in Perfect Dark: its own Perfect Menu, beside
+ * Ghost Trials and the Randomizer. Its Combat Simulator is Perfect Dark's setup
+ * screens with the remake's arenas only (mpSetGexPlusMode()). Its solo missions
+ * and the other multiplayer modes need the remake's missions, which are not
+ * converted yet, and are shown disabled.
+ */
+static MenuItemHandlerResult menuhandlerGexPlusCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const s32 first = gexPlusFirstArena();
+
+	if (operation == MENUOP_CHECKDISABLED) {
+		return first < 0;
+	}
+
+	if (operation == MENUOP_SET && first >= 0) {
+		mpSetGexPlusMode(true);
+
+		if (!modloaderStageIsRemake(g_MpSetup.stagenum)) {
+			g_MpSetup.stagenum = g_MpArenas[first].stagenum;
+		}
+
+		g_Vars.bondplayernum = 0;
+		g_Vars.coopplayernum = -1;
+		g_Vars.antiplayernum = -1;
+		challengeDetermineUnlockedFeatures();
+		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+		func0f0f820c(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+		func0f0f8300();
+	}
+
+	return 0;
+}
+
+/** The remake's missions are not converted yet. */
+static MenuItemHandlerResult menuhandlerGexPlusMissions(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKDISABLED) {
+		return true;
+	}
+
+	return 0;
+}
+
+static struct menuitem g_GexPlusMenuItems[] = {
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Solo Missions",
+		0,
+		menuhandlerGexPlusMissions,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		1,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Combat Simulator",
+		0x00000001,
+		menuhandlerGexPlusCombatSimulator,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		2,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Co-Operative",
+		0x00000002,
+		menuhandlerGexPlusMissions,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		3,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Counter-Operative",
+		0x00000003,
+		menuhandlerGexPlusMissions,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_GexPlusMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"GE-X Plus",
+	g_GexPlusMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
+	NULL,
+};
+#endif
 
 MenuItemHandlerResult menuhandlerMainMenuCooperative(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -4971,6 +5081,14 @@ struct menuitem g_MainMenuMenuItems[] = {
 		(uintptr_t)"Randomizer",
 		0x0000000b,
 		(void *)&g_RandomizerMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GE-X Plus",
+		0x0000000d,
+		(void *)&g_GexPlusMenuDialog,
 	},
 #endif
 	{
