@@ -3928,7 +3928,13 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 					nrm[k] = g->sign[k] * v.nrm[g->perm[k]];
 				}
 
-				mapped[vi] = beanAddVertex(&out, pos, nrm, v.uv, bone, weight, v.argb);
+				// Opaque black is a part exported with no colour set of its own,
+				// not paint: the whole of the clipboard and the desk lamp, the
+				// motorbike's handlebars and mudguard. The texture under those
+				// vertices is painted (the jeep's is bright under 96% of them),
+				// and drawn black the bike's bars came out as flat black shapes.
+				mapped[vi] = beanAddVertex(&out, pos, nrm, v.uv, bone, weight,
+						v.argb == 0xff000000 ? 0xffffffff : v.argb);
 
 				if (mapped[vi] < 0) {
 					ok = 0;

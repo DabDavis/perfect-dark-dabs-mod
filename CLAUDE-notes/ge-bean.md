@@ -1626,9 +1626,21 @@ box, and nothing stops it in multiplayer. Tested on Runway from gdb:
 - the player mounts one (`hoverbike` set, `bmoveSetMode(MOVEMODE_BIKE)`);
 - with `speedforwards` held at 1 it rode 1,666 units in 120 frames in both looks.
 
-In the HD look (`Pgx287Z` -> `prop/motorbike`), the mudguard top and handlebars
-draw flat black from the seat, where the N64 look has green and chrome. That is
-not yet looked into.
+In the HD look (`Pgx287Z` -> `prop/motorbike`) the mudguard top and handlebars
+drew flat black from the seat. **Opaque black vertex colour is no colour.**
+`gebeanBuildRigid()` multiplies the texture by the vertex's colour. In Bean's HD
+props, 0xff000000 marks a part exported with no colour set, not paint:
+- the clipboard and the desk lamp are black on every vertex;
+- the motorbike is white except its handlebars and mudguard (114 of 783
+  vertices, the whole x +-147 width);
+- the texture under such vertices is painted (the jeep is brighter than 60 under
+  96% of them, the KF7 under 61%).
+
+Such a vertex is now drawn white, while greys (baked shading, e.g. the tank's
+0x797979) stay. Checked in HD on Runway:
+- the bike's mudguard is olive and its grips show their tread;
+- the tank's turret vent is a shade lighter;
+- a ZMG pickup's trigger guard is a touch lighter, and the rest is unchanged.
 
 **Textures.** A Stage Loader map draws its stage's textures from its mod by
 number, and the global texture config tables (src/textureconfig.c: sky and
