@@ -224,8 +224,12 @@ head on a body it was not made for** and **height only**.
   carries its neck (`GEBEAN_BODY_WITH_HEAD`) blanks its neck lists; under any
   other head the collar stood open. `gebeanmats.neckblank` marks those groups,
   and they give way to the model's own N64 neck when the grafted head was fitted
-  (`headfitWasMeasured()`). A pale ring can still show where the HD collar and
-  the N64 stub differ (Jaws with Joanna's head).
+  (`headfitWasMeasured()`). That N64 stub showed as a tan block and a dark
+  line, so since 2026-09-17 the body's own Bean neck at the collar draws there
+  instead, clamped to the N64 neck by direction (ge-bean.md, "The collar under
+  a foreign head"). The seat itself stays the neck base: jaw-based seating was
+  asked for, and the chin band it was meant to fix was the collar's height, not
+  the head's.
 - Survey and checks: `headfitSurvey()` from gdb at `lvReset` logs every body's
   neck and own head's base. Harness `build/gexcmp/heads/face2.sh` takes
   `body:head` pairs; the camera finds the chr by body number (simulant order

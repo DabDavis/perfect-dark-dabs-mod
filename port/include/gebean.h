@@ -140,13 +140,16 @@ s32 gebeanIsPoolRow(s32 headorbodynum);
 
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */
 struct gebeanmats {
+	u16 fileid;  // in: the model file the mesh is built for
 	s32 num;
 	const void *tile[GEBEAN_MAXMATS];
 	u8 alpha[GEBEAN_MAXMATS];
 	u8 soft[GEBEAN_MAXMATS];
-	// Groups blanked because the head file carries this body's neck: with any
-	// other head on the body, the model's own neck draws there instead
+	// Groups blanked because the head file carries this body's neck
 	u64 neckblank;
+	// For a neck node, the group holding the body's own neck to draw instead
+	// under a head that is not its own; -1 for none
+	s8 neckfill[64];
 };
 
 /**

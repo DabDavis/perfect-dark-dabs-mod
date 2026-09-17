@@ -390,6 +390,7 @@ struct xblameshbuilt {
 	s32 frompack;      // the mesh came out of a model pack's file (either kind)
 	s32 frombean;      // a GoldenEye XBLA character, skinned, a group per list node: xblaMeshBuildBean()
 	u64 beanneck;      // its groups blanked for a neck its own head carries (gebeanmats.neckblank)
+	s8 beanneckfill[64]; // a neck node's group of the body's own neck, for a fitted head (gebeanmats.neckfill)
 	u32 packgen;       // modelpackGetGeneration() when it was built
 };
 
@@ -5969,6 +5970,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 		return NULL;
 	}
 
+	bmats->fileid = e->fileid;
 	file = gebeanBuild(e->beanrow, original, (struct modeldef *)e->modeldef, use->parts, use->numparts,
 			bmats, &m->groupabsent, &len);
 
@@ -5987,6 +5989,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	}
 
 	m->beanneck = bmats->neckblank;
+	memcpy(m->beanneckfill, bmats->neckfill, sizeof(m->beanneckfill));
 	free(bmats);
 
 	snprintf(what, sizeof(what), "model file %d's GoldenEye model%s", e->fileid,
@@ -9165,15 +9168,17 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// A GoldenEye character: group p is list node p's, the way a pack's
 		// file lays them out, but posed from the model's matrices like one of
 		// the release's skinned meshes - so the use stays, for the pose.
-		const u16 part = e->packpart;
+		u16 part = e->packpart;
 
-		if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
+		// A head that is not the body's own: the body's own neck, kept in a
+		// group of its own, fills the collar, where the node's group is left to
+		// the head it was made for - blank, or GoldenEye X's N64 stub
+		if (part < 64 && m->beanneckfill[part] >= 0 && m->beanneckfill[part] < m->numgroups
+				&& !(m->groupabsent & (1ull << m->beanneckfill[part])) && xblaMeshHeadIsFitted(model)) {
+			part = (u16)m->beanneckfill[part];
+		} else if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
 			return 0;
-		}
-
-		// A neck left to the body's own head, under some other head: the
-		// model's own neck, or the collar stands open round it
-		if (part < 64 && (m->beanneck & (1ull << part)) && xblaMeshHeadIsFitted(model)) {
+		} else if (part < 64 && (m->beanneck & (1ull << part)) && xblaMeshHeadIsFitted(model)) {
 			return 0;
 		}
 

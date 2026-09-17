@@ -1321,6 +1321,46 @@ again after `beanSmoothNeckWeights()`, which would blend them back. Checked
 with the head held up (`face2.sh PITCH=0.9/1.3`) on May Day, Boris, Xenia and
 Jaws: the hole is gone. Heads fitted to other bodies: chrs-and-memory.md.
 
+## The collar under a foreign head (2026-09-17)
+
+"weird neck glitch on back of neck and the neck ripping still" - F3s of Boris's
+head on GoldenEye X's suited Bond (`CpresidentZ`, Bean's suitbond) in the HD
+look. Under a head that is not the body's own, the collar was filled by
+GoldenEye X's N64 neck stub: low, flat, wider than the HD neck behind (the tan
+block) and short of it in front (the dark line). Now `gebeanBuild()` keeps the
+body's own Bean neck **where it meets the collar** in groups past the list
+nodes' (`gebeanmats.neckfill`), and the draw takes a neck node's filler group in
+place of its own when the grafted head was fitted (`xblaMeshHeadIsFitted()`).
+
+- **Which triangles**: the neck's (dominant bone) with a corner the back still
+  weights. By height above the neck joint, 200 and 60 Bean units brought the
+  body's own jaw up over the foreign face and 0 put Xenia's face under
+  Carrington's (her joint is at her jaw). All of the neck's triangles, even
+  clamped, put jaw patches on three of five heads.
+- **How high**: no higher than the model's own N64 neck **in the same
+  direction** less 8 (`BEAN_NECKFILL_TUCK`), and no wider than it there: a vertex
+  above is brought down and in (`headfitNeckTopToward()`/`RadiusToward()`, 16
+  sectors round the headspot). The N64 neck's top slants (Bond: -42 at the
+  throat, +12 at the nape), and a fitted head is seated against it. One height
+  for the whole ring left a band of Bond's neck across a short-necked head's
+  chin (Jamie). Dropping the triangles instead of clamping opened the throat.
+- **Two traps found on the way**: the N64 neck must be measured from the
+  **file** (`headfitMeasureBodyFile()`): a loaded model's list addresses are
+  rewritten, the G_MTX walk misreads them and the neck's top came out 130 units
+  high. And **the game's `atan2f()` answers 0..tau and is what links** in port
+  code: `atan2f(x, z) + pi` folded every direction into the top eight sectors.
+  Use libm's `atan2`.
+- The gun builders zero `gebeanmats` too; their `neckfill` is set to -1.
+- Checked (`face2.sh` with body:head pairs; `SIDE=180` the back, `PITCH=1.2` the
+  throat), against the N64 look of the same pair: level views match the N64
+  look (Jamie/tuxedo Bond, Carrington's head on Xenia, Joanna/Jaws, the bearded
+  head), backs clean. Own pairs within run-to-run noise of 39b5898bc. **Still
+  open**: looking steeply up at a short-necked head on a long-necked body
+  (Jamie on the tuxedo Bond) shows into the head through the throat: N64 heads
+  have no underside, the N64 look's neck front rises to cover it, and the
+  collar-only filler has no front there. The Carrington/Xenia flare left of the
+  chin is Xenia's own N64 neck, present in the N64 look too.
+
 ## Still to do
 
 - Bruises and the triangle hit test on a Bean mesh.

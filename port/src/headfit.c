@@ -210,8 +210,57 @@ struct headfitcollect {
 	const struct modelnode *joint;
 	f32 origin[3];
 	f32 *y;
+	f32 *xz;
 	s32 num;
+	f32 sectortop[16];
 };
+
+static s32 headfitSector(f32 dx, f32 dz)
+{
+	// libm's atan2, -pi..pi: the game's own atan2f() answers 0..tau and is
+	// the one that links, which folded every direction into the upper half
+	s32 k = (s32)floor((atan2((f64)dx, (f64)dz) + M_PI) / (2.0 * M_PI) * 16.0);
+
+	return k < 0 ? 0 : k > 15 ? 15 : k;
+}
+
+f32 headfitNeckRadiusToward(const struct headfitbody *body, f32 dx, f32 dz)
+{
+	const s32 k = headfitSector(dx, dz);
+
+	if (body->sectorradius[k] > 0.0f) {
+		return body->sectorradius[k];
+	}
+
+	{
+		const f32 a = body->sectorradius[(k + 15) % 16];
+		const f32 b = body->sectorradius[(k + 1) % 16];
+
+		return a > 0.0f && b > 0.0f ? (a < b ? a : b) : a > b ? a : b > 0.0f ? b : 1e9f;
+	}
+}
+
+f32 headfitNeckTopToward(const struct headfitbody *body, f32 dx, f32 dz)
+{
+	const s32 k = headfitSector(dx, dz);
+
+	// An empty sector (a low-poly ring has twelve or so vertices) takes its
+	// neighbours', the lower of the two
+	if (body->sectortop[k] > -1e8f) {
+		return body->sectortop[k];
+	}
+
+	{
+		const f32 a = body->sectortop[(k + 15) % 16];
+		const f32 b = body->sectortop[(k + 1) % 16];
+
+		if (a > -1e8f && b > -1e8f) {
+			return a < b ? a : b;
+		}
+
+		return a > -1e8f ? a : b > -1e8f ? b : body->necktop;
+	}
+}
 
 static void headfitCollectHead(const f32 pos[3], const struct modelnode *node, void *arg)
 {
@@ -227,7 +276,19 @@ static void headfitCollectBody(const f32 pos[3], const struct modelnode *node, v
 	struct headfitcollect *c = arg;
 
 	if (headfitJoint(node) == c->joint && c->num < HEADFIT_MAXVERTS) {
-		c->y[c->num++] = pos[1] - c->origin[1];
+		const s32 k = headfitSector(pos[0] - c->origin[0], pos[2] - c->origin[2]);
+		const f32 y = pos[1] - c->origin[1];
+
+		if (c->xz) {
+			c->xz[c->num * 2] = pos[0] - c->origin[0];
+			c->xz[c->num * 2 + 1] = pos[2] - c->origin[2];
+		}
+
+		c->y[c->num++] = y;
+
+		if (y > c->sectortop[k]) {
+			c->sectortop[k] = y;
+		}
 	}
 }
 
@@ -273,14 +334,36 @@ static s32 headfitMeasureBodyAt(struct modeldef *body, const u8 *filebase, struc
 
 	memset(&c, 0, sizeof(c));
 	c.y = malloc(HEADFIT_MAXVERTS * sizeof(f32));
+	c.xz = malloc(HEADFIT_MAXVERTS * 2 * sizeof(f32));
 
-	if (!c.y) {
+	if (!c.y || !c.xz) {
+		free(c.y);
+		free(c.xz);
 		return 0;
 	}
 
 	c.joint = headfitJoint(spot);
 	headfitRestOffset(spot, c.origin);
+
+	for (s32 k = 0; k < 16; k++) {
+		c.sectortop[k] = -1e9f;
+	}
+
 	headfitEachVertex(body, filebase, 1, headfitCollectBody, &c);
+
+	// Each direction's radius: the widest of its vertices within 20 of its top
+	for (s32 i = 0; i < c.num; i++) {
+		const f32 dx = c.xz[i * 2];
+		const f32 dz = c.xz[i * 2 + 1];
+		const s32 k = headfitSector(dx, dz);
+		const f32 r = sqrtf(dx * dx + dz * dz);
+
+		if (c.y[i] >= c.sectortop[k] - 20.0f && r > out->sectorradius[k]) {
+			out->sectorradius[k] = r;
+		}
+	}
+
+	free(c.xz);
 
 	if (c.num > 0) {
 		qsort(c.y, c.num, sizeof(f32), headfitCompareF32);
@@ -290,19 +373,23 @@ static s32 headfitMeasureBodyAt(struct modeldef *body, const u8 *filebase, struc
 	}
 
 	memcpy(out->spot, c.origin, sizeof(out->spot));
+	memcpy(out->sectortop, c.sectortop, sizeof(out->sectortop));
+
 	free(c.y);
 
 	return c.num > 0;
 }
+
+static s32 headfitCached(s32 filenum, s32 ishead, struct headfithead *head, struct headfitbody *body);
 
 s32 headfitMeasureHead(struct modeldef *head, struct headfithead *out)
 {
 	return headfitMeasureHeadAt(head, out);
 }
 
-s32 headfitMeasureBody(struct modeldef *body, struct headfitbody *out)
+s32 headfitMeasureBodyFile(s32 filenum, struct headfitbody *out)
 {
-	return headfitMeasureBodyAt(body, NULL, out);
+	return headfitCached(filenum, 0, NULL, out);
 }
 
 /* -------------------------------------------------------------------------
@@ -450,6 +537,8 @@ s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struc
 	struct headfitbody body;
 	const s32 ownhead = headfitOwnHead(bodynum);
 	f32 target;
+
+	(void)bodymodeldef;
 	f32 offset;
 	const char *how;
 
@@ -460,8 +549,10 @@ s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struc
 	if (ownhead > 0 && headfitCached(g_HeadsAndBodies[ownhead].filenum, 1, &own, NULL)) {
 		target = own.base;
 		how = "the body's own head";
-	} else if (bodymodeldef ? headfitMeasureBodyAt(bodymodeldef, NULL, &body)
-			: headfitCached(g_HeadsAndBodies[bodynum].filenum, 0, NULL, &body)) {
+	} else if (headfitCached(g_HeadsAndBodies[bodynum].filenum, 0, NULL, &body)) {
+		// From the file even when the body is loaded: a loaded model's list
+		// addresses are rewritten, and the walk that says which matrix a vertex
+		// was loaded under then reads the neck's top 130 units too high
 		target = body.necktop + HEADFIT_TUCK;
 		how = "the body's neck";
 	} else {
@@ -564,6 +655,110 @@ void headfitReset(void)
 /* -------------------------------------------------------------------------
  * Research
  * ------------------------------------------------------------------------- */
+
+struct headfitprofile {
+	f32 *p; // x, y, z
+	s32 num;
+	s32 cap;
+};
+
+static void headfitCollectPoints(const f32 pos[3], const struct modelnode *node, void *arg)
+{
+	struct headfitprofile *c = arg;
+
+	if (c->num >= c->cap) {
+		const s32 cap = c->cap ? c->cap * 2 : 1024;
+		f32 *grown = realloc(c->p, cap * 3 * sizeof(f32));
+
+		if (!grown) {
+			return;
+		}
+
+		c->p = grown;
+		c->cap = cap;
+	}
+
+	memcpy(&c->p[c->num * 3], pos, 3 * sizeof(f32));
+	c->num++;
+}
+
+/** Research: a head's width and reach by height, from its base up, to the log. */
+static void headfitProfileHead(s32 headnum)
+{
+	struct headfitprofile c;
+	struct headfithead h;
+	u8 *buf;
+	struct modeldef *modeldef = headfitLoadFile(g_HeadsAndBodies[headnum].filenum, &buf);
+	char line[1024];
+	s32 at = 0;
+
+	memset(&c, 0, sizeof(c));
+
+	if (!modeldef || !headfitMeasureHeadAt(modeldef, &h)) {
+		free(buf);
+		return;
+	}
+
+	headfitEachVertex(modeldef, NULL, 0, headfitCollectPoints, &c);
+
+	{
+		f32 zmax = -1e9f;
+		char chins[128];
+		s32 cat = 0;
+
+		for (s32 i = 0; i < c.num; i++) {
+			if (c.p[i * 3 + 2] > zmax && c.p[i * 3 + 1] < h.base + 250.0f) zmax = c.p[i * 3 + 2];
+		}
+
+		for (s32 t = 5; t <= 8; t++) {
+			f32 chin = 1e9f;
+
+			for (s32 i = 0; i < c.num; i++) {
+				if (c.p[i * 3 + 2] >= zmax * t / 10.0f && c.p[i * 3 + 1] < chin) chin = c.p[i * 3 + 1];
+			}
+
+			cat += snprintf(chins + cat, sizeof(chins) - cat, " c%d %.0f", t, chin);
+		}
+
+		sysLogPrintf(LOG_NOTE, "headfit: chin head %d %s base %.0f top %.0f zmax %.0f%s", headnum,
+				romdataFileGetName(g_HeadsAndBodies[headnum].filenum) ? romdataFileGetName(g_HeadsAndBodies[headnum].filenum) : "?",
+				h.base, h.top, zmax, chins);
+	}
+
+	for (s32 bin = 0; bin < 24 && at < (s32)sizeof(line) - 40; bin++) {
+		const f32 lo = h.base + bin * 10.0f;
+		f32 xmin = 1e9f, xmax = -1e9f, zmin = 1e9f, zmax = -1e9f;
+		s32 n = 0;
+
+		for (s32 i = 0; i < c.num; i++) {
+			const f32 *q = &c.p[i * 3];
+
+			if (q[1] >= lo && q[1] < lo + 10.0f) {
+				if (q[0] < xmin) xmin = q[0];
+				if (q[0] > xmax) xmax = q[0];
+				if (q[2] < zmin) zmin = q[2];
+				if (q[2] > zmax) zmax = q[2];
+				n++;
+			}
+		}
+
+		at += snprintf(line + at, sizeof(line) - at, n ? " %.0f:%.0f/%.0f..%.0f" : " %.0f:-", lo, xmax - xmin, zmin, zmax);
+	}
+
+	sysLogPrintf(LOG_NOTE, "headfit: profile head %d %s base %.0f top %.0f |%s",
+			headnum, romdataFileGetName(g_HeadsAndBodies[headnum].filenum) ? romdataFileGetName(g_HeadsAndBodies[headnum].filenum) : "?",
+			h.base, h.top, line);
+
+	free(c.p);
+	free(buf);
+}
+
+void headfitSurveyHeads(void)
+{
+	for (s32 i = 0; i < g_MpListCounts.heads; i++) {
+		headfitProfileHead(g_MpHeads[i].headnum);
+	}
+}
 
 /** Every Combat Simulator body with its own head, measured, to the log. */
 void headfitSurvey(void)

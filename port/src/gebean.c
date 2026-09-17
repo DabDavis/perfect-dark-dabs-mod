@@ -37,6 +37,7 @@
 #include "gebean.h"
 #include "geguns.h"
 #include "modborrow.h"
+#include "headfit.h"
 #include "mod.h"
 #include "data.h"
 #include "lib/model.h"
@@ -1668,6 +1669,9 @@ enum {
 	SK_RT_HIP, SK_RT_KNEE, SK_RT_ANKLE,
 	SK_COUNT
 };
+
+// How far under the model's N64 neck top the body's own neck filler stops (neckfill)
+#define BEAN_NECKFILL_TUCK 8.0f
 
 static const char *const skelNames[SK_COUNT] = {
 	"SKEL_BASE", "SKEL_BACK", "SKEL_NECK", "SKEL_POSITION",
@@ -3845,6 +3849,7 @@ static u8 *gebeanBuildRigid(s32 gun, struct modeldef *modeldef, struct modelnode
 
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
+	memset(mats->neckfill, -1, sizeof(mats->neckfill));
 	mats->num = nummatwords;
 
 	for (s32 i = 0; i < nummatwords; i++) {
@@ -5007,6 +5012,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, struct modeldef *modeldef, struct mode
 
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
+	memset(mats->neckfill, -1, sizeof(mats->neckfill));
 	mats->num = nummatwords;
 
 	for (s32 i = 0; i < nummatwords; i++) {
@@ -5150,6 +5156,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		}
 	}
 
+	const u16 fileid = mats->fileid;
 	const struct gebeanrow *r;
 	char source[64];
 	struct beanmodel bm;
@@ -5289,6 +5296,40 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	// stand, and the body pins any vertex of its own at one of those places
 	// wholly to the neck, re-pinned after the neck's weights are smoothed.
 	const s32 pinseam = !ishead && r->kind != GEBEAN_WHOLE;
+
+	// The body's own neck, kept apart for a head that is not its own. Under
+	// such a head nothing filled the collar but GoldenEye X's N64 neck stub:
+	// low, flat, wider than an HD neck, and short of it, so it showed as a tan
+	// block at the back and a dark line under the chin (Boris's head on the
+	// suited Bond). The neck's triangles at the collar go into groups past the
+	// list nodes', one per neck node, which the draw takes in place of the
+	// node's own when the head was fitted (headfit.c, gebeanmats.neckfill).
+	s8 fillof[64];
+	s32 numfill = 0;
+
+	memset(fillof, -1, sizeof(fillof));
+
+	for (s32 k = 0; pinseam && k < numnodes && k < 64; k++) {
+		if (nodeskel[k] == SK_NECK && numnodes + numfill < 64) {
+			fillof[k] = (s8)(numnodes + numfill++);
+		}
+	}
+
+	// No higher than the model's own N64 neck, which is what a fitted head is
+	// seated against (headfit.c): Bond's collar is weighted to the back almost
+	// to his chin, and kept whole it came up over a short-necked head's jaw
+	// (Jamie's) where the N64 look sat it cleanly. The N64 neck's top is
+	// slanted, lower at the throat than at the nape, so it is read by direction
+	// round the neck; and a vertex above it is brought down to it rather than
+	// its triangles dropped, which opened a hole in the throat (Bean's triangles
+	// are larger than the slant).
+	struct headfitbody neckn64;
+	s32 haveneckn64 = 0;
+
+	if (numfill > 0 && fileid) {
+		haveneckn64 = headfitMeasureBodyFile(fileid, &neckn64);
+	}
+
 	f32 *seam = NULL;
 	s32 numseam = 0;
 	s32 capseam = 0;
@@ -5421,9 +5462,30 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 				continue;
 			}
 
+			s32 filler = 0;
+
 			if (r->kind != GEBEAN_WHOLE && (dominant == SK_NECK) != (ishead != 0)) {
-				dropped++;
-				continue;
+				// The neck where it meets the collar: a triangle of the neck's
+				// with a corner the back still moves. A height above the neck
+				// joint does not say that - Xenia's joint is at her jaw, and
+				// half her face stood below it and came up under another head.
+				s32 collar = 0;
+
+				for (s32 i = 0; i < 3 && !collar; i++) {
+					for (s32 k = 0; k < 4; k++) {
+						if (sk[i][k] == SK_BACK && wt[i][k] > 0.0f) {
+							collar = 1;
+							break;
+						}
+					}
+				}
+
+				if (!ishead && numfill > 0 && dominant == SK_NECK && collar) {
+					filler = 1;
+				} else {
+					dropped++;
+					continue;
+				}
 			}
 
 			for (s32 i = 0; i < 3 && ok; i++) {
@@ -5473,6 +5535,30 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 					for (s32 k = 0; k < 3; k++) {
 						pos[k] = v3[i].pos[k] * rig.scale;
 						nrm[k] = v3[i].nrm[k];
+					}
+
+					if (filler && haveneckn64) {
+						// A little under the N64 top, so the edge tucks under a jaw
+						// resting on it rather than showing along it
+						const f32 top = headfitNeckTopToward(&neckn64,
+								pos[0] - bind[SK_NECK][0] * rig.scale, pos[2] - bind[SK_NECK][2] * rig.scale)
+								- BEAN_NECKFILL_TUCK;
+
+						if (pos[1] - bind[SK_NECK][1] * rig.scale > top) {
+							// Brought down and drawn in to the N64 neck's width there,
+							// or a neck wider than the head's flares round its jaw
+							const f32 dx = pos[0] - bind[SK_NECK][0] * rig.scale;
+							const f32 dz = pos[2] - bind[SK_NECK][2] * rig.scale;
+							const f32 dist = sqrtf(dx * dx + dz * dz);
+							const f32 radius = headfitNeckRadiusToward(&neckn64, dx, dz);
+
+							pos[1] = bind[SK_NECK][1] * rig.scale + top;
+
+							if (dist > radius && dist > 0.0f) {
+								pos[0] = bind[SK_NECK][0] * rig.scale + dx * radius / dist;
+								pos[2] = bind[SK_NECK][2] * rig.scale + dz * radius / dist;
+							}
+						}
 					}
 
 					for (s32 s = 0; s < 4; s++) {
@@ -5576,7 +5662,9 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			for (s32 k = 0; k < numnodes; k++) {
 				s32 takes;
 
-				if (ishead) {
+				if (filler) {
+					takes = k < 64 && fillof[k] >= 0;
+				} else if (ishead) {
 					takes = !beanNodeIsToggled(nodes[k]);
 				} else {
 					s32 want = dominant == SK_POSITION ? SK_BASE : dominant;
@@ -5596,7 +5684,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 					takes = nodeskel[k] == want;
 				}
 
-				if (takes && !beanAddTri(&out, k, (s32)d->tex, idx[0], idx[1], idx[2])) {
+				if (takes && !beanAddTri(&out, filler ? fillof[k] : k, (s32)d->tex, idx[0], idx[1], idx[2])) {
 					ok = 0;
 					break;
 				}
@@ -5677,7 +5765,12 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		}
 	}
 
-	file = beanWriteMesh(&out, numnodes, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
+	for (s32 k = 0; k < 64; k++) {
+		mats->neckfill[k] = fillof[k];
+	}
+
+
+	file = beanWriteMesh(&out, numnodes + numfill, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
 
 	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles over %d lists, %s %.4f%s",
 			r->file, source, out.numverts, out.numtris, numnodes,
