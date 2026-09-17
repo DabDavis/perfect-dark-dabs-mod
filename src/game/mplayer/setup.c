@@ -270,10 +270,40 @@ bool mpRegisterArena(s16 stagenum, const char *name)
  */
 s32 mpImportArenas(const struct mparena *arenas, s32 count)
 {
+	// The Stage Loader's own arenas - the maps of every mod mounted beside the
+	// one loaded (mpRegisterArena(), modloaderInit()) - are kept and put back
+	// after the imported list. modloaderInit() registers them and the mod's
+	// data segment is read after it, so clearing the whole table took them with
+	// it: with GoldenEye X loaded, its 23 arenas left none of the GE-X Plus
+	// conversion's, and the folder that finds its files through one of them
+	// stopped opening at all.
+	static struct mparena kept[MAX_MODSTAGES];
+	static char keptnames[MAX_MODSTAGES][32];
+	s32 numkept = 0;
 	s32 i;
 
 	if (count < 1 || count > (s32)ARRAYCOUNT(g_MpArenas)) {
 		return 0;
+	}
+
+	for (i = MP_NUM_ARENAS_STATIC; i < g_MpNumArenas && i < (s32)ARRAYCOUNT(g_MpArenas); i++) {
+		const char *name = g_MpArenaModNames[i - MP_NUM_STOCK_ARENAS];
+		s32 len;
+
+		if (numkept >= (s32)ARRAYCOUNT(kept)) {
+			break;
+		}
+
+		kept[numkept] = g_MpArenas[i];
+		snprintf(keptnames[numkept], sizeof(keptnames[0]), "%s", name ? name : "");
+
+		// mpRegisterArena() puts the newline back on
+		len = strlen(keptnames[numkept]);
+		if (len > 0 && keptnames[numkept][len - 1] == '\n') {
+			keptnames[numkept][len - 1] = '\0';
+		}
+
+		numkept++;
 	}
 
 	for (i = 0; i < count; i++) {
@@ -288,6 +318,10 @@ s32 mpImportArenas(const struct mparena *arenas, s32 count)
 
 	g_MpNumArenas = count;
 	g_MpArenasImported = true;
+
+	for (i = 0; i < numkept; i++) {
+		mpRegisterArena(kept[i].stagenum, keptnames[i]);
+	}
 
 	return count;
 }
