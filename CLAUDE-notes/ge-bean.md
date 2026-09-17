@@ -1534,6 +1534,27 @@ whose box holds it). Runway (GE-X's is a remake, 53 of 176 pads) and Caves
 (GE-X's arena has only weapons) have none. Jungle's rock walls and trees *are*
 GoldenEye's props.
 
+**Runway and Caves (2026-09-17).** GE-X's Runway is a remake (53 of 176 pads),
+so its objects are GoldenEye's own records converted the way GE-X converts
+them (`gexobjects.native_objects()`), learnt by comparing the eleven GoldenEye
+setups GE-X kept pad for pad with GE-X's copies: the header copied, the model
+renumbered (`gemodels.json`, 96 models, none ambiguous; four more found in
+GE-X's files by their vertices, `gemodels_extra.json` - vehicles are
+re-exported and never match that way), 1000 damage, floor colour 0x0fff, and
+a door's fields moved from 0x80 on GoldenEye's record to 0x5c on Perfect
+Dark's with accel and decel times 1000 and its flags 0x80 -> 0x40, 0x40
+dropped, 0x08 -> 0x80. A door's pad field is a bound pad index, and GoldenEye's
+bound pads are written after the pads (box divided by the level scale). The
+setup still names GE-X's Runway (`propsfrom "UsetuparkZ"`) for its model
+table and stage row. The plane is a standing prop. **The tank is left out: it
+is not in GE-X** - GE-X's Runway hoverbike is GoldenEye's motorbike, and
+GE-X dropped Streets' tank too; `.xbla-work/ge-arena/gemodelconv.py` converts
+GoldenEye's own model file (the formats share node types, texture rows and
+list commands; the vertex is 16 bytes with its colour against 12 and a colour
+table) and needs a model state of its own. Caves in GoldenEye has no objects
+but its weapons, ammo and two body armours; the armours are shields in the
+plain setup.
+
 Lights: GoldenEye's are the triangles drawn with one of ten light textures
 (`check_if_imageID_is_light()`); touching ones make a fixture, and each
 becomes a Perfect Dark light - the rectangle round it in its plane, glare down
