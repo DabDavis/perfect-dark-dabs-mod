@@ -63,6 +63,7 @@
 #include "video.h"
 #include "gexplus.h"
 #include "gexfront.h"
+#include "game/modghost.h"
 #include "preprocess.h"
 #include "game/challenge.h"
 #include "game/file.h"
@@ -259,6 +260,7 @@ static struct {
 	s32 charprev[MAX_PLAYERS];    // the one the strip is centred on while it scrolls
 	s32 charscroll[MAX_PLAYERS];  // how far past it
 	s32 charsize[MAX_PLAYERS];    // how far a chosen portrait has grown, to 11
+	s32 charpicked;               // player 1 chose on the Characters page this session
 
 	struct {
 		s32 num;
@@ -995,9 +997,32 @@ static void frontSelectRow(s32 row)
  * The setup as GE-X Plus's Combat Simulator has it (mainmenu.c's GE-X Plus
  * row), with the players and simulants of the folder's rows.
  */
+/**
+ * Player 1 is who they chose on the Perfect Menu's Customize Character
+ * (g_ModCiBody, modghost.h), as they are in the Institute and the missions,
+ * until they choose on the folder's own Characters page - which then wins for
+ * the session. Without it GE-X Plus kept the multiplayer setup's body, which
+ * for most players is Joanna.
+ */
+static void frontApplyMenuCharacter(void)
+{
+	const s32 body = g_ModCiBody - 1;
+	const s32 head = g_ModCiHead - 1;
+
+	if (g_Front.charpicked || g_ModCiBody <= MODGHOST_BODY_DEFAULT || body >= g_MpListCounts.bodies) {
+		return;
+	}
+
+	g_PlayerConfigsArray[0].base.mpbodynum = body;
+	g_PlayerConfigsArray[0].base.mpheadnum = g_ModCiHead > MODGHOST_BODY_DEFAULT && head < mpGetNumHeads2()
+		? head : modGhostBodyDefaultHead(body);
+}
+
 static void frontEnterSetup(void)
 {
 	const s32 first = frontFirstArena();
+
+	frontApplyMenuCharacter();
 
 	mpSetGexPlusMode(true);
 
@@ -1328,6 +1353,11 @@ static void frontTickCharacters(void)
 				g_PlayerConfigsArray[i].base.mpbodynum = mpbodynum;
 				g_PlayerConfigsArray[i].base.mpheadnum = mpGetMpheadnumByMpbodynum(mpbodynum);
 				g_Front.chosen[i] = 1;
+
+				if (i == 0) {
+					g_Front.charpicked = 1;
+				}
+
 				g_Front.charsize[i] = 1;
 				menuPlaySound(MENUSOUND_SELECT);
 			}

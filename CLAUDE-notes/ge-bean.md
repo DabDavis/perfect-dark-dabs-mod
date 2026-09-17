@@ -1921,7 +1921,12 @@ to player 1. **Simulants wear GoldenEye's characters**
 (`gexPlusThemeSimulants()`, from `mpStartMatch()` after the quick team): each
 sim takes a body `modBorrowBodyName()` names (GoldenEye X's roster, the
 Characters page's list) that nobody in the match wears while one is left, head
-by `mpGetMpheadnumByMpbodynum()`; nothing changes without GE-X borrowed. Drive:
+by `mpGetMpheadnumByMpbodynum()`; nothing changes without GE-X borrowed. **Player 1 is the Customize
+Character pick** (`frontApplyMenuCharacter()` in `frontEnterSetup()`:
+`g_ModCiBody`/`g_ModCiHead` minus one as the Combat Simulator body and head),
+as in the Institute and the missions, until player 1 chooses on the folder's
+Characters page (`g_Front.charpicked`, for the session) - the multiplayer setup's
+own body had them spawn as Joanna. Drive:
 `build/gexrom` with GE-X symlinked into its mods (remove it after) and
 `XblaGoldenEye=1`, Return at the title with a copied eeprom, the folder and the
 match from gdb (`gexFrontOpen`, `'gexfront.c'::frontEnterSetup`, screen 1,
