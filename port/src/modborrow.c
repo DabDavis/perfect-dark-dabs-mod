@@ -270,6 +270,17 @@ static s32 borrowIsLoaded(void)
 			|| borrowBaseName(loaded)[strlen(src.name)] == '\\');
 }
 
+/**
+ * Whether GoldenEye X is the mod the game is loaded with. Then its missions are
+ * the port's mission list (moddata.c's importSoloStages()) and its stage files
+ * are mounted, so GE-X Plus's Select Mission can play them; when it is only
+ * borrowed from, they are not there and the folder leaves the missions grey.
+ */
+s32 modBorrowIsGoldenEyeLoaded(void)
+{
+	return src.found > 0 && borrowIsLoaded();
+}
+
 void modBorrowMount(void)
 {
 	borrowFind();

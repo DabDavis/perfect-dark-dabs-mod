@@ -69,8 +69,10 @@
 #include "game/file.h"
 #include "game/gfxmemory.h"
 #include "game/lang.h"
+#include "game/mainmenu.h"
 #include "game/menu.h"
 #include "game/modeldef.h"
+#include "game/modunlocks.h"
 #include "game/modelmgr.h"
 #include "game/music.h"
 #include "game/mplayer/mplayer.h"
@@ -99,7 +101,14 @@ extern s32 g_MpWeaponSetNum;
 #define SW_CLASSIFIED   6
 #define SW_PHOTOBOND    7
 #define SW_BROSNAN      8
+#define SW_PHOTOBRIEF   12
 #define SW_BROSNANCOVER 15
+#define SW_SLIDES       19
+#define SW_PICS         20
+// the mission select's grid of slides: the part bondconstants.h does not name,
+// and the one the numbers after it are off by. A mission's own photo follows it
+#define SW_SLIDEGRID    21
+#define SW_BRIEFFIRST   22
 #define SW_BLANK        42
 
 // GoldenEye's crosshair image (IMAGE_CROSSHAIR1), 32x32 RGBA32
@@ -151,13 +160,106 @@ extern s32 g_MpWeaponSetNum;
 #define TITLE_SELECTCONTROLSTYLE 285
 #define TITLE_CONTROLSTYLE 286
 
+// and the strings its solo screens use
+#define TITLE_DIFF_FIRST   19 // Agent, Secret Agent, 00 Agent, 007, as the briefing names them
+#define TITLE_JB           32 // " - James Bond 007", after the difficulty
+#define TITLE_MISSION2     33 // "Mission "
+#define TITLE_PART         34 // "Part "
+#define TITLE_DIFFICULTY   35
+#define TITLE_DIFF2_FIRST  36 // and as the difficulty page lists them
+#define TITLE_SPECOPS      40
+#define TITLE_REACTION     41
+#define TITLE_ENEMYHEALTH  42
+#define TITLE_ENEMYDAMAGE  43
+#define TITLE_ENEMYACCURACY 44
+#define TITLE_OBJECTIVES   93
+#define TITLE_BRIEF_FIRST  93 // Primary Objectives, Background, M Briefing, Q Branch, Moneypenny
+#define TITLE_MISSION_FIRST 120 // the folder's names for the chapters and their missions
+
 // the text colours: black, and black greyed for a row that is off
 #define COLOUR_ON  0x000000ff
 #define COLOUR_OFF 0x00000070
-// a highlight: black at 50
+// a highlight: black at 50, and a filled bar: black at 100
 #define COLOUR_HIGHLIGHT 0x00000032
+#define COLOUR_BAR 0x00000064
 
-enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE, SCREEN_CHARACTERS };
+enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE, SCREEN_CHARACTERS,
+	SCREEN_MISSION, SCREEN_DIFFICULTY, SCREEN_007OPTIONS, SCREEN_BRIEFING };
+
+/**
+ * GoldenEye's mission folder (front.c's mission_folder_setup_entries): its nine
+ * chapter headings and, under each, its missions, in the order the folder gives
+ * them. A mission is the grid's cell `mission`, and the missions run 0-19 across
+ * five columns and down four rows.
+ *
+ * `brief` is its briefing file and `lang` the text bank every id in that file
+ * indexes, both converted out of the ROM into menu/ (geconvert.c's g_MenuText).
+ */
+#define NUM_MISSIONS 20
+#define MISSION_COLS 5
+#define MISSION_ROWS 4
+
+struct missionrow {
+	const char *numeral;
+	s32 name;          // LtitleE's name for it
+	s32 icon;          // the shorter name the grid shows instead, 0 for none
+	s32 mission;       // -1 for a chapter heading
+	const char *brief;
+	const char *lang;
+};
+
+static const struct missionrow g_Missions[] = {
+	{ "1",   120,   0, -1, NULL,               NULL },
+	{ "i",   121,   0,  0, "UbriefdamZ",       "LdamE" },
+	{ "ii",  122,   0,  1, "UbriefarkZ",       "LarkE" },
+	{ "iii", 123,   0,  2, "UbriefrunZ",       "LrunE" },
+	{ "2",   124,   0, -1, NULL,               NULL },
+	{ "i",   125,   0,  3, "UbriefsevxZ",      "LsevxE" },
+	{ "ii",  126,   0,  4, "UbriefsevbunkerZ", "LsevE" },
+	{ "3",   127,   0, -1, NULL,               NULL },
+	{ "i",   128, 129,  5, "UbriefsiloZ",      "LsiloE" },
+	{ "4",   130,   0, -1, NULL,               NULL },
+	{ "i",   131,   0,  6, "UbriefdestZ",      "LdestE" },
+	{ "5",   124,   0, -1, NULL,               NULL },
+	{ "i",   125,   0,  7, "UbriefsevxbZ",     "LsevxbE" },
+	{ "ii",  126,   0,  8, "UbriefsevbZ",      "LsevbE" },
+	{ "6",   132,   0, -1, NULL,               NULL },
+	{ "i",   133, 134,  9, "UbriefstatueZ",    "LstatE" },
+	{ "ii",  135, 136, 10, "UbriefarchZ",      "LarchE" },
+	{ "iii", 137,   0, 11, "UbriefpeteZ",      "LpeteE" },
+	{ "iv",  138,   0, 12, "UbriefdepoZ",      "LdepoE" },
+	{ "v",   139,   0, 13, "UbrieftraZ",       "LtraE" },
+	{ "7",   140,   0, -1, NULL,               NULL },
+	{ "i",   141,   0, 14, "UbriefjunZ",       "LjunE" },
+	{ "ii",  142, 143, 15, "UbriefcontrolZ",   "LarecE" },
+	{ "iii", 144, 145, 16, "UbriefcaveZ",      "LcaveE" },
+	{ "iv",  146, 147, 17, "UbriefcradZ",      "LcradE" },
+	{ "8",   148,   0, -1, NULL,               NULL },
+	{ "i",   149, 150, 18, "UbriefaztZ",       "LaztE" },
+	{ "9",   151,   0, -1, NULL,               NULL },
+	{ "i",   152, 153, 19, "UbriefcrypZ",      "LcrypE" },
+};
+
+#define NUM_MISSION_ROWS (sizeof(g_Missions) / sizeof(g_Missions[0]))
+
+// cursor_xpos_table_mission_select and cursor_ypos_table_mission_select
+static const s32 g_MissionX[MISSION_COLS] = { 73, 142, 212, 282, 352 };
+static const s32 g_MissionY[MISSION_ROWS] = { 62, 131, 201, 270 };
+
+// a briefing file: four paragraphs, then ten objectives of {text id, difficulty}
+#define BRIEF_PARAGRAPHS 4
+#define BRIEF_OBJECTIVES 10
+#define BRIEF_SIZE (BRIEF_PARAGRAPHS * 2 + BRIEF_OBJECTIVES * 4)
+
+// the briefing's five pages
+enum { BRIEF_TITLE, BRIEF_OVERVIEW, BRIEF_M, BRIEF_Q, BRIEF_MONEYPENNY, NUM_BRIEF_PAGES };
+
+// the 007 options' four sliders, in the order the page lists them
+enum { SLIDER_HEALTH, SLIDER_DAMAGE, SLIDER_ACCURACY, SLIDER_REACTION, NUM_SLIDERS };
+
+// GoldenEye's four difficulties; the fourth is its 007 mode, the sliders' own
+#define NUM_DIFFICULTIES 4
+#define DIFFICULTY_007 3
 
 // the Characters page: the Combat Simulator bodies it lists, and a portrait's spacing on the strip
 #define MAX_CHARACTERS 128
@@ -262,6 +364,15 @@ static struct {
 	s32 charsize[MAX_PLAYERS];    // how far a chosen portrait has grown, to 11
 	s32 charpicked;               // player 1 chose on the Characters page this session
 
+	s32 mission;        // the mission the grid is on, 0-19
+	s32 difficulty;     // the difficulty chosen for it
+	s32 briefpage;      // the briefing page open
+	u8 *brief;          // its briefing file, and the text bank that file indexes
+	u8 *lang;
+	u32 langlen;
+	f32 slider[NUM_SLIDERS];  // the 007 options, GoldenEye's own values
+	s32 sliderheld;           // the slider the pick is dragging, -1 for none
+
 	struct {
 		s32 num;
 		struct textureconfig config;
@@ -348,6 +459,109 @@ static const char *frontString(s32 index)
 	return at && at < g_Front.titlelen ? (const char *)g_Front.title + at : "";
 }
 
+/**
+ * A string of the mission's own text bank, which every id in its briefing file
+ * indexes: a GoldenEye text id is its bank * 0x400 plus the slot.
+ */
+static const char *frontLangString(s32 id)
+{
+	const u32 index = (u32)id & 0x3ff;
+	u32 at;
+
+	if (!g_Front.lang || (index + 1) * 4 > g_Front.langlen) {
+		return "";
+	}
+
+	at = be32(g_Front.lang + index * 4);
+
+	return at && at < g_Front.langlen ? (const char *)g_Front.lang + at : "";
+}
+
+/** pull_and_display_text_for_folder_a0(): the folder's row for a mission. */
+static s32 frontMissionRow(s32 mission)
+{
+	for (s32 i = 0; i < (s32)NUM_MISSION_ROWS; i++) {
+		if (g_Missions[i].mission == mission) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/** get_chapter_briefing_entry(): the chapter heading a row falls under. */
+static s32 frontMissionChapter(s32 row)
+{
+	for (s32 i = row; i >= 0; i--) {
+		if (g_Missions[i].mission < 0) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/** A mission's name as the grid shows it: the shorter one where it has one, in capitals. */
+static const char *frontMissionName(s32 mission, char *buf, size_t len)
+{
+	const s32 row = frontMissionRow(mission);
+	const char *name;
+	size_t n;
+
+	if (row < 0) {
+		return "";
+	}
+
+	name = frontString(g_Missions[row].icon ? g_Missions[row].icon : g_Missions[row].name);
+	snprintf(buf, len, "%s\n", name);
+
+	for (n = 0; buf[n]; n++) {
+		if (buf[n] >= 'a' && buf[n] <= 'z') {
+			buf[n] -= 0x20;
+		}
+	}
+
+	return buf;
+}
+
+/**
+ * The remake's missions are GoldenEye X's own, in GoldenEye's order: the port
+ * plays them when GoldenEye X is the mod the game is loaded with, its mission
+ * list imported over the port's (moddata.c's importSoloStages()). Without it
+ * the mode select's SELECT MISSION stays grey, as it was before there were any.
+ */
+static s32 frontMissionsAvailable(void)
+{
+	return modBorrowIsGoldenEyeLoaded() && NUM_MISSIONS <= NUM_SOLOSTAGES;
+}
+
+/** Whether GoldenEye's 007 mode is open, by the rule Perfect Dark opens its own PD Mode by. */
+static s32 front007Unlocked(void)
+{
+	return g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0 || (g_ModUnlocks & MODUNLOCK_COMPLETION);
+}
+
+/**
+ * get_highest_unlocked_difficulty_for_level(): the highest difficulty a mission
+ * can be played at, or -1 when it cannot be played at all. GoldenEye's first
+ * three are Perfect Dark's three, and its 007 is Perfect Dark's PD Mode - the
+ * same sliders over the hardest difficulty.
+ */
+static s32 frontHighestDifficulty(s32 mission)
+{
+	if (!frontMissionsAvailable() || mission < 0 || mission >= NUM_MISSIONS) {
+		return -1;
+	}
+
+	for (s32 d = DIFF_PA; d >= 0; d--) {
+		if (isStageDifficultyUnlocked(mission, d)) {
+			return d == DIFF_PA && front007Unlocked() ? DIFFICULTY_007 : d;
+		}
+	}
+
+	return -1;
+}
+
 /** The first of the remake's arenas, or -1 when the conversion has not run. */
 static s32 frontFirstArena(void)
 {
@@ -424,9 +638,66 @@ static s32 frontLoadModel(void)
 	return 1;
 }
 
+/**
+ * load_briefing_text_for_stage(): a mission's briefing file, and the text bank
+ * it indexes. Both are held only while the briefing is open, as GoldenEye holds
+ * them only while its briefing screen is.
+ */
+static void frontFreeBriefing(void)
+{
+	sysMemFree(g_Front.brief);
+	sysMemFree(g_Front.lang);
+	g_Front.brief = NULL;
+	g_Front.lang = NULL;
+	g_Front.langlen = 0;
+}
+
+static s32 frontLoadBriefing(s32 mission)
+{
+	const s32 row = frontMissionRow(mission);
+	u32 brieflen = 0;
+
+	frontFreeBriefing();
+
+	if (row < 0 || !g_Missions[row].brief) {
+		return 0;
+	}
+
+	g_Front.brief = frontLoad(g_Missions[row].brief, &brieflen);
+	g_Front.lang = frontLoad(g_Missions[row].lang, &g_Front.langlen);
+
+	if (!g_Front.brief || brieflen < BRIEF_SIZE || !g_Front.lang) {
+		frontFreeBriefing();
+		return 0;
+	}
+
+	return 1;
+}
+
+/** The briefing's four paragraphs, and its objectives' text and difficulty. */
+static s32 frontBriefParagraph(s32 page)
+{
+	return g_Front.brief ? (s32)((g_Front.brief[page * 2] << 8) | g_Front.brief[page * 2 + 1]) : 0;
+}
+
+static s32 frontBriefObjective(s32 i, s32 *difficulty)
+{
+	const u8 *p;
+
+	if (!g_Front.brief) {
+		return 0;
+	}
+
+	p = g_Front.brief + BRIEF_PARAGRAPHS * 2 + i * 4;
+	*difficulty = (s32)((p[2] << 8) | p[3]);
+
+	return (s32)((p[0] << 8) | p[1]);
+}
+
 static void frontUnload(void)
 {
 	frontUnloadModel();
+	frontFreeBriefing();
 	sysMemFree(g_Front.zurich.data);
 	sysMemFree(g_Front.gothic.data);
 	sysMemFree(g_Front.title);
@@ -1080,6 +1351,38 @@ static void frontStartMatch(void)
 	func0f0f820c(NULL, -5);
 }
 
+/**
+ * init_menu0B_runstage(): the mission the folder settled on, at the difficulty
+ * it settled on. GoldenEye's first three difficulties are Perfect Dark's three;
+ * its 007 is Perfect Dark's PD Mode, the sliders over the hardest difficulty,
+ * and the fields are the same multipliers (pdmode.c) - except the reaction
+ * speed, which GoldenEye alone acts on, so its slider only shows here.
+ */
+static void frontStartMission(void)
+{
+	union handlerdata data;
+
+	g_MissionConfig.stageindex = g_Front.mission;
+	g_MissionConfig.stagenum = g_SoloStages[g_Front.mission].stagenum;
+	g_MissionConfig.iscoop = false;
+	g_MissionConfig.isanti = false;
+	g_MissionConfig.pdmode = g_Front.difficulty == DIFFICULTY_007;
+	g_MissionConfig.difficulty = g_MissionConfig.pdmode ? DIFF_PA : g_Front.difficulty;
+
+	if (g_MissionConfig.pdmode) {
+		g_MissionConfig.pdmodehealthf = g_Front.slider[SLIDER_HEALTH];
+		g_MissionConfig.pdmodedamagef = g_Front.slider[SLIDER_DAMAGE];
+		g_MissionConfig.pdmodeaccuracyf = g_Front.slider[SLIDER_ACCURACY];
+		g_MissionConfig.pdmodereactionf = g_Front.slider[SLIDER_REACTION];
+	}
+
+	g_Front.active = 0;
+	frontUnload();
+
+	// as the Perfect Menu's own Accept Mission does it, from the same tick
+	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
+}
+
 static void frontClose(void)
 {
 	g_Front.active = 0;
@@ -1397,6 +1700,236 @@ static void frontTickCharacters(void)
 	}
 }
 
+static void frontSetCursorForMode(s32 mode);
+
+/** set_cursor_to_stage_solo() and set_cursor_pos_difficulty(). */
+static void frontSetCursorForMission(s32 mission)
+{
+	g_Front.cursorx = g_MissionX[mission % MISSION_COLS];
+	g_Front.cursory = g_MissionY[mission / MISSION_COLS];
+}
+
+static void frontSetCursorForDifficulty(s32 difficulty)
+{
+	g_Front.cursorx = 106.0f;
+	g_Front.cursory = difficulty * 0x1e + 0xba;
+}
+
+/**
+ * interface_menu07_missionsel(): the cell the cursor is nearest, walked back to
+ * a mission that can be played - up the rows first, then left along the row,
+ * and right along it when nothing is to the left.
+ */
+static void frontTickMission(s32 pick, s32 back)
+{
+	if (!g_Front.tabprev) {
+		s32 col = 0;
+		s32 row = 0;
+
+		while (col < MISSION_COLS - 1 && (g_MissionX[col] + g_MissionX[col + 1]) * 0.5f <= g_Front.cursorx) {
+			col++;
+		}
+
+		while (row < MISSION_ROWS - 1 && (g_MissionY[row] + g_MissionY[row + 1]) * 0.5f <= g_Front.cursory) {
+			row++;
+		}
+
+		for (; row > 0; row--) {
+			s32 i;
+
+			for (i = 0; i < MISSION_COLS; i++) {
+				if (frontHighestDifficulty(row * MISSION_COLS + i) >= 0) {
+					break;
+				}
+			}
+
+			if (i < MISSION_COLS) {
+				break;
+			}
+		}
+
+		for (; col >= 0; col--) {
+			if (frontHighestDifficulty(row * MISSION_COLS + col) >= 0) {
+				break;
+			}
+		}
+
+		if (col < 0) {
+			for (col = 0; col < MISSION_COLS; col++) {
+				if (frontHighestDifficulty(row * MISSION_COLS + col) >= 0) {
+					break;
+				}
+			}
+		}
+
+		g_Front.highlight = col < MISSION_COLS ? row * MISSION_COLS + col : -1;
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		g_Front.screen = SCREEN_MODE;
+		frontSetCursorForMode(0);
+		return;
+	}
+
+	if (pick && g_Front.highlight >= 0) {
+		menuPlaySound(MENUSOUND_SELECT);
+		g_Front.mission = g_Front.highlight;
+		g_Front.screen = SCREEN_DIFFICULTY;
+		frontSetCursorForDifficulty(frontHighestDifficulty(g_Front.mission));
+	}
+}
+
+/** interface_menu08_difficulty(): the rows the cursor falls in, up to the highest unlocked. */
+static void frontTickDifficulty(s32 pick, s32 back)
+{
+	// 007, 00 Agent and Secret Agent's own thresholds, Agent below them all
+	static const s32 tops[] = { 275, 243, 211 };
+	const s32 highest = frontHighestDifficulty(g_Front.mission);
+
+	if (!g_Front.tabprev) {
+		g_Front.highlight = 0;
+
+		for (s32 i = 0; i < 3; i++) {
+			const s32 d = DIFFICULTY_007 - i;
+
+			if (highest >= d && g_Front.cursory >= tops[i]) {
+				g_Front.highlight = d;
+				break;
+			}
+		}
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		g_Front.screen = SCREEN_MISSION;
+		frontSetCursorForMission(g_Front.mission);
+		return;
+	}
+
+	if (pick && g_Front.highlight >= 0) {
+		menuPlaySound(MENUSOUND_SWIPE);
+		g_Front.difficulty = g_Front.highlight;
+
+		if (g_Front.difficulty == DIFFICULTY_007) {
+			g_Front.screen = SCREEN_007OPTIONS;
+		} else {
+			g_Front.screen = SCREEN_BRIEFING;
+			g_Front.briefpage = BRIEF_TITLE;
+			frontLoadBriefing(g_Front.mission);
+		}
+
+		g_Front.cursorx = TABS_LEFT_EDGE + 10;
+		g_Front.cursory = (NEXTTAB_TAB_TOP + PREVTAB_TAB_TOP) * 0.5f;
+	}
+}
+
+/**
+ * interface_menu09_007options(): the four sliders, each dragged while the pick
+ * is held - 300 wide from x 55, the enemy's health, damage and accuracy the
+ * square of the position times ten and the reaction speed the position itself.
+ */
+static void frontTick007(s32 pick, s32 back, s32 held)
+{
+	if (!held) {
+		g_Front.sliderheld = -1;
+
+		if (!g_Front.tabprev && !g_Front.tabnext && !g_Front.tabstart) {
+			const s32 y = (s32)g_Front.cursory;
+
+			g_Front.highlight = y >= 0x107 ? SLIDER_REACTION : y >= 0xe6 ? SLIDER_ACCURACY
+				: y >= 0xc5 ? SLIDER_DAMAGE : y >= 0xa4 ? SLIDER_HEALTH : -1;
+
+			// above them all the NEXT tab is what a pick takes, as GoldenEye takes it
+			if (g_Front.highlight < 0) {
+				g_Front.tabnext = 1;
+			}
+		}
+	}
+
+	if (pick && g_Front.highlight >= 0 && !g_Front.tabprev && !g_Front.tabnext && !g_Front.tabstart) {
+		g_Front.sliderheld = g_Front.highlight;
+	}
+
+	if (held && g_Front.sliderheld >= 0) {
+		f32 x = (g_Front.cursorx - 55.0f) / 300.0f;
+
+		x = x > 1.0f ? 1.0f : x < 0.0f ? 0.0f : x;
+		g_Front.highlight = g_Front.sliderheld;
+		g_Front.slider[g_Front.sliderheld] = g_Front.sliderheld == SLIDER_REACTION ? x : x * x * 10.0f;
+		return;
+	}
+
+	if (joyGetButtonsPressedThisFrame(0, START_BUTTON) || (pick && g_Front.tabstart)) {
+		menuPlaySound(MENUSOUND_SELECT);
+		frontStartMission();
+		return;
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		g_Front.screen = SCREEN_DIFFICULTY;
+		frontSetCursorForDifficulty(g_Front.difficulty);
+		return;
+	}
+
+	if (pick && g_Front.tabnext) {
+		menuPlaySound(MENUSOUND_SWIPE);
+		g_Front.screen = SCREEN_BRIEFING;
+		g_Front.briefpage = BRIEF_TITLE;
+		frontLoadBriefing(g_Front.mission);
+	}
+}
+
+/**
+ * interface_menu0A_briefing(): the NEXT tab turns the page, the PREVIOUS tab
+ * turns it back and leaves on the first, and START runs the mission from any
+ * page. With the cursor on none of them the nearer of NEXT and START is taken,
+ * as GoldenEye takes it.
+ */
+static void frontTickBriefing(s32 pick, s32 back)
+{
+	const s32 more = g_Front.briefpage < NUM_BRIEF_PAGES - 1;
+
+	// with the cursor on no tab, NEXT is what a pick takes while there are pages
+	// left and START once there are not
+	if (!g_Front.tabprev && !g_Front.tabnext && !g_Front.tabstart) {
+		if (more) {
+			g_Front.tabnext = 1;
+		} else {
+			g_Front.tabstart = 1;
+		}
+	}
+
+	if (joyGetButtonsPressedThisFrame(0, START_BUTTON) || (pick && g_Front.tabstart)) {
+		menuPlaySound(MENUSOUND_SELECT);
+		frontStartMission();
+		return;
+	}
+
+	if (pick && g_Front.tabnext && more) {
+		menuPlaySound(MENUSOUND_SWIPE);
+		g_Front.briefpage++;
+		return;
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		menuPlaySound(MENUSOUND_TOGGLEOFF);
+
+		if (g_Front.briefpage > BRIEF_TITLE) {
+			g_Front.briefpage--;
+			return;
+		}
+
+		frontFreeBriefing();
+		g_Front.screen = g_Front.difficulty == DIFFICULTY_007 ? SCREEN_007OPTIONS : SCREEN_DIFFICULTY;
+
+		if (g_Front.screen == SCREEN_DIFFICULTY) {
+			frontSetCursorForDifficulty(g_Front.difficulty);
+		}
+	}
+}
+
 static void frontSetCursorForMode(s32 mode)
 {
 	// setCursorPOSforMode()
@@ -1426,11 +1959,27 @@ void gexFrontTick(void)
 	back = joyGetButtonsPressedThisFrame(0, B_BUTTON | BUTTON_UI_CANCEL) != 0 || inputKeyJustPressed(VK_ESCAPE);
 
 	g_Front.tabprev = frontOnPrevTab();
-	g_Front.tabstart = g_Front.screen == SCREEN_MPOPTIONS && !g_Front.tabprev && frontOnStartTab();
-	g_Front.tabnext = g_Front.screen == SCREEN_LEVEL && g_Front.numlevels > LEVELS_PER_PAGE && frontOnNextTab();
+	g_Front.tabstart = (g_Front.screen == SCREEN_MPOPTIONS || g_Front.screen == SCREEN_007OPTIONS
+			|| g_Front.screen == SCREEN_BRIEFING) && !g_Front.tabprev && frontOnStartTab();
+	g_Front.tabnext = ((g_Front.screen == SCREEN_LEVEL && g_Front.numlevels > LEVELS_PER_PAGE)
+			|| g_Front.screen == SCREEN_007OPTIONS
+			|| (g_Front.screen == SCREEN_BRIEFING && g_Front.briefpage < NUM_BRIEF_PAGES - 1))
+		&& !g_Front.tabprev && frontOnNextTab();
 	g_Front.highlight = -1;
 
 	switch (g_Front.screen) {
+	case SCREEN_MISSION:
+		frontTickMission(pick, back);
+		return;
+	case SCREEN_DIFFICULTY:
+		frontTickDifficulty(pick, back);
+		return;
+	case SCREEN_007OPTIONS:
+		frontTick007(pick, back, joyGetButtons(0, A_BUTTON | Z_TRIG | BUTTON_UI_ACCEPT) || inputKeyPressed(VK_MOUSE_LEFT));
+		return;
+	case SCREEN_BRIEFING:
+		frontTickBriefing(pick, back);
+		return;
 	case SCREEN_LEVEL:
 		frontTickLevel(pick, back);
 		return;
@@ -1447,7 +1996,8 @@ void gexFrontTick(void)
 	}
 
 	if (g_Front.screen == SCREEN_MODE) {
-		// interface_menu06_modesel(): below 243 is SELECT MISSION, which has no missions to open
+		// interface_menu06_modesel(): below 243 is SELECT MISSION, which opens
+		// the mission folder when the remake has missions to put on it
 		if (!g_Front.tabprev) {
 			g_Front.highlight = g_Front.cursory >= 243.0f ? 1 : 0;
 		}
@@ -1462,6 +2012,10 @@ void gexFrontTick(void)
 			menuPlaySound(MENUSOUND_SELECT);
 			frontEnterSetup();
 			g_Front.screen = SCREEN_MPOPTIONS;
+		} else if (pick && g_Front.highlight == 0 && frontMissionsAvailable()) {
+			menuPlaySound(MENUSOUND_SELECT);
+			g_Front.screen = SCREEN_MISSION;
+			frontSetCursorForMission(g_Front.mission);
 		} else if (pick) {
 			menuPlaySound(MENUSOUND_ERROR);
 		}
@@ -1537,6 +2091,19 @@ s32 gexFrontOpen(void)
 
 	g_Front.inputdelay = 2;
 	g_Front.highlight = -1;
+	g_Front.sliderheld = -1;
+	g_Front.briefpage = BRIEF_TITLE;
+
+	// initgamedata(): the 007 options start where GoldenEye starts them
+	g_Front.slider[SLIDER_HEALTH] = 1.0f;
+	g_Front.slider[SLIDER_DAMAGE] = 1.0f;
+	g_Front.slider[SLIDER_ACCURACY] = 1.0f;
+	g_Front.slider[SLIDER_REACTION] = 0.0f;
+
+	if (g_Front.mission < 0 || g_Front.mission >= NUM_MISSIONS) {
+		g_Front.mission = 0;
+	}
+
 	frontSetCursorForMode(1);
 
 	return 1;
@@ -1899,6 +2466,29 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 		frontSetSwitch(SW_BLANK, true);
 		frontSetSwitch(SW_OHMSS, true);
 		break;
+	case SCREEN_MISSION:
+		// the slides the missions are named on, and their grid
+		frontSetSwitch(SW_SLIDES, true);
+		frontSetSwitch(SW_PICS, true);
+		break;
+	case SCREEN_DIFFICULTY:
+		frontSetSwitch(SW_PAPER, true);
+		frontSetSwitch(SW_OHMSS, true);
+		frontSetSwitch(SW_CONFIDENTIAL, true);
+		break;
+	case SCREEN_007OPTIONS:
+		frontSetSwitch(SW_PAPER, true);
+		frontSetSwitch(SW_OHMSS, true);
+		frontSetSwitch(SW_CLASSIFIED, true);
+		break;
+	case SCREEN_BRIEFING:
+		frontSetSwitch(SW_PAPER, true);
+		frontSetSwitch(SW_OHMSS, true);
+		frontSetSwitch(SW_CLASSIFIED, true);
+		// the mission's own photo, clipped to the folder, on the first page
+		frontSetSwitch(SW_PHOTOBRIEF, g_Front.briefpage == BRIEF_TITLE);
+		frontSetSwitch(SW_BRIEFFIRST + g_Front.mission, g_Front.briefpage == BRIEF_TITLE);
+		break;
 	default:
 		frontSetSwitch(SW_BLANK, true);
 		break;
@@ -1959,16 +2549,18 @@ static Gfx *frontDrawMode(Gfx *gdl)
 	s32 w;
 	s32 h;
 
+	const u32 missions = frontMissionsAvailable() ? COLOUR_ON : COLOUR_OFF;
+
 	text = frontString(TITLE_SELECTMISSION);
 	frontMeasure(&g_Front.zurich, text, 0, &w, &h);
-	gdl = frontPrint(gdl, 0x96, 0xdc, "1.\n", COLOUR_OFF);
+	gdl = frontPrint(gdl, 0x96, 0xdc, "1.\n", missions);
 
 	if (g_Front.highlight == 0) {
 		gdl = frontFillRect(gdl, 0x94, 0xda, w + 0xaf, 0xea, COLOUR_HIGHLIGHT);
 		gdl = frontTextSetup(gdl);
 	}
 
-	gdl = frontPrint(gdl, 0xaa, 0xdc, text, COLOUR_OFF);
+	gdl = frontPrint(gdl, 0xaa, 0xdc, text, missions);
 
 	text = frontString(TITLE_MULTIPLAYER);
 	frontMeasure(&g_Front.zurich, text, 0, &w, &h);
@@ -2333,6 +2925,285 @@ static Gfx *frontDrawCharacters(Gfx *gdl)
 	return gdl;
 }
 
+/* ---- the solo screens --------------------------------------------------- */
+
+/** Appends a string with its line breaks left out, the labels being one line. */
+static void frontAppend(char *buf, size_t len, const char *text)
+{
+	size_t n = strlen(buf);
+
+	for (; *text && n + 1 < len; text++) {
+		if (*text != '\n') {
+			buf[n++] = *text;
+		}
+	}
+
+	buf[n] = '\0';
+}
+
+/** textWrap(): the text broken into lines no wider than width. */
+static void frontWrap(const struct gefont *font, const char *text, char *out, size_t len, s32 width)
+{
+	size_t n = 0;
+	size_t line = 0;
+
+	while (*text && n + 2 < len) {
+		size_t wordat;
+		s32 w;
+		s32 h;
+
+		while (*text == ' ') {
+			text++;
+		}
+
+		if (!*text) {
+			break;
+		}
+
+		wordat = n;
+
+		if (n > line) {
+			out[n++] = ' ';
+		}
+
+		while (*text && *text != ' ' && *text != '\n' && n + 2 < len) {
+			out[n++] = *text++;
+		}
+
+		if (*text == '\n') {
+			text++;
+			out[n++] = '\n';
+			line = n;
+			continue;
+		}
+
+		out[n] = '\0';
+		frontMeasure(font, out + line, 0, &w, &h);
+
+		// the word did not fit: the space before it becomes the break
+		if (w > width && wordat > line) {
+			out[wordat] = '\n';
+			line = wordat + 1;
+		}
+	}
+
+	out[n] = '\0';
+}
+
+static s32 frontCountLines(const char *text)
+{
+	s32 lines = 1;
+
+	for (; *text; text++) {
+		if (*text == '\n' && text[1]) {
+			lines++;
+		}
+	}
+
+	return lines;
+}
+
+/**
+ * print_current_solo_briefing_stage_name(): the difficulty, the chapter the
+ * mission belongs to and the mission itself, above every solo screen after the
+ * mission select.
+ */
+static Gfx *frontMissionHeader(Gfx *gdl, s32 withdifficulty)
+{
+	const s32 row = frontMissionRow(g_Front.mission);
+	const s32 chapter = frontMissionChapter(row);
+	char buf[128];
+
+	if (row < 0) {
+		return gdl;
+	}
+
+	if (withdifficulty) {
+		buf[0] = '\0';
+		frontAppend(buf, sizeof(buf), frontString(TITLE_DIFF_FIRST + g_Front.difficulty));
+		frontAppend(buf, sizeof(buf), frontString(TITLE_JB));
+		gdl = frontPrint(gdl, 0x37, 0x57, buf, COLOUR_ON);
+	}
+
+	if (chapter >= 0) {
+		buf[0] = '\0';
+		frontAppend(buf, sizeof(buf), frontString(TITLE_MISSION2));
+		frontAppend(buf, sizeof(buf), g_Missions[chapter].numeral);
+		frontAppend(buf, sizeof(buf), ": ");
+		frontAppend(buf, sizeof(buf), frontString(g_Missions[chapter].name));
+		gdl = frontPrint(gdl, 0x37, 0x67, buf, COLOUR_ON);
+	}
+
+	buf[0] = '\0';
+	frontAppend(buf, sizeof(buf), frontString(TITLE_PART));
+	frontAppend(buf, sizeof(buf), g_Missions[row].numeral);
+	frontAppend(buf, sizeof(buf), ": ");
+	frontAppend(buf, sizeof(buf), frontString(g_Missions[row].name));
+
+	return frontPrint(gdl, 0x37, 0x77, buf, COLOUR_ON);
+}
+
+/**
+ * constructor_menu07_missionsel(): a mission's name on its slide, in Bank
+ * Gothic capitals, white under the cursor and grey elsewhere - each drawn twice,
+ * once solid and once at 100 of 255, as GoldenEye draws them.
+ */
+static Gfx *frontDrawMission(Gfx *gdl)
+{
+	for (s32 col = 0; col < MISSION_COLS; col++) {
+		for (s32 row = 0; row < MISSION_ROWS; row++) {
+			const s32 mission = row * MISSION_COLS + col;
+			char name[64];
+			u32 colour;
+			s32 x;
+			s32 y;
+			s32 w;
+			s32 h;
+
+			if (frontHighestDifficulty(mission) < 0) {
+				continue;
+			}
+
+			frontMissionName(mission, name, sizeof(name));
+			frontMeasure(&g_Front.gothic, name, 0, &w, &h);
+
+			colour = mission == g_Front.highlight ? 0xffffff00 : 0x96969600;
+			x = g_MissionX[col] - 0x1f;
+			y = g_MissionY[row] - h + 0x1d;
+
+			{
+				s32 tx = x;
+				s32 ty = y;
+
+				gdl = frontText(gdl, &g_Front.gothic, &tx, &ty, name, colour | 0xff, 0, false);
+			}
+
+			{
+				s32 tx = x;
+				s32 ty = y;
+
+				gdl = frontText(gdl, &g_Front.gothic, &tx, &ty, name, colour | 0x64, 0, false);
+			}
+		}
+	}
+
+	return gdl;
+}
+
+/** constructor_menu08_difficulty(): the difficulties open to this mission, numbered. */
+static Gfx *frontDrawDifficulty(Gfx *gdl)
+{
+	const s32 highest = frontHighestDifficulty(g_Front.mission);
+
+	gdl = frontMissionHeader(gdl, false);
+	gdl = frontPrint(gdl, 0x37, 0x8f, frontString(TITLE_DIFFICULTY), COLOUR_ON);
+
+	if (g_Front.highlight >= 0) {
+		gdl = frontFillRect(gdl, 0x7e, g_Front.highlight * 0x1e + 0xb2, 0xf0, g_Front.highlight * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
+		gdl = frontTextSetup(gdl);
+	}
+
+	for (s32 i = 0; i < NUM_DIFFICULTIES; i++) {
+		char num[8];
+
+		if (i > 0 && highest < i) {
+			continue;
+		}
+
+		snprintf(num, sizeof(num), "%d.\n", i + 1);
+		gdl = frontPrint(gdl, 0x82, i * 0x1e + 0xb4, num, COLOUR_ON);
+		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, frontString(TITLE_DIFF2_FIRST + i), COLOUR_ON);
+	}
+
+	return gdl;
+}
+
+/**
+ * constructor_menu09_007options(): four bars 300 wide and 33 apart, each with
+ * the multiplier it stands for beside it. GoldenEye shows the enemy's accuracy
+ * as a tenth of its own value, and its reaction speed is the one Perfect Dark
+ * does not act on.
+ */
+static Gfx *frontDraw007(Gfx *gdl)
+{
+	static const s32 tops[NUM_SLIDERS] = { 164, 197, 230, 263 };
+	static const s32 labels[NUM_SLIDERS] = { TITLE_ENEMYHEALTH, TITLE_ENEMYDAMAGE, TITLE_ENEMYACCURACY, TITLE_REACTION };
+
+	gdl = frontMissionHeader(gdl, true);
+	gdl = frontPrint(gdl, 55, 143, frontString(TITLE_SPECOPS), COLOUR_ON);
+
+	for (s32 i = 0; i < NUM_SLIDERS; i++) {
+		const f32 value = g_Front.slider[i];
+		const s32 y = tops[i];
+		const s32 filled = i == SLIDER_REACTION ? (s32)(value * 300.0f) : (s32)(sqrtf(value / 10.0f) * 300.0f);
+		const s32 percent = i == SLIDER_ACCURACY ? (s32)(value * 10.0f) : (s32)(value * 100.0f);
+		char text[16];
+		s32 w;
+		s32 h;
+		s32 x;
+
+		gdl = frontFillRect(gdl, 55, y + 17, 355, y + 28, COLOUR_HIGHLIGHT);
+		gdl = frontFillRect(gdl, 55, y + 17, filled + 55, y + 28, COLOUR_BAR);
+
+		if (g_Front.highlight == i) {
+			gdl = frontFillRect(gdl, 55, y - 1, 199, y + 14, COLOUR_HIGHLIGHT);
+		}
+
+		gdl = frontTextSetup(gdl);
+		gdl = frontPrint(gdl, 57, y, frontString(labels[i]), COLOUR_ON);
+
+		snprintf(text, sizeof(text), "%d%%\n", percent);
+		frontMeasure(&g_Front.zurich, text, 0, &w, &h);
+		x = 285 - w;
+		gdl = frontPrint(gdl, x, y, text, COLOUR_ON);
+	}
+
+	return gdl;
+}
+
+/**
+ * constructor_menu0A_briefing(): the objectives this difficulty is given on the
+ * first page, lettered, and one of the briefing's four paragraphs on each of
+ * the rest. Both the objectives and the paragraphs are the mission's own text.
+ */
+static Gfx *frontDrawBriefing(Gfx *gdl)
+{
+	static char wrapped[2048];
+
+	gdl = frontMissionHeader(gdl, true);
+	gdl = frontPrint(gdl, 0x37, 0x8f, frontString(TITLE_BRIEF_FIRST + g_Front.briefpage), COLOUR_ON);
+
+	if (g_Front.briefpage == BRIEF_TITLE) {
+		s32 lines = 0;
+		s32 shown = 0;
+
+		for (s32 i = 0; i < BRIEF_OBJECTIVES; i++) {
+			s32 difficulty = 0;
+			const s32 textid = frontBriefObjective(i, &difficulty);
+			char label[8];
+
+			if (!textid || g_Front.difficulty < difficulty) {
+				continue;
+			}
+
+			snprintf(label, sizeof(label), "%c.\n", 'a' + shown);
+			gdl = frontPrint(gdl, 0x37, 0xa7 + lines * frontLineHeight(&g_Front.zurich), label, COLOUR_ON);
+
+			frontWrap(&g_Front.zurich, frontLangString(textid), wrapped, sizeof(wrapped), 0x140);
+			gdl = frontPrint(gdl, 0x4b, 0xa7 + lines * frontLineHeight(&g_Front.zurich), wrapped, COLOUR_ON);
+
+			lines += frontCountLines(wrapped);
+			shown++;
+		}
+
+		return gdl;
+	}
+
+	frontWrap(&g_Front.zurich, frontLangString(frontBriefParagraph(g_Front.briefpage - 1)), wrapped, sizeof(wrapped), 0x140);
+
+	return frontPrint(gdl, 0x37, 0xa7, wrapped, COLOUR_ON);
+}
+
 Gfx *gexFrontRender(Gfx *gdl)
 {
 	if (!g_Front.active) {
@@ -2370,6 +3241,29 @@ Gfx *gexFrontRender(Gfx *gdl)
 		break;
 	case SCREEN_CHARACTERS:
 		gdl = frontDrawCharacters(gdl);
+		break;
+	case SCREEN_MISSION:
+		gdl = frontDrawMission(gdl);
+		break;
+	case SCREEN_DIFFICULTY:
+		gdl = frontDrawDifficulty(gdl);
+		break;
+	case SCREEN_007OPTIONS:
+		gdl = frontDraw007(gdl);
+		gdl = frontTab(gdl, TITLE_START, STARTTAB_TEXT_TOP, STARTTAB_TEXT_BOTTOM, g_Front.tabstart);
+		gdl = frontTextSetup(gdl);
+		gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+		gdl = frontTextSetup(gdl);
+		break;
+	case SCREEN_BRIEFING:
+		gdl = frontDrawBriefing(gdl);
+		gdl = frontTab(gdl, TITLE_START, STARTTAB_TEXT_TOP, STARTTAB_TEXT_BOTTOM, g_Front.tabstart);
+		gdl = frontTextSetup(gdl);
+
+		if (g_Front.briefpage < NUM_BRIEF_PAGES - 1) {
+			gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+			gdl = frontTextSetup(gdl);
+		}
 		break;
 	default:
 		gdl = frontDrawPlayerPanels(gdl);

@@ -82,6 +82,25 @@ static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
 	{ "sequences", 0x419790, 0x1eed0 },
 };
 
+/**
+ * The missions' text, in GoldenEye's mission order: each mission's briefing file
+ * (front.h's struct BriefStruct - four paragraph text ids then ten objectives of
+ * {text id, the difficulty it starts at}) and the level's own text bank, which
+ * every id in that file indexes (a text id is bank * 0x400 + slot).
+ */
+static const struct { const char *brief, *lang; } g_MenuText[] = {
+	{ "UbriefdamZ", "LdamE" },        { "UbriefarkZ", "LarkE" },
+	{ "UbriefrunZ", "LrunE" },        { "UbriefsevxZ", "LsevxE" },
+	{ "UbriefsevbunkerZ", "LsevE" },  { "UbriefsiloZ", "LsiloE" },
+	{ "UbriefdestZ", "LdestE" },      { "UbriefsevxbZ", "LsevxbE" },
+	{ "UbriefsevbZ", "LsevbE" },      { "UbriefstatueZ", "LstatE" },
+	{ "UbriefarchZ", "LarchE" },      { "UbriefpeteZ", "LpeteE" },
+	{ "UbriefdepoZ", "LdepoE" },      { "UbrieftraZ", "LtraE" },
+	{ "UbriefjunZ", "LjunE" },        { "UbriefcontrolZ", "LarecE" },
+	{ "UbriefcaveZ", "LcaveE" },      { "UbriefcradZ", "LcradE" },
+	{ "UbriefaztZ", "LaztE" },        { "UbriefcrypZ", "LcrypE" },
+};
+
 #define MAX_TEXTURE_SIZE 4096
 #define WALL_BELOW 50.0
 #define WALL_ABOVE 400.0
@@ -3299,6 +3318,19 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		title = romFile("LtitleE");
 		writeFile(outdir, "menu/LtitleE", title.v, title.n);
+
+		// and the solo missions' briefings, with the text bank each one indexes
+		for (size_t i = 0; i < sizeof(g_MenuText) / sizeof(g_MenuText[0]); ++i) {
+			const char *names[2] = { g_MenuText[i].brief, g_MenuText[i].lang };
+
+			for (int j = 0; j < 2; ++j) {
+				char rel[64];
+				buf f = romFile(names[j]);
+
+				snprintf(rel, sizeof(rel), "menu/%s", names[j]);
+				writeFile(outdir, rel, f.v, f.n);
+			}
+		}
 
 		for (size_t i = keep; i < g_NumAllocs; ++i) {
 			free(g_Allocs[i]);

@@ -70,6 +70,20 @@ MENU_RAW = (('fontbankgothic.bin', 0x2e63f0, 0x24b0), ('fontzurichbold.bin', 0x2
               # u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences after it
               ('instrumentsctl', 0x3b4450, 0x43a0), ('instrumentstbl', 0x3b87f0, 0x60fa0),
               ('sequences', 0x419790, 0x1eed0))
+# The missions' text, in GoldenEye's mission order: each mission's briefing file
+# (front.h's struct BriefStruct - four paragraph text ids then ten objectives of
+# {text id, the difficulty it starts at}) and the level's own text bank, which
+# every id in that file indexes (a text id is bank * 0x400 + slot).
+MENU_TEXT = (('UbriefdamZ', 'LdamE'), ('UbriefarkZ', 'LarkE'),
+             ('UbriefrunZ', 'LrunE'), ('UbriefsevxZ', 'LsevxE'),
+             ('UbriefsevbunkerZ', 'LsevE'), ('UbriefsiloZ', 'LsiloE'),
+             ('UbriefdestZ', 'LdestE'), ('UbriefsevxbZ', 'LsevxbE'),
+             ('UbriefsevbZ', 'LsevbE'), ('UbriefstatueZ', 'LstatE'),
+             ('UbriefarchZ', 'LarchE'), ('UbriefpeteZ', 'LpeteE'),
+             ('UbriefdepoZ', 'LdepoE'), ('UbrieftraZ', 'LtraE'),
+             ('UbriefjunZ', 'LjunE'), ('UbriefcontrolZ', 'LarecE'),
+             ('UbriefcaveZ', 'LcaveE'), ('UbriefcradZ', 'LcradE'),
+             ('UbriefaztZ', 'LaztE'), ('UbriefcrypZ', 'LcrypE'))
 
 NAMES = {'dam': 'Dam', 'run': 'Runway', 'stat': 'Statue Park', 'tra': 'Train',
          'pete': 'Streets', 'jun': 'Jungle', 'oat': 'Caves',
@@ -816,6 +830,11 @@ def main():
             f.write(rom.rom[at:at + size])
     with open(os.path.join(outdir, 'menu', 'LtitleE'), 'wb') as f:
         f.write(gefiles.rom_file('LtitleE'))
+    # and the solo missions' briefings, with the text bank each one indexes
+    for names in MENU_TEXT:
+        for name in names:
+            with open(os.path.join(outdir, 'menu', name), 'wb') as f:
+                f.write(gefiles.rom_file(name))
     # the remake's prop models: GoldenEye's own, converted (gemodelconv.py)
     modellines = []
     for num in sorted(allmodels):

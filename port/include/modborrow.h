@@ -27,6 +27,11 @@ void modBorrowCommit(void);
 // leaves its maps out, since nobody asked for them.
 s32 modBorrowIsGunsOnlyMount(s32 moddir);
 
+// Whether GoldenEye X is the mod the game is loaded with, rather than one it is
+// only borrowing from: its own missions and stage files are there to be played,
+// which is what GE-X Plus's Select Mission needs (gexfront.c).
+s32 modBorrowIsGoldenEyeLoaded(void);
+
 /**
  * GoldenEye X's own characters, appended to g_HeadsAndBodies from base and to
  * the Combat Simulator's lists from their current counts, up to maxindex (the

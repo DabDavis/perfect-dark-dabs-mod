@@ -1977,3 +1977,112 @@ attach to `pgrep -x pd.x86_64`; a static like `g_Front` needs
 list through `DL_LUT_WALLETBOND`, a two-cycle blend, which the converted model
 does not have); portraits past the panel's edge are left out rather than faded
 by vertex; Solo Missions, Co-Operative and Counter-Operative wait for missions.
+## Solo missions on the folder screens (2026-09-17)
+
+"solo missions on the folder screens", and, asked what SELECT MISSION should
+start, the user chose **GoldenEye X's own missions** over converting GoldenEye's
+solo setups, and **the whole solo chain** - mission select, difficulty, 007
+options and the briefing - over a shorter one.
+
+**What starts.** The remake's missions are GoldenEye X's, and the port already
+runs them: its mission list is imported over the port's
+(`importSoloStages()`), 21 entries in GoldenEye's own order, so the folder's
+mission `n` is `g_SoloStages[n]` - Dam 0x30, Facility 0x33, Runway 0x22 and so
+on. They are only there when **GoldenEye X is the mod the game is loaded
+with** and not one it is borrowing from (`modBorrowIsGoldenEyeLoaded()`, the
+`borrowIsLoaded()` test made public): borrowing brings its characters, guns,
+music and arenas, not its stage files. Without it the mode select's SELECT
+MISSION stays grey, as it was before there were any missions at all.
+
+**The screens** (`port/src/gexfront.c`, four more of `g_Front.screen`):
+
+- **Mission select** (constructor_menu07_missionsel): the folder's slides, with
+  a mission's name in Bank Gothic capitals on each - the shorter `icon` name
+  where a mission has one ("Silo", not "Launch Silo #4"). The grid is missions
+  0-19 across five columns and down four rows; the cursor takes the nearest
+  cell and walks back to one that can be played, up the rows first and then
+  left along the row. The name is white under the cursor and grey elsewhere,
+  each drawn twice (solid, then at 100 of 255) as GoldenEye draws them.
+- **Difficulty** (menu08): Agent, Secret Agent, 00 Agent and 007, numbered,
+  down to the highest the mission is unlocked at. GoldenEye's first three are
+  Perfect Dark's three; **its 007 is Perfect Dark's PD Mode** - the same four
+  multipliers over the hardest difficulty - so the unlock rule is Perfect
+  Dark's own `isStageDifficultyUnlocked()` plus PD Mode's test for 007. GE-X
+  unlocks everything in its modconfig (`difficulties 1`, `completion 1`), so
+  with it loaded all twenty missions and all four difficulties are open.
+- **007 options** (menu09): the four bars, 300 wide from x 55 and 33 apart,
+  dragged while the pick is held. Health, damage and accuracy are the position
+  squared times ten and the reaction speed is the position itself; the
+  percentages are GoldenEye's own, which shows accuracy as a tenth of its
+  value. They go into `g_MissionConfig.pdmode*f`, which are the same
+  multipliers (pdmode.c) - **except the reaction speed**, which Perfect Dark
+  does not act on (`pdmodeGetEnemyReactionSpeed()` returns 0), so that one
+  slider only shows.
+- **Briefing** (menu0A): five pages - the objectives this difficulty is given,
+  lettered, then Background, M Briefing, Q Branch and Moneypenny. NEXT turns
+  the page, PREVIOUS turns it back and leaves on the first, START runs the
+  mission from any page, and with the cursor on no tab the pick takes NEXT
+  while pages are left and START once they are not. The mission's own photo is
+  a part of the folder model on the first page.
+
+**The text is the ROM's, like everything else on these screens.** The converter
+(C and Python both, `GECONVERT_VERSION_STR` 3) copies two more files a mission
+into `menu/`: its briefing file (`UbriefdamZ` and the rest - four paragraph
+text ids then ten objectives of `{text id, the difficulty it starts at}`, 48
+bytes) and the level's own text bank (`LdamE` ...), which every id in that file
+indexes. A GoldenEye text id is `bank * 0x400 + slot`, so the slot is the low
+ten bits and the bank is implied by which file was loaded. Both are held only
+while the briefing is open.
+
+**The folder's parts.** `bondconstants.h`'s switch names are one short after
+`SW_PICS` (20): the part at **21 is the mission select's grid of slides**,
+which GoldenEye recolours per mission rather than toggling, and a mission's
+photo is `22 + mission` - which is what `mission_folder_setup_entries`'s
+`mission_num + 0x16` means. That is the off-by-one the multiplayer screens
+already had to account for (`SW_BLANK` 42, not 41).
+
+**A mod's arena table used to wipe the Stage Loader's.** `mpImportArenas()`
+replaces the whole list with the one the mod's data segment carries and cleared
+everything past it - and `modloaderInit()` registers the mounted mods' maps
+*before* the data segment is read, so with GoldenEye X loaded its 23 arenas
+left none of the conversion's. The folder finds its `menu/` files through the
+mod directory of a remake arena (`frontFirstArena()`), so it did not open at
+all: `gexFrontOpen()` returned 0 and GE-X Plus fell back to Perfect Dark's
+menu, with no warning in the log that survived the kill. `mpImportArenas()`
+now keeps the arenas registered at runtime and puts them back after the
+imported list, with their names moved to the name slots that follow it (the
+names are indexed from `MP_NUM_STOCK_ARENAS`, and `mpRegisterArena()` puts the
+trailing newline back on, so the kept copy has it stripped). That is the Stage
+Loader's own contract - every mod's maps as arenas beside the mod loaded - and
+nothing but a mod with its own `mparenas` table was ever affected.
+
+**Driving it.** GoldenEye X has to be loaded **from the mod list**
+(`Mod.ModDir` in pd.ini), not with `--moddir`: `modMapsMount()` returns early
+when `modDirsFromArgs`, so a mod named on the command line turns the map mods
+off with it - and the arenas are a map mod, so the folder itself does not load
+(`gexFrontOpen()` returns 0) and nothing draws. Booting the game once and
+**attaching** gdb afterwards (`gdb -p $(pgrep -x pd.x86_64) -batch -x ...`) is
+also the only practical way in: a conditional breakpoint on `videoEndFrame`
+stops every frame and GoldenEye X's texture load then takes longer than ten
+minutes. Past the file screen from gdb with
+`call (void)func0f0f820c(&g_CiMenuViaPcMenuDialog, 2)`, which is what accepting
+a save file does (filemgr.c's `FILEOP_LOAD_GAME`), rather than pressing Return.
+
+**Tested** in `build/gexrom`, GoldenEye X loaded from the mod list beside the
+conversion's maps (`g_MpNumArenas` 49: its 23 and the conversion's 26).
+Screenshotted on the RX 580, each screen against GoldenEye's own: the mission
+select's four film strips with all twenty photos and RUNWAY white under the
+cursor; the difficulty page's four rows with the bar on 00 Agent; the 007
+options' four bars reading 100%, 100%, 10% and 0%; the briefing's title page
+with Runway's four objectives lettered and **the mission's photo clipped to the
+folder** (switch 24, which is `22 + 2`), and its M Briefing page wrapped at
+320. START from the briefing ran GoldenEye X's Runway - `g_StageNum` 0x22,
+`g_MissionConfig.difficulty` 2 - to level frame 150. Nothing stock changed:
+everything is in GE-X Plus's own files but `mpImportArenas()`, which does
+nothing until a mod's data segment carries an arena table.
+
+**Not done**: the slide grid's own highlight. GoldenEye recolours the four
+vertices of each slide (white for the mission under the cursor, grey for the
+rest, near-black for a locked one); the converted model carries a colour table
+instead of per-vertex colours, so only the name's colour moves for now.
+
