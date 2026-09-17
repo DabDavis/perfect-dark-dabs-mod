@@ -24,9 +24,24 @@
 	{  68, 0x636d4efb, "cavern", 0.501074488f, { 0.0f, 0.0f, 0.0f }, 0 }, // GE-X bg_sho, 40% of its vertices
 	{  71, 0x20f0f98c, "bunker2", 0.429208179f, { 0.0f, 0.0f, 0.0f }, 0 }, // GE-X bg_tra, 86% of its vertices
 	{  39, 0xd176ef00, "cradle", 1.828756733f, { 0.0f, 0.0f, 0.0f }, 0 }, // GE-X bg_wax, 18% of its vertices
+	{  66, 0x57f8f0fb, "archives", 1.072400836f, { -1474.0f, 215.0f, -1725.0f }, 1 }, // gxarch (GoldenEye Arenas), 95% of its vertices
+	{  92, 0x0a71bc52, "control", 1.616580623f, { -269.0f, 259.0f, -1485.0f }, 1 }, // gxarec (GoldenEye Arenas), 96% of its vertices
+	{  78, 0x02edd7bf, "facility", 0.531318270f, { 4509.0f, -106.0f, -1063.0f }, 1 }, // gxark (GoldenEye Arenas), 99% of its vertices
+	{  93, 0xb78bd1c3, "aztec", 1.475407422f, { -129.0f, -61.0f, 1389.0f }, 1 }, // gxazt (GoldenEye Arenas), 85% of its vertices
+	{  93, 0x8b14f4d1, "library", 0.573907333f, { -804.0f, 29.0f, -1033.0f }, 1 }, // gxbase (GoldenEye Arenas), 100% of its vertices
+	{  64, 0xf18d6904, "cavern", 0.501072787f, { 535.0f, -1467.0f, -2213.0f }, 1 }, // gxcave (GoldenEye Arenas), 98% of its vertices
+	{  37, 0x04db1609, "cradle", 1.828668257f, { 1495.0f, -3750.0f, 1169.0f }, 1 }, // gxcrad (GoldenEye Arenas), 99% of its vertices
 	{ 137, 0x74f07c2c, "dam", 4.280101153f, { 3390.0f, -13219.0f, -8584.0f }, 1 }, // gxdam (GoldenEye Arenas), 92% of its vertices
+	{  90, 0x765bfd9b, "depot", 0.805820509f, { 982.0f, -25.0f, -4916.0f }, 1 }, // gxdepo (GoldenEye Arenas), 99% of its vertices
+	{  59, 0xf2b48307, "frigate", 0.821433927f, { -123.0f, 508.0f, -2334.0f }, 1 }, // gxdest (GoldenEye Arenas), 92% of its vertices
+	{  26, 0xbb4d58f2, "multitemple", 3.119410587f, { 935.0f, 0.0f, -312.0f }, 1 }, // gxdish (GoldenEye Arenas), 99% of its vertices
 	{  45, 0x63ae3b9a, "jungle", 0.706146978f, { 10590.0f, 956.0f, -5255.0f }, 1 }, // gxjun (GoldenEye Arenas), 69% of its vertices
 	{  14, 0xe988b46f, "caves", 0.715800060f, { 20067.0f, 1361.0f, -6890.0f }, 1 }, // gxoat (GoldenEye Arenas), 99% of its vertices
 	{  56, 0xf7e90402, "streets", 1.239411313f, { 2881.0f, -32.0f, 15462.0f }, 1 }, // gxpete (GoldenEye Arenas), 85% of its vertices
+	{  45, 0x56ca8646, "complex", 0.401740938f, { 241.0f, 0.0f, 602.0f }, 1 }, // gxref (GoldenEye Arenas), 99% of its vertices
 	{  18, 0x87224318, "runway", 0.508383572f, { 11259.0f, -441.0f, -14441.0f }, 1 }, // gxrun (GoldenEye Arenas), 88% of its vertices
+	{  31, 0xf45cb688, "bunker", 0.429214082f, { 6.0f, 467.0f, -1864.0f }, 1 }, // gxsev (GoldenEye Arenas), 93% of its vertices
+	{  69, 0x049e7572, "bunker2", 0.429214887f, { 6.0f, 462.0f, -1624.0f }, 1 }, // gxsevb (GoldenEye Arenas), 97% of its vertices
+	{  40, 0x198d25ed, "surface", 0.497385395f, { -5604.0f, -168.0f, -10382.0f }, 1 }, // gxsevx (GoldenEye Arenas), 85% of its vertices
+	{  87, 0x4389704e, "silo", 0.615140709f, { 1315.0f, -1173.0f, 1374.0f }, 1 }, // gxsilo (GoldenEye Arenas), 98% of its vertices
 	{  58, 0x6962059a, "train", 1.300371514f, { -16592.0f, 50.0f, 50.0f }, 1 }, // gxtra (GoldenEye Arenas), 91% of its vertices
