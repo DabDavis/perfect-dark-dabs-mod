@@ -59,6 +59,14 @@ struct stagerow {
 	u32 hash;
 	const char *bean;
 	f32 scale;
+	// Taken off after scaling: GE-X kept GoldenEye's origin, the converted
+	// arenas (.xbla-work/ge-arena/geconvert.py) moved it to their walkable middle
+	f32 offset[3];
+	// The level file was converted from GoldenEye's own data, which Bean's is
+	// built on, so no room of it was changed and none is checked: Bean's HD
+	// terrain is re-meshed (Runway's rooms read 10 to 80% covered) and the
+	// hole size is in the file's units, which a 7x level (Caves) outgrows
+	s32 trusted;
 };
 
 static const struct stagerow stageRows[] = {
@@ -1105,6 +1113,7 @@ struct collect {
 	s32 num;
 	s32 cap;
 	f32 scale;
+	const f32 *offset;
 };
 
 static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
@@ -1128,7 +1137,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 
 	for (s32 k = 0; k < 3; k++) {
 		for (s32 j = 0; j < 3; j++) {
-			t->pos[k][j] = v[k].pos[j] * c->scale;
+			t->pos[k][j] = v[k].pos[j] * c->scale - c->offset[j];
 		}
 
 		t->uv[k][0] = v[k].uv[0];
@@ -1218,6 +1227,7 @@ static s32 build(void)
 
 	memset(&c, 0, sizeof(c));
 	c.scale = row->scale;
+	c.offset = row->offset;
 	gebeanLevelTriangles(level, collectTri, &c);
 
 	mark[1] = sysGetMicroseconds();
@@ -1333,7 +1343,7 @@ static s32 build(void)
 				continue;
 			}
 
-			if (area[r] <= 0 || areacovered[r] < area[r] * share || uncoveredmax[r] > COVER_HOLE) {
+			if (!row->trusted && (area[r] <= 0 || areacovered[r] < area[r] * share || uncoveredmax[r] > COVER_HOLE)) {
 				sysLogPrintf(LOG_NOTE, "gebeanstage: %s room %d stays GE-X's: Bean's mesh is on %.1f%% of its surface, largest triangle it misses %.0f",
 						row->bean, r, area[r] > 0 ? 100.0f * areacovered[r] / area[r] : 0.0f, uncoveredmax[r]);
 				kept++;
