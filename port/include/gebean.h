@@ -138,6 +138,26 @@ s32 gebeanIsPoolRow(s32 headorbodynum);
 
 #define GEBEAN_MAXMATS 256
 
+/**
+ * A GoldenEye XBLA level's HD mesh - files/new/background/<name> - for
+ * gebeanstage.c, which serves it as the rooms of GoldenEye X's copy of the
+ * level.
+ */
+struct gebeanlevel;
+
+struct gebeanlevelvtx {
+	f32 pos[3];
+	f32 uv[2];
+	u32 argb;
+};
+
+struct gebeanlevel *gebeanLevelOpen(const char *name);
+void gebeanLevelClose(struct gebeanlevel *level);
+s32 gebeanLevelTriangles(struct gebeanlevel *level,
+		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);
+s32 gebeanLevelNumTextures(struct gebeanlevel *level);
+const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft);
+
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */
 struct gebeanmats {
 	u16 fileid;  // in: the model file the mesh is built for

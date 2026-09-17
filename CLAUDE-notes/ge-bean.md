@@ -1382,3 +1382,98 @@ place of its own when the grafted head was fitted (`xblaMeshHeadIsFitted()`).
   guns read as GoldenEye's rather than as Perfect Dark's holding them. The slide: with lists' loaded matrices known,
   Bean's slide bone could go on the host's slide matrix (34 on the PP9i) - but a
   group draws under one matrix, so that needs per-vertex matrix switches.
+
+## GoldenEye XBLA's levels on GoldenEye X's rooms (2026-09-17)
+
+"next we need to introduce the models/textures from ge xbla bean for level
+geometry". `port/src/gebeanstage.c` (+ `gebeanstage.h`, generated
+`gebeanstagetable.h`), served through xblastage.c's room hooks, so it follows
+F6 live and the release's rooms' path (fog swaps, lights, dyntex, hit batches)
+applies unchanged. Behind `Mod.XblaGoldenEye` plus the XBLA meshes and stages
+switches. Uncommitted when written.
+
+**What Bean has.** `files/new/background/<level>/default.bin` is one rendergraph
+per level, **sorted by material, no rooms, no portals**; `<level>_hits` is a
+collision mesh. The rooms, portals, stan, pads and setups are GoldenEye's N64
+data inside `default.xex` (its strings name stan and portals), so a whole level
+*from Bean* means converting GoldenEye's own bg/stan/setup - from the decomp at
+`claude-007`, not from the xex. The streams add record types the characters
+never had (0x02, 0x03, 0x05, 0x06, 0x08, 0x0c, 0x0d, 0x15, 0x1a, 0x20); the walker
+steps over them. Level UVs are **1/1024** of a repeat whatever their range -
+`beanMeasureUvScale()` said up to 1/32768 and drew the Temple arena's floor 8x
+too big. **Index buffers come in two widths**: the descriptor's last word is 1
+for 16-bit and **6 for 32-bit** (`beanTriangles32()`); Frigate's hull and Dam's
+terrain are 32-bit draws of up to 65536 indices, and missing them lost 130k of
+Frigate's 179k triangles. Stride 36 buffers are not positions (the instancing
+records 0x20/0x03 place trees and bushes through them) and are left out.
+
+**Pairing.** Bean's N64-look files are GoldenEye's raw bg coordinates at a
+per-level scale (Dam 1:1 with the decomp's `bg_dam`, Complex 0.3786); GE-X's
+files are GoldenEye's raw coordinates **divided by the level scale**
+(`levelinfotable` in the decomp's bg.c). Every HD vertex set contains every N64
+vertex in the same frame, so one scale per level serves both looks, and every
+fit found has zero translation. `.xbla-work/ge-bean/`: `stagefit_all.py`
+(every Bean level against every GE-X bg file, trimmed ICP from several
+starts - a single start or a free rotation finds nothing),
+`stagefit_refine.py` (least squares over all matched vertices, 6 decimals -
+5 left Egyptian a unit off at its far end), `gen_stagetable.py`
+(`gebeanstagetable.h`, keyed by room count and an FNV-1a of the rooms'
+rounded positions from room 1 to `g_Vars.roomcount` inclusive, which is the
+end entry). 24 GE-X files pair with 16 Bean levels. **No pair**: Dam, Runway,
+Statue Park, Streets, Train, Jungle and Caves - GE-X rebuilt or changed those
+maps (the decomp's own vertices do not match GE-X's either), and Egyptian and
+Cradle only partly.
+
+**Rooms.** At the first room ask of a paired level (0.1-0.8 s; Frigate's 179k
+triangles the longest): GE-X's rooms are read raw (`bgLoadFile` +
+`rzipInflate`), their triangles filed in a grid from their own G_VTX/G_TRI4
+lists, Bean's triangles scaled and **dealt to the room whose own triangle is
+nearest their middle** (within two 64-unit cells, else the nearest room box).
+The nearest *vertex* was tried first and dealt big floor triangles to the room
+next door, since rooms share their border vertices - that room's portal
+scissored them away and the floor showed the clear colour (blue). A room is
+Bean's only when Bean's mesh lies over **97% of its surface** (area of GE-X
+triangles whose middle has a Bean triangle within 3 units) **and no single
+uncovered GE-X triangle is over 20000 square units** - a share of vertices
+passed Archives BZ's rooms that GE-X cut a stair pit into (the pit's corners
+are on Bean's floor), and a pit is 2-3% of its room. The distance is 3 because
+GE-X rounds a room's position and each vertex offset separately.
+
+**The room format written** (big-endian, pointers relative to the room's own
+table entry, as the release's rooms are served): header, an opaque and a
+translucent leaf (translucent = a picture with soft alpha), both leaves'
+vertices, one shared palette, the two lists. GE-X's own render modes and
+combiners (`b900031d 0c182078` / `0c184dd8`, `fc26a004 1ffc93fc` / `1f1093ff`)
+so bg.c's fog swaps find them; back faces are drawn (`b6 2000`), Bean's winding
+not being known. Traps, each a crash or a wrong picture: **the vertex array must
+start on an 8-byte boundary and hold an even count** - the converter places the
+first list by the file's distance from the colours, so an odd gap put the list
+off a boundary and `bgPopulateVtxBatchType()` read garbage; **a G_COL indexes
+64 colours** (`colour >> 2`), so a room's colours come down to 64 (heaviest as
+seeds, one mean pass - the first pairwise merge was cubic and took seconds);
+**bg.c reallocates `numcolours` colours every frame** it lights a room; the
+host `roomgfxdata.numvertices`/`numcolours` are **s32 on PC** now (a Bean room
+passes 32767); `G_TRI4` and `G_ENDDL` are negative ints in gbi.h and never
+equal a `u8` opcode without a cast; **t is flipped** (`shiftv - v`) - the
+picture is decoded bottom row first, which the meshes undo by flipping v, and
+the Temple's carvings stood on their heads. Pictures are record numbers
+`0xc000 + n` (`0xcfff` untextured) that `xblaStageWriteTexture()` binds on a
+32x32 stand-in declared as its own size, so s and t are in 1/1024 of a repeat.
+
+**Checked** (build/gestage/, `shot.sh` = seeded spectate shot at frame 350,
+`shot2.sh` = camera at a room's centre; screenshots land in the binary's own
+`screenshots/`, so never run two at once): all 13 paired GE-X arenas in the
+Stage Loader (rooms from Bean: Temple 20/25, Complex 41/44, Library 84/92,
+Basement 33/36, Stack 47/52, Facility 73/79, Bunker 61/70, Archives 33/35,
+Caverns 46/47, Egyptian 29/44, Frigate 25/34, Archives BZ 20/26, Aztec 19/25),
+no crash; F6 flipped HD -> N64 -> HD mid-level at a `playerTick` stop and ran to
+frame 600; GE-X loaded as the mod (Bunker mission, 0x1d) builds 22/32 and runs;
+Defection still takes the release's rooms; the stock seeded match (build/regress)
+is pixel-identical to 6d13332b3 at frames 600 and 1500. `perf` is refused on this
+box (paranoid 3) - the summary log line carries a per-stage timing instead.
+
+**Open**: rooms kept as GE-X's show both looks side by side at their portals;
+trees/bushes (stride 36, instancing) not drawn; Bean's skydomes
+(`files/new/skydome/`) not used; the build runs at the first room of a level,
+a hitch up to 0.8 s; the archive unpack now includes `files/new/background/`
+(237MB), marker `.extracted6`, so a tester's cache unpacks again.

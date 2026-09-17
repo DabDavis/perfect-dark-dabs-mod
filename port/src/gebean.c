@@ -49,9 +49,10 @@
 // Written once an archive's characters are out. The first one (".extracted")
 // was written when only new/ was taken, the second (".extracted2") before the
 // guns' pickups were, the third (".extracted3") before their first-person
-// models were and the fourth (".extracted4") before the N64-look guns were, so
-// a cache holding any of them is unpacked again.
-#define GEBEAN_DONE_FILE ".extracted5"
+// models were, the fourth (".extracted4") before the N64-look guns were and the
+// fifth (".extracted5") before the levels were, so a cache holding any of them
+// is unpacked again.
+#define GEBEAN_DONE_FILE ".extracted6"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -59,7 +60,8 @@
 // original/ the N64-look ones Bean switched to, under the same names - the
 // guns' pickups, which Bean keeps among the props as chr<gun>, and the guns
 // themselves, the HD ones only: GoldenEye's N64 guns are GoldenEye X's own,
-// borrowed (modborrow.c). The rest of the archive is levels and music.
+// borrowed (modborrow.c) - and the HD levels' drawn meshes, without the
+// collision meshes beside them (<level>_hits), which the game has its own of.
 #define GEBEAN_TREE "files/new/char"
 #define GEBEAN_WANT_CHARS "files/new/char/"
 #define GEBEAN_WANT_HEADS "files/new/head/"
@@ -67,6 +69,8 @@
 #define GEBEAN_WANT_ORIGINAL_HEADS "files/original/head/"
 #define GEBEAN_WANT_PICKUPS "files/new/prop/chr"
 #define GEBEAN_WANT_GUNS "files/new/gun/"
+#define GEBEAN_WANT_LEVELS "files/new/background/"
+#define GEBEAN_SKIP_LEVEL_HITS "_hits/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -86,10 +90,11 @@
 #define GEBEAN_MAXVERTS 65535
 #define GEBEAN_MAXDRAWS 0x1000
 
-#define BEAN_MAXDRAWS 512
+// A level's file draws up to 518 times (Statue Park), each from its own index buffer
+#define BEAN_MAXDRAWS 2048
 #define BEAN_MAXBONES 32
 #define BEAN_MAXPAL   64
-#define BEAN_MAXIBS   256
+#define BEAN_MAXIBS   2048
 #define CAFF_MAXSECTS 16
 
 struct gebeanrow {
@@ -1092,7 +1097,8 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 
 	return strstr(lower, GEBEAN_WANT_CHARS) != NULL || strstr(lower, GEBEAN_WANT_HEADS) != NULL
 		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL
-		|| strstr(lower, GEBEAN_WANT_PICKUPS) != NULL || strstr(lower, GEBEAN_WANT_GUNS) != NULL;
+		|| strstr(lower, GEBEAN_WANT_PICKUPS) != NULL || strstr(lower, GEBEAN_WANT_GUNS) != NULL
+		|| (strstr(lower, GEBEAN_WANT_LEVELS) != NULL && strstr(lower, GEBEAN_SKIP_LEVEL_HITS) == NULL);
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -1714,6 +1720,7 @@ struct beanib {
 	u32 obj;
 	u32 off;
 	u32 size;
+	u32 width; // bytes an index
 };
 
 struct beanmodel {
@@ -2321,9 +2328,13 @@ static void beanFindIndexBuffers(struct beanmodel *bm)
 		const u32 obj = gebeanBE32(d + o);
 		const u32 off = gebeanBE32(d + o + 4);
 		const u32 size = gebeanBE32(d + o + 8);
+		const u32 kind = gebeanBE32(d + o + 12);
+		// 1 is a buffer of 16 bit indices; 6 of 32 bit ones, which only the
+		// levels' biggest draws use (Frigate's hull, 65536 indices a draw)
+		const u32 width = kind == 6 ? 4 : 2;
 		s32 known = 0;
 
-		if (gebeanBE32(d + o + 12) != 1 || size == 0 || (size & 1) || !gebeanFits(off, size, bm->gpulen)
+		if ((kind != 1 && kind != 6) || size == 0 || (size % width) || !gebeanFits(off, size, bm->gpulen)
 				|| obj >= bm->datalen) {
 			continue;
 		}
@@ -2339,6 +2350,7 @@ static void beanFindIndexBuffers(struct beanmodel *bm)
 			bm->ibs[bm->numibs].obj = obj;
 			bm->ibs[bm->numibs].off = off;
 			bm->ibs[bm->numibs].size = size;
+			bm->ibs[bm->numibs].width = width;
 			bm->numibs++;
 		}
 	}
@@ -2361,7 +2373,8 @@ static s32 beanTriangles(const struct beanmodel *bm, const struct beandraw *d, u
 		}
 	}
 
-	if (!ib || d->count < 3 || (u64)d->count * 2 > ib->size) {
+	// A 32 bit buffer is a level's (beanTriangles32())
+	if (!ib || ib->width != 2 || d->count < 3 || (u64)d->count * 2 > ib->size) {
 		return 0;
 	}
 
@@ -2399,6 +2412,71 @@ static s32 beanTriangles(const struct beanmodel *bm, const struct beandraw *d, u
 			tris[n * 3 + 2] = c;
 		}
 	}
+
+	*out = tris;
+
+	return n;
+}
+
+/** beanTriangles() for a buffer of either width, as the levels have both. */
+static s32 beanTriangles32(const struct beanmodel *bm, const struct beandraw *d, u32 **out)
+{
+	const struct beanib *ib = NULL;
+	const u8 *idx;
+	u32 *tris;
+	s32 n = 0;
+
+	*out = NULL;
+
+	for (s32 i = 0; i < bm->numibs; i++) {
+		if (bm->ibs[i].obj == d->ib) {
+			ib = &bm->ibs[i];
+			break;
+		}
+	}
+
+	if (!ib || d->count < 3 || (u64)d->count * ib->width > ib->size) {
+		return 0;
+	}
+
+	idx = bm->gpu + ib->off;
+	tris = malloc(sizeof(u32) * 3 * ((size_t)d->count * 2));
+
+	if (!tris) {
+		return 0;
+	}
+
+#define BEAN_INDEX(i) (ib->width == 4 ? gebeanBE32(idx + (i) * 4) : gebeanBE16(idx + (i) * 2))
+
+	if (d->prim == 4) {
+		for (u32 i = 0; i + 2 < d->count; i += 3, n++) {
+			tris[n * 3] = BEAN_INDEX(i);
+			tris[n * 3 + 1] = BEAN_INDEX(i + 1);
+			tris[n * 3 + 2] = BEAN_INDEX(i + 2);
+		}
+	} else if (d->prim == 13) {
+		for (u32 i = 0; i + 3 < d->count; i += 4) {
+			const u32 a = BEAN_INDEX(i);
+			const u32 b = BEAN_INDEX(i + 1);
+			const u32 c = BEAN_INDEX(i + 2);
+			const u32 e = BEAN_INDEX(i + 3);
+
+			tris[n * 3] = a; tris[n * 3 + 1] = b; tris[n * 3 + 2] = c; n++;
+			tris[n * 3] = a; tris[n * 3 + 1] = c; tris[n * 3 + 2] = e; n++;
+		}
+	} else if (d->prim == 5) {
+		for (u32 i = 0; i + 2 < d->count; i++, n++) {
+			const u32 a = BEAN_INDEX(i);
+			const u32 b = BEAN_INDEX(i + 1);
+			const u32 c = BEAN_INDEX(i + 2);
+
+			tris[n * 3] = (i & 1) ? b : a;
+			tris[n * 3 + 1] = (i & 1) ? a : b;
+			tris[n * 3 + 2] = c;
+		}
+	}
+
+#undef BEAN_INDEX
 
 	*out = tris;
 
@@ -5795,6 +5873,146 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	beanFree(&bm);
 
 	return file;
+}
+
+/* -------------------------------------------------------------------------
+ * The levels
+ * ------------------------------------------------------------------------- */
+
+struct gebeanlevel {
+	struct beanmodel bm;
+	char source[64];
+};
+
+/**
+ * A level's HD file, files/new/background/<name>. Rare drew a level as one
+ * batch sorted by material - no rooms, no portals - so what comes back is its
+ * triangles and pictures, for gebeanstage.c to deal into the rooms of the
+ * level file the game is running. NULL if it is not on disk or not readable.
+ */
+struct gebeanlevel *gebeanLevelOpen(const char *name)
+{
+	struct gebeanlevel *level;
+
+	if (!gebeanLocate(1)) {
+		return NULL;
+	}
+
+	level = calloc(1, sizeof(*level));
+
+	if (!level) {
+		return NULL;
+	}
+
+	snprintf(level->source, sizeof(level->source), "new/background/%s", name);
+
+	// The pieces a 0x30 draw numbers are all the level's
+	if (!beanLoad(&level->bm, level->source, 1)) {
+		free(level);
+		return NULL;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws, %d textures, UVs measured at 1/%.0f, drawn at 1/1024",
+			level->source, level->bm.numdraws, level->bm.numtex, level->bm.uvscale);
+
+	// A level's UVs are in 1/1024 of a repeat, whatever their range: the rule
+	// that measures a character's (beanMeasureUvScale()) reads a level's many
+	// repeats and says anything up to 32768, which drew the Temple arena's
+	// floor eight times too big. At 1/1024 a repeat is 120 to 440 GE-X units
+	// on every level, a wall panel's width.
+	level->bm.uvscale = 1024.0f;
+
+	return level;
+}
+
+void gebeanLevelClose(struct gebeanlevel *level)
+{
+	if (level) {
+		beanFree(&level->bm);
+		free(level);
+	}
+}
+
+/**
+ * Every triangle of the level, in the file's own units, with the texture its
+ * material draws (-1 for none). Returns how many were handed over.
+ *
+ * Left out: the stride 36 buffers, which are not positions at all - they
+ * are drawn through the instancing records (0x20/0x03) that place Bean's
+ * trees and bushes, which this does not read yet - and any vertex that is not
+ * a sane position.
+ */
+s32 gebeanLevelTriangles(struct gebeanlevel *level,
+		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg)
+{
+	struct beanmodel *bm = &level->bm;
+	s32 count = 0;
+
+	for (s32 d = 0; d < bm->numdraws; d++) {
+		const struct beandraw *draw = &bm->draws[d];
+		struct beanvb vb;
+		u32 *tris = NULL;
+		s32 numtris;
+
+		if (!beanReadVb(bm, draw->vb, &vb) || vb.stride == 36) {
+			continue;
+		}
+
+		numtris = beanTriangles32(bm, draw, &tris);
+
+		for (s32 t = 0; t < numtris; t++) {
+			struct gebeanlevelvtx v[3];
+			s32 ok = 1;
+
+			for (s32 k = 0; k < 3 && ok; k++) {
+				struct beanvtx bv;
+
+				ok = beanVertex(bm, &vb, tris[t * 3 + k], &bv);
+
+				for (s32 j = 0; j < 3 && ok; j++) {
+					ok = bv.pos[j] == bv.pos[j] && bv.pos[j] > -1e6f && bv.pos[j] < 1e6f;
+				}
+
+				if (ok) {
+					memcpy(v[k].pos, bv.pos, sizeof(v[k].pos));
+					v[k].uv[0] = bv.uv[0];
+					v[k].uv[1] = bv.uv[1];
+					v[k].argb = bv.argb;
+				}
+			}
+
+			if (ok) {
+				fn(arg, draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1, v);
+				count++;
+			}
+		}
+
+		free(tris);
+	}
+
+	return count;
+}
+
+s32 gebeanLevelNumTextures(struct gebeanlevel *level)
+{
+	return level->bm.numtex;
+}
+
+/** A texture's stand-in tile, decoded and bound the first time it is asked for. */
+const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft)
+{
+	const void *tile = NULL;
+
+	*alpha = 0;
+	*soft = 0;
+
+	if (tex < 0 || tex >= level->bm.numtex) {
+		return NULL;
+	}
+
+	beanBindTexture(&level->bm, level->source, tex, &tile, alpha, soft);
+
+	return tile;
 }
 
 #endif

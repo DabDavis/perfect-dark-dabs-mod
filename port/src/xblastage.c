@@ -38,6 +38,8 @@
 #include "xblatex.h"
 #include "xblastage.h"
 #include "xblaslots.h"
+#include "gebean.h"
+#include "gebeanstage.h"
 
 // The bg file's header: primary inflated size, section 1 size, primary stored
 // size. The primary's pointers are in the 0x0f000000 segment.
@@ -74,6 +76,9 @@ static s32 roomsWant;
 // The room bgLoadRoom() is converting came from the release, which is what
 // texLoadFromGdl() asks about a texture number the ROM does not have.
 static s32 curRoomRelease;
+
+// The room being converted is one of GoldenEye XBLA's, written by gebeanstage.c
+static s32 curRoomBean;
 
 // File ids whose release copy was looked at and turned down - stored the
 // ROM's way, or not a level this can make safe. The package does not change
@@ -145,6 +150,7 @@ void xblaStageLevelReset(void)
 	// The last level's file goes. The next level's is read when its first
 	// room asks, under whatever the switches say then.
 	xblaStageForget();
+	gebeanStageLevelReset();
 	roomsWant = xblaStageWant();
 }
 
@@ -473,9 +479,21 @@ u32 xblaStageRoomSize(s32 roomnum)
 	// they are now
 	roomsWant = want;
 	curRoomRelease = 0;
+	curRoomBean = 0;
 
 	if (!want) {
 		return 0;
+	}
+
+	// A GoldenEye X level GoldenEye XBLA has an HD copy of. Only a mod's file
+	// can be one, and the release's copy below is only ever a stock one's.
+	{
+		const u32 beanlen = gebeanStageRoomSize(roomnum);
+
+		if (beanlen) {
+			curRoomBean = 1;
+			return beanlen;
+		}
 	}
 
 	if (!relData) {
@@ -499,7 +517,14 @@ u32 xblaStageRoomSize(s32 roomnum)
 
 uintptr_t xblaStageRoomRead(s32 roomnum, u8 *dst, u32 len)
 {
-	const u32 addr = relRoomAddr[roomnum];
+	u32 addr;
+
+	if (curRoomBean) {
+		curRoomRelease = 1;
+		return gebeanStageRoomRead(roomnum, dst, len);
+	}
+
+	addr = relRoomAddr[roomnum];
 
 	memcpy(dst, relData + XBLASTAGE_HEADER + (addr - XBLASTAGE_SEG), len);
 	curRoomRelease = 1;
@@ -514,6 +539,7 @@ uintptr_t xblaStageRoomRead(s32 roomnum, u8 *dst, u32 len)
 void xblaStageRoomDone(void)
 {
 	curRoomRelease = 0;
+	curRoomBean = 0;
 }
 
 static const u16 reusedSlots[] = { XBLA_REUSED_SLOTS };
@@ -575,14 +601,22 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	u32 scales = 0xffff;
 	u32 scalet = 0xffff;
 
-	if (!tile || !xblaTexRecordSize(record, &width, &height)) {
+	if (gebeanStageOwnsRecord(record)) {
+		// A GoldenEye XBLA level's picture: the room measured its s and t in
+		// the stand-in tile's own texels (gebeanstage.c), so it is declared as
+		// the tile it is
+		tile = gebeanStageTile(record);
+		width = height = XBLATEX_TILE;
+	}
+
+	if (!tile || (!gebeanStageOwnsRecord(record) && !xblaTexRecordSize(record, &width, &height))) {
 		if (xblaStageWhiteTile[0] != 0xffff) {
 			memset(xblaStageWhiteTile, 0xff, sizeof(xblaStageWhiteTile));
 		}
 
 		tile = xblaStageWhiteTile;
 	} else {
-		if (!xblaTexRecordSrcSize(record, &srcw, &srch)) {
+		if (gebeanStageOwnsRecord(record) || !xblaTexRecordSrcSize(record, &srcw, &srch)) {
 			srcw = width;
 			srch = height;
 		}

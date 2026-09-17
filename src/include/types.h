@@ -3742,8 +3742,15 @@ struct roomgfxdata {
 	/*0x0c*/ struct roomblock *xlublocks;
 	/*0x10*/ s16 lightsindex;
 	/*0x12*/ s16 numlights;
+#ifdef PLATFORM_N64
 	/*0x14*/ s16 numvertices;
 	/*0x16*/ s16 numcolours;
+#else
+	// Worked out from the pointers when the room loads (bgLoadRoom()), and a
+	// room of GoldenEye XBLA's HD geometry (gebeanstage.c) has more than 32767
+	s32 numvertices;
+	s32 numcolours;
+#endif
 	/*0x18*/ struct roomblock blocks[1];
 };
 
