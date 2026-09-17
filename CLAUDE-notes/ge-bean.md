@@ -1829,3 +1829,94 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
   since it registers its pre-swap hook after the conversion), no-ROM and
   with-ROM menus screenshotted. The notice's screenshot is at 0/28 because gdb
   stops the worker too.
+
+## GE-X Plus opens on GoldenEye's own folder screens (2026-09-17)
+
+The user: "lets use the GE menus for that mode", and chose **faithful GoldenEye
+menus with rows added for simulants** over a GoldenEye skin on Perfect Dark's
+dialogs or only the multiplayer page; "also make sure music matches".
+`port/src/gexfront.c` is GoldenEye's front end as the decomp's `front.c` draws
+it, for GE-X Plus only - Perfect Dark's menus are untouched elsewhere. The
+Perfect Menu's GE-X Plus row calls `gexFrontOpen()` (the old dialog is kept
+for when nothing is converted: it says a ROM is needed). While open,
+`menuTick()` and `menuRender()` hand over and return; the Perfect Menu stays
+open underneath and comes back as it was.
+
+**Everything is the ROM's.** The converter (C and Python, still byte for byte)
+also writes: the folder, `PROP_WALLETBOND` = model 278 (`Pgx278Z`, into the
+`models` block like any prop); the crosshair (image 2236), the film strip's dot
+(2631), a stage picture for every level (2578-2597, 2686-2689, 2695 - the US
+table leaves the solo ones out but the images are there), the 60 portrait tiles
+(2602-2617, 2632-2671, 2682-2685, 2691-2694; Mishkin's are LL, LR, UR, UL);
+and raw into `menu/`: both fonts (Bank Gothic ROM 0x2e63f0+0x24b0, Zurich Bold
+0x2e88a0+0x3540, uncompressed), `LtitleE` (inflated; a BE offset table then
+strings - index = `TITLE_STR_n`), and the music - instrument bank ctl
+0x3b4450+0x43a0, tbl 0x3b87f0+0x60fa0, and the sequence table 0x419790+0x1eed0
+(`{u16 count, pad, u32 offset, u16 inflated, u16 zipped}`, the layout
+`seqAppend()`/modborrow already play). `GECONVERT_VERSION_STR` is 2. Image
+numbers are GoldenEye's `IMAGEIDS` enum position counted from `IMAGE_COPYICON`
+(image_externs.h line 2710), including the `_imageN_ID` lines.
+
+**Drawing.** GoldenEye lays out on 440x330; every position is GoldenEye's,
+scaled by `viGetWidth()/440`, `viGetHeight()/330` (the menu frame here is
+320x220) under `G_ASPECT_CENTER_EXT`. Traps:
+- `frontSetupMenuBackground()`'s `matrix_scalar_multiply()` scales the first
+  twelve words and keeps the translation: that is **`mtx00015f04()`**.
+  `mtx00015f88()` scales the translation too and put the folder half a screen
+  off. Camera: eye (-900, 990, 700) at (-900, 990, 0), folder at (-900, 800, 0)
+  scaled 0.25, fov 60, 100-10000, no z buffer, own `Vp`.
+- Text is GoldenEye's renderer, not Perfect Dark's (whose glyphs are CI4):
+  8-bit intensity glyphs of `((width+7)&~7) x height`, colour from prim, alpha
+  texel x prim, x -= kerning[prev*13+cur] + spacing - 1, a space is 5, line
+  height is `chars['[']` (GoldenEye indexes without the 0x21), and the tabs are
+  `gSPTextureRectangleFlip` with t starting at `(height-1)<<5` and dtdy -1.
+- A texture drawn by number goes through `texSelect()` with
+  `modSetTextureSourceMod(the arenas' mount)` around it; the config's number
+  becomes a stage-pool pointer, so the configs are rebuilt on every open.
+- The folder's switches are its parts in order: TABS 0, PAPER 1, EYESONLY 2,
+  OHMSS 3, CONFIDENTIAL 4, CONFIDENTIAL2 5, CLASSIFIED 6, PHOTOBOND 7, BROSNAN 8,
+  BROSNANCOVER 15, BLANK 42 (bondconstants.h; off by one after 5 once).
+- A portrait's tiles run t up the screen (GoldenEye's ortho is turned over).
+
+**Screens.** Mode select (SELECT MISSION grey), Multiplayer Options (GoldenEye's
+nine rows plus Simulants and Simulant Skill after Players, 16 apart so the last
+row stays at 0x119; START runs the Combat Simulator's quick start - quick team
+players and sims, then `func0f0f820c(NULL, -5)` so `menuTick()` starts the
+match), Level (film strip, twelve a page - GoldenEye's own multiplayer twelve in
+its order first - and the folder's NEXT tab for the rest; pictures matched by
+the converter's map names), Scenario (team games grey), Health (GoldenEye's
+modifier m as the handicap whose `mpHandicapToDamageScale()` is 1/m - Perfect
+Dark divides damage taken by it), Control Style (GoldenEye's eight plus Perfect
+Dark's Ext, or a keyboard player is locked out), Characters (GoldenEye X's
+borrowed bodies - only with `Mod.XblaGoldenEye` on - else Perfect Dark's;
+portraits by the letters of the name before a bracket). The per-player pages
+read each player's own controller and have no cursor or tabs, as GoldenEye's.
+Random in GE-X Plus mode draws from the remake's arenas (`mpChooseRandomStage()`).
+
+**Input.** GoldenEye's cursor (5 dead zone, 70 cap, 0.075 x stick + 0.5 a
+frame), A/Z pick, B back, START starts; the keyboard's accept and cancel are
+`BUTTON_UI_ACCEPT`/`CANCEL`, **not** A and B (Return did nothing until they
+were added); the mouse moves the cursor only when its position changes - a
+pointer resting on the window pinned it (under Xvfb, onto the Health row).
+
+**Music.** `M_FOLDERS` is GoldenEye's sequence 23; appended once with
+`seqAppend()` on GoldenEye's bank (the loaded bank and table are never freed,
+since an appended sequence is never taken back); `menuChooseMusic()` returns it
+while the folder is open, and closing calls `musicStartMenu()`. Recorded:
+sequence 119 starts on open, flatness 0.006 (music), the Perfect Menu's 89 back
+after closing.
+
+**Tested** in `build/gexrom` (GE-X symlinked into its mods for the Characters
+page): each screen screenshotted on the RX 580; the mode select lines up with
+a frame of the GoldenEye port's own (`sdg@10.8.0.3:~/claude-007/menucheck/mp3p/frames`,
+f000867 mode select, f000905 options); keyboard drives under Xvfb from the
+Perfect Menu to a match on Dam with a simulant, through the Level page (NEXT
+twice, Temple) to a match on Temple (0x58), and a Characters pick setting body
+63. **Harness traps**: `timeout ... &` makes `$!` timeout's PID, so gdb must
+attach to `pgrep -x pd.x86_64`; a static like `g_Front` needs
+`'gexfront.c'::g_Front` in gdb or the `set var` silently does nothing.
+
+**Not done:** the Bond photo's drop shadow (GoldenEye runs `GFXHIT0_PICS`'s
+list through `DL_LUT_WALLETBOND`, a two-cycle blend, which the converted model
+does not have); portraits past the panel's edge are left out rather than faded
+by vertex; Solo Missions, Co-Operative and Counter-Operative wait for missions.
