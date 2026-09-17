@@ -37,6 +37,7 @@
 #include "xblatex.h"
 #include "config.h"
 #include "mod.h"
+#include "gexplusrom.h"
 #include "system.h"
 #include "utils.h"
 #include "gebean.h"
@@ -209,10 +210,15 @@ int main(int argc, const char **argv)
 
 	mainApplySettingsRevision();
 
+	// The window before the mods: GE-X Plus's arenas are converted from the
+	// player's GoldenEye ROM here when they are not there yet, which draws a
+	// notice while it works, and they must exist before the mods are mounted.
+	videoInit();
+	gexPlusRomConvert();
+
 	// After the config, because that is where the chosen mod is written, and
 	// before romdataInit(), which is what goes looking for the files it holds.
 	modListApplySelection();
-	videoInit();
 	inputInit();
 
 	// Akimbo Triggers rewrites controller binds when it is switched; applying

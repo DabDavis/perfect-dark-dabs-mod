@@ -276,6 +276,9 @@ const char *modListGetSelectedName(void);
 const char *modListGetLoadedName(void);
 void modListApplySelection(void);
 
+// Deletes a directory and everything in it (a path fsFullPath() expands).
+void modRemoveDirTree(const char *dir);
+
 // Whether this mod can be switched to without restarting, and doing it. A mod
 // that replaces ROM segments cannot: they are read once at boot into memory
 // that is never given back.
@@ -290,6 +293,7 @@ s32 modMapsAllEnabled(void);
 s32 modMapsIsEnabled(const char *name);
 void modMapsSetAll(s32 on);
 void modMapsSetEnabled(const char *name, s32 on);
+void modMapsEnableByName(const char *name);
 s32 modMapsNumMounted(void);
 s32 modMapsPending(void);   // the setting changed and could not be applied where we stand
 s32 modMapsApply(void);     // apply it now; false when a restart is needed

@@ -38,6 +38,7 @@
 #include "data.h"
 #ifndef PLATFORM_N64
 #include "modloader.h"
+#include "gexplusrom.h"
 #include "game/mplayer/setup.h"
 #endif
 #include "types.h"
@@ -4923,6 +4924,19 @@ static MenuItemHandlerResult menuhandlerGexPlusMissions(s32 operation, struct me
 	return 0;
 }
 
+/**
+ * Why the Combat Simulator is off: the arenas are converted from the player's
+ * own GoldenEye ROM at startup (port/src/gexplusrom.c).
+ */
+static MenuItemHandlerResult menuhandlerGexPlusNoRom(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return gexPlusFirstArena() >= 0 || gexPlusRomGetState() != (s32)item->param;
+	}
+
+	return 0;
+}
+
 static struct menuitem g_GexPlusMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -4955,6 +4969,22 @@ static struct menuitem g_GexPlusMenuItems[] = {
 		(uintptr_t)"Counter-Operative",
 		0x00000003,
 		menuhandlerGexPlusMissions,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		GEXPLUSROM_NONE,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"Needs a GoldenEye 007 (US)\nROM in data/, then restart.\n",
+		0,
+		menuhandlerGexPlusNoRom,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		GEXPLUSROM_FAILED,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"The GoldenEye ROM did not\nconvert. The log says why.\n",
+		0,
+		menuhandlerGexPlusNoRom,
 	},
 	{ MENUITEMTYPE_END },
 };

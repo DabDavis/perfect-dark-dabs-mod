@@ -1766,3 +1766,66 @@ Caves from gdb:
 - 2000 frames with no fault.
 
 It has not been seen in a real match.
+
+## The converter runs in the game, from the player's ROM (2026-09-17)
+
+GoldenEye's data cannot be shipped, so the arenas are converted on the player's
+machine. A GoldenEye 007 (US) ROM in **data/** beside Perfect Dark's - any name,
+`.z64`/`.v64`/`.n64` byte order, found by its header (name, game code `NGEE`,
+the CRCs) and its size (12MB) - is converted at startup, once, into
+`mods/GoldenEye Arenas/` ($E, else $H), by `port/src/geconvert.c` behind
+`port/src/gexplusrom.c`. The user chose: data/, US only, at startup once.
+
+- **Everything is in the ROM.** The decomp tree was only ever a way to read it.
+  The game's data segment is one 1172 blob at ROM 0x21990 (VRAM 0x80020d90);
+  inside it are the file table (12-byte {index, name, ROM address} rows from
+  0x252c4), `g_Textures` (8-byte rows from 0x28570, low 24 bits the stored size,
+  images end to end from ROM 0x8f7df0), the US fog table (92-byte rows from
+  0x24080, the id first; iswater's three padding bytes are columns in bgfog.c)
+  and `PitemZ_entries` (340 {header, file, scale} rows from 0x19498).
+  `tools/geconvert/gerom.py` reads the same places.
+- **The C writes the Python's bytes**, and must keep doing so, since the HD
+  tables (`gebeanstagetable.h`, `geproptable.h`) are generated from the
+  offsets the conversion picks. `tools/geconvert/` is the reference (moved out
+  of `.xbla-work/ge-arena/`, which keeps only the offline fit tools and imports
+  from it); build the C alone with `gcc -DGECONVERT_MAIN -Iport/include
+  port/src/geconvert.c -lz -lm` and `diff -r` its output against
+  `GE_ROM=... python3 tools/geconvert/geconvert.py OUT` after changing either.
+  The traps in matching numpy: a 1-D `np.mean` is numpy's **pairwise** sum and
+  a mean down a column of an (n,3) array is a plain sum in order; rounding is
+  half to even (`nearbyint`); `float(round(x))` goes through an int and so is
+  never -0.0 where `nearbyint` is (the bound pads' boxes); no fused
+  multiply-adds (`fp-contract=off`). The mingw build under wine writes the same
+  bytes as Linux. It takes under a second; the Python took twenty.
+- **Done once.** `CONVERT.txt` names the converter (`GECONVERT_VERSION_STR` in
+  geconvert.h - raise it when the output changes, and every player's arenas
+  convert again). A directory without it (the one deployed from the Python) is
+  converted again. The work goes into `GoldenEye Arenas.converting` and
+  replaces the old directory only when finished; a leftover from a killed run is
+  removed at the next start, ROM or not (it has files/ and would list as a mod).
+- **Before the mount.** `modListApplySelection()` mounts the Stage Loader's
+  maps, so main.c now opens the window (`videoInit()`) first, then
+  `gexPlusRomConvert()`, then the mount. A fresh pd.ini has `Mod.MapMods`
+  empty, which would leave GE-X Plus empty after a conversion, so the first
+  conversion (the directory did not exist) adds "GoldenEye Arenas" to it
+  (`modMapsEnableByName()`, needed because the installed list is not built yet)
+  and **saves pd.ini at once** - a killed first run otherwise lost it, and the
+  directory existing afterwards means it is never asked again.
+- **The notice** (user: "a small notification that the converter is running so
+  players dont think they black screened"): the conversion is on its own thread
+  while the main thread draws a frame every 16ms - "CONVERTING GOLDENEYE 007 FOR
+  GE-X PLUS", a count and a bar - with fill rectangles in a 5x7 pixel font,
+  since no game font is loaded. It needs `videoUpdateNativeResolution(320, 240)`
+  (0 until the scheduler's first frame) and a colour image address that is not
+  the depth buffer's, or `gfx_dp_fill_rectangle()` draws nothing. The converter's
+  log lines are handed to the main thread through a mutex.
+- **The menu.** With no arenas, GE-X Plus shows "Needs a GoldenEye 007 (US) ROM
+  in data/, then restart." (or that the conversion failed, see the log) under
+  its rows; `--no-ge-convert` skips the whole thing.
+- **Tested** in `build/gexrom/` (a binary copy, PD's ROM linked, GoldenEye as a
+  renamed `.n64`): fresh conversion identical to the standalone run, 26 maps
+  registered, second start skips, Temple booted and drawn (`--boot-stage` of the
+  registered id), the notice screenshotted (from gdb: `screenshotInit()` first,
+  since it registers its pre-swap hook after the conversion), no-ROM and
+  with-ROM menus screenshotted. The notice's screenshot is at 0/28 because gdb
+  stops the worker too.

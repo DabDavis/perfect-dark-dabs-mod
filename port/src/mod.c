@@ -3135,6 +3135,11 @@ static void modRemoveTree(const char *dir)
 	fsRemoveDir(dir);
 }
 
+void modRemoveDirTree(const char *dir)
+{
+	modRemoveTree(dir);
+}
+
 /**
  * Imports the console patch at patchPath into container/<stem>, the stem
  * prefixed with "mod_" beside the executable so the loose scan sees it. Done
@@ -3874,6 +3879,22 @@ void modMapsSetEnabled(const char *name, s32 on)
 
 	strncpy(mapModsSetting, list, sizeof(mapModsSetting) - 1);
 	mapModsSetting[sizeof(mapModsSetting) - 1] = '\0';
+}
+
+/**
+ * Turn one mod's maps on by name, before the list of installed mods exists:
+ * for a mod the game has just written itself (GE-X Plus's arenas, converted
+ * at startup ahead of the mount - gexplusrom.c).
+ */
+void modMapsEnableByName(const char *name)
+{
+	const size_t len = strlen(mapModsSetting);
+
+	if (modMapsIsEnabled(name) || len + strlen(name) + 2 > sizeof(mapModsSetting)) {
+		return;
+	}
+
+	snprintf(mapModsSetting + len, sizeof(mapModsSetting) - len, "%s%s", len ? ";" : "", name);
 }
 
 /**
