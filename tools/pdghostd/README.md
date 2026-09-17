@@ -185,11 +185,11 @@ location /pdghosts/ {
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    client_max_body_size 2m;
+    client_max_body_size 8m;
 }
 ```
 
-`client_max_body_size` has to clear `MAX_BODY` (2 MiB; the longest run the
+`client_max_body_size` has to clear `REPORT_MAX_BODY` (8 MiB, the F3 problem reports) and `MAX_BODY` (2 MiB; the longest run the
 recorder can hold is under 1.5 MiB, and a crash report is under 200 KiB once
 its newlines are escaped), or a long run is rejected by the proxy
 before the server sees it. Data lands in `~/pdghosts`: `ghosts.db` and a
