@@ -265,6 +265,9 @@ static struct {
 	u8 *bg;              // BG_W * BG_H, expanded
 	u8 *blood;           // the encoded stream
 	u32 bloodlen;
+	// c_item_entries[]'s own scale, which is what the game scales a character
+	// by and what the intro does not: both of its screens are flat (0.1 and
+	// 0.18779343). Read because the conversion writes it beside the flags
 	f32 chrscale[256];
 	u8 chrflags[256];
 	s32 numchrs;
@@ -516,11 +519,6 @@ static s32 introLoadModeldef(struct intromodel *m, s32 num, s32 ischr)
 	}
 
 	return 1;
-}
-
-static f32 introChrScale(s32 num)
-{
-	return num >= 0 && num < g_Intro.numchrs ? g_Intro.chrscale[num] : 1.0f;
 }
 
 static s32 introChrIsMale(s32 num)
@@ -1159,7 +1157,10 @@ static void introFinishModel(struct model *model, struct modeldef *def)
 
 static void introBarrelStart(void)
 {
-	const f32 scale = introChrScale(BODY_BROSNAN_TUXEDO) * 0.18779343f;
+	// title.c's own modelSetScale(chrModelInstance, 0.18779343f), and the same
+	// number again for the gun: GoldenEye scales the intro's models flat and
+	// never applies a character's own scale from c_item_entries[] here
+	const f32 scale = 0.18779343f;
 
 	g_Intro.mode = 2;
 	g_Intro.titlex = -30.0f;
@@ -1675,7 +1676,9 @@ static void introCastStart(s32 first)
 
 	introFreeModel(&g_Intro.gun);
 
-	if (!introLoadChr(&g_Intro.body, &g_Intro.head, body, head < 0 ? -1 : head, introChrScale(body) * 0.1f, 0.1f)) {
+	// init_menu18_displaycast()'s own modelSetScale(cast_model, 0.1f) and
+	// modelSetAnimTranslationScale(cast_model, 0.1f), flat for every character
+	if (!introLoadChr(&g_Intro.body, &g_Intro.head, body, head < 0 ? -1 : head, 0.1f, 0.1f)) {
 		g_Intro.castindex++;
 		return;
 	}
@@ -1718,7 +1721,7 @@ static void introCastStart(s32 first)
 		g_Intro.gun.model = modelmgrInstantiateModel(g_Intro.gun.modeldef, false);
 
 		if (g_Intro.gun.model) {
-			modelSetScale(g_Intro.gun.model, introChrScale(body) * 0.1f);
+			modelSetScale(g_Intro.gun.model, 0.1f);
 
 			// constructor_menu18_displaycast() turns the gun's first two
 			// switches off every frame: the muzzle flash, which Perfect Dark
