@@ -30,9 +30,13 @@ stream into the front of every frame. So a converted animation is:
 Nothing is re-encoded: every bit GoldenEye stored is written out at the width
 it stored it, and `framelen` is GoldenEye's own `width` (12).
 
-The root stride is the sum of the four descriptors' bit counts, not the
-record's `joints` field: with a stride of 19 Bond's walk reads as a walk (the
-hip height bobs 1036-1086 over the cycle) and with 15 it is noise.
+The root stride is the sum of the four descriptors' bit counts, and the
+descriptors are the ones the record's own third word points at - not the block
+at record+0x14, which belongs to the *next* animation. Reading them there gave
+`bond_eye_walk` the stride of `bond_eye_fire` (19 bits, hip base 1045) and gave
+`bond_eye_fire` no root motion at all, so the gun barrel's Bond stopped walking
+and dropped to the floor the moment he turned to fire. The walk's own stride is
+15 and matches its record's `joints` field; the fire's is 19.
 """
 import struct
 import gefiles

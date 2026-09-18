@@ -2751,9 +2751,9 @@ leaves only the dark top of its gradient on the screen. The offset is written
 as `GEINTRO_W * titlex / 1280` now, which is GoldenEye's own expression rather
 than the same number arrived at through `introScaleX()`.
 
-**Still open, and now measured against the game itself**: Bond finishes about
-640 units along the camera's lateral axis, which leaves him in the bright mouth
-of the barrel rather than inside the lens.
+**Closed against the game itself** (2026-09-18). Bond used to stop walking and
+drop to the floor the moment he turned to fire, finishing in the bright mouth of
+the barrel instead of inside the lens.
 
 **There is an oracle and it is the decomp's own native port** (the user, told
 mid-task: "we have an oracle for the intro fixes, even for the attract demos.
@@ -2765,79 +2765,51 @@ PORT_BOOT_FRAMES=1600 ./build/port/ge007 --boot` writes the whole boot as PPMs -
 the classification screen, the Nintendo and Rare logos, the gun barrel, the
 blood. **Its frames are 440x330**, which is the front end's own resolution and
 confirms `viSetXY(440, 330)` from the other direction. There is an ares build
-beside it (`ares/ares-nightly/build/n64oracle`) for the same job.
+beside it (`ares/ares-nightly/build/n64oracle`).
 
-What the oracle says about the settled gun barrel, measured on Bond's dark
-silhouette scaled to a common 440x330:
+Its frames said the fault was real - GoldenEye finishes Bond *inside* the lens -
+but the picture could not say why. What did was a **trace of his root position
+per tick**, taken by breaking at `title.c:241` (just after `subcalcpos`) and
+reading `chrModelInstance`'s root rwdata, against the same trace here. It showed
+Bond still translating at the walking rate long after `bond_eye_fire` starts at
+tick 137, and his hip height holding at ~202 rather than collapsing - so the
+fire animation has root motion, which the converter said it did not.
 
-| | GoldenEye | this port |
+**An animation's root descriptors and stream are where its record points, not
+at a fixed offset from it.** The record is `{entry, u16 numframes, u8 width,
+u8 loop, bitDescriptors, u16 joints, u16 bitsperframe, bitStream}` and the third
+and fifth words are offsets into `animation_data`, relocated into pointers when
+the segment loads. The blocks sit **between** the records rather than after
+their own, so reading them at `record+0x14` and `record+0x2c` gives the *next*
+animation's:
+
+| | real descriptors | what record+0x14 gave |
 |---|---|---|
-| Bond's height | 0.421 of the frame | 0.439 |
-| Bond's centre x | **0.552** | **0.777** |
+| `bond_eye_walk` | counts 4/6/5/0, bases 1/1055/54, stride **15** | the fire's |
+| `bond_eye_fire` | counts 5/7/7/0, bases 9/1045/31, stride **19** | four zeros |
 
-So **his size is right and only his position is wrong**, and the lens is right
-too: GoldenEye's Bond finishes inside the lens, which is where this one puts the
-lens (0.536) - he simply does not walk far enough to reach it. His trajectory in
-GoldenEye runs 0.948 -> 0.552 over about 90 frames and then holds; this port's
-runs 0.905 -> 0.745 and stops early, when `bond_eye_fire` (which has no root
-motion) finishes blending in. Converting through the camera, GoldenEye's Bond
-travels about **993** units from the origin against this port's **640**, a
-factor of **1.55**.
+So the walk was played with the fire's stride - which still read as a walk,
+because the fire animation's own root motion *is* a walk, Bond keeps walking
+while he turns - and the fire was played with no root motion at all. That is
+both faults at once: he stopped, and his hip height went to the ground.
 
-Three explanations have been measured and are **wrong**, so do not re-try them:
-`D_8002A8A8`, the offset `setsuboffset()` starts him at, really is three zeros
-in the ROM (read at data offset 0x9b18, `DATA_VRAM` 0x80020d90 - the twelve
-bytes after `gunbarrelPosition3` are the folder gradient's colours, not this);
-the camera constants are read and never written, so nothing dollies; and
-`modelSetAnimPlaySpeed(model, rate, 0.0f)` sets the speed at once in both games,
-so the 0.5 is not being dropped on either side.
+**This also corrects the earlier note here.** "The root stride is the sum of the
+four descriptors' bit counts, not the record's `joints` field (15 where the sum
+is 19)" was the wrong conclusion drawn from the right observation: the walk's
+`joints` field says 15 and its real stride *is* 15. The 19 belonged to the next
+animation.
 
-**The next measurement is the one to take**: run `ge007` under gdb and read
-`chrModelInstance`'s root position per tick through the barrel, and compare it
-with this port's `modelGetNodeRwData(...)->chrinfo.pos` trace tick for tick.
-That says whether GoldenEye's walk is faster, longer or started elsewhere,
-instead of inferring it from a silhouette.
+Measured after, against the oracle tick for tick - GoldenEye left, this port
+right:
 
-## Borrowed music read its volume past the end of a table (2026-09-18)
+| tick | GoldenEye | this port |
+|---|---|---|
+| ~78 | (2.4, 201.3, 337.5) | (2.4, 201.2, 328.7) |
+| ~158 | (13.0, 194.7, 693.8) | (16.3, 197.7, 681.8) |
+| ~238 | (76.5, 202.3, 1038.6) | (80.1, 202.1, 1033.9) |
+| end | (83.9, 202.1, 1040.1) | (88.8, 202.1, 1037.7) |
 
-The user, on the GE Plus folder screens after the intro: "there is a weird
-audio glitch for the ge plus menu music after the intro, a loud type of reverb
-or similar ... it was after the last mixer.c upgrade I believe". It is not a
-reverb and it is not the mixer: the theme is **about three times as loud**, and
-near enough to clipping (peak 28722 of 32767) to sound like one.
+Within half a percent over a thousand units, the residual being the two-tick
+sampling offset and this trace starting mode 3 at `titlex` 610 rather than 1276.
+`GECONVERT_VERSION_STR` is **9**.
 
-`seqSetVolume()` scaled a sequence by `var8005ecf8[seq->tracknum]`, a row per
-sequence with room for **121** where the game has **119** of its own. Every
-sequence `seqAppend()` hands out sits past them - GoldenEye X's 44 borrowed
-tracks at 119 to 162, GoldenEye's folder theme and its intro after those - so
-all but the first two read whatever follows the table. The intro's theme drew
-something that scaled to 11057 and the folder's drew one that clamped to
-`AL_VOL_FULL`, 32767, which is the three times; the row a borrowed sequence
-draws is whatever the linker put there, so it is different per build and per
-track, and one of them is the `-1` the table ends with, which clamps to full as
-well.
-
-An appended sequence now takes **0x4ccc**, the scale every one of Perfect
-Dark's own menu tracks (86 to 91) carries and the commonest of the 119 rows, so
-borrowed music sits where the game's own does. Nothing stock moves: a track
-below `g_SeqTable->count` reads its own row as before, and the N64 build is
-untouched.
-
-**The mixer change (c34362fbf) is what exposed this, not what caused it.**
-Until the raw-wave guard went in, the intro's theme killed the audio thread, so
-no session ever played two GoldenEye sequences one after the other; GoldenEye
-X's borrowed music has been drawing the same garbage since it was borrowed.
-
-**Measuring it without ears.** `SDL_AUDIODRIVER=disk` with `SDL_DISKAUDIOFILE`
-writes the mixed output straight to a file - s16, stereo, 22020 Hz - which is
-far less work than the recorder and Xvfb ([[headless-audio-check]] is still the
-recipe when the recorder itself is the subject). Leave `SDL_DISKAUDIODELAY`
-alone or the game free-runs and writes 40 minutes of audio in 20 seconds. Drive
-the game with gdb breakpoints and `ignore N` rather than `continue &` and
-`interrupt`, which races. Half-second RMS over the clip is enough to see the
-step, and the three checks that told a gain from a reverb were: the band
-energies, the crest factor and the frame-RMS distribution were all the same
-either side, so it is the same signal scaled. From there it was
-`n_syn->pAllocList` (the same voice count both ways, so not extra voices), then
-`em_volume` on the voices (3.2x), then the player's own `vol`: 11057 against
-32767.

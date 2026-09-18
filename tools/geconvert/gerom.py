@@ -32,16 +32,16 @@ NUM_CHRS = 80
 # data one is a 0x14 header {entry, u16 numframes, u8 width, u8 loop,
 # bitDescriptors, u16 joints, u16 bitsperframe, bitStream}, then its four
 # root-motion descriptors {u16 bitoffset, u8 bitcount, pad, u16 base} and then
-# their bit stream. The two pointers in the header are relocated when the
-# segment loads and say nothing here beyond their difference, which is the 24
-# bytes the four descriptors take; the descriptors follow the header and the
-# stream follows them. The header's `entry` is the offset of the animation's
-# frames in the entry segment, each frame bitsperframe/8 bytes of joint
-# rotations, `width` bits a channel.
+# their bit stream. **The two pointers in the header are where those two live**:
+# they are offsets into animation_data, relocated into pointers when the segment
+# loads, and the blocks sit between the records rather than after their own - so
+# reading the descriptors at record+0x14 and the stream at record+0x2c gives the
+# *next* animation's, which is what gave bond_eye_walk the stride of
+# bond_eye_fire and bond_eye_fire no root motion at all. The header's `entry` is
+# the offset of the animation's frames in the entry segment, each frame
+# bitsperframe/8 bytes of joint rotations, `width` bits a channel.
 ANIM_ENTRY_ROM = 0x124ac0
 ANIM_DATA_ROM = 0x28e980
-ANIM_DESC = 0x14
-ANIM_STREAM = 0x2c
 
 # GoldenEye's level ids (bondconstants.h LEVELID)
 LEVELIDS = {'BUNKER1': 9, 'SILO': 20, 'STATUE': 22, 'CONTROL': 23, 'ARCHIVES': 24, 'TRAIN': 25,
@@ -153,9 +153,11 @@ class Rom:
         entry, w1, bd, w3, bs = struct.unpack_from('>IIIII', self.rom, at)
         numframes, width, loop = w1 >> 16, (w1 >> 8) & 0xff, w1 & 0xff
         bitsperframe = w3 & 0xffff
-        desc = [struct.unpack_from('>HBxH', self.rom, at + ANIM_DESC + 6 * i) for i in range(4)]
+        descat = ANIM_DATA_ROM + (bd & 0xffffff)
+        streamat = ANIM_DATA_ROM + (bs & 0xffffff)
+        desc = [struct.unpack_from('>HBxH', self.rom, descat + 6 * i) for i in range(4)]
         rootbits = sum(c for _, c, _ in desc)
-        root = self.rom[at + ANIM_STREAM:at + ANIM_STREAM + (rootbits * numframes + 7) // 8]
+        root = self.rom[streamat:streamat + (rootbits * numframes + 7) // 8]
         frames = self.rom[ANIM_ENTRY_ROM + entry:ANIM_ENTRY_ROM + entry + numframes * (bitsperframe // 8)]
         return dict(numframes=numframes, width=width, loop=loop, bitsperframe=bitsperframe,
                     descriptors=desc, rootbits=rootbits, root=root, frames=frames)

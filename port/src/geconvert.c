@@ -72,8 +72,7 @@
 // segment, bitsperframe/8 bytes a frame of joint rotations, `width` bits a
 // channel, in joint order.
 #define ANIM_ENTRY_ROM 0x124ac0
-#define ANIM_DESC 0x14
-#define ANIM_STREAM 0x2c
+#define ANIM_DATA_ROM 0x28e980
 // GoldenEye's guard skeleton, which every character in the ROM has: the header
 // node the animation plays on and fifteen parts, which is Perfect Dark's
 // g_SkelChrJoints joint for joint
@@ -3935,7 +3934,9 @@ static buf animConvert(size_t at, struct animout *out)
 	size_t rootlen;
 	buf w = {0};
 
-	if (at + ANIM_STREAM > g_RomLen) {
+	size_t descat, streamat;
+
+	if (at + 0x14 > g_RomLen) {
 		fail("an animation record runs off the ROM");
 	}
 
@@ -3947,10 +3948,24 @@ static buf animConvert(size_t at, struct animout *out)
 	framebytes = bitsperframe / 8;
 	rotbits = 3 * width * ANIM_PARTS;
 
+	// The record's third and fifth words are where its four root-motion
+	// descriptors and their bit stream live: offsets into animation_data,
+	// relocated into pointers when the segment loads. The blocks sit *between*
+	// the records rather than after their own, so reading them at at+0x14 and
+	// at+0x2c gives the next animation's - which gave bond_eye_walk the stride
+	// of bond_eye_fire, and bond_eye_fire no root motion at all, so Bond
+	// stopped walking and sank to the floor the moment he turned to fire.
+	descat = ANIM_DATA_ROM + (be32(g_Rom, at + 8) & 0xffffff);
+	streamat = ANIM_DATA_ROM + (be32(g_Rom, at + 16) & 0xffffff);
+
+	if (descat + 24 > g_RomLen) {
+		fail("an animation's descriptors run off the ROM");
+	}
+
 	for (int i = 0; i < 4; ++i) {
-		off[i] = be16(g_Rom, at + ANIM_DESC + 6 * i);
-		cnt[i] = g_Rom[at + ANIM_DESC + 6 * i + 2];
-		base[i] = be16(g_Rom, at + ANIM_DESC + 6 * i + 4);
+		off[i] = be16(g_Rom, descat + 6 * i);
+		cnt[i] = g_Rom[descat + 6 * i + 2];
+		base[i] = be16(g_Rom, descat + 6 * i + 4);
 		rootbits += cnt[i];
 	}
 
@@ -3959,10 +3974,10 @@ static buf animConvert(size_t at, struct animout *out)
 	}
 
 	rootlen = ((size_t)rootbits * numframes + 7) / 8;
-	root = g_Rom + at + ANIM_STREAM;
+	root = g_Rom + streamat;
 	frames = g_Rom + ANIM_ENTRY_ROM + entry;
 
-	if (at + ANIM_STREAM + rootlen > g_RomLen
+	if (streamat + rootlen > g_RomLen
 			|| (size_t)ANIM_ENTRY_ROM + entry + (size_t)numframes * framebytes > g_RomLen) {
 		fail("an animation's data runs off the ROM");
 	}
