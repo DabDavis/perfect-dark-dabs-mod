@@ -3018,3 +3018,44 @@ answers 1024x768 whatever `Video.DefaultWidth` says, and Xvfb's llvmpipe draws
 the barrel as noise. The box was checked by printing it out of gdb at three
 aspects (`call introFrameBox($b)` with `gfx_current_dimensions.aspect_ratio`
 set) against the arithmetic above, and the 4:3 picture compared pixel for pixel.
+
+## The cast reel's runner stopped in mid-stride (2026-09-18)
+
+The user: "some animations in the intro are broken, like the running will stop."
+
+**An animation's loop bit is a flag on the animation, not a call at the site
+that plays it.** GoldenEye's animation record carries it (`ModelAnimation`'s
+`unk07 & 1`: "0 means freeze anim at end, 1 means loop anim") and it is Perfect
+Dark's own `ANIMFLAG_LOOP`, which is what makes
+`modelConstrainOrWrapAnimFrame()` wrap a frame past the end round to the front
+instead of holding the last one. Neither game's intro ever asks for a loop:
+`title.c` and `front.c` both just call `modelSetAnimation()` and leave the rest
+to the flag.
+
+`geanim.py` and `geconvert.c` have written the bit into `menu/intro.bin` from
+the start, and `introLoadAnims()` read it into a field of its own and then set
+`entry.flags = 0`. So every looping animation froze at its last frame:
+`running_one_handed` is **26 frames** and the reel holds a character for 180
+ticks at `playspeed 0.5 * speed 0.91`, which is 82 frames of animation - the
+runner ran for a second and stood still in mid-stride for two, with his root
+frozen where it had got to (measured in gdb: `frame 25.00 root z 121.69` from
+tick 55 to tick 180). With the bit it wraps three times and the root keeps
+travelling ten units every twenty ticks with no step at the seam.
+
+The gun barrel's walk was the other one (`bond_eye_walk`, 35 frames, loop bit
+set) and it only looked right because `introBarrelStart()` called
+`modelSetAnimLooping()` by hand. That call is gone: it is not GoldenEye's, and
+it restarts the animation at the end of every cycle, which skips the tween
+across the seam and resets the root the walk has accumulated. Bond's walk is
+unchanged to a quarter of a percent - he ends at `x 83.15 z 1040.34` rather than
+`x 88.76 z 1037.69`, a little nearer the middle of the bore.
+
+**Two cast animations still stop before their three seconds are up**, and
+GoldenEye's stop there too: `cock_and_turn_around` is 70 frames of the 90 the
+reel plays and `draw_and_turn_around` is 57. Both end standing, so they hold a
+pose rather than a stride. Nothing to fix - the frame counts are GoldenEye's.
+
+Checked with the whole intro played through under gdb
+(`SDL_VIDEODRIVER=offscreen`, `call geIntroOpen()` after `mainEndStage()`): the
+barrel, the logo and all twelve named characters, `geIntroIsActive()` going
+false at tick 3084 into the folder screens.

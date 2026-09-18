@@ -244,7 +244,6 @@ enum {
 struct introanim {
 	struct animtableentry entry;
 	s32 animnum;
-	u8 looping;
 };
 
 struct intromodel {
@@ -436,8 +435,17 @@ static s32 introLoadAnims(void)
 		a->entry.bytesperframe = be16(row + 22);
 		a->entry.headerlen = be16(row + 24);
 		a->entry.framelen = row[26];
-		a->entry.flags = 0;
-		a->looping = row[27];
+
+		// GoldenEye's own loop bit (its record's `unk07 & 1`, which the
+		// conversion writes here) is Perfect Dark's ANIMFLAG_LOOP: it is what
+		// makes modelConstrainOrWrapAnimFrame() wrap a frame past the end
+		// round to the front instead of holding the last one. Neither game
+		// asks its intro to loop anything explicitly - title.c and front.c
+		// both just set the animation - so dropping the bit froze every
+		// looping animation at its end: the cast reel's `running_one_handed`
+		// is 26 frames and the reel holds a character for 82, so the runner
+		// ran for a second and then stood still in mid-stride for two
+		a->entry.flags = row[27] ? ANIMFLAG_LOOP : 0;
 
 		// the header and the frames are read into the slot buffers the ROM's
 		// own sizes made, and the bit reader runs off the end of the last frame
@@ -1199,8 +1207,11 @@ static void introBarrelStart(void)
 			start += frames;
 		}
 
+		// the walk's own loop bit carries it round the seam, which is what
+		// GoldenEye leaves it to: modelSetAnimLooping() stood here instead and
+		// restarted the animation at the end of every cycle, which skips the
+		// tween across the seam and resets the root the walk has accumulated
 		modelSetAnimation(g_Intro.body.model, g_Intro.anims[GEANIM_BOND_EYE_WALK].animnum, 0, (f32)start, 0.91f, 0.0f);
-		modelSetAnimLooping(g_Intro.body.model, 0.0f, 0.0f);
 	}
 
 	if (introLoadModeldef(&g_Intro.gun, 191, 0)) {
