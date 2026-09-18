@@ -1082,7 +1082,7 @@ static Gfx *introSetLights(Gfx *gdl)
  * A model drawn under `base`, the way the menus draw one (menuRenderModel()):
  * its matrices start as the identity with the base in the first, an animated
  * one is posed through modelSetMatricesWithAnim() and a still one through
- * modelUpdateRelations(), and once everything hanging off it has been drawn
+ * modelSetMatrices(), and once everything hanging off it has been drawn
  * too, introFinishModel() turns its matrices into what the renderer reads.
  * They have to stay floats until then, since a gun's own matrix is one of the
  * body's.
@@ -1107,10 +1107,17 @@ static Gfx *introDrawModel(Gfx *gdl, struct model *model, struct modeldef *def, 
 	renderdata.unk00 = base;
 	renderdata.unk10 = matrices;
 
+	// subcalcmatrices() for the animated chr, instcalcmatrices() for the gun and
+	// the logo, which carry no animation. modelSetMatrices() is the call that
+	// builds the joints; modelUpdateRelations() only resolves a node's distance,
+	// reorder, toggle and head relations and computes no matrix at all, so a
+	// model given only that was drawn with every joint but its root left at
+	// identity - which is what took the gun off the hand it hangs from
 	if (model->anim) {
 		modelSetMatricesWithAnim(&renderdata, model);
 	} else {
 		modelUpdateRelations(model);
+		modelSetMatrices(&renderdata, model);
 	}
 
 	// GoldenEye draws both of the intro's screens with `PropType` 7
@@ -1259,7 +1266,6 @@ static Gfx *introDrawBond(Gfx *gdl)
 
 	gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 	gSPPerspNormalize(gdl++, perspnorm);
-	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 	gDPPipeSync(gdl++);
 	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
@@ -1286,19 +1292,34 @@ static Gfx *introDrawBond(Gfx *gdl)
 	mtx00016ae4(&camera, 1758.2957f, 220.0f, 684.28143f,
 			1758.2957f - 0.97f, 220.0f, 684.28143f + 0.24f, 0.0f, 1.0f, 0.0f);
 
-	gdl = introDrawModel(gdl, g_Intro.body.model, g_Intro.body.modeldef, &camera, false);
+	// GoldenEye draws this screen with renderData.zbufferenabled = FALSE and
+	// keeps Bond solid another way: sub_GAME_7F06B120() gathers his joints and
+	// the gun's into one list, sub_GAME_7F06BB28() sorts it and drawjointlist()
+	// runs it twice - a painter's order this port has no equivalent of, since
+	// modelRender() draws a model's own lists in their own order. Without it
+	// the arm hanging at his far side was painted over his chest and the gun
+	// with it. The cast reel is already drawn into a z buffer, which is
+	// GoldenEye's own answer on the one screen it gives one to, so the barrel
+	// takes the same here
+	gdl = zbufClear(gdl);
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
+	gdl = introDrawModel(gdl, g_Intro.body.model, g_Intro.body.modeldef, &camera, true);
 
 	if (g_Intro.gun.model) {
 		struct modelnode *hand = modelGetPart(g_Intro.body.modeldef, MODELPART_CHR_RIGHTHAND);
 		Mtxf *mtx = hand ? modelFindNodeMtx(g_Intro.body.model, hand, 0) : NULL;
 
 		if (mtx) {
-			gdl = introDrawModel(gdl, g_Intro.gun.model, g_Intro.gun.modeldef, mtx, false);
+			gdl = introDrawModel(gdl, g_Intro.gun.model, g_Intro.gun.modeldef, mtx, true);
 			introFinishModel(g_Intro.gun.model, g_Intro.gun.modeldef);
 		}
 	}
 
 	introFinishModel(g_Intro.body.model, g_Intro.body.modeldef);
+
+	// the lens, the blood and the fades that follow are flat sheets again
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
 	return gdl;
 }
@@ -1759,6 +1780,7 @@ static void introCastRootMtx(struct coord *pos)
 		modelSetMatricesWithAnim(&renderdata, model);
 	} else {
 		modelUpdateRelations(model);
+		modelSetMatrices(&renderdata, model);
 	}
 
 	pos->x = matrices[0].m[3][0];
