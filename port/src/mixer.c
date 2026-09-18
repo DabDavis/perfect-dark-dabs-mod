@@ -134,6 +134,13 @@ void aSaveBufferImpl(uint16_t source_addr, int16_t *dest_addr, uint16_t nbytes) 
 }
 
 void aLoadADPCMImpl(int num_entries_times_16, const int16_t *book_source_addr) {
+    // The RSP would read whatever address it was handed; here a null one is a
+    // segfault that takes the game with it, and a bank whose wave is not ADPCM
+    // has no book to hand over (n_alAdpcmPull() keeps those out, and this is
+    // the backstop for any bank that reaches here another way).
+    if (!book_source_addr) {
+        return;
+    }
     memcpy(rspa.adpcm_table, book_source_addr, num_entries_times_16);
 }
 

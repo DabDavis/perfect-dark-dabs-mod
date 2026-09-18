@@ -2649,6 +2649,25 @@ files. `build/`'s own install was in exactly that state - `build/data` had no
 GoldenEye ROM, so a conversion from before the folder screens existed had been
 current since.
 
+**The intro's music crashed the audio thread** (a crash report from the user,
+20260918-063924, SIGSEGV in `aLoadADPCMImpl`). GoldenEye's music bank holds
+**two waves that are not ADPCM** - `AL_RAW16_WAVE`, an 18ms one-shot, on
+instruments 2 and 51 of 75 - and `n_alAdpcmPull()` loads a wave's ADPCM book
+before it looks at the type, so a raw wave dereferenced a null book.
+`n_alLoadParam()` right below it *does* know about raw waves; the pull does not,
+because Perfect Dark's own banks are ADPCM throughout and the raw branch is dead
+code in its ROM. The folders theme plays no raw instrument and the intro theme
+plays one, which is why the folder screens had been fine for a day.
+
+The voice is now cleared and skipped for as long as the raw wave lasts (there is
+no raw path in this synthesiser to send it down instead), and
+`aLoadADPCMImpl()` refuses a null book as a backstop for any other bank that
+reaches it. Nothing stock is affected: every wave in Perfect Dark's own banks is
+ADPCM, so the guard never fires for them.
+
+**Every test until then ran `--no-sound`**, which is why this reached a
+release. A change that starts a sequence has to be run with audio.
+
 **Not done**, and what a second pass would look at:
 - Bond settles a little left of the bore rather than inside it - the walk covers
   1137 of the 1054 units the camera is aimed along, so the framing is a fraction
@@ -2659,4 +2678,7 @@ current since.
   GoldenEye's spring smoothing, and its distances (70-150) frame a close-up;
 - the logo's red ellipse is drawn behind the letters and is sometimes hidden;
 - the blood's animated wash shows only its first rows before the flat red takes
-  over.
+  over;
+- the two raw waves in GoldenEye's bank are silent rather than played - a raw
+  path in the synthesiser would need the samples byte-swapped as well, since
+  the `tbl` is the ROM's bytes and `aLoadBuffer` is a memcpy.

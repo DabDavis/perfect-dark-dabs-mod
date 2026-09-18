@@ -32,6 +32,25 @@ Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 outCount, Acmd *p)
 
 	inp = N_AL_DECODER_IN;
 
+#ifndef PLATFORM_N64
+	// A wave that is not ADPCM has no book, and this decoder loads one before
+	// it looks at the type - n_alLoadParam() above knows about AL_RAW16_WAVE
+	// and this does not, because Perfect Dark's own banks hold nothing but
+	// ADPCM and the raw branch is dead code in its ROM. GoldenEye's music bank
+	// is not: two of its 138 waves are raw (an 18ms one-shot on instruments 2
+	// and 51), and its intro theme plays one, which dereferenced a null book
+	// and killed the audio thread. Perfect Dark's synthesiser has no raw path
+	// to send it down instead, so the voice is silent for as long as it lasts.
+	if (!f->dc_table || f->dc_table->type != AL_ADPCM_WAVE
+			|| !f->dc_table->waveInfo.adpcmWave.book) {
+		aClearBuffer(ptr++, *outp, outCount << 1);
+		f->dc_lastsam = 0;
+		f->dc_sample += outCount;
+
+		return ptr;
+	}
+#endif
+
 	aLoadADPCM(ptr++, f->dc_bookSize, K0_TO_PHYS(f->dc_table->waveInfo.adpcmWave.book->book));
 
 	looped = (outCount + f->dc_sample > f->dc_loop.end) && (f->dc_loop.count != 0);

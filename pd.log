@@ -1,60 +1,10 @@
-version: dabs-mod ae3bc26f3 (x86_64-linux)
-startup date: 18 Sep 2026 06:36:20
+version: dabs-mod 56055e675 (x86_64-linux)
+startup date: 18 Sep 2026 06:48:35
 base dir: /home/sdg/perfect-dark/perfect_dark/build/data
 save dir: /home/sdg/perfect-dark/perfect_dark/build
 SDL: created GL3.0 context
 GL: using GLSL version 130
-gexplus: converting /home/sdg/perfect-dark/perfect_dark/build/data/GoldenEye 007 (U) [!].n64 into $E/mods/GoldenEye Arenas, this happens once
-geconvert: Dam: 136 rooms, 194 portals, 2755 tiles (+1616 walls), 367 pads, 5 lights
-geconvert: Dam: mission 0, 323 props (+5 left out), 577 ai commands (+37)
-geconvert: Runway: 17 rooms, 27 portals, 495 tiles (+298 walls), 176 pads, 0 lights
-geconvert: Runway: mission 2, 105 props (+34 left out), 465 ai commands (+41)
-geconvert: Statue Park: 27 rooms, 43 portals, 1374 tiles (+703 walls), 228 pads, 0 lights
-geconvert: Statue Park: mission 9, 60 props (+4 left out), 1264 ai commands (+98)
-geconvert: Train: 57 rooms, 64 portals, 694 tiles (+602 walls), 206 pads, 0 lights
-geconvert: Train: mission 13, 375 props (+62 left out), 1262 ai commands (+96)
-geconvert: Streets: 55 rooms, 61 portals, 1235 tiles (+664 walls), 285 pads, 0 lights
-geconvert: Streets: mission 11, 207 props (+11 left out), 888 ai commands (+80)
-geconvert: Jungle: 44 rooms, 59 portals, 2104 tiles (+544 walls), 593 pads, 0 lights
-geconvert: Jungle: mission 14, 524 props (+46 left out), 1025 ai commands (+73)
-geconvert: Caves: 13 rooms, 15 portals, 462 tiles (+260 walls), 35 pads, 0 lights
-geconvert: Temple: 25 rooms, 37 portals, 204 tiles (+174 walls), 41 pads, 0 lights
-geconvert: Complex: 44 rooms, 60 portals, 545 tiles (+413 walls), 49 pads, 0 lights
-geconvert: Library: 92 rooms, 110 portals, 486 tiles (+426 walls), 62 pads, 0 lights
-geconvert: Basement: 92 rooms, 110 portals, 486 tiles (+426 walls), 62 pads, 0 lights
-geconvert: Stack: 92 rooms, 110 portals, 486 tiles (+426 walls), 62 pads, 0 lights
-geconvert: Facility: 77 rooms, 109 portals, 2599 tiles (+2160 walls), 311 pads, 0 lights
-geconvert: Facility: mission 1, 440 props (+83 left out), 1473 ai commands (+97)
-geconvert: Bunker: 68 rooms, 75 portals, 1365 tiles (+885 walls), 121 pads, 4 lights
-geconvert: Bunker 2: mission 8, 308 props (+37 left out), 808 ai commands (+54)
-geconvert: Archives: 65 rooms, 103 portals, 1636 tiles (+1217 walls), 210 pads, 0 lights
-geconvert: Archives: mission 10, 376 props (+39 left out), 535 ai commands (+39)
-geconvert: Caverns: 63 rooms, 76 portals, 1436 tiles (+1130 walls), 370 pads, 41 lights
-geconvert: Caverns: mission 16, 457 props (+22 left out), 634 ai commands (+43)
-geconvert: Egyptian: 44 rooms, 51 portals, 918 tiles (+666 walls), 191 pads, 0 lights
-geconvert: Egyptian: mission 19, 112 props (+1 left out), 789 ai commands (+56)
-geconvert: Cradle: 36 rooms, 0 portals, 747 tiles (+641 walls), 152 pads, 0 lights
-geconvert: Cradle: mission 17, 47 props (+1 left out), 1262 ai commands (+171)
-geconvert: Surface: 39 rooms, 101 portals, 2555 tiles (+903 walls), 299 pads, 0 lights
-geconvert: Surface: mission 3, 243 props (+4 left out), 838 ai commands (+46)
-geconvert: Surface 2: 39 rooms, 101 portals, 2555 tiles (+903 walls), 290 pads, 0 lights
-geconvert: Surface 2: mission 7, 178 props (+2 left out), 1025 ai commands (+79)
-geconvert: Silo: 86 rooms, 94 portals, 2570 tiles (+1808 walls), 233 pads, 5 lights
-geconvert: Silo: mission 5, 335 props (+0 left out), 587 ai commands (+32)
-geconvert: Frigate: 58 rooms, 94 portals, 1844 tiles (+1548 walls), 177 pads, 0 lights
-geconvert: Frigate: mission 6, 227 props (+32 left out), 385 ai commands (+24)
-geconvert: Depot: 89 rooms, 118 portals, 2007 tiles (+1286 walls), 354 pads, 0 lights
-geconvert: Depot: mission 12, 216 props (+1 left out), 744 ai commands (+95)
-geconvert: Control: 91 rooms, 141 portals, 2275 tiles (+1812 walls), 231 pads, 0 lights
-geconvert: Control: mission 15, 288 props (+5 left out), 1014 ai commands (+45)
-geconvert: Bunker 1: 30 rooms, 30 portals, 1066 tiles (+584 walls), 105 pads, 2 lights
-geconvert: Bunker: mission 4, 175 props (+31 left out), 478 ai commands (+42)
-geconvert: Aztec: 92 rooms, 95 portals, 1560 tiles (+1428 walls), 178 pads, 0 lights
-geconvert: Aztec: mission 18, 275 props (+51 left out), 609 ai commands (+37)
-geconvert: 80 characters, 25 animations in 319983 bytes
-geconvert: 217 models
-geconvert: 2054 textures, 0 missing
-gexplus: the GoldenEye arenas are in $E/mods/GoldenEye Arenas
+gebean: GoldenEye XBLA characters in /home/sdg/perfect-dark/perfect_dark/build/xbla/goldeneye/files
 mod: 91 installed: 2xw_nr_patch_v1, PD_Kakariko, spooky_dark_vault, PD11GEWeaponsBoth, cvmp, GoldenEye Arenas, PerfectDark_2XW-NR_patch_v1, chicagoresturanteasier, g5basemission_omegacop13_old, DarkCorps_Part_Three(BETA), g5basemission_omegacop13, MarioCharacters_Mario v1.1
 mod: 91 mods mounted for their maps
 ERROR: fsFileLoad: could not find file: /home/sdg/perfect-dark/perfect_dark/build/mods/GE Gun Name Display - PD Names/segs/data
@@ -62,33 +12,34 @@ ERROR: moddata: could not load /home/sdg/perfect-dark/perfect_dark/build/mods/GE
 modborrow: GoldenEye's guns come from `GE-X_6a_01-19-25` (25 of 25 slots)
 input: assigned controller '0: (DualSense Wireless Controller)' (id 0) to player 0
 input: GUID for controller 0: 030057564c050000e60c000000016800
+crash: 3 reports waiting to be sent ($S/crashreports/crash-20260918-064554.txt)
 ROM file: pd.ntsc-final.z64
-loading segment fontjpnsingle from ROM (offset 00194b20 pointer 0x7fa928f92b30)
-loading segment fontjpnmulti from ROM (offset 0019fb40 pointer 0x7fa928f9db50)
-loading segment animations from ROM (offset 001a15c0 pointer 0x7fa928f9f5d0)
-loading segment mpconfigs from ROM (offset 007d0a40 pointer 0x7fa9295cea50)
-loading segment mpstringsE from ROM (offset 007d1c20 pointer 0x7fa9295cfc30)
-loading segment mpstringsJ from ROM (offset 007d5320 pointer 0x7fa9295d3330)
-loading segment mpstringsP from ROM (offset 007d8a20 pointer 0x7fa9295d6a30)
-loading segment mpstringsG from ROM (offset 007dc120 pointer 0x7fa9295da130)
-loading segment mpstringsF from ROM (offset 007df820 pointer 0x7fa9295dd830)
-loading segment mpstringsS from ROM (offset 007e2f20 pointer 0x7fa9295e0f30)
-loading segment mpstringsI from ROM (offset 007e6620 pointer 0x7fa9295e4630)
-loading segment firingrange from ROM (offset 007e9d20 pointer 0x7fa9295e7d30)
-loading segment fonttahoma from ROM (offset 007f7860 pointer 0x7fa9295f5870)
-loading segment fontnumeric from ROM (offset 007f8b20 pointer 0x7fa9295f6b30)
-loading segment fonthandelgothicsm from ROM (offset 007f9d30 pointer 0x7fa9295f7d40)
-loading segment fonthandelgothicxs from ROM (offset 007fbfb0 pointer 0x7fa9295f9fc0)
-loading segment fonthandelgothicmd from ROM (offset 007fdd80 pointer 0x7fa9295fbd90)
-loading segment fonthandelgothiclg from ROM (offset 008008e0 pointer 0x7fa9295fe8f0)
-loading segment sfxctl from ROM (offset 0080a250 pointer 0x7fa929608260)
-loading segment sfxtbl from ROM (offset 00839dd0 pointer 0x7fa929637de0)
-loading segment seqctl from ROM (offset 00cfbf30 pointer 0x7fa929af9f40)
-loading segment seqtbl from ROM (offset 00d05f90 pointer 0x7fa929b03fa0)
-loading segment sequences from ROM (offset 00e82000 pointer 0x7fa929c80010)
-loading segment texturesdata from ROM (offset 01d65f40 pointer 0x7fa92ab63f50)
-loading segment textureslist from ROM (offset 01ff7ca0 pointer 0x7fa92adf5cb0)
-loading segment copyright from ROM (offset 01ffea20 pointer 0x7fa92adfca30)
+loading segment fontjpnsingle from ROM (offset 00194b20 pointer 0x7fa8a48dfb30)
+loading segment fontjpnmulti from ROM (offset 0019fb40 pointer 0x7fa8a48eab50)
+loading segment animations from ROM (offset 001a15c0 pointer 0x7fa8a48ec5d0)
+loading segment mpconfigs from ROM (offset 007d0a40 pointer 0x7fa8a4f1ba50)
+loading segment mpstringsE from ROM (offset 007d1c20 pointer 0x7fa8a4f1cc30)
+loading segment mpstringsJ from ROM (offset 007d5320 pointer 0x7fa8a4f20330)
+loading segment mpstringsP from ROM (offset 007d8a20 pointer 0x7fa8a4f23a30)
+loading segment mpstringsG from ROM (offset 007dc120 pointer 0x7fa8a4f27130)
+loading segment mpstringsF from ROM (offset 007df820 pointer 0x7fa8a4f2a830)
+loading segment mpstringsS from ROM (offset 007e2f20 pointer 0x7fa8a4f2df30)
+loading segment mpstringsI from ROM (offset 007e6620 pointer 0x7fa8a4f31630)
+loading segment firingrange from ROM (offset 007e9d20 pointer 0x7fa8a4f34d30)
+loading segment fonttahoma from ROM (offset 007f7860 pointer 0x7fa8a4f42870)
+loading segment fontnumeric from ROM (offset 007f8b20 pointer 0x7fa8a4f43b30)
+loading segment fonthandelgothicsm from ROM (offset 007f9d30 pointer 0x7fa8a4f44d40)
+loading segment fonthandelgothicxs from ROM (offset 007fbfb0 pointer 0x7fa8a4f46fc0)
+loading segment fonthandelgothicmd from ROM (offset 007fdd80 pointer 0x7fa8a4f48d90)
+loading segment fonthandelgothiclg from ROM (offset 008008e0 pointer 0x7fa8a4f4b8f0)
+loading segment sfxctl from ROM (offset 0080a250 pointer 0x7fa8a4f55260)
+loading segment sfxtbl from ROM (offset 00839dd0 pointer 0x7fa8a4f84de0)
+loading segment seqctl from ROM (offset 00cfbf30 pointer 0x7fa8a5446f40)
+loading segment seqtbl from ROM (offset 00d05f90 pointer 0x7fa8a5450fa0)
+loading segment sequences from ROM (offset 00e82000 pointer 0x7fa8a55cd010)
+loading segment texturesdata from ROM (offset 01d65f40 pointer 0x7fa8a64b0f50)
+loading segment textureslist from ROM (offset 01ff7ca0 pointer 0x7fa8a6742cb0)
+loading segment copyright from ROM (offset 01ffea20 pointer 0x7fa8a6749a30)
 skipping segment fontjpn
 romdataInit: loaded rom, size = 33554432
 modloader: mp2 (2xw_nr_patch_v1) -> stage 0x51
@@ -375,46 +326,17 @@ modloader: mp17 has only placeholder geometry; skipped
 modloader: gex registered 0 of 30 maps
 WARNING: modloader: out of usable stage numbers; 30 maps skipped
 modborrow: 22 of `GE-X_6a_01-19-25`'s arenas take its own stage rows, 10 skies and its props
-gebean: GoldenEye XBLA characters in /home/sdg/perfect-dark/perfect_dark/build/xbla/goldeneye/files
-memp heap at 0x7fa8e7fff010 - 0x7fa8ebfff010
-rom  file at 0x7fa928dfe010 - 0x7fa92adfe010
+gebean: 0 GoldenEye guns in the Combat Simulator's weapons, 25 with the release's pickup
+modborrow: 54 characters and 52 heads from `GE-X_6a_01-19-25` in the Combat Simulator's lists (106 rows)
+memp heap at 0x7fa87bfff010 - 0x7fa87ffff010
+rom  file at 0x7fa8a474b010 - 0x7fa8a674b010
 boot stage set to 0x26
 xbla: using /home/sdg/perfect-dark/perfect_dark/build/xbla/Perfect Dark XBLA.7z
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1517
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 472
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 473
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 475
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1150
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1518
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1519
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 83
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 200
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1477
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1520
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1149
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1521
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1073
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1522
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1523
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1479
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1524
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1275
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 121
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 46
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1286
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1487
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1485
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1488
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1483
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 112
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1277
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 96
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 95
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 97
-WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1473
+modborrow: 44 music tracks from `GE-X_6a_01-19-25` in the Combat Simulator's list
 modborrow: 14 weapon sets from `GE-X_6a_01-19-25` in the Combat Simulator's list
-modborrow: 25 of GoldenEye's guns from `GE-X_6a_01-19-25`, with 40 animations and 0 sounds of its own
+modborrow: 25 of GoldenEye's guns from `GE-X_6a_01-19-25`, with 40 animations and 33 sounds of its own
+gebean: 25 GoldenEye guns in the Combat Simulator's weapons, 25 with the release's pickup
+modborrow: 54 characters and 52 heads from `GE-X_6a_01-19-25` in the Combat Simulator's lists (106 rows)
 xbla: using the copy unpacked in /home/sdg/perfect-dark/perfect_dark/build/xbla/.unpacked; it can go, the next unpack lands in /home/sdg/perfect-dark/perfect_dark/build/cache/xbla
 xblamesh: 2616 slots in /home/sdg/perfect-dark/perfect_dark/build/xbla/.unpacked/Perfect Dark/8292DB976888C5DCD68C695F11B3DFED5F4512E858
 setup: 9 chr entries, 9 spawned, 0 refused for something in the way at the pad
@@ -422,6 +344,7 @@ xblatex: 5747 texture records in /home/sdg/perfect-dark/perfect_dark/build/xbla/
 xblatex: record 3515 decoded, 1024x512 format 6
 xblafont: DataFiles/Handel Gothic_46.abc, 184 glyphs in record 0dbb
 xblafont: font 4 sits on DataFiles/Handel Gothic_46.abc at 0.1218 x + -0.575, 27 of 28 anchors, condensed to 0.648
+music: sequence 108 starts as track type 1
 xblatex: record 2867 decoded, 32x32 format 6
 xblatex: record 2868 decoded, 32x32 format 6
 xblatex: record 800 decoded, 32x64 format 6
@@ -441,25 +364,33 @@ xblafont: DataFiles/Handel Gothic_54.abc, 184 glyphs in record 0dbc
 xblafont: font 1 sits on DataFiles/Handel Gothic_54.abc at 0.1947 x + -1.472, 141 of 186 anchors, condensed to 0.908
 xblafont: DataFiles/Handel Gothic_22.abc, 184 glyphs in record 0dba
 xblafont: font 2 sits on DataFiles/Handel Gothic_22.abc at 0.2528 x + 0.315, 151 of 186 anchors, condensed to 0.931
+music: sequence 89 starts as track type 3
 xblafont: font 0 sits on DataFiles/Handel Gothic_46.abc at 0.1684 x + -1.099, 152 of 186 anchors, condensed to 0.891
-file 3027 (Pgx278Z) loaded externally
-file 3028 (Cgx005Z) loaded externally
-file 3029 (Cgx078Z) loaded externally
-file 3030 (Pgx191Z) loaded externally
-screenshot: /home/sdg/perfect-dark/perfect_dark/build/screenshots/pd-20260918-063648.png
-file 3031 (Pgx277Z) loaded externally
-file 3032 (Cgx023Z) loaded externally
-file 3033 (Cgx075Z) loaded externally
-file 3034 (Cgx016Z) loaded externally
-file 3035 (Pgx205Z) loaded externally
-file 3036 (Cgx009Z) loaded externally
-file 3037 (Pgx187Z) loaded externally
-file 3038 (Cgx011Z) loaded externally
-file 3039 (Pgx185Z) loaded externally
-file 3040 (Cgx007Z) loaded externally
-file 3041 (Cgx006Z) loaded externally
-file 3042 (Cgx010Z) loaded externally
-file 3043 (Pgx195Z) loaded externally
-file 3044 (Cgx019Z) loaded externally
-file 3045 (Cgx069Z) loaded externally
-file 3046 (Cgx014Z) loaded externally
+file 3161 (Pgx278Z) loaded externally
+file 3162 (Cgx005Z) loaded externally
+file 3163 (Cgx078Z) loaded externally
+file 3164 (Pgx191Z) loaded externally
+music: sequence 163 starts as track type 3
+file 3165 (Pgx277Z) loaded externally
+file 3166 (Pgx193Z) loaded externally
+file 3167 (Cgx016Z) loaded externally
+file 3168 (Pgx208Z) loaded externally
+file 3169 (Cgx009Z) loaded externally
+file 3170 (Pgx205Z) loaded externally
+file 3171 (Cgx011Z) loaded externally
+file 3172 (Cgx007Z) loaded externally
+file 3173 (Pgx185Z) loaded externally
+file 3174 (Cgx006Z) loaded externally
+file 3175 (Pgx187Z) loaded externally
+file 3176 (Cgx010Z) loaded externally
+file 3177 (Pgx195Z) loaded externally
+file 3178 (Cgx019Z) loaded externally
+file 3179 (Cgx069Z) loaded externally
+file 3180 (Cgx014Z) loaded externally
+file 3181 (Cgx013Z) loaded externally
+file 3182 (Cgx015Z) loaded externally
+file 3183 (Pgx197Z) loaded externally
+file 3184 (Cgx012Z) loaded externally
+music: sequence 164 starts as track type 3
+shutdown
+xblatex: 0 records bound, 109 decodes
