@@ -904,6 +904,36 @@ void bwalkUpdateSpeedForwards(f32 targetspeed, f32 accelspeed)
 	g_Vars.currentplayer->speedforwards = g_Vars.currentplayer->speedgo;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The ground from one batch of rooms, kept if it is the highest yet: a floor
+ * anywhere is better than the fall out of the world that the caller is trying
+ * to save the player from, and the highest below them is the one the search
+ * would have given had they been in the right room.
+ */
+static void bwalkGroundFromRooms(struct coord *pos, RoomNum *rooms, f32 *ground, s32 *inlift, struct prop **lift)
+{
+	u16 floorcol;
+	u8 floortype;
+	u16 floorflags;
+	RoomNum floorroom;
+	s32 batchinlift;
+	struct prop *batchlift;
+	f32 got = cdFindGroundInfoAtCyl(pos, g_Vars.currentplayer->bond2.radius, rooms,
+			&floorcol, &floortype, &floorflags, &floorroom, &batchinlift, &batchlift);
+
+	if (got > *ground) {
+		*ground = got;
+		g_Vars.currentplayer->floorcol = floorcol;
+		g_Vars.currentplayer->floortype = floortype;
+		g_Vars.currentplayer->floorflags = floorflags;
+		g_Vars.currentplayer->floorroom = floorroom;
+		*inlift = batchinlift;
+		*lift = batchlift;
+	}
+}
+#endif
+
 void bwalkUpdateVertical(void)
 {
 	s32 i;
@@ -1011,6 +1041,42 @@ void bwalkUpdateVertical(void)
 				&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
 				&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
 				&newinlift, &lift);
+
+		// bgFindRoomsByPos() offers the rooms that have portals, and the rest
+		// only when no room at all held the position. A converted level has
+		// rooms with no portals whose floor a player can walk on to - Dam's
+		// 81, Depot's 88, Control's 71 - and where a neighbouring room's box
+		// reaches over them they are never offered, so their floor is asked
+		// of every room whose box holds the player, eight at a time: thirteen
+		// of Dam's boxes meet over its tower stair, and cdCollectGeoForCyl()
+		// keeps twenty geos however many rooms it is handed. That walks the
+		// room list once, in a frame the player would otherwise leave the
+		// world in.
+		if (ground < -1000000.0f) {
+			RoomNum batch[9];
+			s32 count = 0;
+			s32 r;
+
+			for (r = 1; r < g_Vars.roomcount; r++) {
+				if (!bgRoomContainsCoord(&testpos, r)) {
+					continue;
+				}
+
+				batch[count] = r;
+				count++;
+
+				if (count == 8) {
+					batch[count] = -1;
+					bwalkGroundFromRooms(&testpos, batch, &ground, &newinlift, &lift);
+					count = 0;
+				}
+			}
+
+			if (count > 0) {
+				batch[count] = -1;
+				bwalkGroundFromRooms(&testpos, batch, &ground, &newinlift, &lift);
+			}
+		}
 	}
 #endif
 

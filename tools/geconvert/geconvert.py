@@ -198,9 +198,12 @@ def loaded_vertices(dl):
     return out
 
 
-def scaled_room(room, inv, offset):
+def scaled_room(room, inv, offset, tilebox=None):
     """The room's vertices at world scale, and a room position that keeps
-    them inside an s16."""
+    them inside an s16. A room that draws nothing (Streets files thirty-five
+    of them) has no vertices to sit among, so it takes the middle of its own
+    tiles: GoldenEye's own room position for those is the level origin, which
+    is nowhere near them."""
     vtx = room['vtx'] or b''
     n = len(vtx) // 16
     pts = np.array([struct.unpack_from('>3h', vtx, 16 * k) for k in range(n)], float).reshape(-1, 3)
@@ -212,6 +215,8 @@ def scaled_room(room, inv, offset):
         loaded = sorted(set(k for dl in (room['pri'], room['sec']) if dl for k in loaded_vertices(dl)))
         ref = world[[k for k in loaded if k < n]] if loaded else world
         centre = np.round((ref.min(0) + ref.max(0)) / 2)
+    elif tilebox is not None:
+        centre = np.round((np.array(tilebox[0], float) + np.array(tilebox[1], float)) / 2)
     else:
         centre = np.round(pos * inv - offset)
     rel = world - centre
@@ -272,8 +277,8 @@ def fixture_lights(tris):
     return lights
 
 
-def write_room(room, inv, offset, base_ptr, textures, lightsindex=0):
-    vtx, centre, world = scaled_room(room, inv, offset)
+def write_room(room, inv, offset, base_ptr, textures, lightsindex=0, tilebox=None):
+    vtx, centre, world = scaled_room(room, inv, offset, tilebox)
     leaves = []
     out_vtx, out_col = [], []
     lighttris = []
@@ -327,10 +332,20 @@ def write_room(room, inv, offset, base_ptr, textures, lightsindex=0):
         bbox = [s16(v) for v in list(mn) + list(mx)]
     else:
         bbox = [0] * 6
+    if tilebox is not None:
+        # The room holds the tiles GoldenEye files under it, which need not be
+        # inside what the room draws - and a room that draws nothing has a
+        # bbox of a point. bgFindRoomsByPos() answers from these boxes, and it
+        # is what bwalkUpdateVertical() asks when the rooms a walker carries
+        # hold no floor under them (bondwalk.c, "fell through right here on
+        # runway"), so a room whose box misses its own floor cannot be found.
+        for c in range(3):
+            bbox[c] = max(-32768, min(bbox[c], int(math.floor(tilebox[0][c] - centre[c]))))
+            bbox[3 + c] = min(32767, max(bbox[3 + c], int(math.ceil(tilebox[1][c] - centre[c]))))
     return data, centre, bbox, lights
 
 
-def write_bg(bg, ls, offset):
+def write_bg(bg, ls, offset, tilebounds=None):
     inv = 1.0 / ls
     textures = set()
     n = bg.numrooms
@@ -340,7 +355,8 @@ def write_bg(bg, ls, offset):
     converted = []
     alllights = []
     for r, room in enumerate(bg.rooms, 1):
-        converted.append(write_room(room, inv, offset, 0, textures, len(alllights)))
+        converted.append(write_room(room, inv, offset, 0, textures, len(alllights),
+                                    tilebounds[r] if tilebounds else None))
         alllights += [(r, l) for l in converted[-1][3]]
     # the lights go straight before the bgcmds: the port's preprocessor counts
     # them by the distance between the two (filebg.c convertPrimaryLights())
@@ -374,7 +390,8 @@ def write_bg(bg, ls, offset):
     lightcounts = []
     for r, room in enumerate(bg.rooms, 1):
         lightsindex = sum(lightcounts)
-        data, centre, bbox, roomlights = write_room(room, inv, offset, ptr, textures, lightsindex)
+        data, centre, bbox, roomlights = write_room(room, inv, offset, ptr, textures, lightsindex,
+                                                    tilebounds[r] if tilebounds else None)
         lightcounts.append(len(roomlights))
         z = pad(rzip1173(data), 1)
         struct.pack_into('>I3fBBxx', primary, table_at + 20 * r, ptr, *centre, 128, 255)  # GE-X's brightness range; 0 draws every room black
@@ -431,6 +448,31 @@ def read_stan(data):
         tiles.append(dict(room=room, points=pts, special=special, offset=o))
         o += 8 + 8 * npts
     return tiles
+
+
+def room_tile_bounds(stan, numrooms, ls, offset):
+    """Each room's own tiles in world units, with the head and foot room of
+    the walls write_tiles() raises round every unlinked tile edge: the box a
+    player standing on this room's floor is inside."""
+    inv = 1.0 / ls
+    out = [None] * (numrooms + 2)
+    for t in stan:
+        if t['room'] < 1 or t['room'] > numrooms:
+            continue
+        for x, y, z, _ in t['points']:
+            p = (s16(x * inv - offset[0]), s16(y * inv - offset[1]), s16(z * inv - offset[2]))
+            b = out[t['room']]
+            if b is None:
+                out[t['room']] = [list(p), list(p)]
+            else:
+                for c in range(3):
+                    b[0][c] = min(b[0][c], p[c])
+                    b[1][c] = max(b[1][c], p[c])
+    for b in out:
+        if b is not None:
+            b[0][1] -= WALL_BELOW
+            b[1][1] += WALL_ABOVE
+    return out
 
 
 def write_tiles(stan, numrooms, ls, offset):
@@ -806,7 +848,8 @@ def main():
         # GoldenEye's own origin
         sp = np.array([q[:3] for t in stan for q in t['points']], float) / ls
         offset = np.round((sp.min(0) + sp.max(0)) / 2)
-        bgdata, tex, numlights = write_bg(bg, ls, offset)
+        tilebounds = room_tile_bounds(stan, bg.numrooms, ls, offset)
+        bgdata, tex, numlights = write_bg(bg, ls, offset, tilebounds)
         alltex.update(tex)
         tiles, walls = write_tiles(stan, bg.numrooms, ls, offset)
         setup = read_setup(gefiles.rom_file(solo or mpname))

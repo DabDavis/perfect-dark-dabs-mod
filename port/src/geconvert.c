@@ -1041,8 +1041,12 @@ static void loadedVertices(const buf *dl, uint8_t *seen, size_t nseen, int *any)
 	}
 }
 
-// the room's vertices moved into its own frame, and that frame's middle
-static buf scaledRoom(const struct bgroom *room, double inv, const double *offset, double *centre)
+// the room's vertices moved into its own frame, and that frame's middle. A
+// room that draws nothing (Streets files thirty-five of them) has no vertices
+// to sit among, so it takes the middle of its own tiles: GoldenEye's own room
+// position for those is the level origin, which is nowhere near them.
+static buf scaledRoom(const struct bgroom *room, double inv, const double *offset, double *centre,
+		const int32_t *tilebox)
 {
 	const size_t n = room->hasvtx ? room->vtx.n / 16 : 0;
 	buf newvtx = {0};
@@ -1098,6 +1102,10 @@ static buf scaledRoom(const struct bgroom *room, double inv, const double *offse
 				}
 				set16(newvtx.v, 16 * k + 2 * c, (uint32_t)s16(rel));
 			}
+		}
+	} else if (tilebox) {
+		for (int c = 0; c < 3; ++c) {
+			centre[c] = rnd((tilebox[c] + tilebox[3 + c]) / 2.0);
 		}
 	} else {
 		for (int c = 0; c < 3; ++c) {
@@ -1293,10 +1301,10 @@ struct roomout {
 };
 
 static struct roomout writeRoom(const struct bgroom *room, double inv, const double *offset, uint32_t baseptr,
-		uint8_t *textures, int32_t lightsindex)
+		uint8_t *textures, int32_t lightsindex, const int32_t *tilebox)
 {
 	struct roomout r;
-	buf vtx = scaledRoom(room, inv, offset, r.centre);
+	buf vtx = scaledRoom(room, inv, offset, r.centre, tilebox);
 	outvtxs outv = {0};
 	u32s outc = {0};
 	tris lighttris = {0};
@@ -1404,12 +1412,33 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 		} else {
 			memset(r.bbox, 0, sizeof(r.bbox));
 		}
+
+		// The room holds the tiles GoldenEye files under it, which need not be
+		// inside what the room draws - and a room that draws nothing has a
+		// bbox of a point. bgFindRoomsByPos() answers from these boxes, and it
+		// is what bwalkUpdateVertical() asks when the rooms a walker carries
+		// hold no floor under them (bondwalk.c, "fell through right here on
+		// runway"), so a room whose box misses its own floor cannot be found.
+		if (tilebox) {
+			for (int c = 0; c < 3; ++c) {
+				const int32_t lo = (int32_t)floor(tilebox[c] - r.centre[c]);
+				const int32_t hi = (int32_t)ceil(tilebox[3 + c] - r.centre[c]);
+
+				if (lo < r.bbox[c]) {
+					r.bbox[c] = lo < -32768 ? -32768 : lo;
+				}
+				if (hi > r.bbox[3 + c]) {
+					r.bbox[3 + c] = hi > 32767 ? 32767 : hi;
+				}
+			}
+		}
 	}
 
 	return r;
 }
 
-static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t *leveltex, int *numlights)
+static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t *leveltex, int *numlights,
+		const int32_t (*tilebounds)[7])
 {
 	const double inv = 1.0 / ls;
 	const int n = bg->numrooms;
@@ -1425,7 +1454,8 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 
 	// the rooms are converted first, since their lights go in the primary data
 	for (int r = 1; r <= n; ++r) {
-		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, 0, leveltex, (int32_t)alllights.n);
+		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, 0, leveltex, (int32_t)alllights.n,
+				tilebounds[r][6] ? tilebounds[r] : NULL);
 		for (size_t k = 0; k < ro.lights.n; ++k) {
 			__typeof__(*alllights.v) e = { r, ro.lights.v[k] };
 			VECPUSH(alllights, e);
@@ -1493,7 +1523,8 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	ptr = SEG_BG + (uint32_t)inf;
 
 	for (int r = 1; r <= n; ++r) {
-		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, ptr, leveltex, sumlights);
+		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, ptr, leveltex, sumlights,
+				tilebounds[r][6] ? tilebounds[r] : NULL);
 		buf z = rzip1173(ro.data.v, ro.data.n);
 		const size_t e = tableat + 20 * r;
 
@@ -1563,6 +1594,54 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 
 /* ------------------------------------------------------------------------ */
 /* tiles (write_tiles) */
+
+// Each room's own tiles in world units, with the head and foot room of the
+// walls writeTiles() raises round every unlinked tile edge: the box a player
+// standing on this room's floor is inside. [6] says the room has tiles.
+static int32_t (*roomTileBounds(const tiles *stan, int numrooms, double ls, const double *offset))[7]
+{
+	const double inv = 1.0 / ls;
+	int32_t (*out)[7] = gcAlloc((numrooms + 2) * sizeof(*out));
+
+	memset(out, 0, (numrooms + 2) * sizeof(*out));
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		const struct tile *t = &stan->v[i];
+
+		if (t->room < 1 || t->room > numrooms) {
+			continue;
+		}
+
+		for (int k = 0; k < t->npts; ++k) {
+			int32_t p[3];
+
+			for (int c = 0; c < 3; ++c) {
+				p[c] = s16(t->pts[k][c] * inv - offset[c]);
+			}
+
+			for (int c = 0; c < 3; ++c) {
+				if (!out[t->room][6]) {
+					out[t->room][c] = p[c];
+					out[t->room][3 + c] = p[c];
+				} else {
+					if (p[c] < out[t->room][c]) out[t->room][c] = p[c];
+					if (p[c] > out[t->room][3 + c]) out[t->room][3 + c] = p[c];
+				}
+			}
+
+			out[t->room][6] = 1;
+		}
+	}
+
+	for (int r = 0; r < numrooms + 2; ++r) {
+		if (out[r][6]) {
+			out[r][1] -= (int32_t)WALL_BELOW;
+			out[r][4] += (int32_t)WALL_ABOVE;
+		}
+	}
+
+	return out;
+}
 
 static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *offset, int *numwalls)
 {
@@ -3803,7 +3882,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			offset[c] = rnd((mn[c] + mx[c]) / 2);
 		}
 
-		bgdata = writeBg(&bg, lv->levelscale, offset, leveltex, &numlights);
+		bgdata = writeBg(&bg, lv->levelscale, offset, leveltex, &numlights,
+				roomTileBounds(&stan, bg.numrooms, lv->levelscale, offset));
 		tilesdata = writeTiles(&stan, bg.numrooms, lv->levelscale, offset, &walls);
 
 		setupfile = romFile(lv->solo ? lv->solo : lv->mp);

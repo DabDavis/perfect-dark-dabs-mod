@@ -2396,3 +2396,97 @@ even have been Streets. It may be the same room disagreement seen from the
 renderer's side rather than the collision's: a player listed in the wrong room
 reaches the rest of the level through that room's portals. Worth asking for
 another F3 now that the trace names the map.
+
+## The same hole in the other nineteen levels (2026-09-18)
+
+Runway's fix answers from `bgFindRoomsByPos()`, and that query is **blind in
+places on eleven of the other levels**: where it offers no room that holds a
+floor, the player still leaves the world. Asked for after the Runway fix: "we
+fixed the runway fall through map glitch for ge-x plus, lets look at the other
+maps they may have the same issue".
+
+**The audit is offline and exact** (scratchpad `floorcheck.py`): an eye for eye
+twin of `bgFindRoomsByPos()` and of the floor search over the rooms it offers,
+run over every stan tile of all 26 levels - the tile's middle and a point in
+from each corner, at the height a player stands on it (157 units: Runway's
+report has the floor at -218 and the player at -61). It converts with
+`tools/geconvert`, so it is the bytes the game reads.
+
+**The trap that cost the most: the room box in play is not the box in the
+file.** `bgExpandRoomToPortals()` (bg.c, called for every room at load) grows
+each room's box to hold its own portals' vertices. Streets files thirty-five
+rooms that draw nothing - a box of a point - and in play those boxes are
+thousands of units across, so a first pass of this audit called Streets the
+worst level in the game (1008 places) when it has one. Model the expansion, or
+check the numbers in gdb before believing them: `g_Rooms[r].bbmin/bbmax` for
+six of Streets' rooms match the twin exactly now.
+
+**What it found**, as sampled standing positions where the fallback finds no
+floor whatsoever, over eleven levels (2045 in all):
+
+| level | blind | places | why |
+| --- | --- | --- | --- |
+| Dam | 790 | 52 | tiles outside what their room draws; 13 boxes meet over the tower stair |
+| Cradle | 416 | 110 | **no portals at all** - 36 rooms, 0 portals |
+| Frigate | 283 | 8 | the player stands above the room's drawn top, so the room is an *above* room |
+| Archives | 194 | 9 | as Frigate |
+| Control | 90 | 3 | rooms with no portals, which `bgFindRoomsByPos()` offers last |
+| Depot | 78 | 11 | as Control |
+| Egyptian, Aztec | 48 each | 8, 13 | tiles outside the drawn room |
+| Facility | 44 | 6 | as above |
+| Complex | 24 | 3 | as above |
+| Library/Basement/Stack | 8 | 4 | as above |
+| Statue Park, Streets, Surface | 1-3 | 1-3 | near-vertical tiles, an artefact of sampling a plane |
+
+**Cradle has no portals in GoldenEye's own bg.** A walker's room list is grown
+by crossing portals (`bgFindEnteredRooms()`), so on Cradle it can never change:
+every room but the one they spawn in has no floor for them and the fallback is
+all that holds them up. It carried them in 110 places and does now.
+
+**Two fixes, one in the data and one in the walk.**
+
+- The conversion gives each room a **box that holds its own tiles**, with the
+  head and foot room of the walls it raises round every unlinked tile edge
+  (`room_tile_bounds()`/`roomTileBounds()`, `GECONVERT_VERSION_STR` 6). A room
+  that draws nothing also takes the middle of its tiles as its position, since
+  GoldenEye's position for those is the level origin and the box is packed as
+  an s16 offset from it. This is where the fix belongs: `bgFindRoomsByPos()`
+  answers from these boxes and so does everything else that asks what room a
+  place is in. 2045 blind positions become 618.
+- `bwalkUpdateVertical()`, when that query still finds nothing, asks **every
+  room whose box holds the player, eight at a time**. Eight because thirteen of
+  Dam's boxes meet over its tower stair while `cdCollectGeoForCyl()` keeps
+  twenty geos however many rooms it is handed, and the highest answer of the
+  batches wins. It walks the room list once, in a frame the player would
+  otherwise leave the world in. 618 become 4, all four the sampling artefact of
+  fitting a plane to a near-vertical tile.
+
+**Checked in the game, not only in the twin.** Before: at six spots on Cradle
+and six on Frigate, `cdFindGroundInfoAtCyl()` over `bgFindRoomsByPos()`'s rooms
+answers -4294967296 (ten of the twelve) - the fall. After: every one answers
+the tile's own floor, the exact height the twin says. Dam, Depot, Control and
+Cradle stand a player up with `prop->rooms[0] = -1` held every frame, which is
+the fallback's own case (`standtest.py`: Dam floorroom 95 manground 12979, held
+for sixty frames). Runway is unchanged - room 13 held, floorroom 14, manground
+-218, the numbers of the first fix. All twenty missions boot and run 600 frames
+with no warning. The C converter's bytes are still the Python's over all 26
+levels (`diff -r`).
+
+**Still open.**
+
+- **A floor far below rather than no floor.** The fallback only fires on
+  nothing at all, so where the rooms a walker carries hold a floor well under
+  the tile they are standing on, they drop to it and nothing catches them. The
+  twin flags candidates (Facility, Archives, Surface, Caverns, Train) but it
+  cannot say which are reachable, because the room list a walker carries comes
+  from the portals they crossed, not from the boxes. Preferring the higher
+  answer would break walking off a ledge, so this waits for a report that shows
+  one.
+- **GoldenEye's portal winding is not Perfect Dark's.** PD takes the room on
+  the front of a portal's normal to be `roomnum2` (`bgTestPosInRoomCheap()`);
+  over the twelve levels where the tiles either side decide it, GoldenEye's
+  portals say room2 383 times and room1 305. So the winding carries no meaning
+  in a converted level and anything that trusts it - the cheap room test, and
+  the room a walker is moved into - is a coin toss. That is the root of the
+  Runway disagreement rather than a quirk of one strip, and it is worth trying
+  to orient each portal by which room's tiles lie on which side.
