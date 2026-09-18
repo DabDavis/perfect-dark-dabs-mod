@@ -1673,6 +1673,15 @@ static void introCastStart(s32 first)
 			modelSetAnimation(g_Intro.body.model, animnum, g_Intro.castflip,
 					g_CastAnims[anim].startframe, g_CastAnims[anim].speed, 0.0f);
 		}
+
+		// modelTickAnim() and subcalcpos(), which GoldenEye's constructor runs
+		// before the camera's spring reads the character: the root the spring
+		// snaps to has to be the one the frame is drawn with. Left to the next
+		// frame's tick the root was still at the origin setsuboffset() put it,
+		// so the camera snapped to the floor and then climbed to the
+		// character's own height over the fade - the bounce at every switch
+		modelTickAnim(g_Intro.body.model, 1, 1);
+		modelUpdateInfo(g_Intro.body.model);
 	}
 
 	g_Intro.castweapon = 0;
@@ -2072,6 +2081,14 @@ s32 geIntroIsActive(void)
 s32 geIntroOpen(void)
 {
 	if (!g_Intro.loaded && !introLoadAll()) {
+		return 0;
+	}
+
+	// the fonts and the strings the cast reel's captions are drawn with belong
+	// to the folder screens, which free them when GE Plus is left: what the
+	// first intro loaded is not still there the second time round, and asking
+	// only when the intro's own files load left the reel silent
+	if (!gexFrontLoadShared()) {
 		return 0;
 	}
 
