@@ -743,6 +743,14 @@ u32 var8005ecec = 0x00000000;
 u32 var8005ecf0 = 0x00000000;
 u32 var8005ecf4 = 0x00000000;
 
+#ifndef PLATFORM_N64
+// The scale seqSetVolume() gives a sequence appended past var8005ecf8[]: the
+// one every one of Perfect Dark's own menu tracks (86 to 91) carries, which is
+// also the commonest of the 119 rows below. Borrowed music then sits at the
+// same loudness as the game's own rather than at whatever was past the table.
+#define SEQ_APPENDED_VOLUME 0x4ccc
+#endif
+
 s16 var8005ecf8[] = {
 	0x6665,
 	0x5998,
@@ -1901,7 +1909,28 @@ u16 seqGetVolume(struct seqinstance *seq)
 void seqSetVolume(struct seqinstance *seq, u16 volume)
 {
 	if (!g_SndDisabled) {
-		u32 tmp = var8005ecf8[seq->tracknum] * volume;
+		s16 scale;
+		u32 tmp;
+
+#ifndef PLATFORM_N64
+		scale = SEQ_APPENDED_VOLUME;
+
+		// var8005ecf8[] holds a scale for each of the ROM's own sequences and
+		// has room for nothing else, so a sequence appended after them
+		// (seqAppend(): a borrowed mod's music, and GoldenEye's folder theme
+		// and intro) has no row of its own to read. Reading one anyway handed
+		// the second GoldenEye sequence of a session AL_VOL_FULL, which is
+		// what brought the folder's theme back from the intro about three
+		// times as loud as the game's own music, and handed a borrowed
+		// sequence the -1 the table ends with, which clamps to the same thing.
+		if (seq->tracknum >= 0 && seq->tracknum < ARRAYCOUNT(var8005ecf8)
+				&& g_SeqTable && seq->tracknum < g_SeqTable->count)
+#endif
+		{
+			scale = var8005ecf8[seq->tracknum];
+		}
+
+		tmp = scale * volume;
 		tmp >>=	15;
 
 		seq->volume = volume;

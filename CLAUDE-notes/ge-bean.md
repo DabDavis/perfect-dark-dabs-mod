@@ -2760,3 +2760,47 @@ read against the decomp and the ROM and matches. Reaching the lens would need
 about 1020 units, which is what the *whole* of mode 3 would give him rather than
 the 137 ticks he gets. Do not guess at it again without a reference: it needs a
 capture of the N64 intro, and mame cannot run the ROM here (no PIF BIOS).
+
+## Borrowed music read its volume past the end of a table (2026-09-18)
+
+The user, on the GE Plus folder screens after the intro: "there is a weird
+audio glitch for the ge plus menu music after the intro, a loud type of reverb
+or similar ... it was after the last mixer.c upgrade I believe". It is not a
+reverb and it is not the mixer: the theme is **about three times as loud**, and
+near enough to clipping (peak 28722 of 32767) to sound like one.
+
+`seqSetVolume()` scaled a sequence by `var8005ecf8[seq->tracknum]`, a row per
+sequence with room for **121** where the game has **119** of its own. Every
+sequence `seqAppend()` hands out sits past them - GoldenEye X's 44 borrowed
+tracks at 119 to 162, GoldenEye's folder theme and its intro after those - so
+all but the first two read whatever follows the table. The intro's theme drew
+something that scaled to 11057 and the folder's drew one that clamped to
+`AL_VOL_FULL`, 32767, which is the three times; the row a borrowed sequence
+draws is whatever the linker put there, so it is different per build and per
+track, and one of them is the `-1` the table ends with, which clamps to full as
+well.
+
+An appended sequence now takes **0x4ccc**, the scale every one of Perfect
+Dark's own menu tracks (86 to 91) carries and the commonest of the 119 rows, so
+borrowed music sits where the game's own does. Nothing stock moves: a track
+below `g_SeqTable->count` reads its own row as before, and the N64 build is
+untouched.
+
+**The mixer change (c34362fbf) is what exposed this, not what caused it.**
+Until the raw-wave guard went in, the intro's theme killed the audio thread, so
+no session ever played two GoldenEye sequences one after the other; GoldenEye
+X's borrowed music has been drawing the same garbage since it was borrowed.
+
+**Measuring it without ears.** `SDL_AUDIODRIVER=disk` with `SDL_DISKAUDIOFILE`
+writes the mixed output straight to a file - s16, stereo, 22020 Hz - which is
+far less work than the recorder and Xvfb ([[headless-audio-check]] is still the
+recipe when the recorder itself is the subject). Leave `SDL_DISKAUDIODELAY`
+alone or the game free-runs and writes 40 minutes of audio in 20 seconds. Drive
+the game with gdb breakpoints and `ignore N` rather than `continue &` and
+`interrupt`, which races. Half-second RMS over the clip is enough to see the
+step, and the three checks that told a gain from a reverb were: the band
+energies, the crest factor and the frame-RMS distribution were all the same
+either side, so it is the same signal scaled. From there it was
+`n_syn->pAllocList` (the same voice count both ways, so not extra voices), then
+`em_volume` on the voices (3.2x), then the player's own `vol`: 11057 against
+32767.
