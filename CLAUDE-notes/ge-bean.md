@@ -2751,15 +2751,52 @@ leaves only the dark top of its gradient on the screen. The offset is written
 as `GEINTRO_W * titlex / 1280` now, which is GoldenEye's own expression rather
 than the same number arrived at through `introScaleX()`.
 
-**Still open**: Bond finishes about 640 units along the camera's lateral axis,
-which leaves him in the bright mouth of the barrel and roughly 220 pixels
-(1024 wide) right of the lens, rather than inside it. Everything that decides
-that - the walk's own translation, the 137 ticks before the fire animation
-takes over, the camera, the lens's `g_TitleX + 768` and the 2.7/2.57 scale - was
-read against the decomp and the ROM and matches. Reaching the lens would need
-about 1020 units, which is what the *whole* of mode 3 would give him rather than
-the 137 ticks he gets. Do not guess at it again without a reference: it needs a
-capture of the N64 intro, and mame cannot run the ROM here (no PIF BIOS).
+**Still open, and now measured against the game itself**: Bond finishes about
+640 units along the camera's lateral axis, which leaves him in the bright mouth
+of the barrel rather than inside the lens.
+
+**There is an oracle and it is the decomp's own native port** (the user, told
+mid-task: "we have an oracle for the intro fixes, even for the attract demos.
+sdg@10.8.0.3:/home/sdg/claude-007/ ... uses the ares emulator also. The intro
+and attract was one of the most refined parts"). `claude-007/007` builds
+`build/port/ge007`, a bit-exact software-RDP port whose frames verify against a
+console dump, and `PORT_FRAME_DIR=<dir> PORT_FRAME_EVERY=10
+PORT_BOOT_FRAMES=1600 ./build/port/ge007 --boot` writes the whole boot as PPMs -
+the classification screen, the Nintendo and Rare logos, the gun barrel, the
+blood. **Its frames are 440x330**, which is the front end's own resolution and
+confirms `viSetXY(440, 330)` from the other direction. There is an ares build
+beside it (`ares/ares-nightly/build/n64oracle`) for the same job.
+
+What the oracle says about the settled gun barrel, measured on Bond's dark
+silhouette scaled to a common 440x330:
+
+| | GoldenEye | this port |
+|---|---|---|
+| Bond's height | 0.421 of the frame | 0.439 |
+| Bond's centre x | **0.552** | **0.777** |
+
+So **his size is right and only his position is wrong**, and the lens is right
+too: GoldenEye's Bond finishes inside the lens, which is where this one puts the
+lens (0.536) - he simply does not walk far enough to reach it. His trajectory in
+GoldenEye runs 0.948 -> 0.552 over about 90 frames and then holds; this port's
+runs 0.905 -> 0.745 and stops early, when `bond_eye_fire` (which has no root
+motion) finishes blending in. Converting through the camera, GoldenEye's Bond
+travels about **993** units from the origin against this port's **640**, a
+factor of **1.55**.
+
+Three explanations have been measured and are **wrong**, so do not re-try them:
+`D_8002A8A8`, the offset `setsuboffset()` starts him at, really is three zeros
+in the ROM (read at data offset 0x9b18, `DATA_VRAM` 0x80020d90 - the twelve
+bytes after `gunbarrelPosition3` are the folder gradient's colours, not this);
+the camera constants are read and never written, so nothing dollies; and
+`modelSetAnimPlaySpeed(model, rate, 0.0f)` sets the speed at once in both games,
+so the 0.5 is not being dropped on either side.
+
+**The next measurement is the one to take**: run `ge007` under gdb and read
+`chrModelInstance`'s root position per tick through the barrel, and compare it
+with this port's `modelGetNodeRwData(...)->chrinfo.pos` trace tick for tick.
+That says whether GoldenEye's walk is faster, longer or started elsewhere,
+instead of inferring it from a silhouette.
 
 ## Borrowed music read its volume past the end of a table (2026-09-18)
 
