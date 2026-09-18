@@ -66,6 +66,7 @@
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
 #include "game/music.h"
+#include "game/zbuf.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/setup.h"
 #include "lib/anim.h"
@@ -95,6 +96,9 @@
 // the blood wash down the lens, 4-bit intensity
 #define BLOOD_W 80
 #define BLOOD_H 96
+
+// front.c's gelogolight, which lights the logo and the cast reel
+static Lights1 g_CastLight = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0x4d, 0x4d, 0x2e);
 
 /* ------------------------------------------------------------------------ */
 /* GoldenEye's own tables */
@@ -216,6 +220,14 @@ static const struct castrow {
 #define CAST_FADE    (60 / 2)
 #define CAST_FADEOUT (CAST_LEN - CAST_FADE + 1)
 
+// front.c's own 315, the x the three lines of the caption are centred on
+#define CAST_TEXT_X 315
+
+// front.c's CAST_DAMP and CAST_DAMP_COMP, the spring the camera follows the
+// character's root through
+#define CAST_DAMP      0.94999999f
+#define CAST_DAMP_COMP 0.050000012f
+
 /* ------------------------------------------------------------------------ */
 /* state */
 
@@ -275,6 +287,15 @@ static struct {
 	s32 castflip;
 	s32 castweapon;
 	f32 camdist0, camdist1, camangle0, camangle1, camheight0, camheight1;
+
+	// front.c's cast_rootpos_smoothed, cast_rootvel_accumulator,
+	// cast_target_accumulator and cast_target_smoothed: the camera follows the
+	// character's root through a spring rather than being glued to it
+	struct coord camroot;
+	struct coord camrootacc;
+	struct coord camtargetacc;
+	struct coord camtarget;
+	s32 camreset;
 } g_Intro;
 
 /* ------------------------------------------------------------------------ */
@@ -531,7 +552,23 @@ static s32 introLoadChr(struct intromodel *body, struct intromodel *head, s32 bo
 		body->modeldef->rwdatalen -= head->modeldef->rwdatalen;
 
 		if (body->model) {
+			struct modelnode *glasses;
+
 			modelmgrAttachHead(body->model, spot, head->modeldef);
+
+			// makeonebody(): a head's sunglasses are a toggle of its own and
+			// come off unless the chr was asked for wearing them, which
+			// nothing in the intro does. Perfect Dark starts a toggle visible,
+			// so left alone every face in the reel wore a pair of lenses.
+			glasses = modelGetPart(head->modeldef, MODELPART_HEAD_SUNGLASSES);
+
+			if (glasses && (glasses->type & 0xff) == MODELNODETYPE_TOGGLE) {
+				union modelrwdata *rwdata = modelGetNodeRwData(body->model, glasses);
+
+				if (rwdata) {
+					rwdata->toggle.visible = false;
+				}
+			}
 		}
 	} else {
 		body->model = modelmgrInstantiateModelWithAnim(body->modeldef);
@@ -965,6 +1002,24 @@ static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 	}
 
 	gDPPipeSync(gdl++);
+
+	return gdl;
+}
+
+/**
+ * The one light and the reflected LookAt GoldenEye lights the logo and the cast
+ * reel by (`gelogolight`, and `guLookAtReflect()` from 4000 in front of the
+ * origin). Without them a model took whatever the menu drawn before it had left
+ * behind, which lit one character in flat white and the next in black.
+ */
+static Gfx *introSetLights(Gfx *gdl)
+{
+	LookAt *lookat = gfxAllocateLookAt(2);
+	Mtx lookatmtx;
+
+	gSPSetLights1(gdl++, g_CastLight);
+	guLookAtReflect(&lookatmtx, lookat, 0.0f, 0.0f, 4000.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	gSPLookAt(gdl++, lookat);
 
 	return gdl;
 }
@@ -1404,6 +1459,8 @@ static Gfx *introRenderLogo(Gfx *gdl)
 	gDPPipeSync(gdl++);
 	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 
+	gdl = introSetLights(gdl);
+
 	mtx00016ae4(&camera, 0.0f, 0.0f, 3000.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 	mtx4LoadIdentity(&world);
 	mtx00015f04(1.2f, &world);
@@ -1421,6 +1478,26 @@ static Gfx *introRenderLogo(Gfx *gdl)
 static s32 introRandom(s32 n)
 {
 	return n > 0 ? (s32)(rngRandom() % (u32)n) : 0;
+}
+
+/** A switch of the gun the character is holding, hidden or shown. */
+static void introSetGunPart(s32 part, s32 visible)
+{
+	struct modelnode *node = modelGetPart(g_Intro.gun.modeldef, part);
+	union modelrwdata *rwdata = node ? modelGetNodeRwData(g_Intro.gun.model, node) : NULL;
+
+	if (!rwdata) {
+		return;
+	}
+
+	switch (node->type & 0xff) {
+	case MODELNODETYPE_TOGGLE:
+		rwdata->toggle.visible = visible;
+		break;
+	case MODELNODETYPE_CHRGUNFIRE:
+		rwdata->chrgunfire.visible = visible;
+		break;
+	}
 }
 
 /**
@@ -1515,6 +1592,13 @@ static void introCastStart(s32 first)
 
 		if (g_Intro.gun.model) {
 			modelSetScale(g_Intro.gun.model, introChrScale(body) * 0.1f);
+
+			// constructor_menu18_displaycast() turns the gun's first two
+			// switches off every frame: the muzzle flash, which Perfect Dark
+			// starts hidden anyway, and the toggled part beside it, which it
+			// starts visible - so the cast carried a spare piece of gun
+			introSetGunPart(MODELPART_CHRGUN_GUNFIRE, false);
+			introSetGunPart(MODELPART_CHRGUN_0002, false);
 		}
 	}
 
@@ -1524,13 +1608,130 @@ static void introCastStart(s32 first)
 	g_Intro.camangle1 = ((rngRandom() / (f32)0xffffffffu) - 0.5f) * 2.5132742f;
 	g_Intro.camheight0 = (rngRandom() / (f32)0xffffffffu) * 200.0f - 100.0f;
 	g_Intro.camheight1 = (rngRandom() / (f32)0xffffffffu) * 200.0f - 100.0f;
+
+	// cast_camera_reset: the spring starts on the character it is given
+	g_Intro.camroot.x = g_Intro.camroot.y = g_Intro.camroot.z = 0.0f;
+	g_Intro.camtarget.x = g_Intro.camtarget.y = g_Intro.camtarget.z = 0.0f;
+	g_Intro.camreset = 1;
+}
+
+/**
+ * Where the character's root matrix has got to, which is the point the camera
+ * aims at: GoldenEye poses the character once under an identity base before it
+ * poses it under the camera, and reads the translation out of the first matrix
+ * (`mtx4TransformVecInPlace(cast_model->render_pos, &vec)` on a vector that is
+ * all but zero). It is **not** the chr's own position - that is where the
+ * character stands, and its root joint is about half a metre above it, which is
+ * the difference between framing a chest and framing a waist.
+ */
+static void introCastRootMtx(struct coord *pos)
+{
+	struct model *model = g_Intro.body.model;
+	struct modeldef *def = g_Intro.body.modeldef;
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+	Mtxf *matrices;
+	Mtxf identity;
+
+	pos->x = pos->y = pos->z = 0.0f;
+
+	if (!model || !def || def->nummatrices <= 0) {
+		return;
+	}
+
+	matrices = gfxAllocate(def->nummatrices * sizeof(Mtxf));
+	mtx4LoadIdentity(&identity);
+
+	for (s32 i = 0; i < def->nummatrices; i++) {
+		mtx4LoadIdentity(&matrices[i]);
+	}
+
+	model->matrices = matrices;
+	renderdata.unk00 = &identity;
+	renderdata.unk10 = matrices;
+
+	if (model->anim) {
+		modelSetMatricesWithAnim(&renderdata, model);
+	} else {
+		modelUpdateRelations(model);
+	}
+
+	pos->x = matrices[0].m[3][0];
+	pos->y = matrices[0].m[3][1];
+	pos->z = matrices[0].m[3][2];
+}
+
+/**
+ * The spring constructor_menu18_displaycast() follows the character through,
+ * run once a frame: the smoothed position the camera stands off from, which
+ * follows the chr's own, and the smoothed lag between that and the root matrix,
+ * which is what the camera aims at. Both are low passes of the same shape - an
+ * accumulator fed the difference and read back at CAST_DAMP_COMP - and both
+ * start on the character the reel has just put up (cast_camera_reset).
+ *
+ * Glued straight to the character instead, the camera carried every step and
+ * swing of the animation's root motion with it and nothing ever moved inside
+ * the frame.
+ */
+static void introCastCamera(void)
+{
+	struct coord root = { 0.0f, 0.0f, 0.0f };
+	struct coord mtxpos;
+	struct coord vec;
+
+	if (g_Intro.body.model) {
+		modelGetRootPosition(g_Intro.body.model, &root);
+	}
+
+	introCastRootMtx(&mtxpos);
+
+	if (g_Intro.camreset) {
+		g_Intro.camroot.y = root.y;
+	}
+
+	// g_GlobalTimerDelta is one frame here, so the difference is the velocity
+	vec.x = root.x - g_Intro.camroot.x;
+	vec.y = root.y - g_Intro.camroot.y;
+	vec.z = root.z - g_Intro.camroot.z;
+
+	if (g_Intro.camreset) {
+		g_Intro.camrootacc.x = vec.x / CAST_DAMP_COMP;
+		g_Intro.camrootacc.y = vec.y / CAST_DAMP_COMP;
+		g_Intro.camrootacc.z = vec.z / CAST_DAMP_COMP;
+	}
+
+	g_Intro.camrootacc.x = vec.x + CAST_DAMP * g_Intro.camrootacc.x;
+	g_Intro.camrootacc.y = vec.y + CAST_DAMP * g_Intro.camrootacc.y;
+	g_Intro.camrootacc.z = vec.z + CAST_DAMP * g_Intro.camrootacc.z;
+
+	g_Intro.camroot.x += g_Intro.camrootacc.x * CAST_DAMP_COMP;
+	g_Intro.camroot.y += g_Intro.camrootacc.y * CAST_DAMP_COMP;
+	g_Intro.camroot.z += g_Intro.camrootacc.z * CAST_DAMP_COMP;
+
+	// the lag between the smoothed position and the root matrix
+	vec.x = mtxpos.x - g_Intro.camroot.x;
+	vec.y = mtxpos.y - g_Intro.camroot.y;
+	vec.z = mtxpos.z - g_Intro.camroot.z;
+
+	if (g_Intro.camreset) {
+		g_Intro.camtargetacc.x = vec.x / CAST_DAMP_COMP;
+		g_Intro.camtargetacc.y = vec.y / CAST_DAMP_COMP;
+		g_Intro.camtargetacc.z = vec.z / CAST_DAMP_COMP;
+	}
+
+	g_Intro.camtargetacc.x = vec.x + CAST_DAMP * g_Intro.camtargetacc.x;
+	g_Intro.camtargetacc.y = vec.y + CAST_DAMP * g_Intro.camtargetacc.y;
+	g_Intro.camtargetacc.z = vec.z + CAST_DAMP * g_Intro.camtargetacc.z;
+
+	g_Intro.camtarget.x = g_Intro.camtargetacc.x * CAST_DAMP_COMP;
+	g_Intro.camtarget.y = g_Intro.camtargetacc.y * CAST_DAMP_COMP;
+	g_Intro.camtarget.z = g_Intro.camtargetacc.z * CAST_DAMP_COMP;
+
+	g_Intro.camreset = 0;
 }
 
 /**
  * constructor_menu18_displaycast(): the character on its arc, fading in and out,
  * with the three lines of its caption centred in GoldenEye's Zurich Bold.
- * GoldenEye's own camera smoothing follows the model's root; here the camera
- * looks at the character's own middle, which it settles on within the frame.
  */
 static Gfx *introRenderCast(Gfx *gdl)
 {
@@ -1544,9 +1745,13 @@ static Gfx *introRenderCast(Gfx *gdl)
 	f32 angle = (g_Intro.camangle1 - g_Intro.camangle0) * frac + g_Intro.camangle0;
 	f32 fade;
 	f32 camx, camz, tarx, tarz;
-	struct coord root = { 0.0f, 0.0f, 0.0f };
+	const struct coord *root = &g_Intro.camroot;
 
 	gdl = introClearBlack(gdl);
+
+	// GoldenEye runs the camera from its own constructor rather than from its
+	// tick, and the pose it reads the root matrix out of wants a frame's memory
+	introCastCamera();
 
 	if (g_Intro.casttimer < 0 || g_Intro.casttimer >= CAST_LEN) {
 		fade = 0.0f;
@@ -1562,17 +1767,12 @@ static Gfx *introRenderCast(Gfx *gdl)
 		angle += 6.2831855f;
 	}
 
-	if (g_Intro.body.model) {
-		modelGetRootPosition(g_Intro.body.model, &root);
-	}
-
-	// GoldenEye's camera swings round the character on its own arc and follows
-	// the model's root through a spring; here it swings round the root itself,
-	// which the character stays inside over three seconds
-	camx = root.x + dist * sinf(angle) + cosf(angle) * 0.2f * dist;
-	camz = root.z + dist * cosf(angle) - sinf(angle) * 0.2f * dist;
-	tarx = root.x + cosf(angle) * 0.2f * dist;
-	tarz = root.z - sinf(angle) * 0.2f * dist;
+	// the camera swings round the smoothed position on its own arc and aims at
+	// where the character's own middle has got to (introCastCamera())
+	camx = root->x + dist * sinf(angle) + cosf(angle) * 0.2f * dist;
+	camz = root->z + dist * cosf(angle) - sinf(angle) * 0.2f * dist;
+	tarx = root->x + g_Intro.camtarget.x + cosf(angle) * 0.2f * dist;
+	tarz = root->z + g_Intro.camtarget.z - sinf(angle) * 0.2f * dist;
 
 	if (g_Intro.body.model) {
 		guPerspectiveF(persp.m, &perspnorm, 46.0f, videoGetAspect(), 10.0f, 2000.0f, 1.0f);
@@ -1580,16 +1780,26 @@ static Gfx *introRenderCast(Gfx *gdl)
 
 		gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 		gSPPerspNormalize(gdl++, perspnorm);
-		gSPClearGeometryMode(gdl++, G_ZBUFFER);
 		gDPPipeSync(gdl++);
 		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 
-		// the camera is 52.5 above the feet and looks 10 below its own height,
-		// which is where GoldenEye's smoothed target settles
-		mtx00016ae4(&camera, camx, root.y + height + 52.5f, camz,
-				tarx, root.y + height - 10.0f, tarz, 0.0f, 1.0f, 0.0f);
+		gdl = introSetLights(gdl);
 
-		gdl = introDrawModel(gdl, g_Intro.body.model, g_Intro.body.modeldef, &camera, false);
+		// the cast reel is the one screen of GoldenEye's front end drawn into a
+		// z buffer (init_menu18_displaycast() sets one up and asks for it),
+		// since a character drawn in list order paints its far side over its
+		// near one - a face over its own nose, a cap through the head under it
+		gdl = zbufClear(gdl);
+		gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
+		// the camera stands 52.5 above the smoothed position and looks 10 below
+		// the root matrix, which is the character's middle: the height swings
+		// the camera alone, which is what tips the shot up and down. Added to
+		// the target as well it tipped nothing, and framed the legs
+		mtx00016ae4(&camera, camx, root->y + height + 52.5f, camz,
+				tarx, root->y + g_Intro.camtarget.y - 10.0f, tarz, 0.0f, 1.0f, 0.0f);
+
+		gdl = introDrawModel(gdl, g_Intro.body.model, g_Intro.body.modeldef, &camera, true);
 
 		if (g_Intro.gun.model) {
 			struct modelnode *hand = modelGetPart(g_Intro.body.modeldef,
@@ -1607,12 +1817,14 @@ static Gfx *introRenderCast(Gfx *gdl)
 					mtx = &turned;
 				}
 
-				gdl = introDrawModel(gdl, g_Intro.gun.model, g_Intro.gun.modeldef, mtx, false);
+				gdl = introDrawModel(gdl, g_Intro.gun.model, g_Intro.gun.modeldef, mtx, true);
 				introFinishModel(g_Intro.gun.model, g_Intro.gun.modeldef);
 			}
 		}
 
 		introFinishModel(g_Intro.body.model, g_Intro.body.modeldef);
+
+		gSPClearGeometryMode(gdl++, G_ZBUFFER);
 	}
 
 	// the fade is a black sheet over everything, thinning in and out
@@ -1621,9 +1833,10 @@ static Gfx *introRenderCast(Gfx *gdl)
 	{
 		const struct castrow *row = &g_Cast[g_Intro.castindex];
 		const s32 ids[3] = { row->text1, row->text2, row->text3 };
-		// GoldenEye's 108, 152 and 174 on the 640x480 its text renderer measures
-		// against, on the 440x330 frame everything else here is laid out on
-		const s32 ys[3] = { 74, 105, 120 };
+		// GoldenEye's own 108, 152 and 174, which are already on the 440x330
+		// frame its text renderer lays everything out on - scaling them as if
+		// they were 640x480 put the caption a third of the way up the screen
+		const s32 ys[3] = { 108, 152, 174 };
 		const u32 colour = 0xffffff00 | (u32)(255.0f * fade);
 
 		gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
@@ -1638,8 +1851,11 @@ static Gfx *introRenderCast(Gfx *gdl)
 				continue;
 			}
 
+			// centred on GoldenEye's own 315, which is right of the middle of
+			// the frame: the character is drawn to the left of the caption and
+			// a caption centred on the frame was drawn across its face
 			gexFrontTextMeasure(0, text, &w, &h);
-			gdl = gexFrontTextPrint(gdl, 0, (s32)(GEINTRO_W / 2.0f) - w / 2, ys[i], text, colour);
+			gdl = gexFrontTextPrint(gdl, 0, CAST_TEXT_X - w / 2, ys[i], text, colour);
 		}
 
 		gDPPipeSync(gdl++);

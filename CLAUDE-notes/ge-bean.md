@@ -2871,3 +2871,80 @@ at about two frames a second and takes ten minutes to reach the hold, the ignore
 counter a couple of minutes. `g_Vars.lvframenum` **stops at 300** in the attract
 demo, so waiting for it to pass a mark never returns - count `videoEndFrame`
 hits instead.
+
+## The cast reel: four faults, all of them GoldenEye's own numbers (2026-09-18)
+
+The user: "we are refining the intro for ge plus, there are transparency issues
+and camera issues with the cast being shown". Both were in
+`introRenderCast()`, and the oracle (`ge007 --boot`, `PORT_FRAME_DIR`) settled
+every one of them - the reel starts about 5,460 graphics tasks into the boot and
+runs for a dozen characters, so `PORT_FRAME_FROM=5300 PORT_FRAME_EVERY=60`
+lands on it.
+
+**The z buffer.** `constructor_menu18_displaycast()` is the **one** screen of
+GoldenEye's front end drawn with `renderdata.zbufferenabled = TRUE`, and
+`init_menu18_displaycast()` calls `zbufSetBuffer()` to give it one; the gun
+barrel (title.c) and the GoldenEye logo are both FALSE, which is why only the
+cast looked wrong. Drawn without it a character paints its far side over its
+near one: Ourumov's cap floated above his hair and his profile was drawn across
+his own cheek. It is `zbufClear()` + `gSPSetGeometryMode(G_ZBUFFER)` round the
+two `introDrawModel()` calls, the same three lines the XBLA Microsoft Game
+Studios logo uses in title.c, and the geometry mode has to come **off** again
+before the fade and the caption.
+
+**The camera aims at the root matrix, not at the chr's position.** GoldenEye
+poses the character twice: once under an identity base, whose first matrix it
+reads with `mtx4TransformVecInPlace(cast_model->render_pos, &vec)` on an
+all-but-zero vector - so `vec` comes back as that matrix's *translation* - and
+then again under the camera. The difference matters: `getsuboffset()` (Perfect
+Dark's `modelGetRootPosition()`) is where the character stands, **10.9** with the
+reel's `modelSetAnimTranslationScale(0.1)`, while the root matrix is its middle,
+**62**, and the camera aims at that minus 10. Read off the running oracle:
+
+```
+(gdb) p cast_rootpos_smoothed    $1 = {x = 3.07, y = 10.90, z = 4.87}
+(gdb) p cast_target_smoothed     $2 = {x = -7.06, y = 51.18, z = -4.54}
+```
+
+Aiming at the chr's position instead framed a waist where GoldenEye frames a
+chest - at 110 units the window is only 93 tall, so the head was off the top of
+every shot. `introCastRootMtx()` pays for GoldenEye's extra pose to get it.
+
+**The height swings the camera alone.** `campos.y` is
+`rootpos + height + 52.5` and `tarpos.y` is `rootpos + target - 10`: the
+`height` (±100) is what tips the shot up and down over the three seconds. Added
+to the target as well, as it was, the whole rig slid vertically and the shot
+never tipped at all.
+
+**The caption is on GoldenEye's own 315, 108, 152 and 174**, and those are
+already in the 440x330 the front end lays everything out on - scaling them as if
+they were 640x480 put the three lines a third of the way up the screen and
+centred them over the character's face. 315 of 440 is right of the middle
+because the character is drawn to the left of it, which is the whole
+composition of the screen.
+
+Two more the same screen wanted, both `makeonebody()`'s and the constructor's:
+**a head's sunglasses** are a toggle (`MODELPART_HEAD_SUNGLASSES`, part 0 of the
+head, rwdata on the *body's* model) that Perfect Dark starts visible and
+GoldenEye turns off unless the chr was asked for them, and **the gun's first two
+switches** (`MODELPART_CHRGUN_GUNFIRE` and `MODELPART_CHRGUN_0002`) are turned
+off every frame of the reel.
+
+**The models are lit by `gelogolight`** - `gdSPDefLights1(0x96,0x96,0x96,
+0xff,0xff,0xff, 77,77,46)`, which is `var80062518` in the port's own title.c to
+the byte - with `guLookAtReflect()` from 4000 in front of the origin, for the
+logo as well as the cast. Nothing in geintro.c set a light at all, so a model
+took whatever the menu drawn before it had left behind: one character came out
+flat white and the next black.
+
+**Still open: the GoldenEye logo has no red ellipse.** The oracle draws one
+across the E and this port does not. `PgoldeneyelogoZ` is three nodes (group,
+box, one display list) with two embedded textures and no switches, and the list
+loads both (two `G_SETTIMG`), so the geometry converts - it is the list's own
+render mode or its second tile that is being lost, not the conversion.
+
+**The oracle builds headless** with `make -j` first (the port links the
+extracted assets) and then
+`make -f port/Makefile exe HAVE_SDL=0 SDL_CFLAGS=-DPORT_NO_SDL SDL_LIBS=`: this
+box's `/usr/include/SDL2/SDL_config.h` points at a `_real_SDL_config.h` that is
+not on the include path, and the SDL backend is optional by construction.
