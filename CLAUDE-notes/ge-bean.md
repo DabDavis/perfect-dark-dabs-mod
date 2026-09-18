@@ -3059,3 +3059,63 @@ Checked with the whole intro played through under gdb
 (`SDL_VIDEODRIVER=offscreen`, `call geIntroOpen()` after `mainEndStage()`): the
 barrel, the logo and all twelve named characters, `geIntroIsActive()` going
 false at tick 3084 into the folder screens.
+
+## Ten of the intro's animations never loaded at all (2026-09-18)
+
+The user, after the runner was fixed: "what other animations in the intro look
+off?" Ten of them were not being played at all.
+
+**A row of `menu/intro.bin` is matched by its name, and the name field was 20
+bytes.** The converter writes `name.encode()[:19]` (`'>20sHHHBBII'`, and
+`uint8_t name[20]` with `snprintf` in geconvert.c, which truncates the same
+way), and `introLoadAnims()` matches with `strncmp(row, g_AnimNames[i], 20)`.
+Every animation whose name is 20 characters or longer therefore matched
+nothing:
+
+    fire_standing_draw_fast   fire_standing_draw_slow   fire_kneel_forward_fast
+    cock_and_turn_around      draw_and_turn_around      fire_standing_left_fast
+    fire_kneel_left_fast      draw_and_look_around      conversation_listener
+    conversation_cleaned
+
+Ten of the twenty-two the cast reel rolls from, so nearly half of the reel's
+characters **stood still** for their three seconds: `introCastStart()` falls
+back to `idle` for an animation it has not got, and nothing said so. It is
+also why the fault was invisible from the code - the reel played, the
+characters held their guns, and only a person watching would notice that the
+one who should be drawing and looking around is breathing instead.
+
+A shorter compare cannot fix it: `fire_standing_draw_fast` and `_slow` share
+their first 19 characters. The field is **32 bytes** now (`INTRO_NAME`, row
+`INTRO_ROW` = 48), the magic is **`GEI2`** so an older conversion is refused
+rather than misread, and `GECONVERT_VERSION_STR` is **11**. The C and the
+Python still write the same bytes (`cmp` on `menu/intro.bin` after running
+both over the same ROM).
+
+**And the loader now names what it has not got** - one `geintro: the
+conversion has no ...` warning per animation, after the load. The silence is
+what let this sit: `animAppendExternal()` failing was reported, a row that
+matched no name was not, and those are the same fault to a player.
+
+**The gun barrel's shot had no muzzle flash.** `title.c` sets the PP7's first
+switch (`Gunfire.visible = playedShot`) on the one frame it plays
+`GUN_RIFLE7BIG_1` and clears it on every other; Perfect Dark starts a muzzle
+flash hidden, and `g_Intro.shotplayed` was set and never read. It is
+`introSetGunPart(MODELPART_CHRGUN_GUNFIRE, ...)` at the end of the barrel's
+tick now, and the flash is on for that one frame.
+
+**What is *not* wrong, checked against the oracle** (`ge007 --boot`,
+`PORT_FRAME_DIR=… PORT_FRAME_FROM=5300 PORT_FRAME_EVERY=30`, which lands on
+the reel): the cast's **big flat card hands**, which look detached from the
+sleeve, are GoldenEye's own model - Natalya's are the same cards in the real
+game; the tight framing (the character fills the left of the frame, the caption
+sits right of the middle) is GoldenEye's; and the GoldenEye logo does **not**
+turn - `constructor_menu04_goldeneyelogo()` draws it static at 1.2 scale, 3000
+in front, and the shimmer is the reflected LookAt. Two cast animations still
+stop before their three seconds are up (`cock_and_turn_around` at 70 frames of
+the 90 played, `draw_and_turn_around` at 57); both end standing and GoldenEye
+stops there too.
+
+**Every one of the twenty-two was watched** after the fix, two frames each,
+driven from gdb by retrying `introCastStart()` until the roll came up with the
+wanted animation and then fixing the camera (dist 150, angle 0, height 20) so
+they could be compared side by side.

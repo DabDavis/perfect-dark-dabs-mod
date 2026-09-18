@@ -371,8 +371,16 @@ static u8 *introExpandRle(const u8 *src, u32 srclen, s32 wantw, s32 wanth)
 	return out;
 }
 
+// a row of menu/intro.bin: the animation's name, then the fields Perfect Dark's
+// animation table wants. The name is what a row is matched by, so the field has
+// to hold the longest of them whole - `fire_standing_draw_fast` is 23 - and a
+// 20-byte one truncated ten of the twenty-five, two of them
+// (`fire_standing_draw_fast` and `_slow`) to the same 19 characters
+#define INTRO_NAME 32
+#define INTRO_ROW  (INTRO_NAME + 16)
+
 /**
- * menu/intro.bin: "GEI1", the characters' scales, then a row an animation - its
+ * menu/intro.bin: "GEI2", the characters' scales, then a row an animation - its
  * name and the fields Perfect Dark's animation table wants. Each animation is
  * appended after the game's own (animAppendExternal()), which is what a
  * borrowed mod's animations do.
@@ -384,7 +392,7 @@ static s32 introLoadAnims(void)
 	s32 numchrs, numanims;
 	const u8 *rows;
 
-	if (!d || len < 8 || memcmp(d, "GEI1", 4)) {
+	if (!d || len < 8 || memcmp(d, "GEI2", 4)) {
 		sysMemFree(d);
 		return 0;
 	}
@@ -393,7 +401,7 @@ static s32 introLoadAnims(void)
 	numanims = (s32)be16(d + 6);
 
 	if (numchrs > (s32)(sizeof(g_Intro.chrscale) / sizeof(g_Intro.chrscale[0]))
-			|| len < 8 + 8u * numchrs + 36u * numanims) {
+			|| len < 8 + 8u * numchrs + INTRO_ROW * numanims) {
 		sysMemFree(d);
 		return 0;
 	}
@@ -414,14 +422,14 @@ static s32 introLoadAnims(void)
 	}
 
 	for (s32 r = 0; r < numanims; r++) {
-		const u8 *row = rows + 36 * r;
-		const u32 at = be32(row + 28);
-		const u32 size = be32(row + 32);
+		const u8 *row = rows + INTRO_ROW * r;
+		const u32 at = be32(row + INTRO_NAME + 8);
+		const u32 size = be32(row + INTRO_NAME + 12);
 		struct introanim *a = NULL;
 		u8 *copy;
 
 		for (s32 i = 0; i < NUM_ANIMS; i++) {
-			if (!strncmp((const char *)row, g_AnimNames[i], 20)) {
+			if (!strncmp((const char *)row, g_AnimNames[i], INTRO_NAME)) {
 				a = &g_Intro.anims[i];
 				break;
 			}
@@ -431,21 +439,21 @@ static s32 introLoadAnims(void)
 			continue;
 		}
 
-		a->entry.numframes = be16(row + 20);
-		a->entry.bytesperframe = be16(row + 22);
-		a->entry.headerlen = be16(row + 24);
-		a->entry.framelen = row[26];
+		a->entry.numframes = be16(row + INTRO_NAME);
+		a->entry.bytesperframe = be16(row + INTRO_NAME + 2);
+		a->entry.headerlen = be16(row + INTRO_NAME + 4);
+		a->entry.framelen = row[INTRO_NAME + 6];
 
 		// GoldenEye's own loop bit (its record's `unk07 & 1`, which the
-		// conversion writes here) is Perfect Dark's ANIMFLAG_LOOP: it is what
-		// makes modelConstrainOrWrapAnimFrame() wrap a frame past the end
+		// conversion writes into the row) is Perfect Dark's ANIMFLAG_LOOP: it
+		// is what makes modelConstrainOrWrapAnimFrame() wrap a frame past the end
 		// round to the front instead of holding the last one. Neither game
 		// asks its intro to loop anything explicitly - title.c and front.c
 		// both just set the animation - so dropping the bit froze every
 		// looping animation at its end: the cast reel's `running_one_handed`
 		// is 26 frames and the reel holds a character for 82, so the runner
 		// ran for a second and then stood still in mid-stride for two
-		a->entry.flags = row[27] ? ANIMFLAG_LOOP : 0;
+		a->entry.flags = row[INTRO_NAME + 7] ? ANIMFLAG_LOOP : 0;
 
 		// the header and the frames are read into the slot buffers the ROM's
 		// own sizes made, and the bit reader runs off the end of the last frame
@@ -461,12 +469,23 @@ static s32 introLoadAnims(void)
 		a->animnum = animAppendExternal(&a->entry, copy);
 
 		if (a->animnum < 0) {
-			sysLogPrintf(LOG_WARNING, "geintro: no room for GoldenEye's `%s`", g_AnimNames[r < NUM_ANIMS ? r : 0]);
+			sysLogPrintf(LOG_WARNING, "geintro: no room for GoldenEye's `%s`",
+					g_AnimNames[a - g_Intro.anims]);
 			sysMemFree(copy);
 		}
 	}
 
 	sysMemFree(d);
+
+	// one the conversion did not carry, or whose row did not match its name, is
+	// a character standing still where GoldenEye has it drawing a gun: the cast
+	// reel falls back to `idle` and nothing else says so. Ten of them were
+	// missing for a day this way
+	for (s32 i = 0; i < NUM_ANIMS; i++) {
+		if (g_Intro.anims[i].animnum < 0) {
+			sysLogPrintf(LOG_WARNING, "geintro: the conversion has no `%s`", g_AnimNames[i]);
+		}
+	}
 
 	return g_Intro.anims[GEANIM_BOND_EYE_WALK].animnum >= 0;
 }
@@ -1224,6 +1243,8 @@ static void introBarrelStart(void)
 	}
 }
 
+static void introSetGunPart(s32 part, s32 visible);
+
 /** sub_GAME_7F007F30(): the walk, the turn and the shot, a frame at a time. */
 static void introBarrelTickBond(void)
 {
@@ -1231,6 +1252,8 @@ static void introBarrelTickBond(void)
 	if (!g_Intro.body.model) {
 		return;
 	}
+
+	g_Intro.shotplayed = 0;
 
 	for (s32 i = 0; i < 2; i++) {
 		if (g_Intro.gunbarreltimer >= 0) {
@@ -1259,6 +1282,12 @@ static void introBarrelTickBond(void)
 	// it outside the loop. Twice a frame walked Bond in at double speed and
 	// left him past his mark when the sight closed
 	modelUpdateInfo(g_Intro.body.model);
+
+	// and the PP7's muzzle flash is on for the one frame the shot goes off and
+	// off for every other, which is what GoldenEye does with the gun's first
+	// switch here (`Gunfire.visible = playedShot`). Perfect Dark starts a
+	// muzzle flash hidden, so the shot had none at all
+	introSetGunPart(MODELPART_CHRGUN_GUNFIRE, g_Intro.shotplayed);
 }
 
 /** insert_bond_eye_intro(): 46 degrees from GoldenEye's own camera. */

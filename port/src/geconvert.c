@@ -4445,10 +4445,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			g_NumAllocs = keep;
 		}
 
-		// menu/intro.bin: "GEI1", the characters' scales, then a row an
-		// animation (its name, Perfect Dark's animtableentry fields, and where
-		// its bytes are)
-		bufPut(&head, (const uint8_t *)"GEI1", 4);
+		// menu/intro.bin: "GEI2", the characters' scales, then a row an
+		// animation (its 32-byte name, Perfect Dark's animtableentry fields,
+		// and where its bytes are). The name is what the port matches the row
+		// by, and a 20-byte field truncated ten of the twenty-five - two of
+		// them to the same 19 characters - so it has to be wide enough for the
+		// longest of them
+		bufPut(&head, (const uint8_t *)"GEI2", 4);
 		bufU16(&head, NUM_CHRS);
 		bufU16(&head, (uint32_t)numanims);
 		for (uint32_t num = 0; num < NUM_CHRS; ++num) {
@@ -4457,12 +4460,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufF32(&head, g_Chrs[num].scale);
 		}
 
-		base = head.n + 36 * numanims;
+		base = head.n + 48 * numanims;
 
 		for (size_t i = 0; i < numanims; ++i) {
 			struct animout e;
 			buf data = animConvert(g_IntroAnims[i].at, &e);
-			uint8_t name[20] = {0};
+			uint8_t name[32] = {0};
 
 			snprintf((char *)name, sizeof(name), "%s", g_IntroAnims[i].name);
 			bufPut(&index, name, sizeof(name));

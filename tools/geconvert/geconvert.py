@@ -978,8 +978,11 @@ def main():
         alltex.update(images)
         with open(os.path.join(outdir, 'files', 'Cgx%03dZ' % num), 'wb') as f:
             f.write(rzip1173(data))
-    # menu/intro.bin: "GEI1", the characters' scales, then a row an animation
-    # (its name, Perfect Dark's animtableentry fields, and where its bytes are)
+    # menu/intro.bin: "GEI2", the characters' scales, then a row an animation
+    # (its 32-byte name, Perfect Dark's animtableentry fields, and where its
+    # bytes are). The name is what the port matches the row by, and a 20-byte
+    # field truncated ten of the twenty-five - two of them to the same 19
+    # characters - so it has to be wide enough for the longest of them
     rows, blob = [], bytearray()
     for name, at in INTRO_ANIMS:
         data, e = geanim.convert(at)
@@ -989,12 +992,12 @@ def main():
     # its own (c_item_entries' flags), and its scale
     chrs = b''.join(struct.pack('>HHf', num, h['ismale'] | (h['hashead'] << 1), scale)
                     for num, (_, scale, h) in enumerate(gefiles.rom().chrs()))
-    base = 8 + len(chrs) + 36 * len(rows)
-    index = b''.join(struct.pack('>20sHHHBBII', name.encode()[:19], e['numframes'], e['bytesperframe'],
+    base = 8 + len(chrs) + 48 * len(rows)
+    index = b''.join(struct.pack('>32sHHHBBII', name.encode()[:31], e['numframes'], e['bytesperframe'],
                                  e['headerlen'], e['framelen'], e['looping'], base + off, size)
                      for name, e, off, size in rows)
     with open(os.path.join(outdir, 'menu', 'intro.bin'), 'wb') as f:
-        f.write(struct.pack('>4sHH', b'GEI1', gerom.NUM_CHRS, len(rows)) + chrs + index + bytes(blob))
+        f.write(struct.pack('>4sHH', b'GEI2', gerom.NUM_CHRS, len(rows)) + chrs + index + bytes(blob))
     print('characters written %d, animations %d in %d bytes' % (gerom.NUM_CHRS, len(INTRO_ANIMS), len(blob)))
     # the remake's prop models: GoldenEye's own, converted (gemodelconv.py)
     modellines = []
