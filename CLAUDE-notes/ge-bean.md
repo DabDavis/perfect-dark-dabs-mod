@@ -2325,3 +2325,74 @@ written and thrown away; screenshot a dialog only once it has stopped moving.
 **Not done**: GoldenEye's own animations (its 91 `PlayAnimation` commands, so
 the set pieces do not play), its screen fades and cinema cameras, and its chr
 flag commands, whose one byte is not Perfect Dark's banked 32-bit flags.
+
+## Falling through a converted level's floor (2026-09-18)
+
+Two reports, one shape: a tester's "Floor disapearing under me in ge-x plus"
+and the user's "i fell through runway also near spawn right outside the doors
+on the snow ground". The second came with an F3 trace and that settled it in
+an hour; the first had none and cost most of one.
+
+**The cause is that GoldenEye's stan and GoldenEye's portals disagree about
+which room a place is in, and Perfect Dark believes the portals.** A stan tile
+carries GoldenEye's own room number and GoldenEye's engine found the tile
+under the player without asking which room they were in. `cdFindGroundInfoAtCyl()`
+only ever looks at the rooms it is handed, and a walking player's rooms come
+from the portal walk. Where the two disagree there is no floor under the
+player **at all** - not a low one, none - and `bwalkUpdateVertical()` drops
+them out of the world.
+
+On Runway the disagreement is a strip of snow eight hundred units wide running
+the length of the runway: its tiles are room 14's, while portal 18 (13<->14,
+its plane at x about -4594) puts a player walking there in room 13 alone. At
+the reported position, `cdFindGroundInfoAtCyl()` answers -4294967296 from room
+13 and -218.0 from room 14.
+
+`bwalkUpdateVertical()` now asks again from the rooms the position itself
+resolves to (`bgFindRoomsByPos()`), **only where the first answer was nothing
+whatsoever, and only on a stage of the remake's** (`modloaderStageIsRemake()`).
+A level of the game's own cannot reach the branch - its tiles and its portals
+are one another's - so nothing stock moves.
+
+**How to chase one of these.** Three gdb probes, all worth recreating
+(scratchpad, `probe.py`/`mismatch.py`/`verify2.py` in build/gexrom):
+
+- **the pure query beats the teleport.** Teleporting the player round a grid
+  and watching them fall is contaminated twice over: the fall's velocity
+  carries into the next cell (every cell after the first reads as a fall), and
+  writing `vv_manground`/`vv_ground` to steady them pins them so that nothing
+  falls at all. Call `cdFindGroundInfoAtCyl()` from gdb instead, over a grid,
+  with rooms from `bgFindRoomsByPos()` - `malloc()` the coord and the room
+  arrays from gdb, and **`aboverooms` must not be NULL** (it writes its
+  terminator unconditionally).
+- **the map that names the fault** asks the same position twice: once with the
+  whole room list and once with the first room alone. A cell where the first
+  answers and the second does not is a cell a player can fall through, and
+  printing them shows the strip.
+- **the A/B is the proof.** Hold `prop->rooms[0] = 13, rooms[1] = -1` every
+  frame at the spot and watch `floorroom` and `vv_manground`: without the fix
+  floorroom -1 and manground -819 and falling, with it floorroom 14 and
+  manground -218.
+
+**The trace now names the map.** A report used to say `stage 0x55` and nothing
+else, and a Stage Loader id is handed out in the order the mods register, so
+the same id is a different map on the reporter's machine than on ours. Working
+out that 0x55 was Streets took matching the trace's room count against every
+converted level (**`g_Vars.roomcount` is the conversion's `numrooms + 1`**,
+since `write_bg()` writes a pointer in the entry past the last room and
+`bg.c` counts entries until a zero one) and then the player's position against
+each level's walkable area. `trace.c` prints `stage map "Streets" of mod
+"..."` now, and calls `gebeanStageTrace()`, which was written but never
+reached from there - so a report could not say whether the rooms in front of
+the player were GoldenEye XBLA's or the conversion's own.
+
+**Still open: the tester's Streets frame drew one room.** Their trace has
+room 1 alone on screen and 31 draws; the same position and heading here draws
+twenty-one rooms and 206 draws, in the N64 look and with the HD look on (Bean
+serves 20 of Streets' 55 rooms). Their build is `8056aa4`, which is before
+`42e530e2e` - the Stage Loader's arenas being cleared by `mpImportArenas()` -
+and they had GoldenEye X loaded with `MapMods=*`, so their stage 0x55 may not
+even have been Streets. It may be the same room disagreement seen from the
+renderer's side rather than the collision's: a player listed in the wrong room
+reaches the rest of the level through that room's portals. Worth asking for
+another F3 now that the trace names the map.
