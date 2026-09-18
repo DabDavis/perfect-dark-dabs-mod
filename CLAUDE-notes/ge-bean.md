@@ -2813,3 +2813,61 @@ Within half a percent over a thousand units, the residual being the two-tick
 sampling offset and this trace starting mode 3 at `titlex` 610 rather than 1276.
 `GECONVERT_VERSION_STR` is **9**.
 
+
+## The gun barrel's backdrop was drawn a texel a pixel (2026-09-18)
+
+The user, with Bond and his lens settled: "we fixed bonds position and the
+circle he is in, but the background image the gun barrel is not centered with
+it".
+
+**A texture rectangle steps its texture per *pixel*, not across the rectangle.**
+`introBackdrop()` scaled the rectangle into this frame - Perfect Dark's 320x220
+against GoldenEye's 440x330 - and kept GoldenEye's own `dsdx` of `1 << 10`, one
+texel a pixel. So the picture was drawn 440 *pixels* wide in a 320 pixel frame
+whatever the rectangle said, with its last column clamped across the rest, while
+the lens, which is drawn through an ortho, was scaled. Measured on a 640 window:
+the barrel's mouth sat at 0.734 of the width and the lens at 0.533, 128 pixels
+apart. The step is the scale's own reciprocal, `(1 << 10) / scale`, which is what
+`gexfront.c` had been doing all along (`1024 / sx` in every one of its
+rectangles) - the folder screens were the place to look, and were not looked at.
+
+**One box for everything GoldenEye drew** (`introFrameBox()`): the frame's own
+440x330 inside this one. Its width is `viGetWidth() / 440` narrowed by
+`(4/3) / videoGetAspect()` and centred, because this frame's pixels are not
+square - 320x220 is shown as 4:3, as GoldenEye's 440x330 is - and because that
+is exactly the box `introBarrelOrtho()` already widens its 1280x960 into
+(`halfw = 640 * aspect / (4/3)`: the same arithmetic from the other end). Rows
+stay `introScaleY()`. Anything drawn through the box lines up with the lens on
+any window, so the **blood** goes through it too rather than stretching over the
+whole frame - it runs down the lens and has to stay on it.
+
+**Measured against the oracle** (`ge007 --boot`, `PORT_FRAME_DIR`, 440x330
+frames), fitting the picture's own offset by correlation against
+`menu/introbg.bin` expanded, and reading the lens from `(titlex + 768) / 1280`:
+
+| | GoldenEye | before | after |
+|---|---|---|---|
+| barrel mouth | 0.532 of the width | 0.734 | 0.531 |
+| lens | 0.533 | 0.533 | 0.533 |
+| mouth to lens | -0.6 px (of 440) | +128 px (of 640) | -1.4 px (of 640) |
+
+and through the scroll the picture's offset is GoldenEye's own
+`floor(440 * titlex / 1280)` to a pixel and a half (+109.5 against +110, -14.5
+against -12, -31.5 against -30), where it had been +49.5 against -30. `titlex`
+settles at **-85.487556** in both games, which is what mode 3's `-80` limit and
+its 5.8183274 step give.
+
+**The picture's own right edge is black**, so at the hold both games show a
+black band down the right of the screen where the scrolled picture's last column
+is clamped - the oracle's rightmost 8% averages 0.3 and this port's 0.1. It is
+not a fault to fix.
+
+**Reaching the intro headlessly** is `build/gexrom/intro4.gdb`: `--skip-intro`
+boots into an attract demo, `mainEndStage()` from a `videoEndFrame` breakpoint
+drops out of it to the menus, and `geIntroOpen()` starts the sequence, with
+`screenshotRequest()` at chosen frames. Drive it with gdb's **`ignore 1 N` and
+`continue`** rather than a `commands` list on every frame: the command list runs
+at about two frames a second and takes ten minutes to reach the hold, the ignore
+counter a couple of minutes. `g_Vars.lvframenum` **stops at 300** in the attract
+demo, so waiting for it to pass a mark never returns - count `videoEndFrame`
+hits instead.

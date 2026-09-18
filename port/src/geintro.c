@@ -36,7 +36,9 @@
  *
  * GoldenEye lays its screens out on 440x330 and so does this; the gun barrel
  * has an ortho of its own, GoldenEye's 1280x960, widened at the sides on a
- * wide window so the lens stays round.
+ * wide window so the lens stays round. Its backdrop and its blood are drawn
+ * through the same box (`introFrameBox()`), which is what keeps the mouth of
+ * the barrel round the lens.
  */
 #include <stdlib.h>
 #include <stdio.h>
@@ -736,14 +738,31 @@ static s32 introBloodStep(s32 restart)
 /* ------------------------------------------------------------------------ */
 /* drawing helpers */
 
-static f32 introScaleX(void)
-{
-	return viGetWidth() / GEINTRO_W;
-}
-
 static f32 introScaleY(void)
 {
 	return viGetHeight() / GEINTRO_H;
+}
+
+/**
+ * GoldenEye's own 440x330 frame inside this one: how wide a column of it is
+ * drawn here, and where its left edge falls. Its rows are introScaleY().
+ *
+ * This frame's pixels are not square - Perfect Dark's 320x220 is shown as 4:3,
+ * as GoldenEye's own 440x330 is - so the width is not the frame's own 320/440
+ * but that narrowed by however much wider than 4:3 the window is, which leaves
+ * the picture the shape GoldenEye drew and centres it. That is the box the gun
+ * barrel's ortho already uses (introBarrelOrtho(), whose 1280x960 widens at
+ * the sides by exactly the same aspect), so anything drawn through here lines
+ * up with the lens on any window: a wide one gets black beside the picture on
+ * both sides, a narrow one loses the same from each.
+ */
+static f32 introFrameBox(f32 *left)
+{
+	const f32 scale = (viGetWidth() / GEINTRO_W) * ((4.0f / 3.0f) / videoGetAspect());
+
+	*left = (viGetWidth() - GEINTRO_W * scale) * 0.5f;
+
+	return scale;
 }
 
 static Gfx *introClearBlack(Gfx *gdl)
@@ -880,10 +899,32 @@ static Gfx *introBarrelLens(Gfx *gdl, f32 x, f32 y, f32 sx, f32 sy)
  */
 static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 {
-	const f32 sx = introScaleX();
-	const f32 sy = introScaleY();
+	f32 left;
+	const f32 scale = introFrameBox(&left);
+	const f32 rows = introScaleY();
+	// the picture's own left edge in this frame, the texel it starts at there,
+	// and its right edge, all of them GoldenEye's own 440 wide row scaled
+	f32 x0 = left + (xoffset > 0 ? xoffset * scale : 0.0f);
+	f32 x1 = left + BG_W * scale;
+	f32 s0 = xoffset < 0 ? -xoffset : 0;
 
 	if (!g_Intro.bg) {
+		return gdl;
+	}
+
+	// a window narrower than 4:3 cuts the picture off rather than squeezing it,
+	// which is what the ortho does with the lens, and a texture rectangle's own
+	// coordinates cannot go negative
+	if (x0 < 0.0f) {
+		s0 -= x0 / scale;
+		x0 = 0.0f;
+	}
+
+	if (x1 > viGetWidth()) {
+		x1 = viGetWidth();
+	}
+
+	if (x1 <= x0) {
 		return gdl;
 	}
 
@@ -902,18 +943,25 @@ static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 	// picture is GoldenEye's own pixels scaled into ours rather than drawn at
 	// 440 wide: at 440 in *this* frame it is a third too big and only its dark
 	// top rows are on the screen.
+	//
+	// The rectangle being scaled is not enough on its own: a texture rectangle
+	// steps its texel per *pixel* (`dsdx`), so at GoldenEye's own 1 << 10 the
+	// picture was drawn a texel a pixel whatever the rectangle said - 440 of
+	// this frame's 320 pixels, with the last column smeared over the rest - and
+	// the barrel's mouth sat two thirds of the way across while the lens, which
+	// has an ortho and is scaled, sat at GoldenEye's half. The step is the
+	// scale's own reciprocal.
 	for (s32 i = 0; i + 1 < BG_H; i++) {
 		const s32 shade = (255 * i) / (BG_H - 1);
-		const s32 y0 = (s32)((i + 0x10) * sy);
-		const s32 y1 = (s32)((i + 0x11) * sy);
-		const s32 x0 = xoffset < 0 ? 0 : (s32)(xoffset * sx);
+		const s32 y0 = (s32)((i + 0x10) * rows);
+		const s32 y1 = (s32)((i + 0x11) * rows);
 
 		gDPLoadTextureBlock(gdl++, g_Intro.bg + i * BG_W, G_IM_FMT_I, G_IM_SIZ_8b, BG_W, 1, 0,
 				G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP,
 				G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
 		gDPSetPrimColor(gdl++, 0, 0, shade, shade, shade, 255);
-		gSPTextureRectangle(gdl++, x0 << 2, y0 << 2, (s32)(BG_W * sx) << 2, y1 << 2,
-				G_TX_RENDERTILE, (xoffset < 0 ? -xoffset : 0) << 5, 0, 1 << 10, 1 << 10);
+		gSPTextureRectangle(gdl++, (s32)(x0 * 4.0f), y0 << 2, (s32)(x1 * 4.0f), y1 << 2,
+				G_TX_RENDERTILE, (s32)(s0 * 32.0f), 0, (s32)((1 << 10) / scale), 1 << 10);
 	}
 
 	gDPPipeSync(gdl++);
@@ -1125,8 +1173,26 @@ static Gfx *introDrawBond(Gfx *gdl)
  */
 static Gfx *introDrawBlood(Gfx *gdl)
 {
+	// over GoldenEye's own frame rather than this one's, since the wash runs
+	// down the lens and has to stay on it whatever the window's shape is
+	f32 left;
+	const f32 scale = introFrameBox(&left);
+	const f32 width = GEINTRO_W * scale;
+	f32 x0 = left;
+	f32 x1 = left + width;
+	f32 s0 = 0.0f;
+
 	if (!g_Intro.bloodframe) {
 		return gdl;
+	}
+
+	if (x0 < 0.0f) {
+		s0 = (-x0 / width) * BLOOD_H;
+		x0 = 0.0f;
+	}
+
+	if (x1 > viGetWidth()) {
+		x1 = viGetWidth();
 	}
 
 	gDPPipeSync(gdl++);
@@ -1142,8 +1208,9 @@ static Gfx *introDrawBlood(Gfx *gdl)
 	gDPLoadTextureBlock_4b(gdl++, g_Intro.bloodframe, G_IM_FMT_I, BLOOD_H, BLOOD_W, 0,
 			G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP,
 			G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTextureRectangle(gdl++, 0, 0, (viGetWidth() * 4) - 1, (viGetHeight() * 4) - 1,
-			G_TX_RENDERTILE, 0, 0, 0x18000 / viGetWidth(), 0x14000 / viGetHeight());
+	gSPTextureRectangle(gdl++, (s32)(x0 * 4.0f), 0, (s32)(x1 * 4.0f) - 1, (viGetHeight() * 4) - 1,
+			G_TX_RENDERTILE, (s32)(s0 * 32.0f), 0, (s32)((BLOOD_H << 10) / width),
+			0x14000 / viGetHeight());
 	gDPPipeSync(gdl++);
 
 	return gdl;
