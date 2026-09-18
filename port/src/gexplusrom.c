@@ -368,9 +368,25 @@ void gexPlusRomConvert(void)
 	if (!search.path[0]) {
 		// The arenas may be there from before, converted where the ROM was
 		for (u32 i = 0; i < ARRAYCOUNT(containers); ++i) {
-			snprintf(dest, sizeof(dest), "%s/" GEXPLUSROM_DIR "/modconfig.txt", containers[i]);
+			char dir[FS_MAXPATH + 1];
+
+			snprintf(dir, sizeof(dir), "%s/" GEXPLUSROM_DIR, containers[i]);
+			snprintf(dest, sizeof(dest), "%s/modconfig.txt", dir);
+
 			if (fsFileSize(dest) >= 0) {
 				gexPlusRomSetReady();
+
+				// and say so when they are older than this build: everything a
+				// newer converter adds is missing from them and nothing can put
+				// it there while there is no ROM to convert again from, which
+				// is silent otherwise - the arenas work and the rest does not
+				if (!gexPlusRomIsCurrent(dir)) {
+					g_GexPlusRomState = GEXPLUSROM_OLD;
+					sysLogPrintf(LOG_WARNING, "gexplus: the arenas in %s were converted by an older build"
+							" and there is no GoldenEye 007 (US) ROM in data/ to convert again from;"
+							" GE Plus's intro and folder screens need what the newer one writes", dir);
+				}
+
 				return;
 			}
 		}

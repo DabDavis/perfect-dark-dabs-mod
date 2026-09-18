@@ -2629,6 +2629,26 @@ and the cast reel plays its twelve named characters - Ourumov in his uniform
 with a pistol in his hand under "Also Featuring / General / Arkady Ourumov" -
 before the folder screens open. 34 cast rows stepped through with no crash.
 
+**The version has to be raised in the header**, `port/include/geconvert.h`, not
+in geconvert.c - it was raised in the .c on the first pass, where the string
+does not appear, so the edit did nothing and every conversion still stamped
+`geconvert 6`. Nothing looked wrong: the converter wrote the new files, the C
+and the Python still matched byte for byte, and the intro played in testing
+because each test deleted the mod directory first. What a player got was the old
+conversion kept as current, no `menu/intro.bin`, `geIntroOpen()` failing and the
+folder opening with no intro and nothing said - "the intro doesnt play for me".
+**Check `CONVERT.txt` says the new number after a conversion**, which is the
+one test that would have caught it.
+
+And where there is **no ROM in data/ to convert again from**, an existing
+conversion is kept whatever wrote it (that is deliberate - old arenas beat no
+arenas) and everything a newer converter adds is missing for good. That was
+silent too; `GEXPLUSROM_OLD` now says so in the log and on the GE Plus dialog,
+which is what opens in that state because the folder screens need the same
+files. `build/`'s own install was in exactly that state - `build/data` had no
+GoldenEye ROM, so a conversion from before the folder screens existed had been
+current since.
+
 **Not done**, and what a second pass would look at:
 - Bond settles a little left of the bore rather than inside it - the walk covers
   1137 of the 1054 units the camera is aimed along, so the framing is a fraction

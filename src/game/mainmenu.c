@@ -4942,6 +4942,21 @@ static MenuItemHandlerResult menuhandlerGexPlusWhyNoArena(s32 operation, struct 
 	return 0;
 }
 
+/**
+ * The arenas are there but were converted by an older build, so GoldenEye's own
+ * intro and folder screens - which need files a newer converter writes - are
+ * not, and this dialog is what opens in their place. Shown whether or not there
+ * are arenas, which is the difference from the labels above.
+ */
+static MenuItemHandlerResult menuhandlerGexPlusOldConversion(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return gexPlusRomGetState() != GEXPLUSROM_OLD;
+	}
+
+	return 0;
+}
+
 static struct menuitem g_GexPlusMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -4998,6 +5013,14 @@ static struct menuitem g_GexPlusMenuItems[] = {
 		(uintptr_t)"The arenas are converted, but\ntheir maps are switched off in\nExtended Options > Stage Loader.\n",
 		0,
 		menuhandlerGexPlusWhyNoArena,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"These arenas were converted by an\nolder build, so GoldenEye's intro\nand folder screens are missing.\nPut a GoldenEye 007 (US) ROM in\ndata/ and restart to convert again.\n",
+		0,
+		menuhandlerGexPlusOldConversion,
 	},
 	{ MENUITEMTYPE_END },
 };

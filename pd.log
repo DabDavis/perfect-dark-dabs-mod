@@ -1,0 +1,465 @@
+version: dabs-mod ae3bc26f3 (x86_64-linux)
+startup date: 18 Sep 2026 06:36:20
+base dir: /home/sdg/perfect-dark/perfect_dark/build/data
+save dir: /home/sdg/perfect-dark/perfect_dark/build
+SDL: created GL3.0 context
+GL: using GLSL version 130
+gexplus: converting /home/sdg/perfect-dark/perfect_dark/build/data/GoldenEye 007 (U) [!].n64 into $E/mods/GoldenEye Arenas, this happens once
+geconvert: Dam: 136 rooms, 194 portals, 2755 tiles (+1616 walls), 367 pads, 5 lights
+geconvert: Dam: mission 0, 323 props (+5 left out), 577 ai commands (+37)
+geconvert: Runway: 17 rooms, 27 portals, 495 tiles (+298 walls), 176 pads, 0 lights
+geconvert: Runway: mission 2, 105 props (+34 left out), 465 ai commands (+41)
+geconvert: Statue Park: 27 rooms, 43 portals, 1374 tiles (+703 walls), 228 pads, 0 lights
+geconvert: Statue Park: mission 9, 60 props (+4 left out), 1264 ai commands (+98)
+geconvert: Train: 57 rooms, 64 portals, 694 tiles (+602 walls), 206 pads, 0 lights
+geconvert: Train: mission 13, 375 props (+62 left out), 1262 ai commands (+96)
+geconvert: Streets: 55 rooms, 61 portals, 1235 tiles (+664 walls), 285 pads, 0 lights
+geconvert: Streets: mission 11, 207 props (+11 left out), 888 ai commands (+80)
+geconvert: Jungle: 44 rooms, 59 portals, 2104 tiles (+544 walls), 593 pads, 0 lights
+geconvert: Jungle: mission 14, 524 props (+46 left out), 1025 ai commands (+73)
+geconvert: Caves: 13 rooms, 15 portals, 462 tiles (+260 walls), 35 pads, 0 lights
+geconvert: Temple: 25 rooms, 37 portals, 204 tiles (+174 walls), 41 pads, 0 lights
+geconvert: Complex: 44 rooms, 60 portals, 545 tiles (+413 walls), 49 pads, 0 lights
+geconvert: Library: 92 rooms, 110 portals, 486 tiles (+426 walls), 62 pads, 0 lights
+geconvert: Basement: 92 rooms, 110 portals, 486 tiles (+426 walls), 62 pads, 0 lights
+geconvert: Stack: 92 rooms, 110 portals, 486 tiles (+426 walls), 62 pads, 0 lights
+geconvert: Facility: 77 rooms, 109 portals, 2599 tiles (+2160 walls), 311 pads, 0 lights
+geconvert: Facility: mission 1, 440 props (+83 left out), 1473 ai commands (+97)
+geconvert: Bunker: 68 rooms, 75 portals, 1365 tiles (+885 walls), 121 pads, 4 lights
+geconvert: Bunker 2: mission 8, 308 props (+37 left out), 808 ai commands (+54)
+geconvert: Archives: 65 rooms, 103 portals, 1636 tiles (+1217 walls), 210 pads, 0 lights
+geconvert: Archives: mission 10, 376 props (+39 left out), 535 ai commands (+39)
+geconvert: Caverns: 63 rooms, 76 portals, 1436 tiles (+1130 walls), 370 pads, 41 lights
+geconvert: Caverns: mission 16, 457 props (+22 left out), 634 ai commands (+43)
+geconvert: Egyptian: 44 rooms, 51 portals, 918 tiles (+666 walls), 191 pads, 0 lights
+geconvert: Egyptian: mission 19, 112 props (+1 left out), 789 ai commands (+56)
+geconvert: Cradle: 36 rooms, 0 portals, 747 tiles (+641 walls), 152 pads, 0 lights
+geconvert: Cradle: mission 17, 47 props (+1 left out), 1262 ai commands (+171)
+geconvert: Surface: 39 rooms, 101 portals, 2555 tiles (+903 walls), 299 pads, 0 lights
+geconvert: Surface: mission 3, 243 props (+4 left out), 838 ai commands (+46)
+geconvert: Surface 2: 39 rooms, 101 portals, 2555 tiles (+903 walls), 290 pads, 0 lights
+geconvert: Surface 2: mission 7, 178 props (+2 left out), 1025 ai commands (+79)
+geconvert: Silo: 86 rooms, 94 portals, 2570 tiles (+1808 walls), 233 pads, 5 lights
+geconvert: Silo: mission 5, 335 props (+0 left out), 587 ai commands (+32)
+geconvert: Frigate: 58 rooms, 94 portals, 1844 tiles (+1548 walls), 177 pads, 0 lights
+geconvert: Frigate: mission 6, 227 props (+32 left out), 385 ai commands (+24)
+geconvert: Depot: 89 rooms, 118 portals, 2007 tiles (+1286 walls), 354 pads, 0 lights
+geconvert: Depot: mission 12, 216 props (+1 left out), 744 ai commands (+95)
+geconvert: Control: 91 rooms, 141 portals, 2275 tiles (+1812 walls), 231 pads, 0 lights
+geconvert: Control: mission 15, 288 props (+5 left out), 1014 ai commands (+45)
+geconvert: Bunker 1: 30 rooms, 30 portals, 1066 tiles (+584 walls), 105 pads, 2 lights
+geconvert: Bunker: mission 4, 175 props (+31 left out), 478 ai commands (+42)
+geconvert: Aztec: 92 rooms, 95 portals, 1560 tiles (+1428 walls), 178 pads, 0 lights
+geconvert: Aztec: mission 18, 275 props (+51 left out), 609 ai commands (+37)
+geconvert: 80 characters, 25 animations in 319983 bytes
+geconvert: 217 models
+geconvert: 2054 textures, 0 missing
+gexplus: the GoldenEye arenas are in $E/mods/GoldenEye Arenas
+mod: 91 installed: 2xw_nr_patch_v1, PD_Kakariko, spooky_dark_vault, PD11GEWeaponsBoth, cvmp, GoldenEye Arenas, PerfectDark_2XW-NR_patch_v1, chicagoresturanteasier, g5basemission_omegacop13_old, DarkCorps_Part_Three(BETA), g5basemission_omegacop13, MarioCharacters_Mario v1.1
+mod: 91 mods mounted for their maps
+ERROR: fsFileLoad: could not find file: /home/sdg/perfect-dark/perfect_dark/build/mods/GE Gun Name Display - PD Names/segs/data
+ERROR: moddata: could not load /home/sdg/perfect-dark/perfect_dark/build/mods/GE Gun Name Display - PD Names/segs/data to borrow from
+modborrow: GoldenEye's guns come from `GE-X_6a_01-19-25` (25 of 25 slots)
+input: assigned controller '0: (DualSense Wireless Controller)' (id 0) to player 0
+input: GUID for controller 0: 030057564c050000e60c000000016800
+ROM file: pd.ntsc-final.z64
+loading segment fontjpnsingle from ROM (offset 00194b20 pointer 0x7fa928f92b30)
+loading segment fontjpnmulti from ROM (offset 0019fb40 pointer 0x7fa928f9db50)
+loading segment animations from ROM (offset 001a15c0 pointer 0x7fa928f9f5d0)
+loading segment mpconfigs from ROM (offset 007d0a40 pointer 0x7fa9295cea50)
+loading segment mpstringsE from ROM (offset 007d1c20 pointer 0x7fa9295cfc30)
+loading segment mpstringsJ from ROM (offset 007d5320 pointer 0x7fa9295d3330)
+loading segment mpstringsP from ROM (offset 007d8a20 pointer 0x7fa9295d6a30)
+loading segment mpstringsG from ROM (offset 007dc120 pointer 0x7fa9295da130)
+loading segment mpstringsF from ROM (offset 007df820 pointer 0x7fa9295dd830)
+loading segment mpstringsS from ROM (offset 007e2f20 pointer 0x7fa9295e0f30)
+loading segment mpstringsI from ROM (offset 007e6620 pointer 0x7fa9295e4630)
+loading segment firingrange from ROM (offset 007e9d20 pointer 0x7fa9295e7d30)
+loading segment fonttahoma from ROM (offset 007f7860 pointer 0x7fa9295f5870)
+loading segment fontnumeric from ROM (offset 007f8b20 pointer 0x7fa9295f6b30)
+loading segment fonthandelgothicsm from ROM (offset 007f9d30 pointer 0x7fa9295f7d40)
+loading segment fonthandelgothicxs from ROM (offset 007fbfb0 pointer 0x7fa9295f9fc0)
+loading segment fonthandelgothicmd from ROM (offset 007fdd80 pointer 0x7fa9295fbd90)
+loading segment fonthandelgothiclg from ROM (offset 008008e0 pointer 0x7fa9295fe8f0)
+loading segment sfxctl from ROM (offset 0080a250 pointer 0x7fa929608260)
+loading segment sfxtbl from ROM (offset 00839dd0 pointer 0x7fa929637de0)
+loading segment seqctl from ROM (offset 00cfbf30 pointer 0x7fa929af9f40)
+loading segment seqtbl from ROM (offset 00d05f90 pointer 0x7fa929b03fa0)
+loading segment sequences from ROM (offset 00e82000 pointer 0x7fa929c80010)
+loading segment texturesdata from ROM (offset 01d65f40 pointer 0x7fa92ab63f50)
+loading segment textureslist from ROM (offset 01ff7ca0 pointer 0x7fa92adf5cb0)
+loading segment copyright from ROM (offset 01ffea20 pointer 0x7fa92adfca30)
+skipping segment fontjpn
+romdataInit: loaded rom, size = 33554432
+modloader: mp2 (2xw_nr_patch_v1) -> stage 0x51
+modloader: 2xw_nr_patch_v1 registered 1 of 1 maps
+modloader: Car Park (PD_Kakariko) -> stage 0x52
+modloader: Felicity (PD_Kakariko) -> stage 0x53
+modloader: Abandoned (PD_Kakariko) -> stage 0x54
+modloader: Playground (PD_Kakariko) -> stage 0x55
+modloader: Noche cerrada (PD_Kakariko) -> stage 0x56
+modloader: Stormy (PD_Kakariko) -> stage 0x57
+modloader: Bizarre (PD_Kakariko) -> stage 0x58
+modloader: PD_Kakariko registered 7 of 7 maps
+modloader: spooky_dark_vault registered 0 of 0 maps
+modloader: Dam (GoldenEye Arenas) -> stage 0x59
+modloader: Runway (GoldenEye Arenas) -> stage 0x02
+modloader: Statue Park (GoldenEye Arenas) -> stage 0x03
+modloader: Train (GoldenEye Arenas) -> stage 0x04
+modloader: Streets (GoldenEye Arenas) -> stage 0x05
+modloader: Jungle (GoldenEye Arenas) -> stage 0x06
+modloader: Caves (GoldenEye Arenas) -> stage 0x07
+modloader: Temple (GoldenEye Arenas) -> stage 0x08
+modloader: Complex (GoldenEye Arenas) -> stage 0x0a
+modloader: Library (GoldenEye Arenas) -> stage 0x0b
+modloader: Basement (GoldenEye Arenas) -> stage 0x0c
+modloader: Stack (GoldenEye Arenas) -> stage 0x0d
+modloader: Facility (GoldenEye Arenas) -> stage 0x0e
+modloader: Bunker (GoldenEye Arenas) -> stage 0x0f
+modloader: Archives (GoldenEye Arenas) -> stage 0x10
+modloader: Caverns (GoldenEye Arenas) -> stage 0x11
+modloader: Egyptian (GoldenEye Arenas) -> stage 0x12
+modloader: Cradle (GoldenEye Arenas) -> stage 0x13
+modloader: Surface (GoldenEye Arenas) -> stage 0x15
+modloader: Surface 2 (GoldenEye Arenas) -> stage 0x5e
+modloader: Silo (GoldenEye Arenas) -> stage 0x5f
+modloader: Frigate (GoldenEye Arenas) -> stage 0x60
+modloader: Depot (GoldenEye Arenas) -> stage 0x61
+modloader: Control (GoldenEye Arenas) -> stage 0x62
+modloader: Bunker 1 (GoldenEye Arenas) -> stage 0x63
+modloader: Aztec (GoldenEye Arenas) -> stage 0x64
+modloader: /home/sdg/perfect-dark/perfect_dark/build/mods/GoldenEye Arenas brings 217 models for its maps
+modloader: Dam -> stage 0x65
+modloader: Runway -> stage 0x66
+modloader: Statue Park -> stage 0x67
+modloader: Train -> stage 0x68
+modloader: Streets -> stage 0x69
+modloader: Jungle -> stage 0x6a
+modloader: Facility -> stage 0x6b
+modloader: Bunker 2 -> stage 0x6c
+modloader: Archives -> stage 0x6d
+modloader: Caverns -> stage 0x6e
+modloader: Egyptian -> stage 0x6f
+modloader: Cradle -> stage 0x70
+modloader: Surface -> stage 0x71
+modloader: Surface 2 -> stage 0x72
+modloader: Silo -> stage 0x73
+modloader: Frigate -> stage 0x74
+modloader: Depot -> stage 0x75
+modloader: Control -> stage 0x76
+modloader: Bunker -> stage 0x77
+modloader: Aztec -> stage 0x78
+modloader: /home/sdg/perfect-dark/perfect_dark/build/mods/GoldenEye Arenas: 20 solo missions
+modloader: GoldenEye Arenas registered 26 of 26 maps
+modloader: Stack (PerfectDark_2XW-NR_pat) -> stage 0x79
+modloader: PerfectDark_2XW-NR_patch_v1 registered 1 of 1 maps
+modloader: chicagoresturanteasier registered 0 of 0 maps
+modloader: depo (g5basemission_omegacop1) -> stage 0x7a
+modloader: g5basemission_omegacop13_old registered 1 of 1 maps
+modloader: DarkCorps_Part_Three(BETA) registered 0 of 0 maps
+modloader: depo (g5basemission_omegacop1) -> stage 0x7b
+modloader: g5basemission_omegacop13 registered 1 of 1 maps
+modloader: MarioCharacters_Mario v1.1 registered 0 of 0 maps
+modloader: GE Gun Name Display registered 0 of 0 maps
+modloader: MarioCharacters_Peach v1.1 registered 0 of 0 maps
+modloader: dataDyne Central (PerfectDark) -> stage 0x7c
+modloader: dataDyne Research (PerfectDar) -> stage 0x7d
+modloader: Carrington Villa (PerfectDark) -> stage 0x7e
+modloader: Chicago (PerfectDarkAllSoloLe) -> stage 0x7f
+modloader: G5 Building (PerfectDarkAllSo) -> stage 0x80
+modloader: Area 51 (PerfectDarkAllSoloLe) -> stage 0x81
+modloader: Air Base (PerfectDarkAllSoloL) -> stage 0x82
+modloader: Air Force One (PerfectDarkAll) -> stage 0x83
+modloader: Crash Site (PerfectDarkAllSol) -> stage 0x84
+modloader: Pelagic II (PerfectDarkAllSol) -> stage 0x85
+modloader: Deep Sea (PerfectDarkAllSoloL) -> stage 0x86
+modloader: Carrington Institute (Perfect) -> stage 0x87
+modloader: Attack Ship (PerfectDarkAllSo) -> stage 0x88
+modloader: Skedar Ruins (PerfectDarkAllS) -> stage 0x89
+modloader: PerfectDarkAllSoloLevelsInMultiplayer registered 14 of 14 maps
+modloader: DarkCorps_Part2 registered 0 of 0 maps
+modloader: dD Central X (Weather Mod Edi) -> stage 0x8a
+modloader: dataDyne Research (Weather Mo) -> stage 0x8b
+modloader: Carrington Villa (Weather Mod) -> stage 0x8c
+modloader: Chicago (Weather Mod Edition ) -> stage 0x8d
+modloader: G5 Building (Weather Mod Edit) -> stage 0x8e
+modloader: Area 51 (Weather Mod Edition ) -> stage 0x8f
+modloader: Air Base (Weather Mod Edition) -> stage 0x90
+modloader: Air Force One (Weather Mod Ed) -> stage 0x91
+modloader: Crash Site (Weather Mod Editi) -> stage 0x92
+modloader: Pelagic II (Weather Mod Editi) -> stage 0x93
+modloader: Deep Sea X (Weather Mod Editi) -> stage 0x94
+modloader: Carrington Institute (Weather) -> stage 0x95
+modloader: Attack Ship (Weather Mod Edit) -> stage 0x96
+modloader: Skedar Ruins (Weather Mod Edi) -> stage 0x97
+modloader: dD Central (Weather Mod Editi) -> stage 0x98
+modloader: Weather Mod Edition TWO registered 15 of 15 maps
+modloader: chicagoresturantharder registered 0 of 0 maps
+modloader: dataDyne_Facility[Jonaeru](03-15-23)(US) registered 0 of 0 maps
+modloader: PerfectDarkChicagoResturantHarder registered 0 of 0 maps
+modloader: allsololevelsinmultiplayer registered 0 of 0 maps
+modloader: MarioCharacters_Mario v1.0 registered 0 of 0 maps
+modloader: MarioCharacters_Peach v1.2 registered 0 of 0 maps
+modloader: eld (pde_e2_lzt_w_s_and_w) -> stage 0x99
+modloader: azt (pde_e2_lzt_w_s_and_w) -> stage 0x9a
+modloader: dam (pde_e2_lzt_w_s_and_w) -> stage 0x9b
+modloader: pde_e2_lzt_w_s_and_w registered 3 of 3 maps
+modloader: pd_investigation_punk7890_1_1 registered 0 of 0 maps
+modloader: datadynewarehouse[jonaeruac67] registered 0 of 0 maps
+modloader: MarioCharacters_Mario v1.2 registered 0 of 0 maps
+modloader: pdrealguns registered 0 of 0 maps
+modloader: dataDyne Central (DEEP SEA X ) -> stage 0x9c
+modloader: dataDyne Research (DEEP SEA X) -> stage 0x9d
+modloader: Carrington Villa (DEEP SEA X ) -> stage 0x9e
+modloader: Chicago (DEEP SEA X w telepor) -> stage 0x9f
+modloader: G5 Building (DEEP SEA X w tel) -> stage 0xa0
+modloader: Area 51 (DEEP SEA X w telepor) -> stage 0xa1
+modloader: Air Base (DEEP SEA X w telepo) -> stage 0xa2
+modloader: Air Force One (DEEP SEA X w t) -> stage 0xa3
+modloader: Crash Site (DEEP SEA X w tele) -> stage 0xa4
+modloader: Pelagic II (DEEP SEA X w tele) -> stage 0xa5
+modloader: Deep Sea X (DEEP SEA X w tele) -> stage 0xa6
+modloader: Carrington Institute (DEEP SE) -> stage 0xa7
+modloader: Attack Ship (DEEP SEA X w tel) -> stage 0xa8
+modloader: Skedar Ruins (DEEP SEA X w te) -> stage 0xa9
+modloader: DEEP SEA X w teleports 2PL registered 14 of 14 maps
+modloader: Spoons (Total Darkness 1.8v () -> stage 0xaa
+modloader: Total Darkness 1.8v (HQ MP3) registered 1 of 1 maps
+modloader: g5basemission[omegacop13] registered 0 of 0 maps
+modloader: datadyne_compound_custom_music registered 0 of 0 maps
+modloader: dataDyne Central (PDE_E2_LZT) -> stage 0xab
+modloader: dataDyne Research (PDE_E2_LZT) -> stage 0xac
+modloader: Villa Rescue (PDE_E2_LZT) -> stage 0xad
+modloader: Maian Starcruiser (PDE_E2_LZT) -> stage 0xae
+modloader: G5 Building (PDE_E2_LZT) -> stage 0xaf
+modloader: Area 51 (PDE_E2_LZT) -> stage 0xb0
+modloader: Air Base (PDE_E2_LZT) -> stage 0xb1
+modloader: Air Force One X (PDE_E2_LZT) -> stage 0xb2
+modloader: Maian Abduction (PDE_E2_LZT) -> stage 0xb3
+modloader: Pelagic Stinger (PDE_E2_LZT) -> stage 0xb4
+modloader: Deep Sea (PDE_E2_LZT) -> stage 0xb5
+modloader: Carrington Institute (PDE_E2_) -> stage 0xb6
+modloader: Skedar Warship (PDE_E2_LZT) -> stage 0xb7
+modloader: Skedar Ruins (PDE_E2_LZT) -> stage 0xb8
+modloader: PDE_E2_LZT registered 14 of 14 maps
+modloader: datadyne_compound_no_custom_music_old registered 0 of 0 maps
+modloader: Valley (darknoon_valley[mrkan) -> stage 0xb9
+modloader: darknoon_valley[mrkane] registered 1 of 1 maps
+modloader: mario_mario_v1_1 registered 0 of 0 maps
+modloader: mario_peach_v1_3 registered 0 of 0 maps
+modloader: MrX v1.01 (Modern) registered 0 of 0 maps
+modloader: mario_mario_v1_3 registered 0 of 0 maps
+modloader: mario_peach_v1_0 registered 0 of 0 maps
+modloader: mp2 (plus_patch_v1) -> stage 0xba
+modloader: mp6 (plus_patch_v1) -> stage 0xbb
+modloader: plus_patch_v1 registered 2 of 2 maps
+modloader: datadyne_compound_custom_music_old registered 0 of 0 maps
+modloader: Temple (GEX_5a_09-22-12_Cloud) -> stage 0xbc
+modloader: Complex (GEX_5a_09-22-12_Clou) -> stage 0xbd
+modloader: Caves (GEX_5a_09-22-12_Cloudl) -> stage 0xbe
+modloader: Library (GEX_5a_09-22-12_Clou) -> stage 0xbf
+modloader: Basement (GEX_5a_09-22-12_Clo) -> stage 0xc0
+modloader: Stack (GEX_5a_09-22-12_Cloudl) -> stage 0xc1
+modloader: Facility (GEX_5a_09-22-12_Clo) -> stage 0xc2
+modloader: Frigate (GEX_5a_09-22-12_Clou) -> stage 0xc3
+modloader: Bunker (GEX_5a_09-22-12_Cloud) -> stage 0xc4
+modloader: Archives (GEX_5a_09-22-12_Clo) -> stage 0xc5
+modloader: Train (GEX_5a_09-22-12_Cloudl) -> stage 0xc6
+modloader: Caverns (GEX_5a_09-22-12_Clou) -> stage 0xc7
+modloader: Egyptian (GEX_5a_09-22-12_Clo) -> stage 0xc8
+modloader: Citadel (GEX_5a_09-22-12_Clou) -> stage 0xc9
+modloader: Labyrinth (GEX_5a_09-22-12_Cl) -> stage 0xca
+modloader: Grid (GEX_5a_09-22-12_Cloudle) -> stage 0xcb
+modloader: GEX_5a_09-22-12_Cloudless registered 16 of 16 maps
+modloader: MarioCharacters_Peach v1.0 registered 0 of 0 maps
+modloader: dataDyne Compound[no custom music] registered 0 of 0 maps
+modloader: datadyne_compound_no_custom_music registered 0 of 0 maps
+modloader: MrX v1.01 (Classic) registered 0 of 0 maps
+modloader: deep_sea_x_w_teleports_2pl registered 0 of 0 maps
+modloader: mrx_v1_01_classic registered 0 of 0 maps
+modloader: MarioCharacters_Mario v1.3 registered 0 of 0 maps
+modloader: suburb registered 0 of 0 maps
+modloader: mario_mario_v1_2 registered 0 of 0 maps
+modloader: mario_peach_v1_2 registered 0 of 0 maps
+modloader: Spoons (Total Darkness (Final) -> stage 0xcc
+modloader: Total Darkness (Final Version) 1.8v registered 1 of 1 maps
+modloader: dD Central X (Weather Mod Edi) -> stage 0xcd
+modloader: dataDyne Research (Weather Mo) -> stage 0xce
+modloader: Carrington Villa (Weather Mod) -> stage 0xcf
+modloader: Chicago (Weather Mod Edition ) -> stage 0xd0
+modloader: G5 Building (Weather Mod Edit) -> stage 0xd1
+modloader: Area 51 (Weather Mod Edition ) -> stage 0xd2
+modloader: Air Base (Weather Mod Edition) -> stage 0xd3
+modloader: Air Force One (Weather Mod Ed) -> stage 0xd4
+modloader: Crash Site (Weather Mod Editi) -> stage 0xd5
+modloader: Pelagic II (Weather Mod Editi) -> stage 0xd6
+modloader: Deep Sea X (Weather Mod Editi) -> stage 0xd7
+modloader: Carrington Institute (Weather) -> stage 0xd8
+modloader: Attack Ship (Weather Mod Edit) -> stage 0xd9
+modloader: Skedar Ruins (Weather Mod Edi) -> stage 0xda
+modloader: dD Central (Weather Mod Editi) -> stage 0xdb
+modloader: Weather Mod Edition ONE registered 15 of 15 maps
+modloader: PD_Investigation_Punk7890_1-1 registered 0 of 0 maps
+modloader: Temple (GE-X_6a_01-19-25) -> stage 0xdc
+modloader: Complex (GE-X_6a_01-19-25) -> stage 0xdd
+modloader: Caves (GE-X_6a_01-19-25) -> stage 0xde
+modloader: Library (GE-X_6a_01-19-25) -> stage 0xdf
+modloader: Basement (GE-X_6a_01-19-25) -> stage 0xe0
+modloader: Stack (GE-X_6a_01-19-25) -> stage 0xe1
+modloader: Facility (GE-X_6a_01-19-25) -> stage 0xe2
+modloader: Bunker (GE-X_6a_01-19-25) -> stage 0xe3
+modloader: Archives (GE-X_6a_01-19-25) -> stage 0xe4
+modloader: Caverns (GE-X_6a_01-19-25) -> stage 0xe5
+modloader: Egyptian (GE-X_6a_01-19-25) -> stage 0xe6
+modloader: Facility BZ (GE-X_6a_01-19-25) -> stage 0xe7
+modloader: Frigate (GE-X_6a_01-19-25) -> stage 0xe8
+modloader: Archives BZ (GE-X_6a_01-19-25) -> stage 0xe9
+modloader: Streets (GE-X_6a_01-19-25) -> stage 0xea
+modloader: Train (GE-X_6a_01-19-25) -> stage 0xeb
+modloader: Cradle (GE-X_6a_01-19-25) -> stage 0xec
+modloader: Aztec (GE-X_6a_01-19-25) -> stage 0xed
+modloader: Citadel (GE-X_6a_01-19-25) -> stage 0xee
+modloader: Labyrinth (GE-X_6a_01-19-25) -> stage 0xef
+modloader: Icicle Pyramid (GE-X_6a_01-19) -> stage 0xf0
+modloader: Cliff Base (GE-X_6a_01-19-25) -> stage 0xf1
+modloader: GE-X_6a_01-19-25 registered 22 of 22 maps
+modloader: mario_mario_v1_0 registered 0 of 0 maps
+modloader: mrx_v1_01_modern registered 0 of 0 maps
+modloader: datadyne_facility_jonaeru_03_15_23us registered 0 of 0 maps
+modloader: A51SecretAgentPDCustomAC67 registered 0 of 0 maps
+modloader: pam (datadynewarehouse_jonaer) -> stage 0xf2
+modloader: datadynewarehouse_jonaeruac67 registered 1 of 1 maps
+modloader: g5_car_park_jonaeru_us registered 0 of 0 maps
+modloader: mario_peach_v1_1 registered 0 of 0 maps
+modloader: G5_Car_Park[Jonaeru](US) registered 0 of 0 maps
+modloader: PerfectDarkChicagoResturantEasier registered 0 of 0 maps
+modloader: pam (datadynewarehousejonaeru) -> stage 0xf3
+modloader: datadynewarehousejonaeruac6710_23_13 registered 1 of 1 maps
+modloader: Caves (PerfectDark_Plus_patch) -> stage 0xf4
+modloader: Stack (PerfectDark_Plus_patch) -> stage 0xf5
+modloader: PerfectDark_Plus_patch_v1 registered 2 of 2 maps
+modloader: weather_mod_edition_two registered 0 of 0 maps
+modloader: weather_mod_edition_one registered 0 of 0 maps
+modloader: datadynewarehousejonaeruac6710-23-13 registered 0 of 0 maps
+modloader: DarkCrops(BlastCorps_songs_in_PD registered 0 of 0 maps
+modloader: dataDyne Compound[custom music] registered 0 of 0 maps
+modloader: MarioCharacters_Peach v1.3 registered 0 of 0 maps
+modloader: mp13 (kakariko) -> stage 0xf6
+modloader: arec (kakariko) -> stage 0xf7
+modloader: ref (kakariko) -> stage 0xf8
+modloader: mp20 (kakariko) -> stage 0xf9
+modloader: kakariko registered 4 of 4 maps
+modloader: mp2 (gex_imported) -> stage 0xfa
+modloader: mp12 (gex_imported) -> stage 0xfb
+modloader: mp4 (gex_imported) -> stage 0xfc
+modloader: mp15 (gex_imported) -> stage 0xfd
+modloader: mp13 has only placeholder geometry; skipped
+modloader: ear (gex_imported) -> stage 0xfe
+modloader: oat (gex_imported) -> stage 0xff
+modloader: cryp has only placeholder geometry; skipped
+modloader: gex_imported registered 6 of 23 maps
+WARNING: modloader: out of usable stage numbers; 17 maps skipped
+modloader: goldfinger_64 registered 0 of 4 maps
+WARNING: modloader: out of usable stage numbers; 4 maps skipped
+modloader: mp13 has only placeholder geometry; skipped
+modloader: cryp has only placeholder geometry; skipped
+modloader: gex_data registered 0 of 23 maps
+WARNING: modloader: out of usable stage numbers; 23 maps skipped
+modloader: dark_noon registered 0 of 4 maps
+WARNING: modloader: out of usable stage numbers; 4 maps skipped
+modloader: allinone registered 0 of 19 maps
+WARNING: modloader: out of usable stage numbers; 19 maps skipped
+modloader: mp6 has only placeholder geometry; skipped
+modloader: cryp has only placeholder geometry; skipped
+modloader: mp17 has only placeholder geometry; skipped
+modloader: gex registered 0 of 30 maps
+WARNING: modloader: out of usable stage numbers; 30 maps skipped
+modborrow: 22 of `GE-X_6a_01-19-25`'s arenas take its own stage rows, 10 skies and its props
+gebean: GoldenEye XBLA characters in /home/sdg/perfect-dark/perfect_dark/build/xbla/goldeneye/files
+memp heap at 0x7fa8e7fff010 - 0x7fa8ebfff010
+rom  file at 0x7fa928dfe010 - 0x7fa92adfe010
+boot stage set to 0x26
+xbla: using /home/sdg/perfect-dark/perfect_dark/build/xbla/Perfect Dark XBLA.7z
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1517
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 472
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 473
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 475
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1150
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1518
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1519
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 83
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 200
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1477
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1520
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1149
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1521
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1073
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1522
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1523
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1479
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1524
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1275
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 121
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 46
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1286
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1487
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1485
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1488
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1483
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 112
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1277
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 96
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 95
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 97
+WARNING: modborrow: no room for `GE-X_6a_01-19-25`'s sound 1473
+modborrow: 14 weapon sets from `GE-X_6a_01-19-25` in the Combat Simulator's list
+modborrow: 25 of GoldenEye's guns from `GE-X_6a_01-19-25`, with 40 animations and 0 sounds of its own
+xbla: using the copy unpacked in /home/sdg/perfect-dark/perfect_dark/build/xbla/.unpacked; it can go, the next unpack lands in /home/sdg/perfect-dark/perfect_dark/build/cache/xbla
+xblamesh: 2616 slots in /home/sdg/perfect-dark/perfect_dark/build/xbla/.unpacked/Perfect Dark/8292DB976888C5DCD68C695F11B3DFED5F4512E858
+setup: 9 chr entries, 9 spawned, 0 refused for something in the way at the pad
+xblatex: 5747 texture records in /home/sdg/perfect-dark/perfect_dark/build/xbla/.unpacked/Perfect Dark/8292DB976888C5DCD68C695F11B3DFED5F4512E858
+xblatex: record 3515 decoded, 1024x512 format 6
+xblafont: DataFiles/Handel Gothic_46.abc, 184 glyphs in record 0dbb
+xblafont: font 4 sits on DataFiles/Handel Gothic_46.abc at 0.1218 x + -0.575, 27 of 28 anchors, condensed to 0.648
+xblatex: record 2867 decoded, 32x32 format 6
+xblatex: record 2868 decoded, 32x32 format 6
+xblatex: record 800 decoded, 32x64 format 6
+xblatex: record 768 decoded, 32x32 format 6
+xblatex: record 801 decoded, 32x64 format 6
+xblatex: record 802 decoded, 32x64 format 6
+xblatex: record 775 decoded, 32x32 format 6
+xblatex: record 769 decoded, 32x48 format 6
+xblatex: record 770 decoded, 32x48 format 6
+xblatex: record 773 decoded, 32x48 format 6
+xblatex: record 766 decoded, 64x16 format 6
+xblatex: record 765 decoded, 48x32 format 6
+xblatex: record 3258 decoded, 32x32 format 6
+xblatex: record 771 decoded, 32x48 format 6
+xblatex: record 3259 decoded, 48x32 format 6
+xblafont: DataFiles/Handel Gothic_54.abc, 184 glyphs in record 0dbc
+xblafont: font 1 sits on DataFiles/Handel Gothic_54.abc at 0.1947 x + -1.472, 141 of 186 anchors, condensed to 0.908
+xblafont: DataFiles/Handel Gothic_22.abc, 184 glyphs in record 0dba
+xblafont: font 2 sits on DataFiles/Handel Gothic_22.abc at 0.2528 x + 0.315, 151 of 186 anchors, condensed to 0.931
+xblafont: font 0 sits on DataFiles/Handel Gothic_46.abc at 0.1684 x + -1.099, 152 of 186 anchors, condensed to 0.891
+file 3027 (Pgx278Z) loaded externally
+file 3028 (Cgx005Z) loaded externally
+file 3029 (Cgx078Z) loaded externally
+file 3030 (Pgx191Z) loaded externally
+screenshot: /home/sdg/perfect-dark/perfect_dark/build/screenshots/pd-20260918-063648.png
+file 3031 (Pgx277Z) loaded externally
+file 3032 (Cgx023Z) loaded externally
+file 3033 (Cgx075Z) loaded externally
+file 3034 (Cgx016Z) loaded externally
+file 3035 (Pgx205Z) loaded externally
+file 3036 (Cgx009Z) loaded externally
+file 3037 (Pgx187Z) loaded externally
+file 3038 (Cgx011Z) loaded externally
+file 3039 (Pgx185Z) loaded externally
+file 3040 (Cgx007Z) loaded externally
+file 3041 (Cgx006Z) loaded externally
+file 3042 (Cgx010Z) loaded externally
+file 3043 (Pgx195Z) loaded externally
+file 3044 (Cgx019Z) loaded externally
+file 3045 (Cgx069Z) loaded externally
+file 3046 (Cgx014Z) loaded externally
