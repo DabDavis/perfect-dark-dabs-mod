@@ -2968,3 +2968,53 @@ extracted assets) and then
 `make -f port/Makefile exe HAVE_SDL=0 SDL_CFLAGS=-DPORT_NO_SDL SDL_LIBS=`: this
 box's `/usr/include/SDL2/SDL_config.h` points at a `_real_SDL_config.h` that is
 not on the include path, and the SDL backend is optional by construction.
+
+## The gun barrel: Bond's tuxedo, and the 4:3 box (2026-09-18)
+
+The user, after the cast reel was fixed: "bond's clothes in the gun barrel scene
+look wrong. also the gun barrel 4:3, you can see the sides when it scrolls
+sideways."
+
+**The tuxedo was drawn with no shirt in it** - a flat black suit and a smeared
+face - where the oracle's Bond has a white shirt front, a bow tie and a face.
+The same body and head (`introLoadChr(5, 78)`) drawn on the **cast reel** three
+seconds later was correct, which is what made it a state fault rather than a
+conversion one, and the state that mattered was **texture perspective**. The
+sight's own picture is drawn with `gDPSetTexturePersp(G_TP_NONE)`, as GoldenEye
+draws every 2D screen, and nothing turned it back on before the model: with the
+divide off, Bond's texture coordinates collapsed and every triangle sampled one
+texel of its own picture. `G_TP_PERSP` before the draw is the whole fix.
+GoldenEye never needed it because the screen before its gun barrel is the Rare
+logo, whose own setup (`load_display_rare_logo()`) leaves `G_TP_PERSP`,
+`G_LIGHTING` and `gunbarrelLights` set - and this port does not play the boot
+screens, so the barrel sets all three itself now.
+
+Three things were ruled out along the way, each with a pixel-for-pixel compare,
+and none of them moved a pixel: the combine (`G_CC_SHADE` as GoldenEye sets it,
+against `G_CC_MODULATEIA`), the prop type the render mode preset is picked by
+(`renderdata.unk30`, which is GoldenEye's `PropType` - **7** on both intro
+screens, `PROP_TYPE_EXPLOSION`, and it is set to that now because zero picks a
+preset the game never uses), and the release's meshes (`Mod.XblaMeshes=0`).
+Zooming the camera in ruled out mipmaps. A model's own lists carry its geometry
+modes and texture ids but no combine, so the preset is real - it just was not
+what was wrong.
+
+**The 4:3 box now covers the window instead of fitting inside it.**
+`introFrameBox()` used to scale GoldenEye's 440x330 frame down horizontally by
+`(4/3) / aspect`, which on a 16:9 window drew the picture in the middle three
+quarters with black either side - and the picture's own edges slid across that
+black as the sight scrolled, which is what the user could see. It now scales
+both directions by the same amount **up** to the window and lets the overflow
+run off the edges: the top and bottom of the picture on a wide window (they are
+GoldenEye's own margins - its picture is 299 rows of a 330 frame), the sides on
+a narrow one, which is what it already did. The gun barrel's ortho is the same
+box, showing `1280 / coverx` by `960 / covery` of GoldenEye's own, so the lens
+stays in the mouth of the barrel; the blood goes through it too. At 4:3 nothing
+moves - `coverx` and `covery` are both 1, and a frame of the sequence is
+pixel-identical to the one before the change but for the frame counter.
+
+**A 16:9 headless capture is not available on this box**: SDL's offscreen driver
+answers 1024x768 whatever `Video.DefaultWidth` says, and Xvfb's llvmpipe draws
+the barrel as noise. The box was checked by printing it out of gdb at three
+aspects (`call introFrameBox($b)` with `gfx_current_dimensions.aspect_ratio`
+set) against the arithmetic above, and the 4:3 picture compared pixel for pixel.
