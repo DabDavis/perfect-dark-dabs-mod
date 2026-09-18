@@ -25,6 +25,8 @@
 #include "xblatex.h"
 #include "xblafont.h"
 #include "xblastage.h"
+#include "gebeanstage.h"
+#include "modloader.h"
 #include "trace.h"
 #include "pngwrite.h"
 #include "crashreport.h"
@@ -253,6 +255,21 @@ static void traceWrite(FILE *f)
 	fprintf(f, "stage 0x%02x lvframenum %d tickmode %d players %d window %dx%d\n",
 			mainGetStageNum(), g_Vars.lvframenum, g_Vars.tickmode, PLAYERCOUNT(),
 			videoGetWindowWidth(), videoGetWindowHeight());
+
+	// A stage id above the table says nothing about which map it is: the
+	// Stage Loader hands ids out in the order the mods register, so the same
+	// id is a different map on the reporter's machine than on ours. A report
+	// that only says "stage 0x55" costs a session working the map out from
+	// its room count.
+	{
+		const char *mapname = modloaderGetStageMapName(mainGetStageNum());
+		const char *moddir = modloaderGetStageModDir(mainGetStageNum());
+
+		if (mapname || moddir) {
+			fprintf(f, "stage map \"%s\" of mod \"%s\"\n",
+					mapname ? mapname : "-", moddir ? moddir : "-");
+		}
+	}
 	fprintf(f, "xbla: meshes %d stages %d meshtextures %d font %d, rooms from release %d; texture pack replacements %d\n",
 			xblaMeshGetEnabled(), xblaStageGetEnabled(), xblaTexGetEnabled(),
 			xblaFontGetEnabled(), xblaStageIsRelease(), texpackHaveReplacements());
@@ -275,6 +292,7 @@ static void traceWrite(FILE *f)
 	xblaTexTrace(f);
 	xblaFontTrace(f);
 	xblaStageTrace(f);
+	gebeanStageTrace(f);
 	texpackTrace(f);
 
 	fprintf(f, "\n[camera]\n");
