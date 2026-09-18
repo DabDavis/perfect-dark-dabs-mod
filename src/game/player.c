@@ -6470,7 +6470,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 						}
 
 #ifndef PLATFORM_N64
-						// You Only Live Twice (GE-X Plus): twice dead is out
+						// You Only Live Twice (GE Plus): twice dead is out
 						if (gexPlusLivesSpent(g_Vars.currentplayer->prop->chr)) {
 							canrestart = false;
 						}

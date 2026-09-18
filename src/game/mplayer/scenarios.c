@@ -337,7 +337,7 @@ MenuItemHandlerResult scenarioScenarioMenuHandler(s32 operation, struct menuitem
 	bool teamgame = true;
 
 #ifndef PLATFORM_N64
-	// GE-X Plus: GoldenEye's scenarios, one group (gexplus.c)
+	// GE Plus: GoldenEye's scenarios, one group (gexplus.c)
 	if (g_GexPlusMode) {
 		switch (operation) {
 		case MENUOP_GETOPTIONCOUNT:

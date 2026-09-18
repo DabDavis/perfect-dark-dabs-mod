@@ -41,10 +41,13 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gefiles
+import gerom
 import geobjects
 import gesolo
 import texremap
 import gemodelconv
+import gechr
+import geanim
 
 SEG = 0x0f000000
 
@@ -70,7 +73,42 @@ MENU_RAW = (('fontbankgothic.bin', 0x2e63f0, 0x24b0), ('fontzurichbold.bin', 0x2
               # and its music: the instrument bank, and the sequence table ({u16 count, pad, then
               # u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences after it
               ('instrumentsctl', 0x3b4450, 0x43a0), ('instrumentstbl', 0x3b87f0, 0x60fa0),
-              ('sequences', 0x419790, 0x1eed0))
+              ('sequences', 0x419790, 0x1eed0),
+              # and the gun barrel's sniper-sight backdrop, the folder screens'
+              # 440x299 8-bit background run-length encoded ({u16 w, u16 h, six
+              # bytes, then count/value pairs}, rle.c's rle_expand_8bit)
+              ('introbg.bin', 0x2a4d50, 107890))
+# the gun barrel's blood, in the data segment rather than the ROM: the frames of
+# the wash down the lens, each decoded from the last (blood_decrypt.c)
+INTRO_BLOOD_AT = 0xada0
+INTRO_BLOOD_SIZE = 2524
+# GE Plus's intro (port/src/geintro.c) is GoldenEye's own: the gun barrel, the
+# GoldenEye logo and the cast reel. It needs the logo's model, the guns the cast
+# holds and the PP7 Bond fires (PROP_CHRWPPK, 191), every character in the ROM
+# (gechr.py writes all 80 - the cast is 33 bodies and a head pool of 33, and the
+# rest cost 430KB together), and these animations, whose records are where
+# GoldenEye's animation_data segment has them. The order is the order the port
+# reads them in (`menu/intro.bin` names each one, so nothing depends on it).
+INTRO_LOGO_MODEL = 277
+INTRO_GUNS = (184, 185, 187, 188, 190, 191, 193, 195, 197, 204, 205, 207, 208, 210)
+INTRO_ANIMS = (
+    # the gun barrel: Bond walks in, turns and fires
+    ('bond_eye_walk', 0x292ac4), ('bond_eye_fire', 0x292c18),
+    # the cast reel: front.c's intro_animation_table, and idle for a character
+    # whose animation is still loading
+    ('idle', 0x28e99c), ('spotting_bond', 0x294690),
+    ('fire_standing_draw_fast', 0x294bd4), ('fire_standing_draw_slow', 0x294cfc),
+    ('fire_step_right', 0x295188), ('fire_kneel_forward_fast', 0x2956d0),
+    ('running_one_handed', 0x2960fc), ('draw_and_stand_up', 0x296428),
+    ('aim_left_right', 0x2965cc), ('cock_and_turn_around', 0x296684),
+    ('cock_turn_stand_up', 0x29688c), ('draw_and_turn_around', 0x296934),
+    ('drop_weapon_fight', 0x299af4), ('laughing', 0x29ad90),
+    ('fire_hip_forward', 0x294fc4), ('fire_standing_left_fast', 0x295398),
+    ('fire_kneel_left_fast', 0x295c84), ('draw_and_look_around', 0x296248),
+    ('aim_left', 0x2992cc), ('aim_right', 0x29935c),
+    ('conversation', 0x29962c), ('conversation_listener', 0x29a900),
+    ('conversation_cleaned', 0x29a5c0))
+
 # The missions' text, in GoldenEye's mission order: each mission's briefing file
 # (front.h's struct BriefStruct - four paragraph text ids then ten objectives of
 # {text id, the difficulty it starts at}) and the level's own text bank, which
@@ -911,11 +949,13 @@ def main():
         print('%-5s lights %d' % (key, numlights))
         print('%-5s rooms %3d portals %3d textures %3d tiles %4d (+%d walls) pads %3d waypoints %3d spawns %2d weapons %2d ammo %2d  bg %d bytes' % (
             key, bg.numrooms, len(bg.portals), len(tex), len(stan), walls, len(setup['pads']), len(setup['waypoints']), nsp, nw, na, len(bgdata)))
-    # GE-X Plus's menus are GoldenEye's own folder screens (port/src/gexfront.c):
+    # GE Plus's menus are GoldenEye's own folder screens (port/src/gexfront.c):
     # the folder is a prop model, the cursor and the stage pictures global images,
     # and the fonts, the music and the title screen's strings are copied as
     # GoldenEye stores them
     allmodels.add(MENU_FOLDER_MODEL)
+    allmodels.add(INTRO_LOGO_MODEL)
+    allmodels.update(INTRO_GUNS)
     alltex.update(MENU_IMAGES)
     os.makedirs(os.path.join(outdir, 'menu'), exist_ok=True)
     rom = gefiles.rom()
@@ -924,11 +964,38 @@ def main():
             f.write(rom.rom[at:at + size])
     with open(os.path.join(outdir, 'menu', 'LtitleE'), 'wb') as f:
         f.write(gefiles.rom_file('LtitleE'))
+    with open(os.path.join(outdir, 'menu', 'introblood.bin'), 'wb') as f:
+        f.write(rom.data[INTRO_BLOOD_AT:INTRO_BLOOD_AT + INTRO_BLOOD_SIZE])
     # and the solo missions' briefings, with the text bank each one indexes
     for names in MENU_TEXT:
         for name in names:
             with open(os.path.join(outdir, 'menu', name), 'wb') as f:
                 f.write(gefiles.rom_file(name))
+    # the intro's characters: every one in the ROM, converted (gechr.py), and
+    # its animations in one file with a table naming each (geanim.py)
+    for num in range(gerom.NUM_CHRS):
+        data, images, scale = gechr.convert(num)
+        alltex.update(images)
+        with open(os.path.join(outdir, 'files', 'Cgx%03dZ' % num), 'wb') as f:
+            f.write(rzip1173(data))
+    # menu/intro.bin: "GEI1", the characters' scales, then a row an animation
+    # (its name, Perfect Dark's animtableentry fields, and where its bytes are)
+    rows, blob = [], bytearray()
+    for name, at in INTRO_ANIMS:
+        data, e = geanim.convert(at)
+        rows.append((name, e, len(blob), len(data)))
+        blob += data
+    # a character: its number, whether it is male and whether it wears a head of
+    # its own (c_item_entries' flags), and its scale
+    chrs = b''.join(struct.pack('>HHf', num, h['ismale'] | (h['hashead'] << 1), scale)
+                    for num, (_, scale, h) in enumerate(gefiles.rom().chrs()))
+    base = 8 + len(chrs) + 36 * len(rows)
+    index = b''.join(struct.pack('>20sHHHBBII', name.encode()[:19], e['numframes'], e['bytesperframe'],
+                                 e['headerlen'], e['framelen'], e['looping'], base + off, size)
+                     for name, e, off, size in rows)
+    with open(os.path.join(outdir, 'menu', 'intro.bin'), 'wb') as f:
+        f.write(struct.pack('>4sHH', b'GEI1', gerom.NUM_CHRS, len(rows)) + chrs + index + bytes(blob))
+    print('characters written %d, animations %d in %d bytes' % (gerom.NUM_CHRS, len(INTRO_ANIMS), len(blob)))
     # the remake's prop models: GoldenEye's own, converted (gemodelconv.py)
     modellines = []
     for num in sorted(allmodels):

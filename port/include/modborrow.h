@@ -29,7 +29,7 @@ s32 modBorrowIsGunsOnlyMount(s32 moddir);
 
 // Whether GoldenEye X is the mod the game is loaded with, rather than one it is
 // only borrowing from: its own missions and stage files are there to be played,
-// which is what GE-X Plus's Select Mission needs (gexfront.c).
+// which is what GE Plus's Select Mission needs (gexfront.c).
 s32 modBorrowIsGoldenEyeLoaded(void);
 
 /**

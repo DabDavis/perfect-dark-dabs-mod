@@ -70,6 +70,36 @@ class Writer:
         return at
 
 
+def texdata_size(width, height, level, depth):
+    """The bytes a texture stored in a model file takes: every mipmap level of
+    it, `depth` bytes a texel (the GoldenEye logo's is 32x32 over six levels)."""
+    n = 0
+    for i in range(max(level, 1)):
+        n += max(width >> i, 1) * max(height >> i, 1) * depth
+    return (n + 7) & ~7
+
+
+def texture_rows(d, w, textab, root, numtextures):
+    """The model's texture table written into `w` -> (its offset, the image ids
+    it names). A row whose first word is a 0x05 segment pointer is a texture
+    stored in the file itself rather than a global image (the GoldenEye logo's
+    two): its bytes are copied over and the row repointed, which is what the
+    port's model preprocessing expects of one (CT_TEXDATA)."""
+    rows = bytearray(d[textab:root])
+    images, embedded = set(), []
+    for i in range(numtextures):
+        ptr, width, height, level, fmt, depth = struct.unpack_from('>IBBBBB', rows, 12 * i)
+        if (ptr & 0xff000000) == SEG:
+            embedded.append((i, ptr - SEG, texdata_size(width, height, level, depth)))
+        else:
+            images.add(ptr)
+            struct.pack_into('>I', rows, 12 * i, texremap.remap(ptr))
+    texat = w.put(bytes(rows))
+    for i, at, size in embedded:
+        struct.pack_into('>I', w.out, texat + 12 * i, SEG + w.put(d[at:at + size], 8))
+    return texat, images
+
+
 def convert_lists(d, vtxptr, lists, out, fours=False):
     """GoldenEye lists over 16-byte vertices -> (vertex offset, count, colour
     offset, colour count, [(GoldenEye list address, words)]): the vertices and
@@ -146,16 +176,12 @@ def convert(num):
 
     w = Writer()
     w.out += bytearray(0x1c)
-    rows = bytearray(d[textab:root])
-    for i in range(h['numtextures']):
-        struct.pack_into('>I', rows, 12 * i, texremap.remap(struct.unpack_from('>I', rows, 12 * i)[0]))
-    texat = w.put(bytes(rows))
+    texat, images = texture_rows(d, w, textab, root, h['numtextures'])
     partsat = w.put(bytearray(6 * len(switches)))
     nodesat = w.put(bytearray(0x18 * len(nodes)))
     addr = {n['at']: SEG + nodesat + 0x18 * i for i, n in enumerate(nodes)}
     reloc_node = lambda p: addr.get(p - SEG, 0) if p else 0
     reloc_tex = lambda p: SEG + texat + (p - SEG - textab) if p else 0
-    images = set(struct.unpack_from('>I', d, textab + 12 * i)[0] for i in range(h['numtextures']))
 
     # Every list goes at the end, in the order GoldenEye's file has them: the
     # loader walks the lists in node order and takes each one's size as the

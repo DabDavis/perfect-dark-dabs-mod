@@ -185,7 +185,7 @@ client) the key also offers to send what it wrote. `port/src/tracereport.c`.
   `MENUROOT_MPPAUSE` under the player's `mpindex` whenever
   `g_Vars.mplayerisrunning` - **not** by `PLAYERCOUNT()`, as the pak warnings
   do: a one-player Combat Simulator match given the solo root closed to a
-  black screen Start could not leave (the tester's first report, a GE-X Plus
+  black screen Start could not leave (the tester's first report, a GE Plus
   match, 2026-09-17). A match is not paused while the dialog is up. It waits
   out cutscenes, a pause on its way in and the title.
   The picture is taken first, so the dialog is never in it.

@@ -273,7 +273,7 @@ static s32 borrowIsLoaded(void)
 /**
  * Whether GoldenEye X is the mod the game is loaded with. Then its missions are
  * the port's mission list (moddata.c's importSoloStages()) and its stage files
- * are mounted, so GE-X Plus's Select Mission can play them; when it is only
+ * are mounted, so GE Plus's Select Mission can play them; when it is only
  * borrowed from, they are not there and the folder leaves the missions grey.
  */
 s32 modBorrowIsGoldenEyeLoaded(void)
@@ -1155,7 +1155,7 @@ static u8 borrowSetWeapon(u8 modweapon)
  * has no copy for - its silver and gold PP7s, the watch laser - is an empty
  * slot. Named out of its language file, and unlocked.
  */
-// Where the borrowed sets sit in the list, for GE-X Plus's own (modBorrowWeaponSets())
+// Where the borrowed sets sit in the list, for GE Plus's own (modBorrowWeaponSets())
 static s32 borrowedSetsFirst;
 static s32 borrowedSetsNum;
 
@@ -1215,7 +1215,7 @@ static void borrowWeaponSets(struct moddataborrow *b)
 
 /**
  * The GoldenEye weapon sets borrowed from GoldenEye X: how many, and the list
- * index of the first. GE-X Plus lists these alone (mplayer/setup.c). 0 when
+ * index of the first. GE Plus lists these alone (mplayer/setup.c). 0 when
  * none are in the list - GoldenEye X is not installed, or a swap has put the
  * list back since.
  */

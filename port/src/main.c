@@ -210,7 +210,7 @@ int main(int argc, const char **argv)
 
 	mainApplySettingsRevision();
 
-	// The window before the mods: GE-X Plus's arenas are converted from the
+	// The window before the mods: GE Plus's arenas are converted from the
 	// player's GoldenEye ROM here when they are not there yet, which draws a
 	// notice while it works, and they must exist before the mods are mounted.
 	videoInit();

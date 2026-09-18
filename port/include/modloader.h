@@ -22,7 +22,7 @@ struct fogenvironment;
 // mod's `models` block (empty for any other stage).
 void modloaderApplyStageModels(s32 stagenum);
 
-// GE-X Plus, the GoldenEye remake's Combat Simulator: on while its arena list
+// GE Plus, the GoldenEye remake's Combat Simulator: on while its arena list
 // is the remake's arenas only.
 extern s32 g_GexPlusMode;
 s32 modloaderStageIsRemake(s32 stagenum);

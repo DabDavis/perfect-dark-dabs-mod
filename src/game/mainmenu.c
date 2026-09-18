@@ -40,6 +40,7 @@
 #include "modloader.h"
 #include "gexplusrom.h"
 #include "gexfront.h"
+#include "geintro.h"
 #include "game/mplayer/setup.h"
 #endif
 #include "types.h"
@@ -4882,7 +4883,7 @@ static s32 gexPlusFirstArena(void)
 }
 
 /**
- * GE-X Plus, the GoldenEye remake in Perfect Dark: its own Perfect Menu, beside
+ * GE Plus, the GoldenEye remake in Perfect Dark: its own Perfect Menu, beside
  * Ghost Trials and the Randomizer. Its Combat Simulator is Perfect Dark's setup
  * screens with the remake's arenas only (mpSetGexPlusMode()). Its solo missions
  * and the other multiplayer modes need the remake's missions, which are not
@@ -5003,7 +5004,7 @@ static struct menuitem g_GexPlusMenuItems[] = {
 
 struct menudialogdef g_GexPlusMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"GE-X Plus",
+	(uintptr_t)"GE Plus",
 	g_GexPlusMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
@@ -5011,13 +5012,15 @@ struct menudialogdef g_GexPlusMenuDialog = {
 };
 
 /**
- * The Perfect Menu's GE-X Plus row: GoldenEye's own folder screens
+ * The Perfect Menu's GE Plus row: GoldenEye's own folder screens
  * (port/src/gexfront.c), or this dialog when there is nothing converted to draw
  * them with - it says why.
  */
 static MenuItemHandlerResult menuhandlerMainMenuGexPlus(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	if (operation == MENUOP_SET && (gexPlusFirstArena() < 0 || !gexFrontOpen())) {
+	// GoldenEye's own intro first (port/src/geintro.c), which opens the folder
+	// screens itself when it ends
+	if (operation == MENUOP_SET && (gexPlusFirstArena() < 0 || (!geIntroOpen() && !gexFrontOpen()))) {
 		menuPushDialog(&g_GexPlusMenuDialog);
 	}
 
@@ -5142,7 +5145,7 @@ struct menuitem g_MainMenuMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"GE-X Plus",
+		(uintptr_t)"GE Plus",
 		0x0000000d,
 		menuhandlerMainMenuGexPlus,
 	},

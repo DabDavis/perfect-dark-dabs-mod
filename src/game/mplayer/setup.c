@@ -274,7 +274,7 @@ s32 mpImportArenas(const struct mparena *arenas, s32 count)
 	// one loaded (mpRegisterArena(), modloaderInit()) - are kept and put back
 	// after the imported list. modloaderInit() registers them and the mod's
 	// data segment is read after it, so clearing the whole table took them with
-	// it: with GoldenEye X loaded, its 23 arenas left none of the GE-X Plus
+	// it: with GoldenEye X loaded, its 23 arenas left none of the GE Plus
 	// conversion's, and the folder that finds its files through one of them
 	// stopped opening at all.
 	static struct mparena kept[MAX_MODSTAGES];
@@ -346,7 +346,7 @@ s16 mpChooseRandomStage(void)
 	s32 index;
 
 #ifndef PLATFORM_N64
-	// GE-X Plus: one of the GoldenEye remake's arenas, as its own list offers
+	// GE Plus: one of the GoldenEye remake's arenas, as its own list offers
 	if (g_GexPlusMode) {
 		s32 count = 0;
 
@@ -388,7 +388,7 @@ s16 mpChooseRandomStage(void)
 }
 
 /**
- * Whether an arena is in the list: unlocked, and in GE-X Plus one of the
+ * Whether an arena is in the list: unlocked, and in GE Plus one of the
  * GoldenEye remake's.
  */
 static bool mpArenaListed(s32 i)
@@ -429,7 +429,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 			if (mpArenaListed(i)) {
 				if (count == data->list.value) {
 #ifndef PLATFORM_N64
-					// GE-X Plus's own list needs no mod after the name
+					// GE Plus's own list needs no mod after the name
 					if (g_GexPlusMode && modloaderGetStageMapName(g_MpArenas[i].stagenum)) {
 						return (uintptr_t)modloaderGetStageMapName(g_MpArenas[i].stagenum);
 					}
@@ -468,7 +468,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		break;
 	case MENUOP_GETOPTGROUPCOUNT:
 #ifndef PLATFORM_N64
-		// GE-X Plus's list is one group, GoldenEye's
+		// GE Plus's list is one group, GoldenEye's
 		if (g_GexPlusMode) {
 			data->list.value = 1;
 			break;
@@ -590,7 +590,7 @@ extern s32 g_MpWeaponSetNum;
 MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 #ifndef PLATFORM_N64
-	// GE-X Plus: GoldenEye's own weapon sets (borrowed from GoldenEye X) and
+	// GE Plus: GoldenEye's own weapon sets (borrowed from GoldenEye X) and
 	// nothing else - Perfect Dark's sets are Perfect Dark's guns
 	{
 		s32 first = 0;
@@ -7107,7 +7107,7 @@ struct menudialogdef g_CombatSimulatorMenuDialog = {
 
 #ifndef PLATFORM_N64
 /**
- * The Combat Simulator as GE-X Plus's or as Perfect Dark's: the arena list
+ * The Combat Simulator as GE Plus's or as Perfect Dark's: the arena list
  * (mpArenaListed()), the dialog's title, and the challenges, which are Perfect
  * Dark's own on Perfect Dark's arenas.
  */
@@ -7128,7 +7128,7 @@ void mpSetGexPlusMode(bool on)
 		// the setup's scenario and options as GoldenEye's scenario has them
 		gexPlusSetScenario(gexPlusGetScenario());
 
-		g_CombatSimulatorMenuDialog.title = (uintptr_t)"GE-X Plus";
+		g_CombatSimulatorMenuDialog.title = (uintptr_t)"GE Plus";
 		g_CombatSimulatorMenuDialog.flags |= MENUDIALOGFLAG_LITERAL_TEXT;
 		g_CombatSimulatorMenuItems[0].flags |= MENUITEMFLAG_ALWAYSDISABLED;
 	} else {

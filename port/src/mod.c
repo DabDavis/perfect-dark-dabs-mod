@@ -3883,7 +3883,7 @@ void modMapsSetEnabled(const char *name, s32 on)
 
 /**
  * Turn one mod's maps on by name, before the list of installed mods exists:
- * for a mod the game has just written itself (GE-X Plus's arenas, converted
+ * for a mod the game has just written itself (GE Plus's arenas, converted
  * at startup ahead of the mount - gexplusrom.c).
  */
 void modMapsEnableByName(const char *name)

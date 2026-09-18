@@ -63,7 +63,7 @@
 // the characters and heads, where Rare put them - the HD ones in new/, and in
 // original/ the N64-look ones Bean switched to, under the same names - the
 // props, HD only: the guns' pickups, which Bean keeps there as chr<gun>, and
-// since 2026-09-17 the rest, which the GE-X Plus remake draws on its own props
+// since 2026-09-17 the rest, which the GE Plus remake draws on its own props
 // (propRows) - "chr" alone left every one of those missing on a player's
 // machine, where only a folder of the whole release had them - and the guns
 // themselves, the HD ones only: GoldenEye's N64 guns are GoldenEye X's own,

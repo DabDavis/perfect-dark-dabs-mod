@@ -6,7 +6,7 @@
 struct chrdata;
 
 /**
- * GE-X Plus, the GoldenEye remake's Combat Simulator: GoldenEye's own
+ * GE Plus, the GoldenEye remake's Combat Simulator: GoldenEye's own
  * multiplayer scenarios, each one of Perfect Dark's scenarios with its options
  * and, for You Only Live Twice, a rule of its own. Only while g_GexPlusMode is on
  * (modloader.h). port/src/gexplus.c.

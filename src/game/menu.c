@@ -3,6 +3,7 @@
 #include "game/modrules.h"
 #ifndef PLATFORM_N64
 #include "gexfront.h"
+#include "geintro.h"
 #endif
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
@@ -5596,7 +5597,12 @@ Gfx *menuRender(Gfx *gdl)
 #endif
 
 #ifndef PLATFORM_N64
-	// GE-X Plus's GoldenEye folder screens are drawn instead of the menus
+	// GE Plus's intro, then its GoldenEye folder screens, are drawn instead
+	// of the menus
+	if (geIntroIsActive()) {
+		return geIntroRender(gdl);
+	}
+
 	if (gexFrontIsActive()) {
 		return gexFrontRender(gdl);
 	}
@@ -5955,7 +5961,12 @@ u32 menuChooseMusic(void)
 	s32 missionsuccess = MUSIC_MISSION_SUCCESS;
 
 #ifndef PLATFORM_N64
-	// GE-X Plus's GoldenEye folder screens play GoldenEye's folders theme
+	// GE Plus's intro plays GoldenEye's M_INTRO and its folder screens the
+	// folders theme
+	if (geIntroMusic() >= 0) {
+		return geIntroMusic();
+	}
+
 	if (gexFrontMusic() >= 0) {
 		return gexFrontMusic();
 	}

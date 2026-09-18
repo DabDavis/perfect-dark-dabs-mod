@@ -1,5 +1,5 @@
 /**
- * GE-X Plus from the player's GoldenEye ROM, converted once at startup.
+ * GE Plus from the player's GoldenEye ROM, converted once at startup.
  *
  * A GoldenEye 007 (US) ROM dropped in data/ beside Perfect Dark's - any name,
  * any of the three dump byte orders - is found by its contents and converted
@@ -35,7 +35,7 @@
 #define GEXPLUSROM_STAMP "CONVERT.txt"
 #define GEXPLUSROM_STAMP_LINE "geconvert " GECONVERT_VERSION_STR
 
-// what the GE-X Plus menu says about it
+// what the GE Plus menu says about it
 static s32 g_GexPlusRomState = GEXPLUSROM_NONE;
 
 // Whether this player has been given the arenas' maps once (Mod.GexPlusMapsOffered)
@@ -47,7 +47,7 @@ s32 gexPlusRomGetState(void)
 }
 
 /**
- * The arenas are here. GE-X Plus lists them through the Stage Loader, which
+ * The arenas are here. GE Plus lists them through the Stage Loader, which
  * mounts only the mods it is set to (Mod.MapMods), and unmounted they are no
  * use to it: every row of its menu greys out, and until now nothing said why.
  * So the first time the arenas are here, turn them on.
@@ -374,7 +374,7 @@ void gexPlusRomConvert(void)
 				return;
 			}
 		}
-		sysLogPrintf(LOG_NOTE, "gexplus: no GoldenEye 007 (US) ROM in data/; GE-X Plus has no arenas");
+		sysLogPrintf(LOG_NOTE, "gexplus: no GoldenEye 007 (US) ROM in data/; GE Plus has no arenas");
 		return;
 	}
 

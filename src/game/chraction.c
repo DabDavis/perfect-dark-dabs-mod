@@ -9020,7 +9020,7 @@ void chrTickDead(struct chrdata *chr)
 
 			if (aibot) {
 #ifndef PLATFORM_N64
-				// You Only Live Twice (GE-X Plus): a simulant twice dead stays down
+				// You Only Live Twice (GE Plus): a simulant twice dead stays down
 				if (gexPlusLivesSpent(chr)) {
 					return;
 				}

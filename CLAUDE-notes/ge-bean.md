@@ -1727,9 +1727,9 @@ group is 386 units up). desk1 and chrplastique match nothing and are left out;
 Bean has no card_box6_lg, disc_reader or the five st_pete_room props. A prop's
 HD mesh is built the first time it is drawn, so a short run logs few.
 
-## GE-X Plus, the remake's menu (Phase 3, 2026-09-17)
+## GE Plus, the remake's menu (Phase 3, 2026-09-17)
 
-The user named the remake's front door **GE-X Plus**: a Perfect Menu row beside
+The user named the remake's front door **GE Plus**: a Perfect Menu row beside
 Ghost Trials and the Randomizer opening `g_GexPlusMenuDialog` (mainmenu.c) -
 Solo Missions, Combat Simulator, Co-Operative, Counter-Operative, as Perfect
 Dark's own menu has them. Only its Combat Simulator does anything yet; the
@@ -1739,7 +1739,7 @@ Its Combat Simulator is Perfect Dark's setup screens in a mode
 (`mpSetGexPlusMode()` in mplayer/setup.c, `g_GexPlusMode` in modloader.c): the
 arena list holds only the remake's arenas (`mpArenaListed()`: a map of a mod
 with a `models` block, `modloaderStageIsRemake()`), in one "GoldenEye" group,
-named by the map alone rather than "Map (mod)"; the dialog is titled GE-X Plus
+named by the map alone rather than "Map (mod)"; the dialog is titled GE Plus
 and its Challenges row is disabled (they are Perfect Dark's, on Perfect Dark's
 arenas). The arena is moved onto a remake arena if it was not on one. Perfect
 Dark's own Combat Simulator row turns the mode off and puts the title back. The
@@ -1757,7 +1757,7 @@ unless one is already chosen. The sets are GE-X's as it made them (its Golden
 Gun set carries a Klobb, a KF7, a silenced PP7, the Golden Gun, a shield and a
 DD44). Without GE-X the dropdown is Perfect Dark's as before.
 
-**Scenarios** (`port/src/gexplus.c`). In GE-X Plus the scenario list is
+**Scenarios** (`port/src/gexplus.c`). In GE Plus the scenario list is
 GoldenEye's: Normal, You Only Live Twice, The Living Daylights, License to
 Kill and The Man with the Golden Gun, under one "GoldenEye" group, and the setup screens name the chosen one. A
 GoldenEye scenario is not a scenario number (the setup's scenario is saved, in
@@ -1834,7 +1834,7 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
 - **Before the mount.** `modListApplySelection()` mounts the Stage Loader's
   maps, so main.c now opens the window (`videoInit()`) first, then
   `gexPlusRomConvert()`, then the mount. A fresh pd.ini has `Mod.MapMods`
-  empty, which would leave GE-X Plus empty after a conversion, so the arenas
+  empty, which would leave GE Plus empty after a conversion, so the arenas
   being there adds "GoldenEye Arenas" to it (`modMapsEnableByName()`, needed
   because the installed list is not built yet) and **saves pd.ini at once** - a
   killed run otherwise loses it.
@@ -1845,7 +1845,7 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
   that line never got the offer, and neither did a conversion that ran again
   over an existing directory after a `GECONVERT_VERSION_STR` bump. A player in
   that state has the arenas installed, `Mod.MapMods` empty, and **every row of
-  GE-X Plus greyed with nothing to say why** - a problem report of 2026-09-17,
+  GE Plus greyed with nothing to say why** - a problem report of 2026-09-17,
   "cANT SELECT ANY OPTIONS FOR gOLDENEYE X. hAVE EVERYTHING INSTALLED BUT
   EVERYTHING IS GRAYED OUT", whose log showed `mod: 2 installed: ...,
   GoldenEye Arenas` and whose ini showed `MapMods=`. The marker is
@@ -1865,7 +1865,7 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
   (0 until the scheduler's first frame) and a colour image address that is not
   the depth buffer's, or `gfx_dp_fill_rectangle()` draws nothing. The converter's
   log lines are handed to the main thread through a mutex.
-- **The menu.** With no arenas, GE-X Plus shows "Needs a GoldenEye 007 (US) ROM
+- **The menu.** With no arenas, GE Plus shows "Needs a GoldenEye 007 (US) ROM
   in data/, then restart.", or that the conversion failed (see the log), or
   that the arenas are converted but their maps are switched off in Extended
   Options > Stage Loader - one label per `GEXPLUSROM_*` state, all three hidden
@@ -1878,14 +1878,14 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
   with-ROM menus screenshotted. The notice's screenshot is at 0/28 because gdb
   stops the worker too.
 
-## GE-X Plus opens on GoldenEye's own folder screens (2026-09-17)
+## GE Plus opens on GoldenEye's own folder screens (2026-09-17)
 
 The user: "lets use the GE menus for that mode", and chose **faithful GoldenEye
 menus with rows added for simulants** over a GoldenEye skin on Perfect Dark's
 dialogs or only the multiplayer page; "also make sure music matches".
 `port/src/gexfront.c` is GoldenEye's front end as the decomp's `front.c` draws
-it, for GE-X Plus only - Perfect Dark's menus are untouched elsewhere. The
-Perfect Menu's GE-X Plus row calls `gexFrontOpen()` (the old dialog is kept
+it, for GE Plus only - Perfect Dark's menus are untouched elsewhere. The
+Perfect Menu's GE Plus row calls `gexFrontOpen()` (the old dialog is kept
 for when nothing is converted: it says a ROM is needed). While open,
 `menuTick()` and `menuRender()` hand over and return; the Perfect Menu stays
 open underneath and comes back as it was.
@@ -1939,7 +1939,7 @@ Dark's Ext, or a keyboard player is locked out), Characters (GoldenEye X's
 borrowed bodies - only with `Mod.XblaGoldenEye` on - else Perfect Dark's;
 portraits by the letters of the name before a bracket). The per-player pages
 read each player's own controller and have no cursor or tabs, as GoldenEye's.
-Random in GE-X Plus mode draws from the remake's arenas (`mpChooseRandomStage()`).
+Random in GE Plus mode draws from the remake's arenas (`mpChooseRandomStage()`).
 
 **Input.** GoldenEye's cursor (5 dead zone, 70 cap, 0.075 x stick + 0.5 a
 frame), A/Z pick, B back, START starts; the keyboard's accept and cancel are
@@ -1956,7 +1956,7 @@ after closing.
 
 **After a match** (2026-09-17, a tester's F3 reports): the return path in
 `menuTick()` ("returning from a multiplayer match") pushed Perfect Dark's
-Combat Simulator dialog, retitled GE-X Plus. In GE-X Plus mode (not advanced
+Combat Simulator dialog, retitled GE Plus. In GE Plus mode (not advanced
 setup) it now puts the Perfect Menu root back and `gexFrontOpenAfterMatch()`
 opens the folder on Multiplayer Options with the same setup - backing out twice
 reaches the Perfect Menu as after opening it. And **a setup with no player
@@ -2067,7 +2067,7 @@ everything past it - and `modloaderInit()` registers the mounted mods' maps
 *before* the data segment is read, so with GoldenEye X loaded its 23 arenas
 left none of the conversion's. The folder finds its `menu/` files through the
 mod directory of a remake arena (`frontFirstArena()`), so it did not open at
-all: `gexFrontOpen()` returned 0 and GE-X Plus fell back to Perfect Dark's
+all: `gexFrontOpen()` returned 0 and GE Plus fell back to Perfect Dark's
 menu, with no warning in the log that survived the kill. `mpImportArenas()`
 now keeps the arenas registered at runtime and puts them back after the
 imported list, with their names moved to the name slots that follow it (the
@@ -2098,7 +2098,7 @@ with Runway's four objectives lettered and **the mission's photo clipped to the
 folder** (switch 24, which is `22 + 2`), and its M Briefing page wrapped at
 320. START from the briefing ran GoldenEye X's Runway - `g_StageNum` 0x22,
 `g_MissionConfig.difficulty` 2 - to level frame 150. Nothing stock changed:
-everything is in GE-X Plus's own files but `mpImportArenas()`, which does
+everything is in GE Plus's own files but `mpImportArenas()`, which does
 nothing until a mod's data segment carries an arena table.
 
 **The slide grid's own highlight** (2026-09-17). GoldenEye lights the slides by
@@ -2510,3 +2510,133 @@ levels (`diff -r`).
   the room a walker is moved into - is a coin toss. That is the root of the
   Runway disagreement rather than a quirk of one strip, and it is worth trying
   to orient each portal by which room's tiles lie on which side.
+
+## GoldenEye's own intro on the way into GE Plus (2026-09-18)
+
+The user: "lets add the ge intro to the ge plus (change name from ge-x plus to
+GE Plus). when player enters mode, starts the GE intro (not the boot screens
+like nintendo etc. we have that covered already since game is booted)", and
+chose **GoldenEye's own characters and animations converted from the ROM** over
+a stand-in, and the **cast reel included**.
+
+`port/src/geintro.c` is GoldenEye's chain from the gun barrel to the file
+select, minus the two boot logos: the gun barrel
+(`renderGunbarrelEyeIntroSequence()`, its seven modes kept as they are), the
+GoldenEye logo (`constructor_menu04_goldeneyelogo()`) and the cast reel
+(`constructor_menu18_displaycast()`), and then `gexFrontOpen()`. It owns
+`menuTick()` and `menuRender()` while it plays, as the folder screens do, and
+the Perfect Menu's row starts it.
+
+**What the conversion had to learn.** `GECONVERT_VERSION_STR` is 7.
+
+- **Characters** (`tools/geconvert/gechr.py`, the same code in geconvert.c):
+  `c_item_entries` is 20-byte `{header, filename, f32 scale, f32 pov, flags}`
+  rows from data `0x1d080`, 80 of them, and a character file is a prop file with
+  three more node types. All 80 are written as `files/Cgx%03dZ` (430KB
+  compressed together, so there is nothing to choose).
+- **GoldenEye's skeleton is Perfect Dark's own.** `ModelJoint {NodeType, mtxA,
+  mtxB}` with the matrix a channel index stepping by three is
+  `g_SkelChrJoints`'s `{part, mirror}` joint for joint, so a converted body
+  loads with `SKEL_CHR` (a head, which has no skeleton, with `SKEL_HEAD`) and
+  needs no skeleton of its own.
+- **A character's animated parts are numbered from 1 in GoldenEye and from 0 in
+  Perfect Dark.** GoldenEye's header node is part 0 and its groups are 1..15,
+  and its skeleton's joint j holds the channel of part j; Perfect Dark fills a
+  slot per header record and a node reads `sp00[part]`. Every part moves down
+  one in the conversion. **This is what drew Bond lying on his side with his
+  limbs posed correctly** - every joint was reading its neighbour's rotation,
+  which looks like a coherent body in a wrong pose, not like noise.
+- **Animations** (`tools/geconvert/geanim.py`): GoldenEye keeps one in two
+  places - a record in `animation_data` (ROM 0x28e980: a 0x14 header, four
+  root-motion descriptors, then their bit stream) and the frames in
+  `animation_entries` (ROM 0x124ac0), `bitsperframe / 8` bytes a frame of joint
+  rotations, `width` bits a channel, in joint order. Perfect Dark reads the same
+  thing out of one buffer, and its header is a record a part: a type byte, then
+  four `{u16 base, u8 bits}` for the root's motion when `type & 8` and three for
+  the part's rotations when `type & 1`. So a converted animation is
+  GoldenEye's own bits with the root channels moved from their own stream into
+  the front of every frame - **nothing is re-encoded** - and the header comes to
+  162 bytes, which is what Perfect Dark's own character animations are.
+  - **The root stride is the sum of the four descriptors' bit counts**, not the
+    record's `joints` field (15 where the sum is 19): with 19 Bond's walk reads
+    as a walk, the hip height bobbing 1036-1086 over the cycle, and with 15 it
+    is noise. The two pointers in the record are relocated when the segment
+    loads and say nothing except by their difference, which is the 24 bytes the
+    descriptors take; the descriptors follow the header and the stream follows
+    them.
+  - The animations the intro needs are named in `INTRO_ANIMS`/`g_IntroAnims` by
+    the ROM address of their record, and `menu/intro.bin` carries each with its
+    name, so nothing depends on the order.
+- **A character's shadow (node type 0x0d) is dropped.** Perfect Dark's model
+  format has no such node and the port's model preprocessing refuses one
+  outright ("node at 0x834 has type 0xd with rodata"). Every one of the 42 in
+  the ROM is a childless leaf at the end of its chain, so leaving it out relinks
+  nothing - except that a sibling's `next` then points at nothing, which the
+  prev-pointer pass has to allow.
+- **The GoldenEye logo carries its own texture inside the model file.** Two of
+  its texture rows are 0x05 segment pointers rather than image numbers; the
+  bytes are copied over and the row repointed, which is what the port's model
+  preprocessing expects of one (`CT_TEXDATA`). `texDataSize()` counts every
+  mipmap level.
+- The gun barrel's **backdrop** is the folder screens' own 440x299 8-bit
+  picture, run-length encoded at ROM 0x2a4d50 (`rle.c`'s `rle_expand_8bit`),
+  and its **blood** is the wash down the lens at data 0xada0, decoded frame by
+  frame from the last (`blood_decrypt.c`, ported into geintro.c).
+
+**What the port had to learn.**
+
+- **A model drawn outside a level is laid out the way the menus lay one out**
+  (`menuRenderModel()`): matrices allocated and set to the identity with the
+  base matrix copied into the first, an animated model posed through
+  `modelSetMatricesWithAnim()` and a still one through `modelUpdateRelations()`,
+  and `mtxF2L()` over every matrix once everything hanging off it has been
+  drawn - a gun's own matrix is one of the body's, so they have to stay floats
+  until then.
+- **`modelSetDistanceChecksDisabled(true)` around the draw**, which is
+  GoldenEye's `modelSetDistanceDisabled(1)`: the camera is far enough from the
+  model in model units that every level of detail tests as out of range and the
+  model draws nothing.
+- **The animation's root motion has to be carried into the model's position**
+  (`introAdvanceRoot()`), which is GoldenEye's `subcalcpos()`. Perfect Dark does
+  this in its chr code rather than in the model, so nothing moved and Bond stood
+  at the origin, 1086 units to the side of where the camera points - **he is
+  meant to walk in from the right**, and the walk is what carries him there. x
+  and z accumulate and y is the height the animation holds the hips at, both at
+  `model->scale * anim->animscale` (GoldenEye's own 0.188 and 1.0 for the gun
+  barrel, 0.1 and 0.1 for the cast).
+- `viGetWidth()` is **320x220** here, not the window - the frame the menus are
+  laid out on. The gun barrel has an ortho of its own, GoldenEye's 1280x960,
+  widened at the sides on a wide window so the lens stays round.
+- The lens is `createGunbarrelRenderHole()`'s half circle of radius 64 mirrored
+  down the other side, shaded 143 - cos * -111 - and a Perfect Dark vertex names
+  its colour in the table a `G_COL` loads rather than carrying it, which is how
+  the converted models carry theirs.
+- The backdrop is drawn as 299 one-row rectangles, as GoldenEye draws it.
+  **One 440x299 texture and 299 rectangles off it draws black** - the renderer
+  keeps the N64's tile limit - and the rows are not what the sequence costs
+  anyway (the model draws are).
+- The fonts and the title screen's strings come from the folder screens, which
+  load them for both (`gexFrontLoadShared()`); the captions are
+  `intro_char_table`'s three text ids, which are already in the converted
+  `menu/LtitleE` (227 is a bare newline, 228 "The Actors", 232 "007", 233
+  "James Bond" ...).
+
+**Tested** in `build/gexrom` on the RX 580 (`SDL_VIDEODRIVER=offscreen`), driven
+from gdb (`call geIntroOpen()`, `screenshotRequest()` a second apart): the lens
+crosses black, the sight closes on the rifling, Bond walks in, turns and aims
+his PP7 at the camera, the screen goes blood red and fades, the gold logo turns,
+and the cast reel plays its twelve named characters - Ourumov in his uniform
+with a pistol in his hand under "Also Featuring / General / Arkady Ourumov" -
+before the folder screens open. 34 cast rows stepped through with no crash.
+
+**Not done**, and what a second pass would look at:
+- Bond settles a little left of the bore rather than inside it - the walk covers
+  1137 of the 1054 units the camera is aimed along, so the framing is a fraction
+  out with GoldenEye's own numbers in place;
+- the shot is silent: GoldenEye fires `GUN_RIFLE7BIG_1` out of its own sound
+  bank, which the conversion does not carry (the music bank it does);
+- the cast camera swings round the character's root rather than through
+  GoldenEye's spring smoothing, and its distances (70-150) frame a close-up;
+- the logo's red ellipse is drawn behind the letters and is sometimes hidden;
+- the blood's animated wash shows only its first rows before the flat red takes
+  over.

@@ -95,7 +95,7 @@ static char g_ModStageMapNames[STAGE_MAX_ID + 1][32];
  * The GoldenEye remake's solo missions: the stage each one of GoldenEye's
  * twenty missions registered as, in GoldenEye's own mission order, from the
  * converted mod's `missions` block. A mission is a stage like any other but is
- * not an arena, so it never reaches the Combat Simulator's list; GE-X Plus's
+ * not an arena, so it never reaches the Combat Simulator's list; GE Plus's
  * folder is what starts it (gexfront.c).
  */
 static s32 g_ModMissionStages[MODLOADER_MAX_MISSIONS];
@@ -114,7 +114,7 @@ struct modmodel {
 static struct modmodel *g_ModModels;
 static s32 g_NumModModels;
 
-// GE-X Plus: the Combat Simulator showing the GoldenEye remake's arenas only -
+// GE Plus: the Combat Simulator showing the GoldenEye remake's arenas only -
 // the maps of a mod that brings models of its own (mainmenu.c, mplayer/setup.c)
 s32 g_GexPlusMode;
 
@@ -562,7 +562,7 @@ static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char
  * A mission is registered as a stage of its own with the mission's setup as
  * its *solo* setup - not the arena's - and its own pads, because a mission's
  * pad list is not the arena's even where the two share a background. It is not
- * registered as an arena; GE-X Plus's folder is what starts it.
+ * registered as an arena; GE Plus's folder is what starts it.
  */
 static void modloaderReadMissions(s32 modIndex, const char *dir, const char *modLabel, char *data)
 {

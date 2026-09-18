@@ -1,8 +1,8 @@
 /**
- * GE-X Plus's scenarios: GoldenEye's multiplayer modes over Perfect Dark's.
+ * GE Plus's scenarios: GoldenEye's multiplayer modes over Perfect Dark's.
  *
  * GoldenEye's are chosen from the Combat Simulator's scenario list while in
- * GE-X Plus (scenarios.c) and are not a scenario number of their own - the
+ * GE Plus (scenarios.c) and are not a scenario number of their own - the
  * setup's scenario is saved, and its numbers are Perfect Dark's - but a choice
  * of one of Perfect Dark's scenarios and options:
  *
@@ -241,7 +241,7 @@ void gexPlusTick(void)
 }
 
 /**
- * GE-X Plus's simulants wear GoldenEye's characters (Oddjob, Trevelyan, Jaws
+ * GE Plus's simulants wear GoldenEye's characters (Oddjob, Trevelyan, Jaws
  * ...) - the ones GoldenEye X lends the Combat Simulator, which are also the
  * folder's Characters page - rather than a simulant profile's Perfect Dark
  * body. Each sim takes a character nobody else in the match is wearing while

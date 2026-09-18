@@ -1,5 +1,5 @@
 /**
- * GE-X Plus's menus: GoldenEye's own folder screens, drawn the way GoldenEye's
+ * GE Plus's menus: GoldenEye's own folder screens, drawn the way GoldenEye's
  * front end (the decomp's src/game/front.c) draws them.
  *
  * Everything drawn is GoldenEye's, from the conversion of the player's ROM
@@ -754,7 +754,7 @@ static s32 frontLoadAll(void)
 			|| !frontLoadFont(&g_Front.gothic, "fontbankgothic.bin")
 			|| !(g_Front.title = frontLoad("LtitleE", &g_Front.titlelen))
 			|| !frontLoadModel()) {
-		sysLogPrintf(LOG_WARNING, "gexfront: the conversion's menu files are missing; GE-X Plus opens Perfect Dark's menu");
+		sysLogPrintf(LOG_WARNING, "gexfront: the conversion's menu files are missing; GE Plus opens Perfect Dark's menu");
 		frontUnload();
 		return 0;
 	}
@@ -1297,14 +1297,14 @@ static void frontSelectRow(s32 row)
 }
 
 /**
- * The setup as GE-X Plus's Combat Simulator has it (mainmenu.c's GE-X Plus
+ * The setup as GE Plus's Combat Simulator has it (mainmenu.c's GE Plus
  * row), with the players and simulants of the folder's rows.
  */
 /**
  * Player 1 is who they chose on the Perfect Menu's Customize Character
  * (g_ModCiBody, modghost.h), as they are in the Institute and the missions,
  * until they choose on the folder's own Characters page - which then wins for
- * the session. Without it GE-X Plus kept the multiplayer setup's body, which
+ * the session. Without it GE Plus kept the multiplayer setup's body, which
  * for most players is Joanna.
  */
 static void frontApplyMenuCharacter(void)
@@ -2142,7 +2142,7 @@ s32 gexFrontOpen(void)
 }
 
 /**
- * Back from a match GE-X Plus started: straight to Multiplayer Options with the
+ * Back from a match GE Plus started: straight to Multiplayer Options with the
  * setup the match was played with, as GoldenEye returns there. The caller has
  * put the Perfect Menu underneath, so leaving the folder lands where opening it
  * did.
@@ -2161,6 +2161,21 @@ s32 gexFrontOpenAfterMatch(void)
 	g_Front.inputdelay = 10;
 
 	return 1;
+}
+
+/**
+ * The menu files without the folder, for the intro (geintro.c): it runs before
+ * the folder opens and draws GoldenEye's own text with the same fonts, and
+ * loading them once here keeps one copy.
+ */
+s32 gexFrontLoadShared(void)
+{
+	return g_Front.loaded || frontLoadAll();
+}
+
+const char *gexFrontTitleString(s32 index)
+{
+	return frontString(index);
 }
 
 /* ---- drawing ------------------------------------------------------------ */
@@ -2315,6 +2330,23 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 static Gfx *frontPrint(Gfx *gdl, s32 x, s32 y, const char *text, u32 colour)
 {
 	return frontText(gdl, &g_Front.zurich, &x, &y, text, colour, 0, false);
+}
+
+/* GoldenEye's text for the intro (geintro.c), which has no folder of its own */
+
+Gfx *gexFrontTextSetup(Gfx *gdl)
+{
+	return frontTextSetup(gdl);
+}
+
+Gfx *gexFrontTextPrint(Gfx *gdl, s32 gothic, s32 x, s32 y, const char *text, u32 colour)
+{
+	return frontText(gdl, gothic ? &g_Front.gothic : &g_Front.zurich, &x, &y, text, colour, 0, false);
+}
+
+void gexFrontTextMeasure(s32 gothic, const char *text, s32 *width, s32 *height)
+{
+	frontMeasure(gothic ? &g_Front.gothic : &g_Front.zurich, text, 0, width, height);
 }
 
 /** frontAddStartTabText() and frontAddPreviousTabText(): Bank Gothic, turned, a tab's middle. */

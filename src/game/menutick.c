@@ -29,6 +29,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexfront.h"
+#include "geintro.h"
 #include "modloader.h"
 #endif
 
@@ -74,7 +75,13 @@ void menuTick(void)
 #endif
 
 #ifndef PLATFORM_N64
-	// GE-X Plus's GoldenEye folder screens own the menus while open
+	// GE Plus's intro, and then its GoldenEye folder screens, own the menus
+	// while open
+	if (geIntroIsActive()) {
+		geIntroTick();
+		return;
+	}
+
 	if (gexFrontIsActive()) {
 		gexFrontTick();
 		return;
@@ -262,7 +269,7 @@ void menuTick(void)
 				g_MpPlayerNum = 0;
 
 #ifndef PLATFORM_N64
-				// A GE-X Plus match was started from GoldenEye's folder
+				// A GE Plus match was started from GoldenEye's folder
 				// screens and goes back to them, with the Perfect Menu under
 				// the folder the way it was when the folder was opened - not
 				// to Perfect Dark's Combat Simulator dialog, retitled.

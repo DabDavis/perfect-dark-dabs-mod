@@ -6,7 +6,7 @@
  * The output is a maps-only mod directory the Stage Loader registers
  * (CLAUDE-notes/mods.md "The Stage Loader"): per level files/bgdata/bg_gxNAME.seg,
  * _tilesZ, _padsZ and files/Ump_setupgxNAMEZ, the remake's prop models as
- * files/PgxNNNZ, GoldenEye's textures in textures/, GE-X Plus's menu fonts
+ * files/PgxNNNZ, GoldenEye's textures in textures/, GE Plus's menu fonts
  * and strings in menu/, and a modconfig.txt with the `maps` and `models` blocks.
  *
  * This is tools/geconvert/geconvert.py step for step, and that script's
@@ -59,8 +59,27 @@
 #define FOG_ROW 92
 #define PROPS_AT 0x19498
 #define NUM_PROPS 340
+#define CHRS_AT 0x1d080
+#define NUM_CHRS 80
 
-// GE-X Plus's menus (gexfront.c): the menu folder (PROP_WALLETBOND), its
+// the animations: two segments of their own, raw in the ROM. A record in the
+// data one is a 0x14 header {entry, u16 numframes, u8 width, u8 loop,
+// bitDescriptors, u16 joints, u16 bitsperframe, bitStream}, then its four
+// root-motion descriptors {u16 bitoffset, u8 bitcount, pad, u16 base} and then
+// their bit stream. The two pointers are relocated when the segment loads and
+// say nothing here beyond their difference, which is the 24 bytes the four
+// descriptors take. `entry` is where the animation's frames are in the entry
+// segment, bitsperframe/8 bytes a frame of joint rotations, `width` bits a
+// channel, in joint order.
+#define ANIM_ENTRY_ROM 0x124ac0
+#define ANIM_DESC 0x14
+#define ANIM_STREAM 0x2c
+// GoldenEye's guard skeleton, which every character in the ROM has: the header
+// node the animation plays on and fifteen parts, which is Perfect Dark's
+// g_SkelChrJoints joint for joint
+#define ANIM_PARTS 15
+
+// GE Plus's menus (gexfront.c): the menu folder (PROP_WALLETBOND), its
 // pictures, and the two fonts and the music, raw in the ROM
 #define MENU_FOLDER_MODEL 278
 
@@ -81,7 +100,16 @@ static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
 	{ "instrumentsctl", 0x3b4450, 0x43a0 },
 	{ "instrumentstbl", 0x3b87f0, 0x60fa0 },
 	{ "sequences", 0x419790, 0x1eed0 },
+	// and the gun barrel's sniper-sight backdrop, the folder screens' 440x299
+	// 8-bit background run-length encoded ({u16 w, u16 h, six bytes, then
+	// count/value pairs}, rle.c's rle_expand_8bit)
+	{ "introbg.bin", 0x2a4d50, 107890 },
 };
+
+// the gun barrel's blood, in the data segment rather than the ROM: the frames
+// of the wash down the lens, each decoded from the last (blood_decrypt.c)
+#define INTRO_BLOOD_AT 0xada0
+#define INTRO_BLOOD_SIZE 2524
 
 /**
  * The missions' text, in GoldenEye's mission order: each mission's briefing file
@@ -89,6 +117,40 @@ static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
  * {text id, the difficulty it starts at}) and the level's own text bank, which
  * every id in that file indexes (a text id is bank * 0x400 + slot).
  */
+/**
+ * GE Plus's intro (port/src/geintro.c) is GoldenEye's own: the gun barrel, the
+ * GoldenEye logo and the cast reel. It needs the logo's model, the guns the
+ * cast holds and the PP7 Bond fires (PROP_CHRWPPK, 191), every character in the
+ * ROM (all 80 - the cast is 33 bodies and a head pool of 33, and the rest cost
+ * 430KB together), and these animations, whose records are where GoldenEye's
+ * animation_data segment has them. menu/intro.bin names each one, so nothing
+ * depends on the order.
+ */
+#define INTRO_LOGO_MODEL 277
+
+static const uint32_t g_IntroGuns[] = {
+	184, 185, 187, 188, 190, 191, 193, 195, 197, 204, 205, 207, 208, 210,
+};
+
+static const struct { const char *name; size_t at; } g_IntroAnims[] = {
+	// the gun barrel: Bond walks in, turns and fires
+	{ "bond_eye_walk", 0x292ac4 }, { "bond_eye_fire", 0x292c18 },
+	// the cast reel: front.c's intro_animation_table, and idle for a character
+	// whose animation is still loading
+	{ "idle", 0x28e99c }, { "spotting_bond", 0x294690 },
+	{ "fire_standing_draw_fast", 0x294bd4 }, { "fire_standing_draw_slow", 0x294cfc },
+	{ "fire_step_right", 0x295188 }, { "fire_kneel_forward_fast", 0x2956d0 },
+	{ "running_one_handed", 0x2960fc }, { "draw_and_stand_up", 0x296428 },
+	{ "aim_left_right", 0x2965cc }, { "cock_and_turn_around", 0x296684 },
+	{ "cock_turn_stand_up", 0x29688c }, { "draw_and_turn_around", 0x296934 },
+	{ "drop_weapon_fight", 0x299af4 }, { "laughing", 0x29ad90 },
+	{ "fire_hip_forward", 0x294fc4 }, { "fire_standing_left_fast", 0x295398 },
+	{ "fire_kneel_left_fast", 0x295c84 }, { "draw_and_look_around", 0x296248 },
+	{ "aim_left", 0x2992cc }, { "aim_right", 0x29935c },
+	{ "conversation", 0x29962c }, { "conversation_listener", 0x29a900 },
+	{ "conversation_cleaned", 0x29a5c0 },
+};
+
 static const struct { const char *brief, *lang; } g_MenuText[] = {
 	{ "UbriefdamZ", "LdamE" },        { "UbriefarkZ", "LarkE" },
 	{ "UbriefrunZ", "LrunE" },        { "UbriefsevxZ", "LsevxE" },
@@ -433,9 +495,11 @@ struct prop {
 	double scale;
 	int32_t numswitches, nummatrices, numtextures;
 	double radius;
+	uint32_t skeleton, flags;
 };
 
 static struct prop g_Props[NUM_PROPS];
+static struct prop g_Chrs[NUM_CHRS];
 
 static const char *dataString(uint32_t ptr)
 {
@@ -577,6 +641,28 @@ static int romOpen(void)
 
 		p->file = dataString(be32(g_Data, o + 4));
 		p->scale = bef32(g_Data, o + 8);
+		p->numswitches = bes16(g_Data, h + 12);
+		p->nummatrices = bes16(g_Data, h + 14);
+		p->radius = bef32(g_Data, h + 16);
+		p->numtextures = bes16(g_Data, h + 22);
+	}
+
+	// c_item_entries, the same header behind a 20-byte row: the bodies, then
+	// the heads (gechr.py)
+	for (size_t k = 0; k < NUM_CHRS; ++k) {
+		const size_t o = CHRS_AT + 20 * k;
+		const size_t h = be32(g_Data, o) - DATA_VRAM;
+		struct prop *p = &g_Chrs[k];
+
+		if (h + 0x18 > g_DataLen) {
+			fail("character %d's header is outside the data segment", (int)k);
+		}
+
+		p->file = dataString(be32(g_Data, o + 4));
+		p->scale = bef32(g_Data, o + 8);
+		// whether it is male, and whether it wears a head of its own
+		p->flags = ((be32(g_Data, o + 16) >> 24) & 1) | (((be32(g_Data, o + 16) >> 16) & 1) << 1);
+		p->skeleton = be32(g_Data, h + 4);
 		p->numswitches = bes16(g_Data, h + 12);
 		p->nummatrices = bes16(g_Data, h + 14);
 		p->radius = bef32(g_Data, h + 16);
@@ -3285,10 +3371,19 @@ static void modelWalk(const buf *d, uint32_t o, uint32_t parent, nodes *out, int
 		n.parent = parent;
 		n.child = child ? child - SEG_MODEL : 0;
 		n.next = next ? next - SEG_MODEL : 0;
-		VECPUSH(*out, n);
-		if (n.child) {
-			modelWalk(d, n.child, o, out, depth + 1);
+
+		// a character's shadow (the blob it stands on): Perfect Dark's model
+		// format has no such node and the port's model preprocessing refuses
+		// one, and every one of the 42 in the ROM is a childless leaf at the
+		// end of its chain, so leaving it out relinks nothing
+		if ((n.type & 0xff) != 0x0d) {
+			VECPUSH(*out, n);
+
+			if (n.child) {
+				modelWalk(d, n.child, o, out, depth + 1);
+			}
 		}
+
 		o = n.next;
 	}
 }
@@ -3429,7 +3524,28 @@ static int cmpGdl(const void *pa, const void *pb)
 	return a->fixup < b->fixup ? -1 : a->fixup > b->fixup;
 }
 
-static buf modelConvert(int32_t num, uint8_t *images, double *scale)
+/**
+ * The bytes a texture stored in a model file takes: every mipmap level of it,
+ * `depth` bytes a texel (the GoldenEye logo's is 32x32 over six levels).
+ */
+static size_t texDataSize(uint32_t width, uint32_t height, uint32_t level, uint32_t depth)
+{
+	size_t n = 0;
+
+	for (uint32_t i = 0; i < (level ? level : 1); ++i) {
+		const uint32_t w = width >> i, h = height >> i;
+		n += (size_t)(w ? w : 1) * (h ? h : 1) * depth;
+	}
+
+	return (n + 7) & ~(size_t)7;
+}
+
+/**
+ * GoldenEye's prop model `num` (ischr: its character `num`) as a Perfect Dark
+ * model file. A character is a prop with three more node types and its own
+ * skeleton - see gechr.py, which is this.
+ */
+static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int ischr)
 {
 	const struct prop *p;
 	buf d, w = {0};
@@ -3440,11 +3556,11 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 	uint32_t *switches;
 	buf rows = {0};
 
-	if (num < 0 || num >= NUM_PROPS) {
-		fail("model %d is not one of GoldenEye's props", num);
+	if (num < 0 || num >= (ischr ? NUM_CHRS : NUM_PROPS)) {
+		fail("model %d is not one of GoldenEye's %s", num, ischr ? "characters" : "props");
 	}
 
-	p = &g_Props[num];
+	p = ischr ? &g_Chrs[num] : &g_Props[num];
 	*scale = p->scale;
 	d = romFile(p->file);
 	textab = 4 * (uint32_t)p->numswitches;
@@ -3471,10 +3587,35 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 	bufPut(&rows, d.v + textab, root - textab);
 	for (int i = 0; i < p->numtextures; ++i) {
 		const uint32_t image = be32(rows.v, 12 * i);
-		set32(rows.v, 12 * i, texRemap(image));
-		setAdd(images, image);
+
+		// a row whose first word is a 0x05 segment pointer is a texture stored
+		// in the file itself rather than a global image (the GoldenEye logo's
+		// two): its bytes are copied over below and the row repointed, which is
+		// what the port's model preprocessing expects of one (CT_TEXDATA)
+		if ((image & 0xff000000u) != SEG_MODEL) {
+			set32(rows.v, 12 * i, texRemap(image));
+			setAdd(images, image);
+		}
 	}
 	texat = bufPutAligned(&w, rows.v, rows.n, 4);
+
+	for (int i = 0; i < p->numtextures; ++i) {
+		const uint32_t image = be32(rows.v, 12 * i);
+		size_t len, at;
+
+		if ((image & 0xff000000u) != SEG_MODEL) {
+			continue;
+		}
+
+		len = texDataSize(rows.v[12 * i + 4], rows.v[12 * i + 5], rows.v[12 * i + 6], rows.v[12 * i + 8]);
+
+		if (image - SEG_MODEL + len > d.n) {
+			fail("%s: a texture in the file runs off it", p->file);
+		}
+
+		at = bufPutAligned(&w, d.v + (image - SEG_MODEL), len, 8);
+		set32(w.v, texat + 12 * i, SEG_MODEL + (uint32_t)at);
+	}
 
 	{
 		buf z = {0};
@@ -3488,29 +3629,57 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 	for (size_t i = 0; i < nds.n; ++i) {
 		struct node *n = &nds.v[i];
 		const uint32_t ro = n->rodata - SEG_MODEL;
+		// GoldenEye sets 0x100 on a group whose matrix the animation drives;
+		// Perfect Dark reads `type & 0xff` and keeps the flags, so the whole
+		// u16 is written back out
+		const uint32_t flags = n->type & 0xff00;
 		size_t rat;
 		buf rec = {0};
 
 		#define NEED(len) if ((size_t)ro + (len) > d.n) fail("%s: a node's data runs off the file", p->file)
 
+		n->type &= 0xff;
+
 		switch (n->type) {
 		case 0x01:
-			// a vehicle's header: a position node on the same matrix at the origin
-			NEED(4);
-			bufF32(&rec, 0);
-			bufF32(&rec, 0);
-			bufF32(&rec, 0);
-			bufU16(&rec, be16(d.v, ro));
-			bufU16(&rec, be16(d.v, ro + 2));
-			bufU16(&rec, 0xffff);
-			bufU16(&rec, 0xffff);
-			bufF32(&rec, p->radius);
+			NEED(0x10);
+			if (ischr) {
+				// the node the animation plays on: GoldenEye's animpart and
+				// matrix, then the f32 Perfect Dark reads where GoldenEye keeps
+				// its first group, and the rwdata index
+				bufU16(&rec, be16(d.v, ro));
+				bufU16(&rec, be16(d.v, ro + 2));
+				bufF32(&rec, 0);
+				bufU16(&rec, be16(d.v, ro + 0x0c));
+				bufU16(&rec, 0);
+			} else {
+				// a vehicle's header: a position node on the same matrix at the
+				// origin, since a standing prop has no animation to read
+				bufF32(&rec, 0);
+				bufF32(&rec, 0);
+				bufF32(&rec, 0);
+				bufU16(&rec, be16(d.v, ro));
+				bufU16(&rec, be16(d.v, ro + 2));
+				bufU16(&rec, 0xffff);
+				bufU16(&rec, 0xffff);
+				bufF32(&rec, p->radius);
+				n->type = 0x02;
+			}
 			rat = bufPutAligned(&w, rec.v, rec.n, 4);
-			n->type = 0x02;
 			break;
 		case 0x02:
 			NEED(0x14);
 			bufPut(&rec, d.v + ro, 0x14);
+			if (ischr) {
+				// GoldenEye numbers a character's animated parts from 1, with
+				// the header node above them as 0, and its skeleton's joint j
+				// holds the channel of part j; Perfect Dark numbers them from 0
+				// and reads the channels in part order, so every part moves
+				// down one and its skeleton is then g_SkelChrJoints joint for
+				// joint
+				const uint32_t part = be16(rec.v, 0x0c);
+				set16(rec.v, 0x0c, part ? part - 1 : 0);
+			}
 			bufF32(&rec, p->radius);
 			rat = bufPutAligned(&w, rec.v, rec.n, 4);
 			break;
@@ -3534,6 +3703,11 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 		case 0x0a:
 			NEED(0x1c);
 			rat = bufPutAligned(&w, d.v + ro, 0x1c, 4);
+			break;
+		case 0x17:
+			// where a head goes: one rwdata index, the same
+			NEED(2);
+			rat = bufPutAligned(&w, d.v + ro, 2, 4);
 			break;
 		case 0x0c:
 			NEED(0x28);
@@ -3619,7 +3793,7 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 
 		{
 			const size_t at = nodesat + 0x18 * i;
-			set16(w.v, at, n->type);
+			set16(w.v, at, n->type | flags);
 			set16(w.v, at + 2, 0);
 			set32(w.v, at + 4, SEG_MODEL + (uint32_t)rat);
 			set32(w.v, at + 8, ADDR(n->parent));
@@ -3646,7 +3820,12 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 		if (nds.v[i].next) {
 			const uint32_t a = ADDR(nds.v[i].next);
 			if (!a) {
-				fail("%s: a node's next is not a node", p->file);
+				// a character's next can be the shadow that was left out, which
+				// ends its chain there and has nothing to point back
+				if (!ischr) {
+					fail("%s: a node's next is not a node", p->file);
+				}
+				continue;
 			}
 			set32(w.v, a - SEG_MODEL + 0x10, SEG_MODEL + (uint32_t)nodesat + 0x18 * (uint32_t)i);
 		}
@@ -3658,7 +3837,10 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 	}
 
 	set32(w.v, 0, SEG_MODEL + (uint32_t)nodesat);
-	set32(w.v, 4, 2);
+	// SKEL_BASIC for a prop; for a character SKEL_CHR where it has GoldenEye's
+	// guard skeleton, which is Perfect Dark's own joint for joint, and SKEL_HEAD
+	// where it has none (a head is one list on one matrix)
+	set32(w.v, 4, ischr ? (p->skeleton ? 0x09 : 0x0d) : 2);
 	set32(w.v, 8, p->numswitches ? SEG_MODEL + (uint32_t)partsat : 0);
 	set16(w.v, 12, (uint32_t)p->numswitches);
 	set16(w.v, 14, (uint32_t)p->nummatrices);
@@ -3673,6 +3855,144 @@ static buf modelConvert(int32_t num, uint8_t *images, double *scale)
 	#undef RELOC_TEX
 
 	return w;
+}
+
+static buf modelConvert(int32_t num, uint8_t *images, double *scale)
+{
+	return modelConvertOne(num, images, scale, 0);
+}
+
+/* ------------------------------------------------------------------------ */
+/* the intro's animations (geanim.py) */
+
+struct animout {
+	uint32_t numframes, bytesperframe, headerlen, framelen, looping;
+};
+
+struct bits {
+	buf b;
+	size_t nbits;
+};
+
+static void bitsPut(struct bits *w, uint32_t value, uint32_t n)
+{
+	for (int32_t i = (int32_t)n - 1; i >= 0; --i) {
+		if (w->nbits % 8 == 0) {
+			bufZeros(&w->b, 1);
+		}
+		if ((value >> i) & 1) {
+			w->b.v[w->b.n - 1] |= 0x80 >> (w->nbits % 8);
+		}
+		++w->nbits;
+	}
+}
+
+static void bitsCopy(struct bits *w, const uint8_t *src, size_t len, size_t bitoff, uint32_t n)
+{
+	for (uint32_t i = 0; i < n; ++i) {
+		const size_t at = bitoff + i;
+
+		if (at >> 3 >= len) {
+			fail("an animation's bits run off its stream");
+		}
+		bitsPut(w, (src[at >> 3] >> (7 - (at & 7))) & 1, 1);
+	}
+}
+
+/**
+ * The animation whose record is at ROM address `at` as a Perfect Dark
+ * animation: a header that says how to read a frame, then the frames, each
+ * GoldenEye's root-motion bits for that frame followed by its frame's rotation
+ * bits unchanged. geanim.py is this, and says why.
+ */
+static buf animConvert(size_t at, struct animout *out)
+{
+	uint32_t entry, numframes, width, loop, bitsperframe, rootbits = 0, framebytes, rotbits;
+	uint32_t off[4], cnt[4], base[4];
+	const uint8_t *root, *frames;
+	size_t rootlen;
+	buf w = {0};
+
+	if (at + ANIM_STREAM > g_RomLen) {
+		fail("an animation record runs off the ROM");
+	}
+
+	entry = be32(g_Rom, at);
+	numframes = be16(g_Rom, at + 4);
+	width = g_Rom[at + 6];
+	loop = g_Rom[at + 7];
+	bitsperframe = be16(g_Rom, at + 14);
+	framebytes = bitsperframe / 8;
+	rotbits = 3 * width * ANIM_PARTS;
+
+	for (int i = 0; i < 4; ++i) {
+		off[i] = be16(g_Rom, at + ANIM_DESC + 6 * i);
+		cnt[i] = g_Rom[at + ANIM_DESC + 6 * i + 2];
+		base[i] = be16(g_Rom, at + ANIM_DESC + 6 * i + 4);
+		rootbits += cnt[i];
+	}
+
+	if (!width || !numframes || rotbits > bitsperframe) {
+		fail("the animation at %#x is not a character animation", (unsigned)at);
+	}
+
+	rootlen = ((size_t)rootbits * numframes + 7) / 8;
+	root = g_Rom + at + ANIM_STREAM;
+	frames = g_Rom + ANIM_ENTRY_ROM + entry;
+
+	if (at + ANIM_STREAM + rootlen > g_RomLen
+			|| (size_t)ANIM_ENTRY_ROM + entry + (size_t)numframes * framebytes > g_RomLen) {
+		fail("an animation's data runs off the ROM");
+	}
+
+	// the header: a record a part, the first carrying the four root-motion
+	// channels the renderer skips and the game reads
+	for (uint32_t part = 0; part < ANIM_PARTS; ++part) {
+		if (part == 0) {
+			bufU8(&w, 0x09);
+			for (int i = 0; i < 4; ++i) {
+				bufU16(&w, base[i]);
+				bufU8(&w, cnt[i]);
+			}
+		} else {
+			bufU8(&w, 0x01);
+		}
+		for (int i = 0; i < 3; ++i) {
+			bufU16(&w, 0);
+			bufU8(&w, width);
+		}
+	}
+
+	out->headerlen = (uint32_t)w.n;
+
+	for (uint32_t f = 0; f < numframes; ++f) {
+		struct bits b = {{0}, 0};
+
+		for (int i = 0; i < 4; ++i) {
+			bitsCopy(&b, root, rootlen, (size_t)rootbits * f + off[i], cnt[i]);
+		}
+		bitsCopy(&b, frames + (size_t)f * framebytes, framebytes, 0, rotbits);
+		while (b.nbits % 8) {
+			bitsPut(&b, 0, 1);
+		}
+		bufPut(&w, b.b.v, b.b.n);
+	}
+
+	out->numframes = numframes;
+	out->bytesperframe = (rootbits + rotbits + 7) / 8;
+	out->framelen = width;
+	out->looping = loop & 1;
+
+	if (w.n != out->headerlen + (size_t)out->numframes * out->bytesperframe) {
+		fail("an animation came out the wrong size");
+	}
+
+	return w;
+}
+
+static buf chrConvert(int32_t num, uint8_t *images, double *scale)
+{
+	return modelConvertOne(num, images, scale, 1);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -3783,7 +4103,7 @@ int geconvertProgress(void)
 
 int geconvertTotal(void)
 {
-	return (int)NUM_LEVELS + 2;
+	return (int)NUM_LEVELS + 3;
 }
 
 static void noteDefault(const char *msg)
@@ -3971,7 +4291,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		++g_Progress;
 	}
 
-	// GE-X Plus's menus are GoldenEye's own folder screens: the folder is a prop
+	// GE Plus's menus are GoldenEye's own folder screens: the folder is a prop
 	// model, the cursor and the stage pictures global images, and the fonts, the
 	// music and the title screen's strings are copied as GoldenEye stores them
 	{
@@ -3979,6 +4299,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		buf title;
 
 		setAdd(allmodels, MENU_FOLDER_MODEL);
+		setAdd(allmodels, INTRO_LOGO_MODEL);
+		for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
+			setAdd(allmodels, g_IntroGuns[i]);
+		}
 		for (size_t i = 0; i < sizeof(g_MenuImages) / sizeof(g_MenuImages[0]); ++i) {
 			for (uint32_t n = 0; n < g_MenuImages[i].count; ++n) {
 				setAdd(alltex, g_MenuImages[i].first + n);
@@ -4000,6 +4324,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		title = romFile("LtitleE");
 		writeFile(outdir, "menu/LtitleE", title.v, title.n);
 
+		if (INTRO_BLOOD_AT + INTRO_BLOOD_SIZE > g_DataLen) {
+			fail("the blood runs off the data segment");
+		}
+		writeFile(outdir, "menu/introblood.bin", g_Data + INTRO_BLOOD_AT, INTRO_BLOOD_SIZE);
+
 		// and the solo missions' briefings, with the text bank each one indexes
 		for (size_t i = 0; i < sizeof(g_MenuText) / sizeof(g_MenuText[0]); ++i) {
 			const char *names[2] = { g_MenuText[i].brief, g_MenuText[i].lang };
@@ -4017,6 +4346,75 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			free(g_Allocs[i]);
 		}
 		g_NumAllocs = keep;
+	}
+
+	// the intro's characters: every one in the ROM, converted (gechr.py), and
+	// its animations in one file with a table naming each (geanim.py)
+	{
+		const size_t numanims = sizeof(g_IntroAnims) / sizeof(g_IntroAnims[0]);
+		const size_t keepall = g_NumAllocs;
+		buf index = {0}, blob = {0}, head = {0};
+		size_t base;
+
+		for (uint32_t num = 0; num < NUM_CHRS; ++num) {
+			const size_t keep = g_NumAllocs;
+			double scale;
+			buf data, z;
+			char rel[64];
+
+			data = chrConvert((int32_t)num, alltex, &scale);
+			z = rzip1173(data.v, data.n);
+			snprintf(rel, sizeof(rel), "files/Cgx%03uZ", num);
+			writeFile(outdir, rel, z.v, z.n);
+
+			for (size_t i = keep; i < g_NumAllocs; ++i) {
+				free(g_Allocs[i]);
+			}
+			g_NumAllocs = keep;
+		}
+
+		// menu/intro.bin: "GEI1", the characters' scales, then a row an
+		// animation (its name, Perfect Dark's animtableentry fields, and where
+		// its bytes are)
+		bufPut(&head, (const uint8_t *)"GEI1", 4);
+		bufU16(&head, NUM_CHRS);
+		bufU16(&head, (uint32_t)numanims);
+		for (uint32_t num = 0; num < NUM_CHRS; ++num) {
+			bufU16(&head, num);
+			bufU16(&head, g_Chrs[num].flags);
+			bufF32(&head, g_Chrs[num].scale);
+		}
+
+		base = head.n + 36 * numanims;
+
+		for (size_t i = 0; i < numanims; ++i) {
+			struct animout e;
+			buf data = animConvert(g_IntroAnims[i].at, &e);
+			uint8_t name[20] = {0};
+
+			snprintf((char *)name, sizeof(name), "%s", g_IntroAnims[i].name);
+			bufPut(&index, name, sizeof(name));
+			bufU16(&index, e.numframes);
+			bufU16(&index, e.bytesperframe);
+			bufU16(&index, e.headerlen);
+			bufU8(&index, e.framelen);
+			bufU8(&index, e.looping);
+			bufU32(&index, (uint32_t)(base + blob.n));
+			bufU32(&index, (uint32_t)data.n);
+			bufPut(&blob, data.v, data.n);
+		}
+
+		bufPut(&head, index.v, index.n);
+		bufPut(&head, blob.v, blob.n);
+		writeFile(outdir, "menu/intro.bin", head.v, head.n);
+		note("geconvert: %d characters, %d animations in %d bytes",
+			(int)NUM_CHRS, (int)numanims, (int)blob.n);
+
+		for (size_t i = keepall; i < g_NumAllocs; ++i) {
+			free(g_Allocs[i]);
+		}
+		g_NumAllocs = keepall;
+		++g_Progress;
 	}
 
 	// the remake's prop models: GoldenEye's own, converted

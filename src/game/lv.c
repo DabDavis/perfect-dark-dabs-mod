@@ -2497,7 +2497,7 @@ void lvTick(void)
 			}
 
 #ifndef PLATFORM_N64
-			// You Only Live Twice (GE-X Plus): one chr with a life left
+			// You Only Live Twice (GE Plus): one chr with a life left
 			if (gexPlusMatchOver()) {
 				g_NumReasonsToEndMpMatch++;
 			}

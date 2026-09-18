@@ -12,7 +12,7 @@ extern "C" {
 #define GEXPLUSROM_FAILED 2 // a ROM was found and the conversion failed (see the log)
 
 /**
- * Converts the player's GoldenEye 007 (US) ROM in data/ into the GE-X Plus
+ * Converts the player's GoldenEye 007 (US) ROM in data/ into the GE Plus
  * arenas when they are not there already. Called once at startup, after the
  * window opens and before the mods are mounted; draws its own notice while
  * it works. --no-ge-convert skips it.

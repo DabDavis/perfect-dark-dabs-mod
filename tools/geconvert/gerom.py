@@ -26,6 +26,22 @@ FOG_AT = 0x24080
 FOG_ROW = 92
 PROPS_AT = 0x19498
 NUM_PROPS = 340
+CHRS_AT = 0x1d080
+NUM_CHRS = 80
+# the animations: two segments of their own, raw in the ROM. A record in the
+# data one is a 0x14 header {entry, u16 numframes, u8 width, u8 loop,
+# bitDescriptors, u16 joints, u16 bitsperframe, bitStream}, then its four
+# root-motion descriptors {u16 bitoffset, u8 bitcount, pad, u16 base} and then
+# their bit stream. The two pointers in the header are relocated when the
+# segment loads and say nothing here beyond their difference, which is the 24
+# bytes the four descriptors take; the descriptors follow the header and the
+# stream follows them. The header's `entry` is the offset of the animation's
+# frames in the entry segment, each frame bitsperframe/8 bytes of joint
+# rotations, `width` bits a channel.
+ANIM_ENTRY_ROM = 0x124ac0
+ANIM_DATA_ROM = 0x28e980
+ANIM_DESC = 0x14
+ANIM_STREAM = 0x2c
 
 # GoldenEye's level ids (bondconstants.h LEVELID)
 LEVELIDS = {'BUNKER1': 9, 'SILO': 20, 'STATUE': 22, 'CONTROL': 23, 'ARCHIVES': 24, 'TRAIN': 25,
@@ -117,3 +133,29 @@ class Rom:
             _, _, _, nsw, nmtx, radius, _, ntex = struct.unpack_from('>IIIhhfhh', self.data, ho)
             out.append((self.string(name), scale, dict(numswitches=nsw, nummatrices=nmtx, radius=radius, numtextures=ntex)))
         return out
+
+    def chrs(self):
+        """[(file stem, scale, header dict)] in character number order
+        (c_item_entries: the bodies, then the heads)."""
+        out = []
+        for k in range(NUM_CHRS):
+            hdr, name, scale, pov, flags = struct.unpack_from('>IIffI', self.data, CHRS_AT + 20 * k)
+            ho = hdr - DATA_VRAM
+            _, skel, _, nsw, nmtx, radius, _, ntex = struct.unpack_from('>IIIhhfhh', self.data, ho)
+            out.append((self.string(name), scale,
+                        dict(numswitches=nsw, nummatrices=nmtx, radius=radius, numtextures=ntex,
+                             skeleton=skel, ismale=(flags >> 24) & 1, hashead=(flags >> 16) & 1)))
+        return out
+
+    def anim(self, at):
+        """The animation whose record is at ROM address `at`: its header, its
+        root-motion descriptors and the two bit streams, read from the ROM."""
+        entry, w1, bd, w3, bs = struct.unpack_from('>IIIII', self.rom, at)
+        numframes, width, loop = w1 >> 16, (w1 >> 8) & 0xff, w1 & 0xff
+        bitsperframe = w3 & 0xffff
+        desc = [struct.unpack_from('>HBxH', self.rom, at + ANIM_DESC + 6 * i) for i in range(4)]
+        rootbits = sum(c for _, c, _ in desc)
+        root = self.rom[at + ANIM_STREAM:at + ANIM_STREAM + (rootbits * numframes + 7) // 8]
+        frames = self.rom[ANIM_ENTRY_ROM + entry:ANIM_ENTRY_ROM + entry + numframes * (bitsperframe // 8)]
+        return dict(numframes=numframes, width=width, loop=loop, bitsperframe=bitsperframe,
+                    descriptors=desc, rootbits=rootbits, root=root, frames=frames)
