@@ -547,33 +547,6 @@ static s32 introLoadChr(struct intromodel *body, struct intromodel *head, s32 bo
 	return 1;
 }
 
-/**
- * subcalcpos(): the animation's own root motion carried into the model's
- * position, which is what walks Bond in from the right and turns a cast
- * character on the spot. Perfect Dark does this in its chr code rather than in
- * the model, so the intro does it here: x and z accumulate and y is the height
- * the animation holds the hips at, both at the model's own translation scale.
- */
-static void introAdvanceRoot(struct model *model, f32 scale)
-{
-	struct coord pos;
-	struct coord translate;
-
-	if (!model || !model->anim || !model->anim->animnum) {
-		return;
-	}
-
-	animGetTranslateAngle(0, model->anim->flip, &g_SkelChr, model->anim->animnum,
-			(s32)modelGetCurAnimFrame(model), &translate, false);
-	modelGetRootPosition(model, &pos);
-
-	pos.x += translate.x * scale;
-	pos.y = translate.y * scale;
-	pos.z += translate.z * scale;
-
-	modelSetRootPosition(model, &pos);
-}
-
 static void introUnload(void)
 {
 	introFreeModel(&g_Intro.body);
@@ -924,6 +897,11 @@ static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 	gDPSetCombineMode(gdl++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM);
 	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
 
+	// GoldenEye's frame here is its own 440x330 (viSetXY(440, 330) on the way
+	// into the front end) and this one is Perfect Dark's 320x220, so the
+	// picture is GoldenEye's own pixels scaled into ours rather than drawn at
+	// 440 wide: at 440 in *this* frame it is a third too big and only its dark
+	// top rows are on the screen.
 	for (s32 i = 0; i + 1 < BG_H; i++) {
 		const s32 shade = (255 * i) / (BG_H - 1);
 		const s32 y0 = (s32)((i + 0x10) * sy);
@@ -1029,7 +1007,10 @@ static void introBarrelStart(void)
 	{
 		struct coord zero = { 0.0f, 0.0f, 0.0f };
 
+		// setsuboffset() and setsubroty(): the root starts at the origin
+		// facing down GoldenEye's zero, and the animation turns it from there
 		modelSetRootPosition(g_Intro.body.model, &zero);
+		modelSetChrRotY(g_Intro.body.model, 0.0f);
 		modelSetAnimPlaySpeed(g_Intro.body.model, 0.5f, 0.0f);
 	}
 
@@ -1079,7 +1060,6 @@ static void introBarrelTickBond(void)
 		}
 
 		modelTickAnim(g_Intro.body.model, 1, 1);
-		introAdvanceRoot(g_Intro.body.model, g_Intro.body.model->scale * g_Intro.body.model->anim->animscale);
 
 		// GoldenEye fires GUN_RIFLE7BIG_1 here, out of its own sound bank,
 		// which the conversion does not carry: the shot is silent for now
@@ -1087,6 +1067,12 @@ static void introBarrelTickBond(void)
 			g_Intro.shotplayed = 1;
 		}
 	}
+
+	// subcalcpos(), once the two ticks are done and not once each - it is what
+	// carries the animation's root motion into the model, and GoldenEye calls
+	// it outside the loop. Twice a frame walked Bond in at double speed and
+	// left him past his mark when the sight closed
+	modelUpdateInfo(g_Intro.body.model);
 }
 
 /** insert_bond_eye_intro(): 46 degrees from GoldenEye's own camera. */
@@ -1170,8 +1156,6 @@ static Gfx *introDrawBlood(Gfx *gdl)
  */
 static Gfx *introRenderBarrel(Gfx *gdl)
 {
-	const f32 sx = introScaleX();
-
 	switch (g_Intro.mode) {
 	case 2:
 		gdl = introClearBlack(gdl);
@@ -1181,7 +1165,7 @@ static Gfx *introRenderBarrel(Gfx *gdl)
 		break;
 	case 3:
 		gdl = introClearBlack(gdl);
-		gdl = introBackdrop(gdl, (s32)floorf((viGetWidth() * g_Intro.titlex) / (1280.0f * sx)));
+		gdl = introBackdrop(gdl, (s32)floorf((GEINTRO_W * g_Intro.titlex) / 1280.0f));
 		gdl = introBarrelOrtho(gdl);
 		gdl = introBarrelLens(gdl, g_Intro.titlex + 768.0f, g_Intro.titley - 40.0f, 2.7f, 2.57f);
 
@@ -1191,7 +1175,7 @@ static Gfx *introRenderBarrel(Gfx *gdl)
 		break;
 	default:
 		gdl = introClearBlack(gdl);
-		gdl = introBackdrop(gdl, (s32)floorf((viGetWidth() * g_Intro.titlex) / (1280.0f * sx)));
+		gdl = introBackdrop(gdl, (s32)floorf((GEINTRO_W * g_Intro.titlex) / 1280.0f));
 		gdl = introBarrelOrtho(gdl);
 		gdl = introBarrelLens(gdl, g_Intro.titlex + 768.0f, g_Intro.titley - 40.0f, 2.7f, 2.57f);
 		gdl = introDrawBond(gdl);
@@ -1441,6 +1425,7 @@ static void introCastStart(s32 first)
 				: g_Intro.anims[GEANIM_IDLE].animnum;
 
 		modelSetRootPosition(g_Intro.body.model, &zero);
+		modelSetChrRotY(g_Intro.body.model, 0.0f);
 		modelSetAnimPlaySpeed(g_Intro.body.model, 0.5f, 0.0f);
 
 		if (animnum >= 0) {
@@ -1601,7 +1586,7 @@ static void introTickCast(void)
 {
 	if (g_Intro.body.model) {
 		modelTickAnim(g_Intro.body.model, 1, 1);
-		introAdvanceRoot(g_Intro.body.model, g_Intro.body.model->scale * g_Intro.body.model->anim->animscale);
+		modelUpdateInfo(g_Intro.body.model);
 	}
 
 	g_Intro.casttimer++;

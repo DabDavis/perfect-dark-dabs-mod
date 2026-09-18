@@ -93,8 +93,22 @@ def convert(num):
             # skeleton is then g_SkelChrJoints joint for joint
             rec = bytearray(d[ro:ro + 0x14])
             part = struct.unpack_from('>H', rec, 0x0c)[0]
-            struct.pack_into('>H', rec, 0x0c, part - 1 if part else 0)
-            rat = w.put(bytes(rec) + struct.pack('>f', h['radius']))
+            if part == 1:
+                # the hips, and the one node that must not keep its channel:
+                # Perfect Dark's chrinfo *is* the hip node and turns on part 0
+                # itself, while GoldenEye's header node applies no joint
+                # rotation at all and leaves the turn to this group. Shifted to
+                # 0 the channel was applied at both, so bond_eye_fire's ninety
+                # degrees came out as a hundred and eighty and Bond finished
+                # the gun barrel facing away from the camera. It keeps its
+                # place and its matrix as a held position and loses only the
+                # rotation; its origin is (0, 0, 0) in all 43 bodies, and it is
+                # the header's own child in every one of them.
+                rat = w.put(bytes(rec[:0x0c]) + bytes(rec[0x0e:0x10]))
+                t = 0x15
+            else:
+                struct.pack_into('>H', rec, 0x0c, part - 1 if part else 0)
+                rat = w.put(bytes(rec) + struct.pack('>f', h['radius']))
         elif t in (0x08, 0x12):
             rec = bytearray(d[ro:ro + (0x10 if t == 0x08 else 0x08)])
             at = 8 if t == 0x08 else 0

@@ -2682,3 +2682,81 @@ release. A change that starts a sequence has to be run with audio.
 - the two raw waves in GoldenEye's bank are silent rather than played - a raw
   path in the synthesiser would need the samples byte-swapped as well, since
   the `tbl` is the ROM's bytes and `aLoadBuffer` is a memcpy.
+
+## The gun barrel: two faults in one sequence (2026-09-18)
+
+The user, on the intro as it first played: "bond walks in too fast and the end
+of the gun barrel is not lined up, and bond turns the wrong direction to
+shoot". Two of the three were the same shape - GoldenEye's own arithmetic run
+twice - and each is invisible in anything but the sequence itself.
+
+**Perfect Dark has `subcalcpos()` and it is `modelUpdateInfo()`.** The first
+pass wrote `introAdvanceRoot()`, which sampled `animGetTranslateAngle()` at the
+current frame and added it to the root position by hand, and called it after
+each of `sub_GAME_7F007F30`'s **two** `modelTickAnim()`s. GoldenEye calls
+`subcalcpos()` once, *outside* that loop, and Perfect Dark's own chr tick is
+`modelTickAnimQuarterSpeed()` then `modelUpdateInfo()` (`chr.c`) - the tick
+already accumulates the root into the chrinfo's `unk34`/`unk30` a whole frame
+at a time, and the update only commits them to `pos` and `yrot`. Two
+hand-rolled advances a frame on top of that walked Bond in at about 2.2 times
+GoldenEye's speed, his feet skating, and left him past his mark. There is
+nothing to write here: `modelUpdateInfo(model)` after the loop is the whole of
+it, and it carries the root **yaw** as well, which the hand-rolled one dropped.
+
+**The hips were turned twice.** GoldenEye's character has a header node and
+fifteen animated groups numbered 1..15, and the header applies *no* joint
+rotation (`process_01_group_heading` uses only the root position and `unk14`).
+Perfect Dark has a chrinfo node and fourteen groups, and its chrinfo **is** the
+hip node: `modelasm00018680()` (the path actually taken - `modelUpdateChrNodeMtx`
+is the fallback and is not reached) reads `rodata->chrinfo.animpart` and applies
+that slot's rotation. The converter shifted every group's part down one so
+GoldenEye's group 1 became part 0, and left the chrinfo's `animpart` at
+GoldenEye's own 0 - so **part 0, the hips, was applied at the chrinfo and again
+at the group**. `bond_eye_fire`'s ninety degree turn came out as a hundred and
+eighty: Bond walked in facing screen left and finished facing screen right,
+aiming across the camera instead of down it.
+
+- The fix is in `gechr.py` and the same code in geconvert.c: the group whose
+  GoldenEye part is 1 is written as a **`MODELNODETYPE_POSITIONHELD`** (0x15)
+  instead of a position node - it keeps its place and its matrix and loses only
+  the rotation, which the chrinfo is already applying. Checked over the ROM
+  first: all 43 bodies with a skeleton have exactly one part-1 group, it is
+  always the header's own child, and its origin is (0, 0, 0) in every one.
+- `GECONVERT_VERSION_STR` is **8**. It is in `port/include/geconvert.h`.
+- The walk hides this. Its hip channel only sways +7/-13 degrees, so doubled it
+  still reads as a walk; only a ninety degree turn shows it.
+- What settled it was suppressing the chrinfo's rotation in `modelasm_c.c`
+  behind a throwaway global and screenshotting the hold: Bond faced the camera.
+  The same picture came from leaving the code alone and setting the root yaw to
+  -90 degrees by hand, which is what halving a doubled turn has to look like.
+
+**What was checked and is right** - worth not checking again. `bond_eye_fire`
+has **no root motion at all**: its four descriptors are `{0, 0, 0}` in the ROM
+and the record's two pointers are still 24 bytes apart, so the turn is the
+joints' and Bond stops walking the moment it starts. The two games decode a
+joint angle identically (`value <<= 16 - width`, width 12). Their lookat
+matrices are the same function. `modelTickAnim` advances `playspeed * speed` in
+both, so 0.455 an anim tick and 0.91 a frame. `D_8002A8A8`, the offset
+`setsuboffset()` starts him at, really is three zeros in the ROM. The walk's
+root is **per-frame deltas in x and z and an absolute height in y**, read
+signed, which is what Perfect Dark expects, and the scale is
+`model->scale * anim_translation_scale` in both.
+
+**The backdrop is GoldenEye's 440x330 frame, not ours.** `viSetXY(440, 330)` on
+the way into the front end (front.c), so `titleRenderFolderMenuBackgroundLines()`
+drawing a 440 wide rectangle fills its frame exactly and
+`xOffset = viGetX() * g_TitleX / 1280` is 440-based. Drawing it 440 wide in
+*this* frame, which is Perfect Dark's 320x220, makes it a third too big and
+leaves only the dark top of its gradient on the screen. The offset is written
+as `GEINTRO_W * titlex / 1280` now, which is GoldenEye's own expression rather
+than the same number arrived at through `introScaleX()`.
+
+**Still open**: Bond finishes about 640 units along the camera's lateral axis,
+which leaves him in the bright mouth of the barrel and roughly 220 pixels
+(1024 wide) right of the lens, rather than inside it. Everything that decides
+that - the walk's own translation, the 137 ticks before the fire animation
+takes over, the camera, the lens's `g_TitleX + 768` and the 2.7/2.57 scale - was
+read against the decomp and the ROM and matches. Reaching the lens would need
+about 1020 units, which is what the *whole* of mode 3 would give him rather than
+the 137 ticks he gets. Do not guess at it again without a reference: it needs a
+capture of the N64 intro, and mame cannot run the ROM here (no PIF BIOS).

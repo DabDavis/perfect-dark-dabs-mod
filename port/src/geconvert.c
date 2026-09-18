@@ -3678,6 +3678,28 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 				// down one and its skeleton is then g_SkelChrJoints joint for
 				// joint
 				const uint32_t part = be16(rec.v, 0x0c);
+
+				if (part == 1) {
+					// the hips, and the one node that must not keep its
+					// channel: Perfect Dark's chrinfo *is* the hip node and
+					// turns on part 0 itself, while GoldenEye's header node
+					// applies no joint rotation at all and leaves the turn to
+					// this group. Shifted to 0 the channel was applied at
+					// both, so bond_eye_fire's ninety degrees came out as a
+					// hundred and eighty and Bond finished the gun barrel
+					// facing away from the camera. It keeps its place and its
+					// matrix as a held position and loses only the rotation;
+					// its origin is (0, 0, 0) in all 43 bodies, and it is the
+					// header's own child in every one of them.
+					const uint32_t mtx = be16(rec.v, 0x0e);
+
+					rec.n = 0x0c;
+					bufU16(&rec, mtx);
+					rat = bufPutAligned(&w, rec.v, rec.n, 4);
+					n->type = 0x15;
+					break;
+				}
+
 				set16(rec.v, 0x0c, part ? part - 1 : 0);
 			}
 			bufF32(&rec, p->radius);
