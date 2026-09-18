@@ -30,6 +30,10 @@
 #include "game/modoptions.h"
 #include "game/modrun.h"
 #include "game/modrules.h"
+#include "game/bg.h"
+#ifndef PLATFORM_N64
+#include "modloader.h"
+#endif
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
 #endif
@@ -982,6 +986,34 @@ void bwalkUpdateVertical(void)
 			&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
 			&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
 			&newinlift, &lift);
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye level files each tile under GoldenEye's own room
+	// for it, and GoldenEye found the tile under the player without asking
+	// which room they were in. Perfect Dark's search only ever looks at the
+	// rooms it is handed, so where the two disagree there is no floor under
+	// the player at all and they fall out of the world: a strip of Runway's
+	// snow eight hundred units wide and the length of the runway carries
+	// tiles of room 14, while a player walking on it is in room 13 alone.
+	// That is "fell through right here on runway".
+	//
+	// Asked again from the rooms the position itself resolves to, and only
+	// where the first answer was nothing whatsoever, so a level of the game's
+	// own - where this cannot happen, the tiles and the portals being one
+	// another's - is not touched.
+	if (ground < -1000000.0f && modloaderStageIsRemake(g_Vars.stagenum)) {
+		RoomNum posrooms[12];
+		RoomNum aboverooms[12];
+
+		bgFindRoomsByPos(&testpos, posrooms, aboverooms, 8, NULL);
+
+		ground = cdFindGroundInfoAtCyl(&testpos, g_Vars.currentplayer->bond2.radius, posrooms,
+				&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
+				&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
+				&newinlift, &lift);
+	}
+#endif
+
 	ground += g_Vars.currentplayer->bondonground;
 
 	if (ground < -30000) {
