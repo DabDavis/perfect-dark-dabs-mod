@@ -68,7 +68,7 @@ def convert(num):
 
     w = gemodelconv.Writer()
     w.out += bytearray(0x1c)
-    texat, images = gemodelconv.texture_rows(d, w, textab, root, h['numtextures'])
+    texat, images, moved = gemodelconv.texture_rows(d, w, textab, root, h['numtextures'])
     partsat = w.put(bytearray(6 * len(switches)))
     nodesat = w.put(bytearray(0x18 * len(nodes)))
     addr = {n['at']: SEG + nodesat + 0x18 * i for i, n in enumerate(nodes)}
@@ -137,7 +137,7 @@ def convert(num):
             else:
                 pri, sec, vtx = u(ro), u(ro + 4), u(ro + 8)
                 mode = struct.unpack_from('>h', d, ro + 0x18)[0]
-            vat, nv, cat, nc, got = gemodelconv.convert_lists(d, vtx, (pri, sec), w)
+            vat, nv, cat, nc, got = gemodelconv.convert_lists(d, vtx, (pri, sec), w, moved=moved)
             rat = w.put(struct.pack('>IIIIhhHH', 0, 0, SEG + cat, SEG + vat, nv, mode, 0, nc))
             for k, (g, words) in enumerate(got):
                 if words is not None:
@@ -145,7 +145,7 @@ def convert(num):
             t = 0x18
         elif t == 0x16:
             nverts, vtx, pri = struct.unpack_from('>iII', d, ro)
-            vat, nv, cat, nc, got = gemodelconv.convert_lists(d, vtx, (pri,), w, fours=True)
+            vat, nv, cat, nc, got = gemodelconv.convert_lists(d, vtx, (pri,), w, fours=True, moved=moved)
             rat = w.put(struct.pack('>iIII', 0, SEG + vat, 0, SEG + cat))
             gdls.append((got[0][0], got[0][1], rat + 8))
         else:

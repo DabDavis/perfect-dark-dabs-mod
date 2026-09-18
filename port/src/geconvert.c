@@ -3396,7 +3396,19 @@ static size_t bufPutAligned(buf *w, const uint8_t *data, size_t n, size_t align)
 	return at;
 }
 
+/**
+ * Where a texture the model file carries itself ended up when it was copied
+ * into the converted file: a list loads one by its own address (`G_SETTIMG`)
+ * and not through its texture row, so the lists have to be moved with it.
+ */
+struct texmove {
+	uint32_t at;    // its address in GoldenEye's file
+	size_t len;
+	size_t to;      // its offset in the converted one
+};
+
 static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int nlists, buf *w, int fours,
+		const struct texmove *moved, int nmoved,
 		size_t *vat, size_t *nv, size_t *cat, size_t *nc, u32s *wordsof, int *haswords)
 {
 	outvtxs newv = {0};
@@ -3459,6 +3471,21 @@ static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int
 					w1 = (w1 & ~0xfffu) | texRemap(w1 & 0xfff);
 					if ((w0 & 7) == 1) {
 						w1 = (w1 & ~0xfff000u) | (texRemap((w1 >> 12) & 0xfff) << 12);
+					}
+				} else if (op == 0xfd && (w1 & 0xff000000u) == SEG_MODEL) {
+					// a texture the file carries itself, named by the address it
+					// had in GoldenEye's file: left alone it reads whatever the
+					// new layout put there, which is what drew the GoldenEye
+					// logo without its red ellipse - the ring's own texel landed
+					// inside the node table, where its alpha is zero - and
+					// sampled the letters a few texels into their own picture
+					const uint32_t a = w1 - SEG_MODEL;
+
+					for (int m = 0; m < nmoved; ++m) {
+						if (a >= moved[m].at && a - moved[m].at < moved[m].len) {
+							w1 = SEG_MODEL + (uint32_t)(moved[m].to + (a - moved[m].at));
+							break;
+						}
 					}
 				}
 				VECPUSH(wordsof[li], w0);
@@ -3554,6 +3581,8 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 	size_t texat, partsat, nodesat;
 	uint32_t *switches;
 	buf rows = {0};
+	struct texmove *moved;
+	int nmoved = 0;
 
 	if (num < 0 || num >= (ischr ? NUM_CHRS : NUM_PROPS)) {
 		fail("model %d is not one of GoldenEye's %s", num, ischr ? "characters" : "props");
@@ -3598,6 +3627,8 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 	}
 	texat = bufPutAligned(&w, rows.v, rows.n, 4);
 
+	moved = gcAlloc((p->numtextures + 1) * sizeof(*moved));
+
 	for (int i = 0; i < p->numtextures; ++i) {
 		const uint32_t image = be32(rows.v, 12 * i);
 		size_t len, at;
@@ -3614,6 +3645,10 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 
 		at = bufPutAligned(&w, d.v + (image - SEG_MODEL), len, 8);
 		set32(w.v, texat + 12 * i, SEG_MODEL + (uint32_t)at);
+		moved[nmoved].at = image - SEG_MODEL;
+		moved[nmoved].len = len;
+		moved[nmoved].to = at;
+		nmoved++;
 	}
 
 	{
@@ -3759,7 +3794,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 				vtx = be32(d.v, ro + 8);
 				mode = bes16(d.v, ro + 0x18);
 			}
-			modelLists(&d, vtx, lists, 2, &w, 0, &vat, &nv, &cat, &nc, words, has);
+			modelLists(&d, vtx, lists, 2, &w, 0, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
 			if (nv > 32767 || mode < -32768 || mode > 32767) {
 				fail("%s: a list with too many vertices", p->file);
 			}
@@ -3793,7 +3828,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			if (!lists[0]) {
 				fail("%s: a muzzle flash with no list", p->file);
 			}
-			modelLists(&d, vtx, lists, 1, &w, 1, &vat, &nv, &cat, &nc, words, has);
+			modelLists(&d, vtx, lists, 1, &w, 1, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
 			// a standing prop never fires, so it draws no stars
 			bufU32(&rec, 0);
 			bufU32(&rec, SEG_MODEL + (uint32_t)vat);

@@ -81,10 +81,15 @@ def texdata_size(width, height, level, depth):
 
 def texture_rows(d, w, textab, root, numtextures):
     """The model's texture table written into `w` -> (its offset, the image ids
-    it names). A row whose first word is a 0x05 segment pointer is a texture
-    stored in the file itself rather than a global image (the GoldenEye logo's
-    two): its bytes are copied over and the row repointed, which is what the
-    port's model preprocessing expects of one (CT_TEXDATA)."""
+    it names, where its embedded textures moved to). A row whose first word is a
+    0x05 segment pointer is a texture stored in the file itself rather than a
+    global image (the GoldenEye logo's two): its bytes are copied over and the
+    row repointed, which is what the port's model preprocessing expects of one
+    (CT_TEXDATA).
+
+    The moves are given back because a list loads such a texture by its own
+    address (`G_SETTIMG`) and not through the row, so convert_lists() has to
+    move those with it."""
     rows = bytearray(d[textab:root])
     images, embedded = set(), []
     for i in range(numtextures):
@@ -95,16 +100,25 @@ def texture_rows(d, w, textab, root, numtextures):
             images.add(ptr)
             struct.pack_into('>I', rows, 12 * i, texremap.remap(ptr))
     texat = w.put(bytes(rows))
+    moved = []
     for i, at, size in embedded:
-        struct.pack_into('>I', w.out, texat + 12 * i, SEG + w.put(d[at:at + size], 8))
-    return texat, images
+        new = w.put(d[at:at + size], 8)
+        struct.pack_into('>I', w.out, texat + 12 * i, SEG + new)
+        moved.append((at, size, new))
+    return texat, images, moved
 
 
-def convert_lists(d, vtxptr, lists, out, fours=False):
+def convert_lists(d, vtxptr, lists, out, fours=False, moved=()):
     """GoldenEye lists over 16-byte vertices -> (vertex offset, count, colour
     offset, colour count, [(GoldenEye list address, words)]): the vertices and
     colours are written into `out` now, the lists at the end of the file
-    (convert())."""
+    (convert()).
+
+    `moved` is texture_rows()'s account of where the file's own textures went.
+    A `G_SETTIMG` naming one is repointed with it: the address is the file's, so
+    left alone it read whatever the new layout had put there - which is what
+    drew the GoldenEye logo without its red ellipse (the ring's own texel landed
+    inside the node table, alpha 0) and sampled the letters a few texels in."""
     u = lambda o: struct.unpack_from('>I', d, o)[0]
     newv, cols, words_of = [], [], []
     for gdl in lists:
@@ -135,6 +149,12 @@ def convert_lists(d, vtxptr, lists, out, fours=False):
                     w1 = (w1 & ~0xfff) | texremap.remap(w1 & 0xfff)
                     if (w0 & 7) == 1:
                         w1 = (w1 & ~0xfff000) | (texremap.remap((w1 >> 12) & 0xfff) << 12)
+                elif op == 0xfd and (w1 & 0xff000000) == SEG:
+                    a = w1 - SEG
+                    for at, size, new in moved:
+                        if at <= a < at + size:
+                            w1 = SEG + new + (a - at)
+                            break
                 words.append((w0, w1))
                 if op == 0xb8:
                     break
@@ -176,7 +196,7 @@ def convert(num):
 
     w = Writer()
     w.out += bytearray(0x1c)
-    texat, images = texture_rows(d, w, textab, root, h['numtextures'])
+    texat, images, moved = texture_rows(d, w, textab, root, h['numtextures'])
     partsat = w.put(bytearray(6 * len(switches)))
     nodesat = w.put(bytearray(0x18 * len(nodes)))
     addr = {n['at']: SEG + nodesat + 0x18 * i for i, n in enumerate(nodes)}
@@ -227,7 +247,7 @@ def convert(num):
             else:
                 pri, sec, vtx = u(ro), u(ro + 4), u(ro + 8)
                 mode = struct.unpack_from('>h', d, ro + 0x18)[0]
-            vat, nv, cat, nc, got = convert_lists(d, vtx, (pri, sec), w)
+            vat, nv, cat, nc, got = convert_lists(d, vtx, (pri, sec), w, moved=moved)
             rat = w.put(struct.pack('>IIIIhhHH', 0, 0, SEG + cat, SEG + vat, nv, mode, 0, nc))
             for k, (g, words) in enumerate(got):
                 if words is not None:
@@ -235,7 +255,7 @@ def convert(num):
             n['type'] = 0x18
         elif t == 0x16:
             nverts, vtx, pri = struct.unpack_from('>iII', d, ro)
-            vat, nv, cat, nc, got = convert_lists(d, vtx, (pri,), w, fours=True)
+            vat, nv, cat, nc, got = convert_lists(d, vtx, (pri,), w, fours=True, moved=moved)
             # a muzzle flash: a standing prop never fires, so it draws no stars
             # (the list stays, for the loader's sizes)
             rat = w.put(struct.pack('>iIII', 0, SEG + vat, 0, SEG + cat))

@@ -2937,11 +2937,31 @@ logo as well as the cast. Nothing in geintro.c set a light at all, so a model
 took whatever the menu drawn before it had left behind: one character came out
 flat white and the next black.
 
-**Still open: the GoldenEye logo has no red ellipse.** The oracle draws one
-across the E and this port does not. `PgoldeneyelogoZ` is three nodes (group,
-box, one display list) with two embedded textures and no switches, and the list
-loads both (two `G_SETTIMG`), so the geometry converts - it is the list's own
-render mode or its second tile that is being lost, not the conversion.
+**The GoldenEye logo's red ellipse** was the same screen's fifth fault and is
+fixed in the converter. `PgoldeneyelogoZ` is three nodes (group, box, one
+display list) with **two textures the file carries itself** rather than image
+ids - the letters' 32x32 gradient and a 1x1 white texel the ring is drawn
+through - and a list names one of those by **its own address** (`G_SETTIMG
+0x05000068`, `0x05000b28`) and not by an id. The conversion copies that data
+into the file it writes and repoints the **texture rows**, and left the lists
+pointing at GoldenEye's own offsets.
+
+What makes that invisible rather than merely wrong is the port's model
+preprocessing: `gbiRewriteAddr()` rewrites a segment 5 `G_SETTIMG` by looking
+its offset up in the table `gbiAddTexAddr()` fills **from the texture rows**, an
+exact match, and `gbiFindTexAddr()` answers **0** for anything else. So both
+lists ended up loading address zero: the ring's texel read the head of the file,
+where the alpha is zero, and the letters read whatever sat at the model's own
+base. `convert_lists()` (and `modelLists()` in geconvert.c) now moves a
+`G_SETTIMG` with the texture it names, which puts the ellipse back and makes the
+letters a shade brighter - they had been sampling 24 texels into their own
+picture. `GECONVERT_VERSION_STR` is **10**, so everyone's arenas convert again.
+
+**`$E/mods` is searched before `./mods`.** A conversion written into the
+sandbox a headless run is started in is shadowed by `build/mods/GoldenEye
+Arenas` next to the binary, and the game loads that one - which is what made the
+converter's fix look like it had done nothing. Convert into `build/mods` (or
+delete it) before judging a change to geconvert.
 
 **The oracle builds headless** with `make -j` first (the port links the
 extracted assets) and then
