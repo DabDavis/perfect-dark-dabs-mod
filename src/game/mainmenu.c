@@ -4926,10 +4926,13 @@ static MenuItemHandlerResult menuhandlerGexPlusMissions(s32 operation, struct me
 }
 
 /**
- * Why the Combat Simulator is off: the arenas are converted from the player's
- * own GoldenEye ROM at startup (port/src/gexplusrom.c).
+ * Why the Combat Simulator is off, one label per state the arenas can be in:
+ * they are converted from the player's own GoldenEye ROM at startup
+ * (port/src/gexplusrom.c), and are listed through the Stage Loader once they
+ * are. Shown only when there is no arena, so the state that has one says
+ * nothing.
  */
-static MenuItemHandlerResult menuhandlerGexPlusNoRom(s32 operation, struct menuitem *item, union handlerdata *data)
+static MenuItemHandlerResult menuhandlerGexPlusWhyNoArena(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKHIDDEN) {
 		return gexPlusFirstArena() >= 0 || gexPlusRomGetState() != (s32)item->param;
@@ -4977,7 +4980,7 @@ static struct menuitem g_GexPlusMenuItems[] = {
 		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
 		(uintptr_t)"Needs a GoldenEye 007 (US)\nROM in data/, then restart.\n",
 		0,
-		menuhandlerGexPlusNoRom,
+		menuhandlerGexPlusWhyNoArena,
 	},
 	{
 		MENUITEMTYPE_LABEL,
@@ -4985,7 +4988,15 @@ static struct menuitem g_GexPlusMenuItems[] = {
 		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
 		(uintptr_t)"The GoldenEye ROM did not\nconvert. The log says why.\n",
 		0,
-		menuhandlerGexPlusNoRom,
+		menuhandlerGexPlusWhyNoArena,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		GEXPLUSROM_READY,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"The arenas are converted, but\ntheir maps are switched off in\nExtended Options > Stage Loader.\n",
+		0,
+		menuhandlerGexPlusWhyNoArena,
 	},
 	{ MENUITEMTYPE_END },
 };

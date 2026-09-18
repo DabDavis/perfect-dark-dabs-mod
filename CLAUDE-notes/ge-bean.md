@@ -1834,11 +1834,29 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
 - **Before the mount.** `modListApplySelection()` mounts the Stage Loader's
   maps, so main.c now opens the window (`videoInit()`) first, then
   `gexPlusRomConvert()`, then the mount. A fresh pd.ini has `Mod.MapMods`
-  empty, which would leave GE-X Plus empty after a conversion, so the first
-  conversion (the directory did not exist) adds "GoldenEye Arenas" to it
-  (`modMapsEnableByName()`, needed because the installed list is not built yet)
-  and **saves pd.ini at once** - a killed first run otherwise lost it, and the
-  directory existing afterwards means it is never asked again.
+  empty, which would leave GE-X Plus empty after a conversion, so the arenas
+  being there adds "GoldenEye Arenas" to it (`modMapsEnableByName()`, needed
+  because the installed list is not built yet) and **saves pd.ini at once** - a
+  killed run otherwise loses it.
+- **"The first time" is a setting, not the directory** (2026-09-18). That
+  enable used to run only on a conversion that wrote the directory fresh
+  (`if (!existed)`), the directory existing afterwards standing for "already
+  asked". It stands for no such thing: arenas converted by a build from before
+  that line never got the offer, and neither did a conversion that ran again
+  over an existing directory after a `GECONVERT_VERSION_STR` bump. A player in
+  that state has the arenas installed, `Mod.MapMods` empty, and **every row of
+  GE-X Plus greyed with nothing to say why** - a problem report of 2026-09-17,
+  "cANT SELECT ANY OPTIONS FOR gOLDENEYE X. hAVE EVERYTHING INSTALLED BUT
+  EVERYTHING IS GRAYED OUT", whose log showed `mod: 2 installed: ...,
+  GoldenEye Arenas` and whose ini showed `MapMods=`. The marker is
+  `Mod.GexPlusMapsOffered` now, and every path that reaches `GEXPLUSROM_READY`
+  goes through `gexPlusRomSetReady()` - the two early returns for arenas
+  already on disk included, since those are exactly the paths that were
+  missing it. A player who turned the arenas off before the setting existed
+  gets them back once and can turn them off again for good; a player who turns
+  them off after keeps that. The menu has a third label for the state that is
+  left (arenas converted, maps switched off), since a greyed menu that says
+  nothing is what cost the reporter their evening.
 - **The notice** (user: "a small notification that the converter is running so
   players dont think they black screened"): the conversion is on its own thread
   while the main thread draws a frame every 16ms - "CONVERTING GOLDENEYE 007 FOR
@@ -1848,8 +1866,10 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
   the depth buffer's, or `gfx_dp_fill_rectangle()` draws nothing. The converter's
   log lines are handed to the main thread through a mutex.
 - **The menu.** With no arenas, GE-X Plus shows "Needs a GoldenEye 007 (US) ROM
-  in data/, then restart." (or that the conversion failed, see the log) under
-  its rows; `--no-ge-convert` skips the whole thing.
+  in data/, then restart.", or that the conversion failed (see the log), or
+  that the arenas are converted but their maps are switched off in Extended
+  Options > Stage Loader - one label per `GEXPLUSROM_*` state, all three hidden
+  as soon as there is an arena; `--no-ge-convert` skips the whole thing.
 - **Tested** in `build/gexrom/` (a binary copy, PD's ROM linked, GoldenEye as a
   renamed `.n64`): fresh conversion identical to the standalone run, 26 maps
   registered, second start skips, Temple booted and drawn (`--boot-stage` of the

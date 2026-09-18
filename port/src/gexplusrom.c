@@ -38,9 +38,50 @@
 // what the GE-X Plus menu says about it
 static s32 g_GexPlusRomState = GEXPLUSROM_NONE;
 
+// Whether this player has been given the arenas' maps once (Mod.GexPlusMapsOffered)
+static s32 g_GexPlusMapsOffered;
+
 s32 gexPlusRomGetState(void)
 {
 	return g_GexPlusRomState;
+}
+
+/**
+ * The arenas are here. GE-X Plus lists them through the Stage Loader, which
+ * mounts only the mods it is set to (Mod.MapMods), and unmounted they are no
+ * use to it: every row of its menu greys out, and until now nothing said why.
+ * So the first time the arenas are here, turn them on.
+ *
+ * "The first time" used to be the conversion writing the directory, which
+ * misses two whole cases: arenas converted by a build from before that line,
+ * and a conversion that ran again over an existing directory after a geconvert
+ * version bump. Neither ever got the offer, and neither had any way to work
+ * out what was missing - that is the problem report of 2026-09-17, "cANT
+ * SELECT ANY OPTIONS FOR gOLDENEYE X. hAVE EVERYTHING INSTALLED BUT EVERYTHING
+ * IS GRAYED OUT", whose Mod.MapMods was empty with the arenas installed. The
+ * marker is a setting of its own now, so it is asked once per player and
+ * survives both. A player who had turned the arenas off before this setting
+ * existed gets them back once, and can turn them off again for good.
+ */
+static void gexPlusRomSetReady(void)
+{
+	g_GexPlusRomState = GEXPLUSROM_READY;
+
+	if (g_GexPlusMapsOffered) {
+		return;
+	}
+
+	g_GexPlusMapsOffered = 1;
+	modMapsEnableByName(GEXPLUSROM_DIR);
+
+	// Saved now rather than on exit, which a crash or a killed process never
+	// reaches: this is not asked again.
+	configSave(CONFIG_PATH);
+}
+
+PD_CONSTRUCTOR static void gexPlusRomConfigInit(void)
+{
+	configRegisterInt("Mod.GexPlusMapsOffered", &g_GexPlusMapsOffered, 0, 1);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -329,7 +370,7 @@ void gexPlusRomConvert(void)
 		for (u32 i = 0; i < ARRAYCOUNT(containers); ++i) {
 			snprintf(dest, sizeof(dest), "%s/" GEXPLUSROM_DIR "/modconfig.txt", containers[i]);
 			if (fsFileSize(dest) >= 0) {
-				g_GexPlusRomState = GEXPLUSROM_READY;
+				gexPlusRomSetReady();
 				return;
 			}
 		}
@@ -343,7 +384,7 @@ void gexPlusRomConvert(void)
 		char dir[FS_MAXPATH + 1];
 		snprintf(dir, sizeof(dir), "%s/" GEXPLUSROM_DIR, containers[i]);
 		if (gexPlusRomIsCurrent(dir)) {
-			g_GexPlusRomState = GEXPLUSROM_READY;
+			gexPlusRomSetReady();
 			return;
 		}
 		if (!dest[0] && fsFileSize(dir) >= 0) {
@@ -435,18 +476,7 @@ void gexPlusRomConvert(void)
 
 		if (fsRename(temp, dest) == 0) {
 			sysLogPrintf(LOG_NOTE, "gexplus: the GoldenEye arenas are in %s", dest);
-			g_GexPlusRomState = GEXPLUSROM_READY;
-
-			// GE-X Plus lists them through the Stage Loader, which mounts only
-			// the mods it is set to: on the first conversion, this one. A
-			// player who turns it off later keeps that across a reconversion.
-			// Saved now rather than on exit, which a crash or a killed
-			// process never reaches: the directory exists from here on, so
-			// this is not asked again.
-			if (!existed) {
-				modMapsEnableByName(GEXPLUSROM_DIR);
-				configSave(CONFIG_PATH);
-			}
+			gexPlusRomSetReady();
 		} else {
 			sysLogPrintf(LOG_WARNING, "gexplus: could not move %s to %s", temp, dest);
 			g_GexPlusRomState = GEXPLUSROM_FAILED;
@@ -454,7 +484,13 @@ void gexPlusRomConvert(void)
 	} else {
 		sysLogPrintf(LOG_WARNING, "gexplus: the GoldenEye conversion failed: %s", job->err);
 		modRemoveDirTree(temp);
-		g_GexPlusRomState = fsFileSize(dest) >= 0 ? GEXPLUSROM_READY : GEXPLUSROM_FAILED;
+
+		if (fsFileSize(dest) >= 0) {
+			// what a previous conversion left is still playable
+			gexPlusRomSetReady();
+		} else {
+			g_GexPlusRomState = GEXPLUSROM_FAILED;
+		}
 	}
 
 	free(job);
