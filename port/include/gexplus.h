@@ -49,4 +49,9 @@ void gexPlusMissionSetup(u32 *props);
 // when the stage is not one of the missions.
 void gexPlusMissionLangLoad(s32 stagenum);
 
+// The animations a converted mission's PlayAnimation commands name, appended
+// after the game's own, and what GoldenEye's own animation id is once they are
+void gexPlusMissionAnimLoad(s32 stagenum);
+s32 gexPlusMissionAnim(s32 geid);
+
 #endif

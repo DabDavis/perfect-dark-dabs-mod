@@ -1434,6 +1434,10 @@ void setupLoadFiles(s32 stagenum)
 		// props and would load the model the record named.
 		if (modloaderStageIsMission(stagenum)) {
 			gexPlusMissionSetup(g_StageSetup.props);
+
+			// and the animations its lists play, appended after the game's own
+			// once a session (gexPlusMissionAnim())
+			gexPlusMissionAnimLoad(stagenum);
 		}
 
 		// Convert ailist pointers from file-local to proper pointers

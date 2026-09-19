@@ -42,6 +42,7 @@
 #endif
 #include "geconvert.h"
 #include "geaitable.h"
+#include "geanimtable.h"
 
 #define SEG_BG 0x0f000000u
 #define SEG_MODEL 0x05000000u
@@ -3521,6 +3522,7 @@ static void objectiveRecord(uint8_t *out, const uint8_t *raw)
 
 struct solostats {
 	int props, dropped, aikept, aidropped;
+	uint8_t *anims;   // one byte per GoldenEye animation id, set when named
 };
 
 static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct solostats *st)
@@ -3677,8 +3679,16 @@ static size_t aiLength(const buf *f, size_t at)
 	return end - at + 1;
 }
 
-/** One GoldenEye AI list as Perfect Dark bytecode (geaitable.h). */
-static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, struct solostats *st)
+/**
+ * One GoldenEye AI list as Perfect Dark bytecode (geaitable.h).
+ *
+ * `vehicle` says the list belongs to a truck, helicopter or tank rather than to
+ * a guard. PlayAnimation means a different table there - the three of
+ * `animation_table_ptrs2[]`, played on the vehicle's own model - and the
+ * conversion has no vehicle animation to play, so the command is left out.
+ */
+static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle, buf *out,
+		struct solostats *st)
 {
 	while (at < f->n) {
 		const uint32_t op = f->v[at];
@@ -3692,6 +3702,20 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, s
 		}
 
 		cmd = &g_GeAiCommands[op];
+
+		if (op == 0x0a) {   // PlayAnimation
+			const uint32_t anim = ((uint32_t)f->v[at + 1] << 8) | f->v[at + 2];
+
+			if (vehicle || anim >= (uint32_t)GEANIM_NUM_ANIMS) {
+				st->aidropped++;
+				at += len;
+				continue;
+			}
+
+			if (st->anims) {
+				st->anims[anim] = 1;
+			}
+		}
 
 		if (cmd->pd < 0) {
 			st->aidropped++;
@@ -3710,6 +3734,8 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, s
 					v = padNum(v, numpads, 0);
 				} else if (cmd->getext & (1u << i)) {
 					v = soloTextId(v);
+				} else if (cmd->geanim & (1u << i)) {
+					v = GEAI_ANIM_TAG | v;
 				}
 
 				vals[i] = v;
@@ -3719,7 +3745,11 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, s
 
 			for (int i = 0; i < cmd->numargs; ++i) {
 				const struct geaiarg *a = &cmd->args[i];
-				const uint32_t v = a->from < 0 ? a->value : vals[a->from];
+				uint32_t v = a->from < 0 ? a->value : vals[a->from];
+
+				if (a->mask) {
+					v &= a->mask;
+				}
 
 				for (int k = a->width - 1; k >= 0; --k) {
 					bufU8(out, (v >> (8 * k)) & 0xff);
@@ -3739,9 +3769,27 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, buf *out, s
 	bufU16(out, 4);
 }
 
+// The propdefs that run an AI list on a vehicle rather than on a guard: truck,
+// helicopter and tank, each with its list's id where a guard record has none
+// (bondtypes.h, VehichleRecord/AircraftRecord `ailist` at 0x80)
+static int soloListIsVehicle(const records *recs, uint32_t lid)
+{
+	for (size_t i = 0; i < recs->n; ++i) {
+		const uint32_t t = recs->v[i].type;
+
+		if ((t == 39 || t == 40 || t == 45) && recs->v[i].len >= 0x84
+				&& (be32(recs->v[i].b, 0x80) & 0xffff) == lid) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head, buf *code, struct solostats *st)
 {
 	const uint32_t start = be32(f->v, 20);
+	records recs = setupRecords(f);
 	size_t n = 0, pos;
 
 	if (!start) {
@@ -3760,7 +3808,8 @@ static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head,
 		const size_t o = start + 8 * i;
 		const size_t before = code->n;
 
-		writeSoloAilist(f, be32(f->v, o), numpads, code, st);
+		writeSoloAilist(f, be32(f->v, o), numpads,
+				soloListIsVehicle(&recs, be32(f->v, o + 4) & 0xffff), code, st);
 		bufU32(head, (uint32_t)pos);
 		bufU32(head, be32(f->v, o + 4));
 		pos += code->n - before;
@@ -4678,6 +4727,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 {
 	static uint8_t alltex[SETBITS / 8];
 	static uint8_t allmodels[SETBITS / 8];
+	static uint8_t allanims[GEANIM_NUM_ANIMS];
 	struct textbuf maps = {0}, missions = {0}, modellines = {0}, config = {0};
 	volatile int ok = 0;
 	char sub[1024];
@@ -4685,6 +4735,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	g_Progress = 0;
 	memset(alltex, 0, sizeof(alltex));
 	memset(allmodels, 0, sizeof(allmodels));
+	memset(allanims, 0, sizeof(allanims));
 	g_FailMsg[0] = '\0';
 
 	if (setjmp(g_Fail)) {
@@ -4795,6 +4846,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			struct setup msetup;
 			padrecs mbound;
 			struct solostats st = {0};
+
+			st.anims = allanims;
 
 			if (strcmp(g_Missions[mi].key, lv->key) != 0) {
 				continue;
@@ -4958,6 +5011,51 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		writeFile(outdir, "menu/intro.bin", head.v, head.n);
 		note("geconvert: %d characters, %d animations in %d bytes",
 			(int)NUM_CHRS, (int)numanims, (int)blob.n);
+
+		// menu/geanims.bin: the animations the missions' PlayAnimation commands
+		// name (geanimtable.h), each under GoldenEye's own id. The port appends
+		// them to Perfect Dark's table and gives the id its number there
+		// (gexplusanim.c), which is what the converted aiChrDoAnimation asks for
+		{
+			buf aindex = {0}, ablob = {0}, ahead = {0};
+			int numrows = 0;
+			size_t abase;
+
+			for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
+				numrows += allanims[i] ? 1 : 0;
+			}
+
+			abase = 8 + 20 * (size_t)numrows;
+
+			for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
+				struct animout e;
+				buf data;
+
+				if (!allanims[i]) {
+					continue;
+				}
+
+				data = animConvert(GEANIM_BASE + g_GeAnims[i].at, &e);
+				bufU16(&aindex, (uint32_t)i);
+				bufU16(&aindex, e.numframes);
+				bufU16(&aindex, e.bytesperframe);
+				bufU16(&aindex, e.headerlen);
+				bufU8(&aindex, e.framelen);
+				bufU8(&aindex, e.looping);
+				bufZeros(&aindex, 2);
+				bufU32(&aindex, (uint32_t)(abase + ablob.n));
+				bufU32(&aindex, (uint32_t)data.n);
+				bufPut(&ablob, data.v, data.n);
+			}
+
+			bufPut(&ahead, (const uint8_t *)"GEA1", 4);
+			bufU16(&ahead, (uint32_t)numrows);
+			bufU16(&ahead, 0);
+			bufPut(&ahead, aindex.v, aindex.n);
+			bufPut(&ahead, ablob.v, ablob.n);
+			writeFile(outdir, "menu/geanims.bin", ahead.v, ahead.n);
+			note("geconvert: %d mission animations in %d bytes", numrows, (int)ablob.n);
+		}
 
 		for (size_t i = keepall; i < g_NumAllocs; ++i) {
 			free(g_Allocs[i]);

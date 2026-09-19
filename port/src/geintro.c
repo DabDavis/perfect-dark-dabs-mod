@@ -379,6 +379,8 @@ static u8 *introExpandRle(const u8 *src, u32 srclen, s32 wantw, s32 wanth)
  * appended after the game's own (animAppendExternal()), which is what a
  * borrowed mod's animations do.
  */
+static s32 g_IntroAnimsAppended;
+
 static s32 introLoadAnims(void)
 {
 	u32 len = 0;
@@ -410,6 +412,19 @@ static s32 introLoadAnims(void)
 	}
 
 	rows = d + 8 + 8 * numchrs;
+
+	// Appending is permanent - an appended animation counts as one of the
+	// ROM's and animsReset() keeps it - so it happens on the first way into
+	// GE Plus and not again. It used to happen every time, which spent
+	// twenty-five of the thousand rows there are (ANIM_EXTRA_CAPACITY) on each
+	// visit and left the fortieth without its cast reel. The chr scales above
+	// are read every time, since the screens are freed between visits.
+	if (g_IntroAnimsAppended) {
+		sysMemFree(d);
+		return 1;
+	}
+
+	g_IntroAnimsAppended = 1;
 
 	for (s32 i = 0; i < NUM_ANIMS; i++) {
 		g_Intro.anims[i].animnum = -1;

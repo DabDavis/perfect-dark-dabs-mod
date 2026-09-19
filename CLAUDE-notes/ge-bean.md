@@ -3473,3 +3473,94 @@ disagreement. Its portal 18 (13/14) is not backwards - both rooms' tiles sit
 *behind* its plane, so the portal does not separate them at all and no
 orientation could. The `bwalkUpdateVertical()` fallbacks are what hold a player
 up there, and they still are.
+
+## GoldenEye's own animations in the missions (2026-09-19)
+
+The set pieces play. A converted mission's AI lists hold 112 `PlayAnimation`
+commands over nineteen of the twenty missions and three `IFPlayingAnimation`,
+and all of them were being dropped.
+
+**Both are Perfect Dark's own commands under another name.** `chrStartAnim()`
+is GoldenEye's `chrlvPerformAnimationForActor()` line for line - the same
+speed 0.5, the same negation for a reverse loop, the same mirror bit, the same
+`chr->sleep = merge` - so `PlayAnimation` (0x0a) is `aiChrDoAnimation` (0x000b)
+and `IFPlayingAnimation` (0x0b) is `aiIfIdle` (0x000c), whose body is
+GoldenEye's character for character (it asks `actiontype == ACT_ANIM`, which is
+not idleness at all). The conversion writes:
+
+| Perfect Dark | from |
+| --- | --- |
+| anim id | GoldenEye's, tagged (below) |
+| start, end | GoldenEye's own, sentinels and all: -1 is 0 at the front and -1 at the end in both games |
+| chranimflags | GoldenEye's BITFIELD, masked to 0xd7 |
+| merge | INTERPOL_TIME60, which is already Perfect Dark's units |
+| chr | CHR_SELF: GoldenEye's command is always the list's own chr |
+| speed | the divisor 2, since `aiChrDoAnimation` takes 1/n and GoldenEye's is 0.5 |
+
+**The flags line up bit for bit except two**, which is why the mask is not
+0xff: 0x01 mirror/FLIP, 0x02 (unknown)/MOVEWHENINVIS, 0x04 hold last
+frame/PAUSEATEND, 0x10 idle on end/SLOWUPDATE - both of which set
+`chr->sleep = merge` - 0x40 no translation/LOCKPOS and 0x80 reverse/REVERSE all
+mean the same thing. **0x08 is GoldenEye's "play the sneeze sound" and Perfect
+Dark's `CHRANIMFLAG_COMPLETED`**, which ends an animation the moment it starts,
+and 0x20 is a translation scale of four (Dam's and Cradle's cinema) that
+Perfect Dark has no flag for. Both are dropped.
+
+**The animations themselves come from the ROM**, the way the intro's do. An id
+indexes `animation_table_ptrs1[]` (initanitable.c), 183 offsets into the
+`animation_data` segment whose base is **0x28e980** - `idle` is id 0 at offset
+0x1c, which is the 0x28e99c the intro's own list already carried, and every one
+of the intro's twenty-five addresses lands on its name. `geanimtable.py` and
+`geanimtable.h` are that table, generated from the decompilation. The missions
+name 38 of them, `menu/geanims.bin` holds them converted (273792 bytes,
+`geanim.py` unchanged), and the port appends each with `animAppendExternal()`
+as a borrowed mod's animations are appended.
+
+**A converted animation id is written with 0x8000 set, and that tag matters.**
+The number an appended animation takes is only known once it is appended, so
+the command carries GoldenEye's id and `aiChrDoAnimation()` asks
+`gexPlusMissionAnim()` for ours. Without the tag it would also rewrite the
+animation numbers in **Perfect Dark's own ailists**, which a mission's chrs do
+fall back on: Control ran one at frame 253 with animation 155 and flags 0x18 -
+flags the conversion's own mask forbids, which is what gave it away.
+
+**The three an aircraft plays are left out.** `PlayAnimation` on a list owned
+by a truck, helicopter or tank (propdefs 39, 40 and 45, each with its list's id
+at 0x80) means `animation_table_ptrs2[]` - `helicopter_cradle`, `plane_runway`,
+`helicopter_takeoff` - played on the vehicle's own model, and the conversion
+has no vehicle animation to play. Six commands: Runway's plane, Frigate's and
+Statue Park's helicopters, Cradle's. The two tables share their numbering and
+only the list's owner tells them apart, so a chr list's `anim 0` is `idle` and
+a helicopter's is `helicopter_cradle`.
+
+**A Perfect Dark body plays a GoldenEye animation at translation scale 1.0.**
+The gun barrel already proved it - geintro.c stands `BODY_BROSNAN_TUXEDO` up
+and plays GoldenEye's `bond_eye_walk` with animscale 1.0f - so nothing needs
+rescaling for a mission's stock guards. (The cast reel's 0.1 is for GoldenEye's
+own *models*, which are ten times Perfect Dark's.)
+
+**Almost nothing plays on a boot, and that is not a fault.** Only three guards
+in the whole game *start* on a list that plays an animation (Dam's 1043,
+Train's 1045, Control's 1041); the rest are reached through `SetChrAiList` when
+an objective, a door or the sight of Bond fires. A 900-frame boot of Control
+shows none. **Dam is the test**: chr 3 starts on list 1043 and at frame 127
+runs `raw 0x80ac GE 172 -> 1237` - `keyboard_right_hand1`, mapped to an
+appended row, flags 00, merge 16, speed 2 - and is in ACT_ANIM with that
+number. To reach any of the others from gdb, write `chr->ailist =
+ailistFindById(id)`, `aioffset = 0`, `sleep = 0`, which is what `aiSetList()`
+does.
+
+**And the intro stopped spending the table.** `introLoadAnims()` appended its
+twenty-five on *every* way into GE Plus, 1024 rows being all there are
+(`ANIM_EXTRA_CAPACITY`), so the fortieth visit would have lost the cast reel.
+It appends once now; the chr scales are still read every time, since the folder
+screens are freed between visits.
+
+**Checked**: all twenty missions boot and run 600 frames with no warning and
+the player on their feet at full health, and the C converter's bytes are still
+the Python's over all 26 levels and all 20 missions (`diff -r`).
+`GECONVERT_VERSION_STR` 22.
+
+**Still to do**: the cinema cameras and screen fades (`CameraOrbitPad`,
+`ScreenFadeToBlack` and the rest, all still dropped), the chr flag commands,
+and the vehicles' own three animations.

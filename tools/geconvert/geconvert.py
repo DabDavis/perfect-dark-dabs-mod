@@ -49,6 +49,7 @@ import texremap
 import gemodelconv
 import gechr
 import geanim
+import geanimtable
 
 SEG = 0x0f000000
 
@@ -1098,6 +1099,7 @@ def main():
     fogs = fog_rows()
     alltex = set()
     allmodels = set()
+    allanims = set()
     record = {}
     for key in keys:
         bgname, stanname, solo, mpname, ls = gefiles.LEVELS[key]
@@ -1147,6 +1149,7 @@ def main():
             mpads = write_pads(msetupdata, ls, offset, rooms, None, None, mboundpads)
             mprops, mmodels, mstats = gesolo.convert(md, len(msetupdata['pads']), gesolo.STOCK_BODIES)
             allmodels.update(mmodels)
+            allanims.update(mstats['anims'])
             files['bgdata/bg_gs%s_padsZ' % mkey] = mpads
             files['Usetupgs%sZ' % mkey] = rzip1173(pad(mprops, 16))
             missions.append('  mission %d "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ"'
@@ -1221,6 +1224,23 @@ def main():
     with open(os.path.join(outdir, 'menu', 'intro.bin'), 'wb') as f:
         f.write(struct.pack('>4sHH', b'GEI2', gerom.NUM_CHRS, len(rows)) + chrs + index + bytes(blob))
     print('characters written %d, animations %d in %d bytes' % (gerom.NUM_CHRS, len(INTRO_ANIMS), len(blob)))
+    # menu/geanims.bin: the animations the missions' PlayAnimation commands
+    # name (geanimtable.py), each under GoldenEye's own id. The port appends
+    # them to Perfect Dark's table and gives the id its number there
+    # (gexplusanim.c), which is what the converted aiChrDoAnimation asks for.
+    rows, blob = [], bytearray()
+    for anim in sorted(allanims):
+        name, at = geanimtable.TABLE[anim]
+        data, e = geanim.convert(geanimtable.BASE + at)
+        rows.append((anim, e, len(blob), len(data)))
+        blob += data
+    base = 8 + 20 * len(rows)
+    index = b''.join(struct.pack('>HHHHBBxxII', anim, e['numframes'], e['bytesperframe'], e['headerlen'],
+                                 e['framelen'], e['looping'], base + off, size)
+                     for anim, e, off, size in rows)
+    with open(os.path.join(outdir, 'menu', 'geanims.bin'), 'wb') as f:
+        f.write(struct.pack('>4sHH', b'GEA1', len(rows), 0) + index + bytes(blob))
+    print('mission animations %d in %d bytes' % (len(rows), len(blob)))
     # the remake's prop models: GoldenEye's own, converted (gemodelconv.py)
     modellines = []
     for num in sorted(allmodels):

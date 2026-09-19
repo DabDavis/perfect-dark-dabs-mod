@@ -7,7 +7,14 @@ was found. A row is GoldenEye's opcode:
 
 and an argument spec makes one Perfect Dark argument: `n` copies GoldenEye's
 argument n at its own width, `(n, w)` copies it as w bytes, `("=", v, w)` is a
-constant. A row whose Perfect Dark opcode is None has no equivalent and the
+constant and `("&", n, mask)` copies argument n masked, at its own width.
+
+An argument named ANIMATION_ID is one of GoldenEye's own animation numbers and
+is written with 0x8000 set, the way a PAD or a TEXT_SLOT is rewritten: the port
+maps a tagged id to whatever the mod's animation took when it was appended, and
+leaves everything else alone. Without the tag a stock Perfect Dark ailist -
+which a mission's chrs do fall back on - would have its own aiChrDoAnimation
+read as GoldenEye's. A row whose Perfect Dark opcode is None has no equivalent and the
 command is left out of the converted list.
 """
 
@@ -16,6 +23,24 @@ command is left out of the converted list.
 # solo mission the two resolve to the same player.
 CHR_BOND = 0x00f8
 CHR_SELF = 0x00fd
+
+# PlayAnimation's bitfield is Perfect Dark's chranimflags bit for bit where the
+# two games kept the same meaning - chrStartAnim() is GoldenEye's own
+# chrlvPerformAnimationForActor() line for line - and the conversion keeps only
+# those bits:
+#
+#   0x01 mirror        = CHRANIMFLAG_FLIP
+#   0x02 (unknown)     = CHRANIMFLAG_MOVEWHENINVIS (act_anim.unk02c, same slot)
+#   0x04 hold last     = CHRANIMFLAG_PAUSEATEND
+#   0x10 idle on end   = CHRANIMFLAG_SLOWUPDATE (both set chr->sleep = merge)
+#   0x40 no translate  = CHRANIMFLAG_LOCKPOS
+#   0x80 reverse       = CHRANIMFLAG_REVERSE
+#
+# 0x08 is GoldenEye's "play the sneeze sound" and Perfect Dark's
+# CHRANIMFLAG_COMPLETED, which would end the animation the moment it started,
+# and 0x20 is a translation scale of 4 that Perfect Dark has no flag for
+# (GoldenEye calls modelSetAnimTranslationScale() outside the flags). Both go.
+ANIM_FLAGS = 0xd7
 
 # opcode: (name, length, args, pd opcode, pd args, where the row came from)
 TABLE = [
@@ -29,8 +54,8 @@ TABLE = [
     ('Return',                              1,    [],                                            0x0008, (),                                          'both'),  # 07 aiReturn
     ('Stop',                                1,    [],                                            0x0009, (),                                          'both'),  # 08 aiStop
     ('Kneel',                               1,    [],                                            0x000a, (),                                          'both'),  # 09 aiKneel
-    ('PlayAnimation',                       9,    [('ANIMATION_ID', 2), ('START_TIME30', 2), ('END_TIME30', 2), ('BITFIELD', 1), ('INTERPOL_TIME60', 1)], None,   (),                                          'hand'),  # 0a -
-    ('IFPlayingAnimation',                  2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # 0b -
+    ('PlayAnimation',                       9,    [('ANIMATION_ID', 2), ('START_TIME30', 2), ('END_TIME30', 2), ('BITFIELD', 1), ('INTERPOL_TIME60', 1)], 0x000b, (0, 1, 2, ('&', 3, ANIM_FLAGS), 4, ('=', CHR_SELF, 1), ('=', 2, 1)), 'hand'),  # 0a aiChrDoAnimation
+    ('IFPlayingAnimation',                  2,    [('GOTOLABEL', 1)],                            0x000c, (0,),                                        'hand'),  # 0b aiIfIdle
     ('PointAtBond',                         1,    [],                                            0x000d, (),                                          'table'),  # 0c aiBeSurprisedOneHand
     ('LookSurprised',                       1,    [],                                            0x000e, (),                                          'table'),  # 0d aiBeSurprisedLookAround
     ('TRYSidestepping',                     2,    [('GOTOLABEL', 1)],                            0x000f, (0,),                                        'both'),  # 0e aiTrySidestep

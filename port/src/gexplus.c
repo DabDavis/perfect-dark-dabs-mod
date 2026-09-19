@@ -31,11 +31,13 @@
 #include "modborrow.h"
 #include "gebean.h"
 #include "geconvert.h"
+#include "geaitable.h"
 #include "preprocess.h"
 #include "romdata.h"
 #include "fs.h"
 #include "system.h"
 #include "game/lang.h"
+#include "lib/anim.h"
 #include "game/mplayer/mplayer.h"
 #include "game/game_0b0fd0.h"
 #include "game/setuputils.h"
@@ -493,6 +495,144 @@ void gexPlusMissionLangLoad(s32 stagenum)
 		g_GeMissionLang = bank;
 		g_LangBanks[LANGBANK_GEMISSION] = (uintptr_t *)bank;
 	}
+}
+
+/* ---- the missions' animations ------------------------------------------ */
+
+/**
+ * menu/geanims.bin: "GEA1", a row count, then a row an animation - GoldenEye's
+ * own id, the fields Perfect Dark's animation table wants, and where its bytes
+ * are. The conversion writes the ones its missions' PlayAnimation commands
+ * name (geconvert.c, geanimtable.h).
+ */
+#define GEANIM_ROW 20
+#define GEANIM_MAX 256
+
+// GoldenEye's animation id -> ours, or -1 where the conversion has none
+static s16 g_GeMissionAnims[GEANIM_MAX];
+static s32 g_GeMissionAnimsLoaded;
+
+/**
+ * The mod's mission animations, appended after the game's own.
+ *
+ * A converted PlayAnimation carries **GoldenEye's** animation id, since the
+ * number an appended animation takes is not known until it is appended
+ * (animAppendExternal(), which is what a borrowed mod's animations do), so
+ * aiChrDoAnimation() asks gexPlusMissionAnim() for ours.
+ *
+ * Read once a session: an appended animation is permanent - it counts as one
+ * of the ROM's and animsReset() keeps it - so loading the file again on the
+ * next mission would only spend the thousand rows there are.
+ */
+void gexPlusMissionAnimLoad(s32 stagenum)
+{
+	const char *dir = modloaderGetStageModDir(stagenum);
+	char path[FS_MAXPATH + 1];
+	u32 len = 0;
+	u8 *d;
+	s32 numanims, appended = 0;
+
+	if (g_GeMissionAnimsLoaded || !dir) {
+		return;
+	}
+
+	g_GeMissionAnimsLoaded = 1;
+
+	for (s32 i = 0; i < GEANIM_MAX; i++) {
+		g_GeMissionAnims[i] = -1;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/geanims.bin", dir);
+	d = fsFileLoad(path, &len);
+
+	if (!d || len < 8 || memcmp(d, "GEA1", 4)) {
+		sysLogPrintf(LOG_WARNING, "gexplus: the conversion has no mission animations at %s", path);
+		sysMemFree(d);
+		return;
+	}
+
+	numanims = (s32)((d[4] << 8) | d[5]);
+
+	if (numanims < 0 || len < 8 + (u32)GEANIM_ROW * numanims) {
+		sysMemFree(d);
+		return;
+	}
+
+	for (s32 r = 0; r < numanims; r++) {
+		const u8 *row = d + 8 + GEANIM_ROW * r;
+		const s32 id = (row[0] << 8) | row[1];
+		const u32 at = ((u32)row[12] << 24) | (row[13] << 16) | (row[14] << 8) | row[15];
+		const u32 size = ((u32)row[16] << 24) | (row[17] << 16) | (row[18] << 8) | row[19];
+		struct animtableentry e;
+		u8 *copy;
+		s32 ours;
+
+		if (id < 0 || id >= GEANIM_MAX || g_GeMissionAnims[id] >= 0 || !size || at + size > len) {
+			continue;
+		}
+
+		e.numframes = (row[2] << 8) | row[3];
+		e.bytesperframe = (row[4] << 8) | row[5];
+		e.headerlen = (row[6] << 8) | row[7];
+		e.framelen = row[8];
+
+		// GoldenEye's own loop bit is Perfect Dark's ANIMFLAG_LOOP, which is
+		// what wraps a frame past the end round to the front instead of
+		// holding the last one - the walks and the runs all carry it
+		e.flags = row[9] ? ANIMFLAG_LOOP : 0;
+		e.data = 0;
+
+		// the header and the frames are read into the slot buffers the ROM's
+		// own sizes made, and the bit reader runs off the end of the last frame
+		copy = sysMemAlloc(size + 64);
+
+		if (!copy) {
+			continue;
+		}
+
+		memcpy(copy, d + at, size);
+		memset(copy + size, 0, 64);
+
+		ours = animAppendExternal(&e, copy);
+
+		if (ours < 0) {
+			sysLogPrintf(LOG_WARNING, "gexplus: no room for GoldenEye's animation %d", id);
+			sysMemFree(copy);
+			continue;
+		}
+
+		g_GeMissionAnims[id] = (s16)ours;
+		appended++;
+	}
+
+	sysMemFree(d);
+	sysLogPrintf(LOG_NOTE, "gexplus: %d of GoldenEye's own animations, appended", appended);
+}
+
+/**
+ * Ours for a converted PlayAnimation's animation id.
+ *
+ * The conversion writes GoldenEye's own id with GEAI_ANIM_TAG set, and an id
+ * without it belongs to Perfect Dark and is left alone - a mission's chrs do
+ * fall back on the game's own ailists, whose aiChrDoAnimation carries Perfect
+ * Dark's own numbers, and one of those would otherwise be read as GoldenEye's.
+ *
+ * A tagged id the conversion has no animation for plays animation 0 rather
+ * than whatever number it happens to be, since that number means nothing here.
+ */
+s32 gexPlusMissionAnim(s32 geid)
+{
+	if (!(geid & GEAI_ANIM_TAG)) {
+		return geid;
+	}
+
+	geid &= GEAI_ANIM_TAG - 1;
+
+	if (!g_GeMissionAnimsLoaded || geid >= GEANIM_MAX || g_GeMissionAnims[geid] < 0) {
+		return 0;
+	}
+
+	return g_GeMissionAnims[geid];
 }
 
 /**

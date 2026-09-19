@@ -22,6 +22,7 @@ import struct
 
 import geobjects
 import geaitable
+import geanimtable
 
 MODEL_REMAKE_FIRST = geobjects.MODEL_REMAKE_FIRST
 
@@ -101,6 +102,13 @@ def ge_records(d):
 
 
 NO_PAD = 0xffff
+
+# A converted PlayAnimation carries GoldenEye's own animation id with this bit
+# set, since the number an appended animation takes is only known once the port
+# has appended it (gexPlusMissionAnim()). The tag is what tells one of
+# GoldenEye's from a stock list's own animation number, which the same command
+# carries and which a mission's chrs do run.
+GE_ANIM_TAG = 0x8000
 
 
 def pad_num(p, numpads, bound=False):
@@ -388,12 +396,17 @@ def ai_length(d, at):
     return end - at + 1
 
 
-def convert_ailist(d, at, stats, numpads):
+def convert_ailist(d, at, stats, numpads, vehicle=False):
     """One GoldenEye AI list as Perfect Dark bytecode (geaitable.py).
 
     A command's pad argument is moved the way a record's is: GoldenEye's bound
     pads are written after its own, so one at 10000 and up becomes numpads plus
     its index.
+
+    `vehicle` says the list belongs to a truck, helicopter or tank rather than
+    to a guard. PlayAnimation means a different table there - the three of
+    `animation_table_ptrs2[]`, played on the vehicle's own model - and the
+    conversion has no vehicle animation to play, so the command is left out.
     """
     out = bytearray()
     while at < len(d):
@@ -403,6 +416,13 @@ def convert_ailist(d, at, stats, numpads):
             stats['ai_unknown'] += 1
             break
         name, _, args, pd, spec, why = geaitable.TABLE[op]
+        if name == 'PlayAnimation':
+            anim = int.from_bytes(d[at + 1:at + 3], 'big')
+            if vehicle or anim >= len(geanimtable.TABLE):
+                stats['ai_dropped'][name] = stats['ai_dropped'].get(name, 0) + 1
+                at += ln
+                continue
+            stats['anims'].add(anim)
         if pd is None:
             stats['ai_dropped'][name] = stats['ai_dropped'].get(name, 0) + 1
         else:
@@ -413,12 +433,16 @@ def convert_ailist(d, at, stats, numpads):
                     v = pad_num(v, numpads)
                 elif a == 'TEXT_SLOT':
                     v = text_id(v)
+                elif a == 'ANIMATION_ID':
+                    v = GE_ANIM_TAG | v
                 vals.append(v)
                 o += w
             out += struct.pack('>H', pd)
             for s in spec:
                 if isinstance(s, tuple) and s and s[0] == '=':
                     out += int(s[1]).to_bytes(s[2], 'big')
+                elif isinstance(s, tuple) and s and s[0] == '&':
+                    out += (vals[s[1]] & s[2]).to_bytes(args[s[1]][1], 'big')
                 elif isinstance(s, tuple):
                     out += (vals[s[0]] & ((1 << (8 * s[1])) - 1)).to_bytes(s[1], 'big')
                 else:
@@ -431,10 +455,26 @@ def convert_ailist(d, at, stats, numpads):
     return bytes(out)
 
 
+# The propdefs that run an AI list on a vehicle rather than on a guard: truck,
+# helicopter and tank, each with its list's id where a guard record has none
+# (bondtypes.h, VehichleRecord/AircraftRecord `ailist` at 0x80)
+VEHICLE_TYPES = (39, 40, 45)
+
+
+def vehicle_lists(d):
+    """The ids of the AI lists a vehicle prop owns."""
+    out = set()
+    for _, t, raw in ge_records(d):
+        if t in VEHICLE_TYPES and len(raw) >= 0x84:
+            out.add(struct.unpack_from('>I', raw, 0x80)[0] & 0xffff)
+    return out
+
+
 def convert_ailists(d, at, stats, numpads):
     h = struct.unpack_from('>10I', d, 0)
     if not h[5]:
         return struct.pack('>Ii', 0, 0), b''
+    vehicles = vehicle_lists(d)
     rows = []
     o = h[5]
     while True:
@@ -447,7 +487,7 @@ def convert_ailists(d, at, stats, numpads):
     pos = at + head
     table, code = b'', b''
     for lid, ptr in rows:
-        blob = convert_ailist(d, ptr, stats, numpads)
+        blob = convert_ailist(d, ptr, stats, numpads, lid in vehicles)
         table += struct.pack('>Ii', pos, lid)
         code += blob
         pos += len(blob)
@@ -462,7 +502,7 @@ def convert(d, numpads, bodies):
     character becomes. Returns (bytes, models used, statistics).
     """
     models = set()
-    stats = dict(kept={}, dropped={}, ai_kept=0, ai_dropped={}, ai_unknown=0)
+    stats = dict(kept={}, dropped={}, ai_kept=0, ai_dropped={}, ai_unknown=0, anims=set())
     props = convert_props(d, numpads, bodies, models, stats)
     intro, stats['spawns'] = convert_intro(d)
     header = 0x20

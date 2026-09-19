@@ -54,6 +54,9 @@
 #include "lib/libc/ll.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gexplus.h"
+#endif
 
 /**
  * @cmd 0000
@@ -403,6 +406,14 @@ bool aiChrDoAnimation(void)
 	if (g_Vars.chrdata) {
 		chr = chrFindById(g_Vars.chrdata, cmd[10]);
 	}
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission's PlayAnimation carries GoldenEye's own
+	// animation id, whose number here is whatever it took when the mod's
+	// animations were appended (port/src/gexplus.c). Off a mission this is the
+	// id itself.
+	anim_id = gexPlusMissionAnim(anim_id);
+#endif
 
 	if (startframe == 0xffff) {
 		fstartframe = 0;
