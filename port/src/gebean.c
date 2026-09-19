@@ -238,9 +238,9 @@ static const struct gebeanpoolrow poolRows[] = {
 	POOLHEAD("CgeheadBondParkaZ",  "char/snowbond",   0),
 };
 
-// Where the pool's rows start in g_HeadsAndBodies: straight after the stock
-// table's terminator, so nothing a mod's table can import (moddata.c takes 151)
-#define GEBEAN_POOL_BASE 152
+// Where the pool's rows start in g_HeadsAndBodies is GEBEAN_POOL_BASE
+// (gebean.h): past the stock table and the rows kept for a converted mission's
+// bodies, so nothing a mod's table can import (moddata.c takes 151)
 
 // The stock list lengths (mplayer.c's g_MpListCounts): a list of any other
 // length is a mod's

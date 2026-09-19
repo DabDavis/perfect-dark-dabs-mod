@@ -32,6 +32,27 @@ struct modelnode;
  * Mod.XblaGoldenEye switches it on.
  */
 
+/**
+ * g_HeadsAndBodies past the stock table, whose terminator is row 151 - the last
+ * a mod's own table can import (moddata.c) - so everything from 152 is ours.
+ *
+ * A converted mission's bodies come first and have rows **kept for them**
+ * (gexplus.c): a body's row has to fit the byte a packedchr and aiSpawnChrAtPad
+ * hold it in, and the Combat Simulator's pool below - GoldenEye X's borrowed
+ * characters are 106 rows of it - used to start at 152 too and left a mission
+ * none under 256. Its spawn commands then kept GoldenEye's own numbers, and
+ * Egyptian's Baron Samedi, who is GoldenEye's 12, spawned as Perfect Dark's 12:
+ * Joanna's head, worn as a body, with no root matrix for a shot to be tested
+ * against (chrTestHit()).
+ *
+ * The pool's rows are never written into a byte - a Combat Simulator body is
+ * g_MpBodies[].bodynum, an s16 - so it is the one that moves up.
+ */
+#define GEROM_BODY_FIRST  152
+#define GEROM_BODY_ROWS   24    // GEROM_MAX_ROWS: every row a mission may take
+#define GEROM_BODY_LAST   (GEROM_BODY_FIRST + GEROM_BODY_ROWS - 1)
+#define GEBEAN_POOL_BASE  (GEROM_BODY_LAST + 1)
+
 /** Mod.XblaGoldenEye. */
 s32 gebeanGetEnabled(void);
 void gebeanSetEnabled(s32 enabled);

@@ -4558,3 +4558,103 @@ jeep does not have at all - turning it off changes nothing material (145729
 pixels against 150505). The structural difference left is that the miltruck
 carries **three type 0x09 nodes** (GoldenEye's BSP, converted as Perfect Dark's
 reorder) and the jeep carries none. That is where to look next.
+
+## Three crash reports, two faults: a head worn as a body, and a plane with no animation (2026-09-19)
+
+Three reports from the dev-channel tester in half an hour, all on converted
+missions: Egyptian (0x67) and Bunker (0x6f) dying in `func0f06b39c()` under
+`chrTestHit()`, and Runway (0x5e) dying at the load in `modelasm00018680()`.
+Neither had ever happened in the harness, and **both for the same reason: the
+harness did not run the game the way a tester does.**
+
+### A mission's bodies had no rows left
+
+A converted mission takes rows of `g_HeadsAndBodies` for GoldenEye's own
+characters, and a body's row has to fit the byte a `packedchr` and
+`aiSpawnChrAtPad` hold it in, so bodies looked for a free row in 152-255. The
+Combat Simulator's pool (`gebeanPoolRefresh()`) starts at 152 too - and with
+GoldenEye X installed and `Mod.XblaGoldenEye` on, its borrowed characters are
+**106 rows, 152 to 257**. Not one row under 256 was left, every mission logged
+`gexplus: no row left for GoldenEye's character N`, and its guards fell back on
+GoldenEye X's. That much was only the wrong look.
+
+What killed the game is that the fallback covered a setup's records and **not
+the lists' spawn commands**, which kept GoldenEye's own number - and a number is
+a row of Perfect Dark's table too, and not a body's necessarily. GoldenEye's 12
+is Baron Samedi and Perfect Dark's 12 is **`Cheaddark_frockZ`**; GoldenEye's 4
+is Janus Special Forces and Perfect Dark's 4 is `Cheaddark_combatZ`. A head worn
+as a body is a model whose root node is type 10 with one matrix, so
+`modelGetRootMtx()` answers NULL, and `chrTestHit()` read `rootmtx->m[3]` the
+first frame the thing was on screen - which for Egyptian is the moment the
+Golden Gun is taken, a long way into the level.
+
+Three changes. The rows are laid out in one place (`gebean.h`): **152-175 are
+kept for a mission's bodies** and the pool starts at 176 - the pool is the one
+that can move, a Combat Simulator body being `g_MpBodies[].bodynum`, an s16. A
+mission's **heads are taken from the far end of the table**, since the pool
+fills from the near end and may be refreshed from the pause menu while a
+mission holds them. A spawn command that still gets no row takes the record's
+fallback (`gexPlusBodyForGe()`, which now never answers a row past 255), and is
+**never left as it came**. And `chrTestHit()` leaves a model with no root matrix
+alone, because a missed shot is a better answer than the end of the game.
+
+Measured: `build/gexrom/samedi.py` drives a live chr through the spawn command
+itself. Old binary: body row 12 `Cheaddark_frockZ`, root node type 10, SIGSEGV
+with the tester's backtrace frame for frame. New: row 153 `Cgx012Z`, root node
+type 1, 21 matrices, alive, and the screenshot is Baron Samedi in his hat.
+`poolcheck.gdb` reads the Combat Simulator's lists after the move: 54 bodies and
+52 heads at 176-281, every row with a file and a name.
+
+### A still aircraft came on screen
+
+`5b6d1bdbd` let a converted aircraft keep its chrinfo node and guarded
+`modelUpdateChrNodeMtx()` for a model with no animation. But
+**`modelSetMatrices()` tries `modelasm00018680()` first**, the fast twin, and its
+chrinfo case reads `anim->animnum` (under `AVOID_UB`; the stock line is
+`if (anim)`, which is why stock tolerates it). So the guard was never reached,
+and an aircraft that has not been given an animation yet ended the game the
+frame it was drawn. **Runway's plane is in the mission's opening shot**, which
+is why the tester died at the load and a `--skip-intro` boot standing at the
+spawn never did. The fast path hands such a model back (`return false`) and the
+guarded one does the whole model. Surface 2's two helicopters are the same
+case; Frigate's, Statue Park's and the Cradle's hold an animation at frame 2
+from their first tick and never were.
+
+### And Natalya, who had never been Natalya
+
+The plain sweep, run again over the change, died on Jungle and Control in
+`modelSetChrRotY()` on a model whose definition was all zeros. Both missions
+carry a record whose **body is GoldenEye's character 79**, and `geRomTake()`
+read every number from 42 up as a head. But the enum is bodies 0-41, heads
+42-78 (`HEAD_START` to Bond's tuxedo head) and then **one more body: 79,
+`BODY_Natalya_Jungle_Fatigues`**, which is who she is on exactly those two
+levels. Read as a head she took a head's row, and a head's row does not fit the
+byte a record keeps its body in: 256 became Perfect Dark's body 0 - so since
+`1afd53740` she had been drawn as somebody else, silently, 258 and up where
+GoldenEye X's pool held the first two - and once heads were taken from the far
+end, 510 became 254, an empty row. `GEROM_IS_HEAD()` is 42 to 78 now, and
+`build/gexrom/shotbody.py` (`GEBODY=79`) photographs her: red-brown hair, the
+grey-green top and camouflage trousers.
+
+**The change that exposed it was not the change that caused it**, and a wrong
+model that happens to load is the worst kind of wrong: nothing in a 600-frame
+sweep that counts chrs and alertness can see it. The row a record's body was
+given is worth printing beside the character it was given for, and
+`geRomTake()` logs each one now, so it is in every crash report's ring.
+
+### What to take from it
+
+- **Sweep the missions the way a tester runs them.** `build/gexrom/runall_t.sh`
+  is `runall.sh` with GoldenEye X linked into `mods/`, `XblaGoldenEye=1` and
+  `MapMods=*`; it prints a `norow=` count beside each mission. The plain sweep
+  has neither mod nor pool and would have gone on passing for ever.
+- **A probe that stands at the spawn draws almost nothing.** Anything that only
+  fails when *drawn* - a model's matrices, a hit test - needs the thing on
+  screen: `vehstill.py` tries places round an aircraft until its prop carries
+  `PROPFLAG_ONTHISSCREENTHISTICK`, which is a better instrument than picking
+  an angle and reading a screenshot of a wall.
+- **Guarding one of two twins is guarding neither.** `modelasm_c.c` is tried
+  first for every model and `model.c` only when it declines.
+- A copy of the game named **`<exe>.new` is deleted by the next game that
+  starts beside it** - the updater takes it for an interrupted download
+  (`update.c`). Name a side-by-side binary anything else.

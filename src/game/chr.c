@@ -4851,6 +4851,17 @@ void chrTestHit(struct prop *prop, struct shotdata *shotdata, bool isshooting, b
 			Mtxf *mtx;
 			f32 sp68;
 
+#ifndef PLATFORM_N64
+			// A model whose root carries no matrix has nothing to test a shot
+			// against, and modelGetRootMtx() answers NULL for one. No stock chr
+			// is like that, but a body number that is really a head's row gave
+			// one (a converted mission's spawn, gexplus.c) and the read below
+			// was the end of the game.
+			if (rootmtx == NULL) {
+				return;
+			}
+#endif
+
 			if (func0f06b39c(&shotdata->gunpos2d, &shotdata->gundir2d, (struct coord *)rootmtx->m[3], radius)) {
 				spb8 = 1;
 				hitpart = 1;

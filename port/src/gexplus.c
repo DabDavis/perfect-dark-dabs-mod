@@ -401,7 +401,8 @@ static s32 gexPlusBodyForGe(s32 gebody)
 
 	const s32 bean = gebeanPoolNumBySource(source);
 
-	if (bean >= 0) {
+	// every caller writes the answer into a byte
+	if (bean >= 0 && bean < 256) {
 		return bean;
 	}
 
@@ -417,7 +418,11 @@ static s32 gexPlusBodyForGe(s32 gebody)
 			// a borrowed name carries its trailing newline
 			if (name && !strncmp(name, row->mpname, len)
 					&& (name[len] == '\0' || name[len] == '\n')) {
-				return i;
+				if (i < 256) {
+					return i;
+				}
+
+				break;
 			}
 		}
 	}
@@ -450,19 +455,30 @@ static s32 gexPlusBodyForGe(s32 gebody)
  * given back per mission: the twenty missions ask for six bodies at the most
  * (Train's six). **A body's row has to be addressable as a byte**, since a
  * setup's packedchr keeps bodynum in one and so does aiSpawnChrAtPad, so a body
- * takes a row under 256 and a mission that cannot get one falls back on
- * whatever is installed. A head's row is never written into a record -
+ * takes one of the rows kept for it under the pool (gebean.h) - they used to
+ * share the pool's, and with GoldenEye X installed there was never one left.
+ * A head's row is never written into a record -
  * GoldenEye's own setups leave all but two heads at -1 and let bodyChooseHead()
  * pick, exactly as Perfect Dark's own do - so heads take rows past 255, where
  * there is always room.
  */
 #define GEROM_NUM_CHRS    80
-#define GEROM_FIRST_HEAD  42
+#define GEROM_FIRST_HEAD  42    // GoldenEye's HEAD_START
+// and its last, Bond's tuxedo head. **79 is a body again** - Natalya in her
+// jungle fatigues, the one body the enum lists after the heads, and who she is
+// on Jungle and Control. Read as a head she took a head's row, which does not
+// fit the byte a record keeps its body in: 256 became Perfect Dark's body 0,
+// and once heads were taken from the far end 510 became 254, an empty row and
+// a model with no definition under chrSetLookAngle().
+#define GEROM_LAST_HEAD   78
+#define GEROM_IS_HEAD(num) ((num) >= GEROM_FIRST_HEAD && (num) <= GEROM_LAST_HEAD)
 #define GEROM_ROWLEN      12
-#define GEROM_BODY_FIRST  152   // the pool rows, straight after the stock table
-#define GEROM_BODY_LAST   255   // and the last row a packedchr's u8 bodynum reaches
+// GEROM_BODY_FIRST..GEROM_BODY_LAST are gebean.h's: rows kept for a mission's
+// bodies, under the pool, where a packedchr's u8 bodynum reaches
 #define GEROM_HEAD_FIRST  256
-#define GEROM_MAX_ROWS    24
+#define GEROM_MAX_ROWS    GEROM_BODY_ROWS
+
+_Static_assert(GEROM_BODY_LAST < 256, "a mission's body row has to fit a byte");
 
 // c_item_entries' two flags, as the conversion writes them
 #define GEROM_MALE        0x1
@@ -602,7 +618,7 @@ static void geRomReleaseRows(void)
  */
 static s32 geRomTake(s32 num, s32 ownhead)
 {
-	const s32 ishead = num >= GEROM_FIRST_HEAD;
+	const s32 ishead = GEROM_IS_HEAD(num);
 	char name[16];
 	struct headorbody *hb;
 	const struct headorbody *host;
@@ -630,11 +646,22 @@ static s32 geRomTake(s32 num, s32 ownhead)
 		return -1;
 	}
 
-	for (s32 i = ishead ? GEROM_HEAD_FIRST : GEROM_BODY_FIRST;
-			i <= (ishead ? NUM_HEADSANDBODIES - 1 : GEROM_BODY_LAST); i++) {
-		if (!g_HeadsAndBodies[i].filenum) {
-			row = i;
-			break;
+	if (ishead) {
+		// from the far end of the table, which the pool fills from the near
+		// one: it may be refreshed while a mission holds these (the pause
+		// menu's Customize Character), and is 106 rows with GoldenEye X's in it
+		for (s32 i = NUM_HEADSANDBODIES - 2; i >= GEROM_HEAD_FIRST; i--) {
+			if (!g_HeadsAndBodies[i].filenum) {
+				row = i;
+				break;
+			}
+		}
+	} else {
+		for (s32 i = GEROM_BODY_FIRST; i <= GEROM_BODY_LAST; i++) {
+			if (!g_HeadsAndBodies[i].filenum) {
+				row = i;
+				break;
+			}
 		}
 	}
 
@@ -660,6 +687,11 @@ static s32 geRomTake(s32 num, s32 ownhead)
 	// makeonebody() varies one
 	hb->canvaryheight = 0;
 
+	// in a crash report's log ring, which is where the question "what was that
+	// chr wearing" gets asked
+	sysLogPrintf(LOG_NOTE, "gexplus: GoldenEye's character %d (%s) takes row %d as a %s",
+			num, name, row, ishead ? "head" : "body");
+
 	g_GeRomRows[g_GeRomNumRows].row = (s16)row;
 	g_GeRomRows[g_GeRomNumRows].chr = (s16)num;
 	g_GeRomRows[g_GeRomNumRows].ownhead = (s16)ownhead;
@@ -678,7 +710,7 @@ static s32 geRomBodyRow(s32 body, s32 head)
 {
 	s32 ownhead = -1;
 
-	if (head >= GEROM_FIRST_HEAD) {
+	if (GEROM_IS_HEAD(head)) {
 		ownhead = geRomTake(head, -1);
 	}
 
@@ -1049,7 +1081,7 @@ void gexPlusMissionAilists(void)
 {
 	struct ailist *lists = g_StageSetup.ailists;
 
-	if (!lists || g_GeRomNumChrs <= 0) {
+	if (!lists) {
 		return;
 	}
 
@@ -1065,10 +1097,13 @@ void gexPlusMissionAilists(void)
 			if (type == AICMD_SPAWNCHRATPAD || type == AICMD_SPAWNCHRATCHR) {
 				const s32 row = geRomBodyRow(cmd[2], (s8)cmd[3]);
 
-				if (row >= 0) {
-					cmd[2] = (u8)row;
-					cmd[3] = 0xff;
-				}
+				// Never left as it came: GoldenEye's number is a row of
+				// Perfect Dark's table too, and not a body's necessarily -
+				// its 12 is Baron Samedi and ours is Joanna's head, which has
+				// no root matrix and ended the game the first frame it was on
+				// screen (chrTestHit()). So the same fallback a record gets.
+				cmd[2] = (u8)(row >= 0 ? row : gexPlusBodyForGe(cmd[2]));
+				cmd[3] = 0xff;
 			}
 
 			if (type == AICMD_END) {

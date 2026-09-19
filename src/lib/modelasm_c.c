@@ -474,6 +474,19 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 			}
 			break;
 		case MODELNODETYPE_CHRINFO:
+#ifndef PLATFORM_N64
+			// A chrinfo node on a model with no animation at all: a converted
+			// GoldenEye aircraft standing still (model.c,
+			// modelUpdateChrNodeMtx(), which has GoldenEye's own answer for
+			// it). This is tried before that and read anim->animnum below, so
+			// Runway ended the moment its plane came on screen - the mission's
+			// opening shot. Handed back, and modelSetMatrices() goes the other
+			// way with the whole model.
+			if (model && anim == NULL) {
+				return false;
+			}
+#endif
+
 			if (model) {
 				t1 = node->rodata->chrinfo.animpart;
 
