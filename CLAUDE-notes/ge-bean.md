@@ -4297,6 +4297,14 @@ right:
   its heads sit on its own bodies' headspots as they are, and a neck measured
   between two of them would move one that already fits.
 
+- **The rows come back on any stage that is not a mission.** They were given
+  back at the start of the *next mission* at first, so after one,
+  `bodiesReset()` - which runs on every level - went on filling the game's own
+  active head lists with GoldenEye's four faces, and a stock mission after a
+  converted one would have worn them. The release is in `gexPlusMissionHeads()`,
+  which every stage calls (Dam holds eight rows and 257-260 in
+  `g_ActiveMaleHeads`; Chicago after it holds none and 24, 82, 38, 45).
+
 **Measured**: all twenty missions boot and run 600 frames
 (`build/gexrom/runall.sh`), and `alertprobe.py` at frame 600 with the player
 standing where the mission spawned them reports **nothing shooting on any of the
