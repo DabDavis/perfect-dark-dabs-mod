@@ -4888,6 +4888,50 @@ there, and the state machine waits for `thirdpersondist` to reach zero before
 the arm starts up. The camera eases back out on its own when the watch closes,
 through the same path.
 
+### The player's own arm wears the watch (2026-09-19)
+
+The user: "lets make the sleeve, hand match the current player model", and,
+offered the three ways of doing it, picked the real one - their own character's
+arm rather than a tint of GoldenEye's.
+
+**GoldenEye's watch is a model of its own**, `GwatchidentifierZ`, and its hand
+items live in a table the conversion did not read: `gitem_structs`, **56-byte
+rows from data 0x12b94**, the header and the file name its first two words (the
+props table at 0x19498 is `PitemZ_entries`, the *pickups*, and has no watch in
+it). The row is checked by name at conversion time, since a row that moved
+would otherwise convert whatever is there. It is written as `files/Igx056Z`
+(converter 35).
+
+**`bond_watch` is a character animation.** GoldenEye's floating arm is one of
+its own characters (41, `BODY_Left_Suit_Hand_Floating_Arm` in `c_item_entries`),
+so its skeleton is the character skeleton and the animation plays on any body -
+the player's own included. The watch then goes on the body's
+`MODELPART_CHR_LEFTHAND`, and **a position node's `pos` is the bone that built
+that matrix out of its parent's, not an offset to hang something at**: adding it
+put the watch 24 units off the wrist.
+
+**A body is a whole body.** Drawn from a camera at its own eye it is a view of
+the inside of its shoulders, so every display list outside the arm is put away
+for the draw and given back after. Two things had to be got right: a body's
+geometry hangs off **distance nodes' targets** rather than off children, so the
+walk has to follow `rodata->distance.target`; and **a plain `dl` node draws from
+the instance's own copy of its list** (`modelRenderNodeDl()` reads
+`rwdata->dl.gdl`), not from the definition, so nulling the definition's pointers
+does nothing at all. A `gundl` node is the other way round.
+
+**Sizes are normalised at the face.** A body's scale is its own (0.1 where
+GoldenEye's floating arm is 0.01), so the move that carries the watch to the eye
+carries a scale with it: the face ends at `WATCH_FACE_SCALE` whatever is wearing
+it, and the arm comes to that size with it. `WATCH_WRIST_SCALE` is then the only
+thing that says how big the watch is on the wrist, and it is a compromise - a
+life-sized watch leaves the arm filling the screen at this zoom, and a watch
+that reads leaves the arm a slab at the edges.
+
+**What it costs**: a chr's arm is a handful of polygons made to be seen across a
+room, so at a hand's distance it reads as flat panels where GoldenEye's own arm
+reads as an arm. GoldenEye's arm is still there and is what a level without a
+body to pose uses.
+
 ### Driving it
 
 `build/gexrom/watch1.gdb` opens the watch at frame 400 with

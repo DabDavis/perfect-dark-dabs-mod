@@ -61,6 +61,7 @@
 #include "gexplus.h"
 #include "geanimtable.h"
 #include "game/bondmove.h"
+#include "game/body.h"
 #include "game/bondgun.h"
 #include "game/dlights.h"
 #include "game/file.h"
@@ -119,7 +120,7 @@
  * on the face rather than on the window (watchTextFrame()).
  */
 #define WATCHZOOM2             5.9f   // the watch open, on 4:3
-#define WATCHZOOM_WIDE         7.5f   // and on 16:9
+#define WATCHZOOM_WIDE         11.0f   // and on 16:9
 #define WATCH_ASPECT_NARROW    (4.0f / 3.0f)
 #define WATCH_ASPECT_WIDE      (16.0f / 9.0f)
 #define WATCHZOOM3             3.95f  // the inventory, which leans in further
@@ -165,6 +166,27 @@ enum {
 #define FACE_RING     0.92f
 #define FACE_FILL     0.9f
 
+/**
+ * How big the screens are drawn, in view units at the watch's own distance.
+ *
+ * GoldenEye draws them in the model's own units and lets the model's scale
+ * decide, which works while there is one model. The watch here is worn by
+ * whichever body the player has, whose scale is its own, so the screens take a
+ * size of their own instead - this is what GoldenEye's numbers come to on its
+ * own arm, and the watch model is fitted to match it.
+ */
+#define PAGE_RADIUS   1.17f
+
+/**
+ * What the face's own matrix is scaled to once the watch is up, which is what
+ * GoldenEye's floating arm comes to (its 0.01) and so what its own numbers for
+ * the screens are drawn at. The move that carries the watch to the eye carries
+ * this scale with it, so a body of any size ends up wearing a watch of the
+ * same size - and its arm shrinks or grows with the watch, which is what keeps
+ * an arm looking like an arm beside it.
+ */
+#define WATCH_FACE_SCALE 0.01f
+
 // the screen-select rectangles under it (options.h)
 #define SELECT_RECTS   5
 #define SELECT_WIDTH   100
@@ -205,6 +227,16 @@ enum {
 #define GECUFF_MOORE   7
 #define GECUFF_FOLDER  8
 
+// where the watch sits on the hand it is given: back along the forearm from
+// the hand's own attach point, turned so that its face looks out of the wrist.
+// Fitted by eye against the player's own body, GoldenEye's own numbers for a
+// held item not being in the tables the conversion reads.
+#define WATCH_WRIST_X     0.0f
+#define WATCH_WRIST_Y     0.0f
+#define WATCH_WRIST_Z     0.0f
+#define WATCH_WRIST_TURN  0.0f
+#define WATCH_WRIST_SCALE 0.35f
+
 // the watch's pose in front of the eye (player.c's field_1D4, field_1D8 and
 // pause_watch_position), and how big it is drawn there
 #define WATCH_POSE_X   0.0f
@@ -232,13 +264,22 @@ struct gewatch {
 	s32 moddir;
 	s32 stagenum;
 
-	// the arm, and the animation that raises it
+	// the arm, and the animation that raises it. The arm is the player's own
+	// body when they have one to pose - so that the sleeve and the hand are
+	// their character's - and GoldenEye's own floating arm when they have not.
 	u8 *modelbuf;
 	u32 modelbuflen;
 	struct modeldef *modeldef;
 	struct model *model;
 	s32 animnum;
 	f32 chrscale;
+	s32 isbody;
+
+	// GoldenEye's own watch, which the player's body has none of
+	u8 *watchbuf;
+	u32 watchbuflen;
+	struct modeldef *watchdef;
+	struct model *watchmodel;
 
 	// GoldenEye's own text: LoptionsE, and the open mission's briefing
 	u8 *options;
@@ -476,6 +517,7 @@ static s32 watchLoadAnim(void)
 static void watchFreeModel(void)
 {
 	g_Watch.model = NULL;
+	g_Watch.watchmodel = NULL;
 
 	if (g_Watch.modelbuf) {
 		videoFreeCachedTextures(g_Watch.modelbuf, g_Watch.modelbuf + g_Watch.modelbuflen);
@@ -483,16 +525,117 @@ static void watchFreeModel(void)
 		g_Watch.modelbuf = NULL;
 	}
 
+	if (g_Watch.watchbuf) {
+		videoFreeCachedTextures(g_Watch.watchbuf, g_Watch.watchbuf + g_Watch.watchbuflen);
+		sysMemFree(g_Watch.watchbuf);
+		g_Watch.watchbuf = NULL;
+	}
+
+	// the player's body is the game's own modeldef and is not ours to drop
+	if (!g_Watch.isbody) {
+		g_Watch.modeldef = NULL;
+	}
+
 	g_Watch.modeldef = NULL;
+	g_Watch.watchdef = NULL;
+	g_Watch.isbody = 0;
 }
 
-static s32 watchLoadModel(void)
+/**
+ * GoldenEye's own watch, `GwatchidentifierZ`, converted out of its hand item
+ * table (geconvert.c). The player's own body has no watch on it, so this is
+ * what goes on its wrist.
+ */
+static s32 watchLoadWatchModel(void)
+{
+	const s32 fileid = romdataRegisterModFile("Igx056Z", g_Watch.moddir);
+	s32 size;
+
+	if (fileid <= 0) {
+		return 0;
+	}
+
+	size = fileGetInflatedSize(fileid, LOADTYPE_MODEL);
+
+	if (size <= 0) {
+		return 0;
+	}
+
+	g_Watch.watchbuflen = ALIGN64(size) + 0x20000;
+	g_Watch.watchbuf = sysMemZeroAlloc(g_Watch.watchbuflen);
+
+	if (!g_Watch.watchbuf) {
+		return 0;
+	}
+
+	g_Watch.watchdef = modeldefLoad(fileid, g_Watch.watchbuf, g_Watch.watchbuflen, NULL);
+
+	if (!g_Watch.watchdef) {
+		return 0;
+	}
+
+	modelAllocateRwData(g_Watch.watchdef);
+	g_Watch.watchmodel = modelmgrInstantiateModelWithoutAnim(g_Watch.watchdef);
+
+	if (!g_Watch.watchmodel) {
+		return 0;
+	}
+
+	modelSetScale(g_Watch.watchmodel, 1.0f);
+
+	return 1;
+}
+
+/**
+ * The player's own body, posed by the same animation GoldenEye poses its
+ * floating arm with - `bond_watch` is a character animation and the floating
+ * arm is one of GoldenEye's own characters (41), so the two skeletons are the
+ * same one and the animation reads on either.
+ *
+ * What is drawn is the body it would draw in third person, so the sleeve and
+ * the hand are the player's own; the rest of it is behind the eye and is cut
+ * by the near plane, which is what GoldenEye's floating arm model is for.
+ */
+static s32 watchLoadBody(void)
+{
+	s32 bodynum = -1;
+	s32 headnum = -1;
+
+	playerChooseBodyAndHead(&bodynum, &headnum, NULL);
+
+	if (bodynum < 0 || bodynum >= NUM_HEADSANDBODIES) {
+		return 0;
+	}
+
+	bodyLoad(bodynum);
+
+	if (!g_HeadsAndBodies[bodynum].modeldef) {
+		return 0;
+	}
+
+	g_Watch.modeldef = g_HeadsAndBodies[bodynum].modeldef;
+	modelAllocateRwData(g_Watch.modeldef);
+	g_Watch.model = modelmgrInstantiateModelWithAnim(g_Watch.modeldef);
+
+	if (!g_Watch.model) {
+		g_Watch.modeldef = NULL;
+		return 0;
+	}
+
+	g_Watch.isbody = 1;
+	g_Watch.chrscale = g_HeadsAndBodies[bodynum].scale * 0.1f;
+	modelSetScale(g_Watch.model, g_Watch.chrscale);
+	modelSetAnimScale(g_Watch.model, g_HeadsAndBodies[bodynum].animscale);
+
+	return 1;
+}
+
+static s32 watchLoadGeArm(void)
 {
 	char name[16];
 	s32 fileid;
 	s32 size;
 
-	watchFreeModel();
 	snprintf(name, sizeof(name), "Cgx%03dZ", HAND_CHR);
 	fileid = romdataRegisterModFile(name, g_Watch.moddir);
 
@@ -904,10 +1047,20 @@ static s32 watchEnsureModel(void)
 		return 1;
 	}
 
-	if (!watchLoadModel()) {
+	// the player's own body first, with GoldenEye's own watch to go on its
+	// wrist; its floating arm when either of those is not to be had
+	if (watchLoadWatchModel() && watchLoadBody()) {
+		return 1;
+	}
+
+	watchFreeModel();
+
+	if (!watchLoadGeArm()) {
 		sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no %s; GE Plus pauses Perfect Dark's way", "Cgx041Z");
 		return 0;
 	}
+
+	sysLogPrintf(LOG_NOTE, "gewatch: GoldenEye's own arm, the player's own body not being there to wear the watch");
 
 	return 1;
 }
@@ -1777,28 +1930,67 @@ static void watchFindHands(struct modeldef *def, struct modelrodata_positionheld
 }
 
 /**
- * bondviewSelectCuff(): the sleeve the arm wears, which is the outfit the
- * mission put the player in - its own `INTROCMD_OUTFIT`, kept in `bondtype` -
- * so the jungle levels get the fatigues, the Surface ones the parka and the
- * rest the tuxedo, as GoldenEye does. Anything the mission did not name falls
- * back to the tuxedo.
+ * The sleeve the player's own character wears, for the characters GoldenEye
+ * made a sleeve for: its own bodies, by the number the conversion gives them
+ * (gexPlusRomChrForRow()). -1 for anybody else, and the mission's outfit
+ * answers instead.
+ */
+static s32 watchCuffForChr(s32 chr)
+{
+	switch (chr) {
+	case 5:  // Brosnan's tuxedo
+	case 23: // Formal Wear
+		return CUFF_PART_TUXEDO;
+	case 0:  // Jungle Commando
+	case 24: // Jungle Fatigues
+		return CUFF_PART_JUNGLE;
+	case 19: // Mishkin, in the Siberian guards' winter coat
+	case 21: // Siberian Special Forces
+	case 25: // Parka
+	case 37: // Siberian Guard
+	case 38: // Arctic Commando
+		return CUFF_PART_SNOW;
+	case 22: // Special Operations Uniform, which is the boiler suit's black
+		return CUFF_PART_BOILER;
+	}
+
+	return -1;
+}
+
+/**
+ * bondviewSelectCuff(): the sleeve the arm wears.
  *
- * The hand itself is GoldenEye's own, and there is only one of those: a player
- * who has picked somebody else in Customize Character keeps their body
- * everywhere but here.
+ * GoldenEye's own answer is the outfit the mission put Bond in - its
+ * `INTROCMD_OUTFIT`, kept in `bondtype`, so the jungle levels get the
+ * fatigues, the Surface ones the parka and Facility the boiler suit. Ahead of
+ * that comes the player's own character, when they have picked one of
+ * GoldenEye's in Customize Character and GoldenEye made a sleeve to match it:
+ * somebody playing a mission as Xenia should not have Bond's white cuff on
+ * their wrist.
+ *
+ * The hand inside the sleeve is GoldenEye's own, and there is only one of
+ * those - the model is a single display list, so the skin cannot be dressed
+ * separately from the sleeve.
  */
 static void watchSetCuff(void)
 {
 	const u32 outfit = g_Vars.currentplayer->bondtype;
+	s32 body = -1;
+	s32 head = -1;
 	s32 wear;
 
-	switch (outfit) {
-	case GECUFF_BOILER:  wear = CUFF_PART_BOILER; break;
-	case GECUFF_CONNERY: wear = CUFF_PART_CONNERY; break;
-	case GECUFF_BLUE:    wear = CUFF_PART_BLUE; break;
-	case GECUFF_JUNGLE:  wear = CUFF_PART_JUNGLE; break;
-	case GECUFF_SNOW:    wear = CUFF_PART_SNOW; break;
-	default:             wear = CUFF_PART_TUXEDO; break;
+	playerChooseBodyAndHead(&body, &head, NULL);
+	wear = watchCuffForChr(gexPlusRomChrForRow(body));
+
+	if (wear < 0) {
+		switch (outfit) {
+		case GECUFF_BOILER:  wear = CUFF_PART_BOILER; break;
+		case GECUFF_CONNERY: wear = CUFF_PART_CONNERY; break;
+		case GECUFF_BLUE:    wear = CUFF_PART_BLUE; break;
+		case GECUFF_JUNGLE:  wear = CUFF_PART_JUNGLE; break;
+		case GECUFF_SNOW:    wear = CUFF_PART_SNOW; break;
+		default:             wear = CUFF_PART_TUXEDO; break;
+		}
 	}
 
 	for (s32 i = CUFF_FIRST; i <= CUFF_PART_SNOW; i++) {
@@ -1884,18 +2076,187 @@ static void watchInvert(const Mtxf *m, Mtxf *out)
  * window has over a 4:3 one shows the hand and the cuff either side of a face
  * that is still round and still sized by the height.
  */
-static void watchBlendToPose(Mtxf *matrices, const Mtxf *pose, s32 nummatrices)
+/**
+ * The player's own body is a whole body, and what the watch wants of it is the
+ * forearm and the hand. Everything else is drawn out of a camera sitting at
+ * that body's own eye, which is a view of the inside of its shoulders.
+ *
+ * So every display list outside the arm is put away for the draw and given
+ * back after it: the model is walked twice, once from the elbow to learn which
+ * lists are the arm's and once over the whole of it to silence the rest. A
+ * list is silenced by taking its two display list pointers away, which is what
+ * modelRender() reads to decide there is nothing to draw.
+ *
+ * The elbow is the left hand part's own parent - the chain is hand, elbow,
+ * shoulder, hips, root - so the subtree under it is the forearm, the hand and
+ * whatever hangs off them.
+ */
+#define WATCH_MAX_HIDDEN 96
+
+static struct {
+	struct modelnode *node;
+	Gfx *opa;
+	Gfx *xlu;
+	union modelrwdata *rwdata;
+	Gfx *instance;
+} g_WatchHidden[WATCH_MAX_HIDDEN];
+
+static s32 g_WatchNumHidden;
+
+static void watchWalk(struct modelnode *node, struct modelnode **out, s32 *n, s32 max)
+{
+	while (node && *n < max) {
+		const s32 type = node->type & 0xff;
+
+		out[(*n)++] = node;
+
+		if (type == MODELNODETYPE_DISTANCE && node->rodata) {
+			watchWalk(node->rodata->distance.target, out, n, max);
+		} else if (type == MODELNODETYPE_TOGGLE && node->rodata) {
+			watchWalk(node->rodata->toggle.target, out, n, max);
+		}
+
+		if (node->child) {
+			watchWalk(node->child, out, n, max);
+		}
+
+		node = node->next;
+	}
+}
+
+static void watchHideAllButArm(struct modeldef *def, struct model *model)
+{
+	struct modelnode *arm[WATCH_MAX_HIDDEN];
+	struct modelnode *all[WATCH_MAX_HIDDEN * 4];
+	struct modelnode *hand;
+	s32 numarm = 0;
+	s32 numall = 0;
+
+	g_WatchNumHidden = 0;
+	hand = modelGetPart(def, MODELPART_CHR_LEFTHAND);
+
+	if (!hand || !hand->parent) {
+		return;
+	}
+
+	// from the shoulder down, so that the upper arm, the forearm and the hand
+	// are all kept: the body hangs off a branch of its own and stays away
+	watchWalk(hand->parent->parent ? hand->parent->parent->child : hand->parent->child,
+			arm, &numarm, WATCH_MAX_HIDDEN);
+	watchWalk(def->rootnode, all, &numall, WATCH_MAX_HIDDEN * 4);
+
+	for (s32 i = 0; i < numall && g_WatchNumHidden < WATCH_MAX_HIDDEN; i++) {
+		struct modelnode *node = all[i];
+		s32 isarm = 0;
+
+		// a body's geometry is `gundl` nodes and a prop's is `dl` ones; both
+		// hold the two display list pointers in the same two places
+		if (!node->rodata
+				|| ((node->type & 0xff) != MODELNODETYPE_DL && (node->type & 0xff) != MODELNODETYPE_GUNDL)) {
+			continue;
+		}
+
+		for (s32 j = 0; j < numarm; j++) {
+			if (arm[j] == node) {
+				isarm = 1;
+				break;
+			}
+		}
+
+		if (isarm) {
+			continue;
+		}
+
+		g_WatchHidden[g_WatchNumHidden].node = node;
+		g_WatchHidden[g_WatchNumHidden].rwdata = NULL;
+		g_WatchHidden[g_WatchNumHidden].instance = NULL;
+
+		if ((node->type & 0xff) == MODELNODETYPE_GUNDL) {
+			g_WatchHidden[g_WatchNumHidden].opa = node->rodata->gundl.opagdl;
+			g_WatchHidden[g_WatchNumHidden].xlu = node->rodata->gundl.xlugdl;
+			node->rodata->gundl.opagdl = NULL;
+			node->rodata->gundl.xlugdl = NULL;
+		} else {
+			// a plain list is drawn out of the *instance's* own copy of it
+			// (modelRenderNodeDl() reads rwdata->dl.gdl), which is what has to
+			// be taken away; the definition's own pointers are what that copy
+			// was made from and are left alone
+			union modelrwdata *rwdata = modelGetNodeRwData(model, node);
+
+			g_WatchHidden[g_WatchNumHidden].opa = NULL;
+			g_WatchHidden[g_WatchNumHidden].xlu = NULL;
+
+			if (!rwdata) {
+				continue;
+			}
+
+			g_WatchHidden[g_WatchNumHidden].rwdata = rwdata;
+			g_WatchHidden[g_WatchNumHidden].instance = rwdata->dl.gdl;
+			rwdata->dl.gdl = NULL;
+		}
+
+		g_WatchNumHidden++;
+	}
+}
+
+static void watchShowAgain(void)
+{
+	for (s32 i = 0; i < g_WatchNumHidden; i++) {
+		struct modelnode *node = g_WatchHidden[i].node;
+
+		if ((node->type & 0xff) == MODELNODETYPE_GUNDL) {
+			node->rodata->gundl.opagdl = g_WatchHidden[i].opa;
+			node->rodata->gundl.xlugdl = g_WatchHidden[i].xlu;
+		} else if (g_WatchHidden[i].rwdata) {
+			g_WatchHidden[i].rwdata->dl.gdl = g_WatchHidden[i].instance;
+		}
+	}
+
+	g_WatchNumHidden = 0;
+}
+
+/**
+ * Where the player's own body stands, in view space: at the player's own feet,
+ * turned the way they are facing. Its arm then comes up out of its own
+ * shoulder, which is where an arm comes from.
+ */
+static void watchBodyMatrix(Mtxf *out)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct coord pos;
+
+	pos.x = player->bond2.unk10.x;
+	pos.y = player->vv_manground;
+	pos.z = player->bond2.unk10.z;
+
+	mtx4LoadYRotationWithTranslation(&pos, (360.0f - player->vv_theta) * (M_PI / 180.0f), out);
+	mtx4MultMtx4InPlace(camGetWorldToScreenMtxf(), out);
+}
+
+/**
+ * The move that takes the watch's face from where the pose left it to the
+ * watch's own pose in front of the eye, by how far the arm has come up:
+ * GoldenEye's own slerp of the two rotations and lerp of the two positions,
+ * which lands on the target as the arm finishes rising.
+ *
+ * GoldenEye moves the model's root alone and leaves the arm at the wrist,
+ * since its own 4:3 screen at 5.9 degrees sees nothing but the face. This
+ * window is wider and the arm is the player's own body, so what comes back is
+ * the move itself and every matrix of both models goes through it: the arm
+ * keeps its shape round the watch and the cuff and the hand are beside the
+ * face.
+ */
+static void watchRelToPose(const Mtxf *face, const Mtxf *pose, Mtxf *rel)
 {
 	struct coord currot;
 	struct coord targetrot;
 	f32 q1[4];
 	f32 q2[4];
 	f32 q3[4];
+	Mtxf blended;
 	Mtxf inverse;
 	f32 t = g_Watch.armframe / ARM_FRAMES;
-	f32 x, y, z;
-
-	watchInvert(matrices, &inverse);
+	f32 scale;
 
 	if (t > 1.0f) {
 		t = 1.0f;
@@ -1903,34 +2264,37 @@ static void watchBlendToPose(Mtxf *matrices, const Mtxf *pose, s32 nummatrices)
 		t = 0.0f;
 	}
 
-	x = matrices->m[3][0] + (pose->m[3][0] - matrices->m[3][0]) * t;
-	y = matrices->m[3][1] + (pose->m[3][1] - matrices->m[3][1]) * t;
-	z = matrices->m[3][2] + (pose->m[3][2] - matrices->m[3][2]) * t;
-
-	// through the angles rather than through the matrix, as GoldenEye does:
-	// both of these carry the model's own scale in their columns, and the
-	// angles do not care about it
-	mtx4GetRotation(matrices->m, &currot);
+	// through the angles rather than through the matrices, as GoldenEye does:
+	// both of these carry a scale in their columns and the angles do not care
+	mtx4GetRotation((f32 (*)[4])face->m, &currot);
 	mtx4GetRotation((f32 (*)[4])pose->m, &targetrot);
 	quaternion0f096ca0(&currot, q1);
 	quaternion0f096ca0(&targetrot, q2);
 	quaternion0f0976c0(q1, q2);
 	quaternionSlerp(q1, q2, t, q3);
-	quaternionToMtx(q3, matrices);
+	quaternionToMtx(q3, &blended);
 
-	matrices->m[3][0] = x;
-	matrices->m[3][1] = y;
-	matrices->m[3][2] = z;
+	// and the scale goes with it: the watch ends at a size of its own however
+	// big the body wearing it is, and the arm comes to that size with it
+	scale = sqrtf(face->m[0][0] * face->m[0][0] + face->m[0][1] * face->m[0][1] + face->m[0][2] * face->m[0][2]);
+	mtx00015f04(scale + (WATCH_FACE_SCALE - scale) * t, &blended);
 
-	// quaternionToMtx() writes a rotation of its own, so the model's scale
-	// goes back on afterwards (GoldenEye's matrix_scalar_multiply())
-	mtx00015f04(g_Watch.chrscale, matrices);
+	blended.m[3][0] = face->m[3][0] + (pose->m[3][0] - face->m[3][0]) * t;
+	blended.m[3][1] = face->m[3][1] + (pose->m[3][1] - face->m[3][1]) * t;
+	blended.m[3][2] = face->m[3][2] + (pose->m[3][2] - face->m[3][2]) * t;
 
-	// and the rest of the arm goes with it: each matrix is taken back into the
-	// root it was built under and put down again under the new one
-	for (s32 i = 1; i < nummatrices; i++) {
-		mtx4MultMtx4InPlace(&inverse, &matrices[i]);
-		mtx4MultMtx4InPlace(matrices, &matrices[i]);
+	// rel = blended * inverse(face): applied after any matrix of the pose, it
+	// carries that matrix the same way the face is carried
+	watchInvert(face, &inverse);
+	mtx4Copy(&inverse, rel);
+	mtx4MultMtx4InPlace(&blended, rel);
+}
+
+/** Every matrix of a posed model through the same move. */
+static void watchApplyRel(const Mtxf *rel, Mtxf *matrices, s32 nummatrices)
+{
+	for (s32 i = 0; i < nummatrices; i++) {
+		mtx4MultMtx4InPlace((Mtxf *)rel, &matrices[i]);
 	}
 }
 
@@ -1949,11 +2313,14 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	struct modelrodata_positionheld *hands[3] = { NULL, NULL, NULL };
 	struct modeldef *def = g_Watch.modeldef;
 	struct model *model = g_Watch.model;
+	struct modeldef *wdef = g_Watch.isbody ? g_Watch.watchdef : NULL;
+	struct model *wmodel = g_Watch.isbody ? g_Watch.watchmodel : NULL;
 	Mtxf *matrices;
+	Mtxf *wmatrices = NULL;
 	Mtxf base;
-	// a copy of the pose that nothing else writes: modelSetMatrices() works
-	// through renderdata.unk00, which is `base` itself
 	Mtxf pose;
+	Mtxf face;
+	Mtxf rel;
 	const f32 target[3] = { WATCH_POSE_X, WATCH_POSE_Y, WATCH_POSE_Z };
 	Mtx *facemtx;
 	s32 numhands = 0;
@@ -1965,8 +2332,14 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		return gdl;
 	}
 
-	watchFindHands(def, hands, &numhands);
-	watchSetCuff();
+	// the three clock hands, and the face they turn on: the watch's own when
+	// the player is wearing their own arm, GoldenEye's floating arm's when
+	// they are wearing that
+	watchFindHands(wdef ? wdef : def, hands, &numhands);
+
+	if (!g_Watch.isbody) {
+		watchSetCuff();
+	}
 
 	matrices = gfxAllocate(def->nummatrices * sizeof(Mtxf));
 
@@ -1974,27 +2347,16 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		mtx4LoadIdentity(&matrices[i]);
 	}
 
-	// the watch on the player's own wrist, which is what the arm is posed
-	// around (bondviewRenderWatch()'s watchmtx)
-	watchWristMatrix(&base);
-
-	// and GoldenEye's own target in front of the eye (player.c's field_1D4,
-	// field_1D8 and pause_watch_position, with the basis
-	// field_1E0..field_1F4): the model turned a quarter turn about x so that
-	// its face looks back at the camera, less the hour hand's own offset so
-	// that the middle of the face is the middle of the screen.
-	mtx4LoadXRotation(M_PI / 2.0f, &pose);
-	mtx00015f04(g_Watch.chrscale, &pose);
-	pose.m[3][0] = target[0];
-	pose.m[3][1] = target[1];
-	pose.m[3][2] = target[2];
-
-	if (numhands > 0) {
-		const struct coord *p = &hands[0]->pos;
-
-		pose.m[3][0] -= p->x * g_Watch.chrscale;
-		pose.m[3][1] += p->z * g_Watch.chrscale;
-		pose.m[3][2] -= p->y * g_Watch.chrscale;
+	// where the arm is posed: the player's own body stands where the player
+	// does, so that its arm comes up out of its own shoulder, and GoldenEye's
+	// floating arm hangs off the wrist the way GoldenEye hangs it
+	// (bondviewRenderWatch()'s watchmtx). What is drawn of the body is the
+	// forearm and the hand: once the watch is carried to the eye the rest of
+	// it is nearer than the near plane and is cut away.
+	if (g_Watch.isbody) {
+		watchBodyMatrix(&base);
+	} else {
+		watchWristMatrix(&base);
 	}
 
 	mtx4Copy(&base, matrices);
@@ -2012,20 +2374,93 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		modelSetMatrices(&renderdata, model);
 	}
 
-	// GoldenEye moves the *watch* from the wrist to the eye while the arm
-	// stays where the animation put it: the model's root is slerped from what
-	// the pose left it at to the target, by how far the arm has come up
-	// (bondviewRenderWatch()'s t = pause_watch_related_adjust / 20). At the
-	// end the watch is square to the camera 25 units out, which is what the
-	// view zooms into; the arm is a metre away and out of the picture, as
-	// GoldenEye's is.
-	watchBlendToPose(matrices, &pose, def->nummatrices);
+	// the watch itself goes on the hand the way anything a character holds
+	// does: at the model's own left hand part, under that hand's matrix
+	if (wdef && wmodel) {
+		struct modelnode *hand = modelGetPart(def, MODELPART_CHR_LEFTHAND);
+		Mtxf wbase;
 
-	// the three hands, turned by the mission's own clock: a second a second,
-	// the minute hand carrying the seconds and the hour hand both
-	// GoldenEye's own watch time: the hour and minute the mission's setup
-	// starts the watch at (INTROCMD_WATCHTIME, which Perfect Dark reads into
-	// the field it has always had), plus the time played
+		mtx4LoadIdentity(&wbase);
+
+		// the hand's own matrix, which is already at the hand: a position
+		// node's `pos` is the bone that *built* that matrix out of its
+		// parent's, not an offset to put something at
+		if (hand && (hand->type & 0xff) == MODELNODETYPE_POSITION
+				&& hand->rodata->position.mtxindex0 >= 0
+				&& hand->rodata->position.mtxindex0 < def->nummatrices) {
+			mtx4Copy(&matrices[hand->rodata->position.mtxindex0], &wbase);
+		} else {
+			mtx4Copy(matrices, &wbase);
+		}
+
+		// GoldenEye wears it on the inside of the wrist, back from the hand
+		// along the forearm and turned face up
+		{
+			struct coord along = { WATCH_WRIST_X, WATCH_WRIST_Y, WATCH_WRIST_Z };
+			Mtxf offset;
+
+			mtx4LoadYRotationWithTranslation(&along, WATCH_WRIST_TURN, &offset);
+			mtx00015f04(WATCH_WRIST_SCALE, &offset);
+			mtx4MultMtx4InPlace(&wbase, &offset);
+			mtx4Copy(&offset, &wbase);
+		}
+
+		wmatrices = gfxAllocate(wdef->nummatrices * sizeof(Mtxf));
+
+		for (s32 i = 0; i < wdef->nummatrices; i++) {
+			mtx4LoadIdentity(&wmatrices[i]);
+		}
+
+		mtx4Copy(&wbase, wmatrices);
+		wmodel->matrices = wmatrices;
+
+		renderdata.unk00 = &wbase;
+		renderdata.unk10 = wmatrices;
+		modelUpdateRelations(wmodel);
+		modelSetMatrices(&renderdata, wmodel);
+	}
+
+	// where the face has ended up, and where GoldenEye's own pose wants it:
+	// turned a quarter turn about x so that it looks back at the camera, 25
+	// units in front of the eye, less the hour hand's own offset so that the
+	// middle of the face is the middle of the screen
+	{
+		Mtxf *own = wmatrices ? wmatrices : matrices;
+		const s32 numown = wmatrices ? wdef->nummatrices : def->nummatrices;
+		struct coord pos = { 0, 0, 0 };
+		f32 scale;
+
+		if (numhands > 0) {
+			pos.x = hands[0]->pos.x;
+			pos.y = hands[0]->pos.y;
+			pos.z = hands[0]->pos.z;
+		}
+
+		mtx4LoadTranslation(&pos, &face);
+		mtx4MultMtx4InPlace(own, &face);
+
+		scale = sqrtf(face.m[0][0] * face.m[0][0] + face.m[0][1] * face.m[0][1] + face.m[0][2] * face.m[0][2]);
+
+		mtx4LoadXRotation(M_PI / 2.0f, &pose);
+		mtx00015f04(scale, &pose);
+		pose.m[3][0] = target[0];
+		pose.m[3][1] = target[1];
+		pose.m[3][2] = target[2];
+
+		watchRelToPose(&face, &pose, &rel);
+		watchApplyRel(&rel, matrices, def->nummatrices);
+
+		if (wmatrices) {
+			watchApplyRel(&rel, wmatrices, numown);
+		}
+
+		mtx4MultMtx4InPlace(&rel, &face);
+	}
+
+	// the three hands, turned by the mission's own clock. GoldenEye's own
+	// watch time is the hour the mission's setup starts it at
+	// (INTROCMD_WATCHTIME, which Perfect Dark reads into the field it has
+	// always had) plus the time played.
 	time = (s32)g_Vars.currentplayer->bondwatchtime60;
 	total = time / 60;
 	frac = (f32)(time % 60) / 60.0f;
@@ -2033,40 +2468,34 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	minutes = ((-(f32)((total / 60) % 60) * M_PI * 2.0f) / 60.0f) + seconds / 60.0f;
 	hours = ((-(f32)((total / 3600) % 12) * M_PI * 2.0f) / 12.0f) + minutes / 12.0f + seconds / 720.0f;
 
-	for (s32 i = 0; i < numhands; i++) {
-		const s16 index = hands[i]->mtxindex;
-		const f32 angle = i == 0 ? hours : (i == 1 ? minutes : seconds);
-		struct coord pos;
+	{
+		Mtxf *own = wmatrices ? wmatrices : matrices;
+		const s32 numown = wmatrices ? wdef->nummatrices : def->nummatrices;
 
-		if (index < 0 || index >= def->nummatrices) {
-			continue;
+		for (s32 i = 0; i < numhands; i++) {
+			const s16 index = hands[i]->mtxindex;
+			const f32 angle = i == 0 ? hours : (i == 1 ? minutes : seconds);
+			struct coord pos;
+
+			if (index < 0 || index >= numown) {
+				continue;
+			}
+
+			pos.x = hands[i]->pos.x;
+			pos.y = hands[i]->pos.y;
+			pos.z = hands[i]->pos.z;
+
+			mtx4LoadYRotationWithTranslation(&pos, angle, &own[index]);
+			mtx4MultMtx4InPlace(own, &own[index]);
 		}
-
-		pos.x = hands[i]->pos.x;
-		pos.y = hands[i]->pos.y;
-		pos.z = hands[i]->pos.z;
-
-		mtx4LoadYRotationWithTranslation(&pos, angle, &matrices[index]);
-		mtx4MultMtx4InPlace(matrices, &matrices[index]);
 	}
 
-	// the page is drawn at the second hand's own spot, which is the middle of
-	// the face, under the watch's own orientation and not the hand's turn
+	// the screens are drawn at the middle of the face, in GoldenEye's own
+	// units - the face being at the scale the move leaves it at
 	{
-		struct coord pos = { 0, 0, 0 };
-		Mtxf handmtx;
 		Mtxf tmp;
 
-		if (numhands > 2) {
-			pos.x = hands[2]->pos.x;
-			pos.y = hands[2]->pos.y;
-			pos.z = hands[2]->pos.z;
-		}
-
-		mtx4LoadTranslation(&pos, &handmtx);
-		mtx4MultMtx4InPlace(matrices, &handmtx);
-
-		mtx4Copy(&handmtx, &tmp);
+		mtx4Copy(&face, &tmp);
 		facemtx = gfxAllocateMatrix();
 		guMtxF2L(tmp.m, facemtx);
 	}
@@ -2079,6 +2508,10 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		: (g_Vars.currentplayer->gunshadecol[0] << 24 | g_Vars.currentplayer->gunshadecol[1] << 16
 			| g_Vars.currentplayer->gunshadecol[2] << 8 | g_Vars.currentplayer->gunshadecol[3]);
 	renderdata.gdl = gdl;
+
+	if (g_Watch.isbody) {
+		watchHideAllButArm(def, model);
+	}
 
 	if (g_WatchDrawArm) {
 		// the arm is lit the way anything else in the level is, and drawn
@@ -2095,6 +2528,12 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		modelRender(&renderdata, model);
 	}
 
+	if (wmodel) {
+		modelRender(&renderdata, wmodel);
+	}
+
+	watchShowAgain();
+
 	gdl = renderdata.gdl;
 	modelSetDistanceChecksDisabled(false);
 
@@ -2107,6 +2546,15 @@ static Gfx *watchDrawModel(Gfx *gdl)
 
 		mtx4Copy((Mtxf *)((uintptr_t)model->matrices + i * sizeof(Mtxf)), &tmp);
 		mtxF2L(&tmp, model->matrices + i);
+	}
+
+	if (wmodel && wmatrices) {
+		for (s32 i = 0; i < wdef->nummatrices; i++) {
+			Mtxf tmp;
+
+			mtx4Copy((Mtxf *)((uintptr_t)wmodel->matrices + i * sizeof(Mtxf)), &tmp);
+			mtxF2L(&tmp, wmodel->matrices + i);
+		}
 	}
 
 	return gdl;
@@ -2126,7 +2574,7 @@ static void watchTextFrame(void)
 	// across that. GoldenEye's own face fills the height of its screen, so at
 	// its zoom this is the viewport; at any other it follows the face, which
 	// is what keeps the screens *on* the watch rather than over the window.
-	const f32 radius = FACE_RADIUS * FACE_FILL * 0.25f * g_Watch.chrscale;
+	const f32 radius = PAGE_RADIUS;
 	const f32 span = -WATCH_POSE_Z * tanf(g_Vars.currentplayer->zoominfovy * (M_PI / 360.0f));
 	const s32 height = span > 0.0f ? (s32)(radius / span * viGetViewHeight()) : viGetViewHeight();
 

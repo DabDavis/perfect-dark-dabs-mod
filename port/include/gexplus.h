@@ -60,6 +60,11 @@ s32 gexPlusRomOwnHead(s32 bodynum);
 // mission: headfit.c leaves a pair GoldenEye made for itself alone
 s32 gexPlusRomIsPoolRow(s32 num);
 
+// GoldenEye's own character number behind a row of g_HeadsAndBodies, or -1 for
+// a row that is not one of its characters. The watch asks, to dress its arm in
+// the sleeve the player's own character is wearing (gewatch.c).
+s32 gexPlusRomChrForRow(s32 row);
+
 // A converted GoldenEye mission's own text bank - its objectives and its radio
 // messages - loaded out of the mod's menu/ into LANGBANK_GEMISSION. Cleared
 // when the stage is not one of the missions.

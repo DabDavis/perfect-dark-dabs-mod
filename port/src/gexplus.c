@@ -742,6 +742,17 @@ s32 gexPlusRomOwnHead(s32 bodynum)
  * GoldenEye made for itself: its heads sit on its own bodies' headspots as they
  * are, and a neck measured between two of them would move one that fits.
  */
+s32 gexPlusRomChrForRow(s32 row)
+{
+	for (s32 i = 0; i < g_GeRomNumRows; i++) {
+		if (g_GeRomRows[i].row == row) {
+			return g_GeRomRows[i].chr;
+		}
+	}
+
+	return -1;
+}
+
 s32 gexPlusRomIsPoolRow(s32 num)
 {
 	for (s32 i = 0; i < g_GeRomNumRows; i++) {

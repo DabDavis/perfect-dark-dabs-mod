@@ -63,6 +63,19 @@
 #define CHRS_AT 0x1d080
 #define NUM_CHRS 80
 
+/**
+ * `gitem_structs`, the models a hand holds: 56-byte rows from 0x12b94, the
+ * header and the file name its first two words, the rest the weapon's own
+ * numbers. Only one of them is converted - the watch, which the remake's
+ * pause puts on the player's own wrist (gewatch.c) - and its row is checked
+ * by name, since a row that moved would otherwise convert whatever is there.
+ */
+#define ITEMS_AT 0x12b94
+#define ITEM_ROW 56
+#define NUM_ITEMS 120
+#define ITEM_WATCH 56
+#define ITEM_WATCH_FILE "GwatchidentifierZ"
+
 // the animations: two segments of their own, raw in the ROM. A record in the
 // data one is a 0x14 header {entry, u16 numframes, u8 width, u8 loop,
 // bitDescriptors, u16 joints, u16 bitsperframe, bitStream}, then its four
@@ -554,6 +567,7 @@ struct prop {
 
 static struct prop g_Props[NUM_PROPS];
 static struct prop g_Chrs[NUM_CHRS];
+static struct prop g_Items[NUM_ITEMS];
 
 static const char *dataString(uint32_t ptr)
 {
@@ -724,6 +738,31 @@ static int romOpen(void)
 		p->nummatrices = bes16(g_Data, h + 14);
 		p->radius = bef32(g_Data, h + 16);
 		p->numtextures = bes16(g_Data, h + 22);
+	}
+
+	// gitem_structs: a hand's models, of which the remake takes the watch
+	for (size_t k = 0; k < NUM_ITEMS; ++k) {
+		const size_t o = ITEMS_AT + ITEM_ROW * k;
+		const uint32_t hp = be32(g_Data, o);
+		struct prop *p = &g_Items[k];
+		size_t h;
+
+		if (o + ITEM_ROW > g_DataLen || !hp || hp < DATA_VRAM || hp - DATA_VRAM + 0x18 > g_DataLen) {
+			continue;
+		}
+
+		h = hp - DATA_VRAM;
+		p->file = dataString(be32(g_Data, o + 4));
+		p->scale = 1.0;
+		p->numswitches = bes16(g_Data, h + 12);
+		p->nummatrices = bes16(g_Data, h + 14);
+		p->radius = bef32(g_Data, h + 16);
+		p->numtextures = bes16(g_Data, h + 22);
+	}
+
+	if (!g_Items[ITEM_WATCH].file || strcmp(g_Items[ITEM_WATCH].file, ITEM_WATCH_FILE)) {
+		fail("item %d is %s and not %s", (int)ITEM_WATCH,
+			g_Items[ITEM_WATCH].file ? g_Items[ITEM_WATCH].file : "nothing", ITEM_WATCH_FILE);
 	}
 
 	return 1;
@@ -4393,11 +4432,12 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 	struct texmove *moved;
 	int nmoved = 0;
 
-	if (num < 0 || num >= (ischr ? NUM_CHRS : NUM_PROPS)) {
-		fail("model %d is not one of GoldenEye's %s", num, ischr ? "characters" : "props");
+	if (num < 0 || num >= (ischr == 1 ? NUM_CHRS : (ischr == 2 ? NUM_ITEMS : NUM_PROPS))) {
+		fail("model %d is not one of GoldenEye's %s", num,
+			ischr == 1 ? "characters" : (ischr == 2 ? "hand items" : "props"));
 	}
 
-	p = ischr ? &g_Chrs[num] : &g_Props[num];
+	p = ischr == 1 ? &g_Chrs[num] : (ischr == 2 ? &g_Items[num] : &g_Props[num]);
 	*scale = p->scale;
 	d = romFile(p->file);
 	textab = 4 * (uint32_t)p->numswitches;
@@ -4508,7 +4548,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 		case 0x02:
 			NEED(0x14);
 			bufPut(&rec, d.v + ro, 0x14);
-			if (ischr) {
+			if (ischr == 1) {
 				// GoldenEye numbers a character's animated parts from 1, with
 				// the header node above them as 0, and its skeleton's joint j
 				// holds the channel of part j; Perfect Dark numbers them from 0
@@ -4682,7 +4722,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			if (!a) {
 				// a character's next can be the shadow that was left out, which
 				// ends its chain there and has nothing to point back
-				if (!ischr) {
+				if (ischr != 1) {
 					fail("%s: a node's next is not a node", p->file);
 				}
 				continue;
@@ -4700,7 +4740,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 	// SKEL_BASIC for a prop; for a character SKEL_CHR where it has GoldenEye's
 	// guard skeleton, which is Perfect Dark's own joint for joint, and SKEL_HEAD
 	// where it has none (a head is one list on one matrix)
-	set32(w.v, 4, ischr ? (p->skeleton ? 0x09 : 0x0d) : 2);
+	set32(w.v, 4, ischr == 1 ? (p->skeleton ? 0x09 : 0x0d) : 2);
 	set32(w.v, 8, p->numswitches ? SEG_MODEL + (uint32_t)partsat : 0);
 	set16(w.v, 12, (uint32_t)p->numswitches);
 	set16(w.v, 14, (uint32_t)p->nummatrices);
@@ -4869,6 +4909,11 @@ static buf animConvert(size_t at, struct animout *out, uint32_t parts)
 static buf chrConvert(int32_t num, uint8_t *images, double *scale)
 {
 	return modelConvertOne(num, images, scale, 1);
+}
+
+static buf itemConvert(int32_t num, uint8_t *images, double *scale)
+{
+	return modelConvertOne(num, images, scale, 2);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -5330,6 +5375,27 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			writeFile(outdir, "menu/gechrs.bin", chrs.v, chrs.n);
+		}
+
+		// the watch the remake's pause wears (gewatch.c): GoldenEye's own
+		// hand item, converted the way a prop is and written under its item
+		// number, since the player's own character wears it now and their
+		// body model has no watch of its own
+		{
+			const size_t keep = g_NumAllocs;
+			double scale;
+			buf data = itemConvert(ITEM_WATCH, alltex, &scale);
+			buf z = rzip1173(data.v, data.n);
+			char rel[64];
+
+			snprintf(rel, sizeof(rel), "files/Igx%03uZ", (unsigned)ITEM_WATCH);
+			writeFile(outdir, rel, z.v, z.n);
+			note("geconvert: the watch (%s) as %s", ITEM_WATCH_FILE, rel);
+
+			for (size_t i = keep; i < g_NumAllocs; ++i) {
+				free(g_Allocs[i]);
+			}
+			g_NumAllocs = keep;
 		}
 
 		// menu/geanims.bin: the animations the missions' PlayAnimation commands
