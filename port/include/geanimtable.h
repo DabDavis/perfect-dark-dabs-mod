@@ -207,6 +207,11 @@ static const struct { const char *name; uint32_t at; } g_GeAnims[] = {
 
 #define GEANIM_NUM_ANIMS ((int)(sizeof(g_GeAnims) / sizeof(g_GeAnims[0])))
 
+// ANIM_bond_watch: the left arm coming up with the watch on it, which the
+// watch plays on GoldenEye's own suit_lf_hand model (gewatch.c). No AI list
+// names it, so the conversion always writes it (geconvert.c)
+#define GEANIM_WATCH 45
+
 /**
  * `animation_table_ptrs2[]`: the three an aircraft plays, on the vehicle's own
  * model rather than on a character's skeleton. An id means one of these when

@@ -809,9 +809,19 @@ static void frontUnload(void)
 	g_Front.loaded = 0;
 }
 
-static s32 frontLoadAll(void)
+/**
+ * The fonts and the title screen's strings, without the folder model: what
+ * GoldenEye's own text needs and nothing more. The watch (gewatch.c) asks for
+ * this in a level, where the folder itself is closed and its model would be
+ * half a megabyte of nothing.
+ */
+static s32 frontLoadText(void)
 {
 	const s32 first = frontFirstArena();
+
+	if (g_Front.zurich.data && g_Front.gothic.data && g_Front.title) {
+		return 1;
+	}
 
 	if (first < 0) {
 		return 0;
@@ -822,8 +832,16 @@ static s32 frontLoadAll(void)
 	if (g_Front.moddir < 0
 			|| !frontLoadFont(&g_Front.zurich, "fontzurichbold.bin")
 			|| !frontLoadFont(&g_Front.gothic, "fontbankgothic.bin")
-			|| !(g_Front.title = frontLoad("LtitleE", &g_Front.titlelen))
-			|| !frontLoadModel()) {
+			|| !(g_Front.title = frontLoad("LtitleE", &g_Front.titlelen))) {
+		return 0;
+	}
+
+	return 1;
+}
+
+static s32 frontLoadAll(void)
+{
+	if (!frontLoadText() || !frontLoadModel()) {
 		sysLogPrintf(LOG_WARNING, "gexfront: the conversion's menu files are missing; GE Plus opens Perfect Dark's menu");
 		frontUnload();
 		return 0;
@@ -2432,6 +2450,31 @@ s32 gexFrontLoadShared(void)
 	return g_Front.loaded || frontLoadAll();
 }
 
+s32 gexFrontLoadText(void)
+{
+	return g_Front.loaded || frontLoadText();
+}
+
+s32 gexFrontModDir(void)
+{
+	return g_Front.moddir;
+}
+
+s32 gexFrontMissionFiles(s32 mission, const char **brief, const char **lang, s32 *nameid)
+{
+	const s32 row = frontMissionRow(mission);
+
+	if (row < 0 || !g_Missions[row].brief) {
+		return 0;
+	}
+
+	*brief = g_Missions[row].brief;
+	*lang = g_Missions[row].lang;
+	*nameid = g_Missions[row].name;
+
+	return 1;
+}
+
 const char *gexFrontTitleString(s32 index)
 {
 	return frontString(index);
@@ -2454,8 +2497,41 @@ const char *gexFrontTitleString(s32 index)
  * The folder itself is drawn through videoGetAspect() with no aspect mode and
  * so is already where GoldenEye puts it; these are what had to come to it.
  */
+/**
+ * The frame in GoldenEye's own units and the box on the screen it is fitted
+ * into: 440x330 over the whole window for the menus, and GoldenEye's in-game
+ * 320x240 over the player's viewport for the watch (gewatch.c), which is the
+ * frame its own screens are laid out on. Height fits, x is centred, and a
+ * column is worth a row either way.
+ */
+static struct {
+	f32 gew, geh;
+	s32 left, top, width, height;
+	s32 set;
+} g_FrontFrame;
+
+void gexFrontTextFrame(f32 gew, f32 geh, s32 left, s32 top, s32 width, s32 height)
+{
+	g_FrontFrame.gew = gew;
+	g_FrontFrame.geh = geh;
+	g_FrontFrame.left = left;
+	g_FrontFrame.top = top;
+	g_FrontFrame.width = width;
+	g_FrontFrame.height = height;
+	g_FrontFrame.set = 1;
+}
+
+void gexFrontTextFrameDefault(void)
+{
+	g_FrontFrame.set = 0;
+}
+
 static f32 frontScaleY(void)
 {
+	if (g_FrontFrame.set) {
+		return g_FrontFrame.height / g_FrontFrame.geh;
+	}
+
 	return viGetHeight() / GEFRONT_H;
 }
 
@@ -2468,7 +2544,21 @@ static f32 frontScaleX(void)
 // a GoldenEye x in this frame's own units
 static f32 frontX(f32 x)
 {
+	if (g_FrontFrame.set) {
+		return g_FrontFrame.left + g_FrontFrame.width * 0.5f + (x - g_FrontFrame.gew * 0.5f) * frontScaleX();
+	}
+
 	return viGetWidth() * 0.5f + (x - GEFRONT_W * 0.5f) * frontScaleX();
+}
+
+// and a GoldenEye y
+static f32 frontY(f32 y)
+{
+	if (g_FrontFrame.set) {
+		return g_FrontFrame.top + y * frontScaleY();
+	}
+
+	return y * frontScaleY();
 }
 
 static Gfx *frontFillRect(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, u32 colour)
@@ -2477,7 +2567,7 @@ static Gfx *frontFillRect(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, u32 colour)
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
 	gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
 	gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
-	gDPFillRectangle(gdl++, (s32)frontX(x1), (s32)(y1 * frontScaleY()), (s32)frontX(x2), (s32)(y2 * frontScaleY()));
+	gDPFillRectangle(gdl++, (s32)frontX(x1), (s32)frontY(y1), (s32)frontX(x2), (s32)frontY(y2));
 
 	return gdl;
 }
@@ -2586,17 +2676,17 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 			// the glyph's rows run right to left across the screen, its columns down it
 			gSPTextureRectangleFlip(gdl++,
 					(s32)(frontX((*y - cur->baseline) - cur->height) * 4),
-					(s32)(*x * sy * 4),
+					(s32)(frontY(*x) * 4),
 					(s32)(frontX(*y - cur->baseline) * 4),
-					(s32)((*x + cur->width) * sy * 4),
+					(s32)(frontY(*x + cur->width) * 4),
 					G_TX_RENDERTILE, 0, (cur->height - 1) << 5,
 					(s32)(1024 / sy), (s32)(-1024 / sx));
 		} else {
 			gSPTextureRectangle(gdl++,
 					(s32)(frontX(*x) * 4),
-					(s32)((*y + cur->baseline) * sy * 4),
+					(s32)(frontY(*y + cur->baseline) * 4),
 					(s32)(frontX(*x + cur->width) * 4),
-					(s32)((*y + cur->baseline + cur->height) * sy * 4),
+					(s32)(frontY(*y + cur->baseline + cur->height) * 4),
 					G_TX_RENDERTILE, 0, 0,
 					(s32)(1024 / sx), (s32)(1024 / sy));
 		}
@@ -2613,6 +2703,8 @@ static Gfx *frontPrint(Gfx *gdl, s32 x, s32 y, const char *text, u32 colour)
 	return frontText(gdl, &g_Front.zurich, &x, &y, text, colour, 0, false);
 }
 
+static void frontWrap(const struct gefont *font, const char *text, char *out, size_t len, s32 width);
+
 /* GoldenEye's text for the intro (geintro.c), which has no folder of its own */
 
 Gfx *gexFrontTextSetup(Gfx *gdl)
@@ -2628,6 +2720,16 @@ Gfx *gexFrontTextPrint(Gfx *gdl, s32 gothic, s32 x, s32 y, const char *text, u32
 void gexFrontTextMeasure(s32 gothic, const char *text, s32 *width, s32 *height)
 {
 	frontMeasure(gothic ? &g_Front.gothic : &g_Front.zurich, text, 0, width, height);
+}
+
+Gfx *gexFrontFillRect(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, u32 colour)
+{
+	return frontFillRect(gdl, x1, y1, x2, y2, colour);
+}
+
+void gexFrontTextWrap(s32 gothic, const char *text, char *out, size_t len, s32 width)
+{
+	frontWrap(gothic ? &g_Front.gothic : &g_Front.zurich, text, out, len, width);
 }
 
 /** frontAddStartTabText() and frontAddPreviousTabText(): Bank Gothic, turned, a tab's middle. */
@@ -2669,8 +2771,8 @@ static Gfx *frontDrawCursor(Gfx *gdl)
 	gDPSetEnvColor(gdl++, 255, 255, 255, 220);
 	gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
 	gSPTextureRectangle(gdl++,
-			(s32)(frontX(x - 16) * 4), (s32)((y - 16) * sy * 4),
-			(s32)(frontX(x + 16) * 4), (s32)((y + 16) * sy * 4),
+			(s32)(frontX(x - 16) * 4), (s32)(frontY(y - 16) * 4),
+			(s32)(frontX(x + 16) * 4), (s32)(frontY(y + 16) * 4),
 			G_TX_RENDERTILE, 0, 0, (s32)(1024 / sx), (s32)(1024 / sy));
 
 	return gdl;
@@ -2744,8 +2846,8 @@ static Gfx *frontImage(Gfx *gdl, s32 num, s32 width, s32 height, s32 format, s32
 	}
 
 	gSPTextureRectangle(gdl++,
-			(s32)(frontX(cx - hw) * 4), (s32)((cy - hh) * sy * 4),
-			(s32)(frontX(cx + hw) * 4), (s32)((cy + hh) * sy * 4),
+			(s32)(frontX(cx - hw) * 4), (s32)(frontY(cy - hh) * 4),
+			(s32)(frontX(cx + hw) * 4), (s32)(frontY(cy + hh) * 4),
 			G_TX_RENDERTILE, 0, theight < 0 ? ((-theight) << 5) - 1 : 0,
 			(s32)(twidth / (2.0f * hw) * 1024.0f / sx), (s32)(theight / (2.0f * hh) * 1024.0f / sy));
 

@@ -164,6 +164,11 @@ static const struct { const char *brief, *lang; } g_MenuText[] = {
 	{ "UbriefaztZ", "LaztE" },        { "UbriefcrypZ", "LcrypE" },
 };
 
+// the watch's own banks (gewatch.c): LoptionsE is the solo watch's screens,
+// LmpmenuE the multiplayer watch's, LgunE the guns' names and LpropobjE the
+// pickups' - what its inventory page names a carried item by
+static const char *g_WatchLang[] = { "LoptionsE", "LmpmenuE", "LgunE", "LpropobjE" };
+
 const char *geconvertMissionLangFile(int mission)
 {
 	const int n = (int)(sizeof(g_MenuText) / sizeof(g_MenuText[0]));
@@ -5012,6 +5017,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	memset(alltex, 0, sizeof(alltex));
 	memset(allmodels, 0, sizeof(allmodels));
 	memset(allanims, 0, sizeof(allanims));
+
+	// the watch's own arm animation, which no AI list names (gewatch.c)
+	if (GEANIM_WATCH < GEANIM_NUM_ANIMS) {
+		allanims[GEANIM_WATCH] = 1;
+	}
 	g_FailMsg[0] = '\0';
 
 	if (setjmp(g_Fail)) {
@@ -5198,6 +5208,16 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		title = romFile("LtitleE");
 		writeFile(outdir, "menu/LtitleE", title.v, title.n);
+
+		// and the banks the watch reads (gewatch.c): its own screens' strings,
+		// the multiplayer watch's, the guns' names and the pickups'
+		for (size_t i = 0; i < sizeof(g_WatchLang) / sizeof(g_WatchLang[0]); ++i) {
+			char rel[64];
+			buf f = romFile(g_WatchLang[i]);
+
+			snprintf(rel, sizeof(rel), "menu/%s", g_WatchLang[i]);
+			writeFile(outdir, rel, f.v, f.n);
+		}
 
 		if (INTRO_BLOOD_AT + INTRO_BLOOD_SIZE > g_DataLen) {
 			fail("the blood runs off the data segment");

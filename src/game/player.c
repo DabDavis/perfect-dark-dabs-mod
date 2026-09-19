@@ -48,6 +48,9 @@
 #include "game/camera.h"
 #include "game/player.h"
 #ifndef PLATFORM_N64
+#include "gewatch.h"
+#endif
+#ifndef PLATFORM_N64
 #include "game/modghost.h"
 #endif
 #include "game/modeldef.h"
@@ -4956,6 +4959,14 @@ void playerTick(bool arg0)
 		playerTickPauseMenu();
 	}
 
+#ifndef PLATFORM_N64
+	// GE Plus's own pause, which runs on the real frame rather than the
+	// level's and so keeps moving while the level is frozen (gewatch.c). After
+	// the movement tick, whose bmoveUpdateVerta() would otherwise undo the
+	// view's tilt down to the wrist.
+	geWatchTick();
+#endif
+
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_SLAYERROCKET) {
 		if (g_Vars.currentplayer->slayerrocket == NULL || g_Vars.currentplayer->isdead) {
 			g_Vars.currentplayer->slayerrocket = NULL;
@@ -6247,7 +6258,11 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = bgRenderArtifacts(gdl);
 		}
 
-		if (g_Vars.currentplayer->thirdpersondist <= 0) {
+		if (g_Vars.currentplayer->thirdpersondist <= 0
+#ifndef PLATFORM_N64
+				&& !geWatchHidesGun()
+#endif
+				) {
 			bgunRender(&gdl);
 		}
 
@@ -6302,6 +6317,11 @@ Gfx *playerRenderHud(Gfx *gdl)
 	}
 
 	gdl = player0f0baf84(gdl);
+
+#ifndef PLATFORM_N64
+	// GoldenEye's watch, over the view and under everything the menu draws
+	gdl = geWatchRender(gdl);
+#endif
 
 	// Draw menu
 	if (g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY && g_Vars.currentplayer->mpmenuon) {
@@ -6540,7 +6560,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 #ifndef PLATFORM_N64
 		// GE Plus's Cinema shows GoldenEye's own captions over a clean
 		// picture: no crosshair, no ammo and no radar (gecinema.c)
-		const bool cinema = gecinemaIsOn();
+		// and GE Plus's watch is GoldenEye's own pause, which takes the sight,
+		// the ammo, the radar and the messages off the screen with it
+		// (gewatch.c, GoldenEye's gunSetSightVisible()/hudmsgsSetOff())
+		const bool cinema = gecinemaIsOn() || geWatchIsOpen();
 #else
 		const bool cinema = false;
 #endif
@@ -6561,7 +6584,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 		if (!cinema) {
 			gdl = radarRender(gdl);
 		}
-		gdl = hudmsgsRender(gdl);
+
+		if (!cinema) {
+			gdl = hudmsgsRender(gdl);
+		}
 #else
 		gdl = hudmsgsRender(gdl);
 		gdl = radarRender(gdl);

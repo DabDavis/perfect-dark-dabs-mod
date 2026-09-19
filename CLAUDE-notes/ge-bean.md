@@ -4747,3 +4747,117 @@ With the flag clear the ending is Perfect Dark's own, untouched.
 **The trap:** a `--boot-stage` run has no agent file, so its endscreen is the
 **"Error" dialog** and no press dismisses it - pressing through an endscreen
 headlessly proves nothing. Drive the root instead, or call the hook.
+
+## GoldenEye's watch as GE Plus's pause (2026-09-19)
+
+The user's ask: "lets add the watch menu to ge plus", full fidelity - the arm
+and all - with all five of GoldenEye's screens, its abort, and its own
+multiplayer overlay in the arenas.
+
+`port/src/gewatch.c`. Start in a converted level lowers the gun, tilts the view
+to -40 degrees, brings GoldenEye's own left arm up playing its `bond_watch` and
+zooms the view from 60 degrees to 5.9 so the face fills the screen; Start or B
+runs the four steps backwards. The state machine is GoldenEye's own
+(`bondviewWatchAnimationTick()`), state for state, and the screens are
+`src/game/options.c`'s: mission status (with its abort), inventory, control,
+options and the briefing.
+
+Everything drawn is the conversion's: the arm is character **41**
+(`Csuit_lf_handZ`, `files/Cgx041Z` - the US ROM has no Connery, Dalton or Moore
+bodies, so `BODY_Left_Suit_Hand_Floating_Arm` is 41 and not 44), the animation
+is `bond_watch` (id 45, which no AI list names, so the converter always writes
+it into `menu/geanims.bin`), and the text is `LoptionsE` and `LmpmenuE` with the
+folder screens' two fonts through `gexFrontLoadText()` - the fonts without the
+folder model, which is half a megabyte a level has no use for.
+
+### What is GoldenEye's, and the three things that are not
+
+- **the gun goes down** by being swapped for unarmed (`bgunEquipWeapon2()`),
+  which is Perfect Dark's own lowering; GoldenEye swaps the hand's *item* for
+  the suit hand and has no other lowering either. The weapons are put back at
+  the last state;
+- **the whole pose is carried to the watch, not just its root.** GoldenEye
+  poses the arm at the player's own wrist - `watchWristMatrix()` is its own
+  three lines, and Perfect Dark keeps both fields they read (`bond2.unk00` is
+  its `theta_transform`, the look vector, and `headbodyoffset` is the same
+  field under the same name) - and then slerps the model's **root** alone from
+  there to a pose 25 units in front of the eye, by how far the arm has come up.
+  Its own 4:3 screen at 5.9 degrees then sees the face and nothing else, so it
+  does not matter that the arm is left behind at the wrist. This window is
+  wider, so every matrix goes through the same move (`watchBlendToPose()`): the
+  arm keeps its shape round the watch and the width a wide window has over a
+  4:3 one shows the cuff and the hand either side of the face;
+- **the open zoom follows the window's shape**: GoldenEye's own 5.9 degrees on
+  4:3, pulling back to 11 by 16:9 (`watchOpenFov()`), which is where the whole
+  watch with the wrist is in the picture. The face keeps its own shape either
+  way, the field of view being vertical, and its screens keep their place on it
+  because the text is laid out on the **face** and not on the window -
+  `watchTextFrame()` measures the face's own diameter on the screen and gives
+  GoldenEye's 240 rows to it;
+- **the options set Perfect Dark's own settings**, which is what the game
+  underneath reads.
+
+### The five faults, in the order they cost time
+
+**A model instance belongs to the stage pool.**
+`modelmgrInstantiateModel()` hands out a slot of `g_ModelSlots`, which
+`modelmgrAllocateSlots()` builds per stage, so freeing one after its stage walks
+`g_ModelRwdataBindings` through memory the pool has reused - a segfault in
+`modelmgrFreeModel()` on the *next* stage load. The arm is dropped rather than
+freed. And `modelmgrAllocateSlots()` runs **later in `setupLoadFiles()`** than
+the watch's own stage hook, so there is no slot to instantiate into at a stage
+load: the arm is loaded at the first pause instead, where the level is about to
+stop anyway.
+
+**`renderdata.unk00` is not yours.** `modelSetMatrices()` works through it and
+leaves it holding the model's own root, so the pose handed in is gone by the
+time the model is posed. Keep a private copy (`pose`) and reassert *that*.
+
+**The watch's three hands are parts 0, 1 and 2**, which are GoldenEye's
+`objheader->Switches[0..2]` and its `SKEL_HOUR`, `SKEL_MINUTE` and
+`SKEL_SECOND`. Walking the node tree for the first three `POSITIONHELD` nodes
+finds others sitting at the origin, which left the face a screen's width off the
+middle with nothing visible at 5.9 degrees and no error anywhere.
+
+**The pose is reasserted on `matrices[0]` after the animation.** GoldenEye
+slerps the root from the wrist to the target and lands on the target, so the
+watch is square to the camera and the arm keeps whatever the animation gave it.
+The rotation is **rotX(+90)**, which is what `field_1E0..field_1F4` come to, and
+the hour node's own offset is taken off the position - `target - R*(pos*scale)`,
+GoldenEye's own three lines - or the face is that offset off centre. The hands
+are then built from the root the way GoldenEye builds them, each turned by the
+mission clock.
+
+**GoldenEye's in-game screens are laid out on 320x240, not on the menus'
+440x330.** The menus run in its hi-res framebuffer (`SCREEN_WIDTH_440`) and
+`options.c`'s numbers are the in-game screen's, so the watch sets its own frame
+over the **player's viewport** (`gexFrontTextFrame()`, put back with
+`gexFrontTextFrameDefault()` after) while the folder keeps its 440x330 over the
+whole window.
+
+### Smaller ones
+
+- **a GoldenEye string carries its own newline.** Its own code prints
+  "mission status:\n", which takes the pen down a line, then moves on by the
+  width and **back up by the height** to put the value beside it. A printer that
+  starts from the line it is given must simply print at the same y - and the
+  multiplayer scores print the name and the number as two prints in two
+  columns, since the name's newline ends the line before any number appended to
+  it.
+- `gSP2Triangles` does not exist in this gbi; GoldenEye's watch geometry is
+  written out as pairs of `gSP1Triangle`, and its padding triangle (0,0,0) is
+  left out.
+- a Perfect Dark vertex names its colour in the table a `G_COL` load fills
+  (`gDma1p(gdl++, G_COL, colours, n * 4, (n - 1) << 2)`), so the face's disc,
+  its gauges and its screen-select rectangles each load their own.
+
+### Driving it
+
+`build/gexrom/watch1.gdb` opens the watch at frame 400 with
+`call (int)geWatchPause()` and prints `state`, `armframe`, `vv_verta` and
+`zoominfovy` a frame; `watchsweep.sh 0x65 0x66 ...` opens and closes it on each
+mission and prints the state it ended on. `'gewatch.c'::g_WatchDrawArm = 0`
+draws the face without the arm, which is how the pose was judged. The framing
+is judged at two window shapes: the savedir's own `pd.ini` carries
+`Video.DefaultWidth`/`DefaultHeight`, so a copy of the save with 1280x720 in it
+is the 16:9 run and the stock 640x480 one the 4:3.

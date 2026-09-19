@@ -44,6 +44,7 @@
 #include "types.h"
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gewatch.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
 #include "modborrow.h"
@@ -1435,6 +1436,10 @@ void setupLoadFiles(s32 stagenum)
 		// props and would load the model the record named.
 		// and whether this stage is the folder's Cinema rather than a mission
 		gecinemaStageStart();
+
+		// what GE Plus's own pause needs in this level, or nothing when the
+		// level is not one of the remake's (gewatch.c)
+		geWatchStageStart(stagenum);
 
 		if (modloaderStageIsMission(stagenum)) {
 			gexPlusMissionSetup(g_StageSetup.props);

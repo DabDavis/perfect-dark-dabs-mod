@@ -2,6 +2,7 @@
 #define _IN_GEXFRONT_H
 
 #include <ultra64.h>
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 /**
@@ -50,6 +51,23 @@ s32 gexFrontMusic(void);
  */
 s32 gexFrontLoadShared(void);
 
+/**
+ * The same two fonts and strings without the folder model, for the watch
+ * (gewatch.c), which draws GoldenEye's own text in a level where the folder
+ * is closed. Idempotent, and never frees what the folder is holding.
+ */
+s32 gexFrontLoadText(void);
+
+// The mounted mod the conversion's files come from, or -1
+s32 gexFrontModDir(void);
+
+/**
+ * A mission's briefing file, the text bank that file indexes and LtitleE's
+ * name for it - GoldenEye's mission folder's own row. False for a number that
+ * is not one of its twenty. The watch's briefing screen reads the same three.
+ */
+s32 gexFrontMissionFiles(s32 mission, const char **brief, const char **lang, s32 *nameid);
+
 // A string of LtitleE by its index, "" when there is none
 const char *gexFrontTitleString(s32 index);
 
@@ -62,6 +80,22 @@ Gfx *gexFrontTextSetup(Gfx *gdl);
  * gexFrontTextMeasure() gives what it will take, unscaled.
  */
 Gfx *gexFrontTextPrint(Gfx *gdl, s32 gothic, s32 x, s32 y, const char *text, u32 colour);
+
+/**
+ * The frame that text and rectangles are laid out on: GoldenEye's own frame in
+ * its own units, and the box on the screen it is fitted into - its height
+ * fills the box and its x is centred. The menus leave it at their 440x330 over
+ * the whole window; the watch sets GoldenEye's in-game 320x240 over the
+ * player's viewport and puts it back afterwards.
+ */
+void gexFrontTextFrame(f32 gew, f32 geh, s32 left, s32 top, s32 width, s32 height);
+void gexFrontTextFrameDefault(void);
 void gexFrontTextMeasure(s32 gothic, const char *text, s32 *width, s32 *height);
+
+// A filled rectangle on the same frame, in the same colour word
+Gfx *gexFrontFillRect(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, u32 colour);
+
+// Text broken into lines no wider than `width`, in GoldenEye's own units
+void gexFrontTextWrap(s32 gothic, const char *text, char *out, size_t len, s32 width);
 
 #endif

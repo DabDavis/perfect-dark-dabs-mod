@@ -5,6 +5,9 @@
 #include "game/bondbike.h"
 #include "game/bondgrab.h"
 #include "game/bondmove.h"
+#ifndef PLATFORM_N64
+#include "gewatch.h"
+#endif
 #include "game/bondwalk.h"
 #include "game/cheats.h"
 #include "game/modspectate.h"
@@ -840,10 +843,25 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		if (g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED && (c1buttonsthisframe & START_BUTTON)) {
 			if (g_Vars.mplayerisrunning == false) {
 				if (g_Vars.lvframenum > 15) {
-					playerPause(MENUROOT_MAINMENU);
+#ifndef PLATFORM_N64
+					// Inside GE Plus, Start is GoldenEye's watch rather than
+					// the Perfect Menu's pause (gewatch.c). It says so itself
+					// when the level has no watch to bring up.
+					if (!geWatchPause())
+#endif
+					{
+						playerPause(MENUROOT_MAINMENU);
+					}
 				}
 			} else {
-				mpPushPauseDialog();
+#ifndef PLATFORM_N64
+				// and a GE Plus match's pause is GoldenEye's own multiplayer
+				// overlay, in each player's own viewport (gewatch.c)
+				if (!geWatchPause())
+#endif
+				{
+					mpPushPauseDialog();
+				}
 			}
 		}
 	} else {
