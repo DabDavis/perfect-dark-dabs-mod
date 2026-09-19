@@ -174,6 +174,22 @@ const char *geconvertMissionLangFile(int mission)
 #define WALL_BELOW 50.0
 #define WALL_ABOVE 400.0
 
+/* A wall is raised round every unlinked tile edge, and GoldenEye's own walls
+ * are the edge and nothing more: its collision walks out from the tile the
+ * player stands on through the links alone (stan.c's sub_GAME_7F0B1DDC), so an
+ * edge belonging to another storey's floor can never stop them. Perfect Dark's
+ * is a quad in the world, so a wall raised WALL_ABOVE over a staircase's own
+ * tiles stands in the air across the flight above it. Every wall stops under
+ * the lowest walkable surface that passes over it. */
+#define WALL_HEADROOM 60.0 /* a surface at least this far above the edge is
+                            * another floor, not the step or kerb the wall
+                            * itself belongs to */
+#define WALL_STEP 20.0     /* world units between the samples along an edge */
+#define WALL_SIDE 4.0      /* the slack on the box a surface is looked for in */
+#define WALL_REACH 30.0    /* the player's own radius: they stand this far from
+                            * a wall, and on a slope that is lower ground than
+                            * the surface over the wall itself */
+
 /* ------------------------------------------------------------------------ */
 /* failure */
 
@@ -1728,6 +1744,112 @@ static int32_t (*roomTileBounds(const tiles *stan, int numrooms, double ls, cons
 	return out;
 }
 
+/* tile_surface_y(): the tile's own surface at x/z, from the fan triangle that
+ * holds the point, or false where the point is outside the tile. */
+static int tileSurfaceY(const double (*pts)[3], int n, double x, double z, double *out)
+{
+	const double *a = pts[0];
+
+	for (int k = 1; k < n - 1; ++k) {
+		const double *b = pts[k], *c = pts[k + 1];
+		const double det = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+		double w0, w1, w2;
+
+		if (det == 0.0) {
+			continue;
+		}
+
+		w0 = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / det;
+		w1 = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / det;
+		w2 = 1.0 - w0 - w1;
+
+		if (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0) {
+			*out = w0 * a[1] + w1 * b[1] + w2 * c[1];
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+struct tilegeo {
+	int first; /* the tile's points, in the level's own flat array */
+	int n;
+	double bb[4]; /* x0 x1 z0 z1 */
+};
+
+/* wall_above(): how far a wall on this edge may rise, which is to the lowest
+ * walkable surface that passes over it, else WALL_ABOVE. */
+static double wallAbove(const double (*world)[3], const struct tilegeo *geo, size_t ntiles,
+		size_t self, const double *a, const double *b)
+{
+	const double dx = b[0] - a[0], dz = b[2] - a[2];
+	const double length = sqrt(dx * dx + dz * dz);
+	double above = WALL_ABOVE;
+	/* the quad blocks between its own lowest and highest vertex, whatever its
+	 * corners are (cdCollectGeoForCylFromList() reads the tile's ymin/ymax), so
+	 * what has to stay under the surface is its higher end */
+	const double top = a[1] > b[1] ? a[1] : b[1];
+	double x0, x1, z0, z1;
+	int nsteps;
+
+	x0 = (a[0] < b[0] ? a[0] : b[0]) - (WALL_REACH + WALL_SIDE);
+	x1 = (a[0] > b[0] ? a[0] : b[0]) + (WALL_REACH + WALL_SIDE);
+	z0 = (a[2] < b[2] ? a[2] : b[2]) - (WALL_REACH + WALL_SIDE);
+	z1 = (a[2] > b[2] ? a[2] : b[2]) + (WALL_REACH + WALL_SIDE);
+	/* a riser's own side is an edge that goes straight down, and a point of a
+	 * wall in plan; Perfect Dark blocks within the player's radius of one all
+	 * the same, so it takes the one sample at its own place */
+	nsteps = length >= 1.0 ? (int)(length / WALL_STEP) + 1 : 1;
+
+	for (int s = 0; s < nsteps; ++s) {
+		const double f = (double)(s + 1) / (double)(nsteps + 1);
+		const double px = a[0] + dx * f;
+		const double pz = a[2] + dz * f;
+
+		for (size_t j = 0; j < ntiles; ++j) {
+			/* the player stands anywhere within their own radius of the wall,
+			 * and where the surface reaches over any of that it is what the
+			 * wall has to stay under: its lowest there */
+			static const double reach[5][2] = {
+				{ 0.0, 0.0 },
+				{ WALL_REACH, 0.0 }, { -WALL_REACH, 0.0 },
+				{ 0.0, WALL_REACH }, { 0.0, -WALL_REACH },
+			};
+			double low = 0.0, gap;
+			int found = 0;
+
+			if (j == self
+					|| geo[j].bb[0] > x1 || geo[j].bb[1] < x0
+					|| geo[j].bb[2] > z1 || geo[j].bb[3] < z0) {
+				continue;
+			}
+
+			for (int r = 0; r < 5; ++r) {
+				double y;
+
+				if (tileSurfaceY(world + geo[j].first, geo[j].n,
+						px + reach[r][0], pz + reach[r][1], &y) && (!found || y < low)) {
+					low = y;
+					found = 1;
+				}
+			}
+
+			if (!found) {
+				continue;
+			}
+
+			gap = low - top;
+
+			if (gap >= WALL_HEADROOM && gap < above) {
+				above = gap;
+			}
+		}
+	}
+
+	return above;
+}
+
 static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *offset, int *numwalls)
 {
 	const double inv = 1.0 / ls;
@@ -1735,21 +1857,50 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 	buf out = {0};
 	int walls = 0;
 	uint32_t pos;
+	struct tilegeo *geo = gcAlloc(stan->n * sizeof(*geo));
+	double (*world)[3];
+	size_t npoints = 0;
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		npoints += stan->v[i].npts;
+	}
+
+	world = gcAlloc(npoints * sizeof(*world));
+	npoints = 0;
 
 	for (size_t i = 0; i < stan->n; ++i) {
 		const struct tile *t = &stan->v[i];
-		double pts[15][3];
+
+		geo[i].first = (int)npoints;
+		geo[i].n = t->npts;
+
+		for (int k = 0; k < t->npts; ++k) {
+			double *p = world[npoints++];
+
+			for (int c = 0; c < 3; ++c) {
+				p[c] = t->pts[k][c] * inv - offset[c];
+			}
+
+			if (k == 0) {
+				geo[i].bb[0] = geo[i].bb[1] = p[0];
+				geo[i].bb[2] = geo[i].bb[3] = p[2];
+			} else {
+				if (p[0] < geo[i].bb[0]) geo[i].bb[0] = p[0];
+				if (p[0] > geo[i].bb[1]) geo[i].bb[1] = p[0];
+				if (p[2] < geo[i].bb[2]) geo[i].bb[2] = p[2];
+				if (p[2] > geo[i].bb[3]) geo[i].bb[3] = p[2];
+			}
+		}
+	}
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		const struct tile *t = &stan->v[i];
+		const double (*pts)[3] = world + geo[i].first;
 		const int n = t->npts;
 		uint32_t flags = 0x0001 | 0x0002 | 0x0008 | 0x0010;
 
 		if (t->room > numrooms) {
 			fail("a tile in room %d, past the level's %d", t->room, numrooms);
-		}
-
-		for (int k = 0; k < n; ++k) {
-			for (int c = 0; c < 3; ++c) {
-				pts[k][c] = t->pts[k][c] * inv - offset[c];
-			}
 		}
 
 		if (t->special == 3) {
@@ -1780,15 +1931,18 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 		for (int k = 0; k < n; ++k) {
 			double quad[4][3];
 			const double *a = pts[k], *b = pts[(k + 1) % n];
+			double above;
 
 			if (t->link[k] >> 4) {
 				continue;
 			}
 
+			above = wallAbove(world, geo, stan->n, i, a, b);
+
 			quad[0][0] = a[0]; quad[0][1] = a[1] - WALL_BELOW; quad[0][2] = a[2];
 			quad[1][0] = b[0]; quad[1][1] = b[1] - WALL_BELOW; quad[1][2] = b[2];
-			quad[2][0] = b[0]; quad[2][1] = b[1] + WALL_ABOVE; quad[2][2] = b[2];
-			quad[3][0] = a[0]; quad[3][1] = a[1] + WALL_ABOVE; quad[3][2] = a[2];
+			quad[2][0] = b[0]; quad[2][1] = b[1] + above; quad[2][2] = b[2];
+			quad[3][0] = a[0]; quad[3][1] = a[1] + above; quad[3][2] = a[2];
 			EMIT(0x0004, quad, 4);
 			++walls;
 		}

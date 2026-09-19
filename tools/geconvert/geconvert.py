@@ -466,7 +466,22 @@ def write_bg(bg, ls, offset, tilebounds=None):
 # tiles
 
 WALL_BELOW = 50.0   # world units a wall reaches below the floor edge it stands on
-WALL_ABOVE = 400.0  # and above
+WALL_ABOVE = 400.0  # and above, where nothing walkable stands in the way
+
+# A wall is raised round every unlinked tile edge, and GoldenEye's own walls
+# are the edge and nothing more: its collision walks out from the tile the
+# player stands on through the links alone (stan.c's sub_GAME_7F0B1DDC), so an
+# edge belonging to another storey's floor can never stop them. Perfect Dark's
+# is a quad in the world, so a wall raised WALL_ABOVE over a staircase's own
+# tiles stands in the air across the flight above it. Every wall stops under
+# the lowest walkable surface that passes over it.
+WALL_HEADROOM = 60.0  # a surface at least this far above the edge is another
+                      # floor, not the step or kerb the wall itself belongs to
+WALL_STEP = 20.0      # world units between the samples along an edge
+WALL_SIDE = 4.0       # the slack on the box a surface is looked for in
+WALL_REACH = 30.0     # the player's own radius: they stand this far from a
+                      # wall, and on a slope that is lower ground than the
+                      # surface over the wall itself
 
 
 def read_stan(data):
@@ -513,12 +528,75 @@ def room_tile_bounds(stan, numrooms, ls, offset):
     return out
 
 
+def tile_surface_y(pts, x, z):
+    """The tile's own surface at x/z, from the fan triangle that holds the
+    point, or None where the point is outside the tile."""
+    a = pts[0]
+    for k in range(1, len(pts) - 1):
+        b, c = pts[k], pts[k + 1]
+        det = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+        if det == 0.0:
+            continue
+        w0 = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / det
+        w1 = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / det
+        w2 = 1.0 - w0 - w1
+        if w0 >= 0.0 and w1 >= 0.0 and w2 >= 0.0:
+            return w0 * a[1] + w1 * b[1] + w2 * c[1]
+    return None
+
+
+def wall_above(world, bbox, self_i, a, b):
+    """How far a wall on this edge may rise: to the lowest walkable surface
+    that passes over it, else WALL_ABOVE."""
+    dx, dz = b[0] - a[0], b[2] - a[2]
+    length = math.sqrt(dx * dx + dz * dz)
+    reach = WALL_REACH + WALL_SIDE
+    cand = np.nonzero((bbox[:, 0] <= max(a[0], b[0]) + reach)
+                      & (bbox[:, 1] >= min(a[0], b[0]) - reach)
+                      & (bbox[:, 2] <= max(a[2], b[2]) + reach)
+                      & (bbox[:, 3] >= min(a[2], b[2]) - reach))[0]
+    above = WALL_ABOVE
+    # the quad blocks between its own lowest and highest vertex, whatever its
+    # corners are (cdCollectGeoForCylFromList() reads the tile's ymin/ymax), so
+    # what has to stay under the surface is its higher end
+    top = max(a[1], b[1])
+    # a riser's own side is an edge that goes straight down, and a point of a
+    # wall in plan; Perfect Dark blocks within the player's radius of one all
+    # the same, so it takes the one sample at its own place
+    nsteps = int(length / WALL_STEP) + 1 if length >= 1.0 else 1
+    for s in range(nsteps):
+        f = (s + 1) / (nsteps + 1)
+        px, pz = a[0] + dx * f, a[2] + dz * f
+        for j in cand:
+            if j == self_i:
+                continue
+            # the player stands anywhere within their own radius of the wall,
+            # and where the surface reaches over any of that it is what the
+            # wall has to stay under: its lowest there
+            low = None
+            for ox, oz in ((0.0, 0.0), (WALL_REACH, 0.0), (-WALL_REACH, 0.0),
+                           (0.0, WALL_REACH), (0.0, -WALL_REACH)):
+                y = tile_surface_y(world[j], px + ox, pz + oz)
+                if y is not None and (low is None or y < low):
+                    low = y
+            if low is None:
+                continue
+            gap = low - top
+            if WALL_HEADROOM <= gap < above:
+                above = gap
+    return above
+
+
 def write_tiles(stan, numrooms, ls, offset):
     inv = 1.0 / ls
     rooms = [[] for _ in range(numrooms + 1)]
     walls = 0
-    for t in stan:
-        pts = [(x * inv - offset[0], y * inv - offset[1], z * inv - offset[2]) for x, y, z, _ in t['points']]
+    world = [[(x * inv - offset[0], y * inv - offset[1], z * inv - offset[2])
+              for x, y, z, _ in t['points']] for t in stan]
+    bbox = np.array([[min(p[0] for p in w), max(p[0] for p in w),
+                      min(p[2] for p in w), max(p[2] for p in w)] for w in world], float)
+    for ti, t in enumerate(stan):
+        pts = world[ti]
         flags = 0x0001 | 0x0002 | 0x0008 | 0x0010
         if t['special'] == 3:
             flags |= 0x0040
@@ -529,8 +607,9 @@ def write_tiles(stan, numrooms, ls, offset):
             if link >> 4:
                 continue
             a, b = pts[i], pts[(i + 1) % n]
+            above = wall_above(world, bbox, ti, a, b)
             quad = [(a[0], a[1] - WALL_BELOW, a[2]), (b[0], b[1] - WALL_BELOW, b[2]),
-                    (b[0], b[1] + WALL_ABOVE, b[2]), (a[0], a[1] + WALL_ABOVE, a[2])]
+                    (b[0], b[1] + above, b[2]), (a[0], a[1] + above, a[2])]
             rooms[t['room']].append((0x0004, quad))
             walls += 1
     body = []

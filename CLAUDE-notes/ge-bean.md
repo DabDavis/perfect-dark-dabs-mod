@@ -3269,3 +3269,104 @@ Measured after: at 1024x768 the tab band is screen 907..957 and PREVIOUS's ink
 level, mission, characters and 007 options all checked, and the intro's cast
 captions (the one other caller of `gexFrontTextPrint()`, also under
 `G_ASPECT_CENTER_EXT`) still read beside their character.
+
+## Walls in the air over a staircase (2026-09-19)
+
+The user: "on every level with stairs, there is a point where you cannot
+procede up/down the stairs, the collision is blocking".
+
+**GoldenEye's wall is the edge and nothing more.** The conversion raises a quad
+round every unlinked stan edge, `WALL_BELOW` under it and `WALL_ABOVE` over it,
+and 400 units of that is four metres. GoldenEye never needed a height:
+`sub_GAME_7F0B1DDC()` (stan.c) walks out from the tile the player is standing
+on **through the links alone** and calls an unlinked edge within their radius a
+collision, so it never leaves the surface they are on and never looks at y at
+all. An edge belonging to another storey's floor cannot touch them. Perfect
+Dark's is geometry in the world and `cdCollectGeoForCylFromList()` blocks
+anything whose box meets the quad's own ymin..ymax - so wherever two walkable
+surfaces sit over one another, the lower one's walls stand in the air across
+the upper one. **A stairwell is exactly that**, which is why it is every level
+with stairs: GoldenEye stacks its flights, and the Bunker's two run one
+directly above the other, 370 units apart, over the same x and z.
+
+**The measurement is `cdTestVolume()` over a grid, in the game.** `--boot-stage
+0x6f` is the Bunker (the missions are 0x15 and 0x5e-0x70 in a run directory
+with the arenas alone), and `build/gexrom/stairprobe.py` asks the collision
+itself at 900 standing positions over the upper flight - the pure query the
+floor audit recommends over teleporting, with `bgFindRoomsByPos()` for the
+rooms and the player's own radius and box (ground+30 to ground+160). Before:
+**118 of the 900 inside a wall** - two fences down the length of the flight at
+x -106.1 and 94.1, which are the lower flight's banisters, and **the flight
+closed across its whole width at the top**, which is the point the report is
+about. After: **0 of 900**.
+
+**Every wall now stops under the lowest walkable surface that passes over it**
+(`wall_above()` in geconvert.py, `wallAbove()` in geconvert.c, converter
+version 16). It samples every 20 units along the edge, reads a candidate
+tile's surface from the fan triangle that holds the point (`tile_surface_y()`,
+the same fan `cdFindGroundInIntTile()` walks), and takes the lowest of that and
+four probes a player's radius away. Four things had to be right, and the probe
+named each one in turn - 118, then 84, 12, 10, 8, 0:
+
+- **A riser's own side is a wall too.** An edge that goes straight down is a
+  *point* in plan, and Perfect Dark blocks within the player's radius of one
+  all the same. Passing over those (they have no direction, so no normal) left
+  both banister fences standing: 84 of the 900.
+- **A wall blocks between its own lowest and highest vertex**, not along its
+  plane: `cdCollectGeoForCylFromList()` reads the tile's ymin/ymax. So what has
+  to stay under the surface is the quad's **higher** end, and clamping against
+  the edge's height at the sample left a wall 1.5 units into the flight above.
+- **The player's own radius.** They stand up to 30 units from a wall, and on
+  GoldenEye's own ramps - the Bunker's is 2.1 vertical to 1 horizontal - that
+  is 60 units of lower ground than the surface over the wall itself. The four
+  probes are that.
+- **A surface that stops at the wall still counts.** The first rule only
+  clamped against a tile that reached `WALL_SIDE` to *both* sides of the edge,
+  to keep a wall that merely abuts a floor of its own level - but
+  `WALL_HEADROOM` (60) already does that job, and the landing at the top of the
+  Bunker's flight ends exactly on the wall's line.
+
+**A clamped wall still stops its own tile's walker.** `WALL_HEADROOM` is 60, so
+a wall keeps at least 60 units over its highest vertex, and a player standing
+on the tile that owns the edge has a box starting at most 30 above that vertex
+(`playerGetBbox()`: ymin is manground+30; `chrGetBbox()`'s is +20). That is the
+whole reason the rule is stated as a headroom and not as a minimum height.
+
+`room_tile_bounds()` still grows a room's box by the unclamped `WALL_ABOVE`.
+The boxes are what `bgFindRoomsByPos()` answers from and what the floor-fall
+fix rests on (above), and a box that is too tall costs nothing, so they are
+left alone.
+
+**An offline twin of the wall test over-reports, and by a lot.**
+`cdCollectGeoForCylFromList()` is only ever handed **the geos of the rooms the
+player is in**, so a wall in a room they are not in cannot touch them however
+close it is. A twin that walks every wall in the level (scratchpad
+`wallaudit.py`) called 117 of 522 standing positions on Silo's main floor
+blocked where the game itself says none are, and it counts a steep tile's own
+neighbours as another storey. Ask the game: `stairprobe.py` over a grid of the
+level's own tile middles, in a run directory whose `mods/GoldenEye Arenas` is
+the conversion to be judged (`build/gexbefore` holds the unclamped walls, with
+`CONVERT.txt` already at the current version so the game does not convert over
+them, and it reproduces the Bunker's 118 exactly).
+
+**Still open: a wall hanging into the space under a ledge.** The other half of
+the overlap - a wall whose own tile is 60 to 200 units *above* a floor, whose
+quad reaches `WALL_BELOW` under itself and blocks a player walking underneath.
+No clamp of the top can reach it, since the wall has to stand at its own tile's
+level; it would want the *bottom* raised to the lower floor's head height,
+which is only possible where that is still inside the box of the tile's own
+walker. It waits for a report that shows one.
+
+**Four more levels, the same way**, asking the game at the middle of every one
+of the level's own tiles (`build/sweepstairs.sh`, the two run directories, the
+grids in `build/gexrom/grid_*.txt`): Facility 268 blocked of 2599 before and
+**37** after, Archives 345 of 1636 and **229**, Dam 738 of 2755 and **636**,
+Control 430 of 2275 and **393**. A tile's middle is often within the player's
+radius of a wall that belongs there - GoldenEye's tiles are 35 units across -
+so what these say is the drop, not the total; the Bunker's flight, where every
+one of the 900 is a place a player walks, is the clean measurement.
+
+**Checked**: all twenty missions boot on `--boot-stage` and run 600 frames with
+no warning and the player on their feet at full health (`runmissions.sh`, five
+at a time, each with its own `--savedir`), and the C converter's bytes are
+still the Python's over all 26 levels and all 20 missions (`diff -r`).
