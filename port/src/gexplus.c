@@ -737,6 +737,15 @@ void gexPlusMissionHeads(void)
 {
 	s32 start, female;
 
+	// A stage that is not a converted mission gives the rows back: they are a
+	// mission's own, and its heads must not end up in the game's own lists on
+	// the next level - bodiesReset() runs on every one of them, and only a
+	// mission's own load goes through gexPlusMissionSetup().
+	if (!modloaderStageIsMission(g_Vars.stagenum)) {
+		geRomReleaseRows();
+		return;
+	}
+
 	if (g_GeRomNumRows <= 0) {
 		return;
 	}
