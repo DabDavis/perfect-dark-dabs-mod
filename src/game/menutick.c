@@ -29,6 +29,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexfront.h"
+#include "gecinema.h"
 #include "geintro.h"
 #include "modloader.h"
 #endif
@@ -80,6 +81,12 @@ void menuTick(void)
 	if (geIntroIsActive()) {
 		geIntroTick();
 		return;
+	}
+
+	// A GE Plus cinema has played out and the menus are up again: the folder
+	// opens on the Cinema page the mission was picked from (gecinema.c)
+	if (gecinemaWantsFolder()) {
+		gexFrontOpenAfterCinema(gecinemaTakeFolderMission());
 	}
 
 	if (gexFrontIsActive()) {

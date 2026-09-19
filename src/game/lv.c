@@ -106,6 +106,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "gecinema.h"
 #endif
 #ifndef PLATFORM_N64
 #include "mod.h"
@@ -2227,6 +2228,10 @@ void lvTick(void)
 	// A converted GoldenEye mission that has said it is over: the next button
 	// press fades the screen out and leaves (gexplus.c)
 	gexPlusMissionExitTick();
+
+	// and GE Plus's Cinema, which is a mission's stage with its own opening
+	// camera shots played on it and no player in it (gecinema.c)
+	gecinemaTick();
 #endif
 
 	lvCheckPauseStateChanged();

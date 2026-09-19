@@ -3779,3 +3779,84 @@ every floor weapon in the missions and the arenas is the wrong gun - the 408
 KF7 Soviets (item 8) are Phantoms - and the grenades and mines (items 26-29,
 44 of them) become nothing at all, since the conversion drops an item past its
 twenty-five. `GE_ITEM_WEAPON` is the fix, one line in each converter.
+
+## GE Plus's Cinema: GoldenEye's own opening shots (2026-09-19)
+
+The folder's mode select has a third row now - **3. CINEMA** under SELECT
+MISSION and MULTIPLAYER - which opens the Level page's film strip over the
+twenty missions, a stage picture and a name each, twelve to a page with
+GoldenEye's NEXT tab. Picking one plays that mission's own opening camera shots
+on its level and comes back to the page it was picked from.
+
+**What a GoldenEye cinema is.** Every mission carries one to six
+`INTROTYPE_CAMERA` records in its setup's intro list: where the camera stands,
+the yaw and pitch it looks along, the pad whose room it is in, and one or two
+text ids. GoldenEye picks **one at random** each time a mission starts, sits
+still on it, shows the first line at two seconds and the second at five, and
+ends at eight - or at five with one line, or on a button press - then swirls
+down into Bond's eyes (bondview2.c, `ptr_random06cam_entry`). There are no
+cutscene levels and no camera paths: the shot is a still with a caption, which
+is Dam's "Byelomorye Dam, Arkangelsk, USSR". The Cinema page plays a mission's
+shots one after another so all of them can be seen, on GoldenEye's own
+timings.
+
+**The records had to be converted.** Perfect Dark's intro commands are
+GoldenEye's own - the same nine types in the same order at the same widths, so
+the conversion copied them straight through - but nothing in Perfect Dark reads
+type 6 (`INTROCMD_6` is stepped over by its 40 bytes and never looked inside),
+so its fields are the port's to define: the position as three floats in the
+level's frame, the angles as radians, the pad renumbered and the two text ids
+as the mission's own bank. `intro_camera()` in gesolo.py and the same in
+geconvert.c, `GECONVERT_VERSION_STR` 26.
+
+**The trap: a hundredth of the camera's coordinate is already a unit of the
+converted level.** The record's comment in GoldenEye's own headers says "cm
+scale" and its code divides by 100, which reads as GoldenEye's own units - but
+GoldenEye's pads are four and a bit times smaller than that. Dividing by the
+level scale as a pad's position is divided put Dam's first shot four times too
+far out, in the void over the sea, and every shot drew black. It is the level's
+own offset and nothing else: the shot then lands **38 units** from pad 312,
+which is the pad the record itself names.
+
+**The camera is the player, with the walk taken away.** `bcutsceneInit()` puts
+the player in `MOVEMODE_CUTSCENE`, whose tick is empty on purpose, and the
+placement is `modSpectateTick()`'s - `func0f065e74()` resolves the destination
+rooms by walking portals rather than testing collision, since the camera hangs
+where nobody can stand. `TICKMODE_CUTSCENE` is **not** used: it has its own
+branch in `playerTick()` that drives the camera from a cutscene animation and
+would fight the shot.
+
+**Its own room comes from its own pad.** A portal walk from where the player
+spawned answers the room the player was in, which draws nothing from a camera
+on the other side of the level, so the record's pad gives `rooms[0]` and the
+walk fills the rest outwards.
+
+**The angles.** GoldenEye's look vector is
+`(cos(pitch)sin(yaw), sin(pitch), -cos(pitch)cos(yaw))` and Perfect Dark's
+horizontal one is `(-sin(theta), 0, cos(theta))`, so **theta is GoldenEye's yaw
+turned half round**; both pitches are positive upwards, and 16.16 radians past
+π wrap to a negative pitch (5.794 rad is 28 degrees down). `bmoveUpdateVerta()`
+does the rest of the bookkeeping, and `bmove0f0cc654()` and `bmove0f0cc19c()`
+are what move the *view* after the prop - without them the camera flies and the
+picture stays.
+
+**The picture is clean**: `playerRenderHud()` skips the crosshair, the ammo and
+the radar while a cinema runs, and keeps the hud messages, which are the
+captions. Hiding the sight with `bgunSetSightVisible()` is not enough - the
+draw always draws *something*, the non-aiming crosshair.
+
+**Coming back**: the last shot ends the stage (`mainChangeToStage(STAGE_TITLE)`,
+guarded, since the change only takes effect at the end of the frame and the
+tick would otherwise ask again every frame) and leaves a flag; `menuTick()`
+sees it when the menus are up and calls `gexFrontOpenAfterCinema()`, which is
+`gexFrontOpenAfterMatch()`'s pattern.
+
+**How it was tested.** `build/gexrom/cinematest.py` turns Dam into a cinema at
+frame 100 (`'gecinema.c'::g_GeCinemaMission = 0`, `g_GeCinemaNumShots = -1`)
+and shoots frame 260: the truck at the checkpoint under the mountains with
+GoldenEye's caption across the bottom, and the second shot is the hut from
+above. `cinematest2.py` watches the advance to shot 1 at 480 frames and the end
+of the last one, `cinemamenu.py` that the folder comes back on the Cinema page
+with the mission that was watched. A screenshot of the page itself needs the
+menus rather than the title's attract demo, which is the one thing here a
+headless run does not reach on its own.

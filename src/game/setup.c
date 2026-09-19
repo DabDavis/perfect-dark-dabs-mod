@@ -43,6 +43,7 @@
 #include "data.h"
 #include "types.h"
 #include "gexplus.h"
+#include "gecinema.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
 #include "modborrow.h"
@@ -1432,6 +1433,9 @@ void setupLoadFiles(s32 stagenum)
 		// actually has installed. It has to happen here rather than as each
 		// object is made, because the modeldef preload below walks the same
 		// props and would load the model the record named.
+		// and whether this stage is the folder's Cinema rather than a mission
+		gecinemaStageStart();
+
 		if (modloaderStageIsMission(stagenum)) {
 			gexPlusMissionSetup(g_StageSetup.props);
 

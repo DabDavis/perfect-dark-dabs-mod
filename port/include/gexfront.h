@@ -21,6 +21,9 @@ s32 gexFrontIsActive(void);
 // Opens the folder at Multiplayer Options after a GE Plus match. False when
 // it cannot be drawn, and the caller keeps Perfect Dark's Combat Simulator.
 s32 gexFrontOpenAfterMatch(void);
+// Opens the folder at the Cinema page after one of GoldenEye's opening camera
+// sequences has played (gecinema.c), with that mission under the cursor.
+s32 gexFrontOpenAfterCinema(s32 mission);
 void gexFrontTick(void);
 Gfx *gexFrontRender(Gfx *gdl);
 

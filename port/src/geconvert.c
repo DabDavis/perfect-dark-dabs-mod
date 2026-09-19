@@ -3641,7 +3641,7 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
  * Perfect Dark at 12. Type 6 is ten words, which is what Perfect Dark's is
  * (modrandom.c sizes INTROCMD_6 at 40 bytes).
  */
-static buf writeSoloIntro(const buf *f)
+static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const double *offset)
 {
 	static const uint8_t words[9] = { 3, 4, 4, 8, 2, 2, 10, 3, 2 };
 	const uint32_t at = be32(f->v, 8);
@@ -3657,7 +3657,37 @@ static buf writeSoloIntro(const buf *f)
 		if (o + 4 * (size_t)words[t] > f->n) {
 			break;
 		}
-		bufPut(&out, f->v + o, 4 * (size_t)words[t]);
+
+		if (t == 6) {
+			// GoldenEye's own opening camera shot, moved into the converted
+			// level: where the camera stands (hundredths of a GoldenEye unit),
+			// the yaw and pitch it looks along (16.16 radians), the pad whose
+			// room it is in, and the one or two lines it shows. Nothing in
+			// Perfect Dark reads the record - it steps over it by its length -
+			// so the fields are rewritten as the port wants them. gesolo.py's
+			// intro_camera().
+			const uint8_t *raw = f->v + o;
+			const size_t start = out.n;
+
+			bufPut(&out, raw, 40);
+
+			// a hundredth of one of these is already a unit of the
+			// *converted* level - GoldenEye's own units times its level
+			// scale - so only the level's offset is taken off
+			for (int i = 0; i < 3; ++i) {
+				const double p = (double)(int32_t)be32(raw, 4 + 4 * i) / 100.0;
+				setf32(out.v, start + 4 + 4 * i, offset ? p - offset[i] : p);
+			}
+
+			setf32(out.v, start + 0x10, (double)(int32_t)be32(raw, 0x10) / 65536.0);
+			setf32(out.v, start + 0x14, (double)(int32_t)be32(raw, 0x14) / 65536.0);
+			set32(out.v, start + 0x18, padNum(be32(raw, 0x18) & 0xffff, numpads, 0));
+			set32(out.v, start + 0x1c, soloTextId(be32(raw, 0x1c) & 0xffff));
+			set32(out.v, start + 0x20, soloTextId(be32(raw, 0x20) & 0xffff));
+		} else {
+			bufPut(&out, f->v + o, 4 * (size_t)words[t]);
+		}
+
 		o += 4 * (size_t)words[t];
 	}
 
@@ -3872,9 +3902,10 @@ static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head,
 }
 
 /** A GoldenEye solo setup as a Perfect Dark one (gesolo.py's convert()). */
-static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct solostats *st)
+static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
+		double levelscale, const double *offset)
 {
-	buf intro = writeSoloIntro(f);
+	buf intro = writeSoloIntro(f, numpads, levelscale, offset);
 	buf props = writeSoloProps(f, numpads, models, st);
 	buf paths = {0}, pathpads = {0}, ailists = {0}, aicode = {0}, out = {0};
 	const size_t introat = 0x20;
@@ -4909,7 +4940,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			setupRead(&mfile, &msetup);
 			mbound = boundPads(&mfile, lv->levelscale, offset);
 			mpads = writePads(&msetup, lv->levelscale, offset, &rf, &mbound);
-			mprops = writeSoloSetup(&mfile, msetup.pads.n, allmodels, &st);
+			mprops = writeSoloSetup(&mfile, msetup.pads.n, allmodels, &st, lv->levelscale, offset);
 
 			snprintf(rel, sizeof(rel), "files/bgdata/bg_gs%s_padsZ", lv->key);
 			writeFile(outdir, rel, mpads.v, mpads.n);

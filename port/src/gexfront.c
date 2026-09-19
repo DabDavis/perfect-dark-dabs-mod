@@ -62,6 +62,7 @@
 #include "system.h"
 #include "video.h"
 #include "gexplus.h"
+#include "gecinema.h"
 #include "gexfront.h"
 #include "game/modghost.h"
 #include "preprocess.h"
@@ -195,7 +196,7 @@ extern s32 g_MpWeaponSetNum;
 #define COLOUR_BAR 0x00000064
 
 enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE, SCREEN_CHARACTERS,
-	SCREEN_MISSION, SCREEN_DIFFICULTY, SCREEN_007OPTIONS, SCREEN_BRIEFING };
+	SCREEN_MISSION, SCREEN_DIFFICULTY, SCREEN_007OPTIONS, SCREEN_BRIEFING, SCREEN_CINEMA };
 
 /**
  * GoldenEye's mission folder (front.c's mission_folder_setup_entries): its nine
@@ -375,6 +376,7 @@ static struct {
 	s32 charsize[MAX_PLAYERS];    // how far a chosen portrait has grown, to 11
 	s32 charpicked;               // player 1 chose on the Characters page this session
 
+	s32 cinemapage;     // the Cinema page's page of mission pictures
 	s32 mission;        // the mission the grid is on, 0-19
 	s32 difficulty;     // the difficulty chosen for it
 	s32 briefpage;      // the briefing page open
@@ -1557,6 +1559,81 @@ static s32 frontOnNextTab(void)
 }
 
 /** interface_menu12_mpstage(): the picture under the cursor, the NEXT tab to turn the page. */
+static void frontSetCursorForMode(s32 mode);
+
+/**
+ * The Cinema page: GoldenEye's film strip again, a picture a mission, and
+ * picking one plays that mission's own opening camera shots on its level
+ * (gecinema.c). Twenty missions is two pages, turned by GoldenEye's NEXT tab.
+ */
+static void frontOpenCinema(void)
+{
+	g_Front.screen = SCREEN_CINEMA;
+	g_Front.cinemapage = g_Front.mission / LEVELS_PER_PAGE;
+	g_Front.highlight = g_Front.mission % LEVELS_PER_PAGE;
+	// the cursor on the picture the page opens on, as the Level page does
+	g_Front.cursorx = 86.0f + 85.0f * (g_Front.highlight % 4) + 17.0f;
+	g_Front.cursory = 134.0f + 70.0f * (g_Front.highlight / 4) + 11.0f;
+}
+
+static void frontStartCinema(s32 mission)
+{
+	union handlerdata data;
+
+	g_MissionConfig.stageindex = mission;
+	g_MissionConfig.stagenum = frontMissionStage(mission);
+	g_MissionConfig.iscoop = false;
+	g_MissionConfig.isanti = false;
+	g_MissionConfig.pdmode = false;
+	g_MissionConfig.difficulty = DIFF_A;
+
+	// the stage that loads next is a cinema rather than a mission to play
+	gecinemaArm(mission);
+
+	g_Front.active = 0;
+	frontUnload();
+
+	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
+}
+
+static void frontTickCinema(s32 pick, s32 back)
+{
+	const s32 first = g_Front.cinemapage * LEVELS_PER_PAGE;
+	const s32 onpage = NUM_MISSIONS - first < LEVELS_PER_PAGE ? NUM_MISSIONS - first : LEVELS_PER_PAGE;
+
+	if (!g_Front.tabprev && !g_Front.tabnext) {
+		const s32 y = (s32)g_Front.cursory;
+		const s32 x = (s32)g_Front.cursorx;
+		const s32 row = y >= 240 ? 2 : y >= 170 ? 1 : 0;
+		const s32 col = x >= 292 ? 3 : x >= 207 ? 2 : x >= 122 ? 1 : 0;
+
+		g_Front.highlight = row * 4 + col;
+
+		if (g_Front.highlight >= onpage) {
+			g_Front.highlight = onpage - 1;
+		}
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		g_Front.screen = SCREEN_MODE;
+		frontSetCursorForMode(2);
+		return;
+	}
+
+	if (pick && g_Front.tabnext) {
+		menuPlaySound(MENUSOUND_SWIPE);
+		g_Front.cinemapage = (g_Front.cinemapage + 1) % ((NUM_MISSIONS + LEVELS_PER_PAGE - 1) / LEVELS_PER_PAGE);
+		return;
+	}
+
+	if (pick && g_Front.highlight >= 0) {
+		menuPlaySound(MENUSOUND_SELECT);
+		g_Front.mission = first + g_Front.highlight;
+		frontStartCinema(g_Front.mission);
+	}
+}
+
 static void frontTickLevel(s32 pick, s32 back)
 {
 	const s32 first = g_Front.levelpage * LEVELS_PER_PAGE;
@@ -1796,8 +1873,6 @@ static void frontTickCharacters(void)
 		g_Front.screen = SCREEN_MPOPTIONS;
 	}
 }
-
-static void frontSetCursorForMode(s32 mode);
 
 /** set_cursor_to_stage_solo() and set_cursor_pos_difficulty(). */
 static void frontSetCursorForMission(s32 mission)
@@ -2059,6 +2134,7 @@ void gexFrontTick(void)
 	g_Front.tabstart = (g_Front.screen == SCREEN_MPOPTIONS || g_Front.screen == SCREEN_007OPTIONS
 			|| g_Front.screen == SCREEN_BRIEFING) && !g_Front.tabprev && frontOnStartTab();
 	g_Front.tabnext = ((g_Front.screen == SCREEN_LEVEL && g_Front.numlevels > LEVELS_PER_PAGE)
+			|| (g_Front.screen == SCREEN_CINEMA && NUM_MISSIONS > LEVELS_PER_PAGE)
 			|| g_Front.screen == SCREEN_007OPTIONS
 			|| (g_Front.screen == SCREEN_BRIEFING && g_Front.briefpage < NUM_BRIEF_PAGES - 1))
 		&& !g_Front.tabprev && frontOnNextTab();
@@ -2080,6 +2156,9 @@ void gexFrontTick(void)
 	case SCREEN_LEVEL:
 		frontTickLevel(pick, back);
 		return;
+	case SCREEN_CINEMA:
+		frontTickCinema(pick, back);
+		return;
 	case SCREEN_SCENARIO:
 		frontTickScenario(pick, back);
 		return;
@@ -2094,9 +2173,10 @@ void gexFrontTick(void)
 
 	if (g_Front.screen == SCREEN_MODE) {
 		// interface_menu06_modesel(): below 243 is SELECT MISSION, which opens
-		// the mission folder when the remake has missions to put on it
+		// the mission folder when the remake has missions to put on it, and
+		// below 275 is CINEMA, which is the remake's own third row
 		if (!g_Front.tabprev) {
-			g_Front.highlight = g_Front.cursory >= 243.0f ? 1 : 0;
+			g_Front.highlight = g_Front.cursory >= 275.0f ? 2 : g_Front.cursory >= 243.0f ? 1 : 0;
 		}
 
 		if (back || (pick && g_Front.tabprev)) {
@@ -2113,6 +2193,9 @@ void gexFrontTick(void)
 			menuPlaySound(MENUSOUND_SELECT);
 			g_Front.screen = SCREEN_MISSION;
 			frontSetCursorForMission(g_Front.mission);
+		} else if (pick && g_Front.highlight == 2 && frontMissionsAreOwn()) {
+			menuPlaySound(MENUSOUND_SELECT);
+			frontOpenCinema();
 		} else if (pick) {
 			menuPlaySound(MENUSOUND_ERROR);
 		}
@@ -2223,6 +2306,28 @@ s32 gexFrontOpenAfterMatch(void)
 	g_Front.cursorx = 126.0f;
 	g_Front.cursory = ROW_TOP + ROW_PLAYERS * ROW_PITCH + ROW_PITCH / 2;
 	// the press that ended the match is not a press in the folder
+	g_Front.inputdelay = 10;
+
+	return 1;
+}
+
+/**
+ * Back from a cinema GE Plus played: straight to the Cinema page with the
+ * mission that was watched under the cursor, the way a match goes back to
+ * Multiplayer Options.
+ */
+s32 gexFrontOpenAfterCinema(s32 mission)
+{
+	if (!gexFrontOpen()) {
+		return 0;
+	}
+
+	if (mission >= 0 && mission < NUM_MISSIONS) {
+		g_Front.mission = mission;
+	}
+
+	frontOpenCinema();
+	// the press that ended the cinema is not a press in the folder
 	g_Front.inputdelay = 10;
 
 	return 1;
@@ -2768,6 +2873,7 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 		frontSetSwitch(SW_CLASSIFIED, true);
 		break;
 	case SCREEN_LEVEL:
+	case SCREEN_CINEMA:
 		frontSetSwitch(SW_BLANK, true);
 		frontSetSwitch(SW_OHMSS, true);
 		break;
@@ -2878,6 +2984,23 @@ static Gfx *frontDrawMode(Gfx *gdl)
 	}
 
 	gdl = frontPrint(gdl, 0xaa, 0xfc, text, COLOUR_ON);
+
+	// CINEMA is the remake's own row, on GoldenEye's own pitch below the two,
+	// and it needs the remake's own missions: the shots are theirs.
+	{
+		const u32 cinema = frontMissionsAreOwn() ? COLOUR_ON : COLOUR_OFF;
+
+		text = "CINEMA\n";
+		frontMeasure(&g_Front.zurich, text, 0, &w, &h);
+		gdl = frontPrint(gdl, 0x96, 0x11c, "3.\n", cinema);
+
+		if (g_Front.highlight == 2) {
+			gdl = frontFillRect(gdl, 0x94, 0x11a, w + 0xaf, 0x12a, COLOUR_HIGHLIGHT);
+			gdl = frontTextSetup(gdl);
+		}
+
+		gdl = frontPrint(gdl, 0xaa, 0x11c, text, cinema);
+	}
 
 	return gdl;
 }
@@ -3022,6 +3145,63 @@ static Gfx *frontDrawLevel(Gfx *gdl)
 	}
 
 	if (g_Front.numlevels > LEVELS_PER_PAGE) {
+		gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+		gdl = frontTextSetup(gdl);
+	}
+
+	return gdl;
+}
+
+/**
+ * The Cinema page: the Level page's film strip over the twenty missions, each
+ * on its own stage picture and named as the mission grid names it. Picking one
+ * plays its opening camera shots (gecinema.c).
+ */
+static Gfx *frontDrawCinema(Gfx *gdl)
+{
+	const s32 first = g_Front.cinemapage * LEVELS_PER_PAGE;
+
+	for (s32 i = 0; i < 3; i++) {
+		gdl = frontFillRect(gdl, 0x25, 0x6c + i * 0x46, 0x185, 0xa0 + i * 0x46, 0x101010ff);
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+	}
+
+	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < NUM_MISSIONS; n++) {
+		const s32 row = n / 4;
+		const s32 col = n % 4;
+		const u32 colour = n == g_Front.highlight ? 0xffffffff : 0x6e6e6eff;
+
+		gdl = frontImage(gdl, frontStageImage(frontMissionStage(first + n)), STAGE_IMAGE_W, STAGE_IMAGE_H, G_IM_FMT_I, false,
+				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, STAGE_IMAGE_H, colour, false);
+	}
+
+	gdl = frontTextSetup(gdl);
+
+	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < NUM_MISSIONS; n++) {
+		const u32 colour = n == g_Front.highlight ? 0xffffff00 : 0x96969600;
+		char caption[32];
+		s32 w;
+		s32 h;
+		s32 x;
+		s32 y;
+
+		frontMissionName(first + n, caption, sizeof(caption));
+		frontMeasure(&g_Front.gothic, caption, 0, &w, &h);
+
+		x = 0x56 + 0x55 * (n % 4) - 0x1f;
+		y = 0x97 + 0x46 * (n / 4) - h;
+		gdl = frontText(gdl, &g_Front.gothic, &x, &y, caption, colour | 0xff, 0, false);
+
+		x = 0x56 + 0x55 * (n % 4) - 0x1f;
+		y = 0x97 + 0x46 * (n / 4) - h;
+		gdl = frontText(gdl, &g_Front.gothic, &x, &y, caption, colour | 0x64, 0, false);
+	}
+
+	if (NUM_MISSIONS > LEVELS_PER_PAGE) {
 		gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
 		gdl = frontTextSetup(gdl);
 	}
@@ -3541,6 +3721,9 @@ Gfx *gexFrontRender(Gfx *gdl)
 		break;
 	case SCREEN_LEVEL:
 		gdl = frontDrawLevel(gdl);
+		break;
+	case SCREEN_CINEMA:
+		gdl = frontDrawCinema(gdl);
 		break;
 	case SCREEN_SCENARIO:
 		gdl = frontDrawScenario(gdl);

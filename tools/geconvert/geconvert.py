@@ -1147,7 +1147,7 @@ def main():
             msetupdata = read_setup(md)
             mboundpads = geobjects.bound_pads(md, ls, offset)
             mpads = write_pads(msetupdata, ls, offset, rooms, None, None, mboundpads)
-            mprops, mmodels, mstats = gesolo.convert(md, len(msetupdata['pads']), gesolo.STOCK_BODIES)
+            mprops, mmodels, mstats = gesolo.convert(md, len(msetupdata['pads']), gesolo.STOCK_BODIES, ls, offset)
             allmodels.update(mmodels)
             allanims.update(mstats['anims'])
             files['bgdata/bg_gs%s_padsZ' % mkey] = mpads

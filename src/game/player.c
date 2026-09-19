@@ -104,6 +104,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "gecinema.h"
 #endif
 #ifndef PLATFORM_N64
 #include "video.h"
@@ -6507,18 +6508,30 @@ Gfx *playerRenderHud(Gfx *gdl)
 	}
 
 	if (g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY) {
-		gdl = bgunDrawSight(gdl);
+#ifndef PLATFORM_N64
+		// GE Plus's Cinema shows GoldenEye's own captions over a clean
+		// picture: no crosshair, no ammo and no radar (gecinema.c)
+		const bool cinema = gecinemaIsOn();
+#else
+		const bool cinema = false;
+#endif
+
+		if (!cinema) {
+			gdl = bgunDrawSight(gdl);
+		}
 
 		if (weaponHost(bgunGetWeaponNum(HAND_RIGHT)) == WEAPON_HORIZONSCANNER) {
 			gdl = bviewDrawHorizonScanner(gdl);
 		}
 
-		if (optionsGetAmmoOnScreen(g_Vars.currentplayerstats->mpindex)) {
+		if (optionsGetAmmoOnScreen(g_Vars.currentplayerstats->mpindex) && !cinema) {
 			gdl = bgunDrawHud(gdl);
 		}
 
 #if VERSION >= VERSION_NTSC_1_0
-		gdl = radarRender(gdl);
+		if (!cinema) {
+			gdl = radarRender(gdl);
+		}
 		gdl = hudmsgsRender(gdl);
 #else
 		gdl = hudmsgsRender(gdl);

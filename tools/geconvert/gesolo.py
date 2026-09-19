@@ -368,7 +368,41 @@ GE_INTRO_WORDS = {0: 3, 1: 4, 2: 4, 3: 8, 4: 2, 5: 2, 6: 10, 7: 3, 8: 2}
 INTROCMD_END = 12
 
 
-def convert_intro(d):
+INTROTYPE_CAMERA = 6
+
+
+def intro_camera(raw, numpads, scale, offset):
+    """GoldenEye's own opening camera shot, moved into the converted level.
+
+    The record is where the camera stands (hundredths of a converted unit), the
+    yaw and pitch it looks along (16.16 radians), the pad whose room it is in,
+    and the one or two lines of text it shows two and five seconds in
+    (bondtypes.h's SetupIntroCamera, played in bondview2.c). GoldenEye picks one
+    of a level's at random each time the mission starts; GE Plus's Cinema page
+    plays them all.
+
+    Nothing in Perfect Dark reads the record - it steps over it by its length
+    and never looks inside - so the fields are rewritten as the port wants them:
+    the position in the level's own frame as three floats, the angles as
+    radians, the pad renumbered and the text ids as the mission's own bank.
+    """
+    v = struct.unpack('>10i', raw)
+    out = bytearray(raw)
+    # a hundredth of one of these is already a unit of the *converted* level -
+    # GoldenEye's own units times its level scale - so only the level's offset
+    # is taken off. Dam's first shot lands 38 units from pad 312, which is the
+    # pad the record itself names.
+    pos = [v[1] / 100.0, v[2] / 100.0, v[3] / 100.0]
+    if offset is not None:
+        pos = [float(p) - float(o) for p, o in zip(pos, offset)]
+    struct.pack_into('>3f', out, 0x04, *pos)
+    struct.pack_into('>2f', out, 0x10, v[4] / 65536.0, v[5] / 65536.0)
+    struct.pack_into('>I', out, 0x18, pad_num(v[6] & 0xffff, numpads))
+    struct.pack_into('>2I', out, 0x1c, text_id(v[7] & 0xffff), text_id(v[8] & 0xffff))
+    return bytes(out)
+
+
+def convert_intro(d, numpads, scale=None, offset=None):
     h = struct.unpack_from('>10I', d, 0)
     out, spawns = [], 0
     if not h[2]:
@@ -381,7 +415,10 @@ def convert_intro(d):
         n = GE_INTRO_WORDS.get(t)
         if n is None:
             break
-        out.append(d[o:o + 4 * n])
+        if t == INTROTYPE_CAMERA:
+            out.append(intro_camera(d[o:o + 4 * n], numpads, scale, offset))
+        else:
+            out.append(d[o:o + 4 * n])
         if t == 0:
             spawns += 1
         o += 4 * n
@@ -545,7 +582,7 @@ def convert_ailists(d, at, stats, numpads):
     return table, code
 
 
-def convert(d, numpads, bodies):
+def convert(d, numpads, bodies, scale=None, offset=None):
     """A GoldenEye solo setup as a Perfect Dark one.
 
     `bodies(bodyid, headid)` gives the Perfect Dark body and head a GoldenEye
@@ -554,7 +591,7 @@ def convert(d, numpads, bodies):
     models = set()
     stats = dict(kept={}, dropped={}, ai_kept=0, ai_dropped={}, ai_unknown=0, anims=set())
     props = convert_props(d, numpads, bodies, models, stats)
-    intro, stats['spawns'] = convert_intro(d)
+    intro, stats['spawns'] = convert_intro(d, numpads, scale, offset)
     header = 0x20
     intro_at = header
     props_at = intro_at + len(intro)
