@@ -3546,9 +3546,19 @@ an objective, a door or the sight of Bond fires. A 900-frame boot of Control
 shows none. **Dam is the test**: chr 3 starts on list 1043 and at frame 127
 runs `raw 0x80ac GE 172 -> 1237` - `keyboard_right_hand1`, mapped to an
 appended row, flags 00, merge 16, speed 2 - and is in ACT_ANIM with that
-number. To reach any of the others from gdb, write `chr->ailist =
-ailistFindById(id)`, `aioffset = 0`, `sleep = 0`, which is what `aiSetList()`
-does.
+number, right arm out and hand at keyboard height in the screenshot. To reach
+any of the others from gdb, write `chr->ailist = ailistFindById(id)`,
+`aioffset = 0`, `sleep = 0`, which is what `aiSetList()` does.
+
+**Screenshotting one is easier than it looks.** A gdb `Breakpoint.stop()` in
+Python runs on *every* frame of a level and is slow enough that Dam takes
+minutes to reach frame 200; a **native** condition (`break videoEndFrame if
+g_Vars.lvframenum == 170`) is evaluated in gdb itself and gets there in
+seconds. `screenshotRequest()` only sets a flag that the next pre-swap
+callback reads, so the run has to continue a few frames afterwards. And the
+easy framing is to move the **chr** in front of the player rather than the
+player to the chr: Dam's typing guard stands behind a wall, and three attempts
+at putting the camera near him drew the wall.
 
 **And the intro stopped spending the table.** `introLoadAnims()` appended its
 twenty-five on *every* way into GE Plus, 1024 rows being all there are
