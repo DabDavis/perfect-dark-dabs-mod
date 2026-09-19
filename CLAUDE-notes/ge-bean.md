@@ -3179,3 +3179,48 @@ are 0x65-0x78, the arenas 0x02-0x64 and 0x5e-0x64), `gdb -p ... -ex 'call
 `geBloodDeathRender` with `screenshotRequest()` every few hits captures the
 wash. For the arenas, `set var g_GexPlusMode = 1` after a `--boot-stage 0x02
 --mpsims 1` boot.
+
+
+## The folder screens' background on a wide window (2026-09-19)
+
+The user: "lets make the background behind the folders 16:9, but preserve
+aspect of the folder menus by keeping them centered".
+
+Only the background was wrong. The folder is drawn through
+`guPerspectiveF(60, videoGetAspect(), ...)` with a fixed *vertical* field of
+view, so on a wide window it already keeps GoldenEye's shape and sits in the
+middle, and the 2D text over it is already under `G_ASPECT_CENTER_EXT` in the
+same place - the two line up on any window and neither needed touching. What
+came into view beside them was black, because GoldenEye's backdrop stops at its
+own 4:3 screen.
+
+**The backdrop is a picture frame, not a plane.** It is the one display list of
+`Pgx278Z` that no switch covers, and it is **eight vertices**: an outer
+rectangle (x -2240..2133, y -2693..2457, z -50) and an inner one
+(-1821..1679, -2493..2107) that the folder stands in, with the frame's own
+texture between them. So it cannot be scaled - scaling moves the inner edge
+too and opens a black ring between the frame and the folder, which is how this
+was nearly written the wrong way. Only the four outer vertices move
+(`frontWidenBackdrop()`, called once a frame from `frontDrawFolder()` so a
+resized window is followed), and the ROM's own eight are kept at load
+(`frontLoadBackdrop()`) so the move is always computed from them and never from
+a moved edge.
+
+To learn that, render the model with every switch off: what is left on screen is
+the backdrop alone, and its silhouette is the folder's - tab notches and all.
+
+**How far out.** Not by the window's aspect: GoldenEye's right hand edge (2133)
+is already inside its own 4:3 half width (2194), which the N64's overscan
+covered and a PC window does not, so a proportional widening left a 19 pixel
+black strip down the right of a 1280x720 frame and looked like the arithmetic
+was wrong. The half width the view spans at the frame's own depth is asked of
+the camera instead - `(FOLDER_EYEZ - z * FOLDER_SCALE) * tan(fovy/2) * aspect /
+FOLDER_SCALE`, a percent over - and an edge is only ever moved outwards, so a
+4:3 window still draws the ROM's own left edge.
+
+**The texture is continued, not stretched.** A third more window is two and a
+half times the side bar (419 model units to 1166 at 16:9), so `s` is
+extrapolated along the line that already takes it from the inner edge to the
+outer one, which keeps the texel density and repeats the noise. Measured with
+no black column at any row on 1024x768, 1280x720 and 2560x1080, on the mode,
+mission, level and multiplayer screens.

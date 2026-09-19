@@ -90,6 +90,17 @@ extern s32 g_MpWeaponSetNum;
 #define GEFRONT_W 440.0f
 #define GEFRONT_H 330.0f
 
+// frontSetupMenuBackground()'s camera: GoldenEye's 60 degree view with the eye
+// 700 in front of the folder, which is drawn at a quarter of its own size.
+// frontWidenBackdrop() measures the view with these as well.
+#define FOLDER_FOVY 60.0f
+#define FOLDER_EYEZ 700.0f
+#define FOLDER_SCALE 0.25f
+#define FOLDER_TANHALFFOVY 0.57735026f // tanf(FOLDER_FOVY / 2)
+
+// the frame that stands behind the folder (frontWidenBackdrop())
+#define GEFRONT_BACKDROP_VTX 8
+
 // GoldenEye's model number of the menu folder, and its switches (bondconstants.h)
 #define FOLDER_MODEL 278
 #define SW_TABS         0
@@ -378,6 +389,10 @@ static struct {
 		struct textureconfig config;
 	} textures[MAX_FRONT_TEXTURES];
 	s32 numtextures;
+
+	// the backdrop's frame, and the vertices the ROM gave it
+	struct modelrodata_dl *backdrop;
+	Vtx backdropvtx[GEFRONT_BACKDROP_VTX];
 } g_Front;
 
 /* ---- files -------------------------------------------------------------- */
@@ -620,6 +635,53 @@ static void frontUnloadModel(void)
 	}
 
 	g_Front.modeldef = NULL;
+	g_Front.backdrop = NULL;
+}
+
+/**
+ * The backdrop is the one display list of the folder model that no switch
+ * covers: a frame of eight vertices - an outer rectangle and an inner one the
+ * folder itself stands in - drawn behind everything else.
+ *
+ * It is found once, as the model loads - the first list of that many vertices
+ * that no MODELNODETYPE_TOGGLE covers - and its vertices are kept so that
+ * frontWidenBackdrop() can work from the ROM's own numbers however often the
+ * window changes shape.
+ */
+static struct modelrodata_dl *frontFindBackdrop(struct modelnode *node)
+{
+	for (; node; node = node->next) {
+		const s32 type = node->type & 0xff;
+
+		if (type == MODELNODETYPE_TOGGLE) {
+			continue;
+		}
+
+		if (type == MODELNODETYPE_DL) {
+			if (node->rodata->dl.numvertices == GEFRONT_BACKDROP_VTX) {
+				return &node->rodata->dl;
+			}
+		} else {
+			struct modelrodata_dl *dl = frontFindBackdrop(node->child);
+
+			if (dl) {
+				return dl;
+			}
+		}
+	}
+
+	return NULL;
+}
+
+static void frontLoadBackdrop(void)
+{
+	g_Front.backdrop = frontFindBackdrop(g_Front.modeldef->rootnode);
+
+	if (g_Front.backdrop) {
+		for (s32 i = 0; i < GEFRONT_BACKDROP_VTX; i++) {
+			g_Front.backdropvtx[i] = g_Front.backdrop->vertices[i];
+		}
+	}
 }
 
 static s32 frontLoadModel(void)
@@ -666,6 +728,8 @@ static s32 frontLoadModel(void)
 		modelSetScale(g_Front.model, 1);
 		modelSetRootPosition(g_Front.model, &zero);
 	}
+
+	frontLoadBackdrop();
 
 	return 1;
 }
@@ -2539,6 +2603,104 @@ static void frontColourSlides(void)
 }
 
 /**
+ * The frame behind the folder covers GoldenEye's own 4:3 screen and no more, so
+ * on a wider window its outer edge comes into view with black beyond it. The
+ * folder is drawn through videoGetAspect() and so keeps its shape and its place
+ * in the middle of the window whatever that window is; only the frame has to
+ * reach further, and it reaches by its outer rectangle alone - the inner one is
+ * where the folder sits, and moving it would open a gap between the two.
+ *
+ * How far it has to reach is asked of the camera rather than of the window's
+ * aspect alone, because GoldenEye's own right hand edge is already a few units
+ * inside its 4:3 screen (the N64's overscan covered it): the half width the
+ * view spans at the frame's own depth, with a little over. An edge is only ever
+ * moved outwards, so at 4:3 what is drawn is still the ROM's.
+ *
+ * The side bars grow by more than the window does (a third more window is two
+ * and a half times the bar), so their texture is carried out at the density it
+ * already had rather than stretched over the new width: s is extrapolated along
+ * the same line that takes it from the inner edge to the outer one.
+ */
+static void frontWidenBackdrop(void)
+{
+	f32 halfwidth;
+	s16 outer[2];
+	s16 inner[2];
+	s32 souter[2];
+	s32 sinner[2];
+
+	if (!g_Front.backdrop) {
+		return;
+	}
+
+	// the half width the view spans where the frame stands - it is flat, so any
+	// of its vertices gives the depth - in the model's own units, and a percent
+	// over so nothing sits exactly on the edge
+	halfwidth = (FOLDER_EYEZ - g_Front.backdropvtx[0].z * FOLDER_SCALE)
+		* FOLDER_TANHALFFOVY * videoGetAspect() / FOLDER_SCALE * 1.01f;
+
+	// the outer rectangle's x either side, and the inner one's
+	outer[0] = outer[1] = g_Front.backdropvtx[0].x;
+
+	for (s32 i = 1; i < GEFRONT_BACKDROP_VTX; i++) {
+		const s16 x = g_Front.backdropvtx[i].x;
+
+		if (x < outer[0]) outer[0] = x;
+		if (x > outer[1]) outer[1] = x;
+	}
+
+	inner[0] = outer[1];
+	inner[1] = outer[0];
+
+	for (s32 i = 0; i < GEFRONT_BACKDROP_VTX; i++) {
+		const s16 x = g_Front.backdropvtx[i].x;
+
+		if (x != outer[0] && x < inner[0]) inner[0] = x;
+		if (x != outer[1] && x > inner[1]) inner[1] = x;
+	}
+
+	// not the frame this was written for: leave it alone rather than divide by
+	// the width of an edge that is not there
+	if (inner[0] <= outer[0] || inner[1] >= outer[1]) {
+		return;
+	}
+
+	// and the s each of those four edges carries, so the texture can be
+	// continued rather than stretched
+	souter[0] = souter[1] = sinner[0] = sinner[1] = 0;
+
+	for (s32 i = 0; i < GEFRONT_BACKDROP_VTX; i++) {
+		const s16 x = g_Front.backdropvtx[i].x;
+		const s16 v = g_Front.backdropvtx[i].s;
+
+		if (x == outer[0]) souter[0] = v;
+		if (x == outer[1]) souter[1] = v;
+		if (x == inner[0]) sinner[0] = v;
+		if (x == inner[1]) sinner[1] = v;
+	}
+
+	for (s32 i = 0; i < GEFRONT_BACKDROP_VTX; i++) {
+		const s16 x = g_Front.backdropvtx[i].x;
+		const s32 side = x == outer[0] ? 0 : (x == outer[1] ? 1 : -1);
+		f32 wide;
+
+		if (side < 0) {
+			continue;
+		}
+
+		wide = side ? halfwidth : -halfwidth;
+
+		if (side ? wide < x : wide > x) {
+			wide = x;
+		}
+
+		g_Front.backdrop->vertices[i].x = (s16)wide;
+		g_Front.backdrop->vertices[i].s = (s16)(sinner[side]
+				+ (souter[side] - sinner[side]) * (wide - inner[side]) / (f32)(x - inner[side]));
+	}
+}
+
+/**
  * frontSetupMenuBackground(): the folder at a quarter size, 4000 in front of a
  * camera 190 above its middle and 3300 nearer, with GoldenEye's 60 degree view
  * and no depth buffer - the folder draws in its own order.
@@ -2553,6 +2715,8 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 	Mtx *projection = gfxAllocateMatrix();
 	u16 perspnorm;
 	Mtxf tmp;
+
+	frontWidenBackdrop();
 
 	for (s32 i = 0; i < g_Front.modeldef->numparts; i++) {
 		frontSetSwitch(i, false);
@@ -2622,7 +2786,7 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 	vp.vp.vtrans[2] = 511;
 	vp.vp.vtrans[3] = 0;
 
-	guPerspectiveF(persp.m, &perspnorm, 60.0f, videoGetAspect(), 100.0f, 10000.0f, 1.0f);
+	guPerspectiveF(persp.m, &perspnorm, FOLDER_FOVY, videoGetAspect(), 100.0f, 10000.0f, 1.0f);
 	guMtxF2L(persp.m, projection);
 
 	gSPViewport(gdl++, &vp);
@@ -2631,11 +2795,11 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
 	// folderpositions[0] and D_8002AFC4..CC
-	mtx00016ae4(&camera, -900.0f, 990.0f, 700.0f, -900.0f, 990.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	mtx00016ae4(&camera, -900.0f, 990.0f, FOLDER_EYEZ, -900.0f, 990.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 	mtx4LoadIdentity(&world);
 	world.m[3][0] = -900.0f;
 	world.m[3][1] = 800.0f;
-	mtx00015f04(0.25f, &world);
+	mtx00015f04(FOLDER_SCALE, &world);
 	mtx4MultMtx4InPlace(&camera, &world);
 
 	renderdata.unk00 = &world;
