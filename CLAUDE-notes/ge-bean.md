@@ -3360,7 +3360,7 @@ walker. It waits for a report that shows one.
 **Four more levels, the same way**, asking the game at the middle of every one
 of the level's own tiles (`build/sweepstairs.sh`, the two run directories, the
 grids in `build/gexrom/grid_*.txt`): Facility 268 blocked of 2599 before and
-**37** after, Archives 345 of 1636 and **229**, Dam 738 of 2755 and **636**,
+**201** after, Archives 345 of 1636 and **229**, Dam 738 of 2755 and **636**,
 Control 430 of 2275 and **393**. A tile's middle is often within the player's
 radius of a wall that belongs there - GoldenEye's tiles are 35 units across -
 so what these say is the drop, not the total; the Bunker's flight, where every
