@@ -22,7 +22,8 @@ What is and is not carried across:
 - rooms: GoldenEye's own display lists, vertices repacked 16 -> 12 bytes with
   one colour table entry per vertex, G_TRI1 as G_TRI4; primary lists opaque,
   secondary translucent
-- portals: GoldenEye's, scaled; the visibility commands are not (an END only)
+- portals: GoldenEye's, scaled, with the front room written in room2 as
+  Perfect Dark reads it; the visibility commands are not (an END only)
 - tiles: every stan tile a floor, every stan edge with no neighbour a wall
 - pads and waypoints: the setup's
 - multiplayer: GoldenEye's own spawns and weapon/ammo pads where it has a
@@ -383,7 +384,121 @@ def write_room(room, inv, offset, base_ptr, textures, lightsindex=0, tilebox=Non
     return data, centre, bbox, lights
 
 
-def write_bg(bg, ls, offset, tilebounds=None):
+# A portal's front side, and the room the conversion files on it.
+PORTAL_NEAR = 300.0      # a tile or vertex this close to a portal speaks for its room
+PORTAL_EPS = 1.0         # a point this close to the plane says nothing
+PORTAL_MARGIN = 40.0     # how far the room's own geometry must clear the plane
+
+
+def portal_metric(v):
+    """The normal a portal's winding gives it, and the slab its vertices span,
+    exactly as bg.c works them out at the load (g_PortalMetrics in bgSetup())."""
+    n = np.zeros(3)
+    for j in range(len(v)):
+        w = v[(j + 1) % len(v)]
+        n[0] += (v[j][1] - w[1]) * (v[j][2] + w[2])
+        n[1] += (v[j][2] - w[2]) * (v[j][0] + w[0])
+        n[2] += (v[j][0] - w[0]) * (v[j][1] + w[1])
+    d = -np.sqrt(n.dot(n))
+    if d == 0.0:
+        return None
+    n = n / d
+    vals = v.dot(n)
+    return n, float(vals.min()), float(vals.max())
+
+
+def portal_side(points, n, mid, at, keep):
+    """Which side of a portal's plane a room's points near it lie on, as the
+    median signed distance of the ones that speak. `keep` is how many of the
+    nearest to fall back on when too few are within PORTAL_NEAR."""
+    if not len(points):
+        return None
+    d = np.linalg.norm(points - at, axis=1)
+    pick = d <= PORTAL_NEAR
+    if pick.sum() < 3:
+        pick = np.zeros(len(points), bool)
+        pick[np.argsort(d, kind='stable')[:min(keep, len(points))]] = True
+    s = points[pick].dot(n) - mid
+    s = s[np.abs(s) > PORTAL_EPS]
+    if not len(s):
+        return None
+    return float(np.median(s))
+
+
+def room_world_vtx(room, inv, offset):
+    """A room's own vertices at world scale - scaled_room()'s `world`."""
+    vtx = room['vtx'] or b''
+    n = len(vtx) // 16
+    if not n:
+        return np.zeros((0, 3))
+    pts = np.array([struct.unpack_from('>3h', vtx, 16 * k) for k in range(n)], float).reshape(-1, 3)
+    return (pts + np.array(room['pos'], float)) * inv - offset
+
+
+def portal_room_order(bg, inv, offset, stan):
+    """Which of a portal's two rooms goes in room2: the one on its front.
+
+    Perfect Dark takes the room on the front of a portal's normal to be room2
+    (bg.c bgTestPosInRoomCheap, and the camera's side in the renderer's snake),
+    and GoldenEye's own record does not: over the twenty-six levels its room1
+    is the front room 668 times and its room2 1068, which is a coin toss.
+    Nearly all of that is repaired at the load, where bgInitPortal() swaps the
+    two when room1's *centre* is in front of the plane - the file's order only
+    survives where both centres fall on the front, and there it is right. Seven
+    portal records in the game are backwards in play even so: Facility's two
+    into the hole at 12/15, Archives' two at 41/42, and the 85/12 that the
+    three Bunker 2 levels share.
+
+    Each room's own geometry settles it. The tiles either side of a doorway
+    are on the sides their rooms are, and where a room has none - or both
+    rooms' tiles fall one side, as Runway's 13/14 does - the room's drawn
+    vertices say the same thing (given PORTAL_MARGIN they agree with the tiles
+    662 times out of 662 where both speak; at 20 they part twice, and one of
+    those two was Depot's 27/18, where a wall reaches 27 units past the plane
+    and the room's bulk is plainly the other side). Where neither says
+    anything, GoldenEye's own order is kept: bgInitPortal() will have it.
+    """
+    centroids = {}
+    for t in stan:
+        if len(t['points']) >= 3:
+            c = np.mean([[x * inv - offset[0], y * inv - offset[1], z * inv - offset[2]]
+                         for x, y, z, _ in t['points']], axis=0)
+            centroids.setdefault(t['room'], []).append(c)
+    centroids = {r: np.array(v) for r, v in centroids.items()}
+    worlds = {}
+    out = []
+    for p in bg.portals:
+        r1, r2 = p['room1'], p['room2']
+        v = np.array([np.array(q, float) * inv - offset for q in p['points']])
+        m = portal_metric(v)
+        if m is None:
+            out.append((r1, r2))
+            continue
+        n, lo, hi = m
+        at = v.mean(0)
+        mid = (lo + hi) / 2.0
+        front = None
+        s1 = portal_side(centroids.get(r1, np.zeros((0, 3))), n, mid, at, 5)
+        s2 = portal_side(centroids.get(r2, np.zeros((0, 3))), n, mid, at, 5)
+        if s1 is not None and s2 is not None and (s1 > 0) != (s2 > 0):
+            front = r1 if s1 > 0 else r2
+        else:
+            for r in (r1, r2):
+                if r not in worlds:
+                    worlds[r] = room_world_vtx(bg.rooms[r - 1], inv, offset) if 1 <= r <= bg.numrooms \
+                            else np.zeros((0, 3))
+            d1 = portal_side(worlds[r1], n, mid, at, 20)
+            d2 = portal_side(worlds[r2], n, mid, at, 20)
+            if (d1 is not None and d2 is not None and (d1 > 0) != (d2 > 0)
+                    and min(abs(d1), abs(d2)) > PORTAL_MARGIN):
+                front = r1 if d1 > 0 else r2
+        if front == r1:
+            r1, r2 = r2, r1
+        out.append((r1, r2))
+    return out
+
+
+def write_bg(bg, ls, offset, tilebounds=None, stan=None):
     inv = 1.0 / ls
     textures = set()
     n = bg.numrooms
@@ -406,8 +521,10 @@ def write_bg(bg, ls, offset, tilebounds=None):
     portals_at = cmds_at + len(cmds)
     portals = b''
     groups = b''
+    order = portal_room_order(bg, inv, offset, stan) if stan is not None else [
+            (p['room1'], p['room2']) for p in bg.portals]
     for i, p in enumerate(bg.portals):
-        portals += struct.pack('>HhhBx', i + 1, p['room1'], p['room2'], 0)
+        portals += struct.pack('>HhhBx', i + 1, order[i][0], order[i][1], 0)
         groups += struct.pack('>Bxxx', len(p['points']))
         for q in p['points']:
             groups += struct.pack('>3f', *(np.array(q) * inv - offset))
@@ -992,7 +1109,7 @@ def main():
         sp = np.array([q[:3] for t in stan for q in t['points']], float) / ls
         offset = np.round((sp.min(0) + sp.max(0)) / 2)
         tilebounds = room_tile_bounds(stan, bg.numrooms, ls, offset)
-        bgdata, tex, numlights = write_bg(bg, ls, offset, tilebounds)
+        bgdata, tex, numlights = write_bg(bg, ls, offset, tilebounds, stan)
         alltex.update(tex)
         tiles, walls = write_tiles(stan, bg.numrooms, ls, offset)
         setup = read_setup(gefiles.rom_file(solo or mpname))

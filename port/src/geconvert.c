@@ -1558,8 +1558,287 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 	return r;
 }
 
+/* ------------------------------------------------------------------------ */
+/* a portal's front side (portal_room_order) */
+
+#define PORTAL_NEAR 300.0   // a tile or vertex this close to a portal speaks for its room
+#define PORTAL_EPS 1.0      // a point this close to the plane says nothing
+#define PORTAL_MARGIN 40.0  // how far the room's own geometry must clear the plane
+
+// The normal a portal's winding gives it, and the slab its vertices span,
+// exactly as bg.c works them out at the load (g_PortalMetrics in bgSetup()).
+static int portalMetric(const double (*v)[3], int n, double *normal, double *lo, double *hi)
+{
+	double d = 0.0;
+
+	normal[0] = normal[1] = normal[2] = 0.0;
+
+	for (int j = 0; j < n; ++j) {
+		const double *a = v[j], *b = v[(j + 1) % n];
+		normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
+		normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
+		normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
+	}
+
+	d = -sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+
+	if (d == 0.0) {
+		return 0;
+	}
+
+	for (int c = 0; c < 3; ++c) {
+		normal[c] /= d;
+	}
+
+	for (int j = 0; j < n; ++j) {
+		const double val = v[j][0] * normal[0] + v[j][1] * normal[1] + v[j][2] * normal[2];
+
+		if (!j || val < *lo) *lo = val;
+		if (!j || val > *hi) *hi = val;
+	}
+
+	return 1;
+}
+
+struct portalnear {
+	double d;
+	int k;
+};
+
+static int cmpPortalNear(const void *a, const void *b)
+{
+	const struct portalnear *x = a, *y = b;
+	return x->d < y->d ? -1 : x->d > y->d ? 1 : x->k - y->k;
+}
+
+static int cmpDouble(const void *a, const void *b)
+{
+	const double x = *(const double *)a, y = *(const double *)b;
+	return x < y ? -1 : x > y;
+}
+
+// Which side of a portal's plane a room's points near it lie on, as the median
+// signed distance of the ones that speak. `keep` is how many of the nearest to
+// fall back on when too few are within PORTAL_NEAR.
+static int portalSide(const double (*pts)[3], int n, const double *normal, double mid,
+		const double *at, int keep, double *out)
+{
+	struct portalnear *near;
+	double *s;
+	int npick = 0, ns = 0;
+
+	if (n <= 0) {
+		return 0;
+	}
+
+	near = gcAlloc(n * sizeof(*near));
+
+	for (int k = 0; k < n; ++k) {
+		double q = 0.0;
+
+		for (int c = 0; c < 3; ++c) {
+			q += (pts[k][c] - at[c]) * (pts[k][c] - at[c]);
+		}
+
+		near[k].d = sqrt(q);
+		near[k].k = k;
+
+		if (near[k].d <= PORTAL_NEAR) {
+			npick++;
+		}
+	}
+
+	s = gcAlloc(n * sizeof(*s));
+
+	if (npick < 3) {
+		qsort(near, n, sizeof(*near), cmpPortalNear);
+		npick = keep < n ? keep : n;
+
+		for (int i = 0; i < npick; ++i) {
+			const double *p = pts[near[i].k];
+			const double v = p[0] * normal[0] + p[1] * normal[1] + p[2] * normal[2] - mid;
+
+			if (fabs(v) > PORTAL_EPS) {
+				s[ns++] = v;
+			}
+		}
+	} else {
+		for (int k = 0; k < n; ++k) {
+			const double v = pts[k][0] * normal[0] + pts[k][1] * normal[1] + pts[k][2] * normal[2] - mid;
+
+			if (near[k].d <= PORTAL_NEAR && fabs(v) > PORTAL_EPS) {
+				s[ns++] = v;
+			}
+		}
+	}
+
+	if (!ns) {
+		return 0;
+	}
+
+	qsort(s, ns, sizeof(*s), cmpDouble);
+	*out = ns & 1 ? s[ns / 2] : (s[ns / 2 - 1] + s[ns / 2]) / 2.0;
+
+	return 1;
+}
+
+// A room's own vertices at world scale - scaledRoom()'s `world`.
+static double (*roomWorldVtx(const struct bgroom *room, double inv, const double *offset, int *count))[3]
+{
+	const int n = room->hasvtx ? (int)(room->vtx.n / 16) : 0;
+	double (*out)[3];
+
+	*count = n;
+
+	if (!n) {
+		return NULL;
+	}
+
+	out = gcAlloc(n * sizeof(*out));
+
+	for (int k = 0; k < n; ++k) {
+		for (int c = 0; c < 3; ++c) {
+			out[k][c] = ((double)bes16(room->vtx.v, 16 * k + 2 * c) + room->pos[c]) * inv - offset[c];
+		}
+	}
+
+	return out;
+}
+
+/**
+ * Which of a portal's two rooms goes in room2: the one on its front.
+ *
+ * Perfect Dark takes the room on the front of a portal's normal to be room2
+ * (bg.c bgTestPosInRoomCheap, and the camera's side in the renderer's snake),
+ * and GoldenEye's own record does not: over the twenty-six levels its room1 is
+ * the front room 668 times and its room2 1068, which is a coin toss. Nearly
+ * all of that is repaired at the load, where bgInitPortal() swaps the two when
+ * room1's *centre* is in front of the plane - the file's order only survives
+ * where both centres fall on the front, and there it is right. Seven portal
+ * records in the game are backwards in play even so: Facility's two into the
+ * hole at 12/15, Archives' two at 41/42, and the 85/12 that the three Bunker 2
+ * levels share.
+ *
+ * Each room's own geometry settles it. The tiles either side of a doorway are
+ * on the sides their rooms are, and where a room has none - or both rooms'
+ * tiles fall one side, as Runway's 13/14 does - the room's drawn vertices say
+ * the same thing. Where neither says anything, GoldenEye's own order is kept:
+ * bgInitPortal() will have it.
+ */
+static int (*portalRoomOrder(const struct bg *bg, double inv, const double *offset, const tiles *stan))[2]
+{
+	const int n = bg->numrooms;
+	int (*out)[2] = gcAlloc(bg->portals.n * sizeof(*out) + sizeof(*out));
+	double (**centroids)[3] = gcAlloc((n + 2) * sizeof(*centroids));
+	int *ncentroids = gcAlloc((n + 2) * sizeof(*ncentroids));
+	double (**worlds)[3] = gcAlloc((n + 2) * sizeof(*worlds));
+	int *nworlds = gcAlloc((n + 2) * sizeof(*nworlds));
+	uint8_t *haveworld = gcAlloc(n + 2);
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		const struct tile *t = &stan->v[i];
+
+		if (t->room >= 1 && t->room <= n && t->npts >= 3) {
+			ncentroids[t->room]++;
+		}
+	}
+
+	for (int r = 1; r <= n; ++r) {
+		if (ncentroids[r]) {
+			centroids[r] = gcAlloc(ncentroids[r] * sizeof(*centroids[r]));
+			ncentroids[r] = 0;
+		}
+	}
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		const struct tile *t = &stan->v[i];
+		double c[3] = {0.0, 0.0, 0.0};
+
+		if (t->room < 1 || t->room > n || t->npts < 3) {
+			continue;
+		}
+
+		for (int k = 0; k < t->npts; ++k) {
+			for (int j = 0; j < 3; ++j) {
+				c[j] += t->pts[k][j] * inv - offset[j];
+			}
+		}
+
+		for (int j = 0; j < 3; ++j) {
+			centroids[t->room][ncentroids[t->room]][j] = c[j] / t->npts;
+		}
+
+		ncentroids[t->room]++;
+	}
+
+	for (size_t i = 0; i < bg->portals.n; ++i) {
+		const struct portal *p = &bg->portals.v[i];
+		double (*v)[3] = gcAlloc((p->npts ? p->npts : 1) * sizeof(*v));
+		double normal[3], lo = 0.0, hi = 0.0, at[3] = {0.0, 0.0, 0.0}, mid, s1, s2;
+		int r1 = p->room1, r2 = p->room2, front = 0;
+
+		for (int k = 0; k < p->npts; ++k) {
+			for (int c = 0; c < 3; ++c) {
+				v[k][c] = p->pts[k][c] * inv - offset[c];
+				at[c] += v[k][c];
+			}
+		}
+
+		out[i][0] = r1;
+		out[i][1] = r2;
+
+		if (!p->npts || !portalMetric(v, p->npts, normal, &lo, &hi)) {
+			continue;
+		}
+
+		for (int c = 0; c < 3; ++c) {
+			at[c] /= p->npts;
+		}
+
+		mid = (lo + hi) / 2.0;
+
+		if (portalSide(centroids[r1 >= 1 && r1 <= n ? r1 : 0], r1 >= 1 && r1 <= n ? ncentroids[r1] : 0,
+					normal, mid, at, 5, &s1)
+				&& portalSide(centroids[r2 >= 1 && r2 <= n ? r2 : 0], r2 >= 1 && r2 <= n ? ncentroids[r2] : 0,
+					normal, mid, at, 5, &s2)
+				&& (s1 > 0.0) != (s2 > 0.0)) {
+			front = s1 > 0.0 ? r1 : r2;
+		} else {
+			int rr[2] = { r1, r2 };
+			double d[2];
+			int got = 1;
+
+			for (int k = 0; k < 2; ++k) {
+				const int r = rr[k];
+
+				if (r >= 1 && r <= n && !haveworld[r]) {
+					worlds[r] = roomWorldVtx(&bg->rooms[r - 1], inv, offset, &nworlds[r]);
+					haveworld[r] = 1;
+				}
+
+				if (r < 1 || r > n || !portalSide(worlds[r], nworlds[r], normal, mid, at, 20, &d[k])) {
+					got = 0;
+					break;
+				}
+			}
+
+			if (got && (d[0] > 0.0) != (d[1] > 0.0)
+					&& (fabs(d[0]) < fabs(d[1]) ? fabs(d[0]) : fabs(d[1])) > PORTAL_MARGIN) {
+				front = d[0] > 0.0 ? r1 : r2;
+			}
+		}
+
+		if (front == r1) {
+			out[i][0] = r2;
+			out[i][1] = r1;
+		}
+	}
+
+	return out;
+}
+
 static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t *leveltex, int *numlights,
-		const int32_t (*tilebounds)[7])
+		const int32_t (*tilebounds)[7], const tiles *stan)
 {
 	const double inv = 1.0 / ls;
 	const int n = bg->numrooms;
@@ -1572,6 +1851,7 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	int32_t (*bboxes)[6] = gcAlloc((n + 1) * sizeof(*bboxes));
 	uint32_t ptr;
 	int32_t sumlights = 0;
+	int (*order)[2];
 
 	// the rooms are converted first, since their lights go in the primary data
 	for (int r = 1; r <= n; ++r) {
@@ -1604,11 +1884,13 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	cmdsat = lightsat + lightsblob.n + ((4 - lightsblob.n % 4) % 4);
 	portalsat = cmdsat + 8;
 
+	order = portalRoomOrder(bg, inv, offset, stan);
+
 	for (size_t i = 0; i < bg->portals.n; ++i) {
 		const struct portal *p = &bg->portals.v[i];
 		bufU16(&portals, (uint32_t)(i + 1));
-		bufU16(&portals, (uint16_t)p->room1);
-		bufU16(&portals, (uint16_t)p->room2);
+		bufU16(&portals, (uint16_t)order[i][0]);
+		bufU16(&portals, (uint16_t)order[i][1]);
 		bufU8(&portals, 0);
 		bufU8(&portals, 0);
 		bufU8(&groups, (uint8_t)p->npts);
@@ -4467,7 +4749,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 
 		bgdata = writeBg(&bg, lv->levelscale, offset, leveltex, &numlights,
-				roomTileBounds(&stan, bg.numrooms, lv->levelscale, offset));
+				roomTileBounds(&stan, bg.numrooms, lv->levelscale, offset), &stan);
 		tilesdata = writeTiles(&stan, bg.numrooms, lv->levelscale, offset, &walls);
 
 		setupfile = romFile(lv->solo ? lv->solo : lv->mp);

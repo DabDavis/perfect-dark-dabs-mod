@@ -2507,9 +2507,11 @@ levels (`diff -r`).
   over the twelve levels where the tiles either side decide it, GoldenEye's
   portals say room2 383 times and room1 305. So the winding carries no meaning
   in a converted level and anything that trusts it - the cheap room test, and
-  the room a walker is moved into - is a coin toss. That is the root of the
-  Runway disagreement rather than a quirk of one strip, and it is worth trying
-  to orient each portal by which room's tiles lie on which side.
+  the room a walker is moved into - is a coin toss. *(Done 2026-09-19, and the
+  last sentence of this bullet was wrong: `bgInitPortal()` repairs nearly all
+  of it at the load from the rooms' centres, seven records in the game are
+  backwards, and Runway's own 13/14 is not one of them. See "Which room is on
+  the front of a converted portal".)*
 
 ## GoldenEye's own intro on the way into GE Plus (2026-09-18)
 
@@ -3398,3 +3400,76 @@ one of the 900 is a place a player walks, is the clean measurement.
 no warning and the player on their feet at full health (`runmissions.sh`, five
 at a time, each with its own `--savedir`), and the C converter's bytes are
 still the Python's over all 26 levels and all 20 missions (`diff -r`).
+
+## Which room is on the front of a converted portal (2026-09-19)
+
+The last thing the floor-fall audit left open: **GoldenEye's portal winding is
+not Perfect Dark's.** PD takes the room on the front of a portal's normal to be
+`roomnum2` (`bgTestPosInRoomCheap()`, and the camera's side in the renderer's
+snake at bg.c:5882), and over the twenty-six levels GoldenEye's own record has
+room1 in front 668 times and room2 1068 - a coin toss, as the earlier note
+said.
+
+**But almost none of that reaches the game, and the earlier note was wrong to
+imply it did.** `bgInitPortal()` runs over every portal at the load and swaps
+room1/room2 when room1's *centre* is in front of the plane, so the file's order
+only survives where the centres cannot decide - where **both** centres fall in
+front, in which case it swaps and swaps straight back. Of 2078 portal records,
+that leaves **seven** backwards in play: Facility's two into the hole at 12/15,
+Archives' two at 41/42, and the 85/12 that Library, Basement and Stack share.
+
+**The trap in measuring it.** `bgInitPortal()` negates the normal in a *local*
+copy (`sp28`); `g_PortalMetrics[portalnum].normal` is never written. An offline
+twin that carries the negated normal out of the function calls 48 portals
+backwards instead of seven, all of them the swap-and-revert case, and the
+number looks like a real finding. Check a twin of it against `g_BgPortals[i]`
+in gdb before believing a count.
+
+**The conversion now writes the front room in room2 itself**
+(`portal_room_order()` in both converters, `GECONVERT_VERSION_STR` 20, so
+everyone reconverts). Two judges, in order:
+
+- **the level's own stan tiles.** The tiles either side of a doorway are on the
+  sides their rooms are: the median signed distance of a room's tile centroids
+  within `PORTAL_NEAR` (300) of the portal, ignoring anything within
+  `PORTAL_EPS` (1) of the plane, and the nearest five where fewer than three
+  are near. It speaks for 1736 of the 2078.
+- **the room's own drawn vertices**, the same way, where the tiles do not -
+  a room with no tiles, or both rooms' tiles on one side, which is what
+  Runway's 13/14 is. It has to clear the plane by `PORTAL_MARGIN` (40) on both
+  sides. That threshold is measured, not chosen: at 40 the vertices agree with
+  the tiles 662 times out of 662 where both speak, and at 20 they part twice -
+  one of the two being Depot's 27/18, where a wall reaches 27 units past the
+  plane while the room's bulk (and its centre, 1052 units the other way) is
+  plainly the other side.
+
+Where neither speaks, GoldenEye's order is kept: `bgInitPortal()` will have it.
+
+**The file's order is enough - no engine change.** Writing (back room, front
+room) survives the load whichever way the centres fall: if room1's centre is
+not in front there is no swap, and if it is, the revert test asks whether the
+*original* room2's centre is in front too, which for the front room it is. The
+one shape that could not be repaired from the file is room1's centre in front
+while room2's is not, and over all 26 levels there is no such portal.
+
+**Checked in the game, before and after.** With the old `bg_gxark.seg` dropped
+back into the converted mod (CONVERT.txt left at 20 so nothing reconverts),
+Facility's portals 11 and 12 read room1 15 room2 12 under a +y normal - the
+front room was the one *below*; with the new file they read 12/15. Archives'
+58/59 and Library's 100 the same way (`build/gexrom/portalprobe.py`, which
+walks `g_BgPortals` until `verticesoffset` is 0). 708 portal records change
+order over 24 of the 26 levels - Temple already agreed with PD throughout, and
+Cradle has no portals at all - and no file changes size, so the HD tables'
+offsets are untouched.
+
+**Checked**: all twenty missions boot and run 600 frames with no warning, the
+player on their feet (`y` is `manground` + 159) at full health - Dam is stage
+**0x15**, not 0x71, since it takes a stock slot; the other nineteen are
+0x5e-0x70. The C converter's bytes are still the Python's over all 26 levels
+and all 20 missions (`diff -r`), and the audit is `build/gexrom/portalcheck.py`.
+
+**Still open, and untouched by this**: the other half of the Runway
+disagreement. Its portal 18 (13/14) is not backwards - both rooms' tiles sit
+*behind* its plane, so the portal does not separate them at all and no
+orientation could. The `bwalkUpdateVertical()` fallbacks are what hold a player
+up there, and they still are.
