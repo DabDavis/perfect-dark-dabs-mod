@@ -4512,3 +4512,49 @@ frames and holds at its last. All twenty missions run 600 frames unchanged and
 the C converter's bytes are still the Python's.
 
 `GECONVERT_VERSION_STR` 33.
+
+## The truck's wheels, and two matrix bugs of my own (2026-09-19)
+
+Parts 1 and 2 of a truck model are the front wheels, 3 and 4 the rear, and
+**part 6 is a front wheel's own bounding box, whose height is the wheel's
+diameter** - which is where the rolling comes from, GoldenEye turning a wheel by
+the distance it covered over its radius rather than by any authored rate
+(propobj.c's `PROPDEF_VEHICHLE` render). The front two also steer, by
+GoldenEye's own arithmetic over the wheelbase and the rate the truck is turning
+at. GoldenEye adds the rolling angle **twice** where it owns the simulation,
+once inside the `isSimOwner` test and again after it; the distance over the
+radius is added once here, which is the geometry both games' numbers describe.
+
+**`realrot` is not a rotation.** Perfect Dark folds the object's own scale into
+it: Streets' jeeps carry rows of length **0.100** and Dam's truck 0.10987, which
+is `extrascale / 256 * 0.1`. So it cannot be written as a heading, and the
+tick's first attempt wrote **four of its nine terms** over the five the record
+was placed with, which is not even a rotation - that shipped, and is what the
+tester saw as a sheared slab. Replacing it with a whole, correct, *unit*
+rotation is no better: it throws the scale away and the truck draws nine times
+its size. What works is turning what is already there by **this frame's**
+amount, which is how `fanUpdateModel()` spins the game's own fans and carries
+the scale through untouched.
+
+**And a part's matrix is not the one `modelFindNodeMtx()` hands back.** Perfect
+Dark's own `modelUpdatePositionNodeMtx()`, in the branch that runs when a model
+has no animation, takes the parent from `node->parent`, multiplies with
+`mtx00015be4()` and writes `matrices[rodata->mtxindex0]`. Doing any of those
+three by hand instead - the root's matrix for the parent, mtx4MultMtx4InPlace,
+the matrix the lookup returns - puts the part somewhere else entirely.
+
+**Still open, and it is not the vehicle code: Dam's truck is a giant flat green
+slab.** With the truck tick and the wheel update **both disabled**, the truck
+still covers **96%** of the screen from 850 units away (`build/gexrom/vehdiff.py`
+shoots the same frame with and without the prop and `compare -metric AE` counts
+the difference; that is the way to measure this rather than squinting at a
+screenshot, which is what cost the time here). So it is the converted
+**`Pgx791Z`** miltruck model itself and predates all of this work - Streets'
+`Pgx792Z` jeep converts and draws perfectly beside it.
+
+Ruled out: **part 5's toggle**, which Perfect Dark's own `setupCreateProps()`
+reaches for by name (`MODELPART_TRUCK_0005`) and sets visible, and which the
+jeep does not have at all - turning it off changes nothing material (145729
+pixels against 150505). The structural difference left is that the miltruck
+carries **three type 0x09 nodes** (GoldenEye's BSP, converted as Perfect Dark's
+reorder) and the jeep carries none. That is where to look next.

@@ -173,6 +173,7 @@ static void vehTruckTick(struct prop *prop)
 	RoomNum rooms[8];
 	f32 aimangle;
 	f32 haspath = false;
+	f32 turnedby = 0.0f;
 	struct pad pad;
 
 	chraiExecute(truck, PROPTYPE_OBJ);
@@ -225,6 +226,7 @@ static void vehTruckTick(struct prop *prop)
 
 			truck->turnrot60 = diff / (delta > 0.0f ? delta : 1.0f);
 			truck->roty = vehWrapTau(truck->roty + diff);
+			turnedby = diff;
 		}
 	}
 
@@ -258,10 +260,29 @@ static void vehTruckTick(struct prop *prop)
 	prop->pos.x = next.x;
 	prop->pos.y = next.y;
 	prop->pos.z = next.z;
-	truck->base.realrot[0][0] = cosf(truck->roty);
-	truck->base.realrot[0][2] = -sinf(truck->roty);
-	truck->base.realrot[2][0] = sinf(truck->roty);
-	truck->base.realrot[2][2] = cosf(truck->roty);
+
+	// Where it is facing, turned by **this frame's** amount rather than loaded
+	// from the heading.
+	//
+	// `realrot` is not a rotation: Perfect Dark folds the object's own scale
+	// into it, and a prop placed at a tenth carries rows a tenth long (Streets'
+	// jeeps: 0.100, against the 0.10987 of Dam's truck). So writing a heading
+	// into it - even a whole, correct, unit rotation - throws that scale away
+	// and the truck draws nine times its size, which is the grey slab across
+	// the dam; writing only its four horizontal terms, as this did first,
+	// leaves something that is not even a rotation. Turning what is already
+	// there carries the scale through untouched, and is how fanUpdateModel()
+	// spins the game's own fans.
+	if (turnedby != 0.0f) {
+		Mtxf rot;
+		f32 delta3[3][3];
+		f32 turned[3][3];
+
+		mtx4LoadYRotation(turnedby, &rot);
+		mtx4ToMtx3(&rot, delta3);
+		mtx00016140(truck->base.realrot, delta3, turned);
+		mtx3Copy(turned, truck->base.realrot);
+	}
 
 	propDeregisterRooms(prop);
 	roomsCopy(rooms, prop->rooms);
@@ -301,63 +322,159 @@ void gexPlusVehicleTick(struct prop *prop)
 }
 
 /**
- * The rotor, and the wheels.
+ * A node of the model, turned on its own matrix and put back under the body's.
  *
- * GoldenEye turns the rotor in the render pass rather than the tick, once a
- * drawn frame, and puts the rotation on the node's own matrix: part 2 is the
- * main rotor, turned about y, and part 3 the tail rotor, turned about x
- * (propobj.c's `PROPDEF_AIRCRAFT` render). A model's parts keep GoldenEye's own
- * numbering through the conversion - `gemodelconv.py` writes its switch table
- * in order - so the two parts are found by number here as they are there.
+ * GoldenEye's three lines for every spinning part it has: the rotation, then
+ * the node's own position into that matrix, then the whole thing multiplied by
+ * the model's own (propobj.c, `matrix_4x4_set_position` and
+ * `matrix_4x4_multiply_homogeneous_in_place`).
+ */
+static void vehPutPart(struct model *model, s32 partnum, Mtxf *rot)
+{
+	struct modelnode *node = modelGetPart(model->definition, partnum);
+	struct modelrodata_position *rodata;
+	Mtxf local;
+	Mtxf *parent;
+
+	if (node == NULL || (node->type & 0xff) != MODELNODETYPE_POSITION) {
+		return;
+	}
+
+	rodata = &node->rodata->position;
+
+	// Perfect Dark's own, from the branch of modelUpdatePositionNodeMtx() that
+	// runs when a model has no animation: the node's position is a
+	// **translation in the model's own units**, multiplied by the parent's
+	// matrix - which is where the model's scale lives - and written to
+	// `matrices[mtxindex0]`. Doing any of those three by hand instead (the
+	// root's matrix for the parent, mtx4MultMtx4InPlace, the matrix
+	// modelFindNodeMtx hands back) puts the part somewhere else entirely, and
+	// a truck's four wheels then draw as slabs across the level.
+	parent = node->parent ? modelFindNodeMtx(model, node->parent, 0) : NULL;
+
+	mtx4Copy(rot, &local);
+	mtx4SetTranslation(&rodata->pos, &local);
+
+	if (parent) {
+		mtx00015be4(parent, &local, &model->matrices[rodata->mtxindex0]);
+	} else {
+		mtx4Copy(&local, &model->matrices[rodata->mtxindex0]);
+	}
+}
+
+/** A part's rodata, where it is the type wanted, or NULL. */
+static union modelrodata *vehPartRodata(struct model *model, s32 partnum, u32 type)
+{
+	struct modelnode *node = modelGetPart(model->definition, partnum);
+
+	return node && (node->type & 0xff) == type ? node->rodata : NULL;
+}
+
+/**
+ * The helicopter's rotor.
+ *
+ * GoldenEye turns it in the render pass rather than the tick, once a drawn
+ * frame: part 2 is the main rotor, turned about y, and part 3 the tail rotor,
+ * turned about x. A model's parts keep GoldenEye's own numbering through the
+ * conversion - `gemodelconv.py` writes its switch table in order - so the two
+ * are found by number here as they are there.
  *
  * (GoldenEye turns the main rotor about **z** instead while the prop carries
  * `PROPFLAG_INMOTION`, which is the flag a *thrown* object has; none of the
  * twenty missions throws an aircraft.)
  */
-void gexPlusVehicleUpdateModel(struct prop *prop)
+static void vehHeliUpdateModel(struct prop *prop)
 {
-	struct defaultobj *obj = prop->obj;
-	struct heliobj *heli = (struct heliobj *)obj;
-	struct model *model = obj->model;
-	struct modelnode *node;
+	struct heliobj *heli = (struct heliobj *)prop->obj;
+	struct model *model = heli->base.model;
 	Mtxf rot;
-	s32 i;
-
-	if (obj->type != OBJTYPE_HELI || model == NULL || model->definition == NULL) {
-		return;
-	}
 
 	if (g_Vars.lvupdate240 > 0) {
 		heli->rotoryrot = vehWrapTau(heli->rotoryrot + heli->rotoryspeed);
 	}
 
-	for (i = 2; i <= 3; i++) {
-		struct modelrodata_position *rodata;
-		Mtxf *mtx;
+	mtx4LoadYRotation(heli->rotoryrot, &rot);
+	vehPutPart(model, 2, &rot);
 
-		node = modelGetPart(model->definition, i);
+	mtx4LoadXRotation(heli->rotoryrot, &rot);
+	vehPutPart(model, 3, &rot);
+}
 
-		if (node == NULL || (node->type & 0xff) != MODELNODETYPE_POSITION) {
-			continue;
+/**
+ * The truck's four wheels: they roll with the road and the front two steer.
+ *
+ * Parts 1 and 2 are the front wheels and 3 and 4 the rear, and part 6 is a
+ * front wheel's own bounding box, whose **height is the wheel's diameter** -
+ * which is where the rolling comes from, GoldenEye turning the wheel by the
+ * distance it covered over its radius rather than by any authored rate. The
+ * steering angle is GoldenEye's own arithmetic over the wheelbase (the z
+ * between a rear wheel and a front one) and the rate the truck is turning at,
+ * held to at least that rate and mirrored when it turns the other way.
+ *
+ * GoldenEye adds the rolling angle **twice** where it owns the simulation
+ * (propobj.c: once inside the `isSimOwner` test and again after it), which
+ * would spin the wheels at twice the road speed; the distance over the radius
+ * is added once here, which is the geometry both games' numbers describe.
+ */
+static void vehTruckUpdateModel(struct prop *prop)
+{
+	struct truckobj *truck = (struct truckobj *)prop->obj;
+	struct model *model = truck->base.model;
+	union modelrodata *wheelbox = vehPartRodata(model, 6, MODELNODETYPE_BBOX);
+	union modelrodata *front = vehPartRodata(model, 1, MODELNODETYPE_POSITION);
+	union modelrodata *rear = vehPartRodata(model, 3, MODELNODETYPE_POSITION);
+	Mtxf roll;
+	Mtxf steer;
+
+	if (wheelbox && g_Vars.lvupdate240 > 0) {
+		const f32 diameter = (wheelbox->bbox.ymax - wheelbox->bbox.ymin) * model->scale;
+
+		if (diameter > 0.0f) {
+			truck->wheelxrot = vehWrapTau(truck->wheelxrot
+					+ truck->speed * g_Vars.lvupdate60freal / (diameter * 0.5f));
+		}
+	}
+
+	if (truck->speed > 0.0f && front && rear) {
+		const f32 wheelbase = (rear->position.pos.z - front->position.pos.z) * model->scale;
+		const f32 rate = truck->turnrot60 < 0.0f ? -truck->turnrot60 : truck->turnrot60;
+
+		truck->wheelyrot = atan2f(sinf(rate) * wheelbase,
+				cosf(rate) * wheelbase - (wheelbase - truck->speed));
+
+		if (truck->wheelyrot < rate) {
+			truck->wheelyrot = rate;
 		}
 
-		mtx = modelFindNodeMtx(model, node, 0);
-
-		if (mtx == NULL) {
-			continue;
+		if (truck->turnrot60 > 0.0f) {
+			truck->wheelyrot = M_BADTAU - truck->wheelyrot;
 		}
+	}
 
-		rodata = &node->rodata->position;
+	// the rear two roll and nothing else; the front two roll inside their
+	// steering, which is the order GoldenEye multiplies them in
+	mtx4LoadXRotation(truck->wheelxrot, &roll);
+	vehPutPart(model, 3, &roll);
+	vehPutPart(model, 4, &roll);
 
-		if (i == 2) {
-			mtx4LoadYRotation(heli->rotoryrot, &rot);
-		} else {
-			mtx4LoadXRotation(heli->rotoryrot, &rot);
-		}
+	mtx4LoadYRotation(truck->wheelyrot, &steer);
+	mtx4MultMtx4InPlace(&steer, &roll);
+	vehPutPart(model, 1, &roll);
+	vehPutPart(model, 2, &roll);
+}
 
-		mtx4SetTranslation(&rodata->pos, &rot);
-		mtx4MultMtx4InPlace(&model->matrices[0], &rot);
-		*mtx = rot;
+void gexPlusVehicleUpdateModel(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+
+	if (obj->model == NULL || obj->model->definition == NULL) {
+		return;
+	}
+
+	if (obj->type == OBJTYPE_HELI) {
+		vehHeliUpdateModel(prop);
+	} else if (obj->type == OBJTYPE_TRUCK) {
+		vehTruckUpdateModel(prop);
 	}
 }
 
