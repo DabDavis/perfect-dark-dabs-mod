@@ -1415,6 +1415,13 @@ struct chrdata {
 	u32 tracedrawframe;
 	u8 tracedrawbits;
 	u8 tracedrawalpha;
+	// GoldenEye's own chr flags byte (its chr->flags2), which a converted
+	// mission's AI lists set, unset and test through the game's own flag
+	// commands with BANK_GE. Nothing else reads it: GoldenEye keeps these
+	// eight bits for the mission to use as it likes, and its only fixed
+	// meaning - 0x01, "don't point at Bond" - is read by its own global
+	// lists, which the remake does not run.
+	u8 geflags2;
 #endif
 };
 

@@ -42,6 +42,15 @@ CHR_SELF = 0x00fd
 # (GoldenEye calls modelSetAnimTranslationScale() outside the flags). Both go.
 ANIM_FLAGS = 0xd7
 
+# GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
+# six of its commands), and neither of Perfect Dark's two banks has eight bits
+# to spare - every bit of theirs means something to the game. The byte gets a
+# bank of its own in the port instead: BANK_GE, chrdata.geflags2, which nothing
+# but a converted list ever reads. The six rows below are then Perfect Dark's
+# own flag commands with that bank named, and its test is "any of these bits"
+# exactly as GoldenEye's is.
+BANK_GE = 2
+
 # opcode: (name, length, args, pd opcode, pd args, where the row came from)
 TABLE = [
     ('GotoNext',                            2,    [('LABEL', 1)],                                0x0000, (0,),                                        'both'),  # 00 aiGoToNext
@@ -192,12 +201,12 @@ TABLE = [
     ('SetMySpeedRating',                    2,    [('SPEED_RATING', 1)],                         0x0098, (0,),                                        'both'),  # 91 aiSetReactionSpeed
     ('SetMyArghRating',                     2,    [('ARGH_RATING', 1)],                          0x0099, (0,),                                        'table'),  # 92 aiSetRecoverySpeed
     ('SetMyAccuracyRating',                 2,    [('ACCURACY_RATING', 1)],                      0x009a, (0,),                                        'both'),  # 93 aiSetAccuracy
-    ('SetMyFlags2',                         2,    [('BITS', 1)],                                 None,   (),                                          'hand'),  # 94 -
-    ('UnsetMyFlags2',                       2,    [('BITS', 1)],                                 None,   (),                                          'hand'),  # 95 -
-    ('IFMyFlags2Has',                       3,    [('BITS', 1), ('GOTOLABEL', 1)],               None,   (),                                          'hand'),  # 96 -
-    ('SetChrBitfield',                      3,    [('CHR_NUM', 1), ('BITS', 1)],                 None,   (),                                          'hand'),  # 97 -
-    ('UnsetChrBitfield',                    3,    [('CHR_NUM', 1), ('BITS', 1)],                 None,   (),                                          'hand'),  # 98 -
-    ('IFChrBitfieldHas',                    4,    [('CHR_NUM', 1), ('BITS', 1), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # 99 -
+    ('SetMyFlags2',                         2,    [('BITS', 1)],                                 0x009b, ((0, 4), ('=', BANK_GE, 1)),                       'hand'),  # 94 aiSetFlag
+    ('UnsetMyFlags2',                       2,    [('BITS', 1)],                                 0x009c, ((0, 4), ('=', BANK_GE, 1)),                       'hand'),  # 95 aiUnsetFlag
+    ('IFMyFlags2Has',                       3,    [('BITS', 1), ('GOTOLABEL', 1)],               0x009d, ((0, 4), ('=', 1, 1), ('=', BANK_GE, 1), 1),       'hand'),  # 96 aiIfHasFlag
+    ('SetChrBitfield',                      3,    [('CHR_NUM', 1), ('BITS', 1)],                 0x009e, (0, (1, 4), ('=', BANK_GE, 1)),                    'hand'),  # 97 aiChrSetFlag
+    ('UnsetChrBitfield',                    3,    [('CHR_NUM', 1), ('BITS', 1)],                 0x009f, (0, (1, 4), ('=', BANK_GE, 1)),                    'hand'),  # 98 aiChrUnsetFlag
+    ('IFChrBitfieldHas',                    4,    [('CHR_NUM', 1), ('BITS', 1), ('GOTOLABEL', 1)], 0x00a0, (0, (1, 4), ('=', BANK_GE, 1), 2),                 'hand'),  # 99 aiIfChrHasFlag
     ('SetObjectiveBitfield',                5,    [('BITFIELD', 4)],                             0x00a1, (0,),                                        'both'),  # 9a aiSetStageFlag
     ('UnsetObjectiveBitfield',              5,    [('BITFIELD', 4)],                             0x00a2, (0,),                                        'both'),  # 9b aiUnsetStageFlag
     ('IFObjectiveBitfieldHas',              6,    [('BITS', 4), ('GOTOLABEL', 1)],               0x00a3, ((0, 4), ('=', 1, 1), 1),                    'hand'),  # 9c aiIfStageFlagEq

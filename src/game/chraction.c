@@ -15235,6 +15235,11 @@ struct chrdata *chrFindById(struct chrdata *basechr, s32 chrnum)
 		i = (lower + upper) / 2;
 
 		if (chrnum == g_BgChrnums[i]) {
+#ifndef PLATFORM_N64
+			if (g_BgChrs[i].chrnum != chrnum) {
+				break; // a stale entry - the scan below has the answer
+			}
+#endif
 			return &g_BgChrs[i];
 		}
 
@@ -15244,6 +15249,22 @@ struct chrdata *chrFindById(struct chrdata *basechr, s32 chrnum)
 			lower = i + 1;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// g_BgChrnums is a snapshot taken when the stage loaded, and a background
+	// chr can renumber itself afterwards: aiSetChrNum is GoldenEye's
+	// SetMyChrNum, and its background lists run it to claim the number the rest
+	// of the mission calls them by - Streets' civilians are 42 to 47 that way,
+	// their lists' own ids being 4000 and up. The snapshot then misses the chr
+	// that holds the number and names one that no longer does, so ask the chrs
+	// themselves, which is what GoldenEye does for every lookup: its own
+	// chrFindById() walks its active chrs and keeps no index at all.
+	for (i = 0; i < g_NumBgChrs; i++) {
+		if (g_BgChrs[i].chrnum == chrnum) {
+			return &g_BgChrs[i];
+		}
+	}
+#endif
 
 	return NULL;
 }
@@ -15307,6 +15328,13 @@ f32 chrGetDistanceFromTargetToPad(struct chrdata *chr, s32 pad_id)
 
 void chrSetFlags(struct chrdata *chr, u32 flags, u8 bank)
 {
+#ifndef PLATFORM_N64
+	if (bank == BANK_GE) {
+		chr->geflags2 |= (u8)flags;
+		return;
+	}
+#endif
+
 	if (bank == 0) {
 		chr->flags |= flags;
 	} else {
@@ -15316,6 +15344,13 @@ void chrSetFlags(struct chrdata *chr, u32 flags, u8 bank)
 
 void chrUnsetFlags(struct chrdata *chr, u32 flags, u8 bank)
 {
+#ifndef PLATFORM_N64
+	if (bank == BANK_GE) {
+		chr->geflags2 &= (u8)~flags;
+		return;
+	}
+#endif
+
 	if (bank == 0) {
 		chr->flags &= ~flags;
 	} else {
@@ -15325,6 +15360,13 @@ void chrUnsetFlags(struct chrdata *chr, u32 flags, u8 bank)
 
 bool chrHasFlag(struct chrdata *chr, u32 flag, u8 bank)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's own test is "any of these bits", which is this one
+	if (bank == BANK_GE) {
+		return (chr->geflags2 & flag) != 0;
+	}
+#endif
+
 	if (bank == 0) {
 		return (chr->flags & flag) != 0;
 	} else {

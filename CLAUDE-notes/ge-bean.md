@@ -3574,3 +3574,92 @@ the Python's over all 26 levels and all 20 missions (`diff -r`).
 **Still to do**: the cinema cameras and screen fades (`CameraOrbitPad`,
 `ScreenFadeToBlack` and the rest, all still dropped), the chr flag commands,
 and the vehicles' own three animations.
+
+## GoldenEye's own chr flags in the missions (2026-09-19)
+
+A mission's lists set and test **GoldenEye's chr flags byte** 211 times over
+eighteen of the twenty missions - `SetChrBitfield` 77, `IFMyFlags2Has` 57,
+`SetMyFlags2` 47, `UnsetMyFlags2` 20, `UnsetChrBitfield` 7 and
+`IFChrBitfieldHas` 3 - and all of them were dropped, so every list that asks
+"have I done this yet" fell through the wrong arm.
+
+**The byte has nowhere to live in Perfect Dark.** GoldenEye's is one `u8`
+(`chr->flags2`, `chrSetFlags2()` and its five relatives in chraction.c), and
+every bit of Perfect Dark's two banks already means something to the game -
+`CHRFLAG0_*` and `CHRFLAG1_*` are full but for three noop bits, and `chrflags`
+is full too. Putting GoldenEye's bits in either would have the game act on
+them, and the mission's chrs **fall back on Perfect Dark's own ailists**, which
+set and test those same bits.
+
+**So it gets a bank of its own.** Perfect Dark's six flag commands already take
+a bank byte - `chrSetFlags(chr, flags, bank)` is `bank == 0 ? flags : flags2` -
+and **stock data never passes anything but `BANK_0` and `BANK_1`**: 963 uses
+across every setup in the decompilation and the global lists, all of them the
+named constant. `BANK_GE` (2) is therefore free, and the port reads it as
+`chrdata.geflags2`, a port-only byte that nothing else touches. The six rows
+are then Perfect Dark's own commands with that bank named:
+
+| GoldenEye | Perfect Dark |
+| --- | --- |
+| `SetMyFlags2(bits)` | `aiSetFlag(bits, BANK_GE)` |
+| `UnsetMyFlags2(bits)` | `aiUnsetFlag(bits, BANK_GE)` |
+| `IFMyFlags2Has(bits, label)` | `aiIfHasFlag(bits, 1, BANK_GE, label)` |
+| `SetChrBitfield(chr, bits)` | `aiChrSetFlag(chr, bits, BANK_GE)` |
+| `UnsetChrBitfield(chr, bits)` | `aiChrUnsetFlag(chr, bits, BANK_GE)` |
+| `IFChrBitfieldHas(chr, bits, label)` | `aiIfChrHasFlag(chr, bits, BANK_GE, label)` |
+
+The two tests agree without any help: `chrHasFlag()` is `(flags & flag) != 0`
+and GoldenEye's `chrHasFlags2()` is the same expression, and every one of the
+211 commands names a **single** bit, so "any of these" and "all of these" are
+the same question. The chr ids agree too - GoldenEye's specials are Perfect
+Dark's to the byte (`CHR_SELF` 0xfd, `CHR_PRESET` 0xfc, `CHR_SEEDIE` 0xfb,
+`CHR_SEESHOT` 0xfa, `CHR_CLONE` 0xf9) - so a CHR_NUM argument is copied as it
+stands, as `SetChrAiList`'s already was. `GECONVERT_VERSION_STR` 23.
+
+**The bit that means something to GoldenEye is 0x01**, `FLAGS2_DONT_POINT_AT_
+BOND`, and only GoldenEye's own *global* lists read it. The remake does not run
+those, so here the byte is entirely the mission's to use, which is what
+GoldenEye's own documentation says it is ("can be used to store a custom flag
+per chr, useful for missions").
+
+### The trap: a background chr that renumbers itself is unfindable
+
+Streets' watcher (background list 0x100a) asks chrs 43, 45 and 47 for bit 0x02
+every frame - its civilians - and the answer was always no, even with the bit
+set by hand. **Those chrs are background chrs that took their numbers with
+`SetMyChrNum`**: their lists' own ids are 0x1000 and up, so
+`stageAllocateBgChrs()` numbered them 4000 and up, and `aiSetChrNum` (which is
+GoldenEye's command, and which those lists run first) renumbered them to 42-47.
+
+`chrSetChrnum()` maintains `g_Chrnums`, the **live** chrs' index, and nothing
+maintains `g_BgChrnums` - it is a sorted snapshot taken once at stage load. So
+`chrFindById()`'s binary search over it misses the chr that holds the number
+and can land on one that no longer does. `chrFindById()` now falls back to a
+scan of `g_BgChrs` itself, and rejects a hit whose chr has since renumbered,
+which is what **GoldenEye** does for every lookup - its own `chrFindById()`
+walks `g_ActiveChrs` and keeps no index at all. Eleven background chrs is the
+whole scan, and in stock Perfect Dark it only ever runs for a number that does
+not exist.
+
+**How to see the flags work.** Facility (stage 0x63) runs them on a plain boot:
+at frame 1 background chr 4000 sets 0x80 on chrs 51 to 55 (its scientists) and
+4006 clears its own 0x01, and from frame 65 those chrs test 0x80 on themselves
+and read back what the background list wrote. Streets (0x61) is the driven one:
+break at frame 200, write `geflags2 = 2` on chr 43 the way its own list would,
+and the next frame the watcher branches, docks its alertness (15 -> 14, which
+is Streets' civilian count) and clears the bit again with `aiChrUnsetFlag`, so
+the next poll is quiet. `build/gexrom/geflagprobe.py` is the listener and
+`geflagdrive.py` the driver; both find chrs by walking `g_ChrSlots` and
+`g_BgChrs`, since a gdb call into `chrFindByLiteralId()` hands back rubbish
+here.
+
+**Checked**: all twenty missions boot and run 600 frames, and the C converter's
+bytes are still the Python's over all 26 levels and all 20 missions
+(`diff -r`). The conversion now drops 967 commands rather than 1178, and 381 of
+those are `PRINT`, GoldenEye's debug comments.
+
+**Still to do**: the screen fades and the cinema commands (`ScreenFadeToBlack`
+55, `ScreenFadeFromBlack` 31, `TriggerFadeAndExitLevelOnButtonPress` 22),
+`IFBondDamageAndPickupsDisabled` and its setter (185 between them), the per-chr
+setup commands (`SetMyArmour` 60, `TRYTeleportingChrToPad` 49, `TRYGiveMeHat`
+33), the missions' music cues (27), and the vehicles' own three animations.

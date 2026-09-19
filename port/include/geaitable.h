@@ -37,6 +37,15 @@
 // set on a converted animation id (gesolo.py's GE_ANIM_TAG)
 #define GEAI_ANIM_TAG 0x8000
 
+// GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
+// six of its commands), and neither of Perfect Dark's two banks has eight bits
+// to spare - every bit of theirs means something to the game. The byte gets a
+// bank of its own in the port instead: BANK_GE, chrdata.geflags2, which nothing
+// but a converted list ever reads. The six rows are then Perfect Dark's own
+// flag commands with that bank named, and its test is "any of these bits"
+// exactly as GoldenEye's is.
+#define GEAI_BANK_GE 0x0002
+
 // an argument spec: `from` is the GoldenEye argument, or -1 for a constant.
 // `mask`, where it is not 0, is ANDed over the argument's value (PlayAnimation's
 // bitfield, whose bits are only partly Perfect Dark's chranimflags)
@@ -209,12 +218,12 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* 91 SetMySpeedRating                       */ {  2, 0x0098,  1, { 1 }, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* 92 SetMyArghRating                        */ {  2, 0x0099,  1, { 1 }, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* 93 SetMyAccuracyRating                    */ {  2, 0x009a,  1, { 1 }, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
-	/* 94 SetMyFlags2                            */ {  2,     -1,  1, { 1 }, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* 95 UnsetMyFlags2                          */ {  2,     -1,  1, { 1 }, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* 96 IFMyFlags2Has                          */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* 97 SetChrBitfield                         */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* 98 UnsetChrBitfield                       */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* 99 IFChrBitfieldHas                       */ {  4,     -1,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* 94 SetMyFlags2                            */ {  2, 0x009b,  1, { 1 }, 0x0000, 0x0000, 0x0000,  2, { {0, 4, 0}, {-1, 1, GEAI_BANK_GE} } },
+	/* 95 UnsetMyFlags2                          */ {  2, 0x009c,  1, { 1 }, 0x0000, 0x0000, 0x0000,  2, { {0, 4, 0}, {-1, 1, GEAI_BANK_GE} } },
+	/* 96 IFMyFlags2Has                          */ {  3, 0x009d,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000,  4, { {0, 4, 0}, {-1, 1, 0x0001}, {-1, 1, GEAI_BANK_GE}, {1, 1, 0} } },
+	/* 97 SetChrBitfield                         */ {  3, 0x009e,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 4, 0}, {-1, 1, GEAI_BANK_GE} } },
+	/* 98 UnsetChrBitfield                       */ {  3, 0x009f,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 4, 0}, {-1, 1, GEAI_BANK_GE} } },
+	/* 99 IFChrBitfieldHas                       */ {  4, 0x00a0,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000,  4, { {0, 1, 0}, {1, 4, 0}, {-1, 1, GEAI_BANK_GE}, {2, 1, 0} } },
 	/* 9a SetObjectiveBitfield                   */ {  5, 0x00a1,  1, { 4 }, 0x0000, 0x0000, 0x0000,  1, { {0, 4, 0} } },
 	/* 9b UnsetObjectiveBitfield                 */ {  5, 0x00a2,  1, { 4 }, 0x0000, 0x0000, 0x0000,  1, { {0, 4, 0} } },
 	/* 9c IFObjectiveBitfieldHas                 */ {  6, 0x00a3,  2, { 4, 1 }, 0x0000, 0x0000, 0x0000,  3, { {0, 4, 0}, {-1, 1, 0x0001}, {1, 1, 0} } },

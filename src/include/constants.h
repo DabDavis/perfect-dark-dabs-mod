@@ -432,6 +432,15 @@
 
 #define BANK_0 0
 #define BANK_1 1
+#ifndef PLATFORM_N64
+// GoldenEye's own chr flags byte, which the converted missions' lists set and
+// test as a third bank of the game's own flag commands (chrdata.geflags2). Its
+// eight bits mean nothing to anything but the list that wrote them - GoldenEye
+// keeps them for the mission's own use - so they cannot share either of the
+// game's banks, whose every bit already has a meaning. Stock data never passes
+// a bank past BANK_1.
+#define BANK_GE 2
+#endif
 
 #define BOTDIFF_MEAT     0
 #define BOTDIFF_EASY     1

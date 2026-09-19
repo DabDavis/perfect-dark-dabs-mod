@@ -1173,6 +1173,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->tracedrawframe = 0;
 	chr->tracedrawbits = 0;
 	chr->tracedrawalpha = 0;
+	chr->geflags2 = 0;
 #endif
 	chr->aishootingatmelist = -1;
 	chr->aidarkroomlist = -1;
