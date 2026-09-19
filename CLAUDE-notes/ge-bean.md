@@ -4115,3 +4115,74 @@ come from the prop. `CameraReturnToBond` is dropped and unused by all twenty
 missions, so a converted mission's cinema never gives the camera back either.
 
 `GECONVERT_VERSION_STR` 29.
+
+## The cinema's camera was the player's prop (2026-09-19)
+
+The tester, after the wall and AI-row fixes above: *"guards still see cinema
+camera"*. They were right, and the two fixed rows were never going to cover it.
+
+**GE Plus's Cinema moved the player to the shot.** GoldenEye's cinema moves the
+camera alone - `CameraSwitch` hands a cutscene record to
+`bondviewSetCameraMode(CAMERAMODE_POSEND)` and Bond stays standing at his spawn,
+where the level's guards go on answering questions about him. Perfect Dark's
+camera *is* the eye by construction, so `gecinemaPlace()` moved the player's
+**prop** to each shot, and a guard's list asks about the prop and not about the
+picture.
+
+`g_Vars.bondvisible` is already false while a shot is up (`gecinemaEnter()`),
+and that is genuinely most of it - it covers `botIsTargetInvisible()`, which
+every sight test goes through, the hearing, and even
+`chrSetPadPresetToPadOnRouteToTarget()`, which tests it before it looks for a
+route. **But a converted list asks plenty that is not about seeing**, and none
+of it consults that flag:
+
+- `IFBondInRoomWithPad` -> `aiIfTargetInRoom`, which reads `prop->rooms[0]`:
+  **264 commands** over the twenty missions.
+- `IFMyDistanceToBondLessThan`/`GreaterThan` -> `aiIfDistanceToTarget*Than`,
+  which reads `prop->pos`: another fifty.
+- the angle tests, which read the direction to the prop.
+
+So a guard in the room the camera was put in was told, by its own list, that
+Bond was standing there.
+
+**The camera is placed on its own now** and the prop is left where the mission
+spawned it (`gecinemaCameraTick()`, called from `lvTickPlayer()`). The pieces
+that made that possible were already in the game:
+
+- `playerSetCamPropertiesWithRoom(pos, up, look, room)` writes `cam_pos`,
+  `cam_up`, `cam_look` and `cam_room` and takes the room **as given**, rather
+  than the portal walk from the prop that `player0f0c1840()` does - and that
+  walk is the reason the first version moved the prop at all, since a walk from
+  the spawn to a camera across the level answers the room the player is in and
+  draws nothing. The record's own pad room is the right answer and is already
+  read.
+- `g_CamRoom` (`= player->cam_room`, bg.c) is what seeds the room walk the
+  picture is drawn from, and the portal side tests are against `cam_pos`. The
+  prop's rooms are not in that path at all.
+- the angles still go through the player's own basis (`vv_theta`/`vv_verta`,
+  `bmoveUpdateVerta()`, `bmove0f0cc654()`), which is the game's own
+  trigonometry and is inert in a cutscene; `gecinemaCameraTick()` hands
+  `bond2.unk28`/`unk1c` to the setter as the up and look.
+
+**It has to run after `playerTick()`**, which places the camera at the eye every
+frame, so the hook is in `lvTickPlayer()` and not in `gecinemaTick()` (which is
+called from `lvTick()` *before* the player ticks).
+
+**Checked**: on Caverns the prop stays at 4926,1385 in room 62 for the whole
+cinema while the camera moves through rooms 16, 16 and 32, up to **134 m away** -
+they were the same point before. The pictures are the same shots: 0.4%, 1.0% and
+3.8% of pixels differ by more than a dither's worth, and **the difference is an
+improvement** - a bright bar across the top right of Caverns' first shot is gone,
+which was the player's own body standing at the camera. The shot advance, the
+captions and the return to the folder are untouched
+(`build/gexrom/cinemashots.py` shoots each shot and lists what stands within 25 m
+of the camera; the old run's list carries `chr5078@0m`, which is the player).
+
+**Still open**: a converted *mission's* own cinema has the same shape -
+`CameraSwitch` becomes `ai00df`, which is `playerPrepareWarpType2()` and moves
+the player to the camera pad, and `CameraReturnToBond` is dropped (no mission
+uses it). The chr AI stops ticking while a warp is on, so guards cannot walk at
+it, but everything a still list asks about Bond answers about the camera there
+too. The same treatment fits - place the camera, leave the prop - but
+`ai00df` is Perfect Dark's own command with its own warp params and the mission
+exit sequence leans on it, so it wants its own pass.

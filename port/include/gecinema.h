@@ -18,6 +18,10 @@ void gecinemaStageStart(void);
 s32 gecinemaIsOn(void);
 // Every frame of a level, from lvTick().
 void gecinemaTick(void);
+// And after playerTick() has built its own camera, from lvTickPlayer(): the
+// shot's camera, put where the record says without the player's prop going
+// with it.
+void gecinemaCameraTick(void);
 
 // Whether the folder should open again on the Cinema page, and the mission it
 // should be showing; taking it clears both.

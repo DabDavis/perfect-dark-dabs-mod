@@ -73,6 +73,12 @@ static f32 g_GeCinemaTime60;
 static s32 g_GeCinemaLine;            // how many of the shot's lines have shown
 static s32 g_GeCinemaEntered;         // the one-off setup has run
 
+// where the shot's camera stands, and the room its own pad names: the player's
+// prop stays where the mission spawned it and only this moves
+// (gecinemaCameraTick)
+static struct coord g_GeCinemaCamPos;
+static s32 g_GeCinemaCamRoom = -1;
+
 /**
  * The folder's Cinema page picked a mission. The stage starts the way a mission
  * does; gecinemaStageStart() picks this up when it has loaded.
@@ -92,6 +98,7 @@ void gecinemaStageStart(void)
 	g_GeCinemaTime60 = 0;
 	g_GeCinemaLine = 0;
 	g_GeCinemaEntered = 0;
+	g_GeCinemaCamRoom = -1;
 }
 
 s32 gecinemaIsOn(void)
@@ -155,48 +162,47 @@ static void gecinemaEnter(void)
 	g_Vars.bondvisible = false;
 }
 
-/** The camera at one shot: modSpectateTick()'s move, with the angles given. */
+/**
+ * The camera at one shot - and the player's prop left where it stands.
+ *
+ * GoldenEye moves the camera alone (`bondviewSetCameraMode(CAMERAMODE_POSEND)`)
+ * and Bond stays at his spawn, where the level's guards go on answering
+ * questions about him. Perfect Dark's camera *is* the eye by construction, so
+ * this used to move the player's prop to the shot - and a guard's list, which
+ * asks about the prop and not about the picture, found Bond standing at the
+ * camera and came for it.
+ *
+ * `g_Vars.bondvisible` is already false for a shot and covers everything that
+ * asks whether a guard can *see* him - `botIsTargetInvisible()`, and
+ * `chrSetPadPresetToPadOnRouteToTarget()` tests it too - but a converted list
+ * asks plenty that is not about seeing: `IFBondInRoomWithPad` is 264 commands
+ * over the twenty missions and `IFMyDistanceToBondLessThan` another fifty, and
+ * those read `prop->pos` and `prop->rooms` wherever they are.
+ *
+ * So the shot's position and room are kept here and the camera alone is put
+ * there, after the normal tick has built its own from the eye
+ * (gecinemaCameraTick). The angles still go through the player's own basis,
+ * which is inert in a cutscene, because that is the game's own trigonometry.
+ */
 static void gecinemaPlace(const u8 *shot)
 {
 	struct player *pl = g_Vars.currentplayer;
-	struct prop *prop = pl->prop;
-	struct coord dstpos;
-	RoomNum dstrooms[8];
+	struct pad pad;
 
-	dstpos.x = *(const f32 *)(shot + 0x04);
-	dstpos.y = *(const f32 *)(shot + 0x08);
-	dstpos.z = *(const f32 *)(shot + 0x0c);
+	g_GeCinemaCamPos.x = *(const f32 *)(shot + 0x04);
+	g_GeCinemaCamPos.y = *(const f32 *)(shot + 0x08);
+	g_GeCinemaCamPos.z = *(const f32 *)(shot + 0x0c);
 
 	// The record names the pad the camera stands on and GoldenEye takes the
 	// room from that pad's stan tile, which is the answer for a camera hanging
-	// over a valley or inside a wall - a portal walk from where the player
-	// spawned gives the room they were in and draws nothing. The walk is still
-	// what fills the rest of the list, from the pad's room outwards.
-	{
-		struct pad pad;
+	// over a valley or inside a wall. A portal walk would be from the player's
+	// prop, which is across the level at the spawn, and answers the room they
+	// are in - which draws nothing.
+	padUnpack(*(const u32 *)(shot + 0x18), PADFIELD_ROOM, &pad);
 
-		padUnpack(*(const u32 *)(shot + 0x18), PADFIELD_ROOM, &pad);
-
-		if (pad.room > 0 && pad.room < g_Vars.roomcount) {
-			prop->rooms[0] = pad.room;
-			prop->rooms[1] = -1;
-		}
+	if (pad.room > 0 && pad.room < g_Vars.roomcount) {
+		g_GeCinemaCamRoom = pad.room;
 	}
-
-	func0f065e74(&prop->pos, prop->rooms, &dstpos, dstrooms);
-
-	prop->pos.x = dstpos.x;
-	prop->pos.y = dstpos.y;
-	prop->pos.z = dstpos.z;
-
-	propDeregisterRooms(prop);
-	roomsCopy(dstrooms, prop->rooms);
-	bmoveUpdateRooms(pl);
-
-	// The prop is the eye and there is no walk to say where the floor is, so
-	// the ground goes with it, as spectating does.
-	pl->vv_ground = prop->pos.y - pl->vv_height;
-	pl->vv_manground = pl->vv_ground;
 
 	// GoldenEye's look vector is (cos(pitch)sin(yaw), sin(pitch),
 	// -cos(pitch)cos(yaw)) and Perfect Dark's horizontal one is
@@ -215,7 +221,28 @@ static void gecinemaPlace(const u8 *shot)
 
 	bmoveUpdateVerta();
 	bmove0f0cc654(0, 0, 0);
-	bmove0f0cc19c(&prop->pos);
+}
+
+/**
+ * The camera, put where the shot stands, after playerTick() has built its own.
+ *
+ * The normal tick places the camera at the eye and resolves its room by a
+ * portal walk from the prop (`player0f0c1840()`), so it has to run first and be
+ * replaced: `playerSetCamPropertiesWithRoom()` takes the room as it is given,
+ * which is the record's own pad room. `cam_pos` and `cam_room` are what the
+ * picture is drawn from - `g_CamRoom` seeds the room walk in bg.c and the
+ * portal side tests are against `cam_pos` - so nothing else has to move.
+ */
+void gecinemaCameraTick(void)
+{
+	struct player *pl = g_Vars.currentplayer;
+
+	if (!gecinemaIsOn() || g_GeCinemaCamRoom < 0 || !pl || !pl->prop) {
+		return;
+	}
+
+	playerSetCamPropertiesWithRoom(&g_GeCinemaCamPos, &pl->bond2.unk28,
+			&pl->bond2.unk1c, g_GeCinemaCamRoom);
 }
 
 /** A shot's line of text, as GoldenEye shows it: the bottom of the screen. */

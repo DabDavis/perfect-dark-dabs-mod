@@ -2644,6 +2644,13 @@ void lvTickPlayer(void)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// GE Plus's Cinema puts the camera where GoldenEye's own shot stands and
+	// leaves the player's prop at the spawn, so it has to go after the tick
+	// that builds the camera from the eye
+	gecinemaCameraTick();
+#endif
+
 	xdiff = g_Vars.currentplayer->prop->pos.x - g_Vars.currentplayer->bondprevpos.x;
 	zdiff = g_Vars.currentplayer->prop->pos.z - g_Vars.currentplayer->bondprevpos.z;
 
