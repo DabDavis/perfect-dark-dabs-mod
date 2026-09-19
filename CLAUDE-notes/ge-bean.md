@@ -3860,3 +3860,35 @@ of the last one, `cinemamenu.py` that the folder comes back on the Cinema page
 with the mission that was watched. A screenshot of the page itself needs the
 menus rather than the title's attract demo, which is the one thing here a
 headless run does not reach on its own.
+
+## Every gun on a converted floor was the wrong gun (2026-09-19)
+
+A GoldenEye collectable's `weaponnum` is one of its own **item ids** - its code
+compares that field against `ITEM_GRENADE` and `ITEM_TIMEDMINE` (chr.c), and
+the header calls it `ITEM_IDS` - and `weapon_record()` was writing
+`WEAPON_GE_FIRST + item`, which reads it as an index into the port's twenty-five
+GoldenEye weapons. The two lists are not in the same order: GoldenEye's starts
+with the unarmed hand and the two knives and names its guns after the real ones
+(`ITEM_WPPK` is the PP7, `ITEM_AK47` the KF7 Soviet), while the port's are
+GoldenEye's in-game names in Perfect Dark's own order.
+
+So **all 908 guns on the missions' floors were the wrong gun**, four rows
+along: the 408 KF7 Soviets (item 8) were Phantoms, the 158 D5Ks were RC-P90s,
+Cradle's Golden Gun was a hunting knife. And the 45 items past the twenty-fifth
+- the **44 grenades** and Depot's rocket launcher - became nothing at all,
+since the old line answered 0 for an item it could not index.
+
+They go through `GE_ITEM_WEAPON` now, the table the two cinema equip commands
+already used, with an item below `ITEM_KNIFE` (the unarmed hand and the fist)
+and anything that is not a weapon a player can hold (a key, a briefcase, the
+door decoder) still nothing. `GECONVERT_VERSION_STR` 27.
+
+**Checked in the game** rather than in the conversion: Facility's floor is 61
+KF7 Soviets and one D5K, and Train's is 34 D5Ks, six ZMGs, a DD44, **one
+RC-P90** - Xenia's - and **17 grenades**, which is GoldenEye's own loadout for
+those two levels. The probe is `build/gexrom/gunprobe.py`, which walks
+`g_Vars.props` for `PROPTYPE_WEAPON` and tallies `weaponobj.weaponnum`.
+
+Only the missions are affected: the arenas' `CARRY` table has no entry for
+GoldenEye's collectable type, so their weapons are Perfect Dark's own
+multiplayer sets and never came through here.

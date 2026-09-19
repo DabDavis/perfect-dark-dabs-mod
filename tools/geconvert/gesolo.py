@@ -67,12 +67,6 @@ OBJTYPE_NOTHING = 0x22
 OBJTYPE_END = 0x34
 OBJTYPE_CHR = 0x09
 
-# GoldenEye's own weapon numbers are the port's GoldenEye weapons, which
-# geguns.c adds after Perfect Dark's own (CLAUDE-notes/ge-bean.md, "GoldenEye's
-# guns as Perfect Dark weapons"): item 0 is WEAPON_GE_FIRST.
-WEAPON_GE_FIRST = 0x5e
-GE_NUM_WEAPONS = 0x76 - 0x5e + 1
-
 # GoldenEye's own item ids (bondconstants.h, ITEM_IDS) as the port's weapon
 # numbers, which are not in the same order: GoldenEye's list starts with the
 # unarmed hand and the two knives and names its guns after the real ones, and
@@ -262,10 +256,21 @@ def door_record(raw, numpads, recs, index):
 
 def weapon_record(raw, numpads):
     """A GoldenEye collectable as a Perfect Dark weapon prop, on the port's own
-    GoldenEye weapons (geguns.c, WEAPON_GE_FIRST + GoldenEye's item)."""
+    GoldenEye weapons (geguns.c).
+
+    The record's `weaponnum` is one of GoldenEye's **item ids** - its own code
+    compares it against ITEM_GRENADE and ITEM_TIMEDMINE (chr.c) - and those are
+    not the order the port's twenty-five are in, so it goes through
+    GE_ITEM_WEAPON like the two commands that put an item in Bond's hands.
+    Reading it as an index into the port's list made every gun on the floor the
+    wrong one (the KF7 Soviet, item 8 and 408 of the missions' 908 guns, was a
+    Phantom) and left the grenades and the mines - past the twenty-five - as
+    nothing at all. An item that is not a weapon a player can hold (a key, a
+    briefcase, the unarmed hand) is still nothing.
+    """
     out = base_record(raw, 0x08, PD_SIZES[0x08], pad_of(8, raw, numpads))
     item = raw[0x80]
-    out[0x5c] = WEAPON_GE_FIRST + item if item < GE_NUM_WEAPONS else 0
+    out[0x5c] = item_weapon(item) if item >= 2 else 0
     out[0x5d] = 0xff          # no second gun
     out[0x5e] = 0xff
     struct.pack_into('>h', out, 0x62, struct.unpack_from('>h', raw, 0x82)[0])

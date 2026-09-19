@@ -3353,9 +3353,6 @@ static const uint8_t g_PdSizes[0x35] = {
 #define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12 || (t) == 0x13 || (t) == 0x14)
 
 #define SOLO_NO_PAD 0xffff
-#define SOLO_WEAPON_GE_FIRST 0x5e
-#define SOLO_NUM_GE_WEAPONS (0x76 - 0x5e + 1)
-
 /**
  * GoldenEye's own item ids (bondconstants.h, ITEM_IDS) as the port's weapon
  * numbers, which are not in the same order: GoldenEye's list starts with the
@@ -3499,14 +3496,21 @@ static void guardRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 	set16(out, 0x22, 0xffff);   // no chair
 }
 
-/** A GoldenEye collectable as a Perfect Dark weapon prop, on the port's own
- * GoldenEye weapons (geguns.c, WEAPON_GE_FIRST + GoldenEye's item). */
+/**
+ * A GoldenEye collectable as a Perfect Dark weapon prop, on the port's own
+ * GoldenEye weapons (geguns.c).
+ *
+ * The record's `weaponnum` is one of GoldenEye's item ids - its own code
+ * compares it against ITEM_GRENADE and ITEM_TIMEDMINE (chr.c) - and those are
+ * not the order the port's twenty-five are in, so it goes through
+ * g_GeItemWeapon. gesolo.py's weapon_record().
+ */
 static void weaponRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 {
 	const uint32_t item = raw[0x80];
 
 	baseRecord(out, raw, 0x08, padNum(be16(raw, 6), numpads, 0));
-	out[0x5c] = item < SOLO_NUM_GE_WEAPONS ? (uint8_t)(SOLO_WEAPON_GE_FIRST + item) : 0;
+	out[0x5c] = item >= 2 ? (uint8_t)soloItemWeapon(item) : 0;
 	out[0x5d] = 0xff;
 	out[0x5e] = 0xff;
 	set16(out, 0x62, be16(raw, 0x82));
