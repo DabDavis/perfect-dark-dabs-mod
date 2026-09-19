@@ -20,6 +20,7 @@ and does nothing.
 """
 import struct
 
+import gerom
 import geobjects
 import geaitable
 import geanimtable
@@ -119,6 +120,49 @@ GE_EQUIP_OPS = (0xe3, 0xe4)
 # reads as 7.6 against a maximum of 8 and is true whatever his health is.
 GE_BOND_HEALTH_OPS = (0x7f, 0x80)
 GE_BOND_HEALTH_FULL = 80          # and GoldenEye's own is 255
+
+# GoldenEye's own **global** AI lists: chraidata.c's g_GlobalAILists, eighteen
+# lists every level shares - the standard guard, the simple guard, the attack,
+# the idle animations, the keyboard basher, the alarm raiser - as (pointer, id)
+# pairs in the data segment, their bytecode beside them.
+#
+# A chr record or a command names one of them by an id of **1024 or less**
+# (bondconstants.h's `isGlobalAIListID`), and a level's own lists start at 1025.
+# Perfect Dark draws that line in the same place (`ailistFindById`: 0x401 and up
+# is the stage's, below it the game's own g_GlobalAilists) - so a converted
+# guard whose list was GoldenEye's global 2, its standard guard, ran *Perfect
+# Dark's* global 2 instead, and ten of Dam's thirty-six did. Every mission in
+# GE Plus was running Perfect Dark's unalerted and alerted guard AI over
+# GoldenEye's levels, which is what "the AI is not behaving like the ROM" is.
+#
+# The eighteen are converted with each mission's own lists and given ids of
+# their own, and every reference to one is moved with them. **The ids have to sit
+# under 0x1000**: Perfect Dark makes a background chr of every stage list from
+# there up (game_00b820.c) and ticks it from the first frame, so at 0x2000 the
+# eighteen were each ticked as a chr of their own and m_RunToBond took the game
+# down in chrGoToRoomPos() with no prop to move. 0x800 is above the highest id
+# any of the twenty missions gives a list of its own (1066) and below the
+# background lists' 0x1000.
+GLOBAL_AI_AT = 0x8003744c
+GE_GLOBAL_FIRST = 0x0800
+GE_GLOBAL_LAST_ID = 1024
+
+
+def global_ai_id(v):
+    """A GoldenEye AI list id as the converted level's: its global lists move
+    to GE_GLOBAL_FIRST and the level's own keep their numbers."""
+    return GE_GLOBAL_FIRST + v if v <= GE_GLOBAL_LAST_ID else v
+
+
+def global_lists(data):
+    """[(id, offset)] of GoldenEye's own global AI lists in the data segment."""
+    out = []
+    at = GLOBAL_AI_AT - gerom.DATA_VRAM
+    while True:
+        ptr, lid = struct.unpack_from('>Ii', data, at + 8 * len(out))
+        if not ptr:
+            return out
+        out.append((lid, ptr - gerom.DATA_VRAM))
 
 
 def item_weapon(item):
@@ -233,7 +277,7 @@ def guard_record(raw, numpads, bodies):
     struct.pack_into('>hH', out, 0x08, chrnum, pad_num(padid & 0xffff, numpads))
     out[0x0c] = body & 0xff
     out[0x0d] = head & 0xff
-    struct.pack_into('>HHHHH', out, 0x0e, ailist & 0xffff,
+    struct.pack_into('>HHHHH', out, 0x0e, global_ai_id(ailist & 0xffff),
                      pad_num(preset & 0xffff, numpads), chrpreset & 0xffff,
                      hearscale & 0xffff, viewdist & 0xffff)
     struct.pack_into('>h', out, 0x22, -1)      # no chair
@@ -533,6 +577,8 @@ def convert_ailist(d, at, stats, numpads, vehicle=False):
                     v = pad_num(v, numpads)
                 elif a == 'TEXT_SLOT':
                     v = text_id(v)
+                elif a == 'AI_LIST_ID':
+                    v = global_ai_id(v)
                 elif a == 'ANIMATION_ID':
                     v = GE_ANIM_TAG | v
                 elif a == 'ITEM_NUM' and op in GE_EQUIP_OPS:
@@ -574,7 +620,16 @@ def vehicle_lists(d):
     return out
 
 
-def convert_ailists(d, at, stats, numpads):
+def convert_ailists(d, at, stats, numpads, data=None):
+    """The mission's own AI lists, and GoldenEye's global ones after them.
+
+    The table is **sorted by id and holds each id once**, which GoldenEye's own
+    file is not obliged to be: its `ailistFindById` walks the rows and takes the
+    first of a duplicate, while Perfect Dark's binary-searches them (lib/ailist.c)
+    and can miss a list altogether - Facility carries 1063 twice and Surface has
+    1051 before 1049 and 4106 twice. Keeping the first of each id and sorting is
+    GoldenEye's own answer in the order Perfect Dark has to have it in.
+    """
     h = struct.unpack_from('>10I', d, 0)
     if not h[5]:
         return struct.pack('>Ii', 0, 0), b''
@@ -585,13 +640,25 @@ def convert_ailists(d, at, stats, numpads):
         ptr, lid = struct.unpack_from('>Ii', d, o)
         if not ptr and not lid:
             break
-        rows.append((lid, ptr))
+        rows.append((lid, d, ptr, lid in vehicles))
         o += 8
-    head = 8 * (len(rows) + 1)
+    if data is not None:
+        for lid, off in global_lists(data):
+            rows.append((global_ai_id(lid), data, off, False))
+    seen = set()
+    kept = []
+    for row in rows:
+        if row[0] in seen:
+            stats['ai_duplicate'] = stats.get('ai_duplicate', 0) + 1
+            continue
+        seen.add(row[0])
+        kept.append(row)
+    kept.sort(key=lambda row: row[0])
+    head = 8 * (len(kept) + 1)
     pos = at + head
     table, code = b'', b''
-    for lid, ptr in rows:
-        blob = convert_ailist(d, ptr, stats, numpads, lid in vehicles)
+    for lid, buf, ptr, isvehicle in kept:
+        blob = convert_ailist(buf, ptr, stats, numpads, isvehicle)
         table += struct.pack('>Ii', pos, lid)
         code += blob
         pos += len(blob)
@@ -599,7 +666,7 @@ def convert_ailists(d, at, stats, numpads):
     return table, code
 
 
-def convert(d, numpads, bodies, scale=None, offset=None):
+def convert(d, numpads, bodies, scale=None, offset=None, data=None):
     """A GoldenEye solo setup as a Perfect Dark one.
 
     `bodies(bodyid, headid)` gives the Perfect Dark body and head a GoldenEye
@@ -615,7 +682,7 @@ def convert(d, numpads, bodies, scale=None, offset=None):
     paths_at = props_at + len(props)
     paths, pathpads = convert_paths(d, paths_at)
     ai_at = paths_at + len(paths) + len(pathpads)
-    ailists, aicode = convert_ailists(d, ai_at, stats, numpads)
+    ailists, aicode = convert_ailists(d, ai_at, stats, numpads, data)
     out = struct.pack('>8I', 0, 0, 0, intro_at, props_at, paths_at, ai_at, 0)
     out += intro + props + paths + pathpads + ailists + aicode
     return out, models, stats

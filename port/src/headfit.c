@@ -35,6 +35,7 @@
 #include "game/file.h"
 #include "game/modeldef.h"
 #include "gebean.h"
+#include "gexplus.h"
 #include "headfit.h"
 
 #define HEADFIT_MAXVERTS 8192
@@ -516,6 +517,13 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
 	// The release's pool draws its meshes over a host's models, whose N64
 	// geometry says nothing about where the mesh is
 	if (gebeanIsPoolRow(headnum) || gebeanIsPoolRow(bodynum)) {
+		return 0;
+	}
+
+	// A converted mission's guard is GoldenEye's own head on GoldenEye's own
+	// body, sitting on the body's headspot where GoldenEye put it: a neck
+	// measured between two of them would move one that already fits
+	if (gexPlusRomIsPoolRow(headnum) && gexPlusRomIsPoolRow(bodynum)) {
 		return 0;
 	}
 

@@ -11,6 +11,9 @@
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gexplus.h"
+#endif
 
 void bodiesReset(s32 stagenum)
 {
@@ -119,4 +122,10 @@ void bodiesReset(s32 stagenum)
 
 	for (i = 0; i < g_NumActiveHeadsPerGender; i++);
 	for (i = 0; i < g_NumActiveHeadsPerGender; i++);
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission wears GoldenEye's own heads: the same four
+	// for a level that its own bodyChooseHead() takes, in the same two lists
+	gexPlusMissionHeads();
+#endif
 }

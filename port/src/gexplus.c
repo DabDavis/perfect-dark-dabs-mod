@@ -43,6 +43,7 @@
 #include "game/setuputils.h"
 #include "game/botinv.h"
 #include "game/chraction.h"
+#include "game/chrai.h"
 #include "game/inv.h"
 #include "game/player.h"
 #include "game/playermgr.h"
@@ -425,6 +426,338 @@ static s32 gexPlusBodyForGe(s32 gebody)
 }
 
 /* -------------------------------------------------------------------------
+ * GoldenEye's own characters in a converted mission
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The conversion writes every one of GoldenEye's eighty characters as a Perfect
+ * Dark model file of its own - files/Cgx%03dZ, the forty-two bodies and then
+ * the heads (gechr.py) - and a table beside them, menu/gechrs.bin: each one's
+ * two c_item_entries flags, its scale and its pov. Those last two are what
+ * makeonebody() gives a chr's model, modelSetScale(scale * 0.1f) and
+ * modelSetAnimTranslationScale(pov), which are Perfect Dark's own `scale` and
+ * `animscale` in the same two places. Every character wears GoldenEye's guard
+ * skeleton, which is g_SkelChr joint for joint, so the game's own animations
+ * pose one and its gun sits in its hand.
+ *
+ * A mission dresses its chrs out of that table and nothing else. What the
+ * player has installed decides how GE Plus's *arenas* look - the XBLA release's
+ * characters, GoldenEye X's - but a converted mission is GoldenEye's own level,
+ * and its guards are GoldenEye's own guards.
+ *
+ * The rows go in g_HeadsAndBodies past the stock table, beside the release's
+ * pool (gebean.c) and GoldenEye X's borrowed characters, and are taken and
+ * given back per mission: the twenty missions ask for six bodies at the most
+ * (Train's six). **A body's row has to be addressable as a byte**, since a
+ * setup's packedchr keeps bodynum in one and so does aiSpawnChrAtPad, so a body
+ * takes a row under 256 and a mission that cannot get one falls back on
+ * whatever is installed. A head's row is never written into a record -
+ * GoldenEye's own setups leave all but two heads at -1 and let bodyChooseHead()
+ * pick, exactly as Perfect Dark's own do - so heads take rows past 255, where
+ * there is always room.
+ */
+#define GEROM_NUM_CHRS    80
+#define GEROM_FIRST_HEAD  42
+#define GEROM_ROWLEN      12
+#define GEROM_BODY_FIRST  152   // the pool rows, straight after the stock table
+#define GEROM_BODY_LAST   255   // and the last row a packedchr's u8 bodynum reaches
+#define GEROM_HEAD_FIRST  256
+#define GEROM_MAX_ROWS    24
+
+// c_item_entries' two flags, as the conversion writes them
+#define GEROM_MALE        0x1
+#define GEROM_HASHEAD     0x2
+
+// GoldenEye's own head pools: chr.c's random_male_heads and random_female_heads
+// as c_item_entries numbers. Its Terrorist, Biker and Mishkin heads are in
+// neither, and are worn only where a setup names them.
+static const u8 g_GeRomMaleHeads[] = {
+	57, 54, 55, 62, 59, 56, 58, 53, 52, 51, 42, 43, 44, 45, 46,
+	47, 48, 49, 50, 63, 64, 65, 66, 67, 68,
+};
+
+static const u8 g_GeRomFemaleHeads[] = { 70, 71, 72, 73 };
+
+// GoldenEye takes its four heads from one place in the male list for a whole
+// level (initguards.c's current_random_male_head, and bodyChooseHead()'s
+// `+ (random & 3)`), and one female head for all of it
+#define GEROM_MALE_HEADS_PER_LEVEL 4
+
+struct geromchr {
+	f32 scale;
+	f32 pov;
+	u8 flags;
+};
+
+// a row this mission holds: GoldenEye's character in it and, for a body whose
+// record named a head rather than taking one of the pool's, that head's row
+struct geromrow {
+	s16 row;
+	s16 chr;
+	s16 ownhead;
+};
+
+static struct geromchr g_GeRomChrs[GEROM_NUM_CHRS];
+static s32 g_GeRomNumChrs;            // 0 until a conversion's table has been read
+static s32 g_GeRomTableModDir = -2;   // the mod its table was read from
+static struct geromrow g_GeRomRows[GEROM_MAX_ROWS];
+static s32 g_GeRomNumRows;
+
+/**
+ * menu/gechrs.bin for the mod a stage belongs to, once.
+ */
+static s32 geRomLoadTable(s32 stagenum)
+{
+	const s32 moddir = modloaderGetStageModDirIndex(stagenum);
+	const char *dir = modloaderGetStageModDir(stagenum);
+	char path[FS_MAXPATH + 1];
+	u32 len = 0;
+	u8 *d;
+	s32 numchrs;
+
+	if (moddir < 0 || !dir) {
+		return 0;
+	}
+
+	if (g_GeRomTableModDir == moddir) {
+		return g_GeRomNumChrs > 0;
+	}
+
+	g_GeRomTableModDir = moddir;
+	g_GeRomNumChrs = 0;
+
+	snprintf(path, sizeof(path), "%s/menu/gechrs.bin", dir);
+	d = fsFileLoad(path, &len);
+
+	if (!d || len < 8 || memcmp(d, "GEC1", 4)) {
+		sysLogPrintf(LOG_WARNING, "gexplus: the conversion has no characters at %s", path);
+		sysMemFree(d);
+		return 0;
+	}
+
+	numchrs = (d[4] << 8) | d[5];
+
+	if (numchrs > GEROM_NUM_CHRS) {
+		numchrs = GEROM_NUM_CHRS;
+	}
+
+	if (numchrs < 0 || len < 8 + (u32)GEROM_ROWLEN * numchrs) {
+		sysMemFree(d);
+		return 0;
+	}
+
+	for (s32 i = 0; i < numchrs; i++) {
+		const u8 *row = d + 8 + GEROM_ROWLEN * i;
+		u32 bits;
+
+		if (((row[0] << 8) | row[1]) != i) {
+			continue;
+		}
+
+		g_GeRomChrs[i].flags = row[3];
+		bits = ((u32)row[4] << 24) | (row[5] << 16) | (row[6] << 8) | row[7];
+		memcpy(&g_GeRomChrs[i].scale, &bits, sizeof(f32));
+		bits = ((u32)row[8] << 24) | (row[9] << 16) | (row[10] << 8) | row[11];
+		memcpy(&g_GeRomChrs[i].pov, &bits, sizeof(f32));
+	}
+
+	sysMemFree(d);
+	g_GeRomNumChrs = numchrs;
+
+	return 1;
+}
+
+/**
+ * Every row this held, given back: a mission's rows are its own, and the next
+ * one asks for whichever characters it wants.
+ */
+static void geRomReleaseRows(void)
+{
+	for (s32 i = 0; i < g_GeRomNumRows; i++) {
+		const s32 row = g_GeRomRows[i].row;
+
+		if (row >= 0 && row < NUM_HEADSANDBODIES) {
+			memset(&g_HeadsAndBodies[row], 0, sizeof(struct headorbody));
+		}
+	}
+
+	g_GeRomNumRows = 0;
+}
+
+/**
+ * The row GoldenEye's character `num` wears in this mission, taking one and
+ * filling it out of the ROM's own table the first time it is asked for. -1
+ * where there is no row left to take, or no such character.
+ *
+ * `ownhead` is the row of the head a body is to wear where a record named one,
+ * and -1 where it takes the pool's - a body wanted both ways takes a row each
+ * way, so that Facility's fifteen scientists still get GoldenEye's own faces
+ * while Doctor Doak, who is the same body, keeps his.
+ *
+ * A row starts as one of Perfect Dark's own - the dataDyne guard for a man, the
+ * Institute's female technician for a woman, a stock head for a head - with the
+ * model file and the two scales replaced: the rest of a row is what the game
+ * asks of any body (its race, its hands, whether its height varies) and a
+ * converted character answers the same way.
+ */
+static s32 geRomTake(s32 num, s32 ownhead)
+{
+	const s32 ishead = num >= GEROM_FIRST_HEAD;
+	char name[16];
+	struct headorbody *hb;
+	const struct headorbody *host;
+	s32 row = -1;
+	s32 fileid;
+
+	if (num < 0 || num >= g_GeRomNumChrs) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < g_GeRomNumRows; i++) {
+		if (g_GeRomRows[i].chr == num && g_GeRomRows[i].ownhead == ownhead) {
+			return g_GeRomRows[i].row;
+		}
+	}
+
+	if (g_GeRomNumRows >= GEROM_MAX_ROWS) {
+		return -1;
+	}
+
+	snprintf(name, sizeof(name), "Cgx%03dZ", num);
+	fileid = romdataRegisterModFile(name, g_GeRomTableModDir);
+
+	if (fileid <= 0) {
+		return -1;
+	}
+
+	for (s32 i = ishead ? GEROM_HEAD_FIRST : GEROM_BODY_FIRST;
+			i <= (ishead ? NUM_HEADSANDBODIES - 1 : GEROM_BODY_LAST); i++) {
+		if (!g_HeadsAndBodies[i].filenum) {
+			row = i;
+			break;
+		}
+	}
+
+	if (row < 0) {
+		sysLogPrintf(LOG_WARNING, "gexplus: no row left for GoldenEye's character %d", num);
+		return -1;
+	}
+
+	host = &g_HeadsAndBodies[ishead
+			? ((g_GeRomChrs[num].flags & GEROM_MALE) ? HEAD_JAMIE : HEAD_ANKA)
+			: ((g_GeRomChrs[num].flags & GEROM_MALE) ? BODY_DD_GUARD : BODY_CIFEMTECH)];
+	hb = &g_HeadsAndBodies[row];
+	*hb = *host;
+	hb->filenum = (u16)fileid;
+	hb->modeldef = NULL;
+	hb->scale = g_GeRomChrs[num].scale;
+	hb->animscale = g_GeRomChrs[num].pov;
+	hb->ismale = (g_GeRomChrs[num].flags & GEROM_MALE) != 0;
+	// GoldenEye's own hasHead, which its retrieve_header_for_body_and_head()
+	// tests before it looks for a head at all
+	hb->unk00_01 = (g_GeRomChrs[num].flags & GEROM_HASHEAD) != 0;
+	// a guard is the height GoldenEye modelled it at: nothing in its own
+	// makeonebody() varies one
+	hb->canvaryheight = 0;
+
+	g_GeRomRows[g_GeRomNumRows].row = (s16)row;
+	g_GeRomRows[g_GeRomNumRows].chr = (s16)num;
+	g_GeRomRows[g_GeRomNumRows].ownhead = (s16)ownhead;
+	g_GeRomNumRows++;
+
+	return row;
+}
+
+/**
+ * GoldenEye's character `body` wearing `head` (its own numbers, `head` negative
+ * for one of the pool's), as a row a record can name. -1 where the conversion
+ * has no table or there is no row to be had, and the caller falls back on what
+ * the player has installed.
+ */
+static s32 geRomBodyRow(s32 body, s32 head)
+{
+	s32 ownhead = -1;
+
+	if (head >= GEROM_FIRST_HEAD) {
+		ownhead = geRomTake(head, -1);
+	}
+
+	return geRomTake(body, ownhead);
+}
+
+/**
+ * The head a converted mission's body wears where its record named one rather
+ * than taking GoldenEye's pool: Facility's Doctor Doak and Statue Park's
+ * Mishkin are the two in the twenty missions, and -1 is every other body.
+ *
+ * bodyChooseHead() asks, which is where both a setup's chr and aiSpawnChrAtPad
+ * arrive once the head they carry is -1 - and it has to be -1, since neither
+ * field is wide enough for a row past 127.
+ */
+s32 gexPlusRomOwnHead(s32 bodynum)
+{
+	for (s32 i = 0; i < g_GeRomNumRows; i++) {
+		if (g_GeRomRows[i].row == bodynum) {
+			return g_GeRomRows[i].ownhead;
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * Whether a row is one this holds, which is what keeps headfit.c off a pair
+ * GoldenEye made for itself: its heads sit on its own bodies' headspots as they
+ * are, and a neck measured between two of them would move one that fits.
+ */
+s32 gexPlusRomIsPoolRow(s32 num)
+{
+	for (s32 i = 0; i < g_GeRomNumRows; i++) {
+		if (g_GeRomRows[i].row == num) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * The heads a converted mission's guards wear, from the end of bodiesReset() -
+ * which is after the mission's own rows were taken (setupLoadFiles) and before
+ * its chrs are made (setupCreateProps), and is where Perfect Dark fills the
+ * same two lists with its own.
+ *
+ * GoldenEye picks a place in its own male list when a level starts and takes
+ * the four heads from there, and one female head for the whole level
+ * (initguards.c, bodyChooseHead()); Perfect Dark's active lists are the same
+ * idea, four or eight heads drawn for the level, so they are filled with
+ * GoldenEye's choice and the game's own bodyChooseHead() answers out of them.
+ */
+void gexPlusMissionHeads(void)
+{
+	s32 start, female;
+
+	if (g_GeRomNumRows <= 0) {
+		return;
+	}
+
+	start = (s32)(rngRandom() % ARRAYCOUNT(g_GeRomMaleHeads));
+	female = geRomTake(g_GeRomFemaleHeads[rngRandom() % ARRAYCOUNT(g_GeRomFemaleHeads)], -1);
+
+	g_NumActiveHeadsPerGender = GEROM_MALE_HEADS_PER_LEVEL;
+
+	for (s32 i = 0; i < GEROM_MALE_HEADS_PER_LEVEL; i++) {
+		const s32 row = geRomTake(g_GeRomMaleHeads[(start + i) % ARRAYCOUNT(g_GeRomMaleHeads)], -1);
+
+		g_ActiveMaleHeads[i] = row >= 0 ? row : HEAD_JAMIE;
+		g_ActiveFemaleHeads[i] = female >= 0 ? female : HEAD_ANKA;
+	}
+
+	g_ActiveMaleHeadsIndex = 0;
+	g_ActiveFemaleHeadsIndex = 0;
+}
+
+/* -------------------------------------------------------------------------
  * A converted mission's own text
  * ------------------------------------------------------------------------- */
 
@@ -646,13 +979,14 @@ s32 gexPlusMissionAnim(s32 geid)
 /**
  * A converted mission's props, once, before anything has read them.
  *
- * Two things in a mission's records are GoldenEye's own and cannot be mapped by
- * the conversion, because what the player has installed is not known until the
- * mission loads:
+ * **A chr's body** is GoldenEye's own character number, which becomes the row
+ * its converted model took (geRomBodyRow()), or - where the conversion is an old
+ * one with no characters in it - the release's character, GoldenEye X's or
+ * Perfect Dark's nearest. Its head is always -1 from here, because a row past
+ * 127 does not fit the field: bodyChooseHead() answers for it, out of
+ * GoldenEye's own pool or with the head this body's record named
+ * (gexPlusRomOwnHead()).
  *
- * - **a chr's body** is GoldenEye's own character number, which becomes the
- *   release's character, GoldenEye X's or Perfect Dark's nearest. Its head is
- *   left to Perfect Dark, since a Bean or GoldenEye X body carries its own.
  * A weapon's model is left alone: it is the pickup GoldenEye draws, converted
  * with the rest of the props, and a chr takes its held gun's model from the
  * weapon's own definition rather than the record. Pointing the record at the
@@ -667,6 +1001,9 @@ void gexPlusMissionSetup(u32 *props)
 	// a mission that starts afresh is not ending
 	g_GeExitState = 0;
 
+	geRomLoadTable(g_Vars.stagenum);
+	geRomReleaseRows();
+
 	if (!obj) {
 		return;
 	}
@@ -674,12 +1011,59 @@ void gexPlusMissionSetup(u32 *props)
 	while (obj->type != OBJTYPE_END) {
 		if (obj->type == OBJTYPE_CHR) {
 			struct packedchr *chr = (struct packedchr *)obj;
+			const s32 row = geRomBodyRow(chr->bodynum, (s8)chr->headnum);
 
-			chr->bodynum = gexPlusBodyForGe(chr->bodynum);
+			chr->bodynum = row >= 0 ? row : gexPlusBodyForGe(chr->bodynum);
 			chr->headnum = -1;
 		}
 
 		obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+	}
+}
+
+/**
+ * And the bodies a converted mission's lists spawn, once its ailists have been
+ * pointed at themselves (setupLoadFiles).
+ *
+ * aiSpawnChrAtPad and aiSpawnChrAtChr carry a body and a head of their own -
+ * GoldenEye's TRYSpawningChrAtPad and TRYSpawningChrNextToChr, which its
+ * missions use 162 times over the twenty: Statue Park's twenty Janus troops,
+ * Facility's scientists and Doctor Doak, Control's sixteen commandos. Left as
+ * GoldenEye's own numbers they spawned whatever Perfect Dark's body of that
+ * number happens to be, so they are mapped here exactly as a record's chr is.
+ */
+void gexPlusMissionAilists(void)
+{
+	struct ailist *lists = g_StageSetup.ailists;
+
+	if (!lists || g_GeRomNumChrs <= 0) {
+		return;
+	}
+
+	for (s32 i = 0; lists[i].list; i++) {
+		u8 *cmd = lists[i].list;
+		// a list that lost its way out to the command map would otherwise walk
+		// the heap; chrai.c bounds its own run of one for the same reason
+		s32 steps = 0;
+
+		while (steps++ < 100000) {
+			const s32 type = (cmd[0] << 8) | cmd[1];
+
+			if (type == AICMD_SPAWNCHRATPAD || type == AICMD_SPAWNCHRATCHR) {
+				const s32 row = geRomBodyRow(cmd[2], (s8)cmd[3]);
+
+				if (row >= 0) {
+					cmd[2] = (u8)row;
+					cmd[3] = 0xff;
+				}
+			}
+
+			if (type == AICMD_END) {
+				break;
+			}
+
+			cmd += chraiGetCommandLength(cmd, 0);
+		}
 	}
 }
 

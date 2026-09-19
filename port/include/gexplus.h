@@ -44,6 +44,22 @@ void gexPlusThemeSimulants(void);
 // installed.
 void gexPlusMissionSetup(u32 *props);
 
+// and the bodies its own lists spawn, once the ailists have been pointed at
+// themselves
+void gexPlusMissionAilists(void);
+
+// The heads a converted mission's guards wear: GoldenEye's own four, into the
+// game's own active lists, from the end of bodiesReset()
+void gexPlusMissionHeads(void);
+
+// The head a converted mission's body wears where its record named one rather
+// than taking GoldenEye's pool, or -1. bodyChooseHead() asks.
+s32 gexPlusRomOwnHead(s32 bodynum);
+
+// Whether a row of g_HeadsAndBodies is one of GoldenEye's own characters, in a
+// mission: headfit.c leaves a pair GoldenEye made for itself alone
+s32 gexPlusRomIsPoolRow(s32 num);
+
 // A converted GoldenEye mission's own text bank - its objectives and its radio
 // messages - loaded out of the mod's menu/ into LANGBANK_GEMISSION. Cleared
 // when the stage is not one of the missions.

@@ -1451,6 +1451,14 @@ void setupLoadFiles(s32 stagenum)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		// and the bodies a converted mission's own lists spawn, now that the
+		// lists can be walked
+		if (modloaderStageIsMission(stagenum)) {
+			gexPlusMissionAilists();
+		}
+#endif
+
 		// Sort the global AI lists by ID asc
 		do {
 			modified = false;

@@ -2198,9 +2198,12 @@ void lvTick(void)
 	{
 		extern s32 g_ChrSpawnTrace;
 		extern s32 sysArgCheck(const char *arg);
+		extern void chraiTraceInit(void);
 		if (g_ChrSpawnTrace < 0) {
 			g_ChrSpawnTrace = sysArgCheck("--chr-trace");
 		}
+		// --ai-trace: every command the AI runs, for the level's first frames
+		chraiTraceInit();
 	}
 	if (g_Vars.lvframenum == 300) {
 		extern const char *sysArgGetString(const char *arg);

@@ -1159,7 +1159,8 @@ def main():
             msetupdata = read_setup(md)
             mboundpads = geobjects.bound_pads(md, ls, offset)
             mpads = write_pads(msetupdata, ls, offset, rooms, None, None, mboundpads)
-            mprops, mmodels, mstats = gesolo.convert(md, len(msetupdata['pads']), gesolo.STOCK_BODIES, ls, offset)
+            mprops, mmodels, mstats = gesolo.convert(md, len(msetupdata['pads']), gesolo.STOCK_BODIES, ls, offset,
+                                                     gefiles.rom().data)
             allmodels.update(mmodels)
             allanims.update(mstats['anims'])
             files['bgdata/bg_gs%s_padsZ' % mkey] = mpads
@@ -1236,6 +1237,16 @@ def main():
     with open(os.path.join(outdir, 'menu', 'intro.bin'), 'wb') as f:
         f.write(struct.pack('>4sHH', b'GEI2', gerom.NUM_CHRS, len(rows)) + chrs + index + bytes(blob))
     print('characters written %d, animations %d in %d bytes' % (gerom.NUM_CHRS, len(INTRO_ANIMS), len(blob)))
+    # menu/gechrs.bin: "GEC1" and a row a character - the two c_item_entries
+    # flags, its scale and its pov, which are what makeonebody() gives a chr's
+    # model (modelSetScale(scale * 0.1) and modelSetAnimTranslationScale(pov),
+    # which are Perfect Dark's own two fields). A mission reads this to dress
+    # its guards in GoldenEye's own characters (gexplus.c); intro.bin carries
+    # the same scales but is a third of a megabyte of animation with them.
+    chrrows = b''.join(struct.pack('>HHff', num, h['ismale'] | (h['hashead'] << 1), scale, h['pov'])
+                       for num, (_, scale, h) in enumerate(gefiles.rom().chrs()))
+    with open(os.path.join(outdir, 'menu', 'gechrs.bin'), 'wb') as f:
+        f.write(struct.pack('>4sH2x', b'GEC1', gerom.NUM_CHRS) + chrrows)
     # menu/geanims.bin: the animations the missions' PlayAnimation commands
     # name (geanimtable.py), each under GoldenEye's own id. The port appends
     # them to Perfect Dark's table and gives the id its number there

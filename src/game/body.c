@@ -5,6 +5,7 @@
 #include "romdata.h"
 #ifndef PLATFORM_N64
 #include "headfit.h"
+#include "gexplus.h"
 #endif
 #include "system.h"
 #include "game/modghost.h"
@@ -381,6 +382,17 @@ s32 bodyChooseHead(s32 bodynum)
 {
 	s32 head;
 
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission's body whose own record named a head -
+	// Facility's Doctor Doak, Statue Park's Mishkin - rather than taking one of
+	// GoldenEye's pool, which the lists below now hold (gexPlusMissionHeads())
+	head = gexPlusRomOwnHead(bodynum);
+
+	if (head >= 0) {
+		return head;
+	}
+#endif
+
 	if (g_HeadsAndBodies[bodynum].ismale) {
 		head = g_ActiveMaleHeads[g_ActiveMaleHeadsIndex++];
 
@@ -556,7 +568,18 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 			chr->visionrange = packed->viewdist;
 			chr->padpreset1 = packed->padpreset;
 			chr->chrpreset1 = packed->chrpreset;
+#ifndef PLATFORM_N64
+			// A body that carries its own head is never given one and headnum
+			// is still the -55555 this started with, which an s16 chr->headnum
+			// holds as 9981 - and chr->headnum is read as a row of
+			// g_HeadsAndBodies elsewhere (chraction.c's voice pick). Stock
+			// solo has no such body; GoldenEye's own Trevelyan, Ourumov,
+			// Natalya, Xenia and the pilot all are one, and so are the XBLA
+			// release's characters.
+			chr->headnum = headnum >= 0 && headnum < NUM_HEADSANDBODIES ? headnum : 0;
+#else
 			chr->headnum = headnum;
+#endif
 			chr->bodynum = bodynum;
 			chr->race = bodyGetRace(chr->bodynum);
 

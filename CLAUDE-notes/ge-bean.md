@@ -4186,3 +4186,126 @@ it, but everything a still list asks about Bond answers about the camera there
 too. The same treatment fits - place the camera, leave the prop - but
 `ai00df` is Perfect Dark's own command with its own warp params and the mission
 exit sequence leans on it, so it wants its own pass.
+
+## GoldenEye's own guards, wearing its own faces and running its own AI (2026-09-19)
+
+The user, on GE Plus's solo missions: *"the ai at the moment in solo missions
+are not behaving like ge rom. also guards from pd instead of ge are in levels
+like dam."* Two faults, and the second is the larger of the two by far.
+
+### A converted mission was running Perfect Dark's guard AI
+
+**GoldenEye keeps eighteen AI lists of its own** that every level shares -
+`g_GlobalAILists` in chraidata.c, at data `0x8003744c`, inside the same segment
+the converter already reads: the standard guard, the simple guard (and its deaf
+twin), the attack, the idle animations, the keyboard basher, the alarm raiser,
+the clone, the two run-to-Bond chases, the draw-and-attack. A chr record or a
+command names one of them by **an id of 1024 or less** (bondconstants.h's
+`isGlobalAIListID`), and a level's own lists start at 1025.
+
+**Perfect Dark draws that line in exactly the same place** - `ailistFindById()`
+sends 0x401 and up to the stage's table and everything below it to its own
+`g_GlobalAilists` - so a converted guard whose list was GoldenEye's global 2,
+its standard guard, ran *Perfect Dark's* global 2 instead. Ten of Dam's
+thirty-six did, and every mission in GE Plus has been playing Perfect Dark's
+unalerted and alerted guard AI over GoldenEye's levels since the missions first
+ran. That is the whole of "the AI is not behaving like the ROM": the sight code
+is not the difference (`chrCheckCanSeeTarget()` is GoldenEye's
+`chrCheckTargetInSight()` line for line, the same 110 degree cone, the same
+`sqrt(d) * 30 / 16000` spotting roll, the same fog limit), and neither is the
+hearing (Perfect Dark's `chrsCheckForNoise()` only records a time; GoldenEye's
+`chrCheckGuardsHeardSound()` alerts, so *it* is the keener of the two).
+
+The eighteen are converted with each mission's own lists now
+(`gesolo.global_lists()`, `writeSoloAilists()`) and every reference to one moves
+with them (`global_ai_id()`/`soloGlobalAiId()`: a chr record's list, and the five
+commands that carry an `AI_LIST_ID` - `gelist` is a new column in both AI
+tables). Only two of the eighteen commands do not map: `TRYCloningChr`, which
+has no Perfect Dark equivalent, and `PRINT`, which is a debug comment.
+
+**Their ids have to sit under 0x1000.** Perfect Dark makes a *background chr* of
+every stage list from 0x1000 up (game_00b820.c) and ticks it from the first
+frame, so with the eighteen at 0x2000 each one was ticked as a chr of its own
+and `m_RunToBond`'s `TRYRunToBond` took the game down in `chrGoToRoomPos()` with
+no prop to move. 0x800 is above the highest id any of the twenty missions gives
+a list of its own (1066) and below the background lists' 0x1000.
+
+**And the table is sorted and holds each id once now.** GoldenEye's
+`ailistFindById()` walks the rows and takes the first of a duplicate; Perfect
+Dark binary-searches them (lib/ailist.c) and can miss a list altogether -
+Facility carries 1063 twice, and Surface has 1051 before 1049 and 4106 twice.
+Keeping the first of each id and sorting is GoldenEye's own answer in the order
+Perfect Dark has to have it in.
+
+**`--ai-trace [frames]` is the instrument** (chrai.c, off unless asked for): one
+line per AI command per chr for a level's first frames -
+
+    ai: f200 chr 14 list 1036 +37 cmd 0x0056 act 2 target -1 alert 0
+
+with the list id as `ailistFindById()` resolved it and a `g` on a global one.
+This is what made the fault visible in a minute: every one of Dam's guards was
+on `6g` and `7g`, which are Perfect Dark's own unalerted and alerted lists, and
+none of them was on a list of GoldenEye's. It is how to answer "what is this
+guard being told to do" in general - a converted list is GoldenEye's bytecode
+command for command, so the trace reads beside GoldenEye's own list.
+
+### The guards were Perfect Dark's own bodies
+
+`gexPlusBodyForGe()` dressed a mission's chrs out of whatever the player had
+installed - the XBLA release's characters, GoldenEye X's borrowed ones - and
+fell back on `BODY_DD_GUARD` with neither. A plain install has neither, so Dam's
+Russian soldiers were dataDyne guards.
+
+The conversion already writes **every one of GoldenEye's eighty characters** as
+a Perfect Dark model file (`files/Cgx%03dZ`, gechr.py, for the intro's cast
+reel), so a mission wears those now and nothing else - what a player has
+installed decides how GE Plus's *arenas* look, but a converted mission is
+GoldenEye's own level. `menu/gechrs.bin` is the table beside them: each
+character's two `c_item_entries` flags, its scale and its **pov**, which are what
+`makeonebody()` gives a chr's model - `modelSetScale(scale * 0.1f)` and
+`modelSetAnimTranslationScale(pov)`, which are Perfect Dark's own `scale` and
+`animscale` in the same two places, field for field.
+
+The rows go in `g_HeadsAndBodies` past the stock table, beside the release's pool
+and GoldenEye X's borrowed characters, and are taken and given back per mission
+(`geRomTake()`): the twenty ask for six bodies at the most. What it cost to get
+right:
+
+- **A body's row has to be addressable as a byte.** A setup's `packedchr` keeps
+  `bodynum` in a `u8` and `headnum` in an `s8`, and so does `aiSpawnChrAtPad`, so
+  bodies take rows under 256 and heads take rows past 255 - where they are never
+  named by a record.
+- **A head is never named by a record anyway**, and that is GoldenEye's own
+  doing: its setups leave all but two heads at -1 and let `bodyChooseHead()` pick,
+  exactly as Perfect Dark's do. GoldenEye takes four heads from one place in its
+  own male list for a whole level and one female head for all of it
+  (initguards.c, `bodyChooseHead()`), which is Perfect Dark's `g_ActiveMaleHeads`
+  to the letter - so those lists are filled with GoldenEye's choice at the end of
+  `bodiesReset()` and the game's own `bodyChooseHead()` answers out of them. The
+  two heads a setup *does* name - Facility's Doctor Doak, Statue Park's Mishkin -
+  take a body row of their own and `gexPlusRomOwnHead()` answers for it.
+- **The lists spawn guards too.** `TRYSpawningChrAtPad`/`NextToChr` carry a body
+  and a head of their own and the twenty use them 162 times (Statue Park's twenty
+  Janus troops, Control's sixteen commandos), so `gexPlusMissionAilists()` maps
+  those bytes at load as the props walk maps a record's.
+- **A body that carries its own head** (GoldenEye's `hasHead`: Trevelyan,
+  Ourumov, Natalya, Xenia, the pilot) is never given one, and `headnum` is then
+  still `bodyAllocateChr()`'s -55555 sentinel, which an `s16 chr->headnum` holds
+  as **9981** - and that is read as a row of `g_HeadsAndBodies` elsewhere
+  (chraction.c's voice pick). It is clamped at the assignment now.
+- headfit.c leaves a pair of GoldenEye's own alone (`gexPlusRomIsPoolRow()`):
+  its heads sit on its own bodies' headspots as they are, and a neck measured
+  between two of them would move one that already fits.
+
+**Measured**: all twenty missions boot and run 600 frames
+(`build/gexrom/runall.sh`), and `alertprobe.py` at frame 600 with the player
+standing where the mission spawned them reports **nothing shooting on any of the
+twenty** and alertness zero everywhere; what is attacking is aiming only
+(`ATTACKFLAG_AIMONLY`, GoldenEye's own `TARGET_AIM_ONLY`). Dam's guards are
+`ColiveguardZ`, `Cgreatguard2Z` and `CcommguardZ` wearing GoldenEye's own four
+faces, on its lists 0x802 (standard guard), 0x803 (idle animations) and 0x807
+(simple guard); Statue Park's seventy-one spawned Janus troops are
+`CtrevguardZ`. The C converter's bytes are still the Python's over all 26 levels
+and all 20 missions.
+
+`GECONVERT_VERSION_STR` 30.

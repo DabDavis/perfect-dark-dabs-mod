@@ -541,6 +541,7 @@ static size_t g_NumFiles;
 struct prop {
 	const char *file;
 	double scale;
+	double pov;
 	int32_t numswitches, nummatrices, numtextures;
 	double radius;
 	uint32_t skeleton, flags;
@@ -708,6 +709,9 @@ static int romOpen(void)
 
 		p->file = dataString(be32(g_Data, o + 4));
 		p->scale = bef32(g_Data, o + 8);
+		// makeonebody()'s modelSetAnimTranslationScale(), which is Perfect
+		// Dark's own animscale
+		p->pov = bef32(g_Data, o + 12);
 		// whether it is male, and whether it wears a head of its own
 		p->flags = ((be32(g_Data, o + 16) >> 24) & 1) | (((be32(g_Data, o + 16) >> 16) & 1) << 1);
 		p->skeleton = be32(g_Data, h + 4);
@@ -3467,6 +3471,37 @@ static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const r
 }
 
 /**
+ * A GoldenEye AI list id as the converted level's.
+ *
+ * GoldenEye's own **global** AI lists - chraidata.c's g_GlobalAILists, the
+ * eighteen every level shares: the standard guard, the simple guard, the attack,
+ * the idle animations, the keyboard basher, the alarm raiser - are named by an
+ * id of 1024 or less (bondconstants.h's isGlobalAIListID), and a level's own
+ * lists start at 1025. Perfect Dark draws that line in the same place
+ * (lib/ailist.c: 0x401 and up is the stage's, below it the game's own
+ * g_GlobalAilists), so a guard whose list was GoldenEye's global 2 ran *Perfect
+ * Dark's* global 2 - ten of Dam's thirty-six did, and every mission was running
+ * Perfect Dark's guard AI over GoldenEye's levels.
+ *
+ * The eighteen are converted into every mission (writeSoloAilists) with ids of
+ * their own, and every reference to one is moved with them. **The ids have to
+ * sit under 0x1000**: Perfect Dark makes a background chr of every stage list
+ * from there up (game_00b820.c) and ticks it from the first frame, so at 0x2000
+ * the eighteen were each ticked as a chr of their own and m_RunToBond took the
+ * game down in chrGoToRoomPos() with no prop to move. 0x800 is above the highest
+ * id any of the twenty missions gives a list of its own (1066) and below the
+ * background lists' 0x1000.
+ */
+#define GE_GLOBAL_AI_AT     0x8003744c
+#define GE_GLOBAL_AI_FIRST  0x0800
+#define GE_GLOBAL_AI_LAST   1024
+
+static uint32_t soloGlobalAiId(uint32_t id)
+{
+	return id <= GE_GLOBAL_AI_LAST ? GE_GLOBAL_AI_FIRST + id : id;
+}
+
+/**
  * GoldenEye's GuardRecord as Perfect Dark's packedchr.
  *
  * The two name most of the same things. GoldenEye's own setup flags are Perfect
@@ -3500,7 +3535,7 @@ static void guardRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 	set16(out, 0x0a, padNum(padid, numpads, 0));
 	out[0x0c] = (uint8_t)body;
 	out[0x0d] = head >= 0 ? (uint8_t)head : 0xff;
-	set16(out, 0x0e, ailist);
+	set16(out, 0x0e, soloGlobalAiId(ailist));
 	set16(out, 0x10, padNum(preset, numpads, 0));
 	set16(out, 0x12, chrpreset);
 	set16(out, 0x14, hearscale);
@@ -3584,7 +3619,7 @@ static void objectiveRecord(uint8_t *out, const uint8_t *raw)
 }
 
 struct solostats {
-	int props, dropped, aikept, aidropped;
+	int props, dropped, aikept, aidropped, aiduplicate;
 	uint8_t *anims;   // one byte per GoldenEye animation id, set when named
 };
 
@@ -3829,6 +3864,8 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 					v = soloTextId(v);
 				} else if (cmd->geanim & (1u << i)) {
 					v = GEAI_ANIM_TAG | v;
+				} else if (cmd->gelist & (1u << i)) {
+					v = soloGlobalAiId(v);
 				} else if ((op == 0xe3 || op == 0xe4) && i == 0) {
 					// the two commands that put an item in Bond's hands
 					// (geaitable.h rows e3 and e4); everything else
@@ -3891,10 +3928,31 @@ static int soloListIsVehicle(const records *recs, uint32_t lid)
 	return 0;
 }
 
+/**
+ * The mission's own AI lists, and GoldenEye's global ones after them.
+ *
+ * The table is **sorted by id and holds each id once**, which GoldenEye's own
+ * file is not obliged to be: its ailistFindById() walks the rows and takes the
+ * first of a duplicate, while Perfect Dark binary-searches them (lib/ailist.c)
+ * and can miss a list altogether - Facility carries 1063 twice and Surface has
+ * 1051 before 1049 and 4106 twice. Keeping the first of each id and sorting is
+ * GoldenEye's own answer in the order Perfect Dark has to have it in.
+ */
+#define GE_MAX_AILISTS 256
+
+struct gesololist {
+	const buf *from;   // the setup file, or the data segment for a global list
+	uint32_t at;
+	uint32_t id;
+	int vehicle;
+};
+
 static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head, buf *code, struct solostats *st)
 {
 	const uint32_t start = be32(f->v, 20);
 	records recs = setupRecords(f);
+	struct gesololist rows[GE_MAX_AILISTS];
+	buf seg = { g_Data, g_DataLen };
 	size_t n = 0, pos;
 
 	if (!start) {
@@ -3904,19 +3962,77 @@ static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head,
 	}
 
 	for (size_t o = start; o + 8 <= f->n && (be32(f->v, o) || be32(f->v, o + 4)); o += 8) {
+		if (n >= GE_MAX_AILISTS) {
+			fail("a mission has more than %d AI lists", (int)GE_MAX_AILISTS);
+		}
+
+		rows[n].from = f;
+		rows[n].at = be32(f->v, o);
+		rows[n].id = be32(f->v, o + 4) & 0xffff;
+		rows[n].vehicle = soloListIsVehicle(&recs, rows[n].id);
 		++n;
+	}
+
+	// GoldenEye's own eighteen, out of the data segment (soloGlobalAiId)
+	for (size_t i = 0;; ++i) {
+		const size_t o = GE_GLOBAL_AI_AT - DATA_VRAM + 8 * i;
+		uint32_t ptr;
+
+		if (o + 8 > g_DataLen) {
+			fail("GoldenEye's global AI lists run off the data segment");
+		}
+
+		ptr = be32(g_Data, o);
+
+		if (!ptr) {
+			break;
+		}
+
+		if (n >= GE_MAX_AILISTS) {
+			fail("a mission has more than %d AI lists", (int)GE_MAX_AILISTS);
+		}
+
+		rows[n].from = &seg;
+		rows[n].at = ptr - DATA_VRAM;
+		rows[n].id = soloGlobalAiId(be32(g_Data, o + 4) & 0xffff);
+		rows[n].vehicle = 0;
+		++n;
+	}
+
+	// the first of each id, then sorted: a stable insertion sort, so what is
+	// kept of a duplicate is GoldenEye's own first row
+	for (size_t i = 0; i < n; ++i) {
+		for (size_t j = 0; j < i; ++j) {
+			if (rows[j].id == rows[i].id) {
+				st->aiduplicate++;
+				memmove(&rows[i], &rows[i + 1], (n - i - 1) * sizeof(rows[0]));
+				--n;
+				--i;
+				break;
+			}
+		}
+	}
+
+	for (size_t i = 1; i < n; ++i) {
+		const struct gesololist row = rows[i];
+		size_t j = i;
+
+		while (j > 0 && rows[j - 1].id > row.id) {
+			rows[j] = rows[j - 1];
+			--j;
+		}
+
+		rows[j] = row;
 	}
 
 	pos = at + 8 * (n + 1);
 
 	for (size_t i = 0; i < n; ++i) {
-		const size_t o = start + 8 * i;
 		const size_t before = code->n;
 
-		writeSoloAilist(f, be32(f->v, o), numpads,
-				soloListIsVehicle(&recs, be32(f->v, o + 4) & 0xffff), code, st);
+		writeSoloAilist(rows[i].from, rows[i].at, numpads, rows[i].vehicle, code, st);
 		bufU32(head, (uint32_t)pos);
-		bufU32(head, be32(f->v, o + 4));
+		bufU32(head, rows[i].id);
 		pos += code->n - before;
 	}
 
@@ -5117,6 +5233,30 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		writeFile(outdir, "menu/intro.bin", head.v, head.n);
 		note("geconvert: %d characters, %d animations in %d bytes",
 			(int)NUM_CHRS, (int)numanims, (int)blob.n);
+
+		// menu/gechrs.bin: "GEC1" and a row a character - the two
+		// c_item_entries flags, its scale and its pov, which are what
+		// makeonebody() gives a chr's model (modelSetScale(scale * 0.1) and
+		// modelSetAnimTranslationScale(pov), Perfect Dark's own two fields).
+		// A mission reads this to dress its guards in GoldenEye's own
+		// characters (gexplus.c); intro.bin carries the same scales, but a
+		// third of a megabyte of animation with them.
+		{
+			buf chrs = {0};
+
+			bufPut(&chrs, (const uint8_t *)"GEC1", 4);
+			bufU16(&chrs, NUM_CHRS);
+			bufU16(&chrs, 0);
+
+			for (uint32_t num = 0; num < NUM_CHRS; ++num) {
+				bufU16(&chrs, num);
+				bufU16(&chrs, g_Chrs[num].flags);
+				bufF32(&chrs, g_Chrs[num].scale);
+				bufF32(&chrs, g_Chrs[num].pov);
+			}
+
+			writeFile(outdir, "menu/gechrs.bin", chrs.v, chrs.n);
+		}
 
 		// menu/geanims.bin: the animations the missions' PlayAnimation commands
 		// name (geanimtable.h), each under GoldenEye's own id. The port appends

@@ -656,6 +656,11 @@ _Static_assert(ARRAYCOUNT(g_CommandPointers) == ARRAYCOUNT(g_CommandLengths),
 		"a length for every AI command");
 #endif
 
+#ifndef PLATFORM_N64
+static void chraiTraceCommand(s32 type);
+extern s32 g_AiTraceUntil;
+#endif
+
 s32 chraiGetListIdByList(u8 *ailist, bool *is_global)
 {
 	s32 i;
@@ -823,6 +828,10 @@ void chraiExecute(void *entity, s32 proptype)
 				chraiWarnRunawayList(type);
 				break;
 			}
+
+			if (g_AiTraceUntil) {
+				chraiTraceCommand(type);
+			}
 #endif
 
 			if (type >= 0 && type < ARRAYCOUNT(g_CommandPointers) && g_CommandPointers[type]) {
@@ -858,6 +867,59 @@ void chraiExecute(void *entity, s32 proptype)
 }
 
 #ifndef PLATFORM_N64
+/**
+ * `--ai-trace [frames]`: every AI command every chr runs, for the level's first
+ * frames (600 unless a number is given), as
+ *
+ *     ai: f120 chr 6 list 1043 +37 cmd 0x0056 act 2 target -1 alert 0
+ *
+ * which is the instrument for "the AI is not behaving like the ROM". A
+ * converted GoldenEye list is GoldenEye's own bytecode mapped command for
+ * command (geaitable.py), so what a guard is *told* to do is readable beside
+ * GoldenEye's own list, and an offset that does not follow the last one is a
+ * branch taken - which is how a guard that alerts itself on its first tick is
+ * found, the command before the jump being the row that is wrong.
+ *
+ * It is off unless asked for: a mission's forty chrs run a few commands a tick
+ * each and this is one line of each of them.
+ */
+s32 g_AiTraceUntil = -1;
+
+void chraiTraceInit(void)
+{
+	extern s32 sysArgCheck(const char *arg);
+	extern s32 sysArgGetInt(const char *arg, s32 defval);
+
+	if (g_AiTraceUntil >= 0) {
+		return;
+	}
+
+	g_AiTraceUntil = sysArgCheck("--ai-trace") ? sysArgGetInt("--ai-trace", 600) : 0;
+}
+
+static void chraiTraceCommand(s32 type)
+{
+	extern void sysLogPrintf(s32 level, const char *fmt, ...);
+	const struct chrdata *chr = g_Vars.chrdata;
+
+	if (g_Vars.lvframenum > g_AiTraceUntil) {
+		return;
+	}
+
+	bool isglobal = false;
+	const s32 list = chraiGetListIdByList(g_Vars.ailist, &isglobal);
+
+	if (!chr) {
+		sysLogPrintf(0, "ai: f%d prop list %d%s +%d cmd %#06x",
+				g_Vars.lvframenum, list, isglobal ? "g" : "", g_Vars.aioffset, type);
+		return;
+	}
+
+	sysLogPrintf(0, "ai: f%d chr %d list %d%s +%d cmd %#06x act %d target %d alert %d",
+			g_Vars.lvframenum, chr->chrnum, list, isglobal ? "g" : "", g_Vars.aioffset,
+			type, chr->actiontype, chr->target, chr->alertness);
+}
+
 /**
  * A list that ran 20000 commands in one tick without yielding: said once, with
  * the command it was on when it was stopped.

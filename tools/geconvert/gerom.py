@@ -144,7 +144,8 @@ class Rom:
             _, skel, _, nsw, nmtx, radius, _, ntex = struct.unpack_from('>IIIhhfhh', self.data, ho)
             out.append((self.string(name), scale,
                         dict(numswitches=nsw, nummatrices=nmtx, radius=radius, numtextures=ntex,
-                             skeleton=skel, ismale=(flags >> 24) & 1, hashead=(flags >> 16) & 1)))
+                             skeleton=skel, ismale=(flags >> 24) & 1, hashead=(flags >> 16) & 1,
+                             pov=pov)))
         return out
 
     def anim(self, at):
