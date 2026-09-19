@@ -4658,3 +4658,92 @@ given is worth printing beside the character it was given for, and
 - A copy of the game named **`<exe>.new` is deleted by the next game that
   starts beside it** - the updater takes it for an interrupted download
   (`update.c`). Name a side-by-side binary anything else.
+
+## Stuck in the Cinema, and GE Plus's own main menu (2026-09-19)
+
+The tester: *"the cinema is bugged, when you are in the 3. Cinema screen. you
+cannot leave the videos, and you get stuck."* Two faults, and the second is why
+"stuck" rather than "the button does nothing".
+
+### The keys the cinema listened for were not the keys anyone presses
+
+`gecinemaTick()` read the **N64's** buttons and nothing else:
+`B_BUTTON` to leave, `A | B | Z | START | R | L` to skip. On a keyboard, in the
+port's PC scheme (`inputSetDefaultKeyBinds()`):
+
+- `CK_A` **is not bound at all**, so A_BUTTON never arrives;
+- `CK_B` is `E`, so the one key that left a cinema was E;
+- Escape is not a bind at all - it is read directly (`inputKeyJustPressed(VK_ESCAPE)`),
+  which is what `bondmove.c` does to pause and what the folder does to back out;
+- the **right mouse button is `CK_RTRIG` as well as `CK_CANCEL`**, so the
+  natural "back" press was read as R_TRIG and **skipped to the next shot**;
+- and the two UI buttons (`BUTTON_UI_ACCEPT`/`CANCEL`, which is how the port
+  separates menu accept and cancel from A and B) were not read at all.
+
+So a player pressing Escape, or right-clicking, or pressing Enter, either did
+nothing or advanced the gallery. The cinema now reads **what the folder reads**
+(`gexfront.c`'s own `pick`/`back` pair, line for line): leaving is
+`B_BUTTON | BUTTON_UI_CANCEL` or `VK_ESCAPE`, a skip is
+`A | Z | START | R | L | BUTTON_UI_ACCEPT` or the left mouse button, and leaving
+is asked **first** because the right mouse button is both. The two UI bits and
+the keyboard belong to pad 0, as in the folder.
+
+Also: the guard that keeps the press which *started* the cinema from being read
+inside it was counted from the start of the **shot**, and the shot timer resets
+on every skip - so a player holding the button through a skip had their next
+press thrown away. It is counted from the start of the cinema now
+(`g_GeCinemaTotal60`).
+
+### And where a cinema came back to
+
+`mainChangeToStage(STAGE_TITLE)`, with the folder then opened over the title by
+`menuTick()`. **The title is not a backdrop.** It runs its own tick under the
+folder, reads the same presses, and left alone for twenty seconds
+(`titleTickPdLogo`) loads its **attract demo** - a stage load, which resets the
+model pool the folder's own model is an instance in. That is the "stuck": a
+folder drawn over a screen that is still running, on top of a menu stack that
+was never pushed.
+
+A **match** already had the answer (`menutick.c`, `MENUROOT_MPENDSCREEN`): back
+to the **Institute** with `titleSetNextMode(TITLEMODE_SKIP)` and `var80087260`
+set, which is the flag that skips the Institute's own arrival
+(`aiIfCutsceneButtonPressed()` reads it) and that `menuTick()` waits on to push
+the Perfect Menu. `gexFrontGoBack()` is that sequence, and the cinema and a
+mission both use it.
+
+Measured (`build/gexrom/cinemaleave.py`, which injects one press into
+`g_JoyDataPtr->buttonspressed[]` and watches the state): before, Cancel advanced
+the shot (`shot 0/6` -> `1/6`) and only B left; after, both Cancel and B give
+`shot 6/6 wantfolder 1` on the next frame and the game lands on
+`stage 38 ... front active 1 screen 11 | menu root 2 dialogs 1 paused 1` - the
+Institute, folder open on the Cinema page, Perfect Menu underneath.
+
+### While inside GE Plus, its main menu is the main menu
+
+The user's ask. Starting a mission from GoldenEye's folder used to be a one-way
+door: the mission's endscreen went to `STAGE_TITLE` like any other, so finishing,
+failing or aborting one dropped the player out of GE Plus into Perfect Dark's
+title and Perfect Menu, and they had to walk back in through GE Plus and the
+whole intro.
+
+`gexFrontIsInside()` is true from the folder opening until the player backs out
+of its **mode select** to the Perfect Menu - not merely while the folder is
+drawn, since it is put away while a level runs. `MENUROOT_ENDSCREEN`'s close
+asks `gexFrontMissionEnded()`, which takes the ending when inside and goes back
+through `gexFrontGoBack()`; `menuTick()` then opens the folder at its mode
+select with SELECT MISSION under the cursor. Abort goes through the same place
+(`menuhandlerAbortMission()` -> `mainEndStage()` -> the endscreen), so all three
+endings are covered.
+
+**Leaving GE Plus is unchanged**: backing out of the mode select is still the
+one way out, and it still lands on the Perfect Menu.
+
+Measured (`build/gexrom/missionend4.gdb`): with the flag set, `mainEndStage()`
+on Dam gives `gexFrontMissionEnded() -> 1`, `var80087260 3`, and at
+`stage 38 lvframe 4` `gexFrontOpenAfterMission()` opens the folder at
+`screen 0` (SCREEN_MODE) with `cursory 226`, which is the SELECT MISSION row.
+With the flag clear the ending is Perfect Dark's own, untouched.
+
+**The trap:** a `--boot-stage` run has no agent file, so its endscreen is the
+**"Error" dialog** and no press dismisses it - pressing through an endscreen
+headlessly proves nothing. Drive the root instead, or call the hook.

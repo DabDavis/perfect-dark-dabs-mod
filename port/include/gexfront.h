@@ -24,6 +24,17 @@ s32 gexFrontOpenAfterMatch(void);
 // Opens the folder at the Cinema page after one of GoldenEye's opening camera
 // sequences has played (gecinema.c), with that mission under the cursor.
 s32 gexFrontOpenAfterCinema(s32 mission);
+// Inside GE Plus: from the folder opening until the player backs out of its
+// mode select to the Perfect Menu, through whatever levels it starts.
+s32 gexFrontIsInside(void);
+// Leaves the level for the Institute the way a match does, for the folder to
+// open over the Perfect Menu there (menutick.c) - never by way of the title.
+void gexFrontGoBack(void);
+// A solo mission's endscreen has closed for good. True when the folder started
+// the mission: the ending is taken, and comes back to GE Plus's own main menu.
+s32 gexFrontMissionEnded(void);
+s32 gexFrontWantsMain(void);
+s32 gexFrontOpenAfterMission(void);
 void gexFrontTick(void);
 Gfx *gexFrontRender(Gfx *gdl);
 

@@ -67,6 +67,10 @@
 #include "game/modghost.h"
 #include "preprocess.h"
 #include "game/challenge.h"
+#include "game/title.h"
+#include "game/pdmode.h"
+#include "game/lv.h"
+#include "lib/main.h"
 #include "game/file.h"
 #include "game/gfxmemory.h"
 #include "game/lang.h"
@@ -1481,9 +1485,22 @@ static void frontStartMission(void)
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
 }
 
+/**
+ * Inside GE Plus: from the folder opening until the player backs out of its
+ * mode select to the Perfect Menu. Starting a mission, a match or a cinema from
+ * it does not end that - the folder is put away while the level runs, and
+ * whatever the level ends in comes back to the folder, not to Perfect Dark's
+ * menus. "While inside GE Plus, let the main menu be GE Plus's main menu."
+ */
+static s32 g_FrontInside;
+// a mission started from the folder has ended: the Institute's menu comes up as
+// the folder's own main menu (menutick.c)
+static s32 g_FrontWantMain;
+
 static void frontClose(void)
 {
 	g_Front.active = 0;
+	g_FrontInside = 0;
 	frontUnload();
 
 	// the Perfect Menu's own tune again
@@ -2262,6 +2279,7 @@ s32 gexFrontOpen(void)
 	g_Front.numtextures = 0;
 
 	g_Front.active = 1;
+	g_FrontInside = 1;
 	g_Front.screen = SCREEN_MODE;
 	g_Front.mouseseen = 0;
 
@@ -2306,6 +2324,77 @@ s32 gexFrontOpenAfterMatch(void)
 	g_Front.cursorx = 126.0f;
 	g_Front.cursory = ROW_TOP + ROW_PLAYERS * ROW_PITCH + ROW_PITCH / 2;
 	// the press that ended the match is not a press in the folder
+	g_Front.inputdelay = 10;
+
+	return 1;
+}
+
+s32 gexFrontIsInside(void)
+{
+	return g_FrontInside;
+}
+
+/**
+ * Out of a level GE Plus started and back to the folder, **the way a match goes
+ * back** (menutick.c's MENUROOT_MPENDSCREEN): straight to the Institute with the
+ * title told to be skipped, and var80087260 set - which is what skips the
+ * Institute's own arrival (aiIfCutsceneButtonPressed) and what menuTick() waits
+ * on to put the Perfect Menu up with the folder over it.
+ *
+ * Not by way of the title, which is where a solo mission's endscreen goes on
+ * its own. The title is not a backdrop: it runs on under a folder opened over
+ * it, reads the same presses, and left alone for twenty seconds loads its
+ * attract demo - a stage load that resets the model pool the folder's own model
+ * is an instance in.
+ */
+void gexFrontGoBack(void)
+{
+	var80087260 = 3;
+	titleSetNextStage(STAGE_CITRAINING);
+	setNumPlayers(1);
+	titleSetNextMode(TITLEMODE_SKIP);
+	// as the title does on its way to the Institute
+	lvSetDifficulty(DIFF_A);
+	mainChangeToStage(STAGE_CITRAINING);
+}
+
+/**
+ * A solo mission's endscreen has closed for good - finished, failed or aborted,
+ * they all end there. True when the mission was one the folder started, and
+ * the ending is then taken: back to GE Plus's own main menu rather than Perfect
+ * Dark's.
+ */
+s32 gexFrontMissionEnded(void)
+{
+	if (!g_FrontInside) {
+		return 0;
+	}
+
+	g_FrontWantMain = 1;
+	gexFrontGoBack();
+
+	return 1;
+}
+
+s32 gexFrontWantsMain(void)
+{
+	return g_FrontWantMain;
+}
+
+/**
+ * Back from a mission: GE Plus's main menu, the mode select, with SELECT
+ * MISSION under the cursor since that is where the player came from.
+ */
+s32 gexFrontOpenAfterMission(void)
+{
+	g_FrontWantMain = 0;
+
+	if (!gexFrontOpen()) {
+		return 0;
+	}
+
+	frontSetCursorForMode(0);
+	// the press that closed the endscreen is not a press in the folder
 	g_Front.inputdelay = 10;
 
 	return 1;

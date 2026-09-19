@@ -44,6 +44,8 @@
 #include "game/pad.h"
 #include "game/setup.h"
 #include "modloader.h"
+#include "input.h"
+#include "gexfront.h"
 #include "gecinema.h"
 
 #ifndef PLATFORM_N64
@@ -57,7 +59,15 @@
 #define SHOT_END_2   480.0f
 
 #define MAX_SHOTS 16
-#define SKIP_BUTTONS (A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON | R_TRIG | L_TRIG)
+
+// The folder's own keys (gexfront.c), because a cinema is a page of the folder
+// to whoever is watching it: what backs out of a page there leaves here, and
+// what picks there goes on to the next shot. It used to read the N64's buttons
+// and nothing else, so on a keyboard Escape and Enter did nothing at all, the
+// right mouse button - R as well as Cancel - went on to the next shot instead
+// of leaving, and the one key that left was E. "You cannot leave the videos."
+#define LEAVE_BUTTONS (B_BUTTON | BUTTON_UI_CANCEL)
+#define SKIP_BUTTONS  (A_BUTTON | Z_TRIG | START_BUTTON | R_TRIG | L_TRIG | BUTTON_UI_ACCEPT)
 
 // The mission the folder picked, waiting for its stage to load
 static s32 g_GeCinemaArmed = -1;
@@ -70,6 +80,7 @@ static const u8 *g_GeCinemaShots[MAX_SHOTS];
 static s32 g_GeCinemaNumShots = -1;   // -1 until the stage's records are read
 static s32 g_GeCinemaShot;
 static f32 g_GeCinemaTime60;
+static f32 g_GeCinemaTotal60;         // since the cinema began, not the shot
 static s32 g_GeCinemaLine;            // how many of the shot's lines have shown
 static s32 g_GeCinemaEntered;         // the one-off setup has run
 
@@ -96,6 +107,7 @@ void gecinemaStageStart(void)
 	g_GeCinemaNumShots = -1;
 	g_GeCinemaShot = 0;
 	g_GeCinemaTime60 = 0;
+	g_GeCinemaTotal60 = 0;
 	g_GeCinemaLine = 0;
 	g_GeCinemaEntered = 0;
 	g_GeCinemaCamRoom = -1;
@@ -282,9 +294,17 @@ void gecinemaTick(void)
 		// Nothing left to watch: back to the folder. The stage does not change
 		// until the end of the frame, so the flag is also what keeps this from
 		// asking again on every frame until it does.
+		//
+		// **The way a match goes back** (menutick.c): to the Institute, with
+		// its own arrival skipped and the Perfect Menu put under the folder.
+		// This used to go to the title instead, and the title is not a
+		// backdrop - it runs on under the folder, reads the same presses, and
+		// left alone for twenty seconds loads its attract demo, which resets
+		// the model pool the folder's own model is an instance in. Leaving the
+		// folder from there landed on the title's logos with no menu at all.
 		if (!g_GeCinemaWantFolder) {
 			g_GeCinemaWantFolder = 1;
-			mainChangeToStage(STAGE_TITLE);
+			gexFrontGoBack();
 		}
 
 		return;
@@ -304,22 +324,35 @@ void gecinemaTick(void)
 	}
 
 	// GoldenEye's own press ends the shot; here the rest of them are still to
-	// come, so B leaves the whole thing - this is a gallery, not the way into
-	// a mission. The tenth of a second is so that the press that started the
-	// cinema is not read as one in it.
+	// come, so backing out leaves the whole thing - this is a gallery, not the
+	// way into a mission - and a pick goes on to the next shot. Leaving is
+	// asked first: the right mouse button is R as well as Cancel.
+	//
+	// The sixth of a second is so that the press that started the cinema is
+	// not read as one in it, and it is counted from the start of the cinema
+	// for leaving - counted from the start of the shot, a player leaning on
+	// the button through a skip had their next press thrown away.
 	{
 		const s8 contpad = optionsGetContpadNum1(g_Vars.currentplayerstats
 				? g_Vars.currentplayerstats->mpindex : 0);
+		// the two UI buttons and the keyboard belong to the first pad, as in
+		// the folder
+		const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
 
-		if (g_GeCinemaTime60 > 10.0f && joyGetButtonsPressedThisFrame(contpad, B_BUTTON)) {
+		if (g_GeCinemaTotal60 > 10.0f
+				&& (joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui)
+					|| inputKeyJustPressed(VK_ESCAPE))) {
 			g_GeCinemaShot = g_GeCinemaNumShots;
 			return;
 		}
 
-		skip = g_GeCinemaTime60 > 10.0f && joyGetButtonsPressedThisFrame(contpad, SKIP_BUTTONS) != 0;
+		skip = g_GeCinemaTime60 > 10.0f
+			&& (joyGetButtonsPressedThisFrame(contpad, SKIP_BUTTONS & ui) != 0
+				|| inputKeyJustPressed(VK_MOUSE_LEFT));
 	}
 
 	g_GeCinemaTime60 += g_Vars.diffframe60f;
+	g_GeCinemaTotal60 += g_Vars.diffframe60f;
 
 	if (skip || g_GeCinemaTime60 >= end) {
 		g_GeCinemaShot++;

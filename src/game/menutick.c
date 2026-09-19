@@ -83,12 +83,6 @@ void menuTick(void)
 		return;
 	}
 
-	// A GE Plus cinema has played out and the menus are up again: the folder
-	// opens on the Cinema page the mission was picked from (gecinema.c)
-	if (gecinemaWantsFolder()) {
-		gexFrontOpenAfterCinema(gecinemaTakeFolderMission());
-	}
-
 	if (gexFrontIsActive()) {
 		gexFrontTick();
 		return;
@@ -237,6 +231,43 @@ void menuTick(void)
 		var8009dfc0 = g_MenuData.bg == 0 ? false : true;
 	}
 
+#ifndef PLATFORM_N64
+	// A GE Plus cinema has played out (gecinema.c) and comes back the way a
+	// match does, below: to the Institute, its own arrival skipped by the same
+	// flag, the Perfect Menu up and the folder over it - on the Cinema page the
+	// mission was picked from, so that leaving the folder lands where opening
+	// it did. The folder used to be opened over the title here, on whatever
+	// frame the menus first ticked.
+	if (var80087260 > 0 && (gecinemaWantsFolder() || gexFrontWantsMain())) {
+		if (g_Vars.lvframenum >= 4 && g_Vars.stagenum == STAGE_CITRAINING) {
+			viBlack(false);
+			g_MpNumJoined = 0;
+			g_MpPlayerNum = 0;
+
+			for (i = 0; i < MAX_PLAYERS; i++) {
+				g_Vars.waitingtojoin[i] = false;
+			}
+
+			// A cinema goes back to the Cinema page, and a mission the folder
+			// started - finished, failed or aborted - to GE Plus's own main
+			// menu. With or without the folder: a conversion that has gone
+			// missing in the meantime leaves the Perfect Menu, not a black
+			// screen.
+			if (gecinemaWantsFolder()) {
+				gexFrontOpenAfterCinema(gecinemaTakeFolderMission());
+			} else {
+				gexFrontOpenAfterMission();
+			}
+			menuPushRootDialog(&g_CiMenuViaPcMenuDialog, MENUROOT_MAINMENU);
+			playerPause(MENUROOT_MAINMENU);
+
+			var80087260 = 0;
+		} else {
+			viBlack(true);
+			g_PlayersWithControl[0] = false;
+		}
+	} else
+#endif
 	// Check if returning from a multiplayer match
 	if (var80087260 > 0) {
 		if (g_Vars.lvframenum >= 4) {
@@ -652,6 +683,13 @@ void menuTick(void)
 			case MENUROOT_ENDSCREEN:
 				if (g_Vars.restartlevel) {
 					mainChangeToStage(mainGetStageNum());
+#ifndef PLATFORM_N64
+				} else if (gexFrontMissionEnded()) {
+					// A mission GE Plus's folder started: while the player is
+					// inside GE Plus its main menu is the main menu, and the
+					// way out to Perfect Dark's is the folder's own
+					// (gexfront.c)
+#endif
 				} else {
 					mainChangeToStage(STAGE_TITLE);
 				}
