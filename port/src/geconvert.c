@@ -179,16 +179,36 @@ const char *geconvertMissionLangFile(int mission)
  * player stands on through the links alone (stan.c's sub_GAME_7F0B1DDC), so an
  * edge belonging to another storey's floor can never stop them. Perfect Dark's
  * is a quad in the world, so a wall raised WALL_ABOVE over a staircase's own
- * tiles stands in the air across the flight above it. Every wall stops under
- * the lowest walkable surface that passes over it. */
-#define WALL_HEADROOM 60.0 /* a surface at least this far above the edge is
-                            * another floor, not the step or kerb the wall
-                            * itself belongs to */
+ * tiles stands in the air across the flight above it, and one dropped
+ * WALL_BELOW under a ledge's own tiles stands in the way of a player walking
+ * beneath. Every wall stops under the lowest walkable surface that passes over
+ * it, and over the head of anyone standing on one that passes under it. */
+#define WALL_HEADROOM 60.0 /* a surface this far from the edge is another
+                            * floor, not the step or kerb the wall itself
+                            * belongs to */
 #define WALL_STEP 20.0     /* world units between the samples along an edge */
 #define WALL_SIDE 4.0      /* the slack on the box a surface is looked for in */
 #define WALL_REACH 30.0    /* the player's own radius: they stand this far from
                             * a wall, and on a slope that is lower ground than
                             * the surface over the wall itself */
+#define WALL_HEAD 160.0    /* and their collision box reaches this far over the
+                            * floor they stand on (playerGetBbox(): a chr's is
+                            * less) */
+#define WALL_CLEAR 2.0     /* the foot goes this much further, since the
+                            * collision's own comparison against a tile's ymin
+                            * is inclusive */
+#define WALL_RISE 50.0     /* a wall's foot may be lifted this far over its own
+                            * edge and still meet the box of a walker on its
+                            * own tile. However deep a player crouches - and
+                            * they crouch twice - playerGetBbox() holds their
+                            * box at manground+30 to manground+80 at the least,
+                            * and the deepest a chr ducks is chr->height 90
+                            * over manground+20. A lift that would have to go
+                            * further clears nobody, so it is not made at all:
+                            * the surface under such a wall is a platform
+                            * beside its own tile rather than a floor under it,
+                            * and a player beside a platform belongs against
+                            * its side */
 
 /* ------------------------------------------------------------------------ */
 /* failure */
@@ -1778,18 +1798,21 @@ struct tilegeo {
 	double bb[4]; /* x0 x1 z0 z1 */
 };
 
-/* wall_above(): how far a wall on this edge may rise, which is to the lowest
- * walkable surface that passes over it, else WALL_ABOVE. */
-static double wallAbove(const double (*world)[3], const struct tilegeo *geo, size_t ntiles,
-		size_t self, const double *a, const double *b)
+/* wall_span(): how far a wall on this edge may rise and how far it may reach
+ * down - up to the lowest walkable surface that passes over it, and down to
+ * the head of a player standing on the highest one that passes under it. */
+static void wallSpan(const double (*world)[3], const struct tilegeo *geo, size_t ntiles,
+		size_t self, const double *a, const double *b, double *aboveout, double *belowout)
 {
 	const double dx = b[0] - a[0], dz = b[2] - a[2];
 	const double length = sqrt(dx * dx + dz * dz);
-	double above = WALL_ABOVE;
+	double above = WALL_ABOVE, below = WALL_BELOW;
 	/* the quad blocks between its own lowest and highest vertex, whatever its
 	 * corners are (cdCollectGeoForCylFromList() reads the tile's ymin/ymax), so
-	 * what has to stay under the surface is its higher end */
+	 * what has to stay under the surface over it is its higher end, and what
+	 * has to stay over the one under it is its lower */
 	const double top = a[1] > b[1] ? a[1] : b[1];
+	const double foot = a[1] < b[1] ? a[1] : b[1];
 	double x0, x1, z0, z1;
 	int nsteps;
 
@@ -1810,13 +1833,14 @@ static double wallAbove(const double (*world)[3], const struct tilegeo *geo, siz
 		for (size_t j = 0; j < ntiles; ++j) {
 			/* the player stands anywhere within their own radius of the wall,
 			 * and where the surface reaches over any of that it is what the
-			 * wall has to stay under: its lowest there */
+			 * wall has to keep clear of: its lowest for the surface over the
+			 * wall, its highest for the one under it */
 			static const double reach[5][2] = {
 				{ 0.0, 0.0 },
 				{ WALL_REACH, 0.0 }, { -WALL_REACH, 0.0 },
 				{ 0.0, WALL_REACH }, { 0.0, -WALL_REACH },
 			};
-			double low = 0.0, gap;
+			double low = 0.0, high = 0.0, gap, drop;
 			int found = 0;
 
 			if (j == self
@@ -1829,8 +1853,15 @@ static double wallAbove(const double (*world)[3], const struct tilegeo *geo, siz
 				double y;
 
 				if (tileSurfaceY(world + geo[j].first, geo[j].n,
-						px + reach[r][0], pz + reach[r][1], &y) && (!found || y < low)) {
-					low = y;
+						px + reach[r][0], pz + reach[r][1], &y)) {
+					if (!found || y < low) {
+						low = y;
+					}
+
+					if (!found || y > high) {
+						high = y;
+					}
+
 					found = 1;
 				}
 			}
@@ -1844,10 +1875,17 @@ static double wallAbove(const double (*world)[3], const struct tilegeo *geo, siz
 			if (gap >= WALL_HEADROOM && gap < above) {
 				above = gap;
 			}
+
+			drop = foot - high - WALL_HEAD - WALL_CLEAR;
+
+			if (high + WALL_HEADROOM <= foot && drop >= -WALL_RISE && drop < below) {
+				below = drop;
+			}
 		}
 	}
 
-	return above;
+	*aboveout = above;
+	*belowout = below;
 }
 
 static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *offset, int *numwalls)
@@ -1931,16 +1969,16 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 		for (int k = 0; k < n; ++k) {
 			double quad[4][3];
 			const double *a = pts[k], *b = pts[(k + 1) % n];
-			double above;
+			double above, below;
 
 			if (t->link[k] >> 4) {
 				continue;
 			}
 
-			above = wallAbove(world, geo, stan->n, i, a, b);
+			wallSpan(world, geo, stan->n, i, a, b, &above, &below);
 
-			quad[0][0] = a[0]; quad[0][1] = a[1] - WALL_BELOW; quad[0][2] = a[2];
-			quad[1][0] = b[0]; quad[1][1] = b[1] - WALL_BELOW; quad[1][2] = b[2];
+			quad[0][0] = a[0]; quad[0][1] = a[1] - below; quad[0][2] = a[2];
+			quad[1][0] = b[0]; quad[1][1] = b[1] - below; quad[1][2] = b[2];
 			quad[2][0] = b[0]; quad[2][1] = b[1] + above; quad[2][2] = b[2];
 			quad[3][0] = a[0]; quad[3][1] = a[1] + above; quad[3][2] = a[2];
 			EMIT(0x0004, quad, 4);

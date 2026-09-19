@@ -3349,13 +3349,41 @@ the conversion to be judged (`build/gexbefore` holds the unclamped walls, with
 `CONVERT.txt` already at the current version so the game does not convert over
 them, and it reproduces the Bunker's 118 exactly).
 
-**Still open: a wall hanging into the space under a ledge.** The other half of
-the overlap - a wall whose own tile is 60 to 200 units *above* a floor, whose
-quad reaches `WALL_BELOW` under itself and blocks a player walking underneath.
-No clamp of the top can reach it, since the wall has to stand at its own tile's
-level; it would want the *bottom* raised to the lower floor's head height,
-which is only possible where that is still inside the box of the tile's own
-walker. It waits for a report that shows one.
+**And a wall hanging into the space under a ledge, the same day.** "lets fix
+the ledge one too". The other half of the overlap: a wall whose own tile is
+*above* a floor, whose quad reaches `WALL_BELOW` under itself and stands in the
+way of a player walking beneath. No clamp of the top can reach it - the wall
+has to stay at its own tile's level - so it is the **foot** that lifts, to
+`WALL_HEAD + WALL_CLEAR` over the highest walkable surface that passes under
+the wall, which is the head of a player standing there.
+
+**The lift is capped at `WALL_RISE`, 50, and a lift that would have to go
+further is not made at all.** A wall still has to meet a walker on its own
+tile, and the user's own warning is the reason the cap is what it is: *players
+can crouch twice*. However deep they crouch, `playerGetBbox()` holds their box
+at manground+30 to manground+80 - `minsane` clamps `ymax` there whatever
+`crouchoffsetrealsmall` is - and a chr's deepest duck is `chr->height` 90 over
+manground+20 (chr.c: 185, 135, 90). A foot at most 50 over the edge is inside
+both. Where the required lift is bigger, lifting part of the way would weaken
+the wall and clear nobody, so the wall is left alone.
+
+**That window is narrower than it looks, and most of what looked like this was
+never it.** A lift only changes an outcome where the drop to the floor below is
+between about 112 and 210 units: under 112 the lift would exceed the cap, and
+over 210 the old 50-unit skirt already cleared a standing player's head. The
+Bunker's "ledges" turned out to be **raised platforms** flanking a walkway, 85
+units up - a player walking beside one belongs against its side, and
+GoldenEye's own collision stops them there too.
+
+**Counting "is this position blocked" says nothing here**, because a place
+under a walkway usually has a real wall beside it as well: on Facility's 103
+positions under a wall this rule lifts, 103 are blocked before and 103 after.
+`build/gexrom/blockprobe.py` calls `cdCollectGeoForCyl()` and reads back the
+geo it answers with, so a wall over the player's head is not confused with one
+at their own level. By that measure, **Facility 75 of those 103 blocked by a
+wall over their head before and 13 after; Frigate 41 of 84 and 9**, its cleared
+positions 3 and 7; and on the Bunker's 426 positions under a surface a player's
+height above them, 6 and 4. The Bunker's flight is still 0 of 900.
 
 **Four more levels, the same way**, asking the game at the middle of every one
 of the level's own tiles (`build/sweepstairs.sh`, the two run directories, the

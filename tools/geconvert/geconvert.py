@@ -473,15 +473,31 @@ WALL_ABOVE = 400.0  # and above, where nothing walkable stands in the way
 # player stands on through the links alone (stan.c's sub_GAME_7F0B1DDC), so an
 # edge belonging to another storey's floor can never stop them. Perfect Dark's
 # is a quad in the world, so a wall raised WALL_ABOVE over a staircase's own
-# tiles stands in the air across the flight above it. Every wall stops under
-# the lowest walkable surface that passes over it.
-WALL_HEADROOM = 60.0  # a surface at least this far above the edge is another
-                      # floor, not the step or kerb the wall itself belongs to
+# tiles stands in the air across the flight above it, and one dropped
+# WALL_BELOW under a ledge's own tiles stands in the way of a player walking
+# beneath. Every wall stops under the lowest walkable surface that passes over
+# it, and over the head of anyone standing on one that passes under it.
+WALL_HEADROOM = 60.0  # a surface this far from the edge is another floor, not
+                      # the step or kerb the wall itself belongs to
 WALL_STEP = 20.0      # world units between the samples along an edge
 WALL_SIDE = 4.0       # the slack on the box a surface is looked for in
 WALL_REACH = 30.0     # the player's own radius: they stand this far from a
                       # wall, and on a slope that is lower ground than the
                       # surface over the wall itself
+WALL_HEAD = 160.0     # and their collision box reaches this far over the floor
+                      # they stand on (playerGetBbox(): a chr's is less)
+WALL_CLEAR = 2.0      # the foot goes this much further, since the collision's
+                      # own comparison against a tile's ymin is inclusive
+WALL_RISE = 50.0      # a wall's foot may be lifted this far over its own edge
+                      # and still meet the box of a walker on its own tile.
+                      # However deep a player crouches - and they crouch twice
+                      # - playerGetBbox() holds their box at manground+30 to
+                      # manground+80 at the least, and the deepest a chr ducks
+                      # is chr->height 90 over manground+20. A lift that would
+                      # have to go further clears nobody, so it is not made at
+                      # all: the surface under such a wall is a platform beside
+                      # its own tile rather than a floor under it, and a player
+                      # beside a platform belongs against its side
 
 
 def read_stan(data):
@@ -545,9 +561,10 @@ def tile_surface_y(pts, x, z):
     return None
 
 
-def wall_above(world, bbox, self_i, a, b):
-    """How far a wall on this edge may rise: to the lowest walkable surface
-    that passes over it, else WALL_ABOVE."""
+def wall_span(world, bbox, self_i, a, b):
+    """How far a wall on this edge may rise and how far it may reach down: up
+    to the lowest walkable surface that passes over it, and down to the head of
+    a player standing on the highest one that passes under it."""
     dx, dz = b[0] - a[0], b[2] - a[2]
     length = math.sqrt(dx * dx + dz * dz)
     reach = WALL_REACH + WALL_SIDE
@@ -555,11 +572,12 @@ def wall_above(world, bbox, self_i, a, b):
                       & (bbox[:, 1] >= min(a[0], b[0]) - reach)
                       & (bbox[:, 2] <= max(a[2], b[2]) + reach)
                       & (bbox[:, 3] >= min(a[2], b[2]) - reach))[0]
-    above = WALL_ABOVE
+    above, below = WALL_ABOVE, WALL_BELOW
     # the quad blocks between its own lowest and highest vertex, whatever its
     # corners are (cdCollectGeoForCylFromList() reads the tile's ymin/ymax), so
-    # what has to stay under the surface is its higher end
-    top = max(a[1], b[1])
+    # what has to stay under the surface over it is its higher end, and what
+    # has to stay over the one under it is its lower
+    top, foot = max(a[1], b[1]), min(a[1], b[1])
     # a riser's own side is an edge that goes straight down, and a point of a
     # wall in plan; Perfect Dark blocks within the player's radius of one all
     # the same, so it takes the one sample at its own place
@@ -572,19 +590,27 @@ def wall_above(world, bbox, self_i, a, b):
                 continue
             # the player stands anywhere within their own radius of the wall,
             # and where the surface reaches over any of that it is what the
-            # wall has to stay under: its lowest there
-            low = None
+            # wall has to keep clear of: its lowest for the surface over the
+            # wall, its highest for the one under it
+            low = high = None
             for ox, oz in ((0.0, 0.0), (WALL_REACH, 0.0), (-WALL_REACH, 0.0),
                            (0.0, WALL_REACH), (0.0, -WALL_REACH)):
                 y = tile_surface_y(world[j], px + ox, pz + oz)
-                if y is not None and (low is None or y < low):
+                if y is None:
+                    continue
+                if low is None or y < low:
                     low = y
+                if high is None or y > high:
+                    high = y
             if low is None:
                 continue
             gap = low - top
             if WALL_HEADROOM <= gap < above:
                 above = gap
-    return above
+            drop = foot - high - WALL_HEAD - WALL_CLEAR
+            if high + WALL_HEADROOM <= foot and -WALL_RISE <= drop < below:
+                below = drop
+    return above, below
 
 
 def write_tiles(stan, numrooms, ls, offset):
@@ -607,8 +633,8 @@ def write_tiles(stan, numrooms, ls, offset):
             if link >> 4:
                 continue
             a, b = pts[i], pts[(i + 1) % n]
-            above = wall_above(world, bbox, ti, a, b)
-            quad = [(a[0], a[1] - WALL_BELOW, a[2]), (b[0], b[1] - WALL_BELOW, b[2]),
+            above, below = wall_span(world, bbox, ti, a, b)
+            quad = [(a[0], a[1] - below, a[2]), (b[0], b[1] - below, b[2]),
                     (b[0], b[1] + above, b[2]), (a[0], a[1] + above, a[2])]
             rooms[t['room']].append((0x0004, quad))
             walls += 1
