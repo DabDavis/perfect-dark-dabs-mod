@@ -3119,3 +3119,63 @@ stops there too.
 driven from gdb by retrying `introCastStart()` until the roll came up with the
 wanted animation and then fixing the camera (dist 150, angle 0, height 20) so
 they could be compared side by side.
+
+## The blood: GoldenEye's death screen, and why the barrel's wash never showed (2026-09-19)
+
+The user: "in GE the death screen features the blood falling down, also in the
+gun barrel screen in intro when bond shoots it should also make the blood
+falling screen". Two halves, and the second one was already written.
+
+**One animation serves both screens.** GoldenEye's `die_blood_image_1` is 2524
+bytes of run-encoded picture in its code segment - 42 frames of an 80x96
+intensity image, each decoded from where the last one ended - and both
+`gunbarrelBloodOverlayDL()` (the gun barrel) and `gameplayBloodOverlayDL()`
+(the death screen) draw the current frame as a 4-bit intensity texture over the
+whole of their screen, tinted 0x96,0,0 at 0xb4. The conversion writes it as
+`menu/introblood.bin` (`INTRO_BLOOD_AT` 0xada0 in the data segment, byte for
+byte the decomp's array - checked). It is `port/src/geblood.c` now, moved out
+of geintro.c so the death screen and the intro share one decoder.
+
+**The renderer keeps a texture by the address it was uploaded from.** That is
+why the gun barrel's wash "barely showed" from the day it was written: a step
+decodes the next frame **into the same buffer**, fast3d's texture cache is keyed
+on `texture_addr`, and so the whole second and a half drew the first frame -
+which is a nearly empty picture, a sliver of red along the top. Nothing in the
+data was wrong (the decode was verified frame by frame in Python against the
+decomp's array: 42 frames, 0% to 100% lit) and nothing in the draw was wrong
+(the rect is the whole screen, `dsdx`/`dtdy` are GoldenEye's own 0x18000/w and
+0x14000/h). `videoFreeCachedTexture(b->frame)` at the end of every step is the
+whole fix. **Anything that redraws changing texels from a fixed buffer needs
+it** - `lang.c` does the same for the Japanese glyph cache, and that is the only
+other place in the port that does.
+
+**Perfect Dark kept all of GoldenEye's death except the animation.**
+`playerRenderHud()` still has `redbloodfinished`, the red wash
+(`playerSetFadeColour(0x96, 0, 0, 0.70588237f)`), the fade and the death
+camera in GoldenEye's own order - Rare dropped only the blood and set the flag
+on the first frame, so the red wash comes at once. So the death screen is two
+hooks in that block and no new state: `geBloodDeathStart()` where GoldenEye
+calls `die_blood_image_routine(0)`, and `geBloodDeathRender()` in place of the
+line that sets the flag, which sets it when the wash has run out. It is on for
+a converted GoldenEye mission (`modloaderStageIsMission()`) and for the
+remake's arenas while GE Plus is the mode; everywhere else Perfect Dark's death
+is untouched, line for line.
+
+**The rate.** GoldenEye steps the wash once a frame while the player dies and
+once every two frames in the gun barrel - its front end runs at twice the
+framerate of its gameplay, so both take about a second and a half. This port
+ticks both at 60Hz, so both step every two ticks (`GEBLOOD_TICKS`, and the
+intro's `intro_eye_counter = 2`), and a paused game holds the frame because the
+step is spent in `g_Vars.lvupdate60`.
+
+A dying player's 7680-byte frame buffer is allocated the first time they die
+and **kept** (four of them at worst). It cannot be freed when the wash ends:
+the display list built that frame still points at it, and the renderer reads it
+after the game thread has moved on.
+
+Driving it: `--boot-stage 0x66` is the converted Runway mission (the missions
+are 0x65-0x78, the arenas 0x02-0x64 and 0x5e-0x64), `gdb -p ... -ex 'call
+(void)playerDie(1)'` kills the player, and a breakpoint on
+`geBloodDeathRender` with `screenshotRequest()` every few hits captures the
+wash. For the arenas, `set var g_GexPlusMode = 1` after a `--boot-stage 0x02
+--mpsims 1` boot.

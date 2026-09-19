@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #ifndef PLATFORM_N64
+#include "geblood.h"
 #include "mod.h"
 // a mod with its own hero names another body and head in its code
 #define MOD_PLAYER_BODY modDataPlayerBody(BODY_DARK_COMBAT)
@@ -6307,6 +6308,14 @@ Gfx *playerRenderHud(Gfx *gdl)
 			}
 
 			if (pass) {
+#ifndef PLATFORM_N64
+				// GoldenEye starts its wash of blood on the frame the player
+				// dies (bondview2.c's die_blood_image_routine(0))
+				if (geBloodDeathActive()) {
+					geBloodDeathStart();
+				}
+#endif
+
 				if (g_Vars.mplayerisrunning == false) {
 					musicStartSoloDeath();
 				} else {
@@ -6316,7 +6325,19 @@ Gfx *playerRenderHud(Gfx *gdl)
 				if (g_Vars.currentplayer->redbloodfinished) {
 					playerSetFadeColour(0x96, 0, 0, 0.70588237f);
 				} else {
-					g_Vars.currentplayer->redbloodfinished = true;
+#ifndef PLATFORM_N64
+					// GoldenEye runs the blood down the screen while Bond
+					// falls and only then washes it red. Perfect Dark kept
+					// everything but the animation, setting the flag on the
+					// first frame; on the remake's stages it is the
+					// conversion's own wash that sets it (geblood.c)
+					if (geBloodDeathActive()) {
+						gdl = geBloodDeathRender(gdl);
+					} else
+#endif
+					{
+						g_Vars.currentplayer->redbloodfinished = true;
+					}
 				}
 			}
 		}

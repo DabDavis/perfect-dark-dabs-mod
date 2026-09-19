@@ -57,6 +57,7 @@
 #include "romdata.h"
 #include "system.h"
 #include "video.h"
+#include "geblood.h"
 #include "geintro.h"
 #include "gexfront.h"
 #include "preprocess.h"
@@ -92,10 +93,6 @@
 
 // GoldenEye's M_INTRO
 #define INTRO_SEQUENCE 2
-
-// the blood wash down the lens, 4-bit intensity
-#define BLOOD_W 80
-#define BLOOD_H 96
 
 // front.c's gelogolight, which lights the logo and the cast reel
 static Lights1 g_CastLight = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0x4d, 0x4d, 0x2e);
@@ -262,8 +259,6 @@ static struct {
 
 	// the conversion's files
 	u8 *bg;              // BG_W * BG_H, expanded
-	u8 *blood;           // the encoded stream
-	u32 bloodlen;
 	// c_item_entries[]'s own scale, which is what the game scales a character
 	// by and what the intro does not: both of its screens are flat (0.1 and
 	// 0.18779343). Read because the conversion writes it beside the flags
@@ -279,8 +274,7 @@ static struct {
 	s32 counter;
 	s32 gunbarreltimer;
 	s32 shotplayed;
-	u8 *bloodframe;      // BLOOD_W * BLOOD_H, one texel a byte
-	const u8 *bloodnext;
+	struct geblood blood; // the wash down the lens (geblood.c)
 	s32 blooddone;
 
 	struct intromodel body, head, gun, logo;
@@ -621,11 +615,8 @@ static void introUnload(void)
 	introFreeModel(&g_Intro.gun);
 	introFreeModel(&g_Intro.logo);
 	sysMemFree(g_Intro.bg);
-	sysMemFree(g_Intro.blood);
-	sysMemFree(g_Intro.bloodframe);
+	geBloodDrop(&g_Intro.blood);
 	g_Intro.bg = NULL;
-	g_Intro.blood = NULL;
-	g_Intro.bloodframe = NULL;
 	g_Intro.loaded = 0;
 }
 
@@ -653,151 +644,9 @@ static s32 introLoadAll(void)
 	g_Intro.bg = packed ? introExpandRle(packed, len, BG_W, BG_H) : NULL;
 	sysMemFree(packed);
 
-	g_Intro.blood = introLoad("introblood.bin", &g_Intro.bloodlen);
-	g_Intro.bloodframe = sysMemZeroAlloc(BLOOD_W * BLOOD_H);
-
 	g_Intro.loaded = 1;
 
 	return 1;
-}
-
-/* ------------------------------------------------------------------------ */
-/* the blood down the lens (blood_decrypt.c) */
-
-/**
- * One frame of the wash, decoded from where the last one ended: runs of lit and
- * unlit texels down a column, or a count of solid ones and how many columns
- * repeat it. Returns where the next frame starts, NULL at the end.
- */
-static const u8 *introBloodDecode(const u8 *in, const u8 *end, u8 *out)
-{
-	u8 *o = out;
-	u8 *const olimit = out + BLOOD_W * BLOOD_H;
-	s32 rows = BLOOD_H;
-	u8 first;
-
-	if (!in || in >= end) {
-		return NULL;
-	}
-
-	first = *in++;
-
-	do {
-		u8 value = 0xff;
-		u8 run;
-
-		if (in >= end) {
-			return NULL;
-		}
-
-		run = *in++;
-
-		if (run == 0xff) {
-			u8 written = 0;
-
-			for (run = (in < end) ? *in++ : 0xff; run != 0xff; value ^= 0xff, run = (in < end) ? *in++ : 0xff) {
-				written += run;
-
-				while (run-- > 0 && o < olimit) {
-					*o++ = value;
-				}
-			}
-
-			while (written++ < BLOOD_W && o < olimit) {
-				*o++ = value;
-			}
-
-			rows--;
-		} else {
-			u8 lit = first + (run & 0x1f);
-			u8 columns = (run >> 5) + 1;
-
-			rows -= columns;
-
-			do {
-				u8 n = lit;
-
-				while (n-- > 0 && o < olimit) {
-					*o++ = 0xff;
-				}
-
-				n = BLOOD_W - lit;
-
-				while (n-- > 0 && o < olimit) {
-					*o++ = 0;
-				}
-			} while (--columns > 0);
-		}
-	} while (rows > 0 && o < olimit);
-
-	return in < end ? in : NULL;
-}
-
-/** The decoded frame is column major; the texture wants it row major. */
-static void introBloodTranspose(const u8 *src, u8 *dst)
-{
-	for (s32 y = 0; y < BLOOD_H; y++) {
-		for (s32 x = 0; x < BLOOD_W; x++) {
-			dst[x * BLOOD_H + y] = src[y * BLOOD_W + x];
-		}
-	}
-}
-
-/** The two four-texel averages GoldenEye softens the wash with. */
-static void introBloodBlur(u8 *p)
-{
-	for (s32 i = 1; i < BLOOD_W - 1; i++) {
-		for (s32 j = 1; j < BLOOD_H - 1; j++) {
-			const s32 at = i * BLOOD_H + j;
-			p[at] = (p[at + 1] + p[at] + p[at + BLOOD_H + 1] + p[at + BLOOD_H] + 2) >> 2;
-		}
-	}
-
-	for (s32 i = 1; i < BLOOD_W - 1; i++) {
-		for (s32 j = 1; j < BLOOD_H - 1; j++) {
-			const s32 at = i * BLOOD_H + j;
-			p[at] = (p[at - 1] + p[at] + p[at - BLOOD_H - 1] + p[at - BLOOD_H] + 2) >> 2;
-		}
-	}
-}
-
-/**
- * The next frame of the wash into g_Intro.bloodframe, ready to draw as a 4-bit
- * intensity texture (two texels a byte). `restart` begins it again.
- */
-static s32 introBloodStep(s32 restart)
-{
-	u8 *frame;
-
-	if (!g_Intro.blood || !g_Intro.bloodframe) {
-		return 1;
-	}
-
-	if (restart) {
-		g_Intro.bloodnext = g_Intro.blood;
-	}
-
-	if (!g_Intro.bloodnext) {
-		return 1;
-	}
-
-	frame = sysMemZeroAlloc(BLOOD_W * BLOOD_H);
-
-	if (!frame) {
-		return 1;
-	}
-
-	g_Intro.bloodnext = introBloodDecode(g_Intro.bloodnext, g_Intro.blood + g_Intro.bloodlen, frame);
-	introBloodTranspose(frame, g_Intro.bloodframe);
-	introBloodBlur(g_Intro.bloodframe);
-	sysMemFree(frame);
-
-	// two texels a byte, the high nibble first
-	for (s32 i = 0; i < BLOOD_W * BLOOD_H / 2; i++) {
-		g_Intro.bloodframe[i] = (g_Intro.bloodframe[i * 2] & 0xf0) | (g_Intro.bloodframe[i * 2 + 1] >> 4);
-	}
-
-	return g_Intro.bloodnext == NULL;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1199,7 +1048,7 @@ static void introBarrelStart(void)
 	g_Intro.gunbarreltimer = 0;
 	g_Intro.shotplayed = 0;
 	g_Intro.blooddone = 0;
-	g_Intro.bloodnext = NULL;
+	g_Intro.blood.next = NULL;
 
 	// modelSetScale() and modelSetAnimTranslationScale(1.0f), GoldenEye's own
 	if (!introLoadChr(&g_Intro.body, &g_Intro.head, BODY_BROSNAN_TUXEDO, HEAD_BROSNAN_TUXEDO, scale, 1.0f)) {
@@ -1379,7 +1228,7 @@ static Gfx *introDrawBlood(Gfx *gdl)
 	f32 s0 = 0.0f;
 	f32 t0 = 0.0f;
 
-	if (!g_Intro.bloodframe) {
+	if (!g_Intro.blood.frame) {
 		return gdl;
 	}
 
@@ -1392,7 +1241,7 @@ static Gfx *introDrawBlood(Gfx *gdl)
 	y1 = box.top + height;
 
 	if (x0 < 0.0f) {
-		s0 = (-x0 / width) * BLOOD_H;
+		s0 = (-x0 / width) * GEBLOOD_H;
 		x0 = 0.0f;
 	}
 
@@ -1401,7 +1250,7 @@ static Gfx *introDrawBlood(Gfx *gdl)
 	}
 
 	if (y0 < 0.0f) {
-		t0 = (-y0 / height) * BLOOD_W;
+		t0 = (-y0 / height) * GEBLOOD_W;
 		y0 = 0.0f;
 	}
 
@@ -1419,12 +1268,12 @@ static Gfx *introDrawBlood(Gfx *gdl)
 	gDPSetCombineMode(gdl++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
 	gDPSetPrimColor(gdl++, 0, 0, 0x96, 0x00, 0x00, 0xb4);
 	gSPTexture(gdl++, 0x8000, 0x8000, 0, G_TX_RENDERTILE, G_ON);
-	gDPLoadTextureBlock_4b(gdl++, g_Intro.bloodframe, G_IM_FMT_I, BLOOD_H, BLOOD_W, 0,
+	gDPLoadTextureBlock_4b(gdl++, g_Intro.blood.frame, G_IM_FMT_I, GEBLOOD_H, GEBLOOD_W, 0,
 			G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP,
 			G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
 	gSPTextureRectangle(gdl++, (s32)(x0 * 4.0f), (s32)(y0 * 4.0f), (s32)(x1 * 4.0f) - 1, (s32)(y1 * 4.0f) - 1,
-			G_TX_RENDERTILE, (s32)(s0 * 32.0f), (s32)(t0 * 32.0f), (s32)((BLOOD_H << 10) / width),
-			(s32)((BLOOD_W << 10) / height));
+			G_TX_RENDERTILE, (s32)(s0 * 32.0f), (s32)(t0 * 32.0f), (s32)((GEBLOOD_H << 10) / width),
+			(s32)((GEBLOOD_W << 10) / height));
 	gDPPipeSync(gdl++);
 
 	return gdl;
@@ -1461,7 +1310,7 @@ static Gfx *introRenderBarrel(Gfx *gdl)
 		gdl = introBarrelLens(gdl, g_Intro.titlex + 768.0f, g_Intro.titley - 40.0f, 2.7f, 2.57f);
 		gdl = introDrawBond(gdl);
 
-		if (g_Intro.mode == 5 && g_Intro.blood) {
+		if (g_Intro.mode == 5 && geBloodAvailable()) {
 			gdl = introDrawBlood(gdl);
 		} else if (g_Intro.mode >= 6) {
 			gdl = introWash(gdl, 150, 0, 0, 180);
@@ -1515,7 +1364,7 @@ static void introTickBarrel(void)
 
 		if (g_Intro.counter < 0) {
 			g_Intro.mode++;
-			introBloodStep(1);
+			geBloodStep(&g_Intro.blood, 1);
 			g_Intro.counter = 1;
 		}
 		break;
@@ -1524,7 +1373,7 @@ static void introTickBarrel(void)
 		g_Intro.counter--;
 
 		if (g_Intro.counter == 0) {
-			g_Intro.blooddone = introBloodStep(0);
+			g_Intro.blooddone = geBloodStep(&g_Intro.blood, 0);
 			g_Intro.counter = 2;
 		}
 
