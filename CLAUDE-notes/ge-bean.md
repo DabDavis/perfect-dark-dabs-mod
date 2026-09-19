@@ -3224,3 +3224,48 @@ extrapolated along the line that already takes it from the inner edge to the
 outer one, which keeps the texel density and repeats the noise. Measured with
 no black column at any row on 1024x768, 1280x720 and 2560x1080, on the mode,
 mission, level and multiplayer screens.
+
+
+## PREVIOUS stood beside its tab, not on it (2026-09-19)
+
+The user: "the tabs of the folder have the previous, next, start, etc. they are
+to the right of the tab, but should be on the tab".
+
+**Everything drawn on these screens was a twelfth further from the middle than
+the folder it stands on.** Not the tabs alone - the mission names hung off both
+ends of the film strip in the same proportion, and near the middle it is a pixel
+or two and nothing ever looked wrong. It is aspect-independent and was there at
+4:3 from the day the screens went in.
+
+GoldenEye's 440x330 frame is 4:3 with square pixels. This port's is **320x220,
+and `G_ASPECT_CENTER_EXT` holds it at its own aspect** - `SCREEN_ASPECT`, which
+is 320/220 = 1.4545 and *not* 4:3 (`gfx_update_aspect_mode()` sets
+`aspect_scale = gfx_current_native_aspect`, and `videoInit()` sets that to
+320/220). So a column of this frame is worth what a row is, and GoldenEye's
+frame goes into it **by its height and centred**, 293 of its 320 columns.
+`frontScaleX()` was `viGetWidth() / 440`, which spends all 320, and that is the
+whole fault: x = 411 (`TABS_RIGHT_EDGE`) landed at 997 of a 1024 window where
+the model's own tab ends at 956.
+
+The folder is drawn through `videoGetAspect()` with no aspect mode at all, so it
+is already where GoldenEye puts it; the 2D had to come to it, not the other way
+round - widening the model to meet the text would stretch GoldenEye's picture by
+a twelfth on every window. `frontX()` is the one place that maps a GoldenEye x
+now, and `frontScaleX()` is `frontScaleY()`. The mouse's own mapping is its
+inverse (`frontMoveCursor()`), which at 4:3 now puts the pointer exactly on
+GoldenEye's frame.
+
+**How it was found.** Not by reading: `frontTab()` is `frontAddPreviousTabText()`
+line for line, down to GoldenEye passing `textMeasure()` its height and width the
+other way round (so `h = TABS_RIGHT_EDGE - height / 2`, and `height` is 0 for a
+string with no `\n` in either game - "PREVIOUS\n" has one and measures 13). The
+display list said the glyph went to 287.3 of 320 and the screenshot had it at
+299.1, and the 1.0909 between them is `SCREEN_ASPECT / (4/3)`. Print the
+rectangle the code actually emits and measure the pixels it actually lit; the
+ratio names the fault.
+
+Measured after: at 1024x768 the tab band is screen 907..957 and PREVIOUS's ink
+920..931; at 1280x720, 1011..1057 and 1023..1033. Mode, multiplayer options,
+level, mission, characters and 007 options all checked, and the intro's cast
+captions (the one other caller of `gexFrontTextPrint()`, also under
+`G_ASPECT_CENTER_EXT`) still read beside their character.

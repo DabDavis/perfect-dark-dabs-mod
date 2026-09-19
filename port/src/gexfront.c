@@ -1523,9 +1523,10 @@ static void frontMoveCursor(void)
 		inputMouseGetPosition(&mx, &my);
 
 		if (g_Front.mouseseen && (mx != g_Front.mousex || my != g_Front.mousey)) {
-			const f32 cx = ((f32)mx - SCREEN_WIDTH_LO / 2) * (videoGetAspect() / SCREEN_ASPECT) + SCREEN_WIDTH_LO / 2;
-
-			g_Front.cursorx = cx * GEFRONT_W / SCREEN_WIDTH_LO;
+			// frontX() read backwards: the pointer is in this frame's 320x220
+			// and G_ASPECT_CENTER_EXT holds what is drawn at SCREEN_ASPECT
+			g_Front.cursorx = GEFRONT_W / 2
+				+ ((f32)mx - SCREEN_WIDTH_LO / 2) * videoGetAspect() * GEFRONT_H / SCREEN_WIDTH_LO;
 			g_Front.cursory = (f32)my * GEFRONT_H / SCREEN_HEIGHT_LO;
 		}
 
@@ -2244,14 +2245,36 @@ const char *gexFrontTitleString(s32 index)
 
 /* ---- drawing ------------------------------------------------------------ */
 
-static f32 frontScaleX(void)
-{
-	return viGetWidth() / GEFRONT_W;
-}
-
+/**
+ * GoldenEye lays out on a 440x330 frame, which is 4:3 with square pixels. This
+ * one is 320x220, and G_ASPECT_CENTER_EXT holds it at *its own* aspect
+ * (SCREEN_ASPECT, 320/220) in the middle of the window - so a column of it is
+ * worth exactly what a row is, and GoldenEye's frame goes into it by its height
+ * and centred, a twelfth narrower than the whole of it.
+ *
+ * Scaling x by viGetWidth()/440 instead is what put everything drawn here a
+ * twelfth further from the middle than the folder it is drawn on: at the tabs,
+ * the whole width of a tab, so PREVIOUS stood beside its tab rather than on it.
+ * Near the middle it is a pixel or two and nothing looked wrong.
+ *
+ * The folder itself is drawn through videoGetAspect() with no aspect mode and
+ * so is already where GoldenEye puts it; these are what had to come to it.
+ */
 static f32 frontScaleY(void)
 {
 	return viGetHeight() / GEFRONT_H;
+}
+
+// the same as a row's, which is the whole of the point
+static f32 frontScaleX(void)
+{
+	return frontScaleY();
+}
+
+// a GoldenEye x in this frame's own units
+static f32 frontX(f32 x)
+{
+	return viGetWidth() * 0.5f + (x - GEFRONT_W * 0.5f) * frontScaleX();
 }
 
 static Gfx *frontFillRect(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, u32 colour)
@@ -2260,7 +2283,7 @@ static Gfx *frontFillRect(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, u32 colour)
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
 	gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
 	gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
-	gDPFillRectangle(gdl++, (s32)(x1 * frontScaleX()), (s32)(y1 * frontScaleY()), (s32)(x2 * frontScaleX()), (s32)(y2 * frontScaleY()));
+	gDPFillRectangle(gdl++, (s32)frontX(x1), (s32)(y1 * frontScaleY()), (s32)frontX(x2), (s32)(y2 * frontScaleY()));
 
 	return gdl;
 }
@@ -2368,17 +2391,17 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 		if (rotated) {
 			// the glyph's rows run right to left across the screen, its columns down it
 			gSPTextureRectangleFlip(gdl++,
-					(s32)(((*y - cur->baseline) - cur->height) * sx * 4),
+					(s32)(frontX((*y - cur->baseline) - cur->height) * 4),
 					(s32)(*x * sy * 4),
-					(s32)((*y - cur->baseline) * sx * 4),
+					(s32)(frontX(*y - cur->baseline) * 4),
 					(s32)((*x + cur->width) * sy * 4),
 					G_TX_RENDERTILE, 0, (cur->height - 1) << 5,
 					(s32)(1024 / sy), (s32)(-1024 / sx));
 		} else {
 			gSPTextureRectangle(gdl++,
-					(s32)(*x * sx * 4),
+					(s32)(frontX(*x) * 4),
 					(s32)((*y + cur->baseline) * sy * 4),
-					(s32)((*x + cur->width) * sx * 4),
+					(s32)(frontX(*x + cur->width) * 4),
 					(s32)((*y + cur->baseline + cur->height) * sy * 4),
 					G_TX_RENDERTILE, 0, 0,
 					(s32)(1024 / sx), (s32)(1024 / sy));
@@ -2452,8 +2475,8 @@ static Gfx *frontDrawCursor(Gfx *gdl)
 	gDPSetEnvColor(gdl++, 255, 255, 255, 220);
 	gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
 	gSPTextureRectangle(gdl++,
-			(s32)((x - 16) * sx * 4), (s32)((y - 16) * sy * 4),
-			(s32)((x + 16) * sx * 4), (s32)((y + 16) * sy * 4),
+			(s32)(frontX(x - 16) * 4), (s32)((y - 16) * sy * 4),
+			(s32)(frontX(x + 16) * 4), (s32)((y + 16) * sy * 4),
 			G_TX_RENDERTILE, 0, 0, (s32)(1024 / sx), (s32)(1024 / sy));
 
 	return gdl;
@@ -2527,8 +2550,8 @@ static Gfx *frontImage(Gfx *gdl, s32 num, s32 width, s32 height, s32 format, s32
 	}
 
 	gSPTextureRectangle(gdl++,
-			(s32)((cx - hw) * sx * 4), (s32)((cy - hh) * sy * 4),
-			(s32)((cx + hw) * sx * 4), (s32)((cy + hh) * sy * 4),
+			(s32)(frontX(cx - hw) * 4), (s32)((cy - hh) * sy * 4),
+			(s32)(frontX(cx + hw) * 4), (s32)((cy + hh) * sy * 4),
 			G_TX_RENDERTILE, 0, theight < 0 ? ((-theight) << 5) - 1 : 0,
 			(s32)(twidth / (2.0f * hw) * 1024.0f / sx), (s32)(theight / (2.0f * hh) * 1024.0f / sy));
 
