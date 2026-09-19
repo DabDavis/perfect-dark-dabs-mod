@@ -3623,7 +3623,36 @@ struct solostats {
 	uint8_t *anims;   // one byte per GoldenEye animation id, set when named
 };
 
-static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct solostats *st)
+/**
+ * GoldenEye's cutscene camera - the thing a CameraSwitch turns the view to -
+ * moved into the converted level.
+ *
+ * The record is GoldenEye's CutsceneRecord and Perfect Dark's cameraposobj,
+ * and Perfect Dark's own setup load still does GoldenEye's conversion on it
+ * (setup.c: the position over 100 and the angles over 65536, out of the
+ * integers the file holds). So it stays in GoldenEye's encoding and only the
+ * position and a bound pad's number move. gesolo.py's camera_record().
+ */
+static void cameraRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t numpads, const double *offset)
+{
+	memcpy(out, raw, len < 28 ? len : 28);
+	out[3] = 0x2e;
+
+	for (int i = 0; i < 3; ++i) {
+		int32_t p = (int32_t)be32(raw, 4 + 4 * i);
+
+		if (offset) {
+			p -= (int32_t)lround(offset[i] * 100.0);
+		}
+
+		set32(out, 4 + 4 * i, (uint32_t)p);
+	}
+
+	set32(out, 0x18, padNum(be32(raw, 0x18) & 0xffff, numpads, 0));
+}
+
+static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
+		const double *offset)
 {
 	// the tails of the ObjectRecord types Perfect Dark keeps in the same order:
 	// GoldenEye's 0x80 onwards against Perfect Dark's 0x5c
@@ -3665,6 +3694,8 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 			weaponRecord(rec, raw, numpads);
 		} else if (t == 0x17) {
 			objectiveRecord(rec, raw);
+		} else if (t == 0x2e) {
+			cameraRecord(rec, raw, recs.v[i].len, numpads, offset);
 		} else if (g_GeSizes[t] >= 32) {
 			baseRecord(rec, raw, t, padNum(be16(raw, 6), numpads, 0));
 			for (size_t k = 0; k < sizeof(tails) / sizeof(tails[0]); ++k) {
@@ -4045,7 +4076,7 @@ static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct 
 		double levelscale, const double *offset)
 {
 	buf intro = writeSoloIntro(f, numpads, levelscale, offset);
-	buf props = writeSoloProps(f, numpads, models, st);
+	buf props = writeSoloProps(f, numpads, models, st, offset);
 	buf paths = {0}, pathpads = {0}, ailists = {0}, aicode = {0}, out = {0};
 	const size_t introat = 0x20;
 	const size_t propsat = introat + intro.n;

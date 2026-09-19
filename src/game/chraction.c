@@ -9709,6 +9709,15 @@ f32 chrGetInverseTheta(struct chrdata *chr)
 
 void chrSetLookAngle(struct chrdata *chr, f32 angle)
 {
+#ifndef PLATFORM_N64
+	// The angle is the model's to hold, and the player has no model while
+	// nothing is drawing their body - see chrMoveToPos(), which is where a
+	// converted mission's ending cinema reaches this.
+	if (chr->aibot == NULL && chr->model == NULL) {
+		return;
+	}
+#endif
+
 	if (chr->aibot) {
 		chr->aibot->lookangle = angle;
 	} else {
@@ -16330,13 +16339,27 @@ bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 an
 		propDeregisterRooms(chr->prop);
 		roomsCopy(rooms2, chr->prop->rooms);
 		chr0f0220ac(chr);
-		modelSetRootPosition(chr->model, &pos2);
 
-		nodetype = chr->model->definition->rootnode->type;
+#ifndef PLATFORM_N64
+		// The player has a chr and a prop at all times but only has a **model**
+		// while something is drawing their body - a mirror, a cutscene camera,
+		// the third person - so moving one from first person is a model of
+		// NULL here. Nothing stock ever asks: Perfect Dark's own ailists never
+		// name the player to this command. A converted GoldenEye mission does,
+		// on the frame its ending cinema starts (Archives, Bunker, Surface 2,
+		// Aztec and Egyptian all teleport Bond the moment their CameraSwitch
+		// runs), which crashed the game at the end of the mission.
+		if (chr->model)
+#endif
+		{
+			modelSetRootPosition(chr->model, &pos2);
 
-		if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
-			rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
-			rwdata->chrinfo.ground = ground;
+			nodetype = chr->model->definition->rootnode->type;
+
+			if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
+				rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
+				rwdata->chrinfo.ground = ground;
+			}
 		}
 
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;

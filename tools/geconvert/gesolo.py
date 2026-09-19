@@ -377,7 +377,40 @@ def objective_record(raw):
     return out
 
 
-def convert_props(d, numpads, bodies, models, stats):
+# GoldenEye's own cutscene camera, the thing a CameraSwitch turns the view to
+CUTSCENE_CAMERA = 0x2e
+
+
+def camera_record(raw, numpads, offset):
+    """GoldenEye's cutscene camera, moved into the converted level.
+
+    The record is GoldenEye's CutsceneRecord and Perfect Dark's cameraposobj -
+    the same seven words meaning the same things - and **Perfect Dark's own
+    setup load still does GoldenEye's conversion on it**: setup.c divides the
+    position by 100 and the two angles by 65536 out of the integers the file
+    holds, which is prop.c's PROPDEF_CAMERAPOS line for line. So the record is
+    left in GoldenEye's own encoding and only the two things the conversion
+    itself moved are moved here: the position, which is written as the integer
+    whose hundredth is the converted level's own coordinate, and a bound pad's
+    number.
+
+    The look the record describes is GoldenEye's own and stays that way;
+    playerExecutePreparedWarp() builds the vector from it (and honours the
+    look-at-Bond flag) where a converted mission is playing.
+    """
+    v = struct.unpack_from('>7i', raw, 0)
+    out = bytearray(raw[:4 * PD_SIZES[CUTSCENE_CAMERA]])
+    out[3] = CUTSCENE_CAMERA
+    for i in range(3):
+        p = v[1 + i]
+        if offset is not None:
+            p -= int(round(float(offset[i]) * 100.0))
+        struct.pack_into('>i', out, 0x04 + 4 * i, p)
+    struct.pack_into('>I', out, 0x18, pad_num(v[6] & 0xffff, numpads))
+    return bytes(out)
+
+
+def convert_props(d, numpads, bodies, models, stats, offset=None):
     """The mission's props, one Perfect Dark record for each of GoldenEye's."""
     recs = ge_records(d)
     out = []
@@ -397,6 +430,8 @@ def convert_props(d, numpads, bodies, models, stats):
             out.append(bytes(weapon_record(raw, numpads)))
         elif t == 0x17:
             out.append(bytes(objective_record(raw)))
+        elif t == CUTSCENE_CAMERA:
+            out.append(camera_record(raw, numpads, offset))
         elif geobjects.GE_SIZES[t] >= 32:
             # an ObjectRecord and a tail
             rec = base_record(raw, t, PD_SIZES[t], pad_of(t, raw, numpads))
@@ -674,7 +709,7 @@ def convert(d, numpads, bodies, scale=None, offset=None, data=None):
     """
     models = set()
     stats = dict(kept={}, dropped={}, ai_kept=0, ai_dropped={}, ai_unknown=0, anims=set())
-    props = convert_props(d, numpads, bodies, models, stats)
+    props = convert_props(d, numpads, bodies, models, stats, offset)
     intro, stats['spawns'] = convert_intro(d, numpads, scale, offset)
     header = 0x20
     intro_at = header

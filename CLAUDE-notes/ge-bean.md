@@ -4317,3 +4317,79 @@ faces, on its lists 0x802 (standard guard), 0x803 (idle animations) and 0x807
 and all 20 missions.
 
 `GECONVERT_VERSION_STR` 30.
+
+## A converted mission's own cutscene camera (2026-09-19)
+
+The Cinema page's shots were put right on 2026-09-19 ("The cinema's camera was
+the player's prop"); this is the other half, **the camera a mission switches to
+itself**. GoldenEye's `CameraSwitch` names a `CutsceneRecord` by tag and hands
+it to `bondviewSetCameraMode(CAMERAMODE_POSEND)`; the conversion maps it to
+Perfect Dark's own `ai00df`, which is `playerPrepareWarpType2()`. There are
+**thirty-one** of them over the twenty missions, every one at the start of an
+ending or an objective cinema, and `CameraReturnToBond` and
+`CameraLookAtBondFromPad` are used by none.
+
+**The record was never converted.** `CutsceneRecord` is Perfect Dark's
+`cameraposobj` field for field, so it fell through `convert_props()`'s
+short-record branch and was copied byte for byte - which is *nearly* right,
+because **Perfect Dark's own setup load still does GoldenEye's conversion on
+it**: `setup.c`'s `OBJTYPE_CAMERAPOS` divides the position by 100 and the
+angles by 65536 out of the integers the file holds, which is GoldenEye's
+`prop.c` line for line. What a raw copy does not do is move the position into
+the converted level, so every shot in the game stood at GoldenEye's own origin.
+Dam's first is at 148, 165, -3016 where the level it belongs to has it at
+-3242, 13384, 5568 - the level's offset, and nothing else.
+
+So the record stays in GoldenEye's encoding (`camera_record()`,
+`cameraRecord()`, converter version **31**) and only two things move: the
+position, written as the integer whose hundredth is the converted coordinate,
+and a **bound** pad's number (Runway's shot names pad 10004). A first attempt
+wrote floats and radians, which the loader then read as integers - the trap is
+that this is one of the few records Perfect Dark converts *after* loading.
+
+**And Perfect Dark frames a different shot from the same angles.** GoldenEye
+looks along (cos(pitch)sin(yaw), sin(pitch), **-**cos(pitch)cos(yaw))
+(bondview2.c) and `playerExecutePreparedWarp()` builds **+**cos(pitch)cos(yaw),
+so the yaw is *mirrored* between them, not turned half round - pi minus it, not
+pi plus it, which is what the Cinema page's `vv_theta` wanted because the
+player's own basis is a third convention again. The port builds GoldenEye's own
+vector where the stage is a converted mission. Checked against the record's own
+pad: Facility's shot points within a degree of the pad it names, and Bond walks
+up the middle of it.
+
+**The look-at-Bond flag.** `CameraSwitch`'s second argument is
+`CAMERAMODE_INTRO` (1) or 2; at 1 GoldenEye holds the shot on Bond wherever he
+stands (`g_CurrentPlayer->field_3C4`, a smoothed copy of his eye) and Perfect
+Dark has no such case - `g_WarpType2HasDirection != 1` is the only test and the
+look stays 0, 0, 1. Six of the thirty-one are that one (Dam's three, Statue
+Park, Cradle, Egyptian). The player's prop **is** the eye - `cam_pos` and
+`prop->pos` are the same point in normal play - so it is what the shot looks at.
+
+**The crash at the end of a mission.** Five missions teleport Bond on the frame
+their cinema starts (`CameraSwitch` then `TRYTeleportingChrToPad CHR_BOND`:
+Archives, Bunker, Surface 2, Aztec, Egyptian) and `chrMoveToPos()` dereferences
+`chr->model` twice - `modelSetRootPosition()` and the rootnode's type - with
+`chrSetLookAngle()` a third. **The player has a chr and a prop at all times but
+only has a model while something is drawing their body**, and from first person
+there is none, so finishing one of those missions killed the game. Nothing
+stock asks: Perfect Dark's own ailists never name the player to that command.
+Guarded in `chrMoveToPos()` and in `chrSetLookAngle()`, port only.
+
+That crash is also what "a converted list parks at its `CameraSwitch`" (the
+per-chr commands entry) really was - the game was dead, so nothing after it
+ran. Archives' outro plays now: the camera holds on the street from the
+record's own place, Bond walks up it and the guard's line prints.
+
+**How to drive one**: `build/gexrom/camswitch.py` puts a chr on a list at the
+converted offset of its `00df` and prints the camera, the prop and both AI
+positions per frame; `camshot.py` shoots it; `camoff.py` prints every
+mission's list and offset. A mission's chrs almost never *reach* a
+`CameraSwitch` on a plain boot - it is behind the objectives - so set
+`aioffset` to it rather than waiting.
+
+**Noticed, not chased**: Archives' outro draws a **large flat grey quad across
+the street** at eye height. It is not a prop - hiding all 244 objects (and all
+28 glass panes separately) leaves it exactly as it was - so it is the converted
+room geometry, and it is there whether or not a cinema is running.
+
+`GECONVERT_VERSION_STR` 31.

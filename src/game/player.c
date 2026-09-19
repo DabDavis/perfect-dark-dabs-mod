@@ -105,6 +105,7 @@
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "gecinema.h"
+#include "modloader.h"
 #endif
 #ifndef PLATFORM_N64
 #include "video.h"
@@ -2296,6 +2297,34 @@ void playerExecutePreparedWarp(void)
 
 		if (1);
 
+#ifndef PLATFORM_N64
+		if (modloaderStageIsMission(g_Vars.stagenum)) {
+			// A GoldenEye remake mission, where this record is GoldenEye's own
+			// cutscene camera and the command that named it its CameraSwitch.
+			//
+			// GoldenEye looks along (cos(pitch)sin(yaw), sin(pitch),
+			// **-**cos(pitch)cos(yaw)) (bondview2.c) and the line below builds
+			// +that in z, so the same record frames a different shot - a yaw
+			// mirrored, not turned round. And where the flag it carries is
+			// CAMERAMODE_INTRO, GoldenEye holds the shot on Bond wherever he
+			// stands rather than on a heading of its own, which is a case
+			// Perfect Dark's own 00df does not have: it leaves the look at
+			// 0, 0, 1 and the camera stares down the z axis. Six of the
+			// thirty-one CameraSwitches in the twenty missions are that one.
+			//
+			// The player's prop is the eye (cam_pos and prop->pos are the same
+			// point in normal play), so it is what the shot looks at.
+			if (g_WarpType2HasDirection == 1) {
+				look.x = g_Vars.currentplayer->prop->pos.x - pos.x;
+				look.y = g_Vars.currentplayer->prop->pos.y - pos.y;
+				look.z = g_Vars.currentplayer->prop->pos.z - pos.z;
+			} else {
+				look.x = cosf(g_WarpType2Params->look[1]) * sinf(g_WarpType2Params->look[0]);
+				look.y = sinf(g_WarpType2Params->look[1]);
+				look.z = -cosf(g_WarpType2Params->look[1]) * cosf(g_WarpType2Params->look[0]);
+			}
+		} else
+#endif
 		if (g_WarpType2HasDirection != 1) {
 			look.x = cosf(g_WarpType2Params->look[1]) * sinf(g_WarpType2Params->look[0]);
 			look.y = sinf(g_WarpType2Params->look[1]);
