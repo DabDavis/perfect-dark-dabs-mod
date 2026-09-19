@@ -3789,8 +3789,13 @@ bool playerIsThirdPerson(struct player *player)
 #ifdef PLATFORM_N64
 	return false;
 #else
+	// GE Plus's watch is a first person thing - GoldenEye's arm comes up in
+	// front of the eye and not out of the body - so it asks for the eye the
+	// same way aiming does, and the camera goes back out on its own when the
+	// watch is put away (gewatch.c)
 	return playerWantsThirdPerson(player)
 		&& (!player->insightaimmode || player->isdead)
+		&& !geWatchIsOpen()
 		&& player->haschrbody;
 #endif
 }

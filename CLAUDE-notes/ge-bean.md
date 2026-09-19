@@ -4851,6 +4851,43 @@ whole window.
   (`gDma1p(gdl++, G_COL, colours, n * 4, (n - 1) << 2)`), so the face's disc,
   its gauges and its screen-select rectangles each load their own.
 
+### What the arm wears, and where the view is when it comes up (2026-09-19)
+
+The user, on the first build: "the hand is not matching the player model, also
+the watch is a bit too zoomed out. the watch looks tiny, while the wrist and
+arm take up the whole screen, cant tell they are arm, hand." And then: "in
+third person the arm pops up, lets make it go into first person first (similar
+to aiming), then bring up arm".
+
+**The arm was drawn with whatever light state the frame was left in**, which
+is one flat pale mass with no shape to it at all - it reads as a wall, not as
+an arm. `lightsSetDefault()` before the model is the whole fix; the render
+preset (`renderdata.unk30`, 4 or 7) makes no difference here, since the
+converted lists carry their own combine modes.
+
+**The sleeve is the mission's own outfit.** GoldenEye picks the cuff from
+`bondtype`, which its setup's intro stream sets (`INTROTYPE_CUFF`), and
+**Perfect Dark still reads that command into the same field** - `INTROCMD_OUTFIT`
+into `player->bondtype` - so a converted mission already carries GoldenEye's own
+answer and the watch only had to ask. Measured: Caverns and Jungle give 2
+(`CUFF_JUNGLE`), Surface 4 (`CUFF_SNOW`), Facility 3 (`CUFF_BOILER`), which are
+GoldenEye's own outfits for those missions. The hand itself is GoldenEye's one
+model, so a player who has picked somebody else in Customize Character keeps
+their own body everywhere but here. `INTROCMD_WATCHTIME` survives the same way
+and is what the dial is set to, so the watch starts at the hour the mission
+starts at rather than at zero.
+
+**The open zoom is 5.9 degrees on 4:3 and 7.5 by 16:9** (it was 11 for an hour,
+which is where "the watch looks tiny" came from: at that distance the face is
+half the height and the arm is a blur at the sides).
+
+**The watch asks for first person the way aiming does.** `playerIsThirdPerson()`
+already answers false while `insightaimmode` is set - that is what puts the
+camera back on the eye when the player aims - so `geWatchIsOpen()` joins it
+there, and the state machine waits for `thirdpersondist` to reach zero before
+the arm starts up. The camera eases back out on its own when the watch closes,
+through the same path.
+
 ### Driving it
 
 `build/gexrom/watch1.gdb` opens the watch at frame 400 with

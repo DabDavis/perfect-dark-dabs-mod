@@ -62,6 +62,7 @@
 #include "geanimtable.h"
 #include "game/bondmove.h"
 #include "game/bondgun.h"
+#include "game/dlights.h"
 #include "game/file.h"
 #include "game/game_006900.h"
 #include "game/gfxmemory.h"
@@ -118,7 +119,7 @@
  * on the face rather than on the window (watchTextFrame()).
  */
 #define WATCHZOOM2             5.9f   // the watch open, on 4:3
-#define WATCHZOOM_WIDE         11.0f  // and on 16:9
+#define WATCHZOOM_WIDE         7.5f   // and on 16:9
 #define WATCH_ASPECT_NARROW    (4.0f / 3.0f)
 #define WATCH_ASPECT_WIDE      (16.0f / 9.0f)
 #define WATCHZOOM3             3.95f  // the inventory, which leans in further
@@ -181,14 +182,28 @@ enum {
 #define ARM_FRAMES     20.0f
 #define ARM_DURATION   40.0f
 
-// its cuff toggles, from bondviewSelectCuff(model, header, 4)
+// its cuff toggles, in bondviewSelectCuff(model, header, 4)'s own order
 #define CUFF_FIRST     4
-#define CUFF_BOILER    (CUFF_FIRST + 0)
-#define CUFF_TUXEDO    (CUFF_FIRST + 1)
-#define CUFF_CONNERY   (CUFF_FIRST + 2)
-#define CUFF_BLUE      (CUFF_FIRST + 3)
-#define CUFF_JUNGLE    (CUFF_FIRST + 4)
-#define CUFF_SNOW      (CUFF_FIRST + 5)
+#define CUFF_PART_BOILER   (CUFF_FIRST + 0)
+#define CUFF_PART_TUXEDO   (CUFF_FIRST + 1)
+#define CUFF_PART_CONNERY  (CUFF_FIRST + 2)
+#define CUFF_PART_BLUE     (CUFF_FIRST + 3)
+#define CUFF_PART_JUNGLE   (CUFF_FIRST + 4)
+#define CUFF_PART_SNOW     (CUFF_FIRST + 5)
+
+// and GoldenEye's own outfits (its CUFF_TYPES), which a mission names in its
+// setup's intro stream. Perfect Dark reads the same command (INTROCMD_OUTFIT)
+// into the same field it always had, `bondtype`, so a converted mission's own
+// outfit is already there to be read.
+#define GECUFF_BLUE    0
+#define GECUFF_BROSNAN 1
+#define GECUFF_JUNGLE  2
+#define GECUFF_BOILER  3
+#define GECUFF_SNOW    4
+#define GECUFF_CONNERY 5
+#define GECUFF_DALTON  6
+#define GECUFF_MOORE   7
+#define GECUFF_FOLDER  8
 
 // the watch's pose in front of the eye (player.c's field_1D4, field_1D8 and
 // pause_watch_position), and how big it is drawn there
@@ -1315,9 +1330,16 @@ void geWatchTick(void)
 
 		// GoldenEye waits 17 frames for the hand to hold the watch rather than
 		// the gun; here it waits for Perfect Dark's own switch to finish, and
-		// gives up on the same count in case it never does
-		if ((bgunGetWeaponNum(HAND_RIGHT) == WEAPON_UNARMED && !bgunIsAnimBusy(&g_Vars.currentplayer->hands[HAND_RIGHT]))
-				|| g_Watch.timer >= 17.0f) {
+		// gives up on the same count in case it never does.
+		//
+		// In third person it waits for the camera as well. The watch is a
+		// first person thing - the arm is in front of the eye, not on the
+		// body - so opening it asks for the eye the way aiming does
+		// (playerIsThirdPerson()), and the arm does not start up until the
+		// camera has arrived there.
+		if (((bgunGetWeaponNum(HAND_RIGHT) == WEAPON_UNARMED && !bgunIsAnimBusy(&g_Vars.currentplayer->hands[HAND_RIGHT]))
+					|| g_Watch.timer >= 17.0f)
+				&& g_Vars.currentplayer->thirdpersondist <= 0.0f) {
 			watchSetState(WS_TILT);
 		}
 		break;
@@ -1754,10 +1776,32 @@ static void watchFindHands(struct modeldef *def, struct modelrodata_positionheld
 	}
 }
 
-/** bondviewSelectCuff(): the outfit Bond's sleeve is wearing. */
+/**
+ * bondviewSelectCuff(): the sleeve the arm wears, which is the outfit the
+ * mission put the player in - its own `INTROCMD_OUTFIT`, kept in `bondtype` -
+ * so the jungle levels get the fatigues, the Surface ones the parka and the
+ * rest the tuxedo, as GoldenEye does. Anything the mission did not name falls
+ * back to the tuxedo.
+ *
+ * The hand itself is GoldenEye's own, and there is only one of those: a player
+ * who has picked somebody else in Customize Character keeps their body
+ * everywhere but here.
+ */
 static void watchSetCuff(void)
 {
-	for (s32 i = CUFF_FIRST; i <= CUFF_SNOW; i++) {
+	const u32 outfit = g_Vars.currentplayer->bondtype;
+	s32 wear;
+
+	switch (outfit) {
+	case GECUFF_BOILER:  wear = CUFF_PART_BOILER; break;
+	case GECUFF_CONNERY: wear = CUFF_PART_CONNERY; break;
+	case GECUFF_BLUE:    wear = CUFF_PART_BLUE; break;
+	case GECUFF_JUNGLE:  wear = CUFF_PART_JUNGLE; break;
+	case GECUFF_SNOW:    wear = CUFF_PART_SNOW; break;
+	default:             wear = CUFF_PART_TUXEDO; break;
+	}
+
+	for (s32 i = CUFF_FIRST; i <= CUFF_PART_SNOW; i++) {
 		struct modelnode *node = modelGetPart(g_Watch.modeldef, i);
 		union modelrwdata *rwdata;
 
@@ -1768,7 +1812,7 @@ static void watchSetCuff(void)
 		rwdata = modelGetNodeRwData(g_Watch.model, node);
 
 		if (rwdata) {
-			rwdata->toggle.visible = i == CUFF_TUXEDO;
+			rwdata->toggle.visible = i == wear;
 		}
 	}
 }
@@ -1979,7 +2023,10 @@ static Gfx *watchDrawModel(Gfx *gdl)
 
 	// the three hands, turned by the mission's own clock: a second a second,
 	// the minute hand carrying the seconds and the hour hand both
-	time = g_Vars.lvframe60;
+	// GoldenEye's own watch time: the hour and minute the mission's setup
+	// starts the watch at (INTROCMD_WATCHTIME, which Perfect Dark reads into
+	// the field it has always had), plus the time played
+	time = (s32)g_Vars.currentplayer->bondwatchtime60;
 	total = time / 60;
 	frac = (f32)(time % 60) / 60.0f;
 	seconds = (-(((f32)(total % 60)) + frac) * M_PI * 2.0f) / 60.0f;
@@ -2026,9 +2073,7 @@ static Gfx *watchDrawModel(Gfx *gdl)
 
 	renderdata.flags = 3;
 	renderdata.zbufferenabled = false;
-	// 4 is the preset the view model is drawn under (bgunRender()), which is
-	// what shades the arm by the room's own light rather than leaving it flat
-	renderdata.unk30 = 4;
+	renderdata.unk30 = 7;
 	renderdata.envcolour = g_Watch.state == WS_OPEN || g_Watch.state == WS_CLOSING
 		? 0x000000cd
 		: (g_Vars.currentplayer->gunshadecol[0] << 24 | g_Vars.currentplayer->gunshadecol[1] << 16
@@ -2036,6 +2081,17 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	renderdata.gdl = gdl;
 
 	if (g_WatchDrawArm) {
+		// the arm is lit the way anything else in the level is, and drawn
+		// under texture perspective: without the lights it takes whatever
+		// state the frame was left in and draws as one flat pale mass, and
+		// without the perspective bit its own textures are sampled flat (the
+		// same fault the intro's gun barrel had, ge-bean.md)
+		gDPPipeSync(renderdata.gdl++);
+		gDPSetTexturePersp(renderdata.gdl++, G_TP_PERSP);
+		gDPSetTextureLUT(renderdata.gdl++, G_TT_NONE);
+		gDPSetAlphaCompare(renderdata.gdl++, G_AC_NONE);
+		gDPSetTextureFilter(renderdata.gdl++, G_TF_BILERP);
+		renderdata.gdl = lightsSetDefault(renderdata.gdl);
 		modelRender(&renderdata, model);
 	}
 
