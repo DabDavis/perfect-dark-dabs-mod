@@ -3660,6 +3660,12 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		{ 0x04, 0x80, 0x5c, 4 },                            // key: the key flags
 		{ 0x07, 0x80, 0x5c, 4 },                            // ammo crate: the ammo type
 		{ 0x15, 0x80, 0x5c, 4 }, { 0x15, 0x84, 0x60, 4 },   // armour: initial and current
+		// a truck and an aircraft each own an AI list, and its id is what both
+		// games keep in the record - Perfect Dark's setupCreateProps() reads
+		// the field as one and zeroes the rest of the tail itself. Without it
+		// ailistFindById(0) handed every vehicle Perfect Dark's own global
+		// list 0. gesolo.py's OBJ_TAILS.
+		{ 0x27, 0x80, 0x5c, 4 }, { 0x28, 0x80, 0x5c, 4 },   // truck, aircraft: the AI list
 		// glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and
 		// nothing more, and Perfect Dark finds a pane's portal at the load
 	};

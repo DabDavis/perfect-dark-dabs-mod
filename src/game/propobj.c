@@ -83,6 +83,9 @@
 #include "system.h"
 #include "game/modrules.h"
 #include "xblamesh.h"
+#ifndef PLATFORM_N64
+#include "gexplusveh.h"
+#endif
 #endif
 
 void rng2SetSeed(u32 seed);
@@ -11318,6 +11321,12 @@ s32 objTickPlayer(struct prop *prop)
 			hoverpropTick(prop, sp592);
 		} else if (obj->type == OBJTYPE_HOVERBIKE) {
 			hoverbikeTick(prop, sp592);
+#ifndef PLATFORM_N64
+		} else if (obj->type == OBJTYPE_TRUCK || obj->type == OBJTYPE_HELI) {
+			// GoldenEye's own two vehicle types, which nothing in Perfect Dark
+			// has ticked since the hovercar and the chopper took over
+			gexPlusVehicleTick(prop);
+#endif
 		}
 	}
 
@@ -11367,6 +11376,13 @@ s32 objTickPlayer(struct prop *prop)
 			model->matrices = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
 			objInitMatrices(prop);
 			modelUpdateRelationsQuick(model, model->definition->rootnode);
+
+#ifndef PLATFORM_N64
+			// a converted GoldenEye aircraft turns its rotor on the node's own
+			// matrix, so it goes after the matrices are built rather than
+			// where the fan turns the whole object above
+			gexPlusVehicleUpdateModel(prop);
+#endif
 		}
 
 		prop->z = -model->matrices[0].m[3][2];

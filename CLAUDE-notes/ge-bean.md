@@ -4393,3 +4393,82 @@ the street** at eye height. It is not a prop - hiding all 244 objects (and all
 room geometry, and it is there whether or not a cinema is running.
 
 `GECONVERT_VERSION_STR` 31.
+
+## GoldenEye's vehicles, which nothing had ever ticked (2026-09-19)
+
+The missions carry **seventeen vehicles** over seven levels - Dam's truck,
+Streets' eight parked ones and its tank, Runway's plane and its tank, and
+helicopters on Frigate, Statue Park, Surface 2 (two) and the Cradle - and
+every one of them stood still and silent.
+
+**Perfect Dark still has GoldenEye's two vehicle records and no tick for
+either.** `truckobj` is GoldenEye's `VehichleRecord` and `heliobj` its
+`AircraftRecord`, field for field in the same order; `setupCreateProps()`
+still builds a prop for each and still resolves the AI list id the record
+holds. But **nothing outside chrai.c so much as mentions `g_Vars.truck` or
+`g_Vars.heli`** - the hovercar and the chopper took the job over and the two
+older types are a fossil of the game Perfect Dark grew out of. (`OBJTYPE_TANK`
+is worse: `setupCreateProps()` counts one and has no case for it, so a tank is
+never built at all. GoldenEye's tank is a thing the player drives.)
+
+**And the record's AI list was being thrown away.** The list id sits at
+GoldenEye's 0x80, which is Perfect Dark's 0x5c - the same place a key's flags
+and an armour's two values are moved from - and `convert_props()` had no tail
+for the two types, so the field was zero and `ailistFindById(0)` handed every
+vehicle in the game **Perfect Dark's own global list 0**. That is the guards'
+fault of `1afd53740` again, in the one place it was not looked for. Two rows in
+`OBJ_TAILS` (converter version **32**).
+
+What the vehicles are told to do is small: `AircraftRotorSpeed` on every
+helicopter, `VehicleStartPath` and `VehicleSpeed` on Dam's truck,
+`PlayAnimation` on four of the aircraft, and a yield loop on Streets' eight,
+which are parked scenery and always were. **All three vehicle commands are
+Perfect Dark's own line for line** - `aiHovercarBeginPath`, `aiSetVehicleSpeed`
+and `aiSetRotorSpeed` against GoldenEye's `AI_VehicleStartPath`,
+`AI_VehicleSpeed` and `AI_AircraftRotorSpeed`, the same fields and the same two
+constants (`* 100.0f / 15360.0f` and `* tau / 3600`) - and the first two already
+write `g_Vars.truck`, so the aligner's rows needed nothing.
+
+So what was missing was the tick: `port/src/gexplusveh.c`, GoldenEye's own
+(propobj.c, `PROPDEF_VEHICHLE` and `PROPDEF_AIRCRAFT`) on Perfect Dark's fields,
+hooked into `objTick()` beside the hovercar's. Both games ramp every speed they
+have the same way - the value walks towards its aim over the time left and
+arrives when the time runs out - and the rotor's own angle is advanced in the
+**render** rather than the tick, once a drawn frame, which is where
+`gexPlusVehicleUpdateModel()` goes: after `modelUpdateRelationsQuick()` has
+built the matrices, not at the fan's hook above it, because the fan turns the
+whole object through `realrot` while a rotor turns **one node's matrix**.
+
+**A model's parts keep GoldenEye's own numbering through the conversion**
+(`gemodelconv.py` writes its switch table in order), so the rotor is part 2 and
+the tail rotor part 3 here exactly as they are there.
+
+**Measured**: Frigate's helicopter reaches `rotoryspeed` 1.082, which is
+GoldenEye's own 620 x tau / 3600 to the digit, and `rotoryrot` advances by that
+much a drawn frame once the prop is on screen. Statue Park's is drawn with its
+rotor turning. All twenty missions run 600 frames with `alertprobe` output
+identical to before, and the C converter's bytes are still the Python's.
+
+**The trap for the screenshot**: a vehicle only turns its rotor while it is
+**drawn**, so a probe that reads `rotoryrot` on a mission's spawn frame reads
+zero for ever. Moving the *prop* to the player needs
+`propDeregisterRooms()`/`propRegisterRooms()` or it is not in any room's prop
+list and is never drawn at all.
+
+**Still open: the three animations** (`animation_table_ptrs2[]` -
+`helicopter_cradle`, `plane_runway`, `helicopter_takeoff`, which Runway's plane,
+Frigate's and Statue Park's helicopters and the Cradle's play). Four things are
+now known about them: they are **one animated part** and the four root-motion
+channels (40 bits a frame at width 12), so `geanim.py` converts one with
+`PARTS` of 1; their ids **collide with the guards' table** and want an id space
+of their own; GoldenEye plays one straight on the model
+(`modelSetAnimation`, then `subcalcpos` and `getsuboffset` to take the root
+motion into the prop's position, which are Perfect Dark's `modelUpdateInfo`,
+`modelSetRootPosition` and `modelGetRootPosition`); and **the model has to get
+its chrinfo node back** - `gemodelconv.py` demotes an aircraft's type 0x01
+header to a position node on purpose, because `modelUpdateChrNodeMtx()`
+dereferences `model->anim` with no guard and a standing prop has none. Only the
+four aircraft models have one (`PtigerZ`, `PplaneZ` and the two helicopters);
+no truck does.
+
+`GECONVERT_VERSION_STR` 32.

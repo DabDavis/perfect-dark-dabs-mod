@@ -48,6 +48,17 @@ OBJ_TAILS = {
     0x04: ((0x80, 0x5c, 4, 1),),                       # key: the key flags
     0x07: ((0x80, 0x5c, 4, 1),),                       # ammo crate: the ammo type
     0x15: ((0x80, 0x5c, 4, 1), (0x84, 0x60, 4, 1)),    # armour: initial and current
+    # A truck and an aircraft each own an AI list, and its **id** is what both
+    # games keep in the record: GoldenEye's own load leaves the field alone and
+    # Perfect Dark's `setupCreateProps()` reads it as one
+    # (`ailistFindById((uintptr_t)truck->ailist)`). Everything else in the tail
+    # - the speed, the path, the rotor - is set to zero at the creation by both
+    # games, so the id is the whole of what has to move. Without it the field
+    # was zero and `ailistFindById(0)` handed every vehicle in the game
+    # **Perfect Dark's own global list 0**, which is the same fault the guards
+    # had before their eighteen global lists were converted.
+    0x27: ((0x80, 0x5c, 4, 1),),                       # truck: the AI list it runs
+    0x28: ((0x80, 0x5c, 4, 1),),                       # aircraft: the AI list it runs
 }
 # Glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and nothing
 # more, and Perfect Dark's portalnum is found at the load. Reading one anyway
