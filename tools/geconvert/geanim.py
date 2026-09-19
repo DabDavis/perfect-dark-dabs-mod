@@ -71,20 +71,27 @@ class Bits:
             self.put(0, 1)
 
 
-def convert(at):
+def convert(at, parts=PARTS):
     """The animation whose record is at ROM address `at` -> (Perfect Dark
     animation bytes, {numframes, bytesperframe, headerlen, framelen, flags,
-    looping}), from the ROM alone."""
+    looping}), from the ROM alone.
+
+    `parts` is how many parts the animation moves, which is fifteen for a
+    character and **one** for an aircraft: GoldenEye's three vehicle
+    animations (animation_table_ptrs2[]) are the four root-motion channels and
+    one part's three rotations, 40 bits a frame at width 12, and the model they
+    play on is a body with a rotor rather than a skeleton.
+    """
     a = gefiles.rom().anim(at)
     width = a['width']
     framebytes = a['bitsperframe'] // 8
-    rotbits = 3 * width * PARTS
+    rotbits = 3 * width * parts
 
     if width == 0 or rotbits > a['bitsperframe'] or not a['numframes']:
         raise ValueError('animation %#x is not a character animation' % at)
 
     header = bytearray()
-    for part in range(PARTS):
+    for part in range(parts):
         if part == 0:
             header.append(0x09)
             for _, count, value in a['descriptors']:

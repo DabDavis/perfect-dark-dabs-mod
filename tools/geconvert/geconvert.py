@@ -129,6 +129,11 @@ MENU_TEXT = (('UbriefdamZ', 'LdamE'), ('UbriefarkZ', 'LarkE'),
 # GoldenEye's twenty solo missions in the folder's order: the level they are on
 # and the setup file that is the mission. Surface and Bunker are two missions
 # each on one level, and mission n is what gexfront.c's folder starts.
+# GoldenEye's vehicle animations take an id space of their own in
+# menu/geanims.bin, since animation_table_ptrs2[] shares its numbering with
+# the guards' table (port/include/geanimtable.h, GEVEH_ANIM_FIRST)
+GEVEH_ANIM_FIRST = 256
+
 MISSIONS = (('dam', 'UsetupdamZ', 'Dam'), ('ark', 'UsetuparkZ', 'Facility'),
             ('run', 'UsetuprunZ', 'Runway'), ('sevx', 'UsetupsevxZ', 'Surface'),
             ('sev', 'UsetupsevbunkerZ', 'Bunker'), ('silo', 'UsetupsiloZ', 'Silo'),
@@ -1256,6 +1261,17 @@ def main():
         name, at = geanimtable.TABLE[anim]
         data, e = geanim.convert(geanimtable.BASE + at)
         rows.append((anim, e, len(blob), len(data)))
+        blob += data
+    # and GoldenEye's three **vehicle** animations, which its aircraft play
+    # (animation_table_ptrs2[]: the Cradle's helicopter, Runway's plane and the
+    # take-off Frigate and Statue Park use). They share their numbering with
+    # the guards' table above and only the AI list's owner tells the two apart,
+    # so here they take an id space of their own at GEVEH_ANIM_FIRST. All three
+    # go in whether or not a mission names one: they are one part and four root
+    # channels apiece and come to two kilobytes together.
+    for n, (name, at) in enumerate(geanimtable.VEHICLES):
+        data, e = geanim.convert(geanimtable.BASE + at, parts=1)
+        rows.append((GEVEH_ANIM_FIRST + n, e, len(blob), len(data)))
         blob += data
     base = 8 + 20 * len(rows)
     index = b''.join(struct.pack('>HHHHBBxxII', anim, e['numframes'], e['bytesperframe'], e['headerlen'],

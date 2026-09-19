@@ -516,6 +516,7 @@ bool (*g_CommandPointers[])(void) = {
 	// filled a slot the game left empty inside the table (GE-X took 0xe6 and
 	// 0xe7), so nothing else is expected out here.
 	/*0x01e1*/ aiGeExitOnButtonPress,
+	/*0x01e2*/ aiGeVehicleAnim,
 #endif
 };
 
@@ -646,6 +647,7 @@ u16 g_CommandLengths[] = {
 #endif
 #ifndef PLATFORM_N64
 	/*0x01e1*/ 2,
+	/*0x01e2*/ 9,
 #endif
 };
 

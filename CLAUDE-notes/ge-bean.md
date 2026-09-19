@@ -4455,20 +4455,60 @@ zero for ever. Moving the *prop* to the player needs
 `propDeregisterRooms()`/`propRegisterRooms()` or it is not in any room's prop
 list and is never drawn at all.
 
-**Still open: the three animations** (`animation_table_ptrs2[]` -
-`helicopter_cradle`, `plane_runway`, `helicopter_takeoff`, which Runway's plane,
-Frigate's and Statue Park's helicopters and the Cradle's play). Four things are
-now known about them: they are **one animated part** and the four root-motion
-channels (40 bits a frame at width 12), so `geanim.py` converts one with
-`PARTS` of 1; their ids **collide with the guards' table** and want an id space
-of their own; GoldenEye plays one straight on the model
-(`modelSetAnimation`, then `subcalcpos` and `getsuboffset` to take the root
-motion into the prop's position, which are Perfect Dark's `modelUpdateInfo`,
-`modelSetRootPosition` and `modelGetRootPosition`); and **the model has to get
-its chrinfo node back** - `gemodelconv.py` demotes an aircraft's type 0x01
-header to a position node on purpose, because `modelUpdateChrNodeMtx()`
-dereferences `model->anim` with no guard and a standing prop has none. Only the
-four aircraft models have one (`PtigerZ`, `PplaneZ` and the two helicopters);
-no truck does.
-
 `GECONVERT_VERSION_STR` 32.
+
+## And the three animations an aircraft flies by (2026-09-19)
+
+`animation_table_ptrs2[]` is `helicopter_cradle`, `plane_runway` and
+`helicopter_takeoff`, played by Runway's plane, Frigate's and Statue Park's
+helicopters and the Cradle's. They are **one animated part and the four
+root-motion channels** - 40 bits a frame at width 12, where a character's is
+fifteen parts - so `geanim.py` converts one with `parts` of 1 and its header
+comes to 22 bytes rather than 162.
+
+**Their ids collide with the guards' table**, which is the whole reason the
+two are hard to tell apart: an id means one of these when the AI list belongs
+to a vehicle and one of `animation_table_ptrs1[]`'s when it belongs to a guard,
+and nothing in the command says which. So in `menu/geanims.bin` they take an id
+space of their own from **GEVEH_ANIM_FIRST (256)**, `GEANIM_MAX` goes to 512,
+and a vehicle's `PlayAnimation` becomes the **port's own command**
+(`aiGeVehicleAnim`, 0x01e2, nine bytes) beside `aiGeExitOnButtonPress`.
+GoldenEye plays one straight on the model rather than through a chr's action
+and reads nothing of the command but its interpolation time, so the bitfield is
+dropped.
+
+**The aircraft's model gets its chrinfo node back.** `gemodelconv.py` used to
+demote the type 0x01 header to a position node, because
+`modelUpdateChrNodeMtx()` dereferences `model->anim` with no guard and a
+standing aircraft has none. The guard is in the port now and is GoldenEye's own
+answer - with no animation the node's matrix is its parent's (propobj.c's
+`matrix_4x4_copy(&mtxs[0], &mtxs[1])`) - so the node stays what a character's
+is and both converters write it through the same branch. Only the four aircraft
+models carry one; no truck does, and nothing else in the ROM does either.
+
+**The flight is the animation's root motion**, and GoldenEye's three calls are
+Perfect Dark's own under other names: `setsuboffset` is
+`modelSetRootPosition()`, `subcalcpos` is `modelUpdateInfo()` and
+`getsuboffset` is `modelGetRootPosition()`. The height is the record's **own
+pad** plus the motion's y, not the motion alone, and `plane_runway` is the one
+of the three authored ten times the size and facing the other way
+(`modelSetAnimScale` 10.438 against 1.0438, and a half turn).
+
+**Two traps, both silent.** A prop's model carries **no `anim` at all** until
+something gives it one and `modelSetAnimation2()` does nothing without it -
+not a crash, just an animation that never appears. And **an anim slot is only
+ever marked free, never cleared**, so it comes back with the last user's
+fields: `playspeed` is what the tick multiplies every step by, and a slot whose
+last owner left it at zero sets the animation and then holds frame 0 for ever.
+`aiSetObjAnim` does the same two calls (`animInit()` then
+`modelSetAnimPlaySpeed(model, 1, 0)`) for the objects Perfect Dark's own lists
+animate; it was the model to copy and copying only half of it cost an hour.
+
+**Measured**: the Cradle's helicopter takes `helicopter_cradle` and holds at
+frame 2, which is the `END_TIME30` its own command names; Runway's plane, driven
+to the command behind its objective, flies `plane_runway` from (-847, 202,
+-10788) in room 8 up and out to (2245, 1617, -17293) in room 17 over forty
+frames and holds at its last. All twenty missions run 600 frames unchanged and
+the C converter's bytes are still the Python's.
+
+`GECONVERT_VERSION_STR` 33.

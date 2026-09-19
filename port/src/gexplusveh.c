@@ -41,6 +41,9 @@
 #include "lib/collision.h"
 #include "game/setup.h"
 #include "modloader.h"
+#include "gexplus.h"
+#include "geaitable.h"
+#include "geanimtable.h"
 #include "gexplusveh.h"
 
 #ifndef PLATFORM_N64
@@ -61,6 +64,21 @@ static void vehRamp(f32 *value, f32 aim, f32 *time60, f32 delta)
 
 		*time60 -= delta;
 	}
+}
+
+/**
+ * Whether the aircraft is flying GoldenEye's `plane_runway`, which is the one
+ * of the three authored at ten times the size and facing the other way
+ * (propobj.c compares the model's animation against
+ * `animation_table_ptrs2[1]`). The number is whatever the conversion's
+ * animation took when it was appended, so the id goes through the same lookup
+ * the AI command uses.
+ */
+static s32 vehAnimIsPlane(struct model *model)
+{
+	const s32 ours = gexPlusMissionAnim(GEAI_ANIM_TAG | (GEVEH_ANIM_FIRST + 1));
+
+	return ours > 0 && model->anim && model->anim->animnum == ours;
 }
 
 static f32 vehWrapTau(f32 angle)
@@ -85,9 +103,52 @@ static f32 vehWrapTau(f32 angle)
 static void vehHeliTick(struct prop *prop)
 {
 	struct heliobj *heli = (struct heliobj *)prop->obj;
+	struct model *model = heli->base.model;
 	const f32 delta = g_Vars.lvupdate60freal;
 
 	chraiExecute(heli, PROPTYPE_OBJ);
+
+	// The animation its list asked for, which is how GoldenEye flies an
+	// aircraft: the model is ticked and its **root motion** is what moves the
+	// prop. GoldenEye's three calls are Perfect Dark's own under other names -
+	// `setsuboffset` is modelSetRootPosition(), `subcalcpos` is
+	// modelUpdateInfo() and `getsuboffset` is modelGetRootPosition() - and the
+	// height comes from the record's own pad rather than from the motion, the
+	// animation's y being an offset from where the aircraft was placed.
+	if (model && model->anim) {
+		struct coord pos;
+		struct pad pad;
+
+		pos.x = prop->pos.x;
+		pos.y = prop->pos.y;
+		pos.z = prop->pos.z;
+
+		// GoldenEye's own two scales: the runway plane is authored ten times
+		// the size of the rest, and its shot faces the other way
+		if (vehAnimIsPlane(model)) {
+			modelSetAnimScale(model, 10.438f);
+			modelSetChrRotY(model, M_BADPI);
+		} else {
+			modelSetAnimScale(model, 1.0438f);
+			modelSetChrRotY(model, 0);
+		}
+
+		modelSetRootPosition(model, &pos);
+		modelTickAnim(model, g_Vars.lvupdate240, true);
+		modelUpdateInfo(model);
+		modelGetRootPosition(model, &pos);
+
+		prop->pos.x = pos.x;
+		prop->pos.z = pos.z;
+
+		padUnpack(heli->base.pad, PADFIELD_POS, &pad);
+		prop->pos.y = pad.pos.y + pos.y;
+		pos.y = prop->pos.y;
+		modelSetRootPosition(model, &pos);
+
+		propDeregisterRooms(prop);
+		propRegisterRooms(prop);
+	}
 
 	vehRamp(&heli->speed, heli->speedaim, &heli->speedtime60, delta);
 	vehRamp(&heli->rotoryspeed, heli->rotoryspeedaim, &heli->rotoryspeedtime, delta);

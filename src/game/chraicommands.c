@@ -9987,3 +9987,68 @@ bool aiGeExitOnButtonPress(void)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * @cmd 01e2
+ *
+ * GoldenEye's PlayAnimation on a list a **vehicle** owns: the id means one of
+ * `animation_table_ptrs2[]`'s three and GoldenEye plays it straight on the
+ * vehicle's model rather than through a chr's action (chrai.c's aircraft
+ * branch, which reads nothing of the command but its interpolation time).
+ * Perfect Dark has no command for it, so this is the port's own; the animation
+ * itself is taken up by the aircraft's tick (gexplusveh.c), which is where
+ * GoldenEye takes the root motion into the prop's position.
+ */
+bool aiGeVehicleAnim(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	const s32 animnum = gexPlusMissionAnim(cmd[3] | (cmd[2] << 8));
+	const s32 startframe = cmd[5] | (cmd[4] << 8);
+	const s32 endframe = cmd[7] | (cmd[6] << 8);
+	struct defaultobj *obj = NULL;
+
+	if (g_Vars.truck) {
+		obj = &g_Vars.truck->base;
+	} else if (g_Vars.heli) {
+		obj = &g_Vars.heli->base;
+	}
+
+	if (obj && obj->model && animnum > 0) {
+		// A prop's model carries no `anim` of its own until something gives it
+		// one - aiSetObjAnim does the same for the objects Perfect Dark's own
+		// lists animate - and modelSetAnimation2() does nothing at all without
+		// it, which is a silent no-op rather than a crash.
+		if (obj->model->anim == NULL) {
+			obj->model->anim = modelmgrInstantiateAnim();
+		}
+
+		if (obj->model->anim == NULL) {
+			g_Vars.aioffset += 9;
+			return false;
+		}
+
+		// An anim slot is only ever marked free, never cleared, so it comes
+		// back with the last user's fields - and `playspeed` is the one the
+		// tick multiplies every step by, so without this the animation is set
+		// and then never advances a frame. aiSetObjAnim does the same two
+		// calls for the objects Perfect Dark's own lists animate.
+		animInit(obj->model->anim);
+		modelSetAnimPlaySpeed(obj->model, 1, 0);
+
+		// GoldenEye's own call, argument for argument: no flip, the start
+		// frame the command names (0xffff being its "from the beginning"),
+		// half speed, and the command's own interpolation
+		modelSetAnimation(obj->model, animnum, 0,
+				startframe == 0xffff ? 0.0f : (f32)startframe, 0.5f, (f32)cmd[8]);
+
+		if (endframe != 0xffff) {
+			modelSetAnimEndFrame(obj->model, (f32)endframe);
+		}
+	}
+
+	g_Vars.aioffset += 9;
+
+	return false;
+}
+#endif
+

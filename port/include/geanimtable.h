@@ -207,4 +207,23 @@ static const struct { const char *name; uint32_t at; } g_GeAnims[] = {
 
 #define GEANIM_NUM_ANIMS ((int)(sizeof(g_GeAnims) / sizeof(g_GeAnims[0])))
 
+/**
+ * `animation_table_ptrs2[]`: the three an aircraft plays, on the vehicle's own
+ * model rather than on a character's skeleton. An id means one of these when
+ * the AI list belongs to a vehicle prop and one of `g_GeAnims` when it belongs
+ * to a guard - the two tables share their numbering and only the list's owner
+ * tells them apart - so in menu/geanims.bin they take an id space of their own
+ * from GEVEH_ANIM_FIRST, and a converted PlayAnimation on a vehicle list
+ * carries the id from there.
+ */
+#define GEVEH_ANIM_FIRST 256
+
+static const struct { const char *name; uint32_t at; } g_GeVehicleAnims[] = {
+	{ "helicopter_cradle", 0x0e470 },    // 0
+	{ "plane_runway", 0x0e5f4 },         // 1
+	{ "helicopter_takeoff", 0x0e7c0 },   // 2
+};
+
+#define GEVEH_NUM_ANIMS ((int)(sizeof(g_GeVehicleAnims) / sizeof(g_GeVehicleAnims[0])))
+
 #endif

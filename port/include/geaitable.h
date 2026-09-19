@@ -41,6 +41,15 @@
 // set on a converted animation id (gesolo.py's GE_ANIM_TAG)
 #define GEAI_ANIM_TAG 0x8000
 
+// The port's own command that plays one of GoldenEye's three **vehicle**
+// animations on a truck's or an aircraft's model, past the game's table as
+// aiGeExitOnButtonPress is. A vehicle's PlayAnimation becomes this: GoldenEye
+// plays it straight on the model rather than through a chr's action, and its
+// bitfield has no meaning there (chrai.c reads nothing but the interpolation
+// time in its aircraft branch). Nine bytes, GoldenEye's own arguments:
+//     01e2 <anim id:2> <start frame:2> <end frame:2> <interpolate:1>
+#define GEVEH_ANIM_CMD 0x01e2
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a

@@ -856,9 +856,13 @@ void gexPlusMissionLangLoad(s32 stagenum)
  * name (geconvert.c, geanimtable.h).
  */
 #define GEANIM_ROW 20
-#define GEANIM_MAX 256
+#define GEANIM_MAX 512
 
-// GoldenEye's animation id -> ours, or -1 where the conversion has none
+// GoldenEye's animation id -> ours, or -1 where the conversion has none. The
+// table runs past its 183 because GoldenEye's three **vehicle** animations take
+// an id space of their own from GEVEH_ANIM_FIRST (256): animation_table_ptrs2[]
+// shares its numbering with the guards' table and only an AI list's owner tells
+// the two apart, so the conversion separates them here.
 static s16 g_GeMissionAnims[GEANIM_MAX];
 static s32 g_GeMissionAnimsLoaded;
 

@@ -805,6 +805,22 @@ void modelUpdateChrNodeMtx(struct modelrenderdata *arg0, struct model *model, st
 		sp24c = arg0->unk00;
 	}
 
+#ifndef PLATFORM_N64
+	// A model with a chrinfo node and no animation at all. Perfect Dark's own
+	// never happens - a chrinfo node is a character's and a character always
+	// has one - but GoldenEye puts one on the head of its **aircraft** models
+	// and flies them by an animation only when their AI list plays one, so a
+	// converted plane or helicopter standing still arrives here with
+	// `model->anim` NULL and every line below would read through it.
+	// GoldenEye's own answer is the node's matrix being the parent's
+	// (propobj.c: `matrix_4x4_copy(&mtxs[0], &mtxs[1])` where the aircraft has
+	// no anim), which is what this is.
+	if (anim == NULL) {
+		mtx4Copy(sp24c, mtx);
+		return;
+	}
+#endif
+
 	animGetRotTranslateScale(animpart, anim->flip, skel, anim->animnum, anim->frameslot1, &rot1, &translate1, &scale1);
 
 	if (g_Vars.in_cutscene && anim->speed > 0) {

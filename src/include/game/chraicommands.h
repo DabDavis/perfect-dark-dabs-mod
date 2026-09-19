@@ -451,6 +451,7 @@
 // TriggerFadeAndExitLevelOnButtonPress, whose wait Perfect Dark has nothing
 // for (gexplus.c). Only a converted mission's lists carry it.
 /*0x01e1*/ bool aiGeExitOnButtonPress(void);
+/*0x01e2*/ bool aiGeVehicleAnim(void);
 #endif
 
 void propDecrementSoundCount(struct prop *prop);

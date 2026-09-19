@@ -3849,8 +3849,8 @@ static size_t aiLength(const buf *f, size_t at)
  *
  * `vehicle` says the list belongs to a truck, helicopter or tank rather than to
  * a guard. PlayAnimation means a different table there - the three of
- * `animation_table_ptrs2[]`, played on the vehicle's own model - and the
- * conversion has no vehicle animation to play, so the command is left out.
+ * `animation_table_ptrs2[]`, played straight on the vehicle's own model - so it
+ * becomes the port's own command with an id out of the vehicles' own space.
  */
 static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle, buf *out,
 		struct solostats *st)
@@ -3871,7 +3871,29 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 		if (op == 0x0a) {   // PlayAnimation
 			const uint32_t anim = ((uint32_t)f->v[at + 1] << 8) | f->v[at + 2];
 
-			if (vehicle || anim >= (uint32_t)GEANIM_NUM_ANIMS) {
+			if (vehicle) {
+				// the list belongs to a truck or an aircraft, so the id means
+				// one of animation_table_ptrs2[]'s three, played straight on
+				// the vehicle's model. It becomes the port's own command with
+				// the id taken out of the vehicles' own space; GoldenEye's
+				// bitfield has no meaning here, its own aircraft branch
+				// reading nothing but the interpolation time.
+				if (anim >= (uint32_t)GEVEH_NUM_ANIMS) {
+					st->aidropped++;
+				} else {
+					bufU16(out, GEVEH_ANIM_CMD);
+					bufU16(out, GEAI_ANIM_TAG | (uint32_t)(GEVEH_ANIM_FIRST + anim));
+					bufU16(out, ((uint32_t)f->v[at + 3] << 8) | f->v[at + 4]);
+					bufU16(out, ((uint32_t)f->v[at + 5] << 8) | f->v[at + 6]);
+					bufU8(out, f->v[at + 8]);
+					st->aikept++;
+				}
+
+				at += len;
+				continue;
+			}
+
+			if (anim >= (uint32_t)GEANIM_NUM_ANIMS) {
 				st->aidropped++;
 				at += len;
 				continue;
@@ -4459,28 +4481,23 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 		switch (n->type) {
 		case 0x01:
 			NEED(0x10);
-			if (ischr) {
-				// the node the animation plays on: GoldenEye's animpart and
-				// matrix, then the f32 Perfect Dark reads where GoldenEye keeps
-				// its first group, and the rwdata index
-				bufU16(&rec, be16(d.v, ro));
-				bufU16(&rec, be16(d.v, ro + 2));
-				bufF32(&rec, 0);
-				bufU16(&rec, be16(d.v, ro + 0x0c));
-				bufU16(&rec, 0);
-			} else {
-				// a vehicle's header: a position node on the same matrix at the
-				// origin, since a standing prop has no animation to read
-				bufF32(&rec, 0);
-				bufF32(&rec, 0);
-				bufF32(&rec, 0);
-				bufU16(&rec, be16(d.v, ro));
-				bufU16(&rec, be16(d.v, ro + 2));
-				bufU16(&rec, 0xffff);
-				bufU16(&rec, 0xffff);
-				bufF32(&rec, p->radius);
-				n->type = 0x02;
-			}
+			// The node an animation plays on: GoldenEye's animpart and
+			// matrix, then the f32 Perfect Dark reads where GoldenEye keeps
+			// its first group, and the rwdata index (which the game rewrites
+			// at the load anyway, modelCalculateRwDataIndexes()).
+			//
+			// A character has one and so does an **aircraft** - the four
+			// flying prop models carry one and nothing else in the ROM does -
+			// and it stays a chrinfo node for both. It used to be demoted to a
+			// position node on a prop, because modelUpdateChrNodeMtx() reads
+			// model->anim with no guard and a standing aircraft has none; the
+			// guard is in the port now (model.c), which is GoldenEye's own
+			// answer.
+			bufU16(&rec, be16(d.v, ro));
+			bufU16(&rec, be16(d.v, ro + 2));
+			bufF32(&rec, 0);
+			bufU16(&rec, be16(d.v, ro + 0x0c));
+			bufU16(&rec, 0);
 			rat = bufPutAligned(&w, rec.v, rec.n, 4);
 			break;
 		case 0x02:
@@ -4743,7 +4760,7 @@ static void bitsCopy(struct bits *w, const uint8_t *src, size_t len, size_t bito
  * GoldenEye's root-motion bits for that frame followed by its frame's rotation
  * bits unchanged. geanim.py is this, and says why.
  */
-static buf animConvert(size_t at, struct animout *out)
+static buf animConvert(size_t at, struct animout *out, uint32_t parts)
 {
 	uint32_t entry, numframes, width, loop, bitsperframe, rootbits = 0, framebytes, rotbits;
 	uint32_t off[4], cnt[4], base[4];
@@ -4763,7 +4780,7 @@ static buf animConvert(size_t at, struct animout *out)
 	loop = g_Rom[at + 7];
 	bitsperframe = be16(g_Rom, at + 14);
 	framebytes = bitsperframe / 8;
-	rotbits = 3 * width * ANIM_PARTS;
+	rotbits = 3 * width * parts;
 
 	// The record's third and fifth words are where its four root-motion
 	// descriptors and their bit stream live: offsets into animation_data,
@@ -4801,7 +4818,7 @@ static buf animConvert(size_t at, struct animout *out)
 
 	// the header: a record a part, the first carrying the four root-motion
 	// channels the renderer skips and the game reads
-	for (uint32_t part = 0; part < ANIM_PARTS; ++part) {
+	for (uint32_t part = 0; part < parts; ++part) {
 		if (part == 0) {
 			bufU8(&w, 0x09);
 			for (int i = 0; i < 4; ++i) {
@@ -5250,7 +5267,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		for (size_t i = 0; i < numanims; ++i) {
 			struct animout e;
-			buf data = animConvert(g_IntroAnims[i].at, &e);
+			buf data = animConvert(g_IntroAnims[i].at, &e, ANIM_PARTS);
 			uint8_t name[32] = {0};
 
 			snprintf((char *)name, sizeof(name), "%s", g_IntroAnims[i].name);
@@ -5308,7 +5325,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				numrows += allanims[i] ? 1 : 0;
 			}
 
-			abase = 8 + 20 * (size_t)numrows;
+			// the three vehicle animations below take a row each too
+			abase = 8 + 20 * (size_t)(numrows + GEVEH_NUM_ANIMS);
 
 			for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
 				struct animout e;
@@ -5318,7 +5336,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 					continue;
 				}
 
-				data = animConvert(GEANIM_BASE + g_GeAnims[i].at, &e);
+				data = animConvert(GEANIM_BASE + g_GeAnims[i].at, &e, ANIM_PARTS);
 				bufU16(&aindex, (uint32_t)i);
 				bufU16(&aindex, e.numframes);
 				bufU16(&aindex, e.bytesperframe);
@@ -5329,6 +5347,29 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				bufU32(&aindex, (uint32_t)(abase + ablob.n));
 				bufU32(&aindex, (uint32_t)data.n);
 				bufPut(&ablob, data.v, data.n);
+			}
+
+			// and GoldenEye's three vehicle animations, which its aircraft
+			// play (animation_table_ptrs2[]). They share their numbering with
+			// the guards' table and only the AI list's owner tells the two
+			// apart, so here they take an id space of their own at
+			// GEVEH_ANIM_FIRST. All three go in whether or not a mission names
+			// one: they are one part and four root channels apiece.
+			for (int i = 0; i < GEVEH_NUM_ANIMS; ++i) {
+				struct animout e;
+				buf data = animConvert(GEANIM_BASE + g_GeVehicleAnims[i].at, &e, 1);
+
+				bufU16(&aindex, (uint32_t)(GEVEH_ANIM_FIRST + i));
+				bufU16(&aindex, e.numframes);
+				bufU16(&aindex, e.bytesperframe);
+				bufU16(&aindex, e.headerlen);
+				bufU8(&aindex, e.framelen);
+				bufU8(&aindex, e.looping);
+				bufZeros(&aindex, 2);
+				bufU32(&aindex, (uint32_t)(abase + ablob.n));
+				bufU32(&aindex, (uint32_t)data.n);
+				bufPut(&ablob, data.v, data.n);
+				++numrows;
 			}
 
 			bufPut(&ahead, (const uint8_t *)"GEA1", 4);

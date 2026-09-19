@@ -211,12 +211,23 @@ def convert(num):
     for i, n in enumerate(nodes):
         t, ro = n['type'], n['rodata'] - SEG
         if t == 0x01:
-            # a vehicle's header: a chrinfo node reads the model's animation,
-            # which a standing prop has none of, so it is a position node on
-            # the same matrix at the origin
+            # An aircraft's header, and only ever that: the four flying models
+            # (PplaneZ, PtigerZ and the two helicopters) carry one and nothing
+            # else in the ROM does. It is Perfect Dark's own chrinfo node -
+            # `{u16 animpart, s16 mtxindex, f32, u16 rwdataindex}` against
+            # GoldenEye's same two fields - and it is what an animation is
+            # played through, so it stays one. The last two words are the
+            # game's to fill: `modelCalculateRwDataIndexes()` writes the index
+            # at the load and nothing ever reads the float.
+            #
+            # It used to be demoted to a position node, because
+            # `modelUpdateChrNodeMtx()` reads `model->anim` with no guard and a
+            # standing aircraft has none. The guard is in the port now
+            # (model.c), which is GoldenEye's own answer: with no animation the
+            # node's matrix is its parent's.
             animpart, mtx = struct.unpack_from('>Hh', d, ro)
-            rat = w.put(struct.pack('>3fHhhhf', 0, 0, 0, animpart, mtx, -1, -1, h['radius']))
-            n['type'] = 0x02
+            rwdata = struct.unpack_from('>H', d, ro + 0x0c)[0]
+            rat = w.put(struct.pack('>HhfH2x', animpart, mtx, 0.0, rwdata))
         elif t == 0x02:
             rat = w.put(d[ro:ro + 0x14] + struct.pack('>f', h['radius']))
         elif t in (0x08, 0x12):

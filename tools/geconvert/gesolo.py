@@ -217,6 +217,14 @@ NO_PAD = 0xffff
 # carries and which a mission's chrs do run.
 GE_ANIM_TAG = 0x8000
 
+# GoldenEye's vehicle animations (animation_table_ptrs2[]) take an id space of
+# their own, since they share their numbering with the guards' table and only
+# an AI list's owner tells the two apart (geanimtable.py, port's geanimtable.h)
+GEVEH_ANIM_FIRST = 256
+# and the port's own command that plays one on a vehicle's model, past the
+# game's table as TriggerFadeAndExitLevelOnButtonPress is
+GEVEH_ANIM_CMD = 0x01e2
+
 
 def pad_num(p, numpads, bound=False):
     """A GoldenEye pad id in the converted level.
@@ -595,8 +603,9 @@ def convert_ailist(d, at, stats, numpads, vehicle=False):
 
     `vehicle` says the list belongs to a truck, helicopter or tank rather than
     to a guard. PlayAnimation means a different table there - the three of
-    `animation_table_ptrs2[]`, played on the vehicle's own model - and the
-    conversion has no vehicle animation to play, so the command is left out.
+    `animation_table_ptrs2[]`, played straight on the vehicle's own model - so
+    it becomes the port's own command with an id out of the vehicles' own
+    space.
     """
     out = bytearray()
     while at < len(d):
@@ -608,7 +617,27 @@ def convert_ailist(d, at, stats, numpads, vehicle=False):
         name, _, args, pd, spec, why = geaitable.TABLE[op]
         if name == 'PlayAnimation':
             anim = int.from_bytes(d[at + 1:at + 3], 'big')
-            if vehicle or anim >= len(geanimtable.TABLE):
+
+            if vehicle:
+                # the list belongs to a truck or an aircraft, so the id means
+                # one of animation_table_ptrs2[]'s three, played straight on
+                # the vehicle's model. It becomes the port's own command with
+                # the id taken out of the vehicles' own space; GoldenEye's
+                # bitfield has no meaning here, its own aircraft branch reading
+                # nothing but the interpolation time (chrai.c).
+                if anim >= len(geanimtable.VEHICLES):
+                    stats['ai_dropped'][name] = stats['ai_dropped'].get(name, 0) + 1
+                else:
+                    out += struct.pack('>HHHHB', GEVEH_ANIM_CMD,
+                                       GE_ANIM_TAG | (GEVEH_ANIM_FIRST + anim),
+                                       int.from_bytes(d[at + 3:at + 5], 'big'),
+                                       int.from_bytes(d[at + 5:at + 7], 'big'),
+                                       d[at + 8])
+                    stats['ai_kept'] += 1
+                at += ln
+                continue
+
+            if anim >= len(geanimtable.TABLE):
                 stats['ai_dropped'][name] = stats['ai_dropped'].get(name, 0) + 1
                 at += ln
                 continue
