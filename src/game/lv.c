@@ -2223,6 +2223,12 @@ void lvTick(void)
 	s32 j;
 	s32 i;
 
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission that has said it is over: the next button
+	// press fades the screen out and leaves (gexplus.c)
+	gexPlusMissionExitTick();
+#endif
+
 	lvCheckPauseStateChanged();
 
 #if VERSION >= VERSION_NTSC_1_0

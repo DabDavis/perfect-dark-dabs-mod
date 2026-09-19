@@ -9968,3 +9968,22 @@ bool ai01b4(void)
 	return false;
 }
 #endif
+
+#ifndef PLATFORM_N64
+/**
+ * @cmd 01e1
+ *
+ * GoldenEye's TriggerFadeAndExitLevelOnButtonPress: the mission is over and
+ * the next button press fades the screen out and leaves. The port's own
+ * command, past the game's table - Perfect Dark's aiEndLevel goes at once,
+ * with no wait and no fade (gexplus.c).
+ */
+bool aiGeExitOnButtonPress(void)
+{
+	gexPlusExitOnButtonPress();
+	g_Vars.aioffset += 2;
+
+	return false;
+}
+#endif
+

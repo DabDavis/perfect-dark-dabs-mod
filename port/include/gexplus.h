@@ -54,4 +54,10 @@ void gexPlusMissionLangLoad(s32 stagenum);
 void gexPlusMissionAnimLoad(s32 stagenum);
 s32 gexPlusMissionAnim(s32 geid);
 
+// GoldenEye's own end of a mission (its TriggerFadeAndExitLevelOnButtonPress):
+// the list says the level is over, and the next button press fades the screen
+// out and leaves. The tick runs every frame of a level, from lvTick().
+void gexPlusExitOnButtonPress(void);
+void gexPlusMissionExitTick(void);
+
 #endif

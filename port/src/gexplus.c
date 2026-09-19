@@ -49,8 +49,16 @@
 #include "game/propobj.h"
 #include "game/setup.h"
 #include "lib/rng.h"
+#include "lib/joy.h"
+#include "lib/main.h"
+#include "game/lv.h"
+#include "game/options.h"
 
 static s32 g_GexPlusScenario = GEXPLUS_NORMAL;
+
+// gexPlusExitOnButtonPress(): 0 not ending, 1 waiting for a press, 2 fading out
+static s32 g_GeExitState;
+static f32 g_GeExitFade60;
 
 static const char *const g_GexPlusScenarioNames[GEXPLUS_NUMSCENARIOS] = {
 	"Normal",
@@ -656,6 +664,9 @@ void gexPlusMissionSetup(u32 *props)
 {
 	struct defaultobj *obj = (struct defaultobj *)props;
 
+	// a mission that starts afresh is not ending
+	g_GeExitState = 0;
+
 	if (!obj) {
 		return;
 	}
@@ -672,4 +683,64 @@ void gexPlusMissionSetup(u32 *props)
 	}
 }
 
+/**
+ * GoldenEye's own end of a mission: the list says the level is over, and the
+ * next button press fades the screen out and leaves.
+ *
+ * GoldenEye holds this in `stop_time_flag` (bondview2.c): the command sets it,
+ * a press takes it to 2 and starts a one-second fade to black, and when the
+ * fade is done the level ends. Perfect Dark's own aiEndLevel goes at once,
+ * with no wait and no fade, so the wait is kept here - GoldenEye leaves its
+ * mission text on the screen until the player is ready, and a list goes on
+ * running after the command (Dam swings the camera round onto Bond).
+ */
+#define GE_EXIT_BUTTONS (A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON | R_TRIG | L_TRIG)
+#define GE_EXIT_FADE60 60
+
+void gexPlusExitOnButtonPress(void)
+{
+	// GoldenEye only takes the first: "if (stop_time_flag == FALSE)"
+	if (g_GeExitState == 0) {
+		g_GeExitState = 1;
+	}
+}
+
+void gexPlusMissionExitTick(void)
+{
+	if (g_GeExitState == 0) {
+		return;
+	}
+
+	// nothing carries over out of the mission that asked
+	if (!modloaderStageIsMission(g_Vars.stagenum)) {
+		g_GeExitState = 0;
+		return;
+	}
+
+	if (g_GeExitState == 1) {
+		const s8 contpad = optionsGetContpadNum1(g_Vars.currentplayerstats
+				? g_Vars.currentplayerstats->mpindex : 0);
+
+		if (joyGetButtonsPressedThisFrame(contpad, GE_EXIT_BUTTONS)) {
+			g_GeExitState = 2;
+			g_GeExitFade60 = GE_EXIT_FADE60 + 2;   // the two frames lvConfigureFade waits
+			lvConfigureFade(0x000000ff, GE_EXIT_FADE60);   // GoldenEye's own second, to black
+		}
+
+		return;
+	}
+
+	// The second is counted here rather than taken from lvIsFadeActive(),
+	// because Perfect Dark advances a fade while it *draws* it (lvRenderFade)
+	// and the list that asked has usually put the camera somewhere the HUD is
+	// not drawn from - Dam swings it onto Bond - so the fade can sit at a
+	// fraction of itself for ever and the level would never end. GoldenEye
+	// advances its own on a tick.
+	g_GeExitFade60 -= g_Vars.diffframe60f;
+
+	if (g_GeExitFade60 <= 0) {
+		g_GeExitState = 0;
+		func0000e990();
+	}
+}
 

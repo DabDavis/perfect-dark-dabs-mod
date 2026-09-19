@@ -3663,3 +3663,119 @@ those are `PRINT`, GoldenEye's debug comments.
 `IFBondDamageAndPickupsDisabled` and its setter (185 between them), the per-chr
 setup commands (`SetMyArmour` 60, `TRYTeleportingChrToPad` 49, `TRYGiveMeHat`
 33), the missions' music cues (27), and the vehicles' own three animations.
+
+## The screen fades, and the cinema a mission ends on (2026-09-19)
+
+**A converted mission could not be finished.** GoldenEye ends one with a fixed
+sequence, and every command in it but two was being dropped - Dam's, which is
+every level's:
+
+```
+IFBondInRoomWithPad 330        -> the exit pad
+SetObjectiveBitfield 0x1000
+BondDisableDamageAndPickups    -> dropped
+BondDisableControl 0           -> mapped, but to the wrong argument
+BondEquipItem 0                -> dropped
+BondSetLockedVelocity 0,4      -> dropped (still is)
+MyTimerStart / IFMyTimerGreaterThanTicks 350
+ScreenFadeToBlack              -> dropped
+IFScreenFadeCompleted          -> mapped, and passed at once with no fade
+IFObjectiveAllCompleted        -> mapped
+HideAllChrs                    -> mapped
+TriggerFadeAndExitLevelOnButtonPress -> dropped: the level never ended
+BondHideWeapons                -> dropped
+CameraSwitch                   -> mapped
+```
+
+Eleven rows now map, 353 commands in all, and the sequence runs. Nine of them
+are Perfect Dark's own commands under another name again:
+
+| GoldenEye | Perfect Dark |
+| --- | --- |
+| `ScreenFadeToBlack` | `aiFadeScreen(0x000000ff, 60)` |
+| `ScreenFadeFromBlack` | `aiFadeScreen(0x00000000, 60)` |
+| `BondEnableControl` | `aiGrantControl(CHR_P1P2)` |
+| `BondDisableDamageAndPickups` | `aiChrSetInvincible(CHR_P1P2)` |
+| `IFBondDamageAndPickupsDisabled` | `aiIfPlayerIsInvincible(CHR_P1P2, label)` |
+| `BondEquipItem(item)` | `aiChrDrawWeapon(CHR_P1P2, weapon)` |
+| `BondEquipItemCinema(item)` | `aiChrDrawWeaponInCutscene(CHR_P1P2, weapon)` |
+| `BondHideWeapons` | `aiChrDrawWeaponInCutscene(CHR_P1P2, WEAPON_NONE)` |
+| `IFBondIsDead` | `aiIfChrDeathAnimationFinished(CHR_P1P2, label)` |
+
+The pairs are exact, not near: GoldenEye's invincibility flag is called
+`g_PlayerInvincible` in both games; its `BondEquipItem` is
+`currentPlayerEquipWeaponWrapper()`, which starts the swap animation, and
+Perfect Dark's `aiChrDrawWeapon` is the same act, while `BondEquipItemCinema`
+is `place_item_in_hand_swap_and_make_visible()` - the item appears at once,
+which is `bgunEquipWeapon()` behind `aiChrDrawWeaponInCutscene`. GoldenEye's
+fade is `currentPlayerSetFadeFrac(60.0f, 1)` over black and Perfect Dark's
+`lvConfigureFade(colour, frames)` blends to the colour it is given, so the
+whole command is two constants. `aiIfChrDead` is **not** the one for
+`IFBondIsDead` - it refuses a player chr outright - but `aiIfChrDeathAnimation
+Finished` asks a player's `isdead`, which is GoldenEye's `bonddead`.
+
+**`BondDisableControl` was mapped to the wrong argument** and had never worked:
+Perfect Dark's `aiRevokeControl` is (chr, bitfield) against GoldenEye's
+(bitfield), and the row wrote GoldenEye's bitfield as the *chr*, so it revoked
+the control of chr 0, 3 or 4 - a guard - and the player kept theirs. The
+bitfields themselves agree bit for bit on the two Perfect Dark reads:
+GoldenEye's 0x02 `PLAYERFLAG_NOCONTROL` keeps the hud messages and 0x04
+`PLAYERFLAG_NOTIMER` keeps the countdown, which are Perfect Dark's `cmd[3] & 2`
+and `& 4`. Its 0x01, the upper text display, Perfect Dark has nothing for.
+
+**The item numbers are not Perfect Dark's.** GoldenEye's `ITEM_IDS` start with
+the unarmed hand and the two knives and name its guns after the real ones
+(`ITEM_WPPK` is the PP7, `ITEM_AK47` the KF7 Soviet); the port's twenty-five
+GoldenEye guns (`WEAPON_GE_FIRST`) are in Perfect Dark's own order. The two
+equip commands map through `GE_ITEM_WEAPON` (gesolo.py, and the same table in
+geconvert.c), which is also why the Golden Gun is the Golden Gun in the one
+cinema that draws it.
+
+### TriggerFadeAndExitLevelOnButtonPress is the port's own command
+
+Perfect Dark has nothing for it. `aiEndLevel` ends the level **at once**;
+GoldenEye sets `stop_time_flag` and the level ends on the *next button press*,
+after a one-second fade to black - and the list goes on running in the meantime
+(Dam swings the camera onto Bond and hands two chrs new lists). So the port has
+a command of its own, `aiGeExitOnButtonPress`, at **0x01e1**, one past the
+game's table; `gexplus.c` holds the state and `lvTick()` ticks it. Both
+`g_CommandPointers` and `g_CommandLengths` grow by one entry, with a
+`_Static_assert` that they stay the same length, since the dispatch reads one by
+the other's index. A console mod's own commands fill slots the game left empty
+*inside* the table (GE-X took 0xe6 and 0xe7), so out here is clear.
+
+**The trap: a Perfect Dark fade advances while it is *drawn*.** `lvRenderFade()`
+adds to `g_FadeFrac` each time it renders, and the list that ends a mission has
+just switched to a cutscene camera, whose path does not draw the HUD - so the
+fade froze at 0.02 and a level ending that waited on `lvIsFadeActive()` would
+have waited for ever. The tick counts the second itself
+(`g_Vars.diffframe60f`), which is what GoldenEye does: its fade advances in
+`currentPlayerUpdateColourScreenProperties()`, a tick.
+
+**How to see it.** `build/gexrom/geexit.py` kicks Dam's background chr 4004 -
+the owner of list 0x1004 - past its "Bond reached the exit pad" test and
+watches: invincible and control revoked and the hands emptied at frame 201, the
+timer's 350 ticks, `aiFadeScreen` at 552, the fade's 64 frames, the exit
+command at 615, the button at 615 and **`mainEndStage` at 677**, a second later
+to the frame. Its second trap: every per-frame gdb *Python* breakpoint costs
+enough wall clock that the game starts covering seventeen frames a tick and the
+tick looks like it has stopped - the press and the logging are native
+`commands` blocks for that reason.
+
+**Checked**: all twenty missions boot and run 600 frames, and the C converter's
+bytes are still the Python's over all 26 levels and all 20 missions (`diff -r`).
+The conversion drops 614 commands now rather than 967, 381 of them `PRINT`.
+`GECONVERT_VERSION_STR` 24.
+
+**Still to do**: the per-chr setup commands (`SetMyArmour` 60,
+`TRYTeleportingChrToPad` 49, `TRYGiveMeHat` 33, `ChrRemoveItemInHand` 19), the
+music cues (27), `BondSetLockedVelocity` (1, Dam's walk-out), and the vehicles'
+three animations.
+
+**And a find, not yet acted on**: a collectable's `weaponnum` in GoldenEye's
+setup is an `ITEM_ID` too (`chr.c` compares it against `ITEM_GRENADE` and
+`ITEM_TIMEDMINE`), but `weapon_record()` writes `WEAPON_GE_FIRST + item`. So
+every floor weapon in the missions and the arenas is the wrong gun - the 408
+KF7 Soviets (item 8) are Phantoms - and the grenades and mines (items 26-29,
+44 of them) become nothing at all, since the conversion drops an item past its
+twenty-five. `GE_ITEM_WEAPON` is the fix, one line in each converter.

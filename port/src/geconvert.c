@@ -3357,6 +3357,53 @@ static const uint8_t g_PdSizes[0x35] = {
 #define SOLO_NUM_GE_WEAPONS (0x76 - 0x5e + 1)
 
 /**
+ * GoldenEye's own item ids (bondconstants.h, ITEM_IDS) as the port's weapon
+ * numbers, which are not in the same order: GoldenEye's list starts with the
+ * unarmed hand and the two knives and names its guns after the real ones, and
+ * the port's twenty-five are GoldenEye's in-game names in Perfect Dark's own
+ * order. Everything past the last mine is a gadget, a key or a document, which
+ * Perfect Dark cannot hold as a weapon at all. gesolo.py's GE_ITEM_WEAPON.
+ */
+static const uint8_t g_GeItemWeapon[] = {
+	0x01,  /* 0  UNARMED       WEAPON_UNARMED */
+	0x01,  /* 1  FIST          WEAPON_UNARMED */
+	0x71,  /* 2  KNIFE         hunting knife */
+	0x72,  /* 3  THROWKNIFE    throwing knife */
+	0x5e,  /* 4  WPPK          PP7 */
+	0x5f,  /* 5  WPPKSIL       PP7 (silenced) */
+	0x60,  /* 6  TT33          DD44 Dostovei */
+	0x61,  /* 7  SKORPION      Klobb */
+	0x62,  /* 8  AK47          KF7 Soviet */
+	0x63,  /* 9  UZI           ZMG (9mm) */
+	0x64,  /* 10 MP5K          D5K Deutsche */
+	0x65,  /* 11 MP5KSIL       D5K (silenced) */
+	0x66,  /* 12 SPECTRE       Phantom */
+	0x67,  /* 13 M16           AR33 Assault Rifle */
+	0x68,  /* 14 FNP90         RC-P90 */
+	0x69,  /* 15 SHOTGUN       Shotgun */
+	0x6a,  /* 16 AUTOSHOT      Automatic Shotgun */
+	0x6b,  /* 17 SNIPERRIFLE   Sniper Rifle */
+	0x6c,  /* 18 RUGER         Cougar Magnum */
+	0x6d,  /* 19 GOLDENGUN     Golden Gun */
+	0x5e,  /* 20 SILVERWPPK    a PP7; the port has no silver one of its own */
+	0x5e,  /* 21 GOLDWPPK      a PP7; nor a gold one */
+	0x6e,  /* 22 LASER         Moonraker laser */
+	0x6e,  /* 23 WATCHLASER    the watch laser is the same beam */
+	0x6f,  /* 24 GRENADELAUNCH Grenade Launcher */
+	0x70,  /* 25 ROCKETLAUNCH  Rocket Launcher */
+	0x73,  /* 26 GRENADE       Grenade */
+	0x74,  /* 27 TIMEDMINE     Timed Mine */
+	0x75,  /* 28 PROXIMITYMINE Proximity Mine */
+	0x76,  /* 29 REMOTEMINE    Remote Mine */
+};
+
+/** A GoldenEye item id as the weapon Perfect Dark equips for it. */
+static uint32_t soloItemWeapon(uint32_t item)
+{
+	return item < sizeof(g_GeItemWeapon) ? g_GeItemWeapon[item] : 0;
+}
+
+/**
  * A GoldenEye pad id in the converted level: its own pads keep their index and
  * its bound pads are written after them, so a bound pad - one at 10000 and up,
  * and a door's pad field, which is always one - is numpads plus its index.
@@ -3736,6 +3783,11 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 					v = soloTextId(v);
 				} else if (cmd->geanim & (1u << i)) {
 					v = GEAI_ANIM_TAG | v;
+				} else if ((op == 0xe3 || op == 0xe4) && i == 0) {
+					// the two commands that put an item in Bond's hands
+					// (geaitable.h rows e3 and e4); everything else
+					// GoldenEye calls an ITEM_NUM is left as it is
+					v = soloItemWeapon(v);
 				}
 
 				vals[i] = v;

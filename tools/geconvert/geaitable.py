@@ -268,11 +268,11 @@ TABLE = [
     ('CameraLookAtBondFromPad',             3,    [('PAD', 2)],                                  None,   (),                                          'hand'),  # d4 -
     ('CameraSwitch',                        6,    [('OBJECT_TAG', 1), ('LOOK_AT_BOND_FLAG', 2), ('UNUSED_FLAG', 2)], 0x00df, (0, 1, 2),                                   'both'),  # d5 ai00df
     ('IFBondYPosLessThan',                  4,    [('Y_POS', 2), ('GOTOLABEL', 1)],              None,   (),                                          'table'),  # d6 -
-    ('BondDisableControl',                  2,    [('BITFIELD', 1)],                             0x00e0, (0, ('=', 0, 1)),                            'hand'),  # d7 aiRevokeControl
-    ('BondEnableControl',                   1,    [],                                            None,   (),                                          'hand'),  # d8 -
+    ('BondDisableControl',                  2,    [('BITFIELD', 1)],                             0x00e0, (('=', 242, 1), 0),                          'hand'),  # d7 aiRevokeControl
+    ('BondEnableControl',                   1,    [],                                            0x00e1, (('=', 242, 1),),                            'hand'),  # d8 aiGrantControl
     ('TRYTeleportingChrToPad',              5,    [('CHR_NUM', 1), ('PAD', 2), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # d9 -
-    ('ScreenFadeToBlack',                   1,    [],                                            None,   (),                                          'hand'),  # da -
-    ('ScreenFadeFromBlack',                 1,    [],                                            None,   (),                                          'hand'),  # db -
+    ('ScreenFadeToBlack',                   1,    [],                                            0x01cb, (('=', 255, 4), ('=', 60, 2)),               'hand'),  # da aiFadeScreen
+    ('ScreenFadeFromBlack',                 1,    [],                                            0x01cb, (('=', 0, 4), ('=', 60, 2)),                 'hand'),  # db aiFadeScreen
     ('IFScreenFadeCompleted',               2,    [('GOTOLABEL', 1)],                            0x01cc, (0,),                                        'hand'),  # dc aiIfFadeComplete
     ('HideAllChrs',                         1,    [],                                            0x01d5, (('=', 0, 1),),                              'hand'),  # dd aiShowCutsceneChrs
     ('ShowAllChrs',                         1,    [],                                            0x01d5, (('=', 1, 1),),                              'hand'),  # de aiShowCutsceneChrs
@@ -280,23 +280,23 @@ TABLE = [
     ('ChrRemoveItemInHand',                 3,    [('CHR_NUM', 1), ('HAND_INDEX', 1)],           None,   (),                                          'hand'),  # e0 -
     ('IfNumberOfActivePlayersLessThan',     3,    [('NUMBER', 1), ('GOTOLABEL', 1)],             0x00ea, (0, 1),                                      'hand'),  # e1 aiIfNumPlayersLessThan
     ('IFBondItemTotalAmmoLessThan',         4,    [('ITEM_NUM', 1), ('AMMO_TOTAL', 1), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # e2 -
-    ('BondEquipItem',                       2,    [('ITEM_NUM', 1)],                             None,   (),                                          'hand'),  # e3 -
-    ('BondEquipItemCinema',                 2,    [('ITEM_NUM', 1)],                             None,   (),                                          'hand'),  # e4 -
+    ('BondEquipItem',                       2,    [('ITEM_NUM', 1)],                             0x00ec, (('=', 242, 1), 0),                          'hand'),  # e3 aiChrDrawWeapon
+    ('BondEquipItemCinema',                 2,    [('ITEM_NUM', 1)],                             0x00ed, (('=', 242, 1), 0),                          'hand'),  # e4 aiChrDrawWeaponInCutscene
     ('BondSetLockedVelocity',               3,    [('X_SPEED60', 1), ('Z_SPEED60', 1)],          None,   (),                                          'hand'),  # e5 -
     ('IFObjectInRoomWithPad',               5,    [('OBJECT_TAG', 1), ('PAD', 2), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # e6 -
     ('IFImFiringAndLockedForward',          2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # e7 -
     ('IFImFiring',                          2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # e8 -
     ('SwitchSky',                           1,    [],                                            0x00f2, (),                                          'hand'),  # e9 aiSwitchToAltSky
-    ('TriggerFadeAndExitLevelOnButtonPress', 1,    [],                                            None,   (),                                          'hand'),  # ea -
-    ('IFBondIsDead',                        2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # eb -
-    ('BondDisableDamageAndPickups',         1,    [],                                            None,   (),                                          'hand'),  # ec -
-    ('BondHideWeapons',                     1,    [],                                            None,   (),                                          'hand'),  # ed -
+    ('TriggerFadeAndExitLevelOnButtonPress', 1,    [],                                            0x01e1, (),                                          'hand'),  # ea aiGeExitOnButtonPress
+    ('IFBondIsDead',                        2,    [('GOTOLABEL', 1)],                            0x0034, (('=', 242, 1), 0),                          'hand'),  # eb aiIfChrDeathAnimationFinished
+    ('BondDisableDamageAndPickups',         1,    [],                                            0x00f3, (('=', 242, 1),),                            'hand'),  # ec aiChrSetInvincible
+    ('BondHideWeapons',                     1,    [],                                            0x00ed, (('=', 242, 1), ('=', 0, 1)),                'hand'),  # ed aiChrDrawWeaponInCutscene
     ('CameraOrbitPad',                      13,   [('LAT_DISTANCE', 2), ('VERT_DISTANCE', 2), ('ORBIT_SPEED60', 2), ('PAD', 2), ('Y_POS_OFFSET', 2), ('INITIAL_ROTATION', 2)], None,   (),                                          'hand'),  # ee -
     ('CreditsRoll',                         1,    [],                                            None,   (),                                          'hand'),  # ef -
     ('IFCreditsHasCompleted',               2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # f0 -
     ('IFObjectiveAllCompleted',             2,    [('GOTOLABEL', 1)],                            0x00f7, (0,),                                        'hand'),  # f1 aiIfAllObjectivesComplete
     ('IFFolderActorIsEqual',                3,    [('BOND_ACTOR_INDEX', 1), ('GOTOLABEL', 1)],   None,   (),                                          'hand'),  # f2 -
-    ('IFBondDamageAndPickupsDisabled',      2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # f3 -
+    ('IFBondDamageAndPickupsDisabled',      2,    [('GOTOLABEL', 1)],                            0x00f8, (('=', 242, 1), 0),                          'hand'),  # f3 aiIfPlayerIsInvincible
     ('MusicPlaySlot',                       4,    [('MUSIC_SLOT', 1), ('SECONDS_STOPPED_DURATION', 1), ('SECONDS_TOTAL_DURATION', 1)], None,   (),                                          'hand'),  # f4 -
     ('MusicStopSlot',                       2,    [('MUSIC_SLOT', 1)],                           None,   (),                                          'hand'),  # f5 -
     ('TriggerExplosionsAroundBond',         1,    [],                                            0x00fb, (('=', 242, 1),),                            'hand'),  # f6 aiChrExplosions

@@ -510,6 +510,13 @@ bool (*g_CommandPointers[])(void) = {
 	/*0x01df*/ aiIfChrSameFloorDistanceToPadLessThan,
 	/*0x01e0*/ aiRemoveReferencesToChr,
 #endif
+#ifndef PLATFORM_N64
+	// The port's own, past the game's table and only ever in a converted
+	// GoldenEye mission's lists. A console mod that added a command of its own
+	// filled a slot the game left empty inside the table (GE-X took 0xe6 and
+	// 0xe7), so nothing else is expected out here.
+	/*0x01e1*/ aiGeExitOnButtonPress,
+#endif
 };
 
 u16 g_CommandLengths[] = {
@@ -637,7 +644,17 @@ u16 g_CommandLengths[] = {
 	/*0x01df*/ 8,
 	/*0x01e0*/ 2,
 #endif
+#ifndef PLATFORM_N64
+	/*0x01e1*/ 2,
+#endif
 };
+
+#ifndef PLATFORM_N64
+// The dispatch reads one table by the other's index, and chraiGoToLabel() walks
+// a list by the lengths, so a command added to one belongs in both
+_Static_assert(ARRAYCOUNT(g_CommandPointers) == ARRAYCOUNT(g_CommandLengths),
+		"a length for every AI command");
+#endif
 
 s32 chraiGetListIdByList(u8 *ailist, bool *is_global)
 {

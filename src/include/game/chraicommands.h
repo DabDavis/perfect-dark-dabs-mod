@@ -446,6 +446,13 @@
 /*0x01df*/ bool aiIfChrSameFloorDistanceToPadLessThan(void);
 /*0x01e0*/ bool aiRemoveReferencesToChr(void);
 
+#ifndef PLATFORM_N64
+// The port's own command, past the game's table: GoldenEye's
+// TriggerFadeAndExitLevelOnButtonPress, whose wait Perfect Dark has nothing
+// for (gexplus.c). Only a converted mission's lists carry it.
+/*0x01e1*/ bool aiGeExitOnButtonPress(void);
+#endif
+
 void propDecrementSoundCount(struct prop *prop);
 
 #endif
