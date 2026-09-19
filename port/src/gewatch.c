@@ -237,6 +237,9 @@ enum {
 #define WATCH_WRIST_TURN  0.0f
 #define WATCH_WRIST_SCALE 0.35f
 
+// and the roll that stands it upright on the screen
+#define WATCH_POSE_ROLL   (M_PI / 2.0f)
+
 // the watch's pose in front of the eye (player.c's field_1D4, field_1D8 and
 // pause_watch_position), and how big it is drawn there
 #define WATCH_POSE_X   0.0f
@@ -2077,145 +2080,6 @@ static void watchInvert(const Mtxf *m, Mtxf *out)
  * that is still round and still sized by the height.
  */
 /**
- * The player's own body is a whole body, and what the watch wants of it is the
- * forearm and the hand. Everything else is drawn out of a camera sitting at
- * that body's own eye, which is a view of the inside of its shoulders.
- *
- * So every display list outside the arm is put away for the draw and given
- * back after it: the model is walked twice, once from the elbow to learn which
- * lists are the arm's and once over the whole of it to silence the rest. A
- * list is silenced by taking its two display list pointers away, which is what
- * modelRender() reads to decide there is nothing to draw.
- *
- * The elbow is the left hand part's own parent - the chain is hand, elbow,
- * shoulder, hips, root - so the subtree under it is the forearm, the hand and
- * whatever hangs off them.
- */
-#define WATCH_MAX_HIDDEN 96
-
-static struct {
-	struct modelnode *node;
-	Gfx *opa;
-	Gfx *xlu;
-	union modelrwdata *rwdata;
-	Gfx *instance;
-} g_WatchHidden[WATCH_MAX_HIDDEN];
-
-static s32 g_WatchNumHidden;
-
-static void watchWalk(struct modelnode *node, struct modelnode **out, s32 *n, s32 max)
-{
-	while (node && *n < max) {
-		const s32 type = node->type & 0xff;
-
-		out[(*n)++] = node;
-
-		if (type == MODELNODETYPE_DISTANCE && node->rodata) {
-			watchWalk(node->rodata->distance.target, out, n, max);
-		} else if (type == MODELNODETYPE_TOGGLE && node->rodata) {
-			watchWalk(node->rodata->toggle.target, out, n, max);
-		}
-
-		if (node->child) {
-			watchWalk(node->child, out, n, max);
-		}
-
-		node = node->next;
-	}
-}
-
-static void watchHideAllButArm(struct modeldef *def, struct model *model)
-{
-	struct modelnode *arm[WATCH_MAX_HIDDEN];
-	struct modelnode *all[WATCH_MAX_HIDDEN * 4];
-	struct modelnode *hand;
-	s32 numarm = 0;
-	s32 numall = 0;
-
-	g_WatchNumHidden = 0;
-	hand = modelGetPart(def, MODELPART_CHR_LEFTHAND);
-
-	if (!hand || !hand->parent) {
-		return;
-	}
-
-	// from the shoulder down, so that the upper arm, the forearm and the hand
-	// are all kept: the body hangs off a branch of its own and stays away
-	watchWalk(hand->parent->parent ? hand->parent->parent->child : hand->parent->child,
-			arm, &numarm, WATCH_MAX_HIDDEN);
-	watchWalk(def->rootnode, all, &numall, WATCH_MAX_HIDDEN * 4);
-
-	for (s32 i = 0; i < numall && g_WatchNumHidden < WATCH_MAX_HIDDEN; i++) {
-		struct modelnode *node = all[i];
-		s32 isarm = 0;
-
-		// a body's geometry is `gundl` nodes and a prop's is `dl` ones; both
-		// hold the two display list pointers in the same two places
-		if (!node->rodata
-				|| ((node->type & 0xff) != MODELNODETYPE_DL && (node->type & 0xff) != MODELNODETYPE_GUNDL)) {
-			continue;
-		}
-
-		for (s32 j = 0; j < numarm; j++) {
-			if (arm[j] == node) {
-				isarm = 1;
-				break;
-			}
-		}
-
-		if (isarm) {
-			continue;
-		}
-
-		g_WatchHidden[g_WatchNumHidden].node = node;
-		g_WatchHidden[g_WatchNumHidden].rwdata = NULL;
-		g_WatchHidden[g_WatchNumHidden].instance = NULL;
-
-		if ((node->type & 0xff) == MODELNODETYPE_GUNDL) {
-			g_WatchHidden[g_WatchNumHidden].opa = node->rodata->gundl.opagdl;
-			g_WatchHidden[g_WatchNumHidden].xlu = node->rodata->gundl.xlugdl;
-			node->rodata->gundl.opagdl = NULL;
-			node->rodata->gundl.xlugdl = NULL;
-		} else {
-			// a plain list is drawn out of the *instance's* own copy of it
-			// (modelRenderNodeDl() reads rwdata->dl.gdl), which is what has to
-			// be taken away; the definition's own pointers are what that copy
-			// was made from and are left alone
-			union modelrwdata *rwdata = modelGetNodeRwData(model, node);
-
-			g_WatchHidden[g_WatchNumHidden].opa = NULL;
-			g_WatchHidden[g_WatchNumHidden].xlu = NULL;
-
-			if (!rwdata) {
-				continue;
-			}
-
-			g_WatchHidden[g_WatchNumHidden].rwdata = rwdata;
-			g_WatchHidden[g_WatchNumHidden].instance = rwdata->dl.gdl;
-			rwdata->dl.gdl = NULL;
-		}
-
-		g_WatchNumHidden++;
-	}
-}
-
-static void watchShowAgain(void)
-{
-	for (s32 i = 0; i < g_WatchNumHidden; i++) {
-		struct modelnode *node = g_WatchHidden[i].node;
-
-		if ((node->type & 0xff) == MODELNODETYPE_GUNDL) {
-			node->rodata->gundl.opagdl = g_WatchHidden[i].opa;
-			node->rodata->gundl.xlugdl = g_WatchHidden[i].xlu;
-		} else if (g_WatchHidden[i].rwdata) {
-			g_WatchHidden[i].rwdata->dl.gdl = g_WatchHidden[i].instance;
-		}
-	}
-
-	g_WatchNumHidden = 0;
-}
-
-/**
  * Where the player's own body stands, in view space: at the player's own feet,
  * turned the way they are facing. Its arm then comes up out of its own
  * shoulder, which is where an arm comes from.
@@ -2321,6 +2185,7 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	Mtxf pose;
 	Mtxf face;
 	Mtxf rel;
+	Mtxf wrolled;
 	const f32 target[3] = { WATCH_POSE_X, WATCH_POSE_Y, WATCH_POSE_Z };
 	Mtx *facemtx;
 	s32 numhands = 0;
@@ -2393,16 +2258,33 @@ static Gfx *watchDrawModel(Gfx *gdl)
 			mtx4Copy(matrices, &wbase);
 		}
 
-		// GoldenEye wears it on the inside of the wrist, back from the hand
-		// along the forearm and turned face up
+		// How it sits on that hand: back along the forearm, at the size a watch
+		// is, and rolled a quarter turn so that its band crosses the wrist
+		// rather than running along it.
+		//
+		// The roll goes here rather than on the pose in front of the eye. The
+		// two are not the same: the pose is what the *face* is squared to, so
+		// rolling it turns the arm on the screen instead of the watch, which
+		// stood the forearm on end. Rolled here, the arm lies where the
+		// animation put it and the watch turns on it.
 		{
 			struct coord along = { WATCH_WRIST_X, WATCH_WRIST_Y, WATCH_WRIST_Z };
 			Mtxf offset;
 
-			mtx4LoadYRotationWithTranslation(&along, WATCH_WRIST_TURN, &offset);
+			mtx4LoadTranslation(&along, &offset);
 			mtx00015f04(WATCH_WRIST_SCALE, &offset);
 			mtx4MultMtx4InPlace(&wbase, &offset);
 			mtx4Copy(&offset, &wbase);
+
+			if (WATCH_POSE_ROLL != 0.0f) {
+				Mtxf roll;
+
+				mtx4LoadZRotation(WATCH_POSE_ROLL, &roll);
+				mtx4MultMtx4InPlace(&wbase, &roll);
+				mtx4Copy(&roll, &wrolled);
+			} else {
+				mtx4Copy(&wbase, &wrolled);
+			}
 		}
 
 		wmatrices = gfxAllocate(wdef->nummatrices * sizeof(Mtxf));
@@ -2411,10 +2293,10 @@ static Gfx *watchDrawModel(Gfx *gdl)
 			mtx4LoadIdentity(&wmatrices[i]);
 		}
 
-		mtx4Copy(&wbase, wmatrices);
+		mtx4Copy(&wrolled, wmatrices);
 		wmodel->matrices = wmatrices;
 
-		renderdata.unk00 = &wbase;
+		renderdata.unk00 = &wrolled;
 		renderdata.unk10 = wmatrices;
 		modelUpdateRelations(wmodel);
 		modelSetMatrices(&renderdata, wmodel);
@@ -2509,10 +2391,6 @@ static Gfx *watchDrawModel(Gfx *gdl)
 			| g_Vars.currentplayer->gunshadecol[2] << 8 | g_Vars.currentplayer->gunshadecol[3]);
 	renderdata.gdl = gdl;
 
-	if (g_Watch.isbody) {
-		watchHideAllButArm(def, model);
-	}
-
 	if (g_WatchDrawArm) {
 		// the arm is lit the way anything else in the level is, and drawn
 		// under texture perspective: without the lights it takes whatever
@@ -2531,8 +2409,6 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	if (wmodel) {
 		modelRender(&renderdata, wmodel);
 	}
-
-	watchShowAgain();
 
 	gdl = renderdata.gdl;
 	modelSetDistanceChecksDisabled(false);

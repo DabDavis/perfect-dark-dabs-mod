@@ -4910,14 +4910,25 @@ the player's own included. The watch then goes on the body's
 that matrix out of its parent's, not an offset to hang something at**: adding it
 put the watch 24 units off the wrist.
 
-**A body is a whole body.** Drawn from a camera at its own eye it is a view of
-the inside of its shoulders, so every display list outside the arm is put away
-for the draw and given back after. Two things had to be got right: a body's
-geometry hangs off **distance nodes' targets** rather than off children, so the
-walk has to follow `rodata->distance.target`; and **a plain `dl` node draws from
-the instance's own copy of its list** (`modelRenderNodeDl()` reads
-`rwdata->dl.gdl`), not from the definition, so nulling the definition's pointers
-does nothing at all. A `gundl` node is the other way round.
+**The whole body is drawn**, and that is the user's own call: "you should keep
+whole body model, it looks unnatural a floating arm... it zooms in past the
+body". It works because the body is posed where the player stands, so the
+camera is inside its head and the near plane takes the rest - what is left in
+the picture is the forearm coming up with the watch on it. (Drawing only the
+arm was tried first and looked like a prosthetic. The two things that would
+have been needed to do it are worth keeping written down, since neither is
+guessable: a body's geometry hangs off **distance nodes' targets** rather than
+off children, and **a plain `dl` node draws from the instance's own copy of its
+list** - `modelRenderNodeDl()` reads `rwdata->dl.gdl` - so nulling the
+definition's pointers does nothing at all. A `gundl` node is the other way
+round.)
+
+**The watch is rolled on the wrist, not in the pose.** The user: "the watch is
+turned sideways". The roll cannot go on the pose in front of the eye, because
+that is what the *face* is squared to: rolling it turns the arm on the screen
+instead of the watch, and the forearm ends up standing on end. Rolled where the
+watch is put on the hand (`WATCH_POSE_ROLL`), the arm lies where the animation
+put it and the band crosses the wrist the way a band does.
 
 **Sizes are normalised at the face.** A body's scale is its own (0.1 where
 GoldenEye's floating arm is 0.01), so the move that carries the watch to the eye
