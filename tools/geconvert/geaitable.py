@@ -196,8 +196,8 @@ TABLE = [
     ('SetMyVisionRange',                    2,    [('VISION_RANGE', 1)],                         0x0093, (0,),                                        'table'),  # 8c aiSetViewDistance
     ('SetMyGrenadeProbability',             2,    [('GRENADE_PROB', 1)],                         0x0094, (0,),                                        'both'),  # 8d aiSetGrenadeProbability
     ('SetMyChrNum',                         2,    [('CHR_NUM', 1)],                              0x0095, (0,),                                        'table'),  # 8e aiSetChrNum
-    ('SetMyHealthTotal',                    3,    [('HEALTH', 2)],                               0x0097, (0,),                                        'table'),  # 8f aiAddHealth
-    ('SetMyArmour',                         3,    [('AMOUNT', 2)],                               None,   (),                                          'table'),  # 90 -
+    ('SetMyHealthTotal',                    3,    [('HEALTH', 2)],                               0x0096, (('=', 253, 1), 0),                          'hand'),  # 8f aiSetMaxDamage
+    ('SetMyArmour',                         3,    [('AMOUNT', 2)],                               0x0097, (0,),                                        'hand'),  # 90 aiAddHealth
     ('SetMySpeedRating',                    2,    [('SPEED_RATING', 1)],                         0x0098, (0,),                                        'both'),  # 91 aiSetReactionSpeed
     ('SetMyArghRating',                     2,    [('ARGH_RATING', 1)],                          0x0099, (0,),                                        'table'),  # 92 aiSetRecoverySpeed
     ('SetMyAccuracyRating',                 2,    [('ACCURACY_RATING', 1)],                      0x009a, (0,),                                        'both'),  # 93 aiSetAccuracy
@@ -270,7 +270,7 @@ TABLE = [
     ('IFBondYPosLessThan',                  4,    [('Y_POS', 2), ('GOTOLABEL', 1)],              None,   (),                                          'table'),  # d6 -
     ('BondDisableControl',                  2,    [('BITFIELD', 1)],                             0x00e0, (('=', 242, 1), 0),                          'hand'),  # d7 aiRevokeControl
     ('BondEnableControl',                   1,    [],                                            0x00e1, (('=', 242, 1),),                            'hand'),  # d8 aiGrantControl
-    ('TRYTeleportingChrToPad',              5,    [('CHR_NUM', 1), ('PAD', 2), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # d9 -
+    ('TRYTeleportingChrToPad',              5,    [('CHR_NUM', 1), ('PAD', 2), ('GOTOLABEL', 1)], 0x00e2, (0, 1, ('=', 1, 1), 2),                      'hand'),  # d9 aiChrMoveToPad
     ('ScreenFadeToBlack',                   1,    [],                                            0x01cb, (('=', 255, 4), ('=', 60, 2)),               'hand'),  # da aiFadeScreen
     ('ScreenFadeFromBlack',                 1,    [],                                            0x01cb, (('=', 0, 4), ('=', 60, 2)),                 'hand'),  # db aiFadeScreen
     ('IFScreenFadeCompleted',               2,    [('GOTOLABEL', 1)],                            0x01cc, (0,),                                        'hand'),  # dc aiIfFadeComplete
@@ -285,7 +285,7 @@ TABLE = [
     ('BondSetLockedVelocity',               3,    [('X_SPEED60', 1), ('Z_SPEED60', 1)],          None,   (),                                          'hand'),  # e5 -
     ('IFObjectInRoomWithPad',               5,    [('OBJECT_TAG', 1), ('PAD', 2), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # e6 -
     ('IFImFiringAndLockedForward',          2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # e7 -
-    ('IFImFiring',                          2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # e8 -
+    ('IFImFiring',                          2,    [('GOTOLABEL', 1)],                            0x00f1, (0,),                                        'hand'),  # e8 aiIfAttacking
     ('SwitchSky',                           1,    [],                                            0x00f2, (),                                          'hand'),  # e9 aiSwitchToAltSky
     ('TriggerFadeAndExitLevelOnButtonPress', 1,    [],                                            0x01e1, (),                                          'hand'),  # ea aiGeExitOnButtonPress
     ('IFBondIsDead',                        2,    [('GOTOLABEL', 1)],                            0x0034, (('=', 242, 1), 0),                          'hand'),  # eb aiIfChrDeathAnimationFinished
@@ -297,13 +297,13 @@ TABLE = [
     ('IFObjectiveAllCompleted',             2,    [('GOTOLABEL', 1)],                            0x00f7, (0,),                                        'hand'),  # f1 aiIfAllObjectivesComplete
     ('IFFolderActorIsEqual',                3,    [('BOND_ACTOR_INDEX', 1), ('GOTOLABEL', 1)],   None,   (),                                          'hand'),  # f2 -
     ('IFBondDamageAndPickupsDisabled',      2,    [('GOTOLABEL', 1)],                            0x00f8, (('=', 242, 1), 0),                          'hand'),  # f3 aiIfPlayerIsInvincible
-    ('MusicPlaySlot',                       4,    [('MUSIC_SLOT', 1), ('SECONDS_STOPPED_DURATION', 1), ('SECONDS_TOTAL_DURATION', 1)], None,   (),                                          'hand'),  # f4 -
-    ('MusicStopSlot',                       2,    [('MUSIC_SLOT', 1)],                           None,   (),                                          'hand'),  # f5 -
+    ('MusicPlaySlot',                       4,    [('MUSIC_SLOT', 1), ('SECONDS_STOPPED_DURATION', 1), ('SECONDS_TOTAL_DURATION', 1)], 0x00f9, (0, 1, 2),                                   'hand'),  # f4 aiPlayXTrack
+    ('MusicStopSlot',                       2,    [('MUSIC_SLOT', 1)],                           0x00fa, (0,),                                        'hand'),  # f5 aiStopXTrack
     ('TriggerExplosionsAroundBond',         1,    [],                                            0x00fb, (('=', 242, 1),),                            'hand'),  # f6 aiChrExplosions
     ('IFKilledCiviliansGreaterThan',        3,    [('CIVILIANS_KILLED', 1), ('GOTOLABEL', 1)],   None,   (),                                          'hand'),  # f7 -
     ('IFChrWasShotSinceLastCheck',          3,    [('CHR_NUM', 1), ('GOTOLABEL', 1)],            0x0083, (0, 1),                                      'hand'),  # f8 aiIfInjured
     ('BondKilledInAction',                  1,    [],                                            0x00fe, (),                                          'hand'),  # f9 aiKillBond
-    ('RaiseArms',                           1,    [],                                            None,   (),                                          'hand'),  # fa -
+    ('RaiseArms',                           1,    [],                                            0x00ff, (),                                          'hand'),  # fa aiBeSurprisedSurrender
     ('GasLeakAndFadeFog',                   1,    [],                                            None,   (),                                          'hand'),  # fb -
     ('ObjectRocketLaunch',                  2,    [('OBJECT_TAG', 1)],                           None,   (),                                          'hand'),  # fc -
 ]

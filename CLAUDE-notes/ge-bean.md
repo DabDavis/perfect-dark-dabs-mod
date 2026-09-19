@@ -3892,3 +3892,78 @@ those two levels. The probe is `build/gexrom/gunprobe.py`, which walks
 Only the missions are affected: the arenas' `CARRY` table has no entry for
 GoldenEye's collectable type, so their weapons are Perfect Dark's own
 multiplayer sets and never came through here.
+
+## The rest of the per-chr commands, and the music (2026-09-19)
+
+141 more commands, and a row that was wrong. What is left after this is 473
+dropped, **381 of them `PRINT`** - GoldenEye's debug comments, which are not a
+command at all.
+
+| GoldenEye | Perfect Dark | count |
+| --- | --- | --- |
+| `SetMyArmour(amount)` | `aiAddHealth(amount)` | 60 |
+| `TRYTeleportingChrToPad(chr, pad, label)` | `aiChrMoveToPad(chr, pad, 1, label)` | 49 |
+| `MusicPlaySlot(slot, min, sec)` | `aiPlayXTrack(slot, min, sec)` | 22 |
+| `MusicStopSlot(slot)` | `aiStopXTrack(slot)` | 5 |
+| `RaiseArms` | `aiBeSurprisedSurrender` | 4 |
+| `IFImFiring(label)` | `aiIfAttacking(label)` | 1 |
+
+Every one of these is the same code under another name again, and two are the
+same *function* name in both games: `RaiseArms` is
+`chrTrySurprisedSurrender(chr)` on both sides, and `SetMyArmour` is
+`chrAddHealth(chr, amount * 0.1f)` against `aiAddHealth`'s
+`amount = arg * 0.1f; chrAddHealth(chr, amount)`. `IFImFiring` is
+`actiontype == ACT_ATTACK` in both. `TRYTeleportingChrToPad` and
+`aiChrMoveToPad` both take the pad's facing from its own target
+(`atan2f(look.x, look.z)`), put the chr there and branch on success -
+GoldenEye's `chrAdjustPosForSpawn(..., TRUE)` is Perfect Dark's `force`, which
+is the constant 1 in the row. And **the music is line for line**:
+`musicPlaySlot()` and `musicSetXReason()` are the same four-slot table, the
+same "only if it is not already active", and the same two durations scaled by
+the tick rate - GoldenEye calls them slots and Perfect Dark reasons, and both
+mean "something wants the level's action music".
+
+**The row that was wrong**: `SetMyHealthTotal` is `chrSetMaxDamage()` - it sets
+the chr's health *total* - and it was mapped to `aiAddHealth`, which adds to it.
+`aiSetMaxDamage(chr, amount)` is the one, and the two rows were simply one apart:
+the aligner had matched them in order without reading the bodies, so GoldenEye's
+"set the total" added and its "add armour" was dropped.
+
+**Deliberately still dropped**, and why:
+
+- `PRINT` (381) - a debug comment.
+- `TRYGiveMeHat` (33) - the hat *records* are already left out, because a
+  converted hat is a rigid prop Perfect Dark cannot pose on a head and the
+  frame a guard wearing one is ticked kills the mission.
+- `ChrRemoveItemInHand` (19) - GoldenEye marks the held weapon `REMOVE`, so it
+  vanishes; Perfect Dark's nearest, `aiChrDropWeapon`, *drops* it on the floor,
+  which leaves the player a free gun in the middle of a cinema.
+- `IFKilledCiviliansGreaterThan` (6) - Perfect Dark's `aiIfKillCountGreaterThan`
+  counts **every** kill, and GoldenEye's counts civilians, so the mission would
+  fail for shooting guards.
+- `IFImFiringAndLockedForward` (4) - the same test as `IFImFiring` plus two
+  conditions on the attack, which Perfect Dark cannot ask; the plain one would
+  branch more often than GoldenEye does.
+- `IFBondYPosLessThan` (7) - its threshold is a signed 16-bit "cm" and the
+  conversion has no proof of which scale that is (the intro camera's turned out
+  to be the level's own, not GoldenEye's); guessing it wrong is a branch taken
+  at the wrong height. Dam's use is behind `BondSetLockedVelocity`, which is
+  also dropped, so the timer beside it covers the same ground.
+- `HitChrWithItem` (9), `TRYCloningChr` (2), `BondSetLockedVelocity` (1),
+  `IFObjectInRoomWithPad` (1), `ObjectRocketLaunch` (1), `GasLeakAndFadeFog` (1),
+  and the six vehicle `PlayAnimation`s.
+
+**Checked in the game**: Control runs `aiAddHealth` five times and
+`aiSetMaxDamage` once on a plain boot, Silo `aiSetMaxDamage` once. Archives'
+ending cinema, driven from its background list 0x1000, teleports Bond
+(1734,-56,2688 -> 1829,-254,-550) and its `aiPlayXTrack` sets X reason 0 with
+a maximum of **61200** - GoldenEye's own 255 seconds times the 240Hz tick.
+`build/gexrom/musictest.py`.
+
+**Noticed, not chased**: that list parks at its `CameraSwitch` (`ai00df`,
+`playerPrepareWarpType2`) and the chr AI stops ticking while the warp is on, so
+the shots after it in Archives' outro do not run. The level still *ends*, since
+the exit command runs before it and `gexPlusMissionExitTick()` is in `lvTick()`
+rather than in the AI - which is what Dam's full run showed.
+
+`GECONVERT_VERSION_STR` 28.
