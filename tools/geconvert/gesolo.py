@@ -110,6 +110,16 @@ GE_ITEM_WEAPON = (
 # e4); everything else GoldenEye calls an ITEM_NUM is left as it is.
 GE_EQUIP_OPS = (0xe3, 0xe4)
 
+# The two commands that ask about Bond's own health (geaitable.py rows 7f and
+# 80). GoldenEye's threshold is a byte where 255 is a full one (chrai.c divides
+# it by 255 and compares the result against currentPlayerGetHealth(), which is a
+# fraction); Perfect Dark's aiIfChrHealth*Than scales its own byte by a tenth
+# and, for a player, compares it against bondhealth * 8, so a full one is 80
+# there. Left alone GoldenEye's 76 - a guard asking whether Bond is under 30% -
+# reads as 7.6 against a maximum of 8 and is true whatever his health is.
+GE_BOND_HEALTH_OPS = (0x7f, 0x80)
+GE_BOND_HEALTH_FULL = 80          # and GoldenEye's own is 255
+
 
 def item_weapon(item):
     """A GoldenEye item id as the weapon Perfect Dark equips for it."""
@@ -527,6 +537,8 @@ def convert_ailist(d, at, stats, numpads, vehicle=False):
                     v = GE_ANIM_TAG | v
                 elif a == 'ITEM_NUM' and op in GE_EQUIP_OPS:
                     v = item_weapon(v)
+                elif a == 'HEALTH' and op in GE_BOND_HEALTH_OPS:
+                    v = v * GE_BOND_HEALTH_FULL // 255
                 vals.append(v)
                 o += w
             out += struct.pack('>H', pd)

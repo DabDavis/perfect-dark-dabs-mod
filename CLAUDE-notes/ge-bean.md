@@ -3967,3 +3967,151 @@ the exit command runs before it and `gexPlusMissionExitTick()` is in `lvTick()`
 rather than in the AI - which is what Dam's full run showed.
 
 `GECONVERT_VERSION_STR` 28.
+
+## Guards alerted across the map, and shooting through walls (2026-09-19)
+
+A tester on GE Plus: *"the AI is not acting right, in the cinema scenes the
+guards are alerted and run at the camera like the player. also guards are
+alerted across the map in solo missions, and shoot at you from across the map,
+through floors."* Two faults behind it, and neither is in the AI code.
+
+**Every converted wall was transparent to sight and to bullets.** The
+conversion raises a quad round every unlinked stan edge (`write_tiles()`) and
+gave it `GEOFLAG_WALL` alone. Perfect Dark reads a tile's flags **for the
+question being asked and nothing else** - `cdCollectGeoForCylFromList()` takes a
+tile only where `geo->flags & geoflags` - and the questions are asked with one
+flag each:
+
+| what asks | the flag it asks for |
+| --- | --- |
+| a body walking into it | `GEOFLAG_WALL` |
+| a guard's sight (`chrHasLosToChr`, `cdTestLos07`) | `GEOFLAG_BLOCK_SIGHT` |
+| "have I a clear shot" and the bullet itself (chraction.c 6976-7004, 10844, 10910) | `GEOFLAG_BLOCK_SHOOT` |
+
+So a converted wall stopped a body and was **not there at all** to a line of
+sight or to a bullet: a guard could see through every wall in the level and
+shoot through it. The floors always carried all three
+(`0x0001|0x0002|0x0008|0x0010`), which is why this reads as walls rather than
+storeys. The walls carry `WALL|BLOCK_SIGHT|BLOCK_SHOOT` now (`WALL_FLAGS`), and
+that is **GoldenEye's own behaviour**, not an invention: GoldenEye's sight is its
+stan graph, and `chrCanSeeBond()`'s `stanTestLineUnobstructed()` walks from link
+to link, so it cannot cross an unlinked edge either.
+
+Measured in the game rather than argued: `build/gexrom/tileflags.py` walks
+`g_TileRooms` and prints the flags the game holds. Archives' first forty rooms
+are 989 floor tiles at `0x001b` and **812 walls, which were `0x0004` and are
+`0x001c`**. Note that a probe taken at the player's own spawn shows no
+difference in how many chrs have a clear line: `cdTestLos07()` starts with a
+portal walk and wants the rooms to intersect, so the room graph already limits
+sight, and the walls only matter between two places that are portal-connected -
+which is most of a level, but not the spot a mission starts in.
+
+**And two rows told a guard to go looking for the player.** Both were placed by
+the aligner on position alone, which is the class the last note warned about:
+
+| GoldenEye | was | is |
+| --- | --- | --- |
+| `IFISeeSomeoneShot(label)` | `aiIfLosToTarget(label)` | `aiIfSawInjury(2, label)` |
+| `IFISeeSomeoneDie(label)` | `aiSetPadPresetToPadOnRouteToTarget(label)` | `aiIfSawDeath(2, label)` |
+
+A guard's poll loop is `IFBondMissedMe / IFISeeSomeoneShot / IFISeeSomeoneDie /
+IFISeeBond / IFICouldSeeBond`, each branching to the same alert label (Jungle's
+list 1043 is the pattern, and 26 and 28 uses of the two across the twenty
+missions). Converted as they were, the third command **set the guard's pad
+preset to a pad on the route to the player and branched if a route existed** -
+which is nearly always - and the second asked only whether it had a line to the
+player, with no vision range and no field of view. Both of them made every guard
+in the level take its alert branch on the first tick.
+
+`chrSawInjury()`/`chrSawDeath()` are GoldenEye's own `chrseeshot`/`chrseedie`,
+and the argument is **2** rather than 0: GoldenEye clears both fields at the end
+of every chr tick (chraction.c, `self->chrseeshot = CHR_FREE`), so its test means
+"this tick", while Perfect Dark keeps the flag until a command consumes it -
+and `chrSawDeath(chr, 0)` is the one path that does **not** clear it, so a guard
+that saw one death would have taken the branch for the rest of the level. Any
+value past 1 is the `else` in both bodies: test and clear.
+
+**The object commands were a five-row drift.** `NULL` sits at Perfect Dark's
+0x0064, the aligner spent it, and 0x5f to 0x63 each took the command before
+their own - `DestroyObject` became `aiObjInteract` (48 uses: a tagged object an
+objective wants blown up was merely *activated*), `DropObject` became
+`aiDestroyObject` (it exploded what it should have dropped),
+`ChrDropAllConcealedItems` became `ai0067`, which reads its argument as an
+object tag and was handed a chr number, and `BondCollectObject` became
+`aiChrDropWeapon`, which would have taken the player's gun. The five are
+`aiDestroyObject`, `ai0067` (GoldenEye's "drop the tagged object a chr holds",
+line for line), `aiChrDropItems`, `aiChrDropWeapon` and
+`aiGiveObjectToChr(tag, CHR_P1P2)`, whose player branch is
+`propPickupByPlayer()` - "force Bond to instantly collect a tagged object".
+
+**And `TRYUnknown6e`/`6f` are the two pad-preset tries**, not an objective test:
+the lists call them in chains of four with the flags 8, 4, 2, 1 and one label,
+which is "try each of these ways of setting my preset". Perfect Dark's 0x0074
+`aiIfObjectiveFailed` is its own insertion, so the two are `ai0075`
+(`func0f04a4ec(chr, flags)`) and `aiSetPadPresetToTargetQuadrant`.
+
+**Bond's health tests were backwards *and* mis-scaled.** `aiIfChrHealthGreaterThan`
+(0x0081) tests `arg > health` and `aiIfChrHealthLessThan` (0x0082) tests
+`arg < health`: **the decomp's two names are the other way round from their own
+bodies**, so read the body and not the name. GoldenEye's chr rows were right by
+luck (the aligner's order) and its two *Bond* rows, written by hand from the
+names, were inverted. The threshold needed a scale as well: GoldenEye divides
+its byte by 255, Perfect Dark scales its own by a tenth and compares against
+`bondhealth * 8`, so a full one is **80** and not 255 - Jungle's `76` ("is Bond
+under 30%") read as 7.6 against a maximum of 8 and was true whatever his health
+was. `GE_BOND_HEALTH_FULL` in gesolo.py, the same in geconvert.c.
+
+**Three aligner-only rows that turned out right** - recorded so nobody "fixes"
+them: `IFMyAngleToBondLessThan/GreaterThan` are `aiIfTargetInFovLeft/OutOfFovLeft`,
+whose bodies are a raw one-sided compare on `chrGetAngleToTarget()` and match
+GoldenEye's *counter-clockwise* angle exactly (the oracle's `aiIfTargetInFov` is
+a cone and does not); `IFIWasShotRecently` really is `aiIfSawTargetRecently`,
+since GoldenEye's own handler is `chrSawTargetRecently()` and its doc says "or
+seen Bond within the last 10 seconds"; and `IFBondDistanceToPadLessThan` and
+`IFBondInRoomWithPad` are left on the **target** forms (`aiIfDistanceFromTargetToPadLessThan`,
+`aiIfTargetInRoom`), which are shape-exact and resolve to the player anyway
+(`chrGetTargetProp()` falls back to `g_Vars.players[chr->p1p2]->prop`), rather
+than moved to the chr forms the oracle votes for. `IFMyAngleFromBondLessThan/
+GreaterThan` are dropped: they are a one-sided angle in *Bond's* frame and
+Perfect Dark has only a cone there. No mission uses them.
+
+**`.xbla-work/ge-arena/genaitable.py` is stale and must not be run.** It is
+older than the table it writes - no `PlayAnimation` row, no chr flags bank,
+`CHR_BOND` as 0x00f8 - and regenerating threw away 97 lines of rows read since,
+including the previous note's own fix. Both tables say so at the top now, and a
+row is changed by hand in `tools/geconvert/geaitable.py` and
+`port/include/geaitable.h` together.
+
+**What was measured.** All twenty missions boot and run 600 frames - and the
+twenty are **0x15 (Dam) and 0x5e-0x70**, not 0x5e-0x71: a sweep over the twenty
+ids after 0x5d silently measures nineteen missions and one arena, which reads
+as "one mission never reaches frame 600". The C converter's bytes are still the
+Python's over all 26 levels and all 20 missions,
+and `build/gexrom/alertprobe.py` (chrs by action, alertness and how far the
+furthest attacker is) over the twenty, before and beside after: no mission got
+worse, alertness went to nothing on the two that had it (Jungle and Caverns, 3
+chrs each), and the attackers fell on four (Statue Park 14 -> 10, Jungle 10 -> 8,
+Facility and Archives 1 -> 0). What is left attacking at frame 600 is **aiming
+and not shooting**: the probe splits them by `act_attack.flags &
+ATTACKFLAG_AIMONLY`, which is GoldenEye's own `TARGET_AIM_ONLY` bit for bit, and
+Jungle's `TRYFireOrAimAtTarget(TARGET_BOND | TARGET_AIM_ONLY, ...)` is what those
+guards are told to do.
+
+**Still open: the camera is the player's prop.** GE Plus's Cinema and a
+converted mission's own cinema both put the *player* where the camera goes -
+`gecinemaEnter()`/`bcutsceneInit()` for the page, and `ai00df`'s
+`playerPrepareWarpType2()` for GoldenEye's `CameraSwitch`, which in GoldenEye
+moves the camera alone and leaves Bond standing where he is
+(`bondviewSetCameraMode(CAMERAMODE_POSEND)`). `g_Vars.bondvisible` is already
+false while a cinema shot is up, and that covers sight, hearing and even
+`chrSetPadPresetToPadOnRouteToTarget()` (which tests it), so the fixed rows
+above are what stopped the guards coming - but **every question a list asks
+about Bond that is not about seeing him** (distance, room, angle) still answers
+about the camera. Reproducing it headlessly failed: `build/gexrom/cinemaguards.py`
+drives a cinema on Dam and Archives and no chr converges on the shot in either.
+The faithful fix is GoldenEye's own - move the view and leave the prop - which
+needs the camera decoupled from `prop->pos`, since the rooms the level draws
+come from the prop. `CameraReturnToBond` is dropped and unused by all twenty
+missions, so a converted mission's cinema never gives the camera back either.
+
+`GECONVERT_VERSION_STR` 29.

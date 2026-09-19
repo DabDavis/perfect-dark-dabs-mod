@@ -586,6 +586,18 @@ def write_bg(bg, ls, offset, tilebounds=None, stan=None):
 WALL_BELOW = 50.0   # world units a wall reaches below the floor edge it stands on
 WALL_ABOVE = 400.0  # and above, where nothing walkable stands in the way
 
+# The geo flags a floor tile and a wall carry (constants.h, GEOFLAG_*). Perfect
+# Dark reads a tile's flags for the question being asked and nothing else -
+# cdCollectGeoForCylFromList() takes a tile only where `geo->flags & geoflags` -
+# so a wall that carries GEOFLAG_WALL alone stops a body walking into it and is
+# not there at all to a line of sight (GEOFLAG_BLOCK_SIGHT, chrHasLosToChr) or
+# to a bullet (GEOFLAG_BLOCK_SHOOT). GoldenEye's own sight is its stan graph,
+# which walks from link to link (chrCanSeeBond's stanTestLineUnobstructed) and
+# so cannot cross an unlinked edge either: a wall standing on one blocks sight
+# and shots there in GoldenEye too, and the walls carry both.
+FLOOR_FLAGS = 0x0001 | 0x0002 | 0x0008 | 0x0010   # FLOOR1 FLOOR2 SIGHT SHOOT
+WALL_FLAGS = 0x0004 | 0x0008 | 0x0010             # WALL SIGHT SHOOT
+
 # A wall is raised round every unlinked tile edge, and GoldenEye's own walls
 # are the edge and nothing more: its collision walks out from the tile the
 # player stands on through the links alone (stan.c's sub_GAME_7F0B1DDC), so an
@@ -741,7 +753,7 @@ def write_tiles(stan, numrooms, ls, offset):
                       min(p[2] for p in w), max(p[2] for p in w)] for w in world], float)
     for ti, t in enumerate(stan):
         pts = world[ti]
-        flags = 0x0001 | 0x0002 | 0x0008 | 0x0010
+        flags = FLOOR_FLAGS
         if t['special'] == 3:
             flags |= 0x0040
         rooms[t['room']].append((flags, pts))
@@ -754,7 +766,7 @@ def write_tiles(stan, numrooms, ls, offset):
             above, below = wall_span(world, bbox, ti, a, b)
             quad = [(a[0], a[1] - below, a[2]), (b[0], b[1] - below, b[2]),
                     (b[0], b[1] + above, b[2]), (a[0], a[1] + above, a[2])]
-            rooms[t['room']].append((0x0004, quad))
+            rooms[t['room']].append((WALL_FLAGS, quad))
             walls += 1
     body = []
     for tiles in rooms:

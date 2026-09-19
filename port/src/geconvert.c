@@ -175,6 +175,18 @@ const char *geconvertMissionLangFile(int mission)
 #define WALL_BELOW 50.0
 #define WALL_ABOVE 400.0
 
+/* The geo flags a floor tile and a wall carry (constants.h, GEOFLAG_*). Perfect
+ * Dark reads a tile's flags for the question being asked and nothing else -
+ * cdCollectGeoForCylFromList() takes a tile only where `geo->flags & geoflags` -
+ * so a wall that carries GEOFLAG_WALL alone stops a body walking into it and is
+ * not there at all to a line of sight (GEOFLAG_BLOCK_SIGHT, chrHasLosToChr) or
+ * to a bullet (GEOFLAG_BLOCK_SHOOT). GoldenEye's own sight is its stan graph,
+ * which walks from link to link (chrCanSeeBond's stanTestLineUnobstructed) and
+ * so cannot cross an unlinked edge either: a wall standing on one blocks sight
+ * and shots there in GoldenEye too, and the walls carry both. */
+#define FLOOR_FLAGS (0x0001 | 0x0002 | 0x0008 | 0x0010)   /* FLOOR1 FLOOR2 SIGHT SHOOT */
+#define WALL_FLAGS  (0x0004 | 0x0008 | 0x0010)            /* WALL SIGHT SHOOT */
+
 /* A wall is raised round every unlinked tile edge, and GoldenEye's own walls
  * are the edge and nothing more: its collision walks out from the tile the
  * player stands on through the links alone (stan.c's sub_GAME_7F0B1DDC), so an
@@ -2218,7 +2230,7 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 		const struct tile *t = &stan->v[i];
 		const double (*pts)[3] = world + geo[i].first;
 		const int n = t->npts;
-		uint32_t flags = 0x0001 | 0x0002 | 0x0008 | 0x0010;
+		uint32_t flags = FLOOR_FLAGS;
 
 		if (t->room > numrooms) {
 			fail("a tile in room %d, past the level's %d", t->room, numrooms);
@@ -2264,7 +2276,7 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 			quad[1][0] = b[0]; quad[1][1] = b[1] - below; quad[1][2] = b[2];
 			quad[2][0] = b[0]; quad[2][1] = b[1] + above; quad[2][2] = b[2];
 			quad[3][0] = a[0]; quad[3][1] = a[1] + above; quad[3][2] = a[2];
-			EMIT(0x0004, quad, 4);
+			EMIT(WALL_FLAGS, quad, 4);
 			++walls;
 		}
 #undef EMIT
@@ -3822,6 +3834,13 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 					// (geaitable.h rows e3 and e4); everything else
 					// GoldenEye calls an ITEM_NUM is left as it is
 					v = soloItemWeapon(v);
+				} else if ((op == 0x7f || op == 0x80) && i == 0) {
+					// the two that ask about Bond's own health: GoldenEye's
+					// threshold is a byte where 255 is a full one, Perfect
+					// Dark's aiIfChrHealth*Than scales its own by a tenth and
+					// compares it against bondhealth * 8, where a full one is
+					// 80 (gesolo.py's GE_BOND_HEALTH_FULL)
+					v = v * 80 / 255;
 				}
 
 				vals[i] = v;
