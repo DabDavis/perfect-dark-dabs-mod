@@ -13156,10 +13156,10 @@ static inline void tvscreenWrapTexCoord(s32 *s0, s32 *s1, s32 *s2, s32 *s3)
  * A screen's programme, run for this frame: its commands up to the next one
  * that waits, and whatever scroll, zoom and tint they left in motion.
  *
- * This was the top half of tvscreenRender() and is here on its own so that
- * something with no model to draw a screen on can still run one - GE Plus's
- * folder shows GoldenEye's monitor programmes on a page of their own
- * (gexfront.c). Nothing in it has changed.
+ * This was the top half of tvscreenRender() and was cut out for GE Plus's
+ * folder, whose large view of a programme once drew it without a model. That
+ * view goes through tvscreenRender() now, as everything else does (gexfront.c).
+ * Nothing in it has changed.
  */
 void tvscreenTick(struct tvscreen *screen)
 {
@@ -13405,8 +13405,8 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 			tconfig = &g_TexScreenConfigs[(s32)screen->tconfig];
 #ifndef PLATFORM_N64
 			// and GoldenEye's own pictures under GoldenEye's own programmes
-			if (geMonitorImage((u32)(uintptr_t)screen->tconfig)) {
-				tconfig = geMonitorImage((u32)(uintptr_t)screen->tconfig);
+			if (geMonitorImage(screen->cmdlist, (u32)(uintptr_t)screen->tconfig)) {
+				tconfig = geMonitorImage(screen->cmdlist, (u32)(uintptr_t)screen->tconfig);
 			}
 #endif
 		} else {

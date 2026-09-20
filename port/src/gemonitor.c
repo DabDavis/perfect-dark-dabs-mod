@@ -211,18 +211,6 @@ u32 *geMonitorProgramAt(s32 n)
 	return g_GeMonWords + g_GeMonPrograms[n];
 }
 
-/** A picture as the file has it: its texture's number and its config's fields. */
-const struct textureconfig *geMonitorImageInfo(u32 index, u32 *texturenum)
-{
-	if (!g_GeMonWords || index >= (u32)g_GeMonNumImages) {
-		return NULL;
-	}
-
-	*texturenum = g_GeMonImageNums[index];
-
-	return &g_GeMonImages[index];
-}
-
 u32 *geMonitorJump(u32 *cmdlist, u32 arg)
 {
 	// not asked of the stage: the folder runs these lists over the Institute
@@ -233,9 +221,21 @@ u32 *geMonitorJump(u32 *cmdlist, u32 arg)
 	return g_GeMonWords + (arg < g_GeMonNumWords ? arg : 0);
 }
 
-struct textureconfig *geMonitorImage(u32 index)
+/**
+ * Asked of the list the screen is running, as a jump is, and not only of where
+ * the game is: GE Plus's folder shows these over the Institute, whose own
+ * screens are still drawn under it running Perfect Dark's programmes. Handed
+ * this table they loaded Perfect Dark's texture of a GoldenEye picture's number
+ * into it - whichever asked first - and the page's sets then drew that: the
+ * scrolling text was one of the Institute's walls, tinted green.
+ */
+struct textureconfig *geMonitorImage(u32 *cmdlist, u32 index)
 {
 	if ((!g_GeMonOn && !g_GeMonFolder) || index >= (u32)g_GeMonNumImages) {
+		return NULL;
+	}
+
+	if (!g_GeMonWords || cmdlist < g_GeMonWords || cmdlist >= g_GeMonWords + g_GeMonNumWords) {
 		return NULL;
 	}
 

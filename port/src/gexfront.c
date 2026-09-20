@@ -1767,7 +1767,7 @@ static volatile f32 g_TvZ = 0.0f;
 static volatile f32 g_TvLift = 0.0f;
 // a menu pixel across the folder's plane, measured off the page: the frame the
 // 2-D layer is held in is not the window's own shape (frontX())
-static volatile f32 g_TvSpreadX = 0.855f;
+static volatile f32 g_TvSpreadX = 0.9327f;   // 0.855 * 12 / 11: measured inside the 2-D frame on 4:3, drawn outside it
 static volatile f32 g_TvSpreadY = 0.96f;
 
 static void frontUnloadTvs(void)
@@ -1967,14 +1967,6 @@ static void frontTickMonitorView(s32 pick, s32 back)
 		frontShowMonitor(g_Front.monitor + step);
 	}
 
-	if (g_Front.nummonitors > 0 && g_Front.monitorscreen.cmdlist) {
-		s32 lvupdate60;
-		f32 lvupdate60f;
-
-		frontMonitorClock(1, &lvupdate60, &lvupdate60f);
-		tvscreenTick(&g_Front.monitorscreen);
-		frontMonitorClock(0, &lvupdate60, &lvupdate60f);
-	}
 }
 
 /** The opening or the ending: the difficulty page's rows and its thresholds. */
@@ -4124,114 +4116,25 @@ static const char *g_MonitorNames[] = {
 #define MONITOR_HW 84.0f
 #define MONITOR_HH 56.0f
 
-/**
- * One of the monitor programmes, large: its number and name, and its screen.
- *
- * The screen is tvscreenRender()'s own arithmetic on a rectangle: the picture's
- * middle and how much of it shows (`xmid`, `xscale`, in pictures) give the
- * texel the left edge starts on and how many cross the rectangle, and the tint
- * is the screen's colour. A rectangle cannot turn, so the two programmes that
- * rotate their picture (the radar's sweep) show it unturned.
- */
-static Gfx *frontDrawMonitorView(Gfx *gdl)
-{
-	const struct tvscreen *screen = &g_Front.monitorscreen;
-	const struct textureconfig *info;
-	char line[96];
-	u32 texnum = 0;
-
-	gdl = frontPrint(gdl, 0x37, 0x77, "MONITOR PROGRAMMES\n", COLOUR_ON);
-
-	if (g_Front.nummonitors <= 0) {
-		return frontPrint(gdl, 0x37, 0x8f, "None in this conversion.\n", COLOUR_ON);
-	}
-
-	snprintf(line, sizeof(line), "%d of %d: %s\n", g_Front.monitor + 1, g_Front.nummonitors,
-			g_Front.monitor < ARRAYCOUNT(g_MonitorNames) ? g_MonitorNames[g_Front.monitor] : "");
-	gdl = frontPrint(gdl, 0x37, 0x8f, line, COLOUR_ON);
-
-	// the tube it is shown on
-	gdl = frontFillRect(gdl, (s32)(MONITOR_CX - MONITOR_HW) - 3, (s32)(MONITOR_CY - MONITOR_HH) - 3,
-			(s32)(MONITOR_CX + MONITOR_HW) + 3, (s32)(MONITOR_CY + MONITOR_HH) + 3, 0x000000ff);
-
-	info = (uintptr_t)screen->tconfig < 100 ? geMonitorImageInfo((u32)(uintptr_t)screen->tconfig, &texnum) : NULL;
-
-	if (info) {
-		struct textureconfig *tex = frontTexture(texnum, info->width, info->height, info->format, info->depth, info->s != G_TX_CLAMP);
-
-		if (tex) {
-			const f32 sx = frontScaleX();
-			const f32 sy = frontScaleY();
-			// a scroll only ever adds, and a rectangle's start is sixteen bits
-			const f32 xmid = screen->xmid - (f32)(s32)screen->xmid;
-			const f32 ymid = screen->ymid - (f32)(s32)screen->ymid;
-			const f32 across = info->width * screen->xscale;
-			const f32 down = info->height * screen->yscale;
-			s32 prevsrc;
-
-			tex->t = info->t;
-
-			prevsrc = modSetTextureSourceMod(g_Front.moddir);
-			texSelect(&gdl, tex, 1, 0, 2, 1, NULL);
-			modSetTextureSourceMod(prevsrc);
-
-			gDPSetTexturePersp(gdl++, G_TP_NONE);
-			gDPSetEnvColor(gdl++, screen->red, screen->green, screen->blue, 0xff);
-			gDPSetTextureFilter(gdl++, G_TF_BILERP);
-			// through the picture's own alpha, onto the black of the tube: the
-			// radar's sweep is an IA picture and is nothing where it is clear
-			// (an intensity picture's alpha is its intensity again, which
-			// would only dim it, so those are drawn solid as a level draws them)
-			if (info->format == G_IM_FMT_IA) {
-				gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
-				gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
-			} else {
-				gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT);
-			}
-
-			gSPTextureRectangle(gdl++,
-					(s32)(frontX(MONITOR_CX - MONITOR_HW) * 4), (s32)(frontY(MONITOR_CY - MONITOR_HH) * 4),
-					(s32)(frontX(MONITOR_CX + MONITOR_HW) * 4), (s32)(frontY(MONITOR_CY + MONITOR_HH) * 4),
-					G_TX_RENDERTILE,
-					// a picture's rows run bottom to top (as a stage picture's
-					// do not: frontImage()'s negative height), so the top of the
-					// tube is the far side of the window and t runs backwards
-					(s32)(info->width * xmid * 32.0f - across * 16.0f), (s32)(info->height * ymid * 32.0f + down * 16.0f) - 1,
-					(s32)(across / (2.0f * MONITOR_HW) * 1024.0f / sx), -(s32)(down / (2.0f * MONITOR_HH) * 1024.0f / sy));
-		}
-	}
-
-	gdl = frontTextSetup(gdl);
-	gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
-	gdl = frontTextSetup(gdl);
-
-	return gdl;
-}
+// a menu pixel across the plane the folder lies in: tan(30) over half of 330
+#define FOLDER_PERPIXEL (FOLDER_EYEZ * 0.57735027f / 165.0f)
 
 /**
- * The page of TV sets. They are the one thing on the folder screens besides the
- * folder that is a model, so they are drawn the folder's own way - its camera,
- * its field of view, into a z buffer of their own - each stood where the
- * film strip's picture of that cell is: the camera looks square at the plane
- * the folder lies in, FOLDER_EYEZ off it under FOLDER_FOVY, so a menu pixel is
- * a fixed step across that plane and a cell's place follows from its pixel.
+ * The folder's own camera, for the sets and for one set's screen drawn large -
+ * and drawn as the folder is, outside the frame the 2-D layer is held in
+ * (G_ASPECT_CENTER_EXT, frontX()). Inside it a model is squeezed across by
+ * SCREEN_ASPECT over the window's own shape: a twelfth too wide on 4:3, which
+ * nobody saw, and a fifth too narrow and off its cell on 16:9. The caller turns
+ * the mode back on when its models are drawn.
  */
-static Gfx *frontDrawTvs(Gfx *gdl)
+static Gfx *frontTvCamera(Gfx *gdl, Mtxf *camera)
 {
 	static Vp vp;
-	const s32 first = g_Front.monitorpage * TVS_PER_PAGE;
-	const f32 perpixel = FOLDER_EYEZ * 0.57735027f / 165.0f;   // tan(30) over half of 330
 	Mtxf persp;
 	Mtx *projection = gfxAllocateMatrix();
-	Mtxf camera;
 	u16 perspnorm;
-	s32 lvupdate60;
-	f32 lvupdate60f;
-	s32 prevsrc;
 
-	if (!g_Front.tvdef) {
-		return gdl;
-	}
+	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 
 	vp.vp.vscale[0] = viGetWidth() * 2;
 	vp.vp.vscale[1] = viGetHeight() * 2;
@@ -4253,10 +4156,134 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 	gDPSetTextureLUT(gdl++, G_TT_NONE);
 	gDPSetAlphaCompare(gdl++, G_AC_NONE);
 	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+
+	mtx00016ae4(camera, -900.0f, 990.0f, FOLDER_EYEZ, -900.0f, 990.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+
+	return gdl;
+}
+
+/**
+ * One of the monitor programmes, large: its number and name, and its screen.
+ *
+ * The screen is a set's own - the four vertices of the TV's screen node, drawn
+ * by tvscreenRender() as the page of sets and a level draw them, stood square
+ * to the folder's camera and stretched over the tube. It was a texture
+ * rectangle doing tvscreenRender()'s arithmetic over again, and what it did not
+ * do over again is what the user saw: "some of our monitor programmes in the
+ * menu dont render correctly when you click on them to enlarge them". It gave a
+ * picture no mip levels, so every picture stored with them - all the colour
+ * ones, and Karl - was read from the wrong place; it left the screen's alpha
+ * out, so "Off" showed its wave; and a rectangle cannot turn, so the radar's
+ * sweep stood still.
+ */
+static Gfx *frontDrawMonitorView(Gfx *gdl)
+{
+	struct model *model = g_Front.tvmodels[0];
+	struct modelnode *node = g_Front.tvdef ? modelGetPart(g_Front.tvdef, MODELPART_0000) : NULL;
+	char line[96];
+
+	gdl = frontPrint(gdl, 0x37, 0x77, "MONITOR PROGRAMMES\n", COLOUR_ON);
+
+	if (g_Front.nummonitors <= 0) {
+		return frontPrint(gdl, 0x37, 0x8f, "None in this conversion.\n", COLOUR_ON);
+	}
+
+	snprintf(line, sizeof(line), "%d of %d: %s\n", g_Front.monitor + 1, g_Front.nummonitors,
+			g_Front.monitor < ARRAYCOUNT(g_MonitorNames) ? g_MonitorNames[g_Front.monitor] : "");
+	gdl = frontPrint(gdl, 0x37, 0x8f, line, COLOUR_ON);
+
+	// the tube it is shown on
+	gdl = frontFillRect(gdl, (s32)(MONITOR_CX - MONITOR_HW) - 3, (s32)(MONITOR_CY - MONITOR_HH) - 3,
+			(s32)(MONITOR_CX + MONITOR_HW) + 3, (s32)(MONITOR_CY + MONITOR_HH) + 3, 0x000000ff);
+
+	if (model && node && (node->type & 0xff) == MODELNODETYPE_DL && g_Front.monitorscreen.cmdlist) {
+		const Vtx *v = node->rodata->dl.vertices;
+		s32 min[3] = { v[0].x, v[0].y, v[0].z };
+		s32 max[3] = { v[0].x, v[0].y, v[0].z };
+
+		for (s32 i = 1; i < 4; i++) {
+			for (s32 k = 0; k < 3; k++) {
+				min[k] = v[i].v[k] < min[k] ? v[i].v[k] : min[k];
+				max[k] = v[i].v[k] > max[k] ? v[i].v[k] : max[k];
+			}
+		}
+
+		// the screen faces down the set's z, as the page of sets shows it
+		if (max[0] > min[0] && max[1] > min[1]) {
+			// a menu pixel is the same step across the folder's plane as down
+			// it (the sets' two factors are no use here: they were fitted to
+			// where a TV's model stands, not to a flat picture)
+			const f32 stepx = FOLDER_PERPIXEL;
+			const f32 stepy = FOLDER_PERPIXEL;
+			const f32 sx = 2.0f * MONITOR_HW * stepx / (max[0] - min[0]);
+			const f32 sy = 2.0f * MONITOR_HH * stepy / (max[1] - min[1]);
+			Mtx *mtx = gfxAllocateMatrix();
+			Mtxf camera;
+			Mtxf world;
+			s32 lvupdate60;
+			f32 lvupdate60f;
+			s32 prevsrc;
+
+			gdl = frontTvCamera(gdl, &camera);
+
+			mtx4LoadIdentity(&world);
+			world.m[0][0] = sx;
+			world.m[1][1] = sy;
+			world.m[3][0] = -900.0f + (MONITOR_CX - 220.0f) * stepx - sx * (max[0] + min[0]) * 0.5f;
+			world.m[3][1] = 990.0f - (MONITOR_CY - 165.0f) * stepy - sy * (max[1] + min[1]) * 0.5f;
+			world.m[3][2] = -(max[2] + min[2]) * 0.5f;
+			mtx4MultMtx4InPlace(&camera, &world);
+			mtxF2L(&world, (Mtxf *)mtx);
+			model->matrices = (Mtxf *)mtx;
+
+			gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_CULL_BOTH);
+			gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+
+			// its programme for the frame and the list its node would draw,
+			// which is drawn here without the set
+			frontMonitorClock(1, &lvupdate60, &lvupdate60f);
+			prevsrc = modSetTextureSourceMod(g_Front.moddir);
+			gdl = tvscreenRender(model, node, &g_Front.monitorscreen, gdl, 0, 1);
+			modSetTextureSourceMod(prevsrc);
+			frontMonitorClock(0, &lvupdate60, &lvupdate60f);
+
+			gSPDisplayList(gdl++, ((union modelrwdata *)modelGetNodeRwData(model, node))->dl.gdl);
+			gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+			gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
+		}
+	}
+
+	gdl = frontTextSetup(gdl);
+	gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+	gdl = frontTextSetup(gdl);
+
+	return gdl;
+}
+
+/**
+ * The page of TV sets. They are the one thing on the folder screens besides the
+ * folder that is a model, so they are drawn the folder's own way - its camera,
+ * its field of view, into a z buffer of their own - each stood where the
+ * film strip's picture of that cell is: the camera looks square at the plane
+ * the folder lies in, FOLDER_EYEZ off it under FOLDER_FOVY, so a menu pixel is
+ * a fixed step across that plane and a cell's place follows from its pixel.
+ */
+static Gfx *frontDrawTvs(Gfx *gdl)
+{
+	const s32 first = g_Front.monitorpage * TVS_PER_PAGE;
+	const f32 perpixel = FOLDER_PERPIXEL;
+	Mtxf camera;
+	s32 lvupdate60;
+	f32 lvupdate60f;
+	s32 prevsrc;
+
+	if (!g_Front.tvdef) {
+		return gdl;
+	}
+
+	gdl = frontTvCamera(gdl, &camera);
 	gdl = zbufClear(gdl);
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
-
-	mtx00016ae4(&camera, -900.0f, 990.0f, FOLDER_EYEZ, -900.0f, 990.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 
 	frontMonitorClock(1, &lvupdate60, &lvupdate60f);
 	prevsrc = modSetTextureSourceMod(g_Front.moddir);
@@ -4306,6 +4333,7 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 	frontMonitorClock(0, &lvupdate60, &lvupdate60f);
 
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 
 	return frontTextSetup(gdl);
 }

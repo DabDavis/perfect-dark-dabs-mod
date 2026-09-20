@@ -5818,3 +5818,44 @@ itself headlessly** - a probe that waits for `g_MenuData.root == 2` waits for
 ever; boot `--boot-stage 0x5e --cinema-ending`, break on
 `gexFrontOpenAfterCinema` and `finish`, and the folder is up through its real
 path in about a minute (`build/gexrom/tvpage.gdb`, `extrapages.gdb`).
+
+### The sets and the large view disagreed, both ways (2026-09-20)
+
+The user: *"some of our monitor programmes in the menu dont render correctly
+when you click on them to enlarge them. also the other way around, some render
+correct when clicked on, but not when in the menu"*. Found by capturing all 52
+both ways at the same frame and laying them side by side
+(`build/gexrom/monsweep.gdb` writes `moncap/`, `monsheet.py` makes the sheets) -
+guessing from the two draw paths would have found one of the three.
+
+- **Wrong on the sets, right large: the Institute's own TVs were loading into
+  GoldenEye's picture table.** The folder is drawn over the Institute and the
+  Institute's screens are still rendered under it. With the page open
+  `geMonitorImage()` answered *any* screen, so a Perfect Dark programme's
+  picture 29 was handed GoldenEye's row 29 and loaded it with no texture source
+  mod set - Perfect Dark's texture 0x8b0, a wall - and the sets then drew that
+  row: the scrolling text was a wall tinted green. Which rows went wrong was
+  whichever the Institute asked for first. `geMonitorImage()` takes the screen's
+  `cmdlist` now and answers only a list inside GoldenEye's block, as
+  `geMonitorJump()` always did. The large view escaped because it kept configs
+  of its own.
+- **Wrong large, right on the sets: the large view was a second renderer.** It
+  was a texture rectangle doing `tvscreenRender()`'s arithmetic over again, and
+  it made its config with `level` 0, so every picture stored with mip levels
+  (all the RGBA ones, Karl, the cube) was read wrong; it ignored the screen's
+  alpha, so "Off" (alpha 0) showed its wave; and it could not turn the radar.
+  It is the TV's own screen node now: `tvscreenRender()` builds the node's list
+  exactly as for a set and the page runs that list alone, under a matrix that
+  stands the node's four vertices square to the folder's camera over the tube.
+  One path, so they cannot disagree again - and `tvscreenRender()` ticks, so the
+  view's own `tvscreenTick()` call went.
+- **Both were being drawn inside the 2-D layer's frame.** `G_ASPECT_CENTER_EXT`
+  was still on, which squeezes a model across by `SCREEN_ASPECT` over the
+  window's shape: a twelfth too wide on 4:3 (what `g_TvSpreadX` 0.855 had been
+  fitted through) and a fifth too narrow and off its cell on 16:9.
+  `frontTvCamera()` turns the mode off as the folder's own draw has it and the
+  caller turns it back on; outside it a menu pixel is `FOLDER_PERPIXEL` both
+  ways, which is what fits the flat picture to the tube at any window, and the
+  sets' `g_TvSpreadX` became 0.855 * 12 / 11. **Check a folder page at 1280x720
+  as well as 640x480** (`DefaultWidth`/`DefaultHeight` in the scratch pd.ini).
+

@@ -18,15 +18,15 @@ u32 *geMonitorProgram(s32 imagenum);
 // goes, its argument being a word of the block rather than a pointer. NULL
 // when the list is not one of them and the argument is what it always was.
 u32 *geMonitorJump(u32 *cmdlist, u32 arg);
-// tvscreenRender(): GoldenEye's picture of that index, or NULL.
-struct textureconfig *geMonitorImage(u32 index);
+// tvscreenRender(): GoldenEye's picture of that index for a screen running one
+// of GoldenEye's programmes, or NULL.
+struct textureconfig *geMonitorImage(u32 *cmdlist, u32 index);
 
 // GE Plus's folder shows the programmes on a page of their own: the tables out
-// of that mod directory's conversion (the count, or 0), a programme by number,
-// and a picture as the file has it.
+// of that mod directory's conversion (the count, or 0) and a programme by
+// number.
 s32 geMonitorOpen(s32 moddir, const char *dir);
 void geMonitorClose(void);
 u32 *geMonitorProgramAt(s32 n);
-const struct textureconfig *geMonitorImageInfo(u32 index, u32 *texturenum);
 
 #endif
