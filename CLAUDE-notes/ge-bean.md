@@ -6333,3 +6333,56 @@ which is the "sometimes". `gecinemaIntroEnd()` starts a zero-length fade back to
 when the body is either gone or seen from behind. The F3 trace says this in one
 line (`fadealpha 0`, `NODRAW-alpha0`). `--skip-mission-intro` hides the fault,
 so a third person check on a mission has to be run with the opening as well.
+
+## Sky round a stairwell: the room a picture is drawn from (2026-09-20)
+
+F3 report `20260920-220247` off `e240d9e98`, the user's own: *"blue screen when
+descending down the tower, looks wrong"* - Dam, the first guard tower, two steps
+down from the lookout deck and looking at their feet. A third of the screen was
+sky where the deck round the stairwell should be.
+
+**It is not a missing surface and not a portal record.** The deck is outdoor room
+132's, the stair is room 136's, and GoldenEye's tiles agree with ours (deck tiles
+132, every tread 136; `geroom.c` had put the player in 136 correctly). The
+stairwell's two portals lie flat in the deck. On the top steps the player's
+*tile* is the stair's and their *eye* is still over the deck: a camera in room
+136 on room 132's side of those portals. Perfect Dark's walk skips a portal whose
+far room is on the camera's side (`bgConsumeSnakeItem()`), and so does
+GoldenEye's, so 132 was reached only through the tower's ground-floor doorway
+and drawn in that doorway's box: `room 132 ... box 132 141 152 208` in the trace
+is the whole fault in one line.
+
+**GoldenEye does not draw from the tile's room.** `bgRoomVisibilityRelated()` (bg.c, before
+`bgDetermineVisibleRooms()`) starts from `bondviewGetCurrentPlayersRoom()` - the
+tile's - and then follows the line from the eye (`field_488.pos`) to the point on
+the floor under it (`pos3`, the tile's height there) and changes room at every
+portal the line crosses, eleven at most, never the same one twice running, and
+never an upright one (`D_800443C4[]`: normal's x²+z² >= 0.999). The oracle said
+so directly: warped to the same tread, `current_tile_ptr_for_portals->room` 136,
+`g_BgCurrentRoom` 132, and the deck drawn. `geRoomCamera()` is that loop, with
+Perfect Dark's own `portalCalculateIntersection()`, and the normal tick sets
+`cam_room` from it on a remake stage when the camera is at the player's own eye
+(`thirdpersondist <= 0`, alive). The player's *prop* stays in the tile's room.
+
+**What was looked at and is not the cause.** GoldenEye's portal record carries two
+bytes Perfect Dark's does not and the conversion writes as zero: `controlbytes1`
+(`PORTALFLAG_SPECIAL` 0x02 is Perfect Dark's `PORTALFLAG_02`; Dam has 52, Jungle
+8, no other level any) and `controlbytes2`, a **thickness** - `(v & 0xf) * 0.25`
+doubled `v >> 4` times, in the portal's own units - inside which the far room is
+given the whole screen, and by which the portal's screen box is grown both ways.
+It is set on 71 of Dam's 194 portals and on most of Statue's and the two
+Severnayas'; these two stairwell portals have 0. **Neither byte is carried yet**,
+and a report of a room cut off at a doorway's edge *while standing in the
+doorway* on Dam, Statue, Surface, Depot or Runway is that.
+
+**Probes** (`build/gexrom`): `towerview.py` puts the player at a report's
+position and view and names the rooms drawn (`ALLROOMS=1` draws every room in the
+frustum, which answers "what should be there"); `visdump.py` prints a level's
+visibility script and the portals of chosen rooms; `stairview.py` + `stairrun.sh`
+walk the stair with the game's own walking, a shot every four frames, and
+`bluecount.py` counts sky pixels - 35% over eight shots before, 0 in all 174
+after, the camera's room going 132 -> 136 on the frame the eye passes under the
+deck. The oracle's half is `~/dam-oracle/geview.py` (`stanFindFloorTileBelowY()`
+finds the tile for an arbitrary position). **A Python breakpoint's `stop()` must
+not make an inferior call** (`call (void)screenshotRequest()` hung gdb with no
+output at all) - set `'screenshot.c'::pending` instead.

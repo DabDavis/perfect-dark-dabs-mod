@@ -8,6 +8,7 @@
 #include "game/bg.h"
 #include "game/prop.h"
 #include "lib/collision.h"
+#include "lib/lib_17ce0.h"
 
 #ifndef PLATFORM_N64
 
@@ -108,5 +109,45 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 	return best.ground;
 }
 
+
+s32 geRoomCamera(struct coord *eye, f32 ground, s32 room)
+{
+	struct coord foot = *eye;
+	s32 last = -1;
+
+	foot.y = ground;
+
+	if (g_BgPortals == NULL) {
+		return room;
+	}
+
+	// GoldenEye's own loop (bg.c, bgRoomVisibilityRelated()): eleven
+	// crossings at most, never the same portal twice running, and an upright
+	// portal - a doorway - is not asked at all, since the line is a plumb one
+	for (s32 depth = 0; depth < 11; depth++) {
+		s32 p;
+
+		for (p = 0; g_BgPortals[p].verticesoffset != 0; p++) {
+			const struct coord *n = &g_PortalMetrics[p].normal;
+
+			if (p == last || n->x * n->x + n->z * n->z >= 0.999f) {
+				continue;
+			}
+
+			if ((room == g_BgPortals[p].roomnum1 || room == g_BgPortals[p].roomnum2)
+					&& portalCalculateIntersection(p, eye, &foot) != PORTALINTERSECTION_NONE) {
+				last = p;
+				room = room == g_BgPortals[p].roomnum1 ? g_BgPortals[p].roomnum2 : g_BgPortals[p].roomnum1;
+				break;
+			}
+		}
+
+		if (g_BgPortals[p].verticesoffset == 0) {
+			break;
+		}
+	}
+
+	return room;
+}
 
 #endif

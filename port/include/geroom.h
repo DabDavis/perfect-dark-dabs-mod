@@ -33,4 +33,17 @@ s32 geRoomActive(void);
 f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u8 *floortype,
 		u16 *floorflags, RoomNum *floorroom, s32 *inlift, struct prop **lift);
 
+/**
+ * The room the picture is drawn from, for an eye standing on `ground` in the
+ * tile's room. The tile's room is where GoldenEye starts, and then it follows a
+ * plumb line from the floor under the eye up to the eye across every portal
+ * that is not upright, changing room at each: a player two steps down a
+ * stairwell stands on the stair's tiles with their eye still over the deck the
+ * stairwell is cut in, and the deck is another room's. Without it that room is
+ * reached, if at all, through some doorway far below and drawn in the doorway's
+ * box - the deck round the stairwell goes, and the sky shows through it (Dam's
+ * first tower, F3 report 20260920-220247).
+ */
+s32 geRoomCamera(struct coord *eye, f32 ground, s32 room);
+
 #endif

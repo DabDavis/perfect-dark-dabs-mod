@@ -108,6 +108,7 @@
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "gecinema.h"
+#include "geroom.h"
 #include "modloader.h"
 #endif
 #ifndef PLATFORM_N64
@@ -5474,6 +5475,22 @@ void playerTick(bool arg0)
 		player0f0c1840(&spf4, &camup, &camlook,
 				&g_Vars.currentplayer->prop->pos,
 				g_Vars.currentplayer->prop->rooms);
+
+#ifndef PLATFORM_N64
+		// On a level converted from GoldenEye the picture is drawn from the
+		// room GoldenEye would draw it from: the tile's, carried up to the eye
+		// (geroom.h). Only for a camera at the player's own eye - one pulled back
+		// behind them, or the death camera, has another floor under it.
+		if (geRoomActive()
+				&& g_Vars.currentplayer->vv_ground > -30000
+				&& g_Vars.currentplayer->floorroom > 0
+				&& g_Vars.currentplayer->floorroom < g_Vars.roomcount
+				&& g_Vars.currentplayer->thirdpersondist <= 0
+				&& !g_Vars.currentplayer->isdead) {
+			g_Vars.currentplayer->cam_room = geRoomCamera(&spf4,
+					g_Vars.currentplayer->vv_ground, g_Vars.currentplayer->floorroom);
+		}
+#endif
 
 		if (g_Vars.normmplayerisrunning == false
 				&& g_MissionConfig.iscoop
