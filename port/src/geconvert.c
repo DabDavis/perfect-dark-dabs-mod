@@ -4632,8 +4632,13 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			lists[0] = be32(d.v, ro);
 			lists[1] = be32(d.v, ro + 4);
 			if (n->type == 0x04) {
+				// the plain list record keeps its render mode in one byte
+				// (s8 ModelType) where the record with collisions below
+				// keeps a word: read as a word it is 0x0300 for a 3, which
+				// no case of modelRenderNodeDl() answers to - no render
+				// mode, and the second list never drawn (ge-bean.md)
 				vtx = be32(d.v, ro + 12);
-				mode = be16(d.v, ro + 0x12);
+				mode = (int8_t)d.v[ro + 0x12];
 			} else {
 				vtx = be32(d.v, ro + 8);
 				mode = bes16(d.v, ro + 0x18);

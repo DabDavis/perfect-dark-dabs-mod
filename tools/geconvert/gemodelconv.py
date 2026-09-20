@@ -254,7 +254,8 @@ def convert(num):
             # it picks the preset render mode and whether the second list draws
             if t == 0x04:
                 pri, sec, vtx = u(ro), u(ro + 4), u(ro + 12)
-                mode = struct.unpack_from('>H', d, ro + 0x12)[0]
+                # one byte (s8 ModelType), where the 0x18 record's is a word
+                mode = struct.unpack_from('>b', d, ro + 0x12)[0]
             else:
                 pri, sec, vtx = u(ro), u(ro + 4), u(ro + 8)
                 mode = struct.unpack_from('>h', d, ro + 0x18)[0]
