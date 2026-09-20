@@ -4791,7 +4791,8 @@ tick's first attempt wrote **four of its nine terms** over the five the record
 was placed with, which is not even a rotation - that shipped, and is what the
 tester saw as a sheared slab. Replacing it with a whole, correct, *unit*
 rotation is no better: it throws the scale away and the truck draws nine times
-its size. What works is turning what is already there by **this frame's**
+its size. (Superseded 2026-09-20: the matrix is rebuilt from the heading *times the scale read off
+it* - see "Dam's truck drove sideways".) What worked then was turning what is already there by **this frame's**
 amount, which is how `fanUpdateModel()` spins the game's own fans and carries
 the scale through untouched.
 
@@ -5915,3 +5916,60 @@ and back; `musicdeath.gdb` dumps the queue after a death (do not break inside a
 function gdb is calling). `SDL_AUDIODRIVER=disk` for the sound itself: Dam's
 theme measures 0.0065 spectral flatness. Missions are 0x15, 0x5e-0x70 but *not*
 in mission order - grep `modloader: <name> -> stage` in the log.
+
+## Dam's truck drove sideways, and its gates had no switches (2026-09-20)
+
+The user: *"dam's cargo truck, it is facing the wrong direction while moving.
+also the door switches arent working for the big gates, so cant procede."*
+Converter **46**.
+
+**The truck's heading is not in its record.** Both games zero `roty` at the
+load, and GoldenEye takes it on the **first tick**: the record carries
+`PROPFLAG_INMOTION` (0x20000000 - Perfect Dark's `OBJFLAG_CHOPPER_INIT`, the
+same bit for the same job, and Dam's truck has it: flags 0x20020101), and while
+it is set the tick writes `roty` from the path's first waypoint, or from the
+matrix the truck was placed with where it has no path, and clears the flag.
+gexplusveh.c never did, so the heading started at nought while the model stood
+as it was placed; the steering then turned both by the same amounts ("turn
+what is there by this frame's amount", the previous section's rule) and the
+truck kept that first difference for its whole route. The tick now does
+GoldenEye's first tick, and the matrix is **rebuilt from the heading** as
+GoldenEye's `sub_GAME_7F044B38()` does - a y rotation times the scale, the
+scale being read off `realrot`'s own first row before it is written over
+(0.10987 survives; that is the answer to the previous section's "a unit
+rotation draws it nine times its size"). `build/gexrom/truckhead.py` prints
+the heading, the facing out of `realrot` and the way the prop actually moved:
+facing minus going is 0.000 on every straight. `vehshot.py`'s camera was aimed
+with `ANG + 180`, which is only right at ANG 0 - the player looks along
+(-sin, cos), so it is `180 - ANG`.
+
+**GoldenEye's `PROPDEF_SWITCH` (0x13) was converted as nothing.** It is a
+four-word record - "activating the object at this offset activates the door at
+that one" - and it is how a console opens a gate: ten over the twenty missions
+(Dam 4, Facility 3, Aztec 3), every one a monitor or a prop and a door. The
+decompilation's setup files label it `LinkProps`, which is type 0x0e's name;
+read the type number. It was in `AS_NOTHING` because Perfect Dark's 0x13 is
+`OBJTYPE_LINKLIFTDOOR` - but that **is** GoldenEye's record grown by one word
+(`stopnum`): `setupCreateProps()` resolves the two offsets the same way and
+sets the same "linked" bit on the first object (`OBJHFLAG_LIFTDOOR` is
+GoldenEye's `RUNTIMEBITFLAG_00000001`, and `objTestForInteract()` still lets
+the player use anything carrying it), and the branch of `doorCallLift()` whose
+comment says *"setup files chain lift doors to other doors... this doesn't
+happen in practice so this branch is unused"* is GoldenEye's
+`sub_GAME_7F03E6A0()`. So the record goes through as a short record and the
+engine needed nothing.
+
+**Two things that looked like faults and were not.** Dam's two gates are an
+**airlock pair** (flags2 0x40000000 in both games): a pressed gate goes to
+`DOORMODE_WAITING` until its twin is shut. And the first gate **starts open**
+and a guard's list shuts it behind the truck at about frame 259
+(`door_close(0x08)`) - a close is handed to every sibling, and a sibling that
+is waiting goes back to idle. A probe that presses a console before that sees
+a gate that waits and then gives up, which is GoldenEye's own behaviour; press
+after frame ~600. Pressed at 900, the gate waits one frame, opens, and is at
+0.95 by frame 1233. Probes: `gateprobe.py` (the links, a press, both gates
+frame by frame; read a gdb struct through a fresh `parse_and_eval` each time),
+`gateuse.py` (`propFindForInteract()` from eight stands round each console -
+`g_InteractProp` is only ever set inside that call, so reading it at the end
+of a frame says nothing), `gatewatch.py` (a hardware watchpoint on a door's
+mode, which named the guard's list in one run).

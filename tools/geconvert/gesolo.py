@@ -73,7 +73,16 @@ OBJ_TAILS = {
 # ticked, modelasm00018680() took the parent's matrix of a node that has none
 # and the mission died. GoldenEye's own heads carry their hats anyway, and the
 # remake's guards wear Bean's, GE-X's or Perfect Dark's heads.
-AS_NOTHING = {0x0e, 0x11, 0x12, 0x13}
+#
+# **A switch (0x13) is kept.** GoldenEye's PROPDEF_SWITCH - "activating the
+# first object activates the second, a door" - is what opens Dam's gates from
+# their consoles, Facility's doors from their monitors and Aztec's from theirs
+# (ten records over the twenty missions, every one a console and a door).
+# Perfect Dark grew the same record a word into OBJTYPE_LINKLIFTDOOR and still
+# carries GoldenEye's behaviour as the branch of doorCallLift() where the
+# "lift" is a door, so it goes through as a short record: the two offsets are
+# relative record indices, which the conversion keeps.
+AS_NOTHING = {0x0e, 0x11, 0x12}
 MONITOR = 0x0a
 MULTI_MONITOR = 0x0b
 

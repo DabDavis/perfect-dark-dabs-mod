@@ -3628,7 +3628,11 @@ static const uint8_t g_PdSizes[0x35] = {
 // Hats (0x11) are left out with them: GoldenEye's hat is its own model, and a
 // converted one is a rigid prop - one matrix, a position node at its root -
 // which Perfect Dark cannot pose on a head. See gesolo.py.
-#define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12 || (t) == 0x13)
+// A switch (0x13) is kept: GoldenEye's "activating this console activates that
+// door" is Perfect Dark's OBJTYPE_LINKLIFTDOOR a word shorter, and the branch
+// of doorCallLift() where the lift is a door is GoldenEye's own behaviour. It
+// is what opens Dam's gates. gesolo.py's AS_NOTHING.
+#define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12)
 
 #define SOLO_NO_PAD 0xffff
 /**

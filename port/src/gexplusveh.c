@@ -186,6 +186,36 @@ static f32 vehTruckClearance(struct model *model)
 	return -(box->bbox.ymin + wheel->position.pos.y) * model->scale;
 }
 
+/**
+ * The truck's matrix from its heading, which is GoldenEye's own
+ * (sub_GAME_7F044B38()'s level branch: a rotation about y, times the scale).
+ *
+ * `realrot` is not a rotation: Perfect Dark folds the object's own scale into
+ * it, and a prop placed at a tenth carries rows a tenth long (Streets' jeeps:
+ * 0.100, against the 0.10987 of Dam's truck). So the scale is read off the
+ * matrix that is there before the heading is written over it - a bare unit
+ * rotation draws the truck nine times its size, which was the grey slab across
+ * the dam, and writing only its four horizontal terms leaves something that is
+ * not even a rotation.
+ */
+static void vehTruckFace(struct truckobj *truck)
+{
+	f32 (*m)[3] = truck->base.realrot;
+	const f32 scale = sqrtf(m[0][0] * m[0][0] + m[0][1] * m[0][1] + m[0][2] * m[0][2]);
+	Mtxf rot;
+	s32 i;
+	s32 j;
+
+	mtx4LoadYRotation(truck->roty, &rot);
+	mtx4ToMtx3(&rot, truck->base.realrot);
+
+	for (i = 0; i < 3; i++) {
+		for (j = 0; j < 3; j++) {
+			m[i][j] *= scale;
+		}
+	}
+}
+
 static void vehTruckTick(struct prop *prop)
 {
 	struct truckobj *truck = (struct truckobj *)prop->obj;
@@ -193,7 +223,7 @@ static void vehTruckTick(struct prop *prop)
 	struct coord target;
 	struct coord next;
 	RoomNum rooms[8];
-	f32 aimangle;
+	f32 aimangle = 0.0f;
 	f32 haspath = false;
 	f32 turnedby = 0.0f;
 	struct pad pad;
@@ -210,6 +240,28 @@ static void vehTruckTick(struct prop *prop)
 		haspath = true;
 	}
 
+	if (haspath) {
+		aimangle = atan2f(target.x - prop->pos.x, target.z - prop->pos.z);
+
+		if (aimangle < 0.0f) {
+			aimangle += M_BADTAU;
+		}
+	}
+
+	// GoldenEye's own first tick (propobj.c, `PROPFLAG_INMOTION`, which is this
+	// bit and which a vehicle's record carries): the heading is **not** in the
+	// record - both games zero `roty` at the load - so it is taken from the
+	// path the truck has been given, or from the matrix it was placed with.
+	// Without it the heading started at nought while the model stood as it was
+	// placed, the steering turned both by the same amounts, and Dam's truck
+	// drove its whole route pointing that far off the way it was going.
+	if (truck->base.flags & OBJFLAG_CHOPPER_INIT) {
+		truck->base.flags &= ~OBJFLAG_CHOPPER_INIT;
+		truck->roty = haspath ? aimangle
+			: vehWrapTau(atan2f(truck->base.realrot[2][0], truck->base.realrot[2][2]));
+		vehTruckFace(truck);
+	}
+
 	if (truck->speed <= 0.0f) {
 		return;
 	}
@@ -217,12 +269,6 @@ static void vehTruckTick(struct prop *prop)
 	if (haspath) {
 		// GoldenEye's own: steer towards the pad the path is heading for, at
 		// the turn rate its truck has and no faster
-		aimangle = atan2f(target.x - prop->pos.x, target.z - prop->pos.z);
-
-		if (aimangle < 0.0f) {
-			aimangle += M_BADTAU;
-		}
-
 		{
 			f32 diff = aimangle - truck->roty;
 
@@ -288,27 +334,8 @@ static void vehTruckTick(struct prop *prop)
 	prop->pos.y = next.y;
 	prop->pos.z = next.z;
 
-	// Where it is facing, turned by **this frame's** amount rather than loaded
-	// from the heading.
-	//
-	// `realrot` is not a rotation: Perfect Dark folds the object's own scale
-	// into it, and a prop placed at a tenth carries rows a tenth long (Streets'
-	// jeeps: 0.100, against the 0.10987 of Dam's truck). So writing a heading
-	// into it - even a whole, correct, unit rotation - throws that scale away
-	// and the truck draws nine times its size, which is the grey slab across
-	// the dam; writing only its four horizontal terms, as this did first,
-	// leaves something that is not even a rotation. Turning what is already
-	// there carries the scale through untouched, and is how fanUpdateModel()
-	// spins the game's own fans.
 	if (turnedby != 0.0f) {
-		Mtxf rot;
-		f32 delta3[3][3];
-		f32 turned[3][3];
-
-		mtx4LoadYRotation(turnedby, &rot);
-		mtx4ToMtx3(&rot, delta3);
-		mtx00016140(truck->base.realrot, delta3, turned);
-		mtx3Copy(turned, truck->base.realrot);
+		vehTruckFace(truck);
 	}
 
 	propDeregisterRooms(prop);
