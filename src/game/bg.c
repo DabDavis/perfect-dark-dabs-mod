@@ -57,6 +57,7 @@
 #ifndef PLATFORM_N64
 #include "xblasky.h"
 #include "modloader.h"
+#include "geroom.h"
 #endif
 #endif
 #endif
@@ -289,6 +290,17 @@ s32 g_NumRoomsWithGlares = 0;
 u32 var8007fc18 = 0x01000100;
 u32 var8007fc1c = 0;
 s32 g_CamRoom = 1;
+
+#ifndef PLATFORM_N64
+/**
+ * Whether the portal walk follows GoldenEye's three rules this frame, which it
+ * does on a level converted from it (geroom.h): a portal has a thickness, a
+ * camera inside it sees the room beyond over the whole screen, and a portal
+ * marked PORTALFLAG_02 (GoldenEye's PORTALFLAG_SPECIAL) gives the whole screen
+ * too once it is in view. Set at the top of bgTickPortals().
+ */
+static bool g_BgGePortals = false;
+#endif
 struct drawslot *g_BgSpecialDrawSlot = &g_BgDrawSlots[MAX_DRAWSLOTS];
 s32 g_BgLoadCandidateTimer240 = 0;
 s32 g_BgNumDrawSlots = 0;
@@ -2658,6 +2670,53 @@ bool bgGetPortalScreenBbox(s32 portalnum, struct screenbox *box)
 
 		thing++;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye grows a portal's box by its thickness: the portal's points
+	// moved that far along its normal both ways, those in front of the camera
+	if (g_BgGePortals) {
+		const f32 thick = geRoomPortalThickness(portalnum);
+
+		if (thick > 0.0f) {
+			struct portalvertices *pvertices = (struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[portalnum].verticesoffset);
+			const struct coord *normal = &g_PortalMetrics[portalnum].normal;
+
+			for (i = 0; i < pvertices->count * 2; i++) {
+				const f32 by = (i & 1) ? -thick : thick;
+				struct coord pos;
+				struct coord screenpos;
+
+				pos.x = pvertices->vertices[i / 2].x + normal->x * by;
+				pos.y = pvertices->vertices[i / 2].y + normal->y * by;
+				pos.z = pvertices->vertices[i / 2].z + normal->z * by;
+
+				if (!bg3dPosTo2dPos(&pos, &screenpos)) {
+					continue;
+				}
+
+				if (numvalid == 0) {
+					sp2d4[0][0] = sp2d4[1][0] = screenpos.x;
+					sp2d4[0][1] = sp2d4[1][1] = screenpos.y;
+				} else {
+					if (screenpos.x < sp2d4[0][0]) {
+						sp2d4[0][0] = screenpos.x;
+					}
+					if (screenpos.x > sp2d4[1][0]) {
+						sp2d4[1][0] = screenpos.x;
+					}
+					if (screenpos.y < sp2d4[0][1]) {
+						sp2d4[0][1] = screenpos.y;
+					}
+					if (screenpos.y > sp2d4[1][1]) {
+						sp2d4[1][1] = screenpos.y;
+					}
+				}
+
+				numvalid++;
+			}
+		}
+	}
+#endif
 
 	if (numvalid == 0) {
 		box->xmin = 0;
@@ -5885,6 +5944,21 @@ void bgConsumeSnakeItem(struct bgsnakeitem *item)
 				+ metric->normal.y * campos->f[1]
 				+ metric->normal.z * campos->f[2];
 
+#ifndef PLATFORM_N64
+			// GoldenEye's portal is a slab and not a plane: inside its
+			// thickness the camera is on neither side of it
+			{
+				const f32 thick = g_BgGePortals ? geRoomPortalThickness(portalnum) : 0.0f;
+
+				if (sum < metric->min - thick) {
+					g_PortalCameraCache[portalnum].side = 1;
+				} else if (sum > metric->max + thick) {
+					g_PortalCameraCache[portalnum].side = 0;
+				} else {
+					g_PortalCameraCache[portalnum].side = 2;
+				}
+			}
+#else
 			if (sum < metric->min) {
 				g_PortalCameraCache[portalnum].side = 1;
 			} else if (sum > metric->max) {
@@ -5892,6 +5966,7 @@ void bgConsumeSnakeItem(struct bgsnakeitem *item)
 			} else {
 				g_PortalCameraCache[portalnum].side = 2;
 			}
+#endif
 
 			g_PortalCameraCache[portalnum].updatedframe1 = g_BgFrameCount;
 		}
@@ -5943,6 +6018,35 @@ void bgConsumeSnakeItem(struct bgsnakeitem *item)
 				|| newfoundroom == item->fromroomnums[4]) {
 			continue;
 		}
+
+#ifndef PLATFORM_N64
+		// GoldenEye's two ways to the whole screen (its portal walk in bg.c):
+		// a camera inside the portal's slab, and a special portal that is in
+		// view with the room beyond it inside the portal's own box. Neither
+		// is cut down to the box the walk came in by.
+		if (g_BgGePortals && (side == 2 || (g_BgPortals[portalnum].flags & PORTALFLAG_02))) {
+			if (side == 2
+					|| (bgGetPortalScreenBbox(portalnum, &newbox)
+						&& bgRoomIntersectsScreenBox(newfoundroom, &newbox))) {
+				struct player *player = g_Vars.currentplayer;
+
+				newbox.xmin = player->screenxminf;
+				newbox.ymin = player->screenyminf;
+				newbox.xmax = player->screenxmaxf;
+				newbox.ymax = player->screenymaxf;
+
+				if (prevvalidcount == 0) {
+					bgCopyBox(&prevbox, &newbox);
+				} else {
+					bgExpandBox(&prevbox, &newbox);
+				}
+
+				prevvalidcount++;
+			}
+
+			continue;
+		}
+#endif
 
 		// Reusing the side variable as a bboxisvalid variable
 		if (g_BgPortals[portalnum].flags & PORTALFLAG_02) {
@@ -6233,6 +6337,10 @@ void bgTickPortals(void)
 
 	viGetZRange(&g_BgSnake.zrange);
 	g_BgSnake.zrange.far = g_BgSnake.zrange.far / g_Vars.currentplayerstats->scale_bg2gfx;
+
+#ifndef PLATFORM_N64
+	g_BgGePortals = geRoomActive() != 0;
+#endif
 
 	for (i = 0; i < g_Vars.roomcount; i++) {
 		g_Rooms[i].flags &= ~(ROOMFLAG_DISABLEDBYSCRIPT | ROOMFLAG_ONSCREEN | ROOMFLAG_STANDBY | ROOMFLAG_LOADCANDIDATE);

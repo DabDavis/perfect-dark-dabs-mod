@@ -985,6 +985,8 @@ struct portal {
 	double (*pts)[3];
 	int room1, room2;
 	uint32_t vtxptr;      // the address of its vertices, which is what a vis command names it by
+	uint8_t flags;        // GoldenEye's controlbytes1
+	uint8_t thickness;    // and controlbytes2, in GoldenEye's code and the file's units
 };
 
 struct viscmd {
@@ -1104,6 +1106,8 @@ static void bgRead(const buf *file, struct bg *bg)
 		p.room1 = d[o + 4];
 		p.room2 = d[o + 5];
 		p.vtxptr = be32(d, o);
+		p.flags = d[o + 6];
+		p.thickness = d[o + 7];
 		VECPUSH(bg->portals, p);
 	}
 
@@ -2204,8 +2208,86 @@ static int (*portalRoomOrder(const struct bg *bg, double inv, const double *offs
 	return out;
 }
 
+/*
+ * GoldenEye's portal record carries two bytes Perfect Dark's does not. The
+ * first is flags: DISABLED (1) is cleared at the load, SPECIAL (2) gives the
+ * room beyond the whole screen once the portal is in view, and is Perfect
+ * Dark's PORTALFLAG_02 - set in the file on Dam and Jungle, and by bg.c's
+ * specialportalarray at the load on Control and Jungle. The second is a
+ * **thickness**, a four bit mantissa in quarters doubled by a four bit
+ * exponent, in the portal's own units: a camera within it of the portal's
+ * plane is in both rooms, and the portal's box on the screen is grown by it
+ * both ways. It goes in the record's spare eighth byte in the same code, in
+ * world units - the smallest code that is not thinner than GoldenEye's
+ * (geroom.h; bg.c reads it).
+ */
+#define GE_PORTALFLAG_SPECIAL 0x02
+#define PD_PORTALFLAG_02      0x02
+
+// bg.c's levelinfotable (24 bytes a row, the id first) and the specialportalarray after it
+#define LEVELINFO_AT       0x8004448cu
+#define LEVELINFO_ROWS     38
+#define SPECIALPORTALS_AT  0x80044824u
+#define SPECIALPORTALS_END 0x80044838u
+
+static uint8_t portalThickness(uint8_t code, double inv)
+{
+	const double want = (code & 0xf) * 0.25 * (double)(1u << (code >> 4)) * inv;
+	double bestv = 0.0;
+	int best = -1;
+
+	if (want <= 0.0) {
+		return 0;
+	}
+
+	for (int e = 0; e < 16; ++e) {
+		for (int m = 1; m < 16; ++m) {
+			const double v = m * 0.25 * (double)(1u << e);
+
+			if (v >= want && (best < 0 || v < bestv)) {
+				bestv = v;
+				best = (e << 4) | m;
+			}
+		}
+	}
+
+	return best < 0 ? 0xff : (uint8_t)best;
+}
+
+/** Whether specialportalarray names this portal of the level with this id: {level index, (first, last)..., 0xff} rows. */
+static int portalSpecialByCode(uint32_t levelid, size_t portal)
+{
+	const size_t end = SPECIALPORTALS_END - DATA_VRAM;
+	size_t o = SPECIALPORTALS_AT - DATA_VRAM;
+	int index = -1;
+
+	if (end > g_DataLen || LEVELINFO_AT - DATA_VRAM + 24 * LEVELINFO_ROWS > g_DataLen) {
+		fail("the special portals run off the data segment");
+	}
+
+	for (int i = 0; i < LEVELINFO_ROWS && index < 0; ++i) {
+		if (be32(g_Data, LEVELINFO_AT - DATA_VRAM + 24 * i) == levelid) {
+			index = i;
+		}
+	}
+
+	while (o < end) {
+		const int level = g_Data[o++];
+
+		while (o + 1 < end && g_Data[o] != 0xff) {
+			if (level == index && portal >= g_Data[o] && portal <= g_Data[o + 1]) {
+				return 1;
+			}
+			o += 2;
+		}
+		o++;
+	}
+
+	return 0;
+}
+
 static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t *leveltex, int *numlights,
-		const int32_t (*tilebounds)[7], const tiles *stan)
+		const int32_t (*tilebounds)[7], const tiles *stan, uint32_t levelid)
 {
 	const double inv = 1.0 / ls;
 	const int n = bg->numrooms;
@@ -2258,8 +2340,8 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 		bufU16(&portals, (uint32_t)(i + 1));
 		bufU16(&portals, (uint16_t)order[i][0]);
 		bufU16(&portals, (uint16_t)order[i][1]);
-		bufU8(&portals, 0);
-		bufU8(&portals, 0);
+		bufU8(&portals, (p->flags & GE_PORTALFLAG_SPECIAL) || portalSpecialByCode(levelid, i) ? PD_PORTALFLAG_02 : 0);
+		bufU8(&portals, portalThickness(p->thickness, inv));
 		bufU8(&groups, (uint8_t)p->npts);
 		bufZeros(&groups, 3);
 		for (int k = 0; k < p->npts; ++k) {
@@ -5901,7 +5983,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 
 		bgdata = writeBg(&bg, lv->levelscale, offset, leveltex, &numlights,
-				roomTileBounds(&stan, bg.numrooms, lv->levelscale, offset), &stan);
+				roomTileBounds(&stan, bg.numrooms, lv->levelscale, offset), &stan, lv->levelid);
 		tilesdata = writeTiles(&stan, bg.numrooms, lv->levelscale, offset, &walls);
 
 		setupfile = romFile(lv->solo ? lv->solo : lv->mp);

@@ -4459,6 +4459,11 @@ struct bgportal {
 	s16 roomnum1;
 	s16 roomnum2;
 	u8 flags;
+#ifndef PLATFORM_N64
+	// The record's spare byte: GoldenEye's portal thickness on a level
+	// converted from it, in GoldenEye's code and world units (geroom.h)
+	u8 gethickness;
+#endif
 };
 
 struct portalcamcacheitem {

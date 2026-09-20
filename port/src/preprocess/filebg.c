@@ -145,6 +145,7 @@ static void convertPrimaryPortals(u8 *dst, u32 *dstpos, u8 *src, u32 *srcpos, u3
 		host_portals[i].roomnum1 = PD_BE16(n64_portals[i].roomnum1);
 		host_portals[i].roomnum2 = PD_BE16(n64_portals[i].roomnum2);
 		host_portals[i].flags = n64_portals[i].flags;
+		host_portals[i].gethickness = n64_portals[i].gethickness;
 	}
 
 	*srcpos += sizeof(*n64_portals) * (numportals + 1);

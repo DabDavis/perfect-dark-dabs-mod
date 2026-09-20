@@ -46,4 +46,20 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
  */
 s32 geRoomCamera(struct coord *eye, f32 ground, s32 room);
 
+/**
+ * GoldenEye's portal thickness, in world units; 0 for a portal without one.
+ *
+ * A GoldenEye portal record carries a byte Perfect Dark's does not
+ * (controlbytes2): a four bit mantissa in quarters doubled by a four bit
+ * exponent. GoldenEye's walk treats a camera within that distance of the
+ * portal's plane as being in both rooms - the portal is not skipped from either
+ * side and the room beyond gets the whole screen - and grows the portal's box
+ * on the screen by it both ways (bg.c: the side test, the box, and
+ * bgGetPortalScreenBbox()). Its authors set it wherever a plain plane drew
+ * wrongly: 71 of Dam's 194 portals, most of Statue's and Surface's. The
+ * conversion carries it in the record's spare byte, re-coded in world units.
+ * Only to be asked on a remake stage: a stock file's spare byte is nobody's.
+ */
+f32 geRoomPortalThickness(s32 portalnum);
+
 #endif

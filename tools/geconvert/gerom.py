@@ -43,6 +43,12 @@ NUM_CHRS = 80
 ANIM_ENTRY_ROM = 0x124ac0
 ANIM_DATA_ROM = 0x28e980
 
+# bg.c's levelinfotable (24 bytes a row, the id first) and the specialportalarray after it
+LEVELINFO_AT = 0x8004448c
+LEVELINFO_ROWS = 38
+SPECIALPORTALS_AT = 0x80044824
+SPECIALPORTALS_END = 0x80044838
+
 # GoldenEye's level ids (bondconstants.h LEVELID)
 LEVELIDS = {'BUNKER1': 9, 'SILO': 20, 'STATUE': 22, 'CONTROL': 23, 'ARCHIVES': 24, 'TRAIN': 25,
             'FRIGATE': 26, 'BUNKER2': 27, 'AZTEC': 28, 'STREETS': 29, 'DEPOT': 30, 'COMPLEX': 31,
@@ -107,6 +113,29 @@ class Rom:
             at += struct.unpack_from('>I', self.data, IMAGES_AT + 8 * k)[0] & 0xffffff
         size = struct.unpack_from('>I', self.data, IMAGES_AT + 8 * num)[0] & 0xffffff
         return self.rom[at:at + size]
+
+    def special_portals(self, levelid):
+        """The portals bg.c's specialportalarray marks PORTALFLAG_SPECIAL at the
+        load, for the level with this id: {level index, (first, last)..., 0xff}
+        rows up to g_BgCurrentRoom, the index being the level's row of
+        levelinfotable. Control and Jungle are the two levels it names."""
+        index = None
+        for i in range(LEVELINFO_ROWS):
+            if struct.unpack_from('>I', self.data, LEVELINFO_AT - DATA_VRAM + 24 * i)[0] == levelid:
+                index = i
+                break
+        out = set()
+        o = SPECIALPORTALS_AT - DATA_VRAM
+        end = SPECIALPORTALS_END - DATA_VRAM
+        while o < end:
+            level = self.data[o]
+            o += 1
+            while o + 1 < end and self.data[o] != 0xff:
+                if level == index:
+                    out.update(range(self.data[o], self.data[o + 1] + 1))
+                o += 2
+            o += 1
+        return out
 
     def fog_rows(self):
         """{level id name: the row's 30 values after the id}, the one-player rows."""

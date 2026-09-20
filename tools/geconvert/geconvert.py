@@ -408,6 +408,33 @@ PORTAL_EPS = 1.0         # a point this close to the plane says nothing
 PORTAL_MARGIN = 40.0     # how far the room's own geometry must clear the plane
 
 
+# GoldenEye's portal record carries two bytes Perfect Dark's does not. The first
+# is flags: DISABLED (1) is cleared at the load, SPECIAL (2) gives the room
+# beyond the whole screen once the portal is in view, and is Perfect Dark's
+# PORTALFLAG_02 - set in the file on Dam and Jungle, and by bg.c's
+# specialportalarray at the load on Control and Jungle. The second is a
+# **thickness**, a four bit mantissa in quarters doubled by a four bit exponent,
+# in the portal's own units: a camera within it of the portal's plane is in
+# both rooms, and the portal's box on the screen is grown by it both ways. It
+# goes in the record's spare eighth byte in the same code, in world units -
+# the smallest code that is not thinner than GoldenEye's (geroom.h; bg.c reads it).
+GE_PORTALFLAG_SPECIAL = 0x02
+PORTALFLAG_02 = 0x02
+
+
+def portal_thickness(code, inv):
+    want = (code & 0xf) * 0.25 * (1 << (code >> 4)) * inv
+    if want <= 0.0:
+        return 0
+    best = None
+    for e in range(16):
+        for m in range(1, 16):
+            v = m * 0.25 * (1 << e)
+            if v >= want and (best is None or v < best[0]):
+                best = (v, (e << 4) | m)
+    return best[1] if best else 0xff
+
+
 def portal_metric(v):
     """The normal a portal's winding gives it, and the slab its vertices span,
     exactly as bg.c works them out at the load (g_PortalMetrics in bgSetup())."""
@@ -550,7 +577,7 @@ def vis_commands(bg):
     return out
 
 
-def write_bg(bg, ls, offset, tilebounds=None, stan=None):
+def write_bg(bg, ls, offset, tilebounds=None, stan=None, special=()):
     inv = 1.0 / ls
     textures = set()
     n = bg.numrooms
@@ -577,7 +604,9 @@ def write_bg(bg, ls, offset, tilebounds=None, stan=None):
     order = portal_room_order(bg, inv, offset, stan) if stan is not None else [
             (p['room1'], p['room2']) for p in bg.portals]
     for i, p in enumerate(bg.portals):
-        portals += struct.pack('>HhhBx', i + 1, order[i][0], order[i][1], 0)
+        portals += struct.pack('>HhhBB', i + 1, order[i][0], order[i][1],
+                               PORTALFLAG_02 if (p['ctrl'] >> 8) & GE_PORTALFLAG_SPECIAL or i in special else 0,
+                               portal_thickness(p['ctrl'] & 0xff, inv))
         groups += struct.pack('>Bxxx', len(p['points']))
         for q in p['points']:
             groups += struct.pack('>3f', *(np.array(q) * inv - offset))
@@ -1325,7 +1354,8 @@ def main():
         sp = np.array([q[:3] for t in stan for q in t['points']], float) / ls
         offset = np.round((sp.min(0) + sp.max(0)) / 2)
         tilebounds = room_tile_bounds(stan, bg.numrooms, ls, offset)
-        bgdata, tex, numlights = write_bg(bg, ls, offset, tilebounds, stan)
+        bgdata, tex, numlights = write_bg(bg, ls, offset, tilebounds, stan,
+                                          gefiles.rom().special_portals(gerom.LEVELIDS[LEVELIDS[key]]))
         alltex.update(tex)
         tiles, walls = write_tiles(stan, bg.numrooms, ls, offset)
         setup = read_setup(gefiles.rom_file(solo or mpname))

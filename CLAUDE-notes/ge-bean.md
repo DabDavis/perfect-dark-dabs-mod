@@ -6371,9 +6371,8 @@ bytes Perfect Dark's does not and the conversion writes as zero: `controlbytes1`
 doubled `v >> 4` times, in the portal's own units - inside which the far room is
 given the whole screen, and by which the portal's screen box is grown both ways.
 It is set on 71 of Dam's 194 portals and on most of Statue's and the two
-Severnayas'; these two stairwell portals have 0. **Neither byte is carried yet**,
-and a report of a room cut off at a doorway's edge *while standing in the
-doorway* on Dam, Statue, Surface, Depot or Runway is that.
+Severnayas'; these two stairwell portals have 0. Both are carried since
+converter 52 - the next section.
 
 **Probes** (`build/gexrom`): `towerview.py` puts the player at a report's
 position and view and names the rooms drawn (`ALLROOMS=1` draws every room in the
@@ -6410,3 +6409,77 @@ gun) take the same test.
 `0x73 0x70`; with the switch on, the old rolls exactly; Chicago unchanged. **The
 probe directory's pd.ini has `XblaGoldenEye=0`, which switches the rows off** -
 the first run showed no change for that reason and not because the test failed.
+
+## A portal is a slab: GoldenEye's thickness and its special portals (2026-09-20, converter 52)
+
+The user, after the stairwell: *"then tackle the big thickness fix"*. It is what
+*"the room portals will sometimes leave you in the void until you keep
+stepping"* (2026-09-20, the report GE-style rooms were written for) still was
+wherever the tile's room and the portal's plane disagree by a step.
+
+**What GoldenEye does** (bg.c, the worker `bgProcessNextQueuedPortal()` runs,
+`sub_GAME_7F0B7F84()` and its twin): a portal record's eighth byte is a thickness `t` - `(v & 0xf) * 0.25`,
+doubled `v >> 4` times, in the portal's own units - and
+
+- a portal is skipped from room 1 only when the camera is past `max + t` along
+  the normal, from room 2 only when it is short of `min - t`;
+- a camera inside `min - t .. max + t` gives the room beyond **the whole
+  screen**, not the portal's box and not the box the walk came in by;
+- the portal's box on the screen is taken from its points moved `+t` and `-t`
+  along the normal (`sub_GAME_7F0B5528()`), which is also what the visibility
+  script's portal tests see;
+- `PORTALFLAG_SPECIAL` (0x02 of the seventh byte): once the portal's box is on
+  screen and the room beyond is inside *that box*
+  (`bgIsRoomOnScreen(otherroom, &portalbox)`), the room gets the whole screen.
+  Set in the file on Dam (52) and Jungle (8), and **by code at the load** on
+  Control (32 portals) and Jungle (all 59): `specialportalarray`, data
+  `0x80044824`-`0x80044838`, rows of `{level index, (first, last)..., 0xff}`,
+  the index being the level's row of `levelinfotable` (`0x8004448c`, 38 rows of
+  24 bytes, the id first). `PORTALFLAG_DISABLED` (0x01, 14 on Dam) is cleared at
+  the load and means nothing in a file.
+
+Its authors set a thickness wherever a plane drew wrongly: 71 of Dam's 194, 40
+of Statue's 43, 72 of Depot's 118, 31 of each Surface's 101, up to 576 units.
+Perfect Dark dropped the byte and clips the portal's polygon against the near
+plane instead, which is the better answer to the box and no answer at all to a
+camera whose *room* is still the one behind it.
+
+**In the conversion.** Both converters write the flag as Perfect Dark's
+`PORTALFLAG_02` and the thickness into the record's spare eighth byte, in
+GoldenEye's own code but **world units** - `t / levelscale`, the smallest code
+not thinner (`portal_thickness()` / `portalThickness()`). Fifteen of the
+twenty-six bg files change; all twenty-six are byte for byte the same from the
+two converters.
+
+**In the game** (`g_BgGePortals`, set from `geRoomActive()` at the top of
+`bgTickPortals()`; a stock file's spare byte is nobody's, so nothing is read off
+a remake stage): `bgConsumeSnakeItem()`'s side test takes the thickness,
+side 2 or a special portal in view gives the whole screen and is *not* cut down
+to the item's box, and `bgGetPortalScreenBbox()` adds the moved points to the
+clipped polygon's box - a superset of both games' boxes. Perfect Dark's own
+`PORTALFLAG_02` branch (the parent's box, no test) is left for stock levels.
+
+**Measured on Dam**, all in one run so the simulation is the same
+(`build/gexrom/portalab.py`: a line breakpoint after the switch is set turns the
+rules off for a few frames, the special flags cleared with them): the player
+stood 0.6 of the thickness either side of each of the 71 thick portals, looking
+both ways - 260 views, 216 on a floor. **Four were nothing but sky without the
+rules** (one room on screen where there are six: a step into the tunnel at
+portals 6, 7, 10 and 11) and ten more had holes; none with the rules, and no
+view is worse with them. `padab.py` does the same at the waypoint pads: 49 of
+164 views gain rooms, and the 5 that "lose" some lose rooms whose nearest point
+is past the far plane - GoldenEye's own room test refuses them and the pictures
+are the same.
+
+The twenty missions sweep as before on the new conversion. **The pad tour cannot
+judge Statue or Jungle**: the teleport to the second waypoint ends the mission
+(menu root 1, the clock stopped - the probe waits for a frame that never comes),
+and it did with the old binary too; `padab5.py`'s `at_frame()` says so instead of
+hanging.
+
+**Three traps in judging it.** (0) the one above. (1) **Pixel-diffing two runs says nothing here**:
+more rooms on screen means guards in them tick as on-screen guards, the
+simulation diverges within a few hundred frames, and 140 of 164 tour views
+"differed" by where a guard stood and how the gun swayed. Compare *rooms drawn*,
+or toggle inside one run. (2) A probe view with `floorroom -1` is a player
+falling past the dam; its two shots are from two heights.

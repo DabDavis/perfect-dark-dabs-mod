@@ -150,4 +150,12 @@ s32 geRoomCamera(struct coord *eye, f32 ground, s32 room)
 	return room;
 }
 
+f32 geRoomPortalThickness(s32 portalnum)
+{
+	const u8 code = g_BgPortals[portalnum].gethickness;
+
+	return (code & 0xf) * 0.25f * (f32)(1u << (code >> 4));
+}
+
+
 #endif
