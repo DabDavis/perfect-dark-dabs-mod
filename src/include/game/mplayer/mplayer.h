@@ -27,6 +27,7 @@ s32 mpGetTeamRankings(struct ranking *rankings);
 s32 func0f188bcc(void);
 bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon);
 s32 mpGetSpawnWeapon(void);
+bool mpWeaponRowSuitsStage(const struct mpweapon *mpweapon);
 s32 mpGetNumWeaponOptions(void);
 char *mpGetWeaponLabel(s32 weaponnum);
 void mpSetWeaponSlot(s32 slot, s32 mpweaponnum);

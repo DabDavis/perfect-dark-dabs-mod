@@ -39,6 +39,7 @@
 #include "gebean.h"
 #include "romdata.h"
 #include "modborrow.h"
+#include "modloader.h"
 
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
@@ -1182,6 +1183,38 @@ bool mpCanSpawnWithWeapon(const struct mpweapon *mpweapon)
 }
 
 /**
+ * Whether a row of the weapon table belongs on the stage being played, for
+ * anything that rolls the table rather than reading a list somebody chose.
+ *
+ * GE Plus is played with GoldenEye's guns alone: on a level converted from
+ * GoldenEye - its arenas and its missions - a roll takes GoldenEye's rows only,
+ * unless the player asked for Perfect Dark's as well ("GE Plus: Include Perfect
+ * Dark Guns", Mod.GePlusPdGuns), which is the switch its weapon sets already
+ * follow. Start Armed's Random handed out a Mauler on Dam. With none of
+ * GoldenEye's rows switched on there is nothing to keep to, and every row suits.
+ */
+bool mpWeaponRowSuitsStage(const struct mpweapon *mpweapon)
+{
+#ifndef PLATFORM_N64
+	s32 i;
+
+	if (mpweapon->weaponnum >= WEAPON_GE_FIRST
+			|| gexPlusGetPdGuns()
+			|| !modloaderStageIsRemake(g_Vars.stagenum)) {
+		return true;
+	}
+
+	for (i = MPWEAPON_GE_FIRST; i < ARRAYCOUNT(g_MpWeapons); i++) {
+		if (g_MpWeapons[i].unlockfeature != MPFEATURE_NEVER) {
+			return false;
+		}
+	}
+#endif
+
+	return true;
+}
+
+/**
  * Whether Start Armed's Random may roll this entry. A gun, and in a match an
  * unlocked one; a mission has every gun, so there the unlock test is not
  * asked - it is the Combat Simulator's, and a mission's setup does not read
@@ -1202,6 +1235,10 @@ static bool mpCanRollSpawnWeapon(const struct mpweapon *mpweapon)
 	}
 
 	if (mpweapon->unlockfeature == MPFEATURE_NEVER) {
+		return false;
+	}
+
+	if (!mpWeaponRowSuitsStage(mpweapon)) {
 		return false;
 	}
 

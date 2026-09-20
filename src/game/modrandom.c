@@ -10,6 +10,7 @@
 #include "game/modoptions.h"
 #include "game/modrandom.h"
 #include "game/modrun.h"
+#include "game/mplayer/mplayer.h"
 #include "mod.h"
 #include "game/objectives.h"
 #include "game/pad.h"
@@ -748,7 +749,8 @@ static void modRandomRollWeapons(struct modrandomlists *lists)
 			// them off. Rolling one scattered GoldenEye's guns through a mod's
 			// own mission.
 			if (mpweapon->weaponnum == WEAPON_NONE || mpweapon->model < 0
-					|| mpweapon->unlockfeature == MPFEATURE_NEVER) {
+					|| mpweapon->unlockfeature == MPFEATURE_NEVER
+					|| !mpWeaponRowSuitsStage(mpweapon)) {
 				continue;
 			}
 
@@ -1265,7 +1267,8 @@ static void modRandomRollIntroWeapons(void)
 			mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
 
 			// A switched-off row is not a gun this game has (see above)
-			if (mpweapon->weaponnum != WEAPON_NONE && mpweapon->unlockfeature != MPFEATURE_NEVER) {
+			if (mpweapon->weaponnum != WEAPON_NONE && mpweapon->unlockfeature != MPFEATURE_NEVER
+					&& mpWeaponRowSuitsStage(mpweapon)) {
 				cmd->param1 = mpweapon->weaponnum;
 
 				// The second hand is a weapon number too, and -1 for a mission

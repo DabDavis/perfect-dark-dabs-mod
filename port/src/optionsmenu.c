@@ -5159,7 +5159,9 @@ static MenuItemHandlerResult menuhandlerXblaGoldenEye(s32 operation, struct menu
 /**
  * "GE Plus: Include Perfect Dark Guns": GE Plus is played with GoldenEye's
  * guns alone unless this is on, which lists Perfect Dark's weapon sets beside
- * GoldenEye's in its arenas (gexplus.c, Mod.GePlusPdGuns).
+ * GoldenEye's in its arenas (gexplus.c, Mod.GePlusPdGuns) and lets anything
+ * that rolls the weapon table on a converted level - Start Armed's Random, the
+ * Randomizer - roll Perfect Dark's rows too (mpWeaponRowSuitsStage()).
  */
 static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menuitem *item, union handlerdata *data)
 {

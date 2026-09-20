@@ -6386,3 +6386,27 @@ deck. The oracle's half is `~/dam-oracle/geview.py` (`stanFindFloorTileBelowY()`
 finds the tile for an arbitrary position). **A Python breakpoint's `stop()` must
 not make an inferior call** (`call (void)screenshotRequest()` hung gdb with no
 output at all) - set `'screenshot.c'::pending` instead.
+
+## Start Armed's Random handed out a Mauler on Dam (2026-09-20)
+
+Seen in the screenshot of F3 report `20260920-220247`: `StartArmed=2`,
+`Akimbo=1`, `GePlusPdGuns=0`, and a Mauler in the left hand on a converted
+mission. `mpGetSpawnWeapon()` rolls the whole weapon table; 26cca6378 taught it
+that a switched-off row is not a gun, and nothing taught it that GE Plus is
+played with GoldenEye's guns.
+
+`mpWeaponRowSuitsStage()` (mplayer.c): on a remake stage
+(`modloaderStageIsRemake()` - the arenas and the missions) a roll takes
+GoldenEye's rows only, unless **"GE Plus: Include Perfect Dark Guns"**
+(`Mod.GePlusPdGuns`, Dab's Mod > Mission page) is on - the switch the weapon sets
+already follow, so there is one switch and not two. With none of GoldenEye's rows
+switched on (`Mod.XblaGoldenEye` off: `gebeanGunsRefresh()` leaves all 25
+`MPFEATURE_NEVER`) every row suits, or the roll would spawn the player unarmed.
+The Randomizer's two rolls of the same table (a pickup's weapon, the intro's
+gun) take the same test.
+
+`build/gexrom/armroll.py` prints every `mpGetSpawnWeapon()` answer. Dam, seeds
+1-3, before: `0xe 0x2a`, `0x5f 0x28`, `0xa 0x9`; after: `0x66 0x64`, `0x65 0x6f`,
+`0x73 0x70`; with the switch on, the old rolls exactly; Chicago unchanged. **The
+probe directory's pd.ini has `XblaGoldenEye=0`, which switches the rows off** -
+the first run showed no change for that reason and not because the test failed.
