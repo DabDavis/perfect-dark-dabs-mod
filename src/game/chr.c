@@ -51,6 +51,29 @@
 #include "types.h"
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
+#include "geroom.h"
+
+/**
+ * The floor under a chr. On a level converted from GoldenEye it is asked of
+ * every room whose box holds the position and not only of the rooms the chr is
+ * said to be in, since GoldenEye's guards stand on a tile and take their room
+ * from it (geroom.h): a guard whose walk never passed through a portal's
+ * polygon had no floor under them and dropped to -100000.
+ */
+static f32 chrFindGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u8 *floortype,
+		u16 *floorflags, RoomNum *floorroom, s32 *inlift, struct prop **lift)
+{
+	if (geRoomActive()) {
+		return geRoomGround(pos, radius, rooms, floorcol, floortype, floorflags, floorroom, inlift, lift);
+	}
+
+	return cdFindGroundInfoAtCyl(pos, radius, rooms, floorcol, floortype, floorflags, floorroom, inlift, lift);
+}
+#else
+#define chrFindGround cdFindGroundInfoAtCyl
+#endif
+
+#ifndef PLATFORM_N64
 #include "video.h"
 #include "game/modrules.h"
 #ifndef PLATFORM_N64
@@ -570,7 +593,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 			func0f065e74(&prop->pos, prop->rooms, arg2, spfc);
 		}
 
-		ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc, &chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+		ground = chrFindGround(arg2, chr->radius, spfc, &chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
 
 		if (ground < -1000000) {
 			ground = 0.0f;
@@ -839,7 +862,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 						sp94 = spfc;
 					}
 
-					ground = cdFindGroundInfoAtCyl(sp98, chr->radius, sp94,
+					ground = chrFindGround(sp98, chr->radius, sp94,
 							&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -862,7 +885,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 						lvupdate60freal = 0.0f;
 
-						ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc,
+						ground = chrFindGround(arg2, chr->radius, spfc,
 								&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
 					}
 #endif
@@ -1015,6 +1038,19 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 	roomsCopy(spfc, prop->rooms);
 
 #if VERSION >= VERSION_NTSC_1_0
+#ifndef PLATFORM_N64
+	// GoldenEye's rule on a level converted from it: a guard is in the room of
+	// the tile they stand on (geroom.h)
+	if (prop->type == PROPTYPE_CHR && geRoomActive()
+			&& chr->ground > -30000
+			&& chr->floorroom > 0 && chr->floorroom < g_Vars.roomcount
+			&& prop->rooms[0] != chr->floorroom) {
+		propDeregisterRooms(prop);
+		prop->rooms[0] = chr->floorroom;
+		prop->rooms[1] = -1;
+	}
+#endif
+
 	if (prop->type == PROPTYPE_CHR) {
 		for (i = 0; prop->rooms[i] != -1; i++) {
 			if (chr->floorroom == prop->rooms[i]) {
@@ -1350,7 +1386,7 @@ struct prop *chr0f020b14(struct prop *prop, struct model *model,
 	testpos.y = pos->y + 100;
 	testpos.z = pos->z;
 
-	chr->ground = chr->manground = ground = cdFindGroundInfoAtCyl(&testpos, chr->radius, rooms, &chr->floorcol, &chr->floortype, NULL, &chr->floorroom, NULL, NULL);
+	chr->ground = chr->manground = ground = chrFindGround(&testpos, chr->radius, rooms, &chr->floorcol, &chr->floortype, NULL, &chr->floorroom, NULL, NULL);
 
 	chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);
 

@@ -33,6 +33,7 @@
 #include "game/bg.h"
 #ifndef PLATFORM_N64
 #include "modloader.h"
+#include "geroom.h"
 #endif
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
@@ -904,36 +905,6 @@ void bwalkUpdateSpeedForwards(f32 targetspeed, f32 accelspeed)
 	g_Vars.currentplayer->speedforwards = g_Vars.currentplayer->speedgo;
 }
 
-#ifndef PLATFORM_N64
-/**
- * The ground from one batch of rooms, kept if it is the highest yet: a floor
- * anywhere is better than the fall out of the world that the caller is trying
- * to save the player from, and the highest below them is the one the search
- * would have given had they been in the right room.
- */
-static void bwalkGroundFromRooms(struct coord *pos, RoomNum *rooms, f32 *ground, s32 *inlift, struct prop **lift)
-{
-	u16 floorcol;
-	u8 floortype;
-	u16 floorflags;
-	RoomNum floorroom;
-	s32 batchinlift;
-	struct prop *batchlift;
-	f32 got = cdFindGroundInfoAtCyl(pos, g_Vars.currentplayer->bond2.radius, rooms,
-			&floorcol, &floortype, &floorflags, &floorroom, &batchinlift, &batchlift);
-
-	if (got > *ground) {
-		*ground = got;
-		g_Vars.currentplayer->floorcol = floorcol;
-		g_Vars.currentplayer->floortype = floortype;
-		g_Vars.currentplayer->floorflags = floorflags;
-		g_Vars.currentplayer->floorroom = floorroom;
-		*inlift = batchinlift;
-		*lift = batchlift;
-	}
-}
-#endif
-
 void bwalkUpdateVertical(void)
 {
 	s32 i;
@@ -1020,63 +991,26 @@ void bwalkUpdateVertical(void)
 #ifndef PLATFORM_N64
 	// A converted GoldenEye level files each tile under GoldenEye's own room
 	// for it, and GoldenEye found the tile under the player without asking
-	// which room they were in. Perfect Dark's search only ever looks at the
-	// rooms it is handed, so where the two disagree there is no floor under
-	// the player at all and they fall out of the world: a strip of Runway's
-	// snow eight hundred units wide and the length of the runway carries
-	// tiles of room 14, while a player walking on it is in room 13 alone.
-	// That is "fell through right here on runway".
+	// which room they were in - it has no room for a player at all, only the
+	// tile they stand on, and the room is the tile's (geroom.h). Perfect Dark's
+	// search only ever looks at the rooms it is handed, and those change only
+	// when a move passes through a portal's polygon, which GoldenEye's portals
+	// were never made for. Where the two disagree there was no floor under the
+	// player ("fell through right here on runway": a strip of Runway's snow
+	// eight hundred units wide carries tiles of room 14 while a walker on it is
+	// in room 13 alone), or the floor of the storey below in place of the one
+	// they were standing on.
 	//
-	// Asked again from the rooms the position itself resolves to, and only
-	// where the first answer was nothing whatsoever, so a level of the game's
-	// own - where this cannot happen, the tiles and the portals being one
-	// another's - is not touched.
-	if (ground < -1000000.0f && modloaderStageIsRemake(g_Vars.stagenum)) {
-		RoomNum posrooms[12];
-		RoomNum aboverooms[12];
-
-		bgFindRoomsByPos(&testpos, posrooms, aboverooms, 8, NULL);
-
-		ground = cdFindGroundInfoAtCyl(&testpos, g_Vars.currentplayer->bond2.radius, posrooms,
+	// So the floor is asked of every room whose box holds the player as well,
+	// and bwalkTick() then moves them into the room of the tile they are on.
+	// This used to be two fallbacks taken only when the first answer was
+	// nothing at all, which held the player up and left them in the wrong room
+	// - drawing from it, which is the void a player walked into past a portal.
+	if (geRoomActive()) {
+		ground = geRoomGround(&testpos, g_Vars.currentplayer->bond2.radius, rooms,
 				&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
 				&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
 				&newinlift, &lift);
-
-		// bgFindRoomsByPos() offers the rooms that have portals, and the rest
-		// only when no room at all held the position. A converted level has
-		// rooms with no portals whose floor a player can walk on to - Dam's
-		// 81, Depot's 88, Control's 71 - and where a neighbouring room's box
-		// reaches over them they are never offered, so their floor is asked
-		// of every room whose box holds the player, eight at a time: thirteen
-		// of Dam's boxes meet over its tower stair, and cdCollectGeoForCyl()
-		// keeps twenty geos however many rooms it is handed. That walks the
-		// room list once, in a frame the player would otherwise leave the
-		// world in.
-		if (ground < -1000000.0f) {
-			RoomNum batch[9];
-			s32 count = 0;
-			s32 r;
-
-			for (r = 1; r < g_Vars.roomcount; r++) {
-				if (!bgRoomContainsCoord(&testpos, r)) {
-					continue;
-				}
-
-				batch[count] = r;
-				count++;
-
-				if (count == 8) {
-					batch[count] = -1;
-					bwalkGroundFromRooms(&testpos, batch, &ground, &newinlift, &lift);
-					count = 0;
-				}
-			}
-
-			if (count > 0) {
-				batch[count] = -1;
-				bwalkGroundFromRooms(&testpos, batch, &ground, &newinlift, &lift);
-			}
-		}
 	}
 #endif
 
@@ -2132,6 +2066,21 @@ void bwalkTick(void)
 #if VERSION >= VERSION_NTSC_1_0
 	{
 		s32 i;
+
+#ifndef PLATFORM_N64
+		// GoldenEye's rule on a level converted from it: the player is in the
+		// room of the tile they stand on, whether or not the walk through the
+		// portals ever put them there (geroom.h)
+		if (geRoomActive()
+				&& g_Vars.currentplayer->vv_ground > -30000
+				&& g_Vars.currentplayer->floorroom > 0
+				&& g_Vars.currentplayer->floorroom < g_Vars.roomcount
+				&& g_Vars.currentplayer->prop->rooms[0] != g_Vars.currentplayer->floorroom) {
+			propDeregisterRooms(g_Vars.currentplayer->prop);
+			g_Vars.currentplayer->prop->rooms[0] = g_Vars.currentplayer->floorroom;
+			g_Vars.currentplayer->prop->rooms[1] = -1;
+		}
+#endif
 
 		for (i = 0; g_Vars.currentplayer->prop->rooms[i] != -1; i++) {
 			if (g_Vars.currentplayer->floorroom == g_Vars.currentplayer->prop->rooms[i]) {

@@ -35,10 +35,13 @@
 #include "preprocess.h"
 #include "romdata.h"
 #include "fs.h"
+#include "config.h"
+#include "platform.h"
 #include "system.h"
 #include "game/lang.h"
 #include "lib/anim.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/setup.h"
 #include "game/game_0b0fd0.h"
 #include "game/setuputils.h"
 #include "game/botinv.h"
@@ -1187,3 +1190,158 @@ void gexPlusMissionExitTick(void)
 	}
 }
 
+
+
+#ifndef PLATFORM_N64
+/* ---- GoldenEye's guns, and only those ----------------------------------- */
+
+/**
+ * GE Plus is played with GoldenEye's guns. Its arenas list GoldenEye's own
+ * fourteen weapon sets, which the conversion reads out of the player's ROM
+ * (menu/gesets.bin, geconvert.c's writeWeaponSets()), and with no conversion
+ * the sets borrowed from GoldenEye X; Perfect Dark's sets are Perfect Dark's
+ * guns, and are listed beside them only when Mod.GePlusPdGuns asks for them
+ * ("Include Perfect Dark Guns", off unless the player turns it on).
+ */
+#define GESETS_NUM   14
+#define GESETS_SLOTS 8
+#define GESETS_NAME  32
+#define GESETS_ROW   (GESETS_NAME + GESETS_SLOTS)
+
+static s32 g_GePlusPdGuns = 0;
+static s32 g_GeSetsFirst = -1;
+static s32 g_GeSetsNum = 0;
+static u16 g_GeSetsNames[GESETS_NUM];
+static char g_GeSetsText[GESETS_NUM][GESETS_NAME + 2];
+
+PD_CONSTRUCTOR static void gexPlusGunsConfigInit(void)
+{
+	configRegisterInt("Mod.GePlusPdGuns", &g_GePlusPdGuns, 0, 1);
+}
+
+s32 gexPlusGetPdGuns(void)
+{
+	return g_GePlusPdGuns;
+}
+
+void gexPlusSetPdGuns(s32 on)
+{
+	g_GePlusPdGuns = on ? 1 : 0;
+}
+
+/** Whether the ROM's sets are still where they were put: a mod swap puts the list back. */
+static s32 geSetsInList(void)
+{
+	return g_GeSetsFirst >= 0 && g_GeSetsNum > 0
+		&& g_GeSetsFirst + g_GeSetsNum <= g_MpNumWeaponSets
+		&& g_MpWeaponSets[g_GeSetsFirst].name == g_GeSetsNames[0]
+		&& g_MpWeaponSets[g_GeSetsFirst + g_GeSetsNum - 1].name == g_GeSetsNames[g_GeSetsNum - 1];
+}
+
+static void geSetsAppend(void)
+{
+	char path[FS_MAXPATH + 1];
+	const char *dir = NULL;
+	u32 len = 0;
+	u8 *d;
+	s32 num;
+
+	for (s32 i = 0; i < mpGetNumStages() && !dir; i++) {
+		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+			dir = modloaderGetStageModDir(g_MpArenas[i].stagenum);
+		}
+	}
+
+	if (!dir) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/gesets.bin", dir);
+	d = fsFileLoad(path, &len);
+
+	if (!d || len < 8 || memcmp(d, "GES1", 4)) {
+		sysMemFree(d);
+		return;
+	}
+
+	num = (s32)((d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7]);
+
+	if (num > GESETS_NUM) {
+		num = GESETS_NUM;
+	}
+
+	if (num <= 0 || len < 8 + (u32)GESETS_ROW * num || g_MpNumWeaponSets + num > MP_MAX_WEAPONSETS) {
+		sysLogPrintf(LOG_WARNING, "gexplus: GoldenEye's weapon sets do not fit the list (%d, %d in it)", num, g_MpNumWeaponSets);
+		sysMemFree(d);
+		return;
+	}
+
+	g_GeSetsFirst = g_MpNumWeaponSets;
+	g_GeSetsNum = 0;
+
+	for (s32 i = 0; i < num; i++) {
+		const u8 *row = d + 8 + GESETS_ROW * i;
+		struct mpweaponset *set = &g_MpWeaponSets[g_MpNumWeaponSets];
+
+		memset(set, 0, sizeof(*set));
+
+		// GoldenEye's eight slots run from its lightest gun to its heaviest
+		// with most of them said twice; Perfect Dark's six take them evenly
+		for (s32 j = 0; j < NUM_MPWEAPONSLOTS; j++) {
+			const u8 w = row[GESETS_NAME + (j * (GESETS_SLOTS - 1) + (NUM_MPWEAPONSLOTS - 1) / 2) / (NUM_MPWEAPONSLOTS - 1)];
+
+			// Slappers Only hands out nothing at all
+			set->slots[j] = w >= WEAPON_GE_FIRST ? w : WEAPON_DISABLED;
+		}
+
+		set->unk0c = set->slots[0];
+		set->unk0d = set->slots[1];
+		set->unk0e = set->slots[2];
+		set->unk0f = set->slots[3];
+		set->unk10 = set->slots[4];
+		set->unk11 = set->slots[5];
+
+		if (!g_GeSetsNames[i]) {
+			memcpy(g_GeSetsText[i], row, GESETS_NAME);
+			g_GeSetsText[i][GESETS_NAME - 1] = '\0';
+			strcat(g_GeSetsText[i], "\n"); // as the game's own set names end
+			g_GeSetsNames[i] = langAddPortText(g_GeSetsText[i]);
+		}
+
+		set->name = g_GeSetsNames[i];
+		g_MpNumWeaponSets++;
+		g_GeSetsNum++;
+	}
+
+	sysMemFree(d);
+	sysLogPrintf(LOG_NOTE, "gexplus: %d of GoldenEye's own weapon sets in the list, from %s", g_GeSetsNum, path);
+}
+
+/**
+ * The weapon sets GE Plus lists: how many, and the list index of the first.
+ * GoldenEye's own out of the ROM, else GoldenEye X's; 0 when there are neither,
+ * or when the player asked for Perfect Dark's guns too and so for the whole list.
+ */
+s32 gexPlusWeaponSets(s32 *first)
+{
+	if (g_GePlusPdGuns) {
+		// still put GoldenEye's in the list the whole of which is shown
+		if (!geSetsInList()) {
+			geSetsAppend();
+		}
+
+		return 0;
+	}
+
+	if (!geSetsInList()) {
+		geSetsAppend();
+	}
+
+	if (geSetsInList()) {
+		*first = g_GeSetsFirst;
+		return g_GeSetsNum;
+	}
+
+	return modBorrowWeaponSets(first);
+}
+#endif

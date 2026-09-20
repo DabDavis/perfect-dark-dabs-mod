@@ -1261,9 +1261,15 @@ static s32 frontHandicapIndex(u8 value)
 static void frontNextWeaponSet(void)
 {
 	s32 first = 0;
-	const s32 num = modBorrowWeaponSets(&first);
+	const s32 num = gexPlusWeaponSets(&first);
 
 	if (num <= 0) {
+		// Perfect Dark's guns asked for as well (Mod.GePlusPdGuns): the whole list
+		if (gexPlusGetPdGuns() && g_MpNumWeaponSets > 0) {
+			g_MpWeaponSetNum = g_MpWeaponSetNum + 1 < g_MpNumWeaponSets ? g_MpWeaponSetNum + 1 : 0;
+			mpApplyWeaponSet();
+		}
+
 		return;
 	}
 

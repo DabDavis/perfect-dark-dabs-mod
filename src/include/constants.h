@@ -4945,7 +4945,7 @@ enum weaponnum {
 #else
 // After however many sets the list holds: a borrowed mod's are appended
 // (modborrow.c), and the number is worked out from the slots, never saved
-#define MP_MAX_WEAPONSETS    32
+#define MP_MAX_WEAPONSETS    64
 #define WEAPONSET_RANDOMFIVE (g_MpNumWeaponSets)
 #define WEAPONSET_RANDOM     (g_MpNumWeaponSets + 1)
 #define WEAPONSET_CUSTOM     (g_MpNumWeaponSets + 2)

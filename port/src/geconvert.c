@@ -930,12 +930,19 @@ struct portal {
 	int npts;
 	double (*pts)[3];
 	int room1, room2;
+	uint32_t vtxptr;      // the address of its vertices, which is what a vis command names it by
+};
+
+struct viscmd {
+	uint8_t type, len;
+	uint32_t arg;
 };
 
 struct bg {
 	int numrooms;
 	struct bgroom *rooms;
 	VEC(struct portal) portals;
+	VEC(struct viscmd) vis;
 };
 
 static uint32_t segoff(uint32_t a)
@@ -1042,7 +1049,48 @@ static void bgRead(const buf *file, struct bg *bg)
 		}
 		p.room1 = d[o + 4];
 		p.room2 = d[o + 5];
+		p.vtxptr = be32(d, o);
 		VECPUSH(bg->portals, p);
+	}
+
+	// GoldenEye's global visibility commands, which are Perfect Dark's own.
+	//
+	// A bg file carries a script the game runs every frame over the rooms the
+	// portals found (bg.c's parse_global_vis_command_list()): "if the camera is
+	// in rooms 110 to 113, show room 119", "if portal N is in view, show room
+	// M". It is how a level draws what no chain of portals reaches - Dam's
+	// cliffs and mountains, which are rooms of their own with no portal into
+	// them, and which a converted Dam drew as sky. Perfect Dark kept the whole
+	// of it (bgExecuteCommands()): the same eight-byte record - a type, a
+	// length in records, an argument - and the same opcode numbers, 0x64 a
+	// portal and 0x65 a room. The rooms keep their numbers through the
+	// conversion and so do the portals, so the script is carried as it is, up
+	// to its END; one naming a portal the file has not got is left out whole,
+	// since half a script shows and hides the wrong rooms. geconvert.py's
+	// vis_commands().
+	{
+		const uint32_t visat = segoff(be32(d, 12));
+		int whole = 1;
+
+		for (size_t o = visat; visat && o + 8 <= len && d[o] != 0; o += 8) {
+			struct viscmd c = { d[o], d[o + 1], be32(d, o + 4) };
+
+			if (c.type == 0x64) {
+				int found = 0;
+
+				for (size_t k = 0; k < bg->portals.n; ++k) {
+					found |= bg->portals.v[k].vtxptr == c.arg;
+				}
+
+				whole &= found;
+			}
+
+			VECPUSH(bg->vis, c);
+		}
+
+		if (!whole) {
+			bg->vis.n = 0;
+		}
 	}
 }
 
@@ -1943,7 +1991,7 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	}
 
 	cmdsat = lightsat + lightsblob.n + ((4 - lightsblob.n % 4) % 4);
-	portalsat = cmdsat + 8;
+	portalsat = cmdsat + 8 * (bg->vis.n + 1);
 
 	order = portalRoomOrder(bg, inv, offset, stan);
 
@@ -1977,8 +2025,28 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	if (lightsblob.n) {
 		memcpy(primary.v + lightsat, lightsblob.v, lightsblob.n);
 	}
-	primary.v[cmdsat] = 0;
-	primary.v[cmdsat + 1] = 1;
+	// the visibility commands, a portal's argument moved to the converted
+	// file's own address for the same portal's vertices (bgRead())
+	for (size_t i = 0; i < bg->vis.n; ++i) {
+		const struct viscmd *c = &bg->vis.v[i];
+		uint32_t arg = c->arg;
+
+		if (c->type == 0x64) {
+			size_t at = 0;
+
+			for (size_t k = 0; k < bg->portals.n && bg->portals.v[k].vtxptr != c->arg; ++k) {
+				at += 4 + 12 * (size_t)bg->portals.v[k].npts;
+			}
+
+			arg = SEG_BG + (uint32_t)(groupsat + at);
+		}
+
+		primary.v[cmdsat + 8 * i] = c->type;
+		primary.v[cmdsat + 8 * i + 1] = c->len;
+		set32(primary.v, cmdsat + 8 * i + 4, arg);
+	}
+	primary.v[cmdsat + 8 * bg->vis.n] = 0;
+	primary.v[cmdsat + 8 * bg->vis.n + 1] = 1;
 	memcpy(primary.v + portalsat, portals.v, portals.n);
 	memcpy(primary.v + groupsat, groups.v, groups.n);
 	inf = primary.n;
@@ -2315,6 +2383,19 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 			double above, below;
 
 			if (t->link[k] >> 4) {
+				continue;
+			}
+
+			// An edge that goes straight down - the side of a riser, a stair
+			// tile's two corners over one another - has no length in plan,
+			// and GoldenEye's wall is the edge in plan and nothing more:
+			// nothing moving over its tiles can ever cross it, so it blocks
+			// nothing there. Raised here it is a pole as tall as the
+			// stairwell, and Perfect Dark blocks within a player's radius of
+			// one: two of them stand at the corners of the first flight in
+			// Dam's guard tower and nobody gets between them. geconvert.py's
+			// write_tiles().
+			if (fabs(a[0] - b[0]) < 0.5 && fabs(a[2] - b[2]) < 0.5) {
 				continue;
 			}
 
@@ -3410,7 +3491,7 @@ static const uint8_t g_PdSizes[0x35] = {
 // Hats (0x11) are left out with them: GoldenEye's hat is its own model, and a
 // converted one is a rigid prop - one matrix, a position node at its root -
 // which Perfect Dark cannot pose on a head. See gesolo.py.
-#define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12 || (t) == 0x13 || (t) == 0x14)
+#define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12 || (t) == 0x13)
 
 #define SOLO_NO_PAD 0xffff
 /**
@@ -3458,6 +3539,38 @@ static const uint8_t g_GeItemWeapon[] = {
 static uint32_t soloItemWeapon(uint32_t item)
 {
 	return item < sizeof(g_GeItemWeapon) ? g_GeItemWeapon[item] : 0;
+}
+
+/**
+ * GoldenEye's ammunition types (bondconstants.h, AMMOTYPES) as the types the
+ * port's GoldenEye guns draw on, which are their hosts' (geguns.c): the PP7 and
+ * the DD44 stand on Perfect Dark's pistols and the Klobb, the ZMG, the D5K, the
+ * Phantom and the RC-P90 on its submachine guns, so GoldenEye's one pool of 9mm
+ * is two pools here and a grant of it fills both. Everything past the golden
+ * bullet is a gadget's count, which nothing in the port holds. gesolo.py's
+ * GE_AMMO_TYPES.
+ */
+static const uint8_t g_GeAmmoTypes[14][2] = {
+	{ 0, 0 },
+	{ 0x01, 0x02 },    // 9MM            pistol and SMG
+	{ 0x01, 0x02 },    // 9MM_2
+	{ 0x04, 0 },       // RIFLE
+	{ 0x05, 0 },       // SHOTGUN
+	{ 0x07, 0 },       // GRENADE
+	{ 0x08, 0 },       // ROCKETS
+	{ 0x0c, 0 },       // REMOTEMINE
+	{ 0x0d, 0 },       // PROXMINE
+	{ 0x0e, 0 },       // TIMEDMINE
+	{ 0x09, 0 },       // KNIFE
+	{ 0x0b, 0 },       // GRENADEROUND   the grenade launcher stands on the Devastator
+	{ 0x0a, 0 },       // MAGNUM
+	{ 0x0a, 0 },       // GGUN           the golden gun stands on the DY357-LX
+};
+
+/** The port's type for one of GoldenEye's, the first or the second; 0 for none. */
+static uint32_t soloAmmoType(uint32_t getype, int which)
+{
+	return getype < sizeof(g_GeAmmoTypes) / sizeof(g_GeAmmoTypes[0]) ? g_GeAmmoTypes[getype][which] : 0;
 }
 
 /**
@@ -3695,6 +3808,104 @@ static void cameraRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t nu
 	set32(out, 0x18, padNum(be32(raw, 0x18) & 0xffff, numpads, 0));
 }
 
+/**
+ * GoldenEye's crate of several kinds of ammunition as Perfect Dark's. Both keep
+ * a (model, quantity) pair for every ammunition type, indexed by the type less
+ * one - thirteen of GoldenEye's, nineteen of Perfect Dark's - so a pair moves
+ * to the slot of the type the port's guns draw on, 9mm filling both of its
+ * pools. The model is left at none: setupCreateProps() loads a slot's model
+ * only to have it ready, and a crate is picked up whole. gesolo.py's
+ * multi_crate_record().
+ */
+static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t numpads)
+{
+	baseRecord(out, raw, 0x14, padNum(be16(raw, 6), numpads, 0));
+
+	for (size_t i = 0; i < 19; ++i) {
+		set16(out, 0x5c + 4 * i, 0xffff);
+		set16(out, 0x5c + 4 * i + 2, 0);
+	}
+
+	for (size_t k = 0; k < 13 && 0x80 + 4 * k + 4 <= len; ++k) {
+		const uint32_t qty = be16(raw, 0x80 + 4 * k + 2);
+
+		for (int which = 0; qty && which < 2; ++which) {
+			const uint32_t pdtype = soloAmmoType((uint32_t)k + 1, which);
+
+			if (pdtype) {
+				const size_t at = 0x5c + 4 * (pdtype - 1);
+				const uint32_t sum = be16(out, at + 2) + qty;
+
+				set16(out, at + 2, sum > 0xffff ? 0xffff : sum);
+			}
+		}
+	}
+}
+
+/**
+ * menu/gesets.bin: GoldenEye's own multiplayer weapon sets, which GE Plus's
+ * arenas are played with (gexplusrom.c) - "GES1", a count, and a row a set of
+ * its name and its eight weapons as the port's own GoldenEye guns.
+ *
+ * The table is mp_weapon.c's mp_weapon_set_text_table: fourteen rows of a text
+ * id and a pointer to eight 24-byte slots, whose first word is the item
+ * (GE_ITEM_WEAPON again; the unarmed hand of Slappers Only stays the unarmed
+ * hand). The name is the row's own string out of LmpweaponsE.
+ */
+#define MPSETS_AT   0x800490f0u
+#define MPSETS_NUM  14
+#define MPSET_SLOTS 8
+#define MPSET_NAME  32
+
+static void writeFile(const char *outdir, const char *rel, const uint8_t *data, size_t len);
+
+static void writeWeaponSets(const char *outdir)
+{
+	const size_t table = MPSETS_AT - DATA_VRAM;
+	buf lang = romFile("LmpweaponsE");
+	buf out = {0};
+
+	if (table + 8 * MPSETS_NUM > g_DataLen) {
+		fail("the weapon sets run off the data segment");
+	}
+
+	bufPut(&out, (const uint8_t *)"GES1", 4);
+	bufU32(&out, MPSETS_NUM);
+
+	for (size_t i = 0; i < MPSETS_NUM; ++i) {
+		const uint32_t textid = be16(g_Data, table + 8 * i);
+		const uint32_t ptr = be32(g_Data, table + 8 * i + 4);
+		const size_t slots = ptr - DATA_VRAM;
+		const size_t index = textid & 0x3ff;
+		char name[MPSET_NAME] = {0};
+
+		if (ptr < DATA_VRAM || slots + 24 * MPSET_SLOTS > g_DataLen) {
+			fail("a weapon set outside the data segment");
+		}
+
+		if ((index + 1) * 4 <= lang.n) {
+			const uint32_t at = be32(lang.v, index * 4);
+
+			if (at && at < lang.n) {
+				size_t k = 0;
+
+				while (k + 1 < sizeof(name) && at + k < lang.n && lang.v[at + k] && lang.v[at + k] != '\n') {
+					name[k] = (char)lang.v[at + k];
+					++k;
+				}
+			}
+		}
+
+		bufPut(&out, (const uint8_t *)name, sizeof(name));
+
+		for (size_t k = 0; k < MPSET_SLOTS; ++k) {
+			bufU8(&out, soloItemWeapon(be32(g_Data, slots + 24 * k)));
+		}
+	}
+
+	writeFile(outdir, "menu/gesets.bin", out.v, out.n);
+}
+
 static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
 		const double *offset)
 {
@@ -3746,12 +3957,18 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 			objectiveRecord(rec, raw);
 		} else if (t == 0x2e) {
 			cameraRecord(rec, raw, recs.v[i].len, numpads, offset);
+		} else if (t == 0x14) {
+			multiCrateRecord(rec, raw, recs.v[i].len, numpads);
 		} else if (g_GeSizes[t] >= 32) {
 			baseRecord(rec, raw, t, padNum(be16(raw, 6), numpads, 0));
 			for (size_t k = 0; k < sizeof(tails) / sizeof(tails[0]); ++k) {
 				if (tails[k].type == t && tails[k].ge + tails[k].width <= recs.v[i].len) {
 					memcpy(rec + tails[k].pd, raw + tails[k].ge, tails[k].width);
 				}
+			}
+			if (t == 0x07 && recs.v[i].len >= 0x84) {
+				// the crate's one type, in the port's numbering
+				set32(rec, 0x5c, soloAmmoType(be32(raw, 0x80), 0));
 			}
 		} else {
 			// a short record: the same fields in the same order on both sides
@@ -3816,6 +4033,41 @@ static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const
 			set32(out.v, start + 0x18, padNum(be32(raw, 0x18) & 0xffff, numpads, 0));
 			set32(out.v, start + 0x1c, soloTextId(be32(raw, 0x1c) & 0xffff));
 			set32(out.v, start + 0x20, soloTextId(be32(raw, 0x20) & 0xffff));
+		} else if (t == 1) {
+			// What Bond starts with, as the port's own GoldenEye guns. The
+			// command's two items are GoldenEye's item ids, as a collectable's
+			// is, and copied as they were they are read as Perfect Dark's
+			// weapon numbers: Dam's silenced PP7, item 5, was a MagSec 4. An
+			// item that is not a weapon - the covert modem, the bomb case - is
+			// nothing the port can put in a hand, and its command is left out.
+			// gesolo.py's intro_item().
+			const uint8_t *raw = f->v + o;
+			const int32_t rightitem = (int32_t)be32(raw, 4);
+			const int32_t leftitem = (int32_t)be32(raw, 8);
+			const uint32_t right = rightitem >= 0 ? soloItemWeapon((uint32_t)rightitem) : 0;
+			const uint32_t left = leftitem >= 0 ? soloItemWeapon((uint32_t)leftitem) : 0;
+
+			if (right) {
+				bufU32(&out, be32(raw, 0));
+				bufU32(&out, right);
+				bufU32(&out, left ? left : 0xffffffff);
+				bufU32(&out, be32(raw, 12));
+			}
+		} else if (t == 2) {
+			// and his ammunition, in the pools the port's guns draw on.
+			// gesolo.py's intro_ammo().
+			const uint8_t *raw = f->v + o;
+
+			for (int which = 0; which < 2; ++which) {
+				const uint32_t pdtype = soloAmmoType(be32(raw, 4), which);
+
+				if (pdtype) {
+					bufU32(&out, be32(raw, 0));
+					bufU32(&out, pdtype);
+					bufU32(&out, be32(raw, 8));
+					bufU32(&out, be32(raw, 12));
+				}
+			}
 		} else {
 			bufPut(&out, f->v + o, 4 * (size_t)words[t]);
 		}
@@ -3827,16 +4079,34 @@ static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const
 	return out;
 }
 
-/** GoldenEye's patrol paths, which are Perfect Dark's own record. */
-static void writeSoloPaths(const buf *f, size_t at, buf *head, buf *body)
+/**
+ * GoldenEye's patrol paths as Perfect Dark's: the same record - a pointer to a
+ * -1 terminated list, an id, a loop flag and a length - but **not the same
+ * list**. GoldenEye's is of *waypoints* (chraction.c's chrlvGetPatrolStepPad():
+ * `pads[pathwaypoints[path->data[step]].padID]`, and the truck's tick reads its
+ * path the same way) and Perfect Dark's is of *pads* (`path->pads[step]`,
+ * straight into padUnpack()). Copied as it was, a waypoint's index was read as a
+ * pad's number, so every guard on patrol walked for pads that were never on its
+ * route and Dam's truck turned round and drove the wrong way down the road.
+ * Each entry goes through the setup's own waypoint table to the pad it stands
+ * on. gesolo.py's convert_paths().
+ */
+static void writeSoloPaths(const buf *f, size_t at, size_t numpads, buf *head, buf *body)
 {
 	const uint32_t start = be32(f->v, 16);
+	const uint32_t ways = be32(f->v, 0);
+	size_t numways = 0;
 	size_t n = 0, pos;
 
 	if (!start) {
 		bufU32(head, 0);
 		bufU32(head, 0);
 		return;
+	}
+
+	// the waypoints: 16 bytes each, the pad first, to a pad below zero
+	for (size_t o = ways; ways && o + 16 <= f->n && (int32_t)be32(f->v, o) >= 0; o += 16) {
+		++numways;
 	}
 
 	for (size_t o = start; o + 8 <= f->n && be32(f->v, o); o += 8) {
@@ -3847,18 +4117,22 @@ static void writeSoloPaths(const buf *f, size_t at, buf *head, buf *body)
 
 	for (size_t i = 0; i < n; ++i) {
 		const size_t o = start + 8 * i;
-		const s32s pads = readS32List(f, be32(f->v, o));
+		const s32s list = readS32List(f, be32(f->v, o));
+		size_t kept = 0;
 
 		bufU32(head, (uint32_t)pos);
 		bufU8(head, f->v[o + 4]);
 		bufU8(head, f->v[o + 5]);
 		bufU16(head, be16(f->v, o + 6));
 
-		for (size_t k = 0; k < pads.n; ++k) {
-			bufU32(body, (uint32_t)pads.v[k]);
+		for (size_t k = 0; k < list.n; ++k) {
+			if (list.v[k] >= 0 && (size_t)list.v[k] < numways) {
+				bufU32(body, padNum(be32(f->v, ways + 16 * (size_t)list.v[k]), numpads, 0));
+				++kept;
+			}
 		}
 		bufU32(body, 0xffffffff);
-		pos += 4 * (pads.n + 1);
+		pos += 4 * (kept + 1);
 	}
 
 	bufU32(head, 0);
@@ -4155,7 +4429,7 @@ static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct 
 	const size_t pathsat = propsat + props.n;
 	size_t aiat;
 
-	writeSoloPaths(f, pathsat, &paths, &pathpads);
+	writeSoloPaths(f, pathsat, numpads, &paths, &pathpads);
 	aiat = pathsat + paths.n + pathpads.n;
 	writeSoloAilists(f, aiat, numpads, &ailists, &aicode, st);
 
@@ -5006,10 +5280,33 @@ static void textf(struct textbuf *t, const char *fmt, ...)
 }
 
 // a fog row as the maps block's `fog` string (modloader.c)
-static void fogValue(struct textbuf *t, double *r, const double *offset)
+/**
+ * GoldenEye's own render scale for a level (bg.c's levelinfotable, the
+ * `visibility` column): Dam and the two Surfaces are drawn at a fifth of their
+ * size and every other level at its own.
+ */
+static double levelVisibility(const char *key)
+{
+	return !strcmp(key, "dam") || !strcmp(key, "sevx") || !strcmp(key, "sevxb") ? 0.2 : 1.0;
+}
+
+static void fogValue(struct textbuf *t, double *r, const double *offset, double vis)
 {
 	r[13] -= offset[1];
 	r[23] -= offset[1];
+
+	// The row's distances are in GoldenEye's *drawn* space: bgfog.c sets the z
+	// range from near and far as they are and divides it by the level's render
+	// scale for every question asked in the world's units. The converted level
+	// is in the world's units and is drawn at its own size, so the near and far
+	// planes and the three distances objects fade over are divided here. Left
+	// as they were Dam's far plane stood at 15000 where GoldenEye's is at 75000
+	// - the cliffs and the mountains round the dam were never drawn - and its
+	// fog, which is a fraction of that range, began a fifth as far away and
+	// washed the level blue. geconvert.py's fog_value().
+	for (int k = 0; k < 5; ++k) {
+		r[k] /= vis;
+	}
 
 	#define I(k) (long)rnd(r[(k) - 1])
 	textf(t, "%ld %ld %ld %ld %ld %ld %ld %02lx%02lx%02lx %ld %ld %ld %02lx%02lx%02lx %ld %ld %ld %02lx%02lx%02lx %ld",
@@ -5167,7 +5464,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			maps.n ? "\n" : "", lv->name, lv->key, lv->key, lv->key, lv->key);
 		if (romFogRow(lv->levelid, fog)) {
 			textf(&maps, " fog \"");
-			fogValue(&maps, fog, offset);
+			fogValue(&maps, fog, offset, levelVisibility(lv->key));
 			textf(&maps, "\"");
 		}
 
@@ -5205,7 +5502,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				missions.n ? "\n" : "", (int)mi, g_Missions[mi].name, lv->key, lv->key, lv->key, lv->key);
 			if (romFogRow(lv->levelid, fog)) {
 				textf(&missions, " fog \"");
-				fogValue(&missions, fog, offset);
+				fogValue(&missions, fog, offset, levelVisibility(lv->key));
 				textf(&missions, "\"");
 			}
 
@@ -5268,6 +5565,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			snprintf(rel, sizeof(rel), "menu/%s", g_WatchLang[i]);
 			writeFile(outdir, rel, f.v, f.n);
 		}
+
+		writeWeaponSets(outdir);
 
 		if (INTRO_BLOOD_AT + INTRO_BLOOD_SIZE > g_DataLen) {
 			fail("the blood runs off the data segment");
@@ -5401,6 +5700,41 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				free(g_Allocs[i]);
 			}
 			g_NumAllocs = keep;
+		}
+
+		// and the guns a hand holds (geguns.c): GoldenEye's own first person
+		// models, each with the hand that holds it, converted the same way
+		// and written under its item number - ITEM_KNIFE (2) to
+		// ITEM_REMOTEMINE (29), whichever of them the table gives a model
+		{
+			int written = 0;
+
+			for (int32_t item = 2; item <= 29; ++item) {
+				const size_t keep = g_NumAllocs;
+				double scale;
+				buf data, z;
+				char rel[64];
+
+				// the silver and gold PP7s and the watch laser are no gun of
+				// the port's (g_GeItemWeapon gives them another's), and the
+				// watch laser's model is a node type nothing here reads
+				if (!g_Items[item].file || item == 20 || item == 21 || item == 23) {
+					continue;
+				}
+
+				data = itemConvert(item, alltex, &scale);
+				z = rzip1173(data.v, data.n);
+				snprintf(rel, sizeof(rel), "files/Igx%03uZ", (unsigned)item);
+				writeFile(outdir, rel, z.v, z.n);
+				++written;
+
+				for (size_t i = keep; i < g_NumAllocs; ++i) {
+					free(g_Allocs[i]);
+				}
+				g_NumAllocs = keep;
+			}
+
+			note("geconvert: %d of GoldenEye's own first person guns", written);
 		}
 
 		// menu/geanims.bin: the animations the missions' PlayAnimation commands

@@ -164,6 +164,28 @@ static void vehHeliTick(struct prop *prop)
  * ground asked for the height so the truck sits on the road rather than flying
  * the pads' own line.
  */
+static union modelrodata *vehPartRodata(struct model *model, s32 partnum, u32 type);
+
+/** How far a truck's origin rides over the ground: the bottom of its front wheel, turned up. */
+static f32 vehTruckClearance(struct model *model)
+{
+	union modelrodata *wheel;
+	union modelrodata *box;
+
+	if (!model) {
+		return 0.0f;
+	}
+
+	wheel = vehPartRodata(model, 1, MODELNODETYPE_POSITION);
+	box = vehPartRodata(model, 6, MODELNODETYPE_BBOX);
+
+	if (!wheel || !box) {
+		return 0.0f;
+	}
+
+	return -(box->bbox.ymin + wheel->position.pos.y) * model->scale;
+}
+
 static void vehTruckTick(struct prop *prop)
 {
 	struct truckobj *truck = (struct truckobj *)prop->obj;
@@ -248,7 +270,12 @@ static void vehTruckTick(struct prop *prop)
 			ground = cdFindGroundInfoAtCyl(&next, 30, inrooms, NULL, NULL, NULL, NULL, NULL, NULL);
 
 			if (ground > -1000000.0f) {
-				next.y = ground;
+				// GoldenEye's own height (sub_GAME_7F044B38()'s level branch):
+				// the ground less the bottom of the front wheel, which is the
+				// wheel's box under the wheel's node (parts 6 and 1), at the
+				// model's scale. The bare ground put the truck's *origin* on
+				// the road and its wheels fifty units under it.
+				next.y = ground + vehTruckClearance(truck->base.model);
 			}
 
 			roomsCopy(inrooms, rooms);

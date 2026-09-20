@@ -5079,3 +5079,151 @@ draws the face without the arm, which is how the pose was judged. The framing
 is judged at two window shapes: the savedir's own `pd.ini` carries
 `Video.DefaultWidth`/`DefaultHeight`, so a copy of the save with 1280x720 in it
 is the 16:9 run and the stock 640x480 one the 4:3.
+
+## Dam against the oracle: six conversion faults, one method (2026-09-20)
+
+The user: *"we are working on ge plus conversion errors. example in dam, there
+are errors with rendering geometry, the truck ai, flags, etc. dam can be our
+model"* - and then, twice, *"we have oracles also"*, *"there is ares which is for
+sure accurate"*. Converter version **37**. Everything below was found by shooting
+the same place in both games, not by looking at ours.
+
+### The method: the same pads, in both games
+
+`sdg@10.8.0.3:~/dam-oracle/` holds the oracle's half. The native GoldenEye port
+walks into solo Dam on its own pad script (`dam.padscript`: the menu walk of
+`portverify/solo_dam.padscript`, then four fire presses to skip the opening
+camera and the swirl - without them the mission sits on its "Nine years ago"
+still for ever) and `getour.py` warps Bond to every fifth **waypoint's pad**,
+four headings each, writing the framebuffer with `fast3dWritePPM()`. A warp is
+what `TRYTeleportingChrToPad` does: `prop->pos`, `prop->stan`,
+`field_488.collision_position`, `current_tile_ptr` and
+`current_tile_ptr_for_portals`, the tile being the pad's own `stan` - an
+`n64ptr_t`, which on the LP64 port is the low word of the host address. It needs
+`PORT_BOOT_FRAMES` set high or `--boot` ends at frame 273.
+
+Ours is `build/gexrom/padtour.py`, the same waypoint indices through
+`padUnpack()`. **A converted level is GoldenEye's runtime world plus an offset
+and nothing else** (Dam: ours = GE + (-3390, 13219, 8584)), the two games' pad
+numbers are the same, and **`vv_theta` means the same in both** - so pad N
+heading H is the same picture. `tour/cmp*.jpg` are the 164 pairs. Perfect Dark
+looks along (-sin θ, cos θ): a probe that aims a camera at something wants
+`atan2(-(dx), dz)`, and twenty minutes went on a truck that "was not drawn"
+because the camera was looking the other way.
+
+`getruck.py` / `trucktrace.py` trace the truck tick by tick on both sides, in
+GoldenEye's coordinates. **A trace settles what a picture cannot**: the pictures
+said the truck was missing, the trace said it had driven the other way.
+
+### 1. A path is a list of waypoints, not of pads
+
+GoldenEye's `PathRecord` list is of **waypoint indices**
+(`pads[pathwaypoints[path->data[step]].padID]`, chraction.c's
+`chrlvGetPatrolStepPad()`, and the truck's tick the same) and Perfect Dark's is
+of **pads** (`path->pads[step]` straight into `padUnpack()`). The conversion
+copied the list. So **every patrolling guard on all twenty missions walked for
+pads that were never on its route**, and Dam's truck turned round, drove the
+wrong way down the road and parked. Each entry goes through the setup's own
+waypoint table now (`convert_paths()` / `writeSoloPaths()`). After it the truck
+is within twenty units of GoldenEye's at every sample for 4600 ticks.
+
+### 2. The truck rode fifty units under the road
+
+`vehTruckTick()` wrote the bare ground height into the truck's *origin*.
+GoldenEye's is `ground - (wheel box ymin + wheel node y) * scale`
+(`sub_GAME_7F044B38()`: parts 6 and 1), which is 78 over Dam's road. **The
+"giant flat green slab" of 2026-09-19 was this**: the roof of a sunken truck at
+eye level, on the wrong road. With the route and the height right it is
+GoldenEye's canvas-backed truck. Its tilt to the four wheel contacts is still
+not done.
+
+### 3. Three levels are drawn at a fifth of their size
+
+`levelinfotable`'s second float (`visibility`) is GoldenEye's **render scale** -
+Perfect Dark's `scale_bg2gfx` - and it is 0.2 for **Dam, Surface and Surface 2**
+and 1 for the rest. The fog row's near, far and three object-fade distances are
+in that *drawn* space (`bgfog.c` divides the z range by it for every world-space
+question). Copied raw into a level converted in world units, Dam's far plane
+stood at 15000 where GoldenEye's is at 75000 and its fog began a fifth as far
+out: the level was washed blue and nothing distant drew. `fog_value()` divides
+the five by the scale.
+
+### 4. The visibility script was dropped
+
+A GoldenEye bg file carries a **global visibility command list**
+(`parse_global_vis_command_list()`): "camera in rooms 110-113: show room 119",
+"portal N in view: show room M". It is how a level draws what no chain of
+portals reaches - **Dam's cliffs and mountains are rooms with no portal into
+them**. Perfect Dark kept it whole (`bgExecuteCommands()`): the same eight-byte
+record, the same opcode numbers. The converter wrote an END. It is carried as it
+is now, a portal argument (the address of the portal's vertices, in both games)
+re-pointed at the converted file's own. Seven levels carry one: **Dam 389
+commands, Facility 101, Caverns 90, Control 81, Frigate 74, Archives 28, Aztec
+26**. (Archives' "large flat grey quad across the street" predates this and has
+not been looked at again.)
+
+### 5. Bond started Dam with a MagSec 4
+
+The intro's weapon and ammunition commands carry GoldenEye's **item ids** and
+ammo types and were copied raw: item 5, the silenced PP7, is Perfect Dark's
+weapon 5. They go through `GE_ITEM_WEAPON` and `GE_AMMO_TYPES` now (9mm fills
+both the pistol and the SMG pool, since the port's GoldenEye guns draw on their
+hosts'); an item that is no weapon - the covert modem, the bomb case - is left
+out rather than handed over as whatever Perfect Dark keeps at that number, so
+**the gadget objectives are still not playable**. The single ammo crate's type
+is mapped and the **multi ammo crate (0x14) converts** instead of being dropped.
+
+### 6. GoldenEye's rooms: the tile decides
+
+The user: *"the room portals will sometimes leave you in the void until you keep
+stepping"*, then *"we can implement the GE style rooms"*. GoldenEye keeps no
+room for anybody: it keeps the **tile** they stand on and the room is the tile's
+(`current_tile_ptr_for_portals->room`; a guard's list is seeded from
+`prop->stan`). Perfect Dark changes room only when a move passes *through a
+portal's polygon*, and GoldenEye's portals were never made for that. `geroom.c`:
+on a remake stage the floor is asked of every room whose box holds the position
+as well as the rooms handed in (highest below wins, so storeys stay apart) and
+the player (`bwalkTick()`) and every chr (chr.c's `chrFindGround()` and the room
+snap) move to the floor's room. It replaces `bwalkUpdateVertical()`'s two
+fall-through fallbacks, which held a player up and left them in the wrong room.
+Runway's known spot: room 13/camroom 13 on room 14's floor before, 14/14 after.
+
+### Guns: GoldenEye's only
+
+*"ge plus should only use ge guns, add a toggle to include pd guns, but off by
+default"*, *"lets use GE rom weapons and reloads only"*.
+- `menu/gesets.bin`: GoldenEye's own **fourteen multiplayer weapon sets** out of
+  the ROM (`mp_weapon_set_text_table`, data `0x800490f0`, names out of
+  `LmpweaponsE`). GE Plus lists those (`gexPlusWeaponSets()`), GoldenEye X's
+  borrowed ones only with no conversion. `MP_MAX_WEAPONSETS` is 64: GE-X's
+  fourteen had filled the 32.
+- `Mod.GePlusPdGuns` ("GE Plus: Include Perfect Dark Guns", Missions page), off.
+- **Every GoldenEye gun reloads GoldenEye's way** - down off the screen and back
+  (`bgunWantsLoweredReload()`), whatever its host or GE-X's definition carries.
+- `files/Igx%03uZ`: all 25 of the ROM's **first person gun models** convert (the
+  watch laser's is a node type 0xf nothing reads). **Not drawn yet**: pointing a
+  gun's `hi_model` at one loads it and draws no hand. That is the next piece of
+  "GE rom weapons", and until it is done the guns' look is still GE-X's or
+  Bean's.
+
+### Still open, and the user's proposal
+
+**The first guard tower's stairs** (the user's repro). `walkprobe.py` walks the
+player along the waypoint graph with `bwalkCalculateNewPosition()` - a teleport
+skips the portal logic entirely, so a walk is the only honest test - and it
+sticks on the first flight. Two causes: **325 of Dam's walls were a point in
+plan** (an edge that goes straight down, a stair tile's corners over one
+another; raised, a pole as tall as the stairwell - no longer made), and then a
+real wall: the ground-floor tile's edge, 444 tall, whose end is 27 units from
+the stair's line, inside a 30-unit player. In GoldenEye that edge belongs to a
+tile the walker is not on and not linked to, and is never consulted.
+
+The user: *"would GE's 2d collision be valid to use instead"*. Yes, and it is
+the right end of this: port `stanTestLineUnobstructed` /
+`walkTilesBetweenPoints` / `stanTestVolume` / `stanGetPositionYValue` for
+**bodies only** (player, guards, the truck - move, height and room), keep
+Perfect Dark's geometry for shots and objects. The conversion has to keep the
+tile links, which it throws away after raising walls.
+
+Also open: the gate at pad 134 draws with a smeared texture; the truck's tilt;
+"flags" in the user's list was never pinned down - ask.

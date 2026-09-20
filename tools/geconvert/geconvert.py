@@ -504,6 +504,40 @@ def portal_room_order(bg, inv, offset, stan):
     return out
 
 
+BGCMD_END = 0x00
+BGCMD_PORTALARG = 0x64
+
+
+def vis_commands(bg):
+    """GoldenEye's global visibility commands, which are Perfect Dark's own.
+
+    A bg file carries a script the game runs every frame over the rooms the
+    portals found (bg.c's parse_global_vis_command_list()): "if the camera is in
+    rooms 110 to 113, show room 119", "if portal N is in view, show room M". It
+    is how a level draws what no chain of portals reaches - **Dam's cliffs and
+    mountains**, which are rooms of their own with no portal into them, and
+    which a converted Dam drew as sky. Perfect Dark kept the whole of it
+    (bgExecuteCommands()): the same eight-byte record - a type, a length in
+    records, an argument - and the same opcode numbers, 0x14 the room range,
+    0x1e to 0x27 the results and the rooms, 0x50 to 0x5c the branches, 0x64 a
+    portal and 0x65 a room. The rooms keep their numbers through the conversion
+    and so do the portals, so the script is carried as it is, up to its END.
+
+    A script naming a portal the file has not got is left out whole - an END -
+    since half a script shows and hides the wrong rooms.
+    """
+    ptrs = set(p['vtxptr'] for p in bg.portals)
+    out = []
+    for t, ln, arg in bg.vis:
+        if t == BGCMD_END:
+            break
+        if t == BGCMD_PORTALARG and (arg & 0xffffffff) not in ptrs:
+            return [(BGCMD_END, 1, 0)]
+        out.append((t, ln, arg))
+    out.append((BGCMD_END, 1, 0))
+    return out
+
+
 def write_bg(bg, ls, offset, tilebounds=None, stan=None):
     inv = 1.0 / ls
     textures = set()
@@ -523,7 +557,8 @@ def write_bg(bg, ls, offset, tilebounds=None, stan=None):
     lights = b''.join(struct.pack('>HHBBBbbb', r, 0xffff, 0, 0, 0, *l['dir'])
                       + b''.join(struct.pack('>3h', *c) for c in l['corners']) for r, l in alllights)
     cmds_at = lights_at + len(lights) + (-len(lights)) % 4
-    cmds = struct.pack('>BBxxi', 0, 1, 0)
+    vis = vis_commands(bg)
+    cmds = b''.join(struct.pack('>BBxxi', t, ln, arg) for t, ln, arg in vis)
     portals_at = cmds_at + len(cmds)
     portals = b''
     groups = b''
@@ -537,6 +572,15 @@ def write_bg(bg, ls, offset, tilebounds=None, stan=None):
     portals += struct.pack('>HhhBx', 0, 0, 0, 0)
     groups += b'\0\0\0\0'
     groups_at = portals_at + len(portals)
+    # a command's portal is named by the address of its vertices, in both games
+    # (bg.c's bgFindPortalByVertices()): GoldenEye's address becomes the
+    # converted file's own for the same portal
+    groupoff, at = {}, 0
+    for p in bg.portals:
+        groupoff[p['vtxptr']] = at
+        at += 4 + 12 * len(p['points'])
+    cmds = b''.join(struct.pack('>BBxxI', t, ln, (SEG + groups_at + groupoff[arg & 0xffffffff]) if t == BGCMD_PORTALARG
+                                else arg & 0xffffffff) for t, ln, arg in vis)
     primary_len = groups_at + len(groups)
     primary = bytearray(pad(bytes(primary_len), 4))
     struct.pack_into('>IIIIII', primary, 0, 0, SEG + table_at, SEG + portals_at, SEG + cmds_at, SEG + lights_at if lights else 0, 0)
@@ -768,6 +812,17 @@ def write_tiles(stan, numrooms, ls, offset):
             if link >> 4:
                 continue
             a, b = pts[i], pts[(i + 1) % n]
+            # An edge that goes straight down - the side of a riser, a stair
+            # tile's two corners over one another - has no length in plan, and
+            # GoldenEye's wall is the edge in plan and nothing more: nothing
+            # moving over its tiles can ever cross it, so it blocks nothing
+            # there. Raised here it is a pole as tall as the stairwell, and
+            # Perfect Dark blocks within a player's radius of one: two of them
+            # stand at the corners of the first flight in Dam's guard tower and
+            # nobody gets between them, which is "the stairs in the first
+            # tower".
+            if abs(a[0] - b[0]) < 0.5 and abs(a[2] - b[2]) < 0.5:
+                continue
             above, below = wall_span(world, bbox, ti, a, b)
             quad = [(a[0], a[1] - below, a[2]), (b[0], b[1] - below, b[2]),
                     (b[0], b[1] + above, b[2]), (a[0], a[1] + above, a[2])]
@@ -1078,6 +1133,11 @@ def write_mpsetup(setup, mp, stan, bg, objects_for=None):
 
 # ---------------------------------------------------------------------------
 
+# GoldenEye's own render scale for a level, where it is not 1 (bg.c's
+# levelinfotable)
+VISIBILITY = {'dam': 0.2, 'sevx': 0.2, 'sevxb': 0.2}
+
+
 def fog_rows():
     """GoldenEye's one-player fog table rows (US), by level id name.
 
@@ -1090,7 +1150,7 @@ def fog_rows():
     return gefiles.rom().fog_rows()
 
 
-def fog_value(r, offset):
+def fog_value(r, offset, vis=1.0):
     """A fog row as the maps block's `fog` string (modloader.c).
 
     The cloud and water repeats are the heights of their planes in world units
@@ -1099,6 +1159,19 @@ def fog_value(r, offset):
     r = list(r)
     r[13] -= offset[1]
     r[23] -= offset[1]
+    # GoldenEye draws three of its levels at a fifth of their size (bg.c's
+    # levelinfotable, the `visibility` column: Dam and the two Surfaces at 0.2,
+    # every other level at 1) and the row's distances are in *that* space:
+    # bgfog.c sets the z range from near and far as they are and divides it by
+    # the scale for every question asked in the world's units. The converted
+    # level is in the world's units and is drawn at its own size, so the near
+    # and far planes and the three distances objects fade over are divided here.
+    # Left as they were Dam's far plane stood at 15000 where GoldenEye's is at
+    # 75000 - the cliffs and the mountains round the dam were never drawn - and
+    # its fog, which is a fraction of that range, began a fifth as far away and
+    # washed the level blue.
+    for k in range(5):
+        r[k] /= vis
     i = lambda k: int(round(r[k - 1]))
     rgb = lambda a: '%02x%02x%02x' % (i(a), i(a + 1), i(a + 2))
     return '%d %d %d %d %d %d %d %s %d %d %d %s %d %d %d %s %d' % (
@@ -1173,7 +1246,7 @@ def main():
             missions.append('  mission %d "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ"'
                             ' pads "bgdata/bg_gs%s_padsZ" setup "Usetupgs%sZ"%s' % (
                                 [m[0] for m in MISSIONS].index(mkey), mname, short, short, mkey, mkey,
-                                (' fog "%s"' % fog_value(fogs[LEVELIDS[key]], offset)
+                                (' fog "%s"' % fog_value(fogs[LEVELIDS[key]], offset, VISIBILITY.get(key, 1.0))
                                  if LEVELIDS[key] in fogs else '')))
             print('%-5s mission %-12s props %4d (+%d) pads %3d ai %5d (+%d) unknown %d' % (
                 key, mname, sum(mstats['kept'].values()), sum(mstats['dropped'].values()),
@@ -1188,7 +1261,7 @@ def main():
                 f.write(data)
         maps.append('  map "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ" pads "bgdata/bg_%s_padsZ" mpsetup "Ump_setup%sZ"%s' % (
             NAMES[key], short, short, short, short,
-            (' fog "%s"' % fog_value(fogs[LEVELIDS[key]], offset) if LEVELIDS[key] in fogs else '')))
+            (' fog "%s"' % fog_value(fogs[LEVELIDS[key]], offset, VISIBILITY.get(key, 1.0)) if LEVELIDS[key] in fogs else '')))
         print('%-5s lights %d' % (key, numlights))
         print('%-5s rooms %3d portals %3d textures %3d tiles %4d (+%d walls) pads %3d waypoints %3d spawns %2d weapons %2d ammo %2d  bg %d bytes' % (
             key, bg.numrooms, len(bg.portals), len(tex), len(stan), walls, len(setup['pads']), len(setup['waypoints']), nsp, nw, na, len(bgdata)))

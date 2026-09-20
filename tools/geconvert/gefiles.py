@@ -110,7 +110,8 @@ class Bg:
             p = seg(u(o))
             n = d[p]
             pts = [struct.unpack_from('>3f', d, p + 4 + 12 * k) for k in range(n)]
-            self.portals.append(dict(points=pts, room1=d[o + 4], room2=d[o + 5], ctrl=struct.unpack_from('>H', d, o + 6)[0]))
+            self.portals.append(dict(points=pts, room1=d[o + 4], room2=d[o + 5], ctrl=struct.unpack_from('>H', d, o + 6)[0],
+                                     vtxptr=u(o)))
             o += 8
         self.vis = []
         o = vis_at

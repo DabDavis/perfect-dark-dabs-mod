@@ -73,7 +73,7 @@ OBJ_TAILS = {
 # ticked, modelasm00018680() took the parent's matrix of a node that has none
 # and the mission died. GoldenEye's own heads carry their hats anyway, and the
 # remake's guards wear Bean's, GE-X's or Perfect Dark's heads.
-AS_NOTHING = {0x0e, 0x11, 0x12, 0x13, 0x14}
+AS_NOTHING = {0x0e, 0x11, 0x12, 0x13}
 
 OBJTYPE_NOTHING = 0x22
 OBJTYPE_END = 0x34
@@ -117,6 +117,29 @@ GE_ITEM_WEAPON = (
     0x75,            # 28 PROXIMITYMINE Proximity Mine
     0x76,            # 29 REMOTEMINE    Remote Mine
 )
+
+# GoldenEye's ammunition types (bondconstants.h, AMMOTYPES) as the types the
+# port's GoldenEye guns draw on, which are their hosts' (geguns.c): the PP7 and
+# the DD44 stand on Perfect Dark's pistols and the Klobb, the ZMG, the D5K, the
+# Phantom and the RC-P90 on its submachine guns, so GoldenEye's one pool of 9mm
+# is two pools here and a grant of it fills both. Everything past the golden
+# bullet is a gadget's count (the covert modem's 20, the bomb case's), which
+# nothing in the port holds.
+GE_AMMO_TYPES = {
+    1: (0x01, 0x02),    # 9MM            pistol and SMG
+    2: (0x01, 0x02),    # 9MM_2
+    3: (0x04,),         # RIFLE
+    4: (0x05,),         # SHOTGUN
+    5: (0x07,),         # GRENADE
+    6: (0x08,),         # ROCKETS
+    7: (0x0c,),         # REMOTEMINE
+    8: (0x0d,),         # PROXMINE
+    9: (0x0e,),         # TIMEDMINE
+    10: (0x09,),        # KNIFE
+    11: (0x0b,),        # GRENADEROUND   the grenade launcher stands on the Devastator
+    12: (0x0a,),        # MAGNUM
+    13: (0x0a,),        # GGUN           the golden gun stands on the DY357-LX
+}
 
 # The two commands that put an item in Bond's hands (geaitable.py rows e3 and
 # e4); everything else GoldenEye calls an ITEM_NUM is left as it is.
@@ -429,6 +452,36 @@ def camera_record(raw, numpads, offset):
     return bytes(out)
 
 
+AMMO_CRATE = 0x07
+MULTI_AMMO_CRATE = 0x14
+GE_CRATE_SLOTS = 13
+PD_CRATE_SLOTS = 19
+
+
+def multi_crate_record(raw, numpads):
+    """GoldenEye's crate of several kinds of ammunition as Perfect Dark's.
+
+    Both keep a (model, quantity) pair for every ammunition type, indexed by the
+    type less one - thirteen of GoldenEye's, nineteen of Perfect Dark's - so a
+    pair moves to the slot of the type the port's guns draw on
+    (GE_AMMO_TYPES), 9mm filling both of its pools. The model is the box each
+    kind would be drawn as and is left at none: setupCreateProps() loads a
+    slot's model only to have it ready, and a crate is picked up whole.
+    """
+    out = base_record(raw, MULTI_AMMO_CRATE, PD_SIZES[MULTI_AMMO_CRATE], pad_of(MULTI_AMMO_CRATE, raw, numpads))
+    for i in range(PD_CRATE_SLOTS):
+        struct.pack_into('>HH', out, 0x5c + 4 * i, 0xffff, 0)
+    for k in range(GE_CRATE_SLOTS):
+        qty = struct.unpack_from('>H', raw, 0x80 + 4 * k + 2)[0]
+        if not qty:
+            continue
+        for pdtype in GE_AMMO_TYPES.get(k + 1, ()):
+            at = 0x5c + 4 * (pdtype - 1)
+            have = struct.unpack_from('>H', out, at + 2)[0]
+            struct.pack_into('>HH', out, at, 0xffff, min(0xffff, have + qty))
+    return out
+
+
 def convert_props(d, numpads, bodies, models, stats, offset=None):
     """The mission's props, one Perfect Dark record for each of GoldenEye's."""
     recs = ge_records(d)
@@ -451,12 +504,18 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
             out.append(bytes(objective_record(raw)))
         elif t == CUTSCENE_CAMERA:
             out.append(camera_record(raw, numpads, offset))
+        elif t == MULTI_AMMO_CRATE:
+            out.append(bytes(multi_crate_record(raw, numpads)))
         elif geobjects.GE_SIZES[t] >= 32:
             # an ObjectRecord and a tail
             rec = base_record(raw, t, PD_SIZES[t], pad_of(t, raw, numpads))
             for ge, pd, w, mul in OBJ_TAILS.get(t, ()):
                 v = int.from_bytes(raw[ge:ge + w], 'big') * mul
                 rec[pd:pd + w] = v.to_bytes(w, 'big')
+            if t == AMMO_CRATE:
+                # the crate's one type, in the port's numbering
+                pdtypes = GE_AMMO_TYPES.get(struct.unpack_from('>i', raw, 0x80)[0], (0,))
+                struct.pack_into('>i', rec, 0x5c, pdtypes[0])
             out.append(bytes(rec))
         else:
             # a short record: the same fields in the same order on both sides
@@ -515,6 +574,34 @@ def intro_camera(raw, numpads, scale, offset):
     return bytes(out)
 
 
+INTROTYPE_ITEM = 1
+INTROTYPE_AMMO = 2
+
+
+def intro_item(raw):
+    """What Bond starts with, as the port's own GoldenEye guns.
+
+    The command's two items are GoldenEye's **item ids**, as a collectable's is
+    (weapon_record()), and copied as they were they are read as Perfect Dark's
+    weapon numbers: Dam's silenced PP7, item 5, was a MagSec 4. An item that is
+    not a weapon - the covert modem, the bomb case, the key analyser - is
+    nothing the port can put in a hand, and its command is left out rather than
+    handed over as whatever Perfect Dark keeps at that number.
+    """
+    v = list(struct.unpack('>4i', raw))
+    right = item_weapon(v[1]) if v[1] >= 0 else 0
+    if not right:
+        return []
+    left = item_weapon(v[2]) if v[2] >= 0 else 0
+    return [struct.pack('>4i', v[0], right, left if left else -1, v[3])]
+
+
+def intro_ammo(raw):
+    """Bond's starting ammunition, in the pools the port's guns draw on."""
+    v = struct.unpack('>4i', raw)
+    return [struct.pack('>4i', v[0], t, v[2], v[3]) for t in GE_AMMO_TYPES.get(v[1], ())]
+
+
 def convert_intro(d, numpads, scale=None, offset=None):
     h = struct.unpack_from('>10I', d, 0)
     out, spawns = [], 0
@@ -530,6 +617,10 @@ def convert_intro(d, numpads, scale=None, offset=None):
             break
         if t == INTROTYPE_CAMERA:
             out.append(intro_camera(d[o:o + 4 * n], numpads, scale, offset))
+        elif t == INTROTYPE_ITEM:
+            out.extend(intro_item(d[o:o + 4 * n]))
+        elif t == INTROTYPE_AMMO:
+            out.extend(intro_ammo(d[o:o + 4 * n]))
         else:
             out.append(d[o:o + 4 * n])
         if t == 0:
@@ -539,12 +630,34 @@ def convert_intro(d, numpads, scale=None, offset=None):
     return b''.join(out), spawns
 
 
-def convert_paths(d, at):
-    """GoldenEye's patrol paths, which are Perfect Dark's own record: a pointer
-    to a -1 terminated list of pads, an id, a loop flag and a length."""
+def waypoint_pads(d):
+    """The pad each of a GoldenEye setup's waypoints stands on, by its index."""
+    h = struct.unpack_from('>10I', d, 0)
+    out, o = [], h[0]
+    while h[0] and o + 16 <= len(d):
+        pad = struct.unpack_from('>i', d, o)[0]
+        if pad < 0:
+            break
+        out.append(pad)
+        o += 16
+    return out
+
+
+def convert_paths(d, at, numpads):
+    """GoldenEye's patrol paths as Perfect Dark's: the same record - a pointer
+    to a -1 terminated list, an id, a loop flag and a length - but **not the
+    same list**. GoldenEye's is of *waypoints* (chraction.c's
+    chrlvGetPatrolStepPad(): `pads[pathwaypoints[path->data[step]].padID]`, and
+    the truck's tick reads its path the same way) and Perfect Dark's is of
+    *pads* (`chr->act_patrol.path->pads[step]`, straight into padUnpack()). Copied
+    as it was, a waypoint's index was read as a pad's number, so every guard on
+    patrol walked for pads that were never on its route and Dam's truck turned
+    round and drove the wrong way down the road. Each entry goes through the
+    setup's own waypoint table to the pad it stands on."""
     h = struct.unpack_from('>10I', d, 0)
     if not h[4]:
         return struct.pack('>IBBH', 0, 0, 0, 0), b''
+    waypads = waypoint_pads(d)
     paths, lists = [], []
     o = h[4]
     while True:
@@ -557,7 +670,8 @@ def convert_paths(d, at):
             v = struct.unpack_from('>i', d, at2)[0]
             if v == -1:
                 break
-            pads.append(v)
+            if 0 <= v < len(waypads):
+                pads.append(pad_num(waypads[v], numpads))
             at2 += 4
         paths.append((pid, flags, ln, pads))
         o += 8
@@ -755,7 +869,7 @@ def convert(d, numpads, bodies, scale=None, offset=None, data=None):
     intro_at = header
     props_at = intro_at + len(intro)
     paths_at = props_at + len(props)
-    paths, pathpads = convert_paths(d, paths_at)
+    paths, pathpads = convert_paths(d, paths_at, numpads)
     ai_at = paths_at + len(paths) + len(pathpads)
     ailists, aicode = convert_ailists(d, ai_at, stats, numpads, data)
     out = struct.pack('>8I', 0, 0, 0, intro_at, props_at, paths_at, ai_at, 0)

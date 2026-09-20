@@ -39,6 +39,7 @@
 #include "xblaexpl.h"
 #include "xblasky.h"
 #include "gebean.h"
+#include "gexplus.h"
 #include "menuimage.h"
 #include "xblastage.h"
 #include "roomsheen.h"
@@ -4370,6 +4371,8 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
+static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menuitem *item, union handlerdata *data);
+
 struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -4498,6 +4501,14 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		(uintptr_t)"Ghost Split Times",
 		0,
 		menuhandlerModGhostSplits,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GE Plus: Include Perfect Dark Guns",
+		0,
+		menuhandlerGePlusPdGuns,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -5139,6 +5150,24 @@ static MenuItemHandlerResult menuhandlerXblaGoldenEye(s32 operation, struct menu
 	case MENUOP_SET:
 		gebeanSetEnabled(!gebeanGetEnabled());
 		gebeanPoolRefresh();
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * "GE Plus: Include Perfect Dark Guns": GE Plus is played with GoldenEye's
+ * guns alone unless this is on, which lists Perfect Dark's weapon sets beside
+ * GoldenEye's in its arenas (gexplus.c, Mod.GePlusPdGuns).
+ */
+static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return gexPlusGetPdGuns();
+	case MENUOP_SET:
+		gexPlusSetPdGuns(!gexPlusGetPdGuns());
 		break;
 	}
 

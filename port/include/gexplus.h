@@ -81,4 +81,13 @@ s32 gexPlusMissionAnim(s32 geid);
 void gexPlusExitOnButtonPress(void);
 void gexPlusMissionExitTick(void);
 
+/**
+ * GE Plus's guns are GoldenEye's: the weapon sets its arenas list (GoldenEye's
+ * own fourteen out of the ROM, else GoldenEye X's borrowed ones; 0 for the
+ * whole list), and Mod.GePlusPdGuns, which lists Perfect Dark's beside them.
+ */
+s32 gexPlusWeaponSets(s32 *first);
+s32 gexPlusGetPdGuns(void);
+void gexPlusSetPdGuns(s32 on);
+
 #endif

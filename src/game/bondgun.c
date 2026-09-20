@@ -1058,6 +1058,16 @@ bool bgunIsAkimboIncompatible(s32 weaponnum)
 
 bool bgunWantsLoweredReload(s32 weaponnum)
 {
+	// GoldenEye has one reload and every gun of its own takes it: the gun
+	// goes down off the screen and comes back up loaded. Its guns stand on
+	// Perfect Dark's (weaponHost()), and the ones whose host has a reload
+	// animation of its own - the magnum, the shotgun, the sniper rifle - or
+	// that were borrowed from GoldenEye X with its authored ones would play
+	// that instead, which is not GoldenEye's.
+	if (weaponnum >= WEAPON_GE_FIRST && weaponnum < NUM_WEAPONS) {
+		return true;
+	}
+
 	return bgunIsAkimboIncompatible(weaponnum);
 }
 

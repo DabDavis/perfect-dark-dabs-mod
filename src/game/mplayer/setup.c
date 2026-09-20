@@ -594,7 +594,7 @@ MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menui
 	// nothing else - Perfect Dark's sets are Perfect Dark's guns
 	{
 		s32 first = 0;
-		const s32 num = g_GexPlusMode ? modBorrowWeaponSets(&first) : 0;
+		const s32 num = g_GexPlusMode ? gexPlusWeaponSets(&first) : 0;
 
 		if (num > 0) {
 			switch (operation) {
@@ -7117,11 +7117,13 @@ void mpSetGexPlusMode(bool on)
 
 	if (on) {
 		s32 first = 0;
-		const s32 num = modBorrowWeaponSets(&first);
+		const s32 num = gexPlusWeaponSets(&first);
 
 		// onto GoldenEye's weapon sets, unless one of them is already chosen
 		if (num > 0 && (g_MpWeaponSetNum < first || g_MpWeaponSetNum >= first + num)) {
-			g_MpWeaponSetNum = first;
+			// GoldenEye's own list opens on Slappers Only, which is no guns
+			// at all: start on the set after it
+			g_MpWeaponSetNum = num > 1 && g_MpWeaponSets[first].slots[0] == WEAPON_DISABLED ? first + 1 : first;
 			mpApplyWeaponSet();
 		}
 
