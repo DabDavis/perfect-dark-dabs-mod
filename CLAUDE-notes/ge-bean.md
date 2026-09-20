@@ -3232,6 +3232,42 @@ fovy is `2 atan(tan(23) / covery)` now. At 4:3 nothing changes.
 YouTube refused this box with its bot check whatever the yt-dlp; the same
 binary on `10.8.0.3` got the video at once.
 
+## GoldenEye's own sound effects, and the gun barrel's shot (2026-09-20)
+
+The user: "now add the gunshot sound to the barrel", and "lets only use ge rom
+sounds". `port/src/gesfx.c`, converter version 39.
+
+GoldenEye's `sfx.ctl`/`sfx.tbl` are the first two files of its `musicfiles`
+segment (ROM `0x2ebde0`, 0x5bc0 bytes, and `0x2f19a0`, 0xc2ab0), an ordinary
+ALBankFile of one bank and one instrument with 261 sounds. The conversion
+copies both as `menu/sfxctl` and `menu/sfxtbl`, and `geSfxGet(id)` appends a
+sound after the game's own the first time it is asked for - the way
+modborrow.c appends GoldenEye X's, every offset rebased onto the stock bank's
+start, once each because sounds share envelopes, key maps and waves.
+
+- **The id is GoldenEye's `SFX_ID` and indexes `soundArray` from 0**
+  (`sndPlaySfx()`), where Perfect Dark's ids count from 1 (`soundArray[id - 1]`
+  in modborrow.c). The shot is `GUN_RIFLE7BIG_1`, 111: one 8496-byte ADPCM
+  wave, 0.6 s.
+- **A key map's `velocityMin` and the top two bits of `keyMin` are the *next*
+  sound to play**, by number, in both games' players (`n_sndplayer.c:751`). In
+  an appended GoldenEye sound that number would name one of Perfect Dark's, and
+  an appended id does not fit in its ten bits, so a chain is cut and logged.
+  The shot has none; **a chained GoldenEye sound needs its links played by
+  hand** before it is used.
+- **The balance.** The intro's theme plays at Perfect Dark's menu scale
+  (0x4ccc), not GoldenEye's full volume, so the shot at `AL_VOL_FULL` stood
+  four times over the music where the console capture has it about level
+  (shot alone / music before it, 50 ms rms: 1.25). `INTRO_SHOT_VOLUME` 0x2666
+  measures 1.26 - the gain is linear in the volume. Measured with
+  `SDL_AUDIODRIVER=disk`, the file's size read from gdb at `geIntroOpen()` and
+  at a breakpoint on `geSfxPlay` giving the shot's place in the recording
+  (22050 Hz stereo s16: 88200 bytes a second).
+
+The folder screens and the watch still play Perfect Dark's menu sounds
+(`menuPlaySound()`); GoldenEye's own are in the same bank and are the next
+thing `geSfxPlay()` is for.
+
 ## The folder screens' background on a wide window (2026-09-19)
 
 The user: "lets make the background behind the folders 16:9, but preserve

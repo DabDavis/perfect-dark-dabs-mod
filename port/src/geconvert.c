@@ -113,6 +113,10 @@ static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
 	{ "instrumentsctl", 0x3b4450, 0x43a0 },
 	{ "instrumentstbl", 0x3b87f0, 0x60fa0 },
 	{ "sequences", 0x419790, 0x1eed0 },
+	// its sound effects: the sfx bank and its wave table, which a sound is
+	// appended out of when something of GoldenEye's plays one (gesfx.c)
+	{ "sfxctl", 0x2ebde0, 0x5bc0 },
+	{ "sfxtbl", 0x2f19a0, 0xc2ab0 },
 	// and the gun barrel's sniper-sight backdrop, the folder screens' 440x299
 	// 8-bit background run-length encoded ({u16 w, u16 h, six bytes, then
 	// count/value pairs}, rle.c's rle_expand_8bit)

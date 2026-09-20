@@ -58,6 +58,7 @@
 #include "system.h"
 #include "video.h"
 #include "geblood.h"
+#include "gesfx.h"
 #include "geintro.h"
 #include "gexfront.h"
 #include "preprocess.h"
@@ -1111,6 +1112,11 @@ static void introBarrelStart(void)
 
 static void introSetGunPart(s32 part, s32 visible);
 
+// the shot against M_INTRO. The theme plays at Perfect Dark's menu scale and
+// not at GoldenEye's full volume (seqSetVolume()), so the shot at full stood
+// four times over it where a capture of the console has it about level
+#define INTRO_SHOT_VOLUME 0x2666
+
 /**
  * sub_GAME_7F007F30(): the walk, the turn and the shot. GoldenEye runs two of
  * these ticks in each of its frames and introTickBarrel() runs one in each of
@@ -1137,9 +1143,12 @@ static void introBarrelTickBond(void)
 
 	modelTickAnim(g_Intro.body.model, 1, 1);
 
-	// GoldenEye fires GUN_RIFLE7BIG_1 here, out of its own sound bank, which
-	// the conversion does not carry: the shot is silent for now. The flash
-	// lasts the frame of GoldenEye's the shot goes off in, which is two ticks
+	// GoldenEye's own GUN_RIFLE7BIG_1, out of its own sound bank, and the
+	// flash lasts the frame of GoldenEye's the shot goes off in: two ticks
+	if (g_Intro.gunbarreltimer == 230) {
+		geSfxPlay(GESFX_GUN_RIFLE7BIG_1, INTRO_SHOT_VOLUME);
+	}
+
 	g_Intro.shotplayed = g_Intro.gunbarreltimer == 230 || g_Intro.gunbarreltimer == 231;
 
 	// subcalcpos(), which carries the animation's root motion into the model.
