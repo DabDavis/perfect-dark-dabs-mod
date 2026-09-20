@@ -74,6 +74,7 @@
 #define ITEM_ROW 56
 #define NUM_ITEMS 120
 #define ITEM_WATCH 56
+#define ITEM_CONTROLLER 0x55
 #define ITEM_WATCH_FILE "GwatchidentifierZ"
 
 // the animations: two segments of their own, raw in the ROM. A record in the
@@ -5836,6 +5837,25 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			note("geconvert: %d of GoldenEye's own first person guns", written);
+		}
+
+		// and the controller the watch shows on its control page, which is a
+		// hand item too (0x55, what watchRenderController() puts in the hand)
+		if (g_Items[ITEM_CONTROLLER].file) {
+			const size_t keep = g_NumAllocs;
+			double scale;
+			buf data = itemConvert(ITEM_CONTROLLER, alltex, &scale);
+			buf z = rzip1173(data.v, data.n);
+			char rel[64];
+
+			snprintf(rel, sizeof(rel), "files/Igx%03uZ", (unsigned)ITEM_CONTROLLER);
+			writeFile(outdir, rel, z.v, z.n);
+			note("geconvert: the controller (%s) as %s", g_Items[ITEM_CONTROLLER].file, rel);
+
+			for (size_t i = keep; i < g_NumAllocs; ++i) {
+				free(g_Allocs[i]);
+			}
+			g_NumAllocs = keep;
 		}
 
 		// menu/geanims.bin: the animations the missions' PlayAnimation commands

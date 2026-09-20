@@ -3378,6 +3378,70 @@ circles at the inventory's z. 45 degrees, aspect 1.283847, always.
 - A stage's scale (`mtxF2L`) does not matter under a projection of one's own:
   scaling view space about the eye draws the same picture.
 
+## The controller on the watch's control page (2026-09-20)
+
+The user: "now add the turning controller model on the control page".
+`watchDrawController()`, converter version **41**.
+
+GoldenEye's controller is a **hand item** like the guns - `GjoypadZ`, item
+0x55, which `watchRenderController()` puts in the right hand before drawing it
+- so it converts the way they do, as `files/Igx085Z` (13 matrices), and loads
+into a second slot of the watch's own (`struct watchitem`, `g_WatchPad`). It
+stands at `g_ControllerPos` (0, 200, -200), turned about z by the spin and
+tipped 45 degrees about x, under a camera at (-5, 2000, -168) looking straight
+down y with -z up, 52.5 degrees (US), near 1000 and far 3000, squeezed onto
+the text's frame as the gun's is (`watchItemProjection()`). `PROP_TYPE_OBJ`
+(`unk30 = 1`): its own colours, not the gun's green.
+
+- **It does not turn on its own.** "Turning" was my word for it in an earlier
+  commit message, from the decomp's names; `sub_GAME_7F0A9684()` turns it by
+  the player's stick only while they have hold of the page's second row
+  (CONTROLLER), and a hundred frames after they let go eases it back to rest
+  (`speed += (-angle / 10 - speed) / 4`). Carried over as `g_Watch.padspin`,
+  `padspeed` and `padidle`, ticked with the static's frame.
+- Perfect Dark's `modelSetMatrices()` places the twelve buttons from the
+  model's own tree, where GoldenEye writes each matrix by hand; only the stick
+  (part 2) is rewritten afterwards, to lean 0.6 of a degree a unit with the
+  player's own.
+- **Not done**: GoldenEye's *second* pass, which draws each button again on
+  its own beside the name of what it does (`WatchContButtonPositions`, part 13
+  - the body - switched off, a pressed button dipping), and its two-controller
+  layouts. The page still lists the five names down its left.
+
+## Perfect Dark's own guns on the watch (2026-09-20)
+
+The user: "also add support for showing pd weapon models in the watch menu,
+you can borrow from the shooting range". `watchDrawPdGun()`.
+
+A player can be carrying one of Perfect Dark's guns on a GoldenEye level
+(`Mod.GePlusPdGuns`, a pickup), and GoldenEye has no `gitem_structs` row for
+it. What the firing range and the inventory show is one thing -
+`func0f105948()` in mainmenu.c: the model `weaponGetFileNum()` names, the
+weapon's `partvisibility` list, and a row of a table `gunconfig[weaponnum - 2]`
+= {displace x, y, z, rotx, scale} that brings the model's middle to the origin,
+tips it and sizes it. The table was a local of that function; in the port it is
+at file scope behind `menuGetWeaponModelConfig()` (the N64 build keeps it where
+it was).
+
+- The menu's order is `T(place) * S * R * T(displace)`, and the same here under
+  GoldenEye's watch camera (45 degrees, squeezed onto the text's frame), the
+  eye 420 back and the table's scale times 1.4.
+- **The table's scale is already in view units** - multiplied by 100 on a
+  guess, the camera was inside every model and the first sweep was 47 pictures
+  of the insides of guns. Sweep before tuning by eye.
+- Still on the mission page it stands side on pointing **left** as GoldenEye's
+  do (yaw -90), and **without the table's tip**: turned side on, a tip about x
+  is a roll, and every pistol hung crooked. Turning on the inventory page it
+  keeps the tip and stands 75 to the right, clear of the list, where
+  GoldenEye's own `equip_watch_x` puts its guns.
+- The gun slot's key is the item number for GoldenEye's and `GUN_PD_KEY` (0x1000)
+  + weaponnum for Perfect Dark's; both draw through `watchRenderGun()`, in the
+  watch's green.
+- Checked by sweeping weapons 2 to 0x31 through the page from gdb (all 47 that
+  have a row load and draw, classics and gadgets included) and by
+  `invGiveSingleWeapon(16)` for a real K7 on the inventory page. **A weapon
+  given that way sorts into the list** - it was row 1, not the last row.
+
 ## The folder screens' background on a wide window (2026-09-19)
 
 The user: "lets make the background behind the folders 16:9, but preserve

@@ -3819,9 +3819,17 @@ char *invMenuTextSecondaryFunction(struct menuitem *item)
 	return langGet(L_OPTIONS_003); // "\n"
 }
 
+#ifndef PLATFORM_N64
+// The inventory menu's table, a row a weapon from WEAPON_UNARMED + 1 on: where
+// the model's middle is, how it is tipped and how big it is drawn. At file
+// scope in the port so that GE Plus's watch can hold a Perfect Dark gun up the
+// way this menu and the firing range do (menuGetWeaponModelConfig()).
+static const f32 gunconfig[][5] = {
+#else
 void func0f105948(s32 weaponnum)
 {
 	f32 gunconfig[][5] = {
+#endif
 		{ 23.299999237061f,   -16.799999237061f,  -153.39999389648f,  6.4140100479126f, 0.48769000172615f },
 		{ 22.299999237061f,   -13.5f,             -216.60000610352f,  6.443009853363f,  0.34057000279427f },
 		{ 19.5f,              -31.89999961853f,   -154.89999389648f,  6.3730101585388f, 0.41813001036644f },
@@ -3905,6 +3913,25 @@ void func0f105948(s32 weaponnum)
 		{ -3.7999999523163f,  6.1999998092651f,   1.0f,               5.8997898101807f, 2.0506100654602f  },
 	};
 
+#ifndef PLATFORM_N64
+s32 menuGetWeaponModelConfig(s32 weaponnum, f32 *config)
+{
+	const s32 index = weaponnum - 2;
+
+	if (index < 0 || index >= ARRAYCOUNT(gunconfig) || weaponHasFlag(weaponnum, WEAPONFLAG_HIDEMENUMODEL)) {
+		return false;
+	}
+
+	for (s32 i = 0; i < 5; i++) {
+		config[i] = gunconfig[index][i];
+	}
+
+	return true;
+}
+
+void func0f105948(s32 weaponnum)
+{
+#endif
 	s32 useindex;
 	struct weapon *weapon;
 	u32 stack;

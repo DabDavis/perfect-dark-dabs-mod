@@ -53,6 +53,9 @@ char *func0f1056a0(struct menuitem *item);
 char *invMenuTextPrimaryFunction(struct menuitem *item);
 char *invMenuTextSecondaryFunction(struct menuitem *item);
 void func0f105948(s32 weaponnum);
+#ifndef PLATFORM_N64
+s32 menuGetWeaponModelConfig(s32 weaponnum, f32 *config);
+#endif
 char *invMenuTextWeaponName(struct menuitem *item);
 char *invMenuTextWeaponManufacturer(struct menuitem *item);
 char *invMenuTextWeaponDescription(struct menuitem *item);

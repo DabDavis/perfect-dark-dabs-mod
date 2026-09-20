@@ -71,6 +71,7 @@
 #include "game/lang.h"
 #include "game/lv.h"
 #include "game/mainmenu.h"
+#include "game/game_0b0fd0.h"
 #include "game/menu.h"
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
@@ -388,6 +389,9 @@ struct gewatch {
 	s32 scany;       // the scanline's place up the face, -0x156 to 0x156
 	f32 staticacc;   // 60ths owed to watchTickStatic()
 	f32 gunangle;    // D_80040B14, the inventory's gun's turn
+	f32 padspin;     // g_WatchControllerSpinAngle
+	f32 padspeed;    // g_WatchControllerSpinSpeed
+	s32 padidle;     // D_80040B2C, frames since the player last turned it
 	s32 statichalf;
 
 	// what the level was doing before the watch took it over
@@ -1230,6 +1234,34 @@ static void watchTickStatic(void)
 
 		if (g_Watch.statichalf) {
 			continue;
+		}
+
+		// sub_GAME_7F0A9684(): the controller turns by the stick while the
+		// player has hold of the control page's second row, and a hundred
+		// frames after they let go of it eases back to rest
+		{
+			const s32 held = g_Watch.page == PAGE_CONTROL && g_Watch.selected && g_Watch.controlrow == 1;
+			const s32 stickx = joyGetStickX(0);
+
+			if (held && (stickx >= 10 || stickx < -9)) {
+				g_Watch.padidle = 0;
+			} else if (g_Watch.padidle < 100) {
+				g_Watch.padidle++;
+			}
+
+			if (g_Watch.padidle >= 100) {
+				g_Watch.padspeed += (-g_Watch.padspin / 10.0f - g_Watch.padspeed) / 4.0f;
+			} else if (held) {
+				g_Watch.padspeed += (-(f32)stickx * 0.2f * M_BADTAU / 360.0f - g_Watch.padspeed) / 4.0f;
+			}
+
+			g_Watch.padspin += g_Watch.padspeed * 2.0f * 0.5f;
+
+			if (g_Watch.padspin > M_BADPI) {
+				g_Watch.padspin -= M_BADTAU;
+			} else if (g_Watch.padspin < -M_BADPI) {
+				g_Watch.padspin += M_BADTAU;
+			}
 		}
 
 		if (rngRandom() > (0xffa0u << 16)) {
@@ -3094,7 +3126,7 @@ static s32 watchFrameHeight(void);
 #define GUN_NUM_ITEMS  120
 #define GUN_RWDATA_MAX 1024
 
-static struct {
+struct watchitem {
 	u8 *items;
 	u32 itemslen;
 	s32 item;      // the item loaded, -1 for none
@@ -3104,7 +3136,11 @@ static struct {
 	struct modeldef *def;
 	struct model model;
 	u32 rwdata[GUN_RWDATA_MAX];
-} g_WatchGun = { .item = -1, .failed = -1 };
+};
+
+// the gun, and the controller on the control page, which is a hand item too
+static struct watchitem g_WatchGun = { .item = -1, .failed = -1 };
+static struct watchitem g_WatchPad = { .item = -1, .failed = -1 };
 
 /** GoldenEye's ITEM_IDS for one of the remake's guns, -1 for anything else. */
 static s32 watchGunItem(s32 weaponnum)
@@ -3153,83 +3189,112 @@ static f32 watchGunFloat(s32 item, s32 offset)
 	return v.f;
 }
 
-/** Let the gun go; the model is the watch's own and takes nothing with it. */
-static void watchGunUnload(void)
+/** Let an item go; the model is the watch's own and takes nothing with it. */
+static void watchItemUnload(struct watchitem *it)
 {
-	if (g_WatchGun.buf) {
-		videoFreeCachedTextures(g_WatchGun.buf, g_WatchGun.buf + g_WatchGun.buflen);
-		sysMemFree(g_WatchGun.buf);
-		g_WatchGun.buf = NULL;
+	if (it->buf) {
+		videoFreeCachedTextures(it->buf, it->buf + it->buflen);
+		sysMemFree(it->buf);
+		it->buf = NULL;
 	}
 
-	g_WatchGun.def = NULL;
-	g_WatchGun.item = -1;
+	it->def = NULL;
+	it->item = -1;
 }
 
-static s32 watchGunLoad(s32 item)
+static void watchGunUnload(void)
 {
-	char name[16];
+	watchItemUnload(&g_WatchGun);
+	watchItemUnload(&g_WatchPad);
+}
+
+// a slot's key for one of Perfect Dark's own guns, past GoldenEye's items
+#define GUN_PD_KEY 0x1000
+
+/**
+ * A model into a slot under `key`, which is what says it is already there:
+ * GoldenEye's hand item number, its file the conversion's Igx%03dZ, or
+ * GUN_PD_KEY and up for one of Perfect Dark's own guns, by the file the game
+ * itself shows in its menus.
+ */
+static s32 watchItemLoad(struct watchitem *it, s32 key)
+{
 	s32 fileid;
 	s32 size;
 
-	if (item == g_WatchGun.item) {
+	if (key == it->item) {
 		return 1;
 	}
 
-	if (item == g_WatchGun.failed) {
+	if (key == it->failed) {
 		return 0;
 	}
 
-	watchGunUnload();
-	g_WatchGun.failed = item;
+	watchItemUnload(it);
+	it->failed = key;
 
-	if (!g_WatchGun.items) {
-		g_WatchGun.items = watchLoad("geitems.bin", &g_WatchGun.itemslen);
-	}
+	if (key >= GUN_PD_KEY) {
+		fileid = weaponGetFileNum(key - GUN_PD_KEY);
+	} else if (key >= 0 && key < GUN_NUM_ITEMS) {
+		char name[16];
 
-	if (!g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS || item < 0 || item >= GUN_NUM_ITEMS) {
+		snprintf(name, sizeof(name), "Igx%03dZ", key);
+		fileid = romdataRegisterModFile(name, g_Watch.moddir);
+	} else {
 		return 0;
 	}
 
-	snprintf(name, sizeof(name), "Igx%03dZ", item);
-	fileid = romdataRegisterModFile(name, g_Watch.moddir);
 	size = fileid > 0 ? fileGetInflatedSize(fileid, LOADTYPE_MODEL) : 0;
 
 	if (size <= 0) {
 		return 0;
 	}
 
-	g_WatchGun.buflen = ALIGN64(size) + 0x20000;
-	g_WatchGun.buf = sysMemZeroAlloc(g_WatchGun.buflen);
+	it->buflen = ALIGN64(size) + 0x20000;
+	it->buf = sysMemZeroAlloc(it->buflen);
 
-	if (!g_WatchGun.buf) {
+	if (!it->buf) {
 		return 0;
 	}
 
-	g_WatchGun.def = modeldefLoad(fileid, g_WatchGun.buf, g_WatchGun.buflen, NULL);
+	it->def = modeldefLoad(fileid, it->buf, it->buflen, NULL);
 
-	if (!g_WatchGun.def) {
-		watchGunUnload();
+	if (!it->def) {
+		watchItemUnload(it);
 		return 0;
 	}
 
-	watchFixRenderModes(g_WatchGun.def);
-	modelAllocateRwData(g_WatchGun.def);
+	watchFixRenderModes(it->def);
+	modelAllocateRwData(it->def);
 
-	if (g_WatchGun.def->rwdatalen > GUN_RWDATA_MAX) {
-		watchGunUnload();
+	if (it->def->rwdatalen > GUN_RWDATA_MAX) {
+		watchItemUnload(it);
 		return 0;
 	}
 
-	memset(g_WatchGun.rwdata, 0, sizeof(g_WatchGun.rwdata));
-	modelInit(&g_WatchGun.model, g_WatchGun.def, g_WatchGun.rwdata, false);
-	g_WatchGun.model.anim = NULL;
-	modelSetScale(&g_WatchGun.model, 1.0f);
+	memset(it->rwdata, 0, sizeof(it->rwdata));
+	modelInit(&it->model, it->def, it->rwdata, false);
+	it->model.anim = NULL;
+	modelSetScale(&it->model, 1.0f);
 
-	g_WatchGun.item = item;
-	g_WatchGun.failed = -1;
+	it->item = key;
+	it->failed = -1;
 
 	return 1;
+}
+
+/** A gun, which also wants its row of gitem_structs to stand by. */
+static s32 watchGunLoad(s32 item)
+{
+	if (!g_WatchGun.items) {
+		g_WatchGun.items = watchLoad("geitems.bin", &g_WatchGun.itemslen);
+	}
+
+	if (!g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS) {
+		return 0;
+	}
+
+	return watchItemLoad(&g_WatchGun, item);
 }
 
 static void watchGunSetPart(s32 part, s32 visible)
@@ -3246,6 +3311,161 @@ static void watchGunSetPart(s32 part, s32 visible)
 }
 
 /**
+ * GoldenEye's camera for an item is over its whole 320x240 screen, which here
+ * is the frame the page is laid out on: as much of the window's height as the
+ * frame takes, and 4:3 of that across. Its aspect is its own 1.283847.
+ */
+static Gfx *watchItemProjection(Gfx *gdl, f32 fovy, f32 near, f32 far)
+{
+	Mtx *projection = gfxAllocateMatrix();
+	Mtxf persp;
+	Mtxf squeeze;
+	Mtxf tmp;
+	u16 perspnorm;
+	const f32 sy = (f32)watchFrameHeight() / (f32)viGetHeight();
+	const f32 sx = sy * (4.0f / 3.0f) / videoGetAspect();
+
+	guPerspectiveF(persp.m, &perspnorm, fovy, 1.283847f, near, far, 1.0f);
+	mtx4LoadIdentity(&squeeze);
+	squeeze.m[0][0] = sx;
+	squeeze.m[1][1] = sy;
+	mtx4MultMtx4(&squeeze, &persp, &tmp);
+	guMtxF2L(tmp.m, projection);
+
+	gDPPipeSync(gdl++);
+	gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPPerspNormalize(gdl++, perspnorm);
+
+	return gdl;
+}
+
+/**
+ * The gun slot's model drawn under `base`, as a weapon is
+ * (PROP_TYPE_WEAPON, unk30 4), the env word being the fog colour it is faded
+ * towards - which is the watch's green.
+ */
+static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
+{
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+	Mtxf *matrices = gfxAllocate(g_WatchGun.def->nummatrices * sizeof(Mtxf));
+	Mtxf tmp;
+
+	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+		mtx4LoadIdentity(&matrices[i]);
+	}
+
+	mtx4Copy(base, matrices);
+	g_WatchGun.model.matrices = matrices;
+
+	renderdata.unk00 = base;
+	renderdata.unk10 = matrices;
+
+	modelSetDistanceChecksDisabled(true);
+	modelUpdateRelations(&g_WatchGun.model);
+	modelSetMatrices(&renderdata, &g_WatchGun.model);
+
+	renderdata.unk30 = 4;
+	renderdata.envcolour = envcolour;
+	renderdata.flags = 3;
+	renderdata.zbufferenabled = true;
+
+	gDPSetTexturePersp(gdl++, G_TP_PERSP);
+	gDPSetTextureLUT(gdl++, G_TT_NONE);
+	gDPSetAlphaCompare(gdl++, G_AC_NONE);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	gdl = lightsSetDefault(gdl);
+	gdl = zbufClear(gdl);
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
+	renderdata.gdl = gdl;
+	modelRender(&renderdata, &g_WatchGun.model);
+	gdl = renderdata.gdl;
+
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+	modelSetDistanceChecksDisabled(false);
+
+	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+		mtx4Copy(&matrices[i], &tmp);
+		mtxF2L(&tmp, &matrices[i]);
+	}
+
+	// the pages' text after it is GoldenEye's, and sets itself up
+	return gexFrontTextSetup(gdl);
+}
+
+/**
+ * One of Perfect Dark's own guns on the face, for a player carrying one
+ * (Mod.GePlusPdGuns, a pickup a level left them): GoldenEye has no row for it,
+ * so it is held up the way Perfect Dark's own inventory and firing range hold
+ * it - the model its menus show (weaponGetFileNum()), its middle brought to
+ * the origin, tipped and sized by the row of the inventory menu's table
+ * (menuGetWeaponModelConfig()), and the pieces a weapon hides in a menu hidden
+ * (its partvisibility list). Side on and still on the mission page, turning on
+ * the inventory's, under the same camera and the same green as GoldenEye's.
+ */
+#define PDGUN_STILL -1.5707963f // side on and pointing left, as GoldenEye's stand
+#define PDGUN_EYE   420.0f  // how far back the camera stands
+#define PDGUN_ASIDE 75.0f   // and how far right of the list the inventory's gun turns
+#define PDGUN_SIZE  1.4f  // over the table's scale, which is sized for the menu's own camera
+
+static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
+{
+	struct weapon *weapon = weaponnum > WEAPON_UNARMED && weaponnum < WEAPON_GE_FIRST ? weaponFindById(weaponnum) : NULL;
+	struct coord displace;
+	f32 config[5];
+	Mtxf base;
+	Mtxf tmp;
+
+	if (!weapon || !menuGetWeaponModelConfig(weaponnum, config) || !watchItemLoad(&g_WatchGun, GUN_PD_KEY + weaponnum)) {
+		return gdl;
+	}
+
+	gdl = watchItemProjection(gdl, 45.0f, 10.0f, 10000.0f);
+
+	// the menu's own order: out to its place, its size, its turn, and last the
+	// displacement that brings the model's middle to where it turns about
+	displace.x = config[0];
+	displace.y = config[1];
+	displace.z = config[2];
+
+	mtx4LoadTranslation(&displace, &base);
+
+	// tipped towards the eye as the menu tips it while it turns; standing side
+	// on the same tip is a roll, and a pistol hangs crooked, so it is left out
+	mtx4LoadXRotation(turning ? config[3] : 0.0f, &tmp);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	mtx4LoadYRotation(turning ? g_Watch.gunangle : PDGUN_STILL, &tmp);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	mtx4LoadIdentity(&tmp);
+	mtx00015f04(config[4] * PDGUN_SIZE, &tmp);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	mtx00016ae4(&tmp, 0.0f, 0.0f, PDGUN_EYE, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	// on the inventory page it turns to the right of the list, where
+	// GoldenEye's own rows (equip_watch_x) put its guns
+	if (turning) {
+		base.m[3][0] += PDGUN_ASIDE;
+	}
+
+	if (weapon->partvisibility) {
+		for (struct modelpartvisibility *ptr = weapon->partvisibility; ptr->part != 255; ptr++) {
+			struct modelnode *node = modelGetPart(g_WatchGun.def, ptr->part);
+			union modelrwdata *rwdata = node ? modelGetNodeRwData(&g_WatchGun.model, node) : NULL;
+
+			if (rwdata) {
+				rwdata->toggle.visible = ptr->visible ? true : false;
+			}
+		}
+	}
+
+	return watchRenderGun(gdl, &base, turning ? 0xa0ffa03c : 0x64dc6428);
+}
+
+/**
  * The gun of `weaponnum` on the face: still and side on (`turning` 0, the
  * mission page) or circled by the camera (the inventory's).
  */
@@ -3253,38 +3473,19 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 {
 	struct modelrenderdata renderdata = { NULL, false, 3 };
 	const s32 item = watchGunItem(weaponnum);
-	Mtx *projection;
-	Mtxf persp;
-	Mtxf squeeze;
 	Mtxf base;
 	Mtxf tmp;
-	Mtxf *matrices;
-	u16 perspnorm;
-	f32 sx, sy;
 	f32 rotx, roty;
 
-	if (item < 0 || !watchGunLoad(item)) {
+	if (item < 0) {
+		return watchDrawPdGun(gdl, weaponnum, turning);
+	}
+
+	if (!watchGunLoad(item)) {
 		return gdl;
 	}
 
-	// GoldenEye's 45 degrees over its own screen, squeezed onto the frame the
-	// page is laid out on: as much of the window's height as the frame takes,
-	// and 4:3 of that across
-	sy = (f32)watchFrameHeight() / (f32)viGetHeight();
-	sx = sy * (4.0f / 3.0f) / videoGetAspect();
-
-	guPerspectiveF(persp.m, &perspnorm, 45.0f, 1.283847f, 10.0f, 10000.0f, 1.0f);
-	mtx4LoadIdentity(&squeeze);
-	squeeze.m[0][0] = sx;
-	squeeze.m[1][1] = sy;
-	mtx4MultMtx4(&squeeze, &persp, &tmp);
-
-	projection = gfxAllocateMatrix();
-	guMtxF2L(tmp.m, projection);
-
-	gDPPipeSync(gdl++);
-	gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
-	gSPPerspNormalize(gdl++, perspnorm);
+	gdl = watchItemProjection(gdl, 45.0f, 10.0f, 10000.0f);
 
 	// the gun turned by its row's two angles, then the camera
 	rotx = watchGunFloat(item, 32);
@@ -3323,26 +3524,81 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	watchGunSetPart(15, 1);
 	watchGunSetPart(1, 0);
 
-	matrices = gfxAllocate(g_WatchGun.def->nummatrices * sizeof(Mtxf));
+	return watchRenderGun(gdl, &base, turning ? 0xa0ffa03c : 0x64dc6428);
+}
 
-	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+/**
+ * draw_watch_control_options_page()'s controller (watchRenderController()):
+ * GoldenEye's own joypad, hand item 0x55, 200 up and 200 back from the origin
+ * and tipped 45 degrees towards a camera 2000 over it, under 52.5 degrees.
+ * It stands still: GoldenEye's turns only while the player has hold of the
+ * page's second row, by their stick, and eases back to rest a hundred frames
+ * after they let go - which is carried here by `g_Watch.padspin`. Its stick
+ * (part 2) leans with the player's own.
+ */
+#define PAD_ITEM 0x55
+
+static Gfx *watchDrawController(Gfx *gdl)
+{
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+	struct coord pos = { 0.0f, 200.0f, -200.0f };
+	struct modelnode *stick;
+	Mtxf base;
+	Mtxf tmp;
+	Mtxf turn;
+	Mtxf *matrices;
+
+	if (!watchItemLoad(&g_WatchPad, PAD_ITEM)) {
+		return gdl;
+	}
+
+	gdl = watchItemProjection(gdl, 52.5f, 1000.0f, 3000.0f);
+
+	// the spin about z, then the tip towards the eye, then out to its place
+	mtx4LoadZRotation(g_Watch.padspin, &turn);
+	mtx4LoadXRotation(-0.78539819f, &tmp);
+	mtx4MultMtx4(&turn, &tmp, &base);
+	mtx4SetTranslation(&pos, &base);
+
+	mtx00016ae4(&tmp, -5.0f, 2000.0f, -168.0f, -5.0f, 0.0f, -168.0f, 0.0f, 0.0f, -1.0f);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	matrices = gfxAllocate(g_WatchPad.def->nummatrices * sizeof(Mtxf));
+
+	for (s32 i = 0; i < g_WatchPad.def->nummatrices; i++) {
 		mtx4LoadIdentity(&matrices[i]);
 	}
 
 	mtx4Copy(&base, matrices);
-	g_WatchGun.model.matrices = matrices;
+	g_WatchPad.model.matrices = matrices;
 
 	renderdata.unk00 = &base;
 	renderdata.unk10 = matrices;
 
 	modelSetDistanceChecksDisabled(true);
-	modelUpdateRelations(&g_WatchGun.model);
-	modelSetMatrices(&renderdata, &g_WatchGun.model);
+	modelUpdateRelations(&g_WatchPad.model);
+	modelSetMatrices(&renderdata, &g_WatchPad.model);
 
-	// PROP_TYPE_WEAPON under GoldenEye's own green, which is the fog colour a
-	// weapon is faded towards: 0x64dc6428 still, 0xa0ffa03c turning
-	renderdata.unk30 = 4;
-	renderdata.envcolour = turning ? 0xa0ffa03c : 0x64dc6428;
+	// the stick leans as the player's does, 0.6 of a degree a unit
+	stick = modelGetPart(g_WatchPad.def, 2);
+
+	if (stick && (stick->type & 0xff) == MODELNODETYPE_POSITIONHELD && stick->rodata) {
+		const struct modelrodata_positionheld *ro = &stick->rodata->positionheld;
+
+		if (ro->mtxindex >= 0 && ro->mtxindex < g_WatchPad.def->nummatrices) {
+			struct coord at = { ro->pos.x, ro->pos.y, ro->pos.z };
+			Mtxf lean;
+
+			mtx4LoadZRotation(-(f32)joyGetStickX(0) * M_BADTAU * 0.6f / 360.0f, &lean);
+			mtx4LoadXRotation(-(f32)joyGetStickY(0) * M_BADTAU * 0.6f / 360.0f, &tmp);
+			mtx4MultMtx4InPlace(&tmp, &lean);
+			mtx4SetTranslation(&at, &lean);
+			mtx4MultMtx4(&base, &lean, &matrices[ro->mtxindex]);
+		}
+	}
+
+	// PROP_TYPE_OBJ: the controller in its own colours
+	renderdata.unk30 = 1;
 	renderdata.flags = 3;
 	renderdata.zbufferenabled = true;
 
@@ -3355,18 +3611,17 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
 	renderdata.gdl = gdl;
-	modelRender(&renderdata, &g_WatchGun.model);
+	modelRender(&renderdata, &g_WatchPad.model);
 	gdl = renderdata.gdl;
 
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 	modelSetDistanceChecksDisabled(false);
 
-	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+	for (s32 i = 0; i < g_WatchPad.def->nummatrices; i++) {
 		mtx4Copy(&matrices[i], &tmp);
 		mtxF2L(&tmp, &matrices[i]);
 	}
 
-	// the pages' text after it is GoldenEye's, and sets itself up
 	return gexFrontTextSetup(gdl);
 }
 
@@ -3547,6 +3802,7 @@ static Gfx *watchDrawControlPage(Gfx *gdl)
 	const char *style;
 	s32 y = YOFFSET_1;
 
+	gdl = watchDrawController(gdl);
 	gdl = watchPrint(gdl, XOFFSET_1, YOFFSET_8, watchString(STR_CONTROLSTYLE),
 			watchRowColour(0, g_Watch.controlrow));
 
