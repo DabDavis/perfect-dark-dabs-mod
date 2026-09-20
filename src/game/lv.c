@@ -108,6 +108,7 @@
 #include "gexplus.h"
 #include "gemusic.h"
 #include "gecinema.h"
+#include "gegadgets.h"
 #endif
 #ifndef PLATFORM_N64
 #include "mod.h"
@@ -1422,6 +1423,12 @@ Gfx *lvRender(Gfx *gdl)
 					}
 				}
 
+#ifndef PLATFORM_N64
+				// GoldenEye's camera, whose photograph is judged here as the
+				// CamSpy's is below: on this frame's own matrices (gegadgets.c)
+				gegadgetsAfterProps();
+#endif
+
 				// Handle eyespy Z presses
 				if (g_Vars.currentplayer->eyespy
 						&& (g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit & DEVICE_EYESPY)
@@ -2239,6 +2246,9 @@ void lvTick(void)
 	// A converted GoldenEye mission that has said it is over: the next button
 	// press fades the screen out and leaves (gexplus.c)
 	gexPlusMissionExitTick();
+
+	// the key analyser, which works the moment it is equipped (gegadgets.c)
+	gegadgetsTick();
 
 	// and GE Plus's Cinema, which is a mission's stage with its own opening
 	// camera shots played on it and no player in it (gecinema.c)

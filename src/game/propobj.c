@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifndef PLATFORM_N64
+#include "gegadgets.h"
+#endif
 #include "constants.h"
 #include "game/bondmove.h"
 #include "game/bondwalk.h"
@@ -17445,7 +17448,15 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			}
 
 			if (obj->hidden & OBJHFLAG_HASTEXTOVERRIDE) {
-				if (weaponHost(weapon->weaponnum) <= WEAPON_PSYCHOSISGUN) {
+				if (weaponHost(weapon->weaponnum) <= WEAPON_PSYCHOSISGUN
+#ifndef PLATFORM_N64
+						// one of GoldenEye's gadgets, which a mission renames
+						// and lays on a floor (Facility's door decoder): a
+						// thing to equip, where Perfect Dark's own renamed
+						// gadgets past the guns are only ever carried
+						|| gegadgetsIsGadget(weapon->weaponnum)
+#endif
+						) {
 					count = invGiveWeaponsByProp(prop);
 					given = true;
 				}
@@ -17610,6 +17621,14 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		if (!given) {
 			invGiveProp(prop);
 		}
+#ifndef PLATFORM_N64
+		else {
+			// GoldenEye keeps a tagged gadget's own prop in the inventory as
+			// well as the item, which is what its "put it back" objective
+			// asks about (gegadgets.c)
+			gegadgetsKept(prop);
+		}
+#endif
 
 		return TICKOP_GIVETOPLAYER;
 	}

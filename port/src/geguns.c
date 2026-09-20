@@ -66,6 +66,12 @@ static const char *const names[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = "Proximity Mine\n",
 	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = "Remote Mine\n",
 	[WEAPON_GE_COVERTMODEM     - WEAPON_GE_FIRST] = "Covert Modem\n",
+	[WEAPON_GE_PLASTIQUE       - WEAPON_GE_FIRST] = "Plastique\n",
+	[WEAPON_GE_GOLDENEYEKEY    - WEAPON_GE_FIRST] = "GoldenEye Key\n",
+	[WEAPON_GE_CAMERA          - WEAPON_GE_FIRST] = "Camera\n",
+	[WEAPON_GE_WATCHMAGNET     - WEAPON_GE_FIRST] = "Watch Magnet Attract\n",
+	[WEAPON_GE_GADGETA         - WEAPON_GE_FIRST] = "Gadget\n",
+	[WEAPON_GE_GADGETB         - WEAPON_GE_FIRST] = "Gadget\n",
 };
 
 /**
@@ -453,40 +459,43 @@ u32 gegunsHandsFlag(s32 index)
  */
 static void gegunsNameThrow(s32 i)
 {
-	static u16 throwname;
-	static u16 modemname;
+	// what the HUD calls each one's function: a knife's throw is the combat
+	// knife's "Throw Poison Knife" otherwise, and a gadget's its host's - the
+	// ECM mine's "Jamming Device", the Data Uplink's "Uplink"
+	static const struct { s32 weaponnum; s32 type; const char *text; } rows[] = {
+		{ WEAPON_GE_HUNTINGKNIFE,  INVENTORYFUNCTYPE_THROW,   "Throw Knife\n" },
+		{ WEAPON_GE_THROWINGKNIFE, INVENTORYFUNCTYPE_THROW,   "Throw Knife\n" },
+		{ WEAPON_GE_COVERTMODEM,   INVENTORYFUNCTYPE_THROW,   "Attach\n" },
+		{ WEAPON_GE_PLASTIQUE,     INVENTORYFUNCTYPE_THROW,   "Place\n" },
+		{ WEAPON_GE_GOLDENEYEKEY,  INVENTORYFUNCTYPE_THROW,   "Put Down\n" },
+		{ WEAPON_GE_CAMERA,        INVENTORYFUNCTYPE_SPECIAL, "Photograph\n" },
+		{ WEAPON_GE_WATCHMAGNET,   INVENTORYFUNCTYPE_SPECIAL, "Attract\n" },
+		{ WEAPON_GE_GADGETA,       INVENTORYFUNCTYPE_SPECIAL, "Use\n" },
+		{ WEAPON_GE_GADGETB,       INVENTORYFUNCTYPE_SPECIAL, "Use\n" },
+	};
 	struct weapon *def = &g_GeWeaponDefs[i];
 	const s32 weaponnum = WEAPON_GE_FIRST + i;
-	u16 *name;
 
-	// the grenade and the mines are thrown too, and keep their own names; the
-	// covert modem's host is the ECM mine, whose throw is a "Jamming Device"
-	if (weaponnum == WEAPON_GE_HUNTINGKNIFE || weaponnum == WEAPON_GE_THROWINGKNIFE) {
-		name = &throwname;
-	} else if (weaponnum == WEAPON_GE_COVERTMODEM) {
-		name = &modemname;
-	} else {
-		return;
-	}
-
-	for (s32 f = 0; f < 2; f++) {
-		const struct weaponfunc *func = def->functions[f];
-		struct weaponfunc *copy;
-
-		if (!func || func->type != INVENTORYFUNCTYPE_THROW) {
+	for (s32 r = 0; r < (s32)ARRAYCOUNT(rows); r++) {
+		if (rows[r].weaponnum != weaponnum) {
 			continue;
 		}
 
-		if (!*name) {
-			*name = langAddPortText(name == &modemname ? "Attach Modem\n" : "Throw Knife\n");
-		}
+		for (s32 f = 0; f < 2; f++) {
+			const struct weaponfunc *func = def->functions[f];
+			struct weaponfunc *copy;
 
-		copy = malloc(gegunsFuncSize(func->type));
+			if (!func || func->type != rows[r].type) {
+				continue;
+			}
 
-		if (copy) {
-			memcpy(copy, func, gegunsFuncSize(func->type));
-			copy->name = *name;
-			def->functions[f] = copy;
+			copy = malloc(gegunsFuncSize(func->type));
+
+			if (copy) {
+				memcpy(copy, func, gegunsFuncSize(func->type));
+				copy->name = langAddPortText(rows[r].text);
+				def->functions[f] = copy;
+			}
 		}
 	}
 }

@@ -151,6 +151,8 @@ GE_AMMO_TYPES = {
     12: (0x0a,),        # MAGNUM
     13: (0x0a,),        # GGUN           the golden gun stands on the DY357-LX
     20: (0x20,),        # BUG            the covert modem stands on the ECM mine
+    22: (0x20,),        # GEKEY          and so do the GoldenEye key
+    23: (0x20,),        # PLASTIQUE      and the plastique; no mission holds two of the three
 }
 
 # The commands whose ITEM_NUM is a weapon somebody holds (geaitable.py): the two
@@ -245,15 +247,84 @@ def global_lists(data):
         out.append((lid, ptr - gerom.DATA_VRAM))
 
 
-# GoldenEye's gadgets that are *thrown and stick*, which its own code treats as
-# mines from the hand to the wall (gun.c, gunfire.c): they become weapons of the
-# port's own past the twenty-five guns, each hosted on the Perfect Dark gadget
-# that does the same (geguns.c). Dam's covert modem is ITEM_BUG, thrown as
-# PROP_CHRBUG and counted in AMMO_BUG; its host is the ECM mine.
+# GoldenEye's gadgets, weapons of the port's own past the twenty-five guns
+# (gegadgets.c). Three are *thrown and stick*, which GoldenEye's own code treats
+# as mines from the hand to the wall (gun.c, gunfire.c), and stand on the ECM
+# mine: Dam's covert modem and Frigate's tracker bug are ITEM_BUG, thrown as
+# PROP_CHRBUG and counted in AMMO_BUG. The camera and the watch magnet do
+# something of their own. And six have no model in the hand at all - equipped,
+# and used by activating the thing they are for - which is the Data Uplink; a
+# weapon number is an s8 and there are not six left, so they share two and the
+# mission says which each is (no mission holds two of the same letter).
 GE_GADGET_WEAPON = {
-    47: 0x77,           # BUG            covert modem  WEAPON_GE_COVERTMODEM
+    47: 0x77,           # BUG              covert modem, tracker bug
+    34: 0x78,           # PLASTIQUE        Silo
+    61: 0x79,           # GOLDENEYEKEY     Bunker
+    40: 0x7a,           # CAMERA           Bunker, Silo
+    60: 0x7b,           # WATCHMAGNETATTRACT  Bunker 2, Archives
+    38: 0x7c,           # DOORDECODER      Facility        gadget A
+    39: 0x7c,           # BOMBDEFUSER      Frigate         gadget A
+    46: 0x7c,           # KEYANALYSERCASE  Bunker          gadget A
+    50: 0x7c,           # EXPLOSIVEFLOPPY  Aztec           gadget A (its guidance data)
+    55: 0x7d,           # DATATHIEF        Bunker          gadget B
+    73: 0x7d,           # DATTAPE          Aztec           gadget B
 }
-GE_GADGET_MODELS = (245,)   # PROP_CHRBUG, which no setup record names
+# the thrown ones' props, which no setup record need name: PROP_CHRBUG,
+# PROP_CHRGOLDENEYEKEY and PROP_CHRPLASTIQUE
+GE_GADGET_MODELS = (245, 248, 273)
+
+# GoldenEye's PROPDEF_OBJECTIVE_COPY_ITEM (0x22, Bunker's "copy the GoldenEye
+# key") asks one thing - has the key analyser copied the key - and Perfect Dark
+# has no such record; its 0x22 is the one-word "nothing". It becomes a
+# complete-on-flag objective on a stage flag of the port's own, which the key
+# analyser sets (gegadgets.c's GEGADGET_COPY_FLAG). No mission's lists touch
+# the top bit.
+GE_COPYITEM = 0x22
+GE_COPYITEM_FLAG = 0x80000000
+OBJECTIVETYPE_COMPFLAGS = 0x1a
+
+# The two objective records that name a **pad's room** (0x20 "enter room", 0x21
+# "deposit item in room"): GoldenEye takes the pad's tile's room
+# (objectivestatusCheckRoomEntered()) and Perfect Dark hands the number to
+# chrGetPadRoom(), which reads it as a room unless it is a pad plus 10000 - the
+# AI commands' fault (GE_PADROOM_OPS) over again, so Facility's, Surface 2's,
+# Bunker 2's and Archives' could never complete. 0x21 names its item too. And
+# 0x25 renames an inventory item for the mission: an item id and five text ids.
+GE_ENTERROOM = 0x20
+GE_DEPOSITROOM = 0x21
+GE_RENAME = 0x25
+
+
+def objective_room_record(t, raw, numpads):
+    """GoldenEye's enter-room or deposit-in-room record as Perfect Dark's."""
+    n = PD_SIZES[t]
+    rec = bytearray(4 * n)
+    keep = min(4 * n, len(raw))
+    rec[0:keep] = raw[0:keep]
+    rec[3] = t
+    at = 4
+    if t == GE_DEPOSITROOM:
+        struct.pack_into('>i', rec, 4, item_weapon(struct.unpack_from('>i', raw, 4)[0]))
+        at = 8
+    pad = struct.unpack_from('>i', raw, at)[0]
+    if 0 <= pad < NO_PAD:
+        struct.pack_into('>i', rec, at, pad_num(pad, numpads) + PD_PADROOM_PAD)
+    return bytes(rec)
+
+
+def rename_record(raw):
+    """GoldenEye's rename record: the item as the port's weapon, the five texts
+    out of the mission's own bank."""
+    n = PD_SIZES[GE_RENAME]
+    rec = bytearray(4 * n)
+    keep = min(4 * n, len(raw))
+    rec[0:keep] = raw[0:keep]
+    rec[3] = GE_RENAME
+    item = struct.unpack_from('>i', raw, 8)[0]
+    struct.pack_into('>i', rec, 8, item_weapon(item) if item > 0 else 0)
+    for k in range(5):
+        struct.pack_into('>I', rec, 12 + 4 * k, text_id(struct.unpack_from('>I', raw, 12 + 4 * k)[0] & 0xffff))
+    return bytes(rec)
 
 def item_weapon(item):
     """A GoldenEye item id as the weapon Perfect Dark equips for it."""
@@ -545,6 +616,18 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
     recs = ge_records(d)
     out = []
     for index, t, raw in recs:
+        if t == GE_COPYITEM:
+            out.append(raw[0:3] + bytes([OBJECTIVETYPE_COMPFLAGS]) + struct.pack('>I', GE_COPYITEM_FLAG))
+            stats['kept'][t] = stats['kept'].get(t, 0) + 1
+            continue
+        if t in (GE_ENTERROOM, GE_DEPOSITROOM):
+            out.append(objective_room_record(t, raw, numpads))
+            stats['kept'][t] = stats['kept'].get(t, 0) + 1
+            continue
+        if t == GE_RENAME:
+            out.append(rename_record(raw))
+            stats['kept'][t] = stats['kept'].get(t, 0) + 1
+            continue
         if t in AS_NOTHING or t not in PD_SIZES:
             stats['dropped'][t] = stats['dropped'].get(t, 0) + 1
             out.append(struct.pack('>I', OBJTYPE_NOTHING))

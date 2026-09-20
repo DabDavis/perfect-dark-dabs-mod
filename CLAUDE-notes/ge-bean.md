@@ -6061,3 +6061,118 @@ Archives and Bunker 2 - `if_bond_used_gadget_on_object` is
 `aiIfChrActivatedObject` and wants the item *equipped*, which nothing checks
 yet. The first-person modem is the ECM mine's model (the ROM's first-person
 models convert as `Igx%03uZ` and are still not drawn).
+
+## The rest of GoldenEye's gadgets, and its own models in the hand (2026-09-20)
+
+The user: *"now add the rest of the gadgets for the other missions, also make
+the model ge's."* Converter **48**, `port/src/gegadgets.c`.
+
+### What there is to add
+
+Surveyed from the ROM, not the decompilation (which carries fourteen of the
+twenty setups): intro items past the mines, floor pickups, and every AI command
+with an item argument. Eleven items over nine missions -
+
+| mission | items |
+| --- | --- |
+| Dam | covert modem (BUG 47) |
+| Facility | door decoder (38, a floor pickup) |
+| Bunker | key analyser (46), camera (40), data thief (55), GoldenEye key (61, a floor pickup) |
+| Silo | plastique (34) x8, camera (40) |
+| Frigate | bomb defuser (39), tracker bug (BUG 47) |
+| Bunker 2, Archives | watch magnet attract (60) |
+| Aztec | guidance data (50), DAT tape (73) |
+
+**GoldenEye has three kinds.** BUG, PLASTIQUE and GOLDENEYEKEY are thrown by
+the code that throws a mine (gun.c) - the ECM mine hosts them. The camera and
+the magnet do something on the trigger. And six - decoder, defuser, analyser,
+data thief, guidance data, DAT tape - have **no model in the hand at all**
+(`has_no_model` in their `gitem_structs` rows, no WeaponStats): Bond equips one
+from the watch and *uses the thing it is for*.
+**`IFBondUsedGadgetOnObject` is only "was this object activated"** (it tests
+and clears `PROPSTATE_ACTIVATED`), and the list then asks
+`IFBondHasItemEquipped` - so those six need nothing but to be equippable, and
+their host is the **Data Uplink**, whose `WEAPONFLAG_FIRETOACTIVATE` makes the
+trigger Perfect Dark's "activate what is in front of me".
+
+**A weapon number is an s8** (`NUM_WEAPONS <= 0x80`) and 0x77 was the first
+free: seven numbers for eleven items. 0x77 modem/bug, 0x78 plastique, 0x79
+GoldenEye key, 0x7a camera, 0x7b watch magnet, and **0x7c / 0x7d are "gadget
+A/B"**, whose identity is the mission's (`g_Identities`, keyed on
+`modloaderStageMission()` - no mission holds two of one letter). Names are set
+at `gegadgetsStageLoad()`; Frigate's modem is "Tracker Bug" the same way.
+
+### What each needed
+
+- **Camera**: GoldenEye's photograph objective is Perfect Dark's holograph one
+  kept whole (`objectiveCheckHolograph()`). **It must run in the render** -
+  Perfect Dark calls it from `lvRender()` for the CamSpy because
+  `func0f0899dc()` reads the prop's *matrices*, which in the tick are last
+  frame's and already in fixed point. The trigger sets a flag;
+  `gegadgetsAfterProps()` judges it beside the CamSpy's.
+- **Key analyser** (`analyzeGEKey()`): works the moment it is equipped. With
+  the key held it sets the port's stage flag **0x80000000**, which GoldenEye's
+  `PROPDEF_OBJECTIVE_COPY_ITEM` (0x22 - Perfect Dark's "nothing" record) is
+  converted onto as a complete-on-flag objective, and puts the key in the hand.
+- **GoldenEye key, "put it back"** (`OBJECTIVETYPE_THROWOBJ` asks
+  `invHasProp()` of the tagged prop): GoldenEye throws the *very prop* it
+  picked up. Perfect Dark gives a weapon by number and keeps a tagged prop out
+  of the inventory, so the objective was complete before the key was touched.
+  `gegadgetsKept()` puts the prop in the inventory (hidden from the list) and
+  `gegadgetsThrown()` takes it out.
+- **A renamed gadget on a floor** (Facility's decoder): the pickup path for an
+  object with a text override only gives the *weapon* when its host is a gun
+  (`<= WEAPON_PSYCHOSISGUN`); a gadget got the prop alone and could never be
+  equipped.
+- **Watch magnet**: the nearest key or weapon within 1000 units and a 37 degree
+  cone is picked up. Walk **both prop lists** (Bunker 2's cell key is paused
+  until looked at) and **carry out the tick op `propPickupByPlayer()` returns**
+  or the prop stays in the world. Not GoldenEye's physics - its own pulls
+  things through the air.
+
+### Three more conversions that were wrong for every mission
+
+- **Objective records 0x20 and 0x21 name a pad's room** and had the AI
+  commands' fault: read as a room number unless pad + 10000. Facility's,
+  Surface 2's, Bunker 2's and Archives' enter-room objectives and Silo's four
+  deposits could never complete. 0x21's item goes through the item map too.
+- **The port's own setup loader never copied a throw-in-room record's weapon**
+  (`filesetup.c`, `unk04`) - no stock setup has one. Found by dumping the
+  criterion's words in gdb after the converter had been proved right; **a
+  converted record passes through `port/src/preprocess/filesetup.c` and a field
+  it does not name arrives as zero.**
+- **0x25 rename** carried GoldenEye's item id and text ids raw.
+
+### GoldenEye's own model in the hand
+
+All eleven first person models convert (`Igx%03dZ`, C only, the loop now runs
+to item 73 for `soloGadgetItem()`s). `gegadgetsRenderHand()` is called from
+`bgunRender()` in place of the host's `modelRender()` and Perfect Dark's hand:
+the model is the module's own (the watch's loader, not the stage pool), posed
+on the **host's root matrix** - which carries the 0.1 scale, the half turn, the
+equip's rise and fall and the walk's sway - and an empty hand for the six.
+
+**GoldenEye's WeaponStats position places nothing.** It holds the thrown items
+with a hand animation playing (`field_8EC` in gunfire.c) and the model's origin
+is a long way from the thing - the first attempt drew the modem thirty units
+under the screen. So the posed model is **measured** on its first frame
+(`gegadgetsMeasure()`, `--gadget-measure` logs it), its middle put at a chosen
+place low on the right and its width brought to a chosen size, since the five
+are authored anywhere from 10 to 46 units across at the host's scale.
+
+### Measured
+
+`build/gexrom/gadgetprobe.py` (a small step language: equip, use, photo,
+throwat, throwpad, pickup, fire, near, print) and `handshot.py`:
+Bunker - analyser copies, objective waits for the key to be put back, photo of
+the screen, data thief download; Facility - decoder picked up, door opens after
+GoldenEye's three seconds; Frigate - both bombs; Silo - plastique in four rooms;
+Aztec - guidance data; Bunker 2 - the magnet takes the cell key. **Not driven:**
+Frigate's tracker bug on the helicopter and Archives' magnet (same mechanisms as
+Dam's and Bunker 2's), Aztec's DAT tape (picked up late), and real trigger
+presses - the probes call the hooks.
+
+**Open:** the watch arm shows its strap, not its face; ammunition for the
+camera's film and the magnet's charge is not counted; the magnet is not
+GoldenEye's pull; nothing of the gadgets' own sounds but the camera's click and
+the analyser's.

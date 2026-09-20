@@ -7,6 +7,7 @@
 #include "game/bondmove.h"
 #ifndef PLATFORM_N64
 #include "gewatch.h"
+#include "gegadgets.h"
 #endif
 #include "game/bondwalk.h"
 #include "game/cheats.h"
@@ -1261,6 +1262,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							&& joyGetButtonsPressedThisFrame(shootpad, shootallowedbuttons & Z_TRIG)
 							&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
 						movedata.btapcount++;
+#ifndef PLATFORM_N64
+						// GoldenEye's camera and watch magnet, whose trigger
+						// does something of its own as well (gegadgets.c)
+						gegadgetsFire(bgunGetWeaponNum(HAND_RIGHT));
+#endif
 					}
 				} else {
 					movedata.triggeron = g_Vars.currentplayer->waitforzrelease == false
@@ -1982,6 +1988,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if ((c1buttonsthisframe & shootbuttons)
 							&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
 						movedata.btapcount++;
+#ifndef PLATFORM_N64
+						// GoldenEye's camera and watch magnet, whose trigger
+						// does something of its own as well (gegadgets.c)
+						gegadgetsFire(bgunGetWeaponNum(HAND_RIGHT));
+#endif
 					}
 				} else {
 					movedata.triggeron = g_Vars.currentplayer->waitforzrelease == false

@@ -6451,6 +6451,12 @@ struct weapon *g_Weapons[] = {
 	[WEAPON_GE_PROXIMITYMINE   ] = &g_GeWeaponDefs[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST],
 	[WEAPON_GE_REMOTEMINE      ] = &g_GeWeaponDefs[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST],
 	[WEAPON_GE_COVERTMODEM     ] = &g_GeWeaponDefs[WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST],
+	[WEAPON_GE_PLASTIQUE       ] = &g_GeWeaponDefs[WEAPON_GE_PLASTIQUE - WEAPON_GE_FIRST],
+	[WEAPON_GE_GOLDENEYEKEY    ] = &g_GeWeaponDefs[WEAPON_GE_GOLDENEYEKEY - WEAPON_GE_FIRST],
+	[WEAPON_GE_CAMERA          ] = &g_GeWeaponDefs[WEAPON_GE_CAMERA - WEAPON_GE_FIRST],
+	[WEAPON_GE_WATCHMAGNET     ] = &g_GeWeaponDefs[WEAPON_GE_WATCHMAGNET - WEAPON_GE_FIRST],
+	[WEAPON_GE_GADGETA         ] = &g_GeWeaponDefs[WEAPON_GE_GADGETA - WEAPON_GE_FIRST],
+	[WEAPON_GE_GADGETB         ] = &g_GeWeaponDefs[WEAPON_GE_GADGETB - WEAPON_GE_FIRST],
 #endif
 };
 
@@ -6488,5 +6494,14 @@ const u8 g_GeWeaponHosts[NUM_GE_WEAPONS] = {
 	// lands (gun.c's ITEM_BUG); the ECM mine is the one of Perfect Dark's that
 	// does that and nothing else
 	[WEAPON_GE_COVERTMODEM     - WEAPON_GE_FIRST] = WEAPON_ECMMINE,
+	// plastique and the GoldenEye key are thrown by the same code of
+	// GoldenEye's; the rest do nothing of their own in the hand, which is the
+	// Data Uplink - its trigger is "activate what is in front of me"
+	[WEAPON_GE_PLASTIQUE       - WEAPON_GE_FIRST] = WEAPON_ECMMINE,
+	[WEAPON_GE_GOLDENEYEKEY    - WEAPON_GE_FIRST] = WEAPON_ECMMINE,
+	[WEAPON_GE_CAMERA          - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
+	[WEAPON_GE_WATCHMAGNET     - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
+	[WEAPON_GE_GADGETA         - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
+	[WEAPON_GE_GADGETB         - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
 };
 #endif

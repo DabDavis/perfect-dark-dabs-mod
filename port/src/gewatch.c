@@ -57,6 +57,7 @@
 #include "system.h"
 #include "video.h"
 #include "gewatch.h"
+#include "gegadgets.h"
 #include "gexfront.h"
 #include "gexplus.h"
 #include "geanimtable.h"
@@ -3184,11 +3185,17 @@ static s32 watchGunItem(s32 weaponnum)
 		[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST] = 27,
 		[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST] = 28,
 		[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = 29,
-		[WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST] = 47,
 	};
 
 	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= NUM_WEAPONS) {
 		return -1;
+	}
+
+	// a gadget is whichever of GoldenEye's items the mission makes it
+	// (gegadgets.c), the six with nothing in the hand included: the watch
+	// shows those too
+	if (gegadgetsIsGadget(weaponnum)) {
+		return gegadgetsItem(weaponnum) > 0 ? gegadgetsItem(weaponnum) : -1;
 	}
 
 	return items[weaponnum - WEAPON_GE_FIRST];

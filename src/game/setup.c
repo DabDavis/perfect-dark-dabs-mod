@@ -46,6 +46,7 @@
 #include "gecinema.h"
 #include "gemonitor.h"
 #include "gewatch.h"
+#include "gegadgets.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
 #include "modborrow.h"
@@ -1458,6 +1459,9 @@ void setupLoadFiles(s32 stagenum)
 		// and GoldenEye's own programmes for a remake mission's screens, before
 		// the props that show them are made (gemonitor.c)
 		geMonitorStageStart(stagenum);
+
+		// whose names the mission's gadgets wear (gegadgets.c)
+		gegadgetsStageLoad(stagenum);
 
 		if (modloaderStageIsMission(stagenum)) {
 			gexPlusMissionSetup(g_StageSetup.props);

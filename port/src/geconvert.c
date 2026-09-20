@@ -3676,13 +3676,43 @@ static const uint8_t g_GeItemWeapon[] = {
 	0x76,  /* 29 REMOTEMINE    Remote Mine */
 };
 
+/** Whether an item past the guns is one of the gadgets a mission hands Bond (gesolo.py's GE_GADGET_WEAPON). */
+static int soloGadgetItem(int32_t item)
+{
+	switch (item) {
+	case 34: case 38: case 39: case 40: case 46: case 47: case 50: case 55: case 60: case 61: case 73:
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
+ * GoldenEye's gadgets as weapons of the port's own past its guns (gesolo.py's
+ * GE_GADGET_WEAPON, gegadgets.c): three thrown and sticking, the camera, the
+ * watch magnet, and the six with no model in the hand, which share two numbers
+ * by the mission. 0 for anything else.
+ */
+static uint32_t soloGadgetWeapon(uint32_t item)
+{
+	switch (item) {
+	case 47: return 0x77; // BUG: the covert modem, the tracker bug
+	case 34: return 0x78; // PLASTIQUE
+	case 61: return 0x79; // GOLDENEYEKEY
+	case 40: return 0x7a; // CAMERA
+	case 60: return 0x7b; // WATCHMAGNETATTRACT
+	case 38: case 39: case 46: case 50: return 0x7c; // door decoder, bomb defuser, key analyser, guidance data
+	case 55: case 73: return 0x7d; // data thief, DAT tape
+	}
+
+	return 0;
+}
+
 /** A GoldenEye item id as the weapon Perfect Dark equips for it. */
 static uint32_t soloItemWeapon(uint32_t item)
 {
-	// GoldenEye's thrown gadgets, weapons of the port's own past the guns
-	// (gesolo.py's GE_GADGET_WEAPON): the covert modem is ITEM_BUG
-	if (item == 47) {
-		return 0x77;
+	if (soloGadgetWeapon(item)) {
+		return soloGadgetWeapon(item);
 	}
 
 	return item < sizeof(g_GeItemWeapon) ? g_GeItemWeapon[item] : 0;
@@ -3697,7 +3727,7 @@ static uint32_t soloItemWeapon(uint32_t item)
  * bullet is a gadget's count, which nothing in the port holds. gesolo.py's
  * GE_AMMO_TYPES.
  */
-static const uint8_t g_GeAmmoTypes[21][2] = {
+static const uint8_t g_GeAmmoTypes[24][2] = {
 	{ 0, 0 },
 	{ 0x01, 0x02 },    // 9MM            pistol and SMG
 	{ 0x01, 0x02 },    // 9MM_2
@@ -3713,6 +3743,8 @@ static const uint8_t g_GeAmmoTypes[21][2] = {
 	{ 0x0a, 0 },       // MAGNUM
 	{ 0x0a, 0 },       // GGUN           the golden gun stands on the DY357-LX
 	[20] = { 0x20, 0 }, // BUG           the covert modem stands on the ECM mine
+	[22] = { 0x20, 0 }, // GEKEY         and so do the GoldenEye key
+	[23] = { 0x20, 0 }, // PLASTIQUE     and the plastique
 };
 
 /** The port's type for one of GoldenEye's, the first or the second; 0 for none. */
@@ -4082,6 +4114,19 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		const uint32_t words = t < sizeof(g_PdSizes) ? g_PdSizes[t] : 0;
 		uint8_t *rec;
 
+		if (t == 0x22) {
+			// GoldenEye's "copy the item" objective, which Perfect Dark has no
+			// record for: a complete-on-flag one on a stage flag the key
+			// analyser sets (gesolo.py's GE_COPYITEM_FLAG)
+			bufZeros(&out, 8);
+			rec = out.v + out.n - 8;
+			memcpy(rec, raw, 3);
+			rec[3] = 0x1a;
+			set32(rec, 4, 0x80000000);
+			st->props++;
+			continue;
+		}
+
 		if (SOLO_AS_NOTHING(t) || !words) {
 			bufU32(&out, 0x22);
 			st->dropped++;
@@ -4145,6 +4190,33 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 			const size_t keep = 4 * (size_t)words < recs.v[i].len ? 4 * (size_t)words : recs.v[i].len;
 			memcpy(rec, raw, keep);
 			rec[3] = (uint8_t)t;
+
+			if (t == 0x20 || t == 0x21) {
+				// the two objectives that name a pad's room, which Perfect
+				// Dark reads as a room number unless it is a pad plus 10000;
+				// the second names its item too (gesolo.py's
+				// objective_room_record())
+				const size_t at = t == 0x21 ? 8 : 4;
+				const int32_t pad = bes32(raw, at);
+
+				if (t == 0x21) {
+					set32(rec, 4, soloItemWeapon(be32(raw, 4)));
+				}
+
+				if (pad >= 0 && pad < 0xffff) {
+					set32(rec, at, padNum((uint32_t)pad, numpads, 0) + 10000);
+				}
+			} else if (t == 0x25) {
+				// a rename: the item as the port's weapon and the five texts
+				// out of the mission's own bank (gesolo.py's rename_record())
+				const int32_t item = bes32(raw, 8);
+
+				set32(rec, 8, item > 0 ? soloItemWeapon((uint32_t)item) : 0);
+
+				for (size_t k = 0; k < 5; ++k) {
+					set32(rec, 12 + 4 * k, soloTextId(be32(raw, 12 + 4 * k) & 0xffff));
+				}
+			}
 		}
 
 		st->props++;
@@ -5791,7 +5863,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// (PROP_TV1, gexfront.c)
 		setAdd(allmodels, MENU_TV_MODEL);
 		setAdd(allmodels, INTRO_LOGO_MODEL);
-		setAdd(allmodels, 245); // PROP_CHRBUG, the covert modem (gesolo.py's GE_GADGET_MODELS)
+		// the thrown gadgets' props (gesolo.py's GE_GADGET_MODELS): PROP_CHRBUG,
+		// PROP_CHRGOLDENEYEKEY and PROP_CHRPLASTIQUE
+		setAdd(allmodels, 245);
+		setAdd(allmodels, 248);
+		setAdd(allmodels, 273);
 		for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
 			setAdd(allmodels, g_IntroGuns[i]);
 		}
@@ -6056,7 +6132,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		{
 			int written = 0;
 
-			for (int32_t item = 2; item <= 29; ++item) {
+			// ...and the gadgets a mission puts in the hand (gegadgets.c),
+			// which are hand items like any gun: ITEM_PLASTIQUE (34) to
+			// ITEM_DATTAPE (73), whichever of them the table gives a model
+			for (int32_t item = 2; item <= 73; ++item) {
 				const size_t keep = g_NumAllocs;
 				double scale;
 				buf data, z;
@@ -6065,9 +6144,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				// the silver and gold PP7s and the watch laser are no gun of
 				// the port's (g_GeItemWeapon gives them another's), and the
 				// watch laser's model is a node type nothing here reads
-				if (!g_Items[item].file || item == 20 || item == 21 || item == 23) {
+				if (!g_Items[item].file || item == 20 || item == 21 || item == 23
+						|| (item > 29 && !soloGadgetItem(item))) {
 					continue;
 				}
+
+				note("geconvert: item %d is %s", (int)item, g_Items[item].file);
 
 				data = itemConvert(item, alltex, &scale);
 				z = rzip1173(data.v, data.n);

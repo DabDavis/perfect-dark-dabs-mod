@@ -4818,6 +4818,16 @@ enum weaponnum {
 	// Combat Simulator row, no pickup out of the XBLA release and nothing
 	// borrowed from GoldenEye X (NUM_GE_GUNS is where those tables stop).
 	/*0x77*/ WEAPON_GE_COVERTMODEM,      // ECM Mine
+	/*0x78*/ WEAPON_GE_PLASTIQUE,        // ECM Mine
+	/*0x79*/ WEAPON_GE_GOLDENEYEKEY,     // ECM Mine
+	/*0x7a*/ WEAPON_GE_CAMERA,           // Data Uplink
+	/*0x7b*/ WEAPON_GE_WATCHMAGNET,      // Data Uplink
+	// The gadgets GoldenEye gives no model in the hand: equipped, and used by
+	// activating the thing they are for. There are six over the missions and
+	// the numbers stop at 0x7f, so they share two and the mission says which
+	// each is (gegadgets.c).
+	/*0x7c*/ WEAPON_GE_GADGETA,          // Data Uplink
+	/*0x7d*/ WEAPON_GE_GADGETB,          // Data Uplink
 #endif
 	NUM_WEAPONS
 };

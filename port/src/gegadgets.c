@@ -1,0 +1,627 @@
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <ultra64.h>
+#include <PR/ultratypes.h>
+#include "platform.h"
+#include "constants.h"
+#include "types.h"
+#include "data.h"
+#include "bss.h"
+#include "game/bondgun.h"
+#include "game/chraction.h"
+#include "game/file.h"
+#include "game/gfxmemory.h"
+#include "game/hudmsg.h"
+#include "game/inv.h"
+#include "game/lang.h"
+#include "game/modeldef.h"
+#include "game/mtxf2lbulk.h"
+#include "game/objectives.h"
+#include "game/prop.h"
+#include "game/propobj.h"
+#include "game/tex.h"
+#include "lib/model.h"
+#include "lib/mtx.h"
+#include "system.h"
+#include "video.h"
+#include "romdata.h"
+#include "modloader.h"
+#include "gesfx.h"
+#include "gegadgets.h"
+
+#ifndef PLATFORM_N64
+
+/**
+ * GoldenEye's gadgets in a converted mission (WEAPON_GE_COVERTMODEM and up).
+ *
+ * GoldenEye has three kinds. The ones its own code throws as it throws a mine
+ * (gun.c's ITEM_BUG, ITEM_PLASTIQUE, ITEM_GOLDENEYEKEY) stand on the ECM mine.
+ * The camera and the watch magnet are in the hand and do something when the
+ * trigger is pulled. And six - the door decoder, the bomb defuser, the key
+ * analyser, the data thief, Aztec's guidance data and its DAT tape - have **no
+ * model in the hand at all** (their gitem rows say has_no_model): Bond equips
+ * one from the watch and *uses the thing it is for*, and the mission's list
+ * asks "was that object activated" and then "with this equipped"
+ * (IFBondUsedGadgetOnObject, IFBondHasItemEquipped). All of those stand on the
+ * Data Uplink, whose trigger is Perfect Dark's "activate what is in front of
+ * me" (WEAPONFLAG_FIRETOACTIVATE) - which is the whole of what they need.
+ *
+ * A weapon number is an s8 in the gun control, so there are seven numbers for
+ * eleven items: the six with nothing in the hand share two, and the mission
+ * says which each is (g_Identities, the conversion's GE_GADGET_WEAPON).
+ *
+ * What is drawn in the hand is GoldenEye's own first person model out of the
+ * ROM (the conversion's Igx%03dZ, by GoldenEye's item number), in place of the
+ * host's: on the host's own root matrix, so it rises, lowers and sways as the
+ * host does, moved to where GoldenEye's own weapon stats hold it.
+ */
+
+struct gegadgetidentity {
+	s8 mission;       // the conversion's MISSIONS order; -1 for every mission
+	u8 weaponnum;
+	u8 item;          // GoldenEye's ITEM_IDS
+	const char *name;
+	u16 text;
+};
+
+// GoldenEye's own names (its LGUN bank). A mission's own row comes before the
+// default for the same weapon.
+static struct gegadgetidentity g_Identities[] = {
+	{  1, WEAPON_GE_GADGETA,      38, "Door Decoder\n" },
+	{  6, WEAPON_GE_GADGETA,      39, "Bomb Defuser\n" },
+	{  6, WEAPON_GE_COVERTMODEM,  47, "Tracker Bug\n" },
+	{  4, WEAPON_GE_GADGETA,      46, "Key Analyzer\n" },
+	{  4, WEAPON_GE_GADGETB,      55, "Data Thief\n" },
+	{ 18, WEAPON_GE_GADGETA,      50, "Guidance Data\n" },
+	{ 18, WEAPON_GE_GADGETB,      73, "DAT Tape\n" },
+	{ -1, WEAPON_GE_COVERTMODEM,  47, "Covert Modem\n" },
+	{ -1, WEAPON_GE_PLASTIQUE,    34, "Plastique\n" },
+	{ -1, WEAPON_GE_GOLDENEYEKEY, 61, "GoldenEye Key\n" },
+	{ -1, WEAPON_GE_CAMERA,       40, "Camera\n" },
+	{ -1, WEAPON_GE_WATCHMAGNET,  60, "Watch Magnet Attract\n" },
+	{ -1, WEAPON_GE_GADGETA,       0, "Gadget\n" },
+	{ -1, WEAPON_GE_GADGETB,       0, "Gadget\n" },
+};
+
+// Bunker, where the key analyser copies the GoldenEye key
+#define MISSION_BUNKER 4
+
+// GoldenEye's PROPDEF_OBJECTIVE_COPY_ITEM asks one thing, "has the key been
+// copied", and Perfect Dark has no such record: the conversion writes it as a
+// complete-on-flag objective on this stage flag (gesolo.py's GE_COPYITEM_FLAG)
+#define GEGADGET_COPY_FLAG 0x80000000
+
+#define GESFX_CAMERA_CLICK 244
+#define GESFX_KEY_ANALYSER 245
+
+// Where the middle of each stands in the hand, in the camera's space.
+// GoldenEye holds these with a hand animation playing (gunfire.c's field_8EC),
+// and the model's own origin is a long way from the thing itself - the covert
+// modem hangs thirty units under it - so its WeaponStats position places
+// nothing without that animation. The model is measured instead and its middle
+// put here, low and to the right where GoldenEye shows it.
+// The models are authored at sizes of their own as well (GoldenEye scales each
+// in the hand; the plastique is twice the modem and the watch arm six times the
+// camera at the host's scale), so each is brought to a width across the screen.
+struct gegadgethand {
+	u8 weaponnum;
+	f32 pos[3];
+	f32 width;
+};
+
+static const struct gegadgethand g_Hands[] = {
+	{ WEAPON_GE_COVERTMODEM,  { 11.0f, -10.5f, -30.0f }, 17.0f },
+	{ WEAPON_GE_PLASTIQUE,    { 11.0f, -11.5f, -30.0f }, 19.0f },
+	{ WEAPON_GE_GOLDENEYEKEY, { 11.0f, -10.5f, -30.0f }, 14.0f },
+	{ WEAPON_GE_CAMERA,       { 11.0f, -10.0f, -30.0f }, 14.0f },
+	{ WEAPON_GE_WATCHMAGNET,  { 10.0f, -13.0f, -30.0f }, 13.0f },
+};
+
+#define GADGET_RWDATA_MAX 1024
+
+static struct {
+	s32 mission;
+	s32 moddir;
+	s32 item;          // the item whose model is loaded, -1 for none
+	s32 failed;
+	u8 *buf;
+	u32 buflen;
+	struct modeldef *def;
+	struct model model;
+	u32 rwdata[GADGET_RWDATA_MAX];
+	s32 lastweapon;
+	s32 photo;         // the camera's trigger was pulled: judged in the render
+	struct prop *keyprop; // the GoldenEye key's own prop, while it is carried
+	s32 centreitem;    // the item `centre` was measured on
+	f32 centre[3];     // the model's middle from its root, in the camera's space
+	f32 size[3];
+} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .lastweapon = -1, .centreitem = -1 };
+
+s32 gegadgetsIsGadget(s32 weaponnum)
+{
+	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum < NUM_WEAPONS;
+}
+
+static const struct gegadgetidentity *gegadgetsIdentity(s32 weaponnum)
+{
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Identities); i++) {
+		const struct gegadgetidentity *id = &g_Identities[i];
+
+		if (id->weaponnum == weaponnum && (id->mission < 0 || id->mission == g_Gadgets.mission)) {
+			return id;
+		}
+	}
+
+	return NULL;
+}
+
+/** GoldenEye's item number for what this weapon is on this mission, 0 for nothing. */
+s32 gegadgetsItem(s32 weaponnum)
+{
+	const struct gegadgetidentity *id = gegadgetsIsGadget(weaponnum) ? gegadgetsIdentity(weaponnum) : NULL;
+
+	return id ? id->item : 0;
+}
+
+static void gegadgetsUnloadModel(void)
+{
+	if (g_Gadgets.buf) {
+		videoFreeCachedTextures(g_Gadgets.buf, g_Gadgets.buf + g_Gadgets.buflen);
+		sysMemFree(g_Gadgets.buf);
+		g_Gadgets.buf = NULL;
+	}
+
+	g_Gadgets.def = NULL;
+	g_Gadgets.item = -1;
+}
+
+/**
+ * A stage is loading: whose names the shared numbers wear, and nothing of the
+ * last stage's in the hand.
+ */
+void gegadgetsStageLoad(s32 stagenum)
+{
+	gegadgetsUnloadModel();
+
+	g_Gadgets.failed = -1;
+	g_Gadgets.lastweapon = -1;
+	g_Gadgets.photo = 0;
+	g_Gadgets.keyprop = NULL;
+	g_Gadgets.mission = modloaderStageMission(stagenum);
+	g_Gadgets.moddir = modloaderStageIsRemake(stagenum) ? modloaderGetStageModDirIndex(stagenum) : -1;
+
+	for (s32 w = WEAPON_GE_COVERTMODEM; w < NUM_WEAPONS; w++) {
+		struct gegadgetidentity *id = (struct gegadgetidentity *)gegadgetsIdentity(w);
+
+		if (id) {
+			if (!id->text) {
+				id->text = langAddPortText(id->name);
+			}
+
+			g_GeWeaponDefs[w - WEAPON_GE_FIRST].name = id->text;
+			g_GeWeaponDefs[w - WEAPON_GE_FIRST].shortname = id->text;
+		}
+	}
+}
+
+/** GoldenEye's own first person model for an item, the conversion's Igx%03dZ. */
+static s32 gegadgetsLoadModel(s32 item)
+{
+	char name[16];
+	s32 fileid;
+	s32 size;
+
+	if (item == g_Gadgets.item) {
+		return 1;
+	}
+
+	if (item == g_Gadgets.failed || g_Gadgets.moddir < 0) {
+		return 0;
+	}
+
+	gegadgetsUnloadModel();
+	g_Gadgets.failed = item;
+
+	snprintf(name, sizeof(name), "Igx%03dZ", item);
+	fileid = romdataRegisterModFile(name, g_Gadgets.moddir);
+	size = fileid > 0 ? fileGetInflatedSize(fileid, LOADTYPE_MODEL) : 0;
+
+	if (size <= 0) {
+		return 0;
+	}
+
+	g_Gadgets.buflen = ALIGN64(size) + 0x20000;
+	g_Gadgets.buf = sysMemZeroAlloc(g_Gadgets.buflen);
+
+	if (!g_Gadgets.buf) {
+		return 0;
+	}
+
+	g_Gadgets.def = modeldefLoad(fileid, g_Gadgets.buf, g_Gadgets.buflen, NULL);
+
+	if (!g_Gadgets.def) {
+		gegadgetsUnloadModel();
+		return 0;
+	}
+
+	modelAllocateRwData(g_Gadgets.def);
+
+	if (g_Gadgets.def->rwdatalen > GADGET_RWDATA_MAX) {
+		gegadgetsUnloadModel();
+		return 0;
+	}
+
+	memset(g_Gadgets.rwdata, 0, sizeof(g_Gadgets.rwdata));
+	modelInit(&g_Gadgets.model, g_Gadgets.def, g_Gadgets.rwdata, false);
+	g_Gadgets.model.anim = NULL;
+	modelSetScale(&g_Gadgets.model, 1.0f);
+
+	g_Gadgets.item = item;
+	g_Gadgets.failed = -1;
+
+	return 1;
+}
+
+static struct modelnode *gegadgetsNextNode(struct modelnode *node)
+{
+	if (node->child) {
+		return node->child;
+	}
+
+	while (node && !node->next) {
+		node = node->parent;
+	}
+
+	return node ? node->next : NULL;
+}
+
+/**
+ * The middle of everything the posed model draws, from its root: once a model,
+ * on the first frame it is posed. `--gadget-measure` says what it found.
+ */
+static void gegadgetsMeasure(void)
+{
+	f32 min[3] = { 1e9f, 1e9f, 1e9f };
+	f32 max[3] = { -1e9f, -1e9f, -1e9f };
+	s32 any = 0;
+
+	for (struct modelnode *node = g_Gadgets.def->rootnode; node; node = gegadgetsNextNode(node)) {
+		const Mtxf *mtx;
+		struct modelnode *up;
+		s32 index = 0;
+
+		if ((node->type & 0xff) != MODELNODETYPE_DL || !node->rodata || !node->rodata->dl.vertices) {
+			continue;
+		}
+
+		for (up = node->parent; up; up = up->parent) {
+			if ((up->type & 0xff) == MODELNODETYPE_POSITION) {
+				index = up->rodata->position.mtxindex0;
+				break;
+			}
+
+			if ((up->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
+				index = up->rodata->positionheld.mtxindex;
+				break;
+			}
+		}
+
+		if (index < 0 || index >= g_Gadgets.def->nummatrices) {
+			continue;
+		}
+
+		mtx = &g_Gadgets.model.matrices[index];
+
+		for (s32 i = 0; i < node->rodata->dl.numvertices; i++) {
+			const Vtx *v = &node->rodata->dl.vertices[i];
+			const f32 in[3] = { v->x, v->y, v->z };
+
+			for (s32 a = 0; a < 3; a++) {
+				const f32 out = in[0] * mtx->m[0][a] + in[1] * mtx->m[1][a] + in[2] * mtx->m[2][a] + mtx->m[3][a];
+
+				if (out < min[a]) min[a] = out;
+				if (out > max[a]) max[a] = out;
+			}
+
+			any = 1;
+		}
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		g_Gadgets.centre[a] = any ? (min[a] + max[a]) * 0.5f : 0.0f;
+		g_Gadgets.size[a] = any ? max[a] - min[a] : 0.0f;
+	}
+
+	g_Gadgets.centreitem = g_Gadgets.item;
+
+	if (sysArgCheck("--gadget-measure")) {
+		sysLogPrintf(LOG_NOTE, "gadget: item %d middle %.1f %.1f %.1f size %.1f %.1f %.1f from its root",
+				g_Gadgets.item, g_Gadgets.centre[0], g_Gadgets.centre[1], g_Gadgets.centre[2],
+				g_Gadgets.size[0], g_Gadgets.size[1], g_Gadgets.size[2]);
+	}
+}
+
+/**
+ * The hand's gun, for bgunRender(): 0 when the weapon is no gadget and the
+ * host's own model is to be drawn as ever; 1 when the gadget has been dealt
+ * with - GoldenEye's model drawn on the host's root matrix, or nothing drawn
+ * because GoldenEye draws nothing - and the host's model and Perfect Dark's
+ * hand are to be left out.
+ */
+s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmodel, s32 weaponnum)
+{
+	const struct gegadgethand *held = NULL;
+	const struct weapon *host;
+	Mtxf base;
+	Mtxf *matrices;
+	f32 fit = 1.0f;
+	s32 item;
+
+	if (!gegadgetsIsGadget(weaponnum) || g_Gadgets.moddir < 0) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Hands); i++) {
+		if (g_Hands[i].weaponnum == weaponnum) {
+			held = &g_Hands[i];
+		}
+	}
+
+	// the six GoldenEye gives no model: an empty hand, as it has it
+	if (!held) {
+		return 1;
+	}
+
+	item = gegadgetsItem(weaponnum);
+
+	if (!hostmodel->matrices || !gegadgetsLoadModel(item)) {
+		return 0;
+	}
+
+	// the host's root for its turn and its size, posed about the eye first so
+	// that the model can be measured from its own root
+	host = g_Weapons[g_GeWeaponHosts[weaponnum - WEAPON_GE_FIRST]];
+	mtx4Copy(&hostmodel->matrices[0], &base);
+	base.m[3][0] = 0.0f;
+	base.m[3][1] = 0.0f;
+	base.m[3][2] = 0.0f;
+
+	if (g_Gadgets.centreitem == item && g_Gadgets.size[0] > 0.0f) {
+		fit = held->width / g_Gadgets.size[0];
+
+		for (s32 r = 0; r < 3; r++) {
+			for (s32 c = 0; c < 3; c++) {
+				base.m[r][c] *= fit;
+			}
+		}
+	}
+
+	matrices = gfxAllocate(g_Gadgets.def->nummatrices * sizeof(Mtxf));
+
+	for (s32 i = 0; i < g_Gadgets.def->nummatrices; i++) {
+		mtx4LoadIdentity(&matrices[i]);
+	}
+
+	mtx4Copy(&base, matrices);
+	g_Gadgets.model.matrices = matrices;
+
+	{
+		Mtxf *prevbase = renderdata->unk00;
+		Mtxf *prevmatrices = renderdata->unk10;
+
+		renderdata->unk00 = &base;
+		renderdata->unk10 = matrices;
+
+		modelSetDistanceChecksDisabled(true);
+		modelUpdateRelations(&g_Gadgets.model);
+		modelSetMatrices(renderdata, &g_Gadgets.model);
+
+		if (g_Gadgets.centreitem != g_Gadgets.item) {
+			// the first frame of a model: measured at the host's own size,
+			// and drawn from the next frame on, once it has a size of its own
+			gegadgetsMeasure();
+			modelSetDistanceChecksDisabled(false);
+			renderdata->unk00 = prevbase;
+			renderdata->unk10 = prevmatrices;
+			mtxF2LBulk(matrices, g_Gadgets.def->nummatrices);
+
+			return 1;
+		}
+
+		// its middle to its place, and with it whatever the host's own root
+		// has moved from where the host is held: the rise and fall of an
+		// equip, and the sway of a walk
+		for (s32 a = 0; a < 3; a++) {
+			const f32 hostrest = a == 0 ? host->posx : (a == 1 ? host->posy : host->posz);
+			const f32 shift = held->pos[a] - g_Gadgets.centre[a] * fit + hostmodel->matrices[0].m[3][a] - hostrest;
+
+			for (s32 i = 0; i < g_Gadgets.def->nummatrices; i++) {
+				matrices[i].m[3][a] += shift;
+			}
+		}
+
+		modelRender(renderdata, &g_Gadgets.model);
+		modelSetDistanceChecksDisabled(false);
+
+		renderdata->unk00 = prevbase;
+		renderdata->unk10 = prevmatrices;
+	}
+
+	mtxF2LBulk(matrices, g_Gadgets.def->nummatrices);
+
+	return 1;
+}
+
+/**
+ * GoldenEye's prop for a thrown gadget, as the conversion's `models` block
+ * numbers it (MODEL_REMAKE_FIRST + its PROP number), or -1 where the
+ * conversion is not loaded and the host's own is what there is.
+ */
+s32 gegadgetsPropModel(s32 weaponnum)
+{
+	s32 prop;
+
+	switch (weaponnum) {
+	case WEAPON_GE_COVERTMODEM:  prop = 245; break; // PROP_CHRBUG
+	case WEAPON_GE_PLASTIQUE:    prop = 273; break; // PROP_CHRPLASTIQUE
+	case WEAPON_GE_GOLDENEYEKEY: prop = 248; break; // PROP_CHRGOLDENEYEKEY
+	default: return -1;
+	}
+
+	return g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid ? MODEL_REMAKE_FIRST + prop : -1;
+}
+
+/**
+ * The watch magnet: GoldenEye draws whatever a guard could drop towards Bond.
+ * Here the nearest thing that can be picked up, in front of the player and
+ * within reach of the magnet, comes to hand.
+ */
+#define MAGNET_REACH 1000.0f
+#define MAGNET_CONE  0.8f
+
+static void gegadgetsMagnet(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	const f32 theta = player->vv_theta * M_BADTAU / 360.0f;
+	const f32 lookx = -sinf(theta);
+	const f32 lookz = cosf(theta);
+	struct prop *best = NULL;
+	f32 bestdist = MAGNET_REACH * MAGNET_REACH;
+
+	// a prop nobody is looking at is on the paused list, and the key Bunker 2
+	// hangs outside its cell is exactly that until the player turns to it
+	for (s32 list = 0; list < 2; list++)
+	for (struct prop *prop = list ? g_Vars.pausedprops : g_Vars.activeprops; prop; prop = prop->next) {
+		f32 dx, dy, dz, dist;
+
+		if ((prop->type != PROPTYPE_WEAPON && prop->type != PROPTYPE_OBJ) || !prop->obj || prop->parent) {
+			continue;
+		}
+
+		if (prop->type == PROPTYPE_OBJ && prop->obj->type != OBJTYPE_KEY) {
+			continue;
+		}
+
+		dx = prop->pos.x - player->prop->pos.x;
+		dy = prop->pos.y - player->prop->pos.y;
+		dz = prop->pos.z - player->prop->pos.z;
+		dist = dx * dx + dy * dy + dz * dz;
+
+		if (dist >= bestdist || dist < 1.0f) {
+			continue;
+		}
+
+		if ((dx * lookx + dz * lookz) / sqrtf(dx * dx + dz * dz + 1.0f) < MAGNET_CONE) {
+			continue;
+		}
+
+		best = prop;
+		bestdist = dist;
+	}
+
+	if (best) {
+		// what a pickup asks to have done with the prop - given to the
+		// player, freed - is the caller's to carry out
+		propExecuteTickOperation(best, propPickupByPlayer(best, true));
+	}
+}
+
+/**
+ * GoldenEye's "put it back" objective (PROPDEF_OBJECTIVE_DEPOSIT_OBJECT, which
+ * Perfect Dark kept as OBJECTIVETYPE_THROWOBJ) asks whether the tagged object's
+ * own prop is still in the inventory, and GoldenEye throws that very prop
+ * (gun.c's bondinvRemovePropWeaponByID() for ITEM_GOLDENEYEKEY). Perfect Dark
+ * gives a picked up weapon by its number and keeps a tagged one's prop out of
+ * the inventory, so the objective was complete before the key was ever touched.
+ * The prop goes into the inventory beside the item, hidden from its list, and
+ * comes out when the key leaves the hand.
+ */
+void gegadgetsKept(struct prop *prop)
+{
+	if (g_Gadgets.moddir < 0 || !prop || prop->type != PROPTYPE_WEAPON || !prop->weapon
+			|| prop->weapon->weaponnum != WEAPON_GE_GOLDENEYEKEY
+			|| !(prop->weapon->base.hidden & OBJHFLAG_TAGGED)) {
+		return;
+	}
+
+	prop->weapon->base.flags2 |= OBJFLAG2_INVHIDDEN;
+	invGiveProp(prop);
+	g_Gadgets.keyprop = prop;
+}
+
+void gegadgetsThrown(s32 weaponnum)
+{
+	if (weaponnum == WEAPON_GE_GOLDENEYEKEY && g_Gadgets.keyprop) {
+		invRemoveProp(g_Gadgets.keyprop);
+		g_Gadgets.keyprop = NULL;
+	}
+}
+
+/**
+ * lvRender(), once the player's props have been drawn, which is where Perfect
+ * Dark judges the CamSpy's holograph: GoldenEye's photograph objective is that
+ * one kept whole - the object on the screen, all of it, and in one piece.
+ */
+void gegadgetsAfterProps(void)
+{
+	if (g_Gadgets.photo) {
+		g_Gadgets.photo = 0;
+		objectiveCheckHolograph(0.0f);
+	}
+}
+
+/** The trigger, pulled with a gadget in the hand (bondmove.c). */
+void gegadgetsFire(s32 weaponnum)
+{
+	if (g_Gadgets.moddir < 0) {
+		return;
+	}
+
+	if (weaponnum == WEAPON_GE_CAMERA) {
+		// judged in the render (gegadgetsAfterProps()): the trigger is read
+		// in the tick, when the props' matrices are last frame's and already
+		// in the hardware's fixed point
+		geSfxPlay(GESFX_CAMERA_CLICK, GESFX_VOLUME);
+		g_Gadgets.photo = 1;
+	} else if (weaponnum == WEAPON_GE_WATCHMAGNET) {
+		gegadgetsMagnet();
+	}
+}
+
+/**
+ * Once a frame on a converted mission. GoldenEye's key analyser works the
+ * moment it is equipped (gunfire.c's analyzeGEKey()): with the GoldenEye key
+ * in the inventory the key is copied, which is what Bunker's objective asks,
+ * and the key is put in the hand to be put back; without it the player is told
+ * so.
+ */
+void gegadgetsTick(void)
+{
+	s32 weaponnum;
+
+	if (g_Gadgets.moddir < 0 || !g_Vars.currentplayer) {
+		return;
+	}
+
+	weaponnum = bgunGetWeaponNum(HAND_RIGHT);
+
+	if (weaponnum == g_Gadgets.lastweapon) {
+		return;
+	}
+
+	g_Gadgets.lastweapon = weaponnum;
+
+	if (weaponnum == WEAPON_GE_GADGETA && g_Gadgets.mission == MISSION_BUNKER) {
+		if (invHasSingleWeaponIncAllGuns(WEAPON_GE_GOLDENEYEKEY)) {
+			hudmsgCreate("Analyzing the GoldenEye key...\n", HUDMSGTYPE_DEFAULT);
+			geSfxPlay(GESFX_KEY_ANALYSER, GESFX_VOLUME);
+			chrSetStageFlag(NULL, GEGADGET_COPY_FLAG);
+			bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_GOLDENEYEKEY);
+		} else {
+			hudmsgCreate("You do not have the GoldenEye key.\n", HUDMSGTYPE_DEFAULT);
+		}
+	}
+}
+
+#endif

@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifndef PLATFORM_N64
+#include "gegadgets.h"
+#endif
 #include "constants.h"
 #include "game/cheats.h"
 #include "game/bondgun.h"
@@ -753,11 +756,11 @@ s32 playermgrGetModelOfWeapon(s32 weapon)
 #ifndef PLATFORM_N64
 	// A GoldenEye gun has a model state of its own (geguns.c)
 	if (weapon >= WEAPON_GE_FIRST && weapon < NUM_WEAPONS) {
-		// The covert modem is GoldenEye's own prop out of the ROM where the
-		// conversion is loaded (PROP_CHRBUG, its `models` block's slot 245),
-		// and its host's ECM mine where it is not
-		if (weapon == WEAPON_GE_COVERTMODEM && g_ModelStates[MODEL_REMAKE_FIRST + 245].fileid) {
-			return MODEL_REMAKE_FIRST + 245;
+		// A thrown gadget is GoldenEye's own prop out of the ROM where the
+		// conversion is loaded (the covert modem is PROP_CHRBUG, its `models`
+		// block's slot 245), and its host's ECM mine where it is not
+		if (gegadgetsPropModel(weapon) >= 0) {
+			return gegadgetsPropModel(weapon);
 		}
 
 		return MODEL_GE_FIRST + (weapon - WEAPON_GE_FIRST);

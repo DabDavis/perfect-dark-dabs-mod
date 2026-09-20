@@ -24,6 +24,7 @@
 #ifndef PLATFORM_N64
 #include "xblamesh.h"
 #include "gebean.h"
+#include "gegadgets.h"
 #include "mod.h"
 #include "romdata.h"
 #endif
@@ -4719,9 +4720,10 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		// The function's model is the host's, and is what says a mine sticks
 		// (below); one of GoldenEye's gadgets is thrown as its own prop where
 		// the conversion has it (playermgrGetModelOfWeapon())
-		if (gset->weaponnum == WEAPON_GE_COVERTMODEM
-				&& playermgrGetModelOfWeapon(gset->weaponnum) >= MODEL_REMAKE_FIRST) {
-			weaponobj = weaponCreateProjectileFromGset(playermgrGetModelOfWeapon(gset->weaponnum), gset, chr);
+		gegadgetsThrown(gset->weaponnum);
+
+		if (gegadgetsPropModel(gset->weaponnum) >= 0) {
+			weaponobj = weaponCreateProjectileFromGset(gegadgetsPropModel(gset->weaponnum), gset, chr);
 		} else
 #endif
 		weaponobj = weaponCreateProjectileFromGset(func->projectilemodelnum, gset, chr);
@@ -11557,6 +11559,9 @@ void bgunRender(Gfx **gdlptr)
 		s32 j;
 		s32 alpha;
 		s32 weaponnum; // ec
+#ifndef PLATFORM_N64
+		s32 geshown = 0;
+#endif
 		struct modelnode *node; // e8
 		u32 colour; // e4
 
@@ -11722,11 +11727,19 @@ void bgunRender(Gfx **gdlptr)
 			}
 
 			// Render the gun
+#ifndef PLATFORM_N64
+			// One of GoldenEye's gadgets is GoldenEye's own model out of the
+			// ROM, hand and all, or nothing at all (gegadgets.c)
+			geshown = gegadgetsRenderHand(&renderdata, &hand->gunmodel, weaponnum);
+
+			if (!geshown)
+#endif
 			modelRender(&renderdata, &hand->gunmodel);
 
 			// Render the hand
 			if (player->gunctrl.handmodeldef && renderhand
 #ifndef PLATFORM_N64
+					&& !geshown
 					// Only on a gun made for hands, and not on a two-handed
 					// gun held in one hand, whose hand model is the other
 					// hand reaching in from nowhere

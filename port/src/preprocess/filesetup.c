@@ -621,6 +621,10 @@ static u32 convertProps(u8* dst, u8* src)
 				struct criteria_throwinroom* dstobj = (struct criteria_throwinroom*)dst;
 
 				convertDefaultObjHdr((struct defaultobj*)dstobj, cmd);
+				// the weapon that has to be thrown there: no stock setup
+				// carries one of these, so nobody missed it, but GoldenEye's
+				// Silo asks for plastique in four rooms
+				PD_CONV_VAL(dstobj->unk04, srcobj->unk04);
 				PD_CONV_VAL(dstobj->pad, srcobj->pad);
 				PD_CONV_VAL(dstobj->status, srcobj->status);
 				PD_CONV_PTR(dstobj->next, srcobj->ptr_next, struct criteria_throwinroom*);
