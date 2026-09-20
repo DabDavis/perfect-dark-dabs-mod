@@ -274,6 +274,7 @@ static struct {
 	s32 counter;
 	s32 gunbarreltimer;
 	s32 shotplayed;
+	f32 tickacc; // 60ths of a second owed to introTickBarrel()
 	struct geblood blood; // the wash down the lens (geblood.c)
 	s32 blooddone;
 
@@ -1062,6 +1063,7 @@ static void introBarrelStart(void)
 	g_Intro.counter = 0;
 	g_Intro.gunbarreltimer = 0;
 	g_Intro.shotplayed = 0;
+	g_Intro.tickacc = 0.0f;
 	g_Intro.blooddone = 0;
 	g_Intro.blood.next = NULL;
 
@@ -1109,7 +1111,11 @@ static void introBarrelStart(void)
 
 static void introSetGunPart(s32 part, s32 visible);
 
-/** sub_GAME_7F007F30(): the walk, the turn and the shot, a frame at a time. */
+/**
+ * sub_GAME_7F007F30(): the walk, the turn and the shot. GoldenEye runs two of
+ * these ticks in each of its frames and introTickBarrel() runs one in each of
+ * its own, which are half of GoldenEye's.
+ */
 static void introBarrelTickBond(void)
 {
 	// title.c's BOND_EYE_ANIM_START, _SPEEDUP and _FIRE_SHOT
@@ -1117,34 +1123,28 @@ static void introBarrelTickBond(void)
 		return;
 	}
 
-	g_Intro.shotplayed = 0;
+	if (g_Intro.gunbarreltimer >= 0) {
+		g_Intro.gunbarreltimer++;
 
-	for (s32 i = 0; i < 2; i++) {
-		if (g_Intro.gunbarreltimer >= 0) {
-			g_Intro.gunbarreltimer++;
-
-			if (g_Intro.gunbarreltimer == 137 && g_Intro.anims[GEANIM_BOND_EYE_FIRE].animnum >= 0) {
-				modelSetAnimation(g_Intro.body.model, g_Intro.anims[GEANIM_BOND_EYE_FIRE].animnum, 0, 2.0f, 0.910000026f, 16.0f);
-			}
-
-			if (g_Intro.gunbarreltimer == 212) {
-				modelSetAnimSpeed(g_Intro.body.model, 1.6f, 8.0f);
-			}
+		if (g_Intro.gunbarreltimer == 137 && g_Intro.anims[GEANIM_BOND_EYE_FIRE].animnum >= 0) {
+			modelSetAnimation(g_Intro.body.model, g_Intro.anims[GEANIM_BOND_EYE_FIRE].animnum, 0, 2.0f, 0.910000026f, 16.0f);
 		}
 
-		modelTickAnim(g_Intro.body.model, 1, 1);
-
-		// GoldenEye fires GUN_RIFLE7BIG_1 here, out of its own sound bank,
-		// which the conversion does not carry: the shot is silent for now
-		if (g_Intro.gunbarreltimer == 230) {
-			g_Intro.shotplayed = 1;
+		if (g_Intro.gunbarreltimer == 212) {
+			modelSetAnimSpeed(g_Intro.body.model, 1.6f, 8.0f);
 		}
 	}
 
-	// subcalcpos(), once the two ticks are done and not once each - it is what
-	// carries the animation's root motion into the model, and GoldenEye calls
-	// it outside the loop. Twice a frame walked Bond in at double speed and
-	// left him past his mark when the sight closed
+	modelTickAnim(g_Intro.body.model, 1, 1);
+
+	// GoldenEye fires GUN_RIFLE7BIG_1 here, out of its own sound bank, which
+	// the conversion does not carry: the shot is silent for now. The flash
+	// lasts the frame of GoldenEye's the shot goes off in, which is two ticks
+	g_Intro.shotplayed = g_Intro.gunbarreltimer == 230 || g_Intro.gunbarreltimer == 231;
+
+	// subcalcpos(), which carries the animation's root motion into the model.
+	// It moves the root by what the animation has advanced since it last ran,
+	// so after every tick comes to what GoldenEye's one call a frame does
 	modelUpdateInfo(g_Intro.body.model);
 
 	// and the PP7's muzzle flash is on for the one frame the shot goes off and
@@ -1160,13 +1160,23 @@ static Gfx *introDrawBond(Gfx *gdl)
 	Mtx *projection = gfxAllocateMatrix();
 	Mtxf persp;
 	Mtxf camera;
+	struct introbox box;
+	f32 fovy;
 	u16 perspnorm;
 
 	if (!g_Intro.body.model) {
 		return gdl;
 	}
 
-	guPerspectiveF(persp.m, &perspnorm, 46.0f, videoGetAspect(), 10.0f, 10000.0f, 1.0f);
+	// GoldenEye's 46 degrees are over the height of its 4:3 frame, and on a
+	// wide window the barrel shows less than that height (introFrameBox()
+	// covers the window), so Bond's camera has to show as much less. Left at
+	// 46 he kept his size while the lens round him grew, and stood small and
+	// left of its middle, the lens being off centre by a share of the *width*
+	introFrameBox(&box);
+	fovy = atanf(tanf(46.0f * 0.5f * (f32)M_PI / 180.0f) / box.covery) * 2.0f * 180.0f / (f32)M_PI;
+
+	guPerspectiveF(persp.m, &perspnorm, fovy, videoGetAspect(), 10.0f, 10000.0f, 1.0f);
 	guMtxF2L(persp.m, projection);
 
 	gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -1343,6 +1353,24 @@ static Gfx *introRenderBarrel(Gfx *gdl)
 	return gdl;
 }
 
+/**
+ * One sixtieth of a second of the gun barrel.
+ *
+ * GoldenEye steps this sequence once a frame, whatever a frame took, so how
+ * fast it plays is how fast the N64 drew it: the two dots at sixty frames a
+ * second, and everything from the sight on at thirty (measured off a capture
+ * of the console - the sight crosses at 5.8183274 * 30 a second, Bond fires
+ * 3.8 seconds after he appears and the blood takes 2.8 to run down). Its own
+ * PAL numbers say the same, being these scaled from thirty to fifty. M_INTRO
+ * starts with the dots and is written to that, so stepped once per frame of
+ * this port the sight, the walk and the blood all ran at twice their speed and
+ * ahead of the music.
+ *
+ * So from mode 3 on a tick here is half a frame of GoldenEye's: half its
+ * steps, twice its counts, and one of Bond's two animation ticks - which keeps
+ * the motion as smooth as this port draws it rather than stepping it at
+ * thirty.
+ */
 static void introTickBarrel(void)
 {
 	switch (g_Intro.mode) {
@@ -1366,11 +1394,11 @@ static void introTickBarrel(void)
 			introBarrelTickBond();
 		}
 
-		g_Intro.titlex -= 5.8183274f;
+		g_Intro.titlex -= 5.8183274f * 0.5f;
 
 		if (g_Intro.titlex <= -80.0f) {
 			g_Intro.mode++;
-			g_Intro.counter = 20;
+			g_Intro.counter = 20 * 2;
 		}
 		break;
 	case 4:
@@ -1380,7 +1408,7 @@ static void introTickBarrel(void)
 		if (g_Intro.counter < 0) {
 			g_Intro.mode++;
 			geBloodStep(&g_Intro.blood, 1);
-			g_Intro.counter = 1;
+			g_Intro.counter = 1 * 2;
 		}
 		break;
 	case 5:
@@ -1389,7 +1417,7 @@ static void introTickBarrel(void)
 
 		if (g_Intro.counter == 0) {
 			g_Intro.blooddone = geBloodStep(&g_Intro.blood, 0);
-			g_Intro.counter = 2;
+			g_Intro.counter = 2 * 2;
 		}
 
 		if (g_Intro.blooddone) {
@@ -1401,20 +1429,20 @@ static void introTickBarrel(void)
 		break;
 	case 6:
 		introBarrelTickBond();
-		g_Intro.barreltimer += 0x38e;
+		g_Intro.barreltimer += 0x38e / 2;
 		g_Intro.counter++;
 		g_Intro.titlex = sinf(g_Intro.barreltimer * (f32)M_PI / 32768.0f) * 64.0f + g_Intro.transx;
 
-		if (g_Intro.counter >= 108) {
+		if (g_Intro.counter >= 108 * 2) {
 			g_Intro.counter = 0;
 			g_Intro.mode++;
 		}
 		break;
 	case 7:
 		introBarrelTickBond();
-		g_Intro.barreltimer += 0x38e;
+		g_Intro.barreltimer += 0x38e / 2;
 		g_Intro.titlex = sinf(g_Intro.barreltimer * (f32)M_PI / 32768.0f) * 64.0f + g_Intro.transx;
-		g_Intro.counter += 8;
+		g_Intro.counter += 8 / 2;
 
 		if (g_Intro.counter >= 0xf7) {
 			g_Intro.counter = 0;
@@ -2055,7 +2083,19 @@ void geIntroTick(void)
 
 	switch (g_Intro.stage) {
 	case STAGE_BARREL:
-		introTickBarrel();
+		// by the clock and not by the frame, so the barrel keeps GoldenEye's
+		// time and its place in the music at any frame rate; a hitch is not
+		// made up, as it never was on the console
+		g_Intro.tickacc += g_Vars.diffframe60freal;
+
+		if (g_Intro.tickacc > 4.0f) {
+			g_Intro.tickacc = 4.0f;
+		}
+
+		while (g_Intro.tickacc >= 1.0f && g_Intro.mode < 9) {
+			g_Intro.tickacc -= 1.0f;
+			introTickBarrel();
+		}
 
 		if (g_Intro.mode >= 9) {
 			introNextStage();

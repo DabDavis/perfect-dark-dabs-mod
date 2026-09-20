@@ -16,10 +16,12 @@
  * conversion's blood, a death on one of the remake's missions or arenas runs
  * the way GoldenEye runs it (`geBloodDeathRender()`, from playerRenderHud()).
  *
- * **The rate.** GoldenEye steps the wash once a frame while the player dies
- * and once every two frames in the gun barrel, its front end being the faster
- * of the two: either way the wash takes about a second and a half. This port
- * ticks both at 60Hz, so both step every two ticks (`GEBLOOD_TICKS`).
+ * **The rate.** GoldenEye steps the wash once a frame while the player dies,
+ * which at its thirty frames a second is about a second and a half, and this
+ * port ticks that at 60Hz, so it steps every two ticks (`GEBLOOD_TICKS`). The
+ * gun barrel steps it once every two frames and the console draws that screen
+ * at thirty as well, so there it takes 2.8 seconds - geintro.c counts those
+ * four ticks itself.
  *
  * A dying player's frame buffer is allocated the first time they die and kept
  * (four of them at worst, 7680 bytes each): it cannot be freed when the wash

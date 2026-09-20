@@ -3163,12 +3163,15 @@ a converted GoldenEye mission (`modloaderStageIsMission()`) and for the
 remake's arenas while GE Plus is the mode; everywhere else Perfect Dark's death
 is untouched, line for line.
 
-**The rate.** GoldenEye steps the wash once a frame while the player dies and
-once every two frames in the gun barrel - its front end runs at twice the
-framerate of its gameplay, so both take about a second and a half. This port
-ticks both at 60Hz, so both step every two ticks (`GEBLOOD_TICKS`, and the
-intro's `intro_eye_counter = 2`), and a paused game holds the frame because the
-step is spent in `g_Vars.lvupdate60`.
+**The rate.** GoldenEye steps the wash once a frame while the player dies,
+about a second and a half at its thirty frames a second, and this port ticks
+that at 60Hz, so it steps every two ticks (`GEBLOOD_TICKS`), and a paused game
+holds the frame because the step is spent in `g_Vars.lvupdate60`. The gun
+barrel steps it every *two* frames and **the console draws that screen at
+thirty too**, so there the wash takes 2.8 seconds - this paragraph used to say
+the front end ran at sixty and the barrel's wash took a second and a half,
+which was a guess and was wrong (see "The gun barrel ran at twice the
+console's speed").
 
 A dying player's 7680-byte frame buffer is allocated the first time they die
 and **kept** (four of them at worst). It cannot be freed when the wash ends:
@@ -3182,6 +3185,52 @@ are 0x65-0x78, the arenas 0x02-0x64 and 0x5e-0x64), `gdb -p ... -ex 'call
 wash. For the arenas, `set var g_GexPlusMode = 1` after a `--boot-stage 0x02
 --mpsims 1` boot.
 
+
+## The gun barrel ran at twice the console's speed (2026-09-20)
+
+The user: "bond walks faster than the rom version, because of the fps", then a
+capture of the console (`youtube.com/watch?v=iZy63vxe5G0`) and "bond is more
+centered in the barrel also". Both were real and neither was the animation.
+
+**GoldenEye steps the gun barrel once a frame, whatever a frame took**, so how
+fast it plays is how fast the N64 drew it. Measured off the capture (the
+lens's edge per video frame, the red share of the picture, all against the
+first dot at 0): the dots run at **sixty** (`XINC` 6 a frame, 360 a second) and
+**everything from the sight on runs at a steady thirty** - the sight crosses at
+174.5 a second, which is `XDEC3` 5.8183274 x 30, Bond appears at 7.8 s, turns at
+10.1, fires at 11.6, the blood starts at 12.3 and takes 2.7, the wobble 3.6,
+the fade 1.0. Not the 15-20 it feels like, and not a slowdown either: GoldenEye's
+own PAL constants are the NTSC ones scaled from thirty to fifty (one animation
+tick a frame where NTSC has two, 114 ticks to the turn for 137, `XDEC3`
+3.636), so thirty is what it was written for. `M_INTRO` starts in
+`init_menu03_gunbarrel()`, with the dots, and is written to that - so stepped
+once a frame at sixty, this port's sight, walk, shot and blood all ran at twice
+their speed and ahead of the music (the shot at 7.8 s for 11.6).
+
+`introTickBarrel()` is a sixtieth of a second now, run off
+`g_Vars.diffframe60freal` so the barrel keeps its time at any frame rate
+(checked at 60 and 120). From mode 3 on a tick is **half** a frame of
+GoldenEye's - half its steps, twice its counts, one of Bond's two animation
+ticks - rather than a whole one every other tick, so the motion stays as
+smooth as the port draws it. `modelUpdateInfo()` after every tick lands Bond's
+root on the same float as once a frame did (80.334305, 1041.087280 at timer
+264); the old "twice a frame walked him in at double speed" was the hand-rolled
+advance, not this. Every event is within a tenth of a second of the capture.
+
+**ares cannot answer this**: `n64oracle --cfb-by-frame` writes `swaps.tsv` with
+`currentFrameCounter` per swap, and it shows the whole barrel at sixty, because
+ares gives the RDP no time. Frame *rate* questions go to a capture of the
+console; the oracle is for state.
+
+**Bond off centre** was the wide window only. The barrel covers the window
+(`introFrameBox()`), so on 16:9 the lens is drawn a third larger, and Bond's
+camera was left at GoldenEye's 46 degrees over the window's height - so he kept
+his size in a bigger lens (half its height for the console's 0.72) and, the
+lens being off centre by a share of the *width*, stood left of its middle. His
+fovy is `2 atan(tan(23) / covery)` now. At 4:3 nothing changes.
+
+YouTube refused this box with its bot check whatever the yt-dlp; the same
+binary on `10.8.0.3` got the video at once.
 
 ## The folder screens' background on a wide window (2026-09-19)
 
