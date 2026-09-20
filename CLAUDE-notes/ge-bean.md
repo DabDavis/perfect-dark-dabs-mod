@@ -4982,21 +4982,15 @@ the load (`watchFindMeshHands()`) and turned about (-10.5, 0) in the mesh's own
 vertex array every frame, from where they were drawn. Two things hid them, and
 neither was the turning:
 
-- **the conversion writes a list record's render mode wrong.** GoldenEye's
-  plain list record (type 4) keeps `ModelType` in **one byte** at 0x12 where its
-  list-with-collisions record (0x18) keeps a word at 0x18, and both converters
-  read a word from both (`gemodelconv.py`, `geconvert.c` line ~4636): a 3 comes
-  out as 0x0300 and a 4 as 0x0400. No case of `modelRenderNodeDl()` answers to
-  that, so the model takes whatever render mode the frame was left in and its
-  **second list is never drawn** - the watch's glass, crown and pusher.
-  `watchFixRenderModes()` puts it right for the watch model alone. **Every
-  converted character and hand item carries the same fault** (all of character
-  41's twelve lists read 768) and so do 44 prop records; it is *not* fixed in
-  the converter, because the intro's models were lit and tuned in the state it
-  leaves them in and what they look like without it wants looking at on its own
-  (`build/gexrom/gemodes.py` prints every list record's mode for converted
-  files, and with `--rom` the ROM's own bytes: 0,4 at 0x18 for 399 of 400 type
-  0x18 records, and 4,0 or 0,0 at 0x12 for type 4);
+- **the conversion wrote a list record's render mode wrong**, until version 36.
+  GoldenEye's plain list record (type 4) keeps `ModelType` in **one byte** at
+  0x12 where its list-with-collisions record (0x18) keeps a word at 0x18, and
+  both converters read a word from both: a 3 came out as 0x0300 and a 4 as
+  0x0400. No case of `modelRenderNodeDl()` answers to that, so the model took
+  whatever render mode the frame was left in and its **second list was never
+  drawn**. Fixed in `geconvert.c` and both Python twins (see "The render mode,
+  fixed in the converter" below); `watchFixRenderModes()` stays for the watch's
+  own two models, for a conversion older than that which cannot be made again;
 - **the watch was drawn with no z buffer**, as GoldenEye draws its arm, and the
   hands come *before* the dial in the list, so the dial painted over them. The
   body and the watch each get a z buffer of their own now - `zbufClear()`, the
@@ -5028,6 +5022,52 @@ rides up on the shoulders and goes on the frame the raise ends.
 room, so at a hand's distance it reads as flat panels where GoldenEye's own arm
 reads as an arm. GoldenEye's arm is still there and is what a level without a
 body to pose uses.
+
+### The render mode, fixed in the converter (2026-09-20, version 36)
+
+The user: "do the converter fix with before/after captures". **How far the
+fault reached was overstated when it was found** - "every converted character"
+was a guess from character 41, and measuring the converted files says
+otherwise: of 1080 character lists **12** were wrong, all of them the floating
+arm's, because every other character is built of type 0x18 records, which were
+always read right. What carried it was the floating arm (`Cgx041Z`), the watch
+item (`Igx056Z`) and **22 props: GoldenEye's 21 third person guns (`Pchr*Z`,
+files 184-211) and the peaked hat** - 24 lists, 17 of them with a second list.
+Count before saying how far a fault goes; `build/gexrom/gemodes.py` does it in
+a second.
+
+What the fix changes, from 137 pictures taken before and after at the same
+frames (`build/gexrom/cap/`: `capture.sh`, `capture_extra.sh`, `compare.py`,
+and `before_after.png` for the pairs; `--fixed-step --rng-seed 1`, and a second
+"before" pass was pixel-identical to the first, 46 of 46):
+
+- **GoldenEye's floating arm is a different picture**: a pale grey sleeve, an
+  icy blue-white hand and a *white* dial before; the navy sleeve, a skin hand, a
+  black dial with its crown, pusher and hands after. That - not the arm - was
+  "cant tell they are arm, hand" on the first day;
+- **every third person gun gains its thin parts** - trigger guards, folding
+  stocks, sights, carry handles - which GoldenEye draws from the second list:
+  in guards' hands in the missions, in Natalya's, and in the cast reel's;
+- **nothing else moved**: all twenty missions at two frames each (but for
+  Natalya's pistol), the gun barrel, the logo and the rest of the reel are
+  pixel-identical, and the conversion's own output differs in exactly those 24
+  files and `CONVERT.txt`.
+
+Two traps in taking the pictures: **the intro needs `--boot-stage 0x26`** - from
+a mission `geIntroOpen()` runs its whole state machine under a level that goes
+on being drawn, and 41 identical pictures of a door proved nothing; and a guard
+is brought to the camera rather than the camera to a guard
+(`chrMoveToPos(chr, player + look * 140, player's rooms, 0, 1)` from gdb,
+`cap/guard.py`), which is one call and leaves the player's own rooms alone.
+
+**And the watch is GoldenEye's own arm again** (the user, on seeing the arm
+fixed: "if the ge watch way is fixed we can use that"): `watchEnsureModel()`
+takes the floating arm first - its own hand with fingers, a joint for each hand
+of the clock, a cuff for each mission's outfit - and the player's own body with
+the watch item on its wrist is kept behind `'gewatch.c'::g_WatchOwnBody` (set
+before a level's first pause) and for a conversion with no arm. Both were
+checked through the raise, open and close at 16:9 and 4:3, and the body's
+pictures are pixel-identical to what they were.
 
 ### Driving it
 

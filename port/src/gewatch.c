@@ -308,9 +308,8 @@ struct gewatch {
 	s32 moddir;
 	s32 stagenum;
 
-	// the arm, and the animation that raises it. The arm is the player's own
-	// body when they have one to pose - so that the sleeve and the hand are
-	// their character's - and GoldenEye's own floating arm when they have not.
+	// the arm, and the animation that raises it: GoldenEye's own floating arm,
+	// or the player's own body with GoldenEye's watch on its wrist (isbody)
 	u8 *modelbuf;
 	u32 modelbuflen;
 	struct modeldef *modeldef;
@@ -396,6 +395,10 @@ static struct gewatch g_Watch;
 // because nothing in the game writes them: without it the compiler folds each
 // into its one use and gdb has nothing to set.
 static volatile s32 g_WatchDrawArm = 1;
+
+// the player's own body wears the watch in place of GoldenEye's arm
+// ('gewatch.c'::g_WatchOwnBody, before the first pause of a level)
+static volatile s32 g_WatchOwnBody = 0;
 static volatile f32 g_WatchWristScale = WATCH_WRIST_SCALE;
 
 enum { MPPAGE_SCORES, MPPAGE_KILLS, MPPAGE_LOSSES, MPPAGE_PAUSE, MPPAGE_EXIT, NUM_MPPAGES };
@@ -638,17 +641,20 @@ static struct modelnode *watchNextNode(struct modelnode *node)
 }
 
 /**
- * The render mode of the watch model's lists, which the conversion writes wrong.
+ * The render mode of a list, which a conversion older than 36 writes wrong.
  *
  * GoldenEye's plain list record (type 4) keeps it in **one byte** at 0x12 where
  * its list-with-collisions record (type 0x18) keeps a word at 0x18, and the
- * conversion reads a word from both: a hand item's 3 comes out as 0x0300. No
- * case of modelRenderNodeDl() answers to that, so the model is drawn in
- * whatever render mode the frame was left in and its second list - the glass,
- * the crown - is never drawn at all. Put right here for the watch alone, which
- * is the watch's to change: every converted character carries the same fault,
- * and what they would look like without it is not something to find out in
- * passing (ge-bean.md).
+ * conversion read a word from both: a 3 came out as 0x0300. No case of
+ * modelRenderNodeDl() answers to that, so the model is drawn in whatever render
+ * mode the frame was left in and its second list is never drawn at all - which
+ * is what made GoldenEye's arm a pale sleeve and an icy hand round a white
+ * dial, and left its watch with no glass, crown or pusher.
+ *
+ * The conversion is right since version 36 and this does nothing to one. It is
+ * kept for the player whose conversion is older and cannot be made again, the
+ * ROM it came from having gone from data/ since: the two models the watch draws
+ * are its own copies and are the watch's to put right.
  */
 static void watchFixRenderModes(struct modeldef *def)
 {
@@ -995,6 +1001,7 @@ static s32 watchLoadGeArm(void)
 		return 0;
 	}
 
+	watchFixRenderModes(g_Watch.modeldef);
 	modelAllocateRwData(g_Watch.modeldef);
 	g_Watch.model = modelmgrInstantiateModelWithAnim(g_Watch.modeldef);
 
@@ -1378,22 +1385,34 @@ static s32 watchEnsureModel(void)
 		return 1;
 	}
 
-	// the player's own body first, with GoldenEye's own watch to go on its
-	// wrist; its floating arm when either of those is not to be had
+	// GoldenEye's own arm, which is GoldenEye's own way: its suit hand with the
+	// watch built into it, a joint for each hand of the clock and a cuff for
+	// each of the missions' outfits. It was passed over for a day in favour of
+	// the player's own body because it drew as a pale sleeve and an icy hand
+	// round a white dial - which was the conversion writing its render mode
+	// wrong and not the arm (watchFixRenderModes()). The player's own body with
+	// GoldenEye's watch on its wrist is still here, for when the conversion has
+	// no arm and behind g_WatchOwnBody.
+	if (!g_WatchOwnBody && watchLoadGeArm()) {
+		return 1;
+	}
+
+	watchFreeModel();
+
 	if (watchLoadWatchModel() && watchLoadBody()) {
 		return 1;
 	}
 
 	watchFreeModel();
 
-	if (!watchLoadGeArm()) {
-		sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no %s; GE Plus pauses Perfect Dark's way", "Cgx041Z");
-		return 0;
+	if (g_WatchOwnBody && watchLoadGeArm()) {
+		return 1;
 	}
 
-	sysLogPrintf(LOG_NOTE, "gewatch: GoldenEye's own arm, the player's own body not being there to wear the watch");
+	watchFreeModel();
+	sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no %s; GE Plus pauses Perfect Dark's way", "Cgx041Z");
 
-	return 1;
+	return 0;
 }
 
 s32 geWatchPause(void)
