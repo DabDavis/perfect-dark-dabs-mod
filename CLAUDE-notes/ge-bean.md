@@ -5696,3 +5696,125 @@ a poke should use `--screenshot-frame`.
 its own font at the bottom of the screen and ours is a Perfect Dark hud message;
 the Cinema page still plays only the opening shots, not the swirl or the
 endings.
+
+## EXTRA: the Cinema on the mission grid, outros, and the monitor programmes (2026-09-20)
+
+Three asks of the user's in one sitting, converter **44**: *"add the endings and
+swirl to the cinema page, also reformat to use the select mission page instead
+of multiplayer reel"*, *"call them Intro, Outro"*, *"we are also missing the big
+projection screens for ge plus, it uses pd"*, and then *"lets make 3. Extra in
+the ge plus main menu and move cinema inside as 1. then 2. Monitor Programmes"*.
+
+### The folder
+
+The mode select's third row is **EXTRA** (`SCREEN_EXTRA`), the difficulty
+page's rows: **1. Cinema**, **2. Monitor Programmes**. The Cinema is the mission
+select's own slide grid now (`frontMissionUnderCursor()`, cut out of
+`frontTickMission()` so both pages find a slide the same way; `frontDrawMission()`
+draws both) and picking a mission opens `SCREEN_CINEMAPICK`, **Intro** and
+**Outro** - mixed case because GoldenEye sets its difficulties that way under a
+capitals heading. A cinema comes back to that page with the one that was
+watched under the cursor.
+
+### Intro and Outro (gecinema.c)
+
+**Intro** is the gallery it always was - every `INTROTYPE_CAMERA` shot in turn -
+and then, when the last has been seen rather than backed out of, the mission's
+own opening from its fade onwards: `GEINTRO_FADE`, the swirl, and
+`gecinemaIntroEnd()` finishing the cinema where a mission would hand over
+(`GEINTRO_HOLD` keeps the camera for the frame the stage takes to change, or the
+warp's own camera would take it with stale parameters).
+
+**Outro**: every mission ends on the same pair in one of its lists,
+`HideAllChrs` then `TriggerFadeAndExitLevelOnButtonPress` (`01d5 00`, `01e1`;
+all twenty, `build/gexrom/endsurvey.py`), and what comes before is the mission's
+own business. So the ending is found by that pair and a background chr is
+started on it at frame 20 - the list's own owner where it has one, the first
+background chr where it is a list a chr is handed (Statue Park's 1056, the
+Cradle's 1052; nothing after the pair asks anything of the chr running it). It
+ends the way the mission does, and both ways come back to the folder instead
+(`gecinemaEndingOver()` from `gexPlusMissionExitTick()` and `aiEndLevel`).
+`--cinema-opening` / `--cinema-ending` play one from a `--boot-stage`;
+`runall_cinema.sh` sweeps them. **rc 124 after an "over at frame N" line is a
+pass**: the cinema finished and the run sat in the Institute it went back to,
+which never reaches the exit frame.
+
+### Leaving either Bunker ended the game - and had since the missions first ran
+
+Found by the Outro sweep, not caused by it: HEAD crashed the same way on a plain
+`mainChangeToStage()` out of Bunker. **A GoldenEye hanging TV attaches to its
+mount through `OwnerOffset`**, a word at 0xf4 of its `MonitorObjRecord`, and
+`setup.c` still has GoldenEye's branch for it (`pad < 0`: "in PD, hanging
+monitors do not exist in the setup files so this code is unused"). The
+conversion carried no tail for a monitor, so the offset was nought and **the TV
+hung from itself**: `propReparent(prop, prop)`. A prop that is its own child is
+fine until the level is left, when `objFree()` frees its children first - for
+ever, two hundred thousand frames deep. `singlemonitorobj` ends
+`s16 owneroffset, s8 ownerpart, u8 imagenum` at 0xd0 against GoldenEye's three
+words at 0xf4; both converters carry them, and the loader refuses a mount that
+is the monitor itself or no object. `build/gexrom/leave6f.gdb` leaves a level
+from gdb; **no sweep before this ever unloaded one.**
+
+### The monitor programmes
+
+`tvscreen` is GoldenEye's monitor unchanged: the sixteen commands have the same
+numbers, arguments and widths (`chrai.h`'s `MON*` against `tvcmds.h`), and
+`tvscreenRender()` is its tick and draw. The data is each game's own - a record's
+image number picks one of GoldenEye's **52 programmes**
+(`monitorSetImageByNum()`) and a programme's `MONUSEIMAGE` indexes GoldenEye's
+**50 pictures** (`s_monitorimages`) - and since the number was never carried,
+every screen in a converted level ran Perfect Dark's programme 0 over Perfect
+Dark's pictures.
+
+The programmes are one block in the data segment, **0x80030b74 for 1334
+words**, which decodes end to end (`monscan.py`); a jump's target is an address
+in it. `menu/gemonitors.bin` is the selector (a word offset a programme), the
+picture table as `textureconfig`s with the conversion's texture numbers, and the
+block with each jump's target turned into the word it is at - a list is 32 bit
+words and a pointer here is 64, and Perfect Dark's own lists use neither jump.
+`gemonitor.c` answers three questions for propobj.c on a remake stage: which
+programme a number means (so `TvChangeScreenBank` works too), where a jump goes,
+which picture an index means. Pictures load when first drawn (`texSelect()`),
+so the table is rewritten from the file's numbers on every load.
+`gemonitortable.h`/`.py` are generated from the decompilation; three programmes
+it gives no address for were placed from the block and checked against the jumps
+that name them.
+
+**Monitor Programmes** is the user's own design: *"render the programmes each
+in their own monitor prop, lined up similar to the mission reels"*. Twelve of
+GoldenEye's TV sets a page (`PROP_TV1`, `Pgx075Z`, which the conversion now
+writes whether or not a level stands one up) on the Level page's film strip,
+each an instance of one modeldef running its own programme the way a set in a
+level does - `tvscreenRender()` onto part 0, then `modelRender()` - under the
+folder's own camera and into a z buffer of their own (`frontDrawTvs()`). A press
+on a set shows its programme large (`SCREEN_MONITORVIEW`): the tick was cut out
+of `tvscreenRender()` as `tvscreenTick()` (nothing in it changed) and that page
+draws the picture as a texture rectangle from the same `xmid`/`xscale`
+arithmetic, tinted by the screen's colour; a rectangle cannot turn, so the
+radar's sweep shows unturned there.
+
+Four things the page taught:
+- **The level's clock is stopped while the folder is up** and a screen counts in
+  it (`lvupdate60`, `lvupdate60f`): nothing scrolled, tinted or left a hold until
+  the page lent it the frame's own (`frontMonitorClock()`).
+- **A picture's rows run bottom to top** - the flat view drew the world map
+  upside down until `t` ran backwards (a stage picture's do not, which is what
+  `frontImage()`'s negative height is for).
+- **Only an IA picture's alpha means anything**: an intensity picture's alpha is
+  its intensity again and only dims it.
+- `geMonitorImage()`/`geMonitorJump()` cannot ask what stage they are on - the
+  folder runs these over the Institute - so the page opens a folder mode
+  (`geMonitorOpen()`/`geMonitorClose()`), and the picture table is rewritten
+  from the file's numbers each time it opens.
+
+A set's place follows from its cell's menu pixel: the folder's camera looks
+square at the plane the folder lies in, `FOLDER_EYEZ` off under `FOLDER_FOVY`,
+so a pixel is a fixed step across it - times 0.855 across and 0.96 down,
+measured off the page, because the frame the 2-D layer is held in is not the
+window's own shape. The statics that place a set are `volatile` so they can be
+set from gdb with the page up; a plain `static f32` that is never written is
+folded in and gdb reports "not an lvalue". **The folder does not open by
+itself headlessly** - a probe that waits for `g_MenuData.root == 2` waits for
+ever; boot `--boot-stage 0x5e --cinema-ending`, break on
+`gexFrontOpenAfterCinema` and `finish`, and the folder is up through its real
+path in about a minute (`build/gexrom/tvpage.gdb`, `extrapages.gdb`).

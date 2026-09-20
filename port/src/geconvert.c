@@ -43,6 +43,7 @@
 #include "geconvert.h"
 #include "geaitable.h"
 #include "geanimtable.h"
+#include "gemonitortable.h"
 
 #define SEG_BG 0x0f000000u
 #define SEG_MODEL 0x05000000u
@@ -96,6 +97,7 @@
 // GE Plus's menus (gexfront.c): the menu folder (PROP_WALLETBOND), its
 // pictures, and the two fonts and the music, raw in the ROM
 #define MENU_FOLDER_MODEL 278
+#define MENU_TV_MODEL 75
 
 // the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
 // a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
@@ -4055,6 +4057,27 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 					memcpy(rec + tails[k].pd, raw + tails[k].ge, tails[k].width);
 				}
 			}
+			if (t == 0x0a && recs.v[i].len >= 0xfc) {
+				// A hanging TV's mount. GoldenEye's MonitorObjRecord ends
+				// OwnerOffset, OwnerPart, ImageNum, a word each at 0xf4, and
+				// Perfect Dark's singlemonitorobj ends s16 owneroffset, s8
+				// ownerpart, u8 imagenum at 0xd0. A monitor with a negative pad
+				// hangs from the record that many commands away, and with the
+				// offset left at nought it hung from itself - a prop that is its
+				// own child, which objFree() frees for ever on the way out of
+				// the level: both Bunkers ended the game when they were left.
+				// gesolo.py's MONITOR.
+				set16(rec, 0xd0, be32(raw, 0xf4) & 0xffff);
+				rec[0xd2] = (uint8_t)(be32(raw, 0xf8) & 0xff);
+				// and the programme it shows, one of GoldenEye's fifty-two
+				// (gemonitortable.h), which the port plays on a remake stage
+				rec[0xd3] = (uint8_t)(be32(raw, 0xfc) & 0xff);
+			}
+			if (t == 0x0b && recs.v[i].len >= 0x254) {
+				// the four screens of a bank of monitors: a byte each after the
+				// four MonitorRecords, which are 0x74 in both games
+				memcpy(rec + 0x22c, raw + 0x250, 4);
+			}
 			if (t == 0x07 && recs.v[i].len >= 0x84) {
 				// the crate's one type, in the port's numbering
 				set32(rec, 0x5c, soloAmmoType(be32(raw, 0x80), 0));
@@ -5678,6 +5701,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		buf title;
 
 		setAdd(allmodels, MENU_FOLDER_MODEL);
+		// and the TV set the folder's Monitor Programmes page shows them on
+		// (PROP_TV1, gexfront.c)
+		setAdd(allmodels, MENU_TV_MODEL);
 		setAdd(allmodels, INTRO_LOGO_MODEL);
 		for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
 			setAdd(allmodels, g_IntroGuns[i]);
@@ -5834,6 +5860,64 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			writeFile(outdir, "menu/gechrs.bin", chrs.v, chrs.n);
+		}
+
+		// menu/gemonitors.bin: what GoldenEye's TVs and its big projection
+		// screens show (gemonitortable.h, port/src/gemonitor.c). "GEM1", the
+		// three counts, a word offset a programme, a texture config an image
+		// - with the image's number as the conversion writes its texture - and
+		// the programmes' block out of the data segment as it stands, but for a
+		// jump's target, an address inside the block, which becomes the word it
+		// is at. geconvert.py writes the same bytes.
+		{
+			static const uint8_t lens[16] = { 1, 3, 3, 3, 3, 3, 3, 2, 2, 2, 3, 1, 1, 3, 2, 2 };
+			const size_t at = GEMON_BLOCK_AT - DATA_VRAM;
+			buf mon = {0};
+
+			if (at + 4 * (size_t)GEMON_BLOCK_WORDS > g_DataLen) {
+				fail("the monitor programmes are not where they should be");
+			}
+
+			bufPut(&mon, (const uint8_t *)"GEM1", 4);
+			bufU16(&mon, GEMON_NUM_PROGRAMS);
+			bufU16(&mon, GEMON_NUM_IMAGES);
+			bufU32(&mon, GEMON_BLOCK_WORDS);
+
+			for (int i = 0; i < GEMON_NUM_PROGRAMS; ++i) {
+				bufU32(&mon, g_GeMonPrograms[i]);
+			}
+
+			for (int i = 0; i < GEMON_NUM_IMAGES; ++i) {
+				setAdd(alltex, g_GeMonImages[i].image);
+				bufU32(&mon, texRemap(g_GeMonImages[i].image));
+				bufU8(&mon, g_GeMonImages[i].w);
+				bufU8(&mon, g_GeMonImages[i].h);
+				bufU8(&mon, g_GeMonImages[i].level);
+				bufU8(&mon, g_GeMonImages[i].format);
+				bufU8(&mon, g_GeMonImages[i].depth);
+				bufU8(&mon, g_GeMonImages[i].s);
+				bufU8(&mon, g_GeMonImages[i].t);
+				bufU8(&mon, 0);
+			}
+
+			for (size_t w = 0; w < GEMON_BLOCK_WORDS; ) {
+				const uint32_t op = be32(g_Data, at + 4 * w);
+				const size_t n = op < 16 ? lens[op] : 1;
+
+				for (size_t k = 0; k < n && w + k < GEMON_BLOCK_WORDS; ++k) {
+					uint32_t v = be32(g_Data, at + 4 * (w + k));
+
+					if (k == 1 && (op == 9 || op == 10)) {
+						v = (v - GEMON_BLOCK_AT) / 4;
+					}
+
+					bufU32(&mon, v);
+				}
+
+				w += n;
+			}
+
+			writeFile(outdir, "menu/gemonitors.bin", mon.v, mon.n);
 		}
 
 		// the watch the remake's pause wears (gewatch.c): GoldenEye's own

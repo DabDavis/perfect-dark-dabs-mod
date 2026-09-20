@@ -63,6 +63,9 @@
 #include "video.h"
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gemonitor.h"
+#include "game/zbuf.h"
+#include "game/propobj.h"
 #include "gexfront.h"
 #include "gesfx.h"
 #include "game/modghost.h"
@@ -201,7 +204,8 @@ extern s32 g_MpWeaponSetNum;
 #define COLOUR_BAR 0x00000064
 
 enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE, SCREEN_CHARACTERS,
-	SCREEN_MISSION, SCREEN_DIFFICULTY, SCREEN_007OPTIONS, SCREEN_BRIEFING, SCREEN_CINEMA };
+	SCREEN_MISSION, SCREEN_DIFFICULTY, SCREEN_007OPTIONS, SCREEN_BRIEFING, SCREEN_CINEMA, SCREEN_CINEMAPICK,
+	SCREEN_EXTRA, SCREEN_MONITORS, SCREEN_MONITORVIEW };
 
 /**
  * GoldenEye's mission folder (front.c's mission_folder_setup_entries): its nine
@@ -295,7 +299,7 @@ enum { SLIDER_HEALTH, SLIDER_DAMAGE, SLIDER_ACCURACY, SLIDER_REACTION, NUM_SLIDE
 #define NUM_CONTROLSTYLES 9
 
 // textures drawn this visit, by number: each a config texSelect() makes a pointer of
-#define MAX_FRONT_TEXTURES 32
+#define MAX_FRONT_TEXTURES 96   // the Monitor Programmes page can draw any of GoldenEye's fifty
 
 /**
  * GoldenEye's multiplayer rows. GoldenEye's are 20 apart from 0x79; with the
@@ -381,7 +385,16 @@ static struct {
 	s32 charsize[MAX_PLAYERS];    // how far a chosen portrait has grown, to 11
 	s32 charpicked;               // player 1 chose on the Characters page this session
 
-	s32 cinemapage;     // the Cinema page's page of mission pictures
+	s32 cinemawhat;     // the cinema last picked for a mission: its opening or its ending
+	s32 monitor;        // the Monitor Programmes page: the programme showing
+	s32 nummonitors;    // and how many the conversion has
+	struct tvscreen monitorscreen;   // the screen the big view runs on
+	s32 monitorpage;    // the page of TV sets showing
+	struct tvscreen tvscreens[12];   // a screen a set, each on its own programme
+	struct model *tvmodels[12];      // GoldenEye's TV set, an instance a cell
+	struct modeldef *tvdef;
+	u8 *tvbuf;
+	s32 tvbuflen;
 	s32 mission;        // the mission the grid is on, 0-19
 	s32 difficulty;     // the difficulty chosen for it
 	s32 briefpage;      // the briefing page open
@@ -628,8 +641,12 @@ static s32 frontFirstArena(void)
 	return -1;
 }
 
+static void frontUnloadTvs(void);
+
 static void frontUnloadModel(void)
 {
+	frontUnloadTvs();
+
 	if (g_Front.model) {
 		modelmgrFreeModel(g_Front.model);
 		g_Front.model = NULL;
@@ -1604,21 +1621,38 @@ static s32 frontOnNextTab(void)
 static void frontSetCursorForMode(s32 mode);
 
 /**
- * The Cinema page: GoldenEye's film strip again, a picture a mission, and
- * picking one plays that mission's own opening camera shots on its level
- * (gecinema.c). Twenty missions is two pages, turned by GoldenEye's NEXT tab.
+ * The Cinema page is the mission select's own: the slides on the grid, a
+ * mission's name on each, and the cursor finds them the same way
+ * (frontTickMission()). It was the multiplayer Level page's film strip, two
+ * pages of stage pictures, until the user asked for this one.
+ *
+ * Picking a mission opens a page in the difficulty page's shape with the two
+ * things there are to watch: its opening - every one of its camera shots in
+ * turn, then the fade and the swirl down to Bond - and its ending (gecinema.c).
  */
+static void frontSetCursorForMission(s32 mission);
+static s32 frontMissionUnderCursor(void);
+static void frontOpenExtra(s32 row);
+
+#define NUM_EXTRA_ROWS 2
+#define EXTRA_CINEMA   0
+#define EXTRA_MONITORS 1
+
+#define NUM_CINEMA_ROWS 2
+
+static void frontSetCursorForCinemaPick(s32 what)
+{
+	g_Front.cursorx = 106.0f;
+	g_Front.cursory = what * 0x1e + 0xba;
+}
+
 static void frontOpenCinema(void)
 {
 	g_Front.screen = SCREEN_CINEMA;
-	g_Front.cinemapage = g_Front.mission / LEVELS_PER_PAGE;
-	g_Front.highlight = g_Front.mission % LEVELS_PER_PAGE;
-	// the cursor on the picture the page opens on, as the Level page does
-	g_Front.cursorx = 86.0f + 85.0f * (g_Front.highlight % 4) + 17.0f;
-	g_Front.cursory = 134.0f + 70.0f * (g_Front.highlight / 4) + 11.0f;
+	frontSetCursorForMission(g_Front.mission);
 }
 
-static void frontStartCinema(s32 mission)
+static void frontStartCinema(s32 mission, s32 what)
 {
 	union handlerdata data;
 
@@ -1630,7 +1664,7 @@ static void frontStartCinema(s32 mission)
 	g_MissionConfig.difficulty = DIFF_A;
 
 	// the stage that loads next is a cinema rather than a mission to play
-	gecinemaArm(mission);
+	gecinemaArm(mission, what);
 
 	g_Front.active = 0;
 	frontUnload();
@@ -1656,8 +1690,229 @@ static void frontSfx(s32 id, s32 menusound)
 
 static void frontTickCinema(s32 pick, s32 back)
 {
-	const s32 first = g_Front.cinemapage * LEVELS_PER_PAGE;
-	const s32 onpage = NUM_MISSIONS - first < LEVELS_PER_PAGE ? NUM_MISSIONS - first : LEVELS_PER_PAGE;
+	if (!g_Front.tabprev) {
+		g_Front.highlight = frontMissionUnderCursor();
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
+		frontOpenExtra(EXTRA_CINEMA);
+		return;
+	}
+
+	if (pick && g_Front.highlight >= 0) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
+		g_Front.mission = g_Front.highlight;
+		g_Front.screen = SCREEN_CINEMAPICK;
+		frontSetCursorForCinemaPick(GECINEMA_OPENING);
+	}
+}
+
+/**
+ * EXTRA, the mode select's third row: the remake's own page for what GoldenEye
+ * never had a menu for. 1. Cinema, 2. Monitor Programmes - the user's names and
+ * the user's order - in the difficulty page's rows.
+ */
+static void frontSetCursorForExtra(s32 row)
+{
+	g_Front.cursorx = 106.0f;
+	g_Front.cursory = row * 0x1e + 0xba;
+}
+
+static void frontOpenExtra(s32 row)
+{
+	g_Front.screen = SCREEN_EXTRA;
+	frontSetCursorForExtra(row);
+}
+
+/** Start programme n on the page's screen, from GoldenEye's own blank one. */
+static void frontShowMonitor(s32 n)
+{
+	u32 *list;
+
+	if (g_Front.nummonitors <= 0) {
+		return;
+	}
+
+	g_Front.monitor = ((n % g_Front.nummonitors) + g_Front.nummonitors) % g_Front.nummonitors;
+	list = geMonitorProgramAt(g_Front.monitor);
+
+	if (list) {
+		// the screen every monitor is made from (setup.c's var8009ce98, which
+		// GoldenEye calls g_MonitorAnimController): white, unscrolled, 1:1
+		g_Front.monitorscreen = var8009ce98;
+		tvscreenSetCmdlist(&g_Front.monitorscreen, list);
+	}
+}
+
+/**
+ * Monitor Programmes, as the user asked for it: "each in their own monitor
+ * prop, lined up similar to the mission reels". Twelve of GoldenEye's TV sets a
+ * page (PROP_TV1, which the conversion writes as Pgx075Z), four across and
+ * three down on the Level page's film strip pitch, each running its own
+ * programme on its own screen exactly as a set in a level does -
+ * tvscreenRender() onto the model's part 0 and then the model (objRender()).
+ * NEXT turns the page; a press on a set shows its programme large.
+ */
+#define TVS_PER_PAGE 12
+#define TV_FILE "Pgx075Z"
+
+// where a set stands and how it is turned, against the folder's own camera:
+// not constants so that they can be found from gdb with the page on the screen
+// (volatile, or the compiler folds them in and gdb has nothing to set)
+static volatile f32 g_TvScale = 0.2f;
+static volatile f32 g_TvYaw = 0.0f;
+static volatile f32 g_TvPitch = 0.0f;
+static volatile f32 g_TvZ = 0.0f;
+static volatile f32 g_TvLift = 0.0f;
+// a menu pixel across the folder's plane, measured off the page: the frame the
+// 2-D layer is held in is not the window's own shape (frontX())
+static volatile f32 g_TvSpreadX = 0.855f;
+static volatile f32 g_TvSpreadY = 0.96f;
+
+static void frontUnloadTvs(void)
+{
+	for (s32 i = 0; i < TVS_PER_PAGE; i++) {
+		if (g_Front.tvmodels[i]) {
+			modelmgrFreeModel(g_Front.tvmodels[i]);
+			g_Front.tvmodels[i] = NULL;
+		}
+	}
+
+	if (g_Front.tvbuf) {
+		videoFreeCachedTextures(g_Front.tvbuf, g_Front.tvbuf + g_Front.tvbuflen);
+		sysMemFree(g_Front.tvbuf);
+		g_Front.tvbuf = NULL;
+	}
+
+	g_Front.tvdef = NULL;
+	geMonitorClose();
+}
+
+static s32 frontLoadTvs(void)
+{
+	const s32 fileid = romdataRegisterModFile(TV_FILE, g_Front.moddir);
+	s32 size;
+
+	if (g_Front.tvdef) {
+		return 1;
+	}
+
+	if (fileid <= 0 || (size = fileGetInflatedSize(fileid, LOADTYPE_MODEL)) <= 0) {
+		return 0;
+	}
+
+	g_Front.tvbuflen = ALIGN64(size) + 0x20000;
+	g_Front.tvbuf = sysMemZeroAlloc(g_Front.tvbuflen);
+
+	if (!g_Front.tvbuf) {
+		return 0;
+	}
+
+	{
+		const s32 prevsrc = modSetTextureSourceMod(g_Front.moddir);
+
+		g_Front.tvdef = modeldefLoad(fileid, g_Front.tvbuf, g_Front.tvbuflen, NULL);
+		modSetTextureSourceMod(prevsrc);
+	}
+
+	if (!g_Front.tvdef) {
+		frontUnloadTvs();
+		return 0;
+	}
+
+	modelAllocateRwData(g_Front.tvdef);
+
+	for (s32 i = 0; i < TVS_PER_PAGE; i++) {
+		g_Front.tvmodels[i] = modelmgrInstantiateModelWithoutAnim(g_Front.tvdef);
+
+		if (!g_Front.tvmodels[i]) {
+			frontUnloadTvs();
+			return 0;
+		}
+
+		modelSetScale(g_Front.tvmodels[i], 1);
+	}
+
+	return 1;
+}
+
+/** The programmes of a page, each started on its own set. */
+static void frontSetMonitorPage(s32 page)
+{
+	const s32 pages = (g_Front.nummonitors + TVS_PER_PAGE - 1) / TVS_PER_PAGE;
+
+	if (pages <= 0) {
+		return;
+	}
+
+	g_Front.monitorpage = ((page % pages) + pages) % pages;
+
+	for (s32 i = 0; i < TVS_PER_PAGE; i++) {
+		u32 *list = geMonitorProgramAt(g_Front.monitorpage * TVS_PER_PAGE + i);
+
+		g_Front.tvscreens[i] = var8009ce98;
+		tvscreenSetCmdlist(&g_Front.tvscreens[i], list ? list : geMonitorProgramAt(0));
+	}
+}
+
+static void frontOpenMonitors(void)
+{
+	g_Front.nummonitors = geMonitorOpen(g_Front.moddir, fsGetModDirAt(g_Front.moddir));
+	frontLoadTvs();
+	g_Front.screen = SCREEN_MONITORS;
+	frontSetMonitorPage(g_Front.monitor / TVS_PER_PAGE);
+
+	// the cursor on the set that was last looked at, as the Level page does
+	g_Front.cursorx = 86.0f + 85.0f * ((g_Front.monitor % TVS_PER_PAGE) % 4) + 17.0f;
+	g_Front.cursory = 134.0f + 70.0f * ((g_Front.monitor % TVS_PER_PAGE) / 4) + 11.0f;
+}
+
+static void frontTickExtra(s32 pick, s32 back)
+{
+	if (!g_Front.tabprev) {
+		g_Front.highlight = g_Front.cursory >= 211 ? EXTRA_MONITORS : EXTRA_CINEMA;
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
+		g_Front.screen = SCREEN_MODE;
+		frontSetCursorForMode(2);
+		return;
+	}
+
+	if (pick && g_Front.highlight == EXTRA_CINEMA) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
+		frontOpenCinema();
+	} else if (pick && g_Front.highlight == EXTRA_MONITORS) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
+		frontOpenMonitors();
+	}
+}
+
+/**
+ * A screen counts in the level's clock, which is stopped while the folder is
+ * up - so the page lends it the frame's own, or nothing scrolls, nothing tints
+ * and no hold ever ends.
+ */
+static void frontMonitorClock(s32 lend, s32 *lvupdate60, f32 *lvupdate60f)
+{
+	if (lend) {
+		*lvupdate60 = g_Vars.lvupdate60;
+		*lvupdate60f = g_Vars.lvupdate60f;
+		g_Vars.lvupdate60 = g_Vars.diffframe60;
+		g_Vars.lvupdate60f = g_Vars.diffframe60f;
+	} else {
+		g_Vars.lvupdate60 = *lvupdate60;
+		g_Vars.lvupdate60f = *lvupdate60f;
+	}
+}
+
+/** The page of sets: the one under the cursor, the NEXT tab, a press to look closer. */
+static void frontTickMonitors(s32 pick, s32 back)
+{
+	const s32 first = g_Front.monitorpage * TVS_PER_PAGE;
+	const s32 onpage = g_Front.nummonitors - first < TVS_PER_PAGE ? g_Front.nummonitors - first : TVS_PER_PAGE;
 
 	if (!g_Front.tabprev && !g_Front.tabnext) {
 		const s32 y = (s32)g_Front.cursory;
@@ -1674,21 +1929,71 @@ static void frontTickCinema(s32 pick, s32 back)
 
 	if (back || (pick && g_Front.tabprev)) {
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
-		g_Front.screen = SCREEN_MODE;
-		frontSetCursorForMode(2);
+		frontUnloadTvs();
+		frontOpenExtra(EXTRA_MONITORS);
 		return;
 	}
 
 	if (pick && g_Front.tabnext) {
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SWIPE);
-		g_Front.cinemapage = (g_Front.cinemapage + 1) % ((NUM_MISSIONS + LEVELS_PER_PAGE - 1) / LEVELS_PER_PAGE);
+		frontSetMonitorPage(g_Front.monitorpage + 1);
 		return;
 	}
 
 	if (pick && g_Front.highlight >= 0) {
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
-		g_Front.mission = first + g_Front.highlight;
-		frontStartCinema(g_Front.mission);
+		g_Front.screen = SCREEN_MONITORVIEW;
+		frontShowMonitor(first + g_Front.highlight);
+	}
+}
+
+/**
+ * One programme large: a press on the left of the picture goes back one and
+ * anywhere else - or the NEXT tab - goes on one; backing out returns to the
+ * page of sets that programme is on.
+ */
+static void frontTickMonitorView(s32 pick, s32 back)
+{
+	if (back || (pick && g_Front.tabprev)) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
+		frontOpenMonitors();
+		return;
+	}
+
+	if (pick) {
+		const s32 step = !g_Front.tabnext && g_Front.cursorx < 220.0f ? -1 : 1;
+
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SWIPE);
+		frontShowMonitor(g_Front.monitor + step);
+	}
+
+	if (g_Front.nummonitors > 0 && g_Front.monitorscreen.cmdlist) {
+		s32 lvupdate60;
+		f32 lvupdate60f;
+
+		frontMonitorClock(1, &lvupdate60, &lvupdate60f);
+		tvscreenTick(&g_Front.monitorscreen);
+		frontMonitorClock(0, &lvupdate60, &lvupdate60f);
+	}
+}
+
+/** The opening or the ending: the difficulty page's rows and its thresholds. */
+static void frontTickCinemaPick(s32 pick, s32 back)
+{
+	if (!g_Front.tabprev) {
+		g_Front.highlight = g_Front.cursory >= 211 ? GECINEMA_ENDING : GECINEMA_OPENING;
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
+		frontOpenCinema();
+		return;
+	}
+
+	if (pick && g_Front.highlight >= 0) {
+		frontSfx(GESFX_PAPER_TURN, MENUSOUND_SWIPE);
+		g_Front.cinemawhat = g_Front.highlight;
+		frontStartCinema(g_Front.mission, g_Front.highlight);
 	}
 }
 
@@ -1946,49 +2251,54 @@ static void frontSetCursorForDifficulty(s32 difficulty)
  * a mission that can be played - up the rows first, then left along the row,
  * and right along it when nothing is to the left.
  */
-static void frontTickMission(s32 pick, s32 back)
+static s32 frontMissionUnderCursor(void)
 {
-	if (!g_Front.tabprev) {
-		s32 col = 0;
-		s32 row = 0;
+	s32 col = 0;
+	s32 row = 0;
 
-		while (col < MISSION_COLS - 1 && (g_MissionX[col] + g_MissionX[col + 1]) * 0.5f <= g_Front.cursorx) {
-			col++;
-		}
+	while (col < MISSION_COLS - 1 && (g_MissionX[col] + g_MissionX[col + 1]) * 0.5f <= g_Front.cursorx) {
+		col++;
+	}
 
-		while (row < MISSION_ROWS - 1 && (g_MissionY[row] + g_MissionY[row + 1]) * 0.5f <= g_Front.cursory) {
-			row++;
-		}
+	while (row < MISSION_ROWS - 1 && (g_MissionY[row] + g_MissionY[row + 1]) * 0.5f <= g_Front.cursory) {
+		row++;
+	}
 
-		for (; row > 0; row--) {
-			s32 i;
+	for (; row > 0; row--) {
+		s32 i;
 
-			for (i = 0; i < MISSION_COLS; i++) {
-				if (frontHighestDifficulty(row * MISSION_COLS + i) >= 0) {
-					break;
-				}
-			}
-
-			if (i < MISSION_COLS) {
+		for (i = 0; i < MISSION_COLS; i++) {
+			if (frontHighestDifficulty(row * MISSION_COLS + i) >= 0) {
 				break;
 			}
 		}
 
-		for (; col >= 0; col--) {
+		if (i < MISSION_COLS) {
+			break;
+		}
+	}
+
+	for (; col >= 0; col--) {
+		if (frontHighestDifficulty(row * MISSION_COLS + col) >= 0) {
+			break;
+		}
+	}
+
+	if (col < 0) {
+		for (col = 0; col < MISSION_COLS; col++) {
 			if (frontHighestDifficulty(row * MISSION_COLS + col) >= 0) {
 				break;
 			}
 		}
+	}
 
-		if (col < 0) {
-			for (col = 0; col < MISSION_COLS; col++) {
-				if (frontHighestDifficulty(row * MISSION_COLS + col) >= 0) {
-					break;
-				}
-			}
-		}
+	return col < MISSION_COLS ? row * MISSION_COLS + col : -1;
+}
 
-		g_Front.highlight = col < MISSION_COLS ? row * MISSION_COLS + col : -1;
+static void frontTickMission(s32 pick, s32 back)
+{
+	if (!g_Front.tabprev) {
+		g_Front.highlight = frontMissionUnderCursor();
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
@@ -2188,8 +2498,8 @@ void gexFrontTick(void)
 	g_Front.tabstart = (g_Front.screen == SCREEN_MPOPTIONS || g_Front.screen == SCREEN_007OPTIONS
 			|| g_Front.screen == SCREEN_BRIEFING) && !g_Front.tabprev && frontOnStartTab();
 	g_Front.tabnext = ((g_Front.screen == SCREEN_LEVEL && g_Front.numlevels > LEVELS_PER_PAGE)
-			|| (g_Front.screen == SCREEN_CINEMA && NUM_MISSIONS > LEVELS_PER_PAGE)
 			|| g_Front.screen == SCREEN_007OPTIONS
+			|| g_Front.screen == SCREEN_MONITORS || g_Front.screen == SCREEN_MONITORVIEW
 			|| (g_Front.screen == SCREEN_BRIEFING && g_Front.briefpage < NUM_BRIEF_PAGES - 1))
 		&& !g_Front.tabprev && frontOnNextTab();
 	g_Front.highlight = -1;
@@ -2213,6 +2523,18 @@ void gexFrontTick(void)
 	case SCREEN_CINEMA:
 		frontTickCinema(pick, back);
 		return;
+	case SCREEN_CINEMAPICK:
+		frontTickCinemaPick(pick, back);
+		return;
+	case SCREEN_EXTRA:
+		frontTickExtra(pick, back);
+		return;
+	case SCREEN_MONITORS:
+		frontTickMonitors(pick, back);
+		return;
+	case SCREEN_MONITORVIEW:
+		frontTickMonitorView(pick, back);
+		return;
 	case SCREEN_SCENARIO:
 		frontTickScenario(pick, back);
 		return;
@@ -2228,7 +2550,7 @@ void gexFrontTick(void)
 	if (g_Front.screen == SCREEN_MODE) {
 		// interface_menu06_modesel(): below 243 is SELECT MISSION, which opens
 		// the mission folder when the remake has missions to put on it, and
-		// below 275 is CINEMA, which is the remake's own third row
+		// below 275 is EXTRA, which is the remake's own third row
 		if (!g_Front.tabprev) {
 			g_Front.highlight = g_Front.cursory >= 275.0f ? 2 : g_Front.cursory >= 243.0f ? 1 : 0;
 		}
@@ -2249,7 +2571,7 @@ void gexFrontTick(void)
 			frontSetCursorForMission(g_Front.mission);
 		} else if (pick && g_Front.highlight == 2 && frontMissionsAreOwn()) {
 			frontSfx(GESFX_DOOR_METAL_CLOSE, MENUSOUND_SELECT);
-			frontOpenCinema();
+			frontOpenExtra(EXTRA_CINEMA);
 		}
 
 		// and a row that is not there says nothing, as GoldenEye's does not
@@ -2436,9 +2758,9 @@ s32 gexFrontOpenAfterMission(void)
 }
 
 /**
- * Back from a cinema GE Plus played: straight to the Cinema page with the
- * mission that was watched under the cursor, the way a match goes back to
- * Multiplayer Options.
+ * Back from a cinema GE Plus played: straight to the page it was picked on,
+ * its mission's opening and ending, with the one that was watched under the
+ * cursor - the way a match goes back to Multiplayer Options.
  */
 s32 gexFrontOpenAfterCinema(s32 mission)
 {
@@ -2450,7 +2772,8 @@ s32 gexFrontOpenAfterCinema(s32 mission)
 		g_Front.mission = mission;
 	}
 
-	frontOpenCinema();
+	g_Front.screen = SCREEN_CINEMAPICK;
+	frontSetCursorForCinemaPick(g_Front.cinemawhat);
 	// the press that ended the cinema is not a press in the folder
 	g_Front.inputdelay = 10;
 
@@ -3090,10 +3413,22 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 		frontSetSwitch(SW_CLASSIFIED, true);
 		break;
 	case SCREEN_LEVEL:
-	case SCREEN_CINEMA:
 		frontSetSwitch(SW_BLANK, true);
 		frontSetSwitch(SW_OHMSS, true);
 		break;
+	case SCREEN_MONITORS:
+		// the Level page's film strip, with sets where its pictures are
+		frontSetSwitch(SW_BLANK, true);
+		frontSetSwitch(SW_OHMSS, true);
+		break;
+	case SCREEN_EXTRA:
+	case SCREEN_MONITORVIEW:
+	case SCREEN_CINEMAPICK:
+		frontSetSwitch(SW_PAPER, true);
+		frontSetSwitch(SW_OHMSS, true);
+		frontSetSwitch(SW_CONFIDENTIAL, true);
+		break;
+	case SCREEN_CINEMA:
 	case SCREEN_MISSION:
 		// the slides the missions are named on, and their grid
 		frontSetSwitch(SW_SLIDES, true);
@@ -3207,7 +3542,7 @@ static Gfx *frontDrawMode(Gfx *gdl)
 	{
 		const u32 cinema = frontMissionsAreOwn() ? COLOUR_ON : COLOUR_OFF;
 
-		text = "CINEMA\n";
+		text = "EXTRA\n";
 		frontMeasure(&g_Front.zurich, text, 0, &w, &h);
 		gdl = frontPrint(gdl, 0x96, 0x11c, "3.\n", cinema);
 
@@ -3362,63 +3697,6 @@ static Gfx *frontDrawLevel(Gfx *gdl)
 	}
 
 	if (g_Front.numlevels > LEVELS_PER_PAGE) {
-		gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
-		gdl = frontTextSetup(gdl);
-	}
-
-	return gdl;
-}
-
-/**
- * The Cinema page: the Level page's film strip over the twenty missions, each
- * on its own stage picture and named as the mission grid names it. Picking one
- * plays its opening camera shots (gecinema.c).
- */
-static Gfx *frontDrawCinema(Gfx *gdl)
-{
-	const s32 first = g_Front.cinemapage * LEVELS_PER_PAGE;
-
-	for (s32 i = 0; i < 3; i++) {
-		gdl = frontFillRect(gdl, 0x25, 0x6c + i * 0x46, 0x185, 0xa0 + i * 0x46, 0x101010ff);
-	}
-
-	for (s32 i = 0; i < 3; i++) {
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
-	}
-
-	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < NUM_MISSIONS; n++) {
-		const s32 row = n / 4;
-		const s32 col = n % 4;
-		const u32 colour = n == g_Front.highlight ? 0xffffffff : 0x6e6e6eff;
-
-		gdl = frontImage(gdl, frontStageImage(frontMissionStage(first + n)), STAGE_IMAGE_W, STAGE_IMAGE_H, G_IM_FMT_I, false,
-				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, STAGE_IMAGE_H, colour, false);
-	}
-
-	gdl = frontTextSetup(gdl);
-
-	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < NUM_MISSIONS; n++) {
-		const u32 colour = n == g_Front.highlight ? 0xffffff00 : 0x96969600;
-		char caption[32];
-		s32 w;
-		s32 h;
-		s32 x;
-		s32 y;
-
-		frontMissionName(first + n, caption, sizeof(caption));
-		frontMeasure(&g_Front.gothic, caption, 0, &w, &h);
-
-		x = 0x56 + 0x55 * (n % 4) - 0x1f;
-		y = 0x97 + 0x46 * (n / 4) - h;
-		gdl = frontText(gdl, &g_Front.gothic, &x, &y, caption, colour | 0xff, 0, false);
-
-		x = 0x56 + 0x55 * (n % 4) - 0x1f;
-		y = 0x97 + 0x46 * (n / 4) - h;
-		gdl = frontText(gdl, &g_Front.gothic, &x, &y, caption, colour | 0x64, 0, false);
-	}
-
-	if (NUM_MISSIONS > LEVELS_PER_PAGE) {
 		gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
 		gdl = frontTextSetup(gdl);
 	}
@@ -3795,6 +4073,323 @@ static Gfx *frontDrawMission(Gfx *gdl)
 	return gdl;
 }
 
+/** EXTRA: the difficulty page's rows again, with no mission over them. */
+static Gfx *frontDrawExtra(Gfx *gdl)
+{
+	static const char *rows[NUM_EXTRA_ROWS] = { "Cinema\n", "Monitor Programmes\n" };
+
+	gdl = frontPrint(gdl, 0x37, 0x8f, "EXTRA:\n", COLOUR_ON);
+
+	if (g_Front.highlight >= 0) {
+		gdl = frontFillRect(gdl, 0x7e, g_Front.highlight * 0x1e + 0xb2, 0x140, g_Front.highlight * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
+		gdl = frontTextSetup(gdl);
+	}
+
+	for (s32 i = 0; i < NUM_EXTRA_ROWS; i++) {
+		char num[8];
+
+		snprintf(num, sizeof(num), "%d.\n", i + 1);
+		gdl = frontPrint(gdl, 0x82, i * 0x1e + 0xb4, num, COLOUR_ON);
+		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, rows[i], COLOUR_ON);
+	}
+
+	return gdl;
+}
+
+/**
+ * What GoldenEye's fifty-two monitor programmes are, by the number a monitor's
+ * record names one with (monitorSetImageByNum()): the decompilation's own
+ * descriptions, tidied. From 21 on they are the pieces of one machine - pick a
+ * picture at random, tint it, then scroll or zoom or flash it and come round
+ * again - and each is an entry into it.
+ */
+static const char *g_MonitorNames[] = {
+	"Bond logo", "Desktops and satellite", "Ten astrological screens", "Three wave patterns", "Wave pattern",
+	"Green text, scrolling up", "Red text, scrolling down", "Dark green text, scrolling down",
+	"Red bar graph", "Blue bar graph", "Green bar graph", "Radar", "Spinning cube",
+	"Location, weapon armed, target", "Red target", "Satellite targeting", "Global map",
+	"Karl yelling", "Skateboard", "Police guy", "Off",
+	"One of seven at random", "Random screens, or dull ones", "Random screen and effect",
+	"Random: shuttle 1", "Random: shuttle 2", "Random: full Earth 1", "Random: full Earth 2",
+	"Random: blue stars", "Random: galaxy 1", "Random: galaxy 2", "Random: Earth text",
+	"Random: target Earth", "Random: galaxy 3",
+	"Tint: one of four", "Tint: red", "Tint: green", "Tint: blue", "Effect: one of five",
+	"Effect: scroll right", "Effect: scroll up, fast", "Effect: scroll up", "Effect: scroll and zoom 1",
+	"Effect: scroll and zoom 2", "Effect: wait and route", "Effect: flash",
+	"Red, brightening", "Green, brightening", "Solid grey", "Solid red", "Solid green", "Solid black",
+};
+
+#define MONITOR_CX 220.0f
+#define MONITOR_CY 226.0f
+#define MONITOR_HW 84.0f
+#define MONITOR_HH 56.0f
+
+/**
+ * One of the monitor programmes, large: its number and name, and its screen.
+ *
+ * The screen is tvscreenRender()'s own arithmetic on a rectangle: the picture's
+ * middle and how much of it shows (`xmid`, `xscale`, in pictures) give the
+ * texel the left edge starts on and how many cross the rectangle, and the tint
+ * is the screen's colour. A rectangle cannot turn, so the two programmes that
+ * rotate their picture (the radar's sweep) show it unturned.
+ */
+static Gfx *frontDrawMonitorView(Gfx *gdl)
+{
+	const struct tvscreen *screen = &g_Front.monitorscreen;
+	const struct textureconfig *info;
+	char line[96];
+	u32 texnum = 0;
+
+	gdl = frontPrint(gdl, 0x37, 0x77, "MONITOR PROGRAMMES\n", COLOUR_ON);
+
+	if (g_Front.nummonitors <= 0) {
+		return frontPrint(gdl, 0x37, 0x8f, "None in this conversion.\n", COLOUR_ON);
+	}
+
+	snprintf(line, sizeof(line), "%d of %d: %s\n", g_Front.monitor + 1, g_Front.nummonitors,
+			g_Front.monitor < ARRAYCOUNT(g_MonitorNames) ? g_MonitorNames[g_Front.monitor] : "");
+	gdl = frontPrint(gdl, 0x37, 0x8f, line, COLOUR_ON);
+
+	// the tube it is shown on
+	gdl = frontFillRect(gdl, (s32)(MONITOR_CX - MONITOR_HW) - 3, (s32)(MONITOR_CY - MONITOR_HH) - 3,
+			(s32)(MONITOR_CX + MONITOR_HW) + 3, (s32)(MONITOR_CY + MONITOR_HH) + 3, 0x000000ff);
+
+	info = (uintptr_t)screen->tconfig < 100 ? geMonitorImageInfo((u32)(uintptr_t)screen->tconfig, &texnum) : NULL;
+
+	if (info) {
+		struct textureconfig *tex = frontTexture(texnum, info->width, info->height, info->format, info->depth, info->s != G_TX_CLAMP);
+
+		if (tex) {
+			const f32 sx = frontScaleX();
+			const f32 sy = frontScaleY();
+			// a scroll only ever adds, and a rectangle's start is sixteen bits
+			const f32 xmid = screen->xmid - (f32)(s32)screen->xmid;
+			const f32 ymid = screen->ymid - (f32)(s32)screen->ymid;
+			const f32 across = info->width * screen->xscale;
+			const f32 down = info->height * screen->yscale;
+			s32 prevsrc;
+
+			tex->t = info->t;
+
+			prevsrc = modSetTextureSourceMod(g_Front.moddir);
+			texSelect(&gdl, tex, 1, 0, 2, 1, NULL);
+			modSetTextureSourceMod(prevsrc);
+
+			gDPSetTexturePersp(gdl++, G_TP_NONE);
+			gDPSetEnvColor(gdl++, screen->red, screen->green, screen->blue, 0xff);
+			gDPSetTextureFilter(gdl++, G_TF_BILERP);
+			// through the picture's own alpha, onto the black of the tube: the
+			// radar's sweep is an IA picture and is nothing where it is clear
+			// (an intensity picture's alpha is its intensity again, which
+			// would only dim it, so those are drawn solid as a level draws them)
+			if (info->format == G_IM_FMT_IA) {
+				gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+				gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
+			} else {
+				gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT);
+			}
+
+			gSPTextureRectangle(gdl++,
+					(s32)(frontX(MONITOR_CX - MONITOR_HW) * 4), (s32)(frontY(MONITOR_CY - MONITOR_HH) * 4),
+					(s32)(frontX(MONITOR_CX + MONITOR_HW) * 4), (s32)(frontY(MONITOR_CY + MONITOR_HH) * 4),
+					G_TX_RENDERTILE,
+					// a picture's rows run bottom to top (as a stage picture's
+					// do not: frontImage()'s negative height), so the top of the
+					// tube is the far side of the window and t runs backwards
+					(s32)(info->width * xmid * 32.0f - across * 16.0f), (s32)(info->height * ymid * 32.0f + down * 16.0f) - 1,
+					(s32)(across / (2.0f * MONITOR_HW) * 1024.0f / sx), -(s32)(down / (2.0f * MONITOR_HH) * 1024.0f / sy));
+		}
+	}
+
+	gdl = frontTextSetup(gdl);
+	gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+	gdl = frontTextSetup(gdl);
+
+	return gdl;
+}
+
+/**
+ * The page of TV sets. They are the one thing on the folder screens besides the
+ * folder that is a model, so they are drawn the folder's own way - its camera,
+ * its field of view, into a z buffer of their own - each stood where the
+ * film strip's picture of that cell is: the camera looks square at the plane
+ * the folder lies in, FOLDER_EYEZ off it under FOLDER_FOVY, so a menu pixel is
+ * a fixed step across that plane and a cell's place follows from its pixel.
+ */
+static Gfx *frontDrawTvs(Gfx *gdl)
+{
+	static Vp vp;
+	const s32 first = g_Front.monitorpage * TVS_PER_PAGE;
+	const f32 perpixel = FOLDER_EYEZ * 0.57735027f / 165.0f;   // tan(30) over half of 330
+	Mtxf persp;
+	Mtx *projection = gfxAllocateMatrix();
+	Mtxf camera;
+	u16 perspnorm;
+	s32 lvupdate60;
+	f32 lvupdate60f;
+	s32 prevsrc;
+
+	if (!g_Front.tvdef) {
+		return gdl;
+	}
+
+	vp.vp.vscale[0] = viGetWidth() * 2;
+	vp.vp.vscale[1] = viGetHeight() * 2;
+	vp.vp.vscale[2] = 511;
+	vp.vp.vscale[3] = 0;
+	vp.vp.vtrans[0] = viGetWidth() * 2;
+	vp.vp.vtrans[1] = viGetHeight() * 2;
+	vp.vp.vtrans[2] = 511;
+	vp.vp.vtrans[3] = 0;
+
+	guPerspectiveF(persp.m, &perspnorm, FOLDER_FOVY, videoGetAspect(), 100.0f, 10000.0f, 1.0f);
+	guMtxF2L(persp.m, projection);
+
+	gSPViewport(gdl++, &vp);
+	gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPPerspNormalize(gdl++, perspnorm);
+
+	gDPSetTexturePersp(gdl++, G_TP_PERSP);
+	gDPSetTextureLUT(gdl++, G_TT_NONE);
+	gDPSetAlphaCompare(gdl++, G_AC_NONE);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	gdl = zbufClear(gdl);
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
+	mtx00016ae4(&camera, -900.0f, 990.0f, FOLDER_EYEZ, -900.0f, 990.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+
+	frontMonitorClock(1, &lvupdate60, &lvupdate60f);
+	prevsrc = modSetTextureSourceMod(g_Front.moddir);
+
+	for (s32 n = 0; n < TVS_PER_PAGE && first + n < g_Front.nummonitors; n++) {
+		struct modelrenderdata renderdata = { NULL, true, 3 };
+		struct model *model = g_Front.tvmodels[n];
+		const f32 px = 86.0f + 85.0f * (n % 4) + 8.0f;
+		const f32 py = 134.0f + 70.0f * (n / 4) + 4.0f;
+		Mtxf world;
+		Mtxf turn;
+		Mtxf tmp;
+
+		mtx4LoadYRotation(g_TvYaw, &world);
+		mtx4LoadXRotation(g_TvPitch, &turn);
+		mtx4MultMtx4InPlace(&turn, &world);
+		mtx00015f04(g_TvScale * (n == g_Front.highlight ? 1.12f : 1.0f), &world);
+		world.m[3][0] = -900.0f + (px - 220.0f) * perpixel * g_TvSpreadX;
+		world.m[3][1] = 990.0f - (py - 165.0f) * perpixel * g_TvSpreadY + g_TvLift;
+		world.m[3][2] = g_TvZ;
+		mtx4MultMtx4InPlace(&camera, &world);
+
+		renderdata.unk00 = &world;
+		renderdata.unk10 = gfxAllocate(g_Front.tvdef->nummatrices * sizeof(Mtxf));
+		mtx4Copy(&world, renderdata.unk10);
+		model->matrices = renderdata.unk10;
+
+		modelUpdateRelations(model);
+
+		// the screen first, which writes the list its node draws, then the set
+		gdl = tvscreenRender(model, modelGetPart(g_Front.tvdef, MODELPART_0000), &g_Front.tvscreens[n], gdl, 0, 1);
+
+		renderdata.unk30 = 1;
+		renderdata.flags = 3;
+		renderdata.zbufferenabled = true;
+		renderdata.gdl = gdl;
+		modelRender(&renderdata, model);
+		gdl = renderdata.gdl;
+
+		for (s32 i = 0; i < g_Front.tvdef->nummatrices; i++) {
+			mtx4Copy(&model->matrices[i], &tmp);
+			mtxF2L(&tmp, &model->matrices[i]);
+		}
+	}
+
+	modSetTextureSourceMod(prevsrc);
+	frontMonitorClock(0, &lvupdate60, &lvupdate60f);
+
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+
+	return frontTextSetup(gdl);
+}
+
+/** Monitor Programmes: the strip, the sets on it, and the name of the one under the cursor. */
+static Gfx *frontDrawMonitors(Gfx *gdl)
+{
+	const s32 first = g_Front.monitorpage * TVS_PER_PAGE;
+	char line[96];
+
+	for (s32 i = 0; i < 3; i++) {
+		gdl = frontFillRect(gdl, 0x25, 0x6c + i * 0x46, 0x185, 0xa0 + i * 0x46, 0x101010ff);
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+	}
+
+	if (g_Front.nummonitors <= 0 || !g_Front.tvdef) {
+		gdl = frontTextSetup(gdl);
+		return frontPrint(gdl, 0x37, 0x57, "No monitor programmes in this conversion.\n", COLOUR_ON);
+	}
+
+	gdl = frontDrawTvs(gdl);
+
+	for (s32 n = 0; n < TVS_PER_PAGE && first + n < g_Front.nummonitors; n++) {
+		const u32 colour = n == g_Front.highlight ? 0xffffff00 : 0x96969600;
+		char caption[8];
+		s32 w;
+		s32 h;
+		s32 x;
+		s32 y;
+
+		snprintf(caption, sizeof(caption), "%d\n", first + n + 1);
+		frontMeasure(&g_Front.gothic, caption, 0, &w, &h);
+
+		// its number, to the right of the set
+		x = 86 + 85 * (n % 4) + 34;
+		y = 134 + 70 * (n / 4) + 14 - h;
+		gdl = frontText(gdl, &g_Front.gothic, &x, &y, caption, colour | 0xff, 0, false);
+	}
+
+	if (g_Front.highlight >= 0 && first + g_Front.highlight < g_Front.nummonitors) {
+		const s32 n = first + g_Front.highlight;
+
+		snprintf(line, sizeof(line), "%d of %d: %s\n", n + 1, g_Front.nummonitors,
+				n < ARRAYCOUNT(g_MonitorNames) ? g_MonitorNames[n] : "");
+		gdl = frontPrint(gdl, 0x37, 0x57, line, COLOUR_ON);
+	}
+
+	gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+	gdl = frontTextSetup(gdl);
+
+	return gdl;
+}
+
+/**
+ * The Cinema's second page, laid out as the difficulty page is: the mission's
+ * heading, and the two things of it there are to watch.
+ */
+static Gfx *frontDrawCinemaPick(Gfx *gdl)
+{
+	static const char *rows[NUM_CINEMA_ROWS] = { "Intro\n", "Outro\n" };   // the user's names, in the case GoldenEye sets its difficulties in
+
+	gdl = frontMissionHeader(gdl, false);
+	gdl = frontPrint(gdl, 0x37, 0x8f, "CINEMA:\n", COLOUR_ON);
+
+	if (g_Front.highlight >= 0) {
+		gdl = frontFillRect(gdl, 0x7e, g_Front.highlight * 0x1e + 0xb2, 0xf0, g_Front.highlight * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
+		gdl = frontTextSetup(gdl);
+	}
+
+	for (s32 i = 0; i < NUM_CINEMA_ROWS; i++) {
+		char num[8];
+
+		snprintf(num, sizeof(num), "%d.\n", i + 1);
+		gdl = frontPrint(gdl, 0x82, i * 0x1e + 0xb4, num, COLOUR_ON);
+		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, rows[i], COLOUR_ON);
+	}
+
+	return gdl;
+}
+
 /** constructor_menu08_difficulty(): the difficulties open to this mission, numbered. */
 static Gfx *frontDrawDifficulty(Gfx *gdl)
 {
@@ -3942,7 +4537,19 @@ Gfx *gexFrontRender(Gfx *gdl)
 		gdl = frontDrawLevel(gdl);
 		break;
 	case SCREEN_CINEMA:
-		gdl = frontDrawCinema(gdl);
+		gdl = frontDrawMission(gdl);
+		break;
+	case SCREEN_CINEMAPICK:
+		gdl = frontDrawCinemaPick(gdl);
+		break;
+	case SCREEN_EXTRA:
+		gdl = frontDrawExtra(gdl);
+		break;
+	case SCREEN_MONITORS:
+		gdl = frontDrawMonitors(gdl);
+		break;
+	case SCREEN_MONITORVIEW:
+		gdl = frontDrawMonitorView(gdl);
 		break;
 	case SCREEN_SCENARIO:
 		gdl = frontDrawScenario(gdl);

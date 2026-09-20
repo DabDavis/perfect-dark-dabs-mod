@@ -11,8 +11,17 @@
  * carries is shown in turn with its one or two lines of text.
  */
 
+// What the Cinema page plays of a mission: its opening - every camera shot in
+// turn, then the fade and the swirl down to Bond - or its ending.
+#define GECINEMA_OPENING 0
+#define GECINEMA_ENDING  1
+
 // The Cinema page picked a mission; the stage that loads next is its cinema.
-void gecinemaArm(s32 mission);
+void gecinemaArm(s32 mission, s32 what);
+// An ending the Cinema page is playing is over: the level's own exit and its
+// aiEndLevel come here instead of ending a mission nobody played. True when it
+// was a cinema's.
+s32 gecinemaEndingOver(void);
 // Every stage load, from setup.c: takes up what the folder armed.
 void gecinemaStageStart(void);
 s32 gecinemaIsOn(void);

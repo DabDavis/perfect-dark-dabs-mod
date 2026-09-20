@@ -74,6 +74,8 @@ OBJ_TAILS = {
 # and the mission died. GoldenEye's own heads carry their hats anyway, and the
 # remake's guards wear Bean's, GE-X's or Perfect Dark's heads.
 AS_NOTHING = {0x0e, 0x11, 0x12, 0x13}
+MONITOR = 0x0a
+MULTI_MONITOR = 0x0b
 
 OBJTYPE_NOTHING = 0x22
 OBJTYPE_END = 0x34
@@ -524,6 +526,26 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
             for ge, pd, w, mul in OBJ_TAILS.get(t, ()):
                 v = int.from_bytes(raw[ge:ge + w], 'big') * mul
                 rec[pd:pd + w] = v.to_bytes(w, 'big')
+            if t == MONITOR and len(raw) >= 0xfc:
+                # A hanging TV's mount. GoldenEye's MonitorObjRecord ends
+                # OwnerOffset, OwnerPart, ImageNum, a word each at 0xf4, and
+                # Perfect Dark's singlemonitorobj ends s16 owneroffset, s8
+                # ownerpart, u8 imagenum at 0xd0: the same three, narrower. A
+                # monitor with a negative pad hangs from the record that many
+                # commands away (setup.c still has GoldenEye's branch for it),
+                # and with the offset left at nought it hung from **itself** - a
+                # prop that is its own child, which objFree() frees for ever on
+                # the way out of the level. Both Bunkers ended the game when
+                # they were left.
+                struct.pack_into('>hb', rec, 0xd0,
+                                 struct.unpack_from('>i', raw, 0xf4)[0], struct.unpack_from('>i', raw, 0xf8)[0])
+                # and the programme it shows, one of GoldenEye's fifty-two
+                # (gemonitortable.py), which the port plays on a remake stage
+                rec[0xd3] = raw[0xff]
+            if t == MULTI_MONITOR and len(raw) >= 0x254:
+                # the four screens of a bank of monitors: a byte each after the
+                # four MonitorRecords, which are 0x74 in both games
+                rec[0x22c:0x230] = raw[0x250:0x254]
             if t == AMMO_CRATE:
                 # the crate's one type, in the port's numbering
                 pdtypes = GE_AMMO_TYPES.get(struct.unpack_from('>i', raw, 0x80)[0], (0,))

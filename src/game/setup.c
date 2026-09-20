@@ -44,6 +44,7 @@
 #include "types.h"
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gemonitor.h"
 #include "gewatch.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
@@ -965,6 +966,19 @@ void setupCreateSingleMonitor(struct singlemonitorobj *monitor, s32 cmdindex)
 	if (monitor->base.pad < 0 && (monitor->base.flags & OBJFLAG_INSIDEANOTHEROBJ) == 0) {
 		s32 modelnum = monitor->base.modelnum;
 		struct defaultobj *owner = (struct defaultobj *)setupGetCmdByIndex(cmdindex + monitor->owneroffset);
+
+#ifndef PLATFORM_N64
+		// The branch is live again on a converted GoldenEye mission, and a
+		// conversion made before version 44 left the offset at nought: the
+		// monitor hung from itself, and a prop that is its own child is freed
+		// for ever when the level is left (objFree() frees its children first).
+		// A mount that is not a made object is no mount either.
+		if (!owner || owner == &monitor->base || !owner->prop || !owner->model
+				|| owner->type == 0 || owner->type == OBJTYPE_22) {
+			return;
+		}
+#endif
+
 		struct prop *prop;
 		f32 scale;
 		struct coord spa4;
@@ -1440,6 +1454,10 @@ void setupLoadFiles(s32 stagenum)
 		// what GE Plus's own pause needs in this level, or nothing when the
 		// level is not one of the remake's (gewatch.c)
 		geWatchStageStart(stagenum);
+
+		// and GoldenEye's own programmes for a remake mission's screens, before
+		// the props that show them are made (gemonitor.c)
+		geMonitorStageStart(stagenum);
 
 		if (modloaderStageIsMission(stagenum)) {
 			gexPlusMissionSetup(g_StageSetup.props);
@@ -2379,6 +2397,35 @@ void setupCreateProps(s32 stagenum)
 					if (obj->prop && (obj->flags & OBJFLAG_INSIDEANOTHEROBJ)) {
 						s32 offset = obj->pad;
 						struct defaultobj *owner = setupGetObjByCmdIndex(index + offset);
+
+#ifndef PLATFORM_N64
+						// A converted GoldenEye mission can name an owner that is
+						// no object at all (a record the conversion left out, as a
+						// tag can above), or one that closes a loop: a prop that is
+						// its own ancestor is freed for ever when the level is left
+						// (objFree() frees its children first), which is what ended
+						// the game on the way out of either Bunker.
+						if (owner && owner->prop) {
+							struct prop *up = owner->prop;
+							s32 depth = 0;
+
+							if (owner->type == 0 || owner->type == OBJTYPE_22) {
+								up = NULL;
+							}
+
+							while (up && up != obj->prop && depth++ < 64) {
+								up = up->parent;
+							}
+
+							if (up || depth >= 64 || owner->type == 0 || owner->type == OBJTYPE_22) {
+								extern void sysLogPrintf(s32 level, const char *fmt, ...);
+								sysLogPrintf(1, "setup: object %d (type 0x%02x) is not put inside %d (type 0x%02x): %s",
+										index, obj->type, index + offset, owner->type,
+										up ? "it is already inside this one" : "that is not an object");
+								owner = NULL;
+							}
+						}
+#endif
 
 						if (owner && owner->prop) {
 							obj->hidden |= OBJHFLAG_HASOWNER;

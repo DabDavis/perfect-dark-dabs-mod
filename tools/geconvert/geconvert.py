@@ -50,6 +50,7 @@ import gemodelconv
 import gechr
 import geanim
 import geanimtable
+import gemonitortable
 
 SEG = 0x0f000000
 
@@ -64,6 +65,8 @@ LEVELIDS = {'dam': 'DAM', 'run': 'RUNWAY', 'stat': 'STATUE', 'tra': 'TRAIN',
 # GoldenEye's menu folder (PROP_WALLETBOND), its pictures, and its two fonts and its
 # music, raw in the ROM: {name, ROM address, size}
 MENU_FOLDER_MODEL = 278
+# and the TV set the folder's Monitor Programmes page shows them on (PROP_TV1)
+MENU_TV_MODEL = 75
 # the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
 # a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
 # and the character portraits' tiles (IMAGE_BROSNAN_UL..DALTON_LR, BORIS_UL..ODDJOB_LR,
@@ -1319,6 +1322,7 @@ def main():
     # and the fonts, the music and the title screen's strings are copied as
     # GoldenEye stores them
     allmodels.add(MENU_FOLDER_MODEL)
+    allmodels.add(MENU_TV_MODEL)
     allmodels.add(INTRO_LOGO_MODEL)
     allmodels.update(INTRO_GUNS)
     alltex.update(MENU_IMAGES)
@@ -1374,6 +1378,33 @@ def main():
                        for num, (_, scale, h) in enumerate(gefiles.rom().chrs()))
     with open(os.path.join(outdir, 'menu', 'gechrs.bin'), 'wb') as f:
         f.write(struct.pack('>4sH2x', b'GEC1', gerom.NUM_CHRS) + chrrows)
+    # menu/gemonitors.bin: what GoldenEye's TVs and its big projection screens
+    # show (gemonitortable.py, port/src/gemonitor.c). "GEM1", the three counts,
+    # a word offset a programme, a texture config an image - with the image's
+    # number as the conversion writes its texture - and the programmes' block
+    # out of the data segment as it stands, but for a jump's target, an address
+    # inside the block, which becomes the word it is at.
+    mon = bytearray(struct.pack('>4sHHI', b'GEM1', len(gemonitortable.PROGRAMS), len(gemonitortable.IMAGES),
+                                gemonitortable.MON_BLOCK_WORDS))
+    for off, _ in gemonitortable.PROGRAMS:
+        mon += struct.pack('>I', off)
+    for image, w, h, level, fmt, depth, ws, wt, _ in gemonitortable.IMAGES:
+        alltex.add(image)
+        mon += struct.pack('>I8B', texremap.remap(image), w, h, level, fmt, depth, ws, wt, 0)
+    monat = gemonitortable.MON_BLOCK_AT - gerom.DATA_VRAM
+    monlens = (1, 3, 3, 3, 3, 3, 3, 2, 2, 2, 3, 1, 1, 3, 2, 2)
+    w = 0
+    while w < gemonitortable.MON_BLOCK_WORDS:
+        op = struct.unpack_from('>I', gefiles.rom().data, monat + 4 * w)[0]
+        n = monlens[op] if op < 16 else 1
+        for k in range(min(n, gemonitortable.MON_BLOCK_WORDS - w)):
+            v = struct.unpack_from('>I', gefiles.rom().data, monat + 4 * (w + k))[0]
+            if k == 1 and op in (9, 10):
+                v = (v - gemonitortable.MON_BLOCK_AT) // 4
+            mon += struct.pack('>I', v)
+        w += n
+    with open(os.path.join(outdir, 'menu', 'gemonitors.bin'), 'wb') as f:
+        f.write(mon)
     # menu/geanims.bin: the animations the missions' PlayAnimation commands
     # name (geanimtable.py), each under GoldenEye's own id. The port appends
     # them to Perfect Dark's table and gives the id its number there

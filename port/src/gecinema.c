@@ -44,6 +44,8 @@
 #include "game/prop.h"
 #include "game/pad.h"
 #include "game/setup.h"
+#include "game/chrai.h"
+#include "game/chraction.h"
 #include "game/env.h"
 #include "lib/model.h"
 #include "lib/rng.h"
@@ -77,6 +79,11 @@
 
 // The mission the folder picked, waiting for its stage to load
 static s32 g_GeCinemaArmed = -1;
+static s32 g_GeCinemaArmedWhat;
+// which of the mission's two it is: GECINEMA_OPENING or GECINEMA_ENDING
+static s32 g_GeCinemaWhat;
+// the ending: 0 at the load, 1 once the screen is black, 2 once its list has been started
+static s32 g_GeEndingKicked;
 // and once it has: the mission being watched, or -1
 static s32 g_GeCinemaMission = -1;
 // set when the last shot is over, so the folder opens again on the Cinema page
@@ -89,6 +96,7 @@ static f32 g_GeCinemaTime60;
 static f32 g_GeCinemaTotal60;         // since the cinema began, not the shot
 static s32 g_GeCinemaLine;            // how many of the shot's lines have shown
 static s32 g_GeCinemaEntered;         // the one-off setup has run
+static s32 g_GeCinemaLeft;            // the player backed out rather than watching to the end
 
 // where the shot's camera stands, and the room its own pad names: the player's
 // prop stays where the mission spawned it and only this moves
@@ -124,6 +132,7 @@ static s32 g_GeCinemaCamRoom = -1;
 #define GEINTRO_STILL 1
 #define GEINTRO_FADE  2
 #define GEINTRO_SWIRL 3
+#define GEINTRO_HOLD  4   // the Cinema page's swirl is over and the stage is changing
 
 #define MAX_SWIRL 32
 
@@ -168,22 +177,38 @@ static s32 g_GeNumSwirl;
  * The folder's Cinema page picked a mission. The stage starts the way a mission
  * does; gecinemaStageStart() picks this up when it has loaded.
  */
-void gecinemaArm(s32 mission)
+void gecinemaArm(s32 mission, s32 what)
 {
 	g_GeCinemaArmed = mission;
+	g_GeCinemaArmedWhat = what;
 }
 
 /** Every stage load: this one is a cinema if the folder armed one. */
 void gecinemaStageStart(void)
 {
 	g_GeCinemaMission = g_GeCinemaArmed;
+	g_GeCinemaWhat = g_GeCinemaArmedWhat;
 	g_GeCinemaArmed = -1;
+	g_GeEndingKicked = 0;
+
+	// for a probe that boots straight into a mission: play it as the Cinema
+	// page would (build/gexrom/runall_cinema.sh)
+	if (g_GeCinemaMission < 0 && modloaderStageIsMission(g_Vars.stagenum)) {
+		if (sysArgCheck("--cinema-ending")) {
+			g_GeCinemaMission = 0;
+			g_GeCinemaWhat = GECINEMA_ENDING;
+		} else if (sysArgCheck("--cinema-opening")) {
+			g_GeCinemaMission = 0;
+			g_GeCinemaWhat = GECINEMA_OPENING;
+		}
+	}
 	g_GeCinemaNumShots = -1;
 	g_GeCinemaShot = 0;
 	g_GeCinemaTime60 = 0;
 	g_GeCinemaTotal60 = 0;
 	g_GeCinemaLine = 0;
 	g_GeCinemaEntered = 0;
+	g_GeCinemaLeft = 0;
 	g_GeCinemaCamRoom = -1;
 
 	// A mission that is not the Cinema page's opens on its own cinema. The
@@ -289,6 +314,11 @@ static void gecinemaCollect(void)
 static void gecinemaEnter(void)
 {
 	g_GeCinemaEntered = 1;
+
+	// a shot borrows the player's angles to aim with (gecinemaPlace), and the
+	// swirl wants Bond facing the way the level spawned him
+	g_GeIntroTheta = g_Vars.currentplayer->vv_theta;
+	g_GeIntroVerta = g_Vars.currentplayer->vv_verta;
 
 	bcutsceneInit();
 	bgunSetSightVisible(GUNSIGHTREASON_NOCONTROL, false);
@@ -401,6 +431,143 @@ static void gecinemaShowLine(const u8 *shot, s32 line)
 	}
 }
 
+/**
+ * The cinema is over: back to the folder, the way a match goes back
+ * (menutick.c) - to the Institute, with its own arrival skipped and the Perfect
+ * Menu put under the folder. It used to go to the title instead, and the title
+ * is not a backdrop: it runs on under the folder, reads the same presses, and
+ * left alone for twenty seconds loads its attract demo, which resets the model
+ * pool the folder's own model is an instance in.
+ *
+ * The stage does not change until the end of the frame, so the flag is also
+ * what keeps this from asking again on every frame until it does.
+ */
+static void gecinemaFinish(void)
+{
+	if (!g_GeCinemaWantFolder) {
+		g_GeCinemaWantFolder = 1;
+		sysLogPrintf(LOG_NOTE, "gecinema: over at frame %d, back to the folder", g_Vars.lvframenum);
+		gexFrontGoBack();
+	}
+}
+
+/** Backing out of a cinema: what backs out of a page of the folder. */
+static s32 gecinemaLeavePressed(void)
+{
+	const s8 contpad = optionsGetContpadNum1(g_Vars.currentplayerstats
+			? g_Vars.currentplayerstats->mpindex : 0);
+	const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
+
+	return joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui) != 0
+		|| inputKeyJustPressed(VK_ESCAPE);
+}
+
+/**
+ * A mission's ending, played for the Cinema page.
+ *
+ * Every GoldenEye mission ends on the same run of commands in one of its lists
+ * - HideAllChrs, then TriggerFadeAndExitLevelOnButtonPress, then the camera
+ * switch and the list Bond himself is handed, which is the show (all twenty,
+ * build/gexrom/endsurvey.py) - and what comes before it is the mission's own
+ * business: reach the exit, have the objectives, wait out a timer. So the
+ * ending is found by that pair, which the conversion writes as
+ * aiShowCutsceneChrs(0) and the port's own aiGeExitOnButtonPress, and a
+ * background chr is started on it there. The level's own owner of the list
+ * where it has one - its lists from 0x1000 are background chrs' - and the first
+ * background chr otherwise: Statue Park's and the Cradle's endings are lists a
+ * chr is handed, and nothing after the pair asks anything of the chr running
+ * it.
+ *
+ * It ends the way the mission does - the button press and its fade, or the
+ * list's own EndLevel - except that both come back to the folder
+ * (gecinemaEndingOver()).
+ */
+static void gecinemaKickEnding(void)
+{
+	struct ailist *lists = g_StageSetup.ailists;
+
+	g_GeEndingKicked = 2;
+
+	for (s32 i = 0; lists && lists[i].list; i++) {
+		u8 *cmd = lists[i].list;
+		s32 steps = 0;
+
+		while (steps++ < 100000) {
+			const s32 type = (cmd[0] << 8) | cmd[1];
+			const s32 len = chraiGetCommandLength(cmd, 0);
+
+			if (type == AICMD_END) {
+				break;
+			}
+
+			if (type == 0x01d5 && cmd[2] == 0 && ((cmd[len] << 8) | cmd[len + 1]) == 0x01e1) {
+				struct chrdata *runner = NULL;
+
+				for (s32 k = 0; k < g_NumBgChrs; k++) {
+					if (g_BgChrs[k].ailist == lists[i].list) {
+						runner = &g_BgChrs[k];
+						break;
+					}
+				}
+
+				if (!runner && g_NumBgChrs > 0) {
+					runner = &g_BgChrs[0];
+				}
+
+				if (!runner) {
+					break;
+				}
+
+				sysLogPrintf(LOG_NOTE, "gecinema: the ending is list %d at +%d, run by background chr %d",
+						lists[i].id, (s32)(cmd - lists[i].list), runner->chrnum);
+
+				runner->ailist = lists[i].list;
+				runner->aioffset = cmd - lists[i].list;
+				runner->aireturnlist = -1;
+				runner->sleep = 0;
+				return;
+			}
+
+			cmd += len;
+		}
+	}
+
+	sysLogPrintf(LOG_WARNING, "gecinema: no ending found in this mission's lists");
+	gecinemaFinish();
+}
+
+s32 gecinemaEndingOver(void)
+{
+	if (!gecinemaIsOn()) {
+		return 0;
+	}
+
+	gecinemaFinish();
+	return 1;
+}
+
+static void gecinemaEndingTick(void)
+{
+	if (g_GeEndingKicked == 0) {
+		// the lists fade in from black themselves once their camera is up, and
+		// what is on the screen until then is a level nobody is playing
+		g_GeEndingKicked = 1;
+		lvConfigureFade(0x000000ff, 1);
+	}
+
+	g_GeCinemaTotal60 += g_Vars.diffframe60f;
+
+	// a level's chrs and lists settle over its first frames (its guards are
+	// made, its background chrs number themselves)
+	if (g_GeEndingKicked == 1 && g_Vars.lvframenum >= 20) {
+		gecinemaKickEnding();
+	}
+
+	if (g_GeCinemaTotal60 > 30.0f && gecinemaLeavePressed()) {
+		gecinemaFinish();
+	}
+}
+
 /** Whether a button GoldenEye's cinemas end on went down this frame. */
 static s32 gecinemaPressed(void)
 {
@@ -417,6 +584,14 @@ static s32 gecinemaPressed(void)
 static void gecinemaIntroEnd(void)
 {
 	struct player *pl = g_Vars.currentplayer;
+
+	if (gecinemaIsOn()) {
+		// the Cinema page's opening ends where a mission's hands over: the
+		// camera holds where it is for the frame the stage takes to change
+		g_GeIntroStage = GEINTRO_HOLD;
+		gecinemaFinish();
+		return;
+	}
 
 	g_GeIntroStage = GEINTRO_NONE;
 	g_GeCinemaCamRoom = -1;
@@ -485,9 +660,6 @@ static void gecinemaIntroBegin(void)
 	g_GeIntroPending = 0;
 	gecinemaCollect();
 
-	g_GeIntroTheta = pl->vv_theta;
-	g_GeIntroVerta = pl->vv_verta;
-
 	gecinemaEnter();
 
 	if (g_GeCinemaNumShots <= 0) {
@@ -509,7 +681,7 @@ static void gecinemaIntroTick(void)
 {
 	const u8 *shot = g_GeIntroShot;
 
-	if (g_GeIntroStage == GEINTRO_SWIRL) {
+	if (g_GeIntroStage == GEINTRO_SWIRL || g_GeIntroStage == GEINTRO_HOLD) {
 		return;   // the swirl is ticked with the player (gecinemaSwirlTick)
 	}
 
@@ -625,8 +797,17 @@ s32 gecinemaSwirlTick(void)
 	struct coord up = {0, 1, 0};
 	f32 left;
 
+	if (g_GeIntroStage == GEINTRO_HOLD) {
+		return 1;
+	}
+
 	if (g_GeIntroStage != GEINTRO_SWIRL || !pl || !pl->prop) {
 		return 0;
+	}
+
+	if (gecinemaIsOn() && gecinemaLeavePressed()) {
+		gecinemaIntroEnd();
+		return 1;
 	}
 
 	if (!g_GeIntroPosed && pl->haschrbody && pl->model00d4 && pl->prop->chr) {
@@ -662,7 +843,7 @@ s32 gecinemaSwirlTick(void)
 		} else {
 			g_GeIntroTimer = g_GeSwirl[g_GeIntroLeg].duration;
 			gecinemaIntroEnd();
-			return 0;
+			return g_GeIntroStage == GEINTRO_HOLD;
 		}
 	}
 
@@ -681,7 +862,7 @@ s32 gecinemaSwirlTick(void)
 	if (g_GeIntroFadingOut) {
 		if (playerIsFadeComplete()) {
 			gecinemaIntroEnd();
-			return 0;
+			return g_GeIntroStage == GEINTRO_HOLD;
 		}
 	} else if (left > 60.0f && !lvIsPaused() && gecinemaPressed()) {
 		g_GeIntroFadingOut = 1;
@@ -744,22 +925,26 @@ void gecinemaTick(void)
 		gecinemaEnter();
 	}
 
+	if (g_GeCinemaWhat == GECINEMA_ENDING) {
+		gecinemaEndingTick();
+		return;
+	}
+
+	if (g_GeCinemaShot >= g_GeCinemaNumShots && !g_GeCinemaLeft && g_GeCinemaNumShots > 0) {
+		// Every shot has been seen, and what GoldenEye does after the one it
+		// shows is fade to black and swirl down to Bond: the mission's own
+		// opening from here on (gecinemaIntroTick), which ends the cinema where
+		// a mission would hand over
+		g_GeIntroShot = g_GeCinemaShots[g_GeCinemaNumShots - 1];
+		g_GeIntroStage = GEINTRO_FADE;
+		playerSetFadeColour(0, 0, 0, 0);
+		playerSetFadeFrac(60, 1);
+		return;
+	}
+
 	if (g_GeCinemaShot >= g_GeCinemaNumShots) {
-		// Nothing left to watch: back to the folder. The stage does not change
-		// until the end of the frame, so the flag is also what keeps this from
-		// asking again on every frame until it does.
-		//
-		// **The way a match goes back** (menutick.c): to the Institute, with
-		// its own arrival skipped and the Perfect Menu put under the folder.
-		// This used to go to the title instead, and the title is not a
-		// backdrop - it runs on under the folder, reads the same presses, and
-		// left alone for twenty seconds loads its attract demo, which resets
-		// the model pool the folder's own model is an instance in. Leaving the
-		// folder from there landed on the title's logos with no menu at all.
-		if (!g_GeCinemaWantFolder) {
-			g_GeCinemaWantFolder = 1;
-			gexFrontGoBack();
-		}
+		// nothing to watch, or the player backed out
+		gecinemaFinish();
 
 		return;
 	}
@@ -797,6 +982,7 @@ void gecinemaTick(void)
 				&& (joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui)
 					|| inputKeyJustPressed(VK_ESCAPE))) {
 			g_GeCinemaShot = g_GeCinemaNumShots;
+			g_GeCinemaLeft = 1;
 			return;
 		}
 

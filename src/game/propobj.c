@@ -85,6 +85,7 @@
 #include "xblamesh.h"
 #ifndef PLATFORM_N64
 #include "gexplusveh.h"
+#include "gemonitor.h"
 #endif
 #endif
 
@@ -12111,6 +12112,18 @@ void tvscreenSetImageByNum(struct tvscreen *screen, s32 imagenum)
 		image = g_TvCmdlists[imagenum];
 	}
 
+#ifndef PLATFORM_N64
+	// a GoldenEye remake mission's screens run GoldenEye's own programmes
+	// (gemonitor.c), which is also what its TvChangeScreenBank asks for
+	{
+		u32 *geimage = geMonitorProgram(imagenum);
+
+		if (geimage) {
+			image = geimage;
+		}
+	}
+#endif
+
 	tvscreenSetCmdlist(screen, image);
 }
 
@@ -13139,6 +13152,233 @@ static inline void tvscreenWrapTexCoord(s32 *s0, s32 *s1, s32 *s2, s32 *s3)
 
 #endif
 
+/**
+ * A screen's programme, run for this frame: its commands up to the next one
+ * that waits, and whatever scroll, zoom and tint they left in motion.
+ *
+ * This was the top half of tvscreenRender() and is here on its own so that
+ * something with no model to draw a screen on can still run one - GE Plus's
+ * folder shows GoldenEye's monitor programmes on a page of their own
+ * (gexfront.c). Nothing in it has changed.
+ */
+void tvscreenTick(struct tvscreen *screen)
+{
+	bool yielding = false;
+
+	while (!yielding) {
+		struct tvcmd *cmd = (struct tvcmd *) &screen->cmdlist[screen->offset]; // 98
+
+		switch (cmd->type) {
+		case TVCMD_STOPSCROLL:
+			screen->xmidinc = 0.0f;
+			screen->ymidinc = 0.0f;
+			screen->offset++;
+			break;
+		case TVCMD_SCROLLRELX:
+			screen->xmidfrac = 0.0f;
+			screen->xmidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
+			screen->xmidold = screen->xmid;
+			screen->xmidnew = screen->xmid + cmd->arg1 * (1.0f / 1024.0f);
+			screen->offset += 3;
+			break;
+		case TVCMD_SCROLLRELY:
+			screen->ymidfrac = 0.0f;
+			screen->ymidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
+			screen->ymidold = screen->ymid;
+			screen->ymidnew = screen->ymid + cmd->arg1 * (1.0f / 1024.0f);
+			screen->offset += 3;
+			break;
+		case TVCMD_SCROLLABSX:
+			screen->xmidfrac = 0.0f;
+			screen->xmidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
+			screen->xmidold = screen->xmid;
+			screen->xmidnew = cmd->arg1 * (1.0f / 1024.0f);
+			screen->offset += 3;
+			break;
+		case TVCMD_SCROLLABSY:
+			screen->ymidfrac = 0.0f;
+			screen->ymidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
+			screen->ymidold = screen->ymid;
+			screen->ymidnew = cmd->arg1 * (1.0f / 1024.0f);
+			screen->offset += 3;
+			break;
+		case TVCMD_SCALEABSX:
+			screen->xscalefrac = 0.0f;
+			screen->xscaleinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
+			screen->xscaleold = screen->xscale;
+			screen->xscalenew = cmd->arg1 * (1.0f / 1024.0f);
+			screen->offset += 3;
+			break;
+		case TVCMD_SCALEABSY:
+			screen->yscalefrac = 0.0f;
+			screen->yscaleinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
+			screen->yscaleold = screen->yscale;
+			screen->yscalenew = cmd->arg1 * (1.0f / 1024.0f);
+			screen->offset += 3;
+			break;
+		case TVCMD_SETTEXTURE:
+			tvscreenSetTexture(screen, cmd->arg1);
+			screen->offset += 2;
+			break;
+		case TVCMD_PAUSE:
+			if (screen->pause60 >= 0) {
+				screen->pause60 -= g_Vars.lvupdate60;
+
+				if (screen->pause60 >= 0) {
+					yielding = true;
+				} else {
+					screen->offset += 2;
+				}
+			} else {
+				yielding = true;
+				screen->pause60 = cmd->arg1;
+			}
+			break;
+#ifndef PLATFORM_N64
+		// In one of GoldenEye's programmes a jump names a word of the
+		// conversion's block, not an address: a list is 32 bit words and a
+		// pointer here is 64 (gemonitor.c). Perfect Dark's own lists use
+		// neither command.
+		case TVCMD_SETCMDLIST:
+			{
+				u32 *to = geMonitorJump(screen->cmdlist, cmd->arg1);
+				tvscreenSetCmdlist(screen, to ? to : (u32 *)(uintptr_t) cmd->arg1);
+			}
+			break;
+		case TVCMD_RANDSETCMDLIST:
+			if ((rngRandom() >> 16) < cmd->arg2) {
+				u32 *to = geMonitorJump(screen->cmdlist, cmd->arg1);
+				tvscreenSetCmdlist(screen, to ? to : (u32 *)(uintptr_t) cmd->arg1);
+			} else {
+#else
+		case TVCMD_SETCMDLIST:
+			tvscreenSetCmdlist(screen, (u32 *) cmd->arg1);
+			break;
+		case TVCMD_RANDSETCMDLIST:
+			if ((rngRandom() >> 16) < cmd->arg2) {
+				tvscreenSetCmdlist(screen, (u32 *) cmd->arg1);
+			} else {
+#endif
+				screen->offset += 3;
+			}
+			break;
+		case TVCMD_RESTART:
+			screen->offset = 0;
+			break;
+		case TVCMD_YIELD:
+			yielding = true;
+			break;
+		case TVCMD_SETCOLOUR:
+			screen->colfrac = 0.0f;
+			screen->colinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
+
+			screen->redold = screen->red;
+			screen->rednew = ((u32)cmd->arg1 >> 24) & 0xff;
+
+			screen->greenold = screen->green;
+			screen->greennew = ((u32)cmd->arg1 >> 16) & 0xff;
+
+			screen->blueold = screen->blue;
+			screen->bluenew = ((u32)cmd->arg1 >> 8) & 0xff;
+
+			screen->alphaold = screen->alpha;
+			screen->alphanew = cmd->arg1 & 0xff;
+
+			screen->offset += 3;
+			break;
+		case TVCMD_ROTATEABS:
+			screen->rot = cmd->arg1 * (M_BADTAU / 65536.0f);
+			screen->offset += 2;
+			break;
+		case TVCMD_ROTATEREL:
+			screen->rot += g_Vars.lvupdate60f * cmd->arg1 * (M_BADTAU / 65536.0f);
+
+			if (screen->rot >= M_BADTAU) {
+				screen->rot -= M_BADTAU;
+			}
+
+			if (screen->rot < 0.0f) {
+				screen->rot += M_BADTAU;
+			}
+
+			screen->offset += 2;
+			break;
+		}
+	}
+
+	// Increment X scale
+	if (screen->xscaleinc > 0.0f) {
+		screen->xscalefrac += screen->xscaleinc * g_Vars.lvupdate60f;
+
+		if (screen->xscalefrac < 1.0f) {
+			screen->xscale = screen->xscaleold + (screen->xscalenew - screen->xscaleold) * screen->xscalefrac;
+		} else {
+			screen->xscalefrac = 1.0f;
+			screen->xscaleinc = 0.0f;
+			screen->xscale = screen->xscalenew;
+		}
+	}
+
+	// Increment Y scale
+	if (screen->yscaleinc > 0.0f) {
+		screen->yscalefrac += screen->yscaleinc * g_Vars.lvupdate60f;
+
+		if (screen->yscalefrac < 1.0f) {
+			screen->yscale = screen->yscaleold + (screen->yscalenew - screen->yscaleold) * screen->yscalefrac;
+		} else {
+			screen->yscalefrac = 1.0f;
+			screen->yscaleinc = 0.0f;
+			screen->yscale = screen->yscalenew;
+		}
+	}
+
+	// Increment X scroll
+	if (screen->xmidinc > 0.0f) {
+		screen->xmidfrac += screen->xmidinc * g_Vars.lvupdate60f;
+
+		if (screen->xmidfrac < 1.0f) {
+			screen->xmid = screen->xmidold + (screen->xmidnew - screen->xmidold) * screen->xmidfrac;
+		} else {
+			screen->xmidfrac = 1.0f;
+			screen->xmidinc = 0.0f;
+			screen->xmid = screen->xmidnew;
+		}
+	}
+
+	// Increment Y scroll
+	if (screen->ymidinc > 0.0f) {
+		screen->ymidfrac += screen->ymidinc * g_Vars.lvupdate60f;
+
+		if (screen->ymidfrac < 1.0f) {
+			screen->ymid = screen->ymidold + (screen->ymidnew - screen->ymidold) * screen->ymidfrac;
+		} else {
+			screen->ymidfrac = 1.0f;
+			screen->ymidinc = 0.0f;
+			screen->ymid = screen->ymidnew;
+		}
+	}
+
+	// Increment colour change
+	if (screen->colinc > 0.0f) {
+		screen->colfrac += screen->colinc * g_Vars.lvupdate60f;
+
+		if (screen->colfrac < 1.0f) {
+			screen->red = screen->redold + (s32) ((screen->rednew - screen->redold) * screen->colfrac);
+			screen->green = screen->greenold + (s32) ((screen->greennew - screen->greenold) * screen->colfrac);
+			screen->blue = screen->blueold + (s32) ((screen->bluenew - screen->blueold) * screen->colfrac);
+			screen->alpha = screen->alphaold + (s32) ((screen->alphanew - screen->alphaold) * screen->colfrac);
+		} else {
+			screen->colfrac = 1.0f;
+			screen->colinc = 0.0f;
+			screen->red = screen->rednew;
+			screen->green = screen->greennew;
+			screen->blue = screen->bluenew;
+			screen->alpha = screen->alphanew;
+		}
+	}
+
+}
+
 Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen *screen, Gfx *gdl, s32 arg4, s32 arg5)
 {
 	if (node && (node->type & 0xff) == MODELNODETYPE_DL) {
@@ -13148,201 +13388,8 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 		union modelrodata *rodata = node->rodata; // a8
 		union modelrwdata *rwdata = modelGetNodeRwData(model, node); // a4
 		struct textureconfig *tconfig;
-		bool yielding = false;
 
-		while (!yielding) {
-			struct tvcmd *cmd = (struct tvcmd *) &screen->cmdlist[screen->offset]; // 98
-
-			switch (cmd->type) {
-			case TVCMD_STOPSCROLL:
-				screen->xmidinc = 0.0f;
-				screen->ymidinc = 0.0f;
-				screen->offset++;
-				break;
-			case TVCMD_SCROLLRELX:
-				screen->xmidfrac = 0.0f;
-				screen->xmidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
-				screen->xmidold = screen->xmid;
-				screen->xmidnew = screen->xmid + cmd->arg1 * (1.0f / 1024.0f);
-				screen->offset += 3;
-				break;
-			case TVCMD_SCROLLRELY:
-				screen->ymidfrac = 0.0f;
-				screen->ymidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
-				screen->ymidold = screen->ymid;
-				screen->ymidnew = screen->ymid + cmd->arg1 * (1.0f / 1024.0f);
-				screen->offset += 3;
-				break;
-			case TVCMD_SCROLLABSX:
-				screen->xmidfrac = 0.0f;
-				screen->xmidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
-				screen->xmidold = screen->xmid;
-				screen->xmidnew = cmd->arg1 * (1.0f / 1024.0f);
-				screen->offset += 3;
-				break;
-			case TVCMD_SCROLLABSY:
-				screen->ymidfrac = 0.0f;
-				screen->ymidinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
-				screen->ymidold = screen->ymid;
-				screen->ymidnew = cmd->arg1 * (1.0f / 1024.0f);
-				screen->offset += 3;
-				break;
-			case TVCMD_SCALEABSX:
-				screen->xscalefrac = 0.0f;
-				screen->xscaleinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
-				screen->xscaleold = screen->xscale;
-				screen->xscalenew = cmd->arg1 * (1.0f / 1024.0f);
-				screen->offset += 3;
-				break;
-			case TVCMD_SCALEABSY:
-				screen->yscalefrac = 0.0f;
-				screen->yscaleinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
-				screen->yscaleold = screen->yscale;
-				screen->yscalenew = cmd->arg1 * (1.0f / 1024.0f);
-				screen->offset += 3;
-				break;
-			case TVCMD_SETTEXTURE:
-				tvscreenSetTexture(screen, cmd->arg1);
-				screen->offset += 2;
-				break;
-			case TVCMD_PAUSE:
-				if (screen->pause60 >= 0) {
-					screen->pause60 -= g_Vars.lvupdate60;
-
-					if (screen->pause60 >= 0) {
-						yielding = true;
-					} else {
-						screen->offset += 2;
-					}
-				} else {
-					yielding = true;
-					screen->pause60 = cmd->arg1;
-				}
-				break;
-			case TVCMD_SETCMDLIST:
-				tvscreenSetCmdlist(screen, (u32 *) cmd->arg1);
-				break;
-			case TVCMD_RANDSETCMDLIST:
-				if ((rngRandom() >> 16) < cmd->arg2) {
-					tvscreenSetCmdlist(screen, (u32 *) cmd->arg1);
-				} else {
-					screen->offset += 3;
-				}
-				break;
-			case TVCMD_RESTART:
-				screen->offset = 0;
-				break;
-			case TVCMD_YIELD:
-				yielding = true;
-				break;
-			case TVCMD_SETCOLOUR:
-				screen->colfrac = 0.0f;
-				screen->colinc = cmd->arg2 == 0 ? 1.0f : 1.0f / cmd->arg2;
-
-				screen->redold = screen->red;
-				screen->rednew = ((u32)cmd->arg1 >> 24) & 0xff;
-
-				screen->greenold = screen->green;
-				screen->greennew = ((u32)cmd->arg1 >> 16) & 0xff;
-
-				screen->blueold = screen->blue;
-				screen->bluenew = ((u32)cmd->arg1 >> 8) & 0xff;
-
-				screen->alphaold = screen->alpha;
-				screen->alphanew = cmd->arg1 & 0xff;
-
-				screen->offset += 3;
-				break;
-			case TVCMD_ROTATEABS:
-				screen->rot = cmd->arg1 * (M_BADTAU / 65536.0f);
-				screen->offset += 2;
-				break;
-			case TVCMD_ROTATEREL:
-				screen->rot += g_Vars.lvupdate60f * cmd->arg1 * (M_BADTAU / 65536.0f);
-
-				if (screen->rot >= M_BADTAU) {
-					screen->rot -= M_BADTAU;
-				}
-
-				if (screen->rot < 0.0f) {
-					screen->rot += M_BADTAU;
-				}
-
-				screen->offset += 2;
-				break;
-			}
-		}
-
-		// Increment X scale
-		if (screen->xscaleinc > 0.0f) {
-			screen->xscalefrac += screen->xscaleinc * g_Vars.lvupdate60f;
-
-			if (screen->xscalefrac < 1.0f) {
-				screen->xscale = screen->xscaleold + (screen->xscalenew - screen->xscaleold) * screen->xscalefrac;
-			} else {
-				screen->xscalefrac = 1.0f;
-				screen->xscaleinc = 0.0f;
-				screen->xscale = screen->xscalenew;
-			}
-		}
-
-		// Increment Y scale
-		if (screen->yscaleinc > 0.0f) {
-			screen->yscalefrac += screen->yscaleinc * g_Vars.lvupdate60f;
-
-			if (screen->yscalefrac < 1.0f) {
-				screen->yscale = screen->yscaleold + (screen->yscalenew - screen->yscaleold) * screen->yscalefrac;
-			} else {
-				screen->yscalefrac = 1.0f;
-				screen->yscaleinc = 0.0f;
-				screen->yscale = screen->yscalenew;
-			}
-		}
-
-		// Increment X scroll
-		if (screen->xmidinc > 0.0f) {
-			screen->xmidfrac += screen->xmidinc * g_Vars.lvupdate60f;
-
-			if (screen->xmidfrac < 1.0f) {
-				screen->xmid = screen->xmidold + (screen->xmidnew - screen->xmidold) * screen->xmidfrac;
-			} else {
-				screen->xmidfrac = 1.0f;
-				screen->xmidinc = 0.0f;
-				screen->xmid = screen->xmidnew;
-			}
-		}
-
-		// Increment Y scroll
-		if (screen->ymidinc > 0.0f) {
-			screen->ymidfrac += screen->ymidinc * g_Vars.lvupdate60f;
-
-			if (screen->ymidfrac < 1.0f) {
-				screen->ymid = screen->ymidold + (screen->ymidnew - screen->ymidold) * screen->ymidfrac;
-			} else {
-				screen->ymidfrac = 1.0f;
-				screen->ymidinc = 0.0f;
-				screen->ymid = screen->ymidnew;
-			}
-		}
-
-		// Increment colour change
-		if (screen->colinc > 0.0f) {
-			screen->colfrac += screen->colinc * g_Vars.lvupdate60f;
-
-			if (screen->colfrac < 1.0f) {
-				screen->red = screen->redold + (s32) ((screen->rednew - screen->redold) * screen->colfrac);
-				screen->green = screen->greenold + (s32) ((screen->greennew - screen->greenold) * screen->colfrac);
-				screen->blue = screen->blueold + (s32) ((screen->bluenew - screen->blueold) * screen->colfrac);
-				screen->alpha = screen->alphaold + (s32) ((screen->alphanew - screen->alphaold) * screen->colfrac);
-			} else {
-				screen->colfrac = 1.0f;
-				screen->colinc = 0.0f;
-				screen->red = screen->rednew;
-				screen->green = screen->greennew;
-				screen->blue = screen->bluenew;
-				screen->alpha = screen->alphanew;
-			}
-		}
+		tvscreenTick(screen);
 
 		// Set up everything for rendering
 		rwdata->dl.gdl = gdl;
@@ -13356,6 +13403,12 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 
 		if ((u32)screen->tconfig < 100) {
 			tconfig = &g_TexScreenConfigs[(s32)screen->tconfig];
+#ifndef PLATFORM_N64
+			// and GoldenEye's own pictures under GoldenEye's own programmes
+			if (geMonitorImage((u32)(uintptr_t)screen->tconfig)) {
+				tconfig = geMonitorImage((u32)(uintptr_t)screen->tconfig);
+			}
+#endif
 		} else {
 			tconfig = screen->tconfig;
 		}

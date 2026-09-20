@@ -26,6 +26,7 @@
 #include "data.h"
 #include "modloader.h"
 #include "gexplus.h"
+#include "gecinema.h"
 #include <string.h>
 #include <stdio.h>
 #include "modborrow.h"
@@ -1231,7 +1232,11 @@ void gexPlusMissionExitTick(void)
 
 	if (g_GeExitFade60 <= 0) {
 		g_GeExitState = 0;
-		func0000e990();
+
+		// an ending the Cinema page is playing goes back to the page
+		if (!gecinemaEndingOver()) {
+			func0000e990();
+		}
 	}
 }
 

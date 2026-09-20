@@ -4862,6 +4862,10 @@ bool aiEndLevel(void)
 			) {
 		if (g_IsTitleDemo) {
 			mainChangeToStage(STAGE_TITLE);
+#ifndef PLATFORM_N64
+		} else if (gecinemaEndingOver()) {
+			// an ending GE Plus's Cinema page is playing: back to the page
+#endif
 		} else if (g_Vars.autocutplaying) {
 			g_Vars.autocutfinished = true;
 		} else {
