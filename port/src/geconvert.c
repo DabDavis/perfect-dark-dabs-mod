@@ -1103,6 +1103,8 @@ struct tile {
 	int npts;
 	int16_t pts[15][3];
 	uint16_t link[15];
+	int32_t neighbour[15];   // the tile across the edge from point k to point k + 1, or -1
+	size_t offset;
 };
 
 typedef VEC(struct tile) tiles;
@@ -1134,10 +1136,91 @@ static tiles stanRead(const buf *file)
 				t.pts[k][c] = bes16(d, o + 8 + 8 * k + 2 * c);
 			}
 			t.link[k] = be16(d, o + 8 + 8 * k + 6);
+			t.neighbour[k] = -1;
 		}
 
+		t.offset = o;
 		VECPUSH(out, t);
 		o += 8 + 8 * t.npts;
+	}
+
+	// A link names its neighbour by where it is: stan.c keeps standTileStart at
+	// the first tile less 0x80 and follows a link as standTileStart + (link <<
+	// 3), the low four bits being part of the address and not an edge number.
+	// Every one of the 88128 links in the game's 26 levels resolves to a tile
+	// that shares the edge's two points. geconvert.py's read_stan().
+	{
+		const size_t first = be32(d, 4);
+
+		for (size_t i = 0; i < out.n; ++i) {
+			struct tile *t = &out.v[i];
+
+			for (int k = 0; k < t->npts; ++k) {
+				const size_t at = first - 0x80 + ((size_t)t->link[k] << 3);
+
+				if (!(t->link[k] >> 4)) {
+					continue;
+				}
+
+				for (size_t j = 0; j < out.n; ++j) {
+					if (out.v[j].offset == at) {
+						t->neighbour[k] = (int32_t)j;
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	return out;
+}
+
+/**
+ * GoldenEye's own tile graph, for its own collision (port/src/gestan.c).
+ *
+ * "GST1", the number of tiles, and a tile a record in the stan file's own
+ * order: its room, its special, its number of points, and for each point its
+ * place in the converted level - the same rounded place writeTiles() gives the
+ * floor made from it - and what is across the edge from it to the next: the
+ * index of the tile linked there, -1 for an unlinked edge writeTiles() raised a
+ * wall on, or -2 for an unlinked edge that has no length in plan and so no
+ * wall. The walls are in the tiles file in this order, which is how the port
+ * tells which tile a wall belongs to. geconvert.py's write_stan().
+ */
+static buf writeStan(const tiles *stan, double levelscale, const double *offset)
+{
+	const double inv = 1.0 / levelscale;
+	buf out = {0};
+
+	bufPut(&out, (const uint8_t *)"GST1", 4);
+	bufU32(&out, (uint32_t)stan->n);
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		const struct tile *t = &stan->v[i];
+
+		bufU16(&out, (uint32_t)t->room);
+		bufU8(&out, (uint32_t)t->special);
+		bufU8(&out, (uint32_t)t->npts);
+
+		for (int k = 0; k < t->npts; ++k) {
+			const int16_t *pa = t->pts[k], *pb = t->pts[(k + 1) % t->npts];
+			double a[3], b[3];
+			int32_t nb = t->neighbour[k];
+
+			for (int c = 0; c < 3; ++c) {
+				a[c] = (double)pa[c] * inv - offset[c];
+				b[c] = (double)pb[c] * inv - offset[c];
+			}
+
+			if (nb < 0) {
+				nb = fabs(a[0] - b[0]) < 0.5 && fabs(a[2] - b[2]) < 0.5 ? -2 : -1;
+			}
+
+			for (int c = 0; c < 3; ++c) {
+				bufU16(&out, (uint16_t)s16(a[c]));
+			}
+			bufU16(&out, (uint16_t)(int16_t)nb);
+		}
 	}
 
 	return out;
@@ -5455,6 +5538,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		writeFile(outdir, rel, bgdata.v, bgdata.n);
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_tilesZ", lv->key);
 		writeFile(outdir, rel, tilesdata.v, tilesdata.n);
+		{
+			buf standata = writeStan(&stan, lv->levelscale, offset);
+
+			snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_stan", lv->key);
+			writeFile(outdir, rel, standata.v, standata.n);
+		}
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_padsZ", lv->key);
 		writeFile(outdir, rel, padsdata.v, padsdata.n);
 		snprintf(rel, sizeof(rel), "files/Ump_setupgx%sZ", lv->key);

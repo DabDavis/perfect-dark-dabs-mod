@@ -5227,3 +5227,72 @@ tile links, which it throws away after raising walls.
 
 Also open: the gate at pad 134 draws with a smeared texture; the truck's tilt;
 "flags" in the user's list was never pinned down - ask.
+
+## GoldenEye's own collision for a body: the tile graph (2026-09-20)
+
+The user, on the tower stairs: *"would GE's 2d collision be valid to use
+instead"*, then *"port ge's 2d collision"*. Converter version **38**,
+`port/src/gestan.c`.
+
+**What GoldenEye's collision is.** Two dimensional, and the tile graph and
+nothing else: a body stands on a tile, a move is walked from tile to tile through
+the edges that are *linked*, and what stops it is an edge that is not
+(`stanTestLineUnobstructed()`, `stanTestVolume()`, `walkTilesBetweenPoints()`).
+So the only walls that exist for a body are **the unlinked edges of the tiles
+linked to the one it is on, as far out as it reaches**. A wall a storey up, or on
+a tile it could never step to, is never consulted.
+
+**What was ported, and at what level.** Not the three functions into fifty call
+sites: Perfect Dark's collision library consults background geometry in exactly
+four walkers (`cdCollectGeoForCylFromList`, `cdCollectGeoForCylMoveFromList`,
+`cdTestAToBGeolist`, `cdExamAToBGeolist`), each with the query's position and geo
+flags, and every body in the game - player, guard, anything thrown - goes through
+them. Each asks `geStanWallSkipped()` one question for a wall of the conversion:
+*is this wall's tile linked to the one the body stands on, within its reach?*
+Where it is not, the wall is not there for that body. Everything Perfect Dark
+does with a wall that **is** there - the edge, the slide, the push - is untouched,
+and so is everything that is not a body: only a query carrying `GEOFLAG_WALL` is
+filtered, so shots and sight are as they were.
+
+- **The graph**: `files/bgdata/bg_gx<level>_stan` beside the tiles file ("GST1":
+  a tile a record in the stan file's own order - room, special, points as the
+  tiles file rounds them, and per edge the tile across it, -1 for an edge a wall
+  was raised on, -2 for one with no length in plan). Found from the stage's tiles
+  file name (`romdataFileGetName(tilefileid)`, `_tilesZ` -> `_stan`).
+- **A link names its neighbour by address**: stan.c keeps `standTileStart` at the
+  first tile less 0x80 and follows `standTileStart + (link << 3)` - the low four
+  bits are part of the address, **not an edge number**. All 88128 links in the 26
+  levels resolve and every neighbour shares the edge's two points.
+- **Which tile a wall came from** is the order the conversion wrote them in: a
+  room's tiles in the graph's order, each its floor and then a wall per -1 edge.
+  `stanMatchWalls()` walks the two together and checks every floor and wall
+  against the tile's own points; a mismatch means the files are not one
+  conversion's and the graph is not used (every wall is there for everybody, as
+  before).
+- **The tile a body stands on** is the highest under it whose surface is at or
+  under a *limit*: the cylinder's foot plus ten where the test has one, else
+  sixty under the position - a body's middle or eye is more than sixty over its
+  own floor and less than sixty under a flight passing over its head (Dam's is
+  124 over the feet). A body over no tile is asked of every wall.
+- **Reach**: the radius plus eight for a volume, the move's length plus forty for
+  a line; the flood goes through links to any tile whose box comes that near.
+
+**Measured on the user's repro**, `build/gexrom/walkprobe.py` (the player walked
+along the waypoint graph with `bwalkCalculateNewPosition()`): before, stuck on
+the first flight for ever; after, road -> tower door -> every flight -> the top
+in 289 frames, nine steps steered round a corner, none refused, room equal to
+the floor's room on every frame. `stanprobe.py` says which tile a body is on,
+which tile a wall belongs to and the links between them.
+
+**Three lessons from the walker itself**, each of which looked like a collision
+fault and was the probe's: it must **steer round a corner** when a straight step
+is refused (the game slides; a landing's own edge sat 25.7 units from the
+waypoint line and a body is 30); its arrival distance must be **a body's radius**
+(a waypoint's pad can be 24 units from its tile's edge, nearer than a player can
+stand); and it must **leave characters out of the test** (`types 0x33`) - the last
+"wall" was a guard standing on the landing.
+
+**Not done**: the floor's height and the room still come from Perfect Dark's
+ground search (`geroom.c`), not from the graph's tile; a wall that *is* there
+still has the conversion's height rules; the truck's tick has no wall test of
+any kind. GoldenEye's sight is the tile graph too, and ours is not.

@@ -680,8 +680,15 @@ WALL_RISE = 50.0      # a wall's foot may be lifted this far over its own edge
 
 
 def read_stan(data):
-    """Tiles: [(room, [(x, y, z, link)], special)] in bg units, and each tile's
-    file offset (a link names its neighbour by offset)."""
+    """Tiles: [(room, [(x, y, z, link)], special)] in bg units, each tile's file
+    offset, and `neighbours`: for each edge - point k to point k + 1 - the index
+    of the tile on the other side, or -1.
+
+    A link names its neighbour by where it is: stan.c keeps `standTileStart` at
+    the first tile less 0x80 and follows a link as `standTileStart + (link <<
+    3)`, the low four bits being part of the address and not an edge number.
+    Every one of the 88128 links in the game's 26 levels resolves to a tile that
+    shares the edge's two points."""
     first = struct.unpack_from('>I', data, 4)[0]
     tiles = []
     o = first
@@ -695,7 +702,39 @@ def read_stan(data):
         pts = [struct.unpack_from('>3hH', data, o + 8 + 8 * k) for k in range(npts)]
         tiles.append(dict(room=room, points=pts, special=special, offset=o))
         o += 8 + 8 * npts
+    at = {t['offset']: i for i, t in enumerate(tiles)}
+    for t in tiles:
+        t['neighbours'] = [at.get(first - 0x80 + (p[3] << 3), -1) if p[3] >> 4 else -1 for p in t['points']]
     return tiles
+
+
+STAN_NO_WALL = -2
+
+
+def write_stan(stan, ls, offset):
+    """GoldenEye's own tile graph, for its own collision (port/src/gestan.c).
+
+    "GST1", the number of tiles, and a tile a record in the stan file's own
+    order: its room, its special, its number of points, and for each point its
+    place in the converted level - the same rounded place write_tiles() gives
+    the floor made from it - and what is across the edge from it to the next:
+    the index of the tile linked there, -1 for an unlinked edge write_tiles()
+    raised a wall on, or -2 for an unlinked edge that has no length in plan and
+    so no wall. The walls are in the tiles file in this order, which is how the
+    port tells which tile a wall belongs to."""
+    inv = 1.0 / ls
+    out = [b'GST1', struct.pack('>I', len(stan))]
+    for t in stan:
+        pts = [(x * inv - offset[0], y * inv - offset[1], z * inv - offset[2]) for x, y, z, _ in t['points']]
+        n = len(pts)
+        out.append(struct.pack('>HBB', t['room'], t['special'], n))
+        for k in range(n):
+            a, b = pts[k], pts[(k + 1) % n]
+            nb = t['neighbours'][k]
+            if nb < 0:
+                nb = STAN_NO_WALL if abs(a[0] - b[0]) < 0.5 and abs(a[2] - b[2]) < 0.5 else -1
+            out.append(struct.pack('>3hh', s16(a[0]), s16(a[1]), s16(a[2]), nb))
+    return b''.join(out)
 
 
 def room_tile_bounds(stan, numrooms, ls, offset):
@@ -1255,6 +1294,7 @@ def main():
         record[key] = dict(bg=os.path.join(outdir, 'files/bgdata/bg_%s.seg' % short), levelscale=ls,
                            offset=[float(x) for x in offset])
         files.update({'bgdata/bg_%s.seg' % short: bgdata, 'bgdata/bg_%s_tilesZ' % short: tiles,
+                      'bgdata/bg_%s_stan' % short: write_stan(stan, ls, offset),
                       'bgdata/bg_%s_padsZ' % short: padsdata, 'Ump_setup%sZ' % short: mpsetup})
         for rel, data in files.items():
             with open(os.path.join(outdir, 'files', rel), 'wb') as f:

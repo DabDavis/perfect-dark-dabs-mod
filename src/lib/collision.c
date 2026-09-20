@@ -1179,6 +1179,23 @@ bool cd000276c8Cyl(struct geocyl *cyl, f32 x, f32 z, f32 radius, struct prop *pr
 
 s32 cdTestRampWall(struct geotilei *tile, struct coord *pos, f32 width, f32 y1, f32 y2);
 
+#ifndef PLATFORM_N64
+#include "gestan.h"
+
+// what a body touches beyond its own radius and still counts as reached: the
+// walls stand on the tiles' edges and a tile's box is asked, not its shape
+#define GESTAN_MARGIN 8.0f
+
+/** How far a move from a to b reaches from a, for the tile graph (gestan.h). */
+static f32 cdStanReach(struct coord *a, struct coord *b)
+{
+	const f32 dx = b->x - a->x;
+	const f32 dz = b->z - a->z;
+
+	return sqrtf(dx * dx + dz * dz) + 40.0f;
+}
+#endif
+
 void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *end, u16 geoflags,
 		bool checkvertical, f32 arg6, f32 arg7, struct prop *prop,
 		struct collision *collisions, s32 maxcollisions, s32 *numcollisions, s32 roomnum)
@@ -1196,7 +1213,15 @@ void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *en
 					&& pos->z >= *(s16 *)(tile->zmin + (uintptr_t)tile) - radius
 					&& pos->z <= *(s16 *)(tile->zmax + (uintptr_t)tile) + radius
 					&& (!checkvertical || (pos->y + arg6 >= *(s16 *)(tile->ymin + (uintptr_t)tile)
-							&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))) {
+							&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))
+#ifndef PLATFORM_N64
+					// GoldenEye's collision on a level converted from it: a
+					// wall is there for a body only if its tile is linked to
+					// the one the body stands on (gestan.h)
+					&& !((geoflags & GEOFLAG_WALL)
+						&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), radius + GESTAN_MARGIN))
+#endif
+					) {
 				if (geo->flags & GEOFLAG_RAMPWALL) {
 					result = cdTestRampWall(tile, pos, radius, pos->y + arg7, pos->y + arg6);
 				} else {
@@ -1580,7 +1605,12 @@ void cdCollectGeoForCylMoveFromList(u8 *start, u8 *end, struct coord *pos, f32 r
 						&& pos->z >= *(s16 *)(tile->zmin + (uintptr_t)tile) - radius
 						&& pos->z <= *(s16 *)(tile->zmax + (uintptr_t)tile) + radius
 						&& (!checkvertical || (pos->y + arg6 >= *(s16 *)(tile->ymin + (uintptr_t)tile)
-								&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))) {
+								&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))
+#ifndef PLATFORM_N64
+						&& !((geoflags & GEOFLAG_WALL)
+							&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), radius + GESTAN_MARGIN))
+#endif
+						) {
 					bool pass;
 
 					if (geo->flags & GEOFLAG_RAMPWALL) {
@@ -2940,7 +2970,12 @@ bool cdTestAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			struct coord spc4;
 			struct coord spb8;
 
-			if (tile->header.flags & geoflags) {
+			if ((tile->header.flags & geoflags)
+#ifndef PLATFORM_N64
+					&& !((geoflags & GEOFLAG_WALL)
+						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, arg9), cdStanReach(arg2, arg3)))
+#endif
+					) {
 				min.x = *(s16 *)(tile->xmin + (uintptr_t)tile);
 
 				if ((!(arg2->x < min.x)) || !(arg3->x < min.x)) {
@@ -3174,7 +3209,12 @@ bool cdExamAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 				ok = true;
 			}
 
-			if (ok && (geo->flags & geoflags)) {
+			if (ok && (geo->flags & geoflags)
+#ifndef PLATFORM_N64
+					&& !((geoflags & GEOFLAG_WALL)
+						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, ymin), cdStanReach(arg2, arg3)))
+#endif
+					) {
 				min.x = *(s16 *)(tile->xmin + (uintptr_t)tile);
 
 				if (!(arg2->x < min.x) || !(arg3->x < min.x)) {
