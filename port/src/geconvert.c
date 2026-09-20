@@ -5666,6 +5666,14 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 		writeFile(outdir, "menu/introblood.bin", g_Data + INTRO_BLOOD_AT, INTRO_BLOOD_SIZE);
 
+		// gitem_structs as it stands, for where the watch holds each item up on
+		// its face (gewatch.c): a row's two pointers mean nothing out of the
+		// ROM, its positions and turns are read as they are
+		if (ITEMS_AT + ITEM_ROW * NUM_ITEMS > g_DataLen) {
+			fail("the hand items run off the data segment");
+		}
+		writeFile(outdir, "menu/geitems.bin", g_Data + ITEMS_AT, ITEM_ROW * NUM_ITEMS);
+
 		// and the solo missions' briefings, with the text bank each one indexes
 		for (size_t i = 0; i < sizeof(g_MenuText) / sizeof(g_MenuText[0]); ++i) {
 			const char *names[2] = { g_MenuText[i].brief, g_MenuText[i].lang };

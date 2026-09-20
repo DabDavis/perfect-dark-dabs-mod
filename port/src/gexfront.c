@@ -2555,6 +2555,15 @@ static f32 frontScaleY(void)
 // the same as a row's, which is the whole of the point
 static f32 frontScaleX(void)
 {
+	// a frame of somebody else's (the watch's, over the player's view) is
+	// drawn with no aspect mode, so a column of it is the window's width over
+	// the frame buffer's and a row the height over its height: not square,
+	// and a third too wide on a 16:9 window, where the watch's text ran off
+	// the face and onto the bezel
+	if (g_FrontFrame.set) {
+		return frontScaleY() * (f32)viGetWidth() / ((f32)viGetHeight() * videoGetAspect());
+	}
+
 	return frontScaleY();
 }
 
@@ -3664,13 +3673,6 @@ static void frontWrap(const struct gefont *font, const char *text, char *out, si
 			out[n++] = *text++;
 		}
 
-		if (*text == '\n') {
-			text++;
-			out[n++] = '\n';
-			line = n;
-			continue;
-		}
-
 		out[n] = '\0';
 		frontMeasure(font, out + line, 0, &w, &h);
 
@@ -3678,6 +3680,15 @@ static void frontWrap(const struct gefont *font, const char *text, char *out, si
 		if (w > width && wordat > line) {
 			out[wordat] = '\n';
 			line = wordat + 1;
+		}
+
+		// the text's own break, taken after the word before it is measured:
+		// taken first, the last word of every paragraph was never measured
+		// and ran past the width it was wrapped to
+		if (*text == '\n') {
+			text++;
+			out[n++] = '\n';
+			line = n;
 		}
 	}
 

@@ -3292,8 +3292,91 @@ against a random word), and `WATCH_ON` (237) / `WATCH_OFF` (238) as the view
 zooms to the face and away (bondview2.c's states 4 and 0xc, this port's
 `WS_ZOOMIN` and the end of `WS_CLOSING`). Perfect Dark's menu sound is played
 only where the conversion has no bank - one from before version 39 whose ROM
-has gone. The watch's idle interference (options.c:1509, a flicker of the
-face's green with the same static) is not done.
+has gone.
+
+**The watch's interference** (2026-09-20, `watchTickStatic()`, the end of
+options.c's `sub_GAME_7F0A6A80()`): every frame on the solo watch GoldenEye
+rolls a random word against `D_80040B0C` (0xffa0 of 0x10000 - one frame in
+683, every twenty seconds or so) and static strikes, as it does after one
+press in thirty-two: `g_WatchBackgroundGreen` drops from 0xe0 to 0x80 with
+`WATCH_STATIC`, and climbs back by a random 0 to 3 a frame, about two seconds.
+The green is the **alpha of the face's fill**, and while it is under 0xe0 the
+fill is drawn with `G_RM_AA_PCL_SURF` and a four-unit scanline climbs the face
+(`build_watch_static_scanline_vertices()`, as wide as the green at its height,
+its alpha `0x380 - 4 * green` *stored in a byte*, so it fades out by 0xa0 and
+comes back at 0xfc to fade again). Ticked in sixtieths here: the scanline
+every one by half as far, the roll and the climb every other one.
+
+- **`G_RM_AA_PCL_SURF` is the snow, and a render mode's `G_AC_DITHER` does
+  reach the hardware.** The mode's macro carries the alpha-compare bits, which
+  sit *outside* the 29 bits `gDPSetRenderMode` is meant to set - and the
+  microcode ors the whole data word in, so they are set anyway and **stay set**
+  until something sets an alpha compare. fast3d does the same. So the fill is
+  tested against noise with the green as how much survives, and the
+  screen-select rectangles and the scanline drawn after it are snowy too, as on
+  the console. First read as "no dither, the fill just goes solid", which the
+  first screenshot disproved.
+- The watch's white hands and markers look speckled under it. That is the
+  fill's holes showing the dial beneath at full brightness, **not** the dither
+  leaking into the model - an alpha compare reset after the scanline changed
+  nothing in the picture, and is kept because the model sets none of its own.
+- `zoom_squish` puts the green back to 0xe0, so there is no static on a face
+  still opening or closing. GoldenEye also fades the inventory's 3D item and
+  the controller model by the green; this watch draws neither.
+- Capture: `build/gexrom` (`--boot-stage 0x5e --fixed-step --rng-seed 1`),
+  `geWatchPause()` at frame 400, `call watchStrikeStatic()` once it is open.
+
+## The watch's text fitted to its face, and the gun held up on it (2026-09-20)
+
+The user: "fit the text inside the watch better so it doesnt overlap, might
+have to shrink font a bit", then "also add the gun display inside the watch".
+
+**The text.** Three separate faults, found by screenshotting all five pages at
+4:3 and 16:9 (`g_Watch.page` set from gdb):
+
+- **A text frame of somebody else's is not square.** The watch draws its pages
+  over the player's view with no aspect mode, so a column is the window's
+  width over the frame buffer's and a row the height over its height: a third
+  too wide on 16:9, where every page ran off the green onto the bezel.
+  `frontScaleX()` corrects it when a frame is set
+  (`viGetWidth() / (viGetHeight() * aspect)`); the folder's own frame, held
+  by `G_ASPECT_CENTER_EXT`, is untouched.
+- **`frontWrap()` never measured the last word of a paragraph**: it took the
+  text's own `\n` before measuring, so "Destroy missile battery\n" (145 wide)
+  wrapped to 99 came back whole and ran through its status. The briefing
+  paragraphs of every mission had the same fault.
+- The options' values stood at `XOFFSET_1 + 0x60` where GoldenEye's
+  `draw_toggle_option_values()` has 0xb4, so SIGHT ON-SCREEN (107 wide) ran
+  into its ON; and at GoldenEye's own size the layout is exactly as wide as the
+  green, with the options' last row standing on the screen-select rectangles.
+  The pages are drawn at `WATCH_TEXT_SCALE` 0.88 about the middle of the face.
+
+**The gun** (`watchDrawGun()`). GoldenEye shows the gun in hand on the mission
+page, still, and turns the item under the cursor on the inventory page (2.5
+degrees a sixtieth), both through gunfire.c's
+`set_enviro_fog_for_items_in_solo_watch_menu()`. The model is the first person
+one, which the conversion has written as `Igx%03dZ` by GoldenEye's `ITEM_IDS`
+since the watch - and **all 25 draw correctly**, which nobody had looked at
+(sweep: `g_Watch.weapons[0]` set to 0x5e..0x76 from gdb, a screenshot each).
+Where it stands is its row of `gitem_structs`, copied whole as
+`menu/geitems.bin` (56-byte rows; converter **40**, C only - **the Python
+converter has had no item conversion since the watch model and is behind**):
++20 x, +24 y, +28 z, +32 and +36 the two turns, +44/+48/+52 the inventory's.
+The still camera is at `(z, x, y)` looking at `(0, x, y)`; the turning one
+circles at the inventory's z. 45 degrees, aspect 1.283847, always.
+
+- GoldenEye's camera is over its whole 320x240 screen, which here is the text's
+  frame and not the window: the projection is **squeezed onto that frame**
+  (`S(sx, sy) * P`), which keeps the gun over its name at any zoom and shape.
+- `PROP_TYPE_WEAPON` is `unk30 = 4`, the env word the **fog colour**
+  (0x64dc6428 still, 0xa0ffa03c turning): that is the green.
+- It hides parts 8-13 and 35 (hands) and 1 (flash) and **turns 14 and 15 on**,
+  which are the whole of the throwing knife - hiding 8-15 drew no knife.
+- The model is the watch's own (`modelInit()` on a static `struct model` and
+  rwdata, as GoldenEye's is a local), not a pool instance: one could not be
+  given back when the cursor moves on. One gun is kept loaded.
+- A stage's scale (`mtxF2L`) does not matter under a projection of one's own:
+  scaling view space about the eye draws the same picture.
 
 ## The folder screens' background on a wide window (2026-09-19)
 

@@ -383,6 +383,13 @@ struct gewatch {
 	s32 invrow;
 	s32 sticky;      // the stick's up/down latch
 
+	// the interference (g_WatchBackgroundGreen, g_WatchStaticScanlineY)
+	s32 bggreen;     // 0xe0 when the face is clear, 0x80 as static strikes
+	s32 scany;       // the scanline's place up the face, -0x156 to 0x156
+	f32 staticacc;   // 60ths owed to watchTickStatic()
+	f32 gunangle;    // D_80040B14, the inventory's gun's turn
+	s32 statichalf;
+
 	// what the level was doing before the watch took it over
 	s32 paused;
 	s32 weapons[2];
@@ -586,8 +593,11 @@ static s32 watchLoadAnim(void)
  * walks g_ModelRwdataBindings through memory the pool has reused, which is a
  * crash on the next stage load.
  */
+static void watchGunUnload(void);
+
 static void watchFreeModel(void)
 {
+	watchGunUnload();
 	g_Watch.model = NULL;
 	g_Watch.watchmodel = NULL;
 
@@ -1145,14 +1155,26 @@ static void watchSfx(s32 id, s32 menusound)
 	}
 }
 
+#define STATIC_CLEAR 0xe0
+
+/** sub_GAME_7F0A51D8(): interference - the face dims and the static plays. */
+static void watchStrikeStatic(void)
+{
+	g_Watch.bggreen = 0x80;
+
+	if (geSfxGet(GESFX_WATCH_STATIC) > 0) {
+		geSfxPlay(GESFX_WATCH_STATIC, GESFX_VOLUME);
+	}
+}
+
 static void watchBeep(void)
 {
 	watchSfx(GESFX_CAMERA_BEEP1, MENUSOUND_FOCUS);
 
 	// D_80040B10 is 0xf800: static when a random word is over 0xf8000000,
 	// and only on the solo watch, the multiplayer one having a beep alone
-	if (g_Vars.mplayerisrunning == 0 && (rngRandom() >> 27) == 0x1f && geSfxGet(GESFX_WATCH_STATIC) > 0) {
-		geSfxPlay(GESFX_WATCH_STATIC, GESFX_VOLUME);
+	if (g_Vars.mplayerisrunning == 0 && (rngRandom() >> 27) == 0x1f) {
+		watchStrikeStatic();
 	}
 }
 
@@ -1160,6 +1182,68 @@ static void watchBeep(void)
 static void watchPlaySelect(void)
 {
 	watchBeep();
+}
+
+/**
+ * The solo watch's interference, the end of options.c's sub_GAME_7F0A6A80().
+ * Every frame GoldenEye rolls a random word against D_80040B0C (0xffa0 of
+ * 0x10000, so one frame in 683 - every twenty seconds or so) and static
+ * strikes: the face's green drops from 0xe0 to 0x80 and climbs back by a
+ * random 0 to 3 a frame, about two seconds, and while it is under 0xe0 the
+ * face is drawn as snow - tested against noise, with the green as how much
+ * of it survives - and a scanline climbs it four units a frame, wrapping at
+ * the edge of the green.
+ *
+ * GoldenEye's frame on the watch is two sixtieths, and this is ticked in
+ * sixtieths: the scanline moves each one, by half as far, and the roll and the
+ * climb are every other one.
+ */
+static void watchTickStatic(void)
+{
+	g_Watch.staticacc += watchDelta();
+
+	if (g_Watch.staticacc > 8.0f) {
+		g_Watch.staticacc = 8.0f;
+	}
+
+	while (g_Watch.staticacc >= 1.0f) {
+		g_Watch.staticacc -= 1.0f;
+
+		// D_80040B14 by D_80040B1C: the inventory's gun, 2.5 degrees a sixtieth
+		g_Watch.gunangle += 2.5f * M_BADTAU / 360.0f;
+
+		if (g_Watch.gunangle >= M_BADTAU) {
+			g_Watch.gunangle -= M_BADTAU;
+		}
+
+		g_Watch.scany -= 2;
+
+		if (g_Watch.scany >= 0x157) {
+			g_Watch.scany = -0x156;
+		}
+
+		if (g_Watch.scany < -0x156) {
+			g_Watch.scany = 0x156;
+		}
+
+		g_Watch.statichalf ^= 1;
+
+		if (g_Watch.statichalf) {
+			continue;
+		}
+
+		if (rngRandom() > (0xffa0u << 16)) {
+			watchStrikeStatic();
+		}
+
+		if (g_Watch.bggreen < STATIC_CLEAR) {
+			g_Watch.bggreen += rngRandom() >> 30;
+		}
+
+		if (g_Watch.bggreen > STATIC_CLEAR) {
+			g_Watch.bggreen = STATIC_CLEAR;
+		}
+	}
 }
 
 /**
@@ -1893,6 +1977,7 @@ void geWatchTick(void)
 			watchSetPaused(1);
 			watchZoomIn();
 			watchSfx(GESFX_WATCH_ON, MENUSOUND_SELECT);
+			g_Watch.bggreen = STATIC_CLEAR;
 		}
 
 		if (!watchZooming()) {
@@ -1901,6 +1986,7 @@ void geWatchTick(void)
 		break;
 	case WS_OPEN:
 		watchTickInput();
+		watchTickStatic();
 		break;
 	case WS_CLOSING:
 		if (g_Watch.statetime >= 3) {
@@ -2184,6 +2270,52 @@ static Gfx *watchDrawSelect(Gfx *gdl)
 }
 
 /**
+ * build_watch_static_scanline_vertices(): the thin green line that climbs the
+ * face while there is static, as wide as the green is at its height (462 is
+ * the radius GoldenEye fits it to) and four units deep.
+ *
+ * Its alpha is 0x380 less four times the green, which GoldenEye stores in a
+ * vertex's byte: so it is 0x80 as static strikes, fades to nothing by a green
+ * of 0xa0, and comes back at 0xfc to fade a second time.
+ */
+static Gfx *watchDrawScanline(Gfx *gdl, s32 green)
+{
+	Vtx *v = gfxAllocateVertices(4);
+	Col *c = gfxAllocate(4 * sizeof(Col));
+	const f32 y = (f32)g_Watch.scany;
+	const f32 inside = 213444.0f - y * y;
+	const s16 halfwidth = inside > 0.0f ? (s16)sqrtf(inside) : 0;
+	const u8 alpha = (u8)(0x380 - green * 4);
+	s32 n = 0;
+
+	for (s32 zoffs = 0; zoffs != 8; zoffs += 4) {
+		for (s32 side = -1; side != 3; side += 2) {
+			v[n].x = halfwidth * side;
+			v[n].y = 0;
+			v[n].z = zoffs + g_Watch.scany;
+			v[n].flags = 0;
+			v[n].colour = n * 4;
+			v[n].s = 0;
+			v[n].t = 0;
+			c[n].r = 0;
+			c[n].g = 0xa0;
+			c[n].b = 0;
+			c[n].a = alpha;
+			n++;
+		}
+	}
+
+	gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+	gDma1p(gdl++, G_COL, c, 4 * 4, 3 << 2);
+	gSPVertex(gdl++, v, 4, 0);
+	gSP1Triangle(gdl++, 0, 1, 3, 0);
+	gSP1Triangle(gdl++, 0, 3, 2, 0);
+
+	return gdl;
+}
+
+/**
  * draw_background_health_and_armor(): everything drawn on the face itself -
  * the two gauges, the green fill inside its ring and the screen-select
  * rectangles - under the watch's own matrix, a quarter of its size.
@@ -2206,6 +2338,10 @@ static Gfx *watchDrawPageBackground(Gfx *gdl, Mtx *facemtx, s32 squish)
 	Mtx *flat = gfxAllocateMatrix();
 	f32 scale = 1.0f;
 	s32 nring, nfill;
+	// zoom_squish puts the green back: there is no static on a face that is
+	// still opening
+	const s32 green = squish ? STATIC_CLEAR : g_Watch.bggreen;
+	const s32 clear = green >= STATIC_CLEAR;
 
 	watchGaugeVertices(armour, armourc, 1, g_Vars.currentplayer->apparentarmour);
 	watchGaugeVertices(health, healthc, -1, g_Vars.currentplayer->apparenthealth);
@@ -2257,8 +2393,10 @@ static Gfx *watchDrawPageBackground(Gfx *gdl, Mtx *facemtx, s32 squish)
 		gdl = watchDrawGauge(gdl, health, healthc);
 	}
 
-	nring = watchFaceVertices(ring, ringc, FACE_VERTICES, FACE_RING, 0, 0xe0);
-	nfill = watchFaceVertices(fill, fillc, FACE_VERTICES, FACE_FILL, 1, 0xe0);
+	// the green is the alpha of both, and under static the fill is made
+	// without its middle vertex and drawn as the ring is, in bands
+	nring = watchFaceVertices(ring, ringc, FACE_VERTICES, FACE_RING, 0, green);
+	nfill = watchFaceVertices(fill, fillc, FACE_VERTICES, FACE_FILL, clear, green);
 
 	gDPPipeSync(gdl++);
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
@@ -2267,13 +2405,32 @@ static Gfx *watchDrawPageBackground(Gfx *gdl, Mtx *facemtx, s32 squish)
 	gdl = watchDrawFace(gdl, ring, ringc, nring, 0);
 	gDPPipeSync(gdl++);
 
-	gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+	// G_RM_AA_PCL_SURF under static, which is the snow: the mode carries
+	// G_AC_DITHER, and though those two bits are outside the ones a render
+	// mode is meant to set, the microcode ors the whole word in - so the fill
+	// is tested against noise and its alpha, the green, is how much of it
+	// survives. The bits stay set, as they do on the console, which is why
+	// the screen-select rectangles and the scanline after it are snowy too
+	if (clear) {
+		gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+	} else {
+		gDPSetRenderMode(gdl++, G_RM_AA_PCL_SURF, G_RM_AA_PCL_SURF2);
+	}
+
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
-	gdl = watchDrawFace(gdl, fill, fillc, nfill, 1);
+	gdl = watchDrawFace(gdl, fill, fillc, nfill, clear);
 
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
 	gdl = watchDrawSelect(gdl);
+
+	if (!clear) {
+		gdl = watchDrawScanline(gdl, green);
+
+		// and no further: the text sets its own, but the watch's hands and
+		// markers are drawn by a model that sets none
+		gDPSetAlphaCompare(gdl++, G_AC_NONE);
+	}
 
 	return gdl;
 }
@@ -2907,6 +3064,312 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	return gdl;
 }
 
+
+/* ---- the gun held up on the face ---------------------------------------- */
+
+static s32 watchFrameHeight(void);
+
+/**
+ * GoldenEye shows the gun in the player's hand on the mission page, still, and
+ * turns the item under the cursor on the inventory page
+ * (draw_watch_mission_status_page() and draw_watch_inventory_page(), both
+ * through gunfire.c's set_enviro_fog_for_items_in_solo_watch_menu()). The model
+ * is the first person one, which the conversion writes as `Igx%03dZ` by
+ * GoldenEye's own item number, and where it stands is its row of gitem_structs
+ * (`menu/geitems.bin`, the table as the ROM has it): an eye `watch_pos_z` out
+ * along x looking back at the origin on the mission page, and one circling at
+ * `equip_watch_z` on the inventory's, the gun first turned by the row's two
+ * angles.
+ *
+ * GoldenEye's camera for it is 45 degrees over its whole 320x240 screen, which
+ * here is the frame the text is laid out on and not the window - so its
+ * projection is squeezed onto that frame, which keeps the gun over the words
+ * that name it at any zoom and on any window.
+ *
+ * One gun is kept loaded, in memory of the watch's own and as a model of the
+ * watch's own rather than one out of the stage pool, as GoldenEye's is a
+ * local: a pool instance could not be given back when the cursor moves on.
+ */
+#define GUN_ITEM_ROW   56
+#define GUN_NUM_ITEMS  120
+#define GUN_RWDATA_MAX 1024
+
+static struct {
+	u8 *items;
+	u32 itemslen;
+	s32 item;      // the item loaded, -1 for none
+	s32 failed;    // the item that would not load, not to be tried every frame
+	u8 *buf;
+	u32 buflen;
+	struct modeldef *def;
+	struct model model;
+	u32 rwdata[GUN_RWDATA_MAX];
+} g_WatchGun = { .item = -1, .failed = -1 };
+
+/** GoldenEye's ITEM_IDS for one of the remake's guns, -1 for anything else. */
+static s32 watchGunItem(s32 weaponnum)
+{
+	static const s8 items[NUM_GE_WEAPONS] = {
+		[WEAPON_GE_PP7 - WEAPON_GE_FIRST] = 4,
+		[WEAPON_GE_PP7SILENCED - WEAPON_GE_FIRST] = 5,
+		[WEAPON_GE_DD44 - WEAPON_GE_FIRST] = 6,
+		[WEAPON_GE_KLOBB - WEAPON_GE_FIRST] = 7,
+		[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST] = 8,
+		[WEAPON_GE_ZMG - WEAPON_GE_FIRST] = 9,
+		[WEAPON_GE_D5K - WEAPON_GE_FIRST] = 10,
+		[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST] = 11,
+		[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST] = 12,
+		[WEAPON_GE_AR33 - WEAPON_GE_FIRST] = 13,
+		[WEAPON_GE_RCP90 - WEAPON_GE_FIRST] = 14,
+		[WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST] = 15,
+		[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST] = 16,
+		[WEAPON_GE_SNIPERRIFLE - WEAPON_GE_FIRST] = 17,
+		[WEAPON_GE_COUGARMAGNUM - WEAPON_GE_FIRST] = 18,
+		[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST] = 19,
+		[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST] = 22,
+		[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 24,
+		[WEAPON_GE_ROCKETLAUNCHER - WEAPON_GE_FIRST] = 25,
+		[WEAPON_GE_HUNTINGKNIFE - WEAPON_GE_FIRST] = 2,
+		[WEAPON_GE_THROWINGKNIFE - WEAPON_GE_FIRST] = 3,
+		[WEAPON_GE_GRENADE - WEAPON_GE_FIRST] = 26,
+		[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST] = 27,
+		[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST] = 28,
+		[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = 29,
+	};
+
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= NUM_WEAPONS) {
+		return -1;
+	}
+
+	return items[weaponnum - WEAPON_GE_FIRST];
+}
+
+static f32 watchGunFloat(s32 item, s32 offset)
+{
+	union { u32 u; f32 f; } v;
+
+	v.u = watchBe32(g_WatchGun.items + item * GUN_ITEM_ROW + offset);
+
+	return v.f;
+}
+
+/** Let the gun go; the model is the watch's own and takes nothing with it. */
+static void watchGunUnload(void)
+{
+	if (g_WatchGun.buf) {
+		videoFreeCachedTextures(g_WatchGun.buf, g_WatchGun.buf + g_WatchGun.buflen);
+		sysMemFree(g_WatchGun.buf);
+		g_WatchGun.buf = NULL;
+	}
+
+	g_WatchGun.def = NULL;
+	g_WatchGun.item = -1;
+}
+
+static s32 watchGunLoad(s32 item)
+{
+	char name[16];
+	s32 fileid;
+	s32 size;
+
+	if (item == g_WatchGun.item) {
+		return 1;
+	}
+
+	if (item == g_WatchGun.failed) {
+		return 0;
+	}
+
+	watchGunUnload();
+	g_WatchGun.failed = item;
+
+	if (!g_WatchGun.items) {
+		g_WatchGun.items = watchLoad("geitems.bin", &g_WatchGun.itemslen);
+	}
+
+	if (!g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS || item < 0 || item >= GUN_NUM_ITEMS) {
+		return 0;
+	}
+
+	snprintf(name, sizeof(name), "Igx%03dZ", item);
+	fileid = romdataRegisterModFile(name, g_Watch.moddir);
+	size = fileid > 0 ? fileGetInflatedSize(fileid, LOADTYPE_MODEL) : 0;
+
+	if (size <= 0) {
+		return 0;
+	}
+
+	g_WatchGun.buflen = ALIGN64(size) + 0x20000;
+	g_WatchGun.buf = sysMemZeroAlloc(g_WatchGun.buflen);
+
+	if (!g_WatchGun.buf) {
+		return 0;
+	}
+
+	g_WatchGun.def = modeldefLoad(fileid, g_WatchGun.buf, g_WatchGun.buflen, NULL);
+
+	if (!g_WatchGun.def) {
+		watchGunUnload();
+		return 0;
+	}
+
+	watchFixRenderModes(g_WatchGun.def);
+	modelAllocateRwData(g_WatchGun.def);
+
+	if (g_WatchGun.def->rwdatalen > GUN_RWDATA_MAX) {
+		watchGunUnload();
+		return 0;
+	}
+
+	memset(g_WatchGun.rwdata, 0, sizeof(g_WatchGun.rwdata));
+	modelInit(&g_WatchGun.model, g_WatchGun.def, g_WatchGun.rwdata, false);
+	g_WatchGun.model.anim = NULL;
+	modelSetScale(&g_WatchGun.model, 1.0f);
+
+	g_WatchGun.item = item;
+	g_WatchGun.failed = -1;
+
+	return 1;
+}
+
+static void watchGunSetPart(s32 part, s32 visible)
+{
+	struct modelnode *node = modelGetPart(g_WatchGun.def, part);
+
+	if (node) {
+		union modelrwdata *rwdata = modelGetNodeRwData(&g_WatchGun.model, node);
+
+		if (rwdata) {
+			rwdata->toggle.visible = visible;
+		}
+	}
+}
+
+/**
+ * The gun of `weaponnum` on the face: still and side on (`turning` 0, the
+ * mission page) or circled by the camera (the inventory's).
+ */
+static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
+{
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+	const s32 item = watchGunItem(weaponnum);
+	Mtx *projection;
+	Mtxf persp;
+	Mtxf squeeze;
+	Mtxf base;
+	Mtxf tmp;
+	Mtxf *matrices;
+	u16 perspnorm;
+	f32 sx, sy;
+	f32 rotx, roty;
+
+	if (item < 0 || !watchGunLoad(item)) {
+		return gdl;
+	}
+
+	// GoldenEye's 45 degrees over its own screen, squeezed onto the frame the
+	// page is laid out on: as much of the window's height as the frame takes,
+	// and 4:3 of that across
+	sy = (f32)watchFrameHeight() / (f32)viGetHeight();
+	sx = sy * (4.0f / 3.0f) / videoGetAspect();
+
+	guPerspectiveF(persp.m, &perspnorm, 45.0f, 1.283847f, 10.0f, 10000.0f, 1.0f);
+	mtx4LoadIdentity(&squeeze);
+	squeeze.m[0][0] = sx;
+	squeeze.m[1][1] = sy;
+	mtx4MultMtx4(&squeeze, &persp, &tmp);
+
+	projection = gfxAllocateMatrix();
+	guMtxF2L(tmp.m, projection);
+
+	gDPPipeSync(gdl++);
+	gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPPerspNormalize(gdl++, perspnorm);
+
+	// the gun turned by its row's two angles, then the camera
+	rotx = watchGunFloat(item, 32);
+	roty = watchGunFloat(item, 36);
+
+	mtx4LoadYRotation(roty * M_BADTAU / 360.0f, &base);
+	mtx4LoadZRotation(M_BADTAU - rotx * M_BADTAU / 360.0f, &tmp);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	if (turning) {
+		const f32 x = watchGunFloat(item, 44);
+		const f32 y = watchGunFloat(item, 48);
+		const f32 z = watchGunFloat(item, 52);
+
+		mtx00016ae4(&tmp, cosf(g_Watch.gunangle) * z, y, sinf(g_Watch.gunangle) * z + x,
+				0.0f, y, x, 0.0f, 1.0f, 0.0f);
+	} else {
+		const f32 x = watchGunFloat(item, 20);
+		const f32 y = watchGunFloat(item, 24);
+		const f32 z = watchGunFloat(item, 28);
+
+		mtx00016ae4(&tmp, z, x, y, 0.0f, x, y, 0.0f, 1.0f, 0.0f);
+	}
+
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	// no hands on it (sub_GAME_7F05E978(model, 0): parts 8 to 13, and 35) and
+	// no flash at its muzzle (part 1), but 14 and 15 on (sub_GAME_7F05EA94(model,
+	// 1)) - which are the whole of the throwing knife
+	for (s32 part = 8; part <= 13; part++) {
+		watchGunSetPart(part, 0);
+	}
+
+	watchGunSetPart(35, 0);
+	watchGunSetPart(14, 1);
+	watchGunSetPart(15, 1);
+	watchGunSetPart(1, 0);
+
+	matrices = gfxAllocate(g_WatchGun.def->nummatrices * sizeof(Mtxf));
+
+	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+		mtx4LoadIdentity(&matrices[i]);
+	}
+
+	mtx4Copy(&base, matrices);
+	g_WatchGun.model.matrices = matrices;
+
+	renderdata.unk00 = &base;
+	renderdata.unk10 = matrices;
+
+	modelSetDistanceChecksDisabled(true);
+	modelUpdateRelations(&g_WatchGun.model);
+	modelSetMatrices(&renderdata, &g_WatchGun.model);
+
+	// PROP_TYPE_WEAPON under GoldenEye's own green, which is the fog colour a
+	// weapon is faded towards: 0x64dc6428 still, 0xa0ffa03c turning
+	renderdata.unk30 = 4;
+	renderdata.envcolour = turning ? 0xa0ffa03c : 0x64dc6428;
+	renderdata.flags = 3;
+	renderdata.zbufferenabled = true;
+
+	gDPSetTexturePersp(gdl++, G_TP_PERSP);
+	gDPSetTextureLUT(gdl++, G_TT_NONE);
+	gDPSetAlphaCompare(gdl++, G_AC_NONE);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	gdl = lightsSetDefault(gdl);
+	gdl = zbufClear(gdl);
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
+	renderdata.gdl = gdl;
+	modelRender(&renderdata, &g_WatchGun.model);
+	gdl = renderdata.gdl;
+
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+	modelSetDistanceChecksDisabled(false);
+
+	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+		mtx4Copy(&matrices[i], &tmp);
+		mtxF2L(&tmp, &matrices[i]);
+	}
+
+	// the pages' text after it is GoldenEye's, and sets itself up
+	return gexFrontTextSetup(gdl);
+}
+
 /* ---- the five screens' text --------------------------------------------- */
 
 /**
@@ -2914,6 +3377,21 @@ static Gfx *watchDrawModel(Gfx *gdl)
  * out on 320x240 with the view in the middle of it, where the folder screens
  * are laid out on 440x330 over the whole window.
  */
+// The screens are drawn a little under GoldenEye's size, about the middle of
+// the face. At its own size the layout is as wide as the green is - rows start
+// on its left edge and the options' last row stands on the screen-select
+// rectangles - which GoldenEye gets away with on a 320x240 picture and this
+// does not at six times that
+#define WATCH_TEXT_SCALE 0.88f
+
+static s32 watchFrameHeight(void)
+{
+	const f32 radius = PAGE_RADIUS;
+	const f32 span = -WATCH_POSE_Z * tanf(g_Vars.currentplayer->zoominfovy * (M_PI / 360.0f));
+
+	return (span > 0.0f ? (s32)(radius / span * viGetViewHeight()) : viGetViewHeight()) * WATCH_TEXT_SCALE;
+}
+
 static void watchTextFrame(void)
 {
 	// the face's own diameter on the screen: its radius in view units over
@@ -2921,9 +3399,7 @@ static void watchTextFrame(void)
 	// across that. GoldenEye's own face fills the height of its screen, so at
 	// its zoom this is the viewport; at any other it follows the face, which
 	// is what keeps the screens *on* the watch rather than over the window.
-	const f32 radius = PAGE_RADIUS;
-	const f32 span = -WATCH_POSE_Z * tanf(g_Vars.currentplayer->zoominfovy * (M_PI / 360.0f));
-	const s32 height = span > 0.0f ? (s32)(radius / span * viGetViewHeight()) : viGetViewHeight();
+	const s32 height = watchFrameHeight();
 
 	gexFrontTextFrame(WATCH_FRAME_W, WATCH_FRAME_H,
 			viGetViewLeft() + (viGetViewWidth() - height) / 2, viGetViewTop() + (viGetViewHeight() - height) / 2,
@@ -2960,6 +3436,7 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 	s32 x, y;
 	u32 colour;
 
+	gdl = watchDrawGun(gdl, g_Watch.hadweapons ? g_Watch.weapons[HAND_RIGHT] : bgunGetWeaponNum(HAND_RIGHT), 0);
 	gdl = watchPrint(gdl, 0x65, YOFFSET_7, watchString(STR_QWATCH), COL_GREEN);
 
 	x = 0x51;
@@ -3007,9 +3484,8 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 
 /**
  * draw_watch_inventory_page(): what the player is carrying, with the cursor on
- * one of them. GoldenEye turns the item's own model on the face beside the
- * name; the models a level has loaded here are the ones it is using, so this
- * lists them by name instead.
+ * one of them, and that one's own model turning on the face beside the names
+ * (watchDrawGun()).
  */
 static Gfx *watchDrawInventoryPage(Gfx *gdl)
 {
@@ -3021,6 +3497,8 @@ static Gfx *watchDrawInventoryPage(Gfx *gdl)
 	if (count <= 0) {
 		return gdl;
 	}
+
+	gdl = watchDrawGun(gdl, invGetWeaponNumByIndex(g_Watch.invrow), 1);
 
 	if (first > count - rows) {
 		first = count - rows;
@@ -3128,7 +3606,9 @@ static Gfx *watchDrawOptionsPage(Gfx *gdl)
 		gdl = watchPrint(gdl, XOFFSET_1, y, watchString(g_Options[i].label), colour);
 
 		if (value >= 0 && value < g_Options[i].numvalues) {
-			gdl = watchPrint(gdl, XOFFSET_1 + 0x60, y, watchString(g_Options[i].values[value]), colour);
+			// draw_toggle_option_values()'s own x1; at 0x60 past the labels
+			// the longer labels ran into it (SIGHT ON-SCREEN is 107 wide)
+			gdl = watchPrint(gdl, 0xb4, y, watchString(g_Options[i].values[value]), colour);
 		}
 
 		y += YINC;
