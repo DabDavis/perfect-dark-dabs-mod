@@ -1309,6 +1309,15 @@ static double stanClimb(const tiles *stan, size_t i, int k, double inv)
 			return 0.0;
 		}
 
+		// and so is the panel at a ladder's side: a wall on it stands under
+		// anyone who comes down the ladder at that end, and they hang on
+		// its top (the longer of Dam's two ladders down the dam's face)
+		for (int m = 0; m < u->npts; ++m) {
+			if (u->neighbour[m] >= 0 && stan->v[u->neighbour[m]].special == 3) {
+				return 0.0;
+			}
+		}
+
 		// a tile on edge: on through its edges that have a length in plan
 		// (one that goes straight up is the way to the panel beside it)
 		for (int m = 0; m < u->npts; ++m) {

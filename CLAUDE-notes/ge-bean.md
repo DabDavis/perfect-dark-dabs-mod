@@ -5626,6 +5626,58 @@ the two converters' tiles and graph files identical on Dam, Severnaya, Egyptian
 and Depot. **Not tested: dropping beside a climb wall** - the deck over this
 stair is fenced by a prop and the other candidates on Dam were ladders.
 
+## Dam's ladders: up was fine, down was a fall (2026-09-20)
+
+The user, after the stair fix: *"test the ladders on dam"*. Converter **51**.
+Dam has six (upright stan tiles with special 3, which the conversion has always
+written with Perfect Dark's ladder flag): three 321 high up to the lips at 13433
+(rooms 72, 75, 78), two 535 high down the dam's face (rooms 71, 69), and one in
+room 81 with no links at all, which nobody can reach. `realwalk.py` walked the
+five: **all five climbed**, and **none could be climbed down** - walking or
+backing off the top was a fall the ladder's whole height.
+
+**Why.** Perfect Dark takes hold of a ladder that reaches over the player's
+feet: `bwalkUpdateVertical()` asks `cdFindLadder()` from `manground + 1` up. Its
+own ladders come up through a hatch and stand proud of the floor they lead to.
+GoldenEye's end level with the floor at their head - the way off is straight on
+over the top - and it takes hold of Bond there through the tile's link
+(`stanCheckLinkedSpecialTile()`).
+
+**What does not work: raising the ladder's head in the conversion** (tried, 40
+over the floor). `cdFindLadder()` turns the ladder's normal to face the player,
+so a ladder is the same from both sides: from the floor *behind* it, walking at
+the raised head is "climbing", the player rises to the head, passes over it and
+falls off the front. It is why a stock ladder is never approached from behind.
+
+**The fix is in the player's walking, on a converted level only**
+(`geRoomActive()`): the game's second ladder test (`onladder2`, asked from
+`manground - 10`) already finds a ladder whose head is just under the feet, and
+where it does *and the ground under the player is more than 30 below them* -
+they have stepped out over the drop - that is the ladder taken from the top.
+One more thing was needed: moving off a ladder faster than 4 a frame lets go of
+it, which is every player who walked off the top rather than crept, so a ladder
+taken from the top keeps its hold for as long as they keep walking
+(`g_GeLadderTopPlayer`); once they slow it is any other ladder. Descent is 0.3
+of the walking speed, as on a stock ladder: 321 in ~150 frames.
+
+**And one of the day's climb walls was on a ladder's side panel** (the longer
+face ladder, room 69): anyone coming down at that end came to rest on its top,
+400 up, and hung there. An upright tile that *touches* a ladder tile is part of
+the ladder: `stanClimb()` leaves it alone as it does the ladder itself (Dam 44
+walls now, 111 over the levels).
+
+**Probe notes.** `realwalk.py` has `BACK=1` (face away from the target and walk
+backwards), `FWD=` for the stick, prints `ladder`, and counts height as movement
+(a player going down a ladder is not stuck). Start a descent a few steps back
+from the edge: a teleport onto the edge is already falling. A diagonal target
+drags the player sideways along the ladder at 0.3 speed and off its end, where
+on the room 69 ladder an ordinary 240-high wall of the low floor passes under
+them - they stop on it until they strafe back; GoldenEye's walls have no top, so
+it never happens there. Checked: five up, five down, the stair walks, the sweep
+identical, the two converters identical on Dam, Severnaya (its twelve ladder
+tiles) and Depot. **Not tested: the ladders of the other levels** (Severnaya's
+bunkers, Cradle), and nobody has looked at a ladder on screen.
+
 ## A mission's own opening, and the endings Bond was never in (2026-09-20)
 
 The user: *"none of the cinema is hooked up to the missions, also none of the

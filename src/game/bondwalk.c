@@ -39,10 +39,21 @@
 extern f32 fabsf(f32);
 #endif
 
+#ifndef PLATFORM_N64
+// a converted level's ladder taken from the top, and by whom: it keeps its hold
+static struct player *g_GeLadderTopPlayer = NULL;
+#endif
+
 void bwalkInit(void)
 {
 	u32 prevmode = g_Vars.currentplayer->bondmovemode;
 	s32 i;
+
+#ifndef PLATFORM_N64
+	if (g_GeLadderTopPlayer == g_Vars.currentplayer) {
+		g_GeLadderTopPlayer = NULL;
+	}
+#endif
 
 	g_Vars.currentplayer->bondmovemode = MOVEMODE_WALK;
 	g_Vars.currentplayer->bondonground = 0;
@@ -1070,6 +1081,32 @@ void bwalkUpdateVertical(void)
 
 	g_Vars.currentplayer->lift = lift;
 
+#ifndef PLATFORM_N64
+	// A converted level's ladder, taken from the top. Perfect Dark takes hold
+	// of a ladder that reaches over the player's feet (the test above asks
+	// from manground + 1 up), and its own ladders come up through a hatch and
+	// stand proud of the floor. GoldenEye's end level with the floor at their
+	// head, which is straight on over the top, and it takes hold of Bond there
+	// through the tile's link - so a converted ladder could be climbed and
+	// never climbed down: stepping off the top was a fall its whole height.
+	// (Raising the ladder's head instead does not work: a ladder's normal is
+	// turned to face the player, so from the floor behind it the head is
+	// climbed and then fallen off.) The second test already finds a ladder
+	// whose head is just under the feet; where it does and the player has
+	// stepped out over the drop, that is the ladder taken from the top.
+	if (geRoomActive()) {
+		if (!onladder && onladder2 && ground < g_Vars.currentplayer->vv_manground - 30.0f) {
+			onladder = true;
+
+			if (!g_Vars.currentplayer->onladder) {
+				g_GeLadderTopPlayer = g_Vars.currentplayer;
+			}
+		} else if (!onladder && g_GeLadderTopPlayer == g_Vars.currentplayer) {
+			g_GeLadderTopPlayer = NULL;
+		}
+	}
+#endif
+
 	// Ladders
 	if (g_Vars.currentplayer->onladder) {
 		if (g_Vars.currentplayer->ladderupdown >= 0 ||
@@ -1906,7 +1943,20 @@ void bwalk0f0c69b8(void)
 
 			sp74 = -(spcc.f[0] * g_Vars.currentplayer->laddernormal.f[0] + spcc.f[2] * g_Vars.currentplayer->laddernormal.f[2]);
 
+#ifndef PLATFORM_N64
+			// moving off a ladder faster than this lets go of it - which, for
+			// one taken from the top (bwalkUpdateVertical()), is every player
+			// who walked off the top rather than crept. It keeps its hold for
+			// as long as they keep walking; once they have slowed the ladder
+			// is any other, and pushing off it lets go
 			if (-4.0f * g_Vars.lvupdate60freal < sp74) {
+				g_GeLadderTopPlayer = NULL;
+			}
+
+			if (-4.0f * g_Vars.lvupdate60freal < sp74 || g_GeLadderTopPlayer == g_Vars.currentplayer) {
+#else
+			if (-4.0f * g_Vars.lvupdate60freal < sp74) {
+#endif
 				if (sp74 < 0.0f) {
 					spcc.f[0] += sp74 * g_Vars.currentplayer->laddernormal.f[0];
 					spcc.f[2] += sp74 * g_Vars.currentplayer->laddernormal.f[2];

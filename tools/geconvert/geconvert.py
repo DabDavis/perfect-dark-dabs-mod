@@ -772,6 +772,10 @@ def stan_climb(stan, i, k, inv):
         # own (the floor made from it carries the ladder flag): no wall
         if u['special'] == 3:
             return 0.0
+        # and so is the panel at a ladder's side: a wall on it stands under
+        # anyone who comes down the ladder at that end, and they hang on its top
+        if any(nb >= 0 and stan[nb]['special'] == 3 for nb in u['neighbours']):
+            return 0.0
         m = len(u['points'])
         for e in range(m):
             nb = u['neighbours'][e]
