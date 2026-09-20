@@ -61,6 +61,7 @@
 #include "gesfx.h"
 #include "geintro.h"
 #include "gexfront.h"
+#include "gemusic.h"
 #include "preprocess.h"
 #include "game/file.h"
 #include "game/gfxmemory.h"
@@ -91,9 +92,6 @@
 // the backdrop the sniper sight scrolls: the folder screens' own picture
 #define BG_W 440
 #define BG_H 299
-
-// GoldenEye's M_INTRO
-#define INTRO_SEQUENCE 2
 
 // front.c's gelogolight, which lights the logo and the cast reel
 static Lights1 g_CastLight = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0x4d, 0x4d, 0x2e);
@@ -1141,7 +1139,7 @@ static void introBarrelTickBond(void)
 	// GoldenEye's own GUN_RIFLE7BIG_1, out of its own sound bank, and the
 	// flash lasts the frame of GoldenEye's the shot goes off in: two ticks
 	if (g_Intro.gunbarreltimer == 230) {
-		geSfxPlay(GESFX_GUN_RIFLE7BIG_1, GESFX_VOLUME_INTRO);
+		geSfxPlay(GESFX_GUN_RIFLE7BIG_1, GESFX_VOLUME);
 	}
 
 	g_Intro.shotplayed = g_Intro.gunbarreltimer == 230 || g_Intro.gunbarreltimer == 231;
@@ -1950,53 +1948,10 @@ static void introTickCast(void)
 /* ------------------------------------------------------------------------ */
 /* the music */
 
-/**
- * GoldenEye's M_INTRO as a sequence number of the game's, appended once on
- * GoldenEye's own instrument bank the way the folders theme is; -1 when the
- * conversion has no music.
- */
+/** GoldenEye's M_INTRO as a sequence number of the game's; -1 when the conversion has no music. */
 static s32 introMusic(void)
 {
-	static s32 seqnum = -2;
-	u32 ctllen = 0;
-	u32 len = 0;
-	u32 seqlen = 0;
-	u8 *raw;
-	u8 *ctl;
-	u8 *tbl;
-	u8 *seqs;
-	ALBank *bank;
-	const u8 *e;
-
-	if (seqnum != -2) {
-		return seqnum;
-	}
-
-	seqnum = -1;
-
-	raw = introLoad("instrumentsctl", &len);
-	ctl = raw ? preprocessALBankFile(raw, len, &ctllen) : NULL;
-	sysMemFree(raw);
-	tbl = introLoad("instrumentstbl", &len);
-	seqs = introLoad("sequences", &seqlen);
-
-	if (!ctl || !tbl || !seqs || seqlen < 4 + (INTRO_SEQUENCE + 1) * 8
-			|| ((seqs[0] << 8) | seqs[1]) <= INTRO_SEQUENCE) {
-		sysMemFree(ctl);
-		sysMemFree(tbl);
-		sysMemFree(seqs);
-		return -1;
-	}
-
-	alBnkfNew((ALBankFile *)ctl, tbl);
-	bank = ((ALBankFile *)ctl)->bankArray[0];
-	e = seqs + 4 + INTRO_SEQUENCE * 8;
-
-	if (bank && be32(e) < seqlen && ((e[6] << 8) | e[7]) <= seqlen - be32(e)) {
-		seqnum = seqAppend(seqs + be32(e), (e[4] << 8) | e[5], (e[6] << 8) | e[7], bank);
-	}
-
-	return seqnum;
+	return geMusicSequence(GEMUSIC_INTRO);
 }
 
 s32 geIntroMusic(void)

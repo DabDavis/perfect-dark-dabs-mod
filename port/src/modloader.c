@@ -102,6 +102,11 @@ static s32 g_ModMissionStages[MODLOADER_MAX_MISSIONS];
 // And its sky and fog where the maps block gives them, else the default the
 // chooser falls back to for a stage no table names
 static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
+// And the music its line gives it, as its mod's own sequence numbers - the
+// GoldenEye remake's levels play GoldenEye's (gemusic.c): main theme,
+// background and X theme, -1 for none, and whether the line gave any
+static s16 g_ModStageMusic[STAGE_MAX_ID + 1][3];
+static u8 g_ModStageHasMusic[STAGE_MAX_ID + 1];
 // The models a mod's `models` block brings for its maps: slot i of the
 // remake's model states (MODEL_REMAKE_FIRST + i), the file and its scale
 struct modmodel {
@@ -564,6 +569,34 @@ static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char
  * pad list is not the arena's even where the two share a background. It is not
  * registered as an arena; GE Plus's folder is what starts it.
  */
+static void modloaderSetStageMusic(s32 stagenum, const char *text)
+{
+	s32 tracks[3];
+
+	if (stagenum >= 0 && stagenum <= STAGE_MAX_ID
+			&& sscanf(text, "%d %d %d", &tracks[0], &tracks[1], &tracks[2]) == 3) {
+		for (s32 i = 0; i < 3; i++) {
+			g_ModStageMusic[stagenum][i] = (s16)tracks[i];
+		}
+
+		g_ModStageHasMusic[stagenum] = 1;
+	}
+}
+
+/** A Stage Loader map's music row in its mod's own sequence numbers; false when its line has none. */
+s32 modloaderGetStageMusic(s32 stagenum, s32 *tracks)
+{
+	if (stagenum < 0 || stagenum > STAGE_MAX_ID || !g_ModStageHasMusic[stagenum]) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		tracks[i] = g_ModStageMusic[stagenum][i];
+	}
+
+	return 1;
+}
+
 static void modloaderReadMissions(s32 modIndex, const char *dir, const char *modLabel, char *data)
 {
 	char token[UTIL_MAX_TOKEN + 1];
@@ -588,6 +621,7 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 			char name[UTIL_MAX_TOKEN + 1] = { 0 };
 			char files[4][UTIL_MAX_TOKEN + 1] = { { 0 } };
 			char fog[UTIL_MAX_TOKEN + 1] = { 0 };
+			char music[UTIL_MAX_TOKEN + 1] = { 0 };
 			s32 mission;
 
 			if (strcmp(token, "mission") != 0) {
@@ -611,11 +645,14 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 					}
 				}
 				const bool isfog = !strcmp(token, "fog");
+				const bool ismusic = !strcmp(token, "music");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
 					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
 				} else if (isfog) {
 					snprintf(fog, sizeof(fog), "%s", strUnquote(token));
+				} else if (ismusic) {
+					snprintf(music, sizeof(music), "%s", strUnquote(token));
 				}
 				p = strParseToken(p, token, NULL);
 			}
@@ -640,6 +677,10 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 
 				if (fog[0]) {
 					modloaderSetStageFog(stageId, name, fog);
+				}
+
+				if (music[0]) {
+					modloaderSetStageMusic(stageId, music);
 				}
 
 				++count;
@@ -852,6 +893,7 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 			char fog[UTIL_MAX_TOKEN + 1] = { 0 };
 			char props[UTIL_MAX_TOKEN + 1] = { 0 };
 			char propsfrom[UTIL_MAX_TOKEN + 1] = { 0 };
+			char music[UTIL_MAX_TOKEN + 1] = { 0 };
 
 			if (strcmp(token, "map") != 0) {
 				sysLogPrintf(LOG_WARNING, "modloader: %s: unexpected %s in the maps block", dir, token);
@@ -875,6 +917,7 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 				const bool isfog = !strcmp(token, "fog");
 				const bool isprops = !strcmp(token, "props");
 				const bool ispropsfrom = !strcmp(token, "propsfrom");
+				const bool ismusic = !strcmp(token, "music");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
 					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
@@ -884,6 +927,8 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 					snprintf(props, sizeof(props), "%s", strUnquote(token));
 				} else if (ispropsfrom) {
 					snprintf(propsfrom, sizeof(propsfrom), "%s", strUnquote(token));
+				} else if (ismusic) {
+					snprintf(music, sizeof(music), "%s", strUnquote(token));
 				}
 				p = strParseToken(p, token, NULL);
 			}
@@ -898,6 +943,10 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 
 					if (fog[0]) {
 						modloaderSetStageFog(stageId, name, fog);
+					}
+
+					if (music[0]) {
+						modloaderSetStageMusic(stageId, music);
 					}
 
 					if (props[0] && propsfrom[0] && modloaderModHasFile(modIndex, "%s", props)) {
@@ -981,6 +1030,7 @@ void modloaderInit(void)
 	memset(g_ModStageMapNames, 0, sizeof(g_ModStageMapNames));
 	memset(g_ModMissionStages, 0, sizeof(g_ModMissionStages));
 	memset(g_ModStageFog, 0, sizeof(g_ModStageFog));
+	memset(g_ModStageHasMusic, 0, sizeof(g_ModStageHasMusic));
 	memset(g_ModStageProps, 0, sizeof(g_ModStageProps));
 	free(g_ModModels);
 	g_ModModels = NULL;

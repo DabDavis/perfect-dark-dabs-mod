@@ -11,6 +11,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "modborrow.h"
+#include "gemusic.h"
 #endif
 
 static struct stagemusic g_StageTracksDefault[] = {
@@ -58,6 +59,15 @@ s32 stageGetPrimaryTrack(s32 stagenum)
 {
 	s32 i;
 
+#ifndef PLATFORM_N64
+	// a level of the GoldenEye remake plays what GoldenEye plays on it (gemusic.c)
+	const s32 ge = geMusicStageTrack(stagenum, GEMUSIC_MAIN);
+
+	if (ge != GEMUSIC_NOTOURS) {
+		return ge;
+	}
+#endif
+
 	if (g_Vars.normmplayerisrunning) {
 #ifndef PLATFORM_N64
 		// a borrowed mod's own arena plays that mod's music (modborrow.c)
@@ -91,6 +101,14 @@ s32 stageGetAmbientTrack(s32 stagenum)
 {
 	s32 i = 0;
 
+#ifndef PLATFORM_N64
+	const s32 ge = geMusicStageTrack(stagenum, GEMUSIC_BACKGROUND);
+
+	if (ge != GEMUSIC_NOTOURS) {
+		return ge;
+	}
+#endif
+
 	while (g_StageTracks[i].stagenum) {
 		if (g_StageTracks[i].stagenum == stagenum) {
 			return g_StageTracks[i].ambienttrack;
@@ -105,6 +123,14 @@ s32 stageGetAmbientTrack(s32 stagenum)
 s32 stageGetNrgTrack(s32 stagenum)
 {
 	s32 i = 0;
+
+#ifndef PLATFORM_N64
+	const s32 ge = geMusicStageTrack(stagenum, GEMUSIC_X);
+
+	if (ge != GEMUSIC_NOTOURS) {
+		return ge;
+	}
+#endif
 
 	while (g_StageTracks[i].stagenum) {
 		if (g_StageTracks[i].stagenum == stagenum) {

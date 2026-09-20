@@ -10,6 +10,9 @@
 #include "lib/music.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gemusic.h"
+#endif
 
 #define FADETYPE_STOP  0
 #define FADETYPE_PAUSE 1
@@ -285,6 +288,24 @@ void musicRestoreInterval(void)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/** A death on a level of the GoldenEye remake plays GoldenEye's own. */
+static s32 musicDeathTrack(s32 tracknum, s32 geseq)
+{
+	if (geMusicIsStage(g_MusicStageNum) && geMusicSequence(geseq) >= 0) {
+		return geMusicSequence(geseq);
+	}
+
+	return tracknum;
+}
+
+#define DEATHTRACK_SOLO musicDeathTrack(MUSIC_DEATH_SOLO, GEMUSIC_DEATHSOLO)
+#define DEATHTRACK_MP   musicDeathTrack(MUSIC_DEATH_MP, GEMUSIC_MPDEATH)
+#else
+#define DEATHTRACK_SOLO MUSIC_DEATH_SOLO
+#define DEATHTRACK_MP   MUSIC_DEATH_MP
+#endif
+
 #define PRIMARYTRACK() (g_TemporaryPrimaryTrack != -1 ? g_TemporaryPrimaryTrack : stageGetPrimaryTrack(g_MusicStageNum))
 #define AMBIENTTRACK() (g_TemporaryAmbientTrack != -1 ? g_TemporaryAmbientTrack : stageGetAmbientTrack(g_MusicStageNum))
 
@@ -342,6 +363,13 @@ bool musicIsAnyPlayerInAmbientRoom(void)
 	if (g_MusicNrgIsActive && g_MusicMpDeathIsPlaying) {
 		return false;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's background plays the level over, not room by room
+	if (geMusicIsStage(g_MusicStageNum)) {
+		return true;
+	}
+#endif
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
 		if (g_Vars.players[i]->prop
@@ -402,6 +430,9 @@ void musicStartTrackAsMenu(s32 tracknum)
 void musicSetStageAndStartMusic(s32 stagenum)
 {
 	g_MusicStageNum = stagenum;
+#ifndef PLATFORM_N64
+	geMusicStageReset();
+#endif
 
 	musicStartPrimary(0);
 
@@ -416,6 +447,9 @@ void musicSetStageAndStartMusic(s32 stagenum)
 void musicSetStage(s32 stagenum)
 {
 	g_MusicStageNum = stagenum;
+#ifndef PLATFORM_N64
+	geMusicStageReset();
+#endif
 }
 
 void musicStop(void)
@@ -500,7 +534,7 @@ void musicStartSoloDeath(void)
 	musicQueueStopEvent(TRACKTYPE_NRG);
 	musicQueueStopEvent(TRACKTYPE_PRIMARY);
 	musicQueueStopEvent(TRACKTYPE_AMBIENT);
-	musicQueueStartEvent(TRACKTYPE_PRIMARY, MUSIC_DEATH_SOLO, 0, VOLUME(g_SfxVolume) > musicGetVolume() ? VOLUME(g_SfxVolume) : musicGetVolume());
+	musicQueueStartEvent(TRACKTYPE_PRIMARY, DEATHTRACK_SOLO, 0, VOLUME(g_SfxVolume) > musicGetVolume() ? VOLUME(g_SfxVolume) : musicGetVolume());
 
 #if VERSION >= VERSION_NTSC_1_0
 	musicRestoreInterval();
@@ -511,10 +545,10 @@ void _musicStartMpDeath(f32 arg0)
 {
 #if VERSION >= VERSION_NTSC_1_0
 	musicSaveInterval();
-	musicQueueStartEvent(TRACKTYPE_DEATH, MUSIC_DEATH_MP, arg0, VOLUME(g_SfxVolume) > musicGetVolume() ? VOLUME(g_SfxVolume) : musicGetVolume());
+	musicQueueStartEvent(TRACKTYPE_DEATH, DEATHTRACK_MP, arg0, VOLUME(g_SfxVolume) > musicGetVolume() ? VOLUME(g_SfxVolume) : musicGetVolume());
 	musicRestoreInterval();
 #else
-	musicQueueStartEvent(TRACKTYPE_DEATH, MUSIC_DEATH_MP, arg0, VOLUME(g_SfxVolume) > musicGetVolume() ? VOLUME(g_SfxVolume) : musicGetVolume());
+	musicQueueStartEvent(TRACKTYPE_DEATH, DEATHTRACK_MP, arg0, VOLUME(g_SfxVolume) > musicGetVolume() ? VOLUME(g_SfxVolume) : musicGetVolume());
 #endif
 }
 

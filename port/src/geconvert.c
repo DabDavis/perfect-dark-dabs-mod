@@ -878,6 +878,53 @@ typedef uint8_t numset[SETBITS / 8];
 static void setAdd(uint8_t *s, uint32_t n) { if (n < SETBITS) s[n >> 3] |= 1 << (n & 7); }
 static int setHas(const uint8_t *s, uint32_t n) { return n < SETBITS && (s[n >> 3] >> (n & 7)) & 1; }
 
+/**
+ * `music_setup_entries`, the music each level plays: rows of four s16 from
+ * 0x2dd80 - {level id, main theme, background, X theme}, -1 for none - ended by
+ * a level id of 0, and `random_tracks` straight after it, the sequences a level
+ * with no row of its own draws one of, ended by M_NONE. A level's row goes on
+ * its line of the maps and missions blocks as GoldenEye's own sequence numbers,
+ * a main theme of -1 for a level that draws; the game appends the sequences
+ * (gemusic.c).
+ *
+ * `g_musicDefaultTrackVolume` is how loud each sequence plays, an s16 of 0x7fff
+ * a sequence from 0x35c8, ended by -1.
+ */
+#define MUSIC_VOLUMES_AT 0x35c8
+#define MUSIC_AT 0x2dd80
+#define MUSIC_ROW 8
+#define MUSIC_MAX_ROWS 64
+
+static size_t romMusicRandomAt(void)
+{
+	size_t o = MUSIC_AT;
+
+	for (int i = 0; i < MUSIC_MAX_ROWS && o + MUSIC_ROW <= g_DataLen; ++i, o += MUSIC_ROW) {
+		if (be16(g_Data, o) == 0) {
+			return o + MUSIC_ROW;
+		}
+	}
+
+	fail("the levels' music table has no end");
+	return 0;
+}
+
+static void romMusicRow(uint32_t levelid, int *tracks)
+{
+	const size_t end = romMusicRandomAt() - MUSIC_ROW;
+
+	tracks[0] = tracks[1] = tracks[2] = -1;
+
+	for (size_t o = MUSIC_AT; o < end; o += MUSIC_ROW) {
+		if (be16(g_Data, o) == levelid) {
+			for (int i = 0; i < 3; ++i) {
+				tracks[i] = bes16(g_Data, o + 2 + 2 * i);
+			}
+			return;
+		}
+	}
+}
+
 /* ------------------------------------------------------------------------ */
 /* the levels (gefiles.py LEVELS, geconvert.py LEVELIDS, NAMES, BIKES) */
 
@@ -5558,6 +5605,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		buf bgfile, stanfile, setupfile, gedata, bgdata, tilesdata, padsdata, mpsetup;
 		tiles stan;
 		double offset[3], mn[3], mx[3], fog[30];
+		int music[3];
 		struct setup setup, mpsetupsrc;
 		int havemp = lv->mp != NULL, numlights, walls, first = 1;
 		struct roomfinder rf;
@@ -5636,6 +5684,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			fogValue(&maps, fog, offset, levelVisibility(lv->key));
 			textf(&maps, "\"");
 		}
+		romMusicRow(lv->levelid, music);
+		textf(&maps, " music \"%d %d %d\"", music[0], music[1], music[2]);
 
 		note("geconvert: %s: %d rooms, %d portals, %d tiles (+%d walls), %d pads, %d lights",
 			lv->name, bg.numrooms, (int)bg.portals.n, (int)stan.n, walls, (int)setup.pads.n, numlights);
@@ -5675,6 +5725,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				fogValue(&missions, fog, offset, levelVisibility(lv->key));
 				textf(&missions, "\"");
 			}
+			textf(&missions, " music \"%d %d %d\"", music[0], music[1], music[2]);
 
 			note("geconvert: %s: mission %d, %d props (+%d left out), %d ai commands (+%d)",
 				g_Missions[mi].name, (int)mi, st.props, st.dropped, st.aikept, st.aidropped);
@@ -5740,6 +5791,27 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 
 		writeWeaponSets(outdir);
+
+		// random_tracks, for the levels with no music of their own (gemusic.c)
+		{
+			const size_t at = romMusicRandomAt();
+			size_t n = 0;
+
+			while (at + 2 * n + 2 <= g_DataLen && n < 256 && be16(g_Data, at + 2 * n) != 0) {
+				++n;
+			}
+			writeFile(outdir, "menu/musicrandom.bin", g_Data + at, 2 * (n + 1));
+
+			// and how loud each sequence plays
+			n = 0;
+			while (MUSIC_VOLUMES_AT + 2 * n + 2 <= g_DataLen && n < 256 && bes16(g_Data, MUSIC_VOLUMES_AT + 2 * n) >= 0) {
+				++n;
+			}
+			if (n < 24 || be16(g_Data, MUSIC_VOLUMES_AT) != 0x6665) {
+				fail("the music's volumes are not where they were");
+			}
+			writeFile(outdir, "menu/musicvolumes.bin", g_Data + MUSIC_VOLUMES_AT, 2 * n);
+		}
 
 		if (INTRO_BLOOD_AT + INTRO_BLOOD_SIZE > g_DataLen) {
 			fail("the blood runs off the data segment");

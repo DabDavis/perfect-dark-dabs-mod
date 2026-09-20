@@ -1528,6 +1528,7 @@ struct seqextra {
 	const u8 *zip;
 	u16 binlen;
 	u16 ziplen;
+	s16 scale;
 	ALBank *bank;
 };
 
@@ -1547,8 +1548,21 @@ s32 seqAppend(const u8 *zip, u16 binlen, u16 ziplen, ALBank *bank)
 	g_SeqExtra[g_NumSeqExtra].binlen = binlen;
 	g_SeqExtra[g_NumSeqExtra].ziplen = ziplen;
 	g_SeqExtra[g_NumSeqExtra].bank = bank;
+	g_SeqExtra[g_NumSeqExtra].scale = SEQ_APPENDED_VOLUME;
 
 	return g_SeqTable->count + g_NumSeqExtra++;
+}
+
+/**
+ * An appended sequence's own row of var8005ecf8[], for music that comes with a
+ * table of its own (GoldenEye's, gemusic.c); without one it plays at the menu
+ * tracks' scale.
+ */
+void seqAppendSetScale(s32 tracknum, s16 scale)
+{
+	if (g_SeqTable && tracknum >= g_SeqTable->count && tracknum - g_SeqTable->count < g_NumSeqExtra && scale > 0) {
+		g_SeqExtra[tracknum - g_SeqTable->count].scale = scale;
+	}
 }
 #endif
 
@@ -1923,6 +1937,10 @@ void seqSetVolume(struct seqinstance *seq, u16 volume)
 		// what brought the folder's theme back from the intro about three
 		// times as loud as the game's own music, and handed a borrowed
 		// sequence the -1 the table ends with, which clamps to the same thing.
+		if (g_SeqTable && seq->tracknum >= g_SeqTable->count && seq->tracknum - g_SeqTable->count < g_NumSeqExtra) {
+			scale = g_SeqExtra[seq->tracknum - g_SeqTable->count].scale;
+		}
+
 		if (seq->tracknum >= 0 && seq->tracknum < ARRAYCOUNT(var8005ecf8)
 				&& g_SeqTable && seq->tracknum < g_SeqTable->count)
 #endif

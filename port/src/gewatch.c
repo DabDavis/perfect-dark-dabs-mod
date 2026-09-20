@@ -91,6 +91,8 @@
 #include "lib/rng.h"
 #include "lib/snd.h"
 #include "gesfx.h"
+#include "gemusic.h"
+#include "game/music.h"
 #include "lib/vi.h"
 
 /* ---- GoldenEye's own numbers --------------------------------------------- */
@@ -396,6 +398,7 @@ struct gewatch {
 
 	// what the level was doing before the watch took it over
 	s32 paused;
+	s32 music; // the watch theme is playing over the level's
 	s32 weapons[2];
 	s32 hadweapons;
 };
@@ -1475,6 +1478,16 @@ static void watchSetPaused(s32 paused)
 
 	g_Watch.paused = paused;
 	lvSetPaused(paused);
+
+	// GoldenEye's watch theme over the level's, which comes back as the arm
+	// goes down (its mission state 3, mp_music.c)
+	if (paused && geMusicSequence(GEMUSIC_WATCH) >= 0) {
+		musicStartTrackAsMenu(geMusicSequence(GEMUSIC_WATCH));
+		g_Watch.music = 1;
+	} else if (!paused && g_Watch.music) {
+		musicEndMenu();
+		g_Watch.music = 0;
+	}
 	g_Vars.currentplayer->pausemode = paused ? PAUSEMODE_PAUSED : PAUSEMODE_UNPAUSED;
 }
 

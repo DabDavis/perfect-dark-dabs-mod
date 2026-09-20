@@ -5859,3 +5859,59 @@ guessing from the two draw paths would have found one of the three.
   sets' `g_TvSpreadX` became 0.855 * 12 / 11. **Check a folder page at 1280x720
   as well as 640x480** (`DefaultWidth`/`DefaultHeight` in the scratch pd.ini).
 
+
+## The levels' own music (2026-09-20)
+
+Every level of the remake - the twenty missions and the arenas - plays what
+GoldenEye plays on it, out of the player's ROM. `port/src/gemusic.c`, converter 45.
+
+**GoldenEye's table.** `music_setup_entries` (data segment 0x2dd80, VRAM
+8004EB10): rows of four s16 `{level id, main theme, background, X theme}`, -1 for
+none, ended by a level id of 0; `random_tracks` follows it at once (43 sequences,
+ended by M_NONE), and a level the table does not name - the multiplayer-only
+ones: Temple, Complex, Caves, Library, Basement, Stack - draws its theme from
+that (`getmusictrack_or_randomtrack()`). Only Surface 2 has a background
+(M_WIND). `g_musicDefaultTrackVolume` is at 0x35c8, an s16 a sequence, ended by -1.
+
+**The conversion** puts a level's row on its line of the maps and missions
+blocks as `music "main bg x"` in GoldenEye's own sequence numbers (a main of -1
+for a level that draws), and writes `menu/musicrandom.bin` and
+`menu/musicvolumes.bin` raw. modloader.c keeps the row by stage
+(`modloaderGetStageMusic()`).
+
+**The game.** `geMusicSequence(geseq)` appends a GoldenEye sequence the first
+time it is asked for, on one shared load of the bank - the folders theme and the
+intro go through it too, where each used to load a bank of its own.
+`geMusicStageTrack()` answers stagemusic.c's three questions ahead of Perfect
+Dark's table. What it took beyond the table:
+
+- **A mission of Perfect Dark's starts its music from its intro's AI list**
+  (`aiPlayDefaultTracks`, 015c); `musicSetStage()` only names the stage. A
+  converted mission has no such command, so it was *silent* until `lvReset()`
+  was made to start a remake level's music the way a match's is started. GoldenEye
+  starts it as the level loads (lv.c:301).
+- The X theme needed nothing: MusicPlaySlot/MusicStopSlot already convert to
+  Perfect Dark's X reasons, and `stageGetNrgTrack()` now names GoldenEye's.
+- Perfect Dark plays an ambient track only in rooms flagged
+  ROOMFLAG_PLAYAMBIENTTRACK; GoldenEye's background plays the level over, so
+  `musicIsAnyPlayerInAmbientRoom()` says yes on a remake level.
+- The draw is kept until the next level starts (`geMusicStageReset()` from
+  `musicSetStage*()`): PRIMARYTRACK() evaluates the question twice in one
+  start, and asks again whenever the theme comes back from under something.
+- An arena plays GoldenEye's only on Random, as a borrowed mod's arena does.
+- The watch plays M_WATCH (24) over the level while it pauses, and a death
+  plays M_DEATHSOLO (27) or, in a match, M_MPDEATH (58) - mp_music.c's mission
+  states 3 and 6, and bondview2.c.
+- **Volume.** An appended sequence can carry its own row of `var8005ecf8[]`
+  (`seqAppendSetScale()`); GoldenEye's get three quarters of its own table, which
+  leaves the folders theme exactly where it was (0x6665 -> 0x4ccc). The intro's
+  theme is 0x7332 in GoldenEye and so is a little louder than before; its
+  gunshot went from GESFX_VOLUME_INTRO to GESFX_VOLUME to keep the balance, and
+  the former is gone.
+
+**Testing** (build/gexrom): `musiclevel.py` logs every `musicQueueStartEvent`
+and the stage's three answers; `musicevents.gdb` drives an X reason, the watch
+and back; `musicdeath.gdb` dumps the queue after a death (do not break inside a
+function gdb is calling). `SDL_AUDIODRIVER=disk` for the sound itself: Dam's
+theme measures 0.0065 spectral flatness. Missions are 0x15, 0x5e-0x70 but *not*
+in mission order - grep `modloader: <name> -> stage` in the log.

@@ -67,6 +67,7 @@
 #include "game/zbuf.h"
 #include "game/propobj.h"
 #include "gexfront.h"
+#include "gemusic.h"
 #include "gesfx.h"
 #include "game/modghost.h"
 #include "preprocess.h"
@@ -872,54 +873,18 @@ static s32 frontLoadAll(void)
 
 /* ---- the music ---------------------------------------------------------- */
 
-// GoldenEye's M_FOLDERS
-#define FOLDERS_SEQUENCE 23
-
 /**
- * The folders theme as a sequence number of the game's, appended once with
- * GoldenEye's instrument bank; -1 when the conversion has no music. What it
- * plays from stays loaded: an appended sequence is never taken back.
+ * The folders theme (GoldenEye's M_FOLDERS) as a sequence number of the
+ * game's; -1 when the conversion has no music.
  */
 static s32 frontMusic(void)
 {
-	static s32 seqnum = -2;
-	u32 ctllen = 0;
-	u32 len = 0;
-	u32 seqlen = 0;
-	u8 *raw;
-	u8 *ctl;
-	u8 *tbl;
-	u8 *seqs;
-	ALBank *bank;
-	const u8 *e;
+	static s32 warned;
+	const s32 seqnum = geMusicSequence(GEMUSIC_FOLDERS);
 
-	if (seqnum != -2) {
-		return seqnum;
-	}
-
-	seqnum = -1;
-
-	raw = frontLoad("instrumentsctl", &len);
-	ctl = raw ? preprocessALBankFile(raw, len, &ctllen) : NULL;
-	sysMemFree(raw);
-	tbl = frontLoad("instrumentstbl", &len);
-	seqs = frontLoad("sequences", &seqlen);
-
-	if (!ctl || !tbl || !seqs || seqlen < 4 + (FOLDERS_SEQUENCE + 1) * 8
-			|| ((seqs[0] << 8) | seqs[1]) <= FOLDERS_SEQUENCE) {
+	if (seqnum < 0 && !warned) {
+		warned = 1;
 		sysLogPrintf(LOG_WARNING, "gexfront: the conversion has no GoldenEye music; the folder plays the menu's own");
-		sysMemFree(ctl);
-		sysMemFree(tbl);
-		sysMemFree(seqs);
-		return -1;
-	}
-
-	alBnkfNew((ALBankFile *)ctl, tbl);
-	bank = ((ALBankFile *)ctl)->bankArray[0];
-	e = seqs + 4 + FOLDERS_SEQUENCE * 8;
-
-	if (bank && be32(e) < seqlen && ((e[6] << 8) | e[7]) <= seqlen - be32(e)) {
-		seqnum = seqAppend(seqs + be32(e), (e[4] << 8) | e[5], (e[6] << 8) | e[7], bank);
 	}
 
 	return seqnum;

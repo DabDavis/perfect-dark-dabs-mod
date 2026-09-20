@@ -25,11 +25,10 @@
 
 // GoldenEye plays a sound effect at full volume over music at its track's own
 // default (g_musicDefaultTrackVolume[]: M_INTRO 0x7332, the folders, the watch
-// and the levels 0x6665). Its music plays here at Perfect Dark's menu scale,
-// 0x4ccc (SEQ_APPENDED_VOLUME), so a sound keeps GoldenEye's balance against
-// it at the same share of full: 0x4ccc / 0x7332 and 0x4ccc / 0x6665
-#define GESFX_VOLUME_INTRO 0x5555
-#define GESFX_VOLUME       0x5fff
+// and most levels 0x6665). Its music plays here at three quarters of that -
+// the folders theme at Perfect Dark's menu scale, 0x4ccc (gemusic.c) - so a
+// sound keeps GoldenEye's balance against it at three quarters of full
+#define GESFX_VOLUME 0x5fff
 
 // This game's sound number for GoldenEye's, or 0: no conversion, a conversion
 // from before the bank was written, or no sound at all (--no-sound).
