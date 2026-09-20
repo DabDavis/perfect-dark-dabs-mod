@@ -80,6 +80,7 @@
 #include "game/player.h"
 #include "game/camera.h"
 #include "game/playermgr.h"
+#include "game/zbuf.h"
 #include "game/mplayer/mplayer.h"
 #include "lib/anim.h"
 #include "lib/joy.h"
@@ -257,18 +258,34 @@ enum {
 #define WATCH_WRIST_Z      3.2f
 
 /**
- * How big the watch is on the wrist. 0.1 is life size - GoldenEye's own, a
- * body's units being ten of the watch's - and anything over it is a bigger
- * watch on the same arm. The face is drawn at one size whatever this is
- * (WATCH_FACE_SCALE), so what it really sets is how big the *arm* is beside it.
+ * How big the watch is on the wrist: life size, which is GoldenEye's own - a
+ * body's units are ten of the watch's, and at that its band goes round a
+ * body's wrist as it goes round the floating arm's. The face is drawn at one
+ * size whatever this is (WATCH_FACE_SCALE), so what it really sets is how big
+ * the *arm* is beside it, and anything over life size shrinks the whole body
+ * towards the watch: at 0.35 the shoulders came into the picture from under the
+ * eye, with the neck they end in.
  */
-#define WATCH_WRIST_SCALE 0.35f
+#define WATCH_WRIST_SCALE 0.1f
+
+/**
+ * The watch model's three hands are part of its one mesh, lying at twelve: flat
+ * shapes a few units over the dial, each at a height of its own, and nothing
+ * else is that close to the middle above the dial. They are found by that at
+ * the load and turned in the mesh's own vertices (watchTurnMeshHands()).
+ */
+#define WATCH_HAND_VTX     16       // the most one hand is made of
+#define WATCH_HAND_REACH   140.0f   // from the middle; the glass starts at 160
+#define WATCH_HAND_OVER    2.0f     // over the dial
 
 // the watch's pose in front of the eye (player.c's field_1D4, field_1D8 and
 // pause_watch_position), and how big it is drawn there
 #define WATCH_POSE_X   0.0f
 #define WATCH_POSE_Y   0.0f
 #define WATCH_POSE_Z   (-25.0f)
+
+// the near plane of the projection the arm is drawn under
+#define WATCH_NEAR     10.0f
 
 // GoldenEye's own watch states (WATCH_ANIMATION_STATE_IDS)
 enum {
@@ -302,11 +319,30 @@ struct gewatch {
 	f32 chrscale;
 	s32 isbody;
 
+	// and the head that goes on it: a copy of its own, since one head's
+	// definition cannot sit on two bodies (modelAttachHead() re-parents it)
+	u8 *headbuf;
+	u32 headbuflen;
+
+	// and a ball round it, in the head's own units, for knowing when the near
+	// plane is about to cut it
+	s32 hashead;
+	struct coord headmid;
+	f32 headradius;
+
 	// GoldenEye's own watch, which the player's body has none of
 	u8 *watchbuf;
 	u32 watchbuflen;
 	struct modeldef *watchdef;
 	struct model *watchmodel;
+
+	// its hour, minute and second hands, which are vertices of its one mesh:
+	// which ones, and where each was drawn, so that they are always turned
+	// from twelve rather than from wherever the last frame left them
+	Vtx *handvtx;
+	s32 numhandvtx[3];
+	s16 handindex[3][WATCH_HAND_VTX];
+	s16 handxy[3][WATCH_HAND_VTX][2];
 
 	// GoldenEye's own text: LoptionsE, and the open mission's briefing
 	u8 *options;
@@ -562,6 +598,21 @@ static void watchFreeModel(void)
 		g_Watch.watchbuf = NULL;
 	}
 
+	// The head is let go without being taken off the body's headspot first.
+	// Once it is on, this only runs at the next stage's load, by when the body
+	// it was on is gone with the stage pool (bodyreset.c has emptied the table)
+	// and its headspot is memory somebody else has; inside a stage it runs only
+	// for a body that never got as far as having the head put on.
+	if (g_Watch.headbuf) {
+		videoFreeCachedTextures(g_Watch.headbuf, g_Watch.headbuf + g_Watch.headbuflen);
+		sysMemFree(g_Watch.headbuf);
+		g_Watch.headbuf = NULL;
+	}
+
+	g_Watch.hashead = 0;
+	g_Watch.handvtx = NULL;
+	g_Watch.numhandvtx[0] = g_Watch.numhandvtx[1] = g_Watch.numhandvtx[2] = 0;
+
 	// the player's body is the game's own modeldef and is not ours to drop
 	if (!g_Watch.isbody) {
 		g_Watch.modeldef = NULL;
@@ -570,6 +621,213 @@ static void watchFreeModel(void)
 	g_Watch.modeldef = NULL;
 	g_Watch.watchdef = NULL;
 	g_Watch.isbody = 0;
+}
+
+// the next node of a definition's tree, depth first
+static struct modelnode *watchNextNode(struct modelnode *node)
+{
+	if (node->child) {
+		return node->child;
+	}
+
+	while (node && !node->next) {
+		node = node->parent;
+	}
+
+	return node ? node->next : NULL;
+}
+
+/**
+ * The render mode of the watch model's lists, which the conversion writes wrong.
+ *
+ * GoldenEye's plain list record (type 4) keeps it in **one byte** at 0x12 where
+ * its list-with-collisions record (type 0x18) keeps a word at 0x18, and the
+ * conversion reads a word from both: a hand item's 3 comes out as 0x0300. No
+ * case of modelRenderNodeDl() answers to that, so the model is drawn in
+ * whatever render mode the frame was left in and its second list - the glass,
+ * the crown - is never drawn at all. Put right here for the watch alone, which
+ * is the watch's to change: every converted character carries the same fault,
+ * and what they would look like without it is not something to find out in
+ * passing (ge-bean.md).
+ */
+static void watchFixRenderModes(struct modeldef *def)
+{
+	for (struct modelnode *node = def->rootnode; node; node = watchNextNode(node)) {
+		if ((node->type & 0xff) == MODELNODETYPE_DL && node->rodata) {
+			const s16 mode = node->rodata->dl.mcount;
+
+			if (mode > 4 && (mode & 0xff) == 0) {
+				node->rodata->dl.mcount = mode >> 8;
+			}
+		}
+	}
+}
+
+/** A ball round everything a head is made of, in the head's own units. */
+static void watchMeasureHead(struct modeldef *headdef)
+{
+	struct coord min = { 0, 0, 0 };
+	struct coord max = { 0, 0, 0 };
+	s32 any = 0;
+
+	for (struct modelnode *node = headdef->rootnode; node; node = watchNextNode(node)) {
+		if ((node->type & 0xff) != MODELNODETYPE_DL || !node->rodata || !node->rodata->dl.vertices) {
+			continue;
+		}
+
+		for (s32 i = 0; i < node->rodata->dl.numvertices; i++) {
+			const Vtx *v = &node->rodata->dl.vertices[i];
+
+			for (s32 k = 0; k < 3; k++) {
+				if (!any || v->v[k] < min.f[k]) {
+					min.f[k] = v->v[k];
+				}
+
+				if (!any || v->v[k] > max.f[k]) {
+					max.f[k] = v->v[k];
+				}
+			}
+
+			any = 1;
+		}
+	}
+
+	g_Watch.hashead = any;
+	g_Watch.headmid.x = (min.x + max.x) * 0.5f;
+	g_Watch.headmid.y = (min.y + max.y) * 0.5f;
+	g_Watch.headmid.z = (min.z + max.z) * 0.5f;
+	g_Watch.headradius = 0.5f * sqrtf((max.x - min.x) * (max.x - min.x)
+			+ (max.y - min.y) * (max.y - min.y) + (max.z - min.z) * (max.z - min.z));
+}
+
+/**
+ * The watch model's hour, minute and second hands, found in its mesh.
+ *
+ * GoldenEye's floating arm has a joint for each hand and the clock turns the
+ * joints. Its watch *item* is one list with the hands drawn into it at twelve,
+ * so there is nothing to turn but the vertices. They are told from the rest by
+ * where they are - over the dial and inside the glass's ring, which nothing
+ * else is - and from each other by lying each at a height of its own: the
+ * second hand is the thin one, and the hour hand the shorter of the other two.
+ * A mesh that does not come apart this way keeps its hands at twelve.
+ */
+static void watchFindMeshHands(struct modeldef *def)
+{
+	struct modelnode *node = def->rootnode;
+	struct modelrodata_dl *dl = NULL;
+	s16 level[3];
+	s16 index[3][WATCH_HAND_VTX];
+	s32 count[3] = { 0, 0, 0 };
+	f32 reach[3] = { 0, 0, 0 };
+	f32 width[3] = { 0, 0, 0 };
+	s32 numlevels = 0;
+	s32 order[3];
+
+	g_Watch.handvtx = NULL;
+	g_Watch.numhandvtx[0] = g_Watch.numhandvtx[1] = g_Watch.numhandvtx[2] = 0;
+
+	for (; node && !dl; node = watchNextNode(node)) {
+		if ((node->type & 0xff) == MODELNODETYPE_DL && node->rodata && node->rodata->dl.vertices) {
+			dl = &node->rodata->dl;
+		}
+	}
+
+	if (!dl) {
+		return;
+	}
+
+	for (s32 i = 0; i < dl->numvertices; i++) {
+		const Vtx *v = &dl->vertices[i];
+		const f32 dx = v->x - WATCH_DIAL_X;
+		const f32 dy = v->y - WATCH_DIAL_Y;
+		s32 l;
+
+		if (v->z < WATCH_DIAL_Z + WATCH_HAND_OVER || dx * dx + dy * dy > WATCH_HAND_REACH * WATCH_HAND_REACH) {
+			continue;
+		}
+
+		for (l = 0; l < numlevels && level[l] != v->z; l++);
+
+		if (l == numlevels) {
+			if (numlevels == 3) {
+				return;
+			}
+
+			level[numlevels++] = v->z;
+		}
+
+		if (count[l] == WATCH_HAND_VTX) {
+			return;
+		}
+
+		index[l][count[l]++] = i;
+
+		if (dx * dx + dy * dy > reach[l] * reach[l]) {
+			reach[l] = sqrtf(dx * dx + dy * dy);
+		}
+
+		if (fabsf(dx) > width[l]) {
+			width[l] = fabsf(dx);
+		}
+	}
+
+	if (numlevels != 3) {
+		return;
+	}
+
+	// the second hand is the thinnest, and the hour hand the shorter of the rest
+	order[2] = width[0] <= width[1] && width[0] <= width[2] ? 0 : (width[1] <= width[2] ? 1 : 2);
+	order[0] = (order[2] + 1) % 3;
+	order[1] = (order[2] + 2) % 3;
+
+	if (reach[order[0]] > reach[order[1]]) {
+		const s32 tmp = order[0];
+
+		order[0] = order[1];
+		order[1] = tmp;
+	}
+
+	for (s32 h = 0; h < 3; h++) {
+		const s32 l = order[h];
+
+		g_Watch.numhandvtx[h] = count[l];
+
+		for (s32 i = 0; i < count[l]; i++) {
+			g_Watch.handindex[h][i] = index[l][i];
+			g_Watch.handxy[h][i][0] = dl->vertices[index[l][i]].x;
+			g_Watch.handxy[h][i][1] = dl->vertices[index[l][i]].y;
+		}
+	}
+
+	g_Watch.handvtx = dl->vertices;
+}
+
+/**
+ * The three hands turned to the clock. The angles are the ones the floating
+ * arm's joints take, which are negative the way the hands go round; in the
+ * mesh the dial looks out along +z with twelve at +y and three at +x, so a
+ * hand goes from +y towards +x. Each is turned from where it was drawn.
+ */
+static void watchTurnMeshHands(f32 hours, f32 minutes, f32 seconds)
+{
+	if (!g_Watch.handvtx) {
+		return;
+	}
+
+	for (s32 h = 0; h < 3; h++) {
+		const f32 turn = -(h == 0 ? hours : (h == 1 ? minutes : seconds));
+		const f32 c = cosf(turn);
+		const f32 sn = sinf(turn);
+
+		for (s32 i = 0; i < g_Watch.numhandvtx[h]; i++) {
+			const f32 dx = g_Watch.handxy[h][i][0] - WATCH_DIAL_X;
+			const f32 dy = g_Watch.handxy[h][i][1] - WATCH_DIAL_Y;
+			Vtx *v = &g_Watch.handvtx[g_Watch.handindex[h][i]];
+
+			v->x = (s16)lroundf(WATCH_DIAL_X + dx * c + dy * sn);
+			v->y = (s16)lroundf(WATCH_DIAL_Y - dx * sn + dy * c);
+		}
+	}
 }
 
 /**
@@ -605,6 +863,7 @@ static s32 watchLoadWatchModel(void)
 		return 0;
 	}
 
+	watchFixRenderModes(g_Watch.watchdef);
 	modelAllocateRwData(g_Watch.watchdef);
 	g_Watch.watchmodel = modelmgrInstantiateModelWithoutAnim(g_Watch.watchdef);
 
@@ -613,6 +872,7 @@ static s32 watchLoadWatchModel(void)
 	}
 
 	modelSetScale(g_Watch.watchmodel, 1.0f);
+	watchFindMeshHands(g_Watch.watchdef);
 
 	return 1;
 }
@@ -624,15 +884,25 @@ static s32 watchLoadWatchModel(void)
  * same one and the animation reads on either.
  *
  * What is drawn is the body it would draw in third person, so the sleeve and
- * the hand are the player's own; the rest of it is behind the eye and is cut
- * by the near plane, which is what GoldenEye's floating arm model is for.
+ * the hand are the player's own, and it is the *whole* of it, head and all:
+ * whatever of it the move to the eye brings into the picture is a person
+ * rather than a pair of shoulders ending in a neck. It is built by the game's
+ * own body0f02ce8c(), as the player's third person body is.
+ *
+ * The head is a copy of its own, loaded into memory of the watch's own rather
+ * than out of the stage pool. One head's definition cannot sit on two bodies -
+ * modelAttachHead() re-parents it to whichever body took it last, and the
+ * level's own people may be wearing the same head (chrs-and-memory.md) - so
+ * this is what a match does for every player, offset for the body and all.
  */
 static s32 watchLoadBody(void)
 {
+	struct modeldef *headdef = NULL;
 	s32 bodynum = -1;
 	s32 headnum = -1;
+	s32 perfecthead = false;
 
-	playerChooseBodyAndHead(&bodynum, &headnum, NULL);
+	playerChooseBodyAndHead(&bodynum, &headnum, &perfecthead);
 
 	if (bodynum < 0 || bodynum >= NUM_HEADSANDBODIES) {
 		return 0;
@@ -644,19 +914,49 @@ static s32 watchLoadBody(void)
 		return 0;
 	}
 
+	// a body with a head of its own takes none, and neither does a head that
+	// is not a row of the table (a match's camera heads)
+	if (g_HeadsAndBodies[bodynum].unk00_01 || perfecthead || headnum <= 0 || headnum >= NUM_HEADSANDBODIES) {
+		headnum = 0;
+	}
+
+	if (headnum > 0) {
+		const s32 fileid = g_HeadsAndBodies[headnum].filenum;
+		const s32 size = fileGetInflatedSize(fileid, LOADTYPE_MODEL);
+
+		if (size > 0) {
+			g_Watch.headbuflen = ALIGN64(size) + 0x20000;
+			g_Watch.headbuf = sysMemZeroAlloc(g_Watch.headbuflen);
+		}
+
+		if (g_Watch.headbuf) {
+			headdef = modeldefLoad(fileid, g_Watch.headbuf, g_Watch.headbuflen, NULL);
+		}
+
+		if (headdef) {
+			g_FileInfo[fileid].loadedsize = 0;
+			bodyCalculateHeadOffset(headdef, headnum, bodynum);
+
+			// measured while it is still a tree of its own: once it is on,
+			// its roots' parent is the body's headspot and a walk of it
+			// carries on out through the rest of the body
+			watchMeasureHead(headdef);
+		} else {
+			headnum = 0;
+		}
+	}
+
 	g_Watch.modeldef = g_HeadsAndBodies[bodynum].modeldef;
-	modelAllocateRwData(g_Watch.modeldef);
-	g_Watch.model = modelmgrInstantiateModelWithAnim(g_Watch.modeldef);
+	g_Watch.model = body0f02ce8c(bodynum, headnum, g_Watch.modeldef, headdef, false, NULL, true, false);
 
 	if (!g_Watch.model) {
 		g_Watch.modeldef = NULL;
+		g_Watch.hashead = 0;
 		return 0;
 	}
 
 	g_Watch.isbody = 1;
-	g_Watch.chrscale = g_HeadsAndBodies[bodynum].scale * 0.1f;
-	modelSetScale(g_Watch.model, g_Watch.chrscale);
-	modelSetAnimScale(g_Watch.model, g_HeadsAndBodies[bodynum].animscale);
+	g_Watch.chrscale = g_Watch.model->scale;
 
 	return 1;
 }
@@ -2191,6 +2491,34 @@ static void watchApplyRel(const Mtxf *rel, Mtxf *matrices, s32 nummatrices)
 }
 
 /**
+ * Whether the near plane is about to cut the body's head, or the watch is up.
+ *
+ * The head's ball (watchMeasureHead()) goes through the matrix its headspot
+ * hangs off, which by now has been through the move to the eye; the view looks
+ * down -z and the watch's own projection starts WATCH_NEAR in front of it.
+ */
+static s32 watchHeadIsCut(struct model *model, struct modelnode *spot)
+{
+	const Mtxf *mtx = modelFindNodeMtx(model, spot, 0);
+	f32 scale;
+	f32 z;
+
+	if (g_Watch.state != WS_RAISE && g_Watch.state != WS_LOWERARM) {
+		return 1;
+	}
+
+	if (!mtx) {
+		return 0;
+	}
+
+	scale = sqrtf(mtx->m[0][0] * mtx->m[0][0] + mtx->m[0][1] * mtx->m[0][1] + mtx->m[0][2] * mtx->m[0][2]);
+	z = g_Watch.headmid.x * mtx->m[0][2] + g_Watch.headmid.y * mtx->m[1][2]
+		+ g_Watch.headmid.z * mtx->m[2][2] + mtx->m[3][2];
+
+	return z + g_Watch.headradius * scale > -WATCH_NEAR;
+}
+
+/**
  * bondviewRenderWatch(): the arm under its own projection, posed by the
  * animation, with the three hands turned to the mission's clock and the open
  * screen drawn on the face.
@@ -2260,10 +2588,14 @@ static Gfx *watchDrawModel(Gfx *gdl)
 
 	modelSetDistanceChecksDisabled(true);
 
+	// the body's definition is shared with whoever else in the level wears
+	// it, and what hangs off its headspot and its toggles is whatever the last
+	// of them to be posed left there
+	modelUpdateRelations(model);
+
 	if (model->anim) {
 		modelSetMatricesWithAnim(&renderdata, model);
 	} else {
-		modelUpdateRelations(model);
 		modelSetMatrices(&renderdata, model);
 	}
 
@@ -2398,6 +2730,11 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	minutes = ((-(f32)((total / 60) % 60) * M_PI * 2.0f) / 60.0f) + seconds / 60.0f;
 	hours = ((-(f32)((total / 3600) % 12) * M_PI * 2.0f) / 12.0f) + minutes / 12.0f + seconds / 720.0f;
 
+	// the watch model's hands are vertices of its mesh rather than joints
+	if (wmodel) {
+		watchTurnMeshHands(hours, minutes, seconds);
+	}
+
 	{
 		Mtxf *own = wmatrices ? wmatrices : matrices;
 		const s32 numown = wmatrices ? wdef->nummatrices : def->nummatrices;
@@ -2439,7 +2776,38 @@ static Gfx *watchDrawModel(Gfx *gdl)
 			| g_Vars.currentplayer->gunshadecol[2] << 8 | g_Vars.currentplayer->gunshadecol[3]);
 	renderdata.gdl = gdl;
 
+	// GoldenEye draws its floating arm with no z buffer, in the order its own
+	// lists come in, and that arm is drawn the same way here. A whole body and
+	// a watch that is a model of its own have no such order: the watch's hands
+	// come *before* its dial in its list and were painted over by it, which is
+	// why they were never seen. So each of the two is drawn into a z buffer
+	// of its own - the body sorts itself, then the buffer is emptied and the
+	// watch sorts itself over whatever of the arm is under it, the dial being
+	// lower on a body's wrist than the top of its forearm (the intro's gun
+	// barrel takes a z buffer for the same reason, geintro.c).
+	if (wmodel) {
+		renderdata.zbufferenabled = true;
+	}
+
 	if (g_WatchDrawArm) {
+		struct modelnode *spot = g_Watch.hashead ? modelGetPart(def, MODELPART_CHR_HEADSPOT) : NULL;
+		union modelrwdata *spotrw = spot ? modelGetNodeRwData(model, spot) : NULL;
+		struct modeldef *headdef = spotrw ? spotrw->headspot.headmodeldef : NULL;
+
+		// The head stays on the body while the arm comes up and goes as the
+		// watch arrives: the move ends with the head right beside the eye,
+		// where the near plane cuts it open and what is left is a wedge of
+		// skin down one side of the screen. So it is left out from the moment
+		// any of it would be cut - which is the last of the way up - and
+		// while the watch is up. modelRender() links a headspot from the
+		// instance's own record, so taking the head off that for one draw
+		// hides it here and nowhere else.
+		if (headdef && watchHeadIsCut(model, spot)) {
+			spotrw->headspot.headmodeldef = NULL;
+		} else {
+			headdef = NULL;
+		}
+
 		// the arm is lit the way anything else in the level is, and drawn
 		// under texture perspective: without the lights it takes whatever
 		// state the frame was left in and draws as one flat pale mass, and
@@ -2451,11 +2819,24 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		gDPSetAlphaCompare(renderdata.gdl++, G_AC_NONE);
 		gDPSetTextureFilter(renderdata.gdl++, G_TF_BILERP);
 		renderdata.gdl = lightsSetDefault(renderdata.gdl);
+
+		if (wmodel) {
+			renderdata.gdl = zbufClear(renderdata.gdl);
+			gSPSetGeometryMode(renderdata.gdl++, G_ZBUFFER);
+		}
+
 		modelRender(&renderdata, model);
+
+		if (headdef) {
+			spotrw->headspot.headmodeldef = headdef;
+		}
 	}
 
 	if (wmodel) {
+		renderdata.gdl = zbufClear(renderdata.gdl);
+		gSPSetGeometryMode(renderdata.gdl++, G_ZBUFFER);
 		modelRender(&renderdata, wmodel);
+		gSPClearGeometryMode(renderdata.gdl++, G_ZBUFFER);
 	}
 
 	gdl = renderdata.gdl;
@@ -2834,7 +3215,7 @@ Gfx *geWatchRender(Gfx *gdl)
 	}
 
 	gDPPipeSync(gdl++);
-	gdl = viSetPerspectiveWithFov(gdl, g_Vars.currentplayer->zoominfovy, 10.0f, 300.0f);
+	gdl = viSetPerspectiveWithFov(gdl, g_Vars.currentplayer->zoominfovy, WATCH_NEAR, 300.0f);
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
 	gdl = watchDrawModel(gdl);

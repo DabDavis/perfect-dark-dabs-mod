@@ -4957,15 +4957,72 @@ orthographic scatter plots of its 814 vertices. And **a file-static nothing
 writes is folded away**: `g_WatchDrawArm` was never in the binary ("isn't an
 lvalue"), so it and `g_WatchWristScale` are `volatile`.
 
-**Sizes are normalised at the face.** A body's scale is its own (0.1 where
-GoldenEye's floating arm is 0.01), so the move that carries the watch to the eye
-carries a scale with it: the face ends at `WATCH_FACE_SCALE` whatever is wearing
-it, and the arm comes to that size with it. `WATCH_WRIST_SCALE` is then the only
-thing that says how big the watch is on the wrist, and it is a compromise: 0.1
-is life size, which fills the whole screen with forearm as GoldenEye's own does
-(and is what the user could not read as an arm), and 0.35 leaves the forearm as
-tall as the dial with the sleeve and the hand either side of it at 16:9. Judge
-it live with `'gewatch.c'::g_WatchWristScale`.
+**Sizes are normalised at the face, and the watch is life size** (2026-09-20,
+the user: "you can make the watch smaller, so it matches the arm scale"). A
+body's scale is its own (0.1 where GoldenEye's floating arm is 0.01), so the
+move that carries the watch to the eye carries a scale with it: the face ends at
+`WATCH_FACE_SCALE` whatever is wearing it, and the arm comes to that size with
+it. `WATCH_WRIST_SCALE` says how big the watch is on the wrist, and it is 0.1 -
+GoldenEye's own, a body's units being ten of the watch's, at which the band goes
+round a body's wrist as it goes round the floating arm's. It was 0.35 for a day,
+and what that really did was shrink the **whole body** to two sevenths and hang
+it in front of the eye: the shoulders came into the picture from underneath
+ending in a neck ("looks headless"). At life size the move's scale is 1, the
+body stays where a body is - at the camera - and what comes up is a first person
+arm, which is GoldenEye's own staging (its dial is 2.9 units across, 25 from the
+eye). `'gewatch.c'::g_WatchWristScale` is the live knob.
+
+**The watch's hands are vertices, and they were never on the screen at all**
+(the user: "make the watch hands tell the mission time"). GoldenEye's floating
+arm has a joint for each hand. Its watch *item* is one list with the hands drawn
+into it at twelve: vertices 78-88 (hour, z 206), 89-101 (minute, z 201) and
+102-104 (second, z 209), each a flat shape at a height of its own over the dial
+(z 196) and inside the glass's ring, which nothing else is - found by that at
+the load (`watchFindMeshHands()`) and turned about (-10.5, 0) in the mesh's own
+vertex array every frame, from where they were drawn. Two things hid them, and
+neither was the turning:
+
+- **the conversion writes a list record's render mode wrong.** GoldenEye's
+  plain list record (type 4) keeps `ModelType` in **one byte** at 0x12 where its
+  list-with-collisions record (0x18) keeps a word at 0x18, and both converters
+  read a word from both (`gemodelconv.py`, `geconvert.c` line ~4636): a 3 comes
+  out as 0x0300 and a 4 as 0x0400. No case of `modelRenderNodeDl()` answers to
+  that, so the model takes whatever render mode the frame was left in and its
+  **second list is never drawn** - the watch's glass, crown and pusher.
+  `watchFixRenderModes()` puts it right for the watch model alone. **Every
+  converted character and hand item carries the same fault** (all of character
+  41's twelve lists read 768) and so do 44 prop records; it is *not* fixed in
+  the converter, because the intro's models were lit and tuned in the state it
+  leaves them in and what they look like without it wants looking at on its own
+  (`build/gexrom/gemodes.py` prints every list record's mode for converted
+  files, and with `--rom` the ROM's own bytes: 0,4 at 0x18 for 399 of 400 type
+  0x18 records, and 4,0 or 0,0 at 0x12 for type 4);
+- **the watch was drawn with no z buffer**, as GoldenEye draws its arm, and the
+  hands come *before* the dial in the list, so the dial painted over them. The
+  body and the watch each get a z buffer of their own now - `zbufClear()`, the
+  body, `zbufClear()` again, the watch - so the watch sorts itself and still
+  goes over whatever of the arm is under it (its dial is lower on a body's wrist
+  than the top of the forearm, so one shared buffer would bury it). The floating
+  arm's path is left as GoldenEye's.
+
+**The body has its head, and the head goes as the watch arrives** (the user:
+"lets keep head solid also", then "make the head disappear at the very last
+instant of the watch popping up, so it looks natural"). The watch's body is
+built by `body0f02ce8c()` now, the way the player's third person body is, with a
+**copy of the head of its own** loaded into the watch's memory rather than the
+stage pool - one head's definition cannot sit on two bodies
+(chrs-and-memory.md) - and let go at the next stage's load without being taken
+off the headspot, by when the body is gone with the pool. The move ends with the
+head right beside the eye, where the near plane cuts it into a wedge of skin
+down one side of the screen, so it is left out from the moment a ball round it
+(`watchMeasureHead()`) would touch the near plane, and while the watch is up;
+`modelRender()` links a headspot from the *instance's* record, so clearing
+`rwdata->headspot.headmodeldef` for the one draw hides it here and nowhere else.
+**Measure a head before it is attached**: afterwards its roots' parent is the
+body's headspot and a tree walk carries on out through the body (the ball came
+to 492 units and hid the head for the whole raise). At life size the head is
+under the frame until it is hidden, so it is never actually seen; at 0.35 it
+rides up on the shoulders and goes on the frame the raise ends.
 
 **What it costs**: a chr's arm is a handful of polygons made to be seen across a
 room, so at a hand's distance it reads as flat panels where GoldenEye's own arm
