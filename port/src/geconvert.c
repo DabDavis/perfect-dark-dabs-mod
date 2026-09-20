@@ -3679,6 +3679,12 @@ static const uint8_t g_GeItemWeapon[] = {
 /** A GoldenEye item id as the weapon Perfect Dark equips for it. */
 static uint32_t soloItemWeapon(uint32_t item)
 {
+	// GoldenEye's thrown gadgets, weapons of the port's own past the guns
+	// (gesolo.py's GE_GADGET_WEAPON): the covert modem is ITEM_BUG
+	if (item == 47) {
+		return 0x77;
+	}
+
 	return item < sizeof(g_GeItemWeapon) ? g_GeItemWeapon[item] : 0;
 }
 
@@ -3691,7 +3697,7 @@ static uint32_t soloItemWeapon(uint32_t item)
  * bullet is a gadget's count, which nothing in the port holds. gesolo.py's
  * GE_AMMO_TYPES.
  */
-static const uint8_t g_GeAmmoTypes[14][2] = {
+static const uint8_t g_GeAmmoTypes[21][2] = {
 	{ 0, 0 },
 	{ 0x01, 0x02 },    // 9MM            pistol and SMG
 	{ 0x01, 0x02 },    // 9MM_2
@@ -3706,6 +3712,7 @@ static const uint8_t g_GeAmmoTypes[14][2] = {
 	{ 0x0b, 0 },       // GRENADEROUND   the grenade launcher stands on the Devastator
 	{ 0x0a, 0 },       // MAGNUM
 	{ 0x0a, 0 },       // GGUN           the golden gun stands on the DY357-LX
+	[20] = { 0x20, 0 }, // BUG           the covert modem stands on the ECM mine
 };
 
 /** The port's type for one of GoldenEye's, the first or the second; 0 for none. */
@@ -4354,7 +4361,7 @@ static size_t aiLength(const buf *f, size_t at)
  * becomes the port's own command with an id out of the vehicles' own space.
  */
 static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle, buf *out,
-		struct solostats *st)
+		struct solostats *st, const double *offset)
 {
 	while (at < f->n) {
 		const uint32_t op = f->v[at];
@@ -4405,6 +4412,23 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 			}
 		}
 
+		if (op == 0xd6) {
+			// IFBondYPosLessThan has no twin in Perfect Dark and becomes the
+			// port's own command (gesolo.py's GE_IFBONDY_CMD): the height is
+			// in GoldenEye's runtime world and moves by the level's offset,
+			// into four bytes since a moved one need not fit two
+			int32_t y = bes16(f->v, at + 1);
+			if (offset) {
+				y -= (int32_t)lround(offset[1]);
+			}
+			bufU16(out, GEAI_IFBONDY_CMD);
+			bufU32(out, (uint32_t)y);
+			bufU8(out, f->v[at + 3]);
+			st->aikept++;
+			at += len;
+			continue;
+		}
+
 		if (cmd->pd < 0) {
 			st->aidropped++;
 		} else {
@@ -4420,6 +4444,12 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 				o += cmd->gewidth[i];
 				if (cmd->gepad & (1u << i)) {
 					v = padNum(v, numpads, 0);
+					// the four that ask about a pad's *room* (gesolo.py's
+					// GE_PADROOM_OPS): Perfect Dark reads the argument as a
+					// room number unless it is a pad plus 10000
+					if ((op == 0x44 || op == 0x54 || op == 0x55 || op == 0xe6) && v != 0xffff) {
+						v += 10000;
+					}
 				} else if (cmd->getext & (1u << i)) {
 					v = soloTextId(v);
 				} else if (cmd->geanim & (1u << i)) {
@@ -4455,7 +4485,7 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 			// twenty missions: every guard a list armed carried a door for a
 			// gun, and so did Bond in Archives' ending. The prop becomes the
 			// remake's own model, as a setup record's does.
-			if (op == 0x59) {
+			if (op == 0x59 || op == 0x57 || op == 0x58) {
 				vals[0] = soloItemWeapon(vals[0]);
 			} else if (op == 0xbf || op == 0x1b) {
 				if (st->models) {
@@ -4530,7 +4560,8 @@ struct gesololist {
 	int vehicle;
 };
 
-static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head, buf *code, struct solostats *st)
+static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head, buf *code, struct solostats *st,
+		const double *offset)
 {
 	const uint32_t start = be32(f->v, 20);
 	records recs = setupRecords(f);
@@ -4613,7 +4644,7 @@ static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head,
 	for (size_t i = 0; i < n; ++i) {
 		const size_t before = code->n;
 
-		writeSoloAilist(rows[i].from, rows[i].at, numpads, rows[i].vehicle, code, st);
+		writeSoloAilist(rows[i].from, rows[i].at, numpads, rows[i].vehicle, code, st, offset);
 		bufU32(head, (uint32_t)pos);
 		bufU32(head, rows[i].id);
 		pos += code->n - before;
@@ -4637,7 +4668,7 @@ static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct 
 
 	writeSoloPaths(f, pathsat, numpads, &paths, &pathpads);
 	aiat = pathsat + paths.n + pathpads.n;
-	writeSoloAilists(f, aiat, numpads, &ailists, &aicode, st);
+	writeSoloAilists(f, aiat, numpads, &ailists, &aicode, st, offset);
 
 	bufU32(&out, 0);
 	bufU32(&out, 0);
@@ -5760,6 +5791,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// (PROP_TV1, gexfront.c)
 		setAdd(allmodels, MENU_TV_MODEL);
 		setAdd(allmodels, INTRO_LOGO_MODEL);
+		setAdd(allmodels, 245); // PROP_CHRBUG, the covert modem (gesolo.py's GE_GADGET_MODELS)
 		for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
 			setAdd(allmodels, g_IntroGuns[i]);
 		}

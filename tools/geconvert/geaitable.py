@@ -287,7 +287,7 @@ TABLE = [
     ('BondEquipItem',                       2,    [('ITEM_NUM', 1)],                             0x00ec, (('=', 242, 1), 0),                          'hand'),  # e3 aiChrDrawWeapon
     ('BondEquipItemCinema',                 2,    [('ITEM_NUM', 1)],                             0x00ed, (('=', 242, 1), 0),                          'hand'),  # e4 aiChrDrawWeaponInCutscene
     ('BondSetLockedVelocity',               3,    [('X_SPEED60', 1), ('Z_SPEED60', 1)],          0x00ee, (('=', 242, 1), 0, 1),                       'hand'),  # e5 ai00ee
-    ('IFObjectInRoomWithPad',               5,    [('OBJECT_TAG', 1), ('PAD', 2), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # e6 -
+    ('IFObjectInRoomWithPad',               5,    [('OBJECT_TAG', 1), ('PAD', 2), ('GOTOLABEL', 1)], 0x00ef, (0, 1, 2),                                   'hand'),  # e6 aiIfObjInRoom
     ('IFImFiringAndLockedForward',          2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # e7 -
     ('IFImFiring',                          2,    [('GOTOLABEL', 1)],                            0x00f1, (0,),                                        'hand'),  # e8 aiIfAttacking
     ('SwitchSky',                           1,    [],                                            0x00f2, (),                                          'hand'),  # e9 aiSwitchToAltSky

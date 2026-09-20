@@ -150,12 +150,15 @@ GE_AMMO_TYPES = {
     11: (0x0b,),        # GRENADEROUND   the grenade launcher stands on the Devastator
     12: (0x0a,),        # MAGNUM
     13: (0x0a,),        # GGUN           the golden gun stands on the DY357-LX
+    20: (0x20,),        # BUG            the covert modem stands on the ECM mine
 }
 
 # The commands whose ITEM_NUM is a weapon somebody holds (geaitable.py): the two
 # that put an item in Bond's hands (e3, e4) and the one that asks what is in
-# them (59). An item anywhere else is a key or a gadget's tag and is left alone.
-GE_EQUIP_OPS = (0xe3, 0xe4, 0x59)
+# them (59), and the two that ask where a *thrown* one ended up (57 and 58:
+# Dam's covert modem on its console, Bunker 2's remote mine). An item anywhere
+# else is a key or a gadget's tag and is left alone.
+GE_EQUIP_OPS = (0xe3, 0xe4, 0x59, 0x57, 0x58)
 
 # And the two that hand a *guard* a gun or take one off him - TRYGiveMeItem (bf)
 # and TRYDroppingItem (1b) - which name the gun twice: its prop number and its
@@ -177,6 +180,26 @@ GE_GIVE_OPS = (0xbf, 0x1b)
 # reads as 7.6 against a maximum of 8 and is true whatever his health is.
 GE_BOND_HEALTH_OPS = (0x7f, 0x80)
 GE_BOND_HEALTH_FULL = 80          # and GoldenEye's own is 255
+
+# The four commands that ask whether something is in **a pad's room** (44, 54,
+# 55 and e6). GoldenEye's argument is a pad and it compares the room of the
+# pad's tile with the room of the other's (chraction.c, chrIfInPadRoom()).
+# Perfect Dark's argument is a **room number** - chrGetPadRoom() returns it as
+# it stands - unless it is 10000 or more, when it is a pad plus 10000 and the
+# answer is that pad's room. Copied as it stood, "Bond is in the room of pad
+# 330" asked for room 330, which Dam does not have: no trigger of the kind had
+# ever fired on a converted mission, Dam's dive among them.
+GE_PADROOM_OPS = (0x44, 0x54, 0x55, 0xe6)
+PD_PADROOM_PAD = 10000
+
+# IFBondYPosLessThan (d6) has no twin in Perfect Dark and becomes the port's own
+# command, past the game's table beside aiGeExitOnButtonPress:
+#     01e3 <y:4, signed> <label:1>
+# GoldenEye's height is in its own runtime world, so it moves by the level's
+# offset as everything else in the conversion does; four bytes because a moved
+# height need not fit GoldenEye's two.
+GE_IFBONDY_OP = 0xd6
+GE_IFBONDY_CMD = 0x01e3
 
 # GoldenEye's own **global** AI lists: chraidata.c's g_GlobalAILists, eighteen
 # lists every level shares - the standard guard, the simple guard, the attack,
@@ -222,8 +245,20 @@ def global_lists(data):
         out.append((lid, ptr - gerom.DATA_VRAM))
 
 
+# GoldenEye's gadgets that are *thrown and stick*, which its own code treats as
+# mines from the hand to the wall (gun.c, gunfire.c): they become weapons of the
+# port's own past the twenty-five guns, each hosted on the Perfect Dark gadget
+# that does the same (geguns.c). Dam's covert modem is ITEM_BUG, thrown as
+# PROP_CHRBUG and counted in AMMO_BUG; its host is the ECM mine.
+GE_GADGET_WEAPON = {
+    47: 0x77,           # BUG            covert modem  WEAPON_GE_COVERTMODEM
+}
+GE_GADGET_MODELS = (245,)   # PROP_CHRBUG, which no setup record names
+
 def item_weapon(item):
     """A GoldenEye item id as the weapon Perfect Dark equips for it."""
+    if item in GE_GADGET_WEAPON:
+        return GE_GADGET_WEAPON[item]
     return GE_ITEM_WEAPON[item] if item < len(GE_ITEM_WEAPON) else 0
 
 
@@ -774,7 +809,7 @@ def ai_length(d, at):
     return end - at + 1
 
 
-def convert_ailist(d, at, stats, numpads, vehicle=False):
+def convert_ailist(d, at, stats, numpads, vehicle=False, offset=None):
     """One GoldenEye AI list as Perfect Dark bytecode (geaitable.py).
 
     A command's pad argument is moved the way a record's is: GoldenEye's bound
@@ -822,6 +857,14 @@ def convert_ailist(d, at, stats, numpads, vehicle=False):
                 at += ln
                 continue
             stats['anims'].add(anim)
+        if op == GE_IFBONDY_OP:
+            y = struct.unpack_from('>h', d, at + 1)[0]
+            if offset is not None:
+                y -= int(round(float(offset[1])))
+            out += struct.pack('>HiB', GE_IFBONDY_CMD, y, d[at + 3])
+            stats['ai_kept'] += 1
+            at += ln
+            continue
         if pd is None:
             stats['ai_dropped'][name] = stats['ai_dropped'].get(name, 0) + 1
         else:
@@ -830,6 +873,8 @@ def convert_ailist(d, at, stats, numpads, vehicle=False):
                 v = int.from_bytes(d[o:o + w], 'big')
                 if 'PAD' in a and w >= 2:
                     v = pad_num(v, numpads)
+                    if op in GE_PADROOM_OPS and v != NO_PAD:
+                        v += PD_PADROOM_PAD
                 elif a == 'TEXT_SLOT':
                     v = text_id(v)
                 elif a == 'AI_LIST_ID':
@@ -878,7 +923,7 @@ def vehicle_lists(d):
     return out
 
 
-def convert_ailists(d, at, stats, numpads, data=None):
+def convert_ailists(d, at, stats, numpads, data=None, offset=None):
     """The mission's own AI lists, and GoldenEye's global ones after them.
 
     The table is **sorted by id and holds each id once**, which GoldenEye's own
@@ -916,7 +961,7 @@ def convert_ailists(d, at, stats, numpads, data=None):
     pos = at + head
     table, code = b'', b''
     for lid, buf, ptr, isvehicle in kept:
-        blob = convert_ailist(buf, ptr, stats, numpads, isvehicle)
+        blob = convert_ailist(buf, ptr, stats, numpads, isvehicle, offset)
         table += struct.pack('>Ii', pos, lid)
         code += blob
         pos += len(blob)
@@ -940,7 +985,7 @@ def convert(d, numpads, bodies, scale=None, offset=None, data=None):
     paths_at = props_at + len(props)
     paths, pathpads = convert_paths(d, paths_at, numpads)
     ai_at = paths_at + len(paths) + len(pathpads)
-    ailists, aicode = convert_ailists(d, ai_at, stats, numpads, data)
+    ailists, aicode = convert_ailists(d, ai_at, stats, numpads, data, offset)
     out = struct.pack('>8I', 0, 0, 0, intro_at, props_at, paths_at, ai_at, 0)
     out += intro + props + paths + pathpads + ailists + aicode
     # and the guns its lists hand out, which no record need name

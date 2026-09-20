@@ -6450,6 +6450,7 @@ struct weapon *g_Weapons[] = {
 	[WEAPON_GE_TIMEDMINE       ] = &g_GeWeaponDefs[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST],
 	[WEAPON_GE_PROXIMITYMINE   ] = &g_GeWeaponDefs[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST],
 	[WEAPON_GE_REMOTEMINE      ] = &g_GeWeaponDefs[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST],
+	[WEAPON_GE_COVERTMODEM     ] = &g_GeWeaponDefs[WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST],
 #endif
 };
 
@@ -6483,5 +6484,9 @@ const u8 g_GeWeaponHosts[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = WEAPON_TIMEDMINE,
 	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = WEAPON_PROXIMITYMINE,
 	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = WEAPON_REMOTEMINE,
+	// GoldenEye throws the modem as it throws a mine and it sticks where it
+	// lands (gun.c's ITEM_BUG); the ECM mine is the one of Perfect Dark's that
+	// does that and nothing else
+	[WEAPON_GE_COVERTMODEM     - WEAPON_GE_FIRST] = WEAPON_ECMMINE,
 };
 #endif

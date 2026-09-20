@@ -5973,3 +5973,91 @@ frame by frame; read a gdb struct through a fresh `parse_and_eval` each time),
 `g_InteractProp` is only ever set inside that call, so reading it at the end
 of a frame says nothing), `gatewatch.py` (a hardware watchpoint on a door's
 mode, which named the guard's list in one run).
+
+## Dam's dive, and the covert modem (2026-09-20)
+
+The user: *"lets perfect dam solo mission. we need to add the gadgets, and the
+end objective to dive off dam is not working yet."* Converter **47**.
+
+### The dive never fired: two faults, both game-wide
+
+Dam's last list (`0x1004`, the decompilation's `ai_24`) waits on
+`if_bond_in_room_with_pad(0x014a)`, then sets the objective's bit, takes damage
+and control away, empties the hands, gives Bond a forced velocity of (0, 4) and
+waits for his height to pass under -17000 or 350 ticks, fades, and goes to the
+outro if every objective is complete or to `m_EndLevel` if not.
+
+**A pad's room was read as a room number.** GoldenEye's four "in the room of
+this pad" commands (44 `IFRoomWithPadIsOnScreen`, 54 `IFChrInRoomWithPad`, 55
+`IFBondInRoomWithPad`, e6 `IFObjectInRoomWithPad`) take a **pad** and compare
+the pad's tile's room with the other's (`chrIfInPadRoom()`). Perfect Dark's
+twins all go through `chrGetPadRoom()`, which returns its argument **as the
+room** unless it is 10000 or more, when it is a pad plus 10000. Copied as it
+stood, "Bond is in pad 330's room" asked about room 330. The conversion adds
+10000 (after `pad_num()`, so a bound pad and the 9000 preset still work).
+**264 `IFBondInRoomWithPad` alone over the twenty missions - no room trigger
+had ever fired on a converted mission.** `IFObjectInRoomWithPad` had no row at
+all and is `aiIfObjInRoom` (0x00ef) now.
+
+**A background chr's target is prop 0.** The list runs on a background chr
+(ids from 0x1000), `game_00b820.c` makes those from a zeroed struct, and
+`chrGetTargetProp()` reads a target of 0 as `g_Vars.props + 0` - on Dam, a
+guard. Perfect Dark's own lists never notice because they name the player
+outright; GoldenEye's "Bond" commands became Perfect Dark's *target* ones
+(`aiIfTargetInRoom`, the two distances from the target to a pad). On a remake
+stage a background chr's target is -1 now, which is the player. `--ai-trace`
+showed it in one run: `target 0` on every line of the list.
+
+**`IFBondYPosLessThan` (d6) had no twin** and is the port's own command
+`aiGeIfBondYLessThan` at **0x01e3** (seven bytes: a four-byte signed height and
+the label). The height is in GoldenEye's runtime world, so it moves by the
+level's offset - which is why `writeSoloAilist()`/`convert_ailist()` take the
+offset now. On Dam the 350 ticks always win (he falls about 11000 in them and
+the line is 17000 down), which is GoldenEye's own arithmetic.
+
+Measured (`build/gexrom/diveprobe.py`, the player put on pad 330): trigger at
+the first frame, objective 4 complete, force (0, 4), fade at +350, and with the
+other three objectives complete (`damfull.py`) the outro's three shots play
+with Bond on the platform. **Not judged against the oracle:** what the fall
+*looks* like - ours is sky and a blue void with a red band once he is far under
+the level, since he faces away from the dam.
+
+### The covert modem
+
+GoldenEye's modem is `ITEM_BUG` (47), counted in `AMMO_BUG` (20) and thrown as
+`PROP_CHRBUG` (245) - and its own code treats it **as a mine** from the hand to
+the wall (gun.c, gunfire.c). Dam's list `0x1000` asks
+`if_item_is_attached_to_object(0x2f, 5)` (complete) and
+`if_item_is_stationary_within_level(0x2f)` (failed: "incorrectly installed"),
+which are Perfect Dark's `aiIfWeaponThrownOnObject` and `aiIfWeaponThrown` and
+were already mapped - with GoldenEye's raw item number, so they asked about
+Perfect Dark's weapon 0x2f. Both go through `item_weapon()` now (ops 57 and 58;
+Bunker 2's remote mine on its object is the other use).
+
+So the modem is a weapon of the port's own, **`WEAPON_GE_COVERTMODEM` (0x77)**,
+hosted on the **ECM mine**, which is the one thing of Perfect Dark's that is
+thrown, sticks and does nothing else. `NUM_GE_WEAPONS` is 26 and the new
+**`NUM_GE_GUNS`** (25) is where the Combat Simulator rows, gebean.c's pickup
+and first-person fits and modborrow.c's GoldenEye X slots stop - a gadget is a
+mission's own and has none of them. Its model is GoldenEye's own prop where the
+conversion is loaded (`playermgrGetModelOfWeapon()` answers
+`MODEL_REMAKE_FIRST + 245`; the converters add 245 to the models block, which
+only ever held what a setup record names) and the thrown prop is made from that
+too - **but the throw function's `projectilemodelnum` stays the host's**, since
+`MODEL_CHRECMMINE` there is what says a mine sticks. Its throw is named "Attach
+Modem" (the host's is "Jamming Device").
+
+Measured (`build/gexrom/modemprobe.py`): Bond starts Dam with "Covert Modem" x1;
+thrown at a wall, "Covert modem incorrectly installed." and objective 2 failed;
+thrown at the monitor (tag 5), GoldenEye's modem prop is its child, "Covert
+modem installed.", objective 2 complete; using the mainframe (tag 6) then runs
+the ten-second countdown and completes objective 3. **Probe trap:** a pad's y
+is not the floor's - aim from the player's *settled* eye position, not from
+pad + 160; two throws hit the floor before that.
+
+**Still GoldenEye's gadgets nobody holds:** Bunker 1's camera (40), key
+analyser (46) and data thief (55), Aztec's 50, the watch magnet (60) on
+Archives and Bunker 2 - `if_bond_used_gadget_on_object` is
+`aiIfChrActivatedObject` and wants the item *equipped*, which nothing checks
+yet. The first-person modem is the ECM mine's model (the ROM's first-person
+models convert as `Igx%03uZ` and are still not drawn).

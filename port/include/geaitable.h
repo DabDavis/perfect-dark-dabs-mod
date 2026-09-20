@@ -50,6 +50,12 @@
 //     01e2 <anim id:2> <start frame:2> <end frame:2> <interpolate:1>
 #define GEVEH_ANIM_CMD 0x01e2
 
+// And the one that asks whether Bond is under a height - GoldenEye's
+// IFBondYPosLessThan, which Perfect Dark has no command for. Dam's dive waits
+// on it. Seven bytes, the height already moved into the converted level:
+//     01e3 <y:4, signed> <label:1>
+#define GEAI_IFBONDY_CMD 0x01e3
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a
@@ -314,7 +320,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* e3 BondEquipItem                          */ {  2, 0x00ec,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
 	/* e4 BondEquipItemCinema                    */ {  2, 0x00ed,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
 	/* e5 BondSetLockedVelocity                  */ {  3, 0x00ee,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {-1, 1, 0x00f2}, {0, 1, 0}, {1, 1, 0} } },
-	/* e6 IFObjectInRoomWithPad                  */ {  5,     -1,  3, { 1, 2, 1 }, 0x0002, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* e6 IFObjectInRoomWithPad                  */ {  5, 0x00ef,  3, { 1, 2, 1 }, 0x0002, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 2, 0}, {2, 1, 0} } },
 	/* e7 IFImFiringAndLockedForward             */ {  2,     -1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* e8 IFImFiring                             */ {  2, 0x00f1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* e9 SwitchSky                              */ {  1, 0x00f2,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },

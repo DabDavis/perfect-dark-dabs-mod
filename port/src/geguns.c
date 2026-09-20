@@ -35,7 +35,7 @@
 
 _Static_assert(MODEL_GE_FIRST + NUM_GE_WEAPONS <= MODEL_REMAKE_FIRST,
 		"a model state per GoldenEye gun, before the remake's models");
-_Static_assert(NUM_MPWEAPONS - MPWEAPON_GE_FIRST == NUM_GE_WEAPONS,
+_Static_assert(NUM_MPWEAPONS - MPWEAPON_GE_FIRST == NUM_GE_GUNS,
 		"a Combat Simulator row per GoldenEye gun");
 _Static_assert(NUM_WEAPONS <= 0x80, "gunctrl.weaponnum is an s8");
 
@@ -65,6 +65,7 @@ static const char *const names[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = "Timed Mine\n",
 	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = "Proximity Mine\n",
 	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = "Remote Mine\n",
+	[WEAPON_GE_COVERTMODEM     - WEAPON_GE_FIRST] = "Covert Modem\n",
 };
 
 /**
@@ -453,10 +454,18 @@ u32 gegunsHandsFlag(s32 index)
 static void gegunsNameThrow(s32 i)
 {
 	static u16 throwname;
+	static u16 modemname;
 	struct weapon *def = &g_GeWeaponDefs[i];
+	const s32 weaponnum = WEAPON_GE_FIRST + i;
+	u16 *name;
 
-	// the grenade and the mines are thrown too, and keep their own names
-	if (WEAPON_GE_FIRST + i != WEAPON_GE_HUNTINGKNIFE && WEAPON_GE_FIRST + i != WEAPON_GE_THROWINGKNIFE) {
+	// the grenade and the mines are thrown too, and keep their own names; the
+	// covert modem's host is the ECM mine, whose throw is a "Jamming Device"
+	if (weaponnum == WEAPON_GE_HUNTINGKNIFE || weaponnum == WEAPON_GE_THROWINGKNIFE) {
+		name = &throwname;
+	} else if (weaponnum == WEAPON_GE_COVERTMODEM) {
+		name = &modemname;
+	} else {
 		return;
 	}
 
@@ -468,15 +477,15 @@ static void gegunsNameThrow(s32 i)
 			continue;
 		}
 
-		if (!throwname) {
-			throwname = langAddPortText("Throw Knife\n");
+		if (!*name) {
+			*name = langAddPortText(name == &modemname ? "Attach Modem\n" : "Throw Knife\n");
 		}
 
 		copy = malloc(gegunsFuncSize(func->type));
 
 		if (copy) {
 			memcpy(copy, func, gegunsFuncSize(func->type));
-			copy->name = throwname;
+			copy->name = *name;
 			def->functions[f] = copy;
 		}
 	}

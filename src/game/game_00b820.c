@@ -8,6 +8,9 @@
 #include "game/setuputils.h"
 #include "bss.h"
 #include "lib/memp.h"
+#ifndef PLATFORM_N64
+#include "geroom.h"
+#endif
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
@@ -86,6 +89,18 @@ void stageAllocateBgChrs(void)
 				g_BgChrs[count].aioffset = 0;
 				g_BgChrs[count].aireturnlist = -1;
 				g_BgChrs[count].actiontype = ACT_NULL;
+#ifndef PLATFORM_N64
+				// A background chr's target is left at nought, which is prop 0
+				// and whoever happens to hold it - Perfect Dark's own lists
+				// name the player outright and never notice. A converted
+				// GoldenEye list cannot: its "Bond" commands became Perfect
+				// Dark's *target* ones (aiIfTargetInRoom, the distances to a
+				// pad), and on Dam prop 0 is a guard, so the list that ends the
+				// mission was asking whether he had reached the platform.
+				if (geRoomActive()) {
+					g_BgChrs[count].target = -1;
+				}
+#endif
 				count++;
 			}
 

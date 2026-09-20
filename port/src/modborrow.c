@@ -68,7 +68,7 @@
 static const struct {
 	u8 slot;
 	const char *model;
-} geSlots[NUM_GE_WEAPONS] = {
+} geSlots[NUM_GE_GUNS] = {
 	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = {  3, "GwppkZ" },
 	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = {  4, "GwppkZ" },
 	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = {  5, "Gtt33Z" },
@@ -180,7 +180,7 @@ static s32 borrowScoreGoldenEye(const char *dir, struct moddataspec *spec)
 		return 0;
 	}
 
-	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
+	for (s32 i = 0; i < NUM_GE_GUNS; i++) {
 		const u32 def = modDataBorrowRd32(b, spec->weapons + geSlots[i].slot * 4);
 		u8 hi[2];
 		const char *name;
@@ -237,7 +237,7 @@ static void borrowFind(void)
 	}
 
 	if (src.found > 0) {
-		sysLogPrintf(LOG_NOTE, "modborrow: GoldenEye's guns come from `%s` (%d of %d slots)", src.name, best, NUM_GE_WEAPONS);
+		sysLogPrintf(LOG_NOTE, "modborrow: GoldenEye's guns come from `%s` (%d of %d slots)", src.name, best, NUM_GE_GUNS);
 	} else {
 		sysLogPrintf(LOG_NOTE, "modborrow: no installed mod has GoldenEye's guns");
 	}
@@ -1139,7 +1139,7 @@ static u8 borrowSetWeapon(u8 modweapon)
 		return modweapon;
 	}
 
-	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
+	for (s32 i = 0; i < NUM_GE_GUNS; i++) {
 		if (geSlots[i].slot == modweapon && gegunsIsBorrowed(i)) {
 			return WEAPON_GE_FIRST + i;
 		}
@@ -1237,7 +1237,7 @@ void modBorrowCommit(void)
 	struct moddataborrow *b;
 	s32 borrowed = 0;
 
-	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
+	for (s32 i = 0; i < NUM_GE_GUNS; i++) {
 		gegunsBorrow(i, NULL, 0, 0);
 	}
 
@@ -1254,7 +1254,7 @@ void modBorrowCommit(void)
 	// the sound remap reads the mod's own tables through it
 	src.reader = b;
 
-	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
+	for (s32 i = 0; i < NUM_GE_GUNS; i++) {
 		const u32 def = modDataBorrowRd32(b, src.spec.weapons + geSlots[i].slot * 4);
 		struct weapon *w;
 		u8 hi[2];

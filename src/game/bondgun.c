@@ -4715,6 +4715,15 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 			obj = &autogun->base;
 		}
 	} else {
+#ifndef PLATFORM_N64
+		// The function's model is the host's, and is what says a mine sticks
+		// (below); one of GoldenEye's gadgets is thrown as its own prop where
+		// the conversion has it (playermgrGetModelOfWeapon())
+		if (gset->weaponnum == WEAPON_GE_COVERTMODEM
+				&& playermgrGetModelOfWeapon(gset->weaponnum) >= MODEL_REMAKE_FIRST) {
+			weaponobj = weaponCreateProjectileFromGset(playermgrGetModelOfWeapon(gset->weaponnum), gset, chr);
+		} else
+#endif
 		weaponobj = weaponCreateProjectileFromGset(func->projectilemodelnum, gset, chr);
 
 		if (weaponobj != NULL) {

@@ -4814,6 +4814,10 @@ enum weaponnum {
 	/*0x74*/ WEAPON_GE_TIMEDMINE,        // Timed Mine
 	/*0x75*/ WEAPON_GE_PROXIMITYMINE,    // Proximity Mine
 	/*0x76*/ WEAPON_GE_REMOTEMINE,       // Remote Mine
+	// GoldenEye's thrown gadgets, past its guns: a mission's own, so with no
+	// Combat Simulator row, no pickup out of the XBLA release and nothing
+	// borrowed from GoldenEye X (NUM_GE_GUNS is where those tables stop).
+	/*0x77*/ WEAPON_GE_COVERTMODEM,      // ECM Mine
 #endif
 	NUM_WEAPONS
 };
@@ -4821,6 +4825,7 @@ enum weaponnum {
 #ifndef PLATFORM_N64
 #define WEAPON_GE_FIRST WEAPON_GE_PP7
 #define NUM_GE_WEAPONS  (NUM_WEAPONS - WEAPON_GE_FIRST)
+#define NUM_GE_GUNS     (WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST)
 #endif
 
 #define WEAPON_MPLOCATION00 240

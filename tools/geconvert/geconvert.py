@@ -1325,6 +1325,7 @@ def main():
     allmodels.add(MENU_TV_MODEL)
     allmodels.add(INTRO_LOGO_MODEL)
     allmodels.update(INTRO_GUNS)
+    allmodels.update(gesolo.GE_GADGET_MODELS)
     alltex.update(MENU_IMAGES)
     os.makedirs(os.path.join(outdir, 'menu'), exist_ok=True)
     rom = gefiles.rom()

@@ -10092,3 +10092,28 @@ bool aiGeVehicleAnim(void)
 }
 #endif
 
+
+#ifndef PLATFORM_N64
+/**
+ * @cmd 01e3
+ *
+ * GoldenEye's IFBondYPosLessThan: branch when the player's prop is under a
+ * height. Perfect Dark has no command that asks it, so this is the port's own;
+ * Dam's last list waits on it while Bond falls from the platform. The height
+ * is four signed bytes, already moved into the converted level.
+ */
+bool aiGeIfBondYLessThan(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	const s32 y = (s32)((u32)cmd[2] << 24 | (u32)cmd[3] << 16 | (u32)cmd[4] << 8 | (u32)cmd[5]);
+	struct prop *prop = g_Vars.bond ? g_Vars.bond->prop : NULL;
+
+	if (prop && prop->pos.y < (f32)y) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
+	} else {
+		g_Vars.aioffset += 7;
+	}
+
+	return false;
+}
+#endif

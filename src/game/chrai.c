@@ -517,6 +517,7 @@ bool (*g_CommandPointers[])(void) = {
 	// 0xe7), so nothing else is expected out here.
 	/*0x01e1*/ aiGeExitOnButtonPress,
 	/*0x01e2*/ aiGeVehicleAnim,
+	/*0x01e3*/ aiGeIfBondYLessThan,
 #endif
 };
 
@@ -648,6 +649,7 @@ u16 g_CommandLengths[] = {
 #ifndef PLATFORM_N64
 	/*0x01e1*/ 2,
 	/*0x01e2*/ 9,
+	/*0x01e3*/ 7,
 #endif
 };
 

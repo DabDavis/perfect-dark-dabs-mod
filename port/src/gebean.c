@@ -282,7 +282,7 @@ static const struct gebeangunrow gunRows[] = {
 #include "gegunstable.h"
 };
 
-_Static_assert(ARRAYCOUNT(gunRows) == NUM_GE_WEAPONS, "a pickup row per GoldenEye gun");
+_Static_assert(ARRAYCOUNT(gunRows) == NUM_GE_GUNS, "a pickup row per GoldenEye gun");
 
 static s32 gunSlot[ARRAYCOUNT(gunRows)];
 
@@ -315,7 +315,7 @@ static const struct gebeangunrow propRows[] = {
 
 #define FPROW(file, source) { file, 0, 0, GEBEAN_FIRSTPERSON, source }
 
-static const struct gebeanrow fpRows[NUM_GE_WEAPONS] = {
+static const struct gebeanrow fpRows[NUM_GE_GUNS] = {
 	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = FPROW("GgePP7Z",             "gun/ppk"),
 	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = FPROW("GgePP7silZ",          "gun/ppksilenced"),
 	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = FPROW("GgeDD44Z",            "gun/tt33"),
