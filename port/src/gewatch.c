@@ -87,7 +87,9 @@
 #include "lib/main.h"
 #include "lib/model.h"
 #include "lib/mtx.h"
+#include "lib/rng.h"
 #include "lib/snd.h"
+#include "gesfx.h"
 #include "lib/vi.h"
 
 /* ---- GoldenEye's own numbers --------------------------------------------- */
@@ -1127,16 +1129,37 @@ static void watchSetState(s32 state)
 	g_Watch.timer = 0.0f;
 }
 
-// GoldenEye's own beeps are its sound bank's, which a level here does not
-// have loaded; the menu's are the nearest thing the game underneath carries
-static void watchBeep(void)
+/**
+ * The watch's sounds, out of GoldenEye's own bank (gesfx.c), which has four:
+ * CAMERA_BEEP1 for every move and every press (options.c's
+ * sub_GAME_7F0A5210() and mpmenu.c's mpwatchPlayBeep()), WATCH_STATIC for the
+ * interference that follows one press in thirty-two on the solo watch, and
+ * WATCH_ON and WATCH_OFF as the view zooms to the face and away from it
+ * (bondview2.c). Perfect Dark's menu sounds are played only where the
+ * conversion has no bank: one made before version 39 whose ROM has gone.
+ */
+static void watchSfx(s32 id, s32 menusound)
 {
-	menuPlaySound(MENUSOUND_FOCUS);
+	if (!geSfxPlay(id, GESFX_VOLUME) && geSfxGet(id) <= 0) {
+		menuPlaySound(menusound);
+	}
 }
 
+static void watchBeep(void)
+{
+	watchSfx(GESFX_CAMERA_BEEP1, MENUSOUND_FOCUS);
+
+	// D_80040B10 is 0xf800: static when a random word is over 0xf8000000,
+	// and only on the solo watch, the multiplayer one having a beep alone
+	if (g_Vars.mplayerisrunning == 0 && (rngRandom() >> 27) == 0x1f && geSfxGet(GESFX_WATCH_STATIC) > 0) {
+		geSfxPlay(GESFX_WATCH_STATIC, GESFX_VOLUME);
+	}
+}
+
+// a press is the same beep as a move in GoldenEye
 static void watchPlaySelect(void)
 {
-	menuPlaySound(MENUSOUND_SELECT);
+	watchBeep();
 }
 
 /**
@@ -1869,7 +1892,7 @@ void geWatchTick(void)
 		if (g_Watch.statetime == 1) {
 			watchSetPaused(1);
 			watchZoomIn();
-			watchPlaySelect();
+			watchSfx(GESFX_WATCH_ON, MENUSOUND_SELECT);
 		}
 
 		if (!watchZooming()) {
@@ -1882,7 +1905,7 @@ void geWatchTick(void)
 	case WS_CLOSING:
 		if (g_Watch.statetime >= 3) {
 			watchSetState(WS_ZOOMOUT);
-			watchBeep();
+			watchSfx(GESFX_WATCH_OFF, MENUSOUND_FOCUS);
 		}
 		break;
 	case WS_ZOOMOUT:

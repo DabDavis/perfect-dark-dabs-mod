@@ -3252,21 +3252,48 @@ start, once each because sounds share envelopes, key maps and waves.
 - **A key map's `velocityMin` and the top two bits of `keyMin` are the *next*
   sound to play**, by number, in both games' players (`n_sndplayer.c:751`). In
   an appended GoldenEye sound that number would name one of Perfect Dark's, and
-  an appended id does not fit in its ten bits, so a chain is cut and logged.
-  The shot has none; **a chained GoldenEye sound needs its links played by
-  hand** before it is used.
-- **The balance.** The intro's theme plays at Perfect Dark's menu scale
-  (0x4ccc), not GoldenEye's full volume, so the shot at `AL_VOL_FULL` stood
-  four times over the music where the console capture has it about level
-  (shot alone / music before it, 50 ms rms: 1.25). `INTRO_SHOT_VOLUME` 0x2666
-  measures 1.26 - the gain is linear in the volume. Measured with
-  `SDL_AUDIODRIVER=disk`, the file's size read from gdb at `geIntroOpen()` and
-  at a breakpoint on `geSfxPlay` giving the shot's place in the recording
-  (22050 Hz stereo s16: 88200 bytes a second).
+  an appended id does not fit in its ten bits. So the links are read out of the
+  bank as it loads (`g_SfxNext[]`, before anything is rebased, since sounds
+  share key maps), taken off the key map, and `geSfxPlay()` starts every link
+  itself **all at once** - a link is not played after the one before it but
+  after its *own* `velocityMax` thirtieths of a second, which the player
+  underneath still does for a sound started alone. `DOOR_METAL_CLOSE` (197) is
+  the one that needs it: its second half is 87, `CONSOLE_ON2`, a third of a
+  second on - an endlessly looped wave that its own envelope fades over a
+  second and a half, which is the hum after the mode select's door and not a
+  stuck sound.
+- **The balance comes from GoldenEye's own tables, not from a capture.**
+  GoldenEye plays an effect at full volume over music at its track's default
+  (`g_musicDefaultTrackVolume[]`: `M_INTRO` 0x7332, the folders, the watch and
+  the levels 0x6665), and its music plays here at Perfect Dark's menu scale
+  (0x4ccc), so an effect keeps the balance at the same share of full:
+  `GESFX_VOLUME_INTRO` 0x5555 and `GESFX_VOLUME` 0x5fff. The gain is linear in
+  the volume (measured). **The YouTube capture had the shot about level with
+  the theme (1.25) and that was the upload's limiter**: the oracle's
+  `PORT_AUDIO_WAV=<path>`, which is the real audio microcode's DAC stream, has
+  it at 2.3, and the tables come to 2.7 - so the shot first shipped at 0x2666,
+  less than half as loud as it should be (fcb7398f6, corrected the same day).
+  Measure sound against the oracle's WAV; a capture is only good for *when*.
+  Recorded here with `SDL_AUDIODRIVER=disk`, the file's size read from gdb at
+  a breakpoint placing an event in it (22050 Hz stereo s16: 88200 bytes a
+  second), and `optionsSetMusicVolume(0)` from gdb to hear an effect alone.
 
-The folder screens and the watch still play Perfect Dark's menu sounds
-(`menuPlaySound()`); GoldenEye's own are in the same bank and are the next
-thing `geSfxPlay()` is for.
+**The folder screens and the watch play GoldenEye's sounds too** (2026-09-20).
+GoldenEye's front end has three: `DOOR_METAL_CLOSE2` (199) for every accept,
+back and tab on every screen, `DOOR_METAL_CLOSE` (197) for the mode select's
+choices and `PAPER_TURN` (77) for a difficulty picked - and **none at all** for
+a cursor or a value that moves (handicap, control style, the character strip)
+or for a press on something that is not there, so those are silent now
+(`frontSfx()`). Its file select has more (`OPTION_CLICK2`, a gun, a lock, a
+copy) and the remake has no file select. The watch has four (`watchSfx()`):
+`CAMERA_BEEP1` (159) for every move *and* every press, solo and multiplayer,
+`WATCH_STATIC` (236) after one solo press in thirty-two (`D_80040B10` 0xf800
+against a random word), and `WATCH_ON` (237) / `WATCH_OFF` (238) as the view
+zooms to the face and away (bondview2.c's states 4 and 0xc, this port's
+`WS_ZOOMIN` and the end of `WS_CLOSING`). Perfect Dark's menu sound is played
+only where the conversion has no bank - one from before version 39 whose ROM
+has gone. The watch's idle interference (options.c:1509, a flicker of the
+face's green with the same static) is not done.
 
 ## The folder screens' background on a wide window (2026-09-19)
 

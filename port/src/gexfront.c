@@ -64,6 +64,7 @@
 #include "gexplus.h"
 #include "gecinema.h"
 #include "gexfront.h"
+#include "gesfx.h"
 #include "game/modghost.h"
 #include "preprocess.h"
 #include "game/challenge.h"
@@ -1637,6 +1638,22 @@ static void frontStartCinema(s32 mission)
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
 }
 
+/**
+ * A sound of the folder's, out of GoldenEye's own bank (gesfx.c). GoldenEye's
+ * front end has three: DOOR_METAL_CLOSE2 for every accept, back and tab,
+ * DOOR_METAL_CLOSE for the mode select's choices and PAPER_TURN for a
+ * difficulty picked - and none at all for a cursor or a value that moves, or
+ * for a press on something that is not there. Perfect Dark's own is played
+ * only where the conversion has no bank: one made before version 39 and kept
+ * because the ROM has gone since.
+ */
+static void frontSfx(s32 id, s32 menusound)
+{
+	if (!geSfxPlay(id, GESFX_VOLUME) && geSfxGet(id) <= 0) {
+		menuPlaySound(menusound);
+	}
+}
+
 static void frontTickCinema(s32 pick, s32 back)
 {
 	const s32 first = g_Front.cinemapage * LEVELS_PER_PAGE;
@@ -1656,20 +1673,20 @@ static void frontTickCinema(s32 pick, s32 back)
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		g_Front.screen = SCREEN_MODE;
 		frontSetCursorForMode(2);
 		return;
 	}
 
 	if (pick && g_Front.tabnext) {
-		menuPlaySound(MENUSOUND_SWIPE);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SWIPE);
 		g_Front.cinemapage = (g_Front.cinemapage + 1) % ((NUM_MISSIONS + LEVELS_PER_PAGE - 1) / LEVELS_PER_PAGE);
 		return;
 	}
 
 	if (pick && g_Front.highlight >= 0) {
-		menuPlaySound(MENUSOUND_SELECT);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		g_Front.mission = first + g_Front.highlight;
 		frontStartCinema(g_Front.mission);
 	}
@@ -1694,19 +1711,19 @@ static void frontTickLevel(s32 pick, s32 back)
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		g_Front.screen = SCREEN_MPOPTIONS;
 		return;
 	}
 
 	if (pick && g_Front.tabnext) {
-		menuPlaySound(MENUSOUND_SWIPE);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SWIPE);
 		g_Front.levelpage = (g_Front.levelpage + 1) % ((g_Front.numlevels + LEVELS_PER_PAGE - 1) / LEVELS_PER_PAGE);
 		return;
 	}
 
 	if (pick && g_Front.highlight >= 0) {
-		menuPlaySound(MENUSOUND_SELECT);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		g_MpSetup.stagenum = g_Front.levels[first + g_Front.highlight];
 		g_Front.screen = SCREEN_MPOPTIONS;
 	}
@@ -1732,13 +1749,13 @@ static void frontTickScenario(s32 pick, s32 back)
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		g_Front.screen = SCREEN_MPOPTIONS;
 		return;
 	}
 
 	if (pick && g_Front.highlight >= 0) {
-		menuPlaySound(MENUSOUND_SELECT);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		gexPlusSetScenario(g_FrontScenarios[g_Front.highlight]);
 		frontApplyScenarioRules();
 		g_Front.screen = SCREEN_MPOPTIONS;
@@ -1776,7 +1793,7 @@ static void frontTickPlayerPanels(void)
 		if (g_Front.chosen[i]) {
 			if (unpick) {
 				g_Front.chosen[i] = 0;
-				menuPlaySound(MENUSOUND_TOGGLEOFF);
+				frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 			}
 		} else if (left || right) {
 			if (g_Front.screen == SCREEN_HEALTH) {
@@ -1785,19 +1802,17 @@ static void frontTickPlayerPanels(void)
 				if (next >= 0 && next < NUM_HANDICAPS) {
 					g_Front.handicap[i] = next;
 					g_PlayerConfigsArray[i].handicap = frontHandicapValue(next);
-					menuPlaySound(MENUSOUND_SUBFOCUS);
 				}
 			} else {
 				const s32 next = optionsGetControlMode(i) + (right ? 1 : -1);
 
 				if (next >= 0 && next < NUM_CONTROLSTYLES) {
 					frontSetControlStyle(i, next);
-					menuPlaySound(MENUSOUND_SUBFOCUS);
 				}
 			}
 		} else if (pick) {
 			g_Front.chosen[i] = 1;
-			menuPlaySound(MENUSOUND_SELECT);
+			frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		}
 
 		g_Front.stickarmed[i] = stickx >= -10 && stickx <= 10;
@@ -1852,7 +1867,7 @@ static void frontTickCharacters(void)
 
 			if (unpick) {
 				g_Front.chosen[i] = 0;
-				menuPlaySound(MENUSOUND_TOGGLEOFF);
+				frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 			}
 		}
 
@@ -1861,10 +1876,8 @@ static void frontTickCharacters(void)
 		} else if (!g_Front.chosen[i] && g_Front.charscroll[i] == 0) {
 			if (left && g_Front.charcur[i] > 0) {
 				g_Front.charcur[i]--;
-				menuPlaySound(MENUSOUND_SUBFOCUS);
 			} else if (right && g_Front.charcur[i] < g_Front.numcharacters - 1) {
 				g_Front.charcur[i]++;
-				menuPlaySound(MENUSOUND_SUBFOCUS);
 			} else if (pick && !frontCharacterTaken(i, g_Front.charcur[i])) {
 				const s32 mpbodynum = g_Front.characters[g_Front.charcur[i]];
 
@@ -1877,7 +1890,7 @@ static void frontTickCharacters(void)
 				}
 
 				g_Front.charsize[i] = 1;
-				menuPlaySound(MENUSOUND_SELECT);
+				frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 			}
 		}
 
@@ -1979,14 +1992,14 @@ static void frontTickMission(s32 pick, s32 back)
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		g_Front.screen = SCREEN_MODE;
 		frontSetCursorForMode(0);
 		return;
 	}
 
 	if (pick && g_Front.highlight >= 0) {
-		menuPlaySound(MENUSOUND_SELECT);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		g_Front.mission = g_Front.highlight;
 		g_Front.screen = SCREEN_DIFFICULTY;
 		frontSetCursorForDifficulty(frontHighestDifficulty(g_Front.mission));
@@ -2014,14 +2027,14 @@ static void frontTickDifficulty(s32 pick, s32 back)
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		g_Front.screen = SCREEN_MISSION;
 		frontSetCursorForMission(g_Front.mission);
 		return;
 	}
 
 	if (pick && g_Front.highlight >= 0) {
-		menuPlaySound(MENUSOUND_SWIPE);
+		frontSfx(GESFX_PAPER_TURN, MENUSOUND_SWIPE);
 		g_Front.difficulty = g_Front.highlight;
 
 		if (g_Front.difficulty == DIFFICULTY_007) {
@@ -2074,20 +2087,20 @@ static void frontTick007(s32 pick, s32 back, s32 held)
 	}
 
 	if (joyGetButtonsPressedThisFrame(0, START_BUTTON) || (pick && g_Front.tabstart)) {
-		menuPlaySound(MENUSOUND_SELECT);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		frontStartMission();
 		return;
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		g_Front.screen = SCREEN_DIFFICULTY;
 		frontSetCursorForDifficulty(g_Front.difficulty);
 		return;
 	}
 
 	if (pick && g_Front.tabnext) {
-		menuPlaySound(MENUSOUND_SWIPE);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SWIPE);
 		g_Front.screen = SCREEN_BRIEFING;
 		g_Front.briefpage = BRIEF_TITLE;
 		frontLoadBriefing(g_Front.mission);
@@ -2115,19 +2128,19 @@ static void frontTickBriefing(s32 pick, s32 back)
 	}
 
 	if (joyGetButtonsPressedThisFrame(0, START_BUTTON) || (pick && g_Front.tabstart)) {
-		menuPlaySound(MENUSOUND_SELECT);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		frontStartMission();
 		return;
 	}
 
 	if (pick && g_Front.tabnext && more) {
-		menuPlaySound(MENUSOUND_SWIPE);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SWIPE);
 		g_Front.briefpage++;
 		return;
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 
 		if (g_Front.briefpage > BRIEF_TITLE) {
 			g_Front.briefpage--;
@@ -2221,25 +2234,25 @@ void gexFrontTick(void)
 		}
 
 		if (back || (pick && g_Front.tabprev)) {
-			menuPlaySound(MENUSOUND_TOGGLEOFF);
+			frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 			frontClose();
 			return;
 		}
 
 		if (pick && g_Front.highlight == 1) {
-			menuPlaySound(MENUSOUND_SELECT);
+			frontSfx(GESFX_DOOR_METAL_CLOSE, MENUSOUND_SELECT);
 			frontEnterSetup();
 			g_Front.screen = SCREEN_MPOPTIONS;
 		} else if (pick && g_Front.highlight == 0 && frontMissionsAvailable()) {
-			menuPlaySound(MENUSOUND_SELECT);
+			frontSfx(GESFX_DOOR_METAL_CLOSE, MENUSOUND_SELECT);
 			g_Front.screen = SCREEN_MISSION;
 			frontSetCursorForMission(g_Front.mission);
 		} else if (pick && g_Front.highlight == 2 && frontMissionsAreOwn()) {
-			menuPlaySound(MENUSOUND_SELECT);
+			frontSfx(GESFX_DOOR_METAL_CLOSE, MENUSOUND_SELECT);
 			frontOpenCinema();
-		} else if (pick) {
-			menuPlaySound(MENUSOUND_ERROR);
 		}
+
+		// and a row that is not there says nothing, as GoldenEye's does not
 		return;
 	}
 
@@ -2256,13 +2269,13 @@ void gexFrontTick(void)
 	}
 
 	if (joyGetButtonsPressedThisFrame(0, START_BUTTON) || (pick && g_Front.tabstart)) {
-		menuPlaySound(MENUSOUND_SELECT);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		frontStartMatch();
 		return;
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
-		menuPlaySound(MENUSOUND_TOGGLEOFF);
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		g_Front.screen = SCREEN_MODE;
 		frontSetCursorForMode(1);
 		return;
@@ -2270,10 +2283,8 @@ void gexFrontTick(void)
 
 	if (pick && g_Front.highlight >= 0) {
 		if (frontRowOn(g_Front.highlight)) {
-			menuPlaySound(MENUSOUND_FOCUS);
+			frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_FOCUS);
 			frontSelectRow(g_Front.highlight);
-		} else {
-			menuPlaySound(MENUSOUND_ERROR);
 		}
 	}
 }

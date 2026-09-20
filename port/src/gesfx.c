@@ -13,11 +13,15 @@
  * once each, since sounds share envelopes, key maps and waves.
  *
  * **The chain.** Both games' players read a key map's velocityMin and the top
- * of its keyMin as the *next* sound to play after this one, by number - ten
+ * of its keyMin as the *next* sound to play with this one, by number - ten
  * bits of GoldenEye's numbering, which here would name a sound of Perfect
- * Dark's. An appended id does not fit in ten bits, so a chain cannot be
- * rewritten and is cut instead; the sounds that have one say so in the log.
- * The gun barrel's shot has none.
+ * Dark's, and an appended id does not fit in ten bits. So the link is read out
+ * of the bank as it is loaded and taken off the key map, and geSfxPlay() starts
+ * every link itself, all at once: a link is not played after the one before
+ * it but after its *own* velocityMax thirtieths of a second, which the player
+ * underneath still does for a sound started alone. The mode select's door
+ * (197) is the one that needs it here - its second half is sound 87, a third
+ * of a second on.
  */
 #include <stdio.h>
 #include <string.h>
@@ -42,6 +46,10 @@ static s32 g_SfxSearchedDirs = -1;
 
 // GoldenEye's id -> ours; 0 not looked at yet, -1 none
 static s16 g_SfxMap[GESFX_MAX];
+
+// the sound a sound's key map chains to, 0 for none, read before anything in
+// the bank is touched since sounds share key maps
+static s16 g_SfxNext[GESFX_MAX];
 
 static uintptr_t *g_SfxRebased;
 static s32 g_SfxNumRebased;
@@ -91,6 +99,14 @@ static s32 sfxLoad(void)
 			ALBank *bank = (ALBank *)(g_SfxCtl + (uintptr_t)file->bankArray[0]);
 
 			g_SfxInst = (ALInstrument *)(g_SfxCtl + (uintptr_t)bank->instArray[0]);
+
+			for (s32 id = 0; id < g_SfxInst->soundCount && id < GESFX_MAX; id++) {
+				const ALSound *sound = (ALSound *)(g_SfxCtl + (uintptr_t)g_SfxInst->soundArray[id]);
+				const ALKeyMap *keymap = sound->keyMap ? (ALKeyMap *)(g_SfxCtl + (uintptr_t)sound->keyMap) : NULL;
+
+				g_SfxNext[id] = keymap ? keymap->velocityMin + (keymap->keyMin & 0xc0) * 4 : 0;
+			}
+
 			return 1;
 		}
 
@@ -168,9 +184,8 @@ s32 geSfxGet(s32 id)
 
 			sound->keyMap = (ALKeyMap *)(koff + GESFX_CTL_DELTA());
 
-			if (sfxRebaseOnce(koff) && (keymap->velocityMin || (keymap->keyMin & 0xc0))) {
-				sysLogPrintf(LOG_NOTE, "gesfx: sound %d chains to %d, which is cut", id,
-						keymap->velocityMin + (keymap->keyMin & 0xc0) * 4);
+			if (sfxRebaseOnce(koff)) {
+				// the link, which geSfxPlay() follows from g_SfxNext[]
 				keymap->velocityMin = 0;
 				keymap->keyMin &= ~0xc0;
 			}
@@ -213,11 +228,23 @@ s32 geSfxGet(s32 id)
 
 s32 geSfxPlay(s32 id, s32 volume)
 {
-	const s32 ours = geSfxGet(id);
+	s32 started = 0;
 
-	if (ours <= 0) {
-		return 0;
+	// the sound and whatever it chains to, which is never long: GoldenEye's
+	// own loop has no bound and a bank that looped would hang it
+	for (s32 links = 0; id > 0 && id < GESFX_MAX && links < 8; links++) {
+		const s32 ours = geSfxGet(id);
+
+		if (ours <= 0) {
+			break;
+		}
+
+		if (sndStart(var80095200, ours, NULL, volume, -1, -1, -1, -1)) {
+			started = 1;
+		}
+
+		id = g_SfxNext[id];
 	}
 
-	return sndStart(var80095200, ours, NULL, volume, -1, -1, -1, -1) != NULL;
+	return started;
 }
