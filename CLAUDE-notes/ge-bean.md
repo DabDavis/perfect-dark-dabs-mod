@@ -5557,6 +5557,75 @@ ground search (`geroom.c`), not from the graph's tile; a wall that *is* there
 still has the conversion's height rules; the truck's tick has no wall test of
 any kind. GoldenEye's sight is the tile graph too, and ours is not.
 
+## Through the rail and into the tower's wall on Dam's outside stair (2026-09-20)
+
+An F3 report off `0fd5de68d` (`20260920-205129-227d4da2`): *"getting stuck here,
+and sometimes glitches into the wall"*, on the open metal flight that climbs the
+outside of Dam's first guard tower (room 132, treads 405-438, the tower's deck at
+13553 beside it). Converter version **50**. Two faults, and one thing that was
+not one.
+
+**The tile a body stands on was chosen under a foot that lags.** `gestan.c` took
+"the highest tile under the body at or under the limit", the limit being the
+cylinder's foot plus ten - for the player `vv_manground + 40`. A player's ground
+follows a staircase on a spring: running up this flight with the stick held to
+one side it was **51 under the tread** they were over. No tread was under the
+limit then, so the tile taken was the ground triangle a storey below the flight,
+none of the flight's tiles is linked to that within reach, and *every wall of
+the stair was left out* - through the rail on one side, into the tower's wall on
+the other. Straight up the middle the lag stays under 40, which is "sometimes".
+`stanTileUnder()` now also takes a tile up to `GESTAN_RISE` (60) over the limit
+where that is nearer the limit than any under it - only where the limit is a
+foot (`geStanRise(checkvertical)`): under a middle or an eye the limit is already
+most of a body over the floor and a flight overhead would be within any rise.
+
+**A link that climbs.** The tower's wall beside the upper treads is not an
+unlinked edge. GoldenEye joins a floor to one far over it with tiles that stand
+on edge - no area in plan - and its collision, being the plan and nothing else,
+walks through them: each tread's short side is linked through two upright tiles
+to the deck 317 over it. That is how Bond drops off a ledge, and by the same
+link he can walk *from the stair into the wall* and be lifted onto the deck:
+bondview's only say on height is `stanTestLocusEdgeAboveY()`, which refuses an
+edge more than **175 over his eye**, and the links begin at exactly the tread
+from which the deck is under that. A stair's risers are the same construction
+and climb a step. Perfect Dark lifts nobody, so a player who crossed such an
+edge was inside the wall, standing on whatever the upright tiles make of a
+floor (ground 13251 in room 136 - the report's own eye height, 13410.0). The
+conversion now raises a wall on the **low side of a link whose floor across -
+through any tiles on edge, by their edges that have a length in plan - is more
+than `WALL_CLIMB` (60) over it**, as high as the climb (`stanClimb()` /
+`stan_climb()`, integer maths on the raw points so the two converters agree to
+the byte). The link stays a link - from the top it is still the way down - with
+bit 14 of its index set in the graph file (`STAN_CLIMBWALL`), which is how
+`stanMatchWalls()` knows a wall was written there. **A link that climbs by a
+ladder is left alone** (an upright tile with special 3: the floor made from it
+carries Perfect Dark's ladder flag): 112 walls over the 26 levels, 45 of them
+Dam's, the rest mostly pits (Cradle's 6147, Severnaya's 1754).
+
+**What was not a fault:** the wall on the ground under the flight, which crosses
+under the treads on a diagonal and refuses any straight-line probe a little off
+the middle of the stair. The game *slides* along it and climbs at every offset.
+GoldenEye follows a link only where the body's circle touches the edge itself
+(`sub_GAME_7F0B1DDC`), and `stanFlood()` went by the neighbour's *box* - that
+ground triangle's box holds the whole flight - so it follows the edge now too,
+which leaves out ~4% more walls and changed none of these walks.
+
+**Probes** (`build/gexrom`): `realwalk.py` walks plan points with **the game's
+own walking** - full stick forwards and `SIDE` sideways written at
+`bwalk0f0c69b8` each frame - so the slide, the step up and the lag are all the
+game's; it is the one that reproduced the report (`SIDE=±0.6`, `±1`).
+`linewalk.py` is walkprobe's move function along a line and names the geo that
+refuses, but it does not slide: a refusal from it is not a stuck player.
+`tilesnear.py` dumps the graph round a spot. A teleport onto a deck lands inside
+a railing *prop* or within a radius of a wall as often as not, and then nothing
+moves at all - check the first frames move before reading anything into a drop
+test. Checked: the five stair walks, the tower's inside climb (290 frames, none
+refused), `runall.sh` over the twenty missions identical to the last sweep, the
+graph's wall count equal to the conversion's on every level that logged one, and
+the two converters' tiles and graph files identical on Dam, Severnaya, Egyptian
+and Depot. **Not tested: dropping beside a climb wall** - the deck over this
+stair is fenced by a prop and the other candidates on Dam were ladders.
+
 ## A mission's own opening, and the endings Bond was never in (2026-09-20)
 
 The user: *"none of the cinema is hooked up to the missions, also none of the

@@ -1219,7 +1219,7 @@ void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *en
 					// wall is there for a body only if its tile is linked to
 					// the one the body stands on (gestan.h)
 					&& !((geoflags & GEOFLAG_WALL)
-						&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), radius + GESTAN_MARGIN))
+						&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
 #endif
 					) {
 				if (geo->flags & GEOFLAG_RAMPWALL) {
@@ -1608,7 +1608,7 @@ void cdCollectGeoForCylMoveFromList(u8 *start, u8 *end, struct coord *pos, f32 r
 								&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))
 #ifndef PLATFORM_N64
 						&& !((geoflags & GEOFLAG_WALL)
-							&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), radius + GESTAN_MARGIN))
+							&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
 #endif
 						) {
 					bool pass;
@@ -2973,7 +2973,7 @@ bool cdTestAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			if ((tile->header.flags & geoflags)
 #ifndef PLATFORM_N64
 					&& !((geoflags & GEOFLAG_WALL)
-						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, arg9), cdStanReach(arg2, arg3)))
+						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, arg9), geStanRise(checkvertical), cdStanReach(arg2, arg3)))
 #endif
 					) {
 				min.x = *(s16 *)(tile->xmin + (uintptr_t)tile);
@@ -3212,7 +3212,7 @@ bool cdExamAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			if (ok && (geo->flags & geoflags)
 #ifndef PLATFORM_N64
 					&& !((geoflags & GEOFLAG_WALL)
-						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, ymin), cdStanReach(arg2, arg3)))
+						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, ymin), geStanRise(checkvertical), cdStanReach(arg2, arg3)))
 #endif
 					) {
 				min.x = *(s16 *)(tile->xmin + (uintptr_t)tile);

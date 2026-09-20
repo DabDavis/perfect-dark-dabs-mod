@@ -721,6 +721,66 @@ def read_stan(data):
 
 
 STAN_NO_WALL = -2
+STAN_CLIMBWALL = 0x4000
+WALL_CLIMB = 60.0
+
+
+def tile_flat_in_plan(t):
+    pts = t['points']
+    n = len(pts)
+    return sum(pts[k][0] * pts[(k + 1) % n][2] - pts[(k + 1) % n][0] * pts[k][2] for k in range(n)) == 0
+
+
+def stan_climb(stan, i, k, inv):
+    """A link that climbs.
+
+    GoldenEye joins a floor to one far over it with tiles that stand on edge -
+    no area in plan - and its collision, which is the plan and nothing else,
+    walks through them: that is how Bond drops off a deck onto the stair beside
+    it, and by the same link he can walk from the stair into the deck's wall
+    and be lifted onto the deck. Perfect Dark lifts nobody: a player who
+    crosses such an edge is inside the wall. So where the floor across a link -
+    through any tiles that stand on edge - is more than a step over this edge,
+    the low side gets a wall as high as the climb, and the link stays a link in
+    the graph (STAN_CLIMBWALL). A stair's risers are the same construction and
+    climb a step. geconvert.c's stanClimb()."""
+    t = stan[i]
+    n = len(t['points'])
+    a, b = t['points'][k], t['points'][(k + 1) % n]
+
+    def no_length(p, q):
+        return abs((p[0] - q[0]) * inv) < 0.5 and abs((p[2] - q[2]) * inv) < 0.5
+
+    if t['neighbours'][k] < 0 or tile_flat_in_plan(t) or no_length(a, b):
+        return 0.0
+    queue = [t['neighbours'][k]]
+    head = 0
+    climb = None
+    while head < len(queue):
+        u = stan[queue[head]]
+        head += 1
+        if not tile_flat_in_plan(u):
+            ya = [p[1] for p in u['points'] if p[0] == a[0] and p[2] == a[2]]
+            yb = [p[1] for p in u['points'] if p[0] == b[0] and p[2] == b[2]]
+            if not ya or not yb:
+                continue
+            c = min(max(ya) - a[1], max(yb) - b[1])
+            if climb is None or c < climb:
+                climb = c
+            continue
+        # a ladder is a tile on edge too, and the way up it is Perfect Dark's
+        # own (the floor made from it carries the ladder flag): no wall
+        if u['special'] == 3:
+            return 0.0
+        m = len(u['points'])
+        for e in range(m):
+            nb = u['neighbours'][e]
+            if no_length(u['points'][e], u['points'][(e + 1) % m]):
+                continue
+            if nb < 0 or nb == i or nb in queue or len(queue) >= 32:
+                continue
+            queue.append(nb)
+    return climb * inv if climb is not None and climb * inv > WALL_CLIMB else 0.0
 
 
 def write_stan(stan, ls, offset):
@@ -732,11 +792,13 @@ def write_stan(stan, ls, offset):
     the floor made from it - and what is across the edge from it to the next:
     the index of the tile linked there, -1 for an unlinked edge write_tiles()
     raised a wall on, or -2 for an unlinked edge that has no length in plan and
-    so no wall. The walls are in the tiles file in this order, which is how the
-    port tells which tile a wall belongs to."""
+    so no wall. A link that climbs (stan_climb()) has STAN_CLIMBWALL set in its
+    index: a wall was raised on it too. The walls are in the tiles file in this
+    order, which is how the port tells which tile a wall belongs to."""
     inv = 1.0 / ls
+    assert len(stan) < STAN_CLIMBWALL
     out = [b'GST1', struct.pack('>I', len(stan))]
-    for t in stan:
+    for ti, t in enumerate(stan):
         pts = [(x * inv - offset[0], y * inv - offset[1], z * inv - offset[2]) for x, y, z, _ in t['points']]
         n = len(pts)
         out.append(struct.pack('>HBB', t['room'], t['special'], n))
@@ -745,6 +807,8 @@ def write_stan(stan, ls, offset):
             nb = t['neighbours'][k]
             if nb < 0:
                 nb = STAN_NO_WALL if abs(a[0] - b[0]) < 0.5 and abs(a[2] - b[2]) < 0.5 else -1
+            elif stan_climb(stan, ti, k, inv) > 0.0:
+                nb |= STAN_CLIMBWALL
             out.append(struct.pack('>3hh', s16(a[0]), s16(a[1]), s16(a[2]), nb))
     return b''.join(out)
 
@@ -860,8 +924,11 @@ def write_tiles(stan, numrooms, ls, offset):
         n = len(t['points'])
         for i in range(n):
             link = t['points'][i][3]
+            climb = 0.0
             if link >> 4:
-                continue
+                climb = stan_climb(stan, ti, i, inv)
+                if climb <= 0.0:
+                    continue
             a, b = pts[i], pts[(i + 1) % n]
             # An edge that goes straight down - the side of a riser, a stair
             # tile's two corners over one another - has no length in plan, and
@@ -875,6 +942,8 @@ def write_tiles(stan, numrooms, ls, offset):
             if abs(a[0] - b[0]) < 0.5 and abs(a[2] - b[2]) < 0.5:
                 continue
             above, below = wall_span(world, bbox, ti, a, b)
+            if 0.0 < climb < above:
+                above = climb
             quad = [(a[0], a[1] - below, a[2]), (b[0], b[1] - below, b[2]),
                     (b[0], b[1] + above, b[2]), (a[0], a[1] + above, a[2])]
             rooms[t['room']].append((WALL_FLAGS, quad))

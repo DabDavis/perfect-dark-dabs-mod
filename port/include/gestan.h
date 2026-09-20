@@ -32,6 +32,11 @@
  * with a wall that *is* there - the edge, the slide along it, the push - is
  * left as it is, and so is everything that is not a body: a shot and a line of
  * sight ask for other flags and are not filtered.
+ *
+ * One kind of wall is not an unlinked edge: GoldenEye links a floor to one far
+ * over it through tiles that stand on edge, and walks through them; the
+ * conversion raises a wall on the low side of such a link (geconvert.c's
+ * stanClimb()) and marks the link in the graph file, where it is a link still.
  */
 
 /**
@@ -42,9 +47,14 @@
  *
  * `limit` is how high a floor may be and still be the one stood on: the tile
  * taken is the highest under the position whose surface is at or under it, so a
- * flight passing over a body's head is not mistaken for its floor.
+ * flight passing over a body's head is not mistaken for its floor. `rise` is
+ * how far over the limit the floor may be all the same, for a foot that lags
+ * the stair it is climbing (geStanRise()).
  */
-bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 reach);
+bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 rise, f32 reach);
+
+/** The `rise` for a body's cylinder: a couple of steps where the limit is its foot, else none. */
+f32 geStanRise(bool checkvertical);
 
 /** The `limit` for a body's cylinder: its foot where the test has one, else well under its middle. */
 f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin);

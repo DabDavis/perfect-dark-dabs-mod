@@ -19,10 +19,13 @@
 #define GESTAN_MAXFLOOD  512
 #define GESTAN_NOWALL    (-2)
 #define GESTAN_UNLINKED  (-1)
+#define GESTAN_CLIMBWALL 0x4000
+#define GESTAN_RISE      60.0f   // how far over a body's foot its own floor may be: two of a stair's steps
 
 struct stanpoint {
 	s16 x, y, z;
 	s16 across;      // the tile across the edge to the next point, -1 a wall, -2 nothing
+	u8 climbwall;    // linked, and a wall raised on it all the same: the link climbs more than a step
 };
 
 struct stantile {
@@ -60,7 +63,7 @@ static struct {
 	// the tiles a body reaches from where it stands, marked with `gen`
 	u32 *reached;
 	u32 gen;
-	f32 lastx, lastz, lastlimit, lastreach;
+	f32 lastx, lastz, lastlimit, lastrise, lastreach;
 	bool lastfound;
 } g_Stan = { .stagenum = -1 };
 
@@ -207,9 +210,10 @@ static void stanBuildGrid(void)
  *
  * The tiles file holds a room's geometry as the conversion wrote it: for each
  * of the room's tiles in the graph's own order, the floor made from it and then
- * a wall for each of its edges marked -1. Walking the two together names every
- * wall's tile; a floor that is not the tile's own shape means the two files are
- * not one conversion's, and the graph is not used.
+ * a wall for each of its edges marked -1 or as a link that climbs. Walking the
+ * two together names every wall's tile; a floor that is not the tile's own
+ * shape means the two files are not one conversion's, and the graph is not
+ * used.
  */
 static bool stanMatchWalls(void)
 {
@@ -218,7 +222,9 @@ static bool stanMatchWalls(void)
 
 	for (s32 i = 0; i < g_Stan.numtiles; i++) {
 		for (s32 k = 0; k < g_Stan.tiles[i].npts; k++) {
-			numwalls += g_Stan.points[g_Stan.tiles[i].first + k].across == GESTAN_UNLINKED;
+			const struct stanpoint *p = &g_Stan.points[g_Stan.tiles[i].first + k];
+
+			numwalls += p->across == GESTAN_UNLINKED || p->climbwall;
 		}
 	}
 
@@ -252,7 +258,7 @@ static bool stanMatchWalls(void)
 			for (s32 k = 0; k < t->npts; k++) {
 				const struct geotilei *wall = (const struct geotilei *)geo;
 
-				if (g_Stan.points[t->first + k].across != GESTAN_UNLINKED) {
+				if (g_Stan.points[t->first + k].across != GESTAN_UNLINKED && !g_Stan.points[t->first + k].climbwall) {
 					continue;
 				}
 
@@ -355,6 +361,14 @@ static void stanBuild(void)
 			p->y = (s16)stanBe16(d + o + 2);
 			p->z = (s16)stanBe16(d + o + 4);
 			p->across = (s16)stanBe16(d + o + 6);
+			p->climbwall = false;
+
+			// a link that climbs (GESTAN_CLIMBWALL): the conversion raised a
+			// wall on the low side of it, and the link is a link still
+			if (p->across >= 0 && (p->across & GESTAN_CLIMBWALL)) {
+				p->across &= ~GESTAN_CLIMBWALL;
+				p->climbwall = true;
+			}
 
 			if (p->across >= numtiles) {
 				p->across = GESTAN_NOWALL;
@@ -437,23 +451,36 @@ static f32 stanSurface(const struct stantile *t, f32 x, f32 z)
 	return sum / (t->npts ? t->npts : 1);
 }
 
-/** The tile a body stands on: the highest under it whose surface is at or under `limit`. */
-static s32 stanTileUnder(f32 x, f32 z, f32 limit)
+/**
+ * The tile a body stands on: the highest under it whose surface is at or under
+ * `limit` - or one no more than `rise` over the limit, where that is nearer the
+ * limit than any under it.
+ *
+ * The rise is for a body whose foot is known and lags the floor. A player's
+ * ground follows a staircase on a spring, and running up Dam's outside flight
+ * with the stick held to one side it fell fifty under the tread they were on:
+ * no tread was at or under the limit then, the tile taken was the ground a
+ * storey below the flight, none of the flight's tiles was linked to that within
+ * reach, and every wall of the stair was left out - through the rail on one
+ * side and into the tower's wall on the other.
+ */
+static s32 stanTileUnder(f32 x, f32 z, f32 limit, f32 rise)
 {
 	const s32 cx = stanCellOf(x, g_Stan.gridx, g_Stan.gridw);
 	const s32 cz = stanCellOf(z, g_Stan.gridz, g_Stan.gridh);
 	const s32 c = cz * g_Stan.gridw + cx;
 	s32 best = -1;
-	f32 besty = -1e30f;
+	f32 bestoff = 1e30f;
 
 	for (s32 k = g_Stan.cellstart[c]; k < g_Stan.cellstart[c + 1]; k++) {
 		const struct stantile *t = &g_Stan.tiles[g_Stan.celltiles[k]];
 
 		if (stanHolds(t, x, z)) {
 			const f32 y = stanSurface(t, x, z);
+			const f32 off = y <= limit ? limit - y : y - limit;
 
-			if (y <= limit && y > besty) {
-				besty = y;
+			if ((y <= limit || y - limit <= rise) && off < bestoff) {
+				bestoff = off;
 				best = g_Stan.celltiles[k];
 			}
 		}
@@ -462,11 +489,33 @@ static s32 stanTileUnder(f32 x, f32 z, f32 limit)
 	return best;
 }
 
+/** How near x/z comes to the edge from a to b, in plan, squared. */
+static f32 stanEdgeDistSq(const struct stanpoint *a, const struct stanpoint *b, f32 x, f32 z)
+{
+	const f32 ex = (f32)(b->x - a->x), ez = (f32)(b->z - a->z);
+	const f32 len = ex * ex + ez * ez;
+	f32 f = len > 0.0f ? ((x - a->x) * ex + (z - a->z) * ez) / len : 0.0f;
+	f32 dx, dz;
+
+	f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+	dx = x - (a->x + ex * f);
+	dz = z - (a->z + ez * f);
+
+	return dx * dx + dz * dz;
+}
+
 /**
  * The tiles a body reaches: its own, and every tile linked to it - through any
- * number of links - that comes within `reach` of where it stands. That is
- * stanTestVolume()'s walk and the walk a move makes, and it is the whole of
- * what GoldenEye ever consults.
+ * number of links - across an edge that comes within `reach` of where it
+ * stands. That is stanTestVolume()'s walk (sub_GAME_7F0B1DDC: a link is
+ * followed where the body's circle touches the edge itself) and the walk a
+ * move makes, and it is the whole of what GoldenEye ever consults.
+ *
+ * It is the edge and not the neighbour's box: the ground under Dam's outside
+ * stair is one triangle whose box holds the whole flight, and its wall runs
+ * across under the treads. By its box it was reached from every tread, and a
+ * body a little off the middle of the flight stopped at a wall a storey under
+ * its feet.
  */
 static void stanFlood(s32 start, f32 x, f32 z, f32 reach)
 {
@@ -485,22 +534,16 @@ static void stanFlood(s32 start, f32 x, f32 z, f32 reach)
 
 	while (head < tail) {
 		const struct stantile *t = &g_Stan.tiles[queue[head++]];
+		const struct stanpoint *p = &g_Stan.points[t->first];
 
 		for (s32 k = 0; k < t->npts; k++) {
-			const s32 n = g_Stan.points[t->first + k].across;
-			const struct stantile *u;
-			f32 dx, dz;
+			const s32 n = p[k].across;
 
 			if (n < 0 || g_Stan.reached[n] == g_Stan.gen || tail >= GESTAN_MAXFLOOD) {
 				continue;
 			}
 
-			// how near the neighbour's box comes to the body
-			u = &g_Stan.tiles[n];
-			dx = x < u->xmin ? u->xmin - x : (x > u->xmax ? x - u->xmax : 0.0f);
-			dz = z < u->zmin ? u->zmin - z : (z > u->zmax ? z - u->zmax : 0.0f);
-
-			if (dx * dx + dz * dz > reach * reach) {
+			if (stanEdgeDistSq(&p[k], &p[(k + 1) % t->npts], x, z) > reach * reach) {
 				continue;
 			}
 
@@ -508,6 +551,14 @@ static void stanFlood(s32 start, f32 x, f32 z, f32 reach)
 			queue[tail++] = n;
 		}
 	}
+}
+
+f32 geStanRise(bool checkvertical)
+{
+	// only where the limit is the body's own foot: under a middle or an eye
+	// the limit is already most of a body over the floor, and a flight over a
+	// head would be within any rise of it
+	return checkvertical ? GESTAN_RISE : 0.0f;
 }
 
 f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin)
@@ -520,7 +571,7 @@ f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin)
 	return checkvertical ? pos->y + ymin + 10.0f : pos->y - 60.0f;
 }
 
-bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 reach)
+bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 rise, f32 reach)
 {
 	s32 lo, hi;
 
@@ -555,12 +606,14 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 reach)
 	g_GeStanAsked++;
 
 	// where the body stands, worked out once for all the walls of one test
-	if (pos->x != g_Stan.lastx || pos->z != g_Stan.lastz || limit != g_Stan.lastlimit || reach != g_Stan.lastreach) {
-		const s32 tile = stanTileUnder(pos->x, pos->z, limit);
+	if (pos->x != g_Stan.lastx || pos->z != g_Stan.lastz || limit != g_Stan.lastlimit
+			|| rise != g_Stan.lastrise || reach != g_Stan.lastreach) {
+		const s32 tile = stanTileUnder(pos->x, pos->z, limit, rise);
 
 		g_Stan.lastx = pos->x;
 		g_Stan.lastz = pos->z;
 		g_Stan.lastlimit = limit;
+		g_Stan.lastrise = rise;
 		g_Stan.lastreach = reach;
 		g_Stan.lastfound = tile >= 0;
 

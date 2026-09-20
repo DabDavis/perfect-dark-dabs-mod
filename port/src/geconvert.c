@@ -1229,6 +1229,110 @@ static tiles stanRead(const buf *file)
 	return out;
 }
 
+/* A link that climbs.
+ *
+ * GoldenEye joins a floor to one far over it with tiles that stand on edge -
+ * no area in plan - and its collision, which is the plan and nothing else,
+ * walks through them: that is how Bond drops off a deck onto the stair beside
+ * it, and by the same link he can walk from the stair into the deck's wall and
+ * be lifted onto the deck (bondview's only say on height is an edge 175 over
+ * his eye). Perfect Dark lifts nobody: a player who crosses such an edge is
+ * inside the wall, on whatever its upright tiles make of a floor. So where the
+ * floor across a link - through any tiles that stand on edge - is more than a
+ * step over this edge, the low side gets a wall as high as the climb, and the
+ * link stays a link in the graph (STAN_CLIMBWALL), since from the top it is
+ * still the way down. A stair's risers are the same construction and climb a
+ * step. geconvert.py's stan_climb().
+ */
+#define WALL_CLIMB 60.0
+#define STAN_CLIMBWALL 0x4000
+
+static int tileFlatInPlan(const struct tile *t)
+{
+	int64_t area = 0;
+
+	for (int k = 0; k < t->npts; ++k) {
+		const int16_t *p = t->pts[k], *q = t->pts[(k + 1) % t->npts];
+
+		area += (int64_t)p[0] * q[2] - (int64_t)q[0] * p[2];
+	}
+
+	return area == 0;
+}
+
+static double stanClimb(const tiles *stan, size_t i, int k, double inv)
+{
+	const struct tile *t = &stan->v[i];
+	const int16_t *a = t->pts[k], *b = t->pts[(k + 1) % t->npts];
+	int32_t queue[32];
+	int head = 0, tail = 0;
+	int found = 0;
+	int32_t climb = 0;
+
+	if (t->neighbour[k] < 0 || tileFlatInPlan(t)
+			|| (fabs((a[0] - b[0]) * inv) < 0.5 && fabs((a[2] - b[2]) * inv) < 0.5)) {
+		return 0.0;
+	}
+
+	queue[tail++] = t->neighbour[k];
+
+	while (head < tail) {
+		const struct tile *u = &stan->v[queue[head++]];
+
+		if (!tileFlatInPlan(u)) {
+			// the floor across: how far its corners over this edge's two
+			// ends are over them
+			int32_t ya = INT32_MIN, yb = INT32_MIN, c;
+
+			for (int m = 0; m < u->npts; ++m) {
+				if (u->pts[m][0] == a[0] && u->pts[m][2] == a[2] && u->pts[m][1] > ya) ya = u->pts[m][1];
+				if (u->pts[m][0] == b[0] && u->pts[m][2] == b[2] && u->pts[m][1] > yb) yb = u->pts[m][1];
+			}
+
+			if (ya == INT32_MIN || yb == INT32_MIN) {
+				continue;
+			}
+
+			c = ya - a[1] < yb - b[1] ? ya - a[1] : yb - b[1];
+
+			if (!found || c < climb) {
+				climb = c;
+			}
+
+			found = 1;
+			continue;
+		}
+
+		// a ladder is a tile on edge too, and the way up it is Perfect Dark's
+		// own (the floor made from it carries the ladder flag): no wall
+		if (u->special == 3) {
+			return 0.0;
+		}
+
+		// a tile on edge: on through its edges that have a length in plan
+		// (one that goes straight up is the way to the panel beside it)
+		for (int m = 0; m < u->npts; ++m) {
+			const int16_t *p = u->pts[m], *q = u->pts[(m + 1) % u->npts];
+			const int32_t n = u->neighbour[m];
+			int seen = n < 0 || (size_t)n == i;
+
+			if (fabs((p[0] - q[0]) * inv) < 0.5 && fabs((p[2] - q[2]) * inv) < 0.5) {
+				continue;
+			}
+
+			for (int v = 0; v < tail && !seen; ++v) {
+				seen = queue[v] == n;
+			}
+
+			if (!seen && tail < 32) {
+				queue[tail++] = n;
+			}
+		}
+	}
+
+	return found && climb * inv > WALL_CLIMB ? climb * inv : 0.0;
+}
+
 /**
  * GoldenEye's own tile graph, for its own collision (port/src/gestan.c).
  *
@@ -1238,13 +1342,19 @@ static tiles stanRead(const buf *file)
  * floor made from it - and what is across the edge from it to the next: the
  * index of the tile linked there, -1 for an unlinked edge writeTiles() raised a
  * wall on, or -2 for an unlinked edge that has no length in plan and so no
- * wall. The walls are in the tiles file in this order, which is how the port
- * tells which tile a wall belongs to. geconvert.py's write_stan().
+ * wall. A link that climbs (stanClimb()) has STAN_CLIMBWALL set in its index: a
+ * wall was raised on it too. The walls are in the tiles file in this order,
+ * which is how the port tells which tile a wall belongs to. geconvert.py's
+ * write_stan().
  */
 static buf writeStan(const tiles *stan, double levelscale, const double *offset)
 {
 	const double inv = 1.0 / levelscale;
 	buf out = {0};
+
+	if (stan->n >= STAN_CLIMBWALL) {
+		fail("%d tiles, and a link has fourteen bits", (int)stan->n);
+	}
 
 	bufPut(&out, (const uint8_t *)"GST1", 4);
 	bufU32(&out, (uint32_t)stan->n);
@@ -1268,6 +1378,8 @@ static buf writeStan(const tiles *stan, double levelscale, const double *offset)
 
 			if (nb < 0) {
 				nb = fabs(a[0] - b[0]) < 0.5 && fabs(a[2] - b[2]) < 0.5 ? -2 : -1;
+			} else if (stanClimb(stan, i, k, inv) > 0.0) {
+				nb |= STAN_CLIMBWALL;
 			}
 
 			for (int c = 0; c < 3; ++c) {
@@ -2518,9 +2630,14 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 			double quad[4][3];
 			const double *a = pts[k], *b = pts[(k + 1) % n];
 			double above, below;
+			double climb = 0.0;
 
 			if (t->link[k] >> 4) {
-				continue;
+				climb = stanClimb(stan, i, k, inv);
+
+				if (climb <= 0.0) {
+					continue;
+				}
 			}
 
 			// An edge that goes straight down - the side of a riser, a stair
@@ -2537,6 +2654,10 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 			}
 
 			wallSpan(world, geo, stan->n, i, a, b, &above, &below);
+
+			if (climb > 0.0 && climb < above) {
+				above = climb;
+			}
 
 			quad[0][0] = a[0]; quad[0][1] = a[1] - below; quad[0][2] = a[2];
 			quad[1][0] = b[0]; quad[1][1] = b[1] - below; quad[1][2] = b[2];
