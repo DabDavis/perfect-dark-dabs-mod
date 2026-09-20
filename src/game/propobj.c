@@ -11463,6 +11463,19 @@ Gfx *propsRenderBeams(Gfx *gdl)
 				gdl = beamRender(gdl, chopper->fireslotthing->beam, true, true);
 			}
 		} else if (prop->type == PROPTYPE_PLAYER) {
+#ifndef PLATFORM_N64
+			// The current player's own tracers are the hands' beams, and
+			// bgunRender() is what draws them - which third person leaves out
+			// with the gun. Their muzzlepos is already back at the player
+			// (bgun0f0a5550()), so they are drawn here with everybody else's.
+			// The same test player.c skips bgunRender() on, so it is never both.
+			if (playermgrGetPlayerNumByProp(prop) == g_Vars.currentplayernum
+					&& g_Vars.currentplayer->thirdpersondist > 0) {
+				gdl = beamRender(gdl, &g_Vars.currentplayer->hands[HAND_RIGHT].beam, true, false);
+				gdl = beamRender(gdl, &g_Vars.currentplayer->hands[HAND_LEFT].beam, true, false);
+			}
+#endif
+
 			if (prop->chr && playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum) {
 				struct chrdata *chr = prop->chr;
 

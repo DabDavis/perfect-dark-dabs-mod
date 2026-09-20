@@ -609,6 +609,15 @@ static void gecinemaIntroEnd(void)
 		pl->prop->chr->actiontype = ACT_STAND;
 	}
 
+	// The swirl fades Bond's body to nothing as the camera goes into his head
+	// (gecinemaSwirlTick()), and the fade is kept on the chr, which outlives
+	// the body: left there, the body third person builds afterwards was drawn
+	// at alpha 0 for the rest of the mission - unless the opening had been
+	// skipped before its last half second, which is why it was only sometimes.
+	// The fade ticks at the top of playerTick(), so this lands next frame, when
+	// the body is either gone (first person) or seen from behind.
+	playerStartChrFade(0, 1);
+
 	// the walk back, the level's own fog and the guns the mission starts with:
 	// the way Perfect Dark itself leaves a mission's fade in
 	player0f0b9a20();

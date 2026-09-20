@@ -4185,6 +4185,26 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				// the crate's one type, in the port's numbering
 				set32(rec, 0x5c, soloAmmoType(be32(raw, 0x80), 0));
 			}
+			if (t == 0x2f && recs.v[i].len >= 0x94) {
+				// A tinted pane's distances and its portal. GoldenEye's
+				// TintedGlassRecord ends TintDist, CullDist, the opacity and
+				// the portal as a word each at 0x80, then a 16.16 fraction,
+				// and Perfect Dark's tintedglassobj is the same five with the
+				// first four as s16 at 0x5c. Every one of GoldenEye's carries
+				// a portal of -1, and one that has a portal finds it at the
+				// load in both games. Left at nought, a pane was opaque at any
+				// distance and its portal was **portal 0**, which both games
+				// shut while the pane is opaque: whatever rooms the level's
+				// first portal joins stopped being drawn through it, on every
+				// mission that has a pane at all. gesolo.py's TINTED_GLASS.
+				for (int k = 0; k < 4; ++k) {
+					int32_t v = bes32(raw, 0x80 + 4 * k);
+
+					v = v < -32768 ? -32768 : v > 32767 ? 32767 : v;
+					set16(rec, 0x5c + 2 * k, (uint16_t)v);
+				}
+				memcpy(rec + 0x64, raw + 0x90, 4);
+			}
 		} else {
 			// a short record: the same fields in the same order on both sides
 			const size_t keep = 4 * (size_t)words < recs.v[i].len ? 4 * (size_t)words : recs.v[i].len;

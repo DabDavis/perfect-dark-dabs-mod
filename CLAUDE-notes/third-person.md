@@ -357,3 +357,33 @@ is walked from the prop's rooms by `func0f065e74()` and lands at the same
 wrong spot every run (both F3 cameras here); without `--spectate`, holding
 `prop->pos`, `prop->rooms` and the angles every frame puts the eye exactly
 where the trace says (scratchpad `glarespot.py`).
+
+## The player's own tracers (2026-09-20)
+
+"Bullet tracers only work in first person." The player's tracer is
+`hand->beam`, and the one place that draws it is `bgunRender()`, inside the
+loop that draws the view model - which `playerRenderHud()` leaves out whole
+while `thirdpersondist > 0`. Everybody else's tracers are fireslot beams drawn
+in the world pass by `propsRenderBeams()`, which skips the current player
+because stock never sees them from outside.
+
+Two halves:
+
+- `propsRenderBeams()` draws the current player's two hand beams when
+  `thirdpersondist > 0` - the same test the gun is skipped on, so a beam is
+  never drawn twice.
+- `beamCreateForHand()` starts the beam at `player->chrmuzzlelastpos[hand]`,
+  the gun the **body** is holding, in third person. `hand->muzzlepos` is the
+  view model's muzzle carried to the eye (right for a rocket's spawn, above),
+  and from a camera straight behind the player a beam from there runs up the
+  aim ray behind their own head and is never seen. `playerTickChrBody()`
+  already keeps `chrmuzzlelastpos` every frame the body ticks and falls back
+  to `muzzlepos` by itself.
+
+Checking it headlessly: a tracer lives three or four frames and a screenshot
+requested at `videoEndFrame` is the *next* frame's, so create the beam and
+request the picture in the same stop (`beamCreateForHand(0)` from gdb after
+writing `hitpos`), pull `beam.dist` back a few hundred, and do it down a long
+corridor with Camera Sideways set - with the default camera dead behind the
+player the gun, the beam and the crosshair are all behind the body, and a beam
+already past the nearest wall is depth-tested away.

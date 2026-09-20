@@ -122,6 +122,18 @@ void beamCreateForHand(s32 handnum)
 		}
 
 		beam = &hand->beam;
+
+#ifndef PLATFORM_N64
+		// In third person the tracer leaves the gun the body is holding, as
+		// it does for everybody watching another player. hand->muzzlepos is
+		// the view model's muzzle carried to the eye, and from a camera behind
+		// the player a beam from there runs up the aim ray behind their head.
+		// chrmuzzlelastpos falls back to muzzlepos by itself when the body's
+		// gun has no position (player.c). Drawn by propsRenderBeams().
+		if (player->thirdpersondist > 0) {
+			beamCreate(beam, weaponnum, &player->chrmuzzlelastpos[handnum], &hand->hitpos);
+		} else
+#endif
 		beamCreate(beam, weaponnum, &hand->muzzlepos, &hand->hitpos);
 
 		if (weaponHost(beam->weaponnum) == WEAPON_MAULER) {

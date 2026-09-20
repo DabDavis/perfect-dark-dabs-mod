@@ -6176,3 +6176,39 @@ presses - the probes call the hooks.
 camera's film and the magnet's charge is not counted; the magnet is not
 GoldenEye's pull; nothing of the gadgets' own sounds but the camera's click and
 the analyser's.
+
+## "Third person is broken sometimes": two faults, neither in the camera (2026-09-20, converter 49)
+
+Swept by setting `thirdperson` from gdb on all twenty missions and reading the
+picture (scratchpad `tp.py`: state line, turn away from a spawn wall, F3 trace
+or screenshot).
+
+**A tinted pane's tail was never converted.** The solo converter's `tails[]`
+had no row for type 0x2f, so every pane in the missions arrived with its
+distances 0 and 0 and its portal **0**. `glassCalculateOpacity()` answers 255
+for anything further than `opadist`, and both games shut a pane's portal while
+it is opaque (`glassUpdatePortal()`, GoldenEye's `objTick()` line for line), so
+on the seven missions with panes (Dam, both Bunkers, Archives, Control, Caverns,
+Aztec) every window was opaque at any distance with the room behind it undrawn,
+*and* the level's first portal was shut every frame by panes nowhere near it.
+On Aztec portal 0 is the start room's doorway: first person looked out on sky
+and black, and a third person camera that backed through the doorway drew
+nothing at all, the player's room included. GoldenEye's own records all carry
+portal -1 and find the real one at the load from the pad under
+`PROPFLAG_GLASS_HASPORTAL`, which is Perfect Dark's `OBJFLAG_GLASS_HASPORTAL`
+and `setupGetPortalByPad()` unchanged - so the fix is only the tail: four s32 at
+GoldenEye's 0x80 to four s16 at 0x5c, and the 16.16 fraction both games divide
+at the load. The arenas' converter had always carried it. A breakpoint on
+`bgSetPortalOpenState` with the portal number is how to ask who shut a portal.
+
+**The opening's swirl left Bond at alpha 0.** `gecinemaSwirlTick()` fades the
+body out over the last half second (`playerStartChrFade(30, 0)`) as the camera
+goes into his head, and the fade lives on the **chr**, which outlives the body.
+Nothing faded it back, so any body built afterwards - third person's - was
+drawn at alpha 0 for the rest of the mission: camera pulled back, no gun, no
+Bond. Skipping the opening before its last half second never started the fade,
+which is the "sometimes". `gecinemaIntroEnd()` starts a zero-length fade back to
+1; the fade ticks at the top of `playerTick()`, so it lands the frame after,
+when the body is either gone or seen from behind. The F3 trace says this in one
+line (`fadealpha 0`, `NODRAW-alpha0`). `--skip-mission-intro` hides the fault,
+so a third person check on a mission has to be run with the opening as well.

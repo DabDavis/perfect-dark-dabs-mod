@@ -582,6 +582,7 @@ def camera_record(raw, numpads, offset):
 
 
 AMMO_CRATE = 0x07
+TINTED_GLASS = 0x2f
 MULTI_AMMO_CRATE = 0x14
 GE_CRATE_SLOTS = 13
 PD_CRATE_SLOTS = 19
@@ -677,6 +678,16 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
                 # the crate's one type, in the port's numbering
                 pdtypes = GE_AMMO_TYPES.get(struct.unpack_from('>i', raw, 0x80)[0], (0,))
                 struct.pack_into('>i', rec, 0x5c, pdtypes[0])
+            if t == TINTED_GLASS and len(raw) >= 0x94:
+                # A tinted pane's distances and its portal: a word each at
+                # GoldenEye's 0x80, an s16 each at Perfect Dark's 0x5c, then the
+                # 16.16 fraction both games divide at the load. Left at nought a
+                # pane was opaque at any distance and shut **portal 0** - every
+                # one of GoldenEye's own carries -1 (geconvert.c has the rest).
+                for k in range(4):
+                    v = struct.unpack_from('>i', raw, 0x80 + 4 * k)[0]
+                    struct.pack_into('>h', rec, 0x5c + 2 * k, max(-32768, min(32767, v)))
+                rec[0x64:0x68] = raw[0x90:0x94]
             out.append(bytes(rec))
         else:
             # a short record: the same fields in the same order on both sides
