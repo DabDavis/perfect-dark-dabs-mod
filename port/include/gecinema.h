@@ -23,6 +23,14 @@ void gecinemaTick(void);
 // with it.
 void gecinemaCameraTick(void);
 
+// A mission's own opening - GoldenEye's still, fade and swirl down to Bond -
+// which a converted mission plays before the player has control.
+s32 gecinemaIntroIsOn(void);
+s32 gecinemaIntroIsStill(void);
+s32 gecinemaIntroIsSwirl(void);
+// From playerTick()'s TICKMODE_WARP: the swirl's camera. True while it has it.
+s32 gecinemaSwirlTick(void);
+
 // Whether the folder should open again on the Cinema page, and the mission it
 // should be showing; taking it clears both.
 s32 gecinemaWantsFolder(void);

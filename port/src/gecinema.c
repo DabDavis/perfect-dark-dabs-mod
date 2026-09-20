@@ -21,6 +21,7 @@
  * (geconvert.c, gesolo.py's intro_camera()); nothing in Perfect Dark reads
  * them, so their fields are the port's to define.
  */
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "types.h"
@@ -43,6 +44,11 @@
 #include "game/prop.h"
 #include "game/pad.h"
 #include "game/setup.h"
+#include "game/env.h"
+#include "lib/model.h"
+#include "lib/rng.h"
+#include "system.h"
+#include "gexplus.h"
 #include "modloader.h"
 #include "input.h"
 #include "gexfront.h"
@@ -91,6 +97,74 @@ static struct coord g_GeCinemaCamPos;
 static s32 g_GeCinemaCamRoom = -1;
 
 /**
+ * A mission's own opening, which is the same shots hooked up to the mission.
+ *
+ * GoldenEye opens every solo mission the same way (bondview2.c,
+ * bondviewSetCameraMode() and bondviewFrozenCameraTick()):
+ *
+ *   CAMERAMODE_INTRO      one of the level's camera shots, picked at random,
+ *                         faded in from black, with its one or two lines
+ *   CAMERAMODE_FADESWIRL  a second's fade to black
+ *   CAMERAMODE_SWIRL      Bond's body loaded where he spawned, playing the
+ *                         animation the setup names, and the camera flown down
+ *                         a spline of the setup's INTROTYPE_SWIRL points into
+ *                         his eyes, the body fading out over the last half
+ *                         second
+ *   CAMERAMODE_FP         the gun comes up and the player has control
+ *
+ * and any of the six buttons cuts a stage short. The level runs underneath the
+ * whole time, which is why its lists ask IFCameraIsInIntro.
+ *
+ * The still is the Cinema page's own shot. The swirl is Perfect Dark's
+ * TICKMODE_WARP, which is what GoldenEye's frozen camera became there: it
+ * builds the player's chr body and hands the camera to whoever wants it
+ * (gecinemaSwirlTick(), from playerTick()).
+ */
+#define GEINTRO_NONE  0
+#define GEINTRO_STILL 1
+#define GEINTRO_FADE  2
+#define GEINTRO_SWIRL 3
+
+#define MAX_SWIRL 32
+
+// the setup's INTROTYPE_SWIRL record as the conversion writes it (geconvert.c):
+// GoldenEye's own fields, the five fixed point ones already floats
+struct geswirl {
+	u32 flags;          // 1 the end of the path, 2 the offset turns with Bond, 4 look where he looks
+	struct coord off;   // from Bond's eyes
+	f32 scale;          // the spline's tangent scale
+	f32 duration;       // of the leg that starts here, in 60ths
+	s32 pad;            // whose room the camera is in, or -1 for Bond's
+};
+
+// stage_intro_anim_table[] (bondview.c): GoldenEye's animation id, the frame it
+// starts on, the frame it ends on (or to its end) and its speed
+static const struct { s16 geanim; f32 start; f32 end; f32 speed; } g_GeIntroAnimTable[9] = {
+	{ 61,  95.0f, -1.0f, 0.02f },  // extending_left_hand
+	{ 66,   7.0f, 40.0f, 0.5f  },  // fire_standing_draw_one_handed_weapon_fast
+	{ 97,   0.0f, -1.0f, 0.5f  },  // draw_one_handed_weapon_and_look_around
+	{ 98,   0.0f, -1.0f, 0.5f  },  // draw_one_handed_weapon_and_stand_up
+	{ 99,   0.0f, -1.0f, 0.5f  },  // aim_one_handed_weapon_left_right
+	{ 100,  0.0f, -1.0f, 0.5f  },  // cock_one_handed_weapon_and_turn_around
+	{ 102,  0.0f, -1.0f, 0.5f  },  // cock_one_handed_weapon_turn_around_and_stand_up
+	{ 103,  0.0f, -1.0f, 0.5f  },  // draw_one_handed_weapon_and_turn_around
+	{ 176,  0.0f, -1.0f, 0.5f  },  // bond_eye_fire_alt
+};
+
+static s32 g_GeIntroPending;          // this stage is a mission that has not opened yet
+static s32 g_GeIntroStage;
+static const u8 *g_GeIntroShot;
+static f32 g_GeIntroTimer;            // GoldenEye's camera_transition_timer
+static s32 g_GeIntroLeg;              // and its intro_camera_index
+static s32 g_GeIntroFadingOut;        // and its camera_fade_active
+static s32 g_GeIntroPosed;            // the body has been given its animation
+static s32 g_GeIntroAnimIndex;
+static f32 g_GeIntroTheta;            // where Bond was looking before the still borrowed his angles
+static f32 g_GeIntroVerta;
+static struct geswirl g_GeSwirl[MAX_SWIRL + 4];
+static s32 g_GeNumSwirl;
+
+/**
  * The folder's Cinema page picked a mission. The stage starts the way a mission
  * does; gecinemaStageStart() picks this up when it has loaded.
  */
@@ -111,11 +185,36 @@ void gecinemaStageStart(void)
 	g_GeCinemaLine = 0;
 	g_GeCinemaEntered = 0;
 	g_GeCinemaCamRoom = -1;
+
+	// A mission that is not the Cinema page's opens on its own cinema. The
+	// probes that boot straight into a level can ask for it not to.
+	g_GeIntroStage = GEINTRO_NONE;
+	g_GeIntroPending = g_GeCinemaMission < 0
+		&& modloaderStageIsMission(g_Vars.stagenum)
+		&& !sysArgCheck("--skip-mission-intro");
 }
 
 s32 gecinemaIsOn(void)
 {
 	return g_GeCinemaMission >= 0;
+}
+
+/** A mission's own opening is playing: the still, the fade or the swirl. */
+s32 gecinemaIntroIsOn(void)
+{
+	return g_GeIntroStage != GEINTRO_NONE;
+}
+
+/** GoldenEye's IFCameraIsInIntro: the still and the fade out of it. */
+s32 gecinemaIntroIsStill(void)
+{
+	return g_GeIntroPending || g_GeIntroStage == GEINTRO_STILL || g_GeIntroStage == GEINTRO_FADE;
+}
+
+/** And its IFCameraIsInBondSwirl. */
+s32 gecinemaIntroIsSwirl(void)
+{
+	return g_GeIntroStage == GEINTRO_SWIRL;
 }
 
 s32 gecinemaWantsFolder(void)
@@ -141,6 +240,8 @@ static void gecinemaCollect(void)
 	const u8 *cmd = (const u8 *)g_StageSetup.intro;
 
 	g_GeCinemaNumShots = 0;
+	g_GeNumSwirl = 0;
+	g_GeIntroAnimIndex = 0;
 
 	while (cmd) {
 		const u32 type = *(const u32 *)cmd;
@@ -153,7 +254,34 @@ static void gecinemaCollect(void)
 			g_GeCinemaShots[g_GeCinemaNumShots++] = cmd;
 		}
 
+		if (type == 3 && g_GeNumSwirl < MAX_SWIRL) {
+			struct geswirl *sw = &g_GeSwirl[g_GeNumSwirl++];
+
+			sw->flags = *(const u32 *)(cmd + 0x04);
+			sw->off.x = *(const f32 *)(cmd + 0x08);
+			sw->off.y = *(const f32 *)(cmd + 0x0c);
+			sw->off.z = *(const f32 *)(cmd + 0x10);
+			sw->scale = *(const f32 *)(cmd + 0x14);
+			sw->duration = *(const f32 *)(cmd + 0x18);
+			sw->pad = *(const s32 *)(cmd + 0x1c);
+		}
+
+		if (type == 4) {
+			g_GeIntroAnimIndex = *(const s32 *)(cmd + 0x04);
+		}
+
 		cmd += lens[type];
+	}
+
+	// GoldenEye reads three records past the leg it is on looking for the end
+	// of the path (bondviewFrozenCameraTick()); its own lists always end on a
+	// flag 1 record, and these are what a list that did not would run into
+	for (s32 i = 0; i < 4; i++) {
+		struct geswirl *sw = &g_GeSwirl[g_GeNumSwirl + i];
+
+		memset(sw, 0, sizeof(*sw));
+		sw->flags = 1;
+		sw->pad = -1;
 	}
 }
 
@@ -249,7 +377,9 @@ void gecinemaCameraTick(void)
 {
 	struct player *pl = g_Vars.currentplayer;
 
-	if (!gecinemaIsOn() || g_GeCinemaCamRoom < 0 || !pl || !pl->prop) {
+	// the Cinema page's shots, and the one a mission opens on
+	if ((!gecinemaIsOn() && g_GeIntroStage != GEINTRO_STILL && g_GeIntroStage != GEINTRO_FADE)
+			|| g_GeCinemaCamRoom < 0 || !pl || !pl->prop) {
 		return;
 	}
 
@@ -271,12 +401,336 @@ static void gecinemaShowLine(const u8 *shot, s32 line)
 	}
 }
 
+/** Whether a button GoldenEye's cinemas end on went down this frame. */
+static s32 gecinemaPressed(void)
+{
+	const s8 contpad = optionsGetContpadNum1(g_Vars.currentplayerstats
+			? g_Vars.currentplayerstats->mpindex : 0);
+	const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
+
+	return joyGetButtonsPressedThisFrame(contpad, (LEAVE_BUTTONS | SKIP_BUTTONS) & ui) != 0
+		|| inputKeyJustPressed(VK_ESCAPE)
+		|| inputKeyJustPressed(VK_MOUSE_LEFT);
+}
+
+/** The opening is over: GoldenEye's CAMERAMODE_FP. */
+static void gecinemaIntroEnd(void)
+{
+	struct player *pl = g_Vars.currentplayer;
+
+	g_GeIntroStage = GEINTRO_NONE;
+	g_GeCinemaCamRoom = -1;
+
+	bgunSetSightVisible(GUNSIGHTREASON_NOCONTROL, true);
+	bgunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, true);
+	hudmsgsSetOn(HUDMSGREASON_NOCONTROL);
+	countdownTimerSetVisible(COUNTDOWNTIMERREASON_NOCONTROL, true);
+
+	g_PlayersWithControl[g_Vars.currentplayernum] = true;
+	g_PlayerInvincible = false;
+	g_Vars.bondvisible = true;
+
+	if (pl->prop->chr) {
+		pl->prop->chr->actiontype = ACT_STAND;
+	}
+
+	// the walk back, the level's own fog and the guns the mission starts with:
+	// the way Perfect Dark itself leaves a mission's fade in
+	player0f0b9a20();
+
+	if (g_GeIntroFadingOut) {
+		playerSetFadeColour(0, 0, 0, 1);
+		playerSetFadeFrac(60, 0);
+	}
+}
+
+/** GoldenEye's CAMERAMODE_SWIRL, or straight on when the setup has no path. */
+static void gecinemaIntroBeginSwirl(void)
+{
+	struct player *pl = g_Vars.currentplayer;
+
+	// the still borrowed the player's angles to aim with (gecinemaPlace)
+	pl->vv_theta = g_GeIntroTheta;
+	pl->vv_verta = g_GeIntroVerta;
+	bmoveUpdateVerta();
+	bmove0f0cc654(0, 0, 0);
+
+	g_GeCinemaCamRoom = -1;
+	g_GeIntroFadingOut = 0;
+	hudmsgRemoveAll();
+
+	playerSetFadeColour(0, 0, 0, 1);
+	playerSetFadeFrac(60, 0);
+
+	if (g_GeNumSwirl < 2) {
+		gecinemaIntroEnd();
+		return;
+	}
+
+	g_GeIntroStage = GEINTRO_SWIRL;
+	g_GeIntroTimer = 0;
+	g_GeIntroLeg = 0;
+	g_GeIntroPosed = 0;
+
+	// Perfect Dark's frozen camera: the chr body is built and ticked, the walk
+	// is not, and the camera is whoever's who asks (gecinemaSwirlTick)
+	playerSetTickMode(TICKMODE_WARP);
+}
+
+/** A mission begins: GoldenEye's CAMERAMODE_INTRO. */
+static void gecinemaIntroBegin(void)
+{
+	struct player *pl = g_Vars.currentplayer;
+
+	g_GeIntroPending = 0;
+	gecinemaCollect();
+
+	g_GeIntroTheta = pl->vv_theta;
+	g_GeIntroVerta = pl->vv_verta;
+
+	gecinemaEnter();
+
+	if (g_GeCinemaNumShots <= 0) {
+		gecinemaIntroBeginSwirl();
+		return;
+	}
+
+	g_GeIntroStage = GEINTRO_STILL;
+	g_GeIntroShot = g_GeCinemaShots[rngRandom() % (u32)g_GeCinemaNumShots];
+	g_GeIntroTimer = 0;
+	g_GeCinemaLine = 0;
+
+	playerSetFadeColour(0, 0, 0, 1);
+	playerSetFadeFrac(60, 0);
+}
+
+/** The still and the fade out of it, every frame from lvTick(). */
+static void gecinemaIntroTick(void)
+{
+	const u8 *shot = g_GeIntroShot;
+
+	if (g_GeIntroStage == GEINTRO_SWIRL) {
+		return;   // the swirl is ticked with the player (gecinemaSwirlTick)
+	}
+
+	gecinemaPlace(shot);
+
+	if (g_GeIntroStage == GEINTRO_FADE) {
+		if (playerIsFadeComplete()) {
+			gecinemaIntroBeginSwirl();
+		}
+
+		return;
+	}
+
+	if (g_GeCinemaLine == 0 && g_GeIntroTimer >= SHOT_LINE1) {
+		g_GeCinemaLine = 1;
+		gecinemaShowLine(shot, 0);
+	} else if (g_GeCinemaLine == 1 && g_GeIntroTimer >= SHOT_LINE2 && *(const u32 *)(shot + 0x20)) {
+		g_GeCinemaLine = 2;
+		gecinemaShowLine(shot, 1);
+	}
+
+	g_GeIntroTimer += g_Vars.diffframe60f;
+
+	if (g_GeIntroTimer > (*(const u32 *)(shot + 0x20) ? SHOT_END_2 : SHOT_END_1)
+			|| (g_GeIntroTimer > 10.0f && !lvIsPaused() && gecinemaPressed())) {
+		g_GeIntroStage = GEINTRO_FADE;
+		playerSetFadeColour(0, 0, 0, 0);
+		playerSetFadeFrac(60, 1);
+	}
+}
+
+/**
+ * bondviewCalcIntroSwirlCamera(): the camera on leg `index` of the path, `time`
+ * into it, and what it looks at.
+ *
+ * The four points the spline runs through are the leg's own, the one before
+ * and the two after, never stepping past the record that ends the path. A
+ * point flagged 2 is an offset in Bond's own frame - turned by the way he
+ * faces - and the rest are in the level's. What the camera looks at is Bond's
+ * eyes, pushed forty units along his own line of sight over the legs flagged
+ * 4, which is what brings the picture round to what he is looking at as the
+ * camera arrives.
+ */
+static void gecinemaSwirlCamera(s32 index, f32 time, struct coord *pos, struct coord *lookat)
+{
+	const struct player *pl = g_Vars.currentplayer;
+	const struct geswirl *base = g_GeSwirl;
+	const struct geswirl *leg = &base[index];
+	struct coord pts[4];
+	f32 frac = 0.0f;
+	f32 blend;
+	f32 t2, t3, a, b, c, d;
+
+	if (leg->duration > 0.0f) {
+		frac = time / leg->duration;
+	}
+
+	for (s32 i = -1; i < 3; i++) {
+		const struct geswirl *entry = leg;
+		struct coord *dst = &pts[i + 1];
+
+		if (i < 0) {
+			entry = index > 0 ? leg - 1 : base;
+		} else {
+			while (entry < leg + i && !(entry[1].flags & 1)) {
+				entry++;
+			}
+		}
+
+		if (entry->flags & 2) {
+			dst->x = entry->off.z * pl->bond2.unk00.x + entry->off.x * pl->bond2.unk00.z;
+			dst->y = entry->off.y;
+			dst->z = entry->off.z * pl->bond2.unk00.z - entry->off.x * pl->bond2.unk00.x;
+		} else {
+			*dst = entry->off;
+		}
+	}
+
+	// coord3dCubicSplineInterp()
+	t2 = frac * frac;
+	t3 = t2 * frac;
+	a = (2.0f * t2 - (frac + t3)) * leg->scale;
+	b = (2.0f - leg->scale) * t3 + t2 * (leg->scale - 3.0f) + 1.0f;
+	c = (leg->scale - 2.0f) * t3 + t2 * (3.0f - 2.0f * leg->scale) + frac * leg->scale;
+	d = (t3 - t2) * leg->scale;
+
+	for (s32 k = 0; k < 3; k++) {
+		pos->f[k] = a * pts[0].f[k] + b * pts[1].f[k] + c * pts[2].f[k] + d * pts[3].f[k]
+			+ pl->bond2.unk10.f[k];
+		lookat->f[k] = pl->bond2.unk10.f[k];
+	}
+
+	if (!(leg->flags & 4)) {
+		blend = (leg[1].flags & 4) ? frac : 0.0f;
+	} else {
+		blend = (leg[1].flags & 4) ? 1.0f : 1.0f - frac;
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		lookat->f[k] += pl->bond2.unk1c.f[k] * 40.0f * blend;
+	}
+}
+
+/**
+ * The swirl's camera, from playerTick()'s TICKMODE_WARP once the body has been
+ * built and ticked. True while the swirl has the camera, so that the warp's own
+ * does not take it.
+ */
+s32 gecinemaSwirlTick(void)
+{
+	struct player *pl = g_Vars.currentplayer;
+	struct coord pos, lookat, look;
+	struct coord up = {0, 1, 0};
+	f32 left;
+
+	if (g_GeIntroStage != GEINTRO_SWIRL || !pl || !pl->prop) {
+		return 0;
+	}
+
+	if (!g_GeIntroPosed && pl->haschrbody && pl->model00d4 && pl->prop->chr) {
+		// what Bond is doing when the camera finds him: the setup's own choice
+		// out of stage_intro_anim_table[], played on his body the way
+		// GoldenEye's bondviewSetCameraMode() does
+		const s32 row = g_GeIntroAnimIndex >= 0 && g_GeIntroAnimIndex < ARRAYCOUNT(g_GeIntroAnimTable)
+			? g_GeIntroAnimIndex : 0;
+		const s32 animnum = gexPlusMissionAnim(g_GeIntroAnimTable[row].geanim);
+
+		g_GeIntroPosed = 1;
+		playerStartChrFade(0, 1);
+
+		if (animnum > 0 && pl->model00d4->anim) {
+			modelSetAnimation(pl->model00d4, animnum, 0, g_GeIntroAnimTable[row].start,
+					g_GeIntroAnimTable[row].speed, 0);
+
+			if (g_GeIntroAnimTable[row].end > 0.0f) {
+				modelSetAnimEndFrame(pl->model00d4, g_GeIntroAnimTable[row].end);
+			}
+
+			pl->prop->chr->actiontype = ACT_BONDINTRO;
+			pl->prop->chr->sleep = 0;
+		}
+	}
+
+	g_GeIntroTimer += g_Vars.lvupdate60freal;
+
+	while (g_GeSwirl[g_GeIntroLeg].duration <= g_GeIntroTimer) {
+		if (!(g_GeSwirl[g_GeIntroLeg + 3].flags & 1)) {
+			g_GeIntroTimer -= g_GeSwirl[g_GeIntroLeg].duration;
+			g_GeIntroLeg++;
+		} else {
+			g_GeIntroTimer = g_GeSwirl[g_GeIntroLeg].duration;
+			gecinemaIntroEnd();
+			return 0;
+		}
+	}
+
+	// how long is left of the whole path
+	left = g_GeSwirl[g_GeIntroLeg].duration - g_GeIntroTimer;
+
+	for (s32 i = g_GeIntroLeg + 1; !(g_GeSwirl[i + 2].flags & 1); i++) {
+		left += g_GeSwirl[i].duration;
+	}
+
+	// the body goes from solid to nothing just before the camera is inside it
+	if (left < 30.0f && left + g_Vars.lvupdate60freal >= 30.0f) {
+		playerStartChrFade(30, 0);
+	}
+
+	if (g_GeIntroFadingOut) {
+		if (playerIsFadeComplete()) {
+			gecinemaIntroEnd();
+			return 0;
+		}
+	} else if (left > 60.0f && !lvIsPaused() && gecinemaPressed()) {
+		g_GeIntroFadingOut = 1;
+		playerSetFadeColour(0, 0, 0, pl->colourscreenfrac);
+		playerSetFadeFrac(playerIsFadeComplete() ? 60 : pl->colourfadetime60, 1);
+	}
+
+	gecinemaSwirlCamera(g_GeIntroLeg, g_GeIntroTimer, &pos, &lookat);
+
+	look.x = lookat.x - pos.x;
+	look.y = lookat.y - pos.y;
+	look.z = lookat.z - pos.z;
+
+	playerSetCameraMode(CAMERAMODE_THIRDPERSON);
+
+	if (g_GeSwirl[g_GeIntroLeg].pad >= 0) {
+		// a leg far enough from Bond to be in another part of the level names
+		// the pad whose room it is in (Dam's starts over the reservoir)
+		struct pad pad;
+
+		padUnpack(g_GeSwirl[g_GeIntroLeg].pad, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+		if (pad.room > 0 && pad.room < g_Vars.roomcount) {
+			player0f0c1ba4(&pos, &up, &look, &pad.pos, pad.room);
+			return 1;
+		}
+	}
+
+	player0f0c1840(&pos, &up, &look, &pl->prop->pos, pl->prop->rooms);
+
+	return 1;
+}
+
 /** Every frame of a level, from lvTick(). */
 void gecinemaTick(void)
 {
 	const u8 *shot;
 	f32 end;
 	s32 skip;
+
+	if (g_GeIntroPending && g_Vars.currentplayer && g_Vars.currentplayer->prop
+			&& !g_Vars.currentplayer->isdead) {
+		gecinemaIntroBegin();
+	}
+
+	if (g_GeIntroStage != GEINTRO_NONE) {
+		gecinemaIntroTick();
+		return;
+	}
 
 	if (!gecinemaIsOn() || !g_Vars.currentplayer || !g_Vars.currentplayer->prop) {
 		return;

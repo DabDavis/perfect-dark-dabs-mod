@@ -3866,6 +3866,7 @@ static void objectiveRecord(uint8_t *out, const uint8_t *raw)
 struct solostats {
 	int props, dropped, aikept, aidropped, aiduplicate;
 	uint8_t *anims;   // one byte per GoldenEye animation id, set when named
+	uint8_t *models;  // the conversion's set of prop models, for a gun a list hands out
 };
 
 /**
@@ -4121,6 +4122,26 @@ static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const
 			set32(out.v, start + 0x18, padNum(be32(raw, 0x18) & 0xffff, numpads, 0));
 			set32(out.v, start + 0x1c, soloTextId(be32(raw, 0x1c) & 0xffff));
 			set32(out.v, start + 0x20, soloTextId(be32(raw, 0x20) & 0xffff));
+		} else if (t == 3) {
+			// One point of the camera's swirl down to Bond, as floats. GoldenEye
+			// converts the record in place when the level loads (bondview_r.c:
+			// the offset from Bond, the spline's scale and the leg's duration,
+			// each a 16.16 word over 65536) and nothing in Perfect Dark reads an
+			// INTROCMD_3 at all, so it is done here and the port reads floats
+			// (gecinema.c). The offset is in GoldenEye's own runtime units,
+			// which are the converted level's; the last word is a pad or -1.
+			// gesolo.py's intro_swirl().
+			const uint8_t *raw = f->v + o;
+			const size_t start = out.n;
+			const int32_t pad = (int32_t)be32(raw, 0x1c);
+
+			bufPut(&out, raw, 32);
+
+			for (int i = 0; i < 5; ++i) {
+				setf32(out.v, start + 8 + 4 * i, (double)(int32_t)be32(raw, 8 + 4 * i) / 65536.0);
+			}
+
+			set32(out.v, start + 0x1c, pad >= 0 ? padNum((uint32_t)pad & 0xffff, numpads, 0) : 0xffffffff);
 		} else if (t == 1) {
 			// What Bond starts with, as the port's own GoldenEye guns. The
 			// command's two items are GoldenEye's item ids, as a collectable's
@@ -4346,6 +4367,29 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 				}
 
 				vals[i] = v;
+			}
+
+			// The commands that name a gun somebody holds (gesolo.py's
+			// GE_EQUIP_OPS and GE_GIVE_OPS). IFBondHasItemEquipped's item is one
+			// of GoldenEye's ids like the two equips' above; and TRYGiveMeItem
+			// and TRYDroppingItem name the gun twice, by its prop number and by
+			// its item id, both of which were copied as they stood until
+			// converter 42 - and both are numbers Perfect Dark has a meaning of
+			// its own for. GoldenEye's prop 0xbf is the PP7 and Perfect Dark's
+			// model 0xbf a dataDyne lab door; its item 4 the PP7 and Perfect
+			// Dark's weapon 4 the Mauler. A hundred and five commands over the
+			// twenty missions: every guard a list armed carried a door for a
+			// gun, and so did Bond in Archives' ending. The prop becomes the
+			// remake's own model, as a setup record's does.
+			if (op == 0x59) {
+				vals[0] = soloItemWeapon(vals[0]);
+			} else if (op == 0xbf || op == 0x1b) {
+				if (st->models) {
+					setAdd(st->models, vals[0]);
+				}
+
+				vals[0] = (uint32_t)MODEL_REMAKE_FIRST + vals[0];
+				vals[1] = soloItemWeapon(vals[1]);
 			}
 
 			bufU16(out, (uint32_t)cmd->pd);
@@ -5457,6 +5501,14 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	if (GEANIM_WATCH < GEANIM_NUM_ANIMS) {
 		allanims[GEANIM_WATCH] = 1;
 	}
+
+	// and the nine Bond opens a mission on (bondview.c's stage_intro_anim_table,
+	// which the setup's INTROTYPE_ANIM indexes; gecinema.c plays them)
+	for (size_t i = 0; i < sizeof(g_GeIntroAnims) / sizeof(g_GeIntroAnims[0]); ++i) {
+		if (g_GeIntroAnims[i] < GEANIM_NUM_ANIMS) {
+			allanims[g_GeIntroAnims[i]] = 1;
+		}
+	}
 	g_FailMsg[0] = '\0';
 
 	if (setjmp(g_Fail)) {
@@ -5575,6 +5627,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			struct solostats st = {0};
 
 			st.anims = allanims;
+			st.models = allmodels;
 
 			if (strcmp(g_Missions[mi].key, lv->key) != 0) {
 				continue;

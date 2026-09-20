@@ -1652,6 +1652,18 @@ static bool playerBodyUsesGunMem(void)
 		return false;
 	}
 
+#ifndef PLATFORM_N64
+	// A GoldenEye remake mission builds Bond's body for its opening swirl and
+	// again for its ending, with a GoldenEye gun in its hand. That gun's model
+	// is a borrowed or a converted file, which the ordinary load knows how to
+	// texture and scale (its model state, its mod's textures) and a raw load
+	// into gunmem does not: the PP7 in the hand of Archives' ending was drawn
+	// the size of a door.
+	if (modloaderStageIsMission(g_Vars.stagenum)) {
+		return false;
+	}
+#endif
+
 	return !g_Vars.mplayerisrunning || (IS4MB() && PLAYERCOUNT() == 1);
 }
 
@@ -1773,6 +1785,24 @@ void playerTickChrBody(void)
 		// handfilenum for the first person hands, which a flying laptop does not
 		// have, and playerReset() is recording what the player will be when they
 		// are one again.
+#ifndef PLATFORM_N64
+		// On a GoldenEye remake mission the body is Bond's, as GoldenEye dressed
+		// him for it - unless the player picked somebody in Customize
+		// Character. Here rather than in playerChooseBodyAndHead() because its
+		// other callers want the first person hands and the watch's sleeve,
+		// which already follow the mission's outfit their own way.
+		{
+			s32 menubody, menuhead;
+
+			if (!g_Vars.normmplayerisrunning
+					&& !modGhostGetTrialCharacter(&menubody, &menuhead)
+					&& !modGhostGetMenuCharacter(&menubody, &menuhead)
+					&& gexPlusMissionBond(g_Vars.currentplayer->bondtype, &bodynum, &headnum)) {
+				sp60 = false;
+			}
+		}
+#endif
+
 		spectatorbody = modSpectateGetBodyNum();
 
 		if (spectatorbody >= 0) {
@@ -1789,6 +1819,15 @@ void playerTickChrBody(void)
 		if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
 			weaponnum = g_DefaultWeapons[0];
 		}
+
+#ifndef PLATFORM_N64
+		// GoldenEye's swirl finds Bond holding what the mission starts him
+		// with (solo_char_load(): starting_weapon[GUNRIGHT]); the hands are
+		// empty while the opening runs
+		if (gecinemaIntroIsOn()) {
+			weaponnum = g_DefaultWeapons[HAND_RIGHT];
+		}
+#endif
 
 		weaponmodelnum = playermgrGetModelOfWeapon(weaponnum);
 
@@ -1986,6 +2025,12 @@ void playerTickChrBody(void)
 		}
 
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
+
+#ifndef PLATFORM_N64
+		// a player has no chair to be pushed clear of; left at 0 this is the
+		// stage's object 0, whatever that is (chrCalculatePushPos)
+		chr->myspecial = -1;
+#endif
 
 		modelSetRootPosition(g_Vars.currentplayer->model00d4, &g_Vars.currentplayer->prop->pos);
 		chrSetLookAngle(g_Vars.currentplayer->prop->chr, turnangle);
@@ -5706,7 +5751,14 @@ void playerTick(bool arg0)
 		// to device room at the end of a training session
 		playerTickChrBody();
 		bmoveTick(0, 0, 0, 1);
-		playerExecutePreparedWarp();
+#ifndef PLATFORM_N64
+		// a GoldenEye remake mission's opening swirl is this mode with a
+		// camera of its own (gecinema.c)
+		if (!gecinemaSwirlTick())
+#endif
+		if (g_Vars.tickmode == TICKMODE_WARP) {
+			playerExecutePreparedWarp();
+		}
 	} else if (g_Vars.tickmode == TICKMODE_AUTOWALK) {
 		// Extraction bodyguard room and Duel
 		f32 targetangle;
@@ -6342,6 +6394,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 
 	if (g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY
 			&& playerIsHealthVisible()
+#ifndef PLATFORM_N64
+			// not over a GoldenEye remake mission's opening shot, or the Cinema's
+			&& !gecinemaIntroIsOn() && !gecinemaIsOn()
+#endif
 			&& func0f0f0c68()) {
 		gdl = playerRenderHealthBar(gdl);
 	}
@@ -6568,7 +6624,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 		// and GE Plus's watch is GoldenEye's own pause, which takes the sight,
 		// the ammo, the radar and the messages off the screen with it
 		// (gewatch.c, GoldenEye's gunSetSightVisible()/hudmsgsSetOff())
-		const bool cinema = gecinemaIsOn() || geWatchIsOpen();
+		const bool cinema = gecinemaIsOn() || gecinemaIntroIsOn() || geWatchIsOpen();
 #else
 		const bool cinema = false;
 #endif
@@ -6590,7 +6646,11 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = radarRender(gdl);
 		}
 
-		if (!cinema) {
+#ifndef PLATFORM_N64
+		// a cinema's captions are hud messages: only the watch takes those off
+		if (!geWatchIsOpen())
+#endif
+		{
 			gdl = hudmsgsRender(gdl);
 		}
 #else

@@ -212,6 +212,10 @@ static const struct { const char *name; uint32_t at; } g_GeAnims[] = {
 // names it, so the conversion always writes it (geconvert.c)
 #define GEANIM_WATCH 45
 
+// stage_intro_anim_table[]'s nine (bondview.c), by id: what Bond is doing when
+// the opening swirl finds him, chosen by the setup's INTROTYPE_ANIM
+static const uint16_t g_GeIntroAnims[9] = { 61, 66, 97, 98, 99, 100, 102, 103, 176 };
+
 /**
  * `animation_table_ptrs2[]`: the three an aircraft plays, on the vehicle's own
  * model rather than on a character's skeleton. An id means one of these when

@@ -721,6 +721,51 @@ static s32 geRomBodyRow(s32 body, s32 head)
 }
 
 /**
+ * Bond himself, as GoldenEye dresses him for a mission: solo_char_load()'s
+ * choice (bondview2.c) by the outfit the setup's intro names - the same
+ * INTROCMD_OUTFIT the watch's sleeve is chosen from. It is the body the opening
+ * swirl circles and the one every ending is about; without it the player's
+ * body on a converted mission was Joanna's.
+ *
+ * GoldenEye's numbers: the bodies are 5 Brosnan's tuxedo, 22 the special
+ * operations uniform, 23 formal wear, 24 the jungle fatigues and 25 the parka,
+ * and Brosnan's five heads run 74 boiler, 75 default, 76 jungle, 77 parka,
+ * 78 tuxedo. The other three Bonds' cuffs wear Brosnan's tuxedo in the US ROM.
+ *
+ * False where the conversion has no characters, and the caller carries on to
+ * Perfect Dark's own choice.
+ */
+s32 gexPlusMissionBond(s32 outfit, s32 *bodynum, s32 *headnum)
+{
+	s32 gebody = 23;
+	s32 gehead = 75;
+	s32 head, body;
+
+	if (!modloaderStageIsMission(g_Vars.stagenum) || !geRomLoadTable(g_Vars.stagenum)) {
+		return 0;
+	}
+
+	switch (outfit) {
+	case 1: case 5: case 6: case 7: case 8: gebody = 5; gehead = 78; break;  // CUFF_BROSNAN..CUFF_FOLDER
+	case 2: gebody = 24; gehead = 76; break;  // CUFF_JUNGLE
+	case 3: gebody = 22; gehead = 74; break;  // CUFF_BOILER
+	case 4: gebody = 25; gehead = 77; break;  // CUFF_SNOW
+	}
+
+	head = geRomTake(gehead, -1);
+	body = geRomTake(gebody, head);
+
+	if (head < 0 || body < 0) {
+		return 0;
+	}
+
+	*bodynum = body;
+	*headnum = head;
+
+	return 1;
+}
+
+/**
  * The head a converted mission's body wears where its record named one rather
  * than taking GoldenEye's pool: Facility's Doctor Doak and Statue Park's
  * Mishkin are the two in the twenty missions, and -1 is every other body.

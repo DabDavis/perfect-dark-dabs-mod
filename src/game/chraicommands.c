@@ -56,6 +56,8 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "gecinema.h"
+#include "modloader.h"
 #endif
 
 /**
@@ -4776,6 +4778,17 @@ bool aiSetRotorSpeed(void)
  */
 bool aiNoOp00d8(void)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's IFCameraIsInIntro, which Perfect Dark kept the slot of and
+	// not the body: on a GoldenEye remake mission it is asked again, of the
+	// mission's own opening (gecinema.c)
+	if (modloaderStageIsMission(g_Vars.stagenum) && gecinemaIntroIsStill()) {
+		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		return false;
+	}
+#endif
+
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -4785,6 +4798,15 @@ bool aiNoOp00d8(void)
  */
 bool aiNoOp00d9(void)
 {
+#ifndef PLATFORM_N64
+	// and its IFCameraIsInBondSwirl
+	if (modloaderStageIsMission(g_Vars.stagenum) && gecinemaIntroIsSwirl()) {
+		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		return false;
+	}
+#endif
+
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -9700,6 +9722,20 @@ bool aiShowCutsceneChrs(void)
 		}
 	} else {
 		for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
+#ifndef PLATFORM_N64
+			// A GoldenEye remake mission, where this is GoldenEye's HideAllChrs
+			// and the first command of every ending. GoldenEye has no chr for
+			// Bond when it runs - his body is loaded by the CameraSwitch after
+			// it - so the body the ending is about is never hidden. Perfect
+			// Dark's player has a chr at all times, which this hid with the
+			// guards: a hidden chr is not ticked, so the list the ending hands
+			// Bond (SetBondsAiList - Dam's jump, Archives' run) never ran a
+			// command, and nobody was in the shot.
+			if (g_ChrSlots[i].prop && g_ChrSlots[i].prop->type == PROPTYPE_PLAYER
+					&& modloaderStageIsMission(g_Vars.stagenum)) {
+				continue;
+			}
+#endif
 			if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].prop &&
 					(g_ChrSlots[i].chrflags & (CHRCFLAG_UNPLAYABLE | CHRCFLAG_HIDDEN)) == 0) {
 				g_ChrSlots[i].hidden2 |= CHRH2FLAG_HIDDENFORCUTSCENE;

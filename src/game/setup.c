@@ -2212,6 +2212,24 @@ void setupCreateProps(s32 stagenum)
 					{
 						struct tag *tag = (struct tag *)obj;
 						struct defaultobj *taggedobj = setupGetObjByCmdIndex(index + tag->cmdoffset);
+
+#ifndef PLATFORM_N64
+						// A converted GoldenEye mission keeps one record for each of
+						// GoldenEye's so that these offsets still count right, and a
+						// record with nothing in it is four bytes: GoldenEye's own
+						// PROPDEF_NOTHING (type 0) or the conversion's left-out
+						// record (OBJTYPE_22). A tag on one of those is a tag on
+						// nothing: taken as an object, the flag below was written
+						// 0x40 bytes on - into the records after it - and
+						// objFindByTagId() handed back an "object" whose prop was
+						// whatever lay there. Streets' tag 0 is one, and the first
+						// thing to ask for it was the player's own body looking for a
+						// chair to stand clear of.
+						if (taggedobj && (taggedobj->type == 0 || taggedobj->type == OBJTYPE_22)) {
+							taggedobj = NULL;
+						}
+#endif
+
 						tag->obj = taggedobj;
 
 						if (taggedobj) {

@@ -136,6 +136,12 @@ MENU_TEXT = (('UbriefdamZ', 'LdamE'), ('UbriefarkZ', 'LarkE'),
 # menu/geanims.bin, since animation_table_ptrs2[] shares its numbering with
 # the guards' table (port/include/geanimtable.h, GEVEH_ANIM_FIRST)
 GEVEH_ANIM_FIRST = 256
+# stage_intro_anim_table[]'s animations by GoldenEye's id (gecinema.c has the
+# frames and speeds): extending_left_hand, fire_standing_draw_one_handed_weapon_
+# fast, draw_one_handed_weapon_and_look_around, ..._and_stand_up,
+# aim_one_handed_weapon_left_right, cock_one_handed_weapon_and_turn_around,
+# cock_..._turn_around_and_stand_up, draw_..._and_turn_around, bond_eye_fire_alt
+GE_INTRO_ANIMS = (61, 66, 97, 98, 99, 100, 102, 103, 176)
 
 MISSIONS = (('dam', 'UsetupdamZ', 'Dam'), ('ark', 'UsetuparkZ', 'Facility'),
             ('run', 'UsetuprunZ', 'Runway'), ('sevx', 'UsetupsevxZ', 'Surface'),
@@ -1373,6 +1379,9 @@ def main():
     # them to Perfect Dark's table and gives the id its number there
     # (gexplusanim.c), which is what the converted aiChrDoAnimation asks for.
     rows, blob = [], bytearray()
+    # and the nine Bond opens a mission on (bondview.c's stage_intro_anim_table,
+    # which the setup's INTROTYPE_ANIM indexes), which no list names
+    allanims.update(GE_INTRO_ANIMS)
     for anim in sorted(allanims):
         name, at = geanimtable.TABLE[anim]
         data, e = geanim.convert(geanimtable.BASE + at)

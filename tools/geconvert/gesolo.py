@@ -141,9 +141,21 @@ GE_AMMO_TYPES = {
     13: (0x0a,),        # GGUN           the golden gun stands on the DY357-LX
 }
 
-# The two commands that put an item in Bond's hands (geaitable.py rows e3 and
-# e4); everything else GoldenEye calls an ITEM_NUM is left as it is.
-GE_EQUIP_OPS = (0xe3, 0xe4)
+# The commands whose ITEM_NUM is a weapon somebody holds (geaitable.py): the two
+# that put an item in Bond's hands (e3, e4) and the one that asks what is in
+# them (59). An item anywhere else is a key or a gadget's tag and is left alone.
+GE_EQUIP_OPS = (0xe3, 0xe4, 0x59)
+
+# And the two that hand a *guard* a gun or take one off him - TRYGiveMeItem (bf)
+# and TRYDroppingItem (1b) - which name the gun twice: its prop number and its
+# item id. Both were copied as they stood until converter 42, and both are
+# numbers Perfect Dark has its own meaning for: GoldenEye's prop 0xbf is the PP7
+# and Perfect Dark's model 0xbf is a dataDyne lab door, its item 4 the PP7 and
+# Perfect Dark's weapon 4 the Mauler. A hundred and five commands over the
+# twenty missions, so every guard a list armed - Statue Park's troops, Bond in
+# Archives' ending - carried a door for a gun. The prop becomes the remake's own
+# model, as a setup record's does, and the item goes through GE_ITEM_WEAPON.
+GE_GIVE_OPS = (0xbf, 0x1b)
 
 # The two commands that ask about Bond's own health (geaitable.py rows 7f and
 # 80). GoldenEye's threshold is a byte where 255 is a full one (chrai.c divides
@@ -574,6 +586,27 @@ def intro_camera(raw, numpads, scale, offset):
     return bytes(out)
 
 
+INTROTYPE_SWIRL = 3
+
+
+def intro_swirl(raw, numpads):
+    """One point of the camera's swirl down to Bond, as floats.
+
+    GoldenEye converts the record in place when the level loads (bondview_r.c:
+    the offset from Bond, the spline's scale and the leg's duration, each a
+    16.16 fixed point word over 65536) and nothing in Perfect Dark reads an
+    INTROCMD_3 at all, so the conversion does it here and the port reads floats
+    (gecinema.c). The offset is in GoldenEye's own runtime units, which are the
+    converted level's. The last word is a pad or -1.
+    """
+    v = struct.unpack('>8i', raw)
+    out = bytearray(raw)
+    struct.pack_into('>5f', out, 0x08, *[x / 65536.0 for x in v[2:7]])
+    pad = v[7]
+    struct.pack_into('>i', out, 0x1c, pad_num(pad & 0xffff, numpads) if pad >= 0 else -1)
+    return bytes(out)
+
+
 INTROTYPE_ITEM = 1
 INTROTYPE_AMMO = 2
 
@@ -617,6 +650,8 @@ def convert_intro(d, numpads, scale=None, offset=None):
             break
         if t == INTROTYPE_CAMERA:
             out.append(intro_camera(d[o:o + 4 * n], numpads, scale, offset))
+        elif t == INTROTYPE_SWIRL:
+            out.append(intro_swirl(d[o:o + 4 * n], numpads))
         elif t == INTROTYPE_ITEM:
             out.extend(intro_item(d[o:o + 4 * n]))
         elif t == INTROTYPE_AMMO:
@@ -770,8 +805,11 @@ def convert_ailist(d, at, stats, numpads, vehicle=False):
                     v = global_ai_id(v)
                 elif a == 'ANIMATION_ID':
                     v = GE_ANIM_TAG | v
-                elif a == 'ITEM_NUM' and op in GE_EQUIP_OPS:
+                elif a == 'ITEM_NUM' and (op in GE_EQUIP_OPS or op in GE_GIVE_OPS):
                     v = item_weapon(v)
+                elif a == 'PROP_NUM' and op in GE_GIVE_OPS:
+                    stats.setdefault('models', set()).add(v)
+                    v = MODEL_REMAKE_FIRST + v
                 elif a == 'HEALTH' and op in GE_BOND_HEALTH_OPS:
                     v = v * GE_BOND_HEALTH_FULL // 255
                 vals.append(v)
@@ -874,4 +912,6 @@ def convert(d, numpads, bodies, scale=None, offset=None, data=None):
     ailists, aicode = convert_ailists(d, ai_at, stats, numpads, data)
     out = struct.pack('>8I', 0, 0, 0, intro_at, props_at, paths_at, ai_at, 0)
     out += intro + props + paths + pathpads + ailists + aicode
+    # and the guns its lists hand out, which no record need name
+    models |= stats.get('models', set())
     return out, models, stats

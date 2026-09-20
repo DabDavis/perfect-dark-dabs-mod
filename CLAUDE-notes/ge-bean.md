@@ -5555,3 +5555,144 @@ stand); and it must **leave characters out of the test** (`types 0x33`) - the la
 ground search (`geroom.c`), not from the graph's tile; a wall that *is* there
 still has the conversion's height rules; the truck's tick has no wall test of
 any kind. GoldenEye's sight is the tile graph too, and ours is not.
+
+## A mission's own opening, and the endings Bond was never in (2026-09-20)
+
+The user: *"none of the cinema is hooked up to the missions, also none of the
+endings."* Both true, for different reasons. Converter **42**.
+
+### The opening
+
+GoldenEye opens every solo mission the same way (bondview2.c,
+`bondviewSetCameraMode()` and `bondviewFrozenCameraTick()`):
+
+| GoldenEye | what it is | here |
+| --- | --- | --- |
+| `CAMERAMODE_INTRO` | one `INTROTYPE_CAMERA` shot at random, faded in, its line at 2 s and 5 s, over at 5 or 8 s | the Cinema page's own shot (`gecinemaPlace()` + `gecinemaCameraTick()`) |
+| `CAMERAMODE_FADESWIRL` | a second's fade to black | `playerSetFadeFrac(60, 1)` |
+| `CAMERAMODE_SWIRL` | Bond's body loaded at his spawn playing `stage_intro_anim_table[INTROTYPE_ANIM]`, the camera flown down a spline of the setup's `INTROTYPE_SWIRL` points into his eyes, the body fading over the last 30 ticks | **`TICKMODE_WARP`** with a camera of its own (`gecinemaSwirlTick()`) |
+| `CAMERAMODE_FP` | the gun comes up | `player0f0b9a20()`, which is how Perfect Dark leaves its own fade in |
+
+The Cinema page had been playing the first row since `6ff572b72` and a mission
+had been playing none of it: it started in first person.
+
+**Perfect Dark kept GoldenEye's frozen camera.** `TICKMODE_WARP` is
+`playerTickChrBody(); bmoveTick(0, 0, 0, 1);` and then a camera, and
+`playerTickThirdPerson()` still has the branch where the body drives the player
+(`chrTick(prop)` when `cameramode == CAMERAMODE_THIRDPERSON`) - so the swirl
+needs nothing new but the camera. `bondviewCalcIntroSwirlCamera()` ports line
+for line: `field_488.theta_transform` is `bond2.unk00`, `applied_view` is
+`bond2.unk1c`, `field_3C4` (a smoothed eye position) is `bond2.unk10`, and
+`coord3dCubicSplineInterp()` is twelve lines.
+
+**The swirl record is converted in the file**, as the camera record was:
+GoldenEye turns its five 16.16 words into floats when the level loads
+(bondview_r.c) and nothing in Perfect Dark reads an `INTROCMD_3` at all. The
+offsets are GoldenEye's runtime units, which are the converted level's. A leg
+far from Bond names the pad whose room the camera is in (Dam starts over the
+reservoir on pads 287 and 311) and goes through `player0f0c1ba4()` with that
+room; the rest walk portals from the prop (`player0f0c1840()`).
+
+**Bond is GoldenEye's Bond**: `gexPlusMissionBond()` is `solo_char_load()`'s
+choice by the setup's outfit - bodies 5 tuxedo, 22 special operations, 23 formal
+wear, 24 jungle, 25 parka; Brosnan's heads 74 boiler, 75 default, 76 jungle,
+77 parka, 78 tuxedo - taken as rows the way a guard's are. It is asked in
+`playerTickChrBody()` and **not** in `playerChooseBodyAndHead()`, whose other
+callers want the first person hands and the watch's sleeve: a row's
+`handfilenum` is its host's (a dataDyne guard's), so answering there would have
+changed the hands on every mission. Customize Character still wins.
+
+**A mission's body is never built in gunmem** (`playerBodyUsesGunMem()`): the
+gun in its hand is a borrowed or converted file, which the ordinary load knows
+how to texture and scale and a raw `modeldefLoad()` into gunmem does not.
+
+Nine animations convert whether or not a list names them
+(`g_GeIntroAnims`/`GE_INTRO_ANIMS`: 61, 66, 97, 98, 99, 100, 102, 103, 176).
+Only Bunker's setup carries an `INTROTYPE_ANIM` (1); the rest take row 0,
+`extending_left_hand` from frame 95 at speed 0.02 - a pose, in effect.
+
+`IFCameraIsInIntro` and `IFCameraIsInBondSwirl` (21 commands) were Perfect
+Dark's `aiNoOp00d8`/`d9`, slots it kept and bodies it did not. On a mission they
+answer again.
+
+**`--skip-mission-intro`** for a probe that wants the player in the level at
+frame one; `runall.sh` and `runall_t.sh` pass it. `runall_intro.sh` and
+`runall_intro_t.sh` are the sweeps *with* the opening, which need no debugger:
+`--exit-frame` and `--screenshot-frame` do it, twenty missions in five minutes.
+
+### The endings
+
+Every ending is **Bond's own AI list**. The level's list ends
+`HideAllChrs, TriggerFadeAndExitLevelOnButtonPress, CameraTransitionFromBond,
+CameraSwitch, SetBondsAiList(n)` and list *n* is the show - Dam's dive with two
+more camera cuts, Archives' run down the alley beside Natalya. `SetBondsAiList`
+is `SetChrAiList(CHR_BOND_CINEMA, n)`, -8, which is Perfect Dark's `CHR_BOND`
+0xf8 and converted fine.
+
+**It never ran a command, because `HideAllChrs` hid Bond.** GoldenEye has no chr
+for Bond when that command runs - `solo_char_load()` makes one at the
+`CameraSwitch` after it. Perfect Dark's player has a chr at all times, so
+`aiShowCutsceneChrs(0)` gave it `CHRCFLAG_HIDDEN` with the guards', and
+`chrTick()` does not tick a hidden chr. The shot was there (since `df6d84a56`),
+Natalya ran up to the camera, and nobody else was in it. The player's chr is
+left out of the sweep on a mission.
+
+**And the gun in his hand was a dataDyne lab door.** `TRYGiveMeItem(prop, item)`
+was copied with both of GoldenEye's numbers: prop 0xbf is the PP7 and Perfect
+Dark's model 0xbf is `MODEL_DD_LABDOOR`; item 4 the PP7 and weapon 4 the Mauler.
+**A hundred and five commands over the twenty missions - every guard a list
+arms**, Statue Park's troops and Surface 2's reinforcements among them: on the
+baseline `chrGiveWeapon()` is handed model `0xc1`, weapon 7 for Surface 2's Klobb
+- Perfect Dark's multi ammo crate - and makes it (`givegun.gdb`; now `0x2c1`,
+`0x61`). The prop is
+`MODEL_REMAKE_FIRST + prop` now (and joins the conversion's model set, since no
+record need name it), the item goes through `GE_ITEM_WEAPON`, and so does
+`IFBondHasItemEquipped`'s.
+
+That last one changed a sweep, and the change is GoldenEye's: **Surface 2's
+four spawners hold their reinforcements back while Bond carries something
+quiet** (fists, the knives, either PP7, the sniper rifle). With a raw item id
+the test could never be true; 12 chrs at frame 600 became 9. Found by building
+HEAD beside the change (`git stash`, `build/gexhead`) and diffing `--ai-trace`
+for one list - the old sweep logs were several commits stale and proved
+nothing.
+
+`BondSetLockedVelocity` is Perfect Dark's `ai00ee` (`bondforcespeed`), whose
+body GoldenEye's own source quotes in a comment. Dam's walk to the rail.
+
+### A tag on nothing
+
+Streets crashed in the opening, and not because of it: the player's new body
+asked `objFindByTagId(chr->myspecial)` for a chair to stand clear of, with
+`myspecial` 0. **Streets' tag 0 points at a four-byte record** - GoldenEye's
+own `PROPDEF_NOTHING`; the conversion's `OBJTYPE_22` for a record it leaves out
+is the same shape - and `setupCreateProps()` takes whatever a tag points at as a
+`defaultobj`: it wrote `OBJHFLAG_TAGGED` 0x40 bytes on, into the records after
+it, and handed back an "object" whose prop was whatever lay there. A tag on a
+record of type 0 or 0x22 is a tag on nothing now, and a player's `myspecial`
+is -1.
+
+### The captions had been gone since the watch
+
+`playerRenderHud()` gathered the Cinema and the watch under one `cinema` flag
+and the watch's commit put `hudmsgsRender()` behind it - GoldenEye's watch takes
+the messages off the screen - which took the Cinema page's captions with them.
+Only the watch hides them now. Also off during a shot: the health bar Perfect
+Dark opens a mission on.
+
+### Probes
+
+`build/gexrom/aidump.py <mission> <list>` disassembles a converted list with
+offsets (re-run it after any AI map change: mapping `BondSetLockedVelocity`
+moved every offset after it, and a kick into the middle of a command does
+nothing, quietly). `endshot.py` kicks the background chr that owns an ending
+(`BG=4000+n` for list `0x1000+n`) to `OFF` and shoots; `introshot.py` shoots the
+opening; `chrguns.py` tallies what every chr holds; `givegun.gdb` watches
+`chrGiveWeapon()`. A `break ... if lvframenum >= N` on `videoEndFrame` costs a
+trap a frame - minutes for a thousand frames - so anything that does not need
+a poke should use `--screenshot-frame`.
+
+**Not done**: GoldenEye stops the mission clock in third person; its caption is
+its own font at the bottom of the screen and ours is a Perfect Dark hud message;
+the Cinema page still plays only the opening shots, not the swirl or the
+endings.

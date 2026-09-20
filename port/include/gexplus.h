@@ -55,6 +55,8 @@ void gexPlusMissionHeads(void);
 // The head a converted mission's body wears where its record named one rather
 // than taking GoldenEye's pool, or -1. bodyChooseHead() asks.
 s32 gexPlusRomOwnHead(s32 bodynum);
+// Bond as GoldenEye dresses him for this mission's outfit; false off a mission
+s32 gexPlusMissionBond(s32 outfit, s32 *bodynum, s32 *headnum);
 
 // Whether a row of g_HeadsAndBodies is one of GoldenEye's own characters, in a
 // mission: headfit.c leaves a pair GoldenEye made for itself alone

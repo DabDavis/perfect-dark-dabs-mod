@@ -313,7 +313,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* e2 IFBondItemTotalAmmoLessThan            */ {  4,     -1,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* e3 BondEquipItem                          */ {  2, 0x00ec,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
 	/* e4 BondEquipItemCinema                    */ {  2, 0x00ed,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
-	/* e5 BondSetLockedVelocity                  */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* e5 BondSetLockedVelocity                  */ {  3, 0x00ee,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {-1, 1, 0x00f2}, {0, 1, 0}, {1, 1, 0} } },
 	/* e6 IFObjectInRoomWithPad                  */ {  5,     -1,  3, { 1, 2, 1 }, 0x0002, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* e7 IFImFiringAndLockedForward             */ {  2,     -1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* e8 IFImFiring                             */ {  2, 0x00f1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
