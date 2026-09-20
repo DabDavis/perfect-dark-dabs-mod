@@ -227,18 +227,42 @@ enum {
 #define GECUFF_MOORE   7
 #define GECUFF_FOLDER  8
 
-// where the watch sits on the hand it is given: back along the forearm from
-// the hand's own attach point, turned so that its face looks out of the wrist.
-// Fitted by eye against the player's own body, GoldenEye's own numbers for a
-// held item not being in the tables the conversion reads.
-#define WATCH_WRIST_X     0.0f
-#define WATCH_WRIST_Y     0.0f
-#define WATCH_WRIST_Z     0.0f
-#define WATCH_WRIST_TURN  0.0f
-#define WATCH_WRIST_SCALE 0.35f
+/**
+ * How GoldenEye's own watch model sits on a hand it was not built on, which is
+ * measured rather than fitted: GoldenEye's floating arm carries the same watch
+ * as part of its own mesh, hung off the same hand bone of the same skeleton, so
+ * where that one sits *is* the answer.
+ *
+ * The watch model's own axes (Igx056Z): the band is a loop round x, which is
+ * the forearm; the dial looks out along +z; its three hands lie along +y, so
+ * that is twelve o'clock, and the crown is on +x. The floating arm's hand bone:
+ * the fingers are +x and the sleeve -x, the dial looks out along +y (the back
+ * of the hand) and its hour hand lies along -z. So the watch goes on the bone
+ * turned a quarter turn back about x - y to -z, z to +y - which is the inverse
+ * of the rotX(+90) the pose squares the hand bone to, and is why the two
+ * together show the dial upright with the fingers to its right.
+ *
+ * The floating arm's dial is at (-419.4, 152.2, 32.2) on its bone in units a
+ * tenth of a body's, and the watch model's own dial is at (-10.5, 0, 196), both
+ * models being the same size in their own units: that puts the middle of the
+ * band a body's 18 units behind the wrist past its own half width, 4.4 under
+ * the bone and 3.2 to the side, which is the middle of this body's wrist too.
+ */
+#define WATCH_DIAL_X       (-10.5f)  // the dial's middle, in the watch's own units
+#define WATCH_DIAL_Y       0.0f
+#define WATCH_DIAL_Z       196.0f
+#define WATCH_HALF_ALONG   229.0f    // half the case, along the forearm
+#define WATCH_WRIST_CLEAR  18.0f     // body units between the case and the wrist joint
+#define WATCH_WRIST_Y      (-4.4f)
+#define WATCH_WRIST_Z      3.2f
 
-// and the roll that stands it upright on the screen
-#define WATCH_POSE_ROLL   (M_PI / 2.0f)
+/**
+ * How big the watch is on the wrist. 0.1 is life size - GoldenEye's own, a
+ * body's units being ten of the watch's - and anything over it is a bigger
+ * watch on the same arm. The face is drawn at one size whatever this is
+ * (WATCH_FACE_SCALE), so what it really sets is how big the *arm* is beside it.
+ */
+#define WATCH_WRIST_SCALE 0.35f
 
 // the watch's pose in front of the eye (player.c's field_1D4, field_1D8 and
 // pause_watch_position), and how big it is drawn there
@@ -331,8 +355,12 @@ struct gewatch {
 static struct gewatch g_Watch;
 
 // debugging: the arm can be left out of the frame to judge the face on its own
-// ('gewatch.c'::g_WatchDrawArm from gdb)
-static s32 g_WatchDrawArm = 1;
+// ('gewatch.c'::g_WatchDrawArm from gdb), and the watch made bigger or smaller
+// on the wrist to judge the framing ('gewatch.c'::g_WatchWristScale). Volatile
+// because nothing in the game writes them: without it the compiler folds each
+// into its one use and gdb has nothing to set.
+static volatile s32 g_WatchDrawArm = 1;
+static volatile f32 g_WatchWristScale = WATCH_WRIST_SCALE;
 
 enum { MPPAGE_SCORES, MPPAGE_KILLS, MPPAGE_LOSSES, MPPAGE_PAUSE, MPPAGE_EXIT, NUM_MPPAGES };
 
@@ -2258,33 +2286,32 @@ static Gfx *watchDrawModel(Gfx *gdl)
 			mtx4Copy(matrices, &wbase);
 		}
 
-		// How it sits on that hand: back along the forearm, at the size a watch
-		// is, and rolled a quarter turn so that its band crosses the wrist
-		// rather than running along it.
+		// How it sits on that hand: where GoldenEye's own floating arm wears the
+		// same watch on the same bone (WATCH_DIAL_X and the rest) - round the
+		// forearm behind the wrist, its dial out of the back of the hand and
+		// its crown towards the fingers.
 		//
-		// The roll goes here rather than on the pose in front of the eye. The
-		// two are not the same: the pose is what the *face* is squared to, so
-		// rolling it turns the arm on the screen instead of the watch, which
-		// stood the forearm on end. Rolled here, the arm lies where the
-		// animation put it and the watch turns on it.
+		// Nothing done here can turn the watch on the *screen*. The move that
+		// follows squares the dial to the camera whatever it is given, so any
+		// turn put on the watch comes out as the opposite turn of the arm
+		// under it: a roll tried here to stand the watch upright left the
+		// watch where it was and stood the player on their side instead. What
+		// this decides is how the arm lies beside a dial that is already
+		// upright, and only the true fit leaves it lying as an arm does.
 		{
-			struct coord along = { WATCH_WRIST_X, WATCH_WRIST_Y, WATCH_WRIST_Z };
-			Mtxf offset;
+			const f32 size = g_WatchWristScale;
+			struct coord along = {
+				-(WATCH_HALF_ALONG * size + WATCH_WRIST_CLEAR),
+				WATCH_WRIST_Y,
+				WATCH_WRIST_Z,
+			};
 
-			mtx4LoadTranslation(&along, &offset);
-			mtx00015f04(WATCH_WRIST_SCALE, &offset);
-			mtx4MultMtx4InPlace(&wbase, &offset);
-			mtx4Copy(&offset, &wbase);
-
-			if (WATCH_POSE_ROLL != 0.0f) {
-				Mtxf roll;
-
-				mtx4LoadZRotation(WATCH_POSE_ROLL, &roll);
-				mtx4MultMtx4InPlace(&wbase, &roll);
-				mtx4Copy(&roll, &wrolled);
-			} else {
-				mtx4Copy(&wbase, &wrolled);
-			}
+			mtx4LoadXRotation(-M_PI / 2.0f, &wrolled);
+			mtx00015f04(size, &wrolled);
+			wrolled.m[3][0] = along.x;
+			wrolled.m[3][1] = along.y;
+			wrolled.m[3][2] = along.z;
+			mtx4MultMtx4InPlace(&wbase, &wrolled);
 		}
 
 		wmatrices = gfxAllocate(wdef->nummatrices * sizeof(Mtxf));
@@ -2305,20 +2332,41 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	// where the face has ended up, and where GoldenEye's own pose wants it:
 	// turned a quarter turn about x so that it looks back at the camera, 25
 	// units in front of the eye, less the hour hand's own offset so that the
-	// middle of the face is the middle of the screen
+	// middle of the face is the middle of the screen.
+	//
+	// The face is always in the *hand bone's* axes - the dial looking out along
+	// +y with twelve o'clock at -z - since that is what GoldenEye's rotX(+90)
+	// squares up and what its screens are drawn in. The floating arm's hour
+	// hand hangs straight off that bone, so its offset is the whole of it. The
+	// watch model is a quarter turn off the bone (its dial looks out along its
+	// own +z), so its dial's middle is turned back by the same quarter: left
+	// in the watch's own axes, the pose stood the band on end with the dial
+	// flat underneath it.
 	{
 		Mtxf *own = wmatrices ? wmatrices : matrices;
 		const s32 numown = wmatrices ? wdef->nummatrices : def->nummatrices;
 		struct coord pos = { 0, 0, 0 };
 		f32 scale;
 
-		if (numhands > 0) {
-			pos.x = hands[0]->pos.x;
-			pos.y = hands[0]->pos.y;
-			pos.z = hands[0]->pos.z;
+		if (wmatrices) {
+			pos.x = WATCH_DIAL_X;
+			pos.y = WATCH_DIAL_Y;
+			pos.z = WATCH_DIAL_Z;
+
+			mtx4LoadXRotation(M_PI / 2.0f, &face);
+			face.m[3][0] = pos.x;
+			face.m[3][1] = pos.y;
+			face.m[3][2] = pos.z;
+		} else {
+			if (numhands > 0) {
+				pos.x = hands[0]->pos.x;
+				pos.y = hands[0]->pos.y;
+				pos.z = hands[0]->pos.z;
+			}
+
+			mtx4LoadTranslation(&pos, &face);
 		}
 
-		mtx4LoadTranslation(&pos, &face);
 		mtx4MultMtx4InPlace(own, &face);
 
 		scale = sqrtf(face.m[0][0] * face.m[0][0] + face.m[0][1] * face.m[0][1] + face.m[0][2] * face.m[0][2]);

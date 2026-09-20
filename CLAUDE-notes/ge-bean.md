@@ -4923,20 +4923,49 @@ list** - `modelRenderNodeDl()` reads `rwdata->dl.gdl` - so nulling the
 definition's pointers does nothing at all. A `gundl` node is the other way
 round.)
 
-**The watch is rolled on the wrist, not in the pose.** The user: "the watch is
-turned sideways". The roll cannot go on the pose in front of the eye, because
-that is what the *face* is squared to: rolling it turns the arm on the screen
-instead of the watch, and the forearm ends up standing on end. Rolled where the
-watch is put on the hand (`WATCH_POSE_ROLL`), the arm lies where the animation
-put it and the band crosses the wrist the way a band does.
+**Nothing done to the watch can turn it on the screen - it turns the arm
+instead** (2026-09-19, the user: "the watch is turned the wrong way and player
+model is contorting instead"). The move that carries the pose to the eye is
+`pose * inverse(face)`, and `face` was taken from the *watch's* matrix. So the
+dial lands on `pose` whatever the watch was given, and a roll put on the watch
+where it goes on the hand (`WATCH_POSE_ROLL`, which this note used to recommend)
+comes out as the opposite roll of the whole body under a watch that has not
+moved. Two things follow, and both were wrong at once:
+
+- **what the dial looks like on the screen is the pose against the face's own
+  axes**, and the pose's rotX(+90) is GoldenEye's number for its *hand bone*
+  (fingers +x, the dial looking out along +y, twelve o'clock at -z).
+  `GwatchidentifierZ` is a quarter turn off that - band looped round x, dial out
+  along +z, its three baked hands along +y, crown on +x - so squared up in its
+  own axes it stood the band on end with the dial flat underneath. The face is
+  built in the bone's axes now (the watch's dial centre under a rotX(+90)), and
+  one pose serves both arms;
+- **how the arm lies beside the dial is the fit of the watch on the bone, and
+  that is measured, not fitted**: GoldenEye's floating arm carries the same
+  watch in its own mesh on the same bone of the same skeleton (all of character
+  41 hangs off animpart 7, matrix 0), its hour node at (-419.4, 152.2, 32.2) in
+  units a tenth of a body's, against the watch model's dial at (-10.5, 0, 196).
+  That is rotX(-90), the band's middle 18 body units behind the wrist past its
+  own half width, 4.4 under the bone and 3.2 aside - which is the middle of a
+  body's wrist ring too. With it the forearm lies level across the screen with
+  the hand to the right of the dial, as GoldenEye's does.
+
+`build/gexrom/wmount2.py` is the probe (`FORCEARM=1` makes the conversion's
+watch "missing" so the floating arm loads, and both trees are dumped with their
+posed matrices and every vertex); the watch model's axes were read off three
+orthographic scatter plots of its 814 vertices. And **a file-static nothing
+writes is folded away**: `g_WatchDrawArm` was never in the binary ("isn't an
+lvalue"), so it and `g_WatchWristScale` are `volatile`.
 
 **Sizes are normalised at the face.** A body's scale is its own (0.1 where
 GoldenEye's floating arm is 0.01), so the move that carries the watch to the eye
 carries a scale with it: the face ends at `WATCH_FACE_SCALE` whatever is wearing
 it, and the arm comes to that size with it. `WATCH_WRIST_SCALE` is then the only
-thing that says how big the watch is on the wrist, and it is a compromise - a
-life-sized watch leaves the arm filling the screen at this zoom, and a watch
-that reads leaves the arm a slab at the edges.
+thing that says how big the watch is on the wrist, and it is a compromise: 0.1
+is life size, which fills the whole screen with forearm as GoldenEye's own does
+(and is what the user could not read as an arm), and 0.35 leaves the forearm as
+tall as the dial with the sleeve and the hand either side of it at 16:9. Judge
+it live with `'gewatch.c'::g_WatchWristScale`.
 
 **What it costs**: a chr's arm is a handful of polygons made to be seen across a
 room, so at a hand's distance it reads as flat panels where GoldenEye's own arm
