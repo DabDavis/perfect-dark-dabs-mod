@@ -6507,3 +6507,29 @@ shows the forced velocity going from (0, 4) to (0, 0) at exactly +240 - that is
 the fade and the outro's shots came, and the probe was called a pass. A
 `--boot-stage` run has no endscreen to say "failed", so **a mission-ending probe
 must print `isdead`** (`diveprobe.py` and `damfull.py` do now).
+
+## Facility's gas tanks, all nineteen in one heap (2026-09-21)
+
+The user: *"lets look at facility ge plus mission. the gas tanks are misplaced."*
+
+**Not the conversion - the port's own setup loader.** `convertProps()`
+(`port/src/preprocess/filesetup.c`) byte-swaps a gas bottle and a safe with
+`convertDefaultObjHdr()`, which moves the record's **first word and nothing
+else**. The record was sized right (an earlier fix, for GE-X's Facility) and
+left empty: model 0, pad 0, flags 0, so every `OBJTYPE_GASBOTTLE` in the game
+was Perfect Dark's model 0 standing on pad 0. Facility carries nineteen - the
+bottling room's ten big tanks (GoldenEye model 117, bound pads 10000-10009,
+extrascale 640) and nine barrels in the basement (113/114, pads 245-253) - and
+`tankprobe.py` found them all at (-4161, -284, 1891) in room 5. They take
+`convertDefaultObj()` now. No stock setup has either type, so nothing of Perfect
+Dark's changes; GE-X's Facility and its Frigate safe were wrong the same way.
+
+After: two rows of five on their legs in rooms 66-68, sized to their pads'
+boxes, and blowing the ten completes objective 4 (`tankblow.py`:
+`objectiveCheck()` 0,0,0,0,0 -> 0,0,0,1,0). Shots: `tankshot.py`. Not compared
+with the oracle - there is no Facility pad script yet - and the gas leak a
+destroyed tank should start (`if_gas_is_leaking`) was not looked at.
+
+**The lesson:** a prop that is "misplaced" may never have been placed. Print the
+record the running game holds (`modelnum`, `pad`, `flags`) before reading the
+converter.

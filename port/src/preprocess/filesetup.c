@@ -567,9 +567,13 @@ static u32 convertProps(u8* dst, u8* src)
 				// the four byte objective group above, which left every
 				// object after one misread. No stock setup has either; GE-X's
 				// Facility has gas bottles and its Frigate a safe.
+				//
+				// And the whole record is converted, not its first word: with
+				// the header alone the model, pad and flags were left zero, so
+				// every one of Facility's nineteen tanks was model 0 at pad 0.
 				struct defaultobj* dstobj = (struct defaultobj*)dst;
 
-				convertDefaultObjHdr(dstobj, cmd);
+				convertDefaultObj(dstobj, cmd);
 
 				dst += sizeof(struct defaultobj);
 				break;
