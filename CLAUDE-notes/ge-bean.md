@@ -7341,3 +7341,32 @@ stands by the objects on those pads and shoots them). **A model's matrices are
 per-frame memory**: read at `videoEndFrame` they are garbage; break where they
 are built. And a probe left running holds the binary - `cp` fails with "Text file
 busy" and the *old* binary is what the next run tests.
+
+## The tick an aircraft is given its animation (2026-09-21)
+
+Crash report 20260921-160755 on `40e0888ca`: `modelasmIterateThings1()`
+(modelasm_c.c:902, the frame bit reader) `<- modelasm00018680 <- modelSetMatrices
+<- objInitMatrices <- objTickPlayer`. Not the tank, though it arrived two minutes
+after the tank fix.
+
+**A converted vehicle's own AI list runs from its tick** (`vehHeliTick()` and the
+truck's call `chraiExecute()`), and that tick is called from `objTickPlayer()`
+*after* the animated-object branch. On the tick the list's `aiGeVehicleAnim`
+gives the model its animation, `sp556` is still false, so the object is posed by
+`objInitMatrices()` through plain `modelSetMatrices()` - and **`anim->frameslot1`
+is written only by `modelSetMatricesWithAnim()`**, while an anim slot comes back
+with its last owner's fields (`animInit()` does not touch the slots). The pose
+reads frame bytes from whatever cache slot that stale number names. It needs the
+aircraft on screen that tick and a bad stale slot, which is why Runway's ending
+passed every sweep.
+
+Fix: `objTickPlayer()` poses a flier given its animation this tick the way the
+branch above does from the next tick on, and `objInitMatrices()`'s generic
+branch calls `modelSetMatricesWithAnim()` in the port (the same call where there
+is no animation), which covers the truck.
+
+`build/gexrom/givenanim.gdb` is the probe: it finishes `aiGeVehicleAnim` on
+Runway's `--cinema-ending`, writes 255 into the new anim's `frameslot1` and
+continues - the old build dies with the report's stack, the fixed one plays on.
+**A crash that depends on a recycled slot's leftovers is reproduced by writing
+the leftovers**, not by running the scene again and again.

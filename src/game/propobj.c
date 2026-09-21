@@ -10940,7 +10940,15 @@ void objInitMatrices(struct prop *prop)
 				thing.unk10 = obj->model->matrices;
 				thing.unk00 = &sp28;
 
+#ifndef PLATFORM_N64
+				// the same call where the model has no animation, and where
+				// it was handed one since this tick's animated branch (a
+				// converted vehicle's list runs from its own tick, after it)
+				// the one that loads the frames modelSetMatrices() reads
+				modelSetMatricesWithAnim(&thing, obj->model);
+#else
 				modelSetMatrices(&thing, obj->model);
+#endif
 			}
 		}
 	}
@@ -11435,6 +11443,26 @@ s32 objTickPlayer(struct prop *prop)
 		} else if (obj->model->definition->skel == &g_SkelDropship) {
 			dropshipUpdateInterior(prop);
 		}
+
+#ifndef PLATFORM_N64
+		// An aircraft whose own list gave it its animation *this* tick: the
+		// list runs from the vehicle's tick above, which is after the
+		// animated branch, so nothing has loaded the animation's frames yet -
+		// and `frameslot1` is only ever written by
+		// modelSetMatricesWithAnim(), an anim slot coming back with its last
+		// owner's. objInitMatrices() would pose it through
+		// modelSetMatrices() and read frame bytes from wherever that slot
+		// number led. Posed as the branch above poses it from the next tick on.
+		if (sp556 == false && model->anim && gexPlusVehicleFliesAnim(prop)) {
+			struct modelrenderdata rd = {0, 1, 3};
+
+			sp556 = true;
+			rd.unk10 = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
+			rd.unk00 = camGetWorldToScreenMtxf();
+			modelSetMatricesWithAnim(&rd, model);
+			gexPlusVehicleUpdateModel(prop);
+		}
+#endif
 
 		if (sp556 == false) {
 			model->matrices = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
