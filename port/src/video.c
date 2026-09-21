@@ -34,6 +34,14 @@ static struct GfxRenderingAPI *renderingAPI;
 
 static bool initDone = false;
 
+#define VID_RESTORE_FRAMES 10
+
+static void videoTrackWindow(void);
+static s32 vidRestoreFrames = 0;
+
+static s32 vidWindowedWidth = 0;
+static s32 vidWindowedHeight = 0;
+
 static s32 vidWidth = DEFAULT_VID_WIDTH;
 static s32 vidHeight = DEFAULT_VID_HEIGHT;
 static s32 vidFramebuffers = true;
@@ -127,7 +135,15 @@ void videoStartFrame(void)
 	}
 
 	// Synchronize with their backend counterparts.
+	const s32 wasFullscreen = vidFullscreen;
 	vidFullscreen = videoGetFullscreen();
+	if (initDone) {
+		if (wasFullscreen && !vidFullscreen) {
+			// alt+enter leaves without the menu hearing of it
+			vidRestoreFrames = VID_RESTORE_FRAMES;
+		}
+		videoTrackWindow();
+	}
 	vidMaximize = videoGetMaximizeWindow();
 }
 
@@ -473,6 +489,8 @@ void videoSetDisplayMode(const s32 index)
 
 	vidWidth = dm.width;
 	vidHeight = dm.height;
+	vidWindowedWidth = vidWidth;
+	vidWindowedHeight = vidHeight;
 
 	s32 posX = 100;
 	s32 posY = 100;
@@ -532,15 +550,64 @@ void videoSetWindowOffset(s32 x, s32 y)
 	gfx_current_game_window_viewport.y = y;
 }
 
+// Leaving fullscreen is left to SDL and the window manager, which put the window
+// back as it was. What they cannot know is that set_closest_resolution() sized
+// the window to a display mode on the way in, and that a display listing only
+// its native mode (Wayland, a laptop panel) makes that the whole desktop - a
+// "window" nobody can tell from fullscreen. So look again a few frames after
+// leaving, once the window manager has settled, and only then step in.
+static void videoTrackWindow(void)
+{
+	if (vidFullscreen || wmAPI->get_maximized_state()) {
+		return;
+	}
+
+	u32 w = 0;
+	u32 h = 0;
+	s32 posX = 0;
+	s32 posY = 0;
+	s32 deskW = 0;
+	s32 deskH = 0;
+	wmAPI->get_dimensions(&w, &h, &posX, &posY);
+	if (!w || !h || !wmAPI->get_current_display_mode(&deskW, &deskH)) {
+		return;
+	}
+
+	const s32 fills = (s32)w >= deskW && (s32)h >= deskH;
+
+	if (vidRestoreFrames > 0) {
+		if (--vidRestoreFrames == 0 && fills) {
+			const s32 wantW = vidWindowedWidth ? vidWindowedWidth : vidWidth;
+			const s32 wantH = vidWindowedHeight ? vidWindowedHeight : vidHeight;
+			if (wantW < deskW || wantH < deskH) {
+				wmAPI->get_centered_positions(wantW, wantH, &posX, &posY);
+				wmAPI->set_dimensions(wantW, wantH, posX, posY);
+			}
+		}
+	} else if (!fills) {
+		// the window's own size, so a hand-sized one is what comes back
+		vidWindowedWidth = w;
+		vidWindowedHeight = h;
+	}
+}
+
 void videoSetFullscreen(s32 fs)
 {
 	if (fs != vidFullscreen) {
 		vidFullscreen = !!fs;
-		wmAPI->set_closest_resolution(vidWidth, vidHeight, vidCenter);
-		wmAPI->set_fullscreen(vidFullscreen);
-		if (!vidFullscreen && vidMaximize) {
-			wmAPI->set_maximize(false);
-			wmAPI->set_maximize(true);
+		if (vidFullscreen) {
+			// only exclusive fullscreen has a display mode to pick
+			if (vidFullscreenExclusive) {
+				wmAPI->set_closest_resolution(vidWidth, vidHeight, vidCenter);
+			}
+			wmAPI->set_fullscreen(true);
+		} else {
+			wmAPI->set_fullscreen(false);
+			if (vidMaximize) {
+				wmAPI->set_maximize(false);
+				wmAPI->set_maximize(true);
+			}
+			vidRestoreFrames = VID_RESTORE_FRAMES;
 		}
 	}
 }
@@ -551,6 +618,9 @@ void videoSetFullscreenMode(s32 mode)
 	wmAPI->set_fullscreen_flag(mode);
 	if (vidFullscreen) {
 		wmAPI->set_fullscreen(false);
+		if (vidFullscreenExclusive) {
+			wmAPI->set_closest_resolution(vidWidth, vidHeight, vidCenter);
+		}
 		wmAPI->set_fullscreen(true);
 	}
 }
