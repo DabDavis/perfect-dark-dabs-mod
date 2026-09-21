@@ -7184,3 +7184,43 @@ the ramp. The player's walking is unchanged: three Dam tower descents
 walls asked, and 2.5 to 3 times as many left out.
 
 A probe's stuck test must outlast a door: he stands 40 frames waiting for it.
+
+## Dam's truck could be walked through, and drove through its shut gates (2026-09-21)
+
+The user: "the dam truck has no collision, also causes it to pass through gate
+without waiting." One cause for both: `vehTruckTick()` moved the prop and never
+moved anything else.
+
+- **The collision box stood where the truck was placed.** An object's block
+  (`obj->geoblock`, there because the record carries `OBJFLAG_00000100`) is built
+  from its position once, at the load, and only `func0f069c1c()` rebuilds it -
+  GoldenEye's `chrobjCollisionRelated()`, which its truck calls after every step.
+  `truckcol.py` printed the same four corners for 4200 frames while the truck
+  drove three kilometres away from them.
+- **GoldenEye has nothing that opens a gate for the truck.** Its list is
+  `vehicle_start_path` + `vehicle_speed` and a sleep; what holds it at a gate is
+  the vehicle tick testing the truck's own box against every chr, player, object
+  and door after each step (`sub_GAME_7F0448A8()`), and on a touch taking the
+  step back, zeroing the speed and aiming at the old speed over 60 ticks - so it
+  creeps, touches and stops again until somebody opens the gate. Perfect Dark's
+  descendant of that test is `cdTestBlockOverlapsAnyProp()`, the one a door makes
+  before it shuts, with the prop's own perimeter off round it
+  (`propSetPerimEnabled()`). The truck stops for a guard or for Bond the same way.
+- **`setup0f09233c()` / `bgFindEnteredRooms()` does not find rooms, it adds to
+  the list it is handed** the rooms reached through portals the box touches. Given
+  the truck's old list it kept the rooms of the spawn for the whole drive, the
+  gates' rooms were never among them, and the truck went through both gates shut
+  *with the collision test in place*. Seed it with the middle's rooms
+  (`vehTruckRooms()`). The box's rooms matter both ways: a body's collision asks
+  the rooms the *body* is in for their props, and the truck is 775 long.
+
+Probes (`build/gexrom`): `truckcol.py` (box against position), `truckpath.py`
+(the route's pads and the doors nearest them: the gates, pads 373 and 376, are
+between steps 9 and 10), `truckgate.py` (warps the truck to the approach and
+opens a gate at a frame, or with `WARP_ON=0 AUTO=1` runs the whole route - the
+truck reaches the first gate at about frame 5000 - and opens a gate only once
+the truck has stood at it ten seconds), `truckbody.py` (`cdTestVolume()` at the
+truck's middle). **A warp must set `roty` too** or the truck steers off the road
+at its capped turn rate and stalls on the scenery; and a truck warped onto pad
+116 at frame 620 stalls on a guard who is standing there then and is gone by
+the time the truck really arrives.

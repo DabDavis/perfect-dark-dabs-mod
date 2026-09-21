@@ -40,6 +40,7 @@
 #include "game/bg.h"
 #include "lib/collision.h"
 #include "game/setup.h"
+#include "game/setuputils.h"
 #include "modloader.h"
 #include "gexplus.h"
 #include "geaitable.h"
@@ -193,7 +194,9 @@ static void vehEngine(struct prop *prop, s32 running, s32 id, f32 dist2, f32 dis
  * `hovercarTick()` is that function's descendant and does the same thing
  * through `cd*`; what is kept here is the steering and the arrival, with the
  * ground asked for the height so the truck sits on the road rather than flying
- * the pads' own line.
+ * the pads' own line - and GoldenEye's test of the truck's own box against
+ * everything else after each step, which is what stops it for a guard, for
+ * Bond and at a shut gate.
  */
 static union modelrodata *vehPartRodata(struct model *model, s32 partnum, u32 type);
 
@@ -247,13 +250,39 @@ static void vehTruckFace(struct truckobj *truck)
 	}
 }
 
+/**
+ * The rooms a truck is in are every room its box reaches
+ * (`setupUpdateObjectRoomPosition()`), and not only the ones its middle is
+ * over: a body's collision asks the rooms *it* is in for their props, and a
+ * truck is long enough to have its tail in the room behind it and its nose at
+ * a gate in the room ahead.
+ *
+ * setup0f09233c() does not find rooms, it **adds** to the list it is handed the
+ * rooms reached through portals the box touches - so it is handed the middle's.
+ * Given the list the truck already had, it kept the rooms the truck was placed
+ * in for the whole drive and the truck went through both of Dam's gates shut.
+ */
+static void vehTruckRooms(struct prop *prop, RoomNum *middle)
+{
+	struct defaultobj *obj = prop->obj;
+
+	propDeregisterRooms(prop);
+	roomsCopy(middle, prop->rooms);
+	setup0f09233c(obj, &prop->pos, obj->realrot, prop->rooms);
+	propRegisterRooms(prop);
+}
+
 static void vehTruckTick(struct prop *prop)
 {
 	struct truckobj *truck = (struct truckobj *)prop->obj;
 	const f32 delta = g_Vars.lvupdate60freal;
 	struct coord target;
 	struct coord next;
+	struct coord prev;
 	RoomNum rooms[8];
+	RoomNum prevrooms[8];
+	f32 prevroty;
+	f32 prevturn;
 	f32 aimangle = 0.0f;
 	f32 haspath = false;
 	f32 turnedby = 0.0f;
@@ -292,11 +321,15 @@ static void vehTruckTick(struct prop *prop)
 		truck->roty = haspath ? aimangle
 			: vehWrapTau(atan2f(truck->base.realrot[2][0], truck->base.realrot[2][2]));
 		vehTruckFace(truck);
+		func0f069c1c(&truck->base);
 	}
 
 	if (truck->speed <= 0.0f) {
 		return;
 	}
+
+	prevroty = truck->roty;
+	prevturn = truck->turnrot60;
 
 	if (haspath) {
 		// GoldenEye's own: steer towards the pad the path is heading for, at
@@ -356,11 +389,17 @@ static void vehTruckTick(struct prop *prop)
 				next.y = ground + vehTruckClearance(truck->base.model);
 			}
 
+			inrooms[7] = -1;
 			roomsCopy(inrooms, rooms);
 		} else {
 			return;
 		}
 	}
+
+	prev.x = prop->pos.x;
+	prev.y = prop->pos.y;
+	prev.z = prop->pos.z;
+	roomsCopy(prop->rooms, prevrooms);
 
 	prop->pos.x = next.x;
 	prop->pos.y = next.y;
@@ -370,9 +409,55 @@ static void vehTruckTick(struct prop *prop)
 		vehTruckFace(truck);
 	}
 
-	propDeregisterRooms(prop);
-	roomsCopy(rooms, prop->rooms);
-	propRegisterRooms(prop);
+	vehTruckRooms(prop, rooms);
+
+	// GoldenEye's own, and what makes a truck a thing in the world: its
+	// collision box goes with it (`chrobjCollisionRelated()`, which is
+	// func0f069c1c() here - without it the box stood where the truck was placed
+	// for the whole drive and the truck itself could be walked through), and the
+	// step is only kept if the box then touches no chr, player, object or door
+	// (`sub_GAME_7F0448A8()`, whose descendant is the test a door makes before it
+	// shuts). A step refused is taken back and the truck stopped, to pick its
+	// speed up again over a second - which is all that holds Dam's truck at a
+	// shut gate until somebody opens it. No list of GoldenEye's opens one for it.
+	func0f069c1c(&truck->base);
+
+	if (truck->base.geocount > 0 && (truck->base.hidden2 & OBJH2FLAG_08)
+			&& !(truck->base.flags3 & OBJFLAG3_GEOCYL)) {
+		s32 cdresult;
+
+		propSetPerimEnabled(prop, false);
+		cdresult = cdTestBlockOverlapsAnyProp(truck->base.geoblock, prop->rooms,
+				CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS);
+		propSetPerimEnabled(prop, true);
+
+		if (cdresult == CDRESULT_COLLISION) {
+			if (truck->speedtime60 < 0.0f) {
+				truck->speedaim = truck->speed;
+				truck->speedtime60 = 60;
+			}
+
+			truck->speed = 0;
+			truck->turnrot60 = prevturn;
+
+			if (turnedby != 0.0f) {
+				truck->roty = prevroty;
+				vehTruckFace(truck);
+			}
+
+			prop->pos.x = prev.x;
+			prop->pos.y = prev.y;
+			prop->pos.z = prev.z;
+
+			vehTruckRooms(prop, prevrooms);
+			func0f069c1c(&truck->base);
+			return;
+		}
+	}
+
+	// the shade of where it has got to, and any proximity mine it drove past
+	// (sub_GAME_7F0402B4() and detonate_proxmine_In_range())
+	func0f069c70(&truck->base, false, false);
 
 	// Arrived at the pad: the next one, and the path's end stops the truck
 	// over a second, which is GoldenEye's own wind-down
