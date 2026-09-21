@@ -7224,3 +7224,28 @@ truck's middle). **A warp must set `roty` too** or the truck steers off the road
 at its capped turn rate and stalls on the scenery; and a truck warped onto pad
 116 at frame 620 stalls on a guard who is standing there then and is gone by
 the time the truck really arrives.
+
+## Bond seen twice all the way down the dam (2026-09-21)
+
+F3 report 20260921-092323: "doubling of bond while he is falling, only in
+intro/outros" - the report the outro work had left as "not reproduced". The
+still shows one Bond; the doubling is **in time**. `doubleprobe.py` prints his
+prop frame by frame through the dive: x and z moved on every frame and **y only
+on every other one** (0, -24.6, 0, -24.6 ...), the pose tweening at sixty a
+second over a height that stepped at thirty.
+
+`dam_jump` plays at half speed (`anim->speed` 0.5), so every other tick lands
+between two animation frames, and a root's height *is* tweened between them
+(`modelUpdateChrInfo()`, `modelTweenPos()`) - unless the chr is being **forced to
+the ground**: `chr0f01f378()`'s `CHRCFLAG_FORCETOGROUND` branch ends with
+`unk34.y = unk24.y`, base = goal, and `playerTickThirdPerson()` sets that flag on
+the player's body on **every tick** of a cutscene. Stock never shows it (nothing
+it plays at a fraction of a frame moves thirty units in y a frame) and GoldenEye
+never draws faster than it animates. On a converted level that one line is left
+out; the height lands on the same values at whole frames, so nothing's timing
+moves. All twenty endings and openings run as before.
+
+**Found by a watchpoint** (`dblwatch.py`: `watch -l` on the root's `unk34.y`)
+after reading the code had picked the wrong site twice - model.c has two places
+that set a root's base height from its goal and neither was the one running. For
+"who keeps writing this" on a model's root, watch it.

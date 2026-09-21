@@ -920,7 +920,23 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 					manground = chr->manground;
 
-					if (nodetype == MODELNODETYPE_CHRINFO) {
+#ifndef PLATFORM_N64
+					// Forcing a chr to the ground also stops its height being
+					// tweened between two frames of its animation: the height
+					// goes to the next frame's at once. A player's body in a
+					// cutscene is forced every tick (playerTickThirdPerson()),
+					// and GoldenEye's dive off the dam plays at half speed and
+					// drops thirty units a frame - so at sixty frames a second
+					// Bond's height stepped on every other picture while his
+					// pose and his x and z moved on every one, and he was seen
+					// twice all the way down. GoldenEye never draws faster than
+					// it animates. On a converted level the height is left to
+					// tween like the rest.
+					if (nodetype == MODELNODETYPE_CHRINFO && !geRoomActive())
+#else
+					if (nodetype == MODELNODETYPE_CHRINFO)
+#endif
+					{
 						union modelrwdata *rwdata = modelGetNodeRwData(model, node);
 						rwdata->chrinfo.unk34.y = rwdata->chrinfo.unk24.y;
 					}
