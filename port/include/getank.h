@@ -33,6 +33,14 @@ s32 geTankAnyoneDriving(void);
 // the activate button: in beside one, out of the one he is in. 1 when it was the tank's
 s32 geTankActivate(void);
 
+/**
+ * GoldenEye's climb onto a tank Bond has walked into, at the top of the
+ * player's collision step: the hull's or the turret's height into
+ * `bondonground`, and the tank let go of when he walks off it. Answers whether
+ * this move is to be held (he is still being lifted).
+ */
+s32 geTankBoard(void);
+
 // the input as the tank's own; 1 when the walk should take none of it
 s32 geTankApplyMoveData(struct movedata *data);
 

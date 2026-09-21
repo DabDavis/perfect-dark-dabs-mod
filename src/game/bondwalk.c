@@ -253,6 +253,15 @@ s32 bwalkTryMoveUpwards(f32 amount)
 	bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &newpos, rooms);
 	propSetPerimEnabled(g_Vars.currentplayer->prop, false);
 
+#ifndef PLATFORM_N64
+	// a tank he is being lifted onto (getank.c) is no more in the way of the
+	// lift than it is of his steps: with it left on, he rose until his box was
+	// inside the hull's and stood there, knee deep in it
+	if (g_Vars.currentplayer->tank) {
+		propSetPerimEnabled(g_Vars.currentplayer->tank, false);
+	}
+#endif
+
 	ymin -= 0.1f;
 
 	result = cdTestVolume(&newpos, radius, rooms, types, CHECKVERTICAL_YES,
@@ -260,6 +269,12 @@ s32 bwalkTryMoveUpwards(f32 amount)
 			ymin - g_Vars.currentplayer->prop->pos.y);
 
 	propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+
+#ifndef PLATFORM_N64
+	if (g_Vars.currentplayer->tank) {
+		propSetPerimEnabled(g_Vars.currentplayer->tank, true);
+	}
+#endif
 
 	if (result == CDRESULT_NOCOLLISION) {
 		g_Vars.currentplayer->prop->pos.y = newpos.y;
@@ -1553,6 +1568,14 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 	g_Vars.currentplayer->autocrouchpos = CROUCHPOS_STAND;
 
 #ifndef PLATFORM_N64
+	// GoldenEye's tank: one he has walked into is no obstacle to him (above,
+	// where `tank` is switched off for his moves) because this is where
+	// GoldenEye lifts him onto it, holding the move until he is up. Perfect
+	// Dark kept the first half, and he walked through it (getank.c)
+	if (geTankBoard()) {
+		return;
+	}
+
 	// GoldenEye's vents and crawl spaces: a converted level has no ceiling to
 	// hold the player down, and GoldenEye has none either - its tiles say
 	// where Bond squats, asked where this move is going (gestan.h)

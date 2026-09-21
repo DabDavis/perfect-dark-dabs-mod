@@ -59,6 +59,9 @@ OBJ_TAILS = {
     # had before their eighteen global lists were converted.
     0x27: ((0x80, 0x5c, 4, 1),),                       # truck: the AI list it runs
     0x28: ((0x80, 0x5c, 4, 1),),                       # aircraft: the AI list it runs
+    # A tank's shells: the one word of its tail the setup sets (0xd8, thirty on
+    # Runway and on Streets), which is what Bond is handed as he climbs in
+    0x2d: ((0xd8, 0x5c, 4, 1),),                       # tank: the shells in it
 }
 # Glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and nothing
 # more, and Perfect Dark's portalnum is found at the load. Reading one anyway

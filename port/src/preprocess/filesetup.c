@@ -755,13 +755,16 @@ static u32 convertProps(u8* dst, u8* src)
 			}
 			case OBJTYPE_TANK:
 			{
-				// the base and nothing else: the rest of a tank's record is
-				// what the game keeps in it while it runs (getank.c). This
-				// used to step over 128 bytes of nothing, which was the size
-				// of the N64's record and not of this one
+				// the base and the shells in it (GoldenEye's unkD8, which a
+				// conversion carries in the word after the base): the rest of
+				// a tank's record is what the game keeps in it while it runs
+				// (getank.c). This used to step over 128 bytes of nothing,
+				// which was the size of the N64's record and not of this one
+				struct n64_ammocrateobj* srcobj = (struct n64_ammocrateobj*)cmd;
 				struct tankobj* dstobj = (struct tankobj*)dst;
 
 				convertDefaultObj(&dstobj->base, cmd);
+				PD_CONV_VAL(dstobj->shells, srcobj->ammotype);
 
 				dst += sizeof(struct tankobj);
 				break;

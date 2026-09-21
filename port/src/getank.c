@@ -40,10 +40,10 @@
  * ammunition type 0x1d, which is GoldenEye's AMMO_TANK still in Perfect Dark's
  * list under no name - so a converted crate of tank shells is one already.
  *
- * Not GoldenEye's: Bond climbs in from beside the tank rather than from on top
- * of it (Perfect Dark's walk has no step up onto a prop), and gets out beside
- * it where GoldenEye leaves him standing on it, since here that is inside its
- * collision. The shells are a weapon as GoldenEye's are (WEAPON_GE_TANKSHELLS,
+ * Bond climbs onto it as GoldenEye has him do (geTankBoard()): a tank he walks
+ * into lifts him onto its hull, and its turret from there. Not GoldenEye's: he
+ * can get in from close beside it as well as from on top of the turret, and
+ * gets out beside it where GoldenEye leaves him standing on it. The shells are a weapon as GoldenEye's are (WEAPON_GE_TANKSHELLS,
  * on the Data Uplink as the gadgets with nothing in the hand are): given and
  * held as he climbs in, taken as he climbs out, their trigger the cannon, and
  * anything else he switches to in there fires as it always does.
@@ -125,6 +125,7 @@ static struct {
 	s32 crushes;
 	f32 entertheta;
 	f32 enterverta;
+	f32 enterclimb;   // how far up the tank he stood as he got in
 } g_Tank[MAX_PLAYERS];
 
 // A probe's hands on the sticks (gdb sets all three; build/gexrom/tankdrive.py):
@@ -210,7 +211,13 @@ void geTankCreate(struct defaultobj *obj)
 	tank->turretyaw = 0;
 	tank->turretpitch = 0;
 	tank->groundsum = 0;
-	tank->shells = 0;
+
+	// the shells are the setup's (thirty in both of GoldenEye's tanks), and
+	// the loader has put them there
+	if (tank->shells < 0 || tank->shells > 999) {
+		tank->shells = 0;
+	}
+
 	tank->firing = 0;
 	tank->speed = 0;
 	tank->turnspeed = 0;
@@ -374,6 +381,216 @@ f32 geTankDamageScale(void)
 }
 
 /* ------------------------------------------------------------------------ */
+/* On the tank                                                               */
+/* ------------------------------------------------------------------------ */
+
+#define TANK_PART_HULLBOX   5
+#define TANK_PART_TURRETBOX 6
+#define TANK_CLIMB_SPEED    20.0f
+
+// the collision stops him a hair short of touching
+#define TANK_TOUCH_SLACK    5.0f
+
+static struct modelrodata_bbox *tankPartBbox(struct tankobj *tank, s32 part)
+{
+	struct modeldef *def = tank->base.model ? tank->base.model->definition : NULL;
+	struct modelnode *node = def ? modelGetPart(def, part) : NULL;
+
+	return node && (node->type & 0xff) == MODELNODETYPE_BBOX ? &node->rodata->bbox : NULL;
+}
+
+/** Whether a circle in the plan touches a box of the tank's, given in the box's own axes about `yaw`. */
+static s32 tankBoxTouches(f32 dx, f32 dz, f32 yaw, f32 radius, f32 xmin, f32 xmax, f32 zmin, f32 zmax)
+{
+	const f32 s = sinf(yaw);
+	const f32 c = cosf(yaw);
+	const f32 across = dx * c - dz * s;
+	const f32 along = dx * s + dz * c;
+	const f32 ox = across < xmin ? xmin - across : (across > xmax ? across - xmax : 0.0f);
+	const f32 oz = along < zmin ? zmin - along : (along > zmax ? along - zmax : 0.0f);
+
+	return ox * ox + oz * oz <= radius * radius;
+}
+
+/**
+ * Whether a circle in the plan touches the tank: against its own collision's
+ * polygon, as GoldenEye asks (chraiGetCollisionBoundsWithoutY()) - it is the
+ * collision that stopped him there, and a box worked out any other way
+ * disagrees with it by enough that he was let go of and stopped again for
+ * ever - and against the hull's box where it has none.
+ */
+static s32 tankHullTouches(struct tankobj *tank, f32 x, f32 z, f32 radius)
+{
+	struct defaultobj *obj = &tank->base;
+
+	if (obj->geoblock && (obj->hidden2 & OBJH2FLAG_08) && !(obj->flags3 & OBJFLAG3_GEOCYL)
+			&& obj->geoblock->header.type == GEOTYPE_BLOCK && obj->geoblock->header.numvertices >= 3) {
+		const struct geoblock *block = obj->geoblock;
+		const s32 num = block->header.numvertices;
+		s32 side = 0;
+		s32 inside = 1;
+
+		for (s32 i = 0; i < num; i++) {
+			const f32 ax = block->vertices[i][0];
+			const f32 az = block->vertices[i][1];
+			const f32 ex = block->vertices[(i + 1) % num][0] - ax;
+			const f32 ez = block->vertices[(i + 1) % num][1] - az;
+			const f32 cross = ex * (z - az) - ez * (x - ax);
+			const f32 len2 = ex * ex + ez * ez;
+			f32 t = len2 > 0.0f ? ((x - ax) * ex + (z - az) * ez) / len2 : 0.0f;
+			f32 nx;
+			f32 nz;
+
+			// inside a convex polygon is the same side of every edge
+			if (cross != 0.0f) {
+				if (side == 0) {
+					side = cross > 0.0f ? 1 : -1;
+				} else if ((cross > 0.0f ? 1 : -1) != side) {
+					inside = 0;
+				}
+			}
+
+			t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+			nx = x - (ax + ex * t);
+			nz = z - (az + ez * t);
+
+			if (nx * nx + nz * nz <= radius * radius) {
+				return 1;
+			}
+		}
+
+		return inside;
+	}
+
+	{
+		struct modelrodata_bbox *hull = tankPartBbox(tank, TANK_PART_HULLBOX);
+		const f32 scale = tankScale(tank);
+
+		return hull && tankBoxTouches(x - obj->prop->pos.x, z - obj->prop->pos.z, tank->hullyaw, radius,
+				hull->xmin * scale, hull->xmax * scale, hull->zmin * scale, hull->zmax * scale);
+	}
+}
+
+/**
+ * Bond on the tank, before he is in it: the top of GoldenEye's
+ * bondviewCalcUpdatePlayerCollision(), which Perfect Dark kept every field of
+ * and none of the code. A tank Bond walks into is remembered (`tank`, its
+ * g_WorldTankProp - bondwalk.c still does that much) and is no obstacle to him
+ * from then on, because GoldenEye *lifts him onto it*: while he is over its
+ * hull the ground under him is the hull's top (`bondonground`, its
+ * g_PlayerTankYOffset, climbed at twenty a frame with his move held until he
+ * is up), over its turret it is the turret's top and he can get in
+ * (`bondonturret`, its g_BondCanEnterTank), and when he walks off it the tank
+ * is let go of and is an obstacle again. With the first half alone he walked
+ * through it ("Bond now clips through the tank").
+ *
+ * Answers whether the move is to be held.
+ */
+s32 geTankBoard(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *prop = player->tank;
+	struct prop *playerprop = player->prop;
+	struct tankobj *tank;
+	struct modelrodata_bbox *hull;
+	struct modelrodata_bbox *turret;
+	struct modelnode *root;
+	struct modelnode *pivot;
+	f32 scale;
+	f32 dx;
+	f32 dz;
+	f32 top;
+
+	player->bondonturret = false;
+
+	if (g_Tank[g_Vars.currentplayernum].state != TANK_OUT) {
+		// in it: he sits on the ground the tank stands on, and the seat is
+		// the eye's business (geTankEyeHeight()). What he had climbed goes as
+		// he is taken across to the seat
+		const f32 remain = g_Tank[g_Vars.currentplayernum].state == TANK_ENTERING
+			? (cosf(g_Tank[g_Vars.currentplayernum].entert * M_BADTAU * 0.5f) + 1.0f) * 0.5f : 0.0f;
+
+		player->bondonground = g_Tank[g_Vars.currentplayernum].enterclimb * remain;
+		return 0;
+	}
+
+	if (!prop) {
+		return 0;
+	}
+
+	if (prop->type != PROPTYPE_OBJ || !prop->obj || prop->obj->type != OBJTYPE_TANK
+			|| !prop->obj->model || !objIsHealthy(prop->obj) || player->isdead) {
+		player->tank = NULL;
+		player->bondonground = 0;
+		return 0;
+	}
+
+	tank = (struct tankobj *)prop->obj;
+
+	hull = tankPartBbox(tank, TANK_PART_HULLBOX);
+	turret = tankPartBbox(tank, TANK_PART_TURRETBOX);
+	root = tank->base.model->definition->rootnode;
+	pivot = modelGetPart(tank->base.model->definition, TANK_PART_TURRET);
+	scale = tankScale(tank);
+
+	if (!hull) {
+		// not GoldenEye's model: nothing to stand on, so it stays a wall
+		player->tank = NULL;
+		player->bondonground = 0;
+		return 0;
+	}
+
+	dx = playerprop->pos.x - prop->pos.x;
+	dz = playerprop->pos.z - prop->pos.z;
+
+	// the hull's box hangs from the root, whose own offset moves it
+	if (root && (root->type & 0xff) == MODELNODETYPE_POSITION) {
+		const f32 s = sinf(tank->hullyaw);
+		const f32 c = cosf(tank->hullyaw);
+
+		dx -= (root->rodata->position.pos.x * c + root->rodata->position.pos.z * s) * scale;
+		dz -= (-root->rodata->position.pos.x * s + root->rodata->position.pos.z * c) * scale;
+	}
+
+	if (!tankHullTouches(tank, playerprop->pos.x, playerprop->pos.z, player->bond2.radius + TANK_TOUCH_SLACK)) {
+		// off it: bondview2.c lets go of the tank, which is solid again
+		player->tank = NULL;
+		player->bondonground = 0;
+		return 0;
+	}
+
+	top = (hull->ymax - hull->ymin) * scale;
+
+	if (turret && pivot && (pivot->type & 0xff) == MODELNODETYPE_POSITION) {
+		// the turret's box is about its pivot and turns with it; his middle
+		// has to be over it, as GoldenEye asks of its rectangle
+		const f32 s = sinf(tank->hullyaw);
+		const f32 c = cosf(tank->hullyaw);
+		const f32 px = pivot->rodata->position.pos.x * scale;
+		const f32 pz = pivot->rodata->position.pos.z * scale;
+
+		if (tankBoxTouches(dx - (px * c + pz * s), dz - (-px * s + pz * c),
+					tankWrap(tank->hullyaw + tank->turretyaw), 0.0f,
+					turret->xmin * scale, turret->xmax * scale, turret->zmin * scale, turret->zmax * scale)) {
+			top += (turret->ymax - turret->ymin) * scale;
+			player->bondonturret = true;
+		}
+	}
+
+	if (player->bondonground < top) {
+		player->bondonground += TANK_CLIMB_SPEED * g_Vars.lvupdate60freal;
+
+		if (player->bondonground < top) {
+			return 1;
+		}
+	}
+
+	player->bondonground = top;
+
+	return 0;
+}
+
+/* ------------------------------------------------------------------------ */
 /* In and out                                                                */
 /* ------------------------------------------------------------------------ */
 
@@ -431,6 +648,11 @@ static void tankEnter(struct prop *prop)
 	g_Tank[p].lastshot60 = g_Vars.lvframe60 - TANK_SHELL_GAP;
 	g_Tank[p].entertheta = g_Vars.currentplayer->vv_theta;
 	g_Tank[p].enterverta = g_Vars.currentplayer->vv_verta;
+	g_Tank[p].enterclimb = g_Vars.currentplayer->tank == prop ? g_Vars.currentplayer->bondonground : 0.0f;
+
+	// driven, it is unk1af0's: the walk switches `tank` back on after every
+	// step it takes, and a tank being driven stays off (geTankTick())
+	g_Vars.currentplayer->tank = NULL;
 
 	// what was left in it (bondview2.c: add_ammo_to_weapon(ITEM_TANKSHELLS, unkD8))
 	bgunSetAmmoQuantity(TANK_AMMOTYPE, bgunGetReservedAmmoCount(TANK_AMMOTYPE) + tank->shells);
@@ -569,6 +791,11 @@ static s32 tankExit(s32 force)
 
 	g_Tank[p].state = TANK_OUT;
 	g_Vars.currentplayer->unk1af0 = NULL;
+
+	// put down beside it, he has let go of it (geTankBoard()): it is solid
+	// to him again until he next walks into it
+	g_Vars.currentplayer->tank = NULL;
+	g_Vars.currentplayer->bondonground = 0;
 	g_Vars.currentplayer->speedforwards = 0;
 	g_Vars.currentplayer->speedsideways = 0;
 
@@ -961,7 +1188,12 @@ void geTankDrive(struct coord *delta)
 		}
 
 		g_Tank[p].speedtheta = g_Tank[p].turnsum * (1.0f - TANK_TURN_FILTER);
-		turnedby = g_Tank[p].speedtheta * frames * TANK_TURN_SCALE * M_BADTAU / 360.0f;
+		// The view's angle grows as it turns to the right (a stick pushed right
+		// is a positive speedtheta, and bwalkUpdateTheta() adds it), and a
+		// prop's heading - (sin, cos) where the player's is (-sin, cos) - grows
+		// to the left: so a push to the right takes the hull's angle down.
+		// Written the other way round until a tester drove it: left was right
+		turnedby = -g_Tank[p].speedtheta * frames * TANK_TURN_SCALE * M_BADTAU / 360.0f;
 
 		// bondview2.c: the turn is tried where it stands, and is not taken
 		// if the hull's corners would swing into something. One that is

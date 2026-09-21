@@ -19750,6 +19750,32 @@ struct prop *doorInit(struct doorobj *door, struct coord *pos, Mtxf *mtx, RoomNu
 		func0f069c70(&door->base, false, true);
 		func0f08d3dc(door);
 
+#ifndef PLATFORM_N64
+		// A converted GoldenEye level's door is its pad's room's, whatever
+		// else it is. Its rooms above are found again from its middle, which
+		// the pad's box puts in the wall it is set into - and for a door in an
+		// outside wall that is past its room's box and inside the box of the
+		// whole outdoors, with no portal from the one to the other: Runway's
+		// double doors at the back of the first building were room 5's alone,
+		// which is never on screen from inside, and from there they were an
+		// open doorway onto the sky. GoldenEye draws a door with the room of
+		// its pad's tile.
+		if (geRoomActive() && rooms[0] >= 0) {
+			s32 i;
+
+			for (i = 0; i < 7 && prop->rooms[i] != -1 && prop->rooms[i] != rooms[0]; i++);
+
+			if (i < 7 && prop->rooms[i] == -1) {
+				propDeregisterRooms(prop);
+				prop->rooms[i] = rooms[0];
+				prop->rooms[i + 1] = -1;
+				propRegisterRooms(prop);
+				sysLogPrintf(LOG_NOTE, "gexplus: door on pad %d kept in its pad's room %d as well as room %d",
+						door->base.pad, rooms[0], prop->rooms[0]);
+			}
+		}
+#endif
+
 		door->base.shadecol[0] = door->base.nextcol[0];
 		door->base.shadecol[1] = door->base.nextcol[1];
 		door->base.shadecol[2] = door->base.nextcol[2];

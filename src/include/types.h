@@ -1859,8 +1859,9 @@ struct truckobj { // objtype 0x27
  * GoldenEye's tank (its TankRecord), which Perfect Dark counts at the load and
  * never builds - the player drove it, and nothing here was ever driven that
  * way. The port builds it on a converted GoldenEye mission (port/src/getank.c).
- * Everything past the base is the port's own at run time: GoldenEye's setup
- * carries nothing there either.
+ * Everything past the base is the port's own at run time but the shells, which
+ * GoldenEye's setup sets (thirty) and a conversion carries in the word after
+ * the base.
  */
 struct tankobj { // objtype 0x2d
 	struct defaultobj base;

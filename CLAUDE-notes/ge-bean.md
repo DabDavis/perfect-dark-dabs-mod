@@ -7431,3 +7431,68 @@ Read but not yet drawn:
   not been looked at.
 - Statue Park, Streets (mission: its room hash differs from the arena's row) and
   Egyptian have no HD level.
+
+## A tester's four on Runway: the back doors, and three of the tank's (2026-09-21)
+
+"That door leading to the facility still doesn't render (it's invisible) and
+Bond now clips through the tank ... left and right are reversed. Also has no
+ammo." Converter 57; nobody had driven the tank by hand before this.
+
+**The doors.** Not the conveyor hatch beside the start, which is what "leading
+to the facility" sent me after for an hour (it draws from everywhere): the
+user's F3 (20260921-230500, `onscreen props ... door 0`, room 4) is the **double
+doors at the back of the first building** (pads 182/183). `doorInit()` finds a
+door's rooms again from its *middle*, which the pad's box puts in the wall the
+door is set into - 39 units from the pad here, five past room 4's box and
+inside room 5's, which is the whole outdoors, and no portal joins 4 to 5. So
+the doors were room 5's alone, never on screen from inside: an open doorway
+onto the sky, while from outside the map they drew. The pad's own room was
+right all along (4) - **a first fix in the converter's pad rooms changed
+nothing, because the pad was never wrong; ask the prop which rooms it is in
+before asking where they came from.** On a remake stage a door keeps its pad's
+room as well as whatever its middle finds (propobj.c, logged as `gexplus: door
+on pad`): Runway 2, Silo 8, Frigate 6, Depot 1. `build/gexrom/door5.py`,
+`door6.py`; `rw/padshot.py` wants the *port's* pad number (bound pad k is
+numpads + k - Runway's are 182-187, not 6-11), and the first montage already
+showed the fault and I read past it.
+
+**No shells.** "GoldenEye's setup carries nothing there either" (types.h, my
+own comment) was wrong: the TankRecord's `unkD8` is set in the setup - **0x1e,
+thirty, in both of GoldenEye's tanks** - and nothing in prop.c touches it. The
+solo converter's tail table carries it to the word after the base (C and
+gesolo.py), filesetup.c reads it, `geTankCreate()` no longer zeroes it. Every
+earlier probe had handed itself five shells with `bgunSetAmmoQuantity()`, which
+is why it was never seen.
+
+**Left was right.** A positive `speedtheta` is a turn to the **right** here and
+`vv_theta` grows with it: `bmoveUpdateSpeedThetaControl()` takes the *left*
+speed and drives the control *down*, and I had read its argument as its
+result. A prop's heading (sin, cos) grows to the left, so a push to the right
+takes the hull's angle down (`turnedby` negated). The probes all passed because
+they only checked that the angle changed; `tanksteer.py` looks at which way
+the scenery goes.
+
+**Through the tank.** bondwalk.c still has the first half of GoldenEye's
+boarding: a tank Bond walks into is remembered (`tank`, g_WorldTankProp) and
+switched off for every move he makes from then on. GoldenEye does that because
+it then **lifts him onto it** (the top of `bondviewCalcUpdatePlayerCollision()`):
+over the hull's polygon the ground is the hull's top (`bondonground`, which is
+its g_PlayerTankYOffset and which `bwalkUpdateVertical()` still adds), climbed
+at twenty a frame with the move held; over the turret's box it is the turret's
+top and he may get in (`bondonturret`); off the polygon the tank is let go of.
+Perfect Dark kept every field and none of that, so after the first touch he
+walked through it. `geTankBoard()` in getank.c, called where GoldenEye's is.
+Three things: the touch test has to be against the tank's **own collision
+polygon** (`obj->geoblock`), as GoldenEye's is - a box worked out from the
+model disagreed with it by enough that he was let go of and stopped again
+every frame; `bwalkTryMoveUpwards()` has to switch `tank` off as the steps do,
+or he rises until his box is inside the hull's and stands knee deep; and a
+tank being *driven* must not be `tank` (the walk switches that one back on
+after every step). He can still get in from close beside it, and is still put
+down beside it. `tankwalk.py` walks him over it with the game's own walking -
+**and never make an inferior call from a gdb `stop()`** (it hung; return True
+and call from the top level).
+
+Streets' tank stops 830 units up its road: that is the wall at the end of it,
+and the old log that went further predates the hull's rectangle.
+

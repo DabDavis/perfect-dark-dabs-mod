@@ -4336,6 +4336,10 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		// ailistFindById(0) handed every vehicle Perfect Dark's own global
 		// list 0. gesolo.py's OBJ_TAILS.
 		{ 0x27, 0x80, 0x5c, 4 }, { 0x28, 0x80, 0x5c, 4 },   // truck, aircraft: the AI list
+		// a tank's shells: the one word of its tail the setup sets (0xd8, thirty
+		// on Runway and on Streets), which is what Bond is handed as he climbs
+		// in. Dropped until converter 57, and the tank had none
+		{ 0x2d, 0xd8, 0x5c, 4 },
 		// glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and
 		// nothing more, and Perfect Dark finds a pane's portal at the load
 	};
