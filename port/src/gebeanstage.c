@@ -1324,6 +1324,8 @@ static s32 build(void)
 	}
 
 	if (!row) {
+		// What a level that ought to pair has to be listed under (gen_stagetable.py)
+		sysLogPrintf(LOG_NOTE, "gebeanstage: no GoldenEye XBLA level is paired with %d rooms, position hash 0x%08x", n, hash);
 		return 0;
 	}
 

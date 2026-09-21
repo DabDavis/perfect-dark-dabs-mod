@@ -7370,3 +7370,64 @@ Runway's `--cinema-ending`, writes 255 into the new anim's `frameslot1` and
 continues - the old build dies with the report's stack, the fixed one plays on.
 **A crash that depends on a recycled slot's leftovers is reproduced by writing
 the leftovers**, not by running the scene again and again.
+
+## HD Dam had no ground (the room matrix cache), and every level's UV scale (2026-09-21)
+
+"lets work on the bean textures/models for ge plus" - first an HD against N64
+sweep of all twenty missions (`build/gexrom/hdsweep/run.sh <stage>...`: one
+screenshot a look at the same level frame, `sheet*.jpg` montages).
+
+**HD Dam's missing ground and displaced cliffs were not Bean's data.**
+`roomAllocateMtx()` answers **slot 0 when the cache is full**, a display list
+names its room matrix by address, and the cache is 120 slots (200 for two
+players). The portal walk never puts 120 rooms on screen; a GoldenEye XBLA level
+(and the spectator) draws *every* room, and Dam has 136 - so every room past the
+cache was drawn under whichever matrix was written last, and so was the room
+that held slot 0 honestly, which is the camera's (it is drawn first). The
+spawn's room, 104 KB of road and cliff, drew somewhere else entirely.
+`roomsReset()` sizes the cache from the room count now. What found it, after the
+data (dumped from `'gebeanstage.c'::roomData` and parsed, `hdsweep/parserooms.py`),
+the colours, the scissor box and the live list all checked out: drawing each
+served room alone (`hdsweep/each.py`, a `bgRenderRoomPass` breakpoint that nulls
+`block` for every other room) - room 135 alone drew nothing. The earlier guess
+("Bean's road material not drawing") was wrong; the road is texture 2 and fine.
+
+**A level's UV scale is the level's own, and most levels drew four times too
+coarse.** gebeanLevelOpen() took every level's UVs as 1/1024 of a repeat (judged
+by eye on the Temple arena). The only place the real figure is written is the
+level's shaders, in `.gpu` after the index buffers: a dozen of them carry the
+big-endian float literal **1/128 (Dam, Train) or 1/256 (Archives, both Bunkers,
+Caverns, Control, Cradle, Depot, Facility, Frigate, Runway, Statue Park, Streets,
+Surface)**, and the levels with neither (Aztec, Caves, Complex, Jungle, Library,
+Silo, both Temples) are 1/1024. Three things agree: the buffers of whole-picture
+cards top out at exactly that figure level by level (Dam's pine branches 0-128,
+Runway's trees 0-256, Jungle's leaves 0-1024); at these scales a repeat is 85
+to 310 world units on every level where at 1/1024 throughout it ran 120 to
+1240; and the pictures - Facility's vent cross is the N64's cross again instead
+of a magnified smear, Surface's chain-link is chain-link and its forest wall is
+back (the grey slab in the sky was that wall magnified into its clear top),
+Train's wall has its hazard stripe, Dam's cliffs are rock and its pines have
+branches (at 1/1024 each card sampled the clear corner of its picture: bare
+trunks). `hdsweep/cmp_scale.jpg` is before / after / N64. What it is *not*: the
+stream's 0x06/0x03 records are shader constants (colours, the foliage shader's
+wind), 0x0c is a render state (0x60/0x68/0x64 = alpha test on, func, ref 0x7f),
+0x15 is a jump, 0x02 and a bind's fifth word point at runtime scratch, a
+material's second word is no marker (Control has it on 337 of 343), and the
+1/128 *matrices* in Dam's `.data` are `sinWavesShader1`'s - the water. More
+repeats per triangle means more triangles outside a batch's s16 texture window:
+watch the log's "triangles off a room's range" (Dam 300 -> 314).
+
+Read but not yet drawn:
+- **stride 36 in a level is water**, not trees (the old comment was wrong): a
+  packed word, then the position at +4, normal +16, UVs +20, four textures
+  (Dam's reservoir, a flat grid at Bean y -192.6).
+- **stride 20 has no UV at all** (position, normal, colour) and Surface's pine
+  *branches* are stride 20 under a DXT3 branch picture (25344 indices): the
+  shader makes the UVs, so they draw white. Generate them per quad.
+- Surface's forest wall (texture 45, DXT1 with a cut-out) is missing in HD and a
+  sky-grey rectangle stands in the sky instead.
+- Props, guns and characters measure their own scale per file
+  (beanMeasureUvScale()); whether any of those carries a shader literal too has
+  not been looked at.
+- Statue Park, Streets (mission: its room hash differs from the arena's row) and
+  Egyptian have no HD level.

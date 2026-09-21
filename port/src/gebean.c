@@ -6041,15 +6041,41 @@ struct gebeanlevel *gebeanLevelOpen(const char *name)
 		return NULL;
 	}
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws, %d textures, UVs measured at 1/%.0f, drawn at 1/1024",
-			level->source, level->bm.numdraws, level->bm.numtex, level->bm.uvscale);
+	// A level's UVs are in a fraction of a repeat that is the level's own, and
+	// the only place it is written is its shaders: a dozen of them carry the
+	// literal 1/128 (Dam, Train) or 1/256 (most levels), and the levels with no
+	// such literal (Aztec, Jungle, Temple, Silo...) are in 1/1024. The cards that
+	// show a whole picture agree level by level - Dam's pine branches run 0 to
+	// 128, Runway's trees to 256, Jungle's leaves to 1024 - and at these scales
+	// a repeat is 85 to 310 units on every level, where at 1/1024 throughout
+	// (as this read them until 2026-09-21) it was 120 to 1240: most levels drew
+	// four times too coarse, Dam eight, and Dam's branches sampled the clear
+	// corner of their picture and left bare trunks. The rule that measures a
+	// character's (beanMeasureUvScale()) does not apply to a level at all.
+	{
+		static const u8 lits[2][4] = { { 0x3c, 0x00, 0x00, 0x00 }, { 0x3b, 0x80, 0x00, 0x00 } }; // 1/128, 1/256
+		s32 counts[2] = { 0, 0 };
+		f32 scale = 1024.0f;
 
-	// A level's UVs are in 1/1024 of a repeat, whatever their range: the rule
-	// that measures a character's (beanMeasureUvScale()) reads a level's many
-	// repeats and says anything up to 32768, which drew the Temple arena's
-	// floor eight times too big. At 1/1024 a repeat is 120 to 440 GE-X units
-	// on every level, a wall panel's width.
-	level->bm.uvscale = 1024.0f;
+		for (u32 o = 0; o + 4 <= level->bm.gpulen; o += 4) {
+			for (s32 k = 0; k < 2; k++) {
+				if (memcmp(level->bm.gpu + o, lits[k], 4) == 0) {
+					counts[k]++;
+				}
+			}
+		}
+
+		if (counts[0] >= 3 && counts[0] > counts[1]) {
+			scale = 128.0f;
+		} else if (counts[1] >= 3) {
+			scale = 256.0f;
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws, %d textures, UVs in 1/%.0f (shader literals: %d of 1/128, %d of 1/256)",
+				level->source, level->bm.numdraws, level->bm.numtex, scale, counts[0], counts[1]);
+
+		level->bm.uvscale = scale;
+	}
 
 	return level;
 }
