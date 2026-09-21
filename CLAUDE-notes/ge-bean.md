@@ -6868,3 +6868,85 @@ Things worth knowing:
 showing completion on the mission select, GoldenEye's cheats and "New Cheat
 Available".
 
+
+## GoldenEye's HUD (2026-09-21, converter 53)
+
+The user: "lets add the ge hud for everything except the PD weapons keep their
+hud", and, while it was being written, "also make sure classic sight doesnt init
+the PD cross hair hover over target sound". `port/src/gehud.c`, on a converted
+mission and on GE Plus's arenas (`geHudActive()`, decided once a stage in
+`geHudStageStart()` beside the watch's).
+
+Perfect Dark keeps every piece of **state** - what is in the hands, when the
+health shows, which messages are up - and only the drawing is swapped, at the
+point each of Perfect Dark's own is drawn:
+
+| GoldenEye | hook | what |
+|---|---|---|
+| `generate_ammo_total_microcode()` | top of `bgunDrawHud()` | magazine, the ammunition's picture, reserve; mirrored at the left for the left hand |
+| `gunDrawSight()` | `sightDraw()`, before its switch | the one 32x32 crosshair (the folder's cursor, image 2236) at 0x6e |
+| `bondviewRenderGaugeBars()` | `playerRenderHealthBar()` | the watch's two gauges (`geWatchGaugeVertices()`/`geWatchDrawGauge()`) under GoldenEye's ortho frame |
+| `hudmsgBottomRender()`, `sub_GAME_7F08AAE8()` | `hudmsgsRender()`'s loop | Bank Gothic outlined bottom left; Zurich Bold over a 0x64 band at the top |
+| `countdownTimerRender()` | `countdownTimerRender()` | GoldenEye's eight columns, moved to the middle of the view |
+
+**A Perfect Dark weapon keeps Perfect Dark's ammunition display and sight**
+(`geHudOwnsWeapon()`: the right hand's weapon is `<= WEAPON_UNARMED` or
+`>= WEAPON_GE_FIRST`). The messages, gauges and countdown are GoldenEye's
+whatever is held.
+
+What could not have been guessed:
+
+- **GoldenEye's number strings end in a newline** (`g_GunHudIntegerFormat` is
+  `"%d\n"`, the countdown's colon is `":\n"`), because `textMeasure()` only
+  counts a line's height at its `\n`. Without it the height is 0, "middle"
+  alignment moves nothing, and every number sat six units low. A message with no
+  newline of its own is given one before it is measured.
+- **The ammunition pictures** are `ammo_related[]`'s segment 2 addresses, which
+  are rows of `assets/oddtextures.c` 12 bytes apart from 0xC84; the texture
+  numbers come from `image_externs.h`'s enum counted against a known one
+  (`IMAGE_CROSSHAIR1` = 2236): 2161-2167, 2231-2235, 2238 and 2464 (the tank's,
+  IA8 where the rest are RGBA32). They join `g_MenuImages` in both converters.
+  They are stored **bottom row first** like the stage pictures (the first
+  capture had the bullet standing on its nose), so the rectangle's t starts at
+  `(h << 5) - 1` and counts back; the crosshair does not need it.
+- An odd-sized picture sits half a unit right of and above its middle
+  (`microcode_generation_ammo_related()`), which is what keeps its edges on
+  whole units: `x0 = cx - w/2`, `y0 = bottom - 20 + yoffset - (h+1)/2`.
+- `HUDHALIGN_RIGHT` is **0** and `LEFT` 1: the magazine is right-aligned on the
+  inside of the picture.
+- Which weapon shows what is its `gunWeaponStat` row: `AmmoType`'s picture and
+  `WEAPONSTATBITFLAG_NO_CLIP_RELOADS` (grenades, mines, the throwing knife:
+  one number, both hands' together). The knife in the hand and the laser are
+  `AMMO_NONE` and show nothing. The **tank's shells** are a bare ammunition
+  count here (getank.c), shown GoldenEye's way as a magazine of one and the
+  rest.
+- The frame is GoldenEye's 320x240 **by the window's height**, square: a view's
+  size in its units is its share of the window (426x240 on 16:9), and since
+  everything is placed from an edge of the view it goes out to the edges. The
+  gauges' ortho frame is widened by the view's aspect so the arcs stay round.
+- **`TextPrintTop` had been converted as the bottom message** (both were
+  `aiShowHudmsg`). It is `aiShowHudmsgTopMiddle` (0x00cc) in white now -
+  `geaitable.h` and `geaitable.py` together - which makes it an in-game
+  subtitle, so `hudmsgCreateFromArgs()` no longer drops those on a GoldenEye
+  level when the player has subtitles off. Durations are GoldenEye's (0x78
+  bottom, 0xf0 top), Perfect Dark's re-wrap is skipped (the text is wrapped for
+  GoldenEye's fonts where it is drawn, and its own messages are broken
+  already), and a bottom message no longer hides the countdown - GoldenEye's
+  stands clear of it (0x28 up instead of 0x0c when the left hand or the clock
+  is there).
+- **The target beep**: `sightTick()` plays `SFX_0007` when the crosshair takes
+  a new target. GoldenEye's sight tracks nothing (`SIGHTTRACKTYPE_NONE` while
+  `geHudOwnsWeapon()`), and Perfect Dark's own **classic sight** is silent too
+  (`g_SightQuiet`) - only the sound: its lock-on still runs, because the rocket
+  launcher's homing reads the same tracked props.
+- A player who keeps a target on screen all the time (the port's mouse option)
+  gets GoldenEye's crosshair then too, rather than nothing.
+
+Not done: GoldenEye's radar (Perfect Dark's is its descendant and still draws
+in the arenas), Perfect Dark's optional mission timer and zoom range are left
+as they are, and the gauges appear without Perfect Dark's slide.
+
+Probes: `build/gexrom/hudshot.py` (`WEAPONS="0x62 0x69 ..."` sweeps the
+pictures, `--savedir save_wide` is 1280x720 - **a probe's `--savedir` is under
+`data/`**, a directory beside the binary is never read) and `hudtank.py` (the
+tank, the countdown, the raised message).

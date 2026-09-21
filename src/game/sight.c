@@ -23,6 +23,7 @@
 #ifndef PLATFORM_N64
 #include <math.h>
 #include "video.h"
+#include "gehud.h"
 
 #define SIGHT_COLOUR ((PLAYER_EXTCFG().crosshairhealth >= CROSSHAIR_HEALTH_ON_GREEN) ? sightGetCrosshairHealthColor(g_Vars.currentplayer->bondhealth, g_Vars.currentplayer->prop->chr->cshield * 0.125f) : PLAYER_EXTCFG().crosshaircolour)
 #define SIGHT_SCALE PLAYER_EXTCFG().crosshairsize
@@ -227,6 +228,16 @@ void func0f0d7364(void)
 	}
 }
 
+#ifndef PLATFORM_N64
+// The sight being drawn has no target boxes to go with Perfect Dark's
+// "target acquired" beep - the classic sight, and GoldenEye's own on GE Plus's
+// levels - so crossing a target with it is silent, as it is in GoldenEye.
+// sightDraw() sets it before each tick.
+static bool g_SightQuiet = false;
+#else
+#define g_SightQuiet false
+#endif
+
 void sightTick(bool sighton)
 {
 	struct trackedprop *trackedprop;
@@ -264,6 +275,13 @@ void sightTick(bool sighton)
 	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
 		newtracktype = SIGHTTRACKTYPE_NONE;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's sight follows nothing and locks on to nothing
+	if (geHudOwnsWeapon()) {
+		newtracktype = SIGHTTRACKTYPE_NONE;
+	}
+#endif
 
 	if (newtracktype != g_Vars.currentplayer->sighttracktype) {
 		if (newtracktype == SIGHTTRACKTYPE_THREATDETECTOR) {
@@ -313,7 +331,9 @@ void sightTick(bool sighton)
 				if (g_Vars.currentplayer->lookingatprop.prop != g_Vars.currentplayer->trackedprops[0].prop) {
 					struct sndstate *handle;
 
-					handle = snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_0007, 1, 1, -1, true);
+					if (!g_SightQuiet) {
+						handle = snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_0007, 1, 1, -1, true);
+					}
 
 					trackedprop = &g_Vars.currentplayer->trackedprops[0];
 
@@ -339,7 +359,9 @@ void sightTick(bool sighton)
 			if (index >= 0) {
 				struct sndstate *handle;
 
-				handle = snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_0007, 1, 1, -1, 1);
+				if (!g_SightQuiet) {
+					handle = snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_0007, 1, 1, -1, 1);
+				}
 
 				trackedprop = &g_Vars.currentplayer->trackedprops[index];
 
@@ -362,7 +384,9 @@ void sightTick(bool sighton)
 			if (index >= 0) {
 				struct sndstate *handle;
 
-				handle = snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_0007, 1, 1, -1, 1);
+				if (!g_SightQuiet) {
+					handle = snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_0007, 1, 1, -1, 1);
+				}
 
 				trackedprop = &g_Vars.currentplayer->trackedprops[index];
 
@@ -1642,7 +1666,27 @@ Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	g_SightQuiet = sight == SIGHT_CLASSIC || geHudOwnsWeapon();
+#endif
+
 	sightTick(sighton);
+
+#ifndef PLATFORM_N64
+	// GoldenEye's own crosshair for anything of GoldenEye's in the hand on GE
+	// Plus's levels (gehud.c): shown while aiming, as GoldenEye shows it, and
+	// for a player who keeps a target on screen all the time, then too
+	if (sight != SIGHT_NONE && geHudOwnsWeapon()) {
+		if (optionsGetSightOnScreen(g_Vars.currentplayerstats->mpindex)
+				&& (sighton || optionsGetAlwaysShowTarget(g_Vars.currentplayerstats->mpindex))) {
+			gdl = geHudRenderSight(gdl, crossx, crossy);
+		}
+
+		g_ScaleX = 1;
+
+		return gdl;
+	}
+#endif
 
 	switch (sight) {
 	case SIGHT_DEFAULT:

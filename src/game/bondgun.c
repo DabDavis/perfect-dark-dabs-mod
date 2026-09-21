@@ -67,6 +67,7 @@
 #include "game/stagetable.h"
 #include "video.h"
 #include "platform.h"
+#include "gehud.h"
 #endif
 
 #define GUNLOADSTATE_FLUX     0
@@ -13543,6 +13544,14 @@ Gfx *bgunDrawHud(Gfx *gdl)
 	if (g_Vars.lvframenum < 5) {
 		return gdl;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's own ammunition display for anything of GoldenEye's in the
+	// hand on GE Plus's levels; a Perfect Dark weapon keeps what follows
+	if (geHudOwnsWeapon()) {
+		return geHudRenderAmmo(gdl);
+	}
+#endif
 
 #if PAL
 	g_ScaleX = 1;

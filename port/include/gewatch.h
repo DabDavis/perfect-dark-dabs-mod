@@ -41,4 +41,13 @@ void geWatchTick(void);
 // Over the player's view, from playerRenderHud()
 Gfx *geWatchRender(Gfx *gdl);
 
+/**
+ * The watch's health and armour gauges, which are GoldenEye's HUD's too
+ * (gehud.c): 46 vertices and their colours for `side` 1 (armour, blue, the
+ * right) or -1 (health, red, the left) lit as far as `value`, and the list that
+ * joins them into a bar under whatever matrices are loaded.
+ */
+void geWatchGaugeVertices(Vtx *v, Col *c, s32 side, f32 value);
+Gfx *geWatchDrawGauge(Gfx *gdl, Vtx *v, Col *c);
+
 #endif

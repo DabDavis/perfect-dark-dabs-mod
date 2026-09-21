@@ -49,6 +49,7 @@
 #include "game/player.h"
 #ifndef PLATFORM_N64
 #include "gewatch.h"
+#include "gehud.h"
 #endif
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
@@ -3330,7 +3331,16 @@ void playerDisplayDamage(void)
 Gfx *playerRenderHealthBar(Gfx *gdl)
 {
 	Mtxf matrix;
-	Mtxf *addr = gfxAllocateMatrix();
+	Mtxf *addr;
+
+#ifndef PLATFORM_N64
+	// GoldenEye's two gauges either side of the view on GE Plus's levels
+	if (geHudActive()) {
+		return geHudRenderGauges(gdl);
+	}
+#endif
+
+	addr = gfxAllocateMatrix();
 
 #ifdef PLATFORM_N64
 	mtx00016ae4(&matrix, 0, 370, 0, 0, 0, 0, 0, 0, -1);

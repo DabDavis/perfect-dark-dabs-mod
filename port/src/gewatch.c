@@ -2181,6 +2181,18 @@ static Gfx *watchDrawGauge(Gfx *gdl, Vtx *v, Col *c)
 	return gdl;
 }
 
+// the same two for GoldenEye's HUD, which draws them either side of the view
+// when the player is hit (gehud.c)
+void geWatchGaugeVertices(Vtx *v, Col *c, s32 side, f32 value)
+{
+	watchGaugeVertices(v, c, side, value);
+}
+
+Gfx *geWatchDrawGauge(Gfx *gdl, Vtx *v, Col *c)
+{
+	return watchDrawGauge(gdl, v, c);
+}
+
 /**
  * sub_GAME_7F0A33F8(): the face's disc, a ring of vertices at `scale` of
  * GoldenEye's 520, shaded from dark at the top to green at the bottom. With

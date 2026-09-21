@@ -25,6 +25,9 @@
 #include "data.h"
 #include "types.h"
 #include "string.h"
+#ifndef PLATFORM_N64
+#include "gehud.h"
+#endif
 
 u32 g_NextHudMessageId;
 
@@ -1036,9 +1039,17 @@ void hudmsgCreateFromArgs(char *text, s32 type, s32 conf00, s32 conf01, s32 conf
 	char stacktext[400];
 	s32 writeindex;
 
+#ifndef PLATFORM_N64
+	// a GoldenEye mission's top message is one of these, and is not a
+	// subtitle to anything: it is the only way the line is given at all
+	if (type == HUDMSGTYPE_INGAMESUBTITLE && !optionsGetInGameSubtitles() && !geHudActive()) {
+		return;
+	}
+#else
 	if (type == HUDMSGTYPE_INGAMESUBTITLE && !optionsGetInGameSubtitles()) {
 		return;
 	}
+#endif
 
 	for (j = 0; text[j] != '\0'; j++) {
 		hash = hash + text[j];
@@ -1104,6 +1115,14 @@ void hudmsgCreateFromArgs(char *text, s32 type, s32 conf00, s32 conf01, s32 conf
 			wrapwidth = hudmsg0f0ddb1c(&xmarginaextra, conf16);
 			textMeasure(&textheight, &textwidth, text, *conf04, *conf08, 0);
 
+#ifndef PLATFORM_N64
+			// drawn in GoldenEye's fonts, a message is broken for them where it
+			// is drawn (gehud.c), and GoldenEye's own are broken already
+			if (geHudActive() && type != HUDMSGTYPE_CUTSCENESUBTITLE) {
+				wrapwidth = textwidth;
+			}
+#endif
+
 #if VERSION >= VERSION_JPN_FINAL
 			if (textwidth > wrapwidth && (flags & HUDMSGFLAG_NOWRAP) == 0)
 #else
@@ -1161,6 +1180,14 @@ void hudmsgCreateFromArgs(char *text, s32 type, s32 conf00, s32 conf01, s32 conf
 			} else {
 				msg->showduration = TICKS(g_HudmsgTypes[type].duration);
 				msg->channelnum = arg14;
+
+#ifndef PLATFORM_N64
+				// GoldenEye's own two seconds at the bottom and four at the
+				// top, for a message that has a length at all
+				if (geHudActive() && type != HUDMSGTYPE_CUTSCENESUBTITLE && msg->showduration > 0) {
+					msg->showduration = TICKS(geHudMessageDuration(alignv == HUDMSGALIGN_TOP || alignv == HUDMSGALIGN_SCREENTOP));
+				}
+#endif
 			}
 		}
 
@@ -1437,6 +1464,8 @@ Gfx *hudmsgsRender(Gfx *gdl)
 	s32 spdc = true;
 #ifndef PLATFORM_N64
 	const s32 playercount = PLAYERCOUNT();
+	const s32 gehud = geHudActive();
+	s32 gerow = 0;
 #endif
 
 #if PAL
@@ -1494,6 +1523,22 @@ Gfx *hudmsgsRender(Gfx *gdl)
 			textcolour = (textcolour & 0xffffff00) + (textalpha & 0xff);
 			glowcolour = (glowcolour & 0xffffff00) + (glowalpha & 0xff);
 		}
+
+#ifndef PLATFORM_N64
+		// GoldenEye's two kinds of message on GE Plus's levels: whatever
+		// Perfect Dark has up is drawn at the top or the bottom left in
+		// GoldenEye's fonts, with none of Perfect Dark's fades or boxes
+		if (gehud && msg->type != HUDMSGTYPE_CUTSCENESUBTITLE) {
+			gdl = geHudRenderMessage(gdl, msg->text,
+					msg->alignv == HUDMSGALIGN_TOP || msg->alignv == HUDMSGALIGN_SCREENTOP, &gerow);
+			gdl = text0f153628(gdl);
+
+			// and the countdown stays up under it, as GoldenEye's does: its
+			// bottom message stands clear of the clock
+
+			continue;
+		}
+#endif
 
 		x = msg->x;
 		y = msg->y;

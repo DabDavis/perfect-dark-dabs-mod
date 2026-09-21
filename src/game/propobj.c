@@ -90,6 +90,7 @@
 #include "gexplusveh.h"
 #include "gemonitor.h"
 #include "gesfx.h"
+#include "gehud.h"
 #endif
 #endif
 
@@ -21242,6 +21243,14 @@ Gfx *countdownTimerRender(Gfx *gdl)
 		ms = (s32)floorf(value60 * 1.6666666269302f) - mins * 6000 - secs * 100;
 
 #ifndef PLATFORM_N64
+		// GoldenEye's own on GE Plus's levels, and Perfect Dark's text state
+		// put back for whatever hudmsgsRender() draws after it
+		if (geHudActive()) {
+			gdl = geHudRenderCountdown(gdl, mins, secs, ms);
+
+			return text0f153628(gdl);
+		}
+
 		if (playercount < 2 || (playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_HORIZONTAL)) {
 			gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 		}

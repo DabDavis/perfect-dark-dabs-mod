@@ -252,7 +252,7 @@ TABLE = [
     ('TRYGiveMeHat',                        8,    [('PROP_NUM', 2), ('PROP_BITFIELD', 4), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # c0 -
     ('TRYCloningChr',                       5,    [('CHR_NUM', 1), ('AI_LIST_ID', 2), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # c1 -
     ('TextPrintBottom',                     3,    [('TEXT_SLOT', 2)],                            0x00cb, (('=', CHR_BOND, 1), 0),                     'hand'),  # c2 aiShowHudmsg
-    ('TextPrintTop',                        3,    [('TEXT_SLOT', 2)],                            0x00cb, (('=', CHR_BOND, 1), 0),                     'hand'),  # c3 aiShowHudmsg
+    ('TextPrintTop',                        3,    [('TEXT_SLOT', 2)],                            0x00cc, (('=', CHR_BOND, 1), 0, ('=', 2, 1)),        'hand'),  # c3 aiShowHudmsgTopMiddle, white
     ('SfxPlay',                             4,    [('SOUND_NUM', 2), ('CHANNEL_NUM', 1)],        0x00ce, (0, 1),                                      'both'),  # c4 aiPlaySound
     ('SfxEmitFromObject',                   5,    [('CHANNEL_NUM', 1), ('OBJECT_TAG', 1), ('VOL_DECAY_TIME60', 2)], 0x00cf, (0, 1, 2),                                   'both'),  # c5 aiSetObjectSoundPlaying
     ('SfxEmitFromPad',                      6,    [('CHANNEL_NUM', 1), ('PAD', 2), ('VOL_DECAY_TIME60', 2)], 0x00d0, (0, 1, 2),                                   'table'),  # c6 aiPlayRepeatingSoundFromPad

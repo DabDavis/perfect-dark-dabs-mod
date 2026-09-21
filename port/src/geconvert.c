@@ -106,6 +106,9 @@
 static const struct { uint32_t first, count; } g_MenuImages[] = {
 	{ 2236, 1 }, { 2631, 1 }, { 2578, 20 }, { 2686, 4 }, { 2695, 1 },
 	{ 2602, 16 }, { 2632, 40 }, { 2682, 4 }, { 2691, 4 },
+	// and the HUD's ammunition pictures (gehud.c): IMAGE_ROCKETAMMO..SHOTAMMO,
+	// IMAGE_9MMAMMO..PROXAMMO either side of the crosshair, TIMEAMMO, TANKAMMO
+	{ 2161, 7 }, { 2231, 5 }, { 2238, 1 }, { 2464, 1 },
 };
 
 static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {

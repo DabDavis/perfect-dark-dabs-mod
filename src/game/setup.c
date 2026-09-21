@@ -46,6 +46,7 @@
 #include "gecinema.h"
 #include "gemonitor.h"
 #include "gewatch.h"
+#include "gehud.h"
 #include "gegadgets.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
@@ -1458,6 +1459,9 @@ void setupLoadFiles(s32 stagenum)
 		// what GE Plus's own pause needs in this level, or nothing when the
 		// level is not one of the remake's (gewatch.c)
 		geWatchStageStart(stagenum);
+
+		// and GoldenEye's HUD over it (gehud.c)
+		geHudStageStart(stagenum);
 
 		// and GoldenEye's own programmes for a remake mission's screens, before
 		// the props that show them are made (gemonitor.c)
