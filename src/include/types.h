@@ -865,6 +865,10 @@ struct aibot {
 	// aibot is mempAlloc'd in botmgrAllocateBot() and nothing casts ROM bytes to
 	// it, so growing it costs nothing but the N64 build's matching.
 	s32 jumptimer60;
+	// Set by botTryJump() and cleared by botIsJumping() once the bot is back on
+	// the floor. Being over the floor is not the same thing: a bot stepping off
+	// a ledge or the head of a ladder is over it too.
+	bool jumping;
 	// The lvframe60 a roll was last thrown on, or 0 for never. The cooldown and
 	// the window in which the roll has the body to itself are both measured
 	// from it, the way the player's rolltime60 is.

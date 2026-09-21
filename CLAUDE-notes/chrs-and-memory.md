@@ -237,3 +237,48 @@ head on a body it was not made for** and **height only**.
   aims. Checked: eight mixed pairs in both looks against the previous binary,
   own pairs unchanged (stock pairs pixel-identical), stock heads on stock
   bodies with no GoldenEye X.
+
+## Simulants running on the spot at the head of a ladder (2026-09-21)
+
+A tester on a clean install, working through the challenges: "the Sims seem
+much stupider ... they would often get stuck running on the spot, especially
+at the top of ladders." It was ours and it had been there since the jump went
+in (`0844a2a32`, 2026-08-30), with jumping switched off.
+
+The jump gave an airborne simulant a collision cylinder that reaches down to
+the floor, in `chrUpdateGeometry()` and - "same bound" - in `chrGetBbox()`. The
+test for airborne was `chr->aibot && chr->ground < chr->manground`, which asks
+nothing about a jump:
+
+- `manground` is the smoothed ground and lags the real one on every step down;
+- **a simulant goes down a ladder by walking off its head**, and from the first
+  step the real ground is the floor a storey below (or `-100000` over the gap).
+
+`chrGetBbox()` is the box **the chr's own moves are tested with**. Reaching a
+jump's height down from a ledge it is inside the ledge, every move is refused
+(`invalidmove` 1, `lastmoveok60` never advancing) and, with `goposforce` at -1,
+the one-second rule only restarts the same route. A MeatSim stood at the head
+of Pipes' ladder (722, 305, -928) for two minutes with its legs running.
+
+Both sites ask `botIsJumping()` now: a flag `botTryJump()` sets and the first
+ask after landing clears. With jumping off - the default - a simulant's box is
+stock's again.
+
+How it was found, since reading the diff against upstream did not find it:
+
+- `tools/simstall/run.sh` boots a match headlessly, samples every bot from gdb
+  once a second and gives the share of walking intervals that went nowhere.
+  Fork before: 59%. After: 4-9%. Stock upstream (the bench worktree with a
+  `--mpsims` of its own patched in, `~/.cache/pd-bench/upstream/build-probe`):
+  2-21%.
+- **Stock stalls too**, for seconds at a time around (770, 303, 758) on Pipes,
+  and once held a bot on the ladder for two minutes. One run is noise; read
+  where the stalls are and what the stuck chr's `ground`/`invalidmove` say.
+- **`--spectate` hides it.** With nobody to hunt, the bots wander less across
+  the ladders and the first run read 6.6% against stock's 5.8%. A player
+  standing at the spawn is enough.
+- `--mpsims` leaves the simulants at difficulty 6, which no menu offers; the
+  early challenges are MeatSims, so the probe forces 0 (`DIFF=0`).
+- In multiplayer nothing moves by the off-screen "magic" walk
+  (`normmplayerisrunning`), so a headless match does exercise the real
+  collision.

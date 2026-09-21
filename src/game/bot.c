@@ -228,6 +228,7 @@ void botReset(struct chrdata *chr, u8 respawning)
 		aibot->fadeintimer60 = TICKS(120);
 #ifndef PLATFORM_N64
 		aibot->jumptimer60 = 0;
+		aibot->jumping = false;
 		aibot->rolltime60 = 0;
 		chr->fallspeed.y = 0;
 #endif
@@ -298,6 +299,32 @@ void botTryJump(struct chrdata *chr)
 
 	chr->fallspeed.y = modGetJumpImpulse();
 	chr->aibot->jumptimer60 = g_Vars.lvframe60 + BOTJUMP_COOLDOWN;
+	chr->aibot->jumping = true;
+}
+
+/**
+ * Whether the bot is in the air because it jumped.
+ *
+ * chr->manground over chr->ground does not say so by itself. The smoothed
+ * ground lags the real one on every step down, and at a drop - a ledge, the
+ * head of a ladder, which is how a simulant goes down one - the real ground is
+ * the floor a storey below. The collision box that reaches down to the floor
+ * under a jumper was given to those bots too, where it reached into the ledge
+ * they were stepping off: every move was refused and they ran on the spot.
+ */
+bool botIsJumping(struct chrdata *chr)
+{
+	if (!chr->aibot || !chr->aibot->jumping) {
+		return false;
+	}
+
+	if (chr->fallspeed.y <= 0.0f && chr->manground <= chr->ground) {
+		// landed
+		chr->aibot->jumping = false;
+		return false;
+	}
+
+	return true;
 }
 
 /**

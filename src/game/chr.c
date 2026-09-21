@@ -5383,7 +5383,10 @@ bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 		// Reach down to the floor but never further than a jump: chr->ground is
 		// about -100000 where there is nothing under the chr, and a bot falling
 		// down a shaft should not grow a cylinder the length of the drop.
-		if (chr->aibot && chr->manground > chr->ground) {
+		//
+		// Only for a bot that jumped. One walking off a ledge is over its
+		// ground as well, and keeps stock's cylinder (botIsJumping()).
+		if (botIsJumping(chr) && chr->manground > chr->ground) {
 			chr->geo.ymin = chr->manground - modGetJumpApex();
 
 			if (chr->geo.ymin < chr->ground) {
@@ -5425,8 +5428,11 @@ void chrGetBbox(struct prop *prop, f32 *radius, f32 *ymax, f32 *ymin)
 	}
 
 #ifndef PLATFORM_N64
-	// Same bound as chrGetColCyl(): the floor, but never more than a jump down.
-	if (chr->aibot && chr->ground < chr->manground) {
+	// Same bound as chrGetColCyl(): the floor, but never more than a jump down,
+	// and only for a bot that jumped - this is the box the chr's own moves are
+	// tested with, and reaching down from the head of a ladder it is inside
+	// the ledge.
+	if (botIsJumping(chr) && chr->ground < chr->manground) {
 		*ymin = chr->manground - modGetJumpApex();
 
 		if (*ymin < chr->ground) {
