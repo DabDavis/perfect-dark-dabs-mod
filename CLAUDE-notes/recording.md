@@ -203,3 +203,36 @@ client) the key also offers to send what it wrote. `port/src/tracereport.c`.
   with PORT/ROOT patched, `GhostServer=http://127.0.0.1:<port>` in the scratch
   ini, Chicago `--boot-stage 0x1d`, F3 at ~60 s, `xdotool type`, Return; the
   copy's `root/reports/` holds the `.txt` and `.png`.
+
+## Sending an F3 report ended the game on Windows (2026-09-21)
+
+A Windows tester: *"why does the game force quit every time a problem is
+reported and sent via f3?"* - and every one of their reports was followed within
+seconds by a crash report, `0xc0000005` on the report's own thread, in
+`ghostnetSend()` at `if (req->cancel && *req->cancel)`, reading `0x1c001a`.
+
+**`bool` is two sizes in this tree.** The game's is `#define bool s32`
+(types.h); `port/include/crashreport.h` included `<stdbool.h>`, which redefines
+it as a byte for everything a file includes *after* it. tracereport.c includes
+crashreport.h and then ghostnet.h, so its `struct ghostnetreq` was 48 bytes and
+ghostnet.c's 56: the sender's `timeout = 60` landed on the receiver's
+`redirect`, its timeout read as zero, and its `cancel` was whatever the stack
+held past the end of the struct. Linux happened to hold a zero there; Windows
+held half a UNICODE_STRING. The report itself had already gone - the crash came
+reading the reply - which is why the reports arrived. crashreport.c built its
+request the same way.
+
+Fixed twice over: `struct ghostnetreq` and `struct ghostboardentry` carry no
+`bool` (s32, with a static assert on the request's size), and crashreport.h
+leaves a `bool` that is already defined alone, its two prototypes returning s32.
+**`gdb -batch -ex "list FILE.c:1,1" -ex "p sizeof(struct X)"` per file is the
+check** for a struct two files disagree about. Tested with a scratch daemon
+(`HOME=<scratch> python3 tools/pdghostd/pdghostd.py`, `GhostServer=http://127.0.0.1:8090`,
+`build/gexrom/f3send.py`: `traceRequest()`, then `traceReportStartSend()` from
+gdb - the dialog stops `lvframenum`, so count `videoEndFrame` hits), and the
+mingw build's `traceReportSend` now stores the timeout at +0x28 and zeroes +0x30.
+**Never `pkill -f` a name that is in your own command line.**
+
+The same morning's Linux crash (20260921-055851, the user's own, pressing
+activate on Dam): `tankNear()` in getank.c walked `g_Vars.props` slot by slot and
+read a freed slot's stale object. Both of its walks go down the live list now.

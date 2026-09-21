@@ -88,27 +88,38 @@ struct ghostnetbuf {
  * POST of a small JSON body, and a POST of a ghost. So the request is a URL, an
  * optional body with a type, and whether the account headers go on it.
  */
+//
+// **No field of this is a `bool`.** The game's `bool` is an s32 (types.h) and
+// the C library's is a byte, and which one a file sees depends on what it
+// included last: crashreport.h brought <stdbool.h> into tracereport.c and
+// crashreport.c, which then built a request 48 bytes long for a sender that
+// read 56 - the timeout as `redirect`, nothing as the timeout and whatever the
+// stack held as `cancel`. On Windows that was a wild pointer every time, and
+// every F3 report sent from there ended the game as the reply came back.
 struct ghostnetreq {
 	const char *url;
 	const void *body;   // NULL for a GET
 	u32 bodylen;
 	const char *type;   // Content-Type, when there is a body
-	bool auth;          // send X-Ghost-User and X-Ghost-Pin
+	s32 auth;           // send X-Ghost-User and X-Ghost-Pin
 	// Follow a redirect rather than treating one as the reply. Off for the
 	// ghost server, whose endpoints are exact paths on a machine this file was
 	// written against; on for the updater, which asks GitHub for "the latest
 	// release" and is answered with a redirect to wherever that release's
 	// files actually live. The two reasons the ghost side refuses are both
 	// about the account headers, and the updater sends none.
-	bool redirect;
+	s32 redirect;
 	// Seconds for the whole exchange, or zero for the ordinary budget. A reply
 	// that is a copy of the game takes longer than one that is a leaderboard.
 	s32 timeout;
 	// Somewhere to look for a request to stop, or NULL. Read between reads
 	// of the reply; set from another thread by whoever wants the transfer
 	// over with, which is the game shutting down under a download.
-	volatile bool *cancel;
+	volatile s32 *cancel;
 };
+
+_Static_assert(sizeof(struct ghostnetreq) == 4 * sizeof(void *) + 4 * sizeof(s32) + sizeof(void *),
+		"struct ghostnetreq must lay out the same in every file that fills one in");
 
 /**
  * Carry out one request. Defined once per backend, in ghostnet.c.
@@ -170,8 +181,8 @@ struct ghostboardentry {
 	s32 id;
 	u32 time60;
 	char user[GHOSTNET_MAXUSER + 1];
-	bool have;       // already in the ghosts directory
-	bool trialrules; // set with the fork's added moves off
+	s32 have;        // already in the ghosts directory (an s32, not a bool: see ghostnetreq)
+	s32 trialrules;  // set with the fork's added moves off
 	// The character the run was set as, in the same plus-one encoding the
 	// ghost header uses, so a board row can be shown as whoever set it. Zero
 	// from a row stored before the board carried one.

@@ -251,7 +251,7 @@ void crashReportDiscard(void)
 	}
 }
 
-bool crashReportCanSend(void)
+s32 crashReportCanSend(void)
 {
 #ifdef PD_GHOST_NET
 	return true;
@@ -262,7 +262,7 @@ bool crashReportCanSend(void)
 
 #ifdef PD_GHOST_NET
 
-bool crashReportSend(const char *path, const char *note, char *err, u32 errsize)
+s32 crashReportSend(const char *path, const char *note, char *err, u32 errsize)
 {
 	struct ghostnetreq req;
 	struct ghostnetbuf buf;
@@ -374,7 +374,7 @@ bool crashReportSend(const char *path, const char *note, char *err, u32 errsize)
 
 #else
 
-bool crashReportSend(const char *path, const char *note, char *err, u32 errsize)
+s32 crashReportSend(const char *path, const char *note, char *err, u32 errsize)
 {
 	snprintf(err, errsize, "this build has no network support");
 	return false;

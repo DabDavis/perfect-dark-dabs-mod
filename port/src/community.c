@@ -209,7 +209,7 @@ static char packsDir[FS_MAXPATH + 1];
 // a number on a screen and a stale one is last frame's.
 static struct ghostnetbuf download = { NULL, 0, NULL, 0 };
 
-static volatile bool cancelFlag;
+static volatile s32 cancelFlag;
 
 PD_CONSTRUCTOR static void communityInit(void)
 {

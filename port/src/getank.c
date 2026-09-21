@@ -383,8 +383,12 @@ static struct prop *tankNear(void)
 	struct prop *best = NULL;
 	f32 bestdist = 0;
 
-	for (s32 i = 0; i < g_Vars.maxprops; i++) {
-		struct prop *prop = &g_Vars.props[i];
+	// The live props, active then paused - never g_Vars.props slot by slot: a
+	// freed slot keeps its type and a pointer to an object that is gone, and
+	// pressing activate on Dam read one (crash report 20260921-055851)
+	s32 guard = 0;
+
+	for (struct prop *prop = g_Vars.activeprops; prop && guard++ < g_Vars.maxprops; prop = prop->next) {
 		f32 halfwidth, halflength, height, bottom;
 		f32 reach;
 		f32 dx;
@@ -769,9 +773,16 @@ static void tankDriveOverProps(struct tankobj *tank)
 		hull[i][1] = tankprop->pos.z - across * s + along * c;
 	}
 
-	for (s32 n = 0; n < g_Vars.maxprops; n++) {
-		struct prop *prop = &g_Vars.props[n];
+	// the live props only, as tankNear() walks them; the next one is taken
+	// first, since what is driven over may leave the list
+	struct prop *next = NULL;
+	s32 guard = 0;
+
+	for (struct prop *prop = g_Vars.activeprops; prop && guard++ < g_Vars.maxprops; prop = next) {
 		struct defaultobj *obj;
+
+		next = prop->next;
+
 		struct modelrodata_bbox *bbox;
 		f32 box[4][2];
 		f32 reach;

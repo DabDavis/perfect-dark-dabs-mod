@@ -130,7 +130,7 @@ static struct ghostnetbuf g_Download = { NULL, 0, NULL, 0 };
 // Raised by updateShutdown() so a transfer in flight gives up at its next
 // read instead of the game waiting on it, windowless, for as long as the
 // download budget allows. Only ever set, and only at shutdown.
-static volatile bool g_Cancel = false;
+static volatile s32 g_Cancel = false;
 
 // What the last check found, and what an install afterwards acts on. Written
 // on the worker under the lock and read by the menu, like everything else here.

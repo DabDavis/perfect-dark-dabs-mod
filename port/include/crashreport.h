@@ -1,7 +1,13 @@
 #ifndef _IN_CRASHREPORT_H
 #define _IN_CRASHREPORT_H
 
+// Not over the game's own `bool`, which is an s32 (types.h): a file that has
+// that one keeps it, or every struct with a bool in it that the file includes
+// after this header is laid out differently from the file that reads it
+// (ghostnet.h's request was, and sending an F3 report crashed Windows).
+#ifndef bool
 #include <stdbool.h>
+#endif
 #include <stdio.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
@@ -111,13 +117,13 @@ void crashReportScan(void);
  * something the player has already given away, and the only thing anyone could
  * do with it afterwards is send it again.
  */
-bool crashReportSend(const char *path, const char *note, char *err, u32 errsize);
+s32 crashReportSend(const char *path, const char *note, char *err, u32 errsize);
 
 /**
  * Whether this build can send at all. False in a build without the HTTP
  * client, where the report is written and nothing offers to send it.
  */
-bool crashReportCanSend(void);
+s32 crashReportCanSend(void);
 
 /**
  * Delete the pending report unsent.
