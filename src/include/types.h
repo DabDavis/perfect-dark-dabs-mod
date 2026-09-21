@@ -1850,6 +1850,27 @@ struct truckobj { // objtype 0x27
 	/*0x84*/ s32 nextstep;
 };
 
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's tank (its TankRecord), which Perfect Dark counts at the load and
+ * never builds - the player drove it, and nothing here was ever driven that
+ * way. The port builds it on a converted GoldenEye mission (port/src/getank.c).
+ * Everything past the base is the port's own at run time: GoldenEye's setup
+ * carries nothing there either.
+ */
+struct tankobj { // objtype 0x2d
+	struct defaultobj base;
+	f32 hullyaw;      // GoldenEye's tank_orientation_angle
+	f32 turretyaw;    // turret_orientation_angle, against the hull
+	f32 turretpitch;  // turret_vertical_angle
+	f32 groundsum;    // unkD0: the ground's height, filtered
+	s32 shells;       // unkD8: what is left in it while nobody is
+	s32 firing;       // is_firing_tank
+	f32 speed;
+	f32 turnspeed;
+};
+#endif
+
 struct heliobj { // objtype 0x28
 	struct defaultobj base;
 	/*0x5c*/ u8 *ailist;

@@ -57,6 +57,7 @@
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "gesfx.h"
+#include "getank.h"
 #include "gecinema.h"
 #include "modloader.h"
 #endif
@@ -4874,6 +4875,19 @@ bool aiSetObjImage(void)
  */
 bool aiNoOp00db(void)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's IFBondInTank, which is what this number was before the game
+	// lost its tank and the command its body. A converted mission's lists
+	// still ask it (Streets' and Runway's), and the port has the tank back
+	// (getank.c)
+	if (geTankAnyoneDriving()) {
+		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		return false;
+	}
+#endif
+
 	g_Vars.aioffset += 3;
 	return false;
 }

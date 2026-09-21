@@ -755,7 +755,15 @@ static u32 convertProps(u8* dst, u8* src)
 			}
 			case OBJTYPE_TANK:
 			{
-				dst += sizeof(struct n64_tankobj);
+				// the base and nothing else: the rest of a tank's record is
+				// what the game keeps in it while it runs (getank.c). This
+				// used to step over 128 bytes of nothing, which was the size
+				// of the N64's record and not of this one
+				struct tankobj* dstobj = (struct tankobj*)dst;
+
+				convertDefaultObj(&dstobj->base, cmd);
+
+				dst += sizeof(struct tankobj);
 				break;
 			}
 			case OBJTYPE_CAMERAPOS:

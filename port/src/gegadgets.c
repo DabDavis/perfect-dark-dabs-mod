@@ -82,6 +82,7 @@ static struct gegadgetidentity g_Identities[] = {
 	{ -1, WEAPON_GE_WATCHMAGNET,  60, "Watch Magnet Attract\n" },
 	{ -1, WEAPON_GE_GADGETA,       0, "Gadget\n" },
 	{ -1, WEAPON_GE_GADGETB,       0, "Gadget\n" },
+	{ -1, WEAPON_GE_TANKSHELLS,   33, "Tank\n" },
 };
 
 // Bunker, where the key analyser copies the GoldenEye key

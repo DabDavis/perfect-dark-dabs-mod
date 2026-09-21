@@ -46,6 +46,7 @@
 #include "geanimtable.h"
 #include "gexplusveh.h"
 #include "gesfx.h"
+#include "getank.h"
 #include "game/propsnd.h"
 
 #ifndef PLATFORM_N64
@@ -414,6 +415,13 @@ void gexPlusVehicleTick(struct prop *prop)
  * the model's own (propobj.c, `matrix_4x4_set_position` and
  * `matrix_4x4_multiply_homogeneous_in_place`).
  */
+static void vehPutPart(struct model *model, s32 partnum, Mtxf *rot);
+
+void gexPlusVehiclePutPart(struct model *model, s32 partnum, Mtxf *rot)
+{
+	vehPutPart(model, partnum, rot);
+}
+
 static void vehPutPart(struct model *model, s32 partnum, Mtxf *rot)
 {
 	struct modelnode *node = modelGetPart(model->definition, partnum);
@@ -560,6 +568,8 @@ void gexPlusVehicleUpdateModel(struct prop *prop)
 		vehHeliUpdateModel(prop);
 	} else if (obj->type == OBJTYPE_TRUCK) {
 		vehTruckUpdateModel(prop);
+	} else if (obj->type == OBJTYPE_TANK) {
+		geTankUpdateModel(prop);
 	}
 }
 

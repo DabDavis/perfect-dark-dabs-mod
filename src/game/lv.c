@@ -119,6 +119,9 @@
 #include "game/modrules.h"
 #include <stdlib.h>
 #include "system.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 
 extern s32 g_ExitFrame;
 extern s32 g_ShotFrame;
@@ -367,6 +370,10 @@ void lvReset(s32 stagenum)
 		bgReset(g_Vars.stagenum);
 		bgBuildTables(g_Vars.stagenum);
 		skyReset(g_Vars.stagenum);
+
+#ifndef PLATFORM_N64
+		geTankReset();
+#endif
 
 #ifndef PLATFORM_N64
 		// a mission of Perfect Dark's starts its music from its intro's list

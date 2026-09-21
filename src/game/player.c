@@ -115,6 +115,9 @@
 #include "video.h"
 #include "input.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 #endif
 
 s32 g_DefaultWeapons[2];
@@ -4336,6 +4339,12 @@ static void playerPullBackCamera(struct coord *campos)
 	f32 prevdist = player->thirdpersondist;
 	f32 dist;
 	f32 len;
+	f32 camdist = g_ModOptions.camdist;
+	f32 camheight = g_ModOptions.camheight;
+	f32 camside = g_ModOptions.camside;
+	f32 camfwd = g_ModOptions.camfwd;
+
+	geTankCamera(&camdist, &camheight, &camside, &camfwd);
 
 	player->thirdpersondist = 0;
 
@@ -4348,22 +4357,22 @@ static void playerPullBackCamera(struct coord *campos)
 		return;
 	}
 
-	offset.x = -player->bond2.unk1c.x * g_ModOptions.camdist;
-	offset.y = -player->bond2.unk1c.y * g_ModOptions.camdist;
-	offset.z = -player->bond2.unk1c.z * g_ModOptions.camdist;
+	offset.x = -player->bond2.unk1c.x * camdist;
+	offset.y = -player->bond2.unk1c.y * camdist;
+	offset.z = -player->bond2.unk1c.z * camdist;
 
 	// Sideways is along look cross up, the same right hand playerTiltCamera()
 	// rolls into, so a positive setting puts the camera over the player's right
 	// shoulder. bond2's own vectors and not the tilted copies the camera is
 	// built from: the tilt is a lean of the picture, and the camera walking
 	// sideways with every step is not what was asked for.
-	if (g_ModOptions.camside != 0) {
+	if (camside != 0) {
 		struct coord *look = &player->bond2.unk1c;
 		struct coord *up = &player->bond2.unk28;
 
-		offset.x += (look->y * up->z - look->z * up->y) * g_ModOptions.camside;
-		offset.y += (look->z * up->x - look->x * up->z) * g_ModOptions.camside;
-		offset.z += (look->x * up->y - look->y * up->x) * g_ModOptions.camside;
+		offset.x += (look->y * up->z - look->z * up->y) * camside;
+		offset.y += (look->z * up->x - look->x * up->z) * camside;
+		offset.z += (look->x * up->y - look->y * up->x) * camside;
 	}
 
 	// Forward and back is along the direction the player faces with the pitch
@@ -4378,7 +4387,7 @@ static void playerPullBackCamera(struct coord *campos)
 	// horizontal at every pitch - (right.z, -right.x) is it turned a quarter
 	// turn - and flattening the look vector has nothing left to normalise with
 	// the view straight up or straight down.
-	if (g_ModOptions.camfwd != 0) {
+	if (camfwd != 0) {
 		struct coord *look = &player->bond2.unk1c;
 		struct coord *up = &player->bond2.unk28;
 		f32 rightx = look->y * up->z - look->z * up->y;
@@ -4386,8 +4395,8 @@ static void playerPullBackCamera(struct coord *campos)
 		f32 rightlen = sqrtf(rightx * rightx + rightz * rightz);
 
 		if (rightlen > 0.0001f) {
-			offset.x -= rightz / rightlen * g_ModOptions.camfwd;
-			offset.z += rightx / rightlen * g_ModOptions.camfwd;
+			offset.x -= rightz / rightlen * camfwd;
+			offset.z += rightx / rightlen * camfwd;
 		}
 	}
 
@@ -4395,7 +4404,7 @@ static void playerPullBackCamera(struct coord *campos)
 	// vector, for the same reason forward and back is level: the two of them
 	// place the camera relative to the player, and a placement that swings
 	// about as the view pitches is the thing the pull-back already does.
-	offset.y += g_ModOptions.camheight;
+	offset.y += camheight;
 
 	// Camera Tether: the same offset, on a rod that pivots about the eye rather
 	// than one bolted to the back of the aim.
@@ -7115,6 +7124,9 @@ void playerGetBbox(struct prop *prop, f32 *radius, f32 *ymax, f32 *ymin)
 	s32 playernum = playermgrGetPlayerNumByProp(prop);
 
 	*radius = g_Vars.players[playernum]->bond2.radius;
+#ifndef PLATFORM_N64
+	*radius = geTankRadius(prop, *radius);
+#endif
 	*ymin = g_Vars.currentplayer->vv_manground + 30;
 	*ymax = g_Vars.currentplayer->vv_manground + g_Vars.players[playernum]->vv_headheight;
 

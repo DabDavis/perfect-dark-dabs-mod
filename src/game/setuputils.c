@@ -68,7 +68,11 @@ u32 setupGetCmdLength(u32 *cmd)
 	case OBJTYPE_PADLOCKEDDOOR:      return sizeof(struct padlockeddoorobj) / sizeof(u32);
 	case OBJTYPE_TRUCK:              return sizeof(struct truckobj) / sizeof(u32);
 	case OBJTYPE_HELI:               return sizeof(struct heliobj) / sizeof(u32);
+#ifndef PLATFORM_N64
+	case OBJTYPE_TANK:               return sizeof(struct tankobj) / sizeof(u32);
+#else
 	case OBJTYPE_TANK:               return 32;
+#endif
 	case OBJTYPE_CAMERAPOS:          return sizeof(struct cameraposobj) / sizeof(u32);
 	case OBJTYPE_LIFT:               return sizeof(struct liftobj) / sizeof(u32);
 	case OBJTYPE_CONDITIONALSCENERY: return sizeof(struct linksceneryobj) / sizeof(u32);

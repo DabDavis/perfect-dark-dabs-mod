@@ -34,6 +34,9 @@
 #ifndef PLATFORM_N64
 #include "modloader.h"
 #include "geroom.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 #endif
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
@@ -1387,6 +1390,10 @@ void bwalkUpdateVertical(void)
 			eyeheight = 30;
 		}
 
+#ifndef PLATFORM_N64
+		eyeheight = geTankEyeHeight(eyeheight);
+#endif
+
 		newpos.x = g_Vars.currentplayer->prop->pos.x;
 		newpos.y = g_Vars.currentplayer->vv_manground + eyeheight;
 		newpos.z = g_Vars.currentplayer->prop->pos.z;
@@ -1600,6 +1607,13 @@ void bwalkHandleActivate(void)
 
 void bwalkApplyMoveData(struct movedata *data)
 {
+#ifndef PLATFORM_N64
+	// driving GoldenEye's tank, the sticks are the tank's (getank.c)
+	if (geTankApplyMoveData(data)) {
+		return;
+	}
+#endif
+
 	if (g_Vars.currentplayer->walkinitmove == false) {
 		// Sideways
 		if (data->digitalstepleft) {
@@ -1946,6 +1960,12 @@ void bwalk0f0c69b8(void)
 		}
 #endif
 
+#ifndef PLATFORM_N64
+		// and in GoldenEye's tank the step is the tank's, taken through the
+		// same collision
+		geTankDrive(&spcc);
+#endif
+
 		if (g_Vars.currentplayer->onladder) {
 			guNormalize(&g_Vars.currentplayer->laddernormal.x, &g_Vars.currentplayer->laddernormal.y, &g_Vars.currentplayer->laddernormal.z);
 
@@ -2120,6 +2140,10 @@ void bwalkTick(void)
 	bmoveUpdateVerta();
 	bwalk0f0c69b8();
 	bwalkUpdateVertical();
+
+#ifndef PLATFORM_N64
+	geTankTick();
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 	{

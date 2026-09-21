@@ -51,6 +51,9 @@
 #ifndef PLATFORM_N64
 #include "modborrow.h"
 #include "modloader.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 #endif
 
 s32 g_SetupCurMpLocation;
@@ -2090,6 +2093,16 @@ void setupCreateProps(s32 stagenum)
 						}
 					}
 					break;
+#ifndef PLATFORM_N64
+				case OBJTYPE_TANK:
+					// GoldenEye's tank, which the game counts above and never
+					// built (getank.c)
+					if (withobjs && (obj->flags2 & diffflag) == 0) {
+						setupCreateObject(obj, index);
+						geTankCreate(obj);
+					}
+					break;
+#endif
 				case OBJTYPE_TRUCK:
 					if (withobjs && (obj->flags2 & diffflag) == 0) {
 						struct truckobj *truck = (struct truckobj *)obj;

@@ -49,6 +49,9 @@
 #include <math.h>
 #include "input.h"
 #include "video.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 
 static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c1buttonsthisframe, u32 buttons1, u32 buttons2) {
 	if ((((c1buttons & (buttons1)) && (c1buttonsthisframe & (buttons2)))
@@ -313,6 +316,13 @@ void bmoveSetModeForAllPlayers(u32 movemode)
 
 void bmoveHandleActivate(void)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's tank: in beside it, out of it (getank.c)
+	if (geTankActivate()) {
+		return;
+	}
+#endif
+
 	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
 		bbikeHandleActivate();
 	} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB) {
@@ -1261,6 +1271,14 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					if (allowc1buttons
 							&& joyGetButtonsPressedThisFrame(shootpad, shootallowedbuttons & Z_TRIG)
 							&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
+#ifndef PLATFORM_N64
+						// GoldenEye's tank shells: the trigger is the cannon,
+						// and not a press of the activate button, which
+						// in a tank is the way out of it (getank.c)
+						if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS) {
+							geTankFireCannon();
+						} else
+#endif
 						movedata.btapcount++;
 #ifndef PLATFORM_N64
 						// GoldenEye's camera and watch magnet, whose trigger
@@ -1987,6 +2005,14 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				if (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_FIRETOACTIVATE)) {
 					if ((c1buttonsthisframe & shootbuttons)
 							&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
+#ifndef PLATFORM_N64
+						// GoldenEye's tank shells: the trigger is the cannon,
+						// and not a press of the activate button, which
+						// in a tank is the way out of it (getank.c)
+						if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS) {
+							geTankFireCannon();
+						} else
+#endif
 						movedata.btapcount++;
 #ifndef PLATFORM_N64
 						// GoldenEye's camera and watch magnet, whose trigger

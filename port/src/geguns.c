@@ -72,6 +72,7 @@ static const char *const names[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_WATCHMAGNET     - WEAPON_GE_FIRST] = "Watch Magnet Attract\n",
 	[WEAPON_GE_GADGETA         - WEAPON_GE_FIRST] = "Gadget\n",
 	[WEAPON_GE_GADGETB         - WEAPON_GE_FIRST] = "Gadget\n",
+	[WEAPON_GE_TANKSHELLS      - WEAPON_GE_FIRST] = "Tank\n",
 };
 
 /**
@@ -543,6 +544,7 @@ static void gegunsNameThrow(s32 i)
 		{ WEAPON_GE_WATCHMAGNET,   INVENTORYFUNCTYPE_SPECIAL, "Attract\n" },
 		{ WEAPON_GE_GADGETA,       INVENTORYFUNCTYPE_SPECIAL, "Use\n" },
 		{ WEAPON_GE_GADGETB,       INVENTORYFUNCTYPE_SPECIAL, "Use\n" },
+		{ WEAPON_GE_TANKSHELLS,    INVENTORYFUNCTYPE_SPECIAL, "Fire\n" },
 	};
 	struct weapon *def = &g_GeWeaponDefs[i];
 	const s32 weaponnum = WEAPON_GE_FIRST + i;
@@ -600,6 +602,16 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 		}
 
 		gegunsNameThrow(i);
+
+		if (WEAPON_GE_FIRST + i == WEAPON_GE_TANKSHELLS) {
+			// the tank's shells are counted on the HUD as GoldenEye counts
+			// them: ammunition type 0x1d is its AMMO_TANK, still in Perfect
+			// Dark's list under no name. Held and in reserve are the one
+			// number, as a thrown weapon's are, and getank.c spends them.
+			static struct inventory_ammo shells = { AMMOTYPE_1D, CASING_NONE, 1, NULL, AMMOFLAG_EQUIPPEDISRESERVE };
+
+			g_GeWeaponDefs[i].ammos[0] = &shells;
+		}
 
 		// what a borrow is undone to
 		stockDefs[i] = g_GeWeaponDefs[i];

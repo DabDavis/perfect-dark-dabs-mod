@@ -3428,15 +3428,9 @@ the number they read is `gsetGetFireslotDuration()`, which nothing else
 reads. So `gegunsShootSoundRate()` is handed out there as the shot sound is,
 on a converted level only (`build/gexrom/rate.py` prints all eighteen).
 
-**The tank has no sounds to give because there is no tank.** Every tank sound
-GoldenEye has is in the code that *drives* it (bondview2.c: `TRUCK_START`,
-then `TRUCK_RUN` and the `TANK` tread loop by how hard the engine works, and
-`TANK_CRUSH_MAN`/`CRUSHED_YELL` when it runs a guard down); a tank nobody is
-in is silent. And Perfect Dark does not build one - `OBJTYPE_TANK` is counted
-by `setupCreateProps()` and has no case - so Runway and Streets have no tank
-standing in them at all. The tank is its own project (the prop, getting in
-and out, the hull and turret, the shells, running guards down: 460-odd lines
-of bondview2.c name it), and its sounds belong to it.
+**The tank had no sounds to give because there was no tank**: every tank sound
+GoldenEye has is in the code that *drives* it, and Perfect Dark built none.
+It is built now - see "GoldenEye's tank" below.
 
 Probes in `build/gexrom`: `remap.py` (starts representative Perfect Dark
 sounds and logs what the player loads, chains included, with the recording
@@ -3445,6 +3439,95 @@ measured after each), `aisnd.py` (every AI sound command of a mission),
 for " error" hid a failed compile** (gcc colours the word, so no space leads
 it) and a probe then ran an old binary: grep for `error`, and check `nm` for
 a new symbol when a probe says it is missing.
+
+### GoldenEye's tank (2026-09-21, `port/src/getank.c`)
+
+The user: "now do the tank". Runway (stage 0x5e) and Streets (0x61) each have
+one (`OBJTYPE_TANK` 0x2d, model 0x320, scale 0.108).
+
+**What Perfect Dark kept and what it did not.** `setupCreateProps()` *counts*
+the record and has no case for it, the port's loader stepped over 128 bytes
+for it without converting the base, and nothing ticks it. But the player's
+fields are all still there - `tank` is GoldenEye's `g_WorldTankProp`,
+`unk1af0` its `g_PlayerTankProp`, the `bondtank*`/`bondturret*` floats its
+angles - bondwalk.c still notes a tank it walks into, **AI command 0x00db is
+GoldenEye's `IFBondInTank` with its body taken out** (`aiNoOp00db`, same
+number, same three bytes: restored), and **ammunition type 0x1d is GoldenEye's
+`AMMO_TANK`** under no name, so a converted crate of shells is one already.
+The hoverbike's mode is the tank's descendant (the enter timers, the vehicle
+offset, the eight dismount probes).
+
+**It is Bond who moves, and the tank is carried under him** - GoldenEye's own
+design (`bondviewCalcUpdatePlayerCollision()` with a rectangle for a radius,
+then the prop put at his position less the seat). So there is no new movement
+mode: the player is still walking and getank.c changes what walking means
+through six small hooks - the input (`bwalkApplyMoveData`: forwards and back
+are the engine, the strafe axis turns the hull, looking is the turret, and
+the view is carried round as the hull turns), the step (`geTankDrive()` in
+`bwalk0f0c69b8()`, through the walk's own collision at the hull's half width -
+a circle where GoldenEye slides a rectangle), the eye
+(`bwalkUpdateVertical`), the activate button, the player's radius, and
+`geTankTick()` after the walk: the tank under him on the ground under it, its
+rooms refreshed from its box (`func0f069c70()`, as a bike's are), guards under
+the hull's rectangle run down with `CRUSHED_YELL`/`TANK_CRUSH_MAN` two in
+three each, and the engine (`TRUCK_START`, then `TRUCK_RUN` and the `TANK`
+tread loop). GoldenEye's numbers throughout: 15 a frame, its acceleration
+ramp, the hull's 0.3 through a 0.92 filter times 3.5, 45 frames in on a
+cosine with the view brought round to the turret, a quarter of all damage,
+the view held over -20, the barrel -5 to 25, the shell at 66.67, the tank
+exploding with Bond dead in it.
+
+**The view is first person and always was.** GoldenEye has no camera for the
+tank: Bond is *stood* at the model's seat node - part 1, the turret's pivot,
+plus part 2 carried round it with the turret: the commander's hatch, 30 to
+one side, 42 behind the pivot, 75 over it - half crouched, and what the
+player remembers as third person is his own eye up there with the roof under
+it and the barrel ahead. **The seat is where his feet go, not his eye**: with
+the eye put *at* the node it is level with the turret's roof and inside the
+mesh, whose faces are then culled - no roof, and no barrel until well past
+the mantlet, which read as "the front is being culled" and sent me after the
+near plane (10, innocent), the bbox nodes (hit testing only) and the room
+scissor (real, fixed, not the cause) before a picture from *outside* showed
+the model whole. `TANK_EYE_OVER_SEAT` 70. The user's console footage
+(youtube SD0lg3JyK4Q, fetched through 10.8.0.3 with yt-dlp's standalone
+binary and `--js-runtimes node`; this box is refused as a bot) is what it was
+matched against. With the port's own third person switched on, its camera is
+pulled back a tank's length (`geTankCamera()`) and the driver's body is not
+drawn.
+
+**The model** (propobj.c's `PROPDEF_TANK` render): part 1 turns by the turret's
+angle, part 3 under it by the elevation, part 4 the muzzle a quarter turn,
+switch 7 is the muzzle's flash and **switch 8 is turned off every time
+GoldenEye draws a tank**; all the geometry hangs under bbox nodes, which
+Perfect Dark's renderer does not cull by.
+
+**The shells are a weapon**, as GoldenEye's are (`WEAPON_GE_TANKSHELLS` 0x7e,
+the last number an s8 leaves, on the Data Uplink as the empty-handed gadgets
+are): given and held as he climbs in with what the tank had left in it,
+taken as he climbs out with the count put back, the trigger the cannon
+(bondmove.c's `WEAPONFLAG_FIRETOACTIVATE` branches, where it must *not* also
+count as the activate button - in a tank that is the way out), and anything
+else he switches to fires as it always does. The shell is Perfect Dark's
+rocket out of the muzzle.
+
+Not GoldenEye's, and why: he climbs in from *beside* it (Perfect Dark's walk
+has no step up onto a prop) and is put down beside it on the way out
+(GoldenEye leaves him standing on it, which here is inside its collision).
+Not done: the hull's rectangle and its slide along a wall; driving over
+*objects* (GoldenEye destroys what the hull touches and halves the speed for
+ninety ticks - the penalty is in, nothing sets it); the barrel's own
+collision; **the shell count on the HUD**, which goes with the GoldenEye HUD
+the user has asked for next.
+
+Probes in `build/gexrom`: `tankfind.py` (which missions have one),
+`tankdrive.py` (in, drive, turn, fire, out, with pictures; `g_TankTestInput`
+and its two floats are the probe's hands on the sticks, since a headless run
+has no pad and the input is read fresh each frame), `tankcrush.py`,
+`tankseat.py`, `tanklook.py`/`tanklook2.py` (from outside, parked and after
+being driven), `tanktree.py`, `tankparts.py`. **A guard's position written
+into his prop from gdb is put back by his own tick** - `chrMoveToPos()` is the
+teleport - and the first crush probe only passed because its guard happened
+to be standing still.
 
 **The folder screens and the watch play GoldenEye's sounds too** (2026-09-20).
 GoldenEye's front end has three: `DOOR_METAL_CLOSE2` (199) for every accept,

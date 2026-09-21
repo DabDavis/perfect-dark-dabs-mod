@@ -67,6 +67,7 @@
 #include "gexplus.h"
 #ifndef PLATFORM_N64
 #include "gesfx.h"
+#include "getank.h"
 #endif
 #endif
 
@@ -5255,6 +5256,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			if (g_Vars.normmplayerisrunning) {
 				damage /= mpHandicapToDamageScale(g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].handicap);
 			}
+
+#ifndef PLATFORM_N64
+			// GoldenEye's record_damage_kills(): a quarter of it in the tank
+			damage *= geTankDamageScale();
+#endif
 
 			if (g_Vars.currentplayer->isdead == false && !g_PlayerInvincible) {
 				f32 boostscale;

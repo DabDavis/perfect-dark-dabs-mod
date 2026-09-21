@@ -4828,6 +4828,11 @@ enum weaponnum {
 	// each is (gegadgets.c).
 	/*0x7c*/ WEAPON_GE_GADGETA,          // Data Uplink
 	/*0x7d*/ WEAPON_GE_GADGETB,          // Data Uplink
+	// GoldenEye's ITEM_TANKSHELLS: what Bond holds in the tank, given as he
+	// climbs in and taken as he climbs out, with nothing in the hand. Its
+	// trigger is the cannon (getank.c); any other weapon he switches to in
+	// there fires as it always does.
+	/*0x7e*/ WEAPON_GE_TANKSHELLS,       // Data Uplink
 #endif
 	NUM_WEAPONS
 };

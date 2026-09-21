@@ -79,6 +79,9 @@ static f32 chrFindGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *flo
 #ifndef PLATFORM_N64
 #include "trace.h"
 #include "xblamesh.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 #endif
 #endif
 
@@ -3657,6 +3660,13 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	// still shot at, still walked around, still counted - and only skip the
 	// drawing, which is the part that costs.
 	traceChrNote(chr, xlupass ? TRACECHR_CALLED_XLU : TRACECHR_CALLED_OPA);
+
+#ifndef PLATFORM_N64
+	// the driver of GoldenEye's tank is inside it (getank.c)
+	if (geTankHidesChr(chr)) {
+		return gdl;
+	}
+#endif
 
 	if (modBodyIsKept(chr) && (g_ModBodiesNoDraw || chr->bodynodraw)) {
 		traceChrNote(chr, TRACECHR_BODYNODRAW);
