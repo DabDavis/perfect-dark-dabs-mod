@@ -851,9 +851,22 @@ void videoFreeCachedTextures(const void *start, const void *end)
 	texpackForgetRange(start, end);
 }
 
+// Puts the display back in the desktop's mode if exclusive fullscreen took it
+// out of it. Safe to call twice and before the window exists.
+void videoRestoreDesktop(void)
+{
+	if (wmAPI) {
+		wmAPI->close();
+	}
+}
+
 void videoShutdown(void)
 {
-	free(vidModes);
+	videoRestoreDesktop();
+	if (vidModes != &vidModeDefault) {
+		free(vidModes);
+		vidModes = &vidModeDefault;
+	}
 }
 
 PD_CONSTRUCTOR static void videoConfigInit(void)

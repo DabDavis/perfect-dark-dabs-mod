@@ -130,6 +130,7 @@ void videoResetTextureIds(void);
 void videoFreeCachedTexture(const void *texptr);
 void videoFreeCachedTextures(const void *start, const void *end);
 
+void videoRestoreDesktop(void);
 void videoShutdown(void);
 
 #endif

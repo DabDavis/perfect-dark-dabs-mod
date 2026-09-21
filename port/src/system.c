@@ -14,6 +14,7 @@
 #include "platform.h"
 #include "system.h"
 #include "crashreport.h"
+#include "video.h"
 
 #ifdef PLATFORM_WIN32
 
@@ -332,6 +333,10 @@ static void sysFatalV(s32 report, const char *fmt, va_list ap)
 
 	fflush(stdout);
 	fflush(stderr);
+
+	// The dialog is a desktop window, and a desktop left at the game's
+	// exclusive resolution is a poor place to read one.
+	videoRestoreDesktop();
 
 	if (report) {
 		sysFatalDialog(shown, errmsg);

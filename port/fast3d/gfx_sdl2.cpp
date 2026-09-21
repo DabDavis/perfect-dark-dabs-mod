@@ -212,6 +212,15 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
 static void gfx_sdl_close(void) {
     is_running = false;
+
+    // Exclusive fullscreen changes the display's mode, and nothing but the game
+    // puts it back: X11 keeps whatever mode the process died in, so quitting
+    // from 640x480 left the desktop at 640x480. Leaving fullscreen is what makes
+    // SDL restore the desktop's mode. fullscreen_state is left alone on purpose,
+    // so that anything asking afterwards still hears what the player had chosen.
+    if (wnd && fullscreen_state && fullscreen_flag == SDL_WINDOW_FULLSCREEN) {
+        SDL_SetWindowFullscreen(wnd, 0);
+    }
 }
 
 static void gfx_sdl_set_fullscreen_changed_callback(void (*on_fullscreen_changed)(bool is_now_fullscreen)) {
