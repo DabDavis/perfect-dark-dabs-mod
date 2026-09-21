@@ -17,6 +17,13 @@
 #include "data.h"
 #include "gbiex.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gehud.h"
+
+// GoldenEye's radar is the one being drawn (gehud.c), between radarRender()'s
+// begin and end
+static bool g_RadarGe = false;
+#endif
 
 u32 g_RadarX;
 u32 g_RadarY;
@@ -140,6 +147,18 @@ Gfx *radarDrawDot(Gfx *gdl, struct prop *prop, struct coord *dist, u32 colour1, 
 		sqdist = 16.0f;
 		shiftamount = 1;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's blip: the same place on the same scale - Perfect Dark kept
+	// its 16 units to 4000 - as a square in its own colours, with no arrows
+	if (g_RadarGe) {
+		return geHudRadarDot(gdl, prop == g_Vars.currentplayer->prop,
+				(s32)(sinf(spcc * 0.017453292384744f) * sqdist),
+				(s32)(cosf(spcc * 0.017453292384744f) * sqdist),
+				swapcolours ? colour1 : (colour1 ? colour1 : colour2),
+				colour1 == g_ModColours[MODCOLOUR_RADAR] && colour2 == 0, shiftamount);
+	}
+#endif
 
 	x = g_RadarX + (s32)(sinf(spcc * 0.017453292384744f) * sqdist);
 	y = g_RadarY + (s32)PALUPF(cosf(spcc * 0.017453292384744f) * sqdist);
@@ -274,6 +293,18 @@ Gfx *radarRender(Gfx *gdl)
 		return gdl;
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's own disc and blips on GE Plus's levels. Whether the radar is
+	// up and who is on it stay as they are below; its place and its picture
+	// are gehud.c's, on GoldenEye's frame and with no aspect mode
+	g_RadarGe = geHudActive();
+
+	if (g_RadarGe) {
+		gdl = geHudRadarBegin(gdl);
+		goto dots;
+	}
+#endif
+
 #if PAL
 	g_ScaleX = 1;
 #else
@@ -341,6 +372,7 @@ Gfx *radarRender(Gfx *gdl)
 	// Draw dots for human players
 #ifndef PLATFORM_N64
 	gDPSetSubpixelOffsetEXT(gdl++, 0, 0);
+dots:
 	if (!(g_MpSetup.options & MPOPTION_NOPLAYERONRADAR)) {
 #endif
 	for (i = 0; i < playercount; i++) {
@@ -435,6 +467,12 @@ Gfx *radarRender(Gfx *gdl)
 	}
 
 #ifndef PLATFORM_N64
+	if (g_RadarGe) {
+		g_RadarGe = false;
+
+		return geHudRadarEnd(gdl);
+	}
+
 	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
 #endif
 

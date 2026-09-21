@@ -6942,9 +6942,39 @@ What could not have been guessed:
 - A player who keeps a target on screen all the time (the port's mouse option)
   gets GoldenEye's crosshair then too, rather than nothing.
 
-Not done: GoldenEye's radar (Perfect Dark's is its descendant and still draws
-in the arenas), Perfect Dark's optional mission timer and zoom range are left
-as they are, and the gauges appear without Perfect Dark's slide.
+Not done: Perfect Dark's optional mission timer and zoom range are left as they
+are, and the gauges appear without Perfect Dark's slide.
+
+### The radar (same day, converter 54)
+
+"now do the ge radar". GoldenEye's `display_red_blue_on_radar()` (radar.c) is a
+black disc at 0xa0 through one picture's alpha, 41 in from the view's right and
+26 down, and a blip is four units of black at 0x40 with two of colour inside -
+yellow at 0xa0 in range, 0x60 held at the rim, the player white in the middle.
+Perfect Dark's `radarDrawDot()` is the same arithmetic on the same scale (16
+units to 4000), and **every blip in Perfect Dark goes through it** - players,
+simulants, buddies, every scenario's tokens and hills, the R-tracker - so
+`radarRender()` still decides whether the radar is up and who is on it, skips
+its own place, picture and aspect mode for `geHudRadarBegin()`, and the one
+hook in `radarDrawDot()` hands each blip to `geHudRadarDot()`. Perfect Dark's
+plain radar colour becomes GoldenEye's yellow (white for the player); a team's
+or a scenario's colour is kept. No height arrows: GoldenEye has none.
+
+- The disc is `mpradarimages`, whose image is **200** - the enum calls it
+  `IMAGE_RUSTYDRUM_END`, and it is a drum's lid used for its alpha. Its **first
+  row is not the disc's** (stray opaque texels three rows clear of it): a row of
+  grey dashes over the radar at 720p that a 240 line screen never resolved, so
+  the draw starts a row down.
+- GoldenEye draws it a texel a pixel from half a texel in, which samples the 32
+  centres and nothing past them. Stretched, that span is **31** texels, or the
+  last rows wrap round to the first (the second row of dashes, underneath).
+- **A fill rectangle takes whole pixels of the frame buffer**, which is far
+  coarser than the window: a two unit blip came out 4x7 or 9x7 pixels by how
+  each edge rounded. The renderer reads the command's two fraction bits, which
+  the macros shift away, so `hudFillBox()` writes `G_FILLRECT_WIDE_EXT` itself.
+- A GE Plus arena headlessly: `tbreak geHudStageStart`, then
+  `set variable g_GexPlusMode = 1` (`build/gexrom/hudradar.py`, Complex is 0x59
+  there; an id that is not a stage boots the title and the probe waits for ever).
 
 Probes: `build/gexrom/hudshot.py` (`WEAPONS="0x62 0x69 ..."` sweeps the
 pictures, `--savedir save_wide` is 1280x720 - **a probe's `--savedir` is under

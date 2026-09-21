@@ -34,6 +34,7 @@
 #include "types.h"
 #include "bss.h"
 #include "data.h"
+#include "gbiex.h"
 #include "mod.h"
 #include "modloader.h"
 #include "system.h"
@@ -105,6 +106,16 @@ static const struct {
 	[ICON_TANK]         = { 2464,  7, 22, G_IM_FMT_IA,   G_IM_SIZ_8b,  0, -1 },
 };
 
+// the radar's disc (image_bank.c's mpradarimages): 32x32 RGBA16 with six
+// levels, of which only the alpha is used
+#define RADAR_IMAGE 200
+// radar.c: the disc's black at 0xa0, a blip's surround at 0x40, a blip in
+// range at 0xa0 and one held at the rim at 0x60, the player in the middle white
+#define RADAR_DISC_ALPHA 0xa0
+#define COL_RADAR_SURROUND 0x00000040
+#define COL_RADAR_BLIP 0xffff0000
+#define COL_RADAR_SELF 0xffffff00
+
 // GoldenEye's crosshair image (IMAGE_CROSSHAIR1), 32x32 RGBA32
 #define SIGHT_IMAGE 2236
 #define SIGHT_ALPHA 0x6e
@@ -151,6 +162,10 @@ static struct {
 	// texSelect() turns a config's number into a pointer that lasts the stage
 	struct textureconfig icons[NUM_ICONS];
 	struct textureconfig sight;
+	struct textureconfig radar;
+	// the radar's middle on the view's frame, set by geHudRadarBegin()
+	s32 radarx, radary;
+	f32 radarsx, radarsy;
 } g_Hud = { -1, -1, 0 };
 
 /** The view in GoldenEye's units, and what one of them is worth on the frame buffer. */
@@ -195,6 +210,16 @@ void geHudStageStart(s32 stagenum)
 	g_Hud.sight.depth = G_IM_SIZ_32b;
 	g_Hud.sight.s = G_TX_WRAP;
 	g_Hud.sight.t = G_TX_WRAP;
+
+	memset(&g_Hud.radar, 0, sizeof(g_Hud.radar));
+	g_Hud.radar.texturenum = RADAR_IMAGE;
+	g_Hud.radar.width = 32;
+	g_Hud.radar.height = 32;
+	g_Hud.radar.level = 6;
+	g_Hud.radar.format = G_IM_FMT_RGBA;
+	g_Hud.radar.depth = G_IM_SIZ_16b;
+	g_Hud.radar.s = G_TX_WRAP;
+	g_Hud.radar.t = G_TX_WRAP;
 
 	g_Hud.on = 1;
 }
@@ -521,6 +546,124 @@ Gfx *geHudRenderGauges(Gfx *gdl)
 	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 
 	return gdl;
+}
+
+/**
+ * display_red_blue_on_radar(): the disc, 41 in from the view's right and 26
+ * down, black at 0xa0 through the picture's alpha. Who is on it, and whether
+ * it is up at all, stays Perfect Dark's (radarRender()), which draws every
+ * blip through radarDrawDot() - and that hands them to geHudRadarDot() between
+ * this and geHudRadarEnd().
+ */
+Gfx *geHudRadarBegin(Gfx *gdl)
+{
+	struct hudframe f;
+	const s32 prevsrc = modSetTextureSourceMod(g_Hud.moddir);
+	f32 x1, y1, x2, y2;
+
+	hudFrame(&f);
+
+	g_Hud.radarsx = f.sx;
+	g_Hud.radarsy = f.sy;
+	g_Hud.radarx = f.width - 0x29;
+	g_Hud.radary = 0x1a;
+
+	if (PLAYERCOUNT() >= 3 && !(g_Vars.currentplayernum & 1)) {
+		g_Hud.radarx += 0xf;
+	}
+
+	x1 = viGetViewLeft() + (g_Hud.radarx - 16) * f.sx;
+	// less the picture's first row, which is not the disc's: a few stray
+	// opaque texels three rows clear of it, a row of grey dashes over the
+	// radar at this size that a 240 line screen never resolved
+	y1 = viGetViewTop() + (g_Hud.radary - 15) * f.sy;
+	x2 = viGetViewLeft() + (g_Hud.radarx + 16) * f.sx;
+	y2 = viGetViewTop() + (g_Hud.radary + 16) * f.sy;
+
+	texSelect(&gdl, &g_Hud.radar, 2, 0, 2, 1, NULL);
+	modSetTextureSourceMod(prevsrc);
+
+	gDPPipeSync(gdl++);
+	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+	gDPSetColorDither(gdl++, G_CD_DISABLE);
+	gDPSetTexturePersp(gdl++, G_TP_NONE);
+	gDPSetAlphaCompare(gdl++, G_AC_NONE);
+	gDPSetTextureLOD(gdl++, G_TL_TILE);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, PRIMITIVE, 0, TEXEL0, 0, 0, 0, 0, PRIMITIVE, PRIMITIVE, 0, TEXEL0, 0);
+	gDPSetPrimColor(gdl++, 0, 0, 0x00, 0x00, 0x00, RADAR_DISC_ALPHA);
+	gSPTextureRectangle(gdl++,
+			(s32)(x1 * 4), (s32)(y1 * 4), (s32)(x2 * 4), (s32)(y2 * 4),
+			// GoldenEye draws it one texel a pixel from half a texel in, which
+			// samples the 32 texel centres and nothing past them; stretched
+			// over more pixels than that, the same span is 31 texels from
+			// centre to centre, or the last rows wrap round to the first
+			G_TX_RENDERTILE, 0x10, 0x30,
+			(s32)(31 * 1024.0f / (x2 - x1)), (s32)(30 * 1024.0f / (y2 - y1)));
+
+	return gdl;
+}
+
+/**
+ * A filled box in the view's units, to a quarter of a frame buffer pixel. The
+ * ordinary fill rectangle takes whole pixels of a frame buffer that is far
+ * coarser than the window, which is nothing to a band across the screen and
+ * everything to a blip two units across: they came out four pixels by seven
+ * and nine by seven, whichever way each edge happened to round.
+ */
+static Gfx *hudFillBox(Gfx *gdl, f32 x1, f32 y1, f32 x2, f32 y2, u32 colour)
+{
+	const s32 ulx = (s32)((viGetViewLeft() + x1 * g_Hud.radarsx) * 4.0f);
+	const s32 uly = (s32)((viGetViewTop() + y1 * g_Hud.radarsy) * 4.0f);
+	const s32 lrx = (s32)((viGetViewLeft() + x2 * g_Hud.radarsx) * 4.0f);
+	const s32 lry = (s32)((viGetViewTop() + y2 * g_Hud.radarsy) * 4.0f);
+	Gfx *g0;
+	Gfx *g1;
+
+	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+	gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
+
+	// gDPFillRectangleWideEXT() with the two fraction bits it shifts away
+	g0 = gdl++;
+	g1 = gdl++;
+	g0->words.w0 = _SHIFTL(G_FILLRECT_WIDE_EXT, 24, 8) | _SHIFTL(lrx, 0, 24);
+	g0->words.w1 = _SHIFTL(lry, 0, 24);
+	g1->words.w0 = _SHIFTL(ulx, 0, 24);
+	g1->words.w1 = _SHIFTL(uly, 0, 24);
+
+	return gdl;
+}
+
+/**
+ * A blip `dx`, `dy` from the middle: four units of black at 0x40 with two of
+ * the colour inside it, brighter in range than held at the rim. GoldenEye's
+ * blips are yellow and its own player white; a colour of Perfect Dark's that
+ * means something - a team's, a scenario's - is kept, and its plain radar
+ * colour is what becomes GoldenEye's. There are no height arrows in GoldenEye.
+ */
+Gfx *geHudRadarDot(Gfx *gdl, s32 self, s32 dx, s32 dy, u32 rgb, s32 plain, s32 atrim)
+{
+	const s32 x = g_Hud.radarx + dx;
+	const s32 y = g_Hud.radary + dy;
+	u32 colour = rgb & 0xffffff00;
+
+	if (plain) {
+		colour = self ? COL_RADAR_SELF : COL_RADAR_BLIP;
+	}
+
+	colour |= atrim ? 0x60 : 0xa0;
+
+	gdl = hudFillBox(gdl, x - 2, y - 2, x + 2, y + 2, COL_RADAR_SURROUND);
+	gdl = hudFillBox(gdl, x - 1, y - 1, x + 1, y + 1, colour);
+
+	return gdl;
+}
+
+Gfx *geHudRadarEnd(Gfx *gdl)
+{
+	return hudEnd(gdl);
 }
 
 s32 geHudMessageDuration(s32 top)

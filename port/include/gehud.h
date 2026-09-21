@@ -47,6 +47,17 @@ Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 *row);
 // countdownTimerRender()
 Gfx *geHudRenderCountdown(Gfx *gdl, s32 mins, s32 secs, s32 ms);
 
+/**
+ * display_red_blue_on_radar(): the disc, then each blip Perfect Dark's radar
+ * decides on at `dx`, `dy` from its middle in GoldenEye's units (`plain` for
+ * Perfect Dark's ordinary radar colour, which becomes GoldenEye's yellow and,
+ * for the player, white; `atrim` for one held at the edge), then the state put
+ * back. radar.c calls them; nothing of GoldenEye's is asked who is on it.
+ */
+Gfx *geHudRadarBegin(Gfx *gdl);
+Gfx *geHudRadarDot(Gfx *gdl, s32 self, s32 dx, s32 dy, u32 rgb, s32 plain, s32 atrim);
+Gfx *geHudRadarEnd(Gfx *gdl);
+
 // How long GoldenEye shows a message of that kind, in sixtieths
 s32 geHudMessageDuration(s32 top);
 

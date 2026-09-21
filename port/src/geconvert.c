@@ -109,6 +109,8 @@ static const struct { uint32_t first, count; } g_MenuImages[] = {
 	// and the HUD's ammunition pictures (gehud.c): IMAGE_ROCKETAMMO..SHOTAMMO,
 	// IMAGE_9MMAMMO..PROXAMMO either side of the crosshair, TIMEAMMO, TANKAMMO
 	{ 2161, 7 }, { 2231, 5 }, { 2238, 1 }, { 2464, 1 },
+	// and its radar's disc (mpradarimages)
+	{ 200, 1 },
 };
 
 static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
