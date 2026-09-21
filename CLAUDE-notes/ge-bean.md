@@ -3417,7 +3417,26 @@ function that *is* called - the glass hit has one caller, 0x7f04ebd0.) What a
 player remembers as bullets whistling past is `ricochet_sounds_large`, which
 is in. It was not restored: nothing says when Rare meant it to play.
 
-Not done: `SoundTriggerRate` (an automatic's sound every nth shot); the tank.
+**`SoundTriggerRate`** (the same day). Not "every nth shot": where a gun's
+row has one, a held trigger starts the shot sound again no sooner than that
+many sixtieths after the last, cutting the last off - the Klobb 11, the KF7,
+ZMG, D5Ks and Phantom 4, the AR33 5, the RCP-90 2 (the US ROM's `BUGFIX_R0`
+set; Europe's are a tick shorter) - and with 0 every shot sounds. Perfect
+Dark kept that code whole: `bgun0f09a6f8()` and `chrUpdateFireslot()` are
+GoldenEye's `gunTickHandState()` and `sub_GAME_7F02BFE4()` line for line, and
+the number they read is `gsetGetFireslotDuration()`, which nothing else
+reads. So `gegunsShootSoundRate()` is handed out there as the shot sound is,
+on a converted level only (`build/gexrom/rate.py` prints all eighteen).
+
+**The tank has no sounds to give because there is no tank.** Every tank sound
+GoldenEye has is in the code that *drives* it (bondview2.c: `TRUCK_START`,
+then `TRUCK_RUN` and the `TANK` tread loop by how hard the engine works, and
+`TANK_CRUSH_MAN`/`CRUSHED_YELL` when it runs a guard down); a tank nobody is
+in is silent. And Perfect Dark does not build one - `OBJTYPE_TANK` is counted
+by `setupCreateProps()` and has no case - so Runway and Streets have no tank
+standing in them at all. The tank is its own project (the prop, getting in
+and out, the hull and turret, the shells, running guards down: 460-odd lines
+of bondview2.c name it), and its sounds belong to it.
 
 Probes in `build/gexrom`: `remap.py` (starts representative Perfect Dark
 sounds and logs what the player loads, chains included, with the recording

@@ -628,6 +628,14 @@ f32 gsetGetDamage(struct gset *gset)
 
 u8 gsetGetFireslotDuration(struct gset *gset)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's SoundTriggerRate for one of its guns on a converted level,
+	// which is what this number is a descendant of (geguns.c)
+	if (gegunsShootSoundRate(gset->weaponnum) >= 0 && geSfxStage()) {
+		return gegunsShootSoundRate(gset->weaponnum);
+	}
+#endif
+
 #if VERSION >= VERSION_PAL_FINAL
 	struct weaponfunc *func = gsetGetWeaponFunction(gset);
 	u8 result = 0;

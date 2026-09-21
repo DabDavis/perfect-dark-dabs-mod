@@ -134,6 +134,36 @@ static const u8 shootsounds[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 12,  // GUN_TANK2BIGBIG_1
 };
 
+/**
+ * And how often: the same rows' SoundTriggerRate (the US ROM's, its BUGFIX_R0
+ * set; Europe's are a tick shorter). Where it is not 0, a held trigger starts
+ * the sound again no sooner than this many sixtieths after the last, however
+ * fast the gun fires, cutting the last one off as it does - so the Klobb's
+ * rattle is one sound every eleven ticks and not one a bullet. With 0 every
+ * shot sounds. Perfect Dark kept the code whole (bgun0f09a6f8() and
+ * chrUpdateFireslot() are gunTickHandState() and sub_GAME_7F02BFE4() line for
+ * line) under the name of a fire slot's duration, so this is that number.
+ */
+static const u8 shootsoundrates[NUM_GE_WEAPONS] = {
+	[WEAPON_GE_KLOBB - WEAPON_GE_FIRST]       = 11,
+	[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST]   = 4,
+	[WEAPON_GE_ZMG - WEAPON_GE_FIRST]         = 4,
+	[WEAPON_GE_D5K - WEAPON_GE_FIRST]         = 4,
+	[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST] = 4,
+	[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST]     = 4,
+	[WEAPON_GE_AR33 - WEAPON_GE_FIRST]        = 5,
+	[WEAPON_GE_RCP90 - WEAPON_GE_FIRST]       = 2,
+};
+
+s32 gegunsShootSoundRate(s32 weaponnum)
+{
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_WEAPONS) {
+		return -1;
+	}
+
+	return shootsoundrates[weaponnum - WEAPON_GE_FIRST];
+}
+
 s32 gegunsShootSound(s32 weaponnum)
 {
 	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_WEAPONS) {

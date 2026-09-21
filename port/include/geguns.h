@@ -27,6 +27,11 @@ s32 gegunsIsBorrowed(s32 index);
 // GoldenEye's own SFX_ID for one of its guns' shots, to be played on a
 // converted level (gesfx.c); 0 for any other weapon or a silent one.
 s32 gegunsShootSound(s32 weaponnum);
+
+// GoldenEye's SoundTriggerRate for one of its guns: the sixtieths between one
+// start of its shot sound and the next while the trigger is held, 0 for a
+// sound with every shot. -1 for any other weapon.
+s32 gegunsShootSoundRate(s32 weaponnum);
 s32 gegunsBorrowedPickup(s32 index, u16 *fileid, u16 *scale);
 // WEAPONFLAG_HASHANDS as the gun's own definition has it
 u32 gegunsHandsFlag(s32 index);
