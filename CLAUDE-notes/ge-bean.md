@@ -3393,9 +3393,31 @@ What the rule does not reach, each done where it is:
 - **Footsteps: GoldenEye has none**, Bond's or a guard's - nothing in its bank
   and nothing in its code - so `footstepChooseSound()` answers -1 there.
 
-Not done: GoldenEye's near-miss whistle (164-168, `sub_GAME_7F064934()`) has no
-descendant in Perfect Dark to hook; `SoundTriggerRate` (an automatic's sound
-every nth shot); Bond's own hit grunt (68); the tank.
+**Bond's hit grunt** (the same day: "now do the near-miss whistle and bond's
+hit grunt"). GoldenEye's `record_damage_kills()` plays `BOND_GET_HIT1` (68)
+once for every damage it accepts - armour or body, the killing one included -
+as the player's own sound, and it accepts none while the red flash of the last
+is up, which is what spaces them. Perfect Dark's descendant is the player
+branch of `chrDamage()`, where the player *yelps as a guard does*
+(`chrChoke()`), so on a converted level that is left out and the grunt goes
+where the flash is raised, behind the same `damageshowtime < 0`; a hit the
+armour takes raises no flash here, so those are spaced thirty ticks by hand
+(`build/gexrom/grunt.py`).
+
+**The near-miss whistle is dead code, and GoldenEye never plays it.**
+`sub_GAME_7F064934()` and its `ear_whistle_sounds` (164-168) are in the
+decompilation with no caller named, and the US ROM has none either: no `jal`
+or `j` to 0x7f064934 anywhere in the game segment, no pointer to it in the
+ROM, and the only instruction that forms the table's address (0x80035e84) is
+the function's own - the two near it read the watch laser's and the knife's
+tables, its neighbours. The `BUGFIX_R1` test inside it proves nothing: every
+sound function in gunfire.c was given the same one. (The search: un-byteswap
+the `.n64`, game segment at ROM 0x34b30 for 0xe2d50, and check the method on a
+function that *is* called - the glass hit has one caller, 0x7f04ebd0.) What a
+player remembers as bullets whistling past is `ricochet_sounds_large`, which
+is in. It was not restored: nothing says when Rare meant it to play.
+
+Not done: `SoundTriggerRate` (an automatic's sound every nth shot); the tank.
 
 Probes in `build/gexrom`: `remap.py` (starts representative Perfect Dark
 sounds and logs what the player loads, chains included, with the recording

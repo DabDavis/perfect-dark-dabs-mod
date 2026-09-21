@@ -5319,9 +5319,17 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 						chr->blurnumtimesdied++;
 					}
 
+#ifndef PLATFORM_N64
+					// Bond does not yelp as a guard does: GoldenEye's player has
+					// one grunt, played below
+					if (!lvIsPaused() && canchoke && !geSfxStage()) {
+						chrChoke(chr, choketype);
+					}
+#else
 					if (!lvIsPaused() && canchoke) {
 						chrChoke(chr, choketype);
 					}
+#endif
 
 					if (g_Vars.currentplayer->haschrbody) {
 						chrFlinchBody(chr);
@@ -5352,6 +5360,26 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 
 				g_Vars.currentplayer->bondshotspeed.x += vector->x * boostscale;
 				g_Vars.currentplayer->bondshotspeed.z += vector->z * boostscale;
+
+#ifndef PLATFORM_N64
+				// GoldenEye's BOND_GET_HIT1_SFX (bondview2.c, record_damage_kills()):
+				// once for every damage it accepts, to the armour or to the
+				// body, the killing one included, as the player's own sound
+				// and not from where he stands. It accepts none while the
+				// red flash of the last is still up, which is what spaces
+				// them; armour here raises no flash, so that is spaced by
+				// hand.
+				if ((showdamage || showshield) && !lvIsPaused() && geSfxStage()) {
+					static s32 lastgrunt60;
+
+					if (showdamage
+							? g_Vars.currentplayer->damageshowtime < 0
+							: g_Vars.lvframe60 - lastgrunt60 >= TICKS(30) || g_Vars.lvframe60 < lastgrunt60) {
+						lastgrunt60 = g_Vars.lvframe60;
+						geSfxPlay(68, GESFX_VOLUME);
+					}
+				}
+#endif
 
 				if (showdamage) {
 					playerDisplayDamage();
