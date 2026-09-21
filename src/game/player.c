@@ -2414,6 +2414,17 @@ void playerExecutePreparedWarp(void)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// On a level converted from GoldenEye the shot is drawn from the room
+	// GoldenEye draws it from, which is the camera's tile's (geroom.h) - the
+	// portal walk from the pad's room put Dam's last shot, from out over the
+	// valley, in a room that does not see the dam
+	if (g_WarpType1Pad < 0 && g_WarpType2Params && geRoomActive() && modloaderStageIsMission(g_Vars.stagenum)) {
+		playerSetCamPropertiesWithRoom(&pos, &up, &look, geRoomCutsceneCamera(&pos, &memcampos, room));
+		return;
+	}
+#endif
+
 	player0f0c1ba4(&pos, &up, &look, &memcampos, room);
 }
 

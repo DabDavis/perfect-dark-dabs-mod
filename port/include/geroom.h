@@ -47,6 +47,14 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 s32 geRoomCamera(struct coord *eye, f32 ground, s32 room);
 
 /**
+ * The room a cutscene's camera draws from: GoldenEye walks its tiles from the
+ * camera's pad to the camera in plan and takes the room of the tile it ends on,
+ * then carries that up to the camera (geRoomCamera()). `padroom` where the
+ * level has no tile graph or the pad is over no tile.
+ */
+s32 geRoomCutsceneCamera(struct coord *campos, struct coord *padpos, s32 padroom);
+
+/**
  * GoldenEye's portal thickness, in world units; 0 for a portal without one.
  *
  * A GoldenEye portal record carries a byte Perfect Dark's does not

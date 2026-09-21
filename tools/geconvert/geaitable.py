@@ -49,8 +49,9 @@ CHR_SELF = 0x00fd
 # list only looks and listens while the guard is stopped - dropped, an idling
 # guard was blind and deaf. 0x20 is a translation scale of 4 that Perfect Dark
 # has no flag for (GoldenEye calls modelSetAnimTranslationScale() outside the
-# flags), and is all that goes.
-ANIM_FLAGS = 0xdf
+# flags) and the port gives one, CHRANIMFLAG_GE_TRANSLATE4X: Dam's dive and the
+# Cradle's fall are authored a quarter size. Nothing goes.
+ANIM_FLAGS = 0xff
 
 # GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 # six of its commands), and neither of Perfect Dark's two banks has eight bits

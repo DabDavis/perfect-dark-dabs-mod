@@ -59,6 +59,13 @@ f32 geStanRise(bool checkvertical);
 /** The `limit` for a body's cylinder: its foot where the test has one, else well under its middle. */
 f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin);
 
+/**
+ * GoldenEye's walk from tile to tile along a line in plan (stan.c's
+ * walkTilesBetweenPoints()): from the tile under `from` towards `to`, through
+ * linked edges only. Gives the room of the tile it ends on and that tile's
+ * surface at `to`; false where the level has no graph or `from` is over no tile.
+ */
+bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
 /** Counters for a probe: walls asked about, walls left out, bodies found over no tile. */
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;

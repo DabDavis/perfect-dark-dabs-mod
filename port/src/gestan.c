@@ -639,4 +639,92 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 rise, 
 	return true;
 }
 
+/** stan.c's getRotationalDirectionBetween(): which way b lies from a, in plan. */
+static s32 stanTurn(f32 ax, f32 az, f32 bx, f32 bz)
+{
+	if (az * bx < ax * bz) {
+		return 1;
+	}
+
+	if (ax * bz < az * bx) {
+		return -1;
+	}
+
+	if (ax * bx < 0 || az * bz < 0) {
+		return -1;
+	}
+
+	return ax * ax + az * az < bx * bx + bz * bz ? 1 : 0;
+}
+
+/** stan.c's sub_GAME_7F0B07BC(): whether the line from 0 to 1 crosses the edge from a to b. */
+static bool stanCrosses(f32 x0, f32 z0, f32 x1, f32 z1, f32 ax, f32 az, f32 bx, f32 bz, s32 linked)
+{
+	const s32 v1 = stanTurn(x1 - x0, z1 - z0, ax - x0, az - z0) * stanTurn(x1 - x0, z1 - z0, bx - x0, bz - z0);
+	const s32 v2 = stanTurn(bx - ax, bz - az, x0 - ax, z0 - az) * stanTurn(bx - ax, bz - az, x1 - ax, z1 - az);
+
+	return v1 < linked && v2 < linked;
+}
+
+bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
+{
+	s32 tile, prev, prevprev, next = -1;
+	const f32 negdz = -(to->z - from->z);
+	const f32 dx = to->x - from->x;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return false;
+	}
+
+	// GoldenEye starts from the pad's own tile, which the conversion does not
+	// carry: the one under the pad, a pad standing on its floor or a little over
+	tile = stanTileUnder(from->x, from->z, from->y + 5.0f, GESTAN_RISE);
+
+	if (tile < 0) {
+		return false;
+	}
+
+	prev = prevprev = tile;
+
+	// sub_GAME_7F0B0914(): through every linked edge the line leaves a tile by,
+	// to the tile that holds its end or to the last one before an edge with
+	// nothing across it - a camera out over a drop stays on the brink's tile
+	for (s32 i = 0; i < 0x1f5; i++) {
+		const struct stantile *t = &g_Stan.tiles[tile];
+		const struct stanpoint *p = &g_Stan.points[t->first];
+		s32 crossings = 0;
+
+		for (s32 k = 0; k < t->npts; k++) {
+			const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
+
+			if (negdz * (b->x - a->x) + dx * (b->z - a->z) <= 0.0f
+					&& stanCrosses(from->x, from->z, to->x, to->z, a->x, a->z, b->x, b->z, a->across >= 0)) {
+				crossings++;
+
+				if (a->across < 0 || (a->across != prev && a->across != prevprev)) {
+					next = a->across >= 0 ? a->across : -1;
+				}
+			}
+		}
+
+		prevprev = prev;
+		prev = tile;
+
+		if (crossings == 0 || next == tile || next < 0) {
+			break;
+		}
+
+		tile = next;
+	}
+
+	*room = g_Stan.tiles[tile].room;
+	*ground = stanSurface(&g_Stan.tiles[tile], to->x, to->z);
+
+	return true;
+}
+
 #endif

@@ -5,6 +5,7 @@
 #include "data.h"
 #include "modloader.h"
 #include "geroom.h"
+#include "gestan.h"
 #include "game/bg.h"
 #include "game/prop.h"
 #include "lib/collision.h"
@@ -148,6 +149,22 @@ s32 geRoomCamera(struct coord *eye, f32 ground, s32 room)
 	}
 
 	return room;
+}
+
+s32 geRoomCutsceneCamera(struct coord *campos, struct coord *padpos, s32 padroom)
+{
+	s32 room;
+	f32 ground;
+
+	// bondviewSetCurrentPlayerPosition(): the camera's tile is walked to from
+	// its pad's, and the room is that tile's carried up the plumb line to the
+	// camera like any other eye's. Dam's ending looks back at the dam from out
+	// over the valley: the walk stops on the brink, which is the dam's face
+	if (!geStanWalk(padpos, campos, &room, &ground) || room <= 0 || room >= g_Vars.roomcount) {
+		return padroom;
+	}
+
+	return geRoomCamera(campos, ground, room);
 }
 
 f32 geRoomPortalThickness(s32 portalnum)

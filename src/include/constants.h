@@ -635,6 +635,7 @@
 #define CHRANIMFLAG_PAUSEATEND    0x04
 #define CHRANIMFLAG_COMPLETED     0x08
 #define CHRANIMFLAG_SLOWUPDATE    0x10
+#define CHRANIMFLAG_GE_TRANSLATE4X 0x20 // port: GoldenEye's, on a converted level's lists only
 #define CHRANIMFLAG_LOCKPOS       0x40
 #define CHRANIMFLAG_REVERSE       0x80
 

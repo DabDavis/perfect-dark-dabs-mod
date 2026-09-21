@@ -41,8 +41,11 @@
 // listens when the guard is stopped: with the bit dropped a guard scratching
 // himself saw nothing, heard nothing and did not notice being shot at, for six
 // seconds at a time and one animation after another. 0x20 is a translation
-// scale of four that Perfect Dark has no flag for, and is all that goes.
-#define GEAI_ANIM_FLAGS 0x00df
+// scale of four that Perfect Dark has no flag for, and the port gives it one
+// (CHRANIMFLAG_GE_TRANSLATE4X, chrStartAnim()): Dam's dive and the Cradle's fall
+// are authored a quarter size, and with the bit dropped Bond stood to his knees
+// in Dam's platform and fell a quarter of the way down it. Nothing goes.
+#define GEAI_ANIM_FLAGS 0x00ff
 
 // set on a converted animation id (gesolo.py's GE_ANIM_TAG)
 #define GEAI_ANIM_TAG 0x8000

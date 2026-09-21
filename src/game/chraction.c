@@ -68,6 +68,7 @@
 #ifndef PLATFORM_N64
 #include "gesfx.h"
 #include "getank.h"
+#include "geroom.h"
 #endif
 #endif
 
@@ -2748,6 +2749,18 @@ void chrStartAnim(struct chrdata *chr, s32 animnum, f32 startframe, f32 endframe
 
 			chr->hidden &= ~CHRHFLAG_NEEDANIM;
 		}
+
+#ifndef PLATFORM_N64
+		// GoldenEye's PlayAnimation has a bit Perfect Dark let go of: the
+		// animation's translation is four times itself from here on
+		// (chrlvPerformAnimationForActor()). Dam's dive and the Cradle's fall
+		// are authored a quarter size - Bond's hips 27 over the platform, a
+		// run of 190 and a fall of 2700 - and only the first PlayAnimation of
+		// the ending carries it, the model keeping the scale as GoldenEye's does.
+		if ((chranimflags & CHRANIMFLAG_GE_TRANSLATE4X) && geRoomActive() && chr->model->anim) {
+			modelSetAnimScale(chr->model, chr->model->anim->animscale * 4.0f);
+		}
+#endif
 	}
 }
 

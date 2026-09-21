@@ -7068,3 +7068,49 @@ centred, green. **Not found:** the mouse. The folder's cursor is the pointer's
 own position mapped into the folder's frame, the watch takes no mouse motion,
 and Perfect Dark's menus are the upstream port's. Needs the tester to say
 which menu and what it does.
+
+## Dam's outro: Bond to his knees in the platform, and the dam gone from the last shot (2026-09-21, converter 56)
+
+The user's F3 reports 20260921-031503 and -055535: *"Same glitch with dam's
+outro. bond is below the platform. and as you watch, dam is the void, and bond
+is doubling."* Two faults, neither of them Dam's alone, both settled by running
+the same ending in the oracle (`~/dam-oracle/geoutro.py`: the background chr that
+owns list 0x1004 put at GoldenEye's own offset 61, its `HideAllChrs`, with
+`dam2.padscript` - `dam.padscript` less its last presses, which skip the cinema).
+
+**PlayAnimation's 0x20 is a translation scale of four, and an ending is authored
+for it.** The conversion dropped the bit on purpose ("Perfect Dark has no flag
+for it"). `dam_jump`'s root stands at y 274 where `idle`'s is 1083, its run is
+190 long and its fall 2700: a quarter of the shot. GoldenEye's
+`chrlvPerformAnimationForActor()` multiplies the model's
+`anim_translation_scale` by four when the bit is set - the oracle's Bond reads
+4.1612 (his 1.0403 x 4) from the first frame of the ending to the last - and
+only the *first* PlayAnimation of Bond's list carries it (0x24), the model
+keeping the scale as nothing ever resets it. So: `CHRANIMFLAG_GE_TRANSLATE4X`
+(0x20, a bit Perfect Dark's chranimflags do not use) in `chrStartAnim()`, on a
+converted level only, and `GEAI_ANIM_FLAGS`/`ANIM_FLAGS` keep all eight bits.
+Dam's is the only mission list that carries it. Measured after: animscale
+4.1612, a run of 760 and a fall past 6900, the oracle's own numbers.
+
+**A cutscene camera's room is its tile's, walked to from its pad's.** Perfect
+Dark walks *portals* from the pad's room to the camera and then asks which room's
+box holds it; Dam's face is four rooms (62-65) with one box, and the last shot -
+from out over the valley, looking back up - landed in 62, which sees a walkway,
+the sky and nothing of the dam. GoldenEye (`bondviewSetCurrentPlayerPosition()`)
+walks its **tiles** from the pad's tile to the camera in plan, stopping at the
+last tile before an edge with nothing across it, takes that tile's room
+(`cameratile->room`), and carries it up the plumb line to the camera exactly as
+it does for an eye (`bgRoomVisibilityRelated()`, already `geRoomCamera()`).
+`geStanWalk()` is `sub_GAME_7F0B0914()` on the conversion's graph,
+`geRoomCutsceneCamera()` the two together, asked from
+`playerExecutePreparedWarp()` for an `ai00df` camera on a converted mission. The
+oracle's `g_BgCurrentRoom` for the three shots is 63, 63, 64; ours was 54, 54,
+62 and is 63, 63, 64, with the same rooms on screen.
+
+**"Bond is doubling" was not reproduced** - one Bond in every frame of both the
+full ending (`damout.py`: `damfull.py` with a shot at every step of the outro)
+and the kicked one (`outroprobe.py`, `voidprobe.py`). GoldenEye plays the dive
+twice, from the second and third cameras; ask before hunting further.
+
+**Still different from the oracle:** the mountains behind Bond in the first two
+shots (ours is sky there).
