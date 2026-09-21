@@ -17,9 +17,11 @@
  *    the strafe axis turns the hull, and looking is the turret, which turns
  *    the view with it as the hull turns;
  *  - the step (geTankDrive()): the hull's heading times its speed, in place of
- *    the walk's, through the walk's own collision at the hull's half width
- *    (geTankRadius()) - GoldenEye tests the hull's rectangle and slides it
- *    along what it hits, and a circle is what Perfect Dark's walk can do;
+ *    the walk's, once the hull's own rectangle has been tried there
+ *    (tankRectBlocked()) - turned, then stepped, then slid along what stopped
+ *    it, as GoldenEye does it, and an object in its way driven over
+ *    (tankDriveOver()) - and then through the walk's own collision, a circle
+ *    of the hull's half width about Bond (geTankRadius());
  *  - the eye (geTankEyeHeight()): at the seat, which is all of GoldenEye's
  *    tank view (tankSeat()) - with the port's own third person switched on,
  *    its camera is pulled back far enough to see a tank (geTankCamera());
@@ -89,6 +91,14 @@
 // a standing eye is 159 over the feet; half a crouch takes about a third off
 // and GoldenEye another 37
 #define TANK_EYE_OVER_SEAT 70.0f
+
+// the hull's sides are tested this far over the ground: over a kerb, under a
+// doorway's head
+#define TANK_RECT_HEIGHT 60.0f
+
+// what stops it: a wall, and an object's own collision, which is not flagged
+// as a wall but as something that blocks sight and shots
+#define TANK_RECT_GEOFLAGS (GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT | GEOFLAG_BLOCK_SHOOT)
 
 #define TANK_PART_TURRET 1
 #define TANK_PART_SEAT   2
@@ -594,6 +604,217 @@ s32 geTankActivate(void)
 /* Driving                                                                   */
 /* ------------------------------------------------------------------------ */
 
+/**
+ * Whether the hull's rectangle, moved by `step` and turned to `yaw`, is in
+ * anything: GoldenEye's bondviewTankCollisionStatus(), which draws the four
+ * sides of the hull and a line out to each corner through its collision and
+ * asks whether any of them is cut - by the level, an object, a door or
+ * something blocking a path, and never by a guard, who is run down instead.
+ * The side that was cut is handed back for the slide, and the object that did
+ * it is remembered for tankDriveOver().
+ */
+static struct prop *g_TankObstacle;
+
+static s32 tankRectBlocked(struct tankobj *tank, struct coord *step, f32 yaw, struct coord *edgea, struct coord *edgeb)
+{
+	const s32 types = CDTYPE_BG | CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_OBJSIMMUNETOEXPLOSIONS;
+	struct prop *playerprop = g_Vars.currentplayer->prop;
+	struct coord seat;
+	struct coord centre;
+	struct coord corners[4];
+	RoomNum centrerooms[8];
+	RoomNum cornerrooms[4][8];
+	f32 halfwidth, halflength, height, bottom;
+	const f32 s = sinf(yaw);
+	const f32 c = cosf(yaw);
+	const f32 savedyaw = tank->hullyaw;
+
+	s32 result = 0;
+
+	g_TankObstacle = NULL;
+
+	tankSize(tank, &halfwidth, &halflength, &height, &bottom);
+
+	// not by itself, whatever state its own collision was left in
+	propSetPerimEnabled(tank->base.prop, false);
+
+	// where the tank's middle would be: Bond, less where he sits in it at
+	// that heading
+	tank->hullyaw = yaw;
+	tankSeat(tank, &seat);
+	tank->hullyaw = savedyaw;
+
+	centre.x = playerprop->pos.x - seat.x + (step ? step->x : 0.0f);
+	centre.y = g_Vars.currentplayer->vv_manground + TANK_RECT_HEIGHT;
+	centre.z = playerprop->pos.z - seat.z + (step ? step->z : 0.0f);
+
+	func0f065e74(&playerprop->pos, playerprop->rooms, &centre, centrerooms);
+
+	for (s32 i = 0; i < 4; i++) {
+		const f32 across = (i == 0 || i == 3) ? -halfwidth : halfwidth;
+		const f32 along = i < 2 ? halflength : -halflength;
+
+		corners[i].x = centre.x + across * c + along * s;
+		corners[i].y = centre.y;
+		corners[i].z = centre.z - across * s + along * c;
+
+		// out to the corner, which is also how its rooms are found
+		if (cdExamLos08(&centre, centrerooms, &corners[i], types, TANK_RECT_GEOFLAGS) == CDRESULT_COLLISION) {
+			goto blocked;
+		}
+
+		func0f065e74(&centre, centrerooms, &corners[i], cornerrooms[i]);
+	}
+
+	for (s32 i = 0; i < 4; i++) {
+		if (cdExamLos08(&corners[i], cornerrooms[i], &corners[(i + 1) % 4], types, TANK_RECT_GEOFLAGS) == CDRESULT_COLLISION) {
+			goto blocked;
+		}
+	}
+
+	goto done;
+
+blocked:
+	result = 1;
+	g_TankObstacle = cdGetObstacleProp();
+
+	if (edgea && edgeb) {
+		cdGetEdge(edgea, edgeb, 0, "getank.c");
+	}
+
+done:
+	return result;
+}
+
+/**
+ * What the hull has just met, if it is an object: GoldenEye's tank destroys
+ * whatever of the level's furniture it touches (maybe_detonate_object_and_
+ * its_children() at 10000), and is held to half its speed for ninety ticks
+ * for it - the only harm a tank ever comes to. What cannot be destroyed is
+ * a wall to it, and a door is left to be a door.
+ */
+static void tankDriveOver(struct tankobj *tank)
+{
+	const s32 p = g_Vars.currentplayernum;
+	struct prop *prop = g_TankObstacle;
+
+	g_TankObstacle = NULL;
+
+	if (!prop || prop->type != PROPTYPE_OBJ || !prop->obj || prop == tank->base.prop
+			|| prop->obj->type == OBJTYPE_TANK
+			|| (prop->obj->flags & OBJFLAG_INVINCIBLE)
+			|| !objIsHealthy(prop->obj)) {
+		return;
+	}
+
+	objDamage(prop->obj, 10000.0f, &prop->pos, WEAPON_NONE, g_Vars.currentplayernum);
+	g_Tank[p].penalty = TANK_PENALTY_TICKS;
+}
+
+/** Whether two rectangles in the plan overlap: the four sides of each as separating axes. */
+static s32 tankRectsOverlap(const f32 a[4][2], const f32 b[4][2])
+{
+	for (s32 pass = 0; pass < 2; pass++) {
+		const f32 (*r)[2] = pass == 0 ? a : b;
+
+		for (s32 i = 0; i < 4; i++) {
+			const f32 nx = r[(i + 1) % 4][1] - r[i][1];
+			const f32 nz = -(r[(i + 1) % 4][0] - r[i][0]);
+			f32 amin = 0, amax = 0, bmin = 0, bmax = 0;
+
+			for (s32 k = 0; k < 4; k++) {
+				const f32 pa = a[k][0] * nx + a[k][1] * nz;
+				const f32 pb = b[k][0] * nx + b[k][1] * nz;
+
+				if (k == 0 || pa < amin) amin = pa;
+				if (k == 0 || pa > amax) amax = pa;
+				if (k == 0 || pb < bmin) bmin = pb;
+				if (k == 0 || pb > bmax) bmax = pb;
+			}
+
+			if (amax < bmin || bmax < amin) {
+				return 0;
+			}
+		}
+	}
+
+	return 1;
+}
+
+/**
+ * Everything of the level's furniture the hull is over, driven over:
+ * bondview2.c's walk through the props of the tank's rooms, each one's bounds
+ * in the plan (chraiGetCollisionBoundsWithoutY()) against the hull's rectangle
+ * (chrobjTestPolygonsTouchingOrOverlap2D()). It is not the collision that
+ * finds them - a parked truck's is not cut by the lines tankRectBlocked()
+ * draws - and what is destroyed does not stop the tank; what cannot be is
+ * left for the collision to be a wall.
+ */
+static void tankDriveOverProps(struct tankobj *tank)
+{
+	const s32 p = g_Vars.currentplayernum;
+	struct prop *tankprop = tank->base.prop;
+	f32 halfwidth, halflength, height, bottom;
+	f32 hull[4][2];
+	const f32 s = sinf(tank->hullyaw);
+	const f32 c = cosf(tank->hullyaw);
+
+	tankSize(tank, &halfwidth, &halflength, &height, &bottom);
+
+	for (s32 i = 0; i < 4; i++) {
+		const f32 across = (i == 0 || i == 3) ? -halfwidth : halfwidth;
+		const f32 along = i < 2 ? halflength : -halflength;
+
+		hull[i][0] = tankprop->pos.x + across * c + along * s;
+		hull[i][1] = tankprop->pos.z - across * s + along * c;
+	}
+
+	for (s32 n = 0; n < g_Vars.maxprops; n++) {
+		struct prop *prop = &g_Vars.props[n];
+		struct defaultobj *obj;
+		struct modelrodata_bbox *bbox;
+		f32 box[4][2];
+		f32 reach;
+		f32 dx;
+		f32 dz;
+
+		if (prop == tankprop || prop->type != PROPTYPE_OBJ || !prop->obj) {
+			continue;
+		}
+
+		obj = prop->obj;
+
+		if (!obj->model || obj->type == OBJTYPE_TANK || (obj->flags & OBJFLAG_INVINCIBLE)
+				|| (obj->hidden & (OBJHFLAG_PROJECTILE | OBJHFLAG_MOUNTED | OBJHFLAG_GRABBED))
+				|| prop->parent || !objIsHealthy(obj)
+				|| fabsf(prop->pos.y - tankprop->pos.y) > height + 100.0f) {
+			continue;
+		}
+
+		dx = prop->pos.x - tankprop->pos.x;
+		dz = prop->pos.z - tankprop->pos.z;
+		reach = halflength + halfwidth + 1500.0f;
+
+		if (dx * dx + dz * dz > reach * reach || !(bbox = objFindBboxRodata(obj))) {
+			continue;
+		}
+
+		// its box in the plan, by its own matrix, which carries its scale
+		for (s32 i = 0; i < 4; i++) {
+			const f32 x = (i == 0 || i == 3) ? bbox->xmin : bbox->xmax;
+			const f32 z = i < 2 ? bbox->zmax : bbox->zmin;
+
+			box[i][0] = prop->pos.x + x * obj->realrot[0][0] + z * obj->realrot[2][0];
+			box[i][1] = prop->pos.z + x * obj->realrot[0][2] + z * obj->realrot[2][2];
+		}
+
+		if (tankRectsOverlap(hull, box)) {
+			objDamage(obj, 10000.0f, &prop->pos, WEAPON_NONE, g_Vars.currentplayernum);
+			g_Tank[p].penalty = TANK_PENALTY_TICKS;
+		}
+	}
+}
+
 s32 geTankApplyMoveData(struct movedata *data)
 {
 	const s32 p = g_Vars.currentplayernum;
@@ -717,6 +938,11 @@ void geTankDrive(struct coord *delta)
 	// the hull: the input at 0.3 through a one pole filter, whose steady
 	// state is the input over (1 - 0.92), so times that to come back to it
 	{
+		const f32 oldyaw = tank->hullyaw;
+		const s32 wasblocked = tankRectBlocked(tank, NULL, oldyaw, NULL, NULL);
+		struct coord step;
+		struct coord edgea;
+		struct coord edgeb;
 		f32 turnedby;
 
 		for (s32 i = 0; i < g_Vars.lvupdate60; i++) {
@@ -726,8 +952,19 @@ void geTankDrive(struct coord *delta)
 		g_Tank[p].speedtheta = g_Tank[p].turnsum * (1.0f - TANK_TURN_FILTER);
 		turnedby = g_Tank[p].speedtheta * frames * TANK_TURN_SCALE * M_BADTAU / 360.0f;
 
-		// backing up steers the other way, as anything on tracks does
-		tank->hullyaw = tankWrap(tank->hullyaw + turnedby);
+		// bondview2.c: the turn is tried where it stands, and is not taken
+		// if the hull's corners would swing into something. One that is
+		// already in something - parked against a fence, or let in beside a
+		// wall - is let out of it rather than held
+		if (turnedby != 0.0f && !wasblocked
+				&& tankRectBlocked(tank, NULL, tankWrap(oldyaw + turnedby), NULL, NULL)) {
+			tankDriveOver(tank);
+			turnedby = 0.0f;
+			g_Tank[p].turnsum = 0.0f;
+			g_Tank[p].speedtheta = 0.0f;
+		}
+
+		tank->hullyaw = tankWrap(oldyaw + turnedby);
 		tank->turnspeed = turnedby;
 
 		// and the turret is carried round with it, so the view is
@@ -740,11 +977,43 @@ void geTankDrive(struct coord *delta)
 		while (g_Vars.currentplayer->vv_theta >= 360.0f) {
 			g_Vars.currentplayer->vv_theta -= 360.0f;
 		}
-	}
 
-	delta->x = sinf(tank->hullyaw) * tank->speed * frames;
-	delta->y = 0;
-	delta->z = cosf(tank->hullyaw) * tank->speed * frames;
+		// then the step, with the hull's whole length: the walk's own
+		// collision after this is a circle of its half width about Bond,
+		// which is inside the rectangle and only ever stops it at a guard
+		step.x = sinf(tank->hullyaw) * tank->speed * frames;
+		step.y = 0;
+		step.z = cosf(tank->hullyaw) * tank->speed * frames;
+
+		if (!wasblocked && (step.x != 0.0f || step.z != 0.0f)
+				&& tankRectBlocked(tank, &step, tank->hullyaw, &edgea, &edgeb)) {
+			struct coord slide = {0, 0, 0};
+			f32 ex = edgeb.x - edgea.x;
+			f32 ez = edgeb.z - edgea.z;
+			const f32 len = sqrtf(ex * ex + ez * ez);
+
+			tankDriveOver(tank);
+
+			// along what stopped it, as GoldenEye slides the hull and as a
+			// bike is slid here (bbike0f0d3840())
+			if (len > 0.0f) {
+				const f32 along = (step.x * ex + step.z * ez) / (len * len);
+
+				slide.x = ex * along;
+				slide.z = ez * along;
+			}
+
+			if ((slide.x != 0.0f || slide.z != 0.0f) && !tankRectBlocked(tank, &slide, tank->hullyaw, NULL, NULL)) {
+				step = slide;
+			} else {
+				step.x = 0;
+				step.z = 0;
+				tank->speed = 0;
+			}
+		}
+
+		*delta = step;
+	}
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1028,10 +1297,15 @@ void geTankTick(void)
 		// turret stood in the next room and was cut off at that room's edge
 		// of the screen
 		func0f069c70(&tank->base, true, true);
+
+		// which builds its collision again and switches it back on: off, or
+		// the hull's own sides are the first thing the hull runs into
+		propSetPerimEnabled(prop, false);
 	}
 
 	if (tank->speed != 0.0f || tank->turnspeed != 0.0f) {
 		tankCrush(tank, halfwidth, halflength);
+		tankDriveOverProps(tank);
 	}
 
 	tankSounds(tank);

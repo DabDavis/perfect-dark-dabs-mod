@@ -3513,17 +3513,42 @@ rocket out of the muzzle.
 Not GoldenEye's, and why: he climbs in from *beside* it (Perfect Dark's walk
 has no step up onto a prop) and is put down beside it on the way out
 (GoldenEye leaves him standing on it, which here is inside its collision).
-Not done: the hull's rectangle and its slide along a wall; driving over
-*objects* (GoldenEye destroys what the hull touches and halves the speed for
-ninety ticks - the penalty is in, nothing sets it); the barrel's own
-collision; **the shell count on the HUD**, which goes with the GoldenEye HUD
-the user has asked for next.
+**The hull's rectangle, and driving over things** (the same day: "now do the
+rectangle collision and driving over objects"). `tankRectBlocked()` is
+GoldenEye's `bondviewTankCollisionStatus()`: a line out to each corner and the
+four sides, sixty over the ground, through the level, objects, doors and path
+blockers and never guards. The turn is tried where it stands and refused if
+the corners would swing into something; then the step, and if that is cut,
+the step along the edge that cut it (`cdGetEdge()`, as a bike is slid), and
+if that is cut too it stops. The walk's own circle still runs after it and is
+inside the rectangle, so it only ever meets a guard. Three things that cost a
+run each: **`func0f069c70()` builds an object's collision again and switches
+it back on**, so the first thing the hull ran into was the hull - every pose
+read as "already in something", which the code lets out of rather than holds,
+so nothing was tested at all (ask `cdGetObstacleProp()` what a test hit
+before believing it); **an object's collision is not flagged `GEOFLAG_WALL`**
+but as blocking sight and shots; and **a line does not cut a parked truck's
+collision at all**, which is why driving over things is not done by the
+collision - `tankDriveOverProps()` is GoldenEye's own walk over the props with
+each one's box in the plan against the hull's (two rectangles, their sides as
+separating axes), `objDamage()` at GoldenEye's 10000 and its ninety ticks at
+half speed. What can be destroyed does not stop the tank; what cannot is a
+wall. On Streets the first parked truck goes as the nose reaches it and the
+tank carries on through at 7.5. A hull in a narrow street often cannot turn
+where it stands - that is GoldenEye's rule too.
+
+Not done: the barrel's own collision (GoldenEye tests its tip and rolls the
+turret back; here the turret is the view, and holding the view is another
+matter) - it pokes into a wall the nose has stopped at; **the shell count on
+the HUD**, which goes with the GoldenEye HUD the user has asked for next.
 
 Probes in `build/gexrom`: `tankfind.py` (which missions have one),
 `tankdrive.py` (in, drive, turn, fire, out, with pictures; `g_TankTestInput`
 and its two floats are the probe's hands on the sticks, since a headless run
 has no pad and the input is read fresh each frame), `tankcrush.py`,
-`tankseat.py`, `tanklook.py`/`tanklook2.py` (from outside, parked and after
+`tankwall.py` (straight at whatever is ahead, then the rectangle asked
+directly at the place it stopped), `tankobj.py` (at the nearest thing that
+can be destroyed), `tankseat.py`, `tanklook.py`/`tanklook2.py` (from outside, parked and after
 being driven), `tanktree.py`, `tankparts.py`. **A guard's position written
 into his prop from gdb is put back by his own tick** - `chrMoveToPos()` is the
 teleport - and the first crush probe only passed because its guard happened
