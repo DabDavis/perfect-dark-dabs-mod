@@ -6980,3 +6980,91 @@ Probes: `build/gexrom/hudshot.py` (`WEAPONS="0x62 0x69 ..."` sweeps the
 pictures, `--savedir save_wide` is 1280x720 - **a probe's `--savedir` is under
 `data/`**, a directory beside the binary is never read) and `hudtank.py` (the
 tank, the countdown, the raised message).
+
+## A tester's seven on Dam: four faults that were every mission's (2026-09-21, converter 55)
+
+A tester's list from a dev build: comatose guards who ignore gunfire, the watch
+at half mast in the wrong colours, a mouse too sensitive in the menus, no
+explosions, the gate's padlock taking too much to break, a short render
+distance, and the backup objective impossible to use. Four were real on HEAD,
+and **none of the four was Dam's** - each was a rule of the conversion's, so
+each was wrong on all twenty missions. Two were already fixed and the tester's
+build predates them; one could not be found.
+
+**The guards: a flag dropped because of its name.** `PlayAnimation`'s bitfield
+is Perfect Dark's chranimflags bit for bit, and the conversion masked out 0x08
+because the decompilation calls it `ANIM_PLAY_SFX` ("play the sneeze sound")
+and Perfect Dark calls it `CHRANIMFLAG_COMPLETED`, which I took to mean "ends
+the animation the moment it starts". It is neither. **Its one use in GoldenEye
+is `chrHasStoppedOrPatroling()` and its one use in Perfect Dark is the same
+line of `chrIsStopped()`: a chr playing an animation with it set counts as
+stopped.** GoldenEye's standard guard list (`m_StandardGuard`) reaches its
+sense checks - sees Bond, was shot, heard Bond, near miss, saw someone shot or
+die - only through `IFImOnPatrolOrStopped`, and every one of its idle
+animations carries the bit for exactly that reason. Without it a guard
+scratching himself was blind, deaf and did not notice being shot at, for up to
+six seconds (yawning is 184 frames at half speed), and a standing guard rolls a
+new idle animation almost at once. `GEAI_ANIM_FLAGS`/`ANIM_FLAGS` is 0xdf now.
+**A decompilation's name for a bit is a guess; grep its uses in both games
+before dropping it.** `--ai-trace` showed it: the guard's list went +5, +9,
++12, back to +0, for ever - the `IFImOnPatrolOrStopped` at +9 never passing.
+
+**And the gun was silent.** Found first, and real, but not the reason: Dam
+starts Bond with the silenced PP7, and a shot added **nothing** to its noise
+radius. With GoldenEye X installed its gun definitions are borrowed whole
+(`gegunsBorrow()`), and `gegunsApplyStats()` - GoldenEye's own numbers out of
+the ROM's rows - was only ever run on the host's copy, so a borrowed gun kept
+GoldenEye X's numbers. Those match GoldenEye's for damage, spread and magazine
+on all 25 (measured, `build/gexrom/noiseprobe.py`: no difference), and differ
+in the noise: GoldenEye X gives both silenced guns and the sniper rifle 0 a
+shot. The two games keep a gun's noise in the same five numbers and run the
+same code on them (gunfire.c against `bgunDecreaseNoiseRadius()`, chr.c's
+hearing test against `chrsCheckForNoise()`), so gegunstats.h carries them now
+(`gen_gunstats.py`), they go on the weapon *function* (where `noisesettings`
+lives, not on the weapon), and `gegunsBorrow()` re-applies the stats.
+GoldenEye's silenced PP7 is 1 a shot up to 5 - five metres.
+Measured (`hearfire.py`, which forces `bgunTickGameplay()`'s trigger from a
+gdb breakpoint, Bond 250 behind the nearest guard): before, noise 0.00 through
+four shots and the guard in `ACT_ANIM` throughout; after, heard on the third
+shot (frame 356), running at Bond by 372, firing by 387.
+
+**The padlock: every converted object had 1000 health.** `baseRecord()` /
+`objBase()` wrote `maxdamage` 1000 and never read GoldenEye's, which is the
+16.16 word at 0x74 of its record (its loader: `damage / 65536`; the decomp
+names the two fields the wrong way round). The arithmetic after that is the
+same in both games (a shot adds damage x 250). Over the twenty missions 3866
+objects are 1000 and 107 are not: 40 at 10, 54 at 250, 5 at 200 (Dam's two
+padlocks among them - one PP7 round), 4 at 400, 2 at 50, one 4000, one 20000.
+Both converters, same bytes (`cmp` on Dam's and Facility's four setup files).
+
+**The backup: GoldenEye has no "can be used" flag.** Its interact test passes
+any object that is *tagged* (`RUNTIMEBITFLAG_TAGGED`), and a mission's list
+then asks whether the tag was activated. Perfect Dark's `objTestForInteract()`
+wants `OBJFLAG3_INTERACTABLE` and friends and leaves a tagged object out, so
+nothing a converted list waits on could be pressed. On a remake stage a tagged
+object passes now. **`damfull.py` had "verified" this objective by calling
+`propobjInteract()` on the mainframe** - which skips the very test that was
+failing. A probe of something the player does must go through what the player
+goes through: `damuse.py` asks `propFindForInteract()`.
+
+**Explosions: the table stops at Perfect Dark's models.** A destroyed object's
+explosion is `g_PropExplosionTypes[8 + modelnum]`, and a converted prop's model
+is `MODEL_REMAKE_FIRST` + GoldenEye's prop number - past the end, so
+`EXPLOSIONTYPE_NONE`: no crate, drum, mainframe or vehicle on a converted level
+ever blew up (or hurt anything). GoldenEye's own table
+(`object_explosion_details[prop].TypeID`, 340 rows, 136 of them more than
+"break object") is `port/src/geexplosiontypes.h`, generated from the decomp,
+behind `gexPlusPropExplosionType()`. The two games' explosion types are the
+same rows 0-20 (Perfect Dark retuned them and dropped the debris fields, so
+GoldenEye's 15 and 16, which are *only* debris, draw next to nothing). An
+explosion made directly always drew - `explprobe.py` - which is why this was
+not noticed from the rocket launcher. `objblow.py` is the probe.
+
+**Already fixed, the tester's build being older:** the render distance (the
+0.2 render scale and the dropped visibility script, converter 37 - pad 134
+heading 180 against the oracle now shows the same mountains and buildings) and
+the watch, checked on HEAD at 16:9, 21:9 and 16:10 and at FOV 60 and 100: up,
+centred, green. **Not found:** the mouse. The folder's cursor is the pointer's
+own position mapped into the folder's frame, the watch takes no mouse motion,
+and Perfect Dark's menus are the upstream port's. Needs the tester to say
+which menu and what it does.

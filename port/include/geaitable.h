@@ -32,11 +32,17 @@
 // chrlvPerformAnimationForActor() line for line - and the conversion keeps only
 // those bits: 0x01 mirror/FLIP, 0x02 (unknown)/MOVEWHENINVIS, 0x04 hold last
 // frame/PAUSEATEND, 0x10 idle on end/SLOWUPDATE (both set chr->sleep = merge),
-// 0x40 no translation/LOCKPOS and 0x80 reverse/REVERSE. 0x08 is GoldenEye's
-// "play the sneeze sound" and Perfect Dark's CHRANIMFLAG_COMPLETED, which would
-// end the animation the moment it started, and 0x20 is a translation scale of
-// four that Perfect Dark has no flag for. Both go.
-#define GEAI_ANIM_FLAGS 0x00d7
+// 0x40 no translation/LOCKPOS and 0x80 reverse/REVERSE - and 0x08, which the
+// decompilation calls "play the sneeze sound" and which is nothing of the kind:
+// its one use in GoldenEye is chrHasStoppedOrPatroling(), where a chr playing
+// an animation with it set *counts as stopped*, and CHRANIMFLAG_COMPLETED's one
+// use in Perfect Dark is the same line of chrIsStopped(). Every idle animation
+// of GoldenEye's carries it, because its standard guard list only looks and
+// listens when the guard is stopped: with the bit dropped a guard scratching
+// himself saw nothing, heard nothing and did not notice being shot at, for six
+// seconds at a time and one animation after another. 0x20 is a translation
+// scale of four that Perfect Dark has no flag for, and is all that goes.
+#define GEAI_ANIM_FLAGS 0x00df
 
 // set on a converted animation id (gesolo.py's GE_ANIM_TAG)
 #define GEAI_ANIM_TAG 0x8000

@@ -3028,6 +3028,23 @@ static padrecs boundPads(const buf *f, double ls, const double *offset)
 	return out;
 }
 
+/**
+ * What an object can take before it breaks. GoldenEye's record carries it as a
+ * 16.16 word at 0x74, which its loader divides out (prop.c: damage / 65536),
+ * and its arithmetic from there is Perfect Dark's own - a shot adds its damage
+ * times 250. Most are 1000, which is what every converted object was given;
+ * the ones that are not are the point: Dam's padlocks are 200, which one PP7
+ * round breaks, and wore 1000.
+ */
+static uint32_t geObjHealth(const uint8_t *raw)
+{
+	int32_t h = (int32_t)be32(raw, 0x74) / 65536;
+	if (h < 1) {
+		h = 1000;
+	}
+	return h > 32767 ? 32767u : (uint32_t)h;
+}
+
 static buf objBase(const struct record *r, uint32_t pdtype, uint32_t words, uint32_t padnum, uint32_t flags)
 {
 	buf out = {0};
@@ -3041,7 +3058,7 @@ static buf objBase(const struct record *r, uint32_t pdtype, uint32_t words, uint
 	set32(out.v, 8, flags);
 	set32(out.v, 12, be32(r->b, 12));
 	set16(out.v, 0x4c, 0);
-	set16(out.v, 0x4e, 1000);
+	set16(out.v, 0x4e, geObjHealth(r->b));
 	set32(out.v, 0x58, 0x0fff0000);
 	return out;
 }
@@ -3998,7 +4015,7 @@ static void baseRecord(uint8_t *out, const uint8_t *raw, uint32_t pdtype, uint32
 	set32(out, 8, be32(raw, 8));
 	set32(out, 12, be32(raw, 12));
 	set16(out, 0x4c, 0);
-	set16(out, 0x4e, 1000);
+	set16(out, 0x4e, geObjHealth(raw));
 	set32(out, 0x58, 0x0fff0000);
 }
 

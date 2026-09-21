@@ -86,9 +86,18 @@ static const char *const names[NUM_GE_WEAPONS] = {
  * Destruction is a damage, its Inaccuracy a spread, its MagSize a clip and
  * its SingleRate a recovery time, with nothing to scale between them.
  *
- * What is not taken: the recoil, zoom, sway and loudness, which are how a gun
- * handles rather than what it does, and a thrown weapon's damage, since every
- * one of Perfect Dark's carries 0 there and the explosion does the work.
+ * What is not taken: the recoil, zoom and sway, which are how a gun handles
+ * rather than what it does, and a thrown weapon's damage, since every one of
+ * Perfect Dark's carries 0 there and the explosion does the work.
+ *
+ * Its loudness is taken, which it was not at first. The two games keep a
+ * gun's noise in the same five numbers and run them through the same code
+ * (gunfire.c's noise against bgunDecreaseNoiseRadius(), chr.c's hearing test
+ * against chrsCheckForNoise()), and the hosts' numbers are GoldenEye X's,
+ * which gives its three quiet guns - both silenced ones and the sniper rifle -
+ * nothing a shot: their radius never left nought, and no guard on Dam, where
+ * Bond starts with the silenced PP7, could hear a shot fired beside him.
+ * GoldenEye's is 1 a shot up to 5, which is five metres.
  */
 struct gegunstat {
 	s16 magsize;
@@ -98,10 +107,11 @@ struct gegunstat {
 	f32 damage;
 	f32 spread;
 	f32 impactforce;
+	struct noisesettings noise;
 };
 
-#define GUNSTAT(weapon, source, mag, autorate, singlerate, pen, dmg, spread, impact) \
-	[weapon - WEAPON_GE_FIRST] = { mag, autorate, singlerate, pen, dmg, spread, impact }
+#define GUNSTAT(weapon, source, mag, autorate, singlerate, pen, dmg, spread, impact, loudmin, loudmax, pershot, lineartime, scaledtime) \
+	[weapon - WEAPON_GE_FIRST] = { mag, autorate, singlerate, pen, dmg, spread, impact, { loudmin, loudmax, pershot, lineartime, scaledtime } }
 
 /**
  * What each gun sounds like: the Sound field of the same gunWeaponStat rows,
@@ -226,7 +236,18 @@ static void gegunsApplyStats(s32 i)
 {
 	const struct gegunstat *stat = &stats[i];
 	struct weapon *def = &g_GeWeaponDefs[i];
+	struct noisesettings *noise = NULL;
 	s32 shoots = 0;
+
+	// How loud it is, which a function carries. A row with no times is a
+	// gadget's, which has no row, and the noise code divides by them.
+	if (stat->noise.decbasespeed > 0.0f && stat->noise.decremspeed > 0.0f) {
+		noise = malloc(sizeof(*noise));
+
+		if (noise) {
+			*noise = stat->noise;
+		}
+	}
 
 	for (s32 f = 0; f < 2; f++) {
 		const struct weaponfunc *host = def->functions[f];
@@ -246,6 +267,11 @@ static void gegunsApplyStats(s32 i)
 
 		memcpy(copy, host, size);
 		def->functions[f] = copy;
+
+		// GoldenEye's gun has the one noise whatever it is doing
+		if (noise && (f == 0 || (copy->type & 0xff) == INVENTORYFUNCTYPE_SHOOT)) {
+			copy->noisesettings = noise;
+		}
 
 		if ((copy->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 			struct weaponfunc_shoot *shoot = (struct weaponfunc_shoot *)copy;
@@ -486,6 +512,13 @@ void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 picku
 			}
 		}
 	}
+
+	// What the gun does is still GoldenEye's own, out of its ROM's rows: the
+	// borrowed definition brings GoldenEye X's numbers with it, and those gave
+	// the silenced PP7 no noise at all - a shot added nothing to its radius,
+	// so nobody on Dam could hear Bond fire. gegunsApplyStats() copies the
+	// functions it writes to, so the mod's own are left as they were.
+	gegunsApplyStats(index);
 
 	borrowed[index] = 1;
 	borrowedHands[index] = def->flags & WEAPONFLAG_HASHANDS;

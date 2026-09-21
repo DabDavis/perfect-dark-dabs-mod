@@ -65,13 +65,23 @@ def bound_pads(d, ls, offset):
     return out
 
 
+def obj_health(raw):
+    """What an object can take before it breaks: GoldenEye's record carries it
+    as a 16.16 word at 0x74 (its loader divides by 65536), and the arithmetic
+    from there is Perfect Dark's own. Most are 1000; Dam's padlocks are 200."""
+    h = int(struct.unpack_from('>i', raw, 0x74)[0] / 65536)
+    if h < 1:
+        h = 1000
+    return min(h, 32767)
+
+
 def _base(b, pdtype, words, padnum, flags):
     out = bytearray(4 * words)
     out[0:3] = b[0:3]
     out[3] = pdtype
     model = struct.unpack_from('>h', b, 4)[0]
     struct.pack_into('>hHII', out, 4, MODEL_REMAKE_FIRST + model, padnum, flags, struct.unpack_from('>I', b, 12)[0])
-    struct.pack_into('>hh', out, 0x4c, 0, 1000)
+    struct.pack_into('>hh', out, 0x4c, 0, obj_health(b))
     struct.pack_into('>I', out, 0x58, 0x0fff0000)
     return out
 

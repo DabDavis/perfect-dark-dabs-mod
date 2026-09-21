@@ -406,7 +406,7 @@ def base_record(raw, pdtype, words, padnum):
     model = struct.unpack_from('>h', raw, 4)[0]
     struct.pack_into('>hHII', out, 4, MODEL_REMAKE_FIRST + model, padnum,
                      struct.unpack_from('>I', raw, 8)[0], struct.unpack_from('>I', raw, 12)[0])
-    struct.pack_into('>hh', out, 0x4c, 0, 1000)      # damage, maxdamage
+    struct.pack_into('>hh', out, 0x4c, 0, geobjects.obj_health(raw))   # damage, maxdamage
     struct.pack_into('>I', out, 0x58, 0x0fff0000)    # the floor colour GE-X gives them
     return out
 

@@ -92,4 +92,7 @@ s32 gexPlusWeaponSets(s32 *first);
 s32 gexPlusGetPdGuns(void);
 void gexPlusSetPdGuns(s32 on);
 
+/** The explosion a converted GoldenEye prop makes when destroyed (GoldenEye's own table), or -1. */
+s32 gexPlusPropExplosionType(s32 modelnum);
+
 #endif

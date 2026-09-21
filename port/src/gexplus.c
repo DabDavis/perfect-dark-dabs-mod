@@ -1395,3 +1395,28 @@ s32 gexPlusWeaponSets(s32 *first)
 	return modBorrowWeaponSets(first);
 }
 #endif
+
+/**
+ * The explosion a converted GoldenEye prop makes when it is destroyed.
+ *
+ * Both games look it up by model: Perfect Dark in g_PropExplosionTypes[], which
+ * stops at its own models, GoldenEye in object_explosion_details[] by its prop
+ * number - and a converted prop's model is MODEL_REMAKE_FIRST plus that number,
+ * past the end of Perfect Dark's table, so every crate, drum and vehicle on a
+ * converted level was destroyed with EXPLOSIONTYPE_NONE: nothing drawn, nothing
+ * hurt. The two games' explosion types are the same rows 0 to 20, so GoldenEye's
+ * number is used as it stands. -1 is a model that is not one of GoldenEye's.
+ */
+s32 gexPlusPropExplosionType(s32 modelnum)
+{
+	static const u8 types[] = {
+#include "geexplosiontypes.h"
+	};
+	const s32 prop = modelnum - MODEL_REMAKE_FIRST;
+
+	if (prop < 0 || prop >= (s32)ARRAYCOUNT(types)) {
+		return -1;
+	}
+
+	return types[prop];
+}

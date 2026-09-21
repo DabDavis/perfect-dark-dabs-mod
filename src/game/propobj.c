@@ -91,6 +91,8 @@
 #include "gemonitor.h"
 #include "gesfx.h"
 #include "gehud.h"
+#include "geroom.h"
+#include "gexplus.h"
 #endif
 #endif
 
@@ -14941,6 +14943,14 @@ void objCheckDestroyed(struct defaultobj *obj, struct coord *pos, s32 playernum)
 			? g_PropExplosionTypes[8 + obj->modelnum] : EXPLOSIONTYPE_NONE;
 		RoomNum rooms[8];
 
+#ifndef PLATFORM_N64
+		// and so are a converted level's props, which blow up as GoldenEye's
+		// own table says they do
+		if (geRoomActive() && gexPlusPropExplosionType(obj->modelnum) >= 0) {
+			exptype = gexPlusPropExplosionType(obj->modelnum);
+		}
+#endif
+
 		// If in Deep Sea outro
 		if (g_Vars.tickmode == TICKMODE_CUTSCENE && g_CutsceneAnimNum == ANIM_CUT_PAM_OUTRO_CAM) {
 			exptype = EXPLOSIONTYPE_24;
@@ -16170,6 +16180,14 @@ bool objTestForInteract(struct prop *prop)
 			|| (obj->flags3 & (OBJFLAG3_HTMTERMINAL | OBJFLAG3_INTERACTABLE))
 			|| (obj->hidden & (OBJHFLAG_LIFTDOOR | OBJHFLAG_00000002))) {
 		maybe = true;
+#ifndef PLATFORM_N64
+	} else if ((obj->hidden & OBJHFLAG_TAGGED) && geRoomActive()) {
+		// GoldenEye has no "this one can be used" flag: its test passes any
+		// object that carries a tag, and a mission's list then asks whether
+		// that tag was activated. Perfect Dark leaves a tagged object out, so
+		// on a converted mission Dam's mainframe could not be pressed.
+		maybe = true;
+#endif
 	} else if (obj->type == OBJTYPE_HOVERBIKE) {
 		if (g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB) {
 			maybe = true;

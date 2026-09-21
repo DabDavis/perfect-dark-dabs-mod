@@ -40,11 +40,17 @@ CHR_SELF = 0x00fd
 #   0x40 no translate  = CHRANIMFLAG_LOCKPOS
 #   0x80 reverse       = CHRANIMFLAG_REVERSE
 #
-# 0x08 is GoldenEye's "play the sneeze sound" and Perfect Dark's
-# CHRANIMFLAG_COMPLETED, which would end the animation the moment it started,
-# and 0x20 is a translation scale of 4 that Perfect Dark has no flag for
-# (GoldenEye calls modelSetAnimTranslationScale() outside the flags). Both go.
-ANIM_FLAGS = 0xd7
+#   0x08 "play sfx"     = CHRANIMFLAG_COMPLETED
+#
+# 0x08 is not the sneeze sound the decompilation names it for: its one use in
+# GoldenEye is chrHasStoppedOrPatroling(), where a chr playing an animation with
+# it set counts as stopped, and CHRANIMFLAG_COMPLETED's one use is the same line
+# of chrIsStopped(). GoldenEye's idle animations all carry it, since its guard
+# list only looks and listens while the guard is stopped - dropped, an idling
+# guard was blind and deaf. 0x20 is a translation scale of 4 that Perfect Dark
+# has no flag for (GoldenEye calls modelSetAnimTranslationScale() outside the
+# flags), and is all that goes.
+ANIM_FLAGS = 0xdf
 
 # GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 # six of its commands), and neither of Perfect Dark's two banks has eight bits
