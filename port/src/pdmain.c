@@ -82,6 +82,7 @@
 #include "modloader.h"
 #include "modborrow.h"
 #include "gebean.h"
+#include "gexfront.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -737,6 +738,10 @@ void mainEndStage(void)
 			musicStartMenu();
 		} else if (g_Vars.normmplayerisrunning) {
 			mpEndMatch();
+		} else if (gexFrontMissionReport()) {
+			// A mission GE Plus's folder started ends as GoldenEye's do: no
+			// endscreen over the level, but out of it to the folder's own
+			// report and statistics pages (gexfront.c)
 		} else {
 			endscreenPrepare();
 			musicStartMenu();

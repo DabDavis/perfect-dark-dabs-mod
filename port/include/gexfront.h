@@ -34,6 +34,10 @@ void gexFrontGoBack(void);
 // A solo mission's endscreen has closed for good. True when the folder started
 // the mission: the ending is taken, and comes back to GE Plus's own main menu.
 s32 gexFrontMissionEnded(void);
+// A solo mission is ending (mainEndStage()). True when the folder started it:
+// how it went is kept, Perfect Dark's endscreen is not put up, and the level is
+// left for the folder's own report and statistics pages, as GoldenEye's is.
+s32 gexFrontMissionReport(void);
 s32 gexFrontWantsMain(void);
 s32 gexFrontOpenAfterMission(void);
 void gexFrontTick(void);

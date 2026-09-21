@@ -6533,3 +6533,62 @@ destroyed tank should start (`if_gas_is_leaking`) was not looked at.
 **The lesson:** a prop that is "misplaced" may never have been placed. Print the
 record the running game holds (`modelnum`, `pad`, `flags`) before reading the
 converter.
+
+## A mission ends on GoldenEye's report, not Perfect Dark's endscreen (2026-09-21)
+
+The user: *"after completing a mission, it is still using the PD screen, lets
+use ge"*. A mission the folder started ended on Perfect Dark's endscreen over
+the level, and only when that closed went back to the folder.
+
+GoldenEye puts nothing over the level. It leaves it, and the folder opens on
+two pages (front.c's menus 0C and 0D): **REPORT** - the mission status (killed
+in action, aborted, completed or failed; all but completed in red 0x780000ff)
+over the objectives with how each was left - and **STATISTICS** - time, target
+and best time, accuracy, weapon of choice, shot total, kill total and the hits
+by part. NEXT from the report is the statistics; NEXT from the statistics is a
+briefing, the *next* mission's at the same difficulty when this one was
+completed and this one's again when it was not (the mission select after Aztec
+and Egyptian); PREVIOUS on either is the mission select.
+
+`gexFrontMissionReport()` stands where `endscreenPrepare()` does in
+`mainEndStage()` - every way out of a mission goes through there: the map's
+ending, a death, the watch's abort. It keeps how the mission went in
+`g_FrontReport` (the level, the player and the objectives are gone by the time
+the pages draw), then goes back as a cinema does (`gexFrontGoBack()`), and
+`gexFrontOpenAfterMission()` opens on `SCREEN_REPORT`. Only for a mission the
+folder started, on the remake's own missions, solo: a `--boot-stage` run, the
+GE-X fallback and co-op keep Perfect Dark's endscreen.
+
+Things worth knowing:
+
+- **Perfect Dark's endscreen had been filing a converted mission's time in
+  Perfect Dark's own save**: `frontStartMission()` sets
+  `g_MissionConfig.stageindex` to GoldenEye's mission number, and
+  `endscreenPrepare()` writes `g_GameFile.besttimes[stageindex]` - so
+  completing Dam marked dataDyne Central: Defection completed, and could win
+  its cheat. The report writes none of that. Best times are the remake's own
+  file, `$S/geplus-times.txt` (`mission difficulty seconds` a line, GoldenEye's
+  twenty by four, ten bits), written on the terms Perfect Dark lets a time
+  count by (completed, no cheats); the run's ghost is still saved.
+- Perfect Dark's `SHOTREGION_*` **are** GoldenEye's seven shot registers, in
+  its order, and `invGetWeaponOfChoice()` is its `array_favweapon` (" x 2"
+  when both hands' are the same). The weapon's *name* has to be copied while
+  the level is loaded - a borrowed gun's is in its own bank.
+- GoldenEye's objective printer gives "Failed" for an objective that is merely
+  incomplete (`default: case 0: case 2:`), and so does this.
+- A briefing file's objective *i* is the setup's objective *i*; the index is in
+  the record and survives the conversion.
+- The target times (`solo_target_time_array`) are a table in gexfront.c, not
+  converted; the remake has none of GoldenEye's cheats to win by them yet.
+- `gexFrontOpen()` puts the 007 sliders back to GoldenEye's start, so the
+  report carries them and the difficulty across the level.
+- **Dam is stage 0x15, not 0x5e.** Testing: `build/gexrom/report.gdb` boots
+  0x15, sets `g_FrontInside`/`g_Front.mission`, calls `mainEndStage()`, breaks
+  on `gexFrontOpenAfterMission` and captures both pages and what NEXT leads to
+  (`report2.gdb` completes it with `g_ObjectiveLastIndex = -1`). Four seconds a
+  run.
+
+**Not done**: unlocking missions and difficulties by completion (all are open),
+showing completion on the mission select, GoldenEye's cheats and "New Cheat
+Available".
+

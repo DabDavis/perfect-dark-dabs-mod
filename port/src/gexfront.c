@@ -87,6 +87,11 @@
 #include "game/music.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/setup.h"
+#include "game/mpstats.h"
+#include "game/objectives.h"
+#include "game/inv.h"
+#include "game/bondgun.h"
+#include "game/player.h"
 #include "game/options.h"
 #include "game/tex.h"
 #include "lib/joy.h"
@@ -196,6 +201,27 @@ extern s32 g_MpWeaponSetNum;
 #define TITLE_OBJECTIVES   93
 #define TITLE_BRIEF_FIRST  93 // Primary Objectives, Background, M Briefing, Q Branch, Moneypenny
 #define TITLE_MISSION_FIRST 120 // the folder's names for the chapters and their missions
+// and the two pages a mission ends on
+#define TITLE_OBJ_COMPLETED 91
+#define TITLE_OBJ_FAILED   92
+#define TITLE_REPORT       98
+#define TITLE_MISSIONSTATUS 99
+#define TITLE_KIA          100
+#define TITLE_ABORTED      101
+#define TITLE_COMPLETED    102
+#define TITLE_FAILED       103
+#define TITLE_STATISTICS   104
+#define TITLE_TIME         105
+#define TITLE_ACCURACY     106
+#define TITLE_WEAPONOFCHOICE 107
+#define TITLE_SHOTTOTAL    108
+#define TITLE_HEADHITS     109
+#define TITLE_BODYHITS     110
+#define TITLE_LIMBHITS     111
+#define TITLE_OTHERS       112
+#define TITLE_KILLTOTAL    113
+#define TITLE_BESTTIME     273
+#define TITLE_TARGET       274
 
 // the text colours: black, and black greyed for a row that is off
 #define COLOUR_ON  0x000000ff
@@ -203,10 +229,12 @@ extern s32 g_MpWeaponSetNum;
 // a highlight: black at 50, and a filled bar: black at 100
 #define COLOUR_HIGHLIGHT 0x00000032
 #define COLOUR_BAR 0x00000064
+// the report's red: a mission or an objective that was not completed
+#define COLOUR_FAILED 0x780000ff
 
 enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEALTH, SCREEN_CONTROLSTYLE, SCREEN_CHARACTERS,
 	SCREEN_MISSION, SCREEN_DIFFICULTY, SCREEN_007OPTIONS, SCREEN_BRIEFING, SCREEN_CINEMA, SCREEN_CINEMAPICK,
-	SCREEN_EXTRA, SCREEN_MONITORS, SCREEN_MONITORVIEW };
+	SCREEN_EXTRA, SCREEN_MONITORS, SCREEN_MONITORVIEW, SCREEN_REPORT, SCREEN_STATS };
 
 /**
  * GoldenEye's mission folder (front.c's mission_folder_setup_entries): its nine
@@ -813,6 +841,92 @@ static s32 frontBriefObjective(s32 i, s32 *difficulty)
 	*difficulty = (s32)((p[2] << 8) | p[3]);
 
 	return (s32)((p[0] << 8) | p[1]);
+}
+
+/**
+ * How the last mission went, kept as it ends (gexFrontMissionReport()) for the
+ * two pages GoldenEye closes a mission with: the level is gone by the time
+ * they are drawn, as GoldenEye's is, and with it the player and the objectives
+ * those pages are about.
+ */
+static struct {
+	s32 valid;
+	s32 kia;
+	s32 aborted;
+	s32 completed;
+	s32 objstatus[BRIEF_OBJECTIVES];
+	s32 time60;
+	s32 kills;
+	s32 shots[7];       // get_curplayer_shot_register(): Perfect Dark's SHOTREGION_*
+	char weapon[64];    // the weapon of choice, by name, and whether it was a pair
+	s32 weapondual;
+	s32 difficulty;
+	f32 slider[NUM_SLIDERS];
+} g_FrontReport;
+
+// solo_target_time_array: the time a cheat is won by, in seconds, a difficulty
+static const s16 g_TargetTimes[NUM_MISSIONS][3] = {
+	{ 0, 160, 0 }, { 0, 0, 125 }, { 300, 0, 0 }, { 0, 210, 0 }, { 0, 0, 240 },
+	{ 180, 0, 0 }, { 0, 270, 0 }, { 0, 0, 255 }, { 90, 0, 0 },  { 0, 195, 0 },
+	{ 0, 0, 80 },  { 105, 0, 0 }, { 0, 100, 0 }, { 0, 0, 325 }, { 225, 0, 0 },
+	{ 0, 600, 0 }, { 0, 0, 570 }, { 135, 0, 0 }, { 0, 540, 0 }, { 0, 0, 360 },
+};
+
+/**
+ * The best times, in seconds, a mission and a difficulty - GoldenEye's save
+ * keeps the same twenty by four. They are the remake's own file: its missions
+ * are stages of their own with no row in Perfect Dark's save, whose rows are
+ * Perfect Dark's missions'.
+ */
+#define BESTTIMES_FILE "$S/geplus-times.txt"
+#define BESTTIME_MAX 0x3ff
+
+static u16 g_BestTimes[NUM_MISSIONS][NUM_DIFFICULTIES];
+static s32 g_BestTimesLoaded;
+
+static void frontLoadBestTimes(void)
+{
+	FILE *f;
+	s32 mission, difficulty, secs;
+
+	if (g_BestTimesLoaded) {
+		return;
+	}
+
+	g_BestTimesLoaded = 1;
+
+	if (fsFileSize(BESTTIMES_FILE) <= 0 || !(f = fsFileOpenRead(BESTTIMES_FILE))) {
+		return;
+	}
+
+	while (fscanf(f, "%d %d %d", &mission, &difficulty, &secs) == 3) {
+		if (mission >= 0 && mission < NUM_MISSIONS && difficulty >= 0 && difficulty < NUM_DIFFICULTIES
+				&& secs > 0 && secs <= BESTTIME_MAX) {
+			g_BestTimes[mission][difficulty] = secs;
+		}
+	}
+
+	fsFileFree(f);
+}
+
+static void frontSaveBestTimes(void)
+{
+	FILE *f = fsFileOpenWrite(BESTTIMES_FILE);
+
+	if (!f) {
+		sysLogPrintf(LOG_WARNING, "gexfront: could not write %s", fsFullPath(BESTTIMES_FILE));
+		return;
+	}
+
+	for (s32 mission = 0; mission < NUM_MISSIONS; mission++) {
+		for (s32 difficulty = 0; difficulty < NUM_DIFFICULTIES; difficulty++) {
+			if (g_BestTimes[mission][difficulty]) {
+				fprintf(f, "%d %d %d\n", mission, difficulty, g_BestTimes[mission][difficulty]);
+			}
+		}
+	}
+
+	fsFileFree(f);
 }
 
 static void frontUnload(void)
@@ -2423,6 +2537,60 @@ static void frontTickBriefing(s32 pick, s32 back)
 	}
 }
 
+/**
+ * interface_menu0C_missionfailed() and interface_menu0D_missioncomplete(): the
+ * report turns to the statistics, and the statistics to a briefing - the next
+ * mission's when this one was completed, at the same difficulty, and this one's
+ * again when it was not. After Aztec and Egyptian, which nothing follows, it is
+ * the mission select, and so it is from PREVIOUS on either page. With the
+ * cursor on neither tab a pick is NEXT.
+ */
+static void frontTickReport(s32 pick, s32 back)
+{
+	if (!g_Front.tabprev) {
+		g_Front.tabnext = 1;
+	}
+
+	if (back || (pick && g_Front.tabprev)) {
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
+		frontFreeBriefing();
+		g_Front.screen = SCREEN_MISSION;
+		frontSetCursorForMission(g_Front.mission);
+		return;
+	}
+
+	if (!pick) {
+		return;
+	}
+
+	frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SWIPE);
+
+	if (g_Front.screen == SCREEN_REPORT) {
+		g_Front.screen = SCREEN_STATS;
+		return;
+	}
+
+	if (g_FrontReport.completed) {
+		// SP_LEVEL_AZTEC and on
+		if (g_Front.mission >= NUM_MISSIONS - 2) {
+			frontFreeBriefing();
+			g_Front.screen = SCREEN_MISSION;
+			frontSetCursorForMission(g_Front.mission);
+			return;
+		}
+
+		g_Front.mission++;
+	}
+
+	g_Front.screen = SCREEN_BRIEFING;
+	g_Front.briefpage = BRIEF_TITLE;
+
+	if (!frontLoadBriefing(g_Front.mission)) {
+		g_Front.screen = SCREEN_MISSION;
+		frontSetCursorForMission(g_Front.mission);
+	}
+}
+
 static void frontSetCursorForMode(s32 mode)
 {
 	// setCursorPOSforMode()
@@ -2457,6 +2625,7 @@ void gexFrontTick(void)
 	g_Front.tabnext = ((g_Front.screen == SCREEN_LEVEL && g_Front.numlevels > LEVELS_PER_PAGE)
 			|| g_Front.screen == SCREEN_007OPTIONS
 			|| g_Front.screen == SCREEN_MONITORS || g_Front.screen == SCREEN_MONITORVIEW
+			|| g_Front.screen == SCREEN_REPORT || g_Front.screen == SCREEN_STATS
 			|| (g_Front.screen == SCREEN_BRIEFING && g_Front.briefpage < NUM_BRIEF_PAGES - 1))
 		&& !g_Front.tabprev && frontOnNextTab();
 	g_Front.highlight = -1;
@@ -2473,6 +2642,10 @@ void gexFrontTick(void)
 		return;
 	case SCREEN_BRIEFING:
 		frontTickBriefing(pick, back);
+		return;
+	case SCREEN_REPORT:
+	case SCREEN_STATS:
+		frontTickReport(pick, back);
 		return;
 	case SCREEN_LEVEL:
 		frontTickLevel(pick, back);
@@ -2673,6 +2846,95 @@ void gexFrontGoBack(void)
 }
 
 /**
+ * A solo mission is ending, by any of its ways out: the map's own ending, a
+ * death, or the watch's abort. GoldenEye puts nothing over the level then; it
+ * leaves it for the folder, which opens on the mission's report. So for a
+ * mission the folder started, this stands where Perfect Dark's endscreen does
+ * (mainEndStage()): it keeps how the mission went, and goes back.
+ *
+ * What Perfect Dark's endscreen writes to the save is left unwritten, and has
+ * to be: it files the time under the mission's number in Perfect Dark's own
+ * table, where number 0 is dataDyne Central and not the Dam. The time is kept
+ * in the remake's own file instead, under the conditions Perfect Dark lets a
+ * time count by.
+ */
+s32 gexFrontMissionReport(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 weapon1 = 0;
+	s32 weapon2 = 0;
+	const char *name;
+	char *end;
+
+	if (!g_FrontInside || !frontMissionsAreOwn() || !player
+			|| g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0
+			|| g_Vars.stagenum != frontMissionStage(g_Front.mission)) {
+		return 0;
+	}
+
+	memset(&g_FrontReport, 0, sizeof(g_FrontReport));
+
+	g_FrontReport.valid = 1;
+	g_FrontReport.kia = player->isdead != 0;
+	g_FrontReport.aborted = player->aborted != 0;
+	g_FrontReport.completed = !g_FrontReport.kia && !g_FrontReport.aborted && objectiveIsAllComplete();
+	g_FrontReport.time60 = playerGetMissionTime();
+	g_FrontReport.kills = mpstatsGetPlayerKillCount();
+	g_FrontReport.difficulty = g_Front.difficulty;
+
+	for (s32 i = 0; i < BRIEF_OBJECTIVES; i++) {
+		g_FrontReport.objstatus[i] = i < objectiveGetCount() ? objectiveCheck(i) : OBJECTIVE_INCOMPLETE;
+	}
+
+	for (s32 i = 0; i < 7; i++) {
+		g_FrontReport.shots[i] = mpstatsGetPlayerShotCountByRegion(i);
+	}
+
+	// the name while its text is still loaded: a borrowed gun's is in its own bank
+	invGetWeaponOfChoice(&weapon1, &weapon2);
+	name = bgunGetName(weapon1);
+	snprintf(g_FrontReport.weapon, sizeof(g_FrontReport.weapon), "%s", name ? name : "");
+
+	if ((end = strchr(g_FrontReport.weapon, '\n'))) {
+		*end = '\0';
+	}
+
+	g_FrontReport.weapondual = weapon1 > 0 && weapon1 == weapon2;
+
+	for (s32 i = 0; i < NUM_SLIDERS; i++) {
+		g_FrontReport.slider[i] = g_Front.slider[i];
+	}
+
+	if (g_FrontReport.completed && !g_CheatsActiveBank0 && !g_CheatsActiveBank1) {
+		s32 secs = g_FrontReport.time60 / 60;
+		u16 *best;
+
+		frontLoadBestTimes();
+
+		// zero is "not completed", and the save's ten bits are GoldenEye's
+		secs = secs < 1 ? 1 : secs > BESTTIME_MAX ? BESTTIME_MAX : secs;
+		best = &g_BestTimes[g_Front.mission][g_FrontReport.difficulty];
+
+		if (*best == 0 || secs < *best) {
+			*best = secs;
+			frontSaveBestTimes();
+		}
+
+		// the run's ghost, which Perfect Dark's endscreen writes on the same terms
+		modGhostSaveRun();
+	}
+
+	sysLogPrintf(LOG_NOTE, "gexfront: mission %d over at %d (%s), to the folder's report", g_Front.mission,
+			g_FrontReport.time60, g_FrontReport.kia ? "killed" : g_FrontReport.aborted ? "aborted"
+			: g_FrontReport.completed ? "completed" : "failed");
+
+	g_FrontWantMain = 1;
+	gexFrontGoBack();
+
+	return 1;
+}
+
+/**
  * A solo mission's endscreen has closed for good - finished, failed or aborted,
  * they all end there. True when the mission was one the folder started, and
  * the ending is then taken: back to GE Plus's own main menu rather than Perfect
@@ -2696,8 +2958,10 @@ s32 gexFrontWantsMain(void)
 }
 
 /**
- * Back from a mission: GE Plus's main menu, the mode select, with SELECT
- * MISSION under the cursor since that is where the player came from.
+ * Back from a mission: GoldenEye's report on it, where there is one to give
+ * (gexFrontMissionReport()). Otherwise - a mission that ended on Perfect Dark's
+ * endscreen - GE Plus's main menu, the mode select, with SELECT MISSION under
+ * the cursor since that is where the player came from.
  */
 s32 gexFrontOpenAfterMission(void)
 {
@@ -2710,6 +2974,22 @@ s32 gexFrontOpenAfterMission(void)
 	frontSetCursorForMode(0);
 	// the press that closed the endscreen is not a press in the folder
 	g_Front.inputdelay = 10;
+
+	// init_menu0C_missionfailed(): the report of the mission that has just
+	// ended, with the cursor on NEXT - and the difficulty it was played at,
+	// which opening the folder has put back to where GoldenEye starts it
+	if (g_FrontReport.valid && frontLoadBriefing(g_Front.mission)) {
+		g_Front.screen = SCREEN_REPORT;
+		g_Front.difficulty = g_FrontReport.difficulty;
+		g_Front.cursorx = 399.0f;
+		g_Front.cursory = 144.0f;
+
+		for (s32 i = 0; i < NUM_SLIDERS; i++) {
+			g_Front.slider[i] = g_FrontReport.slider[i];
+		}
+	}
+
+	g_FrontReport.valid = 0;
 
 	return 1;
 }
@@ -3398,6 +3678,8 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 		frontSetSwitch(SW_CONFIDENTIAL, true);
 		break;
 	case SCREEN_007OPTIONS:
+	case SCREEN_REPORT:
+	case SCREEN_STATS:
 		frontSetSwitch(SW_PAPER, true);
 		frontSetSwitch(SW_OHMSS, true);
 		frontSetSwitch(SW_CLASSIFIED, true);
@@ -4497,6 +4779,132 @@ static Gfx *frontDrawBriefing(Gfx *gdl)
 	return frontPrint(gdl, 0x37, 0xa7, wrapped, COLOUR_ON);
 }
 
+/**
+ * constructor_menu0C_missionfailed(): how the mission stands - killed in
+ * action, aborted, completed or failed, and all but completed in red - over
+ * its objectives, each with how it was left. print_objectives_and_status_to_menu()
+ * gives an objective that was never completed as failed, and so does this.
+ */
+static Gfx *frontDrawReport(Gfx *gdl)
+{
+	static char wrapped[2048];
+	const char *status;
+	s32 width = 0;
+	s32 height = 0;
+	s32 lines = 0;
+	s32 shown = 0;
+
+	gdl = frontMissionHeader(gdl, true);
+	gdl = frontPrint(gdl, 0x37, 0x8f, frontString(TITLE_REPORT), COLOUR_ON);
+
+	frontMeasure(&g_Front.zurich, frontString(TITLE_MISSIONSTATUS), 0, &width, &height);
+	gdl = frontPrint(gdl, 0x37, 0xa7, frontString(TITLE_MISSIONSTATUS), COLOUR_ON);
+
+	status = frontString(g_FrontReport.kia ? TITLE_KIA : g_FrontReport.aborted ? TITLE_ABORTED
+			: g_FrontReport.completed ? TITLE_COMPLETED : TITLE_FAILED);
+	gdl = frontPrint(gdl, 0x37 + width, 0xa7, status, g_FrontReport.completed ? COLOUR_ON : COLOUR_FAILED);
+
+	for (s32 i = 0; i < BRIEF_OBJECTIVES; i++) {
+		s32 difficulty = 0;
+		const s32 textid = frontBriefObjective(i, &difficulty);
+		const s32 y = 0xbf + lines * frontLineHeight(&g_Front.zurich);
+		const s32 done = g_FrontReport.objstatus[i] == OBJECTIVE_COMPLETE;
+		char label[8];
+
+		if (!textid || g_Front.difficulty < difficulty) {
+			continue;
+		}
+
+		snprintf(label, sizeof(label), "%c.\n", 'a' + shown);
+		gdl = frontPrint(gdl, 0x37, y, label, COLOUR_ON);
+
+		// narrower than the briefing's, for the status beside it
+		frontWrap(&g_Front.zurich, frontLangString(textid), wrapped, sizeof(wrapped), 0xdc);
+		gdl = frontPrint(gdl, 0x4b, y, wrapped, COLOUR_ON);
+		gdl = frontPrint(gdl, 0x136, y, frontString(done ? TITLE_OBJ_COMPLETED : TITLE_OBJ_FAILED),
+				done ? COLOUR_ON : COLOUR_FAILED);
+
+		lines += frontCountLines(wrapped);
+		shown++;
+	}
+
+	return gdl;
+}
+
+/**
+ * constructor_menu0D_missioncomplete(): the time, with the target a cheat is
+ * won by and the best so far; the accuracy, the weapon of choice, and the shots
+ * by where they landed. The hits are counted as GoldenEye counts them: the
+ * accuracy is every hit over every shot, objects too, and a part's share is of
+ * the hits on people - head, body, limb, gun and hat.
+ */
+static Gfx *frontDrawStats(Gfx *gdl)
+{
+	const s32 *shots = g_FrontReport.shots;
+	const s32 others = shots[SHOTREGION_GUN] + shots[SHOTREGION_HAT];
+	const s32 onpeople = shots[SHOTREGION_HEAD] + shots[SHOTREGION_BODY] + shots[SHOTREGION_LIMB] + others;
+	const s32 allhits = onpeople > 0 ? onpeople : 1;
+	const s32 secs = g_FrontReport.time60 / 60;
+	const s32 difficulty = g_Front.difficulty >= DIFFICULTY_007 ? DIFF_PA : g_Front.difficulty;
+	const s32 target = g_TargetTimes[g_Front.mission][difficulty];
+	const s32 line = frontLineHeight(&g_Front.zurich);
+	const s32 parts[4] = { shots[SHOTREGION_HEAD], shots[SHOTREGION_BODY], shots[SHOTREGION_LIMB], others };
+	s32 best;
+	char buf[128];
+
+	frontLoadBestTimes();
+	best = g_BestTimes[g_Front.mission][g_Front.difficulty];
+
+	gdl = frontMissionHeader(gdl, true);
+	gdl = frontPrint(gdl, 0x37, 0x8f, frontString(TITLE_STATISTICS), COLOUR_ON);
+
+	gdl = frontPrint(gdl, 0x37, 0xa7, frontString(TITLE_TIME), COLOUR_ON);
+	snprintf(buf, sizeof(buf), "%02d:%02d", secs / 60, secs % 60);
+	gdl = frontPrint(gdl, 0x82, 0xa7, buf, COLOUR_ON);
+
+	if (target > 0 && g_Front.difficulty != DIFFICULTY_007) {
+		gdl = frontPrint(gdl, 0x37, 0xa9 + line, frontString(TITLE_TARGET), COLOUR_ON);
+
+		if (best > 0) {
+			snprintf(buf, sizeof(buf), "%02d:%02d     (%s  %02d:%02d)", target / 60, target % 60,
+					frontString(TITLE_BESTTIME), best / 60, best % 60);
+		} else {
+			snprintf(buf, sizeof(buf), "%02d:%02d", target / 60, target % 60);
+		}
+
+		gdl = frontPrint(gdl, 0x82, 0xa9 + line, buf, COLOUR_ON);
+	} else if (best > 0) {
+		gdl = frontPrint(gdl, 0x37, 0xa9 + line, frontString(TITLE_BESTTIME), COLOUR_ON);
+		snprintf(buf, sizeof(buf), "%02d:%02d", best / 60, best % 60);
+		gdl = frontPrint(gdl, 0x82, 0xa9 + line, buf, COLOUR_ON);
+	}
+
+	gdl = frontPrint(gdl, 0x37, 0xcc, frontString(TITLE_ACCURACY), COLOUR_ON);
+	snprintf(buf, sizeof(buf), "%.1f%%", shots[SHOTREGION_TOTAL] > 0
+			? (onpeople + shots[SHOTREGION_OBJECT]) * 100.0f / shots[SHOTREGION_TOTAL] : 0.0f);
+	gdl = frontPrint(gdl, 0x82, 0xcc, buf, COLOUR_ON);
+
+	gdl = frontPrint(gdl, 0x37, 0xdc, frontString(TITLE_WEAPONOFCHOICE), COLOUR_ON);
+	snprintf(buf, sizeof(buf), "%s%s", g_FrontReport.weapon, g_FrontReport.weapondual ? " x 2" : "");
+	gdl = frontPrint(gdl, 0xbe, 0xdc, buf, COLOUR_ON);
+
+	gdl = frontPrint(gdl, 0x37, 0xf4, frontString(TITLE_SHOTTOTAL), COLOUR_ON);
+	snprintf(buf, sizeof(buf), "%d", shots[SHOTREGION_TOTAL]);
+	gdl = frontPrint(gdl, 0x82, 0xf4, buf, COLOUR_ON);
+
+	gdl = frontPrint(gdl, 0x37, 0xf4 + line, frontString(TITLE_KILLTOTAL), COLOUR_ON);
+	snprintf(buf, sizeof(buf), "%d", g_FrontReport.kills);
+	gdl = frontPrint(gdl, 0x82, 0xf4 + line, buf, COLOUR_ON);
+
+	for (s32 i = 0; i < 4; i++) {
+		gdl = frontPrint(gdl, 0xb4, 0xf4 + i * line, frontString(TITLE_HEADHITS + i), COLOUR_ON);
+		snprintf(buf, sizeof(buf), "%d (%d%%)", parts[i], (s32)(parts[i] * 100.0f / allhits + 0.5f));
+		gdl = frontPrint(gdl, 0x12c, 0xf4 + i * line, buf, COLOUR_ON);
+	}
+
+	return gdl;
+}
+
 Gfx *gexFrontRender(Gfx *gdl)
 {
 	if (!g_Front.active) {
@@ -4572,6 +4980,12 @@ Gfx *gexFrontRender(Gfx *gdl)
 			gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
 			gdl = frontTextSetup(gdl);
 		}
+		break;
+	case SCREEN_REPORT:
+	case SCREEN_STATS:
+		gdl = g_Front.screen == SCREEN_REPORT ? frontDrawReport(gdl) : frontDrawStats(gdl);
+		gdl = frontTab(gdl, TITLE_NEXT, NEXTTAB_TEXT_TOP, NEXTTAB_TEXT_BOTTOM, g_Front.tabnext);
+		gdl = frontTextSetup(gdl);
 		break;
 	default:
 		gdl = frontDrawPlayerPanels(gdl);
