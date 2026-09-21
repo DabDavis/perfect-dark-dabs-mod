@@ -709,8 +709,43 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 	}
 }
 
+/**
+ * Put a simulant's stat sliders back to stock.
+ */
+void mpResetBotStats(s32 botnum)
+{
+	s32 i;
+
+	for (i = 0; i < BOTSTAT_COUNT; i++) {
+		g_BotConfigsArray[botnum].stats[i] = 0;
+	}
+}
+
+/**
+ * True if any simulant in use has a stat slider moved, meaning the setup can
+ * only be stored in the format that holds them.
+ */
+bool mpNeedsSimStats(void)
+{
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < MAX_BOTS; i++) {
+		if (mpIsSimSlotOn(i)) {
+			for (j = 0; j < BOTSTAT_COUNT; j++) {
+				if (g_BotConfigsArray[i].stats[j] != 0) {
+					return true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
 void func0f1881d4(s32 index)
 {
+	mpResetBotStats(index);
 	g_BotConfigsArray[index].base.name[0] = '\0';
 	g_BotConfigsArray[index].base.mpheadnum = MPHEAD_DARK_COMBAT;
 	g_BotConfigsArray[index].base.mpbodynum = MPBODY_DARK_COMBAT;
@@ -3809,6 +3844,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 
 	g_BotConfigsArray[botnum].type = g_BotProfiles[profilenum].type;
 	g_BotConfigsArray[botnum].difficulty = g_BotProfiles[profilenum].difficulty;
+	mpResetBotStats(botnum);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		g_MpSimulantDifficultiesPerNumPlayers[botnum][i] = g_BotConfigsArray[botnum].difficulty;
@@ -3894,6 +3930,7 @@ void mpCopySimulant(s32 index)
 	g_BotConfigsArray[dest].base.mpbodynum = g_BotConfigsArray[index].base.mpbodynum;
 	g_BotConfigsArray[dest].type = g_BotConfigsArray[index].type;
 	g_BotConfigsArray[dest].difficulty = g_BotConfigsArray[index].difficulty;
+	memcpy(g_BotConfigsArray[dest].stats, g_BotConfigsArray[index].stats, sizeof(g_BotConfigsArray[dest].stats));
 	mpGenerateBotNames();
 }
 #endif
@@ -4531,6 +4568,7 @@ void mpApplyConfig(struct mpconfigfull *config)
 	// ROM-resident and only have MAX_BOTS_CONFIG entries.
 	for (i = 0; i < MAX_BOTS_CONFIG; i++) {
 		g_BotConfigsArray[i].type = config->config.simulants[i].type;
+		mpResetBotStats(i); // a challenge or preset plays stock simulants
 
 		for (j = 0; j < MAX_PLAYERS; j++) {
 			g_MpSimulantDifficultiesPerNumPlayers[i][j] = config->config.simulants[i].difficulties[j];
@@ -4730,6 +4768,24 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		g_PlayerConfigsArray[i].base.team = savebufferReadBits(buffer, 3);
 	}
 
+	// The stat sliders follow everything the older formats wrote, so that a
+	// file without them reads exactly as it always did.
+	for (i = 0; i < MAX_BOTS; i++) {
+		for (j = 0; j < BOTSTAT_COUNT; j++) {
+			s32 value = 0;
+
+			if (version >= MPSETUP_VERSION_SIMSTATS) {
+				value = (s32)savebufferReadBits(buffer, BOTSTAT_BITS) + BOTSTAT_MIN;
+
+				if (value > BOTSTAT_MAX) {
+					value = BOTSTAT_MAX;
+				}
+			}
+
+			g_BotConfigsArray[i].stats[j] = value;
+		}
+	}
+
 	challengeForceUnlockBotFeatures();
 }
 
@@ -4825,6 +4881,16 @@ void mpsetupfileSaveWad(struct savebuffer *buffer, u8 version)
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		savebufferOr(buffer, g_PlayerConfigsArray[i].base.team, 3);
+	}
+
+	if (version >= MPSETUP_VERSION_SIMSTATS) {
+		s32 j;
+
+		for (i = 0; i < MAX_BOTS; i++) {
+			for (j = 0; j < BOTSTAT_COUNT; j++) {
+				savebufferOr(buffer, g_BotConfigsArray[i].stats[j] - BOTSTAT_MIN, BOTSTAT_BITS);
+			}
+		}
 	}
 }
 

@@ -5204,6 +5204,19 @@ enum weaponnum {
 
 #define EXTRA_SLEEP_TIME 1000LL // 100us
 
+// A simulant's stat sliders. Each is held in tenths either side of stock, so
+// a zeroed config is a stock simulant: -9 is 10%, 0 is 100%, 40 is 500%.
+#define BOTSTAT_SPEED     0
+#define BOTSTAT_ACCURACY  1
+#define BOTSTAT_REACTION  2
+#define BOTSTAT_DAMAGE    3
+#define BOTSTAT_TOUGHNESS 4
+#define BOTSTAT_COUNT     5
+
+#define BOTSTAT_MIN  (-9)
+#define BOTSTAT_MAX  40
+#define BOTSTAT_BITS 6
+
 #define MPSETUP_MAXSETUPS 128
 #define MPSETUP_MAXNAME 17
 // Setup block size for file format version 1, which stored MAX_BOTS_CONFIG
@@ -5214,7 +5227,10 @@ enum weaponnum {
 // difficulty 3, head 7, body 7, team 3); the rest covers the name, limits,
 // weapons and player teams. savebufferOr() does not bounds check, so this must
 // stay comfortably larger than what mpsetupfileSaveWad() writes.
-#define MPSETUP_BLOCKSIZE (96 + (MAX_BOTS * 25 + 7) / 8)
+#define MPSETUP_BLOCKSIZE_V2 (96 + (MAX_BOTS * 25 + 7) / 8)
+
+// Version 3 adds BOTSTAT_BITS for each of a simulant's stats.
+#define MPSETUP_BLOCKSIZE (MPSETUP_BLOCKSIZE_V2 + (MAX_BOTS * BOTSTAT_COUNT * BOTSTAT_BITS + 7) / 8)
 
 // Base file format: MAX_BOTS_CONFIG simulants, readable by unmodified builds.
 #define MPSETUP_VERSION_BASE 1
@@ -5222,6 +5238,13 @@ enum weaponnum {
 // File format version that first stored more than MAX_BOTS_CONFIG simulants.
 // Only used when a setup actually needs it, so files stay interoperable.
 #define MPSETUP_VERSION_EXTENDEDSIMS 2
+
+// File format version that first stored each simulant's stat sliders, after
+// everything version 2 writes. Only used when a simulant has a stat moved.
+#define MPSETUP_VERSION_SIMSTATS 3
+
+// The newest format, which loses nothing of a live setup.
+#define MPSETUP_VERSION_LATEST MPSETUP_VERSION_SIMSTATS
 
 #endif
 

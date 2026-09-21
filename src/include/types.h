@@ -4283,6 +4283,7 @@ struct mpbotconfig {
 	/*0x44*/ u8 unk44[3];
 	/*0x47*/ u8 type;
 	/*0x48*/ u8 difficulty;
+	s8 stats[BOTSTAT_COUNT]; // BOTSTAT_*, tenths either side of stock
 };
 
 struct missionconfig {

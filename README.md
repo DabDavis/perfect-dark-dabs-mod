@@ -116,6 +116,23 @@ profile. The four Bond heads that share that unlock are still earned normally.
 The save file only grows past the stock 8-simulant format when a setup actually
 needs it, so ordinary setups stay readable by an unmodified port.
 
+Each simulant has its own **Stats...** page under its entry in the simulant
+menu, with five sliders from 10% to 500% of what its type and difficulty give
+it. All start at 100%, a stock simulant.
+
+| Slider | What it scales |
+|---|---|
+| Speed | Top running speed |
+| Accuracy | How far its aim strays from the target; 500% is a fifth of the error |
+| Reaction | How soon it fires once it sees someone, and how fast its aim settles |
+| Damage | Damage it deals |
+| Toughness | Damage it takes, to shield and health alike; 500% takes a fifth |
+
+**Reset to Stock** puts all five back, **Copy Simulant** carries them to the
+copy, and they save with the setup. A challenge or a preset always plays stock
+simulants. A setup file that holds a moved slider is in a newer format that
+older builds of this fork cannot read; one with every slider at 100% is not.
+
 ### Bodies
 
 Bodies stay where they fell instead of vanishing. **Bodies** caps how many are

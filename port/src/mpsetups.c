@@ -18,15 +18,16 @@ MP Setup File Format
 	[defaultsetup{1}]
 	[numsetups{1}]
 	# setups
-	# block size is MPSETUP_BLOCKSIZE_V1 for version 1, MPSETUP_BLOCKSIZE for
-	# version 2 onwards (version 2 stores MAX_BOTS simulants instead of
-	# MAX_BOTS_CONFIG)
+	# block size is MPSETUP_BLOCKSIZE_V1 for version 1, MPSETUP_BLOCKSIZE_V2
+	# for version 2 (which stores MAX_BOTS simulants instead of
+	# MAX_BOTS_CONFIG) and MPSETUP_BLOCKSIZE for version 3 (which adds each
+	# simulant's stat sliders)
 	[setup_1{blocksize}]
 	...
 	[setup_n{blocksize}]
  */
 
-#define MPSETUP_VERSION MPSETUP_VERSION_EXTENDEDSIMS
+#define MPSETUP_VERSION MPSETUP_VERSION_LATEST
 
 #define MPSETUP_EXPORTDIR "$S/exported/"
 #define MPSETUP_FILENAME "mpsetups"
@@ -357,6 +358,19 @@ static struct menudialogdef g_ImportOverrideDialog = {
 
 /* common utils */
 
+/**
+ * Size of a block as written by the given format version. A block in memory is
+ * always MPSETUP_BLOCKSIZE, with whatever its version does not write zeroed.
+ */
+static size_t mpsetupBlockSize(u8 version)
+{
+	if (version >= MPSETUP_VERSION_SIMSTATS) {
+		return MPSETUP_BLOCKSIZE;
+	}
+
+	return version >= MPSETUP_VERSION_EXTENDEDSIMS ? MPSETUP_BLOCKSIZE_V2 : MPSETUP_BLOCKSIZE_V1;
+}
+
 static s32 mpsetupDeserialize(FILE *f, struct mpsetupfile *setupfile)
 {
 	s32 rx = 0;
@@ -365,11 +379,10 @@ static s32 mpsetupDeserialize(FILE *f, struct mpsetupfile *setupfile)
 	rx += fread(&setupfile->defaultsetup, sizeof(setupfile->defaultsetup), 1, f);
 	rx += fread(&setupfile->numsetups, sizeof(setupfile->numsetups), 1, f);
 
-	// Version 1 files store smaller blocks. Read them at their own size and
-	// leave the remainder zeroed; mpsetupfileLoadWad() is told the version and
-	// only reads as many simulants as that version wrote.
-	const size_t blocksize = setupfile->version >= MPSETUP_VERSION_EXTENDEDSIMS
-		? MPSETUP_BLOCKSIZE : MPSETUP_BLOCKSIZE_V1;
+	// Older files store smaller blocks. Read them at their own size and leave
+	// the remainder zeroed; mpsetupfileLoadWad() is told the version and only
+	// reads what that version wrote.
+	const size_t blocksize = mpsetupBlockSize(setupfile->version);
 
 	for (int i = 0; i < setupfile->numsetups; ++i) {
 		memset(setupfile->setups[i].bytes, 0, MPSETUP_BLOCKSIZE);
@@ -389,8 +402,7 @@ static s32 mpsetupSerialize(FILE *f, struct mpsetupfile *setupfile)
 
 	// Base-format files are written with the smaller block so that unmodified
 	// builds can still read them.
-	const size_t blocksize = setupfile->version >= MPSETUP_VERSION_EXTENDEDSIMS
-		? MPSETUP_BLOCKSIZE : MPSETUP_BLOCKSIZE_V1;
+	const size_t blocksize = mpsetupBlockSize(setupfile->version);
 
 	for (int i = 0; i < setupfile->numsetups; ++i) {
 		wx += fwrite(setupfile->setups[i].bytes, blocksize, 1, f);
@@ -457,14 +469,6 @@ static s32 mpsetupSaveFile(u8 op, struct mpsetupfile *setupfile)
 }
 
 /**
- * Size of an in-memory block as written by the given format version.
- */
-static size_t mpsetupBlockSize(u8 version)
-{
-	return version >= MPSETUP_VERSION_EXTENDEDSIMS ? MPSETUP_BLOCKSIZE : MPSETUP_BLOCKSIZE_V1;
-}
-
-/**
  * Re-encode every stored setup from the file's current format version into
  * another one, skipping one index.
  *
@@ -496,15 +500,31 @@ static void mpsetupReencodeBlocks(struct mpsetupfile *setupfile, u8 toversion, s
 }
 
 /**
- * True if any stored setup other than skipindex uses simulants beyond the base
- * format's capacity. A base-format file cannot, so it needs no scan.
+ * The oldest format version that holds everything in the live setup: the base
+ * one unless it uses simulants beyond that format's capacity, or has moved a
+ * simulant's stat sliders.
+ */
+static u8 mpsetupLiveVersion(void)
+{
+	if (mpNeedsSimStats()) {
+		return MPSETUP_VERSION_SIMSTATS;
+	}
+
+	return mpNeedsExtendedSims() ? MPSETUP_VERSION_EXTENDEDSIMS : MPSETUP_VERSION_BASE;
+}
+
+/**
+ * The oldest format version that holds every stored setup other than
+ * skipindex. A base-format file holds nothing newer, so it needs no scan.
  *
  * Decodes into the live MP globals; the caller must restore them.
  */
-static bool mpsetupAnyOtherNeedsExtended(struct mpsetupfile *setupfile, s32 skipindex)
+static u8 mpsetupOthersVersion(struct mpsetupfile *setupfile, s32 skipindex)
 {
+	u8 version = MPSETUP_VERSION_BASE;
+
 	if (setupfile->version < MPSETUP_VERSION_EXTENDEDSIMS) {
-		return false;
+		return version;
 	}
 
 	for (int i = 0; i < setupfile->numsetups; ++i) {
@@ -517,12 +537,12 @@ static bool mpsetupAnyOtherNeedsExtended(struct mpsetupfile *setupfile, s32 skip
 		memcpy(in.bytes, setupfile->setups[i].bytes, MPSETUP_BLOCKSIZE);
 		mpsetupfileLoadWad(&in, setupfile->version);
 
-		if (mpNeedsExtendedSims()) {
-			return true;
+		if (mpsetupLiveVersion() > version) {
+			version = mpsetupLiveVersion();
 		}
 	}
 
-	return false;
+	return version;
 }
 
 static s32 mpsetupLoadFile(struct mpsetupfile *setupfile, u8 op)
@@ -567,7 +587,7 @@ static void mpsetupAlignImportVersion(void)
 		? g_ImportMpSetupFile.version : g_MpSetupFile.version;
 
 	savebufferClear(&live);
-	mpsetupfileSaveWad(&live, MPSETUP_VERSION_EXTENDEDSIMS);
+	mpsetupfileSaveWad(&live, MPSETUP_VERSION_LATEST);
 
 	if (g_MpSetupFile.version != version) {
 		mpsetupReencodeBlocks(&g_MpSetupFile, version, -1);
@@ -581,7 +601,7 @@ static void mpsetupAlignImportVersion(void)
 
 	savebufferClear(&setup);
 	memcpy(setup.bytes, live.bytes, MPSETUP_BLOCKSIZE);
-	mpsetupfileLoadWad(&setup, MPSETUP_VERSION_EXTENDEDSIMS);
+	mpsetupfileLoadWad(&setup, MPSETUP_VERSION_LATEST);
 }
 
 static s32 mpsetupImportFile(u8 op, u8 skipOverlap)
@@ -968,6 +988,7 @@ s32 mpsetupSaveSetup(s32 slotindex, u8 savefile)
 	struct savebuffer setup;
 	struct savebuffer live;
 	u8 version;
+	u8 othersversion;
 
 	// request to add a new setup
 	if (slotindex == g_MpSetupFile.numsetups) {
@@ -978,15 +999,18 @@ s32 mpsetupSaveSetup(s32 slotindex, u8 savefile)
 	// and the scan and re-encode below decode other setups into the same
 	// globals, so this is what restores them afterwards.
 	savebufferClear(&live);
-	mpsetupfileSaveWad(&live, MPSETUP_VERSION_EXTENDEDSIMS);
+	mpsetupfileSaveWad(&live, MPSETUP_VERSION_LATEST);
 
 	// Stay in the base format unless this setup, or one already stored, needs
-	// more than MAX_BOTS_CONFIG simulants. That keeps the file readable by
-	// unmodified builds whenever it can be, and lets a file that no longer
-	// needs the extended format drop back to the base one.
-	version = mpNeedsExtendedSims()
-			|| mpsetupAnyOtherNeedsExtended(&g_MpSetupFile, slotindex)
-		? MPSETUP_VERSION_EXTENDEDSIMS : MPSETUP_VERSION_BASE;
+	// more than MAX_BOTS_CONFIG simulants or holds a simulant's stat sliders.
+	// That keeps the file readable by unmodified builds whenever it can be,
+	// and lets a file that no longer needs a newer format drop back.
+	version = mpsetupLiveVersion();
+	othersversion = mpsetupOthersVersion(&g_MpSetupFile, slotindex);
+
+	if (othersversion > version) {
+		version = othersversion;
+	}
 
 	if (version != g_MpSetupFile.version) {
 		mpsetupReencodeBlocks(&g_MpSetupFile, version, slotindex);
@@ -996,7 +1020,7 @@ s32 mpsetupSaveSetup(s32 slotindex, u8 savefile)
 	// restore the live setup, then store it at the chosen version
 	savebufferClear(&setup);
 	memcpy(setup.bytes, live.bytes, MPSETUP_BLOCKSIZE);
-	mpsetupfileLoadWad(&setup, MPSETUP_VERSION_EXTENDEDSIMS);
+	mpsetupfileLoadWad(&setup, MPSETUP_VERSION_LATEST);
 
 	savebufferClear(&setup);
 	mpsetupfileSaveWad(&setup, version);

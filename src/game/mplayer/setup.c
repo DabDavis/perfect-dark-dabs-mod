@@ -3458,6 +3458,41 @@ MenuItemHandlerResult menuhandlerMpCopySimulant(s32 operation, struct menuitem *
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * One of the simulant's stat sliders; the item's param is the BOTSTAT. The
+ * slider counts tenths up from 10%, and the config holds them either side of
+ * stock so that a simulant nobody has touched is all zeroes.
+ */
+MenuItemHandlerResult menuhandlerMpSimulantStat(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct mpbotconfig *config = &g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex];
+
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = config->stats[item->param] - BOTSTAT_MIN;
+		break;
+	case MENUOP_SET:
+		config->stats[item->param] = (s32)data->slider.value + BOTSTAT_MIN;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d%%\n", ((s32)data->slider.value + BOTSTAT_MIN + 10) * 10);
+		break;
+	}
+
+	return 0;
+}
+
+MenuItemHandlerResult menuhandlerMpSimulantResetStats(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		mpResetBotStats(g_Menus[g_MpPlayerNum].mpsetup.slotindex);
+	}
+
+	return 0;
+}
+#endif
+
 char *mpMenuTitleEditSimulant(struct menudialogdef *dialogdef)
 {
 	sprintf(g_StringPointer, "%s", &g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base.name);
@@ -3669,6 +3704,60 @@ struct menudialogdef g_MpSimulantCharacterMenuDialog = {
 	NULL,
 };
 
+#ifndef PLATFORM_N64
+#define SIMSTAT_SLIDER(stat, label) \
+	{ \
+		MENUITEMTYPE_SLIDER, \
+		stat, \
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_LOCKABLEMINOR | MENUITEMFLAG_LITERAL_TEXT, \
+		(uintptr_t)label, \
+		BOTSTAT_MAX - BOTSTAT_MIN, \
+		menuhandlerMpSimulantStat, \
+	}
+
+struct menuitem g_MpSimulantStatsMenuItems[] = {
+	SIMSTAT_SLIDER(BOTSTAT_SPEED,     "Speed\n"),
+	SIMSTAT_SLIDER(BOTSTAT_ACCURACY,  "Accuracy\n"),
+	SIMSTAT_SLIDER(BOTSTAT_REACTION,  "Reaction\n"),
+	SIMSTAT_SLIDER(BOTSTAT_DAMAGE,    "Damage\n"),
+	SIMSTAT_SLIDER(BOTSTAT_TOUGHNESS, "Toughness\n"),
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LOCKABLEMINOR | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Reset to Stock\n",
+		0,
+		menuhandlerMpSimulantResetStats,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_MPMENU_099, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_MpSimulantStatsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)&mpMenuTitleEditSimulant,
+	g_MpSimulantStatsMenuItems,
+	NULL,
+	MENUDIALOGFLAG_MPLOCKABLE,
+	NULL,
+};
+#endif
+
 struct menuitem g_MpEditSimulantMenuItems[] = {
 	{
 		MENUITEMTYPE_DROPDOWN,
@@ -3694,6 +3783,16 @@ struct menuitem g_MpEditSimulantMenuItems[] = {
 		0,
 		(void *)&g_MpSimulantCharacterMenuDialog,
 	},
+#ifndef PLATFORM_N64
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Stats...\n",
+		0,
+		(void *)&g_MpSimulantStatsMenuDialog,
+	},
+#endif
 	{
 		MENUITEMTYPE_SEPARATOR,
 		0,

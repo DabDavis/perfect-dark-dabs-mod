@@ -4973,6 +4973,16 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			damage *= g_Vars.currentplayerstats->damagescale;
 			setCurrentPlayerNum(prevplayernum);
 		}
+
+#ifndef PLATFORM_N64
+		// A simulant's damage and toughness sliders. Both are 1 for anyone
+		// who is not a simulant, and for a simulant nobody has touched.
+		if (aprop && aprop->type == PROPTYPE_CHR) {
+			damage *= botGetStatScale(aprop->chr, BOTSTAT_DAMAGE);
+		}
+
+		damage /= botGetStatScale(chr, BOTSTAT_TOUGHNESS);
+#endif
 	}
 
 	// Apply rumble

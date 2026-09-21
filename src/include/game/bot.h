@@ -26,6 +26,10 @@ bool botIsTargetInSight(struct chrdata *chr);
 f32 botGetDistanceToTarget(struct chrdata *chr);
 s32 botTick(struct prop *prop);
 f32 botCalculateMaxSpeed(struct chrdata *chr);
+#ifndef PLATFORM_N64
+f32 botGetStatScale(struct chrdata *chr, s32 stat);
+s32 botGetShootDelay(struct chrdata *chr);
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 void bot0f1921f8(struct chrdata *chr, f32 *move, s32 numupdates, f32 arg3);

@@ -282,3 +282,27 @@ How it was found, since reading the diff against upstream did not find it:
 - In multiplayer nothing moves by the off-screen "magic" walk
   (`normmplayerisrunning`), so a headless match does exercise the real
   collision.
+
+## A simulant's stat sliders, and what the player count really changes (2026-09-21)
+
+Nothing in the bot code scales a simulant by how many people are playing - no
+`PLAYERCOUNT()` near speed, aim or damage, and the movement integrator
+(`bot0f1921f8()`) is frame-rate independent at its top speed. The one table
+keyed on the player count is `g_MpSimulantDifficultiesPerNumPlayers[][4]`,
+which a **challenge's** ROM config fills (`challenge.c:270`): a challenge
+gives each simulant a *difficulty* per number of players, and difficulty is
+what sets a plain simulant's speed (5.0 to 11.2). An ordinary match writes one
+difficulty into all four columns. On a console the rest of "faster with four"
+is the frame rate.
+
+The sliders (`BOTSTAT_*`, `mpbotconfig.stats[]`, tenths either side of stock so
+a zeroed config is stock; Edit Simulant > Stats...) are read through
+`botGetStatScale()`: speed in `botCalculateMaxSpeed()`, accuracy and reaction in
+`bot0f192a74()` and `botGetShootDelay()`, damage and toughness in `chrDamage()`'s
+normal-multiplayer branch. A DarkSim's aim error is already zero, so its
+accuracy slider only matters below 100%. At 500% speed a simulant covers 150
+units a frame in a straight line and spends most of its time against walls -
+measured 2.6x the distance of a stock one, not 5x. They save in setup file
+version 3 (save-format.md). The probes were gdb scripts over the seeded perf
+match: `g_MpAllChrPtrs[i]` is **not** bot slot `i - 1` (the order is shuffled),
+go through `aibot->config - g_BotConfigsArray`.

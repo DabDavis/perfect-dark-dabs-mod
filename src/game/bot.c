@@ -1368,6 +1368,43 @@ s32 botTick(struct prop *prop)
 	return result;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * How far one of a simulant's stat sliders has been moved, as a multiplier:
+ * 1 for a stock simulant, 0.1 at the bottom of the slider and 5 at the top.
+ * Anything that is not a simulant gets 1.
+ */
+f32 botGetStatScale(struct chrdata *chr, s32 stat)
+{
+	s32 value;
+
+	if (!chr || !chr->aibot || !chr->aibot->config) {
+		return 1.0f;
+	}
+
+	value = chr->aibot->config->stats[stat];
+
+	if (value < BOTSTAT_MIN) {
+		value = BOTSTAT_MIN;
+	} else if (value > BOTSTAT_MAX) {
+		value = BOTSTAT_MAX;
+	}
+
+	return 1.0f + value * 0.1f;
+}
+
+/**
+ * How long the simulant must have its target in sight before it fires, which
+ * its reaction slider shortens or lengthens.
+ */
+s32 botGetShootDelay(struct chrdata *chr)
+{
+	return g_BotDifficulties[chr->aibot->config->difficulty].shootdelay / botGetStatScale(chr, BOTSTAT_REACTION);
+}
+#else
+#define botGetShootDelay(chr) (g_BotDifficulties[(chr)->aibot->config->difficulty].shootdelay)
+#endif
+
 f32 botCalculateMaxSpeed(struct chrdata *chr)
 {
 	f32 speed;
@@ -1407,6 +1444,10 @@ f32 botCalculateMaxSpeed(struct chrdata *chr)
 			break;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	speed *= botGetStatScale(chr, BOTSTAT_SPEED);
+#endif
 
 	if (botGuessCrouchPos(chr) == CROUCHPOS_SQUAT) {
 		speed *= 0.35f;
@@ -1735,6 +1776,14 @@ void bot0f192a74(struct chrdata *chr)
 	f32 fVar12;
 	f32 fVar11;
 	f32 tmp;
+#ifndef PLATFORM_N64
+	// The reaction slider shortens the time the aim takes to settle on a
+	// target in sight, and the accuracy slider narrows the error it settles to
+	f32 settletime = g_BotDifficulties[diff].unk0c / botGetStatScale(chr, BOTSTAT_REACTION);
+	f32 accuracy = botGetStatScale(chr, BOTSTAT_ACCURACY);
+#else
+	f32 settletime = g_BotDifficulties[diff].unk0c;
+#endif
 
 	aibot->random3ttl60 -= g_Vars.lvupdate60;
 
@@ -1767,12 +1816,12 @@ void bot0f192a74(struct chrdata *chr)
 		aibot->targetinsighttemperature = 0;
 	}
 
-	if (aibot->targetinsighttemperature >= g_BotDifficulties[diff].unk0c) {
-		aibot->targetinsighttemperature = g_BotDifficulties[diff].unk0c;
+	if (aibot->targetinsighttemperature >= settletime) {
+		aibot->targetinsighttemperature = settletime;
 		fVar12 = 0;
 		fVar11 = 0;
 	} else {
-		tmp = (g_BotDifficulties[diff].unk0c - aibot->targetinsighttemperature) / g_BotDifficulties[diff].unk0c;
+		tmp = (settletime - aibot->targetinsighttemperature) / settletime;
 		fVar12 = g_BotDifficulties[diff].unk04 * tmp;
 		fVar11 = g_BotDifficulties[diff].unk08 * tmp;
 	}
@@ -1792,6 +1841,10 @@ void bot0f192a74(struct chrdata *chr)
 	}
 
 	aibot->extraanglebase = (fVar11 - fVar12) * (aibot->random3 & 0xffff) * 0.000015259021893144f + fVar12;
+
+#ifndef PLATFORM_N64
+	aibot->extraanglebase /= accuracy;
+#endif
 
 	if (aibot->random3 & 0x10000) {
 		aibot->extraanglebase = -aibot->extraanglebase;
@@ -3787,7 +3840,7 @@ void botTickUnpaused(struct chrdata *chr)
 
 								if (chr->target != -1
 										&& aibot->targetinsight
-										&& aibot->shootdelaytimer60 >= g_BotDifficulties[aibot->config->difficulty].shootdelay) {
+										&& aibot->shootdelaytimer60 >= botGetShootDelay(chr)) {
 									if (!botIsDizzy(chr)) {
 										if (weaponHost(aibot->weaponnum) == WEAPON_TRANQUILIZER) {
 											if (!chrIsTargetInFov(chr, 30, 0) || chrGetDistanceToTarget(chr) > range) {
@@ -3900,7 +3953,7 @@ void botTickUnpaused(struct chrdata *chr)
 
 									if (chr->target != -1
 											&& aibot->targetinsight
-											&& aibot->shootdelaytimer60 >= g_BotDifficulties[aibot->config->difficulty].shootdelay
+											&& aibot->shootdelaytimer60 >= botGetShootDelay(chr)
 											&& (botIsDizzy(chr) || chrIsTargetInFov(chr, 45, false))) {
 										throw = true;
 									}
@@ -3963,7 +4016,7 @@ void botTickUnpaused(struct chrdata *chr)
 								firing = true;
 							} else if (chr->target != -1
 									&& aibot->targetinsight
-									&& aibot->shootdelaytimer60 >= g_BotDifficulties[aibot->config->difficulty].shootdelay
+									&& aibot->shootdelaytimer60 >= botGetShootDelay(chr)
 									&& (botIsDizzy(chr) || chrIsTargetInFov(chr, 45, false))
 									&& !chrIsDead(chrGetTargetProp(chr)->chr)) {
 								firing = true;

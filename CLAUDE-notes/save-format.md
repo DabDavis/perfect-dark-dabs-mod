@@ -1,9 +1,12 @@
 # Save format
 
 `mpsetupfileSaveWad()`/`LoadWad()` take a version. The port's file has a version byte
-and per-version block sizes (`MPSETUP_BLOCKSIZE_V1` vs `MPSETUP_BLOCKSIZE`). Files
-stay in the base format unless a setup actually needs >8 simulants, so unmodified
-builds can still read them; changing version re-encodes every block.
+and per-version block sizes (`MPSETUP_BLOCKSIZE_V1`, `_V2`, and `MPSETUP_BLOCKSIZE`
+for version 3). Files stay in the base format unless a setup actually needs >8
+simulants (version 2) or has a simulant stat slider moved (version 3, the sliders
+appended after everything version 2 writes), so unmodified builds can still read
+them; changing version re-encodes every block. `mpsetupLiveVersion()` in
+mpsetups.c is where a new reason for a newer version goes.
 
 `savebufferOr()` does no bounds checking. `stagenum` is stored in 7 bits.
 
