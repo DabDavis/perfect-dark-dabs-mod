@@ -6483,3 +6483,27 @@ simulation diverges within a few hundred frames, and 140 of 164 tour views
 "differed" by where a guard stood and how the gun swayed. Compare *rooms drawn*,
 or toggle inside one run. (2) A probe view with `floorroom -1` is a player
 falling past the dam; its two shots are from two heights.
+
+## The dive off Dam killed Bond (2026-09-21)
+
+The user: *"the bungee jump objective completes at the jump spot, but when you
+fall off you die instead of ending the missions with the cutscene."*
+
+**Perfect Dark kills a player who has been falling for four seconds**
+(`bwalkUpdateVertical()`: `lvframe60 - fallstart > TICKS(240)`, `playerDie(true)`
+- forced, so taking damage away does not stop it). **GoldenEye has no clock on a
+fall at all** (bondview2.c's gravity block is Perfect Dark's line for line, less
+`isfalling`/`fallstart`), and Dam's list `0x1004` counts on that: it pushes Bond
+off and waits for 350 ticks of falling before it fades to the ending. He died at
+tick 240.
+
+On a converted level's mission (`geRoomActive()` and not a Combat Simulator
+match) the clock is off and only a fall to -30000 kills; the arenas keep the
+four seconds, since a match has nobody to abort it.
+
+**The fault was in the first dive probe's own log and was not read.** dive3.log
+shows the forced velocity going from (0, 4) to (0, 0) at exactly +240 - that is
+`playerDieByShooter()` - and the fall slowing; the list carried on regardless,
+the fade and the outro's shots came, and the probe was called a pass. A
+`--boot-stage` run has no endscreen to say "failed", so **a mission-ending probe
+must print `isdead`** (`diveprobe.py` and `damfull.py` do now).

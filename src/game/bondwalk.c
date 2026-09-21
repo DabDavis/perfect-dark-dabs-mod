@@ -1225,7 +1225,15 @@ void bwalkUpdateVertical(void)
 				g_Vars.currentplayer->isfalling = true;
 				g_Vars.currentplayer->fallstart = g_Vars.lvframe60;
 			} else {
-				if (g_Vars.lvframe60 - g_Vars.currentplayer->fallstart > TICKS(240)) {
+				if (geRoomActive() && !g_Vars.normmplayerisrunning) {
+					// GoldenEye has no clock on a fall, and its missions
+					// count on that: Dam's dive is 350 ticks of one before
+					// the list fades to the ending. Only a fall out of the
+					// world kills.
+					if (newmanground <= -30000) {
+						playerDie(true);
+					}
+				} else if (g_Vars.lvframe60 - g_Vars.currentplayer->fallstart > TICKS(240)) {
 					// Have been falling for 4 seconds
 					playerDie(true);
 				}
