@@ -7249,3 +7249,81 @@ moves. All twenty endings and openings run as before.
 after reading the code had picked the wrong site twice - model.c has two places
 that set a root's base height from its goal and neither was the one running. For
 "who keeps writing this" on a model's root, watch it.
+
+## Runway: the table in the air, the plane's ending, and the opening shot of nothing (2026-09-21)
+
+The user, playing Runway: "the table and chairs with the first objective is
+floating in the air. also the plane outro is not working. also the intro is far
+away sometimes and it shows void." Three faults, none of them Runway's alone.
+
+**An object's floor is its pad's tile, whatever height the pad was left at.**
+GoldenEye's placement (`sub_GAME_7F04088C()`) never reads a pad's y for an object
+without an "in air" flag: it asks the pad's own tile for the floor
+(`stanGetPositionYValue()`) and stands the object on it, or on the object
+already there - the key on the table. Perfect Dark's `func0f06a730()` is the same
+function and asks its collision instead, from the rooms the *pad's height*
+resolves to. Runway's key, table, chairs and screen have pads six hundred units
+over their hut's floor - over the hut's room altogether (its box tops out at
+184, the pads are at 452), so the rooms resolved to the snow outside (room 14),
+whose tiles do not reach under the hut, no floor was found and the set stayed
+over the roof. Where the search finds nothing on a converted level the floor is
+now `geStanWalk()` from the pad, and the rest of the function - onto the floor,
+or onto the block under it - runs as before. It logs each one (`gestan: object
+on pad ...`): Runway 8, Facility 10 (half of the bottling room's gas tanks, 263
+up), Control 3, Jungle 1, none elsewhere.
+
+**An aircraft flying an animation is posed as a character is.** GoldenEye's
+render builds it with `subcalcmatrices()` under **the camera's matrix alone**,
+the animated root carrying position, heading and scale. Perfect Dark's
+`objTickPlayer()` has a branch for *any* object whose model has an animation
+(the ones `aiSetObjAnim` animates), and the plane went through it: it stepped
+the animation a second time, added a root motion of its own to the prop, dropped
+it to the ground, freed the animation on its last frame - and posed it under the
+**object's** matrix, so the position went in twice and the plane took off as a
+speck in the sky a level's length away. The aircraft has its own branch there now
+(`gexPlusVehicleFliesAnim()`), which is GoldenEye's: nothing but the pose and the
+rotor. Two more in the same flight: `vehHeliTick()` handed **240ths to
+`modelTickAnim()`, which steps once a 60th** (`modelTickAnimQuarterSpeed()` is
+the one that takes 240ths) - with the second tick that was 2.5 animation frames
+a frame where the command asks for a half, so the flight was over before the
+fade in had finished; it is 220 frames now, which is the `0xdc` the ending's list
+waits - and the prop's rooms are carried along the flight in the tick, which the
+branch it left used to do. Perfect Dark's neighbouring branch, for
+`ANIMFLAG_ABSOLUTETRANSLATION`, is GoldenEye's aircraft code's descendant: the
+camera's matrix as the base, `modelUpdateInfo()`, `realrot` read back.
+
+**It was never only the plane.** Four missions' helicopters are *posed* by an
+animation held on a frame (`helicopter_takeoff` at frame 2 is Frigate's, standing
+on its pad for the whole mission; the Cradle's, Statue Park's, Surface 2's), and
+under the object's matrix they were drawn somewhere else altogether: Frigate's
+helipad was **empty**. `g_GeVehOwnPose` (gexplusveh.c) is a probe's switch back to
+the old path, and `rw/helilook2.py` shoots the same frame both ways - the
+helicopter is there with it on and gone with it off. GoldenEye also turns the
+animated root on two levels (`setsubroty`: 135 degrees on Statue Park, its level
+22, and 225 on Frigate, 26), which the tick now does by the conversion's mission
+number.
+
+**The Cinema page's Outro started Runway after its camera switch.** The ending
+is found by `HideAllChrs` + the exit command, and Runway is the mission that
+switches its camera *before* the pair, so the page played it from Bond's eyes at
+the other end of the level. Where the command before the pair is `00df` the
+start is that.
+
+**An opening shot's room is its tile's, not its pad's.** GoldenEye hands the
+still's pad tile and position to `bondviewSetCurrentPlayerPosition()` exactly as
+it does a cutscene camera's, which walks the tiles from the pad towards the
+camera. Dam's shots stand within forty units of their pads, which is where the
+"take the pad's room" rule was learned; Runway's first stands **six thousand**
+from its pad, and drawn from the pad's room (12) it was a cliff's corner and the
+void - one opening in six, which is "sometimes". `gecinemaPlace()` asks
+`geRoomCutsceneCamera()` now (room 14).
+
+Probes, all in `build/gexrom/rw/`: `shots.py` (every opening shot through
+`--cinema-opening`, waits on `g_GeCinemaShot`), `objdump.py` (the intro records
+and every object with its pad and room), `outro2.py` (kicks the ending's
+background chr - **chr 4008 for list 0x1008, 4000 + n** - at the offset
+`aidump.py run 4104` gives, and follows the plane), `padshot.py` (`PADS=311,319`:
+stands by the objects on those pads and shoots them). **A model's matrices are
+per-frame memory**: read at `videoEndFrame` they are garbage; break where they
+are built. And a probe left running holds the binary - `cp` fails with "Text file
+busy" and the *old* binary is what the next run tests.

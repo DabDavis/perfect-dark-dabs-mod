@@ -78,6 +78,10 @@ static void vehRamp(f32 *value, f32 aim, f32 *time60, f32 delta)
  * animation took when it was appended, so the id goes through the same lookup
  * the AI command uses.
  */
+// the conversion's mission order (geconvert.py's MISSIONS)
+#define GEMISSION_FRIGATE 6
+#define GEMISSION_STATUE  9
+
 static s32 vehAnimIsPlane(struct model *model)
 {
 	const s32 ours = gexPlusMissionAnim(GEAI_ANIM_TAG | (GEVEH_ANIM_FIRST + 1));
@@ -123,6 +127,8 @@ static void vehHeliTick(struct prop *prop)
 	// animation's y being an offset from where the aircraft was placed.
 	if (model && model->anim) {
 		struct coord pos;
+		struct coord from = prop->pos;
+		RoomNum rooms[8];
 		struct pad pad;
 
 		pos.x = prop->pos.x;
@@ -135,12 +141,20 @@ static void vehHeliTick(struct prop *prop)
 			modelSetAnimScale(model, 10.438f);
 			modelSetChrRotY(model, M_BADPI);
 		} else {
+			// and the two levels whose helicopter is not authored facing
+			// north: Statue Park's (GoldenEye's level 22) and Frigate's (26)
+			const s32 mission = modloaderStageMission(g_Vars.stagenum);
+
 			modelSetAnimScale(model, 1.0438f);
-			modelSetChrRotY(model, 0);
+			modelSetChrRotY(model, mission == GEMISSION_STATUE ? 2.3561945f
+					: mission == GEMISSION_FRIGATE ? 3.9269907f : 0.0f);
 		}
 
 		modelSetRootPosition(model, &pos);
-		modelTickAnim(model, g_Vars.lvupdate240, true);
+		// in 240ths, which is the quarter speed tick's unit: modelTickAnim()
+		// steps once a *60th*, and handed 240ths it flew Runway's plane out of
+		// its ending in a quarter of the 220 ticks the list waits for it
+		modelTickAnimQuarterSpeed(model, g_Vars.lvupdate240, true);
 		modelUpdateInfo(model);
 		modelGetRootPosition(model, &pos);
 
@@ -152,7 +166,12 @@ static void vehHeliTick(struct prop *prop)
 		pos.y = prop->pos.y;
 		modelSetRootPosition(model, &pos);
 
+		// and its rooms with it, by the portals its flight crossed: Perfect
+		// Dark's own animated-object branch used to do this, and the aircraft
+		// no longer goes through it (propobj.c)
+		func0f065e74(&from, prop->rooms, &prop->pos, rooms);
 		propDeregisterRooms(prop);
+		roomsCopy(rooms, prop->rooms);
 		propRegisterRooms(prop);
 	}
 
@@ -639,6 +658,18 @@ static void vehTruckUpdateModel(struct prop *prop)
 	mtx4MultMtx4InPlace(&steer, &roll);
 	vehPutPart(model, 1, &roll);
 	vehPutPart(model, 2, &roll);
+}
+
+// for a probe: zero puts a flying aircraft back through Perfect Dark's own
+// animated-object branch, to compare the two in one run
+s32 g_GeVehOwnPose = 1;
+
+s32 gexPlusVehicleFliesAnim(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+
+	return g_GeVehOwnPose && obj && obj->type == OBJTYPE_HELI && obj->model && obj->model->anim
+		&& modloaderStageIsMission(g_Vars.stagenum);
 }
 
 void gexPlusVehicleUpdateModel(struct prop *prop)

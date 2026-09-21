@@ -92,6 +92,7 @@
 #include "gesfx.h"
 #include "gehud.h"
 #include "geroom.h"
+#include "gestan.h"
 #include "gexplus.h"
 #endif
 #endif
@@ -2241,6 +2242,7 @@ void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum
 	f32 maxval;
 	s32 row;
 	bool isnegative;
+	bool foundfloor;
 
 	if (obj->flags & OBJFLAG_UPSIDEDOWN) {
 		mtx4LoadZRotation(M_BADPI, &sp70);
@@ -2321,11 +2323,33 @@ void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum
 		func0f065e74(arg1, rooms, &pos2, rooms2);
 
 #if VERSION >= VERSION_NTSC_1_0
-		if (cdFindFloorRoomYColourFlagsAtPos(&pos2, rooms2, &y, &obj->floorcol, NULL) > 0)
+		foundfloor = cdFindFloorRoomYColourFlagsAtPos(&pos2, rooms2, &y, &obj->floorcol, NULL) > 0;
 #else
-		if (cdFindFloorRoomYColourFlagsAtPos(&pos2, rooms2, &y, &obj->floorcol) > 0)
+		foundfloor = cdFindFloorRoomYColourFlagsAtPos(&pos2, rooms2, &y, &obj->floorcol) > 0;
 #endif
-		{
+
+#ifndef PLATFORM_N64
+		// On a level converted from GoldenEye the floor is the pad's own tile,
+		// whatever height the pad was left at (sub_GAME_7F04088C() never reads
+		// its y). Runway's key, and the table, chairs and screen round it, have
+		// pads six hundred units over their hut's floor - over the hut's room
+		// altogether, so the rooms resolved to the snow outside, whose tiles do
+		// not reach under the hut, and with no floor found the set stayed in
+		// the air over its roof.
+		if (!foundfloor) {
+			s32 tileroom;
+
+			if (geStanWalk(arg1, &pos2, &tileroom, &y)) {
+				sysLogPrintf(LOG_NOTE, "gestan: object on pad %d had no floor in its rooms; set on its tile in room %d, %.0f under the pad",
+						obj->pad, tileroom, pos2.y - y);
+				rooms2[0] = tileroom;
+				rooms2[1] = -1;
+				foundfloor = true;
+			}
+		}
+#endif
+
+		if (foundfloor) {
 			bool updated;
 			struct defaultobj *obj2 = objFindByPos(&pos2, rooms2);
 			u8 *start;
@@ -11101,6 +11125,28 @@ s32 objTickPlayer(struct prop *prop)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// A converted GoldenEye aircraft flying one of its animations. Its own
+	// tick has already stepped the animation and carried the root motion into
+	// the prop (gexplusveh.c), and GoldenEye poses it as a character is posed:
+	// under the camera's matrix alone, the animated root carrying where it
+	// is, which way it faces and its scale (propobj.c's subcalcmatrices()
+	// with camGetWorldToScreenMtxf() as the base). Perfect Dark's own branch
+	// below is for an object animated by aiSetObjAnim: it steps the animation
+	// again, adds a root motion of its own to the prop, drops it to the
+	// ground, poses it under the object's matrix - so the position went in
+	// twice and Runway's plane took off as a speck a level's length away, at
+	// double speed - and frees the animation on its last frame.
+	if (model->anim && gexPlusVehicleFliesAnim(prop)) {
+		struct modelrenderdata rd = {0, 1, 3};
+
+		sp556 = true;
+		rd.unk10 = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
+		rd.unk00 = camGetWorldToScreenMtxf();
+		modelSetMatricesWithAnim(&rd, model);
+		gexPlusVehicleUpdateModel(prop);
+	} else
+#endif
 	if (model->anim) {
 		if (g_Anims[model->anim->animnum].flags & ANIMFLAG_ABSOLUTETRANSLATION) {
 			if (g_Vars.tickmode != TICKMODE_CUTSCENE

@@ -55,6 +55,7 @@
 #include "input.h"
 #include "gexfront.h"
 #include "gecinema.h"
+#include "geroom.h"
 
 #ifndef PLATFORM_N64
 
@@ -368,10 +369,17 @@ static void gecinemaPlace(const u8 *shot)
 	// over a valley or inside a wall. A portal walk would be from the player's
 	// prop, which is across the level at the spawn, and answers the room they
 	// are in - which draws nothing.
-	padUnpack(*(const u32 *)(shot + 0x18), PADFIELD_ROOM, &pad);
+	//
+	// And it is the room of the tile the camera is *over*, not the pad's own:
+	// bondviewSetCurrentPlayerPosition() walks the tiles from the pad towards
+	// the camera, as it does for a cutscene's. Dam's shots stand within forty
+	// units of their pads and the two rooms are one; Runway's first stands six
+	// thousand from its pad, and drawn from the pad's room it is a cliff's
+	// corner and the void.
+	padUnpack(*(const u32 *)(shot + 0x18), PADFIELD_ROOM | PADFIELD_POS, &pad);
 
 	if (pad.room > 0 && pad.room < g_Vars.roomcount) {
-		g_GeCinemaCamRoom = pad.room;
+		g_GeCinemaCamRoom = geRoomCutsceneCamera(&g_GeCinemaCamPos, &pad.pos, pad.room);
 	}
 
 	// GoldenEye's look vector is (cos(pitch)sin(yaw), sin(pitch),
@@ -490,6 +498,7 @@ static void gecinemaKickEnding(void)
 
 	for (s32 i = 0; lists && lists[i].list; i++) {
 		u8 *cmd = lists[i].list;
+		u8 *prev = NULL;
 		s32 steps = 0;
 
 		while (steps++ < 100000) {
@@ -518,6 +527,14 @@ static void gecinemaKickEnding(void)
 					break;
 				}
 
+				// Runway switches its camera *before* the pair where the
+				// others do after it, and started on the pair its ending
+				// played out unseen from Bond's own eyes at the far end of the
+				// level
+				if (prev && ((prev[0] << 8) | prev[1]) == 0x00df) {
+					cmd = prev;
+				}
+
 				sysLogPrintf(LOG_NOTE, "gecinema: the ending is list %d at +%d, run by background chr %d",
 						lists[i].id, (s32)(cmd - lists[i].list), runner->chrnum);
 
@@ -528,6 +545,7 @@ static void gecinemaKickEnding(void)
 				return;
 			}
 
+			prev = cmd;
 			cmd += len;
 		}
 	}

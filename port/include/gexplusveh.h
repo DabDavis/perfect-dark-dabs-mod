@@ -25,6 +25,9 @@ void gexPlusVehicleTick(struct prop *prop);
 // And its spinning parts, from the same place the fan's model is updated.
 void gexPlusVehicleUpdateModel(struct prop *prop);
 
+/** Whether the prop is a converted mission's aircraft with one of its animations on its model. */
+s32 gexPlusVehicleFliesAnim(struct prop *prop);
+
 // A node of a vehicle's model turned on its own pivot (a wheel, a rotor, a turret)
 void gexPlusVehiclePutPart(struct model *model, s32 partnum, Mtxf *rot);
 
