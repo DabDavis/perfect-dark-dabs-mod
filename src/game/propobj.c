@@ -89,6 +89,7 @@
 #ifndef PLATFORM_N64
 #include "gexplusveh.h"
 #include "gemonitor.h"
+#include "gesfx.h"
 #endif
 #endif
 
@@ -16956,6 +16957,21 @@ void ammotypeGetPickupName(char *dst, s32 ammotype2, s32 qty)
 }
 #endif
 
+/**
+ * A pickup's sound as the player's own. A converted GoldenEye level plays
+ * GoldenEye's (gesfx.c): its body armour is not Perfect Dark's shield.
+ */
+static void objPlayPickupSfx(s32 sound)
+{
+#ifndef PLATFORM_N64
+	if (geSfxPickup(sound, NULL)) {
+		return;
+	}
+#endif
+
+	sndStart(var80095200, sound, NULL, -1, -1, -1, -1, -1);
+}
+
 void ammotypePlayPickupSound(u32 ammotype)
 {
 	switch (ammotype) {
@@ -16975,7 +16991,7 @@ void ammotypePlayPickupSound(u32 ammotype)
 	case AMMOTYPE_CLOAK:
 	case AMMOTYPE_BOOST:
 	case AMMOTYPE_TOKEN:
-		sndStart(var80095200, SFX_PICKUP_AMMO, NULL, -1, -1, -1, -1, -1);
+		objPlayPickupSfx(SFX_PICKUP_AMMO);
 		break;
 	case AMMOTYPE_REMOTE_MINE:
 	case AMMOTYPE_PROXY_MINE:
@@ -16984,10 +17000,10 @@ void ammotypePlayPickupSound(u32 ammotype)
 	case AMMOTYPE_MICROCAMERA:
 	case AMMOTYPE_PLASTIQUE:
 	case AMMOTYPE_ECM_MINE:
-		sndStart(var80095200, SFX_PICKUP_MINE, NULL, -1, -1, -1, -1, -1);
+		objPlayPickupSfx(SFX_PICKUP_MINE);
 		break;
 	case AMMOTYPE_KNIFE:
-		sndStart(var80095200, SFX_PICKUP_KNIFE, NULL, -1, -1, -1, -1, -1);
+		objPlayPickupSfx(SFX_PICKUP_KNIFE);
 		break;
 	}
 }
@@ -17006,6 +17022,12 @@ s32 propPlayPickupSound(struct prop *prop, s32 weapon)
 	} else {
 		sound = SFX_PICKUP_GUN;
 	}
+
+#ifndef PLATFORM_N64
+	if (geSfxPickup(sound, prop)) {
+		return -1;
+	}
+#endif
 
 	return psCreate(NULL, prop, sound, -1,
 			-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
@@ -17033,7 +17055,7 @@ void weaponPlayPickupSound(s32 weaponnum)
 		sound = SFX_PICKUP_GUN;
 	}
 
-	sndStart(var80095200, sound, NULL, -1, -1, -1, -1, -1);
+	objPlayPickupSfx(sound);
 }
 
 void ammotypeGetPickupMessage(char *dst, s32 ammotype, s32 qty)
@@ -17380,7 +17402,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 	switch (obj->type) {
 	case OBJTYPE_KEY:
 		if (g_Vars.in_cutscene == false) {
-			sndStart(var80095200, SFX_PICKUP_KEYCARD, NULL, -1, -1, -1, -1, -1);
+			objPlayPickupSfx(SFX_PICKUP_KEYCARD);
 		}
 
 		if (showhudmsg) {
@@ -17420,7 +17442,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			}
 
 			if (g_Vars.in_cutscene == false) {
-				sndStart(var80095200, SFX_PICKUP_AMMO, NULL, -1, -1, -1, -1, -1);
+				objPlayPickupSfx(SFX_PICKUP_AMMO);
 			}
 
 			result = TICKOP_FREE;
@@ -17571,7 +17593,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			playerSetShieldFrac(((struct shieldobj *) prop->obj)->amount);
 
 			if (!g_Vars.in_cutscene) {
-				sndStart(var80095200, SFX_PICKUP_SHIELD, NULL, -1, -1, -1, -1, -1);
+				objPlayPickupSfx(SFX_PICKUP_SHIELD);
 			}
 
 			if (showhudmsg) {
@@ -17608,7 +17630,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 	case OBJTYPE_TINTEDGLASS:
 	default:
 		if (g_Vars.in_cutscene == false) {
-			sndStart(var80095200, SFX_PICKUP_KEYCARD, NULL, -1, -1, -1, -1, -1);
+			objPlayPickupSfx(SFX_PICKUP_KEYCARD);
 		}
 
 		if (showhudmsg) {
@@ -19645,6 +19667,14 @@ void doorPlayOpeningSound(s32 soundtype, struct prop *prop)
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
 
+#ifndef PLATFORM_N64
+	// a converted level's door keeps GoldenEye's sound type, and GoldenEye's
+	// sounds (gesfx.c)
+	if (geSfxDoor(GESFX_DOOR_OPENING, soundtype, prop)) {
+		return;
+	}
+#endif
+
 	if (g_Vars.in_cutscene
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)
 			&& (prop->obj->flags3 & OBJFLAG3_AUTOCUTSCENESOUNDS) == 0) {
@@ -19722,6 +19752,14 @@ void doorPlayClosingSound(s32 soundtype, struct prop *prop)
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
 
+#ifndef PLATFORM_N64
+	// a converted level's door keeps GoldenEye's sound type, and GoldenEye's
+	// sounds (gesfx.c)
+	if (geSfxDoor(GESFX_DOOR_CLOSING, soundtype, prop)) {
+		return;
+	}
+#endif
+
 	if (g_Vars.in_cutscene
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)
 			&& (prop->obj->flags3 & OBJFLAG3_AUTOCUTSCENESOUNDS) == 0) {
@@ -19781,6 +19819,14 @@ void doorPlayOpenedSound(s32 soundtype, struct prop *prop)
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
 
+#ifndef PLATFORM_N64
+	// a converted level's door keeps GoldenEye's sound type, and GoldenEye's
+	// sounds (gesfx.c)
+	if (geSfxDoor(GESFX_DOOR_OPENED, soundtype, prop)) {
+		return;
+	}
+#endif
+
 	if (g_Vars.in_cutscene
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)
 			&& (prop->obj->flags3 & OBJFLAG3_AUTOCUTSCENESOUNDS) == 0) {
@@ -19833,6 +19879,14 @@ void doorPlayClosedSound(s32 soundtype, struct prop *prop)
 	s32 sound = 0;
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
+
+#ifndef PLATFORM_N64
+	// a converted level's door keeps GoldenEye's sound type, and GoldenEye's
+	// sounds (gesfx.c)
+	if (geSfxDoor(GESFX_DOOR_CLOSED, soundtype, prop)) {
+		return;
+	}
+#endif
 
 	if (g_Vars.in_cutscene
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)

@@ -35,6 +35,9 @@
 #include "types.h"
 #include "game/modalarm.h"
 #include "game/modoptions.h"
+#ifndef PLATFORM_N64
+#include "gesfx.h"
+#endif
 
 #define PICKUPCRITERIA_DEFAULT  0
 #define PICKUPCRITERIA_CRITICAL 1
@@ -530,8 +533,13 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 			}
 
 			// Pickup sound
-			psCreate(NULL, prop, SFX_PICKUP_AMMO, -1,
-				-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+#ifndef PLATFORM_N64
+			if (!geSfxPickup(SFX_PICKUP_AMMO, prop))
+#endif
+			{
+				psCreate(NULL, prop, SFX_PICKUP_AMMO, -1,
+					-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+			}
 
 			objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
 
@@ -581,8 +589,13 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 			}
 
 			// Pickup sound
-			psCreate(NULL, prop, SFX_PICKUP_AMMO, -1,
-				-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+#ifndef PLATFORM_N64
+			if (!geSfxPickup(SFX_PICKUP_AMMO, prop))
+#endif
+			{
+				psCreate(NULL, prop, SFX_PICKUP_AMMO, -1,
+					-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+			}
 
 			objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
 		}
@@ -634,8 +647,13 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 		{
 			struct shieldobj *shield = (struct shieldobj *)prop->obj;
 
-			psCreate(NULL, prop, SFX_PICKUP_SHIELD, -1,
-				-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+#ifndef PLATFORM_N64
+			if (!geSfxPickup(SFX_PICKUP_SHIELD, prop))
+#endif
+			{
+				psCreate(NULL, prop, SFX_PICKUP_SHIELD, -1,
+					-1, PSFLAG_0400, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+			}
 
 			chrSetShield(chr, shield->amount * 8);
 			objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);

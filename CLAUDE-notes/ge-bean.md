@@ -3245,10 +3245,12 @@ sound after the game's own the first time it is asked for - the way
 modborrow.c appends GoldenEye X's, every offset rebased onto the stock bank's
 start, once each because sounds share envelopes, key maps and waves.
 
-- **The id is GoldenEye's `SFX_ID` and indexes `soundArray` from 0**
-  (`sndPlaySfx()`), where Perfect Dark's ids count from 1 (`soundArray[id - 1]`
-  in modborrow.c). The shot is `GUN_RIFLE7BIG_1`, 111: one 8496-byte ADPCM
-  wave, 0.6 s.
+- **The id is GoldenEye's `SFX_ID`, and it is the bank's sound `id - 1`** -
+  *corrected 2026-09-21; this said "from 0" and every sound played until then
+  was the enum's next one* (see "A converted level's doors" below).
+  `sndPlaySfx()` does write `soundArray[soundIndex]`, but through
+  `ALInstrumentAlt_s` (snd.h), which declares `soundArray` at 12 where the
+  instrument has it at 16. The shot is `GUN_RIFLE7BIG_1`, 111.
 - **A key map's `velocityMin` and the top two bits of `keyMin` are the *next*
   sound to play**, by number, in both games' players (`n_sndplayer.c:751`). In
   an appended GoldenEye sound that number would name one of Perfect Dark's, and
@@ -3257,11 +3259,11 @@ start, once each because sounds share envelopes, key maps and waves.
   share key maps), taken off the key map, and `geSfxPlay()` starts every link
   itself **all at once** - a link is not played after the one before it but
   after its *own* `velocityMax` thirtieths of a second, which the player
-  underneath still does for a sound started alone. `DOOR_METAL_CLOSE` (197) is
-  the one that needs it: its second half is 87, `CONSOLE_ON2`, a third of a
-  second on - an endlessly looped wave that its own envelope fades over a
-  second and a half, which is the hum after the mode select's door and not a
-  stuck sound.
+  underneath still does for a sound started alone. `PAPER_TURN` (77, on to 78)
+  and `WATCH_STATIC` (236, on to 10) are the two in use that chain. *(This
+  bullet used to explain "the hum after the mode select's door" as
+  `DOOR_METAL_CLOSE` chaining to `CONSOLE_ON2`: that was `CONSOLE_ON`, 198,
+  played by the off-by-one, and the door has no hum.)*
 - **The balance comes from GoldenEye's own tables, not from a capture.**
   GoldenEye plays an effect at full volume over music at its track's default
   (`g_musicDefaultTrackVolume[]`: `M_INTRO` 0x7332, the folders, the watch and
@@ -3277,6 +3279,54 @@ start, once each because sounds share envelopes, key maps and waves.
   Recorded here with `SDL_AUDIODRIVER=disk`, the file's size read from gdb at
   a breakpoint placing an event in it (22050 Hz stereo s16: 88200 bytes a
   second), and `optionsSetMusicVolume(0)` from gdb to hear an effect alone.
+
+### A converted level's doors, its body armour, and the index that was one out (2026-09-21)
+
+The user: "sounds for doors are generally incorrect using PDs", and "also the
+body armor is pd sound still".
+
+**Doors.** The conversion always carried GoldenEye's `doorOpenSound` across
+(record 0xa7 to Perfect Dark's 0xc6) and Perfect Dark read it through its own
+table. GoldenEye's four functions are Perfect Dark's four, moment for moment
+(`doorPlayOpenSound0/1`, `doorPlayCloseSound0/1` = opening, closing, opened,
+closed), so `geSfxDoor()` answers each of propobj.c's four on a remake stage
+from GoldenEye's switch written out as a table (`g_SfxDoors`). GoldenEye starts
+a sound one of two ways and Perfect Dark kept both: **once** (a NULL state: the
+volume taken where the door is, never stopped - `PSFLAG_0400`, and
+`PSTYPE_GENERAL` so the door's next `psStopSound(PSTYPE_DOOR)` leaves it to
+ring out) and **held** (in one of the door's two sound states: follows the
+player, stopped by the door's next sound, silent while the controls are locked
+- `PSTYPE_DOOR`, no flag, skipped `in_cutscene`). The held ones are the bank's
+looped waves (194 shutter, 204 metal slide, 216 heavy slide, 218 hydraulic,
+225 stone). A sound from a prop goes through an **audio config of GoldenEye's
+own** (`sndAppendAudioConfig()`: 200/5000/6000, which is
+`chrobjSndCreatePostEventDefault()`'s curve and the one Perfect Dark's configs
+still describe, at `GESFX_VOLUME`'s 75%) and one russ mapping a sound.
+
+**Pickups.** Perfect Dark's gun, ammo, knife and mine pickups are close to
+GoldenEye's, which is why only the armour stood out; `geSfxPickup()` maps all
+seven `SFX_PICKUP_*` to GoldenEye's bank on a remake stage (armour 81, key
+229, gun 232, knife 233, ammo 234, mine 235, laser 242), for the player
+(`objPlayPickupSfx()` in propobj.c) and from the prop for a simulant (bot.c).
+
+**The index.** The first door probe had the right ids starting at the right
+moments and the recording had silence under the moving door and a tone that
+never ended after it: the "close" sound was an endless loop and the "loop" a
+tenth of a second. Dumping the bank showed every looped wave one entry *under*
+the enum's looped names (192/`GAS_LEAK` 193, 203/`METAL_SLIDE_LOOP` 204,
+215/`HEAVY_SINGLE_LOOP` 216, 235/`WATCH_STATIC` 236), and snd.h's
+`ALInstrumentAlt_s` is why. So since converter 39 the gun barrel had fired
+`GUN_B8_ANOTHER` (112), the folder's door had been `CONSOLE_ON` and its accept
+`DOOR_METAL_OPEN3`, the watch's beep `BING` (160), its static `WATCH_ON`. **A sound that plays and is
+plausible proves nothing about which sound it is - dump the bank and check a
+property the name predicts (a loop, a length, a chain).** The shot's loudness
+was set from GoldenEye's tables and not from the measurement, so it stands.
+
+Probes in `build/gexrom`: `doorsnd.py` (opens the nearest door of each sound
+type, logs every `psCreate()` with its config, lists channels still alive at
+the end; record with `SDL_AUDIODRIVER=disk` and read the file's size at each
+event to place it), `armour.py`, and `runall_snd.sh` - the mission sweep with
+the sound **on**, since `runall.sh` is `--no-sound` and never reaches the bank.
 
 **The folder screens and the watch play GoldenEye's sounds too** (2026-09-20).
 GoldenEye's front end has three: `DOOR_METAL_CLOSE2` (199) for every accept,

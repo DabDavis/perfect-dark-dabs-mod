@@ -3,7 +3,14 @@
  *
  * GoldenEye's sfx.ctl is an ordinary ALBankFile of one bank and one instrument
  * with 261 sounds, and sndPlaySfx() indexes that instrument's soundArray with
- * the SFX_ID itself - from 0, where Perfect Dark's ids count from 1. The
+ * the SFX_ID itself - through a struct of its own (snd.h's ALInstrumentAlt_s)
+ * that puts soundArray at 12 where the instrument has it at 16. So SFX_ID n is
+ * the bank's sound n - 1, as Perfect Dark's ids are, and id 0 is nothing. The
+ * bank says so itself: its endlessly looped waves are entries 192, 203, 215
+ * and 235, one under GAS_LEAK, METAL_SLIDE_LOOP, HEAVY_SINGLE_LOOP and
+ * WATCH_STATIC. Read from 0, as this was until the doors were given their
+ * sounds, every sound played was the enum's next one: the mode select's door
+ * was CONSOLE_ON, and the hum after it was that sound's own second half. The
  * conversion copies the bank and its wave table out of the ROM as menu/sfxctl
  * and menu/sfxtbl.
  *
@@ -19,9 +26,9 @@
  * of the bank as it is loaded and taken off the key map, and geSfxPlay() starts
  * every link itself, all at once: a link is not played after the one before
  * it but after its *own* velocityMax thirtieths of a second, which the player
- * underneath still does for a sound started alone. The mode select's door
- * (197) is the one that needs it here - its second half is sound 87, a third
- * of a second on.
+ * underneath still does for a sound started alone. A difficulty's turned page
+ * (77, which goes on to 78) and the watch's static (236, to 10) are the two
+ * that need it here.
  */
 #include <stdio.h>
 #include <string.h>
@@ -33,9 +40,11 @@
 #include "data.h"
 #include "fs.h"
 #include "gesfx.h"
+#include "modloader.h"
 #include "preprocess.h"
 #include "system.h"
 #include "lib/snd.h"
+#include "game/propsnd.h"
 
 #define GESFX_MAX 512
 
@@ -100,8 +109,8 @@ static s32 sfxLoad(void)
 
 			g_SfxInst = (ALInstrument *)(g_SfxCtl + (uintptr_t)bank->instArray[0]);
 
-			for (s32 id = 0; id < g_SfxInst->soundCount && id < GESFX_MAX; id++) {
-				const ALSound *sound = (ALSound *)(g_SfxCtl + (uintptr_t)g_SfxInst->soundArray[id]);
+			for (s32 id = 1; id <= g_SfxInst->soundCount && id < GESFX_MAX; id++) {
+				const ALSound *sound = (ALSound *)(g_SfxCtl + (uintptr_t)g_SfxInst->soundArray[id - 1]);
 				const ALKeyMap *keymap = sound->keyMap ? (ALKeyMap *)(g_SfxCtl + (uintptr_t)sound->keyMap) : NULL;
 
 				g_SfxNext[id] = keymap ? keymap->velocityMin + (keymap->keyMin & 0xc0) * 4 : 0;
@@ -165,12 +174,12 @@ s32 geSfxGet(s32 id)
 		return 0;
 	}
 
-	if (id >= g_SfxInst->soundCount) {
+	if (id > g_SfxInst->soundCount) {
 		g_SfxMap[id] = -1;
 		return 0;
 	}
 
-	off = (uintptr_t)g_SfxInst->soundArray[id];
+	off = (uintptr_t)g_SfxInst->soundArray[id - 1];
 	sound = (ALSound *)(g_SfxCtl + off);
 
 	if (sfxRebaseOnce(off)) {
@@ -247,4 +256,238 @@ s32 geSfxPlay(s32 id, s32 volume)
 	}
 
 	return started;
+}
+
+/* ------------------------------------------------------------------------ */
+/* A converted level's doors                                                 */
+/* ------------------------------------------------------------------------ */
+
+// GoldenEye hears an object's sound at full within 200 of it, down a root
+// curve to 5000 and out by 6000 (chrobjSndCreatePostEventDefault()), which is
+// the curve Perfect Dark's audio configs still describe; the share of full is
+// GESFX_VOLUME's
+static s32 g_SfxPropConfig = -1;
+
+// GoldenEye's id -> the config mapping's row + 1
+static s16 g_SfxPropRow[GESFX_MAX];
+
+/** GoldenEye's sound as a number psCreate() takes, heard as GoldenEye hears an object; 0 for none. */
+static s32 sfxPropNum(s32 id)
+{
+	s32 ours;
+	s32 row;
+
+	if (id <= 0 || id >= GESFX_MAX) {
+		return 0;
+	}
+
+	if (g_SfxPropRow[id]) {
+		return 0x8000 | (g_SfxPropRow[id] - 1);
+	}
+
+	ours = geSfxGet(id);
+
+	if (ours <= 0) {
+		return 0;
+	}
+
+	if (g_SfxPropConfig < 0) {
+		const struct audioconfig config = { 200, 5000, 6000, -1, GESFX_VOLUME * 100 / AL_VOL_FULL, -1, 0, 0 };
+
+		g_SfxPropConfig = sndAppendAudioConfig(&config);
+	}
+
+	row = g_SfxPropConfig >= 0 ? sndAppendRussMapping(ours, g_SfxPropConfig) : -1;
+
+	if (row < 0) {
+		// no rows left: the sound itself, on Perfect Dark's own falloff
+		return ours;
+	}
+
+	g_SfxPropRow[id] = row + 1;
+
+	return 0x8000 | row;
+}
+
+/** The sound and whatever it chains to (geSfxPlay()), from a prop. */
+static void sfxPlayAtProp(s32 id, struct prop *prop, s32 type, u16 flags)
+{
+	for (s32 links = 0; id > 0 && id < GESFX_MAX && links < 8; links++) {
+		const s32 num = sfxPropNum(id);
+
+		if (!num) {
+			break;
+		}
+
+		psCreate(NULL, prop, num, -1, -1, flags, 0, type, 0, -1, 0, -1, -1, -1, -1);
+
+		id = g_SfxNext[id];
+	}
+}
+
+#define SFX_TRAIN_SLIDE        7
+#define SFX_WOOD_CLOSE         187
+#define SFX_WOOD_OPEN          188
+#define SFX_WOOD_SLIDE         191
+#define SFX_TRAIN_CATCH        192
+#define SFX_SHUTTER_OPEN       194
+#define SFX_SHUTTER_CLOSE      195
+#define SFX_METAL_OPEN         196
+#define SFX_METAL_CLOSE        197
+#define SFX_METAL_CLOSE2       199
+#define SFX_METAL_OPEN3        200
+#define SFX_METAL_CLOSE3       201
+#define SFX_METAL_SLIDE_OPEN   202
+#define SFX_METAL_SLIDE_CLOSE  203
+#define SFX_METAL_SLIDE_LOOP   204
+#define SFX_SMART_CATCH        210
+#define SFX_SMART_SLIDE        211
+#define SFX_HEAVY_SLIDE_OPEN   214
+#define SFX_HEAVY_SLIDE_CLOSE  215
+#define SFX_HEAVY_SLIDE_LOOP   216
+#define SFX_HYDRAL_CLOSE       218
+#define SFX_HYDRAL_OPEN        219
+#define SFX_STONE_OPEN         225
+#define SFX_STONE_CLOSE        226
+
+#define GESFX_NUM_DOOR_TYPES 18
+
+/**
+ * GoldenEye's propobj.c, doorPlayOpenSound0/1() and doorPlayCloseSound0/1(),
+ * by DOOR_OPEN_SOUND. A sound is started one of two ways there. `once` is
+ * given its volume where the door is and let go: nothing stops it, and it
+ * rings out over whatever the door does next. `held` goes in one of the door's
+ * two sound states: its volume follows the player, and it is what the door's
+ * next sound stops - the slide under a moving door, which is a looped wave
+ * for the metal and the heavy doors.
+ */
+static const struct {
+	u8 once[2];
+	u8 held;
+} g_SfxDoors[4][GESFX_NUM_DOOR_TYPES] = {
+	[GESFX_DOOR_OPENING] = {
+		[1]  = { { SFX_SMART_CATCH }, SFX_SMART_SLIDE },
+		[2]  = { { SFX_SMART_CATCH }, SFX_TRAIN_SLIDE },
+		[3]  = { { SFX_METAL_SLIDE_OPEN }, SFX_METAL_SLIDE_LOOP },
+		[4]  = { { SFX_HEAVY_SLIDE_OPEN }, SFX_HEAVY_SLIDE_LOOP },
+		[5]  = { { SFX_WOOD_OPEN } },
+		[6]  = { { SFX_TRAIN_SLIDE } },
+		[7]  = { { SFX_TRAIN_CATCH }, SFX_WOOD_SLIDE },
+		[8]  = { { SFX_WOOD_OPEN }, SFX_TRAIN_SLIDE },
+		[9]  = { { 0 }, SFX_SHUTTER_OPEN },
+		[10] = { { SFX_METAL_OPEN } },
+		[11] = { { SFX_TRAIN_SLIDE } },
+		[12] = { { SFX_METAL_OPEN3 } },
+		[13] = { { SFX_TRAIN_SLIDE }, SFX_TRAIN_SLIDE },
+		[14] = { { 0 }, SFX_HYDRAL_CLOSE },
+		[15] = { { 0 }, SFX_STONE_OPEN },
+		[16] = { { SFX_HEAVY_SLIDE_OPEN } },
+		[17] = { { SFX_TRAIN_SLIDE, SFX_METAL_SLIDE_OPEN }, SFX_METAL_SLIDE_LOOP },
+	},
+	// the opening's, less the five that swing: a door that swings shut is
+	// not heard until it closes
+	[GESFX_DOOR_CLOSING] = {
+		[1]  = { { SFX_SMART_CATCH }, SFX_SMART_SLIDE },
+		[2]  = { { SFX_SMART_CATCH }, SFX_TRAIN_SLIDE },
+		[3]  = { { SFX_METAL_SLIDE_OPEN }, SFX_METAL_SLIDE_LOOP },
+		[4]  = { { SFX_HEAVY_SLIDE_OPEN }, SFX_HEAVY_SLIDE_LOOP },
+		[7]  = { { SFX_TRAIN_CATCH }, SFX_WOOD_SLIDE },
+		[8]  = { { SFX_WOOD_OPEN }, SFX_TRAIN_SLIDE },
+		[9]  = { { 0 }, SFX_SHUTTER_OPEN },
+		[13] = { { SFX_TRAIN_SLIDE }, SFX_TRAIN_SLIDE },
+		[14] = { { 0 }, SFX_HYDRAL_CLOSE },
+		[15] = { { 0 }, SFX_STONE_OPEN },
+		[16] = { { SFX_HEAVY_SLIDE_OPEN } },
+		[17] = { { SFX_TRAIN_SLIDE, SFX_METAL_SLIDE_OPEN }, SFX_METAL_SLIDE_LOOP },
+	},
+	[GESFX_DOOR_OPENED] = {
+		[1]  = { { SFX_SMART_CATCH } },
+		[2]  = { { SFX_SMART_CATCH } },
+		[3]  = { { SFX_METAL_SLIDE_CLOSE } },
+		[4]  = { { SFX_HEAVY_SLIDE_CLOSE } },
+		[7]  = { { SFX_SMART_CATCH } },
+		[8]  = { { SFX_WOOD_CLOSE } },
+		[9]  = { { SFX_SHUTTER_CLOSE } },
+		[13] = { { SFX_TRAIN_SLIDE } },
+		[14] = { { SFX_HYDRAL_OPEN } },
+		[15] = { { SFX_STONE_CLOSE } },
+		[16] = { { SFX_HEAVY_SLIDE_CLOSE } },
+		[17] = { { SFX_METAL_SLIDE_CLOSE } },
+	},
+	[GESFX_DOOR_CLOSED] = {
+		[1]  = { { SFX_SMART_CATCH } },
+		[2]  = { { SFX_SMART_CATCH } },
+		[3]  = { { SFX_METAL_SLIDE_CLOSE } },
+		[4]  = { { SFX_HEAVY_SLIDE_CLOSE } },
+		[5]  = { { SFX_WOOD_CLOSE } },
+		[6]  = { { SFX_TRAIN_SLIDE } },
+		[7]  = { { SFX_SMART_CATCH } },
+		[8]  = { { SFX_WOOD_CLOSE } },
+		[9]  = { { SFX_SHUTTER_CLOSE } },
+		[10] = { { SFX_METAL_CLOSE } },
+		[11] = { { SFX_METAL_CLOSE2 } },
+		[12] = { { SFX_METAL_CLOSE3 } },
+		[13] = { { SFX_TRAIN_SLIDE } },
+		[14] = { { SFX_HYDRAL_OPEN } },
+		[15] = { { SFX_STONE_CLOSE } },
+		[16] = { { SFX_HEAVY_SLIDE_CLOSE } },
+		[17] = { { SFX_METAL_SLIDE_CLOSE } },
+	},
+};
+
+s32 geSfxDoor(s32 moment, s32 soundtype, struct prop *prop)
+{
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || !sfxLoad()) {
+		return 0;
+	}
+
+	if (moment < 0 || moment > GESFX_DOOR_CLOSED || soundtype <= 0 || soundtype >= GESFX_NUM_DOOR_TYPES) {
+		return 1;
+	}
+
+	for (s32 i = 0; i < 2; i++) {
+		// PSFLAG_0400 is GoldenEye's: the volume taken once, where the door is
+		sfxPlayAtProp(g_SfxDoors[moment][soundtype].once[i], prop, PSTYPE_GENERAL, PSFLAG_0400);
+	}
+
+	// GoldenEye holds a door's own sound at nothing while the controls are
+	// locked (sub_GAME_7F053A3C())
+	if (!g_Vars.in_cutscene) {
+		sfxPlayAtProp(g_SfxDoors[moment][soundtype].held, prop, PSTYPE_DOOR, 0);
+	}
+
+	return 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* What a converted level hands the player                                   */
+/* ------------------------------------------------------------------------ */
+
+s32 geSfxPickup(s32 pdsound, struct prop *prop)
+{
+	s32 id;
+
+	switch (pdsound) {
+	case SFX_PICKUP_SHIELD:  id = 81;  break; // ARMOUR_COLLECT_SFX
+	case SFX_PICKUP_KEYCARD: id = 229; break; // KEYCARD_SFX
+	case SFX_PICKUP_GUN:     id = 232; break;
+	case SFX_PICKUP_KNIFE:   id = 233; break;
+	case SFX_PICKUP_AMMO:    id = 234; break;
+	case SFX_PICKUP_MINE:    id = 235; break;
+	case SFX_PICKUP_LASER:   id = 242; break;
+	default:
+		return 0;
+	}
+
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || geSfxGet(id) <= 0) {
+		return 0;
+	}
+
+	if (prop) {
+		sfxPlayAtProp(id, prop, PSTYPE_NONE, PSFLAG_0400);
+	} else {
+		geSfxPlay(id, GESFX_VOLUME);
+	}
+
+	return 1;
 }
