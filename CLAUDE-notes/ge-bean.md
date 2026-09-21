@@ -7114,3 +7114,36 @@ twice, from the second and third cameras; ask before hunting further.
 
 **Still different from the oracle:** the mountains behind Bond in the first two
 shots (ours is sky there).
+
+## Standing upright in Facility's vent: GoldenEye's force-crouch tiles (2026-09-21)
+
+F3 report 20260921-084329 (Facility 0x63, "collision broken here. vents require
+crouching"): the picture is taken from *over* the duct, looking down its outside.
+The player's eye was 167 over the vent's floor (y 498 on tiles at 331) - standing
+upright, head through the ceiling, whose faces cull from above.
+
+Nothing holds a body down in GoldenEye but the tile graph. A tile's special
+value (the top nibble of its `mid` word) indexes `g_StanTileSpecialFlags[]`, and
+value **1** is the only one carrying `STANTILEFLAG_FORCECROUCH` (3 is the
+ladder). Every move starts with `autocrouchpos = CROUCH_STAND` and
+`stanTileDistanceRelated()` walks out from Bond's tile through the edges his
+circle touches: his own tile or a linked one with the flag sets
+`autocrouchpos = CROUCH_SQUAT`. Perfect Dark kept `autocrouchpos` and the reset
+(`bwalk0f0c63bc()`) and lost the only thing that ever set it.
+
+The conversion's graph file already carried the special byte, so there is no
+converter change: `geStanForcesCrouch()` (gestan.c) floods from the tile under
+the move's target by the player's radius and answers whether a special 1 tile
+was reached, and `bwalk0f0c63bc()` asks it on a remake stage. It shares
+`stanFlood()`'s marks with the wall test, so it throws the wall test's
+remembered flood away afterwards.
+
+Eight levels have them: Facility 36 tiles, Archives 34, Jungle 14, Complex 14,
+Dam 9, Silo 8, Caverns 4, Train 2. **Facility's spawn tile is not one** - Bond
+starts upright in the alcove at the duct's end and squats as he walks in, in
+GoldenEye too - so a probe that reads the player at the spawn says "not
+crouched" and is right. `build/gexrom/crouchwalk.py` (realwalk.py printing
+`autocrouchpos` and the offset) walks in: squat from x -4445, eye 68 over the
+floor in the duct, standing again after the drop into the stall. And a gdb
+Python `stop()` that calls `screenshotRequest()` writes no picture and says
+nothing - call it after the stop.

@@ -66,6 +66,12 @@ f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin);
  * surface at `to`; false where the level has no graph or `from` is over no tile.
  */
 bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
+/**
+ * Whether a body at `pos` is on, or within `reach` of an edge linked to, a tile
+ * GoldenEye forces a crouch on (STANTILEFLAG_FORCECROUCH: a vent, a crawl space).
+ */
+bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach);
+
 /** Counters for a probe: walls asked about, walls left out, bodies found over no tile. */
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;

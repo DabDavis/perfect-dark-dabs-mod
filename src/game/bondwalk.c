@@ -34,6 +34,7 @@
 #ifndef PLATFORM_N64
 #include "modloader.h"
 #include "geroom.h"
+#include "gestan.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
 #endif
@@ -1550,6 +1551,24 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 
 	g_Vars.currentplayer->bondonturret = false;
 	g_Vars.currentplayer->autocrouchpos = CROUCHPOS_STAND;
+
+#ifndef PLATFORM_N64
+	// GoldenEye's vents and crawl spaces: a converted level has no ceiling to
+	// hold the player down, and GoldenEye has none either - its tiles say
+	// where Bond squats, asked where this move is going (gestan.h)
+	if (geRoomActive()) {
+		struct coord target;
+
+		target.x = g_Vars.currentplayer->prop->pos.x + arg0->x;
+		target.y = g_Vars.currentplayer->prop->pos.y;
+		target.z = g_Vars.currentplayer->prop->pos.z + arg0->z;
+
+		if (geStanForcesCrouch(&target, g_Vars.currentplayer->vv_manground + 40.0f,
+					geStanRise(true), g_Vars.currentplayer->bond2.radius)) {
+			g_Vars.currentplayer->autocrouchpos = CROUCHPOS_SQUAT;
+		}
+	}
+#endif
 
 	bwalk0f0c4d98();
 

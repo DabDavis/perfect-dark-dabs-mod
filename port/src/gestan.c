@@ -20,6 +20,7 @@
 #define GESTAN_NOWALL    (-2)
 #define GESTAN_UNLINKED  (-1)
 #define GESTAN_CLIMBWALL 0x4000
+#define GESTAN_SPECIAL_CROUCH 1
 #define GESTAN_RISE      60.0f   // how far over a body's foot its own floor may be: two of a stair's steps
 
 struct stanpoint {
@@ -637,6 +638,49 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 rise, 
 	g_GeStanSkipped++;
 
 	return true;
+}
+
+/**
+ * Whether GoldenEye would hold a body down here: a tile's special value 1 is
+ * g_StanTileSpecialFlags[]'s STANTILEFLAG_FORCECROUCH - Facility's vents, the
+ * crawl spaces of seven levels more - and bondview's move sets autocrouchpos
+ * to the squat when the tile Bond is on, or one linked to it across an edge
+ * his circle touches (stanTileDistanceRelated()), carries it. It is asked from
+ * the edge and not from inside, so he is down before his head is under the
+ * duct.
+ */
+bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach)
+{
+	s32 tile;
+	bool result = false;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return false;
+	}
+
+	tile = stanTileUnder(pos->x, pos->z, limit, rise);
+
+	if (tile < 0) {
+		return false;
+	}
+
+	stanFlood(tile, pos->x, pos->z, reach);
+
+	for (s32 i = 0; i < g_Stan.numtiles; i++) {
+		if (g_Stan.reached[i] == g_Stan.gen && g_Stan.tiles[i].special == GESTAN_SPECIAL_CROUCH) {
+			result = true;
+			break;
+		}
+	}
+
+	// the marks are this flood's now, not the one a wall test remembers
+	g_Stan.lastreach = -1.0f;
+
+	return result;
 }
 
 /** stan.c's getRotationalDirectionBetween(): which way b lies from a, in plan. */
