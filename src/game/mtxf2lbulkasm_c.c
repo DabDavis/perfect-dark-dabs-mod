@@ -8,6 +8,14 @@
 void mtxF2LBulk(Mtxf *mtx, s32 count)
 {
 #ifndef GBI_FLOATS
+#ifndef PLATFORM_N64
+	// the loop below counts down from its count, so none is four thousand
+	// million and it leaves the heap
+	if (mtx == NULL || count <= 0) {
+		return;
+	}
+#endif
+
 	do {
 		u32 m00 = (s32) (mtx->m[0][0] * var8005ef10[0]);
 		u32 m01 = (s32) (mtx->m[0][1] * var8005ef10[0]);

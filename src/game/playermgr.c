@@ -763,6 +763,14 @@ s32 playermgrGetModelOfWeapon(s32 weapon)
 			return gegadgetsPropModel(weapon);
 		}
 
+		// The tank's shells and the gadgets on a host with nothing to hold
+		// (the Data Uplink, the watch's) have a model state with no file:
+		// nothing in the hand, as GoldenEye has it. A model built from file 0
+		// has no matrices, and mtxF2LBulk() counts down from that
+		if (g_ModelStates[MODEL_GE_FIRST + (weapon - WEAPON_GE_FIRST)].fileid == 0) {
+			return -1;
+		}
+
 		return MODEL_GE_FIRST + (weapon - WEAPON_GE_FIRST);
 	}
 #endif

@@ -3554,6 +3554,20 @@ into his prop from gdb is put back by his own tick** - `chrMoveToPos()` is the
 teleport - and the first crush probe only passed because its guard happened
 to be standing still.
 
+**Climbing out of the tank in third person crashed the game** (crash report
+20260921-154529, `33a6255fa`). The shells (0x7e) and the four gadgets hosted
+by the Data Uplink (0x7a-0x7d) have a GoldenEye model state with **no file**,
+and `playermgrGetModelOfWeapon()` answered that state anyway, so a third
+person body holding one was handed a gun built from file 0 (the two
+`romdataFileLoad: invalid file num 0` lines in the log) - a definition with no
+matrices. Seated, the body is not drawn; on the way out it is, and
+`mtxF2LBulk()` is a do-while that counts *down from* its count, so none is
+four thousand million matrices and it walks off the heap. The lookup answers
+-1 for a state with no file (nothing in the hand, which is GoldenEye's own),
+and the loop refuses a count of nothing. `build/gexrom/tp_tank4.py` is the
+probe: third person, in, out - the seated probes never drew the body and
+passed on the broken build.
+
 **The folder screens and the watch play GoldenEye's sounds too** (2026-09-20).
 GoldenEye's front end has three: `DOOR_METAL_CLOSE2` (199) for every accept,
 back and tab on every screen, `DOOR_METAL_CLOSE` (197) for the mode select's
