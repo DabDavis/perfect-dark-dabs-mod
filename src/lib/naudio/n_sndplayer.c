@@ -7,6 +7,9 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gesfx.h"
+#endif
 
 u32 var8009c330;
 s16 *var8009c334;
@@ -705,8 +708,20 @@ struct sndstate *func00033820(s32 arg0, s16 soundnum, u16 vol, ALPan pan, f32 pi
 		return NULL;
 	}
 
+#ifndef PLATFORM_N64
+	// a converted GoldenEye level plays GoldenEye's own sample for a sound of
+	// GoldenEye's number (gesfx.c), at the share of full its effects play at
+	if (geSfxRemaps(soundnum)) {
+		soundnum = geSfxRemap(soundnum);
+		vol = (u32)(vol * GESFX_VOLUME) >> 15;
+	}
+#endif
+
 	if (soundnum != 0) {
 		do {
+#ifndef PLATFORM_N64
+			const s16 startednum = soundnum;
+#endif
 			sound = sndLoadSound(soundnum);
 			state = func00033390(arg0, sound);
 
@@ -749,6 +764,14 @@ struct sndstate *func00033820(s32 arg0, s16 soundnum, u16 vol, ALPan pan, f32 pi
 			sp40 += sp44;
 			keymap = sound->keyMap;
 			soundnum = keymap->velocityMin + (keymap->keyMin & 0xc0) * 4;
+
+#ifndef PLATFORM_N64
+			// one of GoldenEye's own sounds chains by GoldenEye's number,
+			// which is off its key map
+			if (soundnum == 0) {
+				soundnum = geSfxChain(startednum);
+			}
+#endif
 		} while (soundnum && state);
 
 		if (state2 != NULL) {

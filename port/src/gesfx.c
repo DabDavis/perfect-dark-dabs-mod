@@ -56,6 +56,9 @@ static s32 g_SfxSearchedDirs = -1;
 // GoldenEye's id -> ours; 0 not looked at yet, -1 none
 static s16 g_SfxMap[GESFX_MAX];
 
+// ours -> GoldenEye's id, for the chain (geSfxChain())
+static s16 g_SfxGeId[SND_MAX_SOUNDS];
+
 // the sound a sound's key map chains to, 0 for none, read before anything in
 // the bank is touched since sounds share key maps
 static s16 g_SfxNext[GESFX_MAX];
@@ -232,30 +235,26 @@ s32 geSfxGet(s32 id)
 		return 0;
 	}
 
+	if (ours < SND_MAX_SOUNDS) {
+		g_SfxGeId[ours] = id;
+	}
+
 	return g_SfxMap[id] = ours;
+}
+
+s32 geSfxChain(s32 ours)
+{
+	const s32 id = ours > 0 && ours < SND_MAX_SOUNDS ? g_SfxGeId[ours] : 0;
+
+	return id > 0 && g_SfxNext[id] != id ? geSfxGet(g_SfxNext[id]) : 0;
 }
 
 s32 geSfxPlay(s32 id, s32 volume)
 {
-	s32 started = 0;
+	const s32 ours = geSfxGet(id);
 
-	// the sound and whatever it chains to, which is never long: GoldenEye's
-	// own loop has no bound and a bank that looped would hang it
-	for (s32 links = 0; id > 0 && id < GESFX_MAX && links < 8; links++) {
-		const s32 ours = geSfxGet(id);
-
-		if (ours <= 0) {
-			break;
-		}
-
-		if (sndStart(var80095200, ours, NULL, volume, -1, -1, -1, -1)) {
-			started = 1;
-		}
-
-		id = g_SfxNext[id];
-	}
-
-	return started;
+	// whatever it chains to follows it in the player (geSfxChain())
+	return ours > 0 && sndStart(var80095200, ours, NULL, volume, -1, -1, -1, -1) != NULL;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -309,20 +308,29 @@ static s32 sfxPropNum(s32 id)
 	return 0x8000 | row;
 }
 
-/** The sound and whatever it chains to (geSfxPlay()), from a prop. */
+s32 geSfxStage(void)
+{
+	return modloaderStageIsRemake(g_Vars.stagenum) && sfxLoad();
+}
+
+s32 geSfxNum(s32 id)
+{
+	return geSfxStage() ? sfxPropNum(id) : 0;
+}
+
+/** The sound, from a prop or from a place. */
+void geSfxPlayAt(s32 id, struct prop *prop, struct coord *pos, RoomNum *rooms, s32 type, u16 flags)
+{
+	const s32 num = sfxPropNum(id);
+
+	if (num) {
+		psCreate(NULL, prop, num, -1, -1, flags, 0, type, pos, -1, rooms, -1, -1, -1, -1);
+	}
+}
+
 static void sfxPlayAtProp(s32 id, struct prop *prop, s32 type, u16 flags)
 {
-	for (s32 links = 0; id > 0 && id < GESFX_MAX && links < 8; links++) {
-		const s32 num = sfxPropNum(id);
-
-		if (!num) {
-			break;
-		}
-
-		psCreate(NULL, prop, num, -1, -1, flags, 0, type, 0, -1, 0, -1, -1, -1, -1);
-
-		id = g_SfxNext[id];
-	}
+	geSfxPlayAt(id, prop, NULL, NULL, type, flags);
 }
 
 #define SFX_TRAIN_SLIDE        7
@@ -490,4 +498,104 @@ s32 geSfxPickup(s32 pdsound, struct prop *prop)
 	}
 
 	return 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Every other sound of a converted level                                    */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Perfect Dark's sounds 1 to 261 are GoldenEye's, number for number: its bank
+ * grew from GoldenEye's, and everywhere its code descends from GoldenEye's it
+ * still asks for GoldenEye's number - a body's thud, a yelp, a ricochet, a
+ * surface hit, glass, an explosion, a casing, a reload, a switch, the alarm;
+ * even its door table is GoldenEye's. What changed is the sample in the slot
+ * (all but four of the 261 were re-recorded or replaced). So on a converted
+ * level a sound of those numbers is GoldenEye's own out of the ROM, which
+ * takes care of every site at once and of a gun's shot too.
+ *
+ * Left alone are the slots Perfect Dark's *own* code plays for a meaning of
+ * its own: 9 and 55 are its "no sound" (55 is GoldenEye's evil laugh), 2 the
+ * Horizon Scanner, 7 the sight's lock, 16 a bottle, 43 a menu, 100 a shield,
+ * 101 the laser's stream, 245 the hoverbike. And 62, its HUD message beep, is
+ * GoldenEye's tank: GoldenEye prints a message in silence, so it is silent.
+ */
+s32 geSfxRemaps(s32 id)
+{
+	switch (id) {
+	case 2: case 7: case 9: case 16: case 43: case 55: case 100: case 101: case 245:
+		return 0;
+	}
+
+	return id > 0 && id <= 261 && geSfxStage();
+}
+
+s32 geSfxRemap(s32 id)
+{
+	s32 ours;
+
+	if (!geSfxRemaps(id)) {
+		return id;
+	}
+
+	if (id == 62) {
+		return 0;
+	}
+
+	ours = geSfxGet(id);
+
+	return ours > 0 ? ours : id;
+}
+
+s32 geSfxOr(s32 id, s32 pdsound)
+{
+	const s32 num = geSfxNum(id);
+
+	return num ? num : pdsound;
+}
+
+s32 geSfxOurs(s32 id, s32 pdsound)
+{
+	const s32 ours = geSfxStage() ? geSfxGet(id) : 0;
+
+	return ours > 0 ? ours : pdsound;
+}
+
+s32 geSfxNumRange(s32 id, f32 dist2, f32 dist3)
+{
+	static struct { s16 id; s16 row; f32 dist2; f32 dist3; } made[16];
+	static s32 nummade;
+	const s32 ours = geSfxStage() ? geSfxGet(id) : 0;
+	struct audioconfig config = { 200, dist2, dist3, -1, GESFX_VOLUME * 100 / AL_VOL_FULL, -1, 0, 0 };
+	s32 confignum;
+	s32 row;
+
+	if (ours <= 0) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < nummade; i++) {
+		if (made[i].id == id && made[i].dist2 == dist2 && made[i].dist3 == dist3) {
+			return 0x8000 | made[i].row;
+		}
+	}
+
+	if (nummade >= 16) {
+		return sfxPropNum(id);
+	}
+
+	confignum = sndAppendAudioConfig(&config);
+	row = confignum >= 0 ? sndAppendRussMapping(ours, confignum) : -1;
+
+	if (row < 0) {
+		return sfxPropNum(id);
+	}
+
+	made[nummade].id = id;
+	made[nummade].row = row;
+	made[nummade].dist2 = dist2;
+	made[nummade].dist3 = dist3;
+	nummade++;
+
+	return 0x8000 | row;
 }

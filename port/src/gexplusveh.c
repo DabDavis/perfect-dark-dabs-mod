@@ -45,6 +45,8 @@
 #include "geaitable.h"
 #include "geanimtable.h"
 #include "gexplusveh.h"
+#include "gesfx.h"
+#include "game/propsnd.h"
 
 #ifndef PLATFORM_N64
 
@@ -93,6 +95,8 @@ static f32 vehWrapTau(f32 angle)
 
 	return angle;
 }
+
+static void vehEngine(struct prop *prop, s32 running, s32 id, f32 dist2, f32 dist3);
 
 /**
  * The aircraft: its AI list, its speed and the rotor's.
@@ -152,6 +156,32 @@ static void vehHeliTick(struct prop *prop)
 
 	vehRamp(&heli->speed, heli->speedaim, &heli->speedtime60, delta);
 	vehRamp(&heli->rotoryspeed, heli->rotoryspeedaim, &heli->rotoryspeedtime, delta);
+
+	vehEngine(prop, heli->rotoryspeed != 0.0f && !(heli->base.flags & OBJFLAG_CHOPPER_INIT), 58, 5000, 6000);
+}
+
+/**
+ * A vehicle's engine: GoldenEye's TRUCK_RUN_SFX (65) while a truck is moving or
+ * has been told to, heard to 2000 and gone by 3000, and HELI_RUN_SFX (58)
+ * while a helicopter's rotor turns and it is not flying an animation, on the
+ * usual 5000 and 6000 - propobj.c's object tick, which starts the sound again
+ * whenever it has ended, stops it when the vehicle does and holds it silent
+ * while the controls are locked. Neither while it is destroyed or
+ * PROPFLAG2_00080000 is set.
+ */
+static void vehEngine(struct prop *prop, s32 running, s32 id, f32 dist2, f32 dist3)
+{
+	struct defaultobj *obj = prop->obj;
+
+	if (running && !(obj->flags2 & 0x00080000) && objIsHealthy(obj) && !g_Vars.in_cutscene) {
+		const s32 num = geSfxNumRange(id, dist2, dist3);
+
+		if (num && !lvIsPaused()) {
+			psCreateIfNotDupe(prop, num, PSTYPE_CHOPPERHUM1);
+		}
+	} else {
+		psStopSound(prop, PSTYPE_CHOPPERHUM1, 0xffff);
+	}
 }
 
 /**
@@ -231,6 +261,7 @@ static void vehTruckTick(struct prop *prop)
 	chraiExecute(truck, PROPTYPE_OBJ);
 
 	vehRamp(&truck->speed, truck->speedaim, &truck->speedtime60, delta);
+	vehEngine(prop, truck->speed > 0.0f || truck->speedaim > 0.0f, 65, 2000, 3000);
 
 	if (truck->path && truck->path->pads[truck->nextstep] >= 0) {
 		padUnpack(truck->path->pads[truck->nextstep], PADFIELD_POS, &pad);

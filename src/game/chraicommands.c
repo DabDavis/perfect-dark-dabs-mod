@@ -56,6 +56,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "gesfx.h"
 #include "gecinema.h"
 #include "modloader.h"
 #endif
@@ -4483,6 +4484,15 @@ bool aiPlaySound(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 audio_id = cmd[3] | (cmd[2] << 8);
 
+#ifndef PLATFORM_N64
+	// a converted GoldenEye list names GoldenEye's sound, and one its bank has
+	// not got is silent rather than Perfect Dark's sound of that number
+	if (geSfxStage()) {
+		audio_id = geSfxNum(audio_id);
+	}
+
+	if (audio_id || !geSfxStage())
+#endif
 	psPlayFromProp((s8)cmd[4], audio_id, 0, NULL, PSTYPE_NONE, 0);
 
 	g_Vars.aioffset += 5;
@@ -4562,6 +4572,13 @@ bool aiSetObjectSoundVolumeByDistance(void)
 	u16 volchangetimer60 = cmd[6] | (cmd[5] << 8);
 	s32 volume = psCalculateVolumeFromDistance(playerdist, 400, 2500, 3000, AL_VOL_FULL);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's own curve for the same command (sub_GAME_7F0539B8())
+	if (geSfxStage()) {
+		volume = psCalculateVolumeFromDistance(playerdist, 200, 5000, 6000, AL_VOL_FULL);
+	}
+#endif
+
 	psModify((s8)cmd[2], volume, -1, NULL, volchangetimer60, 2500, 3000, 0);
 
 	g_Vars.aioffset += 7;
@@ -4578,6 +4595,11 @@ bool aiSetObjectSoundPlaying(void)
 	struct defaultobj *obj = objFindByTagId(cmd[3]);
 	u16 volchangetimer60 = cmd[5] | (cmd[4] << 8);
 
+#ifndef PLATFORM_N64
+	if (obj && obj->prop && geSfxStage()) {
+		psEmitFrom((s8)cmd[2], obj->prop, -1, volchangetimer60);
+	} else
+#endif
 	if (obj && obj->prop) {
 		psModify((s8)cmd[2], -1, -1, obj->prop, volchangetimer60, 2500, 3000, 0);
 	}
@@ -4653,6 +4675,15 @@ bool aiPlayRepeatingSoundFromPad(void)
 	s16 padnum = cmd[4] | (cmd[3] << 8);
 	s16 sound = cmd[6] | (cmd[5] << 8);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's command of this number is SfxEmitFromPad - a channel, a pad
+	// and a time, where Perfect Dark's is a pad and a sound - and a converted
+	// list carries GoldenEye's arguments: read as Perfect Dark's, the time was
+	// played as a sound, repeating, for the rest of the level
+	if (geSfxStage()) {
+		psEmitFrom((s8)cmd[2], NULL, padnum, (u16)sound);
+	} else
+#endif
 	psCreate(0, NULL, sound, padnum, -1, PSFLAG_REPEATING, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 
 	g_Vars.aioffset += 7;

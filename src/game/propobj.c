@@ -3938,6 +3938,11 @@ void knifePlayWooshSound(struct defaultobj *obj)
 			u16 soundnums[] = { SFX_8074, SFX_8074, SFX_8074 };
 			s32 index = rngRandom() % ARRAYCOUNT(soundnums);
 
+#ifndef PLATFORM_N64
+			// GoldenEye's Throwing_knife_SFX: KNIFE_THROW1 to 3
+			soundnums[index] = geSfxOr(95 + index, soundnums[index]);
+#endif
+
 			if (obj->projectile->lastwooshframe < g_Vars.lvframe60 - TICKS(6)) {
 				psStopSound(obj->prop, PSTYPE_GENERAL, 0xffff);
 
@@ -9431,6 +9436,11 @@ void autogunTickShoot(struct prop *autogunprop)
 						soundnum = SFX_8044;
 						soundgap = 4;
 					}
+
+#ifndef PLATFORM_N64
+					// GoldenEye's GUN_B9_CANNON_SHORT_SFX for every autogun
+					soundnum = geSfxOr(253, soundnum);
+#endif
 
 					psCreate(NULL, autogunprop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 				}
@@ -21104,7 +21114,13 @@ void gasTick(void)
 				g_GasLastCough60 = g_Vars.lvframe60;
 
 				if (g_GasReleaseTimer240 >= 600) {
+#ifndef PLATFORM_N64
+					// GoldenEye's COUGH_SFX, and its GAS_HISS_SFX below: both
+					// are Perfect Dark's "no sound" now
+					sndStart(var80095200, geSfxOurs(98, SFX_0037), 0, geSfxStage() ? GESFX_VOLUME : -1, -1, -1, -1, -1);
+#else
 					sndStart(var80095200, SFX_0037, 0, -1, -1, -1, -1, -1);
+#endif
 				}
 
 				if (g_GasReleaseTimer240 >= 1800) {
@@ -21121,6 +21137,9 @@ void gasTick(void)
 
 				if (!g_GasAudioHandle && !lvIsPaused()) {
 					soundnum = SFX_0037;
+#ifndef PLATFORM_N64
+					soundnum = geSfxOurs(102, SFX_0037);
+#endif
 					sndStart(var80095200, soundnum, &g_GasAudioHandle, -1, -1, -1, -1, -1);
 				}
 

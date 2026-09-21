@@ -26,6 +26,9 @@ s32 psPlayFromProp(s32 channelnum, s16 soundnum, s32 vol, struct prop *prop, s16
 void psMuteChannel(s32 channelnum);
 bool psIsChannelFree(s32 channelnum);
 void psModify(s32 channelnum, s32 arg1, s16 padnum, struct prop *prop, s32 volchangetimer60, s32 dist2, s32 dist3, u16 flags);
+#ifndef PLATFORM_N64
+void psEmitFrom(s32 channelnum, struct prop *prop, s16 padnum, s32 volchangetimer60);
+#endif
 s32 psCalculateVol(struct coord *pos, f32 arg1, f32 arg2, f32 arg3, RoomNum *rooms, s16 soundnum, s32 arg6, f32 *arg7);
 s32 psCalculatePan3(s32 degrees, f32 arg1, struct pschannel *channel);
 s32 psCalculatePan2(struct coord *pos, s32 arg1, f32 arg2, struct pschannel *channel);

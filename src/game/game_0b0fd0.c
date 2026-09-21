@@ -17,6 +17,10 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "geguns.h"
+#include "gesfx.h"
+#endif
 
 struct weapon *weaponFindById(s32 itemid)
 {
@@ -656,6 +660,15 @@ u16 gsetGetSingleShootSound(struct gset *gset)
 
 	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 		struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
+
+#ifndef PLATFORM_N64
+		// one of GoldenEye's guns on a converted level fires with its own
+		// sound rather than its host's (geguns.c)
+		if (funcshoot->shootsound && gegunsShootSound(gset->weaponnum) && geSfxStage()) {
+			return gegunsShootSound(gset->weaponnum);
+		}
+#endif
+
 		return funcshoot->shootsound;
 	}
 

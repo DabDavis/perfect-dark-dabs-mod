@@ -65,6 +65,9 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#ifndef PLATFORM_N64
+#include "gesfx.h"
+#endif
 #endif
 
 s32 g_RecentQuipsPlayed[5];
@@ -8914,8 +8917,14 @@ void chrTickAnim(struct chrdata *chr)
 			&& modelGetCurAnimFrame(chr->model) >= 42
 			&& (g_Vars.lvframenum % 2) == 0
 			&& chrGetDistanceToCurrentPlayer(chr) < 800) {
+#ifndef PLATFORM_N64
+		// GoldenEye's SNEEZE_SFX, which Perfect Dark left as its "no sound"
+		psCreate(NULL, chr->prop, geSfxOr(257, SFX_0037), -1,
+				-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+#else
 		psCreate(NULL, chr->prop, SFX_0037, -1,
 				-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+#endif
 	}
 
 	if (chr->sleep <= 0 && chr->act_anim.slowupdate) {

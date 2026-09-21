@@ -3328,6 +3328,83 @@ the end; record with `SDL_AUDIODRIVER=disk` and read the file's size at each
 event to place it), `armour.py`, and `runall_snd.sh` - the mission sweep with
 the sound **on**, since `runall.sh` is `--no-sound` and never reaches the bank.
 
+### Every other sound of a converted level (2026-09-21)
+
+The user: "now do the rest of the pd sounds on converted levels".
+
+**Perfect Dark's sounds 1 to 261 are GoldenEye's, number for number.** Its
+bank grew from GoldenEye's, and wherever its code descends from GoldenEye's it
+still asks for GoldenEye's number: ricochet 27 is `SFX_001B`, punch 47 is
+`0x2f`, `PICKUP_GUN` 232 is `SFX_PICKUP_GUN` 0xe8, the 25 male yelps are
+134-158 in both, and 141 of the 451 rows of `g_AudioRussMappings[]` - the
+`0x80xx` sounds - resolve to a GoldenEye number: every surface hit, the eleven
+body falls, the explosions, the glass, the casing, the reload, the throw, the
+detonator, *and the whole door table* (`SFX_DOOR_8014` is 202,
+`METAL_SLIDE_OPEN`). What changed is the **sample in the slot**: comparing the
+two banks entry for entry, four are byte-identical, 62 more are the same
+length and the other 190-odd were replaced or blanked (64 bytes). So the doors
+were never a wrong *table*; they were the right numbers into a different bank.
+
+So the rule is central and one hook long: `func00033820()` (n_sndplayer.c,
+which `sndStart()` and therefore everything reaches) asks `geSfxRemap()`, and
+on a converted level (`geSfxStage()`) a sound of GoldenEye's number loads
+GoldenEye's sample out of the ROM, at `GESFX_VOLUME`'s share of full.
+`psCreate()` gives such a sound GoldenEye's falloff (200/5000/6000) where the
+caller named none. **Chains follow in the player too**: gesfx.c takes a key
+map's link off (a link names a number, and outside a converted level that is
+one of Perfect Dark's), so the same loop asks `geSfxChain()` when a key map
+has none - the explosion's 174-175-176 and the glass's 71-2 play as
+GoldenEye's do, each link after its own delay, and `geSfxPlay()`'s own loop
+over the links went.
+
+Left alone are the slots Perfect Dark's *own* code plays for a meaning of its
+own: **9 and 55 are its "no sound"** (`sndStart()` refuses both; 55 is
+GoldenEye's evil laugh, and 55 rows of chraicommands.c name it), 2 the Horizon
+Scanner, 7 the sight's lock-on, 16 a bottle, 43 a menu, 100 a shield hit, 101
+the laser's stream, 245 the hoverbike. 62 is its HUD message beep and
+GoldenEye's tank; GoldenEye prints a message in silence, so it is silent.
+
+What the rule does not reach, each done where it is:
+
+- **A converted AI list's sounds were GoldenEye's raw numbers** played as
+  Perfect Dark's (`SfxPlay` is `aiPlaySound` with the argument copied): they go
+  through `geSfxNum()` now, which is any number of GoldenEye's and not only
+  the 261 rule's. And **GoldenEye's `SfxEmitFromPad` (channel, pad, time) had
+  become Perfect Dark's `play_repeating_sound_from_pad` (pad, sound)** at the
+  same command number, so the *time* was played as a sound, repeating, for
+  the rest of the level. Both emit commands go to `psEmitFrom()` (propsnd.c):
+  a sound started with nowhere to be is marked `PSFLAG2_0010`, never worked
+  out again, and `psModify()` leaves that set - Perfect Dark's own lists start
+  such a sound as a marker - and a pad given to `psModify()` is stored and
+  read by nothing. No converter change: the arguments were carried right.
+- **Gun fire.** A GoldenEye gun stands on a host and fired with the host's
+  sound (or GoldenEye X's copy). `gegunsShootSound()` is the `Sound` field of
+  the same `gunWeaponStat` rows, handed out by `gsetGetSingleShootSound()` on
+  a converted level only - the number is no good anywhere else, Perfect Dark
+  having blanked most of those slots - which covers a guard's shot as well.
+  The Cougar Magnum's is 111, the gun barrel's.
+- **Three sounds Perfect Dark kept the code for and replaced with "no sound"**:
+  a guard's sneeze (257), Bond's cough in gas (98) and the gas's hiss (102) -
+  `geSfxOr()`/`geSfxOurs()`. The thrown knife's whoosh is GoldenEye's three
+  (95-97) and every autogun is `GUN_B9_CANNON_SHORT` (253).
+- **Vehicles' engines**, which the port's tick never had (`vehEngine()`):
+  `TRUCK_RUN` to 2000/3000 while it moves, `HELI_RUN` on 5000/6000 while the
+  rotor turns, through `geSfxNumRange()` - an audio config per range.
+- **Footsteps: GoldenEye has none**, Bond's or a guard's - nothing in its bank
+  and nothing in its code - so `footstepChooseSound()` answers -1 there.
+
+Not done: GoldenEye's near-miss whistle (164-168, `sub_GAME_7F064934()`) has no
+descendant in Perfect Dark to hook; `SoundTriggerRate` (an automatic's sound
+every nth shot); Bond's own hit grunt (68); the tank.
+
+Probes in `build/gexrom`: `remap.py` (starts representative Perfect Dark
+sounds and logs what the player loads, chains included, with the recording
+measured after each), `aisnd.py` (every AI sound command of a mission),
+`gunsnd.py`, `trucksnd.py`. **A build whose output was piped through a grep
+for " error" hid a failed compile** (gcc colours the word, so no space leads
+it) and a probe then ran an old binary: grep for `error`, and check `nm` for
+a new symbol when a probe says it is missing.
+
 **The folder screens and the watch play GoldenEye's sounds too** (2026-09-20).
 GoldenEye's front end has three: `DOOR_METAL_CLOSE2` (199) for every accept,
 back and tab on every screen, `DOOR_METAL_CLOSE` (197) for the mode select's

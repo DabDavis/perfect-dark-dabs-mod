@@ -102,6 +102,47 @@ struct gegunstat {
 #define GUNSTAT(weapon, source, mag, autorate, singlerate, pen, dmg, spread, impact) \
 	[weapon - WEAPON_GE_FIRST] = { mag, autorate, singlerate, pen, dmg, spread, impact }
 
+/**
+ * What each gun sounds like: the Sound field of the same gunWeaponStat rows,
+ * GoldenEye's own SFX_ID. A gun here stands on a Perfect Dark host and fired
+ * with its host's sound (or GoldenEye X's copy of GoldenEye's, borrowed). The
+ * number is only good on a converted level, where a sound of GoldenEye's
+ * number is GoldenEye's sample out of the ROM (gesfx.c) - Perfect Dark's bank
+ * has something else in most of these slots, or nothing - so it is handed out
+ * when a shot is fired there and never written to the definition. 0 is a
+ * weapon GoldenEye fires in silence: what is thrown, and the rocket launcher,
+ * whose sound is the rocket's.
+ */
+static const u8 shootsounds[NUM_GE_WEAPONS] = {
+	[WEAPON_GE_PP7 - WEAPON_GE_FIRST]             = 107, // GUN_B2_HEAVY
+	[WEAPON_GE_PP7SILENCED - WEAPON_GE_FIRST]     = 46,  // GUN_SILPPK_A
+	[WEAPON_GE_DD44 - WEAPON_GE_FIRST]            = 112, // GUN_B8_ANOTHER
+	[WEAPON_GE_KLOBB - WEAPON_GE_FIRST]           = 106, // GUN_B1_MGUN3_3
+	[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST]       = 109, // GUN_B4_BOLTACTION
+	[WEAPON_GE_ZMG - WEAPON_GE_FIRST]             = 110, // GUN_B5_WINC44
+	[WEAPON_GE_D5K - WEAPON_GE_FIRST]             = 117, // GUN_B13_M60AMMGUN
+	[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST]     = 46,
+	[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST]         = 109,
+	[WEAPON_GE_AR33 - WEAPON_GE_FIRST]            = 113, // GUN_B9_CANNON
+	[WEAPON_GE_RCP90 - WEAPON_GE_FIRST]           = 253, // GUN_B9_CANNON_SHORT
+	[WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST]         = 121, // GUN_B17_RIFLE
+	[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST]     = 116, // GUN_B12_FULLAMRIFLE
+	[WEAPON_GE_SNIPERRIFLE - WEAPON_GE_FIRST]     = 46,
+	[WEAPON_GE_COUGARMAGNUM - WEAPON_GE_FIRST]    = 111, // GUN_RIFLE7BIG_1
+	[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST]       = 117,
+	[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST]       = 228, // LASER_GUN
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 12,  // GUN_TANK2BIGBIG_1
+};
+
+s32 gegunsShootSound(s32 weaponnum)
+{
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_WEAPONS) {
+		return 0;
+	}
+
+	return shootsounds[weaponnum - WEAPON_GE_FIRST];
+}
+
 static const struct gegunstat stats[NUM_GE_WEAPONS] = {
 #include "gegunstats.h"
 };

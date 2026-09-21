@@ -23,6 +23,10 @@ struct weapon;
 // the copy of the host back; pickupfile 0 keeps the host's pickup.
 void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 pickupscale);
 s32 gegunsIsBorrowed(s32 index);
+
+// GoldenEye's own SFX_ID for one of its guns' shots, to be played on a
+// converted level (gesfx.c); 0 for any other weapon or a silent one.
+s32 gegunsShootSound(s32 weaponnum);
 s32 gegunsBorrowedPickup(s32 index, u16 *fileid, u16 *scale);
 // WEAPONFLAG_HASHANDS as the gun's own definition has it
 u32 gegunsHandsFlag(s32 index);

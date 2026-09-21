@@ -11,6 +11,9 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gesfx.h"
+#endif
 
 s32 g_FootstepSounds[] = {
 	/* none   */ -1,                -1,                -1,                -1,                -1,                -1,                -1,                -1,
@@ -108,6 +111,14 @@ s32 footstepChooseSound(struct chrdata *chr, s32 footstepindex)
 	if (chr->footstep == 0) {
 		return 0;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye has no footsteps, Bond's or a guard's: nothing in its bank
+	// is one and nothing in its code asks for one
+	if (geSfxStage()) {
+		return -1;
+	}
+#endif
 
 	floortype = chr->floortype <= FLOORTYPE_SNOW ? chr->floortype : 0;
 

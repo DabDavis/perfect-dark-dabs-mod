@@ -39,6 +39,42 @@ s32 geSfxGet(s32 id);
 s32 geSfxPlay(s32 id, s32 volume);
 
 struct prop;
+struct coord;
+
+// Whether the stage is a converted GoldenEye level with its sound bank: the
+// stages whose sounds are GoldenEye's to choose.
+s32 geSfxStage(void);
+
+// GoldenEye's sound as a number psCreate() and psPlayFromProp() take on such a
+// stage, heard with GoldenEye's falloff (full to 200, out by 6000) and at its
+// balance; 0 anywhere else, or for a sound the bank has not got.
+s32 geSfxNum(s32 id);
+
+// geSfxNum() for a sound GoldenEye hears over a range of its own (a truck's
+// engine is gone by 3000). A handful of these at most.
+s32 geSfxNumRange(s32 id, f32 dist2, f32 dist3);
+
+// The sound, heard from a prop or from a place
+// (either may be NULL, a place wanting its rooms) the way geSfxNum() describes.
+// Not checked against the stage: the caller asked geSfxStage().
+void geSfxPlayAt(s32 id, struct prop *prop, struct coord *pos, RoomNum *rooms, s32 type, u16 flags);
+
+// On a converted level Perfect Dark's sound `id` is GoldenEye's of the same
+// number (gesfx.c, "Every other sound"): whether it is, and this game's number
+// for it - `id` itself where it is not, 0 where GoldenEye is silent.
+s32 geSfxRemaps(s32 id);
+s32 geSfxRemap(s32 id);
+
+// For a site where Perfect Dark kept GoldenEye's code and took the sound out -
+// the sneeze, the cough and the gas are its "no sound", 55 - or plays one of
+// its own: GoldenEye's sound on a converted level, `pdsound` anywhere else.
+// geSfxOr() is a number for psCreate(), geSfxOurs() one for sndStart().
+s32 geSfxOr(s32 id, s32 pdsound);
+s32 geSfxOurs(s32 id, s32 pdsound);
+
+// The appended sound that one of GoldenEye's chains to, or 0. The player asks
+// as it starts a sound: the link was taken off the key map (gesfx.c).
+s32 geSfxChain(s32 ours);
 
 // The four moments a door makes a sound at, in both games
 #define GESFX_DOOR_OPENING 0

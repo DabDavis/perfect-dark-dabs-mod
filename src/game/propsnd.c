@@ -16,6 +16,9 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gesfx.h"
+#endif
 
 struct pschannel *g_PsChannels = NULL;
 
@@ -840,6 +843,16 @@ s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 pad
 	channel->soundnum26 = spac.packed;
 	channel->soundnum2c = spac.id;
 
+#ifndef PLATFORM_N64
+	// one of GoldenEye's sounds on a converted level (gesfx.c) is heard as far
+	// as GoldenEye hears it: chrobjSndCreatePostEventDefault()'s curve
+	if (dist1 <= 0 && dist2 <= 0 && dist3 <= 0 && !sndIsMp3(soundnum) && geSfxRemaps(spac.id)) {
+		channel->dist1 = 200;
+		channel->dist2 = 5000;
+		channel->dist3 = 6000;
+	}
+#endif
+
 #if VERSION >= VERSION_NTSC_1_0
 	if (sndIsFiltered(channel->soundnum2c)) {
 		channel->flags2 |= PSFLAG2_OFFENSIVE;
@@ -1122,6 +1135,54 @@ void psModify(s32 channelnum, s32 volume, s16 padnum, struct prop *prop, s32 vol
 		}
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's SfxEmitFromObject and SfxEmitFromPad: a sound an AI list already
+ * started in one of its eight channels is heard from a prop or a pad from now
+ * on, its volume moving there over volchangetimer60.
+ *
+ * Perfect Dark kept the first as psModify() with a prop, but a sound started
+ * with nowhere to be is marked as one whose volume is never worked out again
+ * (PSFLAG2_0010), which psModify() leaves set - its own lists start such a
+ * sound as a marker and let psModify() create it. And the second it turned
+ * into a different command altogether (aiPlayRepeatingSoundFromPad).
+ */
+void psEmitFrom(s32 channelnum, struct prop *prop, s16 padnum, s32 volchangetimer60)
+{
+	struct pschannel *channel;
+
+	if (!CHANNEL_IS_AI(channelnum)) {
+		return;
+	}
+
+	channel = &g_PsChannels[channelnum];
+
+	if ((channel->flags & PSFLAG_FREE) || channel->type == PSTYPE_MARKER) {
+		return;
+	}
+
+	if (prop) {
+		channel->posptr = NULL;
+	} else if (padnum >= 0) {
+		struct pad pad;
+
+		padUnpack(padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+		channel->prop = NULL;
+		channel->pos = pad.pos;
+		channel->posptr = &channel->pos;
+		channel->rooms[0] = pad.room;
+		channel->rooms[1] = -1;
+	} else {
+		return;
+	}
+
+	channel->flags2 &= ~PSFLAG2_0010;
+
+	psModify(channelnum, -1, -1, prop, volchangetimer60, 5000, 6000, 0);
+}
+#endif
 
 s32 psCalculateVol(struct coord *pos, f32 dist1, f32 dist2, f32 dist3, RoomNum *rooms, s16 soundnum, s32 arg6, f32 *playerdistptr)
 {
