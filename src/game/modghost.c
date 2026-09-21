@@ -280,6 +280,11 @@ bool modGhostGetTrialCharacter(s32 *bodynum, s32 *headnum)
 s32 g_ModCiBody = MODGHOST_BODY_DEFAULT;
 s32 g_ModCiHead = MODGHOST_BODY_DEFAULT;
 
+// Customize Character's Mission Default: a mission keeps the character it was
+// made with - Joanna in the mission's outfit, GoldenEye's Bond in his - and the
+// pick is only who walks the Institute.
+s32 g_ModCiMissionDefault = 0;
+
 static bool g_ModCiBodyStale = false;
 
 /**
@@ -288,10 +293,15 @@ static bool g_ModCiBodyStale = false;
  * side of co-op and counter-op. Not Velvet, not the counter-operative, who
  * wear what the game gives them, and not the Combat Simulator, which has its
  * own picker. A trial asks its own character first (playerChooseBodyAndHead()).
+ * With Mission Default ticked it is nobody on a mission, only in the Institute.
  */
 bool modGhostMenuCharacterApplies(void)
 {
 	if (g_Vars.normmplayerisrunning || g_ModCiBody <= MODGHOST_BODY_DEFAULT) {
+		return false;
+	}
+
+	if (g_ModCiMissionDefault && g_Vars.stagenum != STAGE_CITRAINING) {
 		return false;
 	}
 

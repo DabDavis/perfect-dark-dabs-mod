@@ -296,6 +296,7 @@ s32 modGhostBodyDefaultHead(s32 mpbody);
  */
 extern s32 g_ModCiBody;
 extern s32 g_ModCiHead;
+extern s32 g_ModCiMissionDefault;
 
 // The Customize Character pick, for whichever player would otherwise be Joanna.
 bool modGhostMenuCharacterApplies(void);

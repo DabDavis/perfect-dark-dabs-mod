@@ -340,6 +340,25 @@ static MenuItemHandlerResult menuhandlerCiCharacterHead(s32 operation, struct me
 	return mpCharacterHeadMenuHandler(operation, item, data, head, true);
 }
 
+/**
+ * Mission Default: a mission plays as the character it was made with, and the
+ * pick above is kept for the Institute. The body is marked stale as a change of
+ * character is, so ticking it from a mission's pause menu shows at once.
+ */
+static MenuItemHandlerResult menuhandlerCiMissionDefault(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModCiMissionDefault;
+	case MENUOP_SET:
+		g_ModCiMissionDefault = data->checkbox.value;
+		modGhostMarkMenuCharacterStale();
+		break;
+	}
+
+	return 0;
+}
+
 static MenuDialogHandlerResult menudialogCiCharacter(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	// Keeps the model turning off the carousels, as the trial page does
@@ -379,6 +398,14 @@ struct menuitem g_CiCharacterMenuItems[] = {
 		0,
 		0x0000001b,
 		menuhandlerCiCharacterBody,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mission Default",
+		0,
+		menuhandlerCiMissionDefault,
 	},
 	{ MENUITEMTYPE_END },
 };
