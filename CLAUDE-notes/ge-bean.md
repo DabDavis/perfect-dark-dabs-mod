@@ -7147,3 +7147,40 @@ crouched" and is right. `build/gexrom/crouchwalk.py` (realwalk.py printing
 floor in the duct, standing again after the drop into the stall. And a gdb
 Python `stop()` that calls `screenshotRequest()` writes no picture and says
 nothing - call it after the stop.
+
+## Ourumov's squad running on the spot at the bottling room's door (2026-09-21)
+
+F3 report 20260921-085035 (Facility, frame 19424): "after talking to trev.
+ourumov comes with soldiers, but they get stuck right here" - five soldiers
+jammed at the door into the bottling room (pad 432, 3779 -1109) and Ourumov at
+the door beside it, all `ACT_GOPOS`. `build/gexrom/guardrun.py` reproduces it in
+a minute from a fresh boot: a guard moved with `chrMoveToPos()` to the report's
+spot, sent to pad 0x7b (their AI list's `guard_runs_to_pad`) with
+`chrGoToRoomPos()`, the player placed to watch (**a chr off screen skips
+collision and walks straight through** - put the player where they see him, and
+out of the doorway). He ended on Ourumov's own coordinates.
+
+**Why.** A guard opens a door with a *line* (`chrOpenDoor()`:
+`cdExamCylMove03()` towards the next waypoint, `CDTYPE_BG` and closed doors, and
+the door is whatever prop the line stops at). The line stopped at a background
+wall a pace short of the door, so there was no door to open. The wall was real:
+the room's wall at z -1102 is two upright tiles (1008, 1009) linked to the floor
+either side of the ramp, and their open edges run across the doorway in plan -
+the hole in the wall. GoldenEye never consults them from the ramp: its line test
+(`walkTilesBetweenPoints()`) goes through the tiles the line crosses, and a body
+on the ramp reaches them through no link its circle touches. Ours asked
+`geStanWallSkipped()` with a circle round the line's *start* as wide as the
+line's *length* plus 40 (`cdStanReach()`), which from waypoint 99 to 109 is 260
+units of everything.
+
+**Fix.** `stanFlood()` measures a link's edge from the move's line and not from
+a point (`stanEdgeSegDistSq()`; a standing body's line is a point), and the two
+line walkers (`cdTestAToBGeolist()`, `cdExamAToBGeolist()`) hand the line's end
+over with `GESTAN_LINEREACH` (8, the margin a body gets past its radius). No
+converter change. `dooropen.py` asks the door line alone; `wallline.py` checks a
+line is still stopped by the jambs and by that same wall from the floor beside
+the ramp. The player's walking is unchanged: three Dam tower descents
+(`realwalk.py`, SIDE 0/±0.6) end on the same coordinates with the same number of
+walls asked, and 2.5 to 3 times as many left out.
+
+A probe's stuck test must outlast a door: he stands 40 frames waiting for it.

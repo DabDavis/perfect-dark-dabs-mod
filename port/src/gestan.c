@@ -64,7 +64,7 @@ static struct {
 	// the tiles a body reaches from where it stands, marked with `gen`
 	u32 *reached;
 	u32 gen;
-	f32 lastx, lastz, lastlimit, lastrise, lastreach;
+	f32 lastx, lastz, lastx2, lastz2, lastlimit, lastrise, lastreach;
 	bool lastfound;
 } g_Stan = { .stagenum = -1 };
 
@@ -505,6 +505,43 @@ static f32 stanEdgeDistSq(const struct stanpoint *a, const struct stanpoint *b, 
 	return dx * dx + dz * dz;
 }
 
+/** How near the move from x/z to x2/z2 comes to the edge from a to b, in plan, squared. */
+static f32 stanEdgeSegDistSq(const struct stanpoint *a, const struct stanpoint *b, f32 x, f32 z, f32 x2, f32 z2)
+{
+	const f32 mx = x2 - x, mz = z2 - z;
+	const f32 ex = (f32)(b->x - a->x), ez = (f32)(b->z - a->z);
+	const f32 mlen = mx * mx + mz * mz;
+	f32 best, d, f, dx, dz;
+
+	if (mlen == 0.0f) {
+		return stanEdgeDistSq(a, b, x, z);
+	}
+
+	// they cross: the two ends of each lie either side of the other
+	if (((ex * (z - a->z) - ez * (x - a->x)) > 0.0f) != ((ex * (z2 - a->z) - ez * (x2 - a->x)) > 0.0f)
+			&& ((mx * (a->z - z) - mz * (a->x - x)) > 0.0f) != ((mx * (b->z - z) - mz * (b->x - x)) > 0.0f)) {
+		return 0.0f;
+	}
+
+	// or the nearest approach is at one of the four ends
+	best = stanEdgeDistSq(a, b, x, z);
+	d = stanEdgeDistSq(a, b, x2, z2);
+	best = d < best ? d : best;
+
+	f = ((a->x - x) * mx + (a->z - z) * mz) / mlen;
+	f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+	dx = a->x - (x + mx * f); dz = a->z - (z + mz * f);
+	d = dx * dx + dz * dz;
+	best = d < best ? d : best;
+
+	f = ((b->x - x) * mx + (b->z - z) * mz) / mlen;
+	f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+	dx = b->x - (x + mx * f); dz = b->z - (z + mz * f);
+	d = dx * dx + dz * dz;
+
+	return d < best ? d : best;
+}
+
 /**
  * The tiles a body reaches: its own, and every tile linked to it - through any
  * number of links - across an edge that comes within `reach` of where it
@@ -512,13 +549,22 @@ static f32 stanEdgeDistSq(const struct stanpoint *a, const struct stanpoint *b, 
  * followed where the body's circle touches the edge itself) and the walk a
  * move makes, and it is the whole of what GoldenEye ever consults.
  *
+ * A move is asked about as a line (`x2`/`z2`, the same point for a body that
+ * stands), and the edge is measured from the line: GoldenEye's line test
+ * (walkTilesBetweenPoints()) goes through the tiles the line crosses and no
+ * others. Measured from the line's start by the line's whole length it was
+ * every tile in a circle that wide, and at the end of Facility that took in
+ * the upright tile of the wall beside the bottling room's door, whose open
+ * edge runs across the doorway in plan: the line a guard opens a door by
+ * stopped at it a pace short of the door, and Ourumov's squad ran on the spot.
+ *
  * It is the edge and not the neighbour's box: the ground under Dam's outside
  * stair is one triangle whose box holds the whole flight, and its wall runs
  * across under the treads. By its box it was reached from every tread, and a
  * body a little off the middle of the flight stopped at a wall a storey under
  * its feet.
  */
-static void stanFlood(s32 start, f32 x, f32 z, f32 reach)
+static void stanFlood(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach)
 {
 	s32 queue[GESTAN_MAXFLOOD];
 	s32 head = 0, tail = 0;
@@ -544,7 +590,7 @@ static void stanFlood(s32 start, f32 x, f32 z, f32 reach)
 				continue;
 			}
 
-			if (stanEdgeDistSq(&p[k], &p[(k + 1) % t->npts], x, z) > reach * reach) {
+			if (stanEdgeSegDistSq(&p[k], &p[(k + 1) % t->npts], x, z, x2, z2) > reach * reach) {
 				continue;
 			}
 
@@ -572,7 +618,7 @@ f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin)
 	return checkvertical ? pos->y + ymin + 10.0f : pos->y - 60.0f;
 }
 
-bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 rise, f32 reach)
+bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32 limit, f32 rise, f32 reach)
 {
 	s32 lo, hi;
 
@@ -607,19 +653,25 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 rise, 
 	g_GeStanAsked++;
 
 	// where the body stands, worked out once for all the walls of one test
-	if (pos->x != g_Stan.lastx || pos->z != g_Stan.lastz || limit != g_Stan.lastlimit
-			|| rise != g_Stan.lastrise || reach != g_Stan.lastreach) {
+	if (!to) {
+		to = pos;
+	}
+
+	if (pos->x != g_Stan.lastx || pos->z != g_Stan.lastz || to->x != g_Stan.lastx2 || to->z != g_Stan.lastz2
+			|| limit != g_Stan.lastlimit || rise != g_Stan.lastrise || reach != g_Stan.lastreach) {
 		const s32 tile = stanTileUnder(pos->x, pos->z, limit, rise);
 
 		g_Stan.lastx = pos->x;
 		g_Stan.lastz = pos->z;
+		g_Stan.lastx2 = to->x;
+		g_Stan.lastz2 = to->z;
 		g_Stan.lastlimit = limit;
 		g_Stan.lastrise = rise;
 		g_Stan.lastreach = reach;
 		g_Stan.lastfound = tile >= 0;
 
 		if (tile >= 0) {
-			stanFlood(tile, pos->x, pos->z, reach);
+			stanFlood(tile, pos->x, pos->z, to->x, to->z, reach);
 		} else {
 			g_GeStanNoTile++;
 		}
@@ -668,7 +720,7 @@ bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach)
 		return false;
 	}
 
-	stanFlood(tile, pos->x, pos->z, reach);
+	stanFlood(tile, pos->x, pos->z, pos->x, pos->z, reach);
 
 	for (s32 i = 0; i < g_Stan.numtiles; i++) {
 		if (g_Stan.reached[i] == g_Stan.gen && g_Stan.tiles[i].special == GESTAN_SPECIAL_CROUCH) {

@@ -51,7 +51,7 @@
  * how far over the limit the floor may be all the same, for a foot that lags
  * the stair it is climbing (geStanRise()).
  */
-bool geStanWallSkipped(struct geo *geo, struct coord *pos, f32 limit, f32 rise, f32 reach);
+bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32 limit, f32 rise, f32 reach);
 
 /** The `rise` for a body's cylinder: a couple of steps where the limit is its foot, else none. */
 f32 geStanRise(bool checkvertical);

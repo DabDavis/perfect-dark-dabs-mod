@@ -1186,14 +1186,9 @@ s32 cdTestRampWall(struct geotilei *tile, struct coord *pos, f32 width, f32 y1, 
 // walls stand on the tiles' edges and a tile's box is asked, not its shape
 #define GESTAN_MARGIN 8.0f
 
-/** How far a move from a to b reaches from a, for the tile graph (gestan.h). */
-static f32 cdStanReach(struct coord *a, struct coord *b)
-{
-	const f32 dx = b->x - a->x;
-	const f32 dz = b->z - a->z;
-
-	return sqrtf(dx * dx + dz * dz) + 40.0f;
-}
+// and a line: the tiles it crosses and no others, as GoldenEye's own line test
+// walks them (gestan.c's stanFlood() says what a circle the line's length did)
+#define GESTAN_LINEREACH GESTAN_MARGIN
 #endif
 
 void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *end, u16 geoflags,
@@ -1219,7 +1214,7 @@ void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *en
 					// wall is there for a body only if its tile is linked to
 					// the one the body stands on (gestan.h)
 					&& !((geoflags & GEOFLAG_WALL)
-						&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
+						&& geStanWallSkipped(geo, pos, NULL, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
 #endif
 					) {
 				if (geo->flags & GEOFLAG_RAMPWALL) {
@@ -1608,7 +1603,7 @@ void cdCollectGeoForCylMoveFromList(u8 *start, u8 *end, struct coord *pos, f32 r
 								&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))
 #ifndef PLATFORM_N64
 						&& !((geoflags & GEOFLAG_WALL)
-							&& geStanWallSkipped(geo, pos, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
+							&& geStanWallSkipped(geo, pos, NULL, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
 #endif
 						) {
 					bool pass;
@@ -2973,7 +2968,7 @@ bool cdTestAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			if ((tile->header.flags & geoflags)
 #ifndef PLATFORM_N64
 					&& !((geoflags & GEOFLAG_WALL)
-						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, arg9), geStanRise(checkvertical), cdStanReach(arg2, arg3)))
+						&& geStanWallSkipped(geo, arg2, arg3, geStanLimit(arg2, checkvertical, arg9), geStanRise(checkvertical), GESTAN_LINEREACH))
 #endif
 					) {
 				min.x = *(s16 *)(tile->xmin + (uintptr_t)tile);
@@ -3212,7 +3207,7 @@ bool cdExamAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			if (ok && (geo->flags & geoflags)
 #ifndef PLATFORM_N64
 					&& !((geoflags & GEOFLAG_WALL)
-						&& geStanWallSkipped(geo, arg2, geStanLimit(arg2, checkvertical, ymin), geStanRise(checkvertical), cdStanReach(arg2, arg3)))
+						&& geStanWallSkipped(geo, arg2, arg3, geStanLimit(arg2, checkvertical, ymin), geStanRise(checkvertical), GESTAN_LINEREACH))
 #endif
 					) {
 				min.x = *(s16 *)(tile->xmin + (uintptr_t)tile);
