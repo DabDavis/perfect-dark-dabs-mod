@@ -7612,3 +7612,73 @@ toggled per shot - run **after** `hdsweep/run.sh`, which deletes
 `screenshots/*.png`), `padzero.py` (our pads 0-2 and the player's ground, for
 the offset). The same report's "tiny chopper" is untouched: its trace shows
 two chrs of body 153 at `scale 0.1000`.
+
+### The boat's black wedge and the shimmer (2026-09-22, F3 20260922-031550)
+
+The user's own F3 from the boat beside the frigate (a3dead9c4, 1920x1080):
+"screen shows black void a bit and water looks blocky". Reproduced with
+`build/gexrom/boatview.py` (spectator put at the report's camera, a 16:9
+`save_water` copy of `save_hd`): a black wedge from the left screen edge to
+the bottom, and the bottom-left corner black under the water.
+
+**The wedge was the plane's own triangles.** `skyRenderWaterTri()` split the
+corner polygon at edge midpoints until each piece's texture coordinates fit
+a Vtx, and a polygon 500 units wide at the near corners and 240000 long to
+the horizon splits into needles of the same shape, whose near ends are two
+vertices 30 units apart. At the 1/30 scale the far end needs, a Vtx (s16)
+rounds each of those by up to 30 units - as much as their distance - so the
+needles no longer tile the plane, and where they gape the sky fill shows
+through (the wedge). Watched in gdb: `TRI 0` was (-19.8, -21.9, 88.3),
+(-36.5, -21.9, 90.6) and (-8082, -16.7, -5830) in scaled units.
+
+**Now** `skyRenderWaterPlane()` draws the plane as a fan and rings of 24
+sectors centred under the camera (radii 60, 120, ... 7680, 15360, 30000),
+every cell about as wide as it is deep, in world units relative to the
+camera: rings out to 7680 at quarter units under a second matrix, the rest
+at whole units. The colour is `skyChooseWaterVtxColour()` with the corner
+formula (`2 * height / distance`, clamped), so the fade to the sky colour is
+the N64's. The corner polygon and the CORNERSTATE switch stay, and still
+decide whether there is water on screen and draw the flat fill when
+`water_enabled` is off; the 30000 horizon sits a hundredth of a degree
+below the N64's 300000 one, where the plane is already the sky colour.
+`G_NO_CLIPPING_EXT` stays on: it only skips the renderer's whole-triangle
+rejection, and the GPU clips the pieces that pass behind the camera.
+
+**The "blocky" water was the picture itself**, and the request "add the
+twinkle" is GoldenEye's sea: bgfog's sky path calls `sub_GAME_7F09343C(gdl,
+0)` (unk_092E50.c) after `texSelect()`, which describes two tiles over the
+same TMEM as **32x32 RGBA16 with a 32-byte line** (`gDPSetTile(RGBA, 16b,
+4, 0, tile, ...)`, masks 5), puts tile 1 at `gDPSetTileSize(1, 90, 150, 0,
+0)` - (22.5, 37.5) texels along - and lerps them by `PRIM_LOD_FRAC =
+sin(t) * 127 + 128` (`t += delta * 0.04` a tick of `g_ClockTimer`) in a
+two-cycle combiner `(TEXEL1 - TEXEL0) * PRIM_LOD_FRAC + TEXEL0`, then
+`COMBINED * SHADE`. Image 1509 (the blue water) is **CI8 32x32** (the pool's
+`tex` says fmt CI, depth 8b, 24 colours), so a texel of that tile is two
+neighbouring index bytes read as 5551: indices under 24 give a red of 0-2,
+a green of `(i0 & 7) * 4` and a blue of `i1 / 2` - a green-black mottle, the
+oracle's "green shimmer", nothing like the picture's blue.
+
+`skyWaterTwinkleTexture()` (sky.c) works the re-read out once per picture
+from the pool's decoded bytes (the port's decoder leaves rows linear;
+`texSwizzle` is N64-only): a tile fetch at `t * 32 + s * 2` swaps the 32-bit
+halves of the 64-bit word on odd tile rows, and the load swapped them on odd
+picture rows, which cancel except where a tile row runs on into the next
+picture row (`s >= 16`); the last row's overrun wraps to the picture's start
+(TMEM garbage on the console). `skyWaterTwinkleSetup()` then loads that
+32x32 RGBA16 (line 8, our renderer takes a tile's width from its line) as
+tiles 0 and 1 with GoldenEye's offsets, combiner and LOD fraction from
+`g_Vars.lvframe60`, and the plane is drawn in two-cycle mode; the cycle type
+is reset after. Only rows >= `SKY_WATER_GE_FIRST` (3) of
+`g_TcSkyWaterConfigs` get it - GoldenEye's pictures; Perfect Dark's own rows
+never draw the plane. The config's `texturenum` is a pointer once loaded
+(the union in `struct textureconfig`); the number is `((u16 *)ptr)[-4]`, as
+`texSelect()` reads it - the first build looked the pointer up as a number
+and drew the plain picture.
+
+Judged against `~/dam-oracle/frigate/f_00.png` (the native port's Frigate
+spawn, itself a 16x16 re-read without the swaps): the same green mottle on
+the same fade. Not done: the **room** water of Caverns (1508) and Dam /
+Complex (1511), which GoldenEye's tex.c hooks per texture with scrolling
+tiles (`MipMap2C_Something_Setup`, `flt_CODE_bss_80079E80/E84`) - a bg
+render hook, separate work. The black at the bottom of the user's frame
+under the boat's bow is the boat model's own hull interior, not the plane.
