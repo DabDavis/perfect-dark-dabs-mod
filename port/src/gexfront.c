@@ -3960,7 +3960,10 @@ static Gfx *frontDrawFolder(Gfx *gdl)
 	renderdata.zbufferenabled = false;
 	renderdata.gdl = gdl;
 
+	// the release's own folder, node for node, under its look (gefolder.c)
+	geFolderBeanSwap(g_Front.model, true);
 	modelRender(&renderdata, g_Front.model);
+	geFolderBeanSwap(g_Front.model, false);
 
 	gdl = renderdata.gdl;
 

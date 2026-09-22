@@ -21,6 +21,19 @@ struct modeldef;
  */
 s32 geFolderRepaint(struct modeldef *modeldef);
 
+/**
+ * Whether the release's own folder is drawn in place of GoldenEye's (the
+ * release is there, its look is on, and its folder stands on GoldenEye's).
+ */
+s32 geFolderBeanActive(void);
+
+/**
+ * Around the folder's modelRender(): on swaps each of GoldenEye's list nodes
+ * for the release's triangles for it, off puts GoldenEye's back.
+ */
+struct model;
+void geFolderBeanSwap(struct model *model, s32 on);
+
 /** Puts the ROM's own pictures back, for the model going away or the look changing. */
 void geFolderForget(void);
 

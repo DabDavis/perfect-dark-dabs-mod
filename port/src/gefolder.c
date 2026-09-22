@@ -50,6 +50,10 @@
 #include "xblatex.h"
 #include "pngwrite.h"
 #include "fs.h"
+#include "gbiex.h"
+#include "constants.h"
+#include "game/tex.h"
+#include "lib/model.h"
 
 #ifndef PLATFORM_N64
 
@@ -735,6 +739,9 @@ static void geFolderBind(struct gebeanpictures *pics, const struct modeldef *mod
 	}
 }
 
+struct gebeanpictures;
+static s32 geFolderBeanBuild(struct gebeanpictures *pics, struct modeldef *modeldef);
+
 s32 geFolderRepaint(struct modeldef *modeldef)
 {
 	struct gebeanpictures *pics;
@@ -848,6 +855,10 @@ s32 geFolderRepaint(struct modeldef *modeldef)
 	}
 
 	geFolderDropCache();
+
+	// and the release's own folder over it, where it stands on GoldenEye's
+	geFolderBeanBuild(pics, modeldef);
+
 	gebeanPicturesClose(pics);
 
 	sysLogPrintf(LOG_NOTE, "gefolder: %d of the folder's pictures are the release's", numBound);
@@ -1006,8 +1017,593 @@ const void *geFolderBackdrop(void)
 	return tile;
 }
 
+
+/* -------------------------------------------------------------------------
+ * The release's own folder, drawn 1:1
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The release does not repaint GoldenEye's folder: it draws a model of its own,
+ * walletbond, recorded draw for draw in Xenia (2026-09-22). It is GoldenEye's
+ * folder rebuilt - the same nodes, the same switches, each list node's quads
+ * where GoldenEye's are but a fifth the size (bean = rom x 0.2 + a shift) -
+ * with new UVs and vertex colours: the cover and the page are each one whole
+ * picture across their quads, where GoldenEye repeats a tile, and it adds a
+ * back cover and spine to the left of the frame, which GoldenEye never had.
+ *
+ * So under the release's look every list node of GoldenEye's model is drawn
+ * with the release's own triangles for it, brought into GoldenEye's units:
+ * GoldenEye's switches still say what shows (gexfront.c's frontDrawFolder()),
+ * and its camera and pans still say where. Nothing of the release's geometry
+ * is kept in the source - it is read out of the player's own file here.
+ *
+ * Which node a draw belongs to is what the release numbers it with: a 0x30
+ * draw names its list node, and a plain one stands in the 0x17 section of
+ * the switch above it. Both numberings are the release's own, and are matched
+ * to GoldenEye's list nodes (in the order a walk of the model meets them,
+ * toggle targets included) by the geometry, once, offline: every one lands
+ * on its node's own rectangle to two units in five thousand.
+ */
+#define BEANFOLDER_ROMNODES 46   // GoldenEye's list nodes, walked in order
+#define BEANFOLDER_SCALE    0.2f // the release's units in GoldenEye's
+#define BEANFOLDER_BATCH    24   // vertices a G_VTX (see XBLAMESH_BATCH)
+#define BEANFOLDER_TEXELS   32   // a stand-in's nominal square
+
+// ROM node 0 is the frame the folder stands in (gexfront.c's backdrop), 1 the
+// tabs, 2 the paper, 3 the blank page, 4 and 5 the slides and their film
+// strip, 6-10 the stamps, 11-16 the photograph of Bond, its clip and its
+// shadow, 17-38 the briefing photographs, 39-45 the cover's photographs.
+static const struct { s16 node; s16 rom; } beanFolderByNode[] = {
+	{  0,  0 }, {  1, 39 }, {  3,  3 }, {  4,  4 }, {  7,  5 }, {  8, 16 },
+	{  9, 12 }, { 10, 13 }, { 11, 14 }, { 12, 15 }, { 13, 45 }, { 14, 41 },
+	{ 15, 42 }, { 16, 43 }, { 17, 44 }, { 18, 38 }, { 39,  7 }, { 40,  6 },
+	{ 41,  8 }, { 42,  9 }, { 43, 10 },
+	// 19-38 are the twenty missions' pairs of briefing photographs, 18-37
+};
+
+static const struct { s16 cond; s16 rom; } beanFolderByCond[] = {
+	{ -1,  0 }, // the back cover and spine, which GoldenEye has no node for
+	{  1, 39 }, {  2,  1 }, {  5,  2 }, {  8, 11 }, { 18, 17 }, { 13, 40 },
+};
+
+struct beanfoldertri {
+	s16 rom;
+	s16 tex;
+	struct gebeanmodelvtx v[3];
+};
+
+static struct {
+	s32 built;       // 1 built, -1 tried and not to be used
+	Gfx *gdl[BEANFOLDER_ROMNODES];
+	Vtx *vtx[BEANFOLDER_ROMNODES];
+	Col *col[BEANFOLDER_ROMNODES];
+	struct modelnode *nodes[BEANFOLDER_ROMNODES];
+	Gfx *saved[BEANFOLDER_ROMNODES];
+	s32 swapped;
+	struct beanfoldertri *tris;
+	s32 numtris;
+	s32 maxtris;
+} beanFolder;
+
+static s32 beanFolderRomFor(const struct gebeanmodeldraw *d)
+{
+	if (d->node >= 19 && d->node <= 38) {
+		return d->node - 1;
+	}
+
+	if (d->node >= 0) {
+		for (s32 i = 0; i < ARRAYCOUNT(beanFolderByNode); i++) {
+			if (beanFolderByNode[i].node == d->node) {
+				return beanFolderByNode[i].rom;
+			}
+		}
+
+		return -1;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(beanFolderByCond); i++) {
+		if (beanFolderByCond[i].cond == (d->numconds ? d->conds[d->numconds - 1] : -1)) {
+			return beanFolderByCond[i].rom;
+		}
+	}
+
+	return -1;
+}
+
+static void beanFolderTake(const struct gebeanmodeldraw *d, void *arg)
+{
+	const s32 rom = beanFolderRomFor(d);
+
+	if (rom < 0) {
+		sysLogPrintf(LOG_WARNING, "gefolder: the release's folder draws node %d (section %d), "
+				"which no node of GoldenEye's is - left out", d->node, d->numconds ? d->conds[d->numconds - 1] : -1);
+		return;
+	}
+
+	for (s32 i = 0; i + 2 < d->numvtx; i += 3) {
+		if (beanFolder.numtris == beanFolder.maxtris) {
+			const s32 more = beanFolder.maxtris ? beanFolder.maxtris * 2 : 256;
+			struct beanfoldertri *grown = realloc(beanFolder.tris, sizeof(*grown) * more);
+
+			if (!grown) {
+				return;
+			}
+
+			beanFolder.tris = grown;
+			beanFolder.maxtris = more;
+		}
+
+		beanFolder.tris[beanFolder.numtris].rom = rom;
+		beanFolder.tris[beanFolder.numtris].tex = d->tex;
+		memcpy(beanFolder.tris[beanFolder.numtris].v, &d->vtx[i], sizeof(struct gebeanmodelvtx) * 3);
+		beanFolder.numtris++;
+	}
+}
+
+/** GoldenEye's list nodes in walk order, toggle targets included. */
+static s32 beanFolderRomNodes(struct modelnode *node, struct modelnode **out, s32 num)
+{
+	while (node) {
+		const u32 type = node->type & 0xff;
+		struct modelnode *child = node->child;
+
+		if (type == MODELNODETYPE_DL) {
+			if (num < BEANFOLDER_ROMNODES) {
+				out[num] = node;
+			}
+
+			num++;
+		} else if (type == MODELNODETYPE_TOGGLE) {
+			child = node->rodata->toggle.target;
+		}
+
+		if (child) {
+			num = beanFolderRomNodes(child, out, num);
+		}
+
+		node = node->next;
+	}
+
+	return num;
+}
+
+/** A list node's own vertices' extent, in GoldenEye's units. */
+static void beanFolderRomExtent(const struct modelnode *node, f32 *lo, f32 *hi)
+{
+	const struct modelrodata_dl *dl = &node->rodata->dl;
+
+	for (s32 k = 0; k < 3; k++) {
+		lo[k] = 1e9f;
+		hi[k] = -1e9f;
+	}
+
+	for (s32 i = 0; i < dl->numvertices; i++) {
+		const f32 p[3] = { dl->vertices[i].x, dl->vertices[i].y, dl->vertices[i].z };
+
+		for (s32 k = 0; k < 3; k++) {
+			if (p[k] < lo[k]) lo[k] = p[k];
+			if (p[k] > hi[k]) hi[k] = p[k];
+		}
+	}
+}
+
+/** The release's triangles for one of GoldenEye's nodes: their extent in its own units. */
+static s32 beanFolderBeanExtent(s32 rom, s32 tex, f32 *lo, f32 *hi)
+{
+	s32 found = 0;
+
+	for (s32 k = 0; k < 3; k++) {
+		lo[k] = 1e9f;
+		hi[k] = -1e9f;
+	}
+
+	for (s32 i = 0; i < beanFolder.numtris; i++) {
+		if (beanFolder.tris[i].rom != rom || (tex >= 0 && beanFolder.tris[i].tex != tex)) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			for (s32 k = 0; k < 3; k++) {
+				const f32 p = beanFolder.tris[i].v[j].pos[k];
+
+				if (p < lo[k]) lo[k] = p;
+				if (p > hi[k]) hi[k] = p;
+			}
+		}
+
+		found = 1;
+	}
+
+	return found;
+}
+
+/** The first matrix a list of GoldenEye's loads, for its replacement to load too. */
+static s32 beanFolderListMatrix(const struct modelnode *node, Gfx *out)
+{
+	const uintptr_t addr = (uintptr_t)node->rodata->dl.opagdl;
+	const Gfx *list = node->rodata->dl.opagdl;
+
+	// the list is behind the node's colours, named by its offset in segment 5
+	// with the low bit set (gfx_pc.cpp's seg_addr())
+	if ((addr & 1) && ((addr >> 24) & 0xf) == SPSEGMENT_MODEL_COL1) {
+		list = (const Gfx *)((const u8 *)node->rodata->dl.colours + (addr & 0x00fffffe));
+	}
+
+	for (s32 i = 0; list && i < 256; i++) {
+		const u8 op = (u8)(list[i].words.w0 >> 24);
+
+		if (op == (u8)G_MTX) {
+			*out = list[i];
+			return 1;
+		}
+
+		if (op == (u8)G_ENDDL) {
+			break;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * How the release draws each of its pictures, read off its three pixel
+ * shaders in the draw log. Most are the picture times the vertex colour. The
+ * cursor's shadow, the OHMSS title and the paperclip carry no alpha: their
+ * brightness is how much of the vertex colour covers the page (black for the
+ * title, pale grey for the clip). The stamps are grey ink with an alpha of
+ * its own, in the vertex colour - a dark red, itself two thirds opaque.
+ */
+#define BEANFOLDER_PICTURE 0
+#define BEANFOLDER_MASK    1
+#define BEANFOLDER_STAMP   2
+
+static s32 beanFolderKind(s32 tex)
+{
+	if (tex >= 64 && tex <= 66) {
+		return BEANFOLDER_MASK;
+	}
+
+	if (tex >= 68 && tex <= 70) {
+		return BEANFOLDER_STAMP;
+	}
+
+	return BEANFOLDER_PICTURE;
+}
+
+// A picture's stand-in by the model's index, bound once for the game's life:
+// a mask as white with its brightness for alpha
+static const void *beanFolderTile(struct gebeanpictures *pics, s32 tex)
+{
+	char key[48];
+	s32 w = 0, h = 0;
+	u8 *rgba;
+
+	snprintf(key, sizeof(key), "gefolder/bean/%d", tex);
+	rgba = gebeanPicturesDecode(pics, tex, &w, &h);
+
+	if (rgba && beanFolderKind(tex) == BEANFOLDER_MASK) {
+		for (s32 i = 0; i < w * h; i++) {
+			u8 *px = rgba + (size_t)i * 4;
+
+			px[3] = (u8)((px[0] * 77 + px[1] * 150 + px[2] * 29) >> 8);
+			px[0] = px[1] = px[2] = 0xff;
+		}
+	}
+
+	return rgba ? xblaTexBindImage(key, rgba, w, h) : NULL;
+}
+
+/** The state a picture is drawn in, after texSelect(), which sets modes of its own. */
+static Gfx *beanFolderPictureState(Gfx *g, s32 tex)
+{
+	gDPPipeSync(g++);
+	gDPSetCycleType(g++, G_CYC_1CYCLE);
+	gDPSetRenderMode(g++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	gDPSetTexturePersp(g++, G_TP_PERSP);
+	gDPSetTextureFilter(g++, G_TF_BILERP);
+	gDPSetTextureLUT(g++, G_TT_NONE);
+	gDPSetAlphaCompare(g++, G_AC_NONE);
+
+	if (beanFolderKind(tex) == BEANFOLDER_STAMP) {
+		gDPSetCombineLERP(g++, 0, 0, 0, SHADE, TEXEL0, 0, SHADE, 0, 0, 0, 0, SHADE, TEXEL0, 0, SHADE, 0);
+	} else {
+		gDPSetCombineLERP(g++, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0);
+	}
+
+	return g;
+}
+
+// Whether the release repeats the picture or holds its edge (the draw log's
+// fetch constants): the cover, the paper and the cursor's shadow repeat, the
+// photographs, the clip, the stamps and the film strip's holes do not
+static s32 beanFolderWraps(s32 tex)
+{
+	return tex <= 2 || tex == 64;
+}
+
+static void beanFolderFree(void)
+{
+	for (s32 i = 0; i < BEANFOLDER_ROMNODES; i++) {
+		free(beanFolder.gdl[i]);
+		free(beanFolder.vtx[i]);
+		free(beanFolder.col[i]);
+		beanFolder.gdl[i] = NULL;
+		beanFolder.vtx[i] = NULL;
+		beanFolder.col[i] = NULL;
+		beanFolder.nodes[i] = NULL;
+	}
+
+	free(beanFolder.tris);
+	beanFolder.tris = NULL;
+	beanFolder.numtris = 0;
+	beanFolder.maxtris = 0;
+	beanFolder.built = 0;
+}
+
+/**
+ * One node's list: GoldenEye's own matrix, the release's pictures, colours and
+ * triangles, and the state the release draws them in - blended, both faces,
+ * texel times vertex colour, unlit.
+ */
+static Gfx *beanFolderBuildList(struct gebeanpictures *pics, s32 rom, const f32 *shift, Vtx **outvtx, Col **outcol)
+{
+	s32 numtris = 0, numdraws = 0;
+	s32 lasttex = -1;
+	Gfx *gdl, *g;
+	Vtx *vtx;
+	Col *col;
+	s32 nv = 0;
+
+	for (s32 i = 0; i < beanFolder.numtris; i++) {
+		if (beanFolder.tris[i].rom == rom) {
+			numtris++;
+
+			if (beanFolder.tris[i].tex != lasttex) {
+				numdraws++;
+				lasttex = beanFolder.tris[i].tex;
+			}
+		}
+	}
+
+	*outvtx = NULL;
+	*outcol = NULL;
+
+	if (numtris == 0) {
+		return NULL;
+	}
+
+	gdl = malloc(sizeof(Gfx) * (32 + numdraws * 32 + numtris * 4));
+	vtx = malloc(sizeof(Vtx) * numtris * 3);
+	col = malloc(sizeof(Col) * numtris * 3);
+
+	if (!gdl || !vtx || !col) {
+		free(gdl);
+		free(vtx);
+		free(col);
+		return NULL;
+	}
+
+	g = gdl;
+	gDPPipeSync(g++);
+
+	if (!beanFolderListMatrix(beanFolder.nodes[rom], g)) {
+		free(gdl);
+		free(vtx);
+		free(col);
+		return NULL;
+	}
+
+	g++;
+	gSPClearGeometryMode(g++, G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH | G_FOG);
+	gSPSetGeometryMode(g++, G_SHADE | G_SHADING_SMOOTH);
+	gSPTexture(g++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+
+	lasttex = -1;
+
+	for (s32 i = 0; i < beanFolder.numtris; ) {
+		const struct beanfoldertri *t = &beanFolder.tris[i];
+		s32 first = nv;
+		s32 n = 0;
+
+		if (t->rom != rom) {
+			i++;
+			continue;
+		}
+
+		if (t->tex != lasttex) {
+			struct textureconfig tc;
+
+			memset(&tc, 0, sizeof(tc));
+			tc.textureptr = (u8 *)beanFolderTile(pics, t->tex);
+			tc.width = BEANFOLDER_TEXELS;
+			tc.height = BEANFOLDER_TEXELS;
+			tc.format = G_IM_FMT_RGBA;
+			tc.depth = G_IM_SIZ_32b;
+			tc.s = beanFolderWraps(t->tex) ? G_TX_WRAP : G_TX_CLAMP;
+			tc.t = tc.s;
+
+			if (tc.textureptr) {
+				texSelect(&g, &tc, 1, 0, 2, 1, NULL);
+			}
+
+			g = beanFolderPictureState(g, t->tex);
+			lasttex = t->tex;
+		}
+
+		// a batch: up to BEANFOLDER_BATCH vertices of this node's triangles in
+		// this picture, in the release's own order
+		while (i < beanFolder.numtris && n + 3 <= BEANFOLDER_BATCH) {
+			const struct beanfoldertri *u = &beanFolder.tris[i];
+
+			if (u->rom != rom) {
+				i++;
+				continue;
+			}
+
+			if (u->tex != lasttex) {
+				break;
+			}
+
+			for (s32 j = 0; j < 3; j++) {
+				const struct gebeanmodelvtx *bv = &u->v[j];
+				Vtx *v = &vtx[nv];
+				Col *c = &col[nv];
+
+				v->x = (s16)floorf((bv->pos[0] - shift[0]) / BEANFOLDER_SCALE + 0.5f);
+				v->y = (s16)floorf((bv->pos[1] - shift[1]) / BEANFOLDER_SCALE + 0.5f);
+				v->z = (s16)floorf((bv->pos[2] - shift[2]) / BEANFOLDER_SCALE + 0.5f);
+				v->flags = 0;
+				v->colour = (u8)(n * 4);
+
+				// s10.5 of the stand-in's nominal square; the release's v runs
+				// down its picture and the picture is held in the game's row
+				// order, bottom up
+				v->s = (s16)floorf(bv->uv[0] * BEANFOLDER_TEXELS * 32.0f + 0.5f);
+				v->t = (s16)floorf((1.0f - bv->uv[1]) * BEANFOLDER_TEXELS * 32.0f + 0.5f);
+
+				c->r = (bv->argb >> 16) & 0xff;
+				c->g = (bv->argb >> 8) & 0xff;
+				c->b = bv->argb & 0xff;
+				c->a = (bv->argb >> 24) & 0xff;
+
+				nv++;
+				n++;
+			}
+
+			i++;
+		}
+
+		if (n > 0) {
+			gSPColor(g++, &col[first], n);
+			gSPVertex(g++, &vtx[first], n, 0);
+
+			for (s32 k = 0; k < n; k += 3) {
+				gSP1Triangle(g++, k, k + 1, k + 2, 0);
+			}
+		}
+	}
+
+	gDPPipeSync(g++);
+	gSPEndDisplayList(g++);
+
+	*outvtx = vtx;
+	*outcol = col;
+
+	return gdl;
+}
+
+/**
+ * Reads the release's folder and builds a list for every node of GoldenEye's
+ * that it has triangles for. Checked against GoldenEye's model first: the
+ * paper and the tabs have to land on GoldenEye's own, or this is not the
+ * folder the tables were written for and the repainted one is drawn instead.
+ */
+static s32 geFolderBeanBuild(struct gebeanpictures *pics, struct modeldef *modeldef)
+{
+	f32 romlo[3], romhi[3], beanlo[3], beanhi[3];
+	f32 shift[3];
+	s32 numnodes;
+	s32 lists = 0;
+
+	beanFolderFree();
+	beanFolder.built = -1;
+
+	numnodes = beanFolderRomNodes(modeldef->rootnode, beanFolder.nodes, 0);
+
+	if (numnodes != BEANFOLDER_ROMNODES) {
+		sysLogPrintf(LOG_WARNING, "gefolder: GoldenEye's folder has %d list nodes, not %d - "
+				"the release's own folder is not drawn", numnodes, BEANFOLDER_ROMNODES);
+		return 0;
+	}
+
+	if (gebeanPicturesWalk(pics, beanFolderTake, NULL) == 0) {
+		return 0;
+	}
+
+	// The shift, off the paper with the crest (node 2, picture 2): the middle
+	// of the release's rectangle less a fifth of the middle of GoldenEye's
+	beanFolderRomExtent(beanFolder.nodes[2], romlo, romhi);
+
+	if (!beanFolderBeanExtent(2, 2, beanlo, beanhi)) {
+		sysLogPrintf(LOG_WARNING, "gefolder: the release's folder has no paper - not drawn");
+		return 0;
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		shift[k] = (beanlo[k] + beanhi[k]) * 0.5f - (romlo[k] + romhi[k]) * 0.5f * BEANFOLDER_SCALE;
+	}
+
+	// and the paper's size and the tabs' place, to two of GoldenEye's units
+	// a fifth of the way
+	beanFolderRomExtent(beanFolder.nodes[1], romlo, romhi);
+
+	if (!beanFolderBeanExtent(1, -1, beanlo, beanhi)
+			|| fabsf((beanlo[0] - shift[0]) / BEANFOLDER_SCALE - romlo[0]) > 25.0f
+			|| fabsf((beanhi[1] - shift[1]) / BEANFOLDER_SCALE - romhi[1]) > 25.0f) {
+		sysLogPrintf(LOG_WARNING, "gefolder: the release's folder does not stand on GoldenEye's - not drawn");
+		return 0;
+	}
+
+	for (s32 rom = 0; rom < BEANFOLDER_ROMNODES; rom++) {
+		beanFolder.gdl[rom] = beanFolderBuildList(pics, rom, shift, &beanFolder.vtx[rom], &beanFolder.col[rom]);
+
+		if (beanFolder.gdl[rom]) {
+			lists++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gefolder: the release's own folder, %d triangles on %d of GoldenEye's %d nodes "
+			"(shift %.1f %.1f %.1f)", beanFolder.numtris, lists, BEANFOLDER_ROMNODES, shift[0], shift[1], shift[2]);
+
+	free(beanFolder.tris);
+	beanFolder.tris = NULL;
+	beanFolder.numtris = 0;
+	beanFolder.maxtris = 0;
+	beanFolder.built = lists > 0 ? 1 : -1;
+
+	return beanFolder.built > 0;
+}
+
+s32 geFolderBeanActive(void)
+{
+	return beanFolder.built > 0 && gebeanGetEnabled() && xblaMeshGetEnabled();
+}
+
+void geFolderBeanSwap(struct model *model, s32 on)
+{
+	if (on && !beanFolder.swapped && geFolderBeanActive()) {
+		for (s32 i = 0; i < BEANFOLDER_ROMNODES; i++) {
+			union modelrwdata *rw = beanFolder.nodes[i] ? modelGetNodeRwData(model, beanFolder.nodes[i]) : NULL;
+
+			beanFolder.saved[i] = rw ? rw->dl.gdl : NULL;
+
+			// a node the release has nothing for is not drawn: its picture
+			// is GoldenEye's and would stand out
+			if (rw && rw->dl.gdl) {
+				rw->dl.gdl = beanFolder.gdl[i] ? beanFolder.gdl[i] : NULL;
+			}
+		}
+
+		beanFolder.swapped = 1;
+	} else if (!on && beanFolder.swapped) {
+		for (s32 i = 0; i < BEANFOLDER_ROMNODES; i++) {
+			union modelrwdata *rw = beanFolder.nodes[i] ? modelGetNodeRwData(model, beanFolder.nodes[i]) : NULL;
+
+			if (rw && beanFolder.saved[i]) {
+				rw->dl.gdl = beanFolder.saved[i];
+			}
+		}
+
+		beanFolder.swapped = 0;
+	}
+}
+
 void geFolderForget(void)
 {
+	if (!beanFolder.swapped) {
+		beanFolderFree();
+	}
+
 	for (s32 i = 0; i < numBound; i++) {
 		xblaTexForgetPicture(bound[i]);
 		videoFreeCachedTexture(bound[i]);

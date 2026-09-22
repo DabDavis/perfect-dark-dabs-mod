@@ -6793,6 +6793,136 @@ u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, 
 }
 
 /**
+ * The model's own draws, in the order its stream makes them, for a caller that
+ * draws the release's geometry in place of GoldenEye's - the folder screens'
+ * walletbond (gefolder.c). Unlike beanWalkStream(), every draw is taken, with
+ * what decides whether the release shows it: the node a 0x30 draw names
+ * (d.node, -1 for a plain 0x01 draw) and the 0x17 sections it stands in, their
+ * ids outermost first. The first alternative is taken at every switch, as
+ * everywhere else here. The triangles are expanded: three vertices each.
+ */
+s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebeanmodeldraw *d, void *arg), void *arg)
+{
+	const struct beanmodel *bm = pics ? &pics->bm : NULL;
+	const u8 *st;
+	u32 len, end, pc = 0x24;
+	u32 vb = 0, tex = 0;
+	u32 condend[GEBEAN_MAXCONDS];
+	s32 condid[GEBEAN_MAXCONDS];
+	s32 numconds = 0;
+	s32 numdraws = 0;
+
+	if (!bm || !bm->stream || bm->streamlen < 0x28) {
+		return 0;
+	}
+
+	st = bm->stream;
+	len = bm->streamlen;
+	end = gebeanBE32(st + 4);
+
+	if (end > len) {
+		end = len;
+	}
+
+	for (s32 steps = 0; pc + 4 <= end && steps < 100000; steps++) {
+		const u32 tag = gebeanBE32(st + pc);
+		const u32 size = tag >> 16;
+		const u32 type = (tag >> 8) & 0xff;
+
+		if (size < 4 || !gebeanFits(pc, size, len)) {
+			break;
+		}
+
+		while (numconds > 0 && condend[numconds - 1] <= pc) {
+			numconds--;
+		}
+
+		if (type == 0x16) {
+			if (!gebeanFits(pc, 12, len)) {
+				break;
+			}
+
+			pc = gebeanBE32(st + pc + 8);
+			continue;
+		}
+
+		if (type == 0x19) {
+			const u32 to = gebeanBE32(st + pc + 4);
+
+			// only ever forwards, round the alternatives not taken
+			if (to <= pc) {
+				break;
+			}
+
+			pc = to;
+			continue;
+		}
+
+		if (type == 0x1d) {
+			break;
+		}
+
+		if (type == 0x17 && size >= 12) {
+			if (numconds < GEBEAN_MAXCONDS) {
+				condid[numconds] = (s32)gebeanBE32(st + pc + 4);
+				condend[numconds] = gebeanBE32(st + pc + 8);
+				numconds++;
+			}
+		} else if (type == 0x2e && size >= 12) {
+			vb = gebeanBE32(st + pc + 8);
+		} else if (type == 0x2d && size >= 20) {
+			tex = beanMaterialTexture(bm, st, pc, size, len);
+		} else if ((type == 0x01 || type == 0x30) && size >= 16) {
+			struct beandraw bd;
+			struct beanvb v;
+			struct gebeanmodeldraw d;
+			u16 *tris = NULL;
+			s32 n;
+
+			memset(&bd, 0, sizeof(bd));
+			bd.vb = vb;
+			bd.tex = tex;
+			bd.prim = gebeanBE32(st + pc + 4);
+			bd.count = gebeanBE32(st + pc + 8);
+			bd.ib = gebeanBE32(st + pc + 12);
+
+			n = beanReadVb(bm, vb, &v) ? beanTriangles(bm, &bd, &tris) : 0;
+
+			memset(&d, 0, sizeof(d));
+			d.node = type == 0x30 && size >= 20 ? (s32)gebeanBE32(st + pc + 16) : -1;
+			d.numconds = numconds;
+			memcpy(d.conds, condid, sizeof(s32) * numconds);
+			d.tex = (s32)tex;
+			d.vtx = n > 0 ? malloc(sizeof(*d.vtx) * 3 * n) : NULL;
+
+			if (d.vtx) {
+				for (s32 i = 0; i < n * 3; i++) {
+					struct beanvtx bv;
+
+					if (beanVertex(bm, &v, tris[i], &bv)) {
+						memcpy(d.vtx[d.numvtx].pos, bv.pos, sizeof(bv.pos));
+						memcpy(d.vtx[d.numvtx].uv, bv.uv, sizeof(bv.uv));
+						d.vtx[d.numvtx].argb = bv.argb;
+						d.numvtx++;
+					}
+				}
+
+				d.numvtx -= d.numvtx % 3;
+				fn(&d, arg);
+				numdraws++;
+			}
+
+			free(d.vtx);
+			free(tris);
+		}
+
+		pc += size;
+	}
+
+	return numdraws;
+}
+
+/**
  * One of the release's pictures that is a file of its own rather than part of
  * a model - files/texture/..., the menus' portraits and stage pictures - as
  * RGBA in the game's row order, malloc'd and the caller's.

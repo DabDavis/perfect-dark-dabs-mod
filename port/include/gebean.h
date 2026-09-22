@@ -195,6 +195,31 @@ s32 gebeanPicturesCount(struct gebeanpictures *pics);
 u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, s32 *outHeight);
 
 /**
+ * The model's draws, each handed to fn with its triangles expanded (three
+ * vertices a triangle, positions in the file's own units, UVs as the file
+ * means them, v down) - see gebeanPicturesWalk() in gebean.c. Returns how
+ * many there were.
+ */
+#define GEBEAN_MAXCONDS 4
+
+struct gebeanmodelvtx {
+	f32 pos[3];
+	f32 uv[2];
+	u32 argb;
+};
+
+struct gebeanmodeldraw {
+	s32 node;                    // the node a 0x30 draw names, or -1
+	s32 numconds;
+	s32 conds[GEBEAN_MAXCONDS];  // the 0x17 sections it stands in, outermost first
+	s32 tex;                     // the model's picture index (gebeanPicturesDecode())
+	s32 numvtx;
+	struct gebeanmodelvtx *vtx;
+};
+
+s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebeanmodeldraw *d, void *arg), void *arg);
+
+/**
  * A picture that is a file of its own under files/ - "texture/level/damicon" -
  * as RGBA in the game's row order, malloc'd and the caller's; NULL where the
  * release or the file is not there.
