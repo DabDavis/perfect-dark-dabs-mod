@@ -7861,3 +7861,51 @@ detail no window can resolve, so they are let out at a tenth past 15360 and
 stop moving at all past 30000, where the plane has faded into the sky colour.
 The whole change is **+48 triangles** at the report's camera (5044 to 5092,
 `build/gexrom/tricount.py`).
+
+## The shut door that was not drawn from the corridor facing it (2026-09-22)
+
+F3 report 20260922-054950, Frigate, "cant see into room but see void through
+open door": a bulkhead doorway straight ahead with the sea and the sky through
+it and nothing else. The trace says `[rooms on screen] of 59` and lists **room
+18 alone** - the same one-room frame the Streets report of 2026-09-18 showed
+and nothing could be made of, now with the map named.
+
+**The door was shut and its portal was shut with it. What was missing was the
+door.** The camera's room 18 has three portals: 61 to room 16, 62 to room 23,
+and 59 to room 17, which is the doorway ahead. 59 carries `PORTALFLAG_CLOSED`,
+correctly - door prop 93 owns it and its `frac` is 0. So no room is reached
+through it, which is right, and the void beyond is the sky and Frigate's sea
+behind a room that is not there, which is also right. The fault is that the
+**door leaf** was not drawn either, so the shut door read as an opening.
+
+**A door prop's rooms are found from its own middle** (`doorInit()`,
+`func0f065e74()`), and the middle sits in the doorway - on the portal's plane
+and a hair past it, since GoldenEye's pad centres the door in the wall's
+thickness. Door 93's middle is at z -1286.07; the portal's plane is z -1281,
+room 18's box ends there (`bbmin` -1281) and room 17's begins there. So room 18
+does not contain the door's middle and room 17 and room 23 do - and the walk
+from the pad offered 23 alone. The prop came out as room 23's, which is the
+deck below, and room 23 is never on screen from the corridor. Perfect Dark's
+own levels never show this because their room boxes overlap at a doorway and
+both sides answer; a converted level's meet at the plane.
+
+**A door that owns a portal is registered in both of that portal's rooms**
+(`geRoomDoorPortalRooms()`, geroom.c, called from `setupCreateDoor()` once
+`door->portalnum` is known, on a remake stage only). The two rooms the portal
+names are exactly the two a shut door has to cover, extra rooms only make a
+prop drawn more often, and the rooms the middle found are kept. Logged as
+`gexplus: door on portal N also drawn in room R`.
+
+It is the same family as the Runway back doors of 2026-09-21 and not the same
+fix: that one adds the **pad's** room, which here was 23 and already there.
+Over the twenty missions it repairs **five doors on four levels** - Train 1,
+Facility 2, Frigate 1, Depot 1 - and all twenty still boot and run 400 frames
+(`build/gexrom/doorrooms.sh`). A stock level reaches none of it.
+
+`build/gexrom/frigdoor.py` reproduces the report's frame exactly (one room on
+screen, the sea through the doorway), `frigdoor3.py` dumps every door and
+tinted glass against the closed portals, and `frigdoor6.py` opens the door
+afterwards: the leaf swings, portal 59 clears, and room 17 draws with its two
+guards in it. **Ask which prop owns a closed portal before asking why a room is
+missing** - the first hour here went on the portal walk and the screen boxes,
+which were doing exactly what they should.

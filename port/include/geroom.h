@@ -55,6 +55,24 @@ s32 geRoomCamera(struct coord *eye, f32 ground, s32 room);
 s32 geRoomCutsceneCamera(struct coord *campos, struct coord *padpos, s32 padroom);
 
 /**
+ * A door that owns a portal is drawn in **both** of that portal's rooms.
+ *
+ * A door prop's rooms are found from its own middle (doorInit()), which sits in
+ * the doorway - on the portal's plane, and a hair past it, since GoldenEye's
+ * pad centres the door in the wall's thickness. Perfect Dark's own rooms
+ * overlap there, so both sides answer; a converted level's boxes meet at the
+ * plane and only the far side does. Frigate's door 93 came out as room 23's
+ * alone, so from room 18 - the corridor it faces - the shut door was never
+ * drawn, while its portal stayed shut as a shut door's should: an open doorway
+ * onto the sea, which is the void behind the room that was not reached (F3
+ * report 20260922-054950, "cant see into room but see void through open door").
+ *
+ * Extra rooms only make a prop drawn more often, and the two rooms the portal
+ * names are exactly the two a shut door has to cover.
+ */
+void geRoomDoorPortalRooms(struct prop *prop, s32 portalnum);
+
+/**
  * GoldenEye's portal thickness, in world units; 0 for a portal without one.
  *
  * A GoldenEye portal record carries a byte Perfect Dark's does not

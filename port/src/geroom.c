@@ -5,6 +5,7 @@
 #include "data.h"
 #include "modloader.h"
 #include "geroom.h"
+#include "system.h"
 #include "gestan.h"
 #include "game/bg.h"
 #include "game/prop.h"
@@ -165,6 +166,44 @@ s32 geRoomCutsceneCamera(struct coord *campos, struct coord *padpos, s32 padroom
 	}
 
 	return geRoomCamera(campos, ground, room);
+}
+
+void geRoomDoorPortalRooms(struct prop *prop, s32 portalnum)
+{
+	const RoomNum want[2] = { g_BgPortals[portalnum].roomnum1, g_BgPortals[portalnum].roomnum2 };
+	const RoomNum was = prop->rooms[0];
+	bool changed = false;
+	s32 k;
+
+	for (k = 0; k < 2; k++) {
+		s32 i;
+
+		if (want[k] < 0 || want[k] >= g_Vars.roomcount) {
+			continue;
+		}
+
+		for (i = 0; i < 7 && prop->rooms[i] != -1 && prop->rooms[i] != want[k]; i++);
+
+		// already there, or the list is full
+		if (i >= 7 || prop->rooms[i] != -1) {
+			continue;
+		}
+
+		if (!changed) {
+			propDeregisterRooms(prop);
+			changed = true;
+		}
+
+		prop->rooms[i] = want[k];
+		prop->rooms[i + 1] = -1;
+
+		sysLogPrintf(LOG_NOTE, "gexplus: door on portal %d also drawn in room %d (it was room %d's)",
+				portalnum, want[k], was);
+	}
+
+	if (changed) {
+		propRegisterRooms(prop);
+	}
 }
 
 f32 geRoomPortalThickness(s32 portalnum)

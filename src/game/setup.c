@@ -50,6 +50,7 @@
 #include "gegadgets.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
+#include "geroom.h"
 #include "modborrow.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
@@ -1245,6 +1246,14 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 			if (door->portalnum >= 0 && door->frac == 0) {
 				doorDeactivatePortal(door);
 			}
+
+#ifndef PLATFORM_N64
+			// A converted level's door is drawn in both of its portal's rooms,
+			// or a shut door is missing from one side of itself (geroom.h)
+			if (prop && door->portalnum >= 0 && geRoomActive()) {
+				geRoomDoorPortalRooms(prop, door->portalnum);
+			}
+#endif
 		}
 
 		if (door->base.model) {
