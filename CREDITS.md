@@ -73,12 +73,29 @@ history is the authoritative list; this is a snapshot of it.
 vendored libraries below; 810 files touched), measured against merge-base
 `c55f9c805`. What is original here, rather than borrowed:
 
-- **GE Plus** — GoldenEye 007 converted out of its own ROM at runtime: 20 solo
-  missions, the mission cinema, the watch as the pause menu, GoldenEye's HUD
-  and radar, its per-level music, eleven gadgets, its tile-graph collision, its
-  door and pickup sounds, the drivable tank, the monitor programmes. The
-  converter is at version 59 and lives in `port/src/geconvert.c` and
-  `tools/geconvert`.
+- **GE Plus, and the converter under it.** A mod loader normally mounts files
+  somebody else built. This one takes the player's own GoldenEye 007 cartridge
+  ROM and, at startup, inside the running game, converts it into a Perfect Dark
+  mod — **386 model and level files, 2244 textures, 62 tables, 19 MB** written
+  into `mods/GoldenEye Arenas/` and mounted like any other mod. No external
+  tool, no prepared assets, nothing shipped: the player brings a ROM and gets
+  a game.
+
+  What comes out is GoldenEye rather than a tribute to it: 20 solo missions and
+  26 arenas, all 80 characters with their animations and skeletons, its own AI
+  bytecode mapped command by command onto Perfect Dark's, its 2-D tile-graph
+  collision, its portals with their thickness, its music and its whole sound
+  bank, its HUD and radar, its watch as the pause menu, eleven gadgets, 52
+  monitor programmes, the mission cinema, the report and statistics pages, and
+  the drivable tank. Roughly 43,000 lines across `port/src/ge*.c` and
+  `tools/geconvert`, converter version 59, and the C converter is byte for byte
+  identical to the Python one so a conversion can be checked offline.
+
+  The two halves are the same idea taken further: the importer reads a console
+  mod's *code* to learn what it changed, and the converter reads another game's
+  ROM to rebuild it. GoldenEye X, Rare's Project Bean build and the Xbox 360
+  art all hang off that, and none of it needed the original team's cooperation
+  or a single redistributed byte.
 - **The XBLA loaders** — STFS, LZX, `Textures.raw` and `PackedSegFile` readers
   (`port/src/x360.c`, `xblatex.c`, `xblamesh.c`, `xblaimport.c`), the mesh and
   pose path, the skies, the stage loader, the font fitter, cube-map
@@ -97,7 +114,25 @@ file that hides how the work was made is not a transparent one. The research
 behind each subsystem — including the wrong turns — is in `CLAUDE-notes/`, and
 those notes are part of the deliverable, not scratch.
 
-## 5. The GoldenEye X team
+## 5. 4J Studios — the Perfect Dark XBLA release
+
+The 2010 Xbox 360 release of Perfect Dark is 4J's work, and it is where this
+fork's entire high-resolution look comes from: 5747 texture records, 596
+models, the skies, the fonts, the 48-frame explosion and the environment-map
+reflections. Switch it off and the fork is the N64 game. That is a larger share
+of what a player sees than anything below it on this page, which is why it
+moved above GoldenEye X once the GoldenEye side stopped depending on that mod.
+
+**The GoldenEye XBLA build is not 4J's.** "Project Bean" is Rare's own 2007
+devkit build, in Rare's CAFF `07.08.06.0036` bundles, and nothing about the
+Perfect Dark release's formats applies to it — its HD characters, levels and
+guns belong under Rare at the top of this page. Both releases' packaging —
+STFS, LZX, `Textures.raw`, `PackedSegFile`, CAFF — was taken apart here from
+the release binaries.
+
+The player supplies the release; nothing from either is redistributed here.
+
+## 6. The GoldenEye X team
 
 GE Plus no longer *comes from* GoldenEye X. It converts GoldenEye out of the
 player's own ROM at startup - the twenty missions, the arenas, all eighty
@@ -144,15 +179,6 @@ Reprobate, connery as bond, Conquerallmusic, Dark Reyn, DF Ank1,
 Dragonsbrethren, Fillerthefreak, freem, GoldenEyeCentral, Graslu00, HackBond /
 Nyxem, Hagmax, Jonaeru, killedbyurmom, Kerr Avon, Lazlo52, OmegaCop13, Raf, S40
 Games, SATURN_81, stlntxtrs, TH126, The Renagadist / Ren, Thundera8589, Trevor.
-
-## 6. 4J Studios — the Xbox 360 releases
-
-The XBLA releases of Perfect Dark (2010) and GoldenEye (Rare's 2007 "Project
-Bean" build, 4J's follow-on work) are where this fork's high-resolution models,
-textures, skies, fonts, explosions and HD levels come from. Their packaging and
-formats — STFS, `Textures.raw`, `PackedSegFile`, Rare's CAFF
-`07.08.06.0036` bundles — were taken apart from the release binaries to do it.
-The player supplies the release; nothing from it is redistributed here.
 
 ## 7. The testers
 
