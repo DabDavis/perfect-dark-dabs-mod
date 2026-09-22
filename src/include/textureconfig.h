@@ -16,7 +16,7 @@ extern struct textureconfig g_TcShadowConfigs[1];
 extern struct textureconfig g_TcShieldConfigs[1];
 extern struct textureconfig g_TcShardConfigs[2];
 extern struct textureconfig g_TcScreenConfigs[96];
-extern struct textureconfig g_TcSkyWaterConfigs[3];
+extern struct textureconfig g_TcSkyWaterConfigs[6];
 extern struct textureconfig g_TcGroup11Configs[6];
 extern struct textureconfig g_TcLightGlareConfigs[10];
 extern struct textureconfig g_TcSparkConfigs[1];

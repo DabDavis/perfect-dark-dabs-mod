@@ -7546,3 +7546,69 @@ the ceiling. A converted level's offset is `our pad - GE pad` for any pad.
 `videoEndFrame()` they are freed gfx memory and read as garbage, and gdb's
 Python `print` is block-buffered under redirection, so an empty log means a
 stuck breakpoint, not no output.
+
+## Frigate's sky and water: GoldenEye's fogless table (2026-09-22)
+
+A tester's F3 on Frigate (20260921-092611): "missing water, missing sky" -
+the level drew Perfect Dark's default sky, a flat fill of `0x001040`.
+
+**Why.** GoldenEye keeps two environment tables in bgfog.c. `fog_tables[]`
+(92-byte rows from data `0x24080`) is what `romFogRow()` read; `fog_tables2[]`
+- `EnvironmentFoglessRecord`, 56-byte rows, **immediately after the fog
+table's end row** - holds the levels drawn with **no fog at all**: sky rgb,
+clouds, cloud plane height, sky image, cloud rgb, is-water, water plane
+height, water image, water rgb, concavity. Frigate (`LEVELID_FRIGATE` 26:
+sky `103060`, clouds at 3000, water at -150 in image 2 tinted `ffff96`) and
+Cuba are its only rows besides the `LEVELID_NONE` default. A fogless level is
+drawn with `viSetZRange(15, 10000)` and `g_FogSkyIsEnabled = 0`.
+
+**What was done** (converter version **58**, `romFoglessRow()` /
+`foglessValue()` in geconvert.c, `fogless_rows()` / `fogless_value()` in the
+Python):
+
+- the maps and missions blocks' `fog` key can now begin with **`nofog`**:
+  `nofog <near> <far> <sky> <clouds> <height> <img> <rgb> <water> <height>
+  <img> <rgb> <concavity>`. modloader.c parses it into a
+  `struct nofogenvironment` (`g_ModStageNoFog[]`,
+  `modloaderGetStageNoFog()`), and `envChooseAndApply()` applies it with
+  `envApplyNoFogEnvironment()` after the fog check - `g_FogEnabled` false, the
+  planes' heights shifted by the level's offset as a fog row's are (Frigate's
+  water: -150 - 508 = -658; the offset is `our pad - GE pad` for any pad,
+  Frigate's (123, -508, 2334)).
+- **the fog rows name GoldenEye's own three sky pictures.** `skywaterimages[]`
+  (clouds 2228, grey water 1508, blue water 1509) is Perfect Dark's
+  `g_TcSkyWaterConfigs` in the same order, but only the clouds are the same
+  picture (`0x0013` is byte for byte GoldenEye's 2228; `0x0014` and `0x0c90`
+  are Perfect Dark's own re-quantised water). The three go out with every
+  conversion (`textures/08b4.bin`, `05e4.bin`, `05e5.bin`) and are rows
+  **3-5** of `g_TcSkyWaterConfigs` (src/textureconfig.c); the converter adds
+  `GE_SKYTEX_FIRST` (3) to both image ids, so every converted level's fog
+  row now names them (Dam's `... 1 18219 3 ffffff 0 12219 3 ...`).
+- **the port's water plane was one flat colour.** No stock Perfect Dark row
+  enables the water plane, so the port's `#else` path in `skyRender()` had
+  never been looked at: it scaled the water's texture coordinates by 0.1 to
+  fit a Vtx's s16 (10.5 fixed point, 1024 texels) - the *clouds'* density,
+  which the N64 path (`skyRenderTri()`, its own perspective-corrected RDP
+  coefficients, world x/z used as they are for water and a tenth of them for
+  clouds) never needed. `skyRenderWaterTri()` splits each plane triangle at
+  its edge midpoints until its coordinates span under 24000 and re-bases each
+  piece on a multiple of 2048 (a whole number of repeats of both water
+  pictures), so the sea has its texture at the N64's density.
+
+**Judged against the oracle** (`~/dam-oracle/gefrigate.py`, `gefrigate2.py`:
+`bossSetLoadedStage` overridden to `LEVELID_FRIGATE`, pictures at the spawn
+and looking up, the cloud vertex colours printed): sky colour, cloud
+brightness looking up and the water plane's height relative to Bond all
+match. **Not matched, left open:** GoldenEye's water is an *interference*
+effect, not the picture - `sub_GAME_7F09343C()` re-describes tiles 0 and 1
+as RGBA16 with `line` 4 over a picture its own loader keeps as CI4, offsets
+tile 1 by (90, 150) and lerps the two by `PRIM_LOD_FRAC = sin(t)*127+128`
+in a 2-cycle combiner, which is why the oracle's sea is a shimmering green
+mottle while ours is the blue picture tinted `ffff96`. Reproducing it means
+emulating TMEM re-addressing of CI4 texels as RGBA16; not attempted.
+
+Probes: `build/gexrom/watershot.py` (spectator over the water, water_type
+toggled per shot - run **after** `hdsweep/run.sh`, which deletes
+`screenshots/*.png`), `padzero.py` (our pads 0-2 and the player's ground, for
+the offset). The same report's "tiny chopper" is untouched: its trace shows
+two chrs of body 153 at `scale 0.1000`.

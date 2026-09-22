@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifndef PLATFORM_N64
+#include <math.h>
+#endif
 #include "constants.h"
 #include "game/quaternion.h"
 #include "game/game_0b2150.h"
@@ -238,6 +241,98 @@ static void skyShearForCloudHeight(Mtxf *mtx)
 		shear.m[2][1] = -rows * g_Vars.currentplayer->c_scaley;
 		mtx4MultMtx4(&shear, mtx, mtx);
 	}
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * One triangle of the water plane, textured at the N64's density.
+ *
+ * The N64 path hands skyRenderTri() the plane's world x and z as the texture
+ * coordinates as they are (the clouds' are a tenth of theirs) and writes the
+ * RDP's own perspective-corrected texture coefficients for each piece it
+ * splits a triangle into, so a coordinate of 300000 at the horizon is no
+ * trouble. The port draws the plane as 3D triangles whose Vtx s and t are
+ * 10.5 fixed point in an s16 - 1024 texels - so it had scaled the water's
+ * coordinates down by ten to fit, which is the clouds' density: the 32 texel
+ * water picture stretched over 10240 units, and the sea drawn as one flat
+ * colour on GoldenEye's Frigate. Here a triangle is split at its edges'
+ * midpoints until its coordinates span less than the field holds, and each
+ * piece is re-based on a multiple of the picture's period, which wraps
+ * seamlessly across the pieces. Everything on the plane is affine, so the
+ * midpoints are exact.
+ */
+#define SKY_WATER_PERIOD 2048.0f // 64 texels in 10.5: a whole number of repeats of both water pictures
+#define SKY_WATER_SPAN 24000.0f
+
+static void skyWaterMid(const struct skyvtx3d *a, const struct skyvtx3d *b, struct skyvtx3d *m)
+{
+	m->x = (a->x + b->x) * 0.5f;
+	m->y = (a->y + b->y) * 0.5f;
+	m->z = (a->z + b->z) * 0.5f;
+	m->s = (a->s + b->s) * 0.5f;
+	m->t = (a->t + b->t) * 0.5f;
+	m->r = (a->r + b->r) >> 1;
+	m->g = (a->g + b->g) >> 1;
+	m->b = (a->b + b->b) >> 1;
+	m->a = (a->a + b->a) >> 1;
+}
+
+static Gfx *skyRenderWaterTri(Gfx *gdl, const struct skyvtx3d *a, const struct skyvtx3d *b, const struct skyvtx3d *c, s32 depth)
+{
+	const struct skyvtx3d *v[3] = { a, b, c };
+	f32 smin = a->s, smax = a->s, tmin = a->t, tmax = a->t;
+	f32 sbase, tbase;
+	Vtx *verts;
+	Col *cols;
+	s32 i;
+
+	for (i = 1; i < 3; i++) {
+		if (v[i]->s < smin) smin = v[i]->s;
+		if (v[i]->s > smax) smax = v[i]->s;
+		if (v[i]->t < tmin) tmin = v[i]->t;
+		if (v[i]->t > tmax) tmax = v[i]->t;
+	}
+
+	if ((smax - smin > SKY_WATER_SPAN || tmax - tmin > SKY_WATER_SPAN) && depth < 7) {
+		struct skyvtx3d ab, bc, ca;
+
+		skyWaterMid(a, b, &ab);
+		skyWaterMid(b, c, &bc);
+		skyWaterMid(c, a, &ca);
+
+		gdl = skyRenderWaterTri(gdl, a, &ab, &ca, depth + 1);
+		gdl = skyRenderWaterTri(gdl, &ab, b, &bc, depth + 1);
+		gdl = skyRenderWaterTri(gdl, &ca, &bc, c, depth + 1);
+		gdl = skyRenderWaterTri(gdl, &ab, &bc, &ca, depth + 1);
+
+		return gdl;
+	}
+
+	sbase = floorf(smin / SKY_WATER_PERIOD) * SKY_WATER_PERIOD;
+	tbase = floorf(tmin / SKY_WATER_PERIOD) * SKY_WATER_PERIOD;
+
+	verts = gfxAllocateVertices(3);
+	cols = gfxAllocateColours(3);
+
+	for (i = 0; i < 3; i++) {
+		verts[i].x = v[i]->x;
+		verts[i].y = v[i]->y;
+		verts[i].z = v[i]->z;
+		verts[i].s = skyClamp(v[i]->s - sbase, -32768.f, 32767.f);
+		verts[i].t = skyClamp(v[i]->t - tbase, -32768.f, 32767.f);
+		verts[i].colour = i * 4;
+		cols[i].r = v[i]->r;
+		cols[i].g = v[i]->g;
+		cols[i].b = v[i]->b;
+		cols[i].a = v[i]->a;
+	}
+
+	gSPColor(gdl++, osVirtualToPhysical(cols), 3);
+	gSPVertex(gdl++, osVirtualToPhysical(verts), 3, 0);
+	gSPTri1(gdl++, 0, 1, 2);
+
+	return gdl;
 }
 #endif
 
@@ -904,37 +999,23 @@ Gfx *skyRender(Gfx *gdl)
 				gdl = skyRenderTri(gdl, &watervertices2d[0], &watervertices2d[1], &watervertices2d[2], 130.0f, true);
 			}
 #else
-			Vtx *verts = gfxAllocateVertices(numvertices);
-			Col *cols = gfxAllocateColours(numvertices);
 			Mtxf *mtx = gfxAllocateMatrix();
 			mtx4MultMtx4(camGetWorldToScreenMtxf(), &g_SkyMtx, mtx);
-		skyShearForCloudHeight(mtx);
+			skyShearForCloudHeight(mtx);
 			mtxF2L(mtx, mtx);
 
 			gSPSetExtraGeometryModeEXT(gdl++, G_NO_CLIPPING_EXT);
 			gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_PUSH);
-			gSPColor(gdl++, osVirtualToPhysical(cols), numvertices);
-			gSPVertex(gdl++, osVirtualToPhysical(verts), numvertices, 0);
-
-			for (s32 i = 0; i < numvertices; ++i) {
-				verts[i].x = watervertices3d[i].x;
-				verts[i].y = watervertices3d[i].y;
-				verts[i].z = watervertices3d[i].z;
-				verts[i].s = skyClamp(watervertices3d[i].s * 0.1f + g_SkyCloudOffset, -32768.f, 32767.f);
-				verts[i].t = skyClamp((watervertices3d[i].t  - g_SkyCloudOffset) * 0.1f + g_SkyCloudOffset, -32768.f, 32767.f);
-				verts[i].colour = i * 4;
-				cols[i].r = watervertices3d[i].r;
-				cols[i].g = watervertices3d[i].g;
-				cols[i].b = watervertices3d[i].b;
-				cols[i].a = watervertices3d[i].a;
-			}
 
 			if (numvertices == 4) {
-				gSPTri2(gdl++, 0, 1, 3, 3, 2, 0);
+				gdl = skyRenderWaterTri(gdl, &watervertices3d[0], &watervertices3d[1], &watervertices3d[3], 0);
+				gdl = skyRenderWaterTri(gdl, &watervertices3d[3], &watervertices3d[2], &watervertices3d[0], 0);
 			} else if (numvertices == 5) {
-				gSPTri3(gdl++, 0, 1, 2, 0, 2, 3, 0, 3, 4);
+				gdl = skyRenderWaterTri(gdl, &watervertices3d[0], &watervertices3d[1], &watervertices3d[2], 0);
+				gdl = skyRenderWaterTri(gdl, &watervertices3d[0], &watervertices3d[2], &watervertices3d[3], 0);
+				gdl = skyRenderWaterTri(gdl, &watervertices3d[0], &watervertices3d[3], &watervertices3d[4], 0);
 			} else if (numvertices == 3) {
-				gSPTri1(gdl++, 0, 1, 2);
+				gdl = skyRenderWaterTri(gdl, &watervertices3d[0], &watervertices3d[1], &watervertices3d[2], 0);
 			}
 
 			gSPPopMatrix(gdl++, G_MTX_MODELVIEW);

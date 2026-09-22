@@ -102,6 +102,7 @@ static s32 g_ModMissionStages[MODLOADER_MAX_MISSIONS];
 // And its sky and fog where the maps block gives them, else the default the
 // chooser falls back to for a stage no table names
 static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
+static struct nofogenvironment g_ModStageNoFog[STAGE_MAX_ID + 1];
 // And the music its line gives it, as its mod's own sequence numbers - the
 // GoldenEye remake's levels play GoldenEye's (gemusic.c): main theme,
 // background and X theme, -1 for none, and whether the line gave any
@@ -437,13 +438,67 @@ static bool modloaderMapIsOwn(s32 modIndex, const char *bg, const char *tiles, c
  *
  * Colours are six hex digits. A map with none keeps the chooser's default.
  */
+/**
+ * A `fog` row that begins "nofog": a sky drawn with no fog at all, the way
+ * GoldenEye draws Frigate and Cuba (its fogless table) and Perfect Dark its
+ * own nofogenvironment stages - near and far planes, then the sky, clouds and
+ * water exactly as a fog row carries them after its fog columns.
+ */
+static void modloaderSetStageNoFog(s32 stagenum, const char *name, const char *text)
+{
+	s32 v[2], clouds[3], water[3], height;
+	u32 sky, cloudrgb, waterrgb;
+
+	if (sscanf(text, "%d %d %x %d %d %d %x %d %d %d %x %d",
+				&v[0], &v[1], &sky,
+				&clouds[0], &clouds[1], &clouds[2], &cloudrgb,
+				&water[0], &water[1], &water[2], &waterrgb, &height) != 12) {
+		sysLogPrintf(LOG_WARNING, "modloader: %s: fog \"nofog %s\" is not a fogless row; the map keeps the default sky", name, text);
+		return;
+	}
+
+	struct nofogenvironment *env = &g_ModStageNoFog[stagenum];
+
+	memset(env, 0, sizeof(*env));
+	env->stage = stagenum;
+	env->near = v[0];
+	env->far = v[1];
+	env->sky_r = sky >> 16;
+	env->sky_g = sky >> 8;
+	env->sky_b = sky;
+	env->clouds_enabled = clouds[0];
+	env->clouds_scale = clouds[1];
+	env->clouds_type = clouds[2];
+	env->clouds_r = cloudrgb >> 16;
+	env->clouds_g = cloudrgb >> 8;
+	env->clouds_b = cloudrgb;
+	env->water_enabled = water[0];
+	env->water_scale = water[1];
+	env->water_type = water[2];
+	env->water_r = waterrgb >> 16;
+	env->water_g = waterrgb >> 8;
+	env->water_b = waterrgb;
+	env->clouds_height = height;
+	env->transparency = false;
+
+	g_ModStageFog[stagenum].stage = 0;
+}
+
 static void modloaderSetStageFog(s32 stagenum, const char *name, const char *text)
 {
 	s32 v[7], clouds[3], water[3], height;
 	u32 sky, cloudrgb, waterrgb;
 
-	if (stagenum <= 0 || stagenum > STAGE_MAX_ID
-			|| sscanf(text, "%d %d %d %d %d %d %d %x %d %d %d %x %d %d %d %x %d",
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID) {
+		return;
+	}
+
+	if (!strncmp(text, "nofog ", 6)) {
+		modloaderSetStageNoFog(stagenum, name, text + 6);
+		return;
+	}
+
+	if (sscanf(text, "%d %d %d %d %d %d %d %x %d %d %d %x %d %d %d %x %d",
 				&v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &sky,
 				&clouds[0], &clouds[1], &clouds[2], &cloudrgb,
 				&water[0], &water[1], &water[2], &waterrgb, &height) != 17) {
@@ -478,6 +533,8 @@ static void modloaderSetStageFog(s32 stagenum, const char *name, const char *tex
 	env->water_g = waterrgb >> 8;
 	env->water_b = waterrgb;
 	env->clouds_height = height;
+
+	g_ModStageNoFog[stagenum].stage = 0;
 }
 
 /**
@@ -505,6 +562,15 @@ struct fogenvironment *modloaderGetStageFog(s32 stagenum)
 	}
 
 	return &g_ModStageFog[stagenum];
+}
+
+struct nofogenvironment *modloaderGetStageNoFog(s32 stagenum)
+{
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID || !g_ModStageDirs[stagenum] || g_ModStageNoFog[stagenum].stage != stagenum) {
+		return NULL;
+	}
+
+	return &g_ModStageNoFog[stagenum];
 }
 
 static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char *name,

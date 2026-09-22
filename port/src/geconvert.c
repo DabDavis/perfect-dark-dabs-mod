@@ -832,6 +832,71 @@ static int romFogRow(uint32_t levelid, double *r)
 	return found;
 }
 
+// GoldenEye's three sky pictures (image_bank.c's skywaterimages: clouds,
+// grey water, blue water), which are Perfect Dark's three sky/water texture
+// configs in the same order but different pictures - Perfect Dark redrew its
+// water. They go out with every conversion and the fog rows name them as rows
+// 3-5 of g_TcSkyWaterConfigs (src/textureconfig.c).
+#define GE_IMAGE_CLOUDS 2228
+#define GE_IMAGE_WATER_GREY 1508
+#define GE_IMAGE_WATER_BLUE 1509
+#define GE_SKYTEX_FIRST 3
+
+// a level's row of GoldenEye's *fogless* table (bgfog.c's fog_tables2, which
+// follows the fog table's end row: Frigate and Cuba, drawn with no fog and a
+// fixed z range) - the 18 values after the id, as bgfog.c lists them
+#define FOGLESS_ROW 56
+static int romFoglessRow(uint32_t levelid, double *r)
+{
+	size_t o = FOG_AT;
+
+	// past the fog table's end row
+	for (;;) {
+		if (o + FOG_ROW > g_DataLen) {
+			return 0;
+		}
+
+		const uint32_t lid = be32(g_Data, o);
+		o += FOG_ROW;
+
+		if (lid == 0 && o > FOG_AT + FOG_ROW) {
+			break;
+		}
+
+		if (lid >= 0x10000) {
+			return 0;
+		}
+	}
+
+	for (; o + FOGLESS_ROW <= g_DataLen; o += FOGLESS_ROW) {
+		const uint32_t lid = be32(g_Data, o);
+		const uint8_t *d = g_Data + o + 4;
+
+		if (lid == 0) {
+			break;
+		}
+
+		if (lid != levelid) {
+			continue;
+		}
+
+		for (int i = 0; i < 4; ++i) r[i] = d[i];		// sky rgb, clouds
+		r[4] = bef32(d, 4);					// cloud plane height
+		r[5] = (int16_t)be16(d, 8);				// sky image id
+		r[6] = be16(d, 10);
+		for (int i = 0; i < 3; ++i) r[7 + i] = bef32(d, 12 + 4 * i);	// cloud rgb
+		r[10] = d[24];						// is water
+		r[11] = bef32(d, 28);					// water plane height
+		r[12] = (int16_t)be16(d, 32);				// water image id
+		r[13] = be16(d, 34);
+		for (int i = 0; i < 3; ++i) r[14 + i] = bef32(d, 36 + 4 * i);	// water rgb
+		r[17] = bef32(d, 48);					// water concavity
+		return 1;
+	}
+
+	return 0;
+}
+
 /* ------------------------------------------------------------------------ */
 /* texture numbers: GoldenEye's images that collide with the numbers Perfect
  * Dark's texture config tables load, moved past GoldenEye's last (texremap.py) */
@@ -5875,10 +5940,34 @@ static void fogValue(struct textbuf *t, double *r, const double *offset, double 
 		r[k] /= vis;
 	}
 
+	// the sky and water image ids name GoldenEye's own pictures
+	r[14] += GE_SKYTEX_FIRST;
+	r[24] += GE_SKYTEX_FIRST;
+
 	#define I(k) (long)rnd(r[(k) - 1])
 	textf(t, "%ld %ld %ld %ld %ld %ld %ld %02lx%02lx%02lx %ld %ld %ld %02lx%02lx%02lx %ld %ld %ld %02lx%02lx%02lx %ld",
 		I(1), I(2), I(3), I(4), I(5), I(8), I(9), I(10), I(11), I(12),
 		I(13), I(14), I(15), I(17), I(18), I(19), I(20), I(24), I(25), I(27), I(28), I(29), I(30));
+	#undef I
+}
+
+// a fogless row as the maps block's `fog` string: "nofog", the near and far
+// planes GoldenEye draws every fogless level with (bgfog.c sets the z range to
+// 15..10000 where no fog row is found, divided by the render scale as above),
+// then the sky, clouds and water as fogValue() writes them. GoldenEye's three
+// sky/water images are Perfect Dark's three, in the same order, so the two
+// image ids carry over as they are.
+static void foglessValue(struct textbuf *t, double *r, const double *offset, double vis)
+{
+	r[4] -= offset[1];
+	r[11] -= offset[1];
+	r[5] += GE_SKYTEX_FIRST;
+	r[12] += GE_SKYTEX_FIRST;
+
+	#define I(k) (long)rnd(r[k])
+	textf(t, "nofog %ld %ld %02lx%02lx%02lx %ld %ld %ld %02lx%02lx%02lx %ld %ld %ld %02lx%02lx%02lx %ld",
+		(long)rnd(15 / vis), (long)rnd(10000 / vis),
+		I(0), I(1), I(2), I(3), I(4), I(5), I(7), I(8), I(9), I(10), I(11), I(12), I(14), I(15), I(16), I(17));
 	#undef I
 }
 
@@ -6048,6 +6137,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			textf(&maps, " fog \"");
 			fogValue(&maps, fog, offset, levelVisibility(lv->key));
 			textf(&maps, "\"");
+		} else if (romFoglessRow(lv->levelid, fog)) {
+			textf(&maps, " fog \"");
+			foglessValue(&maps, fog, offset, levelVisibility(lv->key));
+			textf(&maps, "\"");
 		}
 		romMusicRow(lv->levelid, music);
 		textf(&maps, " music \"%d %d %d\"", music[0], music[1], music[2]);
@@ -6088,6 +6181,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			if (romFogRow(lv->levelid, fog)) {
 				textf(&missions, " fog \"");
 				fogValue(&missions, fog, offset, levelVisibility(lv->key));
+				textf(&missions, "\"");
+			} else if (romFoglessRow(lv->levelid, fog)) {
+				textf(&missions, " fog \"");
+				foglessValue(&missions, fog, offset, levelVisibility(lv->key));
 				textf(&missions, "\"");
 			}
 			textf(&missions, " music \"%d %d %d\"", music[0], music[1], music[2]);
@@ -6551,6 +6648,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 	{
 		int count = 0, missing = 0;
+
+		setAdd(alltex, GE_IMAGE_CLOUDS);
+		setAdd(alltex, GE_IMAGE_WATER_GREY);
+		setAdd(alltex, GE_IMAGE_WATER_BLUE);
+
 		for (uint32_t num = 0; num < SETBITS; ++num) {
 			const uint8_t *data;
 			size_t len = 0;

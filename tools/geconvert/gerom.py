@@ -153,6 +153,28 @@ class Rom:
             o += FOG_ROW
         return rows
 
+    def fogless_rows(self):
+        """{level id name: the 18 values after the id} of GoldenEye's fogless table
+        (bgfog.c's fog_tables2, 56-byte rows after the fog table's end row): sky rgb,
+        clouds, cloud plane height, sky image, (reserved), cloud rgb, is water, water
+        plane height, water image, (reserved), water rgb, water concavity."""
+        names = {v: k for k, v in LEVELIDS.items()}
+        o = FOG_AT
+        while True:
+            lid = struct.unpack_from('>I', self.data, o)[0]
+            o += FOG_ROW
+            if lid == 0 and o > FOG_AT + FOG_ROW:
+                break
+        rows = {}
+        while True:
+            lid = struct.unpack_from('>I', self.data, o)[0]
+            if lid == 0:
+                break
+            if lid in names:
+                rows[names[lid]] = list(struct.unpack_from('>4BfhH3fB3xfhH4f', self.data, o + 4))
+            o += 56
+        return rows
+
     def props(self):
         """[(file stem, scale, header dict)] in model number order."""
         out = []

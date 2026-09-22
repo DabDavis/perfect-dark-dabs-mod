@@ -232,6 +232,12 @@ struct textureconfig g_TcSkyWaterConfigs[] = {
 	/*0*/ { 0x0013, 64,  64,  0, G_IM_FMT_IA,   G_IM_SIZ_8b,  G_TX_WRAP,   G_TX_WRAP   },
 	/*1*/ { 0x0c90, 64,  64,  0, G_IM_FMT_I,    G_IM_SIZ_8b,  G_TX_WRAP,   G_TX_WRAP   },
 	/*2*/ { 0x0014, 32,  32,  5, G_IM_FMT_RGBA, G_IM_SIZ_16b, G_TX_WRAP,   G_TX_WRAP   },
+	// GoldenEye's own three (image_bank.c's skywaterimages, the same order),
+	// which a converted level ships in its textures and its fog row names
+	// (port/src/geconvert.c GE_SKYTEX_FIRST)
+	/*3*/ { 0x08b4, 64,  64,  0, G_IM_FMT_IA,   G_IM_SIZ_8b,  G_TX_WRAP,   G_TX_WRAP   },
+	/*4*/ { 0x05e4, 64,  64,  0, G_IM_FMT_I,    G_IM_SIZ_8b,  G_TX_WRAP,   G_TX_WRAP   },
+	/*5*/ { 0x05e5, 32,  32,  6, G_IM_FMT_RGBA, G_IM_SIZ_16b, G_TX_WRAP,   G_TX_WRAP   },
 };
 
 struct textureconfig g_TcGroup11Configs[] = {

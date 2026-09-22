@@ -359,6 +359,17 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 		envApplyFogEnvironment(g_EnvOrigFogEnvironment);
 		return;
 	}
+
+	// or a sky with no fog at all (GoldenEye's Frigate: its fogless table)
+	{
+		struct nofogenvironment *nofog = modloaderGetStageNoFog(stagenum);
+
+		if (nofog) {
+			envApplyNoFogEnvironment(nofog);
+			g_EnvOrigFogEnvironment = NULL;
+			return;
+		}
+	}
 #endif
 
 	// Try to find an env1

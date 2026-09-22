@@ -71,6 +71,11 @@ MENU_TV_MODEL = 75
 # a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
 # and the character portraits' tiles (IMAGE_BROSNAN_UL..DALTON_LR, BORIS_UL..ODDJOB_LR,
 # RANDOM_UL..LR, MISHKIN)
+# GoldenEye's three sky pictures (skywaterimages: clouds, grey water, blue water),
+# rows 3-5 of Perfect Dark's g_TcSkyWaterConfigs (src/textureconfig.c) - its own
+# three are different pictures
+SKY_IMAGES = [2228, 1508, 1509]
+SKYTEX_FIRST = 3
 MENU_IMAGES = ([2236, 2631] + list(range(2578, 2598)) + list(range(2686, 2690)) + [2695]
                + list(range(2602, 2618)) + list(range(2632, 2672)) + list(range(2682, 2686))
                + list(range(2691, 2695))
@@ -1329,11 +1334,47 @@ def fog_value(r, offset, vis=1.0):
     # washed the level blue.
     for k in range(5):
         r[k] /= vis
+    # the sky and water image ids name GoldenEye's own pictures
+    r[14] += SKYTEX_FIRST
+    r[24] += SKYTEX_FIRST
     i = lambda k: int(round(r[k - 1]))
     rgb = lambda a: '%02x%02x%02x' % (i(a), i(a + 1), i(a + 2))
     return '%d %d %d %d %d %d %d %s %d %d %d %s %d %d %d %s %d' % (
         i(1), i(2), i(3), i(4), i(5), i(8), i(9), rgb(10),
         i(13), i(14), i(15), rgb(17), i(20), i(24), i(25), rgb(27), i(30))
+
+
+def fogless_rows():
+    return gefiles.rom().fogless_rows()
+
+
+def fogless_value(r, offset, vis=1.0):
+    """A fogless row (Frigate, Cuba) as the maps block's `fog` string: "nofog",
+    the near and far planes GoldenEye draws every fogless level with (15..10000
+    in its drawn space), then the sky, clouds and water as fog_value() writes
+    them. GoldenEye's three sky/water images are Perfect Dark's three in the
+    same order, so the image ids carry over."""
+    r = list(r)
+    r[4] -= offset[1]
+    r[11] -= offset[1]
+    r[5] += SKYTEX_FIRST
+    r[12] += SKYTEX_FIRST
+    i = lambda k: int(round(r[k]))
+    rgb = lambda a: '%02x%02x%02x' % (i(a), i(a + 1), i(a + 2))
+    return 'nofog %d %d %s %d %d %d %s %d %d %d %s %d' % (
+        int(round(15 / vis)), int(round(10000 / vis)), rgb(0), i(3), i(4), i(5), rgb(7),
+        i(10), i(11), i(12), rgb(14), i(17))
+
+
+def fog_string(key, fogs, foglesses, offset):
+    """The ` fog "..."` clause of a level's map or mission line, or ''."""
+    lid = LEVELIDS[key]
+    vis = VISIBILITY.get(key, 1.0)
+    if lid in fogs:
+        return ' fog "%s"' % fog_value(fogs[lid], offset, vis)
+    if lid in foglesses:
+        return ' fog "%s"' % fogless_value(foglesses[lid], offset, vis)
+    return ''
 
 
 def main():
@@ -1344,6 +1385,7 @@ def main():
     maps = []
     missions = []
     fogs = fog_rows()
+    foglesses = fogless_rows()
     alltex = set()
     allmodels = set()
     allanims = set()
@@ -1404,8 +1446,7 @@ def main():
             missions.append('  mission %d "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ"'
                             ' pads "bgdata/bg_gs%s_padsZ" setup "Usetupgs%sZ"%s' % (
                                 [m[0] for m in MISSIONS].index(mkey), mname, short, short, mkey, mkey,
-                                (' fog "%s"' % fog_value(fogs[LEVELIDS[key]], offset, VISIBILITY.get(key, 1.0))
-                                 if LEVELIDS[key] in fogs else '')))
+                                fog_string(key, fogs, foglesses, offset)))
             print('%-5s mission %-12s props %4d (+%d) pads %3d ai %5d (+%d) unknown %d' % (
                 key, mname, sum(mstats['kept'].values()), sum(mstats['dropped'].values()),
                 len(msetupdata['pads']), mstats['ai_kept'], sum(mstats['ai_dropped'].values()),
@@ -1420,7 +1461,7 @@ def main():
                 f.write(data)
         maps.append('  map "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ" pads "bgdata/bg_%s_padsZ" mpsetup "Ump_setup%sZ"%s' % (
             NAMES[key], short, short, short, short,
-            (' fog "%s"' % fog_value(fogs[LEVELIDS[key]], offset, VISIBILITY.get(key, 1.0)) if LEVELIDS[key] in fogs else '')))
+            fog_string(key, fogs, foglesses, offset)))
         print('%-5s lights %d' % (key, numlights))
         print('%-5s rooms %3d portals %3d textures %3d tiles %4d (+%d walls) pads %3d waypoints %3d spawns %2d weapons %2d ammo %2d  bg %d bytes' % (
             key, bg.numrooms, len(bg.portals), len(tex), len(stan), walls, len(setup['pads']), len(setup['waypoints']), nsp, nw, na, len(bgdata)))
@@ -1434,6 +1475,7 @@ def main():
     allmodels.update(INTRO_GUNS)
     allmodels.update(gesolo.GE_GADGET_MODELS)
     alltex.update(MENU_IMAGES)
+    alltex.update(SKY_IMAGES)
     os.makedirs(os.path.join(outdir, 'menu'), exist_ok=True)
     rom = gefiles.rom()
     for name, at, size in MENU_RAW:
