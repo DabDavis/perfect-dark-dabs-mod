@@ -178,6 +178,12 @@ s32 inputAssignController(s32 cidx, s32 id);
 s32 inputKeyPressed(u32 vk);
 s32 inputKeyJustPressed(u32 vk);
 
+// keyboard and mouse only: went down between the last inputUpdate() and this
+// one. Unlike inputKeyJustPressed() it keeps no state of its own, so it gives
+// every caller the same answer all frame, however many ask and whether or not
+// they asked last frame
+s32 inputKeyPressedThisFrame(u32 vk);
+
 // idx is controller index, contbtn is one of the CONT_ constants
 s32 inputButtonPressed(s32 idx, u32 contbtn);
 

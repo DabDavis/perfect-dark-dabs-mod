@@ -187,6 +187,11 @@ static char vkNames[VK_TOTAL_COUNT][64];
 
 static s8 vkPrevState[VK_TOTAL_COUNT];
 
+// the keyboard and mouse as inputUpdate() saw them this frame and the last,
+// for inputKeyPressedThisFrame()
+static s8 vkFrameState[VK_JOY_BEGIN];
+static s8 vkLastFrameState[VK_JOY_BEGIN];
+
 void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 {
 	// TODO: make VK constants for all these
@@ -1130,6 +1135,12 @@ void inputUpdate(void)
 	if (mouseEnabled) {
 		inputUpdateMouse();
 	}
+
+	memcpy(vkLastFrameState, vkFrameState, sizeof(vkFrameState));
+
+	for (u32 vk = VK_KEYBOARD_BEGIN; vk < VK_JOY_BEGIN; ++vk) {
+		vkFrameState[vk] = inputKeyPressed(vk) != 0;
+	}
 }
 
 s32 inputControllerConnected(s32 idx)
@@ -1414,6 +1425,15 @@ s32 inputKeyJustPressed(u32 vk)
 	const s32 result = pressed && !vkPrevState[vk];
 	vkPrevState[vk] = pressed;
 	return result;
+}
+
+s32 inputKeyPressedThisFrame(u32 vk)
+{
+	if (vk < VK_KEYBOARD_BEGIN || vk >= VK_JOY_BEGIN) {
+		return 0;
+	}
+
+	return vkFrameState[vk] && !vkLastFrameState[vk];
 }
 
 static inline u32 inputContToContKey(const u32 cont)

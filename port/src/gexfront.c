@@ -2259,9 +2259,9 @@ static void frontTickPlayerPanels(void)
 		const s32 left = joyGetButtonsPressedThisFrame(i, L_JPAD | L_CBUTTONS) || (stickx < -30 && g_Front.stickarmed[i]);
 		const s32 right = joyGetButtonsPressedThisFrame(i, R_JPAD | R_CBUTTONS) || (stickx > 30 && g_Front.stickarmed[i]);
 		const s32 pick = joyGetButtonsPressedThisFrame(i, A_BUTTON | Z_TRIG | START_BUTTON | (i == 0 ? BUTTON_UI_ACCEPT : 0))
-			|| (i == 0 && inputKeyJustPressed(VK_MOUSE_LEFT));
+			|| (i == 0 && inputKeyPressedThisFrame(VK_MOUSE_LEFT));
 		const s32 unpick = joyGetButtonsPressedThisFrame(i, B_BUTTON | (i == 0 ? BUTTON_UI_CANCEL : 0))
-			|| (i == 0 && inputKeyJustPressed(VK_ESCAPE));
+			|| (i == 0 && inputKeyPressedThisFrame(VK_ESCAPE));
 
 		if (g_Front.chosen[i]) {
 			if (unpick) {
@@ -2329,9 +2329,9 @@ static void frontTickCharacters(void)
 		const s32 left = joyGetButtonsPressedThisFrame(i, L_JPAD | L_CBUTTONS) || (stickx < -30 && g_Front.stickarmed[i]);
 		const s32 right = joyGetButtonsPressedThisFrame(i, R_JPAD | R_CBUTTONS) || (stickx > 30 && g_Front.stickarmed[i]);
 		const s32 pick = joyGetButtonsPressedThisFrame(i, A_BUTTON | Z_TRIG | START_BUTTON | (i == 0 ? BUTTON_UI_ACCEPT : 0))
-			|| (i == 0 && inputKeyJustPressed(VK_MOUSE_LEFT));
+			|| (i == 0 && inputKeyPressedThisFrame(VK_MOUSE_LEFT));
 		const s32 unpick = joyGetButtonsPressedThisFrame(i, B_BUTTON | (i == 0 ? BUTTON_UI_CANCEL : 0))
-			|| (i == 0 && inputKeyJustPressed(VK_ESCAPE));
+			|| (i == 0 && inputKeyPressedThisFrame(VK_ESCAPE));
 
 		if (g_Front.chosen[i]) {
 			if (g_Front.charsize[i] < 11 && g_Front.charprev[i] == g_Front.charcur[i]) {
@@ -2713,8 +2713,8 @@ void gexFrontTick(void)
 	}
 
 	// the pad's A, Z and B, and the keyboard's own accept and cancel beside them
-	pick = joyGetButtonsPressedThisFrame(0, A_BUTTON | Z_TRIG | BUTTON_UI_ACCEPT) != 0 || inputKeyJustPressed(VK_MOUSE_LEFT);
-	back = joyGetButtonsPressedThisFrame(0, B_BUTTON | BUTTON_UI_CANCEL) != 0 || inputKeyJustPressed(VK_ESCAPE);
+	pick = joyGetButtonsPressedThisFrame(0, A_BUTTON | Z_TRIG | BUTTON_UI_ACCEPT) != 0 || inputKeyPressedThisFrame(VK_MOUSE_LEFT);
+	back = joyGetButtonsPressedThisFrame(0, B_BUTTON | BUTTON_UI_CANCEL) != 0 || inputKeyPressedThisFrame(VK_ESCAPE);
 
 	g_Front.tabprev = frontOnPrevTab();
 	g_Front.tabstart = (g_Front.screen == SCREEN_MPOPTIONS || g_Front.screen == SCREEN_007OPTIONS

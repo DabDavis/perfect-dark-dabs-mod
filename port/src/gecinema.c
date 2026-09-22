@@ -467,7 +467,7 @@ static s32 gecinemaLeavePressed(void)
 	const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
 
 	return joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui) != 0
-		|| inputKeyJustPressed(VK_ESCAPE);
+		|| inputKeyPressedThisFrame(VK_ESCAPE);
 }
 
 /**
@@ -594,8 +594,8 @@ static s32 gecinemaPressed(void)
 	const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
 
 	return joyGetButtonsPressedThisFrame(contpad, (LEAVE_BUTTONS | SKIP_BUTTONS) & ui) != 0
-		|| inputKeyJustPressed(VK_ESCAPE)
-		|| inputKeyJustPressed(VK_MOUSE_LEFT);
+		|| inputKeyPressedThisFrame(VK_ESCAPE)
+		|| inputKeyPressedThisFrame(VK_MOUSE_LEFT);
 }
 
 /** The opening is over: GoldenEye's CAMERAMODE_FP. */
@@ -1011,7 +1011,7 @@ void gecinemaTick(void)
 
 		if (g_GeCinemaTotal60 > 10.0f
 				&& (joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui)
-					|| inputKeyJustPressed(VK_ESCAPE))) {
+					|| inputKeyPressedThisFrame(VK_ESCAPE))) {
 			g_GeCinemaShot = g_GeCinemaNumShots;
 			g_GeCinemaLeft = 1;
 			return;
@@ -1019,7 +1019,7 @@ void gecinemaTick(void)
 
 		skip = g_GeCinemaTime60 > 10.0f
 			&& (joyGetButtonsPressedThisFrame(contpad, SKIP_BUTTONS & ui) != 0
-				|| inputKeyJustPressed(VK_MOUSE_LEFT));
+				|| inputKeyPressedThisFrame(VK_MOUSE_LEFT));
 	}
 
 	g_GeCinemaTime60 += g_Vars.diffframe60f;

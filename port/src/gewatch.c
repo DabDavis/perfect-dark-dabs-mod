@@ -1675,7 +1675,7 @@ static s32 watchPressedRight(void)
 static s32 watchPressedAccept(void)
 {
 	return joyGetButtonsPressedThisFrame(0, A_BUTTON | Z_TRIG | BUTTON_UI_ACCEPT) != 0
-		|| inputKeyJustPressed(VK_MOUSE_LEFT);
+		|| inputKeyPressedThisFrame(VK_MOUSE_LEFT);
 }
 
 static s32 watchPressedBack(void)
@@ -1685,7 +1685,7 @@ static s32 watchPressedBack(void)
 
 static s32 watchPressedStart(void)
 {
-	return joyGetButtonsPressedThisFrame(0, START_BUTTON) != 0 || inputKeyJustPressed(VK_ESCAPE);
+	return joyGetButtonsPressedThisFrame(0, START_BUTTON) != 0 || inputKeyPressedThisFrame(VK_ESCAPE);
 }
 
 /** How many rows the open screen has for the stick to walk. */
