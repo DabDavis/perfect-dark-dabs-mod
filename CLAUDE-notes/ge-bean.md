@@ -8127,3 +8127,70 @@ one screenshot a stage): every level that had HD serves the same rooms, the
 same triangle count and the same bytes as the binary before the change
 (bunker2 A/B'd in place: 68 of 68, 11006 triangles, 714 decals, 320720 bytes),
 Streets and Egyptian are new, Statue Park says why it has none.
+
+## The converted characters wear the release's skins too (2026-09-22)
+
+The other half of "we are solely using ge rom for the hd textures". With the
+levels keyed by GoldenEye's own name, a converted mission drew HD rooms, HD
+props and **N64 guards**: the only character pairing there was
+`gebeantable.h`, whose 98 rows are all GoldenEye X model files, and GE-X is
+dormant now (modborrow.c). A converted `Cgx%03dZ` could never match one.
+
+**The pairing is the ROM's own file name.** 4J built the release on the
+cartridge's models, so `CredmanZ` is `files/new/char/redman` and `CheadkarlZ`
+is `files/new/head/headkarl` - 72 of the eighty straight across
+(`gebeanchrtable.h`, from `.xbla-work/ge-bean/gen_chrtable.py`). The eight
+that are not:
+
+- the five Brosnan heads take their own outfit's Bond **body**, whose neck
+  carries the HD face: the release's `head/headbrosnan` is a static N64-style
+  whole figure, and gen_beantable.py already does this for GoldenEye X's two.
+  Boiler, suit, timber and snow pair by name and the plain one takes the
+  tuxedo's by elimination - GoldenEye has five Bond bodies with a headspot and
+  five Brosnan heads.
+- `Csuit_lf_handZ` is the gun barrel's hand, which the release has no file for.
+- blueman, bluewoman and greyman are broken in the release (BROKEN_SOURCES).
+
+**A head is a character with no skeleton**, and a body's kind is GoldenEye's
+own `hashead` flag out of `c_item_entries`, which over all eighty is exactly
+"this model has no HEADSPOT node". A body that carries its own head (Boris,
+Ourumov, Xenia, Jaws, the pilot ... twelve of them, and boilertrev) takes no
+grafted one, so its mesh is `GEBEAN_WHOLE`; the rest are `GEBEAN_BODY` with a
+converted head file on the neck. Note the release files **spicebond under both
+char and head**, so which directory holds a name answers neither question.
+
+The rows go in a table of their own after the props', found by name the way
+`Pgx` is (`gebeanPoolRowForFile()`), and with the meshes off nothing is built
+at all - `frombean` in xblamesh.c wants `optEnabled` for anything that is not
+the pool or a first-person gun, and a converted model is GoldenEye's own N64
+one already.
+
+### Every guard was headless: a toggle at the root is not a piece
+
+`beanNodeIsToggled()` answered "is this list one of the model's switchable
+pieces", which for a head means the hair or the hat, since the release's head
+has them already - and it said yes for every list of every converted head, so
+the face was blanked with them and the guards drew with nothing above the
+collar. **GoldenEye wraps each of its heads in a toggle node** (the head's own
+switch) with the pieces as the toggles inside it, where Perfect Dark's and
+GoldenEye X's heads have a BBOX at the root.
+
+Excluding a toggle with no parent was not enough, and the run that proved it
+was the one that changed nothing: a head is **grafted onto the body at its
+HEADSPOT**, so from a head's list the walk climbs straight through the head's
+root into the body. The walk stops at a HEADSPOT now, and a toggle whose
+parent is one is a root. (A debug line printing each node's type, its parent's
+and the answer is what settled it - the file on disk says parent 0, the loaded
+model does not.)
+
+Counts before and after: `headjoel` 621 vertices, **3** triangles over 3 lists
+-> 910. `Cgx037Z` (greatguard2), whose body never had the fault, is 2550
+vertices and 4439 triangles either way.
+
+**Shots:** `build/gexrom/hdkey/chrshot.py` (`SLOT=`, `ANGLES=`, `DIST=`, `EYE=`
+- ANGLES is where the camera stands round the guard, so 180 puts it in front of
+his back at theta 0) and `hdkey/bondshot.py` (the player's own body in third
+person, which is how a Brosnan head is judged: `thirdperson` and
+`thirdpersondist` are player fields, set them from gdb). `hdkey/chr/` holds
+the before and after pairs: the same Dam guard in flat N64 green, then in the
+release's khaki tunic with no head, then whole.

@@ -285,6 +285,29 @@ static const struct gebeangunrow propRows[] = {
 };
 
 /**
+ * GoldenEye's own eighty characters, converted from the player's ROM as
+ * files/Cgx%03dZ (tools/geconvert/gechr.py), wearing the release's HD mesh.
+ *
+ * 4J built the release on the cartridge's own models, so a character is
+ * paired by the name GoldenEye gives it and nothing else: CredmanZ is
+ * files/new/char/redman, CheadkarlZ is files/new/head/headkarl. Seventy-two
+ * of the eighty go straight across; the five Brosnan heads take their own
+ * outfit's Bond body, whose neck carries the HD face (the release's
+ * head/headbrosnan is a static N64-style whole figure, and gebeantable.h does
+ * the same for GoldenEye X's two); the gun barrel's hand and the release's
+ * three broken civilians have no mesh and stay in the N64 look.
+ *
+ * Until 2026-09-22 the only pairing there was keyed on GoldenEye X's file
+ * names, so with GE-X dormant (modborrow.c) a converted mission drew HD
+ * rooms, HD props and N64 guards.
+ */
+#define CHRROW(file, kind, source) { file, 0, 0, kind, source }
+
+static const struct gebeanrow chrRows[] = {
+#include "gebeanchrtable.h"
+};
+
+/**
  * GoldenEye's first-person guns: each copy's hi_model is an alias of its
  * host's first-person model (gebeanGunsRefresh()), on which Bean's gun is
  * skinned to the host's matrices (gebeanBuildFirstPerson()).
@@ -498,8 +521,12 @@ static s16 fpMuzzlePart[ARRAYCOUNT(fpRows)];
 static u8 fpMuzzleSet[ARRAYCOUNT(fpRows)];
 
 #define GEBEAN_PROPROW_BASE (ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + ARRAYCOUNT(fpRows))
+#define GEBEAN_CHRROW_BASE (GEBEAN_PROPROW_BASE + ARRAYCOUNT(propRows))
 
-/** A row of any table: GoldenEye X's first, then the pool's, then the guns', then the remake's props. */
+/**
+ * A row of any table: GoldenEye X's first, then the pool's, then the guns',
+ * then the remake's props, then its characters.
+ */
 static const struct gebeanrow *gebeanRowAt(s32 row)
 {
 	if (row >= 0 && row < ARRAYCOUNT(rows)) {
@@ -520,8 +547,12 @@ static const struct gebeanrow *gebeanRowAt(s32 row)
 		return &fpRows[row - ARRAYCOUNT(rows) - ARRAYCOUNT(poolRows) - ARRAYCOUNT(gunRows)];
 	}
 
-	if (row >= GEBEAN_PROPROW_BASE && row < GEBEAN_PROPROW_BASE + ARRAYCOUNT(propRows)) {
+	if (row >= GEBEAN_PROPROW_BASE && row < GEBEAN_CHRROW_BASE) {
 		return &propRows[row - GEBEAN_PROPROW_BASE].row;
+	}
+
+	if (row >= GEBEAN_CHRROW_BASE && row < GEBEAN_CHRROW_BASE + ARRAYCOUNT(chrRows)) {
+		return &chrRows[row - GEBEAN_CHRROW_BASE];
 	}
 
 	return NULL;
@@ -557,11 +588,19 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 		}
 	}
 
-	// the remake's props are its mod's own files, found by their name
-	if (name[0] == 'P' && name[1] == 'g' && name[2] == 'x' && romdataFileGetModDir(fileid) >= 0) {
-		for (s32 i = 0; i < ARRAYCOUNT(propRows); i++) {
-			if (strcmp(name, propRows[i].row.file) == 0) {
-				return GEBEAN_PROPROW_BASE + i;
+	// the remake's own files, props and characters, found by their name
+	if (name[1] == 'g' && name[2] == 'x' && romdataFileGetModDir(fileid) >= 0) {
+		if (name[0] == 'P') {
+			for (s32 i = 0; i < ARRAYCOUNT(propRows); i++) {
+				if (strcmp(name, propRows[i].row.file) == 0) {
+					return GEBEAN_PROPROW_BASE + i;
+				}
+			}
+		} else if (name[0] == 'C') {
+			for (s32 i = 0; i < ARRAYCOUNT(chrRows); i++) {
+				if (strcmp(name, chrRows[i].file) == 0) {
+					return GEBEAN_CHRROW_BASE + i;
+				}
 			}
 		}
 	}
@@ -3677,12 +3716,30 @@ static u8 *beanWriteMesh(struct beanout *o, s32 numgroups, s32 nummatrices, cons
 }
 
 /** A node under a toggle: a head's glasses, hat or second hair, which Bean's head already has. */
+/**
+ * Whether a list node is one of a model's switchable pieces - a head's hair or
+ * its hat, a gun's muzzle flash - which the release's mesh draws itself.
+ *
+ * A toggle at the model's own **root** is not one of those: it switches the
+ * whole model. GoldenEye wraps every one of its heads in one, with the pieces
+ * as the toggles inside it, so counting the root blanked the face too and drew
+ * every converted guard headless. A head is grafted onto the body at its
+ * HEADSPOT, so from a head's list the walk reaches the body through that node:
+ * the head's own model ends there, and the toggle below it is its root.
+ */
 static s32 beanNodeIsToggled(const struct modelnode *node)
 {
 	s32 walked = 0;
 
 	for (node = node->parent; node && walked < 64; node = node->parent, walked++) {
-		if ((node->type & 0xff) == MODELNODETYPE_TOGGLE) {
+		const u32 type = node->type & 0xff;
+
+		if (type == MODELNODETYPE_HEADSPOT) {
+			break;
+		}
+
+		if (type == MODELNODETYPE_TOGGLE && node->parent
+				&& (node->parent->type & 0xff) != MODELNODETYPE_HEADSPOT) {
 			return 1;
 		}
 	}
