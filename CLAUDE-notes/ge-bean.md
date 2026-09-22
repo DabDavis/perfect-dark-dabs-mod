@@ -8252,3 +8252,67 @@ guns in the Combat Simulator at all.
 Route 2 is the recommendation: it is a revert of a deliberate removal rather
 than new ground, it draws GoldenEye's own N64 gun, and it asks for nothing the
 guns do not already require.
+
+### Route 2, taken (2026-09-22)
+
+The user picked it. `b115713e9` reverse-applied onto port/src/gebean.c with a
+three-way merge, six conflicts, all of them from what has landed since:
+
+- the archive's wanted list has grown (props, levels, `_hits` skipped), so
+  `GEBEAN_WANT_ORIGINAL_GUNS` goes back beside those rather than in the shape
+  the old file had. **`GEBEAN_WANT_ORIGINAL_PICKUPS` does not come back**: the
+  N64-look pickup drew untextured when it last existed and is still on the
+  "still to do" list, so `gebeanBuild()`'s gun branch keeps `if (original)
+  return NULL` and the pickup on the floor is the release's in both looks.
+- `gebeanBuildRigid()` now takes a `struct gebeangunrow *` and serves the
+  remake's props as well as the guns' pickups, so it keeps its own signature
+  and loses the `original` argument the revert wanted to give back.
+- `GEBEAN_DONE_FILE` bumped `.extracted7` -> `.extracted8`, or nobody who has
+  already unpacked the archive ever gets `files/original/gun/`.
+
+**Verified**, all on Dam with no GoldenEye X installed:
+- All 25 GoldenEye guns are offered in the Combat Simulator in **both** looks
+  ("25 GoldenEye guns in the Combat Simulator's weapons"), where the N64 look
+  offered none.
+- Each of the 25 equipped in turn in each look (`build/gexrom/hdkey/gunshots.py`,
+  `GUNS=`, `AT=`, `EVERY=`): 20 draw, and the five that do not are the knives,
+  the grenade and two mines, which the player has none of - the same five are
+  empty in the HD look. **EVERY=110**; at 60 the raise animation had not
+  finished and half the sheet photographed an empty hand.
+- The HD look is **byte-identical** to the pushed build over all 25 frames.
+- And against the real archive rather than this box's unpacked folder, which
+  is the trap that hid the missing HD props once: with the `.7z` in
+  `added-content/` the game streams 719 files including 67 under
+  `files/original/gun`, and GoldenEye's PP7 and Golden Gun draw from them.
+
+### Route 2, taken (2026-09-22)
+
+The user picked it. `b115713e9` reverse-applied onto port/src/gebean.c with a
+three-way merge, six conflicts, all from what has landed since:
+
+- the archive's wanted list has grown (props, levels, `_hits` skipped), so
+  `GEBEAN_WANT_ORIGINAL_GUNS` goes back beside those rather than in the shape
+  the old file had. **`GEBEAN_WANT_ORIGINAL_PICKUPS` does not come back**: the
+  N64-look pickup drew untextured when it last existed and is still on the
+  "still to do" list, so `gebeanBuild()`'s gun branch keeps `if (original)
+  return NULL` and the pickup on the floor is the release's in both looks.
+- `gebeanBuildRigid()` now takes a `struct gebeangunrow *` and serves the
+  remake's props as well as the guns' pickups, so it keeps its own signature
+  and loses the `original` argument the revert wanted to give it back.
+- `GEBEAN_DONE_FILE` bumped `.extracted7` -> `.extracted8`, or nobody who has
+  already unpacked the archive ever gets `files/original/gun/`.
+
+**Verified**, all on Dam with no GoldenEye X installed:
+- All 25 GoldenEye guns are offered in the Combat Simulator in **both** looks
+  ("25 GoldenEye guns in the Combat Simulator's weapons"), where the N64 look
+  offered none.
+- Each of the 25 equipped in turn in each look (`build/gexrom/hdkey/gunshots.py`,
+  `GUNS=`, `AT=`, `EVERY=`): 20 draw, and the five that do not are the knives,
+  the grenade and two mines, which the player has none of - the same five are
+  empty in the HD look. **EVERY=110**; at 60 the raise animation had not
+  finished and half the sheet photographed an empty hand.
+- The HD look is **byte-identical** to the pushed build over all 25 frames.
+- And against the real archive rather than this box's unpacked folder, which
+  is the trap that hid the missing HD props once: with the `.7z` in
+  added-content/ the game streams 719 files including 67 under
+  `files/original/gun`, and GoldenEye's PP7 and Golden Gun draw from them.
