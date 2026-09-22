@@ -376,6 +376,10 @@ and [wiki](https://github.com/perfect-dark-pc-port/perfect_dark/wiki).
 
 ## Credits and licence
 
+**[CREDITS.md](CREDITS.md)** is the full account: whose work this is built on,
+ranked by how much of what you run depends on it, what is original to this fork,
+what is shipped and what is not, and how the claims in it can be checked.
+
 MIT, same as the port and the decompilation it came from — see `LICENSE`.
 
 - The decompilation: [n64decomp/perfect_dark](https://github.com/n64decomp/perfect_dark), Ryan Dwyer and contributors
