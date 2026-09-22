@@ -29,6 +29,9 @@
  * by its guns rather than its name - its weapon table holds GoldenEye's gun
  * models in the slots GoldenEye X put them - and Mod.BorrowGoldenEyeGuns
  * names one outright, or "none".
+ *
+ * **"auto" borrows nothing once the ROM conversion has run** - borrowDormant()
+ * below, and the comment there for why.
  */
 
 #include <string.h>
@@ -47,6 +50,7 @@
 #include "romdata.h"
 #include "mod.h"
 #include "modborrow.h"
+#include "gexplusrom.h"
 #include "modloader.h"
 #include "game/stagetable.h"
 #include "game/env.h"
@@ -201,6 +205,28 @@ static s32 borrowScoreGoldenEye(const char *dir, struct moddataspec *spec)
 	return score;
 }
 
+/**
+ * Whether an installed GoldenEye X is left dormant.
+ *
+ * It was the only GoldenEye the port had when the borrowing was written, so
+ * "auto" took it wherever it was installed. GE Plus is GoldenEye's own ROM
+ * converted now (gexplusrom.c) - its guns, characters, animations and music
+ * all come out of the cartridge - and a borrowed mod's assets on top of that
+ * are a second GoldenEye mixed into the first: its repainted textures on the
+ * conversion's models, its own numbers where the ROM's should be.
+ *
+ * So with the arenas converted, "auto" borrows nothing. The mod stays
+ * installed and stays playable - loading it still plays GoldenEye X, and
+ * naming it outright in Mod.BorrowGoldenEyeGuns still borrows from it - it is
+ * simply no longer what GE Plus is built out of.
+ */
+static s32 borrowDormant(void)
+{
+	const s32 state = gexPlusRomGetState();
+
+	return state == GEXPLUSROM_READY || state == GEXPLUSROM_OLD;
+}
+
 static void borrowFind(void)
 {
 	s32 best = 0;
@@ -212,6 +238,12 @@ static void borrowFind(void)
 	src.found = -1;
 
 	if (!strcasecmp(borrowSetting, "none") || !borrowSetting[0]) {
+		return;
+	}
+
+	if (!strcasecmp(borrowSetting, "auto") && borrowDormant()) {
+		sysLogPrintf(LOG_NOTE, "modborrow: the GoldenEye arenas are converted from the ROM, "
+				"so an installed GoldenEye X is left dormant (Mod.BorrowGoldenEyeGuns names one to borrow anyway)");
 		return;
 	}
 
