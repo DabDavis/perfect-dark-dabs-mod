@@ -38,6 +38,13 @@ void geFolderSwitched(struct modeldef *modeldef);
  */
 const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height);
 
+/**
+ * The release's dark, out-of-focus desk behind the folder, in place of
+ * GoldenEye's frame of cover cloth: a stand-in to draw over the whole screen,
+ * or NULL under the N64's look.
+ */
+const void *geFolderBackdrop(void);
+
 #ifdef __cplusplus
 }
 #endif

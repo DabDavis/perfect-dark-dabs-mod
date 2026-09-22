@@ -3716,6 +3716,19 @@ static void frontWidenBackdrop(void)
 		return;
 	}
 
+	// The release's look has a desk of its own behind the folder
+	// (frontDrawReleaseBackdrop()), so the frame is folded to nothing - every
+	// vertex on one line - and unfolded from the ROM's own numbers when the
+	// look changes back.
+	for (s32 i = 0; i < GEFRONT_BACKDROP_VTX; i++) {
+		g_Front.backdrop->vertices[i].x = geFolderBackdrop() ? 0 : g_Front.backdropvtx[i].x;
+		g_Front.backdrop->vertices[i].s = g_Front.backdropvtx[i].s;
+	}
+
+	if (geFolderBackdrop()) {
+		return;
+	}
+
 	// the half width the view spans where the frame stands - it is flat, so any
 	// of its vertices gives the depth - in the model's own units, and a percent
 	// over so nothing sits exactly on the edge
@@ -3781,6 +3794,42 @@ static void frontWidenBackdrop(void)
 		g_Front.backdrop->vertices[i].s = (s16)(sinner[side]
 				+ (souter[side] - sinner[side]) * (wide - inner[side]) / (f32)(x - inner[side]));
 	}
+}
+
+/**
+ * The release's desk behind the folder (gefolder.c) over the whole frame,
+ * whatever its shape, where its look is on.
+ */
+static Gfx *frontDrawReleaseBackdrop(Gfx *gdl)
+{
+	const void *tile = geFolderBackdrop();
+
+	if (!tile) {
+		return gdl;
+	}
+
+	// Loaded by hand rather than through texSelect(): that keeps a note of
+	// the tiles it has set up, and the folder's lists, drawn next, trust the
+	// note - a picture selected through it here drew the folder's photograph
+	// and stamps at the wrong size.
+	gDPPipeSync(gdl++);
+	gDPLoadTextureBlock(gdl++, tile, G_IM_FMT_RGBA, G_IM_SIZ_32b, FRONT_PICTURE_TEXELS, FRONT_PICTURE_TEXELS, 0,
+			G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+	gDPSetTexturePersp(gdl++, G_TP_NONE);
+	gDPSetTextureLUT(gdl++, G_TT_NONE);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+	gDPSetCombineMode(gdl++, G_CC_DECALRGB, G_CC_DECALRGB);
+	gSPTextureRectangle(gdl++, 0, 0, viGetWidth() * 4, viGetHeight() * 4, G_TX_RENDERTILE, 0, 0,
+			(s32)(FRONT_PICTURE_TEXELS * 1024.0f / viGetWidth()), (s32)(FRONT_PICTURE_TEXELS * 1024.0f / viGetHeight()));
+	gDPPipeSync(gdl++);
+
+	// and put back what the folder's lists take as given: they set neither
+	gDPSetTexturePersp(gdl++, G_TP_PERSP);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+
+	return gdl;
 }
 
 /**
@@ -5113,6 +5162,7 @@ Gfx *gexFrontRender(Gfx *gdl)
 	gDPPipeSync(gdl++);
 	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 
+	gdl = frontDrawReleaseBackdrop(gdl);
 	gdl = frontDrawFolder(gdl);
 
 	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);

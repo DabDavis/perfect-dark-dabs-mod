@@ -68,7 +68,9 @@ struct gefolderrow {
 	s16 mask;     // the ROM's is a cutout and the release's carries no alpha:
 	              // take the release's brightness as the alpha and draw it white
 	s16 onpaper;  // it carries the page behind it, so its own paper is brought
-	              // to the colour the page is drawn in (geFolderMatchPaper())
+	              // to the colour the page is drawn in (geFolderMatchPaper());
+	              // 2: it lies over exactly one repeat of the page's paper tile,
+	              // so its ink is printed on that tile (geFolderPrintOnPaper())
 	f32 u0, v0, u1, v1; // the part of it that is this texture, as it is seen
 	s16 grey;     // the ROM's is an intensity texture the node's shade colours:
 	              // bring the release's to the ROM's brightness, neutral in hue
@@ -104,7 +106,14 @@ static const struct gefolderrow folderRows[] = {
 	{  1, 65, 65,  2, 0, 0, 1, 0.8500f, 0.0300f, 0.9750f, 0.1250f },
 	{  2, 65, 65,  2, 0, 0, 1, 0.7250f, 0.1250f, 0.8500f, 0.2200f },
 	{  3, 65, 65,  2, 0, 0, 1, 0.8500f, 0.1250f, 0.9750f, 0.2200f },
-	{ 12, 64, 64,  2, 0, 0, 1, 0.7250f, 0.0300f, 0.9750f, 0.2200f, 1 }, // 0x0a46, whole
+	//
+	// The whole crest is the one the menu draws, and its square lies over the
+	// page with the page's own coordinates running on across it: one repeat
+	// of the paper tile, from the tile's corner, under the same shade. A
+	// picture of the crest on 4J's paper stood out from the page as a square
+	// of flatter, yellower paper, so its ink alone is printed on the tile
+	// the page is drawn with, and its edge meets the page texel for texel.
+	{ 12, 64, 64,  2, 0, 0, 2, 0.7250f, 0.0300f, 0.9750f, 0.2200f, 1 }, // 0x0a46, whole
 
 	// Brosnan, in four quarters (0x0a2a-0x0a2d) of the release's 256x512
 	{  5, 65, 65, 23, 0, 0, 0, 0.0f, 0.0f, 0.5f, 0.5f },             // 0x0a2a
@@ -570,17 +579,86 @@ static const u8 *geFolderPicture(struct gebeanpictures *pics, s32 index, s32 *w,
 	return lastPicture;
 }
 
-static void geFolderBind(struct gebeanpictures *pics, const struct modeldef *modeldef,
-		const struct gefolderrow *row)
+// The paper tile as it is bound, for the crest to be printed on
+static u8 *paperTile;
+static s32 paperTileWidth;
+static s32 paperTileHeight;
+
+/**
+ * Prints a picture's ink on the page's paper tile: whatever of it is darker
+ * than its own paper - by more than that paper's own grain - is taken off the
+ * tile at the same place, and the rest of it is the tile. The picture stands
+ * over one repeat of the tile, so texel (x, y) of it is texel (x, y) of the
+ * tile scaled to its size.
+ */
+static void geFolderPrintOnPaper(u8 *rgba, s32 w, s32 h)
+{
+	const s32 border = (w < h ? w : h) / 8;
+	s32 edge[3];
+	s32 level;
+	f64 sumsq = 0;
+	s64 n = 0;
+	s32 grain;
+
+	if (!paperTile || w <= 0 || h <= 0) {
+		return;
+	}
+
+	geFolderMeanOf(rgba, w, h, border, edge);
+	level = (edge[0] + edge[1] + edge[2]) / 3;
+
+	for (s32 y = 0; y < h; y++) {
+		for (s32 x = 0; x < w; x++) {
+			if (x >= border && x < w - border && y >= border && y < h - border) {
+				continue;
+			}
+
+			const u8 *px = rgba + ((size_t)y * w + x) * 4;
+			const s32 d = (px[0] + px[1] + px[2]) / 3 - level;
+
+			sumsq += d * d;
+			n++;
+		}
+	}
+
+	grain = n ? (s32)sqrtf((f32)(sumsq / n)) : 0;
+
+	for (s32 y = 0; y < h; y++) {
+		for (s32 x = 0; x < w; x++) {
+			u8 *px = rgba + ((size_t)y * w + x) * 4;
+			const u8 *pp = paperTile + (((size_t)(y * paperTileHeight / h) * paperTileWidth)
+					+ x * paperTileWidth / w) * 4;
+			s32 ink = level - (px[0] + px[1] + px[2]) / 3 - grain;
+
+			if (ink < 0) {
+				ink = 0;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				const s32 v = pp[k] - ink;
+
+				px[k] = (u8)(v < 0 ? 0 : v);
+			}
+
+			px[3] = 0xff;
+		}
+	}
+}
+
+/**
+ * A row's picture as it is to be bound, malloc'd and the caller's, or NULL
+ * where the model's texture is not the one the row expects.
+ */
+static u8 *geFolderMake(struct gebeanpictures *pics, const struct modeldef *modeldef,
+		const struct gefolderrow *row, s32 *outw, s32 *outh)
 {
 	const struct textureconfig *tc;
 	s32 srcw = 0, srch = 0;
-	s32 outw = 0, outh = 0;
 	const u8 *src;
 	u8 *crop;
 
-	if (row->config < 0 || row->config >= modeldef->numtexconfigs || numBound >= GEFOLDER_MAXROWS) {
-		return;
+	if (row->config < 0 || row->config >= modeldef->numtexconfigs) {
+		return NULL;
 	}
 
 	tc = &modeldef->texconfigs[row->config];
@@ -597,29 +675,55 @@ static void geFolderBind(struct gebeanpictures *pics, const struct modeldef *mod
 					row->config, tc->width, tc->height, row->width, row->height);
 		}
 
-		return;
+		return NULL;
 	}
 
 	src = geFolderPicture(pics, row->picture, &srcw, &srch);
 
 	if (!src) {
-		return;
+		return NULL;
 	}
 
 	crop = geFolderCrop(src, srcw, srch, row, tc->width,
-			geFolderPaddedWidth(tc->width, tc->depth), &outw, &outh);
+			geFolderPaddedWidth(tc->width, tc->depth), outw, outh);
 
 	if (!crop) {
-		return;
+		return NULL;
 	}
 
 	if (row->grey) {
 		s32 grey, spread;
 
 		if (geFolderRomGrey(tc, &grey, &spread)) {
-			geFolderMatchGrey(crop, outw, outh, grey, spread);
+			geFolderMatchGrey(crop, *outw, *outh, grey, spread);
 		}
 	}
+
+	if (row->onpaper == 2) {
+		geFolderPrintOnPaper(crop, *outw, *outh);
+	}
+
+	return crop;
+}
+
+static void geFolderBind(struct gebeanpictures *pics, const struct modeldef *modeldef,
+		const struct gefolderrow *row)
+{
+	const struct textureconfig *tc;
+	s32 outw = 0, outh = 0;
+	u8 *crop;
+
+	if (numBound >= GEFOLDER_MAXROWS) {
+		return;
+	}
+
+	crop = geFolderMake(pics, modeldef, row, &outw, &outh);
+
+	if (!crop) {
+		return;
+	}
+
+	tc = &modeldef->texconfigs[row->config];
 
 	// Taken over by the registry, or freed there.
 	if (xblaTexBindPictureAt(tc->textureptr, crop, outw, outh)) {
@@ -695,9 +799,19 @@ s32 geFolderRepaint(struct modeldef *modeldef)
 		}
 	}
 
+	// The paper tile itself, as it will be bound, for the crest to be printed on
+	for (s32 i = 0; i < ARRAYCOUNT(folderRows) && !paperTile; i++) {
+		if (folderRows[i].tiles && folderRows[i].picture == 1) {
+			paperTile = geFolderMake(pics, modeldef, &folderRows[i], &paperTileWidth, &paperTileHeight);
+		}
+	}
+
 	for (s32 i = 0; i < ARRAYCOUNT(folderRows); i++) {
 		geFolderBind(pics, modeldef, &folderRows[i]);
 	}
+
+	free(paperTile);
+	paperTile = NULL;
 
 	// The briefing photographs and the mission slides, which the release keeps
 	// in the model's own order.
@@ -817,6 +931,79 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 	}
 
 	return menuPictures[i].tile;
+}
+
+/**
+ * What the release draws behind the folder: not GoldenEye's frame of cover
+ * cloth but a dark desk out of focus - olive going to near black at the
+ * edges, one soft light above and left of the folder and a cool shadow under
+ * it. The release does not carry it as a picture (it is its lighting), so it
+ * is drawn here, measured off a capture of the release's menu, once, as a
+ * stand-in kept for the life of the game.
+ */
+#define GEFOLDER_BACKDROP_W 160
+#define GEFOLDER_BACKDROP_H 90
+
+static f32 geFolderGlow(f32 u, f32 v, f32 cu, f32 cv, f32 su, f32 sv)
+{
+	const f32 du = (u - cu) / su;
+	const f32 dv = (v - cv) / sv;
+
+	return expf(-(du * du + dv * dv) * 0.5f);
+}
+
+const void *geFolderBackdrop(void)
+{
+	static const void *tile;
+	static s32 tried;
+	u8 *rgba;
+
+	if (!gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+		return NULL;
+	}
+
+	if (tried) {
+		return tile;
+	}
+
+	tried = 1;
+	rgba = malloc(GEFOLDER_BACKDROP_W * GEFOLDER_BACKDROP_H * 4);
+
+	if (!rgba) {
+		return NULL;
+	}
+
+	for (s32 y = 0; y < GEFOLDER_BACKDROP_H; y++) {
+		for (s32 x = 0; x < GEFOLDER_BACKDROP_W; x++) {
+			static const f32 edge[3] = { 27, 27, 20 };
+			static const f32 middle[3] = { 52, 48, 40 };
+			static const f32 light[3] = { 26, 26, 25 };
+			static const f32 shadow[3] = { 10, 8, 4 };
+			const f32 u = (x + 0.5f) / GEFOLDER_BACKDROP_W;
+			// the picture is uploaded in the game's row order, bottom row first
+			const f32 v = 1.0f - (y + 0.5f) / GEFOLDER_BACKDROP_H;
+			const f32 du = (u - 0.5f) / 0.62f;
+			const f32 dv = (v - 0.48f) / 0.75f;
+			f32 vig = 1.0f - (du * du + dv * dv);
+			const f32 glow = geFolderGlow(u, v, 0.38f, 0.12f, 0.13f, 0.2f);
+			const f32 dark = geFolderGlow(u, v, 0.25f, 0.45f, 0.08f, 0.13f);
+			u8 *px = rgba + ((size_t)y * GEFOLDER_BACKDROP_W + x) * 4;
+
+			vig = vig < 0 ? 0 : powf(vig, 0.8f);
+
+			for (s32 k = 0; k < 3; k++) {
+				const f32 c = edge[k] + (middle[k] - edge[k]) * vig + light[k] * glow - shadow[k] * dark;
+
+				px[k] = (u8)(c < 0 ? 0 : c > 255 ? 255 : c + 0.5f);
+			}
+
+			px[3] = 0xff;
+		}
+	}
+
+	tile = xblaTexBindImage("gemenu/backdrop", rgba, GEFOLDER_BACKDROP_W, GEFOLDER_BACKDROP_H);
+
+	return tile;
 }
 
 void geFolderForget(void)
