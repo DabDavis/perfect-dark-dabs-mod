@@ -257,6 +257,11 @@ struct gebeanfont *gebeanFontOpen(const char *name);
 void gebeanFontClose(struct gebeanfont *font);
 
 /** Where the release is: its files/, the archive it came from ("" if none), the cache. */
+// The Community Edition's overlay, a folder of the release's cache
+// (gebeance.c). It holds a files/new/char of its own - the characters the
+// patch changes - so a scan of the cache must never take it for the release.
+#define GEBEAN_CE_DIR "ce"
+
 s32 gebeanTreeInfo(char *root, u32 rootLen, char *archive, u32 archiveLen, char *cache, u32 cacheLen);
 
 /**

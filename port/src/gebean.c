@@ -1126,17 +1126,23 @@ struct gebeanscan {
 	const char *dir;
 	s32 archives;
 	s32 depth;
+	const char *skip; // a folder of dir's to pass over
 	char found[FS_MAXPATH + 1];
 };
 
-static s32 gebeanScan(const char *dir, s32 archives, s32 depth, char *dst, u32 dstLen);
+static s32 gebeanScanSkipping(const char *dir, s32 archives, s32 depth, const char *skip, char *dst, u32 dstLen);
+
+static s32 gebeanScan(const char *dir, s32 archives, s32 depth, char *dst, u32 dstLen)
+{
+	return gebeanScanSkipping(dir, archives, depth, NULL, dst, dstLen);
+}
 
 static void gebeanScanEntry(const char *name, void *arg)
 {
 	struct gebeanscan *scan = arg;
 	char path[FS_MAXPATH + 1];
 
-	if (scan->found[0] || name[0] == '.') {
+	if (scan->found[0] || name[0] == '.' || (scan->skip && strcmp(name, scan->skip) == 0)) {
 		return;
 	}
 
@@ -1162,8 +1168,11 @@ static void gebeanScanEntry(const char *name, void *arg)
 	}
 }
 
-/** The first Bean folder (holding files/new/char) or Bean archive at or under an expanded dir. */
-static s32 gebeanScan(const char *dir, s32 archives, s32 depth, char *dst, u32 dstLen)
+/**
+ * The first Bean folder (holding files/new/char) or Bean archive at or under an
+ * expanded dir, passing over dir's own folder named skip.
+ */
+static s32 gebeanScanSkipping(const char *dir, s32 archives, s32 depth, const char *skip, char *dst, u32 dstLen)
 {
 	struct gebeanscan scan;
 
@@ -1176,6 +1185,7 @@ static s32 gebeanScan(const char *dir, s32 archives, s32 depth, char *dst, u32 d
 	scan.dir = dir;
 	scan.archives = archives;
 	scan.depth = depth;
+	scan.skip = skip;
 
 	fsScanDir(dir, gebeanScanEntry, &scan);
 
@@ -1186,6 +1196,19 @@ static s32 gebeanScan(const char *dir, s32 archives, s32 depth, char *dst, u32 d
 	snprintf(dst, dstLen, "%s", scan.found);
 
 	return 1;
+}
+
+/**
+ * The release as unpacked into its cache folder. The Community Edition's
+ * overlay sits beside it there with a files/new/char of its own, and which of
+ * the two a folder listing names first is the file system's business: on a
+ * tester's disk it named the overlay first, and the overlay, which holds only
+ * what the patch changes, was taken for the whole release - no characters, no
+ * levels and no fonts in the release's look.
+ */
+static s32 gebeanScanCache(const char *cache, char *dst, u32 dstLen)
+{
+	return gebeanScanSkipping(cache, 0, GEBEAN_SCAN_DEPTH + 1, GEBEAN_CE_DIR, dst, dstLen);
 }
 
 /** cache/xbla/goldeneye/, made if it has to be. dst gets the expanded path. */
@@ -1303,7 +1326,7 @@ static s32 gebeanLocate(s32 mayUnpack)
 
 	snprintf(marker, sizeof(marker), "%s/" GEBEAN_DONE_FILE, cache);
 
-	if (fsFileSize(marker) >= 0 && gebeanScan(cache, 0, GEBEAN_SCAN_DEPTH + 1, found, sizeof(found))) {
+	if (fsFileSize(marker) >= 0 && gebeanScanCache(cache, found, sizeof(found))) {
 		gebeanSetRoot(found);
 		return 1;
 	}
@@ -1317,7 +1340,7 @@ static s32 gebeanLocate(s32 mayUnpack)
 
 	written = archiveExtractMatching(archivePath, cache, gebeanWantEntry, NULL);
 
-	if (written <= 0 || !gebeanScan(cache, 0, GEBEAN_SCAN_DEPTH + 1, found, sizeof(found))) {
+	if (written <= 0 || !gebeanScanCache(cache, found, sizeof(found))) {
 		sysLogPrintf(LOG_ERROR, "gebean: no GoldenEye characters came out of %s", archivePath);
 		unpackFailed = 1;
 		return 0;

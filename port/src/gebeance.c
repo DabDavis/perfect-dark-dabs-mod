@@ -48,8 +48,6 @@
 
 // Where the updater keeps its file patch
 #define GEBEANCE_DIFF_ENTRY "CEUpdate/files.diff"
-// The overlay, under the release's own cache folder
-#define GEBEANCE_DIR "ce"
 // Written when the overlay is complete, holding the updater's size, so a
 // different updater is applied afresh; the name moves on when what the
 // overlay holds does (2: renamed files are copied)
@@ -454,7 +452,7 @@ void gebeanCePrepareAtStartup(void)
 		return;
 	}
 
-	snprintf(a.dir, sizeof(a.dir), "%s/" GEBEANCE_DIR, a.cache);
+	snprintf(a.dir, sizeof(a.dir), "%s/" GEBEAN_CE_DIR, a.cache);
 	snprintf(a.marker, sizeof(a.marker), "%d", fsFileSize(ceZip));
 	snprintf(path, sizeof(path), "%s/" GEBEANCE_DONE_FILE, a.dir);
 
