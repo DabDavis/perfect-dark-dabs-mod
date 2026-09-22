@@ -981,6 +981,27 @@ static Gfx *introDrawModel(Gfx *gdl, struct model *model, struct modeldef *def, 
 	struct modelrenderdata renderdata = { NULL, false, 3 };
 	Mtxf *matrices = gfxAllocate(def->nummatrices * sizeof(Mtxf));
 
+	// The texture state a model is drawn under, which every 2D picture on
+	// these screens leaves set to its own (introDrawPicture() draws the
+	// sight's backdrop with G_TP_NONE and G_TF_POINT, geblood.c's wash with
+	// G_TP_NONE and G_TF_BILERP) and none of them put back - the game's own
+	// 2D passes do put both back, as zbufSaveArtifacts() does.
+	//
+	// Perspective was already set for the gun barrel and is set here for all
+	// three screens: without it the texture coordinates collapse and Bond's
+	// tuxedo comes out flat black with a smeared face.
+	//
+	// **The filter is the release's meshes' (xblamesh.c).** A posed one drawn
+	// under G_TF_POINT draws black - the whole of a character's body, in the
+	// barrel and in the cast reel alike, while the rigid head mesh grafted on
+	// top of it draws correctly - which is what "his body is all black only"
+	// was. Nothing of the mesh's own state is wrong there: its picture is
+	// bound and uploaded, its texture coordinates span the atlas and its
+	// colours are white. The N64 look survives point sampling, which is why
+	// only the release's look showed it.
+	gDPSetTexturePersp(gdl++, G_TP_PERSP);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+
 	// GoldenEye draws the intro's models with the distance checks off
 	// (modelSetDistanceDisabled(1)), since the camera is far enough from them
 	// in model units that every level of detail would test as out of range
@@ -1194,16 +1215,11 @@ static Gfx *introDrawBond(Gfx *gdl)
 	// here, where the boot screens are not played. Unlit, Bond's tuxedo is
 	// drawn out of a chr's colour table, which for a lit model holds its
 	// normals: a black suit with no shirt in it and a smeared face.
-	// The Rare logo before this screen is what leaves GoldenEye its light
-	// (load_display_rare_logo() sets gunbarrelLights and turns G_LIGHTING on)
-	// and its texture perspective, and the gun barrel sets neither of its own -
-	// so both have to be set here, where the boot screens are not played. The
-	// sight's own picture is drawn with G_TP_NONE, as GoldenEye draws every 2D
-	// screen, and left off it collapsed Bond's texture coordinates: his tuxedo
-	// came out flat black with no shirt in it and his face a smear.
+	//
+	// The texture state that same logo leaves - perspective, and the filter -
+	// is set per model in introDrawModel(), since all three screens need it.
 	gSPSetGeometryMode(gdl++, G_LIGHTING);
 	gdl = introSetLightsWith(gdl, &g_BarrelLight);
-	gDPSetTexturePersp(gdl++, G_TP_PERSP);
 
 	// gunbarrelPosition1..3
 	mtx00016ae4(&camera, 1758.2957f, 220.0f, 684.28143f,
