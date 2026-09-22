@@ -29,7 +29,8 @@ struct modelnode;
  * matrices, a group per list node. CLAUDE-notes/ge-bean.md has the formats and
  * the reasons.
  *
- * Mod.XblaGoldenEye switches it on.
+ * On whenever the release is there (gebeanGetEnabled()): it was a checkbox,
+ * Mod.XblaGoldenEye, until 2026-09-21.
  */
 
 /**
@@ -53,9 +54,8 @@ struct modelnode;
 #define GEROM_BODY_LAST   (GEROM_BODY_FIRST + GEROM_BODY_ROWS - 1)
 #define GEBEAN_POOL_BASE  (GEROM_BODY_LAST + 1)
 
-/** Mod.XblaGoldenEye. */
+/** Whether there is GoldenEye content to draw on: the release, or GoldenEye X to borrow from. */
 s32 gebeanGetEnabled(void);
-void gebeanSetEnabled(s32 enabled);
 
 /** Whether a copy was found in xbla/, unpacked or not. Never unpacks. */
 s32 gebeanIsAvailable(void);

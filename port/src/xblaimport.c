@@ -40,9 +40,13 @@
 // pack rather than leaving two of them.
 #define XBLAIMPORT_PACK_NAME "PD XBLA"
 
-// Where the player puts their copy: a folder of its own beside the executable,
-// the way mods/ has one. Anything in there that is a package, or an archive
-// holding one, is found - so the file keeps whatever name it came with.
+// Where the player puts their copy: added-content/ beside the executable
+// (fs.h), with the GoldenEye ROM and the GoldenEye XBLA release. Anything in
+// there that is a package, or an archive holding one, is found - so the file
+// keeps whatever name it came with.
+//
+// Where it went until 2026-09-21: a folder of its own. Still searched, after
+// added-content/, and never made.
 #define XBLAIMPORT_XBLA_DIR "xbla"
 
 // How far into that folder to look. An archive in the wild wraps the package
@@ -314,7 +318,7 @@ static s32 xblaTryPath(const char *path)
 }
 
 /**
- * The xbla/ folder: where the player is told to put their copy.
+ * added-content/: where the player is told to put their copy.
  *
  * Beside the executable where that can be written and in the save directory
  * where it cannot, the same choice screenshots and recordings make - and it is
@@ -325,7 +329,7 @@ static s32 xblaDropDir(char *dst, u32 dstLen)
 {
 	char rel[FS_MAXPATH + 1];
 
-	if (fsChooseOutputDir(XBLAIMPORT_XBLA_DIR, rel, sizeof(rel)) != 0) {
+	if (fsAddedContentDir(rel, sizeof(rel)) != 0) {
 		dst[0] = '\0';
 		return 0;
 	}
@@ -337,9 +341,10 @@ static s32 xblaDropDir(char *dst, u32 dstLen)
 
 static void xblaDetect(void)
 {
-	// xbla/ wherever it is, then the places that were searched before it
-	// existed, so an install that was already working keeps working.
+	// added-content/ wherever it is, then the places that were searched
+	// before it existed, so an install that was already working keeps working.
 	static const char *const dirs[] = {
+		FS_ADDED_CONTENT_SEARCH,
 		"$E/" XBLAIMPORT_XBLA_DIR,
 		"$H/" XBLAIMPORT_XBLA_DIR,
 		"./" XBLAIMPORT_XBLA_DIR,
@@ -501,7 +506,7 @@ static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 	}
 
 	// The archive comes apart in cache/xbla/, and the marker goes in there
-	// with it. xbla/ itself is the player's: only what they dropped in it.
+	// with it. added-content/ is the player's: only what they dropped in it.
 	snprintf(marker, sizeof(marker), "%s/" XBLAIMPORT_DONE_FILE, dir);
 
 	// A previous run's work, here or in either of the places it used to go.
@@ -509,15 +514,22 @@ static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 		return unpackedPath;
 	}
 
-	if (xblaDropDir(drop, sizeof(drop))) {
-		char old[FS_MAXPATH + 1];
+	// xbla/.unpacked, from when an archive came apart where it was dropped.
+	// Looked for where xbla/ could have been made and never made again.
+	{
+		static const char *const roots[] = { "$E", "$S" };
 
-		snprintf(old, sizeof(old), "%s/" XBLAIMPORT_UNPACK_DIR, drop);
+		for (u32 i = 0; i < ARRAYCOUNT(roots); i++) {
+			char old[FS_MAXPATH + 1];
 
-		if (xblaFindExtractedIn(old, unpackedPath, sizeof(unpackedPath))) {
-			sysLogPrintf(LOG_NOTE, "xbla: using the copy unpacked in %s; it can go, "
-					"the next unpack lands in %s", old, dir);
-			return unpackedPath;
+			snprintf(drop, sizeof(drop), "%s/" XBLAIMPORT_XBLA_DIR "/" XBLAIMPORT_UNPACK_DIR, roots[i]);
+			snprintf(old, sizeof(old), "%s", fsFullPath(drop));
+
+			if (xblaFindExtractedIn(old, unpackedPath, sizeof(unpackedPath))) {
+				sysLogPrintf(LOG_NOTE, "xbla: using the copy unpacked in %s; it can go, "
+						"the next unpack lands in %s", old, dir);
+				return unpackedPath;
+			}
 		}
 	}
 
@@ -623,7 +635,7 @@ void xblaImportRedetect(void)
 }
 
 /**
- * Makes the xbla/ folder and says in the log what is in it, so a player who
+ * Makes added-content/ and says in the log what is in it, so a player who
  * has never had a package still finds somewhere to put one and a player whose
  * copy was not found can see where it was looked for.
  *

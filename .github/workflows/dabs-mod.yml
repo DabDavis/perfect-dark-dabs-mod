@@ -89,6 +89,8 @@ jobs:
             || { echo "::error::built without WinHTTP - ghost server support is missing"; exit 1; }
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
+          mkdir -p bin/added-content
+          touch bin/added-content/put_goldeneye_rom_and_xbla_releases_here.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -126,6 +128,8 @@ jobs:
           ldd bin/pd.x86_64 | grep -q libcurl || { echo "::error::built without libcurl"; exit 1; }
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
+          mkdir -p bin/added-content
+          touch bin/added-content/put_goldeneye_rom_and_xbla_releases_here.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -165,6 +169,8 @@ jobs:
           cp -vr /Library/Frameworks/SDL2.framework bin/
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
+          mkdir -p bin/added-content
+          touch bin/added-content/put_goldeneye_rom_and_xbla_releases_here.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

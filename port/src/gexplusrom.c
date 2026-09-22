@@ -1,8 +1,9 @@
 /**
  * GE Plus from the player's GoldenEye ROM, converted once at startup.
  *
- * A GoldenEye 007 (US) ROM dropped in data/ beside Perfect Dark's - any name,
- * any of the three dump byte orders - is found by its contents and converted
+ * A GoldenEye 007 (US) ROM dropped in added-content/ (fs.h; or in data/ beside
+ * Perfect Dark's, where it went until 2026-09-21) - any name, any of the three
+ * dump byte orders - is found by its contents and converted
  * by geconvert.c into mods/GoldenEye Arenas/, which the Stage Loader then
  * mounts like any other mod's maps. GoldenEye's data cannot be shipped, so
  * this is how the remake's arenas reach a player at all.
@@ -89,6 +90,7 @@ PD_CONSTRUCTOR static void gexPlusRomConfigInit(void)
 
 struct romsearch {
 	char path[FS_MAXPATH + 1];
+	const char *dir; // the folder being scanned
 };
 
 static void gexPlusRomScanEntry(const char *name, void *arg)
@@ -102,7 +104,7 @@ static void gexPlusRomScanEntry(const char *name, void *arg)
 		return;
 	}
 
-	snprintf(path, sizeof(path), "$B/%s", name);
+	snprintf(path, sizeof(path), "%s/%s", search->dir, name);
 
 	// only a file of GoldenEye's size is opened, and only its header read
 	if (fsFileSize(path) != GECONVERT_ROM_SIZE) {
@@ -342,6 +344,8 @@ static s32 gexPlusRomIsCurrent(const char *dir)
 void gexPlusRomConvert(void)
 {
 	static const char *const containers[] = { "$E/mods", "$H/mods" };
+	// data/ is where the ROM went before added-content/ existed
+	static const char *const romdirs[] = { FS_ADDED_CONTENT_SEARCH, "$B" };
 	struct romsearch search = { "" };
 	char dest[FS_MAXPATH + 1] = "";
 	char temp[FS_MAXPATH + 1];
@@ -363,7 +367,31 @@ void gexPlusRomConvert(void)
 		}
 	}
 
-	fsScanDir("$B", gexPlusRomScanEntry, &search);
+	// added-content/ is made here, the first thing at startup that looks in it
+	if (fsAddedContentDir(temp, sizeof(temp)) != 0) {
+		temp[0] = '\0';
+	}
+
+	for (u32 i = 0; i < ARRAYCOUNT(romdirs) && !search.path[0]; ++i) {
+		search.dir = romdirs[i];
+		fsScanDir(romdirs[i], gexPlusRomScanEntry, &search);
+	}
+
+	// A ROM still in data/ from before added-content/ existed moves into it,
+	// so the player has one folder and the note in it is true. Left where it
+	// is when the rename is refused: data/ is still searched.
+	if (search.path[0] && !strcmp(search.dir, "$B") && temp[0]) {
+		char to[FS_MAXPATH + 1];
+
+		snprintf(to, sizeof(to), "%s/%s", temp, search.path + strlen("$B/"));
+
+		if (fsFileSize(to) < 0 && fsRename(search.path, to) == 0) {
+			sysLogPrintf(LOG_NOTE, "gexplus: moved %s into %s", search.path, fsFullPath(to));
+			snprintf(search.path, sizeof(search.path), "%s", to);
+		} else {
+			sysLogPrintf(LOG_WARNING, "gexplus: could not move %s into added-content/; it is still read where it is", search.path);
+		}
+	}
 
 	if (!search.path[0]) {
 		// The arenas may be there from before, converted where the ROM was
@@ -383,14 +411,14 @@ void gexPlusRomConvert(void)
 				if (!gexPlusRomIsCurrent(dir)) {
 					g_GexPlusRomState = GEXPLUSROM_OLD;
 					sysLogPrintf(LOG_WARNING, "gexplus: the arenas in %s were converted by an older build"
-							" and there is no GoldenEye 007 (US) ROM in data/ to convert again from;"
+							" and there is no GoldenEye 007 (US) ROM in " FS_ADDED_CONTENT_DIR "/ to convert again from;"
 							" GE Plus's intro and folder screens need what the newer one writes", dir);
 				}
 
 				return;
 			}
 		}
-		sysLogPrintf(LOG_NOTE, "gexplus: no GoldenEye 007 (US) ROM in data/; GE Plus has no arenas");
+		sysLogPrintf(LOG_NOTE, "gexplus: no GoldenEye 007 (US) ROM in " FS_ADDED_CONTENT_DIR "/; GE Plus has no arenas");
 		return;
 	}
 

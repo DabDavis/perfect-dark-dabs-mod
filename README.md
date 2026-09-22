@@ -235,11 +235,29 @@ after `Ghand_a51guardZ`'s. Nothing in the game draws them, so a pack cannot
 put anything in their place; they are there to be looked at, and each one says
 so at the top of the OBJ.
 
-### The XBLA release
+### Added content: the GoldenEye ROM and the XBLA releases
 
-Put `Perfect Dark XBLA.7z` in **`xbla/`** beside the executable and nothing
-else: the archive is unpacked once into `cache/xbla/`, and the Xbox 360 (XBLA)
-page converts its textures into a pack and draws its models and rooms.
+Everything you add to the game that is not a mod goes in one folder,
+**`added-content/`** beside the executable. The game makes it the first time it
+runs, with a `WHAT GOES HERE.txt` inside saying the same as this:
+
+| Put this in `added-content/` | What it gives you |
+| --- | --- |
+| A **GoldenEye 007 (US)** N64 ROM - any file name, `.z64`, `.n64` or `.v64` | **GE Plus**: GoldenEye's arenas, missions, menus and music, converted once at the next start into `mods/GoldenEye Arenas/` |
+| **`Perfect Dark XBLA.7z`** - the archive as it is, or its package unpacked | The Xbox 360 (XBLA) page: the release's textures, models, rooms, font and skies. Unpacked once into `cache/xbla/` |
+| **`GoldenEye_007_XBLA.7z`** - the archive as it is, or its folder unpacked | GoldenEye XBLA's HD characters, guns and levels on GE Plus and GoldenEye X |
+
+Each is found by its contents, so a file keeps whatever name it came with.
+Restart the game after adding one. Nothing else goes there: the Perfect Dark
+ROM stays in `data/`, a mod goes in `mods/`, and texture and model packs in
+their own folders above.
+
+An install from before this folder existed is moved over the first time it
+starts: the GoldenEye ROM comes out of `data/` and the releases out of `xbla/`
+into `added-content/`, and the log says what moved. Anything that could not be
+moved is still found where it was.
+
+Everything found there is used - there is nothing to switch on.
 
 ## Mods
 

@@ -4206,7 +4206,31 @@ only way to exercise it without driving the menus:
 3503 textures in about 24 seconds, and about four more if the archive still has
 to come apart.
 
-## Where the player puts it: the `xbla/` folder
+## Where the player puts it: `added-content/` (the `xbla/` folder until 2026-09-21)
+
+**Since 2026-09-21 the folder is `added-content/`** (`FS_ADDED_CONTENT_DIR`,
+`fsAddedContentDir()` in fs.c), shared with the GoldenEye ROM and the GoldenEye
+XBLA release, because testers could not keep straight which of `data/` and
+`xbla/` took what. It is made at startup with a `WHAT GOES HERE.txt` in it;
+`xbla/` is still searched behind it (`FS_ADDED_CONTENT_SEARCH` first in each
+loader's list) and is never made again, the GoldenEye ROM is still found in
+`data/`, and mods, packs and Perfect Dark's own ROM stay where they were. **An
+old layout is moved on the first start** (user's ask the same day): `fsAddedContentDir()`
+renames every non-dot entry of `$E/xbla`, `$S/xbla`, `$H/xbla` and `./xbla`
+into the new folder (`fsMoveIntoAddedContent()`, names already there and
+refused renames left alone and logged, the old folder removed once empty - a
+`.unpacked` cache keeps it) and `gexPlusRomConvert()` moves the ROM it found
+in `data/`. A rename moves a symlink as a link, so a scratch install of
+symlinks migrates too. **The dev box's `build/` migrates itself the first time
+`build/pd.x86_64` runs**, so `build/xbla/` and `build/data/GoldenEye...` are
+`build/added-content/` from then on. And **"Enable GoldenEye Characters" is
+gone** the same day: `gebeanGetEnabled()` is now "the release is here, or
+GoldenEye X is installed to borrow from" (`Mod.XblaGoldenEye` is no longer
+registered; an old pd.ini's line is ignored), so `build/gexrom/pd.ini`'s
+`XblaGoldenEye=0` no longer keeps GoldenEye's rows out of a roll there. A
+new kind of added content goes in the same folder and is found by its
+contents - three loaders scan it, so each must go on ignoring what is not
+its own. Everything below says `xbla/` and is true of `added-content/`.
 
 `xbla/` is to this what `mods/` is to a mod — one folder, drop the file in,
 nothing to configure. `xblaImportInit()` creates it at startup (beside the

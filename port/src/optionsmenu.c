@@ -38,7 +38,6 @@
 #include "xblaui.h"
 #include "xblaexpl.h"
 #include "xblasky.h"
-#include "gebean.h"
 #include "gexplus.h"
 #include "menuimage.h"
 #include "xblastage.h"
@@ -5137,26 +5136,6 @@ static MenuItemHandlerResult menuhandlerXblaExplosions(s32 operation, struct men
 }
 
 /**
- * "Enable GoldenEye Characters": GoldenEye 007 XBLA's characters and heads on
- * GoldenEye X's, and in the Combat Simulator's own lists, when that release is
- * in xbla/ as well (gebean.h). Live: the models are paired as they load
- * whether or not this is on, and the lists are redone here.
- */
-static MenuItemHandlerResult menuhandlerXblaGoldenEye(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GET:
-		return gebeanGetEnabled();
-	case MENUOP_SET:
-		gebeanSetEnabled(!gebeanGetEnabled());
-		gebeanPoolRefresh();
-		break;
-	}
-
-	return 0;
-}
-
-/**
  * "GE Plus: Include Perfect Dark Guns": GE Plus is played with GoldenEye's
  * guns alone unless this is on, which lists Perfect Dark's weapon sets beside
  * GoldenEye's in its arenas (gexplus.c, Mod.GePlusPdGuns) and lets anything
@@ -5441,7 +5420,7 @@ static const char *menutextXblaStatus(struct menuitem *item)
 
 	if (!xblaImportIsAvailable()) {
 		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
-				"No package found - put Perfect Dark XBLA.7z in the xbla folder\n");
+				"No package found - put Perfect Dark XBLA.7z in added-content\n");
 	} else if (state == XBLAIMPORT_IDLE) {
 		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
 				"Ready - this takes about a minute\n");
@@ -5568,14 +5547,6 @@ struct menuitem g_ExtendedXblaMenuItems[] = {
 		(uintptr_t)"Enable Skies",
 		0,
 		menuhandlerXblaSkies,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Enable GoldenEye Characters",
-		0,
-		menuhandlerXblaGoldenEye,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,

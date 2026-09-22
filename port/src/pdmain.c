@@ -260,7 +260,7 @@ void mainInit(void)
 	challengesInit();
 	utilsInit();
 	texInit();
-	xblaImportInit(); // makes xbla/ and finds what the player put in it
+	xblaImportInit(); // finds what the player put in added-content/
 	assetDumpFromCommandLine(); // --dump-assets only; exits when it does anything
 	xblaImportFromCommandLine(); // --xbla-import only; likewise
 	recordFetchFromCommandLine(); // --fetch-ffmpeg only; likewise

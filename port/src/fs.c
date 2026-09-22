@@ -716,6 +716,126 @@ s32 fsChooseOutputDir(const char *name, char *dst, u32 dstSize)
 	return -1;
 }
 
+/**
+ * added-content/: the one folder for everything a player adds that is not a
+ * mod. The GoldenEye ROM used to go in data/ beside Perfect Dark's and the two
+ * XBLA releases in xbla/, and testers could not keep straight which went
+ * where - so they all go here, found by what they are and not by their names,
+ * and the note written into it says so to anyone who opens the folder.
+ */
+struct fsmovelist {
+	char names[32][256];
+	s32 count;
+};
+
+static void fsMoveListEntry(const char *name, void *arg)
+{
+	struct fsmovelist *list = arg;
+
+	if (list->count < (s32)(sizeof(list->names) / sizeof(list->names[0]))) {
+		snprintf(list->names[list->count++], sizeof(list->names[0]), "%s", name);
+	}
+}
+
+/**
+ * Moves everything the player put in the folder that added-content/ replaced
+ * (xbla/, for the two XBLA releases) into it, and takes the old folder away
+ * once it is empty. A name already in added-content/ is left where it is, and
+ * so is anything a rename refuses (another drive, a file in use): the loaders
+ * still search the old folder behind the new one, so nothing is lost either
+ * way. A dot entry (xbla/.unpacked, an old cache) is not the player's and is
+ * not moved; xbla/ stays for it.
+ */
+void fsMoveIntoAddedContent(const char *oldDir, const char *dst)
+{
+	struct fsmovelist list;
+	s32 moved = 0;
+
+	list.count = 0;
+
+	if (fsScanDir(oldDir, fsMoveListEntry, &list) <= 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < list.count; i++) {
+		char from[FS_MAXPATH + 1];
+		char to[FS_MAXPATH + 1];
+
+		snprintf(from, sizeof(from), "%s/%s", oldDir, list.names[i]);
+		snprintf(to, sizeof(to), "%s/%s", dst, list.names[i]);
+
+		if (fsFileSize(to) >= 0) {
+			sysLogPrintf(LOG_NOTE, "fs: %s stays, added-content/ already has a %s", from, list.names[i]);
+			continue;
+		}
+
+		if (fsRename(from, to) == 0) {
+			sysLogPrintf(LOG_NOTE, "fs: moved %s into %s", from, fsFullPath(to));
+			moved++;
+		} else {
+			sysLogPrintf(LOG_WARNING, "fs: could not move %s into added-content/; it is still read where it is", from);
+		}
+	}
+
+	// gone when nothing is left in it, dot entries included
+	if (moved == list.count && fsRemoveDir(oldDir) == 0) {
+		sysLogPrintf(LOG_NOTE, "fs: removed the empty %s", oldDir);
+	}
+}
+
+s32 fsAddedContentDir(char *dst, u32 dstSize)
+{
+	static const char *const oldDirs[] = { "$E/xbla", "$S/xbla", "$H/xbla", "./xbla" };
+	static s32 migrated;
+	static const char note[] =
+		"Everything you add to the game that is not a mod goes in this folder.\n"
+		"\n"
+		"  GoldenEye 007 (US) N64 ROM     any file name, .z64 .n64 or .v64\n"
+		"                                 (GE Plus is converted from it at startup)\n"
+		"  Perfect Dark XBLA.7z           the Xbox 360 release: the archive as it is,\n"
+		"                                 or its package unpacked\n"
+		"  GoldenEye_007_XBLA.7z          the GoldenEye XBLA build: the archive as it\n"
+		"                                 is, or its folder unpacked\n"
+		"\n"
+		"Each is found by its contents, so a file keeps whatever name it came with.\n"
+		"Restart the game after adding one.\n"
+		"\n"
+		"What does NOT go here:\n"
+		"  the Perfect Dark ROM           data/pd.ntsc-final.z64\n"
+		"  mods                           mods/\n"
+		"  texture packs                  texture-packs/\n"
+		"  model packs                    model-packs/\n";
+	char path[FS_MAXPATH + 1];
+	FILE *f;
+
+	if (fsChooseOutputDir(FS_ADDED_CONTENT_DIR, dst, dstSize) != 0) {
+		return -1;
+	}
+
+	// The first time only: what an older install put in xbla/ comes over,
+	// so the player never has two folders to think about
+	if (!migrated) {
+		migrated = 1;
+
+		for (u32 i = 0; i < sizeof(oldDirs) / sizeof(oldDirs[0]); i++) {
+			fsMoveIntoAddedContent(oldDirs[i], dst);
+		}
+	}
+
+	snprintf(path, sizeof(path), "%s/WHAT GOES HERE.txt", dst);
+
+	if (fsFileSize(path) != (s32)(sizeof(note) - 1)) {
+		f = fsFileOpenWrite(path);
+
+		if (f) {
+			fwrite(note, 1, sizeof(note) - 1, f);
+			fclose(f);
+		}
+	}
+
+	return 0;
+}
+
 s32 fsCreateDir(const char *path)
 {
 #ifdef PLATFORM_WIN32

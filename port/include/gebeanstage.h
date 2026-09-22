@@ -20,7 +20,7 @@ extern "C" {
  * count and room positions.
  *
  * When a paired level is running, the XBLA meshes and stages switches are on
- * and Mod.XblaGoldenEye is on, every Bean triangle is dealt to the GE-X room
+ * and the release is here (gebeanGetEnabled()), every Bean triangle is dealt to the GE-X room
  * whose own triangle it lies on, and each room whose surface Bean's mesh
  * covers is written in the ROM's room format and served to bgLoadRoom()
  * through xblastage.c's hooks, the way the Perfect Dark release's rooms are.

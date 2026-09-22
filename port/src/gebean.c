@@ -47,6 +47,7 @@
 
 #ifndef PLATFORM_N64
 
+// Where the release went before added-content/ (fs.h) did; searched after it.
 #define GEBEAN_XBLA_DIR "xbla"
 #define GEBEAN_CACHE_DIR "cache"
 // Written once an archive's characters are out. The first one (".extracted")
@@ -115,23 +116,6 @@ struct gebeanrow {
 static const struct gebeanrow rows[] = {
 #include "gebeantable.h"
 };
-
-static s32 enabled = 0;
-
-PD_CONSTRUCTOR static void gebeanConfigInit(void)
-{
-	configRegisterInt("Mod.XblaGoldenEye", &enabled, 0, 1);
-}
-
-s32 gebeanGetEnabled(void)
-{
-	return enabled;
-}
-
-void gebeanSetEnabled(s32 on)
-{
-	enabled = on ? 1 : 0;
-}
 
 /* -------------------------------------------------------------------------
  * The Combat Simulator pool
@@ -754,7 +738,7 @@ static s32 gebeanGunsAreN64(void)
 /**
  * GoldenEye's guns (geguns.c): their Combat Simulator rows are shown, and
  * each one's model state is an alias of its host's pickup that the release's
- * pickup is drawn on, when the switch is on, a copy is in xbla/ or GoldenEye X
+ * pickup is drawn on, when the switch is on, a copy is in added-content/ or GoldenEye X
  * is borrowed from, and the weapon list is the game's own; otherwise the rows
  * are hidden and the model states are the host's pickup again. In the N64 look
  * only the borrowed guns are shown.
@@ -773,7 +757,7 @@ static void gebeanGunsRefresh(void)
 		anyborrowed |= gegunsIsBorrowed(i);
 	}
 
-	show = enabled && !modDataMpWeaponsImported() && (bean || anyborrowed);
+	show = !modDataMpWeaponsImported() && (bean || anyborrowed);
 
 	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
 		const s32 hostmodel = gegunsHostModel(i);
@@ -887,7 +871,7 @@ void gebeanPoolRefresh(void)
 	g_MpListCounts.bodies = numbodies;
 	g_MpListCounts.heads = numheads;
 
-	if (!enabled || numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS) {
+	if (numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS) {
 		return;
 	}
 
@@ -1031,6 +1015,25 @@ static char archivePath[FS_MAXPATH + 1]; // what the player dropped, when it is 
 static s32 scanned;
 static s32 unpackFailed;
 
+/**
+ * On when there is GoldenEye content to draw on: the release in added-content/
+ * (unpacked or not) or GoldenEye X installed to borrow from. Until 2026-09-21
+ * this was a checkbox on the XBLA page, Mod.XblaGoldenEye, off by default -
+ * and a player who had put the release in the right folder still saw none of
+ * it until they found the box. There is nothing to choose: without the content
+ * the switch did nothing, and with it there is no reason to leave it off.
+ */
+s32 gebeanGetEnabled(void)
+{
+	// asked at every model load, so the answer the scan gave is read before
+	// gebeanLocate() goes looking at the cache again
+	if (rootPath[0] || archivePath[0]) {
+		return 1;
+	}
+
+	return gebeanIsAvailable() || modBorrowGoldenEyeName() != NULL;
+}
+
 static s32 gebeanIsDir(const char *path)
 {
 	struct stat st;
@@ -1173,6 +1176,7 @@ static void gebeanSetRoot(const char *tree)
 static s32 gebeanLocate(s32 mayUnpack)
 {
 	static const char *const dirs[] = {
+		FS_ADDED_CONTENT_SEARCH,
 		"$E/" GEBEAN_XBLA_DIR,
 		"$H/" GEBEAN_XBLA_DIR,
 		"./" GEBEAN_XBLA_DIR,
@@ -1281,13 +1285,14 @@ static int gebeanUnpackWorker(void *arg)
  * solid block is tens of seconds on a slow disk, and done inside a level load
  * it is a black screen that looks like the game has hung. Only when the
  * GoldenEye characters are switched on, an archive is there and it has not
- * been unpacked (or was unpacked by a build that wanted less of it).
+ * been unpacked (or was unpacked by a build that wanted less of it) - and
+ * gebeanIsAvailable() is a scan that ran already, so there is no charge.
  */
 void gebeanUnpackAtStartup(void)
 {
 	SDL_Thread *thread;
 
-	if (!enabled || gebeanLocate(0) || !archivePath[0] || unpackFailed) {
+	if (gebeanLocate(0) || !archivePath[0] || unpackFailed) {
 		return;
 	}
 

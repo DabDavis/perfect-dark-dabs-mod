@@ -1,13 +1,20 @@
 # GoldenEye 007 XBLA ("Project Bean") characters on GoldenEye X (2026-09-15)
 
+> **2026-09-21:** the checkbox and `Mod.XblaGoldenEye` are gone; everything
+> below that says "with the switch on" is now "with the release in
+> `added-content/` (or GoldenEye X installed)" - `gebeanGetEnabled()`. And the
+> release goes in `added-content/`, not `xbla/` (xbla.md, "Where the player puts
+> it"), where an old install's copy is moved on the first start.
+
 `port/src/gebean.c`, `Mod.XblaGoldenEye`, "Enable GoldenEye Characters" on
 the Xbox 360 (XBLA) page, default off.
 
 The GoldenEye archive in circulation (`GoldenEye_007_XBLA.7z`, 242MB, one
 solid LZMA2 block of 740MB) is Rare's 2007 Xbox 360 devkit build, CAFF
 07.08.06.0036 - **nothing from the Perfect Dark release's STFS, Textures.raw or
-PackedSegFile code applies to it.** The player drops it in `xbla/` beside the
-Perfect Dark one, as the archive or the folder it unpacks to (the one with
+PackedSegFile code applies to it.** The player drops it in `added-content/`
+(`xbla/` until 2026-09-21, still searched - xbla.md, "Where the player puts
+it") beside the Perfect Dark one, as the archive or the folder it unpacks to (the one with
 `default.xex` and `files/`). An archive's `char/` and `head/` folders of
 `files/new/` and `files/original/` - 244 files, 84MB - are streamed into
 `cache/xbla/goldeneye/` once, at the first level load that wants a character.

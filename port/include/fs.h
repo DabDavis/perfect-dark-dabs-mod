@@ -46,4 +46,28 @@ s32 fsRemoveFile(const char *path);
 // cannot. dst gets the "$E/name" or "$S/name" form. Returns 0 on success.
 s32 fsChooseOutputDir(const char *name, char *dst, u32 dstSize);
 
+// The one folder for what a player adds to the game that is not a mod: a
+// GoldenEye 007 ROM, the Perfect Dark XBLA release, the GoldenEye XBLA release.
+// Mods stay in mods/, and Perfect Dark's own ROM in data/.
+#define FS_ADDED_CONTENT_DIR "added-content"
+
+// Every place that folder can be, in the order they are searched; the folders
+// these files went in before it existed (data/, xbla/) are the caller's to add
+// after them, so an install that was working keeps working.
+#define FS_ADDED_CONTENT_SEARCH \
+	"$E/" FS_ADDED_CONTENT_DIR, \
+	"$H/" FS_ADDED_CONTENT_DIR, \
+	"./" FS_ADDED_CONTENT_DIR, \
+	"$S/" FS_ADDED_CONTENT_DIR
+
+// Makes the folder, with a note in it saying what goes there, where
+// fsChooseOutputDir() would put it. dst gets the "$E/..." or "$S/..." form.
+// Returns 0 on success.
+s32 fsAddedContentDir(char *dst, u32 dstSize);
+
+// Moves every non-dot entry of oldDir into dst (an added-content/ path in the
+// "$E/..." form), skipping names dst already has, and removes oldDir once
+// empty. Says what it did in the log.
+void fsMoveIntoAddedContent(const char *oldDir, const char *dst);
+
 #endif

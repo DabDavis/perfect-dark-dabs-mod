@@ -5627,7 +5627,7 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 	if (beanrow >= 0) {
 		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is %s, which the GoldenEye "
 				"XBLA release has a model for%s", fileid, gebeanRowName(beanrow),
-				gebeanGetEnabled() ? "" : " (Mod.XblaGoldenEye is off)");
+				gebeanGetEnabled() ? "" : " (no copy of it is here)");
 
 		// Unpacked at the level load that first wants it rather than at a draw.
 		if (gebeanGetEnabled()) {
@@ -10654,9 +10654,9 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 			const s32 look = !optEnabled;
 
 			m = beanBuilt[look] ? beanBuilt[look][e->fileid] : NULL;
-			fprintf(f, "%sGoldenEye XBLA character for %s (Mod.XblaGoldenEye %s, %s look, list %d): ",
+			fprintf(f, "%sGoldenEye XBLA character for %s (release %s, %s look, list %d): ",
 					indent ? indent : "", gebeanRowName(e->beanrow),
-					gebeanGetEnabled() ? "on" : "off", look ? "N64" : "HD", e->packpart);
+					gebeanGetEnabled() ? "here" : "not here", look ? "N64" : "HD", e->packpart);
 		}
 
 		fprintf(f, "%snode %p type %02x slot %d part %d def %p%s%s%s%s built %d",

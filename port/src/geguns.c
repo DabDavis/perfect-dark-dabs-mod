@@ -26,7 +26,7 @@
  * (MODEL_GE_FIRST), which gebean.c points at an alias of the host's pickup
  * that the GoldenEye XBLA release's pickup is drawn on; and a Combat
  * Simulator row (MPWEAPON_GE_FIRST), which gebean.c shows when that release
- * is in xbla/ and Mod.XblaGoldenEye is on.
+ * is in added-content/ (gebeanGetEnabled()).
  *
  * The copies are made before anything reads g_Weapons, from the stock
  * definitions: a mod's imported table replaces the stock pointers later and
