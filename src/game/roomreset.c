@@ -16,15 +16,23 @@ void roomsReset(void)
 
 #ifndef PLATFORM_N64
 	// roomAllocateMtx() answers slot 0 when every slot is taken, and a list
-	// names its matrix by address - so every room past the cache was drawn
-	// with whichever of them was written last, and so was the room that held
-	// slot 0 honestly, which is the camera's. The portal walk never put 120
+	// names its matrix by address - so every room past the cache is drawn
+	// with whichever of them was written last, and so is the room that holds
+	// slot 0 honestly, which is the camera's. The portal walk never puts 120
 	// rooms on screen; the spectator and a GoldenEye XBLA level draw every
 	// room, and Dam has 136: its HD look had no ground under the player and
-	// its cliffs stood in the wrong places. A slot is held NUM_GFXTASKS frames
-	// after its last use, and each player's draw allocates a room's again.
+	// its cliffs stood in the wrong places.
+	//
+	// A room needs **NUM_GFXTASKS slots, not one**: roomFreeMtx() sets a
+	// slot's age to NUM_GFXTASKS and the tick counts it down, so a slot let go
+	// of is unavailable for that many frames while the graphics task that
+	// still names it finishes. Sized at one slot a room, a level that draws
+	// all of them ran out the moment the camera moved and any room changed
+	// hands - which on Dam took the whole guard hut at the top of the dam and
+	// the ground under it, while the door and the window in its wall, which
+	// are props, stayed in the air.
 	{
-		const s32 wanted = (g_Vars.roomcount + 1) * (PLAYERCOUNT() >= 2 ? PLAYERCOUNT() * NUM_GFXTASKS : 1);
+		const s32 wanted = (g_Vars.roomcount + 1) * PLAYERCOUNT() * NUM_GFXTASKS;
 
 		if (g_RoomMtxNumSlots < wanted) {
 			g_RoomMtxNumSlots = wanted;

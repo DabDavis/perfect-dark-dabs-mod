@@ -8316,3 +8316,39 @@ three-way merge, six conflicts, all from what has landed since:
   is the trap that hid the missing HD props once: with the `.7z` in
   added-content/ the game streams 719 files including 67 under
   `files/original/gun`, and GoldenEye's PP7 and Golden Gun draw from them.
+
+## HD Dam's guard hut, and a room needing two matrix slots (2026-09-22)
+
+The user, of the build on the tester box: *"dam is messed up"*. On the dam's
+top the guard hut was **not there at all** - no walls, no ground, no railings,
+no ladder - while its door and its window, which are props, hung in the air
+over plain blue with a guard standing on nothing beside them. In the N64 look
+the same pad shows the whole hut.
+
+It is `roomAllocateMtx()` again, the fault `3f725cfff` half fixed. That commit
+sized the room matrix cache from the room count, `(roomcount + 1)` slots for
+one player, because Dam draws all 136 of its rooms and the old cache was 120.
+**A room needs NUM_GFXTASKS slots, not one:** `roomFreeMtx()` sets a slot's age
+to `NUM_GFXTASKS` and the tick counts it down, so a slot let go of is
+unavailable for that many frames while the graphics task still naming it
+finishes. At one slot a room, a level drawing every room runs out the moment
+the camera moves and any room changes hands - and `roomAllocateMtx()` answers
+**slot 0** when it finds nothing, which is the camera's own room's matrix, so
+the rooms that missed out are drawn folded onto the camera and vanish from
+where they belong.
+
+`(g_Vars.roomcount + 1) * PLAYERCOUNT() * NUM_GFXTASKS` now, which is what the
+two-player branch already asked for. The 120/200 floor still covers every
+ordinary level: only a level whose `2 * (rooms + 1)` passes 120 is raised, and
+over the twenty missions that is Dam alone - Control (91 rooms) was measured
+pad for pad before and after and is identical, so this is not a change that
+touches levels it need not.
+
+**What found it:** a pad tour of Dam in both looks side by side
+(`build/gexrom/padtour.py`, `STEP=8 HEADS=0,180`, then `montage`), which is
+the only way this shows - a spawn screenshot of HD Dam has always looked
+right, because nothing has changed hands yet. The per-room coverage numbers
+were a red herring: rooms read 0% covered and served thousands of triangles
+because Bean's terrain is re-meshed and the 3-unit midpoint test cannot see
+that, and room 132, the hut's, read a healthy 75% while drawing nothing.
+Ask which rooms are on screen, not how well they pair.
