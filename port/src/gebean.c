@@ -1342,6 +1342,23 @@ s32 gebeanPrepare(void)
 	return gebeanLocate(1);
 }
 
+/**
+ * Where the release is, for the Community Edition's patch (gebeance.c): its
+ * files/ folder, the archive it was unpacked from (empty when the player
+ * unpacked it), and the game's cache folder for it.
+ */
+s32 gebeanTreeInfo(char *root, u32 rootLen, char *archive, u32 archiveLen, char *cache, u32 cacheLen)
+{
+	if (!gebeanLocate(1) || !gebeanCacheDir(cache, cacheLen)) {
+		return 0;
+	}
+
+	snprintf(root, rootLen, "%s", rootPath);
+	snprintf(archive, archiveLen, "%s", archivePath);
+
+	return 1;
+}
+
 static SDL_atomic_t unpackDone;
 
 static int gebeanUnpackWorker(void *arg)
@@ -2790,7 +2807,10 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 
 	memset(bm, 0, sizeof(*bm));
 	bm->keepparts = keepparts;
-	snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+	// the Community Edition's copy first, where this session draws it (gebeance.c)
+	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
+		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+	}
 
 	fp = fopen(path, "rb");
 
@@ -6790,7 +6810,9 @@ u8 *gebeanDecodePictureFile(const char *source, s32 *outWidth, s32 *outHeight)
 	}
 
 	memset(&bm, 0, sizeof(bm));
-	snprintf(path, sizeof(path), "%s/%s/default.rba", rootPath, source);
+	if (!gebeanCeFilePath(path, sizeof(path), source, "default.rba")) {
+		snprintf(path, sizeof(path), "%s/%s/default.rba", rootPath, source);
+	}
 	fp = fopen(path, "rb");
 
 	if (!fp) {

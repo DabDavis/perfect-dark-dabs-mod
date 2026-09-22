@@ -39,6 +39,7 @@
 #include "xblaexpl.h"
 #include "xblasky.h"
 #include "gexplus.h"
+#include "gebean.h"
 #include "menuimage.h"
 #include "xblastage.h"
 #include "roomsheen.h"
@@ -4371,6 +4372,8 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 };
 
 static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerGeXblaCe(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerGeXblaCeRestart(s32 operation, struct menuitem *item, union handlerdata *data);
 
 struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 	{
@@ -4508,6 +4511,22 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		(uintptr_t)"GE Plus: Include Perfect Dark Guns",
 		0,
 		menuhandlerGePlusPdGuns,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GoldenEye XBLA: Community Edition",
+		0,
+		menuhandlerGeXblaCe,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Restart Now\n",
+		0,
+		menuhandlerGeXblaCeRestart,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -5150,6 +5169,47 @@ static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menui
 	case MENUOP_SET:
 		gexPlusSetPdGuns(!gexPlusGetPdGuns());
 		break;
+	}
+
+	return 0;
+}
+
+/**
+ * "GoldenEye XBLA: Community Edition": the community's fixes to the release,
+ * applied by the game from the player's own updater zip in added-content/
+ * (gebeance.c). Shown only when that zip is there. The release's models are
+ * loaded once and kept, so a change is drawn from the next start, and the
+ * Restart Now under it is live while one is waiting - as a mod's is.
+ */
+static MenuItemHandlerResult menuhandlerGeXblaCe(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !gebeanCeAvailable();
+	case MENUOP_GET:
+		return gebeanCeGetWanted();
+	case MENUOP_SET:
+		gebeanCeSetWanted(!gebeanCeGetWanted());
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGeXblaCeRestart(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !gebeanCeAvailable();
+	case MENUOP_CHECKDISABLED:
+		// shown with the checkbox and live only while a change is waiting, as
+		// the mod pages' is - a row that appears under the cursor moves the rest
+		return !gebeanCeRestartNeeded();
+	case MENUOP_SET:
+		// as the mod pages' Restart Now: the ordinary way out, so pd.ini is
+		// written with the choice before the game starts again
+		sysRequestRestart();
+		exit(0);
 	}
 
 	return 0;

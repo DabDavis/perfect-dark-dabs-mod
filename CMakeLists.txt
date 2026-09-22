@@ -353,6 +353,30 @@ set_source_files_properties(${SRC_UNRAR} PROPERTIES
 )
 list(APPEND SRC_PORT_CXX ${SRC_UNRAR})
 
+# The patch half of HDiffPatch (port/src/external/hdiffpatch, MIT), for the
+# GoldenEye XBLA Community Edition updater the player supplies. Its files
+# include one another from its own root, and it is built without its threads.
+list(FILTER SRC_PORT EXCLUDE REGEX "/external/hdiffpatch/")
+set(HDP_DIR "${CMAKE_SOURCE_DIR}/port/src/external/hdiffpatch")
+set(SRC_HDP
+  "${HDP_DIR}/hdpglue.c"
+  "${HDP_DIR}/file_for_patch.c"
+  "${HDP_DIR}/libHDiffPatch/HPatch/patch.c"
+  "${HDP_DIR}/libHDiffPatch/HDiff/private_diff/limit_mem_diff/adler_roll.c"
+  "${HDP_DIR}/dirDiffPatch/dir_patch/dir_patch.c"
+  "${HDP_DIR}/dirDiffPatch/dir_patch/dir_patch_tools.c"
+  "${HDP_DIR}/dirDiffPatch/dir_patch/new_dir_output.c"
+  "${HDP_DIR}/dirDiffPatch/dir_patch/new_stream.c"
+  "${HDP_DIR}/dirDiffPatch/dir_patch/ref_stream.c"
+  "${HDP_DIR}/dirDiffPatch/dir_patch/res_handle_limit.c"
+)
+set_source_files_properties(${SRC_HDP} PROPERTIES
+  INCLUDE_DIRECTORIES "${HDP_DIR}"
+  COMPILE_DEFINITIONS "_GNU_SOURCE;_FILE_OFFSET_BITS=64;_IS_USED_MULTITHREAD=0;_IS_NEED_WINDOW_DIFF=0"
+  COMPILE_OPTIONS "-w;-O2"
+)
+list(APPEND SRC_PORT ${SRC_HDP})
+
 # The display list interpreter (port/fast3d) is the port's own C++, not
 # decompiled code, and it is where a crowded frame spends most of its main
 # thread: every vertex is lit and transformed and every triangle written out

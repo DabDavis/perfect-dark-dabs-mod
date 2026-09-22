@@ -50,7 +50,7 @@ typedef s32 (*archivefilter)(const char *name, void *arg);
  * release is one solid block of 740MB, and SzArEx_Extract() would allocate all
  * of it to write out the 60MB of characters that are asked for. A block of
  * any other kind goes through SzArEx_Extract() as archiveExtract() does. A .zip
- * or .rar is extracted whole.
+ * is filtered entry by entry too; a .rar is extracted whole.
  */
 s32 archiveExtractMatching(const char *path, const char *destDir, archivefilter filter, void *arg);
 

@@ -200,6 +200,23 @@ u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, 
  * release or the file is not there.
  */
 u8 *gebeanDecodePictureFile(const char *source, s32 *outWidth, s32 *outHeight);
+
+/** Where the release is: its files/, the archive it came from ("" if none), the cache. */
+s32 gebeanTreeInfo(char *root, u32 rootLen, char *archive, u32 archiveLen, char *cache, u32 cacheLen);
+
+/**
+ * The GoldenEye XBLA Community Edition, applied by the game from the player's
+ * own updater zip in added-content/ (gebeance.c). Chosen in the menu, drawn
+ * from the next start: gebeanCeRestartNeeded() says a change is waiting.
+ */
+s32 gebeanCeAvailable(void);
+s32 gebeanCeGetWanted(void);
+void gebeanCeSetWanted(s32 on);
+s32 gebeanCeIsActive(void);
+s32 gebeanCeRestartNeeded(void);
+void gebeanCePrepareAtStartup(void);
+s32 gebeanCeFilePath(char *dst, u32 dstLen, const char *source, const char *name);
+const char *gebeanCeLevelName(const char *key, const char *name);
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);
 s32 gebeanLevelNumTextures(struct gebeanlevel *level);

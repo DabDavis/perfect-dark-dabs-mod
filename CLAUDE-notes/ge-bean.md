@@ -8518,3 +8518,92 @@ booted mission and takes a shot; a player moved past a converted level's
 rooms falls out of the world, so look from inside them. Surface's nearest
 placed tree to the spawn is instance 15, at (-3928, 453, -13118).
 
+
+## The folder screens, second and third pass: tinted twice, Bean's own menu files, the crest, the desk (2026-09-22)
+
+The user: *"the folder matches the background, lets use all the menu assets
+from ge bean"*, then *"i notice the square outline of the folder lion/unicorn
+logo"* with a capture of the release's menu (youtube TYABllG0mlY).
+
+**The page was the olive of the cover because it was coloured twice.**
+GoldenEye's cover (config 10), paper (11) and whole crest (12) are 4-bit
+**intensity** textures, and the folder's lists colour them with the vertex
+shade (`TEXEL0 * SHADE`: the frame beige 213,213,165, the page 213,205,165,
+the tabs 157,151,122). 4J's pictures carry their colour already, so bound as
+they come they were tinted a second time. A row with `grey` = 1 is brought to
+the ROM tile's own mean and spread and left neutral (`geFolderRomGrey()`,
+`geFolderMatchGrey()`), so the shade colours it as it colours the ROM's.
+The fast way to learn a texture's format, combiner, shade and UVs was a
+temporary `fprintf` in `gfx_sp_tri1()` keyed on
+`rdp.loaded_texture[rdp.texture_tile[0].tmem].addr` (addresses set from gdb) -
+a gdb conditional breakpoint there is far too slow to reach the page, and
+walking the model's lists from gdb went nowhere.
+
+**The crest's square.** Its quad lies over exactly one repeat of the page's
+paper tile, from the tile's corner (uv 0,0 to 2047 on both), under the same
+shade. So its ink alone is printed on the prepared paper tile
+(`onpaper` = 2, `geFolderPrintOnPaper()`: whatever is darker than the crop's
+own paper by more than its grain comes off the tile) and its edge meets the
+page texel for texel.
+
+**Bean's own menu files** (`files/texture/`, unpacked with the release since
+`.extracted9`, decoded by `gebeanDecodePictureFile()`, bound once as stand-ins
+by `geFolderMenuPicture()`, drawn by `frontImageOrRelease()`):
+`characters/*` portraits (one picture over the ROM's four tiles, drawn with
+the tiles' negative theight; the release covers characters GoldenEye left
+with Random's "?", and has none for Connery, Moore and Dalton, who keep the
+ROM's), `level/*icon` (**the ROM's 2578-2597 are the icons in the
+alphabetical order of their names**, .99 correlation each, then `smp*` for
+2686-2689; 68x44 like the ROM's, so only smoother), `attract/sprocket` for the
+film strip's holes and `sight` for the cursor - **which is blue in the file**
+(the release tints it as it draws), so its red is its blue channel. Unused
+because no folder screen draws them: the 360 pad and buttons, the control
+diagrams, tick/cross, tabtexture.
+
+**The release's backdrop is a dark desk out of focus**, not the cover cloth:
+olive going to near black, one soft light up and left of the folder, a cool
+shadow under it. The release has no such picture (it is its lighting), so
+`geFolderBackdrop()` generates one fitted to the capture and
+`frontDrawReleaseBackdrop()` fills the frame with it before the folder, the
+eight-vertex frame folded to x = 0 under the release's look. **A 2-D draw
+before the folder must put `G_TP_PERSP` and the filter back** - the folder's
+lists set neither, and the photograph and stamps drew as zoomed quarters.
+
+## The GoldenEye XBLA Community Edition, applied by the game (2026-09-22)
+
+The user: *"lets do the added-content path so players have a choice and we
+dont redistro"*. The Community Edition (n64vault, `CommunityEditionUpdaterV6.zip`)
+is the community's fixes to the leak - skydomes, Frigate's water, props,
+doors, icons, text and a patched xex - shipped as **HDiffPatch** patches
+against an unmodified **Fyodorovna** copy (our Bean tree is that copy:
+`.xbla-work/ge-bean/fyodorovna.nfo`). The player drops the zip in
+`added-content/`; nothing of it is in the binary.
+
+- `port/src/gebeance.c`, `Mod.GeXblaCommunityEdition`, the checkbox on Mods:
+  Missions (shown only when the zip is there) with a Restart Now under it,
+  live while a change is waiting - the release's models are loaded once and
+  kept, so the choice is read at startup, as a mod's is.
+- The patch half of HDiffPatch is vendored in `port/src/external/hdiffpatch/`
+  (MIT, upstream commit in its README, built without threads or window
+  diffs, `_GNU_SOURCE` because the game builds strict C11) with a two-call
+  glue, `hdpglue.c`. Its lzma plugin sits on the port's LZMA SDK 9.20, whose
+  allocator takes a plain pointer (`typedef void *ISzAllocPtr`).
+- The output is an **overlay** in `cache/xbla/goldeneye/ce/files`, read first
+  by both loaders (`gebeanCeFilePath()`): only files the patch writes,
+  changes **or renames**. A rename is a "same" pair in HDiffPatch, so
+  skipping same pairs lost CE's `sf1`/`sf2` (its split of `surface`); a pair
+  is copied when its name changes. 148 files, byte-identical to the official
+  installer's `filesCE` for those paths.
+- From an archive the game's own unpack only took what it draws, so the
+  patch's reference files **and the old names of its renames** are unpacked
+  from the release's archive first (`hdpListOldRefs()`); ~20 s, against
+  under a second from an unpacked copy. `archiveExtractMatching()` filters a
+  `.zip` entry by entry now too.
+- HD Surface opens `sf1`/`sf2` by GoldenEye's key (`gebeanCeLevelName()`); our
+  skies are not Bean's skydomes, so CE's new skydomes change nothing yet.
+- The patch checks its own checksums; a copy it does not fit logs the step and
+  draws the release as it is, and Restart Now stays grey.
+- Traps: `TDirPatcher_getNewPathByIndex()` asserts on a count only
+  `TDirPatcher_openNewDirAsStream()` sets (the release build has asserts off
+  and passed by luck - a mingw test under wine caught it); the xex's patches
+  are not applied, since the game does not run the xex.

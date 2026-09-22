@@ -198,7 +198,7 @@ static u8 *archiveInflate(const u8 *src, u32 srcSize, u32 dstSize)
 	return dst;
 }
 
-static s32 archiveExtractZip(const char *path, const char *destDir)
+static s32 archiveExtractZip(const char *path, const char *destDir, archivefilter filter, void *arg)
 {
 	u8 *file;
 	long fileSize;
@@ -294,6 +294,11 @@ static s32 archiveExtractZip(const char *path, const char *destDir)
 
 		if (!archiveNameIsSafe(name)) {
 			sysLogPrintf(LOG_WARNING, "archive: skipping %s in %s", name, path);
+			continue;
+		}
+
+		// the entries a caller does not want are passed over unread
+		if (filter && !filter(name, arg)) {
 			continue;
 		}
 
@@ -1038,6 +1043,15 @@ static s32 archiveExtract7zMatching(const char *path, const char *destDir, archi
 
 s32 archiveExtractMatching(const char *path, const char *destDir, archivefilter filter, void *arg)
 {
+	if (strcasecmp(archiveExt(path), ".zip") == 0) {
+		if (fsCreateDir(destDir) != 0 && fsFileSize(destDir) < 0) {
+			sysLogPrintf(LOG_ERROR, "archive: could not create %s", destDir);
+			return -1;
+		}
+
+		return archiveExtractZip(path, destDir, filter, arg);
+	}
+
 	if (strcasecmp(archiveExt(path), ".7z")) {
 		return archiveExtract(path, destDir);
 	}
@@ -1064,7 +1078,7 @@ s32 archiveExtract(const char *path, const char *destDir)
 	}
 
 	if (!strcasecmp(ext, ".zip") || !strcasecmp(ext, ".pk3")) {
-		return archiveExtractZip(path, destDir);
+		return archiveExtractZip(path, destDir, NULL, NULL);
 	}
 
 	if (!strcasecmp(ext, ".rar")) {

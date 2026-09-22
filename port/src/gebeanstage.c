@@ -1354,7 +1354,8 @@ static s32 build(void)
 		return 0;
 	}
 
-	level = gebeanLevelOpen(row->bean);
+	// the Community Edition keeps Surface's two halves as files of their own
+	level = gebeanLevelOpen(gebeanCeLevelName(row->key, row->bean));
 
 	if (!level) {
 		sysLogPrintf(LOG_WARNING, "gebeanstage: GoldenEye XBLA's %s is not on disk", row->bean);
