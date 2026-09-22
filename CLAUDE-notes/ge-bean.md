@@ -8607,3 +8607,47 @@ against an unmodified **Fyodorovna** copy (our Bean tree is that copy:
   `TDirPatcher_openNewDirAsStream()` sets (the release build has asserts off
   and passed by luck - a mingw test under wine caught it); the xex's patches
   are not applied, since the game does not run the xex.
+
+## Black mirrors floating over Dam and Facility: the glass's reflection map taken for its picture (2026-09-22)
+
+Three tester F3s the same evening (20260922-222733 Dam, 223445 and 223726
+Facility, HD look): dark panes with a few white lights in them hanging in the
+air, one over Dam's yard beside the guard tower, several sticking out into
+Facility's lab corridor, and guards hidden behind them.
+
+**They are GoldenEye's window glass, `PROP_WINDOW` (`Pgx104Z`, Bean's
+`new/prop/window`), and what was wrong was the picture.** Its one material
+carries two: a 256x256 DXT1 reflection map `_0x00B5FD45` (opaque, black with
+a few lights - exactly the panes in the reports) and the 32x32 DXT3 tinted pane
+with alpha 119 that is the glass. `beanMaterialTexture()` takes the biggest
+picture, which is the reflection map, drawn opaque. It is the scratch-map
+trap of "The glass that was actually wrong was the HD look's" again with the
+other shared overlay; `beanTexIsGlassOverlay()` knows both now. Only four Bean
+files carry `_0x00B5FD45`: the window, `gasplantcleardoor`, `miltruck` and
+`background/bunker`, all glass.
+
+**Where the panes stand is GoldenEye's, checked against the oracle** - and it
+took three wrong turns to be sure, so for the next time a converted prop looks
+out of place:
+
+- all 20 of Facility's windows and Dam's have the same position and placement
+  matrix in the native GoldenEye port as here, to a unit (`~/dam-oracle/gewin.py`,
+  `gewinfac.py`: walk `g_ActivePropsHead`, `obj->obj == 104`, print
+  `runtime_pos` and `mtx`; ours is `g_Vars.activeprops` in `build/gexrom/hdtree/win2.py`);
+- a GoldenEye prop's root group origin is **not** applied to an object's first
+  matrix in either game: GoldenEye writes `mtxs[0]` from `obj->mtx` at
+  `runtime_pos` (propobj.c's object render) and `objInitMatrices()` does the
+  same, so the window's root at (495, 1717) moves nothing (it would in a model
+  with two or more matrices, which goes on through `modelSetMatrices()`);
+- the N64 look's lab window looks filled with glass because the window has a
+  portal (`OBJFLAG_GLASS_HASPORTAL`) and the room behind is tinted through it -
+  the pane itself is the same small rectangle at the frame's edge in both looks,
+  near invisible in the N64's colours. Compare one window at a time (hide the
+  rest with `OBJFLAG2_INVISIBLE`, `hdtree/winone.py`), not the whole scene;
+- matrices here are **view** space (`camGetWorldToScreenMtxf()`), so a model
+  matrix's translation is the eye-relative position already rotated - and a
+  gdb condition cannot read xblamesh.c's locals (it is -O2), so print from the
+  code.
+
+The panes still stand where GoldenEye stands them, now as faint tinted glass
+the guards show through. Sweep of all twenty missions in both looks clean.

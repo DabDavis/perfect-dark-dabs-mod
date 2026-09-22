@@ -2295,10 +2295,23 @@ static u32 beanTexArea(const struct beanmodel *bm, u32 t)
 	return b && blen >= 0x40 ? (u32)gebeanBE16(b + 0x24) * gebeanBE16(b + 0x26) : 0;
 }
 
-static s32 beanTexIsScratchMap(const struct beanmodel *bm, u32 t)
+/**
+ * One of the release's two shared maps laid over glass: the 54x54 scratch map
+ * (Boris's lenses, the pilot's and the bike helmet's visors) and the 256x256
+ * reflection map, black with a few lights in it, over the window prop, the gas
+ * plant's clear door, the military truck's windscreen and Bunker's panes.
+ */
+static s32 beanTexIsGlassOverlay(const struct beanmodel *bm, u32 t)
 {
-	return t < (u32)bm->numtex
-		&& strcmp(caffAssetName(&bm->caff, bm->caff.files[bm->texfile[t]].asset), "_0x059B9F65.tga.bin") == 0;
+	const char *name;
+
+	if (t >= (u32)bm->numtex) {
+		return 0;
+	}
+
+	name = caffAssetName(&bm->caff, bm->caff.files[bm->texfile[t]].asset);
+
+	return name && (strcmp(name, "_0x059B9F65.tga.bin") == 0 || strcmp(name, "_0x00B5FD45.bin") == 0);
 }
 
 /**
@@ -2354,15 +2367,17 @@ static u32 beanMaterialTexture(const struct beanmodel *bm, const u8 *st, u32 pc,
 			}
 		}
 
-		// The release's shared 54x54 scratch map is laid over glass - Boris's
-		// lenses, the pilot's and the bike helmet's visors - whose own picture
-		// is a 32x32 tinted pane with alpha, smaller than it. Taken by size the
-		// glass drew as an opaque grey block; it is the picture only alone.
-		if (found && beanTexIsScratchMap(bm, t)) {
+		// The release's shared scratch and reflection maps are laid over glass
+		// whose own picture is a 32x32 tinted pane with alpha, smaller than
+		// either. Taken by size the glass drew opaque: Boris's lenses as a grey
+		// block, and every window prop as a black mirror hiding whoever stood
+		// behind it (F3 20260922-222733, Dam's tower windows). An overlay is
+		// the picture only alone.
+		if (found && beanTexIsGlassOverlay(bm, t)) {
 			continue;
 		}
 
-		if (found && beanTexIsScratchMap(bm, best)) {
+		if (found && beanTexIsGlassOverlay(bm, best)) {
 			best = t;
 			bestarea = area;
 			continue;
