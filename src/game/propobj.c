@@ -20401,7 +20401,15 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 	roomnum = *rooms;
 
 	while (roomnum != -1) {
+#ifndef PLATFORM_N64
+		// On an HD level every room is drawn, but a chr counts as on screen
+		// only in a room the portal walk reached - see bgTickPortalsEveryRoom()
+		if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER)
+				? bgRoomIsPortalVisible(roomnum)
+				: (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) != 0) {
+#else
 		if (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) {
+#endif
 			if (envIsPosInFogMaxDistance(pos, arg2) && (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
 				result = camIsPosInFovAndVisibleRoom(prop->rooms, pos, arg2);
 

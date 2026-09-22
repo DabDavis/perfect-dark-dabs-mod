@@ -273,6 +273,15 @@ s16 *g_RoomPortals;
 s16 g_BgMinDrawOrder;
 s16 g_BgMaxDrawOrder;
 struct drawslotpointer *g_BgDrawSlotsByRoom;
+#ifndef PLATFORM_N64
+/**
+ * Whether this frame's portal walk reached each room.
+ * An HD remake level draws every room (xblaStageDrawsEveryRoom()), so
+ * ROOMFLAG_ONSCREEN no longer says what the camera can see - it says the whole
+ * level. See bgRoomIsPortalVisible().
+ */
+static u8 *g_BgPortalSeen;
+#endif
 struct portalcamcacheitem *g_PortalCameraCache;
 struct bgsnake g_BgSnake;
 
@@ -1887,11 +1896,15 @@ void bgBuildTables(s32 stagenum)
 
 #ifndef PLATFORM_N64
 	g_NumRoomsAllocated = g_Rooms ? g_Vars.roomcount : 0;
+	g_BgPortalSeen = mempAlloc(ALIGN16(g_Vars.roomcount), MEMPOOL_STAGE);
 #endif
 
 	for (i = 0; i < g_Vars.roomcount; i++) {
 		g_BgDrawSlotsByRoom[i].updatedframe = 0xffff;
 		g_BgDrawSlotsByRoom[i].slotnum = 0;
+#ifndef PLATFORM_N64
+		g_BgPortalSeen[i] = false;
+#endif
 	}
 
 	if (g_Vars.mplayerisrunning) {
@@ -6321,6 +6334,85 @@ static void bgTickPortalsSpectate(struct screenbox *box)
 }
 #endif
 
+static void bgTickPortalsWalk(struct screenbox *box)
+{
+	s32 room;
+
+	if (g_BgPortals[0].verticesoffset == 0) {
+		for (room = 1; room < g_Vars.roomcount; room++) {
+			if (bgRoomIntersectsScreenBox(room, box)
+					&& ((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
+					&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
+					&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
+					&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)) {
+				bgSetRoomOnscreen(room, 0, box);
+			}
+		}
+	} else {
+		bgSetRoomOnscreen(g_CamRoom, 0, box);
+
+		g_BgSnake.count = 0;
+		g_BgSnake.headindex = 0;
+		g_BgSnake.tailindex = 0;
+
+		bgAddToSnake(g_CamRoom, g_CamRoom, 1, box);
+
+		while (bgTryConsumeSnake());
+	}
+}
+
+#ifndef PLATFORM_N64
+
+/**
+ * An HD remake level draws every room, because the HD mesh dealt to a room can
+ * stand outside the room's N64 box. Only the scenery needs that. A chr or
+ * object stands in its N64 rooms, and if it were on screen whenever any of
+ * those rooms was, the whole level's guards would count as on screen. That
+ * matters because chrTick() poses and draws at most 30 chrs a tick: guards
+ * across the level, in view but behind the walls, filled those 30 first and
+ * the ones in the player's own room were never drawn (tester F3s
+ * 20260922-235134 and -235226, Facility's toilets in HD).
+ *
+ * So the portal walk still runs and each room it reaches is noted. Then every
+ * room is added for drawing, and bgSetRoomOnscreen() merges a room the walk
+ * already added.
+ */
+static void bgTickPortalsEveryRoom(struct screenbox *box)
+{
+	s32 room;
+
+	bgTickPortalsWalk(box);
+
+	for (room = 0; room < g_Vars.roomcount; room++) {
+		if (g_Rooms[room].flags & ROOMFLAG_ONSCREEN) {
+			g_BgPortalSeen[room] = true;
+		}
+	}
+
+	bgTickPortalsSpectate(box);
+}
+
+/**
+ * Whether the camera can see into a room this frame: ROOMFLAG_ONSCREEN, except
+ * on a level that draws every room, where it is whether the portal walk reached
+ * it (see bgTickPortalsEveryRoom()).
+ */
+bool bgRoomIsPortalVisible(s32 room)
+{
+	if (!(g_Rooms[room].flags & ROOMFLAG_ONSCREEN)) {
+		return false;
+	}
+
+	if (g_BgPortalSeen && !modSpectateIsOn()
+			&& g_Vars.currentplayer->visionmode != VISIONMODE_XRAY
+			&& xblaStageDrawsEveryRoom()) {
+		return g_BgPortalSeen[room];
+	}
+
+	return true;
+}
+#endif
+
 void bgTickPortals(void)
 {
 	s32 i;
@@ -6347,6 +6439,9 @@ void bgTickPortals(void)
 		g_Rooms[i].portalrecursioncount = 0;
 		g_Rooms[i].snakecount = 0;
 		g_Rooms[i].unk07 = 1;
+#ifndef PLATFORM_N64
+		g_BgPortalSeen[i] = false;
+#endif
 	}
 
 	if (player->visionmode == VISIONMODE_XRAY) {
@@ -6375,31 +6470,13 @@ void bgTickPortals(void)
 
 		if (!g_BgRoomTestsDisabled) {
 #ifndef PLATFORM_N64
-			if (modSpectateIsOn() || xblaStageDrawsEveryRoom()) {
+			if (modSpectateIsOn()) {
 				bgTickPortalsSpectate(&box);
+			} else if (xblaStageDrawsEveryRoom()) {
+				bgTickPortalsEveryRoom(&box);
 			} else
 #endif
-			if (g_BgPortals[0].verticesoffset == 0) {
-				for (room = 1; room < g_Vars.roomcount; room++) {
-					if (bgRoomIntersectsScreenBox(room, &box)
-							&& ((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
-							&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
-							&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
-							&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)) {
-						bgSetRoomOnscreen(room, 0, &box);
-					}
-				}
-			} else {
-				bgSetRoomOnscreen(g_CamRoom, 0, &box);
-
-				g_BgSnake.count = 0;
-				g_BgSnake.headindex = 0;
-				g_BgSnake.tailindex = 0;
-
-				bgAddToSnake(g_CamRoom, g_CamRoom, 1, &box);
-
-				while (bgTryConsumeSnake());
-			}
+			bgTickPortalsWalk(&box);
 		}
 
 		bgChooseRoomsToLoad();

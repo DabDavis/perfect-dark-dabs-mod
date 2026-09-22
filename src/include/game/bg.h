@@ -8,6 +8,9 @@ void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly);
 void bgSetRoomOnscreen(s32 room, s32 draworder, struct screenbox *arg2);
 void bgGetRoomBrightnessRange(s32 roomnum, u8 *min, u8 *max);
 struct drawslot *bgGetRoomDrawSlot(s32 roomnum);
+#ifndef PLATFORM_N64
+bool bgRoomIsPortalVisible(s32 room);
+#endif
 Gfx *bgRenderXrayData(Gfx *gdl, struct xraydata *xraydata);
 Gfx *bgAddXrayTri(Gfx *gdl, struct xraydata *xraydata, s16 vertices1[3], s16 vertices2[3], s16 vertices3[3], u32 colour1, u32 colour2, u32 colour3);
 void bgChooseXrayVtxColour(bool *inrange, s16 vertex[3], u32 *colour, struct xraydata *xraydata);

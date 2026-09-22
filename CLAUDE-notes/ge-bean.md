@@ -8694,3 +8694,34 @@ offset's float copy (xblaMeshRestShift()) is not made. Traps for the next one:
 - a float copy of any of a model's matrices made while listing is only
   right if nothing rewrites the model's matrices after the list; the
   orthogonal path is the one that does.
+
+## Invisible guards up close in HD: the whole level on screen, and chrTick()'s cap of 30 (2026-09-22)
+
+Two F3s from the tester the same night (20260922-235134 "inivisible guards up
+close", -235226 "whole room guards invisible"), Facility (0x63) in the HD look,
+both in the toilets (room 12). Every chr in the player's own room had
+`propflags 00000004` - not on screen - while guards seen through doorways drew.
+The dump said why at a glance: `[rooms on screen]` listed **all 77 rooms** with a
+full-screen box, and exactly **30** chrs were flagged on screen, nine of them
+9 km off across the level.
+
+An HD level draws every room (`xblaStageDrawsEveryRoom()` ->
+`bgTickPortalsSpectate()`, because a room's HD mesh can stand outside its N64
+box), and that set `ROOMFLAG_ONSCREEN` on the whole level - which is also what
+`func0f08e8ac()` asks before a prop's frustum test. So every guard inside the
+view cone anywhere on Facility counted as on screen, and `chrTick()` poses and
+draws at most 30 chrs a tick (`var8009cdb0 + var8009cdac > 30`, N64 budget).
+Whoever came first in the prop list took the 30; the ones beside the player
+often did not. It is order luck, so a probe at frame 330 drew them anyway - the
+count is the check, not the picture.
+
+Fix: `bgTickPortalsEveryRoom()` runs the ordinary portal walk first
+(`bgTickPortalsWalk()`, the old inline branch), notes each room it reached in
+`g_BgPortalSeen`, then adds every room for drawing (`bgSetRoomOnscreen()` merges
+a room already added). `bgRoomIsPortalVisible()` answers from the walk on such a
+level, and `func0f08e8ac()` asks it for chrs and players only - objects keep the
+whole-level answer. Spectate and X-ray are unchanged. With the fix the toilets
+count 3 chrs on screen where the old binary counted 30 (18 facing the stalls).
+Probe: `build/gexrom/hdtree/toilet.sh <binary> <tag>` with
+`PLAYER=x,y,z,room,theta` (`toiletprobe.py`: places the player, prints nearby
+chrs' rooms and on-screen bits and the total).
