@@ -16,6 +16,7 @@ struct var8007f8dc *func0f14a20c(void);
 void func0f14a240(void);
 bool func0f14a2fc(s32 index, u32 line, char *file);
 void pheadInit(void);
+bool pheadIsAvailable(void);
 void pheadReset(void);
 void func0f14a52c(void);
 void func0f14a560(void);

@@ -1941,7 +1941,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						headnum = MENUMODELPARAMS_GET_MASTER_HEADNUM(menumodel->newparams);
 						bodynum = MENUMODELPARAMS_GET_MASTER_BODYNUM(menumodel->newparams);
 					} else {
-						s32 mpheadnum = MENUMODELPARAMS_GET_MP_HEADNUM(menumodel->newparams);
+						s32 mpheadnum = mpHeadNumSafe(MENUMODELPARAMS_GET_MP_HEADNUM(menumodel->newparams));
 						s32 mpbodynum = MENUMODELPARAMS_GET_MP_BODYNUM(menumodel->newparams);
 						bodynum = mpGetBodyId(mpbodynum);
 

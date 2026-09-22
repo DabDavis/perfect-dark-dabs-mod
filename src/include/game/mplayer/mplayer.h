@@ -57,6 +57,7 @@ void mpCalculatePlayerTitle(struct mpplayerconfig *mpplayer);
 void mpCalculateAwards(void);
 void mpEndMatch(void);
 s32 mpGetNumHeads2(void);
+s32 mpHeadNumSafe(s32 mpheadnum);
 s32 mpGetNumHeads(void);
 s32 mpGetHeadId(u8 headnum);
 s32 mpGetHeadRequiredFeature(u8 headnum);

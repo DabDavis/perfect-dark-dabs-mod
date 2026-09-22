@@ -306,3 +306,35 @@ measured 2.6x the distance of a stock one, not 5x. They save in setup file
 version 3 (save-format.md). The probes were gdb scripts over the seeded perf
 match: `g_MpAllChrPtrs[i]` is **not** bot slot `i - 1` (the order is shuffled),
 go through `aibot->config - g_BotConfigsArray`.
+
+## A head past the Combat Simulator's list: Perfect Heads the port never has (2026-09-22)
+
+Crash 20260921-231914 and 20260922-013052 (Windows, dev 2c412fa, the same
+player twice): `func0f14a9f8()` reading `0x3bc` under `menuRenderModel()`,
+straight after a GE Plus mission was aborted and the Institute loaded. Their
+pd.ini had `InstituteCharacterHead=76` with `XblaGoldenEye=0`: the stock
+list has 75 heads (`MPHEAD_WINNER` is 0x4a), so head index 75 was the first
+of the release's pool, picked on Customize Character while the pool was on,
+and with the pool off it was **one past the list**.
+
+Perfect Dark's rule for an `mpheadnum` at or past `mpGetNumHeads2()` is
+"a Perfect Head" (the Game Boy Camera's), index `mpheadnum - count` into
+`var8007f8e0`, which `pheadInit()` never allocates on the port - it is NULL
+for ever, and `func0f14a06c()` returns `&NULL[index]`; `0x3bc` is `unk3a4`
+of slot 0. Five readers took that branch: `menuRenderModel()` (the crash),
+the head carousel (`mpCharacterHeadMenuHandler()`), the player's own body in
+a match (`playerChooseBodyAndHead()`), the ghost nameplate
+(`menuGhostPlaqueModel()`) and the head's name (`mpGetHeadName()`); the
+simulant's (`botmgrAllocateBot()`) read a stale row instead. And the list
+shrinks under a saved number: `gebeanPoolRefresh()` takes the pool's and a
+mod's borrowed heads off the tail whenever it is refreshed, and pd.ini's
+`InstituteCharacterHead` and a Combat Simulator setup keep the number.
+
+`mpHeadNumSafe()` (mplayer.c) answers a number that is in the list, or a
+Perfect Head with a store to read it from (`pheadIsAvailable()`, camdraw.c),
+and `MPHEAD_DARK_COMBAT` otherwise; all six sites go through it. The
+Institute's own pick goes through `modGhostCiHead()` (modghost.c), which
+gives a pick the list no longer has the body's default head and leaves the
+saved number alone, so it comes back when the pool does. Reproduced and
+verified with `build/gexrom/cicrash.py` on `save_ci` (`InstituteCharacterHead=200`
+of 127): the page opens and shows head 120.

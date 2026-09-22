@@ -170,6 +170,26 @@ offsets need a build of that commit to read, and a driver fault inside
   `bgTestHitOnObj()` reading `0x140003a` from `propFindAimingAt()`. Both were on
   the Carrington Institute after many F6 toggles, from different players.
 
+## The fourth pass (2026-09-22, reports after 20260921-160755)
+
+Three reports, two faults. The dev-channel exe for a commit that is not a
+tag is the CI artifact: `gh api repos/{owner}/{repo}/actions/artifacts` and
+filter on `workflow_run.head_sha`, then the `/zip` download; they expire,
+and 8056aa4 (= v3.8.0) had none left, so that one came from the release.
+
+- **2c412fa, `func0f14a9f8()` reading `0x3bc` under `menuRenderModel()`**
+  (2, one player): the Institute's Customize Character head one past the
+  head list, read as a Perfect Head the port has no store for - fixed, see
+  chrs-and-memory.md "A head past the Combat Simulator's list".
+- **v3.8.0 (8056aa4), `gfx_sp_vertex()` reading `0x1738147de00` from
+  `gfx_run_dl()`** (1): a Randomizer run's second hop, stage 0x68 = HD
+  Caverns (`gebeanstage: cavern at scale 0.50107: 63 of 63 rooms`) on
+  the stable release, 11 chrs, F6 not touched. A vertex load from a heap
+  address that is not a vertex buffer - a room's list or a mesh's freed
+  under it. Open: the seed (2227863130, pool 2, difficulty 2) is above
+  S32_MAX and the run needs the player's map pool; not tried on HEAD,
+  where the HD stage builder has changed twice since 3.8.0.
+
 ## The other end
 
 `tools/pdghostd/pdghostd.py`, `POST /crash`, documented in its README under

@@ -39,7 +39,7 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 
 	rooms[0] = -1;
 
-	headnum = mpGetHeadId(g_BotConfigsArray[aibotnum].base.mpheadnum);
+	headnum = mpGetHeadId(mpHeadNumSafe(g_BotConfigsArray[aibotnum].base.mpheadnum));
 	bodynum = mpGetBodyId(g_BotConfigsArray[aibotnum].base.mpbodynum);
 
 	if (IS4MB()) {

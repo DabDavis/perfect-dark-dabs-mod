@@ -7682,3 +7682,121 @@ Complex (1511), which GoldenEye's tex.c hooks per texture with scrolling
 tiles (`MipMap2C_Something_Setup`, `flt_CODE_bss_80079E80/E84`) - a bg
 render hook, separate work. The black at the bottom of the user's frame
 under the boat's bow is the boat model's own hull interior, not the plane.
+
+## A Xenos primitive 5 is a triangle fan: Dam's bungee platform (2026-09-22)
+
+F3 20260922-003544, Windows, 4K, HD Dam: "bungee jump platform has a giant
+hole in it" - the deck's grating showed the sky through a triangle the size
+of half the deck. The N64 look has the whole grating (GE-X's rooms), so it
+was the HD conversion's. `hdsweep/parserooms.py` over the room dump found
+room 54's deck at y 13219 as three real triangles and one **collinear** one
+(three vertices along one edge, no area), and the raw Bean level
+(`bean2obj.py` on `background/dam/default.bin`) gave the reason: the deck
+is one draw of primitive type 5 with six indices, 76 to 81, in order
+**round the hexagon's edge** - a fan from the first vertex. Read as a
+strip, as `beanTriangles()`/`beanTriangles32()` had read type 5 since the
+first Bean model, it made (76 77 78), (77 78 79) - the collinear one -
+(78 79 80) and (79 80 81), and never the two triangles that meet at the
+first vertex.
+
+Xenos numbers its primitives 1 point list, 2 line list, 3 line strip, 4
+triangle list, **5 triangle fan, 6 triangle strip**, 13 quad list; it is
+Direct3D 9 that has 5 for the strip, and the note in bean2obj.py's header
+had been copied from it. The test that settles it without knowing any of
+that: over Dam's 258 type 5 draws of five or more indices, the triangles of
+213 wind consistently (every normal within 60 degrees of the first's) read
+as fans and **2** read as strips - a convex polygon's perimeter, walked as a
+strip, alternates. Runway 107 to 1, Statue Park 368 to 5, the props and guns
+the same. A degenerate count does *not* settle it (47 as fan against 29 as
+strip on Dam: polygons with a vertex on an edge give a fan a zero-area
+triangle, harmlessly).
+
+Type 5 is everywhere: 1248 draws in the levels, 669 in the props, 433 in
+the guns, 52 in the characters, mostly of 5 to 8 indices - one polygon
+each. Read as strips every one of those lost the triangles fanning from its
+first vertex: a pentagon lost one, a hexagon two. So this is holes across
+every HD level and prop, not the one platform. Both readers take the fan
+now; `.xbla-work/ge-bean/bean2obj.py` too (the other offline tools do not
+walk indices).
+
+Something else the dump found, **not fixed**: `gebeanstage: dropped tri`
+(eight logged a level, then counted) - a triangle whose UVs span more than
+32 repeats cannot fit a Vtx's s16 s/t at `XBLATEX_TILE_SCALE` and is left
+out (`writeLeaf()`'s second pass only re-bases the *batch* on the
+triangle's first vertex). Dam's 313 are all far scenery a room's origin
+cannot reach (position, not UV), but Facility drops one at u -41.8..2.8 on
+texture 27 in the room at (3587 239 -3620). Subdividing such a triangle is
+the fix if it is ever seen.
+
+## The truck's wheels in the HD look (2026-09-22)
+
+F3 20260922-003233, the same tester, a photo of the parked truck's front
+wheel at 4K: "wheel doesn't look right". In the HD look the truck
+(`Pgx279Z`, Bean's `prop/miltruck`) is built by `gebeanBuildRigid()`, which
+lays **every** draw of a prop on the first list's matrix - so on a driving
+truck the HD wheels stood still, and after a turn they stayed straight while
+GoldenEye's own parts 1 and 2 (the front wheels, which
+`vehTruckUpdateModel()` rolls by the road and steers by the turn) turned
+their empty groups. Bean's truck has the wheels as bones of its own: 18
+pose bones, of which 6 to 9 sit at the wheel centres with the body as parent
+(2 to 5 and 10 to 17 are duplicates at the same or the outer positions),
+and draws 13 and 14 (the four wheels, texture 9, 408 vertices) bind their
+vertices to palette entries 1 to 4, which `remap` sends to bones 9, 8, 7, 6.
+
+The rigid builder matches a bone to a host part now: each bone's bind
+position through the row's own transform (`perm`, `sign`, `scale`,
+`beancentre`, `n64centre` - the same one the vertices go through) against
+every list node's position node that is not the root's (`gebeanListPositionNode()`,
+a part above 0 whose own matrix is the first list's). A vertex of a matched
+bone is stored **relative to that node** with the node's matrix as its
+bone, so the model's pose carries it: the palette entry for a matrix with no
+rig is an identity, and matrices 1 to 4 are the wheel nodes' world
+matrices, position and roll and steer included. Everything else stays on
+the first list's matrix as before, and the group is still 0 (which list
+draws it does not matter once the vertex is posed by its own matrix).
+
+Two things the numbers taught. Bean's bind for a front wheel is
+(-300 -116 -267), times 3.05 plus the row's centre = (-915 -770 2308),
+which is GoldenEye's part 1 to the unit - but its **rear** wheel bones are
+at x ±915 where GoldenEye's parts 3 and 4 stand at ±610: GoldenEye's model
+has a pair of wheels a side at the back and the node at the inner one. A
+roll is about the axle, so the pivot's x does not matter, and the match is
+on the axle line (y and z within 25) with x within 350. And the build log
+does not appear unless the model is *drawn* - the mesh is built at its
+first draw, and a probe whose camera misses the truck builds nothing;
+`vv_theta` is `atan2(-dx, dz)`, not `atan2(dx, dz)`, which is what every
+side-on shot of the first hour missed the truck by (`build/gexrom2/truckcam.py`
+has the right one, `OFFS`/`LOOK` relative to the truck's heading).
+
+The line to look for: `gebean: Pgx279Z <- new/prop/miltruck: 1313 vertices,
+929 triangles, rigid on matrix 0 of 5, 408 vertices on 12 bones over the
+model's own moving parts`. Verified rolling (the hub's holes advance between
+frames at the road speed) and steering (hub and tyre turn together at yrot
+0.62 around frame 506) from beside the truck; no other prop in the sweep
+has bones that stand on a host's parts, so none is changed.
+
+## GoldenEye's sight at the edge of a 4K view (2026-09-22)
+
+F3 20260922-003018 and 003132, Windows, 3840x2160, the sniper rifle at
+30x on Dam: "a bunch of crosshairs are on my screen" - one row of them
+across the view at the crosshair's height, then a whole screen of them. The
+crosshair is `geHudRenderSight()` in gehud.c, one 32x32 picture through
+`hudImage()`'s `gSPTextureRectangle`, and that command holds **twelve bits
+a corner**: the picture starts 16 units left and up of the crosshair, and
+the crosshair reaches the view's edge whenever the mouse turns the player
+(bondmove.c turns when `crosspos` passes the middle by 20, which at 30x is
+how you turn at all) - so its rectangle's first corner went **negative**,
+`_SHIFTL` wrapped it to the far side of the 1024 unit field, and the
+renderer drew a rectangle from there to the real second corner with the
+texture repeating at its own density all the way across: `lrs = uls + dsdx *
+(lrx - ulx)` with a width of a thousand units. One row when only x wrapped,
+the grid when y did too. Not a 4K bug at all - it reproduces at 1080p with
+the sight at (2, 2) (`build/gexrom/sightedge.py`); the vi is 320x220 at any
+window, so a coordinate cannot *overflow*, only go under zero.
+
+`hudImage()` draws with `gSPTextureRectangleWideEXT` now, the port's own
+three word rectangle (gbiex.h) whose corners are signed 24 bit and which
+`gfx_pc.cpp` sign-extends - the radar's fill boxes had gone the same way
+already. gehud.c is the only HUD drawer that takes a picture to an
+arbitrary place; the ammo pictures and the folder's text stay inside the
+frame and never went negative.

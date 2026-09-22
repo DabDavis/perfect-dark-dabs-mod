@@ -951,6 +951,21 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		}
 
 		if (!ok) {
+			if (*dropped < 8) {
+				f32 umin = t->uv[0][0], umax = umin, vmin = t->uv[0][1], vmax = vmin;
+
+				for (s32 k = 1; k < 3; k++) {
+					umin = t->uv[k][0] < umin ? t->uv[k][0] : umin;
+					umax = t->uv[k][0] > umax ? t->uv[k][0] : umax;
+					vmin = t->uv[k][1] < vmin ? t->uv[k][1] : vmin;
+					vmax = t->uv[k][1] > vmax ? t->uv[k][1] : vmax;
+				}
+
+				sysLogPrintf(LOG_NOTE, "gebeanstage: dropped tri tex %d at (%.0f %.0f %.0f) room pos (%.0f %.0f %.0f) u %.1f..%.1f v %.1f..%.1f",
+						t->tex, (t->pos[0][0] + t->pos[1][0] + t->pos[2][0]) / 3.0f, (t->pos[0][1] + t->pos[1][1] + t->pos[2][1]) / 3.0f,
+						(t->pos[0][2] + t->pos[1][2] + t->pos[2][2]) / 3.0f, roompos[0], roompos[1], roompos[2], umin, umax, vmin, vmax);
+			}
+
 			(*dropped)++;
 			continue;
 		}

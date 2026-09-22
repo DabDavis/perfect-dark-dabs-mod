@@ -288,6 +288,29 @@ s32 g_ModCiMissionDefault = 0;
 static bool g_ModCiBodyStale = false;
 
 /**
+ * Customize Character's head as a Combat Simulator index: `unset` for no pick,
+ * and the body's own head for a pick the list no longer has - the release's
+ * pool and a mod's borrowed heads sit on the list's tail and come off it when
+ * the pool is refreshed with either gone (gebeanPoolRefresh()), while pd.ini
+ * keeps the number. It was read as a Perfect Head then, which the port has no
+ * store for (crash 20260921-231914).
+ */
+s32 modGhostCiHead(s32 unset)
+{
+	const s32 head = g_ModCiHead - 1;
+
+	if (g_ModCiHead <= MODGHOST_BODY_DEFAULT) {
+		return unset;
+	}
+
+	if (head < mpGetNumHeads2()) {
+		return head;
+	}
+
+	return modGhostBodyDefaultHead(g_ModCiBody > MODGHOST_BODY_DEFAULT ? g_ModCiBody - 1 : 0);
+}
+
+/**
  * Whether the Customize Character pick is who the current player is: anyone
  * who would otherwise be Joanna - in the Institute, a solo mission, or Joanna's
  * side of co-op and counter-op. Not Velvet, not the counter-operative, who

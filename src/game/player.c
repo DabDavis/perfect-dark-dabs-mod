@@ -1514,10 +1514,12 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 #endif
 
 	if (g_Vars.normmplayerisrunning) {
-		if (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum < mpGetNumHeads2()) {
-			*headnum = mpGetHeadId(g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum);
+		const s32 mpheadnum = mpHeadNumSafe(g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum);
+
+		if (mpheadnum < mpGetNumHeads2()) {
+			*headnum = mpGetHeadId(mpheadnum);
 		} else {
-			*headnum = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum - mpGetNumHeads2();
+			*headnum = mpheadnum - mpGetNumHeads2();
 
 			if (arg2) {
 				*arg2 = true;

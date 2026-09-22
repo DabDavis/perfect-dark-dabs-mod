@@ -191,6 +191,15 @@ const char var7f1b63a0[] = "RWI : Cam Alloc : Guid=%d -> Total = %u (%d at %s)\n
 
 struct var8007f8dc *var8007f8dc = NULL;
 struct var8007f8e0 *var8007f8e0 = NULL;
+
+/**
+ * Whether there is a Perfect Head store to read: nothing allocates one on the
+ * port, and every reader of a Perfect Head slot dereferences it (func0f14a06c()).
+ */
+bool pheadIsAvailable(void)
+{
+	return var8007f8e0 != NULL;
+}
 u32 var8007f8e4 = 0x00000000;
 u32 var8007f8e8 = 0x00000008;
 u32 var8007f8ec = 0x0000005a;

@@ -2998,6 +2998,28 @@ s32 mpGetNumHeads2(void)
 	return g_MpListCounts.heads;
 }
 
+/**
+ * A Combat Simulator head index that names a head: the one given if the list
+ * still has it, else the first head.
+ *
+ * A number past the list is Perfect Dark's own cue for a Perfect Head, whose
+ * store the port never allocates - every reader of one dereferences NULL. And
+ * the list shrinks: the release's pool and a mod's borrowed characters sit on
+ * its tail and come off it whenever the pool is refreshed (gebeanPoolRefresh()),
+ * so a head chosen from the tail outlives it - pd.ini's InstituteCharacterHead
+ * after the release's characters were switched off, a player's Combat Simulator
+ * setup after a mod was uninstalled. Crash 20260921-231914: head 76 of 75 in
+ * the Institute's Customize Character, read as Perfect Head 1.
+ */
+s32 mpHeadNumSafe(s32 mpheadnum)
+{
+	if (mpheadnum >= 0 && (mpheadnum < mpGetNumHeads2() || pheadIsAvailable())) {
+		return mpheadnum;
+	}
+
+	return MPHEAD_DARK_COMBAT;
+}
+
 s32 mpGetNumHeads(void)
 {
 	return g_MpListCounts.heads;
@@ -3181,6 +3203,8 @@ char *mpGetHeadName(u8 mpheadnum)
 	const char *file;
 	s32 headnum;
 	s32 n = 0;
+
+	mpheadnum = mpHeadNumSafe(mpheadnum);
 
 	if (mpheadnum >= mpGetNumHeads2()) {
 		snprintf(made, sizeof(made), "Perfect Head %d\n", mpheadnum - mpGetNumHeads2() + 1);

@@ -280,11 +280,17 @@ static Gfx *hudImage(Gfx *gdl, struct textureconfig *tex, s32 mode, s32 point, s
 	gDPSetEnvColor(gdl++, 255, 255, 255, alpha);
 	gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
 	// the picture's rows run bottom to top (gexfront.c's frontImage() with a
-	// negative height), so t starts on the last row and counts back
-	gSPTextureRectangle(gdl++,
+	// negative height), so t starts on the last row and counts back.
+	//
+	// The renderer's own wide rectangle, whose corners are signed: the N64
+	// command holds twelve bits a corner, and the sight aimed at the edge of
+	// the view - where its picture starts up to sixteen units off it, which
+	// the mouse does at any zoom - wrapped to the far side and drew as a
+	// screen of crosshairs (F3 20260922-003018, 003132).
+	gSPTextureRectangleWideEXT(gdl++,
 			(s32)(x1 * 4), (s32)(y1 * 4), (s32)(x2 * 4), (s32)(y2 * 4),
 			G_TX_RENDERTILE, 0, flip ? (theight << 5) - 1 : 0,
-			(s32)(twidth * 1024.0f / (x2 - x1)), (s32)((flip ? -theight : theight) * 1024.0f / (y2 - y1)));
+			(s32)(twidth * 1024.0f / (x2 - x1)), (s32)((flip ? -theight : theight) * 1024.0f / (y2 - y1)), 0);
 
 	return gdl;
 }

@@ -2519,14 +2519,18 @@ static s32 beanTriangles(const struct beanmodel *bm, const struct beandraw *d, u
 			tris[n * 3] = a; tris[n * 3 + 1] = c; tris[n * 3 + 2] = e; n++;
 		}
 	} else if (d->prim == 5) {
+		// A triangle FAN: Xenos numbers its primitives 4 list, 5 fan, 6 strip
+		// (Direct3D's 5 is the strip, which this was read as until
+		// 2026-09-22). A five to eight vertex draw of this kind is one
+		// polygon with its vertices round its edge, and read as a strip it
+		// drew every other triangle across a chord and left the middle out:
+		// Dam's bungee platform had a hole the sky showed through (F3
+		// 20260922-003544), and 213 of Dam's 258 such draws wind
+		// consistently as fans against 2 as strips
 		for (u32 i = 0; i + 2 < d->count; i++, n++) {
-			const u16 a = gebeanBE16(idx + i * 2);
-			const u16 b = gebeanBE16(idx + (i + 1) * 2);
-			const u16 c = gebeanBE16(idx + (i + 2) * 2);
-
-			tris[n * 3] = (i & 1) ? b : a;
-			tris[n * 3 + 1] = (i & 1) ? a : b;
-			tris[n * 3 + 2] = c;
+			tris[n * 3] = gebeanBE16(idx);
+			tris[n * 3 + 1] = gebeanBE16(idx + (i + 1) * 2);
+			tris[n * 3 + 2] = gebeanBE16(idx + (i + 2) * 2);
 		}
 	}
 
@@ -2582,14 +2586,11 @@ static s32 beanTriangles32(const struct beanmodel *bm, const struct beandraw *d,
 			tris[n * 3] = a; tris[n * 3 + 1] = c; tris[n * 3 + 2] = e; n++;
 		}
 	} else if (d->prim == 5) {
+		// a triangle fan, as in beanTriangles()
 		for (u32 i = 0; i + 2 < d->count; i++, n++) {
-			const u32 a = BEAN_INDEX(i);
-			const u32 b = BEAN_INDEX(i + 1);
-			const u32 c = BEAN_INDEX(i + 2);
-
-			tris[n * 3] = (i & 1) ? b : a;
-			tris[n * 3 + 1] = (i & 1) ? a : b;
-			tris[n * 3 + 2] = c;
+			tris[n * 3] = BEAN_INDEX(0);
+			tris[n * 3 + 1] = BEAN_INDEX(i + 1);
+			tris[n * 3 + 2] = BEAN_INDEX(i + 2);
 		}
 	}
 
@@ -3908,6 +3909,33 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	}
 }
 
+/** The position node a list node draws under, or NULL where it is the root's. */
+static const struct modelnode *gebeanListPositionNode(const struct modelnode *node)
+{
+	s32 walked = 0;
+
+	for (node = node ? node->parent : NULL; node && walked < 64; node = node->parent, walked++) {
+		if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+			return node->rodata->position.part > 0 ? node : NULL;
+		}
+
+		if ((node->type & 0xff) == MODELNODETYPE_CHRINFO || (node->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
+			return NULL;
+		}
+	}
+
+	return NULL;
+}
+
+static const char *gebeanPartsNote(s32 numparts, s32 numverts)
+{
+	static char note[64];
+
+	snprintf(note, sizeof(note), ", %d vertices on %d bones over the model's own moving parts", numverts, numparts);
+
+	return note;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -3921,6 +3949,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 mirror;
 	u64 flash = 0;
 	s32 numflash = 0;
+	s32 bonemtx[BEAN_MAXBONES];
+	f32 bonepos[BEAN_MAXBONES][3];
+	s32 numparts = 0;
+	s32 numpartverts = 0;
 	u8 *file;
 
 	// An odd permutation of three axes swaps two; each negative sign mirrors once
@@ -3945,6 +3977,63 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	}
 
 	memset(&out, 0, sizeof(out));
+
+	// A bone of Bean's mesh that stands where the host has a position node
+	// of its own, under the first list's node, is that node's: the military
+	// truck's four wheels are bones of its mesh (6 to 9, each wheel's centre)
+	// and parts 1 to 4 of GoldenEye's model, which vehTruckUpdateModel()
+	// rolls and steers by their matrices. Laid on the first list's matrix
+	// with the rest of the truck, as every rigid prop was until 2026-09-22,
+	// the wheels stood still on a moving truck and stayed straight through
+	// a turn (F3 20260922-003233, "wheel doesn't look right"). Such a bone's
+	// vertices go under the node's matrix, relative to the node, so the
+	// model's own pose carries them; everything else rides on the first
+	// list's matrix as before.
+	for (s32 b = 0; b < BEAN_MAXBONES; b++) {
+		bonemtx[b] = -1;
+	}
+
+	for (s32 b = 0; b < bm.numbones && b < BEAN_MAXBONES; b++) {
+		f32 at[3];
+
+		for (s32 k = 0; k < 3; k++) {
+			const f32 p = g->sign[k] * bm.bind[b][g->perm[k]];
+
+			at[k] = (p - g->beancentre[k]) * g->scale + g->n64centre[k];
+		}
+
+		for (s32 k = 0; k < numnodes; k++) {
+			const struct modelnode *pn = gebeanListPositionNode(nodes[k]);
+			const f32 *ppos;
+			f32 dx, dy, dz;
+
+			if (!pn || pn->rodata->position.mtxindex0 == mtx || pn->rodata->position.mtxindex0 >= nummatrices
+					|| gebeanListNodeMatrix(pn) != mtx) {
+				continue;
+			}
+
+			ppos = &pn->rodata->position.pos.x;
+			dx = at[0] - ppos[0];
+			dy = at[1] - ppos[1];
+			dz = at[2] - ppos[2];
+
+			// On the part's axle line - the truck's rear wheel nodes stand a
+			// third of the way in from its wheels (x 610 to their 915: a
+			// pair of wheels a side in GoldenEye's model, one in Bean's),
+			// which a roll about that axle does not mind - and within a
+			// quarter of the part's box across it
+			if (dy * dy + dz * dz < 25.0f * 25.0f && dx * dx < 350.0f * 350.0f) {
+				bonemtx[b] = pn->rodata->position.mtxindex0;
+				bonepos[b][0] = pn->rodata->position.pos.x;
+				bonepos[b][1] = pn->rodata->position.pos.y;
+				bonepos[b][2] = pn->rodata->position.pos.z;
+				numparts++;
+
+
+				break;
+			}
+		}
+	}
 
 	// a gun's painted muzzle flash; a prop has none, and a flat end of one is
 	// its own geometry
@@ -3996,8 +4085,9 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				struct beanvtx v;
 				f32 pos[3];
 				f32 nrm[3];
-				const u8 bone[3] = { (u8)mtx, (u8)mtx, (u8)mtx };
+				u8 bone[3] = { (u8)mtx, (u8)mtx, (u8)mtx };
 				const f32 weight[3] = { 1.0f, 0.0f, 0.0f };
+				s32 part = -1;
 
 				if (mapped[vi] >= 0) {
 					idx[i] = (u16)mapped[vi];
@@ -4009,11 +4099,34 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 					break;
 				}
 
+				if (numparts > 0 && v.slot[0] >= 0 && v.slot[0] < d->numpal) {
+					s32 b = d->pal[(s32)v.slot[0]];
+
+					b = bm.numremap && b < bm.numremap ? bm.remap[b] : b;
+					part = b >= 0 && b < BEAN_MAXBONES ? bonemtx[b] : -1;
+				}
+
 				for (s32 k = 0; k < 3; k++) {
 					const f32 p = g->sign[k] * v.pos[g->perm[k]];
 
 					pos[k] = (p - g->beancentre[k]) * g->scale + g->n64centre[k];
 					nrm[k] = g->sign[k] * v.nrm[g->perm[k]];
+				}
+
+				if (part >= 0) {
+					// in the part's node's own space, which its matrix carries
+					for (s32 b = 0; b < bm.numbones && b < BEAN_MAXBONES; b++) {
+						if (bonemtx[b] == part) {
+							for (s32 k = 0; k < 3; k++) {
+								pos[k] -= bonepos[b][k];
+							}
+
+							break;
+						}
+					}
+
+					bone[0] = bone[1] = bone[2] = (u8)part;
+					numpartverts++;
 				}
 
 				// Opaque black is a part exported with no colour set of its own,
@@ -4084,10 +4197,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, rigid on matrix %d of %d%s%s%s",
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, rigid on matrix %d of %d%s%s%s%s",
 			g->row.file, source, out.numverts, out.numtris, mtx, nummatrices,
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
-			mirror ? ", mirrored" : "", file ? "" : " - did not write");
+			mirror ? ", mirrored" : "", file ? "" : " - did not write",
+			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
 
 	beanOutFree(&out);
 	beanFree(&bm);

@@ -2429,6 +2429,8 @@ MenuItemHandlerResult mpCharacterHeadMenuHandler(s32 operation, struct menuitem 
 		{ 255, false },
 	};
 
+	mpheadnum = mpHeadNumSafe(mpheadnum);
+
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
 		data->carousel.value = mpGetNumHeads2();

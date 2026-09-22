@@ -297,7 +297,7 @@ struct menudialogdef g_GhostCharacterMenuDialog = {
  */
 static char *menutextCiCharacterName(struct menuitem *item)
 {
-	const s32 head = g_ModCiHead > MODGHOST_BODY_DEFAULT ? g_ModCiHead - 1 : 0;
+	const s32 head = modGhostCiHead(0);
 
 	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s", mpGetCharacterRowName(item,
 			g_ModCiBody <= MODGHOST_BODY_DEFAULT ? "Joanna\n" : mpGetBodyName(g_ModCiBody - 1), head));
@@ -308,7 +308,7 @@ static char *menutextCiCharacterName(struct menuitem *item)
 static MenuItemHandlerResult menuhandlerCiCharacterBody(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	s32 body = g_ModCiBody > MODGHOST_BODY_DEFAULT ? g_ModCiBody - 1 : 0;
-	s32 head = g_ModCiHead > MODGHOST_BODY_DEFAULT ? g_ModCiHead - 1 : modGhostBodyDefaultHead(body);
+	s32 head = modGhostCiHead(modGhostBodyDefaultHead(body));
 
 	switch (operation) {
 	case MENUOP_SET:
@@ -330,7 +330,7 @@ static MenuItemHandlerResult menuhandlerCiCharacterBody(s32 operation, struct me
 
 static MenuItemHandlerResult menuhandlerCiCharacterHead(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	s32 head = g_ModCiHead > MODGHOST_BODY_DEFAULT ? g_ModCiHead - 1 : 0;
+	s32 head = modGhostCiHead(0);
 
 	if (operation == MENUOP_SET) {
 		g_ModCiHead = data->carousel.value + 1;
@@ -2704,6 +2704,8 @@ static void menuGhostPlaqueModel(struct menumodel *model, s32 mphead, s32 x, s32
 		{ MODELPART_HEAD_HUDPIECE,   false },
 		{ 255, false },
 	};
+
+	mphead = mpHeadNumSafe(mphead);
 
 	if (mphead < mpGetNumHeads2()) {
 		headnum = mpGetHeadId(mphead);
