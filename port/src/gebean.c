@@ -6564,9 +6564,7 @@ static void beanTreeUvs(const struct beanmodel *bm, const struct beanvb *vb, con
  * A draw under an instancing record is placed by its matrix, and the buffers
  * drawn that way are trees, whose UVs are made (beanTreeUvs()).
  *
- * Left out: the stride 36 buffers, which are the water (a packed word, then
- * the position at +4 - not read yet), and any vertex that is not a sane
- * position.
+ * Left out: any vertex that is not a sane position.
  */
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg)
@@ -6604,7 +6602,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		s32 numtris;
 		s32 istree = 0;
 
-		if (!beanReadVb(bm, draw->vb, &vb) || vb.stride == 36) {
+		if (!beanReadVb(bm, draw->vb, &vb)) {
 			continue;
 		}
 
@@ -6625,7 +6623,28 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 			for (s32 k = 0; k < 3 && ok; k++) {
 				struct beanvtx bv;
 
-				ok = beanVertex(bm, &vb, tris[t * 3 + k], &bv);
+				// A level's stride 36 vertex is the water's: a packed word,
+				// then the position, a normal, the UV, a tangent, a second
+				// pair and the colour
+				if (vb.stride == 36) {
+					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
+
+					ok = tris[t * 3 + k] < vb.count;
+
+					if (ok) {
+						memset(&bv, 0, sizeof(bv));
+
+						for (s32 j = 0; j < 3; j++) {
+							bv.pos[j] = gebeanBEF32(p + 4 + j * 4);
+						}
+
+						bv.uv[0] = (s16)gebeanBE16(p + 20) / bm->uvscale;
+						bv.uv[1] = (s16)gebeanBE16(p + 22) / bm->uvscale;
+						bv.argb = beanColour(gebeanBE32(p + 32));
+					}
+				} else {
+					ok = beanVertex(bm, &vb, tris[t * 3 + k], &bv);
+				}
 
 				// A level's stride 32 vertex is not a skinned one: position,
 				// normal, UV, a second UV, a blend word, then the lit colour

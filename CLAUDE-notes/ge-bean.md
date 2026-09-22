@@ -7428,6 +7428,15 @@ Read but not yet drawn:
 - **stride 36 in a level is water**, not trees (the old comment was wrong): a
   packed word, then the position at +4, normal +16, UVs +20, four textures
   (Dam's reservoir, a flat grid at Bean y -192.6).
+  *Drawn since 2026-09-22*: the UV is the level's own scale and the colour is
+  at +32 (+24 a tangent, +28 a second pair not read); the material's four
+  512x512 pictures are a normal map, a reflection panorama, a ripple height
+  map and the water's colour (DXT5, alpha about 160), and the material picker
+  already takes the last, which is the colour. Only Dam has any (10099 + 274
+  vertices, 19626 triangles), and until then HD Dam's reservoir was its dry
+  rock bed (`build/gexrom/hdtree/nearpad.sh 0x15 TAG` with `TX=-3458
+  TZ=-10136 TY=12393` stands on the waypoint pad nearest the water's middle).
+  Static: the release animates it with the normal map, which is not done.
 - **stride 20 has no UV at all** (position, normal, colour) and Surface's pine
   *branches* are stride 20 under a DXT3 branch picture (25344 indices): the
   shader makes the UVs, so they draw white. Generate them per quad. *Done
