@@ -7978,3 +7978,69 @@ and the frozen camera never runs a tick, so `g_CurrentPlayer->pos` stays at the
 origin. **To photograph a mission's own opening in GoldenEye, walk the menus
 with a pad script** (`dam.padscript`) as the Dam tour did; a demo is the wrong
 entry for anything before the player has control.
+
+## Caverns' doors were never there, and a triangle kept popping on the screen
+
+F3 report `20260922-065720`, Caverns (stage 0x66), note "triangle keep popping
+on screen", with the user adding that the level's doors were missing. Both
+halves are one fault, and it is a single word of a converted model's header.
+
+**A model header's second word is its skeleton, and the conversion wrote
+`SKEL_BASIC` for every prop.** GoldenEye stores a *pointer* into its data
+segment there (`ModelFileHeader.Skeleton`), Perfect Dark an *id* it resolves
+through `g_Skeletons[]` at the load (`modeldef.c`, `(u32)modeldef->skel <
+0x10000`), so there was nothing to copy and `gemodelconv.py` had written a
+constant 2 since the first model. For 337 of GoldenEye's 339 prop models that
+is right - they are `skeleton_standard_object` or a skeleton Perfect Dark reads
+for nothing this conversion does. The two exceptions are Caverns':
+
+| GoldenEye | pointer | matrices | Perfect Dark |
+|---|---|---|---|
+| `Pdoor_eyelidZ` (164) | `0x8003a100` `skeleton_eyelid_door` | 3 | `g_Skel11` |
+| `Pdoor_irisZ` (165) | `0x8003a15c` `skeleton_iris_door` | 13 | `g_Skel13` |
+
+**Perfect Dark poses a door by its skeleton and by nothing else.**
+`objInitMatrices()` sends an `OBJTYPE_DOOR` to `doorInitMatrices()`, which is
+*not* the branch that calls `modelSetMatrices()`: it writes matrix 0 from the
+prop's position and then, only for those two skeletons, the leaves - two
+rotated about x for the eyelid, six pairs about z for the iris, each on the
+part rodata's own position, exactly as GoldenEye's own render does
+(`propobj.c:5885`, `skeleton_eyelid_door`/`skeleton_iris_door`, the same
+`TAU/360` and the same `maxFrac * 0.3` breakpoint). With `g_SkelBasic` on the
+model, matrices 1..12 were **never written at all** - and `model->matrices` is
+`gfxAllocate()`'d per frame, so they were whatever the frame's scratch happened
+to hold. The leaves were drawn at a different garbage transform every frame:
+usually somewhere far enough off to read as "the doors are missing", and often
+enough across the near plane to read as a triangle popping on the screen. The
+tester's own screenshot has one lying over a crate.
+
+Fixed in converter **59**: `gerom.py`'s `props()` carries the skeleton pointer
+and `gemodelconv.py`'s `GE_SKELETONS` (`propSkel()` in `port/src/geconvert.c`,
+which is the same table) maps it to Perfect Dark's id. **The table names all
+fifteen of GoldenEye's prop skeletons and maps only those two**; the other
+thirteen stay `SKEL_BASIC`, because their models are one matrix or are posed by
+their *object type* (`cctvInitMatrices()`, `autogunInitMatrices()`,
+`hangingmonitorInitMatrices()`) and what Perfect Dark reads their skeletons for
+is shooting the glass out of a door or the lens out of a camera, which is not
+converted. Over every GoldenEye setup, solo and multiplayer, 164 and 165 are
+the **only** door models with more than one matrix, so the class is closed.
+
+Two things that came with it for free: `doorsTick()` plays the iris's own
+open/close sound off `skel == &g_Skel13` at 30% of `maxfrac`, which is
+GoldenEye's `METAL_SLIDE_OPEN`/`CLOSE` at the same point; and `maxfrac` 21 and
+42 are not a fraction - an eye or an iris door's `maxFrac` is an **angle in
+degrees**, which is why those two records look nothing like Perfect Dark's own
+0.9.
+
+**Judging it:** toggle the skeleton inside one run rather than comparing two
+(`build/gexrom/cavedoorab3.py`: settle the camera, then
+`set variable g_Vars.props[N].door->base.model->definition->skel = &g_SkelBasic`
+for one frame and back for the next). Three shots at one camera - fixed, basic,
+fixed - and the middle one is a black leaf over the whole screen.
+`build/gexrom/caveskel.py` prints which skeleton each door got;
+`build/gexrom/caveiris.py` opens the pair and photographs the movement. Twenty-
+one of Caverns' twenty-five doors stand **open** at the load and always did:
+GoldenEye's `PROPFLAG_80000000` on a door is "open by default" *and* "do not
+auto-close", `doorInit()` sets `openPosition = maxFrac` from it, and Perfect
+Dark's `OBJFLAG_DOOR_KEEPOPEN` is the same bit doing the same thing - so a door
+that is not drawn where you expect it is not necessarily a fault.

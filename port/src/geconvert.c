@@ -721,6 +721,7 @@ static int romOpen(void)
 
 		p->file = dataString(be32(g_Data, o + 4));
 		p->scale = bef32(g_Data, o + 8);
+		p->skeleton = be32(g_Data, h + 4);
 		p->numswitches = bes16(g_Data, h + 12);
 		p->nummatrices = bes16(g_Data, h + 14);
 		p->radius = bef32(g_Data, h + 16);
@@ -5321,6 +5322,52 @@ static size_t texDataSize(uint32_t width, uint32_t height, uint32_t level, uint3
 }
 
 /**
+ * The Perfect Dark skeleton id for a GoldenEye prop's skeleton pointer
+ * (gemodelconv.py's GE_SKELETONS, which is this).
+ *
+ * A model header's second word is its skeleton: GoldenEye stores a pointer into
+ * its data segment and Perfect Dark an id it resolves through g_Skeletons[] at
+ * the load, so a converted prop was written with SKEL_BASIC whatever GoldenEye
+ * gave it - and Perfect Dark poses a *door* by skeleton: doorInitMatrices()
+ * writes matrix 0 and then, only for g_Skel11 and g_Skel13, the leaves.
+ * Caverns' eyelid and iris doors have three and thirteen matrices, so twelve of
+ * them were left as whatever gfxAllocate() handed over that frame: the doors
+ * were not where they belonged and a leaf landed across the view often enough
+ * for a tester to call it a triangle popping on screen.
+ *
+ * Perfect Dark kept both skeletons and poses them exactly as GoldenEye does
+ * (doorInitMatrices() against GoldenEye's propobj.c render), so the two are
+ * carried across. The rest of GoldenEye's skeletons are named here for what
+ * they are and left at SKEL_BASIC: their models are one matrix or are posed by
+ * their object type (a CCTV, an autogun, a mount), and the Perfect Dark code
+ * that reads those skeletons is about shooting the glass out of a door or a
+ * lens, which is not converted.
+ */
+static uint32_t propSkel(uint32_t skeleton)
+{
+	switch (skeleton) {
+	case 0x8003a100: return 0x11;  // eyelid_door -> g_Skel11 (Pdoor_eyelidZ, 3 matrices)
+	case 0x8003a15c: return 0x13;  // iris_door   -> g_Skel13 (Pdoor_irisZ, 13 matrices)
+	case 0x8003a05c:               // cctv
+	case 0x8003a070:               // console_one_screen
+	case 0x8003a084:               // console_four_screen
+	case 0x8003a0b0:               // tv_holder
+	case 0x8003a0e0:               // rotating_stuff (the autoguns)
+	case 0x8003a170:               // walletbond
+	case 0x8003a19c:               // car
+	case 0x8003a1c8:               // flying
+	case 0x8003a1dc:               // door (windowed)
+	case 0x8003a208:               // tank
+	case 0x8003a21c:               // hat
+	case 0x8003c4d8:               // standard_object
+	case 0x8003c4fc:               // prop_weapon
+	default: break;
+	}
+
+	return 2;  // SKEL_BASIC
+}
+
+/**
  * GoldenEye's prop model `num` (ischr: its character `num`) as a Perfect Dark
  * model file. A character is a prop with three more node types and its own
  * skeleton - see gechr.py, which is this.
@@ -5648,10 +5695,12 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 	}
 
 	set32(w.v, 0, SEG_MODEL + (uint32_t)nodesat);
-	// SKEL_BASIC for a prop; for a character SKEL_CHR where it has GoldenEye's
-	// guard skeleton, which is Perfect Dark's own joint for joint, and SKEL_HEAD
-	// where it has none (a head is one list on one matrix)
-	set32(w.v, 4, ischr == 1 ? (p->skeleton ? 0x09 : 0x0d) : 2);
+	// A prop keeps GoldenEye's own skeleton where Perfect Dark has it
+	// (propSkel(), which is SKEL_BASIC for all but the two Caverns doors); for
+	// a character SKEL_CHR where it has GoldenEye's guard skeleton, which is
+	// Perfect Dark's own joint for joint, and SKEL_HEAD where it has none (a
+	// head is one list on one matrix)
+	set32(w.v, 4, ischr == 1 ? (p->skeleton ? 0x09u : 0x0du) : (ischr == 2 ? 2u : propSkel(p->skeleton)));
 	set32(w.v, 8, p->numswitches ? SEG_MODEL + (uint32_t)partsat : 0);
 	set16(w.v, 12, (uint32_t)p->numswitches);
 	set16(w.v, 14, (uint32_t)p->nummatrices);

@@ -35,6 +35,47 @@ import texremap
 SEG = 0x05000000
 GEPROP = '/home/sdg/perfect-dark/claude-007/007/assets/obseg/prop'
 
+# A model header's second word is its skeleton. GoldenEye stores a pointer into
+# its data segment and Perfect Dark an id it resolves through g_Skeletons[] at
+# the load, so a converted prop was written with SKEL_BASIC whatever GoldenEye
+# gave it - and Perfect Dark poses a *door* by skeleton: doorInitMatrices()
+# writes matrix 0 and then, only for g_Skel11 and g_Skel13, the leaves. Caverns'
+# eyelid and iris doors have three and thirteen matrices, so twelve of them were
+# left as whatever gfxAllocate() handed over that frame: the doors were not
+# where they belonged and a leaf landed across the view often enough for a
+# tester to call it a triangle popping on screen.
+#
+# Perfect Dark kept both skeletons and poses them exactly as GoldenEye does
+# (propobj.c's doorInitMatrices() against propobj.c's render at 5885), so the
+# two are carried across. The rest of GoldenEye's skeletons are listed for what
+# they are and left at SKEL_BASIC: their models are one matrix or are posed by
+# their object type (a CCTV, an autogun, a mount), and the Perfect Dark code
+# that reads those skeletons is about shooting glass out of a door or a lens,
+# which is not converted.
+SKEL_BASIC = 2
+GE_SKELETONS = {
+    0x8003a05c: SKEL_BASIC,  # cctv
+    0x8003a070: SKEL_BASIC,  # console_one_screen
+    0x8003a084: SKEL_BASIC,  # console_four_screen
+    0x8003a0b0: SKEL_BASIC,  # tv_holder
+    0x8003a0e0: SKEL_BASIC,  # rotating_stuff (the autoguns)
+    0x8003a100: 0x11,        # eyelid_door -> g_Skel11  (Pdoor_eyelidZ, 3 matrices)
+    0x8003a15c: 0x13,        # iris_door   -> g_Skel13  (Pdoor_irisZ, 13 matrices)
+    0x8003a170: SKEL_BASIC,  # walletbond
+    0x8003a19c: SKEL_BASIC,  # car
+    0x8003a1c8: SKEL_BASIC,  # flying
+    0x8003a1dc: SKEL_BASIC,  # door (windowed)
+    0x8003a208: SKEL_BASIC,  # tank
+    0x8003a21c: SKEL_BASIC,  # hat
+    0x8003c4d8: SKEL_BASIC,  # standard_object
+    0x8003c4fc: SKEL_BASIC,  # prop_weapon
+}
+
+
+def prop_skel(skeleton):
+    """The Perfect Dark skeleton id for a GoldenEye prop's skeleton pointer."""
+    return GE_SKELETONS.get(skeleton, SKEL_BASIC)
+
 
 def prop_names():
     """GoldenEye's prop models in model number order (PitemZ_entries), by
@@ -287,7 +328,8 @@ def convert(num):
     for i, p in enumerate(switches):
         struct.pack_into('>I', w.out, partsat + 4 * i, reloc_node(p))
         struct.pack_into('>h', w.out, partsat + 4 * len(switches) + 2 * i, i)
-    struct.pack_into('>IIIhhfhhI', w.out, 0, SEG + nodesat, 2, SEG + partsat if switches else 0, len(switches),
+    struct.pack_into('>IIIhhfhhI', w.out, 0, SEG + nodesat, prop_skel(h['skeleton']),
+                     SEG + partsat if switches else 0, len(switches),
                      h['nummatrices'], h['radius'], 0, h['numtextures'], SEG + texat)
     w.align(16)
     return bytes(w.out), sorted(images), scale

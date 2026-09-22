@@ -181,8 +181,9 @@ class Rom:
         for k in range(NUM_PROPS):
             hdr, name, scale = struct.unpack_from('>IIf', self.data, PROPS_AT + 12 * k)
             ho = hdr - DATA_VRAM
-            _, _, _, nsw, nmtx, radius, _, ntex = struct.unpack_from('>IIIhhfhh', self.data, ho)
-            out.append((self.string(name), scale, dict(numswitches=nsw, nummatrices=nmtx, radius=radius, numtextures=ntex)))
+            _, skel, _, nsw, nmtx, radius, _, ntex = struct.unpack_from('>IIIhhfhh', self.data, ho)
+            out.append((self.string(name), scale, dict(numswitches=nsw, nummatrices=nmtx, radius=radius,
+                                                       numtextures=ntex, skeleton=skel)))
         return out
 
     def chrs(self):
