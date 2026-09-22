@@ -10890,21 +10890,49 @@ void hangingmonitorInitMatrices(struct prop *prop)
 	Mtxf *matrices = model->matrices;
 	union modelrodata *rodata;
 
+	Mtxf rootmtx;
+	Mtxf *base = matrices;
+
+#ifndef PLATFORM_N64
+	// The four mounts are position nodes under the model's root, and the
+	// render's walk builds each one on the root's own matrix - the object's
+	// matrix times the root position node's pos - which is the object's
+	// matrix alone only for a model whose root sits at its origin.
+	// GoldenEye's mount (Ptv_holderZ) has its root 1696 units up its own y,
+	// so its frame drew at the ceiling under the walk while the four TVs,
+	// which take the mount's matrix at their tick from what this function
+	// built, hung a tenth of that below it: 1.7 m under the frame on both
+	// Bunkers. GoldenEye has no special case for this object and walks it
+	// like any other, so the mounts go on the root's matrix here too;
+	// matrices[0] stays the object's, which is what the walk starts from.
+	{
+		struct modelnode *root = model->definition->rootnode;
+
+		if (root && (root->type & 0xff) == MODELNODETYPE_POSITION) {
+			Mtxf tmp;
+
+			mtx4LoadTranslation(&root->rodata->position.pos, &tmp);
+			mtx00015be4(matrices, &tmp, &rootmtx);
+			base = &rootmtx;
+		}
+	}
+#endif
+
 	rodata = modelGetPartRodata(model->definition, MODELPART_0000);
 	mtx4LoadTranslation(&rodata->position.pos, &matrices[1]);
-	mtx00015be0(matrices, &matrices[1]);
+	mtx00015be0(base, &matrices[1]);
 
 	rodata = modelGetPartRodata(model->definition, MODELPART_0001);
 	mtx4LoadTranslation(&rodata->position.pos, &matrices[2]);
-	mtx00015be0(matrices, &matrices[2]);
+	mtx00015be0(base, &matrices[2]);
 
 	rodata = modelGetPartRodata(model->definition, MODELPART_0002);
 	mtx4LoadTranslation(&rodata->position.pos, &matrices[3]);
-	mtx00015be0(matrices, &matrices[3]);
+	mtx00015be0(base, &matrices[3]);
 
 	rodata = modelGetPartRodata(model->definition, MODELPART_0003);
 	mtx4LoadTranslation(&rodata->position.pos, &matrices[4]);
-	mtx00015be0(matrices, &matrices[4]);
+	mtx00015be0(base, &matrices[4]);
 }
 
 void objInitMatrices(struct prop *prop)

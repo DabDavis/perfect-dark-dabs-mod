@@ -7503,3 +7503,46 @@ and call from the top level).
 Streets' tank stops 830 units up its road: that is the wall at the end of it,
 and the old log that went further predates the hull's rectangle.
 
+
+## Bunker's hanging TVs, 1.7 m under their mount (2026-09-22)
+
+The user's F3 report 20260922-000750 on Bunker (0x6f, be757a939): *"monitors
+wrong height."* The opening shot showed both hanging TV clusters floating in
+mid-air well under the tubular frame in the ceiling they hang from; the wall
+screens on the big map were right.
+
+**What the objects are.** GoldenEye's `Ptv_holderZ` (type 0x0c, flag 4, pads 51
+and 52 hanging from `up (0,-1,0)`) is a pole and a four-arm frame; four `Ptv1Z`
+monitors (type 0x0a, pad -1, `OwnerOffset` -1..-4, `OwnerPart` 0..3) attach to
+its parts 0-3, which are position nodes at the arm tips (`build/gexrom/mon.py`
+dumps the records, `nodes.py` a model's nodes out of the ROM). The frame's
+vertices are relative to the model's **root position node, which sits at
+(6.5, 1695.7, 373)** in the model - the modeller left the scene origin on the
+floor - so everything the model draws is 170 world units over its prop.
+
+**The fault was two matrix sets in one frame.** `objInitMatrices()` runs every
+tick and for `OBJTYPE_HANGINGMONITORS` calls `hangingmonitorInitMatrices()`,
+which built the four arm matrices on `matrices[0]` (the object's own matrix)
+without the root's pos; the TVs read those at their tick (`propobj.c`'s
+embedded branch, `modelFindNodeMtx(attachedtomodel, attachedtonode)`). The
+mount's own render then walks the model from `matrices[0]` and puts the root's
+pos on first, so the frame drew at the ceiling and the TVs 170 under its arms.
+Perfect Dark never noticed because its own mount has its root at the origin,
+and its setups carry no hanging TVs anyway. GoldenEye has no special case for
+the object - the general walk builds its arms - so the port's function now
+builds the arms on `matrices[0] * T(root pos)` and leaves `matrices[0]` alone.
+The first attempt wrote the root's pos *into* `matrices[0]`, which the render
+then applied again: the frame vanished into the ceiling. `mon_0x6f`'s three
+probes (`monprobe.py` records + screenshot, `moninit.py` the matrices right
+after `objInitMatrices()` read back to world through the inverse camera,
+`monlive.py` the vertex ranges) are in `build/gexrom`.
+
+**Ground truth from the oracle:** `~/dam-oracle/gebunker.py` boots the native
+port into any level by overriding `bossSetLoadedStage()`'s argument at the
+folder's run-stage step (the pad script only walks to Dam), and `gebview.py`
+warps Bond to the report's camera: GoldenEye's TVs hang on the arms, right under
+the ceiling. A converted level's offset is `our pad - GE pad` for any pad.
+**Read `model->matrices` only inside the frame that built them** - at
+`videoEndFrame()` they are freed gfx memory and read as garbage, and gdb's
+Python `print` is block-buffered under redirection, so an empty log means a
+stuck breakpoint, not no output.
