@@ -8352,3 +8352,111 @@ were a red herring: rooms read 0% covered and served thousands of triangles
 because Bean's terrain is re-meshed and the 3-unit midpoint test cannot see
 that, and room 132, the hut's, read a healthy 75% while drawing nothing.
 Ask which rooms are on screen, not how well they pair.
+
+## The gun barrel's Bond was a black silhouette in the release's look (2026-09-22)
+
+The user: *"fix the gun barrel bond, his body is all black only"*. In the
+release's look the intro's Bond walked in as a black shape - no shirt in his
+tuxedo, no bow tie, black hands - while the HD head grafted on top of him drew
+its hair and its face correctly.
+
+Nothing about the mesh was wrong, and it took a long time to believe that.
+Measured at the draw:
+
+- the mesh *is* drawn (`--xbla-mesh-verbose` names the draws; bypassing it with
+  `xblaMeshSetBypass(1)` gives a different, correct-looking N64 Bond);
+- its picture is bound and uploaded - dropping the renderer's cache for the
+  tile mid-barrel re-imports the release's 512x512 tuxedo atlas, and the body
+  stays black;
+- its texture coordinates span that atlas (`gfx_sp_vertex` logged them: s,t of
+  677/548 and so on over a 32 texel stand-in tile, every vertex different);
+- its colours are white, its palette is posed, its `renderdata` - the combiner
+  type (7), the environment and fog colours (0), the z buffer, the node's
+  render mode (3) - is **identical, field for field, to the cast reel's**,
+  where the same body and the same head draw perfectly a few seconds later.
+
+The difference was the texture mode the *screen* was left in. Logging
+`rdp.other_mode_h` at the moment the body's tile is bound: the barrel has
+`0x00980c00` and the reel `0x0099ac00`, and of the three bits between them the
+filter is the one that matters. **A posed release mesh drawn under G_TF_POINT
+draws black.** Forcing point sampling into the cast reel blacks out its
+characters the same way, and a rigid mesh (the grafted head) survives it, which
+is why Bond had a face. The N64 look survives it too, which is why only the
+release's look ever showed this.
+
+`introDrawPicture()` draws the sniper sight's backdrop the way GoldenEye draws
+every 2D screen - `G_TP_NONE` and `G_TF_POINT` - and puts neither back; the
+game's own 2D passes do (`zbufSaveArtifacts()` restores `G_TF_BILERP` and
+`G_TP_PERSP` together, and gewatch.c sets both round each of its three model
+draws). The barrel had restored the perspective in 2026-09-18, because without
+it Bond's coordinates collapse, and left the filter. Both are set per model in
+`introDrawModel()` now, so the gun barrel, the logo and the cast reel are all
+drawn in the state a model wants.
+
+**Two things to take from this beyond the fix.** A mesh that draws black is not
+evidence about the mesh: bind the tile, read the vertices and compare the state
+against a screen where the same model is right, because the fault can be a mode
+nobody on the screen thought they owned. And `--xbla-mesh-verbose` and a couple
+of temporary `sysLogPrintf`s in `gfx_dp_set_texture_image` (the address, the
+prim/fog/env colours, `other_mode_l`, `other_mode_h`, the combiner) answer
+"what is different about this draw" in one run, which reading the code did not.
+
+## GE Plus's folder screens in the release's art (2026-09-22)
+
+`port/src/gefolder.c`, with the user's "lets add the hd folder screens". The
+folder screens are GoldenEye's own folder converted out of the ROM (gexfront.c)
+at the sizes an N64 could hold; the release has every picture on it redrawn -
+the page 512x512 against a 64x64 tile, the photograph of Brosnan 256x512
+against four 65x65 quarters, "CONFIDENTIAL" 1024x128 against two 96x32 halves.
+
+**The release's folder is not drawn; GoldenEye's is repainted.** 4J built the
+release on the cartridge, so the model, the layout and the UVs are the same
+and only the pictures differ - and everything gexfront.c measures against the
+folder (the tabs, the cursor, the text frames, the mission grid) then stands
+where it did. The swap is one entry per texture in xblatex's registry, bound
+**at the address the model's own display lists already name**
+(`xblaTexBindPictureAt()`, and `xblaTexForgetPicture()` to put the ROM's texels
+back); no list is rewritten, and F6 changes the folder while it is open.
+
+What the table had to account for, in the order the mistakes were made:
+
+- **The release's pictures arrive in the game's row order**, so a crop written
+  the way the picture is seen has its v turned over. Bond's four quarters came
+  out top for bottom until they were.
+- **A piece of a stamp is not a share of the release's picture.** GoldenEye
+  cuts a stamp into pieces of equal width and stretches each word to fill its
+  own, so "FOR" has 95 texels there and an eighth of 1024 here. The rows are
+  fitted from the ink measured on both sides.
+- **Neither long run is in the order it looks.** The model's texture configs
+  are not in the ROM's number order (config 24 is 0x09ea but 25 is 0x09f8), and
+  the release keeps its slides and briefing photographs in an order of its own
+  (its pair for a mission is the other way round). Both runs are paired
+  picture against picture by correlation - .99 and over for all sixty, all
+  distinct - which is what stopped Dam's slide from being Jungle's.
+- **A tile that repeats cannot be a patch of a page.** The paper and the cover
+  are one small tile over the page in GoldenEye and one page-sized picture in
+  the release. What stands in for the tile is the flattest patch of that
+  picture, with everything coarser than a quarter of it subtracted
+  (`geFolderFlatten()`) and its edges cross-faded into each other
+  (`geFolderMakeSeamless()`) - otherwise the page is a grid of the same
+  crumple, which is exactly what the first attempt looked like.
+- **Some of the ROM's pictures are cutouts and the release's are not.** The
+  paperclip and the OHMSS title came out as black slabs: the release's picture
+  is opaque from edge to edge, so its brightness becomes the alpha and the
+  colour is left white for the node's own combiner to tint (`mask` in a row).
+  The red stamps carry their own alpha and do not want it.
+- **A texture is wider than it looks.** The N64 loads whole 64-bit lines, so a
+  65 texel 4-bit row is 80 texels of data with the picture in the left 65 - and
+  the renderer normalises the model's coordinates by the 80. Every replacement
+  is padded out the same way with its last column repeated, or it draws
+  squeezed into four fifths of its quad.
+- The crest is printed *on* the paper in both, so its crop is shifted to the
+  colour the page is drawn in (`geFolderMatchPaper()`) or it sits on a square
+  of its own paper.
+
+The tools: `--dump-folder-pictures` writes the release's seventy-one as PNGs,
+`--dump-texture <ids>` writes the ROM's (the folder's are 0x03f6, 0x04fd and
+0x09ea-0x0a47), and the two sets are compared offline. Reaching the screens
+headlessly is `gexFrontOpen()` from gdb after `mainChangeToStage(0x5d)`, and
+`'gexfront.c'::g_Front.screen` walks to the mission grid (7) or the briefing
+(10) without driving a menu.
