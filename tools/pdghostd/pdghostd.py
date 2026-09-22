@@ -92,6 +92,9 @@ REPORT_DIR = os.path.join(ROOT, "reports")
 REPORT_MAX_BODY = 8 * 1024 * 1024
 REPORT_MAX_TEXT = 512 * 1024
 REPORT_MAX_NOTE = 1000
+# The name a reporter asks to be credited by, optional and absent from every
+# client before it existed. Twice the client's own cap, which is 32.
+REPORT_MAX_NAME = 64
 REPORT_MAX_SHOT = 5 * 1024 * 1024
 REPORT_WINDOW = 3600
 REPORT_MAX = 30
@@ -1587,12 +1590,15 @@ class Handler(BaseHTTPRequestHandler):
 
             report = crash_field(req.get("report", ""), REPORT_MAX_TEXT)
             note = crash_field(req.get("note", ""), REPORT_MAX_NOTE)
+            # Older clients send no name at all, so a missing one is not an
+            # error - only a name that is not a string.
+            name = crash_field(req.get("name", ""), REPORT_MAX_NAME)
             version = crash_field(req.get("version", ""), CRASH_MAX_FIELD)
             platform = crash_field(req.get("platform", ""), CRASH_MAX_FIELD)
             channel = crash_field(req.get("channel", ""), CRASH_MAX_FIELD)
             shot = report_shot(req.get("screenshot"))
 
-            if None in (report, note, version, platform, channel):
+            if None in (report, note, name, version, platform, channel):
                 return self.send_json(400, {"ok": False, "error": "bad body"})
             if shot is None:
                 return self.send_json(400, {"ok": False, "error": "bad screenshot"})
@@ -1625,10 +1631,13 @@ class Handler(BaseHTTPRequestHandler):
                 "platform: %s\n"
                 "channel: %s\n"
                 "screenshot: %s\n"
+                "name: %s\n"
                 "note: %s\n\n"
                 % (time.strftime("%Y-%m-%d %H:%M:%S"), self.client_ip(),
                    version or "-", platform or "-", channel or "-",
-                   (base + ".png") if shot else "-", note.replace("\n", " ") or "-"))
+                   (base + ".png") if shot else "-",
+                   name.replace("\n", " ").strip() or "-",
+                   note.replace("\n", " ") or "-"))
 
             written = []
             try:
@@ -1656,8 +1665,9 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                 return self.send_json(500, {"ok": False, "error": "could not store the report"})
 
-            self.log_message("problem report %s (%s, %s, %d bytes, picture %d bytes)",
-                             base, version or "-", platform or "-", len(report), len(shot))
+            self.log_message("problem report %s from %s (%s, %s, %d bytes, picture %d bytes)",
+                             base, name.strip() or "-", version or "-", platform or "-",
+                             len(report), len(shot))
 
             return self.send_json(200, {"ok": True, "id": base})
 

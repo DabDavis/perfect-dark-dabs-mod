@@ -42,6 +42,8 @@ void traceChrNote(struct chrdata *chr, u8 bit);
 
 // Report a Problem (port/src/tracereport.c).
 #define TRACEREPORT_MAXNOTE 300
+// The name a reporter wants crediting under, kept in pd.ini once typed.
+#define TRACEREPORT_MAXNAME 32
 // Whether F3 offers to send what it wrote.
 s32 traceReportEnabled(void);
 // A dump and its picture were written; offer them at the next safe moment.

@@ -178,6 +178,19 @@ client) the key also offers to send what it wrote. `port/src/tracereport.c`.
   goes to `screenshots/`). The trace's **file name** only, never its path,
   which names the player's account. JSON to `<Mod.GhostServer>/report`, the
   picture base64 in it.
+- **The name (2026-09-22).** A report also carries an optional name, which is
+  the only thing in one that can credit whoever sent it - nothing else
+  identifies anybody, and `CREDITS.md` could not name a single tester until
+  fourteen were asked for their names by hand. *Name (Optional)* on the dialog
+  types into `g_Name` instead of `g_Note` (`g_Field`, one editor for both), the
+  send puts it in the header and in the JSON as `name`, and pdghostd writes it
+  as a `name:` header line (`REPORT_MAX_NAME`, 64; a client that sends none is
+  not an error, which every build before this one is). It is **kept**, where
+  the note is cleared per report: `configRegisterString("Mod.ReportName")`, so
+  it is typed once and every later report carries it. ENTER in the name field
+  finishes the name rather than sending - sending on the keystroke that fills a
+  form in would post a report with no note. The crash reporter has no such
+  field yet.
 - **Where it opens.** `traceReportTick()` from `lvTick()` just before
   `menuTick()`, never from the key's own tick in pdsched: over an open menu it
   is `menuPushDialog()`; in play it is pushed the way Start opens that mode's

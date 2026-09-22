@@ -10,6 +10,11 @@
  * or Send puts the dump, the note, a scaled copy of the picture, the [Mod]
  * settings and the log tail on the wire to the server's /report.
  *
+ * A report also carries an optional name, which is the only thing that can
+ * credit the person who sent it: nothing else in a report identifies anybody,
+ * on purpose. It is typed once and kept in pd.ini as Mod.ReportName, so a
+ * tester who fills it in is credited for every report after it as well.
+ *
  * Nothing is sent unless the player presses Send, the same as a crash report,
  * and Close leaves the files in traces/ where they always were.
  *
@@ -65,6 +70,12 @@ static bool g_OfferPending;
 static bool g_Open;
 
 static char g_Note[TRACEREPORT_MAXNOTE + 1];
+// Kept across reports and across runs, where the note is not: a name is who
+// the player is, and asking for it once is the point of it.
+static char g_Name[TRACEREPORT_MAXNAME + 1];
+#define TRACEREPORT_FIELD_NOTE 0
+#define TRACEREPORT_FIELD_NAME 1
+static s32 g_Field;
 static char g_Text[TRACEREPORT_MAXNOTE * 2 + 512];
 static char g_Err[256];
 static SDL_Thread *g_Thread;
@@ -98,14 +109,17 @@ void traceReportOffer(const char *tracepath, const char *shotpath)
 	}
 
 	// A new frame is a new report: the last one's note was about something else.
+	// g_Name is not cleared - it is the same person reporting.
 	g_Note[0] = '\0';
+	g_Field = TRACEREPORT_FIELD_NOTE;
 	g_Err[0] = '\0';
 	g_State = STATE_IDLE;
 	g_OfferPending = g_TracePath[0] != '\0';
 }
 
-static void traceReportStartTyping(void)
+static void traceReportStartTyping(s32 field)
 {
+	g_Field = field;
 	g_MenuKeyboardPlayer = g_MpPlayerNum;
 	inputClearLastKey();
 	inputClearLastTextChar();
@@ -254,8 +268,9 @@ static bool traceReportSend(char *err, u32 errsize)
 	struct ghostnetreq req;
 	struct ghostnetbuf buf;
 	char url[512];
-	char header[TRACEREPORT_MAXNOTE + 512];
+	char header[TRACEREPORT_MAXNOTE + TRACEREPORT_MAXNAME + 512];
 	char notebuf[TRACEREPORT_MAXNOTE * 6 + 8];
+	char namebuf[TRACEREPORT_MAXNAME * 6 + 8];
 	char *trace;
 	char *shot = NULL;
 	char *shot64 = NULL;
@@ -294,9 +309,11 @@ static bool traceReportSend(char *err, u32 errsize)
 			"version: %s\n"
 			"channel: %s\n"
 			"trace: %s\n"
+			"name: %s\n"
 			"note: %s\n\n"
 			"--- trace ---\n",
-			sysGetVersionString(), VERSION_CHANNEL, traceReportBaseName(g_TracePath), g_Note[0] ? g_Note : "-");
+			sysGetVersionString(), VERSION_CHANNEL, traceReportBaseName(g_TracePath),
+			g_Name[0] ? g_Name : "-", g_Note[0] ? g_Note : "-");
 
 	textsize = strlen(header) + tracesize;
 	text = malloc(textsize + 1);
@@ -324,9 +341,11 @@ static bool traceReportSend(char *err, u32 errsize)
 
 	ghostnetJsonEscape(text, escaped, textsize * 6 + 8);
 	ghostnetJsonEscape(g_Note, notebuf, sizeof(notebuf));
+	ghostnetJsonEscape(g_Name, namebuf, sizeof(namebuf));
 	free(text);
 
-	bodysize = strlen(escaped) + strlen(notebuf) + (shot64 ? strlen(shot64) : 0) + 512;
+	bodysize = strlen(escaped) + strlen(notebuf) + strlen(namebuf)
+			+ (shot64 ? strlen(shot64) : 0) + 512;
 	body = malloc(bodysize);
 
 	if (!body) {
@@ -337,8 +356,8 @@ static bool traceReportSend(char *err, u32 errsize)
 	}
 
 	snprintf(body, bodysize,
-			"{\"version\":\"%s\",\"platform\":\"%s\",\"channel\":\"%s\",\"note\":\"%s\",\"screenshot\":\"%s\",\"report\":\"%s\"}",
-			VERSION_HASH, VERSION_TARGET, VERSION_CHANNEL, notebuf, shot64 ? shot64 : "", escaped);
+			"{\"version\":\"%s\",\"platform\":\"%s\",\"channel\":\"%s\",\"name\":\"%s\",\"note\":\"%s\",\"screenshot\":\"%s\",\"report\":\"%s\"}",
+			VERSION_HASH, VERSION_TARGET, VERSION_CHANNEL, namebuf, notebuf, shot64 ? shot64 : "", escaped);
 
 	free(escaped);
 	free(shot64);
@@ -497,9 +516,15 @@ static char *menutextTraceReportStatus(struct menuitem *item)
 	return g_Text;
 }
 
+/** Whether the keyboard is in this dialog at all, on either field. */
+static bool traceReportTyping(void)
+{
+	return g_MenuKeyboardPlayer == g_MpPlayerNum && g_State != STATE_BUSY && g_State != STATE_SENT;
+}
+
 static char *menutextTraceReportNote(struct menuitem *item)
 {
-	const bool typing = g_MenuKeyboardPlayer == g_MpPlayerNum && g_State != STATE_BUSY && g_State != STATE_SENT;
+	const bool typing = traceReportTyping() && g_Field == TRACEREPORT_FIELD_NOTE;
 	char folded[TRACEREPORT_MAXNOTE * 2 + 64];
 
 	traceReportFoldNote(folded, sizeof(folded), typing);
@@ -515,6 +540,25 @@ static char *menutextTraceReportNote(struct menuitem *item)
 	return g_Text;
 }
 
+/**
+ * The name, and what it is for. Said in the dialog rather than only here,
+ * because a field labelled "Name" on a bug report reads like something the
+ * game needs rather than an offer.
+ */
+static char *menutextTraceReportName(struct menuitem *item)
+{
+	if (traceReportTyping() && g_Field == TRACEREPORT_FIELD_NAME) {
+		snprintf(g_Text, sizeof(g_Text),
+				"Name to credit you by (ENTER done, ESC stops)\n%s_\n", g_Name);
+	} else if (g_Name[0]) {
+		snprintf(g_Text, sizeof(g_Text), "Credit: %s\n", g_Name);
+	} else {
+		snprintf(g_Text, sizeof(g_Text), "Name: optional, for CREDITS.md\n");
+	}
+
+	return g_Text;
+}
+
 static MenuItemHandlerResult menuhandlerTraceReportType(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKDISABLED) {
@@ -522,7 +566,20 @@ static MenuItemHandlerResult menuhandlerTraceReportType(s32 operation, struct me
 	}
 
 	if (operation == MENUOP_SET) {
-		traceReportStartTyping();
+		traceReportStartTyping(TRACEREPORT_FIELD_NOTE);
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerTraceReportName(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKDISABLED) {
+		return g_State == STATE_BUSY || g_State == STATE_SENT;
+	}
+
+	if (operation == MENUOP_SET) {
+		traceReportStartTyping(TRACEREPORT_FIELD_NAME);
 	}
 
 	return 0;
@@ -549,7 +606,7 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 		g_CloseAt = 0;
 
 		if (g_State != STATE_SENT) {
-			traceReportStartTyping();
+			traceReportStartTyping(TRACEREPORT_FIELD_NOTE);
 		}
 		break;
 	case MENUOP_CLOSE:
@@ -583,7 +640,10 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 		}
 
 		{
-			u32 len = strlen(g_Note);
+			const bool name = g_Field == TRACEREPORT_FIELD_NAME;
+			char *buf = name ? g_Name : g_Note;
+			const u32 max = name ? TRACEREPORT_MAXNAME : TRACEREPORT_MAXNOTE;
+			u32 len = strlen(buf);
 			const char chr = inputGetLastTextChar();
 			const s32 key = inputGetLastKey();
 			const bool ctrl = (inputGetKeyModState() & KM_CTRL) != 0;
@@ -592,21 +652,41 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 			inputClearLastKey();
 
 			if (key == VK_RETURN) {
-				traceReportStartSend();
+				// ENTER sends from the note, because that is the field the
+				// dialog opens on and sending is what the player came to do.
+				// From the name it only finishes the name: a report sent by
+				// the keystroke that filled a form in would carry no note.
+				if (name) {
+					traceReportStopTyping();
+				} else {
+					traceReportStartSend();
+				}
 			} else if (key == VK_BACKSPACE) {
 				if (len > 0) {
-					g_Note[len - 1] = '\0';
+					buf[len - 1] = '\0';
 				}
 			} else if (ctrl && key == VK_A + ('v' - 'a')) {
 				const char *clip = inputGetClipboard();
 
 				if (clip) {
-					snprintf(g_Note + len, sizeof(g_Note) - len, "%s", clip);
+					snprintf(buf + len, max + 1 - len, "%s", clip);
 					inputClearClipboard();
+
+					// A pasted name is one line: the server writes it into a
+					// header line, and typing cannot produce a newline here.
+					if (name) {
+						u32 i;
+
+						for (i = 0; buf[i]; i++) {
+							if ((u8)buf[i] < 0x20) {
+								buf[i] = ' ';
+							}
+						}
+					}
 				}
-			} else if (!ctrl && chr >= 0x20 && chr < 0x7f && len < TRACEREPORT_MAXNOTE) {
-				g_Note[len] = chr;
-				g_Note[len + 1] = '\0';
+			} else if (!ctrl && chr >= 0x20 && chr < 0x7f && len < max) {
+				buf[len] = chr;
+				buf[len + 1] = '\0';
 			}
 		}
 		break;
@@ -641,6 +721,14 @@ struct menuitem g_TraceReportMenuItems[] = {
 		NULL,
 	},
 	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextTraceReportName,
+		0,
+		NULL,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -655,6 +743,14 @@ struct menuitem g_TraceReportMenuItems[] = {
 		(uintptr_t)"Type a Note\n",
 		0,
 		menuhandlerTraceReportType,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Name (Optional)\n",
+		0,
+		menuhandlerTraceReportName,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -687,4 +783,5 @@ struct menudialogdef g_TraceReportMenuDialog = {
 PD_CONSTRUCTOR static void traceReportConfigInit(void)
 {
 	configRegisterInt("Mod.TraceReport", &g_Enabled, 0, 1);
+	configRegisterString("Mod.ReportName", g_Name, sizeof(g_Name));
 }

@@ -149,11 +149,16 @@ Vries** · **Velvet Dark** · **dickalan** · **trevor** · **PerfectDark023** �
 **and others not named**
 
 That last entry is not a formality. The names above had to be asked for,
-because reports arrive with no name attached by design: the F3 pipeline sends
-a trace, a screenshot and your note, and the server logs an IP for rate
-limiting and nothing else. Nobody here was identified from a report — these
-are the people who happened to see the question and answer it, which means the
-list is certainly still short of people who earned a place on it. **If you
+because reports used to arrive with no name attached at all: the F3 pipeline
+sent a trace, a screenshot and your note, and the server logged an IP for rate
+limiting and nothing else. Since 2026-09-22 the report dialog has a **Name
+(Optional)** field, typed once and remembered, so a report can now say who to
+credit - it is still optional, and still the only thing in a report that
+identifies anyone.
+
+Nobody above was identified from a report — they are the people who happened
+to see the question and answer it, which means the list is certainly still
+short of people who earned a place on it. **If you
 have sent a report and are not on it, ask and you go on.** The same offer
 stands for anyone who has reported a crash, tested a build on Windows, or run
 the GE-X and GE Plus missions and written up what was wrong — and for anyone

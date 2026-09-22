@@ -41,6 +41,8 @@ USER_QUOTA = 4 * 1024 * 1024
 # reports rather than five thousand.
 CRASH_MAX_FILES = 6
 REPORT_MAX_FILES = 4
+# The server's own cap on the optional credit name, mirrored here.
+REPORT_MAX_NAME = 64
 
 passed = 0
 failed = 0
@@ -931,10 +933,12 @@ def tiny_png():
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
-def send_report(report, note="", screenshot=None, ip=None, raw=None):
+def send_report(report, note="", screenshot=None, ip=None, raw=None, name=None):
     import base64
     body = {"report": report, "note": note, "version": "abc1234",
             "platform": "x86_64-linux", "channel": "dev"}
+    if name is not None:
+        body["name"] = name
     if screenshot is not None:
         body["screenshot"] = base64.b64encode(screenshot).decode()
     if raw is not None:
@@ -965,8 +969,26 @@ def test_problem_reports():
 
     st, body, _ = send_report(report, ip="10.6.0.2")
     check(st == 200 and report_files() == [body["id"] + ".txt"], "a report without a picture is a .txt alone")
-    check("screenshot: -" in open(os.path.join(REPORT_DIR, body["id"] + ".txt")).read(),
-          "and says so")
+    stored = open(os.path.join(REPORT_DIR, body["id"] + ".txt")).read()
+    check("screenshot: -" in stored, "and says so")
+    # Every client built before the name field sends no name at all.
+    check("name: -" in stored, "a report with no name field is taken and says so")
+    clear_reports()
+
+    st, body, _ = send_report(report, name="Velvet Dark", ip="10.6.0.2")
+    check(st == 200 and "name: Velvet Dark\n"
+          in open(os.path.join(REPORT_DIR, body["id"] + ".txt")).read(),
+          "a name is written into the header, for the credits")
+    clear_reports()
+
+    st, body, _ = send_report(report, name=" \n  two\nlines " + "z" * 200, ip="10.6.0.2")
+    stored = open(os.path.join(REPORT_DIR, body["id"] + ".txt")).read()
+    check(st == 200 and "name: two lines " + "z" * (REPORT_MAX_NAME - len(" \n  two\nlines ")) + "\n" in stored,
+          "a name is one line, trimmed, and cut to its cap")
+    clear_reports()
+
+    st, body, _ = send_report(report, raw={"name": 12345}, ip="10.6.0.2")
+    check(st == 400 and body.get("error") == "bad body", "a name that is not a string -> 400")
     clear_reports()
 
     st, body, _ = send_report(report, screenshot=b"GIF89a not a png", ip="10.6.0.3")
