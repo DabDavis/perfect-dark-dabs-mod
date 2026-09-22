@@ -57,7 +57,11 @@
 #include "romdata.h"
 #include "system.h"
 #include "video.h"
+#include "gbiex.h"
 #include "geblood.h"
+#include "gebean.h"
+#include "gefolder.h"
+#include "xblamesh.h"
 #include "gesfx.h"
 #include "geintro.h"
 #include "gexfront.h"
@@ -69,6 +73,7 @@
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
 #include "game/music.h"
+#include "game/tex.h"
 #include "game/zbuf.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/setup.h"
@@ -623,11 +628,14 @@ static s32 introLoadChr(struct intromodel *body, struct intromodel *head, s32 bo
 	return 1;
 }
 
+static void introLogoMetalForget(void);
+
 static void introUnload(void)
 {
 	introFreeModel(&g_Intro.body);
 	introFreeModel(&g_Intro.head);
 	introFreeModel(&g_Intro.gun);
+	introLogoMetalForget();
 	introFreeModel(&g_Intro.logo);
 	sysMemFree(g_Intro.bg);
 	geBloodDrop(&g_Intro.blood);
@@ -841,6 +849,27 @@ static Gfx *introBarrelLens(Gfx *gdl, f32 x, f32 y, f32 sx, f32 sy)
 }
 
 /**
+ * A config naming one of the release's pictures (geFolderMenuPicture()): the
+ * renderer draws a stand-in's whole picture over the config's nominal square,
+ * whatever its real size, as the folder screens' frontReleasePicture() does.
+ */
+#define RELEASE_TEXELS 32
+
+static struct textureconfig *introReleaseTexture(struct textureconfig *tex, const void *tile)
+{
+	memset(tex, 0, sizeof(*tex));
+	tex->textureptr = (u8 *)tile;
+	tex->width = RELEASE_TEXELS;
+	tex->height = RELEASE_TEXELS;
+	tex->format = G_IM_FMT_RGBA;
+	tex->depth = G_IM_SIZ_32b;
+	tex->s = G_TX_CLAMP;
+	tex->t = G_TX_CLAMP;
+
+	return tex;
+}
+
+/**
  * The sniper sight's backdrop: GoldenEye's 440x299 picture, scrolled by
  * `xoffset` and shaded from black at the top to white at the bottom
  * (titleRenderFolderMenuBackgroundLines()).
@@ -858,6 +887,9 @@ static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 	// the picture's own left edge in this frame, the texel it starts at there,
 	// and its right edge, all of them GoldenEye's own 440 wide row scaled
 	f32 x0, x1, s0;
+	struct textureconfig tex;
+	const void *tile;
+	s32 release, rw, rh;
 
 	introFrameBox(&box);
 	scale = box.scale;
@@ -886,11 +918,23 @@ static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 		return gdl;
 	}
 
+	// The release's own picture of it (texture/attract/barrel), 1052x715 -
+	// GoldenEye's framing at 2.39 times the texels - when the release is there
+	// and its look is on; GoldenEye's rows else.
+	tile = geFolderMenuPicture("attract/barrel", &rw, &rh);
+	release = tile != NULL;
+
 	gDPPipeSync(gdl++);
+
+	// texSelect() sets modes of its own, so it goes ahead of this frame's
+	if (release) {
+		texSelect(&gdl, introReleaseTexture(&tex, tile), 1, 0, 2, 1, NULL);
+	}
+
 	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 	gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
 	gDPSetTexturePersp(gdl++, G_TP_NONE);
-	gDPSetTextureFilter(gdl++, G_TF_POINT);
+	gDPSetTextureFilter(gdl++, release ? G_TF_BILERP : G_TF_POINT);
 	gDPSetTextureLUT(gdl++, G_TT_NONE);
 	gDPSetAlphaCompare(gdl++, G_AC_NONE);
 	gDPSetCombineMode(gdl++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM);
@@ -929,10 +973,28 @@ static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 			y1 = viGetHeight();
 		}
 
+		gDPSetPrimColor(gdl++, 0, 0, shade, shade, shade, 255);
+
+		if (release) {
+			// The same row of the release's picture, shaded as GoldenEye
+			// shades its own. The renderer draws a stand-in's whole picture
+			// over its config's nominal square (RELEASE_TEXELS), so both
+			// steps are counted in that square's texels per GoldenEye texel;
+			// and the release's rows run bottom to top (as its portraits do,
+			// gexfront.c), so t counts down from the picture's far edge.
+			const f32 perx = (f32)RELEASE_TEXELS / BG_W;
+			const f32 pery = (f32)RELEASE_TEXELS / BG_H;
+			const f32 t0 = RELEASE_TEXELS - (i + (y0 - (box.top + (i + 0x10) * rows)) / rows) * pery;
+
+			gSPTextureRectangle(gdl++, (s32)(x0 * 4.0f), y0 << 2, (s32)(x1 * 4.0f), y1 << 2,
+					G_TX_RENDERTILE, (s32)(s0 * perx * 32.0f), (s32)(t0 * 32.0f),
+					(s32)(perx * 1024.0f / scale), -(s32)(pery * 1024.0f / rows));
+			continue;
+		}
+
 		gDPLoadTextureBlock(gdl++, g_Intro.bg + i * BG_W, G_IM_FMT_I, G_IM_SIZ_8b, BG_W, 1, 0,
 				G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP,
 				G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-		gDPSetPrimColor(gdl++, 0, 0, shade, shade, shade, 255);
 		gSPTextureRectangle(gdl++, (s32)(x0 * 4.0f), y0 << 2, (s32)(x1 * 4.0f), y1 << 2,
 				G_TX_RENDERTILE, (s32)(s0 * 32.0f), 0, (s32)((1 << 10) / scale), 1 << 10);
 	}
@@ -1501,6 +1563,201 @@ static void introLogoStart(void)
 }
 
 /**
+ * The GoldenEye XBLA look's logo in the levels' metal (Mod.XblaReflectStyle's
+ * Level Metal, as the title's own logos take it - xblaMeshBuildLogo()):
+ * Defection's grey walkway metal (0x006d) sphere-mapped off the logo's normals
+ * with the eye ray bending the lookup, added over the gold. The logo is not
+ * one of the release's meshes but GoldenEye's own model, so the pass is its
+ * lists drawn a second time: a copy of each, built once, that opens with the
+ * metal's texture and blend and has the list's own texture loads, combiner
+ * and render modes taken out so that state holds through it.
+ */
+#define LOGO_METAL_SCALE 0x0800 // the rooms' share of the picture (XBLAMESH_METAL_SCALE)
+#define LOGO_METAL_SHARE 0xff   // xblaLogoAddMetalShare
+#define LOGO_METAL_PREFIX 32
+#define LOGO_METAL_MAXNODES 32
+#define LOGO_METAL_MAXCMDS 4096
+
+static struct {
+	struct modelnode *node;
+	Gfx *copy;
+} logoMetal[LOGO_METAL_MAXNODES];
+static s32 numLogoMetal;
+static s32 logoMetalTried;
+
+static void introLogoMetalForget(void)
+{
+	for (s32 i = 0; i < numLogoMetal; i++) {
+		free(logoMetal[i].copy);
+	}
+
+	numLogoMetal = 0;
+	logoMetalTried = 0;
+}
+
+static s32 introLogoMetalWanted(void)
+{
+	return gebeanGetEnabled() && xblaMeshGetEnabled() && xblaMeshLevelMetalTile() != NULL;
+}
+
+static Gfx *introLogoMetalCopy(const Gfx *src, const void *tile)
+{
+	struct textureconfig tex;
+	Gfx *copy;
+	Gfx *p;
+	s32 n = 0;
+
+	while (n < LOGO_METAL_MAXCMDS && (u8)(src[n].words.w0 >> 24) != (u8)G_ENDDL) {
+		n++;
+	}
+
+	if (n >= LOGO_METAL_MAXCMDS) {
+		return NULL;
+	}
+
+	copy = malloc((size_t)(LOGO_METAL_PREFIX + n + 1) * sizeof(Gfx));
+
+	if (!copy) {
+		return NULL;
+	}
+
+	// The metal's state, ahead of the list: its picture on the stand-in's
+	// 32x32 at the rooms' scale, lit and sphere-mapped, added unlit at the
+	// share (0, 0, 0, TEXEL0 in colour: the texel alone).
+	p = copy;
+	gDPPipeSync(p++);
+	texSelect(&p, introReleaseTexture(&tex, tile), 1, 0, 2, 1, NULL);
+	gDPSetCycleType(p++, G_CYC_1CYCLE);
+	gDPSetTexturePersp(p++, G_TP_PERSP);
+	gDPSetTextureFilter(p++, G_TF_BILERP);
+	gDPSetRenderMode(p++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	gDPSetEnvColor(p++, 0, 0, 0, LOGO_METAL_SHARE);
+	gDPSetCombineLERP(p++, 0, 0, 0, TEXEL0, 0, 0, 0, ENVIRONMENT, 0, 0, 0, TEXEL0, 0, 0, 0, ENVIRONMENT);
+	gSPTexture(p++, LOGO_METAL_SCALE, LOGO_METAL_SCALE, 0, G_TX_RENDERTILE, G_ON);
+	gSPSetGeometryMode(p++, G_LIGHTING | G_TEXTURE_GEN);
+	gSPSetExtraGeometryModeEXT(p++, G_TEXGEN_EYE_EXT | G_ADDITIVE_EXT);
+
+	for (s32 i = 0; i < n; i++) {
+		Gfx g = src[i];
+
+		switch ((u8)(g.words.w0 >> 24)) {
+		case (u8)G_SETTIMG:
+		case (u8)G_LOADBLOCK:
+		case (u8)G_LOADTILE:
+		case (u8)G_LOADTLUT:
+		case (u8)G_SETTILE:
+		case (u8)G_SETTILESIZE:
+		case (u8)G_TEXTURE:
+		case (u8)G_SETCOMBINE:
+		case (u8)G_RDPSETOTHERMODE:
+		case (u8)G_SETOTHERMODE_H:
+		case (u8)G_SETOTHERMODE_L:
+		case (u8)G_SETPRIMCOLOR:
+		case (u8)G_SETENVCOLOR:
+			gDPNoOp(&g);
+			break;
+		case (u8)G_CLEARGEOMETRYMODE:
+			g.words.w1 &= ~(uintptr_t)(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+			break;
+		case (u8)G_DL:
+			sysLogPrintf(LOG_NOTE, "geintro: the logo's list calls another (%lx), which keeps its own state",
+					(unsigned long)g.words.w1);
+			break;
+		}
+
+		*p++ = g;
+	}
+
+	gSPEndDisplayList(p++);
+
+	return copy;
+}
+
+/**
+ * Every list node of the logo, its copy swapped in for a second modelRender()
+ * over the same matrices, and put back.
+ */
+static Gfx *introLogoMetal(Gfx *gdl)
+{
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+	struct model *model = g_Intro.logo.model;
+	const void *tile = xblaMeshLevelMetalTile();
+	Gfx *saved[LOGO_METAL_MAXNODES];
+
+	if (!logoMetalTried) {
+		logoMetalTried = 1;
+
+		for (struct modelnode *node = g_Intro.logo.modeldef->rootnode; node; ) {
+			if ((node->type & 0xff) == MODELNODETYPE_DL && numLogoMetal < LOGO_METAL_MAXNODES) {
+				union modelrwdata *rwdata = modelGetNodeRwData(model, node);
+
+				if (rwdata && rwdata->dl.gdl) {
+					// the list is behind the node's colours in the file, and named
+					// by its offset in segment 5 (SPSEGMENT_MODEL_COL1), which is
+					// what modelRenderNodeDl() points at them - the low bit marks
+					// a segmented address (gfx_pc.cpp's seg_addr())
+					const uintptr_t addr = (uintptr_t)rwdata->dl.gdl;
+					const Gfx *list = rwdata->dl.gdl;
+
+					if ((addr & 1) && ((addr >> 24) & 0xf) == SPSEGMENT_MODEL_COL1) {
+						list = (const Gfx *)((u8 *)node->rodata->dl.colours + (addr & 0x00fffffe));
+					}
+
+					logoMetal[numLogoMetal].node = node;
+					logoMetal[numLogoMetal].copy = introLogoMetalCopy(list, tile);
+
+					if (logoMetal[numLogoMetal].copy) {
+						numLogoMetal++;
+					}
+				}
+			}
+
+			if (node->child) {
+				node = node->child;
+			} else {
+				while (node && !node->next) {
+					node = node->parent;
+				}
+
+				node = node ? node->next : NULL;
+			}
+		}
+	}
+
+	if (numLogoMetal == 0) {
+		return gdl;
+	}
+
+	for (s32 i = 0; i < numLogoMetal; i++) {
+		union modelrwdata *rwdata = modelGetNodeRwData(model, logoMetal[i].node);
+
+		saved[i] = rwdata->dl.gdl;
+		rwdata->dl.gdl = logoMetal[i].copy;
+	}
+
+	renderdata.unk30 = 7;
+	renderdata.flags = MODELRENDERFLAG_OPA;
+	renderdata.zbufferenabled = false;
+	renderdata.gdl = gdl;
+
+	modelSetDistanceChecksDisabled(true);
+	modelRender(&renderdata, model);
+	modelSetDistanceChecksDisabled(false);
+
+	gdl = renderdata.gdl;
+
+	for (s32 i = 0; i < numLogoMetal; i++) {
+		((union modelrwdata *)modelGetNodeRwData(model, logoMetal[i].node))->dl.gdl = saved[i];
+	}
+
+	gDPPipeSync(gdl++);
+	gSPClearExtraGeometryModeEXT(gdl++, G_TEXGEN_EYE_EXT | G_ADDITIVE_EXT);
+	gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
+
+	return gdl;
+}
+
+/**
  * constructor_menu04_goldeneyelogo(): the logo 3000 in front of the camera at
  * 1.2 times its size, lit by one light and a reflected LookAt - the gold is the
  * model's own texture, which the conversion keeps inside the file.
@@ -1536,6 +1793,13 @@ static Gfx *introRenderLogo(Gfx *gdl)
 	mtx4MultMtx4InPlace(&camera, &world);
 
 	gdl = introDrawModel(gdl, g_Intro.logo.model, g_Intro.logo.modeldef, &world, false);
+
+	// the GoldenEye XBLA look's metal over the gold, on the same matrices,
+	// which introFinishModel() turns for both passes
+	if (introLogoMetalWanted()) {
+		gdl = introLogoMetal(gdl);
+	}
+
 	introFinishModel(g_Intro.logo.model, g_Intro.logo.modeldef);
 
 	return gdl;
@@ -1984,6 +2248,7 @@ static void introClose(void)
 	introFreeModel(&g_Intro.body);
 	introFreeModel(&g_Intro.head);
 	introFreeModel(&g_Intro.gun);
+	introLogoMetalForget();
 	introFreeModel(&g_Intro.logo);
 	gexFrontOpen();
 }

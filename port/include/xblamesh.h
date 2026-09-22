@@ -209,6 +209,7 @@ void xblaMeshSetReflectStyle(s32 style);
  * first ask (NULL if it would not).
  */
 const void *xblaMeshSheenTile(void);
+const void *xblaMeshLevelMetalTile(void);
 
 #define XBLAMESH_ENV_OFF     -1
 #define XBLAMESH_ENV_SETTING 0

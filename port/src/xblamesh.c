@@ -4349,6 +4349,16 @@ static const void *xblaMeshMetalTile(void)
 }
 
 /**
+ * The Level Metal's picture (Defection's grey 0x006d) on its 32x32 stand-in,
+ * for a pass of it outside the release's meshes - GE Plus's GoldenEye logo
+ * (geintro.c). Draw it at XBLAMESH_METAL_SCALE for the rooms' share.
+ */
+const void *xblaMeshLevelMetalTile(void)
+{
+	return xblaMeshMetalTile();
+}
+
+/**
  * A copy of envgdl binding tile at scale, with the lists' own clear of the
  * texgen modes taken out so the pass's set survives each list's head.
  */
@@ -10698,6 +10708,7 @@ void xblaMeshSetBypass(s32 on) { }
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle) { }
 void xblaMeshSetEnvironment(s32 force) { }
 s32 xblaMeshGetLogoMaterial(void) { return 0; }
+const void *xblaMeshLevelMetalTile(void) { return NULL; }
 void xblaMeshSetLogoMaterial(s32 on) { }
 void xblaMeshSetLogoFade(s32 alpha) { }
 s32 xblaMeshGetReflections(void) { return 0; }
