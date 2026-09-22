@@ -276,6 +276,15 @@ const char *modListGetSelectedName(void);
 const char *modListGetLoadedName(void);
 void modListApplySelection(void);
 
+// A mod that is only ever mounted for its maps and never loaded as the mod -
+// the GoldenEye ROM's conversion. Left out of Load Mods (the loadable list
+// below counts the rest), refused by modListSwap(), and a saved choice of one
+// is dropped at startup.
+s32 modListIsMapsOnly(s32 index);
+s32 modListGetLoadableCount(void);
+s32 modListLoadableToIndex(s32 n);
+s32 modListIndexToLoadable(s32 index);
+
 // Deletes a directory and everything in it (a path fsFullPath() expands).
 void modRemoveDirTree(const char *dir);
 

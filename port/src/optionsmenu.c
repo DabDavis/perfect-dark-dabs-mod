@@ -5885,14 +5885,16 @@ static MenuItemHandlerResult menuhandlerModDir(s32 operation, struct menuitem *i
 		return modListIsFromArgs();
 	case MENUOP_GETOPTIONCOUNT:
 		menuListRefreshOnOpen(&lastAsked, modListRefresh);
-		data->dropdown.value = modListGetCount() + 1; // plus "None"
+		// the GoldenEye ROM's conversion is mounted for its maps and never
+		// loaded as the mod (modListIsMapsOnly()), so it is not offered here
+		data->dropdown.value = modListGetLoadableCount() + 1; // plus "None"
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)(data->dropdown.value == 0
-				? "None" : modListGetName(data->dropdown.value - 1));
+				? "None" : modListGetName(modListLoadableToIndex(data->dropdown.value - 1)));
 	case MENUOP_SET:
 		{
-			const s32 index = (s32)data->dropdown.value - 1;
+			const s32 index = data->dropdown.value == 0 ? -1 : modListLoadableToIndex((s32)data->dropdown.value - 1);
 
 			// Swapped where we stand when the mod allows it; otherwise this is
 			// only a note of what the next start should mount.
@@ -5902,7 +5904,7 @@ static MenuItemHandlerResult menuhandlerModDir(s32 operation, struct menuitem *i
 		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = modListGetSelected() + 1;
+		data->dropdown.value = modListIndexToLoadable(modListGetSelected()) + 1;
 	}
 
 	return 0;

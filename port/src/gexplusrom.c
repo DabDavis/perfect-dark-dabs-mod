@@ -32,7 +32,6 @@
 #include "geconvert.h"
 #include "gexplusrom.h"
 
-#define GEXPLUSROM_DIR "GoldenEye Arenas"
 #define GEXPLUSROM_STAMP "CONVERT.txt"
 #define GEXPLUSROM_STAMP_LINE "geconvert " GECONVERT_VERSION_STR
 

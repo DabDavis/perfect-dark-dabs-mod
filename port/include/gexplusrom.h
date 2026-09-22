@@ -7,6 +7,12 @@
 extern "C" {
 #endif
 
+// The folder under mods/ the conversion writes. It is a mod only for its maps
+// and GE Plus's files, never one to load: its textures/ are GoldenEye's art
+// under Perfect Dark's numbers, which loaded as the mod repaints the Institute
+// (modListIsMapsOnly()).
+#define GEXPLUSROM_DIR "GoldenEye Arenas"
+
 #define GEXPLUSROM_NONE   0 // no GoldenEye ROM in data/ and no arenas from before
 #define GEXPLUSROM_READY  1 // the arenas are in mods/GoldenEye Arenas/
 #define GEXPLUSROM_FAILED 2 // a ROM was found and the conversion failed (see the log)

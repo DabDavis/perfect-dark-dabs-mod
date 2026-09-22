@@ -34,6 +34,7 @@
 #include "game/game_0b0fd0.h"
 #include "gebean.h"
 #include "modborrow.h"
+#include "gexplusrom.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -3460,9 +3461,59 @@ s32 modListGetSelected(void)
 	return -1;
 }
 
+/**
+ * The GoldenEye ROM's conversion is a mod folder so that the Stage Loader can
+ * mount its maps and GE Plus can read its files, and nothing else: its
+ * textures/ are GoldenEye's own pictures under Perfect Dark's texture numbers,
+ * so loaded as *the* mod it repainted the Institute with GoldenEye's art (F3
+ * report 20260922-202854, where Mod.ModDir had been set to it).
+ */
+s32 modListIsMapsOnly(s32 index)
+{
+	return index >= 0 && index < numModsListed && !strcasecmp(modList[index].name, GEXPLUSROM_DIR);
+}
+
+// Load Mods' own view of the list: every mod but the maps-only ones
+s32 modListGetLoadableCount(void)
+{
+	s32 count = 0;
+
+	for (s32 i = 0; i < numModsListed; ++i) {
+		count += !modListIsMapsOnly(i);
+	}
+
+	return count;
+}
+
+s32 modListLoadableToIndex(s32 n)
+{
+	for (s32 i = 0; i < numModsListed; ++i) {
+		if (!modListIsMapsOnly(i) && n-- == 0) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+s32 modListIndexToLoadable(s32 index)
+{
+	s32 n = 0;
+
+	if (index < 0 || index >= numModsListed || modListIsMapsOnly(index)) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < index; ++i) {
+		n += !modListIsMapsOnly(i);
+	}
+
+	return n;
+}
+
 void modListSetSelected(s32 index)
 {
-	const char *name = (index >= 0 && index < numModsListed) ? modList[index].name : "";
+	const char *name = (index >= 0 && index < numModsListed && !modListIsMapsOnly(index)) ? modList[index].name : "";
 
 	snprintf(selectedModName, sizeof(selectedModName), "%s", name);
 }
@@ -3719,7 +3770,7 @@ s32 modListSwapIsLive(s32 index)
  */
 s32 modListSwap(s32 index)
 {
-	if (!modListSwapIsLive(index)) {
+	if (modListIsMapsOnly(index) || !modListSwapIsLive(index)) {
 		return false;
 	}
 
@@ -3804,7 +3855,12 @@ void modListApplySelection(void)
 	if (selectedModName[0]) {
 		const s32 index = modListGetSelected();
 
-		if (index < 0) {
+		if (modListIsMapsOnly(index)) {
+			// a pd.ini from before Load Mods left it out: mounted for its maps
+			// below, as it always is, and never as the mod
+			sysLogPrintf(LOG_WARNING, "mod: `%s` is only ever mounted for its maps; not loading it as the mod", selectedModName);
+			selectedModName[0] = '\0';
+		} else if (index < 0) {
 			sysLogPrintf(LOG_WARNING, "mod: selected mod `%s` is not installed", selectedModName);
 		} else if (fsAddModDir(modList[index].path) >= 0) {
 			sysLogPrintf(LOG_NOTE, "mod: mounted `%s`", modList[index].name);
