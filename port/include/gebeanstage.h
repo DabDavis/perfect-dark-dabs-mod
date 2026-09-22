@@ -9,23 +9,24 @@ extern "C" {
 #endif
 
 /**
- * GoldenEye XBLA's HD levels drawn as the rooms of GoldenEye X's.
+ * GoldenEye XBLA's HD levels drawn as the rooms of the levels GE Plus
+ * converts from the player's GoldenEye ROM.
  *
  * Project Bean (gebean.h) keeps each level's drawn mesh in
  * files/new/background/<name>: one batch sorted by material, no rooms, no
- * portals. GoldenEye X kept GoldenEye's N64 geometry in Perfect Dark's room
- * format, and the Bean file holds every one of those N64 vertices at a scale
- * of its own, so each GE-X level file is paired with its Bean level offline
- * (gebeanstagetable.h, from .xbla-work/ge-bean/gen_stagetable.py) by its room
- * count and room positions.
+ * portals. It is GoldenEye's own N64 geometry remade at a scale of its own -
+ * 4J built the release on the cartridge's levels - and the conversion
+ * (geconvert.c) is that same geometry in Perfect Dark's room format, so the
+ * two are paired by GoldenEye's own name for the level and nothing else
+ * (gebeanstagetable.h, from .xbla-work/ge-bean/gen_stagetable.py).
  *
  * When a paired level is running, the XBLA meshes and stages switches are on
- * and the release is here (gebeanGetEnabled()), every Bean triangle is dealt to the GE-X room
- * whose own triangle it lies on, and each room whose surface Bean's mesh
- * covers is written in the ROM's room format and served to bgLoadRoom()
- * through xblastage.c's hooks, the way the Perfect Dark release's rooms are.
- * A room GE-X changed from GoldenEye's keeps GE-X's own geometry. The
- * portals, lights, collision (tiles) and props stay GE-X's.
+ * and the release is here (gebeanGetEnabled()), every Bean triangle is dealt
+ * to the room whose own triangle it lies on, and each room Bean's mesh reaches
+ * is written in the ROM's room format and served to bgLoadRoom() through
+ * xblastage.c's hooks, the way the Perfect Dark release's rooms are. A room
+ * Bean has nothing in keeps the converted file's own geometry. The portals,
+ * lights, collision (tiles) and props stay the conversion's.
  */
 
 /** Whether the running level has Bean rooms to serve; builds them the first time. */

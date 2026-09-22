@@ -8044,3 +8044,86 @@ GoldenEye's `PROPFLAG_80000000` on a door is "open by default" *and* "do not
 auto-close", `doorInit()` sets `openPosition = maxFrac` from it, and Perfect
 Dark's `OBJFLAG_DOOR_KEEPOPEN` is the same bit doing the same thing - so a door
 that is not drawn where you expect it is not necessarily a fault.
+
+## An HD level is paired by GoldenEye's name for it, not by its rooms (2026-09-22)
+
+The user, after the credits audit and `ge-rom-first`: *"we exposed a bug that we
+were using ge-x assets for hd textures... we are solely using ge rom for the hd
+textures, since bean xbla probably maps 1:1 to the n64 rom."*
+
+They are right about the 1:1, and it goes further than the levels: the
+release's own level *icons* are filed under GoldenEye's four-letter keys
+(`files/texture/level/damicon`, `arecicon`, `crypicon` ...), and 76 of the
+ROM's 80 `c_item_entries` characters are named in `files/new/char` and
+`head` by GoldenEye's own file name with the `C`/`Z` off (`CredmanZ` ->
+`char/redman`).
+
+**What was wrong.** `gebeanstagetable.h` had 45 rows keyed by **room count and
+an FNV-1a of the rooms' positions**: 24 GoldenEye X level files, and 21 from
+the conversion. Two things follow from that key, and both had already bitten:
+
+- A row goes stale the moment the conversion moves a room. Streets' rooms had
+  moved since the table was generated (56 rooms, hash `0xf7e90402` in the table,
+  `0x00e647ef` on disk), so **Streets had silently had no HD at all** - the
+  mission and the arena both - and the only sign was one `LOG_NOTE`. The
+  generator could not even be re-run: it reads `arenas.json`, whose `bg` paths
+  pointed into a scratch directory from the session that wrote it.
+- The 24 GE-X rows are the low-quality half of the table. Measured from the
+  file: a median 75% of a room's vertices covered with eight rows under 60%
+  (GE-X's `bg_dam` is **14%**), against a median 96% and nothing under 69% for
+  the conversion's own. GE-X rebuilt rooms and rounded positions and offsets to
+  whole units; the conversion is GoldenEye's geometry exactly, which is what
+  Bean's mesh was built on. Every one of the `COVER_*` constants in
+  gebeanstage.c existed for that mismatch.
+
+**What it is now** (`levelRow()`): a row is keyed by **GoldenEye's own key for
+the level**, which is the name the conversion writes the file under -
+`files/bgdata/bg_gx<key>.seg`, the same file for the arena and for the solo
+mission on it - read off `g_Stages[g_StageIndex].bgfileid` through
+`romdataFileGetName()`. Nothing about the geometry is asked, so no change to
+the conversion can break a pairing again, and the GE-X rows are gone.
+
+A row now carries the key, the Bean background, the scale and the offset. The
+scale is `beanscales.json`'s fit divided by the level's `levelscale` (this
+reproduces all 21 of the old arena rows to the last digit), and the **offset is
+the conversion's own re-centring**, which follows from the ROM's stan and level
+scale alone - so it cannot move when the geometry does. All 26 are recorded by
+`GE_ARENAS_JSON=... tools/geconvert/geconvert.py OUTDIR`, and the C converter
+writes the same room positions for every level (checked file by file).
+
+**What it gains.** 25 of GoldenEye's 26 levels have an HD mesh, where 21 did:
+
+- **Streets** (`pete`) is back.
+- **Egyptian** (`cryp`) has one for the first time. It was never looked for,
+  because the fit table was built by pairing *GE-X's* files; Bean's level is
+  called `temple`, and probing every Bean background against GoldenEye's `cryp`
+  vertices matches it at **1.000** (scale 0.235852, 82% of GoldenEye's
+  vertices covered). Bean's `multitemple` is the multiplayer Temple (`dish`);
+  its `temple` is the Egyptian one.
+- `lib`, `stack` and `sevxb` have rows of their own instead of sharing another
+  level's hash.
+- **Statue Park** (`stat`) is the one level with no pairing, and now says so:
+  4J remodelled it. Bean's `statuepark` fits GoldenEye's `stat` at 0.003, and
+  no other Bean background fits it either (best 0.058) - the probe is
+  `/tmp/.../crypprobe.py`, a coarse scale sweep of every background against one
+  level's ROM vertices, worth keeping in mind for any "is this the same level"
+  question.
+
+**What came out.** The per-room coverage test (`COVER_DIST`, `COVER_SHARE`,
+`COVER_HOLE` and the area/areacovered/uncoveredmax pass) was skipped for every
+converted level already - the `trusted` flag - and had no untrusted row left to
+serve, so it is gone with them. A room is Bean's when Bean's mesh reaches it and
+keeps the file's own geometry when it does not, which is all the `kept` counts
+were ever reporting on a converted level (Streets keeps 35: GoldenEye's rooms
+20-54 are empty). That takes 60 to 260 ms off every HD level load (Dam 1518 ->
+1328, Surface 972 -> 880).
+
+A wrong offset needs no new check: every Bean triangle is dealt to the nearest
+room triangle within two 64-unit grid rings, so a level pointed at the wrong
+place deals nothing, serves nothing and draws in the N64 look.
+
+**Verified** by the HD sweep over all twenty missions (`build/gexrom/hdkey/run.sh`,
+one screenshot a stage): every level that had HD serves the same rooms, the
+same triangle count and the same bytes as the binary before the change
+(bunker2 A/B'd in place: 68 of 68, 11006 triangles, 714 decals, 320720 bytes),
+Streets and Egyptian are new, Statue Park says why it has none.

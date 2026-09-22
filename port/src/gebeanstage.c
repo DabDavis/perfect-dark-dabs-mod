@@ -1,6 +1,7 @@
 /**
- * GoldenEye XBLA's HD levels as the rooms of GoldenEye X's - gebeanstage.h
- * has the shape of it, CLAUDE-notes/ge-bean.md "The levels" the reasons.
+ * GoldenEye XBLA's HD levels as the rooms of the levels converted from
+ * GoldenEye's own ROM - gebeanstage.h has the shape of it,
+ * CLAUDE-notes/ge-bean.md "The levels" the reasons.
  */
 
 #ifndef PLATFORM_N64
@@ -18,6 +19,7 @@
 #include "system.h"
 #include "lib/rzip.h"
 #include "game/bg.h"
+#include "romdata.h"
 #include "xblatex.h"
 #include "gebean.h"
 #include "gebeanstage.h"
@@ -30,29 +32,17 @@
 #define VTXSIZE   12
 #define COLSIZE   4
 
-// A GE-X room is taken over only when Bean's mesh lies over this share of its
-// surface: the area of its triangles whose middles have a Bean triangle within
-// the distance (GE-X units). GE-X rebuilt some rooms of the levels it kept,
-// and Bean's mesh there is GoldenEye's, not the room the tiles collide with.
-// The distance is not small because GE-X rounded a room's position and its
-// vertices' offsets from it each to a whole unit, which puts a GoldenEye
-// vertex up to a unit and a half off on each axis; at 1.5 Frigate kept all 34
-// of its rooms.
-#define COVER_DIST  3.0f
-#define COVER_SHARE 0.97f
-#define COVER_CELL  64.0f
-// Nor when one GE-X triangle bigger than this (square units) is missing from
-// Bean's mesh however much else is there: the stair pits GE-X cut into two of
-// Archives BZ's rooms are a quad each, 2 to 3% of the room, and drew as holes
-#define COVER_HOLE  20000.0f
+// The grid Bean's own triangles are filed in, for finding the ones a decal
+// lies on (file units)
+#define BEAN_CELL 64.0f
 
-// A Bean triangle goes to the room of the nearest GE-X triangle, looked for
-// this many grid cells out.
+// A Bean triangle goes to the room of the nearest triangle of the level file,
+// looked for this many grid cells out.
 #define ASSIGN_CELL  64.0f
 #define ASSIGN_RINGS 2
 
 // A triangle lying this close to the plane of a triangle of another picture
-// (GE-X units), and over it, is a decal on it: Rare drew the Aztec's BAY-4
+// (file units), and over it, is a decal on it: Rare drew the Aztec's BAY-4
 // lettering, floor arrows and hazard stripes flat on the floor
 #define DECAL_DIST 1.0f
 #define DECAL_COS  0.999f
@@ -61,18 +51,14 @@
 #define BATCHVERTS 16
 
 struct stagerow {
-	s32 rooms;
-	u32 hash;
+	// GoldenEye's own key for the level, which is the name the conversion
+	// writes it under: files/bgdata/bg_gx<key>.seg (geconvert.c)
+	const char *key;
 	const char *bean;
 	f32 scale;
-	// Taken off after scaling: GE-X kept GoldenEye's origin, the converted
-	// arenas (.xbla-work/ge-arena/geconvert.py) moved it to their walkable middle
+	// Taken off after scaling: the conversion moves a level so that the middle
+	// of its walkable area is the origin (geconvert.c's offset[])
 	f32 offset[3];
-	// The level file was converted from GoldenEye's own data, which Bean's is
-	// built on, so no room of it was changed and none is checked: Bean's HD
-	// terrain is re-meshed (Runway's rooms read 10 to 80% covered) and the
-	// hole size is in the file's units, which a 7x level (Caves) outgrows
-	s32 trusted;
 };
 
 static const struct stagerow stageRows[] = {
@@ -122,7 +108,7 @@ struct tgrid {
 	s32 *enttri;
 	s32 nument, capent;
 	f32 *tri;
-	// The room a GE-X triangle is in, or the index of a Bean one
+	// The room a file triangle is in, or the index of a Bean one
 	s32 *room;
 	s32 numtri, captri;
 };
@@ -344,7 +330,7 @@ static s32 tgridNearest(const struct tgrid *g, const f32 *p, s32 rings, f32 *out
 }
 
 /* -------------------------------------------------------------------------
- * GE-X's rooms as they are
+ * The level file's rooms as they are
  * ------------------------------------------------------------------------- */
 
 static u32 be32(const u8 *p)
@@ -416,9 +402,9 @@ static u8 *readRoom(s32 r, u32 *outLen)
 }
 
 /**
- * Files every triangle of a GE-X room, as its display lists draw them: each
- * leaf's G_VTX loads up to 16 of the leaf's vertices, each G_TRI4 draws up to
- * four of them.
+ * Files every triangle of a room of the level file, as its display lists draw
+ * them: each leaf's G_VTX loads up to 16 of the leaf's vertices, each G_TRI4
+ * draws up to four of them.
  */
 static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
 {
@@ -526,22 +512,57 @@ static u16 nearestRoomBox(const f32 *p, s32 n)
 	return (u16)best;
 }
 
-static u32 levelHash(void)
+/**
+ * The row for the level being played, or NULL for a level that is not one of
+ * GoldenEye's.
+ *
+ * A level is named by the key GoldenEye itself gives it, which is the name the
+ * conversion writes its file under - files/bgdata/bg_gx<key>.seg, the same
+ * file for the arena and for the solo mission on it. Nothing about the
+ * geometry is asked: the conversion is GoldenEye's own data, which is what
+ * Bean's HD mesh was built on, so the pairing holds however the conversion
+ * changes. (It was the room count and a hash of the room positions until
+ * 2026-09-22, and Streets had silently lost its HD when its rooms moved.)
+ */
+static const struct stagerow *levelRow(void)
 {
-	u32 h = 0x811c9dc5u;
+	const char *name;
+	const char *slash;
 
-	for (s32 r = 1; r <= g_Vars.roomcount; r++) {
-		for (s32 k = 0; k < 3; k++) {
-			const f32 v = k == 0 ? g_BgRooms[r].pos.x : k == 1 ? g_BgRooms[r].pos.y : g_BgRooms[r].pos.z;
-			const s32 i = (s32)lroundf(v);
+	if (g_StageIndex < 0 || g_StageIndex >= (s32)ARRAYCOUNT(g_Stages)) {
+		return NULL;
+	}
 
-			for (s32 b = 0; b < 4; b++) {
-				h = (h ^ (((u32)i >> (8 * b)) & 0xff)) * 0x01000193u;
-			}
+	name = romdataFileGetName(g_Stages[g_StageIndex].bgfileid);
+
+	if (!name) {
+		return NULL;
+	}
+
+	slash = strrchr(name, '/');
+
+	if (slash) {
+		name = slash + 1;
+	}
+
+	if (strncmp(name, "bg_gx", 5) != 0) {
+		return NULL;
+	}
+
+	name += 5;
+
+	for (s32 i = 0; i < ARRAYCOUNT(stageRows); i++) {
+		const size_t len = strlen(stageRows[i].key);
+
+		if (strncmp(name, stageRows[i].key, len) == 0 && strcmp(name + len, ".seg") == 0) {
+			return &stageRows[i];
 		}
 	}
 
-	return h;
+	// Statue Park is the one GoldenEye level the release remodelled
+	sysLogPrintf(LOG_NOTE, "gebeanstage: no GoldenEye XBLA level is paired with GoldenEye's %s", name);
+
+	return NULL;
 }
 
 /* -------------------------------------------------------------------------
@@ -871,7 +892,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	// agree, so both sides are drawn
 	emit(&l->gdl, 0xb6000000, 0x00002000);
 	// The alpha combiner reads the environment colour, which is whatever the
-	// last list left it as unless it is set here, as GE-X's lists set it
+	// last list left it as unless it is set here, as the file's lists set it
 	emit(&l->gdl, 0xfb000000, 0x000000ff);
 	emit(&l->gdl, (G_COL << 24) | (((numpal - 1) << 2) << 16) | (numpal * COLSIZE), 0x0d000000);
 
@@ -899,7 +920,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 				// edge (CVG_X_ALPHA), which the renderer discards under a fifth
 				// alpha. Without it the clear texels of Jungle's leaves wrote
 				// depth, and a room drawn after them showed the sky colour in
-				// the shape of the leaf. A decal takes GE-X's decal modes
+				// the shape of the leaf. A decal takes the file's decal modes
 				// (ZMODE_DEC), which fog swaps know too; the translucent
 				// leaf's mode is a decal one already
 				if (!xlu) {
@@ -1015,7 +1036,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
  * are served, xblastage.c): the header, an opaque and a translucent leaf, the
  * vertices of both, the shared palette, then the two display lists.
  */
-static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u8 *gexroom, u32 *outLen, s32 *dropped)
+static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u8 *fileroom, u32 *outLen, s32 *dropped)
 {
 	const u32 base = g_BgRooms[r].unk00;
 	const f32 roompos[3] = { g_BgRooms[r].pos.x, g_BgRooms[r].pos.y, g_BgRooms[r].pos.z };
@@ -1091,8 +1112,8 @@ static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u
 	put32(out + 0x04, base + colat);
 	put32(out + 0x08, opa.gdl.len ? base + GFXHEADER : 0);
 	put32(out + 0x0c, xlu.gdl.len ? base + GFXHEADER + (opa.gdl.len ? ROOMBLOCKSIZE : 0) : 0);
-	// The lights are GE-X's room's: the level's light table is its
-	memcpy(out + 0x10, gexroom + 0x10, 4);
+	// The lights are the file's room's: the level's light table is its
+	memcpy(out + 0x10, fileroom + 0x10, 4);
 	put16(out + 0x14, (u16)(opa.numvtx + xlu.numvtx));
 	put16(out + 0x16, (u16)numpal);
 
@@ -1317,30 +1338,19 @@ static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
 	const s32 n = g_Vars.roomcount; // rooms 1 to n - 1, n being the end entry
-	const u32 hash = levelHash();
-	u8 **gexrooms;
-	u32 *gexlens;
-	struct tgrid gextris, beantris;
-	u64 mark[5] = { 0 };
-	f32 *area, *areacovered, *uncoveredmax;
+	u8 **filerooms;
+	u32 *filelens;
+	struct tgrid filetris, beantris;
+	u64 mark[4] = { 0 };
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
 	s32 kept = 0, dropped = 0, decals = 0;
 	u32 bytes = 0;
 
-	row = NULL;
-
-	for (s32 i = 0; i < ARRAYCOUNT(stageRows); i++) {
-		if (stageRows[i].rooms == n && stageRows[i].hash == hash) {
-			row = &stageRows[i];
-			break;
-		}
-	}
+	row = levelRow();
 
 	if (!row) {
-		// What a level that ought to pair has to be listed under (gen_stagetable.py)
-		sysLogPrintf(LOG_NOTE, "gebeanstage: no GoldenEye XBLA level is paired with %d rooms, position hash 0x%08x", n, hash);
 		return 0;
 	}
 
@@ -1362,13 +1372,13 @@ static s32 build(void)
 
 	mark[0] = sysGetMicroseconds();
 
-	// GE-X's rooms: where their vertices are, for dealing Bean's out and for
-	// telling which rooms Bean has
-	gexrooms = calloc(n + 1, sizeof(*gexrooms));
-	gexlens = calloc(n + 1, sizeof(*gexlens));
+	// The level file's rooms: where their vertices are, for dealing Bean's out
+	// and for telling which rooms Bean has
+	filerooms = calloc(n + 1, sizeof(*filerooms));
+	filelens = calloc(n + 1, sizeof(*filelens));
 
-	for (s32 r = 1; r < n && gexrooms; r++) {
-		gexrooms[r] = readRoom(r, &gexlens[r]);
+	for (s32 r = 1; r < n && filerooms; r++) {
+		filerooms[r] = readRoom(r, &filelens[r]);
 	}
 
 	memset(&c, 0, sizeof(c));
@@ -1384,9 +1394,9 @@ static s32 build(void)
 	roomLen = calloc(n + 1, sizeof(*roomLen));
 	numRooms = n;
 
-	if (!gexrooms || !gexlens || !lists || !listlen || !roomData || !roomLen || c.num == 0
-			|| !tgridInit(&gextris, ASSIGN_CELL)
-			|| !tgridInit(&beantris, COVER_CELL)) {
+	if (!filerooms || !filelens || !lists || !listlen || !roomData || !roomLen || c.num == 0
+			|| !tgridInit(&filetris, ASSIGN_CELL)
+			|| !tgridInit(&beantris, BEAN_CELL)) {
 		sysLogPrintf(LOG_ERROR, "gebeanstage: %s: could not build", row->bean);
 		// fall through to the frees; nothing is served
 		c.num = 0;
@@ -1394,8 +1404,8 @@ static s32 build(void)
 
 	if (c.num) {
 		for (s32 r = 1; r < n; r++) {
-			if (gexrooms[r]) {
-				fileRoomTriangles(&gextris, r, gexrooms[r], gexlens[r]);
+			if (filerooms[r]) {
+				fileRoomTriangles(&filetris, r, filerooms[r], filelens[r]);
 			}
 		}
 
@@ -1421,9 +1431,9 @@ static s32 build(void)
 
 			{
 				f32 d;
-				const s32 near = tgridNearest(&gextris, mid, ASSIGN_RINGS, &d);
+				const s32 near = tgridNearest(&filetris, mid, ASSIGN_RINGS, &d);
 
-				tri->room = near >= 0 ? gextris.room[near] : nearestRoomBox(mid, n);
+				tri->room = near >= 0 ? filetris.room[near] : nearestRoomBox(mid, n);
 			}
 
 			if (tri->room > 0) {
@@ -1444,61 +1454,22 @@ static s32 build(void)
 			}
 		}
 
-		// A room is Bean's when Bean's mesh lies over its own surface: the share
-		// of the area of GE-X's triangles whose middle has one of Bean's
-		// triangles on it. A share of its vertices was asked first, and passed
-		// a room of Archives BZ that GE-X had cut a stair pit into, since the
-		// pit's corners are on Bean's floor - its missing floor showed the
-		// clear colour.
+		// Every room Bean's mesh reaches is Bean's. The level file is
+		// GoldenEye's own data, which Bean's mesh was built on, so a room is
+		// only ever left as the file's because Bean has nothing there -
+		// terrain it re-meshed away, or a room it never drew. (The share of a
+		// room's surface Bean covers used to be measured here and rooms under
+		// 97% left alone. That was for GoldenEye X, whose levels were rebuilt
+		// from GoldenEye's and whose rooms Bean therefore disagreed with.)
 		mark[3] = sysGetMicroseconds();
-		area = calloc(n + 1, sizeof(*area));
-		areacovered = calloc(n + 1, sizeof(*areacovered));
-		uncoveredmax = calloc(n + 1, sizeof(*uncoveredmax));
-
-		for (s32 t = 0; area && areacovered && t < gextris.numtri; t++) {
-			const f32 *v = gextris.tri + t * 9;
-			const s32 r = gextris.room[t];
-			f32 e1[3], e2[3], cr[3], mid[3], d;
-			f32 a;
-
-			for (s32 k = 0; k < 3; k++) {
-				e1[k] = v[3 + k] - v[k];
-				e2[k] = v[6 + k] - v[k];
-				mid[k] = (v[k] + v[3 + k] + v[6 + k]) / 3.0f;
-			}
-
-			cr[0] = e1[1] * e2[2] - e1[2] * e2[1];
-			cr[1] = e1[2] * e2[0] - e1[0] * e2[2];
-			cr[2] = e1[0] * e2[1] - e1[1] * e2[0];
-			a = sqrtf(dot3(cr, cr)) * 0.5f;
-
-			area[r] += a;
-
-			if (tgridNearest(&beantris, mid, 1, &d) >= 0 && d <= COVER_DIST * COVER_DIST) {
-				areacovered[r] += a;
-			} else if (uncoveredmax && a > uncoveredmax[r]) {
-				uncoveredmax[r] = a;
-			}
-		}
-
-		mark[4] = sysGetMicroseconds();
 
 		for (s32 r = 1; r < n; r++) {
-			const f32 share = COVER_SHARE;
-
-			if (!gexrooms[r] || listlen[r] == 0 || !area || !areacovered || !uncoveredmax) {
+			if (!filerooms[r] || listlen[r] == 0) {
 				kept++;
 				continue;
 			}
 
-			if (!row->trusted && (area[r] <= 0 || areacovered[r] < area[r] * share || uncoveredmax[r] > COVER_HOLE)) {
-				sysLogPrintf(LOG_NOTE, "gebeanstage: %s room %d stays GE-X's: Bean's mesh is on %.1f%% of its surface, largest triangle it misses %.0f",
-						row->bean, r, area[r] > 0 ? 100.0f * areacovered[r] / area[r] : 0.0f, uncoveredmax[r]);
-				kept++;
-				continue;
-			}
-
-			roomData[r] = writeRoom(r, c.tris, lists[r], listlen[r], gexrooms[r], &roomLen[r], &dropped);
+			roomData[r] = writeRoom(r, c.tris, lists[r], listlen[r], filerooms[r], &roomLen[r], &dropped);
 
 			if (roomData[r]) {
 				numServed++;
@@ -1508,16 +1479,13 @@ static s32 build(void)
 			}
 		}
 
-		tgridFree(&gextris);
+		tgridFree(&filetris);
 		tgridFree(&beantris);
-		free(area);
-		free(areacovered);
-		free(uncoveredmax);
 	}
 
 	for (s32 r = 0; r <= n; r++) {
-		if (gexrooms) {
-			free(gexrooms[r]);
+		if (filerooms) {
+			free(filerooms[r]);
 		}
 
 		if (lists) {
@@ -1525,18 +1493,18 @@ static s32 build(void)
 		}
 	}
 
-	free(gexrooms);
-	free(gexlens);
+	free(filerooms);
+	free(filelens);
 	free(lists);
 	free(listlen);
 	free(c.tris);
 
-	sysLogPrintf(LOG_NOTE, "gebeanstage: %s at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept), %d triangles (%d decals), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, coverage %.0f, writing %.0f)",
-			row->bean, row->scale, numServed, n - 1, kept, c.num, decals, bytes, dropped,
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept), %d triangles (%d decals), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
+			row->bean, row->key, row->scale, numServed, n - 1, kept, c.num, decals, bytes, dropped,
 			(sysGetMicroseconds() - start) / 1000.0,
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
-			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0, mark[4] ? (mark[4] - mark[3]) / 1000.0 : 0.0,
-			mark[4] ? (sysGetMicroseconds() - mark[4]) / 1000.0 : 0.0);
+			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,
+			mark[3] ? (sysGetMicroseconds() - mark[3]) / 1000.0 : 0.0);
 
 	return numServed > 0;
 }
@@ -1577,7 +1545,7 @@ uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len)
 }
 
 /**
- * Whether the rooms are to be drawn without the portals: a converted arena's
+ * Whether the rooms are to be drawn without the portals: a converted level's
  * portals are GoldenEye's, cut for an N64 level that walled its views in
  * with opaque foliage and rock, and Bean's HD mesh opens those views up. On
  * Jungle the portals reached two rooms from the start, and the rest of the
@@ -1585,7 +1553,7 @@ uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len)
  */
 s32 gebeanStageDrawsEveryRoom(void)
 {
-	return built && row && row->trusted && numServed > 0;
+	return built && row && numServed > 0;
 }
 
 s32 gebeanStageOwnsRecord(u32 record)
