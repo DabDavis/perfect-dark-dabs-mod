@@ -7430,7 +7430,8 @@ Read but not yet drawn:
   (Dam's reservoir, a flat grid at Bean y -192.6).
 - **stride 20 has no UV at all** (position, normal, colour) and Surface's pine
   *branches* are stride 20 under a DXT3 branch picture (25344 indices): the
-  shader makes the UVs, so they draw white. Generate them per quad.
+  shader makes the UVs, so they draw white. Generate them per quad. *Done
+  2026-09-22 - see "Surface's and the Bunkers' pines".*
 - Surface's forest wall (texture 45, DXT1 with a cut-out) is missing in HD and a
   sky-grey rectangle stands in the sky instead.
 - Props, guns and characters measure their own scale per file
@@ -8460,3 +8461,51 @@ The tools: `--dump-folder-pictures` writes the release's seventy-one as PNGs,
 headlessly is `gexFrontOpen()` from gdb after `mainChangeToStage(0x5d)`, and
 `'gexfront.c'::g_Front.screen` walks to the mission grid (7) or the briefing
 (10) without driving a menu.
+
+## Surface's and the Bunkers' pines: one tree drawn 64 times in one place (2026-09-22)
+
+HD Surface had no pines of its own past the fence - only 4J's forest wall -
+and the notes had it as "the branches have no UVs". That was half of it. The
+level's stream has an **instancing record, 0x21** (80 bytes: a constant block,
+two zero words, then sixteen floats), which sets a world matrix for the draws
+after it until a **0x25** (80 bytes of zeros) puts the identity back. Surface
+draws one tree's branch buffer and trunk buffer 64 times - once where it was
+modelled, 63 under a 0x21 - and both Bunkers 6 times; no other level has the
+record. The walker never read it, so all 64 copies were drawn on top of each
+other at the modelled tree, far off at the level's edge.
+
+- **Row vectors, translation in the last row** (Direct3D's convention). Settled
+  against the terrain: with p' = p * M every placed trunk's foot lands on the
+  ground (buried by up to a few hundred units, as a planted tree is); read as
+  M * p most land nowhere. The later instances are turned as well as moved.
+- **The trunk has no UV either.** Its stride 28 is position, three 10:10:10
+  unit vectors (normal, tangent, binormal - all three measure length 1.00) and
+  a colour; a character's stride 28 layout (palette slots, then UV or colour)
+  does not apply in a level.
+- **The shaders are not in the level file.** A bind record's shader word is
+  runtime scratch (all zeros in `.data`) and nothing after the index buffers is
+  a Xenos shader, so the UVs are made from the geometry
+  (`beanTreeUvs()`): a **card** is four vertices of its own, two at the trunk
+  and two at the tip in one of two orders (33 cards of each on all three
+  levels), the base pair being the one nearer the buffer's middle in plan -
+  the branch picture has its base at the right edge (u 1); on every upright
+  card the odd vertex of each pair is the higher one, so it takes the
+  picture's top (v 0 in the file's convention) and the snow is on top. The
+  **trunk** is wrapped once round its axis at the bark's 1:2 shape, the cone's
+  tip vertices taking the middle of their own face.
+- A buffer is a tree when any 0x21 draws it, which takes in its first,
+  un-instanced copy too (`treevbs` in `gebeanLevelTriangles()`).
+
+**Other stride 20 draws are something else and were left as they are**:
+Frigate's 17272 vertices are its railings and stair handrails under two
+sphere environment maps, Train's small fittings under glow maps, and the rest
+(Control's, Library's and Silo's gratings and bars) ordinary pictures a shader
+projects. They sample one texel and draw as a flat colour times their vertex
+colour. `.xbla-work/ge-bean` probes for this: the inline scripts in the session
+were `s20all.py`/`mats20.py` shapes (stride, material, instanced) - rewrite them
+from bean2obj.py's `Model` if needed. `build/gexrom/hdtree/look.sh STAGE TAG
+DTHETA VERTA [DX DZ DY]` turns (and with `MOVEIT=1` moves) the player of a
+booted mission and takes a shot; a player moved past a converted level's
+rooms falls out of the world, so look from inside them. Surface's nearest
+placed tree to the spawn is instance 15, at (-3928, 453, -13118).
+

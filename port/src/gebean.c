@@ -102,6 +102,7 @@
 
 // A level's file draws up to 518 times (Statue Park), each from its own index buffer
 #define BEAN_MAXDRAWS 2048
+#define BEAN_MAXINSTS 256
 #define BEAN_MAXBONES 32
 #define BEAN_MAXPAL   64
 #define BEAN_MAXIBS   2048
@@ -1893,6 +1894,7 @@ struct beandraw {
 	u32 prim;
 	u32 count;
 	u32 ib;
+	s16 inst;     // the instance matrix it is drawn under (bm->insts), or -1
 	u8 numpal;
 	u8 pal[BEAN_MAXPAL];
 };
@@ -1930,6 +1932,11 @@ struct beanmodel {
 
 	s32 numdraws;
 	struct beandraw *draws;
+
+	// A level's instancing records (0x21): one tree's buffers drawn again
+	// under a world matrix, row vectors, translation in the last row
+	s32 numinsts;
+	f32 (*insts)[16];
 
 	s32 numtex;
 	s32 texfile[GEBEAN_MAXMATS]; // a texture's header, by file index
@@ -2341,6 +2348,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	u32 tex = 0;
 	u8 pal[BEAN_MAXPAL];
 	u8 numpal = 1;
+	s16 inst = -1;
 
 	pal[0] = 0;
 
@@ -2419,6 +2427,24 @@ static void beanWalkStream(struct beanmodel *bm)
 
 			memcpy(pal, st + pc + 12, count);
 			numpal = (u8)count;
+		} else if (type == 0x21 && size >= 80) {
+			// A world matrix for the draws that follow, until a 0x25 (80 bytes
+			// of zeros) puts the identity back: Surface's and both Bunkers'
+			// pines are one tree's branches and trunk drawn 64 and 6 times.
+			// {constant block, 0, 0, then 16 floats}
+			if (!bm->insts) {
+				bm->insts = calloc(BEAN_MAXINSTS, sizeof(*bm->insts));
+			}
+
+			if (bm->insts && bm->numinsts < BEAN_MAXINSTS) {
+				for (s32 k = 0; k < 16; k++) {
+					bm->insts[bm->numinsts][k] = gebeanBEF32(st + pc + 16 + k * 4);
+				}
+
+				inst = (s16)bm->numinsts++;
+			}
+		} else if (type == 0x25) {
+			inst = -1;
 		} else if ((type == 0x01 || type == 0x30) && size >= 16 && bm->numdraws < BEAN_MAXDRAWS) {
 			// 0x30 is the originals' other draw: the same three words and a
 			// fourth, which numbers the piece the draw belongs to. Piece 0 is
@@ -2438,6 +2464,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->prim = gebeanBE32(st + pc + 4);
 				d->count = gebeanBE32(st + pc + 8);
 				d->ib = gebeanBE32(st + pc + 12);
+				d->inst = inst;
 				d->numpal = numpal;
 				memcpy(d->pal, pal, numpal);
 			}
@@ -2732,6 +2759,7 @@ static void beanFree(struct beanmodel *bm)
 {
 	caffClose(&bm->caff);
 	free(bm->draws);
+	free(bm->insts);
 	free(bm->file);
 	memset(bm, 0, sizeof(*bm));
 }
@@ -6406,28 +6434,186 @@ void gebeanLevelClose(struct gebeanlevel *level)
 }
 
 /**
+ * A tree's buffers carry no UVs: its branch cards (stride 20: position,
+ * normal, colour) and its trunk (stride 28: position, normal, tangent,
+ * binormal, colour) have them made by a shader the level file does not hold.
+ * They are made here from the geometry instead.
+ *
+ * A card is four vertices of its own, two at the trunk and two at the tip, in
+ * one of two orders; the branch picture has its base at the right edge
+ * (u 1) and its tip at the left. The trunk is wrapped once round its axis,
+ * the bark's 1:2 picture keeping its shape.
+ */
+struct beantree {
+	f32 axis[2];   // the buffer's middle in plan: the trunk's axis
+	f32 radius;    // the trunk's, at its foot
+	f32 ymin;
+};
+
+static void beanTreeMeasure(const struct beanmodel *bm, const struct beanvb *vb, struct beantree *tree)
+{
+	f64 sum[2] = {0, 0};
+	f64 rsum = 0;
+	s32 rn = 0;
+
+	tree->ymin = 1e30f;
+
+	for (u32 i = 0; i < vb->count; i++) {
+		const u8 *p = bm->gpu + vb->off + i * vb->stride;
+
+		sum[0] += gebeanBEF32(p);
+		sum[1] += gebeanBEF32(p + 8);
+
+		if (gebeanBEF32(p + 4) < tree->ymin) {
+			tree->ymin = gebeanBEF32(p + 4);
+		}
+	}
+
+	tree->axis[0] = vb->count ? sum[0] / vb->count : 0;
+	tree->axis[1] = vb->count ? sum[1] / vb->count : 0;
+
+	for (u32 i = 0; i < vb->count; i++) {
+		const u8 *p = bm->gpu + vb->off + i * vb->stride;
+
+		if (gebeanBEF32(p + 4) < tree->ymin + 1) {
+			const f32 dx = gebeanBEF32(p) - tree->axis[0];
+			const f32 dz = gebeanBEF32(p + 8) - tree->axis[1];
+
+			rsum += sqrtf(dx * dx + dz * dz);
+			rn++;
+		}
+	}
+
+	tree->radius = rn && rsum > 0 ? rsum / rn : 50;
+}
+
+static f32 beanTreeDistance(const struct beanmodel *bm, const struct beanvb *vb, const struct beantree *tree, u32 i)
+{
+	const u8 *p = bm->gpu + vb->off + i * vb->stride;
+	const f32 dx = gebeanBEF32(p) - tree->axis[0];
+	const f32 dz = gebeanBEF32(p + 8) - tree->axis[1];
+
+	return sqrtf(dx * dx + dz * dz);
+}
+
+static void beanTreeUvs(const struct beanmodel *bm, const struct beanvb *vb, const struct beantree *tree,
+		const u32 *idx, struct gebeanlevelvtx *v)
+{
+	if (vb->stride == 20) {
+		for (s32 k = 0; k < 3; k++) {
+			const u32 card = idx[k] & ~3u;
+			f32 near0, near1;
+
+			if (card + 3 >= vb->count) {
+				v[k].uv[0] = v[k].uv[1] = 0;
+				continue;
+			}
+
+			near0 = beanTreeDistance(bm, vb, tree, card) + beanTreeDistance(bm, vb, tree, card + 1);
+			near1 = beanTreeDistance(bm, vb, tree, card + 2) + beanTreeDistance(bm, vb, tree, card + 3);
+
+			// The pair nearer the trunk is the branch's base
+			v[k].uv[0] = ((idx[k] & 2) != 0) == (near1 < near0) ? 1 : 0;
+			v[k].uv[1] = (idx[k] & 1) ? 0 : 1;
+		}
+	} else {
+		const f32 tile = 2 * 2 * M_PI * tree->radius; // one picture's height
+		s32 onaxis[3];
+		f32 lo = 1, hi = 0, sum = 0;
+		s32 n = 0;
+
+		for (s32 k = 0; k < 3; k++) {
+			const f32 dx = v[k].pos[0] - tree->axis[0];
+			const f32 dz = v[k].pos[2] - tree->axis[1];
+
+			onaxis[k] = dx * dx + dz * dz < tree->radius * tree->radius * 0.0625f;
+			v[k].uv[0] = onaxis[k] ? 0 : atan2f(dz, dx) / (2 * M_PI) + 0.5f;
+			v[k].uv[1] = (tree->ymin - v[k].pos[1]) / tile;
+
+			if (!onaxis[k]) {
+				lo = v[k].uv[0] < lo ? v[k].uv[0] : lo;
+				hi = v[k].uv[0] > hi ? v[k].uv[0] : hi;
+			}
+		}
+
+		// Across the seam, carry the low side round
+		for (s32 k = 0; k < 3; k++) {
+			if (!onaxis[k]) {
+				if (hi - lo > 0.5f && v[k].uv[0] < 0.5f) {
+					v[k].uv[0] += 1;
+				}
+
+				sum += v[k].uv[0];
+				n++;
+			}
+		}
+
+		// The cone's tip is on the axis: under the middle of its own face
+		for (s32 k = 0; k < 3; k++) {
+			if (onaxis[k]) {
+				v[k].uv[0] = n ? sum / n : 0;
+			}
+		}
+	}
+}
+
+/**
  * Every triangle of the level, in the file's own units, with the texture its
  * material draws (-1 for none). Returns how many were handed over.
  *
- * Left out: the stride 36 buffers, which are not positions at all - they
- * are drawn through the instancing records (0x20/0x03) that place Bean's
- * trees and bushes, which this does not read yet - and any vertex that is not
- * a sane position.
+ * A draw under an instancing record is placed by its matrix, and the buffers
+ * drawn that way are trees, whose UVs are made (beanTreeUvs()).
+ *
+ * Left out: the stride 36 buffers, which are the water (a packed word, then
+ * the position at +4 - not read yet), and any vertex that is not a sane
+ * position.
  */
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg)
 {
 	struct beanmodel *bm = &level->bm;
 	s32 count = 0;
+	u32 treevbs[32];
+	s32 numtreevbs = 0;
+
+	// The buffers any instancing record draws - its first copy is drawn
+	// without one, where the tree was modelled
+	for (s32 d = 0; d < bm->numdraws; d++) {
+		const struct beandraw *draw = &bm->draws[d];
+		s32 known = 0;
+
+		if (draw->inst < 0) {
+			continue;
+		}
+
+		for (s32 i = 0; i < numtreevbs; i++) {
+			known |= treevbs[i] == draw->vb;
+		}
+
+		if (!known && numtreevbs < ARRAYCOUNT(treevbs)) {
+			treevbs[numtreevbs++] = draw->vb;
+		}
+	}
 
 	for (s32 d = 0; d < bm->numdraws; d++) {
 		const struct beandraw *draw = &bm->draws[d];
+		const f32 *m = draw->inst >= 0 ? bm->insts[draw->inst] : NULL;
 		struct beanvb vb;
+		struct beantree tree;
 		u32 *tris = NULL;
 		s32 numtris;
+		s32 istree = 0;
 
 		if (!beanReadVb(bm, draw->vb, &vb) || vb.stride == 36) {
 			continue;
+		}
+
+		for (s32 i = 0; i < numtreevbs; i++) {
+			istree |= treevbs[i] == draw->vb && (vb.stride == 20 || vb.stride == 28);
+		}
+
+		if (istree) {
+			beanTreeMeasure(bm, &vb, &tree);
 		}
 
 		numtris = beanTriangles32(bm, draw, &tris);
@@ -6466,10 +6652,26 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				}
 			}
 
-			if (ok) {
-				fn(arg, draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1, v);
-				count++;
+			if (!ok) {
+				continue;
 			}
+
+			if (istree) {
+				beanTreeUvs(bm, &vb, &tree, &tris[t * 3], v);
+			}
+
+			if (m) {
+				for (s32 k = 0; k < 3; k++) {
+					const f32 x = v[k].pos[0], y = v[k].pos[1], z = v[k].pos[2];
+
+					for (s32 j = 0; j < 3; j++) {
+						v[k].pos[j] = x * m[j] + y * m[4 + j] + z * m[8 + j] + m[12 + j];
+					}
+				}
+			}
+
+			fn(arg, draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1, v);
+			count++;
 		}
 
 		free(tris);
