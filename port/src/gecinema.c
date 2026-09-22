@@ -671,7 +671,7 @@ static void gecinemaIntroBeginSwirl(void)
 
 	g_GeIntroStage = GEINTRO_SWIRL;
 	g_GeIntroTimer = 0;
-	g_GeIntroLeg = 0;
+	g_GeIntroLeg = 1;   // GoldenEye's own intro_camera_index: record 0 is the spline's prev point, not a leg
 	g_GeIntroPosed = 0;
 
 	// Perfect Dark's frozen camera: the chr body is built and ticked, the walk
@@ -747,10 +747,14 @@ static void gecinemaIntroTick(void)
  * The four points the spline runs through are the leg's own, the one before
  * and the two after, never stepping past the record that ends the path. A
  * point flagged 2 is an offset in Bond's own frame - turned by the way he
- * faces - and the rest are in the level's. What the camera looks at is Bond's
- * eyes, pushed forty units along his own line of sight over the legs flagged
- * 4, which is what brings the picture round to what he is looking at as the
- * camera arrives.
+ * faces - and the rest are in the level's.
+ *
+ * What the camera looks at is Bond's eyes over the legs flagged 4 and a point
+ * forty units along his own line of sight over the rest, blending across a leg
+ * that changes: a path whose last leg drops the flag - which every one of
+ * GoldenEye's does - turns the picture to what he is looking at as the camera
+ * arrives in his head, and leaves the look vector forty units long rather than
+ * nothing when it gets there.
  */
 static void gecinemaSwirlCamera(s32 index, f32 time, struct coord *pos, struct coord *lookat)
 {
@@ -802,9 +806,9 @@ static void gecinemaSwirlCamera(s32 index, f32 time, struct coord *pos, struct c
 	}
 
 	if (!(leg->flags & 4)) {
-		blend = (leg[1].flags & 4) ? frac : 0.0f;
+		blend = (leg[1].flags & 4) ? 1.0f - frac : 1.0f;
 	} else {
-		blend = (leg[1].flags & 4) ? 1.0f : 1.0f - frac;
+		blend = (leg[1].flags & 4) ? 0.0f : frac;
 	}
 
 	for (s32 k = 0; k < 3; k++) {

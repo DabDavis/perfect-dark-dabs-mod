@@ -7909,3 +7909,72 @@ afterwards: the leaf swings, portal 59 clears, and room 17 draws with its two
 guards in it. **Ask which prop owns a closed portal before asking why a room is
 missing** - the first hour here went on the portal walk and the screen boxes,
 which were doing exactly what they should.
+
+### The opening swirl looked past Bond, and started a leg early
+
+F3 report 20260922-060640, Facility, *"camera is bumping into walls as it
+descends, camera rotation too wide"*, with a screenshot looking straight down
+the entry shaft. The trace has the answer in one line: `cam pos (-4418.8 871.9
+144.2) look (-18.720 -376.132 -37.012)` against `player prop pos (-4395.6 443.9
+106.5)`. The camera is 428 over Bond's eyes and 44 out from them, so a look
+straight at him would be `(23.2, -428.0, 37.7)` negated - and the x is 42 units
+away from that. The camera was aiming past him the whole way down.
+
+**`gecinemaSwirlCamera()`'s flag 4 was inverted.** GoldenEye's
+`bondviewCalcIntroSwirlCamera()` adds `applied_view * 40` to the look-at point
+with a weight that is **0 while the leg is flagged 4** and 1 while it is not,
+blending across a leg where the flag changes:
+
+```c
+if (!(swirl->bitflags & 4))        scale = (swirl[1].bitflags & 4) ? 1.0f - frac : 1.0f;
+else                               scale = (swirl[1].bitflags & 4) ? 0.0f : frac;
+```
+
+The port had the two branches the other way round, from reading flag 4 as
+"look where he looks" - it is the opposite, "look at him". Every one of
+GoldenEye's paths ends on legs that do **not** carry it, which is what turns
+the picture from Bond's face to what Bond is looking at as the camera arrives
+in his head, and what leaves the look vector forty units long instead of zero
+when the camera reaches the eyes exactly.
+
+**Only Facility carries flag 4** (9 of its 12 records; the other nineteen
+missions have none at all), which is why only Facility was reported. On the
+other nineteen the inversion pointed the camera *at* Bond instead of forty
+units past him - flattering, and invisible at the 200-500 unit standoff those
+paths use - and only cost the last frame's look vector. Facility's helix is 40
+to 45 units wide inside the shaft, so a 40-unit aiming error is nine degrees at
+the top and ninety at the bottom: Bond slid out of frame over the last second
+and a half and the braced wall behind him filled the screen, which is what
+"bumping into walls" and "rotation too wide" both are. There is nothing wrong
+with the camera's **path** - it is the setup's, to the unit
+(`build/gexrom/swirlprobe.py` prints it per frame; `.../shots_sw/` before and
+`shots_sw3/` after).
+
+**And the swirl starts on leg 1, not leg 0.** `s32 intro_camera_index = 1;` in
+bondview.c, and all three places that restart it assign the constant 1 (the
+decompilation renders it `CAMERAMODE_INTRO`, which is the same number - do not
+read it as a mode). Record 0 exists to be the spline's *prev* control point:
+**thirteen** of the twenty missions store record 1 at exactly record 0's offset
+(Dam, Bunker, Frigate, Cradle, Silo, Statue Park ...) and three more within a
+unit or two (Caves, Jungle, Runway). Starting at 0 gave every mission an extra
+first leg - on those sixteen a 40 to 131 tick wander of about eighty units
+between two points that are the same place, and on the four that do start with
+a real leg (Facility, Depot, Egyptian, Train) a whole extra leg of travel; on
+Facility, 85 more units of descent. The oracle confirms it at run time: force
+the mode with `bondviewSetCameraMode(3)` and `intro_camera_index` reads 1.
+
+Facility's opening is 200 ticks over eight legs now, Bond centred the whole way
+down, and the last leg hands over to a first person view of the same braced
+wall the swirl ends on (`--screenshot-frame 720` on `--boot-stage 0x63`).
+
+**The oracle gave the leg number and no pictures** (`~/dam-oracle/geark2.py`,
+`PORT_DEMO=2` pins the attract demo to Facility so the breakpoint hits on the
+first level, `bossSetLoadedStage(LEVELID_FACILITY)` then waiting for
+`g_IntroSwirl` to change). A ramrom run is sent straight to `CAMERAMODE_FP` by
+`bondviewSetCameraMode()`, so `is_ramrom_flag` has to be cleared over the call
+and **put back at once** or the demo ends and the game fades to the title on
+the next frame - and even then the demo has already walked Bond off his spawn
+and the frozen camera never runs a tick, so `g_CurrentPlayer->pos` stays at the
+origin. **To photograph a mission's own opening in GoldenEye, walk the menus
+with a pad script** (`dam.padscript`) as the Dam tour did; a demo is the wrong
+entry for anything before the player has control.
