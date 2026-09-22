@@ -177,6 +177,17 @@ void xblaMeshSetBypass(s32 on);
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle);
 
 /**
+ * While on, the model being drawn is an object with OBJFLAG_ORTHOGONAL, which
+ * objRenderProp() draws under the player's `orthomtxl` projection and whose
+ * matrices it rewrites after listing them (player0f0c3320()), from the view
+ * space they are listed in to the world-relative space that projection takes.
+ * A float copy of one of those matrices made while listing - a pose's divided
+ * matrix, a rest offset taken off - stays in view space, and is turned by the
+ * camera twice. Set it round the modelRender() call and clear it after.
+ */
+void xblaMeshSetOrthogonal(s32 on);
+
+/**
  * Mod.XblaReflections, "Enable Reflections": the release's reflections on its
  * meshes. Each material whose byte 16 is not zero is blended that percentage
  * of the way towards environment map byte 24, looked up by the eye's ray

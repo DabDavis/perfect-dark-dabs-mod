@@ -8651,3 +8651,46 @@ out of place:
 
 The panes still stand where GoldenEye stands them, now as faint tinted glass
 the guards show through. Sweep of all twenty missions in both looks clean.
+
+**Correction the same night: they did not stand where GoldenEye stands them.**
+The oracle check above compared *prop* positions and matrices, which are
+right; the HD pane was drawn somewhere else. See the next section.
+
+## Floating glass, second half: GoldenEye's bit 0x200 is Perfect Dark's OBJFLAG_ORTHOGONAL (2026-09-22)
+
+Tester F3 20260922-232054 on 0e2b50d1f (Dam, HD, Community Edition on - not
+the cause, reproduced without it): big blue panes standing in the yard, "no
+where near an actual object containing them". Reproduced at the report's
+camera (`hdtree/f3cam.sh 0x15 <tag> 205 20.5` with `MOVEIT=1 PX=12261
+PY=13272 PZ=21812.6`); hiding every window (`hdtree/winone.py`, `WINKEEP=999`)
+took them all away, keeping one of the right-hand tower's five
+(`WCX=13400 WCZ=21100 WINKEEP=0`) and diffing against none put the N64 pane
+in the tower cabin and the HD pane - several times bigger, turned - over the
+crates. Everything upstream checked out: the fit (`geproptable.h`'s
+n64centre is minus the group origin, so the quad is +-315 x +-284 about the
+object's origin, exactly the N64 list's), the pose (`root` is `matrices[0]`,
+pal identity), the divided matrix, the vertex load in the renderer.
+
+**What was wrong is the space the matrix is in when the list runs.** The
+window's flags carry 0x200. In GoldenEye that is `PROPFLAG_00000200`, "glass
+env mapping style"; Perfect Dark reads the same bit as `OBJFLAG_ORTHOGONAL`,
+and objRenderProp() draws such an object under `orthomtxl` (perspective x
+view - always set, the name is a misnomer) and, after listing it, rewrites
+its matrices with player0f0c3320() into a world-relative space that
+projection takes. The game's own lists read `matrices[0]` when the frame
+runs, so they follow the rewrite and the N64 look is right. The pose's
+divided float copy (`fine` 16, G_MTX_FLOATS) was made while listing, in view
+space, and went under a projection that turns by the camera again. Forcing
+`fine` to 1 put the pane back, which is what gave it away.
+
+Fix: xblaMeshSetOrthogonal() round objRenderProp()'s modelRender(); under it
+the pose is written in whole units under the game's own matrix and the rest
+offset's float copy (xblaMeshRestShift()) is not made. Traps for the next one:
+
+- a diff of the transformed corners in gfx_sp_vertex against the matrix
+  logged at list time is what separates "wrong matrix" from "right matrix,
+  changed later" - log the matrix at `gfx_sp_matrix` by address;
+- `sizeof(Vtx)` is 12 on the port, not 16;
+- a float copy of any of a model's matrices made while listing is only
+  right if nothing rewrites the model's matrices after the list; the
+  orthogonal path is the one that does.

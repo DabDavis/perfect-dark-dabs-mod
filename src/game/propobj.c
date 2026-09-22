@@ -13746,7 +13746,13 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		}
 
 		renderdata->gdl = gdl;
+#ifndef PLATFORM_N64
+		xblaMeshSetOrthogonal(orthogonal);
+#endif
 		modelRender(renderdata, model);
+#ifndef PLATFORM_N64
+		xblaMeshSetOrthogonal(false);
+#endif
 		gdl = renderdata->gdl;
 
 		if (obj->type == OBJTYPE_DOOR) {

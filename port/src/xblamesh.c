@@ -416,6 +416,10 @@ static s32 optBoth;     // Mod.XblaMeshBoth: draw the game's geometry over it to
  * the art.
  */
 static s32 optPose = 1;
+
+// While non-zero, the model is drawn under the orthogonal projection: see
+// xblaMeshSetOrthogonal().
+static s32 orthogonal = 0;
 static s32 opened; // 0 untried, 1 open, -1 no package
 
 /**
@@ -6654,7 +6658,15 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 	// fineness back out. A mesh whose posed vertices will not fit any finer
 	// than the game's own units gets no copy and no division, and is written
 	// exactly as it was before.
-	fine = xblaMeshPoseFineness(m, pal);
+	//
+	// Not under the orthogonal projection, whose matrices are rewritten into
+	// another space after this has copied one (xblaMeshSetOrthogonal()): a
+	// divided copy of the view-space matrix went under a projection that turns
+	// by the camera again, and every GoldenEye window - bit 0x200 is its glass's
+	// env mapping style, and Perfect Dark's OBJFLAG_ORTHOGONAL - stood as a big
+	// pane of glass well away from its frame (F3 20260922-232054, Dam's towers).
+	// Whole units under the game's own matrix, which the rewrite does carry.
+	fine = orthogonal ? 1 : xblaMeshPoseFineness(m, pal);
 
 	if (fine > 1) {
 		fmtx = xblaMeshFrameAlloc(sizeof(Mtxf));
@@ -8457,6 +8469,11 @@ void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle)
 	opaqueonecycle = onecycle;
 }
 
+void xblaMeshSetOrthogonal(s32 on)
+{
+	orthogonal = on != 0;
+}
+
 void xblaMeshSetEnvironment(s32 force)
 {
 	envforce = force;
@@ -9402,7 +9419,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// already stands at the part's rest offset: the offset comes off a float
 	// copy, the way the pose's divided matrix is handed over, stage scale and
 	// all. See xblaMeshRestShift().
-	if (drawmtx == root && root && use && !m->local && !m->bindpos) {
+	// Not under the orthogonal projection, for the pose's reason above.
+	if (drawmtx == root && root && use && !m->local && !m->bindpos && !orthogonal) {
 		const f32 *shift = xblaMeshRestShift(m, use, e->slot);
 
 		if (shift) {
