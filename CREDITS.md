@@ -143,13 +143,21 @@ Windows F3-send crash, the guard-spawn lag and dozens more were found at all —
 usually with a screenshot, a trace and a description better than most bug
 trackers get. **51 people** have signed into ghost trials on top of that.
 
-Reports arrive with no name attached, by design: the F3 pipeline sends a trace,
-a screenshot and your note, and the server logs an IP for rate limiting and
-nothing else. So this section cannot list the people in it, which is the one
-part of this file that is genuinely unfair. **If you have sent a report and
-want your name in this file, ask and it goes in.** The same offer stands for
-anyone who has reported a crash, tested a build on Windows, or run the GE-X
-and GE Plus missions and written up what was wrong.
+**savantique** · **Paramania** · **Graslu00** · **Odeyseis** · **Myles De
+Vries** · **Velvet Dark** · **dickalan** · **trevor** · **PerfectDark023** ·
+**spider64** · **ElmoBear** · **Jerry R** · **Glazier** · **Linkmendez** ·
+**and others not named**
+
+That last entry is not a formality. The names above had to be asked for,
+because reports arrive with no name attached by design: the F3 pipeline sends
+a trace, a screenshot and your note, and the server logs an IP for rate
+limiting and nothing else. Nobody here was identified from a report — these
+are the people who happened to see the question and answer it, which means the
+list is certainly still short of people who earned a place on it. **If you
+have sent a report and are not on it, ask and you go on.** The same offer
+stands for anyone who has reported a crash, tested a build on Windows, or run
+the GE-X and GE Plus missions and written up what was wrong — and for anyone
+here who wants their name spelled differently or taken off.
 
 ## 8. The GoldenEye 007 decompilation
 
