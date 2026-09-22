@@ -7800,3 +7800,64 @@ three word rectangle (gbiex.h) whose corners are signed 24 bit and which
 already. gehud.c is the only HUD drawer that takes a picture to an
 arbitrary place; the ammo pictures and the folder's text stay inside the
 frame and never went negative.
+
+### The sea was green, and the horizon was black (2026-09-22, F3 20260922-034813)
+
+The tester, in the boat beside the frigate: "water is green like toxic sludge.
+should be blue", and then "where the water meets the horizon is a black void".
+Both reproduce from `build/gexrom/waterrun.sh` (the report's own camera, and
+two more looking level at the horizon; `data/save_water` is a 16:9 copy of
+`save_0x6c`).
+
+**The green was a reinterpretation the console never does.** The shimmer added
+in `cba4ab7c4` was built on reading Frigate's water picture's bytes as RGBA16
+when the port holds it as CI8, which turns two palette indices under 24 into a
+5551 colour with a red of 0 to 2 - a green-black mottle. What
+`sub_GAME_7F09343C()` actually does is describe **two tiles in the picture's
+own format** with a `line` of 4: 32 bytes where a 32 texel row of RGBA16 is
+64, so each tile row starts half a TMEM row on and the picture is drawn at
+twice its height with every other row shifted half its width, the second tile
+(22.5, 37.5) texels along and cross-faded by `sin(t)`. The halved line is the
+whole of the trick, which its **CI8** twin `sub_GAME_7F09365C()` (Dam and
+Complex, texture 1511, line 2) says plainly.
+
+The authority for the format is `s_skywaterimages[]` in the decompilation's
+`assets/oddtextures.c`: the sea is `IMAGE_WATER_BLUE`, **32x32 RGBA16** (the
+fourth field of a row is its LOD count, not a shift), so nothing is
+reinterpreted there - while `skywaterimages[1]` is a 64x64 **I8** and a tile
+row of *that* really is pairs of intensity bytes read as 5551 colours. So TMEM
+is rebuilt from the format the **`struct textureconfig` names**, which is
+GoldenEye's own (rows 3-5 carry RGBA16/I8/IA8 where the pool's copy of 1509 is
+CI8 with a palette), the colours coming back through `texpackTexToRgba()`.
+
+Two things that are easy to get backwards:
+
+- **The odd-row word swap is applied twice, not once.** Rare swizzles a
+  texture in RAM (`texSwizzle`, stubbed in the port) and loads it with
+  `dxt` 0, so the load does no swapping of its own and TMEM holds the picture
+  with the 32-bit halves of each 64-bit word swapped on odd *picture* rows;
+  the fetch swaps again on odd *tile* rows. They cancel only where a tile row
+  does not run on into the picture's next one. (A natural tile reading the
+  picture correctly is the constraint that decides this.)
+- **The native GoldenEye port at `~/dam-oracle` is not an oracle for this.**
+  Its Frigate is green too, from its own 16x16 re-read, which is how the first
+  build came to be judged right. Where both ports guess, the decompilation's
+  image table is the answer.
+
+**The black void was the plane stopping short of the horizon.** The rings
+`skyRenderWaterPlane()` draws ended at 30000, which at the boat's eye height
+is half a degree below the horizon the sky plane is drawn down to - nine rows
+of nothing on a 720 row window, and more the higher the camera. The ring set
+reaches the N64's own 300000 now, under a third matrix at sixteen units to the
+Vtx, and its outermost vertices are written at the **eye's own height** rather
+than the water's: they stand for the plane's point at infinity, whose
+direction is level with the eye whatever the height, so they land on the
+horizon exactly where 300000 alone was still a row short.
+
+Only the position goes out there. Texture coordinates are what force
+`skyRenderWaterTri()`'s subdivision (a Vtx's s and t hold 1024 texels), and at
+their own rate the outermost ring would be some four thousand triangles of
+detail no window can resolve, so they are let out at a tenth past 15360 and
+stop moving at all past 30000, where the plane has faded into the sky colour.
+The whole change is **+48 triangles** at the report's camera (5044 to 5092,
+`build/gexrom/tricount.py`).

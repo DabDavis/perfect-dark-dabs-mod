@@ -25,6 +25,7 @@
 #include "game/artifact.h"
 #include "game/player.h"
 #include "xblasky.h"
+#include "texpack.h"
 #endif
 
 #define SKYABS(val) (val >= 0.0f ? (val) : -(val))
@@ -353,23 +354,85 @@ static Gfx *skyRenderWaterTri(Gfx *gdl, const struct skyvtx3d *a, const struct s
  * Here the plane is a fan and rings of sectors centred under the camera,
  * every cell about as wide as it is deep, in world units relative to the
  * camera so that the near rings (out to 7680) can be written at quarter
- * units under a second matrix; the far ring ends at 30000, which sits under
- * the horizon by a hundredth of a degree less than the N64's corners do and
- * where skyChooseWaterVtxColour() has long since faded the plane to the sky
- * colour. Pieces behind the camera are left to the GPU's clipping
- * (G_NO_CLIPPING_EXT only skips the renderer's whole-triangle rejection).
+ * units under a second matrix.
+ *
+ * It reaches the N64's own 300000 horizon, under a third matrix at sixteen
+ * units to the Vtx, because stopping at 30000 leaves the plane's edge half a
+ * degree below the horizon the sky plane is drawn down to - nine rows of
+ * unpainted black between the sea and the sky on a 720 row window, which is
+ * what "where the water meets the horizon is a black void" is. The outermost
+ * ring stands for the plane's point at infinity, whose direction is level
+ * with the eye whatever the eye's height, so it is written at the eye's own
+ * height and lands on the horizon exactly - 300000 is still a row short of
+ * it on a tall window, and short by more the higher the camera is.
+ *
+ * Only the *position* goes out there. Past SKY_WATER_TEXFULL the plane has
+ * faded into the sky colour and its picture is minified into a sliver a few
+ * rows deep, so the texture coordinates are let out at a tenth of the
+ * distance from there and stop moving at all past SKY_WATER_TEXCAP. They are
+ * what forces the subdivision below - a Vtx's s and t hold 1024 texels - and
+ * at their own rate the outermost ring alone would be thousands of triangles
+ * of detail no window can resolve.
+ *
+ * Pieces behind the camera are left to the GPU's clipping (G_NO_CLIPPING_EXT
+ * only skips the renderer's whole-triangle rejection).
  */
 #define SKY_WATER_SECTORS 24
 #define SKY_WATER_FINEUNIT 4.0f
 #define SKY_WATER_FINERINGS 8
+#define SKY_WATER_COARSEUNIT 0.0625f
+#define SKY_WATER_HORIZON 300000.0f
+#define SKY_WATER_TEXFULL 15360.0f
+#define SKY_WATER_TEXRATE 0.1f
+#define SKY_WATER_TEXCAP 30000.0f
 #define SKY_WATER_TAU 6.2831855f
 
-static const f32 g_SkyWaterRings[] = { 0, 60, 120, 240, 480, 960, 1920, 3840, 7680, 15360, 30000 };
+static const f32 g_SkyWaterRings[] = { 0, 60, 120, 240, 480, 960, 1920, 3840, 7680, 15360, SKY_WATER_TEXCAP, SKY_WATER_HORIZON };
+
+/**
+ * Where on the picture a point of the plane that far out is drawn from.
+ */
+static f32 skyWaterTexRadius(f32 r)
+{
+	if (r <= SKY_WATER_TEXFULL) {
+		return r;
+	}
+
+	if (r > SKY_WATER_TEXCAP) {
+		r = SKY_WATER_TEXCAP;
+	}
+
+	return SKY_WATER_TEXFULL + (r - SKY_WATER_TEXFULL) * SKY_WATER_TEXRATE;
+}
+
+/**
+ * The scale the ring from g_SkyWaterRings[k] outwards is written at: quarter
+ * units near the camera, whole units in the middle, and sixteens for the one
+ * that reaches the horizon, whose 300000 is nine times what a Vtx holds.
+ */
+static f32 skyWaterRingUnit(s32 k, f32 unit)
+{
+	if (k < SKY_WATER_FINERINGS) {
+		return unit;
+	}
+
+	if (k == ARRAYCOUNT(g_SkyWaterRings) - 2) {
+		return SKY_WATER_COARSEUNIT;
+	}
+
+	return 1.0f;
+}
 
 static void skyWaterRingVertex(struct skyvtx3d *v, f32 r, f32 theta, f32 height, f32 unit, const struct coord *cam)
 {
-	const f32 x = r * cosf(theta);
-	const f32 z = r * sinf(theta);
+	const f32 ct = cosf(theta);
+	const f32 st = sinf(theta);
+	const f32 x = r * ct;
+	const f32 z = r * st;
+	const f32 rtex = skyWaterTexRadius(r);
+	// the ring that stands for the plane's point at infinity is level with
+	// the eye, which is where the horizon is
+	const f32 h = r >= SKY_WATER_HORIZON ? 0.0f : height;
 	f32 frac = r > 0.0f ? 2.0f * height / r : 1.0f;
 
 	if (frac > 1.0f) {
@@ -377,10 +440,10 @@ static void skyWaterRingVertex(struct skyvtx3d *v, f32 r, f32 theta, f32 height,
 	}
 
 	v->x = x * unit;
-	v->y = -height * unit;
+	v->y = -h * unit;
 	v->z = z * unit;
-	v->s = cam->x + x;
-	v->t = cam->z + z + g_SkyCloudOffset;
+	v->s = cam->x + rtex * ct;
+	v->t = cam->z + rtex * st + g_SkyCloudOffset;
 
 	// skyIsCornerInWater()'s frac for a point on the plane: twice the
 	// eye's height over the horizontal distance, full colour within that
@@ -393,10 +456,11 @@ static Gfx *skyRenderWaterPlane(Gfx *gdl)
 	f32 height = cam->y - envGetCurrent()->water_scale;
 	struct skyvtx3d ring[2][SKY_WATER_SECTORS + 1];
 	Mtxf base;
-	Mtxf fine;
+	Mtxf scaled;
 	Mtxf tmp;
 	Mtxf *mtx;
 	f32 unit;
+	f32 loaded = 0.0f;
 	s32 k;
 	s32 j;
 
@@ -413,22 +477,24 @@ static Gfx *skyRenderWaterPlane(Gfx *gdl)
 	skyShearForCloudHeight(&base);
 
 	unit = height * SKY_WATER_FINEUNIT < 30000.0f ? SKY_WATER_FINEUNIT : 1.0f;
-	guScaleF(tmp.m, 1.0f / unit, 1.0f / unit, 1.0f / unit);
-	mtx4MultMtx4(&base, &tmp, &fine);
-
-	mtx = gfxAllocateMatrix();
-	mtxF2L(&fine, mtx);
 
 	gSPSetExtraGeometryModeEXT(gdl++, G_NO_CLIPPING_EXT);
-	gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_PUSH);
 
 	for (k = 0; k < ARRAYCOUNT(g_SkyWaterRings) - 1; k++) {
-		const f32 u = k < SKY_WATER_FINERINGS ? unit : 1.0f;
+		const f32 u = skyWaterRingUnit(k, unit);
 
-		if (k == SKY_WATER_FINERINGS && unit != 1.0f) {
+		// one matrix per scale, the first of them the one that is popped
+		if (u != loaded) {
+			guScaleF(tmp.m, 1.0f / u, 1.0f / u, 1.0f / u);
+			mtx4MultMtx4(&base, &tmp, &scaled);
+
 			mtx = gfxAllocateMatrix();
-			mtxF2L(&base, mtx);
-			gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+			mtxF2L(&scaled, mtx);
+
+			gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_MODELVIEW | G_MTX_LOAD
+					| (loaded == 0.0f ? G_MTX_PUSH : G_MTX_NOPUSH));
+
+			loaded = u;
 		}
 
 		for (j = 0; j < SKY_WATER_SECTORS; j++) {
@@ -462,24 +528,43 @@ static Gfx *skyRenderWaterPlane(Gfx *gdl)
  *
  * bgfog's sky path draws the water plane through sub_GAME_7F09343C()
  * (unk_092E50.c): after the picture is loaded it describes two tiles over
- * the same TMEM as 32x32 RGBA16 with a 32-byte line, the second (22.5, 37.5)
- * texels along, and lerps them by sin(t) in a two-cycle combiner before the
- * shade. A texel is therefore two neighbouring bytes of the picture's colour
- * indices read as a 5551 colour - indices under 24 give a red of 0, a green
- * of the first index's low bits and a blue of half the second - which is why
- * Frigate's sea is a green-black mottle and not the blue picture it names.
+ * the same TMEM, the second (22.5, 37.5) texels along, and lerps them by
+ * sin(t) in a two-cycle combiner before the shade.
  *
- * The port's renderer decodes a tile from the picture's bytes in the tile's
- * own format, so the re-read is worked out here once per picture the way the
- * RDP fetches it: a tile row's 64-bit words have their 32-bit halves swapped
- * on odd rows, and so does the load of the picture's own rows (texSwizzle,
- * which the port's decoder leaves linear), which cancel except where a tile
- * row runs on into the picture's next row. Rows 3-5 of g_TcSkyWaterConfigs
- * are GoldenEye's pictures (geconvert.c's GE_SKYTEX_FIRST); Perfect Dark's
- * own rows never draw the plane.
+ * Both tiles are RGBA16 with a `line` of 4, which is 32 bytes where a 32
+ * texel row of RGBA16 is 64: each tile row starts half a TMEM row further
+ * on, so the picture is drawn at twice its height with every other row
+ * shifted half its width, and the two tiles cross-fade over it. GoldenEye's
+ * Dam and Complex water (sub_GAME_7F09365C, texture 1511) is the same trick
+ * on a CI8 tile with a line of 2, which is what says the halved line is the
+ * whole of it.
+ *
+ * Whether anything is *reinterpreted* is then up to the picture the level
+ * names. Frigate's is s_skywaterimages[2], `IMAGE_WATER_BLUE`, which is
+ * 32x32 RGBA16 already, so the sea is the blue picture sheared and nothing
+ * more; skywaterimages[1] is a 64x64 I8 and a tile row of that really is
+ * pairs of intensity bytes read as 5551 colours. The conversion re-encodes
+ * the blue one as CI8 here (texture 1509 is CI8 with 24 colours), so reading
+ * the pool's bytes as RGBA16 - two palette indices under 24 as a 5551
+ * colour, giving a red of 0 to 2 - invented a reinterpretation the console
+ * never does, and drew the sea as a green-black mottle ("water is green like
+ * toxic sludge", F3 20260922-034813).
+ *
+ * So TMEM is rebuilt here in the format the *config* names, which is
+ * GoldenEye's own (the pool's is whatever geconvert.c re-encoded it as), and
+ * then addressed the way the RDP does: the ROM's textures are swizzled for a
+ * dxt-less load (texSwizzle, stubbed in the port), so TMEM holds the picture
+ * with the 32-bit halves of every 64-bit word swapped on odd *picture* rows,
+ * and the fetch swaps them again on odd *tile* rows - which cancel except
+ * where a tile row runs on into the picture's next row. Rows 3-5 of
+ * g_TcSkyWaterConfigs are GoldenEye's pictures (geconvert.c's
+ * GE_SKYTEX_FIRST); Perfect Dark's own rows never draw the plane.
  */
 #define SKY_WATER_GE_FIRST 3
 #define SKY_WATER_TWINKLE_DIM 32
+
+// GoldenEye's tiles have a line of 4, which is 32 bytes
+#define SKY_WATER_TWINKLE_LINE 32
 
 static struct {
 	s32 texturenum;
@@ -491,10 +576,14 @@ static u8 *skyWaterTwinkleTexture(struct textureconfig *tconfig)
 	struct tex *tex;
 	s32 texturenum;
 	s32 rowbytes;
+	s32 width = 0;
+	s32 height = 0;
 	s32 size;
 	s32 slot;
 	s32 s;
 	s32 t;
+	u8 *rgba;
+	u8 *tmem;
 	u8 *out;
 
 	// once loaded, the config holds the texture's pointer and the number
@@ -521,7 +610,7 @@ static u8 *skyWaterTwinkleTexture(struct textureconfig *tconfig)
 		return NULL;
 	}
 
-	switch (tex->depth) {
+	switch (tconfig->depth) {
 	case G_IM_SIZ_4b:
 		rowbytes = (tex->width + 1) / 2;
 		break;
@@ -542,22 +631,74 @@ static u8 *skyWaterTwinkleTexture(struct textureconfig *tconfig)
 		return NULL;
 	}
 
+	if (tconfig->format == tex->gbiformat && tconfig->depth == tex->depth) {
+		// the pool holds the picture as the console does
+		tmem = tex->data;
+	} else if (tconfig->format == G_IM_FMT_RGBA && tconfig->depth == G_IM_SIZ_16b) {
+		// the conversion re-encoded it: put the colours back as the texels
+		// the console's TMEM holds
+		rgba = texpackTexToRgba(tex, &width, &height);
+
+		if (rgba == NULL) {
+			return NULL;
+		}
+
+		if (width * 2 != rowbytes || height != tex->height) {
+			free(rgba);
+			return NULL;
+		}
+
+		tmem = malloc(size);
+
+		if (tmem == NULL) {
+			free(rgba);
+			return NULL;
+		}
+
+		for (t = 0; t < height; t++) {
+			// texpackTexToRgba() writes the bottom row of the picture first
+			const u8 *row = rgba + (size_t)width * 4 * (height - 1 - t);
+			u8 *dst = tmem + rowbytes * t;
+
+			for (s = 0; s < width; s++) {
+				const u32 c = ((row[s * 4] >> 3) << 11) | ((row[s * 4 + 1] >> 3) << 6)
+						| ((row[s * 4 + 2] >> 3) << 1) | (row[s * 4 + 3] >= 0x80 ? 1 : 0);
+
+				dst[s * 2] = c >> 8;
+				dst[s * 2 + 1] = c & 0xff;
+			}
+		}
+
+		free(rgba);
+	} else {
+		// not a picture GoldenEye draws the sea from: the plain one, unlerped
+		return NULL;
+	}
+
 	out = malloc(SKY_WATER_TWINKLE_DIM * SKY_WATER_TWINKLE_DIM * 2);
 
 	if (out == NULL) {
+		if (tmem != tex->data) {
+			free(tmem);
+		}
+
 		return NULL;
 	}
 
 	for (t = 0; t < SKY_WATER_TWINKLE_DIM; t++) {
 		for (s = 0; s < SKY_WATER_TWINKLE_DIM; s++) {
-			// the tile's fetch, then the load's swizzle of the picture row it lands in
-			s32 a = (t * 32 + s * 2) ^ ((t & 1) ? 4 : 0);
+			// the tile's fetch, then the swizzle of the picture row it lands in
+			s32 a = (t * SKY_WATER_TWINKLE_LINE + s * 2) ^ ((t & 1) ? 4 : 0);
 			s32 b = a ^ (((a / rowbytes) & 1) ? 4 : 0);
 			u8 *texel = out + (t * SKY_WATER_TWINKLE_DIM + s) * 2;
 
-			texel[0] = tex->data[b % size];
-			texel[1] = tex->data[(b + 1) % size];
+			texel[0] = tmem[b % size];
+			texel[1] = tmem[(b + 1) % size];
 		}
+	}
+
+	if (tmem != tex->data) {
+		free(tmem);
 	}
 
 	if (slot == ARRAYCOUNT(g_SkyWaterTwinkles)) {
