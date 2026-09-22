@@ -66,6 +66,7 @@
 #include "gemonitor.h"
 #include "game/zbuf.h"
 #include "game/propobj.h"
+#include "gefolder.h"
 #include "gexfront.h"
 #include "gemusic.h"
 #include "gesfx.h"
@@ -681,6 +682,10 @@ static void frontUnloadModel(void)
 		g_Front.model = NULL;
 	}
 
+	// The release's pictures are bound against this model's own textures, which
+	// are inside the buffer about to be freed (gefolder.c)
+	geFolderForget();
+
 	if (g_Front.modelbuf) {
 		videoFreeCachedTextures(g_Front.modelbuf, g_Front.modelbuf + g_Front.modelbuflen);
 		sysMemFree(g_Front.modelbuf);
@@ -783,6 +788,10 @@ static s32 frontLoadModel(void)
 	}
 
 	frontLoadBackdrop();
+
+	// The release's own art on GoldenEye's own folder, where there is a copy
+	// of the release and its meshes are on (gefolder.c)
+	geFolderRepaint(g_Front.modeldef);
 
 	return 1;
 }
@@ -3022,6 +3031,16 @@ s32 gexFrontOpenAfterCinema(s32 mission)
  * the folder opens and draws GoldenEye's own text with the same fonts, and
  * loading them once here keeps one copy.
  */
+/**
+ * The release's meshes have been switched (F6): the folder's art follows them,
+ * and the model may be loaded right now - the switch is live while the folder
+ * is open. gefolder.c decides what to do with it.
+ */
+void gexFrontMeshesSwitched(void)
+{
+	geFolderSwitched(g_Front.model ? g_Front.modeldef : NULL);
+}
+
 s32 gexFrontLoadShared(void)
 {
 	return g_Front.loaded || frontLoadAll();

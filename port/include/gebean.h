@@ -180,6 +180,19 @@ struct gebeanlevelvtx {
 
 struct gebeanlevel *gebeanLevelOpen(const char *name);
 void gebeanLevelClose(struct gebeanlevel *level);
+
+/**
+ * One of the release's models opened for its pictures alone, which is what the
+ * folder screens want of it (gefolder.c): GoldenEye's own geometry, painted
+ * with the release's art. source is the path under files/, so
+ * "new/prop/walletbond".
+ */
+struct gebeanpictures;
+
+struct gebeanpictures *gebeanPicturesOpen(const char *source);
+void gebeanPicturesClose(struct gebeanpictures *pics);
+s32 gebeanPicturesCount(struct gebeanpictures *pics);
+u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, s32 *outHeight);
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);
 s32 gebeanLevelNumTextures(struct gebeanlevel *level);

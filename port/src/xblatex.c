@@ -414,6 +414,107 @@ const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
 }
 
 /**
+ * A picture for a texture the game is already holding, bound at that texture's
+ * own address - see xblaTexBindPictureAt() in xblatex.h.
+ *
+ * Everything else here allocates a stand-in of its own and hands the address
+ * back for a display list to bind. This one is handed the address instead: the
+ * folder screens' pictures (gefolder.c) are the ROM's, loaded with the
+ * conversion's own model and named by lists that are already built, and what
+ * the release has is the same picture at eight to sixteen times the size. An
+ * entry against that address is the whole of the swap, and forgetting it puts
+ * the ROM's own texels back without anything being reloaded.
+ *
+ * The picture is taken over and freed here. A second bind at the same address
+ * replaces what was there.
+ */
+const void *xblaTexBindPictureAt(const void *addr, u8 *rgba, s32 width, s32 height)
+{
+	struct xblatexentry *e;
+	u32 slot;
+	u32 opaque = 0;
+	u32 total;
+
+	if (!lock || !addr || !rgba || width <= 0 || height <= 0) {
+		free(rgba);
+		return NULL;
+	}
+
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+
+	if (!e) {
+		if (numBound >= XBLATEX_HASHSIZE / 2) {
+			SDL_UnlockMutex(lock);
+			free(rgba);
+			return NULL;
+		}
+
+		slot = xblaTexHashOf(addr);
+
+		while (hash[slot].addr) {
+			slot = (slot + 1) & (XBLATEX_HASHSIZE - 1);
+		}
+
+		e = &hash[slot];
+		e->addr = (u8 *)addr;
+		e->record = XBLATEX_NOREC;
+		e->texnum = -1;
+		e->key = NULL;
+		numBound++;
+	}
+
+	total = (u32)width * (u32)height;
+
+	for (u32 i = 0; i < total; i++) {
+		if (rgba[i * 4 + 3] >= XBLATEX_OPAQUE_ALPHA) {
+			opaque++;
+		}
+	}
+
+	free(e->image);
+	e->image = rgba;
+	e->width = width;
+	e->height = height;
+	e->alpha = opaque < total;
+	e->soft = opaque * 100 < total * XBLATEX_SOFT_PERCENT;
+
+	SDL_UnlockMutex(lock);
+
+	return addr;
+}
+
+/**
+ * Drops the picture bound at an address, leaving the game's own texels there
+ * to draw again. The entry itself stays: the table is open addressed and
+ * everything after a hole would be lost to the probe that stops at one.
+ */
+void xblaTexForgetPicture(const void *addr)
+{
+	struct xblatexentry *e;
+
+	if (!lock || !addr) {
+		return;
+	}
+
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+
+	if (e) {
+		free(e->image);
+		e->image = NULL;
+		e->width = 0;
+		e->height = 0;
+		e->alpha = 0;
+		e->soft = 0;
+	}
+
+	SDL_UnlockMutex(lock);
+}
+
+/**
  * A picture that is one of the ROM's numbered textures, which the texture
  * pack is allowed to repaint - see xblaTexBindTexture() in xblatex.h and the
  * ask in xblaTexLoadReplacement().

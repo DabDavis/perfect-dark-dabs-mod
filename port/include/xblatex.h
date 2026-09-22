@@ -70,6 +70,23 @@ const void *xblaTexBind(u32 record);
 const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height);
 
 /**
+ * The same picture, bound at an address the caller already has rather than at
+ * a stand-in of its own.
+ *
+ * For a texture the game has loaded and whose display lists are already built:
+ * the folder screens' art (gefolder.c), where GoldenEye's own geometry is
+ * drawn with the release's pictures. The address is the texture's own data,
+ * which is what those lists bind, so the swap is this one entry - and
+ * xblaTexForgetPicture() puts the game's own texels back, since the renderer
+ * then finds nothing here and uploads what the list points at.
+ *
+ * The picture is RGBA32 in the game's row order and is taken over. Binding
+ * twice at one address replaces the picture.
+ */
+const void *xblaTexBindPictureAt(const void *addr, u8 *rgba, s32 width, s32 height);
+void xblaTexForgetPicture(const void *addr);
+
+/**
  * The same, for a picture that *is* one of the ROM's numbered textures - a
  * model pack's material named `n64_0a9a`.
  *

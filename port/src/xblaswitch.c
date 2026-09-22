@@ -21,6 +21,7 @@
 #include "xblaexpl.h"
 #include "xblasky.h"
 #include "xblaswitch.h"
+#include "gexfront.h"
 #include "xblatables.h"
 #include "game/title.h"
 
@@ -49,6 +50,10 @@ void xblaSwitchSetEnabled(s32 enabled)
 	xblaMeshSetEnabled(enabled);
 
 	xblaTexSetEnabled(enabled);
+
+	// GE Plus's folder screens wear the release's art with the meshes on
+	// (gefolder.c), and the switch is live while the folder is up
+	gexFrontMeshesSwitched();
 	xblaFontSetEnabled(enabled);
 	xblaExplSetEnabled(enabled);
 	xblaSkySetEnabled(enabled);

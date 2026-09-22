@@ -53,6 +53,9 @@ s32 gexFrontMusic(void);
  * with the same fonts. False when they are not there. Everything loaded stays
  * loaded until the folder closes.
  */
+/** F6: the folder's art follows the release's meshes (gefolder.c). */
+void gexFrontMeshesSwitched(void);
+
 s32 gexFrontLoadShared(void);
 
 /**

@@ -6483,6 +6483,67 @@ s32 gebeanLevelNumTextures(struct gebeanlevel *level)
 	return level->bm.numtex;
 }
 
+/* -------------------------------------------------------------------------
+ * One of the release's models, opened for its pictures alone
+ * ------------------------------------------------------------------------- */
+
+struct gebeanpictures {
+	struct beanmodel bm;
+};
+
+/**
+ * A model of the release's, for the pictures in it and nothing else: the
+ * folder screens' art (gefolder.c), which the remake draws on GoldenEye's own
+ * geometry rather than on 4J's.
+ *
+ * source is the path under files/, "new/prop/walletbond". NULL when the copy
+ * is not on disk or the file is not one of Rare's.
+ */
+struct gebeanpictures *gebeanPicturesOpen(const char *source)
+{
+	struct gebeanpictures *pics;
+
+	if (!gebeanLocate(1)) {
+		return NULL;
+	}
+
+	pics = calloc(1, sizeof(*pics));
+
+	if (!pics) {
+		return NULL;
+	}
+
+	if (!beanLoad(&pics->bm, source, 1)) {
+		free(pics);
+		return NULL;
+	}
+
+	return pics;
+}
+
+void gebeanPicturesClose(struct gebeanpictures *pics)
+{
+	if (pics) {
+		beanFree(&pics->bm);
+		free(pics);
+	}
+}
+
+s32 gebeanPicturesCount(struct gebeanpictures *pics)
+{
+	return pics ? pics->bm.numtex : 0;
+}
+
+/** Picture `index` as RGBA32 in the game's row order, malloc'd and the caller's. */
+u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, s32 *outHeight)
+{
+	if (!pics || index < 0 || index >= pics->bm.numtex) {
+		return NULL;
+	}
+
+	return beanDecodeTexture(&pics->bm, index, outWidth, outHeight);
+}
+
 /** A texture's stand-in tile, decoded and bound the first time it is asked for. */
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft)
 {
