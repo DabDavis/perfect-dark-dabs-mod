@@ -8194,3 +8194,61 @@ person, which is how a Brosnan head is judged: `thirdperson` and
 `thirdpersondist` are player fields, set them from gdb). `hdkey/chr/` holds
 the before and after pairs: the same Dam guard in flat N64 green, then in the
 release's khaki tunic with no head, then whole.
+
+## The N64 look has no gun again, and three ways to give it one (2026-09-22)
+
+With GoldenEye X dormant (`ge-rom-first`), `gebeanGunsRefresh()` hides all
+twenty-five GoldenEye guns from the Combat Simulator **in the N64 look**: a
+gun is only offered there when something has been borrowed for it, because
+`gegunsModelFile()` knows GoldenEye X's model and the Perfect Dark host's and
+nothing else, and the host is a PP9i where the PP7 should be. This shipped
+with `75ebe8c15`.
+
+**The first attempt** (`wip/geguns-own-model`, `940cd6075`, do not merge) was
+to give it the conversion's own model. The conversion writes every one of
+GoldenEye's first-person guns as `files/Igx%03dZ` (converter 40) and only the
+watch has ever drawn them. What that branch establishes:
+
+- `gegunsItemNumber()` is GoldenEye's hand item number per gun - the table
+  gewatch.c had to itself - and `gegunsFindConverted()` finds the one mod
+  directory the conversion wrote and registers all 25 models from it, once.
+  All 25 are there and register cleanly.
+- **A converted gun wants 47 to 143 rwdata words** (mostly display lists at
+  four each: the PP7 has 20 lists, 11 toggles and 11 reorders) against the
+  **32** `hand->unk0a6c` holds. Writing a toggle's word past the end of that
+  crashes in `bgunCreateModelCmdList()` as the gun is raised. `struct hand`
+  gains a `biggunsavedata[256]` on the branch and bondgun.c picks by
+  `rwdatalen`.
+- And then it still dies: **"Unknown GBI opcode 0x1010100"** as the gun draws.
+  Registration alone is harmless (a build with only the model swap taken out
+  boots clean), so it is Perfect Dark's first-person path meeting a model that
+  is not shaped like one of its own - it builds a per-list command list
+  (`bgunCreateModelCmdList()` / `bgunExecuteModelCmdList()`) that substitutes
+  each DL's vertices, list and colours, and GoldenEye's twenty lists have
+  nothing to substitute. Placement, the part numbers the gun code toggles, the
+  muzzle and the hands are all still untried behind that.
+
+**The three routes, and what each needs installed.** Note that the guns are
+already release-gated either way - `show` in `gebeanGunsRefresh()` wants
+`bean || anyborrowed`, so a player with only the ROM has never had GoldenEye's
+guns in the Combat Simulator at all.
+
+1. **Finish the branch.** GoldenEye's own model through Perfect Dark's gun
+   path: the command list, placement, part numbers, muzzle, hands. Needs only
+   the ROM. Several unknowns, and the crash above is the first of them.
+2. **Bring back Bean's N64-look guns** (`files/original/gun/`), which is what
+   "The guns follow F6 too" built and `b115713e9` removed once GoldenEye X made
+   it redundant - 223 lines out of gebean.c. The machinery it hung on is still
+   here: `gebeanRowIsFirstPerson()` is still in xblamesh.c's `frombean` test, so
+   a first-person row still builds in **both** looks, and all that stands in the
+   way is `gebeanBuild()`'s `if (original) return NULL`. What has to come back
+   with it is the glove table, the flash-by-bones test, the per-look muzzle
+   offsets, and `files/original/gun/` in the archive's wanted list (with a
+   cache marker bump). Needs the release, which the guns need anyway.
+3. **Offer them on their Perfect Dark hosts** in the N64 look. Five minutes,
+   and the PP7 is a PP9i again - which is the thing the user turned down in
+   the first place ("Require GE-X for N64 guns").
+
+Route 2 is the recommendation: it is a revert of a deliberate removal rather
+than new ground, it draws GoldenEye's own N64 gun, and it asks for nothing the
+guns do not already require.
