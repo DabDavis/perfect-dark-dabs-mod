@@ -99,10 +99,31 @@ those notes are part of the deliverable, not scratch.
 
 ## 5. The GoldenEye X team
 
-GE Plus is drawn on GoldenEye X's models. Its characters, its guns, its music
-and its arenas are borrowed whole, and without that mod this fork's GoldenEye
-half would be a converter with nothing to draw. Credits as the mod's own
-`ge-x_6a_credits.txt` gives them:
+GE Plus no longer *comes from* GoldenEye X. It converts GoldenEye out of the
+player's own ROM at startup - the twenty missions, the arenas, all eighty
+characters and their animations, the music, the sound bank, the HUD and radar,
+the watch, the gadgets and the monitor programmes - and a converted mission is
+GoldenEye's own level whose guards are GoldenEye's own guards
+(`gexplus.c`: "A mission dresses its chrs out of that table and nothing else").
+
+What GoldenEye X still is, which is a great deal:
+
+- **the models the HD characters are drawn on.** Every one of the 98 rows in
+  `gebeantable.h` is a GoldenEye X model file. Without the mod there are no
+  XBLA-quality characters at all.
+- **about half the HD levels.** Of the 45 pairings in `gebeanstagetable.h`, 24
+  are GoldenEye X backgrounds and 21 are the converter's own arenas.
+- **what the arenas wear when it is installed** - its characters, its music
+  and its guns, borrowed whole rather than converted. The reason the borrowing
+  code exists at all is recorded at the top of `modborrow.c`: *"ge-x is a good
+  reference honestly, they implemented the hand grips, everything correctly,
+  even the reload animations."*
+- **the oracle the whole conversion was checked against.** GoldenEye X keeps
+  GoldenEye's N64 vertices byte for byte under Perfect Dark's file names, which
+  is what made it possible to tell a conversion bug from a guess, and it is
+  still the mission list GE Plus falls back to when it is the loaded mod.
+
+Credits as the mod's own `ge-x_6a_credits.txt` gives them:
 
 **Wreck** (props, weapons, characters, level files, textures, text, custom
 arms, general editing, mod direction) · **SubDrag** (music porting, tools, ASM
