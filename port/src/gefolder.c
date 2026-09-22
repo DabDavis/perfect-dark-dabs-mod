@@ -945,6 +945,123 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 }
 
 /**
+ * The menus' two fonts (gebeanFontOpen()), cut up a glyph a picture: the
+ * release's glyphs are packed in one picture, and a rectangle over a share of
+ * a stand-in counts its texels in 32nds of the nominal size, half a pixel of
+ * the release's picture, which blurs or clips an edge; and a glyph of its own,
+ * clamped, cannot filter in its neighbour's. The boxes' UVs are the texel
+ * centres (Direct3D 9's), so a box starts at the texel it names. Built once,
+ * kept for the life of the game; a font the release has not got is tried
+ * once.
+ */
+#define GEFOLDER_GLYPH_BORDER 1
+
+static struct gefolderfont *menuFonts[2];
+static s32 menuFontTried[2];
+
+static struct gefolderfont *geFolderBuildFont(const char *name)
+{
+	struct gebeanfont *src = gebeanFontOpen(name);
+	struct gefolderfont *font;
+	s32 cut = 0;
+
+	if (!src) {
+		return NULL;
+	}
+
+	font = calloc(1, sizeof(*font));
+
+	if (!font) {
+		gebeanFontClose(src);
+		return NULL;
+	}
+
+	font->lineheight = src->lineheight;
+	font->ascent = src->ascent;
+	font->space = src->space;
+
+	for (s32 i = 0; i < src->numglyphs; i++) {
+		const struct gebeanglyph *g = &src->glyphs[i];
+		struct gefolderglyph *out;
+		const s32 b = GEFOLDER_GLYPH_BORDER;
+		const s32 x0 = (s32)g->u0;
+		const s32 y0 = (s32)g->v0;
+		const s32 pw = g->width + 2 * b;
+		const s32 ph = g->height + 2 * b;
+		char key[48];
+		u8 *rgba;
+
+		if (g->ch < 0x21 || g->ch >= 0x7f) {
+			continue;
+		}
+
+		out = &font->glyphs[g->ch - 0x21];
+		out->advance = g->advance;
+		out->left = g->left - b;
+		out->top = g->top + b;
+		out->width = pw;
+		out->height = ph;
+
+		if (g->ch == 'H') {
+			font->capheight = g->top;
+		}
+
+		if (g->width == 0 || g->height == 0 || x0 < 0 || y0 < 0
+				|| x0 + g->width > src->width || y0 + g->height > src->height) {
+			continue;
+		}
+
+		rgba = calloc((size_t)pw * ph, 4);
+
+		if (!rgba) {
+			continue;
+		}
+
+		// both pictures bottom-up: the box's row r from the top is the
+		// release picture's row height-1-(y0+r) and this one's ph-1-(b+r)
+		for (s32 r = 0; r < g->height; r++) {
+			memcpy(rgba + ((size_t)(ph - 1 - (b + r)) * pw + b) * 4,
+					src->rgba + ((size_t)(src->height - 1 - (y0 + r)) * src->width + x0) * 4,
+					(size_t)g->width * 4);
+		}
+
+		snprintf(key, sizeof(key), "gefont/%s/%02x", name, g->ch);
+		out->tile = xblaTexBindImage(key, rgba, pw, ph);
+
+		if (out->tile) {
+			cut++;
+		}
+	}
+
+	gebeanFontClose(src);
+
+	if (!cut || !font->capheight) {
+		free(font);
+		return NULL;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gefolder: the release's font %s, %d glyphs", name, cut);
+
+	return font;
+}
+
+const struct gefolderfont *geFolderFont(s32 gothic)
+{
+	gothic = gothic ? 1 : 0;
+
+	if (!gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+		return NULL;
+	}
+
+	if (!menuFonts[gothic] && !menuFontTried[gothic]) {
+		menuFontTried[gothic] = 1;
+		menuFonts[gothic] = geFolderBuildFont(gothic ? "doc0" : "alps3");
+	}
+
+	return menuFonts[gothic];
+}
+
+/**
  * What the release draws behind the folder: not GoldenEye's frame of cover
  * cloth but a dark desk out of focus - olive going to near black at the
  * edges, one soft light above and left of the folder and a cool shadow under

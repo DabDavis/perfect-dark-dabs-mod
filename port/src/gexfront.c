@@ -44,6 +44,7 @@
  * return after calling it); the Perfect Menu underneath is left open and comes
  * back as it was.
  */
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -367,6 +368,11 @@ struct gefont {
 	u8 *data;
 	s32 kerning[13 * 13];
 	struct gefontchar chars[94];
+
+	// the release's set of it, and how it is scaled onto this one (frontHdFont())
+	const struct gefolderfont *hd;
+	f32 hdscale;
+	f32 hdxscale;
 };
 
 static struct {
@@ -948,6 +954,8 @@ static void frontUnload(void)
 	sysMemFree(g_Front.title);
 	g_Front.zurich.data = NULL;
 	g_Front.gothic.data = NULL;
+	g_Front.zurich.hd = NULL;
+	g_Front.gothic.hd = NULL;
 	g_Front.title = NULL;
 	g_Front.loaded = 0;
 }
@@ -3281,10 +3289,111 @@ static s32 frontLineHeight(const struct gefont *font)
 	return font->chars['['].height + font->chars['['].baseline;
 }
 
+/**
+ * The release's own set of the font (geFolderFont()), where its look is on:
+ * the same text in the same places. The release's glyphs are scaled down onto
+ * GoldenEye's by the height of an 'H', so a line keeps GoldenEye's height and
+ * its capitals stand where GoldenEye's did, and across by what the two fonts'
+ * letters and digits measure: the release's are wider (Zurich by a tenth,
+ * Bank Gothic by a sixth), and at GoldenEye's height alone a label ran into
+ * the column of values beside it and a tab's word past its tab.
+ */
+static void frontHdFit(struct gefont *font, const struct gefolderfont *hd)
+{
+	static const char fit[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	const struct gefontchar *h = &font->chars['H' - 0x21];
+	f32 ge = 0;
+	f32 release = 0;
+
+	font->hd = hd;
+	font->hdscale = (f32)h->height / hd->capheight;
+	font->hdxscale = font->hdscale;
+
+	for (const char *c = fit; *c; c++) {
+		const struct gefontchar *cur = &font->chars[*c - 0x21];
+
+		// as frontMeasure() adds it after an 'H'
+		ge += cur->width - (font->kerning[h->kerningindex * 13 + cur->kerningindex] - 1);
+		release += hd->glyphs[*c - 0x21].advance;
+	}
+
+	if (ge > 0 && release > 0) {
+		font->hdxscale = ge / release;
+	}
+}
+
+static const struct gefolderfont *frontHdFont(const struct gefont *font, f32 *scale, f32 *xscale)
+{
+	const struct gefolderfont *hd = font->data ? geFolderFont(font == &g_Front.gothic) : NULL;
+
+	if (hd) {
+		if (font->hd != hd) {
+			frontHdFit((struct gefont *)font, hd);
+		}
+
+		*scale = font->hdscale;
+		*xscale = font->hdxscale;
+	}
+
+	return hd;
+}
+
+// GoldenEye's y of the baseline of a line starting at y
+static f32 frontHdBaseline(const struct gefont *font, s32 y)
+{
+	const struct gefontchar *h = &font->chars['H' - 0x21];
+
+	return y + h->baseline + h->height;
+}
+
+static f32 frontHdAdvance(const struct gefolderfont *hd, f32 xscale, u8 c, s32 spacing)
+{
+	if (c == ' ') {
+		return hd->space * xscale;
+	}
+
+	return hd->glyphs[c - 0x21].advance * xscale - spacing;
+}
+
+static void frontHdMeasure(const struct gefont *font, const struct gefolderfont *hd, f32 xscale,
+		const char *text, s32 spacing, s32 *width, s32 *height)
+{
+	f32 w = 0;
+	f32 longest = 0;
+
+	*height = 0;
+
+	for (; *text; text++) {
+		const u8 c = *text;
+
+		if (c == ' ') {
+			if (text[1] != '\n') {
+				w += frontHdAdvance(hd, xscale, c, spacing);
+			}
+		} else if (c == '\n') {
+			longest = w > longest ? w : longest;
+			w = 0;
+			*height += frontLineHeight(font);
+		} else if (c >= 0x21 && c < 0x7f) {
+			w += frontHdAdvance(hd, xscale, c, spacing);
+		}
+	}
+
+	*width = (s32)ceilf(w > longest ? w : longest);
+}
+
 /** textMeasure(): the width of the widest line, and the height. */
 static void frontMeasure(const struct gefont *font, const char *text, s32 spacing, s32 *width, s32 *height)
 {
+	f32 scale, xscale;
+	const struct gefolderfont *hd = frontHdFont(font, &scale, &xscale);
 	s32 prev = 'H';
+
+	if (hd) {
+		frontHdMeasure(font, hd, xscale, text, spacing, width, height);
+		return;
+	}
+
 	s32 w = 0;
 	s32 longest = 0;
 
@@ -3319,14 +3428,114 @@ static void frontMeasure(const struct gefont *font, const char *text, s32 spacin
  * alpha of the colour. rotated is ROT_90CW, the tabs' text: *x then runs down
  * the screen and *y is the column the letters stand on.
  */
+#define FRONT_PICTURE_TEXELS 32
+
+/**
+ * frontText() in the release's glyphs: each its own picture, drawn whole over
+ * its box (the nominal FRONT_PICTURE_TEXELS square, rows bottom-up as the
+ * release's portraits are), with the same colour and combiner as GoldenEye's -
+ * the picture's alpha is the glyph's coverage, as GoldenEye's intensity was.
+ */
+static Gfx *frontHdText(Gfx *gdl, const struct gefont *font, const struct gefolderfont *hd, f32 scale, f32 xscale,
+		s32 *x, s32 *y, const char *text, u32 colour, s32 spacing, s32 rotated)
+{
+	const f32 sx = frontScaleX();
+	const f32 sy = frontScaleY();
+	const f32 n = FRONT_PICTURE_TEXELS;
+	f32 pen = *x;
+	f32 base = frontHdBaseline(font, *y);
+
+	for (; *text; text++) {
+		const u8 c = *text;
+		const struct gefolderglyph *g;
+		struct textureconfig tex;
+		f32 l, r, t, b;
+
+		if (c == '\n') {
+			*y += frontLineHeight(font);
+			base = frontHdBaseline(font, *y);
+			pen = *x;
+			continue;
+		}
+
+		if (c == ' ') {
+			pen += frontHdAdvance(hd, xscale, c, spacing);
+			continue;
+		}
+
+		if (c < 0x21 || c >= 0x7f) {
+			continue;
+		}
+
+		g = &hd->glyphs[c - 0x21];
+
+		if (g->tile) {
+			memset(&tex, 0, sizeof(tex));
+			tex.textureptr = (u8 *)g->tile;
+			tex.width = FRONT_PICTURE_TEXELS;
+			tex.height = FRONT_PICTURE_TEXELS;
+			tex.format = G_IM_FMT_RGBA;
+			tex.depth = G_IM_SIZ_32b;
+			tex.s = G_TX_CLAMP;
+			tex.t = G_TX_CLAMP;
+
+			// texSelect() leaves the prim colour white (texWriteTileFromDefinition())
+			// whenever its tile state has to be written, which is not every
+			// time: the text after a highlight's rectangle came out white
+			texSelect(&gdl, &tex, 1, 0, 2, 1, NULL);
+			gdl = frontTextSetup(gdl);
+			gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
+
+			// the box along the line (l to r) and across it (t down to b)
+			l = pen + g->left * xscale;
+			r = l + g->width * xscale;
+			t = base - g->top * scale;
+			b = t + g->height * scale;
+
+			if (rotated) {
+				// as GoldenEye's: the line runs down the screen and the
+				// glyph's top faces right, so screen x is the line's -y
+				const f32 left = frontX(2 * *y - b);
+				const f32 right = frontX(2 * *y - t);
+
+				gSPTextureRectangleFlip(gdl++,
+						(s32)(left * 4), (s32)(frontY(l) * 4),
+						(s32)(right * 4), (s32)(frontY(r) * 4),
+						G_TX_RENDERTILE, 0, 0,
+						(s32)(n / ((r - l) * sy) * 1024.0f),
+						(s32)(n / ((b - t) * sx) * 1024.0f));
+			} else {
+				gSPTextureRectangle(gdl++,
+						(s32)(frontX(l) * 4), (s32)(frontY(t) * 4),
+						(s32)(frontX(r) * 4), (s32)(frontY(b) * 4),
+						G_TX_RENDERTILE, 0, ((s32)n << 5) - 1,
+						(s32)(n / ((r - l) * sx) * 1024.0f),
+						(s32)(-n / ((b - t) * sy) * 1024.0f));
+			}
+		}
+
+		pen += frontHdAdvance(hd, xscale, c, spacing);
+	}
+
+	*x = (s32)lroundf(pen);
+
+	return gdl;
+}
+
 static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const char *text, u32 colour, s32 spacing, s32 rotated)
 {
 	const f32 sx = frontScaleX();
 	const f32 sy = frontScaleY();
 	const s32 savedx = *x;
 	s32 prev = 'H';
+	f32 scale, xscale;
+	const struct gefolderfont *hd = frontHdFont(font, &scale, &xscale);
 
 	gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
+
+	if (hd) {
+		return frontHdText(gdl, font, hd, scale, xscale, x, y, text, colour, spacing, rotated);
+	}
 
 	for (; *text; text++) {
 		const u8 c = *text;
@@ -3512,8 +3721,6 @@ static struct textureconfig *frontTexture(s32 num, s32 width, s32 height, s32 fo
  * nominal FRONT_PICTURE_TEXELS square whatever its real size, so that is what
  * a rectangle's texel steps are counted in.
  */
-#define FRONT_PICTURE_TEXELS 32
-
 static s32 frontReleasePicture(const char *name, struct textureconfig *tex)
 {
 	s32 w = 0, h = 0;

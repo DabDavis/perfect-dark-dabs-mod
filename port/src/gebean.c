@@ -56,8 +56,8 @@
 // models were, the fourth (".extracted4") before the N64-look guns were and the
 // fifth (".extracted5") before the levels were and the sixth (".extracted6")
 // before the remake's HD props were, so a cache holding any of them is unpacked
-// again.
-#define GEBEAN_DONE_FILE ".extracted9"
+// again. The tenth (".extracted10") is the menus' two fonts.
+#define GEBEAN_DONE_FILE ".extracted10"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -86,6 +86,8 @@
 #define GEBEAN_WANT_MENU_LEVELS "files/texture/level/"
 #define GEBEAN_WANT_MENU_SIGHT "files/texture/sight/"
 #define GEBEAN_WANT_MENU_ATTRACT "files/texture/attract/"
+// and their two fonts, which are files/misc/alps3 and doc0 (gebeanFontOpen())
+#define GEBEAN_WANT_MENU_FONTS "files/misc/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -1231,7 +1233,8 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_GUNS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_GUNS) != NULL
 		|| (strstr(lower, GEBEAN_WANT_LEVELS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL)
 		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
-		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL;
+		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL
+		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -6923,6 +6926,61 @@ s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebe
 }
 
 /**
+ * A file of the release's that is not a model - files/<source>/<name> - read
+ * whole and opened as a CAFF, its textures listed. The Community Edition's copy
+ * first, where this session draws it (gebeance.c).
+ */
+static s32 beanLoadFile(struct beanmodel *bm, const char *source, const char *name)
+{
+	char path[FS_MAXPATH + 1];
+	FILE *fp;
+	long size;
+
+	memset(bm, 0, sizeof(*bm));
+
+	if (!gebeanLocate(1)) {
+		return 0;
+	}
+
+	if (!gebeanCeFilePath(path, sizeof(path), source, name)) {
+		snprintf(path, sizeof(path), "%s/%s/%s", rootPath, source, name);
+	}
+
+	fp = fopen(path, "rb");
+
+	if (!fp) {
+		return 0;
+	}
+
+	if (fseek(fp, 0, SEEK_END) != 0 || (size = ftell(fp)) <= 0 || size > 16 * 1024 * 1024) {
+		fclose(fp);
+		return 0;
+	}
+
+	rewind(fp);
+	bm->file = malloc((size_t)size);
+
+	if (!bm->file || fread(bm->file, 1, (size_t)size, fp) != (size_t)size || !caffOpen(&bm->caff, bm->file, (u32)size)) {
+		fclose(fp);
+		beanFree(bm);
+		return 0;
+	}
+
+	fclose(fp);
+
+	for (u32 i = 0; i < bm->caff.numfiles && bm->numtex < GEBEAN_MAXMATS; i++) {
+		u32 blen;
+		const u8 *b = caffBlob(&bm->caff, (s32)i, &blen);
+
+		if (b && blen >= 8 && memcmp(b, "texture\0", 8) == 0) {
+			bm->texfile[bm->numtex++] = (s32)i;
+		}
+	}
+
+	return 1;
+}
+
+/**
  * One of the release's pictures that is a file of its own rather than part of
  * a model - files/texture/..., the menus' portraits and stage pictures - as
  * RGBA in the game's row order, malloc'd and the caller's.
@@ -6930,48 +6988,10 @@ s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebe
 u8 *gebeanDecodePictureFile(const char *source, s32 *outWidth, s32 *outHeight)
 {
 	struct beanmodel bm;
-	char path[FS_MAXPATH + 1];
-	FILE *fp;
-	long size;
 	u8 *rgba = NULL;
 
-	if (!gebeanLocate(1)) {
+	if (!beanLoadFile(&bm, source, "default.rba")) {
 		return NULL;
-	}
-
-	memset(&bm, 0, sizeof(bm));
-	if (!gebeanCeFilePath(path, sizeof(path), source, "default.rba")) {
-		snprintf(path, sizeof(path), "%s/%s/default.rba", rootPath, source);
-	}
-	fp = fopen(path, "rb");
-
-	if (!fp) {
-		return NULL;
-	}
-
-	if (fseek(fp, 0, SEEK_END) != 0 || (size = ftell(fp)) <= 0 || size > 16 * 1024 * 1024) {
-		fclose(fp);
-		return NULL;
-	}
-
-	rewind(fp);
-	bm.file = malloc((size_t)size);
-
-	if (!bm.file || fread(bm.file, 1, (size_t)size, fp) != (size_t)size || !caffOpen(&bm.caff, bm.file, (u32)size)) {
-		fclose(fp);
-		beanFree(&bm);
-		return NULL;
-	}
-
-	fclose(fp);
-
-	for (u32 i = 0; i < bm.caff.numfiles && bm.numtex == 0; i++) {
-		u32 blen;
-		const u8 *b = caffBlob(&bm.caff, (s32)i, &blen);
-
-		if (b && blen >= 8 && memcmp(b, "texture\0", 8) == 0) {
-			bm.texfile[bm.numtex++] = (s32)i;
-		}
 	}
 
 	if (bm.numtex) {
@@ -6981,6 +7001,111 @@ u8 *gebeanDecodePictureFile(const char *source, s32 *outWidth, s32 *outHeight)
 	beanFree(&bm);
 
 	return rgba;
+}
+
+/**
+ * One of the menus' fonts, files/misc/<name>/default.dt: a bfont record
+ * (22.11.06.0036) and the picture its glyphs are packed in.
+ *
+ * The record's word at 0x30 is the glyph count and 0x50 points at two more
+ * pointers, the metrics {line height, ascent, space, u16 picture width,
+ * height} and the glyphs, 20 bytes each: {s8 left, pad, u8 width, height,
+ * s16 u0, v0, u1, v1 in 1/32768 of the picture, u16 advance, kerning index,
+ * top above the baseline, character}, in Unicode. The kerning index is ffff
+ * throughout both fonts, and nothing reads the table it would index.
+ */
+struct gebeanfont *gebeanFontOpen(const char *name)
+{
+	char source[64];
+	struct beanmodel bm;
+	struct gebeanfont *font = NULL;
+	const u8 *b = NULL;
+	u32 blen = 0;
+	u32 metrics, glyphs, count;
+	s32 w = 0, h = 0;
+
+	snprintf(source, sizeof(source), "misc/%s", name);
+
+	if (!beanLoadFile(&bm, source, "default.dt")) {
+		sysLogPrintf(LOG_WARNING, "gebean: the release has no font %s", source);
+		return NULL;
+	}
+
+	for (u32 i = 0; i < bm.caff.numfiles && !b; i++) {
+		const u8 *d = caffBlob(&bm.caff, (s32)i, &blen);
+
+		if (d && blen >= 0x54 && memcmp(d, "bfont\0", 6) == 0) {
+			b = d;
+		}
+	}
+
+	if (!b || !bm.numtex) {
+		goto done;
+	}
+
+	count = gebeanBE32(b + 0x30);
+	metrics = gebeanBE32(b + 0x50);
+
+	if (!gebeanFits(metrics, 16, blen)) {
+		goto done;
+	}
+
+	glyphs = gebeanBE32(b + metrics + 8);
+	metrics = gebeanBE32(b + metrics);
+
+	if (count == 0 || count > 4096 || !gebeanFits(metrics, 16, blen) || !gebeanFits(glyphs, count * 20, blen)) {
+		goto done;
+	}
+
+	font = calloc(1, sizeof(*font) + count * sizeof(font->glyphs[0]));
+
+	if (!font) {
+		goto done;
+	}
+
+	font->rgba = beanDecodeTexture(&bm, 0, &w, &h);
+
+	if (!font->rgba) {
+		free(font);
+		font = NULL;
+		goto done;
+	}
+
+	font->width = w;
+	font->height = h;
+	font->lineheight = (s32)gebeanBE32(b + metrics);
+	font->ascent = (s32)gebeanBE32(b + metrics + 4);
+	font->space = (s32)gebeanBE32(b + metrics + 8);
+	font->numglyphs = (s32)count;
+
+	for (u32 i = 0; i < count; i++) {
+		const u8 *g = b + glyphs + i * 20;
+		struct gebeanglyph *out = &font->glyphs[i];
+
+		out->left = (s8)g[0];
+		out->width = g[2];
+		out->height = g[3];
+		out->u0 = (s16)gebeanBE16(g + 4) / 32768.0f * w;
+		out->v0 = (s16)gebeanBE16(g + 6) / 32768.0f * h;
+		out->u1 = (s16)gebeanBE16(g + 8) / 32768.0f * w;
+		out->v1 = (s16)gebeanBE16(g + 10) / 32768.0f * h;
+		out->advance = gebeanBE16(g + 12);
+		out->top = (s16)gebeanBE16(g + 16);
+		out->ch = gebeanBE16(g + 18);
+	}
+
+done:
+	beanFree(&bm);
+
+	return font;
+}
+
+void gebeanFontClose(struct gebeanfont *font)
+{
+	if (font) {
+		free(font->rgba);
+		free(font);
+	}
 }
 
 /** A texture's stand-in tile, decoded and bound the first time it is asked for. */

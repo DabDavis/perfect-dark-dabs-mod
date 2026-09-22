@@ -226,6 +226,36 @@ s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebe
  */
 u8 *gebeanDecodePictureFile(const char *source, s32 *outWidth, s32 *outHeight);
 
+/**
+ * One of the menus' two fonts - "alps3", the bold sans the text is set in, or
+ * "doc0", the Bank Gothic of the headings - with its picture, RGBA in the
+ * game's row order (bottom-up). A glyph's box is in that picture's pixels
+ * counted from the top, as the file has it; its metrics in the same pixels.
+ * NULL where the release or the file is not there.
+ */
+struct gebeanglyph {
+	u16 ch;          // Unicode
+	s8 left;         // from the pen to the box's left
+	u8 width;
+	u8 height;
+	s16 top;         // from the baseline up to the box's top
+	u16 advance;     // 0 for the space, which is the font's own
+	f32 u0, v0, u1, v1;
+};
+
+struct gebeanfont {
+	s32 lineheight;
+	s32 ascent;
+	s32 space;
+	s32 width, height;  // the picture's
+	u8 *rgba;
+	s32 numglyphs;
+	struct gebeanglyph glyphs[];
+};
+
+struct gebeanfont *gebeanFontOpen(const char *name);
+void gebeanFontClose(struct gebeanfont *font);
+
 /** Where the release is: its files/, the archive it came from ("" if none), the cache. */
 s32 gebeanTreeInfo(char *root, u32 rootLen, char *archive, u32 archiveLen, char *cache, u32 cacheLen);
 

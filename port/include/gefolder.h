@@ -58,6 +58,31 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height);
  */
 const void *geFolderBackdrop(void);
 
+/**
+ * The release's own set of one of GoldenEye's two fonts - gothic 0 for Zurich
+ * Bold (the release's alps3), 1 for Bank Gothic (doc0) - one stand-in picture
+ * a printable ASCII character, each glyph's box with a clear texel round it.
+ * Metrics are in the release's pixels: left and top place the picture's
+ * corner (clear border and all) from the pen and up from the baseline. NULL
+ * when the release is not there, the look is the N64's, or the font is not.
+ */
+struct gefolderglyph {
+	const void *tile;
+	s16 width, height;   // the picture's, border included
+	s16 left, top;
+	s16 advance;
+};
+
+struct gefolderfont {
+	s32 lineheight;
+	s32 ascent;
+	s32 space;
+	s32 capheight;       // 'H' from its baseline to its top
+	struct gefolderglyph glyphs[0x7f - 0x21];
+};
+
+const struct gefolderfont *geFolderFont(s32 gothic);
+
 #ifdef __cplusplus
 }
 #endif
