@@ -142,6 +142,7 @@ extern s32 g_MpWeaponSetNum;
 #define CURSOR_IMAGE 2236
 // the film strip's holes (IMAGE_DOT), 16x16 I8
 #define DOT_IMAGE 2631
+#define DOT_RELEASE "attract/sprocket"
 // a stage picture: 68x44 I8
 #define STAGE_IMAGE_W 0x44
 #define STAGE_IMAGE_H 0x2c
@@ -1065,6 +1066,36 @@ static s32 frontStageImage(s32 stagenum)
 	return STAGE_IMAGE_RANDOM;
 }
 
+/**
+ * The release's picture of a stage picture (texture/level): GoldenEye's twenty
+ * mission slides are its icons in the alphabetical order of their names, and
+ * the multiplayer levels' four follow. Random has none.
+ */
+static const char *frontStageRelease(s32 image)
+{
+	static const char *const slides[] = {
+		"arch", "arec", "ark", "azt", "cave", "crad", "cryp", "dam", "depo", "dest",
+		"jun", "pete", "run", "sev", "sevb", "sevx", "sevxb", "silo", "stat", "tra",
+	};
+	static const char *const mp[] = { "smptemple", "smplib", "smpcomplex", "smpcave" };
+	static char name[32];
+	const char *stem = NULL;
+
+	if (image >= 2578 && image < 2578 + (s32)ARRAYCOUNT(slides)) {
+		stem = slides[image - 2578];
+	} else if (image >= 2686 && image < 2686 + (s32)ARRAYCOUNT(mp)) {
+		stem = mp[image - 2686];
+	}
+
+	if (!stem) {
+		return NULL;
+	}
+
+	snprintf(name, sizeof(name), "level/%sicon", stem);
+
+	return name;
+}
+
 /** The Level page's list: Random, then the remake's arenas in g_FrontStages' order. */
 static void frontBuildLevels(void)
 {
@@ -1123,6 +1154,26 @@ static const struct { const char *key; s32 tiles[4]; } g_FrontPortraits[] = {
 
 static const s32 g_FrontRandomPortrait[4] = { 2682, 2683, 2684, 2685 };
 
+/**
+ * The release's portraits (texture/characters), one picture each, by the same
+ * keys - and the release draws the characters GoldenEye left with Random's
+ * question mark as well. Connery, Moore and Dalton it has none of.
+ */
+static const struct { const char *key; const char *picture; } g_FrontReleasePortraits[] = {
+	{ "connery", NULL }, { "moore", NULL }, { "dalton", NULL },
+	{ "bond", "brosnan" }, { "brosnan", "brosnan" },
+	{ "boris", "boris" }, { "ourumov", "ourumov" }, { "trevelyan", "trevelyan" },
+	{ "valentin", "valentin" }, { "xenia", "xenia" }, { "natalya", "natalya" },
+	{ "baronsamedi", "baron" }, { "jaws", "jaws" }, { "mayday", "mayday" },
+	{ "oddjob", "oddjob" }, { "mishkin", "mishkin" },
+	{ "arcticcommando", "arcticcommando" }, { "helicopterpilot", "helicopterpilot" },
+	{ "janusmarine", "janusmarine" }, { "junglecommando", "junglecommando" },
+	{ "moonrakerelite", "moonrakerelite" }, { "navalofficer", "navalguard" },
+	{ "russianinfantry", "russianinfantry" }, { "russiansoldier", "russiansoldier" },
+	{ "siberianspecialforces", "siberianspecialforces" }, { "siberianguard", "siberianguard1" },
+	{ "stpetersburgguard", "stpetersburgguard" }, { "civilian", "civilian2" },
+};
+
 static const char *frontCharacterName(s32 mpbodynum)
 {
 	const char *name = modBorrowBodyName(g_MpBodies[mpbodynum].bodynum);
@@ -1130,14 +1181,13 @@ static const char *frontCharacterName(s32 mpbodynum)
 	return name ? name : mpGetBodyName(mpbodynum);
 }
 
-static const s32 *frontPortrait(s32 mpbodynum)
+/** The character's name, the letters before any bracket, lower case. */
+static void frontPortraitKey(s32 mpbodynum, char *key, s32 len)
 {
 	const char *name = frontCharacterName(mpbodynum);
-	char key[64];
 	s32 n = 0;
 
-	// the name's letters before any bracket, lower case
-	for (; name && *name && *name != '(' && n < (s32)sizeof(key) - 1; name++) {
+	for (; name && *name && *name != '(' && n < len - 1; name++) {
 		if (*name >= 'A' && *name <= 'Z') {
 			key[n++] = *name + 32;
 		} else if (*name >= 'a' && *name <= 'z') {
@@ -1146,6 +1196,13 @@ static const s32 *frontPortrait(s32 mpbodynum)
 	}
 
 	key[n] = '\0';
+}
+
+static const s32 *frontPortrait(s32 mpbodynum)
+{
+	char key[64];
+
+	frontPortraitKey(mpbodynum, key, sizeof(key));
 
 	for (s32 i = 0; i < ARRAYCOUNT(g_FrontPortraits); i++) {
 		if (strstr(key, g_FrontPortraits[i].key)) {
@@ -1154,6 +1211,29 @@ static const s32 *frontPortrait(s32 mpbodynum)
 	}
 
 	return g_FrontRandomPortrait;
+}
+
+/** The release's portrait's name for a character, Random's where it has none of its own; NULL for the Bonds it lacks. */
+static const char *frontReleasePortrait(s32 mpbodynum)
+{
+	static char name[48];
+	char key[64];
+
+	frontPortraitKey(mpbodynum, key, sizeof(key));
+
+	for (s32 i = 0; i < ARRAYCOUNT(g_FrontReleasePortraits); i++) {
+		if (strstr(key, g_FrontReleasePortraits[i].key)) {
+			if (!g_FrontReleasePortraits[i].picture) {
+				return NULL;
+			}
+
+			snprintf(name, sizeof(name), "characters/%s", g_FrontReleasePortraits[i].picture);
+
+			return name;
+		}
+	}
+
+	return "characters/who";
 }
 
 /**
@@ -3360,6 +3440,8 @@ static Gfx *frontTab(Gfx *gdl, s32 textstr, s32 top, s32 bottom, s32 highlight)
 	return frontText(gdl, &g_Front.gothic, &v, &h, text, COLOUR_ON, -1, true);
 }
 
+static s32 frontReleasePicture(const char *name, struct textureconfig *tex);
+
 static Gfx *frontDrawCursor(Gfx *gdl)
 {
 	const f32 sx = frontScaleX();
@@ -3367,8 +3449,16 @@ static Gfx *frontDrawCursor(Gfx *gdl)
 	const f32 x = (s32)(g_Front.cursorx + 0.5f);
 	const f32 y = (s32)(g_Front.cursory + 0.5f);
 	const s32 prevsrc = modSetTextureSourceMod(g_Front.moddir);
+	struct textureconfig release;
 
-	texSelect(&gdl, &g_Front.cursor, 4, 0, 2, 1, NULL);
+	// the release's own crosshair (texture/sight), the same 32 texels square
+	if (frontReleasePicture("sight", &release)) {
+		texSelect(&gdl, &release, 4, 0, 2, 1, NULL);
+		gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	} else {
+		texSelect(&gdl, &g_Front.cursor, 4, 0, 2, 1, NULL);
+	}
+
 	modSetTextureSourceMod(prevsrc);
 
 	// display_image_at_position(): white, 220 of 255, the image's middle on the cursor
@@ -3416,16 +3506,77 @@ static struct textureconfig *frontTexture(s32 num, s32 width, s32 height, s32 fo
 }
 
 /**
- * display_image_at_position() and draw_textured_rectangle(): a texture over a
- * rectangle (its middle and half size), twidth and theight texels across it,
- * tinted by the colour; opaque, as GoldenEye draws its stage pictures. A
- * negative theight runs the rows bottom to top.
+ * The release's own picture of one of the front end's images, where the
+ * release is there and its look is on (gefolder.c): a config naming the
+ * picture's stand-in. The renderer draws the whole picture over the config's
+ * nominal FRONT_PICTURE_TEXELS square whatever its real size, so that is what
+ * a rectangle's texel steps are counted in.
+ */
+#define FRONT_PICTURE_TEXELS 32
+
+static s32 frontReleasePicture(const char *name, struct textureconfig *tex)
+{
+	s32 w = 0, h = 0;
+	const void *tile = geFolderMenuPicture(name, &w, &h);
+
+	if (!tile) {
+		return 0;
+	}
+
+	memset(tex, 0, sizeof(*tex));
+	tex->textureptr = (u8 *)tile;
+	tex->width = FRONT_PICTURE_TEXELS;
+	tex->height = FRONT_PICTURE_TEXELS;
+	tex->format = G_IM_FMT_RGBA;
+	tex->depth = G_IM_SIZ_32b;
+	tex->s = G_TX_CLAMP;
+	tex->t = G_TX_CLAMP;
+
+	return 1;
+}
+
+/**
+ * A selected texture over a rectangle (its middle and half size), twidth and
+ * theight texels across it, tinted by the colour; opaque, as GoldenEye draws
+ * its stage pictures, or translucent as it draws a portrait. A negative
+ * theight runs the rows bottom to top. The release's pictures are smoothed,
+ * GoldenEye's own point sampled.
+ */
+static Gfx *frontImageRect(Gfx *gdl, f32 cx, f32 cy, f32 hw, f32 hh, s32 twidth, s32 theight,
+		u32 colour, s32 translucent, s32 smooth)
+{
+	const f32 sx = frontScaleX();
+	const f32 sy = frontScaleY();
+
+	gDPSetTexturePersp(gdl++, G_TP_NONE);
+	gDPSetEnvColor(gdl++, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
+
+	if (translucent) {
+		// a portrait: shaded by the colour, as see-through as its alpha and no more
+		gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+		gDPSetTextureFilter(gdl++, G_TF_BILERP);
+		gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT);
+	} else {
+		gDPSetTextureFilter(gdl++, smooth ? G_TF_BILERP : G_TF_POINT);
+		gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
+	}
+
+	gSPTextureRectangle(gdl++,
+			(s32)(frontX(cx - hw) * 4), (s32)(frontY(cy - hh) * 4),
+			(s32)(frontX(cx + hw) * 4), (s32)(frontY(cy + hh) * 4),
+			G_TX_RENDERTILE, 0, theight < 0 ? ((-theight) << 5) - 1 : 0,
+			(s32)(twidth / (2.0f * hw) * 1024.0f / sx), (s32)(theight / (2.0f * hh) * 1024.0f / sy));
+
+	return gdl;
+}
+
+/**
+ * display_image_at_position() and draw_textured_rectangle(): one of the
+ * conversion's textures by number over a rectangle - see frontImageRect().
  */
 static Gfx *frontImage(Gfx *gdl, s32 num, s32 width, s32 height, s32 format, s32 wrap,
 		f32 cx, f32 cy, f32 hw, f32 hh, s32 twidth, s32 theight, u32 colour, s32 translucent)
 {
-	const f32 sx = frontScaleX();
-	const f32 sy = frontScaleY();
 	struct textureconfig *tex = frontTexture(num, width, height, format, G_IM_SIZ_8b, wrap);
 	s32 prevsrc;
 
@@ -3437,26 +3588,34 @@ static Gfx *frontImage(Gfx *gdl, s32 num, s32 width, s32 height, s32 format, s32
 	texSelect(&gdl, tex, 1, 0, 2, 1, NULL);
 	modSetTextureSourceMod(prevsrc);
 
-	gDPSetTexturePersp(gdl++, G_TP_NONE);
-	gDPSetEnvColor(gdl++, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
+	return frontImageRect(gdl, cx, cy, hw, hh, twidth, theight, colour, translucent, false);
+}
 
-	if (translucent) {
-		// a portrait: shaded by the colour, as see-through as its alpha and no more
-		gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
-		gDPSetTextureFilter(gdl++, G_TF_BILERP);
-		gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, ENVIRONMENT);
-	} else {
-		gDPSetTextureFilter(gdl++, G_TF_POINT);
-		gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
+/**
+ * The release's picture by name over the same rectangle, the whole of it,
+ * when the release is there and its look is on; else GoldenEye's own by
+ * number, as frontImage() draws it.
+ */
+static Gfx *frontImageOrRelease(Gfx *gdl, const char *name, s32 num, s32 width, s32 height, s32 format, s32 wrap,
+		f32 cx, f32 cy, f32 hw, f32 hh, s32 twidth, s32 theight, u32 colour, s32 translucent)
+{
+	struct textureconfig tex;
+
+	if (name && frontReleasePicture(name, &tex)) {
+		// the same share of the picture as of GoldenEye's, which a strip of
+		// holes repeats across itself
+		if (wrap) {
+			tex.s = G_TX_WRAP;
+			tex.t = G_TX_WRAP;
+		}
+
+		texSelect(&gdl, &tex, 1, 0, 2, 1, NULL);
+
+		return frontImageRect(gdl, cx, cy, hw, hh, twidth * FRONT_PICTURE_TEXELS / width,
+				theight * FRONT_PICTURE_TEXELS / height, colour, translucent, true);
 	}
 
-	gSPTextureRectangle(gdl++,
-			(s32)(frontX(cx - hw) * 4), (s32)(frontY(cy - hh) * 4),
-			(s32)(frontX(cx + hw) * 4), (s32)(frontY(cy + hh) * 4),
-			G_TX_RENDERTILE, 0, theight < 0 ? ((-theight) << 5) - 1 : 0,
-			(s32)(twidth / (2.0f * hw) * 1024.0f / sx), (s32)(theight / (2.0f * hh) * 1024.0f / sy));
-
-	return gdl;
+	return frontImage(gdl, num, width, height, format, wrap, cx, cy, hw, hh, twidth, theight, colour, translucent);
 }
 
 static void frontSetSwitch(s32 part, s32 visible)
@@ -3909,8 +4068,8 @@ static Gfx *frontDrawLevel(Gfx *gdl)
 
 	// the strips' holes, above and below each
 	for (s32 i = 0; i < 3; i++) {
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+		gdl = frontImageOrRelease(gdl, DOT_RELEASE, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+		gdl = frontImageOrRelease(gdl, DOT_RELEASE, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
 	}
 
 	for (s32 n = 0; n < LEVELS_PER_PAGE && first + n < g_Front.numlevels; n++) {
@@ -3919,7 +4078,9 @@ static Gfx *frontDrawLevel(Gfx *gdl)
 		// the highlighted picture as GoldenEye brightens it, the rest dimmed
 		const u32 colour = n == g_Front.highlight ? 0xffffffff : 0x6e6e6eff;
 
-		gdl = frontImage(gdl, frontStageImage(g_Front.levels[first + n]), STAGE_IMAGE_W, STAGE_IMAGE_H, G_IM_FMT_I, false,
+		const s32 image = frontStageImage(g_Front.levels[first + n]);
+
+		gdl = frontImageOrRelease(gdl, frontStageRelease(image), image, STAGE_IMAGE_W, STAGE_IMAGE_H, G_IM_FMT_I, false,
 				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, STAGE_IMAGE_H, colour, false);
 	}
 
@@ -4092,6 +4253,19 @@ static Gfx *frontPortraitDraw(Gfx *gdl, s32 player, s32 k, s32 cx, s32 cy, s32 l
 
 		if (edge < hw + 0x28) {
 			alpha = 0xff * (edge - hw) / 0x28;
+		}
+	}
+
+	// the release's portrait is one picture, drawn over the four tiles' square
+	{
+		const char *release = frontReleasePortrait(g_Front.characters[k]);
+		struct textureconfig tex;
+
+		if (release && frontReleasePicture(release, &tex)) {
+			texSelect(&gdl, &tex, 1, 0, 2, 1, NULL);
+
+			return frontImageRect(gdl, cx, cy + size, hw, hh, FRONT_PICTURE_TEXELS, -FRONT_PICTURE_TEXELS,
+					(shade << 24) | (shade << 16) | (shade << 8) | alpha, true, true);
 		}
 	}
 
@@ -4615,8 +4789,8 @@ static Gfx *frontDrawMonitors(Gfx *gdl)
 	}
 
 	for (s32 i = 0; i < 3; i++) {
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
-		gdl = frontImage(gdl, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+		gdl = frontImageOrRelease(gdl, DOT_RELEASE, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 104 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
+		gdl = frontImageOrRelease(gdl, DOT_RELEASE, DOT_IMAGE, 16, 16, G_IM_FMT_I, true, 213, 164 + 70 * i, 176, 4, 0x2f0, 0x12, 0x6b6753ff, false);
 	}
 
 	if (g_Front.nummonitors <= 0 || !g_Front.tvdef) {

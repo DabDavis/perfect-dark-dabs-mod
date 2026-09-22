@@ -30,6 +30,14 @@ void geFolderForget(void);
  */
 void geFolderSwitched(struct modeldef *modeldef);
 
+/**
+ * One of the release's menu pictures that is a file of its own - "characters/
+ * natalya", "level/damicon", "sight" under files/texture/ - bound as a
+ * stand-in for a textureconfig to name, with its size. NULL when the release
+ * is not there, the look is the N64's, or it has no such picture.
+ */
+const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height);
+
 #ifdef __cplusplus
 }
 #endif

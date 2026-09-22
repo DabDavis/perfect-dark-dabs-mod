@@ -38,6 +38,7 @@
  */
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
 #include "types.h"
@@ -69,6 +70,9 @@ struct gefolderrow {
 	s16 onpaper;  // it carries the page behind it, so its own paper is brought
 	              // to the colour the page is drawn in (geFolderMatchPaper())
 	f32 u0, v0, u1, v1; // the part of it that is this texture, as it is seen
+	s16 grey;     // the ROM's is an intensity texture the node's shade colours:
+	              // bring the release's to the ROM's brightness, neutral in hue
+	              // (geFolderMatchGrey())
 };
 
 #define WHOLE 0.0f, 0.0f, 1.0f, 1.0f
@@ -100,7 +104,7 @@ static const struct gefolderrow folderRows[] = {
 	{  1, 65, 65,  2, 0, 0, 1, 0.8500f, 0.0300f, 0.9750f, 0.1250f },
 	{  2, 65, 65,  2, 0, 0, 1, 0.7250f, 0.1250f, 0.8500f, 0.2200f },
 	{  3, 65, 65,  2, 0, 0, 1, 0.8500f, 0.1250f, 0.9750f, 0.2200f },
-	{ 12, 64, 64,  2, 0, 0, 1, 0.7250f, 0.0300f, 0.9750f, 0.2200f }, // 0x0a46, whole
+	{ 12, 64, 64,  2, 0, 0, 1, 0.7250f, 0.0300f, 0.9750f, 0.2200f, 1 }, // 0x0a46, whole
 
 	// Brosnan, in four quarters (0x0a2a-0x0a2d) of the release's 256x512
 	{  5, 65, 65, 23, 0, 0, 0, 0.0f, 0.0f, 0.5f, 0.5f },             // 0x0a2a
@@ -116,8 +120,15 @@ static const struct gefolderrow folderRows[] = {
 	// the square with the least grain and the least shading across it: a
 	// crumple or a fold repeated sixty-four times over a page is a pattern,
 	// and paper is the one thing here nobody should be able to see repeat.
-	{ 10, 64, 64,  0, 1, 0, 0, 0.2420f, 0.1667f, 0.3665f, 0.3627f }, // 0x0a42, the cover
-	{ 11, 64, 64,  1, 1, 0, 0, 0.4688f, 0.8125f, 0.5938f, 0.9375f }, // 0x0a45, the paper
+	//
+	// Both of GoldenEye's are intensity textures - grey, 4 bits - which the
+	// model colours with its vertex shade: the backdrop beige, the page khaki.
+	// The release's are the colour they are to be seen in, so bound as they
+	// come they are coloured twice, and the page came out the olive of the
+	// cover it lies on. So each is brought to its ROM tile's own brightness
+	// and left grey, and the shade colours it as it colours the ROM's.
+	{ 10, 64, 64,  0, 1, 0, 0, 0.2420f, 0.1667f, 0.3665f, 0.3627f, 1 }, // 0x0a42, the cover
+	{ 11, 64, 64,  1, 1, 0, 0, 0.4688f, 0.8125f, 0.5938f, 0.9375f, 1 }, // 0x0a45, the paper
 
 	// The stamps. The briefing's OHMSS title is white on black in the release
 	// and a cutout in the ROM, so it goes on as a mask like the paperclip; the
@@ -271,12 +282,12 @@ static void geFolderMatchPaper(u8 *rgba, s32 w, s32 h)
  * copies of it on the page, and the eye reads that as a woven pattern even
  * where the seams are gone. What is wanted from the release's paper here is
  * the paper, not the crumple of the one square it was taken from, so
- * everything coarser than a quarter of the patch is subtracted and the mean
+ * everything coarser than an eighth of the patch is subtracted and the mean
  * put back.
  */
 static void geFolderFlatten(u8 *rgba, s32 w, s32 h)
 {
-	const s32 r = (w < h ? w : h) / 4;
+	const s32 r = (w < h ? w : h) / 8;
 	s32 mean[3];
 	u8 *copy;
 
@@ -363,6 +374,87 @@ static void geFolderMakeSeamless(u8 *rgba, s32 w, s32 h)
 			for (s32 k = 0; k < 4; k++) {
 				a[k] = (u8)((a[k] * (255 - (127 - t)) + b[k] * (127 - t) + 127) / 255);
 			}
+		}
+	}
+}
+
+/**
+ * The mean brightness, 0-255, of a ROM intensity texture as loaded, and how
+ * far its texels stray from it: I4 or I8 texels, rows padded to whole 64-bit
+ * lines. 0 for any other depth.
+ */
+static s32 geFolderRomGrey(const struct textureconfig *tc, s32 *mean, s32 *spread)
+{
+	const s32 w = geFolderPaddedWidth(tc->width, tc->depth);
+	const u8 *texels = tc->textureptr;
+	s64 sum = 0;
+	s64 sumsq = 0;
+	s64 n = 0;
+
+	if (!texels || (tc->depth != G_IM_SIZ_4b && tc->depth != G_IM_SIZ_8b)) {
+		return 0;
+	}
+
+	for (s32 y = 0; y < tc->height; y++) {
+		for (s32 x = 0; x < tc->width; x++) {
+			s32 v;
+
+			if (tc->depth == G_IM_SIZ_4b) {
+				const u8 b = texels[((size_t)y * w + x) / 2];
+
+				v = ((x & 1) ? (b & 0xf) : (b >> 4)) * 17;
+			} else {
+				v = texels[(size_t)y * w + x];
+			}
+
+			sum += v;
+			sumsq += v * v;
+			n++;
+		}
+	}
+
+	if (!n) {
+		return 0;
+	}
+
+	*mean = (s32)(sum / n);
+	*spread = (s32)sqrtf((f32)(sumsq / n - (sum / n) * (sum / n)));
+
+	return 1;
+}
+
+/**
+ * Makes a picture of the release's stand in for a ROM intensity texture: its
+ * brightness brought to the ROM texture's, and its grain to the ROM texture's
+ * spread about it. The picture's own detail stays; its overall colour goes,
+ * since the node's shade supplies that, as it does for the ROM's - and its
+ * grain is not magnified with its brightness, which turned a slightly
+ * mottled brown paper into a camouflage beige one.
+ */
+static void geFolderMatchGrey(u8 *rgba, s32 w, s32 h, s32 grey, s32 spread)
+{
+	s32 mean[3];
+	f64 sumsq = 0;
+	f32 gain;
+
+	geFolderMeanOf(rgba, w, h, 0, mean);
+
+	for (s32 i = 0; i < w * h; i++) {
+		const u8 *px = rgba + (size_t)i * 4;
+		const f32 d = ((px[0] - mean[0]) + (px[1] - mean[1]) + (px[2] - mean[2])) / 3.0f;
+
+		sumsq += d * d;
+	}
+
+	gain = sumsq > 0 ? spread / sqrtf((f32)(sumsq / ((f64)w * h))) : 0.0f;
+
+	for (s32 i = 0; i < w * h; i++) {
+		u8 *px = rgba + (size_t)i * 4;
+
+		for (s32 k = 0; k < 3; k++) {
+			const s32 v = grey + (s32)((px[k] - mean[k]) * gain);
+
+			px[k] = (u8)(v < 0 ? 0 : v > 255 ? 255 : v);
 		}
 	}
 }
@@ -521,6 +613,14 @@ static void geFolderBind(struct gebeanpictures *pics, const struct modeldef *mod
 		return;
 	}
 
+	if (row->grey) {
+		s32 grey, spread;
+
+		if (geFolderRomGrey(tc, &grey, &spread)) {
+			geFolderMatchGrey(crop, outw, outh, grey, spread);
+		}
+	}
+
 	// Taken over by the registry, or freed there.
 	if (xblaTexBindPictureAt(tc->textureptr, crop, outw, outh)) {
 		bound[numBound++] = tc->textureptr;
@@ -613,6 +713,7 @@ s32 geFolderRepaint(struct modeldef *modeldef)
 		row.v0 = 0.0f;
 		row.u1 = 1.0f;
 		row.v1 = 1.0f;
+		row.grey = 0;
 		geFolderBind(pics, modeldef, &row);
 	}
 
@@ -628,6 +729,7 @@ s32 geFolderRepaint(struct modeldef *modeldef)
 		row.v0 = 0.0f;
 		row.u1 = 1.0f;
 		row.v1 = 1.0f;
+		row.grey = 0;
 		geFolderBind(pics, modeldef, &row);
 	}
 
@@ -637,6 +739,84 @@ s32 geFolderRepaint(struct modeldef *modeldef)
 	sysLogPrintf(LOG_NOTE, "gefolder: %d of the folder's pictures are the release's", numBound);
 
 	return numBound;
+}
+
+/**
+ * The menus' pictures that are not on the folder model - the portraits, the
+ * stage pictures, the cursor - are files of their own in the release
+ * (files/texture/), drawn by gexfront.c as rectangles of their own. Each is
+ * decoded the first time it is asked for and bound as a stand-in for the life
+ * of the game, so this is a lookup after that; a picture the release has not
+ * got is remembered as missing and GoldenEye's own is drawn.
+ */
+#define GEFOLDER_MAXMENU 96
+
+static struct {
+	char name[40];
+	const void *tile;
+	s32 width;
+	s32 height;
+} menuPictures[GEFOLDER_MAXMENU];
+static s32 numMenuPictures;
+
+const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
+{
+	char source[64];
+	char key[64];
+	u8 *rgba;
+	s32 w = 0, h = 0;
+	s32 i;
+
+	if (!name || !gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+		return NULL;
+	}
+
+	for (i = 0; i < numMenuPictures; i++) {
+		if (strcmp(menuPictures[i].name, name) == 0) {
+			break;
+		}
+	}
+
+	if (i == numMenuPictures) {
+		if (numMenuPictures >= GEFOLDER_MAXMENU) {
+			return NULL;
+		}
+
+		snprintf(menuPictures[i].name, sizeof(menuPictures[i].name), "%s", name);
+		numMenuPictures++;
+
+		snprintf(source, sizeof(source), "texture/%s", name);
+		rgba = gebeanDecodePictureFile(source, &w, &h);
+
+		// The release's crosshair is blue, which is not how it is seen - the
+		// release colours it as it draws it - and GoldenEye's is red, drawn
+		// white. Its red is the blue channel.
+		if (rgba && strcmp(name, "sight") == 0) {
+			for (s32 k = 0; k < w * h; k++) {
+				u8 *px = rgba + (size_t)k * 4;
+				const u8 r = px[0];
+
+				px[0] = px[2];
+				px[2] = r;
+			}
+		}
+
+		if (rgba) {
+			snprintf(key, sizeof(key), "gemenu/%s", name);
+			menuPictures[i].tile = xblaTexBindImage(key, rgba, w, h);
+			menuPictures[i].width = w;
+			menuPictures[i].height = h;
+		} else {
+			sysLogPrintf(LOG_WARNING, "gefolder: the release has no menu picture %s", source);
+		}
+	}
+
+	if (menuPictures[i].tile) {
+		*width = menuPictures[i].width;
+		*height = menuPictures[i].height;
+	}
+
+	return menuPictures[i].tile;
 }
 
 void geFolderForget(void)

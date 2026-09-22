@@ -193,6 +193,13 @@ struct gebeanpictures *gebeanPicturesOpen(const char *source);
 void gebeanPicturesClose(struct gebeanpictures *pics);
 s32 gebeanPicturesCount(struct gebeanpictures *pics);
 u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, s32 *outHeight);
+
+/**
+ * A picture that is a file of its own under files/ - "texture/level/damicon" -
+ * as RGBA in the game's row order, malloc'd and the caller's; NULL where the
+ * release or the file is not there.
+ */
+u8 *gebeanDecodePictureFile(const char *source, s32 *outWidth, s32 *outHeight);
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);
 s32 gebeanLevelNumTextures(struct gebeanlevel *level);

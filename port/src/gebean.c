@@ -57,7 +57,7 @@
 // fifth (".extracted5") before the levels were and the sixth (".extracted6")
 // before the remake's HD props were, so a cache holding any of them is unpacked
 // again.
-#define GEBEAN_DONE_FILE ".extracted8"
+#define GEBEAN_DONE_FILE ".extracted9"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -81,6 +81,11 @@
 #define GEBEAN_WANT_ORIGINAL_GUNS "files/original/gun/"
 #define GEBEAN_WANT_LEVELS "files/new/background/"
 #define GEBEAN_SKIP_HITS "_hits/"
+// the menus' own pictures: portraits, stage pictures, the cursor (gefolder.c)
+#define GEBEAN_WANT_MENU_CHARS "files/texture/characters/"
+#define GEBEAN_WANT_MENU_LEVELS "files/texture/level/"
+#define GEBEAN_WANT_MENU_SIGHT "files/texture/sight/"
+#define GEBEAN_WANT_MENU_ATTRACT "files/texture/attract/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -1224,7 +1229,9 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_ORIGINAL_CHARS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_HEADS) != NULL
 		|| (strstr(lower, GEBEAN_WANT_PROPS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL)
 		|| strstr(lower, GEBEAN_WANT_GUNS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_GUNS) != NULL
-		|| (strstr(lower, GEBEAN_WANT_LEVELS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL);
+		|| (strstr(lower, GEBEAN_WANT_LEVELS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL)
+		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
+		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -6763,6 +6770,65 @@ u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, 
 	}
 
 	return beanDecodeTexture(&pics->bm, index, outWidth, outHeight);
+}
+
+/**
+ * One of the release's pictures that is a file of its own rather than part of
+ * a model - files/texture/..., the menus' portraits and stage pictures - as
+ * RGBA in the game's row order, malloc'd and the caller's.
+ */
+u8 *gebeanDecodePictureFile(const char *source, s32 *outWidth, s32 *outHeight)
+{
+	struct beanmodel bm;
+	char path[FS_MAXPATH + 1];
+	FILE *fp;
+	long size;
+	u8 *rgba = NULL;
+
+	if (!gebeanLocate(1)) {
+		return NULL;
+	}
+
+	memset(&bm, 0, sizeof(bm));
+	snprintf(path, sizeof(path), "%s/%s/default.rba", rootPath, source);
+	fp = fopen(path, "rb");
+
+	if (!fp) {
+		return NULL;
+	}
+
+	if (fseek(fp, 0, SEEK_END) != 0 || (size = ftell(fp)) <= 0 || size > 16 * 1024 * 1024) {
+		fclose(fp);
+		return NULL;
+	}
+
+	rewind(fp);
+	bm.file = malloc((size_t)size);
+
+	if (!bm.file || fread(bm.file, 1, (size_t)size, fp) != (size_t)size || !caffOpen(&bm.caff, bm.file, (u32)size)) {
+		fclose(fp);
+		beanFree(&bm);
+		return NULL;
+	}
+
+	fclose(fp);
+
+	for (u32 i = 0; i < bm.caff.numfiles && bm.numtex == 0; i++) {
+		u32 blen;
+		const u8 *b = caffBlob(&bm.caff, (s32)i, &blen);
+
+		if (b && blen >= 8 && memcmp(b, "texture\0", 8) == 0) {
+			bm.texfile[bm.numtex++] = (s32)i;
+		}
+	}
+
+	if (bm.numtex) {
+		rgba = beanDecodeTexture(&bm, 0, outWidth, outHeight);
+	}
+
+	beanFree(&bm);
+
+	return rgba;
 }
 
 /** A texture's stand-in tile, decoded and bound the first time it is asked for. */
