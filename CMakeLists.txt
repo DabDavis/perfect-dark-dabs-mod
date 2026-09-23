@@ -340,14 +340,9 @@ if(PD_VULKAN AND NOT NINTENDO_SWITCH)
         list(APPEND PD_VULKAN_LIBS "${SHADERC_PART_${part}}")
       endif()
     endforeach()
-    if(WIN32)
-      # MSYS2's shaderc is built on winpthreads; the archive, so there is no
-      # libwinpthread-1.dll to ship
-      find_library(PD_WINPTHREAD_STATIC NAMES libwinpthread.a libpthread.a)
-      if(PD_WINPTHREAD_STATIC)
-        list(APPEND PD_VULKAN_LIBS "${PD_WINPTHREAD_STATIC}")
-      endif()
-    else()
+    # MSYS2's shaderc is built on winpthreads, which Windows links whole and
+    # static below, for everything
+    if(NOT WIN32)
       list(APPEND PD_VULKAN_LIBS pthread)
     endif()
   endif()
@@ -391,7 +386,14 @@ endif()
 # Platform-specific extra libs
 if(NOT EXTRA_LIBRARIES)
   if(WIN32)
-    set(EXTRA_LIBRARIES dbghelp -static-libstdc++)
+    # winpthreads whole and static, and libgcc static, which would otherwise
+    # bring the DLL in again. Linked only where something asked for it, the
+    # exe had pthread_mutex_lock of its own and pthread_cond_wait from
+    # libwinpthread-1.dll: one mutex run by two copies, whose layouts differ
+    # between versions, and the in-game updater replaces only the exe - so an
+    # updated install crashed the first time Vulkan's worker waited.
+    set(EXTRA_LIBRARIES dbghelp -static-libstdc++ -static-libgcc
+        -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic)
   elseif(NINTENDO_SWITCH)
     set(EXTRA_LIBRARIES stdc++ pthread)
   else()

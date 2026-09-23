@@ -81,9 +81,16 @@ jobs:
           # closure; anything outside /mingw64 ships with Windows already -
           # winhttp.dll, which carries Ghost Trials' network half, among them.
           ldd bin/pd.x86_64.exe | awk '/=> \/mingw64/ { print $3 }' | sort -u | xargs -r cp -t bin/
-          for dll in SDL2.dll zlib1.dll libwinpthread-1.dll libgcc_s_seh-1.dll; do
+          for dll in SDL2.dll zlib1.dll; do
             test -f "bin/$dll" || { echo "::error::$dll is missing from the package"; exit 1; }
           done
+          # winpthreads and libgcc are linked in. The updater replaces only the
+          # exe, so a DLL of either would be whatever version the install
+          # started with, and a winpthreads mutex shared with a stale copy
+          # crashed Vulkan's worker on its first wait.
+          if objdump -p bin/pd.x86_64.exe | grep -qi -E 'DLL Name: (libwinpthread|libgcc_s)'; then
+            echo "::error::pd.x86_64.exe imports winpthreads or libgcc from a DLL"; exit 1
+          fi
           # Ghost Trials talks to the server through WinHTTP, so the check that
           # the network half survived is that the import is there rather than
           # that a DLL was copied.
