@@ -157,6 +157,14 @@ static const uint32_t g_IntroGuns[] = {
 	184, 185, 187, 188, 190, 191, 193, 195, 197, 204, 205, 207, 208, 210,
 };
 
+// GoldenEye's own model of each of its guns in a hand (player.c's
+// getPropForHeldItem()), PROP_CHRKALASH to PROP_CHRROCKETLAUNCH less the
+// thrown ones and the two rounds
+static const uint32_t g_HeldGuns[] = {
+	184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 197,
+	204, 205, 206, 207, 208, 210, 211,
+};
+
 static const struct { const char *name; size_t at; } g_IntroAnims[] = {
 	// the gun barrel: Bond walks in, turns and fires
 	{ "bond_eye_walk", 0x292ac4 }, { "bond_eye_fire", 0x292c18 },
@@ -6339,6 +6347,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		setAdd(allmodels, 273);
 		for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
 			setAdd(allmodels, g_IntroGuns[i]);
+		}
+		// and every gun Bond can hold, in his hand in third person and through a
+		// mission's opening swirl (gegunsOwnPropModel()) - the three no setup
+		// puts in a guard's hand as well: PROP_CHRKNIFE, PROP_CHRSHOTGUN and
+		// PROP_CHRMP5KSIL, the silenced D5K Frigate starts him with
+		for (size_t i = 0; i < sizeof(g_HeldGuns) / sizeof(g_HeldGuns[0]); ++i) {
+			setAdd(allmodels, g_HeldGuns[i]);
 		}
 		for (size_t i = 0; i < sizeof(g_MenuImages) / sizeof(g_MenuImages[0]); ++i) {
 			for (uint32_t n = 0; n < g_MenuImages[i].count; ++n) {

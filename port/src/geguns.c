@@ -864,9 +864,6 @@ static s32 hostSaved[NUM_GE_GUNS];
 static f32 hostPos[NUM_GE_GUNS][3];
 static struct gunviscmd *hostVis[NUM_GE_GUNS];
 
-// The host's part commands name the host's parts, which on GoldenEye's model
-// are other things entirely
-static struct gunviscmd noVisCmds[] = { { GUNVISCMD_END } };
 
 /**
  * Draw gun `index` in first person on GoldenEye's own model (1) or on
@@ -897,7 +894,18 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse)
 		def->posx = ownpos[index][0];
 		def->posy = ownpos[index][1];
 		def->posz = ownpos[index][2];
-		def->gunviscmds = noVisCmds;
+		// The host's part commands name the host's parts, which on
+		// GoldenEye's model are other things entirely, so it has none: NULL,
+		// and not a list holding only its end - bgunExecuteGunVisCommands()
+		// runs its first entry before it looks for the end, and the end read
+		// as a command is "show part 0". Part 0 of GoldenEye's model is a
+		// POSITIONHELD node, whose data read as a toggle's gave an rwdata
+		// index past the hand's 32 words, and the command after the list was
+		// whatever the linker put there: on Frigate, which starts Bond with
+		// the silenced D5K, that wrote a 1 into the frame's display list and
+		// the mission died at its first frame of play ("Unknown GBI opcode
+		// 0x103")
+		def->gunviscmds = NULL;
 	} else {
 		def->posx = hostPos[index][0];
 		def->posy = hostPos[index][1];
@@ -912,6 +920,59 @@ s32 gegunsOwnModelInUse(s32 weaponnum)
 	const s32 index = weaponnum - WEAPON_GE_FIRST;
 
 	return index >= 0 && index < NUM_GE_GUNS && ownInUse[index];
+}
+
+/**
+ * GoldenEye's own model of this gun in a hand - its PROP_CHR* prop, which the
+ * conversion's `models` block numbers MODEL_REMAKE_FIRST + prop - wherever the
+ * gun is drawn in GoldenEye's own look and the stage has the block loaded; -1
+ * otherwise.
+ *
+ * The model state a GoldenEye gun otherwise has (MODEL_GE_FIRST) is an alias
+ * of its host's pickup that only the release's HD pickup is drawn over, so in
+ * the N64 look every gun that shares a host drew the same host model: the
+ * silenced PP7 Bond starts Dam with was the plain PP7 in his hand through the
+ * opening swirl (the silenced D5K the same). The guards on the same level have
+ * held GoldenEye's own props all along, from the converted setup.
+ *
+ * The thrown ones are left out: what is thrown is built from this model too,
+ * and theirs are Perfect Dark's projectiles.
+ */
+s32 gegunsOwnPropModel(s32 weaponnum)
+{
+	// player.c's getPropForHeldItem(), by weapon
+	static const s16 props[NUM_GE_GUNS] = {
+		[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 191, // PROP_CHRWPPK
+		[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = 204, // PROP_CHRWPPKSIL
+		[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 205, // PROP_CHRTT33
+		[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 193, // PROP_CHRSKORPION
+		[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 184, // PROP_CHRKALASH
+		[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = 195, // PROP_CHRUZI
+		[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = 189, // PROP_CHRMP5K
+		[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = 206, // PROP_CHRMP5KSIL
+		[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = 194, // PROP_CHRSPECTRE
+		[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = 188, // PROP_CHRM16
+		[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 197, // PROP_CHRFNP90
+		[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = 192, // PROP_CHRSHOTGUN
+		[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 207, // PROP_CHRAUTOSHOT
+		[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 210, // PROP_CHRSNIPERRIFLE
+		[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 190, // PROP_CHRRUGER
+		[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 208, // PROP_CHRGOLDEN
+		[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = 187, // PROP_CHRLASER
+		[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 185, // PROP_CHRGRENADELAUNCH
+		[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 211, // PROP_CHRROCKETLAUNCH
+		[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 186, // PROP_CHRKNIFE
+	};
+	const s32 index = weaponnum - WEAPON_GE_FIRST;
+	s32 prop;
+
+	if (!gegunsOwnModelInUse(weaponnum) || index >= NUM_GE_GUNS) {
+		return -1;
+	}
+
+	prop = props[index];
+
+	return prop > 0 && g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid ? MODEL_REMAKE_FIRST + prop : -1;
 }
 
 static void gegunsSetPart(struct model *model, s32 part, s32 visible)

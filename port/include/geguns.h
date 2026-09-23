@@ -54,6 +54,10 @@ u16 gegunsOwnModel(s32 index);
 void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
+
+// GoldenEye's own held prop for this gun where its own look is drawn and the
+// stage has it (MODEL_REMAKE_FIRST + PROP_CHR*), or -1
+s32 gegunsOwnPropModel(s32 weaponnum);
 void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);

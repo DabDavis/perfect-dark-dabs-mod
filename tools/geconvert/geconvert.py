@@ -108,6 +108,9 @@ INTRO_BLOOD_SIZE = 2524
 # reads them in (`menu/intro.bin` names each one, so nothing depends on it).
 INTRO_LOGO_MODEL = 277
 INTRO_GUNS = (184, 185, 187, 188, 190, 191, 193, 195, 197, 204, 205, 207, 208, 210)
+# GoldenEye's own model of each of its guns in a hand (gegunsOwnPropModel())
+HELD_GUNS = (184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 197,
+             204, 205, 206, 207, 208, 210, 211)
 INTRO_ANIMS = (
     # the gun barrel: Bond walks in, turns and fires
     ('bond_eye_walk', 0x292ac4), ('bond_eye_fire', 0x292c18),
@@ -1473,6 +1476,7 @@ def main():
     allmodels.add(MENU_TV_MODEL)
     allmodels.add(INTRO_LOGO_MODEL)
     allmodels.update(INTRO_GUNS)
+    allmodels.update(HELD_GUNS)
     allmodels.update(gesolo.GE_GADGET_MODELS)
     alltex.update(MENU_IMAGES)
     alltex.update(SKY_IMAGES)

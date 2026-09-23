@@ -17,6 +17,9 @@
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "geguns.h"
+#endif
 
 void playermgrInit(void)
 {
@@ -761,6 +764,11 @@ s32 playermgrGetModelOfWeapon(s32 weapon)
 		// block's slot 245), and its host's ECM mine where it is not
 		if (gegadgetsPropModel(weapon) >= 0) {
 			return gegadgetsPropModel(weapon);
+		}
+
+		// and a gun is GoldenEye's own held prop in GoldenEye's own look
+		if (gegunsOwnPropModel(weapon) >= 0) {
+			return gegunsOwnPropModel(weapon);
 		}
 
 		// The tank's shells and the gadgets on a host with nothing to hold
