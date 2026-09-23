@@ -94,6 +94,7 @@
 #include "geroom.h"
 #include "gestan.h"
 #include "gexplus.h"
+#include "modloader.h"
 #endif
 #endif
 
@@ -14274,6 +14275,19 @@ void objDeform(struct defaultobj *obj, s32 level)
 	obj->realrot[1][0] *= mult;
 	obj->realrot[1][1] *= mult;
 	obj->realrot[1][2] *= mult;
+
+#ifndef PLATFORM_N64
+	// min is in the model's own units and realrot carries the model's
+	// scale, so this shift keeps the base on the floor only at scale 1.
+	// Perfect Dark's props are mostly built standing on their origin
+	// (min 0) and never show it; GoldenEye's are centred, and Facility's
+	// bottling tanks (min -1050 at a quarter scale) sank four times the
+	// squash into the floor, legs and all. GoldenEye keeps the base where
+	// it was, so a converted level's prop takes the scale.
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		min *= spb0[axis];
+	}
+#endif
 
 	obj->prop->pos.f[axis] += (1.0f - mult) * min;
 
