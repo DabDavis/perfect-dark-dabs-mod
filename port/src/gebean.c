@@ -44,6 +44,10 @@
 #include "mod.h"
 #include "data.h"
 #include "lib/model.h"
+#include "lib/main.h"
+#include "game/playermgr.h"
+#include "game/bondgun.h"
+#include "bss.h"
 
 #ifndef PLATFORM_N64
 
@@ -828,16 +832,18 @@ static void gebeanGunsRefresh(void)
 {
 	const s32 bean = gebeanIsAvailable();
 	s32 anyborrowed = 0;
+	s32 anyown = 0;
 	s32 show;
 	s32 shown = 0;
 
 	// GoldenEye X's own guns (modborrow.c) are GoldenEye's guns too, with or
-	// without the release to draw on them
+	// without the release to draw on them, and so are the conversion's own
 	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
 		anyborrowed |= gegunsIsBorrowed(i);
+		anyown |= gegunsHasOwnModel(i);
 	}
 
-	show = !modDataMpWeaponsImported() && (bean || anyborrowed);
+	show = !modDataMpWeaponsImported() && (bean || anyborrowed || anyown);
 
 	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
 		const s32 hostmodel = gegunsHostModel(i);
@@ -845,6 +851,7 @@ static void gebeanGunsRefresh(void)
 		s32 fileid = 0;
 		u16 scale = 0x199;
 		u16 bfile, bscale;
+		u16 own;
 
 		if (gegunsBorrowedPickup(i, &bfile, &bscale)) {
 			fileid = bfile;
@@ -880,10 +887,17 @@ static void gebeanGunsRefresh(void)
 		// And the first-person model: an alias of the gun's own model - the
 		// host's, or GoldenEye X's when borrowed - which Bean's gun is drawn on,
 		// or that model again
+		// In the N64 look the gun is GoldenEye's own model out of the player's
+		// ROM where there is one, and nothing is drawn over it; in the other
+		// the release's gun is skinned onto the host's, so the host's is what
+		// must be there - unless there is no release, when the host would be
+		// a Perfect Dark gun and GoldenEye's own is the better answer
+		own = gebeanGunsAreN64() || !bean ? gegunsOwnModel(i) : 0;
 		fpSlot[i] = 0;
-		g_GeWeaponDefs[i].hi_model = gegunsModelFile(i);
+		g_GeWeaponDefs[i].hi_model = own ? own : gegunsModelFile(i);
+		gegunsSetOwnModelInUse(i, own != 0);
 
-		if (show && bean && fpReady[i] && g_GeWeaponDefs[i].hi_model) {
+		if (show && bean && fpReady[i] && !own && g_GeWeaponDefs[i].hi_model) {
 			const s32 slot = romdataRegisterAliasFile(fpRows[i].file, g_GeWeaponDefs[i].hi_model);
 
 			if (slot) {
@@ -900,7 +914,11 @@ static void gebeanGunsRefresh(void)
 		// so its hands are its own in both.
 		g_GeWeaponDefs[i].flags &= ~WEAPONFLAG_HASHANDS;
 
-		if (gegunsIsBorrowed(i)) {
+		// GoldenEye's own model carries Bond's hand and cuff as pieces of
+		// the gun (geguns.c, gegunsOwnModelParts()), so it takes none.
+		if (own) {
+			// no hands of Perfect Dark's
+		} else if (gegunsIsBorrowed(i)) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
 		} else if (!fpSlot[i] || !(fpNoHands[i] || (gebeanGunsAreN64() && fpN64Glove[i]))) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
@@ -921,6 +939,31 @@ static void gebeanGunsRefresh(void)
 void gebeanMeshesSwitched(void)
 {
 	gebeanGunsRefresh();
+
+	// GoldenEye's own model is a file of its own in the N64 look, where the
+	// other look draws on the host's, so a gun already in a hand has the wrong
+	// one loaded: load it again
+	if (STAGE_IS_LEVEL(mainGetStageNum())) {
+		const s32 prev = g_Vars.currentplayernum;
+
+		for (s32 p = 0; p < MAX_PLAYERS; p++) {
+			s32 weaponnum;
+
+			if (!g_Vars.players[p]) {
+				continue;
+			}
+
+			setCurrentPlayerNum(p);
+			weaponnum = g_Vars.currentplayer->gunctrl.weaponnum;
+
+			if (weaponnum >= WEAPON_GE_FIRST && weaponnum < WEAPON_GE_FIRST + NUM_GE_GUNS
+					&& gegunsHasOwnModel(weaponnum - WEAPON_GE_FIRST)) {
+				bgunSetGunMemWeapon(weaponnum);
+			}
+		}
+
+		setCurrentPlayerNum(prev);
+	}
 }
 
 void gebeanPoolRefresh(void)

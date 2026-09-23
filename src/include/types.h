@@ -2227,6 +2227,9 @@ struct abmag {
 };
 
 // Weapon data per hand
+// words of rwdata for a first-person model the game's own 32 cannot hold
+#define HAND_BIG_RWDATA 256
+
 struct hand {
 	struct gset gset;
 	/*0x063c*/ s8 firing;
@@ -2427,6 +2430,18 @@ struct hand {
 	/*0x0dd0*/ uintptr_t *unk0dd0;
 	/*0x0dd4*/ s32 unk0dd4;
 	/*0x0dd8*/ Mtxf *unk0dd8;
+#ifndef PLATFORM_N64
+	/**
+	 * Read/write data for a first-person model bigger than Perfect Dark's own.
+	 *
+	 * GoldenEye's guns, converted from the player's ROM (geguns.c), are far
+	 * more model than the game's: 47 to 143 rwdata words against the 32
+	 * `unk0a6c` holds, mostly display lists at four words each. A model that
+	 * wants more is given this instead (bgunTickGunLoad()); writing a toggle's
+	 * word past the end of the small one crashed as the gun was raised.
+	 */
+	u32 biggunsavedata[HAND_BIG_RWDATA];
+#endif
 };
 
 struct texpool {

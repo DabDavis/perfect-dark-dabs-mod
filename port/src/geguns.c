@@ -8,6 +8,10 @@
 #include "data.h"
 #include "game/lang.h"
 #include "game/playermgr.h"
+#include "fs.h"
+#include "romdata.h"
+#include "system.h"
+#include "lib/model.h"
 #include "geguns.h"
 
 #ifndef PLATFORM_N64
@@ -658,6 +662,286 @@ s32 gegunsBorrowedPickup(s32 index, u16 *fileid, u16 *scale)
 	*scale = borrowedPickupScale[index];
 
 	return 1;
+}
+
+/**
+ * GoldenEye's own hand item number for gun `index`, which is what the
+ * conversion names its first-person model after (files/Igx%03dZ) and what its
+ * row of gitem_structs is at. The gadgets' is the mission's (gegadgets.c) and
+ * is not here.
+ */
+s32 gegunsItemNumber(s32 index)
+{
+	static const s8 items[NUM_GE_WEAPONS] = {
+		[WEAPON_GE_PP7 - WEAPON_GE_FIRST] = 4,
+		[WEAPON_GE_PP7SILENCED - WEAPON_GE_FIRST] = 5,
+		[WEAPON_GE_DD44 - WEAPON_GE_FIRST] = 6,
+		[WEAPON_GE_KLOBB - WEAPON_GE_FIRST] = 7,
+		[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST] = 8,
+		[WEAPON_GE_ZMG - WEAPON_GE_FIRST] = 9,
+		[WEAPON_GE_D5K - WEAPON_GE_FIRST] = 10,
+		[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST] = 11,
+		[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST] = 12,
+		[WEAPON_GE_AR33 - WEAPON_GE_FIRST] = 13,
+		[WEAPON_GE_RCP90 - WEAPON_GE_FIRST] = 14,
+		[WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST] = 15,
+		[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST] = 16,
+		[WEAPON_GE_SNIPERRIFLE - WEAPON_GE_FIRST] = 17,
+		[WEAPON_GE_COUGARMAGNUM - WEAPON_GE_FIRST] = 18,
+		[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST] = 19,
+		[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST] = 22,
+		[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 24,
+		[WEAPON_GE_ROCKETLAUNCHER - WEAPON_GE_FIRST] = 25,
+		[WEAPON_GE_HUNTINGKNIFE - WEAPON_GE_FIRST] = 2,
+		[WEAPON_GE_THROWINGKNIFE - WEAPON_GE_FIRST] = 3,
+		[WEAPON_GE_GRENADE - WEAPON_GE_FIRST] = 26,
+		[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST] = 27,
+		[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST] = 28,
+		[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = 29,
+	};
+
+	return index >= 0 && index < NUM_GE_WEAPONS ? items[index] : 0;
+}
+
+/**
+ * The gun's own model, converted from the player's ROM.
+ *
+ * GoldenEye's first-person guns convert whole (files/Igx%03dZ, converter 40),
+ * and until now only the watch drew them - so in the N64 look a GoldenEye gun
+ * with no GoldenEye X to borrow from had no model of its own and was not
+ * offered at all. Found once, in whichever mod directory the conversion wrote
+ * (there is one), and kept: registering a slot per directory per gun would
+ * spend twenty-five of them on every mod installed.
+ */
+static u16 convertedModel[NUM_GE_WEAPONS];
+static s32 convertedSearched = -1;
+
+static void gegunsFindConverted(void)
+{
+	const s32 numdirs = fsGetNumModDirs();
+	s32 found = 0;
+	s32 dir = -1;
+
+	if (convertedSearched == numdirs) {
+		return;
+	}
+
+	convertedSearched = numdirs;
+
+	// the PP7 is the conversion's marker: every GoldenEye gun is written with it
+	for (s32 i = 0; i < numdirs && dir < 0; i++) {
+		char path[FS_MAXPATH + 1];
+		const char *at = fsGetModDirAt(i);
+
+		if (!at) {
+			continue;
+		}
+
+		snprintf(path, sizeof(path), "%s/files/Igx%03dZ", at, gegunsItemNumber(WEAPON_GE_PP7 - WEAPON_GE_FIRST));
+
+		if (fsFileSize(path) > 0) {
+			dir = i;
+		}
+	}
+
+	if (dir < 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < NUM_GE_GUNS; i++) {
+		const s32 item = gegunsItemNumber(i);
+		char name[16];
+		char path[FS_MAXPATH + 1];
+
+		if (item <= 0 || convertedModel[i]) {
+			continue;
+		}
+
+		snprintf(name, sizeof(name), "Igx%03dZ", item);
+		snprintf(path, sizeof(path), "%s/files/%s", fsGetModDirAt(dir), name);
+
+		if (fsFileSize(path) <= 0) {
+			continue;
+		}
+
+		convertedModel[i] = (u16)romdataRegisterModFile(name, dir);
+
+		if (convertedModel[i]) {
+			found++;
+		}
+	}
+
+	if (found) {
+		sysLogPrintf(LOG_NOTE, "geguns: %d of GoldenEye's own first-person guns, converted from the ROM", found);
+	}
+}
+
+/**
+ * Whether the conversion has GoldenEye's own first-person model for this gun,
+ * drawn in the hand.
+ *
+ * Not yet the grenade and the three mines: their hand and body hang under
+ * position nodes GoldenEye poses by keyframe (gunSample1PTransform()), and
+ * posed as a plain model they come out with a scale of nought or garbage -
+ * the grenade filled the bottom of the screen. They keep the model they had.
+ */
+s32 gegunsHasOwnModel(s32 index)
+{
+	gegunsFindConverted();
+
+	switch (WEAPON_GE_FIRST + index) {
+	case WEAPON_GE_GRENADE:
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_REMOTEMINE:
+		return 0;
+	}
+
+	return index >= 0 && index < NUM_GE_GUNS && convertedModel[index] != 0;
+}
+
+/**
+ * GoldenEye's own first-person model for this gun, converted from the ROM, or
+ * 0. Only the N64 look wants it: in the other, the release's gun is skinned
+ * onto the host's own first-person model and that is what has to be there
+ * (gebeanBuildFirstPerson()).
+ */
+u16 gegunsOwnModel(s32 index)
+{
+	return gegunsHasOwnModel(index) ? convertedModel[index] : 0;
+}
+
+/**
+ * Where GoldenEye holds each gun in front of the eye: gunWeaponStat's PosX,
+ * PosY and PosZ, the offset in camera space gunfire.c builds the gun's matrix
+ * at before sway and recoil. Perfect Dark's own posx/posy/posz are the same
+ * three numbers in the same space (the Falcon 2's 9, -15.7, -23.8 beside the
+ * PP7's 11, -20.8, -33.5), so GoldenEye's own model takes GoldenEye's.
+ */
+static const f32 ownpos[NUM_GE_GUNS][3] = {
+	[WEAPON_GE_PP7 - WEAPON_GE_FIRST] = { 11.0f, -20.8f, -33.5f },
+	[WEAPON_GE_PP7SILENCED - WEAPON_GE_FIRST] = { 11.0f, -20.8f, -33.5f },
+	[WEAPON_GE_DD44 - WEAPON_GE_FIRST] = { 11.0f, -20.8f, -33.5f },
+	[WEAPON_GE_KLOBB - WEAPON_GE_FIRST] = { 11.5f, -25.0f, -27.5f },
+	[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST] = { 11.0f, -19.0f, -16.0f },
+	[WEAPON_GE_ZMG - WEAPON_GE_FIRST] = { 11.0f, -24.5f, -37.0f },
+	[WEAPON_GE_D5K - WEAPON_GE_FIRST] = { 11.0f, -26.4f, -35.0f },
+	[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST] = { 11.0f, -26.4f, -35.0f },
+	[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST] = { 11.0f, -21.9f, -35.0f },
+	[WEAPON_GE_AR33 - WEAPON_GE_FIRST] = { 11.0f, -19.2f, -21.5f },
+	[WEAPON_GE_RCP90 - WEAPON_GE_FIRST] = { 12.5f, -25.3f, -32.5f },
+	[WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST] = { 11.0f, -20.6f, -19.5f },
+	[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST] = { 12.0f, -24.1f, -19.0f },
+	[WEAPON_GE_SNIPERRIFLE - WEAPON_GE_FIRST] = { 11.0f, -20.7f, -31.5f },
+	[WEAPON_GE_COUGARMAGNUM - WEAPON_GE_FIRST] = { 12.0f, -20.8f, -33.5f },
+	[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST] = { 11.0f, -20.8f, -33.5f },
+	[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST] = { 11.0f, -19.5f, -28.0f },
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = { 9.5f, -18.0f, -18.5f },
+	[WEAPON_GE_ROCKETLAUNCHER - WEAPON_GE_FIRST] = { 10.5f, -22.2f, -14.5f },
+	[WEAPON_GE_HUNTINGKNIFE - WEAPON_GE_FIRST] = { 14.0f, -24.8f, -34.0f },
+	[WEAPON_GE_THROWINGKNIFE - WEAPON_GE_FIRST] = { 14.0f, -24.8f, -34.0f },
+	[WEAPON_GE_GRENADE - WEAPON_GE_FIRST] = { 11.0f, -41.8f, -33.0f },
+	[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST] = { 11.0f, -21.0f, -37.0f },
+	[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST] = { 11.0f, -21.0f, -37.0f },
+	[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = { 11.0f, -21.0f, -37.0f },
+};
+
+// The host's own placement and part commands, to go back to when the gun is
+// drawn on the host's model again (the other look, F6)
+static s32 ownInUse[NUM_GE_GUNS];
+static s32 hostSaved[NUM_GE_GUNS];
+static f32 hostPos[NUM_GE_GUNS][3];
+static struct gunviscmd *hostVis[NUM_GE_GUNS];
+
+// The host's part commands name the host's parts, which on GoldenEye's model
+// are other things entirely
+static struct gunviscmd noVisCmds[] = { { GUNVISCMD_END } };
+
+/**
+ * Draw gun `index` in first person on GoldenEye's own model (1) or on
+ * whatever gebean.c put in hi_model otherwise (0): GoldenEye's placement and
+ * no host part commands for the one, the host's for the other.
+ */
+void gegunsSetOwnModelInUse(s32 index, s32 inuse)
+{
+	struct weapon *def;
+
+	if (index < 0 || index >= NUM_GE_GUNS) {
+		return;
+	}
+
+	def = &g_GeWeaponDefs[index];
+
+	if (!hostSaved[index]) {
+		hostPos[index][0] = def->posx;
+		hostPos[index][1] = def->posy;
+		hostPos[index][2] = def->posz;
+		hostVis[index] = def->gunviscmds;
+		hostSaved[index] = 1;
+	}
+
+	ownInUse[index] = inuse;
+
+	if (inuse) {
+		def->posx = ownpos[index][0];
+		def->posy = ownpos[index][1];
+		def->posz = ownpos[index][2];
+		def->gunviscmds = noVisCmds;
+	} else {
+		def->posx = hostPos[index][0];
+		def->posy = hostPos[index][1];
+		def->posz = hostPos[index][2];
+		def->gunviscmds = hostVis[index];
+	}
+}
+
+/** Whether this weapon is drawn in first person on GoldenEye's own model. */
+s32 gegunsOwnModelInUse(s32 weaponnum)
+{
+	const s32 index = weaponnum - WEAPON_GE_FIRST;
+
+	return index >= 0 && index < NUM_GE_GUNS && ownInUse[index];
+}
+
+static void gegunsSetPart(struct model *model, s32 part, s32 visible)
+{
+	struct modelnode *node = modelGetPart(model->definition, part);
+
+	if (node && (node->type & 0xff) == MODELNODETYPE_TOGGLE) {
+		((union modelrwdata *)modelGetNodeRwData(model, node))->toggle.visible = visible;
+	}
+}
+
+/**
+ * GoldenEye's own switches on its own model, each frame the gun is drawn, as
+ * gunfire.c sets them: Bond's hand and cuff are pieces of every gun (parts 8
+ * to 13, and 35 where there are that many - sub_GAME_7F05E978(model, 1)), a
+ * thrown item's own pieces 14 and 15 are on while it is in the hand, and part
+ * 1 is the muzzle flash, on while the hand's flash is.
+ */
+void gegunsOwnModelParts(struct hand *hand, struct model *model)
+{
+	if (!gegunsOwnModelInUse(hand->gset.weaponnum)) {
+		return;
+	}
+
+	for (s32 part = 8; part <= 13; part++) {
+		gegunsSetPart(model, part, 1);
+	}
+
+	gegunsSetPart(model, 35, 1);
+	gegunsSetPart(model, 14, 1);
+	gegunsSetPart(model, 15, 1);
+	gegunsSetPart(model, 1, hand->flashon ? 1 : 0);
+}
+
+/**
+ * The node GoldenEye's own model hangs its muzzle flash from (part 1), which
+ * is where its barrel ends: the model has none of Perfect Dark's muzzle parts.
+ */
+struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef)
+{
+	return gegunsOwnModelInUse(weaponnum) ? modelGetPart(modeldef, 1) : NULL;
 }
 
 /** The first-person model file the gun's own definition names: the borrowed one's, or the host's. */

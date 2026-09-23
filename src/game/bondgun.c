@@ -68,6 +68,8 @@
 #include "video.h"
 #include "platform.h"
 #include "gehud.h"
+#include "system.h"
+#include "geguns.h"
 #endif
 
 #define GUNLOADSTATE_FLUX     0
@@ -3951,6 +3953,17 @@ void bgunTickGunLoad(void)
 		allocsize = fileGetLoadedSize(player->gunctrl.loadfilenum) + 0xe00;
 #ifdef PLATFORM_64BIT
 		allocsize += 0xe00;
+
+		// The lists are rewritten in place once the textures are in
+		// (GUNLOADSTATE_DLS), and on this port they come out longer than they
+		// went in - by 0x680 for the hands, 0x1c20 for GoldenEye's PP7
+		// converted from the ROM (21 lists), which ran 0x20 past the reserve
+		// into the texture pool that starts here: a texture's texels drawn
+		// as commands ("Unknown GBI opcode"). The whole file again is
+		// several times what either needed, and gunmem has room for it.
+		if (allocsize < fileGetLoadedSize(player->gunctrl.loadfilenum) * 2) {
+			allocsize = fileGetLoadedSize(player->gunctrl.loadfilenum) * 2;
+		}
 #endif
 
 		osSyncPrintf("BriGun:  Used size %d (Ob Size %d)\n");
@@ -4045,6 +4058,15 @@ void bgunTickGunLoad(void)
 		modeldef = *player->gunctrl.loadtomodeldef;
 
 		modeldef0f1a7560(modeldef, player->gunctrl.loadfilenum, 0x05000000, modeldef, &player->gunctrl.texpool, false);
+
+#ifndef PLATFORM_N64
+		// the rewritten lists must still end before the texture pool
+		if ((uintptr_t)modeldef + fileGetLoadedSize(player->gunctrl.loadfilenum) > (uintptr_t)player->gunctrl.texpool.start) {
+			sysLogPrintf(LOG_ERROR, "bgun: file %d's lists end %d bytes into its texture pool",
+					player->gunctrl.loadfilenum,
+					(s32)((uintptr_t)modeldef + fileGetLoadedSize(player->gunctrl.loadfilenum) - (uintptr_t)player->gunctrl.texpool.start));
+		}
+#endif
 
 		fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL);
 		fileGetLoadedSize(player->gunctrl.loadfilenum);
@@ -4411,7 +4433,16 @@ void bgunTickMasterLoad(void)
 
 							hand = &player->hands[i];
 
+#ifdef PLATFORM_N64
 							modelInit(&hand->gunmodel, gunmodeldef, hand->unk0a6c, 0);
+#else
+							// A converted GoldenEye gun is a bigger model than
+							// any of the game's own and wants more rwdata than
+							// unk0a6c holds (types.h, biggunsavedata)
+							modelInit(&hand->gunmodel, gunmodeldef,
+									gunmodeldef->rwdatalen > (s16)ARRAYCOUNT(hand->unk0a6c)
+										? hand->biggunsavedata : hand->unk0a6c, 0);
+#endif
 
 							if (player->gunctrl.handmodeldef != 0 && bgunHandHasHands(i)) {
 								modelInit(&hand->handmodel, player->gunctrl.handmodeldef, hand->handsavedata, false);
@@ -7840,6 +7871,30 @@ void bgun0f0a4e44(struct hand *hand, struct weapon *weapondef, struct modeldef *
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Pose a hand's gun. GoldenEye's own model, converted from the ROM, is never
+ * animated joint by joint - GoldenEye moves the whole gun - and the host's
+ * animations name Perfect Dark's joints, which on it threw the grenade and
+ * the mines out of the hand. The animation still runs, since the gun commands
+ * are timed by its frames; it is only not applied to that model.
+ */
+static void bgunSetGunMatrices(struct modelrenderdata *renderdata, struct hand *hand)
+{
+	if (gegunsOwnModelInUse(hand->gset.weaponnum)) {
+		struct anim *anim = hand->gunmodel.anim;
+
+		hand->gunmodel.anim = NULL;
+		modelSetMatricesWithAnim(renderdata, &hand->gunmodel);
+		hand->gunmodel.anim = anim;
+	} else {
+		modelSetMatricesWithAnim(renderdata, &hand->gunmodel);
+	}
+}
+#else
+#define bgunSetGunMatrices(renderdata, hand) modelSetMatricesWithAnim(renderdata, &(hand)->gunmodel)
+#endif
+
 /**
  * Create casing and beam for a fired weapon,
  * and uncloak if the weapon is a throwable or fired projectile.
@@ -8142,6 +8197,12 @@ void bgun0f0a5550(s32 handnum)
 
 		bgun0f098030(hand, modeldef);
 
+#ifndef PLATFORM_N64
+		// GoldenEye's own model, converted from the ROM, switches its own
+		// hand and flash (geguns.c)
+		gegunsOwnModelParts(hand, &hand->gunmodel);
+#endif
+
 		if (weaponHasFlag(weaponnum, WEAPONFLAG_00002000)) {
 			bgun0f0981e8(hand, modeldef);
 		}
@@ -8397,7 +8458,7 @@ void bgun0f0a5550(s32 handnum)
 						var8005efb0_2 = true;
 					}
 
-					modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+					bgunSetGunMatrices(&renderdata, hand);
 
 					var8005efd8_2 = false;
 
@@ -8405,7 +8466,7 @@ void bgun0f0a5550(s32 handnum)
 						var8005efb0_2 = false;
 					}
 #else
-					modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+					bgunSetGunMatrices(&renderdata, hand);
 #endif
 
 #ifndef PLATFORM_N64
@@ -8437,7 +8498,7 @@ void bgun0f0a5550(s32 handnum)
 					var8005efb0_2 = true;
 				}
 
-				modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+				bgunSetGunMatrices(&renderdata, hand);
 
 				var8005efd8_2 = false;
 
@@ -8445,7 +8506,7 @@ void bgun0f0a5550(s32 handnum)
 					var8005efb0_2 = false;
 				}
 #else
-				modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+				bgunSetGunMatrices(&renderdata, hand);
 #endif
 			}
 
@@ -8500,6 +8561,16 @@ void bgun0f0a5550(s32 handnum)
 #endif
 
 			node = modelGetPart(modeldef, MODELPART_GUN_MUZZLEPOS);
+
+#ifndef PLATFORM_N64
+			// GoldenEye's own model has none of Perfect Dark's muzzle parts;
+			// its flash hangs where its barrel ends
+			// and it draws that flash itself, so not Perfect Dark's as well
+			if (!node) {
+				node = gegunsOwnModelMuzzle(weaponnum, modeldef);
+				geborrowednode = node != NULL;
+			}
+#endif
 
 #ifndef PLATFORM_N64
 			// A GoldenEye gun whose host carries no muzzle node - the classic

@@ -37,6 +37,25 @@ s32 gegunsBorrowedPickup(s32 index, u16 *fileid, u16 *scale);
 u32 gegunsHandsFlag(s32 index);
 u16 gegunsModelFile(s32 index);
 
+// GoldenEye's own hand item number for gun index: what the conversion names
+// its first-person model after (files/Igx%03dZ) and what its gitem_structs row
+// is at. 0 for a gun GoldenEye has no item for.
+s32 gegunsItemNumber(s32 index);
+
+// Whether the conversion has GoldenEye's own first-person model for this gun.
+s32 gegunsHasOwnModel(s32 index);
+
+// That model, or 0: the N64 look's gun (gebean.c decides, since only that look
+// wants it).
+u16 gegunsOwnModel(s32 index);
+
+// First person on GoldenEye's own model: its placement, its switches, its
+// muzzle (bondgun.c asks)
+void gegunsSetOwnModelInUse(s32 index, s32 inuse);
+s32 gegunsOwnModelInUse(s32 weaponnum);
+void gegunsOwnModelParts(struct hand *hand, struct model *model);
+struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef);
+
 #ifdef __cplusplus
 }
 #endif
