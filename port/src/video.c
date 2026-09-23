@@ -14,6 +14,9 @@
 #include "../fast3d/gfx_api.h"
 #include "../fast3d/gfx_sdl.h"
 #include "../fast3d/gfx_opengl.h"
+#ifdef PD_HAVE_VULKAN
+#include "../fast3d/gfx_vulkan.h"
+#endif
 
 extern u32 g_GfxLogStats;
 
@@ -53,6 +56,11 @@ static s32 vidAllowHiDpi = false;
 static s32 vidVsync = 1;
 static s32 vidMSAA = 1;
 static s32 vidFramerateLimit = 0;
+// Video.Renderer: VIDEO_RENDERER_OPENGL or VIDEO_RENDERER_VULKAN, taking
+// effect at the next start. vidRendererActive is what this run got, which is
+// OpenGL whenever Vulkan was asked for and could not start.
+static s32 vidRenderer = VIDEO_RENDERER_OPENGL;
+static s32 vidRendererActive = VIDEO_RENDERER_OPENGL;
 
 static s32 vidDisplayFPS = 0;
 static f32 vidDisplayFPSInterval = 1.f;
@@ -86,6 +94,26 @@ s32 videoInit(void)
 {
 	wmAPI = &gfx_sdl;
 	renderingAPI = &gfx_opengl_api;
+	vidRendererActive = VIDEO_RENDERER_OPENGL;
+
+	s32 renderer = vidRenderer;
+	if (sysArgCheck("--vulkan")) {
+		renderer = VIDEO_RENDERER_VULKAN;
+	} else if (sysArgCheck("--opengl")) {
+		renderer = VIDEO_RENDERER_OPENGL;
+	}
+
+#ifdef PD_HAVE_VULKAN
+	if (renderer == VIDEO_RENDERER_VULKAN) {
+		gfx_sdl_set_vulkan(1);
+		renderingAPI = &gfx_vulkan_api;
+		vidRendererActive = VIDEO_RENDERER_VULKAN;
+	}
+#else
+	if (renderer == VIDEO_RENDERER_VULKAN) {
+		sysLogPrintf(LOG_WARNING, "VIDEO: this build has no Vulkan renderer, using OpenGL");
+	}
+#endif
 
 	gfx_current_native_viewport.width = 320;
 	gfx_current_native_viewport.height = 220;
@@ -113,6 +141,22 @@ s32 videoInit(void)
 	};
 
 	gfx_init(&set);
+
+#ifdef PD_HAVE_VULKAN
+	if (renderingAPI == &gfx_vulkan_api && gfx_vulkan_failed()) {
+		// The window goes and comes back for OpenGL; the setting is left as it
+		// is, so a driver installed later is picked up without visiting the menu
+		sysLogPrintf(LOG_WARNING, "VIDEO: Vulkan could not start, using OpenGL");
+		gfx_sdl_destroy_window();
+		gfx_sdl_set_vulkan(0);
+		renderingAPI = &gfx_opengl_api;
+		vidRendererActive = VIDEO_RENDERER_OPENGL;
+		set.rapi = renderingAPI;
+		gfx_init(&set);
+	}
+#endif
+
+	sysLogPrintf(LOG_NOTE, "VIDEO: renderer %s", renderingAPI->get_name());
 
 	videoInitDisplayModes();
 	videoSetVsync(vidVsync);
@@ -519,6 +563,32 @@ u32 videoGetTextureFilter(void)
 	return texFilter;
 }
 
+s32 videoGetRenderer(void)
+{
+	return vidRenderer;
+}
+
+s32 videoGetRendererActive(void)
+{
+	return vidRendererActive;
+}
+
+s32 videoRendererAvailable(s32 renderer)
+{
+#ifdef PD_HAVE_VULKAN
+	return renderer == VIDEO_RENDERER_OPENGL || renderer == VIDEO_RENDERER_VULKAN;
+#else
+	return renderer == VIDEO_RENDERER_OPENGL;
+#endif
+}
+
+void videoSetRenderer(s32 renderer)
+{
+	if (videoRendererAvailable(renderer)) {
+		vidRenderer = renderer;
+	}
+}
+
 u32 videoGetAnisotropicFilter()
 {
 	return texAnisotropicFilter;
@@ -884,6 +954,7 @@ PD_CONSTRUCTOR static void videoConfigInit(void)
 	configRegisterInt("Video.DisplayFPS", &vidDisplayFPS, 0, 1);
 	configRegisterFloat("Video.DisplayFPSInterval", &vidDisplayFPSInterval, 0.01f, 32.f);
 	configRegisterInt("Video.MSAA", &vidMSAA, 1, 16);
+	configRegisterInt("Video.Renderer", &vidRenderer, VIDEO_RENDERER_OPENGL, VIDEO_RENDERER_VULKAN);
 	configRegisterInt("Video.TextureFilter", &texFilter, 0, 2);
 	configRegisterInt("Video.TextureFilter2D", &texFilter2D, 0, 1);
 	configRegisterInt("Video.DetailTextures", &texDetail, 0, 1);

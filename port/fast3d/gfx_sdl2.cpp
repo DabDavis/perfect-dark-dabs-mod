@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <SDL.h>
+#include <SDL_vulkan.h>
 #include <unistd.h>
 #include <time.h>
 
@@ -13,6 +14,13 @@ static SDL_Window* wnd;
 static SDL_GLContext ctx;
 static SDL_Renderer* renderer;
 static int sdl_to_lus_table[512];
+
+// The window is made for Vulkan rather than OpenGL (gfx_sdl_set_vulkan()),
+// and then the renderer presents and sets vsync through these
+static bool use_vulkan;
+static void (*vk_present_hook)(void);
+static int (*vk_get_interval_hook)(void);
+static bool (*vk_set_interval_hook)(int);
 static bool vsync_enabled = true;
 // OTRTODO: These are redundant. Info can be queried from SDL.
 static int window_width = DESIRED_SCREEN_WIDTH;
@@ -78,6 +86,28 @@ static void gfx_sdl_get_active_window_refresh_rate(uint32_t* refresh_rate) {
     *refresh_rate = mode.refresh_rate;
 }
 
+static void get_drawable_size(int *w, int *h) {
+    if (use_vulkan) {
+        SDL_Vulkan_GetDrawableSize(wnd, w, h);
+    } else {
+        SDL_GL_GetDrawableSize(wnd, w, h);
+    }
+}
+
+// A window for the Vulkan renderer, which makes its own surface on it. No
+// window at all is left for the renderer to report, so that the game can put
+// one back up for OpenGL.
+static void gfx_sdl_init_vulkan(const struct GfxWindowInitSettings *set, int posX, int posY, Uint32 flags) {
+    wnd = SDL_CreateWindow(set->title, posX, posY, window_width, window_height, flags | SDL_WINDOW_VULKAN);
+    if (!wnd) {
+        sysLogPrintf(LOG_WARNING, "SDL: could not open a Vulkan window: %s", SDL_GetError());
+        return;
+    }
+    sysLogPrintf(LOG_NOTE, "SDL: created a Vulkan window");
+    SDL_ShowWindow(wnd);
+    qpc_freq = SDL_GetPerformanceFrequency();
+}
+
 static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     window_width = set->width;
     window_height = set->height;
@@ -124,7 +154,7 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     }
 
     // we will unhide the window once the GL context is successfully created
-    Uint32 flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
+    Uint32 flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE;
 
     // if fullscreen was requested, start the window in fullscreen right away
     if (set->fullscreen) {
@@ -142,6 +172,13 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
         flags |= SDL_WINDOW_ALLOW_HIGHDPI;
     }
 #endif
+
+    if (use_vulkan) {
+        gfx_sdl_init_vulkan(set, posX, posY, flags);
+        return;
+    }
+
+    flags |= SDL_WINDOW_OPENGL;
 
     // ideally we need 3.0 compat
     // if that doesn't work, try 3.2 core in case we're on mac, 2.1 compat as a last resort
@@ -293,7 +330,7 @@ static void gfx_sdl_set_dimensions(uint32_t width, uint32_t height, int32_t posX
 }
 
 static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* posX, int32_t* posY) {
-    SDL_GL_GetDrawableSize(wnd, static_cast<int*>((void*)width), static_cast<int*>((void*)height));
+    get_drawable_size(static_cast<int*>((void*)width), static_cast<int*>((void*)height));
     SDL_GetWindowPosition(wnd, static_cast<int*>(posX), static_cast<int*>(posY));
 }
 
@@ -309,7 +346,7 @@ static void gfx_sdl_handle_events(void) {
                 break;
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                    SDL_GL_GetDrawableSize(wnd, &window_width, &window_height);
+                    get_drawable_size(&window_width, &window_height);
                     if (!fullscreen_state) {
                         maximized_state = SDL_GetWindowFlags(wnd) & SDL_WINDOW_MAXIMIZED ? true : false;
                     }
@@ -366,7 +403,13 @@ static void gfx_sdl_swap_buffers_begin(void) {
     if (target_fps) {
         sync_framerate_with_timer();
     }
-    SDL_GL_SwapWindow(wnd);
+    if (use_vulkan) {
+        if (vk_present_hook) {
+            vk_present_hook();
+        }
+    } else {
+        SDL_GL_SwapWindow(wnd);
+    }
 }
 
 static void gfx_sdl_swap_buffers_end(void) {
@@ -398,10 +441,18 @@ static void gfx_sdl_set_window_title(const char *title) {
 }
 
 static int gfx_sdl_get_swap_interval(void) {
+    if (use_vulkan) {
+        return vk_get_interval_hook ? vk_get_interval_hook() : 1;
+    }
     return SDL_GL_GetSwapInterval();
 }
 
 static bool gfx_sdl_set_swap_interval(int interval) {
+    if (use_vulkan) {
+        const bool ok = vk_set_interval_hook && vk_set_interval_hook(interval);
+        vsync_enabled = ok && (interval != 0);
+        return ok;
+    }
     const bool success = SDL_GL_SetSwapInterval(interval) >= 0;
     vsync_enabled = success && (interval != 0);
     if (!success) {
@@ -435,6 +486,38 @@ int gfx_sdl_get_current_display_mode(int *out_w, int *out_h) {
 int gfx_sdl_get_num_display_modes(void) {
     const int display_in_use = SDL_GetWindowDisplayIndex(wnd);
     return SDL_GetNumDisplayModes(display_in_use);
+}
+
+extern "C" void gfx_sdl_set_vulkan(int enable) {
+    use_vulkan = enable != 0;
+}
+
+extern "C" int gfx_sdl_is_vulkan(void) {
+    return use_vulkan ? 1 : 0;
+}
+
+extern "C" void gfx_sdl_destroy_window(void) {
+    if (ctx) {
+        SDL_GL_DeleteContext(ctx);
+        ctx = nullptr;
+    }
+    if (wnd) {
+        SDL_DestroyWindow(wnd);
+        wnd = nullptr;
+    }
+    vk_present_hook = nullptr;
+    vk_get_interval_hook = nullptr;
+    vk_set_interval_hook = nullptr;
+}
+
+SDL_Window *gfx_sdl_window(void) {
+    return wnd;
+}
+
+void gfx_sdl_set_vulkan_hooks(void (*present)(void), int (*get_interval)(void), bool (*set_interval)(int)) {
+    vk_present_hook = present;
+    vk_get_interval_hook = get_interval;
+    vk_set_interval_hook = set_interval;
 }
 
 struct GfxWindowManagerAPI gfx_sdl = {

@@ -866,6 +866,42 @@ static MenuItemHandlerResult menuhandlerMSAA(s32 operation, struct menuitem *ite
 	return 0;
 }
 
+// Which renderer, OpenGL or Vulkan. The window is made for one or the other,
+// so a change takes effect at the next start; until then the row says so.
+static MenuItemHandlerResult menuhandlerRenderer(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *names[] = { "OpenGL", "Vulkan" };
+	static char label[40];
+	s32 count;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		count = 1;
+		while (count < ARRAYCOUNT(names) && videoRendererAvailable(count)) {
+			count++;
+		}
+		data->dropdown.value = count;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		if (data->dropdown.value >= ARRAYCOUNT(names)) {
+			return (intptr_t)"";
+		}
+		if ((s32)data->dropdown.value == videoGetRenderer() && videoGetRenderer() != videoGetRendererActive()) {
+			snprintf(label, sizeof(label), "%s (restart)", names[data->dropdown.value]);
+			return (intptr_t)label;
+		}
+		return (intptr_t)names[data->dropdown.value];
+	case MENUOP_SET:
+		videoSetRenderer(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = videoGetRenderer();
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerResolution(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static char resstring[32];
@@ -1137,6 +1173,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Anti-aliasing",
 		0,
 		menuhandlerMSAA,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Renderer",
+		0,
+		menuhandlerRenderer,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

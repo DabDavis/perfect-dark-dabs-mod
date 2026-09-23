@@ -315,6 +315,79 @@ if(NOT GL_LIBRARY)
 endif()
 list(APPEND LIBS "${GL_LIBRARY}")
 
+# Vulkan: the second renderer (port/fast3d/gfx_vulkan.cpp, Video.Renderer).
+# Nothing links against a Vulkan library - SDL finds the loader at run time,
+# and a machine without one starts on OpenGL - so all it needs to build is
+# the headers and shaderc, which compiles its combiner shaders as they are
+# first seen. Without either the build goes on with OpenGL alone.
+option(PD_VULKAN "Build the Vulkan renderer" ON)
+if(PD_VULKAN AND NOT NINTENDO_SWITCH)
+  find_path(VULKAN_HEADERS_DIR vulkan/vulkan.h)
+  find_path(SHADERC_INCLUDE_DIR shaderc/shaderc.h)
+  # Static only: a shared shaderc (or its DLL's import library) would be one
+  # more library every player has to have before the game starts at all. The
+  # combined archive carries glslang and SPIRV-Tools, except where Debian and
+  # Ubuntu split them back out, so whichever of their static parts are there
+  # go in after it, dependants first.
+  find_library(SHADERC_LIBRARY NAMES libshaderc_combined.a)
+  set(PD_VULKAN_LIBS "")
+  if(SHADERC_LIBRARY)
+    list(APPEND PD_VULKAN_LIBS "${SHADERC_LIBRARY}")
+    foreach(part glslang MachineIndependent GenericCodeGen OSDependent OGLCompiler HLSL
+                 glslang-default-resource-limits SPIRV SPIRV-Tools-opt SPIRV-Tools)
+      find_library(SHADERC_PART_${part} NAMES "lib${part}.a")
+      if(SHADERC_PART_${part})
+        list(APPEND PD_VULKAN_LIBS "${SHADERC_PART_${part}}")
+      endif()
+    endforeach()
+    if(WIN32)
+      # MSYS2's shaderc is built on winpthreads; the archive, so there is no
+      # libwinpthread-1.dll to ship
+      find_library(PD_WINPTHREAD_STATIC NAMES libwinpthread.a libpthread.a)
+      if(PD_WINPTHREAD_STATIC)
+        list(APPEND PD_VULKAN_LIBS "${PD_WINPTHREAD_STATIC}")
+      endif()
+    else()
+      list(APPEND PD_VULKAN_LIBS pthread)
+    endif()
+  endif()
+
+  set(PD_VULKAN_OK FALSE)
+  if(VULKAN_HEADERS_DIR AND SHADERC_INCLUDE_DIR AND SHADERC_LIBRARY)
+    # That it all links, which a split or partial install may not
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_INCLUDES "${SHADERC_INCLUDE_DIR}")
+    set(CMAKE_REQUIRED_LIBRARIES ${PD_VULKAN_LIBS})
+    if(WIN32)
+      list(APPEND CMAKE_REQUIRED_LIBRARIES -static-libstdc++)
+    endif()
+    check_cxx_source_compiles("
+      #include <shaderc/shaderc.h>
+      int main() {
+        shaderc_compiler_t c = shaderc_compiler_initialize();
+        shaderc_compilation_result_t r = shaderc_compile_into_spv(c, \"\", 0, shaderc_vertex_shader, \"\", \"main\", 0);
+        shaderc_result_release(r);
+        shaderc_compiler_release(c);
+        return 0;
+      }" PD_SHADERC_LINKS)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    set(PD_VULKAN_OK ${PD_SHADERC_LINKS})
+  endif()
+
+  if(PD_VULKAN_OK)
+    message(STATUS "Vulkan renderer enabled (${SHADERC_LIBRARY})")
+    add_definitions(-DPD_HAVE_VULKAN)
+    include_directories(SYSTEM "${VULKAN_HEADERS_DIR}" "${SHADERC_INCLUDE_DIR}")
+    list(APPEND LIBS ${PD_VULKAN_LIBS})
+  else()
+    message(WARNING
+      "Vulkan headers or a static shaderc not found - building with the OpenGL renderer only. "
+      "Install libvulkan-dev and libshaderc-dev on Debian or Ubuntu, or mingw-w64-x86_64-vulkan-headers "
+      "and mingw-w64-x86_64-shaderc on MSYS2.")
+  endif()
+endif()
+
 # Platform-specific extra libs
 if(NOT EXTRA_LIBRARIES)
   if(WIN32)

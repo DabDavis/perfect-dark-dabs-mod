@@ -60,6 +60,8 @@ jobs:
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-vulkan-headers
+            mingw-w64-x86_64-shaderc
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Name the branch for the version string
@@ -112,6 +114,10 @@ jobs:
           # linked against the builder's glibc and SDL2 regardless, so this
           # adds a dependency of the same kind rather than a new sort of one.
           sudo apt-get install -y git gcc g++ make cmake libsdl2-dev zlib1g-dev libcurl4-openssl-dev
+          # The Vulkan renderer: headers, and shaderc with glslang and
+          # SPIRV-Tools, all linked in statically - nothing new to install to
+          # run it. Without them the build is OpenGL only, and says so.
+          sudo apt-get install -y libvulkan-dev libshaderc-dev glslang-dev spirv-tools
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Name the branch for the version string

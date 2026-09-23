@@ -53,6 +53,16 @@ s32 videoGetFramerateLimit(void);
 s32 videoGetDisplayFPS(void);
 s32 videoGetMSAA(void);
 s32 videoGetMaxMSAA(void);
+
+#define VIDEO_RENDERER_OPENGL 0
+#define VIDEO_RENDERER_VULKAN 1
+
+// The renderer asked for (Video.Renderer, used from the next start), the one
+// this run is on, and whether this build has one at all.
+s32 videoGetRenderer(void);
+s32 videoGetRendererActive(void);
+s32 videoRendererAvailable(s32 renderer);
+void videoSetRenderer(s32 renderer);
 f32 videoGetGlareBrightness(void);
 f32 videoGetOverexposureScale(void);
 
