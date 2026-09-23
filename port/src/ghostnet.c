@@ -135,7 +135,9 @@ static s32 g_JobUploadSkipped = 0;
 // allowed to be larger - the executable the updater fetches is 21MB and the
 // encoder recording pulls down is 73MB, both well over the cap above. It is
 // still a cap: a server answering a request for a 30MB file with an endless
-// stream should not be able to fill the player's disk.
+// stream should not be able to fill the player's disk. A caller that says how
+// big the file is (buf->maxlen) is capped at that instead: a Community Pack is
+// 300-420MB, and this cap cut every one of them off at 256.
 #define GHOSTNET_MAXSINK (256 * 1024 * 1024)
 #define GHOSTNET_TIMEOUT  20L
 
@@ -160,7 +162,7 @@ static bool ghostnetBufAppend(struct ghostnetbuf *buf, const void *ptr, size_t a
 	}
 
 	if (buf->sink) {
-		if (buf->len + add > GHOSTNET_MAXSINK) {
+		if (!buf->maxlen && buf->len + add > GHOSTNET_MAXSINK) {
 			return false;
 		}
 
