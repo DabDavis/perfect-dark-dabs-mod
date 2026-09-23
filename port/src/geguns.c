@@ -86,9 +86,20 @@ static const char *const names[NUM_GE_WEAPONS] = {
  * Destruction is a damage, its Inaccuracy a spread, its MagSize a clip and
  * its SingleRate a recovery time, with nothing to scale between them.
  *
- * What is not taken: the recoil, zoom and sway, which are how a gun handles
- * rather than what it does, and a thrown weapon's damage, since every one of
- * Perfect Dark's carries 0 there and the explosion does the work.
+ * How it handles is taken too: the recoil, the sway, the aim zoom and how far
+ * the flash reaches along the barrel (muzzlez stretches it in z). An earlier build left those as the host's,
+ * as how a gun feels rather than what it does - but GoldenEye X, which took
+ * the same rows, is the oracle here, and its numbers are these rows' to the
+ * byte. What they carry is more than a feel: the recoil's last two bytes are
+ * how soon a released trigger may fire again, which is all that makes
+ * GoldenEye's automatic shotgun semi-automatic - on its host's 20, 28, 0, 0
+ * every shot waited out the Perfect Dark shotgun's whole kick. Perfect Dark
+ * runs them through the same code (bgun0f09aba4() is GoldenEye's recoil,
+ * speed bytes, pull back, kick up and bolt slide in the same order).
+ *
+ * Not taken: a thrown weapon's damage, since every one of Perfect Dark's
+ * carries 0 there and the explosion does the work; and the position on
+ * screen, which is the fitted model's (gebean.c) and not GoldenEye's.
  *
  * Its loudness is taken, which it was not at first. The two games keep a
  * gun's noise in the same five numbers and run them through the same code
@@ -108,10 +119,19 @@ struct gegunstat {
 	f32 spread;
 	f32 impactforce;
 	struct noisesettings noise;
+	s8 recoilspeed[4];
+	f32 recoilback;
+	f32 recoilup;
+	f32 boltback;
+	f32 sway;
+	f32 zoom;
+	f32 muzzle;
 };
 
-#define GUNSTAT(weapon, source, mag, autorate, singlerate, pen, dmg, spread, impact, loudmin, loudmax, pershot, lineartime, scaledtime) \
-	[weapon - WEAPON_GE_FIRST] = { mag, autorate, singlerate, pen, dmg, spread, impact, { loudmin, loudmax, pershot, lineartime, scaledtime } }
+#define GUNSTAT(weapon, source, mag, autorate, singlerate, pen, dmg, spread, impact, loudmin, loudmax, pershot, lineartime, scaledtime, \
+		speed0, speed1, speed2, speed3, back, up, bolt, sway, zoom, muzzle) \
+	[weapon - WEAPON_GE_FIRST] = { mag, autorate, singlerate, pen, dmg, spread, impact, { loudmin, loudmax, pershot, lineartime, scaledtime }, \
+		{ speed0, speed1, speed2, speed3 }, back, up, bolt, sway, zoom, muzzle }
 
 /**
  * What each gun sounds like: the Sound field of the same gunWeaponStat rows,
@@ -282,6 +302,20 @@ static void gegunsApplyStats(s32 i)
 			shoot->penetration = stat->penetration;
 			shoot->impactforce = stat->impactforce;
 
+			// The Shotgun works its host's pump after every shot, and the
+			// timing is the pump's: GoldenEye's early refire would cut it
+			// short (GoldenEye X times its own pump too, 0 and 68)
+			if (WEAPON_GE_FIRST + i != WEAPON_GE_SHOTGUN) {
+				shoot->unk24 = stat->recoilspeed[0];
+				shoot->unk25 = stat->recoilspeed[1];
+				shoot->unk26 = stat->recoilspeed[2];
+				shoot->unk27 = stat->recoilspeed[3];
+			}
+
+			shoot->recoildist = stat->recoilback;
+			shoot->recoilangle = stat->recoilup;
+			shoot->slidemax = stat->boltback;
+
 			// 0xff is GoldenEye's "no rate", not a time
 			if (stat->singlerate != 0xff) {
 				shoot->recoverytime60 = (s8)stat->singlerate;
@@ -298,6 +332,25 @@ static void gegunsApplyStats(s32 i)
 		} else if ((copy->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
 			// GoldenEye's knife is a 3 against Perfect Dark's 2
 			((struct weaponfunc_melee *)copy)->damage = stat->damage;
+		}
+	}
+
+	// How it sits in the hand. A gadget has no row (all nought) and keeps its
+	// host's. The sniper rifle's zoom is the player's own, wound in and out
+	// (currentPlayerGetGunZoomFov()), so only the others take GoldenEye's.
+	if (shoots) {
+		def->sway = stat->sway;
+		def->muzzlez = stat->muzzle;
+
+		if (def->aimsettings && g_GeWeaponHosts[i] != WEAPON_SNIPERRIFLE
+				&& def->aimsettings->zoomfov != stat->zoom) {
+			struct invaimsettings *aim = malloc(sizeof(*aim));
+
+			if (aim) {
+				*aim = *def->aimsettings;
+				aim->zoomfov = stat->zoom;
+				def->aimsettings = aim;
+			}
 		}
 	}
 
@@ -337,66 +390,129 @@ static void gegunsApplyStats(s32 i)
  */
 
 /**
- * The automatic shotgun does not work its pump between shots.
+ * What GoldenEye's guns do on the trigger, which is not what their hosts do.
  *
- * Its host is Perfect Dark's Shotgun, whose single shot plays a pump sound
- * two frames into the recovery - right for a pump action, wrong for
- * GoldenEye's automatic shotgun, which is a semi-automatic and cycles itself
- * ("the auto shotgun is not supposed to cock each shot, but is a semi auto").
- * Its fire animations are copied here with the sound taken out, which leaves
- * the gun's own motion and the shot's own sound alone. The plain Shotgun is a
- * pump action in both games and keeps it.
+ * GoldenEye X is the oracle (build/gunoracle, both definitions dumped side by
+ * side on one boot), and against it a host's copy brings along four things
+ * GoldenEye never had:
+ *
+ * - **A second function.** GoldenEye's guns have one each. The Phantom took
+ *   the CMP150's target locker, both shotguns the double blast, the Golden Gun
+ *   the DY357-LX's pistol whip, the Moonraker the laser's stream, the grenade
+ *   launcher the Devastator's wall hugger, the rocket launcher the homing
+ *   rocket, the grenade its proximity pinball and the two mines a threat
+ *   detector. GoldenEye X has none of them; what it keeps (the Cougar's whip,
+ *   a knife's throw, the remote mine's detonator) is kept here too. It was
+ *   more than a spare button: the choice of function is saved per *host*
+ *   (bgunIsUsingSecondaryFunctionForHand()), so a player who had left the
+ *   DY357-LX on its whip drew the Golden Gun whipping and never firing, and
+ *   one who left the timed mine on its detector could not place GoldenEye's
+ *   mines. With no second function the hand stays on the first, as it does
+ *   for Perfect Dark's own classic guns.
+ * - **The automatic shotgun's pump.** Its host's single shot is the Perfect
+ *   Dark shotgun's, which works the pump after every shot - read as a reload
+ *   each shot ("auto shotgun reloads every shot"). GoldenEye X's has no fire
+ *   animation at all: the recoil does the kick. The plain Shotgun is a pump
+ *   action in GoldenEye X and keeps its host's.
+ * - **A muzzle flash** on the silenced guns and the two launchers, whose
+ *   GoldenEye models have no flash to show.
+ * - **Lock-on tracking** in the aim: the CMP150's follow lock and the rocket
+ *   launcher's, both of which went with the secondary that used them.
+ *
+ * And, as GoldenEye X has them: the Cougar's pistol whip does not leave its
+ * victim dizzy, a knife is thrown where it is aimed and not where auto-aim
+ * would put it, and two words of text: "an Automatic Shotgun", "the Golden
+ * Gun".
  */
-static struct guncmd *gegunsSilentPump(const struct guncmd *src)
+static void gegunsOwnTrigger(s32 i)
 {
-	struct guncmd *copy;
-	s32 num = 0;
-	s32 out = 0;
-
-	while (src[num].type != GUNCMD_END) {
-		num++;
-	}
-
-	copy = malloc((num + 1) * sizeof(*copy));
-
-	if (!copy) {
-		return NULL;
-	}
-
-	for (s32 i = 0; i < num; i++) {
-		if (src[i].type != GUNCMD_PLAYSOUND) {
-			copy[out++] = src[i];
-		}
-	}
-
-	copy[out].type = GUNCMD_END;
-	copy[out].unk01 = 0;
-	copy[out].unk02 = 0;
-	copy[out].unk04 = 0;
-
-	return copy;
-}
-
-/** The automatic shotgun's fire animations, with the pump sound taken out. */
-static void gegunsUnpump(s32 i)
-{
+	const s32 weaponnum = WEAPON_GE_FIRST + i;
 	struct weapon *def = &g_GeWeaponDefs[i];
 
-	for (s32 f = 0; f < 2; f++) {
-		struct weaponfunc *func = (struct weaponfunc *)def->functions[f];
-		struct guncmd *quiet;
+	switch (weaponnum) {
+	case WEAPON_GE_PHANTOM:
+	case WEAPON_GE_SHOTGUN:
+	case WEAPON_GE_AUTOSHOTGUN:
+	case WEAPON_GE_GOLDENGUN:
+	case WEAPON_GE_MOONRAKER:
+	case WEAPON_GE_GRENADELAUNCHER:
+	case WEAPON_GE_ROCKETLAUNCHER:
+	case WEAPON_GE_GRENADE:
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+		def->functions[1] = NULL;
+		break;
+	}
 
-		// gegunsApplyStats() has already given a shooting function its own copy
-		if (!func || (func->type & 0xff) != INVENTORYFUNCTYPE_SHOOT || !func->fire_animation
-				|| func == g_Weapons[g_GeWeaponHosts[i]]->functions[f]) {
+	for (s32 f = 0; f < 2; f++) {
+		const struct weaponfunc *func = def->functions[f];
+		struct weaponfunc *copy;
+		u32 flags;
+		struct guncmd *fire;
+
+		if (!func) {
 			continue;
 		}
 
-		quiet = gegunsSilentPump(func->fire_animation);
+		flags = func->flags;
+		fire = func->fire_animation;
 
-		if (quiet) {
-			func->fire_animation = quiet;
+		switch (weaponnum) {
+		case WEAPON_GE_PP7SILENCED:
+		case WEAPON_GE_D5KSILENCED:
+		case WEAPON_GE_GRENADELAUNCHER:
+		case WEAPON_GE_ROCKETLAUNCHER:
+			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				flags |= FUNCFLAG_NOMUZZLEFLASH;
+			}
+			break;
+		case WEAPON_GE_AUTOSHOTGUN:
+			fire = NULL;
+			break;
+		case WEAPON_GE_COUGARMAGNUM:
+			if (func->type == INVENTORYFUNCTYPE_MELEE) {
+				flags &= ~FUNCFLAG_MAKEDIZZY;
+			}
+			break;
+		case WEAPON_GE_HUNTINGKNIFE:
+		case WEAPON_GE_THROWINGKNIFE:
+			if (func->type == INVENTORYFUNCTYPE_THROW) {
+				flags |= FUNCFLAG_NOAUTOAIM;
+			}
+			break;
 		}
+
+		if (flags == func->flags && fire == func->fire_animation) {
+			continue;
+		}
+
+		// gegunsApplyStats() gave a shooting function a copy of its own
+		// already, but not the others; copy again rather than keep track
+		copy = malloc(gegunsFuncSize(func->type));
+
+		if (copy) {
+			memcpy(copy, func, gegunsFuncSize(func->type));
+			copy->flags = flags;
+			copy->fire_animation = fire;
+			def->functions[f] = copy;
+		}
+	}
+
+	if ((weaponnum == WEAPON_GE_PHANTOM || weaponnum == WEAPON_GE_ROCKETLAUNCHER)
+			&& def->aimsettings && def->aimsettings->tracktype != SIGHTTRACKTYPE_DEFAULT) {
+		struct invaimsettings *aim = malloc(sizeof(*aim));
+
+		if (aim) {
+			*aim = *def->aimsettings;
+			aim->tracktype = SIGHTTRACKTYPE_DEFAULT;
+			def->aimsettings = aim;
+		}
+	}
+
+	if (weaponnum == WEAPON_GE_AUTOSHOTGUN) {
+		def->flags |= WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN;
+	} else if (weaponnum == WEAPON_GE_GOLDENGUN) {
+		def->flags |= WEAPONFLAG_DETERMINER_S_THE | WEAPONFLAG_DETERMINER_F_THE;
 	}
 }
 
@@ -629,10 +745,7 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 		g_GeWeaponDefs[i].shortname = name;
 
 		gegunsApplyStats(i);
-
-		if (WEAPON_GE_FIRST + i == WEAPON_GE_AUTOSHOTGUN) {
-			gegunsUnpump(i);
-		}
+		gegunsOwnTrigger(i);
 
 		gegunsNameThrow(i);
 
