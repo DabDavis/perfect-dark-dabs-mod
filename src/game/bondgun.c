@@ -8512,6 +8512,11 @@ void bgun0f0a5550(s32 handnum)
 
 			g_ModelJointPositionedFunc = 0;
 
+#ifndef PLATFORM_N64
+			// GoldenEye poses its own model's muzzle flash itself (geguns.c)
+			gegunsOwnModelFlash(hand, &hand->gunmodel);
+#endif
+
 			node = modelGetPart(modeldef, MODELPART_GUN_SLIDE);
 
 			if (node) {
@@ -8545,6 +8550,14 @@ void bgun0f0a5550(s32 handnum)
 				*sp1e4[2] = false;
 			}
 
+#ifndef PLATFORM_N64
+			// These three move the host's own parts by the host's part numbers,
+			// which GoldenEye's own model does not have: the shotgun's wrote
+			// through a starburst it has none of, and firing crashed
+			if (gegunsOwnModelInUse(weaponnum)) {
+				// nothing of the host's
+			} else
+#endif
 			if (weaponHasFlag3(weaponnum, WEAPONFLAG3_SNIPERSCOPE)) {
 				bgunUpdateSniperRifle(modeldef, mtxallocation);
 			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_LOADSLIDE)) {
@@ -8557,6 +8570,7 @@ void bgun0f0a5550(s32 handnum)
 			// Where a GoldenEye gun drawn on this host really ends (gebean.c)
 			s32 gepart = -1;
 			s32 geborrowednode = false;
+			f32 ownmuzzle[3] = { 0.0f, 0.0f, 0.0f };
 			f32 gemuzzle[3];
 #endif
 
@@ -8567,7 +8581,7 @@ void bgun0f0a5550(s32 handnum)
 			// its flash hangs where its barrel ends
 			// and it draws that flash itself, so not Perfect Dark's as well
 			if (!node) {
-				node = gegunsOwnModelMuzzle(weaponnum, modeldef);
+				node = gegunsOwnModelMuzzle(weaponnum, modeldef, ownmuzzle);
 				geborrowednode = node != NULL;
 			}
 #endif
@@ -8608,7 +8622,13 @@ void bgun0f0a5550(s32 handnum)
 				// ends: the Moonraker's beam left the air beside it and
 				// several bullet streams started off the gun. gebean.c knows
 				// where the gun it drew ends, in this node's own space.
-				if (gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle)) {
+				if (gegunsOwnModelInUse(weaponnum)) {
+					for (s32 a = 0; a < 3; a++) {
+						geoffset[a] = mtx->m[0][a] * ownmuzzle[0]
+							+ mtx->m[1][a] * ownmuzzle[1]
+							+ mtx->m[2][a] * ownmuzzle[2];
+					}
+				} else if (gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle)) {
 					for (s32 a = 0; a < 3; a++) {
 						geoffset[a] = mtx->m[0][a] * gemuzzle[0]
 							+ mtx->m[1][a] * gemuzzle[1]
@@ -11771,6 +11791,17 @@ void bgunRender(Gfx **gdlptr)
 				} else {
 					renderdata.cullmode = CULLMODE_FRONT;
 				}
+
+#ifndef PLATFORM_N64
+				// GoldenEye's own model sets its own culling inside its lists,
+				// which the cull mode set before each list cannot reach: a
+				// mirrored one culled its front and the left hand's gun was
+				// not there. The renderer turns every face round instead.
+				if (i == HAND_LEFT && gegunsOwnModelInUse(weaponnum)) {
+					renderdata.cullmode = CULLMODE_BACK;
+					gSPSetExtraGeometryModeEXT(renderdata.gdl++, G_INVERT_CULLING_EXT);
+				}
+#endif
 			}
 
 			// Slide the laser's liquid texture
@@ -11839,6 +11870,9 @@ void bgunRender(Gfx **gdlptr)
 #endif
 					) {
 				gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+#ifndef PLATFORM_N64
+				gSPClearExtraGeometryModeEXT(gdl++, G_INVERT_CULLING_EXT);
+#endif
 			}
 
 			mtxF2LBulk(hand->gunmodel.matrices, hand->gunmodel.definition->nummatrices);

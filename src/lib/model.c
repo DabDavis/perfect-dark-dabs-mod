@@ -3378,6 +3378,15 @@ void modelRenderNodeStarGunfire(struct modelrenderdata *renderdata, struct model
 		struct modelrodata_stargunfire *rodata = &node->rodata->stargunfire;
 		s32 i;
 
+#ifndef PLATFORM_N64
+		// A star with no quads has nothing for its list to draw, and the list
+		// would read vertices nothing wrote (GoldenEye's converted guns before
+		// converter 61)
+		if (rodata->gdl && rodata->unk00 <= 0) {
+			return;
+		}
+#endif
+
 		if (rodata->gdl) {
 			Vtx *src = (Vtx *) rodata->vertices;
 			Vtx *dst = g_ModelVtxAllocatorFunc(rodata->unk00 * 4);

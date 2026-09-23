@@ -2960,6 +2960,11 @@ static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct Loaded
     if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
         cross = -cross;
     }
+    // G_INVERT_CULLING_EXT: the model is drawn mirrored, so each face's
+    // winding is backwards and a list's own G_CULL_BACK means its front
+    if (rsp.extra_geometry_mode & G_INVERT_CULLING_EXT) {
+        cross = -cross;
+    }
     if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_FRONT) {
         return cross <= 0;
     }

@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
@@ -936,12 +937,146 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
 }
 
 /**
- * The node GoldenEye's own model hangs its muzzle flash from (part 1), which
- * is where its barrel ends: the model has none of Perfect Dark's muzzle parts.
+ * Where GoldenEye's own model's barrel ends: part 3, the position the muzzle
+ * flash is drawn at (gunfire.c reads the flash's place from Switches[3]).
+ *
+ * Its own matrix is no use - it sits under the flash's switch (part 1), and a
+ * matrix under a switch that is off is never computed that frame - so the
+ * answer is the node whose matrix is always there, the one the switch hangs
+ * from, and part 3's offset from it in that node's own space: the positions
+ * between the two added up, which at rest (the gun is never animated joint by
+ * joint, bgunSetGunMatrices()) is all there is. Asking for part 1 alone put
+ * the flash and the tracers at the gun's root, which is its back.
  */
-struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef)
+struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset)
 {
-	return gegunsOwnModelInUse(weaponnum) ? modelGetPart(modeldef, 1) : NULL;
+	struct modelnode *flash;
+	struct modelnode *node;
+	s32 base;
+
+	offset[0] = offset[1] = offset[2] = 0.0f;
+
+	if (!gegunsOwnModelInUse(weaponnum) || !(flash = modelGetPart(modeldef, 1))) {
+		return NULL;
+	}
+
+	base = modelFindNodeMtxIndex(flash, 0);
+	node = modelGetPart(modeldef, 3);
+
+	while (node) {
+		if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+			if (modelFindNodeMtxIndex(node, 0) == base) {
+				return node;
+			}
+
+			offset[0] += node->rodata->position.pos.x;
+			offset[1] += node->rodata->position.pos.y;
+			offset[2] += node->rodata->position.pos.z;
+		}
+
+		node = node->parent;
+	}
+
+	// no muzzle position under it: the switch's own node, with no offset
+	offset[0] = offset[1] = offset[2] = 0.0f;
+
+	return flash;
+}
+
+static f32 gegunsRandFrac(void)
+{
+	return (f32)rand() / (f32)RAND_MAX;
+}
+
+/** A flash matrix: a roll about z, `scale` all round and `ext` more along z, at `pos`, under `parent`. */
+static void gegunsFlashMatrix(Mtxf *out, const Mtxf *parent, f32 roll, f32 scale, f32 ext, const f32 *pos, s32 billboard)
+{
+	const f32 c = cosf(roll);
+	const f32 sn = sinf(roll);
+	const f32 local[3][3] = {
+		{ c * scale, sn * scale, 0.0f },
+		{ -sn * scale, c * scale, 0.0f },
+		{ 0.0f, 0.0f, scale * ext },
+	};
+
+	for (s32 r = 0; r < 3; r++) {
+		for (s32 col = 0; col < 3; col++) {
+			// a billboard's axes are the eye's, the gun's are the parent's
+			out->m[r][col] = billboard ? local[r][col]
+				: local[r][0] * parent->m[0][col] + local[r][1] * parent->m[1][col] + local[r][2] * parent->m[2][col];
+		}
+
+		out->m[r][3] = 0.0f;
+	}
+
+	for (s32 col = 0; col < 3; col++) {
+		out->m[3][col] = billboard ? pos[col]
+			: pos[0] * parent->m[0][col] + pos[1] * parent->m[1][col] + pos[2] * parent->m[2][col] + parent->m[3][col];
+	}
+
+	out->m[3][3] = 1.0f;
+}
+
+/**
+ * GoldenEye's own muzzle flash, posed as gunfire.c poses it: GoldenEye never
+ * lets the model pose it. The flash (part 3's matrix) is the gun's matrix
+ * with a random roll, 1 to 1.25 times the size, and stretched along the barrel
+ * by the gun's MuzzleFlashExtension; the star (part 2's, and part 4's on the
+ * KF7) faces the eye at its place in the flash, a tenth the size. Posed as a
+ * plain model both sat at their rest offsets unturned: a streak lying along
+ * the top of the slide.
+ */
+void gegunsOwnModelFlash(struct hand *hand, struct model *model)
+{
+	struct modeldef *def = model->definition;
+	struct modelnode *base;
+	struct modelnode *flash;
+	f32 off[3];
+	f32 scale;
+	f32 ext;
+	f32 unit;
+	Mtxf *parent;
+	Mtxf *flashmtx;
+
+	if (!hand->flashon || !gegunsOwnModelInUse(hand->gset.weaponnum) || !model->matrices) {
+		return;
+	}
+
+	base = gegunsOwnModelMuzzle(hand->gset.weaponnum, def, off);
+	flash = modelGetPart(def, 3);
+
+	if (!base || !flash || modelFindNodeMtxIndex(flash, 0) == modelFindNodeMtxIndex(base, 0)) {
+		return;
+	}
+
+	parent = &model->matrices[modelFindNodeMtxIndex(base, 0)];
+	flashmtx = &model->matrices[modelFindNodeMtxIndex(flash, 0)];
+	scale = gegunsRandFrac() * 0.25f + 1.0f;
+	ext = g_Weapons[hand->gset.weaponnum]->muzzlez;
+	unit = sqrtf(parent->m[0][0] * parent->m[0][0] + parent->m[0][1] * parent->m[0][1] + parent->m[0][2] * parent->m[0][2]);
+
+	gegunsFlashMatrix(flashmtx, parent, gegunsRandFrac() * M_BADTAU, scale, ext, off, 0);
+
+	for (s32 part = 2; part <= 4; part += 2) {
+		struct modelnode *star = modelGetPart(def, part);
+		f32 at[3];
+
+		if (!star || (star->type & 0xff) != MODELNODETYPE_POSITION
+				|| modelFindNodeMtxIndex(star, 0) == modelFindNodeMtxIndex(flash, 0)) {
+			continue;
+		}
+
+		// its place in the flash's own space, into the eye's
+		for (s32 col = 0; col < 3; col++) {
+			at[col] = star->rodata->position.pos.x * flashmtx->m[0][col]
+				+ star->rodata->position.pos.y * flashmtx->m[1][col]
+				+ star->rodata->position.pos.z * flashmtx->m[2][col]
+				+ flashmtx->m[3][col];
+		}
+
+		gegunsFlashMatrix(&model->matrices[modelFindNodeMtxIndex(star, 0)], NULL,
+				gegunsRandFrac() * M_BADTAU, unit * scale, ext, at, 1);
+	}
 }
 
 /** The first-person model file the gun's own definition names: the borrowed one's, or the host's. */
