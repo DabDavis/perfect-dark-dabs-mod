@@ -313,9 +313,9 @@ def convert(num):
         elif t == 0x16:
             nverts, vtx, pri = struct.unpack_from('>iII', d, ro)
             vat, nv, cat, nc, got = convert_lists(d, vtx, (pri,), w, fours=True, moved=moved)
-            # a muzzle flash: GoldenEye's own count of quads, which a first
-            # person gun fires (converter 61; it was nought for props)
-            rat = w.put(struct.pack('>iIII', nverts, SEG + vat, 0, SEG + cat))
+            # a muzzle flash: a standing prop never fires, so it draws no stars
+            # (the list stays, for the loader's sizes)
+            rat = w.put(struct.pack('>iIII', 0, SEG + vat, 0, SEG + cat))
             gdls.append((got[0][0], got[0][1], rat + 8))
         else:
             raise ValueError('%s: node type %#x' % (name, t))

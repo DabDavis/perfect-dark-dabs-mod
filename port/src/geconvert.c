@@ -5690,12 +5690,14 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 				fail("%s: a muzzle flash with no list", p->file);
 			}
 			modelLists(&d, vtx, lists, 1, &w, 1, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
-			// GoldenEye's own count of quads (dorottex() copies that many).
-			// It was written as nought while only props came through here,
-			// which never fire - but a first person gun does, and with
-			// nought the star's list still ran, on vertices never written:
-			// a yellow wedge across the screen, or a crash (converter 61)
-			bufU32(&rec, be32(d.v, ro));
+			// A first person gun's star (a hand item, ischr 2) is GoldenEye's
+			// own count of quads, dorottex() copying that many: with nought
+			// its list still ran, on vertices never written - a yellow wedge
+			// across the screen, or a crash (converter 61). A prop's stays
+			// nought: a guard's gun is a prop, nothing here switches its star
+			// off between shots, and with its count it hung at the muzzle of
+			// every rifle a guard held (converter 62)
+			bufU32(&rec, ischr == 2 ? be32(d.v, ro) : 0);
 			bufU32(&rec, SEG_MODEL + (uint32_t)vat);
 			bufU32(&rec, 0);
 			bufU32(&rec, SEG_MODEL + (uint32_t)cat);
