@@ -5945,7 +5945,14 @@ bool chrIsRoomOffScreen(struct chrdata *chr, struct coord *waypos, RoomNum *wayr
 			}
 		} else {
 			for (i = 0; sp7c[i] != -1; i++) {
+#ifndef PLATFORM_N64
+				// A chr on a route off screen moves without collision; on an
+				// HD level every room is drawn, so none ever did, and
+				// Facility's end squad jammed on the way
+				if (bgRoomIsPortalVisible(sp7c[i])) {
+#else
 				if (g_Rooms[sp7c[i]].flags & ROOMFLAG_ONSCREEN) {
+#endif
 					offscreen = false;
 					break;
 				}

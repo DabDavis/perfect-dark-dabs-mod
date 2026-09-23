@@ -2835,7 +2835,15 @@ bool bgRoomIsOnscreen(s32 room)
 	if (g_Vars.mplayerisrunning) {
 		return (g_MpRoomVisibility[room] & 0xf) != 0;
 	} else {
+#ifndef PLATFORM_N64
+		// The AI's question - can the player see into this room - and on an
+		// HD level ROOMFLAG_ONSCREEN is the whole level. Facility's end squad
+		// spawns only off screen, so in HD it never spawned (tester F3
+		// 20260923-002500). See bgRoomIsPortalVisible().
+		return bgRoomIsPortalVisible(room);
+#else
 		return g_Rooms[room].flags & ROOMFLAG_ONSCREEN;
+#endif
 	}
 }
 
