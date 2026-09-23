@@ -555,6 +555,113 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
 	return result == CDRESULT_NOCOLLISION;
 }
 
+#ifndef PLATFORM_N64
+#define BOTMOVE_STEP     40.0f
+#define BOTMOVE_MAXSTEPS 16
+
+/**
+ * A simulant's move is tested as one straight cylinder move from where it
+ * stands, and its floor is looked for only at the far end. A simulant off
+ * screen is ticked every fourth frame with four frames of movement, so at the
+ * speed slider's top a Dark simulant covers some 180 units in one tick: from
+ * the foot of a ramp the far end is under the slope, where the floor search
+ * finds the storey below, and from beside a drop it is where no floor is at
+ * all. Stock's rescue for a floorless end only acts on a tick longer than four
+ * frames. So a long move is walked in steps no longer than BOTMOVE_STEP, each
+ * pushed against the walls and stood on its own floor, and the walk stops at
+ * the last step that had one.
+ *
+ * On return prop->pos, prop->rooms and the manground (chr's and the caller's
+ * copy, with the absolute height dst->y) are those of the last step taken,
+ * and dst is one step on from it, for the caller's own move to finish. The
+ * rooms the prop is registered in are left in origrooms, for the caller to
+ * put back before it deregisters them.
+ */
+static bool chrWalkBotMove(struct chrdata *chr, struct coord *dst, f32 *manground, RoomNum *origrooms)
+{
+	struct prop *prop = chr->prop;
+	f32 dx = dst->x - prop->pos.x;
+	f32 dz = dst->z - prop->pos.z;
+	f32 dist = sqrtf(dx * dx + dz * dz);
+	s32 numsteps;
+	s32 i;
+
+	if (dist <= BOTMOVE_STEP) {
+		return false;
+	}
+
+	numsteps = (s32)(dist / BOTMOVE_STEP) + 1;
+
+	if (numsteps > BOTMOVE_MAXSTEPS) {
+		numsteps = BOTMOVE_MAXSTEPS;
+	}
+
+	dx /= numsteps;
+	dz /= numsteps;
+
+	roomsCopy(prop->rooms, origrooms);
+
+	for (i = 1; i < numsteps; i++) {
+		struct coord pos;
+		struct coord probe;
+		RoomNum rooms[8];
+		RoomNum proberooms[8];
+		u16 floorflags;
+		s32 inlift;
+		struct prop *lift;
+		f32 ground;
+		f32 rise;
+
+		pos.x = prop->pos.x + dx;
+		pos.y = dst->y;
+		pos.z = prop->pos.z + dz;
+
+		chrCalculatePushPos(chr, &pos, rooms, true);
+
+		if (chr->invalidmove == 1) {
+			break;
+		}
+
+		// The floor, looked for from the same height as the caller's own
+		probe.x = pos.x;
+		probe.y = dst->y - *manground < 69.0f ? *manground + 69.0f : dst->y;
+		probe.z = pos.z;
+
+		func0f065e74(&pos, rooms, &probe, proberooms);
+		chr0f021fa8(chr, &probe, proberooms);
+
+		ground = chrFindGround(&probe, chr->radius, proberooms,
+				&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+
+		// A jump may cross a gap; anyone else stops at the edge
+		if (ground < -100000 && !botIsJumping(chr)) {
+			break;
+		}
+
+		prop->pos.x = pos.x;
+		prop->pos.z = pos.z;
+		roomsCopy(rooms, prop->rooms);
+
+		// Up a slope the height follows at stock's greatest lag, so the next
+		// step's floor search starts above the slope
+		rise = ground - 30.0f - *manground;
+
+		if (rise > 0.0f) {
+			*manground += rise;
+			dst->y += rise;
+			prop->pos.y += rise;
+			chr->manground = *manground;
+			chr->sumground = *manground * (PAL ? 8.4175090789795f : 9.999998f);
+		}
+	}
+
+	dst->x = prop->pos.x + dx;
+	dst->z = prop->pos.z + dz;
+
+	return true;
+}
+#endif
+
 bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f32 *mangroundptr)
 {
 	struct chrdata *chr = model->chr;
@@ -574,6 +681,10 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 	f32 lvupdate60freal;
 	struct coord spd0;
 	RoomNum spc0[8];
+#endif
+#ifndef PLATFORM_N64
+	bool walked = false;
+	RoomNum walkrooms[8];
 #endif
 
 	// NTSC beta reads g_Vars lvupdate properties throughout this function,
@@ -794,6 +905,14 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 				arg2->z = arg1->z;
 			}
 
+#ifndef PLATFORM_N64
+			if (chr->aibot && !chr->onladder && race != RACE_EYESPY
+					&& (chr->chrflags & CHRCFLAG_HAS_SPECIAL_DEATH_ANIMATION) == 0
+					&& !(chr->actiontype == ACT_SKJUMP && chr->act_skjump.state == SKJUMPSTATE_AIRBORNE)) {
+				walked = chrWalkBotMove(chr, arg2, &manground, walkrooms);
+			}
+#endif
+
 			chrCalculatePushPos(chr, arg2, spfc, true);
 		}
 
@@ -869,11 +988,22 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 							&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
 
 #if VERSION >= VERSION_NTSC_1_0
+#ifndef PLATFORM_N64
+					// A walked move ends one step past the last floor found,
+					// so a floorless end is the edge, wherever the chr is
+					if (chr->aibot
+							&& ground < -100000
+							&& ((walked && !botIsJumping(chr))
+								|| (chr->aibot->forceslowupdates == 0
+									&& g_Vars.lvupdate60 >= 5
+									&& (chr->prop->flags & PROPFLAG_ONANYSCREENPREVTICK) == 0))) {
+#else
 					if (chr->aibot
 							&& chr->aibot->forceslowupdates == 0
 							&& ground < -100000
 							&& g_Vars.lvupdate60 >= 5
 							&& (chr->prop->flags & PROPFLAG_ONANYSCREENPREVTICK) == 0) {
+#endif
 						// The new position has no ground and is offscreen,
 						// So they're about to fall out of the geometry.
 						// Run the previous calculations but using their current
@@ -1052,6 +1182,12 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 			*mangroundptr = chr->act_skjump.ground;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	if (walked) {
+		roomsCopy(walkrooms, prop->rooms);
+	}
+#endif
 
 	propDeregisterRooms(prop);
 	roomsCopy(spfc, prop->rooms);

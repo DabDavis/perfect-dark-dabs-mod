@@ -1478,6 +1478,10 @@ void bot0f1921f8(struct chrdata *chr, f32 *move)
 	f32 speedforwards;
 	f32 speed;
 	f32 tmp;
+#ifndef PLATFORM_N64
+	f32 decay = PAL ? 0.935f : 0.945f;
+	f32 gain = 1.0f;
+#endif
 
 	if (!chr || !chr->aibot) {
 		return;
@@ -1511,6 +1515,27 @@ void bot0f1921f8(struct chrdata *chr, f32 *move)
 #if VERSION >= VERSION_NTSC_1_0
 	tmp = (PAL ? 0.065f : 0.055000007152557f) * arg3 / numupdates;
 
+#ifndef PLATFORM_N64
+	// The rate eases towards the stick, and how far the bot drifts past a
+	// corner while it does is its speed times the easing's time. A bot sped
+	// up by its speed slider eased at stock's rate and swung five times as
+	// wide, off ledges and into G5's shaft; it closes that much faster now,
+	// to the same top speed, so it corners on stock's line.
+	speed = botGetStatScale(chr, BOTSTAT_SPEED);
+
+	if (speed > 1.0f) {
+		decay = 1.0f - (1.0f - decay) * speed;
+		gain = speed;
+	}
+
+	for (i = 0; i < numupdates; i++) {
+		chr->aibot->moveratex = decay * chr->aibot->moveratex + sp30[0] * gain;
+		chr->aibot->moveratey = decay * chr->aibot->moveratey + sp30[1] * gain;
+
+		move[0] += chr->aibot->moveratex * tmp;
+		move[1] += chr->aibot->moveratey * tmp;
+	}
+#else
 	for (i = 0; i < numupdates; i++) {
 		chr->aibot->moveratex = (PAL ? 0.935f : 0.945f) * chr->aibot->moveratex + sp30[0];
 		chr->aibot->moveratey = (PAL ? 0.935f : 0.945f) * chr->aibot->moveratey + sp30[1];
@@ -1518,6 +1543,7 @@ void bot0f1921f8(struct chrdata *chr, f32 *move)
 		move[0] += chr->aibot->moveratex * tmp;
 		move[1] += chr->aibot->moveratey * tmp;
 	}
+#endif
 #else
 	tmp = (PAL ? 0.065f : 0.055000007152557f) * g_Vars.lvupdate60freal / g_Vars.lvupdate240;
 
