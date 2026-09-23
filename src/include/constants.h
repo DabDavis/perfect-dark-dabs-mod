@@ -168,8 +168,10 @@
 
 #ifndef PLATFORM_N64
 // Whether next/previous weapon stops at an inventory item: the guns below
-// NUM_CYCLEABLE_WEAPONS, and GoldenEye's past the stock table
-#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < NUM_WEAPONS))
+// NUM_CYCLEABLE_WEAPONS, and GoldenEye's guns past the stock table - not its
+// gadgets or the tank's shells after them, which, like Perfect Dark's own
+// gadgets, are chosen from the menus
+#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS))
 #else
 #define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS)
 #endif
