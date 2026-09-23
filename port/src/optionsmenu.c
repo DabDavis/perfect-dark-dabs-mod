@@ -2325,6 +2325,23 @@ static MenuItemHandlerResult menuhandlerModMissionRespawn(s32 operation, struct 
 }
 
 /**
+ * Skip Death Screen: a Combat Sim death goes straight to Press START. See
+ * modIsSkipDeathScreenOn().
+ */
+static MenuItemHandlerResult menuhandlerModSkipDeathScreen(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.skipdeathscreen;
+	case MENUOP_SET:
+		g_ModOptions.skipdeathscreen = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * How many lives a mission has in all: unlimited, or five at a time up to
  * fifty. Greyed out while Mission Respawn is off, the way the guard
  * settings are under Guards Alerted!.
@@ -3987,6 +4004,14 @@ struct menuitem g_ExtendedDabsModPlayerMenuItems[] = {
 		(uintptr_t)"Tranquilizer Effect",
 		0,
 		menuhandlerModTranqEffect,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Skip Death Screen",
+		0,
+		menuhandlerModSkipDeathScreen,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

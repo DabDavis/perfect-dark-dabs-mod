@@ -80,6 +80,7 @@ struct modoptions g_ModOptions = {
 	true,                     // tranqeffect: stock's, and the dart is meant to be felt
 	true,                     // xblareflectcutoff: only does anything with the release's reflections on, where it is most of their cost
 	false,                    // glareclip: stock draws the whole glare over whatever is in front of the light
+	false,                    // skipdeathscreen: stock's fall, red wash and fade before Press START
 };
 
 /**
@@ -725,6 +726,18 @@ bool modIsRunSealOn(void)
 bool modIsMissionRespawnOn(void)
 {
 	return g_ModOptions.missionrespawn != 0;
+}
+
+/**
+ * Skip Death Screen: a death in a Combat Sim match cuts the player's own view
+ * straight to black and Press START, instead of the fall, the red wash and
+ * the fade. Only Combat Sim - Co-Operative and Counter-Operative deaths keep
+ * stock's, which are part of how those modes end. See the
+ * isdead block in playerRenderHud() (player.c).
+ */
+bool modIsSkipDeathScreenOn(void)
+{
+	return g_ModOptions.skipdeathscreen != 0 && g_Vars.normmplayerisrunning;
 }
 
 /**

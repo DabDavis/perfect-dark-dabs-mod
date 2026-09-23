@@ -6317,6 +6317,20 @@ Gfx *playerRenderShield(Gfx *gdl)
 	return gdl;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Skip Death Screen's per-player state for the death in progress: whether the
+ * body has started its fade, and whether the buttons have been let go of since
+ * the player died.
+ */
+struct skipdeath {
+	bool bodyfading;
+	bool released;
+};
+
+static struct skipdeath g_SkipDeath[MAX_PLAYERS];
+#endif
+
 Gfx *playerRenderHud(Gfx *gdl)
 {
 	if (g_Vars.currentplayer->cameramode == CAMERAMODE_THIRDPERSON) {
@@ -6456,7 +6470,39 @@ Gfx *playerRenderHud(Gfx *gdl)
 	}
 
 	if (g_Vars.currentplayer->isdead) {
+#ifndef PLATFORM_N64
+		const bool skipdeath = modIsSkipDeathScreenOn();
+		struct skipdeath *skip = &g_SkipDeath[g_Vars.currentplayernum];
+#endif
+
 		g_Vars.currentplayer->coopcanrestart = false;
+
+#ifndef PLATFORM_N64
+		// Skip Death Screen: the player's own view goes to black and Press
+		// START on the frame they die. The fall is only skipped for them:
+		// everyone else still sees the body go down, and it fades as stock's
+		// does once it lands (below).
+		if (skipdeath && g_Vars.currentplayer->deathanimfinished == false) {
+			if (g_Vars.currentplayer->isdead == 1) {
+				pakDisableRumbleForPlayer(g_Vars.currentplayernum);
+				g_Vars.currentplayer->isdead = 2;
+				musicStartMpDeath();
+			}
+
+			g_Vars.currentplayer->redbloodfinished = true;
+			g_Vars.currentplayer->deathanimfinished = true;
+
+			skip->bodyfading = false;
+			skip->released = false;
+		}
+
+		// Held every tick: the killing shot's damage flash runs on after the
+		// death and would put the view back as it ends (playerTick)
+		if (skipdeath) {
+			playerSetFadeColour(0, 0, 0, 1);
+			g_Vars.currentplayer->colourfadetimemax60 = -1;
+		}
+#endif
 
 		if (g_Vars.currentplayer->deathanimfinished == false) {
 			bool pass = false;
@@ -6502,8 +6548,28 @@ Gfx *playerRenderHud(Gfx *gdl)
 			}
 		}
 
-		if (modelGetCurAnimFrame(&g_Vars.currentplayer->model) >= modelGetAnimEndFrame(&g_Vars.currentplayer->model)
-				&& g_Vars.currentplayer->redbloodfinished) {
+		const bool animend = modelGetCurAnimFrame(&g_Vars.currentplayer->model) >= modelGetAnimEndFrame(&g_Vars.currentplayer->model);
+
+#ifndef PLATFORM_N64
+		if (skipdeath) {
+			// The body others see: stock's fade once it has landed, and
+			// hidden when that is done
+			struct chrdata *chr = g_Vars.currentplayer->prop->chr;
+
+			if (animend && !skip->bodyfading) {
+				skip->bodyfading = true;
+				playerStartChrFade(120, 0);
+			}
+
+			if (chr && skip->bodyfading && g_Vars.currentplayer->bondfadetimemax60 < 0) {
+				chr->chrflags |= CHRCFLAG_HIDDEN;
+			}
+		}
+
+		if ((animend || skipdeath) && g_Vars.currentplayer->redbloodfinished) {
+#else
+		if (animend && g_Vars.currentplayer->redbloodfinished) {
+#endif
 			if (g_Vars.currentplayer->deathanimfinished == false) {
 				g_Vars.currentplayer->deathanimfinished = true;
 				playerAdjustFade(60, 0, 0, 0, 1);
@@ -6622,7 +6688,14 @@ Gfx *playerRenderHud(Gfx *gdl)
 						s32 numdeaths = 0;
 						s32 i;
 
-						if (chr) {
+#ifndef PLATFORM_N64
+						// Skip Death Screen hides the body above, when it
+						// has finished falling
+						if (chr && !skipdeath)
+#else
+						if (chr)
+#endif
+						{
 							chr->chrflags |= CHRCFLAG_HIDDEN;
 						}
 
@@ -6644,6 +6717,15 @@ Gfx *playerRenderHud(Gfx *gdl)
 							}
 						}
 
+#ifndef PLATFORM_N64
+						// With no fall to wait through, the trigger the
+						// player was holding when they died would respawn
+						// them on the next frame. Skip Death Screen wants
+						// the buttons let go of first.
+						if (skipdeath && !skip->released) {
+							skip->released = !joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000);
+						} else
+#endif
 						if (joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000)
 								&& !mpIsPaused()
 								&& g_NumReasonsToEndMpMatch == 0) {
