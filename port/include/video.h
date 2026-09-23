@@ -84,6 +84,19 @@ void videoSetDisplayMode(const s32 index);
 void videoSetVsync(const s32 vsync);
 void videoSetFramerateLimit(const s32 limit);
 void videoSetDisplayFPS(const s32 displayfps);
+f32 videoGetDisplayFPSInterval(void);
+void videoSetDisplayFPSInterval(f32 seconds);
+// Video.MipmapFilter: MIPMAP_DISABLED, MIPMAP_NEAREST or MIPMAP_LINEAR. Live.
+s32 videoGetMipmapFilter(void);
+void videoSetMipmapFilter(s32 mode);
+// Video.AllowHiDpi and Video.FramebufferEffects take effect at the next start;
+// the Active getters say what this run was made with.
+s32 videoGetAllowHiDpi(void);
+s32 videoGetAllowHiDpiActive(void);
+void videoSetAllowHiDpi(s32 allow);
+s32 videoGetFramebufferEffects(void);
+s32 videoGetFramebufferEffectsActive(void);
+void videoSetFramebufferEffects(s32 on);
 void videoSetMSAA(const s32 msaa);
 void videoSetGlareBrightness(f32 bright);
 void videoSetOverexposureScale(f32 scale);

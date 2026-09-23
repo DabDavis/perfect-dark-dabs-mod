@@ -24,6 +24,7 @@
 #include "config.h"
 #include "record.h"
 #include "screenshot.h"
+#include "trace.h"
 #include "mod.h"
 #include "modloader.h"
 #include "system.h"
@@ -607,6 +608,19 @@ static MenuItemHandlerResult menuhandlerSwapSticks(s32 operation, struct menuite
 	return 0;
 }
 
+static MenuItemHandlerResult menuhandlerCancelCButtons(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return inputControllerGetCancelCButtons(g_ExtMenuPlayer);
+	case MENUOP_SET:
+		inputControllerSetCancelCButtons(g_ExtMenuPlayer, data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerController(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static char ctrlname[35];
@@ -675,6 +689,14 @@ struct menuitem g_ExtendedControllerMenuItems[] = {
 		(uintptr_t)"Swap Sticks",
 		0,
 		menuhandlerSwapSticks,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Opposite C-Buttons Cancel",
+		0,
+		menuhandlerCancelCButtons,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -3862,6 +3884,7 @@ static const struct {
 	{ "Reload Packs\n",         texpackReloadGetKey, texpackReloadSetKey },
 	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
 	{ "XBLA Assets On/Off\n",   xblaSwitchGetKey,     xblaSwitchSetKey     },
+	{ "Report a Problem\n",     traceGetKey,          traceSetKey          },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
@@ -6347,6 +6370,286 @@ struct menudialogdef g_ExtendedMapsMenuDialog = {
 	NULL,
 };
 
+/**
+ * Advanced: the settings the PC port kept in pd.ini alone. Some are read once,
+ * when the window, the renderer or SDL's controller subsystem starts; a row
+ * for one of those says "(restart)" while what it is set to differs from what
+ * this run started with. Game.MemorySize, the audio buffer sizes and the
+ * keyboard-as-extra-controller settings stay in pd.ini: a wrong value there
+ * can keep the game from starting, which is no place for a menu to leave it.
+ */
+static const struct {
+	const char *name;
+	s32 (*get)(void);
+	s32 (*getactive)(void);
+	void (*set)(s32 value);
+} advancedRestartRows[] = {
+	{ "HiDPI Window",          videoGetAllowHiDpi,         videoGetAllowHiDpiActive,         videoSetAllowHiDpi         },
+	{ "Framebuffer Effects",   videoGetFramebufferEffects, videoGetFramebufferEffectsActive, videoSetFramebufferEffects },
+	{ "HIDAPI Controllers",    inputGetUseHIDAPI,          inputGetUseHIDAPIActive,          inputSetUseHIDAPI          },
+	{ "Raw Input Controllers", inputGetUseRawInput,        inputGetUseRawInputActive,        inputSetUseRawInput        },
+};
+
+#define ADVANCED_ROW_RAWINPUT 3
+
+static const char *menutextAdvancedRestart(struct menuitem *item)
+{
+	static char label[48];
+	const s32 idx = item->param3;
+
+	if (advancedRestartRows[idx].get() != advancedRestartRows[idx].getactive()) {
+		snprintf(label, sizeof(label), "%s (restart)", advancedRestartRows[idx].name);
+		return label;
+	}
+
+	return advancedRestartRows[idx].name;
+}
+
+static MenuItemHandlerResult menuhandlerAdvancedRestart(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const s32 idx = item->param3;
+
+	switch (operation) {
+	case MENUOP_GET:
+		return advancedRestartRows[idx].get();
+	case MENUOP_SET:
+		advancedRestartRows[idx].set(data->checkbox.value);
+		break;
+#ifndef _WIN32
+	case MENUOP_CHECKHIDDEN:
+		// SDL's raw input back-end is Windows only
+		return idx == ADVANCED_ROW_RAWINPUT;
+#endif
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerMipmapFilter(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = {
+		"Off",
+		"Nearest",
+		"Linear"
+	};
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		videoSetMipmapFilter(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = videoGetMipmapFilter();
+	}
+
+	return 0;
+}
+
+// Tenths of a second, 0.1 to 5.0; pd.ini can go finer or longer.
+static MenuItemHandlerResult menuhandlerDisplayFPSInterval(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 tenths;
+
+	switch (operation) {
+	case MENUOP_CHECKDISABLED:
+		return !videoGetDisplayFPS();
+	case MENUOP_GETSLIDER:
+		tenths = videoGetDisplayFPSInterval() * 10.f + 0.5f;
+		data->slider.value = tenths < 1 ? 0 : (tenths > 50 ? 49 : tenths - 1);
+		break;
+	case MENUOP_SET:
+		videoSetDisplayFPSInterval((f32)(data->slider.value + 1) / 10.f);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.1f s", (f32)(data->slider.value + 1) / 10.f);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerSkipIntro(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_SkipIntro;
+	case MENUOP_SET:
+		g_SkipIntro = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+// 6 (the N64's pool) to 96. The pool is sized when a stage loads, so a change
+// is used from the next stage.
+static MenuItemHandlerResult menuhandlerMaxExplosions(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = g_MaxExplosionsSetting - 6;
+		break;
+	case MENUOP_SET:
+		g_MaxExplosionsSetting = data->slider.value + 6;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", data->slider.value + 6);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerReportOffer(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return traceReportGetOffer();
+	case MENUOP_SET:
+		traceReportSetOffer(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedAdvancedMenuItems[] = {
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		0,
+		(uintptr_t)menutextAdvancedRestart,
+		0,
+		menuhandlerAdvancedRestart,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		0,
+		(uintptr_t)menutextAdvancedRestart,
+		1,
+		menuhandlerAdvancedRestart,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mipmap Filtering",
+		0,
+		menuhandlerMipmapFilter,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"FPS Counter Interval",
+		49,
+		menuhandlerDisplayFPSInterval,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		0,
+		(uintptr_t)menutextAdvancedRestart,
+		2,
+		menuhandlerAdvancedRestart,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		0,
+		(uintptr_t)menutextAdvancedRestart,
+		ADVANCED_ROW_RAWINPUT,
+		menuhandlerAdvancedRestart,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Skip Intro",
+		0,
+		menuhandlerSkipIntro,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Explosion Limit",
+		90,
+		menuhandlerMaxExplosions,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		7,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Offer to Send Reports",
+		0,
+		menuhandlerReportOffer,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedAdvancedMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Advanced",
+	g_ExtendedAdvancedMenuItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
 struct menuitem g_ExtendedMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -6427,6 +6730,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Stage Loader\n",
 		0,
 		(void *)&g_ExtendedMapsMenuDialog,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Advanced\n",
+		0,
+		(void *)&g_ExtendedAdvancedMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

@@ -77,6 +77,10 @@ static s32 numJoysticks = 0;
 
 static s32 useHIDAPI = 1;
 static s32 useRawInput = 0;
+// What inputInit() gave SDL. Its hints are read when the controller subsystem
+// starts, so a change from the menu waits for the next start.
+static s32 useHIDAPIActive = 1;
+static s32 useRawInputActive = 0;
 
 static s32 mouseEnabled = 1;
 static s32 mouseX, mouseY;
@@ -890,6 +894,9 @@ static inline void inputLoadBinds(void)
 s32 inputInit(void)
 {
 	// Set SDL hints before initializing the controller subsystem.
+	useHIDAPIActive = useHIDAPI;
+	useRawInputActive = useRawInput;
+
 	if (useHIDAPI) {
 #if SDL_VERSION_ATLEAST(2, 0, 12)
 		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_GAMECUBE, "1");
@@ -1226,6 +1233,36 @@ s32 inputControllerGetDualAnalog(s32 cidx)
 void inputControllerSetDualAnalog(s32 cidx, s32 enable)
 {
 	padsCfg[cidx].stickCButtons = !enable;
+}
+
+s32 inputGetUseHIDAPI(void)
+{
+	return useHIDAPI;
+}
+
+s32 inputGetUseHIDAPIActive(void)
+{
+	return useHIDAPIActive;
+}
+
+void inputSetUseHIDAPI(s32 use)
+{
+	useHIDAPI = !!use;
+}
+
+s32 inputGetUseRawInput(void)
+{
+	return useRawInput;
+}
+
+s32 inputGetUseRawInputActive(void)
+{
+	return useRawInputActive;
+}
+
+void inputSetUseRawInput(s32 use)
+{
+	useRawInput = !!use;
 }
 
 s32 inputControllerGetCancelCButtons(s32 cidx)

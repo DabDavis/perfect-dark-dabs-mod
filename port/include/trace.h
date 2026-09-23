@@ -37,6 +37,8 @@ void traceTick(void);
 void traceRequest(void);
 // VK_ value of the key, or 0 if unbound.
 s32 traceGetKey(void);
+// Rebinds it from the menu; 0 unbinds it.
+void traceSetKey(s32 vk);
 // Called from chrRender() to record what happened to a chr this frame.
 void traceChrNote(struct chrdata *chr, u8 bit);
 
@@ -46,6 +48,9 @@ void traceChrNote(struct chrdata *chr, u8 bit);
 #define TRACEREPORT_MAXNAME 32
 // Whether F3 offers to send what it wrote.
 s32 traceReportEnabled(void);
+// Mod.TraceReport itself, whether or not this build can send.
+s32 traceReportGetOffer(void);
+void traceReportSetOffer(s32 offer);
 // A dump and its picture were written; offer them at the next safe moment.
 void traceReportOffer(const char *tracepath, const char *shotpath);
 // From lvTick(), before menuTick(): opens the dialog.

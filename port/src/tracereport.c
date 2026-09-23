@@ -89,6 +89,16 @@ s32 traceReportEnabled(void)
 	return g_Enabled && crashReportCanSend();
 }
 
+s32 traceReportGetOffer(void)
+{
+	return g_Enabled;
+}
+
+void traceReportSetOffer(s32 offer)
+{
+	g_Enabled = !!offer;
+}
+
 void traceReportOffer(const char *tracepath, const char *shotpath)
 {
 	const time_t now = time(NULL);

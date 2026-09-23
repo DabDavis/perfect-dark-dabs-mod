@@ -145,6 +145,15 @@ void inputControllerSetSticksSwapped(s32 cidx, s32 swapped);
 s32 inputControllerGetDualAnalog(s32 cidx);
 void inputControllerSetDualAnalog(s32 cidx, s32 enable);
 
+// get/set Input.UseHIDAPI and Input.UseRawInput, which take effect at the
+// next start; the Active getters say what this run started with
+s32 inputGetUseHIDAPI(void);
+s32 inputGetUseHIDAPIActive(void);
+void inputSetUseHIDAPI(s32 use);
+s32 inputGetUseRawInput(void);
+s32 inputGetUseRawInputActive(void);
+void inputSetUseRawInput(s32 use);
+
 // get/set Input.Player%d.CancelCButtons
 s32 inputControllerGetCancelCButtons(s32 cidx);
 void inputControllerSetCancelCButtons(s32 cidx, s32 cancel);

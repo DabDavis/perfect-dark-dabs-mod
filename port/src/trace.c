@@ -58,6 +58,19 @@ s32 traceGetKey(void)
 	return keyVk;
 }
 
+void traceSetKey(s32 vk)
+{
+	if (vk <= 0 || vk >= VK_TOTAL_COUNT) {
+		strcpy(keyName, "NONE");
+		keyVk = 0;
+		return;
+	}
+
+	strncpy(keyName, inputGetKeyName(vk), sizeof(keyName) - 1);
+	keyName[sizeof(keyName) - 1] = '\0';
+	keyVk = vk;
+}
+
 void traceRequest(void)
 {
 	pending = true;

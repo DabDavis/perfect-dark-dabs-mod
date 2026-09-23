@@ -613,6 +613,7 @@ extern s32 g_BlurFbCapTimer;
 extern bool g_BlurFbDirty;
 extern s32 g_TickRateDiv;
 extern s32 g_TickExtraSleep;
+extern s32 g_SkipIntro;
 extern s32 g_MusicDisableMpDeath;
 extern s32 g_BgunGeMuzzleFlashes;
 extern s32 g_FileAutoSelect;

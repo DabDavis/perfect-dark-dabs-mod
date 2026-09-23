@@ -42,8 +42,11 @@ struct explosion *g_Explosions;
 #ifndef PLATFORM_N64
 // Six is the N64's pool, and an explosion with no slot is simply not made;
 // with a lobby throwing grenades that was most of them. Game.MaxExplosions
-// in the config can take it to 96.
+// in the config can take it to 96. The setting is g_MaxExplosionsSetting, and
+// explosionsReset() takes it into g_MaxExplosions when it sizes the stage's
+// pool, so a change from the menu waits for the next stage.
 s32 g_MaxExplosions = 48;
+s32 g_MaxExplosionsSetting = 48;
 #else
 s32 g_MaxExplosions = MAX_EXPLOSIONS_DEFAULT;
 #endif

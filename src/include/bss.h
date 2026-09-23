@@ -201,6 +201,9 @@ extern u32 g_SkyStageNum;
 extern bool g_SkyLightningActive;
 extern struct explosion *g_Explosions;
 extern s32 g_MaxExplosions;
+#ifndef PLATFORM_N64
+extern s32 g_MaxExplosionsSetting;
+#endif
 extern struct smoke *g_Smokes;
 extern s32 g_MaxSmokes;
 extern Mtx var800a3448;

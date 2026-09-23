@@ -14,6 +14,10 @@ void explosionsReset(void)
 	g_ExplosionShakeIntensityTimer = 0;
 	g_ExplosionDamageTxScale = 1;
 
+#ifndef PLATFORM_N64
+	g_MaxExplosions = g_MaxExplosionsSetting;
+#endif
+
 	if (g_MaxExplosions == 0) {
 		g_Explosions = NULL;
 	} else {

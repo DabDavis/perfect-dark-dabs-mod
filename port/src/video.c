@@ -53,6 +53,11 @@ static s32 vidFullscreenExclusive = DEFAULT_VID_FULLSCREEN_EXCLUSIVE;
 static s32 vidMaximize = false;
 static s32 vidCenter = false;
 static s32 vidAllowHiDpi = false;
+// What the window was made with. HiDPI and framebuffer effects are settled
+// when the window and renderer are made, so the menu shows a change to either
+// as waiting for a restart by comparing against these.
+static s32 vidAllowHiDpiActive = false;
+static s32 vidFramebuffersActive = true;
 static s32 vidVsync = 1;
 static s32 vidMSAA = 1;
 static s32 vidFramerateLimit = 0;
@@ -119,6 +124,8 @@ s32 videoInit(void)
 	gfx_current_native_viewport.height = 220;
 	gfx_current_native_aspect = 320.f / 220.f;
 	gfx_framebuffers_enabled = (bool)vidFramebuffers;
+	vidFramebuffersActive = vidFramebuffers;
+	vidAllowHiDpiActive = vidAllowHiDpi;
 	gfx_detail_textures_enabled = (bool)texDetail;
 	gfx_clamped_edge_mode = texClampedEdge;
 	gfx_msaa_level = vidMSAA;
@@ -859,6 +866,62 @@ void videoSetFramerateLimit(const s32 limit)
 void videoSetDisplayFPS(const s32 displayfps)
 {
 	vidDisplayFPS = displayfps;
+}
+
+f32 videoGetDisplayFPSInterval(void)
+{
+	return vidDisplayFPSInterval;
+}
+
+void videoSetDisplayFPSInterval(f32 seconds)
+{
+	if (seconds < 0.01f) seconds = 0.01f;
+	if (seconds > 32.f) seconds = 32.f;
+	vidDisplayFPSInterval = seconds;
+}
+
+s32 videoGetMipmapFilter(void)
+{
+	return texMipmapFilter;
+}
+
+void videoSetMipmapFilter(s32 mode)
+{
+	if (mode < MIPMAP_DISABLED) mode = MIPMAP_DISABLED;
+	if (mode > MIPMAP_LINEAR) mode = MIPMAP_LINEAR;
+	if (texMipmapFilter == mode) return;
+	texMipmapFilter = mode;
+	gfx_set_mipmap_filter((enum MipmapFilteringMode)mode);
+}
+
+s32 videoGetAllowHiDpi(void)
+{
+	return vidAllowHiDpi;
+}
+
+s32 videoGetAllowHiDpiActive(void)
+{
+	return vidAllowHiDpiActive;
+}
+
+void videoSetAllowHiDpi(s32 allow)
+{
+	vidAllowHiDpi = !!allow;
+}
+
+s32 videoGetFramebufferEffects(void)
+{
+	return vidFramebuffers;
+}
+
+s32 videoGetFramebufferEffectsActive(void)
+{
+	return vidFramebuffersActive;
+}
+
+void videoSetFramebufferEffects(s32 on)
+{
+	vidFramebuffers = !!on;
 }
 
 void videoSetFramebuffer(s32 target)
