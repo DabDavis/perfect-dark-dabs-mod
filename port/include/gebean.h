@@ -52,7 +52,11 @@ struct modelnode;
 #define GEROM_BODY_FIRST  152
 #define GEROM_BODY_ROWS   24    // GEROM_MAX_ROWS: every row a mission may take
 #define GEROM_BODY_LAST   (GEROM_BODY_FIRST + GEROM_BODY_ROWS - 1)
-#define GEBEAN_POOL_BASE  (GEROM_BODY_LAST + 1)
+// 4J's Agent 4, whom the release adds and the ROM never had (xblaagent4.c):
+// its head's row and its body's, between the mission's rows and the pool
+#define XBLA_AGENT4_HEADROW (GEROM_BODY_LAST + 1)
+#define XBLA_AGENT4_BODYROW (GEROM_BODY_LAST + 2)
+#define GEBEAN_POOL_BASE  (GEROM_BODY_LAST + 3)
 
 /** Whether there is GoldenEye content to draw on: the release, or GoldenEye X to borrow from. */
 s32 gebeanGetEnabled(void);

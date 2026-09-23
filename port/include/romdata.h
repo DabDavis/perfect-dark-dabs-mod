@@ -29,6 +29,8 @@ s32 romdataRegisterModFile(const char *name, s32 modDirIndex);
 s32 romdataFileGetModDir(s32 fileNum);
 // A slot of its own serving another file's contents; not stock. See romdata.c.
 s32 romdataRegisterAliasFile(const char *name, s32 hostFileNum);
+s32 romdataRegisterXblaFile(const char *name, s32 xblaid);
+s32 romdataFileGetXblaId(s32 fileNum);
 
 // Drops every loaded file and rebuilds the slots from the ROM, so that the next
 // load of each one searches the mod directories again. For switching mods at

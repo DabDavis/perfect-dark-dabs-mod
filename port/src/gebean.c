@@ -28,6 +28,7 @@
 #include "types.h"
 #include "config.h"
 #include "system.h"
+#include "xblaagent4.h"
 #include "fs.h"
 #include "romdata.h"
 #include "archive.h"
@@ -659,6 +660,10 @@ const char *gebeanPoolBodyName(s32 bodynum)
 	const s32 i = bodynum - GEBEAN_POOL_BASE;
 	const char *borrowed = modBorrowBodyName(bodynum);
 
+	if (!borrowed) {
+		borrowed = xblaAgent4BodyName(bodynum);
+	}
+
 	if (borrowed) {
 		return borrowed;
 	}
@@ -976,12 +981,12 @@ void gebeanPoolRefresh(void)
 	gebeanGunsRefresh();
 
 	// Off with whatever this put on last time: the tail of each list whose
-	// rows are the pool's
-	while (numbodies > 0 && g_MpBodies[numbodies - 1].bodynum >= GEBEAN_POOL_BASE) {
+	// rows are the pool's, or Agent 4's before them
+	while (numbodies > 0 && g_MpBodies[numbodies - 1].bodynum >= XBLA_AGENT4_HEADROW) {
 		numbodies--;
 	}
 
-	while (numheads > 0 && g_MpHeads[numheads - 1].headnum >= GEBEAN_POOL_BASE) {
+	while (numheads > 0 && g_MpHeads[numheads - 1].headnum >= XBLA_AGENT4_HEADROW) {
 		numheads--;
 	}
 
@@ -991,6 +996,13 @@ void gebeanPoolRefresh(void)
 	if (numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS) {
 		return;
 	}
+
+	// The release's own addition goes where the release lists it, straight
+	// after the ROM's characters, so it keeps one place in the list whatever
+	// GoldenEye brings after it
+	xblaAgent4Refresh();
+	numbodies = g_MpListCounts.bodies;
+	numheads = g_MpListCounts.heads;
 
 	// GoldenEye X's own characters when it is installed (modborrow.c): its
 	// models draw themselves in the N64 look, and the release's meshes find

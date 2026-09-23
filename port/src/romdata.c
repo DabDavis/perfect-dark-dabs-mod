@@ -1,3 +1,4 @@
+#include <zlib.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -13,6 +14,7 @@
 #include "system.h"
 #include "preprocess.h"
 #include "platform.h"
+#include "xblamesh.h"
 
 /**
  * asset files and ROM segments can be replaced by optional external files,
@@ -105,6 +107,9 @@ struct romfile {
 	// Nonzero: the file number whose contents this slot serves under a name of
 	// its own (romdataRegisterAliasFile()).
 	s32 alias;
+	// Nonzero: the XBLA release's file id this slot is read from, out of the
+	// release's own package (romdataRegisterXblaFile())
+	s32 xblaid;
 };
 
 /* patches for individual files; applied on file load, before preprocFuncs, but */
@@ -672,6 +677,119 @@ s32 romdataRegisterAliasFile(const char *name, s32 hostFileNum)
 	return 0;
 }
 
+/**
+ * Claim a slot served from the XBLA release's package: a file the release has
+ * and the ROM never had, such as 4J's Agent 4 (xblaagent4.c). The release keeps
+ * its files inflated and the game reads a 1173 stream, so the bytes are
+ * deflated once as the slot first loads.
+ *
+ * Taken from the top of the table like an alias, and the release's id is kept
+ * beside it: the slot's number is not the release's, and the XBLA mesh loader
+ * asks for the release's copy by the release's id (romdataFileGetXblaId()).
+ * The name is kept by pointer and must outlive the slot. Returns the file
+ * number, or 0.
+ */
+s32 romdataRegisterXblaFile(const char *name, s32 xblaid)
+{
+	if (!name || xblaid < 1) {
+		return 0;
+	}
+
+	for (s32 i = ROMDATA_MAX_FILES - 1; i > 0; --i) {
+		if (fileSlots[i].xblaid == xblaid && fileSlots[i].name && strcmp(fileSlots[i].name, name) == 0) {
+			return i;
+		}
+	}
+
+	for (s32 i = ROMDATA_MAX_FILES - 1; i > 0; --i) {
+		if (!fileSlots[i].name) {
+			fileSlots[i].name = name;
+			fileSlots[i].xblaid = xblaid;
+			fileSlots[i].source = SRC_UNLOADED;
+			return i;
+		}
+	}
+
+	sysLogPrintf(LOG_ERROR, "romdataRegisterXblaFile: no free file slots for %s", name);
+
+	return 0;
+}
+
+s32 romdataFileGetXblaId(s32 fileNum)
+{
+	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES) {
+		return 0;
+	}
+
+	return fileSlots[fileNum].xblaid;
+}
+
+static u8 *romdataXblaFileLoad(s32 fileNum)
+{
+	struct romfile *slot = &fileSlots[fileNum];
+	u32 len = 0;
+	u8 *raw;
+	u8 *out;
+	uLong bound;
+	z_stream zs;
+
+	if (slot->source == SRC_EXTERNAL) {
+		return slot->data;
+	}
+
+	raw = xblaMeshReadFile((u16)slot->xblaid, &len);
+
+	if (!raw || len == 0 || len > 0xffffff) {
+		free(raw);
+		sysLogPrintf(LOG_ERROR, "romdataFileLoad: the release has no file %d for %s", slot->xblaid, slot->name);
+		return NULL;
+	}
+
+	memset(&zs, 0, sizeof(zs));
+
+	if (deflateInit2(&zs, 6, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+		free(raw);
+		return NULL;
+	}
+
+	bound = deflateBound(&zs, len);
+	out = sysMemAlloc(5 + bound);
+
+	if (!out) {
+		deflateEnd(&zs);
+		free(raw);
+		return NULL;
+	}
+
+	out[0] = 0x11;
+	out[1] = 0x73;
+	out[2] = (len >> 16) & 0xff;
+	out[3] = (len >> 8) & 0xff;
+	out[4] = len & 0xff;
+	zs.next_in = raw;
+	zs.avail_in = len;
+	zs.next_out = out + 5;
+	zs.avail_out = (uInt)bound;
+
+	if (deflate(&zs, Z_FINISH) != Z_STREAM_END) {
+		deflateEnd(&zs);
+		sysMemFree(out);
+		free(raw);
+		return NULL;
+	}
+
+	slot->data = out;
+	slot->size = 5 + zs.total_out;
+	slot->source = SRC_EXTERNAL;
+	slot->numpatches = 0;
+	deflateEnd(&zs);
+	free(raw);
+
+	sysLogPrintf(LOG_NOTE, "file %d (%s) loaded from the XBLA release's file %d", fileNum, slot->name, slot->xblaid);
+
+	return out;
+}
+
 u8 *romdataFileGetData(s32 fileNum)
 {
 	return romdataFileLoad(fileNum, NULL);
@@ -689,6 +807,16 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 	}
 
 	u8 *out = NULL;
+
+	if (fileSlots[fileNum].xblaid) {
+		out = romdataXblaFileLoad(fileNum);
+
+		if (out && outSize) {
+			*outSize = fileSlots[fileNum].size;
+		}
+
+		return out;
+	}
 
 	// Which mod should supply this file? A pinned slot names its own.
 	//
@@ -823,12 +951,17 @@ void romdataFileFree(s32 fileNum)
  * mesh for the *stock* model of that id.
  *
  * False for an alias too: its number is not the one the release's copy is
- * filed under, whatever it serves.
+ * filed under, whatever it serves. True for a file read out of the release
+ * itself, which is the release's copy (romdataFileGetXblaId()).
  */
 s32 romdataFileIsStock(s32 fileNum)
 {
 	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES || fileSlots[fileNum].alias) {
 		return 0;
+	}
+
+	if (fileSlots[fileNum].xblaid) {
+		return 1;
 	}
 
 	return fileSlots[fileNum].source != SRC_EXTERNAL;

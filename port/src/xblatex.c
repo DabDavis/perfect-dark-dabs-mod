@@ -63,6 +63,7 @@ struct xblatexentry {
 	u8 alpha;      // whether any of its texels is not opaque
 	u8 soft;       // whether next to none are - see xblaTexRecordIsSoft()
 	s32 texnum;    // the ROM texture the picture is of, or -1: see xblaTexBindTexture()
+	u8 kept;       // drawn with the art switched off: see xblaTexBindKept()
 	char *key;     // what it was bound as, so the same picture binds once
 };
 
@@ -319,10 +320,36 @@ const void *xblaTexBind(u32 record)
 	hash[slot].addr = addr;
 	hash[slot].record = record;
 	hash[slot].texnum = -1;
+	hash[slot].kept = 0;
 	byRecord[record] = addr;
 	numBound++;
 
 	SDL_UnlockMutex(lock);
+
+	return addr;
+}
+
+/**
+ * xblaTexBind(), for a record painted on a mesh that is drawn with the
+ * release's art switched off - a model the release alone has, such as Agent 4
+ * (xblaagent4.c), which has no N64 form to fall back to.
+ */
+const void *xblaTexBindKept(u32 record)
+{
+	const void *addr = xblaTexBind(record);
+
+	if (addr) {
+		struct xblatexentry *e;
+
+		SDL_LockMutex(lock);
+		e = xblaTexFind(addr);
+
+		if (e) {
+			e->kept = 1;
+		}
+
+		SDL_UnlockMutex(lock);
+	}
 
 	return addr;
 }
@@ -1042,6 +1069,7 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 {
 	struct xblatexentry *e;
 	s32 record;
+	s32 kept;
 	u8 *rgba;
 
 	if (numBound == 0 || !lock) {
@@ -1111,10 +1139,11 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 	}
 
 	record = e ? (s32)e->record : -1;
+	kept = e ? e->kept : 0;
 
 	SDL_UnlockMutex(lock);
 
-	if (record < 0 || !optEnabled) {
+	if (record < 0 || (!optEnabled && !kept)) {
 		return NULL;
 	}
 

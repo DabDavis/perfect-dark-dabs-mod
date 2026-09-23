@@ -39,6 +39,7 @@
 #include "xblaimport.h"
 #include "xblastage.h"
 #include "romdata.h"
+#include "xblaagent4.h"
 #include "mod.h"
 #include "gebean.h"
 #include "files.h"
@@ -182,6 +183,7 @@ struct xblameshentry {
 	s32 use;                           // into uses[], or -1
 	s32 suppress;                      // XBLAMESH_SUPPRESS_*: stock geometry that draws nothing
 	u8 matched;                        // whether the four above say anything
+	u8 releaseonly;                    // a file only the release has: drawn in both looks (xblaMeshEntryLive())
 
 	// The model pack's side: this node's place in the model's list nodes, and
 	// the file id the pack's n64/ folder is looked up by. Filed for every
@@ -403,6 +405,15 @@ struct xblameshmats {
 };
 
 static s32 optEnabled;
+
+// Whether any model has loaded from a file the release alone has (Agent 4,
+// xblaagent4.c), which keeps its mesh with the meshes off: it has no N64 form
+// to fall back to, and its file's own lists are a placeholder
+static s32 releaseOnlyLoaded;
+
+// The mesh being built is for a file only the release has (Agent 4, past the
+// ROM's file ids), which is drawn in both looks, so its pictures are too
+static s32 xblaMeshBuildKeepArt = 0;
 static s32 optOnlySlot; // Mod.XblaMeshOnly: draw one mesh and leave the rest alone
 static s32 optBoth;     // Mod.XblaMeshBoth: draw the game's geometry over it too
 
@@ -816,6 +827,18 @@ static s16 xblaMeshNodeMtx(const u8 *file, u32 len, u32 nodeoff)
  * walks all 4096 entries before giving up. So the probe runs to the end of the
  * chain looking for the node and hands back the first slot it could take.
  */
+/**
+ * Whether an entry's mesh is drawn in the look being drawn: all of them with
+ * the meshes on, and with them off only a model the release alone has - an
+ * Agent 4 already spawned when F6 went to the N64 look keeps his mesh until
+ * his next spawn gives him the Shock Trooper (xblaagent4.c), since his file's
+ * own lists are 4J's placeholder.
+ */
+static s32 xblaMeshEntryLive(const struct xblameshentry *e)
+{
+	return optEnabled || e->releaseonly;
+}
+
 static struct xblameshentry *xblaMeshSlotFor(const struct modelnode *node)
 {
 	u32 h = (u32)(((uintptr_t)node >> 4) * 2654435761u) & (XBLAMESH_HASHSIZE - 1);
@@ -866,6 +889,7 @@ static struct xblameshentry *xblaMeshEntryFor(struct modelnode *node, const stru
 		e->use = -1;
 		e->suppress = 0;
 		e->matched = 0;
+		e->releaseonly = 0;
 		e->fileid = 0;
 		e->packpart = XBLAMESH_NOPART;
 		e->packuse = -1;
@@ -969,6 +993,7 @@ static void xblaMeshForgetModel(const struct modeldef *modeldef)
 			hash[i].modeldef = NULL;
 			hash[i].slot = 0;
 			hash[i].matched = 0;
+			hash[i].releaseonly = 0;
 			hash[i].fileid = 0;
 			hash[i].packpart = XBLAMESH_NOPART;
 			hash[i].packuse = -1;
@@ -1922,6 +1947,12 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 		}
 	}
 
+	// A file read out of the release itself (Agent 4, xblaagent4.c) is in a
+	// slot of its own, and its copy in the package is under the release's id
+	if (romdataFileGetXblaId(fileid)) {
+		fileid = (u16)romdataFileGetXblaId(fileid);
+	}
+
 	if (xblaMeshIsBootLogo(fileid)) {
 		if (xblaMeshVerbose) {
 			sysLogPrintf(LOG_NOTE, "xblamesh: model file %d is a boot logo - the "
@@ -1999,6 +2030,15 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 	const s32 prevtexsrc = modSetTextureSourceMod(romdataFileGetModDir(fileid));
 
 	xblaMeshMatchModel(modeldef, fileid);
+
+	if (romdataFileGetXblaId(fileid)) {
+		for (s32 i = 0; i < XBLAMESH_HASHSIZE; i++) {
+			if (hash[i].node && hash[i].modeldef == modeldef && hash[i].matched) {
+				hash[i].releaseonly = 1;
+				releaseOnlyLoaded = 1;
+			}
+		}
+	}
 
 	modSetTextureSourceMod(prevtexsrc);
 	modSetTextureFromStage(prevtexstage);
@@ -2773,7 +2813,7 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	// xblaTexSetEnabled(). A picture of the build's own is bound already.
 	const void *tile = (material & XBLAMESH_MAT_TABLE)
 			? ((b->mats && (s32)(material & 0xfff) < b->mats->num) ? b->mats->tile[material & 0xfff] : NULL)
-			: xblaTexBind(record);
+			: xblaMeshBuildKeepArt ? xblaTexBindKept(record) : xblaTexBind(record);
 	Gfx *gdl;
 
 	if (!xblaMeshRoomForGfx(b, 13)) {
@@ -5445,9 +5485,11 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 
 		xblaMeshBuildCullBack = fileid == FILE_PNLOGO2;
 		xblaMeshBuildBorrowFile = m->frompack ? 0 : fileid;
+		xblaMeshBuildKeepArt = !m->frompack && fileid >= NUM_FILES;
 		ok = xblaMeshBuildFile(m, file, len, &mats, what);
 		xblaMeshBuildCullBack = 0;
 		xblaMeshBuildBorrowFile = 0;
+		xblaMeshBuildKeepArt = 0;
 
 		return ok ? m : NULL;
 	}
@@ -5624,6 +5666,7 @@ static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid)
 
 		e->fileid = fileid;
 		e->packpart = (u16)k;
+
 		e->packuse = useidx;
 		e->packhasmesh = (u8)hasmesh;
 		e->beanrow = (s16)beanrow;
@@ -9044,7 +9087,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// mesh for somebody running the release's art who wants a pack's odd
 	// replacement not to punch an N64 model into the middle of it.
 	frompack = e->packpart != XBLAMESH_NOPART && e->fileid && modelpackFindN64(e->fileid) != NULL;
-	havemesh = e->matched && optEnabled && opened > 0;
+	havemesh = e->matched && xblaMeshEntryLive(e) && opened > 0;
 
 	// The preference is the model's, not the node's: a model the release has a
 	// mesh for hands the whole of itself back, including the lists the matcher
@@ -9947,7 +9990,7 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 	s32 frompack;
 	const u32 type = node ? node->type & 0xff : 0;
 
-	if (!model || !g_XblaMeshNumNodes || !optEnabled || opened <= 0 || !built ||
+	if (!model || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built ||
 			(type != MODELNODETYPE_DL && type != MODELNODETYPE_GUNDL)) {
 		return 0;
 	}
@@ -9956,7 +9999,7 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 
 	// The same decision xblaMeshRenderNode() makes, so that what is tested is
 	// what is drawn.
-	if (!e || e->node != node || !e->modeldef || !e->matched) {
+	if (!e || e->node != node || !e->modeldef || !e->matched || !xblaMeshEntryLive(e)) {
 		return 0;
 	}
 
@@ -10012,7 +10055,7 @@ s32 xblaMeshModelHasMesh(struct model *model)
 	struct modelnode *nodes[128];
 	s32 n;
 
-	if (!model || !model->definition || !g_XblaMeshNumNodes || !optEnabled || opened <= 0 || !built) {
+	if (!model || !model->definition || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built) {
 		return 0;
 	}
 
@@ -10029,7 +10072,7 @@ s32 xblaMeshModelHasMesh(struct model *model)
 	for (s32 i = 0; i < n && i < (s32)ARRAYCOUNT(nodes); i++) {
 		const struct xblameshentry *e = xblaMeshSlotFor(nodes[i]);
 
-		if (e && e->node == nodes[i] && e->modeldef && e->matched && !e->suppress &&
+		if (e && e->node == nodes[i] && e->modeldef && e->matched && !e->suppress && xblaMeshEntryLive(e) &&
 				(!e->fileid || e->packpart == XBLAMESH_NOPART || !modelpackFindN64(e->fileid) ||
 				 modelpackGetPrefer() == MODELPACK_PREFER_XBLA) &&
 				built[e->slot].state > 0) {
@@ -10043,7 +10086,7 @@ s32 xblaMeshModelHasMesh(struct model *model)
 
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef)
 {
-	if (!modeldef || !g_XblaMeshNumNodes || !optEnabled || opened <= 0 || !built) {
+	if (!modeldef || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built) {
 		return 0;
 	}
 
@@ -10053,7 +10096,7 @@ s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef)
 	for (s32 i = 0; i < XBLAMESH_HASHSIZE; i++) {
 		const struct xblameshentry *e = &hash[i];
 
-		if (e->node && e->modeldef == modeldef && e->matched && !e->suppress &&
+		if (e->node && e->modeldef == modeldef && e->matched && !e->suppress && xblaMeshEntryLive(e) &&
 				(!e->fileid || e->packpart == XBLAMESH_NOPART || !modelpackFindN64(e->fileid) ||
 				 modelpackGetPrefer() == MODELPACK_PREFER_XBLA) &&
 				xblaMeshBuild(e->slot)) {
@@ -10564,6 +10607,9 @@ void xblaMeshSetEnabled(s32 enabled)
 
 	// And GoldenEye's guns, whose hands are on or off with the look
 	gebeanMeshesSwitched();
+
+	// And Agent 4, who has no N64 model and stands on the Shock Trooper's
+	xblaAgent4MeshesSwitched();
 }
 
 s32 xblaMeshModelsAreLate(void)

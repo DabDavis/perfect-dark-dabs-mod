@@ -55,6 +55,9 @@ extern "C" {
  */
 const void *xblaTexBind(u32 record);
 
+/** xblaTexBind() for a mesh drawn with the art switched off (a file only the release has). */
+const void *xblaTexBindKept(u32 record);
+
 /**
  * A stand-in for a picture that is not one of the release's records: a model
  * pack's own PNG, or one of the ROM's numbered textures decoded for a mesh

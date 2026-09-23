@@ -13,6 +13,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "xblaagent4.h"
 #endif
 
 void bodiesReset(s32 stagenum)
@@ -33,6 +34,10 @@ void bodiesReset(s32 stagenum)
 #endif
 		g_HeadsAndBodies[i].modeldef = NULL;
 	}
+
+#ifndef PLATFORM_N64
+	xblaAgent4StageReset();
+#endif
 
 	var80062c80 = rngRandom() % g_NumBondBodies;
 	var80062b14 = 0;
