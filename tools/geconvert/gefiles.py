@@ -62,12 +62,43 @@ def rom():
     return _rom
 
 
+# Faults in GoldenEye's own data, mended as the file is read (geconvert.c's
+# g_RomPatches, which is this): (file, offset, the ROM's bytes, what they
+# become). A file whose bytes are not the ROM's is left as it is. All are faults
+# the community found in the XBLA release's copy of the same data and mended in
+# its Community Edition; none is a change of design.
+ROM_PATCHES = (
+    # Bunker ii: two tiles meeting on the stairs (room 0x14, y 93) are
+    # unlinked from both sides; each link names the other tile
+    ('Tbg_sevb_all_p_stanZ', 0x65c2, '0000', '0ccd'),
+    ('Tbg_sevb_all_p_stanZ', 0x6612, '0000', '0cc4'),
+    # Silo: armour 59 gives half, as the others do, drawn as the full suit
+    ('UsetupsiloZ', 0x4efc, '0073', '0074'),
+    # Control: the blast door on pad 146 (object 184) without DOORFLAG_0004
+    ('UsetupcontrolZ', 0xb8d4, '00000004', '00040004'),
+    # Surface: a guard's pair of Klobbs (ai_31) without the paired flag
+    ('UsetupsevxZ', 0x10794, '00', '80'),
+    ('UsetupsevxZ', 0x107a3, '10', '90'),
+    # Surface and Surface 2: the path pad by the outside railing, z -5001 -> -4968
+    ('UsetupsevxZ', 0x31b0, 'c59c4800', 'c59b4000'),
+    ('UsetupsevxbZ', 0x3024, 'c59c4800', 'c59b4000'),
+)
+
+
 def rom_file(stem):
     if stem.startswith('Tbg_'):
         stem += '_all_p_stanZ'
     elif stem.startswith('bg_'):
         stem += '_all_p'
-    return rom().file(stem)
+    d = rom().file(stem)
+    if any(p[0] == stem for p in ROM_PATCHES):
+        d = bytearray(d)
+        for name, at, old, new in ROM_PATCHES:
+            old, new = bytes.fromhex(old), bytes.fromhex(new)
+            if name == stem and d[at:at + len(old)] == old:
+                d[at:at + len(new)] = new
+        d = bytes(d)
+    return d
 
 
 class Bg:

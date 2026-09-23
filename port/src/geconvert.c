@@ -658,6 +658,53 @@ static const struct romfile *romFind(const char *stem)
 }
 
 // a file by name: stored bytes for a bg file, inflated for the rest
+/**
+ * Faults in GoldenEye's own data, mended as the file is read (geconvert.py's
+ * ROM_PATCHES, which is this). Each is the ROM's bytes and what they become,
+ * and a file whose bytes are not the ROM's is left as it is. All are faults
+ * the community found in the XBLA release's copy of the same data and mended
+ * in its Community Edition; none is a change of design.
+ */
+static const struct {
+	const char *stem;
+	size_t at;
+	uint8_t n;
+	uint8_t old[4], new[4];
+} g_RomPatches[] = {
+	// Bunker ii: two tiles meeting on the stairs (room 0x14, y 93) are
+	// unlinked from both sides, and a body stops at the edge as at a wall;
+	// each link names the other tile
+	{ "Tbg_sevb_all_p_stanZ", 0x65c2, 2, { 0x00, 0x00 }, { 0x0c, 0xcd } },
+	{ "Tbg_sevb_all_p_stanZ", 0x6612, 2, { 0x00, 0x00 }, { 0x0c, 0xc4 } },
+	// Silo: armour 59 gives half, as the others do, drawn as the full suit
+	{ "UsetupsiloZ", 0x4efc, 2, { 0x00, 0x73 }, { 0x00, 0x74 } },
+	// Control: the blast door on pad 146 (object 184) slides up without its
+	// clip to the box, through the ceiling (DOORFLAG_0004)
+	{ "UsetupcontrolZ", 0xb8d4, 4, { 0x00, 0x00, 0x00, 0x04 }, { 0x00, 0x04, 0x00, 0x04 } },
+	// Surface: a guard's pair of Klobbs (the decomp's ai_31, TRYGiveMeItem) without
+	// the paired flag, which Surface 2 and Runway give theirs
+	{ "UsetupsevxZ", 0x10794, 1, { 0x00 }, { 0x80 } },
+	{ "UsetupsevxZ", 0x107a3, 1, { 0x10 }, { 0x90 } },
+	// Surface and Surface 2: the path pad by the outside railing (288, 279)
+	// stands past the rail, at z -5001, off the tile it names; -4968 is on
+	// the tile beside its neighbour
+	{ "UsetupsevxZ", 0x31b0, 4, { 0xc5, 0x9c, 0x48, 0x00 }, { 0xc5, 0x9b, 0x40, 0x00 } },
+	{ "UsetupsevxbZ", 0x3024, 4, { 0xc5, 0x9c, 0x48, 0x00 }, { 0xc5, 0x9b, 0x40, 0x00 } },
+};
+
+static void romPatch(const char *stem, buf *file)
+{
+	for (size_t i = 0; i < sizeof(g_RomPatches) / sizeof(g_RomPatches[0]); ++i) {
+		const size_t at = g_RomPatches[i].at;
+		const size_t n = g_RomPatches[i].n;
+
+		if (!strcmp(stem, g_RomPatches[i].stem) && at + n <= file->n
+				&& !memcmp(file->v + at, g_RomPatches[i].old, n)) {
+			memcpy(file->v + at, g_RomPatches[i].new, n);
+		}
+	}
+}
+
 static buf romFile(const char *stem)
 {
 	const struct romfile *f = romFind(stem);
@@ -672,7 +719,11 @@ static buf romFile(const char *stem)
 		return out;
 	}
 
-	return inflate1172(g_Rom + f->addr, f->size);
+	{
+		buf out = inflate1172(g_Rom + f->addr, f->size);
+		romPatch(stem, &out);
+		return out;
+	}
 }
 
 static int romOpen(void)
@@ -5337,17 +5388,26 @@ static size_t texDataSize(uint32_t width, uint32_t height, uint32_t level, uint3
  *
  * Perfect Dark kept both skeletons and poses them exactly as GoldenEye does
  * (doorInitMatrices() against GoldenEye's propobj.c render), so the two are
- * carried across. The rest of GoldenEye's skeletons are named here for what
- * they are and left at SKEL_BASIC: their models are one matrix or are posed by
- * their object type (a CCTV, an autogun, a mount), and the Perfect Dark code
- * that reads those skeletons is about shooting the glass out of a door or a
- * lens, which is not converted.
+ * carried across.
+ *
+ * So is GoldenEye's windowed door (skeleton_door), which is Perfect Dark's
+ * g_SkelWindowedDoor switch for switch: box, glass toggle, box, glass list, and
+ * a converted model's parts are numbered by switch. GoldenEye lets a bullet
+ * through the glass and breaks it on the third hit (propobj.c, Switches[3]),
+ * and Perfect Dark does the same by that skeleton, so as SKEL_BASIC the glass
+ * of Facility's, Bunker's, Surface's and Train's doors stopped every shot.
+ *
+ * The rest are named here for what they are and left at SKEL_BASIC: their
+ * models are one matrix or are posed by their object type (a CCTV, an autogun,
+ * a mount).
  */
-static uint32_t propSkel(uint32_t skeleton)
+static uint32_t propSkel(uint32_t skeleton, int32_t numswitches)
 {
 	switch (skeleton) {
 	case 0x8003a100: return 0x11;  // eyelid_door -> g_Skel11 (Pdoor_eyelidZ, 3 matrices)
 	case 0x8003a15c: return 0x13;  // iris_door   -> g_Skel13 (Pdoor_irisZ, 13 matrices)
+	case 0x8003a1dc:               // door (windowed) -> g_SkelWindowedDoor
+		return numswitches >= 4 ? 0x10 : 2;
 	case 0x8003a05c:               // cctv
 	case 0x8003a070:               // console_one_screen
 	case 0x8003a084:               // console_four_screen
@@ -5356,7 +5416,6 @@ static uint32_t propSkel(uint32_t skeleton)
 	case 0x8003a170:               // walletbond
 	case 0x8003a19c:               // car
 	case 0x8003a1c8:               // flying
-	case 0x8003a1dc:               // door (windowed)
 	case 0x8003a208:               // tank
 	case 0x8003a21c:               // hat
 	case 0x8003c4d8:               // standard_object
@@ -5696,11 +5755,11 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 
 	set32(w.v, 0, SEG_MODEL + (uint32_t)nodesat);
 	// A prop keeps GoldenEye's own skeleton where Perfect Dark has it
-	// (propSkel(), which is SKEL_BASIC for all but the two Caverns doors); for
+	// (propSkel(): the two Caverns doors and the windowed door); for
 	// a character SKEL_CHR where it has GoldenEye's guard skeleton, which is
 	// Perfect Dark's own joint for joint, and SKEL_HEAD where it has none (a
 	// head is one list on one matrix)
-	set32(w.v, 4, ischr == 1 ? (p->skeleton ? 0x09u : 0x0du) : (ischr == 2 ? 2u : propSkel(p->skeleton)));
+	set32(w.v, 4, ischr == 1 ? (p->skeleton ? 0x09u : 0x0du) : (ischr == 2 ? 2u : propSkel(p->skeleton, p->numswitches)));
 	set32(w.v, 8, p->numswitches ? SEG_MODEL + (uint32_t)partsat : 0);
 	set16(w.v, 12, (uint32_t)p->numswitches);
 	set16(w.v, 14, (uint32_t)p->nummatrices);

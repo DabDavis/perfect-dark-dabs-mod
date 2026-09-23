@@ -8725,3 +8725,64 @@ count 3 chrs on screen where the old binary counted 30 (18 facing the stalls).
 Probe: `build/gexrom/hdtree/toilet.sh <binary> <tag>` with
 `PLAYER=x,y,z,room,theta` (`toiletprobe.py`: places the player, prints nearby
 chrs' rooms and on-screen bits and the total).
+
+## The Community Edition's fixes that were GoldenEye's own (2026-09-23)
+
+The user: *"the community edition patch fixes the folder menu. what else does
+it fix ... we should make our own fixes based on it."* Its changelog is
+`.xbla-work/ce/changelogCE.txt`. About half of it is 4J's network and
+split-screen code, which GE Plus never runs, and its art (skies, props, doors,
+icons, the widened folder model) already reaches GE Plus through the overlay
+(gebeance.c). What is left are its data fixes, and **the release's executable
+carries GoldenEye's own setups and tile graphs byte for byte**: `xex.diff`
+applies to the release's uncompressed `default.xex`, and at every place it
+patches, the bytes it replaces are the N64's. So a CE data fix is a GoldenEye
+bug the conversion carries too, unless it is a design change - check each one
+against the ROM before copying it.
+
+Mended (converter 60), in `g_RomPatches`/`ROM_PATCHES`, applied as a ROM file
+is read and only where the ROM's bytes are there:
+
+- **Bunker ii's stairs**: two tiles meeting in room 0x14 at y 93 are unlinked
+  from both sides (`Tbg_sevb_all_p_stanZ` +0x65c2/+0x6612), so the edge was a
+  wall; each link now names the other tile. 763 -> 761 unlinked edges.
+- **Silo**: armour 59 is the full suit's model (115) and gives half, as the
+  vest (116) does elsewhere.
+- **Control**: the blast door on pad 146 (object 184) lacked
+  `DOORFLAG_0004`, so it slid up through the ceiling instead of being clipped
+  to its box (`doorGetBbox()`, `door0f08cb20()`).
+- **Surface**: one guard list hands a pair of Klobbs without the paired flag
+  (0x80000000 = `OBJFLAG_WEAPON_CANMIXDUAL`) that Surface 2's and Runway's carry.
+- **Surface and Surface 2**: the path pad by the outside railing (288, 279)
+  stood past the rail at z -5001; -4968 is on its neighbour's tile.
+
+And two that were the conversion's own, not data:
+
+- **A windowed door's glass stopped every bullet.** GoldenEye's
+  `skeleton_door` is Perfect Dark's `g_SkelWindowedDoor` switch for switch
+  (box, glass toggle, box, glass list) and a converted model's parts are
+  numbered by switch, so `propSkel()` maps it now (only with the four
+  switches). Facility's four clear doors take shots and break on the fourth,
+  Perfect Dark's own long-range bug included (`doorDestroyGlass()`).
+- **A see-through room triangle stopped bullets by a Perfect Dark texture's
+  surface type.** GoldenEye's `bgTestBulletHitBackground()` only ever tests a
+  room's primary list; `bgTestHitInRoom()` skips `VTXBATCHTYPE_XLU` batches
+  on a remake stage now, next to the port's own `g_BgHitXluDisabled`.
+
+Not taken: Dam's padlock "not dropping" - `objFall()` already takes
+`OBJFLAG_00000008`, which it has, and it drops in both builds once the player
+is near enough for it to tick (a probe that blows it from the spawn sees it
+stay put: far objects are not ticked); the armour difficulty moves, Natalya's
+magnum and the Statue animation (design); Runway's unarmed guards (the
+release's; we drop `TRYGiveMeHat`, which is how they lost them). The watch's
+volume sliders are right: Perfect Dark's own top out at 0x5000 too (the
+slider's `param3` is `L_MPMENU_000`, which is 0x5000).
+
+Probes, `build/gexrom`: `doorglass.py` (fires the player's gun by setting
+`triggeron` at `bgunTickGameplay()`'s entry), `xluhit.py` (lines through every
+loaded XLU batch; `VTXBATCHTYPE_XLU` is 2, bg.c's own define),
+`stanlinks.py`, `blastdoor.py` (a locked door opens with `doorSetMode(door,
+1)`; a vertical door's face is its width axis turned, not `realrot[2]`),
+`padlock.py` (`objDamage()` with weapon 0 does nothing to an embedded object).
+The Python converter no longer writes the C's bytes (it lags by an animation
+and 119 textures); compare the C against the C at HEAD instead.

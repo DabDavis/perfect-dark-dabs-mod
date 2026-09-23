@@ -64,7 +64,7 @@ GE_SKELETONS = {
     0x8003a170: SKEL_BASIC,  # walletbond
     0x8003a19c: SKEL_BASIC,  # car
     0x8003a1c8: SKEL_BASIC,  # flying
-    0x8003a1dc: SKEL_BASIC,  # door (windowed)
+    0x8003a1dc: 0x10,        # door (windowed) -> g_SkelWindowedDoor (4 switches)
     0x8003a208: SKEL_BASIC,  # tank
     0x8003a21c: SKEL_BASIC,  # hat
     0x8003c4d8: SKEL_BASIC,  # standard_object
@@ -72,9 +72,13 @@ GE_SKELETONS = {
 }
 
 
-def prop_skel(skeleton):
-    """The Perfect Dark skeleton id for a GoldenEye prop's skeleton pointer."""
-    return GE_SKELETONS.get(skeleton, SKEL_BASIC)
+def prop_skel(skeleton, numswitches):
+    """The Perfect Dark skeleton id for a GoldenEye prop's skeleton pointer.
+    A windowed door needs its four switches: box, toggle, box, glass."""
+    skel = GE_SKELETONS.get(skeleton, SKEL_BASIC)
+    if skel == 0x10 and numswitches < 4:
+        return SKEL_BASIC
+    return skel
 
 
 def prop_names():
@@ -328,7 +332,7 @@ def convert(num):
     for i, p in enumerate(switches):
         struct.pack_into('>I', w.out, partsat + 4 * i, reloc_node(p))
         struct.pack_into('>h', w.out, partsat + 4 * len(switches) + 2 * i, i)
-    struct.pack_into('>IIIhhfhhI', w.out, 0, SEG + nodesat, prop_skel(h['skeleton']),
+    struct.pack_into('>IIIhhfhhI', w.out, 0, SEG + nodesat, prop_skel(h['skeleton'], len(switches)),
                      SEG + partsat if switches else 0, len(switches),
                      h['nummatrices'], h['radius'], 0, h['numtextures'], SEG + texat)
     w.align(16)

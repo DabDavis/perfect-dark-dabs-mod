@@ -4982,9 +4982,18 @@ bool bgTestHitInRoom(struct coord *frompos, struct coord *topos, s32 roomnum, st
 
 	numbatches = g_Rooms[roomnum].numvtxbatches;
 
+#ifndef PLATFORM_N64
+	// GoldenEye tests a line against a room's solid list only
+	// (bgBuildRoomVtxBounds() batches nothing else), so its railings, grates
+	// and cockpit glass let every bullet through. Perfect Dark decides by the
+	// texture's surface type, which on a converted level is some Perfect Dark
+	// texture's that happens to share the number.
+	const bool skipxlu = g_BgHitXluDisabled || geRoomActive();
+#endif
+
 	for (i = 0; i < numbatches; batch++, i++) {
 #ifndef PLATFORM_N64
-		if (g_BgHitXluDisabled && batch->type == VTXBATCHTYPE_XLU)
+		if (skipxlu && batch->type == VTXBATCHTYPE_XLU)
 			continue;
 #endif
 		j = bg0f1612e4(&batch->bbmin, &batch->bbmax, &from, &dist, &sp94, &hitthing->pos);
