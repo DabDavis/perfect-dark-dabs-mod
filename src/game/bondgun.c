@@ -8600,6 +8600,19 @@ void bgun0f0a5550(s32 handnum)
 			}
 #endif
 
+#ifndef PLATFORM_N64
+			// GoldenEye's grenade and mines are never drawn in the hand, so
+			// no node of their model is posed and every matrix under it is
+			// whatever the allocation held: a thrown mine left from NaN, was
+			// never seen and went off wherever it came to rest. The hand's own
+			// place is where GoldenEye throws from.
+			s32 gehidden = gegunsOwnModelHidden(weaponnum);
+
+			if (gehidden) {
+				node = NULL;
+			}
+#endif
+
 			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				if (hand->flashon || hand->firing) {
 					node = modelGetPart(modeldef, MODELPART_REAPER_001E + (hand->burstbullets % 3));
@@ -8660,7 +8673,11 @@ void bgun0f0a5550(s32 handnum)
 						) {
 					bgun0f0a4e44(hand, weapondef, modeldef, funcdef, sp1e0, mtxallocation, weaponnum, sp1e4, sp6c, &sp234, &sp1f4);
 				}
-			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDMUZZLE)) {
+			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDMUZZLE)
+#ifndef PLATFORM_N64
+					&& !gehidden
+#endif
+					) {
 				sp6c = modelFindNodeMtxIndex(modelGetPart(modeldef, MODELPART_GUN_HOLDPOS), 0);
 
 				mtx = (Mtxf *)mtxallocation;
