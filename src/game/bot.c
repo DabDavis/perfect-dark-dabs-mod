@@ -83,6 +83,14 @@ void botReset(struct chrdata *chr, u8 respawning)
 		chr->hidden &= ~CHRHFLAG_CLOAKED;
 		chr->myaction = MA_AIBOTMAINLOOP;
 		chr->shotbondsum = 0;
+#ifndef PLATFORM_N64
+		aibot->navwp = NULL;
+		aibot->navbest = 0;
+		aibot->navprogress60 = 0;
+		aibot->navdetourwp = NULL;
+		aibot->navdetour60 = 0;
+		aibot->navedgefree60 = 0;
+#endif
 
 		if (respawning) {
 			chr->numclosearghs = 0;

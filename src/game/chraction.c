@@ -57,6 +57,7 @@
 #include "lib/vi.h"
 #include "game/modbodies.h"
 #ifndef PLATFORM_N64
+#include "geroom.h"
 #include "system.h"
 #endif
 #include "game/modoptions.h"
@@ -6703,6 +6704,420 @@ void chrGoPosChooseAnimation(struct chrdata *chr)
 	}
 }
 
+/**
+ * Whether a chr heading along a route may cut straight to a pad further on,
+ * given that it can see it.
+ *
+ * Stock asked only that the straight line was clear, and a line is clear
+ * across the air as well as along the floor. A simulant on a G5 catwalk whose
+ * route dropped to the floor below saw the floor's next pad past the drop,
+ * cut to it, and ran along the catwalk until it stood over that pad, for as
+ * long as its errand lasted; one on the floor cut to a catwalk pad over its
+ * head and stood under it. A simulant cuts to a pad now only if the floor
+ * runs to it: walked in steps, with no step up or down that a chr could not
+ * walk, no gap, and ending at the pad's own height. A ramp passes; a ledge, a
+ * catwalk's edge or a storey overhead does not, and the simulant takes the
+ * drops, stairs and ladders its route was built through. Guards are left as
+ * they were.
+ */
+#define CUT_STEP      40.0f
+#define CUT_MAXSTEPS  50
+#define CUT_MAXRISE   30.0f // per step, up
+#define CUT_MAXDROP   45.0f // per step, down
+
+static bool chrGoPosMayCutTo(struct chrdata *chr, struct coord *pos)
+{
+	struct prop *prop = chr->prop;
+	struct coord from;
+	struct coord to;
+	RoomNum fromrooms[8];
+	RoomNum torooms[8];
+	f32 dx;
+	f32 dz;
+	f32 dist;
+	f32 floory;
+	f32 padabove;
+	s32 numsteps;
+	s32 i;
+
+	if (!chr->aibot) {
+		return true;
+	}
+
+	// Not while stepping off an edge or in the air: the ground is already the
+	// floor below, and a cut from there turned a simulant going over the edge
+	// of a G5 catwalk back along it
+	if (prop->pos.y - chr->ground > 130.0f) {
+		return false;
+	}
+
+	dx = pos->x - prop->pos.x;
+	dz = pos->z - prop->pos.z;
+	dist = sqrtf(dx * dx + dz * dz);
+	numsteps = (s32)(dist / CUT_STEP) + 1;
+
+	if (numsteps > CUT_MAXSTEPS) {
+		return false;
+	}
+
+	dx /= numsteps;
+	dz /= numsteps;
+
+	floory = chr->ground;
+	from = prop->pos;
+	roomsCopy(prop->rooms, fromrooms);
+
+	for (i = 1; i <= numsteps; i++) {
+		f32 y;
+
+		to.x = from.x + dx;
+		to.y = floory + CUT_MAXRISE + 40.0f;
+		to.z = from.z + dz;
+
+		func0f065e74(&from, fromrooms, &to, torooms);
+
+		if (torooms[0] == -1) {
+			return false;
+		}
+
+#ifndef PLATFORM_N64
+		// A level converted from GoldenEye finds its floors by the tile
+		// underfoot, as the chrs' own moves do (chrFindGround)
+		if (geRoomActive()) {
+			y = geRoomGround(&to, 1.0f, torooms, NULL, NULL, NULL, NULL, NULL, NULL);
+		} else
+#endif
+		{
+			y = cdFindFloorYColourTypeAtPos(&to, torooms, NULL, NULL);
+		}
+
+		if (y < -100000 || y > floory + CUT_MAXRISE || y < floory - CUT_MAXDROP) {
+			return false;
+		}
+
+		floory = y;
+		from = to;
+		roomsCopy(torooms, fromrooms);
+	}
+
+	// ...and the floor it reaches is the one under the pad, not one below it
+	padabove = pos->y - floory;
+
+	return padabove > -40.0f && padabove < 220.0f;
+}
+
+/**
+ * A simulant re-plans its route every second or so (a chase, botCheckFetch),
+ * and a route starts at the pad closest to it - which, a few steps past a pad,
+ * is still the one behind it. Half way down G5's ramp from pad 111 to 113 the
+ * pad at the top was the closer, so the new route sent it back up, and the
+ * next one down again: it paced the ramp for as long as the errand lasted, as
+ * it paced a catwalk. If the simulant is nearer the second pad than the first
+ * is, and can run straight to it on its own level, it starts at the second.
+ */
+static void chrGoPosSkipPassedWaypoint(struct chrdata *chr)
+{
+	struct prop *prop = chr->prop;
+	struct waypoint *first = chr->act_gopos.waypoints[0];
+	struct waypoint *second = chr->act_gopos.waypoints[1];
+	struct pad pad0;
+	struct pad pad1;
+	RoomNum rooms1[2];
+	f32 xdist;
+	f32 zdist;
+	f32 fromchr;
+	f32 fromfirst;
+
+	if (!chr->aibot || !first || !second) {
+		return;
+	}
+
+	padUnpack(first->padnum, PADFIELD_POS, &pad0);
+	padUnpack(second->padnum, PADFIELD_POS | PADFIELD_ROOM, &pad1);
+
+	xdist = pad1.pos.x - prop->pos.x;
+	zdist = pad1.pos.z - prop->pos.z;
+	fromchr = xdist * xdist + zdist * zdist;
+
+	xdist = pad1.pos.x - pad0.pos.x;
+	zdist = pad1.pos.z - pad0.pos.z;
+	fromfirst = xdist * xdist + zdist * zdist;
+
+	if (fromchr >= fromfirst) {
+		return;
+	}
+
+	rooms1[0] = pad1.room;
+	rooms1[1] = -1;
+
+	if (func0f03654c(chr, &prop->pos, prop->rooms, &pad1.pos, rooms1, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)
+			&& chrGoPosMayCutTo(chr, &pad1.pos)) {
+		chr->act_gopos.curindex = 1;
+	}
+}
+
+/**
+ * posIsArrivingAtPos() with the range the route follower uses, and for a
+ * simulant with the height asked of the floor it stands on.
+ *
+ * Stock asks for the pad within 150 of the chr's own position, which sits a
+ * different height above the floor from one animation to the next, while a
+ * pad sits anything from 100 to nearly 200 above its floor. A simulant stood
+ * on G5's pad 10, 185 above its walkway, was 156 short of it: it never
+ * arrived, and stepped about the pad until it went off the walkway's edge
+ * into the shaft. A simulant has arrived at a pad over the floor it is on.
+ */
+static bool chrGoPosIsArrivingAtPos(struct chrdata *chr, struct coord *pos)
+{
+	f32 dy;
+
+	if (!chr->aibot) {
+		return posIsArrivingAtPos(&chr->prevpos, &chr->prop->pos, pos, 30);
+	}
+
+	dy = pos->y - chr->manground;
+
+	// Pads stand up to about 190 above their floor. A little over that
+	// and not the 260 first tried, which took a simulant half way up a
+	// ladder as arrived at the pad at its top: it turned for the next pad,
+	// stepped off the ladder and circled under that pad.
+	if (dy < -60.0f || dy > 210.0f) {
+		return false;
+	}
+
+	return posIsArrivingLaterallyAtPos(&chr->prevpos, &chr->prop->pos, pos, 30);
+}
+
+/**
+ * Whether a simulant is part way through taking a lift on its route: waiting
+ * for it, walking on, riding it or getting off.
+ *
+ * A simulant re-plans its chase every second, and stock re-planned it here
+ * too. On Pipes a simulant that had waited five seconds for the lift to come
+ * down re-planned as it stepped on; the new route's next pad was on the floor
+ * above, which it can see from the lift, so it walked off the lift at the
+ * bottom and wandered the lower floor lost. It keeps the route it has until
+ * it is off the lift.
+ */
+static bool chrGoPosIsTakingLift(struct chrdata *chr)
+{
+	struct waypoint *waypoint;
+	struct pad pad;
+
+	if (chr->actiontype != ACT_GOPOS) {
+		return false;
+	}
+
+	if (chr->inlift
+			|| chr->liftaction == LIFTACTION_WAITINGFORLIFT
+			|| chr->liftaction == LIFTACTION_WAITINGONLIFT) {
+		return true;
+	}
+
+	waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex];
+
+	if (waypoint) {
+		padUnpack(waypoint->padnum, PADFIELD_FLAGS, &pad);
+
+		if (pad.flags & (PADFLAG_AIWAITLIFT | PADFLAG_AIONLIFT)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+#ifndef PLATFORM_N64
+#define NAV_NOPROGRESS TICKS(150)
+#define NAV_DETOURTIME TICKS(180)
+
+/**
+ * Whether a simulant is on a detour chrGoPosDetour() sent it on, which its
+ * errand's re-plans leave alone until it gets there or NAV_DETOURTIME passes.
+ */
+static bool chrGoPosIsDetouring(struct chrdata *chr)
+{
+	struct aibot *aibot = chr->aibot;
+
+	return chr->actiontype == ACT_GOPOS
+		&& aibot->navdetourwp
+		&& chr->act_gopos.target == aibot->navdetourwp
+		&& g_Vars.lvframe60 - aibot->navdetour60 < NAV_DETOURTIME;
+}
+
+/**
+ * Send a simulant that has stopped getting anywhere to a pad beside the one it
+ * is stuck on, straight there, as a detour; its errand re-plans from there.
+ *
+ * Stock's only way out of being stuck was to plan the same route again, from
+ * the pad closest to the simulant to the same goal, which is the same route:
+ * on Complex a simulant stood blocked 77 units below the top pad of a stair
+ * for two minutes, its route one pad long and re-planned every second. The
+ * detour is to a neighbour of the pad it is stuck on, or of the pad closest to
+ * it, that it can run straight to over continuous floor (chrGoPosMayCutTo),
+ * picked at random so that two tries are not the same one.
+ */
+static bool chrGoPosDetour(struct chrdata *chr, struct waypoint *stuckwp)
+{
+	struct prop *prop = chr->prop;
+	struct aibot *aibot = chr->aibot;
+	struct waypoint *from[2];
+	struct waypoint *cands[24];
+	s32 numcands = 0;
+	s32 start;
+	s32 i;
+	s32 j;
+	s32 k;
+
+	from[0] = stuckwp;
+	from[1] = waypointFindClosestToPos(&prop->pos, prop->rooms);
+
+	for (i = 0; i < 2; i++) {
+		if (!from[i]) {
+			continue;
+		}
+
+		for (j = -1; j < 0 || from[i]->neighbours[j] >= 0; j++) {
+			struct waypoint *wp = j < 0 ? from[i] : &g_StageSetup.waypoints[from[i]->neighbours[j] & 0x3fff];
+
+			if (wp == stuckwp || numcands >= ARRAYCOUNT(cands)) {
+				continue;
+			}
+
+			for (k = 0; k < numcands && cands[k] != wp; k++);
+
+			if (k == numcands) {
+				cands[numcands++] = wp;
+			}
+		}
+	}
+
+	if (numcands == 0) {
+		return false;
+	}
+
+	start = rngRandom() % numcands;
+
+	for (i = 0; i < numcands; i++) {
+		struct waypoint *wp = cands[(start + i) % numcands];
+		struct pad pad;
+		RoomNum rooms[2];
+		f32 dx;
+		f32 dz;
+		f32 dist;
+
+		padUnpack(wp->padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+		dx = pad.pos.x - prop->pos.x;
+		dz = pad.pos.z - prop->pos.z;
+		dist = sqrtf(dx * dx + dz * dz);
+
+		if (dist < 60.0f || dist > 1200.0f || !chrGoPosMayCutTo(chr, &pad.pos)) {
+			continue;
+		}
+
+		rooms[0] = pad.room;
+		rooms[1] = -1;
+
+		if (!func0f03654c(chr, &prop->pos, prop->rooms, &pad.pos, rooms, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)) {
+			continue;
+		}
+
+		chr->act_gopos.endpos = pad.pos;
+		roomsCopy(rooms, chr->act_gopos.endrooms);
+		chr->act_gopos.target = wp;
+		chr->act_gopos.curindex = 0;
+		chr->act_gopos.flags = GOPOSFLAG_RUN | GOPOSFLAG_INIT;
+		chr->act_gopos.turnspeed = 0;
+		chr->unk32c_21 = 0;
+		chr->act_gopos.waydata.age = 0;
+		chr->act_gopos.waydata.gotaimposobj = 0;
+
+		for (k = 0; k < MAX_CHRWAYPOINTS; k++) {
+			chr->act_gopos.waypoints[k] = NULL;
+		}
+
+		chr->act_gopos.waypoints[0] = wp;
+
+		chrGoPosInitExpensive(chr);
+
+		chr->goposforce = -1;
+		chr->sleep = 0;
+		chr->liftaction = LIFTACTION_NOTUSINGLIFT;
+		chr->lastmoveok60 = g_Vars.lvframe60;
+
+		aibot->navdetourwp = wp;
+		aibot->navdetour60 = g_Vars.lvframe60;
+		aibot->navwp = wp;
+		aibot->navbest = dist;
+		aibot->navprogress60 = g_Vars.lvframe60;
+
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Watch a simulant's progress along its route, and when it has come no nearer
+ * the pad it is running to for NAV_NOPROGRESS, send it on a detour.
+ *
+ * Nearer is in three dimensions, so a climb up a ladder is progress. A
+ * simulant waiting for a lift, or waiting at a door, is not watched.
+ */
+static bool chrGoPosWatchProgress(struct chrdata *chr)
+{
+	struct aibot *aibot = chr->aibot;
+	struct waypoint *wp = chr->act_gopos.waypoints[chr->act_gopos.curindex];
+	struct pad pad;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+	f32 dist;
+
+	if (!wp || chrGoPosIsTakingLift(chr) || chrGoPosIsWaiting(chr)) {
+		aibot->navwp = NULL;
+		return false;
+	}
+
+	padUnpack(wp->padnum, PADFIELD_POS, &pad);
+
+	dx = pad.pos.x - chr->prop->pos.x;
+	dy = pad.pos.y - chr->prop->pos.y;
+	dz = pad.pos.z - chr->prop->pos.z;
+	dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+	if (wp != aibot->navwp || dist < aibot->navbest - 20.0f) {
+		aibot->navwp = wp;
+		aibot->navbest = dist;
+		aibot->navprogress60 = g_Vars.lvframe60;
+		return false;
+	}
+
+	if (g_Vars.lvframe60 - aibot->navprogress60 < NAV_NOPROGRESS) {
+		return false;
+	}
+
+	aibot->navbest = dist;
+	aibot->navprogress60 = g_Vars.lvframe60;
+
+	if (chrGoPosDetour(chr, wp)) {
+		return true;
+	}
+
+	// No detour to take, and in the air: caught on a ledge's lip on the way
+	// down, where the fall cannot go on and the edge rule held every step
+	// off it. On Skedar a simulant hung there for a minute and a half. Let
+	// it step for a second, wherever that takes it.
+	if (chr->fallspeed.y != 0.0f || chr->manground > chr->ground + 5.0f) {
+		aibot->navedgefree60 = g_Vars.lvframe60 + TICKS(60);
+	}
+
+	return false;
+}
+
+#endif
+
 bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 goposflags)
 {
 	struct prop *prop = chr->prop;
@@ -6716,8 +7131,17 @@ bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 g
 		&& (chr->act_gopos.flags & GOPOSMASK_SPEED) == (goposflags & 0xff & GOPOSMASK_SPEED)
 		&& !chrGoPosIsWaiting(chr);
 	s32 ismagic = isgopos && chr->act_gopos.waydata.mode == WAYMODE_MAGIC;
+	struct waypoint *headingto = isgopos ? chr->act_gopos.waypoints[chr->act_gopos.curindex] : NULL;
 	struct coord prevpos;
 	s32 numwaypoints = 0;
+
+	if (chr->aibot && (chrGoPosIsTakingLift(chr)
+#ifndef PLATFORM_N64
+				|| chrGoPosIsDetouring(chr)
+#endif
+				)) {
+		return true;
+	}
 
 	for (i = 0; chr->prop->rooms[i] != -1; i++) {
 		chr->oldrooms[i] = chr->prop->rooms[i];
@@ -6770,6 +7194,18 @@ bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 g
 
 		for (i = 0; i < MAX_CHRWAYPOINTS; i++) {
 			chr->act_gopos.waypoints[i] = waypoints[i];
+		}
+
+		if (chr->aibot && headingto && waypoints[0] != headingto && waypoints[1] == headingto
+				&& chr->lastmoveok60 >= g_Vars.lvframe60 - TICKS(30)) {
+			// The new route runs through the pad the simulant was already
+			// running to, from one behind it: carry on to it. Deciding afresh
+			// each time whether to skip the pad behind turned the simulant
+			// round whenever the answer changed, and on Complex it paced
+			// between two pads for a minute.
+			chr->act_gopos.curindex = 1;
+		} else {
+			chrGoPosSkipPassedWaypoint(chr);
 		}
 
 		chrGoPosInitExpensive(chr);
@@ -13775,6 +14211,12 @@ void chrTickGoPos(struct chrdata *chr)
 		chrGoToRoomPos(chr, &chr->act_gopos.endpos, chr->act_gopos.endrooms, chr->act_gopos.flags);
 	}
 
+#ifndef PLATFORM_N64
+	if (chr->aibot && chr->act_gopos.waydata.mode != WAYMODE_MAGIC && chrGoPosWatchProgress(chr)) {
+		return;
+	}
+#endif
+
 	chrGoPosConsiderRestart(chr);
 	chrGoPosGetCurWaypointInfoWithFlags(chr, &curwppos, curwprooms, &curwpflags);
 
@@ -13850,7 +14292,7 @@ void chrTickGoPos(struct chrdata *chr)
 		if (waypoint) {
 			padUnpack(waypoint->padnum, PADFIELD_FLAGS | PADFIELD_POS, &pad);
 
-			arrivingxyz = posIsArrivingAtPos(&chr->prevpos, &prop->pos, &pad.pos, 30);
+			arrivingxyz = chrGoPosIsArrivingAtPos(chr, &pad.pos);
 			arrivingxz = posIsArrivingLaterallyAtPos(&chr->prevpos, &prop->pos, &pad.pos, 30);
 
 			if (pad.flags & PADFLAG_AICROUCH) {
@@ -13868,7 +14310,7 @@ void chrTickGoPos(struct chrdata *chr)
 			}
 		} else {
 			// No more waypoints - chr is finished
-			if (posIsArrivingAtPos(&chr->prevpos, &prop->pos, &chr->act_gopos.endpos, 30) ||
+			if (chrGoPosIsArrivingAtPos(chr, &chr->act_gopos.endpos) ||
 					(chr->inlift && posIsArrivingLaterallyAtPos(&chr->prevpos, &prop->pos, &chr->act_gopos.endpos, 30))) {
 				if (chr->act_gopos.flags & GOPOSFLAG_FORPATHSTART) {
 					chrTryStartPatrol(chr);
@@ -13928,7 +14370,8 @@ void chrTickGoPos(struct chrdata *chr)
 							}
 
 							// Some bbox related check
-							if (func0f03654c(chr, &prop->pos, prop->rooms, &nextpos, nextrooms, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)) {
+							if (func0f03654c(chr, &prop->pos, prop->rooms, &nextpos, nextrooms, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)
+									&& chrGoPosMayCutTo(chr, &nextpos)) {
 								chrGoPosAdvanceWaypoint(chr);
 								chrGoPosAdvanceWaypoint(chr);
 							}
@@ -13994,13 +14437,15 @@ void chrTickGoPos(struct chrdata *chr)
 
 							// sp160 < DEG2RAD(45) || sp160 > DEG2RAD(315)
 							if (sp160 < 0.7852731347084f || sp160 > 5.4969120025635f) {
-								if (func0f03654c(chr, &prop->pos, prop->rooms, &nextpos, nextrooms, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)) {
+								if (func0f03654c(chr, &prop->pos, prop->rooms, &nextpos, nextrooms, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)
+										&& chrGoPosMayCutTo(chr, &nextpos)) {
 									chrGoPosAdvanceWaypoint(chr);
 								}
 							}
 						}
 					} else {
-						if (func0f03654c(chr, &prop->pos, prop->rooms, &nextpos, nextrooms, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)) {
+						if (func0f03654c(chr, &prop->pos, prop->rooms, &nextpos, nextrooms, NULL, chr->radius * 1.2f, CDTYPE_PATHBLOCKER | CDTYPE_BG)
+								&& chrGoPosMayCutTo(chr, &nextpos)) {
 							chrGoPosAdvanceWaypoint(chr);
 						}
 					}

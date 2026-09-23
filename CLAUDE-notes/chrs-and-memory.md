@@ -338,3 +338,121 @@ gives a pick the list no longer has the body's default head and leaves the
 saved number alone, so it comes back when the pool does. Reproduced and
 verified with `build/gexrom/cicrash.py` on `save_ci` (`InstituteCharacterHead=200`
 of 127): the page opens and shows head 120.
+
+## Simulants that stopped getting anywhere: stock's route follower, fixed for them (2026-09-23)
+
+The user's report: simulants get stuck in corners, pace G5's catwalks, will not
+drop off platforms their route goes over, and at the 500% speed slider swirl
+"like tornados"; they should get about and hunt the player. The brief was
+"the PD AI, without the bugs": everything below is inside stock's route
+follower (`chrTickGoPos()`, `chrGoToRoomPos()`, `chr0f01f378()`), for chrs
+with an `aibot` only - guards, GE Plus's included, are untouched.
+
+Measured with `tools/simstall/probe.sh` over 48 seeded three-minute matches
+(G5, Complex, Pipes, Skedar x 6 seeds x NormalSims / 500% DarkSims, player
+invincible at the spawn; `eval.sh` runs the 3-seed half) and `summary.py`,
+stock (2b221d952) against this, the same matches:
+
+| | stalled samples | fall deaths | nearest sim to player | sims with player in sight |
+|---|---|---|---|---|
+| NormalSims, stock | 709 | 7 | 952 | 0.63 |
+| NormalSims, now | 332 | 3 | 957 | 0.68 |
+| 500% DarkSims, stock | 6691 | 10 | 799 | 0.78 |
+| 500% DarkSims, now | 778 | 4 | 782 | 0.98 |
+
+GoldenEye Arenas' Surface: stock sims fell to their deaths 35 times in two
+two-minute matches, none now. The largest stall left is Pipes' lift, where a
+simulant waits about five seconds at pad 59 for the car, as stock means it to.
+Cost with 80 simulants on Skedar: about 2% of the game thread (the cut test
+1.3%, the progress watch 0.4%).
+
+The faults, each found by tracing a stuck simulant frame by frame
+(`probe.sh` with `DETAIL=1` dumps its route; a gdb watchpoint on
+`act_gopos.curindex` names who changed it):
+
+- **Cutting across the air (G5 catwalks).** The skip-ahead checks in
+  `chrTickGoPos()` let a chr run straight to a pad further on if the line is
+  clear, and a line is clear through the air. From catwalk pad 107, whose
+  route dropped to floor pad 100, a simulant saw pad 105 past the drop, cut
+  to it, and ran along the catwalk to stand over it. `chrGoPosMayCutTo()`
+  walks the floor to the pad in 40-unit steps (no step up over 30 or down over
+  45, no gap, ending under the pad) and refuses while the simulant is over an
+  edge (its ground is already the floor below). Ramps pass; drops, catwalk
+  edges and storeys overhead do not.
+- **Re-planning from the pad behind (ramps, catwalks).** A chase re-plans
+  every second (`botcmdTickDistMode()`) from the pad closest to the simulant,
+  often the one it has just passed; half way down G5's ramp 111-113 that sent
+  it back up, every second. `chrGoPosSkipPassedWaypoint()` starts at the second
+  pad when the simulant is nearer it than the first is and may cut to it; and a
+  new route through the pad the simulant was already running to keeps running
+  to it (flip-flopping between the two answers paced it on Complex).
+- **The lift (Pipes).** The chase re-plan fired as a simulant stepped onto the
+  lift after waiting for it; the new route's next pad was the floor above, in
+  sight, so it walked off the lift at the bottom. `chrGoPosIsTakingLift()` holds
+  the route while it waits, boards, rides or gets off.
+- **Arriving at a pad (G5 pad 10).** Stock arrives when the chr's position is
+  within 150 of the pad's height; the chr's position sits a varying height over
+  its floor and pads 100-190 over theirs, and a simulant on pad 10 was 156
+  short, stepped about it and slid off the walkway into the shaft.
+  `chrGoPosIsArrivingAtPos()` measures from the floor, -60 to 210 (260 took a
+  simulant half way up a ladder as arrived at the top).
+- **Drops taken for the void (Pipes' and Skedar's drop pads, G5's catwalks).**
+  The floor search is given the rooms around the chr's own height, so over a
+  drop it finds nothing at all - the floor below is in a room under it, which a
+  falling chr picks up on the way down. Both edge rules, the fast simulant's
+  step walk (`chrWalkBotMove()`, 2b221d952) and stock's off-screen rescue,
+  held a simulant at every such edge; at 500% the step walk is used for every
+  move, so fast simulants stood at the top of drops all match.
+  `chrHasFloorBelow()` gathers rooms down to `BOTDROP_MAX` (1000) below: a
+  floor within that is a drop and the simulant walks off it; no floor, or one
+  further down (G5's shafts are 9000 deep), is the void and the simulant is
+  held at the edge, on screen or off, walked or not. In the air it is only the
+  step out over the void that is taken back, so a simulant going off a catwalk
+  comes down on the floor under it. Two holds that never let go were also
+  fixed: a simulant already standing where no floor is found (`ground` is
+  clamped to exactly -100000, so test `<=`), and one caught on a ledge's lip on
+  the way down (`navedgefree60`, below). Held in the air, the floor flags of
+  the floor it was held off must be dropped too, or a killing one kills it as
+  it lands on the safe one.
+- **Ladders at speed.** A chr on a ladder turns its walk into the climb and
+  stays put across the floor. A fast simulant catches a ladder from further
+  off, where the climb meets the floor above instead of the hole: it neither
+  climbed nor moved, and spun. With the climb blocked it takes the step it was
+  walking.
+- **Stuck with no way out (Complex's stair, 125-123).** Stock's one-second
+  stuck rule re-plans the same route, which for a one-pad route is nothing;
+  a simulant stood 77 units short of the top of the stair for two minutes.
+  `chrGoPosWatchProgress()`: if a simulant comes no nearer (in 3-D, so a climb
+  counts) to the pad it is running to for 2.5 s, `chrGoPosDetour()` sends it
+  straight to a neighbour of that pad, or of the pad closest to it, that
+  `chrGoPosMayCutTo()` allows and the stock line test clears, picked at
+  random; its errand's re-plans leave the detour alone for 3 s. With no detour
+  and in the air, the edge rule lets it step for a second.
+
+Left as it is: at 500% a simulant still circles about 0.65% of the time
+(`summary.py`'s "circling": 3 s near the same pad, moving, never reaching it;
+stock 0.42%, when stock's fast simulants spent 19% of theirs stuck). Most of
+it is Complex's pads 151 -> 149, and it is the level's layout, not speed:
+NormalSims do it too. The ramp up to 149 runs along z -1817, the link from 151
+along z -1777 beside it, so a simulant following the link stays on the floor
+and arrives under the landing, 227 below 149, where it cannot arrive; it waits
+there until the progress watch sends it on a detour. A fix would be for a
+chr's route to follow the floor it walks - a ramp's line rather than the
+pad-to-pad line - which nothing in PD's route follower does.
+
+Tried and taken out, each worse over the 48 matches: cutting a fast simulant's
+step over the pad below when going down a drop (Pipes' drop pads land on
+pipes over its killing pit, and steered onto the pad it missed and fell in);
+holding a simulant at the edge of a drop onto a killing floor (a GEOFLAG_DIE
+floor kills only a chr that lands on it, and Pipes' lower walkway runs level
+over one - stalls rose, falls did not fall); and starting a simulant's route at
+the nearest pad it can walk to rather than the nearest it can see (stalls on
+Complex rose ninefold at 500%). The A/B was one binary with the rules behind
+environment switches, so every variant played the same seeds.
+
+Traps: every change moves the whole match, so one run is noise - compare the
+24-run totals and read the spots. A gdb breakpoint condition on a frame number
+the binary never lands on silently never fires; `lvTick` with
+`lvframe60 % 30 == 0` is safe under `--fixed-step`. The probe must set the
+difficulty on frame 0, as the trace scripts must, or two runs of one seed
+differ.

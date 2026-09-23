@@ -558,6 +558,63 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
 #ifndef PLATFORM_N64
 #define BOTMOVE_STEP     40.0f
 #define BOTMOVE_MAXSTEPS 16
+#define BOTDROP_MAX      1000.0f
+
+/**
+ * Whether the floor search's "nothing under the chr" at pos is a drop to a
+ * floor below or the edge of the world.
+ *
+ * A drop's floor is often in a room under the one the chr is in, and the
+ * rooms the search is given are only those around the chr's own height, so
+ * over the edge of Pipes' drop pads, or a G5 catwalk, it finds nothing at all.
+ * A chr walking off falls and picks the lower room up on the way down, which
+ * is how stock goes over them. The simulants' edge rules below took every
+ * floorless step for the edge of the world and held the simulant there, so a
+ * fast simulant (and any simulant off screen at a low frame rate) could not
+ * take a drop its route was built through, and stood at the top for the rest
+ * of the match. Here the rooms are gathered down to BOTDROP_MAX below as well:
+ * a floor within that is a drop to take - G5's catwalks drop about 300,
+ * Skedar's drop pads nearly 600. G5's shafts, nine thousand units deep, and
+ * the void off a map's edge are not.
+ */
+static bool chrHasFloorBelow(struct chrdata *chr, struct coord *pos, RoomNum *rooms)
+{
+	struct coord lower;
+	struct coord upper;
+	RoomNum tallrooms[16];
+	u16 floorcol;
+	u16 floorflags;
+	u8 floortype;
+	RoomNum floorroom;
+	s32 inlift;
+	struct prop *lift;
+	f32 ground;
+	s32 i;
+
+	for (i = 0; rooms[i] != -1 && i < 8; i++) {
+		tallrooms[i] = rooms[i];
+	}
+
+	tallrooms[i] = -1;
+
+	if (i == 0) {
+		return false;
+	}
+
+	lower.x = pos->x - 50.0f;
+	lower.y = chr->manground - BOTDROP_MAX;
+	lower.z = pos->z - 50.0f;
+
+	upper.x = pos->x + 50.0f;
+	upper.y = pos->y;
+	upper.z = pos->z + 50.0f;
+
+	bgFindEnteredRooms(&lower, &upper, tallrooms, ARRAYCOUNT(tallrooms) - 1, true);
+
+	ground = chrFindGround(pos, chr->radius, tallrooms, &floorcol, &floortype, &floorflags, &floorroom, &inlift, &lift);
+
+	return ground > -100000 && ground >= chr->manground - BOTDROP_MAX;
+}
 
 /**
  * A simulant's move is tested as one straight cylinder move from where it
@@ -577,7 +634,7 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
  * rooms the prop is registered in are left in origrooms, for the caller to
  * put back before it deregisters them.
  */
-static bool chrWalkBotMove(struct chrdata *chr, struct coord *dst, f32 *manground, RoomNum *origrooms)
+static bool chrWalkBotMove(struct chrdata *chr, struct coord *dst, f32 *manground, RoomNum *origrooms, bool *drop)
 {
 	struct prop *prop = chr->prop;
 	f32 dx = dst->x - prop->pos.x;
@@ -587,6 +644,13 @@ static bool chrWalkBotMove(struct chrdata *chr, struct coord *dst, f32 *mangroun
 	s32 i;
 
 	if (dist <= BOTMOVE_STEP) {
+		return false;
+	}
+
+	// Somewhere the floor search already finds nothing - the head of one of
+	// Pipes' ladders - every step would stop at the first, and the simulant
+	// stood there for the rest of the match. Stock's move gets it off.
+	if (chr->ground <= -100000) {
 		return false;
 	}
 
@@ -633,8 +697,11 @@ static bool chrWalkBotMove(struct chrdata *chr, struct coord *dst, f32 *mangroun
 		ground = chrFindGround(&probe, chr->radius, proberooms,
 				&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
 
-		// A jump may cross a gap; anyone else stops at the edge
-		if (ground < -100000 && !botIsJumping(chr)) {
+		// A jump may cross a gap; anyone else stops at the edge. The step
+		// past it is the caller's to take, and it is a drop if there is a
+		// floor to land on.
+		if (ground < *manground - BOTDROP_MAX && !botIsJumping(chr)) {
+			*drop = chrHasFloorBelow(chr, &probe, proberooms);
 			break;
 		}
 
@@ -684,7 +751,9 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 #endif
 #ifndef PLATFORM_N64
 	bool walked = false;
+	bool walkdrop = false;
 	RoomNum walkrooms[8];
+	struct coord offladder = {0, 0, 0};
 #endif
 
 	// NTSC beta reads g_Vars lvupdate properties throughout this function,
@@ -875,6 +944,11 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 			f32 xdiff = arg2->x - arg1->x;
 			f32 zdiff = arg2->z - arg1->z;
 
+#ifndef PLATFORM_N64
+			offladder.x = arg2->x;
+			offladder.z = arg2->z;
+#endif
+
 			arg2->x = arg1->x;
 			arg2->z = arg1->z;
 
@@ -909,7 +983,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 			if (chr->aibot && !chr->onladder && race != RACE_EYESPY
 					&& (chr->chrflags & CHRCFLAG_HAS_SPECIAL_DEATH_ANIMATION) == 0
 					&& !(chr->actiontype == ACT_SKJUMP && chr->act_skjump.state == SKJUMPSTATE_AIRBORNE)) {
-				walked = chrWalkBotMove(chr, arg2, &manground, walkrooms);
+				walked = chrWalkBotMove(chr, arg2, &manground, walkrooms, &walkdrop);
 			}
 #endif
 
@@ -950,6 +1024,22 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 				if (chr0f01f264(chr, arg2, spfc, yincrement, true)) {
 					chr->manground += yincrement;
 				}
+#ifndef PLATFORM_N64
+				else if (chr->aibot && (offladder.x != arg1->x || offladder.z != arg1->z)) {
+					// A chr on a ladder turns its walk into the climb and
+					// stays where it is across the floor. A fast simulant
+					// catches a ladder from further off than a walker does,
+					// and from there the climb met the floor above rather
+					// than the hole the ladder goes up through: it could
+					// neither climb nor move, and spun at the foot of the
+					// ladder for the rest of the match. With the climb
+					// blocked it takes the step it was walking instead,
+					// which brings it in to the ladder.
+					arg2->x = offladder.x;
+					arg2->z = offladder.z;
+					chrCalculatePushPos(chr, arg2, spfc, true);
+				}
+#endif
 #else
 				if (chr0f01f264(chr, arg2, spfc, yincrement)) {
 					chr->manground += yincrement;
@@ -989,14 +1079,24 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 #if VERSION >= VERSION_NTSC_1_0
 #ifndef PLATFORM_N64
-					// A walked move ends one step past the last floor found,
-					// so a floorless end is the edge, wherever the chr is
+					// A simulant about to step off into nothing is held at
+					// the edge: where no floor lies within BOTDROP_MAX below
+					// (chrHasFloorBelow), on screen or off, walked or not.
+					// Stock held only a chr off screen at a low frame rate,
+					// and it held that one at every drop as well, including
+					// the ones its route went over; so a simulant on screen
+					// ran into G5's shaft now and then, and one off screen
+					// stood at the top of a drop for good. A drop to a floor
+					// below - a G5 catwalk down to the floor under it, Pipes'
+					// drop pads - is taken as stock takes it, by falling. A
+					// simulant already off its floor, or jumping, is not held.
 					if (chr->aibot
-							&& ground < -100000
-							&& ((walked && !botIsJumping(chr))
-								|| (chr->aibot->forceslowupdates == 0
-									&& g_Vars.lvupdate60 >= 5
-									&& (chr->prop->flags & PROPFLAG_ONANYSCREENPREVTICK) == 0))) {
+							&& ground < chr->manground - BOTDROP_MAX
+							&& chr->ground > -100000
+							&& !botIsJumping(chr)
+							&& (!walked || !walkdrop)
+							&& g_Vars.lvframe60 >= chr->aibot->navedgefree60
+							&& !chrHasFloorBelow(chr, sp98, sp94)) {
 #else
 					if (chr->aibot
 							&& chr->aibot->forceslowupdates == 0
@@ -1008,18 +1108,40 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 						// So they're about to fall out of the geometry.
 						// Run the previous calculations but using their current
 						// position instead. This holds them in place.
-						chr->aibot->forceslowupdates = 10;
+#ifndef PLATFORM_N64
+						// In the air - off a catwalk's edge, on the way down
+						// to the floor under it - only the step out over the
+						// void is taken back. The fall goes on, straight down
+						// onto the floor the simulant was over, which is where
+						// its route was taking it.
+						if (chr->fallspeed.y != 0.0f || chr->manground > chr->ground + 5.0f) {
+							// The floor it was over: the rooms it is in may
+							// be the ones it fell from, which do not have it
+							arg2->x = prop->pos.x;
+							arg2->z = prop->pos.z;
 
-						arg2->x = prop->pos.x;
-						arg2->y = prop->pos.y;
-						arg2->z = prop->pos.z;
+							roomsCopy(prop->rooms, spfc);
 
-						roomsCopy(prop->rooms, spfc);
+							// ...and not the flags of the floor it was held
+							// off, or a killing one killed it as it landed
+							ground = chr->ground;
+							floorflags = 0;
+						} else
+#endif
+						{
+							chr->aibot->forceslowupdates = 10;
 
-						lvupdate60freal = 0.0f;
+							arg2->x = prop->pos.x;
+							arg2->y = prop->pos.y;
+							arg2->z = prop->pos.z;
 
-						ground = chrFindGround(arg2, chr->radius, spfc,
-								&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+							roomsCopy(prop->rooms, spfc);
+
+							lvupdate60freal = 0.0f;
+
+							ground = chrFindGround(arg2, chr->radius, spfc,
+									&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+						}
 					}
 #endif
 

@@ -873,6 +873,18 @@ struct aibot {
 	// the window in which the roll has the body to itself are both measured
 	// from it, the way the player's rolltime60 is.
 	s32 rolltime60;
+	// The route progress watch: the waypoint the bot is running to, the
+	// nearest it has come to it and when it last came nearer
+	// (chrGoPosWatchProgress), and the detour it took when it stopped
+	// coming nearer, with when it took it (chrGoPosDetour).
+	struct waypoint *navwp;
+	f32 navbest;
+	s32 navprogress60;
+	struct waypoint *navdetourwp;
+	s32 navdetour60;
+	// Until this lvframe60 the edge rules in chr0f01f378() leave the bot
+	// be: set when it is held in the air with no detour to take.
+	s32 navedgefree60;
 #endif
 };
 
