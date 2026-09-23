@@ -11835,6 +11835,12 @@ void bgunRender(Gfx **gdlptr)
 			// ROM, hand and all, or nothing at all (gegadgets.c)
 			geshown = gegadgetsRenderHand(&renderdata, &hand->gunmodel, weaponnum);
 
+			// and GoldenEye's grenade and mines on its own model are not
+			// drawn in the hand at all (geguns.c)
+			if (gegunsOwnModelHidden(weaponnum)) {
+				geshown = true;
+			}
+
 			if (!geshown)
 #endif
 			modelRender(&renderdata, &hand->gunmodel);

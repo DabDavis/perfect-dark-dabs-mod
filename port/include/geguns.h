@@ -53,6 +53,7 @@ u16 gegunsOwnModel(s32 index);
 // muzzle (bondgun.c asks)
 void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
+s32 gegunsOwnModelHidden(s32 weaponnum);
 void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);

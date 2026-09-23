@@ -777,28 +777,38 @@ static void gegunsFindConverted(void)
 	}
 }
 
-/**
- * Whether the conversion has GoldenEye's own first-person model for this gun,
- * drawn in the hand.
- *
- * Not yet the grenade and the three mines: their hand and body hang under
- * position nodes GoldenEye poses by keyframe (gunSample1PTransform()), and
- * posed as a plain model they come out with a scale of nought or garbage -
- * the grenade filled the bottom of the screen. They keep the model they had.
- */
+/** Whether the conversion has GoldenEye's own first-person model for this gun. */
 s32 gegunsHasOwnModel(s32 index)
 {
 	gegunsFindConverted();
 
-	switch (WEAPON_GE_FIRST + index) {
+	return index >= 0 && index < NUM_GE_GUNS && convertedModel[index] != 0;
+}
+
+/**
+ * Whether GoldenEye draws nothing in the hand for this weapon, on its own
+ * model: the grenade and the three mines carry
+ * WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND, which in gunfire.c leaves
+ * field_87F clear and the model undrawn at rest and through the throw alike -
+ * what flies is the projectile, a model of its own. Drawn anyway, the
+ * grenade's 715-unit model (a hand round it) filled the bottom of the view and
+ * the mines sat below its edge. The native port shows only the ammunition icon.
+ */
+s32 gegunsOwnModelHidden(s32 weaponnum)
+{
+	if (!gegunsOwnModelInUse(weaponnum)) {
+		return 0;
+	}
+
+	switch (weaponnum) {
 	case WEAPON_GE_GRENADE:
 	case WEAPON_GE_TIMEDMINE:
 	case WEAPON_GE_PROXIMITYMINE:
 	case WEAPON_GE_REMOTEMINE:
-		return 0;
+		return 1;
 	}
 
-	return index >= 0 && index < NUM_GE_GUNS && convertedModel[index] != 0;
+	return 0;
 }
 
 /**
