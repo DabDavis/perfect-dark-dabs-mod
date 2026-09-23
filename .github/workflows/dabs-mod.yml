@@ -114,16 +114,28 @@ jobs:
           # linked against the builder's glibc and SDL2 regardless, so this
           # adds a dependency of the same kind rather than a new sort of one.
           sudo apt-get install -y git gcc g++ make cmake libsdl2-dev zlib1g-dev libcurl4-openssl-dev
-          # The Vulkan renderer: headers, and shaderc with glslang and
-          # SPIRV-Tools, all linked in statically - nothing new to install to
-          # run it. Without them the build is OpenGL only, and says so.
-          sudo apt-get install -y libvulkan-dev libshaderc-dev glslang-dev spirv-tools
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Name the branch for the version string
         run: git checkout -B "$MOD_BRANCH"
+      - name: Fetch the Vulkan headers and shaderc
+        # The Vulkan renderer's shader compiler, linked in statically so
+        # there is nothing new to install to run it. 22.04 has no
+        # libshaderc-dev, so it comes from LunarG's SDK, which is built on
+        # 22.04 and whose combined archive really does carry glslang and
+        # SPIRV-Tools; only that and the headers are unpacked. Without them
+        # the build is OpenGL only, and CMake says so.
+        run: |
+          curl -sfL -o vulkansdk.tar.xz https://sdk.lunarg.com/sdk/download/1.4.357.1/linux/vulkansdk-linux-x86_64-1.4.357.1.tar.xz
+          mkdir -p vulkansdk
+          tar -xJf vulkansdk.tar.xz -C vulkansdk --strip-components=2 \
+            1.4.357.1/x86_64/lib/libshaderc_combined.a \
+            1.4.357.1/x86_64/include/shaderc \
+            1.4.357.1/x86_64/include/vulkan \
+            1.4.357.1/x86_64/include/vk_video
+          rm vulkansdk.tar.xz
       - name: Build pd.x86_64
-        run: cmake -G"Unix Makefiles" -Bbuild -DUPDATE_CHANNEL="$UPDATE_CHANNEL" . && cmake --build build -j
+        run: cmake -G"Unix Makefiles" -Bbuild -DUPDATE_CHANNEL="$UPDATE_CHANNEL" -DCMAKE_PREFIX_PATH="$PWD/vulkansdk" . && cmake --build build -j
       - name: Prepare artifact for packaging
         run: |
           mkdir -p bin/data
