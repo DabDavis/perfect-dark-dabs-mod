@@ -56,6 +56,7 @@
 #include "mod.h"
 #ifndef PLATFORM_N64
 #include "xblasky.h"
+#include "gebeansky.h"
 #include "modloader.h"
 #include "geroom.h"
 #endif
@@ -1290,7 +1291,7 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 #ifndef PLATFORM_N64
 			// The XBLA release's cube is painted with its own stars.
-			if (!xblaSkyIsDrawn())
+			if (!xblaSkyIsDrawn() && !gebeanSkyIsDrawn())
 #endif
 			gdl = starsRender(gdl);
 

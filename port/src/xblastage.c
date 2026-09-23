@@ -40,6 +40,7 @@
 #include "xblaslots.h"
 #include "gebean.h"
 #include "gebeanstage.h"
+#include "gebeansky.h"
 
 // The bg file's header: primary inflated size, section 1 size, primary stored
 // size. The primary's pointers are in the 0x0f000000 segment.
@@ -151,6 +152,7 @@ void xblaStageLevelReset(void)
 	// room asks, under whatever the switches say then.
 	xblaStageForget();
 	gebeanStageLevelReset();
+	gebeanSkyLevelReset();
 	roomsWant = xblaStageWant();
 }
 

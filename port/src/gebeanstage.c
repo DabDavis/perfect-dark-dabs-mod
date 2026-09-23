@@ -1557,6 +1557,11 @@ s32 gebeanStageDrawsEveryRoom(void)
 	return built && row && numServed > 0;
 }
 
+const char *gebeanStageLevelKey(void)
+{
+	return gebeanStageDrawsEveryRoom() ? row->key : NULL;
+}
+
 s32 gebeanStageOwnsRecord(u32 record)
 {
 	return built && record >= GEBEANSTAGE_TEXBASE && record <= GEBEANSTAGE_TEXNONE;
@@ -1585,6 +1590,7 @@ u32 gebeanStageRoomSize(s32 roomnum) { return 0; }
 uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void gebeanStageLevelReset(void) { }
 s32 gebeanStageDrawsEveryRoom(void) { return 0; }
+const char *gebeanStageLevelKey(void) { return NULL; }
 s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }
 void gebeanStageTrace(FILE *f) { }

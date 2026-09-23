@@ -1481,7 +1481,8 @@ box (paranoid 3) - the summary log line carries a per-stage timing instead.
 
 **Open**: rooms kept as GE-X's show both looks side by side at their portals;
 trees/bushes (stride 36, instancing) not drawn; Bean's skydomes
-(`files/new/skydome/`) not used; the build runs at the first room of a level,
+(`files/new/skydome/`) not used (drawn from the Community Edition since
+2026-09-23: "GoldenEye XBLA's skies" below); the build runs at the first room of a level,
 a hitch up to 0.8 s; the archive unpack now includes `files/new/background/`
 (237MB), marker `.extracted6`, so a tester's cache unpacks again.
 
@@ -8786,3 +8787,47 @@ loaded XLU batch; `VTXBATCHTYPE_XLU` is 2, bg.c's own define),
 `padlock.py` (`objDamage()` with weapon 0 does nothing to an embedded object).
 The Python converter no longer writes the C's bytes (it lags by an animation
 and 119 textures); compare the C against the C at HEAD instead.
+
+## GoldenEye XBLA's skies, from the Community Edition (2026-09-23)
+
+`port/src/gebeansky.c`, `gebeanSkyOpen()` in gebean.c. A skydome file is
+one 1277-vertex dome and a cloud cap (a disc inside it, 22000-32700 up), two
+draws with a picture each: the dome's 1024x1024 is a whole turn of the
+horizon (its u runs one repeat, 0.48 to 1.48, so it wraps), the cap's 512x512.
+**Their UVs are sixteen-thousandths**, a character's scale, not a level's
+shader scale. Every sky is the same dome raised or lowered for its level
+(Dam's lowest ring 4961 up, Silo's 10961, Statue Park's -9039), so it is
+drawn round the eye with its own height kept: the camera's turn only, no
+depth test, the farthest vertex at half the far plane, as xblasky.c's cube.
+
+**The release's own eleven are one placeholder**: the same mountain sunset
+under every name (compare the decoded pictures, not the files - the meshes
+differ). The Community Edition made the levels their own - twelve new
+pictures - and renamed the files to the level folders' names (release
+`egyptian` = CE `temple`, release `temple` = CE `aztec`/`multitemple`,
+release `caverns` = CE `caves`, Surface's `sf1`/`sf2`). So a sky is drawn
+only with the Community Edition on; without it a level keeps GoldenEye's
+own. Five of the CE's are still the placeholder (Aztec, Bunker, Caves,
+Temple, Egyptian) and are drawn as it draws them. Facility and Jungle have
+none.
+
+The CE's caps are photographs with **no alpha**, where Rare's placeholder cap
+fades out in its picture (whole to 0.33 of its radius, gone by 0.475): drawn
+as they are they left a hard circle across the dome some twenty degrees up.
+A cap whose picture has no alpha takes Rare's fade in its vertex alpha.
+
+The sky is drawn in `skyRender()` in place of the sky plane, the level's own
+sky colour filling under the dome's lowest ring; a level with a sea
+(Frigate) still has it drawn after the dome - `skyRenderWaterPlane()` with
+an explicit texel-times-shade combine (the sea's pixels are identical to
+before, 0 of 9600 differ). The star field is skipped under it, as under
+xblasky.c's cube. The archive unpack takes `files/new/skydome/` now
+(`.extracted11`).
+
+Traps: **a `G_VTX` holds 16 vertices at most** (the count is four bits), and
+30 a load drew the dome in jagged pieces; this GBI has `gSPTri2`/`gSPTri1`,
+not `gSP2Triangles`. `build/gexrom/skyshot.sh <stage> <tag> <verta> [binary]
+[dtheta]` takes an HD shot with the CE on (`data/save_sky`, the updater zip
+copied into gexrom's `added-content/`). The flat lavender and red blocks at
+the right of Surface's and Surface 2's spawn view are the HD level's own and
+were there before.

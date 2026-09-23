@@ -25,6 +25,7 @@
 #include "game/artifact.h"
 #include "game/player.h"
 #include "xblasky.h"
+#include "gebeansky.h"
 #include "texpack.h"
 #endif
 
@@ -830,6 +831,36 @@ Gfx *skyRender(Gfx *gdl)
 
 		if (xblagdl) {
 			return xblagdl;
+		}
+	}
+
+	{
+		// GoldenEye XBLA's dome over a level served in HD (gebeansky.c), with
+		// the level's sea still drawn in front of it
+		Gfx *domegdl = gebeanSkyRender(gdl);
+
+		if (domegdl) {
+			gdl = domegdl;
+
+			if (env->water_enabled) {
+				bool twinkle;
+
+				gDPPipeSync(gdl++);
+				gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+				gDPSetCombineMode(gdl++, G_CC_MODULATERGB, G_CC_MODULATERGB);
+				texSelect(&gdl, &g_TexSkyWaterConfigs[env->water_type], 1, 0, 2, 1, NULL);
+				gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+
+				twinkle = skyWaterTwinkleSetup(&gdl, env);
+				gdl = skyRenderWaterPlane(gdl);
+
+				if (twinkle) {
+					gDPPipeSync(gdl++);
+					gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+				}
+			}
+
+			return gdl;
 		}
 	}
 #endif

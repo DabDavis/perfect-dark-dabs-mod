@@ -56,8 +56,9 @@
 // models were, the fourth (".extracted4") before the N64-look guns were and the
 // fifth (".extracted5") before the levels were and the sixth (".extracted6")
 // before the remake's HD props were, so a cache holding any of them is unpacked
-// again. The tenth (".extracted10") is the menus' two fonts.
-#define GEBEAN_DONE_FILE ".extracted10"
+// again. The tenth (".extracted10") is the menus' two fonts, the eleventh the
+// skydomes.
+#define GEBEAN_DONE_FILE ".extracted11"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -80,6 +81,7 @@
 #define GEBEAN_WANT_GUNS "files/new/gun/"
 #define GEBEAN_WANT_ORIGINAL_GUNS "files/original/gun/"
 #define GEBEAN_WANT_LEVELS "files/new/background/"
+#define GEBEAN_WANT_SKIES "files/new/skydome/"
 #define GEBEAN_SKIP_HITS "_hits/"
 // the menus' own pictures: portraits, stage pictures, the cursor (gefolder.c)
 #define GEBEAN_WANT_MENU_CHARS "files/texture/characters/"
@@ -1255,6 +1257,7 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| (strstr(lower, GEBEAN_WANT_PROPS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL)
 		|| strstr(lower, GEBEAN_WANT_GUNS) != NULL || strstr(lower, GEBEAN_WANT_ORIGINAL_GUNS) != NULL
 		|| (strstr(lower, GEBEAN_WANT_LEVELS) != NULL && strstr(lower, GEBEAN_SKIP_HITS) == NULL)
+		|| strstr(lower, GEBEAN_WANT_SKIES) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL;
@@ -6489,6 +6492,55 @@ struct gebeanlevel *gebeanLevelOpen(const char *name)
 
 		level->bm.uvscale = scale;
 	}
+
+	return level;
+}
+
+/**
+ * A level's sky, files/new/skydome/<name>: one dome and a cloud cap over it,
+ * each a draw of its own with a picture of its own (the dome's 1024x1024, a
+ * whole turn of the horizon; the cap's 512x512 with its alpha). Every sky is
+ * the same 1277 vertex dome raised or lowered for its level. Its UVs are a
+ * character's sixteen-thousandths, not a level's shader scale: the dome's u
+ * runs exactly one repeat, from 0.48 to 1.48, round the horizon. NULL when
+ * neither the Community Edition's overlay nor the release has it.
+ */
+struct gebeanlevel *gebeanSkyOpen(const char *name)
+{
+	struct gebeanlevel *level;
+	char source[64];
+	char path[FS_MAXPATH + 1];
+
+	if (!gebeanLocate(1)) {
+		return NULL;
+	}
+
+	snprintf(source, sizeof(source), "new/skydome/%s", name);
+
+	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
+		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+
+		if (fsFileSize(path) < 0) {
+			return NULL;
+		}
+	}
+
+	level = calloc(1, sizeof(*level));
+
+	if (!level) {
+		return NULL;
+	}
+
+	snprintf(level->source, sizeof(level->source), "%s", source);
+
+	if (!beanLoad(&level->bm, level->source, 1)) {
+		free(level);
+		return NULL;
+	}
+
+	level->bm.uvscale = 16384.0f;
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws, %d textures", level->source, level->bm.numdraws, level->bm.numtex);
 
 	return level;
 }

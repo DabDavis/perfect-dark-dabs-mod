@@ -182,6 +182,13 @@ struct gebeanlevel *gebeanLevelOpen(const char *name);
 void gebeanLevelClose(struct gebeanlevel *level);
 
 /**
+ * A level's sky, files/new/skydome/<name>, opened as a level is: its
+ * triangles and pictures through gebeanLevelTriangles()/gebeanLevelTexture(),
+ * closed with gebeanLevelClose(). NULL when it is not there.
+ */
+struct gebeanlevel *gebeanSkyOpen(const char *name);
+
+/**
  * One of the release's models opened for its pictures alone, which is what the
  * folder screens want of it (gefolder.c): GoldenEye's own geometry, painted
  * with the release's art. source is the path under files/, so

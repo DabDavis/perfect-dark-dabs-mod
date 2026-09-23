@@ -40,6 +40,9 @@ uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len);
  */
 s32 gebeanStageDrawsEveryRoom(void);
 
+/** GoldenEye's own key for the level being served in HD ("dam"), or NULL. */
+const char *gebeanStageLevelKey(void);
+
 /** A new level: the last one's rooms and mesh go. */
 void gebeanStageLevelReset(void);
 
