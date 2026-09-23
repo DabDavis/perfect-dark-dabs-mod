@@ -5416,6 +5416,12 @@ static uint32_t propSkel(uint32_t skeleton, int32_t numswitches)
 	case 0x8003a15c: return 0x13;  // iris_door   -> g_Skel13 (Pdoor_irisZ, 13 matrices)
 	case 0x8003a1dc:               // door (windowed) -> g_SkelWindowedDoor
 		return numswitches >= 4 ? 0x10 : 2;
+	case 0x8003c4fc:               // prop_weapon -> g_SkelChrGun
+		// switch for switch: 0 the gunfire sprite, 2 the toggle over the
+		// star, which weaponSetGunfireVisible() turns on and off by
+		// skeleton just as GoldenEye's does by skeleton_prop_weapon - as
+		// SKEL_BASIC a guard's gun never flashed
+		return numswitches >= 3 ? 0x03 : 2;
 	case 0x8003a05c:               // cctv
 	case 0x8003a070:               // console_one_screen
 	case 0x8003a084:               // console_four_screen
@@ -5427,7 +5433,6 @@ static uint32_t propSkel(uint32_t skeleton, int32_t numswitches)
 	case 0x8003a208:               // tank
 	case 0x8003a21c:               // hat
 	case 0x8003c4d8:               // standard_object
-	case 0x8003c4fc:               // prop_weapon
 	default: break;
 	}
 
@@ -5698,14 +5703,17 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 				fail("%s: a muzzle flash with no list", p->file);
 			}
 			modelLists(&d, vtx, lists, 1, &w, 1, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
-			// A first person gun's star (a hand item, ischr 2) is GoldenEye's
-			// own count of quads, dorottex() copying that many: with nought
-			// its list still ran, on vertices never written - a yellow wedge
-			// across the screen, or a crash (converter 61). A prop's stays
-			// nought: a guard's gun is a prop, nothing here switches its star
-			// off between shots, and with its count it hung at the muzzle of
-			// every rifle a guard held (converter 62)
-			bufU32(&rec, ischr == 2 ? be32(d.v, ro) : 0);
+			// GoldenEye's own count of quads, dorottex() copying that many:
+			// with nought its list still ran, on vertices never written - a
+			// yellow wedge across the screen, or a crash (converter 61). A
+			// guard's gun is a prop, and its star sits under switch 2, the
+			// toggle weaponSetGunfireVisible() shows only while the chr fires
+			// - once the gun has GoldenEye's prop_weapon skeleton as
+			// SKEL_CHRGUN (propSkel()). Before that nothing switched it off
+			// and it hung at the muzzle of every rifle a guard held
+			// (converter 62, which wrote nought for props and so drew no
+			// flash at all; converter 64)
+			bufU32(&rec, be32(d.v, ro));
 			bufU32(&rec, SEG_MODEL + (uint32_t)vat);
 			bufU32(&rec, 0);
 			bufU32(&rec, SEG_MODEL + (uint32_t)cat);
@@ -5769,7 +5777,8 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 
 	set32(w.v, 0, SEG_MODEL + (uint32_t)nodesat);
 	// A prop keeps GoldenEye's own skeleton where Perfect Dark has it
-	// (propSkel(): the two Caverns doors and the windowed door); for
+	// (propSkel(): the two Caverns doors, the windowed door and the
+	// guards' guns); for
 	// a character SKEL_CHR where it has GoldenEye's guard skeleton, which is
 	// Perfect Dark's own joint for joint, and SKEL_HEAD where it has none (a
 	// head is one list on one matrix)

@@ -68,7 +68,7 @@ GE_SKELETONS = {
     0x8003a208: SKEL_BASIC,  # tank
     0x8003a21c: SKEL_BASIC,  # hat
     0x8003c4d8: SKEL_BASIC,  # standard_object
-    0x8003c4fc: SKEL_BASIC,  # prop_weapon
+    0x8003c4fc: 0x03,        # prop_weapon -> g_SkelChrGun (3 switches)
 }
 
 
@@ -77,6 +77,8 @@ def prop_skel(skeleton, numswitches):
     A windowed door needs its four switches: box, toggle, box, glass."""
     skel = GE_SKELETONS.get(skeleton, SKEL_BASIC)
     if skel == 0x10 and numswitches < 4:
+        return SKEL_BASIC
+    if skel == 0x03 and numswitches < 3:
         return SKEL_BASIC
     return skel
 
@@ -313,9 +315,9 @@ def convert(num):
         elif t == 0x16:
             nverts, vtx, pri = struct.unpack_from('>iII', d, ro)
             vat, nv, cat, nc, got = convert_lists(d, vtx, (pri,), w, fours=True, moved=moved)
-            # a muzzle flash: a standing prop never fires, so it draws no stars
-            # (the list stays, for the loader's sizes)
-            rat = w.put(struct.pack('>iIII', 0, SEG + vat, 0, SEG + cat))
+            # a muzzle flash: GoldenEye's own count of quads; a gun's star is
+            # under switch 2, shown only while it fires (g_SkelChrGun)
+            rat = w.put(struct.pack('>iIII', nverts, SEG + vat, 0, SEG + cat))
             gdls.append((got[0][0], got[0][1], rat + 8))
         else:
             raise ValueError('%s: node type %#x' % (name, t))
