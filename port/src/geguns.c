@@ -145,6 +145,7 @@ struct gegunstat {
 		{ speed0, speed1, speed2, speed3 }, back, up, bolt, sway, zoom, muzzle, ammotype, bitflags }
 
 // GoldenEye's WEAPONSTATBITFLAG_* bits a definition is built from (bondconstants.h)
+#define GESTATFLAG_HAS_AUTO_AIM           0x00000008
 #define GESTATFLAG_ONLY_1_HANDED          0x00000100
 #define GESTATFLAG_HIDE_FIRST_PERSON_MENU 0x00004000
 #define GESTATFLAG_USE_HOLD_TIME          0x00020000
@@ -213,6 +214,35 @@ static const u32 determiners[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST] = WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN,
 	[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST]   = WEAPONFLAG_DETERMINER_S_THE | WEAPONFLAG_DETERMINER_F_THE,
 };
+
+/**
+ * What each makes a pickup sound like: GoldenEye's
+ * set_sound_effect_for_weapontype_collection() (gunfire.c) - a knife's, a
+ * mine's for the mines and the gadgets it throws like one, ammunition for the
+ * grenade, the laser's for the Moonraker and a gun's for everything else, the
+ * GoldenEye key and the camera included. The hosts' gave the gadgets on the
+ * Data Uplink the keycard's and the key the mine's.
+ */
+static u16 gegunsPickupSound(s32 i)
+{
+	switch (WEAPON_GE_FIRST + i) {
+	case WEAPON_GE_HUNTINGKNIFE:
+	case WEAPON_GE_THROWINGKNIFE:
+		return SFX_PICKUP_KNIFE;
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_REMOTEMINE:
+	case WEAPON_GE_COVERTMODEM:
+	case WEAPON_GE_PLASTIQUE:
+		return SFX_PICKUP_MINE;
+	case WEAPON_GE_GRENADE:
+		return SFX_PICKUP_AMMO;
+	case WEAPON_GE_MOONRAKER:
+		return SFX_PICKUP_LASER;
+	}
+
+	return SFX_PICKUP_GUN;
+}
 
 /**
  * GoldenEye's ammunition types (bondconstants.h, AMMOTYPES) as the port's.
@@ -329,7 +359,8 @@ static u32 gegunsFuncSize(s32 type)
  *   N64 look draws GoldenEye's own model over it (gegunsSetOwnModelInUse()).
  * - **Perfect Dark's engine** (`engine`, the host): what the port's code asks
  *   and GoldenEye has no number for - the kind of each function, a
- *   projectile's flight, a throw's fuse, flags2 and flags3.
+ *   projectile's flight, a throw's fuse, flags2 and flags3 (less a knife's
+ *   sticking and poison). The pickup sound is GoldenEye's.
  *
  * gegunsDump() writes all of it out, and a change to this is checked by the
  * difference between two dumps.
@@ -501,6 +532,15 @@ static struct inventory_ammo *gegunsAmmo(s32 i, s32 a, const struct inventory_am
 		return NULL;
 	}
 
+	// GoldenEye's AMMO_NONE on a gun that has a row (the hunting knife; the
+	// Moonraker's model has none anyway): nothing to carry or run out of. The
+	// hunting knife kept the combat knife's knives, which it shared with the
+	// throwing knife, so throwing the last of those took it out of the
+	// inventory too (bondgun.c's pass for spent throwables)
+	if (a == 0 && stat->bitflags && stat->ammotype == 0) {
+		return NULL;
+	}
+
 	ammo = calloc(1, sizeof(*ammo));
 
 	if (!ammo) {
@@ -525,7 +565,7 @@ static struct inventory_ammo *gegunsAmmo(s32 i, s32 a, const struct inventory_am
 }
 
 /**
- * How gun i aims: GoldenEye's zoom, and no lock-on (GoldenEye has none); how
+ * How gun i aims: GoldenEye's zoom and auto-aim, and no lock-on (GoldenEye has none); how
  * far the model moves while aiming is the model's. The sniper rifle's zoom is
  * the player's own, wound in and out (currentPlayerGetGunZoomFov()), so it
  * keeps the model's.
@@ -553,6 +593,16 @@ static struct invaimsettings *gegunsAim(s32 i, const struct invaimsettings *src,
 	aim->aimdamp = src->aimdamp;
 	aim->tracktype = SIGHTTRACKTYPE_DEFAULT;
 	aim->flags = src->flags;
+
+	// Auto-aim is GoldenEye's WEAPONSTATBITFLAG_HAS_AUTO_AIM, which the
+	// launchers, the knives, the grenade and the mines lack
+	if (stat->bitflags) {
+		aim->flags &= ~INVAIMFLAG_AUTOAIM;
+
+		if (stat->bitflags & GESTATFLAG_HAS_AUTO_AIM) {
+			aim->flags |= INVAIMFLAG_AUTOAIM;
+		}
+	}
 
 	return aim;
 }
@@ -666,7 +716,13 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
 	def->flags2 = engine->flags2;
 	def->flags3 = engine->flags3;
 	def->unequippedreloadindex = engine->unequippedreloadindex;
-	def->pickupsound = engine->pickupsound;
+	def->pickupsound = gegunsPickupSound(i);
+
+	// A thrown knife of GoldenEye's does its damage and falls: it neither
+	// stays where it lands nor poisons, as the combat knife's does
+	if (WEAPON_GE_FIRST + i == WEAPON_GE_HUNTINGKNIFE || WEAPON_GE_FIRST + i == WEAPON_GE_THROWINGKNIFE) {
+		def->flags2 &= ~(WEAPONFLAG2_STICKSTOWALL | WEAPONFLAG2_POISONS);
+	}
 }
 
 /**
@@ -702,8 +758,12 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
  *   the DY357-LX's pistol whip, the Moonraker the laser's stream, the grenade
  *   launcher the Devastator's wall hugger, the rocket launcher the homing
  *   rocket, the grenade its proximity pinball and the two mines a threat
- *   detector. GoldenEye X has none of them; what it keeps (the Cougar's whip,
- *   a knife's throw, the remote mine's detonator) is kept here too. It was
+ *   detector. GoldenEye X has none of them. It kept the Cougar's whip and a
+ *   knife's throw, which GoldenEye has not: the Cougar has no second
+ *   function, the sniper rifle not the host's crouch, the hunting knife only
+ *   slashes and the throwing knife only throws (gunfire.c's ITEM_KNIFE and
+ *   ITEM_THROWKNIFE), so its throw is its first. The remote mine's detonator
+ *   stays - GoldenEye detonates with A and B, which the port's does too. It was
  *   more than a spare button: the choice of function is saved per *host*
  *   (bgunIsUsingSecondaryFunctionForHand()), so a player who had left the
  *   DY357-LX on its whip drew the Golden Gun whipping and never firing, and
@@ -739,6 +799,16 @@ static void gegunsOwnTrigger(s32 i)
 	case WEAPON_GE_GRENADE:
 	case WEAPON_GE_TIMEDMINE:
 	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_COUGARMAGNUM:
+	case WEAPON_GE_SNIPERRIFLE:
+	case WEAPON_GE_HUNTINGKNIFE:
+		def->functions[1] = NULL;
+		def->flags &= ~WEAPONFLAG_THROWABLE;
+		break;
+	case WEAPON_GE_THROWINGKNIFE:
+		// its only use is the throw (gunfire.c's ITEM_THROWKNIFE), which the
+		// combat knife carries second
+		def->functions[0] = def->functions[1];
 		def->functions[1] = NULL;
 		break;
 	}
