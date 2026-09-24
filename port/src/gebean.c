@@ -2351,6 +2351,76 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
 }
 
 /**
+ * What one texture repeat is in an HD file's UVs, as its own vertex shaders
+ * say, or 0 when they do not. Each vertex shader multiplies the fetched s16
+ * UV by a literal constant (registers c252-c255, the head of its physical
+ * block), and the physical blocks are the file's .gpu past its vertex and
+ * index buffers: 1/4096.01 in every vertex shader of the military truck,
+ * 1/16383 in the olive guard's. Over the release's 462 HD characters, heads,
+ * props and guns the literal agrees with beanMeasureUvScale() on 349 and no
+ * file carries two; on 62 props and a gun the measure took the median of
+ * pictures that tile several times over, and read the truck at 8192 - its
+ * wheels and headlights then drew one quarter of their picture (F3
+ * 20260924-085921). 51 files have no shaders of their own (their .gpu ends
+ * with its buffers) and keep the measure. The literal's register and place
+ * in the block vary with the shader, so the block is not decoded: any float
+ * past the buffers within a thousandth of a power of two from 2^-20 to 2^-5
+ * is taken, and they must all agree. The N64-look originals' literals are
+ * per picture in N64 texel units (the PPK's 1/512 against 1/16384) and are
+ * not read.
+ */
+static f32 beanShaderUvScale(const struct beanmodel *bm)
+{
+	u32 end = 0;
+	f32 found = 0.0f;
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+
+		if (beanReadVb(bm, d->vb, &vb) && vb.off + vb.count * vb.stride > end) {
+			end = vb.off + vb.count * vb.stride;
+		}
+
+		for (s32 i = 0; i < bm->numibs; i++) {
+			if (bm->ibs[i].obj == d->ib && bm->ibs[i].off + bm->ibs[i].size > end) {
+				end = bm->ibs[i].off + bm->ibs[i].size;
+			}
+		}
+	}
+
+	if (end == 0) {
+		return 0.0f;
+	}
+
+	for (u32 at = (end + 3) & ~3u; at + 4 <= bm->gpulen; at += 4) {
+		const u32 w = gebeanBE32(bm->gpu + at);
+		f32 f, r, p;
+
+		memcpy(&f, &w, sizeof(f));
+
+		if (!(f > 1.0f / 1048576.0f && f < 1.0f / 32.0f)) {
+			continue;
+		}
+
+		r = 1.0f / f;
+		p = exp2f(roundf(log2f(r)));
+
+		if (fabsf(r / p - 1.0f) > 0.001f) {
+			continue;
+		}
+
+		if (found > 0.0f && p != found) {
+			return 0.0f;
+		}
+
+		found = p;
+	}
+
+	return found;
+}
+
+/**
  * A point of Bean's gun in the host's axes: out[a] is the Bean axis named by
  * axis[a], 1 based and signed, or the same axis when there is none.
  */
@@ -3018,6 +3088,18 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	beanWalkStream(bm);
 	beanFindIndexBuffers(bm);
 	bm->uvscale = beanMeasureUvScale(bm);
+
+	// An HD model's shaders say what its UVs are in (beanShaderUvScale()); a
+	// level and a sky set their own after the load
+	if (strncmp(source, "new/", 4) == 0 && strncmp(source, "new/background/", 15) != 0
+			&& strncmp(source, "new/skydome/", 12) != 0) {
+		const f32 shader = beanShaderUvScale(bm);
+
+		if (shader > 0.0f && shader != bm->uvscale) {
+			sysLogPrintf(LOG_NOTE, "gebean: %s: UVs in %.0fths by its shaders (measured %.0f)", source, shader, bm->uvscale);
+			bm->uvscale = shader;
+		}
+	}
 
 	return 1;
 }

@@ -8994,3 +8994,42 @@ row that is not `GEBEAN_RIGID`); props and guns stay two-sided, as the
 release's props always were. `build/gexrom/truckview.sh` rings Dam's truck
 (found by walking `g_Vars.activeprops` for `OBJTYPE_TRUCK` - `g_Vars.truck` is
 NULL on a converted mission).
+
+## An HD model's UV scale is in its own vertex shaders (2026-09-24)
+
+F3 20260924-085921 on Dam: "hd bean wheel uv for truck not correct" - the
+truck's HD wheels drew tread blocks across the sidewall with the hub pushed
+to one corner. `beanMeasureUvScale()` guesses one repeat per file from the
+median texture's largest UV and read `new/prop/miltruck` at 8192; its wheel
+picture (tex 9, a whole tyre and hub) is used from 0 to 4063 and its headlight
+(tex 2) from 0 to 4096, so both drew the top-left quarter of their picture,
+enlarged. The median had been pulled up by panels that tile three to five
+times.
+
+**The file says what its UVs are in.** Bean's shaders are compiled Xenos
+shaders in `.data`: a container per shader, magic `0x102a1100` pixel and
+`0x102a1141` vertex, six to a material (three of each: plain, blood, prop
+damage), and a draw's `0x2e` record's shader word is the physical offset of
+its set's third pixel shader. The physical blocks (microcode) are not in
+`.data` (zeros there) but in the file's **`.gpu` past its vertex and index
+buffers**, and a vertex shader's block starts with its literal constants
+(the definition table's `00fc0010`: sixteen floats from c252). The UV is
+fetched as a plain s16 and multiplied by a literal there: `0x397fffd5`
+(1/4096.01) in every vertex shader of the truck, `0x3880029a` (1/16383) in the
+olive guard's. The register it sits in varies (c255.y in one, c255.z in the
+next), so nothing decodes the block: `beanShaderUvScale()` takes every float
+past the buffers within a thousandth of a power of two from 2^-20 to 2^-5
+and needs them all to agree.
+
+Over the release's 462 HD characters, heads, props and guns: the literal
+agrees with the measure on 349 (every character and head), no file carries
+two values, 62 props and one gun differ (the truck, the roller doors, Streets'
+room props at 1/512, the TV mount at 1/4096 where its bolt strip repeats
+along the arm), and 51 have no shaders of their own (their `.gpu` ends with
+the buffers) and keep the measure. The N64-look originals are **not** read:
+their literals are per picture in N64 texel units (the PPK's 1/512 against a
+measured, eye-checked 1/16384). Levels read their own literals already
+(`gebeanLevelOpen()`, 1/128 or 1/256) and skies are 1/16384, so both are
+left out. Survey tools: `.xbla-work/ge-bean/xenosvs.py` (the containers),
+and the scratch `litsurvey.py`/`uvsurvey.py` pair that compared literal and
+measure over every file. `build/gexrom/truckview.sh` rings Dam's truck.
