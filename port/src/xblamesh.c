@@ -7215,6 +7215,45 @@ static s32 xblaMeshHeadIsFitted(struct model *model)
 	return rw && rw->headspot.headmodeldef && headfitWasMeasured(rw->headspot.headmodeldef);
 }
 
+/**
+ * Whether the head grafted on a GoldenEye body is drawn as a GoldenEye XBLA
+ * mesh. Bean's head carries its own neck (a body leaves the neck out and a
+ * head takes only it), so the body's N64 neck stub under it is a second neck:
+ * flat tan flaps either side of Bond's HD one (F3 20260924-062727).
+ */
+static s32 xblaMeshHeadDrawsBean(struct model *model)
+{
+	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
+	union modelrwdata *rw = spot ? modelGetNodeRwData(model, spot) : NULL;
+	struct modeldef *head = rw ? rw->headspot.headmodeldef : NULL;
+	struct modelnode *node = head ? head->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 256; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == head && !e->suppress
+				&& e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
+				&& !(e->fileid && modelpackFindN64(e->fileid))
+				&& (optEnabled || gebeanRowIsPool(e->beanrow))) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+
+			return m && e->packpart < m->numgroups && !(m->groupabsent & (1ull << e->packpart));
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
+}
+
 static s32 xblaMeshNodeIsGrafted(const struct model *model, const struct modelnode *node)
 {
 	const struct modelnode *root = model->definition->rootnode;
@@ -9247,7 +9286,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				&& !(m->groupabsent & (1ull << m->beanneckfill[part])) && xblaMeshHeadIsFitted(model)) {
 			part = (u16)m->beanneckfill[part];
 		} else if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
-			return 0;
+			// A neck node (one with a filler slot) under a head that brings
+			// its own HD neck draws nothing; under an N64 head the stub stays
+			return part < 64 && m->beanneckfill[part] >= 0 && xblaMeshHeadDrawsBean(model);
 		} else if (part < 64 && (m->beanneck & (1ull << part)) && xblaMeshHeadIsFitted(model)) {
 			return 0;
 		}
