@@ -16,6 +16,18 @@
 #define GECINEMA_OPENING 0
 #define GECINEMA_ENDING  1
 
+// The Cinema page's Loop row, for an opening: Off plays it once and swirls
+// down to Bond; Level cycles its shots with no swirl until its music breaks
+// cleanly near two minutes, then goes back; All does that for every mission
+// in order, round again after the last, until the player backs out.
+#define GECINEMA_LOOP_OFF   0
+#define GECINEMA_LOOP_LEVEL 1
+#define GECINEMA_LOOP_ALL   2
+#define GECINEMA_NUM_LOOPS  3
+
+void gecinemaSetLoop(s32 loop);
+s32 gecinemaGetLoop(void);
+
 // The Cinema page picked a mission; the stage that loads next is its cinema.
 void gecinemaArm(s32 mission, s32 what);
 // An ending the Cinema page is playing is over: the level's own exit and its

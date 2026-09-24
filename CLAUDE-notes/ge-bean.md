@@ -6280,6 +6280,35 @@ guessing from the two draw paths would have found one of the three.
   as well as 640x480** (`DefaultWidth`/`DefaultHeight` in the scratch pd.ini).
 
 
+### The Cinema's Loop row (2026-09-24)
+
+The user asked for a loop toggle on the Cinema: a level's intro shots going
+round for the length of its music, with no swirl down to Bond, and a Loop All
+through every stage in order; and "if it is too short duration we can loop
+music until 2 minute mark give or take for a clean break of the music".
+
+- The Intro/Outro page has a third row, **Loop: Off / Level / All**
+  (`CINEMA_LOOP` in gexfront.c; `gecinemaSetLoop()`, kept for the session).
+  It changes only the Intro. Level goes back to the folder at the break. All
+  goes straight on to the next mission's opening with `mainChangeToStage()`
+  (`gexFrontCinemaNext()`, round to Dam after the last) and never opens the
+  folder between levels. Backing out leaves at any point.
+- **The break is the sequence player's own loop point**
+  (`g_SeqLoopPoints`, n_csq.c). **A track's jump back is not the song's**:
+  Runway's drum track loops a 1536-tick pattern for ever (3.8 s) and track 3
+  repeats a phrase 15 times, so counting any jump broke Runway after 3.8 s.
+  The song has come round once *every* track still in `validTracks` has made
+  its **loop-for-ever** jump (`curLpCt == 0xff`), or when a sequence with no
+  loop ends. A turn ends at the loop point nearest two minutes
+  (`now + pass / 2 >= 120 s`), with a half-second fade. Measured passes:
+  Dam 148.8 s, Facility 119.6 s, Runway 155.0 s, so each plays once. There
+  is a 3-minute cap for a theme that never comes round, and two minutes when
+  there is no music.
+- Probe: `--boot-stage 0x5e --cinema-opening --cinema-loop 1|2` with
+  `SDL_AUDIODRIVER=disk` (the loop points need the audio thread running, so
+  not `--no-sound`), and **not `--fixed-step`**: the music plays in wall time.
+  `gecinema: loop point N at T s (pass P s)` is logged.
+
 ## The levels' own music (2026-09-20)
 
 Every level of the remake - the twenty missions and the arenas - plays what

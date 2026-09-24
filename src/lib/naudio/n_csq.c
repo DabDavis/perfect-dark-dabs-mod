@@ -3,6 +3,57 @@
 #include <os_internal.h>
 #include <ultraerror.h>
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "bss.h"
+
+/**
+ * How many times each of the three music players' sequences has come back to
+ * its start, for GE Plus's looping Cinema, which breaks between levels on one
+ * so the music ends cleanly (gecinema.c).
+ *
+ * A track's own jump back is not the song's: Runway's drum track loops a
+ * 1536-tick pattern for ever, and other tracks repeat a phrase a set number of
+ * times. The song has come round once every track still playing has made its
+ * loop-for-ever jump - or when the sequence ends, for one with no loop.
+ */
+volatile u32 g_SeqLoopPoints[3];
+static u16 g_SeqLoopTracks[3];
+
+static s32 seqInstanceIndex(ALCSeq *seq)
+{
+	for (s32 i = 0; i < 3; i++) {
+		if (seq == &g_SeqInstances[i].seq) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static void seqNoteLoopJump(ALCSeq *seq, u32 track)
+{
+	const s32 i = seqInstanceIndex(seq);
+
+	if (i >= 0) {
+		g_SeqLoopTracks[i] |= 1 << track;
+
+		if ((g_SeqLoopTracks[i] & seq->validTracks) == seq->validTracks) {
+			g_SeqLoopTracks[i] = 0;
+			g_SeqLoopPoints[i]++;
+		}
+	}
+}
+
+static void seqNoteEnd(ALCSeq *seq)
+{
+	const s32 i = seqInstanceIndex(seq);
+
+	if (i >= 0) {
+		g_SeqLoopTracks[i] = 0;
+		g_SeqLoopPoints[i]++;
+	}
+}
+#endif
 
 u32 __n_alCSeqGetTrackEvent(ALCSeq *seq, u32 track, N_ALEvent *event, s32 arg3);
 u8 __getTrackByte(ALCSeq *seq, u32 track);
@@ -36,6 +87,12 @@ void n_alCSeqNew(ALCSeq *seq, u8 *ptr)
 	}
 
 	seq->qnpt = 1.0f / (f32)seq->base->division;
+
+#ifndef PLATFORM_N64
+	if (seqInstanceIndex(seq) >= 0) {
+		g_SeqLoopTracks[seqInstanceIndex(seq)] = 0;
+	}
+#endif
 }
 
 void n_alCSeqNextEvent(ALCSeq *seq, N_ALEvent *evt, s32 arg2)
@@ -99,6 +156,11 @@ u32 __n_alCSeqGetTrackEvent(ALCSeq *seq, u32 track, N_ALEvent *event, s32 arg3)
 				event->type = AL_TRACK_END;
 			} else {       /* no more music send AL_SEQ_END_EVT msg */
 				event->type = AL_SEQ_END_EVT;
+#ifndef PLATFORM_N64
+				if (arg3) {
+					seqNoteEnd(seq);
+				}
+#endif
 			}
 		} else if (type == AL_CMIDI_LOOPSTART_CODE) {
 			status = __getTrackByte(seq, track);
@@ -128,6 +190,11 @@ u32 __n_alCSeqGetTrackEvent(ALCSeq *seq, u32 track, N_ALEvent *event, s32 arg3)
 				offset += (*tmpPtr++) << 8;
 				offset += *tmpPtr++;
 				seq->curLoc[track] = tmpPtr - offset;
+#ifndef PLATFORM_N64
+				if (curLpCt == 0xff) {
+					seqNoteLoopJump(seq, track);
+				}
+#endif
 			}
 
 			seq->lastStatus[track] = 0;

@@ -23,6 +23,8 @@ uintptr_t sndGetTblStart(void);
 s32 sndAppendRussMapping(s16 soundnum, u16 audioconfig_index);
 s32 sndAppendAudioConfig(const struct audioconfig *config);
 s32 seqAppend(const u8 *zip, u16 binlen, u16 ziplen, ALBank *bank);
+// each music player's count of its sequence coming back to its start (n_csq.c)
+extern volatile u32 g_SeqLoopPoints[3];
 void seqAppendSetScale(s32 tracknum, s16 scale);
 #endif
 void sndIncrementAges(void);

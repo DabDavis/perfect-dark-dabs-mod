@@ -1814,7 +1814,8 @@ static void frontOpenExtra(s32 row);
 #define EXTRA_CINEMA   0
 #define EXTRA_MONITORS 1
 
-#define NUM_CINEMA_ROWS 2
+#define NUM_CINEMA_ROWS 3
+#define CINEMA_LOOP     2   // the third row is no cinema but the Loop switch for the Intro
 
 static void frontSetCursorForCinemaPick(s32 what)
 {
@@ -1828,10 +1829,8 @@ static void frontOpenCinema(void)
 	frontSetCursorForMission(g_Front.mission);
 }
 
-static void frontStartCinema(s32 mission, s32 what)
+static void frontSetCinemaConfig(s32 mission, s32 what)
 {
-	union handlerdata data;
-
 	g_MissionConfig.stageindex = mission;
 	g_MissionConfig.stagenum = frontMissionStage(mission);
 	g_MissionConfig.iscoop = false;
@@ -1841,6 +1840,13 @@ static void frontStartCinema(s32 mission, s32 what)
 
 	// the stage that loads next is a cinema rather than a mission to play
 	gecinemaArm(mission, what);
+}
+
+static void frontStartCinema(s32 mission, s32 what)
+{
+	union handlerdata data;
+
+	frontSetCinemaConfig(mission, what);
 
 	g_Front.active = 0;
 	frontUnload();
@@ -2149,12 +2155,20 @@ static void frontTickMonitorView(s32 pick, s32 back)
 static void frontTickCinemaPick(s32 pick, s32 back)
 {
 	if (!g_Front.tabprev) {
-		g_Front.highlight = g_Front.cursory >= 211 ? GECINEMA_ENDING : GECINEMA_OPENING;
+		g_Front.highlight = g_Front.cursory >= 243 ? CINEMA_LOOP
+			: g_Front.cursory >= 211 ? GECINEMA_ENDING : GECINEMA_OPENING;
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		frontOpenCinema();
+		return;
+	}
+
+	if (pick && g_Front.highlight == CINEMA_LOOP) {
+		// Off, Level, All: a switch, and the page stays
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
+		gecinemaSetLoop((gecinemaGetLoop() + 1) % GECINEMA_NUM_LOOPS);
 		return;
 	}
 
@@ -3112,6 +3126,38 @@ s32 gexFrontOpenAfterCinema(s32 mission)
 	g_Front.inputdelay = 10;
 
 	return 1;
+}
+
+/**
+ * The Loop row's All: a mission's opening has had its turn, and the next
+ * mission in the grid's order that has a stage plays its own, round to Dam
+ * again after the last. Straight from one level to the next, as a mission's
+ * own stage change goes - the folder is not opened between them. False when
+ * there is no other mission to go to.
+ */
+s32 gexFrontCinemaNext(s32 mission)
+{
+	for (s32 i = 1; i < NUM_MISSIONS; i++) {
+		const s32 next = (mission + i) % NUM_MISSIONS;
+
+		if (frontMissionStage(next) <= 0) {
+			continue;
+		}
+
+		sysLogPrintf(LOG_NOTE, "gecinema: loop all, mission %d to %d", mission, next);
+
+		g_Front.mission = next;
+		frontSetCinemaConfig(next, GECINEMA_OPENING);
+
+		setNumPlayers(1);
+		lvSetDifficulty(g_MissionConfig.difficulty);
+		titleSetNextStage(g_MissionConfig.stagenum);
+		titleSetNextMode(TITLEMODE_SKIP);
+		mainChangeToStage(g_MissionConfig.stagenum);
+		return 1;
+	}
+
+	return 0;
 }
 
 /**
@@ -5107,7 +5153,8 @@ static Gfx *frontDrawMonitors(Gfx *gdl)
  */
 static Gfx *frontDrawCinemaPick(Gfx *gdl)
 {
-	static const char *rows[NUM_CINEMA_ROWS] = { "Intro\n", "Outro\n" };   // the user's names, in the case GoldenEye sets its difficulties in
+	static const char *rows[NUM_CINEMA_ROWS] = { "Intro\n", "Outro\n", NULL };   // the user's names, in the case GoldenEye sets its difficulties in
+	static const char *loops[GECINEMA_NUM_LOOPS] = { "Loop: Off\n", "Loop: Level\n", "Loop: All\n" };
 
 	gdl = frontMissionHeader(gdl, false);
 	gdl = frontPrint(gdl, 0x37, 0x8f, "CINEMA:\n", COLOUR_ON);
@@ -5122,7 +5169,7 @@ static Gfx *frontDrawCinemaPick(Gfx *gdl)
 
 		snprintf(num, sizeof(num), "%d.\n", i + 1);
 		gdl = frontPrint(gdl, 0x82, i * 0x1e + 0xb4, num, COLOUR_ON);
-		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, rows[i], COLOUR_ON);
+		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, i == CINEMA_LOOP ? loops[gecinemaGetLoop()] : rows[i], COLOUR_ON);
 	}
 
 	return gdl;

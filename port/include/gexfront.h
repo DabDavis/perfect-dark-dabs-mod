@@ -25,6 +25,9 @@ s32 gexFrontOpenAfterMatch(void);
 // Opens the folder at the Cinema page after one of GoldenEye's opening camera
 // sequences has played (gecinema.c), with that mission under the cursor.
 s32 gexFrontOpenAfterCinema(s32 mission);
+// The Cinema's Loop All: on to the next mission's opening (gecinema.c). False
+// when there is none.
+s32 gexFrontCinemaNext(s32 mission);
 // Inside GE Plus: from the folder opening until the player backs out of its
 // mode select to the Perfect Menu, through whatever levels it starts.
 s32 gexFrontIsInside(void);

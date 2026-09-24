@@ -49,6 +49,7 @@
 #include "game/env.h"
 #include "lib/model.h"
 #include "lib/rng.h"
+#include "lib/snd.h"
 #include "system.h"
 #include "gexplus.h"
 #include "modloader.h"
@@ -98,6 +99,27 @@ static f32 g_GeCinemaTotal60;         // since the cinema began, not the shot
 static s32 g_GeCinemaLine;            // how many of the shot's lines have shown
 static s32 g_GeCinemaEntered;         // the one-off setup has run
 static s32 g_GeCinemaLeft;            // the player backed out rather than watching to the end
+
+/**
+ * The Loop row (gexfront.c): an opening's shots go round and round with the
+ * level's own music under them, and never swirl down to Bond. A level's turn
+ * ends where its music comes back to its start, so nothing is cut off in the
+ * middle of a phrase - the first pass if that is two minutes or more, and a
+ * short theme is let go round again until the loop point nearest the two
+ * minute mark. The loop points are the sequence player's own
+ * (g_SeqLoopPoints, n_csq.c).
+ */
+#define LOOP_TARGET60   (120.0f * 60.0f)
+#define LOOP_LATEST60   (180.0f * 60.0f)  // a theme that never loops back
+#define LOOP_DEBOUNCE60 120.0f            // every track of a sequence jumps back at once
+#define LOOP_FADE60     30
+
+static s32 g_GeCinemaLoop;            // GECINEMA_LOOP_*, the folder's row; kept between cinemas
+static s32 g_GeCinemaLooping;         // this cinema is a looping opening
+static u32 g_GeLoopSeen[3];           // g_SeqLoopPoints as last read
+static f32 g_GeLoopLastPoint60;       // when the music last came back to its start
+static s32 g_GeLoopPoints;            // how many times it has this level
+static s32 g_GeLoopEnding;            // fading out at the break
 
 // where the shot's camera stands, and the room its own pad names: the player's
 // prop stays where the mission spawned it and only this moves
@@ -184,6 +206,16 @@ void gecinemaArm(s32 mission, s32 what)
 	g_GeCinemaArmedWhat = what;
 }
 
+void gecinemaSetLoop(s32 loop)
+{
+	g_GeCinemaLoop = loop >= 0 && loop < GECINEMA_NUM_LOOPS ? loop : GECINEMA_LOOP_OFF;
+}
+
+s32 gecinemaGetLoop(void)
+{
+	return g_GeCinemaLoop;
+}
+
 /** Every stage load: this one is a cinema if the folder armed one. */
 void gecinemaStageStart(void)
 {
@@ -201,6 +233,8 @@ void gecinemaStageStart(void)
 		} else if (sysArgCheck("--cinema-opening")) {
 			g_GeCinemaMission = 0;
 			g_GeCinemaWhat = GECINEMA_OPENING;
+			// and the Loop row: 1 Level, 2 All
+			gecinemaSetLoop(sysArgGetInt("--cinema-loop", GECINEMA_LOOP_OFF));
 		}
 	}
 	g_GeCinemaNumShots = -1;
@@ -211,6 +245,16 @@ void gecinemaStageStart(void)
 	g_GeCinemaEntered = 0;
 	g_GeCinemaLeft = 0;
 	g_GeCinemaCamRoom = -1;
+
+	g_GeCinemaLooping = g_GeCinemaMission >= 0 && g_GeCinemaWhat == GECINEMA_OPENING
+		&& g_GeCinemaLoop != GECINEMA_LOOP_OFF;
+	g_GeLoopLastPoint60 = 0;
+	g_GeLoopPoints = 0;
+	g_GeLoopEnding = 0;
+
+	for (s32 i = 0; i < 3; i++) {
+		g_GeLoopSeen[i] = g_SeqLoopPoints[i];
+	}
 
 	// A mission that is not the Cinema page's opens on its own cinema. The
 	// probes that boot straight into a level can ask for it not to.
@@ -927,6 +971,83 @@ s32 gecinemaSwirlTick(void)
 	return 1;
 }
 
+/** Whether the level's own theme is playing on any of the music players. */
+static s32 gecinemaPrimaryPlaying(void)
+{
+	for (s32 i = 0; i < 3; i++) {
+		if (g_SeqChannels[i].inuse && g_SeqChannels[i].tracktype == TRACKTYPE_PRIMARY) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * A looping opening's clock: whether the level's turn is over. Asked every
+ * frame; true once the fade out at the break is complete.
+ */
+static s32 gecinemaLoopTick(void)
+{
+	const f32 now = g_GeCinemaTotal60;
+	s32 point = 0;
+
+	for (s32 i = 0; i < 3; i++) {
+		const u32 seen = g_SeqLoopPoints[i];
+
+		if (seen != g_GeLoopSeen[i] && g_SeqChannels[i].tracktype == TRACKTYPE_PRIMARY) {
+			point = 1;
+		}
+
+		g_GeLoopSeen[i] = seen;
+	}
+
+	if (g_GeLoopEnding) {
+		return playerIsFadeComplete();
+	}
+
+	if (point && now - g_GeLoopLastPoint60 > LOOP_DEBOUNCE60) {
+		// The pass just played is as long as the next will be: stop here if
+		// going round again would land further from two minutes than this.
+		// The first pass is timed from the level's start, where its music
+		// starts too.
+		const f32 pass = now - g_GeLoopLastPoint60;
+
+		g_GeLoopPoints++;
+		g_GeLoopLastPoint60 = now;
+
+		sysLogPrintf(LOG_NOTE, "gecinema: loop point %d at %.1f s (pass %.1f s)",
+				g_GeLoopPoints, now / 60.0f, pass / 60.0f);
+
+		if (now + pass * 0.5f >= LOOP_TARGET60) {
+			g_GeLoopEnding = 1;
+		}
+	}
+
+	// no music, or a theme that never comes back round
+	if (!g_GeLoopEnding && (now >= LOOP_LATEST60 || (g_GeLoopPoints == 0 && now >= LOOP_TARGET60
+				&& !gecinemaPrimaryPlaying()))) {
+		g_GeLoopEnding = 1;
+	}
+
+	if (g_GeLoopEnding) {
+		playerSetFadeColour(0, 0, 0, 0);
+		playerSetFadeFrac(LOOP_FADE60, 1);
+	}
+
+	return 0;
+}
+
+/** A looping opening's turn is over: back to the folder, or the next mission. */
+static void gecinemaLoopNext(void)
+{
+	if (g_GeCinemaLoop == GECINEMA_LOOP_ALL && gexFrontCinemaNext(g_GeCinemaMission)) {
+		return;
+	}
+
+	gecinemaFinish();
+}
+
 /** Every frame of a level, from lvTick(). */
 void gecinemaTick(void)
 {
@@ -959,6 +1080,23 @@ void gecinemaTick(void)
 	if (g_GeCinemaWhat == GECINEMA_ENDING) {
 		gecinemaEndingTick();
 		return;
+	}
+
+	if (g_GeCinemaLooping && !g_GeCinemaLeft) {
+		if (g_GeCinemaWantFolder || g_GeLoopEnding > 1) {
+			return;   // the stage changes at the end of the frame
+		}
+
+		if (g_GeCinemaNumShots <= 0 || gecinemaLoopTick()) {
+			g_GeLoopEnding = 2;
+			gecinemaLoopNext();
+			return;
+		}
+
+		if (g_GeCinemaShot >= g_GeCinemaNumShots && g_GeCinemaNumShots > 0) {
+			// round again, and no swirl down to Bond
+			g_GeCinemaShot = 0;
+		}
 	}
 
 	if (g_GeCinemaShot >= g_GeCinemaNumShots && !g_GeCinemaLeft && g_GeCinemaNumShots > 0) {
