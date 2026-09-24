@@ -121,6 +121,8 @@
 #include "system.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
+#include "game/camera.h"
+#include "gbiex.h"
 #endif
 
 extern s32 g_ExitFrame;
@@ -584,6 +586,42 @@ void lvConfigureFade(u32 color, s16 num_frames)
 	g_FadeColour = color;
 	g_FadeDelay = 2;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * TAA's brackets round the current player's world (gSPTaaEXT). The camera
+ * matrix the rooms are drawn through works in draw space - the world less
+ * globaldrawworldoffset, times scale_bg2gfx - and the offset moves with the
+ * camera's room, so the renderer is handed world -> clip with both folded in:
+ * then last frame's and this frame's compare whatever room either was in.
+ */
+static Gfx *lvRenderTaa(Gfx *gdl, bool begin)
+{
+	f32 *m = NULL;
+
+	if (begin && camGetMtxF006c()) {
+		Mtxf *vp = camGetMtxF006c();
+		f32 s = g_Vars.currentplayerstats->scale_bg2gfx;
+		struct coord *off = &g_Vars.currentplayer->globaldrawworldoffset;
+		s32 j;
+
+		m = gfxAllocateMatrix();
+
+		// v * T(-off) * S * vp: rows 0-2 scale vp's, row 3 is vp's own
+		// translation less the offset's share
+		for (j = 0; j < 4; j++) {
+			m[0 * 4 + j] = s * vp->m[0][j];
+			m[1 * 4 + j] = s * vp->m[1][j];
+			m[2 * 4 + j] = s * vp->m[2][j];
+			m[3 * 4 + j] = vp->m[3][j] - s * (off->x * vp->m[0][j] + off->y * vp->m[1][j] + off->z * vp->m[2][j]);
+		}
+	}
+
+	gSPTaaEXT(gdl++, begin && m != NULL, g_Vars.currentplayernum, m);
+
+	return gdl;
+}
+#endif
 
 Gfx *lvRenderFade(Gfx *gdl)
 {
@@ -1359,6 +1397,9 @@ Gfx *lvRender(Gfx *gdl)
 				}
 
 				gdl = viRenderViewportEdges(gdl);
+#ifndef PLATFORM_N64
+				gdl = lvRenderTaa(gdl, true);
+#endif
 				gdl = skyRender(gdl);
 				bgTick();
 				lightsTick();
@@ -1521,6 +1562,10 @@ Gfx *lvRender(Gfx *gdl)
 				if (g_NbombsActive) {
 					gdl = nbombsRender(gdl);
 				}
+
+#ifndef PLATFORM_N64
+				gdl = lvRenderTaa(gdl, false);
+#endif
 
 				if (var80075d60 == 2) {
 					gdl = playerRenderHud(gdl);

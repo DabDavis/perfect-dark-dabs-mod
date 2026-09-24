@@ -892,6 +892,37 @@ static MenuItemHandlerResult menuhandlerUpscaling(s32 operation, struct menuitem
 	return 0;
 }
 
+/**
+ * Supersampling: the game drawn at 1.5 or 2 times the window and averaged
+ * down to it, which smooths every edge MSAA and SMAA leave, at two to four
+ * times the pixels. It and Upscaling share the render scale, so choosing one
+ * turns the other off. Live.
+ */
+static MenuItemHandlerResult menuhandlerSupersampling(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[VIDEO_SUPERSAMPLING_COUNT] = {
+		"Off",
+		"1.5x",
+		"2x",
+	};
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = VIDEO_SUPERSAMPLING_COUNT;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		videoSetSupersampling(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = videoGetSupersampling();
+		break;
+	}
+
+	return 0;
+}
+
 // RCAS's sharpness is in stops off the sharpest; the slider runs the other
 // way, 20 the sharpest and 0 two stops off
 static MenuItemHandlerResult menuhandlerFsrSharpness(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -910,10 +941,24 @@ static MenuItemHandlerResult menuhandlerFsrSharpness(s32 operation, struct menui
 	return 0;
 }
 
+// Anti-aliasing: the MSAA levels this GPU can build, then TAA, which needs a
+// single-sampled frame and so takes MSAA's place rather than stacking on it
+static s32 menuMsaaCount(void)
+{
+	// Only the levels this GPU can build: a sample count past GL_MAX_SAMPLES
+	// gives an incomplete framebuffer and a black screen.
+	s32 count = 1;
+
+	while (count < 5 && (1 << count) <= videoGetMaxMSAA()) {
+		count++;
+	}
+
+	return count;
+}
+
 static MenuItemHandlerResult menuhandlerMSAA(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	s32 msaa;
-	s32 count;
 	static const char *opts[] = {
 		"Off",
 		"2x (MSAA)",
@@ -924,22 +969,26 @@ static MenuItemHandlerResult menuhandlerMSAA(s32 operation, struct menuitem *ite
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		// Only the levels this GPU can build: a sample count past GL_MAX_SAMPLES
-		// gives an incomplete framebuffer and a black screen.
-		count = 1;
-		while (count < ARRAYCOUNT(opts) && (1 << count) <= videoGetMaxMSAA()) {
-			count++;
-		}
-		data->dropdown.value = count;
+		data->dropdown.value = menuMsaaCount() + 1;
 		break;
 	case MENUOP_GETOPTIONTEXT:
+		if (data->dropdown.value >= menuMsaaCount()) {
+			return (intptr_t)"TAA";
+		}
 		return (intptr_t)opts[data->dropdown.value];
 	case MENUOP_SET:
-		videoSetMSAA(1 << data->dropdown.value);
+		if (data->dropdown.value >= menuMsaaCount()) {
+			videoSetTaa(true);
+		} else {
+			videoSetTaa(false);
+			videoSetMSAA(1 << data->dropdown.value);
+		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		msaa = videoGetMSAA();
-		if (msaa < 2) {
+		if (videoGetTaa()) {
+			data->dropdown.value = menuMsaaCount();
+		} else if (msaa < 2) {
 			data->dropdown.value = 0;
 		} else if (msaa < 4) {
 			data->dropdown.value = 1;
@@ -1222,6 +1271,31 @@ static MenuItemHandlerResult menuhandlerOverexposureScale(s32 operation, struct 
 	return 0;
 }
 
+/**
+ * Texture Upscale (Mod.EnhanceTextures): the game's textures scaled up on
+ * their way to the GPU.
+ */
+static MenuItemHandlerResult menuhandlerModEnhanceTextures(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "2x", "4x", "8x" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.enhancetextures = data->dropdown.value;
+		videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.enhancetextures;
+	}
+
+	return 0;
+}
+
 struct menuitem g_ExtendedVideoMenuItems[] = {
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -1278,6 +1352,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Upscaling",
 		0,
 		menuhandlerUpscaling,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Supersampling",
+		0,
+		menuhandlerSupersampling,
 	},
 	{
 		MENUITEMTYPE_SLIDER,
@@ -1374,6 +1456,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Detail Textures",
 		0,
 		menuhandlerTexDetail,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Texture Upscale",
+		0,
+		menuhandlerModEnhanceTextures,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -2842,7 +2932,7 @@ static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuit
 
 /**
  * Smooth Text: the font's glyphs scaled up with their edges sharpened. The
- * renderer keeps its own copy of this and of Enhance Textures, and drops its
+ * renderer keeps its own copy of this and of Texture Upscale, and drops its
  * texture cache when either changes, so the switch shows at once.
  */
 static MenuItemHandlerResult menuhandlerModSmoothText(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -2854,30 +2944,6 @@ static MenuItemHandlerResult menuhandlerModSmoothText(s32 operation, struct menu
 		g_ModOptions.smoothtext = data->checkbox.value;
 		videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
 		break;
-	}
-
-	return 0;
-}
-
-/**
- * Enhance Textures: the game's textures scaled up on their way to the GPU.
- */
-static MenuItemHandlerResult menuhandlerModEnhanceTextures(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	static const char *opts[] = { "Off", "2x", "4x", "8x" };
-
-	switch (operation) {
-	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(opts);
-		break;
-	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)opts[data->dropdown.value];
-	case MENUOP_SET:
-		g_ModOptions.enhancetextures = data->dropdown.value;
-		videoSetTextureEnhance(modGetTextureEnhanceScale(), modGetSmoothTextScale());
-		break;
-	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_ModOptions.enhancetextures;
 	}
 
 	return 0;
@@ -4454,14 +4520,6 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		(uintptr_t)"Model LOD",
 		0,
 		menuhandlerModModelLod,
-	},
-	{
-		MENUITEMTYPE_DROPDOWN,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Enhance Textures",
-		0,
-		menuhandlerModEnhanceTextures,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

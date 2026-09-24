@@ -18,11 +18,18 @@
  *   SMAA_BLEND    TEX0 the frame, TEX1 weights    -> the frame, anti-aliased
  *   EASU          TEX0 the frame; uParams.xy the size drawn to
  *   RCAS          TEX0 EASU's output; uParams.x sharpness in stops
- *   COPY          TEX0 the frame, bilinear
+ *   COPY          TEX0 the frame, bilinear; going down, a box over the
+ *                 window pixel's footprint (supersampling)
+ *   TAA           TEX0 this frame (jittered), TEX1 the history, TEX2 the
+ *                 depth; uTaa[0-2] take (u, v, depth, 1) to last frame's
+ *                 (u, v) times w, uTaa[3] the rect in uv, uTaa[4].y 1 to
+ *                 clip the history to the neighbourhood (0 shows the raw
+ *                 reprojection, for checking it), .z the
+ *                 weight of this frame, .w whether the history is any good
  *
- * OpenGL binds TEX0-2 to units 0-2 as uTex0-2 and uParams as a uniform;
- * Vulkan's push constants are four ints (the three texture slots and a
- * linear clamping sampler) and uParams, 32 bytes.
+ * OpenGL binds TEX0-2 to units 0-2 as uTex0-2 and uParams and uTaa[5] as
+ * uniforms; Vulkan's push constants are four ints (the three texture slots
+ * and a linear clamping sampler), uParams and uTaa, 112 bytes.
  *
  * Every image is in OpenGL's row order in both renderers, and SMAA and EASU
  * work in texture space alone, so neither needs to know which way up it is;
@@ -36,6 +43,7 @@ enum GfxPostPass {
     GFX_POST_EASU,
     GFX_POST_RCAS,
     GFX_POST_COPY,
+    GFX_POST_TAA,
     GFX_POST_NUM_PASSES
 };
 
@@ -54,6 +62,7 @@ std::string gfx_post_fragment_shader(const GfxPostLang &lang, GfxPostPass pass);
 #define GFX_POST_AREA_HEIGHT 560
 #define GFX_POST_SEARCH_WIDTH 64
 #define GFX_POST_SEARCH_HEIGHT 16
+#define GFX_POST_TAA_PARAMS 20
 const uint8_t *gfx_post_area_rgba(void);
 const uint8_t *gfx_post_search_rgba(void);
 

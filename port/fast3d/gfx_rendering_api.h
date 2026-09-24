@@ -64,6 +64,12 @@ struct GfxRenderingAPI {
     // size by FSR 1 when fsr and the sizes differ, else bilinear. False when
     // the backend could not, which leaves the window untouched.
     bool (*post_process)(int fb_src, bool smaa, bool fsr, float sharpness);
+    // TAA's resolve (gfx_post.h, GFX_POST_TAA) over the rect of fb, a
+    // single-sampled target mid-frame: fb's depth copied out, the pass drawn
+    // into history image `out` from fb's colour, history 1 - out and that
+    // depth, then the rect copied back into fb. params are uTaa's 20 floats.
+    // False when the backend could not, which leaves fb untouched.
+    bool (*taa_resolve)(int fb, const float *params, int out, int x, int y, int width, int height);
     // Reads a rect of the window's back buffer into rgb as tightly packed RGB
     // triples, bottom row first. Only valid before the frame is presented.
     bool (*read_screen_pixels)(int x, int y, int width, int height, void *rgb);

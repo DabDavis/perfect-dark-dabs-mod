@@ -36,6 +36,7 @@
 #include "xblafont.h"
 #include "menuimage.h"
 #include "gfx_texscale.h"
+#include "gfx_post.h"
 
 uintptr_t gfxFramebuffer;
 
@@ -364,7 +365,32 @@ float gfx_color_contrast = 1.0f;
 float gfx_color_black_level = 0.0f;
 bool gfx_post_smaa = false;
 float gfx_render_scale = 1.0f;
+#define GFX_MAX_RENDER_SIDE 8192u
 float gfx_fsr_sharpness = 0.2f;
+bool gfx_taa = false;
+
+/*
+ * TAA (gSPTaaEXT). Between a player's BEGIN and END every vertex is moved by
+ * a sub-pixel jitter (Halton 2,3 over eight frames), and END resolves that
+ * player's viewport against its last frame. The camera is all the motion
+ * there is to go on: the game's world -> clip matrix for this frame and last
+ * frame's (per player, so split screen keeps four histories) take a pixel
+ * and its depth back to where it was drawn last frame.
+ */
+struct GfxTaaHistory {
+    double mtx[16];
+    uint32_t frame;
+    uint32_t width, height;
+    bool valid;
+};
+static bool taa_active;
+static float taa_jx, taa_jy;
+static int taa_slot;
+static double taa_mtx[16];
+static struct XYWidthHeight taa_viewport;
+static float taa_aspect_k, taa_aspect_o;
+static GfxTaaHistory taa_history[4];
+static bool taa_failed; // the backend could not; no more jitter this run
 
 static bool game_renders_to_framebuffer;
 static bool game_post_processes; // through the backend's post_process() to the window
@@ -2090,11 +2116,16 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
         const v4f pos = v4f_splat(px) * v4f_load(rsp.MP_matrix[0]) + v4f_splat(py) * v4f_load(rsp.MP_matrix[1]) +
                         v4f_splat(pz) * v4f_load(rsp.MP_matrix[2]) + v4f_load(rsp.MP_matrix[3]);
         float x = pos[0];
-        const float y = pos[1];
+        float y = pos[1];
         const float z = pos[2];
         const float w = pos[3];
 
         x = gfx_adjust_x_for_aspect_ratio(x, w);
+
+        if (taa_active && !fbActive) {
+            x += taa_jx * w;
+            y += taa_jy * w;
+        }
 
         if (rsp.geometry_mode & G_LIGHTING) {
             gfx_light_vertex(d, px, py, pz, vcn->x, vcn->y, vcn->z, &U, &V);
@@ -3762,6 +3793,180 @@ static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
     rdp.other_mode_l = l;
 }
 
+extern uint32_t num_dls;
+
+static float gfx_taa_halton(int i, int base) {
+    float f = 1.0f, r = 0.0f;
+    for (; i > 0; i /= base) {
+        f /= base;
+        r += f * (i % base);
+    }
+    return r;
+}
+
+// 4x4 row-vector products and inverse, in doubles: the world's coordinates
+// run to tens of thousands and the two frames' matrices nearly cancel
+static void gfx_taa_mul(const double *a, const double *b, double *out) {
+    double r[16];
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            r[i * 4 + j] = a[i * 4] * b[j] + a[i * 4 + 1] * b[4 + j] + a[i * 4 + 2] * b[8 + j] + a[i * 4 + 3] * b[12 + j];
+        }
+    }
+    memcpy(out, r, sizeof(r));
+}
+
+static bool gfx_taa_invert(const double *m, double *out) {
+    double a[4][8];
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            a[i][j] = m[i * 4 + j];
+            a[i][4 + j] = i == j ? 1.0 : 0.0;
+        }
+    }
+    for (int c = 0; c < 4; c++) {
+        int best = c;
+        for (int r = c + 1; r < 4; r++) {
+            if (fabs(a[r][c]) > fabs(a[best][c])) {
+                best = r;
+            }
+        }
+        if (fabs(a[best][c]) < 1e-12) {
+            return false;
+        }
+        for (int j = 0; j < 8; j++) {
+            std::swap(a[c][j], a[best][j]);
+        }
+        const double inv = 1.0 / a[c][c];
+        for (int j = 0; j < 8; j++) {
+            a[c][j] *= inv;
+        }
+        for (int r = 0; r < 4; r++) {
+            if (r != c && a[r][c] != 0.0) {
+                const double k = a[r][c];
+                for (int j = 0; j < 8; j++) {
+                    a[r][j] -= k * a[c][j];
+                }
+            }
+        }
+    }
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            out[i * 4 + j] = a[i][4 + j];
+        }
+    }
+    return true;
+}
+
+static void gfx_taa_resolve(void) {
+    const uint32_t fw = gfx_current_dimensions.width, fh = gfx_current_dimensions.height;
+    GfxTaaHistory &h = taa_history[taa_slot];
+
+    int vx = std::max(0, (int)taa_viewport.x);
+    int vy = std::max(0, (int)taa_viewport.y);
+    int vw = std::min((int)fw - vx, (int)taa_viewport.width);
+    int vh = std::min((int)fh - vy, (int)taa_viewport.height);
+    if (vw <= 0 || vh <= 0) {
+        return;
+    }
+
+    // What the vertices were put through after the game's matrix: the
+    // aspect adjustment, x' = k * (x + o * w)
+    const double k = taa_aspect_k, o = taa_aspect_o;
+    const double aspect[16] = { k, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, k * o, 0, 0, 1 };
+
+    const bool valid = h.valid && h.frame + 1 == num_dls && h.width == fw && h.height == fh;
+    float params[GFX_POST_TAA_PARAMS] = {};
+
+    double cur[16], prev[16], inv[16], r[16];
+    gfx_taa_mul(taa_mtx, aspect, cur);
+    gfx_taa_mul(h.mtx, aspect, prev);
+
+    if (valid && gfx_taa_invert(cur, inv)) {
+        gfx_taa_mul(inv, prev, r);
+
+        // (u, v, depth, 1) -> this frame's NDC, in the viewport's pixels of
+        // the texture (bottom row first, as every framebuffer here is)
+        const double tvx = taa_viewport.x, tvy = taa_viewport.y;
+        const double tvw = taa_viewport.width, tvh = taa_viewport.height;
+        const double in[16] = {
+            2.0 * fw / tvw, 0, 0, 0,
+            0, 2.0 * fh / tvh, 0, 0,
+            0, 0, 2, 0,
+            -2.0 * tvx / tvw - 1.0, -2.0 * tvy / tvh - 1.0, -1, 1,
+        };
+        double t[16];
+        gfx_taa_mul(in, r, t);
+
+        // last frame's clip -> (u * w, v * w, w)
+        for (int i = 0; i < 4; i++) {
+            const double X = t[i * 4], Y = t[i * 4 + 1], W = t[i * 4 + 3];
+            params[0 + i] = (float)((X * tvw * 0.5 + W * (tvx + tvw * 0.5)) / fw);
+            params[4 + i] = (float)((Y * tvh * 0.5 + W * (tvy + tvh * 0.5)) / fh);
+            params[8 + i] = (float)W;
+        }
+    }
+
+    params[12] = (float)vx / fw;
+    params[13] = (float)vy / fh;
+    params[14] = (float)(vx + vw) / fw;
+    params[15] = (float)(vy + vh) / fh;
+    params[17] = 1.0f;
+    params[18] = 0.1f;
+    params[19] = valid ? 1.0f : 0.0f;
+
+    if (gfx_rapi->taa_resolve(game_framebuffer, params, num_dls & 1, vx, vy, vw, vh)) {
+        memcpy(h.mtx, taa_mtx, sizeof(h.mtx));
+        h.frame = num_dls;
+        h.width = fw;
+        h.height = fh;
+        h.valid = true;
+    } else {
+        h.valid = false;
+        taa_failed = true;
+        sysLogPrintf(LOG_WARNING, "F3D: TAA could not run on this renderer, off");
+    }
+
+    gfx_mark_state_dirty();
+    rendering_state.viewport = {};
+    rendering_state.scissor = {};
+    rdp.viewport_or_scissor_changed = true;
+}
+
+static void gfx_taa_marker(bool begin, int slot, const float *mtx) {
+    const bool usable = gfx_taa && !taa_failed && game_renders_to_framebuffer && !fbActive && gfx_msaa_level <= 1 &&
+                        gfx_rapi->taa_resolve;
+
+    if (begin) {
+        taa_active = false;
+        if (!usable || !mtx) {
+            return;
+        }
+        taa_slot = slot & 3;
+        for (int i = 0; i < 16; i++) {
+            taa_mtx[i] = mtx[i];
+        }
+        taa_viewport = rdp.viewport;
+        if (taa_viewport.width <= 0 || taa_viewport.height <= 0) {
+            taa_viewport = { 0, 0, gfx_current_dimensions.width, gfx_current_dimensions.height };
+        }
+        taa_aspect_k = rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
+        taa_aspect_o = rsp.aspect_ofs;
+
+        // a pixel is 2 / size in NDC; the phases step through the pixel
+        const int i = (int)(num_dls % 8) + 1;
+        taa_jx = (gfx_taa_halton(i, 2) - 0.5f) * 2.0f / taa_viewport.width;
+        taa_jy = (gfx_taa_halton(i, 3) - 0.5f) * 2.0f / taa_viewport.height;
+        taa_active = true;
+    } else if (taa_active) {
+        gfx_flush_for(GFX_FLUSH_OTHER);
+        taa_active = false;
+        if (usable) {
+            gfx_taa_resolve();
+        }
+    }
+}
+
 static inline void *seg_addr(uintptr_t w1) {
     // all segmented addresses have the least significant bit set
     if (w1 & 1) {
@@ -4046,6 +4251,10 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_RDPFLUSH_EXT:
                 gfx_flush_for(GFX_FLUSH_OTHER);
                 break;
+            case G_TAA_EXT:
+                gfx_taa_marker(C0(8, 1) != 0, C0(0, 8),
+                               cmd->words.w1 ? (const float *)seg_addr(cmd->words.w1) : NULL);
+                break;
             case G_CLEAR_DEPTH_EXT:
                 gfx_flush_for(GFX_FLUSH_OTHER);
                 gfx_rapi->clear_framebuffer(false, true);
@@ -4203,10 +4412,17 @@ extern "C" void gfx_start_frame(void) {
 
     gfx_current_dimensions = gfx_current_window_dimensions;
 
-    // FSR's render scale: the game draws at a fraction of the window, and the
-    // window keeps its aspect ratio as the game's
-    if (gfx_framebuffers_enabled && gfx_render_scale < 1.0f) {
-        const float scale = std::max(gfx_render_scale, 0.25f);
+    // The render scale: FSR draws the game at a fraction of the window,
+    // supersampling at a multiple of it, and the window keeps its aspect ratio
+    // as the game's. A multiple stops at GFX_MAX_RENDER_SIDE on the longer
+    // side - 2x of a 4K window fits, 2x of a 5K one would need a 10240-wide
+    // target, and at 8x MSAA the colour and depth alone run to gigabytes.
+    if (gfx_framebuffers_enabled && gfx_render_scale != 1.0f) {
+        float scale = std::min(std::max(gfx_render_scale, 0.25f), 2.0f);
+        const uint32_t side = std::max(gfx_current_window_dimensions.width, gfx_current_window_dimensions.height);
+        if (scale > 1.0f && side * scale > GFX_MAX_RENDER_SIDE) {
+            scale = std::max(1.0f, (float)GFX_MAX_RENDER_SIDE / side);
+        }
         gfx_current_dimensions.width = std::max(1u, (uint32_t)(gfx_current_window_dimensions.width * scale + 0.5f));
         gfx_current_dimensions.height = std::max(1u, (uint32_t)(gfx_current_window_dimensions.height * scale + 0.5f));
     }
@@ -4248,7 +4464,7 @@ extern "C" void gfx_start_frame(void) {
     // SMAA or a render scale: the frame goes through the backend's post
     // chain on its way to the window, from a single-sampled framebuffer
     game_post_processes = gfx_framebuffers_enabled && gfx_rapi->post_process &&
-                          (gfx_post_smaa || gfx_current_dimensions.width != gfx_current_window_dimensions.width ||
+                          (gfx_post_smaa || gfx_taa || gfx_current_dimensions.width != gfx_current_window_dimensions.width ||
                            gfx_current_dimensions.height != gfx_current_window_dimensions.height);
     if (gfx_framebuffers_enabled && (game_post_processes || gfx_msaa_level > 1)) {
         game_renders_to_framebuffer = true;

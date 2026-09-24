@@ -25,6 +25,62 @@ default 0.2; the slider runs the other way). All live, all off by default.
   `gfx_post_src.h` - rerun it after replacing a source).
 - Vivid Colours still runs after it, on the window.
 
+## Supersampling
+
+Added 2026-09-24 after an RTX 4080 tester asked for 16x MSAA: NVIDIA's Vulkan
+lists colour and depth samples only to 8x (gpuinfo report 50636; its 16 is
+NoAttachments/Stencil alone), and OpenGL's "16x" there is the driver's own
+mix. **Supersampling** (`Video.Supersampling`: Off, 1.5x, 2x) is the same
+render scale above 1. `videoSetSupersampling()` and `videoSetUpscaling()`
+share `gfx_render_scale`, so choosing one turns the other off; an ini with
+both keeps supersampling. The drawn size stops at `GFX_MAX_RENDER_SIDE`
+(8192) on the longer side (gfx_pc.cpp). The way down is `GFX_POST_COPY`:
+past a 1:1 footprint (from `dFdx`/`dFdy` of vUV) it averages up to 4x4
+bilinear taps over the window pixel, which at 2x is an exact 2x2 box. SMAA
+still runs at the drawn size, before it. Checked GL and Vulkan on the RX 580
+(2x + 8x MSAA + SMAA agree within 9 levels) and live from gdb.
+
+## TAA
+
+Added 2026-09-24. **TAA** is the last entry of the Anti-aliasing dropdown
+(`Video.TAA`); it needs a single-sampled frame, so `videoSetTaa()` and
+`videoSetMSAA(>1)` turn each other off. SMAA and Supersampling stack on it.
+
+- **Only the world.** lv.c's `lvRenderTaa()` emits `gSPTaaEXT` (gbiex.h,
+  0x4a) BEGIN just before `skyRender()` and END just before the gun/HUD
+  (`playerRenderHud`, or boltbeams/artifacts outside mode 2), per player.
+  Between them `gfx_sp_load_vertex()` adds a Halton(2,3) jitter of up to
+  half a pixel in clip space; END flushes and resolves that player's
+  viewport. The gun, HUD and glares are never jittered or blended.
+- **Camera-only reprojection.** No motion vectors exist (poses are baked in
+  view space). BEGIN carries world -> clip: `camGetMtxF006c()` (the rooms'
+  perspective x lookat, in draw space) with `globaldrawworldoffset` and
+  `scale_bg2gfx` folded in, since the offset moves with the camera's room.
+  `gfx_taa_resolve()` (gfx_pc.cpp) builds, in doubles, one 3x4 matrix
+  taking (u, v, depth, 1) straight to last frame's (u, v) times w: the
+  viewport, the aspect adjustment (`x' = k(x + o w)`), inv(this frame's)
+  and last frame's matrix. History per player slot (split screen), valid
+  only for the previous `num_dls` at the same size.
+- **Shader** (`GFX_POST_TAA`): nearest depth of the 3x3, five-tap
+  Catmull-Rom history, variance clip (1.25 sigma) to this frame's 3x3, 10%
+  of this frame. Moving chrs/doors rely on the clip alone.
+- **Backends** (`taa_resolve`): the game framebuffer's depth is copied out
+  first (GL: renderbuffer -> depth texture by `glBlitFramebuffer`; Vulkan:
+  `vkCmdCopyImage` of the depth aspect into a sampled depth image with a
+  depth-only view - fb depth images gained TRANSFER_SRC), the pass draws
+  into history `num_dls & 1` scissored to the rect, and the rect is copied
+  back. A false return turns TAA off for the run (no jitter left behind).
+- **Trap: the Vulkan recorder's push record was 32 bytes** (`VkpPush`), so
+  the 112-byte block reached the GPU as zeros and TAA silently passed the
+  frame through. `VKP_PUSH_BIG` carries anything larger; the pipeline
+  layout's range is 112.
+- **Checked** on the RX 580, both renderers, a seeded match turning the
+  camera 0.4 and 2 degrees a frame from gdb (`vv_theta`): the raw
+  reprojection (uTaa[4].y = 0, alpha 0) matched the true frame at mean 1.5
+  against 7.8 for the unreprojected last frame; GL and Vulkan TAA agree
+  within 0.07. Not checked: split screen, a guard walking through view,
+  cutscene cuts (the clip should cover a cut).
+
 ## Traps met
 
 - **GLSL before 4.20 has no line continuation**, and SMAA.hlsl's banner is

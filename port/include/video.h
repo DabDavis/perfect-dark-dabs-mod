@@ -69,6 +69,21 @@ void videoSetUpscaling(s32 mode);
 f32 videoGetFsrSharpness(void);
 void videoSetFsrSharpness(f32 stops);
 
+// Video.Supersampling: the game drawn at 1.5 or 2 times the window and boxed
+// down to it. It and Upscaling both set the render scale, so choosing one
+// turns the other off. Live.
+#define VIDEO_SUPERSAMPLING_OFF 0
+#define VIDEO_SUPERSAMPLING_1_5X 1
+#define VIDEO_SUPERSAMPLING_2X 2
+#define VIDEO_SUPERSAMPLING_COUNT 3
+s32 videoGetSupersampling(void);
+void videoSetSupersampling(s32 mode);
+
+// Video.TAA: temporal anti-aliasing of the world (gfx_pc.cpp, gSPTaaEXT). It
+// needs a single-sampled frame, so it and MSAA each turn the other off. Live.
+s32 videoGetTaa(void);
+void videoSetTaa(s32 on);
+
 #define VIDEO_RENDERER_OPENGL 0
 #define VIDEO_RENDERER_VULKAN 1
 

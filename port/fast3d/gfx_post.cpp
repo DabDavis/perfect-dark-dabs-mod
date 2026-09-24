@@ -12,7 +12,7 @@
 #include "post/SearchTex.h"
 
 static const char *gfx_post_names[GFX_POST_NUM_PASSES] = {
-    "SMAA edges", "SMAA weights", "SMAA blend", "FSR EASU", "FSR RCAS", "copy",
+    "SMAA edges", "SMAA weights", "SMAA blend", "FSR EASU", "FSR RCAS", "copy", "TAA",
 };
 
 const char *gfx_post_pass_name(GfxPostPass pass) {
@@ -43,7 +43,7 @@ static std::string gfx_post_prelude(const GfxPostLang &lang) {
     if (lang.vulkan) {
         s += "layout(set = 0, binding = 0) uniform texture2D uTextures[" + std::to_string(lang.texture_slots) + "];\n";
         s += "layout(set = 0, binding = 1) uniform sampler uSamplers[" + std::to_string(lang.sampler_slots) + "];\n";
-        s += "layout(push_constant) uniform Push { int t0; int t1; int t2; int smp; vec4 uParams; };\n"
+        s += "layout(push_constant) uniform Push { int t0; int t1; int t2; int smp; vec4 uParams; vec4 uTaa[5]; };\n"
              "layout(location = 0) in vec2 vUV;\n"
              "layout(location = 0) out vec4 oCol;\n"
              "#define POST_TEX(t) sampler2D(uTextures[t], uSamplers[smp])\n"
@@ -58,6 +58,7 @@ static std::string gfx_post_prelude(const GfxPostLang &lang) {
              "uniform sampler2D uTex1;\n"
              "uniform sampler2D uTex2;\n"
              "uniform vec4 uParams;\n"
+             "uniform vec4 uTaa[5];\n"
              "in vec2 vUV;\n"
              "out vec4 oCol;\n"
              "#define TEX0 uTex0\n"
@@ -185,9 +186,91 @@ std::string gfx_post_fragment_shader(const GfxPostLang &lang, GfxPostPass pass) 
                  "    oCol = vec4(c, 1.0);\n"
                  "}\n";
             break;
+        case GFX_POST_TAA:
+            // Camera-only reprojection: the nearest depth of the 3x3 round
+            // the pixel (so an edge takes the nearer surface's motion) through
+            // uTaa's rows to last frame's uv; the history there, read through
+            // a five-tap Catmull-Rom so it does not soften frame on frame, is
+            // clipped to this frame's neighbourhood - which is what stops a
+            // guard or a door, whose own motion the camera does not know,
+            // from ghosting - and blended in
+            s += "vec3 taaHistory(vec2 uv) {\n"
+                 "    vec2 size = vec2(textureSize(TEX1, 0));\n"
+                 "    vec2 pos = uv * size;\n"
+                 "    vec2 c = floor(pos - 0.5) + 0.5;\n"
+                 "    vec2 f = pos - c;\n"
+                 "    vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));\n"
+                 "    vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);\n"
+                 "    vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));\n"
+                 "    vec2 w3 = f * f * (-0.5 + 0.5 * f);\n"
+                 "    vec2 w12 = w1 + w2;\n"
+                 "    vec2 t0 = (c - 1.0) / size;\n"
+                 "    vec2 t3 = (c + 2.0) / size;\n"
+                 "    vec2 t12 = (c + w2 / w12) / size;\n"
+                 "    vec4 r = vec4(textureLod(TEX1, vec2(t12.x, t0.y), 0.0).rgb, 1.0) * (w12.x * w0.y);\n"
+                 "    r += vec4(textureLod(TEX1, vec2(t0.x, t12.y), 0.0).rgb, 1.0) * (w0.x * w12.y);\n"
+                 "    r += vec4(textureLod(TEX1, t12, 0.0).rgb, 1.0) * (w12.x * w12.y);\n"
+                 "    r += vec4(textureLod(TEX1, vec2(t3.x, t12.y), 0.0).rgb, 1.0) * (w3.x * w12.y);\n"
+                 "    r += vec4(textureLod(TEX1, vec2(t12.x, t3.y), 0.0).rgb, 1.0) * (w12.x * w3.y);\n"
+                 "    return max(r.rgb / r.a, vec3(0.0));\n"
+                 "}\n"
+                 "void main() {\n"
+                 "    ivec2 size = textureSize(TEX0, 0);\n"
+                 "    ivec2 p = ivec2(vUV * vec2(size));\n"
+                 "    vec3 cur = texelFetch(TEX0, p, 0).rgb;\n"
+                 "    vec3 m1 = vec3(0.0);\n"
+                 "    vec3 m2 = vec3(0.0);\n"
+                 "    float d = 1.0;\n"
+                 "    for (int y = -1; y <= 1; y++) {\n"
+                 "        for (int x = -1; x <= 1; x++) {\n"
+                 "            ivec2 q = clamp(p + ivec2(x, y), ivec2(0), size - 1);\n"
+                 "            vec3 c = texelFetch(TEX0, q, 0).rgb;\n"
+                 "            m1 += c;\n"
+                 "            m2 += c * c;\n"
+                 "            d = min(d, texelFetch(TEX2, q, 0).r);\n"
+                 "        }\n"
+                 "    }\n"
+                 "    vec4 at = vec4(vUV, d, 1.0);\n"
+                 "    vec3 prev = vec3(dot(uTaa[0], at), dot(uTaa[1], at), dot(uTaa[2], at));\n"
+                 "    vec2 puv = prev.xy / prev.z;\n"
+                 "    vec4 rect = uTaa[3];\n"
+                 "    if (uTaa[4].w < 0.5 || prev.z <= 0.0 || any(lessThan(puv, rect.xy)) || any(greaterThan(puv, rect.zw))) {\n"
+                 "        oCol = vec4(cur, 1.0);\n"
+                 "        return;\n"
+                 "    }\n"
+                 "    vec3 mu = m1 / 9.0;\n"
+                 "    vec3 sigma = sqrt(max(m2 / 9.0 - mu * mu, vec3(0.0)));\n"
+                 "    vec3 lo = min(mu - 1.25 * sigma, cur);\n"
+                 "    vec3 hi = max(mu + 1.25 * sigma, cur);\n"
+                 "    vec3 hist = taaHistory(puv);\n"
+                 "    if (uTaa[4].y > 0.5) hist = clamp(hist, lo, hi);\n"
+                 "    oCol = vec4(mix(hist, cur, uTaa[4].z), 1.0);\n"
+                 "}\n";
+            break;
         default:
+            // Bilinear when the frame goes up or across; going down
+            // (supersampling) an average of a grid of bilinear taps spread
+            // over the window pixel's footprint in the frame, which at 2x
+            // lands each tap on a texel and is an exact 2x2 box. The
+            // footprint comes from vUV's derivatives, constant over the one
+            // full-screen triangle.
             s += "void main() {\n"
-                 "    oCol = vec4(texture(TEX0, vUV).rgb, 1.0);\n"
+                 "    vec2 size = vec2(textureSize(TEX0, 0));\n"
+                 "    vec2 foot = abs(vec2(dFdx(vUV.x), dFdy(vUV.y))) * size;\n"
+                 "    if (foot.x <= 1.01 && foot.y <= 1.01) {\n"
+                 "        oCol = vec4(texture(TEX0, vUV).rgb, 1.0);\n"
+                 "        return;\n"
+                 "    }\n"
+                 "    ivec2 n = clamp(ivec2(ceil(foot - 0.01)), ivec2(1), ivec2(4));\n"
+                 "    vec2 stride = foot / vec2(n) / size;\n"
+                 "    vec2 origin = vUV - 0.5 * foot / size + 0.5 * stride;\n"
+                 "    vec3 sum = vec3(0.0);\n"
+                 "    for (int y = 0; y < n.y; y++) {\n"
+                 "        for (int x = 0; x < n.x; x++) {\n"
+                 "            sum += textureLod(TEX0, origin + vec2(float(x), float(y)) * stride, 0.0).rgb;\n"
+                 "        }\n"
+                 "    }\n"
+                 "    oCol = vec4(sum / float(n.x * n.y), 1.0);\n"
                  "}\n";
             break;
     }

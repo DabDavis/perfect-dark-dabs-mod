@@ -201,6 +201,7 @@
 #define G_SETTEXGENSHIFT_EXT         0x47
 #define G_SETRECTDEPTH_EXT           0x48
 #define G_SETDEPTHBIAS_EXT           0x49
+#define G_TAA_EXT                    0x4a
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -368,6 +369,24 @@
                                                                                        \
     _g->words.w0 = _SHIFTL(G_SETDEPTHBIAS_EXT, 24, 8);                                 \
     _g->words.w1 = (u32)(s32)(units);                                                  \
+}
+
+/*
+ * TAA (Video.TAA): brackets a player's world - sky, rooms, props, beams,
+ * sparks - and leaves out the gun, the HUD and the glares after it. BEGIN
+ * starts the sub-pixel jitter; END stops it and resolves the world against
+ * the frame before it, reprojected through the depth buffer by the camera.
+ * mtx is 16 floats, row-vector world -> clip (the draw space's offset and
+ * scale folded in), in memory that lives until the frame is drawn; slot is
+ * the player, whose history it is.
+ */
+#define gSPTaaEXT(pkt, begin, slot, mtx)                               \
+{                                                                      \
+    Gfx *_g = (Gfx *)(pkt);                                            \
+                                                                       \
+    _g->words.w0 = _SHIFTL(G_TAA_EXT, 24, 8) | _SHIFTL((begin), 8, 1) \
+        | _SHIFTL((slot), 0, 8);                                       \
+    _g->words.w1 = (uintptr_t)(mtx);                                   \
 }
 
 #define gSPSetExtraGeometryModeEXT(pkt, word) gSPExtraGeometryModeEXT((pkt), 0, word)

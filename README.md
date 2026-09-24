@@ -92,18 +92,21 @@ good as instant.
 
 ### Picture
 
-Built in, no pack needed. Each is on the same options page.
+Built in, no pack needed. Texture Upscale, Supersampling and TAA are under
+Extended Video Options; the rest share a page of their own.
 
 | Setting | What it does |
 | - | - |
 | Thin Text Outlines | Outlined text gets a thin halo drawn by the renderer instead of the black cell the font bakes in, which at monitor resolutions is a slab behind every letter. Off is the bold border the cell stands for, drawn the same way |
 | Smooth Text | The font's glyphs are scaled up four times over with their edges sharpened, so letters have a clean edge instead of a staircase of blurred squares. Off by default |
 | Model LOD | The game's own swap to low-detail bodies at a distance. Off keeps the full model at any range |
-| Enhance Textures | The game's own textures scaled up two, four or eight times over as they load, resampled through a curve rather than the GPU's straight blend. Nothing is invented, but a 32-texel wall stops being a grid of soft blobs. Textures that are themselves a dot pattern, like a halftone portrait or a screen of tiny text, are left alone. 2x by default; 4x costs four times the video memory and 8x sixteen |
+| Texture Upscale | The game's own textures scaled up two, four or eight times over as they load, resampled through a curve rather than the GPU's straight blend. Nothing is invented, but a 32-texel wall stops being a grid of soft blobs. Textures that are themselves a dot pattern, like a halftone portrait or a screen of tiny text, are left alone. 2x by default; 4x costs four times the video memory and 8x sixteen |
+| Supersampling | The game drawn at 1.5 or 2 times the window and averaged down to it, which smooths every edge, including the alpha cut-outs and texture detail MSAA leaves alone. Stacks with MSAA and SMAA. 2x draws four times the pixels, so it is for a strong GPU; the drawn frame stops at 8192 pixels on its longer side. Off by default, and choosing it turns FSR Upscaling off, since both set the size the game draws at |
+| TAA | Temporal anti-aliasing, the last choice under Anti-aliasing: the world is drawn a fraction of a pixel off each frame and blended with the frames before it, following the camera through the depth buffer, so edges, thin rails and texture shimmer settle. The gun and the HUD are drawn after it and stay sharp. It takes MSAA's place rather than stacking with it; SMAA and Supersampling still add. Things that move on their own, like guards, can soften slightly while they move |
 | Vivid Colours | Saturation and contrast turned up on the finished frame, which was drawn for a CRT and looks flat on a panel. Light by default; Normal and Heavy go further. Screenshots and recordings get it too |
 | Black Level | A floor taken off the frame's blacks, so black is black rather than dark grey, without crushing the shadows above it the way contrast would. Light takes 2% off and is the default; Normal 4%, Heavy 7% |
 
-Texture packs, where installed, are left alone by Enhance Textures and Smooth
+Texture packs, where installed, are left alone by Texture Upscale and Smooth
 Text: their images are already whatever size their author chose.
 
 ### Simulants

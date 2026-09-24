@@ -1428,6 +1428,7 @@ struct PostTarget {
 
 static GLuint post_prog[GFX_POST_NUM_PASSES];
 static GLint post_loc_params[GFX_POST_NUM_PASSES];
+static GLint post_loc_taa[GFX_POST_NUM_PASSES];
 static bool post_prog_failed[GFX_POST_NUM_PASSES];
 static GLuint post_vao, post_area_tex, post_search_tex;
 static PostTarget post_edges, post_weights, post_smaa_out, post_easu;
@@ -1490,6 +1491,7 @@ static GLuint gfx_opengl_post_program(GfxPostPass pass) {
     glUniform1i(glGetUniformLocation(prog, "uTex1"), 1);
     glUniform1i(glGetUniformLocation(prog, "uTex2"), 2);
     post_loc_params[pass] = glGetUniformLocation(prog, "uParams");
+    post_loc_taa[pass] = glGetUniformLocation(prog, "uTaa");
     post_prog[pass] = prog;
     post_prog_failed[pass] = false;
     return prog;
@@ -1638,6 +1640,133 @@ static bool gfx_opengl_post_process(int fb_src, bool smaa, bool fsr, float sharp
     glBindVertexArray((GLuint)prev_vao);
     glUseProgram((GLuint)prev_prog);
     glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+    return ok;
+}
+
+/*
+ * TAA's resolve (gfx_rendering_api.h): the game's framebuffer's depth is a
+ * renderbuffer, which no shader can read, so the rect's depth is blitted into
+ * a depth texture of TAA's own first. The pass draws into history image `out`
+ * and the rect goes back into the framebuffer by a colour blit.
+ */
+static PostTarget taa_hist[2];
+static GLuint taa_depth_tex, taa_depth_fbo;
+static int taa_depth_width, taa_depth_height;
+
+static bool gfx_opengl_taa_depth(int width, int height) {
+    if (taa_depth_tex && taa_depth_width == width && taa_depth_height == height) {
+        return true;
+    }
+    if (!taa_depth_tex) {
+        glGenTextures(1, &taa_depth_tex);
+        glGenFramebuffers(1, &taa_depth_fbo);
+    }
+    glBindTexture(GL_TEXTURE_2D, taa_depth_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8,
+                 NULL);
+    glBindFramebuffer(GL_FRAMEBUFFER, taa_depth_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, taa_depth_tex, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    taa_depth_width = complete ? width : 0;
+    taa_depth_height = complete ? height : 0;
+    return complete;
+}
+
+static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int x, int y, int width, int height) {
+    if (post_failed || !gfx_framebuffers_enabled || fb_id <= 0 || (size_t)fb_id >= framebuffers.size()) {
+        return false;
+    }
+    if (gl_es || GLVersion.major < 3 || !glad_glGenVertexArrays || !glad_glBlitFramebuffer) {
+        return false;
+    }
+    const Framebuffer &fb = framebuffers[fb_id];
+    if (fb.msaa_level > 1 || !fb.has_depth_buffer) {
+        return false;
+    }
+    const GLuint prog = gfx_opengl_post_program(GFX_POST_TAA);
+    if (!prog) {
+        return false;
+    }
+
+    GLint prev_prog = 0, prev_vao = 0, prev_active = GL_TEXTURE0, prev_tex[3] = { 0, 0, 0 };
+    GLint prev_viewport[4] = { 0, 0, 0, 0 }, prev_scissor[4] = { 0, 0, 0, 0 };
+    const GLboolean was_blend = glIsEnabled(GL_BLEND);
+    const GLboolean was_depth = glIsEnabled(GL_DEPTH_TEST);
+    const GLboolean was_scissor = glIsEnabled(GL_SCISSOR_TEST);
+    const GLboolean was_cull = glIsEnabled(GL_CULL_FACE);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev_prog);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prev_active);
+    for (int i = 0; i < 3; i++) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex[i]);
+    }
+    glGetIntegerv(GL_VIEWPORT, prev_viewport);
+    glGetIntegerv(GL_SCISSOR_BOX, prev_scissor);
+
+    if (!post_vao) {
+        glGenVertexArrays(1, &post_vao);
+    }
+
+    const int fw = (int)fb.width, fh = (int)fb.height;
+    bool ok = gfx_opengl_post_target(taa_hist[0], fw, fh) && gfx_opengl_post_target(taa_hist[1], fw, fh) &&
+              gfx_opengl_taa_depth(fw, fh);
+
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    if (ok) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fb.fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, taa_depth_fbo);
+        glBlitFramebuffer(x, y, x + width, y + height, x, y, x + width, y + height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, taa_hist[out].fbo);
+        glViewport(0, 0, fw, fh);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(x, y, width, height);
+        glUseProgram(prog);
+        glBindVertexArray(post_vao);
+        glActiveTexture(GL_TEXTURE0);
+        gfx_opengl_post_tex_params(fb.clrbuf);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, taa_hist[1 - out].tex);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, taa_depth_tex);
+        glUniform4f(post_loc_params[GFX_POST_TAA], 0.f, 0.f, 0.f, 0.f);
+        glUniform4fv(post_loc_taa[GFX_POST_TAA], GFX_POST_TAA_PARAMS / 4, params);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDisable(GL_SCISSOR_TEST);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, taa_hist[out].fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fb.fbo);
+        glBlitFramebuffer(x, y, x + width, y + height, x, y, x + width, y + height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    } else {
+        sysLogPrintf(LOG_WARNING, "GL: TAA targets could not be made");
+    }
+
+    if (was_blend) glEnable(GL_BLEND);
+    if (was_depth) glEnable(GL_DEPTH_TEST);
+    if (was_scissor) glEnable(GL_SCISSOR_TEST);
+    if (was_cull) glEnable(GL_CULL_FACE);
+    for (int i = 0; i < 3; i++) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex[i]);
+    }
+    glActiveTexture((GLenum)prev_active);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffers[current_framebuffer].fbo);
+    glBindVertexArray((GLuint)prev_vao);
+    glUseProgram((GLuint)prev_prog);
+    glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+    glScissor(prev_scissor[0], prev_scissor[1], prev_scissor[2], prev_scissor[3]);
     return ok;
 }
 
@@ -2539,6 +2668,7 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_get_max_anisotropy_level,
     gfx_opengl_get_max_msaa_level,
     gfx_opengl_post_process,
+    gfx_opengl_taa_resolve,
     gfx_opengl_read_screen_pixels,
     gfx_opengl_capture_start,
     gfx_opengl_capture_read,

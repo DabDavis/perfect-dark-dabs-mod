@@ -67,6 +67,11 @@ static s32 vidSmaa = 0;
 static s32 vidUpscaling = 0;
 static f32 vidFsrSharpness = 0.2f;
 static const f32 vidUpscalingScales[VIDEO_UPSCALING_COUNT] = { 1.f, 1.f / 1.3f, 1.f / 1.5f, 1.f / 1.7f, 1.f / 2.f };
+// Video.Supersampling: 1.5 or 2 times the window, averaged down by the post
+// chain's copy. Wins over Upscaling if an ini has both.
+static s32 vidSupersampling = 0;
+static s32 vidTaa = 0;
+static const f32 vidSupersamplingScales[VIDEO_SUPERSAMPLING_COUNT] = { 1.f, 1.5f, 2.f };
 static s32 vidFramerateLimit = 0;
 // Video.Renderer: VIDEO_RENDERER_OPENGL or VIDEO_RENDERER_VULKAN, taking
 // effect at the next start. vidRendererActive is what this run got, which is
@@ -135,9 +140,17 @@ s32 videoInit(void)
 	vidAllowHiDpiActive = vidAllowHiDpi;
 	gfx_detail_textures_enabled = (bool)texDetail;
 	gfx_clamped_edge_mode = texClampedEdge;
+	if (vidTaa) {
+		vidMSAA = 1;
+	}
 	gfx_msaa_level = vidMSAA;
+	gfx_taa = vidTaa;
 	videoSetSmaa(vidSmaa);
-	videoSetUpscaling(vidUpscaling);
+	if (vidSupersampling != VIDEO_SUPERSAMPLING_OFF) {
+		videoSetSupersampling(vidSupersampling);
+	} else {
+		videoSetUpscaling(vidUpscaling);
+	}
 	videoSetFsrSharpness(vidFsrSharpness);
 
 	struct GfxInitSettings set = {
@@ -854,6 +867,11 @@ void videoSetMSAA(const s32 msaa)
 		vidMSAA = 1;
 	}
 
+	if (vidMSAA > 1) {
+		vidTaa = 0;
+		gfx_taa = false;
+	}
+
 	gfx_msaa_level = (u32)vidMSAA;
 }
 
@@ -877,6 +895,42 @@ void videoSetUpscaling(s32 mode)
 {
 	vidUpscaling = (mode < 0 || mode >= VIDEO_UPSCALING_COUNT) ? 0 : mode;
 	gfx_render_scale = vidUpscalingScales[vidUpscaling];
+
+	if (vidUpscaling != VIDEO_UPSCALING_OFF) {
+		vidSupersampling = VIDEO_SUPERSAMPLING_OFF;
+	}
+}
+
+s32 videoGetTaa(void)
+{
+	return vidTaa;
+}
+
+void videoSetTaa(s32 on)
+{
+	vidTaa = !!on;
+	gfx_taa = vidTaa;
+
+	if (vidTaa) {
+		videoSetMSAA(1);
+	}
+}
+
+s32 videoGetSupersampling(void)
+{
+	return vidSupersampling;
+}
+
+void videoSetSupersampling(s32 mode)
+{
+	vidSupersampling = (mode < 0 || mode >= VIDEO_SUPERSAMPLING_COUNT) ? 0 : mode;
+
+	if (vidSupersampling != VIDEO_SUPERSAMPLING_OFF) {
+		vidUpscaling = VIDEO_UPSCALING_OFF;
+		gfx_render_scale = vidSupersamplingScales[vidSupersampling];
+	} else {
+		gfx_render_scale = vidUpscalingScales[vidUpscaling];
+	}
 }
 
 f32 videoGetFsrSharpness(void)
@@ -1062,6 +1116,8 @@ PD_CONSTRUCTOR static void videoConfigInit(void)
 	configRegisterInt("Video.MSAA", &vidMSAA, 1, 16);
 	configRegisterInt("Video.SMAA", &vidSmaa, 0, 1);
 	configRegisterInt("Video.Upscaling", &vidUpscaling, 0, VIDEO_UPSCALING_COUNT - 1);
+	configRegisterInt("Video.Supersampling", &vidSupersampling, 0, VIDEO_SUPERSAMPLING_COUNT - 1);
+	configRegisterInt("Video.TAA", &vidTaa, 0, 1);
 	configRegisterFloat("Video.FsrSharpness", &vidFsrSharpness, 0.f, 2.f);
 	configRegisterInt("Video.Renderer", &vidRenderer, VIDEO_RENDERER_OPENGL, VIDEO_RENDERER_VULKAN);
 	configRegisterInt("Video.TextureFilter", &texFilter, 0, 2);

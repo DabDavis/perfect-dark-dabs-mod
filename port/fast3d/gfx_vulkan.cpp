@@ -543,7 +543,11 @@ static bool vk_image_create(VkImg &img, uint32_t w, uint32_t h, VkFormat fmt, Vk
     vi.subresourceRange = { img.aspect, 0, mips, 0, 1 };
     vkCreateImageView(vk_dev, &vi, NULL, &img.view);
 
-    if (opaque_view) {
+    if (depth && (usage & VK_IMAGE_USAGE_SAMPLED_BIT)) {
+        // a shader reads one aspect: TAA's copy of the depth
+        vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        vkCreateImageView(vk_dev, &vi, NULL, &img.sample_view);
+    } else if (opaque_view) {
         vi.components.a = VK_COMPONENT_SWIZZLE_ONE;
         vkCreateImageView(vk_dev, &vi, NULL, &img.sample_view);
     } else {
@@ -611,6 +615,7 @@ enum : uint8_t {
     VKP_END_RENDERING,
     VKP_BIND_PIPELINE,
     VKP_PUSH,
+    VKP_PUSH_BIG,
     VKP_BIND_VB,
     VKP_DRAW,
     VKP_CLEAR_ATT,
@@ -644,6 +649,9 @@ struct VkpClearDs { VkImage image; VkClearDepthStencilValue value; VkImageSubres
 struct VkpBias { float constant, clamp, slope; };
 struct VkpBeginRendering { VkRect2D area; VkRenderingAttachmentInfo color, depth; uint8_t has_depth, has_stencil; };
 struct VkpPush { uint32_t size; uint8_t data[32]; };
+// the post passes' block with TAA's parameters; kept apart so every draw's
+// push stays small in the stream
+struct VkpPushBig { uint32_t size; uint8_t data[112]; };
 struct VkpBindVb { VkBuffer buffer; VkDeviceSize offset; };
 struct VkpDraw { uint32_t count, first; };
 struct VkpClearAtt { uint32_t n; VkClearAttachment att[2]; VkClearRect rect; };
@@ -714,8 +722,15 @@ static void rcCmdBindPipeline(VkCommandBuffer cb, VkPipelineBindPoint bp, VkPipe
 
 static void rcCmdPushConstants(VkCommandBuffer cb, VkPipelineLayout layout, VkShaderStageFlags stages, uint32_t off,
                                uint32_t size, const void *data) {
+    if (size > sizeof(VkpPush::data)) {
+        VkpPushBig p;
+        p.size = std::min<uint32_t>(size, sizeof(p.data));
+        memcpy(p.data, data, p.size);
+        vk_put(VKP_PUSH_BIG, p);
+        return;
+    }
     VkpPush p;
-    p.size = std::min<uint32_t>(size, sizeof(p.data));
+    p.size = size;
     memcpy(p.data, data, p.size);
     vk_put(VKP_PUSH, p);
 }
@@ -797,6 +812,11 @@ static void vk_replay(VkCommandBuffer cb, const VkStream &st) {
             }
             case VKP_PUSH: {
                 VKP_TAKE(VkpPush, pc);
+                vkCmdPushConstants(cb, layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pc.size, pc.data);
+                break;
+            }
+            case VKP_PUSH_BIG: {
+                VKP_TAKE(VkpPushBig, pc);
                 vkCmdPushConstants(cb, layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pc.size, pc.data);
                 break;
             }
@@ -2948,7 +2968,8 @@ static void gfx_vk_update_framebuffer_parameters(int fb_id, uint32_t width, uint
     if (has_depth_buffer && (add_depth || resize)) {
         vk_image_destroy(fb.depth);
         if (!vk_image_create(fb.depth, width, height, vk_depth_format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-                             VK_IMAGE_USAGE_TRANSFER_DST_BIT, (VkSampleCountFlagBits)msaa_level, 1, false)) {
+                             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                             (VkSampleCountFlagBits)msaa_level, 1, false)) {
             sysFatalError("Vulkan: could not create a %ux%u depth buffer.", width, height);
         }
         fb.depth.clear_first = true;
@@ -3458,6 +3479,100 @@ static bool gfx_vk_post_process(int fb_src, bool smaa, bool fsr, float sharpness
         vk_post_failed = true;
     }
     return ok;
+}
+
+/*
+ * TAA's resolve (gfx_rendering_api.h): the rect's depth copied into a
+ * sampled depth image of TAA's own, the pass drawn into history image `out`
+ * over the rect alone, and the rect copied back into the framebuffer.
+ */
+static VkImg vk_taa_hist[2], vk_taa_depth;
+
+static bool gfx_vk_taa_resolve(int fb_id, const float *params, int out, int x, int y, int width, int height) {
+    if (vk_failed || vk_post_failed || fb_id <= 0 || (size_t)fb_id >= vk_fbs.size()) {
+        return false;
+    }
+    VkFb &fb = vk_fbs[fb_id];
+    VkImg &color = fb.color[fb.cur];
+    if (fb.msaa > 1 || !fb.has_depth || !fb.depth.image || !color.image) {
+        return false;
+    }
+    const VkPipeline p = vk_post_pipeline(GFX_POST_TAA);
+    if (!p) {
+        return false;
+    }
+
+    vk_ensure_recording();
+    vk_end_rendering();
+
+    if (!vk_post_target(vk_taa_hist[0], fb.width, fb.height) || !vk_post_target(vk_taa_hist[1], fb.width, fb.height)) {
+        return false;
+    }
+    if (!vk_taa_depth.image || vk_taa_depth.width != fb.width || vk_taa_depth.height != fb.height) {
+        vk_image_destroy(vk_taa_depth);
+        if (!vk_image_create(vk_taa_depth, fb.width, fb.height, vk_depth_format,
+                             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT, 1,
+                             false)) {
+            return false;
+        }
+    }
+
+    VkCommandBuffer cb = vk_cmd();
+    const VkOffset3D at = { x, y, 0 };
+    const VkExtent3D size = { (uint32_t)width, (uint32_t)height, 1 };
+
+    vk_image_to(fb.depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vk_image_to(vk_taa_depth, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy dc = {};
+    dc.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+    dc.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+    dc.srcOffset = at;
+    dc.dstOffset = at;
+    dc.extent = size;
+    rcCmdCopyImage(cb, fb.depth.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk_taa_depth.image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &dc);
+
+    VkImg &dst = vk_taa_hist[out];
+    VkImg &hist = vk_taa_hist[1 - out];
+    vk_image_to(vk_taa_depth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_image_to(color, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_image_to(hist, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    struct {
+        int32_t t0, t1, t2, smp;
+        float params[4];
+        float taa[GFX_POST_TAA_PARAMS];
+    } push = {};
+    push.t0 = color.slot;
+    push.t1 = hist.slot;
+    push.t2 = vk_taa_depth.slot;
+    push.smp = vk_get_sampler(vk_sampler_key(true, true, 0, VK_WRAP_CLAMP, VK_WRAP_CLAMP, 1));
+    memcpy(push.taa, params, sizeof(push.taa));
+
+    vk_begin_rendering_on(&dst, NULL, dst.width, dst.height);
+    VkViewport v = { 0.f, 0.f, (float)dst.width, (float)dst.height, 0.f, 1.f };
+    VkRect2D s = { { x, y }, { (uint32_t)width, (uint32_t)height } };
+    rcCmdSetViewport(cb, 0, 1, &v);
+    rcCmdSetScissor(cb, 0, 1, &s);
+    rcCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+    rcCmdPushConstants(cb, vk_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+    rcCmdDraw(cb, 3, 1, 0, 0);
+    vk_end_rendering();
+
+    vk_image_to(dst, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vk_image_to(color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy cc = {};
+    cc.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    cc.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    cc.srcOffset = at;
+    cc.dstOffset = at;
+    cc.extent = size;
+    rcCmdCopyImage(cb, dst.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, color.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1, &cc);
+
+    vk_bound_pipeline = VK_NULL_HANDLE;
+    vk_push_valid = false;
+    return true;
 }
 
 static void gfx_vk_on_resize(void) {
@@ -4117,7 +4232,9 @@ static bool vk_init_objects(void) {
         return false;
     }
 
-    VkPushConstantRange pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VkPush) };
+    // The largest block any shader pushes: the post passes' with TAA's
+    // parameters (gfx_post.h), 112 bytes, inside the 128 every device has
+    VkPushConstantRange pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, (uint32_t)std::max<size_t>(sizeof(VkPush), 112) };
     VkPipelineLayoutCreateInfo pli = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pli.setLayoutCount = 1;
     pli.pSetLayouts = &vk_set_layout;
@@ -4293,6 +4410,7 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_get_max_anisotropy_level,
     gfx_vk_get_max_msaa_level,
     gfx_vk_post_process,
+    gfx_vk_taa_resolve,
     gfx_vk_read_screen_pixels,
     gfx_vk_capture_start,
     gfx_vk_capture_read,
