@@ -329,11 +329,12 @@ static const struct gebeanrow chrRows[] = {
  * host's first-person model (gebeanGunsRefresh()), on which Bean's gun is
  * skinned to the host's matrices (gebeanBuildFirstPerson()).
  *
- * In both looks. The release's gun is drawn less its hand, since Perfect
- * Dark's own hand model is drawn with the gun; GoldenEye's N64 one is drawn
- * with the hand it has - the gun and the glove holding it are one model there
- * - and Perfect Dark's hands come off for it. Either way the gun is fitted to
- * the host on the gun alone, so the two looks stand in the same place.
+ * In both looks. A gun GoldenEye draws a hand on - the pistols and the
+ * hunting knife (fpN64Glove) - is drawn with the hand it has, the gun and the
+ * glove holding it being one model, and the rest bare as GoldenEye has them;
+ * Perfect Dark's own hands come off (fpHdKeepsHands). Either way the gun is
+ * fitted to the host on the gun alone, so the two looks stand in the same
+ * place.
  */
 #define GEBEAN_FIRSTPERSON 5
 
@@ -408,6 +409,20 @@ static const u8 fpN64Glove[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
+};
+
+/**
+ * The release's guns that Perfect Dark's hands still hold in the HD look.
+ * GoldenEye draws a hand on its pistols and knives and on nothing else (the
+ * user, 2026-09-24: "ge n64 doesnt use hands either except for pistols"), and
+ * the hand Perfect Dark would add is the player's own character's - Joanna's
+ * glove on Bond. So the pistols and the hunting knife keep the release's own
+ * glove (fpN64Glove) and the rest are drawn bare, as GoldenEye draws them;
+ * only the throwing knife, whose own hand is left out of the mesh
+ * (beanGunExtent), keeps Perfect Dark's.
+ */
+static const u8 fpHdKeepsHands[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 1,
 };
 
 /**
@@ -925,7 +940,8 @@ static void gebeanGunsRefresh(void)
 			// no hands of Perfect Dark's
 		} else if (gegunsIsBorrowed(i)) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
-		} else if (!fpSlot[i] || !(fpNoHands[i] || (gebeanGunsAreN64() && fpN64Glove[i]))) {
+		} else if (!fpSlot[i] || (!gebeanGunsAreN64() && fpHdKeepsHands[i])
+				|| (gebeanGunsAreN64() && !(fpNoHands[i] || fpN64Glove[i]))) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
 		}
 	}
@@ -4640,11 +4656,9 @@ static s32 beanTextureIsGlove(const struct beanmodel *bm, s32 t)
  * `drawn` and `fitted` are a byte a draw. What neither takes is GoldenEye's
  * painted muzzle flash - dropped in both looks, since it is always lit and the
  * player asked for it off the guns in the hand - and, in the HD files, the
- * hand: those carry it as one 512x511 picture, and Perfect Dark draws its own
- * hand model with the gun. What is drawn but not fitted is the N64 look's hand
- * and forearm - unless `handoff`, which drops an N64 file's hand the way the
- * HD files' is dropped, for a gun whose own grip is not one to hold it by
- * (fpN64Glove).
+ * hand, which the HD files carry as one 512x511 picture. What is drawn but not
+ * fitted is the hand and forearm in either look - unless `handoff`, which
+ * drops it, for a gun whose own grip is not one to hold it by (fpN64Glove).
  *
  * Also left out of both: a draw collapsed to a point. The N64 files carry
  * pieces GoldenEye moves into place as it fires - the AK's is 760 triangles in
@@ -4661,8 +4675,10 @@ static s32 beanGunExtent(struct beanmodel *bm, s32 original, s32 handoff, u8 *dr
 		s32 w = 0;
 		s32 h = 0;
 
+		// in the HD files 1 is the glove's own 512x511 picture and 2 the small
+		// pictures that go with it
 		hand[t] = original ? beanTextureIsGlove(bm, t)
-			: (beanTextureSize(bm, t, &w, &h) && ((w == 512 && h == 511) || (w <= 64 && h <= 64)));
+			: !beanTextureSize(bm, t, &w, &h) ? 0 : (w == 512 && h == 511) ? 1 : (w <= 64 && h <= 64) ? 2 : 0;
 	}
 
 	for (s32 di = 0; di < bm->numdraws; di++) {
@@ -4678,7 +4694,7 @@ static s32 beanGunExtent(struct beanmodel *bm, s32 original, s32 handoff, u8 *dr
 		drawn[di] = 0;
 		fitted[di] = 0;
 
-		if (original ? (beanDrawIsFlash(bm, d) || (handoff && isglove)) : isglove) {
+		if (original ? (beanDrawIsFlash(bm, d) || (handoff && isglove)) : (isglove && (handoff || hand[d->tex] == 2))) {
 			numleftout++;
 			continue;
 		}
@@ -5190,7 +5206,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		return NULL;
 	}
 
-	numleftout = beanGunExtent(&bm, original, original && !fpN64Glove[fp], drawn, fitted, beanlo, beanhi, &owncloud);
+	numleftout = beanGunExtent(&bm, original, !fpN64Glove[fp], drawn, fitted, beanlo, beanhi, &owncloud);
 
 	// A silenced gun is measured on its plain twin, which shares its place
 	if (fpFitSource[fp]) {
@@ -5203,7 +5219,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		snprintf(twinsource, sizeof(twinsource), "%s/%s", original ? "original" : "new", fpFitSource[fp]);
 
 		if (twinuse && beanLoad(&twin, twinsource, 1)) {
-			beanGunExtent(&twin, original, original && !fpN64Glove[fp], twinuse, twinuse + BEAN_MAXDRAWS, twinlo, twinhi, &fitcloud);
+			beanGunExtent(&twin, original, !fpN64Glove[fp], twinuse, twinuse + BEAN_MAXDRAWS, twinlo, twinhi, &fitcloud);
 
 			if (twinhi[2] - twinlo[2] > 1.0f) {
 				memcpy(beanlo, twinlo, sizeof(twinlo));
