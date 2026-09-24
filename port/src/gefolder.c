@@ -1379,11 +1379,16 @@ static s32 beanFolderListMatrix(const struct modelnode *node, Gfx *out)
 /**
  * How the release draws each of its pictures, read off its three pixel
  * shaders in the draw log. Most are the picture times the vertex colour. The
- * cursor's shadow, the OHMSS title and the paperclip carry no alpha: their
- * brightness is how much of the vertex colour covers the page (black for the
- * title, pale grey for the clip). The stamps are grey ink with an alpha of
- * its own, in the vertex colour - a dark red, itself two thirds opaque.
+ * cursor's shadow and the OHMSS title carry no alpha: their brightness is how
+ * much of the vertex colour covers the page (black for the title). The
+ * paperclip is the same but keeps its own grey: over the white of a
+ * photograph the release's clip is a grey loop (234 goes to about 175, the
+ * dark desk's 4 to about 34), where white coverage left it white on white
+ * and it vanished into the picture it holds. The stamps are grey ink with an
+ * alpha of its own, in the vertex colour - a dark red, itself two thirds
+ * opaque.
  */
+#define BEANFOLDER_CLIP    66
 #define BEANFOLDER_PICTURE 0
 #define BEANFOLDER_MASK    1
 #define BEANFOLDER_STAMP   2
@@ -1422,7 +1427,10 @@ static const void *beanFolderTile(struct gebeanpictures *pics, s32 tex)
 			u8 *px = rgba + (size_t)i * 4;
 
 			px[3] = (u8)((px[0] * 77 + px[1] * 150 + px[2] * 29) >> 8);
-			px[0] = px[1] = px[2] = 0xff;
+
+			if (tex != BEANFOLDER_CLIP) {
+				px[0] = px[1] = px[2] = 0xff;
+			}
 		}
 	}
 
