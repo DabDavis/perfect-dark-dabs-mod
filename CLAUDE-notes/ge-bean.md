@@ -6288,11 +6288,17 @@ through every stage in order; and "if it is too short duration we can loop
 music until 2 minute mark give or take for a clean break of the music".
 
 - The Intro/Outro page has a third row, **Loop: Off / Level / All**
-  (`CINEMA_LOOP` in gexfront.c; `gecinemaSetLoop()`, kept for the session).
-  It changes only the Intro. Level goes back to the folder at the break. All
-  goes straight on to the next mission's opening with `mainChangeToStage()`
-  (`gexFrontCinemaNext()`, round to Dam after the last) and never opens the
-  folder between levels. Backing out leaves at any point.
+  (`CINEMA_LOOP` in gexfront.c; `gecinemaSetLoop()`, kept for the session),
+  and a fourth, **- Time: N min +** (`CINEMA_TIME`, pd.ini
+  `Mod.GePlusCinemaMinutes`, 1-20, default 2). A pick on the row's left half
+  takes a minute off and on its right half adds one, wrapping at either end;
+  the highlight bar on that row is wider (0x10c). They change only the Intro.
+  **Level goes round until the player backs out** and never breaks. It went
+  back to the folder at the break at first; the user asked the same day for
+  it to repeat indefinitely. All goes straight on to the next mission's
+  opening with `mainChangeToStage()` (`gexFrontCinemaNext()`, round to Dam
+  after the last, for ever) and never opens the folder between levels.
+  Backing out leaves at any point.
 - **The break is the sequence player's own loop point**
   (`g_SeqLoopPoints`, n_csq.c). **A track's jump back is not the song's**:
   Runway's drum track loops a 1536-tick pattern for ever (3.8 s) and track 3
@@ -6301,10 +6307,10 @@ music until 2 minute mark give or take for a clean break of the music".
   its **loop-for-ever** jump (`curLpCt == 0xff`), or when a sequence with no
   loop ends. A turn ends at the loop point nearest two minutes
   (`now + pass / 2 >= 120 s`), with a half-second fade. Measured passes:
-  Dam 148.8 s, Facility 119.6 s, Runway 155.0 s, so each plays once. There
-  is a 3-minute cap for a theme that never comes round, and two minutes when
-  there is no music.
-- Probe: `--boot-stage 0x5e --cinema-opening --cinema-loop 1|2` with
+  Dam 148.8 s, Facility 119.6 s, Runway 155.0 s, so each plays once. The cap for a theme that never comes round is the time plus a minute, but
+  never under four minutes: at one minute the cap would otherwise have cut
+  Runway's 155 s pass. With no music, a level plays for the time.
+- Probe: `--boot-stage 0x5e --cinema-opening --cinema-loop 1|2 --cinema-minutes N` with
   `SDL_AUDIODRIVER=disk` (the loop points need the audio thread running, so
   not `--no-sound`), and **not `--fixed-step`**: the music plays in wall time.
   `gecinema: loop point N at T s (pass P s)` is logged.

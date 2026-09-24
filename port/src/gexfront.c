@@ -1814,8 +1814,9 @@ static void frontOpenExtra(s32 row);
 #define EXTRA_CINEMA   0
 #define EXTRA_MONITORS 1
 
-#define NUM_CINEMA_ROWS 3
+#define NUM_CINEMA_ROWS 4
 #define CINEMA_LOOP     2   // the third row is no cinema but the Loop switch for the Intro
+#define CINEMA_TIME     3   // and the fourth Loop All's minutes a level: the left half of it less, the right more
 
 static void frontSetCursorForCinemaPick(s32 what)
 {
@@ -2155,13 +2156,24 @@ static void frontTickMonitorView(s32 pick, s32 back)
 static void frontTickCinemaPick(s32 pick, s32 back)
 {
 	if (!g_Front.tabprev) {
-		g_Front.highlight = g_Front.cursory >= 243 ? CINEMA_LOOP
+		g_Front.highlight = g_Front.cursory >= 275 ? CINEMA_TIME : g_Front.cursory >= 243 ? CINEMA_LOOP
 			: g_Front.cursory >= 211 ? GECINEMA_ENDING : GECINEMA_OPENING;
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 		frontOpenCinema();
+		return;
+	}
+
+	if (pick && g_Front.highlight == CINEMA_TIME) {
+		// 1 to 20 minutes, round at either end
+		const s32 span = GECINEMA_MINUTES_MAX - GECINEMA_MINUTES_MIN + 1;
+		const s32 step = g_Front.cursorx < 205.0f ? -1 : 1;
+
+		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
+		gecinemaSetMinutes(GECINEMA_MINUTES_MIN
+				+ (gecinemaGetMinutes() - GECINEMA_MINUTES_MIN + step + span) % span);
 		return;
 	}
 
@@ -5153,23 +5165,33 @@ static Gfx *frontDrawMonitors(Gfx *gdl)
  */
 static Gfx *frontDrawCinemaPick(Gfx *gdl)
 {
-	static const char *rows[NUM_CINEMA_ROWS] = { "Intro\n", "Outro\n", NULL };   // the user's names, in the case GoldenEye sets its difficulties in
+	static const char *rows[NUM_CINEMA_ROWS] = { "Intro\n", "Outro\n", NULL, NULL };   // the user's names, in the case GoldenEye sets its difficulties in
 	static const char *loops[GECINEMA_NUM_LOOPS] = { "Loop: Off\n", "Loop: Level\n", "Loop: All\n" };
 
 	gdl = frontMissionHeader(gdl, false);
 	gdl = frontPrint(gdl, 0x37, 0x8f, "CINEMA:\n", COLOUR_ON);
 
 	if (g_Front.highlight >= 0) {
-		gdl = frontFillRect(gdl, 0x7e, g_Front.highlight * 0x1e + 0xb2, 0xf0, g_Front.highlight * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
+		// the Time row's "- ... +" is the one wider than the difficulty page's rows
+		const s32 right = g_Front.highlight == CINEMA_TIME ? 0x10c : 0xf0;
+
+		gdl = frontFillRect(gdl, 0x7e, g_Front.highlight * 0x1e + 0xb2, right, g_Front.highlight * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
 		gdl = frontTextSetup(gdl);
 	}
 
 	for (s32 i = 0; i < NUM_CINEMA_ROWS; i++) {
 		char num[8];
+		char time[24];
+		const char *text = i == CINEMA_LOOP ? loops[gecinemaGetLoop()] : rows[i];
+
+		if (i == CINEMA_TIME) {
+			snprintf(time, sizeof(time), "- Time: %d min +\n", gecinemaGetMinutes());
+			text = time;
+		}
 
 		snprintf(num, sizeof(num), "%d.\n", i + 1);
 		gdl = frontPrint(gdl, 0x82, i * 0x1e + 0xb4, num, COLOUR_ON);
-		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, i == CINEMA_LOOP ? loops[gecinemaGetLoop()] : rows[i], COLOUR_ON);
+		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, text, COLOUR_ON);
 	}
 
 	return gdl;

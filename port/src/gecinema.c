@@ -56,6 +56,8 @@
 #include "input.h"
 #include "gexfront.h"
 #include "gecinema.h"
+#include "config.h"
+#include "platform.h"
 #include "geroom.h"
 
 #ifndef PLATFORM_N64
@@ -102,19 +104,25 @@ static s32 g_GeCinemaLeft;            // the player backed out rather than watch
 
 /**
  * The Loop row (gexfront.c): an opening's shots go round and round with the
- * level's own music under them, and never swirl down to Bond. A level's turn
- * ends where its music comes back to its start, so nothing is cut off in the
- * middle of a phrase - the first pass if that is two minutes or more, and a
- * short theme is let go round again until the loop point nearest the two
- * minute mark. The loop points are the sequence player's own
+ * level's own music under them, and never swirl down to Bond - Level until
+ * the player backs out. On All a level's turn ends where its music comes back
+ * to its start, so nothing is cut off in the
+ * middle of a phrase: the loop point nearest the Time row's minutes (1 to 20,
+ * two by default), a short theme let go round again to reach it. The loop points are the sequence player's own
  * (g_SeqLoopPoints, n_csq.c).
  */
-#define LOOP_TARGET60   (120.0f * 60.0f)
-#define LOOP_LATEST60   (180.0f * 60.0f)  // a theme that never loops back
 #define LOOP_DEBOUNCE60 120.0f            // every track of a sequence jumps back at once
 #define LOOP_FADE60     30
 
 static s32 g_GeCinemaLoop;            // GECINEMA_LOOP_*, the folder's row; kept between cinemas
+static s32 g_GeCinemaMinutes = 2;     // All's time a level, the folder's Time row (pd.ini)
+
+#define LOOP_TARGET60   (g_GeCinemaMinutes * 60.0f * 60.0f)
+// a theme that never comes back round: a minute over the level's time, and
+// never under four, so a long theme on a short time still ends at its own
+// break (Runway's is 155 s)
+#define LOOP_LATEST60   (LOOP_TARGET60 + 60.0f * 60.0f > 240.0f * 60.0f \
+		? LOOP_TARGET60 + 60.0f * 60.0f : 240.0f * 60.0f)
 static s32 g_GeCinemaLooping;         // this cinema is a looping opening
 static u32 g_GeLoopSeen[3];           // g_SeqLoopPoints as last read
 static f32 g_GeLoopLastPoint60;       // when the music last came back to its start
@@ -216,6 +224,23 @@ s32 gecinemaGetLoop(void)
 	return g_GeCinemaLoop;
 }
 
+PD_CONSTRUCTOR static void gecinemaConfigInit(void)
+{
+	configRegisterInt("Mod.GePlusCinemaMinutes", &g_GeCinemaMinutes,
+			GECINEMA_MINUTES_MIN, GECINEMA_MINUTES_MAX);
+}
+
+void gecinemaSetMinutes(s32 minutes)
+{
+	g_GeCinemaMinutes = minutes < GECINEMA_MINUTES_MIN ? GECINEMA_MINUTES_MIN
+		: minutes > GECINEMA_MINUTES_MAX ? GECINEMA_MINUTES_MAX : minutes;
+}
+
+s32 gecinemaGetMinutes(void)
+{
+	return g_GeCinemaMinutes;
+}
+
 /** Every stage load: this one is a cinema if the folder armed one. */
 void gecinemaStageStart(void)
 {
@@ -235,6 +260,7 @@ void gecinemaStageStart(void)
 			g_GeCinemaWhat = GECINEMA_OPENING;
 			// and the Loop row: 1 Level, 2 All
 			gecinemaSetLoop(sysArgGetInt("--cinema-loop", GECINEMA_LOOP_OFF));
+			gecinemaSetMinutes(sysArgGetInt("--cinema-minutes", g_GeCinemaMinutes));
 		}
 	}
 	g_GeCinemaNumShots = -1;
@@ -1008,7 +1034,7 @@ static s32 gecinemaLoopTick(void)
 
 	if (point && now - g_GeLoopLastPoint60 > LOOP_DEBOUNCE60) {
 		// The pass just played is as long as the next will be: stop here if
-		// going round again would land further from two minutes than this.
+		// going round again would land further from the level's time than this.
 		// The first pass is timed from the level's start, where its music
 		// starts too.
 		const f32 pass = now - g_GeLoopLastPoint60;
@@ -1087,7 +1113,10 @@ void gecinemaTick(void)
 			return;   // the stage changes at the end of the frame
 		}
 
-		if (g_GeCinemaNumShots <= 0 || gecinemaLoopTick()) {
+		// Level goes round until the player backs out; All moves on at the
+		// music's break
+		if (g_GeCinemaNumShots <= 0
+				|| (g_GeCinemaLoop == GECINEMA_LOOP_ALL && gecinemaLoopTick())) {
 			g_GeLoopEnding = 2;
 			gecinemaLoopNext();
 			return;
