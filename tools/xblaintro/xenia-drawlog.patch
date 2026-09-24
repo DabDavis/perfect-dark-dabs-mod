@@ -1,8 +1,8 @@
 diff --git a/src/xenia/gpu/pm4_command_processor_implement.h b/src/xenia/gpu/pm4_command_processor_implement.h
-index e2560f9c1..3ea015274 100644
+index e2560f9c1..3c19c9803 100644
 --- a/src/xenia/gpu/pm4_command_processor_implement.h
 +++ b/src/xenia/gpu/pm4_command_processor_implement.h
-@@ -389,6 +389,193 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_CountOverflow(uint32_t count) {
+@@ -389,6 +389,201 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_CountOverflow(uint32_t count) {
    return false;
  }
  XE_NOINLINE
@@ -81,10 +81,17 @@ index e2560f9c1..3ea015274 100644
 +static void PdDrawLogDraw(const uint32_t* values, uint32_t initiator,
 +                          Shader* vertex_shader, Shader* pixel_shader) {
 +  FILE* file = PdDrawLogOpen();
-+  if (!file || PdDrawLogFrame() >= PdDrawLogMaxFrames()) {
++  static const uint32_t first_frame = [] {
++    const char* env = std::getenv("PD_DRAWLOG_FIRST");
++    return env ? uint32_t(std::strtoul(env, nullptr, 10)) : 0u;
++  }();
++  if (!file || PdDrawLogFrame() >= PdDrawLogMaxFrames() ||
++      PdDrawLogFrame() < first_frame) {
 +    return;
 +  }
-+  const uint32_t head[3] = {0x32444450u, PdDrawLogFrame(), initiator};
++  // 'PDD3': PDD2 plus pixel float constants c192-c199 (the lighting block
++  // GoldenEye XBLA's shaders read at c196-c198) at the end
++  const uint32_t head[3] = {0x33444450u, PdDrawLogFrame(), initiator};
 +  const uint64_t shaders[2] = {uint64_t(uintptr_t(vertex_shader)),
 +                               uint64_t(uintptr_t(pixel_shader))};
 +  uint8_t bindings[16];
@@ -98,6 +105,7 @@ index e2560f9c1..3ea015274 100644
 +  std::fwrite(values + 0x2200, 4, 12, file);
 +  std::fwrite(values + 0x4800, 4, 192, file);
 +  std::fwrite(bindings, 1, 16, file);
++  std::fwrite(values + 0x4000 + (256 + 192) * 4, 4, 32, file);
 +}
 +// The buffers of every draw with depth testing off (RB_DEPTHCONTROL z_enable
 +// clear - skies, the HUD), to PD_DRAWLOG with ".vb" added. One record each:
@@ -196,7 +204,7 @@ index e2560f9c1..3ea015274 100644
  bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet) XE_RESTRICT {
    // Type-3 packet.
    uint32_t opcode = (packet >> 8) & 0x7F;
-@@ -566,6 +753,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet) XE_RESTRICT {
+@@ -566,6 +761,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet) XE_RESTRICT {
      }
  
      trace_writer_.WritePacketEnd();
@@ -206,7 +214,7 @@ index e2560f9c1..3ea015274 100644
  #if XE_ENABLE_TRACE_WRITER_INSTRUMENTATION == 1
  
      if (opcode == PM4_XE_SWAP) {
-@@ -1135,6 +1325,15 @@ bool COMMAND_PROCESSOR::ExecutePacketType3Draw(
+@@ -1135,6 +1333,15 @@ bool COMMAND_PROCESSOR::ExecutePacketType3Draw(
    // we don't support yet.
    reader_.AdvanceRead(count_remaining * sizeof(uint32_t));
  

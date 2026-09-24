@@ -9033,3 +9033,31 @@ measured, eye-checked 1/16384). Levels read their own literals already
 left out. Survey tools: `.xbla-work/ge-bean/xenosvs.py` (the containers),
 and the scratch `litsurvey.py`/`uvsurvey.py` pair that compared literal and
 measure over every file. `build/gexrom/truckview.sh` rings Dam's truck.
+
+## The release's lighting: the shaders can light, the game never turns it on (2026-09-24)
+
+Asked to bring the HD models the release's own lighting. The main pixel
+shader (`2D2FA13E` in Xenia's dump; the truck's body, the olive guard) is,
+disassembled with the draw-log Xenia's `--dump_shaders`:
+`lit = saturate(dot(normalize(n), c198)) * c197 + c196` (c198 `c_light0dir`,
+c197 `c_light0colour`, c196 `c_ambient`), times the vertex colour (`o3`,
+the buffer's 8888 colour passed straight through the vertex shader), times
+the texel, then `lerp(colour, c7.rgb, c7.w)` (`c_globalcolour`), then fog
+`lerp(c1, colour, saturate(dist * c0.x + c0.y))`, alpha from c12.w. The
+wheel/gun variant (`C587842B`) adds a Blinn highlight, power c13.x (44.6)
+times c14 (0.35) times the light colour.
+
+**Every draw the release makes has ambient 1, light colour 0, direction
+(0,0,1)** - 1.97 million draws over boot, menus and Dam, 3.6 million over
+Facility, not one other value - so the directional light and the highlight
+are multiplied out and the release's HD look is texel times baked vertex
+colour, fogged. `c7` is (1,1,1,0) in play and goes black with 0.25-0.6
+only in fades. The held gun is not darkened either. The draw-log hook
+records pixel c192-c199 since this ('PDD3', `PD_DRAWLOG_FIRST` skips the
+boot; `tools/xblaintro/xenia-drawlog.patch`); record 2396 bytes, the light
+block at the end, c196 at +64 of it.
+
+So the port's HD meshes, which take Perfect Dark's per-prop room shade on top
+of texel times vertex colour (xblamesh.c, the node's fog blend towards the
+prop's shade colour), are **darker than the release in dark rooms**, not
+missing a light the release has.

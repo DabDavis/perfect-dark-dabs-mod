@@ -86,3 +86,21 @@ and there are no cube textures or mipmaps.
   once at load or a face a frame, sampled per pixel. Needs cube textures in
   the renderer. Nothing moving shows in them.
 - K7 Sheen stays either way; these would be styles beside it.
+
+## A real main light on the HD GoldenEye models (noted 2026-09-24, not pressing)
+
+Bean's pixel shaders carry a lighting model the release never turns on:
+`saturate(dot(n, light0dir)) * light0colour + ambient`, times vertex colour
+and texel, and on the gun/wheel shader a Blinn highlight (power 44.6, 0.35).
+The release sets ambient 1 and light colour 0 on every draw, so its HD look
+is texel times baked vertex colour (ge-bean.md, "The release's lighting: the
+shaders can light, the game never turns it on"). The user judged a real
+light a possible future endeavour, not a fix. What is known for it:
+- the formula and constants above, and that the normals already reach the
+  renderer for the reflections (xbla.md, "Per pixel": the vertex colour
+  carries the normal under `G_ENVMAP_EXT`);
+- no light values exist to copy - they would be chosen, per level (a sun
+  for the outdoor levels), and so it is a new look behind a setting that
+  defaults off;
+- the port's HD meshes also take Perfect Dark's per-prop room shade, which
+  the release does not; matching the release exactly would mean dropping it.
