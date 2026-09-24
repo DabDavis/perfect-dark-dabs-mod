@@ -260,8 +260,16 @@ static inline s32 weaponHost(s32 weaponnum)
 	return weaponnum >= WEAPON_GE_FIRST && weaponnum < NUM_WEAPONS
 		? g_GeWeaponHosts[weaponnum - WEAPON_GE_FIRST] : weaponnum;
 }
+
+/**
+ * Whether a weapon number is one of GoldenEye's guns: for the tests where the
+ * host's behaviour is not GoldenEye's (the audit of the weaponHost() sites,
+ * ge-bean.md), which ask this beside the host.
+ */
+#define WEAPON_IS_GE(weaponnum) ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < NUM_WEAPONS)
 #else
 #define weaponHost(weaponnum) (weaponnum)
+#define WEAPON_IS_GE(weaponnum) (false)
 #endif
 extern u32 *g_TvCmdlists[TVCMDLIST_36 + 1];
 extern s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1];

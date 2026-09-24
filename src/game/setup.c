@@ -52,6 +52,7 @@
 #include "modloader.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
+#include "geguns.h"
 #include "modborrow.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
@@ -701,7 +702,15 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 				}
 #endif
 			} else {
-				if (cheatIsActive(CHEAT_ENEMYROCKETS)) {
+				if (cheatIsActive(CHEAT_ENEMYROCKETS) && WEAPON_IS_GE(weapon->weaponnum)) {
+#ifndef PLATFORM_N64
+					if (gegunsEnemyRocketsSwaps(weapon->weaponnum)) {
+						weapon->weaponnum = WEAPON_GE_ROCKETLAUNCHER;
+						weapon->base.modelnum = gegunsEnemyRocketModel();
+						weapon->base.extrascale = 256;
+					}
+#endif
+				} else if (cheatIsActive(CHEAT_ENEMYROCKETS)) {
 					switch (weaponHost(weapon->weaponnum)) {
 					case WEAPON_FALCON2:
 					case WEAPON_FALCON2_SILENCER:

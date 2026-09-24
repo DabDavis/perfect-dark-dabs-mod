@@ -71,6 +71,7 @@
 #include "getank.h"
 #include "geroom.h"
 #include "gechranims.h"
+#include "geguns.h"
 #endif
 #endif
 
@@ -2382,6 +2383,33 @@ void chrAttackKneel(struct chrdata *chr, u32 attackflags, s32 entityid)
 	chrAttack(chr, animgroup, flip, firing, attackflags, entityid, false);
 }
 
+/**
+ * Whether a chr's attack with this weapon is a single shot rather than fire
+ * held through the attack. There's an easter egg here: any guard with Chris
+ * T's head (Foster from the firing range) can fire multiple shots with the
+ * magnum. GoldenEye's guns fire as GoldenEye's guards fire them: only its two
+ * launchers once (its chraction.c), where the hosts would make the Cougar, the
+ * Golden Gun and both shotguns single shots in a solo mission too.
+ */
+static bool chrWeaponFiresOnce(struct chrdata *chr, s32 weaponnum)
+{
+	if (WEAPON_IS_GE(weaponnum)) {
+		return weaponnum == WEAPON_GE_ROCKETLAUNCHER || weaponnum == WEAPON_GE_GRENADELAUNCHER;
+	}
+
+	return weaponnum == WEAPON_ROCKETLAUNCHER
+		|| weaponnum == WEAPON_ROCKETLAUNCHER_34
+		|| weaponnum == WEAPON_SLAYER
+		|| weaponnum == WEAPON_DEVASTATOR
+		|| (
+			!g_Vars.normmplayerisrunning
+			&& weaponnum == WEAPON_DY357MAGNUM
+			&& chr->headnum != HEAD_JONATHAN
+			&& chr->headnum != HEAD_CHRIST)
+		|| (!g_Vars.normmplayerisrunning && weaponnum == WEAPON_DY357LX)
+		|| (!g_Vars.normmplayerisrunning && weaponnum == WEAPON_SHOTGUN);
+}
+
 void chrAttackWalkChooseAnimation(struct chrdata *chr)
 {
 	if (chr->aibot == NULL) {
@@ -2485,21 +2513,7 @@ void chrAttackWalk(struct chrdata *chr, bool run)
 				everytick[i] = true;
 			}
 
-			if (weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER
-					|| weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER_34
-					|| weaponHost(weapon->weaponnum) == WEAPON_SLAYER
-					|| weaponHost(weapon->weaponnum) == WEAPON_DEVASTATOR
-					|| (
-						!g_Vars.normmplayerisrunning
-						&& weaponHost(weapon->weaponnum) == WEAPON_DY357MAGNUM
-						&& chr->headnum != HEAD_JONATHAN
-						&& chr->headnum != HEAD_CHRIST)
-					|| (
-						!g_Vars.normmplayerisrunning
-						&& weaponHost(weapon->weaponnum) == WEAPON_DY357LX)
-					|| (
-						!g_Vars.normmplayerisrunning
-						&& weaponHost(weapon->weaponnum) == WEAPON_SHOTGUN)) {
+			if (chrWeaponFiresOnce(chr, weapon->weaponnum)) {
 				singleshot[i] = true;
 			}
 		}
@@ -2650,21 +2664,7 @@ void chrAttackRoll(struct chrdata *chr, bool toleft)
 				dooneburst = true;
 			}
 
-			if (weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER
-					|| weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER_34
-					|| weaponHost(weapon->weaponnum) == WEAPON_SLAYER
-					|| weaponHost(weapon->weaponnum) == WEAPON_DEVASTATOR
-					|| (
-						!g_Vars.normmplayerisrunning
-						&& weaponHost(weapon->weaponnum) == WEAPON_DY357MAGNUM
-						&& chr->headnum != HEAD_JONATHAN
-						&& chr->headnum != HEAD_CHRIST)
-					|| (
-						!g_Vars.normmplayerisrunning
-						&& weaponHost(weapon->weaponnum) == WEAPON_DY357LX)
-					|| (
-						!g_Vars.normmplayerisrunning
-						&& weaponHost(weapon->weaponnum) == WEAPON_SHOTGUN)) {
+			if (chrWeaponFiresOnce(chr, weapon->weaponnum)) {
 				singleshot[i] = true;
 			}
 		}
@@ -2919,24 +2919,7 @@ void chrAttack(struct chrdata *chr, struct attackanimgroup **animgroups, bool fl
 					dooneburst = true;
 				}
 
-				// There's an easter egg here: Any guard with Chris T's head
-				// (Foster from the firing range) can fire multiple shots with
-				// the magnum.
-				if (weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER
-						|| weaponHost(weapon->weaponnum) == WEAPON_ROCKETLAUNCHER_34
-						|| weaponHost(weapon->weaponnum) == WEAPON_SLAYER
-						|| weaponHost(weapon->weaponnum) == WEAPON_DEVASTATOR
-						|| (
-							!g_Vars.normmplayerisrunning
-							&& weaponHost(weapon->weaponnum) == WEAPON_DY357MAGNUM
-							&& chr->headnum != HEAD_JONATHAN
-							&& chr->headnum != HEAD_CHRIST)
-						|| (
-							!g_Vars.normmplayerisrunning
-							&& weaponHost(weapon->weaponnum) == WEAPON_DY357LX)
-						|| (
-							!g_Vars.normmplayerisrunning
-							&& weaponHost(weapon->weaponnum) == WEAPON_SHOTGUN)) {
+				if (chrWeaponFiresOnce(chr, weapon->weaponnum)) {
 					singleshot[i] = true;
 				}
 			}
@@ -5272,8 +5255,10 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		sp9c.z = vprop->pos.z - vector->z;
 		angle = chrGetAngleToPos(chr, &sp9c);
 
-		// Knife in the back to an unalerted chr is lethal
+		// Knife in the back to an unalerted chr is lethal - not GoldenEye's,
+		// whose knife does its Destruction wherever it lands
 		if (weaponHost(gset->weaponnum) == WEAPON_COMBATKNIFE
+				&& !WEAPON_IS_GE(gset->weaponnum)
 				&& gset->weaponfunc == FUNC_PRIMARY
 				&& angle > 2.0940616130829f
 				&& angle < 4.1881237030029f
@@ -5329,7 +5314,8 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					chrFlinchHead(chr, angle);
 					damage *= headshotdamagescale;
 
-					if (weaponHost(gset->weaponnum) == WEAPON_COMBATKNIFE && gset->weaponfunc != FUNC_POISON) {
+					if (weaponHost(gset->weaponnum) == WEAPON_COMBATKNIFE && gset->weaponfunc != FUNC_POISON
+							&& !WEAPON_IS_GE(gset->weaponnum)) {
 						damage += damage;
 					}
 				}
@@ -8811,6 +8797,12 @@ bool chrConsiderGrenadeThrow(struct chrdata *chr, u32 attackflags, u32 entityid)
 
 				if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR) {
 					prop = chrGiveWeapon(chr, MODEL_CHRGRENADE, WEAPON_NBOMB, flags);
+#ifndef PLATFORM_N64
+				} else if (geRoomActive() && playermgrGetModelOfWeapon(WEAPON_GE_GRENADE) >= 0) {
+					// GoldenEye's own grenade on its own level (its chraction.c
+					// gives PROP_CHRGRENADE and ITEM_GRENADE)
+					prop = chrGiveWeapon(chr, playermgrGetModelOfWeapon(WEAPON_GE_GRENADE), WEAPON_GE_GRENADE, flags);
+#endif
 				} else {
 					prop = chrGiveWeapon(chr, MODEL_CHRGRENADE, WEAPON_GRENADE, flags);
 				}
@@ -10930,8 +10922,9 @@ void chrCalculateHit(struct chrdata *chr, bool *angleokptr, bool *hit, struct gs
 	*angleokptr = angleok;
 	*hit = false;
 
-	// Determine the distance at which accuracy starts to taper off
-	switch (weaponHost(gset->weaponnum)) {
+	// Determine the distance at which accuracy starts to taper off. GoldenEye
+	// tapers every gun at 300, its sniper rifle too (its chraction.c)
+	switch (WEAPON_IS_GE(gset->weaponnum) ? WEAPON_NONE : weaponHost(gset->weaponnum)) {
 	case WEAPON_FALCON2:
 	case WEAPON_FALCON2_SILENCER:
 	case WEAPON_MAULER:
@@ -11595,7 +11588,8 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								rocketweaponnum = WEAPON_HOMINGROCKET;
 							}
 
-							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, rocketweaponnum, chr);
+							projectileobj = weaponCreateProjectileFromWeaponNum(
+									gegunsChrProjectileModel(gset.weaponnum, func->projectilemodelnum), rocketweaponnum, chr);
 						} else if (weaponHost(gset.weaponnum) == WEAPON_CROSSBOW) {
 							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_BOLT, chr);
 
@@ -11603,7 +11597,8 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								projectileobj->gunfunc = gset.weaponfunc;
 							}
 						} else if (weaponHost(gset.weaponnum) == WEAPON_DEVASTATOR) {
-							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_GRENADEROUND, chr);
+							projectileobj = weaponCreateProjectileFromWeaponNum(
+									gegunsChrProjectileModel(gset.weaponnum, func->projectilemodelnum), WEAPON_GRENADEROUND, chr);
 
 							if (projectileobj) {
 								projectileobj->gunfunc = gset.weaponfunc;
@@ -11972,7 +11967,6 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 			case WEAPON_AR34:
 			case WEAPON_SUPERDRAGON:
 			case WEAPON_REAPER:
-			case WEAPON_SNIPERRIFLE:
 			case WEAPON_FARSIGHT:
 			case WEAPON_TRANQUILIZER:
 			case WEAPON_LASER:
@@ -11985,6 +11979,10 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 			case WEAPON_AR53:
 			case WEAPON_RCP45:
 				makebeam = true;
+				break;
+			case WEAPON_SNIPERRIFLE:
+				// GoldenEye's guards draw no tracer from theirs
+				makebeam = !WEAPON_IS_GE(gset.weaponnum);
 				break;
 			default:
 				makebeam = false;

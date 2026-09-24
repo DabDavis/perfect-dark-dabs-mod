@@ -1258,6 +1258,7 @@ s32 gegunsOwnPropModel(s32 weaponnum)
 		[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 185, // PROP_CHRGRENADELAUNCH
 		[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 211, // PROP_CHRROCKETLAUNCH
 		[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 186, // PROP_CHRKNIFE
+		[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = 196, // PROP_CHRGRENADE
 	};
 	const s32 index = weaponnum - WEAPON_GE_FIRST;
 	s32 prop;
@@ -1288,6 +1289,55 @@ s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback)
 	}
 
 	return model;
+}
+
+/**
+ * A guard's rocket and grenade round, where GoldenEye's own models are drawn:
+ * its chraction.c fires PROP_CHRROCKET (202) and PROP_CHRGRENADEROUND (203),
+ * where the host's function names Perfect Dark's.
+ */
+s32 gegunsChrProjectileModel(s32 weaponnum, s32 fallback)
+{
+	s32 model;
+
+	if (!gegunsOwnModelInUse(weaponnum)) {
+		return fallback;
+	}
+
+	switch (weaponnum) {
+	case WEAPON_GE_ROCKETLAUNCHER:  model = MODEL_REMAKE_FIRST + 202; break;
+	case WEAPON_GE_GRENADELAUNCHER: model = MODEL_REMAKE_FIRST + 203; break;
+	default: return fallback;
+	}
+
+	return g_ModelStates[model].fileid ? model : fallback;
+}
+
+/**
+ * The Enemy Rockets cheat on one of GoldenEye's weapons, as GoldenEye has it
+ * (chrai.c's TRYGiveMeItem and prop.c's setup of a guard's gun): every gun,
+ * both knives and the remote mine become its rocket launcher; the grenade
+ * launcher, the grenade and the timed and proximity mines, and the gadgets,
+ * stay. The hosts' list had it the other way round for most of them.
+ */
+s32 gegunsEnemyRocketsSwaps(s32 weaponnum)
+{
+	switch (weaponnum) {
+	case WEAPON_GE_GRENADELAUNCHER:
+	case WEAPON_GE_GRENADE:
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+		return 0;
+	}
+
+	return weaponnum >= WEAPON_GE_FIRST && weaponnum < WEAPON_GE_FIRST + NUM_GE_GUNS;
+}
+
+s32 gegunsEnemyRocketModel(void)
+{
+	const s32 model = playermgrGetModelOfWeapon(WEAPON_GE_ROCKETLAUNCHER);
+
+	return model >= 0 ? model : MODEL_CHRDYROCKET;
 }
 
 static void gegunsSetPart(struct model *model, s32 part, s32 visible)

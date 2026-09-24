@@ -59,6 +59,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "gecinema.h"
+#include "geguns.h"
 #include "modloader.h"
 #endif
 
@@ -4180,6 +4181,15 @@ bool aiTryEquipWeapon(void)
 			}
 
 			prop = chrGiveWeapon(g_Vars.chrdata, model, cmd[4], flags);
+		}
+#endif
+#ifndef PLATFORM_N64
+		else if (cheatIsActive(CHEAT_ENEMYROCKETS) && WEAPON_IS_GE(cmd[4])) {
+			if (gegunsEnemyRocketsSwaps(cmd[4])) {
+				prop = chrGiveWeapon(g_Vars.chrdata, gegunsEnemyRocketModel(), WEAPON_GE_ROCKETLAUNCHER, flags);
+			} else {
+				prop = chrGiveWeapon(g_Vars.chrdata, model, cmd[4], flags);
+			}
 		}
 #endif
 		else if (cheatIsActive(CHEAT_ENEMYROCKETS)) {
