@@ -43,6 +43,15 @@ s32 gebeanStageDrawsEveryRoom(void);
 /** GoldenEye's own key for the level being served in HD ("dam"), or NULL. */
 const char *gebeanStageLevelKey(void);
 
+/**
+ * Once a frame, after the camera is placed: whether one of GoldenEye's own
+ * cameras (authored - an opening shot, the swirl, a cutscene) stands outside
+ * the level, where the HD rooms are drawn with their back faces culled
+ * (gebeanStageCullsBackFaces(), read by bgRenderRoomOpaque()).
+ */
+void gebeanStageTickCamera(s32 authored);
+s32 gebeanStageCullsBackFaces(void);
+
 /** A new level: the last one's rooms and mesh go. */
 void gebeanStageLevelReset(void);
 

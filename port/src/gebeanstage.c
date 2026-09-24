@@ -19,6 +19,7 @@
 #include "system.h"
 #include "lib/rzip.h"
 #include "game/bg.h"
+#include "lib/vi.h"
 #include "romdata.h"
 #include "xblatex.h"
 #include "gebean.h"
@@ -406,14 +407,18 @@ static u8 *readRoom(s32 r, u32 *outLen)
  * them: each leaf's G_VTX loads up to 16 of the leaf's vertices, each G_TRI4
  * draws up to four of them.
  */
-static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
+static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
+		void (*fn)(void *arg, const f32 v[3][3], s32 room), void *arg)
 {
 	const u32 base = g_BgRooms[r].unk00;
 	u32 stack[64];
 	s32 depth = 0;
 
 	stack[depth++] = be32(raw + 8);
-	stack[depth++] = be32(raw + 12);
+
+	if (xlutoo) {
+		stack[depth++] = be32(raw + 12);
+	}
 
 	while (depth > 0) {
 		u32 b = stack[--depth];
@@ -465,7 +470,7 @@ static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
 							memcpy(v[0], loaded[x], sizeof(v[0]));
 							memcpy(v[1], loaded[y], sizeof(v[1]));
 							memcpy(v[2], loaded[z], sizeof(v[2]));
-							tgridAdd(g, v, (u16)r);
+							fn(arg, (const f32 (*)[3])v, (u16)r);
 						}
 					} else if (op == (u8)G_ENDDL) {
 						break;
@@ -476,6 +481,260 @@ static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
 			b = be32(raw + o + 4);
 		}
 	}
+}
+
+static void fileTriToGrid(void *arg, const f32 v[3][3], s32 room)
+{
+	tgridAdd(arg, v, room);
+}
+
+static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
+{
+	fileRoomTrianglesEach(r, raw, len, 1, fileTriToGrid, g);
+}
+
+/* -------------------------------------------------------------------------
+ * Is the camera outside the level?
+ *
+ * GoldenEye culls the back faces of its opaque room geometry, and it frames
+ * its own cameras - a mission's opening shots, the swirl down to Bond, its
+ * cutscenes - with that in mind: Caverns' first shot stands under the
+ * shaft's water and looks up through it, its second inside the rock beside
+ * the shaft, and its swirl begins under the lift floor Bond stands on. Bean's
+ * mesh has to be drawn two-sided, since 4J built decks, stair treads and
+ * roofs as single planes whose undersides are meant to be seen (Cradle,
+ * Facility, Runway), so from those cameras the HD level showed the
+ * undersides of the water, the rock and the floor instead.
+ *
+ * So while one of GoldenEye's own cameras is in charge, a grid of rays
+ * through the view is tested against GoldenEye's own opaque triangles, which
+ * are closed where Bean's are not (its decks are boxes). Mostly back faces
+ * means the camera is outside GoldenEye's level, and the HD rooms' opaque
+ * leaves are drawn culled for that frame (bgRenderRoomOpaque()).
+ * ------------------------------------------------------------------------- */
+
+static f32 *shellTri;
+static s32 shellNum;
+static s32 shellCap;
+static s32 *shellFirst;
+static s32 *shellCount;
+static s32 cullOutside;
+static s32 shellHits;  // the last test's rays that met the level, and of those its back
+static s32 shellBacks;
+
+#define SHELL_RAYS_X 8
+#define SHELL_RAYS_Y 6
+
+static void fileTriToShell(void *arg, const f32 v[3][3], s32 room)
+{
+	if (shellNum >= shellCap) {
+		const s32 cap = shellCap ? shellCap * 2 : 16384;
+		f32 *t = realloc(shellTri, sizeof(f32) * 9 * cap);
+
+		if (!t) {
+			return;
+		}
+
+		shellTri = t;
+		shellCap = cap;
+	}
+
+	memcpy(shellTri + shellNum * 9, v, sizeof(f32) * 9);
+	shellNum++;
+}
+
+static s32 normalize3(f32 *v)
+{
+	const f32 len = sqrtf(dot3(v, v));
+
+	if (len < 1e-6f) {
+		return 0;
+	}
+
+	v[0] /= len;
+	v[1] /= len;
+	v[2] /= len;
+
+	return 1;
+}
+
+static void shellForget(void)
+{
+	free(shellTri);
+	free(shellFirst);
+	free(shellCount);
+	shellTri = NULL;
+	shellFirst = shellCount = NULL;
+	shellNum = shellCap = 0;
+	cullOutside = 0;
+}
+
+static s32 rayHitsBox(const f32 *o, const f32 *inv, const f32 *mn, const f32 *mx, f32 best)
+{
+	f32 t0 = 0.0f, t1 = best;
+
+	for (s32 k = 0; k < 3; k++) {
+		f32 a = (mn[k] - o[k]) * inv[k];
+		f32 b = (mx[k] - o[k]) * inv[k];
+
+		if (a > b) {
+			const f32 t = a;
+			a = b;
+			b = t;
+		}
+
+		t0 = a > t0 ? a : t0;
+		t1 = b < t1 ? b : t1;
+
+		if (t0 > t1) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+/** The nearest of GoldenEye's triangles along the ray: 0 none, 1 its front, -1 its back. */
+static s32 shellRay(const f32 *o, const f32 *d)
+{
+	f32 inv[3];
+	f32 best = 1e9f;
+	s32 facing = 0;
+
+	for (s32 k = 0; k < 3; k++) {
+		inv[k] = 1.0f / (d[k] != 0.0f ? d[k] : 1e-9f);
+	}
+
+	for (s32 r = 1; r < numRooms; r++) {
+		if (shellCount[r] == 0
+				|| !rayHitsBox(o, inv, g_Rooms[r].bbmin, g_Rooms[r].bbmax, best)) {
+			continue;
+		}
+
+		for (s32 i = shellFirst[r]; i < shellFirst[r] + shellCount[r]; i++) {
+			const f32 *v = shellTri + i * 9;
+			f32 e1[3], e2[3], p[3], q[3], s[3], det, u, w, t;
+
+			for (s32 k = 0; k < 3; k++) {
+				e1[k] = v[3 + k] - v[k];
+				e2[k] = v[6 + k] - v[k];
+			}
+
+			p[0] = d[1] * e2[2] - d[2] * e2[1];
+			p[1] = d[2] * e2[0] - d[0] * e2[2];
+			p[2] = d[0] * e2[1] - d[1] * e2[0];
+			det = dot3(e1, p);
+
+			if (det > -1e-6f && det < 1e-6f) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				s[k] = o[k] - v[k];
+			}
+
+			u = dot3(s, p) / det;
+
+			if (u < 0.0f || u > 1.0f) {
+				continue;
+			}
+
+			q[0] = s[1] * e1[2] - s[2] * e1[1];
+			q[1] = s[2] * e1[0] - s[0] * e1[2];
+			q[2] = s[0] * e1[1] - s[1] * e1[0];
+			w = dot3(d, q) / det;
+
+			if (w < 0.0f || u + w > 1.0f) {
+				continue;
+			}
+
+			t = dot3(e2, q) / det;
+
+			if (t > 1.0f && t < best) {
+				best = t;
+				// det is the triangle's normal (e1 x e2) against -d, so it is
+				// positive where the ray meets the side that faces it - the
+				// side G_CULL_BACK keeps
+				facing = det > 0.0f ? 1 : -1;
+			}
+		}
+	}
+
+	return facing;
+}
+
+void gebeanStageTickCamera(s32 authored)
+{
+	struct player *pl = g_Vars.currentplayer;
+	f32 o[3], look[3], up[3], right[3], ty, tx;
+	s32 hits = 0, backs = 0;
+
+	cullOutside = 0;
+	shellHits = shellBacks = 0;
+
+	if (!authored || !built || !shellTri || !pl) {
+		return;
+	}
+
+	o[0] = pl->cam_pos.x;
+	o[1] = pl->cam_pos.y;
+	o[2] = pl->cam_pos.z;
+	look[0] = pl->cam_look.x;
+	look[1] = pl->cam_look.y;
+	look[2] = pl->cam_look.z;
+	up[0] = pl->cam_up.x;
+	up[1] = pl->cam_up.y;
+	up[2] = pl->cam_up.z;
+	// cam_look is a look-at offset and cam_up the world's up, neither of
+	// them a unit or square to the other: the basis is built here, and each
+	// ray is a unit so that shellRay()'s distances are units of the level
+	normalize3(look);
+	right[0] = look[1] * up[2] - look[2] * up[1];
+	right[1] = look[2] * up[0] - look[0] * up[2];
+	right[2] = look[0] * up[1] - look[1] * up[0];
+
+	if (!normalize3(right)) {
+		return;
+	}
+
+	up[0] = right[1] * look[2] - right[2] * look[1];
+	up[1] = right[2] * look[0] - right[0] * look[2];
+	up[2] = right[0] * look[1] - right[1] * look[0];
+
+	ty = tanf(viGetFovY() * (3.14159265f / 360.0f));
+	tx = ty * viGetAspect();
+
+	for (s32 y = 0; y < SHELL_RAYS_Y; y++) {
+		for (s32 x = 0; x < SHELL_RAYS_X; x++) {
+			const f32 sx = ((x + 0.5f) / SHELL_RAYS_X * 2.0f - 1.0f) * tx;
+			const f32 sy = ((y + 0.5f) / SHELL_RAYS_Y * 2.0f - 1.0f) * ty;
+			f32 d[3];
+			s32 f;
+
+			for (s32 k = 0; k < 3; k++) {
+				d[k] = look[k] + right[k] * sx + up[k] * sy;
+			}
+
+			normalize3(d);
+			f = shellRay(o, d);
+
+			if (f) {
+				hits++;
+				backs += f < 0;
+			}
+		}
+	}
+
+	// Two thirds of what the camera sees being the back of GoldenEye's level
+	// is outside it; from inside, a back face is only ever a seam
+	shellHits = hits;
+	shellBacks = backs;
+	cullOutside = hits >= 8 && backs * 3 >= hits * 2;
+}
+
+s32 gebeanStageCullsBackFaces(void)
+{
+	return cullOutside;
 }
 
 /**
@@ -846,11 +1105,19 @@ static s32 texHasAlpha(s32 tex)
 }
 
 static const struct stri *sortTris;
+static s32 sortCutoutsLast;
 
 static int compareTex(const void *a, const void *b)
 {
 	const struct stri *ta = &sortTris[*(const s32 *)a];
 	const struct stri *tb = &sortTris[*(const s32 *)b];
+
+	// An opaque leaf's cut-outs after its solid pictures, which are drawn
+	// culled or not by the room (writeLeaf()); a decal's base is never a
+	// cut-out under a solid picture (markDecals())
+	if (sortCutoutsLast && texHasAlpha(ta->tex) != texHasAlpha(tb->tex)) {
+		return texHasAlpha(ta->tex) - texHasAlpha(tb->tex);
+	}
 
 	// Decals after what they lie on
 	if (ta->decal != tb->decal) {
@@ -872,12 +1139,14 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	s32 curtex = -2;
 	s32 curdecal = -1;
 	s32 curalpha = -1;
+	s32 curcull = 0; // set once the cut-outs, sorted last, have turned culling off
 
 	if (num == 0) {
 		return 0;
 	}
 
 	sortTris = tris;
+	sortCutoutsLast = !xlu;
 	qsort(list, num, sizeof(*list), compareTex);
 
 	memset(&b, 0, sizeof(b));
@@ -888,9 +1157,15 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	emit(&l->gdl, 0xba001001, 0x00010000);
 	emit(&l->gdl, 0xba001102, 0x00000000);
 	emit(&l->gdl, 0xba000c02, 0x00002000);
-	// GoldenEye X's rooms cull back faces; Bean's winding is not known to
-	// agree, so both sides are drawn
-	emit(&l->gdl, 0xb6000000, 0x00002000);
+	// Both sides are drawn: 4J built decks, stair treads and roofs as single
+	// planes. The opaque leaf's solid pictures are the exception - they come
+	// first and take whatever bgRenderRoomOpaque() set, which is culled when
+	// one of GoldenEye's own cameras stands outside the level
+	// (gebeanStageTickCamera(); Bean's winding agrees with its vertex
+	// normals on every level, all but a few hundred of 600,000 triangles)
+	if (xlu) {
+		emit(&l->gdl, 0xb6000000, 0x00002000);
+	}
 	// The alpha combiner reads the environment colour, which is whatever the
 	// last list left it as unless it is set here, as the file's lists set it
 	emit(&l->gdl, 0xfb000000, 0x000000ff);
@@ -931,6 +1206,11 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 
 				curalpha = alpha;
 				curdecal = t->decal;
+			}
+
+			if (!xlu && texHasAlpha(t->tex) && !curcull) {
+				curcull = 1;
+				emit(&l->gdl, 0xb6000000, 0x00002000);
 			}
 
 			emit(&l->gdl, alpha ? 0xbb002801 : 0xbb003001, 0xffffffff);
@@ -1316,6 +1596,8 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 
 static void forget(void)
 {
+	shellForget();
+
 	if (roomData) {
 		for (s32 r = 0; r <= numRooms; r++) {
 			free(roomData[r]);
@@ -1404,10 +1686,23 @@ static s32 build(void)
 	}
 
 	if (c.num) {
+		shellFirst = calloc(n + 1, sizeof(*shellFirst));
+		shellCount = calloc(n + 1, sizeof(*shellCount));
+
 		for (s32 r = 1; r < n; r++) {
 			if (filerooms[r]) {
 				fileRoomTriangles(&filetris, r, filerooms[r], filelens[r]);
+
+				if (shellFirst && shellCount) {
+					shellFirst[r] = shellNum;
+					fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToShell, NULL);
+					shellCount[r] = shellNum - shellFirst[r];
+				}
 			}
+		}
+
+		if (!shellFirst || !shellCount) {
+			shellForget();
 		}
 
 		for (s32 t = 0; t < c.num; t++) {
@@ -1578,6 +1873,8 @@ void gebeanStageTrace(FILE *f)
 {
 	fprintf(f, "gebeanstage: tried %d built %d level %s scale %.5f, %d of %d rooms served\n",
 			tried, built, row ? row->bean : "-", row ? row->scale : 0.0f, numServed, numRooms ? numRooms - 1 : 0);
+	fprintf(f, "gebeanstage: camera outside the level %d (%d of %d rays on its back faces, %d of GoldenEye's triangles)\n",
+			cullOutside, shellBacks, shellHits, shellNum);
 }
 
 #else
@@ -1590,6 +1887,8 @@ u32 gebeanStageRoomSize(s32 roomnum) { return 0; }
 uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void gebeanStageLevelReset(void) { }
 s32 gebeanStageDrawsEveryRoom(void) { return 0; }
+void gebeanStageTickCamera(s32 authored) { }
+s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }
 s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }

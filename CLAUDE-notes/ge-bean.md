@@ -8866,3 +8866,61 @@ not `gSP2Triangles`. `build/gexrom/skyshot.sh <stage> <tag> <verta> [binary]
 copied into gexrom's `added-content/`). The flat lavender and red blocks at
 the right of Surface's and Surface 2's spawn view are the HD level's own and
 were there before.
+
+## GoldenEye's own cameras outside the level in HD: culling by where the camera stands (2026-09-24)
+
+The user, watching Caverns' HD opening: "some scenes are messed up". Two of
+its four stills and a second of its swirl showed rock, water or a floor plate
+filling the screen where the N64 look shows the shaft and Bond.
+
+**GoldenEye stands its own cameras outside its level.** Caverns' first shot is
+137 units under the shaft's water (room 16's floor is y -1740, the camera
+-1877) and looks up through it; its second is inside the rock beside the
+shaft; its swirl starts 47 units under the lift floor Bond stands on. That
+works because GoldenEye culls the back faces of its opaque room geometry (the
+dumped room list: the opaque leaf sets `G_CULL_BACK`, the translucent one
+clears it). An HD room was drawn two-sided (`writeLeaf()`, "Bean's winding is
+not known to agree"), so those cameras saw the undersides.
+
+**Bean's winding is known now**: over all 24 levels its triangles agree with
+their own vertex normals (all but a few hundred of 600,000;
+`.xbla-work/ge-bean/beanwinding.py <level>/default.bin ...`). But culling every HD room is wrong: **4J built decks, stair treads
+and roofs as single planes** meant to be seen from both sides, and culling
+took the undersides off Cradle's gantry decks and Facility's treads and the
+whole roof off Runway's shelter, seen from above. **Bean's level file carries
+no cull flag**: the 0x2d material record's last word runs 0 to 7 and Facility
+is all 0.
+
+So the choice is by camera, not by surface (`gebeanStageTickCamera()`, from
+`bgTick()`): while one of GoldenEye's own cameras is running (the opening's
+still, fade and swirl, the Cinema page, a cutscene), 48 rays through the view
+are tested against **GoldenEye's own opaque room triangles**, which the build
+already reads out of the level file (`fileRoomTrianglesEach()`, opaque blocks
+only) and which are closed where Bean's are not (a GoldenEye deck is a box).
+When two thirds of the rays that hit something hit a back face, the camera is
+outside the level and `bgRenderRoomOpaque()` sets `G_CULL_BACK` for every HD
+room that frame; otherwise it clears it. The opaque leaf sets no culling of
+its own now; its cut-out pictures (leaves, fences, railings) are sorted after
+the solid ones and clear it, and the translucent leaf clears it as before.
+F3's trace prints the test (`camera outside the level N (backs of hits ...)`).
+
+What it changed, both measured frame for frame against HEAD
+(`build/gexrom/cav/`: `sweep.sh` every opening still of the twenty missions,
+`swirlscan.sh` the test every ten frames of each opening, `shootf.sh` pictures
+of named frames): stills fixed on Caverns (0, 1) and Frigate (2, a wall);
+swirls fixed on Caverns, Surface, Surface 2, Silo and Control (a wall or the
+ground filling the screen for up to two seconds); the other 60 stills
+pixel-identical but for the edges of Runway's pine (the cut-outs now draw
+last). About 1.2 ms a frame, and only while such a camera runs.
+
+Traps: **`cam_look` is a look-at offset about 180 long and `cam_up` the
+world's up** - neither a unit, nor square to the other. A ray built from them
+unnormalised made `t > 1` mean "further than 180 units", and the floor 47
+units over the swirl's camera was never hit (the test answered "inside" for
+the one case it was written for). And the first probe of GoldenEye's floor
+there read the HD dump instead of GoldenEye's own triangles; read
+`shellTri` (`cav/shell62.py`) before concluding Bean moved a floor.
+
+Not done: Caverns' water at the foot of the shaft is GoldenEye's one-cycle
+`0x00502078` mode with **no fog** (bright teal from the top), while Bean's
+water takes the fog and is near black from 4000 units.

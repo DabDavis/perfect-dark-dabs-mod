@@ -22,6 +22,8 @@
 #include "game/bg.h"
 #ifndef PLATFORM_N64
 #include "xblastage.h"
+#include "gebeanstage.h"
+#include "gecinema.h"
 #endif
 #include "game/portalconv.h"
 #include "game/stagetable.h"
@@ -2426,6 +2428,14 @@ void bgTick(void)
 
 	g_CamRoom = g_Vars.currentplayer->cam_room;
 
+#ifndef PLATFORM_N64
+	// GoldenEye's own cameras can stand outside the level, which it draws
+	// culled; the HD rooms follow them (gebeanStageTickCamera())
+	if (xblaStageDrawsEveryRoom()) {
+		gebeanStageTickCamera(gecinemaIsOn() || gecinemaIntroIsOn() || g_Vars.tickmode == TICKMODE_CUTSCENE);
+	}
+#endif
+
 #if VERSION >= VERSION_NTSC_1_0
 	bgTickPortals();
 #else
@@ -3679,6 +3689,16 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 #ifndef PLATFORM_N64
 	gdl = roomSheenStockBegin(gdl);
 	gdl = bgSpectateDepthBiasBegin(gdl, roomnum);
+
+	// An HD room's opaque leaf leaves its culling to this (gebeanstage.c
+	// writeLeaf()); a room of the level file's own sets its own
+	if (xblaStageDrawsEveryRoom()) {
+		if (gebeanStageCullsBackFaces()) {
+			gSPSetGeometryMode(gdl++, G_CULL_BACK);
+		} else {
+			gSPClearGeometryMode(gdl++, G_CULL_BACK);
+		}
+	}
 #endif
 	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
 #ifndef PLATFORM_N64
