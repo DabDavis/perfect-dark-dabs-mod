@@ -576,7 +576,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
 			ptr = cheatname;
 
-			while (*ptr != '\n') {
+			while (*ptr != '\0' && *ptr != '\n') {
 				ptr++;
 			}
 
@@ -595,7 +595,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
 				ptr = difficultyname;
 
-				while (*ptr != '\n') {
+				while (*ptr != '\0' && *ptr != '\n') {
 					ptr++;
 				}
 
@@ -659,7 +659,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
 			ptr = cheatname;
 
-			while (*ptr != '\n') {
+			while (*ptr != '\0' && *ptr != '\n') {
 				ptr++;
 			}
 
@@ -678,7 +678,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
 				ptr = difficultyname;
 
-				while (*ptr != '\n') {
+				while (*ptr != '\0' && *ptr != '\n') {
 					ptr++;
 				}
 
@@ -738,7 +738,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
 			ptr = cheatname;
 
-			while (*ptr != '\n') {
+			while (*ptr != '\0' && *ptr != '\n') {
 				ptr++;
 			}
 
@@ -757,7 +757,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
 				ptr = difficultyname;
 
-				while (*ptr != '\n') {
+				while (*ptr != '\0' && *ptr != '\n') {
 					ptr++;
 				}
 
@@ -807,7 +807,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 			strcpy(cheatname, langGet(g_Cheats[cheat_id].nametextid));
 			ptr = cheatname;
 
-			while (*ptr != '\n') {
+			while (*ptr != '\0' && *ptr != '\n') {
 				ptr++;
 			}
 
@@ -826,7 +826,7 @@ char *cheatGetMarquee(struct menuitem *arg0)
 				strcpy(difficultyname, langGet(L_OPTIONS_251 + g_Cheats[cheat_id].difficulty));
 				ptr = difficultyname;
 
-				while (*ptr != '\n') {
+				while (*ptr != '\0' && *ptr != '\n') {
 					ptr++;
 				}
 
