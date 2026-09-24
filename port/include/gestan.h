@@ -66,6 +66,10 @@ f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin);
  * surface at `to`; false where the level has no graph or `from` is over no tile.
  */
 bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
+
+// GoldenEye's own truck test: whether lines laid end to end in plan (x, z pairs)
+// cross no wall of the tile graph, starting on the tile under the first at y
+bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y);
 /**
  * Whether a body at `pos` is on, or within `reach` of an edge linked to, a tile
  * GoldenEye forces a crouch on (STANTILEFLAG_FORCECROUCH: a vent, a crawl space).

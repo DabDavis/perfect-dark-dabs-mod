@@ -33,6 +33,7 @@
 #include "lib/mtx.h"
 #include "lib/model.h"
 #include "game/chrai.h"
+#include "gestan.h"
 #include "game/lv.h"
 #include "game/pad.h"
 #include "game/prop.h"
@@ -291,6 +292,44 @@ static void vehTruckRooms(struct prop *prop, RoomNum *middle)
 	propRegisterRooms(prop);
 }
 
+/**
+ * Whether a truck's step crosses no wall of GoldenEye's tile graph, as its own
+ * tick asks before it keeps a step: the middle's line from where it was
+ * (stanTestLineUnobstructed()), then the outline of its box at the new place
+ * walked corner to corner (walkTilesBetweenPoints_NoCallback() four times, the
+ * box being part 10's, Switches[10]). Perfect Dark asked its props alone, so a
+ * truck that came off its line drove into the Dam's guard tower and round it.
+ */
+static bool vehTruckWallsClear(struct truckobj *truck, struct coord *from, struct coord *to)
+{
+	f32 (*m)[3] = truck->base.realrot;
+	union modelrodata *box = truck->base.model ? vehPartRodata(truck->base.model, 10, MODELNODETYPE_BBOX) : NULL;
+	f32 line[2][2] = { { from->x, from->z }, { to->x, to->z } };
+
+	if (!geStanLinesClear(line, 2, from->y)) {
+		return false;
+	}
+
+	if (box) {
+		const f32 x0 = box->bbox.xmin, x1 = box->bbox.xmax;
+		const f32 z0 = box->bbox.zmin, z1 = box->bbox.zmax;
+		const f32 outline[6][2] = {
+			{ to->x, to->z },
+			{ to->x + x0 * m[0][0] + z0 * m[2][0], to->z + x0 * m[0][2] + z0 * m[2][2] },
+			{ to->x + x1 * m[0][0] + z0 * m[2][0], to->z + x1 * m[0][2] + z0 * m[2][2] },
+			{ to->x + x1 * m[0][0] + z1 * m[2][0], to->z + x1 * m[0][2] + z1 * m[2][2] },
+			{ to->x + x0 * m[0][0] + z1 * m[2][0], to->z + x0 * m[0][2] + z1 * m[2][2] },
+			{ to->x + x0 * m[0][0] + z0 * m[2][0], to->z + x0 * m[0][2] + z0 * m[2][2] },
+		};
+
+		if (!geStanLinesClear(outline, 6, to->y)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static void vehTruckTick(struct prop *prop)
 {
 	struct truckobj *truck = (struct truckobj *)prop->obj;
@@ -450,7 +489,7 @@ static void vehTruckTick(struct prop *prop)
 				CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS);
 		propSetPerimEnabled(prop, true);
 
-		if (cdresult == CDRESULT_COLLISION) {
+		if (cdresult == CDRESULT_COLLISION || !vehTruckWallsClear(truck, &prev, &prop->pos)) {
 			if (truck->speedtime60 < 0.0f) {
 				truck->speedaim = truck->speed;
 				truck->speedtime60 = 60;

@@ -762,33 +762,19 @@ static bool stanCrosses(f32 x0, f32 z0, f32 x1, f32 z1, f32 ax, f32 az, f32 bx, 
 	return v1 < linked && v2 < linked;
 }
 
-bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
+/**
+ * sub_GAME_7F0B0914(): from `tile`, through every linked edge the line leaves a
+ * tile by, to the tile that holds its end or to the last one before an edge
+ * with nothing across it - a camera out over a drop stays on the brink's tile.
+ */
+static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1)
 {
-	s32 tile, prev, prevprev, next = -1;
-	const f32 negdz = -(to->z - from->z);
-	const f32 dx = to->x - from->x;
-
-	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
-		stanBuild();
-	}
-
-	if (!g_Stan.active) {
-		return false;
-	}
-
-	// GoldenEye starts from the pad's own tile, which the conversion does not
-	// carry: the one under the pad, a pad standing on its floor or a little over
-	tile = stanTileUnder(from->x, from->z, from->y + 5.0f, GESTAN_RISE);
-
-	if (tile < 0) {
-		return false;
-	}
+	s32 prev, prevprev, next = -1;
+	const f32 negdz = -(z1 - z0);
+	const f32 dx = x1 - x0;
 
 	prev = prevprev = tile;
 
-	// sub_GAME_7F0B0914(): through every linked edge the line leaves a tile by,
-	// to the tile that holds its end or to the last one before an edge with
-	// nothing across it - a camera out over a drop stays on the brink's tile
 	for (s32 i = 0; i < 0x1f5; i++) {
 		const struct stantile *t = &g_Stan.tiles[tile];
 		const struct stanpoint *p = &g_Stan.points[t->first];
@@ -798,7 +784,7 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 			const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
 
 			if (negdz * (b->x - a->x) + dx * (b->z - a->z) <= 0.0f
-					&& stanCrosses(from->x, from->z, to->x, to->z, a->x, a->z, b->x, b->z, a->across >= 0)) {
+					&& stanCrosses(x0, z0, x1, z1, a->x, a->z, b->x, b->z, a->across >= 0)) {
 				crossings++;
 
 				if (a->across < 0 || (a->across != prev && a->across != prevprev)) {
@@ -817,8 +803,69 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 		tile = next;
 	}
 
+	return tile;
+}
+
+bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
+{
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return false;
+	}
+
+	// GoldenEye starts from the pad's own tile, which the conversion does not
+	// carry: the one under the pad, a pad standing on its floor or a little over
+	tile = stanTileUnder(from->x, from->z, from->y + 5.0f, GESTAN_RISE);
+
+	if (tile < 0) {
+		return false;
+	}
+
+	tile = stanWalkLine(tile, from->x, from->z, to->x, to->z);
+
 	*room = g_Stan.tiles[tile].room;
 	*ground = stanSurface(&g_Stan.tiles[tile], to->x, to->z);
+
+	return true;
+}
+
+/**
+ * Whether a vehicle can drive `n` lines laid end to end in plan, GoldenEye's
+ * walkTilesBetweenPoints_NoCallback() chained through its truck's outline:
+ * each line starts on the tile the last one ended on, and a line that meets
+ * an edge with nothing across it ends short of its end - a wall. `y` is the
+ * height the first tile is looked for under. True when there is no tile graph.
+ */
+bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y)
+{
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return true;
+	}
+
+	tile = stanTileUnder(pts[0][0], pts[0][1], y, GESTAN_RISE);
+
+	if (tile < 0) {
+		return true;
+	}
+
+	for (s32 i = 0; i + 1 < n; i++) {
+		tile = stanWalkLine(tile, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+
+		if (!stanHolds(&g_Stan.tiles[tile], pts[i + 1][0], pts[i + 1][1])) {
+			return false;
+		}
+	}
 
 	return true;
 }
