@@ -103,7 +103,12 @@ s32 hudmsgIsZoomRangeVisible(void)
 		&& var80075d60 == 2
 		&& currentPlayerGetSight() == SIGHT_ZOOM
 		&& g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY
-		&& g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON;
+		&& g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON
+#ifndef PLATFORM_N64
+		// GoldenEye's HUD has no magnification readout
+		&& !geHudOwnsWeapon()
+#endif
+		;
 }
 
 /**

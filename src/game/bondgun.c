@@ -70,6 +70,7 @@
 #include "gehud.h"
 #include "system.h"
 #include "geguns.h"
+#include "gesfx.h"
 #endif
 
 #define GUNLOADSTATE_FLUX     0
@@ -3114,6 +3115,9 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 					&& g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON
 					&& bgunIsLoaded()
 					&& !g_PlayerInvincible
+#ifndef PLATFORM_N64
+					&& !gegunsEquipSilent(info->weaponnum)
+#endif
 					&& !g_Vars.currentplayer->isdead) {
 #if VERSION >= VERSION_NTSC_1_0
 				struct sndstate *handle1;
@@ -7265,6 +7269,13 @@ void bgunUpdateSmoke(struct hand *hand, s32 handnum, s32 weaponnum, struct weapo
 				hand->createsmoke = true;
 			}
 		}
+	}
+
+	// GoldenEye's guns make no smoke: its gunfire.c and gun.c make smoke
+	// only for explosions
+	if (WEAPON_IS_GE(weaponnum)) {
+		hand->createsmoke = false;
+		hand->forcecreatesmoke = false;
 	}
 
 	if (hand->createsmoke && (hand->state != HANDSTATE_ATTACK || hand->forcecreatesmoke)) {
@@ -11992,6 +12003,22 @@ static bool bgunIsBluntMelee(struct gset *gset)
 	return func && func->type == INVENTORYFUNCTYPE_MELEE;
 }
 
+/**
+ * A laser's hit sound. GoldenEye's Moonraker ricochets with RICO_LASER2 and 3
+ * (gun.c's laser_ricochet_sounds), which on a converted level's bank are the
+ * slot after each of the pair Perfect Dark's laser plays.
+ */
+static s32 bgunLaserHitSound(s32 weaponnum, s32 soundnum)
+{
+#ifndef PLATFORM_N64
+	if (WEAPON_IS_GE(weaponnum) && geSfxStage()) {
+		return soundnum + 1;
+	}
+#endif
+
+	return soundnum;
+}
+
 void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 {
 #if VERSION >= VERSION_NTSC_1_0
@@ -12063,9 +12090,9 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 			} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LASERHIT)) {
 				if (gset->weaponfunc == FUNC_PRIMARY || ((gset->unk063a % 4) == 0 && (rngRandom() % 2))) {
 					if ((rngRandom() % 2) == 0) {
-						soundnum = SFX_CLOAK_ON;
+						soundnum = bgunLaserHitSound(gset->weaponnum, SFX_CLOAK_ON);
 					} else {
-						soundnum = SFX_CLOAK_OFF;
+						soundnum = bgunLaserHitSound(gset->weaponnum, SFX_CLOAK_OFF);
 					}
 				}
 
@@ -12187,9 +12214,9 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 			} else if (weaponHost(gset->weaponnum) == WEAPON_LASER) {
 				if (gset->weaponfunc == FUNC_PRIMARY || (gset->unk063a % 8) == 0) {
 					if ((rngRandom() % 2) == 0) {
-						soundnum = SFX_CLOAK_ON;
+						soundnum = bgunLaserHitSound(gset->weaponnum, SFX_CLOAK_ON);
 					} else {
-						soundnum = SFX_CLOAK_OFF;
+						soundnum = bgunLaserHitSound(gset->weaponnum, SFX_CLOAK_OFF);
 					}
 
 					sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
@@ -12291,7 +12318,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 			if (gset->weaponfunc == FUNC_PRIMARY || ((gset->unk063a % 4) == 0 && (rngRandom() % 2))) {
 				// Laser sounds
 				s16 sounds[] = {SFX_CLOAK_ON, SFX_CLOAK_OFF};
-				soundnum = sounds[rand1 % ARRAYCOUNT(sounds)];
+				soundnum = bgunLaserHitSound(gset->weaponnum, sounds[rand1 % ARRAYCOUNT(sounds)]);
 				sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 				overridden = true;
 			}
@@ -12379,7 +12406,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 			if (gset->weaponfunc == FUNC_PRIMARY || (gset->unk063a % 8) == 0) {
 				// Laser sounds
 				s16 sounds[] = {SFX_CLOAK_ON, SFX_CLOAK_OFF};
-				soundnum = sounds[rand1 % ARRAYCOUNT(sounds)];
+				soundnum = bgunLaserHitSound(gset->weaponnum, sounds[rand1 % ARRAYCOUNT(sounds)]);
 				sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 				overridden = true;
 			}

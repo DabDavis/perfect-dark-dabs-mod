@@ -1340,6 +1340,17 @@ s32 gegunsEnemyRocketModel(void)
 	return model >= 0 ? model : MODEL_CHRDYROCKET;
 }
 
+/**
+ * GoldenEye draws its gadgets in silence (gunfire.c's equip sound leaves out
+ * the covert modem, the plastique, the GoldenEye key, the camera, the watch
+ * magnet and the tank's shells); their hosts, the ECM mine and the Data
+ * Uplink, play the mine's.
+ */
+s32 gegunsEquipSilent(s32 weaponnum)
+{
+	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum <= WEAPON_GE_TANKSHELLS;
+}
+
 static void gegunsSetPart(struct model *model, s32 part, s32 visible)
 {
 	struct modelnode *node = modelGetPart(model->definition, part);

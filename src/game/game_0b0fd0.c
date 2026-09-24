@@ -243,6 +243,18 @@ f32 currentPlayerGetGunZoomFov(void)
 	return 0;
 }
 
+/**
+ * How fast a scope winds in and out. GoldenEye's sniper rifle multiplies its
+ * view by the same (1 + z / 10) once a frame with no frame length in it (its
+ * gun.c), which at its 30 frames a second is twice Perfect Dark's rate, and it
+ * stops at 7 degrees (about 8.6 times) where Perfect Dark's goes to 2 - the
+ * frame rate taken as the automatic guns' (geguns.c, gegunsRpm()).
+ */
+static f32 gunZoomSpeed(void)
+{
+	return WEAPON_IS_GE(bgunGetWeaponNum2(0)) ? 0.5f : 0.25f;
+}
+
 void currentPlayerZoomOut(f32 fovpersec)
 {
 	s32 index = -1;
@@ -260,7 +272,7 @@ void currentPlayerZoomOut(f32 fovpersec)
 	}
 
 	if (index >= 0) {
-		f32 amount = fovpersec * 0.25f * LVUPDATE60FREAL();
+		f32 amount = fovpersec * gunZoomSpeed() * LVUPDATE60FREAL();
 
 		if (weaponHost(bgunGetWeaponNum2(0)) == WEAPON_FARSIGHT) {
 			amount *= 0.5f;
@@ -291,7 +303,8 @@ void currentPlayerZoomIn(f32 fovpersec)
 	}
 
 	if (index >= 0) {
-		f32 amount = fovpersec * 0.25f * LVUPDATE60FREAL();
+		const f32 minfov = WEAPON_IS_GE(bgunGetWeaponNum2(0)) ? 7 : 2;
+		f32 amount = fovpersec * gunZoomSpeed() * LVUPDATE60FREAL();
 
 		if (weaponHost(bgunGetWeaponNum2(0)) == WEAPON_FARSIGHT) {
 			amount *= 0.5f;
@@ -299,8 +312,8 @@ void currentPlayerZoomIn(f32 fovpersec)
 
 		g_Vars.currentplayer->gunzoomfovs[index] /= 1 + amount * 0.1f;
 
-		if (g_Vars.currentplayer->gunzoomfovs[index] < ADJUST_ZOOM_FOV(2)) {
-			g_Vars.currentplayer->gunzoomfovs[index] = ADJUST_ZOOM_FOV(2);
+		if (g_Vars.currentplayer->gunzoomfovs[index] < ADJUST_ZOOM_FOV(minfov)) {
+			g_Vars.currentplayer->gunzoomfovs[index] = ADJUST_ZOOM_FOV(minfov);
 		}
 	}
 }

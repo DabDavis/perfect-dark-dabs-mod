@@ -72,6 +72,9 @@ s32 gegunsChrProjectileModel(s32 weaponnum, s32 fallback);
 // swaps it for its rocket launcher, and the rocket launcher's model to hold
 s32 gegunsEnemyRocketsSwaps(s32 weaponnum);
 s32 gegunsEnemyRocketModel(void);
+
+// Whether drawing one of GoldenEye's weapons makes no sound: its gadgets
+s32 gegunsEquipSilent(s32 weaponnum);
 void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);

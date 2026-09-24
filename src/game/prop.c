@@ -583,6 +583,9 @@ void weaponPlayWhooshSound(s32 weaponnum, struct prop *prop)
 		speed = 2.78f;
 	} else if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 		// empty
+	} else if (WEAPON_IS_GE(weaponnum)) {
+		// GoldenEye's only swing that sounds when it misses is the fist's
+		// (its chrprop.c)
 	} else if (weaponHost(weaponnum) == WEAPON_COMBATKNIFE) {
 		soundnum = rngRandom() % 2 == 1 ? SFX_8060 : SFX_8061;
 		speed = 1.05f - RANDOMFRAC() * 0.2f;
