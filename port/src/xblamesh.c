@@ -2295,8 +2295,8 @@ struct xblameshbuilder {
 	s32 inkw, inkh;
 	u8 *vink;
 
-	// Whether the lists cull back faces rather than drawing both: see
-	// xblaMeshBuildCullBack.
+	// The face the lists cull (G_CULL_FRONT or G_CULL_BACK), or 0 to draw
+	// both: see xblaMeshBuildCullBack.
 	s32 cullback;
 
 	// The texture gradient along x and along y at every emitted vertex, and
@@ -3222,14 +3222,11 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 		return 0;
 	}
 
-	// A culled mesh drops G_CULL_FRONT's faces: the release winds its
-	// triangles the other way round from the game's, so the faces the game
-	// calls front are the ones facing away (tried the other way, 4J's cube lost
-	// the emblem on its face and showed the inside of its walls).
-	gSPClearGeometryMode(&b->gdl[b->numgfx], G_LIGHTING | (b->cullback ? G_CULL_BACK : G_CULL_BOTH) |
+	// A culled mesh drops the faces its build names (xblaMeshBuildCullBack).
+	gSPClearGeometryMode(&b->gdl[b->numgfx], G_LIGHTING | (G_CULL_BOTH & ~b->cullback) |
 			G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
 	b->numgfx++;
-	gSPSetGeometryMode(&b->gdl[b->numgfx], G_SHADE | G_SHADING_SMOOTH | (b->cullback ? G_CULL_FRONT : 0));
+	gSPSetGeometryMode(&b->gdl[b->numgfx], G_SHADE | G_SHADING_SMOOTH | b->cullback);
 	b->numgfx++;
 
 	for (u32 d = firstdraw; d < firstdraw + numdraws; d++) {
@@ -3343,7 +3340,7 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 		return 0;
 	}
 
-	if (!xblaMeshRoomForGfx(b, 6)) {
+	if (!xblaMeshRoomForGfx(b, 7)) {
 		return 0;
 	}
 
@@ -3368,6 +3365,13 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 	b->gdl[b->numgfx].words.w0 = ((u32)G_COL << 24) | (u32)(sizeof(xblaMeshWhite));
 	b->gdl[b->numgfx].words.w1 = (uintptr_t)xblaMeshWhite;
 	b->numgfx++;
+
+	// And the culling back to what a two-sided mesh leaves, which is none:
+	// a room list that sets G_CULL_BACK does not clear G_CULL_FRONT
+	if (b->cullback) {
+		gSPClearGeometryMode(&b->gdl[b->numgfx], G_CULL_BOTH);
+		b->numgfx++;
+	}
 
 	gSPEndDisplayList(&b->gdl[b->numgfx]);
 	b->numgfx++;
@@ -4183,13 +4187,42 @@ static void xblaMeshCompactSkin(struct xblameshbuilt *m)
  * the file and frees it. what names the mesh in the log.
  */
 /**
- * Set round a build whose lists should cull the faces turned away. Every mesh draws both
- * faces, which is right for a model the game draws with a depth buffer; the
- * title draws its cubes with none, and 4J's red cube (file 222) is a closed
- * box whose far walls then paint their insides over the near ones - the "open
- * cup" it tipped back as. The title clears the culling after drawing it.
+ * Set round a build whose lists should cull the faces turned away, to the
+ * geometry mode bit that names them; 0 draws both. A prop draws both faces,
+ * since 4J built some as single planes. The title draws its cubes with no
+ * depth buffer, and 4J's red cube (file 222) is a closed box whose far walls
+ * then paint their insides over the near ones - the "open cup" it tipped back
+ * as. A character culls as its N64 model does, because the depth buffer is no
+ * help to a fading one: the fade is drawn without depth writes, so the far
+ * side painted over the near and the swirl into Bond's eyes showed his face
+ * through the back of his head - and a camera inside a body looked at the
+ * inside of it where the N64 model is seen through.
+ *
+ * The release winds its triangles the other way round from the game's, so the
+ * faces the game calls front are the ones facing away and its cube culls
+ * G_CULL_FRONT (tried the other way, 4J's cube lost the emblem on its face and
+ * showed the inside of its walls).
  */
 static s32 xblaMeshBuildCullBack = 0;
+
+/**
+ * Whether a file is a character's body or head: those cull their back faces,
+ * as the N64 models do, where a prop may be a single plane seen from both sides.
+ */
+static s32 xblaMeshFileIsChr(s32 fileid)
+{
+	if (fileid <= 0) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < NUM_HEADSANDBODIES; i++) {
+		if (g_HeadsAndBodies[i].filenum == fileid) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
 
 /**
  * The release's reflections. Every build reads its normals, and a mesh with
@@ -5483,7 +5516,7 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 	{
 		s32 ok;
 
-		xblaMeshBuildCullBack = fileid == FILE_PNLOGO2;
+		xblaMeshBuildCullBack = fileid == FILE_PNLOGO2 || (!m->frompack && xblaMeshFileIsChr(fileid)) ? G_CULL_FRONT : 0;
 		xblaMeshBuildBorrowFile = m->frompack ? 0 : fileid;
 		xblaMeshBuildKeepArt = !m->frompack && fileid >= NUM_FILES;
 		ok = xblaMeshBuildFile(m, file, len, &mats, what);
@@ -5981,6 +6014,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	char what[80];
 	u8 *file;
 	u32 len = 0;
+	s32 ok;
 
 	if (!beanBuilt[look]) {
 		beanBuilt[look] = calloc(NUM_FILE_SLOTS, sizeof(*beanBuilt[look]));
@@ -6052,7 +6086,14 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	snprintf(what, sizeof(what), "model file %d's GoldenEye model%s", e->fileid,
 			original ? " (N64 look)" : "");
 
-	return xblaMeshBuildFile(m, file, len, &mats, what) ? m : NULL;
+	// A GoldenEye character culls its back faces, as the N64 models do (see
+	// xblaMeshBuildCullBack) - Bean winds its triangles the game's way round,
+	// not the release's
+	xblaMeshBuildCullBack = m->frombean ? G_CULL_BACK : 0;
+	ok = xblaMeshBuildFile(m, file, len, &mats, what);
+	xblaMeshBuildCullBack = 0;
+
+	return ok ? m : NULL;
 }
 
 static void xblaMeshResetBeanMeshes(void)
