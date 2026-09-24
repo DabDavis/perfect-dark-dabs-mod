@@ -8977,3 +8977,20 @@ trace say how many (`N kept, M of them not drawn`). The report's own frame
 (`reppos.sh`: the prop put at the trace's position and turn) has the needle
 before and not after; eight headings at Dam's spawn with the kept rooms
 toggled in one run (`keptab.sh`) differ by the needle alone.
+
+## HD characters cull their back faces, HD props do not (2026-09-24)
+
+348983bd7 made the release's and Bean's **character** meshes cull (a fading
+chr is drawn `G_RM_AA_ZB_XLU_SURF2`, which writes no depth, so a two-sided
+mesh painted its far side over its near side - Bond's face through the back
+of his head in the swirl). Bean winds its triangles the game's way and culls
+`G_CULL_BACK`, 4J the other way and `G_CULL_FRONT`. But the Bean half was set
+on `m->frombean`, which is every Bean model that is not a first-person gun -
+**props and held guns too** - and Bean builds props of single planes: the F3
+of 20260924-085244 ("backface culling affecting gates, this truck") stood in
+Dam's truck bed and saw the rock through the back of the cab, and from behind
+the truck the canvas cover was gone. The cull is `gebeanRowIsChr()` now (a
+row that is not `GEBEAN_RIGID`); props and guns stay two-sided, as the
+release's props always were. `build/gexrom/truckview.sh` rings Dam's truck
+(found by walking `g_Vars.activeprops` for `OBJTYPE_TRUCK` - `g_Vars.truck` is
+NULL on a converted mission).

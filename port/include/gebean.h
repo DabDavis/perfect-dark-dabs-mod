@@ -90,6 +90,12 @@ s32 gebeanRowIsPool(s32 row);
 s32 gebeanRowIsFirstPerson(s32 row);
 
 /**
+ * Whether the row is a character - a body or a head - rather than a prop or a
+ * gun, which are rigid (gebeanBuildRigid()) and may be single planes.
+ */
+s32 gebeanRowIsChr(s32 row);
+
+/**
  * Where the first-person gun drawn for this weapon ends, as an offset from its
  * host's MODELPART_GUN_MUZZLEPOS node in the model's own space, or 0 if the
  * host's own model is the one in the hand.

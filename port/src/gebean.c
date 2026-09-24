@@ -1550,6 +1550,13 @@ s32 gebeanRowIsFirstPerson(s32 row)
 	return row >= base && row < base + ARRAYCOUNT(fpRows);
 }
 
+s32 gebeanRowIsChr(s32 row)
+{
+	const struct gebeanrow *r = gebeanRowAt(row);
+
+	return r && r->kind != GEBEAN_RIGID;
+}
+
 s32 gebeanRowIsPool(s32 row)
 {
 	// The guns' pickups too: they stand on Perfect Dark models, as the pool does

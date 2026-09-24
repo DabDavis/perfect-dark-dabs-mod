@@ -6088,8 +6088,9 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 
 	// A GoldenEye character culls its back faces, as the N64 models do (see
 	// xblaMeshBuildCullBack) - Bean winds its triangles the game's way round,
-	// not the release's
-	xblaMeshBuildCullBack = m->frombean ? G_CULL_BACK : 0;
+	// not the release's. Its props and guns stay two-sided: Dam's truck cab
+	// and gates lost their far walls when they culled
+	xblaMeshBuildCullBack = m->frombean && gebeanRowIsChr(e->beanrow) ? G_CULL_BACK : 0;
 	ok = xblaMeshBuildFile(m, file, len, &mats, what);
 	xblaMeshBuildCullBack = 0;
 
