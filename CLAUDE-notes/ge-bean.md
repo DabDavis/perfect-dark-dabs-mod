@@ -8921,6 +8921,23 @@ the one case it was written for). And the first probe of GoldenEye's floor
 there read the HD dump instead of GoldenEye's own triangles; read
 `shellTri` (`cav/shell62.py`) before concluding Bean moved a floor.
 
-Not done: Caverns' water at the foot of the shaft is GoldenEye's one-cycle
-`0x00502078` mode with **no fog** (bright teal from the top), while Bean's
-water takes the fog and is near black from 4000 units.
+## The surfaces GoldenEye draws without fog (2026-09-24)
+
+Caverns' water at the foot of the shaft is drawn by GoldenEye in a one-cycle
+`G_RM_AA_ZB_OPA_SURF` (`0x00502078`) with no fog; bg.c's fog swap
+(`g_GfxGroup01`/`05`) only turns a `G_RM_PASS` cycle 1 into fog, so the N64
+look keeps it teal from the top of the shaft while the HD water, written in
+`G_RM_PASS`, was fogged near black from 4000 units.
+
+`fileRoomTrianglesEach()` now follows each leaf's `G_SETOTHERMODE_L` and flags
+a GoldenEye triangle whose cycle 1 is neither the pass nor fog; a Bean
+triangle takes the flag of the GoldenEye triangle it is dealt by (the room
+number's bit 16 in the file grid), and `writeLeaf()` writes its mode with
+cycle 1 all zeros (a plain pass the swap does not know, and the renderer
+fogs only on `G_BL_CLR_FOG`/`G_BL_A_FOG` there). Only three of GoldenEye's
+modes do this, on every level: `0x00502078`, `0x00504dd8` (translucent) and
+`0x00552d58`. The log line counts them (`N unfogged`): Caverns 67, Control
+2895, Train 2458, Frigate 5575 (a fogless level, so nothing changes there),
+Dam and Cradle 0. Stills against the previous commit: Caverns 2 and 3 change
+(the pool is drawn), Control 1 and Runway 2 by a few distant pixels, the
+other twenty identical.

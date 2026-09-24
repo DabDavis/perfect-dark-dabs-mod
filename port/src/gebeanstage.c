@@ -75,6 +75,7 @@ struct stri {
 	s16 tex;
 	u16 room;
 	u8 decal;
+	u8 nofog;   // on a triangle GoldenEye draws without fog (fileRoomTrianglesEach())
 };
 
 // The level being served, built when its first room is asked for
@@ -440,11 +441,21 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 				}
 			} else if (gdl && gdl - base < len && vtx - base < len) {
 				f32 loaded[16][3];
+				// Whether the leaf's render mode is one bg.c's fog swap
+				// (g_GfxGroup01/05) leaves alone: cycle 1 neither G_RM_PASS,
+				// which the swap turns to fog, nor fog already. GoldenEye draws
+				// Caverns' water in G_RM_AA_ZB_OPA_SURF, one cycle, unfogged
+				s32 nofog = 0;
 
 				for (u32 c = gdl - base; c + 8 <= len; c += 8) {
 					const u8 op = raw[c];
 
-					if (op == G_VTX) {
+					if (op == (u8)G_SETOTHERMODE_L && be32(raw + c) == 0xb900031d) {
+						const u32 c1 = be32(raw + c + 4) & 0xcccc0000;
+
+						nofog = c1 != (GBL_c1(G_BL_CLR_IN, G_BL_0, G_BL_CLR_IN, G_BL_1) & 0xcccc0000)
+							&& c1 != (GBL_c1(G_BL_CLR_FOG, G_BL_A_SHADE, G_BL_CLR_IN, G_BL_1MA) & 0xcccc0000);
+					} else if (op == G_VTX) {
 						const s32 num = (raw[c + 1] >> 4) + 1;
 						const u32 at = vtx - base + (be32(raw + c + 4) & 0xffffff);
 
@@ -470,7 +481,7 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 							memcpy(v[0], loaded[x], sizeof(v[0]));
 							memcpy(v[1], loaded[y], sizeof(v[1]));
 							memcpy(v[2], loaded[z], sizeof(v[2]));
-							fn(arg, (const f32 (*)[3])v, (u16)r);
+							fn(arg, (const f32 (*)[3])v, (u16)r | (nofog << 16));
 						}
 					} else if (op == (u8)G_ENDDL) {
 						break;
@@ -1124,7 +1135,11 @@ static int compareTex(const void *a, const void *b)
 		return ta->decal - tb->decal;
 	}
 
-	return ta->tex != tb->tex ? ta->tex - tb->tex : *(const s32 *)a - *(const s32 *)b;
+	if (ta->tex != tb->tex) {
+		return ta->tex - tb->tex;
+	}
+
+	return ta->nofog != tb->nofog ? ta->nofog - tb->nofog : *(const s32 *)a - *(const s32 *)b;
 }
 
 /**
@@ -1139,6 +1154,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	s32 curtex = -2;
 	s32 curdecal = -1;
 	s32 curalpha = -1;
+	s32 curnofog = 0;
 	s32 curcull = 0; // set once the cut-outs, sorted last, have turned culling off
 
 	if (num == 0) {
@@ -1181,12 +1197,12 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		// Compared whole in batchFind(), padding and all
 		memset(rv, 0, sizeof(rv));
 
-		if (t->tex != curtex || t->decal != curdecal) {
+		if (t->tex != curtex || t->decal != curdecal || t->nofog != curnofog) {
 			const s32 alpha = xlu || texHasAlpha(t->tex);
 
 			batchFlush(l, &b);
 
-			if (alpha != curalpha || t->decal != curdecal) {
+			if (alpha != curalpha || t->decal != curdecal || t->nofog != curnofog) {
 				if (alpha != curalpha) {
 					emit(&l->gdl, 0xfc26a004, alpha ? 0x1f1093ff : 0x1ffc93fc);
 				}
@@ -1198,14 +1214,25 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 				// the shape of the leaf. A decal takes the file's decal modes
 				// (ZMODE_DEC), which fog swaps know too; the translucent
 				// leaf's mode is a decal one already
-				if (!xlu) {
-					emit(&l->gdl, 0xb900031d, t->decal
+				//
+				// Where GoldenEye draws the surface without fog (Caverns'
+				// water), cycle 1 is the plain pass (all zeros) instead of
+				// G_RM_PASS, which the fog swap would make fog of
+				if (!xlu || t->nofog != curnofog) {
+					u32 mode = xlu ? 0x0c184dd8 : t->decal
 							? (alpha ? G_RM_AA_ZB_XLU_DECAL | G_RM_AA_ZB_XLU_DECAL2 : G_RM_AA_ZB_OPA_DECAL | G_RM_AA_ZB_OPA_DECAL2)
-							: (alpha ? 0x0c183078 : 0x0c182078));
+							: (alpha ? 0x0c183078 : 0x0c182078);
+
+					if (t->nofog) {
+						mode &= ~0xcccc0000;
+					}
+
+					emit(&l->gdl, 0xb900031d, mode);
 				}
 
 				curalpha = alpha;
 				curdecal = t->decal;
+				curnofog = t->nofog;
 			}
 
 			if (!xlu && texHasAlpha(t->tex) && !curcull) {
@@ -1495,6 +1522,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->tex = (s16)tex;
 	t->room = 0;
 	t->decal = 0;
+	t->nofog = 0;
 }
 
 static f32 triNormal(const struct stri *t, f32 *n)
@@ -1627,7 +1655,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, decals = 0;
+	s32 kept = 0, dropped = 0, decals = 0, nofogs = 0;
 	u32 bytes = 0;
 
 	row = levelRow();
@@ -1729,7 +1757,11 @@ static s32 build(void)
 				f32 d;
 				const s32 near = tgridNearest(&filetris, mid, ASSIGN_RINGS, &d);
 
-				tri->room = near >= 0 ? filetris.room[near] : nearestRoomBox(mid, n);
+				const s32 file = near >= 0 ? filetris.room[near] : nearestRoomBox(mid, n);
+
+				tri->room = file & 0xffff;
+				tri->nofog = file >> 16;
+				nofogs += tri->nofog;
 			}
 
 			if (tri->room > 0) {
@@ -1795,8 +1827,8 @@ static s32 build(void)
 	free(listlen);
 	free(c.tris);
 
-	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept), %d triangles (%d decals), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
-			row->bean, row->key, row->scale, numServed, n - 1, kept, c.num, decals, bytes, dropped,
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept), %d triangles (%d decals, %d unfogged), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
+			row->bean, row->key, row->scale, numServed, n - 1, kept, c.num, decals, nofogs, bytes, dropped,
 			(sysGetMicroseconds() - start) / 1000.0,
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,
