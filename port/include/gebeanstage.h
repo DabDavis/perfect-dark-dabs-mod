@@ -40,6 +40,13 @@ uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len);
  */
 s32 gebeanStageDrawsEveryRoom(void);
 
+/**
+ * A room Bean has nothing in and whose own surfaces Bean's mesh does not lie
+ * on anywhere - GoldenEye's backdrop, remodelled by the release further out -
+ * is not drawn while the HD rooms are served (bgRenderRoomOpaque()/Xlu()).
+ */
+s32 gebeanStageRoomHidden(s32 roomnum);
+
 /** GoldenEye's own key for the level being served in HD ("dam"), or NULL. */
 const char *gebeanStageLevelKey(void);
 

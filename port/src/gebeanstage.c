@@ -22,6 +22,7 @@
 #include "lib/vi.h"
 #include "romdata.h"
 #include "xblatex.h"
+#include "xblastage.h"
 #include "gebean.h"
 #include "gebeanstage.h"
 
@@ -87,6 +88,8 @@ static u8 **roomData;
 static u32 *roomLen;
 static s32 numRooms;
 static s32 numServed;
+static u8 *roomHidden;  // a room of the file's that Bean's mesh leaves out (gebeanStageRoomHidden())
+static s32 numHidden;
 
 static const void *texTile[GEBEAN_MAXMATS];
 static u8 texAlpha[GEBEAN_MAXMATS];
@@ -491,6 +494,27 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 
 			b = be32(raw + o + 4);
 		}
+	}
+}
+
+/**
+ * Counts a room's triangles and those of them that lie on Bean's mesh (arg:
+ * the grid of Bean's triangles).
+ */
+static s32 hiddenTris, hiddenNear;
+
+static void fileTriNearBean(void *arg, const f32 v[3][3], s32 room)
+{
+	f32 mid[3], d;
+
+	hiddenTris++;
+
+	for (s32 j = 0; j < 3; j++) {
+		mid[j] = (v[0][j] + v[1][j] + v[2][j]) / 3.0f;
+	}
+
+	if (tgridNearest(arg, mid, 1, &d) >= 0 && d < BEAN_CELL * BEAN_CELL) {
+		hiddenNear++;
 	}
 }
 
@@ -1634,10 +1658,13 @@ static void forget(void)
 
 	free(roomData);
 	free(roomLen);
+	free(roomHidden);
 	roomData = NULL;
 	roomLen = NULL;
+	roomHidden = NULL;
 	numRooms = 0;
 	numServed = 0;
+	numHidden = 0;
 	gebeanLevelClose(level);
 	level = NULL;
 	row = NULL;
@@ -1703,6 +1730,7 @@ static s32 build(void)
 	listlen = calloc(n + 1, sizeof(*listlen));
 	roomData = calloc(n + 1, sizeof(*roomData));
 	roomLen = calloc(n + 1, sizeof(*roomLen));
+	roomHidden = calloc(n + 1, sizeof(*roomHidden));
 	numRooms = n;
 
 	if (!filerooms || !filelens || !lists || !listlen || !roomData || !roomLen || c.num == 0
@@ -1793,6 +1821,22 @@ static s32 build(void)
 
 		for (s32 r = 1; r < n; r++) {
 			if (!filerooms[r] || listlen[r] == 0) {
+				// Nothing of Bean's is on a kept room's surfaces anywhere:
+				// GoldenEye's own backdrop, which the release remodelled
+				// further out (Dam's far cliffs, Cradle's duct) and does not
+				// draw. Drawn over the HD level, a fogged cliff edge showed
+				// against the sky past Bean's trees ("sky tear"). A kept room
+				// Bean's mesh does lie on (Depot's) stays as it was
+				if (filerooms[r] && roomHidden) {
+					hiddenTris = hiddenNear = 0;
+					fileRoomTrianglesEach(r, filerooms[r], filelens[r], 1, fileTriNearBean, &beantris);
+
+					if (hiddenTris > 0 && hiddenNear == 0) {
+						roomHidden[r] = 1;
+						numHidden++;
+					}
+				}
+
 				kept++;
 				continue;
 			}
@@ -1827,8 +1871,8 @@ static s32 build(void)
 	free(listlen);
 	free(c.tris);
 
-	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept), %d triangles (%d decals, %d unfogged), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
-			row->bean, row->key, row->scale, numServed, n - 1, kept, c.num, decals, nofogs, bytes, dropped,
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d unfogged), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
+			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, nofogs, bytes, dropped,
 			(sysGetMicroseconds() - start) / 1000.0,
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,
@@ -1884,6 +1928,11 @@ s32 gebeanStageDrawsEveryRoom(void)
 	return built && row && numServed > 0;
 }
 
+s32 gebeanStageRoomHidden(s32 roomnum)
+{
+	return xblaStageDrawsEveryRoom() && roomHidden && roomnum > 0 && roomnum < numRooms && roomHidden[roomnum];
+}
+
 const char *gebeanStageLevelKey(void)
 {
 	return gebeanStageDrawsEveryRoom() ? row->key : NULL;
@@ -1903,8 +1952,8 @@ const void *gebeanStageTile(u32 record)
 
 void gebeanStageTrace(FILE *f)
 {
-	fprintf(f, "gebeanstage: tried %d built %d level %s scale %.5f, %d of %d rooms served\n",
-			tried, built, row ? row->bean : "-", row ? row->scale : 0.0f, numServed, numRooms ? numRooms - 1 : 0);
+	fprintf(f, "gebeanstage: tried %d built %d level %s scale %.5f, %d of %d rooms served, %d of the file's not drawn\n",
+			tried, built, row ? row->bean : "-", row ? row->scale : 0.0f, numServed, numRooms ? numRooms - 1 : 0, numHidden);
 	fprintf(f, "gebeanstage: camera outside the level %d (%d of %d rays on its back faces, %d of GoldenEye's triangles)\n",
 			cullOutside, shellBacks, shellHits, shellNum);
 }
@@ -1919,6 +1968,7 @@ u32 gebeanStageRoomSize(s32 roomnum) { return 0; }
 uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void gebeanStageLevelReset(void) { }
 s32 gebeanStageDrawsEveryRoom(void) { return 0; }
+s32 gebeanStageRoomHidden(s32 roomnum) { return 0; }
 void gebeanStageTickCamera(s32 authored) { }
 s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }

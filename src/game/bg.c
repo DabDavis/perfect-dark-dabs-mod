@@ -3683,6 +3683,12 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 		return gdl;
 	}
 
+#ifndef PLATFORM_N64
+	if (gebeanStageRoomHidden(roomnum)) {
+		return gdl;
+	}
+#endif
+
 	gdl = roomApplyMtx(gdl, roomnum);
 
 	gdl = lightsSetForRoom(gdl, roomnum);
@@ -3722,6 +3728,12 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 	if (roomnum == 0 || roomnum >= g_Vars.roomcount) {
 		return gdl;
 	}
+
+#ifndef PLATFORM_N64
+	if (gebeanStageRoomHidden(roomnum)) {
+		return gdl;
+	}
+#endif
 
 	if (g_Rooms[roomnum].loaded240) {
 		if (g_Rooms[roomnum].gfxdata->xlublocks == NULL) {

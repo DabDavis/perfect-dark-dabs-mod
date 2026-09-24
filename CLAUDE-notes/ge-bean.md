@@ -8941,3 +8941,39 @@ modes do this, on every level: `0x00502078`, `0x00504dd8` (translucent) and
 Dam and Cradle 0. Stills against the previous commit: Caverns 2 and 3 change
 (the pool is drawn), Control 1 and Runway 2 by a few distant pixels, the
 other twenty identical.
+
+## A kept room of GoldenEye's backdrop drawn over the HD level: Dam's "sky tear" (2026-09-24)
+
+The user's F3 on Dam (20260924-083443, 348983bd7, 1920x1080, CE sky on):
+"sky tear" - a dark blue needle from the crosshair down to the gun, looking
+up past the trees at the first tower's cliff. **Not the sky**: switching the
+CE dome off in the same run (`sky.numlists = 0`) kept the needle. Skipping
+room ranges in `bgRenderRoomOpaque()`/`Xlu()` from gdb (a breakpoint whose
+commands are `return gdl` + `continue`, `build/gexrom/roomskip.sh`) put it in
+**room 5**, which is one of the 39 rooms HD Dam **keeps** from the converted
+file because Bean dealt it nothing (`roomData[5] == NULL`). Drawn alone
+(`roomonly.sh`) it is a solid dark-blue silhouette: GoldenEye's own
+low-poly far cliff, fogged to the fog colour, and the needle is the sliver
+of its edge that shows past Bean's trees and rock.
+
+**Every kept room on Dam is GoldenEye's backdrop, and none is where Bean's
+mesh is**: 4 to 33 triangles each, and not one triangle of any of them
+within 64 units of a Bean triangle (room 31 has one). Bean remodelled that
+backdrop further out and draws nothing where GoldenEye's is, so over the HD
+level it only ever showed as fog-coloured edges against the brighter sky.
+The N64 look never showed them from here: its portal walk does not reach
+room 5, while an HD level draws every room.
+
+Over all 20 missions only four levels keep rooms: Dam 39, Streets 35 (no
+triangles at all), Depot 30 (two triangles each, lying on Bean's surfaces)
+and Cradle 2 (GoldenEye's fat corrugated duct over the platform, drawn
+round Bean's thinner remodelled one - it hid the structure behind from
+below). **Now** `build()` counts each kept room's triangles and those within
+`BEAN_CELL` of Bean's grid (`fileTriNearBean()`), and a room with triangles
+and none on Bean's mesh is not drawn while the HD rooms are served
+(`gebeanStageRoomHidden()`, asked by `bgRenderRoomOpaque()`/`Xlu()`, off
+with F6): Dam 38, Cradle 2, Depot and Streets none. The log line and the F3
+trace say how many (`N kept, M of them not drawn`). The report's own frame
+(`reppos.sh`: the prop put at the trace's position and turn) has the needle
+before and not after; eight headings at Dam's spawn with the kept rooms
+toggled in one run (`keptab.sh`) differ by the needle alone.
