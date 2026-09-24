@@ -191,6 +191,31 @@ static const u8 shootsoundrates[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_RCP90 - WEAPON_GE_FIRST]       = 2,
 };
 
+/**
+ * Which guns a guard holds in both hands: those whose rows lack
+ * WEAPONSTATBITFLAG_ONLY_1_HANDED (0x100 of BitFlags), the bit GoldenEye's
+ * weaponIsOneHanded() reads to choose a pistol's stand, run and fire or a
+ * rifle's - where Perfect Dark reads WEAPONFLAG_ONEHANDED off the definition.
+ * A copy took its host's, and the hosts do not agree: every classic gun of
+ * Perfect Dark's is one-handed, so a Dam guard carried his KF7 like a pistol,
+ * as did the D5K, the Phantom, the AR33 and the RC-P90, while the ZMG's host
+ * (the ZZT) and the rocket launcher's hold theirs in two hands and GoldenEye
+ * holds both in one. Everything else of GoldenEye's, gadgets included, is
+ * one-handed.
+ */
+static const u8 twohanded[NUM_GE_WEAPONS] = {
+	[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST]       = 1, // ak47
+	[WEAPON_GE_D5K - WEAPON_GE_FIRST]             = 1, // mp5k
+	[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST]     = 1, // mp5ksil
+	[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST]         = 1, // spectre
+	[WEAPON_GE_AR33 - WEAPON_GE_FIRST]            = 1, // m16
+	[WEAPON_GE_RCP90 - WEAPON_GE_FIRST]           = 1, // fnp90
+	[WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST]         = 1,
+	[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST]     = 1, // autoshot
+	[WEAPON_GE_SNIPERRIFLE - WEAPON_GE_FIRST]     = 1,
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1, // grenadelaunch
+};
+
 s32 gegunsShootSoundRate(s32 weaponnum)
 {
 	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_WEAPONS) {
@@ -370,6 +395,13 @@ static void gegunsApplyStats(s32 i)
 			copy->clipsize = stat->magsize;
 			def->ammos[0] = copy;
 		}
+	}
+
+	// How a guard holds it (twohanded[]), borrowed definition or not
+	if (twohanded[i]) {
+		def->flags &= ~WEAPONFLAG_ONEHANDED;
+	} else {
+		def->flags |= WEAPONFLAG_ONEHANDED;
 	}
 }
 
