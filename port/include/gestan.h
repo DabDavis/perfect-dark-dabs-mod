@@ -67,6 +67,13 @@ f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin);
  */
 bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
 
+/**
+ * geStanWalk() from a tile of room `fromroom` where `from` is on the edge
+ * between it and another room's tile at the same height: GoldenEye starts from
+ * the tile the pad names, and the conversion's pad room is that tile's.
+ */
+bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground);
+
 // GoldenEye's own truck test: whether lines laid end to end in plan (x, z pairs)
 // cross no wall of the tile graph, starting on the tile under the first at y
 bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y);

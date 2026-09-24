@@ -465,7 +465,12 @@ static f32 stanSurface(const struct stantile *t, f32 x, f32 z)
  * reach, and every wall of the stair was left out - through the rail on one
  * side and into the tower's wall on the other.
  */
-static s32 stanTileUnder(f32 x, f32 z, f32 limit, f32 rise)
+/**
+ * The tile under x/z whose surface is nearest `limit` (at or under it, or at
+ * most `rise` over). Where two tiles hold the point equally - a point on the
+ * edge between two rooms' floors - the one in room `prefer` wins, if either is.
+ */
+static s32 stanTileUnderPrefer(f32 x, f32 z, f32 limit, f32 rise, s32 prefer)
 {
 	const s32 cx = stanCellOf(x, g_Stan.gridx, g_Stan.gridw);
 	const s32 cz = stanCellOf(z, g_Stan.gridz, g_Stan.gridh);
@@ -480,7 +485,10 @@ static s32 stanTileUnder(f32 x, f32 z, f32 limit, f32 rise)
 			const f32 y = stanSurface(t, x, z);
 			const f32 off = y <= limit ? limit - y : y - limit;
 
-			if ((y <= limit || y - limit <= rise) && off < bestoff) {
+			if ((y <= limit || y - limit <= rise)
+					&& (off < bestoff - 1.0f
+						|| (off < bestoff + 1.0f && (best < 0 || g_Stan.tiles[best].room != prefer) && t->room == prefer)
+						|| (off < bestoff && (best < 0 || g_Stan.tiles[best].room != prefer || t->room == prefer)))) {
 				bestoff = off;
 				best = g_Stan.celltiles[k];
 			}
@@ -488,6 +496,11 @@ static s32 stanTileUnder(f32 x, f32 z, f32 limit, f32 rise)
 	}
 
 	return best;
+}
+
+static s32 stanTileUnder(f32 x, f32 z, f32 limit, f32 rise)
+{
+	return stanTileUnderPrefer(x, z, limit, rise, -1);
 }
 
 /** How near x/z comes to the edge from a to b, in plan, squared. */
@@ -806,7 +819,7 @@ static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1)
 	return tile;
 }
 
-bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
+bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground)
 {
 	s32 tile;
 
@@ -820,7 +833,7 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 
 	// GoldenEye starts from the pad's own tile, which the conversion does not
 	// carry: the one under the pad, a pad standing on its floor or a little over
-	tile = stanTileUnder(from->x, from->z, from->y + 5.0f, GESTAN_RISE);
+	tile = stanTileUnderPrefer(from->x, from->z, from->y + 5.0f, GESTAN_RISE, fromroom);
 
 	if (tile < 0) {
 		return false;
@@ -832,6 +845,11 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 	*ground = stanSurface(&g_Stan.tiles[tile], to->x, to->z);
 
 	return true;
+}
+
+bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
+{
+	return geStanWalkFromRoom(from, -1, to, room, ground);
 }
 
 /**

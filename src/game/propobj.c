@@ -2401,6 +2401,33 @@ void func0f06ab60(struct defaultobj *obj, struct coord *arg1, Mtxf *arg2, RoomNu
 	newpos.z = arg4->z - sp5c.m[2][2] * mult;
 
 	func0f065e74(arg1, rooms, &newpos, newrooms);
+
+#ifndef PLATFORM_N64
+	// On a level converted from GoldenEye a wall-mounted object is in the room
+	// of its pad's tile walked to its box's centre (prop.c's setup), and the
+	// walk stops at the wall. Perfect Dark's own search set it a unit into the wall,
+	// outside its room's box, and took whichever room's box held that: the
+	// alarm in Dam's second guard house went to the yard outside and was drawn
+	// only from there (F3 report 20260924-173807).
+	if (geRoomActive() && obj->pad >= 0) {
+		struct coord padcentre;
+		s32 tileroom;
+		f32 ground;
+
+		padGetCentre(obj->pad, &padcentre);
+
+		if (geStanWalkFromRoom(arg1, rooms[0], &padcentre, &tileroom, &ground) && tileroom > 0) {
+			if (newrooms[0] != tileroom || newrooms[1] != -1) {
+				sysLogPrintf(LOG_NOTE, "gestan: wall object on pad %d put in its tile's room %d, not %d",
+						obj->pad, tileroom, newrooms[0]);
+			}
+
+			newrooms[0] = tileroom;
+			newrooms[1] = -1;
+		}
+	}
+#endif
+
 	func0f06a580(obj, &newpos, &sp5c, newrooms);
 }
 
