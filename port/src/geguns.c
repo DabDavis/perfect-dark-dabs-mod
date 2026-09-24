@@ -243,19 +243,27 @@ static const struct gegunstat stats[NUM_GE_WEAPONS] = {
 /**
  * GoldenEye's automatic rate as the rounds per minute Perfect Dark counts in.
  *
- * Its conversions are the calibration, and between them they use two rates:
- * the Klobb, the KF7 Soviet and the D5K are GoldenEye's rate 3 and fire at
- * 450, the AR33 and the RC-P90 are rate 2 and fire at 550 and 600. No gun of
- * the twenty-five carries any other rate, and 0xff is not automatic at all.
+ * The rate is in GoldenEye's frames, not time: a held trigger fires on every
+ * rate'th frame (gunfire.c, field_88C % AutomaticFiringRate), and a guard on
+ * every rate'th of its ticks (chraction.c, firecount). So how fast a gun fires
+ * is how fast the game draws. Rare's demos, recorded on the console, draw a
+ * level in two to five sixtieths a frame and seldom in fewer than two (thirty
+ * frames a second), and GoldenEye X arms the same guns at that ceiling. That
+ * is the frame taken, two sixtieths: rate 3 (Klobb, KF7, D5K, Phantom) is 600
+ * rpm and rate 2 (ZMG, AR33, RC-P90) 900.
+ *
+ * Perfect Dark's own classic guns fire at 450 and 550-600, a frame of about
+ * 2.7 sixtieths - the console's average - and that was the rate here until a
+ * tester found the guns slow beside GoldenEye X's. 0xff is not automatic and
+ * leaves the host's.
  */
 static f32 gegunsRpm(u8 rate)
 {
-	switch (rate) {
-	case 2: return 600.0f;
-	case 3: return 450.0f;
+	if (rate == 0 || rate == 0xff) {
+		return 0.0f;
 	}
 
-	return 0.0f;
+	return 3600.0f / (2 * rate);
 }
 
 /** How much of a weapon function is its own, by type (moddata.c's cvFunc()). */

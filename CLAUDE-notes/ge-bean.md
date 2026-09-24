@@ -575,10 +575,16 @@ skorpion's 0.6 and 15, the RC-P90 the fnp90's 1.8 and 80, the PP9i the wppk's
 `penetration` and ForceOfImpact an `impactforce`.
 
 - **Automatic rate** is the one conversion: Perfect Dark counts rounds per
-  minute where GoldenEye counts a rate. Its own conversions give both values
-  in use - rate 3 is 450rpm (Klobb, KF7, D5K), rate 2 is 550-600 (AR33,
-  RC-P90) - and no gun of the twenty-five uses any other; 0xff is not
-  automatic and leaves the host's.
+  minute where GoldenEye counts a rate, and GoldenEye's rate is in *frames* -
+  a held trigger fires every rate'th frame, so the gun is as fast as the game
+  draws. Rare's 14 console-recorded demos (`assets/ramrom`, each block's
+  `speedframes`) draw a level in 2-5 sixtieths, mean 2.5-3.7 (Dam 3.2-3.5),
+  seldom under 2. Taken at that 30 fps ceiling, as GoldenEye X does: rate
+  3 (Klobb, KF7, D5K, Phantom) is 600rpm and rate 2 (ZMG, AR33, RC-P90) 900.
+  Until 2026-09-24 it was Perfect Dark's classic guns' 450 and 550-600 (a
+  2.7-sixtieth frame), which a tester reported as slow (F3
+  20260924-172555). Guards follow: their shot interval is `3600 / maxrpm`.
+  0xff is not automatic and leaves the host's.
 - **On copies of the host's structures.** Damage, spread, penetration and rate
   live in the functions a weapon carries and the magazine in its ammo, both
   shared with the host until here, so each copy gets its own
@@ -591,7 +597,7 @@ skorpion's 0.6 and 15, the RC-P90 the fnp90's 1.8 and 80, the PP9i the wppk's
   magazine is only written for a weapon that shoots.
 - What it changes, against the host: the silenced PP7 and D5K lose accuracy
   (spread 3 and 9 against 1 and 7), the Phantom gains damage, spread, a 50
-  round magazine and slows to 450rpm from 900, the AR33 and RC-P90 shoot
+  round magazine and slows to 600rpm from 900, the AR33 and RC-P90 shoot
   through 2 and 3 objects, the Cougar through 10, the shotguns hold 5 and
   recover in 10 frames, the Golden Gun is 100 damage with one round, the
   Moonraker 2, both launchers lose their spread, and the knives cut for 3
