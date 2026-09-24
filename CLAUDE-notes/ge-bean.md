@@ -9101,3 +9101,49 @@ How it was found, and the traps on the way:
   crossed.
 - A gdb breakpoint on `modelNodeReplaceXluGdl` with `opagdl == find` counts
   the collisions a level load has (Jungle: one, file 2263).
+
+## Logos fighting their own prop: an HD model's decals (2026-09-24)
+
+F3 20260924-101249 on Dam, HD: "z fighting for various logos" - the red star
+and the bar codes on the container stack by the start broke up into stripes
+that changed every frame. The stencilled numbers beside them were fine: those
+are painted into the wall's picture.
+
+**It was a prop, not the level.** The first look went to the level's decals
+(`markDecals()` in gebeanstage.c), but a ray cast from the report's eye found
+only a plain container wall in the HD rooms at every badge. What
+settled it was skipping `objRender()` from gdb: the whole stack vanished. It is
+`Pgx090Z`, drawn with the release's `new/prop/boxes2x4`, and the badges are
+triangles of that same mesh lying **exactly** in the plane of its walls (0.000
+units, measured in the built mesh). The level's decal fix never reached a prop:
+`gebeanBuildRigid()` wrote every triangle with its material and nothing else.
+
+`beanMarkDecals()` (gebean.c) now finds a mesh's triangles that lie flat on
+another picture's triangle of the same group and bone, facing the same way,
+with the level's rule for which of a pair is the decal, and gives them a copy
+of their material carrying `XBLAMESH_MAT_DECAL` (0x4000, meaningful only with
+`XBLAMESH_MAT_TABLE`). `xblaMeshSetMaterial()` turns on the new extra geometry
+mode `G_DECAL_EXT` for such a material and the list's end turns it off;
+gfx_pc.cpp takes `ZMODE_DEC` while it is on, whatever the render mode says,
+so both renderers draw it with the decal offset they already had. A render
+mode switch in the list was not an option: the list is called under whatever
+mode its node set, and nothing could say what to put back.
+
+Rigid props and first-person guns only. Over all twenty missions (900 frames
+each, HD) seven props get any: the wooden crates (4, 5), metal crate 3, the
+container stack, and Frigate's engine, Exocet and Sea Wolf. **Back to back
+pairs are not decals** - the truck has 24 triangles that are a sheet with a
+face either side, and a decal of either would show its back from behind; they
+still fight where both are drawn (HD props are drawn two-sided, see "HD
+characters cull their back faces, HD props do not").
+
+- The badges are opaque pictures - the star is on a black diamond in the
+  release's art, and was before this too.
+- Probes: `build/gexrom/zfpos.sh <tag> <binary>` is the report's view,
+  `zfskip.sh`/`zfonly.sh` skip or keep room ranges, `objskip.gdb` logs and
+  skips every `objRender()`, `decsweep.sh <stage>` runs a mission in HD and the
+  log line `gebean: ... (N decals)` counts each prop.
+- Level room vertices are whole units: a Bean level triangle is rounded when
+  it is written into a room (`clampS16()`), which can put a decal on a surface
+  square to no axis up to a unit behind it. That was the first guess here and
+  was wrong for this report; no level decal has been seen fighting from it.

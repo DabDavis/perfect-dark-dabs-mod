@@ -2821,7 +2821,7 @@ static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
     bool depth_update = (rdp.other_mode_l & Z_UPD) == Z_UPD;
     bool depth_compare = (rdp.other_mode_l & Z_CMP) == Z_CMP;
     bool depth_source_prim = (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM /* && gDP.primDepth.z == 1.0f */;
-    uint16_t zmode = rdp.other_mode_l & ZMODE_DEC;
+    uint16_t zmode = (rsp.extra_geometry_mode & G_DECAL_EXT) ? ZMODE_DEC : (rdp.other_mode_l & ZMODE_DEC);
     uint32_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6) |
                           ((uint32_t)(uint16_t)rdp.depth_bias << 8);
 

@@ -218,6 +218,7 @@
 #define G_TEXGEN_TURN_EXT        0x00001000 // with G_TEXGEN_EYE_EXT: G_SETTEXGENSHIFT_EXT's shift turns the LookAt (a fraction of a turn) instead of being added (the levels' reflections)
 #define G_TEXGEN_FACE_EXT        0x00004000 // with G_LIGHTING: each triangle is lit and texgenned from its own face normal, turned to the eye, not from its vertices' colours (a flat room panel with no normals of its own)
 #define G_TEXGEN_EYE_EXT         0x00002000 // with G_TEXTURE_GEN: the lookup follows the eye ray and adds G_SETTEXGENSHIFT_EXT's shift (the K7 sheen)
+#define G_DECAL_EXT              0x00008000 // what follows is drawn in the decal z mode (ZMODE_DEC) whatever the render mode says: a mesh's overlay flat on its own surface (xblamesh.c)
 
 /* Extra texture filtering mode */
 

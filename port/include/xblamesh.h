@@ -306,6 +306,10 @@ s32 xblaMeshSlotModelFile(s32 slot);
 // textures, or a GoldenEye XBLA character's picture (gebean.c) - in its low
 // twelve bits. Bit 15 is the alpha flag as ever.
 #define XBLAMESH_MAT_TABLE 0x40000000
+// With XBLAMESH_MAT_TABLE: the draw lies flat on another of the mesh's own
+// surfaces - a label, a stencil - and is drawn in the decal z mode
+// (G_DECAL_EXT), since the two are exactly coplanar and fight in the plain one
+#define XBLAMESH_MAT_DECAL 0x4000
 
 s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max);
 void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3]);

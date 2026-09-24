@@ -2299,6 +2299,10 @@ struct xblameshbuilder {
 	// both: see xblaMeshBuildCullBack.
 	s32 cullback;
 
+	// Whether the list being built has G_DECAL_EXT on (XBLAMESH_MAT_DECAL),
+	// which its end turns off again
+	s32 decal;
+
 	// The texture gradient along x and along y at every emitted vertex, and
 	// how good the triangle it came from was for the purpose - see
 	// xblaMeshNoteTriangle(). Unskinned meshes only: a door is never skinned,
@@ -2816,7 +2820,7 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 			: xblaMeshBuildKeepArt ? xblaTexBindKept(record) : xblaTexBind(record);
 	Gfx *gdl;
 
-	if (!xblaMeshRoomForGfx(b, 13)) {
+	if (!xblaMeshRoomForGfx(b, 14)) {
 		return 0;
 	}
 
@@ -2849,6 +2853,16 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	gdl = &b->gdl[b->numgfx];
 
 	gDPPipeSync(gdl++);
+
+	if (((material & XBLAMESH_MAT_TABLE) && (material & XBLAMESH_MAT_DECAL)) != b->decal) {
+		b->decal = !b->decal;
+
+		if (b->decal) {
+			gSPSetExtraGeometryModeEXT(gdl++, G_DECAL_EXT);
+		} else {
+			gSPClearExtraGeometryModeEXT(gdl++, G_DECAL_EXT);
+		}
+	}
 
 	if (span == XBLAMESH_SPAN_FADE) {
 		gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_PASS2);
@@ -3206,6 +3220,7 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 	s32 emitted = 0;
 
 	b->span = wantspan;
+	b->decal = 0;
 
 	// How the mesh is lit, which no draw changes: its own vertex colours,
 	// both faces, no lighting and no generated coordinates.
@@ -3371,6 +3386,12 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 	if (b->cullback) {
 		gSPClearGeometryMode(&b->gdl[b->numgfx], G_CULL_BOTH);
 		b->numgfx++;
+	}
+
+	if (b->decal) {
+		gSPClearExtraGeometryModeEXT(&b->gdl[b->numgfx], G_DECAL_EXT);
+		b->numgfx++;
+		b->decal = 0;
 	}
 
 	gSPEndDisplayList(&b->gdl[b->numgfx]);

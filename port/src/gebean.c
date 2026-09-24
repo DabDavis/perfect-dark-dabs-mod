@@ -4331,6 +4331,176 @@ static const struct modelnode *gebeanListPositionNode(const struct modelnode *no
 	return NULL;
 }
 
+static f32 beanOutNormal(const struct beanout *o, const struct beantri *t, f32 *n, f32 *p0)
+{
+	const f32 *a = &o->pos[t->v[0] * 3];
+	const f32 *b = &o->pos[t->v[1] * 3];
+	const f32 *c = &o->pos[t->v[2] * 3];
+	f32 e1[3], e2[3], len;
+
+	for (s32 k = 0; k < 3; k++) {
+		e1[k] = b[k] - a[k];
+		e2[k] = c[k] - a[k];
+		p0[k] = a[k];
+	}
+
+	n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	if (len <= 0.0f) {
+		return 0.0f;
+	}
+
+	n[0] /= len;
+	n[1] /= len;
+	n[2] /= len;
+
+	return len * 0.5f;
+}
+
+/** Whether p, on or near the plane of triangle t (normal n), lies inside it. */
+static s32 beanOutPointInTri(const struct beanout *o, const struct beantri *t, const f32 *n, const f32 *p)
+{
+	for (s32 e = 0; e < 3; e++) {
+		const f32 *a = &o->pos[t->v[e] * 3];
+		const f32 *b = &o->pos[t->v[(e + 1) % 3] * 3];
+		const f32 ab[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+		const f32 ap[3] = { p[0] - a[0], p[1] - a[1], p[2] - a[2] };
+		const f32 c[3] = { ab[1] * ap[2] - ab[2] * ap[1], ab[2] * ap[0] - ab[0] * ap[2], ab[0] * ap[1] - ab[1] * ap[0] };
+
+		if (c[0] * n[0] + c[1] * n[1] + c[2] * n[2] < 0.0f) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+/**
+ * Gives the triangles of a mesh that lie flat on another picture's triangle
+ * of the same mesh a decal copy of their material (XBLAMESH_MAT_DECAL), so
+ * they are drawn in the decal z mode. Bean puts a model's labels and stencils
+ * exactly in the plane of the surface they are on - the stars and bar codes
+ * of Dam's container stack (`boxes2x4`), the wooden crates' stencils - and
+ * drawn with the plain depth test the two fought ("z fighting for various
+ * logos", F3 20260924-101249). Of a pair, the one with a cut-out picture over
+ * one without is the decal, else the smaller, else the one drawn later: the
+ * rule gebeanstage.c's markDecals() uses for the levels. Returns the count.
+ */
+static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, struct gebeanmats *mats)
+{
+	f32 *nrm = malloc(o->numtris * 4 * sizeof(f32));
+	u8 *decal = calloc(o->numtris, 1);
+	s32 copy[GEBEAN_MAXMATS];
+	s32 count = 0;
+
+	if (!nrm || !decal) {
+		free(nrm);
+		free(decal);
+		return 0;
+	}
+
+	for (s32 i = 0; i < o->numtris; i++) {
+		f32 p0[3];
+
+		nrm[i * 4 + 3] = beanOutNormal(o, &o->tris[i], &nrm[i * 4], p0);
+	}
+
+	for (s32 i = 0; i < o->numtris; i++) {
+		const struct beantri *t = &o->tris[i];
+		const f32 *ni = &nrm[i * 4];
+		const f32 ai = nrm[i * 4 + 3];
+		const s32 alphai = t->tex < mats->num && mats->alpha[t->tex];
+		f32 mid[3];
+
+		if (ai <= 0.0f) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			mid[k] = (o->pos[t->v[0] * 3 + k] + o->pos[t->v[1] * 3 + k] + o->pos[t->v[2] * 3 + k]) / 3.0f;
+		}
+
+		for (s32 j = 0; j < o->numtris && !decal[i]; j++) {
+			const struct beantri *u = &o->tris[j];
+			const f32 *nu = &nrm[j * 4];
+			const f32 au = nrm[j * 4 + 3];
+			const s32 alphau = u->tex < mats->num && mats->alpha[u->tex];
+			const f32 *pu = &o->pos[u->v[0] * 3];
+			// A thousandth of the surface's size: Bean's are exactly in its plane
+			const f32 tol = 0.001f * sqrtf(au);
+			f32 cosang;
+			s32 flat = 1;
+
+			// The same group and bone, or the two are not in one space
+			if (j == i || u->tex == t->tex || u->group != t->group || au <= 0.0f
+					|| o->bone[t->v[0] * 3] != o->bone[u->v[0] * 3]) {
+				continue;
+			}
+
+			// Facing the same way: a pair back to back is a sheet with a face
+			// either side (the truck's), and a decal of either would show its
+			// back from behind
+			cosang = ni[0] * nu[0] + ni[1] * nu[1] + ni[2] * nu[2];
+
+			if (cosang < 0.999f) {
+				continue;
+			}
+
+			for (s32 v = 0; v < 3 && flat; v++) {
+				const f32 *q = &o->pos[t->v[v] * 3];
+
+				flat = fabsf((q[0] - pu[0]) * nu[0] + (q[1] - pu[1]) * nu[1] + (q[2] - pu[2]) * nu[2]) <= tol;
+			}
+
+			if (!flat || !beanOutPointInTri(o, u, nu, mid)) {
+				continue;
+			}
+
+			if (alphai != alphau ? alphai > alphau
+					: ai < au * 0.999f ? 1
+					: ai <= au * 1.001f && t->order > u->order) {
+				decal[i] = 1;
+			}
+		}
+	}
+
+	for (s32 m = 0; m < GEBEAN_MAXMATS; m++) {
+		copy[m] = -1;
+	}
+
+	for (s32 i = 0; i < o->numtris; i++) {
+		const s32 tex = o->tris[i].tex;
+
+		if (!decal[i] || tex >= *nummatwords) {
+			continue;
+		}
+
+		if (copy[tex] < 0) {
+			if (*nummatwords >= GEBEAN_MAXMATS) {
+				continue;
+			}
+
+			copy[tex] = (*nummatwords)++;
+			matwords[copy[tex]] = XBLAMESH_MAT_TABLE | (u32)copy[tex] | (matwords[tex] & 0x8000) | XBLAMESH_MAT_DECAL;
+			mats->tile[copy[tex]] = mats->tile[tex];
+			mats->alpha[copy[tex]] = mats->alpha[tex];
+			mats->soft[copy[tex]] = mats->soft[tex];
+			mats->num = *nummatwords;
+		}
+
+		o->tris[i].tex = (u16)copy[tex];
+		count++;
+	}
+
+	free(nrm);
+	free(decal);
+
+	return count;
+}
+
 static const char *gebeanPartsNote(s32 numparts, s32 numverts)
 {
 	static char note[64];
@@ -4357,6 +4527,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	f32 bonepos[BEAN_MAXBONES][3];
 	s32 numparts = 0;
 	s32 numpartverts = 0;
+	s32 numdecals;
 	u8 *file;
 
 	// An odd permutation of three axes swaps two; each negative sign mirrors once
@@ -4599,10 +4770,12 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+	numdecals = beanMarkDecals(&out, matwords, &nummatwords, mats);
+
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, rigid on matrix %d of %d%s%s%s%s",
-			g->row.file, source, out.numverts, out.numtris, mtx, nummatrices,
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals), rigid on matrix %d of %d%s%s%s%s",
+			g->row.file, source, out.numverts, out.numtris, numdecals, mtx, nummatrices,
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
@@ -5129,6 +5302,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	s32 togglecount[64];
 	s32 bonemtx[BEAN_MAXBONES];
 	s32 numleftout = 0;
+	s32 numdecals;
 	const s8 *fpaxis = NULL;
 	s32 usegrip;
 	u8 *file;
@@ -5813,14 +5987,16 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		}
 	}
 
+	numdecals = beanMarkDecals(&out, matwords, &nummatwords, mats);
+
 	// Each group's vertices are in its own list's space, so the mesh has no
 	// palette: xblamesh.c draws it like a model pack's, under each node's own
 	// matrix (gebeanRowIsFirstPerson())
 	file = beanWriteMesh(&out, numnodes, 0, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles, %d draws left out, "
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals), %d draws left out, "
 			"scale %.4f%s%s, body list %d on matrix %d of %d %s",
-			r->file, source, out.numverts, out.numtris, numleftout, scale,
+			r->file, source, out.numverts, out.numtris, numdecals, numleftout, scale,
 			fpFitSource[fp] ? " measured on " : "", fpFitSource[fp] ? fpFitSource[fp] : "",
 			bodynode, nodemtx[bodynode], nummatrices, file ? "" : " - did not write");
 
