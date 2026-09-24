@@ -1009,21 +1009,35 @@ s32 gegunsItemNumber(s32 index)
  * offered at all. Found once, in whichever mod directory the conversion wrote
  * (there is one), and kept: registering a slot per directory per gun would
  * spend twenty-five of them on every mod installed.
+ *
+ * Kept only until the file slots are emptied. Choosing a mod, or turning a
+ * mod's maps on or off, runs romdataResetFiles() and registers every mod file
+ * again from the first free slot, so a number kept from before names whatever
+ * came to sit in that slot after: a player who changed mods and then drew a
+ * GoldenEye gun in the N64 look loaded GoldenEye Egyptian's room segment
+ * (bg_gxcryp.seg, file 2164) as the gun's model, which was not a rare zip,
+ * and the uninflated bytes crashed the model loader (crash 20260924-151337).
  */
 static u16 convertedModel[NUM_GE_WEAPONS];
 static s32 convertedSearched = -1;
+static s32 convertedGeneration = -1;
 
 static void gegunsFindConverted(void)
 {
 	const s32 numdirs = fsGetNumModDirs();
+	const s32 generation = romdataFilesGeneration();
 	s32 found = 0;
 	s32 dir = -1;
 
-	if (convertedSearched == numdirs) {
+	if (convertedSearched == numdirs && convertedGeneration == generation) {
 		return;
 	}
 
 	convertedSearched = numdirs;
+	convertedGeneration = generation;
+
+	// the mount's index may have moved too: searched again from nothing
+	memset(convertedModel, 0, sizeof(convertedModel));
 
 	// the PP7 is the conversion's marker: every GoldenEye gun is written with it
 	for (s32 i = 0; i < numdirs && dir < 0; i++) {
@@ -1050,7 +1064,7 @@ static void gegunsFindConverted(void)
 		char name[16];
 		char path[FS_MAXPATH + 1];
 
-		if (item <= 0 || convertedModel[i]) {
+		if (item <= 0) {
 			continue;
 		}
 

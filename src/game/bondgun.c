@@ -3898,6 +3898,62 @@ bool bgunChangeGunMem(s32 newowner)
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether a file loads as a model: it has a name and its first bytes are a
+ * rare zip. A file number kept from before the file slots were emptied can name
+ * an empty slot or someone else's file (geguns.c, gegunsFindConverted()) -
+ * crash 20260924-151337 was a room segment handed to the loader as a gun,
+ * whose bytes went through modelPromoteOffsetsToPointers() uninflated.
+ */
+static bool bgunFileIsModel(s32 filenum)
+{
+	return filenum > 0 && filenum < NUM_FILE_SLOTS
+		&& romdataFileGetName(filenum) && romdataFileGetData(filenum)
+		&& fileGetInflatedSize(filenum, LOADTYPE_MODEL) > 0;
+}
+
+/**
+ * What to load in place of a file that is not a model, so that a load that
+ * cannot be what was asked for still ends in a model: the loader's callers,
+ * bgunLoadAll() among them, wait for one: the low-detail hands a 4MB console
+ * loads for everybody, the Falcon 2, or a rifle casing.
+ */
+static s32 bgunFallbackFileNum(void)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (player->gunctrl.loadtomodeldef == &player->gunctrl.handmodeldef) {
+		return FILE_GCOMBATHANDSLOD;
+	}
+
+	if (player->gunctrl.loadtomodeldef == &player->gunctrl.cartmodeldef
+			|| player->gunctrl.loadtomodeldef == &player->gunctrl.leftcartmodeldef) {
+		return FILE_GCARTRIFLE;
+	}
+
+	return FILE_GFALCON2;
+}
+
+static void bgunReplaceLoadFile(const char *why)
+{
+	struct player *player = g_Vars.currentplayer;
+	const s32 filenum = player->gunctrl.loadfilenum;
+	const s32 fallback = bgunFallbackFileNum();
+	const char *name = filenum > 0 && filenum < NUM_FILE_SLOTS ? romdataFileGetName(filenum) : NULL;
+
+	if (filenum == fallback) {
+		sysFatalError("The game's own model file %d (%s) %s.\nThe ROM may be damaged.",
+				filenum, name ? name : "no name", why);
+	}
+
+	sysLogPrintf(LOG_ERROR, "bgun: file %d (%s) %s; loading file %d (%s) in its place",
+			filenum, name ? name : "no name", why, fallback, romdataFileGetName(fallback));
+
+	player->gunctrl.loadfilenum = fallback;
+}
+#endif
+
 /**
  * This function loads resources for a gun change.
  *
@@ -3953,6 +4009,12 @@ void bgunTickGunLoad(void)
 		*player->gunctrl.loadmemptr = ptr;
 		*player->gunctrl.loadmemremaining = remaining;
 
+#ifndef PLATFORM_N64
+		if (!bgunFileIsModel(player->gunctrl.loadfilenum)) {
+			bgunReplaceLoadFile("is not a model");
+		}
+#endif
+
 		loadsize = ALIGN64(fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL)) + 0x8000;
 
 		osSyncPrintf("BriGun:  Loading - %s, pMem 0x%08x Size %d\n");
@@ -3967,7 +4029,21 @@ void bgunTickGunLoad(void)
 
 		osSyncPrintf("BriGun:  obLoadto at 0x%08x, size %d\n", ptr, loadsize);
 
+#ifndef PLATFORM_N64
+		// fileLoad() leaves the size alone when there is nothing to read
+		g_FileInfo[player->gunctrl.loadfilenum].loadedsize = 0;
+#endif
+
 		modeldef = fileLoadToAddr(player->gunctrl.loadfilenum, FILELOADMETHOD_EXTRAMEM, (u8 *)ptr, loadsize);
+
+#ifndef PLATFORM_N64
+		// Nothing inflated: what is at ptr is not a model. Taken again next
+		// tick from the same memory, as the fallback.
+		if (fileGetLoadedSize(player->gunctrl.loadfilenum) == 0) {
+			bgunReplaceLoadFile("did not inflate");
+			return;
+		}
+#endif
 
 		// Reserve some space for textures
 		allocsize = fileGetLoadedSize(player->gunctrl.loadfilenum) + 0xe00;

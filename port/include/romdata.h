@@ -36,6 +36,9 @@ s32 romdataFileGetXblaId(s32 fileNum);
 // load of each one searches the mod directories again. For switching mods at
 // runtime; segments are not affected and cannot be.
 void romdataResetFiles(void);
+// How many times romdataResetFiles() has run: a slot number kept from before a
+// reset names whatever was registered into that slot after it
+s32 romdataFilesGeneration(void);
 
 u8 *romdataFileGetData(s32 fileNum);
 s32 romdataFileGetSize(s32 fileNum);

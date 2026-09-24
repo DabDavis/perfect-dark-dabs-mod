@@ -129,6 +129,7 @@ static const struct romfilepatch filePatches[] = {
 #define ROMDATA_MODFILE_NAMELEN 96
 static char modFileNames[ROMDATA_MAX_MODFILES][ROMDATA_MODFILE_NAMELEN];
 static s32 numModFileNames;
+static s32 filesGeneration;
 
 static struct romfile fileSlots[ROMDATA_MAX_FILES] = {
 	[FILE_USETUPLUE] = { .patches = &filePatches[0], .numpatches = 2 },
@@ -432,8 +433,14 @@ void romdataResetFiles(void)
 	}
 
 	numModFileNames = 0;
+	filesGeneration++;
 
 	romdataInitFiles();
+}
+
+s32 romdataFilesGeneration(void)
+{
+	return filesGeneration;
 }
 
 static inline struct romfile *romdataGetSeg(const char *name)
@@ -807,6 +814,12 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 	}
 
 	u8 *out = NULL;
+
+	// an empty slot: a number kept from before romdataResetFiles(), or one
+	// nothing has registered
+	if (!fileSlots[fileNum].name) {
+		return NULL;
+	}
 
 	if (fileSlots[fileNum].xblaid) {
 		out = romdataXblaFileLoad(fileNum);
