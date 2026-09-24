@@ -9207,3 +9207,47 @@ gdb -q -batch -ex 'break main' -ex run -ex 'call (void)gegunsDump("/path/defs.tx
 Dump before and after and read the diff: every line that moved should be one
 you meant to move. The build of this change moved exactly the eight kinds
 listed above and nothing else.
+
+## Step 2: the weaponHost() sites, audited against GoldenEye (2026-09-24)
+
+Every one of the 351 `weaponHost()` calls was read against the decomp (the
+five audit tables were `/home/sdg/wt/step2/*.md`, not in the repo). Most are
+SAME (GoldenEye does what the host does) or name a weapon no GoldenEye gun
+stands on. Where they differ, the host stays as the engine class and a
+GoldenEye number answers for itself through `WEAPON_IS_GE()` (data.h) - the
+rename of `weaponHost()` that was once planned was not done: the divergences
+are few, and the call sites stay as the decompilation has them.
+
+Changed (four commits):
+- **Definitions** (geguns.c): the hunting knife only slashes (no throw, no
+  ammunition - it used to vanish with the last throwing knife), the throwing
+  knife only throws (its throw is function 0), thrown knives neither stick
+  nor poison, no pistol whip on the Cougar or crouch on the sniper rifle,
+  auto-aim from the row's HAS_AUTO_AIM, GoldenEye's pickup sounds.
+- **Guards** (chraction.c, chraicommands.c, setup.c): single shots only for
+  the two launchers (`chrWeaponFiresOnce()`), sniper accuracy tapers from
+  300 and draws no tracer, no knife backstab kill or doubled knife head
+  hit, GoldenEye's rocket/grenade round/grenade models where its own models
+  are drawn (`gegunsChrProjectileModel()`), and the Enemy Rockets cheat on
+  GoldenEye's own list (`gegunsEnemyRocketsSwaps()`: every gun, knives and
+  remote mine to its rocket launcher).
+- **Player** (bondgun.c, game_0b0fd0.c, hudmsg.c, prop.c): sniper scope stops
+  at 7 degrees and winds at GoldenEye's 30 fps rate, no PD zoom readout under
+  GoldenEye's HUD, no muzzle smoke, no knife-miss whoosh, silent gadget
+  draws, the Moonraker's ricochet one sound later on a converted bank
+  (GoldenEye's RICO_LASER2/3 are PD's SFX_CLOAK_ON/OFF plus one).
+- **Simulants** (bot.c, botinv.c): `g_GeAibotWeaponPreferences` through
+  `AIBOTPREF()` - a simulant chose a second function that step 1 took away,
+  loaded nothing and never fired; plus dual scores for the classic-row hosts.
+  Hacker Central's uplink tests the real number.
+
+Left as they are, on purpose: PD's guards fleeing a live grenade, disarming,
+the remote mine's detonator hand and the port's extra detonate function
+(GoldenEye's A+B works too), crosshair styles on PD's own maps, the camera
+gadget's zoom (GoldenEye zooms it 60..7; it would need a fourth
+`gunzoomfovs` slot), the Moonraker counting shots, dropped guns' ammo
+quantities, guards' launch speeds (unverified against GoldenEye), the
+plastique's blast and Facility's remote mine explosion type.
+
+Probes: `/home/sdg/wt/step2/{knives,rockets,zoom,sims}.py` (Dam 0x15 and
+Complex 0x1f), and `gegunsDump()` for definitions.
