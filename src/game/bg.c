@@ -4797,7 +4797,7 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 											}
 
 #ifdef AVOID_UB
-											if (batch->type == VTXBATCHTYPE_XLU && texturenum >= 0 && g_Textures[texturenum].surfacetype == SURFACETYPE_DEFAULT) {
+											if (batch->type == VTXBATCHTYPE_XLU && texturenum >= 0 && texturenum < NUM_TEXTURES && g_Textures[texturenum].surfacetype == SURFACETYPE_DEFAULT) {
 #else
 											if (batch->type == VTXBATCHTYPE_XLU && g_Textures[texturenum].surfacetype == SURFACETYPE_DEFAULT) {
 #endif

@@ -3363,7 +3363,14 @@ s32 func0f06cd00(struct defaultobj *obj, struct coord *pos, struct coord *arg2, 
 
 					s0 = true;
 
+#ifndef PLATFORM_N64
+					// the release's rooms and GoldenEye's HD rooms hit with a
+					// number past the table (prop.c bounds its read the same way)
+					if (hitthing.texturenum >= 0 && hitthing.texturenum < NUM_TEXTURES
+							&& g_Textures[hitthing.texturenum].surfacetype == SURFACETYPE_DEEPWATER) {
+#else
 					if (g_Textures[hitthing.texturenum].surfacetype == SURFACETYPE_DEEPWATER) {
+#endif
 						struct coord spa4 = {0, 0, 0};
 						s0 = false;
 						sparksCreate(prop->rooms[0], prop, &hitthing.pos, &spa4, &hitthing.unk0c, SPARKTYPE_DEEPWATER);

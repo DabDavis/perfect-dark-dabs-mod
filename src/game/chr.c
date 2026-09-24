@@ -5401,7 +5401,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 				s32 index;
 
 				// Create decal depending on the hat's surface type
-				if (hit->hitthing.texturenum < 0) {
+				if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES) {
 					type = g_SurfaceTypes[0];
 				} else {
 					type = g_SurfaceTypes[g_Textures[hit->hitthing.texturenum].surfacetype];
