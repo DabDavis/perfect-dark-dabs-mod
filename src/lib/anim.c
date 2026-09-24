@@ -15,6 +15,9 @@
 #ifndef PLATFORM_N64
 #include <string.h>
 #include "mod.h"
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 #endif
 
 #define ANIM_HEADER_CACHE_SIZE 40
@@ -173,6 +176,80 @@ s32 animAppendExternal(const struct animtableentry *entry, u8 *data)
 	}
 
 	return num;
+}
+
+/**
+ * Serves animation num out of animation from's data until animRestore(num),
+ * or puts num back when from is negative - so every number the game's code
+ * names keeps its meaning while the frames behind it change (GE Plus plays
+ * GoldenEye's own animations under Perfect Dark's numbers, gechranims.c).
+ *
+ * Only between stages: a model playing num has its header and frames cached
+ * by number, and those are forgotten here.
+ */
+static struct animtableentry *g_AnimSaved;
+static u8 **g_AnimSavedData;
+static u8 *g_AnimIsOverridden;
+
+static void animForget(s32 num)
+{
+	s32 i;
+
+	if (g_AnimToHeaderSlot[num] != 0xff) {
+		g_AnimHeaderAnimNums[g_AnimToHeaderSlot[num]] = 0;
+		g_AnimHeaderBirths[g_AnimToHeaderSlot[num]] = -2;
+		g_AnimToHeaderSlot[num] = 0xff;
+	}
+
+	for (i = 0; i < ANIM_FRAME_CACHE_SIZE; i++) {
+		if (g_AnimFrameAnimNums[i] == num) {
+			g_AnimFrameAnimNums[i] = 0;
+			g_AnimFrameFrameNums[i] = 0;
+			g_AnimFrameBirths[i] = 0;
+		}
+	}
+}
+
+s32 animOverride(s32 num, s32 from)
+{
+	if (!g_Anims || num <= 0 || num >= g_NumRomAnimations || from >= g_NumRomAnimations) {
+		return 0;
+	}
+
+	if (!g_AnimSaved) {
+		g_AnimSaved = sysMemZeroAlloc(g_AnimCapacity * sizeof(*g_AnimSaved));
+		g_AnimSavedData = sysMemZeroAlloc(g_AnimCapacity * sizeof(*g_AnimSavedData));
+		g_AnimIsOverridden = sysMemZeroAlloc(g_AnimCapacity);
+
+		if (!g_AnimSaved || !g_AnimSavedData || !g_AnimIsOverridden) {
+			return 0;
+		}
+	}
+
+	if (from < 0) {
+		if (!g_AnimIsOverridden[num]) {
+			return 1;
+		}
+
+		g_RomAnims[num] = g_AnimSaved[num];
+		g_AnimReplacements[num] = g_AnimSavedData[num];
+		g_AnimIsOverridden[num] = 0;
+	} else {
+		if (!g_AnimIsOverridden[num]) {
+			g_AnimSaved[num] = g_RomAnims[num];
+			g_AnimSavedData[num] = g_AnimReplacements[num];
+			g_AnimIsOverridden[num] = 1;
+		}
+
+		// the source is read the way an appended animation is: its bytes are
+		// handed over, and a row the ROM serves from its segment keeps its offset
+		g_RomAnims[num] = g_AnimIsOverridden[from] ? g_AnimSaved[from] : g_RomAnims[from];
+		g_AnimReplacements[num] = g_AnimIsOverridden[from] ? g_AnimSavedData[from] : g_AnimReplacements[from];
+	}
+
+	animForget(num);
+
+	return 1;
 }
 
 /**

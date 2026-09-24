@@ -1564,9 +1564,9 @@ def main():
     # them to Perfect Dark's table and gives the id its number there
     # (gexplusanim.c), which is what the converted aiChrDoAnimation asks for.
     rows, blob = [], bytearray()
-    # and the nine Bond opens a mission on (bondview.c's stage_intro_anim_table,
-    # which the setup's INTROTYPE_ANIM indexes), which no list names
-    allanims.update(GE_INTRO_ANIMS)
+    # and every other guard animation too, which a GE Plus character walks,
+    # fires, flinches and dies in (gechranims.c); the nullNN rows hold nothing
+    allanims.update(i for i, (_, at) in enumerate(geanimtable.TABLE) if at > 1)
     for anim in sorted(allanims):
         name, at = geanimtable.TABLE[anim]
         data, e = geanim.convert(geanimtable.BASE + at)

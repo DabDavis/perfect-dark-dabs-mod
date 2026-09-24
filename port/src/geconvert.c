@@ -6152,17 +6152,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	memset(allmodels, 0, sizeof(allmodels));
 	memset(allanims, 0, sizeof(allanims));
 
-	// the watch's own arm animation, which no AI list names (gewatch.c)
-	if (GEANIM_WATCH < GEANIM_NUM_ANIMS) {
-		allanims[GEANIM_WATCH] = 1;
-	}
-
-	// and the nine Bond opens a mission on (bondview.c's stage_intro_anim_table,
-	// which the setup's INTROTYPE_ANIM indexes; gecinema.c plays them)
-	for (size_t i = 0; i < sizeof(g_GeIntroAnims) / sizeof(g_GeIntroAnims[0]); ++i) {
-		if (g_GeIntroAnims[i] < GEANIM_NUM_ANIMS) {
-			allanims[g_GeIntroAnims[i]] = 1;
-		}
+	// Every one of GoldenEye's guard animations, and not only those the
+	// missions' lists, the watch and the openings name: a GE Plus character
+	// walks, fires, flinches and dies in GoldenEye's own (gechranims.c). The
+	// rows the decompilation names nullNN are one byte into the segment and
+	// hold nothing.
+	for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
+		allanims[i] = g_GeAnims[i].at > 1;
 	}
 	g_FailMsg[0] = '\0';
 

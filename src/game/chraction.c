@@ -70,6 +70,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "geroom.h"
+#include "gechranims.h"
 #endif
 #endif
 
@@ -1909,6 +1910,13 @@ void chrThrowGrenadeChooseAnimation(struct chrdata *chr)
 {
 	u32 rand = rngRandom();
 
+#ifndef PLATFORM_N64
+	// GoldenEye's guards have the one throw
+	if (g_GeChrAnims) {
+		rand = 2;
+	}
+#endif
+
 	if (chr->act_throwgrenade.needsequip) {
 		if (rand % 3 == 0) {
 			modelSetAnimation(chr->model, ANIM_THROWGRENADE_CROUCHING, chr->act_throwgrenade.hand != 0, 0, chrGetRangedSpeed(chr, 0.5, 1.2), 16);
@@ -2094,6 +2102,16 @@ void chrSidestepChooseAnimation(struct chrdata *chr)
 			allowflip = rngRandom() % 2;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's own step: side_step_left, which Perfect Dark's Skedar still
+	// take below and its humans swapped for a step of their own
+	if (race == RACE_HUMAN && g_GeChrAnims && allowflip == false) {
+		modelSetAnimation(chr->model, ANIM_0026, chr->act_sidestep.side == 0, 5, chrGetRangedSpeed(chr, 0.55, 0.88000005), 16);
+		modelSetAnimEndFrame(chr->model, 27);
+		return;
+	}
+#endif
 
 	if (race == RACE_HUMAN) {
 		if (allowflip == false) {
@@ -3262,6 +3280,13 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 					struct animtablerow *row = &g_AnimTableHumanSlumped[rngRandom() % 4];
 					u32 stack3;
 
+#ifndef PLATFORM_N64
+					// GoldenEye's two: death_stagger_back_to_wall either way round
+					if (g_GeChrAnims) {
+						row = geChrAnimsStagger(rngRandom());
+					}
+#endif
+
 					chr->act_die.thudframe1 = row->thudframe1;
 					chr->act_die.thudframe2 = row->thudframe2;
 
@@ -3282,7 +3307,12 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 			// The player must be behind the chr for it to happen.
 			if (relangle > 2.3558194637299f && relangle < 3.9263656139374f
 					&& rngRandom() % 5 < 2
-					&& chr->specialdie == SPECIALDIE_NONE) {
+					&& chr->specialdie == SPECIALDIE_NONE
+#ifndef PLATFORM_N64
+					// Perfect Dark's own; GoldenEye's guard falls by its table
+					&& !g_GeChrAnims
+#endif
+					) {
 				struct animtablerow *row;
 
 				struct animtablerow rows[] = {
@@ -3367,6 +3397,14 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 					if (row->endframe >= 0) {
 						modelSetAnimEndFrame(model, row->endframe);
 					}
+
+#ifndef PLATFORM_N64
+					// GoldenEye stops the neck shot short of its last stretch
+					// ninety-nine times in a hundred
+					if (g_GeChrAnims && row->animnum == geChrAnim(24) && rngRandom() % 100 != 0) {
+						modelSetAnimEndFrame(model, 241);
+					}
+#endif
 
 					impactforce2 = gsetGetImpactForce(gset);
 
@@ -3665,23 +3703,43 @@ static void chrBeginArghWithAction(struct chrdata *chr, f32 angle, s32 hitpart, 
 			chr->sleep = 0;
 		}
 
-		row = &rows[rngRandom() % 8];
+#ifndef PLATFORM_N64
+		if (g_GeChrAnims) {
+			// GoldenEye's: hit_butt_long from frame 10 or hit_butt_short from
+			// the start, either way round, cut at one of three lengths
+			u32 len = rngRandom() % 5;
+			s32 longer = rngRandom() & 1;
+			s32 animnum = longer ? ANIM_0036 : ANIM_0037;
+			f32 endframe = len < 2 ? (longer ? 34 : 37) : len < 4 ? (longer ? 71 : 70) : animGetNumFrames(animnum) - 1;
 
-		modelSetAnimationWithMerge(model, row->animnum, row->flip, 0, row->speed, 16, !instant);
+			modelSetAnimationWithMerge(model, animnum, rngRandom() & 1, longer ? 10 : 0, 0.5f, 16, !instant);
+			modelSetAnimEndFrame(model, chrGetRangedArghSpeed(chr, endframe, 8));
+			doneanim = true;
 
-		if (row->endframe >= 0) {
-			modelSetAnimEndFrame(model, chrGetRangedArghSpeed(chr, row->endframe, 8));
-			doneanim = true;
-		} else {
-			modelSetAnimEndFrame(model, chrGetRangedArghSpeed(chr, animGetNumFrames(row->animnum) - 1, 8));
-			doneanim = true;
-		}
+			if (animonly) {
+				chr->oneshotanim = animnum;
+			}
+		} else
+#endif
+		{
+			row = &rows[rngRandom() % 8];
+
+			modelSetAnimationWithMerge(model, row->animnum, row->flip, 0, row->speed, 16, !instant);
+
+			if (row->endframe >= 0) {
+				modelSetAnimEndFrame(model, chrGetRangedArghSpeed(chr, row->endframe, 8));
+				doneanim = true;
+			} else {
+				modelSetAnimEndFrame(model, chrGetRangedArghSpeed(chr, animGetNumFrames(row->animnum) - 1, 8));
+				doneanim = true;
+			}
 
 #ifndef PLATFORM_N64
-		if (animonly) {
-			chr->oneshotanim = row->animnum;
-		}
+			if (animonly) {
+				chr->oneshotanim = row->animnum;
+			}
 #endif
+		}
 	}
 
 	if (!doneanim
@@ -3771,7 +3829,8 @@ void chrPlayThrowAnimation(struct chrdata *chr, s32 handnum)
 		return;
 	}
 
-	switch (rngRandom() % 3) {
+	// GoldenEye's guards have only the standing one
+	switch (g_GeChrAnims ? 2 : rngRandom() % 3) {
 	case 0:
 		animnum = ANIM_THROWGRENADE_CROUCHING;
 		startframe = 5;
@@ -4093,6 +4152,22 @@ static bool chrYeetFromPosWithAction(struct chrdata *chr, struct coord *exppos, 
 
 		if (race == RACE_HUMAN) {
 			row = &g_YeetAnimsHuman[g_YeetAnimIndexesByRaceAngle[race][angleindex].indexes[subindex]];
+
+#ifndef PLATFORM_N64
+			// GoldenEye's own blast deaths, which Perfect Dark cut down and
+			// re-made (gechranims.c)
+			if (g_GeChrAnims) {
+				static struct yeetanim gerow;
+				s32 animnum, flip;
+
+				if (geChrAnimsBlast(angleindex, rngRandom(), &animnum, &flip, &gerow.speed,
+							&gerow.startframe, &gerow.thudframe, &gerow.endframe)) {
+					gerow.animnum = animnum;
+					gerow.flip = flip;
+					row = &gerow;
+				}
+			}
+#endif
 		} else if (race == RACE_SKEDAR) {
 			row = &g_YeetAnimsSkedar[g_YeetAnimIndexesByRaceAngle[race][angleindex].indexes[subindex]];
 		}
@@ -6478,6 +6553,19 @@ void chrGoPosChooseAnimation(struct chrdata *chr)
 			} else if (gospeed == GOPOSFLAG_WALK) {
 				anim = ANIM_0392;
 			}
+#ifndef PLATFORM_N64
+		} else if (g_GeChrAnims) {
+			// GoldenEye's own choice (its get_sound_at_range()): sprint, run or
+			// walk by the weapon and the body, and nothing for where the chr
+			// was last shot, which is Perfect Dark's limp
+			if (heavy) {
+				anim = gospeed == GOPOSFLAG_RUN ? ANIM_0029 : gospeed == GOPOSFLAG_JOG ? ANIM_RUNNING_TWOHANDGUN : ANIM_0028;
+			} else if (male) {
+				anim = gospeed == GOPOSFLAG_RUN ? ANIM_005A : gospeed == GOPOSFLAG_JOG ? ANIM_RUNNING_ONEHANDGUN : ANIM_006B;
+			} else {
+				anim = gospeed == GOPOSFLAG_RUN ? ANIM_005A : gospeed == GOPOSFLAG_JOG ? ANIM_0073 : ANIM_0072;
+			}
+#endif
 		} else {
 			if (heavy) {
 				if (gospeed == GOPOSFLAG_RUN) {
@@ -7288,7 +7376,17 @@ void chrPatrolChooseAnimation(struct chrdata *chr)
 		} else {
 			speed = 0.5f * func0f02dff0(ANIM_0028) / func0f02dff0(ANIM_006B);
 
-			if (heavy) {
+			if (0) {
+#ifndef PLATFORM_N64
+			} else if (g_GeChrAnims) {
+				// GoldenEye's patrol walk, the same for either body
+				if (heavy) {
+					modelSetAnimation(chr->model, ANIM_0028, flip, 0, 0.5f, 16);
+				} else {
+					modelSetAnimation(chr->model, ANIM_006B, flip, 0, speed, 16);
+				}
+#endif
+			} else if (heavy) {
 				modelSetAnimation(chr->model, rngRandom() % 2 ? ANIM_0018 : ANIM_0028, flip, 0, speed, 16);
 			} else if (ismale) {
 				s32 anims[] = { ANIM_006B, ANIM_001B, ANIM_0016 };

@@ -48,6 +48,7 @@
 #include "gewatch.h"
 #include "gehud.h"
 #include "gegadgets.h"
+#include "gechranims.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
@@ -1486,6 +1487,10 @@ void setupLoadFiles(s32 stagenum)
 			// once a session (gexPlusMissionAnim())
 			gexPlusMissionAnimLoad(stagenum);
 		}
+
+		// and whether its characters walk, fire and die in GoldenEye's own
+		// animations or Perfect Dark's (gechranims.c)
+		geChrAnimsStageStart(stagenum);
 
 		// Convert ailist pointers from file-local to proper pointers
 		if (g_StageSetup.ailists) {
