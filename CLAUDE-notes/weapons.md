@@ -261,8 +261,11 @@ while the message was on screen - trust the screenshot, not that field.
 ## Weapons past the stock table (2026-09-15)
 
 GoldenEye's guns are weapon numbers 0x5e-0x76 (`WEAPON_GE_FIRST`,
-`NUM_WEAPONS` 0x77; ge-bean.md has the rest). Each is a copy of a Perfect Dark
-host, and **every test of a weapon by number asks `weaponHost()`** (data.h,
+`NUM_WEAPONS` 0x77; ge-bean.md has the rest). Each stands on a Perfect Dark
+host - its definition is built from GoldenEye's own row, drawn on the host's
+model and run by the host's engine (ge-bean.md, "A GoldenEye gun's definition
+is built, not copied from its host") - and **every test of a weapon by number
+asks `weaponHost()`** (data.h,
 static inline, identity for a stock number): a copy fires, sounds, animates and
 aims as its host. What keeps the real number is what is the weapon's own - its
 `g_Weapons` definition, name, model state, inventory item and pickup.

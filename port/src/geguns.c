@@ -8,6 +8,7 @@
 #include "types.h"
 #include "data.h"
 #include "game/lang.h"
+#include "lang.h"
 #include "game/playermgr.h"
 #include "fs.h"
 #include "romdata.h"
@@ -21,19 +22,22 @@
  * GoldenEye's guns as weapons of Perfect Dark's own, numbered past the stock
  * table (WEAPON_GE_FIRST).
  *
- * Each is a copy of the Perfect Dark weapon GoldenEye's gun became in it - the
- * PP7 of the PP9i, the KF7 Soviet of the KF7 Special, the Cougar Magnum of the
- * DY357 - so it takes its host's animations, ammo, functions and sounds, and
- * every test of a weapon by number asks about the host (weaponHost()). Its
- * first-person model is the host's, or, for the guns gebean.c has checked
- * (fpReady), an alias of it with the release's gun drawn on it. What is its own: the number, so it is held, dropped and
+ * Each stands on the Perfect Dark weapon GoldenEye's gun became in it - the
+ * PP7 on the PP9i, the KF7 Soviet on the KF7 Special, the Cougar Magnum on the
+ * DY357 - its host, whose model it is drawn on and whose engine runs it: every
+ * test of a weapon by number asks about the host (weaponHost()). The
+ * definition itself is built field by field (gegunsBuild()), GoldenEye's
+ * numbers, ammunition and flags from its own rows. Its first-person model is
+ * the host's, or, for the guns gebean.c has checked (fpReady), an alias of it
+ * with the release's gun drawn on it, or in the N64 look GoldenEye's own
+ * (gegunsOwnModel()). What is its own besides: the number, so it is held, dropped and
  * picked up beside its host rather than as it; GoldenEye's name; a model state
  * (MODEL_GE_FIRST), which gebean.c points at an alias of the host's pickup
  * that the GoldenEye XBLA release's pickup is drawn on; and a Combat
  * Simulator row (MPWEAPON_GE_FIRST), which gebean.c shows when that release
  * is in added-content/ (gebeanGetEnabled()).
  *
- * The copies are made before anything reads g_Weapons, from the stock
+ * The definitions are built before anything reads g_Weapons, from the stock
  * definitions: a mod's imported table replaces the stock pointers later and
  * leaves these alone, and a mod's lists keep the rows hidden anyway.
  */
@@ -131,12 +135,19 @@ struct gegunstat {
 	f32 sway;
 	f32 zoom;
 	f32 muzzle;
+	u8 ammotype;  // GoldenEye's AMMOTYPES index
+	u32 bitflags; // GoldenEye's WEAPONSTATBITFLAG_* word; 0 is a gadget's, which has no row
 };
 
 #define GUNSTAT(weapon, source, mag, autorate, singlerate, pen, dmg, spread, impact, loudmin, loudmax, pershot, lineartime, scaledtime, \
-		speed0, speed1, speed2, speed3, back, up, bolt, sway, zoom, muzzle) \
+		speed0, speed1, speed2, speed3, back, up, bolt, sway, zoom, muzzle, ammotype, bitflags) \
 	[weapon - WEAPON_GE_FIRST] = { mag, autorate, singlerate, pen, dmg, spread, impact, { loudmin, loudmax, pershot, lineartime, scaledtime }, \
-		{ speed0, speed1, speed2, speed3 }, back, up, bolt, sway, zoom, muzzle }
+		{ speed0, speed1, speed2, speed3 }, back, up, bolt, sway, zoom, muzzle, ammotype, bitflags }
+
+// GoldenEye's WEAPONSTATBITFLAG_* bits a definition is built from (bondconstants.h)
+#define GESTATFLAG_ONLY_1_HANDED          0x00000100
+#define GESTATFLAG_HIDE_FIRST_PERSON_MENU 0x00004000
+#define GESTATFLAG_USE_HOLD_TIME          0x00020000
 
 /**
  * What each gun sounds like: the Sound field of the same gunWeaponStat rows,
@@ -192,28 +203,42 @@ static const u8 shootsoundrates[NUM_GE_WEAPONS] = {
 };
 
 /**
- * Which guns a guard holds in both hands: those whose rows lack
- * WEAPONSTATBITFLAG_ONLY_1_HANDED (0x100 of BitFlags), the bit GoldenEye's
- * weaponIsOneHanded() reads to choose a pistol's stand, run and fire or a
- * rifle's - where Perfect Dark reads WEAPONFLAG_ONEHANDED off the definition.
- * A copy took its host's, and the hosts do not agree: every classic gun of
- * Perfect Dark's is one-handed, so a Dam guard carried his KF7 like a pistol,
- * as did the D5K, the Phantom, the AR33 and the RC-P90, while the ZMG's host
- * (the ZZT) and the rocket launcher's hold theirs in two hands and GoldenEye
- * holds both in one. Everything else of GoldenEye's, gadgets included, is
- * one-handed.
+ * How GoldenEye words each gun's name when it is picked up: "an AR33 Assault
+ * Rifle", "the Golden Gun". A copy took its host's, which gave the covert modem,
+ * the plastique and the GoldenEye key the ECM mine's "an".
  */
-static const u8 twohanded[NUM_GE_WEAPONS] = {
-	[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST]       = 1, // ak47
-	[WEAPON_GE_D5K - WEAPON_GE_FIRST]             = 1, // mp5k
-	[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST]     = 1, // mp5ksil
-	[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST]         = 1, // spectre
-	[WEAPON_GE_AR33 - WEAPON_GE_FIRST]            = 1, // m16
-	[WEAPON_GE_RCP90 - WEAPON_GE_FIRST]           = 1, // fnp90
-	[WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST]         = 1,
-	[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST]     = 1, // autoshot
-	[WEAPON_GE_SNIPERRIFLE - WEAPON_GE_FIRST]     = 1,
-	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 1, // grenadelaunch
+static const u32 determiners[NUM_GE_WEAPONS] = {
+	[WEAPON_GE_AR33 - WEAPON_GE_FIRST]        = WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN,
+	[WEAPON_GE_RCP90 - WEAPON_GE_FIRST]       = WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN,
+	[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST] = WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN,
+	[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST]   = WEAPONFLAG_DETERMINER_S_THE | WEAPONFLAG_DETERMINER_F_THE,
+};
+
+/**
+ * GoldenEye's ammunition types (bondconstants.h, AMMOTYPES) as the port's.
+ *
+ * GoldenEye has one pool of 9mm for the PP7, the DD44, the Klobb, the ZMG, the
+ * D5K, the Phantom and the RC-P90, and a copy took its host's type, which
+ * split it in two: Perfect Dark's pistol rounds for the three pistols and its
+ * submachine gun rounds for the rest, so a D5K's ammunition did not load a
+ * PP7. They are all the submachine gun's now (800, as GoldenEye's 9mm). The
+ * golden bullet has no row of Perfect Dark's to become and stays the magnum's,
+ * and 0 - GoldenEye's AMMO_NONE, or a gadget with no row - keeps the host's.
+ */
+static const u8 geammotypes[] = {
+	[1]  = AMMOTYPE_SMG,         // 9MM
+	[2]  = AMMOTYPE_SMG,         // 9MM_2
+	[3]  = AMMOTYPE_RIFLE,       // RIFLE
+	[4]  = AMMOTYPE_SHOTGUN,     // SHOTGUN
+	[5]  = AMMOTYPE_GRENADE,     // GRENADE
+	[6]  = AMMOTYPE_ROCKET,      // ROCKETS
+	[7]  = AMMOTYPE_REMOTE_MINE, // REMOTEMINE
+	[8]  = AMMOTYPE_PROXY_MINE,  // PROXMINE
+	[9]  = AMMOTYPE_TIMED_MINE,  // TIMEDMINE
+	[10] = AMMOTYPE_KNIFE,       // KNIFE
+	[11] = AMMOTYPE_DEVASTATOR,  // GRENADEROUND
+	[12] = AMMOTYPE_MAGNUM,      // MAGNUM
+	[13] = AMMOTYPE_MAGNUM,      // GGUN
 };
 
 s32 gegunsShootSoundRate(s32 weaponnum)
@@ -283,134 +308,365 @@ static u32 gegunsFuncSize(s32 type)
 }
 
 /**
- * GoldenEye's numbers onto one copy, on copies of its host's own structures.
+ * A GoldenEye gun's definition, built one field at a time.
  *
- * A weapon's damage, spread, penetration and rate live in the functions it
- * carries and its magazine in its ammo, both of them shared with the host
- * until here: writing through them would arm Perfect Dark's own gun with
- * GoldenEye's numbers, which is the whole thing weaponHost() exists to avoid.
+ * It was a copy of its host's with GoldenEye's numbers written over it, and
+ * whatever nothing wrote over stayed Perfect Dark's without anyone deciding it
+ * should: the one-handed flag held a guard's KF7 like a pistol, the inventory
+ * described the Cougar Magnum as the DY357, the PP7 turned sideways at close
+ * range as the PP9i does, and the pistols drew on other rounds than the
+ * submachine guns. Now every field comes from one of three places, and says
+ * which:
+ *
+ * - **GoldenEye's own row** (gegunstats.h): damage, spread, rates, recoil,
+ *   noise, magazine, ammunition, zoom, sway, flash, how it is held, whether it
+ *   counts towards the weapon of choice.
+ * - **The model it is drawn on** (`model`): its file, its animations and part
+ *   commands, where it sits, and the script pointers its functions and
+ *   magazines carry - a fire or reload script names the model's own parts and
+ *   animations. That is the host's, since the release's gun is skinned onto the
+ *   host's model in the HD look, or GoldenEye X's when one is borrowed; the
+ *   N64 look draws GoldenEye's own model over it (gegunsSetOwnModelInUse()).
+ * - **Perfect Dark's engine** (`engine`, the host): what the port's code asks
+ *   and GoldenEye has no number for - the kind of each function, a
+ *   projectile's flight, a throw's fuse, flags2 and flags3.
+ *
+ * gegunsDump() writes all of it out, and a change to this is checked by the
+ * difference between two dumps.
  */
-static void gegunsApplyStats(s32 i)
+static u16 nameids[NUM_GE_WEAPONS];
+
+static struct noisesettings *gegunsNoise(s32 i)
+{
+	const struct gegunstat *stat = &stats[i];
+	struct noisesettings *noise;
+
+	// A row with no times is a gadget's, which has no row, and the noise code
+	// divides by them
+	if (stat->noise.decbasespeed <= 0.0f || stat->noise.decremspeed <= 0.0f) {
+		return NULL;
+	}
+
+	noise = malloc(sizeof(*noise));
+
+	if (noise) {
+		*noise = stat->noise;
+	}
+
+	return noise;
+}
+
+/** Function f of gun i: its kind and scripts the model's, its numbers GoldenEye's. */
+static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src, struct noisesettings *noise)
+{
+	const struct gegunstat *stat = &stats[i];
+	const s32 hasrow = stat->bitflags != 0;
+	struct weaponfunc *fn = calloc(1, gegunsFuncSize(src->type));
+
+	if (!fn) {
+		return (struct weaponfunc *)src;
+	}
+
+	fn->type = src->type;
+	fn->name = src->name;
+	fn->ammoindex = src->ammoindex;
+	fn->fire_animation = src->fire_animation; // the model's
+	fn->flags = src->flags;
+
+	// GoldenEye's gun has the one noise whatever it is doing
+	fn->noisesettings = noise && (f == 0 || (src->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) ? noise : src->noisesettings;
+
+	switch (src->type & 0xff) {
+	case INVENTORYFUNCTYPE_SHOOT: {
+		const struct weaponfunc_shoot *from = (const struct weaponfunc_shoot *)src;
+		struct weaponfunc_shoot *shoot = (struct weaponfunc_shoot *)fn;
+
+		// the hands' kick on the model: GoldenEye's pull back and kick up are
+		// recoildist and recoilangle below, this is where the model moves
+		shoot->recoilsettings = from->recoilsettings;
+		shoot->duration60 = from->duration60; // gegunsShootSoundRate() on a converted level
+		shoot->shootsound = from->shootsound; // gegunsShootSound() on a converted level
+
+		shoot->damage = hasrow ? stat->damage : from->damage;
+		shoot->spread = hasrow ? stat->spread : from->spread;
+		shoot->penetration = hasrow ? stat->penetration : from->penetration;
+		shoot->impactforce = hasrow ? stat->impactforce : from->impactforce;
+		shoot->recoildist = hasrow ? stat->recoilback : from->recoildist;
+		shoot->recoilangle = hasrow ? stat->recoilup : from->recoilangle;
+		shoot->slidemax = hasrow ? stat->boltback : from->slidemax;
+
+		// 0xff is GoldenEye's "no rate", not a time
+		shoot->recoverytime60 = hasrow && stat->singlerate != 0xff ? (s8)stat->singlerate : from->recoverytime60;
+
+		// The Shotgun works its model's pump after every shot, and the timing
+		// is the pump's: GoldenEye's early refire would cut it short
+		// (GoldenEye X times its own pump too, 0 and 68)
+		if (hasrow && WEAPON_GE_FIRST + i != WEAPON_GE_SHOTGUN) {
+			shoot->unk24 = stat->recoilspeed[0];
+			shoot->unk25 = stat->recoilspeed[1];
+			shoot->unk26 = stat->recoilspeed[2];
+			shoot->unk27 = stat->recoilspeed[3];
+		} else {
+			shoot->unk24 = from->unk24;
+			shoot->unk25 = from->unk25;
+			shoot->unk26 = from->unk26;
+			shoot->unk27 = from->unk27;
+		}
+
+		if (src->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+			const struct weaponfunc_shootauto *afrom = (const struct weaponfunc_shootauto *)src;
+			struct weaponfunc_shootauto *autofn = (struct weaponfunc_shootauto *)fn;
+			const f32 rpm = hasrow ? gegunsRpm(stat->autorate) : 0.0f;
+
+			autofn->initialrpm = rpm > 0.0f ? rpm : afrom->initialrpm;
+			autofn->maxrpm = rpm > 0.0f ? rpm : afrom->maxrpm;
+			autofn->vibrationstart = afrom->vibrationstart; // the model's barrel
+			autofn->vibrationmax = afrom->vibrationmax;
+			autofn->turretaccel = afrom->turretaccel;
+			autofn->turretdecel = afrom->turretdecel;
+		} else if (src->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
+			// GoldenEye's grenade and rocket fly by its code, not by numbers in the row
+			const struct weaponfunc_shootprojectile *pfrom = (const struct weaponfunc_shootprojectile *)src;
+			struct weaponfunc_shootprojectile *proj = (struct weaponfunc_shootprojectile *)fn;
+
+			proj->projectilemodelnum = pfrom->projectilemodelnum;
+			proj->scale = pfrom->scale;
+			proj->speed = pfrom->speed;
+			proj->unk50 = pfrom->unk50;
+			proj->traveldist = pfrom->traveldist;
+			proj->timer60 = pfrom->timer60;
+			proj->reflectangle = pfrom->reflectangle;
+			proj->soundnum = pfrom->soundnum;
+		}
+
+		// A gun GoldenEye fires automatically on one Perfect Dark does not, or
+		// the other way round, would fire at the wrong rate or not at all
+		if (hasrow && f == 0 && (stat->autorate != 0xff) != (src->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC)) {
+			sysLogPrintf(LOG_WARNING, "geguns: weapon %02x is %s in GoldenEye and its function %04x is not",
+					WEAPON_GE_FIRST + i, stat->autorate != 0xff ? "automatic" : "single shot", src->type);
+		}
+		break;
+	}
+	case INVENTORYFUNCTYPE_THROW: {
+		// a thrown weapon's damage is 0 in every one of Perfect Dark's and the
+		// explosion does the work; the fuse is the engine's
+		const struct weaponfunc_throw *from = (const struct weaponfunc_throw *)src;
+		struct weaponfunc_throw *thr = (struct weaponfunc_throw *)fn;
+
+		thr->projectilemodelnum = from->projectilemodelnum;
+		thr->activatetime60 = from->activatetime60;
+		thr->recoverytime60 = from->recoverytime60;
+		thr->damage = from->damage;
+		break;
+	}
+	case INVENTORYFUNCTYPE_MELEE: {
+		const struct weaponfunc_melee *from = (const struct weaponfunc_melee *)src;
+		struct weaponfunc_melee *melee = (struct weaponfunc_melee *)fn;
+
+		// GoldenEye's knife is a 3 against Perfect Dark's 2
+		melee->damage = hasrow ? stat->damage : from->damage;
+		melee->range = from->range;
+		break;
+	}
+	case INVENTORYFUNCTYPE_SPECIAL: {
+		const struct weaponfunc_special *from = (const struct weaponfunc_special *)src;
+		struct weaponfunc_special *special = (struct weaponfunc_special *)fn;
+
+		special->specialfunc = from->specialfunc;
+		special->recoverytime60 = from->recoverytime60;
+		special->soundnum = from->soundnum;
+		break;
+	}
+	case INVENTORYFUNCTYPE_DEVICE:
+		((struct weaponfunc_device *)fn)->device = ((const struct weaponfunc_device *)src)->device;
+		break;
+	}
+
+	return fn;
+}
+
+/**
+ * Magazine a of gun i: GoldenEye's type and size, the model's casing and
+ * reload script. A knife's or a mine's MagSize is how many are carried rather
+ * than a clip and the Moonraker has none, so only a gun's is a clip; the
+ * second slot is a second kind of ammunition, not this one.
+ */
+static struct inventory_ammo *gegunsAmmo(s32 i, s32 a, const struct inventory_ammo *src, const struct weapon *engine, s32 shoots)
+{
+	const struct gegunstat *stat = &stats[i];
+	struct inventory_ammo *ammo;
+	u32 type = 0;
+
+	if (!src) {
+		return NULL;
+	}
+
+	ammo = calloc(1, sizeof(*ammo));
+
+	if (!ammo) {
+		return (struct inventory_ammo *)src;
+	}
+
+	if (a == 0 && stat->ammotype < ARRAYCOUNT(geammotypes)) {
+		type = geammotypes[stat->ammotype];
+	}
+
+	if (!type) {
+		type = engine->ammos[a] ? engine->ammos[a]->type : src->type;
+	}
+
+	ammo->type = type;
+	ammo->casingeject = src->casingeject;           // the model's
+	ammo->reload_animation = src->reload_animation; // the model's
+	ammo->flags = src->flags;
+	ammo->clipsize = a == 0 && shoots && stat->magsize > 0 ? stat->magsize : src->clipsize;
+
+	return ammo;
+}
+
+/**
+ * How gun i aims: GoldenEye's zoom, and no lock-on (GoldenEye has none); how
+ * far the model moves while aiming is the model's. The sniper rifle's zoom is
+ * the player's own, wound in and out (currentPlayerGetGunZoomFov()), so it
+ * keeps the model's.
+ */
+static struct invaimsettings *gegunsAim(s32 i, const struct invaimsettings *src, s32 shoots)
+{
+	const struct gegunstat *stat = &stats[i];
+	struct invaimsettings *aim;
+
+	if (!src) {
+		return NULL;
+	}
+
+	aim = calloc(1, sizeof(*aim));
+
+	if (!aim) {
+		return (struct invaimsettings *)src;
+	}
+
+	aim->zoomfov = shoots && WEAPON_GE_FIRST + i != WEAPON_GE_SNIPERRIFLE ? stat->zoom : src->zoomfov;
+	aim->guntransup = src->guntransup;
+	aim->guntransdown = src->guntransdown;
+	aim->guntransside = src->guntransside;
+	aim->aimdamppal = src->aimdamppal;
+	aim->aimdamp = src->aimdamp;
+	aim->tracktype = SIGHTTRACKTYPE_DEFAULT;
+	aim->flags = src->flags;
+
+	return aim;
+}
+
+/**
+ * Gun i's flags. GoldenEye's own bits decide how it is held
+ * (WEAPONSTATBITFLAG_ONLY_1_HANDED, which its weaponIsOneHanded() reads to
+ * choose a pistol's stand, run and fire or a rifle's), whether it counts
+ * towards the weapon of choice and whether its model is kept out of the
+ * inventory; its name decides "an" and "the". Two of Perfect Dark's features
+ * GoldenEye never had are off: turning a pistol sideways at close range and
+ * the red box round a target in aim mode. The rest say what the model is
+ * (hands, a flipped left gun, the environment map, parts to switch) or what the
+ * engine does with it (who can use it, whether it drops, throwing, gadgets),
+ * and are the model's.
+ *
+ * Not GoldenEye's CAN_DUAL_WIELD: it is only read when the all-guns cheat is
+ * on (bondinvItemAvailableForHand()), and marks the sniper rifle and both
+ * launchers too, while WEAPONFLAG_DUALWIELD is whether picking up a second
+ * one puts it in the other hand - which is the model's.
+ */
+static u32 gegunsFlags(s32 i, u32 modelflags)
+{
+	const u32 bits = stats[i].bitflags;
+	u32 flags = modelflags;
+
+	flags &= ~(WEAPONFLAG_GANGSTA | WEAPONFLAG_AIMTRACK);
+	flags &= ~(WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN
+			| WEAPONFLAG_DETERMINER_S_THE | WEAPONFLAG_DETERMINER_F_THE
+			| WEAPONFLAG_DETERMINER_S_SOME | WEAPONFLAG_DETERMINER_F_SOME);
+	flags |= determiners[i];
+
+	// A gadget has no row and is held in one hand
+	if (!bits) {
+		return flags | WEAPONFLAG_ONEHANDED;
+	}
+
+	flags &= ~(WEAPONFLAG_ONEHANDED | WEAPONFLAG_TRACKTIMEUSED | WEAPONFLAG_HIDEMENUMODEL);
+
+	if (bits & GESTATFLAG_ONLY_1_HANDED) {
+		flags |= WEAPONFLAG_ONEHANDED;
+	}
+
+	if (bits & GESTATFLAG_USE_HOLD_TIME) {
+		flags |= WEAPONFLAG_TRACKTIMEUSED;
+	}
+
+	if (bits & GESTATFLAG_HIDE_FIRST_PERSON_MENU) {
+		flags |= WEAPONFLAG_HIDEMENUMODEL;
+	}
+
+	return flags;
+}
+
+/**
+ * Builds g_GeWeaponDefs[i] (see above): drawn on `model`, run by `engine`.
+ * Both are the host's, unless GoldenEye X's gun is borrowed as the model.
+ */
+static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *engine)
 {
 	const struct gegunstat *stat = &stats[i];
 	struct weapon *def = &g_GeWeaponDefs[i];
-	struct noisesettings *noise = NULL;
+	struct noisesettings *noise = gegunsNoise(i);
 	s32 shoots = 0;
 
-	// How loud it is, which a function carries. A row with no times is a
-	// gadget's, which has no row, and the noise code divides by them.
-	if (stat->noise.decbasespeed > 0.0f && stat->noise.decremspeed > 0.0f) {
-		noise = malloc(sizeof(*noise));
+	memset(def, 0, sizeof(*def));
 
-		if (noise) {
-			*noise = stat->noise;
-		}
-	}
+	// the model it is drawn on
+	def->hi_model = model->hi_model;
+	def->lo_model = model->lo_model;
+	def->equip_animation = model->equip_animation;
+	def->unequip_animation = model->unequip_animation;
+	def->pritosec_animation = model->pritosec_animation;
+	def->sectopri_animation = model->sectopri_animation;
+	def->posx = model->posx;
+	def->posy = model->posy;
+	def->posz = model->posz;
+	def->gunviscmds = model->gunviscmds;
+	def->partvisibility = model->partvisibility;
+
+	// GoldenEye's name, and nothing more: it has no maker or description, and
+	// a copy showed the host's in the inventory
+	def->shortname = nameids[i];
+	def->name = nameids[i];
+	def->manufacturer = L_GUN_000;
+	def->description = L_GUN_000;
 
 	for (s32 f = 0; f < 2; f++) {
-		const struct weaponfunc *host = def->functions[f];
-		struct weaponfunc *copy;
-		u32 size;
+		const struct weaponfunc *src = model->functions[f];
 
-		if (!host) {
-			continue;
-		}
+		def->functions[f] = src ? gegunsFunc(i, f, src, noise) : NULL;
 
-		size = gegunsFuncSize(host->type);
-		copy = malloc(size);
-
-		if (!copy) {
-			continue;
-		}
-
-		memcpy(copy, host, size);
-		def->functions[f] = copy;
-
-		// GoldenEye's gun has the one noise whatever it is doing
-		if (noise && (f == 0 || (copy->type & 0xff) == INVENTORYFUNCTYPE_SHOOT)) {
-			copy->noisesettings = noise;
-		}
-
-		if ((copy->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
-			struct weaponfunc_shoot *shoot = (struct weaponfunc_shoot *)copy;
-
+		if (src && (src->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 			shoots = 1;
-			shoot->damage = stat->damage;
-			shoot->spread = stat->spread;
-			shoot->penetration = stat->penetration;
-			shoot->impactforce = stat->impactforce;
-
-			// The Shotgun works its host's pump after every shot, and the
-			// timing is the pump's: GoldenEye's early refire would cut it
-			// short (GoldenEye X times its own pump too, 0 and 68)
-			if (WEAPON_GE_FIRST + i != WEAPON_GE_SHOTGUN) {
-				shoot->unk24 = stat->recoilspeed[0];
-				shoot->unk25 = stat->recoilspeed[1];
-				shoot->unk26 = stat->recoilspeed[2];
-				shoot->unk27 = stat->recoilspeed[3];
-			}
-
-			shoot->recoildist = stat->recoilback;
-			shoot->recoilangle = stat->recoilup;
-			shoot->slidemax = stat->boltback;
-
-			// 0xff is GoldenEye's "no rate", not a time
-			if (stat->singlerate != 0xff) {
-				shoot->recoverytime60 = (s8)stat->singlerate;
-			}
-
-			if (copy->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
-				const f32 rpm = gegunsRpm(stat->autorate);
-
-				if (rpm > 0.0f) {
-					((struct weaponfunc_shootauto *)copy)->initialrpm = rpm;
-					((struct weaponfunc_shootauto *)copy)->maxrpm = rpm;
-				}
-			}
-		} else if ((copy->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
-			// GoldenEye's knife is a 3 against Perfect Dark's 2
-			((struct weaponfunc_melee *)copy)->damage = stat->damage;
 		}
 	}
 
-	// How it sits in the hand. A gadget has no row (all nought) and keeps its
-	// host's. The sniper rifle's zoom is the player's own, wound in and out
-	// (currentPlayerGetGunZoomFov()), so only the others take GoldenEye's.
-	if (shoots) {
-		def->sway = stat->sway;
-		def->muzzlez = stat->muzzle;
-
-		if (def->aimsettings && g_GeWeaponHosts[i] != WEAPON_SNIPERRIFLE
-				&& def->aimsettings->zoomfov != stat->zoom) {
-			struct invaimsettings *aim = malloc(sizeof(*aim));
-
-			if (aim) {
-				*aim = *def->aimsettings;
-				aim->zoomfov = stat->zoom;
-				def->aimsettings = aim;
-			}
-		}
+	for (s32 a = 0; a < 2; a++) {
+		def->ammos[a] = gegunsAmmo(i, a, model->ammos[a], engine, shoots);
 	}
 
-	// The magazine, for a gun that has one. A knife's or a mine's MagSize is
-	// how many are carried rather than a clip, and the Moonraker has none at
-	// all; the second ammo slot is a second kind of ammunition, not this one.
-	if (shoots && stat->magsize > 0 && def->ammos[0]) {
-		struct inventory_ammo *copy = malloc(sizeof(*copy));
+	def->aimsettings = gegunsAim(i, model->aimsettings, shoots);
 
-		if (copy) {
-			*copy = *def->ammos[0];
-			copy->clipsize = stat->magsize;
-			def->ammos[0] = copy;
-		}
-	}
+	// How it sits in the hand; a gadget has no row and keeps the model's
+	def->sway = shoots ? stat->sway : model->sway;
+	def->muzzlez = shoots ? stat->muzzle : model->muzzlez;
 
-	// How a guard holds it (twohanded[]), borrowed definition or not
-	if (twohanded[i]) {
-		def->flags &= ~WEAPONFLAG_ONEHANDED;
-	} else {
-		def->flags |= WEAPONFLAG_ONEHANDED;
-	}
+	def->flags = gegunsFlags(i, model->flags);
+
+	// the engine's: flags2 and flags3 name behaviour of the port's own
+	def->flags2 = engine->flags2;
+	def->flags3 = engine->flags3;
+	def->unequippedreloadindex = engine->unequippedreloadindex;
+	def->pickupsound = engine->pickupsound;
 }
 
 /**
@@ -430,8 +686,8 @@ static void gegunsApplyStats(s32 i)
  * played on this gun - "the pp7 is doing falcon 2 reload, etc" - a hand
  * reaching for a magazine the PP7 has not got and dropping one it never held.
  * A gun that lowers off the screen is honest about having no animation of its
- * own; a gun performing another gun's is not. So nothing is lent, and a copy's
- * ammunition is its host's apart from the magazine size the stats write.
+ * own; a gun performing another gun's is not. So nothing is lent: a gun's
+ * reload script is its model's (gegunsAmmo()).
  */
 
 /**
@@ -461,13 +717,11 @@ static void gegunsApplyStats(s32 i)
  *   action in GoldenEye X and keeps its host's.
  * - **A muzzle flash** on the silenced guns and the two launchers, whose
  *   GoldenEye models have no flash to show.
- * - **Lock-on tracking** in the aim: the CMP150's follow lock and the rocket
- *   launcher's, both of which went with the secondary that used them.
  *
  * And, as GoldenEye X has them: the Cougar's pistol whip does not leave its
- * victim dizzy, a knife is thrown where it is aimed and not where auto-aim
- * would put it, and two words of text: "an Automatic Shotgun", "the Golden
- * Gun".
+ * victim dizzy, and a knife is thrown where it is aimed and not where auto-aim
+ * would put it. (Lock-on and "an"/"the" are gegunsBuild()'s, from
+ * GoldenEye's own data.)
  */
 static void gegunsOwnTrigger(s32 i)
 {
@@ -489,18 +743,13 @@ static void gegunsOwnTrigger(s32 i)
 		break;
 	}
 
+	// gegunsBuild() gave every function a copy of its own
 	for (s32 f = 0; f < 2; f++) {
-		const struct weaponfunc *func = def->functions[f];
-		struct weaponfunc *copy;
-		u32 flags;
-		struct guncmd *fire;
+		struct weaponfunc *func = def->functions[f];
 
 		if (!func) {
 			continue;
 		}
-
-		flags = func->flags;
-		fire = func->fire_animation;
 
 		switch (weaponnum) {
 		case WEAPON_GE_PP7SILENCED:
@@ -508,71 +757,38 @@ static void gegunsOwnTrigger(s32 i)
 		case WEAPON_GE_GRENADELAUNCHER:
 		case WEAPON_GE_ROCKETLAUNCHER:
 			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
-				flags |= FUNCFLAG_NOMUZZLEFLASH;
+				func->flags |= FUNCFLAG_NOMUZZLEFLASH;
 			}
 			break;
 		case WEAPON_GE_AUTOSHOTGUN:
-			fire = NULL;
+			func->fire_animation = NULL;
 			break;
 		case WEAPON_GE_COUGARMAGNUM:
 			if (func->type == INVENTORYFUNCTYPE_MELEE) {
-				flags &= ~FUNCFLAG_MAKEDIZZY;
+				func->flags &= ~FUNCFLAG_MAKEDIZZY;
 			}
 			break;
 		case WEAPON_GE_HUNTINGKNIFE:
 		case WEAPON_GE_THROWINGKNIFE:
 			if (func->type == INVENTORYFUNCTYPE_THROW) {
-				flags |= FUNCFLAG_NOAUTOAIM;
+				func->flags |= FUNCFLAG_NOAUTOAIM;
 			}
 			break;
 		}
-
-		if (flags == func->flags && fire == func->fire_animation) {
-			continue;
-		}
-
-		// gegunsApplyStats() gave a shooting function a copy of its own
-		// already, but not the others; copy again rather than keep track
-		copy = malloc(gegunsFuncSize(func->type));
-
-		if (copy) {
-			memcpy(copy, func, gegunsFuncSize(func->type));
-			copy->flags = flags;
-			copy->fire_animation = fire;
-			def->functions[f] = copy;
-		}
-	}
-
-	if ((weaponnum == WEAPON_GE_PHANTOM || weaponnum == WEAPON_GE_ROCKETLAUNCHER)
-			&& def->aimsettings && def->aimsettings->tracktype != SIGHTTRACKTYPE_DEFAULT) {
-		struct invaimsettings *aim = malloc(sizeof(*aim));
-
-		if (aim) {
-			*aim = *def->aimsettings;
-			aim->tracktype = SIGHTTRACKTYPE_DEFAULT;
-			def->aimsettings = aim;
-		}
-	}
-
-	if (weaponnum == WEAPON_GE_AUTOSHOTGUN) {
-		def->flags |= WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN;
-	} else if (weaponnum == WEAPON_GE_GOLDENGUN) {
-		def->flags |= WEAPONFLAG_DETERMINER_S_THE | WEAPONFLAG_DETERMINER_F_THE;
 	}
 }
 
 /**
  * GoldenEye's guns as another installed mod made them (modborrow.c): GoldenEye
- * X's definition whole - its model, hands, positions, functions, fire and
- * reload scripts with their animations and sounds already moved to numbers of
- * the port's own - under GoldenEye's name here, and with the port's own fields
- * (flags2, flags3, the unequipped reload index, the pickup sound) the host's,
- * since the code keyed on them asks about the host (weaponHost()).
- *
- * The ammunition's type stays the host's: a type is a row of the game's ammo
- * table, the one the crates, the HUD and the Combat Simulator's lists count,
- * and GoldenEye X's rows are its own table's. Its magazine and its reload are
- * GoldenEye X's.
+ * X's definition as the model gegunsBuild() draws on - its model, hands,
+ * positions, fire and reload scripts with their animations and sounds already
+ * moved to numbers of the port's own - under GoldenEye's name here, with the
+ * port's own fields (flags2, flags3, the unequipped reload index, the pickup
+ * sound) the host's, since the code keyed on them asks about the host
+ * (weaponHost()), and GoldenEye's numbers and ammunition type as the stock
+ * copy has them: a type is a row of the game's ammo table, the one the
+ * crates, the HUD and the Combat Simulator's lists count, and GoldenEye X's
+ * rows are its own table's.
  */
 static struct weapon stockDefs[NUM_GE_WEAPONS];
 static struct weapon stockFalcon2;
@@ -633,53 +849,23 @@ void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 picku
 		return;
 	}
 
-	*out = *def;
-	out->shortname = stock->shortname;
-	out->name = stock->name;
+	// Drawn on GoldenEye X's model, with its scripts, and run by the host's
+	// engine as the stock copy is. What the gun does is still GoldenEye's own,
+	// out of the ROM's rows: GoldenEye X's numbers gave the silenced PP7 no
+	// noise at all - a shot added nothing to its radius, so nobody on Dam
+	// could hear Bond fire.
+	gegunsBuild(index, def, g_Weapons[g_GeWeaponHosts[index]]);
 
 	// Text ids are the mod's language files', which say something else here
 	// (its KF7's function read "Burst Fire"): the port's own names stay
-	out->manufacturer = stock->manufacturer;
-	out->description = stock->description;
-
 	for (s32 f = 0; f < 2; f++) {
-		const struct weaponfunc *src = def->functions[f];
-		const struct weaponfunc *ours = src ? gegunsNameFor(index, f, src->type) : NULL;
+		struct weaponfunc *fn = out->functions[f];
+		const struct weaponfunc *ours = fn ? gegunsNameFor(index, f, fn->type) : NULL;
 
-		if (src) {
-			const u32 size = gegunsFuncSize(src->type);
-			struct weaponfunc *copy = malloc(size);
-
-			if (copy) {
-				memcpy(copy, src, size);
-				copy->name = ours ? ours->name : copy->name;
-				out->functions[f] = copy;
-			}
+		if (fn && ours) {
+			fn->name = ours->name;
 		}
 	}
-	out->flags2 = stock->flags2;
-	out->flags3 = stock->flags3;
-	out->unequippedreloadindex = stock->unequippedreloadindex;
-	out->pickupsound = stock->pickupsound;
-
-	for (s32 a = 0; a < 2; a++) {
-		if (def->ammos[a] && stock->ammos[a]) {
-			struct inventory_ammo *copy = malloc(sizeof(*copy));
-
-			if (copy) {
-				*copy = *def->ammos[a];
-				copy->type = stock->ammos[a]->type;
-				out->ammos[a] = copy;
-			}
-		}
-	}
-
-	// What the gun does is still GoldenEye's own, out of its ROM's rows: the
-	// borrowed definition brings GoldenEye X's numbers with it, and those gave
-	// the silenced PP7 no noise at all - a shot added nothing to its radius,
-	// so nobody on Dam could hear Bond fire. gegunsApplyStats() copies the
-	// functions it writes to, so the mod's own are left as they were.
-	gegunsApplyStats(index);
 
 	borrowed[index] = 1;
 	borrowedHands[index] = def->flags & WEAPONFLAG_HASHANDS;
@@ -1298,13 +1484,10 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
 		const struct weapon *host = g_Weapons[g_GeWeaponHosts[i]];
 		const s32 hostmodel = gegunsHostModel(i);
-		const u16 name = langAddPortText(names[i]);
 
-		g_GeWeaponDefs[i] = *host;
-		g_GeWeaponDefs[i].name = name;
-		g_GeWeaponDefs[i].shortname = name;
+		nameids[i] = langAddPortText(names[i]);
 
-		gegunsApplyStats(i);
+		gegunsBuild(i, host, host);
 		gegunsOwnTrigger(i);
 
 		gegunsNameThrow(i);

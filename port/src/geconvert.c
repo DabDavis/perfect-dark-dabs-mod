@@ -4079,10 +4079,11 @@ static uint32_t soloItemWeapon(uint32_t item)
 
 /**
  * GoldenEye's ammunition types (bondconstants.h, AMMOTYPES) as the types the
- * port's GoldenEye guns draw on, which are their hosts' (geguns.c): the PP7 and
- * the DD44 stand on Perfect Dark's pistols and the Klobb, the ZMG, the D5K, the
- * Phantom and the RC-P90 on its submachine guns, so GoldenEye's one pool of 9mm
- * is two pools here and a grant of it fills both. Everything past the golden
+ * port's GoldenEye guns draw on. Its one pool of 9mm was two here while each
+ * gun took its host's type (Perfect Dark's pistol rounds for the PP7 and the
+ * DD44, its submachine gun rounds for the rest), so a grant of it fills both;
+ * since every 9mm gun draws on the submachine gun's (geguns.c, geammotypes[])
+ * the pistol half is left over and harmless. Everything past the golden
  * bullet is a gadget's count, which nothing in the port holds. gesolo.py's
  * GE_AMMO_TYPES.
  */

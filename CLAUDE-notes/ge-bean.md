@@ -9153,3 +9153,57 @@ characters cull their back faces, HD props do not").
   it is written into a room (`clampS16()`), which can put a decal on a surface
   square to no axis up to a unit behind it. That was the first guess here and
   was wrong for this report; no level decal has been seen fighting from it.
+
+## A GoldenEye gun's definition is built, not copied from its host (2026-09-24)
+
+Each GoldenEye gun was `g_GeWeaponDefs[i] = *host` with GoldenEye's numbers
+written over the copy, and whatever nothing wrote over stayed Perfect Dark's
+without anyone deciding so. A tester found one (F3 20260924-172713: guards held
+the KF7 like a pistol - `WEAPONFLAG_ONEHANDED`, which every classic PD gun
+carries); the rest turned up only once every field was dumped and read:
+
+- the PP7, the silenced PP7 and the DD44 turned sideways at close range
+  (`WEAPONFLAG_GANGSTA`, the PP9i's and the CC13's);
+- the Phantom and the rocket launcher drew the red box round a target in aim
+  mode (`WEAPONFLAG_AIMTRACK`, the CMP150's and the rocket launcher's);
+- the covert modem, the plastique and the GoldenEye key were "an" (the ECM
+  mine's determiner);
+- every gun showed its host's maker and description in the inventory (the
+  Cougar was described as the DY357);
+- GoldenEye's one 9mm pool was two: pistol rounds for the PP7s and the DD44,
+  submachine gun rounds for the Klobb, ZMG, D5Ks, Phantom and RC-P90.
+
+`gegunsBuild(i, model, engine)` now sets every field from one of three places,
+and says which beside each: **GoldenEye's row** (gegunstats.h, which carries the
+row's `AmmoType` and `BitFlags` too since this; `tools/geguns/gen_gunstats.py`,
+moved into the repo from `.xbla-work/`), **the model** it is drawn on (file,
+animations, part commands, position, and the fire/reload script pointers,
+which name that model's parts - the host's, or GoldenEye X's when borrowed) and
+**the engine** (the host: function kinds, projectile flight, throw fuses,
+flags2/flags3, pickup sound). The borrow path goes through the same builder
+with GoldenEye X's definition as the model.
+
+What is taken from GoldenEye's bits: `ONLY_1_HANDED` -> `WEAPONFLAG_ONEHANDED`,
+`USE_HOLD_TIME` -> `TRACKTIMEUSED`, `HIDE_FIRST_PERSON_MENU` ->
+`HIDEMENUMODEL`. What is **not**: `CAN_DUAL_WIELD` - GoldenEye reads it only
+under the all-guns cheat (`bondinvItemAvailableForHand()`) and sets it on the
+sniper rifle and both launchers, while `WEAPONFLAG_DUALWIELD` is whether a
+second pickup goes into the other hand, so it stays the model's. The golden
+bullet has no Perfect Dark row and stays the magnum's; the hunting knife's
+AMMO_NONE keeps the combat knife's knives, since it still has the knife's throw
+(GoldenEye's hunting knife cannot be thrown - an open difference for the host
+audit, not a definition field). The converter still grants a 9mm pickup to both
+pools; the pistol half is now unused and harmless, and changing it would be a
+converter bump for nothing.
+
+**How to check a change here:** `gegunsDump()` (port/src/gegunsdump.c) writes
+every field of all 33 definitions, pointers as the numbers under them plus
+whose they are (a stock weapon's or "own"). From gdb before the game starts:
+
+```sh
+gdb -q -batch -ex 'break main' -ex run -ex 'call (void)gegunsDump("/path/defs.txt")' -ex kill ./pd.x86_64
+```
+
+Dump before and after and read the diff: every line that moved should be one
+you meant to move. The build of this change moved exactly the eight kinds
+listed above and nothing else.

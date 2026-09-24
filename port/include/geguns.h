@@ -9,8 +9,8 @@ extern "C" {
 
 /**
  * GoldenEye's guns as weapons past Perfect Dark's table (WEAPON_GE_FIRST):
- * copies of their hosts (g_GeWeaponHosts) under GoldenEye's names, made at
- * start-up. gebean.c shows their Combat Simulator rows and draws the GoldenEye
+ * built at start-up from GoldenEye's own rows, drawn on their hosts' models
+ * and run by their hosts' engine (g_GeWeaponHosts, gegunsBuild()). gebean.c shows their Combat Simulator rows and draws the GoldenEye
  * XBLA release's pickups on them; geguns.c has the rest.
  */
 
@@ -23,6 +23,9 @@ struct weapon;
 // the copy of the host back; pickupfile 0 keeps the host's pickup.
 void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 pickupscale);
 s32 gegunsIsBorrowed(s32 index);
+
+// Every field of every GoldenEye weapon definition to a text file (gegunsdump.c)
+void gegunsDump(const char *path);
 
 // GoldenEye's own SFX_ID for one of its guns' shots, to be played on a
 // converted level (gesfx.c); 0 for any other weapon or a silent one.
