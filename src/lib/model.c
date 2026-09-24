@@ -4550,3 +4550,29 @@ void modelNodeReplaceGdl(struct modeldef *modeldef, struct modelnode *node, Gfx 
 		break;
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * modelNodeReplaceGdl() for a node's second list, which is always its xlu one.
+ * That function asks the opa pointer first, and by the second list the opa
+ * pointer has already been moved to its rewritten copy - which can be exactly
+ * the address the xlu list had. modeldef0f1a7560() asks this instead.
+ */
+void modelNodeReplaceXluGdl(struct modelnode *node, Gfx *find, Gfx *replacement)
+{
+	union modelrodata *rodata = node->rodata;
+
+	switch (node->type & 0xff) {
+	case MODELNODETYPE_GUNDL:
+		if (rodata->gundl.xlugdl == find) {
+			rodata->gundl.xlugdl = replacement;
+		}
+		break;
+	case MODELNODETYPE_DL:
+		if (rodata->dl.xlugdl == find) {
+			rodata->dl.xlugdl = replacement;
+		}
+		break;
+	}
+}
+#endif

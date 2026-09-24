@@ -113,5 +113,8 @@ void animInit(struct anim *anim);
 void modelAttachHead(struct model *model, struct modeldef *arg1, struct modelnode *node, struct modeldef *arg3);
 void modelIterateDisplayLists(struct modeldef *modeldef, struct modelnode **nodeptr, Gfx **gdlptr);
 void modelNodeReplaceGdl(struct modeldef *modeldef, struct modelnode *node, Gfx *find, Gfx *replacement);
+#ifndef PLATFORM_N64
+void modelNodeReplaceXluGdl(struct modelnode *node, Gfx *find, Gfx *replacement);
+#endif
 
 #endif

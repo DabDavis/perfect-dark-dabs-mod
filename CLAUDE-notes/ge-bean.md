@@ -9061,3 +9061,43 @@ So the port's HD meshes, which take Perfect Dark's per-prop room shade on top
 of texel times vertex colour (xblamesh.c, the node's fog blend towards the
 prop's shade colour), are **darker than the release in dark rooms**, not
 missing a light the release has.
+
+## Jungle's vines drawn black: a model's two lists swapped at the load (2026-09-24)
+
+F3 20260924-094803 on Jungle (N64 look), looking up at the start: "vines
+opaque in background texture" - black panels with the vines in them round a
+tree trunk. The tree is `Pgx108Z` (model 620, GoldenEye's jungle tree with
+vines); the vine picture is `0x9b6`, a 64x64 IA4 that is 89% clear, and it is
+in the second (xlu) list of the 98-vertex node, after the two leaf pictures.
+The converted file is right: opa list 0x9a8 (the trunk, `0x9b7`), xlu list
+0xa28 (leaves and vines).
+
+**The fault is Perfect Dark's own loader.** `modeldef0f1a7560()` rewrites a
+model's lists in place one after another (each `0xc0` grows into a load
+sequence) and points each node at its rewritten copy with
+`modelNodeReplaceGdl()`, which asks `opagdl == find` before `xlugdl == find`.
+By a node's second list its opa pointer has already moved - and when the lists
+before it grew by just the right amount it moved onto the address the xlu list
+had, so the xlu step matched the **opa** pointer: opa took the rewritten xlu
+list and xlu kept the rewritten opa list. The vines were drawn in the opaque
+pass under `G_RM_FOG_PRIM_A | G_RM_AA_ZB_OPA_SURF2` (their clear texels black)
+and the trunk blended. `modelNodeReplaceXluGdl()` now takes a node's second
+list; outside the collision it does exactly what the old call did. Stock models
+never land that way.
+
+How it was found, and the traps on the way:
+- **Find the prop by leaving models out, not by distance.** The nearest tree
+  (model 623, `Pgx111Z`, also type 4 with a CI8 alpha picture) looked right and
+  was not it; `break objRender if ((struct defaultobj *)prop->obj)->modelnum
+  == N` + `return gdl` per model found 620 (the only one whose removal took the
+  vines).
+- **The picture was fine** (`--dump-texture`, written at frame 300) and so was
+  the renderer's upload of it; the draw state at `batch.comb = comb` in
+  `gfx_derive_batch_state()` (a line breakpoint - `cmd`, `size_bytes` and the
+  import functions' locals are optimised out) showed the IA4 under an OPA mode.
+- **Patching `rodata->dl.xlugdl` from gdb changed no pixel**, which is what
+  said the vines were not on the xlu pointer; dumping both pointers' lists (the
+  address is `rodata->dl.colours + (ptr & 0xfffffe)`, segment 5) showed them
+  crossed.
+- A gdb breakpoint on `modelNodeReplaceXluGdl` with `opagdl == find` counts
+  the collisions a level load has (Jungle: one, file 2263).

@@ -128,6 +128,9 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 	struct modelnode *prevnode;
 	uintptr_t gdl;
 	Vtx *vertices;
+#ifndef PLATFORM_N64
+	struct modelnode *replacednode = NULL;
+#endif
 
 	allocsize = fileGetAllocationSize(filenum);
 	loadedsize = fileGetLoadedSize(filenum);
@@ -168,7 +171,23 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 				s4 = loadedsize + (uintptr_t)modeldef - (uintptr_t)modeldef - (UNSEGADDR(s0) & 0xffffff);
 			}
 
+#ifndef PLATFORM_N64
+			// A node handed back twice is on its xlu list the second time.
+			// modelNodeReplaceGdl() asks the opa pointer first, and that has
+			// already moved to the rewritten opa list - which lands exactly
+			// where the xlu list was whenever the lists before it grow by the
+			// right amount. Then the opa pointer took the xlu list and the xlu
+			// pointer kept the opa one: GoldenEye's jungle tree (Pgx108Z) drew
+			// its vines opaque and black, and its trunk blended.
+			if (prevnode == replacednode) {
+				modelNodeReplaceXluGdl(prevnode, (Gfx *) s0, (Gfx *) s5);
+			} else
+#endif
 			modelNodeReplaceGdl(modeldef, prevnode, (Gfx *) s0, (Gfx *) s5);
+
+#ifndef PLATFORM_N64
+			replacednode = prevnode;
+#endif
 
 			if (prevnode->type == MODELNODETYPE_DL) {
 				struct modelrodata_dl *rodata = &prevnode->rodata->dl;
