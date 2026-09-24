@@ -70,6 +70,7 @@
 #include "gfx_pc.h"
 #include "gfx_api.h"
 #include "gfx_vulkan.h"
+#include "gfx_post.h"
 
 extern "C" {
 #include "fs.h"
@@ -3288,6 +3289,177 @@ static void vk_grade_frame(void) {
     vk_push_valid = false;
 }
 
+/*
+ * SMAA and FSR 1; see gfx_post.h. Each pass renders into an image of its own
+ * (or the window image) through a pipeline with no vertex input, reading
+ * the images before it out of the bindless table.
+ */
+static VkPipeline vk_post_pipelines[GFX_POST_NUM_PASSES];
+static bool vk_post_pipeline_failed[GFX_POST_NUM_PASSES];
+static VkImg vk_post_edges, vk_post_weights, vk_post_smaa_out, vk_post_easu;
+static uint32_t vk_post_area_tex, vk_post_search_tex;
+static bool vk_post_failed;
+
+static VkPipeline vk_post_pipeline(GfxPostPass pass) {
+    if (vk_post_pipelines[pass] || vk_post_pipeline_failed[pass]) {
+        return vk_post_pipelines[pass];
+    }
+    vk_post_pipeline_failed[pass] = true;
+
+    const GfxPostLang lang = { true, "450", vk_max_texture_slots, VK_MAX_SAMPLER_SLOTS };
+    std::string err;
+    VkShaderModule vs = vk_compile(gfx_post_vertex_shader(lang), false, "post", &err);
+    VkShaderModule fs = vs ? vk_compile(gfx_post_fragment_shader(lang, pass), true, gfx_post_pass_name(pass), &err)
+                           : VK_NULL_HANDLE;
+    if (vs && fs) {
+        vk_post_pipelines[pass] = vk_create_pipeline(vs, fs, NULL, 0, false, false, VK_COMPARE_OP_ALWAYS, 1, false);
+    }
+    if (!vk_post_pipelines[pass]) {
+        sysLogPrintf(LOG_WARNING, "Vulkan: %s shader failed: %s", gfx_post_pass_name(pass), err.c_str());
+    } else {
+        vk_post_pipeline_failed[pass] = false;
+    }
+    if (vs) {
+        vkDestroyShaderModule(vk_dev, vs, NULL);
+    }
+    if (fs) {
+        vkDestroyShaderModule(vk_dev, fs, NULL);
+    }
+    return vk_post_pipelines[pass];
+}
+
+static bool vk_post_target(VkImg &img, uint32_t width, uint32_t height) {
+    if (img.image && img.width == width && img.height == height) {
+        return true;
+    }
+    vk_image_destroy(img);
+    return vk_image_create(img, width, height, VK_COLOR_FORMAT,
+                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT, 1,
+                           false);
+}
+
+// SMAA's lookup tables, as textures of the renderer's own. The upload goes
+// through the texture unit, which gfx_pc.cpp believes it alone moves.
+static uint32_t vk_post_lut(const uint8_t *rgba, uint32_t width, uint32_t height) {
+    const int tile = vk_active_tile;
+    const VkBinding bound = vk_bound[0];
+    const bool linear = vk_textures_linear[0];
+    const uint32_t id = gfx_vk_new_texture();
+    gfx_vk_select_texture(0, id, true);
+    gfx_vk_upload_texture(rgba, width, height, false);
+    vk_bound[0] = bound;
+    vk_textures_linear[0] = linear;
+    vk_active_tile = tile;
+    return id;
+}
+
+static int32_t vk_post_slot(uint32_t tex_id) {
+    return tex_id < vk_textures.size() ? vk_textures[tex_id].img.slot : 0;
+}
+
+// One pass: a triangle over the whole of target, reading up to three images
+static bool vk_post_draw(GfxPostPass pass, VkImg &target, VkImg *in0, VkImg *in1, VkImg *in2, int32_t lut1,
+                         int32_t lut2, float p0, float p1, bool clear) {
+    const VkPipeline p = vk_post_pipeline(pass);
+    if (!p || !target.image) {
+        return false;
+    }
+
+    VkImg *ins[3] = { in0, in1, in2 };
+    for (VkImg *in : ins) {
+        if (in) {
+            vk_image_to(*in, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+    }
+
+    struct {
+        int32_t t0, t1, t2, smp;
+        float params[4];
+    } push = {
+        in0 ? in0->slot : 0,
+        in1 ? in1->slot : lut1,
+        in2 ? in2->slot : lut2,
+        vk_get_sampler(vk_sampler_key(true, true, 0, VK_WRAP_CLAMP, VK_WRAP_CLAMP, 1)),
+        { p0, p1, 0.f, 0.f },
+    };
+
+    VkCommandBuffer cb = vk_cmd();
+    vk_begin_rendering_on(&target, NULL, target.width, target.height);
+    VkViewport v = { 0.f, 0.f, (float)target.width, (float)target.height, 0.f, 1.f };
+    VkRect2D s = { { 0, 0 }, { target.width, target.height } };
+    rcCmdSetViewport(cb, 0, 1, &v);
+    rcCmdSetScissor(cb, 0, 1, &s);
+    if (clear) {
+        VkClearAttachment att = {};
+        att.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        att.clearValue.color = { { 0.f, 0.f, 0.f, 0.f } };
+        VkClearRect rect = { s, 0, 1 };
+        rcCmdClearAttachments(cb, 1, &att, 1, &rect);
+    }
+    rcCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+    rcCmdPushConstants(cb, vk_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+    rcCmdDraw(cb, 3, 1, 0, 0);
+    vk_end_rendering();
+    return true;
+}
+
+static bool gfx_vk_post_process(int fb_src, bool smaa, bool fsr, float sharpness) {
+    if (vk_failed || vk_post_failed || fb_src <= 0 || (size_t)fb_src >= vk_fbs.size()) {
+        return false;
+    }
+
+    vk_ensure_recording();
+    vk_end_rendering();
+
+    VkFb &src = vk_fbs[fb_src];
+    VkFb &fb0 = vk_fbs[0];
+    VkImg &win = fb0.color[fb0.cur];
+    VkImg *in = &src.color[src.cur];
+    if (!in->image || !win.image) {
+        return false;
+    }
+
+    const uint32_t sw = in->width, sh = in->height;
+    const bool scaled = sw != win.width || sh != win.height;
+    bool ok = true;
+
+    if (smaa) {
+        if (!vk_post_area_tex) {
+            vk_post_area_tex = vk_post_lut(gfx_post_area_rgba(), GFX_POST_AREA_WIDTH, GFX_POST_AREA_HEIGHT);
+            vk_post_search_tex = vk_post_lut(gfx_post_search_rgba(), GFX_POST_SEARCH_WIDTH, GFX_POST_SEARCH_HEIGHT);
+        }
+        ok = vk_post_target(vk_post_edges, sw, sh) && vk_post_target(vk_post_weights, sw, sh) &&
+             (!scaled || vk_post_target(vk_post_smaa_out, sw, sh));
+        ok = ok && vk_post_draw(GFX_POST_SMAA_EDGES, vk_post_edges, in, NULL, NULL, 0, 0, 0.f, 0.f, true);
+        ok = ok && vk_post_draw(GFX_POST_SMAA_WEIGHTS, vk_post_weights, &vk_post_edges, NULL, NULL,
+                                vk_post_slot(vk_post_area_tex), vk_post_slot(vk_post_search_tex), 0.f, 0.f, false);
+        ok = ok && vk_post_draw(GFX_POST_SMAA_BLEND, scaled ? vk_post_smaa_out : win, in, &vk_post_weights, NULL, 0, 0,
+                                0.f, 0.f, false);
+        in = &vk_post_smaa_out;
+    }
+
+    if (ok && scaled) {
+        if (fsr && vk_post_target(vk_post_easu, win.width, win.height) &&
+            vk_post_draw(GFX_POST_EASU, vk_post_easu, in, NULL, NULL, 0, 0, (float)win.width, (float)win.height,
+                         false)) {
+            ok = vk_post_draw(GFX_POST_RCAS, win, &vk_post_easu, NULL, NULL, 0, 0, sharpness, 0.f, false);
+        } else {
+            ok = vk_post_draw(GFX_POST_COPY, win, in, NULL, NULL, 0, 0, 0.f, 0.f, false);
+        }
+    } else if (ok && !smaa) {
+        ok = vk_post_draw(GFX_POST_COPY, win, in, NULL, NULL, 0, 0, 0.f, 0.f, false);
+    }
+
+    vk_bound_pipeline = VK_NULL_HANDLE;
+    vk_push_valid = false;
+
+    if (!ok) {
+        sysLogPrintf(LOG_WARNING, "Vulkan: SMAA/FSR could not run, off");
+        vk_post_failed = true;
+    }
+    return ok;
+}
+
 static void gfx_vk_on_resize(void) {
 }
 
@@ -4120,6 +4292,7 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_set_anisotropy_level,
     gfx_vk_get_max_anisotropy_level,
     gfx_vk_get_max_msaa_level,
+    gfx_vk_post_process,
     gfx_vk_read_screen_pixels,
     gfx_vk_capture_start,
     gfx_vk_capture_read,

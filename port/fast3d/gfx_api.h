@@ -71,6 +71,15 @@ extern float gfx_color_saturation;
 extern float gfx_color_contrast;
 extern float gfx_color_black_level;
 
+// SMAA and FSR 1 (Video.SMAA, Video.Upscaling): the game draws into a
+// framebuffer of its own at gfx_render_scale of the window, and the backend's
+// post_process() takes it to the window - SMAA at the size it was drawn,
+// then FSR 1 (EASU, then RCAS sharpening by gfx_fsr_sharpness stops, 0 the
+// sharpest) up to the window's. Read at the top of every frame.
+extern bool gfx_post_smaa;
+extern float gfx_render_scale;
+extern float gfx_fsr_sharpness;
+
 // What ended a batch and forced a draw call. See g_GfxFlushReasons.
 enum GfxFlushReason {
     GFX_FLUSH_TEXTURE,      // a different texture had to be bound

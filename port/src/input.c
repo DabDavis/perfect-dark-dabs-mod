@@ -1504,8 +1504,8 @@ s32 inputMouseIsLocked(void)
 
 s32 inputMouseGetPosition(s32 *x, s32 *y)
 {
-	if (x) *x = mouseX * videoGetNativeWidth() / videoGetWidth();
-	if (y) *y = mouseY * videoGetNativeHeight() / videoGetHeight();
+	if (x) *x = mouseX * videoGetNativeWidth() / videoGetWindowWidth();
+	if (y) *y = mouseY * videoGetNativeHeight() / videoGetWindowHeight();
 	return (mouseDX != 0 || mouseDY != 0);
 }
 

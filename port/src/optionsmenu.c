@@ -843,6 +843,73 @@ static MenuItemHandlerResult menuhandlerFramerateLimit(s32 operation, struct men
 	return 0;
 }
 
+/**
+ * SMAA: edge anti-aliasing on the finished frame, which reaches what MSAA
+ * cannot (alpha cut-outs, the edges inside a texture) and costs a fraction of
+ * it. The two stack. Live.
+ */
+static MenuItemHandlerResult menuhandlerSmaa(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return videoGetSmaa();
+	case MENUOP_SET:
+		videoSetSmaa(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Upscaling: FSR 1 - the game drawn at a fraction of the window and taken up
+ * to it by AMD's EASU and sharpened by RCAS. Live.
+ */
+static MenuItemHandlerResult menuhandlerUpscaling(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[VIDEO_UPSCALING_COUNT] = {
+		"Off",
+		"FSR Ultra Quality",
+		"FSR Quality",
+		"FSR Balanced",
+		"FSR Performance",
+	};
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = VIDEO_UPSCALING_COUNT;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		videoSetUpscaling(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = videoGetUpscaling();
+		break;
+	}
+
+	return 0;
+}
+
+// RCAS's sharpness is in stops off the sharpest; the slider runs the other
+// way, 20 the sharpest and 0 two stops off
+static MenuItemHandlerResult menuhandlerFsrSharpness(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (2.f - videoGetFsrSharpness()) * 10.f + 0.5f;
+		break;
+	case MENUOP_SET:
+		videoSetFsrSharpness(2.f - (f32)data->slider.value / 10.f);
+		break;
+	case MENUOP_CHECKDISABLED:
+		return videoGetUpscaling() == VIDEO_UPSCALING_OFF;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerMSAA(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	s32 msaa;
@@ -1195,6 +1262,30 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Anti-aliasing",
 		0,
 		menuhandlerMSAA,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"SMAA",
+		0,
+		menuhandlerSmaa,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Upscaling",
+		0,
+		menuhandlerUpscaling,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"FSR Sharpness",
+		20,
+		menuhandlerFsrSharpness,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

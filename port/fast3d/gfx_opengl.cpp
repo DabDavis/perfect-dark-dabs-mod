@@ -21,6 +21,7 @@
 #include "gfx_rendering_api.h"
 #include "gfx_pc.h"
 #include "gfx_api.h"
+#include "gfx_post.h"
 
 using namespace std;
 
@@ -1255,7 +1256,7 @@ static GLuint gfx_opengl_grade_compile(GLenum type, const char *src) {
     if (!ok) {
         char log[512] = { 0 };
         glGetShaderInfoLog(sh, sizeof(log) - 1, NULL, log);
-        sysLogPrintf(LOG_WARNING, "GL: colour grade shader would not compile: %s", log);
+        sysLogPrintf(LOG_WARNING, "GL: shader would not compile: %s", log);
         glDeleteShader(sh);
         return 0;
     }
@@ -1412,6 +1413,232 @@ static void gfx_opengl_grade_frame(void) {
     glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex);
     glActiveTexture((GLenum)prev_active);
     glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+}
+
+/**
+ * SMAA and FSR 1: the game's own framebuffer taken to the window. See
+ * gfx_post.h for the passes. Desktop GL 3.0 for SMAA and the bilinear copy,
+ * 4.2 for FSR (textureGather with a component, packHalf2x16), which falls
+ * back to the copy below that. State is put back as the grade pass does.
+ */
+struct PostTarget {
+    GLuint tex = 0, fbo = 0;
+    int width = 0, height = 0;
+};
+
+static GLuint post_prog[GFX_POST_NUM_PASSES];
+static GLint post_loc_params[GFX_POST_NUM_PASSES];
+static bool post_prog_failed[GFX_POST_NUM_PASSES];
+static GLuint post_vao, post_area_tex, post_search_tex;
+static PostTarget post_edges, post_weights, post_smaa_out, post_easu;
+static bool post_failed;
+
+static void gfx_opengl_post_tex_params(GLuint tex) {
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+static bool gfx_opengl_post_pass_ok(GfxPostPass pass) {
+    const bool fsr = pass == GFX_POST_EASU || pass == GFX_POST_RCAS;
+    return !(fsr && GLVersion.major * 10 + GLVersion.minor < 42);
+}
+
+static GLuint gfx_opengl_post_program(GfxPostPass pass) {
+    if (post_prog[pass] || post_prog_failed[pass]) {
+        return post_prog[pass];
+    }
+    post_prog_failed[pass] = true;
+    if (!gfx_opengl_post_pass_ok(pass)) {
+        return 0;
+    }
+
+    // FSR is written for 4.2; the rest takes whatever the renderer's own
+    // shaders are compiled as (1.30 in a compatibility context)
+    GfxPostLang lang = { false, (pass == GFX_POST_EASU || pass == GFX_POST_RCAS) ? "420" : gl_glsl_version_str, 0, 0 };
+    const std::string vsrc = gfx_post_vertex_shader(lang);
+    const std::string fsrc = gfx_post_fragment_shader(lang, pass);
+    GLuint vs = gfx_opengl_grade_compile(GL_VERTEX_SHADER, vsrc.c_str());
+    GLuint fs = vs ? gfx_opengl_grade_compile(GL_FRAGMENT_SHADER, fsrc.c_str()) : 0;
+    if (!vs || !fs) {
+        if (vs) glDeleteShader(vs);
+        sysLogPrintf(LOG_WARNING, "GL: %s shader would not compile, off", gfx_post_pass_name(pass));
+        return 0;
+    }
+
+    GLuint prog = glCreateProgram();
+    GLint ok = 0;
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glBindFragDataLocation(prog, 0, "oCol");
+    glLinkProgram(prog);
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    if (!ok) {
+        char log[512] = { 0 };
+        glGetProgramInfoLog(prog, sizeof(log) - 1, NULL, log);
+        sysLogPrintf(LOG_WARNING, "GL: %s shader would not link: %s", gfx_post_pass_name(pass), log);
+        glDeleteProgram(prog);
+        return 0;
+    }
+
+    glUseProgram(prog);
+    glUniform1i(glGetUniformLocation(prog, "uTex0"), 0);
+    glUniform1i(glGetUniformLocation(prog, "uTex1"), 1);
+    glUniform1i(glGetUniformLocation(prog, "uTex2"), 2);
+    post_loc_params[pass] = glGetUniformLocation(prog, "uParams");
+    post_prog[pass] = prog;
+    post_prog_failed[pass] = false;
+    return prog;
+}
+
+static bool gfx_opengl_post_target(PostTarget &t, int width, int height) {
+    if (t.tex && t.width == width && t.height == height) {
+        return true;
+    }
+    if (!t.tex) {
+        glGenTextures(1, &t.tex);
+        glGenFramebuffers(1, &t.fbo);
+    }
+    gfx_opengl_post_tex_params(t.tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.tex, 0);
+    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    t.width = complete ? width : 0;
+    t.height = complete ? height : 0;
+    return complete;
+}
+
+static GLuint gfx_opengl_post_lut(const uint8_t *rgba, int width, int height) {
+    GLuint tex;
+    GLint align;
+    glGenTextures(1, &tex);
+    gfx_opengl_post_tex_params(tex);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, align);
+    return tex;
+}
+
+// One pass: a triangle over the whole of fbo, reading t0-t2
+static bool gfx_opengl_post_draw(GfxPostPass pass, GLuint fbo, int width, int height, GLuint t0, GLuint t1, GLuint t2,
+                                 float p0, float p1, bool clear) {
+    const GLuint prog = gfx_opengl_post_program(pass);
+    if (!prog) {
+        return false;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, width, height);
+    if (clear) {
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glUseProgram(prog);
+    const GLuint texs[3] = { t0, t1, t2 };
+    for (int i = 0; i < 3; i++) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, texs[i]);
+    }
+    glUniform4f(post_loc_params[pass], p0, p1, 0.f, 0.f);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    return true;
+}
+
+static bool gfx_opengl_post_process(int fb_src, bool smaa, bool fsr, float sharpness) {
+    if (post_failed || !gfx_framebuffers_enabled || fb_src <= 0 || (size_t)fb_src >= framebuffers.size()) {
+        return false;
+    }
+    if (gl_es || GLVersion.major < 3 || !glad_glGenVertexArrays || !glad_glBlitFramebuffer) {
+        sysLogPrintf(LOG_WARNING, "GL: SMAA and FSR need desktop GL 3.0, off");
+        post_failed = true;
+        return false;
+    }
+
+    const Framebuffer &src = framebuffers[fb_src];
+    const Framebuffer &win = framebuffers[0];
+    const int sw = (int)src.width, sh = (int)src.height;
+    const int ww = (int)win.width, wh = (int)win.height;
+    const bool scaled = sw != ww || sh != wh;
+
+    GLint prev_prog = 0, prev_vao = 0, prev_active = GL_TEXTURE0, prev_tex[3] = { 0, 0, 0 };
+    GLint prev_viewport[4] = { 0, 0, 0, 0 };
+    const GLboolean was_blend = glIsEnabled(GL_BLEND);
+    const GLboolean was_depth = glIsEnabled(GL_DEPTH_TEST);
+    const GLboolean was_scissor = glIsEnabled(GL_SCISSOR_TEST);
+    const GLboolean was_cull = glIsEnabled(GL_CULL_FACE);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev_prog);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prev_active);
+    for (int i = 0; i < 3; i++) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex[i]);
+    }
+    glGetIntegerv(GL_VIEWPORT, prev_viewport);
+
+    if (!post_vao) {
+        glGenVertexArrays(1, &post_vao);
+        post_area_tex = gfx_opengl_post_lut(gfx_post_area_rgba(), GFX_POST_AREA_WIDTH, GFX_POST_AREA_HEIGHT);
+        post_search_tex = gfx_opengl_post_lut(gfx_post_search_rgba(), GFX_POST_SEARCH_WIDTH, GFX_POST_SEARCH_HEIGHT);
+    }
+
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glBindVertexArray(post_vao);
+    glActiveTexture(GL_TEXTURE0);
+    gfx_opengl_post_tex_params(src.clrbuf);
+
+    GLuint in = src.clrbuf;
+    bool ok = true;
+
+    if (smaa) {
+        ok = gfx_opengl_post_target(post_edges, sw, sh) && gfx_opengl_post_target(post_weights, sw, sh) &&
+             (!scaled || gfx_opengl_post_target(post_smaa_out, sw, sh));
+        ok = ok && gfx_opengl_post_draw(GFX_POST_SMAA_EDGES, post_edges.fbo, sw, sh, in, 0, 0, 0.f, 0.f, true);
+        ok = ok && gfx_opengl_post_draw(GFX_POST_SMAA_WEIGHTS, post_weights.fbo, sw, sh, post_edges.tex, post_area_tex,
+                                        post_search_tex, 0.f, 0.f, false);
+        ok = ok && gfx_opengl_post_draw(GFX_POST_SMAA_BLEND, scaled ? post_smaa_out.fbo : win.fbo, scaled ? sw : ww,
+                                        scaled ? sh : wh, in, post_weights.tex, 0, 0.f, 0.f, false);
+        in = post_smaa_out.tex;
+    }
+
+    if (ok && scaled) {
+        if (fsr && gfx_opengl_post_pass_ok(GFX_POST_EASU) && gfx_opengl_post_target(post_easu, ww, wh) &&
+            gfx_opengl_post_draw(GFX_POST_EASU, post_easu.fbo, ww, wh, in, 0, 0, (float)ww, (float)wh, false)) {
+            ok = gfx_opengl_post_draw(GFX_POST_RCAS, win.fbo, ww, wh, post_easu.tex, 0, 0, sharpness, 0.f, false);
+        } else {
+            ok = gfx_opengl_post_draw(GFX_POST_COPY, win.fbo, ww, wh, in, 0, 0, 0.f, 0.f, false);
+        }
+    } else if (ok && !smaa) {
+        ok = gfx_opengl_post_draw(GFX_POST_COPY, win.fbo, ww, wh, in, 0, 0, 0.f, 0.f, false);
+    }
+
+    if (!ok) {
+        sysLogPrintf(LOG_WARNING, "GL: SMAA/FSR could not run, off");
+        post_failed = true;
+    }
+
+    if (was_blend) glEnable(GL_BLEND);
+    if (was_depth) glEnable(GL_DEPTH_TEST);
+    if (was_scissor) glEnable(GL_SCISSOR_TEST);
+    if (was_cull) glEnable(GL_CULL_FACE);
+    for (int i = 0; i < 3; i++) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex[i]);
+    }
+    glActiveTexture((GLenum)prev_active);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffers[current_framebuffer].fbo);
+    glBindVertexArray((GLuint)prev_vao);
+    glUseProgram((GLuint)prev_prog);
+    glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+    return ok;
 }
 
 static void gfx_opengl_end_frame(void) {
@@ -2311,6 +2538,7 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_set_anisotropy_level,
     gfx_opengl_get_max_anisotropy_level,
     gfx_opengl_get_max_msaa_level,
+    gfx_opengl_post_process,
     gfx_opengl_read_screen_pixels,
     gfx_opengl_capture_start,
     gfx_opengl_capture_read,

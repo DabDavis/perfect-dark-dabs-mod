@@ -59,6 +59,11 @@ struct GfxRenderingAPI {
     // Most samples a multisampled render target may have: GL_MAX_SAMPLES,
     // rounded down to a power of two, 1 when framebuffers are off.
     int (*get_max_msaa_level)(void);
+    // Draws the finished frame in fb_src (single-sampled, any size) into the
+    // window, fb 0: SMAA at fb_src's size when smaa, then up to the window's
+    // size by FSR 1 when fsr and the sizes differ, else bilinear. False when
+    // the backend could not, which leaves the window untouched.
+    bool (*post_process)(int fb_src, bool smaa, bool fsr, float sharpness);
     // Reads a rect of the window's back buffer into rgb as tightly packed RGB
     // triples, bottom row first. Only valid before the frame is presented.
     bool (*read_screen_pixels)(int x, int y, int width, int height, void *rgb);

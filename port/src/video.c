@@ -60,6 +60,13 @@ static s32 vidAllowHiDpiActive = false;
 static s32 vidFramebuffersActive = true;
 static s32 vidVsync = 1;
 static s32 vidMSAA = 1;
+// Video.SMAA, and Video.Upscaling: 0 draws at the window's size, 1-4 at
+// FSR 1's quality modes' fractions of it, taken up to it by EASU and RCAS.
+// Video.FsrSharpness is RCAS's, in stops (0 the sharpest). All live.
+static s32 vidSmaa = 0;
+static s32 vidUpscaling = 0;
+static f32 vidFsrSharpness = 0.2f;
+static const f32 vidUpscalingScales[VIDEO_UPSCALING_COUNT] = { 1.f, 1.f / 1.3f, 1.f / 1.5f, 1.f / 1.7f, 1.f / 2.f };
 static s32 vidFramerateLimit = 0;
 // Video.Renderer: VIDEO_RENDERER_OPENGL or VIDEO_RENDERER_VULKAN, taking
 // effect at the next start. vidRendererActive is what this run got, which is
@@ -129,6 +136,9 @@ s32 videoInit(void)
 	gfx_detail_textures_enabled = (bool)texDetail;
 	gfx_clamped_edge_mode = texClampedEdge;
 	gfx_msaa_level = vidMSAA;
+	videoSetSmaa(vidSmaa);
+	videoSetUpscaling(vidUpscaling);
+	videoSetFsrSharpness(vidFsrSharpness);
 
 	struct GfxInitSettings set = {
 		.wapi = wmAPI,
@@ -429,8 +439,8 @@ f32 videoGetAspect(void)
 s32 videoGetDisplayModeIndex(void)
 {
 	for (s32 i = 1; i < vidNumModes; ++i) {
-		if (vidModes[i].width == gfx_current_dimensions.width &&
-		    vidModes[i].height == gfx_current_dimensions.height) {
+		if (vidModes[i].width == gfx_current_window_dimensions.width &&
+		    vidModes[i].height == gfx_current_window_dimensions.height) {
 			return i;
 		}
 	}
@@ -847,6 +857,39 @@ void videoSetMSAA(const s32 msaa)
 	gfx_msaa_level = (u32)vidMSAA;
 }
 
+s32 videoGetSmaa(void)
+{
+	return vidSmaa;
+}
+
+void videoSetSmaa(s32 on)
+{
+	vidSmaa = !!on;
+	gfx_post_smaa = vidSmaa;
+}
+
+s32 videoGetUpscaling(void)
+{
+	return vidUpscaling;
+}
+
+void videoSetUpscaling(s32 mode)
+{
+	vidUpscaling = (mode < 0 || mode >= VIDEO_UPSCALING_COUNT) ? 0 : mode;
+	gfx_render_scale = vidUpscalingScales[vidUpscaling];
+}
+
+f32 videoGetFsrSharpness(void)
+{
+	return vidFsrSharpness;
+}
+
+void videoSetFsrSharpness(f32 stops)
+{
+	vidFsrSharpness = stops < 0.f ? 0.f : (stops > 2.f ? 2.f : stops);
+	gfx_fsr_sharpness = vidFsrSharpness;
+}
+
 void videoSetVsync(const s32 vsync)
 {
 	vidVsync = wmAPI->set_swap_interval(vsync) ? vsync : 0;
@@ -1017,6 +1060,9 @@ PD_CONSTRUCTOR static void videoConfigInit(void)
 	configRegisterInt("Video.DisplayFPS", &vidDisplayFPS, 0, 1);
 	configRegisterFloat("Video.DisplayFPSInterval", &vidDisplayFPSInterval, 0.01f, 32.f);
 	configRegisterInt("Video.MSAA", &vidMSAA, 1, 16);
+	configRegisterInt("Video.SMAA", &vidSmaa, 0, 1);
+	configRegisterInt("Video.Upscaling", &vidUpscaling, 0, VIDEO_UPSCALING_COUNT - 1);
+	configRegisterFloat("Video.FsrSharpness", &vidFsrSharpness, 0.f, 2.f);
 	configRegisterInt("Video.Renderer", &vidRenderer, VIDEO_RENDERER_OPENGL, VIDEO_RENDERER_VULKAN);
 	configRegisterInt("Video.TextureFilter", &texFilter, 0, 2);
 	configRegisterInt("Video.TextureFilter2D", &texFilter2D, 0, 1);

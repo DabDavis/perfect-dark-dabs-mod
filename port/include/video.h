@@ -54,6 +54,21 @@ s32 videoGetDisplayFPS(void);
 s32 videoGetMSAA(void);
 s32 videoGetMaxMSAA(void);
 
+// Video.SMAA, Video.Upscaling (FSR 1's modes) and Video.FsrSharpness (RCAS,
+// in stops, 0 the sharpest). See video.c. All live.
+#define VIDEO_UPSCALING_OFF 0
+#define VIDEO_UPSCALING_ULTRA_QUALITY 1
+#define VIDEO_UPSCALING_QUALITY 2
+#define VIDEO_UPSCALING_BALANCED 3
+#define VIDEO_UPSCALING_PERFORMANCE 4
+#define VIDEO_UPSCALING_COUNT 5
+s32 videoGetSmaa(void);
+void videoSetSmaa(s32 on);
+s32 videoGetUpscaling(void);
+void videoSetUpscaling(s32 mode);
+f32 videoGetFsrSharpness(void);
+void videoSetFsrSharpness(f32 stops);
+
 #define VIDEO_RENDERER_OPENGL 0
 #define VIDEO_RENDERER_VULKAN 1
 

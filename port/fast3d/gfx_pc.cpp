@@ -362,8 +362,12 @@ int gfx_text_smooth_scale = 1;
 float gfx_color_saturation = 1.0f;
 float gfx_color_contrast = 1.0f;
 float gfx_color_black_level = 0.0f;
+bool gfx_post_smaa = false;
+float gfx_render_scale = 1.0f;
+float gfx_fsr_sharpness = 0.2f;
 
 static bool game_renders_to_framebuffer;
+static bool game_post_processes; // through the backend's post_process() to the window
 static int game_framebuffer;
 static int game_framebuffer_msaa_resolved;
 
@@ -3134,13 +3138,12 @@ static void gfx_adjust_viewport_or_scissor(XYWidthHeight* area, bool preserve_as
         area->width *= ratio;
     }
 
-    if (!game_renders_to_framebuffer ||
-        (gfx_msaa_level > 1 && gfx_current_dimensions.width == gfx_current_game_window_viewport.width &&
-            gfx_current_dimensions.height == gfx_current_game_window_viewport.height)) {
-        area->x += gfx_current_game_window_viewport.x;
-        area->y += gfx_current_window_dimensions.height -
-                    (gfx_current_game_window_viewport.y + gfx_current_game_window_viewport.height);
-    }
+    // The screen shake's offset (vi.c), in window pixels, and wherever the
+    // game draws: straight to the window or into a framebuffer on its way
+    const float to_draw = (float)gfx_current_dimensions.height / gfx_current_window_dimensions.height;
+    area->x += gfx_current_game_window_viewport.x * to_draw;
+    area->y += (gfx_current_window_dimensions.height -
+                (gfx_current_game_window_viewport.y + gfx_current_game_window_viewport.height)) * to_draw;
 }
 
 static void gfx_calc_and_set_viewport(const Vp_t* viewport) {
@@ -4200,10 +4203,19 @@ extern "C" void gfx_start_frame(void) {
 
     gfx_current_dimensions = gfx_current_window_dimensions;
 
-    gfx_current_game_window_viewport.width = gfx_current_dimensions.width;
-    gfx_current_game_window_viewport.height = gfx_current_dimensions.height;
+    // FSR's render scale: the game draws at a fraction of the window, and the
+    // window keeps its aspect ratio as the game's
+    if (gfx_framebuffers_enabled && gfx_render_scale < 1.0f) {
+        const float scale = std::max(gfx_render_scale, 0.25f);
+        gfx_current_dimensions.width = std::max(1u, (uint32_t)(gfx_current_window_dimensions.width * scale + 0.5f));
+        gfx_current_dimensions.height = std::max(1u, (uint32_t)(gfx_current_window_dimensions.height * scale + 0.5f));
+    }
 
-    if (gfx_current_dimensions.height != gfx_prev_dimensions.height) {
+    gfx_current_game_window_viewport.width = gfx_current_window_dimensions.width;
+    gfx_current_game_window_viewport.height = gfx_current_window_dimensions.height;
+
+    if (gfx_current_dimensions.width != gfx_prev_dimensions.width ||
+        gfx_current_dimensions.height != gfx_prev_dimensions.height) {
         for (auto& fb : framebuffers) {
             uint32_t width, height, msaa;
             if (fb.second.autoresize) {
@@ -4233,24 +4245,21 @@ extern "C" void gfx_start_frame(void) {
         gfx_msaa_level = gfx_max_msaa_level;
     }
 
-    bool different_size = gfx_current_dimensions.width != gfx_current_game_window_viewport.width ||
-                          gfx_current_dimensions.height != gfx_current_game_window_viewport.height;
-    if (gfx_framebuffers_enabled && (different_size || gfx_msaa_level > 1)) {
+    // SMAA or a render scale: the frame goes through the backend's post
+    // chain on its way to the window, from a single-sampled framebuffer
+    game_post_processes = gfx_framebuffers_enabled && gfx_rapi->post_process &&
+                          (gfx_post_smaa || gfx_current_dimensions.width != gfx_current_window_dimensions.width ||
+                           gfx_current_dimensions.height != gfx_current_window_dimensions.height);
+    if (gfx_framebuffers_enabled && (game_post_processes || gfx_msaa_level > 1)) {
         game_renders_to_framebuffer = true;
-        if (different_size) {
-            gfx_rapi->update_framebuffer_parameters(game_framebuffer, gfx_current_dimensions.width,
-                                                    gfx_current_dimensions.height, gfx_msaa_level, true, true, true,
-                                                    true);
-        } else {
-            // MSAA framebuffer needs to be resolved to an equally sized target when complete, which must therefore
-            // match the window size
-            gfx_rapi->update_framebuffer_parameters(game_framebuffer, gfx_current_window_dimensions.width,
-                                                    gfx_current_window_dimensions.height, gfx_msaa_level, false, true,
-                                                    true, true);
-        }
-        if (gfx_msaa_level > 1 && different_size) {
+        // Laid out as the window is (invert_y off), so nothing between the
+        // two is turned over
+        gfx_rapi->update_framebuffer_parameters(game_framebuffer, gfx_current_dimensions.width,
+                                                gfx_current_dimensions.height, gfx_msaa_level, false, true, true,
+                                                true);
+        if (gfx_msaa_level > 1 && game_post_processes) {
             gfx_rapi->update_framebuffer_parameters(game_framebuffer_msaa_resolved, gfx_current_dimensions.width,
-                                                    gfx_current_dimensions.height, 1, false, false, false, false);
+                                                    gfx_current_dimensions.height, 1, false, true, false, false);
         }
     } else {
         game_renders_to_framebuffer = false;
@@ -4295,16 +4304,19 @@ extern "C" void gfx_run(Gfx* commands) {
         gfx_rapi->start_draw_to_framebuffer(0, 1);
         gfx_rapi->clear_framebuffer(true, true);
 
-        if (gfx_msaa_level > 1) {
-            bool different_size = gfx_current_dimensions.width != gfx_current_game_window_viewport.width ||
-                                  gfx_current_dimensions.height != gfx_current_game_window_viewport.height;
-
-            if (different_size) {
+        if (game_post_processes) {
+            int src = game_framebuffer;
+            if (gfx_msaa_level > 1) {
                 gfx_rapi->resolve_msaa_color_buffer(game_framebuffer_msaa_resolved, game_framebuffer);
-                gfxFramebuffer = (uintptr_t)gfx_rapi->get_framebuffer_texture_id(game_framebuffer_msaa_resolved);
-            } else {
-                gfx_rapi->resolve_msaa_color_buffer(0, game_framebuffer);
+                src = game_framebuffer_msaa_resolved;
             }
+            if (!gfx_rapi->post_process(src, gfx_post_smaa, gfx_render_scale < 1.0f, gfx_fsr_sharpness)) {
+                // a plain scaled copy rather than nothing
+                gfx_rapi->resolve_msaa_color_buffer(0, src);
+            }
+            gfxFramebuffer = (uintptr_t)gfx_rapi->get_framebuffer_texture_id(src);
+        } else if (gfx_msaa_level > 1) {
+            gfx_rapi->resolve_msaa_color_buffer(0, game_framebuffer);
         } else {
             gfxFramebuffer = (uintptr_t)gfx_rapi->get_framebuffer_texture_id(game_framebuffer);
         }
@@ -4462,7 +4474,7 @@ extern "C" void gfx_copy_framebuffer(int fb_dst, int fb_src, int left, int top, 
             // flip Y
             top = gfx_current_dimensions.height - top - 1;
         }
-        if (use_back && gfx_msaa_level > 1) {
+        if (use_back && game_renders_to_framebuffer) {
             // read from the framebuffer we've been rendering to
             fb_src = game_framebuffer;
         }
