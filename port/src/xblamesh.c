@@ -10084,6 +10084,168 @@ s32 xblaMeshModelHasMesh(struct model *model)
 	return cacheresult;
 }
 
+/**
+ * How far to move what a chr holds in one hand so that it sits in the hand the
+ * GoldenEye XBLA character draws there, in the space of the hand's own matrix;
+ * 0 where the chr is not drawn as one.
+ *
+ * A held gun hangs off the hand's matrix, where GoldenEye's N64 hand closes
+ * round it. Bean's HD body is skinned onto the same matrices, but its fist is
+ * modelled somewhere else relative to that joint - higher up and further along
+ * the arm - so in the HD look every gun hung below the hand holding it, the
+ * silenced PP7's grip a whole fist under Bond's knuckles in third person (F3
+ * 20260924-053452). The N64 look draws GoldenEye's own hand and is right.
+ *
+ * Measured, once per model and hand: the centre of the HD vertices the hand's
+ * matrix carries most of, taken out of the bind pose into the hand's space
+ * (the same invbind the pose uses), less the centre of the N64 lists drawn
+ * under that matrix. The difference is where the one hand sits against the
+ * other, and the gun is moved by it.
+ */
+s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[3])
+{
+	static struct {
+		const struct xblameshbuilt *m;
+		const struct modeldef *modeldef;
+		s32 mtx;
+		s32 ok;
+		f32 off[3];
+	} cache[8];
+	static s32 nextcache;
+	struct modelnode *nodes[128];
+	const struct xblameshbuilt *m = NULL;
+	const struct modeldef *modeldef;
+	f64 hd[3] = { 0.0, 0.0, 0.0 };
+	f64 n64[3] = { 0.0, 0.0, 0.0 };
+	s32 numhd = 0;
+	s32 numn64 = 0;
+	s32 mtx;
+	s32 n;
+	s32 c;
+
+	out[0] = out[1] = out[2] = 0.0f;
+
+	if (!model || !model->definition || !handnode || !optEnabled || opened <= 0 || !beanBuilt[0]
+			|| !gebeanGetEnabled()) {
+		return 0;
+	}
+
+	modeldef = model->definition;
+	n = xblaMeshEnumListNodes(model->definition, nodes, ARRAYCOUNT(nodes));
+
+	for (s32 i = 0; i < n && i < (s32)ARRAYCOUNT(nodes) && !m; i++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(nodes[i]);
+
+		// the body's own lists, drawn as Bean's character (xblaMeshRenderNode()'s frombean)
+		if (e && e->node == nodes[i] && e->modeldef == modeldef && e->beanrow >= 0
+				&& e->packpart != XBLAMESH_NOPART && !gebeanRowIsFirstPerson(e->beanrow)
+				&& !(e->matched && xblaMeshEntryLive(e)) && !modelpackFindN64(e->fileid)
+				&& beanBuilt[0][e->fileid] && beanBuilt[0][e->fileid]->state > 0) {
+			m = beanBuilt[0][e->fileid];
+		}
+	}
+
+	if (!m || !m->bindpos || !m->invbind || !m->bones || !m->weights) {
+		return 0;
+	}
+
+	mtx = modelFindNodeMtxIndex(handnode, 0);
+
+	if (mtx < 0 || mtx >= m->nummatrices || mtx >= modeldef->nummatrices) {
+		return 0;
+	}
+
+	for (c = 0; c < ARRAYCOUNT(cache); c++) {
+		if (cache[c].m == m && cache[c].modeldef == modeldef && cache[c].mtx == mtx) {
+			out[0] = cache[c].off[0];
+			out[1] = cache[c].off[1];
+			out[2] = cache[c].off[2];
+
+			return cache[c].ok;
+		}
+	}
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const u8 *bn = &m->bones[i * 4];
+		const f32 *wt = &m->weights[i * 3];
+		const s32 num = bn[3] < 3 ? bn[3] : 3;
+		struct coord in;
+		struct coord pos;
+
+		for (s32 j = 0; j < num; j++) {
+			if (bn[j] == mtx && wt[j] >= 0.6f) {
+				in.x = m->bindpos[i * 3];
+				in.y = m->bindpos[i * 3 + 1];
+				in.z = m->bindpos[i * 3 + 2];
+				mtx4TransformVec((Mtxf *)&m->invbind[mtx], &in, &pos);
+				hd[0] += pos.x;
+				hd[1] += pos.y;
+				hd[2] += pos.z;
+				numhd++;
+				break;
+			}
+		}
+	}
+
+	for (s32 i = 0; i < n && i < (s32)ARRAYCOUNT(nodes); i++) {
+		const Vtx *vertices;
+		s32 numvertices;
+
+		if ((nodes[i]->type & 0xff) == MODELNODETYPE_DL) {
+			vertices = nodes[i]->rodata->dl.vertices;
+			numvertices = nodes[i]->rodata->dl.numvertices;
+		} else if ((nodes[i]->type & 0xff) == MODELNODETYPE_GUNDL) {
+			vertices = nodes[i]->rodata->gundl.vertices;
+			numvertices = nodes[i]->rodata->gundl.numvertices;
+		} else {
+			continue;
+		}
+
+		if (!vertices || modelFindNodeMtxIndex(nodes[i], 0) != mtx) {
+			continue;
+		}
+
+		for (s32 v = 0; v < numvertices; v++) {
+			n64[0] += vertices[v].x;
+			n64[1] += vertices[v].y;
+			n64[2] += vertices[v].z;
+			numn64++;
+		}
+	}
+
+	c = nextcache;
+	nextcache = (nextcache + 1) % ARRAYCOUNT(cache);
+	cache[c].m = m;
+	cache[c].modeldef = modeldef;
+	cache[c].mtx = mtx;
+	cache[c].ok = 0;
+	cache[c].off[0] = cache[c].off[1] = cache[c].off[2] = 0.0f;
+
+	if (numhd >= 8 && numn64 >= 3) {
+		f32 len = 0.0f;
+
+		for (s32 a = 0; a < 3; a++) {
+			cache[c].off[a] = (f32)(hd[a] / numhd - n64[a] / numn64);
+			len += cache[c].off[a] * cache[c].off[a];
+		}
+
+		// A hand is a few dozen units across; an answer the size of a forearm
+		// is a mesh that weights something else to the wrist, and is left alone
+		cache[c].ok = len < 150.0f * 150.0f;
+
+		sysLogPrintf(LOG_NOTE, "xblamesh: held item on matrix %d of %p moved %.1f %.1f %.1f into the HD hand "
+				"(%d HD vertices, %d N64)%s", mtx, (const void *)modeldef,
+				cache[c].off[0], cache[c].off[1], cache[c].off[2], numhd, numn64,
+				cache[c].ok ? "" : " - too far, left where it was");
+	}
+
+	out[0] = cache[c].ok ? cache[c].off[0] : 0.0f;
+	out[1] = cache[c].ok ? cache[c].off[1] : 0.0f;
+	out[2] = cache[c].ok ? cache[c].off[2] : 0.0f;
+
+	return cache[c].ok;
+}
+
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef)
 {
 	if (!modeldef || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built) {
@@ -10787,6 +10949,7 @@ void xblaMeshResetModels(void) { }
 void xblaMeshHitBegin(void) { }
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
+s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[3]) { return 0; }
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef) { return 0; }
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,

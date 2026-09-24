@@ -2344,8 +2344,27 @@ void chr0f022214(struct chrdata *chr, struct prop *prop, bool fulltick)
 		u32 stack;
 		Mtxf sp80;
 		Mtxf sp40;
+#ifndef PLATFORM_N64
+		Mtxf held;
+		f32 heldoff[3];
+#endif
 
 		prop->flags |= PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK;
+
+#ifndef PLATFORM_N64
+		// Into the hand a GoldenEye XBLA character draws, which is not where
+		// GoldenEye's N64 hand closes round the gun (xblaMeshHeldOffset())
+		if ((obj->hidden & OBJHFLAG_EMBEDDED) == 0 && CHRRACE(chr) != RACE_SKEDAR
+				&& xblaMeshHeldOffset(model->attachedtomodel, model->attachedtonode, heldoff)) {
+			held = *sp104;
+
+			for (s32 a = 0; a < 3; a++) {
+				held.m[3][a] += heldoff[0] * sp104->m[0][a] + heldoff[1] * sp104->m[1][a] + heldoff[2] * sp104->m[2][a];
+			}
+
+			sp104 = &held;
+		}
+#endif
 
 		if (obj->hidden & OBJHFLAG_EMBEDDED) {
 			mtx00015be4(sp104, &obj->embedment->matrix, &sp80);

@@ -139,6 +139,12 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node);
 s32 xblaMeshModelHasMesh(struct model *model);
 
 /**
+ * How far a held item is moved in its hand's space to sit in the GoldenEye XBLA
+ * character's hand rather than GoldenEye's N64 one; 0 where there is none.
+ */
+s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[3]);
+
+/**
  * chrBruise() (chr.c) is bruising the model at pos, in bboxnode's own space,
  * with the bruise's alpha: the release's mesh takes the bruise where the shot
  * landed rather than at the stock vertex nearest it. See "Wounds" in
