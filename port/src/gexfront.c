@@ -3890,6 +3890,17 @@ static void frontColourSlides(void)
 			colours[i].a = 0xff;
 		}
 	}
+
+	// the release's folder draws slides of its own, lit the same way
+	if (count == 4 * NUM_MISSIONS) {
+		Col slides[NUM_MISSIONS];
+
+		for (s32 m = 0; m < NUM_MISSIONS; m++) {
+			slides[m] = colours[m * 4];
+		}
+
+		geFolderBeanColourSlides(node, slides, NUM_MISSIONS);
+	}
 }
 
 /**

@@ -1166,6 +1166,11 @@ const void *geFolderBackdrop(void)
 #define BEANFOLDER_BATCH    24   // vertices a G_VTX (see XBLAMESH_BATCH)
 #define BEANFOLDER_TEXELS   32   // a stand-in's nominal square
 
+// A draw the release makes with no picture at all: the mission grid's black
+// board (its triangles name the clip's picture with every uv at 0, and the
+// release binds nothing for them - the draw log's untextured 256)
+#define BEANFOLDER_NOTEX    -2
+
 // ROM node 0 is the frame the folder stands in (gexfront.c's backdrop), 1 the
 // tabs, 2 the paper, 3 the blank page, 4 and 5 the slides and their film
 // strip, 6-10 the stamps, 11-16 the photograph of Bond, its clip and its
@@ -1194,6 +1199,7 @@ static struct {
 	Gfx *gdl[BEANFOLDER_ROMNODES];
 	Vtx *vtx[BEANFOLDER_ROMNODES];
 	Col *col[BEANFOLDER_ROMNODES];
+	s32 numvtx[BEANFOLDER_ROMNODES];
 	struct modelnode *nodes[BEANFOLDER_ROMNODES];
 	Gfx *saved[BEANFOLDER_ROMNODES];
 	s32 swapped;
@@ -1230,6 +1236,14 @@ static s32 beanFolderRomFor(const struct gebeanmodeldraw *d)
 static void beanFolderTake(const struct gebeanmodeldraw *d, void *arg)
 {
 	const s32 rom = beanFolderRomFor(d);
+	s32 tex = BEANFOLDER_NOTEX;
+
+	for (s32 i = 0; i < d->numvtx; i++) {
+		if (d->vtx[i].uv[0] != 0.0f || d->vtx[i].uv[1] != 0.0f) {
+			tex = d->tex;
+			break;
+		}
+	}
 
 	if (rom < 0) {
 		sysLogPrintf(LOG_WARNING, "gefolder: the release's folder draws node %d (section %d), "
@@ -1251,7 +1265,7 @@ static void beanFolderTake(const struct gebeanmodeldraw *d, void *arg)
 		}
 
 		beanFolder.tris[beanFolder.numtris].rom = rom;
-		beanFolder.tris[beanFolder.numtris].tex = d->tex;
+		beanFolder.tris[beanFolder.numtris].tex = tex;
 		memcpy(beanFolder.tris[beanFolder.numtris].v, &d->vtx[i], sizeof(struct gebeanmodelvtx) * 3);
 		beanFolder.numtris++;
 	}
@@ -1373,9 +1387,14 @@ static s32 beanFolderListMatrix(const struct modelnode *node, Gfx *out)
 #define BEANFOLDER_PICTURE 0
 #define BEANFOLDER_MASK    1
 #define BEANFOLDER_STAMP   2
+#define BEANFOLDER_PLAIN   3
 
 static s32 beanFolderKind(s32 tex)
 {
+	if (tex == BEANFOLDER_NOTEX) {
+		return BEANFOLDER_PLAIN;
+	}
+
 	if (tex >= 64 && tex <= 66) {
 		return BEANFOLDER_MASK;
 	}
@@ -1421,7 +1440,9 @@ static Gfx *beanFolderPictureState(Gfx *g, s32 tex)
 	gDPSetTextureLUT(g++, G_TT_NONE);
 	gDPSetAlphaCompare(g++, G_AC_NONE);
 
-	if (beanFolderKind(tex) == BEANFOLDER_STAMP) {
+	if (beanFolderKind(tex) == BEANFOLDER_PLAIN) {
+		gDPSetCombineLERP(g++, 0, 0, 0, SHADE, 0, 0, 0, SHADE, 0, 0, 0, SHADE, 0, 0, 0, SHADE);
+	} else if (beanFolderKind(tex) == BEANFOLDER_STAMP) {
 		gDPSetCombineLERP(g++, 0, 0, 0, SHADE, TEXEL0, 0, SHADE, 0, 0, 0, 0, SHADE, TEXEL0, 0, SHADE, 0);
 	} else {
 		gDPSetCombineLERP(g++, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0);
@@ -1447,6 +1468,7 @@ static void beanFolderFree(void)
 		beanFolder.gdl[i] = NULL;
 		beanFolder.vtx[i] = NULL;
 		beanFolder.col[i] = NULL;
+		beanFolder.numvtx[i] = 0;
 		beanFolder.nodes[i] = NULL;
 	}
 
@@ -1531,7 +1553,7 @@ static Gfx *beanFolderBuildList(struct gebeanpictures *pics, s32 rom, const f32 
 			struct textureconfig tc;
 
 			memset(&tc, 0, sizeof(tc));
-			tc.textureptr = (u8 *)beanFolderTile(pics, t->tex);
+			tc.textureptr = t->tex >= 0 ? (u8 *)beanFolderTile(pics, t->tex) : NULL;
 			tc.width = BEANFOLDER_TEXELS;
 			tc.height = BEANFOLDER_TEXELS;
 			tc.format = G_IM_FMT_RGBA;
@@ -1605,6 +1627,7 @@ static Gfx *beanFolderBuildList(struct gebeanpictures *pics, s32 rom, const f32 
 
 	*outvtx = vtx;
 	*outcol = col;
+	beanFolder.numvtx[rom] = nv;
 
 	return gdl;
 }
@@ -1712,6 +1735,59 @@ void geFolderBeanSwap(struct model *model, s32 on)
 		}
 
 		beanFolder.swapped = 0;
+	}
+}
+
+void geFolderBeanColourSlides(struct modelnode *node, const Col *colours, s32 numslides)
+{
+	const struct modelrodata_dl *dl;
+	s32 rom = -1;
+
+	if (!node || beanFolder.built <= 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < BEANFOLDER_ROMNODES; i++) {
+		if (beanFolder.nodes[i] == node) {
+			rom = i;
+			break;
+		}
+	}
+
+	if (rom < 0 || !beanFolder.col[rom]) {
+		return;
+	}
+
+	// the release's slides are its own quads in its own order, so each vertex
+	// takes the colour of the ROM slide whose middle it is nearest
+	dl = &node->rodata->dl;
+
+	if (dl->numvertices < numslides * 4) {
+		return;
+	}
+
+	for (s32 i = 0; i < beanFolder.numvtx[rom]; i++) {
+		const Vtx *v = &beanFolder.vtx[rom][i];
+		f32 best = 1e30f;
+		s32 slide = 0;
+
+		for (s32 m = 0; m < numslides; m++) {
+			f32 x = 0, y = 0, d;
+
+			for (s32 j = 0; j < 4; j++) {
+				x += dl->vertices[m * 4 + j].x * 0.25f;
+				y += dl->vertices[m * 4 + j].y * 0.25f;
+			}
+
+			d = (v->x - x) * (v->x - x) + (v->y - y) * (v->y - y);
+
+			if (d < best) {
+				best = d;
+				slide = m;
+			}
+		}
+
+		beanFolder.col[rom][i] = colours[slide];
 	}
 }
 

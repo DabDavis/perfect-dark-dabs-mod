@@ -34,6 +34,14 @@ s32 geFolderBeanActive(void);
 struct model;
 void geFolderBeanSwap(struct model *model, s32 on);
 
+/**
+ * The mission grid's slides under the release's folder: `node` is GoldenEye's
+ * grid (four vertices a slide, in mission order) and `colours` one colour a
+ * slide, laid on the release's own slides by where they stand.
+ */
+struct modelnode;
+void geFolderBeanColourSlides(struct modelnode *node, const Col *colours, s32 numslides);
+
 /** Puts the ROM's own pictures back, for the model going away or the look changing. */
 void geFolderForget(void);
 
