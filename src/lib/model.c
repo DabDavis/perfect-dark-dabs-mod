@@ -2878,6 +2878,17 @@ void modelTickAnim(struct model *model, s32 lvupdate240, bool arg2)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * A gun's secondary lists drawn as decals (bondgun.c, GoldenEye's own model):
+ * GoldenEye paints lettering onto its guns in lists of their own, coplanar
+ * with the surface under them, and draws the gun with no z buffer at all, so
+ * order alone puts them on top. Drawn here with z, as every gun is, the two
+ * surfaces fought.
+ */
+s32 g_ModelXluDecal = 0;
+#endif
+
 void modelApplyRenderModeType1(struct modelrenderdata *renderdata)
 {
 	gDPPipeSync(renderdata->gdl++);
@@ -2988,6 +2999,11 @@ void modelApplyRenderModeType3(struct modelrenderdata *renderdata, bool arg1)
 			}
 		} else {
 			if (renderdata->zbufferenabled) {
+#ifndef PLATFORM_N64
+				if (g_ModelXluDecal) {
+					gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_DECAL2);
+				} else
+#endif
 				gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
 			} else {
 				gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_XLU_SURF2);
@@ -3148,6 +3164,11 @@ void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1)
 			}
 		} else {
 			if (renderdata->zbufferenabled) {
+#ifndef PLATFORM_N64
+				if (g_ModelXluDecal) {
+					gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_DECAL2);
+				} else
+#endif
 				gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
 			} else {
 				gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_XLU_SURF2);

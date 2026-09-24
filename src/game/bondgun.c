@@ -5061,7 +5061,13 @@ void bgunCreateHeldRocket(s32 handnum, struct weaponfunc_shootprojectile *func)
 		hand->firedrocket = false;
 #endif
 
-		obj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_ROCKET, g_Vars.currentplayer->prop->chr);
+		obj = weaponCreateProjectileFromWeaponNum(
+#ifndef PLATFORM_N64
+				gegunsOwnRocketModel(hand->gset.weaponnum, func->projectilemodelnum),
+#else
+				func->projectilemodelnum,
+#endif
+				WEAPON_ROCKET, g_Vars.currentplayer->prop->chr);
 
 		if (obj != NULL) {
 			hand->rocket = obj;
@@ -5227,7 +5233,13 @@ void bgunCreateFiredProjectile(s32 handnum)
 					weaponnum = WEAPON_HOMINGROCKET;
 				}
 
-				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, weaponnum, g_Vars.currentplayer->prop->chr);
+				weapon = weaponCreateProjectileFromWeaponNum(
+#ifndef PLATFORM_N64
+					gegunsOwnRocketModel(hand->gset.weaponnum, funcdef->projectilemodelnum),
+#else
+					funcdef->projectilemodelnum,
+#endif
+					weaponnum, g_Vars.currentplayer->prop->chr);
 			} else if (weaponHost(hand->gset.weaponnum) == WEAPON_CROSSBOW) {
 				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, WEAPON_BOLT, g_Vars.currentplayer->prop->chr);
 
@@ -11858,9 +11870,17 @@ void bgunRender(Gfx **gdlptr)
 				geshown = true;
 			}
 
+			// GoldenEye's own model paints its lettering in its secondary
+			// lists, flat on the surface under them (model.c)
+			g_ModelXluDecal = gegunsOwnModelInUse(weaponnum);
+
 			if (!geshown)
 #endif
 			modelRender(&renderdata, &hand->gunmodel);
+
+#ifndef PLATFORM_N64
+			g_ModelXluDecal = 0;
+#endif
 
 			// Render the hand
 			if (player->gunctrl.handmodeldef && renderhand

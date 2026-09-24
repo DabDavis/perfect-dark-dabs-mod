@@ -975,6 +975,25 @@ s32 gegunsOwnPropModel(s32 weaponnum)
 	return prop > 0 && g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid ? MODEL_REMAKE_FIRST + prop : -1;
 }
 
+/**
+ * The rocket a GoldenEye launcher holds and fires, where its own model is in
+ * the hand: GoldenEye's PROP_CHRROCKET (currentPlayerCreateRocket()), whose
+ * origin is its tail at the barrel's end. The host's Perfect Dark rocket has
+ * its origin further along its length, so it sat inside GoldenEye's tube with
+ * nothing showing at the mouth. `fallback` otherwise.
+ */
+s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback)
+{
+	const s32 model = MODEL_REMAKE_FIRST + 202; // PROP_CHRROCKET
+
+	if (weaponnum != WEAPON_GE_ROCKETLAUNCHER || !gegunsOwnModelInUse(weaponnum)
+			|| !g_ModelStates[model].fileid) {
+		return fallback;
+	}
+
+	return model;
+}
+
 static void gegunsSetPart(struct model *model, s32 part, s32 visible)
 {
 	struct modelnode *node = modelGetPart(model->definition, part);
@@ -1027,8 +1046,19 @@ struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef,
 
 	offset[0] = offset[1] = offset[2] = 0.0f;
 
-	if (!gegunsOwnModelInUse(weaponnum) || !(flash = modelGetPart(modeldef, 1))) {
+	if (!gegunsOwnModelInUse(weaponnum)) {
 		return NULL;
+	}
+
+	// The rocket launcher has part 3 and no flash switch over it, so its own
+	// matrix is always posed and is the barrel's end itself. GoldenEye reads
+	// part 3 whether or not there is a switch (gunfire.c's flashdata), and
+	// hangs the loaded rocket there; with no node the muzzle fell back to the
+	// hand's world matrix and the rocket was posed off in the distance.
+	if (!(flash = modelGetPart(modeldef, 1))) {
+		node = modelGetPart(modeldef, 3);
+
+		return node && (node->type & 0xff) == MODELNODETYPE_POSITION ? node : NULL;
 	}
 
 	base = modelFindNodeMtxIndex(flash, 0);

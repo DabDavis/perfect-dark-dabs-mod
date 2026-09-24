@@ -87,6 +87,9 @@ bool modelIsAnimMergingEnabled(void);
 void modelSetAnimFrame2WithChrStuff(struct model *model, f32 frame, f32 arg2, f32 frame2, f32 arg4);
 void modelTickAnimQuarterSpeed(struct model *model, s32 lvupdate240, bool arg2);
 void modelTickAnim(struct model *model, s32 lvupdate240, bool arg2);
+#ifndef PLATFORM_N64
+extern s32 g_ModelXluDecal;
+#endif
 void modelApplyRenderModeType1(struct modelrenderdata *renderdata);
 void modelApplyRenderModeType3(struct modelrenderdata *renderdata, bool arg1);
 void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1);
