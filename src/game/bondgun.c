@@ -561,11 +561,27 @@ void bgunSetPartVisible(s16 partnum, bool visible, struct hand *hand, struct mod
 	} else {
 		node = modelGetPart(modeldef, partnum);
 
+#ifdef PLATFORM_N64
 		if (node) {
 			struct modelrodata_toggle *rodata = &node->rodata->toggle;
 			u32 *ptr = &hand->unk0a6c[rodata->rwdataindex];
 			*ptr = visible;
 		}
+#else
+		// A converted GoldenEye gun is a model bigger than unk0a6c (its rwdata
+		// is biggunsavedata, bgunTickGunLoad()) whose parts are numbered by
+		// GoldenEye and switched by gegunsOwnModelParts(); Perfect Dark's part
+		// numbers mean nothing on it. A write here landed in unk0a6c at the
+		// node's index whatever the node was: the own model's { END } vis list
+		// showing part 0, a POSITIONHELD node, put a 1 in a display list word
+		// ("Unknown GBI opcode 0x103/0x104", fixed at the caller in 86f9c7449,
+		// crash 20260923-205630). Only a toggle within unk0a6c is written.
+		if (node && (node->type & 0xff) == MODELNODETYPE_TOGGLE
+				&& modeldef->rwdatalen <= (s16)ARRAYCOUNT(hand->unk0a6c)
+				&& node->rodata->toggle.rwdataindex < ARRAYCOUNT(hand->unk0a6c)) {
+			hand->unk0a6c[node->rodata->toggle.rwdataindex] = visible;
+		}
+#endif
 	}
 }
 
