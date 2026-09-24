@@ -644,7 +644,7 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 
 			if (weaponHost(weapon->weaponnum) == WEAPON_BRIEFCASE2) {
 				result = scenarioPickUpBriefcase(chr, prop);
-			} else if (weaponHost(weapon->weaponnum) == WEAPON_DATAUPLINK) {
+			} else if (weapon->weaponnum == WEAPON_DATAUPLINK) {
 				result = scenarioPickUpUplink(chr, prop);
 			} else {
 				propPlayPickupSound(prop, weapon->weaponnum);
@@ -2267,9 +2267,9 @@ s32 botFindTeammateToFollow(struct chrdata *chr, f32 range)
 
 void botScheduleReload(struct chrdata *chr, s32 handnum)
 {
-	chr->aibot->timeuntilreload60[handnum] = g_AibotWeaponPreferences[weaponHost(chr->aibot->weaponnum)].reloaddelay * (PAL ? 50 : 60);
+	chr->aibot->timeuntilreload60[handnum] = AIBOTPREF(chr->aibot->weaponnum).reloaddelay * (PAL ? 50 : 60);
 
-	if (g_AibotWeaponPreferences[weaponHost(chr->aibot->weaponnum)].allowpartialreloaddelay) {
+	if (AIBOTPREF(chr->aibot->weaponnum).allowpartialreloaddelay) {
 		s32 capacity = botactGetClipCapacityByFunction(chr->aibot->weaponnum, chr->aibot->gunfunc);
 
 		chr->aibot->timeuntilreload60[handnum] *= capacity - chr->aibot->loadedammo[handnum];
@@ -2277,8 +2277,8 @@ void botScheduleReload(struct chrdata *chr, s32 handnum)
 	}
 }
 
-#define HASENOUGHPRI(aibot, weaponnum, goal) (g_AibotWeaponPreferences[weaponHost(weaponnum)].haspriammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_PRIMARY, true) >= (goal))
-#define HASENOUGHSEC(aibot, weaponnum, goal) (g_AibotWeaponPreferences[weaponHost(weaponnum)].hassecammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_SECONDARY, true) >= (goal))
+#define HASENOUGHPRI(aibot, weaponnum, goal) (AIBOTPREF(weaponnum).haspriammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_PRIMARY, true) >= (goal))
+#define HASENOUGHSEC(aibot, weaponnum, goal) (AIBOTPREF(weaponnum).hassecammogoal && botactGetAmmoQuantityByWeapon(aibot, weaponnum, FUNC_SECONDARY, true) >= (goal))
 
 /**
  * Find a prop for the bot to pick up.
@@ -2464,7 +2464,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	for (i = 0; i < ARRAYCOUNT(weaponnums); i++) {
 		if (1);
 		if ((botinvAllowsWeapon(chr, weaponnums[i], FUNC_PRIMARY) || botinvAllowsWeapon(chr, weaponnums[i], FUNC_SECONDARY))
-				&& (g_AibotWeaponPreferences[weaponHost(weaponnums[i])].haspriammogoal || g_AibotWeaponPreferences[weaponHost(weaponnums[i])].hassecammogoal)
+				&& (AIBOTPREF(weaponnums[i]).haspriammogoal || AIBOTPREF(weaponnums[i]).hassecammogoal)
 				&& scores1[i] > bestscore1) {
 			bestscore1 = scores1[i];
 		}
@@ -2575,8 +2575,8 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	for (i = 0; i < ARRAYCOUNT(weaponnums) && !done; i++) {
 		if (weaponHost(weaponnums[i]) != WEAPON_MPSHIELD
 				&& invitems[i] != NULL
-				&& (g_AibotWeaponPreferences[weaponHost(weaponnums[i])].haspriammogoal
-					|| g_AibotWeaponPreferences[weaponHost(weaponnums[i])].hassecammogoal)
+				&& (AIBOTPREF(weaponnums[i]).haspriammogoal
+					|| AIBOTPREF(weaponnums[i]).hassecammogoal)
 				&& scores2[i] >= bestscore1) {
 			s32 desiredpriammo;
 			s32 desiredsecammo;
@@ -2600,13 +2600,13 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				// If the bot's team is only barely controlling the hill,
 				// don't leave it unless the bot is out of ammo, and even then
 				// just get one ammo pickup
-				desiredpriammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammopri;
+				desiredpriammo = AIBOTPREF(weaponnums[i]).criticalammopri;
 
 				if (desiredpriammo > 1) {
 					desiredpriammo = 1;
 				}
 
-				desiredsecammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammosec;
+				desiredsecammo = AIBOTPREF(weaponnums[i]).criticalammosec;
 
 				if (desiredsecammo > 1) {
 					desiredsecammo = 1;
@@ -2623,9 +2623,9 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				desiredsecammo = bgunGetCapacityByAmmotype(botactGetAmmoTypeByFunction(weaponnums[i], FUNC_SECONDARY));
 
 				// If bot has max ammo for both weapon's functions
-				if ((g_AibotWeaponPreferences[weaponHost(weaponnums[i])].haspriammogoal == false
+				if ((AIBOTPREF(weaponnums[i]).haspriammogoal == false
 							|| botactGetAmmoQuantityByWeapon(aibot, weaponnums[i], FUNC_PRIMARY, false) >= desiredpriammo)
-						&& (g_AibotWeaponPreferences[weaponHost(weaponnums[i])].hassecammogoal == false
+						&& (AIBOTPREF(weaponnums[i]).hassecammogoal == false
 							|| botactGetAmmoQuantityByWeapon(aibot, weaponnums[i], FUNC_SECONDARY, false) >= desiredsecammo)) {
 					// Consider next weapon
 					continue;
@@ -2634,8 +2634,8 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				include_equipped = false;
 			} else if (criteria == PICKUPCRITERIA_DEFAULT) {
 				// Default - use the target ammo amount
-				desiredpriammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].targetammopri;
-				desiredsecammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].targetammosec;
+				desiredpriammo = AIBOTPREF(weaponnums[i]).targetammopri;
+				desiredsecammo = AIBOTPREF(weaponnums[i]).targetammosec;
 
 				if (HASENOUGHPRI(aibot, weaponnums[i], desiredpriammo) || HASENOUGHSEC(aibot, weaponnums[i], desiredsecammo)) {
 					done = true;
@@ -2643,8 +2643,8 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 				}
 			} else if (criteria == PICKUPCRITERIA_CRITICAL) {
 				// Critical - use the critical ammo amount
-				desiredpriammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammopri;
-				desiredsecammo = g_AibotWeaponPreferences[weaponHost(weaponnums[i])].criticalammosec;
+				desiredpriammo = AIBOTPREF(weaponnums[i]).criticalammopri;
+				desiredsecammo = AIBOTPREF(weaponnums[i]).criticalammosec;
 
 				if (HASENOUGHPRI(aibot, weaponnums[i], desiredpriammo) || HASENOUGHSEC(aibot, weaponnums[i], desiredsecammo)) {
 					done = true;

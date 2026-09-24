@@ -1599,6 +1599,45 @@ static void gegunsNameThrow(s32 i)
 	}
 }
 
+/**
+ * A simulant's view of GoldenEye gun i (g_GeAibotWeaponPreferences, read
+ * through AIBOTPREF()): its host's row, less a second function the gun no
+ * longer has - a simulant chose it, loaded nothing and held a gun it never
+ * fired - with the throwing knife's throw as its first, and dual scores where
+ * the host's row has none but the gun can be held in both hands (the KF7, the
+ * D5Ks, the AR33 and the RC-P90 stand on the port's classic rows, whose dual
+ * scores are 0), by the rows' own step (the ZZT's 116/128 to 136/152).
+ */
+static void gegunsBotPrefs(s32 i)
+{
+	const struct weapon *def = &g_GeWeaponDefs[i];
+	struct aibotweaponpreference *pref = &g_GeAibotWeaponPreferences[i];
+
+	*pref = g_AibotWeaponPreferences[g_GeWeaponHosts[i]];
+
+	if (WEAPON_GE_FIRST + i == WEAPON_GE_THROWINGKNIFE) {
+		pref->unk00 = pref->unk01;
+		pref->unk02 = pref->unk03;
+		pref->haspriammogoal = pref->hassecammogoal;
+		pref->pridistconfig = pref->secdistconfig;
+		pref->targetammopri = pref->targetammosec;
+		pref->criticalammopri = pref->criticalammosec;
+	}
+
+	if (!def->functions[1]) {
+		pref->unk01 = 0;
+		pref->unk03 = 0;
+		pref->hassecammogoal = 0;
+		pref->targetammosec = 0;
+		pref->criticalammosec = 0;
+	}
+
+	if ((def->flags & WEAPONFLAG_DUALWIELD) && pref->unk02 == 0 && pref->unk03 == 0) {
+		pref->unk02 = pref->unk00 + 20;
+		pref->unk03 = pref->unk01 ? pref->unk01 + 24 : 0;
+	}
+}
+
 /** The stock model state a GoldenEye gun's host is picked up as. */
 s32 gegunsHostModel(s32 index)
 {
@@ -1620,6 +1659,7 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 
 		gegunsBuild(i, host, host);
 		gegunsOwnTrigger(i);
+		gegunsBotPrefs(i);
 
 		gegunsNameThrow(i);
 

@@ -2147,7 +2147,9 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 			prop->forcetick = true;
 			obj->flags |= OBJFLAG_INVINCIBLE | OBJFLAG_FORCENOBOUNCE;
 			obj->flags2 |= OBJFLAG2_IMMUNETOGUNFIRE | OBJFLAG2_IMMUNETOEXPLOSIONS;
-		} else if (weaponHost(weapon->weaponnum) == WEAPON_DATAUPLINK) {
+		} else if (weapon->weaponnum == WEAPON_DATAUPLINK) {
+			// the uplink itself, by number: GoldenEye's gadgets stand on it
+			// (weaponHost()) and are not Hacker Central's
 			if (g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL) {
 				g_ScenarioData.htm.uplink = prop;
 			}
@@ -17652,7 +17654,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 					return sp64;
 				}
 
-				if (weaponHost(weapon->weaponnum) == WEAPON_DATAUPLINK) {
+				if (weapon->weaponnum == WEAPON_DATAUPLINK) {
 					sp64 = scenarioPickUpUplink(g_Vars.currentplayer->prop->chr, prop);
 
 					if (sp64) {
@@ -21633,7 +21635,7 @@ void currentPlayerDropAllItems(void)
 			if (!weaponHasFlag(i, WEAPONFLAG_UNDROPPABLE)
 					|| (g_Vars.normmplayerisrunning
 						&& g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL
-						&& weaponHost(i) == WEAPON_DATAUPLINK)) {
+						&& i == WEAPON_DATAUPLINK)) {
 #if VERSION >= VERSION_NTSC_1_0
 				if (g_Vars.coopplayernum >= 0) {
 					bool canremove = true;

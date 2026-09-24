@@ -18,6 +18,10 @@
 #include "data.h"
 #include "types.h"
 
+#ifndef PLATFORM_N64
+struct aibotweaponpreference g_GeAibotWeaponPreferences[NUM_GE_WEAPONS];
+#endif
+
 struct aibotweaponpreference g_AibotWeaponPreferences[] = {
 	//                             haspriammogoal
 	//                             |  hassecammogoal
@@ -497,14 +501,14 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 	// @dangerous: Array overflow can occur if more weapons are added to the
 	// game without extending the preferences table
 	if (arg3 < 0
-			|| (!funcnum && arg3 == g_AibotWeaponPreferences[weaponHost(weaponnum)].haspriammogoal)
-			|| (funcnum && arg3 == g_AibotWeaponPreferences[weaponHost(weaponnum)].hassecammogoal)) {
+			|| (!funcnum && arg3 == AIBOTPREF(weaponnum).haspriammogoal)
+			|| (funcnum && arg3 == AIBOTPREF(weaponnum).hassecammogoal)) {
 		if (arg4) {
-			score1 = g_AibotWeaponPreferences[weaponHost(weaponnum)].unk02;
-			score2 = g_AibotWeaponPreferences[weaponHost(weaponnum)].unk03;
+			score1 = AIBOTPREF(weaponnum).unk02;
+			score2 = AIBOTPREF(weaponnum).unk03;
 		} else {
-			score1 = g_AibotWeaponPreferences[weaponHost(weaponnum)].unk00;
-			score2 = g_AibotWeaponPreferences[weaponHost(weaponnum)].unk01;
+			score1 = AIBOTPREF(weaponnum).unk00;
+			score2 = AIBOTPREF(weaponnum).unk01;
 		}
 
 		if (chr && chr->aibot) {
@@ -857,10 +861,10 @@ void botinvScoreWeaponByItself(struct chrdata *chr, s32 weaponnum, s32 funcnum, 
 s32 botinvGetDistConfig(s32 weaponnum, s32 funcnum)
 {
 	if (funcnum != FUNC_PRIMARY) {
-		return g_AibotWeaponPreferences[weaponHost(weaponnum)].secdistconfig;
+		return AIBOTPREF(weaponnum).secdistconfig;
 	}
 
-	return g_AibotWeaponPreferences[weaponHost(weaponnum)].pridistconfig;
+	return AIBOTPREF(weaponnum).pridistconfig;
 }
 
 /**
@@ -873,11 +877,11 @@ bool botinvAllowsWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 
 	if (chr->aibot->config->type == BOTTYPE_FIST) {
 		if (funcnum != FUNC_PRIMARY) {
-			if (g_AibotWeaponPreferences[weaponHost(weaponnum)].secdistconfig != BOTDISTCFG_CLOSE) {
+			if (AIBOTPREF(weaponnum).secdistconfig != BOTDISTCFG_CLOSE) {
 				allow = false;
 			}
 		} else {
-			if (g_AibotWeaponPreferences[weaponHost(weaponnum)].pridistconfig != BOTDISTCFG_CLOSE) {
+			if (AIBOTPREF(weaponnum).pridistconfig != BOTDISTCFG_CLOSE) {
 				allow = false;
 			}
 		}
@@ -991,12 +995,14 @@ void botinvTick(struct chrdata *chr)
 				if (weaponnum >= 0) {
 					for (j = 1; j >= 0; j--) {
 						if (j != FUNC_PRIMARY) {
-							canuse = g_AibotWeaponPreferences[weaponHost(weaponnum)].hassecammogoal;
+							canuse = AIBOTPREF(weaponnum).hassecammogoal;
 						} else {
-							canuse = g_AibotWeaponPreferences[weaponHost(weaponnum)].haspriammogoal;
+							canuse = AIBOTPREF(weaponnum).haspriammogoal;
 						}
 
-						if (canuse && botinvAllowsWeapon(chr, weaponnum, j)) {
+						// A function the weapon lacks reads as needing no ammunition,
+						// and a simulant that chose it held a gun it never fired
+						if (canuse && weaponGetFunctionById(weaponnum, j) && botinvAllowsWeapon(chr, weaponnum, j)) {
 							botinvScoreWeaponAgainstTarget(chr, weaponnum, j, 1, item && item->type == INVITEMTYPE_DUAL, &score1, &score2);
 
 							if (score1 >= bestscore) {
@@ -1013,8 +1019,10 @@ void botinvTick(struct chrdata *chr)
 			}
 		}
 
-		// Consider setting knives to secondary function (throw)
+		// Consider setting knives to secondary function (throw). GoldenEye's
+		// knives have one function each, the throwing knife's its throw
 		if (weaponHost(newweaponnum) == WEAPON_COMBATKNIFE
+				&& !WEAPON_IS_GE(newweaponnum)
 				&& botactGetAmmoQuantityByWeapon(aibot, WEAPON_COMBATKNIFE, FUNC_SECONDARY, true) >= 2
 				&& chr->target != -1
 				&& botGetDistanceToTarget(chr) > 200
@@ -1164,7 +1172,7 @@ void botinvDrop(struct chrdata *chr, s32 weaponnum, u8 dropall)
 			if (!weaponHasFlag(item->type_weap.weapon1, WEAPONFLAG_UNDROPPABLE)
 					|| (g_Vars.normmplayerisrunning
 						&& g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL
-						&& weaponHost(item->type_weap.weapon1) == WEAPON_DATAUPLINK)) {
+						&& item->type_weap.weapon1 == WEAPON_DATAUPLINK)) {
 				s32 modelnum = playermgrGetModelOfWeapon(item->type_weap.weapon1);
 
 				if (modelnum > 0) {

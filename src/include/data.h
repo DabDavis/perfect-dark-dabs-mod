@@ -570,6 +570,16 @@ extern u32 g_TeamColours[];
 extern u32 var80087ce4[];
 extern u8 g_BotCount;
 extern struct aibotweaponpreference g_AibotWeaponPreferences[];
+#ifndef PLATFORM_N64
+// A simulant's view of each of GoldenEye's guns, built from its host's row and
+// its own definition (geguns.c); AIBOTPREF() picks the row for a weapon number
+extern struct aibotweaponpreference g_GeAibotWeaponPreferences[NUM_GE_WEAPONS];
+#define AIBOTPREF(weaponnum) (WEAPON_IS_GE(weaponnum) \
+		? g_GeAibotWeaponPreferences[(weaponnum) - WEAPON_GE_FIRST] \
+		: g_AibotWeaponPreferences[weaponnum])
+#else
+#define AIBOTPREF(weaponnum) (g_AibotWeaponPreferences[weaponnum])
+#endif
 extern u32 var80087eb4;
 extern struct challenge g_MpChallenges[30];
 extern u8 g_FrIsValidWeapon;
