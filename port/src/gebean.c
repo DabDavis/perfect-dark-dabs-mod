@@ -2026,6 +2026,8 @@ struct beandraw {
 	u32 count;
 	u32 ib;
 	s16 inst;     // the instance matrix it is drawn under (bm->insts), or -1
+	u8 blend;     // in the release's blended pass (beanWalkStream())
+	u8 alpha;     // its material colour's alpha, 255 for none
 	u8 numpal;
 	u8 pal[BEAN_MAXPAL];
 };
@@ -2071,6 +2073,8 @@ struct beanmodel {
 
 	s32 numtex;
 	s32 texfile[GEBEAN_MAXMATS]; // a texture's header, by file index
+	// The pane of a glass material in the blended pass (beanWalkStream())
+	u8 glasspane[GEBEAN_MAXMATS];
 
 	s32 numibs;
 	struct beanib ibs[BEAN_MAXIBS];
@@ -2447,13 +2451,27 @@ static u32 beanTexArea(const struct beanmodel *bm, u32 t)
 }
 
 /**
- * One of the release's two shared maps laid over glass: the 54x54 scratch map
- * (Boris's lenses, the pilot's and the bike helmet's visors) and the 256x256
+ * One of the release's shared maps laid over glass: the 54x54 scratch map
+ * (Boris's lenses, the pilot's and the bike helmet's visors), the 256x256
  * reflection map, black with a few lights in it, over the window prop, the gas
- * plant's clear door, the military truck's windscreen and Bunker's panes.
+ * plant's clear door, the military truck's windscreen and Bunker's panes
+ * (named with ".bmp" in the door's file and the truck's, which the door's
+ * glass never matched: it drew as the black mirror), and three more copies of the scratch map under names of their own - over the lab
+ * glassware and the GoldenEye key's glass, over the jeep's windscreen, and over
+ * Frigate's speedboat windscreen in the level. Taken for the picture, the
+ * glassware drew as solid flasks striped grey and black (F3 20260924-235150,
+ * Facility's lab) and the speedboat's windscreen as black leather.
  */
 static s32 beanTexIsGlassOverlay(const struct beanmodel *bm, u32 t)
 {
+	static const char *const names[] = {
+		"_0x059B9F65.tga.bin",
+		"_0x00B5FD45.bin",
+		"_0x00B5FD45.bmp.bin",
+		"_0x03B30B95.tga.bin",
+		"_0x018952E5.tga.bin",
+		"_0x0F0BCEB5.tga.bin",
+	};
 	const char *name;
 
 	if (t >= (u32)bm->numtex) {
@@ -2462,7 +2480,13 @@ static s32 beanTexIsGlassOverlay(const struct beanmodel *bm, u32 t)
 
 	name = caffAssetName(&bm->caff, bm->caff.files[bm->texfile[t]].asset);
 
-	return name && (strcmp(name, "_0x059B9F65.tga.bin") == 0 || strcmp(name, "_0x00B5FD45.bin") == 0);
+	for (u32 i = 0; name && i < ARRAYCOUNT(names); i++) {
+		if (strcmp(name, names[i]) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 /**
@@ -2565,6 +2589,11 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 pal[BEAN_MAXPAL];
 	u8 numpal = 1;
 	s16 inst = -1;
+	u8 passblend = 0;
+	u8 blend = 0;
+	u8 alpha = 0xff;
+	u32 secend = 0;
+	u8 secblend = 0;
 
 	pal[0] = 0;
 
@@ -2586,6 +2615,8 @@ static void beanWalkStream(struct beanmodel *bm)
 		if (size < 4 || !gebeanFits(pc, size, len)) {
 			break;
 		}
+
+		blend = secend && pc < secend ? secblend : passblend;
 
 		if (type == 0x16) {
 			if (!gebeanFits(pc, 12, len)) {
@@ -2628,8 +2659,42 @@ static void beanWalkStream(struct beanmodel *bm)
 			}
 		} else if (type == 0x2e && size >= 12) {
 			vb = gebeanBE32(st + pc + 8);
+		} else if (type == 0x1a && size >= 8) {
+			// The pass what follows is drawn in, by its low byte: 1 the opaque
+			// one, 2 the blended one (source alpha over the rest, set by the
+			// 0x0c render states after it), 3 both, where 0x15 records mark out
+			// the sections of each - 0x4701 on most props, 0x4702 on the
+			// window and the glassware, 0x4703 on the speedboat.
+			passblend = (gebeanBE32(st + pc + 4) & 0xff) == 2;
+			secend = 0;
+			blend = passblend;
+		} else if (type == 0x15 && size >= 12) {
+			// {where the section ends, its pass}: a level's glass is a 0x4702
+			// or 0x2702 section among 0x4701s
+			secend = gebeanBE32(st + pc + 4);
+			secblend = (gebeanBE32(st + pc + 8) & 0xff) == 2;
 		} else if (type == 0x2d && size >= 20) {
 			tex = beanMaterialTexture(bm, st, pc, size, len);
+			alpha = 0xff;
+
+			// Glass: a pane under one of the shared maps, in the blended pass
+			if (blend && tex < (u32)bm->numtex && !beanTexIsGlassOverlay(bm, tex)) {
+				for (u32 k = 0; 12 + 8 * k + 8 <= size && gebeanFits(pc + 12 + 8 * k, 4, len); k++) {
+					if (beanTexIsGlassOverlay(bm, gebeanBE32(st + pc + 12 + 8 * k))) {
+						bm->glasspane[tex] = 1;
+					}
+				}
+			}
+		} else if (type == 0x06 && size >= 28 && gebeanBE32(st + pc + 4) == 0
+				&& (gebeanBE32(st + pc + 8) >> 16) == 0x0c) {
+			// The material's colour, pixel shader constant 12
+			// (c_constant0): {0, register << 16 | count, then four floats a
+			// register}. White on everything but glass, where it is a grey
+			// with the same alpha - the window's pane 0.56, the glassware's
+			// 0.51 - which the release multiplies into the picture's.
+			const f32 a = gebeanBEF32(st + pc + 24);
+
+			alpha = a >= 1.0f ? 0xff : a <= 0.0f ? 0 : (u8)(a * 255.0f + 0.5f);
 		} else if (type == 0x13 && size >= 12) {
 			u32 count = gebeanBE16(st + pc + 8);
 
@@ -2681,6 +2746,8 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->count = gebeanBE32(st + pc + 8);
 				d->ib = gebeanBE32(st + pc + 12);
 				d->inst = inst;
+				d->blend = blend;
+				d->alpha = alpha;
 				d->numpal = numpal;
 				memcpy(d->pal, pal, numpal);
 			}
@@ -3246,6 +3313,25 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 
 				px[3] = hi <= cut ? 0 : 0xff;
 			}
+		}
+	}
+
+	// Every glass pane of a prop or a level that kept its alpha has it at a
+	// flat 119: the window's, the glassware's, the jeep's windscreen, the gas
+	// plant's clear door, the plane's and Jungle's. A pane that went to DXT1 lost it the
+	// way the N64 pictures lost theirs, and in the blended pass with nothing
+	// else to fade it - Frigate's speedboat windscreen, 0x54 of the level,
+	// has no material colour and opaque vertices - it drew as a solid sheet
+	// where GoldenEye has dark glass.
+	if (t < bm->numtex && bm->glasspane[t]) {
+		s32 opaque = 1;
+
+		for (u32 i = 0; i < w * h && opaque; i++) {
+			opaque = rgba[i * 4 + 3] == 0xff;
+		}
+
+		for (u32 i = 0; opaque && i < w * h; i++) {
+			rgba[i * 4 + 3] = 119;
 		}
 	}
 
@@ -4528,7 +4614,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 numparts = 0;
 	s32 numpartverts = 0;
 	s32 numdecals;
+	s32 numglass = 0;
+	u8 glass[GEBEAN_MAXMATS];
 	u8 *file;
+
+	memset(glass, 0, sizeof(glass));
 
 	// An odd permutation of three axes swaps two; each negative sign mirrors once
 	mirror = (g->perm[0] == 0) + (g->perm[1] == 1) + (g->perm[2] == 2) == 1;
@@ -4663,6 +4753,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				u8 bone[3] = { (u8)mtx, (u8)mtx, (u8)mtx };
 				const f32 weight[3] = { 1.0f, 0.0f, 0.0f };
 				s32 part = -1;
+				u32 argb;
 
 				if (mapped[vi] >= 0) {
 					idx[i] = (u16)mapped[vi];
@@ -4709,8 +4800,25 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// motorbike's handlebars and mudguard. The texture under those
 				// vertices is painted (the jeep's is bright under 96% of them),
 				// and drawn black the bike's bars came out as flat black shapes.
-				mapped[vi] = beanAddVertex(&out, pos, nrm, v.uv, bone, weight,
-						v.argb == 0xff000000 ? 0xffffffff : v.argb);
+				argb = v.argb == 0xff000000 ? 0xffffffff : v.argb;
+
+				// Glass in the release's blended pass: its material colour's
+				// alpha (0.56 on the window, 0.51 on the glassware) times the
+				// vertex's. The material colour, and not the vertex alpha, says
+				// what is glass: the N64 vertex alpha Bean kept is often the
+				// fog's (the crypt doors' blended draws are 0 on every vertex).
+				if (d->blend && d->alpha < 0xff) {
+					const u32 a = ((argb >> 24) * d->alpha + 127) / 255;
+
+					argb = (argb & 0x00ffffff) | (a << 24);
+
+					if (d->tex < GEBEAN_MAXMATS && !glass[d->tex]) {
+						glass[d->tex] = 1;
+						numglass++;
+					}
+				}
+
+				mapped[vi] = beanAddVertex(&out, pos, nrm, v.uv, bone, weight, argb);
 
 				if (mapped[vi] < 0) {
 					ok = 0;
@@ -4762,6 +4870,14 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				&& mats->alpha[i]) {
 			matwords[i] |= 0x8000;
 		}
+
+		// Blended and without a depth write, as the release draws it, however
+		// opaque the picture: the fade is in the vertices (xblaMeshDrawSpan())
+		if (glass[i]) {
+			mats->alpha[i] = 1;
+			mats->soft[i] = 1;
+			matwords[i] |= 0x8000;
+		}
 	}
 
 	for (s32 t = 0; t < out.numtris; t++) {
@@ -4774,8 +4890,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals), rigid on matrix %d of %d%s%s%s%s",
-			g->row.file, source, out.numverts, out.numtris, numdecals, mtx, nummatrices,
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass), rigid on matrix %d of %d%s%s%s%s",
+			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, mtx, nummatrices,
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
