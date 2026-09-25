@@ -2532,6 +2532,7 @@ static s32 numBeanFogs = -1;
 #define BEANFOG_DAM_LOW   (2782.0f + 13219.0f)
 #define BEANFOG_DAM_HIGH  (9161.0f + 13219.0f)
 #define BEANFOG_DAM       33
+#define BEANFOG_SURFACE2  43
 
 static u32 beBe32(const u8 *p)
 {
@@ -2664,6 +2665,16 @@ static void fogTableLoad(void)
 	for (s32 i = 0; i < numBeanFogs; i++) {
 		if (beanFogs[i].levelid == 34 && beanFogs[i].rgb == 0x102001) {
 			beanFogs[i].rgb = 0x102010;
+		}
+
+		// Surface 2's fog whole at 6500, not the release's 10000: the
+		// Community Edition's one correction to the table ("reduced fog
+		// distance to closer match N64"), taken whether its zip is on or
+		// not. GoldenEye's own fog there is half at about 450 units and nine
+		// tenths at about 2300 (957 of its 1000 over a 10..10000 range);
+		// linear to 10000 it was a third at 3300, linear to 6500 half.
+		if (beanFogs[i].levelid == BEANFOG_SURFACE2 && beanFogs[i].end == 10000) {
+			beanFogs[i].end = 6500;
 		}
 	}
 

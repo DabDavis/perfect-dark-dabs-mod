@@ -10000,3 +10000,17 @@ Rig: `~/wt/f3surfsky-rig/cam.sh TAG BIN STAGE [px py pz lx ly lz]` (the
 f3damfog rig with `SAVE=` choosing save_packon, save_packoff, save_n64,
 save_ce); pictures in `~/wt/f3surfsky-pics`. After a reboot the render node
 needs `sudo setfacl -m u:sdg:rw /dev/dri/renderD128` or the run is llvmpipe.
+
+**Surface 2's fog distance, CE or not** (the user, building the CE's
+corrections in without its files): the CE's only real fog correction is
+Surface 2's end 10000 -> 6500 ("reduced fog distance to closer match N64").
+`fogTableLoad()` now makes it on whatever table it read (retail xex, the CE's,
+or the built-in rows), next to Facility's swapped colour; the colour stays
+GoldenEye's dark red with the CE off (and the dome's grey with it on, above).
+Plausibility: GoldenEye's own fog there (957 of 1000 over a 10..10000 range)
+is half at about 450 units and nine tenths at about 2300; linear from -100
+to 10000 it was a third at 3300, to 6500 half - thicker, still well short of
+the N64 look, which stays as it was (`sheet_surface2_fog6500.png` in
+`~/wt/f3surfsky-pics`, HD before/after beside the N64 look at four cameras).
+Surface with the CE on, Surface, Dam, Runway, Silo and the N64 look's
+Surface 2 are pixel-identical to before.
