@@ -698,6 +698,14 @@ static const struct {
 	// the tile beside its neighbour
 	{ "UsetupsevxZ", 0x31b0, 4, { 0xc5, 0x9c, 0x48, 0x00 }, { 0xc5, 0x9b, 0x40, 0x00 } },
 	{ "UsetupsevxbZ", 0x3024, 4, { 0xc5, 0x9c, 0x48, 0x00 }, { 0xc5, 0x9b, 0x40, 0x00 } },
+	// Egyptian: the Golden Gun's glass case, four door_win panes (objects
+	// 45-48, pads 53-56) that sink into the plinth, lacked DOORFLAG_0004 as
+	// Control's blast door did, so a pane was not clipped to its box as it
+	// went down ("Egypt: Fix glass doors for golden gun room")
+	{ "UsetupcrypZ", 0x4b5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
+	{ "UsetupcrypZ", 0x4c5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
+	{ "UsetupcrypZ", 0x4d5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
+	{ "UsetupcrypZ", 0x4e5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
 };
 
 static void romPatch(const char *stem, buf *file)
