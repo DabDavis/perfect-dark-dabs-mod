@@ -2902,10 +2902,19 @@ bool bgunIsReadyToSwitch(s32 handnum)
 bool bgunCanFreeWeapon(s32 handnum)
 {
 	struct player *player = g_Vars.currentplayer;
+#ifndef PLATFORM_N64
+	// Quick Weapon Swap: the hand is let go the tick it is down. The three
+	// ticks look like the N64 giving the RDP time to finish with the old
+	// gun's lists; here the frame is drawn before the next tick loads the
+	// new gun over them (bgunQuickSwapLoad()).
+	s32 wait = modIsQuickWeaponSwapOn() ? 0 : 3;
+#else
+	s32 wait = 3;
+#endif
 
 	if (player->hands[handnum].state == HANDSTATE_CHANGEGUN
 			&& player->hands[handnum].stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD
-			&& player->hands[handnum].count >= 3
+			&& player->hands[handnum].count >= wait
 			&& player->gunctrl.throwing == false) {
 		return true;
 	}
@@ -2941,10 +2950,44 @@ bool bgun0f09bf44(s32 handnum)
 	return result;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Quick Weapon Swap: load the new gun now rather than a step a tick in
+ * bgunTickLoad(), as bgunLoadAll() does after a cutscene or the pause
+ * menu. Only while the player's gun owns gunmem: another owner (the
+ * inventory menu's model, a chr body) is left to the stock path, which
+ * takes the memory back first; and not under loadall, which lv.c does.
+ */
+static void bgunQuickSwapLoad(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 i;
+
+	if (player->gunctrl.gunmemowner != GUNMEMOWNER_BONDGUN
+			|| player->gunctrl.gunmemnew < 0
+			|| player->gunctrl.loadall) {
+		return;
+	}
+
+	for (i = 0; i < 1000 && !bgunIsLoaded(); i++) {
+		bgunTickMasterLoad();
+	}
+}
+#endif
+
 s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
 	u32 stack;
 	struct weapon *weapon = info->definition;
+#ifndef PLATFORM_N64
+	// Quick Weapon Swap (modIsQuickWeaponSwapOn()): no put-away, no dip, the
+	// new gun loaded at once, no draw - the same steps in the same order,
+	// each taken the tick it is reached
+	const bool quick = modIsQuickWeaponSwapOn();
+#else
+	const bool quick = false;
+#endif
+	bool raisenow;
 
 	if (hand->statecycles == 0) {
 		if (g_Vars.normmplayerisrunning == false) {
@@ -2969,6 +3012,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 
 		if (!skipanim) {
 			if (weapon->unequip_animation
+					&& !quick
 					&& hand->inuse == true
 					&& !(hand->ejectstate != EJECTSTATE_INACTIVE && hand->ejecttype == EJECTTYPE_GUN)) {
 				if (hand->statecycles == 0) {
@@ -3024,6 +3068,12 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 			throwing = true;
 		}
 
+		// a gun being thrown down (the Laptop Gun's sentry, the Dragon) is
+		// thrown at stock's pace even so
+		if (quick && !throwing) {
+			delay = 0;
+		}
+
 		if (hand->stateframes >= delay) {
 			if (!throwing) {
 				if (g_Vars.mplayerisrunning && (IS8MB() || PLAYERCOUNT() != 1)) {
@@ -3053,17 +3103,31 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 		hand->animmode = HANDANIMMODE_IDLE;
 
 		if (hand->pausechange == 0 || hand->pausetime60 <= hand->count60) {
+			raisenow = hand->mode != HANDMODE_6;
+
 			if (hand->mode == HANDMODE_6) {
+#ifndef PLATFORM_N64
+				// once bgunTickSwitch2() has handed over the new weapon
+				if (quick && g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0) {
+					bgunQuickSwapLoad();
+				}
+#endif
+
 				if (bgun0f09bf44(handnum)) {
 					hand->mode = HANDMODE_7;
 
 					if (!hand->inuse && bgunSetState(handnum, HANDSTATE_IDLE)) {
 						return lvupdate;
 					}
+
+					// stock waits for the next tick to raise it
+					raisenow = quick;
 				}
-			} else {
+			}
+
+			if (raisenow) {
 				if (bgunIsLoaded()) {
-					if (info->definition->equip_animation) {
+					if (info->definition->equip_animation && !quick) {
 						bgunStartAnimation(info->definition->equip_animation, handnum, hand);
 						hand->unk0cc8_02 = true;
 					}
@@ -3093,6 +3157,10 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 			hand->animmode = HANDANIMMODE_IDLE;
 		} else if (weapon->equip_animation) {
 			delay = 1;
+		}
+
+		if (quick) {
+			delay = 0;
 		}
 
 		if (hand->count == 0) {
@@ -3417,7 +3485,24 @@ void bgunTickHand(s32 handnum)
 
 void bgunTickSwitch(void)
 {
+#ifndef PLATFORM_N64
+	bool switching = g_Vars.currentplayer->gunctrl.switchtoweaponnum >= 0;
+#endif
+
 	bgunTickSwitch2();
+
+#ifndef PLATFORM_N64
+	// Quick Weapon Swap: the hands were let go this tick (bgunCanFreeWeapon())
+	// and are waiting in HANDSTATEMINOR_CHANGEGUN_LOAD. Tick them once more so
+	// they load and take up the new gun now, and it is drawn and can fire in
+	// the frame the old one went, rather than the next.
+	if (switching
+			&& g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0
+			&& modIsQuickWeaponSwapOn()) {
+		bgunTickHand(HAND_RIGHT);
+		bgunTickHand(HAND_LEFT);
+	}
+#endif
 }
 
 void bgunInitHandAnims(void)

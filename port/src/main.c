@@ -418,6 +418,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.BlackLevel", &g_ModOptions.blacklevel, MODBLACK_OFF, MODBLACK_MAX);
 	configRegisterInt("Mod.MissionRespawn", &g_ModOptions.missionrespawn, 0, 1);
 	configRegisterInt("Mod.SkipDeathScreen", &g_ModOptions.skipdeathscreen, 0, 1);
+	configRegisterInt("Mod.QuickWeaponSwap", &g_ModOptions.quickweaponswap, 0, 1);
 	configRegisterInt("Mod.MissionLives", &g_ModOptions.missionlives, MODLIVES_UNLIMITED, MODLIVES_MAX);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);
 	configRegisterFloat("Mod.SpectateSpeed", &g_ModSpectateSpeed, 1.f, 200.f);

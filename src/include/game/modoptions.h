@@ -411,6 +411,7 @@ struct modoptions {
 	s32 xblareflectcutoff; // the XBLA release's reflections fade out past Mod.XblaReflectDistance
 	s32 glareclip;   // a light's glare is hidden where a nearer wall or model covers it
 	s32 skipdeathscreen; // a Combat Sim death goes straight to Press START, no fall or fade
+	s32 quickweaponswap; // a weapon switch skips the put-away and draw: the new gun is up the next frame
 };
 
 extern struct modoptions g_ModOptions;
@@ -461,6 +462,7 @@ s32 modGetRunDifficulty(void);
 bool modIsRunSealOn(void);
 bool modIsMissionRespawnOn(void);
 bool modIsSkipDeathScreenOn(void);
+bool modIsQuickWeaponSwapOn(void);
 s32 modGetMissionLives(void);
 bool modIsTranquilizerEffectOn(void);
 

@@ -81,6 +81,7 @@ struct modoptions g_ModOptions = {
 	true,                     // xblareflectcutoff: only does anything with the release's reflections on, where it is most of their cost
 	false,                    // glareclip: stock draws the whole glare over whatever is in front of the light
 	false,                    // skipdeathscreen: stock's fall, red wash and fade before Press START
+	false,                    // quickweaponswap: stock's put-away and draw on every switch
 };
 
 /**
@@ -738,6 +739,27 @@ bool modIsMissionRespawnOn(void)
 bool modIsSkipDeathScreenOn(void)
 {
 	return g_ModOptions.skipdeathscreen != 0 && g_Vars.normmplayerisrunning;
+}
+
+/**
+ * Quick Weapon Swap: a switch of weapons skips the gun's put-away and draw
+ * (its unequip and equip animations, or the classic guns' dip off the
+ * bottom of the screen and back) and the new gun is loaded at once rather
+ * than over several ticks, so it is up and able to fire the frame after the
+ * old one went. See bgunTickIncChangeGun() (bondgun.c). A thrown-down gun -
+ * the Laptop Gun's sentry, the Dragon's self-destruct - is still thrown as
+ * stock throws it. Off inside a Ghost Trial, like the jump, so a board does
+ * not measure settings.
+ */
+bool modIsQuickWeaponSwapOn(void)
+{
+#ifndef PLATFORM_N64
+	if (modGhostTrialRulesApply()) {
+		return false;
+	}
+#endif
+
+	return g_ModOptions.quickweaponswap != 0;
 }
 
 /**
