@@ -4448,6 +4448,18 @@ static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back, const u
  * twice. Nothing else in any of them is a quad list lying flat across the
  * barrel. The other guns' small quads stand flat along *x*, down the gun's
  * middle, and are the trigger and the sling; those are kept.
+ *
+ * **Flat quad by quad, not only the draw as one.** The Automatic Shotgun's
+ * flash is two layers: each of its four draws is a quad at the muzzle (Bean y
+ * -4249) and the same quad again 214 further back (y -4035), so no draw of it
+ * lay in one plane and the flash stayed lit in every hand that held the gun
+ * (`prop/chrautoshot`, its vertex buffer at .gpu 0, drawn with part 0 records).
+ * The Community Edition mended the file itself - "Shotgun prop chrautoshot
+ * muzzle error fixed" moves those 34 vertices to the origin - and this finds
+ * the same draws without it: a quad list is the flash too when every quad of
+ * it is flat across the barrel and the whole draw is within the muzzle end.
+ * With the Community Edition's copy the same draws are taken out, all four
+ * quads flat at the origin, which drew nothing anyway (2910 vertices either way).
  */
 static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 {
@@ -4455,6 +4467,7 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	f32 hi = -1e18f;
 	f32 dlo[64];
 	f32 dhi[64];
+	u8 quadsflat[64];
 	const s32 num = bm->numdraws < 64 ? bm->numdraws : 64;
 
 	*out = 0;
@@ -4467,12 +4480,32 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 
 		dlo[di] = 1e18f;
 		dhi[di] = -1e18f;
+		quadsflat[di] = d->prim == 13;
 
 		if (!beanReadVb(bm, d->vb, &vb)) {
 			continue;
 		}
 
 		numtris = beanTriangles(bm, d, &tris);
+
+		// A quad list's triangles come two to a quad (beanTriangles())
+		for (s32 q = 0; q + 1 < numtris && quadsflat[di]; q += 2) {
+			f32 qlo = 1e18f;
+			f32 qhi = -1e18f;
+
+			for (s32 t = q * 3; t < q * 3 + 6; t++) {
+				struct beanvtx v;
+
+				if (beanVertex(bm, &vb, tris[t], &v)) {
+					qlo = v.pos[1] < qlo ? v.pos[1] : qlo;
+					qhi = v.pos[1] > qhi ? v.pos[1] : qhi;
+				}
+			}
+
+			if (qhi - qlo >= 1.0f) {
+				quadsflat[di] = 0;
+			}
+		}
 
 		for (s32 t = 0; t < numtris * 3; t++) {
 			struct beanvtx v;
@@ -4510,9 +4543,11 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	for (s32 di = 0; di < num; di++) {
 		const f32 end = (hi - lo) * 0.15f;
 
-		// A quad list, flat across the barrel, at one end of it
-		if (bm->draws[di].prim == 13 && dlo[di] <= dhi[di] && dhi[di] - dlo[di] < 1.0f
-				&& (dlo[di] <= lo + end || dhi[di] >= hi - end)) {
+		// A quad list, flat across the barrel, at one end of it: the whole
+		// draw in one plane, or quad by quad with all of it within the end
+		if (bm->draws[di].prim == 13 && dlo[di] <= dhi[di]
+				&& ((dhi[di] - dlo[di] < 1.0f && (dlo[di] <= lo + end || dhi[di] >= hi - end))
+					|| (quadsflat[di] && (dhi[di] <= lo + end || dlo[di] >= hi - end)))) {
 			*out |= 1ull << di;
 		}
 	}
@@ -4743,6 +4778,85 @@ static const char *gebeanPartsNote(s32 numparts, s32 numverts)
 	return note;
 }
 
+/**
+ * Vertex colours the release's HD props got wrong, mended where the release's
+ * own colour is still there (the Community Edition's copy of the file already
+ * carries the mended one, and is left alone). By file, vertex buffer (its .gpu
+ * offset) and vertex range; checked against GoldenEye's own (Bean's original/,
+ * which is the N64 model's colours):
+ *
+ * - doorprison1, Bunker 2's cell door: every vertex white in the HD file where
+ *   GoldenEye's are dark grey (2e/4a), so the door stood out bright against the
+ *   dark bars of the cells either side. The Community Edition's greys ("Fixed
+ *   jail cell door vertex colors") are GoldenEye's a step lighter for the HD
+ *   texture, and are these.
+ * - woodentable1: its legs are opaque black in the HD file and in GoldenEye's
+ *   own, which the "opaque black is no colour at all" rule below turned white;
+ *   black was meant, and the Community Edition's dark grey keeps them dark
+ *   ("Tweak wooden table prop vertex colors").
+ */
+static const struct {
+	const char *source;
+	u32 vboff;
+	u16 first;
+	u16 last;
+	u32 old;
+	u32 fix;
+} beanVertexColourFixes[] = {
+	{ "new/prop/doorprison1", 0, 0, 5, 0xffffffff, 0xff4a4a4a },
+	{ "new/prop/doorprison1", 0, 6, 7, 0xffffffff, 0xff666666 },
+	{ "new/prop/doorprison1", 0, 8, 9, 0xffffffff, 0xff4a4a4a },
+	{ "new/prop/doorprison1", 0, 10, 11, 0xffffffff, 0xff666666 },
+	{ "new/prop/woodentable1", 0, 0, 67, 0xff000000, 0xff292929 },
+};
+
+static u32 beanFixVertexColour(const char *source, u32 vboff, u32 vi, u32 argb)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(beanVertexColourFixes); i++) {
+		if (beanVertexColourFixes[i].vboff == vboff && vi >= beanVertexColourFixes[i].first
+				&& vi <= beanVertexColourFixes[i].last && argb == beanVertexColourFixes[i].old
+				&& strcmp(source, beanVertexColourFixes[i].source) == 0) {
+			return beanVertexColourFixes[i].fix;
+		}
+	}
+
+	return argb;
+}
+
+/**
+ * Triangles the release's HD props draw that they should not, left out where
+ * the release's geometry is still there. By file, vertex buffer (.gpu offset)
+ * and vertex range; a triangle touching the range is not drawn.
+ *
+ * - console2 and console3, Silo's four-screen consoles: four quads on Bean's
+ *   placeholder spiral picture lie on the lower screens, over the screens
+ *   GoldenEye's monitor programme draws, and fight them (a spiral in a smear
+ *   of grey). The Community Edition moves those 16 vertices to the origin
+ *   ("Resolved z-fighting for console1/console2/tuningconsole1 models"); its
+ *   copy draws nothing there either way.
+ */
+static const struct {
+	const char *source;
+	u32 vboff;
+	u16 first;
+	u16 last;
+} beanVertexDrops[] = {
+	{ "new/prop/console2", 0, 118, 133 },
+	{ "new/prop/console3", 0, 118, 133 },
+};
+
+static s32 beanVertexDropped(const char *source, u32 vboff, u32 vi)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(beanVertexDrops); i++) {
+		if (beanVertexDrops[i].vboff == vboff && vi >= beanVertexDrops[i].first && vi <= beanVertexDrops[i].last
+				&& strcmp(source, beanVertexDrops[i].source) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -4920,6 +5034,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				s32 part = -1;
 				u32 argb;
 
+				if (beanVertexDropped(source, vb.off, vi)) {
+					ok = 0;
+					break;
+				}
+
 				if (mapped[vi] >= 0) {
 					idx[i] = (u16)mapped[vi];
 					continue;
@@ -4965,6 +5084,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// motorbike's handlebars and mudguard. The texture under those
 				// vertices is painted (the jeep's is bright under 96% of them),
 				// and drawn black the bike's bars came out as flat black shapes.
+				v.argb = beanFixVertexColour(source, vb.off, vi, v.argb);
 				argb = v.argb == 0xff000000 ? 0xffffffff : v.argb;
 
 				// The Golden Gun's pickup is the first-person gun's near-white

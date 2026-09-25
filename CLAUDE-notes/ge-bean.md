@@ -10162,3 +10162,93 @@ Agent), `agprobe.py` (every autogun's converted fields on a stage),
 `wprobe.py`/`wsurvey.sh` (every weapon's position, two binaries), and
 `oracle/geegypt.py` for the native port. Report's own camera (1988, 5808) is
 on wrong tile 152 - a probe that starts there triggers the trap at once.
+## The Community Edition's fixes in the regular build: the whole inventory (2026-09-25)
+
+The user: *"implement the Community edition fixes into the regular build, it
+seems to actually be beneficial more than not"*. Chosen route: rebuild each fix
+in our own code, converter or tables, so it applies with or without the
+player's `CommunityEditionUpdaterV6.zip`; nothing of the CE's bytes ships. New
+art (skies, repainted textures, new models and heads) still needs the zip and
+the checkbox stays. Every fix below is keyed on the release's (or the ROM's)
+own bytes, so with the CE applied it finds nothing to do and the picture is
+the CE's own (checked pixel for pixel on each view).
+
+**How the inventory was made** (scripts in `~/wt/cefixes-work/`, not in git):
+`diff -rq` of the release against the applied reference copy
+(`.xbla-work/ce/files` vs `filesCE`: 157 entries = 116 changed files, renames
+listed as the old and the new name) and `xex.diff` applied under wine
+(`hpatchz.exe retail.xex xex.diff ce.xex`, 785 KB differ in 176 runs).
+`beandiff.py` compares two CAFF files draw by draw (textures by decoded pixels,
+vertex position/UV/colour/normal per used vertex); `colrules.py` says whether
+a colour change is one mapping or per vertex; `xexruns.py` + `locate.py` +
+`symmap.py` + `recmap.py` place each xex run in GoldenEye's own files (search
+the decomp's built `build/u/assets/obseg/*.bin` with the xex's pointer words
+wildcarded - the release's setups are relocated, 0x82xxxxxx pointers - then the
+`.elf` symbols and the object records). **Two traps**: the xex's setups are not
+one contiguous copy of each file (vote on many 32-byte chunks, or search per
+diff); and xex VA -> file offset is VA - 0x82000000 + 0x3000 (XEX2 header,
+PE at 0x3000) for the data a pad's tile-name pointer names.
+
+**What the port reads from Bean** decides most of it: files/new/{char,head,
+prop,background,skydome}, files/new/gun/ only for the 25 guns' first person,
+files/original/{char,head,gun}, texture/{characters,level,sight,attract},
+misc/. Never: any `_hits`/`.rbh` hit mesh, original/prop, original/background,
+texture/bg, loc/, the gadget models in new/gun/.
+
+Classes: **a** a correction we rebuilt (commit), **b** new art (needs the
+zip), **c** already covered by our own code, **d** a CE design/taste change
+we do not take, **n/a** the port never reads it / 4J's engine code.
+
+| CE change (files / xex) | class | ours |
+|---|---|---|
+| `prop/chrautoshot` flash vertices moved to the origin ("chrautoshot muzzle error") | a | `07463ee62`: `beanGunFlashDraws()` tests quad by quad; the flash is two layers 214 apart |
+| `prop/console2`, `console3`: 16 vertices (4 spiral quads over the lower screens) to the origin (z-fighting) | a | `a97daeb6e`: `beanVertexDrops[]` |
+| `prop/doorprison1`: white -> 4a/66 grey (GoldenEye's own is 2e/4a) | a | `11b51c5e2`: `beanVertexColourFixes[]` |
+| `prop/woodentable1`: black legs -> 0x29 (black in GoldenEye too; our opaque-black rule made them white) | a | `11b51c5e2` |
+| xex: UsetupcrypZ objects 45-48 (Golden Gun case, door_win) + DOORFLAG_0004 ("Egypt: Fix glass doors") | a | `dcc4530f0`, converter 68; looks the same from the room (panes sink out of sight either way) |
+| xex: Bunker ii stan links, Silo armour 59, Control blast door, Surface Klobbs, Surface/Surface 2 railing pad (+ its tile-name pointer) | c | `efda98e59` (converter 60) |
+| `*_hits`, prop `.rbh`: shoot through gasplantcleardoor/sevdoorwood/sevdoorwind/sevtrislide/traindoor2/sev_door4_wind glass, Complex rails, Dam grate, Frigate cockpit window | c | door glass = GoldenEye's `skeleton_door` (all six are it, 4 switches), XLU room triangles pass bullets (`efda98e59`) |
+| `_hits`: Caves all dirt, Complex all metal (impact surfaces) | n/a | hit meshes unused; our impact surface comes from the texture - **open**, see below |
+| sf1/sf2 split, skydome renames (temple/aztec/caves...) | c | `gebeanCeLevelName()`, gebeansky.c |
+| 21 skydomes, Frigate sky/water art | b | drawn with the zip (`90a5c81fe`); Frigate sea is ours (`d59725604`) |
+| xex fog/sky table rows (Jungle, Temple, Train, Archives, Statue, Streets, Cradle, Dam cinema, new Bunker 1/Silo rows) | b | read from the CE's xex with the zip (`edfc234a8`); tuned to the CE's domes. Surface ii "fog closer to N64" (end 10000 -> 6500) is the one correction: **left to fix/f3-surface-sky** |
+| bridgeconsole1a/3a/3b, doorconsole: spiral placeholder repainted as a grille | b / c | our screens are GoldenEye's monitor programmes on those parts (door console lamp section) - checked on Frigate's bridge |
+| console1, consolesevb, tv1, consolesev2b: screen picture (+4 UVs on sev2b) | b / c | same: the screen parts are handed back to the programme |
+| tuningconsole1 (518 vertices black -> white), metalchair1, stool1 (black -> white/7f) | c | the opaque-black rule already draws them white |
+| cryptdoor1a/2a/2b/3/4: vertex alpha 0 -> ff ("Egypt: doors not drawing") | c | blended draws take the material alpha, not the N64 fog alpha kept in the vertex |
+| stool1: 4 UVs of the seat edge (texture unchanged) | a | **not done** (small seam; listed) |
+| rocket launcher, Cougar, timed mine (gun + pickup), steeldoor1 stripe, siloliftdoor, sevdoor3, trainextdoor (Depot train door), doorroller4 (UVs go with its new texture), Control placeholder, Bunker ii dirt patch, Doak/Alan heads (new + original) | b | needs the zip |
+| siloliftdoor, sevdoor3, sevdoor4wind cyan vertex colours -> grey | d | cyan is GoldenEye's own (original/ has it) - **user's call** |
+| sevdoor4wind: translucent hazard-stripe strip on the edge removed ("Bunker door decal") | d | draws cleanly here, no z-fight - **user's call** |
+| woodlgcrate1, woodsmcrate5, cardbox2 brighter/darker vertices | d | taste |
+| background/complex: railing vertex recolour | d | taste |
+| walletbond widened for 16:9/21:9 | d | the user keeps the folder 4:3 |
+| xex: armour moves (Frigate pad, Surface ii SA, Silo/Statue/Jungle 007), Natalya's magnum (Control, Jungle) | d | GoldenEye's design |
+| xex: Control Trevelyan's D5K in the right hand | d | **user's call** |
+| xex: Statue ai_36/ai_34 (objective B distance, the ending guard's spawn/animation flags) | d | **user's call**; not decoded to the command |
+| xex: Surface bookshelves INVINCIBLE + 8 bound pads re-centred, Runway door pad boxes, Dam intro cameras moved | n/a | the release's own placement/culling; ours places as GoldenEye does and draws every HD room (`21648096e` for the cameras) |
+| xex: Facility/Control windows INVINCIBLE -> immune to gunfire/explosions ("bullet hole decal") | d | works round the release's decals and changes GoldenEye's glass |
+| xex: Archives MP stacked crate, Temple crate pads, Library/Basement flag tokens, Egypt MP pad 90's tile name, Cuba rebuilt from Jungle | n/a | arenas place their own crates (and the MP object walk stops at the first object that is not a weapon/crate/armour, so Archives carries none - noticed, not changed); flag tokens unused; our pads find rooms by position |
+| xex: Jungle AI (swirl sighting, Xenia early) | n/a | counters the CE's own Jungle fog change |
+| xex: watch item positions/flags (0x413030-0x417adf), MP character/POV tables, level entry table, near plane, audio, netcode, cheats, graphics-mode, CE\ path prefix, strings | n/a | 4J's engine; GE Plus's watch uses GoldenEye's own models and positions |
+| gadget models (blackbox, briefcases, clipboard, keyyale rename, watch laser, ...), suitlfhand/fist, goldeneyelogo, gunrunway1, ammocrate3, doordest2, loc/, texture/bg icons, buttonb/y, original/prop + original/background, endofgamejungle | n/a | not read |
+
+Counted over the 157 diff entries: a 5 (4 done), b 32, c 28 (+ the covered
+props below the table), d ~12, n/a 61, plus the xex runs above.
+
+Verified on the RX 580, before (718d5dcd6 = `pd.base`) and after, CE off and
+on, pictures in `~/wt/cefixes-pics/`: `autoshot_tp_before_after.png` +
+`autoshot_tp_crop.png` (Dam, third person), `celldoor_before_after.png` (Bunker
+2), `woodentable_before_after.png` (Bunker), `silo_console_before_after.png`,
+`egyptian_case_n64_before_after.png`; with the zip applied the cell door, the
+table and the console are pixel-identical before and after, and the autoshot
+builds the same 2910 vertices. All 25 HD pickups rebuilt: only the Automatic
+Shotgun's count changes. Rigs: `~/wt/cefixes-rig` (after) and
+`~/wt/cefixes-rigbase` (before, own `mods/` so the converter does not flip
+between 66 and 68); `cam.sh`, `gshot.sh SCRIPT.py`, `doorview.py` (open a door
+by model/pad and shoot it; `NOOPEN=1`), `listprops.py` (props by model),
+`tpsweep.py` (third person, `ThirdPersonSideways=90` in the ini to see the gun).
+
+Open: stool1's 4 UVs; the impact surfaces of Caves/Complex (the CE set its hit
+meshes to all dirt/all metal - does ours spark metal on Caves' rock?); the
+user's calls above; the arena MP walk that stops at a door.

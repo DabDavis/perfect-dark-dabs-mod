@@ -82,6 +82,12 @@ ROM_PATCHES = (
     # Surface and Surface 2: the path pad by the outside railing, z -5001 -> -4968
     ('UsetupsevxZ', 0x31b0, 'c59c4800', 'c59b4000'),
     ('UsetupsevxbZ', 0x3024, 'c59c4800', 'c59b4000'),
+    # Egyptian: the Golden Gun's glass case (door_win, objects 45-48) without
+    # DOORFLAG_0004, as Control's blast door
+    ('UsetupcrypZ', 0x4b5c, '0008', '000c'),
+    ('UsetupcrypZ', 0x4c5c, '0008', '000c'),
+    ('UsetupcrypZ', 0x4d5c, '0008', '000c'),
+    ('UsetupcrypZ', 0x4e5c, '0008', '000c'),
 )
 
 
