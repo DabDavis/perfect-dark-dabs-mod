@@ -42,14 +42,20 @@
  * and mis-scales the release room that binds the slot, so the picture has to
  * say so.
  *
+ * One slot kept its subject and changed its layout, which the diff cannot
+ * see because both copies' rooms bind it: 00dd, dataDyne's wall terminal
+ * screen, is one framed screen in the ROM and two stacked in the release,
+ * and the release rooms map one of the two. A pack's single screen on
+ * those coordinates spilled its black over the terminal's bezel.
+ *
  * See CLAUDE-notes/xbla.md, "The slots 4J reused".
  * tools/texpack/xblaconvert.py reads this file, so the list lives here and
  * nowhere else. Keep it sorted.
  */
 #define XBLA_REUSED_SLOTS \
-	0x00a5, 0x00a9, 0x0216, 0x0217, 0x0219, 0x021a, 0x021b, 0x0221, \
-	0x0222, 0x0223, 0x0224, 0x0226, 0x0227, 0x022f, 0x0230, 0x089e, \
-	0x089f, 0x08a2, 0x08a3, 0x08ac, 0x08bb, 0x08bf, 0x08c0, 0x08c1, \
-	0x08c3
+	0x00a5, 0x00a9, 0x00dd, 0x0216, 0x0217, 0x0219, 0x021a, 0x021b, \
+	0x0221, 0x0222, 0x0223, 0x0224, 0x0226, 0x0227, 0x022f, 0x0230, \
+	0x089e, 0x089f, 0x08a2, 0x08a3, 0x08ac, 0x08bb, 0x08bf, 0x08c0, \
+	0x08c1, 0x08c3
 
 #endif

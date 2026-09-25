@@ -969,6 +969,41 @@ void setupCreateHangingMonitors(struct hangingmonitorsobj *monitors, s32 cmdinde
 	setupCreateObject(&monitors->base, cmdindex);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Squares a screen laid on the level's own geometry (OBJFLAG_MONITOR_RENDERPOSTBG)
+ * onto the axes its pad all but names.
+ *
+ * Such a screen is a quad on the room's own screen surface, in the same plane,
+ * and the plane comes from the pad's look and up - authored floats a few
+ * thousandths off the axes. Investigation's terminal by the lab doors (pad
+ * 0x218) has an up vector 0.0011 into the wall, so the quad leaned a
+ * fifteenth of a unit through it from top to bottom: from about 80 units in,
+ * the room's surface won the depth test over the top of the programme and
+ * then over all of it, in the ROM's rooms and the release's alike. A component
+ * of an axis under a hundred and twenty-eighth of the axis's length (half a
+ * degree) is taken as nought; a screen on a wall at a real angle is left alone.
+ * tvscreenRender() then draws it in the decal z mode, which wins the tie.
+ */
+static void setupSquareScreenOnBg(struct defaultobj *obj)
+{
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < 3; i++) {
+		f32 len = sqrtf(obj->realrot[i][0] * obj->realrot[i][0]
+				+ obj->realrot[i][1] * obj->realrot[i][1]
+				+ obj->realrot[i][2] * obj->realrot[i][2]);
+
+		for (j = 0; j < 3; j++) {
+			if (obj->realrot[i][j] != 0.0f && fabsf(obj->realrot[i][j]) < len * (1.0f / 128.0f)) {
+				obj->realrot[i][j] = 0.0f;
+			}
+		}
+	}
+}
+#endif
+
 void setupCreateSingleMonitor(struct singlemonitorobj *monitor, s32 cmdindex)
 {
 	u32 stack[2];
@@ -1045,6 +1080,9 @@ void setupCreateSingleMonitor(struct singlemonitorobj *monitor, s32 cmdindex)
 
 	if (monitor->base.prop && (monitor->base.flags & OBJFLAG_MONITOR_RENDERPOSTBG)) {
 		monitor->base.prop->flags |= PROPFLAG_RENDERPOSTBG;
+#ifndef PLATFORM_N64
+		setupSquareScreenOnBg(&monitor->base);
+#endif
 	}
 }
 

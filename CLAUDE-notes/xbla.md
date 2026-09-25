@@ -304,6 +304,51 @@ hovercopter's rotor, still a rotor). A false entry costs an upscale and
 mis-scales the release room that binds the slot, so the bar is the picture
 and not the diff.
 
+#### A slot whose layout changed: 00dd, and Investigation's wall screens (2026-09-25)
+
+A tester's F3 (20260925-065924, Investigation, release rooms + meshes + a
+third-party HD pack): the terminal by the lab doors had its black screen
+overhanging the bezel at the top and left, "and it flickers and cuts out
+when you get close, which I think is an issue with the original too". Two
+faults, one of each kind.
+
+**The overhang was the pack on a slot 4J re-laid.** 00dd is the terminal's
+screen surface in the room itself (the tvscreen quad was hidden from gdb -
+`OBJFLAG2_INVISIBLE` on pad 0x218 - and the black still overhung). In the
+ROM it is one framed screen; in the release it is two stacked (256x512), and
+4J's rooms map one of them. A pack's 00dd is the ROM's layout, so on 4J's
+coordinates its black ran over the frame. Same subject, so the room diff
+above never flagged it - both copies' rooms bind 00dd. It is in
+`XBLA_REUSED_SLOTS` now: a release room gets 4J's picture whatever pack is
+on, and the ROM's rooms keep the ROM's (the release's two screens on the
+ROM's coordinates would be as wrong). `bgtexscan.py`'s functions over all
+the bg files and props: only `bg_ear` binds 00dd, in both copies, and no
+model does. Other re-laid slots may exist; a layout change is only visible
+by putting the two pictures side by side.
+
+**The cut-out was the original's, in every look.** Investigation's six
+wall-terminal screens are the only `OBJFLAG_MONITOR_RENDERPOSTBG` monitors
+in Perfect Dark's setups (GoldenEye's converted levels have them too -
+Bunker has 20): a `MODEL_TVSCREEN` quad scaled to its pad's bounds and laid
+on the room's own screen surface, coplanar (z = -5341 for both at pad
+0x218). The pads' authored look and up are a few ten-thousandths off the
+axes (up 0.0011 into the wall), so the quad leaned a fifteenth of a unit
+through the wall top to bottom; from about 80 units in, the room won the
+depth test over the top of the programme and then all of it - the ROM's
+rooms showed their teal glass, the release's their black. The monitor's
+depth mode is `GL_LESS`, which a tie also loses. `setupSquareScreenOnBg()`
+(setup.c) zeroes any axis component under 1/128 of the axis's length for
+those monitors, and `tvscreenRender()` draws a `PROPFLAG_RENDERPOSTBG`
+screen in the decal z mode (`G_DECAL_EXT`); neither alone is enough, as the
+decal's offset is two depth units and the lean is thousands up close.
+Bunker's screens were already square and draw the same; Defection's
+frames are pixel-identical.
+
+Test: `--boot-stage 0x33`, skip the intro (`g_CutsceneSkipRequested`,
+`g_Vars.autocutgroupskip` at frame 300), teleport to (-864.5, 150, -5341-d)
+theta 0 for d from 200 to 18. The other five pads are 0x213-0x217
+(`MON` listing in the session's `view.py`).
+
 ### Row order
 
 The console art is in N64 row order, upside down on screen. A pack file
