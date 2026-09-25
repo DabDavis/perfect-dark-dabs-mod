@@ -43,6 +43,10 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
  * reached, if at all, through some doorway far below and drawn in the doorway's
  * box - the deck round the stairwell goes, and the sky shows through it (Dam's
  * first tower, F3 report 20260920-220247).
+ *
+ * A floor lying on a floor portal's plane (GoldenEye's are exactly on it; the
+ * conversion's rounding puts ours up to half a unit either side) is taken as
+ * on its own room's side: Egyptian's fountain basin, F3 report 20260925-163132.
  */
 s32 geRoomCamera(struct coord *eye, f32 ground, s32 room);
 
