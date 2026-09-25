@@ -3437,11 +3437,22 @@ struct sun {
 
 struct fogenvironment {
 	/*0x00*/ s16 stage;
+#ifdef PLATFORM_N64
 	/*0x02*/ s16 near;
 	/*0x04*/ s16 far;
 	/*0x06*/ s16 opaperc;
 	/*0x08*/ s16 xluperc;
 	/*0x0a*/ s16 refdist;
+#else
+	// The distances are wider than the ROM's: a converted GoldenEye level is
+	// in its world units, and Dam's far plane is 75000 (geconvert.c), which
+	// an s16 wrapped to 9464
+	s32 near;
+	s32 far;
+	s32 opaperc;
+	s32 xluperc;
+	s32 refdist;
+#endif
 	/*0x0c*/ s16 fogmin;
 	/*0x0e*/ s16 fogmax;
 	/*0x10*/ u8 sky_r;
@@ -3466,11 +3477,20 @@ struct fogenvironment {
 
 struct nofogenvironment {
 	/*0x00*/ s32 stage;
+#ifdef PLATFORM_N64
 	/*0x04*/ s16 near;
 	/*0x06*/ s16 far;
 	/*0x08*/ s16 opaperc;
 	/*0x0a*/ s16 xluperc;
 	/*0x0c*/ s16 refdist;
+#else
+	// Wider than the ROM's, as fogenvironment's are
+	s32 near;
+	s32 far;
+	s32 opaperc;
+	s32 xluperc;
+	s32 refdist;
+#endif
 	/*0x0e*/ u8 sky_r;
 	/*0x0f*/ u8 sky_g;
 	/*0x10*/ u8 sky_b;

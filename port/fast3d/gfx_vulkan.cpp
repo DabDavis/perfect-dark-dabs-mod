@@ -2039,8 +2039,12 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
     fs += "    texel = WRAP(texel, -0.51, 1.51);\n";
     fs += "    texel = clamp(texel, 0.0, 1.0);\n";
     if (cc_features.opt_fog) {
-        fs += "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;\n"
-              "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;\n";
+        if (cc_features.opt_fog_linear) {
+            fs += "    float fogFactor = clamp(vFogZW.y * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;\n";
+        } else {
+            fs += "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;\n"
+                  "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;\n";
+        }
         if (cc_features.opt_fog_fade) {
             fs += "    texel = vec4(texel.rgb * (1.0 - fogFactor), texel.a);\n";
         } else if (cc_features.opt_alpha) {

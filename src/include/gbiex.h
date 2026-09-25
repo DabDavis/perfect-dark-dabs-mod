@@ -202,6 +202,7 @@
 #define G_SETRECTDEPTH_EXT           0x48
 #define G_SETDEPTHBIAS_EXT           0x49
 #define G_TAA_EXT                    0x4a
+#define G_SETFOGLINE_EXT             0x4b
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -370,6 +371,29 @@
                                                                                        \
     _g->words.w0 = _SHIFTL(G_SETDEPTHBIAS_EXT, 24, 8);                                 \
     _g->words.w1 = (u32)(s32)(units);                                                  \
+}
+
+/*
+ * The fog line gSPFogFactor() sets - factor = z/w * mul + offset, 0 to 255 -
+ * as a float, one half a command: G_FOGLINE_OFFSET_EXT in flags for the
+ * offset, the multiplier without. For fog further out than an s16 multiplier
+ * reaches under a near plane of a few units, where the z range from fog to
+ * full fog is a few ten-thousandths. With G_FOGLINE_LINEAR_EXT (on both
+ * halves) the line is evaluated at the eye depth instead, factor = w * mul +
+ * offset: fog linear in distance. gSPFogFactor()/gSPFogPosition() put the
+ * line back to z/w.
+ */
+#define G_FOGLINE_OFFSET_EXT 0x1
+#define G_FOGLINE_LINEAR_EXT 0x2
+
+#define gSPFogLineEXT(pkt, flags, value)                                               \
+{                                                                                      \
+    Gfx *_g = (Gfx *)(pkt);                                                            \
+    union { f32 f; u32 u; } _l;                                                        \
+                                                                                       \
+    _l.f = (value);                                                                    \
+    _g->words.w0 = _SHIFTL(G_SETFOGLINE_EXT, 24, 8) | _SHIFTL((flags), 0, 2);          \
+    _g->words.w1 = _l.u;                                                               \
 }
 
 /*

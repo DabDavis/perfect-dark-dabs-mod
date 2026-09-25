@@ -12,6 +12,7 @@
 #include "system.h"
 #include "modloader.h"
 #include "gebeanstage.h"
+#include "game/modoptions.h"
 #endif
 
 bool g_FogEnabled;
@@ -451,12 +452,39 @@ Gfx *envStartFog(Gfx *gdl, bool xlupass)
 #endif
 
 #ifndef PLATFORM_N64
+	// Disable Fog: the rooms keep their fog modes (bg.c's swap, made when each
+	// room loaded) and G_FOG, under a fog line that is 0 at every depth - with
+	// G_FOG off the renderer would read a fog mode's share from the fog
+	// colour's alpha, which is whole
+	if (modIsFogDisabled()) {
+		gDPSetFogColor(gdl++, g_Env.sky_r, g_Env.sky_g, g_Env.sky_b, 0xff);
+		gSPFogFactor(gdl++, 0, 0);
+		gSPSetGeometryMode(gdl++, G_FOG);
+
+		return gdl;
+	}
+
+	// An HD level is fogged as the release fogs it, linear in distance and in
+	// its own colour (gebeanstage.c, gebeanStageFog()); one the release has no
+	// fog for keeps the level's own fog under the raised far plane
 	{
-		s32 fm, fo;
+		f32 fm, fo;
+		u8 rgb[3];
+
+		if (gebeanStageFogLine(bgGetScaleBg2Gfx(), &fm, &fo, rgb)) {
+			gDPSetFogColor(gdl++, rgb[0], rgb[1], rgb[2], 0xff);
+			gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT, fm);
+			gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT | G_FOGLINE_OFFSET_EXT, fo);
+			gSPSetGeometryMode(gdl++, G_FOG);
+			gDPSetAlphaDither(gdl++, G_AD_NOISE);
+
+			return gdl;
+		}
 
 		if (gebeanStageFogFactor(g_Env.fogmin, g_Env.fogmax, &fm, &fo)) {
 			gDPSetFogColor(gdl++, g_Env.sky_r, g_Env.sky_g, g_Env.sky_b, 0xff);
-			gSPFogFactor(gdl++, fm, fo);
+			gSPFogLineEXT(gdl++, 0, fm);
+			gSPFogLineEXT(gdl++, G_FOGLINE_OFFSET_EXT, fo);
 			gSPSetGeometryMode(gdl++, G_FOG);
 			gDPSetAlphaDither(gdl++, G_AD_NOISE);
 
@@ -522,8 +550,45 @@ bool envIsPosInFogMaxDistance(struct coord *pos, f32 tolerance)
 	return true;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether a prop at pos is near enough to draw. Under an HD level's own fog
+ * (gebeanStageFog()) the level is seen out to where that fog is whole, which
+ * is further than the level's own fog distance - envIsPosInFogMaxDistance(),
+ * which stays what a guard sees by and what a spawn hides behind.
+ */
+bool envIsPosInDrawDistance(struct coord *pos, f32 tolerance)
+{
+	struct coord *campos = &g_Vars.currentplayer->cam_pos;
+	struct coord *look = &g_Vars.currentplayer->cam_look;
+	f32 start, end, z;
+	u8 rgb[3];
+
+	// With the fog off, the far plane decides (gebeanStageTickFar())
+	if (modIsFogDisabled() && g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
+		return true;
+	}
+
+	if (!gebeanStageFog(&start, &end, rgb) || g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
+		return envIsPosInFogMaxDistance(pos, tolerance);
+	}
+
+	// its depth, which is what the fog is by
+	z = (pos->x - campos->x) * look->x + (pos->y - campos->y) * look->y + (pos->z - campos->z) * look->z;
+
+	return z <= end + tolerance;
+}
+#endif
+
 struct distfadesettings *envGetDistFadeSettings(void)
 {
+#ifndef PLATFORM_N64
+	// The fog row's distances objects fade out over go with the fog
+	if (modIsFogDisabled()) {
+		return NULL;
+	}
+#endif
+
 	return g_EnvDistFadeSettingsPtr;
 }
 
@@ -540,6 +605,26 @@ s32 envGetObjShadeMode(struct prop *prop, f32 out[4])
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		return SHADEMODE_OPA;
 	}
+
+#ifndef PLATFORM_N64
+	if (modIsFogDisabled()) {
+		return SHADEMODE_OPA;
+	}
+
+	// An HD level's props and chrs take the release's fog, as its rooms do
+	// (gebeanStageObjFog()), drawn in the fog's colour past its end
+	{
+		u8 rgb[3];
+
+		if (gebeanStageObjFog(prop->z, &out[3], rgb)) {
+			out[0] = rgb[0] / 255.0f;
+			out[1] = rgb[1] / 255.0f;
+			out[2] = rgb[2] / 255.0f;
+
+			return out[3] <= 0.0f ? SHADEMODE_OPA : SHADEMODE_FRAC;
+		}
+	}
+#endif
 
 	out[0] = g_Env.skyredfrac;
 	out[1] = g_Env.skygreenfrac;

@@ -23,10 +23,12 @@
 #include "game/camera.h"
 #include "game/gfxmemory.h"
 #include "game/env.h"
+#include "game/modoptions.h"
 #include "romdata.h"
 #include "xblatex.h"
 #include "xblastage.h"
 #include "gebean.h"
+#include "fs.h"
 #include "gebeanstage.h"
 
 #define SEG 0x0f000000
@@ -117,6 +119,9 @@ static f32 meshMin[3];
 static f32 meshMax[3];
 static s32 farRaised;
 static f32 farOwn;
+static f32 farSet;
+
+static void fogTableLoad(void);
 
 #define GRID_BITS 20
 
@@ -1006,6 +1011,23 @@ static s32 clampS16(f32 f, s16 *out)
 	return 1;
 }
 
+/** Whether a triangle's corners are all within a Vtx's reach of room r's position. */
+static s32 triFitsRoom(const struct stri *tri, s32 r)
+{
+	const f32 roompos[3] = { g_BgRooms[r].pos.x, g_BgRooms[r].pos.y, g_BgRooms[r].pos.z };
+	s16 v;
+
+	for (s32 k = 0; k < 3; k++) {
+		for (s32 j = 0; j < 3; j++) {
+			if (!clampS16(tri->pos[k][j] - roompos[j], &v)) {
+				return 0;
+			}
+		}
+	}
+
+	return 1;
+}
+
 static u8 paletteIndex(const u32 *palette, s32 num, u32 argb)
 {
 	s32 best = 0;
@@ -1838,7 +1860,7 @@ static void forget(void)
  * plane, which at Surface's 12500 left two flat lavender slabs standing in
  * the sky with slanting sides (F3 20260925-030405). A picture is the
  * backdrop when no vertex of any of its triangles lies over the level's rooms
- * in plan. It is drawn with the sky instead (gebeanStageRenderBackdrop()).
+ * in plan. It is drawn after the sky instead (gebeanStageRenderBackdrop()).
  *
  * Cradle's ring of canyon cliffs (a 1024x512 photograph, 360 triangles) dips
  * under the platform, so 142 of its triangles are over the level's rooms in
@@ -1932,15 +1954,6 @@ static void takeBackdrop(struct collect *c, s32 n)
 
 	c->num = kept;
 
-	if (numBackdrop) {
-		backdropOrder = malloc(sizeof(s32) * numBackdrop);
-		backdropDist = malloc(sizeof(f32) * numBackdrop);
-
-		if (!backdropOrder || !backdropDist) {
-			numBackdrop = 0;
-		}
-	}
-
 	backdropMid[0] = (mn[0] + mx[0]) * 0.5f;
 	backdropMid[1] = 0;
 	backdropMid[2] = (mn[1] + mx[1]) * 0.5f;
@@ -2003,10 +2016,11 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, decals = 0, backed = 0, nofogs = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, nofogs = 0;
 	u32 bytes = 0;
 
 	row = levelRow();
+	fogTableLoad();
 
 	if (!row) {
 		return 0;
@@ -2137,6 +2151,55 @@ static s32 build(void)
 			}
 		}
 
+		// A triangle too far from its room's position for a Vtx to hold
+		// (Dam's far mountains, dealt to the rooms of GoldenEye's backdrop
+		// 35000 nearer) goes to the nearest room of Bean's it fits. Every room
+		// is drawn, so where it is dealt changes nothing on the screen; left
+		// out, it was a hole onto the sky in the mountainside, hidden only
+		// while the fog there was whole
+		for (s32 t = 0; t < c.num; t++) {
+			struct stri *tri = &c.tris[t];
+			s32 best = -1;
+			f32 bestd = 0.0f;
+
+			if (tri->room <= 0 || triFitsRoom(tri, tri->room)) {
+				continue;
+			}
+
+			for (s32 r = 1; r < n; r++) {
+				if (r != tri->room && listlen[r] > 0 && triFitsRoom(tri, r)) {
+					const f32 dx = tri->pos[0][0] - g_BgRooms[r].pos.x;
+					const f32 dy = tri->pos[0][1] - g_BgRooms[r].pos.y;
+					const f32 dz = tri->pos[0][2] - g_BgRooms[r].pos.z;
+					const f32 d = dx * dx + dy * dy + dz * dz;
+
+					if (best < 0 || d < bestd) {
+						best = r;
+						bestd = d;
+					}
+				}
+			}
+
+			if (best > 0) {
+				listlen[tri->room]--;
+				listlen[best]++;
+				tri->room = best;
+				moved++;
+			} else {
+				// Out of every room's reach: drawn with the backdrop, which
+				// is drawn where it stands, furthest first behind the rooms
+				struct stri *n2 = realloc(backdrop, sizeof(*backdrop) * (numBackdrop + 1));
+
+				if (n2) {
+					backdrop = n2;
+					backdrop[numBackdrop++] = *tri;
+					listlen[tri->room]--;
+					tri->room = 0;
+					farOff++;
+				}
+			}
+		}
+
 		for (s32 r = 1; r < n; r++) {
 			lists[r] = listlen[r] ? malloc(sizeof(s32) * listlen[r]) : NULL;
 			listlen[r] = 0;
@@ -2166,12 +2229,16 @@ static s32 build(void)
 				// further out (Dam's far cliffs, Cradle's duct) and does not
 				// draw. Drawn over the HD level, a fogged cliff edge showed
 				// against the sky past Bean's trees ("sky tear"). A kept room
-				// Bean's mesh does lie on (Depot's) stays as it was
+				// Bean's mesh does lie on (Depot's) stays as it was. One that
+				// touches Bean's mesh with a triangle or two is backdrop all
+				// the same: Dam's room 31, a low grey boulder of a cliff over
+				// the far end of the reservoir, 1 of its triangles within a
+				// cell of Bean's mountainside, which stands behind it
 				if (filerooms[r] && roomHidden) {
 					hiddenTris = hiddenNear = 0;
 					fileRoomTrianglesEach(r, filerooms[r], filelens[r], 1, fileTriNearBean, &beantris);
 
-					if (hiddenTris > 0 && hiddenNear == 0) {
+					if (hiddenTris > 0 && hiddenNear * 4 < hiddenTris) {
 						roomHidden[r] = 1;
 						numHidden++;
 					}
@@ -2211,6 +2278,17 @@ static s32 build(void)
 	free(listlen);
 	free(c.tris);
 
+	// The backdrop's draw order, once it has everything it takes: its
+	// pictures (takeBackdrop()) and what no room can reach
+	if (numBackdrop) {
+		backdropOrder = malloc(sizeof(s32) * numBackdrop);
+		backdropDist = malloc(sizeof(f32) * numBackdrop);
+
+		if (!backdropOrder || !backdropDist) {
+			numBackdrop = 0;
+		}
+	}
+
 	{
 		s32 clamped = 0;
 
@@ -2221,8 +2299,8 @@ static s32 build(void)
 		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of backdrop, %d cut-outs clamped in t", row->bean, numBackdrop, clamped);
 	}
 
-	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d two-faced, %d unfogged), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
-			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, backed, nofogs, bytes, dropped,
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d two-faced, %d unfogged), %u bytes, %d triangles off a room's range (%d dealt to another in reach, %d to the backdrop), %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
+			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, backed, nofogs, bytes, dropped, moved, farOff,
 			(sysGetMicroseconds() - start) / 1000.0,
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,
@@ -2241,25 +2319,28 @@ static s32 build(void)
  *
  * GoldenEye's own far plane is its fog table's (Surface 12500, Jungle 2500,
  * Train 1500), set for a level drawn through its portals and fogged to the sky
- * colour before it. An HD level draws every room, and its cut-outs - the
- * pines, the forest wall, Jungle's leaves - are not fogged, so trees came and
- * went at 12500 as the player walked (F3 20260925-030603: "can see trees in
- * distance drawing live"). The depth buffer's precision is the near plane's,
- * which stays.
+ * colour before it. An HD level draws every room, so trees came and went at
+ * 12500 as the player walked (F3 20260925-030603: "can see trees in distance
+ * drawing live"). The depth buffer's precision is the near plane's, which
+ * stays.
  *
- * The fog stays exactly as it was by distance. Its position is a share of the
- * depth range, so the same numbers under a further plane would thin it (on
- * Jungle, 2500 -> 32900, the fog's start went from 1250 to 2300 and its
- * end to the new plane): the rooms' fog factor is worked out for the new
- * range (gebeanStageFogFactor()), and envTick() goes on reckoning the props'
- * fog and fog distance from the level's own plane (gebeanStageFarOwn()).
+ * What the HD level is fogged by is the release's own fog (gebeanStageFog()),
+ * not the plane's; a level the release has no fog for keeps GoldenEye's where
+ * it was by distance (gebeanStageFogFactor()). envTick() goes on reckoning the
+ * fog distance the guards see by and the chrs' portal walk from the level's
+ * own plane (gebeanStageFarOwn()).
  *
- * Put back when the HD rooms go (F6).
+ * With the fog off (Disable Fog) every fogged level's plane goes out past the
+ * level's box the same way, HD or not: a level's fog ends at its far plane,
+ * and with nothing fogged the plane cut the level where the fog had hidden it.
+ *
+ * Put back when the HD rooms go (F6) and the fog is back on.
  */
 void gebeanStageTickFar(void)
 {
 	struct zrange zrange;
 	f32 want = 0.0f;
+	f32 len = 0.0f;
 
 	viGetZRange(&zrange);
 
@@ -2268,16 +2349,33 @@ void gebeanStageTickFar(void)
 		const f32 dy = meshMax[1] - meshMin[1];
 		const f32 dz = meshMax[2] - meshMin[2];
 
-		want = sqrtf(dx * dx + dy * dy + dz * dz) * 1.05f * bgGetScaleBg2Gfx();
+		len = sqrtf(dx * dx + dy * dy + dz * dz);
+	}
+
+	if (modIsFogDisabled() && g_FogEnabled) {
+		len = MAX(len, bgLevelLength());
+	}
+
+	if (len > 0.0f) {
+		want = len * 1.05f * bgGetScaleBg2Gfx();
+	}
+
+	// Something set the plane since it was raised (an environment's
+	// transition, Facility's gas): that is the level's own now
+	if (farRaised && fabsf(zrange.far - farSet) > 1.0f) {
+		farRaised = 0;
 	}
 
 	if (want > zrange.far + 1.0f) {
 		if (!farRaised) {
-			sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the HD level", zrange.far, want);
+			farOwn = zrange.far;
 		}
 
-		farOwn = zrange.far;
+		sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the %s", farOwn, want,
+				xblaStageDrawsEveryRoom() ? "HD level" : "level without its fog");
+
 		farRaised = 1;
+		farSet = want;
 		viSetZRange(zrange.near, want);
 		envTick();
 	} else if (farRaised && want <= 0.0f) {
@@ -2300,16 +2398,17 @@ s32 gebeanStageFarOwn(f32 *far)
 }
 
 /**
- * The fog factor (gSPFogFactor()) for fog positions min and max, which are
- * the level's own for its own far plane, under the raised one. The fog is
- * linear in the depth: z(w) = A - B / w, A = (f + n) / (f - n), B = 2fn /
- * (f - n); fog = z * fm + fo. Keeping fog(w) the same for every w under a
- * new A' and B' is fm' = fm B / B' and fo' = fo + A fm - A' fm'.
+ * For an HD level the release has no fog for: the fog line (gSPFogFactor()'s
+ * multiplier and offset, as floats for gSPFogLineEXT()) for fog positions min
+ * and max, which are the level's own for its own far plane, under the raised
+ * one. The fog is linear in the depth: z(w) = A - B / w, A = (f + n) / (f -
+ * n), B = 2fn / (f - n); fog = z * fm + fo. Keeping fog(w) the same for every
+ * w under a new A' and B' is fm' = fm B / B' and fo' = fo + A fm - A' fm'.
  */
-s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo)
+s32 gebeanStageFogFactor(s32 min, s32 max, f32 *fm, f32 *fo)
 {
 	struct zrange zrange;
-	f64 n, f, f2, a, b, a2, b2, m, o, m2, o2;
+	f64 n, f, f2, a, b, a2, b2, m, o, m2;
 
 	if (!farRaised || max <= min) {
 		return 0;
@@ -2332,12 +2431,391 @@ s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo)
 	m = 128000.0 / (max - min);
 	o = (500.0 - min) * 256.0 / (max - min);
 	m2 = m * b / b2;
-	o2 = o + a * m - a2 * m2;
 
-	*fm = (s32)(m2 < 32767.0 ? m2 + 0.5 : 32767.0);
-	*fo = (s32)(o2 > -32768.0 ? (o2 < 32767.0 ? floor(o2 + 0.5) : 32767.0) : -32768.0);
+	*fm = m2;
+	*fo = o + a * m - a2 * m2;
 
 	return 1;
+}
+
+/* -------------------------------------------------------------------------
+ * The release's fog
+ * ------------------------------------------------------------------------- */
+
+/**
+ * GoldenEye XBLA's own fog for each level, from its default.xex.
+ *
+ * The release's environment table (at 0x82858860 in the image, the file's
+ * 0x84b860) is Perfect Dark's fogenvironment row, 56 bytes, with GoldenEye's
+ * own columns for the N64 look (its near and far, fog positions and colour,
+ * all as the ROM has them) and 4J's for the HD look after them: at +0x24 the
+ * distance the fog is whole at, +0x28 its colour, +0x2c and +0x30 the HD far
+ * and near planes. The environment tick (0x82118168) sets the fog from -100
+ * to that distance, linear, in that colour, and the HD shaders mix to it by
+ * saturate(dist * c0.x + c0.y) (c0 = -1 / (end - start), end / (end - start),
+ * 0x823adab8). The N64 look is fogged from -100 to GoldenEye's far plane in
+ * GoldenEye's colour instead. The distances are in the level's world units,
+ * which the conversion keeps (geconvert.c).
+ *
+ * Levels 4J left as GoldenEye had them carry the far plane and colour (the
+ * indoor levels: fogged whole at the far plane, linearly); Dam, Runway and
+ * Surface take a light blue and a warm grey haze and their fog much further
+ * out. Levels GoldenEye draws without fog (Frigate, Silo, Bunker 1, the
+ * multiplayer-only ones) have no row in either.
+ *
+ * The table is read out of the player's own copy (fogTableLoad()): the
+ * Community Edition patches it too (Surface 2's fog nearer "to closer match
+ * N64", Jungle, Temple, Train, Archives, Statue...), so with the CE's overlay
+ * on its rows are the ones its patched default.xex has (gebeance.c writes
+ * them into the overlay). The retail rows below are only for a copy whose
+ * default.xex is not unpacked.
+ *
+ * Facility's colour in the release is 0x102001, which reads as GoldenEye's
+ * 0x102010 with its last two nibbles swapped (every other row keeps
+ * GoldenEye's colour or a new one outright); GoldenEye's is used.
+ */
+struct beanfog {
+	s16 levelid;     // GoldenEye's level id, the table's first column
+	s32 end;         // where the fog is whole (+0x24)
+	u32 rgb;         // its colour (+0x28)
+};
+
+#define BEANFOG_ROW  56
+#define BEANFOG_MAX  128
+
+// The retail table's HD columns, for a copy whose default.xex is not there
+static const struct beanfog beanFogsRetail[] = {
+	{ 22, 3500,  0x000008 }, // Statue
+	{ 23, 10000, 0x000000 }, // Control
+	{ 24, 3000,  0x000000 }, // Archives
+	{ 25, 1500,  0x000008 }, // Train
+	{ 27, 10000, 0x100000 }, // Bunker 2
+	{ 28, 15000, 0x000000 }, // Aztec
+	{ 29, 7500,  0x101820 }, // Streets
+	{ 30, 5000,  0x000008 }, // Depot
+	{ 31, 5000,  0x280000 }, // Complex
+	{ 32, 20000, 0x103060 }, // Egyptian
+	{ 33, 15000, 0x85adca }, // Dam
+	{ 34, 5000,  0x102001 }, // Facility
+	{ 35, 55000, 0x85adca }, // Runway
+	{ 36, 45000, 0xa49682 }, // Surface
+	{ 37, 2500,  0x182000 }, // Jungle
+	{ 38, 6000,  0x181828 }, // Temple
+	{ 39, 6000,  0x080008 }, // Caverns
+	{ 41, 30000, 0x6080a0 }, // Cradle
+	{ 43, 10000, 0x201010 }, // Surface 2
+};
+
+// GoldenEye's key for a level (stageRows[]) and its level id (geconvert.c)
+static const struct {
+	const char *key;
+	s16 levelid;
+} beanFogLevels[] = {
+	{ "sev", 9 }, { "silo", 20 }, { "stat", 22 }, { "arec", 23 }, { "arch", 24 }, { "tra", 25 },
+	{ "dest", 26 }, { "sevb", 27 }, { "azt", 28 }, { "pete", 29 }, { "depo", 30 }, { "ref", 31 },
+	{ "cryp", 32 }, { "dam", 33 }, { "ark", 34 }, { "run", 35 }, { "sevx", 36 }, { "jun", 37 },
+	{ "dish", 38 }, { "cave", 39 }, { "crad", 41 }, { "sevxb", 43 }, { "base", 45 }, { "stack", 46 },
+	{ "lib", 48 }, { "oat", 50 },
+};
+
+static struct beanfog beanFogs[BEANFOG_MAX];
+static s32 numBeanFogs = -1;
+
+// Where every level's fog starts (the environment tick's -100)
+#define BEANFOG_START -100.0f
+
+// Dam's fog reaches further the lower the player is: the tick adds 65000 at
+// 2782 and under, nothing at 9161 and over (GoldenEye's world heights, the
+// constants before the table). The conversion moved Dam up by 13219.
+#define BEANFOG_DAM_REACH 65000.0f
+#define BEANFOG_DAM_LOW   (2782.0f + 13219.0f)
+#define BEANFOG_DAM_HIGH  (9161.0f + 13219.0f)
+#define BEANFOG_DAM       33
+
+static u32 beBe32(const u8 *p)
+{
+	return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3];
+}
+
+/**
+ * Where the environment table starts in a default.xex (the release's is stored
+ * uncompressed), and how many bytes of rows it has with its end row: Statue's
+ * row is first in the release and the Community Edition alike (level 22, near
+ * 15, far 3500), and the rows run in 56s to one whose level is 0. 0 when it is
+ * not there.
+ */
+u32 gebeanStageFogTableFind(const u8 *xex, u32 len, u32 *at)
+{
+	static const u8 first[] = { 0x00, 0x16, 0x00, 0x0f, 0x0d, 0xac };
+
+	for (u32 o = 0; o + BEANFOG_ROW <= len; o += 2) {
+		u32 n;
+
+		if (memcmp(xex + o, first, sizeof(first)) != 0) {
+			continue;
+		}
+
+		for (n = 0; n < BEANFOG_MAX && o + (n + 1) * BEANFOG_ROW <= len; n++) {
+			const s16 id = (s16)(xex[o + n * BEANFOG_ROW] << 8 | xex[o + n * BEANFOG_ROW + 1]);
+
+			if (id == 0) {
+				*at = o;
+				return (n + 1) * BEANFOG_ROW;
+			}
+
+			if (id < 0 || id >= 1000) {
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/** beanFogs[] out of a table's rows (gebeanStageFogTableFind()'s bytes). */
+static void fogTableRead(const u8 *rows, u32 len)
+{
+	numBeanFogs = 0;
+
+	for (u32 o = 0; o + BEANFOG_ROW <= len && numBeanFogs < BEANFOG_MAX; o += BEANFOG_ROW) {
+		struct beanfog *f = &beanFogs[numBeanFogs];
+
+		f->levelid = (s16)(rows[o] << 8 | rows[o + 1]);
+
+		if (f->levelid == 0) {
+			break;
+		}
+
+		f->end = (s32)beBe32(rows + o + 0x24);
+		f->rgb = beBe32(rows + o + 0x28) >> 8;
+		numBeanFogs++;
+	}
+}
+
+static u8 *fogFileLoad(const char *path, u32 *len)
+{
+	FILE *fp = fopen(path, "rb");
+	u8 *data = NULL;
+	long size;
+
+	*len = 0;
+
+	if (!fp) {
+		return NULL;
+	}
+
+	if (fseek(fp, 0, SEEK_END) == 0 && (size = ftell(fp)) > 0 && fseek(fp, 0, SEEK_SET) == 0
+			&& (data = malloc(size)) != NULL) {
+		if (fread(data, 1, size, fp) == (size_t)size) {
+			*len = size;
+		} else {
+			free(data);
+			data = NULL;
+		}
+	}
+
+	fclose(fp);
+
+	return data;
+}
+
+/**
+ * The table, once a session: the Community Edition's rows when its overlay is
+ * drawn, else the player's default.xex beside the release's files/, else the
+ * retail rows built in.
+ */
+static void fogTableLoad(void)
+{
+	char root[FS_MAXPATH + 1], archive[FS_MAXPATH + 1], cache[FS_MAXPATH + 1], path[FS_MAXPATH + 1];
+	const char *from = "the retail rows built in";
+	u8 *data;
+	u32 len, at, n;
+
+	if (numBeanFogs >= 0) {
+		return;
+	}
+
+	numBeanFogs = 0;
+
+	if (gebeanCeFogTablePath(path, sizeof(path)) && (data = fogFileLoad(path, &len)) != NULL) {
+		fogTableRead(data, len);
+		free(data);
+		from = "the Community Edition's default.xex";
+	} else if (gebeanTreeInfo(root, sizeof(root), archive, sizeof(archive), cache, sizeof(cache))) {
+		snprintf(path, sizeof(path), "%s/../default.xex", root);
+
+		if ((data = fogFileLoad(path, &len)) != NULL) {
+			if ((n = gebeanStageFogTableFind(data, len, &at)) > 0) {
+				fogTableRead(data + at, n);
+				from = "the release's default.xex";
+			}
+
+			free(data);
+		}
+	}
+
+	if (numBeanFogs == 0) {
+		for (u32 i = 0; i < ARRAYCOUNT(beanFogsRetail); i++) {
+			beanFogs[numBeanFogs++] = beanFogsRetail[i];
+		}
+	}
+
+	for (s32 i = 0; i < numBeanFogs; i++) {
+		if (beanFogs[i].levelid == 34 && beanFogs[i].rgb == 0x102001) {
+			beanFogs[i].rgb = 0x102010;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebeanstage: the HD levels' fog: %d rows from %s", numBeanFogs, from);
+}
+
+static const struct beanfog *fogRow(void)
+{
+	s16 levelid = -1;
+
+	if (!row) {
+		return NULL;
+	}
+
+	fogTableLoad();
+
+	for (u32 i = 0; i < ARRAYCOUNT(beanFogLevels); i++) {
+		if (strcmp(beanFogLevels[i].key, row->key) == 0) {
+			levelid = beanFogLevels[i].levelid;
+		}
+	}
+
+	for (s32 i = 0; i < numBeanFogs; i++) {
+		if (beanFogs[i].levelid == levelid) {
+			return &beanFogs[i];
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * The release's fog for the HD level being drawn: where it starts and where
+ * it is whole, in the level's world units, and its colour. 0 when the HD rooms
+ * are not served, the level has no fog, or the release has none for it.
+ */
+s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
+{
+	const struct beanfog *f;
+
+	if (!g_FogEnabled || modIsFogDisabled() || !xblaStageDrawsEveryRoom() || (f = fogRow()) == NULL) {
+		return 0;
+	}
+
+	*start = BEANFOG_START;
+	*end = f->end;
+
+	// Dam's rule is the player's height; the camera's stands in for it, and
+	// is the player's own but in the opening and closing shots
+	if (f->levelid == BEANFOG_DAM) {
+		const f32 y = g_Vars.currentplayer->cam_pos.y;
+		const f32 t = (BEANFOG_DAM_HIGH - y) / (BEANFOG_DAM_HIGH - BEANFOG_DAM_LOW);
+
+		*end += BEANFOG_DAM_REACH * (t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t);
+	}
+
+	rgb[0] = f->rgb >> 16;
+	rgb[1] = f->rgb >> 8;
+	rgb[2] = f->rgb;
+
+	return 1;
+}
+
+/**
+ * The release's fog as a linear fog line for gSPFogLineEXT(): factor = w *
+ * mul + offset, 0 at the start and 255 where it is whole. `depth` is what a
+ * world unit of distance is in the eye depth of what is drawn - the level's
+ * render scale for the rooms, more for something drawn scaled towards the eye.
+ */
+s32 gebeanStageFogLine(f32 depth, f32 *mul, f32 *offset, u8 *rgb)
+{
+	f32 start, end;
+
+	if (!gebeanStageFog(&start, &end, rgb) || end <= start) {
+		return 0;
+	}
+
+	*mul = 255.0f / ((end - start) * depth);
+	*offset = -start * 255.0f / (end - start);
+
+	return 1;
+}
+
+/**
+ * A prop's or chr's share of the release's fog at its depth z (world units),
+ * for envGetObjShadeMode(): the rooms' own fog at that distance, capped at
+ * whole, so that a prop past the fog is drawn in the fog's colour as the rooms
+ * behind it are.
+ */
+s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb)
+{
+	f32 start, end;
+
+	if (!gebeanStageFog(&start, &end, rgb) || end <= start) {
+		return 0;
+	}
+
+	*frac = (z - start) / (end - start);
+
+	if (*frac > 1.0f) {
+		*frac = 1.0f;
+	}
+
+	return 1;
+}
+
+/**
+ * A room served from the HD level, once bg.c's fog swap has run over it: every
+ * render mode left without the fog blend in its first cycle takes it. The swap
+ * knows GoldenEye's own modes; the HD rooms also draw cut-outs (the pines, the
+ * forest wall, Jungle's leaves: the texture edge with 1 - alpha, 0x0c183078),
+ * decals in the decal modes, and the surfaces GoldenEye drew unfogged, and the
+ * release fogs every one of them.
+ */
+void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu)
+{
+	struct roomblock *blocks[2] = { opa, xlu };
+
+	if (!built || roomnum < 1 || roomnum >= numRooms || !roomData[roomnum] || !xblaStageIsRelease()) {
+		return;
+	}
+
+	for (s32 i = 0; i < 2; i++) {
+		struct roomblock *stack[16];
+		s32 depth = 0;
+		struct roomblock *block = blocks[i];
+
+		while (block || depth > 0) {
+			if (!block) {
+				block = stack[--depth];
+				continue;
+			}
+
+			if (block->type == ROOMBLOCKTYPE_LEAF) {
+				for (Gfx *gdl = block->gdl; gdl && (u8)(gdl->words.w0 >> 24) != (u8)G_ENDDL; gdl++) {
+					if ((u32)gdl->words.w0 == 0xb900031d
+							&& ((u32)gdl->words.w1 & 0xcccc0000) != (G_RM_FOG_SHADE_A & 0xcccc0000)) {
+						gdl->words.w1 = ((u32)gdl->words.w1 & ~0xcccc0000) | (G_RM_FOG_SHADE_A & 0xcccc0000);
+					}
+				}
+
+				block = block->next;
+			} else if (block->type == ROOMBLOCKTYPE_PARENT) {
+				if (depth < ARRAYCOUNT(stack)) {
+					stack[depth++] = block->next;
+				}
+
+				block = block->child;
+			} else {
+				block = NULL;
+			}
+		}
+	}
 }
 
 /* -------------------------------------------------------------------------
@@ -2349,8 +2827,11 @@ s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo)
 
 /**
  * The level's backdrop (takeBackdrop()), drawn after the sky and before the
- * rooms, as the release shows it: unfogged, whole, faded into the sky by its
- * vertex alpha.
+ * rooms, as the release shows it: whole, faded into the sky by its vertex
+ * alpha, and fogged by the release's fog at the distance it really stands at
+ * (gebeanStageFogLine()) - it is part of the level's file and drawn with the
+ * level's shaders, and unfogged it stood out bright past the hazed ground in
+ * front of it. The triangles no room's position can reach are drawn with it.
  *
  * It is drawn where it is - moving the camera moves it against the peaks, as
  * a band 25000 out should - but scaled towards the eye so that its farthest
@@ -2378,6 +2859,8 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 	Vtx *vtx;
 	Col *col;
 	s32 curtex = -2;
+	f32 fm, fo;
+	u8 rgb[3];
 
 	if (numBackdrop == 0 || !xblaStageDrawsEveryRoom()
 			|| g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
@@ -2466,7 +2949,19 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 	gDPSetAlphaCompare(gdl++, G_AC_NONE);
 	gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_CULL_BOTH);
 	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
-	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+
+	// Fogged as the level's rooms are, by where it really stands: it is part
+	// of the level's file and the release draws it with the level's shaders.
+	// A world unit of its distance is k * scale of the eye depth it is drawn at
+	if (gebeanStageFogLine(k * scale, &fm, &fo, rgb)) {
+		gDPSetRenderMode(gdl++, G_RM_FOG_SHADE_A, G_RM_XLU_SURF2);
+		gDPSetFogColor(gdl++, rgb[0], rgb[1], rgb[2], 0xff);
+		gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT, fm);
+		gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT | G_FOGLINE_OFFSET_EXT, fo);
+		gSPSetGeometryMode(gdl++, G_FOG);
+	} else {
+		gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	}
 	gDPSetCombineLERP(gdl++, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0);
 
 	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -2502,6 +2997,7 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 
 	// The frame turned the depth test on before the sky and nothing after it
 	// turns it on again (xblasky.c)
+	gSPClearGeometryMode(gdl++, G_FOG);
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
 	gDPPipeSync(gdl++);
 
@@ -2606,6 +3102,11 @@ void gebeanStageTrace(FILE *f) { }
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl) { return gdl; }
 void gebeanStageTickFar(void) { }
 s32 gebeanStageFarOwn(f32 *far) { return 0; }
-s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo) { return 0; }
+s32 gebeanStageFogFactor(s32 min, s32 max, f32 *fm, f32 *fo) { return 0; }
+s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb) { return 0; }
+s32 gebeanStageFogLine(f32 depth, f32 *mul, f32 *offset, u8 *rgb) { return 0; }
+s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb) { return 0; }
+void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu) { }
+u32 gebeanStageFogTableFind(const u8 *xex, u32 len, u32 *at) { return 0; }
 
 #endif

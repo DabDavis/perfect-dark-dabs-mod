@@ -2319,16 +2319,17 @@ struct modpreset {
 	s32 xblareflectcutoff;
 	s32 glareclip;
 	s32 quickweaponswap;
+	s32 nofog;
 };
 
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut  glareclip  quickswap
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0,       0,         0 },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true,    false,     false },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true,    true,      true },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true,    false,     false },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut  glareclip  quickswap  nofog
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0,       0,         0,         0 },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true,    false,     false,     false },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true,    true,      true,      false },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true,    false,     false,     false },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2357,6 +2358,7 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModOptions.xblareflectcutoff = preset->xblareflectcutoff;
 	g_ModOptions.glareclip = preset->glareclip;
 	g_ModOptions.quickweaponswap = preset->quickweaponswap;
+	g_ModOptions.nofog = preset->nofog;
 
 	// The ways of playing, off in every preset.
 	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
@@ -2397,6 +2399,7 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModOptions.xblareflectcutoff == preset->xblareflectcutoff
 		&& g_ModOptions.glareclip == preset->glareclip
 		&& g_ModOptions.quickweaponswap == preset->quickweaponswap
+		&& g_ModOptions.nofog == preset->nofog
 		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
 		&& g_ModOptions.guardsalerted == MODALARM_OFF
 		&& g_ModOptions.akimbo == MODAKIMBO_OFF
@@ -2944,6 +2947,23 @@ static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuit
 		return modIsModelLodOn();
 	case MENUOP_SET:
 		g_ModOptions.modellod = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Disable Fog: no level's fog at all, each drawn out to its far side
+ * (modIsFogDisabled()). Live: the far plane follows the next frame.
+ */
+static MenuItemHandlerResult menuhandlerModDisableFog(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return modIsFogDisabled();
+	case MENUOP_SET:
+		g_ModOptions.nofog = data->checkbox.value;
 		break;
 	}
 
@@ -4572,6 +4592,14 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		(uintptr_t)"Black Level",
 		0,
 		menuhandlerModBlackLevel,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Disable Fog",
+		0,
+		menuhandlerModDisableFog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

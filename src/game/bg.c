@@ -24,6 +24,7 @@
 #include "xblastage.h"
 #include "gebeanstage.h"
 #include "gecinema.h"
+#include "game/modoptions.h"
 #endif
 #include "game/portalconv.h"
 #include "game/stagetable.h"
@@ -3420,6 +3421,11 @@ void bgLoadRoom(s32 roomnum)
 		if (g_FogEnabled) {
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->opablocks, 1);
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->xlublocks, 5);
+#ifndef PLATFORM_N64
+			// An HD level's room takes the fog on every surface, cut-outs
+			// and decals too, as the release draws them
+			gebeanStageFogRoom(roomnum, g_Rooms[roomnum].gfxdata->opablocks, g_Rooms[roomnum].gfxdata->xlublocks);
+#endif
 		} else if (!g_EnvHasTransparency) {
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->opablocks, 6);
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->xlublocks, 7);
@@ -6469,6 +6475,35 @@ static void bgTickPortalsEveryRoom(struct screenbox *box)
 }
 
 /**
+ * The length of the level's box - every room's but the sky tricks', which
+ * stand where they are drawn from - in world units: how far the far plane has
+ * to reach for nothing of it to be cut (gebeanStageTickFar(), Disable Fog).
+ */
+f32 bgLevelLength(void)
+{
+	f32 mn[3] = { 1e30f, 1e30f, 1e30f };
+	f32 mx[3] = { -1e30f, -1e30f, -1e30f };
+	s32 room;
+
+	for (room = 1; room < g_Vars.roomcount; room++) {
+		if (bgRoomIsSkyTrick(room)) {
+			continue;
+		}
+
+		for (s32 i = 0; i < 3; i++) {
+			mn[i] = MIN(mn[i], g_Rooms[room].bbmin[i]);
+			mx[i] = MAX(mx[i], g_Rooms[room].bbmax[i]);
+		}
+	}
+
+	if (mn[0] > mx[0]) {
+		return 0.0f;
+	}
+
+	return sqrtf((mx[0] - mn[0]) * (mx[0] - mn[0]) + (mx[1] - mn[1]) * (mx[1] - mn[1]) + (mx[2] - mn[2]) * (mx[2] - mn[2]));
+}
+
+/**
  * Whether the camera can see into a room this frame: ROOMFLAG_ONSCREEN, except
  * on a level that draws every room, where it is whether the portal walk reached
  * it (see bgTickPortalsEveryRoom()).
@@ -6506,8 +6541,12 @@ void bgTickPortals(void)
 	viGetZRange(&g_BgSnake.zrange);
 #ifndef PLATFORM_N64
 	// The walk that says which rooms' chrs are in view keeps the level's own
-	// far plane when an HD level's is raised (gebeanStageTickFar())
-	gebeanStageFarOwn(&g_BgSnake.zrange.far);
+	// far plane when an HD level's is raised (gebeanStageTickFar()); with the
+	// fog off it walks to the raised plane, which on a level that is not HD
+	// is also which rooms are drawn
+	if (!modIsFogDisabled()) {
+		gebeanStageFarOwn(&g_BgSnake.zrange.far);
+	}
 #endif
 	g_BgSnake.zrange.far = g_BgSnake.zrange.far / g_Vars.currentplayerstats->scale_bg2gfx;
 

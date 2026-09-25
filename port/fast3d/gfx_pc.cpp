@@ -134,8 +134,9 @@ struct LoadedVertex {
     // shader to evaluate at its own depth: factor = z/w * mul + offset. A
     // per-vertex factor interpolated across a triangle that starts behind
     // the camera is wrong along most of it - the N64 clips first and
-    // evaluates the line at the new vertices, so this goes one better
-    int16_t fog_mul, fog_offset;
+    // evaluates the line at the new vertices, so this goes one better.
+    // Floats: G_SETFOGLINE_EXT sets a line past gSPFogFactor()'s s16s
+    float fog_mul, fog_offset;
     // G_ENVMAP_EXT only: the vertex's normal (its colour, read as the signed
     // normal an RSP light would read) and its position, both put through the
     // modelview, so in view space with the eye at the origin. Written only
@@ -180,7 +181,10 @@ static struct RSP {
     bool lights_changed;
 
     uint32_t geometry_mode;
-    int16_t fog_mul, fog_offset;
+    // G_MW_FOG's s16 pair, or G_SETFOGLINE_EXT's floats, and whether the
+    // line is evaluated at the eye depth (linear fog) instead of at z/w
+    float fog_mul, fog_offset;
+    bool fog_linear;
 
     uint32_t extra_geometry_mode;
 
@@ -2290,6 +2294,9 @@ static void gfx_derive_batch_state(void) {
     if (use_fog && (rsp.extra_geometry_mode & G_ADDITIVE_EXT)) {
         cc_options |= (uint64_t)SHADER_OPT_FOG_FADE;
     }
+    if (use_fog && rsp.fog_linear && (rsp.geometry_mode & G_FOG)) {
+        cc_options |= (uint64_t)SHADER_OPT_FOG_LINEAR;
+    }
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
     if (!use_alpha) {
@@ -3227,6 +3234,10 @@ static void gfx_sp_moveword(uint8_t index, uint16_t offset, uintptr_t data) {
         case G_MW_FOG:
             rsp.fog_mul = (int16_t)(data >> 16);
             rsp.fog_offset = (int16_t)data;
+            if (rsp.fog_linear) {
+                rsp.fog_linear = false;
+                gfx_mark_state_dirty();
+            }
             break;
         case G_MW_SEGMENT:
             segmentPointers[(offset >> 2) & 0xff] = data;
@@ -4281,6 +4292,26 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_SETDEPTHBIAS_EXT:
                 rdp.depth_bias = (int16_t)(int32_t)cmd->words.w1;
                 break;
+            case G_SETFOGLINE_EXT: {
+                union {
+                    uint32_t u;
+                    float f;
+                } line;
+
+                line.u = (uint32_t)cmd->words.w1;
+
+                if (C0(0, 1)) {
+                    rsp.fog_offset = line.f;
+                } else {
+                    rsp.fog_mul = line.f;
+                }
+
+                if (rsp.fog_linear != (C0(1, 1) != 0)) {
+                    rsp.fog_linear = C0(1, 1) != 0;
+                    gfx_mark_state_dirty();
+                }
+                break;
+            }
             case G_SETSUBPIXELOFFSET_EXT: {
                 gfx_dp_set_subpixel_offset(C0(0, 16), C1(0, 16));
                 break;

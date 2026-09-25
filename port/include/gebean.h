@@ -299,6 +299,8 @@ s32 gebeanCeIsActive(void);
 s32 gebeanCeRestartNeeded(void);
 void gebeanCePrepareAtStartup(void);
 s32 gebeanCeFilePath(char *dst, u32 dstLen, const char *source, const char *name);
+/** The overlay's copy of the environment table's rows, from the CE's patched default.xex. */
+s32 gebeanCeFogTablePath(char *dst, u32 dstLen);
 const char *gebeanCeLevelName(const char *key, const char *name);
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);

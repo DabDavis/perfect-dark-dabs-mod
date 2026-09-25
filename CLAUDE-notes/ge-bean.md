@@ -9409,3 +9409,204 @@ animation chooser skipped), `ANGLES=name:deg:verta ...`; `guard.py`/`rung.sh`
 for a guard; `mtx.py` reads the neck and back matrices inside
 `xblaMeshPose()`. The pool's Bond (Parka) is `InstituteCharacter=79`, the
 parka head `InstituteCharacterHead=109`, on Chicago 0x1d from frame 2800.
+
+## The release's own fog on the HD levels (2026-09-25)
+
+The user's F3 on Dam (20260925-051544, 9f09335d1, HD, 1920x1080): "dam fog
+hiding mountains and looks bad" - past the dam wall the valley was flat fog
+blue, the far pines dark cut-outs floating in it, the mountains torn white
+shards. A second the same morning on Surface (20260925-062522): "surface
+buildings have fog, but nothing else does" - the satellite dish and its tower
+washed grey-purple, the pines, fence and snow round them clear. The user's
+direction: apply the release's own fog to every HD level, to everything in it.
+
+**What was wrong, three things at once:**
+
+- **The HD rooms were fogged at GoldenEye's N64 distances**, which the far
+  plane pass (`gebeanStageTickFar()`) had kept on purpose. GoldenEye's fog is
+  a share of the depth range (fog positions 995-1000 of Dam's range), which
+  with a near plane of 25 puts it at 3300 to the far plane - the release never
+  draws it that way.
+- **Dam's far plane is 9464, not GoldenEye's 75000**: `struct
+  fogenvironment`'s `far` is an s16 and the converted row's 75000 wraps
+  (75000 - 65536). This is the conversion's bug and it is in both looks - the
+  N64 look's fog, the far plane, and the distance guards see by
+  (`g_EnvFogMax`, chraction.c) are all an eighth of GoldenEye's on Dam.
+  Fixed after (below, "Dam's far plane at 75000").
+- **Only some of an HD level took the fog, and each its own way**: the rooms
+  through the fog swap (`g_GfxGroup01`), which does not know the cut-outs'
+  mode (`0x0c183078` is `G_RM_PASS | TEX_EDGE2` with `1MA` where TEX_EDGE2
+  has `A_MEM`) or the decal modes; the props and chrs through
+  `envGetObjShadeMode()`, whose curve is Perfect Dark's N64 one (`alphafar`
+  built with `znear + 1` where the rooms' z has `2 znear`), which fogs a prop
+  as if it were nearly twice as far as a room - the dish at 2500 was 56%
+  fogged where the snow under it was 20%.
+
+**The release's fog is in its default.xex**, not a shader constant file.
+Bean's environment table (image 0x82858860, file 0x84b860, 56-byte rows, the
+xex is stored uncompressed: `.xbla-work/ge-bean/Bean/default.xex`, basic
+compression blocks from 0x3000) is Perfect Dark's `fogenvironment` layout
+carrying GoldenEye's own N64 columns as the ROM has them, then 4J's HD
+columns: +0x24 the distance the fog is whole at, +0x28 its colour, +0x2c and
++0x30 the HD far and near planes. The environment tick (0x82118168) sets the
+fog from -100 to that distance, **linear**, in that colour (the N64 look:
+GoldenEye's far plane and colour instead), and the HD shaders mix to it by
+`saturate(dist * c0.x + c0.y)` with c0 = (-1 / (end - start), end / (end -
+start)) (0x823adab8). Dam adds up to 65000 to the distance the lower the
+player is (2782 to 9161 in GoldenEye's heights, +13219 after the
+conversion's move). So Bean does not reuse GoldenEye's fog: its indoor levels
+carry GoldenEye's far plane and colour (fogged whole there, but linearly),
+and Dam (15000-80000, 0x85adca), Runway (55000, 0x85adca), Surface (45000,
+0xa49682), Surface 2, Cradle, Depot, Train and Streets are 4J's own. The
+distances are the level's world units, which the conversion keeps. The
+table is `beanFogs[]` in gebeanstage.c; Facility's colour there is 0x102001,
+read as GoldenEye's 0x102010 with two nibbles swapped. The Community
+Edition's xex.diff changes Surface 2's row ("Reduced fog distance to closer
+match N64"); only the retail table is carried.
+
+**What was done:**
+
+- The renderer evaluates a **linear** fog line (`gSPFogLineEXT()`,
+  `G_SETFOGLINE_EXT` with `G_FOGLINE_LINEAR_EXT`, `SHADER_OPT_FOG_LINEAR` -
+  bit 28, since 16-27 are cleared for a draw without alpha): factor = w * mul
+  + offset at the eye depth, in both renderers; the line is a float, where
+  `gSPFogFactor()`'s s16 multiplier cannot reach fog more than a few thousand
+  units out under a near plane of 10.
+- `envStartFog()` gives an HD level's rooms the release's fog line and
+  colour (`gebeanStageFogLine()`); `envGetObjShadeMode()` gives its props and
+  chrs the same fog at their depth (`gebeanStageObjFog()`), capped at whole
+  so a prop past it is drawn in the fog's colour as the rooms behind it are;
+  `gebeanStageFogRoom()`, after bg.c's swap, turns every HD room mode's first
+  cycle to `G_RM_FOG_SHADE_A` - cut-outs, decals and the surfaces GoldenEye
+  drew unfogged included; the backdrop is fogged at the distance it really
+  stands at. The sky dome is not. The pines Bean places by instancing record
+  are room triangles and go with the rooms.
+- Objects on an HD level are drawn out to where the fog is whole
+  (`envIsPosInDrawDistance()`, from `func0f08e8ac()`); chrs keep the level's
+  own fog distance, as their portal walk keeps its plane, and guards see and
+  spawns hide by it as before.
+- **Dam's far mountainside was holes onto the sky**, hidden while it was
+  fogged whole: the RSP's room matrix holds a translation to 32767, and a
+  room further than that from the camera's room wrapped round off the
+  screen. On an HD level such a room's matrix is kept as floats
+  (`g_RoomMtxFloats`, `G_MTX_FLOATS`, room.c). Found by software-rendering
+  the dealt triangles from the report's camera (`raster.py`/`holes.py`: the
+  mesh was whole, the holes were rooms 81 and 30).
+- A triangle beyond its room's Vtx reach (Dam's far mountains, 261) is dealt
+  to the nearest room of Bean's in reach (75), or drawn with the backdrop
+  (182); the log line says how many.
+
+Checked on the RX 580 at the report's camera, a reservoir view, Surface's
+dish and spawn, two Runway and two Facility views, before and after
+(`~/wt/f3damfog-pics`); the N64 look's Dam and a Perfect Dark level are
+pixel-identical; Vulkan (llvmpipe under Xvfb - offscreen Vulkan still
+crashes before the first frame) draws the linear fog the same. Rig:
+`~/wt/f3damfog-rig/cam.sh TAG BIN STAGE [px py pz lx ly lz]` forces the camera
+in `playerAllocateMatrices()` (setting `cam_pos` in `player0f0c1840()` or
+teleporting the prop does not move a camera 3000 over the dam).
+
+### Disable Fog (2026-09-25)
+
+The user: "we can add disable all fog as a toggle". `Mod.DisableFog`
+(`g_ModOptions.nofog`, `modIsFogDisabled()`), the "Mods: Display" page,
+"Disable Fog", default off and off in every Settings Preset (Dab's
+Settings is the fork's old defaults, which never had it). Live.
+
+- The rooms keep their fog modes (bg.c's swap is made as each room loads)
+  and `G_FOG`; `envStartFog()` gives them a fog line of 0 at every depth.
+  **Do not just leave `G_FOG` off**: the renderer then takes a fog mode's
+  share from the fog colour's alpha, which is whole, and every room is drawn
+  in the fog colour.
+- Props and chrs: `envGetObjShadeMode()` answers opaque; the fog row's
+  object fade distances go too (`envGetDistFadeSettings()` answers NULL).
+- A level's fog ends at its far plane, so with nothing fogged the plane cut
+  the level where the fog had hidden it. `gebeanStageTickFar()` takes every
+  fogged level's plane out past its box (`bgLevelLength()`, every room but
+  the sky tricks, times 1.05), HD or not; the portal walk goes out with it,
+  objects and chrs are drawn to it (`envIsPosInDrawDistance()`). What guards
+  see by and spawns hide behind stays the level's own fog distance
+  (`envTick()` keeps `gebeanStageFarOwn()`). Levels that needed the plane
+  moved: Crash Site (10000 -> 31700) of Perfect Dark's fogged ones (Villa and
+  Pelagic II already reach past themselves; the rest are drawn without fog);
+  every fogged GoldenEye level but Egyptian (Dam 9464 -> 115400, Train 1500
+  -> 40500, Jungle 2500 -> 34000, Streets, Facility, Runway, Surface, Cradle,
+  Depot, Caverns, Archives, Control, Bunker 2, Aztec). The plane follows an
+  environment's transition (Facility's gas): a plane someone else set since
+  it was raised is taken as the level's own (`farSet`).
+- Untouched: fogless levels (`g_FogEnabled` false: Frigate, Silo, Bunker 1,
+  most of Perfect Dark - Frigate's HD frame is pixel-identical with it on),
+  the sky and water, and the models' own `G_RM_FOG_PRIM_A` shading (the
+  prop's shade colour in the fog register, the watch's items), which never
+  go through `envStartFog()`.
+
+### Dam's far plane at 75000: the fog rows' distances are s32 (2026-09-25)
+
+`struct fogenvironment`'s and `struct nofogenvironment`'s near, far and three
+object-fade distances are s32 off the N64 (types.h). Every converted
+GoldenEye row was checked against GoldenEye's own (the release's N64 columns,
+which are the ROM's, divided by the render scale): all agree, and only Dam's
+far plane (75000) did not fit an s16 - it wrapped to 9464. Nothing else was
+narrowed: the converter writes text, the `fog` key is read with `%d` into
+s32s, moddata.c reads a mod's own rows from N64 data that is s16 by
+construction, xblatables.c sizes its fields with `sizeof`, and nothing reads
+or writes the struct raw. A converted mod needs no re-conversion: its
+modconfig.txt always said 75000.
+
+What follows on Dam, in both looks: the far plane and GoldenEye's fog are
+its own (the N64 look sees the far cliffs through GoldenEye's blue, as
+GoldenEye does); guards see by 75000 (`g_EnvFogMax`, was 9464); the chrs'
+portal walk reaches 75000, so a guard past 9464 is drawn in the HD look. The
+HD far plane is still raised to 118725 over it. The struct is 64 bytes
+(`far` at 8) on Linux and the mingw build alike; Perfect Dark's levels, whose
+values fit an s16, are pixel-identical (Villa, Crash Site, the N64 look's
+Surface).
+
+### Dam's grey boulder: a kept room that barely touches Bean's mesh (2026-09-25)
+
+With the fog pushed out, a big low-detail grey rock stood over the far end of
+the reservoir in the HD look (`~/wt/f3damfog-pics/rock_*`). It is **room 31**,
+the one kept room of GoldenEye's backdrop Dam still drew: 1 of its triangles
+lay within a cell of Bean's mesh, so the "nothing of Bean's on it" rule above
+kept it. Bean remodelled that cliff as part of its mountainside, which stands
+right behind it. A kept room is now hidden when under a quarter of its
+triangles lie on Bean's mesh. Over the 19 HD levels that changes only this
+room (Dam 38 -> 39 not drawn; Streets, Depot, Cradle as they were). Only the
+drawing is left out (`gebeanStageRoomHidden()` in `bgRenderRoomOpaque()`/
+`Xlu()`); GoldenEye's tiles, which are the collision, and the room's hit
+batches are untouched, and the N64 look is pixel-identical.
+
+### The Community Edition's fog (2026-09-25)
+
+The CE updater patches `default.xex` too (`CEUpdate/xex.diff`, a single-file
+HDiffPatch, `HDIFF13&lzma`, 694 KB), and its changelog has "Surface ii:
+Reduced fog distance to closer match N64". Applied in memory to the retail
+xex (`hdpApplyMem()`, hdpglue.c) it is the same size, still uncompressed, with
+the environment table at the same place (file 0x84b860), and 57 rows either
+way. What the CE changes in it (HD columns: fog end, colour, far, near):
+
+| level | retail | CE |
+|---|---|---|
+| Surface 2 (43) | end 10000 | end 6500 |
+| Jungle (37) | far 2500, end 2500, 0x182000, HD far 2500, near 10 | far 5500, end 4500, 0x797c79 (N64 colour too), HD far 5000, near 6; xlu fade 6500 |
+| Temple (38, and 238-438) | far 6000, end 6000, 0x181828 | far 22500, end 22500, 0x103060, fades 3000/4000/600 |
+| Train (25) | far 1500, end 1500 | far 4500, end 4500 |
+| Archives (24) | far 3000, end 3000, HD far 3000 | far 4500, end 4500, HD far 22500, opa fade 3500 |
+| Statue (22) | end 3500, 0x000008, HD far 3500 | end 5000, 0x090708, HD far 12000 |
+| Streets (29) | xlu fade 6000, HD far 10000 | xlu fade 10000, HD far 15000 |
+| Cradle (41, 241-441) | 0x6080a0 | 0x6e8196 (MP rows near 10 -> 6) |
+| Dam cinema (933) | 0x103060 | 0x85adca |
+| new rows | 40, 240, 340 (Citadel) | 9 (Bunker 1: end 45000, 0xa49682), 20 (Silo: 10000, 0x181818), 54 |
+
+Dam, Runway, Surface, Facility and the rest are as retail. **The HD levels'
+fog is now read, not written in**: `fogTableLoad()` (once, at the first HD
+level) takes the CE's rows when its overlay is drawn - the overlay worker
+applies `xex.diff` to the release's `default.xex` (beside `files/`, or out of
+the release's archive) and keeps the table's rows as `ce/fogtable.bin`
+(`gebeanCeFogTablePath()`; the overlay's marker moved to `.applied3`, so an
+existing overlay is made again once) - else the rows out of the player's own
+`default.xex`, else the retail rows built in (`beanFogsRetail[]`, for a copy
+whose xex is not unpacked). The log says which (`the HD levels' fog: N rows
+from ...`). The CE's new Bunker 1 and Silo rows do nothing here: those levels
+are converted fogless, so nothing of them is fogged at all. Only the HD
+columns (end, colour) are read; the N64 look is GoldenEye's ROM row as
+before, whatever the CE did to its own copy of the N64 columns.

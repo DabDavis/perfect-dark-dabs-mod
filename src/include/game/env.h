@@ -21,6 +21,9 @@ void envApplyTransitionFrac(f32 arg0);
 Gfx *envStartFog(Gfx *gdl, bool xlupass);
 Gfx *envStopFog(Gfx *gdl);
 bool envIsPosInFogMaxDistance(struct coord *pos, f32 tolerance);
+#ifndef PLATFORM_N64
+bool envIsPosInDrawDistance(struct coord *pos, f32 tolerance);
+#endif
 struct distfadesettings *envGetDistFadeSettings(void);
 s32 envGetObjShadeMode(struct prop *prop, f32 arg1[4]);
 

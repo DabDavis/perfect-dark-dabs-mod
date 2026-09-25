@@ -14,7 +14,9 @@
  * writes, changes or renames, in the cache, read before the release's own
  * (gebeanCeFilePath()). The rest it leaves as they are under their own names,
  * and those are not copied. The executable's patches are no use to a game that does not run it,
- * and are not applied.
+ * but for one table: the CE changes the levels' fog in it, so its xex.diff is
+ * applied in memory and the environment table's rows kept in the overlay
+ * (gebeanCeFogTablePath(), read by gebeanstage.c).
  *
  * **It takes a restart.** The release's characters, guns and pictures are
  * loaded once and kept, so the choice is read at startup and holds for the
@@ -42,16 +44,20 @@
 #include "gexplusrom.h"
 #include "video.h"
 #include "gebean.h"
+#include "gebeanstage.h"
 #include "external/hdiffpatch/hdpglue.h"
 
 #ifndef PLATFORM_N64
 
-// Where the updater keeps its file patch
+// Where the updater keeps its file patch, and its executable's
 #define GEBEANCE_DIFF_ENTRY "CEUpdate/files.diff"
+#define GEBEANCE_XEX_ENTRY "CEUpdate/xex.diff"
+// The environment table's rows out of the patched executable, in the overlay
+#define GEBEANCE_FOG_FILE "fogtable.bin"
 // Written when the overlay is complete, holding the updater's size, so a
 // different updater is applied afresh; the name moves on when what the
-// overlay holds does (2: renamed files are copied)
-#define GEBEANCE_DONE_FILE ".applied2"
+// overlay holds does (2: renamed files are copied, 3: the fog table)
+#define GEBEANCE_DONE_FILE ".applied3"
 
 static s32 ceWanted;           // Mod.GeXblaCommunityEdition, as the menu leaves it
 static s32 ceActive;           // what this session is drawing
@@ -155,6 +161,17 @@ s32 gebeanCeRestartNeeded(void)
  * Community Edition and the patch wrote one. source is the path under files/,
  * name the file in it.
  */
+s32 gebeanCeFogTablePath(char *dst, u32 dstLen)
+{
+	if (!ceActive) {
+		return 0;
+	}
+
+	snprintf(dst, dstLen, "%s/../" GEBEANCE_FOG_FILE, ceRoot);
+
+	return fsFileSize(dst) > 0;
+}
+
 s32 gebeanCeFilePath(char *dst, u32 dstLen, const char *source, const char *name)
 {
 	if (!ceActive) {
@@ -245,13 +262,15 @@ static s32 gebeanCeWantRef(const char *name, void *arg)
 	return 0;
 }
 
+/** Whether an archive entry is the patch arg names (the files', the xex's, the release's xex). */
 static s32 gebeanCeWantDiff(const char *name, void *arg)
 {
+	const char *want = arg ? arg : GEBEANCE_DIFF_ENTRY;
 	const size_t len = strlen(name);
-	const size_t n = strlen(GEBEANCE_DIFF_ENTRY);
-	char tail[64];
+	const size_t n = strlen(want);
+	char tail[FS_MAXPATH + 1];
 
-	if (len < n) {
+	if (len < n || n >= sizeof(tail)) {
 		return 0;
 	}
 
@@ -261,7 +280,7 @@ static s32 gebeanCeWantDiff(const char *name, void *arg)
 
 	tail[n] = '\0';
 
-	return strcmp(tail, GEBEANCE_DIFF_ENTRY) == 0;
+	return strcmp(tail, want) == 0 && (len == n || name[len - n - 1] == '/' || name[len - n - 1] == '\\');
 }
 
 /** Finds the one file an extraction wrote, wherever under dir its archive path put it. */
@@ -316,6 +335,106 @@ struct ceapply {
 	SDL_atomic_t done;
 	const char *stage;
 };
+
+static u8 *gebeanCeLoad(const char *path, u32 *len)
+{
+	FILE *fp = fopen(path, "rb");
+	u8 *data = NULL;
+	long size;
+
+	*len = 0;
+
+	if (!fp) {
+		return NULL;
+	}
+
+	if (fseek(fp, 0, SEEK_END) == 0 && (size = ftell(fp)) > 0 && fseek(fp, 0, SEEK_SET) == 0
+			&& (data = malloc(size)) != NULL) {
+		if (fread(data, 1, size, fp) == (size_t)size) {
+			*len = size;
+		} else {
+			free(data);
+			data = NULL;
+		}
+	}
+
+	fclose(fp);
+
+	return data;
+}
+
+/**
+ * The CE's executable patch, applied in memory to the release's default.xex
+ * (beside files/, or out of the release's archive), and the environment
+ * table's rows out of what it makes written into the overlay. The levels'
+ * fog is the only thing the game takes from it; a copy this cannot do is
+ * drawn with the release's own fog, and the overlay is made all the same.
+ */
+static void gebeanCeWriteFogTable(struct ceapply *a, const char *unpack)
+{
+	struct cefind find;
+	char xexpath[FS_MAXPATH + 1];
+	char path[FS_MAXPATH + 1];
+	u8 *xex = NULL, *diff = NULL, *patched = NULL;
+	u32 xexlen, difflen, at, n;
+	size_t patchedlen = 0;
+	s32 extracted = 0;
+	FILE *fp;
+
+	if (archiveExtractMatching(ceZip, unpack, gebeanCeWantDiff, GEBEANCE_XEX_ENTRY) <= 0) {
+		sysLogPrintf(LOG_WARNING, "gebeance: no %s in %s; the levels keep the release's fog", GEBEANCE_XEX_ENTRY, ceZip);
+		return;
+	}
+
+	memset(&find, 0, sizeof(find));
+	find.leaf = "xex.diff";
+	gebeanCeFindIn(&find, unpack, 4);
+
+	snprintf(xexpath, sizeof(xexpath), "%s/../default.xex", a->root);
+
+	if (fsFileSize(xexpath) <= 0 && a->archive[0]) {
+		struct cefind xf;
+
+		archiveExtractMatching(a->archive, a->cache, gebeanCeWantDiff, "default.xex");
+		memset(&xf, 0, sizeof(xf));
+		xf.leaf = "default.xex";
+		gebeanCeFindIn(&xf, a->cache, 4);
+
+		if (xf.found[0]) {
+			snprintf(xexpath, sizeof(xexpath), "%s", xf.found);
+			extracted = 1;
+		}
+	}
+
+	if (find.found[0]
+			&& (diff = gebeanCeLoad(find.found, &difflen)) != NULL
+			&& (xex = gebeanCeLoad(xexpath, &xexlen)) != NULL
+			&& hdpApplyMem(xex, xexlen, diff, difflen, &patched, &patchedlen)
+			&& (n = gebeanStageFogTableFind(patched, patchedlen, &at)) > 0) {
+		snprintf(path, sizeof(path), "%s/" GEBEANCE_FOG_FILE, a->dir);
+		fp = fopen(path, "wb");
+
+		if (fp) {
+			fwrite(patched + at, 1, n, fp);
+			fclose(fp);
+			sysLogPrintf(LOG_NOTE, "gebeance: the Community Edition's fog: %u rows", n / 56 - 1);
+		}
+	} else {
+		sysLogPrintf(LOG_WARNING, "gebeance: the executable patch did not apply to %s; the levels keep the release's fog", xexpath);
+	}
+
+	free(diff);
+	free(xex);
+	free(patched);
+
+	if (find.found[0]) {
+		fsRemoveFile(find.found);
+	}
+
+	if (extracted) {
+		fsRemoveFile(xexpath);
+	}
+}
 
 static int gebeanCeWorker(void *arg)
 {
@@ -397,6 +516,9 @@ static int gebeanCeWorker(void *arg)
 	a->result = hdpApplyOverlay(oldDir, find.found, outDir);
 
 	if (a->result > 0) {
+		a->stage = "READING ITS FOG";
+		gebeanCeWriteFogTable(a, unpack);
+
 		snprintf(path, sizeof(path), "%s/" GEBEANCE_DONE_FILE, a->dir);
 		fp = fopen(path, "wb");
 

@@ -68,11 +68,33 @@ void gebeanStageTickFar(void);
 
 /**
  * While the far plane is raised: the level's own far plane (for envTick()),
- * and the rooms' fog factor that keeps the fog where the level's own fog
- * positions put it under that plane (for envStartFog()). 0 when not raised.
+ * and, for a level the release has no fog for, the rooms' fog line that keeps
+ * GoldenEye's fog where the level's own fog positions put it under that plane
+ * (for envStartFog()). 0 when not raised.
  */
 s32 gebeanStageFarOwn(f32 *far);
-s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo);
+s32 gebeanStageFogFactor(s32 min, s32 max, f32 *fm, f32 *fo);
+
+/**
+ * The release's own fog for an HD level (gebeanstage.c, beanFogs[]): linear
+ * from its start to where it is whole, in its colour, over everything the
+ * level draws - the rooms (envStartFog(), gebeanStageFogLine(), and
+ * gebeanStageFogRoom() for the modes bg.c's swap does not know), the props
+ * and chrs (envGetObjShadeMode(), gebeanStageObjFog()). 0 when the HD rooms
+ * are not served or the release has no fog for the level.
+ */
+struct roomblock;
+s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb);
+s32 gebeanStageFogLine(f32 depth, f32 *mul, f32 *offset, u8 *rgb);
+s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb);
+void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu);
+
+/**
+ * Where the release's environment table is in a default.xex, and its length
+ * with the end row (the Community Edition's overlay keeps its own, gebeance.c).
+ * 0 when it is not in it.
+ */
+u32 gebeanStageFogTableFind(const u8 *xex, u32 len, u32 *at);
 
 /** A new level: the last one's rooms and mesh go. */
 void gebeanStageLevelReset(void);
@@ -90,8 +112,9 @@ const void *gebeanStageTile(u32 record);
 
 /**
  * The level's backdrop - a panorama 4J ring some levels with, far outside
- * them - drawn after the sky and before the rooms, unfogged and whole
- * (gebeanstage.c, takeBackdrop()). Answers gdl unchanged where there is none.
+ * them, and what no room can reach - drawn after the sky and before the
+ * rooms, whole and in the release's fog (gebeanstage.c, takeBackdrop()).
+ * Answers gdl unchanged where there is none.
  */
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl);
 
