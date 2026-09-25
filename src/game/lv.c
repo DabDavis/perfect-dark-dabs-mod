@@ -109,6 +109,7 @@
 #include "gemusic.h"
 #include "gecinema.h"
 #include "gegadgets.h"
+#include "modloader.h"
 #endif
 #ifndef PLATFORM_N64
 #include "mod.h"
@@ -2186,6 +2187,24 @@ void lvUpdateSoloHandicaps(void)
 			g_AmmoQuantityScale = 1;
 			g_AttackWalkDurationScale = 1;
 		}
+
+#ifndef PLATFORM_N64
+		// GE Plus: GoldenEye's own lvlSetMultipliersForDifficulty(), read out of
+		// its ROM (0x7f0be8d0). Its guards aim at 0.6, 0.75, 1 and 1 of a shot
+		// and hurt at 0.5 (scaled down on low health, as here), 0.75, 1 and 1;
+		// 007 is 00 Agent's under the sliders. Every other multiplier of it is
+		// Perfect Dark's already. Its 00 Agent and 007 are DIFF_PA here, whose
+		// guards aim 1.175, and Secret Agent's aimed 0.8 and hurt 0.6.
+		if (modloaderStageIsRemake(g_Vars.stagenum)) {
+			if (g_Difficulty == DIFF_SA) {
+				g_EnemyAccuracyScale = 0.75f;
+				g_PlayerDamageRxScale = 0.75f;
+			} else if (g_Difficulty >= DIFF_PA) {
+				g_EnemyAccuracyScale = 1;
+				g_PlayerDamageRxScale = 1;
+			}
+		}
+#endif
 	}
 }
 

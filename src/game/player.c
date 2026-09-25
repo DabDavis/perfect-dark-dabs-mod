@@ -3067,6 +3067,26 @@ struct damagetype g_DamageTypes[] = {
 	{  0, 5, 15, 0.4,  0x96, 0x00, 0x00 },
 };
 
+#ifndef PLATFORM_N64
+/**
+ * GE Plus: how long GoldenEye keeps damageshowtime up after a hit, by damage
+ * type - the third word of its g_DamageTypes rows, read out of its ROM
+ * (0x80036634). Its red flash is the one above, but the US version holds the
+ * timer up to this later end, and while it is up no damage lands on Bond
+ * (record_damage_kills()) and no guard's shot adds up (chrCalculateHit()).
+ */
+static const u8 g_GeDamageShowEnd[] = { 60, 60, 50, 40, 35, 30, 30, 30 };
+
+static f32 playerDamageShowEnd(s32 damagetype)
+{
+	if (modloaderStageIsRemake(g_Vars.stagenum) && g_GeDamageShowEnd[damagetype] > g_DamageTypes[damagetype].flashendframe) {
+		return g_GeDamageShowEnd[damagetype];
+	}
+
+	return g_DamageTypes[damagetype].flashendframe;
+}
+#endif
+
 struct healthdamagetype g_HealthDamageTypes[] = {
 	// openendframe
 	// |  updatestartframe
@@ -3160,8 +3180,13 @@ void playerTickDamageAndHealth(void)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		if (!g_Vars.currentplayer->isdead
+				&& g_Vars.currentplayer->damageshowtime <= playerDamageShowEnd(g_Vars.currentplayer->damagetype)) {
+#else
 		if (!g_Vars.currentplayer->isdead
 				&& g_Vars.currentplayer->damageshowtime <= g_DamageTypes[g_Vars.currentplayer->damagetype].flashendframe) {
+#endif
 			f32 inc;
 
 			if (g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {

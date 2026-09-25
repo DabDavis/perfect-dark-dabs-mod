@@ -9791,3 +9791,150 @@ here needed it. Probes: `stairrun.py` (START/TARGET, one guard, player
 watching), `cutprobe.py` (the cut test and `geStanReaches()` from a spot),
 `wpprobe.py` (nearest waypoint, a room's waypoint graph), `alertrun.py`
 (`FIRST`/`SWITCH` moves the player after the alert), `routeall.py`.
+
+## Guards that hardly hit: GoldenEye's shotbondsum, read out of its ROM (2026-09-25)
+
+F3 20260925-065032 (Facility, HD look, "GUARDS ARE NOT HITTING, AIMING TOO HIGH")
+and the user: "the guard accuracy for GE Plus is ridiculously low". Whether a
+guard's bullet lands on the player is not a trace in either game: it is a
+running sum, `shotbondsum`, that a hit resets (chrCalculateHit() here,
+GoldenEye's `chrlvUpdateShotbondsum()` at 0x7f02d2e4). The two agree on the
+0.16 base, the taper past 300 units, the accuracy rating, the 007 slider, the
+doubling for a gun that is not automatic and for a shotgun. They disagree in
+four places, all read out of the US ROM (the game segment is stored
+uncompressed at ROM 0x34b30 = 0x7f000000, the data segment is the 1172 block
+at 0x21990 = 0x80020d90; addresses from the decomp's `build/u/ge007.u.map` on
+10.8.0.3):
+
+- **What a shot adds.** GoldenEye adds `0.16 * g_GlobalTimerDelta` for every
+  frame its gun fires on, and fires an automatic on every `AutomaticFiringRate`th
+  frame, so a second of fire adds `0.16 * 60 / rate` at any frame rate. A guard
+  here fires GoldenEye's automatic `2 * rate` sixtieths apart (geguns.c's frame
+  of two sixtieths), so a shot is worth two sixtieths: `GE_FRAME60`, x2. At
+  0.16 a shot the guards summed half as fast. A single shot is doubled on top
+  in both (weaponGetNumTicksPerShot() is 0 for any gun that is not automatic -
+  the old comment saying "no weapons meet this" was wrong).
+- **Nothing adds up while the damage flash is up.** GoldenEye returns before
+  adding while `damageshowtime >= 0`, and `record_damage_kills()` takes no
+  damage at all then. Its US build holds the timer up to the third word of its
+  `g_DamageTypes` rows (0x80036634: 60, 60, 50, 40, 35, 30, 30, 30 by health
+  eighth), not to the flash's end (40 ... 15, which is Perfect Dark's table).
+  playerDamageShowEnd() (player.c) keeps it up that long on a remake stage.
+- **Difficulty** (`lvlSetMultipliersForDifficulty()`, 0x7f0be8d0, run every
+  frame like lvUpdateSoloHandicaps()): accuracy 0.6 / 0.75 / 1 / 1, damage
+  0.5 (x the low-health frac) / 0.75 / 1 / 1 for Agent / Secret Agent / 00 /
+  007. GE Plus plays 00 and 007 as DIFF_PA, whose guards aimed at 1.175, and
+  Secret Agent aimed at 0.8 and hurt at 0.6. Everything else of it (autoguns,
+  explosions, the player's own damage x2 on Agent = its g_AiHealthModifier) is
+  Perfect Dark's already. lv.c sets the two on a remake stage.
+- **Shotguns hurt x3** on a hit (both of GoldenEye's; their host already
+  doubled the accuracy).
+
+Checked unchanged: the guns' own rows in the ROM (MagSize, rates, Destruction,
+Inaccuracy at `wppk_stats` 0x80032654, 0x70 apart) are gegunstats.h's to the
+last digit; a hit's damage is `0.125 * Destruction * modifier` in both (a KF7 hit
+on Agent is 0.0625 of the bar); a guard's accuracy rating comes only from its AI
+list (GoldenEye's `SetMyAccuracyRating`, converted to 0x009a), never the setup;
+Inaccuracy plays no part in a guard's hit. The rules take GoldenEye's guns on a
+remake stage only (`WEAPON_IS_GE() && modloaderStageIsRemake()`); a Perfect
+Dark mission measured identical before and after.
+
+**Measured**, one KF7 guard 300 units from the player on Facility's locker
+room, attacking for 3600 ticks, hits a minute (the player pinned in place, his
+health refilled each tick):
+
+| | GoldenEye (oracle) | GE Plus before | after |
+|---|---|---|---|
+| Agent, guard standing | 22 | 19 | 21 |
+| Agent, guard kneeling | 21 | 17 | 18 |
+| Secret Agent | 26 | 26 | 22 |
+| 00 Agent | 29-31 | 35 | 27 |
+
+Dam, a KF7 guard 250 units away: Agent 13 -> 18, kneeling 6 -> 10, 00 Agent
+24 -> 21. The player crouching changes nothing in either game
+(the sum knows only the distance and the aim angle).
+
+**The oracle half** is `tools/guardaim/gehitrate.py` (copied to
+`~/dam-oracle/aim/` on 10.8.0.3 and run from `~/claude-007/007` as
+`gdb -batch -x ... --args ./build/port/ge007 --boot` with
+`PORT_PAD_SCRIPT=~/dam-oracle/dam.padscript PORT_BOOT_FRAMES=1000000`): Facility
+through Dam's pad script (the level is swapped at `bossSetLoadedStage`), every
+chr stilled (`ailist = 0`, ACT_NULL), guard slot 0 (a KF7) stood D units in
+front of Bond the way `TRYTeleportingChrToPad` does it and made to attack with
+`sub_GAME_7F025560` / `sub_GAME_7F0256F0` (chrAttackStand/Kneel), counting
+`chrlvUpdateShotbondsum` with a FinishBreakpoint. Three traps: run it under
+`PORT_LOCKSTEP=1 PORT_VI_LOCKSTEP=1`, or gdb's stops make each frame nine
+sixtieths long; the pad script enters on **00 Agent** (`g_SelectedDifficulty`
+2), not Agent; and `g_AiAccuracyModifier` is rewritten every frame, so set
+`g_SelectedDifficulty`, not the modifier. Ours is
+`tools/guardaim/aimprobe.py`, run from a directory holding the binary, `data/`,
+`added-content/` and `mods/GoldenEye Arenas` (`MOVEPLAYER=1` puts the
+player D from the nearest guard instead, for levels where a moved guard lands
+under the floor; Dam's road barriers block the line at 350).
+
+### The attack loop, and the 007 reaction slider (2026-09-25)
+
+What was left after the sum: a standing guard attacked 21 times a minute
+where GoldenEye's attacked 23. Traced attack by attack in both games
+(`CYCLE`/`AIMA` lines of aimprobe.py, `GEHITA` of gehitrate.py - the ticks
+each attack lasts and the ticks its gun fires, by animation), every part of
+chrTickFire()/chrAttack() is GoldenEye's chrlvTickAttackCommon()/
+chrlvInitActAttack() field for field - the attack tables, the shoot and
+recoil windows, the burst counts (2-5, +2-5 for two guns), the break-off after
+30 ticks off target, the recoil speeds (df/24, df/32), the 0.5 while firing -
+except one thing: **chrAttack() waits for a merge to finish** (CHRHFLAG_NEEDANIM)
+before starting its animation, and GoldenEye starts it at once. A guard's
+attack that follows the stop of his last (the stand's 16-tick merge) sat in
+the idle for 16 ticks. Off on a GE Plus stage (`g_GeChrAnims`). After it, per
+animation, ours / GoldenEye's: the standing rifle attack (row 2) 160 / 161
+ticks, 62 of them firing both; the kneels (rows 7 and 8) 240 / 241 and 314 /
+315, firing 80 and 104 both. Which kneel a guard picks is random, so a kneeling
+guard's minute swings between 18 and 23 hits in GoldenEye itself with the mix.
+
+**The 007 reaction slider** was shown and never read: pdmodeGetEnemyReactionSpeed()
+is 0 in Perfect Dark, and GoldenEye's get_007_reaction_speed() is the same sum
+in chrlvGetGuard007SpeedRating() (every guard's animation speed, the attack's
+0.5-0.8 included) and in its Int twin (reaction delays). It returns
+`pdmodereactionf` on a remake stage now; Perfect Dark's own PD Mode never sets
+it.
+
+GoldenEye X's two-handed rifles (fix/ge-guard-rifle-hold, 54ea4a844) needed
+nothing: gegunsFlags() already takes WEAPONFLAG_ONEHANDED from each row's
+ONLY_1_HANDED bit for every definition, borrowed or not - the same ten guns.
+
+Measured, hits a minute, a KF7 guard 300 units away on Facility (Dam: 250,
+player moved to the nearest guard), before this work / after the sum / after
+the loop, GoldenEye beside:
+
+| | GoldenEye | before | sum | loop |
+|---|---|---|---|---|
+| Agent, standing | 22 | 19 | 21 | 22 |
+| Agent, kneeling | 18-23 | 17 | 18 | 21 |
+| Secret Agent | 24-26 | 26 | 22 | 23 |
+| 00 Agent | 29-31 | 35 | 27 | 29 |
+| Dam Agent standing | - | 13 | 18 | 21 |
+| Dam 00 Agent | - | 24 | 21 | 23 |
+
+Defection at three difficulties, standing and kneeling: every probe line
+identical before and after.
+
+### "Aiming too high": the gun upright is GoldenEye's own kneel (2026-09-25)
+
+The same F3's picture is a guard kneeling in Facility's locker room with his
+gun held upright in front of his face. That is a frame of GoldenEye's own
+`fire_kneel_forward_one_handed_weapon_slow` (row 75, our
+ANIM_KNEEL_SHOOT_RIGHT_HAND): its frames around 40 (raising the gun) and 77
+(the recoil) hold it straight up. `tools/guardaim/geaimpose.py` stands a guard
+in front of Bond in the native port with his AI and aim zeroed and holds the
+animation on given frames; ours at the same frame is the same pose. The aim
+itself is GoldenEye's: the shoulder and back joints turn by the same
+`aimuprshoulder`/`aimupback` (0.02 rad for a player level with the guard, -0.1
+when he crouches), on the same four joints, with the same limits, and a
+guard's hit never depended on where his gun points - only on the distance and
+the side-to-side angle (the section above). Nothing was changed for it.
+
+A pistol-set animation is chosen by `WEAPONFLAG_ONEHANDED`. Without GoldenEye
+X's guns every long gun of GoldenEye's is two-handed here (the KF7 kneels in
+rows 7/8, measured), but the tester's install has Random guard weapons for the
+reinforcements, and a borrowed definition takes its host's one-handed flag -
+the rifle-in-a-pistol-pose case fix/ge-guard-rifle-hold (54ea4a844) settles.

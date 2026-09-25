@@ -73,6 +73,10 @@
 #include "gestan.h"
 #include "gechranims.h"
 #include "geguns.h"
+#include "modloader.h"
+
+// GoldenEye's frame as geguns.c takes it for its guns' rates: two sixtieths
+#define GE_FRAME60 2
 #endif
 #endif
 
@@ -2973,7 +2977,16 @@ void chrAttack(struct chrdata *chr, struct attackanimgroup **animgroups, bool fl
 		chr->chrflags &= ~CHRCFLAG_INJUREDTARGET;
 
 		if (!sniping && !chr->aibot) {
+			// GoldenEye's chrlvInitActAttack() starts the attack's animation
+			// at once, merging from whatever is playing; waiting for a merge
+			// to finish first held each of its guards' attacks back 16 ticks
+			// whenever one followed the stop of the last (the stand's merge),
+			// 10% of every standing attack's cycle
+#ifndef PLATFORM_N64
+			if (modelIsAnimMerging(chr->model) && !g_GeChrAnims) {
+#else
 			if (modelIsAnimMerging(chr->model)) {
+#endif
 				chr->hidden |= CHRHFLAG_NEEDANIM;
 			} else {
 				modelSetAnimation(model, animcfg->animnum, flip, animcfg->unk10, chrGetRangedSpeed(chr, 0.5f, 0.8f), 16);
@@ -10905,6 +10918,9 @@ void chrCalculateHit(struct chrdata *chr, bool *angleokptr, bool *hit, struct gs
 	u32 stack;
 	f32 taperdist;
 	f32 sqdist;
+#ifndef PLATFORM_N64
+	bool gerules;
+#endif
 
 	taperdist = 300;
 
@@ -10988,9 +11004,34 @@ void chrCalculateHit(struct chrdata *chr, bool *angleokptr, bool *hit, struct gs
 		break;
 	}
 
+#ifndef PLATFORM_N64
+	// GE Plus: GoldenEye's own guns on its own levels hit the way its
+	// chrlvUpdateShotbondsum() (0x7f02d2e4) has them, read out of its ROM:
+	// nothing adds up while the player's red flash of the last hit is still
+	// up, and what a shot adds is below
+	gerules = WEAPON_IS_GE(gset->weaponnum) && modloaderStageIsRemake(g_Vars.stagenum);
+
+	if (gerules && angleok && target->type == PROPTYPE_PLAYER
+			&& g_Vars.players[playermgrGetPlayerNumByProp(target)]->damageshowtime >= 0) {
+		return;
+	}
+#endif
+
 	if (angleok) {
 		f32 dist = sqrtf(xdist * xdist + ydist * ydist + zdist * zdist);
 		f32 accuracy = 0.16f;
+
+#ifndef PLATFORM_N64
+		// GoldenEye adds its 0.16 for every sixtieth its gun fires on (0.16 *
+		// g_GlobalTimerDelta) and fires an automatic on every rate'th frame,
+		// where a guard here fires it 2 * rate sixtieths apart (geguns.c
+		// takes GoldenEye's frame as two sixtieths). So a shot is two
+		// sixtieths' worth; a single shot is doubled again below, as there.
+		// At Perfect Dark's 0.16 a shot, its guards hit half as often.
+		if (gerules) {
+			accuracy *= GE_FRAME60;
+		}
+#endif
 
 		// Decrease accuracy if further than taperdist
 		if (dist > taperdist) {
@@ -11018,13 +11059,14 @@ void chrCalculateHit(struct chrdata *chr, bool *angleokptr, bool *hit, struct gs
 		// Apply difficulty multiplier (solo A = 0.6, SA = 0.8, PA = 1.175)
 		accuracy *= g_EnemyAccuracyScale;
 
-		// If the weapon fires more than once per tick, double the value to
-		// account for it. No weapons meet this criteria, however.
+		// A gun that is not automatic has no ticks per shot, and doubles the
+		// value - GoldenEye's AutomaticFiringRate <= 0 the same
 		if (weaponGetNumTicksPerShot(gset->weaponnum, gset->weaponfunc) <= 0) {
 			accuracy += accuracy;
 		}
 
-		// Shotgun doubles the value due to more bullets
+		// Shotgun doubles the value due to more bullets (both of GoldenEye's
+		// are hosted on it, and GoldenEye doubles both)
 		if (weaponHost(gset->weaponnum) == WEAPON_SHOTGUN) {
 			accuracy += accuracy;
 		}
@@ -11805,6 +11847,15 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 							s32 side = -1;
 							s32 hitpart = HITPART_GENERAL;
 							struct chrdata *targetchr = targetprop->chr;
+
+#ifndef PLATFORM_N64
+							// GoldenEye's shotguns hurt three times over when they hit
+							// (chrlvUpdateShotbondsum()), a hit here being one shot
+							if ((gset.weaponnum == WEAPON_GE_SHOTGUN || gset.weaponnum == WEAPON_GE_AUTOSHOTGUN)
+									&& modloaderStageIsRemake(g_Vars.stagenum)) {
+								damage *= 3;
+							}
+#endif
 
 							hitpos.x = targetprop->pos.x;
 							hitpos.y = targetprop->pos.y;

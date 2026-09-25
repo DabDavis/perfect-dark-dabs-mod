@@ -1675,8 +1675,8 @@ static void frontStartMatch(void)
  * init_menu0B_runstage(): the mission the folder settled on, at the difficulty
  * it settled on. GoldenEye's first three difficulties are Perfect Dark's three;
  * its 007 is Perfect Dark's PD Mode, the sliders over the hardest difficulty,
- * and the fields are the same multipliers (pdmode.c) - except the reaction
- * speed, which GoldenEye alone acts on, so its slider only shows here.
+ * and the fields are the same multipliers (pdmode.c); the reaction speed,
+ * which Perfect Dark's own PD Mode dropped, is acted on on a remake stage only.
  */
 static void frontStartMission(void)
 {
@@ -5246,8 +5246,8 @@ static Gfx *frontDrawDifficulty(Gfx *gdl)
 /**
  * constructor_menu09_007options(): four bars 300 wide and 33 apart, each with
  * the multiplier it stands for beside it. GoldenEye shows the enemy's accuracy
- * as a tenth of its own value, and its reaction speed is the one Perfect Dark
- * does not act on.
+ * as a tenth of its own value. The reaction speed is Perfect Dark's dropped
+ * PD Mode one, acted on for GE Plus's levels (pdmodeGetEnemyReactionSpeed()).
  */
 static Gfx *frontDraw007(Gfx *gdl)
 {
