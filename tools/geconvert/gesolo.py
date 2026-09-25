@@ -62,7 +62,17 @@ OBJ_TAILS = {
     # A tank's shells: the one word of its tail the setup sets (0xd8, thirty on
     # Runway and on Streets), which is what Bond is handed as he climbs in
     0x2d: ((0xd8, 0x5c, 4, 1),),                       # tank: the shells in it
+    # An autogun's turn limits, turn speed and range: the same fields in the
+    # same order on both sides, 0x24 further on here, and both loads convert
+    # them out of the setup's 16.16 integers alike. Left at nought until
+    # converter 67, and no autogun of any mission could see or turn. Its pad
+    # is AUTOGUN below.
+    0x0d: ((0x88, 0x64, 4, 1), (0x8c, 0x68, 4, 1),     # autogun: ymaxleft, ymaxright
+           (0xa4, 0x80, 4, 1), (0xa8, 0x84, 4, 1)),    #          maxspeed, aimdist
 }
+# An autogun's pad - the one it rests facing - is GoldenEye's s32 at 0x80 and
+# Perfect Dark's s16 at 0x5c, -1 for none.
+AUTOGUN = 0x0d
 # Glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and nothing
 # more, and Perfect Dark's portalnum is found at the load. Reading one anyway
 # takes the head of the next record.
@@ -657,6 +667,9 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
             for ge, pd, w, mul in OBJ_TAILS.get(t, ()):
                 v = int.from_bytes(raw[ge:ge + w], 'big') * mul
                 rec[pd:pd + w] = v.to_bytes(w, 'big')
+            if t == AUTOGUN and len(raw) >= 0x84:
+                target = struct.unpack_from('>i', raw, 0x80)[0]
+                struct.pack_into('>H', rec, 0x5c, NO_PAD if target < 0 else pad_num(target, numpads))
             if t == MONITOR and len(raw) >= 0xfc:
                 # A hanging TV's mount. GoldenEye's MonitorObjRecord ends
                 # OwnerOffset, OwnerPart, ImageNum, a word each at 0xf4, and
