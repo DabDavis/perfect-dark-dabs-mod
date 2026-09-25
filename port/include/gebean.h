@@ -96,6 +96,12 @@ s32 gebeanRowIsFirstPerson(s32 row);
 s32 gebeanRowIsChr(s32 row);
 
 /**
+ * Whether a body row keeps the hood of the head row cut off its own neck (the
+ * parka's; gebeanmats.hood), so that the head leaves it out there.
+ */
+s32 gebeanRowKeepsHood(s32 bodyrow, s32 headrow);
+
+/**
  * Where the first-person gun drawn for this weapon ends, as an offset from its
  * host's MODELPART_GUN_MUZZLEPOS node in the model's own space, or 0 if the
  * host's own model is the one in the hand.
@@ -311,6 +317,17 @@ struct gebeanmats {
 	// For a neck node, the group holding the body's own neck to draw instead
 	// under a head that is not its own; -1 for none
 	s8 neckfill[64];
+	// A hood cut off with a face but painted on the body's picture (the
+	// parka's): on a body, for a neck node, the group holding the hood, drawn
+	// only under the head cut off the same neck; on that head, for a list
+	// node, the group of the face with the hood round it, drawn on any other
+	// body (or none). -1 for none
+	s8 hood[64];
+	// On that body, for a neck node, the group of its own triangles the neck
+	// moves as they were before the hood took copies of them, drawn when the
+	// hood is not; -1 for none
+	s8 bare[64];
+	u8 head;  // the mesh is a head's
 };
 
 /**
