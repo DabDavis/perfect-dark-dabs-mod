@@ -115,6 +115,9 @@ void bgunCycleBack(void);
 bool bgunHasAmmoForWeapon(s32 weaponnum);
 void bgunAutoSwitchWeapon(void);
 void bgunEquipWeapon2(s32 handnum, s32 weaponnum);
+#ifndef PLATFORM_N64
+void bgunEquipHands(s32 rightweaponnum, s32 leftweaponnum);
+#endif
 s32 bgunIsFiring(s32 handnum);
 s32 bgunGetAttackType(s32 handnum);
 char *bgunGetName(s32 weaponnum);

@@ -5907,6 +5907,78 @@ void bgunFreeWeapon(s32 handnum)
 	bgunFreeHeldRocket(handnum);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A gun, for the pair Akimbo remembers and carries: not a grenade, a mine or
+ * anything that is not a firearm at all - a gadget, a GoldenEye item on the
+ * Data Uplink or the ECM mine, the tank's shells - all of which
+ * modCanAkimbo() lets into a hand.
+ */
+static bool bgunIsPairGun(s32 weaponnum)
+{
+	switch (weaponHost(weaponnum)) {
+	case WEAPON_GRENADE:
+	case WEAPON_NBOMB:
+	case WEAPON_TIMEDMINE:
+	case WEAPON_PROXIMITYMINE:
+	case WEAPON_REMOTEMINE:
+		return false;
+	}
+
+	return weaponHost(weaponnum) <= WEAPON_PSYCHOSISGUN
+		&& modCanAkimbo(weaponnum)
+		&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND);
+}
+
+/**
+ * Whether Akimbo's switch carries the gun leaving the right hand into the
+ * left: a gun, and one the player still holds.
+ */
+static bool bgunAkimboCarries(s32 weaponnum)
+{
+	return bgunIsPairGun(weaponnum) && invHasSingleWeaponIncAllGuns(weaponnum);
+}
+
+static bool bgunAkimboCanHoldLeft(s32 weaponnum, s32 rightweaponnum)
+{
+	return weaponnum > WEAPON_NONE
+		&& weaponnum != rightweaponnum
+		&& modCanAkimbo(weaponnum)
+		&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)
+		&& invHasSingleWeaponIncAllGuns(weaponnum);
+}
+
+/**
+ * The left hand's gun when the right hand leaves something Akimbo does not
+ * carry over - a grenade, a mine, an item, or a gun thrown or taken - so
+ * that it is not put in the left, and the gun there is not lost to it: the
+ * left of the last gun pair when this is the switch back to that pair's
+ * right-hand gun (however many grenades and items came between), else the
+ * left of the pair prevweaponnum names, else the gun the left hand holds
+ * now. WEAPON_NONE when none of them can be held beside the new gun.
+ */
+static s32 bgunAkimboLeftBack(s32 newweaponnum, s32 curleftweaponnum)
+{
+	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+
+	if (newweaponnum == ctrl->pairrightweaponnum
+			&& bgunAkimboCanHoldLeft(ctrl->pairleftweaponnum, newweaponnum)) {
+		return ctrl->pairleftweaponnum;
+	}
+
+	if (newweaponnum == ctrl->prevweaponnum
+			&& bgunAkimboCanHoldLeft(ctrl->prevleftweaponnum, newweaponnum)) {
+		return ctrl->prevleftweaponnum;
+	}
+
+	if (bgunAkimboCanHoldLeft(curleftweaponnum, newweaponnum)) {
+		return curleftweaponnum;
+	}
+
+	return WEAPON_NONE;
+}
+#endif
+
 void bgunTickSwitch2(void)
 {
 	struct player *player = g_Vars.currentplayer;
@@ -5927,6 +5999,9 @@ void bgunTickSwitch2(void)
 		if (bgunCanFreeWeapon(HAND_RIGHT) && bgunCanFreeWeapon(HAND_LEFT)) {
 			s32 weaponnum = player->gunctrl.weaponnum;
 			s32 previnuse = player->hands[HAND_LEFT].inuse;
+#ifndef PLATFORM_N64
+			s32 prevleftweaponnum = bgunGetWeaponNum(HAND_LEFT);
+#endif
 			struct hand *lefthand;
 			struct hand *righthand;
 
@@ -5949,10 +6024,15 @@ void bgunTickSwitch2(void)
 			// here so that the hands are freed and set up to match. A gun
 			// is never doubled out of thin air - two of a gun means the
 			// inventory holds two - so the left hand gets, in order: the
-			// different gun the spawn asked for; the gun that was in the
-			// right hand, carried over, when cycling or picking a single
-			// from the menu; a second copy of the new gun when there is
-			// one; and otherwise nothing, single-wielded.
+			// different gun asked for (the spawn, a pair given back); the
+			// gun that was in the right hand, carried over, when cycling
+			// or picking a single from the menu - if that was a gun he
+			// still holds, and when it was not (a grenade, a mine, a
+			// gadget, a gun thrown or taken), the pair as it was before it
+			// if this is the switch back to that pair's right-hand gun,
+			// or else the gun the left hand already holds; a second copy
+			// of the new gun when there is one; and otherwise nothing,
+			// single-wielded. bgunEquipHands() can ask for nothing at all.
 			newleftweaponnum = WEAPON_NONE;
 
 			if (modIsAkimboForPlayers()
@@ -5960,20 +6040,23 @@ void bgunTickSwitch2(void)
 					&& !weaponHasFlag2(ctrl->switchtoweaponnum, WEAPONFLAG2_DETONATORHAND)) {
 				s32 newweaponnum = ctrl->switchtoweaponnum;
 
-				if (ctrl->leftwant > WEAPON_NONE
-						&& ctrl->leftwant != newweaponnum
+				if (ctrl->leftwant == WEAPON_NONE) {
+					newleftweaponnum = WEAPON_NONE;
+				} else if (ctrl->leftwant > WEAPON_NONE
 						&& ctrl->gunmemmixed
-						&& modCanAkimbo(ctrl->leftwant)
-						&& !weaponHasFlag2(ctrl->leftwant, WEAPONFLAG2_DETONATORHAND)
-						&& invHasSingleWeaponIncAllGuns(ctrl->leftwant)) {
+						&& bgunAkimboCanHoldLeft(ctrl->leftwant, newweaponnum)) {
 					newleftweaponnum = ctrl->leftwant;
 				} else if (ctrl->leftwant < 0
 						&& ctrl->gunmemmixed
 						&& weaponnum != newweaponnum
-						&& modCanAkimbo(weaponnum)
-						&& !weaponHasFlag2(weaponnum, WEAPONFLAG2_DETONATORHAND)
-						&& invHasSingleWeaponIncAllGuns(weaponnum)) {
+						&& bgunAkimboCarries(weaponnum)) {
 					newleftweaponnum = weaponnum;
+				} else if (ctrl->leftwant < 0
+						&& ctrl->gunmemmixed
+						&& weaponnum != newweaponnum
+						&& !bgunAkimboCarries(weaponnum)
+						&& bgunAkimboLeftBack(newweaponnum, prevleftweaponnum) > WEAPON_NONE) {
+					newleftweaponnum = bgunAkimboLeftBack(newweaponnum, prevleftweaponnum);
 				} else if (invHasDoubleWeaponIncAllGuns(newweaponnum, newweaponnum)) {
 					newleftweaponnum = newweaponnum;
 				}
@@ -6050,7 +6133,17 @@ void bgunTickSwitch2(void)
 
 			if (weaponHost(weaponnum) <= WEAPON_PSYCHOSISGUN && weaponnum >= WEAPON_UNARMED) {
 				player->gunctrl.prevweaponnum = weaponnum;
+#ifndef PLATFORM_N64
+				player->gunctrl.prevleftweaponnum = prevleftweaponnum;
+#endif
 			}
+
+#ifndef PLATFORM_N64
+			if (bgunIsPairGun(weaponnum)) {
+				player->gunctrl.pairrightweaponnum = weaponnum;
+				player->gunctrl.pairleftweaponnum = prevleftweaponnum;
+			}
+#endif
 
 			if (previnuse) {
 				player->gunctrl.prevwasdualwielding = true;
@@ -6199,11 +6292,19 @@ void bgunSwitchToPrevious(void)
 
 #if VERSION >= VERSION_NTSC_1_0
 		if (invHasSingleWeaponIncAllGuns(player->gunctrl.prevweaponnum)) {
+#ifndef PLATFORM_N64
+			// the pair as it was, the left hand's own gun and all: under
+			// Akimbo that can be a different gun, which the stock line
+			// below turned into a second copy of the right's or nothing
+			(void)dualweaponnum;
+			bgunEquipHands(player->gunctrl.prevweaponnum, player->gunctrl.prevleftweaponnum);
+#else
 			bgunEquipWeapon2(HAND_RIGHT, player->gunctrl.prevweaponnum);
 
 			dualweaponnum = invHasDoubleWeaponIncAllGuns(player->gunctrl.prevweaponnum, player->gunctrl.prevweaponnum)
 				* player->gunctrl.prevweaponnum * player->gunctrl.prevwasdualwielding;
 			bgunEquipWeapon2(HAND_LEFT, dualweaponnum);
+#endif
 		} else {
 			bgunAutoSwitchWeapon();
 		}
@@ -6225,6 +6326,13 @@ void bgunCycleForward(void)
 		weaponnum2 = bgunGetSwitchToWeapon(HAND_LEFT);
 
 		if (weaponHost(weaponnum1) > WEAPON_PSYCHOSISGUN || weaponHost(weaponnum2) > WEAPON_PSYCHOSISGUN) {
+#ifndef PLATFORM_N64
+			// off an item and back to the pair it was picked from
+			if (player->gunctrl.prevweaponnum >= 0) {
+				bgunEquipHands(player->gunctrl.prevweaponnum, player->gunctrl.prevleftweaponnum);
+				return;
+			}
+#endif
 			weaponnum1 = player->gunctrl.prevweaponnum;
 			weaponnum2 = player->gunctrl.prevweaponnum * player->gunctrl.prevwasdualwielding;
 		} else {
@@ -6256,6 +6364,13 @@ void bgunCycleBack(void)
 		}
 
 		if (weaponHost(weaponnum1) > WEAPON_PSYCHOSISGUN || weaponHost(weaponnum2) > WEAPON_PSYCHOSISGUN) {
+#ifndef PLATFORM_N64
+			// off an item and back to the pair it was picked from
+			if (player->gunctrl.prevweaponnum >= 0) {
+				bgunEquipHands(player->gunctrl.prevweaponnum, player->gunctrl.prevleftweaponnum);
+				return;
+			}
+#endif
 			weaponnum1 = player->gunctrl.prevweaponnum;
 			weaponnum2 = player->gunctrl.prevweaponnum * player->gunctrl.prevwasdualwielding;
 		} else {
@@ -6552,6 +6667,51 @@ void bgunEquipWeapon2(s32 handnum, s32 weaponnum)
 		bgunEquipWeapon(weaponnum);
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Both hands at once, as they are to be: the right hand's gun and the
+ * left's, WEAPON_NONE for an empty left hand. Where a caller gives back a
+ * pair it took away, this is what makes the pair come back as it was.
+ *
+ * bgunEquipWeapon2() for the right alone leaves the left to the weapon
+ * switch, which under Akimbo carries the right's old gun over or doubles
+ * the new one; and asking it for an empty left hand is taken as "nothing in
+ * particular". Here the left is asked for first, an empty one explicitly
+ * (leftwant WEAPON_NONE, which bgunTickSwitch2() honours), and the switch is
+ * asked for even when the right hand is already on its gun, so that a left
+ * hand holding something else is paired again.
+ */
+void bgunEquipHands(s32 rightweaponnum, s32 leftweaponnum)
+{
+	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+
+	if (rightweaponnum < 0) {
+		bgunEquipWeapon(rightweaponnum);
+		return;
+	}
+
+	if (leftweaponnum > WEAPON_NONE) {
+		bgunEquipWeapon2(HAND_LEFT, leftweaponnum);
+	} else {
+		leftweaponnum = WEAPON_NONE;
+		ctrl->dualwielding = false;
+		ctrl->leftwant = WEAPON_NONE;
+	}
+
+	bgunEquipWeapon2(HAND_RIGHT, rightweaponnum);
+
+	if (ctrl->switchtoweaponnum < 0) {
+		if (bgunGetWeaponNum(HAND_LEFT) != leftweaponnum) {
+			ctrl->switchtoweaponnum = ctrl->weaponnum;
+			ctrl->wantammo = false;
+		} else {
+			// nothing to switch: the ask is not left for the next one
+			ctrl->leftwant = -1;
+		}
+	}
+}
+#endif
 
 s32 bgunIsFiring(s32 handnum)
 {

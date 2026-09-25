@@ -2485,6 +2485,13 @@ struct gunctrl {
 	s32 gunmemcapacity; // what was allocated, the ceiling the loader is given
 	s8 leftweaponnum;
 	s8 leftwant;
+	// the left hand's weapon when prevweaponnum was recorded, so that a
+	// switch back restores the pair (bgunEquipHands())
+	s8 prevleftweaponnum;
+	// the last pair whose right hand held a gun (not a grenade, a mine or an
+	// item), for a switch back to it after one or more of those
+	s8 pairrightweaponnum;
+	s8 pairleftweaponnum;
 	u8 gunmemmixed; // allocated with room for a second gun model
 	u8 leftcartdone; // the left hand's casing model has been considered this load
 	u8 curleftgunstr; // the left gun named on the HUD, for the fade

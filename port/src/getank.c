@@ -728,8 +728,7 @@ static s32 tankTryExit(struct tankobj *tank, f32 angle, f32 distance, struct coo
  * over, and failing that a second of the right's gun if the inventory has
  * two. The shells are out of the inventory by then, so it was the second
  * copy - the pistol in both hands the tester climbed out with, whatever the
- * left had held - or nothing. The left is asked for first, so that the
- * right's switch pairs against it (bgunEquipWeapon2() records it).
+ * left had held - or nothing. bgunEquipHands() gives back the pair.
  *
  * Both only when the shells are in a hand: anything else he switched to in
  * there is his to keep, and has the left hand's gun given back beside it,
@@ -756,30 +755,17 @@ static void tankGiveBackHands(void)
 			left = WEAPON_NONE;
 		}
 
-		bgunEquipWeapon2(HAND_LEFT, left);
-		bgunEquipWeapon2(HAND_RIGHT, right);
-
-		// bgunEquipWeapon() asks for no switch when the right hand is
-		// already on its gun, which leaves the shells in the left: the
-		// switch is asked for anyway, so that the left is paired again
-		if (g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0) {
-			g_Vars.currentplayer->gunctrl.switchtoweaponnum = right;
-			g_Vars.currentplayer->gunctrl.wantammo = false;
-		}
+		bgunEquipHands(right, left);
 	} else if (g_Tank[p].leftweaponwas > WEAPON_NONE
 			&& g_Tank[p].leftweaponwas != WEAPON_GE_TANKSHELLS
 			&& bgunGetWeaponNum(HAND_LEFT) != g_Tank[p].leftweaponwas) {
 		// he switched to something else in there, which is his to keep,
 		// and the driver has no left hand (bgunTickSwitch2()): the left's
-		// gun is given back beside it, as the switch would pair it
+		// gun is given back beside it
 		struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
 
-		bgunEquipWeapon2(HAND_LEFT, g_Tank[p].leftweaponwas);
-
-		if (ctrl->switchtoweaponnum < 0) {
-			ctrl->switchtoweaponnum = ctrl->weaponnum;
-			ctrl->wantammo = false;
-		}
+		bgunEquipHands(ctrl->switchtoweaponnum >= 0 ? ctrl->switchtoweaponnum : ctrl->weaponnum,
+				g_Tank[p].leftweaponwas);
 	}
 
 	invRemoveItemByNum(WEAPON_GE_TANKSHELLS);

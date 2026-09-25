@@ -421,6 +421,11 @@ void playermgrAllocatePlayer(s32 index)
 
 	g_Vars.players[index]->gunctrl.weaponnum = WEAPON_NONE;
 	g_Vars.players[index]->gunctrl.prevweaponnum = -1;
+#ifndef PLATFORM_N64
+	g_Vars.players[index]->gunctrl.prevleftweaponnum = WEAPON_NONE;
+	g_Vars.players[index]->gunctrl.pairrightweaponnum = -1;
+	g_Vars.players[index]->gunctrl.pairleftweaponnum = WEAPON_NONE;
+#endif
 	g_Vars.players[index]->gunctrl.switchtoweaponnum = -1;
 
 	g_Vars.players[index]->gunctrl.gunmemowner = GUNMEMOWNER_CHRBODY;
