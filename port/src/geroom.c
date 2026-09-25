@@ -16,6 +16,9 @@
 
 #define GEROOM_BATCH 8
 #define GEROOM_NOGROUND -1000000.0f
+// how far the conversion can move a floor off GoldenEye's: one rounding to a
+// whole world unit (tools/geconvert/geconvert.py, write_tiles()/write_stan())
+#define GEROOM_FLOOR_ROUNDING 0.5f
 
 s32 geRoomActive(void)
 {
@@ -112,6 +115,52 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 }
 
 
+/**
+ * Whether the plumb line from the foot, standing in `room`, up to the eye goes
+ * through portal `p`.
+ *
+ * A floor laid in a floor portal's plane is the case that needs care. In
+ * GoldenEye it is exactly on the plane - its tiles and portals are in the same
+ * whole bg units - and whether sub_GAME_7F0B9F14() calls that crossed is down
+ * to the last bit of a float: Egyptian's fountain basin (room 14, under the
+ * courtyard's portal 18) comes out crossed, Surface's room 14 (over its portal
+ * 94 to room 33) not. The conversion keeps a portal's corners as they are and
+ * rounds a tile to the nearest world unit, so our floor lies up to half a unit
+ * to either side of the plane, and which side is the rounding's choice: the
+ * basin's floor came out 0.335 over its portal, the line never crossed it, and
+ * standing in the pool drew the basin alone against the sky (F3 report
+ * 20260925-163132); the half unit taken the other way for every floor puts
+ * Surface's players under their own floor.
+ *
+ * A floor within the rounding of the plane is taken as lying on its own room's
+ * side of it, which is where a tile of that room is: the line crosses when the
+ * eye is on the far side, and the room it arrives in is the one the eye is in.
+ * That is GoldenEye's answer everywhere its float lands on the right side -
+ * Egyptian, Archives and Aztec cross, Surface does not.
+ */
+static bool geRoomPlumbCrosses(s32 p, s32 room, struct coord *eye, struct coord *foot)
+{
+	const struct portalmetric *m = &g_PortalMetrics[p];
+	const f32 at = m->normal.x * foot->x + m->normal.y * foot->y + m->normal.z * foot->z;
+	struct coord onside = *foot;
+
+	if (at > m->min - GEROOM_FLOOR_ROUNDING && at < m->max + GEROOM_FLOOR_ROUNDING
+			&& g_BgPortals[p].roomnum1 != g_BgPortals[p].roomnum2) {
+		// roomnum1 is behind the normal and roomnum2 in front of it: the walk
+		// in bgConsumeSnakeItem() goes from roomnum1 only with the camera
+		// not in front
+		const f32 to = room == g_BgPortals[p].roomnum1
+			? m->min - GEROOM_FLOOR_ROUNDING
+			: m->max + GEROOM_FLOOR_ROUNDING;
+
+		onside.x += m->normal.x * (to - at);
+		onside.y += m->normal.y * (to - at);
+		onside.z += m->normal.z * (to - at);
+	}
+
+	return portalCalculateIntersection(p, eye, &onside) != PORTALINTERSECTION_NONE;
+}
+
 s32 geRoomCamera(struct coord *eye, f32 ground, s32 room)
 {
 	struct coord foot = *eye;
@@ -137,7 +186,7 @@ s32 geRoomCamera(struct coord *eye, f32 ground, s32 room)
 			}
 
 			if ((room == g_BgPortals[p].roomnum1 || room == g_BgPortals[p].roomnum2)
-					&& portalCalculateIntersection(p, eye, &foot) != PORTALINTERSECTION_NONE) {
+					&& geRoomPlumbCrosses(p, room, eye, &foot)) {
 				last = p;
 				room = room == g_BgPortals[p].roomnum1 ? g_BgPortals[p].roomnum2 : g_BgPortals[p].roomnum1;
 				break;

@@ -6731,6 +6731,57 @@ finds the tile for an arbitrary position). **A Python breakpoint's `stop()` must
 not make an inferior call** (`call (void)screenshotRequest()` hung gdb with no
 output at all) - set `'screenshot.c'::pending` instead.
 
+### A floor flush with a floor portal: Egyptian's fountain (2026-09-25)
+
+F3 report `20260925-163132` (LINKmendez, Windows, `6b17756`, N64 look): *"the
+small fountain in Egyptian makes the rest of the world stops rendering"*. Standing
+in the courtyard's pool the trace listed `room 14` alone on screen - the basin's
+columns and floor against the sky. Portal 18 (rooms 3 <-> 14) lies flat at the
+pool's floor, bg y -7; the basin's tiles are room 14's at bg y -7 too. The oracle
+(`~/dam-oracle/geegyptview.py`, `POS=gx,y,gz` in GoldenEye's world, Egyptian =
+ours - (738, 322, 3224)): tile room 14, `pos3.y` -27.34, **`g_BgCurrentRoom` 3**.
+
+**A floor on a floor portal's plane.** GoldenEye's tiles and portals are both in
+whole bg units, so the basin's floor is *on* the plane, and whether
+`sub_GAME_7F0B9F14()` calls the plumb line crossed is the last bit of a float
+(it refuses only a line wholly on one side, and the foot is a world height
+multiplied back into bg units). The conversion keeps the portal's corners
+(294.665) but rounds every tile point to the nearest world unit (295), so our
+floor sat 0.335 over the plane, the line never crossed it, and the camera stayed
+in the basin - whose only portal then faced away from the eye.
+
+**Lowering the foot half a unit is wrong** - it was the first fix and the tile
+sweep caught it: Surface's room 14 is the *upper* room, its floor lies on its
+portal 94 to room 33 below, the oracle keeps the camera in 14, and the lowered
+foot put it in 33 - the same one-room picture, a wall and the sky. The half unit
+changed 57 tiles over the 20 missions: Egyptian 12, Archives 3, Aztec 10,
+Surface and Surface 2 16 each; the oracle crosses on the first three levels and
+not on Surface, whichever side of the plane the tile's room is on. That reads as
+the float, not a rule.
+
+**The rule `geRoomPlumbCrosses()` uses:** a foot within `GEROOM_FLOOR_ROUNDING`
+(half a unit, one rounding) of a portal's plane lies on its own room's side of
+it (roomnum1 behind the normal, roomnum2 in front - `bgConsumeSnakeItem()`'s
+convention), which is where a tile of that room is. The line then crosses when
+the eye is on the far side and arrives in the room the eye is in. That agrees
+with the oracle on 10 of the 13 tiles it was asked about (Egyptian 1, Archives
+3, Surface 4, Aztec 5) and changes 22 tiles from before (Egyptian 12, 14 -> 3;
+Archives 2, 57 -> 61; Aztec 8, 66 -> 67), nothing on the other 17 missions. The
+three it leaves as they were and the oracle does not are an upper room's floor
+on its own portal, where GoldenEye crosses (Archives tile 164, a sliver on
+portal 93's edge; Aztec tiles 628/629 on portal 66); GoldenEye's own picture at
+Archives 164 is sky over black, and ours at Aztec 628 is whole.
+
+**Probes** (`~/wt/f3egyptrooms-run`): `pos.sh TAG x y z theta verta` (env
+`STAGE`, `EXTRA` gdb file, `BIN`) places the player and writes a screenshot plus
+an F3 trace; `portals.gdbx`/`tiles.gdbx` print a room's portals and the tiles
+under a point; `sweepab.sh` + `sweep2.py` give every tile of the 20 missions an
+eye 159 over its middle and compare the camera room of two binaries. Oracle:
+`~/dam-oracle/geegyptview.py` (Egyptian pictures) and `geroomcheck.py` (any
+level, `LEVEL=LEVELID_X PAD0=<our pad 0> OURS="x,y,z ..."`; ours = GE + our pad
+0 - GE's pad 0: Egyptian (738, 322, 3224), Archives (1474, -215, 1725), Surface
+(5604, 168, 10382), Aztec (129, 61, -1389)).
+
 ## Start Armed's Random handed out a Mauler on Dam (2026-09-20)
 
 Seen in the screenshot of F3 report `20260920-220247`: `StartArmed=2`,
