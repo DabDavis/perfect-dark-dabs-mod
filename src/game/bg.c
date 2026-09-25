@@ -1185,6 +1185,26 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 #define MOD_BGSTAGE(x) (x)
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * Area 51's opaque room lists take their alpha from the environment colour
+ * and never set it, so they inherit whatever drew last - the sun, at its
+ * visible fraction (skyRenderSuns()), or a fading prop. The N64 draws them
+ * opaque whatever that alpha is: their render mode blends with memory only on
+ * the coverage of an edge (ALPHA_CVG_SEL, no FORCE_BL). The port blends by the
+ * combiner's alpha, so a partly hidden sun left Infiltration's walls
+ * see-through, and a sun at the edge of the view took everything but the sky
+ * room off the screen. The translucent pass is left alone: it blends on the
+ * N64 too.
+ */
+static Gfx *bgSetRoomEnvColour(Gfx *gdl)
+{
+	gDPSetEnvColor(gdl++, 0xff, 0xff, 0xff, 0xff);
+
+	return gdl;
+}
+#endif
+
 Gfx *bgRenderScene(Gfx *gdl)
 {
 	s32 stagenum = g_Vars.stagenum;
@@ -1367,6 +1387,9 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 		gdl = bgScissorWithinViewportF(gdl, thing->box.xmin, thing->box.ymin, thing->box.xmax, thing->box.ymax);
 		gdl = envStartFog(gdl, false);
+#ifndef PLATFORM_N64
+		gdl = bgSetRoomEnvColour(gdl);
+#endif
 
 		if (debugIsBgRenderingEnabled() && getVar80084040()) {
 			if (g_StageIndex != STAGEINDEX_TEST_OLD) {
