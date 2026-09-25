@@ -4518,17 +4518,39 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	}
 }
 
-/** The position node a list node draws under, or NULL where it is the root's. */
-static const struct modelnode *gebeanListPositionNode(const struct modelnode *node)
+/**
+ * The part node a list node draws under - a position node other than the
+ * root's, or a held position - or NULL where it is the root's. Its position
+ * and matrix go to pos and mtxindex.
+ *
+ * A held position (0x15) is only a position and a matrix, and it is what
+ * GoldenEye's aircraft hang their rotors on (switch entries 2 and 3), where
+ * the truck hangs its wheels on positions.
+ */
+static const struct modelnode *gebeanListPositionNode(const struct modelnode *node, const f32 **pos, s32 *mtxindex)
 {
 	s32 walked = 0;
 
 	for (node = node ? node->parent : NULL; node && walked < 64; node = node->parent, walked++) {
 		if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
-			return node->rodata->position.part > 0 ? node : NULL;
+			if (node->rodata->position.part <= 0) {
+				return NULL;
+			}
+
+			*pos = &node->rodata->position.pos.x;
+			*mtxindex = node->rodata->position.mtxindex0;
+
+			return node;
 		}
 
-		if ((node->type & 0xff) == MODELNODETYPE_CHRINFO || (node->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
+		if ((node->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
+			*pos = &node->rodata->positionheld.pos.x;
+			*mtxindex = node->rodata->positionheld.mtxindex;
+
+			return node;
+		}
+
+		if ((node->type & 0xff) == MODELNODETYPE_CHRINFO) {
 			return NULL;
 		}
 	}
@@ -4793,16 +4815,23 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 
 		for (s32 k = 0; k < numnodes; k++) {
-			const struct modelnode *pn = gebeanListPositionNode(nodes[k]);
-			const f32 *ppos;
+			const f32 *ppos = NULL;
+			s32 pmtx = -1;
+			const struct modelnode *pn = gebeanListPositionNode(nodes[k], &ppos, &pmtx);
+			s32 held;
 			f32 dx, dy, dz;
 
-			if (!pn || pn->rodata->position.mtxindex0 == mtx || pn->rodata->position.mtxindex0 >= nummatrices
-					|| gebeanListNodeMatrix(pn) != mtx) {
+			if (!pn || pmtx == mtx || pmtx < 0 || pmtx >= nummatrices || gebeanListNodeMatrix(pn) != mtx) {
 				continue;
 			}
 
-			ppos = &pn->rodata->position.pos.x;
+			held = (pn->type & 0xff) == MODELNODETYPE_POSITIONHELD;
+
+			// A gun keeps its held positions for what it is held by
+			if (held && g->weaponnum >= 0) {
+				continue;
+			}
+
 			dx = at[0] - ppos[0];
 			dy = at[1] - ppos[1];
 			dz = at[2] - ppos[2];
@@ -4811,14 +4840,21 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			// third of the way in from its wheels (x 610 to their 915: a
 			// pair of wheels a side in GoldenEye's model, one in Bean's),
 			// which a roll about that axle does not mind - and within a
-			// quarter of the part's box across it
-			if (dy * dy + dz * dz < 25.0f * 25.0f && dx * dx < 350.0f * 350.0f) {
-				bonemtx[b] = pn->rodata->position.mtxindex0;
-				bonepos[b][0] = pn->rodata->position.pos.x;
-				bonepos[b][1] = pn->rodata->position.pos.y;
-				bonepos[b][2] = pn->rodata->position.pos.z;
+			// quarter of the part's box across it.
+			//
+			// A held position is a hub the part turns about in every
+			// direction, and Bean's bone stands on it: the helicopter's two
+			// rotors are bones 2 and 3 of new/prop/milcopter, 1 and 2 units
+			// from GoldenEye's switch entries 2 and 3. Laid rigid on the
+			// body's matrix they drew still while the rotor turned (F3
+			// 20260925-082543, Surface 2's parked helicopter).
+			if (held ? dx * dx + dy * dy + dz * dz < 25.0f * 25.0f
+					: dy * dy + dz * dz < 25.0f * 25.0f && dx * dx < 350.0f * 350.0f) {
+				bonemtx[b] = pmtx;
+				bonepos[b][0] = ppos[0];
+				bonepos[b][1] = ppos[1];
+				bonepos[b][2] = ppos[2];
 				numparts++;
-
 
 				break;
 			}
