@@ -1259,7 +1259,92 @@ def floored_pads(pads, stan, bg):
     return out
 
 
-def write_mpsetup(setup, mp, stan, bg, objects_for=None):
+# A made-up weapon spot's ammo crates, as GoldenEye lays out its own arenas:
+# two after each weapon spot, on pads of their own on its floor. Measured over
+# GoldenEye's 13 multiplayer setups (Perfect Dark units, pad over level
+# scale), a crate stands 210-1160 from its weapon (10th-90th percentile,
+# median 530) and within 57 of its height (90th); none shares its weapon's pad.
+CRATES_PER_WEAPON = 2
+CRATE_NEAR, CRATE_FAR, CRATE_WIDE, CRATE_AIM, CRATE_RISE, CRATE_APART = 150.0, 1200.0, 3000.0, 450.0, 60.0, 100.0
+
+
+def crate_pads(pads, ok, weapon, used, ls, near=False, keep=True):
+    """Up to CRATES_PER_WEAPON floored pads for the crates of the weapon spot
+    on pad `weapon`: not in `used` (which they join), CRATE_NEAR to CRATE_FAR
+    across and within CRATE_RISE up or down from it, nearest CRATE_AIM first,
+    and CRATE_APART from each other; failing that, out to CRATE_WIDE unless
+    `near`. `keep` false leaves `used` as it was."""
+    wx, wy, wz = (v / ls for v in pads[weapon]['pos'])
+    cands = []
+    for i in ok:
+        if i in used:
+            continue
+        x, y, z = (v / ls for v in pads[i]['pos'])
+        dx, dz = x - wx, z - wz
+        d = math.sqrt(dx * dx + dz * dz)
+        if CRATE_NEAR <= d <= (CRATE_FAR if near else CRATE_WIDE) and abs(y - wy) <= CRATE_RISE:
+            cands.append((d > CRATE_FAR, abs(d - CRATE_AIM), i, x, z))
+    cands.sort()
+    out = []
+    for _, _, i, x, z in cands:
+        if len(out) == CRATES_PER_WEAPON:
+            break
+        if all(math.sqrt((x - ox) * (x - ox) + (z - oz) * (z - oz)) >= CRATE_APART for _, ox, oz in out):
+            out.append((i, x, z))
+    if keep:
+        for i, _, _ in out:
+            used.add(i)
+    return [i for i, _, _ in out]
+
+
+def weapon_spots(pads, ok, spawns, ls, n=12):
+    """Up to `n` weapon spots for a level GoldenEye has no multiplayer setup
+    for, each with its CRATES_PER_WEAPON crates (crate_pads(), near only),
+    chosen as the spawns are - farthest from every spot and spawn taken so
+    far - but only among pads with room for their crates left. Where fewer than
+    six fit, the rest are spread over what is left with whatever crates they
+    can have, so every weapon set slot has a spot."""
+    used = set(spawns)
+    taken = [pads[p]['pos'] for p in spawns]
+    weapons, crates = [], []
+    def far(p):
+        x, y, z = pads[p]['pos']
+        return min(math.sqrt((x - a) * (x - a) + (y - b) * (y - b) + (z - c) * (z - c)) for a, b, c in taken)
+    while len(weapons) < n:
+        best = None
+        for p in ok:
+            if p in used:
+                continue
+            got = crate_pads(pads, ok, p, used | {p}, ls, near=True, keep=False)
+            if len(got) < CRATES_PER_WEAPON:
+                continue
+            d = far(p)
+            if best is None or d > best[0]:
+                best = (d, p, got)
+        if best is None:
+            break
+        _, p, got = best
+        weapons.append(p)
+        crates.append(got)
+        used.add(p)
+        used.update(got)
+        taken.append(pads[p]['pos'])
+    while len(weapons) < 6:
+        best = None
+        for p in ok:
+            if p not in used and (best is None or far(p) > best[0]):
+                best = (far(p), p)
+        if best is None:
+            break
+        p = best[1]
+        used.add(p)
+        weapons.append(p)
+        crates.append(crate_pads(pads, ok, p, used, ls))
+        taken.append(pads[p]['pos'])
+    return weapons, crates
+
+
+def write_mpsetup(setup, mp, stan, bg, ls, objects_for=None):
     """objects_for(first_index) gives more objects for the props list, whose
     commands start at that index."""
     pads = setup['pads']
@@ -1269,9 +1354,12 @@ def write_mpsetup(setup, mp, stan, bg, objects_for=None):
         items = mp['items']
     else:
         ok = floored_pads(pads, stan, bg)
-        chosen = [ok[i] for i in spread([pads[i]['pos'] for i in ok], 28)]
-        spawns = chosen[:12]
-        items = [(p, i % 6) for i, p in enumerate(chosen[12:24])] + [(p, None) for p in chosen[24:28]]
+        spawns = [ok[i] for i in spread([pads[i]['pos'] for i in ok], 12)]
+        weapons, crates = weapon_spots(pads, ok, spawns, ls)
+        items = []
+        for i, p in enumerate(weapons):
+            items.append((p, i % 6))
+            items += [(c, None) for c in crates[i]]
     intro = b''.join(struct.pack('>iii', 0, p, 0) for p in spawns) + struct.pack('>i', 0x0c)
     props = b''
     for padnum, loc in items:
@@ -1434,7 +1522,7 @@ def main():
             allmodels.update(used)
             return got
         files = {}
-        mpsetup, nsp, nw, na = write_mpsetup(setup, mp, stan, bg, objects_for)
+        mpsetup, nsp, nw, na = write_mpsetup(setup, mp, stan, bg, ls, objects_for)
         print('%-5s %d objects, %d bound pads' % (key, len(objs), len(boundpads)))
         # and the solo mission on this level, where there is one: its own pads
         # (the mission's pad list is not the arena's) and its own setup, over

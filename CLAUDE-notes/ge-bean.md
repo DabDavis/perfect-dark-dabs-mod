@@ -9990,11 +9990,10 @@ sources (`assets/obseg/setup/u/Ump_setup*Z.c`, independent of the ROM reading):
 | Stack | 10 / 20 | same, reordered |
 | Statue, Complex, Temple, Caves, Caverns, Cradle | 8 / 16 | same, reordered |
 
-Armour is unchanged everywhere (it came through `objects()`). The thirteen
-levels GoldenEye has no multiplayer setup for keep their spread-out spots (12
-weapons, then 4 crates - which still all take the last spot's ammunition;
-left as it was). The US ROM has no multiplayer setup for Dam, Runway, Depot
-or `dest`, though the decomp's asset tree has sources for them.
+Armour is unchanged everywhere (it came through `objects()`). The US ROM
+has no multiplayer setup for Dam, Runway, Depot or `dest`, though the decomp's
+asset tree has sources for them; the thirteen levels without one are the next
+section.
 
 In game (`build/rig`, `itemshot.py`: lists the live pickups at frame 200 and
 stands the player at crates): Archives 0x07 went from 0 weapons, 0 crates, 2
@@ -10002,3 +10001,37 @@ shields to 7 weapons, 14 crates, 3 shields with the save's Perfect Dark set
 (one location is the set's shield, whose crates are not made - ammo 0, as in
 GoldenEye) and 8/16 with GoldenEye's sets; Start Armed hands out the set's
 first gun as before.
+
+### The thirteen levels with no multiplayer setup get GoldenEye's pattern too
+
+The user, same day: every made-up weapon spot gets its own crates, as in
+GoldenEye's arenas. Before, those levels had 12 spread-out weapon spots and 4
+spread-out crates after them all (so every crate took the last spot's
+ammunition). Now (`weapon_spots()` / `crate_pads()` in geconvert.py,
+`weaponSpots()` / `cratePads()` in geconvert.c, same bytes):
+
+- **Spawns are unchanged** - the first 12 of the old farthest-point spread.
+- **Crates by GoldenEye's own measure.** Over the 13 real setups a crate
+  stands 210-1160 (10th-90th percentile, median 530, Perfect Dark units) from
+  its weapon, within 57 of its height, never on its pad. So a crate pad is a
+  floored pad (`floored_pads()`, the spawns' test), not a spawn, weapon or
+  other crate, 150-1200 across and within 60 up or down (the same floor), 100
+  from its sibling, nearest 450 first.
+- **Weapon spots only where their two crates fit**: each next spot is the
+  floored pad farthest from every spawn and spot taken so far (the spawns'
+  own farthest-point rule, continued) among those that still have two crate
+  pads free - the plain spread picked dead ends and ledges (Surface's got 5
+  crates for 12 spots, Runway's 10). Up to 12, W A A in the setup's order.
+- **Streets has 7 weapon spots and 14 crates**: only 50 of its pads are
+  floored (rooms 20-54 are an empty shared list), 12 of them spawns, and no
+  eighth spot has two crate pads left near it. Fewer spots with their crates,
+  rather than 12 with some bare, matches GoldenEye's own arenas (6-16 spots,
+  Basement has 6). Were fewer than six to fit anywhere, the rest are spread
+  bare so every weapon set slot has a spot; no level needs it.
+
+Results: 12 weapons / 24 crates on Dam, Runway, Train, Jungle, Surface,
+Surface 2, Silo, Frigate, Depot, Control, Bunker 1, Aztec; Streets 7 / 14.
+Crate-to-weapon medians 419-784, maxima under 1150, height under 57: inside
+GoldenEye's own range. In game, `build/rig/itemcheck.py` (UMP= the setup file)
+reads the setup's order and checks every live crate against
+`mpGetMpWeaponByLocation()` of the spot before it.

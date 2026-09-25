@@ -3838,11 +3838,184 @@ static s32s bikePads(const struct level *lv, const struct setup *setup, const ti
 	return chosen;
 }
 
+// A made-up weapon spot's ammo crates, as GoldenEye lays out its own arenas
+// (geconvert.py's crate_pads(), same numbers): two after each weapon spot, on
+// pads of their own on its floor. Over GoldenEye's 13 multiplayer setups a
+// crate stands 210-1160 from its weapon (10th-90th percentile, median 530)
+// and within 57 of its height.
+#define CRATES_PER_WEAPON 2
+#define CRATE_NEAR 150.0
+#define CRATE_FAR 1200.0
+#define CRATE_WIDE 3000.0
+#define CRATE_AIM 450.0
+#define CRATE_RISE 60.0
+#define CRATE_APART 100.0
+
+struct cratecand {
+	int wide;
+	double key;
+	int32_t pad;
+	double x, z;
+};
+
+static int crateCandCmp(const void *a, const void *b)
+{
+	const struct cratecand *p = a, *q = b;
+	if (p->wide != q->wide) {
+		return p->wide < q->wide ? -1 : 1;
+	}
+	if (p->key != q->key) {
+		return p->key < q->key ? -1 : 1;
+	}
+	return p->pad < q->pad ? -1 : p->pad > q->pad;
+}
+
+/**
+ * Up to CRATES_PER_WEAPON floored pads for the crates of the weapon spot on
+ * pad `weapon`, into out[]: not used[] (nor `also`), CRATE_NEAR to CRATE_FAR
+ * across and within CRATE_RISE up or down, nearest CRATE_AIM first and
+ * CRATE_APART from each other; failing that out to CRATE_WIDE unless `near`.
+ */
+static int cratePads(const struct setup *setup, const s32s *ok, int32_t weapon, const uint8_t *used, int32_t also,
+		double ls, int near, int32_t *out)
+{
+	const double *wp = setup->pads.v[weapon].pos;
+	const double wx = wp[0] / ls, wy = wp[1] / ls, wz = wp[2] / ls;
+	struct cratecand *cands = gcAlloc((ok->n + 1) * sizeof(*cands));
+	double ox[CRATES_PER_WEAPON], oz[CRATES_PER_WEAPON];
+	size_t n = 0;
+	int got = 0;
+
+	for (size_t k = 0; k < ok->n; ++k) {
+		const int32_t i = ok->v[k];
+		const double *pp = setup->pads.v[i].pos;
+		double x, y, z, dx, dz, d;
+		if (used[i] || i == also) {
+			continue;
+		}
+		x = pp[0] / ls;
+		y = pp[1] / ls;
+		z = pp[2] / ls;
+		dx = x - wx;
+		dz = z - wz;
+		d = sqrt(dx * dx + dz * dz);
+		if (d >= CRATE_NEAR && d <= (near ? CRATE_FAR : CRATE_WIDE) && fabs(y - wy) <= CRATE_RISE) {
+			cands[n].wide = d > CRATE_FAR;
+			cands[n].key = fabs(d - CRATE_AIM);
+			cands[n].pad = i;
+			cands[n].x = x;
+			cands[n].z = z;
+			n++;
+		}
+	}
+
+	qsort(cands, n, sizeof(*cands), crateCandCmp);
+
+	for (size_t k = 0; k < n && got < CRATES_PER_WEAPON; ++k) {
+		int apart = 1;
+		for (int j = 0; j < got; ++j) {
+			const double ax = cands[k].x - ox[j], az = cands[k].z - oz[j];
+			if (!(sqrt(ax * ax + az * az) >= CRATE_APART)) {
+				apart = 0;
+			}
+		}
+		if (apart) {
+			out[got] = cands[k].pad;
+			ox[got] = cands[k].x;
+			oz[got] = cands[k].z;
+			got++;
+		}
+	}
+
+	return got;
+}
+
+static double padFarFrom(const struct setup *setup, int32_t p, const s32s *taken)
+{
+	const double *q = setup->pads.v[p].pos;
+	double best = 0;
+	for (size_t k = 0; k < taken->n; ++k) {
+		const double *t = setup->pads.v[taken->v[k]].pos;
+		const double v = sqrt((q[0] - t[0]) * (q[0] - t[0]) + (q[1] - t[1]) * (q[1] - t[1]) + (q[2] - t[2]) * (q[2] - t[2]));
+		if (!k || v < best) {
+			best = v;
+		}
+	}
+	return best;
+}
+
+/**
+ * Up to 12 weapon spots for a level GoldenEye has no multiplayer setup for,
+ * each followed by its crates, into items (geconvert.py's weapon_spots()):
+ * chosen as the spawns are - farthest from every spot and spawn taken so far -
+ * but only among pads with room for their crates left; where fewer than six
+ * fit, the rest spread over what is left with whatever crates they can have.
+ */
+static void weaponSpots(const struct setup *setup, const s32s *ok, const s32s *spawns, double ls, weaponpads *items)
+{
+	uint8_t *used = gcAlloc(setup->pads.n + 1);
+	s32s taken = {0};
+	int nweapons = 0;
+
+	for (size_t k = 0; k < spawns->n; ++k) {
+		used[spawns->v[k]] = 1;
+		VECPUSH(taken, spawns->v[k]);
+	}
+
+	for (int pass = 0; pass < 2; ++pass) {
+		while (nweapons < (pass ? 6 : 12)) {
+			int32_t best = -1, bestcrates[CRATES_PER_WEAPON];
+			double bestd = 0;
+			int bestgot = 0;
+			for (size_t k = 0; k < ok->n; ++k) {
+				const int32_t p = ok->v[k];
+				int32_t got[CRATES_PER_WEAPON] = {0};
+				int n = 0;
+				double d;
+				if (used[p]) {
+					continue;
+				}
+				if (!pass) {
+					n = cratePads(setup, ok, p, used, p, ls, 1, got);
+					if (n < CRATES_PER_WEAPON) {
+						continue;
+					}
+				}
+				d = padFarFrom(setup, p, &taken);
+				if (best < 0 || d > bestd) {
+					best = p;
+					bestd = d;
+					bestgot = n;
+					memcpy(bestcrates, got, sizeof(got));
+				}
+			}
+			if (best < 0) {
+				break;
+			}
+			used[best] = 1;
+			if (pass) {
+				bestgot = cratePads(setup, ok, best, used, -1, ls, 0, bestcrates);
+			}
+			{
+				struct weaponpad w = { best, nweapons % 6 };
+				VECPUSH(*items, w);
+			}
+			for (int j = 0; j < bestgot; ++j) {
+				struct weaponpad c = { bestcrates[j], -1 };
+				used[bestcrates[j]] = 1;
+				VECPUSH(*items, c);
+			}
+			VECPUSH(taken, best);
+			nweapons++;
+		}
+	}
+}
+
 static const uint8_t g_Ai1000[] = { 0x01, 0x85, 0x01, 0x45, 0x01, 0x46, 0x00, 0x05, 0xfd, 0x00, 0x00, 0x00, 0x04 };
 static const uint8_t g_Ai1001[] = { 0x01, 0xb2, 0x16, 0x00, 0x05, 0xfd, 0x00, 0x00, 0x00, 0x04 };
 
 static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const tiles *stan, const struct bg *bg,
-		const buf *gedata, const s32s *bikepads, uint8_t *models)
+		double ls, const buf *gedata, const s32s *bikepads, uint8_t *models)
 {
 	s32s spawns = {0};
 	weaponpads items = {0};
@@ -3860,16 +4033,11 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 		for (size_t i = 0; i < ok.n; ++i) {
 			memcpy(pts[i], setup->pads.v[ok.v[i]].pos, sizeof(pts[i]));
 		}
-		idx = spread(pts, ok.n, 28);
+		idx = spread(pts, ok.n, 12);
 		for (size_t i = 0; i < idx.n; ++i) {
-			const int32_t p = ok.v[idx.v[i]];
-			if (i < 12) {
-				VECPUSH(spawns, p);
-			} else {
-				struct weaponpad w = { p, i < 24 ? (int32_t)((i - 12) % 6) : -1 };
-				VECPUSH(items, w);
-			}
+			VECPUSH(spawns, ok.v[idx.v[i]]);
 		}
+		weaponSpots(setup, &ok, &spawns, ls, &items);
 	}
 
 	for (size_t i = 0; i < spawns.n; ++i) {
@@ -6242,7 +6410,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		boundpads = boundPads(&gedata, lv->levelscale, offset);
 		padsdata = writePads(&setup, lv->levelscale, offset, &rf, &boundpads);
 		bikepads = bikePads(lv, &setup, &stan, &bg, &gedata);
-		mpsetup = writeMpSetup(&setup, havemp ? &mpsetupsrc : NULL, &stan, &bg, &gedata, &bikepads, allmodels);
+		mpsetup = writeMpSetup(&setup, havemp ? &mpsetupsrc : NULL, &stan, &bg, lv->levelscale, &gedata, &bikepads, allmodels);
 
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s.seg", lv->key);
 		writeFile(outdir, rel, bgdata.v, bgdata.n);
