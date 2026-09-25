@@ -37,6 +37,9 @@
 #include "game/menu.h"
 #include "game/lv.h"
 #include "bss.h"
+#include "gexfront.h"
+#include "geintro.h"
+#include "gewatch.h"
 #include "config.h"
 #include "fs.h"
 #include "input.h"
@@ -67,7 +70,17 @@ static char g_TracePath[FS_MAXPATH + 1];
 static char g_ShotPath[FS_MAXPATH + 1];
 static char g_When[32];
 static bool g_OfferPending;
+// The stage F3 was pressed on. An offer carried into another stage (from the
+// title's logos, which have no menus) opens over that stage's menus only.
+static s32 g_OfferStage;
 static bool g_Open;
+// The menu (g_Menus[] index) the dialog is on while open
+static s32 g_OpenMenu;
+// Frames after the dialog closed in which the screen under it still keeps its
+// hands off the pads: GE Plus's folder and watch read presses by the frame, and
+// the press that closed the dialog is still "this frame's" when they tick next.
+static s32 g_HoldFrames;
+#define TRACEREPORT_HOLD_FRAMES 3
 
 static char g_Note[TRACEREPORT_MAXNOTE + 1];
 // Kept across reports and across runs, where the note is not: a name is who
@@ -124,6 +137,7 @@ void traceReportOffer(const char *tracepath, const char *shotpath)
 	g_Field = TRACEREPORT_FIELD_NOTE;
 	g_Err[0] = '\0';
 	g_State = STATE_IDLE;
+	g_OfferStage = g_Vars.stagenum;
 	g_OfferPending = g_TracePath[0] != '\0';
 }
 
@@ -144,17 +158,54 @@ static void traceReportStopTyping(void)
 	}
 }
 
+s32 traceReportIsOpen(void)
+{
+	return g_Open;
+}
+
+s32 traceReportHoldsInput(void)
+{
+	return g_Open || g_HoldFrames > 0;
+}
+
 /**
  * Called from lvTick() once a frame. Opens the dialog for a report F3 made,
  * once there is somewhere safe to open it.
  *
- * Over a menu that is already up it goes on top. In play it is pushed the way
- * the game pushes its controller pak warnings mid-mission: as a root dialog,
- * pausing a one player game. A cutscene or a pause menu on its way in waits.
+ * Over a menu that is already up it goes on top, and closing it goes back to
+ * that menu. That includes the Perfect Menu under GE Plus's intro and folder
+ * screens, which are drawn and ticked instead of the menus: menuTick() and
+ * menuRender() hand the dialog the frame while it is open, over the folder.
+ * GE Plus's watch is a pause with no menu at all; the dialog is pushed over it
+ * as a root, the level already stopped, and the watch keeps the pause when it
+ * closes (func0f0fa6ac()).
+ *
+ * In play it is pushed the way the game pushes its controller pak warnings
+ * mid-mission: as a root dialog, pausing a one player game. A cutscene or a
+ * pause menu (or the watch) on its way in or out waits, and so do the title
+ * and its attract demo: F3 there opens over the menus the title leads to.
  */
 void traceReportTick(void)
 {
 	const s32 prevplayernum = g_MpPlayerNum;
+
+	// A root dialog pushed over the report (a match's end, a stage change)
+	// throws it away without closing it. Without this the dialog would count
+	// as open for good: F3 ignored and the keyboard still typing into it.
+	if (g_Open && (g_Menus[g_OpenMenu].curdialog == NULL
+				|| g_Menus[g_OpenMenu].curdialog->definition != &g_TraceReportMenuDialog)) {
+		if (g_MenuKeyboardPlayer == g_OpenMenu) {
+			g_MenuKeyboardPlayer = -1;
+			inputStopTextInput();
+		}
+
+		g_Open = false;
+		g_HoldFrames = TRACEREPORT_HOLD_FRAMES;
+	}
+
+	if (g_HoldFrames > 0 && !g_Open) {
+		g_HoldFrames--;
+	}
 
 	if (!g_OfferPending || g_Open || !traceReportEnabled()) {
 		return;
@@ -163,8 +214,27 @@ void traceReportTick(void)
 	g_MpPlayerNum = 0;
 
 	if (g_Menus[0].curdialog != NULL) {
+		// A menu, the Perfect Menu under GE Plus's folder or intro included
 		menuPushDialog(&g_TraceReportMenuDialog);
 		g_OfferPending = false;
+	} else if (gexFrontIsActive() || geIntroIsActive()) {
+		// The folder or intro with nothing under it to go back to: it waits
+	} else if (g_IsTitleDemo || g_Vars.stagenum != g_OfferStage) {
+		// The title's attract demo, which any press ends, and a stage the
+		// title went on to before it had a menu up: it waits for the menus
+	} else if (STAGE_IS_LEVEL(g_Vars.stagenum)
+			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
+			&& !g_Vars.in_cutscene
+			&& g_Menus[0].openinhibit == 0
+			&& geWatchIsOpen()) {
+		// GE Plus's watch, once it is all the way up and the level stopped.
+		// Its own root and no pause of the report's: the watch paused the
+		// level and is still holding it when the report closes.
+		if (geWatchIsSettled() && g_Vars.currentplayer->pausemode == PAUSEMODE_PAUSED) {
+			g_Menus[0].playernum = 0;
+			menuPushRootDialog(&g_TraceReportMenuDialog, MENUROOT_MAINMENU);
+			g_OfferPending = false;
+		}
 	} else if (STAGE_IS_LEVEL(g_Vars.stagenum)
 			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
 			&& !g_Vars.in_cutscene
@@ -613,6 +683,7 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 	switch (operation) {
 	case MENUOP_OPEN:
 		g_Open = true;
+		g_OpenMenu = g_MpPlayerNum;
 		g_CloseAt = 0;
 
 		if (g_State != STATE_SENT) {
@@ -622,6 +693,7 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 	case MENUOP_CLOSE:
 		traceReportStopTyping();
 		g_Open = false;
+		g_HoldFrames = TRACEREPORT_HOLD_FRAMES;
 		break;
 	case MENUOP_TICK:
 		if (g_Menus[g_MpPlayerNum].curdialog == NULL

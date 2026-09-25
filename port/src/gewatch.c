@@ -74,6 +74,7 @@
 #include "game/mainmenu.h"
 #include "game/game_0b0fd0.h"
 #include "game/menu.h"
+#include "trace.h"
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
 #include "game/objectives.h"
@@ -1131,6 +1132,11 @@ s32 geWatchHidesGun(void)
 	return geWatchIsOpen() && g_Watch.state >= WS_TILT && g_Watch.state <= WS_LOWERARM;
 }
 
+s32 geWatchIsSettled(void)
+{
+	return geWatchIsOpen() && g_Watch.state == WS_OPEN;
+}
+
 // GoldenEye's own clock for the watch: the real frame, which keeps running
 // while the level is frozen (speedgraphframes)
 static f32 watchDelta(void)
@@ -2031,7 +2037,12 @@ void geWatchTick(void)
 		}
 		break;
 	case WS_OPEN:
-		watchTickInput();
+		// F3's Report a Problem over the watch has the pad while it is up,
+		// and the press that closes it is not one for the watch as well
+		if (!traceReportHoldsInput()) {
+			watchTickInput();
+		}
+
 		watchTickStatic();
 		break;
 	case WS_CLOSING:
@@ -4114,6 +4125,13 @@ static void watchMpTick(void)
 		|| (stickx > 0x2e && !g_MpWatch[num].sticky);
 	const s32 accept = joyGetButtonsPressedThisFrame(pad, A_BUTTON | Z_TRIG | (num == 0 ? BUTTON_UI_ACCEPT : 0)) != 0;
 	const s32 back = joyGetButtonsPressedThisFrame(pad, B_BUTTON | (num == 0 ? BUTTON_UI_CANCEL : 0)) != 0;
+
+	// F3's Report a Problem, pushed over the overlay, has the pad (as on the
+	// solo watch)
+	if (traceReportHoldsInput()) {
+		return;
+	}
+
 	if (!g_MpWatch[num].on) {
 		g_MpWatch[num].sticky = stickx > 0x10 || stickx < -0x10;
 		return;

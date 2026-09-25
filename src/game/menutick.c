@@ -32,6 +32,7 @@
 #include "gecinema.h"
 #include "geintro.h"
 #include "modloader.h"
+#include "trace.h"
 #endif
 
 u8 g_FileState = 0;
@@ -77,15 +78,22 @@ void menuTick(void)
 
 #ifndef PLATFORM_N64
 	// GE Plus's intro, and then its GoldenEye folder screens, own the menus
-	// while open
-	if (geIntroIsActive()) {
-		geIntroTick();
-		return;
-	}
+	// while open - but for F3's Report a Problem, pushed on the Perfect Menu
+	// under them, which has them while it is up. Neither ticks while it is,
+	// nor for the frames after it closes, when the press that closed it is
+	// still new; the Perfect Menu under them does not tick again either.
+	if (geIntroIsActive() || gexFrontIsActive()) {
+		if (!traceReportIsOpen()) {
+			if (!traceReportHoldsInput()) {
+				if (geIntroIsActive()) {
+					geIntroTick();
+				} else {
+					gexFrontTick();
+				}
+			}
 
-	if (gexFrontIsActive()) {
-		gexFrontTick();
-		return;
+			return;
+		}
 	}
 #endif
 

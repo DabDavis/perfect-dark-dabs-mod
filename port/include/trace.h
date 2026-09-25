@@ -55,5 +55,11 @@ void traceReportSetOffer(s32 offer);
 void traceReportOffer(const char *tracepath, const char *shotpath);
 // From lvTick(), before menuTick(): opens the dialog.
 void traceReportTick(void);
+// The dialog is up. GE Plus's intro and folder screens give it the menus'
+// tick and render while it is (menuTick(), menuRender()).
+s32 traceReportIsOpen(void);
+// Up, or closed within the last few frames: screens that read the pads
+// themselves (GE Plus's folder and watch) leave them alone.
+s32 traceReportHoldsInput(void);
 
 #endif

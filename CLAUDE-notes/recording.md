@@ -202,6 +202,41 @@ client) the key also offers to send what it wrote. `port/src/tracereport.c`.
   match, 2026-09-17). A match is not paused while the dialog is up. It waits
   out cutscenes, a pause on its way in and the title.
   The picture is taken first, so the dialog is never in it.
+- **Everywhere, not only in play (2026-09-25).** A tester: *"cant send f3
+  report in menus, or while paused. only in game"* - in GE Plus, whose menus
+  and pause are not Perfect Dark's. The folder screens and the intro
+  (gexfront.c, geintro.c) are drawn and ticked *instead of* the menus, so the
+  dialog was pushed onto the Perfect Menu hidden under the folder: never drawn,
+  never ticked, and it turned text input on, which blanks the pads under a
+  folder that could no longer be left by pad. The watch (gewatch.c) pauses
+  with no menu at all, and the report sat pending until the watch was put
+  away and then opened in play. Now `menuTick()`/`menuRender()` give the
+  frame to the menus while `traceReportIsOpen()` - the folder drawn first and
+  dimmed, the menus' own backgrounds, hud piece and health bar left out - and
+  neither the folder, the intro nor the watch reads the pads while
+  `traceReportHoldsInput()` (open, or closed within three frames: they read
+  presses by the frame, and the one that closed the dialog is still new).
+  Over the settled watch (`geWatchIsSettled()`) it is its own
+  `MENUROOT_MAINMENU` root with the level already stopped, and
+  `func0f0fa6ac()` leaves the pause alone while `geWatchIsOpen()`, so it
+  closes back to the watch. F3 is ignored while the dialog is up (a second
+  dump took its paths, cleared the note and pictured the dialog).
+- **The title.** F3 on the title's logos **crashed**: `traceWrite()` walked
+  `g_Rooms` by a room count left from no level at all. A stage that is not
+  `STAGE_IS_LEVEL()` writes the header, memory and loader sections and stops.
+  The offer then waits - through the attract demo (`g_IsTitleDemo`, which any
+  press ends) and any stage the title goes on to before it has a menu up (an
+  offer remembers its stage) - and opens over the file select.
+- **A root pushed over the report** (a match's end, a stage change) throws the
+  dialog away without `MENUOP_CLOSE`; `traceReportTick()` notices it is no
+  longer the top of its menu, stops the typing and counts it closed.
+- **Headless check of every context** (rigs kept outside the tree, in `~/wt/f3menus/run/probes/`): `runall.sh`
+  (offscreen on the card, gdb calls `traceRequest()`, `menuPopDialog()` from a
+  `menuTick` breakpoint, a scratch pdghostd on 8090), and `xkeys.sh` /
+  `xwatch.sh` for real F3/typing/ESC/ENTER under Xvfb over the folder and the
+  watch. A GE Plus mission's opening swirl runs past frame 400 on Runway:
+  wait for `gecinemaIntroIsOn()` to clear before `geWatchPause()`, or the
+  "watch" is the swirl's third person camera zooming into a wall.
 - **Typing.** Not the game's keyboard item (17 characters, alphanumerics). The
   dialog sets `g_MenuKeyboardPlayer` and SDL text input itself and reads
   `inputGetLastTextChar()`/`inputGetLastKey()` in its `MENUOP_TICK`; the menu's

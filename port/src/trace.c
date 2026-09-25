@@ -83,7 +83,10 @@ void traceTick(void)
 {
 	const s32 vk = traceGetKey();
 
-	if (vk > 0 && inputKeyJustPressed(vk)) {
+	// Not over its own Report a Problem dialog: the new dump would take the
+	// dialog's paths and clear the note being typed, and its picture would be
+	// of the dialog rather than of the problem.
+	if (vk > 0 && inputKeyJustPressed(vk) && !traceReportIsOpen()) {
 		traceRequest();
 	}
 }
@@ -307,6 +310,16 @@ static void traceWrite(FILE *f)
 	xblaStageTrace(f);
 	gebeanStageTrace(f);
 	texpackTrace(f);
+
+	// The title's logos, the credits and the boot menus are no level: the
+	// rooms, props and player left in g_Vars belong to a stage that is gone
+	// (or that never was, at the first title), and F3 on the title read
+	// g_Rooms through a stale room count and crashed.
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum)) {
+		fprintf(f, "\n[level]\nstage 0x%02x is not a level (the title, the credits or a boot menu): no camera, rooms or characters\n",
+				g_Vars.stagenum);
+		return;
+	}
 
 	fprintf(f, "\n[camera]\n");
 

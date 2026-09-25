@@ -35,6 +35,9 @@ s32 geWatchIsOpen(void);
 // and whether the view model is out of the player's hands while it is
 s32 geWatchHidesGun(void);
 
+// All the way up with the level stopped, and neither opening nor closing
+s32 geWatchIsSettled(void);
+
 // Every frame of a level, from playerTick(), before or after the pause menu's
 void geWatchTick(void);
 

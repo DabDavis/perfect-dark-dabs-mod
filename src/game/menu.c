@@ -4,6 +4,8 @@
 #ifndef PLATFORM_N64
 #include "gexfront.h"
 #include "geintro.h"
+#include "gewatch.h"
+#include "trace.h"
 #endif
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
@@ -4817,7 +4819,14 @@ void func0f0fa6ac(void)
 	case MENUROOT_FILEMGR:
 	case MENUROOT_4MBMAINMENU:
 	case MENUROOT_TRAINING:
-		playerUnpause();
+#ifndef PLATFORM_N64
+		// A menu over GE Plus's watch (F3's Report a Problem) closes back to
+		// the watch, which paused the level itself and still holds it
+		if (!geWatchIsOpen())
+#endif
+		{
+			playerUnpause();
+		}
 		g_PlayersWithControl[0] = true;
 	}
 }
@@ -5598,13 +5607,28 @@ Gfx *menuRender(Gfx *gdl)
 
 #ifndef PLATFORM_N64
 	// GE Plus's intro, then its GoldenEye folder screens, are drawn instead
-	// of the menus
-	if (geIntroIsActive()) {
-		return geIntroRender(gdl);
-	}
+	// of the menus - except F3's Report a Problem, which goes over them. It is
+	// pushed on the Perfect Menu under the folder, and only the top dialog of
+	// that is drawn once it has opened; the menus' own background, hud piece
+	// and health bar would be drawn over the folder and are left out.
+	bool overfront = false;
 
-	if (gexFrontIsActive()) {
-		return gexFrontRender(gdl);
+	if (geIntroIsActive()) {
+		gdl = geIntroRender(gdl);
+
+		if (!traceReportIsOpen()) {
+			return gdl;
+		}
+
+		overfront = true;
+	} else if (gexFrontIsActive()) {
+		gdl = gexFrontRender(gdl);
+
+		if (!traceReportIsOpen()) {
+			return gdl;
+		}
+
+		overfront = true;
 	}
 #endif
 
@@ -5613,6 +5637,20 @@ Gfx *menuRender(Gfx *gdl)
 	gSPDisplayList(gdl++, var800613a0);
 
 	// Render the background
+#ifndef PLATFORM_N64
+	if (overfront) {
+		// the folder is the background, dimmed: a dialog's own fill is
+		// translucent and the folder's print read straight through it
+		gDPPipeSync(gdl++);
+		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+		gDPSetRenderMode(gdl++, G_RM_CLD_SURF, G_RM_CLD_SURF2);
+		gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+		gDPSetPrimColorViaWord(gdl++, 0, 0, 0x000000c0);
+		gDPFillRectangle(gdl++, viGetViewLeft(), viGetViewTop(),
+				viGetViewLeft() + viGetViewWidth() + 1, viGetViewTop() + viGetViewHeight() + 2);
+		gDPPipeSync(gdl++);
+	} else
+#endif
 	if (g_MenuData.nextbg != 255) {
 		if (g_MenuData.nextbg == 0) {
 			gdl = menuRenderBackgroundLayer1(gdl, g_MenuData.bg, 1.0f - g_MenuData.unk010);
@@ -5638,7 +5676,11 @@ Gfx *menuRender(Gfx *gdl)
 		g_MenuData.unk5d5_05 = false;
 	}
 
+#ifndef PLATFORM_N64
+	if (IS8MB() && g_MenuData.unk5d4 && !overfront) {
+#else
 	if (IS8MB() && g_MenuData.unk5d4) {
+#endif
 		bool removepiece = false;
 
 		gSPSetGeometryMode(gdl++, G_ZBUFFER);
@@ -5710,6 +5752,11 @@ Gfx *menuRender(Gfx *gdl)
 
 	// Render the second layer of the background (for the combat simulator cone,
 	// which draws over the top of the hud piece)
+#ifndef PLATFORM_N64
+	if (overfront) {
+		// the folder is the background
+	} else
+#endif
 	if (g_MenuData.nextbg != 255) {
 		if (g_MenuData.nextbg == 0) {
 			gdl = menuRenderBackgroundLayer2(gdl, g_MenuData.bg, 1.0f - g_MenuData.unk010);
@@ -5722,7 +5769,11 @@ Gfx *menuRender(Gfx *gdl)
 	}
 
 	// Render the health bar (playerRenderHealthBar may choose not to render)
+#ifndef PLATFORM_N64
+	if (!overfront && (g_MenuData.bg || g_MenuData.nextbg != 255)
+#else
 	if ((g_MenuData.bg || g_MenuData.nextbg != 255)
+#endif
 			&& (!g_Vars.currentplayer->eyespy || !g_Vars.currentplayer->eyespy->active)) {
 		gdl = func0f0d49c8(gdl);
 #ifndef PLATFORM_N64
