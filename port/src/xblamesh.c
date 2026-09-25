@@ -5571,6 +5571,7 @@ static struct xblameshbuilt **packBuilt;
 s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max)
 {
 	struct modelnode *node = modeldef ? modeldef->rootnode : NULL;
+	struct modelnode *headspot = NULL;
 	s32 n = 0;
 	s32 walked = 0;
 
@@ -5593,6 +5594,10 @@ s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32
 		}
 
 		if (node->child) {
+			if (type == MODELNODETYPE_HEADSPOT) {
+				headspot = node;
+			}
+
 			node = node->child;
 			continue;
 		}
@@ -5603,7 +5608,17 @@ s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32
 				break;
 			}
 
-			node = node->parent;
+			// Out of a grafted head by the headspot it was entered from. The
+			// head's modeldef is shared by every body wearing it on a solo
+			// mission, and its roots name the headspot of the body that
+			// attached it last - another model's, whose lists came next
+			// (gebeanNextNode())
+			if (headspot && node->parent && (node->parent->type & 0xff) == MODELNODETYPE_HEADSPOT) {
+				node = headspot;
+				headspot = NULL;
+			} else {
+				node = node->parent;
+			}
 		}
 	}
 
