@@ -9560,3 +9560,17 @@ HD far plane is still raised to 118725 over it. The struct is 64 bytes
 (`far` at 8) on Linux and the mingw build alike; Perfect Dark's levels, whose
 values fit an s16, are pixel-identical (Villa, Crash Site, the N64 look's
 Surface).
+
+### Dam's grey boulder: a kept room that barely touches Bean's mesh (2026-09-25)
+
+With the fog pushed out, a big low-detail grey rock stood over the far end of
+the reservoir in the HD look (`~/wt/f3damfog-pics/rock_*`). It is **room 31**,
+the one kept room of GoldenEye's backdrop Dam still drew: 1 of its triangles
+lay within a cell of Bean's mesh, so the "nothing of Bean's on it" rule above
+kept it. Bean remodelled that cliff as part of its mountainside, which stands
+right behind it. A kept room is now hidden when under a quarter of its
+triangles lie on Bean's mesh. Over the 19 HD levels that changes only this
+room (Dam 38 -> 39 not drawn; Streets, Depot, Cradle as they were). Only the
+drawing is left out (`gebeanStageRoomHidden()` in `bgRenderRoomOpaque()`/
+`Xlu()`); GoldenEye's tiles, which are the collision, and the room's hit
+batches are untouched, and the N64 look is pixel-identical.

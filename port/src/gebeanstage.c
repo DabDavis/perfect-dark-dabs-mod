@@ -2225,12 +2225,16 @@ static s32 build(void)
 				// further out (Dam's far cliffs, Cradle's duct) and does not
 				// draw. Drawn over the HD level, a fogged cliff edge showed
 				// against the sky past Bean's trees ("sky tear"). A kept room
-				// Bean's mesh does lie on (Depot's) stays as it was
+				// Bean's mesh does lie on (Depot's) stays as it was. One that
+				// touches Bean's mesh with a triangle or two is backdrop all
+				// the same: Dam's room 31, a low grey boulder of a cliff over
+				// the far end of the reservoir, 1 of its triangles within a
+				// cell of Bean's mountainside, which stands behind it
 				if (filerooms[r] && roomHidden) {
 					hiddenTris = hiddenNear = 0;
 					fileRoomTrianglesEach(r, filerooms[r], filelens[r], 1, fileTriNearBean, &beantris);
 
-					if (hiddenTris > 0 && hiddenNear == 0) {
+					if (hiddenTris > 0 && hiddenNear * 4 < hiddenTris) {
 						roomHidden[r] = 1;
 						numHidden++;
 					}
