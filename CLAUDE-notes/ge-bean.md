@@ -10024,12 +10024,49 @@ pair runs (the failing 158->156 circles a body on pad 158). Cradle's first five
 pairs identical; the sixth's teleport sets off the ending and hangs the probe
 (`SKIP=` it).
 
-**Still open:** in the fall cutscene (0x41a) Trevelyan is not on screen.
-`ai_25` sets GoldenEye's CHRFLAG_LOCK_Y_POS (0x1000, which is Perfect Dark's
-UNEXPLODABLE and means nothing here) and teleports him to pad 148 over the
-drop, where PD finds its ground at the valley floor (y -4860) and he falls to
-it; GoldenEye holds him at the pad and lets the animation carry him. The
-mission still ends. Also the exit waits on the button press
-(TriggerFadeAndExitLevelOnButtonPress): Bond's own list's `exit_level` sits
-behind a `if_screen_fade_completed` that a cutscene camera's fade may never
-finish (the known "a PD fade advances while it is drawn").
+### The fall: GoldenEye's LOCK_Y_POS (converter 71)
+
+The fall cutscene (0x41a on chr 0) teleports Trevelyan to pad 146, starts the
+fall animation, sets GoldenEye's **CHRFLAG_LOCK_Y_POS** (0x1000), teleports him
+to pad 148 over the drop, and a tick later clears the lock *and* INIT (0x01).
+GoldenEye's teleport sets the position and INIT and leaves ground and manground
+alone; its ground callback (`sub_GAME_7F01FC10()`) with the lock set looks up no
+ground, takes no INIT and applies no fall. INIT cleared before it is ever
+taken, he keeps the platform's manground over a ground 6000 below and falls
+from the platform under the callback's gravity. The native port
+(`~/dam-oracle/gecradleend.py`: the watcher bg chr on 0x1005 sent to 0x41d, as
+in our `probes/ending.py KICK=1`): pad 148 at y -2452, ground -8735, manground
+-2596 falling; ours is the same numbers plus Cradle's offset (+3750 in y).
+
+The chr flag commands copy GoldenEye's chrflags straight into Perfect Dark's,
+which agree bit for bit where both kept a meaning (GoldenEye's INIT is
+FORCETOGROUND, INVINCIBLE, HIDDEN, NO_SHADOW, IGNORE_ANIM_TRANSLATION is
+HAS_SPECIAL_DEATH_ANIMATION's x/z hold) - but Perfect Dark's 0x1000 is
+CHRCFLAG_UNEXPLODABLE. So the lock did nothing and `chrMoveToPos()` stood him
+on the floor under pad 148, with the camera looking up at an empty platform.
+The conversion now writes the bit as the port's **CHRCFLAG_GE_LOCKY**
+(0x40000000, stock's unused CHRCFLAG_40000000; no GoldenEye mission uses the
+bit), and on a converted level a non-player chr with it set keeps its ground in
+`chrMoveToPos()` and skips the ground/fall block of `chr0f01f378()`.
+
+Who sets it: Dam (Bond's 0x412, the dive/outro), Surface (Bond's 0x424), the
+Cradle (Bond's 0x419, and 0x41a both on Trevelyan and on Bond when Bond himself
+falls off). A player's body is grounded by the player's own walk, not in
+`chr0f01f378()`, so Bond is left as he was: Dam's outro (bg 0x1004 kicked at
++101) and Surface's (bg 0x1009 at +116) are identical before and after frame
+for frame - prop, camera, end frame (Dam 1404, Surface 679) - but for the flag
+bit itself. Only the three setups change and the C and Python converters still
+agree over all 46. Pictures: `~/wt/f3cradle-pics/` (before_kick_sheet,
+after_kick_sheet, oracle_sheet).
+
+**The ending did not need a button press.** The earlier note here was wrong: the
+drive pressed as soon as TriggerFadeAndExitLevelOnButtonPress armed. Left alone,
+Bond's 0x419 plays both shots and its own `exit_level` ends the level ~700
+frames after the ending starts (the fall branch at 1361 in `ending.py KICK=1`,
+the no-fall branch at 1324), before this work and after it; a press during it
+still skips to the fade (`PRESS=100`: pressed at 470, ended at 531). Its
+`if_screen_fade_completed` passes: a warp's camera still draws the HUD pass the
+fade advances in. Kicked endings of Dam, Surface, Facility, Runway and Frigate
+(`probes/bondend.py`, the ending bg list put at its HUD-hide command) end on
+their own at the same frame before and after this branch (1404, 679, 558, 585,
+647) with identical traces.
