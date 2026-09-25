@@ -7,6 +7,7 @@
 #include "constants.h"
 #include "types.h"
 #include "data.h"
+#include "bss.h"
 #include "game/lang.h"
 #include "lang.h"
 #include "game/playermgr.h"
@@ -1426,6 +1427,33 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
 	gegunsSetPart(model, 14, 1);
 	gegunsSetPart(model, 15, 1);
 	gegunsSetPart(model, 1, hand->flashon ? 1 : 0);
+}
+
+/**
+ * Whether this model is the gun in one of the current player's hands and the
+ * hand has no rocket in it: none made yet (reloading, out of ammo) or the one
+ * it had just fired. The release's rocket launcher is made with its rocket in
+ * the tube, and is drawn without it then (gebean.c's fpRound), as GoldenEye's
+ * own gun is empty until bondgun.c's held rocket is hung in its mouth. Any
+ * other model - one not in a hand - is drawn as it is made.
+ */
+s32 gegunsHandIsSpent(const struct model *model)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (!player || !model) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < 2; i++) {
+		const struct hand *hand = &player->hands[i];
+
+		if (model == &hand->gunmodel) {
+			return hand->rocket == NULL || hand->firedrocket;
+		}
+	}
+
+	return 0;
 }
 
 /**

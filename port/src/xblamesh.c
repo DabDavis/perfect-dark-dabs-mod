@@ -42,6 +42,7 @@
 #include "xblaagent4.h"
 #include "mod.h"
 #include "gebean.h"
+#include "geguns.h"
 #include "files.h"
 #include "xblamesh.h"
 #include "headfit.h"
@@ -395,6 +396,8 @@ struct xblameshbuilt {
 	s8 beanneckfill[64]; // a neck node's group of the body's own neck, for a fitted head (gebeanmats.neckfill)
 	s8 beanhood[64];   // a node's group with the parka's hood (gebeanmats.hood)
 	s8 beanbare[64];   // a neck node's group of the collar the hood covers (gebeanmats.bare)
+	u64 beanspent;     // a first-person launcher's nodes with a group for an empty tube
+	s8 beanspentgroup[64]; // and that group (gebeanmats.spent)
 	s32 beanhead;      // the mesh is a head's (gebeanmats.head)
 	s32 beanrow;       // the row it was built from, for the hood's test (gebeanRowKeepsHood())
 	u32 packgen;       // modelpackGetGeneration() when it was built
@@ -6108,6 +6111,14 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	memcpy(m->beanneckfill, bmats->neckfill, sizeof(m->beanneckfill));
 	memcpy(m->beanhood, bmats->hood, sizeof(m->beanhood));
 	memcpy(m->beanbare, bmats->bare, sizeof(m->beanbare));
+	memcpy(m->beanspentgroup, bmats->spent, sizeof(m->beanspentgroup));
+
+	for (s32 k = 0; k < 64; k++) {
+		if (bmats->spent[k] >= 0) {
+			m->beanspent |= 1ull << k;
+		}
+	}
+
 	m->beanhead = bmats->head;
 	m->beanrow = e->beanrow;
 	free(bmats);
@@ -9433,7 +9444,17 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// A model pack's mesh for the game's own model: group p is list node
 		// p's, in that node's own space, under that node's own matrix - and a
 		// node the file has no group for keeps its own geometry.
-		const u16 part = e->packpart;
+		u16 part = e->packpart;
+
+		// The release's rocket launcher is made with its rocket in the tube;
+		// with none in the hand, the same gun without it (gebean.c's fpRound)
+		if (part < 64 && (m->beanspent & (1ull << part)) && gegunsHandIsSpent(model)) {
+			const s8 spent = m->beanspentgroup[part];
+
+			if (spent >= 0 && spent < m->numgroups && !(m->groupabsent & (1ull << spent))) {
+				part = (u16)spent;
+			}
+		}
 
 		if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
 			return 0;

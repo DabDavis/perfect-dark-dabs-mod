@@ -12148,9 +12148,20 @@ void bgunRender(Gfx **gdlptr)
 				if (rocketmodel && rocketmodel->definition) {
 					sp94 = true;
 
-					modelRender(&renderdata, rocketmodel);
+#ifndef PLATFORM_N64
+					// The release's rocket launcher is made with its rocket
+					// in the tube, and this one drew poking out of its
+					// warhead; it is left to show once fired, as that frame
+					// is the rocket's first in flight
+					if (!hand->firedrocket && gebeanFirstPersonHasRound(hand->gset.weaponnum)) {
+						// the gun's own is in the tube
+					} else
+#endif
+					{
+						modelRender(&renderdata, rocketmodel);
 
-					mtxF2LBulk(rocketmodel->matrices, rocketmodel->definition->nummatrices);
+						mtxF2LBulk(rocketmodel->matrices, rocketmodel->definition->nummatrices);
+					}
 
 					if (hand->firedrocket) {
 						hand->rocket = NULL;
