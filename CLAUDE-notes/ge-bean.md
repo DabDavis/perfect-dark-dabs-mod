@@ -9938,3 +9938,79 @@ X's guns every long gun of GoldenEye's is two-handed here (the KF7 kneels in
 rows 7/8, measured), but the tester's install has Random guard weapons for the
 reinforcements, and a borrowed definition takes its host's one-handed flag -
 the rifle-in-a-pistol-pose case fix/ge-guard-rifle-hold (54ea4a844) settles.
+
+## Egyptian's Golden Gun room: autoguns that never fired, a gun under its plinth (2026-09-25)
+
+Two F3s from LINKmendez (Windows 6b17756, GE Plus Egyptian 0x67, N64 look):
+20260925-163455 "Turrets in Egyption doesnt work", 20260925-163518 "no golden
+gun in egyptian" (the case showed the golden bullets and nothing else).
+
+**How the room works in GoldenEye** (`UsetupcrypZ.c`, list 0x1001; checked in
+the native port with `~/dam-oracle/geegypt.py` on 10.8.0.3): the
+floor has 24 pads (151-174) that are wrong tiles and one right one (166). At
+the start the list shuts the ten shields round the four tripod autoguns (door
+tag 0, `Pdoor` blocks) and makes the gun and the bullets uncollectable
+(`0x00100000`); on entering (Bond in pad 151's room) it shuts the glass case
+(tag 1, four panes). Bond within 90 of a wrong tile (3-D, from `IFBondDistance
+ToPad`, 9 decimetres) opens the shields: nothing else wakes an autogun, which
+is live from the level's start and simply cannot see through a shut door
+(range 2000, a full turn either way). Within 100 of pad 166 opens the case,
+and once it moves the uncollectable bit is cleared on both. Leaving for pad
+0x45's room resets the lot. The oracle: the wrong tile brings the guns on
+about 150 frames later and Bond loses a quarter of his health in the next 60
+at 00 Agent; the right tile opens the case and the gun is picked up from 84
+units off its -z side (the plinth keeps Bond out of the 100-unit reach from
+the other three).
+
+**A decompiled setup prints an AI command's bitfield byte-reversed.**
+`object_flags_1_set_on(0x04, 0x00004000)` is written with
+`CharArrayFrom32Rev()`, so the ROM's bytes are `00 40 00 00`, read big-endian
+by `chrai.c` as `0x00400000` - the flags set are 0x00400000 and 0x00100000
+(uncollectable), not 0x4000/0x1000. Pads and distances printed as `0x9700`,
+`0x0900` are the same trap (pad 0x97, 9). The conversion reads the ROM and was
+right; only the reading of the decomp was wrong for an hour.
+
+**The autoguns** had no tail. `writeSoloProps()` converts a GoldenEye type
+with an ObjectRecord and copies only the tails it lists, and 0x0d had none, so
+every converted autogun had a range of 0, turn limits of 0 and a turn speed
+of 0: none of the 35 autoguns on eleven missions (Runway 3, Jungle 7, Bunker 2
+3, Caverns 2, Egyptian 7, Cradle 2, Surface 1, Surface 2 1, Depot 1, Control
+2, Aztec 6) could ever see Bond. GoldenEye's AutogunRecord and Perfect Dark's
+autogunobj are the same fields in the same order, 0x24 apart, and both loads
+turn the 16.16 integers into floats the same way; the tail is GoldenEye 0x88,
+0x8c, 0xa4, 0xa8 -> 0x64, 0x68, 0x80, 0x84 (ymaxleft, ymaxright, maxspeed,
+aimdist), and the pad it faces is GoldenEye's s32 at 0x80 through `padNum()`
+into Perfect Dark's s16 at 0x5c (-1 stays -1). Converter **67**; the byte diff
+against HEAD's C converter is exactly the eleven setups with an autogun.
+`autogunTick()` is GoldenEye's line for line (same bits: DEACTIVATED is
+IS_DRONE_GUN, AUTOGUN_DAMAGED is NO_AMMO, SEENTARGET is INMOTION) and needed
+nothing. The damage a hit does is Perfect Dark's (0.5 by the difficulty's
+autogun scales) and not measured against GoldenEye's `0.125 * P90 * scalar`:
+at 00 Agent both take a quarter of the health in a few seconds.
+
+**The Golden Gun lay under the plinth.** The case is a GoldenEye safe (0x2b)
+standing on the floor, and `func0f06a730()` lets an object stand on the one
+under it when that one's bottom is below the object's own top plus a slack -
+4 units in GoldenEye for everything (`sub_GAME_7F04088C()`), 4 in Perfect
+Dark for everything *but a weapon*, which gets 0. Perfect Dark also sets every
+non-weapon 4 units over its floor, so the plinth's bottom is 4 up, and the
+Golden Gun, laid flat and 3 units deep at its scale, missed it: it lay on the
+floor at 690 inside the plinth (top 779), out of sight, while the bullets (15
+deep) stood on top at 787. On a remake stage the slack is GoldenEye's 4 for
+every object now; the gun stands at 780, 44 over the plinth's origin exactly
+as in GoldenEye (458 against 414). A survey of every weapon on screen at
+frame 3 on all twenty missions (`wsurvey.sh`) moved fifteen and nothing
+else, all about 97 units up out of the object under them, and each now
+stands where GoldenEye puts it relative to its pad (oracle `gepads.py`):
+Depot's twelve D5Ks and ZMGs on the warehouse shelves (-138.7 against
+GoldenEye's -138.4/-138.7; they were at -236), Bunker's GoldenEye key on its
+desk (-19.4 against -19.9; was -117), Archives' PP7 (-2.6 against -2.7; was
+-86) and the Golden Gun.
+
+Probes (all in `~/wt/f3egyptgun-run`): `room.py` (Bond into the room with
+`chrMoveToPos()`, onto `STEP`'s tile, back, then 84 units off the gun; logs
+health, the gun's flags, each autogun's firing/target/yrot, `DIFF=2` sets 00
+Agent), `agprobe.py` (every autogun's converted fields on a stage),
+`wprobe.py`/`wsurvey.sh` (every weapon's position, two binaries), and
+`oracle/geegypt.py` for the native port. Report's own camera (1988, 5808) is
+on wrong tile 152 - a probe that starts there triggers the trap at once.

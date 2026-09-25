@@ -2361,12 +2361,29 @@ void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum
 			struct geoblock *block;
 
 			if (obj2) {
+				f32 slack = func0f06a620(obj);
+
+#ifndef PLATFORM_N64
+				// Whether the object stands on the one under it. Perfect Dark
+				// sets everything but a weapon four units over its floor and
+				// allows a weapon no slack here; GoldenEye allows four units
+				// to everything (sub_GAME_7F04088C()). The object under a
+				// weapon starts four up, so a weapon laid flat less than four
+				// units deep missed it and lay on the floor underneath: on
+				// Egyptian the Golden Gun, which lay under its case's plinth,
+				// out of sight and out of reach, while the golden bullets
+				// beside it stood on top.
+				if (modloaderStageIsRemake(g_Vars.stagenum)) {
+					slack = 4;
+				}
+#endif
+
 				updated = propUpdateGeometry(obj2->prop, &start, &end);
 
 				if (updated
 						&& (block = (struct geoblock *) start, block->header.type == GEOTYPE_BLOCK)
 						&& block->ymax > y
-						&& block->ymin < y + (max - min) * sp70.m[row][1] + func0f06a620(obj)) {
+						&& block->ymin < y + (max - min) * sp70.m[row][1] + slack) {
 					pos2.y = block->ymax - sp70.m[row][1] * min;
 					obj->hidden |= OBJHFLAG_00008000;
 				} else {
