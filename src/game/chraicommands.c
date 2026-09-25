@@ -10172,3 +10172,32 @@ bool aiGeIfBondYLessThan(void)
 	return false;
 }
 #endif
+
+#ifndef PLATFORM_N64
+/**
+ * @cmd 01e4
+ *
+ * GoldenEye's IFChrWasShotSinceLastCheck: branch, and clear the mark, when a
+ * shot has landed on the chr since the last time this asked - whether or not
+ * it did any harm (chrDamage() marks `gewashit` before its invincibility
+ * test). It was converted as aiIfInjured, which is GoldenEye's other command,
+ * IFChrWasDamagedSinceLastCheck, and never passes for an invincible chr: the
+ * Cradle's Trevelyan goes invincible when wounded and waits to be shot at
+ * again before he runs to his next spot, and he stood there for good.
+ * Four bytes, aiIfInjured's own: 01e4 <chr:1> <label:1>
+ */
+bool aiGeIfChrWasHit(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (chr && chr->gewashit) {
+		chr->gewashit = false;
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+	} else {
+		g_Vars.aioffset += 4;
+	}
+
+	return false;
+}
+#endif

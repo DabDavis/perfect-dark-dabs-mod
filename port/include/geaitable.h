@@ -65,6 +65,14 @@
 //     01e3 <y:4, signed> <label:1>
 #define GEAI_IFBONDY_CMD 0x01e3
 
+// And GoldenEye's IFChrWasShotSinceLastCheck, which asks CHRFLAG_WAS_HIT - set
+// by every shot that lands, invincible or not - where Perfect Dark's nearest,
+// aiIfInjured, is its IFChrWasDamagedSinceLastCheck and never passes while the
+// chr is invincible. The Cradle's Trevelyan waits, invincible, to be shot at
+// before he runs on. aiIfInjured's own four bytes, and an ordinary row below:
+//     01e4 <chr:1> <label:1>
+#define GEAI_WASHIT_CMD 0x01e4
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a
@@ -347,7 +355,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* f5 MusicStopSlot                          */ {  2, 0x00fa,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* f6 TriggerExplosionsAroundBond            */ {  1, 0x00fb,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x00f2} } },
 	/* f7 IFKilledCiviliansGreaterThan           */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* f8 IFChrWasShotSinceLastCheck             */ {  3, 0x0083,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {0, 1, 0}, {1, 1, 0} } },
+	/* f8 IFChrWasShotSinceLastCheck             */ {  3, 0x01e4,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {0, 1, 0}, {1, 1, 0} } },
 	/* f9 BondKilledInAction                     */ {  1, 0x00fe,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* fa RaiseArms                              */ {  1, 0x00ff,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* fb GasLeakAndFadeFog                      */ {  1,     -1,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },

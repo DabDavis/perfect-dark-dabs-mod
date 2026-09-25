@@ -5238,6 +5238,17 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		setCurrentPlayerNum(prevplayernum);
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye marks a chr hit before it asks whether the hit can hurt
+	// (chrlvDamage's CHRFLAG_WAS_HIT), and a converted mission's lists ask it
+	// of a chr they have just made invincible: the Cradle's Trevelyan stands
+	// invincible after each wound until he is shot again, and only then runs
+	// on to his next spot
+	if (chr->actiontype != ACT_DIE && chr->actiontype != ACT_DEAD) {
+		chr->gewashit = true;
+	}
+#endif
+
 	// If the chr is invincible, make them flinch then we're done
 	if (chr->chrflags & CHRCFLAG_INVINCIBLE) {
 		chrFlinchBody(chr);
