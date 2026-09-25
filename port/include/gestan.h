@@ -74,6 +74,13 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
  */
 bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground);
 
+/**
+ * Whether a guard standing at `from` on the floor at `ground` may run straight
+ * to `to`, past waypoints: GoldenEye's walk along the tile graph from its tile
+ * ends on the tile under `to` (sub_GAME_7F030128). True with no graph.
+ */
+bool geStanReaches(struct coord *from, f32 ground, struct coord *to);
+
 // GoldenEye's own truck test: whether lines laid end to end in plan (x, z pairs)
 // cross no wall of the tile graph, starting on the tile under the first at y
 bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y);
