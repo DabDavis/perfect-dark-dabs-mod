@@ -2231,13 +2231,40 @@ toggle no part names can never be switched by the game (it reaches a toggle
 only through `modelGetPart()`), so it is on for ever; for Robin,
 `xblaMeshIsHairList()` takes "the toggle no part names" as the hat, keyed on
 `FILE_CHEADROBIN` through `xblaMeshFileId`. It is Robin's alone on purpose:
-the other two heads with an unnumbered toggle keep theirs - `Cheadfem_guard2`'s
+the other two heads with an unnumbered toggle are not hair - `Cheadfem_guard2`'s
 is her sunglasses (96 vertices at eye height, and the mesh has none) and
 `Cheadbeau`'s is a 72-vertex piece at the chin. The static check that says so:
 load all 76 heads under gdb (`heads.py` in the session: `modeldefLoadToNew()`
 each at a level frame, walk the tree, read the hash entry per list) and diff
 the report across the change - the one line that moves is Robin's near hair
 list, NOENTRY to HAIR, 54 hair lists filed where there were 53.
+
+**Female Guard 2 wears no glasses in the XBLA look** (2026-09-25, Myles's F3
+20260923-071340 on the Combat Simulator's Character page: "remove glasses for
+xbla female guard 2"). `Cheadfem_guard2` has no parts table at all (numparts
+0), so her one toggle is never switched and **on the N64 she always wears
+them** - on the Character page too, where the head row's partvisibility only
+hides a numbered `MODELPART_HEAD_SUNGLASSES`. The release's copy of her file
+differs from ours in the mesh id alone (bytes 0xae-0xaf); mesh slot 2426 is one
+group, one draw, texture 4979 - a bare face. **The release draws nothing for a
+toggled list it left at zero**: `~/perfect-dark/glasses-villa.png`, the
+release's own Villa intro, has Jon bare-faced where the N64 (and this port,
+frame 1407) puts sunglasses on him. (Her head is locked on the Xenia rig's
+PDTest profile - its head row offers Joanna's four - so she was not seen in
+the release itself.) From 0c7d5b17b until then her glasses were filed
+`XBLAMESH_SUPPRESS_REFIT` with the six heads' and moved onto the release's
+face; now `xblaMeshIsGlassesList()` takes only a numbered sunglasses part and
+`xblaMeshTogglesAreDropped()` files her toggled list as covered, so the mesh
+draws alone and the N64 look (`Mod.XblaMeshes=0`) keeps her glasses. The six
+heads keep the refit - Jon's frame 1407 is pixel-identical across the change -
+though by the same Villa picture the release has them bare too. Headless check
+on the card without driving menus: at ~400 frames into `--boot-stage 0x26`,
+from gdb set `g_PlayerConfigsArray[0].base.mpheadnum = 0x13`, call
+`menuPushDialog(&g_MpCharacterMenuDialog)`, 10 frames later set
+`g_Menus[0].curdialog->focuseditem = &g_MpCharacterMenuItems[1]` (the head
+row), and set `menumodel.curroty`/`newroty` before each shot for an angle;
+count frames with `ignore` on a `videoEndFrame` breakpoint, since
+`lvframenum` stops while the dialog is up.
 
 **How the Character page is driven headlessly**: Xvfb at 1280x720 with the
 scratch pd.ini set windowed at that size (`DefaultFullscreen=0`; fullscreen

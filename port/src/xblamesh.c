@@ -1175,8 +1175,7 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
  *
  * Six heads keep the game's own glasses because the release left them at zero
  * with a bare face beside them (`Cheadanka`, `Cheaddarling`, `Cheaddavec`,
- * `Cheadfem_guard`, `Cheadjon`, `Cheadjonathan`), and `Cheadfem_guard2` keeps
- * hers under a toggle its parts table does not number. Drawn as they are, they
+ * `Cheadfem_guard`, `Cheadjon`, `Cheadjonathan`). Drawn as they are, they
  * sit where the N64 face had its eyes, and 4J's face is not there: on Jon the
  * mesh posed in the head's own space puts its nose at y 41 z 132 against the
  * stock head's y 94 z 111, and is a fifth wider, so the glasses came out
@@ -1184,6 +1183,11 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
  *
  * So the list is filed to be moved onto the mesh's face at the draw - see
  * xblaMeshDrawRefitGlasses() - rather than kept or suppressed.
+ *
+ * Only the numbered MODELPART_HEAD_SUNGLASSES, which the game switches per chr.
+ * `Cheadfem_guard2`'s glasses sit under a toggle no part names, so nothing can
+ * switch them and they were on for every Female Guard 2 - see
+ * xblaMeshTogglesAreDropped().
  */
 static s32 xblaMeshIsGlassesList(struct modeldef *modeldef, const struct modelnode *node)
 {
@@ -1199,7 +1203,7 @@ static s32 xblaMeshIsGlassesList(struct modeldef *modeldef, const struct modelno
 		return 0;
 	}
 
-	if (!glasses && xblaMeshFileId != FILE_CHEADFEM_GUARD2) {
+	if (!glasses) {
 		return 0;
 	}
 
@@ -1207,11 +1211,7 @@ static s32 xblaMeshIsGlassesList(struct modeldef *modeldef, const struct modelno
 		const u32 type = node->type & 0xff;
 
 		if (type == MODELNODETYPE_TOGGLE) {
-			if (glasses) {
-				return node == glasses;
-			}
-
-			return !xblaMeshNodeIsNumbered(modeldef, node);
+			return node == glasses;
 		}
 
 		if (type == MODELNODETYPE_DISTANCE) {
@@ -1254,6 +1254,23 @@ static s32 xblaMeshIsReleaseBootLogo(s32 fileid)
 static s32 xblaMeshTogglesAreInMesh(s32 fileid)
 {
 	return fileid == FILE_PDROPSHIP;
+}
+
+/**
+ * A model whose toggled pieces the release draws nothing for, and whose mesh
+ * has nothing in their place either.
+ *
+ * `Cheadfem_guard2`: her parts table is empty, so her one toggle - 96 vertices
+ * of sunglasses at eye height - is one the game can never switch off, and on
+ * the N64 Female Guard 2 always wears them. The release's head is one draw of
+ * one texture, a bare face, and it does not draw a toggled list 4J left at
+ * zero: Jon in Villa's intro wears his glasses on the N64 and not in the
+ * release. They were refitted onto her face until 2026-09-25, when a tester's
+ * F3 on the Combat Simulator's character page asked for them off.
+ */
+static s32 xblaMeshTogglesAreDropped(s32 fileid)
+{
+	return fileid == FILE_CHEADFEM_GUARD2;
 }
 
 /**
@@ -1475,7 +1492,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 					refit[numrefit++] = ournode;
 				}
 			} else if ((xblaMeshIsCovered(modeldef, ournode) || xblaMeshIsReleaseBootLogo(xblaMeshFileId)
-						|| xblaMeshTogglesAreInMesh(xblaMeshFileId))
+						|| xblaMeshTogglesAreInMesh(xblaMeshFileId) || xblaMeshTogglesAreDropped(xblaMeshFileId))
 					&& numcovered < XBLAMESH_COVERED) {
 				// Held until the walk is over: a model whose tree stops
 				// matching part way through leaves through one of the returns
