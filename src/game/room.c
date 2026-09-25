@@ -6,7 +6,9 @@
 #include "data.h"
 #include "types.h"
 #ifndef PLATFORM_N64
+#include <math.h>
 #include "mod.h"
+#include "xblastage.h"
 #endif
 
 /**
@@ -54,6 +56,10 @@ RoomNum *g_RoomMtxLinkedRooms;
 RoomNum *g_RoomMtxBaseRooms;
 f32 *g_RoomMtxScales;
 Mtxf *g_RoomMtxMatrices;
+#ifndef PLATFORM_N64
+// Whether a slot holds its matrix as floats (G_MTX_FLOATS): see roomTouchMtx()
+u8 *g_RoomMtxFloats;
+#endif
 
 s32 g_RoomMtxNumSlots = 0;
 
@@ -175,6 +181,25 @@ s32 roomTouchMtx(s32 roomnum)
 	g_RoomMtxScales[index] = var8005ef10[0];
 
 	roomPopulateMtx(&mtx, roomnum);
+
+#ifndef PLATFORM_N64
+	// The RSP's matrix holds a translation to 32767. An HD level draws every
+	// room, and a room further than that from the camera's wrapped round to
+	// somewhere off the screen: Dam's far mountainside, 35000 out, was
+	// holes onto the sky once the fog there was no longer whole. On an HD
+	// level such a room's matrix is kept as the floats it is; every other
+	// stays as it was, wrapping as the N64's would
+	g_RoomMtxFloats[index] = xblaStageDrawsEveryRoom()
+		&& (fabsf(mtx.m[3][0]) >= 32767.0f
+			|| fabsf(mtx.m[3][1]) >= 32767.0f
+			|| fabsf(mtx.m[3][2]) >= 32767.0f);
+
+	if (g_RoomMtxFloats[index]) {
+		g_RoomMtxMatrices[index] = mtx;
+		return index;
+	}
+#endif
+
 	mtxF2L(&mtx, &g_RoomMtxMatrices[index]);
 
 	return index;
@@ -188,7 +213,12 @@ Gfx *roomApplyMtx(Gfx *gdl, s32 roomnum)
 {
 	s32 index = roomTouchMtx(roomnum);
 
+#ifndef PLATFORM_N64
+	gSPMatrix(gdl++, &g_RoomMtxMatrices[index], G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW
+			| (g_RoomMtxFloats[index] ? G_MTX_FLOATS : 0));
+#else
 	gSPMatrix(gdl++, &g_RoomMtxMatrices[index], G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+#endif
 
 	return gdl;
 }

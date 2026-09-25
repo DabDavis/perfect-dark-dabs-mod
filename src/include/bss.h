@@ -246,6 +246,9 @@ extern RoomNum *g_RoomMtxLinkedRooms;
 extern RoomNum *g_RoomMtxBaseRooms;
 extern f32 *g_RoomMtxScales;
 extern Mtxf *g_RoomMtxMatrices;
+#ifndef PLATFORM_N64
+extern u8 *g_RoomMtxFloats;
+#endif
 extern struct fileinfo g_FileInfo[NUM_FILE_SLOTS];
 extern u8 *g_VtxBuffers[3];
 extern u8 *g_GfxMemPos;

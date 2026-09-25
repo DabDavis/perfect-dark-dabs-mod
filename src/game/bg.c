@@ -3420,6 +3420,11 @@ void bgLoadRoom(s32 roomnum)
 		if (g_FogEnabled) {
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->opablocks, 1);
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->xlublocks, 5);
+#ifndef PLATFORM_N64
+			// An HD level's room takes the fog on every surface, cut-outs
+			// and decals too, as the release draws them
+			gebeanStageFogRoom(roomnum, g_Rooms[roomnum].gfxdata->opablocks, g_Rooms[roomnum].gfxdata->xlublocks);
+#endif
 		} else if (!g_EnvHasTransparency) {
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->opablocks, 6);
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->xlublocks, 7);

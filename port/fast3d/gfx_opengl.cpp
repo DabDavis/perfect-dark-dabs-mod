@@ -617,8 +617,12 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     append_line(fs_buf, &fs_len, "    texel = clamp(texel, 0.0, 1.0);");
     // TODO discard if alpha is 0?
     if (cc_features.opt_fog) {
-        append_line(fs_buf, &fs_len, "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;");
-        append_line(fs_buf, &fs_len, "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;");
+        if (cc_features.opt_fog_linear) {
+            append_line(fs_buf, &fs_len, "    float fogFactor = clamp(vFogZW.y * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;");
+        } else {
+            append_line(fs_buf, &fs_len, "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;");
+            append_line(fs_buf, &fs_len, "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;");
+        }
         if (cc_features.opt_fog_fade) {
             append_line(fs_buf, &fs_len, "    texel = vec4(texel.rgb * (1.0 - fogFactor), texel.a);");
         } else if (cc_features.opt_alpha) {

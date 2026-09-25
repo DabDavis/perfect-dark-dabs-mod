@@ -50,6 +50,11 @@ enum {
 // fog rather than being mixed towards the fog colour, which would add the fog
 // colour on top of the surface it lands on.
 #define SHADER_OPT_FOG_FADE (1 << 15)
+// G_SETFOGLINE_EXT's linear fog: the fog line is evaluated at the eye depth
+// (clip w) rather than at z/w - an HD level's fog, linear in distance as the
+// GoldenEye XBLA release draws it. Bit 28: 16-27 are cleared for a draw
+// without alpha (gfx_derive_batch_state()).
+#define SHADER_OPT_FOG_LINEAR (1 << 28)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -74,6 +79,7 @@ struct CCFeatures {
     bool opt_text_outline;
     bool opt_envmap;
     bool opt_fog_fade;
+    bool opt_fog_linear;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;

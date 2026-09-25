@@ -20487,7 +20487,16 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 #else
 		if (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) {
 #endif
+#ifndef PLATFORM_N64
+			// An object on an HD level is drawn out to where the release's
+			// fog is whole (envIsPosInDrawDistance()); a chr keeps the
+			// level's own fog distance, as its portal walk keeps its plane
+			if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER
+						? envIsPosInFogMaxDistance(pos, arg2) : envIsPosInDrawDistance(pos, arg2))
+					&& (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
+#else
 			if (envIsPosInFogMaxDistance(pos, arg2) && (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
+#endif
 				result = camIsPosInFovAndVisibleRoom(prop->rooms, pos, arg2);
 
 				if (result) {

@@ -45,6 +45,9 @@ void roomsReset(void)
 	g_RoomMtxBaseRooms = mempAlloc(ALIGN16(g_RoomMtxNumSlots * sizeof(*g_RoomMtxBaseRooms)), MEMPOOL_STAGE);
 	g_RoomMtxScales = mempAlloc(ALIGN16(g_RoomMtxNumSlots * sizeof(*g_RoomMtxScales)), MEMPOOL_STAGE);
 	g_RoomMtxMatrices = mempAlloc(ALIGN16(g_RoomMtxNumSlots * sizeof(*g_RoomMtxMatrices)), MEMPOOL_STAGE);
+#ifndef PLATFORM_N64
+	g_RoomMtxFloats = mempAlloc(ALIGN16(g_RoomMtxNumSlots), MEMPOOL_STAGE);
+#endif
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
 		g_Vars.players[i]->lastroomforoffset = -1;
