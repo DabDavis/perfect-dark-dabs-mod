@@ -22,6 +22,7 @@
 #include "lib/vi.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"
+#include "game/env.h"
 #include "romdata.h"
 #include "xblatex.h"
 #include "xblastage.h"
@@ -109,6 +110,13 @@ static s32 numBackdrop;
 static s32 *backdropOrder;
 static f32 *backdropDist;
 static f32 backdropMid[3];
+
+// The HD mesh's own extent (the rooms' triangles, not the backdrop), for the
+// far plane (gebeanStageTickFar())
+static f32 meshMin[3];
+static f32 meshMax[3];
+static s32 farRaised;
+static f32 farOwn;
 
 #define GRID_BITS 20
 
@@ -1806,6 +1814,7 @@ static void forget(void)
 	backdropOrder = NULL;
 	backdropDist = NULL;
 	numBackdrop = 0;
+	farRaised = 0;
 	roomData = NULL;
 	roomLen = NULL;
 	roomHidden = NULL;
@@ -2040,6 +2049,20 @@ static s32 build(void)
 	takeBackdrop(&c, n);
 	clampCutouts(&c);
 
+	for (s32 j = 0; j < 3; j++) {
+		meshMin[j] = 1e30f;
+		meshMax[j] = -1e30f;
+	}
+
+	for (s32 t = 0; t < c.num; t++) {
+		for (s32 k = 0; k < 3; k++) {
+			for (s32 j = 0; j < 3; j++) {
+				meshMin[j] = MIN(meshMin[j], c.tris[t].pos[k][j]);
+				meshMax[j] = MAX(meshMax[j], c.tris[t].pos[k][j]);
+			}
+		}
+	}
+
 	mark[1] = sysGetMicroseconds();
 
 	lists = calloc(n + 1, sizeof(*lists));
@@ -2206,6 +2229,115 @@ static s32 build(void)
 			mark[3] ? (sysGetMicroseconds() - mark[3]) / 1000.0 : 0.0);
 
 	return numServed > 0;
+}
+
+/* -------------------------------------------------------------------------
+ * The far plane
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The far plane while the HD rooms are served: at least the length of the HD
+ * mesh's box, so that nothing of the level is ever cut by it.
+ *
+ * GoldenEye's own far plane is its fog table's (Surface 12500, Jungle 2500,
+ * Train 1500), set for a level drawn through its portals and fogged to the sky
+ * colour before it. An HD level draws every room, and its cut-outs - the
+ * pines, the forest wall, Jungle's leaves - are not fogged, so trees came and
+ * went at 12500 as the player walked (F3 20260925-030603: "can see trees in
+ * distance drawing live"). The depth buffer's precision is the near plane's,
+ * which stays.
+ *
+ * The fog stays exactly as it was by distance. Its position is a share of the
+ * depth range, so the same numbers under a further plane would thin it (on
+ * Jungle, 2500 -> 32900, the fog's start went from 1250 to 2300 and its
+ * end to the new plane): the rooms' fog factor is worked out for the new
+ * range (gebeanStageFogFactor()), and envTick() goes on reckoning the props'
+ * fog and fog distance from the level's own plane (gebeanStageFarOwn()).
+ *
+ * Put back when the HD rooms go (F6).
+ */
+void gebeanStageTickFar(void)
+{
+	struct zrange zrange;
+	f32 want = 0.0f;
+
+	viGetZRange(&zrange);
+
+	if (xblaStageDrawsEveryRoom() && meshMin[0] <= meshMax[0]) {
+		const f32 dx = meshMax[0] - meshMin[0];
+		const f32 dy = meshMax[1] - meshMin[1];
+		const f32 dz = meshMax[2] - meshMin[2];
+
+		want = sqrtf(dx * dx + dy * dy + dz * dz) * 1.05f * bgGetScaleBg2Gfx();
+	}
+
+	if (want > zrange.far + 1.0f) {
+		if (!farRaised) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the HD level", zrange.far, want);
+		}
+
+		farOwn = zrange.far;
+		farRaised = 1;
+		viSetZRange(zrange.near, want);
+		envTick();
+	} else if (farRaised && want <= 0.0f) {
+		farRaised = 0;
+		viSetZRange(zrange.near, farOwn);
+		envTick();
+	}
+}
+
+/** The level's own far plane while it is raised for the HD rooms. */
+s32 gebeanStageFarOwn(f32 *far)
+{
+	if (!farRaised) {
+		return 0;
+	}
+
+	*far = farOwn;
+
+	return 1;
+}
+
+/**
+ * The fog factor (gSPFogFactor()) for fog positions min and max, which are
+ * the level's own for its own far plane, under the raised one. The fog is
+ * linear in the depth: z(w) = A - B / w, A = (f + n) / (f - n), B = 2fn /
+ * (f - n); fog = z * fm + fo. Keeping fog(w) the same for every w under a
+ * new A' and B' is fm' = fm B / B' and fo' = fo + A fm - A' fm'.
+ */
+s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo)
+{
+	struct zrange zrange;
+	f64 n, f, f2, a, b, a2, b2, m, o, m2, o2;
+
+	if (!farRaised || max <= min) {
+		return 0;
+	}
+
+	viGetZRange(&zrange);
+
+	n = zrange.near;
+	f = farOwn;
+	f2 = zrange.far;
+
+	if (f <= n || f2 <= n) {
+		return 0;
+	}
+
+	a = (f + n) / (f - n);
+	b = 2.0 * f * n / (f - n);
+	a2 = (f2 + n) / (f2 - n);
+	b2 = 2.0 * f2 * n / (f2 - n);
+	m = 128000.0 / (max - min);
+	o = (500.0 - min) * 256.0 / (max - min);
+	m2 = m * b / b2;
+	o2 = o + a * m - a2 * m2;
+
+	*fm = (s32)(m2 < 32767.0 ? m2 + 0.5 : 32767.0);
+	*fo = (s32)(o2 > -32768.0 ? (o2 < 32767.0 ? floor(o2 + 0.5) : 32767.0) : -32768.0);
+
+	return 1;
 }
 
 /* -------------------------------------------------------------------------
@@ -2472,5 +2604,8 @@ s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }
 void gebeanStageTrace(FILE *f) { }
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl) { return gdl; }
+void gebeanStageTickFar(void) { }
+s32 gebeanStageFarOwn(f32 *far) { return 0; }
+s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo) { return 0; }
 
 #endif

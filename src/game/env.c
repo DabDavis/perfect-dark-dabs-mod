@@ -11,6 +11,7 @@
 #ifndef PLATFORM_N64
 #include "system.h"
 #include "modloader.h"
+#include "gebeanstage.h"
 #endif
 
 bool g_FogEnabled;
@@ -167,6 +168,12 @@ void envTick(void)
 	}
 
 	viGetZRange(&zrange);
+
+#ifndef PLATFORM_N64
+	// An HD level's far plane is raised to take in all of it; the fog is
+	// still the level's own (gebeanstage.c, gebeanStageTickFar())
+	gebeanStageFarOwn(&zrange.far);
+#endif
 
 	scale = bgGetScaleBg2Gfx();
 
@@ -438,6 +445,21 @@ Gfx *envStartFog(Gfx *gdl, bool xlupass)
 			nofog = sysArgCheck("--no-fog");
 		}
 		if (nofog) {
+			return gdl;
+		}
+	}
+#endif
+
+#ifndef PLATFORM_N64
+	{
+		s32 fm, fo;
+
+		if (gebeanStageFogFactor(g_Env.fogmin, g_Env.fogmax, &fm, &fo)) {
+			gDPSetFogColor(gdl++, g_Env.sky_r, g_Env.sky_g, g_Env.sky_b, 0xff);
+			gSPFogFactor(gdl++, fm, fo);
+			gSPSetGeometryMode(gdl++, G_FOG);
+			gDPSetAlphaDither(gdl++, G_AD_NOISE);
+
 			return gdl;
 		}
 	}

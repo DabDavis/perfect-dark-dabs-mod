@@ -60,6 +60,20 @@ const char *gebeanStageLevelKey(void);
 void gebeanStageTickCamera(s32 authored);
 s32 gebeanStageCullsBackFaces(void);
 
+/**
+ * Once a frame: the far plane at least the HD mesh's length while the HD rooms
+ * are served (every room is drawn), the level's own again when they are not.
+ */
+void gebeanStageTickFar(void);
+
+/**
+ * While the far plane is raised: the level's own far plane (for envTick()),
+ * and the rooms' fog factor that keeps the fog where the level's own fog
+ * positions put it under that plane (for envStartFog()). 0 when not raised.
+ */
+s32 gebeanStageFarOwn(f32 *far);
+s32 gebeanStageFogFactor(s32 min, s32 max, s32 *fm, s32 *fo);
+
 /** A new level: the last one's rooms and mesh go. */
 void gebeanStageLevelReset(void);
 

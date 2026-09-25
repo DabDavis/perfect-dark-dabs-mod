@@ -2452,6 +2452,9 @@ void bgTick(void)
 	g_CamRoom = g_Vars.currentplayer->cam_room;
 
 #ifndef PLATFORM_N64
+	// An HD level draws every room, so its far plane takes in all of it
+	gebeanStageTickFar();
+
 	// GoldenEye's own cameras can stand outside the level, which it draws
 	// culled; the HD rooms follow them (gebeanStageTickCamera())
 	if (xblaStageDrawsEveryRoom()) {
@@ -6501,6 +6504,11 @@ void bgTickPortals(void)
 	box.ymax = player->screenymaxf;
 
 	viGetZRange(&g_BgSnake.zrange);
+#ifndef PLATFORM_N64
+	// The walk that says which rooms' chrs are in view keeps the level's own
+	// far plane when an HD level's is raised (gebeanStageTickFar())
+	gebeanStageFarOwn(&g_BgSnake.zrange.far);
+#endif
 	g_BgSnake.zrange.far = g_BgSnake.zrange.far / g_Vars.currentplayerstats->scale_bg2gfx;
 
 #ifndef PLATFORM_N64
