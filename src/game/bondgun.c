@@ -13412,7 +13412,11 @@ struct ammotype g_AmmoTypes[] = {
 	{ 10,           0, 1  }, // AMMOTYPE_TIMED_MINE
 	{ 800,          0, 0  }, // AMMOTYPE_REAPER
 	{ 15,           0, -2 }, // AMMOTYPE_HOMINGROCKET
+#ifdef PLATFORM_N64
 	{ 50,           0, 0  }, // AMMOTYPE_DART
+#else
+	{ 100,          0, 0  }, // AMMOTYPE_DART: the port's golden bullets, GoldenEye's MaxAmmo for them
+#endif
 	{ 10,           0, 0  }, // AMMOTYPE_NBOMB
 	{ 200,          0, 0  }, // AMMOTYPE_SEDATIVE
 	{ TICKS(18000), 0, 0  }, // AMMOTYPE_CLOAK
