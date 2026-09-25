@@ -628,18 +628,44 @@ static union modelrodata *vehPartRodata(struct model *model, s32 partnum, u32 ty
 }
 
 /**
+ * The fields (sixtieths of a second) one of GoldenEye's frames lasted on the
+ * console, which is what its once-a-frame rotor step was paced by.
+ *
+ * GoldenEye adds `rotaryspeed` to the rotor's angle once a *drawn* frame, however
+ * long the frame took (propobj.c, `PROPDEF_AIRCRAFT`: gated only by
+ * `g_ClockTimer > 0`), and its frames are as long as the console took to draw
+ * them (frametiming.c, waitForNextFrame(): `speedgraphframes` is the fields
+ * since the last one). Stepped once a frame at 60 frames a second the rotor
+ * turned three times as fast as on the console.
+ *
+ * Rare's own attract demos are console recordings and store each frame's
+ * length (`ramrom_seed.speedframes`): over all fourteen, 3 fields is the most
+ * common frame and the median, the outdoor levels averaging 2.5 (Runway) to
+ * 3.7 (Frigate). So a step is taken per 3 fields of game time: the rotor turns
+ * at `rotaryspeed` x 20 radians a second, the console's rate at 20 frames a
+ * second, at any frame rate here.
+ */
+#define GE_ROTOR_FIELDS 3.0f
+
+/**
  * The helicopter's rotor.
  *
- * GoldenEye turns it in the render pass rather than the tick, once a drawn
- * frame: part 2 is the main rotor, turned about y, and part 3 the tail rotor,
- * turned about x. A model's parts keep GoldenEye's own numbering through the
- * conversion - `gemodelconv.py` writes its switch table in order - so the two
- * are found by number here as they are there.
+ * GoldenEye turns it in the render pass rather than the tick: part 2 is the
+ * main rotor, turned about y, and part 3 the tail rotor, turned about x. A
+ * model's parts keep GoldenEye's own numbering through the conversion -
+ * `gemodelconv.py` writes its switch table in order - so the two are found by
+ * number here as they are there. The step is scaled by the game time the frame
+ * covers (GE_ROTOR_FIELDS), and the speed it steps by ramps in game time in
+ * vehHeliTick(), as GoldenEye's does (`g_GlobalTimerDelta`).
  *
- * (GoldenEye turns the main rotor about **z** instead while the prop carries
- * `PROPFLAG_INMOTION`, which is the flag a *thrown* object has; none of the
- * twenty missions throws an aircraft.)
+ * GoldenEye turns the main rotor about **z** instead where the record's own
+ * flags carry 0x20000000 (`PROPFLAG_INMOTION` in its enum, but the test is on
+ * `aircraft_render->flags`, the setup record's word). Runway's plane is placed
+ * with it (0x200001e8), so its propeller turns about its nose rather than
+ * about the vertical; Surface 2's parked helicopter on pad 31 has it too, and
+ * never turns.
  */
+#define GE_AIRCRAFT_ROTOR_Z 0x20000000
 static void vehHeliUpdateModel(struct prop *prop)
 {
 	struct heliobj *heli = (struct heliobj *)prop->obj;
@@ -647,10 +673,16 @@ static void vehHeliUpdateModel(struct prop *prop)
 	Mtxf rot;
 
 	if (g_Vars.lvupdate240 > 0) {
-		heli->rotoryrot = vehWrapTau(heli->rotoryrot + heli->rotoryspeed);
+		heli->rotoryrot = vehWrapTau(heli->rotoryrot
+				+ heli->rotoryspeed * g_Vars.lvupdate60freal / GE_ROTOR_FIELDS);
 	}
 
-	mtx4LoadYRotation(heli->rotoryrot, &rot);
+	if (heli->base.flags & GE_AIRCRAFT_ROTOR_Z) {
+		mtx4LoadZRotation(heli->rotoryrot, &rot);
+	} else {
+		mtx4LoadYRotation(heli->rotoryrot, &rot);
+	}
+
 	vehPutPart(model, 2, &rot);
 
 	mtx4LoadXRotation(heli->rotoryrot, &rot);
