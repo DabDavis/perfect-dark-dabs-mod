@@ -77,6 +77,7 @@ struct stri {
 	u16 room;
 	u8 decal;
 	u8 nofog;   // on a triangle GoldenEye draws without fog (fileRoomTrianglesEach())
+	u8 backed;  // one face of a two-faced sheet, drawn culled (markBacked())
 };
 
 // The level being served, built when its first room is asked for
@@ -1167,6 +1168,14 @@ static int compareTex(const void *a, const void *b)
 		return texHasAlpha(ta->tex) - texHasAlpha(tb->tex);
 	}
 
+	// The faces of two-faced sheets after the rest of their kind, which
+	// is where writeLeaf() turns culling on for them
+	if (ta->backed != tb->backed) {
+		// solid pictures: the sheets last; cut-outs: the sheets first,
+		// before the cut-outs that turn culling off
+		return texHasAlpha(ta->tex) ? tb->backed - ta->backed : ta->backed - tb->backed;
+	}
+
 	// Decals after what they lie on
 	if (ta->decal != tb->decal) {
 		return ta->decal - tb->decal;
@@ -1192,7 +1201,11 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	s32 curdecal = -1;
 	s32 curalpha = -1;
 	s32 curnofog = 0;
-	s32 curcull = 0; // set once the cut-outs, sorted last, have turned culling off
+	s32 curbacked = -1;
+	// -1 while the solid pictures take the room's culling
+	// (bgRenderRoomOpaque()), then 1 once a two-faced sheet has turned it on
+	// or 0 once the cut-outs, sorted last, have turned it off
+	s32 curcull = -1;
 
 	if (num == 0) {
 		return 0;
@@ -1234,7 +1247,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		// Compared whole in batchFind(), padding and all
 		memset(rv, 0, sizeof(rv));
 
-		if (t->tex != curtex || t->decal != curdecal || t->nofog != curnofog) {
+		if (t->tex != curtex || t->decal != curdecal || t->nofog != curnofog || t->backed != curbacked) {
 			const s32 alpha = xlu || texHasAlpha(t->tex);
 
 			batchFlush(l, &b);
@@ -1272,10 +1285,19 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 				curnofog = t->nofog;
 			}
 
-			if (!xlu && texHasAlpha(t->tex) && !curcull) {
+			// A two-faced sheet culls, whatever else in the leaf does: its
+			// faces lie in one plane back to back and both sides would be
+			// drawn, which is Surface's platform decks fighting their own
+			// undersides (markBacked())
+			if (!xlu && t->backed && curcull != 1) {
 				curcull = 1;
+				emit(&l->gdl, 0xb7000000, 0x00002000);
+			} else if (!xlu && !t->backed && texHasAlpha(t->tex) && curcull != 0) {
+				curcull = 0;
 				emit(&l->gdl, 0xb6000000, 0x00002000);
 			}
+
+			curbacked = t->backed;
 
 			emit(&l->gdl, alpha ? 0xbb002801 : 0xbb003001, 0xffffffff);
 			emit(&l->gdl, 0xc0080002, t->tex >= 0 ? GEBEANSTAGE_TEXBASE + t->tex : GEBEANSTAGE_TEXNONE);
@@ -1375,6 +1397,14 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	}
 
 	batchFlush(l, &b);
+
+	// Culling back off for what follows in the room, as it was before the
+	// sheets unless a camera outside the level had it on (the next room
+	// sets its own either way)
+	if (curcull == 1) {
+		emit(&l->gdl, 0xb6000000, 0x00002000);
+	}
+
 	emit(&l->gdl, 0xb8000000, 0x00000000);
 
 	return 1;
@@ -1566,6 +1596,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->room = 0;
 	t->decal = 0;
 	t->nofog = 0;
+	t->backed = 0;
 }
 
 static f32 triNormal(const struct stri *t, f32 *n)
@@ -1589,6 +1620,74 @@ static f32 triNormal(const struct stri *t, f32 *n)
 	}
 
 	return len * 0.5f;
+}
+
+/**
+ * Marks the faces of two-faced sheets: a triangle whose whole face is
+ * covered by triangles facing the other way in its own plane. 4J built
+ * decks, treads and roofs as single planes, some of them with a second face
+ * underneath (Surface's platform decks: the planks on top in white, the same
+ * planks underneath in a grey), and an HD room is drawn two-sided, so from
+ * either side the far face fought the near one (F3 20260925-032341: "z
+ * fighting/flickering under this platform"). writeLeaf() draws these culled,
+ * which leaves each side its own face. Covered is its middle and its corners
+ * (pulled a tenth of the way in) all on such triangles, so a sheet with a
+ * face only under part of it keeps its other face two-sided. Solid pictures
+ * pair with solid ones and cut-outs with cut-outs; the translucent layer is
+ * left alone.
+ */
+static s32 markBacked(struct stri *tris, s32 num, const struct tgrid *g)
+{
+	s32 count = 0;
+
+	for (s32 i = 0; i < num; i++) {
+		struct stri *t = &tris[i];
+		f32 ni[3], mid[3], pts[4][3];
+		s32 covered = 1;
+
+		if (texIsXlu(t->tex) || triNormal(t, ni) <= 0) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			for (s32 j = 0; j < 3; j++) {
+				pts[k][j] = t->pos[k][j] + (mid[j] - t->pos[k][j]) * 0.1f;
+			}
+		}
+
+		memcpy(pts[3], mid, sizeof(mid));
+
+		for (s32 k = 0; k < 4 && covered; k++) {
+			const f32 *q = pts[k];
+
+			covered = 0;
+
+			for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
+					e >= 0 && !covered; e = g->entnext[e]) {
+				const s32 o = g->room[g->enttri[e]];
+				const struct stri *u = &tris[o];
+				f32 nu[3];
+
+				if (o == i || texIsXlu(u->tex) || texHasAlpha(u->tex) != texHasAlpha(t->tex)
+						|| triNormal(u, nu) <= 0 || dot3(ni, nu) > -DECAL_COS) {
+					continue;
+				}
+
+				covered = pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST;
+			}
+		}
+
+		if (covered) {
+			t->backed = 1;
+			count++;
+		}
+	}
+
+	return count;
 }
 
 /**
@@ -1634,6 +1733,12 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 			cosang = dot3(ni, nu);
 
 			if (au <= 0 || (cosang < DECAL_COS && cosang > -DECAL_COS)) {
+				continue;
+			}
+
+			// Back to back and drawn culled (markBacked()): each side shows
+			// its own face, and a decal would show from behind as well
+			if (cosang < 0 && t->backed && u->backed) {
 				continue;
 			}
 
@@ -1701,7 +1806,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, decals = 0, nofogs = 0;
+	s32 kept = 0, dropped = 0, decals = 0, backed = 0, nofogs = 0;
 	u32 bytes = 0;
 
 	row = levelRow();
@@ -1784,6 +1889,7 @@ static s32 build(void)
 			tgridAdd(&beantris, (const f32 (*)[3])c.tris[t].pos, t);
 		}
 
+		backed = markBacked(c.tris, c.num, &beantris);
 		decals = markDecals(c.tris, c.num, &beantris);
 
 		mark[2] = sysGetMicroseconds();
@@ -1890,8 +1996,8 @@ static s32 build(void)
 	free(listlen);
 	free(c.tris);
 
-	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d unfogged), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
-			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, nofogs, bytes, dropped,
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d two-faced, %d unfogged), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
+			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, backed, nofogs, bytes, dropped,
 			(sysGetMicroseconds() - start) / 1000.0,
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,
