@@ -4447,15 +4447,17 @@ static s32 beanOutPointInTri(const struct beanout *o, const struct beantri *t, c
 }
 
 /**
- * Gives the triangles of a mesh that lie flat on another picture's triangle
- * of the same mesh a decal copy of their material (XBLAMESH_MAT_DECAL), so
+ * Gives the triangles of a mesh that lie flat on another triangle of the
+ * same mesh a decal copy of their material (XBLAMESH_MAT_DECAL), so
  * they are drawn in the decal z mode. Bean puts a model's labels and stencils
  * exactly in the plane of the surface they are on - the stars and bar codes
  * of Dam's container stack (`boxes2x4`), the wooden crates' stencils - and
  * drawn with the plain depth test the two fought ("z fighting for various
- * logos", F3 20260924-101249). Of a pair, the one with a cut-out picture over
- * one without is the decal, else the smaller, else the one drawn later: the
- * rule gebeanstage.c's markDecals() uses for the levels. Returns the count.
+ * logos", F3 20260924-101249), and so did Runway's roller doors' hazard
+ * stripes, which are drawn a second time over the door in its own picture
+ * (F3 20260925-025836). Of a pair, the one with a cut-out picture over one
+ * without is the decal, else the smaller, else the one drawn later: the rule
+ * gebeanstage.c's markDecals() uses for the levels. Returns the count.
  */
 static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, struct gebeanmats *mats)
 {
@@ -4502,8 +4504,12 @@ static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, st
 			f32 cosang;
 			s32 flat = 1;
 
-			// The same group and bone, or the two are not in one space
-			if (j == i || u->tex == t->tex || u->group != t->group || au <= 0.0f
+			// The same group and bone, or the two are not in one space. The
+			// same picture is no reason to pass a pair over: the roller
+			// doors' hazard stripe is a strip of the door's own picture drawn
+			// again over it in a white vertex colour (the door's own is a
+			// grey ramp), so the two fought as bright and dim bands
+			if (j == i || u->group != t->group || au <= 0.0f
 					|| o->bone[t->v[0] * 3] != o->bone[u->v[0] * 3]) {
 				continue;
 			}
