@@ -122,6 +122,7 @@ static struct {
 	s32 penalty;
 	s32 lastshot60;
 	s32 weaponwas;
+	s32 leftweaponwas; // the left hand's, which under Akimbo is its own gun
 	s32 crushes;
 	f32 entertheta;
 	f32 enterverta;
@@ -666,6 +667,7 @@ static void tankEnter(struct prop *prop)
 	// bondview2.c: he is handed the tank's shells as he gets in, and holds
 	// them - GoldenEye's ITEM_TANKSHELLS, nothing in the hand
 	g_Tank[p].weaponwas = bgunGetWeaponNum(HAND_RIGHT);
+	g_Tank[p].leftweaponwas = bgunGetWeaponNum(HAND_LEFT);
 	invGiveSingleWeapon(WEAPON_GE_TANKSHELLS);
 	bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_TANKSHELLS);
 	bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
@@ -716,6 +718,55 @@ static s32 tankTryExit(struct tankobj *tank, f32 angle, f32 distance, struct coo
 	roomsCopy(rooms, outrooms);
 
 	return 1;
+}
+
+/**
+ * The shells are taken off him (bondinvRemoveItemByID()), and what he held
+ * as he climbed in goes back in his hands - both of them. Under Akimbo the
+ * left hand holds a gun of its own, and a switch of the right hand alone
+ * lets the weapon switch choose the left: the gun the right held, carried
+ * over, and failing that a second of the right's gun if the inventory has
+ * two. The shells are out of the inventory by then, so it was the second
+ * copy - the pistol in both hands the tester climbed out with, whatever the
+ * left had held - or nothing. The left is asked for first, so that the
+ * right's switch pairs against it (bgunEquipWeapon2() records it).
+ *
+ * Only when the shells are in a hand: anything else he switched to in there
+ * is his to keep. Akimbo can carry the shells into the left hand as he
+ * switches away from them (they are the Data Uplink's, which Akimbo counts
+ * as a gun), and a hand left holding them would hold nothing he has.
+ */
+static void tankGiveBackHands(void)
+{
+	const s32 p = g_Vars.currentplayernum;
+
+	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS
+			|| bgunGetWeaponNum(HAND_LEFT) == WEAPON_GE_TANKSHELLS
+			|| g_Vars.currentplayer->gunctrl.switchtoweaponnum == WEAPON_GE_TANKSHELLS) {
+		s32 right = g_Tank[p].weaponwas > WEAPON_NONE ? g_Tank[p].weaponwas : WEAPON_UNARMED;
+		s32 left = g_Tank[p].leftweaponwas > WEAPON_NONE ? g_Tank[p].leftweaponwas : WEAPON_NONE;
+
+		if (right == WEAPON_GE_TANKSHELLS) {
+			right = WEAPON_UNARMED;
+		}
+
+		if (left == WEAPON_GE_TANKSHELLS) {
+			left = WEAPON_NONE;
+		}
+
+		bgunEquipWeapon2(HAND_LEFT, left);
+		bgunEquipWeapon2(HAND_RIGHT, right);
+
+		// bgunEquipWeapon() asks for no switch when the right hand is
+		// already on its gun, which leaves the shells in the left: the
+		// switch is asked for anyway, so that the left is paired again
+		if (g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0) {
+			g_Vars.currentplayer->gunctrl.switchtoweaponnum = right;
+			g_Vars.currentplayer->gunctrl.wantammo = false;
+		}
+	}
+
+	invRemoveItemByNum(WEAPON_GE_TANKSHELLS);
 }
 
 static void tankStopSounds(struct prop *prop)
@@ -775,13 +826,9 @@ static s32 tankExit(s32 force)
 	tank->shells = bgunGetReservedAmmoCount(TANK_AMMOTYPE);
 	bgunSetAmmoQuantity(TANK_AMMOTYPE, 0);
 
-	// and the shells are taken off him: bondinvRemoveItemByID(), then
-	// whatever he held before them
-	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS) {
-		bgunEquipWeapon2(HAND_RIGHT, g_Tank[p].weaponwas > 0 ? g_Tank[p].weaponwas : WEAPON_UNARMED);
-	}
-
-	invRemoveItemByNum(WEAPON_GE_TANKSHELLS);
+	// and the shells are taken off him, and whatever he held before them
+	// goes back in his hands
+	tankGiveBackHands();
 	tank->firing = 0;
 	tank->speed = 0;
 	tank->turnspeed = 0;
@@ -1450,6 +1497,10 @@ void geTankTick(void)
 	tank = tankDriven();
 
 	if (!tank || !objIsHealthy(&tank->base)) {
+		// blown up under him: the shells went with it, and his hands are
+		// his own again as they are when he climbs out
+		bgunSetAmmoQuantity(TANK_AMMOTYPE, 0);
+		tankGiveBackHands();
 		g_Tank[p].state = TANK_OUT;
 		g_Vars.currentplayer->unk1af0 = NULL;
 		return;
