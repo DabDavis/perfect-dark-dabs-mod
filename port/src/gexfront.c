@@ -3489,8 +3489,22 @@ static void frontMeasure(const struct gefont *font, const char *text, s32 spacin
 #define FRONT_PICTURE_TEXELS 32
 
 /**
+ * The nominal square a glyph's picture is drawn over, smaller than a picture's
+ * because a texture rectangle's step is s5.10 - at most 32 texels a pixel - and
+ * the whole nominal width is stepped across the glyph's box. The watch's face
+ * is small: its 240 rows are 93 of the frame's 220 at 16:9, and the release's
+ * 'I', the narrowest letter, is 0.88 of a pixel wide there, so 32 texels over
+ * it wrapped the step negative, the rectangle sampled the clear border to its
+ * left and every 'I' on the watch was a gap ("MSSON STATUS"; 4:3's face is a
+ * little wider and kept it). Eight texels take a box down to a quarter of a
+ * pixel. The renderer draws the whole picture over whatever square it is
+ * loaded as, so nothing else changes.
+ */
+#define FRONT_GLYPH_TEXELS 8
+
+/**
  * frontText() in the release's glyphs: each its own picture, drawn whole over
- * its box (the nominal FRONT_PICTURE_TEXELS square, rows bottom-up as the
+ * its box (the nominal FRONT_GLYPH_TEXELS square, rows bottom-up as the
  * release's portraits are), with the same colour and combiner as GoldenEye's -
  * the picture's alpha is the glyph's coverage, as GoldenEye's intensity was.
  */
@@ -3499,7 +3513,7 @@ static Gfx *frontHdText(Gfx *gdl, const struct gefont *font, const struct gefold
 {
 	const f32 sx = frontScaleX();
 	const f32 sy = frontScaleY();
-	const f32 n = FRONT_PICTURE_TEXELS;
+	const f32 n = FRONT_GLYPH_TEXELS;
 	f32 pen = *x;
 	f32 base = frontHdBaseline(font, *y);
 
@@ -3530,8 +3544,8 @@ static Gfx *frontHdText(Gfx *gdl, const struct gefont *font, const struct gefold
 		if (g->tile) {
 			memset(&tex, 0, sizeof(tex));
 			tex.textureptr = (u8 *)g->tile;
-			tex.width = FRONT_PICTURE_TEXELS;
-			tex.height = FRONT_PICTURE_TEXELS;
+			tex.width = FRONT_GLYPH_TEXELS;
+			tex.height = FRONT_GLYPH_TEXELS;
 			tex.format = G_IM_FMT_RGBA;
 			tex.depth = G_IM_SIZ_32b;
 			tex.s = G_TX_CLAMP;
@@ -3539,8 +3553,12 @@ static Gfx *frontHdText(Gfx *gdl, const struct gefont *font, const struct gefold
 
 			// texSelect() leaves the prim colour white (texWriteTileFromDefinition())
 			// whenever its tile state has to be written, which is not every
-			// time: the text after a highlight's rectangle came out white
-			texSelect(&gdl, &tex, 1, 0, 2, 1, NULL);
+			// time: the text after a highlight's rectangle came out white.
+			// The tile's origin at 0, not the half texel the N64's bilerp
+			// wants: the renderer samples the release's picture as it is
+			// (exact_uv), and half of a FRONT_GLYPH_TEXELS texel is a
+			// sixteenth of the picture - the right side of an 'O' went with it
+			texSelect(&gdl, &tex, 1, 0, 0, 1, NULL);
 			gdl = frontTextSetup(gdl);
 			gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
 
