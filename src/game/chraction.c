@@ -70,6 +70,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "geroom.h"
+#include "gestan.h"
 #include "gechranims.h"
 #include "geguns.h"
 #endif
@@ -6792,7 +6793,11 @@ void chrGoPosChooseAnimation(struct chrdata *chr)
  * walk, no gap, and ending at the pad's own height. A ramp passes; a ledge, a
  * catwalk's edge or a storey overhead does not, and the simulant takes the
  * drops, stairs and ladders its route was built through. Guards are left as
- * they were.
+ * they were, except on a level converted from GoldenEye, where a guard cuts as
+ * GoldenEye's own do: only where the tile graph's walk along the line ends on
+ * the tile under the pad (geStanReaches()). Without it Facility's alerted
+ * guards cut from the landing to the player standing under it, and from the
+ * floor to the landing's pad over their heads, and ran on the spot there.
  */
 #define CUT_STEP      40.0f
 #define CUT_MAXSTEPS  50
@@ -6815,6 +6820,12 @@ static bool chrGoPosMayCutTo(struct chrdata *chr, struct coord *pos)
 	s32 i;
 
 	if (!chr->aibot) {
+#ifndef PLATFORM_N64
+		if (geRoomActive()) {
+			return geStanReaches(&prop->pos, chr->ground, pos);
+		}
+#endif
+
 		return true;
 	}
 

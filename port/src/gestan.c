@@ -779,8 +779,9 @@ static bool stanCrosses(f32 x0, f32 z0, f32 x1, f32 z1, f32 ax, f32 az, f32 bx, 
  * sub_GAME_7F0B0914(): from `tile`, through every linked edge the line leaves a
  * tile by, to the tile that holds its end or to the last one before an edge
  * with nothing across it - a camera out over a drop stays on the brink's tile.
+ * With `noclimb`, a link the conversion raised a climb wall on stops it too.
  */
-static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1)
+static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
 {
 	s32 prev, prevprev, next = -1;
 	const f32 negdz = -(z1 - z0);
@@ -795,13 +796,14 @@ static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1)
 
 		for (s32 k = 0; k < t->npts; k++) {
 			const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
+			const s32 across = noclimb && a->climbwall ? GESTAN_UNLINKED : a->across;
 
 			if (negdz * (b->x - a->x) + dx * (b->z - a->z) <= 0.0f
-					&& stanCrosses(x0, z0, x1, z1, a->x, a->z, b->x, b->z, a->across >= 0)) {
+					&& stanCrosses(x0, z0, x1, z1, a->x, a->z, b->x, b->z, across >= 0)) {
 				crossings++;
 
-				if (a->across < 0 || (a->across != prev && a->across != prevprev)) {
-					next = a->across >= 0 ? a->across : -1;
+				if (across < 0 || (across != prev && across != prevprev)) {
+					next = across >= 0 ? across : -1;
 				}
 			}
 		}
@@ -839,7 +841,7 @@ bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 
 		return false;
 	}
 
-	tile = stanWalkLine(tile, from->x, from->z, to->x, to->z);
+	tile = stanWalkLine(tile, from->x, from->z, to->x, to->z, false);
 
 	*room = g_Stan.tiles[tile].room;
 	*ground = stanSurface(&g_Stan.tiles[tile], to->x, to->z);
@@ -850,6 +852,58 @@ bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 
 bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 {
 	return geStanWalkFromRoom(from, -1, to, room, ground);
+}
+
+/**
+ * Whether a guard may run straight from `from` (standing on the floor at
+ * `ground`) to `to`, past the waypoints between: GoldenEye's test before it
+ * skips one (chraction.c's sub_GAME_7F030128()) walks the tile graph from the
+ * guard's own tile along the line, and passes only where the walk ends on the
+ * tile of the pad or position being run to.
+ *
+ * Perfect Dark's test (func0f03654c()) is a cylinder swept in plan against the
+ * walls, and a converted level has no wall where a floor ends over a drop: from
+ * the floor of Facility's room 49 the pad on the landing three metres over it
+ * was "in sight", and from the landing the player standing under it was. The
+ * guard ran to the spot under or over what it was running to and stayed there,
+ * since it never came within the 150 of it in height that counts as arriving.
+ *
+ * A walk that ends on a tile holding `to` at the same height is the same floor
+ * (a point on the seam between two tiles). A link the conversion raised a
+ * climb wall on ends the walk: GoldenEye lifts a guard up it and Perfect Dark
+ * does not. True where there is no graph, or either end is over no tile.
+ */
+bool geStanReaches(struct coord *from, f32 ground, struct coord *to)
+{
+	s32 fromtile;
+	s32 totile;
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return true;
+	}
+
+	// the guard's floor, where its foot is; and the floor under the pad or
+	// body it is running to, which stand anything up to two metres over theirs
+	fromtile = stanTileUnder(from->x, from->z, ground + 10.0f, GESTAN_RISE);
+	totile = stanTileUnder(to->x, to->z, to->y + 5.0f, 0.0f);
+
+	if (fromtile < 0 || totile < 0) {
+		return true;
+	}
+
+	tile = stanWalkLine(fromtile, from->x, from->z, to->x, to->z, true);
+
+	if (tile == totile) {
+		return true;
+	}
+
+	return stanHolds(&g_Stan.tiles[tile], to->x, to->z)
+		&& fabsf(stanSurface(&g_Stan.tiles[tile], to->x, to->z) - stanSurface(&g_Stan.tiles[totile], to->x, to->z)) < 1.0f;
 }
 
 /**
@@ -878,7 +932,7 @@ bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y)
 	}
 
 	for (s32 i = 0; i + 1 < n; i++) {
-		tile = stanWalkLine(tile, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+		tile = stanWalkLine(tile, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], false);
 
 		if (!stanHolds(&g_Stan.tiles[tile], pts[i + 1][0], pts[i + 1][1])) {
 			return false;

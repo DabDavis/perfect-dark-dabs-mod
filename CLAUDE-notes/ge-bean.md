@@ -9409,3 +9409,63 @@ animation chooser skipped), `ANGLES=name:deg:verta ...`; `guard.py`/`rung.sh`
 for a guard; `mtx.py` reads the neck and back matrices inside
 `xblaMeshPose()`. The pool's Bond (Parka) is `InstituteCharacter=79`, the
 parka head `InstituteCharacterHead=109`, on Chicago 0x1d from frame 2800.
+
+## Alerted guards running on the spot at Facility's stairs (2026-09-25)
+
+F3 report 20260925-070207 (ODEYSEIS, Facility 0x63, build 9f09335): "alerted
+guards get stuck at this place" - the metal stair in room 49, the big tiled
+room past the low wall. Room 49 is one room over three storeys: the floor at
+-319, a mid landing at -160 (pad 84), the landing and walkway at 0 (pads 81-83),
+the two flights between, and the walkway runs over the spot the tester stood
+on. The trace had guards in `ACT_GOPOS` on the first flight, one on the floor
+under the second flight and two on the walkway at 0.
+
+**Why.** A guard following a route skips ahead to a pad (or its goal) further on
+whenever `func0f03654c()` says the straight line is clear, and that is a
+cylinder swept in plan against the walls. A converted level has no wall where a
+floor ends over a drop, so from the floor the pad on the landing three metres
+over it was clear (`cutprobe.py`: floor -> pad 83, 1), and from the landing the
+player standing under the walkway was too. The guard ran to the spot under or
+over what it was running to and stayed there: arriving needs the goal within
+150 in height (`posIsArrivingAtPos()`), so it never arrived, and only the
+restart timer ever planned it off again. GoldenEye's own skip
+(`sub_GAME_7F030128()`, chraction.c) walks the tile graph from the guard's
+tile along the line and passes only where the walk **ends on the tile of the
+pad, or of the goal** (`act_gopos.target`) - the room test Perfect Dark put in
+its place (`cdTestCylMove02()`'s `arrayIntersects`) is no test at all in a room
+three storeys tall. The simulant fix of e09d10aea (`chrGoPosMayCutTo()`, the
+floor walked in steps) was the same fault and left guards alone.
+
+**Fix.** `chrGoPosMayCutTo()` asks `geStanReaches()` (gestan.c) for a guard on
+a remake stage: from the tile under the guard's ground to the tile under the
+target (the highest at or under its y + 5 - pads stand up to ~190 over their
+floor, a body's position 100-170), `stanWalkLine()` must end on that tile, or
+on one holding the target at the same height (a seam). A link the conversion
+raised a climb wall on stops that walk (`noclimb`): GoldenEye lifts a guard up
+it and Perfect Dark does not. Simulants keep their own floor walk.
+
+**Measured** (`/home/sdg/wt/f3gestuck/build/gerun`, pictures in
+`/home/sdg/wt/f3gestuck-pics`): a guard sent from the floor to the landing
+circled under it for 400 frames and arrived in 210 after; from the landing to
+the player under the walkway it circled over him for ~470 frames and was at
+him in 240 after. `alertrun.py` (the player at the report's spot making a
+gunshot's noise, every chr near followed): walkway samples in `ACT_GOPOS` over
+the player 60 -> 15 (passing through). `routeall.py` (waypoint pairs two links
+apart with 120+ between their pads' heights, a guard with its list off sent
+from one to the other): Facility 21 -> 24 of 25 (the 25th is magic-mode timing
+off screen; its single trace is identical before and after), Bunker 10 of 10
+and 7 of 7 identical, Dam 10 of 12 both (same two failures, arrival times
+within 50 frames), Defection identical line for line (`geRoomActive()` is
+false there). A pair whose teleport ends the mission or starts a cutscene
+stops the frame counter and hangs the probe: `SKIP=pad,pad` (Bunker 100/101,
+Defection 106/147).
+
+**Left as it was:** where the AI sends five guards to one spot (the player's
+last position) they now all get there and circle it, none within 30 of it -
+before, most of them were stuck a storey away instead. `waypointFindClosestToPos()`
+still takes the nearest waypoint by 3D distance and a line of sight, not
+GoldenEye's flood through the tile graph (`chrlvStanPathRelated()`); nothing
+here needed it. Probes: `stairrun.py` (START/TARGET, one guard, player
+watching), `cutprobe.py` (the cut test and `geStanReaches()` from a spot),
+`wpprobe.py` (nearest waypoint, a room's waypoint graph), `alertrun.py`
+(`FIRST`/`SWITCH` moves the player after the alert), `routeall.py`.
