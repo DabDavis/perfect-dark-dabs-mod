@@ -17070,12 +17070,23 @@ bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 an
 	if (chrAdjustPosForSpawn(chr->radius, &pos2, rooms2, angle, (chr->hidden & CHRHFLAG_WARPONSCREEN) != 0, force))
 #endif
 	{
+#ifndef PLATFORM_N64
+		// GoldenEye's teleport (TRYTeleportingChrToPad) moves the chr and sets
+		// INIT, which snaps it to the ground on its next move - unless its
+		// CHRFLAG_LOCK_Y_POS is set, when the chr keeps the ground and height
+		// it had (chr0f01f378()). The Cradle's fall is made that way.
+		if (chr->prop->type == PROPTYPE_CHR && (chr->chrflags & CHRCFLAG_GE_LOCKY) && geRoomActive()) {
+			ground = chr->ground;
+		} else
+#endif
+		{
 		ground = cdFindGroundInfoAtCyl(&pos2, chr->radius, rooms2, &chr->floorcol,
 				&chr->floortype, NULL, &chr->floorroom, NULL, NULL);
 
 		chr->ground = ground;
 		chr->manground = ground;
 		chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);
+		}
 		chr->prop->pos.x = pos2.x;
 		chr->prop->pos.y = pos2.y;
 		chr->prop->pos.z = pos2.z;

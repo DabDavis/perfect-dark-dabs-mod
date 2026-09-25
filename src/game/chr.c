@@ -1058,6 +1058,23 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 				chr->sumground = chr->manground * (PAL ? 8.4175090789795f : 9.999998f);
 				chr->ground = chr->manground;
 				arg2->y -= chr->manground;
+#ifndef PLATFORM_N64
+			} else if (prop->type == PROPTYPE_CHR && (chr->chrflags & CHRCFLAG_GE_LOCKY) && geRoomActive()) {
+				// GoldenEye's CHRFLAG_LOCK_Y_POS (chr.c's ground callback,
+				// sub_GAME_7F01FC10()): while it is set the chr's ground is
+				// not looked up, it does not fall, a pending INIT - Perfect
+				// Dark's FORCETOGROUND, the same bit - is not taken, and its
+				// height is the animation's over the ground it had. A
+				// converted list sets it round a teleport to keep a chr at
+				// the height it was at: the Cradle's Trevelyan is moved from
+				// the platform to pad 148 over the drop with it set, the list
+				// clears it and the INIT together a tick later, and he falls
+				// from the platform's height instead of being stood on the
+				// valley floor under the pad. Bond's own lists set it too
+				// (Dam, Surface, the Cradle) but a player's body is not
+				// grounded here.
+				arg2->y -= chr->manground;
+#endif
 			} else {
 				if (race == RACE_EYESPY) {
 					ground = chr->manground;

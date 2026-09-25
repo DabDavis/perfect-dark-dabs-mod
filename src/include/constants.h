@@ -795,6 +795,7 @@
 #define CHRCFLAG_AVOIDING                    0x10000000
 #define CHRCFLAG_DELAYANIM                   0x20000000 // Never set, but would cause a chr to pause their animation for one frame
 #define CHRCFLAG_40000000                    0x40000000 // Not used
+#define CHRCFLAG_GE_LOCKY                    0x40000000 // Port: GoldenEye's CHRFLAG_LOCK_Y_POS, set by a converted mission's lists (chr0f01f378)
 #define CHRCFLAG_INJUREDTARGET               0x80000000
 
 #define CIQUIP_GREETING 0

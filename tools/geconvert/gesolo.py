@@ -186,6 +186,20 @@ GE_GIVE_OPS = (0xbf, 0x1b)
 GE_BOND_HEALTH_OPS = (0x7f, 0x80)
 GE_BOND_HEALTH_FULL = 80          # and GoldenEye's own is 255
 
+# The six chr flag commands (9d-a2) carry GoldenEye's chrflags, which are
+# Perfect Dark's bit for bit where the two kept a meaning (INIT is
+# FORCETOGROUND, INVINCIBLE, HIDDEN, NO_SHADOW...) - but not 0x1000.
+# GoldenEye's is CHRFLAG_LOCK_Y_POS: chr.c's ground callback leaves the chr's
+# ground, fall and height alone while it is set, which is how the Cradle's
+# Trevelyan is taken off the platform and falls from its height rather than
+# being stood on the valley floor under the pad he is teleported to. Perfect
+# Dark's 0x1000 is CHRCFLAG_UNEXPLODABLE. The bit goes to the port's own
+# CHRCFLAG_GE_LOCKY, 0x40000000 (stock's CHRCFLAG_40000000, never used, and no
+# GoldenEye mission uses it). Dam, Surface and the Cradle set it (converter 71).
+GE_CHRFLAG_OPS = (0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2)
+GE_CHRFLAG_LOCKY = 0x00001000
+PD_CHRFLAG_GE_LOCKY = 0x40000000
+
 # The four commands that ask whether something is in **a pad's room** (44, 54,
 # 55 and e6). GoldenEye's argument is a pad and it compares the room of the
 # pad's tile with the room of the other's (chraction.c, chrIfInPadRoom()).
@@ -985,6 +999,8 @@ def convert_ailist(d, at, stats, numpads, vehicle=False, offset=None):
                     v = MODEL_REMAKE_FIRST + v
                 elif a == 'HEALTH' and op in GE_BOND_HEALTH_OPS:
                     v = v * GE_BOND_HEALTH_FULL // 255
+                elif a == 'CHRFLAGS' and op in GE_CHRFLAG_OPS and v & GE_CHRFLAG_LOCKY:
+                    v = (v & ~GE_CHRFLAG_LOCKY) | PD_CHRFLAG_GE_LOCKY
                 vals.append(v)
                 o += w
             out += struct.pack('>H', pd)
