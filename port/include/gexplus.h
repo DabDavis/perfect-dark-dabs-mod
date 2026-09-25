@@ -89,6 +89,7 @@ void gexPlusMissionExitTick(void);
  * whole list), and Mod.GePlusPdGuns, which lists Perfect Dark's beside them.
  */
 s32 gexPlusWeaponSets(s32 *first);
+void gexPlusWeaponSetsAppend(void); // GoldenEye's own sets in the whole list, at boot and after a swap
 s32 gexPlusGetPdGuns(void);
 void gexPlusSetPdGuns(s32 on);
 

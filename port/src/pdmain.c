@@ -81,6 +81,7 @@
 #include "xblaimport.h"
 #include "modloader.h"
 #include "modborrow.h"
+#include "gexplus.h"
 #include "gebean.h"
 #include "gexfront.h"
 
@@ -292,6 +293,10 @@ void mainProc(void)
 	mainInit();
 	rdpInit();
 	sndInit();
+
+	// GoldenEye's own weapon sets, from the ROM's conversion, before anything
+	// borrowed: GE Plus takes the ROM's first
+	gexPlusWeaponSetsAppend();
 
 	// A borrowed mod's guns bring animations and sounds, which go in after the
 	// game's own tables exist; then the guns' lists and models are refreshed

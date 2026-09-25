@@ -36,6 +36,7 @@
 #include "preprocess.h"
 #include "romdata.h"
 #include "fs.h"
+#include "mod.h"
 #include "config.h"
 #include "platform.h"
 #include "system.h"
@@ -1365,6 +1366,22 @@ static void geSetsAppend(void)
 
 	sysMemFree(d);
 	sysLogPrintf(LOG_NOTE, "gexplus: %d of GoldenEye's own weapon sets in the list, from %s", g_GeSetsNum, path);
+}
+
+/**
+ * GoldenEye's own sets in the whole Combat Simulator's list too, not only in
+ * GE Plus's: its guns are offered on any arena beside Perfect Dark's, and
+ * until GE Plus had been opened once in a session the sets that hand them out
+ * were nowhere. Those used to be GoldenEye X's, borrowed at boot; with it
+ * dormant (modborrow.c) these are the ROM's. At boot and after a mod swap, which
+ * puts the list back; not under a mod with its own weapon list, which hides
+ * GoldenEye's guns (gebeanGunsRefresh()).
+ */
+void gexPlusWeaponSetsAppend(void)
+{
+	if (!modDataMpWeaponsImported() && !geSetsInList()) {
+		geSetsAppend();
+	}
 }
 
 /**

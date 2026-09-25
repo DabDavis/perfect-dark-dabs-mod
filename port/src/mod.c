@@ -34,6 +34,7 @@
 #include "game/game_0b0fd0.h"
 #include "gebean.h"
 #include "modborrow.h"
+#include "gexplus.h"
 #include "gexplusrom.h"
 
 #define MOD_TEXTURES_DIR "textures"
@@ -3793,6 +3794,9 @@ s32 modListSwap(s32 index)
 	if (fsGetModDir()) {
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
+
+	// The list was put back: GoldenEye's own weapon sets again (gexplus.c)
+	gexPlusWeaponSetsAppend();
 
 	// The files were emptied, pinned ones with them: the borrowed guns are read
 	// again (their animations and sounds are appended once and kept)
