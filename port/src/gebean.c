@@ -1511,10 +1511,21 @@ void gebeanUnpackAtStartup(void)
  * The model file this pairs with
  * ------------------------------------------------------------------------- */
 
-/** The next node of the game's depth-first walk (xblaMeshEnumListNodes()'s order). */
+/**
+ * The next node of the game's depth-first walk (xblaMeshEnumListNodes()'s
+ * order), the body's own: never down into a head grafted at its headspot.
+ * A solo mission shares one head modeldef between every body wearing it
+ * (body.c), and the head's roots name as their parent the headspot of the
+ * body that attached it last - on GE Plus that is as often a guard as the
+ * scientist being walked, so climbing out of the head carried on through the
+ * guard's arms. The scientists' rig was read off the guard's shoulders,
+ * elbows and wrists, their own arm lists matched no joint and kept their N64
+ * geometry, and the HD arms went to the hips' lists (F3 20260925-065515). A
+ * head has no joint of its own for the rig to want.
+ */
 static struct modelnode *gebeanNextNode(struct modelnode *node)
 {
-	if (node->child) {
+	if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
 		return node->child;
 	}
 

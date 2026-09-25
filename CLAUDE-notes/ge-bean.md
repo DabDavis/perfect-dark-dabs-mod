@@ -9409,3 +9409,38 @@ animation chooser skipped), `ANGLES=name:deg:verta ...`; `guard.py`/`rung.sh`
 for a guard; `mtx.py` reads the neck and back matrices inside
 `xblaMeshPose()`. The pool's Bond (Parka) is `InstituteCharacter=79`, the
 parka head `InstituteCharacterHead=109`, on Chicago 0x1d from frame 2800.
+
+## Scientists with N64 arms over their HD coats: a shared head's parent (2026-09-25)
+
+F3 20260925-065515 (Facility 0x63, HD): "HD & original textures are
+overlapping in scientists" - grey flaps off both shoulders and N64 hands over
+the HD sleeves. The tester's log had `techman: ... 4820 triangles ... scale
+0.2131` where every run here built 4400 at 0.2130.
+
+A solo mission shares **one head modeldef between every body wearing it**
+(body.c), and `modelApplyHeadRelations()` points the head's roots' `parent`
+at the headspot of whichever body attached it last. On GE Plus the pool's
+four heads are worn by guards and scientists alike, so when a scientist is
+first drawn the head's parent is as often a guard's headspot. `gebeanBuild()`
+reads the rig with a child/next/parent walk (`gebeanNextNode()`) and is called
+from the first list the render reaches (a leg), before the render's own
+headspot puts the parent back: the walk went down into the head, climbed out
+into the guard, and took the guard's shoulders, elbows and wrists as the
+scientist's. The scientist's own arm lists then matched no joint (`nodeskel`
+-1), got no triangles and kept their N64 geometry - the flaps are the N64
+upper arms, the hands the N64 fists - while the HD arms went to the hips'
+lists (`want` falls back to `SK_BASE`), 420 wrist triangles more. The mesh is
+built once a stage, so it stayed that way. On Archives (0x6f) the same walk
+found six joints a limb and refused the commguard outright: an N64 guard among
+HD ones.
+
+`gebeanNextNode()` no longer goes below a headspot (a head has no joint for a
+rig), and `xblaMeshEnumListNodes()` comes out of a grafted head by the
+headspot it went in by (the held-gun measure and the hit test walk it at the
+draw). Reproduced by pointing the head at a guard's headspot on entry to
+`gebeanBuild()` (`/home/sdg/wt/f3scientist-run/sci.py`, `ESCAPE=<guard
+slot>`; `ring.py` shoots one chr of every body on a stage): 4820/0.2131 and the
+flaps before, 4400/0.2130 and clean after, standing, walking, surrendering and
+dead. Every body on 0x5f, 0x60, 0x63, 0x64, 0x65, 0x66, 0x69, 0x6e, 0x6f and
+0x70, the parka Bond in third person and the N64 look pixel-identical to
+before except the 0x6f commguard, now HD.
