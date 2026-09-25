@@ -542,6 +542,17 @@ static const u32 fpTint[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 0xfff0c86e,
 };
 
+// Where a tinted gun is lit from. In first person Bean's axes are the host's:
+// y up, the barrel along z, the eye towards -z - above and in front of the eye.
+static const f32 fpLight[3] = { 0.0f, 0.75f, -0.66f };
+
+// The pickup's, which is also the gun in a character's hand: GoldenEye's own
+// pickup frame (gegunstable.h), the barrel along x and z up - above, and a
+// little to one side so the two flanks are not one flat colour.
+static const f32 gunLight[3] = { 0.0f, 0.5f, 0.87f };
+
+static u32 beanShadeTint(u32 argb, const f32 *nrm, const f32 *light);
+
 
 /**
  * Where the gun that was drawn ends, as an offset from the host's muzzle node
@@ -4817,6 +4828,17 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// and drawn black the bike's bars came out as flat black shapes.
 				argb = v.argb == 0xff000000 ? 0xffffffff : v.argb;
 
+				// The Golden Gun's pickup is the first-person gun's near-white
+				// pictures again (texture_gold_file521/522), under the gold
+				// reflection map its shader lays on a second sampler: drawn
+				// with one it was white - the silver pistol in Bond's hand in
+				// third person (F3 20260925-044839) and on the floor. The same
+				// tint as in first person (fpTint).
+				if (g->weaponnum >= WEAPON_GE_FIRST && g->weaponnum - WEAPON_GE_FIRST < ARRAYCOUNT(fpTint)
+						&& fpTint[g->weaponnum - WEAPON_GE_FIRST]) {
+					argb = beanShadeTint(fpTint[g->weaponnum - WEAPON_GE_FIRST], nrm, gunLight);
+				}
+
 				// Glass in the release's blended pass: its material colour's
 				// alpha (0.56 on the window, 0.51 on the glassware) times the
 				// vertex's. The material colour, and not the vertex alpha, says
@@ -4934,15 +4956,14 @@ static s32 beanTextureSize(const struct beanmodel *bm, s32 t, s32 *w, s32 *h)
 }
 
 /**
- * A tinted gun's vertex colour, lit by its normal from above and in front of
- * the eye. The shine Bean's shader gets from its reflection map has no pass
- * here, and a flat tint drew the Golden Gun as matte paint; a first-person
- * gun hardly turns against the view, so light baked into the colour holds.
- * Bean's axes are the host's: y up, the barrel along z, the eye towards -z.
+ * A tinted gun's vertex colour, lit by its normal from `light`. The shine
+ * Bean's shader gets from its reflection map has no pass here, and a flat tint
+ * drew the Golden Gun as matte paint; a first-person gun hardly turns against
+ * the view, so light baked into the colour holds (fpLight), and a gun in a
+ * hand or on the floor is lit from above in its own axes (gunLight).
  */
-static u32 beanShadeTint(u32 argb, const f32 *nrm)
+static u32 beanShadeTint(u32 argb, const f32 *nrm, const f32 *light)
 {
-	const f32 light[3] = { 0.0f, 0.75f, -0.66f };
 	const f32 len = sqrtf(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
 	f32 d = len > 0.0f ? (nrm[0] * light[0] + nrm[1] * light[1] + nrm[2] * light[2]) / len : 0.0f;
 	f32 shade;
@@ -6033,7 +6054,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				// colours are shading its own pictures already carry, and would
 				// draw its guns near black.
 				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight,
-						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm) : original ? v.argb : 0xffffffff);
+						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm, fpLight) : original ? v.argb : 0xffffffff);
 				mappedmtx[vi] = mtx;
 
 				if (mapped[vi] < 0) {

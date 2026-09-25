@@ -9257,3 +9257,55 @@ plastique's blast and Facility's remote mine explosion type.
 
 Probes: `/home/sdg/wt/step2/{knives,rockets,zoom,sims}.py` (Dam 0x15 and
 Complex 0x1f), and `gegunsDump()` for definitions.
+
+## The Golden Gun fired like a magnum and drew silver in third person (2026-09-25)
+
+Two F3s from one GE Plus session on Surface, HD look, akimbo (20260925-044735,
+-044839). Both were the DY357-LX host showing through.
+
+**Firing.** gegunsBuild() takes a gun's scripts from its model, and the Golden
+Gun's model is the DY357-LX's: its fire animation was the magnum's hammer and
+kick, and its reload the revolver's - cylinder out, six cases thrown by the
+revolver flag (`WEAPONFLAG3_REVOLVER`, bgunUpdateMagnum()), speed loader - which
+with GoldenEye's clip of one played after *every* shot. GoldenEye's Golden Gun
+has no animation: the row's recoil numbers kick it, and it reloads the way all
+of GoldenEye's guns do, lowered and raised (gunfire.c's RELOAD_LOWER / SWAP /
+RAISE), which is Perfect Dark's own reload for a gun with no reload script.
+gegunsOwnTrigger() now drops the fire animation, the reload script, the
+revolver flag and `WEAPONFLAG2_UNEQUIPPEDRELOAD` (the magnums' clip that refills
+while holstered, which GoldenEye has not) - on the stock-host copy only; a
+borrowed GoldenEye X gun keeps its own scripts. The Cougar keeps its host's
+revolver reload on purpose: it is a revolver. The other guns hosted on a gun
+with a reload script (Phantom, both shotguns, sniper, both
+launchers) still play the host's reload rather than GoldenEye's lowering; with
+their clips it is not once a shot, and nobody has asked.
+
+**Golden bullets are a pool of their own.** GoldenEye's AMMO_GGUN (100 at most,
+3 a pickup) had been the magnum's, so the Cougar in one hand emptied the Golden
+Gun in the other ("192" under both hands in the F3). `AMMOTYPE_GOLDENGUN`
+(constants.h) is the dart row, 0x11: GoldenEye's leftover AMMO_DARTS, used by
+no weapon or setup of Perfect Dark's, and under 20 - a multi ammo crate's slots
+are types 1 to 19, and the only golden bullets on any of GoldenEye's levels are
+Egyptian's crate of 50 (a multi crate). Its capacity (100), pickup quantities
+(3) and pickup name ("golden bullet") are the port's; the converter writes it
+(converter 66, `g_GeAmmoTypes[13]`, gesolo.py too), the Combat Simulator row and
+geguns.c's `geammotypes[13]` name it. A mod whose own weapon uses type 0x11
+would share the pool with the Golden Gun.
+
+**Third person.** The Golden Gun's HD pickup (`prop/chrgolden`, which is also
+the gun in a character's hand) is two near-white pictures under a gold
+reflection map on a second sampler, like the first-person gun, which has had
+`fpTint` since 2026-09-16; the pickup had nothing and drew white - a silver
+pistol in Bond's hand. gebeanBuildRigid() gives a gun row the same tint, lit in
+the pickup's own axes (`gunLight`). Of the 25 pickups only this one is near
+white (the texture means were measured with cafftool.py). The N64 look was
+already gold: GoldenEye's own PROP_CHRGOLDEN, environment mapped. The HD
+automatic shotgun draws its painted muzzle flash all the time in a hand - its
+flash is four 32x32 sprites that beanGunFlashDraws()'s flat-quad test does not
+match - which is still open.
+
+Probes: `/home/sdg/wt/f3goldengun-run/gg.py` (Dam, give the gun and ammo, fire
+once, log clip/pool/hand state through the reload, screenshots in first and
+third person), `tpsweep.py` (every GoldenEye gun in the hand, side view), and
+`gegunsDump()` - this change moved exactly the Golden Gun's fire animation,
+reload script, ammo type, flags2 and flags3.
