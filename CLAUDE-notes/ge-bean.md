@@ -9489,3 +9489,24 @@ sixtieths long; the pad script enters on **00 Agent** (`g_SelectedDifficulty`
 `added-content/` and `mods/GoldenEye Arenas` (`MOVEPLAYER=1` puts the
 player D from the nearest guard instead, for levels where a moved guard lands
 under the floor; Dam's road barriers block the line at 350).
+
+### "Aiming too high": the gun upright is GoldenEye's own kneel (2026-09-25)
+
+The same F3's picture is a guard kneeling in Facility's locker room with his
+gun held upright in front of his face. That is a frame of GoldenEye's own
+`fire_kneel_forward_one_handed_weapon_slow` (row 75, our
+ANIM_KNEEL_SHOOT_RIGHT_HAND): its frames around 40 (raising the gun) and 77
+(the recoil) hold it straight up. `tools/guardaim/geaimpose.py` stands a guard
+in front of Bond in the native port with his AI and aim zeroed and holds the
+animation on given frames; ours at the same frame is the same pose. The aim
+itself is GoldenEye's: the shoulder and back joints turn by the same
+`aimuprshoulder`/`aimupback` (0.02 rad for a player level with the guard, -0.1
+when he crouches), on the same four joints, with the same limits, and a
+guard's hit never depended on where his gun points - only on the distance and
+the side-to-side angle (the section above). Nothing was changed for it.
+
+A pistol-set animation is chosen by `WEAPONFLAG_ONEHANDED`. Without GoldenEye
+X's guns every long gun of GoldenEye's is two-handed here (the KF7 kneels in
+rows 7/8, measured), but the tester's install has Random guard weapons for the
+reinforcements, and a borrowed definition takes its host's one-handed flag -
+the rifle-in-a-pistol-pose case fix/ge-guard-rifle-hold (54ea4a844) settles.
