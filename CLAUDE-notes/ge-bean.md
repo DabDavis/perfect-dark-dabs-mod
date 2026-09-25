@@ -9454,7 +9454,6 @@ Probes: `~/wt/f3rocket/build/run/rk.sh <save> <single|mixed|mixedr> <tag> [binar
 (`probe/rk.py` beside it: `HIDE=1` zeroes the held rocket's matrix at
 bondgun.c's `objprop->z` line, `TP=1` third person, `FIRE2=1` a second shot).
 
-Seen on the way and **not** fixed: in third person `hand->rocket` is only
-cleared by bgunRender(), which third person does not run, so after the first
-shot the hand keeps the fired (freed) rocket, no new held rocket is made, and
-the second shot fires nothing visible (both looks, before this change too).
+Seen on the way, and fixed in the next commit: in third person the rocket
+launcher fired once. See third-person.md, "A launcher fired once in third
+person".

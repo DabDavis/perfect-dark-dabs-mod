@@ -387,3 +387,35 @@ writing `hitpos`), pull `beam.dist` back a few hundred, and do it down a long
 corridor with Camera Sideways set - with the default camera dead behind the
 player the gun, the beam and the crosshair are all behind the body, and a beam
 already past the nearest wall is depth-tested away.
+
+## A launcher fired once in third person (2026-09-25)
+
+`hand->rocket` is the rocket in a launcher's tube (`WEAPONFLAG3_HELDROCKET`:
+Perfect Dark's rocket launcher and GoldenEye's). Firing turns it into the
+flying rocket and sets `firedrocket`; **only bgunRender() let go of it**, after
+drawing it in the hand for one last frame. player.c skips bgunRender() in third
+person (and under GoldenEye's watch), so there the hand kept the rocket it had
+fired: `bgunUpdateRocketLauncher()` makes a new one only when `hand->rocket` is
+NULL, so none was made; every tick `bgunUpdateHeldRocket()` posed the one in
+flight at the muzzle; and the next shot "fired" it again - freed by then
+(`prop` NULL), so nothing flew. Switching to first person for a frame cleared
+it, which is why it hid.
+
+`bgunUpdateRocketLauncher()` now lets go of a fired rocket itself when the gun
+is not drawn, by player.c's own test (`thirdpersondist > 0 ||
+geWatchHidesGun()`). First person still goes through bgunRender() exactly as
+before - screenshots of every first-person run (GoldenEye's launcher in both
+looks, single, a pair and one in either hand, Perfect Dark's rocket launcher
+and the Slayer, which has no held rocket) are pixel-identical to the build
+before. In third person, four shots in a row now each fire a rocket, in both
+looks, single and akimbo (a pair, the launcher in the left hand or the right),
+and switching views while loaded or while the tube is empty keeps the state.
+
+Probe: `~/wt/f3rocket/build/run/probe/multi.py` (`runlane.sh`, `summ.py` prints
+per shot which hand fired, whether a hand kept a fired rocket, and how many
+rockets are in flight 8 frames later from `g_WeaponSlots`). `VIEWS="fp tp>fp"`
+fires the first shot in first person, the second in third and switches to
+first while the tube is empty. A pair needs `bgunEquipHands(w, w)`:
+equipping the same gun twice does not pair it, and the first equip carries the
+right hand's old gun to the left.
+
