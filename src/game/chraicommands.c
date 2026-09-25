@@ -59,6 +59,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "gecinema.h"
+#include "geroom.h"
 #include "geguns.h"
 #include "modloader.h"
 #endif
@@ -3156,6 +3157,28 @@ bool aiSetGrenadeProbability(void)
 bool aiSetChrNum(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+#ifndef PLATFORM_N64
+	// GoldenEye's lists respawn a chr under the number of one that has gone
+	// (IFChrDoesNotExist, then a spawn whose list claims the number), and in
+	// GoldenEye "gone" means removed: the corpse has faded and nothing holds
+	// the number. The conversion's test is aiIfChrDeathAnimationFinished,
+	// which passes at ACT_DEAD while the corpse is still a chr, so the new one
+	// and the body shared the number and a lookup found either - the Cradle's
+	// guards 1-5 twice over, and the Trevelyan its ending spawns beside the
+	// one that was shot, whose ending cutscene then went to the body. A body
+	// gives its number up to the chr that claims it.
+	if (geRoomActive() && g_Vars.chrdata && g_Vars.chrdata->prop) {
+		for (s32 i = 0; i < g_NumChrSlots; i++) {
+			struct chrdata *other = &g_ChrSlots[i];
+
+			if (other != g_Vars.chrdata && other->chrnum == cmd[2] && other->prop
+					&& (other->actiontype == ACT_DEAD || other->actiontype == ACT_DIE)) {
+				chrSetChrnum(other, chrsGetNextUnusedChrnum());
+			}
+		}
+	}
+#endif
 
 	chrSetChrnum(g_Vars.chrdata, cmd[2]);
 	g_Vars.chrdata->chrnum = cmd[2];
@@ -10167,6 +10190,35 @@ bool aiGeIfBondYLessThan(void)
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
 		g_Vars.aioffset += 7;
+	}
+
+	return false;
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * @cmd 01e4
+ *
+ * GoldenEye's IFChrWasShotSinceLastCheck: branch, and clear the mark, when a
+ * shot has landed on the chr since the last time this asked - whether or not
+ * it did any harm (chrDamage() marks `gewashit` before its invincibility
+ * test). It was converted as aiIfInjured, which is GoldenEye's other command,
+ * IFChrWasDamagedSinceLastCheck, and never passes for an invincible chr: the
+ * Cradle's Trevelyan goes invincible when wounded and waits to be shot at
+ * again before he runs to his next spot, and he stood there for good.
+ * Four bytes, aiIfInjured's own: 01e4 <chr:1> <label:1>
+ */
+bool aiGeIfChrWasHit(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (chr && chr->gewashit) {
+		chr->gewashit = false;
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+	} else {
+		g_Vars.aioffset += 4;
 	}
 
 	return false;

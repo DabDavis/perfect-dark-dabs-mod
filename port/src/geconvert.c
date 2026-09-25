@@ -4951,6 +4951,11 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 					// compares it against bondhealth * 8, where a full one is
 					// 80 (gesolo.py's GE_BOND_HEALTH_FULL)
 					v = v * 80 / 255;
+				} else if (op >= 0x9d && op <= 0xa2 && cmd->gewidth[i] == 4 && (v & 0x1000)) {
+					// GoldenEye's CHRFLAG_LOCK_Y_POS is Perfect Dark's
+					// CHRCFLAG_UNEXPLODABLE: it goes to the port's own
+					// CHRCFLAG_GE_LOCKY (gesolo.py's GE_CHRFLAG_OPS)
+					v = (v & ~0x1000u) | 0x40000000u;
 				}
 
 				vals[i] = v;

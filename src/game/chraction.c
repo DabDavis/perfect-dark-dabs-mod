@@ -5238,6 +5238,17 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		setCurrentPlayerNum(prevplayernum);
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye marks a chr hit before it asks whether the hit can hurt
+	// (chrlvDamage's CHRFLAG_WAS_HIT), and a converted mission's lists ask it
+	// of a chr they have just made invincible: the Cradle's Trevelyan stands
+	// invincible after each wound until he is shot again, and only then runs
+	// on to his next spot
+	if (chr->actiontype != ACT_DIE && chr->actiontype != ACT_DEAD) {
+		chr->gewashit = true;
+	}
+#endif
+
 	// If the chr is invincible, make them flinch then we're done
 	if (chr->chrflags & CHRCFLAG_INVINCIBLE) {
 		chrFlinchBody(chr);
@@ -5806,6 +5817,13 @@ void chrDie(struct chrdata *chr, s32 aplayernum)
 	}
 }
 
+#ifndef PLATFORM_N64
+// Set while a chr on a converted level looks for a way round an obstacle
+// (chrNavTickMain()'s WAYMODE_LOST1), which is when func0f03645c() walks the
+// tile graph as well
+static bool g_NavGeLegs = false;
+#endif
+
 bool func0f03645c(struct chrdata *chr, struct coord *arg1, RoomNum *arg2, struct coord *arg3, struct coord *arg4, s32 arg5)
 {
 	bool result = false;
@@ -5823,6 +5841,28 @@ bool func0f03645c(struct chrdata *chr, struct coord *arg1, RoomNum *arg2, struct
 			result = true;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// On a level converted from GoldenEye the two legs are walked on the tile
+	// graph as well, which is GoldenEye's own test here (sub_GAME_7F0304AC():
+	// the chr's tile to the point beside the obstacle, and on from the tile
+	// that ended on to the next pad). The cylinders above are tested at the
+	// height of the obstacle's edge, and a converted wall down the side of a
+	// ramp is sloped: at its far end that height is under the wall, so the
+	// corner at the top of the ramp passed and was tried first, and a chr
+	// going round the wall's foot to the next pad turned and ran back up the
+	// ramp for good - Trevelyan on the Cradle's gantry stair, between pads 28
+	// and 24, for the whole mission.
+	if (result && g_NavGeLegs) {
+		const f32 pts[3][2] = {
+			{ arg1->x, arg1->z },
+			{ arg3->x, arg3->z },
+			{ arg4->x, arg4->z },
+		};
+
+		result = geStanLinesClear(pts, 3, chr->ground + 10.0f);
+	}
+#endif
 
 	chrSetPerimEnabled(chr, true);
 
@@ -13889,13 +13929,41 @@ void chrNavTickMain(struct chrdata *chr, struct coord *nextpos, struct waydata *
 			// trying to avoid.
 			f32 wantclearance = chr->radius * 1.26f;
 
+#ifndef PLATFORM_N64
+			bool found;
+
+			// On a converted level a side is asked GoldenEye's way first
+			// (func0f03645c() walks the tile graph as well), and only when
+			// neither passes that is it asked Perfect Dark's way alone: a
+			// chr GoldenEye's test leaves nowhere to go - a body standing on
+			// its pad - still goes round it as it always did
+			g_NavGeLegs = geRoomActive();
+
+			found = chrNavTryObstacle(chr, &waydata->obstacleleft, true, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)
+				|| chrNavTryObstacle(chr, &waydata->obstacleright, false, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0);
+
+			if (!found && g_NavGeLegs) {
+				g_NavGeLegs = false;
+				found = chrNavTryObstacle(chr, &waydata->obstacleleft, true, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)
+					|| chrNavTryObstacle(chr, &waydata->obstacleright, false, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0);
+			}
+
+			g_NavGeLegs = false;
+
+			if (found) {
+				// Will go to one side or the other
+				waydata->mode = WAYMODE_HAVEAIMPOS;
+			} else
+#else
 			if (chrNavTryObstacle(chr, &waydata->obstacleleft, true, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)) {
 				// Will go to left side
 				waydata->mode = WAYMODE_HAVEAIMPOS;
 			} else if (chrNavTryObstacle(chr, &waydata->obstacleright, false, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)) {
 				// Will go to right side
 				waydata->mode = WAYMODE_HAVEAIMPOS;
-			} else {
+			} else
+#endif
+			{
 				// Can't see the obstacle either!
 				// Remain in LOST1 for 5 iterations to see if line of sight
 				// comes back. If not, retry the next pad again.
@@ -17002,12 +17070,23 @@ bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 an
 	if (chrAdjustPosForSpawn(chr->radius, &pos2, rooms2, angle, (chr->hidden & CHRHFLAG_WARPONSCREEN) != 0, force))
 #endif
 	{
+#ifndef PLATFORM_N64
+		// GoldenEye's teleport (TRYTeleportingChrToPad) moves the chr and sets
+		// INIT, which snaps it to the ground on its next move - unless its
+		// CHRFLAG_LOCK_Y_POS is set, when the chr keeps the ground and height
+		// it had (chr0f01f378()). The Cradle's fall is made that way.
+		if (chr->prop->type == PROPTYPE_CHR && (chr->chrflags & CHRCFLAG_GE_LOCKY) && geRoomActive()) {
+			ground = chr->ground;
+		} else
+#endif
+		{
 		ground = cdFindGroundInfoAtCyl(&pos2, chr->radius, rooms2, &chr->floorcol,
 				&chr->floortype, NULL, &chr->floorroom, NULL, NULL);
 
 		chr->ground = ground;
 		chr->manground = ground;
 		chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);
+		}
 		chr->prop->pos.x = pos2.x;
 		chr->prop->pos.y = pos2.y;
 		chr->prop->pos.z = pos2.z;

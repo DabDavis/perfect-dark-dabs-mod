@@ -10252,3 +10252,134 @@ by model/pad and shoot it; `NOOPEN=1`), `listprops.py` (props by model),
 Open: stool1's 4 UVs; the impact surfaces of Caves/Complex (the CE set its hit
 meshes to all dirt/all metal - does ours spark metal on Caves' rock?); the
 user's calls above; the arena MP walk that stops at a door.
+## The Cradle could not be finished: Trevelyan's route, his waits, and his number (2026-09-25)
+
+Tester F3s 20260925-162651/162703/162754/162954 (LINKmendez, Windows 6b17756,
+Cradle 0x68, N64 look): "Trevelyan path its broken in Craddle, cant complete
+mission" and, from the control room, "mission objetives doesnt complete".
+Nothing on dabs-mod (718d5dcd6) fixed it; four faults, found one behind the
+other by driving the mission to its end.
+
+**How GoldenEye's Cradle runs** (UsetupcradZ): Trevelyan (chr 0, list 0x408)
+runs to pad 144 beside the console; standing there (0x413) sets stage flag
+0x400, which starts the console's 180 s countdown (bg list 0x1001; the console
+is objective 0, tag 0). A background list (0x1003 -> 0x409..0x40f) picks his
+next pad preset from where Bond is and sets his flags2 0x04; he runs there
+(0x411), stands, and so on. Each wound makes him invincible until he is **shot
+at again** (IFChrWasShotSinceLastCheck), and only then does the picker move
+him. Under 9 health (0x410) he goes down the antenna to pad 150 and waits
+(0x416) until he sees Bond, then to the platform (0x417, pad 118) and fights
+there (0x418). Objective 1 is "chr 0 does not exist" (bg 0x1002, flag 0x100).
+With him gone and Bond on the platform (pad 146's room) the ending runs: his
+fall cutscene (0x41d spawns a fresh chr 0 if needed, 0x41a) and Bond's (0x419),
+then the exit on a button press. The two "turrets" are autoguns (Drone records
+at pads 141/142) - fix/f3-egyptian-goldengun's converter 67 covers them.
+
+**1. Round the foot of a sloped wall.** From pad 28 on the gantry ramp the line
+to pad 24 clips the foot of the converted wall down the ramp's side (7 units),
+so the nav went LOST and chose a corner. `func0f03645c()` tests PD's cylinders
+at the *edge's* height, which on a sloped wall is under its far end, so the
+corner at the top of the ramp passed, was tried first, and he ran back up for
+the rest of the mission (the traces' chr 0 at (-3114 4958 -2024), act 15).
+GoldenEye's test (`sub_GAME_7F0304AC()`) walks the two legs on the tile graph;
+on a converted level `func0f03645c()` now does as well (`geStanLinesClear()`),
+but only while `chrNavTickMain()` looks for a side (WAYMODE_LOST1), and when
+neither side passes the walk both are asked again Perfect Dark's way alone - a
+body on the pad being run to is invisible to the tile graph, and the strict
+test alone left a chr circling it.
+
+**2. The Cradle has no portals.** `func0f065d1c()`'s portal walk never left the
+room a move began in, so a move ending outside that room's box ended in no
+room, and a chr's step longer than half its radius (`cdExamCylMove05()` wants
+the end's rooms to meet the ones it moves into) was an error. On screen a chr
+steps a few units a tick and got away with it; off screen it steps ~70 between
+updates and could never cross into another room: he ran on the spot at the
+control room's open door (tag 6) - where the tester's 162954 stood. Where the
+walk finds nothing on a converted level, the room is the tile the line ends on
+(`geStanWalk()`), if that room's box holds the point.
+
+**3. WAS_HIT is not WAS_DAMAGED.** GoldenEye's IFChrWasShotSinceLastCheck asks
+CHRFLAG_WAS_HIT, set by every shot that lands even on an invincible chr, and it
+was converted as `aiIfInjured` (= IFChrWasDamagedSinceLastCheck), which never
+passes while he is invincible - so he stood, flinching, however often he was
+hit. The port's command **0x01e4** (`aiGeIfChrWasHit`) asks `chr->gewashit`,
+set in `chrDamage()` before its invincibility test. Only the Cradle uses it
+(four times). **Converter 69** (67/68 are other branches'); the C and Python
+converters still write all 46 setups byte for byte.
+
+**4. Two chrs on one number.** The lists respawn a chr under the number of one
+that "does not exist", which in GoldenEye means removed (the body faded) and
+here means ACT_DEAD - so the body kept the number (the traces' chr 2 twice, up
+to ten chrs from six) and the ending's fresh Trevelyan shared 0 with the one
+that was shot; which one a lookup found was the binary search's choice.
+`aiSetChrNum()` on a converted level renumbers a dying or dead holder first,
+and `chrSetChrnum()` changes the chr's own `g_Chrnums` entry, not the first
+with the old number.
+
+**Measured** (`~/wt/f3cradle-run`, `probes/cradle2.py`: the player invincible
+at the spawn, the console destroyed with `objDamage()` once Trevelyan stands at
+144, 1.5 damage every 30 frames at him while he runs and stands, the player put
+where he can see him at pad 150, then at 116, a killing shot on the platform,
+the player at 146, a button press for the exit): before, he was still
+shuttling on the ramp at frame 2500 (and in the tester's trace at 6411); after, 144 at ~2000, the console objective at once, the
+picker's spots 145, 9, 1, down the antenna at 3755, the platform at 5855, dead
+and off the edge at 8465, objective 1 at 8555, the fall and Bond's cutscenes,
+and `func0000e990()` at 9066 with `objectiveIsAllComplete()` 1 and Bond alive.
+A second run (converter 69) killed him on the platform without his falling off:
+flag 0x10000000 unset, so the ending took 0x420 (no fall cutscene), and it ended
+at 5916 with both objectives and Bond alive - both of the ending's branches.
+`probes/routeall.py` (guard A->B over waypoint pairs, player watching),
+baseline dabs-mod vs the branch: Facility 24/25 both (seed 2: 20/20 both,
+identical), Dam 10 vs 9 of 12 and 11 vs 10 - every pair run alone is
+identical in both builds (158->156 140 frames, 153->143 190, 218->223 FAIL in
+both), and in a chain the level's other guards stand elsewhere by the time a
+pair runs (the failing 158->156 circles a body on pad 158). Cradle's first five
+pairs identical; the sixth's teleport sets off the ending and hangs the probe
+(`SKIP=` it).
+
+### The fall: GoldenEye's LOCK_Y_POS (converter 71)
+
+The fall cutscene (0x41a on chr 0) teleports Trevelyan to pad 146, starts the
+fall animation, sets GoldenEye's **CHRFLAG_LOCK_Y_POS** (0x1000), teleports him
+to pad 148 over the drop, and a tick later clears the lock *and* INIT (0x01).
+GoldenEye's teleport sets the position and INIT and leaves ground and manground
+alone; its ground callback (`sub_GAME_7F01FC10()`) with the lock set looks up no
+ground, takes no INIT and applies no fall. INIT cleared before it is ever
+taken, he keeps the platform's manground over a ground 6000 below and falls
+from the platform under the callback's gravity. The native port
+(`~/dam-oracle/gecradleend.py`: the watcher bg chr on 0x1005 sent to 0x41d, as
+in our `probes/ending.py KICK=1`): pad 148 at y -2452, ground -8735, manground
+-2596 falling; ours is the same numbers plus Cradle's offset (+3750 in y).
+
+The chr flag commands copy GoldenEye's chrflags straight into Perfect Dark's,
+which agree bit for bit where both kept a meaning (GoldenEye's INIT is
+FORCETOGROUND, INVINCIBLE, HIDDEN, NO_SHADOW, IGNORE_ANIM_TRANSLATION is
+HAS_SPECIAL_DEATH_ANIMATION's x/z hold) - but Perfect Dark's 0x1000 is
+CHRCFLAG_UNEXPLODABLE. So the lock did nothing and `chrMoveToPos()` stood him
+on the floor under pad 148, with the camera looking up at an empty platform.
+The conversion now writes the bit as the port's **CHRCFLAG_GE_LOCKY**
+(0x40000000, stock's unused CHRCFLAG_40000000; no GoldenEye mission uses the
+bit), and on a converted level a non-player chr with it set keeps its ground in
+`chrMoveToPos()` and skips the ground/fall block of `chr0f01f378()`.
+
+Who sets it: Dam (Bond's 0x412, the dive/outro), Surface (Bond's 0x424), the
+Cradle (Bond's 0x419, and 0x41a both on Trevelyan and on Bond when Bond himself
+falls off). A player's body is grounded by the player's own walk, not in
+`chr0f01f378()`, so Bond is left as he was: Dam's outro (bg 0x1004 kicked at
++101) and Surface's (bg 0x1009 at +116) are identical before and after frame
+for frame - prop, camera, end frame (Dam 1404, Surface 679) - but for the flag
+bit itself. Only the three setups change and the C and Python converters still
+agree over all 46. Pictures: `~/wt/f3cradle-pics/` (before_kick_sheet,
+after_kick_sheet, oracle_sheet).
+
+**The ending did not need a button press.** The earlier note here was wrong: the
+drive pressed as soon as TriggerFadeAndExitLevelOnButtonPress armed. Left alone,
+Bond's 0x419 plays both shots and its own `exit_level` ends the level ~700
+frames after the ending starts (the fall branch at 1361 in `ending.py KICK=1`,
+the no-fall branch at 1324), before this work and after it; a press during it
+still skips to the fade (`PRESS=100`: pressed at 470, ended at 531). Its
+`if_screen_fade_completed` passes: a warp's camera still draws the HUD pass the
+fade advances in. Kicked endings of Dam, Surface, Facility, Runway and Frigate
+(`probes/bondend.py`, the ending bg list put at its HUD-hide command) end on
+their own at the same frame before and after this branch (1404, 679, 558, 585,
+647) with identical traces.

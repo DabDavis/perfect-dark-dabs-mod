@@ -312,7 +312,7 @@ TABLE = [
     ('MusicStopSlot',                       2,    [('MUSIC_SLOT', 1)],                           0x00fa, (0,),                                        'hand'),  # f5 aiStopXTrack
     ('TriggerExplosionsAroundBond',         1,    [],                                            0x00fb, (('=', 242, 1),),                            'hand'),  # f6 aiChrExplosions
     ('IFKilledCiviliansGreaterThan',        3,    [('CIVILIANS_KILLED', 1), ('GOTOLABEL', 1)],   None,   (),                                          'hand'),  # f7 -
-    ('IFChrWasShotSinceLastCheck',          3,    [('CHR_NUM', 1), ('GOTOLABEL', 1)],            0x0083, (0, 1),                                      'hand'),  # f8 aiIfInjured
+    ('IFChrWasShotSinceLastCheck',          3,    [('CHR_NUM', 1), ('GOTOLABEL', 1)],            0x01e4, (0, 1),                                      'hand'),  # f8 aiGeIfChrWasHit (port's own: CHRFLAG_WAS_HIT, set invincible or not)
     ('BondKilledInAction',                  1,    [],                                            0x00fe, (),                                          'hand'),  # f9 aiKillBond
     ('RaiseArms',                           1,    [],                                            0x00ff, (),                                          'hand'),  # fa aiBeSurprisedSurrender
     ('GasLeakAndFadeFog',                   1,    [],                                            None,   (),                                          'hand'),  # fb -

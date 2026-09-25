@@ -37,6 +37,10 @@
 #include "bss.h"
 #include "lib/collision.h"
 #include "lib/lib_17ce0.h"
+#ifndef PLATFORM_N64
+#include "geroom.h"
+#include "gestan.h"
+#endif
 #include "lib/model.h"
 #include "lib/snd.h"
 #include "lib/rng.h"
@@ -3396,6 +3400,33 @@ void func0f065d1c(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomN
 			index++;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// A level converted from GoldenEye knows its rooms by its tiles, and its
+	// portals are not always there to walk: the Cradle has thirty-six rooms
+	// and not one portal, so a move out of a room ended in none. For a chr
+	// that made every step longer than half its radius an error
+	// (cdExamCylMove05() wants the end's rooms to meet the rooms it is moving
+	// into), and one off screen, stepping far between its updates, could not
+	// pass a doorway at all - Trevelyan ran on the spot at the control room's
+	// door. Where the walk found nothing, the room is the one GoldenEye would
+	// say: the tile the line ends on, walked along the tile graph.
+	if (index == 0 && geRoomActive()) {
+		s32 room;
+		f32 ground;
+
+		if (geStanWalk(pos, newpos, &room, &ground) && room > 0 && bgRoomContainsCoord(newpos, room)) {
+			newrooms[index] = room;
+			index++;
+
+			if (morerooms) {
+				RoomNum one[2] = { room, -1 };
+
+				roomsAppend(one, morerooms, arg5);
+			}
+		}
+	}
+#endif
 
 	newrooms[index] = -1;
 }

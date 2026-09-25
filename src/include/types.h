@@ -1438,6 +1438,12 @@ struct chrdata {
 	// meaning - 0x01, "don't point at Bond" - is read by its own global
 	// lists, which the remake does not run.
 	u8 geflags2;
+	// GoldenEye's CHRFLAG_WAS_HIT: set by every shot that lands on the chr,
+	// invincible or not, and cleared by the one command that asks it
+	// (IFChrWasShotSinceLastCheck, the port's aiGeIfChrWasHit). Perfect Dark
+	// has only CHRCFLAG_JUST_INJURED, which is GoldenEye's WAS_DAMAGED - set
+	// when the damage is taken, so never while the chr is invincible.
+	u8 gewashit;
 #endif
 };
 

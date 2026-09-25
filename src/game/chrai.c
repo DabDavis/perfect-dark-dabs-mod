@@ -518,6 +518,7 @@ bool (*g_CommandPointers[])(void) = {
 	/*0x01e1*/ aiGeExitOnButtonPress,
 	/*0x01e2*/ aiGeVehicleAnim,
 	/*0x01e3*/ aiGeIfBondYLessThan,
+	/*0x01e4*/ aiGeIfChrWasHit,
 #endif
 };
 
@@ -650,6 +651,7 @@ u16 g_CommandLengths[] = {
 	/*0x01e1*/ 2,
 	/*0x01e2*/ 9,
 	/*0x01e3*/ 7,
+	/*0x01e4*/ 4,
 #endif
 };
 
