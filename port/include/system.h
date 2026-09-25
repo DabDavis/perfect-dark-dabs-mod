@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
 #include <PR/ultratypes.h>
 
 enum LogLevel {
@@ -47,6 +48,8 @@ void *sysMemAlloc(const u32 size);
 void *sysMemZeroAlloc(const u32 size);
 void *sysMemRealloc(void *ptr, const u32 newSize);
 void sysMemFree(void *ptr);
+// Whether ptr can be read, and the readable run round it ([*lo, *hi)).
+s32 sysMemReadableRange(const void *ptr, uintptr_t *lo, uintptr_t *hi);
 
 // hns is specified in 100ns units
 void sysSleep(const s64 hns);

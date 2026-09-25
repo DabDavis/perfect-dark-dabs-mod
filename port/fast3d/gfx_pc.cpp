@@ -3980,10 +3980,148 @@ static inline void *seg_addr(uintptr_t w1) {
     return (void *)w1;
 }
 
+/**
+ * A vertex load whose source is not there.
+ *
+ * Four Windows crash reports - 20260921-225327 (v3.8.0, a Randomizer hop on HD
+ * Caverns), 20260923-111834 (GE Plus Facility after Dam), 20260923-192751 and
+ * 20260924-202208 (GE Plus Runway, the watch) - died in gfx_sp_vertex()
+ * reading an address that was not mapped, and in every one of them the call
+ * stack is gfx_run() -> gfx_run_dl() with nothing between: the load was a
+ * command of the frame's own list, not of a model's or a room's list that list
+ * calls. Every vertex load the game writes into the frame's list itself names
+ * the frame's vertex pool (gfxAllocateVertices()) or a static array, and the
+ * addresses the reports read were neither - heap addresses, three of them not
+ * even on a four byte boundary, which no Vtx array the game or the port makes
+ * is. So the command was not one anything wrote there this frame. None of it
+ * has reproduced here: not on Linux, not under ASan, not with every allocation
+ * over 64KB given back to the system on free, not under wine with the same
+ * Windows build, the same conversion and the same Runway, watch and folder.
+ *
+ * Until it does, a load from memory that cannot be read is refused rather than
+ * followed: the load and the triangles after it are dropped until the next load
+ * that can be read, the frame draws on, and the command is written down - what
+ * it was, where in which list, what came before it and what the segments held -
+ * in the log and, once a session, as a report the Crash Reports page offers to
+ * send. That report is what will say which list this is.
+ */
+extern "C" const char *crashReportSave(const char *text);
+
+#define GFX_READABLE_RUNS 16
+
+static struct {
+    uintptr_t lo, hi;
+} gfx_readable_runs[GFX_READABLE_RUNS];
+static int gfx_readable_count;
+static int gfx_readable_next;
+static int gfx_dl_depth;         // gfx_run_dl() nesting: 1 is the frame's own list
+static bool gfx_vertices_lost;   // the last vertex load was refused, and so are its triangles
+static uint32_t gfx_bad_vertex_loads;
+
+// Memory is given back between frames, so what was readable last frame is asked again
+static void gfx_readable_reset(void) {
+    gfx_readable_count = 0;
+    gfx_readable_next = 0;
+    gfx_vertices_lost = false;
+}
+
+static bool gfx_readable(const void *ptr, size_t len) {
+    uintptr_t at = (uintptr_t)ptr;
+    const uintptr_t end = at + len;
+
+    if (at < 0x10000 || end < at) {
+        return false;
+    }
+
+    while (at < end) {
+        uintptr_t lo;
+        uintptr_t hi;
+        int i;
+
+        for (i = 0; i < gfx_readable_count; i++) {
+            if (at >= gfx_readable_runs[i].lo && at < gfx_readable_runs[i].hi) {
+                break;
+            }
+        }
+
+        if (i < gfx_readable_count) {
+            at = gfx_readable_runs[i].hi;
+            continue;
+        }
+
+        if (!sysMemReadableRange((const void *)at, &lo, &hi)) {
+            return false;
+        }
+
+        // Linux answers a page at a time: a run that ends where this one
+        // starts takes it, so a mesh's vertices are one run and not fifty
+        for (i = 0; i < gfx_readable_count; i++) {
+            if (gfx_readable_runs[i].hi == lo) {
+                gfx_readable_runs[i].hi = hi;
+                break;
+            }
+        }
+
+        if (i == gfx_readable_count) {
+            const int slot = gfx_readable_count < GFX_READABLE_RUNS
+                ? gfx_readable_count++
+                : gfx_readable_next++ % GFX_READABLE_RUNS;
+
+            gfx_readable_runs[slot].lo = lo;
+            gfx_readable_runs[slot].hi = hi;
+        }
+
+        at = hi;
+    }
+
+    return true;
+}
+
+static void gfx_refuse_vertex_load(const Gfx *cmd, const Gfx *list, const void *src, size_t count) {
+    char text[1536];
+    int len;
+
+    gfx_bad_vertex_loads++;
+
+    // the first few of a session: after that it is the same list every frame
+    if (gfx_bad_vertex_loads > 4) {
+        return;
+    }
+
+    len = snprintf(text, sizeof(text),
+            "F3D: a vertex load reads memory that is not there - %p, %u vertices - and was dropped "
+            "(not a crash; the frame drew on). Command %p, %lld into list %p at depth %d%s; "
+            "w0 %016llx w1 %016llx; segments 4 %p 5 %p 6 %p 14 %p 15 %p; before it:",
+            src, (unsigned)count, (const void *)cmd, (long long)(cmd - list), (const void *)list, gfx_dl_depth,
+            gfx_dl_depth == 1 ? " (the frame's own)" : "",
+            (unsigned long long)cmd->words.w0, (unsigned long long)cmd->words.w1,
+            (void *)segmentPointers[4], (void *)segmentPointers[5], (void *)segmentPointers[6],
+            (void *)segmentPointers[14], (void *)segmentPointers[15]);
+
+    for (int k = 6; k >= 1 && len > 0 && len < (int)sizeof(text); k--) {
+        if (cmd - k >= list) {
+            len += snprintf(text + len, sizeof(text) - len, " %016llx:%016llx",
+                    (unsigned long long)cmd[-k].words.w0, (unsigned long long)cmd[-k].words.w1);
+        }
+    }
+
+    sysLogPrintf(LOG_ERROR, "%s", text);
+
+    if (gfx_bad_vertex_loads == 1) {
+        crashReportSave(text);
+    }
+}
+
+struct GfxDlDepth {
+    GfxDlDepth() { gfx_dl_depth++; }
+    ~GfxDlDepth() { gfx_dl_depth--; }
+};
+
 uintptr_t clearMtx;
 
 static void gfx_run_dl(Gfx* cmd) {
     // puts("dl");
+    GfxDlDepth depth;
     int dummy = 0;
     char dlName[128];
     const char* fileName;
@@ -4014,9 +4152,20 @@ static void gfx_run_dl(Gfx* cmd) {
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
                 break;
-            case G_VTX:
-                gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)seg_addr(cmd->words.w1));
+            case G_VTX: {
+                const Vtx* src = (const Vtx*)seg_addr(cmd->words.w1);
+                const size_t count = C0(0, 16) / sizeof(Vtx);
+
+                if (count && !gfx_readable(src, count * sizeof(Vtx))) {
+                    gfx_refuse_vertex_load(cmd, dListStart, src, count);
+                    gfx_vertices_lost = true;
+                    break;
+                }
+
+                gfx_vertices_lost = false;
+                gfx_sp_vertex(count, C0(16, 4), src);
                 break;
+            }
             case G_DL:
                 if (C0(16, 1) == 0) {
                     // Push return address
@@ -4042,10 +4191,14 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_sp_extra_geometry_mode(~C0(0, 24), cmd->words.w1);
                 break;
             case (uint8_t)G_TRI1:
-                gfx_sp_tri1(C1(16, 8) / 10, C1(8, 8) / 10, C1(0, 8) / 10, false);
+                if (!gfx_vertices_lost) {
+                    gfx_sp_tri1(C1(16, 8) / 10, C1(8, 8) / 10, C1(0, 8) / 10, false);
+                }
                 break;
             case (uint8_t)G_TRI4:
-                gfx_sp_tri4(cmd);
+                if (!gfx_vertices_lost) {
+                    gfx_sp_tri4(cmd);
+                }
                 break;
             case (uint8_t)G_SETOTHERMODE_L:
                 gfx_sp_set_other_mode(C0(8, 8), C0(0, 8), cmd->words.w1);
@@ -4512,6 +4665,7 @@ extern "C" void gfx_run(Gfx* commands) {
     rendering_state.viewport = {};
     rendering_state.scissor = {};
     gfx_mark_state_dirty();
+    gfx_readable_reset();
     gfx_run_dl(commands);
     gfx_flush_for(GFX_FLUSH_OTHER);
     gfxFramebuffer = 0;

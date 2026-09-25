@@ -3334,7 +3334,11 @@ static void watchGunSetPart(s32 part, s32 visible)
 {
 	struct modelnode *node = modelGetPart(g_WatchGun.def, part);
 
-	if (node) {
+	// Only a toggle has a visible flag. Any other node's state starts where
+	// the flag would be - a list's is its vertex pointer - so a part number
+	// one of GoldenEye's items gives to something else is left alone
+	// (bgunSetPartVisible() is held to the same)
+	if (node && (node->type & 0xff) == MODELNODETYPE_TOGGLE) {
 		union modelrwdata *rwdata = modelGetNodeRwData(&g_WatchGun.model, node);
 
 		if (rwdata) {
@@ -3487,7 +3491,8 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	if (weapon->partvisibility) {
 		for (struct modelpartvisibility *ptr = weapon->partvisibility; ptr->part != 255; ptr++) {
 			struct modelnode *node = modelGetPart(g_WatchGun.def, ptr->part);
-			union modelrwdata *rwdata = node ? modelGetNodeRwData(&g_WatchGun.model, node) : NULL;
+			union modelrwdata *rwdata = node && (node->type & 0xff) == MODELNODETYPE_TOGGLE
+				? modelGetNodeRwData(&g_WatchGun.model, node) : NULL;
 
 			if (rwdata) {
 				rwdata->toggle.visible = ptr->visible ? true : false;

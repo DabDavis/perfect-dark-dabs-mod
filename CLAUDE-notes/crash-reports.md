@@ -190,6 +190,50 @@ and 8056aa4 (= v3.8.0) had none left, so that one came from the release.
   S32_MAX and the run needs the player's map pool; not tried on HEAD,
   where the HD stage builder has changed twice since 3.8.0.
 
+## The `gfx_sp_vertex()` cluster (2026-09-25, report 20260924-202208)
+
+Four Windows reports now die in `gfx_sp_vertex()` reading a heap address that
+is not mapped: 20260921-225327 (v3.8.0, Randomizer on HD Caverns),
+20260923-111834 (2b221d9, GE Plus Facility after Dam, no Bean),
+20260923-192751 (da6d40e, GE Plus Runway HD, the watch closed and the PP7
+reloaded) and 20260924-202208 (6fe54fe, GE Plus Runway HD after Dam, the
+watch opening: `Cgx041Z` then `Igx005Z`, GoldenEye's arm and the PP7
+(silenced) it shows on the mission page, were the last lines). What they
+share is more than the function:
+
+- **Frame #01 is `gfx_run()` in all four.** `gfx_run_dl()` calls itself for
+  every `G_DL`, so a load inside a model's, a mesh's or a room's list has a
+  second `gfx_run_dl()` frame under it (the recursive call's return address,
+  e.g. `+2ae634` on 6fe54fe); these return straight to `gfx_run()`
+  (`+2affba`). The load was a command of the frame's own list, or of one it
+  branched to (`gSPBranchList`, which only tvscreenRender() and the title use).
+- Every `G_VTX` the game writes into the frame's own list names the frame's
+  vertex pool (`gfxAllocateVertices()`, inside the memp heap - on 202208 the
+  memp heap is where `held item on matrix 15 of 0000022b56...` points, 3GB
+  from the fault) or a static array. The addresses read are neither, and three
+  of the four are 2 mod 4, which no Vtx array anything here makes is
+  (checked on Linux: not one such load in a frame of HD Runway).
+- So the command was not what was written there this frame. Watch open
+  (`Igx005Z`) is not the list: the watch gun's and arm's loads are inside
+  their models' lists, a level deeper.
+
+Not reproduced, on HEAD: Runway HD with the watch opened, paged and closed
+(fixed step and real time, with sound), GE Plus's folder into Runway, Dam into
+Runway, gun switching, all under ASan (`-fsanitize=address
+-fsanitize-recover=address`, `--no-crash-handler`, bcopy suppressed - the only
+report is the known 8-bytes-before read in `bgTestHitInVtxBatch()`), with
+`GLIBC_TUNABLES=glibc.malloc.mmap_threshold=65536` so a freed block of any
+size is unmapped, and under wine with the 6fe54fe CI exe, the player's [Mod]
+settings and a texture pack. The Windows exe's conversion is byte for byte
+the Linux one (forced with `geconvert 64` in `CONVERT.txt`).
+
+Since the fix/crash202208 commit a load from memory that cannot be read
+(`sysMemReadableRange()`: VirtualQuery, mincore on Linux) is dropped with
+its triangles, the frame draws on, and the command is logged with its list,
+depth, words, segments and the six commands before it - once a session also
+as a report the Crash Reports page offers. The next one of these says which
+list it was: read the commands before it.
+
 ## The other end
 
 `tools/pdghostd/pdghostd.py`, `POST /crash`, documented in its README under

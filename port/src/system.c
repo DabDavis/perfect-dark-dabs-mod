@@ -35,6 +35,7 @@ __attribute__((dllexport)) u32 AmdPowerXpressRequestHighPerformance = 1;
 #else
 
 #include <unistd.h>
+#include <sys/mman.h>
 
 // figure out how to yield
 #if defined(PLATFORM_X86) || defined(PLATFORM_X86_64)
@@ -460,6 +461,59 @@ void *sysMemRealloc(void *ptr, const u32 newSize)
 void sysMemFree(void *ptr)
 {
 	free(ptr);
+}
+
+/**
+ * Whether the byte at ptr can be read, and if it can, the run of memory round
+ * it that can be read the same way - [*lo, *hi) - for the caller to keep and
+ * not ask again about. For the renderer, which is handed pointers it did not
+ * make and cannot otherwise tell a live one from one whose memory has gone
+ * (gfx_pc.cpp, gfx_vtx_source_ok()). A read of memory that has been handed
+ * back to the system faults on Windows at once, where glibc more often keeps
+ * the pages; that is the difference this is here for.
+ */
+s32 sysMemReadableRange(const void *ptr, uintptr_t *lo, uintptr_t *hi)
+{
+#ifdef PLATFORM_WIN32
+	MEMORY_BASIC_INFORMATION mbi;
+	const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
+		| PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+
+	if (VirtualQuery(ptr, &mbi, sizeof(mbi)) != sizeof(mbi)
+			|| mbi.State != MEM_COMMIT
+			|| (mbi.Protect & readable) == 0
+			|| (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) {
+		return 0;
+	}
+
+	*lo = (uintptr_t)mbi.BaseAddress;
+	*hi = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+
+	return 1;
+#else
+	static uintptr_t pagesize;
+	uintptr_t page;
+	unsigned char resident;
+
+	if (pagesize == 0) {
+		const long size = sysconf(_SC_PAGESIZE);
+
+		pagesize = size > 0 ? (uintptr_t)size : 4096;
+	}
+
+	page = (uintptr_t)ptr & ~(pagesize - 1);
+
+	// mincore() answers ENOMEM for a page nothing is mapped at, and does not
+	// touch the page to say so
+	if (mincore((void *)page, pagesize, &resident) != 0) {
+		return 0;
+	}
+
+	*lo = page;
+	*hi = page + pagesize;
+
+	return 1;
+#endif
 }
 
 void sysSleep(const s64 hns)
