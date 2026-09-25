@@ -139,6 +139,11 @@
 #define XBLAMESH_PANE_LO 0x10
 #define XBLAMESH_PANE_HI 0xe0
 
+// How far round a pane sample xblaMeshTriIsPane() looks for the clear and the
+// opaque texels that make it a cutout's fringe instead, in the alpha map's
+// texels.
+#define XBLAMESH_PANE_FRINGE 4
+
 // A body's lists a bruise map reads, and the stock vertices one of the
 // release's takes its bruise from - see xblaMeshBruiseMap().
 #define XBLAMESH_BRUISENODES 64
@@ -2846,7 +2851,12 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	}
 
 	if (span == XBLAMESH_SPAN_FADE) {
-		gDPSetCombineMode(gdl++, G_CC_MODULATERGBA, G_CC_PASS2);
+		// Texel times vertex, and in the second cycle the primitive alpha laid
+		// over it, (1 - a) * prim + a: what the game's mode-9 combiner adds for
+		// a windowed door's fade or a tinted pane's opacity. It is nought
+		// everywhere else - xblaMeshRenderNode() sets it round this span.
+		gDPSetCombineLERP(gdl++, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0,
+				0, 0, 0, COMBINED, 1, COMBINED, PRIMITIVE, COMBINED);
 	}
 
 	if (!tile) {
@@ -3078,6 +3088,7 @@ static s32 xblaMeshTriIsPane(const u8 *file, const struct xblameshhdr *h, u32 st
 		s32 x;
 		s32 y;
 		s32 j;
+		u8 a;
 
 		u -= floorf(u);
 		t -= floorf(t);
@@ -3086,12 +3097,57 @@ static s32 xblaMeshTriIsPane(const u8 *file, const struct xblameshhdr *h, u32 st
 		x = x < 0 ? 0 : x >= size ? size - 1 : x;
 		y = y < 0 ? 0 : y >= size ? size - 1 : y;
 
+		a = map[y * size + x];
+
+		// A partial texel with clear and opaque texels both close by is the
+		// fringe of a cutout's edge, and counts as the edge. A lettered label
+		// is all edge: Investigation's "SECTOR THREE" door sign (record 4205,
+		// DXT, whose edges step through 68, 119 and 187) had its middle
+		// sample on a letter's fringe in one of its two triangles, so half the
+		// sign was blended in the translucent pass and half cut out - and
+		// blended, it takes the windowed door's fade over its clear texels as
+		// the door's pane does (xblaMeshRenderNode()). The same rule moved a
+		// few triangles of four other records: 4202 (a "HAZARDOUS" sign), 4211
+		// and 4437 (leaves) and 4331 (dots); and 107 of 3741, a nearly opaque
+		// atlas. A pane has no clear texel beside it where it meets its frame,
+		// and no opaque one round a shadow's rim, so neither is taken for a
+		// fringe.
+		if (a >= XBLAMESH_PANE_LO && a <= XBLAMESH_PANE_HI) {
+			bool clear = false;
+			bool opaque = false;
+
+			for (s32 dy = -XBLAMESH_PANE_FRINGE; dy <= XBLAMESH_PANE_FRINGE && !(clear && opaque); dy++) {
+				const s32 ny = y + dy;
+
+				if (ny < 0 || ny >= size) {
+					continue;
+				}
+
+				for (s32 dx = -XBLAMESH_PANE_FRINGE; dx <= XBLAMESH_PANE_FRINGE; dx++) {
+					const s32 nx = x + dx;
+					u8 n;
+
+					if (nx < 0 || nx >= size) {
+						continue;
+					}
+
+					n = map[ny * size + nx];
+					clear |= n < XBLAMESH_PANE_LO;
+					opaque |= n > XBLAMESH_PANE_HI;
+				}
+			}
+
+			if (clear && opaque) {
+				a = 0xff;
+			}
+		}
+
 		// Kept in order as they come, seven at most.
-		for (j = s; j > 0 && samples[j - 1] > map[y * size + x]; j--) {
+		for (j = s; j > 0 && samples[j - 1] > a; j--) {
 			samples[j] = samples[j - 1];
 		}
 
-		samples[j] = map[y * size + x];
+		samples[j] = a;
 	}
 
 	// A pane by its middle sample, or a triangle with no opaque texel under it
@@ -9713,11 +9769,29 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// a fence, the leaves of a plant. This is where every alpha material
 		// was drawn before the span was split out; the mode is TEX_EDGE in the
 		// node's own first cycle, so it stays as lit as the rest.
+		//
+		// Under a prop's mode 9 the node's alpha is texel times shade *plus*
+		// the primitive alpha, which is a windowed door's fade (doorobj
+		// fadealpha, 0 close to 255 far) or a tinted pane's opacity. The game's
+		// own lists under it are opaque or its glass, so the sum is harmless
+		// there; a cutout reads it, and every clear texel of Investigation's
+		// "SECTOR THREE" sign drew as the door faded - a black box over the
+		// letters from about 300 to 600 units out. The cutout is cut on its
+		// texels alone.
 		if (xlupart >= 0 && !xlulist) {
 			xblaMeshSetSpanMode(renderdata, node,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
+
+			if (renderdata->unk30 == 9) {
+				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, 0);
+			}
+
 			gSPDisplayList(renderdata->gdl++, &m->gdl[xlupart]);
+
+			if (renderdata->unk30 == 9) {
+				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
+			}
 		}
 
 		if (tinted) {
@@ -9955,8 +10029,19 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// that darkens nothing behind it and hides nothing behind it. Not lit:
 		// the span carries its own combiner (see xblaMeshSetMaterial()) and
 		// the pair here has no fog blend in either cycle.
+		//
+		// A windowed door's pane goes opaque with the door's fade, as the
+		// game's own window does: the span's second cycle lays the primitive
+		// alpha over its own (xblaMeshSetMaterial()), and under mode 9 that is
+		// the fade. Investigation's sector doors hold their window as a 127
+		// pane in a group of its own, which was drawn at 127 at every distance
+		// where the game's own window goes from clear at 200 units to opaque
+		// at 900. Nought under every other mode, where nothing of the game's
+		// reads it.
 		gDPPipeSync(renderdata->gdl++);
 		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+		gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0,
+				renderdata->unk30 == 9 ? (renderdata->envcolour >> 8) & 0xff : 0);
 		gSPDisplayList(renderdata->gdl++, fadelist);
 	}
 

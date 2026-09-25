@@ -95,6 +95,7 @@
 #include "gestan.h"
 #include "gexplus.h"
 #include "modloader.h"
+#include "gbiex.h"
 #endif
 #endif
 
@@ -13548,6 +13549,26 @@ void tvscreenTick(struct tvscreen *screen)
 
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether the screen being drawn is one laid on the level's own geometry - a
+ * monitor object drawn after the BG (PROPFLAG_RENDERPOSTBG), which is what
+ * the setup files ask of a wall terminal's screen. Set by objRenderProp()
+ * around its tvscreenRender() calls.
+ *
+ * Such a screen is coplanar with the room's own screen surface: Investigation's
+ * terminal quads sit on z = -5341 exactly as the room's do. The pad's up
+ * vector is a few ten-thousandths off square, so the quad leans a fifteenth
+ * of a unit through the wall from top to bottom, and the room's surface wins
+ * the depth test over more of it the closer the camera comes - the top of the
+ * programme first, then all of it, in the N64 look and the release's rooms
+ * alike. It is drawn in the decal z mode instead (G_DECAL_EXT), which is what
+ * a picture flat on a surface is. A gun's screen and GE Plus's folder sets
+ * are not on a wall and keep the plain one.
+ */
+static bool g_TvscreenOnBg = false;
+#endif
+
 Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen *screen, Gfx *gdl, s32 arg4, s32 arg5)
 {
 	if (node && (node->type & 0xff) == MODELNODETYPE_DL) {
@@ -13672,7 +13693,17 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 		gSPSegment(gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(vertices));
 		gSPColor(gdl++, osVirtualToPhysical(colours), 1);
 		gSPVertex(gdl++, SEGADDR(SPSEGMENT_MODEL_VTX << 24), 4, 0);
+#ifndef PLATFORM_N64
+		if (g_TvscreenOnBg) {
+			gSPSetExtraGeometryModeEXT(gdl++, G_DECAL_EXT);
+		}
+#endif
 		gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+#ifndef PLATFORM_N64
+		if (g_TvscreenOnBg) {
+			gSPClearExtraGeometryModeEXT(gdl++, G_DECAL_EXT);
+		}
+#endif
 		gSPEndDisplayList(gdl++);
 
 		gSPBranchList(savedgdl++, gdl);
@@ -13696,6 +13727,10 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		orthogonal += (obj->flags & OBJFLAG_ORTHOGONAL) && camGetOrthogonalMtxL();
 
 		gdl = renderdata->gdl;
+
+#ifndef PLATFORM_N64
+		g_TvscreenOnBg = (prop->flags & PROPFLAG_RENDERPOSTBG) != 0;
+#endif
 
 		if (obj->type == OBJTYPE_SINGLEMONITOR) {
 			if (renderdata->flags & 1) {
@@ -13738,6 +13773,10 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 				gdl = tvscreenRender(model, modelGetPart(model->definition, MODELPART_0003), &monitor->screens[3], gdl, sp60, 1);
 			}
 		}
+
+#ifndef PLATFORM_N64
+		g_TvscreenOnBg = false;
+#endif
 
 		if (obj->type == OBJTYPE_DOOR) {
 			struct doorobj *door = prop->door;
