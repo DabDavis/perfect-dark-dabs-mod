@@ -539,15 +539,15 @@ And the rest of it:
   different shapes and end in different places, and a mesh is built once per
   look and then kept: whichever was built last was otherwise the one every shot
   came out of.
-- **The throwing knife's own hand is left out** (`fpN64Glove` no longer lists
-  it, which drives `beanGunExtent`'s `handoff`), and Perfect Dark's hands hold
-  it as they do in the release's look. GoldenEye's hand grips that knife by
-  the *blade* with the handle up, ready to throw, and it is one mesh with the
-  knife, so the turn that holds the knife by the handle carried a fist up the
-  blade with it. Nothing else about the file differs between the looks: the
-  same `fpGrip` turn serves both, and a per-look axis map (`fpAxisN64`, one
-  row, 2026-09-16) was a wrong reading of that fist and is gone - see "The
-  knives" below.
+- **The throwing knife is drawn in its own hand, held by the blade**
+  (2026-09-25; `fpN64Glove` lists it again, so `beanGunExtent` keeps the hand,
+  and Perfect Dark's hands come off). GoldenEye's hand grips that knife by the
+  *blade* with the handle up, ready to throw, one mesh with the knife - and
+  that is what GoldenEye draws (see "The knives" below: from 2026-09-16 to
+  2026-09-25 it was turned to be held by the handle in Perfect Dark's hands,
+  and a tester's F3 asked for it flipped back). The same `fpGrip` turn serves
+  both looks; a per-look axis map (`fpAxisN64`) was a wrong reading and is
+  gone.
 - **Checked** on 0x32 with all twenty-five equipped in turn in both looks
   (`--boot-stage 0x32 --mpsims 0 --fixed-step`, gdb equipping each and
   screenshotting 80 frames later - 45 was not enough for the raise animation
@@ -689,32 +689,38 @@ corner with the blade running off it.
 - **GoldenEye's throwing knife is held by the blade**, handle up, ready to
   throw - that is its model, not a placement fault. The hunting knife is held
   by the handle, blade up. Both files share SKEL_TOP (0, -307.8, -404.7) and
-  both carry GoldenEye's hand, so one anchor and one turn serve both.
-- **The throwing knife is 180 degrees from the hunting knife in both sets of
-  files**, so `fpGrip` turns the two opposite ways (`{-2, 1, 3}` against
-  `{2, -1, 3}`) and the same pair of turns serves the N64 look. It is
-  **GoldenEye's own doing**, not Bean's: slice the decomp's own `chrknife` and
-  `chrthrowknife` pickups along z, the long axis of both, and the cross section
-  closes to a point at high z on the hunting knife and at low z on the throwing
-  one. Which is why the **pickup** needed the same turn (see below). Getting this
-  wrong once cost a day: on 2026-09-16 the N64 throwing knife was given the
-  hunting knife's turn, on the reading that the N64 pair were authored alike,
-  and a tester's F3 came back with it held by the blade. What actually differs
-  is the hand - GoldenEye's grips that knife by the blade and is one mesh with
-  it, so the correct turn appeared wrong (a fist up the blade) and the wrong
-  turn appeared to be GoldenEye's own pose. **Judge a knife by where the
-  handle is, not by where the hand is.**
-- **The pickup is a second fit and needed the same turn** (2026-09-16). The
-  knife in a character's hand and the one on the floor are `PchrgeThrowingKnifeZ`,
-  laid on GoldenEye's N64 pickup by `gegunstable.h`, not the first-person mesh -
-  so fixing the view model left the hand wrong in both looks. gunfit2.py's one
-  canonical rotation is right for all twenty-five and the trimmed ICP cannot
-  see the flip (a knife reversed end for end still lands its points on the
-  other knife's surface: 5.26 against the hunting knife's 5.29), so the half
-  turn is written in: `HALF_TURN` in gunfit2.py turns that pickup about y and
-  turns the translation with it about GoldenEye's box centre, or the knife
-  swings to the far side of the origin and out of the hand. **Two fits per gun,
-  and a turn found for one is not carried by the other.**
+  both carry GoldenEye's hand, so one anchor and one turn (`{2, -1, 3}`) serve
+  both, and each is drawn in its own hand.
+- **Ask the oracle, not the eye** (2026-09-25). The throwing knife is 180
+  degrees from the hunting knife in both sets of files - GoldenEye's own doing:
+  slice the decomp's `chrknife` and `chrthrowknife` along z and the cross
+  section closes to a point at high z on the hunting knife and at low z on the
+  throwing one, whose origin (the fist) is on the blade below the guard. On
+  2026-09-16 that read as "upside down" (the user, and a tester's F3 on the N64
+  look), and both the view model (`{-2, 1, 3}`, Perfect Dark's hands) and the
+  pickup (`HALF_TURN` in gunfit2.py) were turned to be held by the handle. The
+  decomp's native port settles it: `~/dam-oracle/geknife.py` on 10.8.0.3
+  (gethrown.py with ITEM_KNIFE / ITEM_THROWKNIFE; `geknife2.py` +
+  `knife.padscript` film a throw) shows Bond holding the throwing knife by the
+  blade, handle up, all the way through the throw. Our N64 look on
+  GoldenEye's own `Igx` model already drew exactly that, and a tester's F3 of
+  2026-09-25 on the HD look ("throwing knife needs to be flipped") asked for
+  the release's to match; both turns are gone. Perfect Dark's throw animation
+  still winds the knife back handle down in the glove for a few frames, since
+  it was made to flip Perfect Dark's knife into a blade grip.
+- **The pickup is a second fit** - the knife in a character's hand and the one
+  on the floor are `PchrgeThrowingKnifeZ`, laid on GoldenEye's N64 pickup by
+  `gegunstable.h`, not the first-person mesh; **two fits per gun, and a turn
+  found for one is not carried by the other.** Unturned, the canonical rotation
+  lays it on GoldenEye's `chrthrowknife` blade to blade (mean distance from
+  GoldenEye's vertices to Bean's 7.85, against 15.90 with the half turn), and
+  `gegunstable.h` has that row again. `.xbla-work/ge-bean/gunfit2.py` (outside
+  the repo) still has `HALF_TURN` and would write the turned row back if the
+  table is regenerated: empty it first. The thrown knife is neither of these:
+  it is the throw function's `projectilemodelnum`, the combat knife's own
+  `MODEL_CHRKNIFE`, in both looks; and in the N64 look the pickup is still an
+  alias of that same host model (`gegunsOwnPropModel()` leaves the thrown guns
+  out).
 - **`--xbla-mesh-verbose` prints what was drawn**, its box in the list's
   space, and each bone's matrix, which is how "the mesh is 440 units tall but
   the screen shows a stub" was traced to the axes rather than to the scale.

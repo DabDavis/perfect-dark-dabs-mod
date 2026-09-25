@@ -330,11 +330,10 @@ static const struct gebeanrow chrRows[] = {
  * skinned to the host's matrices (gebeanBuildFirstPerson()).
  *
  * In both looks. A gun GoldenEye draws a hand on - the pistols and the
- * hunting knife (fpN64Glove) - is drawn with the hand it has, the gun and the
- * glove holding it being one model, and the rest bare as GoldenEye has them;
- * Perfect Dark's own hands come off (fpHdKeepsHands). Either way the gun is
- * fitted to the host on the gun alone, so the two looks stand in the same
- * place.
+ * knives (fpN64Glove) - is drawn with the hand it has, the gun and the glove
+ * holding it being one model, and the rest bare as GoldenEye has them;
+ * Perfect Dark's own hands come off. Either way the gun is fitted to the host
+ * on the gun alone, so the two looks stand in the same place.
  */
 #define GEBEAN_FIRSTPERSON 5
 
@@ -386,16 +385,14 @@ static const u8 fpNoHands[ARRAYCOUNT(fpRows)] = {
 };
 
 /**
- * The guns whose own N64-look hand is drawn, of the seven files that carry
- * GoldenEye's glove (beanGloveTextures): the pistols and the hunting knife.
- * Their N64-look model holds itself, so Perfect Dark's hands come off for it.
+ * The guns whose own hand is drawn, the seven files that carry GoldenEye's
+ * glove (beanGloveTextures): the pistols and both knives. The model holds
+ * itself, so Perfect Dark's hands come off for it in either look.
  *
- * The throwing knife carries a hand too and is *not* one of them, because
- * GoldenEye models that hand gripping the blade with the handle up, ready to
- * throw. Its grip cannot be moved - it is one mesh with the knife - so a knife
- * turned to be held by the handle carries a fist up the blade with it. Its
- * hand is left out of the mesh (beanGunExtent's `handoff`) and Perfect Dark's
- * own hands hold it, as they do in the release's look.
+ * The throwing knife's hand grips the blade with the handle up, ready to
+ * throw, and that is how GoldenEye draws it in first person (the decomp's
+ * native port, 2026-09-25): its hand is one mesh with the knife, so it is
+ * drawn as GoldenEye has it and not turned to be held by the handle.
  *
  * The rest are drawn with no hand at all in GoldenEye - the rifles, the
  * launchers - but keep whatever the HD look does with their host's hands,
@@ -409,19 +406,6 @@ static const u8 fpN64Glove[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 1,
 	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 1,
-};
-
-/**
- * The release's guns that Perfect Dark's hands still hold in the HD look.
- * GoldenEye draws a hand on its pistols and knives and on nothing else (the
- * user, 2026-09-24: "ge n64 doesnt use hands either except for pistols"), and
- * the hand Perfect Dark would add is the player's own character's - Joanna's
- * glove on Bond. So the pistols and the hunting knife keep the release's own
- * glove (fpN64Glove) and the rest are drawn bare, as GoldenEye draws them;
- * only the throwing knife, whose own hand is left out of the mesh
- * (beanGunExtent), keeps Perfect Dark's.
- */
-static const u8 fpHdKeepsHands[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 1,
 };
 
@@ -537,16 +521,15 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// it to be - which is what puts the hand on the grip.
 	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { 2, -1, 3 } },
 
-	// And the throwing knife the other way up, in both looks. Rare authored
-	// it pointing the other way from the hunting knife - the two files are
-	// the same size and 180 degrees apart, in the release's models and the
-	// N64 ones alike - so the hunting knife's turn holds it by the blade with
-	// the handle up. That is how GoldenEye itself draws it, ready to throw,
-	// but it is not how this game holds a knife, so it is turned the other
-	// quarter (Bean's y backwards into the host's x, Bean's x forwards into
-	// the host's y, which is a rotation and not a mirror) and held by the
-	// handle like the hunting knife and like Perfect Dark's own.
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { -2, 1, 3 } },
+	// And the throwing knife the same turn. Rare authored it pointing the
+	// other way from the hunting knife - the two files are the same size and
+	// 180 degrees apart, in the release's models and the N64 ones alike - so
+	// the hunting knife's turn holds it by the blade with the handle up, in
+	// its own hand. That is how GoldenEye draws it (its native port, and our
+	// N64 look on GoldenEye's own model). It was turned the other quarter
+	// from 2026-09-16, to be held by the handle in Perfect Dark's hands, until
+	// a tester's F3 asked for it flipped back (2026-09-25).
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { 2, -1, 3 } },
 };
 
 /**
@@ -940,8 +923,7 @@ static void gebeanGunsRefresh(void)
 			// no hands of Perfect Dark's
 		} else if (gegunsIsBorrowed(i)) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
-		} else if (!fpSlot[i] || (!gebeanGunsAreN64() && fpHdKeepsHands[i])
-				|| (gebeanGunsAreN64() && !(fpNoHands[i] || fpN64Glove[i]))) {
+		} else if (!fpSlot[i] || (gebeanGunsAreN64() && !(fpNoHands[i] || fpN64Glove[i]))) {
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
 		}
 	}
