@@ -9,9 +9,22 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "modloader.h"
+#endif
 
 f32 pdmodeGetEnemyReactionSpeed(void)
 {
+#ifndef PLATFORM_N64
+	// GE Plus's 007 is this mode, and GoldenEye's reaction slider is the one
+	// Perfect Dark dropped: get_007_reaction_speed() speeds up every guard's
+	// animations and reactions (chrlvGetGuard007SpeedRating(), the same sum
+	// as chrGetRangedSpeed()). Perfect Dark's own PD Mode never sets it.
+	if (g_MissionConfig.pdmode && modloaderStageIsRemake(g_Vars.stagenum)) {
+		return g_MissionConfig.pdmodereactionf;
+	}
+#endif
+
 	return 0;
 }
 

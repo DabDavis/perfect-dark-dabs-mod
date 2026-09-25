@@ -2976,7 +2976,16 @@ void chrAttack(struct chrdata *chr, struct attackanimgroup **animgroups, bool fl
 		chr->chrflags &= ~CHRCFLAG_INJUREDTARGET;
 
 		if (!sniping && !chr->aibot) {
+			// GoldenEye's chrlvInitActAttack() starts the attack's animation
+			// at once, merging from whatever is playing; waiting for a merge
+			// to finish first held each of its guards' attacks back 16 ticks
+			// whenever one followed the stop of the last (the stand's merge),
+			// 10% of every standing attack's cycle
+#ifndef PLATFORM_N64
+			if (modelIsAnimMerging(chr->model) && !g_GeChrAnims) {
+#else
 			if (modelIsAnimMerging(chr->model)) {
+#endif
 				chr->hidden |= CHRHFLAG_NEEDANIM;
 			} else {
 				modelSetAnimation(model, animcfg->animnum, flip, animcfg->unk10, chrGetRangedSpeed(chr, 0.5f, 0.8f), 16);

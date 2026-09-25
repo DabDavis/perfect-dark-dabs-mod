@@ -162,6 +162,15 @@ Calc('chrCalculateHit', internal=True)
 begin = int(ev('g_Vars.lvframenum'))
 shots_at = [begin + (k + 1) * FRAMES // (NSHOTS + 1) for k in range(NSHOTS)]
 pitches = []
+TRACE = int(os.environ.get('TRACE', '1'))
+cyc = {'ticks': 0, 'firing': 0, 'attacks': 0, 'inattack': False, 'fired': False, 'start': 0, 'startfire': 0, 'anim': 0}
+class Fire(gdb.Breakpoint):
+    def stop(self):
+        if int(ev('(long)chr')) == GUARD:
+            cyc['fired'] = True
+        return False
+Fire('chrTickShoot', internal=True)
+print('AIM %s speedrating %d' % (TAG, int(ev('%s.speedrating' % C))))
 fr = begin
 while fr < begin + FRAMES:
     if int(ev('%s.actiontype' % C)) != 8:
@@ -175,6 +184,23 @@ while fr < begin + FRAMES:
         gdb.execute('set variable %sbondshotspeed.%s = 0' % (P, a))
     fr += 1
     at_frame(fr)
+    if TRACE:
+        cyc['ticks'] += 1
+        if cyc['fired']:
+            cyc['firing'] += 1
+        cyc['fired'] = False
+        inatt = int(ev('%s.actiontype' % C)) == 8
+        if inatt and not cyc['inattack']:
+            cyc['attacks'] += 1
+            cyc['start'] = cyc['ticks']; cyc['startfire'] = cyc['firing']
+        if inatt:
+            cyc['anim'] = int(ev('%s.act_attack.animcfg->animnum' % C))
+        if not inatt and cyc['inattack']:
+            print('AIMA anim %d ticks %d firing %d' % (cyc['anim'], cyc['ticks'] - cyc['start'], cyc['firing'] - cyc['startfire']))
+        cyc['inattack'] = inatt
+        if TRACE > 1:
+            print('AIMT %d act %d anim %d frame %.1f speed %.2f fire %d sum %.3f dst %.1f' % (fr, int(ev('%s.actiontype' % C)), int(ev('%s.model->anim->animnum' % C)),
+                f('%s.model->anim->frame' % C), f('%s.model->anim->speed' % C), int(ev('%s.hidden' % C)) & 0x0c, f('%s.shotbondsum' % C), f('%sdamageshowtime' % P)))
     h = f('%sbondhealth' % P)
     if h < 1.0:
         stats['dmg'] += 1.0 - h; stats['dmgevents'] += 1
@@ -206,6 +232,8 @@ if os.environ.get('LOSDBG'):
             gdb.execute('call (void)cdGetPos($c, 0, "x")')
             extra = 'at %.0f %.0f %.0f obstacle %s' % (f('$c->x'), f('$c->y'), f('$c->z'), ev('cdGetObstacleProp()'))
         print('AIM LOS types %#x -> %d %s' % (t, r, extra))
+print('AIM %s CYCLE ticks %d firing %d attacks %d -> %.1f ticks an attack, %.1f firing' % (TAG, cyc['ticks'], cyc['firing'], cyc['attacks'],
+    cyc['ticks'] / max(1, cyc['attacks']), cyc['firing'] / max(1, cyc['attacks'])))
 print('AIM %s RESULT diff %d mode %s crouch %d dist %.0f frames %d calls %d added %d sum %.3f hits %d damage %.3f in %d  hits/min %.1f  mean aimuprshoulder %.3f aimupback %.3f' % (
     TAG, DIFF, MODE, CROUCH, D, elapsed, stats['calls'], stats['ok'], stats['sum'], stats['resets'], stats['dmg'], stats['dmgevents'],
     stats['resets'] * 3600.0 / max(1, elapsed), avg[0], avg[1]))

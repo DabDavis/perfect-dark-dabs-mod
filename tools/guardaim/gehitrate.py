@@ -82,8 +82,17 @@ class Dmg(gdb.Breakpoint):
     def stop(self):
         stats["dmg"] += 1
         return False
+class Fire(gdb.Breakpoint):
+    def stop(self):
+        if int(ev("(long)self")) == GUARD:
+            cyc["fired"] = True
+        return False
+Fire("chrlvFireWeaponRelated", internal=True)
 Calc("chrlvUpdateShotbondsum", internal=True); Dmg("bondviewCallRecordDamageKills", internal=True)
 t0 = int(ev("g_GlobalTimer")); frames = 0; deltas = 0.0
+TRACE = int(os.environ.get("TRACE", "1"))
+cyc = {"attacks": 0, "firing": 0, "inattack": False, "fired": False, "start": 0, "startfire": 0, "anim": 0}
+print("GEHIT speedrating %d" % int(ev("%s.speedrating" % C)))
 print("GEHIT weapon %s / %s" % (ev("((struct WeaponObjRecord *)chrGetEquippedWeaponProp(&%s, 0)->obj)->weaponnum" % C), ev("(long)chrGetEquippedWeaponProp(&%s, 1)" % C)))
 print("GEHIT guard slot %d at %.0f %.0f %.0f acc %s rating %d" % (c, GX, gy, GZ, ev("g_AiAccuracyModifier"), int(ev("%s.accuracyrating" % C))))
 while int(ev("g_GlobalTimer")) - t0 < TICKS:
@@ -91,10 +100,27 @@ while int(ev("g_GlobalTimer")) - t0 < TICKS:
     gdb.execute("set variable g_CurrentPlayer->bondhealth = 1.0")
     if str(ev("%s.actiontype" % C)) != "ACT_ATTACK":
         gdb.execute("call (void)%s(&%s, 1, 0)" % ("sub_GAME_7F0256F0" if MODE == "kneel" else "sub_GAME_7F025560", C))
+    t1 = int(ev("g_GlobalTimer"))
     until(now() + 1); frames += 1; deltas += float(ev("g_GlobalTimerDelta"))
+    dt = int(ev("g_GlobalTimer")) - t1
+    act = str(ev("%s.actiontype" % C)) == "ACT_ATTACK"
+    if act and not cyc["inattack"]:
+        cyc["attacks"] += 1; cyc["start"] = int(ev("g_GlobalTimer")) - dt; cyc["startfire"] = cyc["firing"]
+    if cyc["fired"]:
+        cyc["firing"] += dt
+    cyc["fired"] = False
+    if act:
+        cyc["anim"] = int(ev("(long)%s.act_attack.animfloats->anim.anim" % C))
+    if not act and cyc["inattack"]:
+        print("GEHITA anim %#x ticks %d firing %d" % (cyc["anim"], int(ev("g_GlobalTimer")) - cyc["start"], cyc["firing"] - cyc["startfire"]))
+    cyc["inattack"] = act
+    if TRACE > 1:
+        print("GEHITT t %d act %s frame %.1f speed %.2f hidden %#x sum %.3f dst %s" % (int(ev("g_GlobalTimer")) - t0, act, float(ev("%s.model->animframe1" % C)),
+            float(ev("%s.model->playspeed" % C)) if False else 0.0, int(ev("%s.hidden" % C)), float(ev("%s.shotbondsum" % C)), ev("g_CurrentPlayer->damageshowtime")))
     if frames % 40 == 1:
         print("GEHIT f %d act %s item %s dst %s sum %.3f" % (frames, ev("%s.actiontype" % C), ev("%s.act_attack.attack_item" % C), ev("g_CurrentPlayer->damageshowtime"), float(ev("%s.shotbondsum" % C))))
 el = int(ev("g_GlobalTimer")) - t0
+print("GEHIT CYCLE ticks %d firing %d attacks %d -> %.1f ticks an attack, %.1f firing" % (el, cyc["firing"], cyc["attacks"], el / max(1, cyc["attacks"]), cyc["firing"] / max(1, cyc["attacks"])))
 print("GEHIT acc %s dmg %s diff %s" % (ev("g_AiAccuracyModifier"), ev("g_AiDamageModifier"), ev("g_SelectedDifficulty")))
 print("GEHIT RESULT mode %s dist %.0f ticks %d frames %d delta %.2f item %s calls %d ok %d sum %.3f hits %d dmgcalls %d hits/min %.1f" % (
     MODE, D, el, frames, deltas / max(1, frames), ev("%s.act_attack.attack_item" % C), stats["calls"], stats["ok"], stats["sum"], stats["resets"], stats["dmg"], stats["resets"] * 3600.0 / max(1, el)))

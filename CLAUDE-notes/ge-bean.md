@@ -9490,6 +9490,52 @@ sixtieths long; the pad script enters on **00 Agent** (`g_SelectedDifficulty`
 player D from the nearest guard instead, for levels where a moved guard lands
 under the floor; Dam's road barriers block the line at 350).
 
+### The attack loop, and the 007 reaction slider (2026-09-25)
+
+What was left after the sum: a standing guard attacked 21 times a minute
+where GoldenEye's attacked 23. Traced attack by attack in both games
+(`CYCLE`/`AIMA` lines of aimprobe.py, `GEHITA` of gehitrate.py - the ticks
+each attack lasts and the ticks its gun fires, by animation), every part of
+chrTickFire()/chrAttack() is GoldenEye's chrlvTickAttackCommon()/
+chrlvInitActAttack() field for field - the attack tables, the shoot and
+recoil windows, the burst counts (2-5, +2-5 for two guns), the break-off after
+30 ticks off target, the recoil speeds (df/24, df/32), the 0.5 while firing -
+except one thing: **chrAttack() waits for a merge to finish** (CHRHFLAG_NEEDANIM)
+before starting its animation, and GoldenEye starts it at once. A guard's
+attack that follows the stop of his last (the stand's 16-tick merge) sat in
+the idle for 16 ticks. Off on a GE Plus stage (`g_GeChrAnims`). After it, per
+animation, ours / GoldenEye's: the standing rifle attack (row 2) 160 / 161
+ticks, 62 of them firing both; the kneels (rows 7 and 8) 240 / 241 and 314 /
+315, firing 80 and 104 both. Which kneel a guard picks is random, so a kneeling
+guard's minute swings between 18 and 23 hits in GoldenEye itself with the mix.
+
+**The 007 reaction slider** was shown and never read: pdmodeGetEnemyReactionSpeed()
+is 0 in Perfect Dark, and GoldenEye's get_007_reaction_speed() is the same sum
+in chrlvGetGuard007SpeedRating() (every guard's animation speed, the attack's
+0.5-0.8 included) and in its Int twin (reaction delays). It returns
+`pdmodereactionf` on a remake stage now; Perfect Dark's own PD Mode never sets
+it.
+
+GoldenEye X's two-handed rifles (fix/ge-guard-rifle-hold, 54ea4a844) needed
+nothing: gegunsFlags() already takes WEAPONFLAG_ONEHANDED from each row's
+ONLY_1_HANDED bit for every definition, borrowed or not - the same ten guns.
+
+Measured, hits a minute, a KF7 guard 300 units away on Facility (Dam: 250,
+player moved to the nearest guard), before this work / after the sum / after
+the loop, GoldenEye beside:
+
+| | GoldenEye | before | sum | loop |
+|---|---|---|---|---|
+| Agent, standing | 22 | 19 | 21 | 22 |
+| Agent, kneeling | 18-23 | 17 | 18 | 21 |
+| Secret Agent | 24-26 | 26 | 22 | 23 |
+| 00 Agent | 29-31 | 35 | 27 | 29 |
+| Dam Agent standing | - | 13 | 18 | 21 |
+| Dam 00 Agent | - | 24 | 21 | 23 |
+
+Defection at three difficulties, standing and kneeling: every probe line
+identical before and after.
+
 ### "Aiming too high": the gun upright is GoldenEye's own kneel (2026-09-25)
 
 The same F3's picture is a guard kneeling in Facility's locker room with his
