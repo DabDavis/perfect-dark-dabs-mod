@@ -30,6 +30,7 @@
 #include "gebean.h"
 #include "fs.h"
 #include "gebeanstage.h"
+#include "gebeansky.h"
 
 #define SEG 0x0f000000
 
@@ -2531,6 +2532,7 @@ static s32 numBeanFogs = -1;
 #define BEANFOG_DAM_LOW   (2782.0f + 13219.0f)
 #define BEANFOG_DAM_HIGH  (9161.0f + 13219.0f)
 #define BEANFOG_DAM       33
+#define BEANFOG_SURFACE2  43
 
 static u32 beBe32(const u8 *p)
 {
@@ -2664,6 +2666,16 @@ static void fogTableLoad(void)
 		if (beanFogs[i].levelid == 34 && beanFogs[i].rgb == 0x102001) {
 			beanFogs[i].rgb = 0x102010;
 		}
+
+		// Surface 2's fog whole at 6500, not the release's 10000: the
+		// Community Edition's one correction to the table ("reduced fog
+		// distance to closer match N64"), taken whether its zip is on or
+		// not. GoldenEye's own fog there is half at about 450 units and nine
+		// tenths at about 2300 (957 of its 1000 over a 10..10000 range);
+		// linear to 10000 it was a third at 3300, linear to 6500 half.
+		if (beanFogs[i].levelid == BEANFOG_SURFACE2 && beanFogs[i].end == 10000) {
+			beanFogs[i].end = 6500;
+		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "gebeanstage: the HD levels' fog: %d rows from %s", numBeanFogs, from);
@@ -2722,6 +2734,10 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
 	rgb[0] = f->rgb >> 16;
 	rgb[1] = f->rgb >> 8;
 	rgb[2] = f->rgb;
+
+	// A Community Edition dome whose horizon is not the fog's colour gives
+	// it its own (Surface 2's grey storm)
+	gebeanSkyFogColour(rgb);
 
 	return 1;
 }

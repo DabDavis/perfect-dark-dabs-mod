@@ -73,6 +73,82 @@ static const struct { const char *key, *sky; } skyNames[] = {
 	{ "tra",   "train" },
 };
 
+/**
+ * GoldenEye's key for a level -> the release's own sky, drawn without the
+ * Community Edition. The release's eleven are one picture, and it is
+ * Surface's: a blue sky over the peaks and low sun of Surface's panorama (the
+ * level's backdrop, gebeanStageRenderBackdrop()), and the Community Edition's
+ * Surface sky (sf1) is that picture with its top half retouched - its bottom
+ * half differs by 2 levels in 255 on average. Everywhere else the placeholder is
+ * wrong and the level keeps GoldenEye's sky; on Surface GoldenEye's is a
+ * lavender dusk with orange clouds, which drawn over the release's daylit
+ * panorama met it in a hard seam of two skies (F3 20260925-074723).
+ */
+static const struct { const char *key, *sky; } releaseSkyNames[] = {
+	{ "sevx",  "surface" },
+};
+
+/**
+ * GoldenEye's key for a level -> the colour of its Community Edition dome at
+ * the horizon, which the fog and the fill under the dome take in place of the
+ * release's, only while the Community Edition is on (gebeanSkyFogColour()).
+ *
+ * Surface 2: the CE's sf2 is a grey storm, where the release's fog row for
+ * the level (retail and the CE's alike) is GoldenEye's dark red 0x201010 -
+ * under the dome that left a dark red band where the ground and the
+ * panorama fogged out, and the same red filled the screen below the dome's
+ * lowest ring. The CE carries no other colour for it (its fog row changes
+ * only the distance, 10000 -> 6500), so the colour is the dome's own: the
+ * mean of the bottom 20 of its picture's 1024 rows, the band its lowest ring
+ * of vertices is drawn with (v 0.98 to 1.0), round the whole turn. The
+ * bottom 4 rows give 0x575e5b, the bottom 50 0x58605e.
+ */
+static const struct { const char *key; u32 rgb; } ceHorizons[] = {
+	{ "sevxb", 0x575f5d },
+};
+
+s32 gebeanSkyFogColour(u8 *rgb)
+{
+	const char *key;
+
+	if (!gebeanCeIsActive() || (key = gebeanStageLevelKey()) == NULL) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(ceHorizons); i++) {
+		if (strcmp(ceHorizons[i].key, key) == 0) {
+			rgb[0] = ceHorizons[i].rgb >> 16;
+			rgb[1] = ceHorizons[i].rgb >> 8;
+			rgb[2] = ceHorizons[i].rgb;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/** The sky file drawn over a level, or NULL for GoldenEye's own sky. */
+static const char *skyNameFor(const char *key)
+{
+	if (gebeanCeIsActive()) {
+		for (s32 i = 0; i < ARRAYCOUNT(skyNames); i++) {
+			if (strcmp(skyNames[i].key, key) == 0) {
+				return skyNames[i].sky;
+			}
+		}
+
+		return NULL;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(releaseSkyNames); i++) {
+		if (strcmp(releaseSkyNames[i].key, key) == 0) {
+			return releaseSkyNames[i].sky;
+		}
+	}
+
+	return NULL;
+}
+
 struct skylist {
 	const void *tile;   // the picture's stand-in (xblatex.c)
 	u8 alpha;
@@ -86,6 +162,7 @@ struct skylist {
 
 static struct {
 	const char *key;    // what was built, or tried and found nothing
+	const char *name;   // the sky file it was built from, NULL for none
 	s32 tried;
 	struct gebeanlevel *level;
 	s32 numlists;
@@ -248,19 +325,11 @@ static s32 skyBuildList(struct skylist *l, s32 fade)
 	return 1;
 }
 
-static s32 skyBuild(const char *key)
+static s32 skyBuild(const char *key, const char *name)
 {
-	const char *name = NULL;
-
 	sky.key = key;
+	sky.name = name;
 	sky.tried = 1;
-
-	for (s32 i = 0; i < ARRAYCOUNT(skyNames); i++) {
-		if (strcmp(skyNames[i].key, key) == 0) {
-			name = skyNames[i].sky;
-			break;
-		}
-	}
 
 	if (!name) {
 		return 0;
@@ -304,6 +373,8 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 {
 	struct environment *env = envGetCurrent();
 	const char *key;
+	const char *name;
+	u8 fill[3];
 	struct zrange zrange;
 	Mtxf *mtx;
 	f32 scale;
@@ -311,9 +382,7 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 
 	skyDrawn = 0;
 
-	// Only the Community Edition's: the release's own are one placeholder
-	if (!gebeanCeIsActive() || !xblaStageDrawsEveryRoom()
-			|| g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
+	if (!xblaStageDrawsEveryRoom() || g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		return NULL;
 	}
 
@@ -323,9 +392,17 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 		return NULL;
 	}
 
-	if (!sky.tried || strcmp(sky.key, key) != 0) {
+	// The Community Edition's where it is on, else the release's own where
+	// it is the level's (skyNameFor())
+	name = skyNameFor(key);
+
+	if (!name) {
+		return NULL;
+	}
+
+	if (!sky.tried || strcmp(sky.key, key) != 0 || sky.name != name) {
 		skyFree();
-		skyBuild(key);
+		skyBuild(key, name);
 	}
 
 	for (s32 i = 0; i < sky.numlists; i++) {
@@ -343,10 +420,17 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 	}
 
 	// Under the dome's lowest ring: the level's own sky colour, as the game
-	// fills a level with no clouds
+	// fills a level with no clouds - or the dome's horizon, where the fog
+	// takes it too (gebeanSkyFogColour())
 	gDPPipeSync(gdl++);
 	gDPSetCycleType(gdl++, G_CYC_FILL);
-	gdl = viSetFillColour(gdl, env->sky_r, env->sky_g, env->sky_b);
+
+	if (gebeanSkyFogColour(fill)) {
+		gdl = viSetFillColour(gdl, fill[0], fill[1], fill[2]);
+	} else {
+		gdl = viSetFillColour(gdl, env->sky_r, env->sky_g, env->sky_b);
+	}
+
 	gDPSetRenderMode(gdl++, G_RM_NOOP, G_RM_NOOP2);
 	gDPFillRectangle(gdl++,
 			g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop,
@@ -434,6 +518,7 @@ s32 gebeanSkyIsDrawn(void)
 #include "gebeansky.h"
 
 Gfx *gebeanSkyRender(Gfx *gdl) { return NULL; }
+s32 gebeanSkyFogColour(u8 *rgb) { return 0; }
 s32 gebeanSkyIsDrawn(void) { return 0; }
 void gebeanSkyLevelReset(void) { }
 
